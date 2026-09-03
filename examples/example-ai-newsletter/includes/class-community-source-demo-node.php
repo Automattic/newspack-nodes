@@ -1,6 +1,7 @@
 <?php
 /**
- * Community_Source_Demo_Node: emits canned "community news" items on a TICK request.
+ * The walkthrough's second source, which demonstrates fan-in: two nodes point
+ * their target at one summarizer, and no node between them merges the streams.
  *
  * @package Example_AI_Newsletter
  */
@@ -12,12 +13,24 @@ use Newspack_Nodes\Message;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * Emits canned publisher-community items on a TICK request.
+ *
+ * Near-identical to `Releases_Source_Demo_Node` by design: the walkthrough's
+ * point is that a second author needs only the item contract — a TM_STRUCT
+ * message carrying `{ source, title, url, body }` — plus one `connect_node`
+ * line. `docs/writing-a-real-plugin.md` shows the abstract `Source_Node` that
+ * collapses the duplication once three connectors share it.
+ */
 class Community_Source_Demo_Node extends Node {
 
 	/**
-	 * TICK is a runtime trigger: a TM_REQUEST handled here in fill() (NOT a
-	 * TM_COMMAND verb — that flag is for startup/admin). Any other type is
-	 * ignored; a source mints, it doesn't consume.
+	 * Runs the TICK batch on any TM_REQUEST and ignores every other type.
+	 *
+	 * TICK is a runtime trigger, so it arrives as a TM_REQUEST handled here in
+	 * fill(), never as a TM_COMMAND verb — that flag carries startup and
+	 * administration. A source mints messages and consumes none, so every other
+	 * type falls through.
 	 *
 	 * @param array<int,mixed> $message Incoming request Message.
 	 */
@@ -29,7 +42,12 @@ class Community_Source_Demo_Node extends Node {
 	}
 
 	/**
-	 * TICK handler: emit each item as a TM_STRUCT message, then reply with the count.
+	 * Emits each item as its own TM_STRUCT message, then replies with the count.
+	 *
+	 * The per-item emits are fire-and-forget: nothing acks them and nothing
+	 * waits (ADR-3). Every TM_REQUEST runs the batch — the VALUE verb goes
+	 * unread, because TICK is the only request the schema declares. The reply
+	 * echoes the request's ID and KEY, matching `Consumer_Node::handle_request`.
 	 *
 	 * @param array<int,mixed> $message Incoming request Message.
 	 */
@@ -40,11 +58,11 @@ class Community_Source_Demo_Node extends Node {
 			$response[ Message::TYPE ]  = Message::TM_STRUCT;
 			$response[ Message::FROM ]  = $this->name;
 			$response[ Message::VALUE ] = [ 'source' => 'community' ] + $item;
-			// parent::fill stamps TO from the connected target, then sinks.
+			// parent::fill stamps TO from the target and sinks; $this recurses.
 			parent::fill( $response );
 			++$emitted;
 		}
-		// Reply { emitted } TO=FROM per Consumer_Node::handle_request.
+		// TO=FROM addresses the reply, as Consumer_Node::handle_request does.
 		$reply                   = Message::new_message();
 		$reply[ Message::TYPE ]  = Message::TM_STRUCT | Message::TM_RESPONSE;
 		$reply[ Message::FROM ]  = $this->name;
@@ -56,9 +74,14 @@ class Community_Source_Demo_Node extends Node {
 	}
 
 	/**
-	 * The ONE seam a real source replaces: return ingest items. Toy = canned.
+	 * The one seam a real source replaces: the batch of items to ingest.
 	 *
-	 * @return array<int,array<string,string>>
+	 * Canned data keeps the walkthrough deterministic. A real source fetches
+	 * here — a feed, an API, a table — and returns the same shape. It does not
+	 * set the `source` key: `handle_request()` stamps that onto every item, so
+	 * an override cannot forget it.
+	 *
+	 * @return array<int,array<string,string>> Items keyed `title`, `url` and `body`.
 	 */
 	protected function items(): array {
 		return [
@@ -68,6 +91,14 @@ class Community_Source_Demo_Node extends Node {
 		];
 	}
 
+	/**
+	 * Declares the node for `make_node`, the console palette and the Inspector.
+	 *
+	 * The `requests` entry is what draws the Inspector's TICK button and what
+	 * `help Community_Source_Demo` prints.
+	 *
+	 * @return array<string,mixed>
+	 */
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
 			'category'     => 'Source',

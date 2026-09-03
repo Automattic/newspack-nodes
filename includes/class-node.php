@@ -1,6 +1,8 @@
 <?php
 /**
- * Node: base class for the substrate. Subclasses override fill(); the base default forwards to sink.
+ * The contract every node in the graph honors, and the machinery each one
+ * inherits rather than rebuilds: naming, owned siblings, event channels and
+ * rate-limited diagnostics.
  *
  * @package Newspack_Nodes
  */
@@ -9,11 +11,31 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * A processing unit in the message graph.
+ *
+ * `fill()` is the whole contract — there is no `write()`, `read()` or
+ * `process()` (ADR-1) — which is what lets any node compose with any other. A
+ * node connects two ways (ADR-7): `sink` is the physical next hop `fill()`
+ * forwards to, and `target` is the logical path stamped into TO when TO is
+ * empty, which Router then peels one segment at a time. There is no `edge`.
+ *
+ * The base `fill()` stamps TO, counts and forwards, so a subclass that
+ * overrides it calls `parent::fill()` to keep that. Everything else here is
+ * shared: registry naming and its rename cascade, the owned-sibling quartet,
+ * the `register()` / `notify()` / `set_state()` event channels, and the
+ * throttled stderr diagnostics.
+ */
 class Node {
 
 	/** Stand-in for a masked credential in diagnostics. */
 	public const REDACTED = '<redacted>';
 
+	/**
+	 * Byte ceiling on a message's FROM path. `stamp_message()` refuses to stamp
+	 * past it and Router drops past it, which is what keeps a routing cycle from
+	 * growing the breadcrumb trail without bound.
+	 */
 	public const MAX_FROM_SIZE = 1024;
 
 	/** Message types whose payload is included in the drop_message() audit line. */
@@ -22,31 +44,58 @@ class Node {
 	/** @var list<string> Constructor argument tokens (Tachikoma's raw `arguments`). */
 	protected array $arguments = [];
 
-	/** Only I/O nodes (Partition, Consumer) populate these; logic nodes stay at zero. */
-	protected int $bytes_read    = 0;
+	/**
+	 * Bytes pulled off a stream, for the `ls -l` and `dump_metadata` columns.
+	 * Only a node that reads one advances it — Partition, Consumer, File_Tail and
+	 * SSE_In — so a pure logic node reports zero.
+	 */
+	protected int $bytes_read = 0;
+
+	/** Bytes pushed to a stream; the `File_Writer` trait is what advances it. */
 	protected int $bytes_written = 0;
 
+	/** Messages this node has filled — the `ls -c` and `dump_metadata` counter. */
 	protected int $counter = 0;
 
-	/** Per-node state-tracing dial: 0 = quiet, 1+ = also emit TM_STRUCT to _repl. */
+	/**
+	 * Per-node trace dial, written by the REPL's `trace` verb: 0 is quiet, and
+	 * anything higher makes `set_state()` also emit a flat `DEBUG: <event>
+	 * <payload>` stderr line, which the console's timeline reads.
+	 */
 	protected int $debug_state = 0;
 
 	/** Sibling CommandInterpreter (`:config`) for nodes with runtime config verbs; else null. */
 	protected ?Command_Interpreter_Node $interpreter = null;
 
+	/** Largest single message this node has moved, in bytes; a stats column only. */
 	protected int $largest_msg_sent = 0;
 
+	/**
+	 * The registry key `Core::node()` resolves and Router matches each TO segment
+	 * against. Empty until `name()` registers the node.
+	 */
 	protected string $name = '';
 
 	/** Non-null marks this node as plumbing for the patron; dump_metadata hides it from the canvas. */
 	protected ?Node $patron = null;
 
 	/**
-	 * @var array<string,array<string,callable|string|null>> Pre-declared events keyed by event name. Null listener value = Node-name dispatch.
+	 * Declared events, each holding its listeners keyed by identity. A closure is
+	 * stored as given; a null value means the identity is a Node name and dispatch
+	 * goes out as TM_INFO. `seed_registrations()` fills the event keys from
+	 * `node_schema()`, and `register()` refuses anything not among them, so this
+	 * map is the node's published event contract.
+	 *
+	 * @var array<string,array<string,callable|string|null>>
 	 */
 	protected array $registrations = [];
 
-	/** @var array<string,string> */
+	/**
+	 * Latest payload per event, so a listener that registers afterwards gets
+	 * current state at once instead of waiting for the next `notify()`.
+	 *
+	 * @var array<string,string>
+	 */
 	protected array $set_state = [];
 
 	/**
@@ -58,16 +107,27 @@ class Node {
 	 * @var array<string,Node>
 	 */
 	private array $siblings = [];
-	protected ?Node  $sink = null;
-	/** @var string|array<int,string> */
+
+	/** The physical next hop `fill()` forwards to; `target` is the logical half. */
+	protected ?Node $sink = null;
+
+	/**
+	 * The logical path stamped into an empty TO. A string names one destination;
+	 * the array form is Tee's fan-out, so an array answer means this node fans out.
+	 *
+	 * @var string|array<int,string>
+	 */
 	protected $target = '';
 
 	/**
-	 * No-op chain anchor: a node only acquires schema-reflection behavior (positional
-	 * arg parsing, the `{name}:config` interpreter auto-wire) by `use`-ing the
-	 * Schema_Reflection trait and calling its helpers — Node itself carries none.
-	 * This empty ctor exists so subclasses can `parent::__construct()` regardless of
-	 * what intermediate classes do; node-specific setup lives in the subclass ctor.
+	 * Seed the declared-event allow-list, and stand as the chain anchor.
+	 *
+	 * A node acquires schema-reflection behavior — positional argument parsing, the
+	 * `{name}:config` interpreter auto-wire — only by `use`-ing the
+	 * Schema_Reflection trait and calling its helpers; Node itself carries none.
+	 * Declaring the constructor here lets any subclass call `parent::__construct()`
+	 * whatever the intermediate classes do, and node-specific setup stays in the
+	 * subclass constructor.
 	 */
 	public function __construct() {
 		$this->seed_registrations();
@@ -92,7 +152,7 @@ class Node {
 	/**
 	 * Default: stamp TO from target if empty, then forward to sink.
 	 *
-	 * @param array<int,mixed> $message Message reference.
+	 * @param array<int,mixed> $message The 7-field positional message array.
 	 */
 	public function fill( array $message ): void {
 		$sink = $this->require_sink();
@@ -112,6 +172,20 @@ class Node {
 		return $this->sink ?? throw new \RuntimeException( 'fill requires a wired sink' );
 	}
 
+	/**
+	 * Read the node's name, or register it under a new one.
+	 *
+	 * A set pre-checks every slot the rename will touch, so a collision throws
+	 * before anything moves; the old registration is then released, the new one
+	 * taken, and every owned sibling renamed to match. Re-setting the name the
+	 * node already answers to is a no-op rather than a collision with itself.
+	 * An empty name is refused because `remove_node()` is how a node leaves the
+	 * registry, and one that stayed registered under no name is unreachable.
+	 *
+	 * @param string|null $name New name; omit the argument entirely to read.
+	 * @return string The name the node answers to.
+	 * @throws \RuntimeException When the name is empty, or a slot is taken.
+	 */
 	public function name( ?string $name = null ): string {
 		if ( \func_num_args() > 0 ) {
 			if ( ! Core::has_value( $name ) ) {
@@ -224,9 +298,14 @@ class Node {
 	}
 
 	/**
-	 * Prepend $name to message FROM. Returns false if FROM would exceed MAX_FROM_SIZE.
+	 * Prepend $name to the message's FROM path, so a reply can walk the trail
+	 * back. Refused two ways, and the caller must drop the message on either: an
+	 * empty $name would compose a `/from` path Router cannot resolve, and a path
+	 * past MAX_FROM_SIZE means a cycle is growing the trail.
 	 *
-	 * @param array<int,mixed> $message Message reference.
+	 * @param array<int,mixed> $message The 7-field message array, stamped in place.
+	 * @param string           $name    The name to prepend.
+	 * @return bool False when the stamp was refused.
 	 */
 	public function stamp_message( array &$message, string $name ): bool {
 		if ( '' === $name ) {
@@ -257,12 +336,12 @@ class Node {
 	 * @param string        $event    Must be pre-declared in registrations.
 	 * @param string        $listener Identity (closure ID or Node name).
 	 * @param callable|null $cb       Closure. If null, $listener is a Node name.
+	 * @throws \RuntimeException When the event was never declared.
 	 */
 	public function register( string $event, string $listener, ?callable $cb = null ): void {
 		if ( ! isset( $this->registrations[ $event ] ) ) {
 			throw new \RuntimeException( \esc_html( "no such event: $event" ) );
 		}
-		// null means "Node-name dispatch".
 		$this->registrations[ $event ][ $listener ] = $cb;
 
 		if ( \array_key_exists( $event, $this->set_state ) ) {
@@ -271,9 +350,16 @@ class Node {
 	}
 
 	/**
-	  * Notify + cache so new registrants get the payload at register-time.
-	  * With debug_state on, emit a flat Tachikoma-style `DEBUG: <event> <payload>`
-	  */
+	 * Cache the payload under $event and notify every listener; the cache is what
+	 * lets a late registrant receive current state at register-time. With
+	 * `debug_state` on and a `_router` mounted, also emit a flat Tachikoma-style
+	 * `DEBUG: <event> <payload>` line.
+	 *
+	 * @param string $event   Event name. Caching under one declares nothing, so an
+	 *                        undeclared name reaches `dump_node` and the trace line
+	 *                        while accepting no subscribers.
+	 * @param string $payload Current state.
+	 */
 	protected function set_state( string $event, string $payload = '' ): void {
 		$this->set_state[ $event ] = $payload;
 		if ( $this->debug_state > 0 ) {
@@ -286,7 +372,13 @@ class Node {
 		$this->notify( $event, $payload );
 	}
 
-	/** Fire the event to all currently-registered listeners. */
+	/**
+	 * Fire the event at every currently-registered listener. A closure returning
+	 * exactly false is dropped, which is the only self-heal a closure gets.
+	 *
+	 * @param string $event   Event name; an undeclared one is a silent no-op.
+	 * @param mixed  $payload Handed to a closure, carried as a Node name's TM_INFO VALUE.
+	 */
 	public function notify( string $event, mixed $payload = '' ): void {
 		if ( ! isset( $this->registrations[ $event ] ) ) {
 			return;
@@ -299,7 +391,16 @@ class Node {
 		}
 	}
 
-	/** Dispatch a single listener: closure (return value gates keep/unregister) or Node-name (TM_INFO). */
+	/**
+	 * Dispatch one listener: a closure takes the payload directly, and a Node name
+	 * takes a TM_INFO message with KEY=event.
+	 *
+	 * @param string $event    Event name.
+	 * @param string $listener Closure ID or Node name.
+	 * @param mixed  $payload  Event payload.
+	 * @return mixed The closure's own return; for a Node name, false when that node
+	 *               is gone and true otherwise. Exactly false unregisters the listener.
+	 */
 	private function _notify_registered( string $event, string $listener, mixed $payload ): mixed {
 		$cb = $this->registrations[ $event ][ $listener ] ?? null;
 		if ( null !== $cb && \is_callable( $cb ) ) {
@@ -321,9 +422,11 @@ class Node {
 	}
 
 	/**
-	 * Drop a message with an audit trail.
+	 * Drop a message, leaving one rate-limited audit line that names its type
+	 * flags, FROM, TO and — for the four control types — its redacted payload.
 	 *
-	 * @param array<int,mixed> $message Message reference.
+	 * @param array<int,mixed> $message The 7-field positional message array.
+	 * @param string           $error   Reason; `NOT_AVAILABLE` prints unprefixed.
 	 */
 	public function drop_message( array $message, string $error ): void {
 		$type_raw = $message[ Message::TYPE ];
@@ -371,9 +474,17 @@ class Node {
 		Core::stderr( $this->log_midfix( $text ) );
 	}
 
-	/** Emit text on first sight; suppress identical text thereafter. Keyed per-node via log_midfix (shares Core::$recent_log_timers). */
+	/**
+	 * Emit text on first sight and suppress it until `Core::prune_logs()`
+	 * re-windows the key, so one high-volume error path cannot flood stderr. The
+	 * key is the midfixed $text alone — per-node, sharing
+	 * `Core::$recent_log_timers` — so a category whose detail varies still
+	 * collapses to one line rather than one line per value.
+	 *
+	 * @param string $text     Throttle key, and the head of the line.
+	 * @param string ...$extra Payload, appended only on the occurrence that prints.
+	 */
 	public function print_less_often( string $text, string ...$extra ): void {
-		// Key on $text only; $extra is printed payload, not keyed.
 		$key = $this->log_midfix( $text );
 		$timestamp = Core::$recent_log_timers[ $key ] ?? null;
 		if ( null === $timestamp ) {
@@ -388,6 +499,9 @@ class Node {
 	 * already starts with the node name (so the tag would be redundant). With
 	 * text, chomps a trailing newline, prepends the tag to every line,
 	 * and appends one trailing newline.
+	 *
+	 * @param string|null $text Text to tag; null yields the bare midfix.
+	 * @return string The tagged text, or the midfix alone.
 	 */
 	public function log_midfix( ?string $text = null ): string {
 		$midfix = '';
@@ -415,7 +529,13 @@ class Node {
 		}
 	}
 
-	/** Round-trippable graph snippet: make_node + optional set_sink + connect_node lines (suppresses set_sink for the default _command_interpreter). */
+	/**
+	 * Round-trippable graph snippet: a `make_node` line, then `set_sink` and
+	 * `connect_node` where they differ from the defaults. `set_sink` is suppressed
+	 * for `_command_interpreter`, which every node sinks into anyway.
+	 *
+	 * @return string Newline-terminated TSL lines.
+	 */
 	public function dump_config(): string {
 		$short = Command_Interpreter_Node::shell_name_for( $this );
 		$out   = self::command_line( 'make_node', $short, $this->name, ...$this->arguments );
@@ -439,7 +559,13 @@ class Node {
 		return $out;
 	}
 
-	/** A `command_node <name>:<config-slot> …` line addressed to this node's own sibling interpreter. */
+	/**
+	 * A `command_node <name>:<config-slot> …` line addressed to this node's own
+	 * sibling interpreter.
+	 *
+	 * @param string ...$tokens The verb and its arguments.
+	 * @return string One newline-terminated TSL line.
+	 */
 	protected function config_line( string ...$tokens ): string {
 		return self::command_line( 'command_node', $this->sibling_name( 'config' ), ...$tokens );
 	}
@@ -450,6 +576,9 @@ class Node {
 	 * one of them goes through the same quoting. `make_node Echo echo foo bar`
 	 * reads as if `echo` were the name and `foo bar` the arguments; the command's
 	 * actual arguments are all four.
+	 *
+	 * @param string ...$tokens The whole argv — verb, type, name and arguments alike.
+	 * @return string One newline-terminated line.
 	 */
 	public static function command_line( string ...$tokens ): string {
 		return self::serialize_args( \array_values( $tokens ) ) . "\n";
@@ -459,7 +588,8 @@ class Node {
 	 * Serialize argument tokens back to a single line. The one place tokens are
 	 * re-joined — every other layer carries them as a list.
 	 *
-	 * @param list<string> $tokens
+	 * @param list<string> $tokens Tokens to quote and join.
+	 * @return string The tokens re-joined with single spaces.
 	 */
 	public static function serialize_args( array $tokens ): string {
 		return \implode( ' ', \array_map( [ self::class, 'serialize_arg' ], $tokens ) );
@@ -543,6 +673,8 @@ class Node {
 	 * then registers it only to tear it straight down again. Refused rather
 	 * than tolerated, because nothing else enforces that order.
 	 *
+	 * @param Node|null $node The patron to adopt (null = pure getter).
+	 * @return Node|null The patron, or null when the node stands on its own.
 	 * @throws \RuntimeException When the node is already named and wired.
 	 */
 	public function patron( ?Node $node = null ): ?Node {
@@ -585,6 +717,7 @@ class Node {
 	 * re-keyed slot cannot leave a message routed at a name nothing holds.
 	 *
 	 * @param string $kind What the builder built, resolved through `sibling_suffix()`.
+	 * @return string The sibling's registered name.
 	 */
 	protected function sibling_name( string $kind ): string {
 		return $this->name . ':' . $this->sibling_suffix( $kind );
@@ -600,6 +733,7 @@ class Node {
 	 * `Remote_Source_Node` names its sidecars `{remote_partition}:offsetlog`.
 	 *
 	 * @param string $kind What a builder built — `source`, `offsetlog`, `deadletter`.
+	 * @return string The suffix that follows the patron's name.
 	 */
 	protected function sibling_suffix( string $kind ): string {
 		return $kind;
@@ -663,6 +797,9 @@ class Node {
 	 * idiom (`<config:logs_dir>/jobs.p'<partition>'`) hands a node. Emitted
 	 * bare it would be expanded on the next load, because `interpolate()` runs
 	 * before `tokenize()` — so quoting is what preserves the deferral.
+	 *
+	 * @param string $token The token to quote.
+	 * @return string The token, quoted and escaped where it needs to be.
 	 */
 	public static function serialize_arg( string $token ): string {
 		// Quote empty or any metachar; `#`/`;` end the LINE.
@@ -672,6 +809,12 @@ class Node {
 		return "'" . \str_replace( [ '\\', "'" ], [ '\\\\', "\\'" ], $token ) . "'";
 	}
 
+	/**
+	 * Read the trace level, or set it; a negative level clamps to zero.
+	 *
+	 * @param int|null $level New level (null = pure getter).
+	 * @return int The level now in force.
+	 */
 	public function debug_state( ?int $level = null ): int {
 		if ( null !== $level ) {
 			$this->debug_state = \max( 0, $level );
@@ -680,9 +823,10 @@ class Node {
 	}
 
 	/**
-	 * Set/get the sink, cascading a set to every owned sibling so it too sinks
-	 * into `_command_interpreter` like any other node (Rule 2c). Without the
-	 * cascade a sibling's emits drop on the floor.
+	 * Set/get the sink, cascading a set to every owned sibling so it too sinks into
+	 * `_command_interpreter` like any other node — Tachikoma's rule that everything
+	 * sinks into the command interpreter. Without the cascade a sibling's emits drop
+	 * on the floor.
 	 *
 	 * @param Node|null $node New sink; omit the argument entirely to read.
 	 * @return Node|null The current sink.
@@ -697,37 +841,52 @@ class Node {
 		return $this->sink;
 	}
 
+	/** Messages this node has filled. */
 	public function counter(): int {
 		return $this->counter;
 	}
 
+	/** Largest single message this node has moved, in bytes. */
 	public function largest_msg_sent(): int {
 		return $this->largest_msg_sent;
 	}
 
+	/** Bytes this node has pulled off a stream. */
 	public function bytes_read(): int {
 		return $this->bytes_read;
 	}
 
+	/** Bytes this node has pushed to a stream. */
 	public function bytes_written(): int {
 		return $this->bytes_written;
 	}
 
+	/**
+	 * Drop one listener from an event. A node registered by NAME owes this call in
+	 * its own `remove_node()`; short of that, the first `notify()` after teardown
+	 * warns and drops it.
+	 *
+	 * @param string $event    Event name.
+	 * @param string $listener Closure ID or Node name.
+	 */
 	public function unregister( string $event, string $listener ): void {
 		unset( $this->registrations[ $event ][ $listener ] );
 	}
 
 	/**
-	 * Return a value from the set_state cache. Returns null if the event has never been set.
+	 * The cached `set_state()` payload for an event.
+	 *
 	 * @param string $event Event name.
-	 * @return string|null
+	 * @return string|null Null when the event has never been set.
 	 */
 	public function get_state( string $event ): ?string {
 		return $this->set_state[ $event ] ?? null;
 	}
 
 	/**
-	 * Node-name listeners (null-callback registrations) keyed by event; closures excluded, empty events omitted. For dump_metadata registration edges.
+	 * Name-registered listeners keyed by event, which is what `dump_metadata` draws
+	 * registration edges from. A closure listener has no name to draw an edge to, so
+	 * it is skipped, and an event left with no names is omitted entirely.
 	 *
 	 * @return array<string,list<string>> Event name => listener Node names.
 	 */
@@ -747,18 +906,29 @@ class Node {
 		return $out;
 	}
 
-	/** Set target. Tee overrides to append to its fan-out array. */
+	/**
+	 * Point the node at a target, replacing whatever it held. Tee overrides this
+	 * to append, because its target is a fan-out list.
+	 *
+	 * @param string $target Path to stamp into an empty TO.
+	 */
 	public function connect_node( string $target ): void {
 		$this->target = $target;
 	}
 
+	/**
+	 * Clear the target. A base node holds exactly one, so any argument clears it;
+	 * Tee's fan-out override reads the argument and removes only that entry.
+	 *
+	 * @param string $target The entry to remove — meaningful only in the override.
+	 */
 	public function disconnect_node( string $target = '' ): void {
 		$this->target = '';
 	}
 
 	/**
-	 * Teardown, cascading a full remove_node() to each owned sibling first so a
-	 * same-name respawn cannot collide with a leftover slot.
+	 * Tear the node down, cascading a full `remove_node()` to each owned sibling
+	 * first so a same-name respawn cannot collide with a leftover slot.
 	 */
 	public function remove_node(): void {
 		foreach ( $this->siblings as $sibling ) {
@@ -789,7 +959,11 @@ class Node {
 	}
 
 	/**
-	 * Topology console manifest: palette entry + node configuration form. Subclasses override to declare ctor params, verbs, category, description.
+	 * Topology console manifest: the palette entry and the node's configuration
+	 * form. A subclass overrides it to declare its positional arguments, verbs,
+	 * registrations, category and description. The empty category the base
+	 * returns keeps a node out of the palette, which is what a pure plumbing node
+	 * wants.
 	 *
 	 * @return array<string,mixed>
 	 */

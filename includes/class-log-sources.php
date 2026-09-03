@@ -1,6 +1,6 @@
 <?php
 /**
- * Log_Sources: the fixed name → log-source registry `cmd_taillog` and the
+ * Log_Sources: the fixed name → log-source registry the `taillog` verb and the
  * `/log/stream` SSE controller both consume.
  *
  * A caller always addresses a source by registry NAME — never a path, so
@@ -23,11 +23,20 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * Composes the registry and serves every bounded read over it: the `taillog`
+ * listing, the `sources` struct, the single-step `read`, and the `Tail` a
+ * `/log/stream` subscription opens. Static throughout, because the registry
+ * resolves per request out of the options table and the active topologies —
+ * there is nothing to hold between calls.
+ */
 class Log_Sources {
 
 	/**
-	 * Seek words this human-facing verb accepts, aliasing `Consumer_Node::SEEK_*`
-	 * (start 0, recent -2, end -1) — the numbers are what travels on the wire.
+	 * Seek words the human-facing surfaces accept, aliasing
+	 * `Consumer_Node::SEEK_*` (start 0, recent -2, end -1). The numbers are what
+	 * travels on the wire; `next_offset()` resolves these words to them, so both
+	 * spellings reach one behaviour.
 	 */
 	public const MAGIC_POSITIONS = [ 'start', 'recent', 'end' ];
 
@@ -42,25 +51,32 @@ class Log_Sources {
 	 */
 	public static ?\Closure $builtin_sources = null;
 
-	/** SSE-subscription name charset (leading name char blocks `.`/`..`). */
+	/**
+	 * Legal registry-name charset, which an SSE subscription name shares. The
+	 * first character excludes `.`, so `.` and `..` can never name a source.
+	 */
 	private const NAME_PATTERN = '/^[a-z0-9_-][a-z0-9_.-]*$/D';
 
-	/** `taillog` default / hard-cap tail window (KB). */
+	/** Tail window `taillog` reads when the caller names no size (KB). */
 	private const TAILLOG_DEFAULT_KB = 16;
-	private const TAILLOG_MAX_KB     = 64;
+
+	/** Ceiling on the window a caller may ask for (KB); a larger ask clamps. */
+	private const TAILLOG_MAX_KB = 64;
 
 	/**
-	 * `taillog [<source>] [max_kb]` builtin — tail a durable aggregated log FILE by
-	 * fixed registry NAME (the shared registry: built-ins + config `log_sources` +
-	 * active-topology Log nodes). No source lists the registry with per-source
-	 * availability; the reserved name `sources` returns the registry as a struct
-	 * (array) a GUI reads; the reserved `read <source> <segment>:<offset>`
-	 * returns the single line at a position (the paused single-step debugger);
-	 * an unknown name or a missing/unreadable file returns a
-	 * teaching error naming the resolved path (errors-as-docs). The interpreter's
-	 * `taillog` verb delegates here — file I/O over a registry Log_Sources owns.
+	 * `taillog [<source>] [max_kb]` builtin — the last `max_kb` KB (16 by
+	 * default, 64 at most) of a durable aggregated log FILE, addressed by fixed
+	 * registry NAME (built-ins + config `log_sources` + active-topology Log
+	 * nodes). Three replies are reserved: no source lists the registry with
+	 * per-source availability; the name `sources` returns the registry as a
+	 * struct (array) a GUI reads; and `read <source> <segment>:<offset>` returns
+	 * the single line at a position (the paused single-step debugger). An
+	 * unknown name, or a file that is missing or unreadable, comes back as a
+	 * teaching error naming the resolved path (errors-as-docs). The
+	 * interpreter's `taillog` verb delegates here, so the file I/O sits beside
+	 * the registry this class owns.
 	 *
-	 * @param list<string> $args
+	 * @param list<string> $args `[ <source>, <max_kb> ]`, or a reserved form.
 	 * @return string|array<array-key,mixed> Struct/read replies are arrays; tails and errors are strings.
 	 */
 	public static function taillog( array $args ): string|array {
@@ -89,12 +105,14 @@ class Log_Sources {
 	}
 
 	/**
-	 * Read the last $max_bytes of $path from the end via a kernel-seek offset read,
-	 * dropping the (likely partial) first line when the window starts past byte 0.
-	 * Plain text out.
+	 * Read the last $max_bytes of $path, dropping the first line when the window
+	 * opens past byte 0 — a window rarely starts on a line boundary, and a
+	 * leading fragment reads as corruption. The offset argument seeks in the
+	 * kernel, so a multi-gigabyte log never lands in memory.
 	 *
 	 * @param string       $path      Registry-resolved log path.
 	 * @param positive-int $max_bytes Tail window (callers clamp to >= 1024).
+	 * @return string The tail as plain text, or a teaching error when the read fails.
 	 */
 	private static function tail_file( string $path, int $max_bytes ): string {
 		$size = \filesize( $path );
@@ -108,7 +126,7 @@ class Log_Sources {
 		if ( false === $data ) {
 			return "log unavailable: $path (cannot read)";
 		}
-		// Dropped the partial first line (the window started mid-line).
+		// Drop the partial first line: the window started mid-line.
 		if ( $start > 0 ) {
 			$nl   = \strpos( $data, "\n" );
 			$data = false === $nl ? '' : \substr( $data, $nl + 1 );
@@ -117,11 +135,12 @@ class Log_Sources {
 	}
 
 	/**
-	 * The single FILE a bounded tail read (`cmd_taillog`) opens for an entry:
-	 * the path itself in file mode, the NEWEST `{path}.{seg}` segment (numeric
-	 * order, not lexical) in segmented mode — null when no segment exists yet.
+	 * The single FILE a bounded tail read opens for an entry: the path itself in
+	 * file mode, the NEWEST `{path}.{seg}` segment (numeric order, not lexical)
+	 * in segmented mode — null when no segment exists yet.
 	 *
 	 * @param array{path: string, mode: string} $entry A registry() entry.
+	 * @return string|null The file to read, or null when a segmented source has no segment.
 	 */
 	public static function tail_path( array $entry ): ?string {
 		if ( Tail_Node::MODE_SEGMENTED !== $entry['mode'] ) {
@@ -140,6 +159,7 @@ class Log_Sources {
 	 * Reuses the ONE Command_Interpreter_Node::tabulate renderer.
 	 *
 	 * @param array<string,array{path: string,mode: string}> $registry Name → entry.
+	 * @return string The rendered table.
 	 */
 	private static function taillog_list( array $registry ): string {
 		$rows = [];
@@ -167,15 +187,14 @@ class Log_Sources {
 	 * Tail (file or segmented mode) seeked there and single-stepped through the
 	 * Durable_Reader debugger, so inode validation, segment rolls, and partial
 	 * lines behave exactly as they do on the live stream, and the emitted
-	 * record carries the stamped FROM + ID breadcrumb. Length-blind: a supplied
-	 * `:<length>` token is ignored. The reply's `cursor` is the post-step
-	 * position — the Log Viewer's paused single-step advance. File mode
-	 * validates the segment slot as the file's inode (a breadcrumb round-trip);
-	 * a mismatch re-seeks to 0 rather than reading a rotated-away generation.
+	 * record carries the stamped FROM + ID breadcrumb. File mode validates the
+	 * segment slot as the file's inode (a breadcrumb round-trip); a mismatch
+	 * re-seeks to 0 rather than reading a rotated-away generation. `read_at()`
+	 * owns the position grammar and the cursor contract.
 	 *
 	 * @param array<string,array{path: string,mode: string}> $registry Name → entry.
 	 * @param string $name     Registry source name.
-	 * @param string $position `<segment>:<offset>[:<length>]`.
+	 * @param string $position `<segment>:<offset>[:<length>]`, or a MAGIC_POSITIONS word.
 	 * @return array<string,mixed>|string The line + cursor, or a teaching error.
 	 */
 	private static function taillog_read( array $registry, string $name, string $position ): array|string {
@@ -187,10 +206,13 @@ class Log_Sources {
 
 	/**
 	 * Open a registry entry as a durable reader — the ONE place a `mode` token
-	 * becomes a class. No offsetlog or deadletter: these readers are ephemeral
-	 * (the single-step debugger) or client-cursored (the SSE stream).
+	 * becomes a class. Handing the reader its path alone leaves the offsetlog
+	 * and dead-letter dirs empty, so neither sidecar is built: these readers are
+	 * ephemeral (the single-step debugger) or client-cursored (the SSE stream),
+	 * and neither resumes from a durable cursor.
 	 *
 	 * @param array{path: string, mode: string} $entry A registry() entry.
+	 * @return Tail_Node A File_Tail_Node in file mode, a plain Tail_Node in segmented mode.
 	 */
 	public static function open_tail( array $entry ): Tail_Node {
 		$tail = Tail_Node::MODE_FILE === $entry['mode'] ? new File_Tail_Node() : new Tail_Node();
@@ -216,9 +238,9 @@ class Log_Sources {
 	 *
 	 * `Tail_Node extends Consumer_Node`, so the segmented, file-follow and
 	 * partition readers all drive identically; only construction and the verb
-	 * name in the teaching errors differ. Two copies of this subtlety — segment
-	 * rolls, torn records, length-blindness, the post-step cursor — meant a fix
-	 * to one silently missed the other.
+	 * name in the teaching errors differ. A copy per caller drifts: segment
+	 * rolls, torn records, length-blindness and the post-step cursor are subtle
+	 * enough that a fix reaches one copy and silently misses the other.
 	 *
 	 * @param Consumer_Node $reader   A configured, unsunk durable reader.
 	 * @param string        $label    Source name; stamped as FROM and echoed back.
@@ -230,7 +252,7 @@ class Log_Sources {
 	public static function read_at( Consumer_Node $reader, string $label, string $position, string $verb ): array|string {
 		$captured = null;
 		try {
-			// A magic token rides through to next_offset(), which speaks them.
+			// A magic token rides through to next_offset(), which speaks it.
 			$magic  = \in_array( $position, self::MAGIC_POSITIONS, true );
 			$tokens = \explode( ':', $position );
 			if ( ! $magic
@@ -268,6 +290,8 @@ class Log_Sources {
 	 * the single-step read and the SSE stream all phrase it identically.
 	 *
 	 * @param array<string,array{path: string,mode: string}> $registry Name → entry.
+	 * @param string $name The name that missed.
+	 * @return string The error, newline-terminated, naming every source there is.
 	 */
 	public static function unknown_source( array $registry, string $name ): string {
 		$known = \implode( ', ', \array_keys( $registry ) );
@@ -305,10 +329,10 @@ class Log_Sources {
 	 * The byte size a tail would read from $entry — its NEWEST segment if segmented,
 	 * else the file. Null when there is no readable file (missing, or a segmented
 	 * source with no segment yet). Sizes what a Log Viewer replay must catch up to.
-	 * Pass a pre-listed $segments to skip re-globbing (the struct builder has one).
 	 *
-	 * @param array{path: string, mode: string} $entry
-	 * @param list<array{id: int,size: int}>|null $segments A source_segments() list, or null to list here.
+	 * @param array{path: string, mode: string}   $entry    A registry() entry.
+	 * @param list<array{id: int,size: int}>|null $segments A source_segments() list to reuse, or null to list here.
+	 * @return int|null Bytes, or null when there is nothing readable.
 	 */
 	private static function tail_bytes( array $entry, ?array $segments = null ): ?int {
 		if ( Tail_Node::MODE_SEGMENTED === $entry['mode'] ) {
@@ -332,7 +356,8 @@ class Log_Sources {
 	 * may have pruned the early ones).
 	 *
 	 * @param array{path: string, mode: string}   $entry    A registry() entry.
-	 * @param list<array{id: int,size: int}>|null $segments A source_segments() list, or null to list here.
+	 * @param list<array{id: int,size: int}>|null $segments A source_segments() list to reuse, or null to list here.
+	 * @return bool True when a tail would find something to read.
 	 */
 	public static function is_available( array $entry, ?array $segments = null ): bool {
 		if ( Tail_Node::MODE_SEGMENTED === $entry['mode'] ) {
@@ -405,11 +430,12 @@ class Log_Sources {
 	}
 
 	/**
-	 * Collapse registry entries that resolve to the SAME real file — on this host
-	 * php `error_log` IS `wp-content/debug.log`, so `php` and `debug` would tail
-	 * identical content. Insertion order is priority: `php` precedes `debug` in the
-	 * resolver, so the ini-configured aggregation point is the survivor. A path that
-	 * doesn't yet exist (`realpath` false) can't be a duplicate and is kept.
+	 * Collapse registry entries that resolve to the SAME real file — where php
+	 * `error_log` IS `wp-content/debug.log`, `php` and `debug` would otherwise
+	 * tail identical content. Insertion order is priority: `php` precedes `debug`
+	 * in the resolver, so the ini-configured aggregation point is the survivor. A
+	 * path that doesn't yet exist (`realpath` false) can't be a duplicate and is
+	 * kept.
 	 *
 	 * @param array<string,array{path: string,mode: string}> $registry Name → entry (insertion order = priority).
 	 * @return array<string,array{path: string,mode: string}>
@@ -457,7 +483,7 @@ class Log_Sources {
 					if ( '' === $template || '' === $writes ) {
 						continue;
 					}
-					// An unresolvable <ns:key> throws → topology skipped.
+					// An unresolvable <ns:key> throws, skipping the topology.
 					Core::resolve_config_tokens( $template, true );
 					$per_partition = self::has_partition_token( $template );
 					foreach ( $partitions as $p ) {
@@ -487,12 +513,18 @@ class Log_Sources {
 		return $entries;
 	}
 
-	/** Both the `<partition>` and `{partition}` spellings `resolve_partition_template` accepts. */
+	/** Whether $template carries a partition token in either spelling `resolve_partition_template` accepts. */
 	private static function has_partition_token( string $template ): bool {
 		return \str_contains( $template, '<partition>' ) || \str_contains( $template, '{partition}' );
 	}
 
-	/** @return array<string,string> Config `log_sources` name → path (invalid lines skipped). */
+	/**
+	 * The config family: one `name=/absolute/path` per line of the `log_sources`
+	 * setting. An invalid line is skipped rather than fatal, so one typo in the
+	 * textarea cannot blank the whole registry; first name wins within the family.
+	 *
+	 * @return array<string,string> Config `log_sources` name → path (invalid lines skipped).
+	 */
 	private static function config_entries(): array {
 		$entries = [];
 		foreach ( Core::arr( Config::value( 'log_sources' ) ) as $line ) {
@@ -505,9 +537,12 @@ class Log_Sources {
 	}
 
 	/**
-	 * Parse one config `log_sources` line (`name=/absolute/path`). The Admin
-	 * sanitizer and the registry share this ONE rule.
+	 * Parse one config `log_sources` line (`name=/absolute/path`). The name must
+	 * pass `is_valid_name()`; the path must be absolute and free of `..` and NUL,
+	 * so an entry names exactly the file it spells. The Admin sanitizer and the
+	 * registry share this ONE rule.
 	 *
+	 * @param string $line One raw textarea line.
 	 * @return array{name: string, path: string}|null Null when the line is invalid.
 	 */
 	public static function parse_entry( string $line ): ?array {
@@ -530,8 +565,9 @@ class Log_Sources {
 	}
 
 	/**
-	 * Whether $name is a legal registry name: the SSE-subscription charset,
-	 * no `..`, and not the `sources` word `taillog` reserves for its struct verb.
+	 * Whether $name is a legal registry name: the NAME_PATTERN charset, no `..`,
+	 * and neither of the words `taillog` reserves for its sub-verbs, `sources`
+	 * and `read` — a source wearing either would be unreachable behind it.
 	 */
 	public static function is_valid_name( string $name ): bool {
 		if ( \in_array( $name, [ 'sources', 'read' ], true ) || \str_contains( $name, '..' ) ) {
@@ -540,7 +576,12 @@ class Log_Sources {
 		return 1 === \preg_match( self::NAME_PATTERN, $name );
 	}
 
-	/** @return array<string,string> Builtin name → absolute path, via the seam. */
+	/**
+	 * The built-in family, resolved through the `$builtin_sources` seam so a
+	 * test can supply fixtures in place of the host's ini and constants.
+	 *
+	 * @return array<string,string> Builtin name → absolute path.
+	 */
 	private static function builtin_entries(): array {
 		$resolve = self::$builtin_sources ?? static function (): array {
 			$sources = [];

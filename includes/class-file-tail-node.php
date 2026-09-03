@@ -2,24 +2,22 @@
 /**
  * File_Tail: follows a SINGLE filename with `tail -F` logrotate semantics.
  *
- * The sibling of segmented `Tail`: same Buffered_Pump line-assembly spine, same
- * durable offsetlog cursor, a different byte source. Within a run it holds the
- * open handle, drains a rotated-away generation to EOF before reopening the
- * path from 0, resets on in-place truncation, and tolerates a missing path.
+ * A subclass of segmented `Tail` rather than a mode flag on it: the two share
+ * the Durable_Reader line-assembly spine and the durable offsetlog cursor, and
+ * differ only in the byte source. Within a run this reader holds the open
+ * handle, drains a rotated-away generation to EOF before reopening the path
+ * from 0, resets on in-place truncation, and tolerates a missing path.
  *
- * The cursor shape is the inherited one — the inode simply occupies the
- * container slot where a segment id sits, so `<inode>:<offset>:<length>` rides
- * the existing offsetlog frame and DLQ machinery with no new field. A resume
- * validates the persisted cursor against the current file: a foreign, zero or
- * absent generation reads it whole, and a mid-line offset in the RIGHT
- * generation syncs forward onto the next newline — never cross-generation
- * hunting.
+ * The cursor shape is the inherited one — the inode occupies the container slot
+ * where a segment id sits, so `<inode>:<offset>:<length>` rides the existing
+ * offsetlog frame and DLQ machinery with no new field. A resume validates the
+ * persisted cursor against the current file: a foreign, zero or absent
+ * generation reads it whole, and a mid-line offset in the RIGHT generation
+ * syncs forward onto the next newline — never cross-generation hunting.
  *
- * Only ONE method carries the difference in what a reader reports:
- * `compute_lag()`, the seam `GET_LAG`, `probe_stats()` and `idle_since()` all
- * read. Substituting it there is what keeps the request reply, the probe record
- * and the idle check from answering the same question three ways, which is what
- * a hand-copied reply envelope did.
+ * `compute_lag()` is the ONE substituted seam. `GET_LAG`, `probe_stats()` and
+ * `idle_since()` all read it, so the request reply, the probe record and the
+ * idle check cannot answer the same question three ways.
  *
  * This class has no source Partition — a single inode is not a segment list —
  * so `source()` refuses by name instead of failing as an init error.
@@ -35,9 +33,9 @@ class File_Tail_Node extends Tail_Node {
 
 	/**
 	 * The open read handle for the currently-followed generation, or null when
-	 * the path is absent. A rotated-away generation stays open here until
-	 * drained to EOF. Its inode lives in the inherited $cursor_segment; 0 = no
-	 * open container.
+	 * none is open — the path is absent, unreadable, or not yet opened. A
+	 * rotated-away generation stays open here until drained to EOF. Its inode
+	 * lives in the inherited $cursor_segment; 0 = no open container.
 	 *
 	 * @var resource|null
 	 */
@@ -47,8 +45,8 @@ class File_Tail_Node extends Tail_Node {
 	 * An explicit array-form next_offset() seek {inode, offset} made BEFORE the
 	 * file opens (build time), awaiting validation on the first poll once the
 	 * live inode is known. A runtime seek (handle already open) validates
-	 * immediately and leaves this null. A null `inode` named no generation, so
-	 * its offset says nothing about this file: read whole.
+	 * immediately and leaves this null. A null `inode` names no generation, so
+	 * its offset says nothing about this file: read it whole.
 	 *
 	 * @var array{inode:int|null,offset:int}|null
 	 */
@@ -62,9 +60,16 @@ class File_Tail_Node extends Tail_Node {
 	private bool $pending_line_sync = false;
 
 	/**
-	 * Store the token array, then arm the reader. No source Partition: the
-	 * segment model cannot identify a single inode, so the shared Buffered_Pump
-	 * spine is armed directly.
+	 * Store the token array, then arm the reader. There is no source Partition —
+	 * the segment model cannot identify a single inode — so the shared
+	 * Durable_Reader spine is armed directly.
+	 *
+	 * `source_file` is deliberately NOT passed through
+	 * `Config::assert_within_base()` the way Consumer's `source_dir` is: following
+	 * a log the substrate does not own is the whole point, and `Log_Sources`
+	 * registers php's `error_log` and `wp-content/debug.log`. The confinement
+	 * lands on the offsetlog instead, whose sidecar Partition asserts it when
+	 * `ensure_offsetlog()` builds it.
 	 *
 	 * @param list<string>|null $args
 	 * @return list<string>
@@ -89,12 +94,18 @@ class File_Tail_Node extends Tail_Node {
 	}
 
 	/**
-	 * File-mode refill (one block per tick, yielding the event loop). First drains the currently
-	 * open generation — reading appended bytes, resetting on an in-place truncation. Only once
-	 * that handle is at EOF does it consult the PATH: a same-inode path means caught up, a missing
-	 * path is a rotation gap (keep polling), and a different inode is a rotation — the drained old
-	 * handle closes and the new generation opens at offset 0. Draining-before-switching is what
-	 * guarantees a rotated file's tail-end emits before the new file's first line.
+	 * File-mode refill (one block per tick, yielding the event loop). First drains
+	 * the currently open generation — reading appended bytes, resetting on an
+	 * in-place truncation. Only once that handle is at EOF does it consult the
+	 * PATH: a same-inode path means caught up, a missing path is a rotation gap
+	 * (keep polling), and a different inode is a rotation — the drained old handle
+	 * closes and the new generation opens at offset 0. Draining before switching is
+	 * what guarantees a rotated file's tail-end emits before the new file's first
+	 * line.
+	 *
+	 * With no handle open — the path was absent when `init_position()` ran — there
+	 * is nothing to drain, so the path check alone decides and opens the
+	 * generation the moment the file appears.
 	 */
 	private function get_file_batch(): void {
 		$path = $this->source_file;
@@ -138,7 +149,7 @@ class File_Tail_Node extends Tail_Node {
 			$this->at_eof = ! $this->buffer_holds_line();
 			return;
 		}
-		// Rotated: drop the dead file's incomplete last line, then reset.
+		// New generation: drop any partial last line, then reset the cursor.
 		$this->buffer = '';
 		if ( $this->open_generation( $path ) ) {
 			$this->cursor_offset     = 0;
@@ -194,7 +205,7 @@ class File_Tail_Node extends Tail_Node {
 		$this->file_seek_candidate = null;
 		$this->pending_line_sync   = false;
 		if ( \is_array( $position ) ) {
-			// Absent stays absent: coerced, a closed handle stores inode 0.
+			// A missing key names NO generation; 0 would name a closed handle.
 			$inode  = isset( $position['segment'] ) ? Core::num_int( $position['segment'] ) : null;
 			$offset = \max( 0, Core::num_int( $position['offset'] ?? 0 ) );
 			if ( null !== $this->follow_handle ) {
@@ -218,7 +229,12 @@ class File_Tail_Node extends Tail_Node {
 	 * One followed path, so its own mtime is the answer — the parent's
 	 * newest-segment walk has no segment list to walk.
 	 *
-	 * @return float|null Epoch seconds the followed file last grew.
+	 * Null means "not idle", which is what an absent path reports: a rotation gap
+	 * is a moment between generations, not a stream nobody writes, and hanging up
+	 * on one would drop the reader before the new file appears.
+	 *
+	 * @return float|null Epoch seconds the followed file last grew, or null while
+	 *                    the path is absent or bytes are still unread.
 	 */
 	public function idle_since(): ?float {
 		$stat = $this->path_stat();
@@ -237,7 +253,7 @@ class File_Tail_Node extends Tail_Node {
 	 * partial line has consumed it — so `bytes_behind` here is what the probe's
 	 * DISTANCE reports, one definition for both.
 	 *
-	 * @return array{bytes_behind:int, segments_behind:int, caught_up:bool, end_segment:int, end_size:int, end_bytes:int, cursor_segment:int, cursor_offset:int}
+	 * @return array{bytes_behind:int,segments_behind:int,caught_up:bool,end_segment:int,end_size:int,end_bytes:int,cursor_segment:int,cursor_offset:int}
 	 */
 	protected function compute_lag(): array {
 		$size         = $this->file_current_size();
@@ -260,11 +276,11 @@ class File_Tail_Node extends Tail_Node {
 	 * The inode reaches cursor_segment only when the handle opens on the first
 	 * poll, and a stream that seeks to EOF and hangs up never polls — so ask
 	 * the path, which next_offset() already stats for its size. An unnamed
-	 * generation is indistinguishable from a foreign one and reads the whole
-	 * file back on every reconnect. The offset is named even when it is
-	 * mid-line; the resume syncs forward from there.
+	 * generation would be indistinguishable from a foreign one, reading the whole
+	 * file back on every reconnect. The offset is named even when it is mid-line;
+	 * the resume syncs forward from there.
 	 *
-	 * @return string `{inode}:{offset}`, or `:{offset}` when there is no file.
+	 * @return string `{inode}:{offset}`, or `:{offset}` when no generation is named.
 	 */
 	public function cursor_position(): string {
 		// A candidate's offset belongs to the generation the CLIENT named.
@@ -273,13 +289,18 @@ class File_Tail_Node extends Tail_Node {
 			return ( 0 === $inode ? '' : (string) $inode ) . ':'
 				. $this->file_seek_candidate['offset'];
 		}
-		// Always named; this offset came from that same path.
+		// Fall back to the path: next_offset('end') sized that same file.
 		$inode = 0 !== $this->cursor_segment
 			? $this->cursor_segment
 			: $this->file_current_inode();
 		return ( 0 === $inode ? '' : (string) $inode ) . ':' . $this->cursor_offset;
 	}
 
+	/**
+	 * Close the follow handle before the base teardown. Nothing in the sibling
+	 * cascade knows about an fopen handle, so a torn-down reader would otherwise
+	 * hold the descriptor for the rest of the worker's life.
+	 */
 	public function remove_node(): void {
 		$this->close_follow_handle();
 		parent::remove_node();
@@ -310,6 +331,7 @@ class File_Tail_Node extends Tail_Node {
 		return true;
 	}
 
+	/** Release the open generation's descriptor. Idempotent: no handle, no-op. */
 	private function close_follow_handle(): void {
 		if ( null !== $this->follow_handle ) {
 			\fclose( $this->follow_handle );
@@ -318,12 +340,18 @@ class File_Tail_Node extends Tail_Node {
 	}
 
 	/**
-	 * Validate a persisted cursor against the CURRENT file and return the offset to resume at. The
-	 * frame's container slot is the stored inode. An absent, zero or foreign generation, or a file
-	 * that shrank below the cursor, reads the current file from 0 (no cross-generation hunting). A
-	 * cursor in the RIGHT generation that is not just past a newline is mid-line: resume there and
-	 * sync forward onto the next one. cursor == size (the file ends exactly on the last emitted
-	 * newline) is valid and simply reads nothing until it grows.
+	 * Validate a persisted cursor against the CURRENT file and return the offset to
+	 * resume at. The frame's container slot is the stored inode. The current file
+	 * is read from 0, never hunted across generations, whenever the stored
+	 * generation is absent, zero or foreign, the file shrank below the cursor, or
+	 * nothing is open here to validate against. A cursor in the RIGHT generation
+	 * that is not just past a newline is mid-line: resume there and sync forward
+	 * onto the next one. cursor == size (the file ends exactly on
+	 * the last emitted newline) is valid and reads nothing until it grows.
+	 *
+	 * @param int|null $stored_inode Generation the cursor was recorded against; null when unnamed.
+	 * @param int      $cursor       Persisted byte offset within that generation.
+	 * @return int The offset to resume at: `$cursor`, or 0 to read the file whole.
 	 */
 	private function validate_resume_offset( ?int $stored_inode, int $cursor ): int {
 		// Offset 0 IS a boundary; a flag left armed would eat the first line.
@@ -368,12 +396,19 @@ class File_Tail_Node extends Tail_Node {
 		$this->pending_line_sync = false;
 	}
 
-	/** Whether the buffer already holds a complete line. */
+	/**
+	 * Whether the buffer already holds a complete line. Durable_Reader's
+	 * `buffer_has_line()` is private, so it does not reach a subclass.
+	 */
 	private function buffer_holds_line(): bool {
 		return false !== \strpos( $this->buffer, "\n" );
 	}
 
-	/** Read the single byte at $pos — from the open handle, else the path; '' when unreadable. */
+	/**
+	 * Read the single byte at `$pos` — from the open handle, else the path; '' when
+	 * unreadable. Moving the open handle's position is safe only because
+	 * `get_file_batch()` seeks before every block read.
+	 */
 	private function read_byte_at( int $pos ): string {
 		if ( null === $this->follow_handle ) {
 			// 'end' asks before the handle opens; the path answers.
@@ -436,8 +471,9 @@ class File_Tail_Node extends Tail_Node {
 	}
 
 	/**
-	 * ONE fresh stat of the followed path per question — size, inode and mtime
-	 * came from three separate clearstatcache+stat pairs per tick.
+	 * The ONE stat of the followed path: size, inode and mtime out of a single
+	 * clearstatcache+stat pair, so a caller needing two of them pays one syscall
+	 * and reads a consistent triple instead of three separately-timed ones.
 	 *
 	 * @return array{size:int,ino:int,mtime:int}|null Null when the path is absent.
 	 */
@@ -490,6 +526,8 @@ class File_Tail_Node extends Tail_Node {
 	 * Partition. Refusing by NAME is the point: the parent's bare
 	 * "not initialized" would send a reader hunting for a missed arguments()
 	 * call instead of the method that does not apply here.
+	 *
+	 * @throws \RuntimeException Always; there is no Partition to return.
 	 */
 	protected function source(): Partition_Node {
 		throw new \RuntimeException(
@@ -497,6 +535,12 @@ class File_Tail_Node extends Tail_Node {
 		);
 	}
 
+	/**
+	 * Palette entry: Tail's, carrying the file-mode description. Arguments, verbs
+	 * and category are inherited verbatim.
+	 *
+	 * @return array<string,mixed>
+	 */
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
 			'description' => 'Follows a single filename with tail -F logrotate semantics (inode + byte offset); emits each line as raw TM_BYTESTREAM bytes to its sink.',

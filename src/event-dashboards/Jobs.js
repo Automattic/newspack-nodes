@@ -1,14 +1,21 @@
 /**
- * Jobs — the hub's per-handler job-outcome board over the durable jobstats.p0 log.
+ * Jobs — the hub's per-handler job-outcome board over the durable `jobstats.p0`
+ * log. The batteries-included answer to "are my background jobs running, and are
+ * they failing?".
  *
- * A thin view over `useJobstatsStream` (history mode → 24h replay) + the
- * `jobstats:view` model. Per job identity it shows the 24h windowed run + failure
- * totals (summed over the same per-interval series the charts plot, so a worker
- * recycle contributes its window like any other), the average + last durations,
- * the last outcome (status badge + one-line message), and when it last ran — plus
- * two Tachikoma-style rate panels (runs/s, errors/s) rolled up per handler from the
- * same per-identity series. The batteries-included answer to "are my background jobs
- * running, and are they failing?".
+ * A thin view over two replayed streams. `useJobstatsStream` in history mode
+ * replays 24h of `jobstats.p0` into the `jobstats:view` model, the source of every
+ * run, failure, duration and outcome below; `useTopicProbeStream` supplies the
+ * backlog, which belongs to the Consumer tailing the jobs Topic rather than to any
+ * job identity.
+ *
+ * Four Tachikoma-style panels chart that window: runs/s and errors/s rolled up per
+ * HANDLER, the jobs Topic's backlog in bytes, and queue latency per job IDENTITY.
+ * One table row per identity then carries the windowed run and failure totals, the
+ * average and last durations, the average queue wait, the last outcome (a status
+ * badge plus its one-line message) and when it last ran. Those totals are summed
+ * over the same per-interval series the charts plot, so a worker recycle
+ * contributes its window like any other rather than reading as a counter reset.
  */
 
 import { useMemo, useDeferredValue } from '@wordpress/element';
@@ -26,10 +33,28 @@ import {
 } from '@newspack-nodes/shared/utils/formatters';
 import './styles/jobs.scss';
 
-// The jobs Topic's concrete dirs are `jobs.p<N>`; bare `jobs` tolerated.
+/**
+ * Does this consumer tail the jobs Topic?
+ *
+ * The Topic's concrete dirs are `jobs.p<N>`; a bare `jobs` matches too. The
+ * topicprobe stream carries every Consumer the probe sweeps, so without the test
+ * the backlog panel plots unrelated topics beside the jobs one.
+ *
+ * @param {string} source The consumer's `source` from `topicprobe:view`.
+ * @return {boolean} True when the consumer reads the jobs Topic.
+ */
 const isJobsSource = ( source ) => /^jobs(\.p\d+)?$/.test( source || '' );
 
-// Milliseconds → a compact "Nms" / "N.Ns" label.
+/**
+ * Format a millisecond duration, e.g. 1500 → "1.5s".
+ *
+ * Callers pass windowed means and single-run durations alike, so a non-finite or
+ * non-positive value — an identity with no runs in the window — reads as "0ms"
+ * rather than as a gap.
+ *
+ * @param {number} ms A duration in milliseconds.
+ * @return {string} "Nms" below a second, "N.Ns" at or above one.
+ */
 function formatMs( ms ) {
 	if ( ! Number.isFinite( ms ) || ms <= 0 ) {
 		return '0ms';

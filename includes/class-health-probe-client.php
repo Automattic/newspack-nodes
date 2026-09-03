@@ -1,6 +1,6 @@
 <?php
 /**
- * Doctor's bounded web-runtime cache probe.
+ * The web runtime's cache posture, fetched over the loopback for `wp nodes doctor`.
  *
  * @package Newspack_Nodes
  */
@@ -10,22 +10,60 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 /**
+ * Fetch the cache-backend health result from the WEB runtime over the loopback.
+ *
+ * A CLI process picks its own cache backend, so `Health_Checks::cache_backend()`
+ * run under WP-CLI reports a posture no visitor ever sees — WP-CLI's APCu is not
+ * the web server's. Asking the web runtime through
+ * `POST /newspack-nodes/v1/health/cache` reports the backend that serves requests.
+ *
+ * The reply is untrusted. It is accepted only when it matches the exact shape
+ * `Health_Checks` produces, and every other outcome returns a locally authored
+ * result rather than remote text, because doctor prints these messages to a
+ * terminal.
+ *
  * @phpstan-import-type HealthResult from Health_Checks
  */
 final class Health_Probe_Client {
 
+	/** REST route the web runtime answers the cache probe on. */
 	public const ROUTE = 'newspack-nodes/v1/health/cache';
 
-	/** @var (\Closure(string,array<string,mixed>): mixed)|null */
+	/**
+	 * Loopback-POST seam, standing in for the `wp_remote_post()` call alone.
+	 * Tests assign it to capture the URL and arguments and to return a chosen
+	 * response, so the token mint, the HTTP-status ladder and the result
+	 * validation around it run as real code and are really measured.
+	 *
+	 * Signature: `function (string $url, array<string,mixed> $args): mixed`.
+	 *
+	 * @var (\Closure(string,array<string,mixed>): mixed)|null
+	 */
 	public static ?\Closure $http_call = null;
 
-	/** @var (\Closure(): int)|null */
+	/**
+	 * Wall-clock seam for the token's 10-second window. Tests pin it so the
+	 * minted token can be validated against a known window.
+	 *
+	 * Signature: `function (): int`.
+	 *
+	 * @var (\Closure(): int)|null
+	 */
 	public static ?\Closure $clock = null;
 
+	/** Static-only: every entry point is a static method. */
 	private function __construct() {}
 
 	/**
-	 * Fetch the web runtime's cache result.
+	 * Fetch the web runtime's cache result, or a locally authored `recommended`
+	 * result when the loopback cannot be verified.
+	 *
+	 * Each rejected HTTP status gets its own message because each names a
+	 * different fix: a 3xx is a redirect the probe declines to follow, a 401
+	 * means HTTP authentication fronts the site, a 403 means the route refused
+	 * the token, a 404 means the CLI and web plugin versions differ. The 401
+	 * also warns about worker respawn, which posts across the same loopback and
+	 * meets the same gate.
 	 *
 	 * @return HealthResult
 	 */
@@ -101,6 +139,18 @@ final class Health_Probe_Client {
 		return self::unknown( 'Could not verify the web cache backend because the health route returned a malformed result.' );
 	}
 
+	/**
+	 * Accept only the exact result shape `Health_Checks::cache_backend()` emits.
+	 *
+	 * Doctor prints the message straight to a terminal, so this is a whitelist
+	 * rather than a sanitizer: the four keys and no others, the substrate's own
+	 * id and label, one of the three declared statuses, and exactly one message
+	 * of 1 to 512 bytes that is valid UTF-8 and carries no control, line- or
+	 * paragraph-separator character able to rewrite the surrounding output.
+	 *
+	 * @param mixed $result Decoded response body.
+	 * @return bool Whether the payload may be returned verbatim.
+	 */
 	private static function valid_result( mixed $result ): bool {
 		if ( ! \is_array( $result ) || \array_is_list( $result ) ) {
 			return false;
@@ -145,6 +195,13 @@ final class Health_Probe_Client {
 	/**
 	 * Classify a transport failure without surfacing its untrusted detail.
 	 *
+	 * The cURL text can carry a remote hostname or certificate subject, so the
+	 * message is chosen from the classification and never quotes the error. A
+	 * DNS, connection or TLS failure also warns about worker respawn, which
+	 * dials the same loopback. A timeout is classified first and stays silent
+	 * about respawn: a slow answer is not evidence the loopback is broken.
+	 *
+	 * @param \WP_Error $error Transport failure from the loopback request.
 	 * @return HealthResult
 	 */
 	private static function transport_error( \WP_Error $error ): array {
@@ -161,6 +218,11 @@ final class Health_Probe_Client {
 	/**
 	 * Build a locally authored unknown-cache result.
 	 *
+	 * The status is `recommended`, not `critical`: an unverified cache is not a
+	 * proven-broken one, and doctor exits 0 on a recommendation. `critical`
+	 * belongs to `Health_Checks`, which reaches the backend and watches it fail.
+	 *
+	 * @param string $message Locally authored diagnostic, never remote text.
 	 * @return HealthResult
 	 */
 	private static function unknown( string $message ): array {

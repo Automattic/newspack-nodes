@@ -2,11 +2,12 @@
 /**
  * Table
  *
- * The keyed store (Tachikoma Table vocabulary), backed by memcache — the
- * documented divergence: Tachikoma's Table holds windowed in-memory buckets,
- * but this substrate's dashboards/REST/CLI have no efficient way to query a
- * live worker, so values land in memcache where ANY process reads them via
- * `lookup()`. TTL replaces bucket windows.
+ * The keyed store (Tachikoma Table vocabulary), backed by the shared cache
+ * tier — memcached, else APCu. That is the documented divergence: Tachikoma's
+ * Table holds windowed in-memory buckets, but this substrate's dashboards,
+ * REST handlers and CLI have no efficient way to query a live worker, so
+ * values land in the cache where ANY process reads them via `lookup()`. TTL
+ * replaces the bucket window.
  *
  * fill() stores KEY→VALUE write-through (the message passes on), so the
  * table composes mid-graph: `… → Table → …`. Keyless messages pass through
@@ -15,11 +16,13 @@
  * how a caller stays out of the key convention's business. Nothing about them
  * needs a graph: `Table_Node::table( $ns )` builds one anywhere.
  *
- * An OPTIONAL accumulator tier holds values a caller is still folding into,
- * bringing back Tachikoma's buckets as a tier rather than as the store. It is
- * off by default because a table is a cross-process source of truth and held
- * state is not: nothing another process writes touches it, so opting in
- * buys speed and pays bounded staleness. See arguments().
+ * Two tiers hang off that store, both off until a caller opts in. The
+ * ACCUMULATOR holds values a caller is still folding into, bringing back
+ * Tachikoma's buckets as a tier rather than as the store: a table is a
+ * cross-process source of truth and held state is not, so opting in buys speed
+ * and pays bounded staleness. The BACKING is the durable system of record a
+ * miss falls through to, which makes the table a cache of that record rather
+ * than the record itself (ADR-18). See accumulator() and backed_by().
  *
  * @package Newspack_Nodes
  */
@@ -29,13 +32,16 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * Table node.
+ * Table node — `make_node Table <name> <namespace> [ <ttl> ]`.
  */
 class Table_Node extends Node {
 	use Schema_Reflection;
 
+	/** Key scope. Every entry key derives from it, so changing it orphans the table. */
 	private string $namespace = '';
-	private int $ttl          = 0;
+
+	/** Lifetime in seconds applied to every write; 0 means no expiry. */
+	private int $ttl = 0;
 
 	/** In-memory accumulator, or null until accumulator() opts in. */
 	private ?LRU_Cache $buffer = null;
@@ -44,11 +50,17 @@ class Table_Node extends Node {
 	 * Durable system of record behind this table, or null until backed_by()
 	 * opts in. Invoked with the keys a read missed on.
 	 *
-	 * @var (\Closure(list<string>): array<array-key,array{value: mixed, ttl?: int}>)|null
+	 * @var (\Closure(list<string>): array<array-key,array{value: mixed,ttl?: int}>)|null
 	 */
 	private ?\Closure $backing = null;
 
-	/** Tachikoma-parity: no-arg ctor. Wires the sibling :config interpreter that serves `get` / `rm`. */
+	/**
+	 * Wire the sibling `:config` interpreter that serves `get` and `rm`.
+	 *
+	 * Takes no arguments, for Tachikoma parity and because `make_node`
+	 * constructs first and calls `arguments()` after (ADR-11) — the namespace
+	 * and the TTL arrive there, not here.
+	 */
 	public function __construct() {
 		parent::__construct();
 		$this->auto_wire_interpreter();
@@ -66,7 +78,7 @@ class Table_Node extends Node {
 	 * @param list<string>|null $args
 	 * @return list<string>
 	 * @throws \InvalidArgumentException Without a namespace argument.
-	 * @throws \LogicException With no backing store (memcached or APCu).
+	 * @throws \LogicException With no cache backend (memcached or APCu).
 	 */
 	public function arguments( ?array $args = null ): array {
 		if ( null === $args ) {
@@ -85,6 +97,18 @@ class Table_Node extends Node {
 		return $args;
 	}
 
+	/**
+	 * Store the message's KEY→VALUE write-through, then pass the message on.
+	 *
+	 * A TM_REQUEST is answered instead of forwarded: it is a question for this
+	 * node, not traffic in transit. Everything else stores when it carries a
+	 * KEY and forwards either way, so a table splices into a live path without
+	 * diverting it. An empty VALUE deletes the entry rather than storing an
+	 * empty one.
+	 *
+	 * @param array<int,mixed> $message The 7-field positional message array.
+	 * @throws \RuntimeException With no wired sink to forward through.
+	 */
 	public function fill( array $message ): void {
 		if ( Core::num_int( $message[ Message::TYPE ] ) & Message::TM_REQUEST ) {
 			$this->handle_request( $message );
@@ -113,8 +137,9 @@ class Table_Node extends Node {
 	 * key replies TM_ERROR — a divergence from Tachikoma, which returns an
 	 * empty string and so cannot distinguish absent from stored-empty.
 	 *
-	 * `KEYS` and `STATS` are deliberately absent: both enumerate
-	 * Tachikoma's in-memory buckets, which the memcache backing cannot do.
+	 * `KEYS` and `STATS` are deliberately absent: both enumerate Tachikoma's
+	 * in-memory buckets, which the cache backing cannot do. Any other verb is
+	 * logged rate-limited and dropped without a reply.
 	 *
 	 * @param array<int,mixed> $message The TM_REQUEST.
 	 * @throws \RuntimeException With no wired sink to reply through.
@@ -145,14 +170,16 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * Read many keys, found-only, keyed by the caller's key.
+	 * Read many keys at once, returning only those found, under the caller's keys.
 	 *
 	 * One backend round trip for the whole set, so a caller resolving
-	 * a set of ids pays one `getMulti` rather than N reads.
+	 * a set of ids pays one `getMulti` rather than N reads. Whatever the cache
+	 * misses goes to the durable backing in one more call when one is installed.
 	 *
 	 * @api Batch readers (a dashboard resolving a page of ids).
-	 * @param list<string> $keys Entry keys.
-	 * @return array<string,mixed> Values for the keys that were present.
+	 * @param list<string> $keys Keys within the table's namespace.
+	 * @return array<string,mixed> Values for the keys the cache or the backing
+	 *                             held; an absent key is absent from the result.
 	 */
 	public function lookup_multi( array $keys ): array {
 		$entry_keys = [];
@@ -183,11 +210,11 @@ class Table_Node extends Node {
 	 * `Cache_Backend::shared_first()?->set( Table_Node::entry_key( … ) )` by
 	 * hand, which puts the key convention in every caller.
 	 *
-	 * Fails soft when the backend went away, as every read here does. The TTL
+	 * Fails soft when no backend answers, as every read here does. The TTL
 	 * is the table's, not the call's — one table, one lifetime.
 	 *
 	 * @api Non-graph writers store table values without a live worker.
-	 * @param string $key   Entry key.
+	 * @param string $key   Key within the table's namespace.
 	 * @param mixed  $value Value to store.
 	 * @return bool True when the backend accepted the write. A caller that
 	 *              shadows its writes durably must not record a refused one.
@@ -205,8 +232,9 @@ class Table_Node extends Node {
 	 * must know which key was refused re-sends the batch through `store()`.
 	 *
 	 * @api Batch writers (a stats flush merging many buckets at once).
-	 * @param array<array-key,mixed> $items Entry key => value. An all-digit key
-	 *                                      arrives as an int; the cast takes it back.
+	 * @param array<array-key,mixed> $items Key within the table's namespace =>
+	 *                                      value. An all-digit key arrives as an
+	 *                                      int; the cast takes it back.
 	 * @return bool True when the whole set landed; true for an empty set.
 	 */
 	public function store_multi( array $items ): bool {
@@ -223,7 +251,9 @@ class Table_Node extends Node {
 	/**
 	 * Delete one entry. Verb-exposed (`rm <key>`).
 	 *
-	 * @param string $key Entry key.
+	 * @param string $key Key within the table's namespace.
+	 * @return string The verb's reply line, always `ok` — `forget()` cannot
+	 *                report whether the entry was there to delete.
 	 */
 	public function rm( string $key ): string {
 		$this->forget( $key );
@@ -233,7 +263,8 @@ class Table_Node extends Node {
 	/**
 	 * Fold a value into the accumulator. In memory only — `store()` persists.
 	 *
-	 * @param string $key   Entry key.
+	 * @api Callers folding many updates into a value before persisting it.
+	 * @param string $key   Key within the table's namespace.
 	 * @param mixed  $value Value to hold.
 	 * @throws \LogicException Without accumulator() first; dropping the value
 	 *                         silently would lose whatever it counted.
@@ -251,7 +282,10 @@ class Table_Node extends Node {
 	 * The fallback is what makes a cold key resumable: an entry evicted, or never
 	 * accumulated in this process, still folds onto what was last persisted.
 	 *
-	 * @param string $key Entry key.
+	 * @api Callers reading the value they are still folding into.
+	 * @param string $key Key within the table's namespace.
+	 * @return mixed The held value, the stored one when nothing is held, or null
+	 *               when neither tier has it.
 	 */
 	public function accumulated( string $key ): mixed {
 		$held = $this->buffer?->get( self::entry_key( $this->namespace, $key ) );
@@ -259,18 +293,21 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * Cross-process read: the whole point of the memcache backing.
+	 * Cross-process read: the whole point of the shared-cache backing.
 	 *
-	 * Only a HIT returns a value: an absent key stays absent, so a caller
-	 * polling one it expects to appear sees it as soon as memcache does.
+	 * Only a HIT answers from the cache. A miss, an expiry and a broken backend
+	 * all fall through to the durable backing when one is installed; with none,
+	 * an absent key stays absent, so a caller polling for one it expects sees it
+	 * as soon as the cache does. A miss is never remembered as a miss.
 	 *
 	 * @api Dashboards / REST / CLI read table values without a live worker.
-	 * @param string $key Entry key.
-	 * @return mixed The stored VALUE, or null when absent (or memcached is unconfigured).
+	 * @param string $key Key within the table's namespace.
+	 * @return mixed The stored VALUE, or null when no tier holds it — a host with
+	 *               no cache backend at all included.
 	 */
 	public function lookup( string $key ): mixed {
 		$entry_key = self::entry_key( $this->namespace, $key );
-		// read() carries the status the raw handle needed getResultCode() for.
+		// read() reports hit, miss and error; a null value alone cannot.
 		$read = Cache_Backend::shared_first()?->read( $entry_key );
 		if ( Cache_Backend::READ_ERROR === ( $read['status'] ?? null ) ) {
 			// Null reads as "empty table" downstream; say the backend broke.
@@ -284,7 +321,8 @@ class Table_Node extends Node {
 
 	/**
 	 * Fill missed keys from the durable backing and store each, so the next
-	 * read hits the table instead of the system of record.
+	 * read hits the table instead of the system of record. A table with no
+	 * backing recovers nothing, which is what makes a miss stay a miss.
 	 *
 	 * An entry may carry its OWN remaining lifetime. That does not reopen the
 	 * table's "one table, one lifetime" rule, which governs what a CALLER
@@ -324,7 +362,8 @@ class Table_Node extends Node {
 	 * Draining does NOT clear: a caller that persists whole values is idempotent
 	 * across drains, and clearing would discard accumulation between them.
 	 *
-	 * @return iterable<string,mixed>
+	 * @api Drains persisting every held value at once.
+	 * @return iterable<string,mixed> Held values, under the caller's keys.
 	 */
 	public function accumulating(): iterable {
 		if ( null === $this->buffer ) {
@@ -340,7 +379,7 @@ class Table_Node extends Node {
 	 * Cross-process delete, for the same callers `store()` serves.
 	 *
 	 * @api Non-graph writers drop table entries without a live worker.
-	 * @param string $key Entry key.
+	 * @param string $key Key within the table's namespace.
 	 */
 	public function forget( string $key ): void {
 		$entry_key = self::entry_key( $this->namespace, $key );
@@ -348,9 +387,14 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * Memcache key for one entry. Site-scoped through Cache_Backend: a table is
-	 * a cross-container source of truth for THIS install, and a co-tenant
+	 * Cache key for one entry. Site-scoped through Cache_Backend: a table is a
+	 * cross-container source of truth for THIS install, and a co-tenant
 	 * install's table of the same name is a different table.
+	 *
+	 * @api Callers reaching an entry through Cache_Backend directly.
+	 * @param string $ns  Table namespace.
+	 * @param string $key Key within that namespace.
+	 * @return string The scoped key both tiers store the entry under.
 	 */
 	public static function entry_key( string $ns, string $key ): string {
 		return Cache_Backend::site_key( "table:{$ns}:{$key}" );
@@ -360,8 +404,10 @@ class Table_Node extends Node {
 	 * Opt in to an in-memory accumulator tier, and set its bounds.
 	 *
 	 * @api Callers folding many updates into a value before persisting it.
-	 * @param int $bucket_size Entries per bucket before rotation.
-	 * @param int $num_buckets Buckets retained; capacity is roughly the product.
+	 * @param int $bucket_size Entries per bucket before rotation; LRU_Cache
+	 *                         clamps it to at least 1.
+	 * @param int $num_buckets Buckets retained, clamped to 1..100; capacity is
+	 *                         roughly the product.
 	 * @return self For chaining off table().
 	 */
 	public function accumulator( int $bucket_size, int $num_buckets ): self {
@@ -383,7 +429,7 @@ class Table_Node extends Node {
 	 * to store under the table's own.
 	 *
 	 * @api Callers whose table fronts a durable source (a partition, an option).
-	 * @param \Closure(list<string>): array<array-key,array{value: mixed, ttl?: int}> $backing Durable reader.
+	 * @param \Closure(list<string>): array<array-key,array{value: mixed,ttl?: int}> $backing Durable reader.
 	 *        A numeric-string key comes back int, so the shape is array-key.
 	 * @return self For chaining off table().
 	 */
@@ -392,7 +438,7 @@ class Table_Node extends Node {
 		return $this;
 	}
 
-	/** Drop everything the accumulator holds. */
+	/** Drop everything the accumulator holds; a no-op without accumulator(). */
 	public function reset(): void {
 		$this->buffer?->flush();
 	}
@@ -407,10 +453,12 @@ class Table_Node extends Node {
 	 * that lifetime visible at the call site instead of hidden in here.
 	 *
 	 * @api Non-graph readers and writers reach a table without a live worker.
-	 * @param string $ns     Table namespace.
-	 * @param int    $ttl    Entry TTL in seconds; 0 = no expiry.
+	 * @param string $ns  Table namespace.
+	 * @param int    $ttl Entry TTL in seconds; 0 = no expiry.
+	 * @return self A table with no sink, so `lookup()` / `store()` / `forget()`
+	 *              work and `fill()` does not.
 	 * @throws \InvalidArgumentException With an empty namespace.
-	 * @throws \LogicException With no backing store; a caller that treats a
+	 * @throws \LogicException With no cache backend; a caller that treats a
 	 *                         backend-less host as ordinary guards on
 	 *                         `Cache_Backend::shared_first()` first.
 	 */
@@ -420,6 +468,13 @@ class Table_Node extends Node {
 		return $table;
 	}
 
+	/**
+	 * Palette entry, argument form and the two `:config` verbs the auto-wired
+	 * interpreter dispatches. `has_target` is true because fill() forwards
+	 * every message it stores, so a table sits mid-graph with a next hop.
+	 *
+	 * @return array<string,mixed>
+	 */
 	public static function node_schema(): array {
 		return [
 			'category'    => 'Storage',

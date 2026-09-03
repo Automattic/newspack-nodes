@@ -12,9 +12,9 @@
  * is derived from the wall clock rather than from when this instance was
  * built, so a cache restored into a fresh process keeps its predecessor's
  * phase; and rotate_if_due() rolls once per elapsed window rather than once
- * per call, so a gap is repaid in one pass. Both come from Table.pm, and
- * without them a fleet whose workers recycle faster than the window (idle
- * exit at 30s against a 200s window) never aged anything out at all.
+ * per call, so a gap is repaid in one pass. Both come from Table.pm: without
+ * them a fleet whose workers recycle faster than the window — a 30s idle exit
+ * against a 200s window — ages nothing out at all.
  *
  * Every shape that uses it wants promotion. A WORKING SET (the event logger's
  * in-flight requests, keyed by request id) reads eviction as "this one never
@@ -44,7 +44,12 @@ namespace Newspack_Nodes;
  */
 class LRU_Cache {
 
-	/** @var int Upper clamp on num_buckets; caps how many buckets stay live. */
+	/**
+	 * Upper clamp on num_buckets. A miss walks every live bucket, so the
+	 * bucket count is what a lookup costs.
+	 *
+	 * @var int
+	 */
 	private const MAX_BUCKETS = 100;
 
 	/** @var int Max items per bucket. */
@@ -53,7 +58,7 @@ class LRU_Cache {
 	/** @var array<int,array<string,mixed>> Live buckets, keyed by bucket index. */
 	private array $buckets = [];
 
-	/** @var int Newest bucket index; monotonic, so an index is never reused. */
+	/** @var int Newest bucket index. It climbs monotonically; flush() restarts it at 0. */
 	private int $current = 0;
 
 	/** @var float Absolute-grid instant the next timed rotation comes due. */
@@ -80,16 +85,15 @@ class LRU_Cache {
 	}
 
 	/**
-	 * Get item from cache, promoting it to the newest bucket.
+	 * Read an item, promoting it to the newest bucket.
 	 *
-	 * Searches newest bucket first. A hit in an older bucket moves the entry
-	 * into the newest one, which resets its age and can itself trigger a
-	 * rotation — so a read may evict the oldest bucket. Promotion
-	 * turns that off.
+	 * Searches the newest bucket first. A hit in an older bucket moves the
+	 * entry into the newest one, which resets its age and can itself trigger a
+	 * rotation — so a read may evict the oldest bucket.
 	 *
 	 * @api Consumers read a working set one key at a time.
 	 * @param string $key Cache key.
-	 * @return mixed|null Value, or null when the key is absent.
+	 * @return mixed Value, or null when the key is absent.
 	 */
 	public function get( string $key ) {
 		$i = $this->bucket_of( $key );
@@ -99,8 +103,8 @@ class LRU_Cache {
 	/**
 	 * Read a key from a known bucket, promoting it to the newest one.
 	 *
-	 * Promotion resets the entry's age and can itself trigger a rotation, so a
-	 * read may evict the oldest bucket.
+	 * A hit in the newest bucket is already current, so it stays where it is;
+	 * only an older bucket's entry moves.
 	 *
 	 * @param int    $i   Bucket index bucket_of() returned.
 	 * @param string $key Cache key.
@@ -120,9 +124,11 @@ class LRU_Cache {
 	 * The newest live bucket holding the key, or null when it is absent.
 	 *
 	 * The one probe every read goes through, so a lookup walks the bucket list
-	 * once — a found/fetch pair walked it twice, and a batch paid that per key.
+	 * once. A separate found/fetch pair walks it twice, and a batch pays that
+	 * on every key.
 	 *
 	 * @param string $key Cache key.
+	 * @return int|null Bucket index, or null when the key is absent.
 	 */
 	private function bucket_of( string $key ): ?int {
 		foreach ( $this->live_indices() as $i ) {
@@ -139,7 +145,8 @@ class LRU_Cache {
 	 * Re-setting a key that still sits in an older bucket leaves that copy in
 	 * place, shadowed by this newer one — cleaning it here would put a bucket
 	 * walk on every write. get() returns the newer copy, delete() takes both,
-	 * and iterate() yields the key once; a read retires the shadow as it goes.
+	 * and iterate() yields the key once; the shadow itself goes when its own
+	 * bucket ages out.
 	 *
 	 * @param string $key   Cache key.
 	 * @param mixed  $value Value to store.
@@ -173,9 +180,10 @@ class LRU_Cache {
 	 *
 	 * Rolls once PER elapsed window, not once per call: a gap — a process that
 	 * was down, or a stretch with no ticks — is repaid in one pass, so a stalled
-	 * entry ages out on wall-clock time rather than on how often we looked.
+	 * entry ages out on wall-clock time rather than on how often a caller looks.
 	 * num_buckets rolls already empty the cache, so a longer gap has nothing
 	 * left to drop and the count caps there.
+	 *
 	 * @api Sibling plugins roll the window from their own tick.
 	 */
 	public function rotate_if_due(): void {
@@ -197,8 +205,8 @@ class LRU_Cache {
 	 * Open a fresh newest bucket, evicting the oldest one past capacity.
 	 *
 	 * Leaves the time grid alone — a capacity rotation is not a window, and
-	 * pushing the boundary each time one fires let a busy cache defer the timed
-	 * roll indefinitely.
+	 * pushing the boundary each time one fires would let a busy cache defer the
+	 * timed roll indefinitely.
 	 */
 	private function force_rotate(): void {
 		++$this->current;
@@ -213,8 +221,8 @@ class LRU_Cache {
 	/**
 	 * Evict a bucket, calling the on_evict callback for each item.
 	 *
-	 * Without a callback the items simply vanish, so a cache that treats
-	 * eviction as a signal must register one via with_timed_rotation().
+	 * Without a callback the items vanish, so a cache that reads eviction as a
+	 * signal registers one through with_timed_rotation().
 	 *
 	 * @param int $index Bucket index to evict.
 	 */
@@ -237,10 +245,10 @@ class LRU_Cache {
 	 * capacity evictions too — pass a large interval to get the callback
 	 * without timed rotation.
 	 *
+	 * @api Sibling plugins arm the wall-clock window and its evict callback.
 	 * @param float    $seconds  Seconds between rotations.
 	 * @param callable $on_evict Called with (key, value) for each evicted item.
 	 * @return self This cache, for chaining onto the constructor.
-	 * @api Sibling plugins arm the wall-clock window and its evict callback.
 	 */
 	public function with_timed_rotation( float $seconds, callable $on_evict ): self {
 		$this->rotate_interval = $seconds;
@@ -251,7 +259,7 @@ class LRU_Cache {
 		return $this;
 	}
 
-	/** The per-tick cached clock, falling back to a live read. */
+	/** The cached per-tick clock, falling back to a live read outside a drain loop. */
 	private function clock(): float {
 		return Core::$now ?: Core::right_now();
 	}
@@ -261,9 +269,14 @@ class LRU_Cache {
 	 *
 	 * The grid is a pure function of the wall clock, so a process that replaces
 	 * another lands on the boundary its predecessor would have used. That is
-	 * what makes the phase survive a restart with nothing persisted. Table.pm
-	 * snaps to localtime components; the epoch grid is the same idea without a
-	 * DST discontinuity, and nothing here reads a boundary as a label.
+	 * what makes the phase survive a restart with nothing persisted. Timers ride
+	 * the same clock-derived grid (ADR-17); this one carries no phase offset,
+	 * because no cadence here has to align with another. Table.pm snaps to
+	 * localtime components; the epoch grid is the same idea without a DST
+	 * discontinuity, and nothing here reads a boundary as a label.
+	 *
+	 * @param float $after Instant to search forward from.
+	 * @return float The boundary strictly after it.
 	 */
 	private function next_boundary( float $after ): float {
 		return ( \floor( $after / $this->rotate_interval ) + 1 ) * $this->rotate_interval;
@@ -280,8 +293,8 @@ class LRU_Cache {
 	 * on_evict does not fire for a delete — eviction means the cache dropped
 	 * the entry, not that a caller retired it.
 	 *
-	 * @param string $key Cache key.
 	 * @api Sibling plugins drop a key they have finished with.
+	 * @param string $key Cache key.
 	 */
 	public function delete( string $key ): void {
 		foreach ( $this->live_indices() as $i ) {
@@ -295,12 +308,13 @@ class LRU_Cache {
 	 *
 	 * Each key is yielded once, with the value get() would return: a key
 	 * re-set across a rotation still has its shadowed older copy, and yielding
-	 * both made a sweep process a retired value and a count over-report.
+	 * both would make a sweep process a retired value and over-report a count.
 	 *
 	 * Keys are `array-key`, not `string`: buckets are PHP arrays, so a key that
 	 * is an all-digit string comes back an int. A `url_hash` is 12 hex chars,
-	 * which is all-digits roughly one time in 290 — callers must handle both,
-	 * and narrowing this to `string` makes those guards look like dead code.
+	 * which PHP reads as an int roughly one time in 300 — callers must handle
+	 * both, and narrowing this to `string` makes those guards look like dead
+	 * code.
 	 *
 	 * @api Consumers walk a working set (in-flight requests, per-URL accumulators).
 	 * @return \Generator<array-key,mixed> Yields value keyed by cache key.
@@ -323,8 +337,8 @@ class LRU_Cache {
 	 *
 	 * Indices are monotonic and ride through get_state(), so `current` climbs
 	 * for the life of the log while only num_buckets buckets exist. Counting
-	 * down from it made a miss cost the whole history — a live worker sat at
-	 * index 2053 holding three buckets.
+	 * down from it would make every miss walk that whole history — a live
+	 * worker holding three buckets sits at index 2053.
 	 *
 	 * @return list<int>
 	 */
@@ -374,7 +388,7 @@ class LRU_Cache {
 	 * fuller ones than bucket_size, stays oversized until successive
 	 * rotations trim it one bucket at a time.
 	 *
-	 * @api The read half of get_state().
+	 * @api Consumers restore a persisted working set at worker start.
 	 * @param array<string,mixed> $state State array from get_state().
 	 */
 	public function restore_state( array $state ): void {

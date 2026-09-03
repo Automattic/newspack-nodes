@@ -1,13 +1,22 @@
 /**
- * TopologyRow — one topology's UNFOLDED detail row, shared by the merged Overview
- * tab. The heading carries the name (live link when active) + per-partition pills
- * + source/health badges + a topology-level collapse chevron (folds the row back
- * to its compact summary) + the shared activate/restart/edit controls; the body
- * renders the live `TopologySection` subtree (or a "Stopped" row when inactive).
+ * TopologyRow — one topology's row on the hub's Overview board, folded or not.
  *
- * The topology-level fold (`onCollapseTopology`, whole-row expand/collapse) and
- * the within-tree node fold (`collapsed`/`onToggleFold`, threaded straight into
- * TopologySection) are SEPARATE concerns — don't conflate them.
+ * The heading is the same in both states: the reorder grip, the fold chevron,
+ * the name (a live Console link while the topology runs), one pill per
+ * partition, the liveness and health badges, the catch-up ETA, the provenance
+ * badge, and the shared activate/restart/edit controls. Unfolding adds the
+ * body: the live `TopologySection` subtree, or a "Stopped" line for an inactive
+ * topology. One heading serving both states is what keeps the compact summary
+ * and the expanded row from disagreeing about the same fleet.
+ *
+ * Two folds meet here and stay apart. The TOPOLOGY fold (`folded`, `onExpand`,
+ * `onCollapseTopology`) shows or hides this row's whole body; the within-tree
+ * NODE fold (`collapsed`, `onToggleFold`) is threaded straight through to
+ * `TopologySection` and never read here.
+ *
+ * `consoleHref` lives here as well, so this row and its embedder build every
+ * Console deep-link through one function rather than two spellings of the same
+ * query string.
  */
 
 import { memo } from '@wordpress/element';
@@ -22,7 +31,15 @@ import {
 } from '@newspack-nodes/shared/utils/formatters';
 import './styles/topology-row.scss';
 
-// Opens the hub Console tab; name/edit/isNew add ?topology/?edit/?new params.
+/**
+ * Build a deep-link into the hub's Console tab.
+ *
+ * @param {string}  name            Topology to open; omit it for a blank draft.
+ * @param {Object}  [options]       Which Console mode the link opens.
+ * @param {boolean} [options.edit]  Open this topology in the TSL editor.
+ * @param {boolean} [options.isNew] Open the editor on a new, unnamed topology.
+ * @return {string} A wp-admin-relative `admin.php?…` href.
+ */
 export const consoleHref = ( name, { edit = false, isNew = false } = {} ) => {
 	const params = new URLSearchParams( {
 		page: 'newspack-nodes-hub',
@@ -40,24 +57,49 @@ export const consoleHref = ( name, { edit = false, isNew = false } = {} ) => {
 	return `admin.php?${ params.toString() }`;
 };
 
-// Source → badge label (provenance: stock-only, user-only, user-shadows-stock).
+/**
+ * Provenance badge text per source: a topology a plugin ships, one the operator
+ * wrote, or an operator file shadowing a stock topology of the same name.
+ *
+ * @type {Object<string,string>}
+ */
 const SOURCE_LABELS = {
 	stock: __( 'stock', 'newspack-nodes' ),
 	user: __( 'user only', 'newspack-nodes' ),
 	both: __( 'user ▸ shadows stock', 'newspack-nodes' ),
 };
+
+/**
+ * Badge tone per source. Shadowing is the warning tone because the topology
+ * running is then not the one the plugin ships.
+ *
+ * @type {Object<string,string>}
+ */
 const SOURCE_TONES = {
 	stock: 'is-info',
 	user: 'is-neutral',
 	both: 'is-warning',
 };
 
-// Rolled-up topology health → heading label (dot + text via the scss).
+/**
+ * Heading label per rolled-up health state, which `useTopologyManager` derives:
+ * `stalled` when the server marked a worker's heartbeat stale, `behind` when a
+ * consumer needs a minute or more to catch up, else `ok`. The scss draws the
+ * dot; this is the text beside it.
+ *
+ * @type {Object<string,string>}
+ */
 const HEALTH_LABELS = {
 	ok: __( 'ok', 'newspack-nodes' ),
 	behind: __( 'behind', 'newspack-nodes' ),
 	stalled: __( 'stalled', 'newspack-nodes' ),
 };
+
+/**
+ * Badge tone per health state.
+ *
+ * @type {Object<string,string>}
+ */
 const HEALTH_TONES = {
 	ok: 'is-success',
 	behind: 'is-warning',
@@ -67,10 +109,14 @@ const HEALTH_TONES = {
 /**
  * Build the `TopologySection` model for one active topology's live status.
  *
+ * Wrapping the one graph in a single-entry map reuses the builder the whole
+ * fleet's tree already goes through, so a subtree cannot render differently
+ * here than it does there.
+ *
  * @param {string}  name   Topology name; keys the single-entry graph handed to `buildTopologySections`.
  * @param {?Object} status The topology's merged live status from `useTopologyManager` — `graph`, `workers`, `logs`.
- * @return {?Object} The section `{ topology, workers, tree }`, or null when the
- *   topology is inactive and carries no graph.
+ * @return {?Object} The section `{ topology, workers, tree }`, or null when
+ *   there is no live graph, which is what an inactive topology has.
  */
 export function sectionFor( name, status ) {
 	if ( ! status || ! status.graph ) {
@@ -95,26 +141,23 @@ export function sectionFor( name, status ) {
 
 /**
  * @typedef {Object} TopologyRowProps
- * @property {Object}          topology             Topology row from useTopologyManager.
- * @property {boolean}         [folded]             Render the heading only (▸ expand) vs heading + body (▾ collapse).
- * @property {Function}        onActivate           (name) => Promise.
- * @property {Function}        onDeactivate         (name) => Promise.
- * @property {Function}        onRestart            (name) => Promise.
- * @property {Function}        [onExpand]           (name) => void; unfold this row (folded chevron).
- * @property {Function}        [onCollapseTopology] (name) => void; fold this row (unfolded chevron).
- * @property {boolean}         [isDragging]         True while this row is the one being pointer-dragged.
- * @property {GripDownHandler} [onGripPointerDown]  Begin a pointer-drag from the grip.
- * @property {GripHandler}     [onGripPointerMove]  Pointer moved mid-drag (live reorder).
- * @property {GripHandler}     [onGripPointerUp]    End the pointer-drag (commit); also the cancel handler.
- * @property {Set}             [collapsed]          Within-tree node-fold set (unfolded only).
- * @property {Function}        [onToggleFold]       (key) => void within-tree node-fold toggler.
+ * @property {Object}                topology             One `useTopologyManager` row: `name`, `source`, `active`, `health`, `etaSeconds`, `num_partitions`, and the merged live `status`.
+ * @property {boolean}               [folded]             Render the heading only (▸ expand) vs heading + body (▾ collapse).
+ * @property {Function}              onActivate           (name) => void; fire-and-forget, since a refusal comes back through the hook's `onError` a tick later rather than as a rejected promise.
+ * @property {Function}              onDeactivate         (name) => void.
+ * @property {Function}              onRestart            (name) => void; restarts this topology's whole fleet.
+ * @property {Function}              [onExpand]           (name) => void; unfold this row (folded chevron).
+ * @property {Function}              [onCollapseTopology] (name) => void; fold this row (unfolded chevron).
+ * @property {boolean}               [isDragging]         True while this row is the one being pointer-dragged.
+ * @property {GripDownHandler}       [onGripPointerDown]  Begin a pointer-drag from the grip; omitting it renders no grip.
+ * @property {GripHandler}           [onGripPointerMove]  Pointer moved mid-drag (live reorder).
+ * @property {GripHandler}           [onGripPointerUp]    End the pointer-drag (commit); also the cancel handler.
+ * @property {Set}                   [collapsed]          Within-tree node-fold set (unfolded only).
+ * @property {(key: string) => void} [onToggleFold]       Within-tree node-fold toggler.
  */
 
 /**
- * One topology's row — the SAME heading whether folded (compact summary) or
- * unfolded (heading + live detail tree); only the chevron (▸/▾) and the presence
- * of the body differ. So the folded summary and the expanded view share one set
- * of per-partition pills + badges, and each partition shows its OWN uptime.
+ * One topology's row: the heading always, the body only when unfolded.
  *
  * The props live in the `TopologyRowProps` typedef above: `memo()` hides the
  * inner function from a docblock on this declaration, so the type rides here.
@@ -146,7 +189,7 @@ const TopologyRow = memo( function TopologyRow( {
 	} = topology;
 	const section =
 		! folded && active ? sectionFor( name, topology.status ) : null;
-	// Per-partition process summary + the rolled-up ALL RUN / ALL DEAD badge.
+	// One summary per partition; the badges below roll them up.
 	const parts = active
 		? partitionSummaries( topology.status?.workers || [] )
 		: [];
@@ -154,16 +197,16 @@ const TopologyRow = memo( function TopologyRow( {
 	const up = parts.filter( ( p ) => p.status === 'running' ).length;
 	// @longform Count against the CONFIGURED partitions. A worker process that
 	// is gone entirely reports no row at all — it is absent, not `dead` — so
-	// using the reporting count as the denominator made a 4-partition topology
-	// running 2 workers read "ALL RUN". Falls back to the reporting count only
-	// when the row carries no configured count.
+	// the reporting count as the denominator reads "ALL RUN" on a 4-partition
+	// topology running 2 workers. Fall back to it only when the row carries no
+	// configured count.
 	const expected = numPartitions > 0 ? numPartitions : parts.length;
 	const allRunning = expected > 0 && up === expected;
 	const allDead =
 		parts.length > 0 && parts.every( ( p ) => p.status === 'dead' );
 	// Nothing to do is the feature working, not the crash ALL DEAD implies.
 	const allIdle = allDead && parts.every( ( p ) => p.idle );
-	// ETA to catch up — shown only when behind/stalled (sub-minute reads ok).
+	// Catch-up ETA, shown only while behind or stalled; under a minute is ok.
 	const eta = 'ok' !== health ? formatEtaSeconds( etaSeconds ) : '';
 
 	return (
@@ -216,7 +259,7 @@ const TopologyRow = memo( function TopologyRow( {
 						{ name }
 					</a>
 				) : (
-					// Stopped: plain label, not a live link (Edit deep-links).
+					// An inactive topology has no live Console to link to.
 					<span className="nodes-tm__name">{ name }</span>
 				) }
 				<span className="nodes-tm__parts">

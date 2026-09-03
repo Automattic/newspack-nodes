@@ -1,13 +1,16 @@
 <?php
 /**
- * CapsCliCommand: `wp nodes caps <status|install|uninstall>` and
+ * Caps_CLI_Command: `wp nodes caps <status|install|uninstall>` and
  * `wp nodes hub-user <login>`.
  *
- * The operator half of `Roles`. `install` swaps the capability map from
- * `manage_options` to three real capabilities and grants all three to
- * administrators in one step; `hub-user` then creates the dedicated
- * least-privilege user the log aggregator authenticates as, so its
- * application password cannot restart the fleet or read the vault.
+ * The operator half of `Roles`, in the order an operator runs them. `install`
+ * swaps the capability map off `manage_options` onto three real capabilities,
+ * granting all three to every role that already holds `manage_options` so
+ * nobody loses what they could already do; `hub-user` then creates the
+ * dedicated least-privilege user the log aggregator authenticates as, so its
+ * application password cannot restart the fleet or read the vault. The
+ * reverse order is refused: before the swap, the hub role still resolves to
+ * `manage_options` and the credential would hold everything.
  *
  * @package Newspack_Nodes
  */
@@ -16,6 +19,9 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * The two operator verbs over `Roles`.
+ */
 class Caps_CLI_Command {
 
 	/**
@@ -23,8 +29,11 @@ class Caps_CLI_Command {
 	 *
 	 * `status` prints which WP capability each role resolves to. `install`
 	 * moves the three roles off `manage_options` onto real capabilities,
-	 * granting them to administrators and creating the `newspack_nodes_hub`
-	 * role (read + tune). `uninstall` reverses both.
+	 * granting them to every role that already holds `manage_options` and
+	 * creating the `newspack_nodes_hub` role (read + tune). `uninstall`
+	 * reverses both. Every action ends by printing the resulting map, so an
+	 * install shows what it left behind; any other word is refused rather
+	 * than reported as status, because a typo must not read as the ask.
 	 *
 	 * ## OPTIONS
 	 *
@@ -69,6 +78,10 @@ class Caps_CLI_Command {
 	/**
 	 * Create (or re-role) the dedicated aggregator user and issue it an
 	 * application password.
+	 *
+	 * Refused until `wp nodes caps install` has run, since the hub role
+	 * resolves to `manage_options` until then. An existing user is converted
+	 * rather than added to: its other roles are removed.
 	 *
 	 * The password is printed ONCE and never stored here — copy it into the
 	 * hub's Vault entry for this spoke. The user holds read + tune and nothing

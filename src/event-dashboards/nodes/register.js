@@ -1,4 +1,11 @@
-// Register dashboard node classes so interpreter.makeNode can create them.
+/**
+ * The Event Dashboards bundle's node classes, bound to their `make_node` names.
+ *
+ * A name and its class are declared together here: importing this file enters
+ * the names in the browser interpreter's class table, and importing `views`
+ * hands a hook the class itself.
+ */
+
 import { CommandInterpreterNode } from '../../runtime/command-interpreter-node';
 import { registerSliceViews } from '@newspack-nodes/shared/nodes/slice-view-node';
 import { JobstatsViewNode } from './jobstats-view-node';
@@ -9,7 +16,12 @@ import { SettingsAuditViewNode } from './settings-audit-view-node';
 import { WorkerStatusTransformNode } from './worker-status-transform-node';
 import { WorkerStatusViewNode } from './worker-status-view-node';
 
-// Views that own more than a slice — a ring buffer, a timer, their own fill().
+/**
+ * The classes written out rather than declared through `sliceView()`: views
+ * that own more than a slice — a ring buffer, a timer, their own `fill()` —
+ * plus the Worker Status transform, which sits on the graph edge ahead of its
+ * view rather than owning a slice at all.
+ */
 const OWN_CLASSES = {
 	JobstatsView: JobstatsViewNode,
 	PartitionViewerView: PartitionViewerViewNode,
@@ -22,12 +34,15 @@ const OWN_CLASSES = {
 CommandInterpreterNode.registerNodeClasses( OWN_CLASSES );
 
 /**
- * Every view this dashboard set owns, by name.
+ * Every node class this dashboard set owns, by name.
  *
- * @type {Object<string,any>} Registration is for TSL and the
- * palette; a hook builds its own graph by handing the CLASS to `makeNode`,
- * because the name map is a per-bundle static and a hub tab runs against
- * whichever bundle's interpreter it was handed.
+ * A name serves the text path — TSL, the console palette, `make_node` typed
+ * into the REPL. A hook builds its graph by handing `makeNode` the CLASS out of
+ * this map instead, because the name table is a per-bundle static and the
+ * devtools hub mounts these tabs against whichever bundle's interpreter it was
+ * handed ([ADR-16](../../../docs/architecture-decisions.md)).
+ *
+ * @type {Object<string,any>}
  */
 export const views = {
 	...OWN_CLASSES,

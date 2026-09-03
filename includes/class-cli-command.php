@@ -1,6 +1,12 @@
 <?php
 /**
- * Cli_Command: WP-CLI command wrapper for `wp nodes status` and `wp nodes cli`.
+ * The `wp nodes` command root and the `wp nodes cli` REPL.
+ *
+ * WP-CLI registers this class as the whole `nodes` group, so the class docblock
+ * below is the group's help text; every other subcommand is registered from its
+ * own class. The one command implemented here is `cli`, which assembles a node
+ * graph and hands it to `Event_Framework`. The REPL is therefore built out of
+ * the same substrate a worker runs, not a read-eval-print loop of its own.
  *
  * @package Newspack_Nodes
  */
@@ -47,7 +53,8 @@ class CLI_Command {
 	public static ?\Closure $stdin = null;
 
 	/**
-	 * Resolved terminal policy: `[ stdin stream, is_tty, has_readline ]`.
+	 * Resolved terminal policy: `[ stdin stream, is_tty, has_readline ]`. Null
+	 * until `terminal()` derives it, which it does exactly once.
 	 *
 	 * @var array{0:resource,1:bool,2:bool}|null
 	 */
@@ -67,8 +74,8 @@ class CLI_Command {
 	 *     wp nodes cli firehose-workers.p0
 	 *
 	 * @api WP-CLI subcommand `wp nodes cli` — invoked by WP-CLI via reflection, not called in PHP.
-	 * @param array<int,string>   $args       Positional arguments.
-	 * @param array<string,mixed> $assoc_args Associative arguments.
+	 * @param array<int,string>   $args       Positionals. Empty opens bare mode; `$args[0]` is the worker id otherwise.
+	 * @param array<string,mixed> $assoc_args Flags. Unused — `cli` declares none, and WP-CLI passes the map regardless.
 	 */
 	public function cli( array $args, array $assoc_args ): void {
 		Bootstrap::ensure_runtime_wired();
@@ -77,7 +84,18 @@ class CLI_Command {
 	}
 
 	/**
-	 * Drive the REPL via the event loop until STDIN EOF. Readline on a TTY, fgets otherwise.
+	 * Drive the REPL from the drain loop until stdin reaches EOF, reading through
+	 * readline on a TTY and `fgets` otherwise.
+	 *
+	 * The reader is a timer-driven node rather than a blocking `while ( fgets() )`
+	 * loop, so the one drain that services the graph's timers, the IPC Consumer
+	 * and any cURL handles polls the keyboard as well. A blocking read stalls all
+	 * of them between keystrokes, and an attached session would then render a
+	 * worker's replies only when the operator happened to press a key.
+	 *
+	 * @param Shell_Node   $shell  The anonymous parser: the reader's sink, and the prompt it renders.
+	 * @param Dumper_Node  $dumper `_output`, whose completion and EOF hooks are wired back to the reader here.
+	 * @param TTY_Out_Node $stdout `_stdout`, the writer the reader puts its prompts through.
 	 */
 	private function run_repl( Shell_Node $shell, Dumper_Node $dumper, TTY_Out_Node $stdout ): void {
 		[ $stdin, $is_tty, $has_readline ] = $this->terminal();
@@ -116,10 +134,17 @@ class CLI_Command {
 	}
 
 	/**
-	 * Build the REPL graph + log the mode line, returning [$shell, $dumper, $stdout] for run_repl.
+	 * Resolve the mode, build the graph, and stash the summary the `status`
+	 * builtin prints on request.
 	 *
-	 * @param array<int,string> $args WP_CLI positional arguments. Empty = bare mode; else $args[0] is the worker id.
-	 * @return array{0:Shell_Node,1:Dumper_Node,2:TTY_Out_Node}
+	 * Resolving the worker's IPC paths comes before any node is constructed, so an
+	 * unknown worker id is refused by `WP_CLI::error` while the failure is still a
+	 * single line. The summary is stashed instead of printed for the reason the
+	 * prompts and the trailing newline are suppressed off a TTY: a piped session
+	 * emits what the script asked for and nothing else.
+	 *
+	 * @param array<int,string> $args WP-CLI positionals. Empty opens bare mode; `$args[0]` is the worker id otherwise.
+	 * @return array{0:Shell_Node,1:Dumper_Node,2:TTY_Out_Node} The nodes `run_repl()` drives.
 	 */
 	private function prepare_repl( array $args ): array {
 		// Refuse root: root cli makes IPC dirs root-owned, locks out non-root.
@@ -158,9 +183,26 @@ class CLI_Command {
 	}
 
 	/**
-	 * Build the REPL node graph (bare: _shell → interpreter → _router → _output; attached adds IPC nodes).
+	 * Build the REPL node graph: the same local nodes in both modes, plus an IPC
+	 * pair when attached.
 	 *
-	 * @param array{input:string,output:string,type:string,partition:int}|null $ipc
+	 * The anonymous Shell sinks into the `_shell` console tap, which sinks into
+	 * `_command_interpreter`, which sinks into `_router`. `_output` (the Dumper)
+	 * and `_stdout` (the terminal writer) sink into the interpreter too and are
+	 * reached by PATH rather than down a sink chain: the Shell stamps
+	 * `FROM=_output/<pid>`, a reply comes back with TO=FROM and lands on the
+	 * Dumper, and the Dumper's `target` carries the rendered line to `_stdout`.
+	 * That is ADR-7 — steer with `target`, never with a bespoke sink chain.
+	 *
+	 * Attaching adds a `Partition_Node` named after the worker, which writes
+	 * commands into the worker's input IPC dir, and a `Consumer_Node` tailing the
+	 * output dir into an anonymous relay targeting `_output`. The Shell's sink is
+	 * untouched; setting `path` to the worker id is the whole cd, and it is what
+	 * puts `TO={worker-id}` on a default command so `_router` hands it to the
+	 * Partition instead of running it locally.
+	 *
+	 * @param bool                                                             $attached True selects attached mode; the IPC pair needs `$ipc` non-null too.
+	 * @param array{input:string,output:string,type:string,partition:int}|null $ipc      IPC paths from `CLI::attach_to_worker()`; null in bare mode.
 	 * @return array{0:Shell_Node,1:Dumper_Node,2:TTY_Out_Node}
 	 */
 	private function build_repl_graph( bool $attached, ?array $ipc ): array {
@@ -173,7 +215,7 @@ class CLI_Command {
 		$interpreter->name( Node_Names::COMMAND_INTERPRETER );
 		$interpreter->sink( $router );
 
-		// `_stdout`: terminal writer; Dumper reaches via target/TO (Rule #2).
+		// `_stdout`: terminal writer; Dumper reaches via target/TO (ADR-7).
 		$stdout = new TTY_Out_Node();
 		$stdout->name( Node_Names::STDOUT );
 		$stdout->sink( $interpreter );
@@ -233,9 +275,9 @@ class CLI_Command {
 	/**
 	 * The stdin stream and the readline policy it implies, derived ONCE.
 	 *
-	 * The `$stdin` seam is documented as reassignable and hands back a FRESH
-	 * stream per call, so a second derivation probes a resource nobody drains —
-	 * the graph and the reader would then disagree about prompts and readline.
+	 * A test may point the `$stdin` seam at a closure that opens a FRESH stream
+	 * per call, so a second derivation would probe a resource nobody drains and
+	 * leave the graph and the reader disagreeing about prompts and readline.
 	 *
 	 * @return array{0:resource,1:bool,2:bool} `[ stdin, is_tty, has_readline ]`.
 	 */

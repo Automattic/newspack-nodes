@@ -1,15 +1,24 @@
 /**
- * TopicsChart — one Tachikoma-style Topics panel (Message Rate / Byte Rate /
- * Backlog): a d3 multi-series overlaid-area time chart with X/Y axes, an
- * interactive hover tooltip, and a ranked color legend. Built on the SHARED
- * charting infra (`@newspack-nodes/shared/hooks/useTimeChart`) the event-logger
- * dashboards use — same grid/legend/colors/mouseover — so this is a thin
- * renderer modeled on the event-logger's `CategoryTimeChart`.
+ * One Topics panel: a d3 chart overlaying each topic's area on a shared time
+ * axis, ranked by peak, with X/Y axes, a hover tooltip and a color legend.
  *
- * Fed by `topicChartSeries`: `{ [topic]: { points:[{ts,value}], max, avg } }`
- * (ts in seconds), plus a `fillMode` from `fillModeForMetric`. To draw + hover
- * cleanly `buildAlignedSeries` snaps every topic onto ONE epoch-aligned bucket
- * grid and fills empty buckets per that mode (LEVEL gauges hold, rates zero).
+ * Nothing here knows which metric it draws, so one component serves the
+ * Overview dashboard's four panels (message rate, byte rate, backlog, cache
+ * size), the Jobs dashboard's four, and the debug overlay's two. The metric
+ * arrives as data: the `series` to draw, the `formatValue` its axis ticks and
+ * tooltip rows print through, and the `fillMode` saying how a bucket aggregates
+ * its samples and what an empty one holds. `topicChartSeries` builds the series
+ * on the dashboards, `overviewChartSeries` in the overlay.
+ *
+ * The frame, grid, palette, legend and tooltip belong to the shared
+ * `@newspack-nodes/shared/hooks/useTimeChart` every dashboard chart draws
+ * through, which leaves this file the panel-specific half: the aligned model,
+ * the areas and the themed colors.
+ *
+ * `buildAlignedSeries` snaps every topic onto ONE epoch-aligned bucket grid
+ * first, because each worker runs its own `Topic_Probe` on an independent 15s
+ * phase and the raw union of their sample instants leaves each topic gapped at
+ * every other topic's instant.
  */
 
 import { memo, useCallback, useMemo, useRef } from '@wordpress/element';
@@ -26,22 +35,36 @@ import { buildAlignedSeries } from './buildAlignedSeries';
 import { resolveChartPalette } from './resolveChartPalette';
 import { useThemeToken } from './useThemeToken';
 
+/** @typedef {import('@newspack-nodes/shared/utils/axis-ticks').AxisFormatter} AxisFormatter */
+
+/** Total SVG height of one panel, in pixels, axis margins included. */
 const HEIGHT = 200;
-// Panel ~1800px wide; denser than this is sub-pixel. Caps the d3 redraw cost.
+
+/**
+ * Hard cap on the axis length `buildAlignedSeries` produces.
+ *
+ * A panel is about 1800px wide, so a denser axis is sub-pixel: the extra points
+ * buy nothing but d3 redraw time.
+ */
 const MAX_POINTS = 1000;
 
-// Memoized: d3-driven; Overview re-renders each drag frame, stable series skip.
-
-// JSDoc rides the inner function: on the const, memo() infers props as `{}`.
 export const TopicsChart = memo(
 	/**
 	 * One Topics panel: ranked overlaid areas over a shared aligned time axis.
 	 *
-	 * @param {Object}                 props             Component props.
-	 * @param {string}                 props.title       Panel heading, e.g. "Topics Message Rate".
-	 * @param {?Object}                props.series      `{ [topic]: { points:[{ts,value}], max, avg } }` from `topicChartSeries` (ts in seconds).
-	 * @param {(value:number)=>string} props.formatValue Formats a value for the Y-axis ticks and the tooltip rows.
-	 * @param {Object}                 [props.fillMode]  Fill/aggregate mode from `fillModeForMetric`; RATE zero-fill when omitted.
+	 * The JSDoc rides this inner function because `memo()` on the const infers
+	 * the props as `{}`. The `memo` keeps the redraw off unrelated renders: a
+	 * panel rebuilds its whole SVG from scratch every time, while Overview
+	 * re-renders on each poll tick, fold, expand and reorder. Callers hand over
+	 * props stable across those renders — a memoized `series`, module-level
+	 * formatters, the shared `fillModeForMetric` constants — so a panel whose
+	 * own inputs did not move skips the draw entirely.
+	 *
+	 * @param {Object}        props             Component props.
+	 * @param {string}        props.title       Panel heading, e.g. "Topics Message Rate".
+	 * @param {?Object}       props.series      `{ [topic]: { points:[{ts,value,weight}], max, avg } }` (ts in seconds); empty or absent wipes the panel.
+	 * @param {AxisFormatter} props.formatValue Formats a value for the Y-axis ticks and the tooltip rows; a `tickValues` property on it ticks the axis in its own unit.
+	 * @param {Object}        [props.fillMode]  Fill/aggregate mode from `fillModeForMetric`; an omitted mode zero-fills and re-divides per bucket, as a rate wants.
 	 * @return {import('react').ReactElement} The rendered panel.
 	 */
 	function TopicsChart( { title, series, formatValue, fillMode } ) {
@@ -54,6 +77,15 @@ export const TopicsChart = memo(
 		const themeRef = useRef( null );
 		const theme = useThemeToken();
 
+		/**
+		 * Redraw the panel from scratch. `openFrame` wipes the container, then
+		 * the scales, areas, axes, tooltip and legend are rebuilt over the
+		 * aligned model; d3 holds no update join, so there is nothing to diff
+		 * against. The theme's `--chart-*` tokens are resolved per pass rather
+		 * than captured, which is why re-running this is all a skin needs.
+		 *
+		 * @param {Object} refs The container, tooltip and mouse refs `useTimeChart` owns.
+		 */
 		const renderFn = useCallback(
 			( refs ) => {
 				if ( ! refs.containerRef.current ) {
@@ -67,7 +99,7 @@ export const TopicsChart = memo(
 								.getPropertyValue( name )
 					  )
 					: PALETTE;
-				// Empty series (after a stats reset): wipe prior render, stop.
+				// Empty series: wipe the render so a reset clears the panel.
 				if ( chartState.series.length === 0 ) {
 					d3.select( refs.containerRef.current )
 						.selectAll( '*' )
@@ -151,7 +183,7 @@ export const TopicsChart = memo(
 					width
 				);
 			},
-			// `theme` is the re-resolution trigger; changes renderFn identity.
+			// Unused below: `theme` re-identifies renderFn on a skin change.
 			// eslint-disable-next-line react-hooks/exhaustive-deps
 			[ chartState, formatValue, theme ]
 		);

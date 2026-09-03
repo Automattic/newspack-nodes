@@ -1,32 +1,27 @@
 <?php
 /**
- * HTTP_Out: non-blocking outbound command egress. The push-side counterpart of
- * HTTP_In. fill() buffers each message verbatim (all 7 fields cross) and arms a
- * one-shot timer; on the next drain tick fire() POSTs the whole batch as a single
- * JSONL body to a remote spoke's /command on the Event_Framework's cURL-multi
- * (neither fill() nor fire() blocks). on_curl_message() forwards each reply Message
- * in the 200 body to $this->sink — replies self-route by TO=FROM through
- * _command_interpreter → _router (modeled on src/runtime/http-out-node.js).
+ * HTTP_Out: non-blocking outbound command egress, the push-side counterpart of
+ * HTTP_In. `fill()` buffers each message verbatim — all seven fields cross —
+ * and arms a one-shot timer; on the next drain tick `fire()` POSTs the whole
+ * batch as one JSONL body to a remote spoke's `/command`, on the
+ * Event_Framework's cURL-multi, so neither `fill()` nor `fire()` blocks.
+ * `on_curl_message()` forwards each reply Message in a 200 body to the sink,
+ * where it self-routes by TO=FROM through `_command_interpreter` and then
+ * `_router` (ADR-7). The JS mirror is `src/runtime/http-out-node.js`.
  *
- * Batching one POST per tick (not per fill) lets settings-sync emit N per-setting
- * commands on one timer tick and have them ride to the spoke in a single request.
+ * Batching one POST per tick rather than one per fill lets settings-sync emit N
+ * per-setting commands on a single timer tick and ride to the spoke together.
  *
- * Credentials resolve from the Vault by server id; Basic Auth (or legacy Bearer
- * token). Never takes a raw URL/credential.
+ * Credentials resolve from the Vault by server id: Basic Auth, or a Bearer
+ * token when the entry carries no username and password. No caller-supplied url
+ * or secret reaches the wire.
  *
- * CLASS API (request scope, blocking). `probe_command()` is the same protocol
- * over one synchronous request, for an operator action that must return a
- * verdict now — Vault_CI `test`, Aggregator_CI `probe`. Same idiom as
- * `Topic_Node`/`Partition_Node`: the Node owns its domain and exposes a
- * request-scope entry point beside the event-loop one.
- *
- * This lived in `Service_CI_Node` — the abstract verb-table base — where ten of
- * the twelve service interpreters inherited a spoke HTTP client they never
- * call, along with a publicly reassignable `$http_call` on the base of every
- * one of them. It was also a SECOND copy of this protocol, already drifted: it
- * never learned the Bearer token this side accepts, so a token-only spoke was
- * reachable by the graph and unreachable by the operator's own connectivity
- * check. One owner, two transports.
+ * `probe_command()` runs the same protocol over one synchronous request, for an
+ * operator action that must return a verdict now — Vault_CI `test`,
+ * Aggregator_CI `probe`. Same idiom as `Topic_Node` and `Partition_Node`: the
+ * Node owns its domain and exposes a request-scope entry point beside the
+ * event-loop one. One owner is what keeps the two transports agreeing on what a
+ * stored credential means and on how a session is established.
  *
  * @package Newspack_Nodes
  */
@@ -38,22 +33,25 @@ namespace Newspack_Nodes;
 class HTTP_Out_Node extends Timer_Node {
 	use Schema_Reflection;
 
-	/** Outbound request timeout (seconds). */
+	/** Transfer timeout for one non-blocking POST, in seconds; the blocking class API bounds itself tighter. */
 	public const REQUEST_TIMEOUT = 15;
 
 	/** Cap on a spoke's reply body; it is buffered into the PHP heap. */
 	public const MAX_REPLY_BYTES = 8388608;
 
-	/** Spoke endpoints appended to the Vault url. */
+	/**
+	 * Spoke endpoints appended to the Vault url. `COMMAND_PATH` takes the
+	 * batched JSONL body; `AUTH_PATH` issues the command session that signs it.
+	 */
 	public const COMMAND_PATH = '/wp-json/newspack-nodes/v1/command';
 	public const AUTH_PATH    = '/wp-json/newspack-nodes/v1/auth';
 
 	/**
 	 * `wp_remote_post` seam for the BLOCKING class API. Lazily defaulted at the
-	 * call site (a Closure can't be a constant-expression property default).
-	 * Tests reassign to capture outbound args + inject canned responses without
-	 * short-circuiting the URL composition and response classification around
-	 * it, so that path runs as real production code under test.
+	 * call site (a Closure cannot be a constant-expression property default).
+	 * Tests reassign it to capture the outbound args and inject a canned
+	 * response without short-circuiting the url composition and the response
+	 * classification around it, so that path runs as real production code.
 	 *
 	 * Signature: `function ( string $url, array $args ): array|\WP_Error`.
 	 *
@@ -62,11 +60,11 @@ class HTTP_Out_Node extends Timer_Node {
 	public static ?\Closure $http_call = null;
 
 	/**
-	 * libcurl dispatch seam. Lazily-defaulted to a closure that creates the easy
-	 * handle and applies $opts via curl_setopt_array (the Event_Framework owns the
-	 * shared multi + the add). Tests reassign to capture $opts without transferring —
-	 * so the envelope-build, auth-header assembly, and SSL/timeout opts run as real
-	 * production code.
+	 * libcurl dispatch seam. Lazily defaulted to a closure that creates the easy
+	 * handle and applies `$opts` through `curl_setopt_array`; the Event_Framework
+	 * owns the shared multi and the add. Tests reassign it to capture `$opts`
+	 * without transferring, so the envelope build, the auth-header assembly and
+	 * the SSL and timeout opts run as real production code.
 	 *
 	 * Signature: `function ( array $opts ): \CurlHandle|false`.
 	 *
@@ -75,27 +73,27 @@ class HTTP_Out_Node extends Timer_Node {
 	public static ?\Closure $curl_dispatch = null;
 
 	/**
-	 * libcurl result-read seam. Lazily-defaulted to a closure returning the easy
-	 * handle's HTTP code + response body. Tests reassign to inject a synthetic
-	 * result so the classification + JSONL-unpack + reply-forwarding run as real
-	 * production code without a network transfer.
+	 * libcurl result-read seam. Lazily defaulted to a closure returning the easy
+	 * handle's HTTP code and response body. Tests reassign it to inject a
+	 * synthetic result, so the classification, the JSONL unpack and the reply
+	 * forwarding run as real production code without a network transfer.
 	 *
-	 * Signature: `function ( \CurlHandle $easy ): array{ code:int, body:string }`.
+	 * Signature: `function ( \CurlHandle $easy ): array{code:int,body:string}`.
 	 *
 	 * @var \Closure|null
 	 */
 	public static ?\Closure $curl_result = null;
 
-	/** @var array<int,array<int,mixed>> Packed messages buffered between fill() and the next fire(). */
+	/** @var array<int,array<int,mixed>> Message arrays buffered between fill() and the next fire(), which packs them. */
 	protected array $batch = [];
 
 	/** Whether the one-shot flush timer is already armed; gates re-arming without coupling to Timer_Node internals. */
 	protected bool $batch_timer_armed = false;
 
-	/** @var array<int,array{handle:\CurlHandle,vault_id:string,url:string,kind:string}> Easy-handle id → context for completion attribution. Holds the handle so it isn't GC'd (a freed handle's spl_object_id is reused, colliding keys). */
+	/** @var array<int,array{handle:\CurlHandle,vault_id:string,url:string,kind:string}> Easy-handle id to its context, for completion attribution. Holds the handle so it is not collected: a freed handle's spl_object_id gets reused, and the new key collides. */
 	protected array $inflight = [];
 
-	/** Vault id whose url + credentials this node POSTs to. */
+	/** Vault id whose url and credentials this node POSTs to. */
 	protected string $vault_id = '';
 
 	/** One handshake at a time; a held batch must not fan out N /auth POSTs. */
@@ -117,7 +115,14 @@ class HTTP_Out_Node extends Timer_Node {
 		parent::__construct();
 	}
 
-	/** Assign vault_id from the positional token via the schema; gated on a non-empty string. */
+	/**
+	 * Read the stored tokens, or assign `vault_id` from the sole positional
+	 * through the schema, which marks it required — an under-argged `make_node`
+	 * throws there instead of yielding an egress addressed at nothing.
+	 *
+	 * @param list<string>|null $args New argument tokens; null reads.
+	 * @return list<string> The tokens now held.
+	 */
 	public function arguments( ?array $args = null ): array {
 		if ( null === $args ) {
 			return parent::arguments();
@@ -156,12 +161,21 @@ class HTTP_Out_Node extends Timer_Node {
 
 	/**
 	 * One-shot flush: resolve the spoke from the Vault once, join the buffered
-	 * envelopes into one JSONL body, assemble auth + SSL opts, and enqueue a single
-	 * POST on the shared multi via the dispatch seam. Non-blocking: the transfer is
-	 * driven by the Event_Framework drain, never here.
+	 * envelopes into one JSONL body, assemble the auth and SSL opts, and enqueue
+	 * a single POST on the shared multi through the dispatch seam. Non-blocking
+	 * — the Event_Framework drain runs the transfer, never this method.
 	 *
-	 * Public (widens Timer_Node's protected fire()) so the EF can invoke the flush
-	 * directly and tests can drive one tick without a live event loop.
+	 * A batch is DROPPED when the spoke cannot be addressed at all: no Vault
+	 * entry, no url, or a plaintext url while `vault_require_ssl` stands. It is
+	 * HELD when only the session is missing, since discarding traffic over a
+	 * handshake that the next tick may well complete is the worse trade. A
+	 * session-less tick runs the handshake even with nothing queued, because
+	 * every minter refuses to queue without a session — waiting for traffic to
+	 * trigger the handshake deadlocks both sides.
+	 *
+	 * Public, widening Timer_Node's protected `fire()`, so the Event_Framework
+	 * can invoke the flush directly and a test can drive one tick without a live
+	 * event loop.
 	 */
 	public function fire(): void {
 		$batch                   = $this->batch;
@@ -180,16 +194,17 @@ class HTTP_Out_Node extends Timer_Node {
 			return;
 		}
 
-		// Refuse plaintext spoke when operator requires HTTPS; drop batch.
+		// The operator requires HTTPS and this url is not; drop the batch.
 		if ( self::https_required( $url ) ) {
 			$this->drop_batch( $batch, 'vault_require_ssl set but url is not https' );
 			return;
 		}
 
-		// Held, not dropped: no session means a minter cannot sign for it.
+		// Narrowing only: a missing entry left $url empty and dropped above.
 		if ( ! \is_array( $server ) ) {
 			return;
 		}
+		// Held, not dropped: the next tick may well get a session.
 		if ( ! $established ) {
 			$this->batch = \array_merge( $batch, $this->batch );
 			$this->request_session( $server, $url );
@@ -209,11 +224,12 @@ class HTTP_Out_Node extends Timer_Node {
 	}
 
 	/**
-	 * Report a batch we could not deliver. Silent on an empty one: a session-less
-	 * tick reaches this path with nothing queued and has nothing to report.
+	 * Report an undelivered batch, rate-limited. Silent on an empty one: a
+	 * session-less tick reaches this path with nothing queued, and an empty
+	 * batch has nothing to report.
 	 *
 	 * @param array<int,array<int,mixed>> $batch  The undelivered envelopes.
-	 * @param string                        $reason Why they could not be sent.
+	 * @param string                      $reason Why they could not be sent.
 	 */
 	private function drop_batch( array $batch, string $reason ): void {
 		if ( [] === $batch ) {
@@ -223,11 +239,13 @@ class HTTP_Out_Node extends Timer_Node {
 	}
 
 	/**
-	 * Establish the command session with this spoke. HTTP_Out runs the handshake
-	 * because it already holds the credentials and the multi registration; the
-	 * minters that will sign for the spoke have neither. It never signs itself.
+	 * Establish the command session with this spoke, one handshake at a time.
+	 * HTTP_Out runs it because it already holds the credentials and the multi
+	 * registration; the minters that will sign for the spoke have neither. It
+	 * never signs anything itself — signing belongs to the mint site (ADR-15).
 	 *
 	 * @param array<string,mixed> $server Decrypted vault entry.
+	 * @param string              $url    Spoke base url, without a trailing slash.
 	 */
 	private function request_session( array $server, string $url ): void {
 		if ( $this->auth_in_flight ) {
@@ -238,10 +256,15 @@ class HTTP_Out_Node extends Timer_Node {
 	}
 
 	/**
-	 * Assemble the opts, dispatch on the shared multi, and record the handle under
-	 * its kind so the completion callback knows what it is answering.
+	 * Assemble the opts, dispatch on the shared multi, and record the handle
+	 * under its kind so the completion callback knows what it is answering. A
+	 * failed dispatch releases the auth flag; without that the node holds a
+	 * handshake that never completes and never attempts another.
 	 *
-	 * @param array<string,mixed> $server Decrypted vault entry.
+	 * @param array<string,mixed> $server   Decrypted vault entry.
+	 * @param string              $endpoint Absolute spoke url: base plus path.
+	 * @param string              $body     JSONL batch, or '' for a handshake.
+	 * @param string              $kind     'command' or 'auth'; steers completion handling.
 	 */
 	private function send( array $server, string $endpoint, string $body, string $kind ): void {
 		$headers       = [ 'Content-Type: text/plain; charset=UTF-8' ];
@@ -284,7 +307,7 @@ class HTTP_Out_Node extends Timer_Node {
 			}
 			return;
 		}
-		// Hold handle to avoid GC; freed ids get reused and collide keys.
+		// Hold the handle: a freed id is reused and the keys collide.
 		$this->inflight[ \spl_object_id( $easy ) ] = [
 			'handle'   => $easy,
 			'vault_id' => $this->vault_id,
@@ -295,13 +318,16 @@ class HTTP_Out_Node extends Timer_Node {
 	}
 
 	/**
-	 * Event_Framework completion callback (drain_curl_multi → CURLMSG_DONE).
-	 * Forwards each reply Message in a 200 body to the sink (each self-routes by
-	 * TO=FROM through _command_interpreter → _router; ports src/runtime/http-out-node.js
-	 * _post), rate-limits non-200 / transport errors, and always detaches the handle.
+	 * Event_Framework completion callback, invoked once per CURLMSG_DONE.
+	 * Forwards each reply Message in a 200 body to the sink, where it self-routes
+	 * by TO=FROM through `_command_interpreter` and then `_router`; the JS mirror
+	 * is `_post` in `src/runtime/http-out-node.js`. Transport errors and non-200
+	 * codes are reported rate-limited — bar HTTP_In's 202, which acks an async
+	 * dispatch instead of reporting a failure — and the handle always detaches.
+	 *
 	 * @api Used by substrate.
 	 *
-	 * @param array{msg?:int, handle?:\CurlHandle, result?:int} $info
+	 * @param array{msg?:int,handle?:\CurlHandle,result?:int} $info One `curl_multi_info_read()` row.
 	 */
 	public function on_curl_message( array $info ): void {
 		if ( \CURLMSG_DONE !== ( $info['msg'] ?? 0 ) ) {
@@ -328,7 +354,7 @@ class HTTP_Out_Node extends Timer_Node {
 		} else {
 			$res = $this->read_result( $easy );
 			if ( 200 !== $res['code'] ) {
-				// 401: dead handle. Drop it or we re-sign with it forever.
+				// 401: dead session handle; forget it or every send re-signs.
 				if ( 401 === $res['code'] ) {
 					Command_Auth::forget_session( $this->vault_id );
 				}
@@ -340,7 +366,7 @@ class HTTP_Out_Node extends Timer_Node {
 					if ( '' === $line ) {
 						continue;
 					}
-					// unpacked() throws on a bad line; skip, keep batch.
+					// unpacked() throws on a bad line; skip it, keep the rest.
 					try {
 						$reply = Message::unpacked( $line );
 					} catch ( \InvalidArgumentException $e ) {
@@ -367,8 +393,11 @@ class HTTP_Out_Node extends Timer_Node {
 	/**
 	 * Adopt the session the spoke issued, then re-arm the held batch. A refusal
 	 * only clears the in-flight flag: the batch stays put and the next fill or
-	 * tick retries, since discarding traffic over a transient handshake failure
-	 * is worse than waiting.
+	 * tick retries, since discarding traffic over a handshake failure that may
+	 * be transient is worse than waiting.
+	 *
+	 * @param int    $code HTTP status the `/auth` POST returned.
+	 * @param string $body Raw `/auth` response body.
 	 */
 	private function on_session_reply( int $code, string $body ): void {
 		$this->auth_in_flight = false;
@@ -457,12 +486,14 @@ class HTTP_Out_Node extends Timer_Node {
 	}
 
 	/**
-	 * Read a completed handle's HTTP code + body. Routes through the $curl_result
-	 * seam when set (tests inject a synthetic result); otherwise reads libcurl
-	 * directly. The typed return narrows the seam's mixed result at this boundary.
-	 * Reads the buffer without clearing it; the caller owns that lifetime.
+	 * Read a completed handle's HTTP code and body. Routes through the
+	 * `$curl_result` seam when a test has set one, and otherwise reads libcurl
+	 * directly; the typed return narrows the seam's mixed result at this
+	 * boundary. Reads the buffer without clearing it, because the caller owns
+	 * that lifetime — see `self::$bodies`.
 	 *
-	 * @return array{code:int, body:string}
+	 * @param \CurlHandle $easy The completed easy handle.
+	 * @return array{code:int,body:string}
 	 */
 	private function read_result( \CurlHandle $easy ): array {
 		$seam = self::$curl_result;
@@ -486,8 +517,10 @@ class HTTP_Out_Node extends Timer_Node {
 	}
 
 	/**
-	 * Teardown: detach every in-flight easy handle (unregistered from the shared
-	 * multi, freed when its last reference drops), then drop the pending batch.
+	 * Teardown: drop the pending batch, then detach every in-flight easy handle,
+	 * which unregisters it from the shared multi and frees it once the last
+	 * reference goes.
+	 *
 	 * @api Used by substrate.
 	 */
 	public function remove_node(): void {
@@ -499,22 +532,28 @@ class HTTP_Out_Node extends Timer_Node {
 		parent::remove_node();
 	}
 
-	/** Unregister an easy handle from the shared multi. Idempotent. */
+	/**
+	 * Unregister an easy handle from the shared multi. Idempotent.
+	 *
+	 * @param \CurlHandle $easy The handle to detach.
+	 */
 	protected function detach( \CurlHandle $easy ): void {
 		Event_Framework::instance()->unregister_curl_easy( $easy );
 	}
+
 	/**
 	 * POST a packed TM_COMMAND to a spoke's `/command` and return the reply's
 	 * decoded `payload`. Blocking, for an operator action that needs a verdict
-	 * in-band. Throws on any failure (WP_Error, non-200, non-JSON body,
-	 * TM_ERROR, missing/non-array payload). Callers whitelist the payload
-	 * themselves — this never surfaces raw remote JSON.
+	 * in-band: a WP_Error, a non-200, a body carrying no command envelope, a
+	 * TM_ERROR reply and a missing or non-array payload all throw, so a caller
+	 * never has to read a verdict out of a returned value. The caller whitelists
+	 * the payload itself, which is what keeps raw remote JSON off our surfaces.
 	 *
-	 * @param string                  $dest      Vault server id — the session identity.
+	 * @param string                 $dest      Vault server id — the session identity.
 	 * @param array<array-key,mixed> $server    Decrypted vault server config.
-	 * @param string                  $to        Target node path on the spoke.
-	 * @param string                  $verb      Command verb name.
-	 * @param list<string>            $verb_args Argument tail (Command_Args grammar).
+	 * @param string                 $to        Target node path on the spoke.
+	 * @param string                 $verb      Command verb name.
+	 * @param list<string>           $verb_args Argument tail (Command_Args grammar).
 	 * @return array<array-key,mixed> The reply's `payload` array.
 	 * @throws \RuntimeException On any transport, auth, or envelope failure.
 	 */
@@ -583,7 +622,9 @@ class HTTP_Out_Node extends Timer_Node {
 	/**
 	 * Mint the `/command` request Message using substrate primitives only.
 	 * Returns the Message rather than a packed line so the caller can sign it —
-	 * this is the mint site, and only a mint site may sign.
+	 * this is the mint site, and only a mint site may sign (ADR-15). FROM names
+	 * the `_http` boundary rather than a live node, because the blocking path
+	 * reads its reply off the response body instead of routing it.
 	 *
 	 * @param string       $to   Target node path.
 	 * @param string       $verb Command verb name.
@@ -606,9 +647,9 @@ class HTTP_Out_Node extends Timer_Node {
 	 * and failing here names the cause instead of surfacing it as an
 	 * unexplained refusal from the far side.
 	 *
-	 * @param string                  $dest   Vault server id.
+	 * @param string                 $dest   Vault server id.
 	 * @param array<array-key,mixed> $server Decrypted vault server config.
-	 * @param string                  $base   Spoke base url, already checked.
+	 * @param string                 $base   Spoke base url, already checked.
 	 * @throws \RuntimeException When the spoke will not issue a session.
 	 */
 	private static function establish_session( string $dest, array $server, string $base ): void {
@@ -647,12 +688,12 @@ class HTTP_Out_Node extends Timer_Node {
 	 * TLS posture, stored credentials.
 	 *
 	 * @param array<array-key,mixed> $server Decrypted vault server config.
-	 * @param string                  $body   Request body.
+	 * @param string                 $body   Request body.
 	 * @return array<string,mixed>
 	 */
 	private static function request_args( array $server, string $body ): array {
 		$args = [
-			// 5s bound: UI blocks on the probe; 1s misses slow spokes.
+			// 5s bound: the UI blocks on the probe and 1s misses slow spokes.
 			// phpcs:ignore WordPressVIPMinimum.Performance.RemoteRequestTimeout.timeout_timeout
 			'timeout'             => 5,
 			'sslverify'           => self::verify_ssl(),
@@ -677,7 +718,7 @@ class HTTP_Out_Node extends Timer_Node {
 	 */
 	private static function blocking_post( string $url, array $args ) {
 		$call = self::$http_call ?? static function ( string $u, array $a ) {
-			/** @var array{method?: string, timeout?: float, redirection?: int, httpversion?: string, user-agent?: string, reject_unsafe_urls?: bool, blocking?: bool, headers?: array<string,mixed>|string, body?: array<string,mixed>|string, sslverify?: bool} $a -- WP HTTP args shape; loose `array` param widens it. */
+			/** @var array{method?:string,timeout?:float,redirection?:int,httpversion?:string,user-agent?:string,reject_unsafe_urls?:bool,blocking?:bool,headers?:array<string,mixed>|string,body?:array<string,mixed>|string,sslverify?:bool} $a -- WP HTTP args shape; loose `array` param widens it. */
 			return \wp_remote_post( $u, $a );
 		};
 		return $call( $url, $args );
@@ -698,6 +739,8 @@ class HTTP_Out_Node extends Timer_Node {
 	 * The operator's posture itself: are plaintext spokes refused? Distinct
 	 * from `https_required()`, which asks whether ONE url violates it —
 	 * SSE_In takes the policy, because it drives CURLOPT_PROTOCOLS.
+	 *
+	 * @return bool True when the operator refuses plaintext spokes.
 	 */
 	public static function require_ssl(): bool {
 		return (bool) Config::value( 'vault_require_ssl' );
@@ -709,9 +752,10 @@ class HTTP_Out_Node extends Timer_Node {
 	}
 
 	/**
-	 * The credential header value for a spoke, or '' when it needs none. Basic
-	 * wins over Bearer: a config carrying both means the operator set a username
-	 * and password, which is the more specific statement.
+	 * The credential header value for a spoke, or '' when it needs none. The
+	 * rule for choosing between Basic and Bearer belongs to the Vault, which
+	 * owns credentials; this is the local name for that lookup, so the push and
+	 * blocking paths cannot spell it two ways.
 	 *
 	 * @param array<array-key,mixed> $server Decrypted vault server config.
 	 * @return string e.g. `Basic <base64 of user:pass>`, or ''.
@@ -721,11 +765,11 @@ class HTTP_Out_Node extends Timer_Node {
 	}
 
 	/**
-	 * Run the handshake if this spoke has no session yet.
+	 * Run the handshake when this spoke has no session yet.
 	 *
-	 * A minter that cannot sign must call this instead of simply skipping: the
-	 * handshake used to need a queued batch to trigger it, and every minter
-	 * refuses to queue without a session, so neither side could ever move.
+	 * A minter that cannot sign calls this rather than simply skipping its push.
+	 * Every minter refuses to queue without a session, so nothing else would ask
+	 * for one and both sides would sit still.
 	 */
 	public function ensure_session(): void {
 		if ( ! Command_Auth::has_session( $this->vault_id ) ) {
@@ -735,15 +779,21 @@ class HTTP_Out_Node extends Timer_Node {
 
 	/**
 	 * Which spoke this egress speaks for. A minter resolves the target node at
-	 * fill time and asks, because the node name and the vault id are independent
-	 * — the live hub names one `settings:tw0` for vault id `tw0`.
+	 * fill time and asks, because the node name and the vault id are
+	 * independent: an operator writes `make_node HTTP_Out <name> <vault-id>` and
+	 * names the node whatever reads best in the graph.
+	 *
 	 * @api Read by minters that sign per destination.
+	 * @return string The Vault server id this node POSTs to.
 	 */
 	public function vault_id(): string {
 		return $this->vault_id;
 	}
 
-	/** @api Resolved by make_node; consumed by topology wiring + later slices. */
+	/**
+	 * @api Dynamic entrypoint.
+	 * @return array<string,mixed>
+	 */
 	public static function node_schema(): array {
 		return [
 			'category'    => 'I/O',

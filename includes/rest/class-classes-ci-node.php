@@ -1,15 +1,22 @@
 <?php
 /**
- * Classes_CI: command-dispatch for substrate class-catalog commands.
+ * Classes_CI: the node-class catalog behind the topology console's palette.
  *
- * Command `list` scans the composer classmap for concrete `*_Node` classes under
- * a registered namespace prefix, inlines each node_schema(), drops the Hidden
- * category, sorts by `[category, shell_name]`, and bundles the Formatters
- * registry for the topology-editor palette's arg dropdown.
+ * The `list` verb scans the composer classmap for concrete `*_Node` classes
+ * under a registered namespace prefix, inlines the serializable half of each
+ * `node_schema()`, drops the classes the palette must not offer, sorts by
+ * `[category, shell_name]`, and ships the formatter registry beside them so an
+ * argument naming a formatter has a list to choose from.
  *
- * Like the other service interpreters, this extends Service_CI_Node: each verb is
- * declared once in node_schema() carrying its handler, and the base constructor
- * derives the dispatch table from it.
+ * Discovery reads the classmap rather than a class registry (ADR-10): a plugin
+ * registers its namespace prefix once, and every node type it adds after that
+ * is a class and nothing more. The cost is that a class added or renamed
+ * without `composer dump-autoload -o` is absent from the palette, with nothing
+ * else wrong.
+ *
+ * Like the other service interpreters, this extends Service_CI_Node: the verb is
+ * declared once in `node_schema()` carrying its handler and its capability, and
+ * the base derives the dispatch table and the capability gate from that.
  *
  * @package Newspack_Nodes
  */
@@ -27,11 +34,28 @@ use Newspack_Nodes\Tee_Node;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * Service interpreter for the `classes` scope: one read-only verb, `list`.
+ */
 class Classes_CI_Node extends Service_CI_Node {
 	/**
-	 * `list` verb handler — the editor palette catalog: every registered concrete Node class with its serializable schema fields, plus formatters.
+	 * `list` verb: every concrete Node class this process can build, each
+	 * carrying the serializable half of its `node_schema()`, plus the names the
+	 * formatter registry holds.
 	 *
-	 * @return array<string,mixed>
+	 * Four gates decide membership, cheapest first — the FQCN sits under a
+	 * namespace prefix registered through `Command_Interpreter_Node`, its short
+	 * name ends in `_Node`, it is a concrete `Node` subclass, and its schema
+	 * offers the class to the palette. Only the last two load the class and call
+	 * into it, so the two string tests run first on a classmap holding every
+	 * class in the process. The palette gate refuses three shapes: a `Hidden`
+	 * category, no category at all, and the `hidden` flag a node with no patron
+	 * raises to keep itself off both palette and canvas.
+	 *
+	 * The console reads this as one slice of its batched poll, so the whole
+	 * catalog is a single payload and no class costs a follow-up request.
+	 *
+	 * @return array<string,mixed> `classes`, sorted by `[category, shell_name]`, and the sorted `formatters` names.
 	 */
 	public static function cmd_list(): array {
 		$prefixes = Command_Interpreter_Node::registered_namespaces();
@@ -69,7 +93,7 @@ class Classes_CI_Node extends Service_CI_Node {
 				}
 				$schema = $fqcn::node_schema();
 				$cat    = $schema['category'] ?? '';
-				// (e) skip non-palette: Hidden, empty category, or hidden flag.
+				// (d) skip non-palette: Hidden, empty category, or hidden flag.
 				if ( 'Hidden' === $cat || '' === $cat || ! empty( $schema['hidden'] ) ) {
 					continue;
 				}
@@ -88,9 +112,9 @@ class Classes_CI_Node extends Service_CI_Node {
 					'registrations'  => $schema['registrations'] ?? [],
 					'accepts_fill'   => (bool) ( $schema['accepts_fill'] ?? true ),
 					'has_target'     => (bool) ( $schema['has_target']   ?? true ),
-					// Interpreter node → bare target, else <name>:config.
+					// An interpreter is addressed directly; others via :config.
 					'is_interpreter' => \is_subclass_of( $fqcn, Command_Interpreter_Node::class ),
-					// Fan-out (target LIST) → multi-chip editor + tail.
+					// A fan-out target is a LIST; the editor renders chips.
 					'fans_out'       => Core::class_fans_out( $fqcn ),
 				];
 			}
@@ -112,7 +136,8 @@ class Classes_CI_Node extends Service_CI_Node {
 	/**
 	 * Strip a node_schema's commands[] to the serializable palette shape
 	 * `{name, description, args}` plus the flags the console renders by
-	 * (`multiple`, `hidden`, `action`), dropping the non-serializable `handler`.
+	 * (`multiple`, `hidden`, `action`), dropping the non-serializable `handler`
+	 * and the `capability` the base gate enforces server-side.
 	 *
 	 * Fail-soft: a malformed command (non-array entry, or one with no/empty name)
 	 * is skipped rather than throwing — a single bad class must not fatal the
@@ -120,7 +145,7 @@ class Classes_CI_Node extends Service_CI_Node {
 	 * sequential list (JSON array) so the editor palette consumes it as-is.
 	 *
 	 * @param array<int|string,mixed> $commands Raw commands[] from a node_schema.
-	 * @return array<int,array{name:string,description:string,args:mixed}>
+	 * @return array<int,array{name:string,description:string,args:mixed,multiple?:bool,hidden?:bool,action?:bool}>
 	 */
 	private static function strip_commands( array $commands ): array {
 		$stripped = [];
@@ -143,11 +168,11 @@ class Classes_CI_Node extends Service_CI_Node {
 			if ( ! empty( $command['multiple'] ) ) {
 				$stripped_command['multiple'] = true;
 			}
-			// Carry the hidden flag → inspector drops the standalone verb.
+			// Carry the hidden flag; the inspector drops its verb button.
 			if ( ! empty( $command['hidden'] ) ) {
 				$stripped_command['hidden'] = true;
 			}
-			// Carry the action flag → the editor drops it (not configuration).
+			// Carry the action flag; the editor drops it as non-configuration.
 			if ( ! empty( $command['action'] ) ) {
 				$stripped_command['action'] = true;
 			}
@@ -156,6 +181,16 @@ class Classes_CI_Node extends Service_CI_Node {
 		return $stripped;
 	}
 
+	/**
+	 * The manifest and the verb table in one declaration: `Service_CI_Node`
+	 * builds the dispatch table from `commands[]` and gates each handler at the
+	 * capability its entry names.
+	 *
+	 * `list` is READ because it exposes class metadata and nothing else — no
+	 * fleet state, no credentials — so a dashboard-only role can fill a palette.
+	 *
+	 * @return array<string,mixed>
+	 */
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
 			'category'    => 'Service',

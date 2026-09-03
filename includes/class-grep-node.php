@@ -1,6 +1,17 @@
 <?php
 /**
- * Grep: payload filter. Forwards a message only when its VALUE matches the regex; drops the rest. Modeled on Tachikoma's Grep.pm.
+ * Grep: the payload filter.
+ *
+ * Forwards a message whose VALUE matches a PCRE and drops every other one, so
+ * one branch of a graph carries only the traffic a reader asked for. The stock
+ * debug tap splices a Grep between a Dumper and a Stderr for exactly that.
+ *
+ * The pattern is the sole criterion; there is no type gate. A TM_COMMAND or a
+ * TM_EOF whose VALUE misses the pattern drops with the data, so keep control
+ * traffic off a grepped edge. The drop is silent: fill() returns nothing, so a
+ * producer cannot tell a filtered message from a delivered one (ADR-13).
+ *
+ * Modeled on Tachikoma's `Grep.pm`.
  *
  * @package Newspack_Nodes
  */
@@ -9,28 +20,33 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * Grep node — `make_node Grep <name> [ <pattern> ]`.
+ */
 class Grep_Node extends Node {
 	use Schema_Reflection;
 
-	/** Grep.pm's default: any single character, so every non-empty VALUE passes. */
+	/** Grep.pm's default. `.` matches any byte but a newline, so a VALUE of newlines alone is what it drops. */
 	private const MATCH_EVERYTHING = '.';
 
 	/** The PCRE body as the operator typed it — the schema-declared argument. */
 	private string $pattern = self::MATCH_EVERYTHING;
 
-	/** Bracket-delimited form fill() matches with (mirrors Grep.pm's qr{}). */
+	/** The bracket-delimited form fill() matches with, mirroring Grep.pm's qr{}. */
 	private string $compiled = '{' . self::MATCH_EVERYTHING . '}';
 
 	/**
-	 * `[ <pattern> ]` — a PCRE body, wrapped in `{}` the way Grep.pm wraps qr{}.
+	 * Assign `pattern` from the positional token and compile it.
+	 *
+	 * `[ <pattern> ]` is a PCRE body, wrapped in `{}` the way Grep.pm wraps qr{}.
 	 *
 	 * The pattern compiles HERE, not at first fill(): `preg_match` answers a bad
 	 * pattern with a warning and `false`, and a `false` return drops the message,
 	 * so deferring the compile would trade one refusal for a silently discarded
 	 * stream. The operator typed it on one line; that line is where it fails.
 	 *
-	 * @param list<string>|null $args
-	 * @return list<string>
+	 * @param list<string>|null $args New argument tokens (null = pure getter).
+	 * @return list<string> The tokens as given.
 	 * @throws \InvalidArgumentException When the pattern will not compile.
 	 */
 	public function arguments( ?array $args = null ): array {
@@ -54,6 +70,16 @@ class Grep_Node extends Node {
 		return $this->arguments;
 	}
 
+	/**
+	 * Forward the message on a match, drop it otherwise.
+	 *
+	 * A non-string VALUE — a TM_STRUCT array, a number — is JSON-encoded before
+	 * the match, so a struct producer's payload greps without a transform node in
+	 * front. The pattern then reads JSON syntax: quotes and braces are part of the
+	 * subject.
+	 *
+	 * @param array<int,mixed> $message Message reference.
+	 */
 	public function fill( array $message ): void {
 		$value = $message[ Message::VALUE ];
 		// Substitute a bad byte; failing to '' would drop a matching message.
@@ -65,6 +91,13 @@ class Grep_Node extends Node {
 		}
 	}
 
+	/**
+	 * Topology console manifest: the `Filtering` palette entry and the one
+	 * `pattern` positional. Declaring it here is the whole parse — ADR-11 puts
+	 * defaults and coercion in `parse_schema_args()`, not in `arguments()`.
+	 *
+	 * @return array<string,mixed>
+	 */
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
 			'category'    => 'Filtering',

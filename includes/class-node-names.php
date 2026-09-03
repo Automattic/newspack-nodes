@@ -1,10 +1,14 @@
 <?php
 /**
- * Reserved node names — canonical map shared with the JS wiring.
+ * The reserved node names both runtimes address by literal string.
  *
- * Mirror of `src/runtime/reserved-node-names.json`; the NodeNamesTest no-drift
- * guard fails if the two diverge. The reply path routes by these exact
- * strings, so a typo on either side silently misroutes.
+ * `src/runtime/reserved-node-names.json` is the canonical map and this class is
+ * its PHP half; `tests/unit/NodeNamesTest.php` fails when the two diverge. The
+ * names are part of the wire, not a local convention: a browser mints a command
+ * stamped `FROM = _sse:<pid>/_output`, the worker answers TO=FROM (ADR-7), and
+ * every hop between resolves the head of that path against a node registered
+ * under one of these strings. Spell one differently on either side and the
+ * reply never reaches the node that minted the command.
  *
  * @package Newspack_Nodes
  */
@@ -13,30 +17,74 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
-/** @api Used to prevent naming drift */
+/**
+ * The reserved names as constants, so no caller spells one as a literal.
+ *
+ * @api JS-PHP wire constants; the dead-code audit cannot see the JSON half.
+ */
 final class Node_Names {
+	/** Verb dispatch. Every node sinks here, and this sinks into `_router`. */
 	public const COMMAND_INTERPRETER = '_command_interpreter';
+
+	/** The Tap between the anonymous Shell and the interpreter, so a session can watch what the Shell sends. */
 	public const CONSOLE_TAP         = '_shell';
+
+	/** Browser-side node publishing the tab-completion candidates a `help`/`ls` reply carries. */
 	public const COMPLETION          = '_completion';
+
+	/** Browser-side routing indirection: the console points its target at the current working directory, and `_metadata` polls through it. */
 	public const CWD                 = '_cwd';
+
+	/** Browser-side node publishing the error, warning and debug line counts the inspector shows. */
 	public const DMESG               = '_dmesg';
+
+	/** The `Fleet_Node` every worker mounts to revive its peers (ADR-9). */
 	public const FLEET               = '_fleet';
+
+	/** Browser-side timer poking its SSE slot lease on the shared tick; the server checks that lease and never refreshes it. */
 	public const HEARTBEAT           = '_heartbeat';
+
+	/** Command egress: the browser backbone's `HttpOutNode` and the second hop of every `egressPath()`; PHP's `HTTP_Out_Node` stamps it into FROM. */
 	public const HTTP                = '_http';
+
+	/** Browser-side node publishing the `dump_metadata` graph the canvas paints. */
 	public const METADATA            = '_metadata';
+
+	/** The reply boundary. A minter stamps `FROM = _output/<id>`, so the TO=FROM answer lands here. */
 	public const OUTPUT              = '_output';
+
+	/** The worker's output IPC Partition; a cli reply arrives with it prefixed onto FROM. */
 	public const REPL                = '_repl';
+
+	/** Path dispatch: peel the head of TO and fill the node registered under it. */
 	public const ROUTER              = '_router';
+
+	/** Reserved. Nothing in this tree registers a node under it, so a grep for the value finds only this constant and its JSON twin. */
 	public const SETTINGS_LOG        = '_settings:log';
+
+	/** `Connect_Queue_Timer_Node`'s single instance, mounted only while the connect queue holds work. */
 	public const CONNECT_TIMER       = '_connect_timer';
+
+	/** The `SSE_Out_Node` egress. A browser command carries `_sse:<pid>` in FROM so the stream process can gate the reply to its own session. */
 	public const SSE                 = '_sse';
+
+	/** The FROM stamp `Stdin_Node` puts on the lines it emits. */
 	public const STDIN               = '_stdin';
+
+	/** The terminal writer the cli's `_output` Dumper targets. */
 	public const STDOUT              = '_stdout';
+
+	/** Browser-side node publishing the uptime the canvas footer shows. */
 	public const UPTIME              = '_uptime';
 
 	/**
-	 * Auto-mounted framework/session infrastructure: dump_config skips these (they
-	 * aren't user-configured graph nodes) and remove_node refuses to destroy them.
+	 * The names a session mounts for itself, whatever graph it then runs.
+	 *
+	 * `cmd_dump_config()` skips them because every session already has them, so
+	 * emitting them would build each one twice on replay. `cmd_remove_node()`
+	 * refuses them because destroying one breaks the session issuing the
+	 * command: without `_router` no addressed message is deliverable, and
+	 * without `_command_interpreter` no further verb runs.
 	 *
 	 * @var array<int,string>
 	 */

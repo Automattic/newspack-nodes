@@ -1,3 +1,13 @@
+/**
+ * The "Top items" card: the score-ranked table, and the three newsletter
+ * actions that turn those items into something a publisher can send.
+ *
+ * The actions sit beside the table because they operate on exactly the rows it
+ * renders — one `top` array feeds the preview, the markdown and the draft
+ * post. Two of them are client-side; "Create draft post" is the only call that
+ * leaves the browser.
+ */
+
 import apiFetch from '@wordpress/api-fetch';
 import { useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
@@ -7,14 +17,17 @@ import { newsletterPost } from '../newsletterPost';
 import { itemLabel } from '../itemLabel';
 
 /**
- * REST-call seam for the "Create draft post" action. Lazily defaulted to a thin
- * apiFetch wrapper; tests inject a fake so the suite never hits the network but
- * still exercises the success/failure rendering paths.
+ * Create the draft post through the REST API.
+ *
+ * This is the default value of the `createDraft` prop, and the prop is the
+ * seam: a test hands `<TopTable/>` a fake that resolves or rejects, so both
+ * rendered outcomes are exercised without touching the network.
  *
  * @param {Object} draft         The post to create.
  * @param {string} draft.title   Post title.
- * @param {string} draft.content Post content.
- * @return {Promise<Object>} The created draft post.
+ * @param {string} draft.content Post content, as HTML.
+ * @return {Promise<Object>} Resolves with the created post, whose `id` builds
+ *                           the "Edit draft" link.
  */
 const defaultCreateDraft = ( { title, content } ) =>
 	apiFetch( {
@@ -24,13 +37,30 @@ const defaultCreateDraft = ( { title, content } ) =>
 	} );
 
 /**
- * TopTable — the "Top items" card. Reads ONLY the `top-table:view` node's slice
- * ({ top:[…] }) via useNodeState and renders the score-ranked table with inline
- * score bars, plus the client-side newsletter actions (draft preview, copy
- * markdown, create draft post) that operate on those `top` items.
+ * The "Top items" card.
  *
- * @param {Object}   props
- * @param {Function} [props.createDraft] REST-call seam: ({title,content}) => Promise (tests).
+ * Reads ONLY the `top-table:view` node's slice (`{ top: […] }`) through
+ * `useNodeState`, which is the one-slice-per-view rule of
+ * `docs/writing-a-view-node.md`: a view holding every slice would put one
+ * slice's error notice on all three cards. That slice produces three renders —
+ * an error notice, an empty hint until the first scored items arrive, and the
+ * table. The model arrives score-ordered, so the rows keep its order and the
+ * rank column is the row index.
+ *
+ * Each score bar is sized against the highest score on screen rather than a
+ * fixed ceiling, so the top row fills its track and the rest read as a
+ * proportion of it.
+ *
+ * The preview, the "Copied" flag, the edit link and the error notice are local
+ * `useState` rather than slice fields, because the next poll reply replaces the
+ * whole model and would take an action's result with it.
+ *
+ * @param {Object}   props               Component props.
+ * @param {Function} [props.createDraft] Seam for the draft-post REST call,
+ *                                       taking `{ title, content }` and
+ *                                       returning a promise. Defaults to
+ *                                       `defaultCreateDraft`.
+ * @return {import('react').ReactElement} Rendered component.
  */
 export function TopTable( { createDraft = defaultCreateDraft } = {} ) {
 	const slice = useNodeState( 'top-table:view', 'view' ) || { top: [] };
@@ -46,12 +76,17 @@ export function TopTable( { createDraft = defaultCreateDraft } = {} ) {
 	const [ draftError, setDraftError ] = useState( null );
 	const [ creating, setCreating ] = useState( false );
 
+	/**
+	 * Copy the markdown draft to the clipboard.
+	 *
+	 * `navigator.clipboard` is undefined on insecure origins and on older
+	 * browsers, so the guard is the difference between a dead button and an
+	 * explanation. "Copied" is flagged only once the write resolves, because
+	 * `writeText` returns a promise that a denied permission or an unfocused
+	 * document still rejects.
+	 */
 	const onCopy = () => {
 		setDraftError( null );
-		// @longform
-		// navigator.clipboard is undefined on insecure (non-HTTPS) origins and
-		// older browsers — guard it, and only flag "Copied" once the write
-		// actually resolves.
 		const clipboard = window.navigator.clipboard;
 		if ( ! clipboard || ! clipboard.writeText ) {
 			setCopied( false );
@@ -77,6 +112,14 @@ export function TopTable( { createDraft = defaultCreateDraft } = {} ) {
 			} );
 	};
 
+	/**
+	 * Create the WordPress draft post from the ranked items.
+	 *
+	 * A reply carrying no `id` gets an error notice instead of an "Edit draft"
+	 * link, which would otherwise point at `post=undefined`. The button stays
+	 * disabled across the round trip, so a second click cannot open a second
+	 * draft.
+	 */
 	const onCreateDraft = () => {
 		setCreating( true );
 		setDraftError( null );

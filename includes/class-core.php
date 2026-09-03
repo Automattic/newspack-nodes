@@ -1,6 +1,8 @@
 <?php
 /**
- * Core: global registries + clock + stderr + fire-and-forget POST.
+ * Holds what a node needs from the process it runs in — the registry it is
+ * dispatched through, the tick clock, the diagnostic path — so a graph wired
+ * at runtime never has to thread any of it down the chain.
  *
  * @package Newspack_Nodes
  */
@@ -9,6 +11,16 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * The PHP counterpart of Tachikoma's `Tachikoma.pm` package globals:
+ * `%Tachikoma::Nodes`, `$Tachikoma::Now`, `$Tachikoma::Right_Now` and the
+ * `@RECENT_LOG` ring.
+ *
+ * Every member is process-scoped and lives no longer than the request or the
+ * worker that set it. `reset()` returns the class to boot state, and this file
+ * calls it on load, so requiring the plugin is enough to have a usable Core; a
+ * suite calls it between cases for the same reason.
+ */
 class Core {
 
 	/**
@@ -47,10 +59,11 @@ class Core {
 	public static ?int $secure_level = null;
 
 	/**
-	 * Whether the spawn POST verifies the TLS peer and hostname. True by
-	 * default; Bootstrap lowers it from `spawn_verify_ssl` for deployments
-	 * fronted by a self-signed internal certificate. Config is a layer above
-	 * Core, so it is injected rather than read.
+	 * Whether the substrate's internal loopback requests — the spawn POST here
+	 * and `Health_Probe_Client`'s fetch — verify the TLS peer and hostname.
+	 * True by default; Bootstrap lowers it from `spawn_verify_ssl` for
+	 * deployments fronted by a self-signed internal certificate. Config is a
+	 * layer above Core, so it is injected rather than read.
 	 */
 	public static bool $verify_spawn_tls = true;
 
@@ -77,7 +90,14 @@ class Core {
 	/** @var float Seconds before a rate-limiter entry is eligible for pruning. */
 	public static float $log_timeout = 60;
 
-	/** Process-global shared Memcached handle; set once by the application bootstrap, null when unconfigured. */
+	/**
+	 * The one process-wide Memcached handle, built by the substrate's own
+	 * `Bootstrap::init_memcached()` from `memcache_servers` so that no substrate
+	 * path waits on an application plugin to populate it. Null when unconfigured
+	 * or unreachable, and deliberately not a fallback handle: every consumer's
+	 * fail path keys on that null — command-auth refuses an unverifiable
+	 * single-use nonce, SSE slots fail closed, stats fail soft.
+	 */
 	public static ?\Memcached $memd = null;
 
 	/** @var array<string,Node> Registered nodes keyed by name; every entry is a Node ($this from Node::name()). */
@@ -86,12 +106,13 @@ class Core {
 	/** @var float Microsecond-resolution timestamp; updated by the event loop or in tests. */
 	public static float $now = 0.0;
 
-	/** @var array<string> */
+	/** @var array<string> The 100 most recent stderr lines; `dmesg` dumps them. */
 	public static array $recent_log = [];
 
 	/** @var array<string,float> Category → first-seen timestamp; pruned by prune_logs. */
 	public static array $recent_log_timers = [];
 
+	/** Set by the SIGTERM / SIGINT handler; the drain loop breaks on it. */
 	public static bool $shutting_down = false;
 
 	/** @var array<string,string> Process-global Shell variable map. */
@@ -100,29 +121,43 @@ class Core {
 	/** Re-entry guard for stderr(); the default handler can recurse via _repl write failures. */
 	private static bool $in_stderr = false;
 
-	/** @var callable */
+	/**
+	 * The one sink `_stderr()` hands each line to. `reset()` installs the
+	 * production default — the REPL, SSE or `_output` node when one of them is
+	 * registered, plus `error_log` either way — and tests replace it through
+	 * `set_stderr_handler()` to capture lines.
+	 *
+	 * Signature: `function (string $text, bool $raw = false): void`.
+	 *
+	 * @var callable
+	 */
 	private static $stderr_handler;
+
 	/**
 	 * Budget for the fire-and-forget spawn POST, in milliseconds — total AND
 	 * connect, since the total covers the connect phase and the smaller bites
 	 * first. Long enough to WRITE the request, never long enough to await the
-	 * reply: that is the whole contract. At 10ms it did not reach the write —
-	 * on any site with a real certificate TCP landed in under a millisecond but
-	 * the TLS handshake finished around 17ms, so curl aborted mid-handshake and
-	 * the fleet never started. It failed in total silence, because nothing
-	 * reached the access log and CURLE_OPERATION_TIMEDOUT counts as success.
-	 * The abort at 250ms is the design working: the request is already delivered
-	 * and the server runs on under ignore_user_abort.
+	 * reply: that is the whole contract, and the abort at 250ms is it working —
+	 * the request is already delivered and the server runs on under
+	 * ignore_user_abort.
+	 *
+	 * The TLS handshake sets the floor. On a site with a real certificate TCP
+	 * lands in under a millisecond but the handshake finishes around 17ms, so a
+	 * budget near that aborts mid-handshake and the fleet never starts — in
+	 * total silence, because nothing reaches the access log and
+	 * CURLE_OPERATION_TIMEDOUT counts as success.
 	 */
 	private const SPAWN_POST_TIMEOUT_MS = 250;
 
 	/**
 	 * Resolve `<partition>` (and `<topology>`, when the fleet is known) in a path
-	 * template. `<topology>` names the FLEET — see Topology_Loader.
+	 * template, then every `<ns:key>` config token in the result. `<topology>`
+	 * names the FLEET — see Topology_Loader.
 	 *
 	 * @param string      $template Path template.
 	 * @param int         $p        Partition index.
 	 * @param string|null $topology Fleet name, or null to leave `<topology>` alone.
+	 * @return string Concrete path.
 	 */
 	public static function resolve_partition_template( string $template, int $p, ?string $topology = null ): string {
 		$out = \str_replace( [ '<partition>', '{partition}' ], (string) $p, $template );
@@ -208,6 +243,12 @@ class Core {
 		}
 	}
 
+	/**
+	 * The one entry point for a diagnostic line: stamp the process midfix, keep
+	 * a timestamped copy in the `dmesg` ring, and hand the midfixed line to the
+	 * handler, which stamps its own timestamp. An empty string is dropped rather
+	 * than stamped, so the ring holds only real lines.
+	 */
 	public static function stderr( string $text ): void {
 		if ( '' === $text ) {
 			return;
@@ -315,6 +356,18 @@ class Core {
 		return $midfix . \str_replace( "\n", "\n" . $midfix, $text ) . "\n";
 	}
 
+	/**
+	 * Return the class to boot state — the node registry, the log ring and its
+	 * rate-limiter timers, the Shell vars, the memcached handle, the
+	 * secure-level declaration, and the site identity Core and Cache_Backend
+	 * each memoize — then reinstall the default stderr handler and restamp
+	 * `$init_time`. `Event_Framework::reset()` goes with it, so an orphaned
+	 * node's armed timer cannot outlive the graph that armed it.
+	 *
+	 * `$config_resolvers` survives: a namespace owner registers its resolver
+	 * once at boot, so dropping them would leave every `<ns:key>` token
+	 * unresolvable with nothing left to re-register.
+	 */
 	public static function reset(): void {
 		self::$nodes_by_name     = [];
 		self::$shutting_down     = false;
@@ -379,6 +432,7 @@ class Core {
 		return $text . "\n";
 	}
 
+	/** Replace the sink `_stderr()` writes to; `$stderr_handler` carries the signature. */
 	public static function set_stderr_handler( callable $h ): void {
 		self::$stderr_handler = $h;
 	}
@@ -387,6 +441,7 @@ class Core {
 	 * Raw-curl fire-and-forget POST. Bypasses wp_remote_post (Requests floors timeout at 1s);
 	 * CURLOPT_NOSIGNAL + a sub-second TIMEOUT_MS means CURLE_OPERATION_TIMEDOUT is expected and counted as success.
 	 *
+	 * @param string              $url  Target URL.
 	 * @param array<string,mixed> $body POST body.
 	 * @return string|null Error string on failure, null on success.
 	 */
@@ -476,7 +531,8 @@ class Core {
 	 * log GC's declared set and the dashboard catalog work in, since a nested
 	 * layout (`{logs}/req/3`) is retained and swept as its top dir. `''` when
 	 * `$concrete` lies outside `$root`, which is not a failed expansion: a
-	 * template may legitimately resolve elsewhere.
+	 * template may legitimately resolve elsewhere. A `$root` of `''` or `/`
+	 * yields `''` for every path.
 	 */
 	public static function first_level_dir( string $concrete, string $root ): string {
 		$prefix = \rtrim( $root, '/' ) . '/';
@@ -505,12 +561,22 @@ class Core {
 		return null !== $s && '' !== $s;
 	}
 
-	/** Canonical scalar→string read of a mixed Message field; '' for non-scalars (arrays/objects/null). */
+	/**
+	 * Canonical scalar→string read of a mixed Message field; '' for non-scalars
+	 * (arrays/objects/null).
+	 *
+	 * @api Consumed by sibling plugins (event-logger-nodes, pyrobase, ai-newsletter).
+	 */
 	public static function as_string( mixed $value, string $default = '' ): string {
 		return \is_scalar( $value ) ? (string) $value : $default;
 	}
 
-	/** Canonical scalar→int read of a mixed field; 0 for non-scalars (arrays/objects/null). */
+	/**
+	 * Canonical scalar→int read of a mixed field; 0 for non-scalars
+	 * (arrays/objects/null).
+	 *
+	 * @api Consumed by sibling plugins (event-logger-nodes, pyrobase, ai-newsletter).
+	 */
 	public static function as_int( mixed $value, int $default = 0 ): int {
 		return \is_scalar( $value ) ? (int) $value : $default;
 	}
@@ -610,10 +676,17 @@ class Core {
 		return (int) $token;
 	}
 
+	/** Bind $name in the process registry; `Node::name()` is the only caller. */
 	public static function register_node( string $name, Node $node ): void {
 		self::$nodes_by_name[ $name ] = $node;
 	}
 
+	/**
+	 * Free $name in the process registry. Unbinding is separable from teardown —
+	 * `Node::name()` uses it mid-rename, and `SSE_Out_Node` drops its `_sse`
+	 * mapping while the controller instance lives on — so this touches the
+	 * registry only, never the node.
+	 */
 	public static function unregister_node( string $name ): void {
 		unset( self::$nodes_by_name[ $name ] );
 	}
@@ -641,6 +714,7 @@ class Core {
 		return false;
 	}
 
+	/** The node bound to $name, or null; Router resolves each TO segment here. */
 	public static function node( string $name ): ?Node {
 		return self::$nodes_by_name[ $name ] ?? null;
 	}

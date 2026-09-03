@@ -4,29 +4,36 @@ import { initSkin } from '@newspack-nodes/shared/theme';
 import { isDebugEnabled } from './isDebugEnabled';
 import DebugPanel from './DebugPanel';
 import { startOverviewSampler, stopOverviewSampler } from './overviewSampler';
-import './tabs'; // registers the built-in overlay tabs (Inspector, Overview)
+import './tabs'; // registers the built-in overlay tabs (Overview, Console)
 import './debug-overlay.scss';
 
 /**
- * Same-page debug overlay: a debug-gated floating FAB + panel that renders the
- * host page's own live Core.nodes graph in the shared GraphView and lets you
- * poke it (connect/remove/invoke) via the page's own CommandInterpreter.
+ * Same-page debug overlay: a debug-gated floating launcher and panel that put
+ * the host page's own live `Core.nodes` graph on top of whatever dashboard is
+ * running. The panel hosts the registered `overlay` tabs — Overview (this
+ * browser's I/O rates) and Console (the graph in the shared GraphView, plus a
+ * REPL that pokes it through the page's own CommandInterpreter).
  *
- * The panel (DebugPanel) mounts ONLY while open, so it builds its graph BEFORE
- * its first render (useState lazy-initializer in the graph hooks) — never in a
- * render-effect. That build-before-render is what prevents an open-and-type
- * shell.sink race: shell.sink is bound during the build, before any typed line
- * can dispatch, so there is no dispatch-time resolve.
+ * `?nodes-debug=1` opens the gate and sticks; Ctrl+` then toggles the panel.
+ * Disabled, the overlay renders nothing and samples nothing. Enabled, the
+ * Overview sampler runs whether the panel is open or shut, so the rate charts
+ * already carry history when you open it.
  *
- * Reset Graph (inside the panel) rebuilds the ENTIRE graph in place: it removes
- * every node, then bumps `Core.graphGeneration` so every graph-building effect
- * (each dashboard's mountExospine + this overlay's useDebugRepl) tears down and
- * rebuilds its nodes fresh.
+ * The panel mounts ONLY while open. That is what lets the active tab's graph
+ * hooks build their nodes in `useState` lazy initializers, ahead of the
+ * subtree's first render: `shell.sink` is bound during the build, before any
+ * typed line can dispatch, so nothing has to resolve a sink at dispatch time.
+ *
+ * The root div carries the skin provider classes only when no ancestor is
+ * already a `.newspack-nodes-ui`. Standalone, the overlay supplies the skin
+ * itself; inside a dashboard shell it inherits the host's, leaving one
+ * provider root in the tree. Only the DOM answers that, so the state starts as
+ * owner and steps down when the ref callback finds a provider above.
  *
  * @param {Object}  props
- * @param {string}  [props.search]     Injectable location.search (tests).
- * @param {string}  [props.storageKey] Layout persistence key (per dashboard).
- * @param {boolean} [props.buildRepl]  When false (hub Console tab), the Inspector body runs Overview-only.
+ * @param {string}  [props.search]     `window.location.search` the gate reads; tests inject it.
+ * @param {string}  [props.storageKey] Canvas-layout localStorage key, per dashboard so node positions never collide. The panel's frame geometry is global and ignores it.
+ * @param {boolean} [props.buildRepl]  When false the Console tab builds no graph or REPL infra and points at the page's own console; Overview is unaffected.
  * @return {import('react').ReactElement|null} The overlay, or null when debug is disabled.
  */
 export default function DebugOverlay( {
@@ -38,6 +45,7 @@ export default function DebugOverlay( {
 	const enabled = isDebugEnabled( search );
 	const [ open, setOpen ] = useState( false );
 	const [ ownsProvider, setOwnsProvider ] = useState( true );
+	// Own the skin provider only when no ancestor already is one.
 	const setRootRef = useCallback( ( node ) => {
 		if ( node ) {
 			setOwnsProvider(

@@ -2,26 +2,30 @@
 /**
  * Job Worker
  *
- * Consumes normalized job entries (from jobs.log, written by an application's
- * JobRouter) and dispatches to registered handlers.
+ * Dispatches normalized job entries — the jobs.log records an application's
+ * `Job_Router_Node` writes — to handlers that application registers through
+ * WordPress filters. The substrate owns the dispatch, the retry, the batch
+ * fan-in and the stats; the application owns the handlers and the request
+ * context each one runs in.
  *
  * Two handler maps, registered independently:
- *   - local_handlers  — for entries with k='job'        (every node's own
- *                       JobWorker dispatches here)
- *   - remote_handlers — for entries with k='remote_job' (a hub's JobWorker
- *                       dispatches here after incoming spoke `k:"job"` lines are
- *                       rewritten to `k:"remote_job"`)
+ *   - local_handlers  — entries with k='job', which every host's own worker
+ *                       dispatches.
+ *   - remote_handlers — entries with k='remote_job', which only a hub's worker
+ *                       sees: the hub's ingress rewrites `k` on each entry it
+ *                       aggregates from a spoke.
  *
- * A handler can register on either or both. Registering on both is the
- * pattern for jobs that should run locally on every node AND have a
- * (possibly different) handler invoked centrally on the hub for entries
- * aggregated from spokes — same handler name, two independent callables.
+ * A handler can register on either map or on both. Registering on both is the
+ * pattern for a job that runs locally on every host AND has a (possibly
+ * different) handler invoked centrally on the hub for the entries aggregated
+ * from spokes — one handler name, two independent callables.
  *
- * Plugins typically register via WP filters at plugin load:
+ * Plugins register through WordPress filters at plugin load:
  *   add_filter( 'newspack_nodes/job_handlers',        ... );
  *   add_filter( 'newspack_nodes/remote_job_handlers', ... );
- * The worker eager-loads both filters in its constructor via
- * load_handlers_from_filters().
+ * The constructor reads both through load_handlers_from_filters(), because
+ * plugins_loaded has fired by the time a topology evaluates; eager loading
+ * saves a `load_handlers` line in every TSL.
  *
  * Handler signature: `( string $id, array $parameters )` — $id FIRST, because
  * every job has one and it is what the request context is named for; a
@@ -29,13 +33,14 @@
  * belongs to `before_job` / `after_job` alone, so a handler neither opens one
  * nor needs the Message to do it.
  *
- * Per-job request context (suspending a parent logger, rewriting $_SERVER to a
- * synthetic /jobs/{handler} URL, etc.) is NOT a substrate concern: fill() runs
- * the `newspack_nodes/job_worker/before_job` FILTER ( $run, $handler, $id,
+ * That context — suspending a parent logger, rewriting $_SERVER to a synthetic
+ * /jobs/{handler} URL — is NOT a substrate concern. fill() runs the
+ * `newspack_nodes/job_worker/before_job` FILTER ( $run, $handler, $id,
  * $message ) and fires the `…/after_job` action ( $handler, $id, $outcome )
- * around each handler so applications can hook their own context. The cleanup
- * action runs in a finally block, even if the handler throws. Extra args are
- * BC-safe via accepted_args.
+ * around each handler so an application hooks its own. The action runs in a
+ * finally block, so it fires even when the handler throws. A listener that
+ * registered for fewer arguments still receives only those, so the substrate
+ * can pass more without breaking it.
  *
  * before_job is a filter so a listener can DECLINE a job it will not set a
  * context up for — an evtemplate whose id addresses another host reaches every
@@ -48,9 +53,9 @@
  * for a declined job exactly as it does for a thrown one, so a second listener
  * that had already set itself up is torn down whatever order the two ran in.
  *
- * SECURITY:
- * - Handler names must match HANDLER_NAME_PATTERN
- * - Parameters validated for type/size; handlers MUST validate content
+ * SECURITY: the handler name must match HANDLER_NAME_PATTERN and the encoded
+ * entry must fit MAX_JOB_SIZE. Nothing here inspects the parameters — a
+ * handler owns both their type and their content.
  *
  * @package Newspack_Nodes
  */
@@ -64,27 +69,49 @@ if ( ! \defined( 'ABSPATH' ) ) {
 /**
  * Job Worker class.
  *
+ * A terminal node: a Consumer tailing jobs.log fills it and it forwards nothing,
+ * which is why `has_target` is false — the sink `make_node` wires carries only
+ * the GET_HEALTH reply back out. Per-identity run stats accumulate in memory and
+ * leave through the probe_stats() seam a `Job_Probe` sweeps.
+ *
  * @phpstan-type Job_Stat array{handler:string,runs:int,errors:int,duration_ms:float,queue_ms:float,items_ok:int,items_err:int,last_ts:int,last_duration_ms:int,last_status:string,last_message:string,probe_ts:float}
  */
 class Job_Worker_Node extends Node {
 	use Schema_Reflection;
 
-	/** Default cache-flush interval in jobs. */
+	/** Jobs between `wp_cache_flush()` calls; the `cache_flush_interval` default. */
 	public const CACHE_FLUSH_INTERVAL = 50;
 
+	/** Accepted handler names. Job_Intake and an application's router hold matching copies. */
 	public const HANDLER_NAME_PATTERN = '/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/';
-	public const MAX_JOB_SIZE         = Job_Intake::MAX_JOB_SIZE;
 
-	/** Cap on the durable last-run message so a jobstats record stays under PIPE_BUF. */
+	/** Largest entry this node dispatches, taken from the one canonical cap. */
+	public const MAX_JOB_SIZE = Job_Intake::MAX_JOB_SIZE;
+
+	/**
+	 * Characters of a handler's last-run message the accumulator keeps. The cap is
+	 * a first pass, not the guarantee: `Job_Probe` runs each record through
+	 * `Line_Fitter`, which trims this same field to the PIPE_BUF byte boundary.
+	 */
 	public const MAX_STAT_MESSAGE_LEN = 1024;
 
-	/** Retry backoff: RETRY_BASE_S * 2^attempt, capped at RETRY_MAX_S (SSE reconnect doubling, lifted). */
+	/** First retry delay in seconds; the backoff is RETRY_BASE_S * 2^attempt. */
 	public const RETRY_BASE_S = 30;
-	public const RETRY_MAX_S  = 3600;
 
+	/** Ceiling on that backoff in seconds — an hour, however many attempts remain. */
+	public const RETRY_MAX_S = 3600;
+
+	/** Jobs dispatched between object-cache flushes; arguments() clamps it to 1 or more. */
 	protected int $cache_flush_interval = self::CACHE_FLUSH_INTERVAL;
-	/** @api Used by unit tests. */
+
+	/**
+	 * Jobs dispatched since this node was built.
+	 *
+	 * @api Read by unit tests through reflection.
+	 */
 	private int $jobs_executed = 0;
+
+	/** Jobs dispatched since the last flush — what cache_flush_interval gates. */
 	private int $jobs_since_cache_flush = 0;
 
 	/**
@@ -97,10 +124,18 @@ class Job_Worker_Node extends Node {
 	 */
 	private array $job_stats = [];
 
-	/** @var array<string,callable> */
+	/**
+	 * Handlers for `k:"job"` entries, keyed by handler name.
+	 *
+	 * @var array<string,callable>
+	 */
 	private array $local_handlers = [];
 
-	/** @var array<string,callable> */
+	/**
+	 * Handlers for `k:"remote_job"` entries — a spoke's work, running on the hub.
+	 *
+	 * @var array<string,callable>
+	 */
 	private array $remote_handlers = [];
 
 	/** Tachikoma-parity: no-arg ctor. Positional config arrives via arguments(). */
@@ -112,12 +147,13 @@ class Job_Worker_Node extends Node {
 	}
 
 	/**
-	 * Store the raw string, parse positional tokens via parse_schema_args()
-	 * (cache_flush_interval), then clamp each knob
-	 * to a minimum of 1.
+	 * Assign the one positional token, cache_flush_interval, through
+	 * parse_schema_args() — which also stores the raw tokens dump_config() reads
+	 * back — then clamp it to 1 or more: at zero or below, the interval check
+	 * passes on every job and flushes the object cache each time.
 	 *
-	 * @param list<string>|null $args
-	 * @return list<string>
+	 * @param list<string>|null $args Positional tokens, or null to read them back.
+	 * @return list<string> This node's positional tokens.
 	 */
 	public function arguments( ?array $args = null ): array {
 		if ( null === $args ) {
@@ -128,6 +164,21 @@ class Job_Worker_Node extends Node {
 		return $args;
 	}
 
+	/**
+	 * Dispatch one jobs.log entry, or answer a TM_REQUEST verb.
+	 *
+	 * A message that is not a TM_STRUCT entry, or one naming a handler this node
+	 * does not own, is dropped without a word: a worker seeing a handler it does
+	 * not own is the normal hub-and-spoke case, not a misconfiguration. An
+	 * oversized entry and an invalid handler name are each reported, rate-limited.
+	 *
+	 * The handler call sits between the before_job filter and the after_job action
+	 * the file header describes. A throw is poison by default — it propagates to
+	 * the Consumer, which dead-letters the entry (ADR-12) — unless the entry opted
+	 * into retries and schedule_retry() re-parks it.
+	 *
+	 * @param array<int,mixed> $message Incoming Message; VALUE is the entry array.
+	 */
 	public function fill( array $message ): void {
 		++$this->counter;
 		/** @var int $type */
@@ -165,7 +216,7 @@ class Job_Worker_Node extends Node {
 		// @longform Silent for BOTH kinds. A worker seeing a handler it does
 		// not own is the normal hub-and-spoke case, not a misconfiguration: a
 		// spoke's Job_Router produces into its own jobs.log and
-		// rewrite-remote-job runs hub-side, so every hub-destined job reaches
+		// remote-job-rewrite runs hub-side, so every hub-destined job reaches
 		// the spoke's worker as an unownable `job` — one warning per job, for
 		// work that completes fine on the hub.
 		if ( ! isset( $handlers[ $handler ] ) ) {
@@ -289,6 +340,7 @@ class Job_Worker_Node extends Node {
 	 * itself fails (a job must never vanish into a failed swallow).
 	 *
 	 * @param array<string,mixed> $entry The jobs.log entry that threw.
+	 * @return bool True when the entry is re-parked, so the caller swallows the throw.
 	 */
 	private function schedule_retry( array $entry ): bool {
 		$retries = Core::as_int( $entry['retries'] ?? 0, 0 );
@@ -379,12 +431,13 @@ class Job_Worker_Node extends Node {
 	/**
 	 * Classify a handler's return value into an outcome, honoring the pyrobase-cron
 	 * contract verbatim: `success_count` defaults to -1 (the "no stats reported"
-	 * sentinel) and `error_count` to 0. all-errors-no-items → error; any errors with
-	 * items → success "Completed with errors"; else a plain success. The -1 sentinel
-	 * never pollutes the items total (clamped to 0).
+	 * sentinel) and `error_count` to 0. Errors with no items processed is the only
+	 * error status; errors alongside items is a success reading "Completed with
+	 * errors"; anything else is a plain success. The -1 sentinel never reaches the
+	 * items total, which clamps at 0.
 	 *
-	 * @param mixed $result The handler's return value (often null / void).
-	 * @return array{status:string,message:string,items_ok:int,items_err:int}
+	 * @param mixed $result The handler's return value, usually null.
+	 * @return array{status:string,message:string,items_ok:int,items_err:int} Status, one-line message and the two item counts.
 	 */
 	private function classify_outcome( mixed $result ): array {
 		$stats         = ( \is_array( $result ) && isset( $result['stats'] ) && \is_array( $result['stats'] ) ) ? $result['stats'] : [];
@@ -412,14 +465,16 @@ class Job_Worker_Node extends Node {
 	}
 
 	/**
-	 * Fold one run's outcome + duration into the per-identity accumulator. Cumulative
-	 * counters (never deltas) — the Job_Probe emits them raw and readers derive rates.
+	 * Fold one run's outcome and duration into the per-identity accumulator, opening
+	 * that identity's window at its FIRST run rather than at worker start. The
+	 * counters climb until probe_stats() drains them, so a record ships the work of
+	 * one window and a reader divides instead of differencing.
 	 *
-	 * @param string                                                                 $handler  Handler name.
-	 * @param string                                                                 $identity Job identity (`handler:id`, or `handler` alone).
-	 * @param float                                                                  $started  microtime() at handler dispatch.
-	 * @param float                                                                  $queue_ms Queue latency (start − enqueue ts), ms.
-	 * @param array{status:string,message:string,items_ok:int,items_err:int}         $outcome  Classified outcome.
+	 * @param string $handler  Handler name.
+	 * @param string $identity Job identity (`handler:id`, or `handler` alone).
+	 * @param float  $started  microtime() at handler dispatch.
+	 * @param float  $queue_ms Queue latency (start − enqueue ts), ms.
+	 * @param array{status:string,message:string,items_ok:int,items_err:int} $outcome Classified outcome.
 	 */
 	private function record_job_stats( string $handler, string $identity, float $started, float $queue_ms, array $outcome ): void {
 		$duration_ms = ( Core::right_now() - $started ) * 1000; // real elapsed; also un-freezes $now post-job
@@ -456,7 +511,17 @@ class Job_Worker_Node extends Node {
 	}
 
 	/**
-	 * @param array<int,mixed> $message
+	 * Answer a TM_REQUEST verb and reply to whoever asked. `GET_HEALTH` is the only
+	 * verb; an unknown one comes back as an `error` payload rather than a throw,
+	 * because no interpreter sits on this path to turn a throw into a TM_ERROR
+	 * reply. TO=FROM is the whole correlation and ID and KEY ride back unchanged, so
+	 * the asker keeps no registry of outstanding requests (ADR-7).
+	 *
+	 * The payload REPORTS memory without acting on it. The watermark that ends a
+	 * process before PHP's uncatchable fatal-on-OOM belongs to
+	 * `Worker_Base::should_continue()`, which owns every cooperative-stop trigger.
+	 *
+	 * @param array<int,mixed> $message Incoming request Message.
 	 */
 	private function handle_request( array $message ): void {
 		$sink = $this->require_sink();
@@ -491,6 +556,11 @@ class Job_Worker_Node extends Node {
 		$sink->fill( $reply );
 	}
 
+	/**
+	 * PHP's `memory_limit` in bytes, expanding the k/m/g suffix ini_get returns.
+	 *
+	 * @return int Bytes, or -1 where the limit is unlimited.
+	 */
 	private function memory_limit_bytes(): int {
 		$ini = \ini_get( 'memory_limit' );
 		if ( '-1' === $ini ) {
@@ -512,9 +582,13 @@ class Job_Worker_Node extends Node {
 	}
 
 	/**
-	 * Load handlers from the standard WordPress filters. Called by the
-	 * job-workers topology after make_node so plugins that register via
-	 * add_filter('newspack_nodes/{job,remote_job}_handlers', ...) get picked up.
+	 * Read both handler maps from `newspack_nodes/job_handlers` and
+	 * `newspack_nodes/remote_job_handlers`. The constructor calls it once; a test
+	 * calls it again after installing a filter.
+	 *
+	 * A name failing HANDLER_NAME_PATTERN or a value that is not callable is
+	 * skipped rather than refused, so one bad registration cannot cost a worker
+	 * every other handler in the same filter.
 	 */
 	public function load_handlers_from_filters(): void {
 		if ( ! \function_exists( 'apply_filters' ) ) {
@@ -594,6 +668,13 @@ class Job_Worker_Node extends Node {
 		return $s;
 	}
 
+	/**
+	 * Topology console manifest: the palette entry, the one positional argument
+	 * parse_schema_args() assigns, and the `GET_HEALTH` request. `has_target` is
+	 * false because this node is terminal — it dispatches jobs and forwards nothing.
+	 *
+	 * @return array<string,mixed>
+	 */
 	public static function node_schema(): array {
 		return [
 			'category'    => 'Control',

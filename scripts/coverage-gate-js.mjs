@@ -1,25 +1,47 @@
 #!/usr/bin/env node
 /**
  * Per-file JS coverage gate for the pre-push hook — the JS counterpart to
- * scripts/coverage-gate.py. Reads jest's coverage/coverage-summary.json and
- * exits:
- *   1  if any file under --filter is below --threshold percent statement
- *      coverage (prints the offenders),
- *   0  if every matched file is at/above threshold, OR there is nothing to
+ * scripts/coverage-gate.py, which gates PHP one class at a time. Reads the
+ * `coverage-summary.json` jest writes and exits:
+ *   1  if any file whose path contains --filter is below --threshold percent
+ *      statement coverage (prints the offenders),
+ *   0  if every matched file is at or above threshold, OR there is nothing to
  *      gate — no summary file (a plugin whose `test:js:coverage` is the `true`
- *      no-op, i.e. no jest/JS) or a summary with no matching src files.
- *   2  if the summary exists but cannot be parsed.
+ *      no-op, i.e. no jest/JS) or a summary with no matching src files,
+ *   2  on a refusal: no summary path given, a summary that will not parse, or
+ *      a --threshold that is not a number.
  *
  * The absent-summary case is a clean skip (unlike the PHP gate's missing-clover
  * failure) because the pre-push runs `npm run test:js:coverage` first and fails
  * the push if jest itself errored — so a real jest run always leaves a summary,
  * and its absence means the plugin simply has no JS to measure.
  *
+ * Every other unreadable input refuses instead of passing, because both numbers
+ * this gate compares degrade to NaN and `pct < NaN` is false for every file: a
+ * threshold that will not parse, or a pct the summary reports as something
+ * other than a number, would report success having gated nothing.
+ * scripts/test-coverage-gate-js.sh pins each of those cases over fixtures.
+ *
+ * Newspack Nodes holds the authoritative copy — siblings vendor this file
+ * through scripts/sync-shared-scripts.sh, so an edit belongs here.
+ *
  * Usage: coverage-gate-js.mjs <coverage-summary.json> [--threshold 90] [--filter /src/]
  */
 
 import fs from 'node:fs';
 
+/**
+ * Classify the command line into the summary path, threshold and filter.
+ *
+ * The first bare argument is the summary path and later ones are ignored, so a
+ * stray token cannot retarget the gate at a file nobody meant to measure. A
+ * --threshold that is not a number exits here rather than falling back to the
+ * default, because a gate that quietly substitutes its own threshold stops
+ * reporting what the caller asked for.
+ *
+ * @param {string[]} argv Arguments after the node binary and this script.
+ * @return {{summary: (string|null), threshold: number, filter: (string|undefined)}} The parsed options.
+ */
 function parseArgs( argv ) {
 	const args = { summary: null, threshold: 90, filter: '/src/' };
 	for ( let i = 0; i < argv.length; i++ ) {
@@ -68,6 +90,16 @@ try {
 	process.exit( 2 );
 }
 
+/**
+ * One summary key with backslash separators rewritten to forward slashes.
+ *
+ * jest keys the summary with the host platform's separator, while --filter is
+ * written one way (`/src/`), so matching the raw key would miss every file on
+ * Windows and skip the whole tree.
+ *
+ * @param {string} s The file path as the summary keys it.
+ * @return {string} The same path, separated by `/`.
+ */
 const norm = ( s ) => s.split( '\\' ).join( '/' );
 const offenders = [];
 let matched = 0;
@@ -92,7 +124,13 @@ if ( 0 === matched ) {
 }
 
 if ( offenders.length ) {
-	// An unreadable pct sorts first: it is the least trustworthy number here.
+	/**
+	 * The sort position of one file's statement pct — an unreadable pct ranks
+	 * below every real percentage, so it heads the printed list.
+	 *
+	 * @param {number} p The file's statement pct, NaN when unreadable.
+	 * @return {number} Its sort key.
+	 */
 	const rank = ( p ) => ( Number.isFinite( p ) ? p : -1 );
 	offenders.sort( ( a, b ) => rank( a[ 1 ] ) - rank( b[ 1 ] ) );
 	process.stderr.write(

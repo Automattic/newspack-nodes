@@ -1,20 +1,47 @@
 /**
- * Turn IoTelemetry's compact rate ring into the `series` shape the reused
- * TopicsChart consumes — `{ [label]: { points:[{ts,value}], max, avg } }` — but
- * with two fixed series (In / Out) instead of one-per-topic. Two panels:
- * message rate and byte rate. Pure (ring in, series out) so it's trivially
- * testable and memoizable.
+ * Reshape IoTelemetry's rate ring into the series model TopicsChart draws, so
+ * the debug overlay's Overview tab reuses the event dashboards' chart instead
+ * of growing a second one. The shape matches `topicChartSeries` —
+ * `{ [label]: { points:[{ts,value}], max, avg } }` — over two fixed labels, In
+ * and Out, where the dashboards carry one label per topic, and over two panels,
+ * message rate and byte rate.
  *
- * Ring rows are `[ t, msgInRate, msgOutRate, byteInRate, byteOutRate ]`.
+ * A ring row is `[ t, msgInRate, msgOutRate, byteInRate, byteOutRate ]`: one
+ * row per 5-second sample, each rate already divided by IoTelemetry. The points
+ * carry no `weight`, so a chart bucket spanning several samples takes their
+ * plain mean, which is what one fixed cadence wants.
+ *
+ * Reading nothing but the ring is what lets `useOverviewStats` memoize on
+ * `IoTelemetry.revision`: the sampler appends in place, so a memo keyed on the
+ * array itself would never see a new sample.
  */
 
+/** Ring column: the sample instant, in whole seconds. */
 const T = 0;
+
+/** Ring column: messages per second in, over SSE and command responses. */
 const MSG_IN = 1;
+
+/** Ring column: messages per second out, in command requests. */
 const MSG_OUT = 2;
+
+/** Ring column: bytes per second in. */
 const BYTE_IN = 3;
+
+/** Ring column: bytes per second out. */
 const BYTE_OUT = 4;
 
-// One TopicsChart series ({ points, max, avg }) from a ring column.
+/**
+ * Build one TopicsChart series from a single ring column.
+ *
+ * `buildAlignedSeries` ranks a panel's series by `max`, so the busier direction
+ * draws first; `avg` completes the shape. An empty ring yields empty points
+ * with both at zero, which TopicsChart renders as a blank panel.
+ *
+ * @param {Array<Array<number>>} ring The rate ring, oldest row first.
+ * @param {number}               col  Column index to read from each row.
+ * @return {{points:Array<{ts:number,value:number}>,max:number,avg:number}} One chart series.
+ */
 function seriesFromColumn( ring, col ) {
 	const points = ring.map( ( row ) => ( {
 		ts: row[ T ],
@@ -29,8 +56,11 @@ function seriesFromColumn( ring, col ) {
 }
 
 /**
- * @param {Array<Array<number>>} ring IoTelemetry rate ring.
- * @return {{ msgRate: Object, byteRate: Object }} Two In/Out TopicsChart series.
+ * Split the rate ring into the two In/Out panels the Overview tab renders.
+ *
+ * @param {Array<Array<number>>} ring IoTelemetry's rate ring, from `getSeries()`.
+ * @return {{msgRate:Object<string,{points:Array<{ts:number,value:number}>,max:number,avg:number}>,byteRate:Object<string,{points:Array<{ts:number,value:number}>,max:number,avg:number}>}}
+ *   The message-rate and byte-rate panels, each keyed `In` and `Out`.
  */
 export function overviewChartSeries( ring ) {
 	return {

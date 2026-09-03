@@ -11,8 +11,8 @@
  * cache stores do not enumerate, so nothing can list what exists. An option
  * holds the directory and the CACHE stays the authority on liveness: same
  * pointer-versus-lease split as SSE_Slot_Pool, for the same reason. A row
- * whose lease is gone is reported dead rather than deleted, so a revoked or
- * expired session is visible until it is pruned.
+ * whose lease is gone is reported dead rather than deleted, so a revoked
+ * session stays on the tab until its stated expiry passes.
  *
  * The signing key is never written here. It cannot be hashed either —
  * verification recomputes an HMAC, so the key must stay recoverable — which is
@@ -25,9 +25,13 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * Static store for the directory: one option, no instance state, so a web
+ * request, a worker or WP-CLI reads it without wiring a node.
+ */
 class Sessions {
 
-	/** Directory option. Non-autoloaded: only the Sessions tab and revocation read it. */
+	/** Directory option. Non-autoloaded: only a mint, a revoke or the Sessions tab reads it. */
 	public const OPTION = 'newspack_nodes_sessions';
 
 	/**
@@ -46,8 +50,13 @@ class Sessions {
 	 *
 	 * Read-modify-write on one option, deliberately un-serialized: two mints in
 	 * the same instant can lose a row, and the cost of that is a live session
-	 * missing from the tab, not a broken one. A claim protocol here would buy
-	 * an operator listing what the SSE slot pool needs for correctness.
+	 * missing from the tab, not a broken one. The SSE slot pool needs a claim
+	 * protocol because ownership rides on it; an operator listing does not.
+	 *
+	 * @param string $handle Session handle: the directory key, and the name its cache lease lives under.
+	 * @param string $scope  Capability ceiling the session carries, one of `Capabilities::READ|TUNE|MANAGE`.
+	 * @param string $label  Operator's name for the session. An empty label records nothing.
+	 * @param int    $ttl    Lifetime in seconds, counted from now.
 	 */
 	public static function record( string $handle, string $scope, string $label, int $ttl ): void {
 		// @longform An unlabelled session is an automatic `/auth` mint, several
@@ -79,6 +88,8 @@ class Sessions {
 	/**
 	 * Revoke a session: drop the lease FIRST, so a failure to write the option
 	 * leaves a listed-but-dead row rather than an unlisted live key.
+	 *
+	 * @param string $handle Session handle. A handle absent from the directory still has its lease dropped.
 	 */
 	public static function forget( string $handle ): void {
 		Command_Auth::revoke_session( $handle );
@@ -94,6 +105,11 @@ class Sessions {
 	 * The directory, newest first, each row carrying `live` — whether its key
 	 * still resolves — and `state`, which says WHY when it does not. Never
 	 * carries the key itself.
+	 *
+	 * Expired rows leave the LISTING only; the option keeps them until the next
+	 * `record()` rewrites it, so reading the tab writes nothing. A row stored
+	 * without a scope lists as `manage`, so the listing never understates what
+	 * a key that still resolves can do.
 	 *
 	 * @return array<string,array{label:string,scope:string,created:int,expires:int,live:bool,state:string}>
 	 */
@@ -125,14 +141,12 @@ class Sessions {
 	/**
 	 * What a row's lease says about it, in one word.
 	 *
-	 * `live` alone cannot separate the two dead states, and they send an
-	 * operator to different places. A lease gone BEFORE its stated expiry was
-	 * taken: revoked here, or orphaned by a salt rotation — `wp nodes memcache
-	 * flush` orphans every key on the install, session leases included. A lease
-	 * gone at or after it simply lapsed — and `all()` prunes those before it
-	 * lists, so a listed dead row was ALWAYS taken rather than lapsed. That is
-	 * the whole reason this exists: the tab said "expired" on rows that had
-	 * hours left, and sent the reader to look at TTLs.
+	 * `all()` drops every row whose stated expiry has passed before it lists, so
+	 * a listed row with no lease lost that lease EARLY. Something took it:
+	 * `forget()`, or a salt rotation — `wp nodes memcache flush` orphans every
+	 * key on the install, session leases included. Neither is expiry, and
+	 * naming it "expired" sends an operator to audit TTLs with hours left on
+	 * them. That is why `live` alone is not enough to report.
 	 *
 	 * @param bool $live Whether the key still resolves.
 	 * @return string `live` or `revoked`.
@@ -142,7 +156,8 @@ class Sessions {
 	}
 
 	/**
-	 * Raw directory rows, or [] when the option holds anything else.
+	 * Raw directory rows, with anything that is not an array dropped at both
+	 * levels, so every caller can index a row without checking it first.
 	 *
 	 * @return array<array-key,array<array-key,mixed>>
 	 */
@@ -159,6 +174,7 @@ class Sessions {
 	 * writing, so `record()` performs ONE option write for prune + insert.
 	 *
 	 * @param array<array-key,array<array-key,mixed>> $rows Directory rows.
+	 * @param int                                     $now  Unix timestamp to measure expiry against.
 	 * @return array<array-key,array<array-key,mixed>>
 	 */
 	private static function prune( array $rows, int $now ): array {

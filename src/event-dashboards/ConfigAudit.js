@@ -1,12 +1,18 @@
 /**
  * Config Audit — the hub's change timeline over the durable settings.p0 log.
  *
- * A thin view over `useLogTailStream` (full-replay) + the `settingsaudit:view`
- * model: a newest-first table of watched-option changes, each a Time (UTC), the
- * option NAME, and an Old → New value pair. The option name is recorded for every
- * change; values ride only for options on the substrate's explicit allowlist, so
- * non-allowlisted rows show the em dash — the note states that plainly. A text
- * filter narrows by option name; the count line reports matched / total.
+ * A thin view over `useLogTailStream` in history mode plus the
+ * `settingsaudit:view` model: a newest-first table of watched-option changes,
+ * each row giving when the change landed, the option NAME, and an Old → New
+ * value pair. `Settings_Event_Writer` records the name for every change, but
+ * value excerpts only for options on the substrate's explicit allowlist, so a
+ * non-allowlisted row shows the em dash on both sides — the note above the
+ * table says so plainly, since a blank cell reads as a value someone emptied. A
+ * text filter narrows by option name; the count line reports matched / total.
+ *
+ * The stream is seeded with the view CLASS, never its registered name: that map
+ * is a per-bundle static, and a hub tab runs against whichever bundle's
+ * interpreter it was handed (ADR-16).
  */
 
 import { createPortal, useState } from '@wordpress/element';
@@ -17,10 +23,22 @@ import { formatLocalDateTime } from '@newspack-nodes/shared/utils/formatUtils';
 import './styles/config-audit.scss';
 import { views } from './nodes/register';
 
+/** The model node the stream publishes; `useStreamGraph` names it `<name>:view`. */
 const VIEW_NODE = 'settingsaudit:view';
+
+/** Stands in for what was never recorded: a missing instant, a missing value. */
 const EM_DASH = '—';
 
-// Local date + time + zone: audit rows span days, so no today-elision.
+/**
+ * Render a change's instant as local date, time and zone.
+ *
+ * The date always rides and there is no today-elision: audit rows span days, so
+ * a bare clock time cannot say whether a change landed this morning or last
+ * month. A missing or zero timestamp renders the em dash rather than 1970.
+ *
+ * @param {?number} ts Unix seconds, as the view node copied them off TIMESTAMP.
+ * @return {string} `YYYY-MM-DD HH:MM:SS ZZZ`, or the em dash.
+ */
 function formatWhen( ts ) {
 	if ( ! ts ) {
 		return EM_DASH;
@@ -28,7 +46,19 @@ function formatWhen( ts ) {
 	return formatLocalDateTime( ts );
 }
 
-// Mono value cell: the excerpt (title = full text), em dash when absent.
+/**
+ * Render one Old or New value cell, monospaced and clipped to a single line.
+ *
+ * The writer records a bounded excerpt and CSS ellipses whatever still
+ * overflows, so the whole recorded text rides in `title`, where a hover reaches
+ * it. The em dash covers both ways a value goes missing — the option sits off
+ * the allowlist, or the writer halved the excerpt away to fit the record under
+ * PIPE_BUF — and it beats a blank cell, which reads as a value someone emptied.
+ *
+ * @param {string} modifier BEM element class marking the cell Old or New.
+ * @param {string} [value]  The recorded excerpt; absent when the option carries none.
+ * @return {import('react').ReactElement} The rendered cell.
+ */
 function valueCell( modifier, value ) {
 	const present = 'string' === typeof value && '' !== value;
 	return (
@@ -45,7 +75,7 @@ function valueCell( modifier, value ) {
  * Config Audit hub tab.
  *
  * @param {Object}   props                      Props.
- * @param {?Element} [props.headerControlsSlot] Hub shared-header slot to portal the toolbar into.
+ * @param {?Element} [props.headerControlsSlot] Hub shared-header slot to portal the toolbar into; null renders none, undefined renders it inline.
  * @return {import('react').ReactElement} Rendered component.
  */
 export default function ConfigAudit( { headerControlsSlot } ) {

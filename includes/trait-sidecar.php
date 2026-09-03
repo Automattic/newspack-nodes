@@ -3,11 +3,14 @@
  * Sidecar: build a hidden Partition that belongs to a node.
  *
  * The offsetlog and the dead-letter queue are the same thing wearing different
- * geometry — a named, patron-linked Partition that a node owns, whose dir is an
+ * geometry — a patron-linked Partition that a node owns, whose dir is an
  * ARGUMENT (empty disables it) and whose sink is its patron's. This is that
- * shape, once. What happens to a sibling AFTER it is built — the slot it is
- * published into, the name collision check and the rename, sink and teardown
- * cascades — is the base Node's `publish_sibling()`.
+ * shape, once, for the two traits that reach it: `Durable_Reader` builds the
+ * offsetlog, `Dead_Letter_Queue` the quarantine. A using class must be a Node,
+ * because the sidecar takes `$this` as its patron and copies the patron's own
+ * sink. What happens to a sibling AFTER it is built — the slot it is published
+ * into, the name collision check and the rename, sink and teardown cascades —
+ * is the base Node's `publish_sibling()`.
  *
  * @package Newspack_Nodes
  */
@@ -27,9 +30,17 @@ trait Sidecar {
 	 * the patron afterwards is the base Node's four cascades, which the
 	 * publish enrols it in.
 	 *
-	 * @param string          $dir      Segment directory.
-	 * @param array<int,int>  $geometry segment_size, then the five retention axes
-	 *                                  (min_segments, num_segments, max_segments, min_lifetime, lifetime).
+	 * Spell every geometry position: an omitted one takes the Partition
+	 * schema's `<config:*>` default, which hands a sidecar whatever retention an
+	 * operator picked for the data partitions.
+	 *
+	 * @param string    $dir      Segment directory — the Partition's first
+	 *                            positional argument; segments land at
+	 *                            `{dir}/{seg}.log`.
+	 * @param list<int> $geometry segment_size, then the five retention axes
+	 *                            (min_segments, num_segments, max_segments,
+	 *                            min_lifetime, lifetime).
+	 * @return Partition_Node The sidecar, built but not yet published.
 	 */
 	protected function make_sidecar( string $dir, array $geometry ): Partition_Node {
 		$partition = new Partition_Node();

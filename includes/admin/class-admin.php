@@ -1,10 +1,14 @@
 <?php
 /**
- * Admin: substrate-side WP-Settings-API surface.
+ * Admin: the substrate's whole wp-admin surface — the top-level "Nodes"
+ * DevTools hub, the Settings → Nodes Runtime page, and the React-bundle
+ * enqueues both hosts share.
  *
- * Owns ONLY substrate options — the field list lives in `Settings_Schema`
- * (the single source of truth), never here. Saving a restart-classified field
- * triggers a per-partition worker-restart request via `Restart_Planner`.
+ * Owns no field list of its own. `Settings_Schema` declares every substrate
+ * setting and carries its default in code (ADR-20), and this class derives the
+ * register, render and reset loops from that declaration. Saving a
+ * restart-classified field hands the classification to `Restart_Planner`,
+ * which recycles the partitions running a node that consumes the field.
  *
  * @package Newspack_Nodes
  */
@@ -30,7 +34,18 @@ use Newspack_Nodes\Worker_Base;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * Substrate admin settings page.
+ * Substrate admin surface: two hosts and the assets both need.
+ *
+ * The top-level "Nodes" page is a React mount div; every dashboard reaches it
+ * as a DevTools tab bundle rather than its own submenu, so one hub renders the
+ * Console, Topologies, Vault, Sessions, Aggregator and Raw Logs. The Settings →
+ * Nodes Runtime page is server-rendered through the WP Settings API.
+ *
+ * Every `*_callback` static here is a callable `Settings_Schema` names — a
+ * `Field`'s renderer or a section's intro. WordPress invokes them through
+ * `do_settings_sections()`; nothing in this class calls them directly. They are
+ * static and referenced as `[ Admin::class, '…' ]` so a worker building the
+ * schema for its overlay key-list never autoloads the admin surface.
  */
 class Admin {
 
@@ -51,15 +66,28 @@ class Admin {
 
 	/** Hidden-input array name carrying per-field reset marks ({option} => "1"). */
 	public const RESET_MARK_FIELD = 'newspack_nodes_reset';
+
+	/** Nonce field name on the reset form; RESET_ACTION is the action it verifies. */
 	public const RESET_NONCE  = 'newspack_nodes_reset_nonce';
 
 	/** THE cache flush: rotates the shared salt every plugin's keys hang off. */
 	public const FLUSH_ACTION = 'newspack_nodes_flush_cache';
+
+	/** Nonce field name on the flush form; FLUSH_ACTION is the action it verifies. */
 	public const FLUSH_NONCE  = 'newspack_nodes_flush_nonce';
 
 	/** Settings page slug for add_settings_field() / do_settings_sections(). */
 	public const SETTINGS_PAGE = 'newspack_nodes';
 
+	/**
+	 * Wire every admin hook: the two menus, settings registration, the reset and
+	 * flush admin-post handlers, the stylesheet and bundle enqueues, the tab-bundle
+	 * filters, and the worker-restart request on save.
+	 *
+	 * Stylesheet registration runs at priorities 1 to 3 so the token sheet exists
+	 * before the appearance sheet that consumes it, and both exist before any
+	 * dashboard enqueue declares them as a dependency.
+	 */
 	public function __construct() {
 		\add_action( 'admin_menu', [ $this, 'add_admin_menu' ] );
 		\add_action( 'admin_menu', [ $this, 'register_topology_admin_page' ] );
@@ -97,6 +125,10 @@ class Admin {
 	/**
 	 * Enqueue the event-dashboards bundle on the top-level "Nodes" hub page,
 	 * where its `host:'hub'` tabs (Topology Manager + Raw Logs) register.
+	 *
+	 * @param string $hook `admin_enqueue_scripts` hook suffix, ignored: the page
+	 *                     gate is `?page=`, which reads the same for a top-level
+	 *                     page and a submenu while the hook suffix does not.
 	 */
 	public function enqueue_event_dashboards_assets( string $hook = '' ): void {
 		self::enqueue_react_page(
@@ -114,7 +146,15 @@ class Admin {
 	}
 
 	/**
-	 * Enqueue the DevTools hub bundle on the top-level "Nodes" page.
+	 * Enqueue the DevTools hub bundle on the top-level "Nodes" page — the shell
+	 * that renders the tab strip and mounts whichever tab is selected.
+	 *
+	 * Its stylesheet depends on the graph sheet rather than the UI sheet, because
+	 * the hub draws topology canvases and the graph sheet already pulls the UI
+	 * sheet in behind it.
+	 *
+	 * @param string $hook `admin_enqueue_scripts` hook suffix, ignored; see
+	 *                     enqueue_event_dashboards_assets().
 	 */
 	public function enqueue_devtools_hub_assets( string $hook = '' ): void {
 		self::enqueue_react_page(
@@ -133,16 +173,23 @@ class Admin {
 	}
 
 	/**
-	 * Enqueue every plugin-registered DevTools tab bundle on both hosts.
+	 * Enqueue every plugin-registered DevTools tab bundle on the hub page.
 	 *
-	 * A contributor returns `{ handle, dir, url }` (the `enqueue_react_page` shape)
-	 * via the `newspack_nodes/devtools_tab_bundles` filter; each is enqueued on the
-	 * top-level "Nodes" hub page so its tabs register in whichever host they
-	 * target (the hub renders the overlay on every non-console tab). The
-	 * per-bundle page-gate + existence/manifest handling is `enqueue_react_page`'s.
+	 * A contributor returns `{ handle, dir, url[, localize][, lazy] }` — the
+	 * `enqueue_react_page` shape — through the `newspack_nodes/devtools_tab_bundles`
+	 * filter. A plain bundle is enqueued so its tabs register as the hub shell
+	 * boots. A `lazy` bundle is not enqueued at all: its load recipe goes into the
+	 * `NewspackNodesLazyTabs` map on the hub handle, and the shell fetches it on
+	 * first tab activation. Each entry is validated here and dropped whole rather
+	 * than coerced, so one malformed contribution cannot break the others; the
+	 * page gate, the build-existence gate and manifest resolution belong to
+	 * `enqueue_react_page` and `lazy_tab_script`.
+	 *
+	 * @param string $hook `admin_enqueue_scripts` hook suffix, ignored; see
+	 *                     enqueue_event_dashboards_assets().
 	 */
 	public function enqueue_devtools_tab_bundles( string $hook = '' ): void {
-		// Hub-only: the lazy branch stats/hashes build files on every fire.
+		// Hub-only: each lazy recipe hashes and stats a build directory.
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
 		$page = isset( $_GET['page'] ) && \is_string( $_GET['page'] ) ? \sanitize_text_field( \wp_unslash( $_GET['page'] ) ) : '';
 		if ( self::HUB_MENU_SLUG !== $page ) {
@@ -191,15 +238,23 @@ class Admin {
 	/**
 	 * Shared React-dashboard enqueue registrar.
 	 *
-	 * Performs ONLY the mechanics every dashboard enqueue site duplicated:
-	 * page-gate, index.js existence gate, manifest-vs-fallback deps/version,
-	 * CSS sidecar (+ RTL activation), and the NewspackNodesData localize.
-	 * Returns the script handle so callers can layer per-tree extras
-	 * (inline scripts, secondary bundles) on top, or null if it did not enqueue.
+	 * Performs ONLY the mechanics every dashboard enqueue site shares: the page
+	 * gate, the `index.js` existence gate, manifest-versus-fallback deps and
+	 * version, the CSS sidecar with its RTL activation, and the
+	 * `NewspackNodesData` localize. Returns the script handle so a caller can
+	 * layer per-tree extras — an inline script, a secondary bundle — on top.
 	 *
+	 * A missing `index.js` returns null rather than enqueueing: a plugin whose
+	 * assets were never built then renders an empty mount div instead of a 404
+	 * on every admin page load.
+	 *
+	 * @api Sibling plugins enqueue their own dashboards through this.
 	 * @param array{handle:string, page:string|array<int,string>, dir:string, url:string,
 	 *   localize?:array<string,mixed>, version_fallback?:string, style_deps?:array<int,string>} $args
-	 * @return string|null Enqueued script handle, or null if nothing was enqueued.
+	 *   Script handle, the `?page=` slug or slugs it may load on, the build
+	 *   directory and its public URL, and optional localize extras, version
+	 *   fallback and stylesheet dependencies.
+	 * @return string|null Enqueued script handle, or null when nothing was enqueued.
 	 */
 	public static function enqueue_react_page( array $args ): ?string {
 		if ( ! \function_exists( 'wp_enqueue_script' ) ) {
@@ -244,14 +299,19 @@ class Admin {
 	/**
 	 * Build the on-demand load recipe for one lazy DevTools tab bundle: the
 	 * versioned script URL, the optional style URL, and the localize payload the
-	 * bundle reads (the same `NewspackNodesData` — restUrl/nonce + per-tab extras —
-	 * it would receive if enqueued). Returns null when the bundle has no built
-	 * `index.js` (so a missing build never poisons the lazy map).
+	 * bundle reads (the same `NewspackNodesData` — restUrl and nonce under the
+	 * per-tab extras — it would receive if enqueued). Returns null when the bundle
+	 * has no built `index.js`, so a missing build never poisons the lazy map.
 	 *
-	 * @param string               $dir      Filesystem path to the build subdir.
-	 * @param string               $url      Public URL of the build subdir.
+	 * The version rides in the URL query rather than through `wp_enqueue_script`,
+	 * because the browser injects this script itself and never reaches WordPress's
+	 * cache-busting.
+	 *
+	 * @param string              $dir      Filesystem path to the build subdirectory.
+	 * @param string              $url      Public URL of the build subdirectory.
 	 * @param array<string,mixed> $localize Per-tab localize payload (string keys only).
-	 * @return array{src:string, data:array<string,mixed>, style?:string}|null
+	 * @return array{src:string, data:array<string,mixed>, style?:string}|null Load
+	 *   recipe for the hub shell, or null when the bundle has no build.
 	 */
 	private static function lazy_tab_script( string $dir, string $url, array $localize ): ?array {
 		$dir = \rtrim( $dir, '/' );
@@ -277,11 +337,15 @@ class Admin {
 	}
 
 	/**
-	 * The `NewspackNodesData` payload: shared restUrl/nonce under per-bundle
-	 * extras — one shape for enqueued and lazily-injected bundles alike.
+	 * The `NewspackNodesData` payload: the shared `restUrl` and `nonce` under the
+	 * per-bundle extras — one shape for enqueued and lazily-injected bundles alike.
+	 *
+	 * A bundle may override either shared key, since the extras merge last. Both
+	 * fall back to a literal outside a WordPress runtime so building the payload
+	 * never fatals in a hermetic test harness.
 	 *
 	 * @param array<string,mixed> $localize Per-bundle extras (string keys).
-	 * @return array<string,mixed>
+	 * @return array<string,mixed> The payload localized as `NewspackNodesData`.
 	 */
 	private static function localize_data( array $localize ): array {
 		$rest_url = \function_exists( 'rest_url' ) ? \rest_url() : '/wp-json/';
@@ -296,14 +360,21 @@ class Admin {
 	}
 
 	/**
-	 * Deps + version for a built bundle — wp-scripts manifest first, else static
-	 * deps + filemtime, else the fallback. The ONE resolver the eager enqueue
-	 * and the lazy tab recipe both use (they must never drift).
+	 * Resolve a built bundle's script dependencies and cache-busting version.
 	 *
-	 * @param string $dir      Filesystem path to the build subdir.
+	 * Reads the wp-scripts `index.asset.php` manifest when the build wrote one.
+	 * Without it, falls back to the four `wp-*` globals every dashboard imports
+	 * and to the bundle's mtime, so a hand-built or partially-built tree still
+	 * loads with a version that changes when the file does.
+	 *
+	 * The ONE resolver behind both the eager enqueue and the lazy tab recipe: a
+	 * second copy would let the two disagree on a version and serve one host a
+	 * cached bundle the other had already busted.
+	 *
+	 * @param string $dir      Filesystem path to the build subdirectory.
 	 * @param string $js_path  Path to the bundle's index.js.
 	 * @param string $fallback Version when neither manifest nor mtime resolve.
-	 * @return array{0: list<string>, 1: string} [deps, version].
+	 * @return array{0:list<string>, 1:string} Dependencies, then version.
 	 */
 	private static function bundle_manifest( string $dir, string $js_path, string $fallback ): array {
 		$asset_path = "{$dir}/index.asset.php";
@@ -321,71 +392,102 @@ class Admin {
 		];
 	}
 
+	/** How many parallel log partitions the fleet runs. */
 	public static function num_partitions_callback(): void {
 		self::render_number( 'num_partitions', \__( 'Number of log partitions for parallel processing.', 'newspack-nodes' ) );
 	}
 
+	/** Floor the age rule may not prune past. */
 	public static function min_segments_callback(): void {
 		self::render_number( 'min_segments', \__( 'Floor for the age rule: keep at least this many segments even when pruning old ones by max lifetime.', 'newspack-nodes' ) );
 	}
 
+	/** Target the count rule prunes down to, above `min_lifetime`. */
 	public static function num_segments_callback(): void {
 		self::render_number( 'num_segments', \__( 'Count-rule target: prune the oldest back to this many segments — but only ones older than min lifetime.', 'newspack-nodes' ) );
 	}
 
+	/** Hard cap neither the count rule nor `min_lifetime` can override. */
 	public static function max_segments_callback(): void {
 		self::render_number( 'max_segments', \__( 'True hard cap: prune the oldest UNCONDITIONALLY above this many segments (min lifetime does not protect them). 0 = automatic (twice num segments).', 'newspack-nodes' ) );
 	}
 
+	/** Size at which a partition rotates to a new segment. */
 	public static function segment_size_callback(): void {
 		self::render_number( 'segment_size', \__( 'Maximum segment size in bytes.', 'newspack-nodes' ) );
 	}
 
+	/** Age below which the count rule spares a segment. */
 	public static function min_lifetime_callback(): void {
 		self::render_number( 'min_lifetime', \__( 'Floor for the count rule: keep segments younger than this many seconds even when over num segments. 0 = pure count-based.', 'newspack-nodes' ) );
 	}
 
+	/** Age above which the age rule prunes, down to `min_segments`. */
 	public static function lifetime_callback(): void {
 		self::render_number( 'lifetime', \__( 'Age rule: prune segments older than this many seconds down to min segments. 0 = disabled (no age-based pruning).', 'newspack-nodes' ) );
 	}
 
+	/** Count-rule target on remote spokes. */
 	public static function remote_num_segments_callback(): void {
 		self::render_number( 'remote_num_segments', \__( 'Count-rule target: number of log segments to keep on remote servers (2-16).', 'newspack-nodes' ) );
 	}
 
+	/** Floor the age rule may not prune past on remote spokes. */
 	public static function remote_min_segments_callback(): void {
 		self::render_number( 'remote_min_segments', \__( 'Floor for the age rule: keep at least this many segments on remote servers even when pruning by lifetime.', 'newspack-nodes' ) );
 	}
 
+	/** Age above which the age rule prunes on remote spokes. */
 	public static function remote_lifetime_callback(): void {
 		self::render_number( 'remote_lifetime', \__( 'Age rule: prune remote segments older than this many seconds down to remote min segments. 0 = disabled.', 'newspack-nodes' ) );
 	}
 
+	/** Hard cap on remote spokes, which `remote_min_lifetime` cannot override. */
 	public static function remote_max_segments_callback(): void {
 		self::render_number( 'remote_max_segments', \__( 'True hard cap on remote servers: prune the oldest UNCONDITIONALLY above this many segments. 0 = automatic (twice remote num segments).', 'newspack-nodes' ) );
 	}
 
+	/** Segment rotation size on remote spokes. */
 	public static function remote_segment_size_callback(): void {
 		self::render_number( 'remote_segment_size', \__( 'Segment size on remote servers in bytes (1MB-256MB).', 'newspack-nodes' ) );
 	}
 
+	/** Age below which the count rule spares a remote segment. */
 	public static function remote_min_lifetime_callback(): void {
 		self::render_number( 'remote_min_lifetime', \__( 'Minimum retention on remote servers in seconds. Spokes keep data at least this long for the aggregator to pull. 0 = disabled (pure count-based).', 'newspack-nodes' ) );
 	}
 
+	/** Consumer lag, in bytes, that raises a fleet alert. */
 	public static function alert_lag_threshold_callback(): void {
 		self::render_number( 'alert_lag_threshold', \__( 'Warn when a consumer falls more than this many bytes behind its partition end. 0 = warn on any lag.', 'newspack-nodes' ) );
 	}
 
+	/** Quarantined dead-letter segment count that raises an alert. */
 	public static function alert_deadletter_threshold_callback(): void {
 		self::render_number( 'alert_deadletter_threshold', \__( 'Warn when more than this many dead-letter segments are quarantined. 0 = warn on the first.', 'newspack-nodes' ) );
 	}
 
+	/** Rate limit between alert-action emission bursts. */
 	public static function alert_emit_interval_callback(): void {
 		self::render_number( 'alert_emit_interval', \__( 'Minimum seconds between alert-action emission bursts (rate limit).', 'newspack-nodes' ) );
 	}
 
-	/** Echo a number field: default from the config file, value from the stored option. */
+	/**
+	 * Echo one bounded number field, the shape every numeric setting renders as.
+	 *
+	 * The value is the stored option and the placeholder is the effective default
+	 * — the schema's code default as the config files override it — so a blank box
+	 * shows what the field falls back to instead of hiding it.
+	 *
+	 * Refuses to render a field the schema does not declare, or declares without a
+	 * min and max. An unbounded number box accepts a partition count of 900 or a
+	 * segment size of 0 and sanitizes clean; a missing declaration is a schema bug
+	 * to surface, not to paper over with an open input.
+	 *
+	 * @param string $field       Short field key, without OPTION_PREFIX.
+	 * @param string $description Translated help text below the input.
+	 * @throws \RuntimeException When the schema declares no bounds for the field.
+	 */
 	private static function render_number( string $field, string $description ): void {
 		$bounds = Settings_Schema::get()->field_for_short( $field );
 		if ( null === $bounds || null === $bounds->min || null === $bounds->max ) {
@@ -418,9 +520,8 @@ class Admin {
 	/**
 	 * Advertise the event-dashboards bundle as a DevTools tab bundle so the hub
 	 * page enqueues it and its `host: 'hub'` tabs (Topology Manager + Raw Logs)
-	 * register there. (event-dashboards is also enqueued directly on the hub page
-	 * via enqueue_event_dashboards_assets; wp dedupes by handle, so the double
-	 * enqueue is harmless.)
+	 * register there. `enqueue_event_dashboards_assets()` also enqueues it
+	 * directly; WordPress deduplicates by handle, so the second one is a no-op.
 	 *
 	 * @param array<int,mixed> $bundles Existing tab bundles.
 	 * @return array<int,mixed> Bundles with the event-dashboards bundle appended.
@@ -430,8 +531,8 @@ class Admin {
 	}
 
 	/**
-	 * Advertise the vault bundle as a DevTools tab bundle so the hub page
-	 * enqueues it and its `host: 'hub'` Vault tab registers there.
+	 * Advertise the vault bundle as a lazy DevTools tab bundle, so the hub page
+	 * ships its `host: 'hub'` Vault tab only once someone opens that tab.
 	 *
 	 * @param array<int,mixed> $bundles Existing tab bundles.
 	 * @return array<int,mixed> Bundles with the vault bundle appended.
@@ -441,8 +542,8 @@ class Admin {
 	}
 
 	/**
-	 * Advertise the sessions bundle as a DevTools tab bundle so the hub page
-	 * enqueues it and its `host: 'hub'` Sessions tab registers there.
+	 * Advertise the sessions bundle as a lazy DevTools tab bundle, so the hub page
+	 * ships its `host: 'hub'` Sessions tab only once someone opens that tab.
 	 *
 	 * @param array<int,mixed> $bundles Existing tab bundles.
 	 * @return array<int,mixed> Bundles with the sessions bundle appended.
@@ -452,8 +553,8 @@ class Admin {
 	}
 
 	/**
-	 * Advertise the aggregator bundle as a DevTools tab bundle so the hub page
-	 * enqueues it and its `host: 'hub'` Aggregator tab registers there.
+	 * Advertise the aggregator bundle as a lazy DevTools tab bundle, so the hub
+	 * page ships its `host: 'hub'` Aggregator tab only once someone opens it.
 	 *
 	 * @param array<int,mixed> $bundles Existing tab bundles.
 	 * @return array<int,mixed> Bundles with the aggregator bundle appended.
@@ -463,11 +564,13 @@ class Admin {
 	}
 
 	/**
-	 * Advertise the topology-console bundle as a DevTools tab bundle so the hub
-	 * page enqueues it and its `host: 'hub'` Console tab registers there. Carries
-	 * the partition snapshot the React dropdown reads (the SAME canonical
-	 * derivation the `topologies.list` verb uses, so the page-load snapshot and
-	 * the live refetch can't disagree).
+	 * Advertise the topology-console bundle as a lazy DevTools tab bundle, so the
+	 * hub page ships its `host: 'hub'` Console tab only once someone opens it.
+	 *
+	 * Carries the partition snapshot the React dropdown reads, derived exactly the
+	 * way the `topologies.list` verb derives it. Two derivations would let the
+	 * page-load snapshot and the live refetch disagree, and the console would
+	 * redraw its dropdown for no reason a reader could see.
 	 *
 	 * @param array<int,mixed> $bundles Existing tab bundles.
 	 * @return array<int,mixed> Bundles with the topology-console bundle appended.
@@ -512,16 +615,18 @@ class Admin {
 	}
 
 	/**
-	 * Append one DevTools tab bundle (the shared `{handle, dir, url[, localize]}`
-	 * shape) to the running list. Each `register_*_tab_bundle` filter callback
-	 * delegates the append here; topology-console also builds a localize payload.
+	 * Append one DevTools tab bundle, in the shared `{handle, dir, url[, localize]
+	 * [, lazy]}` shape, to the running list. Every `register_*_tab_bundle` filter
+	 * callback delegates its append here, so the shape is spelled once.
 	 *
-	 * @param array<int,mixed>     $bundles  Existing tab bundles.
-	 * @param string               $handle   Script handle.
-	 * @param string               $subdir   Build subdir under `build/`.
-	 * @param array<string,mixed>  $localize Optional localize payload.
-	 * @param bool                 $lazy     Load on first tab activation instead of up front.
-	 * @return array<int,mixed>
+	 * @param array<int,mixed>    $bundles  Existing tab bundles.
+	 * @param string              $handle   Script handle.
+	 * @param string              $subdir   Build subdirectory under `build/`.
+	 * @param array<string,mixed> $localize Optional localize payload.
+	 * @param bool                $lazy     Ship the bundle on first activation of
+	 *                                      its tab rather than with the hub, so a
+	 *                                      tab nobody opens costs no download.
+	 * @return array<int,mixed> Bundles with this one appended.
 	 */
 	private static function append_tab_bundle( array $bundles, string $handle, string $subdir, array $localize = [], bool $lazy = false ): array {
 		$bundle = [
@@ -540,14 +645,18 @@ class Admin {
 	}
 
 	/**
-	 * Register the public product-token stylesheet.
+	 * Register the product-token stylesheet: the single definition of the `--np-*`
+	 * custom properties every Nodes and sibling-plugin dashboard resolves its
+	 * colors and spacing against.
 	 */
 	public function register_theme_style(): void {
 		$this->register_built_style( 'newspack-nodes-theme', 'theme', [] );
 	}
 
 	/**
-	 * Register the opt-in Nodes and Event Logger appearance stylesheet.
+	 * Register the Nodes and Event Logger appearance stylesheet. Opt-in: a page
+	 * gets it by enqueuing the handle or naming it as a style dependency, so a
+	 * plugin embedding one dashboard does not restyle the rest of wp-admin.
 	 */
 	public function register_ui_style(): void {
 		$this->register_built_style(
@@ -558,7 +667,8 @@ class Admin {
 	}
 
 	/**
-	 * Register graph-only artwork and layout after canonical UI appearance.
+	 * Register the topology-canvas artwork and layout. Depends on the appearance
+	 * sheet, so a page loading the graph gets both in the right cascade order.
 	 */
 	public function register_graph_style(): void {
 		$this->register_built_style(
@@ -569,7 +679,9 @@ class Admin {
 	}
 
 	/**
-	 * Register one built stylesheet and its RTL replacement.
+	 * Register one built stylesheet and its RTL replacement, versioned on the
+	 * file's own content hash. Registers rather than enqueues, so a page opts in by
+	 * naming the handle; an already-registered handle is left exactly as it is.
 	 *
 	 * @param string   $handle Style handle.
 	 * @param string   $subdir Build subdirectory.
@@ -602,15 +714,16 @@ class Admin {
 	}
 
 	/**
-	 * Cache-bust a stylesheet on its OWN content hash, not the JS bundle hash or
-	 * plugin version: a SCSS-only rebuild leaves the JS hash / version unchanged,
-	 * so reusing those would serve the stylesheet from cache behind a stale ?ver=
-	 * (a CSS-only change would need a hard-refresh to land). Returns the fallback
-	 * (the prior version value) when the file isn't readable — gated so we never
-	 * call md5_file on a non-readable path and emit a warning.
+	 * Cache-bust a stylesheet on its OWN content hash rather than on the JS bundle
+	 * hash or the plugin version. A SCSS-only rebuild leaves both of those
+	 * unchanged, so a stylesheet keyed on either serves from cache behind a stale
+	 * `?ver=` and only a hard refresh lands the change.
+	 *
+	 * Falls back to the caller's version when the file is unreadable, checked
+	 * first so `md5_file()` never runs on an unreadable path and warns.
 	 *
 	 * @param string $css_path Filesystem path to the stylesheet.
-	 * @param string $fallback Version to use when the file isn't readable.
+	 * @param string $fallback Version to use when the file is unreadable.
 	 * @return string Content hash, or the fallback.
 	 */
 	public static function css_cache_version( string $css_path, string $fallback ): string {
@@ -620,20 +733,25 @@ class Admin {
 		return \md5_file( $css_path ) ?: $fallback;
 	}
 
-	/** Public URL of a build subdir; the URL constant may be absent in CLI/test contexts. */
+	/** Public URL of a build subdirectory; the constant is undefined off a WP runtime. */
 	private static function build_url( string $subdir ): string {
 		return ( \defined( 'NEWSPACK_NODES_URL' ) ? \NEWSPACK_NODES_URL : '' ) . 'build/' . $subdir;
 	}
 
-	/** Filesystem path to a build subdir (e.g. 'vault' → '{plugin}/build/vault'). */
+	/** Filesystem path to a build subdirectory ('vault' → '{plugin}/build/vault'). */
 	private static function build_dir( string $subdir ): string {
 		return \NEWSPACK_NODES_DIR . 'build/' . $subdir;
 	}
 
 	/**
-	 * Render ONE fleet-alert notice summarizing the Alerts evaluator's count +
-	 * worst severity, shown only on the substrate's own admin pages to
-	 * manage_options users. Nothing renders when the fleet is clean.
+	 * Render ONE fleet-alert notice: the count the `Alerts` evaluator returns and
+	 * the worst severity among them, linked to Site Health for the detail.
+	 *
+	 * One summary rather than a notice per alert: `evaluate()` returns an entry per
+	 * worker, per lagging consumer and per dead-lettering reader, so a fleet-wide
+	 * problem yields a screenful. Shown only on the substrate's own admin pages,
+	 * and only to a user holding the MANAGE capability; nothing renders when the
+	 * fleet is clean.
 	 */
 	public function render_alert_notice(): void {
 		if ( ! self::current_user_allowed() ) {
@@ -666,8 +784,9 @@ class Admin {
 	}
 
 	/**
-	 * Register the DevTools hub as the top-level "Nodes" admin menu (renders the
-	 * hub React mount div; the Console + Topologies load on it as tab bundles).
+	 * Register the DevTools hub as the top-level "Nodes" admin menu. The page it
+	 * renders is the hub's React mount div; the Console, Topologies and the rest
+	 * arrive on it as tab bundles.
 	 */
 	public function register_topology_admin_page(): void {
 		if ( ! self::current_user_allowed() ) {
@@ -688,11 +807,10 @@ class Admin {
 	}
 
 	/**
-	 * Registers the event-dashboard admin pages. Every event dashboard is now a
-	 * `host:'hub'` DevTools tab on the top-level "Nodes" page (Raw Logs was the
-	 * last standalone submenu; it became a hub tab), so there are no standalone
-	 * submenus left to register. Kept as the `admin_menu` (priority 11) seam in
-	 * case a future dashboard needs its own page.
+	 * Register the event-dashboard admin pages. Every event dashboard is a
+	 * `host:'hub'` DevTools tab on the top-level "Nodes" page, so this registers
+	 * nothing: it is the `admin_menu` priority-11 seam a dashboard needing its own
+	 * standalone page would hook, running after the hub menu exists.
 	 */
 	public function register_event_dashboard_pages(): void {
 		if ( ! self::current_user_allowed() ) {
@@ -701,8 +819,9 @@ class Admin {
 	}
 
 	/**
-	 * Render the DevTools hub mount element — the top-level "Nodes" landing page
-	 * (Console + Topologies tabs load on it via the devtools_tab_bundles filter).
+	 * Render the DevTools hub mount element, the whole server-side output of the
+	 * top-level "Nodes" landing page. Every tab on it comes from a bundle the
+	 * `newspack_nodes/devtools_tab_bundles` filter contributed.
 	 */
 	public function render_hub_page(): void {
 		if ( ! self::current_user_allowed() ) {
@@ -712,7 +831,7 @@ class Admin {
 	}
 
 	/**
-	 * Settings submenu under Settings → Nodes Runtime.
+	 * Register the server-rendered settings page as Settings → Nodes Runtime.
 	 */
 	public function add_admin_menu(): void {
 		if ( ! self::current_user_allowed() ) {
@@ -731,7 +850,13 @@ class Admin {
 	}
 
 	/**
-	 * Render the settings page: main form + hidden Reset-to-Defaults form.
+	 * Render the settings page: the Settings-API form, plus a hidden form each for
+	 * Reset to Defaults and Flush Caches.
+	 *
+	 * The two destructive actions post to `admin-post.php` rather than riding the
+	 * settings form, because `options.php` would treat them as a save. Their
+	 * buttons live in the settings form's submit row and submit the hidden form
+	 * they belong to, so the page reads as one control panel.
 	 */
 	public function render_settings_page(): void {
 		if ( ! self::current_user_allowed() ) {
@@ -781,6 +906,11 @@ class Admin {
 		<?php
 	}
 
+	/**
+	 * Base-directory field: an absolute path, with the file default as the
+	 * placeholder. Blank means "use that default", which is what makes the field
+	 * resettable without a magic sentinel value.
+	 */
 	public static function base_directory_callback(): void {
 		$defaults = Config::load_config_defaults();
 		$base     = $defaults['base_directory'] ?? '';
@@ -797,8 +927,9 @@ class Admin {
 	}
 
 	/**
-	 * Memcache servers field: newline-separated `host:port` textarea, default in
-	 * the placeholder (and listed in the description).
+	 * Memcache servers field: a textarea of newline-separated `host:port` entries.
+	 * The default list is both the placeholder and part of the description, since
+	 * a placeholder alone vanishes the moment the operator types one server.
 	 */
 	public static function memcache_servers_callback(): void {
 		$defaults        = Config::load_config_defaults();
@@ -828,9 +959,10 @@ class Admin {
 	}
 
 	/**
-	 * Log sources field: newline-separated `name=/absolute/path` textarea. Extra
-	 * `/log/stream` + `taillog` sources layered over the built-ins and the
-	 * topology-inferred set (see Log_Sources).
+	 * Log sources field: a textarea of newline-separated `name=/absolute/path`
+	 * entries. These are additions to what `Log_Sources` already resolves — the
+	 * built-in sources and the ones inferred from the active topologies — and both
+	 * `/log/stream` and `taillog` read the combined set.
 	 */
 	public static function log_sources_callback(): void {
 		$value = \get_option( 'newspack_nodes_log_sources', [] );
@@ -853,10 +985,13 @@ class Admin {
 	}
 
 	/**
-	 * Total-storage field: the TRUE disk ceiling — segment_size × the effective
-	 * hard cap (max_segments, or 2 × num_segments when auto) × on-disk log-partition
-	 * dirs. Uses the hard cap, not the count target, so what's shown is the ceiling
-	 * cleanup_segments() actually enforces rather than an underestimate.
+	 * Read-only total-storage row: the disk ceiling the current geometry implies,
+	 * as segment size × the effective hard cap × the on-disk log partitions.
+	 *
+	 * The hard cap is `max_segments`, or twice `num_segments` when it is left on
+	 * automatic. Multiplying by the hard cap rather than the count target is what
+	 * makes this the ceiling `Partition_Node::cleanup_segments()` enforces; the
+	 * count target yields a number the fleet routinely exceeds.
 	 */
 	public static function total_storage_callback(): void {
 		$defaults     = Config::load_config_defaults();
@@ -901,11 +1036,13 @@ class Admin {
 	}
 
 	/**
-	 * Read an int config default, coercing scalars exactly as `(int)` would and falling back when non-scalar.
+	 * Read an int config default, coercing a scalar exactly as `(int)` would and
+	 * taking the fallback for a missing or non-scalar entry.
 	 *
 	 * @param array<string,mixed> $defaults Config defaults.
-	 * @param string               $key      Key to read.
-	 * @param int                  $fallback Default when missing/non-scalar.
+	 * @param string              $key      Key to read.
+	 * @param int                 $fallback Value for a missing or non-scalar entry.
+	 * @return int The default this field renders as its placeholder.
 	 */
 	private static function default_int( array $defaults, string $key, int $fallback ): int {
 		$value = $defaults[ $key ] ?? $fallback;
@@ -913,11 +1050,11 @@ class Admin {
 	}
 
 	/**
-	 * Rotate the install's cache salt — THE flush.
+	 * Rotate the install's cache salt — THE flush — then recycle the fleet.
 	 *
-	 * One rotation orphans every Newspack plugin's cached values at once, and
-	 * touches no co-tenant install sharing the server. Plugins deliberately keep
-	 * no salt of their own: three independent rotations meant flushing one left
+	 * One rotation orphans every Newspack plugin's cached values at once and
+	 * touches no co-tenant install sharing the server. No plugin keeps a salt of
+	 * its own, deliberately: with three independent rotations, flushing one leaves
 	 * the other two serving stale values.
 	 */
 	public function handle_flush_cache(): void {
@@ -955,7 +1092,13 @@ class Admin {
 	}
 
 	/**
-	 * Reset-to-defaults admin-post handler (nonce + permission checked before deleting options).
+	 * Reset every substrate setting to its default, verifying the nonce and the
+	 * permission before it deletes anything.
+	 *
+	 * Deletes the option rows rather than writing defaults into them, so the field
+	 * default in `Settings_Schema` — and any config-file override of it — is what
+	 * the site reads afterwards. Only rows the schema names and the prefix matches
+	 * are touched, so a co-tenant plugin's options survive.
 	 */
 	public function handle_reset_settings(): void {
 		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
@@ -987,15 +1130,16 @@ class Admin {
 	}
 
 	/**
-	 * Permission gate: `manage_options` baseline + optional `allowed_users`
-	 * whitelist from Config.
+	 * Permission gate for every admin page and handler here: the MANAGE capability,
+	 * narrowed by the optional `allowed_users` list from Config.
 	 *
-	 * Empty `allowed_users` means "all users with manage_options". When the
-	 * whitelist is populated, the current user's `user_login` must be a member —
-	 * manage_options is still required, so a demoted account loses access
-	 * immediately without editing the whitelist.
+	 * MANAGE resolves through the `newspack_nodes/capability_map` filter and
+	 * defaults to `manage_options`. An empty `allowed_users` means every user
+	 * holding it. A populated one additionally requires the current user's
+	 * `user_login` to be a member — the capability is still checked first, so a
+	 * demoted account loses access at once and nobody has to edit the list.
 	 *
-	 * @return bool True if user is allowed.
+	 * @return bool True when the current user may reach the substrate admin.
 	 */
 	public static function current_user_allowed(): bool {
 		if ( ! Capabilities::can( Capabilities::MANAGE ) ) {
@@ -1011,9 +1155,12 @@ class Admin {
 	}
 
 	/**
-	 * Enqueue canonical UI appearance on the server-rendered Nodes settings page.
+	 * Enqueue the appearance stylesheet on the server-rendered settings page. The
+	 * React hosts get it through their own bundles' style dependencies; this page
+	 * has no bundle, so it opts in here.
 	 *
-	 * @param string $hook Current admin-page hook suffix.
+	 * @param string $hook `admin_enqueue_scripts` hook suffix, ignored; see
+	 *                     enqueue_event_dashboards_assets().
 	 */
 	public function enqueue_settings_style( string $hook = '' ): void {
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
@@ -1025,17 +1172,16 @@ class Admin {
 	}
 
 	/**
-	 * Shared registry of admin page slugs (besides the hub) that mount the debug
-	 * overlay.
+	 * The admin page slugs, beyond the hub, that mount the debug overlay — collected
+	 * through the `newspack_nodes/devtools_overlay_pages` filter.
 	 *
-	 * The `newspack_nodes/devtools_overlay_pages` filter collects the slugs of
-	 * admin pages that embed `<DebugOverlay>`. Overlay-tab-providing bundles (e.g.
-	 * ELN's `current-request`) enqueue their tab on these pages so any plugin's
-	 * overlay gets the full tab set — not just the hub and the tab provider's own
-	 * pages.
+	 * A bundle contributing an overlay tab enqueues that tab on every slug listed
+	 * here, so an overlay embedded by one plugin still shows another plugin's tab.
+	 * Without the shared list each bundle would only reach the hub and its own
+	 * pages, and the tab set would differ per page for no reason a user could see.
 	 *
-	 * @api Consumed by sibling plugins (e.g. ELN's current-request overlay tab).
-	 * @return string[] Deduplicated overlay-page slugs (non-strings filtered out).
+	 * @api Sibling plugins read this to place their overlay tabs.
+	 * @return string[] Deduplicated overlay-page slugs; non-strings are filtered out.
 	 */
 	public static function devtools_overlay_pages(): array {
 		return \array_values( \array_unique( \array_filter(
@@ -1045,18 +1191,25 @@ class Admin {
 	}
 
 	/**
-	 * Render the read-only "Effective Configuration" table below the settings
-	 * form. Hooked to `newspack_nodes/settings_after_form`; delegates to the
-	 * shared Settings_Renderer (panel logic lives in exactly one place across
-	 * plugins). The per-row data shape is exercised by SettingsRendererEffectiveConfigTest.
+	 * Render the read-only "Effective Configuration" table below the settings form,
+	 * so an operator can see the value each setting actually resolves to once the
+	 * config files and the option rows have both been applied.
+	 *
+	 * Hooked to `newspack_nodes/settings_after_form` and delegated to the shared
+	 * `Settings_Renderer`, which every sibling plugin's settings page also calls:
+	 * the panel is one implementation, not one per plugin.
 	 */
 	public function render_effective_config_section(): void {
 		Settings_Renderer::render_effective_config_section( Settings_Schema::get(), self::OPTION_PREFIX, Config::load_config() );
 	}
 
 	/**
-	 * Register every substrate option + the Storage and Topologies sections,
-	 * all derived from the single Settings_Schema declaration.
+	 * Register every substrate option, its sanitizer, and the Storage, Remote and
+	 * Alerting sections — all derived from the one `Settings_Schema` declaration.
+	 *
+	 * Also arms `Reset_Gate`, which deletes an option row when the field carries a
+	 * reset mark or is saved blank. Deleting is what hands the field back to its
+	 * code default; storing an empty string would shadow that default forever.
 	 */
 	public function register_settings(): void {
 		$schema = Settings_Schema::get();
@@ -1073,10 +1226,13 @@ class Admin {
 	}
 
 	/**
-	 * Sanitize a base-directory path: no null bytes, no `..`, must be absolute,
-	 * trailing slash stripped; '' on any violation.
+	 * Sanitize a base-directory path: absolute, no null byte, no `..`, trailing
+	 * slash stripped. Returns '' on any violation, which `Reset_Gate` reads as a
+	 * blank save and turns into a delete, so a rejected path leaves the field on
+	 * its config-file default rather than on a traversable one.
 	 *
 	 * @param mixed $value Input value.
+	 * @return string The cleaned absolute path, or '' when it fails any rule.
 	 */
 	public static function sanitize_base_directory( $value ): string {
 		if ( ! \is_string( $value ) ) {
@@ -1093,13 +1249,17 @@ class Admin {
 	}
 
 	/**
-	 * Sanitize memcache servers (newline-separated host:port; underscores allowed in hostnames).
+	 * Sanitize memcache servers from the newline-separated `host:port` textarea.
+	 * Hostnames may carry underscores, which container DNS names routinely do.
 	 *
-	 * Stores the typed (array) shape so the raw option overlay in Config::load_config()
-	 * yields an array directly — consumers (Consumer_Node, ELN init_memcached) gate on is_array().
+	 * Stores the typed array shape, so the raw option overlay in
+	 * `Config::load_config()` yields an array directly and every consumer —
+	 * `Consumer_Node`, ELN's `init_memcached` — can gate on `is_array()`. A line
+	 * that fails the pattern is dropped rather than passed through, because one
+	 * malformed entry would otherwise poison the whole server pool.
 	 *
 	 * @param mixed $value Newline-separated server list.
-	 * @return array<int,string> Validated `host:port` entries, or empty array if all invalid.
+	 * @return array<int,string> Validated `host:port` entries, empty when none pass.
 	 */
 	public static function sanitize_memcache_servers( $value ): array {
 		if ( ! \is_scalar( $value ) ) {
@@ -1120,14 +1280,16 @@ class Admin {
 	}
 
 	/**
-	 * Sanitize log sources (newline-separated `name=/absolute/path`; the name/path
-	 * rule is Log_Sources::parse_entry — the ONE rule the registry reads with).
+	 * Sanitize log sources from the newline-separated `name=/absolute/path`
+	 * textarea, validating each line through `Log_Sources::parse_entry()` — the
+	 * same rule the registry reads them back with, so nothing this accepts can
+	 * fail to resolve later.
 	 *
-	 * Stores the typed (array) shape so the raw option overlay in Config::load_config()
-	 * yields an array directly, matching the memcache_servers pattern.
+	 * Stores the typed array shape, so the raw option overlay in
+	 * `Config::load_config()` yields an array directly, as memcache_servers does.
 	 *
 	 * @param mixed $value Newline-separated source list.
-	 * @return array<int,string> Validated `name=/absolute/path` entries, or empty array if all invalid.
+	 * @return array<int,string> Validated entries, empty when none pass.
 	 */
 	public static function sanitize_log_sources( $value ): array {
 		if ( ! \is_scalar( $value ) ) {
@@ -1144,21 +1306,32 @@ class Admin {
 		return $sanitized_lines;
 	}
 
+	/** Intro paragraph for the Storage section. */
 	public static function storage_section_callback(): void {
 		echo '<p>' . \esc_html__( 'Configure log storage and memcache infrastructure. Changing storage layout (base directory, segment size, retention) restarts every worker.', 'newspack-nodes' ) . '</p>';
 	}
 
+	/** Intro paragraph for the Remote section. */
 	public static function remote_settings_section_callback(): void {
 		echo '<p>' . \esc_html__( 'Storage geometry pushed to remote spokes (may differ from hub settings). Blank fields use the config-file default.', 'newspack-nodes' ) . '</p>';
 	}
+	/** Intro paragraph for the Alerting section. */
 	public static function alerting_section_callback(): void {
 		echo '<p>' . \esc_html__( 'Thresholds for the fleet-health alerts (Site Health, admin notice, alert action). Read live each fleet sweep; no worker restart. Blank fields use the config-file default.', 'newspack-nodes' ) . '</p>';
 	}
 
 	/**
-	 * Per-option granular worker-restart on save (restart picked up at the next graceful exit).
+	 * Drop the per-request config cache and ask `Restart_Planner` for whatever
+	 * recycle the saved option's restart classification calls for.
 	 *
-	 * @param string $option Option name (full WP option key).
+	 * Hooked to both `updated_option` and `added_option`: WordPress fires the
+	 * second one on a field's very first save, and hooking only the first would
+	 * silently skip the restart exactly once per setting.
+	 *
+	 * A worker picks the request up at its next graceful exit, so the recycle
+	 * never interrupts a message mid-flight.
+	 *
+	 * @param string $option Option name (the full WP option key).
 	 */
 	public function maybe_request_worker_restart( string $option ): void {
 		if ( ! \str_starts_with( $option, self::OPTION_PREFIX ) ) {

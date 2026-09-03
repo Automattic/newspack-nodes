@@ -1,16 +1,6 @@
 <?php
 /**
- * Remote_Source: a self-sufficient, topology-visible SSE-pull aggregation node.
- *
- * Extends Remote_Link (the channel layer: SSE_In + HTTP_Out patrons, heartbeat,
- * reconnect, status) and `use`s Durable_Reader (the durable message-path spine it
- * shares with Consumer). SSE_In hands each raw `msg` payload to this node's delivery
- * seam, which appends it to the pump buffer; the tick drains it exactly like Consumer.
- * The only push-specific divergences are the refill seam (an async curl valve instead
- * of a disk read) and the cursor seam (breadcrumb-derived instead of chop-derived).
- *
- * Credentials + URL come from the Vault entry resolved by `<vault-id>`; a missing
- * entry leaves the node disconnected (no mis-configured patrons created).
+ * Remote_Source: pulls one spoke partition over SSE and relays it under a durable cursor.
  *
  * @package Newspack_Nodes
  */
@@ -19,44 +9,74 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * A self-sufficient, topology-visible SSE-pull aggregation source.
+ *
+ * The channel comes from `Remote_Link_Node`: the `SSE_In` and `HTTP_Out` patrons,
+ * the heartbeat, the reconnect and the status snapshot. The message path comes
+ * from `Durable_Reader`, the same spine `Consumer_Node` reads a disk partition
+ * through — offsetlog cursor, buffered pump, dead-letter lifecycle and the
+ * pause/step/seek debugger. `SSE_In` hands each raw `msg` payload to the delivery
+ * seam this class installs in `ensure_patrons()`, which appends it to the pump
+ * buffer, and the tick drains that buffer exactly as a Consumer drains a block it
+ * read off disk.
+ *
+ * Two seams diverge from a disk reader. `get_batch()` arms an async cURL valve
+ * instead of reading a block, and `crumb_for_line()` takes each record's position
+ * from the breadcrumb it arrived with instead of measuring the local buffer chop.
+ * A pull source is addressed in the SPOKE's byte space, and no local measurement
+ * reaches that.
+ *
+ * Credentials and URL come from the Vault entry the `<vault-id>` argument names; a
+ * missing entry leaves the node disconnected rather than building mis-configured
+ * patrons.
+ */
 class Remote_Source_Node extends Remote_Link_Node {
-	/** Dead_Letter_Queue rides in with Durable_Reader, which drives it. */
+	/** Dead_Letter_Queue and Sidecar ride in with Durable_Reader, which drives both. */
 	use Durable_Reader;
 
 	/** Memcache TTL for the status snapshot (seconds). */
 	public const STATUS_TTL = 300;
+
 	/**
-	 * SSE backpressure valve water marks: arm at 256 KB, disarm at 512 KB.
+	 * SSE backpressure valve water marks: re-arm at 256 KB, disarm at 512 KB.
 	 *
-	 * The buffer drains whole each tick,
-	 * so accumulation happens between ticks in on_message: disarm when it crosses
-	 * HIGH, re-arm when the drain brings it back under LOW. The hysteresis keeps the
-	 * valve OPEN through normal flow — the throughput fix for hub-aggregation lag
-	 * (the old gate disarmed on every buffered line, stop-starting the spoke).
+	 * The buffer drains whole each tick, so it accumulates between ticks, in
+	 * on_message(): disarm once it crosses the high mark, re-arm once the drain
+	 * brings it back under the low one. The hysteresis is what keeps the valve OPEN
+	 * through normal flow. A single threshold closes it on every buffered line and
+	 * stop-starts the spoke, which is what makes a hub-aggregation pull lag.
 	 */
 	private const PUMP_ARM_BYTES    = 262144;
 	private const PUMP_DISARM_BYTES = 524288;
 
+	/** Wall-second of the last heartbeat reply; 0 while none has come back. */
 	private int $last_heartbeat_response = 0;
+
+	/** Reason the last heartbeat failed, published as `last_error`; null on success. */
 	private ?string $last_heartbeat_error = null;
 
 	/**
-	 * The offsetlog restore_position() read the durable frame + seeded the cursor FROM.
-	 * Makes restore_position idempotent: ensure_patrons calls it to seed SSE_In's connect
-	 * position BEFORE connect, and the Durable_Reader boot seam (init_position) calls it
-	 * again on the first poll — the second call is a no-op that returns the already-seeded
-	 * cursor. It latches the sidecar rather than a bare `true` so it cannot outlive one: a
-	 * replayed `arguments()` naming a new offsetlog_dir builds a new Partition, and a bool
-	 * would keep the cursor seeded from the dir the args superseded.
+	 * The offsetlog restore_position() read its durable frame from and seeded the
+	 * cursor with.
+	 *
+	 * This is what makes restore_position() idempotent: ensure_patrons() calls it to
+	 * seed SSE_In's connect position BEFORE connect, and the Durable_Reader boot seam
+	 * (init_position) calls it again on the first poll, where it returns the
+	 * already-seeded cursor untouched. Latching the sidecar rather than a bare `true`
+	 * is what stops the latch outliving the offsetlog it describes: a replayed
+	 * `arguments()` naming a new offsetlog_dir builds a new Partition, and a bool
+	 * would leave the cursor seeded from the dir those arguments superseded.
 	 */
 	private ?Partition_Node $position_restored_from = null;
 
-	/** Valve state mirror (buffer-driven only): true while SSE_In is armed. */
+	/** Mirror of the SSE_In valve state: true while armed. Only the buffer's size flips it. */
 	private bool $pump_armed = true;
 
 	/**
-	 * The crumb crumb_for_line() last read off the wire, null when that line carried none —
-	 * the distinction the placeholder crumb erases, and what the drain seam steers on.
+	 * The breadcrumb crumb_for_line() last read off the wire, null when that line
+	 * carried none — the distinction the placeholder crumb erases, and what
+	 * drain_line() and forward_line() steer on.
 	 *
 	 * @var array{segment:int, offset:int, length:int}|null
 	 */
@@ -74,7 +94,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 */
 	protected bool $multi_writer = false;
 
-	/** Tachikoma-parity: no-arg ctor. Auto-wire the {name}:config interpreter for the time-travel verbs. */
+	/** Tachikoma-parity: no-arg ctor. Auto-wire the `{name}:config` interpreter for the verb table. */
 	public function __construct() {
 		parent::__construct();
 		$this->auto_wire_interpreter();
@@ -83,21 +103,24 @@ class Remote_Source_Node extends Remote_Link_Node {
 	/**
 	 * Per-tick work: the Remote_Link channel housekeeping (patrons, reconnect, heartbeat,
 	 * status) via parent::fire(), then the Durable_Reader drain of whatever SSE_In accumulated
-	 * into the buffer since last tick, plus the throttled cursor checkpoint. Defined directly
+	 * into the buffer since the last tick, plus the throttled cursor checkpoint. Defined directly
 	 * so it overrides both the inherited Remote_Link::fire and the Durable_Reader pump fire —
 	 * Remote_Source rides Remote_Link's recurring TICK_INTERVAL_MS timer, not the pump's
 	 * self-re-arming cadence.
 	 *
-	 * …except for the cadence it re-arms with. That 100ms tick paces the CHANNEL, and the drain
-	 * must not inherit it as its own rate: line_mode and crawl cap `drain_buffer()` at one line,
-	 * so one drain per tick would trickle a backlog at 10 lines/sec however deep it is. So this
-	 * borrows the pump's rule — a line still buffered runs at POLL_INTERVAL_BUSY_MS (0), an empty
-	 * one returns to the channel tick — and, like the pump, only on a CHANGE, leaving a RECURRING
-	 * timer armed in between. line_mode stays GRANULARITY (one line per cycle) rather than becoming
-	 * a rate limit, and the loop keeps turning between lines, where draining the backlog inline
-	 * would block every other node. There is one exit on purpose: a patron dropped by reload()
-	 * skips the drain, and jumping straight out would leave a 0ms cadence armed over a buffer
-	 * nothing is draining — spinning the loop flat until housekeeping, latched to the wall-second,
+	 * The cadence it RE-ARMS with is the pump's, though. That 100ms tick paces the CHANNEL,
+	 * and the drain must not inherit it as its own rate: line_mode and crawl cap
+	 * `drain_buffer()` at one line, so one drain per tick would trickle a backlog at 10 lines
+	 * a second however deep it is. So this borrows the pump's rule — a line still buffered
+	 * runs at POLL_INTERVAL_BUSY_MS (0), an empty buffer returns to the channel tick — and
+	 * re-arms only on a CHANGE, leaving a RECURRING timer armed in between. line_mode then
+	 * stays GRANULARITY (one line per cycle) instead of becoming a rate limit, and the loop
+	 * keeps turning between lines, where draining the backlog inline would block every other
+	 * node.
+	 *
+	 * The method has a single exit on purpose. A patron dropped by reload() skips the drain,
+	 * and returning early there would leave a 0ms cadence armed over a buffer nothing is
+	 * draining — spinning the loop flat until housekeeping, latched to the wall-second,
 	 * rebuilds the patron.
 	 *
 	 * @api Dynamic entrypoint (Timer_Node::fire_cb).
@@ -127,9 +150,10 @@ class Remote_Source_Node extends Remote_Link_Node {
 
 	/**
 	 * Boot seam: seed the durable read position on the first poll. Delegates to the idempotent
-	 * restore_position() (ensure_patrons already ran it to seed SSE_In before connect, so this
-	 * is usually a no-op that leaves the cursor / crawl-lineage / boot head-skip already armed),
-	 * and ensures the deadletter sibling exists so the trait's cooperative_stop can quarantine.
+	 * restore_position(). ensure_patrons() has usually already run it to seed SSE_In before
+	 * connect, in which case this second call leaves the cursor, the crawl lineage and the boot
+	 * head-skip exactly as that one set them. Then make sure the deadletter sibling exists, so
+	 * the trait's cooperative_stop() has somewhere to quarantine to.
 	 */
 	protected function init_position(): void {
 		$this->restore_position();
@@ -154,11 +178,12 @@ class Remote_Source_Node extends Remote_Link_Node {
 	}
 
 	/**
-	 * Drain seam override: dispatch ONE buffered line the push way. Pin the cursor to the record's
-	 * own START from its breadcrumb; then, if the boot head-skip is armed, run the 3-way
-	 * crumb-vs-boot-pin compare (this is the surviving sacrifice_head — a push stream can resume
-	 * PAST a GC'd suspect, so an armed head is not unconditionally the first drained line).
-	 * Everything else forwards through forward_line.
+	 * Drain seam override: dispatch ONE buffered line the push way. Pin the cursor to the
+	 * record's own START, taken from its breadcrumb; then, if the boot head-skip is armed,
+	 * run the 3-way crumb-vs-boot-pin compare. A push stream can resume PAST a GC'd suspect,
+	 * so an armed head is not unconditionally the first drained line — which is why the
+	 * trait's unconditional sacrifice cannot serve here. Everything else forwards through
+	 * forward_line().
 	 */
 	protected function drain_line( string $line, int $abs_offset ): void {
 		$crumb = $this->parsed_crumb;
@@ -173,15 +198,27 @@ class Remote_Source_Node extends Remote_Link_Node {
 	}
 
 	/**
-	 * Emit seam override: forward one raw line, PRESERVING its remote breadcrumb ID (the trait
-	 * default re-stamps seg:off:len from the cursor — a push source must keep the source-partition
-	 * crumb the Aggregator depends on). The cursor was already pinned from the crumb in drain_line.
-	 * A downstream throw dead-letters ON SIGHT + writes an advance-on-next quarantine marker (no
-	 * head-block, no fair-shot climb — that is reserved for the hard-crash lineage / crawl); a
-	 * Worker_Should_Stop is control flow (record the mid-dispatch stop, escape); a null downstream
-	 * FAILS LOUD; an unparseable line has no crumb, so it is quarantined where the cursor stands
-	 * — the next unread position, which is the one place it can be put — and moves it by nothing.
+	 * Emit seam override: forward one raw line, PRESERVING both the FROM trail and the
+	 * breadcrumb ID the spoke stamped. The trait default re-stamps FROM with this node's name
+	 * and rewrites ID as seg:off:len from the LOCAL cursor; a relay has to keep the source
+	 * partition's own crumb, which is what the Aggregator reads a record's origin from.
+	 * drain_line() has already pinned the cursor from that crumb.
 	 *
+	 * Four dispositions. A null sink FAILS LOUD, because a relay with nowhere to relay is a
+	 * topology error. An unparseable line carries no crumb, so it is quarantined where the
+	 * cursor stands — the next unread position, the one place it can be put — and moves the
+	 * cursor by nothing. A downstream throw dead-letters the message ON SIGHT and marks the
+	 * record disposed, so the drain loop advances past it with no head-block and no fair-shot
+	 * climb; that climb is reserved for the hard-crash lineage and its crawl. A
+	 * Worker_Should_Stop is control flow rather than poison: a clean one, or a plain one under
+	 * assume_clean_shutdown, re-raises as clean on a crumb-carrying record outside crawl so the
+	 * drain commits PAST it, while a record with no crumb cannot be placed and crawl's pin
+	 * exists to isolate a crash suspect, so both replay — and a plain stop records the
+	 * mid-dispatch strike on its way out.
+	 *
+	 * @param string $line       One complete line off the pump buffer.
+	 * @param int    $abs_offset Local drain offset, carried for the trait's signature; a push
+	 *                           source places records from the crumb instead.
 	 * @param array{segment:int, offset:int, length:int}|null $crumb The line's parsed breadcrumb.
 	 */
 	protected function forward_line( string $line, int $abs_offset, ?array $crumb = null ): void {
@@ -229,15 +266,17 @@ class Remote_Source_Node extends Remote_Link_Node {
 	}
 
 	/**
-	 * Crawl-entry head sacrifice (the surviving sacrifice_head 3-way compare): decide the fate of
-	 * the first relayed message under an armed head-skip. An EXACT crumb-start match on the boot
-	 * pin is the in-flight-at-crash suspect — dead-lettered ('crash') or dropped (already
-	 * quarantined), the caller skips the forward. A start PAST the pin means the suspect was GC'd
-	 * or the stream resumed beyond it — disarm without sacrificing and forward normally. Anything
-	 * earlier keeps the flag armed for the real suspect. One-shot once resolved.
+	 * Crawl-entry head sacrifice: the 3-way compare deciding the fate of the first relayed
+	 * message while the boot head-skip is armed. An EXACT crumb-start match on the boot pin is
+	 * the suspect that was in flight when the death struck — dead-lettered under reason
+	 * 'crash', or dropped when no quarantine is configured, and the caller skips the forward.
+	 * A start PAST the pin means the suspect was GC'd or the stream resumed beyond it, so
+	 * disarm without sacrificing and forward normally. Anything earlier leaves the flag armed
+	 * for the real suspect. One-shot either way, once resolved.
 	 *
-	 * @param array{segment:int, offset:int} $crumb The line's parsed breadcrumb (start).
-	 * @return bool True when the head is condemned (sacrificed / dropped) so the caller skips the forward.
+	 * @param string $line The raw line under judgment.
+	 * @param array{segment:int, offset:int} $crumb The line's parsed breadcrumb (its start).
+	 * @return bool True when the head is condemned, so the caller skips the forward.
 	 */
 	private function sacrifice_boot_head( string $line, array $crumb ): bool {
 		// Lexicographic (segment,offset) vs boot pin: 0=suspect, >0=past it.
@@ -259,9 +298,9 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * Parse a raw line's breadcrumb into `{segment, offset, length}`, or null when the line won't
 	 * unpack or its ID isn't a well-formed crumb. offset is the record's on-disk start; length is
 	 * the crumb's own `segment:offset:length` third field — the spoke's authoritative byte size,
-	 * and what the drain loop advances past the record by. A legacy 2-field crumb carries no
-	 * length, so it places the record and moves the cursor by nothing rather than by a local
-	 * size measured in the wrong byte space.
+	 * and what the drain loop advances past the record by. A two-field crumb carries no length,
+	 * so it places the record and moves the cursor by nothing rather than by a local size
+	 * measured in the wrong byte space.
 	 *
 	 * @return array{segment:int, offset:int, length:int}|null
 	 */
@@ -286,11 +325,11 @@ class Remote_Source_Node extends Remote_Link_Node {
 	}
 
 	/**
-	 * Read the latest committed frame, seed the node cursor + boot pin, resume the shared
-	 * poison/crash accounting (attempts+1, a hard-crash lineage → crawl), and arm the boot
-	 * head-skip. Idempotent: ensure_patrons calls it (to seed SSE_In's connect position before
-	 * connect) and the Durable_Reader boot seam calls it again on the first poll. Empty on a
-	 * fresh offsetlog.
+	 * Read the latest committed frame, seed the node cursor and the boot pin, resume the shared
+	 * poison and crash accounting (attempts+1, and a hard-crash lineage enters crawl), then arm
+	 * the boot head-skip. Idempotent: ensure_patrons() calls it to seed SSE_In's connect
+	 * position before connect, and the Durable_Reader boot seam calls it again on the first
+	 * poll. Returns empty on a fresh offsetlog.
 	 *
 	 * @return array{segment?:int,offset?:int}
 	 */
@@ -323,13 +362,14 @@ class Remote_Source_Node extends Remote_Link_Node {
 	}
 
 	/**
-	 * Final cursor handoff at worker shutdown (bug C) — Remote_Source isn't a Consumer_Node, so
-	 * the worker's checkpoint_durable_consumers() reaches it here. Healthy → a clean graceful
-	 * commit (attempts=0) so progress survives the recycle; a hard-crash lineage in flight →
-	 * preserve its climbing/pinned frame. The cooperative-stop fair-shot is the Durable_Reader
-	 * trait's cooperative_stop() (buffer_head_line + stopped_in_fill).
+	 * Final cursor handoff at worker shutdown. Remote_Source is not a Consumer_Node, so the
+	 * worker's shutdown sweep reaches it through its own branch rather than the Consumer one.
+	 * A healthy reader commits gracefully (attempts=0), so progress survives the recycle; a
+	 * hard-crash lineage still in flight keeps its climbing, pinned frame instead. The
+	 * cooperative-stop fair-shot lives elsewhere, in Durable_Reader's cooperative_stop(),
+	 * gated on buffer_head_line() and stopped_in_fill.
 	 *
-	 * @api Invoked by Worker_Base::checkpoint_durable_consumers().
+	 * @api Invoked by Worker_Base::handoff_remote_source() on an operational stop.
 	 */
 	public function checkpoint_shutdown(): void {
 		// Paused SEEK sets offset_set w/o poll_initialized; survives shutdown.
@@ -392,16 +432,20 @@ class Remote_Source_Node extends Remote_Link_Node {
 	}
 
 	/**
-	 * Build the base patrons, then override SSE_In's delivery seam: each raw `msg` payload is
-	 * appended (with its newline) to the Durable_Reader buffer for the tick to drain — the push
-	 * source buffers rather than forwarding straight downstream (the base channel path). The
-	 * valve stays OPEN through normal flow and only closes once the buffer crosses the high-water
-	 * mark (An unparseable line reaches the buffer unparsed; forward_line owns its DLQ.)
+	 * Build the base patrons, seed the seal-grace flag onto SSE_In (an aggregator configures its
+	 * spokes before anything connects, so a patron built after the verb still has to carry it),
+	 * then override SSE_In's delivery seam: each raw `msg` payload is appended, with its
+	 * newline, to the Durable_Reader buffer for the tick to drain. The push source buffers where
+	 * the base channel path forwards straight downstream. An unparseable line reaches the buffer
+	 * unparsed; forward_line() owns the quarantine. pump_maybe_disarm() closes the valve here
+	 * once the buffer crosses the high-water mark.
 	 *
 	 * The arrival also takes the busy cadence itself. A push source learns of data HERE, on the
-	 * curl drain, between fires — so leaving the schedule to fire() would put up to a full
-	 * TICK_INTERVAL_MS on the front of every burst, since that re-arm only runs after a fire has
+	 * cURL drain, between fires, so leaving the schedule to fire() would put up to a full
+	 * TICK_INTERVAL_MS on the front of every burst — that re-arm runs only after a fire has
 	 * already seen the buffer. fire() drops back to the channel tick once the buffer is dry.
+	 *
+	 * @return SSE_In_Node|null The SSE_In patron once configured, else null.
 	 */
 	protected function ensure_patrons(): ?SSE_In_Node {
 		$sse = parent::ensure_patrons();
@@ -424,7 +468,12 @@ class Remote_Source_Node extends Remote_Link_Node {
 		$this->write_status( [ 'last_heartbeat_sent' => $now ] );
 	}
 
-	/** Record a heartbeat reply's round-trip into the status snapshot. */
+	/**
+	 * Record a heartbeat reply's round-trip into the status snapshot and clear the stored
+	 * failure. `last_error` is republished from SSE_In's connection rather than blanked,
+	 * because the stream can be down while the command channel still answers, and the
+	 * dashboard badge has to say so.
+	 */
 	protected function record_heartbeat_reply(): void {
 		if ( 0 === $this->last_heartbeat_sent ) {
 			return;
@@ -457,7 +506,8 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * Publish the connection-state snapshot from SSE_In::connection(). Ages out the heartbeat
 	 * round-trip so the dashboard's Status badge can't latch 'success' on a stale timestamp: the
 	 * response is "live" only while connected AND seen within the node's HEARTBEAT_INTERVAL*4
-	 * window; otherwise it's nulled. Live values ride the write_status merge.
+	 * window, and is nulled otherwise. While it IS live the two keys are left out of the
+	 * write, so what record_heartbeat_reply() merged stands.
 	 */
 	protected function publish_status(): void {
 		$conn = null !== $this->sse_in
@@ -489,7 +539,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 	/**
 	 * Merge $data into the status snapshot under the per-node key.
 	 *
-	 * @param array<string,mixed> $data
+	 * @param array<string,mixed> $data Fields to merge over whatever the snapshot holds.
 	 */
 	private function write_status( array $data ): void {
 		$cache = Cache_Backend::shared_first();
@@ -504,27 +554,34 @@ class Remote_Source_Node extends Remote_Link_Node {
 		$cache->set( $key, \array_merge( $existing, $data ), self::STATUS_TTL );
 	}
 
+	/** This node's own status-snapshot key. */
 	private function status_key(): string {
 		return self::status_key_for( $this->name, $this->remote_partition );
 	}
 
 	/**
-	 * Keyed by NODE NAME first so two spokes on same partition don't collide,
-	 * and site-scoped so two HUBS naming a spoke alike don't either. Public
-	 * because the reader (Aggregator_CI) must resolve the writer's exact key
-	 * rather than rebuild it — the two used to spell it separately.
+	 * The cache key one Remote_Source publishes its status snapshot under.
+	 *
+	 * Keyed by NODE NAME first, so two spokes on the same partition do not collide, and
+	 * site-scoped, so two HUBS naming a spoke alike do not either. Public because the reader
+	 * (Aggregator_CI) resolves the writer's exact key through this method rather than
+	 * spelling the shape a second time.
+	 *
+	 * @param string $name      The publishing node's name.
+	 * @param string $partition The spoke partition it pulls.
 	 */
 	public static function status_key_for( string $name, string $partition ): string {
 		return Cache_Backend::site_key( "remote:{$name}:{$partition}" );
 	}
 
 	/**
-	 * Refill seam: the async backpressure VALVE (the dual of Consumer's synchronous disk read).
-	 * The valve is edge-triggered on the buffer BYTE size — pump_maybe_disarm() closes it in
+	 * Refill seam: the async backpressure VALVE, dual to Consumer's synchronous disk read. The
+	 * valve is edge-triggered on the buffer's BYTE size — pump_maybe_disarm() closes it in
 	 * on_message once accumulation crosses the high-water mark; this re-opens it only once the
 	 * tick's drain has brought the buffer back below low-water. So it stays OPEN through normal
-	 * flow (no arm per poll, no disarm on an empty buffer — the curl multi parks an idle stream
-	 * without spinning). In unit tests the register/unregister toggles are inert.
+	 * flow: no arm per poll, no disarm on an empty buffer, and the cURL multi parks an idle
+	 * stream without spinning. With no patron there is nothing to arm, so it records EOF and
+	 * returns.
 	 */
 	protected function get_batch(): void {
 		if ( null === $this->sse_in ) {
@@ -555,10 +612,13 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * stream and the tick reconnects from the committed cursor. The undrained
 	 * buffer usually goes with it, as in next_offset(): SSE_In's resume position
 	 * only advances on a successful forward, so whatever is still buffered sits
-	 * ahead of it and the spoke re-sends it. The exception is a cursor still at
-	 * {0,0} — maybe_connect() then sends no `positions` at all and the spoke
-	 * tail-seeks to `end`, replaying nothing, so the buffer is the only copy of
-	 * those records and clearing it would lose them rather than de-duplicate.
+	 * ahead of it and the spoke re-sends it. The exception is a resume position
+	 * still at {0,0}. Nothing has been forwarded there, so the reconnect can
+	 * resolve to the spoke's tail and replay nothing, which leaves the buffer the
+	 * only copy of those records: keeping it costs a duplicate, clearing it loses
+	 * them outright.
+	 *
+	 * @param bool $flag Whether the spoke should apply the seal-grace.
 	 */
 	public function set_multi_writer( bool $flag ): void {
 		$changed            = $flag !== $this->multi_writer;
@@ -584,9 +644,9 @@ class Remote_Source_Node extends Remote_Link_Node {
 	}
 
 	/**
-	 * Drop the slots the base cascade just tore down, so a later
-	 * `ensure_offsetlog()` — `init_position()` reaches it — rebuilds instead of
-	 * handing back a node whose name, sink and patron are cleared.
+	 * Drop the slots the base cascade just tore down, so a later `ensure_offsetlog()`, which
+	 * `init_position()` reaches, rebuilds them instead of handing back a Partition whose name,
+	 * sink and patron that cascade already cleared.
 	 */
 	public function remove_node(): void {
 		parent::remove_node();
@@ -595,10 +655,11 @@ class Remote_Source_Node extends Remote_Link_Node {
 	}
 
 	/**
-	 * Name the spoke in each SIDECAR's slot: one node pulls one remote
-	 * partition. Only these two are re-keyed — the transports inherited from
-	 * the link are declared under their plain suffixes, and a blanket rewrite
-	 * would publish them into slots nothing declares.
+	 * Put the remote partition into each SIDECAR's suffix: one node pulls one remote
+	 * partition, so its offsetlog and its quarantine are named for that partition. Only those
+	 * two are re-keyed. The transports inherited from the link keep their plain suffixes,
+	 * because `<name>:sse-in` and `<name>:http-out` are the spelling the link publishes and
+	 * the JS RemoteLinkNode mirrors, and a blanket rewrite would move them out from under it.
 	 */
 	protected function sibling_suffix( string $kind ): string {
 		return \in_array( $kind, [ 'offsetlog', 'deadletter' ], true )
@@ -649,19 +710,28 @@ class Remote_Source_Node extends Remote_Link_Node {
 	}
 
 	/**
-	 * Re-emit the shared time-travel config verbs after the base lines, so a console
-	 * dump_config → replay round-trips this source's snapshot node.
+	 * Append the shared time-travel config lines and the schema-declared toggles
+	 * (`multi_writer`, `assume_clean_shutdown`) after the base `make_node` line, so a console
+	 * dump_config and replay round-trips this source's snapshot node and its settings rather
+	 * than rebuilding a bare one.
 	 */
 	public function dump_config(): string {
 		return parent::dump_config() . $this->dump_time_travel_config() . $this->dump_toggles();
 	}
 
+	/**
+	 * Palette entry and configuration form: the link's two arguments plus the durable
+	 * reader's two directories, and the DLQ, time-travel, pump and seal-grace verbs.
+	 *
+	 * @api Dynamic entrypoint.
+	 * @return array<string,mixed>
+	 */
 	public static function node_schema(): array {
 		$parent = parent::node_schema();
 		/** @var list<array<string,mixed>> $parent_args */
 		$parent_args = $parent['arguments'];
 		return \array_merge( $parent, [
-			// Parent Remote_Link_Node 'Hidden'; pin droppable subclass to I/O.
+			// The parent hides itself; this subclass belongs in the palette.
 			'category'    => 'I/O',
 			'description' => 'Self-sufficient SSE-pull aggregation source for one spoke partition (Vault-resolved).',
 			// Read like a Consumer: it IS one, over the wire.

@@ -1,18 +1,26 @@
 /**
- * Aggregator Status Component
+ * Aggregator Status — the hub's screen for every spoke whose log it pulls.
  *
- * THIN view over the DE-GOD `aggregator:*` node graph (mounted by
- * useAggregatorStatusGraph). The single god `status` poll feeding one
- * `aggregator:view` is gone; the graph now owns TWO independent per-concern
- * slices, each on its own slice verb with its own inspectable reply path:
+ * A thin view over the `aggregator:*` node graph `useAggregatorStatusGraph`
+ * mounts. That graph polls two independent slices, each on its own verb with
+ * its own reply path:
  *
- *   summary:view → the header strip (connected/idle/total counts + clock)
- *   servers:view → the server cards (per-server partition grids)
+ *   summary:view — the header strip: connected/idle/total counts and the
+ *                  server's snapshot clock.
+ *   servers:view — one card per wired `Remote_Source`, each holding a grid of
+ *                  that spoke's partitions.
  *
- * This component reads each slice via its own useNodeState and renders — the pure
- * presentation helpers below (formatTime / formatRtt / getRttClass /
- * PartitionStatus / ServerCard) are unchanged. The 1s "ago" tick stays here: it's
- * pure display, re-rendering the relative timestamps without re-polling.
+ * This component reads each slice through its own `useNodeState` and renders
+ * it. The split belongs to the graph rather than to the layout: a reply is
+ * addressed to its own view node, so a slice that errors leaves the other one
+ * on screen ([ADR-7](../../docs/architecture-decisions.md)). Both slices still
+ * ride one POST per tick.
+ *
+ * Ages on the screen are measured against the server's snapshot clock, which
+ * arrives on the summary slice and is handed down to the cards — a workstation
+ * clock minutes out would otherwise read a healthy spoke as stale. The
+ * one-second tick lives here because re-rendering those ages asks the server
+ * for nothing.
  */
 
 import { useState, useCallback } from '@wordpress/element';
@@ -29,7 +37,15 @@ import { formatLocalDateTime } from '@newspack-nodes/shared/utils/formatUtils';
 import './styles/aggregator-status.scss';
 import { HeaderSlot } from '@newspack-nodes/shared/components/HeaderSlot';
 
-// Slice-model defaults before first poll — drive the loading gates.
+/**
+ * The header slice a first render reads, before the graph exists.
+ *
+ * `useNodeState` answers undefined until `summary:view` is mounted, and the
+ * effect that builds the graph runs after that first render. The shape mirrors
+ * the view node's own `empty` declaration in `nodes/register.js`: this screen
+ * reads the counts, the clock and `lastRefresh`, and carries the rest so the
+ * two models stay one shape.
+ */
 const EMPTY_SUMMARY = {
 	connected: 0,
 	idle: 0,
@@ -39,6 +55,14 @@ const EMPTY_SUMMARY = {
 	loading: true,
 	lastRefresh: null,
 };
+
+/**
+ * The server-cards slice a first render reads, on the same terms.
+ *
+ * This slice, not the summary, gates the body of the page: `loading: true`
+ * holds the spinner up until the first reply, and `servers: null` keeps the
+ * header's up/total count hidden until the cards it counts have arrived.
+ */
 const EMPTY_SERVERS = {
 	servers: null,
 	error: null,
@@ -46,20 +70,24 @@ const EMPTY_SERVERS = {
 };
 
 /**
- * Format a Unix timestamp as relative time or absolute.
+ * Render a Unix timestamp as an age, or as a date once an age stops meaning
+ * anything: seconds under the minute, minutes under the hour, and the local
+ * date and time beyond that, where a bare clock reading could be any day.
  *
- * @param {number}  timestamp Unix timestamp in seconds.
- * @param {?number} [now]     Reference clock (the server's snapshot time); falls
- *                            back to the browser clock when omitted or null,
- *                            which is the pre-first-poll state.
- * @return {string} Formatted time string.
+ * @param {?number} timestamp Unix timestamp in seconds; falsy renders "-".
+ * @param {?number} [now]     The server's snapshot clock, which is what an age
+ *                            is measured against so client drift cannot age a
+ *                            healthy spoke. Omitted or null measures against
+ *                            the browser clock — right for a browser-minted
+ *                            timestamp such as `lastRefresh`, and the state
+ *                            before the summary slice's first reply.
+ * @return {string} The age, the local date and time, or "-".
  */
 const formatTime = ( timestamp, now ) => {
 	if ( ! timestamp ) {
 		return '-';
 	}
 
-	// "ago" vs the server snapshot clock, not browser — no client drift.
 	const ref = now ?? Date.now() / 1000;
 	const diff = ref - timestamp;
 
@@ -83,10 +111,12 @@ const formatTime = ( timestamp, now ) => {
 };
 
 /**
- * Format RTT value with appropriate precision.
+ * Format a round-trip time in milliseconds at the precision its magnitude
+ * earns: two decimals below 1ms, one below 100ms, whole milliseconds above. A
+ * same-host heartbeat would otherwise render as a flat "0".
  *
- * @param {number} rtt Round-trip time in milliseconds.
- * @return {string} Formatted RTT.
+ * @param {?number} rtt Round-trip time in milliseconds.
+ * @return {?string} The formatted reading, or null when there is none.
  */
 const formatRtt = ( rtt ) => {
 	if ( rtt === null || rtt === undefined ) {
@@ -102,10 +132,13 @@ const formatRtt = ( rtt ) => {
 };
 
 /**
- * Get RTT color class based on value.
+ * The status modifier for one RTT reading: `error` above 500ms, `warning`
+ * above 200ms, `success` below, and `muted` when the spoke has answered no
+ * heartbeat yet. It modifies the shared `newspack-nodes-status` class, so the
+ * colours are the design system's rather than this dashboard's.
  *
- * @param {number} rtt Round-trip time in milliseconds.
- * @return {string} CSS class name.
+ * @param {?number} rtt Round-trip time in milliseconds.
+ * @return {string} One of muted|error|warning|success.
  */
 const getRttClass = ( rtt ) => {
 	if ( rtt === null || rtt === undefined ) {
@@ -126,7 +159,8 @@ const getRttClass = ( rtt ) => {
  * still opening is CONNECTING — `connected` is the handshake, not the handle.
  * Neither is the failure a bare `! connected` would make it.
  *
- * @param {Object} status Partition status data.
+ * @param {?Object} status That partition's status snapshot, empty when the
+ *                         reader has published nothing for it yet.
  * @return {string} One of connected|idle|connecting|disconnected.
  */
 const partitionState = ( status ) => {
@@ -171,7 +205,8 @@ const shortError = ( error ) => {
  *
  * @param {number}  timestamp Unix second the reopen is due.
  * @param {?number} [now]     Server snapshot clock; browser clock when omitted.
- * @return {string} e.g. "in 9s".
+ * @return {string} The wait, never negative — a reopen already due reads
+ *                  "in 0s" rather than counting up past it.
  */
 const formatCountdown = ( timestamp, now ) => {
 	const ref = now ?? Date.now() / 1000;
@@ -183,12 +218,18 @@ const formatCountdown = ( timestamp, now ) => {
 };
 
 /**
- * Partition Status Component.
+ * One partition tile: its connection state, the timestamps behind that state,
+ * and either the error that explains it or the client-heartbeat verdict.
  *
- * @param {Object} props           Component props.
- * @param {number} props.partition Partition number.
- * @param {Object} props.status    Partition status data.
- * @param {number} props.now       Server snapshot clock for relative-time calc.
+ * The left rail's health class is deliberately coarser than the badge. A
+ * partition that is connected but has answered no client heartbeat rails
+ * `degraded` rather than `ok` — the socket is up and the round trip is not.
+ *
+ * @param {Object}  props           Component props.
+ * @param {number}  props.partition Partition number.
+ * @param {Object}  props.status    That partition's status snapshot.
+ * @param {?number} props.now       Server snapshot clock; null before the
+ *                                  summary slice's first reply.
  * @return {import('react').ReactElement} Rendered component.
  */
 function PartitionStatus( { partition, status, now } ) {
@@ -273,7 +314,7 @@ function PartitionStatus( { partition, status, now } ) {
 						{ __( 'Status', 'newspack-nodes' ) }
 					</span>
 					<span className="newspack-nodes-stat-value aggregator-partition-stat-value">
-						{ /* What broke outranks a heartbeat reading it explains. */ }
+						{ /* The error outranks the heartbeat it explains. */ }
 						{ errorMessage ? (
 							<span
 								className="newspack-nodes-status-badge aggregator-partition-error small is-error"
@@ -303,11 +344,14 @@ function PartitionStatus( { partition, status, now } ) {
 
 /**
  * Fleet roll-up panel: the on-demand deep-probe result for one spoke — worker
- * live/stale/dead counts, worst consumer distance, dead-letter total. Shown only
- * after a Probe click; an error probe surfaces the error line instead.
+ * live/stale/dead counts, worst consumer distance, dead-letter total. The
+ * polled slices carry connection health only, so this line is the one place
+ * the fleet behind a spoke shows, and it appears once a Probe click has
+ * answered. A refused probe shows its error instead, full text in the title.
  *
  * @param {Object} props        Component props.
- * @param {Object} props.answer The probe's answer: `{ busy, result, error }`.
+ * @param {Object} props.answer The probe answer as `onAnswer` delivered it:
+ *                              `{ result, error }`, one of the two set.
  * @return {import('react').ReactElement} Rendered component.
  */
 function FleetRollup( { answer } ) {
@@ -366,14 +410,19 @@ function FleetRollup( { answer } ) {
 }
 
 /**
- * Server Card Component.
+ * One spoke's card: which server it is, how many of its partitions are up, the
+ * Probe button, the last probe's roll-up, and a tile per partition.
  *
  * @param {Object}   props         Component props.
- * @param {Object}   props.server  Server status data.
- * @param {number}   props.now     Server snapshot clock for relative-time calc.
+ * @param {Object}   props.server  One row of the servers slice: `id`, `url`,
+ *                                 `vault_id`, and a snapshot per partition.
+ * @param {?number}  props.now     Server snapshot clock; null before the
+ *                                 summary slice's first reply.
  * @param {?Object}  props.answer  This spoke's last probe answer, or null.
  * @param {boolean}  props.probing Whether a probe of this spoke is outstanding.
- * @param {Function} props.onProbe Probe callback (vault id).
+ * @param {Function} props.onProbe Probe callback, taking the spoke's Vault id —
+ *                                 what `cmd_probe` looks its credentials up by,
+ *                                 never the `Remote_Source` node name.
  * @return {import('react').ReactElement} Rendered component.
  */
 function ServerCard( { server, now, answer, probing, onProbe } ) {
@@ -382,14 +431,13 @@ function ServerCard( { server, now, answer, probing, onProbe } ) {
 		( a, b ) => Number( a ) - Number( b )
 	);
 
-	// Count partitions that are up — streaming, or idle between streams.
+	// Up is anything but disconnected: streaming, idle, or still opening.
 	const connectedPartitions = partitionKeys.filter(
 		( p ) => 'disconnected' !== partitionState( partitions[ p ] )
 	).length;
 
 	return (
 		<div className="newspack-nodes-card newspack-nodes-card--elevated aggregator-server-card">
-			{ /* Server Identity */ }
 			<div className="aggregator-server-identity">
 				<div className="aggregator-server-id">{ server.id }</div>
 				<div className="aggregator-server-url" title={ server.url }>
@@ -417,7 +465,6 @@ function ServerCard( { server, now, answer, probing, onProbe } ) {
 
 			{ answer && ! probing && <FleetRollup answer={ answer } /> }
 
-			{ /* Partition Status Grid */ }
 			<div className="aggregator-partitions">
 				{ partitionKeys.map( ( p ) => (
 					<PartitionStatus
@@ -433,10 +480,14 @@ function ServerCard( { server, now, answer, probing, onProbe } ) {
 }
 
 /**
- * Aggregator Status Dashboard Component.
+ * The Aggregator Status dashboard: mount the graph, place the refresh strip in
+ * the hub's header, and list one card per spoke.
  *
- * @param {Object}  props                      Props.
- * @param {Element} [props.headerControlsSlot] Hub shared-header slot to portal the controls into.
+ * @param {Object}   props                      Component props.
+ * @param {?Element} [props.headerControlsSlot] Hub shared-header slot to portal
+ *                                              the refresh strip into; null
+ *                                              renders none, undefined renders
+ *                                              it inline.
  * @return {import('react').ReactElement} Rendered component.
  */
 export default function AggregatorStatus( { headerControlsSlot } ) {
@@ -469,7 +520,7 @@ export default function AggregatorStatus( { headerControlsSlot } ) {
 	const bumpClock = useCallback( () => setTick( ( t ) => t + 1 ), [] );
 	useRouterTick( { name: 'aggregator:clock', onTick: bumpClock } );
 
-	// Refresh strip: node=portal→slot, null=pending, undefined=inline.
+	// Refresh strip: a slot portals, null withholds, undefined inlines.
 	const controls = (
 		<div className="aggregator-status-meta">
 			<div className="aggregator-status-refresh-indicator">
@@ -486,8 +537,7 @@ export default function AggregatorStatus( { headerControlsSlot } ) {
 			</div>
 			{ servers && (
 				<div className="aggregator-status-server-count">
-					{ /* Idle spokes are up: counting them missing reads as a
-					     shortfall on a fleet where nothing is wrong. */ }
+					{ /* Idle spokes are healthy; they count as up. */ }
 					<strong>{ connected + idle }</strong> / { total }{ ' ' }
 					{ __( 'up', 'newspack-nodes' ) }
 					{ idle > 0 && (
@@ -520,7 +570,6 @@ export default function AggregatorStatus( { headerControlsSlot } ) {
 		<div className="aggregator-status-dashboard">
 			<HeaderSlot slot={ headerControlsSlot }>{ controls }</HeaderSlot>
 
-			{ /* Loading State */ }
 			{ loading && (
 				<div className="newspack-nodes-performance-loading aggregator-status-loading">
 					<div className="spinner" />
@@ -530,7 +579,6 @@ export default function AggregatorStatus( { headerControlsSlot } ) {
 				</div>
 			) }
 
-			{ /* Error State */ }
 			{ ! loading && (
 				<ConnectionBanner
 					connectionError={ !! error }
@@ -538,7 +586,6 @@ export default function AggregatorStatus( { headerControlsSlot } ) {
 				/>
 			) }
 
-			{ /* Server List */ }
 			{ ! loading && ! error && (
 				<div className="aggregator-status-servers">
 					{ servers && servers.length > 0 ? (

@@ -1,23 +1,27 @@
 <?php
 /**
- * CacheBackend
+ * Cache_Backend
  *
- * The tier resolver behind every non-durable shared-state surface. Each
- * ordering picks ONE live backend — a claim must never straddle tiers:
+ * The tier resolver behind every non-durable shared-state surface, and the
+ * key grammar every one of them writes through. Each ordering picks ONE live
+ * backend — a claim must never straddle tiers:
  *
- * - `local_first()`  — APCu, else memcached. For same-host hot surfaces
- *   (nonce claims, metadata tiers): the web pool rides shared
- *   memory; a CLI process (own APCu segment, usually disabled) falls
- *   through to memcached automatically.
+ * - `local_first()`  — APCu, else memcached. For same-host hot surfaces: the
+ *   command-auth nonce claim and `Bootstrap::on_demand_wake_map()`, whose
+ *   inputs are this host's own files. The web pool rides shared memory, and a
+ *   CLI process (its own APCu segment, usually disabled) falls through to
+ *   memcached.
  * - `shared_first()` — memcached, else APCu. For cross-process sources of
- *   truth (command sessions, SSE slots, tables, batch counters, stats):
- *   configured memcached keeps its scope; a host without it (stock Atomic
- *   posture) stays FUNCTIONAL on APCu instead of failing closed, trading
- *   CLI visibility.
+ *   truth (command sessions, SSE slots, tables, batch counters, spawn
+ *   throttles): configured memcached keeps its scope; a host without it
+ *   (stock Atomic posture) stays FUNCTIONAL on APCu instead of failing
+ *   closed, trading CLI visibility.
  *
- * Null = nothing available; callers keep their fail-closed behavior.
- * Ops mirror the \Memcached subset the substrate uses; the APCu arm
- * matches memcached semantics (false on miss, decrement clamps at zero).
+ * Both return null when neither backend is available, and callers keep their
+ * fail-closed behavior. The operations mirror the `\Memcached` subset the
+ * substrate uses, and the APCu arm matches memcached semantics: false on a
+ * miss, a counter clamped at zero, and increment and decrement refusing a key
+ * that does not exist.
  *
  * @package Newspack_Nodes
  */
@@ -27,31 +31,57 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * CacheBackend resolver.
+ * An instance is one selected tier: a memcached handle, or null, which selects
+ * the APCu arm.
+ *
+ * The static half is the key grammar — `site_key()`, `host_key()` and the
+ * `key()` they both compose through — so every surface spells a key the same
+ * way and `wp nodes memcache get` can rebuild one from a logical name.
  */
 final class Cache_Backend {
 
+	/** `read()` status: the backend returned a stored value. */
 	public const READ_HIT = 'hit';
 
+	/** `read()` status: the backend confirmed the key is absent. */
 	public const READ_MISS = 'miss';
 
+	/**
+	 * `read()` status: the backend failed, so absence is unproven. Only the
+	 * memcached arm reports it — APCu cannot tell a failure from a miss.
+	 */
 	public const READ_ERROR = 'error';
 
 	/**
-	 * Key-schema version — the one rotatable salt. Bumping it orphans every
-	 * key at once, which is the point: a per-plugin salt only ever flushed
-	 * that plugin's keys while its neighbours kept serving stale ones.
+	 * Key-schema version. Bumping it in code orphans every key on every
+	 * install at once, which a grammar change requires; `SALT_OPTION` is the
+	 * per-install equivalent an operator turns.
 	 */
 	public const KEY_VERSION = 'v3';
 
-	/** Option holding the rotatable salt; rotating it orphans every key. */
+	/**
+	 * Option holding this install's rotatable salt.
+	 *
+	 * ONE salt for the whole install, never one per plugin: a per-plugin salt
+	 * flushes only that plugin's keys and leaves its neighbours serving stale
+	 * ones for state they share.
+	 */
 	public const SALT_OPTION = 'newspack_nodes_cache_salt';
 
-	/** Memoized install scope, salt and machine half; `Core::reset()` clears them. */
+	/**
+	 * Memoized install scope; empty until `site()` derives it. `Core::reset()`
+	 * clears it, and so does `rotate_salt()`, which moves what it is built from.
+	 */
 	public static string $site = '';
 
+	/**
+	 * Memoized install salt; null until `salt()` reads the option row. Null
+	 * rather than '' as the unset marker, because an install with no salt
+	 * stored legitimately holds the empty string. `Core::reset()` clears it.
+	 */
 	public static ?string $salt = null;
 
+	/** Memoized machine half; empty until `machine()` resolves it. */
 	public static string $machine = '';
 
 	/**
@@ -80,6 +110,12 @@ final class Cache_Backend {
 	 */
 	public static ?\Closure $apcu_sma_info = null;
 
+	/**
+	 * Private, so the tier choice is made at the call site by naming
+	 * `local_first()` or `shared_first()` rather than by handing in a handle.
+	 *
+	 * @param \Memcached|null $memd Selected handle, or null for the APCu arm.
+	 */
 	private function __construct( private readonly ?\Memcached $memd ) {}
 
 	/**
@@ -90,6 +126,9 @@ final class Cache_Backend {
 	 * where installs collide: co-tenants share a database (separate table
 	 * prefixes), and every container runs as the same unix user, so neither
 	 * `DB_NAME` nor the username tells two installs apart.
+	 *
+	 * @param string $logical Logical name, as the writing surface spells it.
+	 * @return string The install-scoped cache key.
 	 */
 	public static function site_key( string $logical ): string {
 		return self::key( self::site(), $logical );
@@ -97,10 +136,14 @@ final class Cache_Backend {
 
 	/**
 	 * Key for a per-MACHINE budget, where the machine is the resource being
-	 * rationed. SSE connection slots are the only one, and they pass their
-	 * scope explicitly (the tests inject two machines to prove the pools are
-	 * independent) — this is the same scope, for a reader that has to rebuild
-	 * such a key without one.
+	 * rationed. SSE connection slots are the only such surface, and they
+	 * compose the scope themselves through `SSE_Slot_Pool::namespace_key()`
+	 * (the tests inject two machines to prove the pools are independent).
+	 * This builds the same scope for a reader holding only a logical name —
+	 * `wp nodes memcache get --host`.
+	 *
+	 * @param string $logical Logical name, as the writing surface spells it.
+	 * @return string The machine-scoped cache key.
 	 */
 	public static function host_key( string $logical ): string {
 		return self::key( self::machine() . ':' . self::site(), $logical );
@@ -123,6 +166,9 @@ final class Cache_Backend {
 	 *
 	 * The rotatable salt folds in here, so one rotation moves the keyspace for
 	 * every plugin on this install at once.
+	 *
+	 * @return string Twelve hex characters, or 'unscoped' when neither
+	 *                `DB_NAME` nor `$wpdb` identifies the install.
 	 */
 	public static function site(): string {
 		if ( '' !== self::$site ) {
@@ -149,6 +195,9 @@ final class Cache_Backend {
 	 * `bin/pyrate` runs under SHORTINIT, where the option API is stubbed to
 	 * return defaults — and pyrate warms the SAME caches the web serves.
 	 * Reading the row directly is what keeps one rotation coherent across both.
+	 *
+	 * @return string The stored salt, or '' when none is stored and when no
+	 *                `\wpdb` is available to read one.
 	 */
 	public static function salt(): string {
 		if ( null !== self::$salt ) {
@@ -178,6 +227,8 @@ final class Cache_Backend {
 	 * to a string-typed callee. Deliberately NOT `SERVER_NAME`: that is
 	 * caller-controllable, and a rate-limit namespace the caller chooses is
 	 * not a rate limit.
+	 *
+	 * @return string The hostname, or 'unknown'.
 	 */
 	public static function machine(): string {
 		return self::$machine ?: ( self::$machine = \gethostname() ?: 'unknown' );
@@ -191,12 +242,21 @@ final class Cache_Backend {
 	 * surface wrote it — that is what `wp nodes memcache get` reverses. A
 	 * surface that orders its parts differently is unreachable from the CLI, so
 	 * build here rather than concatenating your own.
+	 *
+	 * @param string $scope   Scope half, from `site()` or `machine():site()`.
+	 * @param string $logical Logical name, as the writing surface spells it.
+	 * @return string The composed cache key.
 	 */
 	public static function key( string $scope, string $logical ): string {
 		return 'newspack_nodes:' . self::KEY_VERSION . ':' . $scope . ':' . $logical;
 	}
 
-	/** APCu → memcached → null. */
+	/**
+	 * Select APCu, falling back to memcached: what a same-host hot surface
+	 * wants, since a CLI process with no APCu segment still reaches memcached.
+	 *
+	 * @return self|null The selected tier, or null when neither is usable.
+	 */
 	public static function local_first(): ?self {
 		if ( self::apcu() ) {
 			return new self( null );
@@ -204,7 +264,13 @@ final class Cache_Backend {
 		return null !== Core::$memd ? new self( Core::$memd ) : null;
 	}
 
-	/** Memcached → APCu → null. */
+	/**
+	 * Select memcached, falling back to APCu: what a cross-process source of
+	 * truth wants, staying functional on one host rather than failing closed
+	 * where memcached is absent.
+	 *
+	 * @return self|null The selected tier, or null when neither is usable.
+	 */
 	public static function shared_first(): ?self {
 		if ( null !== Core::$memd ) {
 			return new self( Core::$memd );
@@ -212,6 +278,11 @@ final class Cache_Backend {
 		return self::apcu() ? new self( null ) : null;
 	}
 
+	/**
+	 * Whether APCu is usable, asked through the seam so tests pin the answer.
+	 *
+	 * @return bool True when the extension is loaded and enabled.
+	 */
 	private static function apcu(): bool {
 		$check = self::$apcu_usable ?? static fn (): bool => \function_exists( 'apcu_enabled' ) && \apcu_enabled();
 		return (bool) $check();
@@ -223,6 +294,14 @@ final class Cache_Backend {
 	 * This deliberately has no TTL parameter: callers use it for permanent,
 	 * bounded identity pointers. A failed comparison is a lost race and must
 	 * never fall back to set().
+	 *
+	 * The APCu arm confirms the swap with a read-back, so a true return there
+	 * means the replacement is what the key holds.
+	 *
+	 * @param string $key         The cache key.
+	 * @param int    $expected    Value the key must currently hold.
+	 * @param int    $replacement Value to write when the comparison holds.
+	 * @return bool True when this caller won the swap.
 	 */
 	public function compare_and_swap( string $key, int $expected, int $replacement ): bool {
 		if ( null !== $this->memd ) {
@@ -253,11 +332,23 @@ final class Cache_Backend {
 	 * Extension releases expose float-only or string|int|float signatures.
 	 * Calling through the native callable preserves the exact token returned by
 	 * GET_EXTENDED; converting a 64-bit integer token to float can lose it.
+	 *
+	 * @param callable         $cas         The bound `[ $memcached, 'cas' ]`.
+	 * @param string|int|float $token       CAS token from the extended read.
+	 * @param string           $key         The cache key.
+	 * @param int              $replacement Value to write.
+	 * @return bool True when the extension reports the swap landed.
 	 */
 	private static function invoke_memcached_cas( callable $cas, string|int|float $token, string $key, int $replacement ): bool {
 		return true === $cas( $token, $key, $replacement );
 	}
 
+	/**
+	 * Add one to a counter, refusing a key that does not exist.
+	 *
+	 * @param string $key The cache key.
+	 * @return int|false The new value, or false on an absent key or a failure.
+	 */
 	public function increment( string $key ): int|false {
 		if ( null !== $this->memd ) {
 			return $this->memd->increment( $key );
@@ -268,7 +359,15 @@ final class Cache_Backend {
 		return \apcu_inc( $key );
 	}
 
-	/** Memcached clamps at zero; mirror that on the APCu arm (apcu_dec goes negative). */
+	/**
+	 * Subtract one from a counter, refusing a key that does not exist.
+	 *
+	 * Memcached clamps at zero. `apcu_dec` goes negative, so that arm stores
+	 * the clamped zero back and the two agree on what a floor looks like.
+	 *
+	 * @param string $key The cache key.
+	 * @return int|false The new value, or false on an absent key or a failure.
+	 */
 	public function decrement( string $key ): int|false {
 		if ( null !== $this->memd ) {
 			return $this->memd->decrement( $key );
@@ -292,10 +391,11 @@ final class Cache_Backend {
 	 *
 	 * `apcu_inc`/`apcu_dec` CREATE a missing key — that is what their `$ttl`
 	 * parameter is for — while `Memcached::increment`/`decrement` return false
-	 * and set RES_NOTFOUND. Counters are the one place the two arms disagreed,
-	 * and the disagreement was load-bearing: a decrement of an evicted batch
-	 * counter clamped to a stored 0, which `Job_Worker_Node::settle_batch()`
-	 * reads as a completed fan-in. Gate both on existence so a miss is a miss.
+	 * and set RES_NOTFOUND. Counters are the one place the two arms diverge,
+	 * and the divergence is load-bearing: without this gate, a decrement of an
+	 * evicted batch counter clamps to a stored 0, which
+	 * `Job_Worker_Node::settle_batch()` reads as a completed fan-in. Gating the
+	 * APCu arm on existence is what makes a miss a miss on both.
 	 *
 	 * @param string $key The cache key.
 	 * @return bool True when the key exists.
@@ -313,9 +413,9 @@ final class Cache_Backend {
 	 * a fiction. A caller that must tell a confirmed miss from a broken backend
 	 * asks key by key through read().
 	 *
-	 * A batch that fails outright still says so here, because empty reads as
-	 * "nothing stored" downstream — silently, a reset connection renders a
-	 * whole page of rows as absent.
+	 * A batch that fails outright is logged rather than swallowed, because the
+	 * empty array it returns reads as "nothing stored" downstream: silently, a
+	 * reset connection renders a whole page of rows as absent.
 	 *
 	 * @param list<string> $keys Cache keys.
 	 * @return array<string,mixed> Values for the keys that were present.
@@ -337,7 +437,11 @@ final class Cache_Backend {
 		return $out;
 	}
 
-	/** Selected backend name for failure diagnostics. */
+	/**
+	 * Selected backend name, for failure diagnostics.
+	 *
+	 * @return string Either 'memcached' or 'apcu'.
+	 */
 	public function backend_name(): string {
 		return null !== $this->memd ? 'memcached' : 'apcu';
 	}
@@ -352,9 +456,9 @@ final class Cache_Backend {
 	 *
 	 * @param array<string,mixed> $items Cache key => value.
 	 * @param int                 $ttl   Expiry in seconds; 0 = no expiry.
-	 * @return bool True when the whole set landed. Neither backend reports per
-	 *              KEY — memcached's `setMulti` is one bool and apcu returns the
-	 *              failures — so a caller needing to know WHICH key was refused
+	 * @return bool True when the whole set landed. Memcached's `setMulti`
+	 *              answers one bool, and this collapses APCu's failure list to
+	 *              match, so a caller needing to know WHICH key was refused
 	 *              re-sends that batch one key at a time.
 	 */
 	public function write_multi( array $items, int $ttl ): bool {
@@ -370,6 +474,11 @@ final class Cache_Backend {
 	/**
 	 * Rotate the salt: every key on this install is orphaned at once, and no
 	 * co-tenant's is touched. THE flush — plugins do not keep their own.
+	 *
+	 * Clearing the memoized `$site` is half the work, since the salt folds
+	 * into it; a process that kept the old scope would keep the old keys.
+	 *
+	 * @return string The new salt.
 	 */
 	public static function rotate_salt(): string {
 		$salt = \function_exists( 'wp_generate_password' ) ? \wp_generate_password( 12, false ) : (string) \time();
@@ -381,12 +490,27 @@ final class Cache_Backend {
 		return $salt;
 	}
 
-	/** Atomic claim: false when the key already exists. */
+	/**
+	 * Claim a key atomically: false when it already exists. This is what a
+	 * caller uses where a lost race must not displace the winner's value.
+	 *
+	 * @param string $key   The cache key.
+	 * @param mixed  $value Value to store.
+	 * @param int    $ttl   Expiry in seconds; 0 = no expiry.
+	 * @return bool True when this caller created the key.
+	 */
 	public function add( string $key, mixed $value, int $ttl ): bool {
 		return null !== $this->memd ? $this->memd->add( $key, $value, $ttl ) : \apcu_add( $key, $value, $ttl );
 	}
 
-	/** False on miss (memcached parity). */
+	/**
+	 * Read one value, false on a miss (memcached parity). A stored false reads
+	 * the same as a miss, and a backend failure reads the same again; `read()`
+	 * is what tells the three apart.
+	 *
+	 * @param string $key The cache key.
+	 * @return mixed The stored value, or false.
+	 */
 	public function get( string $key ): mixed {
 		return null !== $this->memd ? $this->memd->get( $key ) : \apcu_fetch( $key );
 	}
@@ -394,6 +518,7 @@ final class Cache_Backend {
 	/**
 	 * Read without collapsing a confirmed miss and a backend failure.
 	 *
+	 * @param string $key The cache key.
 	 * @return array{status:'hit'|'miss'|'error',value:mixed}
 	 */
 	public function read( string $key ): array {
@@ -416,9 +541,16 @@ final class Cache_Backend {
 	}
 
 	/**
-	 * Safe aggregate facts for a failed cache-backed operation.
+	 * Aggregate facts about the selected backend, for a failed cache-backed
+	 * operation. Never a key name or a stored value, so a caller can log the
+	 * whole array or hand it to a dashboard.
 	 *
-	 * @return array<string,int|string>
+	 * The memcached arm reports the last result code and message. The APCu arm
+	 * reports expunges and free shared memory, the two numbers that say
+	 * whether the segment is thrashing, and is empty when APCu declines both
+	 * info calls.
+	 *
+	 * @return array<string,int|string> Diagnostic facts, possibly empty.
 	 */
 	public function diagnostic_metadata(): array {
 		if ( null !== $this->memd ) {
@@ -440,15 +572,40 @@ final class Cache_Backend {
 		return $metadata;
 	}
 
+	/**
+	 * Store a value, replacing whatever the key holds.
+	 *
+	 * @param string $key   The cache key.
+	 * @param mixed  $value Value to store.
+	 * @param int    $ttl   Expiry in seconds; 0 = no expiry.
+	 * @return bool True when the write landed.
+	 */
 	public function set( string $key, mixed $value, int $ttl ): bool {
 		return null !== $this->memd ? $this->memd->set( $key, $value, $ttl ) : \apcu_store( $key, $value, $ttl );
 	}
 
+	/**
+	 * Remove a key.
+	 *
+	 * @param string $key The cache key.
+	 * @return bool True when the key existed and is now gone.
+	 */
 	public function delete( string $key ): bool {
 		return null !== $this->memd ? $this->memd->delete( $key ) : \apcu_delete( $key );
 	}
 
-	/** APCu has no native touch; re-store under the new ttl. */
+	/**
+	 * Extend a key's expiry without rewriting its value.
+	 *
+	 * APCu has no native touch, so that arm fetches and re-stores under the
+	 * new ttl. Those are two operations, and a write landing between them is
+	 * overwritten with the older value — use it where the value is a lease the
+	 * holder alone refreshes, as `SSE_Slot_Pool::touch()` does.
+	 *
+	 * @param string $key The cache key.
+	 * @param int    $ttl New expiry in seconds; 0 = no expiry.
+	 * @return bool True when the key existed and its expiry moved.
+	 */
 	public function touch( string $key, int $ttl ): bool {
 		if ( null !== $this->memd ) {
 			return $this->memd->touch( $key, $ttl );

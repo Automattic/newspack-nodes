@@ -2,17 +2,29 @@
 /**
  * Pre-commit gate: inline comments are ONE line, <= 80 visual columns.
  *
- * Two rules. LENGTH: `//`, `#`, and non-doc slash-star comments in the staged
- * files lint-staged passes as argv are one line and <= 80 columns; docblocks
- * are exempt from length. PLACEMENT: outside a function body the only comment
- * allowed is a docblock immediately preceding the declaration it documents, so
- * a docblock whose declaration is gone is itself a violation. An INLINE
- * comment tagged `@longform` (first line) is exempt — the greppable marker for
- * footgun comments whose full length is strictly necessary. A docblock is
- * exempt already, so opening one of its lines with that tag marks nothing and
- * is itself an error; prose naming the tag is fine. Directive comments
- * (`phpcs:`, `translators:`, `eslint-`) are exempt: they cannot be split, as is
- * a commented-out entry in a config ledger, whose width is the declaration's.
+ * Arguments are files or directories — lint-staged passes the staged paths,
+ * `npm run lint:php` passes `.` — and `--fix` rewrites what has one correct
+ * answer before gating on the rest. `scripts/lint-comments.mjs` is the JS half
+ * of the same gate; a rule the two spell differently is a rule neither
+ * enforces, so each function with a counterpart names it.
+ *
+ * LENGTH: a `//`, a `#` and a non-doc slash-star comment are each one line and
+ * at most 80 columns, and two adjacent comment lines are a block wanting a
+ * docblock instead. Docblocks are exempt from length. An INLINE comment tagged
+ * `@longform` (first line) is exempt — the greppable marker for footgun
+ * comments whose full length is strictly necessary. Directive comments are
+ * exempt too, because splitting one changes what its tool reads.
+ *
+ * PLACEMENT: outside a function body the only comment allowed is a docblock
+ * immediately preceding the declaration it documents, so a docblock whose
+ * declaration is gone is itself a violation. A plugin's root config ledger
+ * takes the ledger rules instead: a comment run must name the key it
+ * describes, and a commented-out entry may run to the declaration's width.
+ *
+ * DOCBLOCK SHAPE: a docblock is exempt from length already, so opening one of
+ * its lines with the `@longform` tag marks nothing and is itself an error;
+ * prose naming the tag is fine. A description sitting below the tag block
+ * renders nowhere, and is an error for the same reason.
  *
  * GENERICS: a docblock type carries no space after its comma. Write
  * `array<string,mixed>`; a space before `mixed` is the violation. Both parse
@@ -25,19 +37,27 @@
  * @package Newspack_Nodes
  */
 
+/** The column budget every non-exempt comment line fits inside. */
 const MAX_COLS  = 80;
+
+/** Columns a tab advances to. The JS twin counts the same stop. */
 const TAB_WIDTH = 4;
 
-/** Directories never linted: unit tests are exempt by owner's rule, the rest are not ours. */
+/**
+ * Directories never walked and never linted.
+ *
+ * Unit tests are exempt from the comment rules by the project's own standard;
+ * the rest hold vendored or generated files nobody hand-edits.
+ */
 const SKIP_DIRS = [ 'tests', 'vendor', 'node_modules', 'build', 'coverage', 'release', '.phpstan', '.git' ];
 
 /**
  * Visual length with tabs expanded to the next TAB_WIDTH stop.
  *
- * Characters, not bytes: `str_split` counted an em dash as 3, so the PHP gate
- * was roughly 3x stricter than the documented 80 columns on exactly the prose
- * it is applied to — and the JS twin, iterating code points, passed the same
- * line. The twins have to agree.
+ * Characters, not bytes: an em dash is three bytes, so a byte-wise split makes
+ * this gate roughly 3x stricter than the documented 80 columns on exactly the
+ * prose it is applied to, while the JS twin, iterating code points, passes the
+ * same line. The twins have to agree.
  *
  * @param string $line One source line.
  * @return int Visual columns.
@@ -54,14 +74,14 @@ function visual_length( string $line ): int {
  * The balanced `<...>` span starting at `$start`, collapsed, or null when it
  * is not a type at all.
  *
- * Two prose shapes defeat a plain depth counter, and both reached the tree.
- * `n<10, retry, then bail` never closes, so the collapse ran to end of line
- * and ate the spaces after every later comma. `a<b, see c>d` DOES close, so
- * buffering alone still accepted it. The discriminator is the content: a type
+ * Two prose shapes defeat a plain depth counter. `n<10, retry, then bail`
+ * never closes, so a collapse trusting the counter runs to end of line and
+ * eats the spaces after every later comma. `a<b, see c>d` DOES close, so
+ * buffering alone still accepts it. The discriminator is the content: a type
  * argument carries no internal space once its comma-spaces are gone, and
- * `see c` does. Rejecting a candidate must also backtrack rather than skip the
- * rest of the line, or a stray `<` earlier in a sentence hides a real generic
- * behind it from the gate.
+ * `see c` does. A rejected candidate leaves the scan on the very next
+ * character rather than skipping the rest of the line, or a stray `<` earlier
+ * in a sentence hides a real generic behind it from the gate.
  *
  * @param string $line  One source line.
  * @param int    $start Index of the candidate `<`.
@@ -96,6 +116,10 @@ function generic_span( string $line, int $start ): ?array {
 /**
  * Drop the spaces after commas inside generic type arguments, at any depth.
  *
+ * A candidate `<` has to follow a word character, and `generic_span()` rejects
+ * anything unbalanced or holding prose, so `$a < $b` and a lone `<` in a
+ * sentence are never rewritten.
+ *
  * @param string $line One source line.
  * @return string The line with its generics tightened.
  */
@@ -117,15 +141,44 @@ function collapse_generics( string $line ): string {
 	return $out;
 }
 
+/**
+ * Does this comment open with an annotation a tool reads?
+ *
+ * A directive addresses phpcs, PHPStan, Psalm, the coverage filter or the
+ * translator-comment reader, each of which reads the one line it opens and
+ * stops there. Condensing or splitting it changes what that tool sees, so
+ * length and placement both step aside.
+ *
+ * @param string $text Comment text, opener included.
+ * @return bool True when the comment opens with a directive tag.
+ */
 function is_directive( string $text ): bool {
 	return 1 === \preg_match( '/^\s*(?:\/\/|#|\/\*)+\s*(?:phpcs:|translators:|eslint-|@var\s|@codeCoverageIgnore|@phpstan-|@codingStandardsIgnore|@psalm-)/', $text );
 }
 
+/**
+ * Does this text carry the `@longform` opt-out?
+ *
+ * The tag exempts an inline comment from the length gate. It matches anywhere
+ * in the text, and the CALLER picks which text to test — a single-line
+ * comment, a block's opening line, a run's first line. That is what keeps the
+ * marker on a comment's first line, where a reader meets it before the prose
+ * it excuses.
+ *
+ * @param string $text Comment text, or its first line.
+ * @return bool True when the text carries the tag.
+ */
 function is_longform( string $text ): bool {
 	return \str_contains( $text, '@longform' );
 }
 
-/** Tokens that may legally follow a docblock inside a class body. */
+/**
+ * Tokens that may legally follow a docblock inside a class body.
+ *
+ * A docblock landing on anything else documents nothing, and `stray_comments()`
+ * reports it as an orphan. The list covers every member shape: a modifier,
+ * `const`, `function`, a trait `use`, an attribute, an enum `case`, a property.
+ */
 const DECLARATION_TOKENS = [
 	\T_PUBLIC, \T_PROTECTED, \T_PRIVATE, \T_STATIC, \T_ABSTRACT, \T_FINAL,
 	\T_READONLY, \T_VAR, \T_CONST, \T_FUNCTION, \T_USE, \T_ATTRIBUTE,
@@ -140,8 +193,10 @@ const DECLARATION_TOKENS = [
  * methods, or a docblock whose method was deleted all describe nothing — and
  * the orphan is worse than noise: it reads as documentation for whatever
  * happens to sit under it. Scope is the CLASS BODY, found by brace depth, so
- * file-level headers are out of scope and closures, anonymous classes and match
- * arms all nest deeper and count as function scope.
+ * file-level headers are out of scope, and closures and match arms nest deeper
+ * and count as function scope. An anonymous class opens a class body of its
+ * own, which is why the depths are a stack: closing one has to restore the
+ * enclosing class rather than stop the tracking.
  *
  * @param string $source PHP source.
  * @return array<int,string> `line: message` violations.
@@ -244,10 +299,14 @@ function stray_comments( string $source ): array {
 /**
  * A docblock's content lines, stripped of their comment furniture.
  *
+ * Both docblock-shape rules read prose, so the opener, the leading `*` and the
+ * closer come off first; the line numbers ride along so a violation reports
+ * the line it sits on rather than the block's opener. JS twin: `docText` in
+ * lint-comments.mjs, whose pairs accumulate into `blockContent`.
+ *
  * @param string $doc   The whole T_DOC_COMMENT text.
  * @param int    $start Its first line number.
- * @return list<array{0:int,1:string}> `[ line, text ]` pairs. JS twin:
- *                                     `blockContent` in lint-comments.mjs.
+ * @return list<array{0:int,1:string}> `[ line, text ]` pairs.
  */
 function doc_lines( string $doc, int $start ): array {
 	$out = [];
@@ -315,10 +374,10 @@ function prose_after_tags( array $content ): int {
 	return 0;
 }
 
-/**
- * A commented-out or live `'key' => value,` entry in a config ledger.
- */
+/** A `'key' => value,` entry in a config ledger, commented out or live. */
 const LEDGER_ENTRY      = "/^\\s*(?:\\/\\/\\s*)?'[a-z0-9_]+'\\s*=>/";
+
+/** The same entry, live only — what a run with no entry of its own lands on. */
 const LEDGER_ENTRY_LIVE = "/^\\s*'[a-z0-9_]+'\\s*=>/";
 
 /**
@@ -356,10 +415,10 @@ function is_config_ledger( string $file ): bool {
  * shape. A run naming no key at all is a description of nothing, which is what
  * this rule exists to catch.
  *
- * @param int                $start   First line of the run, 1-based.
- * @param int                $len     Lines in the run.
- * @param array<int,string>  $comments Comment text keyed by line.
- * @param array<int,string>  $lines   Every source line, 0-indexed.
+ * @param int               $start    First line of the run, 1-based.
+ * @param int               $len      Lines in the run.
+ * @param array<int,string> $comments Comment text keyed by line.
+ * @param array<int,string> $lines    Every source line, 0-indexed.
  * @return bool True when the run documents a key.
  */
 function ledger_run_names_a_key( int $start, int $len, array $comments, array $lines ): bool {
@@ -382,9 +441,9 @@ function ledger_run_names_a_key( int $start, int $len, array $comments, array $l
  * Line numbers belonging to a commented-out entry in a config ledger.
  *
  * An entry's continuation lines are code exactly as its first line is: a
- * multi-line array default, or a closure's body, wraps to nothing useful and
- * stops looking like the declaration it documents. The span runs from the
- * `// 'key' =>` line to the one closing it at depth zero.
+ * multi-line array default or a closure body wraps onto lines that no amount
+ * of editing turns into prose. The span runs from the `// 'key' =>` line to
+ * the one closing it at depth zero.
  *
  * @param array<int,string> $comments Comment text keyed by line.
  * @return array<int,true> The exempt lines, as a set.
@@ -410,6 +469,14 @@ function ledger_entry_lines( array $comments ): array {
 
 /**
  * Every violation in one file.
+ *
+ * Six passes, in the order they run: the comment-only census, which also
+ * reports a multi-line slash-star block; the column budget; generic spacing
+ * across every comment and docblock; the two docblock-shape rules; runs of
+ * adjacent comment lines; and class-level placement. A config ledger swaps the
+ * run rule for its own and lifts the column budget off a commented-out entry,
+ * because a key's description and the entry under it ARE the shape the general
+ * rules reject.
  *
  * @param string $file Path to check.
  * @return array<int,string> `line: message` violations.
@@ -441,7 +508,7 @@ function check_file( string $file ): array {
 			continue;
 		}
 
-		// Comment-only = nothing but whitespace precedes it on its line.
+		// Comment-only: only whitespace precedes the opener on its line.
 		$src_line = $lines[ $line - 1 ] ?? '';
 		if ( '' === \trim( \substr( $src_line, 0, \strpos( $src_line, \trim( $text ) ) ?: 0 ) ) ) {
 			$comment_only[ $line ] = $text;
@@ -540,14 +607,15 @@ function check_file( string $file ): array {
 /**
  * Expand a directory argument to the `.php` files under it; pass a file through.
  *
- * Without this a directory argument matched neither branch of the filter
- * below and was silently skipped, so `lint-comments.php .` — the form
- * `npm run lint:php` uses — exited 0 having checked nothing. The gate ran
- * green by hand for everyone while lint-staged, which passes explicit paths,
- * failed at commit time on violations nobody could reproduce.
+ * The filter around the run loop accepts files alone, so without this a
+ * directory argument matches neither branch and is skipped: `lint-comments.php
+ * .` — the form `npm run lint:php` uses — exits 0 having checked nothing. The
+ * gate then runs green by hand for everyone while lint-staged, which passes
+ * explicit paths, fails at commit time on violations nobody can reproduce.
  *
  * @param string $path File or directory.
- * @return list<string>
+ * @return list<string> The `.php` files under `$path`, SKIP_DIRS pruned and
+ *                      naturally sorted.
  */
 function expand_path( string $path ): array {
 	if ( \is_file( $path ) ) {
@@ -576,7 +644,7 @@ function expand_path( string $path ): array {
 }
 
 /**
- * Rewrite one file's docblock generics in place, leaving code untouched.
+ * Rewrite one file's comment and docblock generics in place.
  *
  * Only comment and docblock tokens are rewritten, so a `<` in a string or an
  * expression is never reached.

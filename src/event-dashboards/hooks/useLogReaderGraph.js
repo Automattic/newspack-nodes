@@ -1,6 +1,6 @@
 /**
- * useLogReaderGraph — the durable log-reading dashboard, and the two built on
- * it: the Partition Viewer and the Log Viewer.
+ * useLogReaderGraph — the shared spine of the two durable log-reading
+ * dashboards, the Partition Viewer and the Log Viewer.
  *
  * The graph, the pause/visibility gate and the recorded reopen target are the
  * shared `useStreamGraph`; what belongs here is the CATALOG the subscription is
@@ -35,32 +35,54 @@ import {
 import { views } from '../nodes/register';
 import { egressPath } from '@newspack-nodes/shared/helpers/egressPath';
 
+/** The Log Viewer's SSE route; omitting it opens `/messages/stream`. */
 const LOG_STREAM_ENDPOINT = 'newspack-nodes/v1/log/stream';
+
+/**
+ * The Log Viewer catalog's arguments. `sources` is a reserved `taillog` form
+ * answering with the registry as struct rows, where the bare verb renders a
+ * table for a human.
+ *
+ * @return {string[]} The verb's arguments.
+ */
 const SOURCES_ARGS = () => [ 'sources' ];
 
-// Where `list_logs`, `log_status` and `read_message` live.
+/** The service CI carrying `list_logs`, `log_status` and `read_message`. */
 const RAW_LOGS_CI = 'raw-logs';
 
-// @longform
-// `taillog` is an interpreter builtin, so it has no CI — and it takes a
-// SUB-VERB, so the source the reply is ABOUT is not at args[0].
+/**
+ * The Log Viewer's paused single-step read. `taillog` is an interpreter
+ * builtin, so it names no CI, and it takes a SUB-VERB, so `subjectOf` reads
+ * args[1]: the reply is addressed by its subject (ADR-7), and the subject of
+ * `read <source> <position>` is not the first token.
+ *
+ * @type {{command: string, argsFor: Function, subjectOf: Function}}
+ */
 const LOGVIEWER_STEP_READ = {
 	command: 'taillog',
 	argsFor: ( sub, position ) => [ 'read', sub, position ],
 	subjectOf: ( args ) => args[ 1 ],
 };
+
+/**
+ * The Partition Viewer's paused single-step read. `read_message <log>
+ * <position>` carries its subject at args[0], which is the shape both
+ * `useSteppedRead` defaults already assume, so it declares neither.
+ *
+ * @type {{ci: string, command: string}}
+ */
 const PARTITION_STEP_READ = { ci: RAW_LOGS_CI, command: 'read_message' };
 
 /**
  * Declare the shared graph, poll its catalog, and own every control the two
  * dashboards share.
  *
- * @param {Object} opts
+ * @param {Object} opts            Everything the two dashboards differ in.
  * @param {string} opts.prefix     Names every node this graph owns:
  *                                 `<prefix>:link`, `:stream`, `:view` and
  *                                 the `<prefix>:list:*` catalog slice.
  * @param {any}    opts.viewClass  The view-model node's class, handed over
- *                                 rather than named — see `addSliceFetcher`.
+ *                                 rather than named (ADR-16).
  * @param {string} [opts.endpoint] SSE endpoint override; omit for
  *                                 `/messages/stream`.
  * @param {Object} opts.catalog    `{ command, argsFn, target }` for the
@@ -108,17 +130,28 @@ function useLogReaderGraph( opts ) {
 	};
 }
 
-// Prefer the first available source; else fall back to the first listed.
+/**
+ * The source a fresh Log Viewer opens. Prefer the first AVAILABLE row so the
+ * first paint carries lines; fall back to the first listed so a registry with
+ * nothing readable still names a selection for the picker.
+ *
+ * @param {Array<{name:string,available:boolean}>} sources The catalog rows.
+ * @return {string} The chosen name, or '' when the catalog is empty.
+ */
 function defaultSourceName( sources ) {
 	const first = sources.find( ( s ) => s.available ) ?? sources[ 0 ];
 	return first?.name ?? '';
 }
 
 /**
+ * Mount the Log Viewer's graph: `/log/stream` over one registry log source,
+ * catalogued by `taillog sources`. It picks a default the first time a catalog
+ * arrives with nothing selected, and never re-picks.
+ *
  * @return {{ selectSource: Function, setPaused: Function, seek: Function, sources: Array, step: () => void, clear: () => void, setFilter: (term: string) => void }}
  *   Control callbacks + the source catalog (name/mode/availability/segments)
- *   for the picker and segment sidebar. The catalog keeps itself fresh — it is
- *   a poll — so `step` (paused only) delivers one record from the cursor and
+ *   for the picker and segment sidebar. The catalog keeps itself fresh, being
+ *   a poll; `step` (paused only) delivers one record from the cursor, and
  *   `clear` empties the ring.
  */
 export function useLogViewerGraph() {
@@ -194,6 +227,10 @@ export function useLogViewerGraph() {
 }
 
 /**
+ * Mount the Partition Viewer's graph: `/messages/stream` over one partition
+ * directory, catalogued by `list_logs`. The whole catalog goes to the view,
+ * which owns the selection; only the view's FIRST pick opens a stream.
+ *
  * @return {{ selectLog: Function, setPaused: Function, seek: Function, step: () => void, clear: () => void, setFilter: (term: string) => void }}
  *   Control callbacks for the thin React view (the view's own state is read via
  *   useNodeState): `selectLog( log )` re-points the stream at a partition,

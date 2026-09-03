@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`lint:js` scans `examples/` — it used to skip them entirely.** eslint's globs named `src/` and `scripts/`, and `lint-contract.mjs` walked `src/` alone, so the AI-newsletter example sat on three `name-lookup-in-option` violations while the gate reported clean. An example is the code a reader copies, so a violation there teaches itself onward. `SCAN_ROOTS` now carries `examples` beside `src`; `walk()` returns nothing for a root that does not exist, so a plugin with no examples scans exactly as before.
+- **The AI-newsletter example passes its view CLASSES, not their registered names.** `CommandInterpreterNode`'s name table is a per-bundle static (ADR-16), so a name resolves only through an interpreter that bundle mounted, and a hub tab building the graph through another bundle's would find nothing. `../nodes/register` still runs, for the TSL and palette lookups that have no class to hand.
+
+### Documentation
+
+- **Source-file documentation reviewed against the code, one agent per file.** 218 of the plugin's 412 PHP and JS files so far, tests excluded: missing docblocks written, `@param`/`@return` drift corrected against the real signature, documentation for deleted behaviour removed, and the why recorded where the what was already plain. Comments that described history rather than the present are gone. Three `node_schema()` descriptions were wrong about their own node — `Lock_Node` advertised a file lock where it takes a directory with `mkdir` and a PID heartbeat.
+- **JSDoc types tightened where prose had loosened them.** A `@return {Function}` carries no call signature, so every typed prop it reaches becomes unassignable and the error lands in a file whose author cannot see the cause; `useDebugFrame`'s resize handlers, `TopologyRow`'s `onToggleFold` and `TopologySection`'s `onToggle` all carry real signatures now.
+
 ## [2.49.1] - 2026-09-02
 
 ### Fixed

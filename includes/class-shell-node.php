@@ -1,6 +1,23 @@
 <?php
 /**
- * Shell: REPL parser node.
+ * Shell: the TSL front-end that turns typed lines and `.tsl` files into Messages.
+ *
+ * One grammar serves both callers. `wp nodes cli` feeds keystrokes in as
+ * TM_BYTESTREAM through `TTY_In_Node`; `Topology_Loader` feeds a whole topology
+ * file in through `eval_script()`. Both land in `parse()`, which interpolates
+ * `<var>` and `<ns:key>` tokens, tokenizes quote-aware, runs the builtins that
+ * touch only shell state, and mints a Message for every other verb. The two
+ * contexts differ in two switches: `want_reply( false )` marks each command
+ * TM_NOREPLY because a booting worker has no console for the reply, and
+ * `fatal_errors( true )` turns a cycle or an unterminated quote into a throw so
+ * a mangled `.tsl` never half-builds a graph.
+ *
+ * `parse_statements()` reads the same grammar statically — no interpolation, no
+ * dispatch, no node construction — so `Topology_Analyzer` and the topology
+ * editor can describe a file without running it.
+ *
+ * `src/runtime/shell-node.js` mirrors this file for the browser graph, pinned
+ * to it by the shared `tests/fixtures/statements/` corpus.
  *
  * @package Newspack_Nodes
  */
@@ -9,11 +26,21 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * Shell node — the REPL and TSL parser, always anonymous.
+ *
+ * `name()` is fatal on any argument: a named Shell would be addressable, and
+ * whatever reaches it could mint signed commands at will, so unaddressability
+ * is the boundary (ADR-7). It sinks into whatever wired it — the console tap in
+ * `wp nodes cli`, the command interpreter at worker boot — and is never itself a
+ * node in the graph it builds.
+ */
 class Shell_Node extends Node {
 
 	/** Current cwd — the node-path non-builtin commands route to by default; empty = local interpreter. */
 	public string $path = '';
 
+	/** Prompt `TTY_In_Node` renders; `cd`, a held continuation and a Dumper `prompt` reply all rewrite it. */
 	public string $prompt = '/> ';
 
 	/**
@@ -94,9 +121,16 @@ class Shell_Node extends Node {
 
 	/**
 	 * Per-quote-type escape rules, following Shell3's string1/string2/string3
-	 * expansion. Double quotes expand sequences; single quotes and backticks
-	 * stay literal so a deferred `<token>` survives to its downstream binder.
-	 * An unlisted `\X` keeps both characters (Perl leaves it untouched too).
+	 * expansion. Double quotes expand the sequences; single quotes and backticks
+	 * resolve only their own quote char and the backslash, so a `\n` written
+	 * inside them stays two characters. An unlisted `\X` keeps both characters,
+	 * as Perl does.
+	 *
+	 * `<` and `>` are double-quote escapes because `interpolate()` runs first and
+	 * copies an escape pair verbatim: `"\<partition\>"` is how an author defers a
+	 * token that would otherwise expand here and now.
+	 *
+	 * @var array<string,array<string,string>>
 	 */
 	private const ESCAPES = [
 		'"'  => [
@@ -119,7 +153,11 @@ class Shell_Node extends Node {
 		],
 	];
 
-	/** `<name> [ <op> [ <value> ] ]` — the operator set of Shell3's `$H{'var'}`. */
+	/**
+	 * `<name> [ <op> [ <value> ] ]` — the operator set of Shell3's `$H{'var'}`.
+	 * A name may carry dot separators (`message.from`), and the `s` flag lets a
+	 * value span the newlines an open-quote continuation folded into the line.
+	 */
 	private const VAR_GRAMMAR = '/^([^\s=+\-*\/.|]+(?:\.[^\s=+\-*\/.|]+)*)\s*(\/\/=|\|\|=|[.+\-*\/]=|\+\+|--|=)?(.*)$/s';
 
 	/**
@@ -128,12 +166,18 @@ class Shell_Node extends Node {
 	 * straight through to the sink, mirroring Tachikoma::Nodes::Shell::fill, which
 	 * sinks any non-TM_BYTESTREAM message rather than dropping it. TYPE is a
 	 * bitmask, so a composite (`TM_BYTESTREAM|TM_NOREPLY`) reads as its flags, not
-	 * as an unrecognized type. The Shell signs what it MINTS — each command it
-	 * parses — so that command crosses the IPC boundary to a worker carrying an
-	 * HMAC envelope (Command_Auth::sign is a no-op on non-command types). A
-	 * pre-built message is forwarded untouched: signing on arrival is the ingress
-	 * conferring authority, and it would overwrite an envelope already bound to
-	 * another destination under a session key (ADR-15). The minter signs.
+	 * as an unrecognized type. A statement that minted no KEY of its own inherits
+	 * the input message's, so a keyed script keeps its key across the split.
+	 *
+	 * The Shell signs what it MINTS — each command it parses — so that command
+	 * crosses the IPC boundary to a worker carrying an HMAC envelope
+	 * (Command_Auth::sign is a no-op on non-command types). A pre-built message is
+	 * forwarded untouched: signing on arrival is the ingress conferring authority,
+	 * and it would overwrite an envelope already bound to another destination under
+	 * a session key (ADR-15). The minter signs.
+	 *
+	 * @param array<int,mixed> $message Message to parse or pass through.
+	 * @throws \RuntimeException When no sink is wired, or TYPE is not an integer.
 	 */
 	public function fill( array $message ): void {
 		$sink = $this->require_sink();
@@ -175,7 +219,8 @@ class Shell_Node extends Node {
 	/**
 	 * Quote-aware statement splitter: comment lines returned whole, others split on unquoted `;`.
 	 *
-	 * @return array<int,string>
+	 * @param string $script One or more physical lines.
+	 * @return array<int,string> One entry per statement, in source order.
 	 */
 	public function split_statements( string $script ): array {
 		return \array_column( self::split_statements_indexed( $script ), 'text' );
@@ -184,10 +229,10 @@ class Shell_Node extends Node {
 	/**
 	 * The one static TSL statement front-end: split → join backslash
 	 * continuations → tokenize → resolve verb aliases + cwd, keeping BOTH token
-	 * forms. A public static sibling of tokenize() built from
-	 * the pieces the Shell already owns, with dispatch removed and no side
-	 * effects: no interpolation, no Core::$var reads, no node construction. Static
-	 * analysis (Topology_Registry) reads the list without executing it.
+	 * forms. A public static sibling of tokenize() built from the pieces the Shell
+	 * already owns, with dispatch removed and no side effects: no interpolation, no
+	 * Core::$var reads, no node construction. `Topology_Analyzer` and the topology
+	 * editor read the list without executing it.
 	 *
 	 * Each statement is `{ verb, values, spans, raw, line }`: `verb` is the
 	 * canonical verb; `values` the quote-stripped tokens (`values[0] === verb`,
@@ -197,8 +242,10 @@ class Shell_Node extends Node {
 	 * canonical single-line form (the sharing signature readers normalize); `line`
 	 * the 1-based first physical source line.
 	 *
+	 * @param string $text A whole `.tsl` source, or any run of statements.
 	 * @return list<array{verb:string,values:list<string>,spans:list<string>,raw:string,line:int}>
-	 * @throws \RuntimeException On an unterminated quote at end-of-input.
+	 * @throws \RuntimeException On a quote or a backslash continuation left open at
+	 *                           end-of-input.
 	 */
 	public static function parse_statements( string $text ): array {
 		$shell      = new self();
@@ -213,10 +260,11 @@ class Shell_Node extends Node {
 	}
 
 	/**
-	 * split_statements(), but each statement carries the 1-based first physical
-	 * line of its run — the only thing parse_statements() needs that
-	 * split_statements() didn't already compute.
+	 * split_statements(), plus the 1-based first physical line of each statement's
+	 * run — the one thing parse_statements() needs and split_statements() does not
+	 * compute.
 	 *
+	 * @param string $script One or more physical lines.
 	 * @return list<array{text:string,line:int}>
 	 */
 	private static function split_statements_indexed( string $script ): array {
@@ -319,11 +367,14 @@ class Shell_Node extends Node {
 	/**
 	 * Fold trailing-backslash continuations across the statement stream — the same
 	 * splice parse() performs, applied statelessly. The joined statement keeps the
-	 * FIRST physical line of its run; an unterminated trailing continuation yields
-	 * whatever accumulated.
+	 * FIRST physical line of its run, and a continuation still open at end-of-input
+	 * throws rather than yielding the half of the statement that arrived: the
+	 * runtime path fails loud there too, and a truncated statement describes a
+	 * different graph than the author wrote.
 	 *
-	 * @param list<array{text:string,line:int}> $indexed
-	 * @return list<array{text:string,line:int}>
+	 * @param list<array{text:string,line:int}> $indexed Statements with source lines.
+	 * @return list<array{text:string,line:int}> One entry per joined statement.
+	 * @throws \RuntimeException On a trailing continuation at end-of-input.
 	 */
 	private static function join_statement_continuations( array $indexed ): array {
 		$out      = [];
@@ -365,6 +416,9 @@ class Shell_Node extends Node {
 	 * parse() minted at the live cwd. Dispatch reads token[0] and nothing else —
 	 * `command_node foo ping` names a verb on foo, not the Shell's `ping`.
 	 *
+	 * @param self   $shell Throwaway shell carrying the cwd `cd` statements move.
+	 * @param string $text  One statement, continuations already joined.
+	 * @param int    $line  1-based first physical line of the statement's run.
 	 * @return array{verb:string,values:list<string>,spans:list<string>,raw:string,line:int}|null
 	 * @throws \RuntimeException On an unterminated quote at end-of-input.
 	 */
@@ -447,8 +501,13 @@ class Shell_Node extends Node {
 	}
 
 	/**
-	 * Parse one line into a Message; null on empty/comment or held continuation.
+	 * Parse one statement into a Message.
 	 *
+	 * Null covers everything that mints nothing: a blank or comment line, a line
+	 * held as a backslash or open-quote continuation, a builtin that only moved
+	 * shell state, and a verb that answered with a usage or decode error.
+	 *
+	 * @param string $line One statement, already split on unquoted `;`.
 	 * @return array<int,mixed>|null The 7-field positional Message, or null.
 	 */
 	public function parse( string $line ): ?array {
@@ -641,7 +700,9 @@ class Shell_Node extends Node {
 	 * was one — false sends parse() on to mint a command, which is Shell.pm's
 	 * `if ( $BUILTINS{$name} ) ... else send_command(...)` in switch form.
 	 *
+	 * @param string       $verb The first token of the statement.
 	 * @param list<string> $args Tokens after the verb.
+	 * @return bool True when the verb was a builtin and no message is minted.
 	 */
 	private function run_builtin( string $verb, array $args ): bool {
 		switch ( $verb ) {
@@ -682,6 +743,8 @@ class Shell_Node extends Node {
 	/**
 	 * This session's reply address — where a worker's answer comes back to.
 	 * Stamped on every message the Shell mints and on the EOF drain marker.
+	 *
+	 * @return string The `_output/<pid>` path Router dispatches a reply by.
 	 */
 	private function reply_from(): string {
 		return Node_Names::OUTPUT . '/' . \getmypid();
@@ -695,6 +758,8 @@ class Shell_Node extends Node {
 	 * twin's usage line both do: a cast would read `abc` as 0 and quietly turn
 	 * the dial OFF. A Shell driving a TSL in worker or request scope has no
 	 * Dumper at all, and says so rather than reporting a dial it never moved.
+	 *
+	 * @param string $level Requested level, or '' to toggle.
 	 */
 	private function debug_level_command( string $level ): void {
 		$max   = Dumper_Node::MAX_DEBUG_LEVEL;
@@ -720,6 +785,8 @@ class Shell_Node extends Node {
 	 * Bare lists every var as `name=value`; a name alone prints its value and
 	 * autovivifies it to empty (Shell3.pm:2715); `<name> =` with no value
 	 * DELETES it (Shell3.pm:2839); otherwise the operator set applies.
+	 *
+	 * @param string $assignment The tokens after `var`, re-joined with spaces.
 	 */
 	private function var_command( string $assignment ): void {
 		// ltrim only: a trailing whitespace VALUE must reach the grammar.
@@ -770,7 +837,15 @@ class Shell_Node extends Node {
 		$this->operate( $name, $op, $value, $has_value );
 	}
 
-	/** Shell3's `operate()` / `operate_with_value()` over one var. */
+	/**
+	 * Shell3's `operate()` / `operate_with_value()` over one var.
+	 *
+	 * @param string $name      Var name, already checked for a namespace colon.
+	 * @param string $op        One of `= .= += -= *= /= //= ||= ++ --`.
+	 * @param string $value     Right-hand side, left-trimmed.
+	 * @param bool   $has_value Whether a value TOKEN followed the operator; false
+	 *                          is what makes `var x =` a delete rather than a set.
+	 */
 	private function operate( string $name, string $op, string $value, bool $has_value ): void {
 		$current = Core::as_string( Core::$var[ $name ] ?? '', '' );
 		$exists  = \array_key_exists( $name, Core::$var );
@@ -827,7 +902,13 @@ class Shell_Node extends Node {
 		}
 	}
 
-	/** Perl prints an integral float without its fractional part. */
+	/**
+	 * Render a float as Perl prints one: an integral value loses its fractional
+	 * part, so `var n ++` on an unset var yields `1` rather than `1.0`.
+	 *
+	 * @param float $n Arithmetic result.
+	 * @return string The rendered number.
+	 */
 	private static function format_number( float $n ): string {
 		return (float) (int) $n === $n ? (string) (int) $n : (string) $n;
 	}
@@ -841,6 +922,9 @@ class Shell_Node extends Node {
 	 * line writes `<config:logs_dir>/jobs.p'<partition>'`, expanding the dir now
 	 * and handing the raw `<partition>` to Topic. The quote chars survive here;
 	 * tokenize() strips them afterward.
+	 *
+	 * @param string $line One statement, before tokenizing.
+	 * @return string The line with every eligible `<…>` expanded.
 	 */
 	public function interpolate( string $line ): string {
 		$out     = '';
@@ -907,7 +991,8 @@ class Shell_Node extends Node {
 	 *      name it as the byte-for-byte anchor, and the round-trip tests read a
 	 *      serialized line back through it.
 	 *
-	 * @return list<string>
+	 * @param string $line One statement.
+	 * @return list<string> The tokens, quote chars stripped and escapes resolved.
 	 */
 	public function tokenize( string $line ): array {
 		return \array_column( self::scan_tokens( $line ), 'value' );
@@ -921,7 +1006,10 @@ class Shell_Node extends Node {
 	 * quotes interpolate `<…>`, single quotes/backticks defer — see
 	 * interpolate()). Mirrors src/runtime/shell-node.js scanTokens.
 	 *
-	 * @return list<array{value: string,raw: string}>
+	 * @param string      $line       One statement.
+	 * @param string|null $open_quote Out-param: the quote char still open at
+	 *                                end-of-input, null when every quote closed.
+	 * @return list<array{value:string,raw:string}>
 	 */
 	private static function scan_tokens( string $line, ?string &$open_quote = null ): array {
 		$tokens   = [];
@@ -995,7 +1083,20 @@ class Shell_Node extends Node {
 	}
 
 	/**
-	 * Read & parse a file, filling each non-trivial line through the sink as if typed.
+	 * Evaluate a file line by line, as though each had been typed.
+	 *
+	 * resolve_include() is the only gate between the argument and the disk: it
+	 * takes a registered topology NAME, never a path. Two more guard re-entry — a
+	 * path already on the ancestor chain is a cycle, and one already evaluated in
+	 * this top-level script is a `#pragma once` no-op. `secure`/`insecure` lines
+	 * are skipped (see declares_secure_level()), and flush_pending() judges a
+	 * quote or continuation the file leaves open. A REPL reports each refusal
+	 * rate-limited and carries on; fatal_errors turns the cycle and the open quote
+	 * into throws.
+	 *
+	 * @param string $file Topology name, as written after `include`.
+	 * @throws \RuntimeException On a cycle, or on an open quote at EOF, when
+	 *                           fatal_errors is on.
 	 */
 	private function include_file( string $file ): void {
 		$path = $this->resolve_include( $file );
@@ -1053,6 +1154,9 @@ class Shell_Node extends Node {
 	 * that declared would decide on its parent's behalf. It would also break the
 	 * parent outright: `secure 1` disables `make_node`, so every make_node after
 	 * the include would be refused mid-load.
+	 *
+	 * @param string $line One physical line of an included file.
+	 * @return bool True when the line is a secure-level declaration to skip.
 	 */
 	private static function declares_secure_level( string $line ): bool {
 		$verb = \strtok( \trim( $line ), " \t" );
@@ -1065,6 +1169,8 @@ class Shell_Node extends Node {
 	 * (fatal_errors) throws — Tachikoma's `got EOF while waiting for tokens` —
 	 * so a mangled .tsl never half-loads; a REPL reports, clears, and resets
 	 * the prompt.
+	 *
+	 * @throws \RuntimeException On pending input when fatal_errors is on.
 	 */
 	public function flush_pending(): void {
 		$pending = '' !== $this->quote_continuation ? $this->quote_continuation : $this->continuation;
@@ -1085,13 +1191,17 @@ class Shell_Node extends Node {
 	}
 
 	/**
-	 * Shell output. Only `wp nodes cli` registers `_stdout`, so a Shell loading
-	 * a .tsl at worker boot has no terminal and the fifteen refusals routed
-	 * through here were discarded whole — a typo skipped its statement and
-	 * booted a half-built graph leaving no trace anywhere. With no terminal the
-	 * line takes the node stderr chain instead (`newspack_nodes/stderr` →
-	 * error_log, and ELN's Diagnostics_Bridge → the Error Log dashboard),
-	 * rate-limited so a topology refusing on every statement can't flood.
+	 * Shell output, terminal or not.
+	 *
+	 * Only `wp nodes cli` registers `_stdout`, so a Shell loading a .tsl at worker
+	 * boot has no terminal. With none, the line takes the node stderr chain
+	 * instead (`newspack_nodes/stderr` → error_log, and ELN's Diagnostics_Bridge →
+	 * the Error Log dashboard), rate-limited so a topology refusing on every
+	 * statement cannot flood. Without that fallback every refusal routed through
+	 * here is discarded whole, and a typo skips its statement and boots a
+	 * half-built graph leaving no trace anywhere.
+	 *
+	 * @param string $line Text to emit, carrying its own newline where one is wanted.
 	 */
 	public function stdout( string $line ): void {
 		$stdout = Core::node( Node_Names::STDOUT );
@@ -1105,11 +1215,16 @@ class Shell_Node extends Node {
 		$stdout->fill( $message );
 	}
 
-	/** A topology NAME resolves through the registry; a literal path is taken as-is. */
+	/**
+	 * Resolve an `include` argument to a file, or null when it names none.
+	 *
+	 * @param string $file Topology name, as written after `include`.
+	 * @return string|null The registered `.tsl` path, or null when refused.
+	 */
 	private function resolve_include( string $file ): ?string {
 		// @longform Registered topology dirs ONLY. Worker boot eval_script()s
 		// admin-authored TSL, so anything an include can reach, an admin who
-		// can save a topology can execute. A bare `is_file()` fallback reached
+		// can save a topology can execute. A bare `is_file()` fallback reaches
 		// the whole disk; a name carrying separators walks out of the dir
 		// resolve() interpolates it into. Same reasoning as resolve()'s own
 		// "stock owns its names" rule. If topologies ever become a tree,
@@ -1121,7 +1236,10 @@ class Shell_Node extends Node {
 	}
 
 	/**
-	 * Parse a multi-statement script and dispatch each resulting Message via the sink.
+	 * Parse a multi-statement script and dispatch each resulting Message via the
+	 * sink. Both the `include` builtin and `Topology_Loader` enter here.
+	 *
+	 * @param string $script One or more statements, newlines and all.
 	 */
 	public function eval_script( string $script ): void {
 		$message = Message::new_message();
@@ -1131,7 +1249,17 @@ class Shell_Node extends Node {
 	}
 
 	/**
-	 * Resolve a relative/absolute path against the cwd. `/` resets; `../` walks up; result is TO-ready.
+	 * Resolve a relative or absolute path against a cwd. `/` resets to the local
+	 * interpreter, `../` walks up, and the result is TO-ready — no leading or
+	 * trailing slash, because Router splits TO on `/`.
+	 *
+	 * The cwd arrives as a parameter rather than being read from `$this->path`, so
+	 * the static front-end can drive the same resolution against a throwaway
+	 * shell. Every caller assigns the result itself.
+	 *
+	 * @param string $cwd  The cwd to resolve against.
+	 * @param string $path The path as typed.
+	 * @return string The new cwd.
 	 */
 	public function cd( string $cwd, string $path ): string {
 		// Empty path is a no-op; `cd /` resets to the local interpreter.
@@ -1151,6 +1279,9 @@ class Shell_Node extends Node {
 
 	/**
 	 * Slash-join the shell's cwd with an additional `<path>` arg, dropping empty pieces.
+	 *
+	 * @param string $path The path argument as typed, or '' for the cwd alone.
+	 * @return string The joined path, ready for TO.
 	 */
 	public function prefix( string $path ): string {
 		$parts = [];
@@ -1177,16 +1308,26 @@ class Shell_Node extends Node {
 
 	/**
 	 * A line continues only on an ODD run of trailing backslashes — an even run
-	 * is escaped literals (`a\\` is one backslash, a complete line). Matters
-	 * now that a backslash escapes outside quotes too.
+	 * is escaped literals (`a\\` is one backslash, a complete line). A backslash
+	 * escapes outside quotes too, so the count is what tells the two apart.
+	 *
+	 * @param string $line One statement.
+	 * @return bool True when the next line splices onto this one.
 	 */
 	private static function is_continuation( string $line ): bool {
 		return 0 !== ( \strlen( $line ) - \strlen( \rtrim( $line, '\\' ) ) ) % 2;
 	}
 
 	/**
+	 * Read the Shell's name, which is always empty.
+	 *
 	 * The Shell is the unnamed REPL front-end; naming it would register a command
-	 * surface in the graph. Fatal on any name argument so the rule can't be violated.
+	 * surface in the graph, and unaddressability is the boundary (ADR-7). Any
+	 * argument at all is fatal, null included, so the rule can't be violated.
+	 *
+	 * @param string|null $name Refused; the parameter matches Node::name().
+	 * @return string The empty name.
+	 * @throws \RuntimeException When called with any argument.
 	 */
 	public function name( ?string $name = null ): string {
 		if ( \func_num_args() > 0 ) {
@@ -1195,7 +1336,13 @@ class Shell_Node extends Node {
 		return $this->name;
 	}
 
-	/** Accessor (Tachikoma Shell want_reply): interactive sessions reply; scripts/topology loads don't. */
+	/**
+	 * Accessor (Tachikoma Shell want_reply): interactive sessions reply;
+	 * scripts and topology loads don't.
+	 *
+	 * @param bool|null $value New setting, or null to read.
+	 * @return bool The setting in force.
+	 */
 	public function want_reply( ?bool $value = null ): bool {
 		if ( null !== $value ) {
 			$this->want_reply = $value;
@@ -1203,7 +1350,13 @@ class Shell_Node extends Node {
 		return $this->want_reply;
 	}
 
-	/** Accessor: interactive sessions log-and-continue on a cycle; topology loads fail loud. */
+	/**
+	 * Accessor: interactive sessions log-and-continue on a cycle or an open quote;
+	 * topology loads fail loud.
+	 *
+	 * @param bool|null $value New setting, or null to read.
+	 * @return bool The setting in force.
+	 */
 	public function fatal_errors( ?bool $value = null ): bool {
 		if ( null !== $value ) {
 			$this->fatal_errors = $value;
@@ -1211,6 +1364,12 @@ class Shell_Node extends Node {
 		return $this->fatal_errors;
 	}
 
+	/**
+	 * Console manifest. `Hidden` keeps the Shell off the palette: it takes no
+	 * arguments, refuses a name, and belongs to a cli session, not to a graph.
+	 *
+	 * @return array<string,mixed>
+	 */
 	public static function node_schema(): array {
 		return [
 			'category'    => 'Hidden',

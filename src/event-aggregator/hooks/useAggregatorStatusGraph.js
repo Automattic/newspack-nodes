@@ -1,39 +1,42 @@
 /**
- * useAggregatorStatusGraph — the de-god Aggregator Status data graph as a GENUINE
- * node graph on the substrate batched-poll toolkit (useBatchedPoll +
- * addSliceFetcher). The single `status` god poll feeding one `aggregator:view`
- * god view is gone; in its place two independent per-concern slice paths:
+ * useAggregatorStatusGraph — the Aggregator Status screen as a node graph: two
+ * independently polled slices and one on-demand probe, built on the substrate's
+ * batched-poll toolkit (`useBatchedPoll` + `addSliceFetcher`).
  *
  *   <tee> → fetch-summary (Fetcher, FROM=summaryIn) → _shell/_http/aggregator
  *           summaryIn (Tee) → summary:view (AggregatorSummaryView)
  *   <tee> → fetch-servers (Fetcher, FROM=serversIn) → _shell/_http/aggregator
  *           serversIn (Tee) → servers:view (AggregatorServersView)
  *
- * useBatchedPoll owns the Timer/Tee/_shell/_http + the lock-flush batching (so
- * both slices ride ONE HttpOut POST per tick) + the page-visibility gate; the
- * `_shell` Tap in front of `_http` makes every command going out inspectable.
- * The server CI replies TO=FROM=<receiver>, so each slice's reply lands ONLY on
- * its own receiver Tee → view — an independent reply path, nothing crosses. That
- * decomposition is the whole point of the de-god.
+ * `useBatchedPoll` owns everything that is not a slice: the Timer, the fan-out
+ * Tee, the `_shell`/`_http` egress, the lock-flush batching that puts both
+ * slices in ONE HttpOut POST per tick, and the page-visibility gate that
+ * suspends polling on a hidden tab. The `_shell` Tap in front of `_http` is
+ * what lets the console watch every command this screen sends.
  *
- * Each slice verb (`summary`, `servers_status`) is read-only and cheap; both poll
- * unconditionally on the user-chosen interval. The only pause is useBatchedPoll's
- * page-visibility gate, which suspends polling on a HIDDEN tab.
+ * The server CI replies TO=FROM, so each slice's reply lands on its own
+ * receiver Tee and travels its own path to its own view: an answer to `summary`
+ * never touches `servers:view`. The rejected alternative is one `status` verb
+ * feeding one view node, which makes the server compute the whole model to
+ * answer any part of it and re-renders every card on every field.
  *
- * Nothing is injected: HttpOut lazily defaults its own client, and tests seam
- * at `fetch` (`installFakeCommandWire`) so the whole egress runs for real.
- * Alongside the polled slices it serves the on-demand deep probe, and there the
- * same principle decides the shape: ONE probe node serves every card, because
- * the SUBJECT rides in the ADDRESS. A probe of `spoke-01` is minted FROM
- * `aggregator:probe:in/spoke-01`; the server echoes TO = FROM; the Router peels
- * `aggregator:probe:in` off and the answer arrives there carrying `spoke-01` as
- * its remaining TO. So the reply says which spoke it is about without an id, a
- * table, or a node per card ([ADR-7](../../../docs/architecture-decisions.md)).
+ * Both slice verbs (`summary`, `servers_status`) are READ and cheap, so they
+ * poll unconditionally on the user-chosen interval. `probe` blocks on a request
+ * to the spoke and demands MANAGE, so it goes out only on a click.
  *
- * Returns the refresh control (`setRefreshInterval` / `refreshInterval`) and
- * `probeServer`; each probe answer reaches the caller through `onAnswer`,
- * naming its spoke. React reads each polled slice via its own
- * useNodeState('<slice>:view','view').
+ * ONE probe node serves every card, because the SUBJECT rides in the ADDRESS. A
+ * probe of `spoke-01` is minted FROM `aggregator:probe:in/spoke-01`; the server
+ * echoes TO = FROM; the Router peels `aggregator:probe:in` off and the answer
+ * arrives there carrying `spoke-01` as its remaining TO. So the reply says which
+ * spoke it is about without an id, a correlation table, or a node per card
+ * ([ADR-7](../../../docs/architecture-decisions.md)).
+ *
+ * Nothing is injected: HttpOut lazily defaults its own client, and tests seam at
+ * `fetch` (`installFakeCommandWire`), so packing, the egress, the Router and the
+ * interpreter all run for real.
+ *
+ * React reads each polled slice through its own `useNodeState( '<slice>:view',
+ * 'view' )`; only the refresh control and the probe come back from this hook.
  */
 
 import { useCallback } from '@wordpress/element';
@@ -45,11 +48,23 @@ import { formatCommandArgs } from '../../runtime/command-args';
 import { views } from '../nodes/register';
 import { egressPath } from '@newspack-nodes/shared/helpers/egressPath';
 
-// Server CI mount + egress path the Fetchers target (owns _shell/_http).
+/** The server CI mount owning `summary`, `servers_status` and `probe`. */
 const SERVER = 'aggregator';
+
+/**
+ * The egress path both Fetchers target: out through the observe-only `_shell`
+ * Tap, then the `_http` HttpOut, then the server CI mount. `useBatchedPoll`
+ * provides the first two; naming the mount is this hook's half.
+ */
 const TARGET = egressPath( SERVER );
 
-// Refresh-interval options offered to the user (the select in the dashboard).
+/**
+ * The cadences the dashboard's dropdown offers, as milliseconds in string form
+ * because `usePersistedChoice` matches stored text against each option's own
+ * value. Every one clears the 1000ms floor `useBatchedPoll` enforces: below it
+ * the Timer takes a slot outside the Router's lock and flush, which costs one
+ * POST per slice instead of one per tick.
+ */
 export const REFRESH_OPTIONS = [
 	{ label: '1s', value: '1000' },
 	{ label: '2s', value: '2000' },
@@ -57,13 +72,23 @@ export const REFRESH_OPTIONS = [
 	{ label: '10s', value: '10000' },
 ];
 
-// One probe node for the whole fleet; the subject rides in the reply path.
+/**
+ * Names the probe's own nodes. One node for the whole fleet; the spoke it
+ * answers about rides in the reply's address — see the module overview.
+ */
 const PROBE_SCOPE = 'aggregator:probe';
 
+/** The cadence a first visit polls at, as a REFRESH_OPTIONS value. */
 const DEFAULT_REFRESH_MS = '2000';
+
+/** The localStorage key the chosen cadence outlives the page under. */
 const REFRESH_KEY = 'aggregator-status-refresh';
 
-// Two slices; each a Fetcher → receiver Tee → view with its own reply path.
+/**
+ * One entry per slice: the Fetcher that asks, the receiver Tee its reply pivots
+ * back to, the verb it asks for, and the view node the reply lands on. A third
+ * slice is an entry here and a widget; the poll itself does not change.
+ */
 const SLICES = [
 	{
 		fetcher: 'fetch-summary',
@@ -82,22 +107,26 @@ const SLICES = [
 ];
 
 /**
- * @param {Object}   [o]
- * @param {Function} [o.onAnswer] `( { subject, result, error } )` — once per
- *                                probe reply, naming the spoke it was about.
- * @return {{ setRefreshInterval: ( value: string ) => void, refreshInterval: string, probeServer: ( id: string ) => void, isPending: ( id: string ) => boolean }}
- *   `setRefreshInterval` takes a REFRESH_OPTIONS value (string ms). Each polled
- *   slice is read separately via useNodeState.
+ * Mount the Aggregator Status graph, poll both slices, and serve the probe.
+ *
+ * @param {Object}   [o]          Caller options.
+ * @param {Function} [o.onAnswer] `( { subject, result, error } ) => void`, run
+ *                                once per probe reply. `subject` is the Vault id
+ *                                the answer is about, read off its address.
+ * @return {{setRefreshInterval: (value: string) => void, refreshInterval: string, probeServer: (vaultId: string) => void, isPending: (vaultId: string) => boolean}}
+ *   `refreshInterval` and `setRefreshInterval` carry a REFRESH_OPTIONS value
+ *   (milliseconds as a string). `isPending` answers per spoke, so probing one
+ *   card leaves every sibling card's button alone.
  */
 export function useAggregatorStatusGraph( { onAnswer } = {} ) {
-	// The persisted refresh interval (string ms); seeds from localStorage.
+	// The chosen cadence, milliseconds as a string; seeded from storage.
 	const [ refreshInterval, setRefreshInterval ] = usePersistedChoice(
 		REFRESH_KEY,
 		REFRESH_OPTIONS,
 		DEFAULT_REFRESH_MS
 	);
 
-	// De-god poll graph: each slice its own Fetcher→Tee→view; one POST/tick.
+	// One Fetcher, receiver Tee and view per slice; one POST per tick.
 	useBatchedPoll( {
 		build: ( { interpreter, tee } ) => {
 			SLICES.forEach( ( slice ) =>
@@ -110,7 +139,7 @@ export function useAggregatorStatusGraph( { onAnswer } = {} ) {
 		},
 		timerName: 'aggregator:timer',
 		teeName: 'aggregator:tee',
-		// Refresh value (ms) = poll cadence; >1s hitchhikes TIMER, re-arms.
+		// The chosen cadence IS the poll cadence, in whole milliseconds.
 		intervalMs:
 			parseInt( refreshInterval, 10 ) ||
 			parseInt( DEFAULT_REFRESH_MS, 10 ),

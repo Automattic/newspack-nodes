@@ -1,21 +1,24 @@
 <?php
 /**
- * Status_CI: command-dispatch for the health/version probe surface.
+ * Status_CI: the health and version probe for the substrate.
  *
- * Mounts at priority 11 alongside the rest of the M2 service CIs and
- * declares its verb via the v0.6.0 schema-driven pattern — the inherited
- * Service_CI_Node ctor builds the commands table from node_schema(), so
- * there's no per-class ctor and the catalog scan picks the verb up
- * automatically.
+ * Mounted as `status` on the request-scope interpreter by
+ * `newspack_nodes_mount_substrate_cis()`.
  *
  * Verbs:
- *   get — return runtime version, partition count, the substrate's active
- *         topology set, cache reachability, and a wall-clock timestamp.
- *         Enough for an admin dashboard to render a "is this thing alive?"
- *         surface without making a dozen separate calls.
+ *   get — one snapshot: the runtime version, the partition count the fleet
+ *         runs, the active topology set, whether a shared cache is reachable,
+ *         and the server's clock. A caller asking "is this install alive, and
+ *         what is it running?" gets the whole answer in one round trip
+ *         instead of one call per field.
  *
- * The substrate Config is a global accessed directly. `cache_available`
- * reflects whether `Cache_Backend::shared_first()` selects a live backend.
+ * Every field is read through the accessor that OWNS it rather than the
+ * option behind it. `Bootstrap::global_num_partitions()` clamps the count to
+ * the range a worker consumes, so the probe never reports partitions nothing
+ * reads; `Bootstrap::get_topologies()` narrows the catalog to the names an
+ * operator activated, so it never reports a topology that spawns nothing; and
+ * `Cache_Backend::shared_first()` answers with the tier a cross-process
+ * surface would actually select.
  *
  * @package Newspack_Nodes
  */
@@ -30,12 +33,32 @@ use Newspack_Nodes\Service_CI_Node;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * The `status` service interpreter: one read-only `get` verb.
+ */
 class Status_CI_Node extends Service_CI_Node {
 
 	/**
-	 * `get` verb handler — a single-shot health/version snapshot for the admin panel.
+	 * `get` verb handler — the health and version snapshot, read in one pass.
 	 *
-	 * @return array<string,mixed> Health snapshot.
+	 * `status` is the constant `ok` because reaching this handler IS the health
+	 * signal: a refusal leaves as a TM_COMMAND|TM_ERROR reply carrying the
+	 * reason, never as a payload with a worse word in this field.
+	 *
+	 * `runtime_version` falls back to `unknown` rather than fataling on the
+	 * undefined constant. The plugin entry point defines it, so the fallback
+	 * only shows where the class was loaded without that entry point, and a
+	 * probe that answers "I cannot tell you my version" beats one that dies.
+	 *
+	 * `cache_available` is false when neither memcached nor APCu is reachable.
+	 * That is the condition every cross-process surface — SSE slot leases, live
+	 * worker positions, `Table_Node` lookups — degrades under, so it is the
+	 * first thing to read when those look stalled.
+	 *
+	 * `timestamp` is the server's wall clock at the read, which is what lets a
+	 * caller age the snapshot and spot a skewed host.
+	 *
+	 * @return array<string,mixed> The snapshot: status, runtime_version, num_partitions, topologies, cache_available, timestamp.
 	 */
 	public static function cmd_get(): array {
 		$cache_available = null !== Cache_Backend::shared_first();
@@ -51,6 +74,27 @@ class Status_CI_Node extends Service_CI_Node {
 		];
 	}
 
+	/**
+	 * Palette entry and verb declaration: `get` declared ONCE, carrying its
+	 * handler and the role it demands.
+	 *
+	 * The inherited `Service_CI_Node` constructor builds the dispatch table
+	 * from this array and wraps the handler in `Capabilities::require()` for
+	 * the declared role, so this class needs no constructor and no hand-built
+	 * verb table that could drift from what `help` and the console palette
+	 * show. The role is READ, not MANAGE, because the snapshot reads state and
+	 * changes none — a dashboard polls it.
+	 *
+	 * `category` replaces the `Hidden` inherited from the interpreter, which is
+	 * what lists this class in the console palette beside the other service
+	 * CIs; left Hidden, the catalog scan would drop it with nothing thrown.
+	 *
+	 * `arguments` is empty: `make_node` hands this node nothing, and `get`
+	 * takes no arguments of its own.
+	 *
+	 * @api Used by substrate.
+	 * @return array<string,mixed> This class's schema merged over the interpreter's.
+	 */
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
 			'category'    => 'Service',

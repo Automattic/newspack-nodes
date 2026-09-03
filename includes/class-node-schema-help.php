@@ -1,10 +1,9 @@
 <?php
 /**
- * Node_Schema_Help: render a node's node_schema() as an errors-as-docs text
- * help block. The DX presentation layer over a schema owned by
- * Schema_Reflection — extracted from Command_Interpreter_Node, whose `help`
- * node-type branch delegates here. Reuses the ONE table renderer,
- * Command_Interpreter_Node::tabulate().
+ * The `help <NodeType>` block for the REPL. `Command_Interpreter_Node`'s `help`
+ * verb falls through to here when a topic names no command but does resolve to
+ * a node class, so an operator gets that class's `node_schema()` as text rather
+ * than `no such topic`.
  *
  * @package Newspack_Nodes
  */
@@ -13,15 +12,33 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * Errors-as-docs presentation over a `node_schema()`. Ownership of the schema
+ * stays with `Schema_Reflection`, whose `parse_schema_args()` and auto-wired
+ * `:config` interpreter read that same declaration, so help text cannot
+ * describe arguments the runtime does not parse. Tables render through
+ * `Command_Interpreter_Node::tabulate()`, the ONE text-table renderer, which is
+ * what keeps a help block column-aligned like `taillog` and the Service CI
+ * listings.
+ */
 class Node_Schema_Help {
 
 	/**
-	 * Render a node's node_schema() as a text help block: header (type + category),
-	 * description, capability flags, then argument / command / request / registration
-	 * sections — each present only when the schema declares it.
+	 * Render a node's schema as a help block: a `### Type — Category ###`
+	 * header, the description, the `accepts_fill` and `has_target` flags, then
+	 * the ARGUMENTS, COMMANDS, REQUESTS and REGISTRATIONS sections.
 	 *
-	 * @param string               $type   Shell type token (e.g. `Partition`).
-	 * @param array<string,mixed> $schema The node's node_schema().
+	 * A section the schema omits prints nothing — no label, no empty table —
+	 * because an empty ARGUMENTS heading reads as a node that takes arguments
+	 * and forgot to describe them. In the ARGUMENTS spec column `required` wins
+	 * over `default`, since a required argument has no default to show. Every
+	 * entry is shape-checked and every cell coerced through `Core::as_string()`:
+	 * a schema is hand-written in a subclass and reaches here unvalidated, and
+	 * `help` must not fatal on a malformed one.
+	 *
+	 * @param string              $type   Shell type token, as `help` received it (e.g. `Partition`).
+	 * @param array<string,mixed> $schema The class's `node_schema()`.
+	 * @return string Newline-terminated help block.
 	 */
 	public static function render( string $type, array $schema ): string {
 		$category = isset( $schema['category'] ) ? ' — ' . Core::as_string( $schema['category'] ) : '';
@@ -76,7 +93,16 @@ class Node_Schema_Help {
 		return \implode( "\n", $out ) . "\n";
 	}
 
-	/** Render an argument's default for the help table: bools as true/false, arrays as [], else the scalar. */
+	/**
+	 * Render one argument's declared default for the ARGUMENTS table: `true` or
+	 * `false` for a bool, `[]` for an array, otherwise the scalar. An array has
+	 * no useful one-line form, and spelling its contents out would wreck the
+	 * column alignment. A `<config:key>` default passes through verbatim, which
+	 * is what an operator needs to see.
+	 *
+	 * @param mixed $default The `default` the schema declares for one argument.
+	 * @return string A single-line table cell.
+	 */
 	private static function render_default( mixed $default ): string {
 		if ( \is_bool( $default ) ) {
 			return $default ? 'true' : 'false';
@@ -88,11 +114,15 @@ class Node_Schema_Help {
 	}
 
 	/**
-	 * Extract a node_schema() section (a `mixed` value) as a plain list; a
-	 * non-array section yields []. Callers guard each entry's own shape.
+	 * Read one `node_schema()` section as a plain list. A section the schema
+	 * omits, or declares as something other than an array, yields an empty list
+	 * and `render()` then skips it. `array_values()` discards the keys, so a
+	 * section written as a map still renders in declaration order. Each entry's
+	 * own shape is the caller's guard.
 	 *
-	 * @param array<string,mixed> $schema
-	 * @return list<mixed>
+	 * @param array<string,mixed> $schema The class's `node_schema()`.
+	 * @param string              $key    Section name: `arguments`, `commands`, `requests` or `registrations`.
+	 * @return list<mixed> The section's entries, keys discarded.
 	 */
 	private static function schema_list( array $schema, string $key ): array {
 		$list = $schema[ $key ] ?? null;

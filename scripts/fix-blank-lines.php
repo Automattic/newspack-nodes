@@ -1,10 +1,10 @@
 <?php
 /**
- * fix-blank-lines.php — collapse runs of blank lines to one.
+ * Pre-commit fixer: collapse runs of blank lines to one.
  *
- * A hole of blank lines is what's left where something used to be.
+ * A run of blank lines is the hole left where something was removed.
  * `reorder-node-methods.php` moves method spans under a whole-file byte
- * histogram, which by design preserves every newline, so a method moved out of
+ * histogram, which preserves every newline by design, so a method moved out of
  * a class leaves its blank lines behind. Deleting a comment block does the same.
  *
  * Only T_WHITESPACE tokens are rewritten, never the raw text. Blank lines
@@ -15,7 +15,11 @@
  * Usage:
  *   php fix-blank-lines.php [--check] <path> [...]
  *
- * Default rewrites in place; `--check` only reports and exits 1 on a violation.
+ * Every run found is reported to STDERR as `file:line: message`. The default
+ * rewrites in place and still exits 0, because lint-staged runs this over the
+ * staged `*.php` and re-stages what a task rewrites — failing there would
+ * reject a commit the script has already fixed. `--check` rewrites nothing and
+ * exits 1 on a violation. Naming no path at all exits 2.
  *
  * @package Newspack_Nodes
  */
@@ -28,8 +32,11 @@ const MAX_BLANK_LINES = 1;
 /**
  * Collapse over-long newline runs in a PHP source string.
  *
+ * A reported line names the last line of code before the hole, not the first
+ * blank line, because a whitespace token begins where the preceding code ends.
+ *
  * @param string $source Whole file contents.
- * @return array{0:string,1:list<int>} Rewritten source, and the lines a run started on.
+ * @return array{0:string,1:list<int>} Rewritten source, and one line per collapsed run.
  */
 function collapse_blank_lines( string $source ): array {
 	// @longform The trailing ([ \t]*) is the NEXT line's indentation — a
@@ -53,7 +60,17 @@ function collapse_blank_lines( string $source ): array {
 	return [ $out, $hits ];
 }
 
-/** @return list<string> Every .php file under a path. */
+/**
+ * Collect the `.php` files a path names.
+ *
+ * A file yields itself, so the lint-staged call — which names staged files —
+ * costs no walk. A directory is walked minus the vendored and generated trees,
+ * whose sources are not ours to reformat. Anything else yields nothing, which
+ * makes a stale path in a caller's list a silent no-op.
+ *
+ * @param string $path File or directory to collect from.
+ * @return list<string> Matching paths, rooted at $path as it was given.
+ */
 function php_files( string $path ): array {
 	if ( \is_file( $path ) ) {
 		return [ $path ];

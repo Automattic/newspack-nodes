@@ -1,7 +1,15 @@
 <?php
 /**
- * Ingest_CLI_Command: `wp nodes ingest` — replay packed partition segment
+ * Ingest_CLI_Command: `wp nodes ingest` — replay packed partition-segment
  * records back through a Topic onto disk.
+ *
+ * This is the read side of everything a Partition set aside: the `:deadletter`
+ * quarantine a poison handler filled, the messages a write stall could not
+ * land, a segment directory moved out of the way. Records go back in through
+ * `Topic_Node::fill()` rather than as appended bytes, so each one re-partitions
+ * against the destination's geometry and that geometry's rotation and
+ * retention rules apply. Re-segmenting a log whose `segment_size` or partition
+ * count changed is the same operation.
  *
  * @package Newspack_Nodes
  */
@@ -13,9 +21,10 @@ namespace Newspack_Nodes;
 class Ingest_CLI_Command {
 
 	/**
-	 * STDIN-resource seam. Defaults to the real \STDIN; tests reassign to a
-	 * php://memory stream of packed records to exercise the piped-ingest branch
-	 * without a real pipe.
+	 * Stdin-handle seam, standing in for the `\STDIN` constant. Lazily
+	 * defaulted at the call site; tests reassign it to a `php://memory` stream
+	 * of packed records, which exercises the piped-ingest branch without a real
+	 * pipe and without a TTY the interactive guard would refuse.
 	 *
 	 * @var (\Closure(): resource)|null
 	 */
@@ -24,9 +33,12 @@ class Ingest_CLI_Command {
 	/**
 	 * Replay packed segment records back through a Topic onto disk.
 	 *
-	 * Reads each file line-by-line, unpacks every packed record, and runs it through
-	 * Topic::fill() — re-partitioning by the record's KEY (records pinned via their
-	 * original TO honor that pin) and appending to the destination segments.
+	 * Reads each source line by line — the named files, or stdin when none are
+	 * named — unpacks every record and runs it through `Topic_Node::fill()`,
+	 * which picks the destination partition three ways: a record whose TO pins
+	 * a `p<N>` keeps that pin, one carrying a KEY hashes by KEY, and one with
+	 * neither lands round-robin. A line that will not unpack is counted and
+	 * skipped, so a torn record at a segment's tail cannot abandon the replay.
 	 *
 	 * ## OPTIONS
 	 *
@@ -66,9 +78,12 @@ class Ingest_CLI_Command {
 	 *     # Dry-run a firehose replay to check for oversize records
 	 *     wp nodes ingest firehose firehose.p0.old/*.log --dry-run
 	 *
+	 *     # Replay a filtered slice piped from another tool
+	 *     zcat firehose.p0.old/3.log.gz | wp nodes ingest firehose
+	 *
 	 * @when after_wp_load
 	 *
-	 * @param array<int,string>   $args       Positional: <topic> then one or more files.
+	 * @param array<int,string>   $args       Positional: <topic>, then zero or more files; none means stdin.
 	 * @param array<string,mixed> $assoc_args --num_partitions / --segment_size / --num_segments / --allow_large_writes / --void_warranty / --dry-run.
 	 */
 	public function ingest( array $args, array $assoc_args ): void {
@@ -206,8 +221,20 @@ class Ingest_CLI_Command {
 	}
 
 	/**
-	 * Unpack, size-check, and (unless dry-run) fill one packed line into the destination topic.
+	 * Unpack, size-check, and — outside a dry run — fill one packed line into
+	 * the destination topic.
 	 *
+	 * The size checked is what THIS process would write, `Message::packed()`
+	 * plus the newline Partition appends, rather than `strlen( $line )`. The
+	 * destination re-packs the message, so the source line's own byte count is
+	 * the wrong number to hold against the cap.
+	 *
+	 * `max_size` is recorded before the cap check, which is what lets a dry run
+	 * report a record it would have skipped.
+	 *
+	 * @param string                                                        $line  One packed frame, with or without its trailing newline.
+	 * @param Topic_Node|null                                               $topic Destination, null on a dry run.
+	 * @param int                                                           $cap   Largest record the destination accepts, in bytes.
 	 * @param array{ingested:int,unparseable:int,oversize:int,max_size:int} $stats Accumulated per-record counts, updated in place.
 	 */
 	private function ingest_record( string $line, ?Topic_Node $topic, int $cap, array &$stats ): void {
@@ -247,8 +274,9 @@ class Ingest_CLI_Command {
 	 * Blocking, `fgets` waits for the newline. Stdin belongs to the caller, so
 	 * it is never closed here.
 	 *
-	 * @param list<string> $files Packed segment files, empty in stdin mode.
-	 * @param resource     $stdin The stdin stream.
+	 * @param bool         $stdin_mode Read stdin instead of a file list.
+	 * @param resource     $stdin      The stdin stream.
+	 * @param list<string> $files      Packed segment files, empty in stdin mode.
 	 *
 	 * @return \Generator<int,array{0:resource,1:bool}> Handle + whether to fclose it.
 	 */
@@ -272,12 +300,16 @@ class Ingest_CLI_Command {
 	/**
 	 * Resolve the <topic> argument to [dir_template, num_partitions].
 	 *
-	 * Explicit form (carries a {partition}/<partition> token): trust the operator —
-	 * resolve config tokens, default count to 1. Shortname form: expand to
-	 * <config:logs_dir>/<name>.p{partition} with the count from --num_partitions, or
-	 * the global config num_partitions when not given.
+	 * Explicit form (carries a {partition}/<partition> token): resolve the
+	 * config tokens and default the count to 1. There is no declared-set lookup
+	 * and no mismatch check, because the template names a layout the operator
+	 * already has on disk. Shortname form: expand to
+	 * <config:logs_dir>/<name>.p{partition} with the count from
+	 * --num_partitions, or the global config num_partitions when not given.
 	 *
-	 * @return array{0:string,1:int}
+	 * @param string   $topic_arg The <topic> positional, in either form.
+	 * @param int|null $requested --num_partitions, or null when the flag is absent.
+	 * @return array{0:string,1:int} The dir template and the partition count.
 	 */
 	private function resolve_destination( string $topic_arg, ?int $requested ): array {
 		$has_token = \str_contains( $topic_arg, '{partition}' ) || \str_contains( $topic_arg, '<partition>' );
@@ -293,12 +325,20 @@ class Ingest_CLI_Command {
 	}
 
 	/**
-	 * One operator default per geometry key — the same key Topic_Node's schema
-	 * names, falling back to $default when the stored value is not a number.
-	 * The validated `num_int` read is what that guard needs: a cleared admin
-	 * field stores '', which `Options_Overlay` treats as PRESENT and
-	 * overriding, and a lenient cast turns it into a 0 that `Partition_Node`
-	 * clamps to a 1-BYTE segment — one segment per record.
+	 * One operator default per geometry key — the same key `Topic_Node`'s
+	 * schema names — falling back to $default when the stored value is not a
+	 * number.
+	 *
+	 * The VALIDATED `num_int` read is what makes that fallback reachable. A
+	 * cleared admin field stores '', which `Options_Overlay` treats as PRESENT
+	 * and therefore overriding, and a lenient cast turns it into a 0.
+	 * `Partition_Node::arguments()` refuses a `segment_size` of 0 outright, so
+	 * the lenient read would abort the whole replay on a blank field instead of
+	 * falling back to the shipped default.
+	 *
+	 * @param string $key     Geometry config key: num_partitions, segment_size or num_segments.
+	 * @param int    $default Value to use when the stored one is not numeric.
+	 * @return int The configured geometry value.
 	 */
 	private static function config_int( string $key, int $default ): int {
 		return Core::num_int( Config::value( $key ), $default );

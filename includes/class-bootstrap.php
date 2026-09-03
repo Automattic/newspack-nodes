@@ -1,9 +1,12 @@
 <?php
 /**
- * Bootstrap: plugin-level glue.
+ * The substrate's WordPress boundary.
  *
- * Expands the `newspack_nodes/topologies` filter to flat worker descriptors,
- * and exposes init helpers (REST routes, the cold-start cron tick).
+ * Every hook WordPress owns — activation, `admin_init`, `rest_api_init`,
+ * `cron_schedules`, the minute reconcile event and Site Health — enters the
+ * substrate through this file, and every question about the ACTIVE topology
+ * set is answered here: which workers exist, how many partitions each carries,
+ * which directories they read and write.
  *
  * @package Newspack_Nodes
  */
@@ -21,6 +24,19 @@ use Newspack_Nodes\Rest\Spawn_Controller;
 \defined( 'ABSPATH' ) || exit;
 
 /**
+ * WordPress-facing entry points, plus the derivations every caller makes from
+ * the active topology set.
+ *
+ * Every member is static because WordPress reaches all of them as callbacks —
+ * an activation hook, a cron action, filters — with nowhere to hold an
+ * instance.
+ *
+ * Wiring comes in two lazy, idempotent tiers. `ensure_diagnostics_wired()`
+ * touches no runtime storage, so Site Health and the cache probe still answer
+ * on a misconfigured base directory; `ensure_runtime_wired()` resolves that
+ * base and throws when it is unusable. Cron, REST and admin entry points
+ * report that refusal once and return rather than let it escape.
+ *
  * @phpstan-import-type HealthResult from Health_Checks
  *
  * @phpstan-type Worker_Descriptor array{type: string, partition: int, topology: mixed, stale_timeout: mixed, on_demand_idle: int}
@@ -36,7 +52,16 @@ class Bootstrap {
 	/** Its recurrence, registered on `cron_schedules`. */
 	public const CRON_SCHEDULE = 'newspack_nodes_minute';
 
-	/** @var (\Closure(): list<HealthResult>)|null */
+	/**
+	 * Health-report seam. Lazily-defaulted to a closure calling
+	 * `Health_Checks::evaluate()`. Tests reassign it to a fixed result list so
+	 * the Site Health rendering — status roll-up, per-result markers, badge
+	 * color — runs as real production code rather than being mocked away.
+	 *
+	 * Signature: `function (): list<HealthResult>`.
+	 *
+	 * @var (\Closure(): list<HealthResult>)|null
+	 */
 	public static ?\Closure $health_report_evaluator = null;
 
 	/**
@@ -83,7 +108,7 @@ class Bootstrap {
 	/** @var array<string,list<array<array-key,mixed>>>|null Request-static half of the wake map. */
 	private static ?array $on_demand_wake_map = null;
 
-	/** Wake-map key; Cache_Backend scopes it. v2 rows carry offsetlog_dir. */
+	/** Wake-map cache key; `Cache_Backend` scopes it. Rows carry offsetlog_dir. */
 	private const ON_DEMAND_WAKE_KEY = 'on_demand_wake_v2:';
 
 	/** Seconds a wake map survives an edited `.tsl`; activation busts the key outright. */
@@ -115,7 +140,7 @@ class Bootstrap {
 		if ( null !== self::$on_demand_wake_map ) {
 			return self::$on_demand_wake_map;
 		}
-		// The raw OPTION: building the key must not cost the walk it avoids.
+		// The raw CONFIG: building the key must not cost the walk it avoids.
 		$cache = Cache_Backend::local_first();
 		$key   = Cache_Backend::site_key( self::ON_DEMAND_WAKE_KEY . \md5( (string) \wp_json_encode( Config::value( 'topologies' ) ) ) );
 		if ( null !== $cache ) {
@@ -172,7 +197,7 @@ class Bootstrap {
 	 * Seconds a worker stays idle before exiting; 0 means it stays resident.
 	 *
 	 * The window IS the flag — declaring one opts a topology in — so absence
-	 * has to read as 0, or every deployment predating it would scale to zero.
+	 * has to read as 0, or a topology that declares none scales to zero.
 	 *
 	 * @param array<array-key,mixed> $descriptor Topology entry or worker descriptor.
 	 * @param int                    $default    Fleet-wide window when the descriptor declares none.
@@ -205,11 +230,11 @@ class Bootstrap {
 	/**
 	 * The stale threshold one topology declares, or the default.
 	 *
-	 * Every consumer that starts from a TYPE rather than a descriptor wants
-	 * this: `wp nodes status`, and the render lease nuclear-gyrobase hands its
-	 * Perl child. Each grew its own scan, and `wp nodes status` read DOWN to the
-	 * default for a topology that raised its threshold while the peer scan
-	 * correctly left it running. One heartbeat, one threshold.
+	 * Every consumer that starts from a TYPE rather than a descriptor reads it
+	 * here: `wp nodes status`, and the render lease nuclear-gyrobase hands its
+	 * Perl child. A consumer that scans for itself reads DOWN to the default for
+	 * a topology that raises its threshold, calling a worker dead while the peer
+	 * scan correctly leaves it running. One heartbeat, one threshold.
 	 *
 	 * @param string $type The topology name.
 	 * @return int Seconds.
@@ -268,7 +293,8 @@ class Bootstrap {
 	 *
 	 * @api Called from consumer plugins (cross-repo, invisible here).
 	 *
-	 * @return array<int,string>
+	 * @param string $node Node name as its topology declares it.
+	 * @return array<int,string> Partition index => directory.
 	 */
 	public static function node_dirs( string $node ): array {
 		$dirs = [];
@@ -288,7 +314,8 @@ class Bootstrap {
 	 *
 	 * @api Called from consumer plugins (cross-repo, invisible here).
 	 *
-	 * @return list<int>
+	 * @param string $node Node name as its topology declares it.
+	 * @return list<int> Partition indices, ascending.
 	 */
 	public static function node_partitions( string $node ): array {
 		$seen = [];
@@ -306,9 +333,14 @@ class Bootstrap {
 	}
 
 	/**
-	 * Active topology set: the `newspack_nodes/topologies` catalog filtered by the operator overlay.
+	 * Active topology set: the `newspack_nodes/topologies` catalog narrowed to
+	 * the names the `topologies` config key selects.
 	 *
-	 * Overlay option false = full catalog, [] = none, array = that subset (non-catalog names synthesized).
+	 * Anything but a list of names — the empty default included — activates
+	 * nothing, so an install spawns no workers until an operator opts one in. A
+	 * selected name the catalog does not carry is synthesized from its `.tsl`
+	 * frontmatter, and dropped only when no `.tsl` resolves, so a topology
+	 * registered after the catalog is published still spawns.
 	 *
 	 * @return array<string,mixed> Topology name => entry (keys are always non-empty strings).
 	 */
@@ -374,8 +406,8 @@ class Bootstrap {
 	 * the TSL frontmatter (`var num_partitions`), else the global default. Runs
 	 * through the same `partitions_of()` derivation `expand_workers()` uses, so
 	 * the count the Path menu shows can never disagree with what the fleet
-	 * SPAWNS. This is the SINGLE derivation the admin localizer and the
-	 * `topologies.list` verb both call.
+	 * SPAWNS. Every reader comes here — the admin localizer, the
+	 * `topologies.list` verb, the retention sweep, the restart planner.
 	 *
 	 * @param string $name Topology name.
 	 * @return int Partition count in [1, MAX_PARTITIONS].
@@ -397,8 +429,8 @@ class Bootstrap {
 	 * One topology entry's partition count: its own `num_partitions`, else the
 	 * global default. THE per-topology derivation — `expand_workers()` (what the
 	 * fleet spawns) and `num_partitions_for()` (what every reader asks) both
-	 * route through it, so a catalog entry that omits the key can no longer
-	 * spawn 1 while every reader sees N.
+	 * route through it, so a catalog entry that omits the key cannot spawn 1
+	 * while every reader sees N.
 	 *
 	 * @param array<array-key,mixed> $entry Topology catalog entry or worker descriptor.
 	 * @return int Partition count in [1, MAX_PARTITIONS].
@@ -411,10 +443,10 @@ class Bootstrap {
 	 * The global `num_partitions` option, clamped to the range a worker will
 	 * actually consume: `[1, Spawn_Coordinator::MAX_PARTITIONS]`.
 	 *
-	 * THE accessor for that option. Six call sites spelled this clamp six ways
-	 * and two producers applied no upper bound at all, so an option above the
-	 * cap made `Job_Intake` / `Log_Manager` write `firehose.p16`+ that no worker
-	 * consumed and `Log_Cleaner` then swept as orphans — live-data deletion past
+	 * THE accessor for that option, so no producer spells the clamp its own way
+	 * or omits the upper bound. Unbounded, an option above the cap has
+	 * `Job_Intake` / `Log_Manager` writing `firehose.p16`+ that no worker
+	 * consumes and `Log_Cleaner` sweeping as orphans — live-data deletion past
 	 * both of the GC's fail-closed gates. Writing beyond the cap is never right:
 	 * `partitions_of()` bounds the workers by the same constant, so a partition
 	 * past it has no reader.
@@ -454,14 +486,15 @@ class Bootstrap {
 
 	/**
 	 * The minute-cadence reconciliation pass: revive whatever is down, then keep
-	 * house. Every live worker runs the same peer scan on its own timer, so the
-	 * spawn step only decides anything when none is left — which is why this
-	 * holds no lock and enters no loop of its own.
+	 * house. This is the cold-start tier of ADR-9 — every live worker runs the
+	 * same peer scan on its own timer, so the spawn step decides anything only
+	 * when none is left, which is why this holds no lock and enters no loop of
+	 * its own.
 	 *
-	 * The four housekeeping chores need minutes at best (`Log_Cleaner`'s delete
-	 * grace alone is an hour), and running them here rather than as a job on the
-	 * `job-worker` pool is the point: retention and orphan reaping now run even
-	 * when the fleet is down, which is when disk most needs reclaiming.
+	 * The four housekeeping chores tolerate minutes of latency (`Log_Cleaner`'s
+	 * delete grace alone is an hour), and running them here rather than as a job
+	 * on the `job-worker` pool is the point: retention and orphan reaping run
+	 * even when the fleet is down, which is when disk most needs reclaiming.
 	 *
 	 * `$_SERVER['NEWSPACK_NODES_WORKER_TYPE']` labels this pass `reconcile` — the
 	 * dimension newspack-event-logger-nodes files its stats under. Nothing compares
@@ -474,7 +507,7 @@ class Bootstrap {
 		// @longform Wiring resolves the base and throws when it is unusable.
 		// This is a cron callback and the last revival path once no worker is
 		// alive, so it reports once and returns, as the REST and self-heal
-		// entry points do — never sixty escaped throws an hour.
+		// entry points do.
 		if ( ! self::runtime_base_is_available() ) {
 			return;
 		}
@@ -489,7 +522,7 @@ class Bootstrap {
 		try {
 			self::run_reconcile_steps();
 		} catch ( \Throwable $e ) {
-			// An escape here would be sixty a hour, straight out of cron.
+			// An escape would fatal this cron callback sixty times an hour.
 			Core::print_less_often( 'reconcile pass failed: ', $e->getMessage() );
 		} finally {
 			\do_action( 'newspack_nodes/after_reconcile' );
@@ -499,8 +532,8 @@ class Bootstrap {
 	/**
 	 * Spawn FIRST — it is the revival path and the only time-critical step, so
 	 * janitorial work may never preempt it by throwing. Every step then stands
-	 * alone: all six run third-party code (`expand_workers()` fires the
-	 * `topologies` filter, `periodic` is whatever subscribed), and one bad
+	 * alone, because each one runs third-party code: `expand_workers()` fires the
+	 * `topologies` filter, and `periodic` is whatever subscribed. One bad
 	 * provider must not cost the others their window.
 	 */
 	private static function run_reconcile_steps(): void {
@@ -589,9 +622,12 @@ class Bootstrap {
 	}
 
 	/**
-	 * Late schedule_event diagnostic for reconcile cron vetoes.
+	 * Late `schedule_event` diagnostic for reconcile cron vetoes. A veto here
+	 * replaces the event object with a falsy value, taking the hook name with it,
+	 * so the identity comes from the context `remember_schedule_event_context()`
+	 * stored at the head of the same filter.
 	 *
-	 * @param mixed $event Event object or falsy veto value after earlier callbacks.
+	 * @param mixed $event Event object, or the falsy veto earlier callbacks left.
 	 * @return mixed $event, unchanged.
 	 */
 	public static function log_reconcile_schedule_event_veto( $event ) {
@@ -673,10 +709,7 @@ class Bootstrap {
 
 	/** Register substrate REST routes — wired to `rest_api_init`. */
 	public static function register_rest_routes(): void {
-		/**
-		 * Register the cache probe first so REST initialization completes even
-		 * when the runtime base is refused.
-		 */
+		// The cache probe first: REST init must complete on a refused base.
 		( new Health_Cache_Controller( \wp_salt( 'nonce' ) ) )->register_routes();
 		self::ensure_diagnostics_wired();
 		if ( ! self::runtime_base_is_available() ) {
@@ -700,8 +733,10 @@ class Bootstrap {
 	}
 
 	/**
-	 * Wire the substrate runtime: node-class namespaces, the `<config:…>` token
-	 * namespace, and the stock + configured topology directories.
+	 * Wire the substrate runtime: the node-class namespaces `make_node` resolves
+	 * against, the `<config:…>` token namespace, the user topology directory, the
+	 * substrate's own filter and `newspack_nodes/periodic` subscriptions, and the
+	 * self-respawn token provider.
 	 *
 	 * Idempotent and lazy — diagnostic entry points wire only their non-storage
 	 * dependencies, while node-graph/storage entry points call this method and
@@ -767,10 +802,9 @@ class Bootstrap {
 	 * Empty/invalid server list sets `Core::$memd = null` — deliberately NOT a
 	 * fallback handle. Null is what the consumers' own fail paths key on:
 	 * command-auth refuses + logs once (single-use unverifiable), stats fail
-	 * soft, SSE slots fail closed. A non-null fallback (e.g. an unreachable
-	 * localhost) would suppress command-auth's `instanceof` warning and silently
-	 * fail closed instead — the exact bug this replaces. No-op when the PECL
-	 * `\Memcached` class is absent.
+	 * soft, SSE slots fail closed. A non-null fallback (an unreachable localhost,
+	 * say) would suppress command-auth's `instanceof` warning and fail closed
+	 * silently instead. No-op when the PECL `\Memcached` class is absent.
 	 */
 	public static function init_memcached(): void {
 		if ( ! \class_exists( '\Memcached' ) ) {
@@ -806,15 +840,17 @@ class Bootstrap {
 		}
 	}
 
-	/** Configured base directory for runtime state (locks/, ipc/). */
+	/** Configured base directory for runtime state (locks/, ipc/, logs/). */
 	public static function base_dir(): string {
 		return Config::get_base_directory();
 	}
 
 	/**
 	 * REST gate for the routes that front the fleet: null to proceed, a 403
-	 * WP_Error on a multisite subsite. One guard so a new route cannot quietly
-	 * omit it — the audit found three that had.
+	 * WP_Error on a multisite subsite. One guard, so a new route cannot quietly
+	 * omit the check.
+	 *
+	 * @return \WP_Error|null Null when this site runs the fleet.
 	 */
 	public static function fleet_gate(): ?\WP_Error {
 		if ( self::fleet_site() ) {
@@ -858,10 +894,11 @@ class Bootstrap {
 	 * `newspack_nodes/request_graph_ready` so applications mount their service
 	 * CIs onto it.
 	 *
-	 * Shared because `/command` is no longer the only door: an MCP request
-	 * reaches the same verbs by another route, and a second copy of this
-	 * construction sequence is exactly the kind of thing that drifts until one
-	 * door silently has no service CIs behind it.
+	 * Shared because `/command` is not the only door: an MCP request reaches the
+	 * same verbs by another route, and a second copy of this construction
+	 * sequence drifts until one door silently has no service CIs behind it.
+	 *
+	 * @return Command_Interpreter_Node The request-scope `_command_interpreter`.
 	 */
 	public static function mount_request_graph(): Command_Interpreter_Node {
 		$router = Core::node( Node_Names::ROUTER );
@@ -880,8 +917,12 @@ class Bootstrap {
 	}
 
 	/**
-	 * Mount one worker's input Partition by reader id (format-validated, idempotent).
+	 * Mount one worker's input Partition by reader id (format-validated,
+	 * idempotent). A sleeping on-demand worker is woken first, and skips the
+	 * input-dir check, because it creates that directory only once it runs.
 	 *
+	 * @param string $worker_id Reader id, `<type>.p<N>`; any other shape is refused.
+	 * @param string $base_dir  Runtime base holding `locks/` and `ipc/`.
 	 * @return bool True iff the partition is now mounted.
 	 */
 	public static function register_worker_partition( string $worker_id, string $base_dir ): bool {
@@ -919,7 +960,7 @@ class Bootstrap {
 		return true;
 	}
 
-	/** Drop the request-static half of the wake map. Topology activation, and tests. */
+	/** Drop the request-static half of the wake map; activation calls this. */
 	public static function forget_on_demand_readers(): void {
 		self::$on_demand_wake_map = null;
 	}
@@ -1053,8 +1094,8 @@ class Bootstrap {
 	/**
 	 * Advertise the segment geometry of partitions built in PHP, which no TSL
 	 * statement declares and the static scan therefore cannot see. Job_Intake's
-	 * feed runs at FEED_SEGMENT_SIZE against Partition's 64 MiB default, so the
-	 * dashboard scaled a full segment to a sliver of the size it assumed.
+	 * feed runs at FEED_SEGMENT_SIZE against Partition's 64 MiB default, so
+	 * without the override a dashboard draws a full segment as a sliver.
 	 *
 	 * @param array<string,int> $overrides basename => segment size in bytes.
 	 * @return array<string,int>

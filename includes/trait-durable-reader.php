@@ -3,16 +3,14 @@
  * Durable_Reader: the durable log-reader spine — offsetlog cursor, timer-driven
  * buffered pump, and the pause/step/seek time-travel debugger, in ONE unit.
  *
- * Formerly three sibling traits (Offsetlog_Cursor, Buffered_Pump, Time_Travel)
- * that were only ever consumed together, by Consumer_Node and
- * Remote_Source_Node — the split was false modularity ([159]); Time_Travel's
- * docblock literally required the other two. The genuinely reusable pieces
- * stay separate: `Sidecar` (any node building sibling Partitions),
- * `Dead_Letter_Queue` (also the write-side quarantine on Partition itself),
- * and `Deferred_Clean_Stop` (application snapshot nodes in sibling plugins).
+ * The three are one trait because they are one mechanism ([159]): the pump advances
+ * the cursor, the offsetlog commits it as a keyframe, and the debugger seeks by
+ * repositioning it. Consumer_Node and Remote_Source_Node take all three together.
  *
- * Section order below preserves the old files: cursor, then pump, then
- * time-travel.
+ * The pieces a node reuses on their own stay separate — `Sidecar` (any node building
+ * a sibling Partition), `Dead_Letter_Queue` (also the write-side quarantine on
+ * Partition itself) and `Deferred_Clean_Stop` (application snapshot nodes in sibling
+ * plugins).
  *
  * @package Newspack_Nodes
  */
@@ -21,6 +19,23 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * Durable-reader mixin: what a using class owes, and what it gets back.
+ *
+ * The class must be a `Timer_Node`: the pump is timer-driven, and `fire()` here is the
+ * tick that drains and re-arms the busy/EOF cadence (Remote_Source overrides it to
+ * service its channel on the same rule). It must fill seven seams: where the
+ * bytes come from (`get_batch`), where a fresh reader starts (`init_position`), how
+ * one frame reaches disk (`write_checkpoint_frame`) and what that frame carries
+ * beyond the shared base (`checkpoint_frame_extra`), and how the debugger moves the
+ * cursor (`next_offset`, `advance_one_message`, `time_travel_resume`). In return it
+ * gets the durable cursor, the drain loop, the poison lifecycle and the debugger
+ * verbs.
+ *
+ * `Dead_Letter_Queue` and `Sidecar` ride in with it. The cursor decides WHEN a record
+ * is quarantined and where the reader resumes afterwards, so the trait owning the
+ * cursor owns the quarantine too.
+ */
 trait Durable_Reader {
 	use Dead_Letter_Queue;
 
@@ -117,6 +132,8 @@ trait Durable_Reader {
 	 * what covers every reader — the two that build their sidecars from
 	 * `arguments()` and the one that builds them lazily — without any of them
 	 * spelling the rule again.
+	 *
+	 * @return Partition_Node|null The offsetlog, or null when the configured dir is empty.
 	 */
 	protected function ensure_offsetlog(): ?Partition_Node {
 		$dir = \rtrim( $this->offsetlog_dir(), '/' );
@@ -187,37 +204,52 @@ trait Durable_Reader {
 		$this->offsetlog->flush();
 	}
 
+	/**
+	 * Ceiling on an unterminated partial line, 32 MiB. A producer that stops mid-line —
+	 * a torn write, a truncated stream — would otherwise grow the buffer until the worker
+	 * crosses its memory watermark, so past this the partial is discarded and the cursor
+	 * skips those bytes.
+	 */
 	public const MAX_LINE_BUFFER_SIZE = 33554432;
 
-	/** 0 = next event-loop iteration. */
+	/** Re-arm delay while bytes are still arriving; 0 = the next event-loop iteration. */
 	public const POLL_INTERVAL_BUSY_MS = 0;
 
+	/** Re-arm delay once the source is drained: a caught-up reader wakes ten times a second. */
 	public const POLL_INTERVAL_EOF_MS = 100;
 
+	/** True when the last refill found nothing more to read; fire() picks its cadence off it. */
 	protected bool $at_eof = true;
+
+	/** Offset half of the cursor this process booted on. See $boot_cursor_segment. */
 	protected int $boot_cursor_offset = 0;
 
 	/**
-	 * The cursor this process booted on (seeded by load_offsetlog). Advancing past it
-	 * is "forward progress" — the poison region is behind us, so attempts resets to the
-	 * healthy baseline. Also the fair-shot proxy for cooperative-stop strikes ([42]).
+	 * The cursor this process booted on, frozen by poll_init once init_position() has
+	 * seeded it. Advancing past it is "forward progress" — the poison region is behind
+	 * the reader, so attempts resets to the healthy baseline. Also the fair-shot proxy
+	 * for cooperative-stop strikes ([42]).
 	 */
 	protected int $boot_cursor_segment = 0;
 
 	/** Bytes read past cursor_offset but not yet emitted (read-ahead + trailing partial). Tachikoma's buffer. */
 	protected string $buffer = '';
 
-	/** Durable read offset for cursor_segment; always a line boundary (last fully-emitted line). */
+	/**
+	 * Durable read offset within cursor_segment, always a line boundary: the start of the
+	 * next UNREAD record, since each drained record advances past itself (ADR-12).
+	 */
 	protected int $cursor_offset = 0;
 
 	/** Cursor segment. cursor_offset + buffer length is the next read position. */
 	protected int $cursor_segment = 0;
 
 	/**
-	 * Per-tick dispatch (Tachikoma's `$self->{fill}` function pointer). arguments()
-	 * points this at poll_init; the first poll loads the durable cursor + restores
-	 * the snapshot — by which time the whole topology is built — then swaps to
-	 * poll_active. Keeps construction free of I/O and forward-reference order.
+	 * Per-tick dispatch (Tachikoma's `$self->{fill}` function pointer). The disk readers
+	 * point this at poll_init from arguments(); poll() defaults it there lazily for one
+	 * that does not. The first poll loads the durable cursor and restores the snapshot —
+	 * by which time the whole topology is built — then swaps to poll_active. Keeps
+	 * construction free of I/O and of forward-reference order.
 	 */
 	protected ?\Closure $poll_cb = null;
 
@@ -228,7 +260,12 @@ trait Durable_Reader {
 	 */
 	protected bool $poll_initialized = false;
 
-	/** True once next_offset() was called explicitly — suppresses the default_offset() seek. */
+	/**
+	 * True once next_offset() was called explicitly. It suppresses the default_offset()
+	 * seek, and it is the second half of the established-cursor test in checkpoint() and
+	 * cooperative_stop(): a SEEK taken while paused establishes a real position before the
+	 * first poll runs, and that position has to survive the shutdown.
+	 */
 	protected bool $offset_set = false;
 
 	/** FROM-stamp override read by forward_line(); defaults to $this->name. The IPC input-Consumer stamps as `_repl`. */
@@ -348,7 +385,11 @@ trait Durable_Reader {
 		$this->refill( $drained );
 	}
 
-	/** Top the buffer up from the source, unless line-mode is pacing one line per tick. */
+	/**
+	 * Top the buffer up from the source, unless line-mode is pacing one line per tick.
+	 *
+	 * @param int $drained Lines the drain just consumed.
+	 */
 	private function refill( int $drained ): void {
 		if ( ! $this->line_mode || 0 === $drained ) {
 			$this->get_batch();
@@ -356,16 +397,19 @@ trait Durable_Reader {
 	}
 
 	/**
-	 * Forward up to $max complete lines from $buffer to the sink, returning how many were
-	 * consumed. Batch (max = PHP_INT_MAX) and line mode (max = 1) are the same scan with a
-	 * different cap — no second code path to keep in sync.
+	 * Forward complete lines from $buffer to the sink, returning how many were consumed.
+	 * Batch (cap = PHP_INT_MAX) and one-at-a-time (cap = 1, under line mode or crawl) are the
+	 * same scan with a different cap — no second code path to keep in sync.
 	 *
-	 * Scans by offset and chops the buffer ONCE at the end, so batch stays a single O(n)
-	 * pass (no substr-per-line) and an empty line is consumed cleanly. Advancing cursor_offset in lockstep with
-	 * the chop is load-bearing: get_batch reads at `cursor_offset + strlen(buffer)`, so a chop
-	 * without the matching cursor bump re-reads the gap and mis-aligns the next line into
-	 * unparseable garbage. The cursor advances past skipped (unparseable / over-long-FROM)
-	 * lines too, so a single bad record can't wedge the stream.
+	 * Scans by offset and chops the buffer ONCE at the end, so batch stays a single O(n) pass
+	 * (no substr-per-line) and an empty line is consumed cleanly. The bytes chopped must equal
+	 * the bytes the cursor moved: get_batch reads at `cursor_offset + strlen(buffer)`, so a chop
+	 * the cursor did not match re-reads the gap and mis-aligns the next line into unparseable
+	 * garbage. advance_consume_cursor() pays that per record; the chop settles the whole run at
+	 * once. The cursor advances past skipped (unparseable / over-long-FROM) lines too, so a
+	 * single bad record can't wedge the stream.
+	 *
+	 * @return int Lines forwarded this call.
 	 */
 	private function drain_buffer(): int {
 		// Crawl forces one line per drain so poll_crawl checkpoints each msg.
@@ -408,12 +452,15 @@ trait Durable_Reader {
 	}
 
 	/**
-	 * Per-line drain seam: dispatch ONE complete line. The default handles the one-shot boot
-	 * head-skip (crash-crawl sacrifice / quarantine-marker drop) then delegates to forward_line
-	 * — so a forward_line-overriding subclass (Tail) still
-	 * inherits the skip-head handling. A push source (Remote_Source) overrides this to run the
-	 * crumb-vs-boot-pin 3-way compare (its stream can resume PAST a GC'd suspect, so an armed head
-	 * is not unconditionally the first drained line).
+	 * Per-line drain seam: dispatch ONE complete line. The default sacrifices the boot head
+	 * when the one-shot crash skip is armed, then delegates to forward_line — so a
+	 * forward_line-overriding subclass (Tail) still inherits the skip-head handling. A push
+	 * source (Remote_Source) overrides this to run the crumb-vs-boot-pin 3-way compare: its
+	 * stream can resume PAST a GC'd suspect, so an armed head is not unconditionally the first
+	 * drained line.
+	 *
+	 * @param string $line       One complete line, without its trailing newline.
+	 * @param int    $abs_offset The line's start offset within the current segment.
 	 */
 	protected function drain_line( string $line, int $abs_offset ): void {
 		if ( $this->crawl_skip_head ) {
@@ -433,6 +480,7 @@ trait Durable_Reader {
 	 * previous record advanced exactly past itself, and the line's own bytes are its length.
 	 * A pull source, addressed by the spoke that sent it, overrides this to read the crumb.
 	 *
+	 * @param string $line One complete line, without its trailing newline.
 	 * @return array{segment:int, offset:int, length:int}
 	 */
 	protected function crumb_for_line( string $line ): array {
@@ -479,12 +527,16 @@ trait Durable_Reader {
 
 	/**
 	 * Unpack one packed line and forward it to the sink: stamp FROM (breadcrumb), record the
-	 * seg:offset breadcrumb in ID, force TO when a target is set. An unparseable line or an
-	 * over-long FROM is logged and dropped — the callers own the cursor and advance past it
-	 * regardless, so a single bad record can't wedge the stream.
+	 * seg:offset:length breadcrumb in ID, force TO when a target is set. An unparseable line is
+	 * quarantined to the `:deadletter` sibling; an over-long FROM stamp is logged and dropped.
+	 * The drain loop owns the cursor and advances past either, so a single bad record can't
+	 * wedge the stream.
 	 *
 	 * The per-line emit seam: Tail overrides this to emit raw bytes instead of unpacking a
-	 * Message, reusing this class's buffer/cursor scan in drain_buffer().
+	 * Message, reusing the trait's buffer/cursor scan in drain_buffer().
+	 *
+	 * @param string $line       One complete line, without its trailing newline.
+	 * @param int    $abs_offset The line's start offset within the current segment.
 	 */
 	protected function forward_line( string $line, int $abs_offset ): void {
 		$line_size = \strlen( $line ) + 1; // +1 for the consumed \n.
@@ -501,7 +553,7 @@ trait Durable_Reader {
 		}
 		$stamp = '' !== $this->stamp_override ? $this->stamp_override : $this->name;
 		if ( '' !== $stamp && ! $this->stamp_message( $message, $stamp ) ) {
-			return; // FROM exceeded MAX_FROM_SIZE; drop_message handled.
+			return; // FROM exceeded MAX_FROM_SIZE; stamp_message logged it.
 		}
 		// ID breadcrumb = seg:offset:length (length for SSE_In's reconnect).
 		$this->crumb            = [ 'segment' => $this->cursor_segment, 'offset' => $abs_offset, 'length' => $line_size ];
@@ -538,7 +590,11 @@ trait Durable_Reader {
 		return false === $nl ? null : \substr( $this->buffer, 0, $nl );
 	}
 
-	/** True when $buffer holds at least one complete (newline-terminated) line still to drain. */
+	/**
+	 * True when $buffer holds at least one complete (newline-terminated) line still to drain.
+	 * Both readers pick their re-arm cadence off it. PRIVATE, so it flattens into the using
+	 * class and a subclass of that class cannot reach it.
+	 */
 	private function buffer_has_line(): bool {
 		return false !== \strpos( $this->buffer, "\n" );
 	}
@@ -633,7 +689,8 @@ trait Durable_Reader {
 	 * unestablished cursor (a 0:0 commit clobbers the durable position), skip a
 	 * redundant same-cursor write, clear the crash streak on forward progress
 	 * past the boot cursor (never while crawling, where attempts stay pinned),
-	 * then write the frame.
+	 * then write the frame. The redundant-write skip and the streak reset are
+	 * healthy-commit only; a graceful shutdown frame writes whatever the cursor says.
 	 *
 	 * @param bool $graceful Final checkpoint of a clean shutdown — stamps attempts=0
 	 *                       (the cursor sits at an un-attempted message), so a respawn
@@ -652,7 +709,16 @@ trait Durable_Reader {
 		$this->write_checkpoint_frame( $graceful, true );
 	}
 
-	/** Durable-commit seam: write one offsetlog frame at the current cursor (unconditional; no advance-guard). */
+	/**
+	 * Durable-commit seam: write one offsetlog frame at the current cursor, unconditionally —
+	 * no advance-guard, because the boot and crawl sequences re-commit the same cursor on
+	 * purpose.
+	 *
+	 * @param bool                   $graceful   Stamp attempts=0 instead of the live count.
+	 * @param bool                   $with_state Co-commit the snapshot nodes' state as `cache`;
+	 *                                           a reader with no snapshot concern ignores it.
+	 * @param array<array-key,mixed> $extra      Per-call frame additions.
+	 */
 	abstract protected function write_checkpoint_frame( bool $graceful, bool $with_state, array $extra = [] ): void;
 
 	/**
@@ -679,6 +745,13 @@ trait Durable_Reader {
 	 */
 	private array $snapshot_nodes = [];
 
+	/**
+	 * Drain one line per tick instead of the whole buffer. GRANULARITY, not a rate limit:
+	 * a sink doing heavy per-message work would otherwise process a whole read block (Consumer's
+	 * 64 KB) inside one fire(), freezing the worker's heartbeat through the burst. The stock
+	 * job-worker topology runs its Consumer on it, so this is a production setting — STEP
+	 * forces it on for a debugger session and PLAY restores whatever the topology chose.
+	 */
 	private bool $line_mode = false;
 
 	/**
@@ -714,7 +787,8 @@ trait Durable_Reader {
 	 * paused after seeking.
 	 *
 	 * @api Consumed over the wire by the debugger UI (SEEK_FRAME command).
-	 * @return string 'ok', or an error string when the offsetlog/segment is absent.
+	 * @param int $segment Offsetlog segment id, from dump_metadata's frames[].id.
+	 * @return string `"ok\n"`, or an error string when the offsetlog or the segment is absent.
 	 */
 	public function seek_frame( int $segment ): string {
 		if ( null === $this->offsetlog ) {
@@ -745,6 +819,7 @@ trait Durable_Reader {
 	 * last parseable line (Consumer's segment_size=1 makes that the sole record;
 	 * a coarser offsetlog's newest record in the segment).
 	 *
+	 * @param int $segment Offsetlog segment id to read.
 	 * @return array<array-key,mixed>|null
 	 */
 	private function read_frame_record( int $segment ): ?array {
@@ -773,6 +848,7 @@ trait Durable_Reader {
 	 * Parse one packed offsetlog line into its {seg, off, ...} VALUE, or null when
 	 * the line is unparseable or its VALUE isn't the expected struct.
 	 *
+	 * @param string $line One packed offsetlog line, without its trailing newline.
 	 * @return array<array-key,mixed>|null
 	 */
 	private function parse_offsetlog_entry( string $line ): ?array {
@@ -816,6 +892,8 @@ trait Durable_Reader {
 	 * order can't forward-reference a node that doesn't exist yet. Lifts the
 	 * offsetlog's PIPE_BUF cap (void_warranty): the worker holding the topology
 	 * lock is the offsetlog's sole writer, so no per-write lock is needed.
+	 *
+	 * @param string $name Node whose save_state() co-commits; a repeat is ignored.
 	 */
 	public function add_snapshot_node( string $name ): void {
 		if ( '' === $name || \in_array( $name, $this->snapshot_nodes, true ) ) {
@@ -825,6 +903,11 @@ trait Durable_Reader {
 		$this->offsetlog?->void_warranty();
 	}
 
+	/**
+	 * Verb-backed toggle for line_mode (one line per tick instead of the whole buffer).
+	 *
+	 * @param bool $flag True drains one line per tick; false drains the whole buffer.
+	 */
 	public function set_line_mode( bool $flag ): void {
 		$this->line_mode = $flag;
 	}
@@ -921,6 +1004,10 @@ trait Durable_Reader {
 	 * nodes skip a redundant same-cursor healthy commit — else an idle reader spams identical
 	 * keyframes (with segment_size=1, one per interval). The -1/-1 pre-commit sentinel never
 	 * equals a real cursor, so the first commit always passes.
+	 *
+	 * @param int $segment Cursor segment to test.
+	 * @param int $offset  Cursor offset to test.
+	 * @return bool True when a frame written now would say something new.
 	 */
 	protected function cursor_moved_since_checkpoint( int $segment, int $offset ): bool {
 		return $segment !== $this->checkpoint_segment || $offset !== $this->checkpoint_offset;
@@ -930,11 +1017,13 @@ trait Durable_Reader {
 	 * Commit ONE offsetlog frame at `{segment,offset}`. A graceful frame is a clean handoff
 	 * (attempts=0 → a respawn resumes at the virgin baseline); a non-graceful frame
 	 * carries the live attempt accounting (a climbing poison lineage / pinned crawl).
-	 * Records the committed position + wall-clock, then lets the node react
+	 * Records the committed position and the wall-clock, then lets the node react
 	 * (on_checkpoint_committed — Consumer publishes its CHECKPOINT state).
 	 *
-	 * @param bool                    $graceful Stamp attempts=0 instead of the live count.
-	 * @param array<array-key,mixed> $extra    Per-call frame additions (cache / dlq marker).
+	 * @param int                    $segment  Cursor segment to commit.
+	 * @param int                    $offset   Cursor offset to commit.
+	 * @param bool                   $graceful Stamp attempts=0 instead of the live count.
+	 * @param array<array-key,mixed> $extra    Per-call frame additions — the snapshot cache.
 	 */
 	protected function commit_checkpoint_frame( int $segment, int $offset, bool $graceful, array $extra = [] ): void {
 		if ( null === $this->offsetlog ) {
@@ -989,8 +1078,9 @@ trait Durable_Reader {
 	/**
 	 * `add_snapshot_node` verb handler — append a snapshot-target node.
 	 *
-	 * @param Command_Interpreter_Node $interpreter Verb argument.
-	 * @param array<array-key,mixed>  $args        Verb argument.
+	 * @param Command_Interpreter_Node $interpreter Owning interpreter; its patron is the reader.
+	 * @param array<array-key,mixed>   $args        Positional args; [0] is the node name.
+	 * @return string `"ok\n"`.
 	 */
 	public static function cmd_add_snapshot_node( Command_Interpreter_Node $interpreter, array $args ): string {
 		/** @var self $patron */
@@ -1002,8 +1092,9 @@ trait Durable_Reader {
 	/**
 	 * `SEEK_FRAME` verb handler — seek the patron reader to a frame.
 	 *
-	 * @param Command_Interpreter_Node $interpreter Verb argument.
-	 * @param array<array-key,mixed>  $args        Verb argument.
+	 * @param Command_Interpreter_Node $interpreter Owning interpreter; its patron is the reader.
+	 * @param array<array-key,mixed>   $args        Positional args; [0] is the offsetlog segment id.
+	 * @return string seek_frame()'s reply — `"ok\n"`, or an error string.
 	 */
 	public static function cmd_seek_frame( Command_Interpreter_Node $interpreter, array $args ): string {
 		/** @var self $patron */
@@ -1014,7 +1105,8 @@ trait Durable_Reader {
 	/**
 	 * `PAUSE` verb handler — pause the patron reader.
 	 *
-	 * @param Command_Interpreter_Node $interpreter Verb argument.
+	 * @param Command_Interpreter_Node $interpreter Owning interpreter; its patron is the reader.
+	 * @return string `"ok\n"`.
 	 */
 	public static function cmd_pause( Command_Interpreter_Node $interpreter ): string {
 		/** @var self $patron */
@@ -1026,7 +1118,8 @@ trait Durable_Reader {
 	/**
 	 * `PLAY` verb handler — resume the patron reader.
 	 *
-	 * @param Command_Interpreter_Node $interpreter Verb argument.
+	 * @param Command_Interpreter_Node $interpreter Owning interpreter; its patron is the reader.
+	 * @return string `"ok\n"`.
 	 */
 	public static function cmd_play( Command_Interpreter_Node $interpreter ): string {
 		/** @var self $patron */
@@ -1038,7 +1131,8 @@ trait Durable_Reader {
 	/**
 	 * `STEP` verb handler — single-step the patron reader.
 	 *
-	 * @param Command_Interpreter_Node $interpreter Verb argument.
+	 * @param Command_Interpreter_Node $interpreter Owning interpreter; its patron is the reader.
+	 * @return string The resulting {segment, offset, at_eof} cursor as JSON.
 	 */
 	public static function cmd_step( Command_Interpreter_Node $interpreter ): string {
 		/** @var self $patron */

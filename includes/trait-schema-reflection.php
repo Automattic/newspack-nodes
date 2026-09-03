@@ -1,12 +1,18 @@
 <?php
 /**
- * Schema_Reflection: builds a node's config by reflecting its node_schema().
+ * Schema_Reflection: a node's `node_schema()` IS its configuration surface.
  *
- * Two halves of one concern, split off the Node god-object: parse_schema_args()
- * walks node_schema()['arguments'] to assign positional config onto declared
- * properties, and auto_wire_interpreter() builds the sibling `{name}:config`
- * Command_Interpreter from node_schema()['commands']. Both are pure reflection
- * of the schema; the rest of Node (wiring, fill, rate-limiters) is left alone.
+ * A node opting in declares its positional arguments and its runtime verbs once,
+ * and this trait reads that one declaration three ways. `parse_schema_args()`
+ * assigns the positional tokens onto the declared properties (ADR-11).
+ * `auto_wire_interpreter()` builds the sibling `{name}:config` interpreter from
+ * the declared commands. The `dump_declared()` / `declared_setter()` pair turns a
+ * `toggle` or `setter` key into both the verb's handler and its `dump_config()`
+ * fragment, so a setting is a declaration rather than the hand-rolled trio —
+ * handler, dump fragment, argument parse — each class would otherwise carry.
+ *
+ * Reflection is the whole of it. Wiring, `fill()` and the rate limiters stay on
+ * Node.
  *
  * @package Newspack_Nodes
  */
@@ -18,14 +24,27 @@ namespace Newspack_Nodes;
 trait Schema_Reflection {
 
 	/**
-	 * Walk node_schema()['arguments'] and assign each declared positional arg to
-	 * the matching $this->{$name} property, coerced to its declared type. Tokens
-	 * beyond the declared positions are ignored; a missing token falls back to the
-	 * arg's schema default, or throws if the arg is `required` (so an under-argged
-	 * make_node fails loudly). No-ops only for a node with no declared arguments —
-	 * the assignment half of Tachikoma's per-node arguments() parsing.
+	 * Walk `node_schema()['arguments']` and assign each declared positional to the
+	 * matching `$this->{$name}` property, coerced to its declared type — the
+	 * assignment half of Tachikoma's per-node `arguments()` parsing, and the one
+	 * place defaults and required-argument enforcement live (ADR-11). Tokens
+	 * beyond the declared positions are ignored; a missing token takes the arg's
+	 * schema `default`, throws when the arg is `required` (so an under-argged
+	 * `make_node` fails loudly), and otherwise leaves the property's declaration
+	 * default standing. A node declaring no arguments is a no-op.
+	 *
+	 * Recording the raw tokens into `$this->arguments` is what makes
+	 * `dump_config()` round-trip: it emits the `make_node` line from those tokens,
+	 * so a walk that assigned the properties without storing them would replay as
+	 * a differently-configured node.
+	 *
+	 * A declared name that is not a real property is refused rather than assigned:
+	 * PHP would take the typo as a dynamic property, which nothing then reads.
 	 *
 	 * @param list<string> $args Raw positional argument tokens.
+	 * @throws \InvalidArgumentException When a spec carries no name, names no
+	 *                                   property, a required token is missing, or
+	 *                                   a token is not of its declared type.
 	 */
 	protected function parse_schema_args( array $args ): void {
 		$declared = static::node_schema()['arguments'] ?? [];
@@ -66,8 +85,15 @@ trait Schema_Reflection {
 	 * `<config:max_segments>`) is resolved through its namespace resolver and
 	 * coerced to the declared type — a schema default lives in PHP and never
 	 * passes through the TSL loader that resolves tokens on make_node lines, so
-	 * a positional token arrives pre-resolved but a default does not. Any other
-	 * default (constant, array, plain string) is used verbatim.
+	 * a positional token arrives pre-resolved but a default does not. Resolution
+	 * is strict, so a wrong namespace or a typo'd key fails at construction
+	 * instead of coercing to a feature-off default. Any other default — a
+	 * constant, an array, a plain string — is used verbatim.
+	 *
+	 * @param mixed  $default The arg spec's declared default.
+	 * @param string $type    Declared schema type, applied to the token case only.
+	 * @param string $name    Argument name, for the refusal.
+	 * @return mixed The value to assign.
 	 */
 	private function resolve_default( mixed $default, string $type, string $name ): mixed {
 		if ( \is_string( $default ) && \preg_match( '/<[a-zA-Z_]\w*:[a-zA-Z_]\w*>/', $default ) ) {
@@ -77,8 +103,8 @@ trait Schema_Reflection {
 	}
 
 	/**
-	 * Coerce a raw token to the declared schema type; unknown types pass through
-	 * as string.
+	 * Coerce a raw token to the declared schema type; an unknown type passes
+	 * through as a string.
 	 *
 	 * The numeric types REFUSE rather than cast, because 0 is a live value for
 	 * every retention knob and every timer cadence: a cast would make a mistyped
@@ -88,6 +114,10 @@ trait Schema_Reflection {
 	 * every declared int argument is a size, a count or a duration. `float`
 	 * accepts any numeric.
 	 *
+	 * @param string $token Raw positional token.
+	 * @param string $type  Declared schema type.
+	 * @param string $name  Argument name, for the refusal.
+	 * @return mixed The token as its declared type.
 	 * @throws \InvalidArgumentException When a numeric token is not of its declared type.
 	 */
 	private function coerce_argument( string $token, string $type, string $name ): mixed {
@@ -119,8 +149,8 @@ trait Schema_Reflection {
 	 * instance name — a boot with five Partitions says which one.
 	 *
 	 * It throws rather than returning the exception so that the ONE `throw`
-	 * carries its own escaping in plain sight; a caller that threw what this
-	 * returned put an unescaped string at every call site instead.
+	 * carries its own escaping in plain sight; a caller throwing what this
+	 * returned would put an unescaped string at every call site instead.
 	 *
 	 * @param string $detail What was wrong, in the caller's words.
 	 * @throws \InvalidArgumentException Always — the caller does not continue.
@@ -133,19 +163,29 @@ trait Schema_Reflection {
 		throw new \InvalidArgumentException( \esc_html( "Bad arguments for {$who}: {$detail}" ) );
 	}
 
-	/** THE bool parse for schema args and toggle verbs (JS mirror: `truthy` in runtime/node.js). */
+	/**
+	 * THE bool parse for schema args and toggle verbs: `1`, `true`, `yes` and
+	 * `on` read as true in any case, everything else as false. A verb spelling
+	 * that list again locally is how it ends up accepting half of it. The JS
+	 * mirror is `truthy` in `src/runtime/node.js`.
+	 *
+	 * @param string $token Raw argument token.
+	 * @return bool Whether the token reads as true.
+	 */
 	protected static function truthy( string $token ): bool {
 		return \in_array( \strtolower( $token ), [ '1', 'true', 'yes', 'on' ], true );
 	}
 
 	/**
-	 * Round-trippable `command_node {name}:config <verb> true` lines for every schema-declared
-	 * toggle currently ON — the dump_config fragment the old per-toggle ritual
-	 * (handler + fragment + truthy-parse) hand-rolled per class. node_schema()'s
-	 * `toggle` key is the whole declaration.
+	 * Round-trippable `command_node {name}:config <verb> true` lines for every
+	 * schema-declared toggle currently ON — the `dump_config()` half of what a
+	 * `toggle` declaration stands for, `declared_setter()` being the handler
+	 * half.
 	 *
 	 * Emits `true`, not `1`: the dump is TSL a person reads, and the arg is
 	 * declared `bool`. `truthy()` accepts either coming back.
+	 *
+	 * @return string Zero or more newline-terminated TSL lines.
 	 */
 	protected function dump_toggles(): string {
 		return $this->dump_declared( 'toggle', static fn ( mixed $value ): string => $value ? 'true' : '' );
@@ -156,6 +196,8 @@ trait Schema_Reflection {
 	 * schema-declared setter currently holding one — the string twin of
 	 * `dump_toggles()`. An empty setter dumps nothing: replaying its default is
 	 * what `make_node` already does.
+	 *
+	 * @return string Zero or more newline-terminated TSL lines.
 	 */
 	protected function dump_setters(): string {
 		return $this->dump_declared( 'setter', static fn ( mixed $value ): string => Core::as_string( $value ?? '' ) );
@@ -164,10 +206,12 @@ trait Schema_Reflection {
 	/**
 	 * The one walk both dumps make: every verb declaring $schema_key names a
 	 * property, and $render turns that property's value into the argument to
-	 * emit — '' meaning nothing to say, so the line is skipped.
+	 * emit — '' meaning nothing to say, so the line is skipped. A verb declaring
+	 * `dump => false` is skipped outright, for a setting another dump path owns.
 	 *
-	 * @param string               $schema_key Verb declaration key naming the property.
-	 * @param callable(mixed):string $render   Property value to emitted argument.
+	 * @param string                 $schema_key Verb declaration key naming the property.
+	 * @param callable(mixed):string $render     Property value to emitted argument.
+	 * @return string Zero or more newline-terminated TSL lines.
 	 */
 	private function dump_declared( string $schema_key, callable $render ): string {
 		$out      = '';
@@ -189,10 +233,14 @@ trait Schema_Reflection {
 	}
 
 	/**
-	 * Auto-wire the sibling `{name}:config` interpreter from node_schema()['commands'].
-	 * Called from the Node constructor. No-op for a Command_Interpreter itself, for a
-	 * node that already attached its own interpreter (idempotent), or for a schema with
-	 * no handler-bearing verbs.
+	 * Auto-wire the sibling `{name}:config` interpreter from
+	 * `node_schema()['commands']` and publish it, which is what enrols it in the
+	 * rename, sink and teardown cascades. A consuming node calls this from its own
+	 * constructor — Node carries none of this trait's behavior.
+	 *
+	 * No-op for a Command_Interpreter itself, for a node that already attached its
+	 * own interpreter (so a second call is idempotent), and for a schema with no
+	 * handler-bearing verbs.
 	 */
 	protected function auto_wire_interpreter(): void {
 		if ( $this instanceof Command_Interpreter_Node ) {
@@ -213,14 +261,18 @@ trait Schema_Reflection {
 	}
 
 	/**
-	 * Collect the node_schema verbs[] that carry a callable handler — the
-	 * `{node}:config` dispatch table. Silent: catalog-only verbs (no handler)
-	 * are skipped, not flagged, because a plain node legitimately declares
-	 * description-only verbs for the palette. (Service_CI_Node, where every verb
-	 * MUST dispatch, keeps its own warn-on-missing-handler builder.)
+	 * Build the `{node}:config` dispatch table from `node_schema()['commands']`.
+	 * A verb takes its handler from the first of three declarations it carries: a
+	 * `toggle`, then a `setter` — each naming a property `declared_setter()`
+	 * synthesizes a handler for — then an explicit callable `handler`.
 	 *
-	 * @param array<string,mixed> $schema
-	 * @return array<string,callable>
+	 * A verb carrying none of the three is catalog-only and is skipped silently,
+	 * not flagged, because a plain node legitimately declares description-only
+	 * verbs for the palette. (Service_CI_Node, where every verb MUST dispatch,
+	 * keeps its own warn-on-missing-handler builder.)
+	 *
+	 * @param array<string,mixed> $schema The node's `node_schema()`.
+	 * @return array<string,callable> Verb name => handler.
 	 */
 	private static function verbs_with_handlers( array $schema ): array {
 		$table    = [];
@@ -257,11 +309,17 @@ trait Schema_Reflection {
 
 	/**
 	 * Synthesize the handler a `toggle` or `setter` declaration stands for:
-	 * coerce the one argument, then hand it to the patron's `set_{$prop}()`.
+	 * coerce the one argument, then hand it to the patron's `set_{$prop}()` — the
+	 * class's own typed entry point, so the coerced value lands under the
+	 * property's declared type rather than beside it.
 	 *
-	 * @param string                  $prop   Property the verb writes, minus the `set_` prefix.
-	 * @param callable(string):mixed  $coerce Raw argument to the setter's type.
-	 * @return callable(Command_Interpreter_Node,array<array-key,mixed>):string
+	 * The handler refuses a patron of any other class. An interpreter re-pointed
+	 * at a foreign node would otherwise call a `set_` method that class never
+	 * declared, and the fatal would name the method rather than the mis-wiring.
+	 *
+	 * @param string                 $prop   Property the verb writes, minus the `set_` prefix.
+	 * @param callable(string):mixed $coerce Raw argument to the setter's type.
+	 * @return callable(Command_Interpreter_Node,array<array-key,mixed>):string The verb handler.
 	 */
 	private static function declared_setter( string $prop, callable $coerce ): callable {
 		return static function ( Command_Interpreter_Node $interpreter, array $args ) use ( $prop, $coerce ): string {

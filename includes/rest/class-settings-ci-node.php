@@ -1,30 +1,38 @@
 <?php
 /**
- * Settings_CI: command-dispatch for the substrate-level integer settings.
+ * Settings_CI: the command surface for the substrate's integer settings.
  *
- * A CommandInterpreter that mounts at priority 11 alongside the rest of the
- * M2 service CIs.
+ * Mounted as `settings` on the request-scope interpreter by
+ * `newspack_nodes_mount_substrate_cis()`.
+ *
+ * The settings page is one door onto substrate config and this interpreter is
+ * the other, so both read `Settings_Schema`. The key set, the per-key bounds
+ * and the worker-restart class are declared once, and a verb cannot clamp to
+ * limits the page does not.
  *
  * Verbs:
- *   get — returns the seven substrate-owned integer settings as a snapshot
- *         (num_partitions, segment_size, min_segments, num_segments,
- *         min_lifetime, lifetime, max_segments). The matching getter dashboards diff against.
- *   set — applies a single setting by its full `newspack_nodes_*` option name
- *         (the positional grammar Settings_Sync_Node fans out to spokes),
- *         writes via `update_option()`, then returns the post-set snapshot.
- *         Resets the application Config so the snapshot rebuild sees the new
- *         value rather than the stale cache. A `set` to the value already
- *         stored still answers with the snapshot, but writes nothing and
- *         signals neither a restart nor a reload.
+ *   get — return the seven storage settings as one snapshot: num_partitions,
+ *         segment_size, min_segments, num_segments, min_lifetime, lifetime,
+ *         max_segments. They are EFFECTIVE values, so a key never saved
+ *         reports its schema default rather than an empty option.
+ *   set — write one integer setting, then answer with the post-write
+ *         snapshot. `Settings_Sync_Node` mints this verb to push a hub's
+ *         settings out to its spokes, and reads the reply to confirm
+ *         convergence. A value already in place still answers with the
+ *         snapshot, writing nothing and signalling no restart.
  *
- * Allowed-keys whitelist + min/max bounds (1..2^30 for the count/size keys,
- * 0..2^30 for the lifetime keys), `manage_options` requirement, WP option keys. Throws
- * RuntimeException on validation / authorization failure;
- * CommandInterpreter::interpret() wraps as TM_COMMAND|TM_ERROR.
+ * `set` reaches every `int` Field declaring a minimum — the storage keys, the
+ * `remote_*` spoke geometry, the alert thresholds and the `sse_*` limits —
+ * while `get` answers with the seven storage keys alone.
  *
- * Configuration-only verb; no service dependencies. The substrate Config
- * is a global accessed directly, matching the pattern in Status_CI /
- * Discovery_CI.
+ * Every refusal throws `RuntimeException`, which
+ * `Command_Interpreter_Node::interpret()` wraps as TM_COMMAND|TM_ERROR: an
+ * unknown key, a non-numeric or out-of-bounds value, and the capability check
+ * `Service_CI_Node` wraps around each handler. Answering with a refusal
+ * string instead would leave the hub unable to tell one from a snapshot.
+ *
+ * Configuration only, with no service dependencies: the substrate `Config` is
+ * a global this reads directly, as `Status_CI` does.
  *
  * @package Newspack_Nodes
  */
@@ -42,26 +50,41 @@ use Newspack_Nodes\Settings_Schema;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * The `settings` service interpreter: schema-bounded `get` and `set`.
+ */
 class Settings_CI_Node extends Service_CI_Node {
 
 	/**
 	 * `get` verb handler — the current substrate-settings snapshot.
 	 *
-	 * @return array<string,mixed>
+	 * @return array<string,mixed> The seven storage settings.
 	 */
 	public static function cmd_get(): array {
 		return self::snapshot();
 	}
 
 	/**
-	 * `set` verb handler — set one substrate integer setting by full option name, return the post-set snapshot.
+	 * `set` verb handler — write one substrate integer setting, then return the
+	 * post-write snapshot.
 	 *
-	 * @param list<string> $args Verb argument.
+	 * Takes `<option> <value>` positionally. The option name is accepted with
+	 * or without the `newspack_nodes_` prefix: the hub pushes the full WP
+	 * option name, while an operator at the REPL types the short key.
 	 *
-	 * @return array<string,mixed>
+	 * A write is followed by two steps before the snapshot is read back. The
+	 * substrate Config is reset, so the snapshot rebuilds from the new value
+	 * rather than the cache frozen at first read. `Restart_Planner` then
+	 * recycles the workers the Field's restart class names and asks every
+	 * other live worker to re-read its config, which is what keeps a field
+	 * classified `[]` from waiting out a whole worker lifetime.
+	 *
+	 * @param list<string> $args Verb argument tokens.
+	 *
+	 * @return array<string,mixed> The seven storage settings, read after the write.
+	 * @throws \RuntimeException When the name is not a bounded `int` Field, or the value falls outside its bounds.
 	 */
 	public static function cmd_set( array $args ): array {
-		// Positional: set <option> <value>; <option> is the full option key.
 		[ $option, $value ] = \array_pad( Command_Args::parse( $args )['positional'], 2, null );
 
 		$prefix = Settings_Schema::get()->prefix();
@@ -100,6 +123,11 @@ class Settings_CI_Node extends Service_CI_Node {
 	/**
 	 * Build the canonical seven-key snapshot from the substrate Config.
 	 *
+	 * Every key is read through the fail-loud `Config::value()` rather than
+	 * `get_option()`: that resolves the EFFECTIVE value — option, per-request
+	 * overlay or schema default — and throws on a key no schema declares, so a
+	 * renamed key surfaces here instead of reporting a silent zero.
+	 *
 	 * @return array{num_partitions:int,segment_size:int,min_segments:int,num_segments:int,min_lifetime:int,lifetime:int,max_segments:int}
 	 */
 	private static function snapshot(): array {
@@ -129,13 +157,14 @@ class Settings_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Type-coerce + bounds-check. Int-only: the settings whitelist is
-	 * entirely integer-valued.
+	 * Coerce to int and bounds-check, answering null so the caller words the
+	 * refusal in its own voice. Int-only because `cmd_set` rejects every Field
+	 * whose type is not `int` before reaching here.
 	 *
-	 * @param mixed $value Raw input.
-	 * @param int   $min   Per-key minimum (inclusive).
-	 * @param int   $max   Shared upper bound (inclusive).
-	 * @return int|null Sanitized int, or null if rejected.
+	 * @param mixed $value Raw input token.
+	 * @param int   $min   The Field's minimum (inclusive).
+	 * @param int   $max   The Field's maximum (inclusive), or PHP_INT_MAX when it declares none.
+	 * @return int|null Sanitized int, or null when the token is non-numeric or out of bounds.
 	 */
 	private static function sanitize_int( mixed $value, int $min, int $max ): ?int {
 		if ( ! \is_numeric( $value ) ) {
@@ -149,11 +178,17 @@ class Settings_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Schema-driven dispatch: each verb is declared once in `verbs[]` carrying
-	 * its `handler`. The inherited Service_CI_Node ctor builds the commands
-	 * table from this schema. Configuration-only verbs; no service dependencies.
+	 * Palette entry and verb declaration: each verb is declared ONCE in
+	 * `commands[]`, carrying its handler and the capability role it demands.
+	 * The inherited `Service_CI_Node` constructor builds the dispatch table
+	 * from this and gates every handler on the declared role, so no hand-built
+	 * table can drift from what the catalog and `help` advertise.
+	 *
+	 * `get` is READ because a snapshot changes nothing; `set` is TUNE, the
+	 * role covering declared configuration.
 	 *
 	 * @api Used by substrate.
+	 * @return array<string,mixed>
 	 */
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [

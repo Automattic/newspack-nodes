@@ -3,19 +3,29 @@ import { PartitionViewerViewNode } from './partition-viewer-view-node';
 /**
  * `logviewer:view` — the Log Viewer's raw-line ring.
  *
- * The same O(1) newest-first ring + control model as the Partition Viewer's
- * view, over plain log FILE lines instead of packed partition envelopes (a raw
- * line arrives as the message VALUE with no KEY prefix and a single source, so it
- * shapes to partition 0 — the Log Viewer renders no partition column). Kept a
- * distinct class so the two dashboards' view models can diverge without touching
- * the other, while sharing the ring implementation.
+ * Extends the Partition Viewer's view for the two things `LogStreamViewNode`
+ * alone would not give it: `shapeRow()`, which turns an SSE envelope into a
+ * row carrying `content` and the debug trio, and the `selected` model field
+ * the source picker binds to — the base's own `select` verb clears the ring
+ * and the seek tracker but records no name. The ring, the paused belt and the
+ * seek tracking come from that shared base beneath both dashboards.
+ *
+ * The rows are plain log-FILE lines rather than packed partition envelopes:
+ * the `Tail` behind `/log/stream` stamps the line as VALUE, leaves KEY empty
+ * and stamps FROM with the registry source name, so `content` is the bare
+ * line. The inherited `partition` column therefore reads the number out of a
+ * `<base>.pN` topology source and falls to a first-seen index for a plain file
+ * — a column the Log Viewer never renders, drawing one cell per row.
+ *
+ * A separate class keeps the two dashboards' view models free to diverge
+ * without an edit to one touching the other.
  */
 export class LogViewerViewNode extends PartitionViewerViewNode {
 	/**
 	 * Node metadata behind `help <Type>` and the console's node palette.
-	 * Inherits the shared log-stream view schema — Hidden category, no target,
-	 * no arguments — and restates only the description in the Log Viewer's
-	 * terms, so the palette entry names raw log lines rather than partitions.
+	 * Keeps the inherited Hidden category, no target and no arguments, and
+	 * overrides the description alone — without that override the palette
+	 * would label this node the Partition Viewer's sink.
 	 *
 	 * @return {Object} Schema: category, description, has_target, arguments,
 	 *                  commands.

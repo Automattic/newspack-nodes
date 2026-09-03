@@ -7,12 +7,13 @@
  * fires — the test asserts against a graph that did not tick and passes for the
  * wrong reason, while a live real interval keeps firing beside a frozen clock.
  *
- * Two remedies, both one line. Install fake timers BEFORE mounting or arming
- * the graph; or, when the test needs the real clock to mount (an awaited
- * `requestAnimationFrame` never resolves against a fake one), fake only what it
- * actually advances: `jest.useFakeTimers( { doNotFake: [ 'setInterval',
- * 'requestAnimationFrame' ] } )`. Faking `setTimeout` alone to drive a
- * component debounce is not a hazard and is not reported.
+ * Three remedies, each one line, and the thrown message names all three.
+ * Install fake timers BEFORE mounting or arming the graph. Dispose the stale
+ * graph before re-mounting under fake timers. Or, when the mount needs the real
+ * clock (an awaited `requestAnimationFrame` never resolves against a fake one),
+ * fake only what the test advances: `jest.useFakeTimers( { doNotFake: [
+ * 'setInterval', 'requestAnimationFrame' ] } )`. Faking `setTimeout` alone to
+ * drive a component debounce is not a hazard and is not reported.
  *
  * Kept apart from `jest-node-timers.js` so the decision is unit-testable: that
  * file is a jest setup module, which only ever runs inside the harness it
@@ -20,21 +21,29 @@
  */
 
 /**
+ * Build a guard over one suite's armings and timer swaps.
+ *
+ * The verdict waits for `assertClean()` at teardown, because only teardown
+ * knows whether an arming made on the real clock was still live when the suite
+ * faked `setInterval`, and teardown is the one place throwing is safe.
+ *
  * @param {function(Error): string} [describeSite] Maps an Error captured at arming time to a printable site, or '' to omit it.
- * @return {{onArm: function(Object, boolean, Error=): void, onDispose: function(Object): void, onClear: function(): void, onTimerSwap: function(boolean): void, assertClean: function(): void}} Guard
- *   the jest harness drives from its arm, dispose, per-test teardown, and
- *   timer-swap hooks.
+ * @return {{onArm: function(Object, boolean, Error=): void, onDispose: function(Object): void, onClear: function(): void, onTimerSwap: function(boolean): void, assertClean: function(): void}} The hooks the jest harness drives from its arm, dispose, per-test teardown and timer-swap points.
  */
 function createTimerHazardGuard( describeSite = defaultSite ) {
-	// Nodes armed while setInterval was real, by the Error recording where.
+	// Nodes armed while setInterval was real, mapped to the arming Error.
 	const armedUnderReal = new Map();
 	let sawFakeInstall = false;
 
 	return {
 		/**
+		 * Record an arming, or forget one the node has re-armed under fake
+		 * timers: that second arming replaces the stranded handle, which
+		 * `advanceTimersByTime` then drives.
+		 *
 		 * @param {Object}  node    The node that just armed a timer.
 		 * @param {boolean} areFake Whether `setInterval` was already faked.
-		 * @param {Error}   [site]  Where the arming happened.
+		 * @param {Error}   [site]  Where the arming happened; the default captures the caller's stack.
 		 */
 		onArm( node, areFake, site = new Error() ) {
 			if ( areFake ) {
@@ -44,20 +53,29 @@ function createTimerHazardGuard( describeSite = defaultSite ) {
 			armedUnderReal.set( node, site );
 		},
 
-		// A node that disposed its timer can no longer strand anything.
+		/**
+		 * Forget a node that released its timer: it strands nothing now.
+		 *
+		 * @param {Object} node The node that disposed its timer.
+		 */
 		onDispose( node ) {
 			armedUnderReal.delete( node );
 		},
 
-		// Per-test teardown: forget everything before the next test.
+		/**
+		 * Forget every arming and the fake install, ready for the next test.
+		 */
 		onClear() {
 			armedUnderReal.clear();
 			sawFakeInstall = false;
 		},
 
 		/**
-		 * `setInterval` was reassigned. Only real→fake is the hazard;
-		 * `useRealTimers` restoring it is the safe direction.
+		 * Record that `setInterval` was reassigned. Only a swap from the real
+		 * function to a fake one is the hazard; `useRealTimers` restoring the
+		 * real one is the safe direction. The flag latches, because a suite that
+		 * restores real timers in a `finally` does so before teardown, where
+		 * sampling the timer state would read real and hide the install.
 		 *
 		 * Recorded, never thrown from here: this runs inside jest's own
 		 * fake-timer install, and throwing mid-install leaves the timer state
@@ -104,13 +122,15 @@ function createTimerHazardGuard( describeSite = defaultSite ) {
 }
 
 /**
- * The first stack frame naming `needle`. Both halves of the guard report a
- * site — the arming's test frame here, the leaked interval's runtime frame in
- * `jest-node-timers.js` — from this one extractor.
+ * The first stack frame naming `needle`, trimmed.
  *
- * @param {Error}  err    Error captured at arming time.
+ * Both halves of the guard report a site through this one extractor: the
+ * arming's test frame here, the leaked interval's runtime frame in
+ * `jest-node-timers.js`.
+ *
+ * @param {Error}  err    Error whose stack holds the site.
  * @param {string} needle Path fragment the wanted frame contains.
- * @return {string} The trimmed frame, or ''.
+ * @return {string} The frame, or '' when none matches or the Error carries no stack.
  */
 function firstFrame( err, needle ) {
 	const line = ( err.stack || '' )
@@ -120,6 +140,11 @@ function firstFrame( err, needle ) {
 }
 
 /**
+ * The site extractor the harness uses: the first frame inside a test file.
+ *
+ * Every remedy is an edit to the test, so the test's own frame is the line
+ * worth printing rather than the runtime frame that called `setInterval`.
+ *
  * @param {Error} err Error captured at arming time.
  * @return {string} The first test-file frame, or ''.
  */

@@ -1,28 +1,45 @@
 /**
- * Roll the topology rows up to the fleet-level vitals the SummaryCards render:
- * topology/active counts, worker-process liveness (running vs CONFIGURED across
- * active topologies), and worst-health.
+ * Roll the topology rows up into the fleet vitals SummaryCards renders on the
+ * Overview and Topologies tabs: topology and active counts, worker-process
+ * liveness, and the worst health across the active topologies.
  *
- * Worker liveness counts against each active topology's configured
- * `num_partitions` (the expected worker-process count) — NOT the partitions that
- * happened to report a worker in the last snapshot, which under-reports when a
- * worker briefly drops out. `workersUp` is capped at `num_partitions` so a stray
- * duplicate row never shows more up than expected.
+ * Worker liveness counts against each active topology's CONFIGURED
+ * `num_partitions`, never the partitions that happened to report a worker in
+ * the last snapshot — that reads "1 / 1" straight through an outage instead of
+ * "1 / 2". The running side folds through `partitionSummaries()`, the fold
+ * TopologyRow and useTopologyManager share, so it counts worker PROCESSES
+ * rather than the several rows each process contributes.
  */
 
 import { partitionSummaries } from './partitionSummaries';
 
-// Worst-health rank: lower is worse.
+/**
+ * Health levels ranked worst to best, so rolling the fleet up is taking a
+ * minimum. A level missing from the table ranks as `ok`: an unrecognized
+ * health string must not darken the card.
+ *
+ * @type {Object<string,number>}
+ */
 const HEALTH_RANK = { stalled: 0, behind: 1, ok: 2 };
 
 /**
- * @param {Array} topologies Rows from useTopologyManager (active flag,
- *                           num_partitions, health, optional live status.workers).
+ * Fold the topology rows into the fleet vitals.
+ *
+ * Only active topologies contribute workers and health, so a stopped topology
+ * frozen at `stalled` never drags the health card down. A topology carrying no
+ * `num_partitions` expects one worker. `workersUp` is capped per topology at
+ * that expected count, so processes still running on partitions a lowered
+ * `num_partitions` no longer covers cannot make the card read "3 / 2".
+ *
+ * @param {?Array<Object>} topologies Rows from useTopologyManager: `active`,
+ *                                    `num_partitions`, `health` and an
+ *                                    optional live `status.workers`. Null
+ *                                    summarizes as an empty fleet.
  * @return {{ topologyCount: number, activeCount: number, workersUp: number,
  *   workersTotal: number, health: string, behindCount: number,
  *   stalledCount: number }} Fleet vitals. `health` is the worst of the active
- *   topologies; `behindCount` and `stalledCount` count the active topologies at
- *   each of those two health levels.
+ *   topologies; `behindCount` and `stalledCount` count the active topologies
+ *   at each of those two levels.
  */
 export function fleetSummary( topologies ) {
 	const list = topologies || [];

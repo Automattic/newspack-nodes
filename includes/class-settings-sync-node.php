@@ -1,12 +1,13 @@
 <?php
 /**
- * Settings_Sync: pushes registered WP-option changes to connected spokes.
+ * Settings_Sync: the hub end of the settings-sync control plane.
  *
- * A worker Consumer tails the settings log and fills this node with option-NAME
- * events; fill() reads each named option's CURRENT value and fans out one `set`
- * command per registered spoke mapping. The recurring fire() re-pushes every
- * registered option so a freshly-connected spoke converges. Mappings are declared
- * via add_setting() and round-trip through dump_config().
+ * `Settings_Event_Writer` appends an option NAME to `settings.p0` on every
+ * watched change, and a worker Consumer tails that log into this node. The value
+ * a spoke receives is therefore the one read at consume time, not the one the
+ * admin request saw. `add_setting()` declares which local option reaches which
+ * spoke under which remote name, and `dump_config()` replays those declarations
+ * as TSL.
  *
  * @package Newspack_Nodes
  */
@@ -15,14 +16,28 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * Pushes every registered WP option to the connected spokes as a signed `set`.
+ *
+ * The node fans out itself rather than sinking into a Tee. `send_set()` mints
+ * one command per live target and signs it under that spoke's session key, and
+ * the key chosen IS the destination binding
+ * ([ADR-15](docs/architecture-decisions.md#adr-15-command-authorization-local-taint--the-minter-signs)),
+ * so a Tee re-addressing one signed command to N spokes would produce a command
+ * that verifies nowhere.
+ *
+ * Two things drive a push. An event from the Consumer pushes the one option that
+ * changed; the recurring sweep pushes every registered option, which is how a
+ * spoke connecting mid-stream converges without an event of its own.
+ */
 class Settings_Sync_Node extends Timer_Node {
 	use Schema_Reflection;
 	use Fanout_Targets;
 
-	/** Default sweep cadence (seconds) used when arguments() is armed without an explicit interval. */
+	/** Sweep cadence in seconds when the make_node line carries no interval token. */
 	private const DEFAULT_INTERVAL_SECONDS = 300;
 
-	/** Re-push sweep cadence in seconds; positional 0. */
+	/** Re-push sweep cadence in seconds; positional 0, floored at one second by cadence_ms(). */
 	protected int $interval_seconds = self::DEFAULT_INTERVAL_SECONDS;
 
 	/**
@@ -37,23 +52,36 @@ class Settings_Sync_Node extends Timer_Node {
 	 */
 	public static ?\Closure $invalidate_options_cache = null;
 
-	/** @var array<string,array<int,array{to:string,remote:string}>> local_option => LIST of {target spoke path, remote option name}. A local may map to several spoke targets (e.g. a remote_* setting seeds both the spoke's stripped option and its own remote_* copy). */
+	/**
+	 * Local option name to the mappings it pushes under: `to` is the path below
+	 * every spoke target, `remote` the option name to set there.
+	 *
+	 * One local option maps to several. A hub `remote_*` setting seeds both the
+	 * spoke's stripped option, which is that spoke's own config, and the spoke's
+	 * `remote_*` copy, which the spoke propagates onward to ITS spokes.
+	 *
+	 * @var array<string,array<int,array{to:string,remote:string}>>
+	 */
 	protected array $registry = [];
 
-	/** Tachikoma-parity: no-arg ctor. Wires the sibling :config interpreter from node_schema()['commands']. */
+	/** No-arg constructor (Tachikoma parity); wires the sibling `:config` interpreter from node_schema()['commands']. */
 	public function __construct() {
 		parent::__construct();
 		$this->auto_wire_interpreter();
 	}
 
 	/**
-	 * Arm the recurring re-push timer. A Timer_Node subclass does not
-	 * self-schedule, so we explicitly call set_timer() here. A blank/absent
-	 * interval falls back to the default 300s sweep cadence.
+	 * Read the argument tokens, or apply them and arm the recurring sweep.
 	 *
-	 * @param list<string>|null $args Interval in seconds (digits) at token 0, empty for the default, or null to read back.
+	 * `Timer_Node::arguments()` arms only a bare `Timer`, so a subclass arms
+	 * itself: drop the `set_timer()` call and the node parses a cadence it then
+	 * never fires on. `parse_schema_args()` assigns `interval_seconds` from the
+	 * schema declaration, and that declaration is the whole parse
+	 * ([ADR-11](docs/architecture-decisions.md#adr-11-make_node-construction-sequence)).
+	 *
+	 * @param list<string>|null $args Interval in seconds at token 0, blank for the schema default, or null to read back.
 	 * @return list<string> Last-set argument tokens.
-	 * @throws \InvalidArgumentException When the interval token isn't a run of digits.
+	 * @throws \InvalidArgumentException When the interval token is not a whole number.
 	 */
 	public function arguments( ?array $args = null ): array {
 		if ( null === $args ) {
@@ -67,11 +95,11 @@ class Settings_Sync_Node extends Timer_Node {
 	/**
 	 * On a settings-change event, push the named option to the spokes.
 	 *
-	 * The consumer feeds a TM_STRUCT carrying only the option NAME
+	 * The Consumer feeds a TM_STRUCT carrying only the option NAME
 	 * (`VALUE = ['option' => $name]`); the effective value is read here at
 	 * consume time. Anything that isn't a TM_STRUCT with an 'option' key is dropped.
 	 *
-	 * @param array<int,mixed> $message Message reference.
+	 * @param array<int,mixed> $message The 7-field positional message array.
 	 */
 	public function fill( array $message ): void {
 		++$this->counter;
@@ -88,8 +116,9 @@ class Settings_Sync_Node extends Timer_Node {
 
 	/**
 	 * Periodic re-push: emit one `set` command for EVERY registered option in a
-	 * single tick, so the downstream batched HTTP_Out coalesces them into one
-	 * POST per spoke.
+	 * single tick, so the batching `HTTP_Out` downstream coalesces them into one
+	 * POST per spoke. It replaces the base Timer heartbeat rather than adding to
+	 * it — a spoke wants the settings, not a tick.
 	 */
 	public function fire(): void {
 		foreach ( \array_keys( $this->registry ) as $local ) {
@@ -98,8 +127,9 @@ class Settings_Sync_Node extends Timer_Node {
 	}
 
 	/**
-	 * Build and fan out one `set` command for a single registered local option.
-	 * Drops silently if the option isn't registered or the node has no sink.
+	 * Read one registered local option and fan its current value out, one `set`
+	 * per mapping. Drops silently when the option is unregistered or the node has
+	 * no sink; a value that will not encode drops with a rate-limited line.
 	 *
 	 * @param string $local Local WP-option name.
 	 */
@@ -125,10 +155,15 @@ class Settings_Sync_Node extends Timer_Node {
 	}
 
 	/**
-	 * Build + fan out one `set <remote_option> <scalar>` command toward a spoke
-	 * (the configured `target/<to>` path).
+	 * Mint one `set <remote_option> <scalar>` command per live target, each
+	 * addressed `<target>/<to>` and signed under that spoke's own session key.
 	 *
-	 * @param string $to            Spoke path segment under the target.
+	 * A spoke with no session yet is skipped AND asked to handshake: every
+	 * minter refuses to queue unsigned, so nothing else would ask and both sides
+	 * would sit still. The first 30 seconds of a worker's life stay quiet,
+	 * because a session still being established is not worth a line.
+	 *
+	 * @param string $to            Path below each spoke target the command is addressed to.
 	 * @param string $remote_option Option name to set on the spoke.
 	 * @param string $scalar        Already-scalarized value token.
 	 */
@@ -163,14 +198,21 @@ class Settings_Sync_Node extends Timer_Node {
 		}
 	}
 
-	/** The egress a target names; a target may be a path, so resolve its head. */
+	/** The HTTP_Out a target names, or null; a target may be a path, so resolve its head. */
 	private function egress_for( string $target ): ?HTTP_Out_Node {
 		[ $head ] = Message::split_first( $target );
 		$node     = Core::node( $head );
 		return $node instanceof HTTP_Out_Node ? $node : null;
 	}
 
-	/** Flatten to one token: arrays become JSON, scalars stringify; null if bad. */
+	/**
+	 * Flatten a value to one command token: an array encodes as JSON, a scalar
+	 * stringifies. JSON rather than a join because an option's array KEYS are
+	 * data — `custom_events` is `event_name => true` — and a join drops them.
+	 *
+	 * @param mixed $v Raw option value.
+	 * @return string|null The token, or null when the value will not encode.
+	 */
 	private static function scalarize( mixed $v ): ?string {
 		if ( \is_array( $v ) ) {
 			$json = \wp_json_encode( $v, \JSON_UNESCAPED_SLASHES );
@@ -180,14 +222,16 @@ class Settings_Sync_Node extends Timer_Node {
 	}
 
 	/**
-	 * Register a local-option → spoke mapping. Three positional tokens:
-	 * `<local_option> <TO> <remote_option>`. Repeatable per local option (a
-	 * `remote_*` setting is added twice — once mapping to the spoke's stripped
-	 * option, once to its own `remote_*` copy); exact duplicates are idempotent
-	 * so re-running the topology doesn't fan out twice.
+	 * Register one mapping from a local option to a spoke option, as the three
+	 * tokens `<local_option> <TO> <remote_option>`.
 	 *
-	 * @param array<array-key,mixed> $args Whitespace-separated `<local_option> <TO> <remote_option>`.
-	 * @return string 'ok', or an `error: …` string on arity mismatch.
+	 * Repeatable per local option: a hub `remote_*` setting is registered twice,
+	 * once against the spoke's stripped option and once against the spoke's own
+	 * `remote_*` copy. An exact duplicate is ignored, so re-running the topology
+	 * does not double the fan-out.
+	 *
+	 * @param array<array-key,mixed> $args Tokens `<local_option> <TO> <remote_option>`.
+	 * @return string "ok\n", or an `error: …` line when the arity is wrong.
 	 */
 	public function add_setting( array $args ): string {
 		$parts = \array_values( \array_map( static fn ( $v ): string => Core::as_string( $v ), $args ) );
@@ -205,7 +249,12 @@ class Settings_Sync_Node extends Timer_Node {
 		return "ok\n";
 	}
 
-	/** Emit the base config plus one round-trippable `command_node {name}:config add_setting …` per registry mapping. */
+	/**
+	 * The base graph snippet plus one `command_node {name}:config add_setting …`
+	 * line per registry mapping, so a dump replays the whole mapping table.
+	 *
+	 * @return string Newline-terminated TSL lines.
+	 */
 	public function dump_config(): string {
 		$out = parent::dump_config();
 		foreach ( $this->registry as $local => $specs ) {
@@ -217,9 +266,10 @@ class Settings_Sync_Node extends Timer_Node {
 	}
 
 	/**
-	 * `add_setting` verb handler — registers a local→spoke mapping on the patron.
-	 * Named so node_schema() stays declarative (the schema links this, not an
-	 * inline closure).
+	 * The `add_setting` verb handler: register the mapping on the patron node.
+	 *
+	 * The verb table links this method instead of carrying the body inline, so
+	 * `node_schema()` stays a declaration.
 	 *
 	 * @param Command_Interpreter_Node $interpreter The sibling `:config` interpreter.
 	 * @param array<array-key,mixed>  $args        `<local_option> <TO> <remote_option>`.
@@ -231,7 +281,12 @@ class Settings_Sync_Node extends Timer_Node {
 		return $patron->add_setting( $args );
 	}
 
-	/** Topology console manifest: palette entry + verb forms. */
+	/**
+	 * Topology-console manifest: the palette entry, the constructor argument and
+	 * the `add_setting` verb form, merged over Timer_Node's.
+	 *
+	 * @return array<string,mixed>
+	 */
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
 			'category'    => 'Control',

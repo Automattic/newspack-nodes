@@ -2,14 +2,25 @@
 /**
  * Settings_Schema: the substrate's config declaration — ONE Field per setting.
  *
- * The single source both Config (overlay key-list) and Admin
- * (register_setting + add_settings_field loops, option_names, delete-on-blank
- * set, reset list, worker-restart classification) derive from.
+ * Each substrate config key is declared once here — its default, its bounds and
+ * its worker-restart class — and every other view of that key derives from the
+ * Field. `Config` reads the defaults, the overlay key-list and the declared-key
+ * set; `Admin` registers, renders and resets the settings page through it;
+ * `Settings_CI_Node` bounds-checks the `settings` verb against the same min/max
+ * the page clamps to; `Restart_Planner` reads the restart class;
+ * `Settings_Event_Writer` derives the Config Audit values allowlist from the
+ * rendered option names.
  *
- * The Field render/sanitize callables point at Admin's static methods; building
- * the Schema only references them as `[Admin::class, '…']` callables (never
- * invokes them), so a worker that loads Config for overlay_keys() never pulls
- * in the admin surface.
+ * A default belongs here rather than in `newspack-nodes-config.php` because a
+ * deploy preserves the operator's config file: a key added later never appears
+ * in it, so a default living only there reads null forever (ADR-20). Every
+ * config file is an override surface and nothing else.
+ *
+ * Labels are `fn(): string` thunks. Any config read builds this schema — in
+ * workers and CLI runs, not only admin requests — so resolving a label eagerly
+ * would make every read depend on `__()`. The render and sanitize callables
+ * name Admin's static methods as `[ Admin::class, '…' ]` and are never invoked
+ * here, so a schema-building worker never loads the admin surface.
  *
  * @package Newspack_Nodes
  */
@@ -22,13 +33,20 @@ use Newspack_Nodes\Config_System\Schema;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * The substrate's own Schema: its Fields and the three sections they render in.
+ *
+ * Fields are declared in settings-page order — the storage, remote and alerting
+ * sections — followed by the `ui: false` keys, which the per-request overlay
+ * loads and `Config::value()` reads but the page never renders.
+ */
 class Settings_Schema {
 
 	/** @var Schema|null Memoized — the schema is pure structure (runtime values resolve inside the render callbacks). */
 	private static ?Schema $schema = null;
 
 	/**
-	 * The substrate settings schema (memoized).
+	 * The substrate settings schema, built once per process.
 	 *
 	 * Footgun: every ui-visible Field's option auto-joins the Config Audit
 	 * VALUES allowlist (Settings_Event_Writer logs old/new excerpts to the
@@ -56,7 +74,7 @@ class Settings_Schema {
 					default: 1,
 					label: static fn(): string => \__( 'Num Partitions', 'newspack-nodes' ),
 					section: $storage,
-					// Fleet_Node re-reads each window.
+					// The fleet scan re-expands the worker list every pass.
 					restart: [],
 					render: [ Admin::class, 'num_partitions_callback' ],
 				),
@@ -169,7 +187,7 @@ class Settings_Schema {
 					render: [ Admin::class, 'log_sources_callback' ],
 					register_args: [ 'type' => 'array', 'default' => [], 'autoload' => false ],
 				),
-				// Remote storage geometry; registered + resettable.
+				// Spoke geometry the hub pushes; nothing local reads it.
 				new Field(
 					key: 'remote_segment_size',
 					type: 'int',
@@ -280,7 +298,7 @@ class Settings_Schema {
 					render: [ Admin::class, 'alert_emit_interval_callback' ],
 					register_args: [ 'type' => 'integer', 'autoload' => false ],
 				),
-				// Overlay-only SSE close-at-EOF pair; read once per stream.
+				// Idle-close window and reopen delay, read at stream open.
 				new Field(
 					key: 'sse_idle_timeout',
 					type: 'int',
@@ -333,28 +351,28 @@ class Settings_Schema {
 					default: 0,
 					ui: false,
 				),
-				// ui:false overlay; registering lets Save wipe the active set.
+				// Unregistered: a page Save would submit it empty and wipe it.
 				new Field(
 					key: 'topologies',
 					type: 'array_strings',
 					default: [],
 					ui: false,
 				),
-				// Overlay-only access whitelist; no settings field.
+				// Login allow-list narrowing admin access; empty = no filter.
 				new Field(
 					key: 'allowed_users',
 					type: 'array_strings',
 					default: [],
 					ui: false,
 				),
-				// Deploy replaces the config file; only this survives.
+				// A deploy replaces the config file; the schema outlives it.
 				new Field(
 					key: 'spawn_verify_ssl',
 					type: 'bool',
 					default: true,
 					ui: false,
 				),
-				// Encrypted registry; a ui Field joins the audit allowlist.
+				// Encrypted credentials; a ui Field would log their values.
 				new Field(
 					key: 'vault',
 					type: 'array_strings',
@@ -368,6 +386,7 @@ class Settings_Schema {
 					default: true,
 					ui: false,
 				),
+				// Refuses a plaintext spoke url outright; HTTP_Out enforces it.
 				new Field(
 					key: 'vault_require_ssl',
 					type: 'bool',

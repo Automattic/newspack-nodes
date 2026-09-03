@@ -5,17 +5,20 @@
  *
  * It owns one easy handle (the SSE GET) registered on the Event_Framework's shared
  * cURL multi, one in-memory `{segment, offset}` cursor, and one SSE connection's
- * worth of parser state. It is a *source*: `fill()` is a no-op (it doesn't receive
- * messages). Delivery is the `on_message` seam ONLY — each `data:` payload is handed
- * to the patron RAW, byte-identical to the remote's on-disk encoding, and the patron
- * owns unpacking, FROM stamping, target and the sink fill. This node reads neither
- * `sink` nor `target`; `node_schema()` declares no `has_target` for the same reason.
+ * worth of parser state. It is a *source*: `fill()` only counts, because nothing
+ * upstream sends to it. Delivery is the `on_message` seam ONLY — each `data:` payload
+ * reaches the patron RAW, byte-identical to the remote's on-disk encoding, and the
+ * patron owns unpacking, FROM stamping, target and the sink fill. This node reads
+ * neither `sink` nor `target`.
  *
  * It is passive: it owns NO timer. Inbound bytes flow via the Event_Framework's
  * cURL polling (`register_curl_easy` + `on_curl_message`, like HTTP_Out).
  * Connect / reconnect / stale are driven by a *patron* calling `maybe_connect()`
  * and `check_stale()`. The patron owns durable position persistence and any status
  * memcache write — SSE_In keeps only the in-memory cursor + connection state.
+ *
+ * The wire is `SSE_Out`'s: five event types — `connected`, `msg`, `heartbeat`,
+ * `retry` and `disconnect` — each carrying one packed 7-field Message.
  *
  * @package Newspack_Nodes
  */
@@ -31,15 +34,30 @@ namespace Newspack_Nodes;
 // phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_strerror
 // cURL is required for SSE multiplexing — wp_remote_get() can't do it.
 
+/**
+ * SSE_In node — `make_node SSE_In <name>` takes no arguments; the patron
+ * configures it through `configure()`.
+ */
 class SSE_In_Node extends Node {
+	/** Seconds allowed to connect. The transfer itself is untimed (CURLOPT_TIMEOUT 0). */
 	public const CONNECT_TIMEOUT   = 5;
+
+	/**
+	 * Seconds of total silence `check_stale()` reads as a dead stream. SSE_Out
+	 * heartbeats every 2 seconds, so only a broken link reaches this.
+	 */
 	public const HEARTBEAT_TIMEOUT = 45;
+
+	/** Reconnect-delay floor in seconds; any received event resets the delay here. */
 	public const INITIAL_BACKOFF   = 1;
 
+	/** Reconnect-delay ceiling in seconds; `increase_backoff()` doubles up to it. */
 	public const MAX_BACKOFF       = 30;
 
-	/** Hard ceilings on the stream buffer and on one event: 32 MB each. */
+	/** Ceiling on unconsumed buffered bytes: 32 MiB without a newline is a broken peer. */
 	public const MAX_BUFFER_SIZE   = 33554432;
+
+	/** Ceiling on one event's accumulated `data:`, 32 MiB. Either overflow retires the lease. */
 	public const MAX_EVENT_SIZE    = 33554432;
 
 	/**
@@ -56,60 +74,110 @@ class SSE_In_Node extends Node {
 	public static ?\Closure $curl_dispatch = null;
 
 	/**
-	 * Delivery seam. The owner (patron) sets this; every `msg` SSE event hands its RAW
-	 * `data:` payload (the packed line, byte-identical to the remote's on-disk encoding)
-	 * to it. Remote_Source implements it as an append
-	 * the raw line to its Durable_Reader buffer. A null seam drops the event.
+	 * Delivery seam, set by the patron. Every `msg` SSE event hands its RAW `data:`
+	 * payload — the packed line, byte-identical to the remote's on-disk encoding — to
+	 * this closure; `Remote_Source_Node` appends that line to the buffer its
+	 * `Durable_Reader` drains. A null seam drops the event.
+	 *
 	 * Signature: `function ( string $raw ): void`.
 	 *
 	 * @var \Closure|null
 	 */
 	public ?\Closure $on_message        = null;
+
+	/** Application-Password secret, paired with `$auth_username` for Basic auth. */
 	protected string $auth_password     = '';
+
+	/** Bearer token, reached only when there is no username and password. */
 	protected string $auth_token        = '';
+
+	/** Application-Password user for Basic auth against the remote. */
 	protected string $auth_username     = '';
+
+	/** Remote partition directory to open, `<topic>.p<N>`; also the `positions` map key. */
 	protected string $subscribe         = '';
 
 	/** Ask the remote to read this subscription with the multi-writer seal-grace. */
 	protected bool $multi_writer        = false;
 
+	/** Remote base URL without a trailing slash; the stream path is appended at connect. */
 	protected string $url               = '';
 
+	/** Received bytes not yet consumed as whole lines. */
 	private string $buffer              = '';
+
 	/** The LEASE: true only past the `connected` handshake, never at open. */
 	private bool   $connected           = false;
+
+	/** When the `connected` handshake landed; only the clean-EOF diagnostic reads it. */
 	private ?float $connected_at        = null;
+
+	/** Seconds that must pass after `$last_attempt` before `maybe_connect()` reopens. */
 	private int    $current_backoff     = self::INITIAL_BACKOFF;
-	/** @var array{event:string, data:string} Current SSE event accumulator. */
+
+	/** @var array{event:string,data:string} Current SSE event accumulator. */
 	private array  $current_event       = [ 'event' => '', 'data' => '' ];
 
 	/** Active easy handle when connected, null otherwise. Registered on the Event_Framework's shared multi. */
 	private ?\CurlHandle $handle        = null;
+
+	/** When the last open was attempted; 0.0 before the first, and the backoff starts here. */
 	private float   $last_attempt       = 0.0;
+
+	/** Why the stream last failed, or null when it never has. `connection()` publishes it. */
 	private ?string $last_error         = null;
+
+	/** When the last event of any kind arrived; `check_stale()` measures silence from it. */
 	private float   $last_event_time    = 0.0;
+
+	/** HTTP status of the current transfer, read once its first byte arrives. */
 	private ?int    $last_http_code     = null;
+
+	/** Wall-second of the last `heartbeat` event, for the patron's status display. */
 	private ?int    $last_sse_heartbeat = null;
 
-	/** @var array{segment:int, offset:int} Read cursor. */
+	/**
+	 * Read cursor sent at connect. The patron owns it — `configure()` and
+	 * `restore_position()` are the only writers, and nothing here advances it.
+	 *
+	 * @var array{segment:int,offset:int}
+	 */
 	private array $position             = [ 'segment' => 0, 'offset' => 0 ];
 	/** Whether $position is a real place we were put, vs the never-seeded default. */
 	private bool  $position_set         = false;
+
 	/** A SEEK sentinel to ask for instead of $position; the remote resolves it. */
 	private ?int  $pending_seek         = null;
+
 	/** Reopen delay the server advertised — `retry` event or field; null = none. */
 	private ?int  $server_retry_ms      = null;
+
 	/** Wall-second this stream is due back after a scheduled close; null = not waiting on one. */
 	private ?int  $scheduled_reconnect_at = null;
+
+	/** Refuse a non-HTTPS URL outright rather than connecting to it. */
 	private bool  $require_ssl          = false;
+
 	/** Lease owner captured from the `connected` handshake. */
 	private ?int  $owner                = null;
+
 	/** Session pid snooped from the `connected` handshake; scopes a reply-FROM. */
 	private ?int  $session_pid          = null;
+
+	/** Slot index the remote's pool leased to this stream, from the handshake. */
 	private ?int  $slot                 = null;
+
+	/**
+	 * Machine key of a terminal `disconnect` event, such as `slot_lease_lost`.
+	 * Retained with the reason so the close path can tell an end the server
+	 * ordered from a transport failure.
+	 */
 	private ?string $terminal_disconnect_key    = null;
+
+	/** Operator-facing reason from a terminal `disconnect`; becomes `$last_error` at close. */
 	private ?string $terminal_disconnect_reason = null;
 
+	/** Verify the remote's TLS certificate. */
 	private bool $verify_ssl            = true;
 
 	/** Tachikoma-parity: no-arg ctor. Config arrives via configure(); no I/O here (ADR-5). */
@@ -120,7 +188,8 @@ class SSE_In_Node extends Node {
 	/**
 	 * Node contract. SSE_In is a *source* — like Tail, it generates messages from
 	 * an external stream, but it hands them to the `on_message` seam rather than a
-	 * sink. It doesn't accept upstream messages.
+	 * sink. It doesn't accept upstream messages. The counter still advances, so a
+	 * message misrouted here shows up in `ls -c` instead of vanishing.
 	 *
 	 * @api Dynamic entrypoint.
 	 * @param array<int,mixed> $message The 7-field positional message array.
@@ -130,10 +199,15 @@ class SSE_In_Node extends Node {
 	}
 
 	/**
-	 * Open an easy handle if currently disconnected and outside backoff.
+	 * Open an easy handle when there is none and the backoff window has passed.
+	 * Builds the stream URL from `$subscribe` and the cursor, adds the credential
+	 * header, clears every per-connection field, and registers the handle on the
+	 * Event_Framework's shared multi. A refusal — a non-HTTPS URL under
+	 * `$require_ssl`, or `curl_init()` failing — records `$last_error`, doubles the
+	 * backoff and reports DISCONNECTED.
 	 *
 	 * @api Dynamic entrypoint.
-	 * @return bool true if a handle was opened.
+	 * @return bool True when a handle was opened.
 	 */
 	public function maybe_connect(): bool {
 		if ( $this->handle instanceof \CurlHandle ) {
@@ -160,7 +234,7 @@ class SSE_In_Node extends Node {
 		if ( $this->multi_writer ) {
 			$params['multi_writer'] = '1';
 		}
-		// Stated, never implied: omission meant "tail", so {0,0} was unaskable.
+		// Always sent: omission means tail, so {0,0} would be unaskable.
 		$params['positions'] = (string) \wp_json_encode(
 			[
 				// Keyed by partition dir = $subscribe (<topic>.p<N>).
@@ -248,9 +322,15 @@ class SSE_In_Node extends Node {
 	}
 
 	/**
-	 * CURLOPT_WRITEFUNCTION callback. Returns bytes-consumed or 0 to abort.
+	 * CURLOPT_WRITEFUNCTION callback. Returning fewer bytes than libcurl handed over
+	 * aborts the transfer, so a parser refusal returns 0 and every other path returns
+	 * the full length. Bytes from a handle this node has already detached are
+	 * swallowed rather than parsed: the stream state they belong to is gone.
 	 *
 	 * @api Dynamic entrypoint.
+	 * @param \CurlHandle $handle The handle libcurl is writing from.
+	 * @param string      $bytes  The chunk received.
+	 * @return int Bytes consumed, or 0 to abort the transfer.
 	 */
 	public function on_curl_data( \CurlHandle $handle, string $bytes ): int {
 		if ( $handle !== $this->handle ) {
@@ -331,10 +411,12 @@ class SSE_In_Node extends Node {
 	}
 
 	/**
-	 * Parse a chunk of SSE bytes off the buffer. Returns false on overflow.
-	 * Public so patrons / tests can drive the parser without cURL.
+	 * Append a chunk to the buffer and parse every complete line out of it. Public so
+	 * patrons and tests can drive the parser without cURL.
 	 *
 	 * @api Dynamic entrypoint.
+	 * @param string $bytes Raw wire bytes.
+	 * @return bool False when the buffer overflowed or a line was fatal.
 	 */
 	public function process_sse_chunk( string $bytes ): bool {
 		// bytes_read counts wire bytes; JS counts only msg data — not a bug.
@@ -369,6 +451,14 @@ class SSE_In_Node extends Node {
 		}
 	}
 
+	/**
+	 * Consume one SSE line: a blank line dispatches the accumulated event, a leading
+	 * colon is a comment, and `event`, `retry` and `data` accumulate. Any other field
+	 * name is ignored, per the SSE spec.
+	 *
+	 * @param string $line One line, already stripped of its trailing CR.
+	 * @return bool False when the event data overflowed.
+	 */
 	private function parse_sse_line( string $line ): bool {
 		if ( '' === $line ) {
 			return $this->dispatch_event();
@@ -410,6 +500,15 @@ class SSE_In_Node extends Node {
 		return true;
 	}
 
+	/**
+	 * Dispatch the accumulated event and clear the accumulator. `msg` hands its RAW
+	 * payload to `on_message`; `connected`, `heartbeat`, `retry` and `disconnect` are
+	 * bookkeeping this node consumes; an unknown type is ignored. Every event resets
+	 * the backoff and refreshes liveness, so a talking stream never ages into
+	 * `check_stale()`.
+	 *
+	 * @return bool False when the event was fatal to the connection.
+	 */
 	private function dispatch_event(): bool {
 		$type     = $this->current_event['event'];
 		$raw_data = $this->current_event['data'];
@@ -513,7 +612,7 @@ class SSE_In_Node extends Node {
 	 * values use canonical decimal form so the owner cannot be lossy-coerced.
 	 *
 	 * @param array<int,mixed> $message 7-field Message array.
-	 * @return bool
+	 * @return bool False when the envelope was rejected.
 	 */
 	private function handle_connected( array $message ): bool {
 		$value = $message[ Message::VALUE ];
@@ -552,7 +651,12 @@ class SSE_In_Node extends Node {
 		return true;
 	}
 
-	/** Reject a malformed connected handshake without retaining a partial lease. */
+	/**
+	 * Reject a malformed connected handshake without retaining a partial lease.
+	 *
+	 * @param string $reason Operator-facing rejection reason.
+	 * @return bool Always false, so the caller aborts the transfer.
+	 */
 	private function reject_connected( string $reason ): bool {
 		$this->session_pid = null;
 		$this->connected_at = null;
@@ -563,7 +667,12 @@ class SSE_In_Node extends Node {
 		return false;
 	}
 
-	/** Single-line, bounded text safe for operator diagnostics. */
+	/**
+	 * Single-line, bounded text safe for operator diagnostics.
+	 *
+	 * @param string $text Raw text from libcurl or the remote.
+	 * @return string Control characters collapsed to spaces, trimmed to 512 bytes.
+	 */
 	private static function safe_diagnostic_text( string $text ): string {
 		$clean = \preg_replace( '/[\x00-\x1F\x7F]+/', ' ', $text );
 		$clean = \trim( null === $clean ? '' : $clean );
@@ -573,7 +682,11 @@ class SSE_In_Node extends Node {
 		return $clean;
 	}
 
-	/** Factual clean-EOF message, augmented only by a valid handshake's context. */
+	/**
+	 * Factual clean-EOF message, augmented only by a valid handshake's context.
+	 *
+	 * @return string The error text `on_curl_message()` records and reports.
+	 */
 	private function clean_eof_error(): string {
 		$error = 'HTTP 200 SSE stream ended without a server disconnect reason';
 		if ( null === $this->session_pid || null === $this->connected_at ) {
@@ -628,6 +741,7 @@ class SSE_In_Node extends Node {
 		$this->scheduled_reconnect_at = (int) $this->last_attempt + $seconds;
 	}
 
+	/** Double the reconnect delay, clamped to `INITIAL_BACKOFF`..`MAX_BACKOFF`. */
 	private function increase_backoff(): void {
 		$this->current_backoff = \min( self::MAX_BACKOFF, \max( self::INITIAL_BACKOFF, $this->current_backoff * 2 ) );
 	}
@@ -673,7 +787,7 @@ class SSE_In_Node extends Node {
 
 	/**
 	 * Backpressure valve — ARM: re-add the easy handle to the shared multi so its socket
-	 * is serviced again, resuming the paused transfer. No-op until connected (no handle yet).
+	 * is serviced again, resuming the paused transfer. No-op without a live handle.
 	 * The dual of disarm(); a buffering owner (Remote_Source) calls this when its buffer runs
 	 * dry of complete lines.
 	 *
@@ -702,14 +816,15 @@ class SSE_In_Node extends Node {
 
 	/**
 	 * Programmatic configuration entry point for the patron. Sets every field
-	 * directly. `$subscribe` is the full `<remote_topic>.p<partition>` string.
+	 * directly and touches no socket, so it takes effect at the next connect.
+	 * `$subscribe` is the full `<remote_topic>.p<partition>` string.
 	 *
 	 * @param string             $url           Base URL (no trailing slash).
 	 * @param string             $auth_username Application-Password user (Basic auth).
 	 * @param string             $auth_password Application-Password secret.
 	 * @param string             $auth_token    Optional Bearer token fallback.
 	 * @param string             $subscribe     Subscription name (`<topic>.p<N>`).
-	 * @param array{segment?:int,offset?:int} $positions Initial cursor.
+	 * @param array{segment?:int,offset?:int} $positions Initial cursor; empty asks the remote for SEEK_END.
 	 * @param bool               $verify_ssl    Verify the remote SSL cert.
 	 * @param bool               $require_ssl   Refuse non-HTTPS remote URLs.
 	 */
@@ -744,6 +859,8 @@ class SSE_In_Node extends Node {
 	 * append to. Carried as a connect-time query parameter, so a change reaches
 	 * the far-side reader only on the next stream — the patron drops the current
 	 * one to make that happen.
+	 *
+	 * @param bool $flag Whether the remote reader applies the seal-grace.
 	 */
 	public function set_multi_writer( bool $flag ): void {
 		$this->multi_writer = $flag;
@@ -753,6 +870,8 @@ class SSE_In_Node extends Node {
 	 * Restore last-committed position. Called by the patron before `maybe_connect()`.
 	 *
 	 * @api Dynamic entrypoint.
+	 * @param int $segment Segment index the patron has committed through.
+	 * @param int $offset  Byte offset within that segment.
 	 */
 	public function restore_position( int $segment, int $offset ): void {
 		$this->position      = [
@@ -767,8 +886,13 @@ class SSE_In_Node extends Node {
 	/**
 	 * Ask the remote for a SEEK rather than a byte position (`Consumer_Node::SEEK_*`).
 	 * A pull source has no segments of its own, so it cannot resolve `end` or `recent`
-	 * locally; it forwards the sentinel to the side that holds the log. Held until the
-	 * first forwarded record replaces it with a real position.
+	 * locally; it forwards the sentinel to the side that holds the log. The sentinel
+	 * outranks `$position` on every connect until `restore_position()` replaces it,
+	 * which is why the patron reads `has_pending_seek()` before handing its cursor
+	 * down — the per-tick handoff would otherwise answer the seek with the very
+	 * position it was asked to leave.
+	 *
+	 * @param int $sentinel One of the `Consumer_Node::SEEK_*` values.
 	 */
 	public function seek( int $sentinel ): void {
 		$this->pending_seek = $sentinel;
@@ -793,6 +917,7 @@ class SSE_In_Node extends Node {
 	 * Slot captured from the `connected` handshake.
 	 *
 	 * @api Dynamic entrypoint.
+	 * @return int|null The leased slot index, or null while unconnected.
 	 */
 	public function slot(): ?int {
 		return $this->slot;
@@ -802,6 +927,7 @@ class SSE_In_Node extends Node {
 	 * Lease owner captured from the `connected` handshake.
 	 *
 	 * @api Dynamic entrypoint.
+	 * @return int|null The fencing token, or null while unconnected.
 	 */
 	public function owner(): ?int {
 		return $this->owner;
@@ -812,6 +938,7 @@ class SSE_In_Node extends Node {
 	 * A caller stamps it into the reply-FROM (`_sse:{pid}/{node}`).
 	 *
 	 * @api Dynamic entrypoint.
+	 * @return int|null The remote session pid, or null while unconnected.
 	 */
 	public function pid(): ?int {
 		return $this->session_pid;
@@ -841,12 +968,20 @@ class SSE_In_Node extends Node {
 		];
 	}
 
-	/** @api Used by tests. */
+	/**
+	 * The active easy handle, for tests asserting connect and teardown.
+	 *
+	 * @api Used by tests.
+	 * @return \CurlHandle|null The live handle, or null while disconnected.
+	 */
 	public function test_get_handle(): ?\CurlHandle {
 		return $this->handle;
 	}
 
 	/**
+	 * Palette entry for the topology console. Hidden because a patron builds this
+	 * node rather than an operator, and it accepts no fill.
+	 *
 	 * @api Dynamic entrypoint.
 	 * @return array<string,mixed>
 	 */

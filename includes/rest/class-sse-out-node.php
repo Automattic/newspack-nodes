@@ -35,28 +35,63 @@ use Newspack_Nodes\Worker_Should_Stop;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * One request, one stream, one graph. The controller names itself `_sse`, so
+ * whatever the graph routes there arrives in `fill()` and goes out on the open
+ * response. The Router, command interpreter, HTTP filter and per-subscription
+ * Consumers around it are built inside the drain's `try` and removed in its
+ * `finally`, which is what leaves the process registry empty for the next
+ * stream even when the drain throws.
+ *
+ * `Log_Stream_Out_Node` extends it with `ROUTE` and `open_subscription()` as
+ * its only overrides, so the two endpoints stay identical on the wire.
+ */
 class SSE_Out_Node extends Node {
 
-	/** Flush-comment total byte size. Must stay under PIPE_BUF (4096 on Linux). */
+	/**
+	 * Total byte size of the padding comment `flush_if_needed()` writes. 4096
+	 * clears the response buffers nginx and CloudFront hold a small event in;
+	 * short of that, a dashboard shows nothing until enough real events
+	 * accumulate to fill one.
+	 */
 	public const FLUSH_SIZE = 4096;
 
-	/** Idle heartbeat cadence (ms); data flushes every tick regardless. 2s. */
+	/**
+	 * Heartbeat cadence in milliseconds. Pending events are flushed on every
+	 * drain tick, so this paces the idle keepalive alone.
+	 */
 	public const HEARTBEAT_MS = 2000;
 
-	/** @var non-falsy-string */
+	/**
+	 * The REST namespace every substrate route registers under.
+	 *
+	 * @var non-falsy-string
+	 */
 	public const REST_NAMESPACE = 'newspack-nodes/v1';
 
-	/** @var non-falsy-string Late-static-bound so a subclass overrides just the route. */
+	/**
+	 * The path this controller answers on. `register_routes()` reads it
+	 * late-static, so a subclass changes its endpoint by redeclaring this one
+	 * constant and inherits every wire behaviour unchanged.
+	 *
+	 * @var non-falsy-string
+	 */
 	public const ROUTE = '/messages/stream';
 
-	/** Explicit sentinel lease for direct, unmetered test/default streams. */
+	/**
+	 * The lease an unmetered stream carries: what `stream()` uses when no slot
+	 * pool is wired, and what `run_stream_loop()` defaults to. Slot -1 sits
+	 * outside every pool's range, and the owner is an arbitrary positive
+	 * integer because `require_lease()` refuses a non-positive one.
+	 */
 	private const UNMETERED_LEASE = [
 		'slot'  => -1,
 		'owner' => 93939397,
 	];
 
 	/**
-	 * Allow-list of event names emitted without sanitization (O(1) hot-path).
+	 * Event names `sanitize_event_name()` passes through untouched. Keyed
+	 * rather than listed so the check on the emit path is one `isset()`.
 	 *
 	 * @var array<string,int>
 	 */
@@ -71,42 +106,52 @@ class SSE_Out_Node extends Node {
 	];
 
 	/**
-	 * SSE slot-pool seams. The application wires these in to gate concurrent
-	 * SSE connections; unset → acquire returns an explicit unmetered lease,
-	 * release/check are no-ops.
+	 * The four slot-pool seams that gate concurrent streams, installed by
+	 * `SSE_Slot_Pool::wire()` from `Bootstrap::register_rest_routes()`. REST
+	 * registration is the only wiring site, because reading these properties
+	 * any earlier force-loads this controller on admin and cron requests that
+	 * never stream. Left null, `acquire` hands back the unmetered sentinel
+	 * lease and the other three do nothing.
 	 *
-	 * acquire: `function ( int $partition ): array|false` (-1 shared browser
-	 * pool, >=0 per-partition; false → HTTP 429 before headers).
+	 * Acquire runs once per stream: `function ( int $partition ): array|false`,
+	 * taking the partition the subscriptions name, or -1 when none names one.
+	 * It is called before any header is sent, so `false` can still answer 429.
+	 * The shipped pool ignores the partition and pools slots host-wide.
 	 *
 	 * @var \Closure(int): (array{slot:int,owner:int}|false)|null
 	 */
 	public static ?\Closure $acquire_slot = null;
 
 	/**
-	 * check: `function ( array $lease, int $partition ): bool` (false aborts).
+	 * Consulted on every drain tick to confirm the stream still holds the exact
+	 * lease it acquired; false takes the `disconnect` close. It only reads —
+	 * refreshing the TTL belongs to the client heartbeat, and refreshing it
+	 * here would let a stream nobody is reading hold its slot indefinitely.
 	 *
 	 * @var \Closure(array{slot:int,owner:int}, int): bool|null
 	 */
 	public static ?\Closure $check_slot   = null;
 
 	/**
-	 * release: `function ( array $lease, int $partition ): void` (drain `finally`).
+	 * Called from the drain's `finally`, so neither a clean close nor a throw
+	 * leaves the slot held until its TTL expires.
 	 *
 	 * @var \Closure(array{slot:int,owner:int}, int): void|null
 	 */
 	public static ?\Closure $release_slot = null;
 
 	/**
-	 * Failure-only inspection:
-	 * `function ( array $lease, int $partition ): array`.
+	 * Read only once a check has already failed, to name the cache backend and
+	 * the lease state in the diagnostic line. The healthy path never pays it.
 	 *
 	 * @var \Closure(array{slot:int,owner:int}, int): array<string,int|string>|null
 	 */
 	public static ?\Closure $inspect_slot = null;
 
 	/**
-	 * Narrow log seam for asserting the exact redacted context in tests.
-	 * Production leaves it null and writes one JSON-encoded error-log line.
+	 * Log seam narrow enough for a test to assert the exact redacted context.
+	 * Production leaves it null and writes one JSON line through the node
+	 * stderr chain.
 	 *
 	 * @var \Closure(array<string,mixed>): void|null
 	 */
@@ -133,7 +178,13 @@ class SSE_Out_Node extends Node {
 	 */
 	private bool $multi_writer = false;
 
-	/** Node egress (terminal, not forwarded): emits each Message as an SSE `msg` event. */
+	/**
+	 * Node egress, and terminal: write the Message to the response as an SSE
+	 * `msg` event instead of forwarding it. Each one counts as data, which is
+	 * what defers the idle close.
+	 *
+	 * @param array<int,mixed> $message The 7-field positional message array.
+	 */
 	public function fill( array $message ): void {
 		++$this->counter;
 		$this->last_data = Core::$now ?: Core::right_now();
@@ -141,13 +192,15 @@ class SSE_Out_Node extends Node {
 	}
 
 	/**
-	 * Stream handler — parses params, sets SSE headers, delegates the drain
-	 * loop to `run_stream_loop()`.
+	 * The REST handler: read the query parameters, take a slot, then run the
+	 * stream to its end and exit.
 	 *
-	 * Slot acquisition fires BEFORE `init_sse_headers` so a rate-limited
-	 * stream can still return a JSON `WP_Error` (HTTP 429).
+	 * Acquisition happens BEFORE `init_sse_headers()` so a refused stream can
+	 * still answer with a JSON `WP_Error`. Once the event-stream headers are
+	 * out, 429 is no longer sayable.
 	 *
-	 * @return \WP_Error|void WP_Error on rate-limit (429); otherwise streams and exits.
+	 * @param \WP_REST_Request $request Request carrying `subscribe`, `positions` and `multi_writer`.
+	 * @return \WP_Error|void WP_Error when no slot is free (429); otherwise streams and exits.
 	 */
 	public function stream( \WP_REST_Request $request ) {
 		$subscribe     = $request->get_param( 'subscribe' );
@@ -176,9 +229,11 @@ class SSE_Out_Node extends Node {
 
 	/**
 	 * Split the CSV `subscribe` query parameter into trimmed subscription
-	 * names. Empty/blank entries dropped so stray commas don't produce ghosts.
+	 * names. Blank entries are dropped, so a stray comma cannot conjure a
+	 * subscription that then fails the traversal guard.
 	 *
-	 * @return array<int,string>
+	 * @param string $raw The raw query-parameter value.
+	 * @return array<int,string> Subscription names, in the order given.
 	 */
 	public function parse_subscriptions( string $raw ): array {
 		if ( '' === $raw ) {
@@ -189,10 +244,12 @@ class SSE_Out_Node extends Node {
 	}
 
 	/**
-	 * Decode the `positions` query parameter (JSON object keyed by
-	 * subscription name). Null when omitted/empty/malformed → tail-seek all.
+	 * Decode the `positions` query parameter, a JSON object keyed by the stamp
+	 * each subscription resolves to. Returns null when the parameter is absent,
+	 * empty or not a JSON array, and every subscription then tail-seeks.
 	 *
-	 * @return array<array-key,mixed>|null
+	 * @param string $raw The raw query-parameter value.
+	 * @return array<array-key,mixed>|null Saved positions, or null to tail-seek.
 	 */
 	public function parse_positions( string $raw ): ?array {
 		if ( '' === $raw ) {
@@ -203,10 +260,11 @@ class SSE_Out_Node extends Node {
 	}
 
 	/**
-	 * Compute the partition the slot pool keys on. IPC-shape (`{type}.p{N}`)
-	 * → that partition (first wins); log-shape or empty → `-1` (browser pool).
+	 * Pick the partition to hand the slot pool: the number the first IPC-shaped
+	 * (`{type}.p{N}`) subscription carries, or -1 when none carries one.
 	 *
-	 * @param array<int,string> $subs
+	 * @param array<int,string> $subs Subscription names.
+	 * @return int A partition number, or -1 for a stream that names no partition.
 	 */
 	private function subscription_partition( array $subs ): int {
 		foreach ( $subs as $sub ) {
@@ -223,22 +281,24 @@ class SSE_Out_Node extends Node {
 	}
 
 	/**
-	 * Drain loop body — split out from `stream()` so tests can call without
-	 * the headers / exit. Emits the `connected` envelope, builds the
-	 * SSE-process substrate graph, opens one-or-more Consumers per
-	 * subscription, and drains until the should_continue gate flips false.
-	 * Cleanup in `finally` removes every node. The drain predicate consults
-	 * `$check_slot` each iteration; `finally` calls `$release_slot`.
+	 * Run one stream without the HTTP wrapper: no headers, no `exit`. The
+	 * events still go to the output buffer, which is what a test captures.
 	 *
-	 * A hard PHP/server/process termination can bypass the terminal event,
-	 * diagnostic log, and finally block; the client must retain a distinct
-	 * unexplained-EOF path for those failures.
+	 * It emits the `retry` schedule, builds the SSE-process graph, opens a
+	 * Consumer per subscription, emits the `connected` envelope, and drains
+	 * until the predicate returns false — consulting `$check_slot` on every
+	 * iteration, and calling `$release_slot` from the same `finally` that
+	 * removes every node it built.
 	 *
-	 * @param array<int,string>             $subs      Subscription names.
-	 * @param array<array-key,mixed>|null  $positions Per-subscription saved positions.
-	 * @param int                           $interval  Heartbeat / flush cadence ms.
-	 * @param array{slot:int,owner:int}     $lease     Acquired lease (default slot -1 = unmetered).
-	 * @param int                           $partition Slot-pool partition (-1 = shared browser).
+	 * A hard PHP, server or process termination bypasses the terminal event,
+	 * the diagnostic line and that `finally` alike, so a client still needs an
+	 * unexplained-EOF path of its own.
+	 *
+	 * @param array<int,string>           $subs      Subscription names.
+	 * @param array<array-key,mixed>|null $positions Saved positions, keyed by stamp.
+	 * @param int                         $interval  Heartbeat cadence in milliseconds.
+	 * @param array{slot:int,owner:int}   $lease     The lease this stream holds.
+	 * @param int                         $partition The partition the lease was taken for.
 	 *
 	 * @api Direct loop runner for tests that must not send HTTP headers or exit.
 	 */
@@ -253,12 +313,19 @@ class SSE_Out_Node extends Node {
 	}
 
 	/**
-	 * Protect every operation after acquisition with one diagnostic and cleanup
-	 * lifetime. The REST handler includes response setup; direct loop tests do not.
+	 * Put every operation after acquisition inside one diagnostic-and-cleanup
+	 * lifetime. The lease is validated in here rather than at the acquire call
+	 * so a malformed one is reported through the same diagnostic path as any
+	 * other failure, under the lease-less context branch.
 	 *
-	 * @param array<int,string>            $subs
-	 * @param array<array-key,mixed>|null $positions
-	 * @param mixed                        $lease Raw acquire result; validated inside the protected lifetime.
+	 * @param array<int,string>           $subs              Subscription names.
+	 * @param array<array-key,mixed>|null $positions         Saved positions, keyed by stamp.
+	 * @param int                         $interval          Heartbeat cadence in milliseconds.
+	 * @param mixed                       $lease             Raw acquire result.
+	 * @param int                         $partition         The partition the lease was taken for.
+	 * @param bool                        $initialize_stream Whether to send the response headers, which only the REST handler does.
+	 *
+	 * @throws \Throwable Whatever the stream raised, once the diagnostic line is written.
 	 */
 	private function run_acquired_stream(
 		array $subs,
@@ -286,7 +353,7 @@ class SSE_Out_Node extends Node {
 			// Build INSIDE try so finally cleans up (else _router collides).
 			( new Router_Node() )->name( Node_Names::ROUTER );
 
-			// SSE-process interpreter → _router; authorize with the verifier.
+			// The SSE interpreter sinks into _router; verifier gates it.
 			Command_Interpreter_Node::$default_authorize = Command_Auth::verifier();
 			$interpreter = new Command_Interpreter_Node();
 			$interpreter->name( Node_Names::COMMAND_INTERPRETER );
@@ -318,7 +385,7 @@ class SSE_Out_Node extends Node {
 				if ( $is_glob ) {
 					$glob_subs[] = $sub;
 				}
-				// Positions are a FLAT { dir: pos } map; pass the whole thing.
+				// Positions are a FLAT { stamp: pos } map; pass it whole.
 				$opened = $this->open_subscription(
 					$sub,
 					\is_array( $positions ) ? $positions : null
@@ -366,7 +433,7 @@ class SSE_Out_Node extends Node {
 			// Padding clears proxy buffers; a bare flush does not.
 			$this->flush_if_needed();
 
-			// Heartbeat every $interval ms so an idle-but-live stream ≠ dead.
+			// Heartbeat every $interval ms so an idle stream reads as live.
 			$heartbeat_interval = \max( 0.1, $interval / 1000.0 );
 			$last_heartbeat     = Core::right_now();
 			$this->last_data    = $idle_since ?? $last_heartbeat;
@@ -387,7 +454,7 @@ class SSE_Out_Node extends Node {
 						return false;
 					}
 					$now = Core::$now; // the enclosing drain refreshes this each tick
-					// Idle a window: close clean, let `retry:` reopen it.
+					// Idle a window: close clean, the `retry` event reopens it.
 					if ( $idle_timeout > 0 && ( $now - $this->last_data ) >= $idle_timeout ) {
 						$this->flush_if_needed();
 						return false;
@@ -453,9 +520,13 @@ class SSE_Out_Node extends Node {
 	}
 
 	/**
-	 * The subscription dir a FROM breadcrumb names — the inverse of
+	 * The subscription dir a FROM breadcrumb names, and the inverse of
 	 * `stamp_for()`: a grouped stamp keeps its `{group}/` prefix, a bare-logs
-	 * one is the first path segment alone.
+	 * one is the first path segment alone. Reading the leading segments rather
+	 * than the whole string is what lets a full routing path resolve too.
+	 *
+	 * @param string $from A stamp, or a FROM path beginning with one.
+	 * @return string The dir name that stamp addresses.
 	 */
 	private static function dir_from_stamp( string $from ): string {
 		$parts = \explode( '/', $from );
@@ -466,9 +537,14 @@ class SSE_Out_Node extends Node {
 	}
 
 	/**
-	 * Require the coordinated two-field lease shape; no slot-only fallback.
+	 * Require the whole two-field lease shape, with no slot-only fallback: a
+	 * slot number alone cannot be checked or released against its owner, so
+	 * accepting one would hand out a lease nothing can reclaim.
 	 *
-	 * @return array{slot:int,owner:int}
+	 * @param mixed $lease Raw acquire result.
+	 * @return array{slot:int,owner:int} The validated lease.
+	 *
+	 * @throws \UnexpectedValueException When the seam returned any other shape.
 	 */
 	private static function require_lease( mixed $lease ): array {
 		if (
@@ -487,11 +563,13 @@ class SSE_Out_Node extends Node {
 	}
 
 	/**
-	 * Emit a single SSE event. SAFE_EVENTS pass through; anything else is
-	 * sanitized via `sanitize_event_name()`. JSON-encodes the payload.
+	 * Emit one SSE event: the sanitized name, then the packed Message as the
+	 * `data` field.
 	 *
-	 * @param string           $event   Event name.
-	 * @param array<int,mixed> $message 7-field positional Message.
+	 * @param string           $event   Event name; a SAFE_EVENTS entry passes through.
+	 * @param array<int,mixed> $message The 7-field positional message array.
+	 *
+	 * @throws \InvalidArgumentException When sanitization leaves the name empty.
 	 */
 	protected function send_sse_event( string $event, array $message ): void {
 		$event = $this->sanitize_event_name( $event );
@@ -502,7 +580,12 @@ class SSE_Out_Node extends Node {
 		$this->write_wire( "event: {$event}\ndata: {$json}\n\n" );
 	}
 
-	/** Put one framed chunk on the wire. Never escaped — SSE framing is bytes. */
+	/**
+	 * Put one framed chunk on the wire and arm the padding flush. The payload
+	 * is never escaped: SSE framing is bytes, and escaping would corrupt it.
+	 *
+	 * @param string $payload One complete SSE frame, terminator included.
+	 */
 	private function write_wire( string $payload ): void {
 		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 		echo $payload;
@@ -511,11 +594,12 @@ class SSE_Out_Node extends Node {
 	}
 
 	/**
-	 * Strip everything outside [a-zA-Z0-9_-] from an unsafe event name (SSE
-	 * `event:` line injection defense). SAFE_EVENTS pass through verbatim.
+	 * Strip everything outside `[a-zA-Z0-9_-]` from an event name that is not
+	 * on the allow-list. A name carrying a newline would otherwise end the
+	 * `event:` line and forge whatever SSE fields followed it.
 	 *
 	 * @param string $event Caller-supplied event name.
-	 * @return string Sanitized event name (may be empty).
+	 * @return string The sanitized name, which may be empty.
 	 */
 	protected function sanitize_event_name( string $event ): string {
 		if ( isset( self::SAFE_EVENTS[ $event ] ) ) {
@@ -527,21 +611,27 @@ class SSE_Out_Node extends Node {
 	/**
 	 * Resolve a subscription to one-or-more `Consumer`s, layout-agnostically.
 	 *
-	 * `$sub` is a concrete resource dir NAME or a glob over one — no `.p{N}`
-	 * parsing. An exact name with a live IPC worker (`{base}/ipc/{sub}/output`)
-	 * tails that; otherwise it globs `{base}/{group}/{rest}` (exact name → itself,
-	 * `firehose.*` → one Consumer per matching partition dir), each stamped +
-	 * resume-keyed by its concrete dir basename. A traversal-guarded pattern
-	 * (name-char lead, no `/`, no `..`, `*` the only wildcard) confines glob to
-	 * logs/ipc; anything else throws. `$positions` (keyed by dir basename) seed
-	 * each cursor; absent → tail-seek. A valid pattern matching nothing → [].
+	 * `$sub` names a concrete resource dir or globs over several; the partition
+	 * token is part of that name and is never parsed out. A bare exact name
+	 * whose worker holds a live IPC channel (`{base}/ipc/{sub}/output`) tails
+	 * that channel. Everything else globs `{base}/{group}/{rest}` and yields
+	 * one Consumer per matched dir — itself for an exact name, every partition
+	 * dir for `firehose.*` — each stamped and resume-keyed by the stamp
+	 * `stamp_for()` builds from its dir basename.
+	 *
+	 * The remainder after the group prefix must lead with a name character and
+	 * contain neither `/` nor `..`, which leaves `*` as the only wildcard and
+	 * confines the glob to one level under a browsable root; anything else
+	 * throws. A matching `$positions` entry seeds that reader's cursor and an
+	 * absent one tail-seeks. A valid pattern matching nothing opens nothing.
 	 *
 	 * @param string                      $sub       Subscription name or glob.
-	 * @param array<array-key,mixed>|null $positions Saved positions, keyed by dir basename.
+	 * @param array<array-key,mixed>|null $positions Saved positions, keyed by stamp.
 	 *
-	 * @return array<int,Consumer_Node>
+	 * @return array<int,Consumer_Node> One reader per matched dir, unattached.
 	 *
-	 * @throws \InvalidArgumentException When `$sub` fails the traversal guard.
+	 * @throws \InvalidArgumentException When `$sub` names a root outside the
+	 *                                  browsable groups, or fails the guard.
 	 */
 	public function open_subscription( string $sub, ?array $positions ): array {
 		$base = $this->base_dir ?? Bootstrap::base_dir();
@@ -568,7 +658,7 @@ class SSE_Out_Node extends Node {
 			}
 		}
 
-		// Partition feed: one Consumer per matched dir (exact name → itself).
+		// Partition feed: one Consumer per matched dir.
 		$consumers = [];
 		foreach ( self::matched_dirs( $base, $sub )[1] as $dir ) {
 			$name        = self::stamp_for( $group, \basename( $dir ) );
@@ -578,12 +668,14 @@ class SSE_Out_Node extends Node {
 	}
 
 	/**
-	 * A subscription's root group + its concrete matched partition dirs
-	 * (`logs` bare; `offsets/…` / `deadletter/…` prefixed); an exact name
-	 * matches itself. Layout-agnostic — the partition token sits wherever the
-	 * producer put it in the dir name. Glob I/O errors yield an empty list.
+	 * A subscription's root group and the concrete dirs it matches, an exact
+	 * name matching itself. Layout-agnostic: the partition token sits wherever
+	 * the producer put it in the dir name, so nothing here parses one out. A
+	 * glob I/O error yields an empty list.
 	 *
-	 * @return array{0: string, 1: array<int,string>} Group + absolute dir paths.
+	 * @param string $base The runtime base dir the roots sit under.
+	 * @param string $sub  Subscription name or glob.
+	 * @return array{0:string,1:array<int,string>} The group, then absolute dir paths.
 	 */
 	private static function matched_dirs( string $base, string $sub ): array {
 		[ $group, $rest ] = self::parse_group( $sub );
@@ -593,18 +685,22 @@ class SSE_Out_Node extends Node {
 
 	/**
 	 * Self-heal glob subscriptions against the live filesystem: open a Consumer
-	 * for each newly-appeared matching dir (tail-seek — it appeared after connect)
-	 * and remove_node one whose dir vanished (partitions increasing OR decreasing).
-	 * Only glob-OPENED names (`$glob_owned`) are removed — an exact IPC/log
-	 * subscription is never touched. A `glob()` I/O error skips the removal pass
-	 * (keep what we have) so a transient logs/ read failure can't tear down and
-	 * re-tail every partition, only re-add on a trusted (error-free) scan.
+	 * for each newly-appeared matching dir, tail-seeking it because it appeared
+	 * after the connect, and remove the one whose dir has vanished. Partition
+	 * counts move in both directions, so both halves are needed.
+	 *
+	 * Only a stamp a glob opened is removable, so an exact IPC or log
+	 * subscription is never touched. A `glob()` I/O error skips the removal
+	 * pass and keeps what is already open: a transient read failure under
+	 * `logs/` must not tear down and re-tail every partition, so a removal
+	 * waits for a scan that came back clean.
 	 *
 	 * @api Called on the drain heartbeat; also unit-tested directly.
 	 *
 	 * @param array<int,string>           $glob_subs  Subscriptions containing `*`.
-	 * @param array<string,Consumer_Node> $consumers  Live map (by dir basename), mutated in place.
-	 * @param array<string,bool>          $glob_owned Names opened by a glob (removable), mutated in place.
+	 * @param array<string,Consumer_Node> $consumers  Live map keyed by stamp, mutated in place.
+	 * @param array<string,bool>          $glob_owned Stamps opened by a glob (removable), mutated in place.
+	 * @param Node                        $route      The `_default_route` each new Consumer sinks into.
 	 */
 	public function reconcile_glob_consumers( array $glob_subs, array &$consumers, array &$glob_owned, Node $route ): void {
 		$base    = $this->base_dir ?? Bootstrap::base_dir();
@@ -642,11 +738,13 @@ class SSE_Out_Node extends Node {
 	}
 
 	/**
-	 * Split an optional `{group}/` prefix off a subscription: bare = the logs
-	 * root (stamped bare, back-compat); `offsets/…` and `deadletter/…` address
-	 * their sibling roots (stamped WITH the prefix). Any other prefix throws.
+	 * Split an optional `{group}/` prefix off a subscription. A bare name
+	 * addresses the logs root and stamps bare; `offsets/…` and `deadletter/…`
+	 * address their sibling roots and stamp WITH the prefix. `logs/x` is
+	 * refused rather than aliased to bare `x`, so one source has one spelling.
 	 *
-	 * @return array{0: string, 1: string} The root group + the remainder.
+	 * @param string $sub Subscription name or glob.
+	 * @return array{0:string,1:string} The root group, then the remainder.
 	 *
 	 * @throws \InvalidArgumentException On a prefix outside the browsable roots.
 	 */
@@ -656,7 +754,6 @@ class SSE_Out_Node extends Node {
 			return [ 'logs', $sub ];
 		}
 		$group = \substr( $sub, 0, $slash );
-		// `logs/x` rejected, not aliased to bare `x`: one spelling per source.
 		if ( 'logs' === $group || ! \in_array( $group, Log_Discovery::GROUPS, true ) ) {
 			throw new \InvalidArgumentException(
 				\esc_html( "invalid subscription: {$sub}" )
@@ -671,10 +768,15 @@ class SSE_Out_Node extends Node {
 	}
 
 	/**
-	 * Build a Consumer tailing one concrete log-partition dir, stamped +
-	 * resume-keyed by its basename (matching the FROM the browser parses).
+	 * Build a Consumer tailing one concrete log-partition dir, stamped and
+	 * resume-keyed by `$name` — the same stamp the browser reads back out of
+	 * each message's FROM.
 	 *
-	 * @param array<array-key,mixed>|null $positions Saved positions by dir name.
+	 * @param string                      $dir       Absolute path of the partition dir.
+	 * @param string                      $name      The stamp this reader carries.
+	 * @param array<array-key,mixed>|null $positions Saved positions, keyed by stamp.
+	 *
+	 * @return Consumer_Node A reader seeded from its saved position, else tail-seeking.
 	 */
 	private function log_consumer_for( string $dir, string $name, ?array $positions ): Consumer_Node {
 		$consumer = new Consumer_Node();
@@ -699,11 +801,11 @@ class SSE_Out_Node extends Node {
 	 *
 	 * A worker IPC attach never reports idle. That consumer tail-seeks, so it is
 	 * caught up the instant it opens, and a console attaching to a quiet worker
-	 * would be hung up on before rendering a line — then wait out the full
-	 * `retry:` gap for a stream it just asked for. The window reclaims tails
-	 * nobody is reading; an attached console is someone reading.
+	 * would be hung up on before rendering a line — then wait out the whole
+	 * advertised `retry` gap for a stream it just asked for. The window
+	 * reclaims tails nobody is reading; an attached console is someone reading.
 	 *
-	 * @param array<string,Consumer_Node> $consumers Attached consumers.
+	 * @param array<string,Consumer_Node> $consumers Attached consumers, keyed by stamp.
 	 *
 	 * @return float|null Epoch seconds, or null to fall back to the present.
 	 */
@@ -723,10 +825,14 @@ class SSE_Out_Node extends Node {
 	}
 
 	/**
-	 * Name a Consumer by its dir-basename stamp, wire it into the SSE graph, and
-	 * add it to the live $consumers map. Skips a name already open (dedup).
+	 * Name a Consumer after the stamp it carries, wire it into the SSE graph,
+	 * and record it in the live map. A stamp already open is skipped, so two
+	 * subscriptions matching the same dir yield one reader, and an unstamped
+	 * Consumer is refused rather than registered under an empty name.
 	 *
-	 * @param array<string,Consumer_Node> $consumers Live map, mutated in place.
+	 * @param Consumer_Node               $c         The reader to attach.
+	 * @param array<string,Consumer_Node> $consumers Live map keyed by stamp, mutated in place.
+	 * @param Node                        $route     The `_default_route` it sinks into.
 	 */
 	private function attach_consumer( Consumer_Node $c, array &$consumers, Node $route ): void {
 		$name = $c->stamped_as();
@@ -745,8 +851,8 @@ class SSE_Out_Node extends Node {
 	 * `SEEK_END` -1 / `SEEK_RECENT` -2), or one of the alias words. Anything else
 	 * falls back to 'start' (next_offset's default case).
 	 *
-	 * @param mixed $position Raw per-partition position.
-	 * @return array<array-key,mixed>|string|int
+	 * @param mixed $position Raw per-subscription saved position.
+	 * @return array<array-key,mixed>|string|int A value `next_offset()` accepts.
 	 */
 	protected static function position_arg( $position ) {
 		if ( \is_array( $position ) ) {
@@ -760,12 +866,15 @@ class SSE_Out_Node extends Node {
 	}
 
 	/**
-	 * Build the `connected` Message envelope the SSE client expects first:
-	 * session pid (attached-command FROM stamp), slot index, the opened
-	 * subscriptions (echoed back), and the heartbeat/flush interval.
+	 * Build the `connected` envelope, the first application frame after the
+	 * `retry` schedule: the session pid a browser stamps into the FROM of its
+	 * attached commands, the lease it holds, the subscriptions echoed back, the
+	 * heartbeat cadence, and each subscription's starting cursor.
 	 *
-	 * @param array{slot:int,owner:int} $lease
-	 * @param array<int,string>         $subs
+	 * @param array{slot:int,owner:int} $lease    The lease this stream holds.
+	 * @param array<int,string>         $subs     Subscription names, as asked for.
+	 * @param int                       $interval Heartbeat cadence in milliseconds.
+	 * @param string                    $cursors  CSV `stamp=segment:offset` pairs, omitted when empty.
 	 * @return array<int,mixed> The 7-field positional Message.
 	 */
 	private function build_connected_msg( array $lease, array $subs, int $interval, string $cursors = '' ): array {
@@ -791,9 +900,11 @@ class SSE_Out_Node extends Node {
 	}
 
 	/**
-	 * Build a `heartbeat` Message envelope
+	 * Build the `heartbeat` envelope that proves an idle stream is still live.
+	 * It carries the tick's timestamp and nothing else, and it does not count
+	 * as data, so it never defers the idle close.
 	 *
-	 * @param float $now Current timestamp.
+	 * @param float $now The current timestamp, as the drain read it.
 	 * @return array<int,mixed> The 7-field positional Message.
 	 */
 	private function build_heartbeat_msg( float $now ): array {
@@ -820,7 +931,13 @@ class SSE_Out_Node extends Node {
 		return $message;
 	}
 
-	/** @return array<int,mixed> Terminal application-directed disconnect Message. */
+	/**
+	 * The terminal frame for a stream whose lease was taken from under it: a
+	 * machine KEY the client branches on, and a VALUE it can display. A clean
+	 * idle close sends no frame at all, so this one always means failure.
+	 *
+	 * @return array<int,mixed> The 7-field positional Message.
+	 */
 	private function build_disconnect_msg(): array {
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_INFO;
@@ -831,11 +948,17 @@ class SSE_Out_Node extends Node {
 	}
 
 	/**
-	 * Add one failure-only, whitelisted lease inspection to the close context.
+	 * Add one lease inspection to the close context, taken only once the lease
+	 * is already lost. The backend and lease state are required; the memcached
+	 * and APCu fields are copied one allow-listed key at a time, and only when
+	 * they arrive with the declared type, so a backend cannot widen the line.
 	 *
-	 * @param array{slot:int,owner:int} $lease
-	 * @param array<int,string>         $subs
-	 * @return array<string,mixed>
+	 * @param array{slot:int,owner:int} $lease     The lease that went missing.
+	 * @param int                       $partition The partition it was taken for.
+	 * @param array<int,string>         $subs      Subscription names.
+	 * @return array<string,mixed> The redacted diagnostic fields.
+	 *
+	 * @throws \UnexpectedValueException When the inspection omits either required string.
 	 */
 	private function lease_loss_context( array $lease, int $partition, array $subs ): array {
 		$inspect    = self::$inspect_slot;
@@ -873,11 +996,15 @@ class SSE_Out_Node extends Node {
 	}
 
 	/**
-	 * Base redacted context shared by deliberate closes and exceptions.
+	 * The redacted context both a deliberate close and an exception report.
+	 * The owner stays out of it — that is the token `workers heartbeat` proves
+	 * the lease with — and the slot and pid already identify the stream.
 	 *
-	 * @param array{slot:int,owner:int} $lease
-	 * @param array<int,string>         $subs
-	 * @return array<string,mixed>
+	 * @param string                    $reason    Machine-readable close reason.
+	 * @param array{slot:int,owner:int} $lease     The lease this stream held.
+	 * @param int                       $partition The partition it was taken for.
+	 * @param array<int,string>         $subs      Subscription names.
+	 * @return array<string,mixed> The redacted diagnostic fields.
 	 */
 	private function stream_context( string $reason, array $lease, int $partition, array $subs ): array {
 		return [
@@ -890,9 +1017,14 @@ class SSE_Out_Node extends Node {
 	}
 
 	/**
-	 * Write exactly one structured line, or hand the redacted context to tests.
+	 * Report a failed stream as one structured line, or hand the context to the
+	 * log seam. Only a lost lease and an unexpected throw report at all; the
+	 * caller's own flag keeps a lease loss that then throws to a single line,
+	 * and a clean idle close writes nothing.
 	 *
 	 * @param array<string,mixed> $context Redacted diagnostic fields.
+	 *
+	 * @throws \RuntimeException When the context will not JSON-encode.
 	 */
 	private function write_diagnostic( array $context ): void {
 		$diagnostic_log = self::$diagnostic_log;
@@ -934,11 +1066,13 @@ class SSE_Out_Node extends Node {
 	}
 
 	/**
-	 * If anything has been sent since the last flush, emit a FLUSH_SIZE SSE
-	 * comment to push pending events past any proxy/TLS buffer. Idempotent.
+	 * If anything has been written since the last flush, pad the response past
+	 * the proxy and TLS buffers holding it. Idempotent: with nothing pending it
+	 * writes nothing, so calling it on every drain tick costs one boolean.
 	 *
-	 * Wire format: `:` + (FLUSH_SIZE-3) dots + "\n\n". NO space after the
-	 * colon — framing the dashboard React hooks expect.
+	 * The padding is one SSE comment — a colon, `FLUSH_SIZE - 3` dots, then the
+	 * blank line — so every SSE parser discards it and no handler ever sees it.
+	 * Only the byte count matters, and it must come to exactly FLUSH_SIZE.
 	 */
 	protected function flush_if_needed(): void {
 		if ( ! $this->needs_flush ) {
@@ -953,14 +1087,22 @@ class SSE_Out_Node extends Node {
 
 	/**
 	 * Apply the multi-writer seal-grace to every log Consumer this stream opens
-	 * (see `Consumer_Node::SEAL_GRACE_SECONDS`). Set from the request in
-	 * `stream()`; an IPC attach is single-writer and never takes it.
+	 * (see `Consumer_Node::SEAL_GRACE_SECONDS`). `stream()` sets it from the
+	 * request; an IPC attach has one writer and never takes the grace.
+	 *
+	 * @param bool $flag Whether more than one process appends to these logs.
 	 */
 	public function set_multi_writer( bool $flag ): void {
 		$this->multi_writer = $flag;
 	}
 
-	/** @api Support for unit tests. */
+	/**
+	 * Point the subscription resolver at another runtime base dir.
+	 *
+	 * @api Support for unit tests.
+	 *
+	 * @param string $dir Absolute path holding `logs/`, `ipc/` and their siblings.
+	 */
 	public function set_base_dir( string $dir ): void {
 		$this->base_dir = $dir;
 	}
@@ -969,7 +1111,8 @@ class SSE_Out_Node extends Node {
 	 * Capability-only gate; NO nonce — a nonce breaks the cross-server pull.
 	 * Fronts the fleet, so the multisite guard applies.
 	 *
-	 * @return bool|\WP_Error
+	 * @return bool|\WP_Error True when the caller may read, false when it may
+	 *                        not, and a 403 WP_Error on a multisite subsite.
 	 */
 	public function check_permission() {
 		$gate = Bootstrap::fleet_gate();
@@ -979,6 +1122,10 @@ class SSE_Out_Node extends Node {
 		return Capabilities::can( Capabilities::READ );
 	}
 
+	/**
+	 * Register the stream route. Both constants are read late-static, so a
+	 * subclass publishes its own path by declaring `ROUTE` and nothing else.
+	 */
 	public function register_routes(): void {
 		\register_rest_route(
 			static::REST_NAMESPACE,

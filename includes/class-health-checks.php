@@ -1,6 +1,7 @@
 <?php
 /**
- * Canonical environment and fleet health report.
+ * Canonical environment and fleet health report — the one evaluator behind both
+ * the Site Health test and `wp nodes doctor`.
  *
  * @package Newspack_Nodes
  */
@@ -10,30 +11,88 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 /**
+ * The environment and fleet report: cache backend, runtime filesystem,
+ * ownership, housekeeping cron and configuration keys, followed by the three
+ * alert families.
+ *
+ * Declaring a check here is what keeps the two surfaces in sync. Site Health's
+ * `direct` test and `wp nodes doctor` both render whatever `evaluate()`
+ * returns, so neither can carry a check the other lacks, and the three statuses
+ * are WordPress Site Health's own vocabulary, reaching it unchanged.
+ *
+ * A check that cannot answer says so in its own result instead of throwing. An
+ * unresolvable base directory or an unreadable config file costs one line;
+ * throwing would cost the operator the whole report, and the cache, filesystem
+ * and ownership findings are what diagnose the rest.
+ *
  * @phpstan-type HealthStatus 'good'|'recommended'|'critical'
  * @phpstan-type HealthResult array{id:string,label:string,status:HealthStatus,messages:list<string>}
  * @phpstan-type NormalizedAlert array{key:string,message:string,severity:string}
  */
 final class Health_Checks {
 
-	public const STATUS_GOOD        = 'good';
-	public const STATUS_RECOMMENDED = 'recommended';
-	public const STATUS_CRITICAL    = 'critical';
+	/** Nothing to act on. */
+	public const STATUS_GOOD = 'good';
 
-	public const CACHE_ID    = 'cache-backend';
+	/** Worth attention; the fleet still runs. */
+	public const STATUS_RECOMMENDED = 'recommended';
+
+	/** Broken now: workers cannot run, or shared state is unreliable. */
+	public const STATUS_CRITICAL = 'critical';
+
+	/**
+	 * Result id of the cache-backend check. `Health_Probe_Client` refuses a
+	 * loopback result that does not carry this id and this label, so a response
+	 * from anything but this check can never stand in for a local probe.
+	 */
+	public const CACHE_ID = 'cache-backend';
+
+	/** Label of the cache-backend check, validated alongside `CACHE_ID`. */
 	public const CACHE_LABEL = 'Cache backend';
 
-	/** @var (\Closure(string): bool)|null */
+	/**
+	 * Probe-removal seam. Lazily-defaulted at the call site to a closure calling
+	 * `unlink()`. Tests reassign it to refuse the removal, so the writability
+	 * check, the real write probe and the message formatting around it run as
+	 * production code rather than being mocked away.
+	 *
+	 * Signature: `function ( string $path ): bool`.
+	 *
+	 * @var (\Closure(string): bool)|null
+	 */
 	public static ?\Closure $remove_probe = null;
 
-	/** @var (\Closure(): array<int,array<string,mixed>>)|null */
+	/**
+	 * Alerts-evaluation seam. Lazily-defaulted at the call site to a closure
+	 * calling `Alerts::evaluate()`. Tests reassign it to feed fixed alert rows,
+	 * malformed ones included, and to count calls — which is how the skip on an
+	 * unresolved base directory is proved.
+	 *
+	 * Signature: `function (): array<int,array<string,mixed>>`.
+	 *
+	 * @var (\Closure(): array<int,array<string,mixed>>)|null
+	 */
 	public static ?\Closure $evaluate_alerts = null;
 
+	/** Never instantiated: every entry point is static. */
 	private function __construct() {}
 
 	/**
 	 * Evaluate the ordered health report: eight results, plus `fleet-hold`
-	 * while a deploy hold stands.
+	 * while a deploy hold stands, plus `other-alerts` when an alert declares a
+	 * family this class does not bucket.
+	 *
+	 * The base directory resolves once here, and its refusal is caught rather
+	 * than propagated: `filesystem()` and `ownership()` are the two checks that
+	 * can explain it, and ownership needs the configured path the validation
+	 * rejected. When it does not resolve, the alerts evaluator is skipped — it
+	 * computes every condition from lock-dir heartbeats, the probe cursor log
+	 * and the quarantine dirs, all of which live under that base — and the three
+	 * fleet families report that instead.
+	 *
+	 * `wp nodes doctor` passes the web runtime's cache result over the loopback,
+	 * because a CLI process sees a different cache posture than the process
+	 * serving requests.
 	 *
 	 * @param HealthResult|null $cache_result Validated remote cache result, or null for a local probe.
 	 * @return list<HealthResult>
@@ -117,6 +176,9 @@ final class Health_Checks {
 	}
 
 	/**
+	 * Report whether the reconciliation cron event is scheduled, once any
+	 * topology is active.
+	 *
 	 * Housekeeping rides `Bootstrap::reconcile_fleet()` on the minute cron, so a
 	 * missing `newspack_nodes/reconcile` event loses retention, orphan reaping,
 	 * alert emission, the delayed-jobs sweep and every `newspack_nodes/periodic`
@@ -151,7 +213,22 @@ final class Health_Checks {
 		return self::result( 'housekeeping', 'Housekeeping', self::STATUS_GOOD, 'The reconciliation pass is scheduled; next run ' . \gmdate( 'Y-m-d H:i:s', $next ) . ' UTC.' );
 	}
 
-	/** @return HealthResult */
+	/**
+	 * Compare the runtime directory's owner against this process's effective
+	 * uid — the mismatch that leaves one process unable to write into the lock
+	 * and IPC directories another uid created.
+	 *
+	 * A refused base directory is inspected too, at the configured path: an
+	 * owner mismatch is the likeliest cause of that refusal, and naming it beats
+	 * repeating the refusal message. Where posix is absent the uid reads -1 and
+	 * the answer is `recommended`, because unverifiable is not the same as
+	 * wrong.
+	 *
+	 * @param string|null $base_dir   Validated base directory, or null when it refused to resolve.
+	 * @param string      $configured Configured base path, unvalidated.
+	 * @param string      $refused    Refusal message, or '' when the base directory resolved.
+	 * @return HealthResult
+	 */
 	private static function ownership( ?string $base_dir, string $configured, string $refused ): array {
 		$path = $base_dir ?? $configured;
 		if ( '' === $path || ! \is_dir( $path ) ) {
@@ -174,12 +251,33 @@ final class Health_Checks {
 		return self::result( 'ownership', 'Ownership', self::STATUS_GOOD, "Runtime directory {$path} is owned by this process's uid {$uid}." );
 	}
 
-	/** @return HealthResult */
+	/**
+	 * The mismatch result, shared by the refused-base and validated-base
+	 * branches so that both name the same `chown` recovery.
+	 *
+	 * @param string $path  Runtime directory inspected.
+	 * @param int    $owner Uid owning that directory.
+	 * @param int    $uid   Effective uid of this process.
+	 * @return HealthResult
+	 */
 	private static function ownership_mismatch( string $path, int $owner, int $uid ): array {
 		return self::result( 'ownership', 'Ownership', self::STATUS_CRITICAL, "Runtime directory {$path} is owned by uid {$owner}, but this process runs as uid {$uid}. Recover with: chown -R <webuser> {$path}" );
 	}
 
-	/** @return HealthResult */
+	/**
+	 * Prove the runtime base directory takes a write and gives it back:
+	 * `is_writable()`, then a real write and a real remove.
+	 *
+	 * The permission bits are not the answer a worker needs. A full filesystem
+	 * passes `is_writable()` and still refuses the write, and a directory that
+	 * accepts writes but refuses removals grows until partitions stall. Random
+	 * bytes in the probe name keep two reports running at once from deleting
+	 * each other's file.
+	 *
+	 * @param string|null $base_dir Validated base directory, or null when it refused to resolve.
+	 * @param string      $refused  Refusal message, or '' when the base directory resolved.
+	 * @return HealthResult
+	 */
 	private static function filesystem( ?string $base_dir, string $refused ): array {
 		if ( null === $base_dir ) {
 			$message = '' === $refused ? 'Runtime base directory could not be resolved.' : $refused;
@@ -205,6 +303,17 @@ final class Health_Checks {
 
 	/**
 	 * Run an add/read/delete probe through the selected production backend.
+	 *
+	 * `shared_first()` is the tier the cross-process surfaces resolve — transient
+	 * coordination, command sessions and SSE slot leases — so the probe measures
+	 * the posture those depend on rather than one nothing reads. `add()` is the
+	 * write, and it doubles as proof the key was absent; the `finally` deletes
+	 * whatever the round trip left behind, and the 30-second expiry retires the
+	 * key even when deleting is what failed.
+	 *
+	 * Public because the health-cache REST route returns this result on its own,
+	 * which is how `wp nodes doctor` learns what the request-serving process
+	 * sees.
 	 *
 	 * @return HealthResult
 	 */
@@ -249,7 +358,13 @@ final class Health_Checks {
 		}
 	}
 
-	/** @return HealthResult */
+	/**
+	 * The failed-round-trip result, shared by the three probe stages.
+	 *
+	 * @param string $name      Backend name for the message: `Memcached` or `APCu`.
+	 * @param string $operation Stage that failed: `add`, `read` or `delete`.
+	 * @return HealthResult
+	 */
 	private static function cache_failure( string $name, string $operation ): array {
 		return self::result(
 			self::CACHE_ID,
@@ -259,15 +374,29 @@ final class Health_Checks {
 		);
 	}
 
-	/** @return array<int,array<string,mixed>> */
+	/**
+	 * The alert rows for this report, read through the seam.
+	 *
+	 * @return array<int,array<string,mixed>>
+	 */
 	private static function current_alerts(): array {
 		$evaluate = self::$evaluate_alerts ?? static fn (): array => Alerts::evaluate();
 		return $evaluate();
 	}
 
 	/**
-	 * @param array<int,mixed> $alerts Alerts evaluator output.
+	 * Bucket the alert rows by the family each declares, then turn every bucket
+	 * into one result.
+	 *
+	 * A row missing `key`, `message` or `severity`, or declaring a severity
+	 * outside warning and critical, throws: severity is what picks the result's
+	 * status, so an unrecognized one would quietly demote a critical fleet
+	 * condition to a recommendation. An unrecognized family decides nothing but
+	 * which bucket the row lands in, so it falls through to `other-alerts`.
+	 *
+	 * @param array<int,mixed> $alerts Alerts evaluator output, validated here.
 	 * @return list<HealthResult>
+	 * @throws \UnexpectedValueException When a row is not an array, omits a required field, or declares a severity outside the two Alerts mints.
 	 */
 	private static function fleet_results( array $alerts ): array {
 		$groups = [
@@ -316,7 +445,13 @@ final class Health_Checks {
 	}
 
 	/**
-	 * @param list<NormalizedAlert> $group Alerts in this result family.
+	 * One family's result: the healthy line when nothing alerted, the failures
+	 * otherwise.
+	 *
+	 * @param string                $id      Result id, which is the family name.
+	 * @param string                $label   Label for the family.
+	 * @param list<NormalizedAlert> $group   Alerts in this result family.
+	 * @param string                $healthy Message carried when the family is empty.
 	 * @return HealthResult
 	 */
 	private static function alert_result( string $id, string $label, array $group, string $healthy ): array {
@@ -330,6 +465,8 @@ final class Health_Checks {
 	 * unrecognized-family row, which is only built when it has rows, does not
 	 * have to pass a healthy message that could never be reached.
 	 *
+	 * @param string                          $id    Result id.
+	 * @param string                          $label Label for the family.
 	 * @param array<int,array<string,string>> $group Non-empty alert rows.
 	 * @return HealthResult
 	 */
@@ -346,7 +483,15 @@ final class Health_Checks {
 	}
 
 	/**
+	 * Read one required string field off an alert row.
+	 *
+	 * Empty counts as missing: an empty key, message or severity would travel
+	 * into the report as a blank line no operator can act on.
+	 *
 	 * @param array<array-key,mixed> $alert Alert evaluator row.
+	 * @param string                 $field Field to read.
+	 * @return string The non-empty field value.
+	 * @throws \UnexpectedValueException When the field is absent, not a string, or empty.
 	 */
 	private static function required_alert_string( array $alert, string $field ): string {
 		if ( ! \array_key_exists( $field, $alert ) || ! \is_string( $alert[ $field ] ) || '' === $alert[ $field ] ) {
@@ -356,7 +501,16 @@ final class Health_Checks {
 		return $alert[ $field ];
 	}
 
-	/** @return list<HealthResult> */
+	/**
+	 * The three fleet families reported unevaluated, for a base directory that
+	 * did not resolve.
+	 *
+	 * `recommended`, not `critical`: the filesystem and ownership results
+	 * already carry that failure, and these three say only that fleet state is
+	 * unknown.
+	 *
+	 * @return list<HealthResult>
+	 */
 	private static function unavailable_fleet_results(): array {
 		$message = 'Fleet state could not be evaluated because the runtime base directory is unavailable.';
 		return [
@@ -367,7 +521,13 @@ final class Health_Checks {
 	}
 
 	/**
-	 * @param HealthStatus $status Canonical result status.
+	 * Build a single-message result. Every check composes through it, so the
+	 * result shape is stated once.
+	 *
+	 * @param string       $id      Result id, stable across reports.
+	 * @param string       $label   Label rendered beside the status.
+	 * @param HealthStatus $status  Canonical result status.
+	 * @param string       $message The one message.
 	 * @return HealthResult
 	 */
 	private static function result( string $id, string $label, string $status, string $message ): array {
@@ -382,8 +542,13 @@ final class Health_Checks {
 	/**
 	 * Return the worst canonical status in a report.
 	 *
+	 * An unknown status throws here rather than reaching Site Health, whose
+	 * renderer `match`es the three canonical values and would fatal on a fourth
+	 * without naming the result that carried it.
+	 *
 	 * @param list<array{status:string}> $results Report results, validated here.
 	 * @return HealthStatus
+	 * @throws \UnexpectedValueException When a result carries a status outside the three constants.
 	 */
 	public static function worst_status( array $results ): string {
 		$worst = self::STATUS_GOOD;

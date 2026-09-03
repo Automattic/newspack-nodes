@@ -9,7 +9,10 @@
  * Exiting there abandons a started span for a successor to reconstruct.
  *
  * Opting in is the whole point: `Worker_Base` names no application class, and
- * a graph with no reporter has nothing to measure, so it never idle-exits.
+ * a graph with no reporter has nothing to measure, so it never idle-exits. The
+ * scan walks the process registry (`Core::$nodes_by_name`), so a node that
+ * never took a name is invisible to it; that is why the anonymous IPC consumer
+ * is handed to the scan separately.
  *
  * The timestamp, rather than a bool, is what `Consumer_Node::idle_since()`
  * already returns and what `SSE_Out_Node` already consumes — so a node that
@@ -25,6 +28,18 @@ namespace Newspack_Nodes;
 
 interface Idle_Reporter {
 
-	/** Epoch seconds this node went idle; null while it holds work. */
+	/**
+	 * When this node last had nothing left to do.
+	 *
+	 * `Worker_Base::should_continue()` folds every reporter in the graph, so one
+	 * null forbids the whole worker's exit. Answer null when the question is
+	 * unanswerable, and a timestamp when the node is merely empty: a reader
+	 * tailing a log nobody writes is idle, and reporting null there would hold
+	 * the process resident through every recycle.
+	 *
+	 * That scan runs at most once a second, so a `stat` is affordable here.
+	 *
+	 * @return float|null Epoch seconds this node went idle; null while it holds work.
+	 */
 	public function idle_since(): ?float;
 }

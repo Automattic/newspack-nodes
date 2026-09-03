@@ -1,10 +1,16 @@
 <?php
 /**
- * SpawnController: REST endpoint that spawns a worker zombie-process.
+ * Spawn endpoint: the one gate every worker spawn crosses.
  *
- * Accepts POST /newspack-nodes/v1/workers/spawn with {type, partition, nonce}.
- * Dual auth: internal HMAC token (current OR previous 10s window) OR external
- * manage_options + nonce (with a 2s per-user rate limit).
+ * `POST /newspack-nodes/v1/workers/spawn` takes `{type, partition, nonce}`. A
+ * worker's own self-respawn, each worker's `_fleet` peer scan and the WP-Cron
+ * cold-start pass all POST here, which is why the deploy hold and the
+ * 15-second per-worker throttle are enforced at the endpoint rather than at
+ * each spawner.
+ *
+ * Two ways in, both carrying `nonce`: the internal HMAC token minted for the
+ * current 10-second window, or an external caller holding the `manage` role
+ * and presenting a WordPress nonce.
  *
  * @package Newspack_Nodes
  */
@@ -19,6 +25,14 @@ use Newspack_Nodes\Spawn_Coordinator;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * Admission control for the spawn endpoint.
+ *
+ * The controller authorizes the request, refuses a held or throttled fleet,
+ * and fires `newspack_nodes/spawn_worker`. Building and running the worker
+ * belongs to whichever handler that action reaches — in the substrate,
+ * `Topology_Registry::spawn_worker`.
+ */
 class Spawn_Controller {
 
 	/** WordPress nonce action name for external spawn requests. */
@@ -27,18 +41,33 @@ class Spawn_Controller {
 	/** Per-user rate limit window for external spawn requests. */
 	public const RATE_LIMIT_S = 2;
 
+	/**
+	 * The request's coordinator: it holds the salt the internal HMAC token
+	 * validates against and the throttle window every spawner shares.
+	 */
 	private Spawn_Coordinator $coordinator;
 
+	/**
+	 * Bind the controller to the request's spawn coordinator.
+	 *
+	 * @param Spawn_Coordinator $coordinator Source of the HMAC salt and the throttle record.
+	 */
 	public function __construct( Spawn_Coordinator $coordinator ) {
 		$this->coordinator = $coordinator;
 	}
 
 	/**
-	 * Permission check: internal HMAC token (current/previous 10s window), else
-	 * external manage_options + valid nonce + 2s per-user rate limit.
+	 * Authorize a spawn request.
 	 *
-	 * @param \WP_REST_Request $req Request.
-	 * @return bool|\WP_Error
+	 * A multisite subsite is refused first: locks, IPC and logs carry no blog
+	 * namespace, so the fleet runs on the main site only. Then the internal
+	 * HMAC token, accepted for the current or the previous 10-second window.
+	 * Failing that, an external caller holding the `manage` role
+	 * (`manage_options` until a site installs the granular capabilities) and
+	 * presenting a valid WordPress nonce, one request per RATE_LIMIT_S.
+	 *
+	 * @param \WP_REST_Request $req Incoming spawn request.
+	 * @return true|\WP_Error True when the caller may spawn; the refusal otherwise.
 	 */
 	public function check_permission( \WP_REST_Request $req ) {
 		$gate = Bootstrap::fleet_gate();
@@ -51,12 +80,12 @@ class Spawn_Controller {
 			return new \WP_Error( 'invalid_token', 'Missing spawn token', [ 'status' => 403 ] );
 		}
 
-		// Internal HMAC path — no cap/nonce; spawn() throttles per worker.
+		// Internal HMAC path: no capability, no rate limit.
 		if ( $this->coordinator->validate_spawn_token( $nonce, \time() ) ) {
 			return true;
 		}
 
-		// Capability->nonce->rate-limit: rate-limiting first poisons the table.
+		// Capability before rate limit, or any caller can write transients.
 		if ( ! Capabilities::can( Capabilities::MANAGE ) ) {
 			return new \WP_Error(
 				'invalid_token',
@@ -82,10 +111,13 @@ class Spawn_Controller {
 	}
 
 	/**
-	 * 2s per-user rate limit on external spawn requests. No-op without the
-	 * transient API (test contexts).
+	 * Hold external spawn requests to one per RATE_LIMIT_S per user.
 	 *
-	 * @return true|\WP_Error
+	 * The transient lives 10 seconds so it outlives the window it guards and
+	 * then expires on its own, leaving nothing to sweep. Where the transient
+	 * API is absent the caller passes rather than fatals.
+	 *
+	 * @return true|\WP_Error True when the caller may proceed; the refusal otherwise.
 	 */
 	protected function check_rate_limit() {
 		if ( ! \function_exists( 'get_transient' ) || ! \function_exists( 'set_transient' ) ) {
@@ -109,11 +141,19 @@ class Spawn_Controller {
 	}
 
 	/**
-	 * Spawn handler. Detaches from FPM, validates the partition, then fires
-	 * the spawn_worker action the topology owner hooks.
+	 * Accept or refuse an authorized spawn, then run the worker.
 	 *
-	 * @param \WP_REST_Request $req Request.
-	 * @return \WP_REST_Response|\WP_Error
+	 * Three refusals, in order: a partition outside the type's range, a deploy
+	 * hold, and the shared 15-second throttle. Recording the accepted spawn
+	 * here is what gives every spawner one window to share.
+	 *
+	 * The action runs the worker inline for its whole lifetime — 595 seconds
+	 * by default — which is why `ignore_user_abort()` and `set_time_limit()`
+	 * come first: the caller POSTs fire-and-forget with a sub-second timeout
+	 * and is long gone by the time this response is written.
+	 *
+	 * @param \WP_REST_Request $req Authorized spawn request.
+	 * @return \WP_REST_Response|\WP_Error The accepted spawn, or the refusal.
 	 */
 	public function spawn( \WP_REST_Request $req ) {
 		$raw_type      = $req->get_param( 'type' );
@@ -139,7 +179,6 @@ class Spawn_Controller {
 			);
 		}
 
-		// The one throttle every spawn path crosses (Tachikoma-style).
 		$now = Core::right_now();
 		if ( $this->coordinator->is_recently_spawned( $type, $partition, $now ) ) {
 			return new \WP_Error(
@@ -171,11 +210,15 @@ class Spawn_Controller {
 	}
 
 	/**
-	 * Validate a partition number for a type: [0, num_partitions).
+	 * Check a partition number against the type's active partition count.
 	 *
-	 * @param string $type      Worker type.
+	 * Valid is `[0, num_partitions)`, and never at or above MAX_PARTITIONS —
+	 * the ceiling `Bootstrap::expand_workers()` clamps every topology to, past
+	 * which a partition has no reader.
+	 *
+	 * @param string $type      Worker type, which is also the topology name.
 	 * @param int    $partition Partition number.
-	 * @return bool True if valid.
+	 * @return bool True when that partition of that type is spawnable.
 	 */
 	public function validate_partition( string $type, int $partition ): bool {
 		if ( $partition < 0 ) {
@@ -192,12 +235,19 @@ class Spawn_Controller {
 			}
 		}
 		if ( 0 === $max ) {
-			// Not in topology — defense-in-depth (should've been caught).
+			// Unknown or deactivated type: no partition of it is spawnable.
 			return false;
 		}
 		return $partition < $max;
 	}
 
+	/**
+	 * Register `POST /newspack-nodes/v1/workers/spawn`.
+	 *
+	 * `type` is validated at the route, so an unknown one never reaches the
+	 * handler. `partition` is only sanitized here: its legal range depends on
+	 * `type`, so `spawn()` checks the pair.
+	 */
 	public function register_routes(): void {
 		\register_rest_route(
 			'newspack-nodes/v1',
@@ -226,11 +276,15 @@ class Spawn_Controller {
 	}
 
 	/**
-	 * Validate a worker type against expand_workers(). Rejecting unknown types
-	 * blocks arbitrary class instantiation.
+	 * Check a worker type against the active topology set.
 	 *
-	 * @param mixed $type Worker type (unsanitized request param).
-	 * @return bool True if valid.
+	 * The route runs this as its `validate_callback`, so a type no active
+	 * topology declares is refused before `spawn()` sees it. That is what
+	 * keeps a POST from naming a topology the operator never activated:
+	 * downstream, the type is the name `Topology_Loader` resolves to a `.tsl`.
+	 *
+	 * @param mixed $type Worker type, straight off the request.
+	 * @return bool True when an active topology declares the type.
 	 */
 	public function validate_worker_type( $type ): bool {
 		if ( ! \is_string( $type ) || '' === $type ) {

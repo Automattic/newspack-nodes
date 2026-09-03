@@ -3,9 +3,9 @@
  * Fleet: the peer-spawn scan every worker runs every 15 seconds.
  *
  * A worker whose lock dir is missing or whose heartbeat has gone stale is
- * spawned by whichever peer notices first; the spawn endpoint's
- * MIN_SPAWN_INTERVAL_S throttle deduplicates N scanners exactly as it already
- * deduplicated the worker / cron pair.
+ * spawned by whichever peer notices first. The spawn endpoint's
+ * MIN_SPAWN_INTERVAL_S throttle is what makes N scanners as safe as one: it is
+ * the single gate every spawn path crosses, self-respawn and cron included.
  *
  * Revival only. Housekeeping rides `Bootstrap::reconcile_fleet()` on the minute
  * cron, so it needs no live worker and no job pool.
@@ -18,6 +18,11 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 /**
+ * The `_fleet` node `Worker_Base::build_scaffolding()` mounts in every worker:
+ * the peer tier of ADR-9's two-tier safety net. It revives PEERS — this
+ * worker's own succession belongs to `Worker_Base::execute()`'s `finally`, and
+ * a fleet with nothing left running waits for the WP-Cron pass.
+ *
  * @phpstan-import-type Worker_Descriptor from Bootstrap
  */
 class Fleet_Node extends Timer_Node {
@@ -35,7 +40,7 @@ class Fleet_Node extends Timer_Node {
 
 	/**
 	 * Ceiling on spawn POSTs per pass. Each is a BLOCKING curl capped at
-	 * Core::POST_TIMEOUT_MS, and unlike the cron reconciliation pass — which
+	 * `Core::SPAWN_POST_TIMEOUT_MS` (250ms), and unlike the cron pass — which
 	 * has a process to itself — this runs inside a worker's drain loop, so
 	 * every POST is time stolen from message processing. A cold fleet spreads
 	 * its spawns over consecutive passes instead of stalling one; the uncapped
@@ -43,7 +48,12 @@ class Fleet_Node extends Timer_Node {
 	 */
 	public const MAX_SPAWNS_PER_TICK = 4;
 
-	/** Defer the first spawn of a newly-appeared type so a still-exiting predecessor can flush. */
+	/**
+	 * Scans to wait before the first spawn of a newly-appeared type, so a
+	 * still-exiting predecessor can flush. A cold start skips the wait:
+	 * `refresh_active_set()` defers only against a set it has already read, and
+	 * a first pass has none to compare against.
+	 */
 	public const NEW_TYPE_SPAWN_DELAY_SCANS = 1;
 
 	/** Runtime state root; locks/ lives under it. Assigned by parse_schema_args. */
@@ -65,8 +75,14 @@ class Fleet_Node extends Timer_Node {
 	private array $workers = [];
 
 	/**
+	 * Take the `make_node Fleet _fleet <base_dir> <lock_dir>` tokens, build the
+	 * coordinator and arm the scan; null reads the tokens back for
+	 * `dump_config()`. The timer is armed here, never in the constructor: the
+	 * Router hitchhike is name-keyed, and ADR-11's sequence names the node after
+	 * the no-arg constructor has already returned.
+	 *
 	 * @param list<string>|null $args [ base_dir, lock_dir ].
-	 * @return list<string>
+	 * @return list<string> The tokens as stored.
 	 */
 	public function arguments( ?array $args = null ): array {
 		if ( null === $args ) {
@@ -92,6 +108,9 @@ class Fleet_Node extends Timer_Node {
 	 * throw here unwinds through Router into Worker_Base, which catches only
 	 * Worker_Should_Stop. Every worker reads the same config on the same cadence,
 	 * so one bad provider would crash-loop the whole fleet in lockstep.
+	 *
+	 * The scan mints no message, so `FIRE` is the whole emission: observers
+	 * register for it, and nothing this node does enters the graph.
 	 */
 	protected function fire(): void {
 		$this->notify( 'FIRE', Core::$now );
@@ -114,6 +133,12 @@ class Fleet_Node extends Timer_Node {
 	 * spawn loop, which owns the throttle, the local record and the
 	 * write-conflict refusal. The throttle is consulted here too so a worker a
 	 * peer already spawned costs no slot of the per-tick cap.
+	 *
+	 * Down is `Spawn_Coordinator::worker_needs_spawn()`'s judgement, not a
+	 * missing directory: a cleanly absent on-demand worker is scaled to zero,
+	 * and a producer's write wakes it.
+	 *
+	 * @param float $now Pass clock, so one pass judges every worker alike.
 	 */
 	private function scan( float $now ): void {
 		$coordinator = $this->coordinator;
@@ -140,7 +165,14 @@ class Fleet_Node extends Timer_Node {
 		$coordinator->spawn_each( $due, 'spawn failed', $now );
 	}
 
-	/** True while a newly-appeared type is still inside its post-detect delay. */
+	/**
+	 * True while a newly-appeared type is still inside its post-detect delay.
+	 * An expired entry is dropped on the way past, so the map holds only the
+	 * types still waiting.
+	 *
+	 * @param string $type Worker type.
+	 * @param float  $now  Pass clock.
+	 */
 	private function is_deferred( string $type, float $now ): bool {
 		$until = $this->spawn_after[ $type ] ?? 0.0;
 		if ( $until <= 0.0 ) {
@@ -162,14 +194,16 @@ class Fleet_Node extends Timer_Node {
 	 * re-parses every `.tsl` on the next `expand_workers()`. Unconditionally,
 	 * that is once per pass per worker to reach the identical answer — the
 	 * watermark IS the signal that makes the OPTION cache stale, so without one
-	 * there is no option to re-read. The other two RESET_ACTION subscribers read
-	 * DISK, not options, so an edited `.tsl` or a new logs dir is now picked up
-	 * on the next recycle rather than within 15s — deploys already end in
-	 * `wp nodes restart`. `expand_workers()` stays unconditional: it is the
-	 * scan's input, not a poll.
+	 * there is no option to re-read. `Vault::reset()` rides the same gate,
+	 * because a vault save writes a watermark of its own through
+	 * `Bootstrap::reload_vault_consumers()`. What the gate costs is DISK
+	 * freshness: an edited `.tsl` or a new logs dir waits for the next recycle
+	 * rather than 15 seconds, and deploys end in `wp nodes restart`.
+	 * `expand_workers()` stays unconditional: it is the scan's input, not a
+	 * poll.
 	 *
-	 * @param Spawn_Coordinator $coordinator Owns the locks/ layout drain_all_workers walks.
-	 * @param float             $now         Tick clock.
+	 * @param Spawn_Coordinator $coordinator Forwarded to `drain_all_workers()`, which walks the locks/ layout it owns.
+	 * @param float             $now         Pass clock, so one pass dates every deferral alike.
 	 */
 	private function refresh_active_set( Spawn_Coordinator $coordinator, float $now ): void {
 		// @longform Purge, reset, THEN announce: a subscriber reading inline
@@ -179,7 +213,7 @@ class Fleet_Node extends Timer_Node {
 		// re-read. String payload: TM_INFO VALUEs are flat strings.
 		$watermark = $this->take_reload_watermark();
 		if ( '' !== $watermark ) {
-			// The shared definition: a hand-rolled subset went stale for ~595s.
+			// The shared definition: a hand-rolled subset leaves a memo stale.
 			Topology_Registry::invalidate_config_cache();
 			$this->notify( 'RELOAD', $watermark );
 		}
@@ -237,9 +271,9 @@ class Fleet_Node extends Timer_Node {
 	 * Retire every running worker when the last topology is deactivated. The
 	 * restart channel, not force_release: a flagged worker exits on its own
 	 * should_continue(), and its self-respawn is refused because the type is no
-	 * longer in the active set. The `.p<N>` shape is what identifies a worker.
+	 * longer in the active set.
 	 *
-	 * @param Spawn_Coordinator $coordinator Owns the locks/ layout; a hand-rolled walk drifted.
+	 * @param Spawn_Coordinator $coordinator Owns the `{type}.p{N}.lock.d` layout, so this walk cannot drift from the writer.
 	 */
 	private function drain_all_workers( Spawn_Coordinator $coordinator ): void {
 		foreach ( \array_keys( $coordinator->worker_lock_dirs() ) as $path ) {
@@ -250,6 +284,15 @@ class Fleet_Node extends Timer_Node {
 		}
 	}
 
+	/**
+	 * Hidden from the palette and the console: `build_scaffolding()` mounts this
+	 * node as `_fleet` in every worker, so no topology and no operator ever
+	 * names it. The two arguments are `required` because ADR-11 refuses a
+	 * missing one at construction, and a fleet scanning a derived path would
+	 * quietly revive nothing.
+	 *
+	 * @return array<string,mixed>
+	 */
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
 			'category'      => 'Hidden',

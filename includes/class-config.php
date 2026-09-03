@@ -1,6 +1,17 @@
 <?php
 /**
- * Newspack Nodes runtime configuration.
+ * Configuration reads and runtime-directory resolution for the substrate.
+ *
+ * A read resolves three layers in order: the `Settings_Schema` code defaults,
+ * the config files that override them, and the WordPress options a site has
+ * stored. The SCHEMA alone says which keys exist, so `value()` refuses a
+ * renamed or misspelled key instead of falling back to a default (ADR-20).
+ *
+ * The same class owns the runtime base directory: it resolves the base and its
+ * logs, locks and offsets subdirectories, refusing any that is a symlink, is
+ * reachable by traversal, or belongs to another uid — whoever wins the race to
+ * a predictable base path owns every log, lock, offset and topology beneath it.
+ * `assert_within_base()` keeps a node's storage path inside that tree.
  *
  * @package Newspack_Nodes
  */
@@ -11,6 +22,9 @@ if ( ! \defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+/**
+ * Substrate config reads, key declaration, and runtime-path resolution.
+ */
 class Config {
 
 	/**
@@ -46,7 +60,7 @@ class Config {
 	 * disk, which is the only way to exercise an operator's stale key.
 	 * Signature: `function (array $base): array`
 	 *
-	 * @var \Closure(array<string,mixed>): array<string,mixed>|null
+	 * @var (\Closure(array<string,mixed>): array<string,mixed>)|null
 	 */
 	public static ?\Closure $read_shipped_config = null;
 
@@ -59,7 +73,7 @@ class Config {
 	/** @var array<string,bool> Declared config keys; only these may be read via value(). */
 	private static array $registered_keys = [];
 
-	/** @var string|null */
+	/** @var string|null Memoized validated base directory; cleared by reset(). */
 	private static ?string $validated_base_directory = null;
 
 	/** @var array<string,string> Memoized base-relative subdirs (logs/locks/offsets); cleared by reset(). */
@@ -84,6 +98,7 @@ class Config {
 	 * restores an arbitrary write. Empty is unconfigured, not an escape. Tail is
 	 * deliberately NOT constrained: reading /var/log/... is its whole job.
 	 *
+	 * @param string $path Storage path a node is about to read or write.
 	 * @throws \RuntimeException When the path escapes the base directory.
 	 */
 	public static function assert_within_base( string $path ): void {
@@ -101,6 +116,9 @@ class Config {
 	 * Lexical, not realpath: a partition directory is created lazily, so the
 	 * path usually does not exist yet at validation time. `..` and `.` are
 	 * resolved first so traversal cannot walk out.
+	 *
+	 * @param string $path Path to test.
+	 * @return bool True when $path is the base directory or sits under it.
 	 */
 	public static function within_base( string $path ): bool {
 		$base = \rtrim( self::get_base_directory(), '/' );
@@ -108,7 +126,12 @@ class Config {
 		return $norm === $base || \str_starts_with( $norm, $base . '/' );
 	}
 
-	/** Collapse `.`/`..` segments without touching the filesystem. */
+	/**
+	 * Collapse `.`/`..` segments without touching the filesystem.
+	 *
+	 * @param string $path Path to normalize.
+	 * @return string The path with `.` and `..` segments resolved.
+	 */
 	private static function lexical_path( string $path ): string {
 		$out = [];
 		foreach ( \explode( '/', $path ) as $seg ) {
@@ -148,12 +171,20 @@ class Config {
 	/**
 	 * Memoized `{base}/{sub}` path (created + realpath-checked via ensure_path).
 	 *
+	 * @param string $sub Subdirectory name under the base directory.
+	 * @return string Validated canonical path.
 	 * @throws \RuntimeException If base or the subdir cannot be created or realpath doesn't match.
 	 */
 	private static function validated_subdir( string $sub ): string {
 		return self::$validated_subdirs[ $sub ] ??= self::ensure_path( self::get_base_directory() . '/' . $sub );
 	}
 
+	/**
+	 * The validated runtime base directory, memoized for the process.
+	 *
+	 * @return string Canonical, privately owned base path.
+	 * @throws \RuntimeException When base_directory is unset or non-scalar, or the directory fails ensure_path().
+	 */
 	public static function get_base_directory(): string {
 		if ( null !== self::$validated_base_directory ) {
 			return self::$validated_base_directory;
@@ -170,11 +201,17 @@ class Config {
 	}
 
 	/**
-	 * Ensure a directory path exists and is canonical (realpath must match input — detects symlink attacks).
+	 * Create a directory when absent and return its canonical path.
+	 *
+	 * Creation is mode 0700; every check after it runs against the RESOLVED
+	 * path, and `assert_private_to_us()` refuses a tree another uid owns. This
+	 * is the one gate the base directory and its logs, locks and offsets
+	 * subdirectories pass through, so a check relaxed here is relaxed for all
+	 * four.
 	 *
 	 * @param string $path Directory path to ensure.
 	 * @return string Validated canonical path.
-	 * @throws \RuntimeException If path cannot be created or is not canonical.
+	 * @throws \RuntimeException On a null byte, a directory that cannot be created, a symlink or traversal, or a tree this process does not privately own.
 	 */
 	public static function ensure_path( string $path ): string {
 		if ( false !== \strpos( $path, "\0" ) ) {
@@ -233,6 +270,7 @@ class Config {
 	 * direction: files it writes here are root-owned, and the workers run as
 	 * the web user, so they are the ones left unable to write. That warns.
 	 *
+	 * @param string $real Resolved runtime directory.
 	 * @throws \RuntimeException When another NON-ROOT uid owns it, or group/other can write.
 	 */
 	private static function assert_private_to_us( string $real ): void {
@@ -289,7 +327,8 @@ class Config {
 	 * or file default); declared-but-unset returns null.
 	 *
 	 * @api
-	 * @return mixed
+	 * @param string $key Unprefixed config key.
+	 * @return mixed The configured value, or null when the key is declared but unset.
 	 * @throws \RuntimeException If $key is not in the registered set.
 	 */
 	public static function value( string $key ): mixed {
@@ -316,6 +355,8 @@ class Config {
 	 * otherwise ends in a throw anyway.
 	 *
 	 * @api
+	 * @param string $key Unprefixed config key.
+	 * @return bool True when some schema declares $key.
 	 */
 	public static function is_declared( string $key ): bool {
 		self::declare_keys();
@@ -341,13 +382,14 @@ class Config {
 	 * self-declaring, and leaves an install whose file predates a key unable to
 	 * read it at all.
 	 *
-	 * Declaration is PULLED, not pushed, because push has no safe moment to happen:
-	 * Bootstrap wiring runs on diagnostic and storage-backed entry points only (never
-	 * a frontend page view), and a consumer sorting before newspack-nodes can't touch
-	 * this class at its own file scope — so both hung declaration off something that
-	 * fires AFTER the first read (the firehose reads num_partitions at
-	 * plugins_loaded:-10001) and the fail-loud value() gate threw on a real key.
-	 * Pulling it here means the keys exist by construction whenever anyone asks.
+	 * Declaration is PULLED, not pushed, because a push has no safe moment.
+	 * Bootstrap wiring runs on diagnostic and storage-backed entry points only,
+	 * never a frontend page view, and a consumer sorting before newspack-nodes
+	 * cannot touch this class at its own file scope; either route therefore
+	 * declares AFTER the first read — the firehose reads num_partitions at
+	 * `plugins_loaded:-10001` — and the fail-loud value() gate refuses a real
+	 * key. Pulling it here means the keys exist by construction whenever anyone
+	 * asks.
 	 *
 	 * Costs nothing on the hot path: load_config() already builds the schema on
 	 * any request that reads config.
@@ -394,7 +436,8 @@ class Config {
 	}
 
 	/**
-	 * Load configuration from disk + WordPress options.
+	 * The effective configuration: file defaults with the stored WordPress
+	 * options overlaid. Memoized for the process; `reset()` clears it.
 	 *
 	 * @return array<string,mixed>
 	 * @throws \RuntimeException If an explicit local config path or value tree is invalid.
@@ -417,7 +460,11 @@ class Config {
 	}
 
 	/**
-	 * Stray keys the last config load ignored, for Site Health and doctor.
+	 * Stray keys the shipped config file named, for Site Health and `wp nodes
+	 * doctor`.
+	 *
+	 * Forces the defaults load first: a request that has read no config yet
+	 * would otherwise report a clean file.
 	 *
 	 * @return list<string>
 	 */
@@ -528,9 +575,14 @@ class Config {
 	/**
 	 * Register the substrate's `config` topology-token namespace.
 	 *
-	 * Resolves `<config:logs_dir>` / `<config:offsets_dir>` (derived from the
-	 * base directory) and every other key straight off load_config(). Called
-	 * once at boot; the app registers its own namespaces for its own keys.
+	 * Three names resolve off the base directory rather than off config:
+	 * `<config:logs_dir>`, `<config:offsets_dir>` and `<config:deadletter_dir>`.
+	 * `<config:vault>` refuses, because that key holds the remote-server
+	 * registry and its auth credentials, and the Vault API is the only reader.
+	 * Every other key reads straight off load_config().
+	 *
+	 * Called once at boot; an application registers its own namespace for its
+	 * own keys.
 	 */
 	public static function register_token_namespace(): void {
 		Core::register_config_namespace(
@@ -584,7 +636,11 @@ class Config {
 		return true;
 	}
 
-	/** Reset cached config; fires `newspack_nodes/config_reset` so dependent Configs invalidate too. */
+	/**
+	 * Drop the cached config, defaults, stray-key list and validated paths, then
+	 * fire `newspack_nodes/config_reset` so dependent Configs invalidate too.
+	 * The declared key set survives — see `register_keys()`.
+	 */
 	public static function reset(): void {
 		self::$config                   = null;
 		self::$config_defaults          = null;

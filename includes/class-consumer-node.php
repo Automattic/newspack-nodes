@@ -1,6 +1,7 @@
 <?php
 /**
- * Consumer: partition-aware reader with offsetlog checkpointing.
+ * Consumer: reads a source Partition forward and records where it stopped, so a
+ * restart resumes the stream instead of replaying it.
  *
  * @package Newspack_Nodes
  */
@@ -11,8 +12,32 @@ if ( ! \defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+/**
+ * Tails a source Partition and emits every appended record to its sink.
+ *
+ * The read model itself lives in `Durable_Reader`: the offsetlog cursor, the
+ * timer-driven buffered pump, the dead-letter lifecycle and the pause/step/seek
+ * debugger. This class supplies the seams that point it at a segmented directory
+ * of `{seg}.log` files. `make_source()` and `resolve_args()` say where
+ * the bytes live, `get_batch()` performs the read, and `init_position()` with
+ * `default_offset()` decide where a fresh reader starts. `Tail_Node` redeclares
+ * `make_source()`, `resolve_args()` and `default_offset()` to follow a `Log`'s
+ * `{file}.{seg}` segments instead; `File_Tail_Node` goes further and follows a
+ * single inode.
+ *
+ * Three surfaces ask how far behind the reader is — the `GET_LAG` request,
+ * `probe_stats()` for the topicprobe sweep, and `idle_since()` for an on-demand
+ * worker deciding whether to exit — and all three read `compute_lag()`. A
+ * subclass with a different byte source overrides that one method, so the three
+ * answers cannot disagree.
+ *
+ * A Consumer is a source, not a processor: `accepts_fill` is false, and `fill()`
+ * exists to answer TM_REQUEST introspection rather than to carry data.
+ */
 class Consumer_Node extends Timer_Node implements Idle_Reporter {
+	/** Positional `arguments()` parsing plus the auto-wired `{name}:config` interpreter. */
 	use Schema_Reflection;
+
 	/** Dead_Letter_Queue rides in with Durable_Reader, which drives it. */
 	use Durable_Reader;
 
@@ -36,14 +61,16 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	public const SEAL_GRACE_SECONDS = 2.0;
 
 	/**
-	 * Seek sentinels, carried in an offset field. Tachikoma's exact vocabulary
-	 * (`Consumer.pm`: "valid offsets: start (0), recent (-2), end (-1)"), so a
-	 * single signed number expresses every seek and 0 means the start of the log
-	 * rather than "unset". `next_offset()` resolves them; anything >= 0 inside an
-	 * explicit `{segment, offset}` pair is a real byte position.
+	 * Seek the start of the log. Tachikoma's `start` (`Consumer.pm`: "valid
+	 * offsets: start (0), recent (-2), end (-1)"). Inside an explicit
+	 * `{segment, offset}` pair 0 is a real byte position, not this sentinel.
 	 */
-	public const SEEK_START  = 0;
-	public const SEEK_END    = -1;
+	public const SEEK_START = 0;
+
+	/** Seek the current end: deliver only what is appended after the seek. Tachikoma's `end`. */
+	public const SEEK_END = -1;
+
+	/** Seek the start of the second-newest segment, or of the only one. Tachikoma's `recent`. */
 	public const SEEK_RECENT = -2;
 
 	/** Discard the resumable snapshot cache after this many seconds of an unbroken crash streak. */
@@ -57,18 +84,25 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	 */
 	protected bool $multi_writer = false;
 
-	/** Seal-grace bookkeeping: the segment + size last seen caught-up, and when that size last changed. */
-	protected int $seal_segment     = -1;
-	protected float $seal_since = 0.0;
-	protected int $seal_size    = -1;
-	protected ?Partition_Node $source    = null;
+	/** Seal-grace bookkeeping: the segment whose size is being watched; -1 before the first check. */
+	protected int $seal_segment = -1;
 
+	/** Seal-grace bookkeeping: Core::$now when ($seal_segment, $seal_size) last changed. */
+	protected float $seal_since = 0.0;
+
+	/** Seal-grace bookkeeping: the size $seal_segment held at $seal_since; -1 before the first check. */
+	protected int $seal_size = -1;
+
+	/** Source Partition, built by arguments() and published as the `source` sibling. Read it through source(). */
+	protected ?Partition_Node $source = null;
+
+	/** Source partition directory, trailing slash stripped. In Tail this holds the source FILE base. */
 	protected string $source_dir = '';
 
 	/**
-	 * Cache read from the offsetlog at construction but not yet restored — the
-	 * snapshot nodes usually don't exist yet when load_offsetlog() runs, so we
-	 * stash the map and restore on the first poll, after the topology is built.
+	 * Snapshot cache lifted out of the offsetlog frame by load_offsetlog(), for
+	 * init_position() to restore once the cursor is seeded. `null` once that
+	 * restore has run, and whenever the frame carried no cache.
 	 *
 	 * @var array<array-key,mixed>|null
 	 */
@@ -86,25 +120,32 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	/** When the source was first seen with no segments at all; null once it has any. */
 	private ?float $empty_since = null;
 
-	/** Probe baseline: the counters and instant probe_stats() last drained at. */
-	private int $probe_msgs   = 0;
-	private int $probe_bytes  = 0;
-	private float $probe_ts   = 0.0;
+	/** Probe baseline: $counter as of the previous probe_stats() sweep. */
+	private int $probe_msgs = 0;
+
+	/** Probe baseline: $bytes_read as of the previous probe_stats() sweep. */
+	private int $probe_bytes = 0;
+
+	/** Probe baseline: Core::$now at the previous sweep; the constructor opens the first window. */
+	private float $probe_ts = 0.0;
 
 	/** Tachikoma-parity: no-arg ctor. Positional config arrives via arguments(). */
 	public function __construct() {
 		parent::__construct();
 		// The first probe window opens now, so its elapsed is time-since-birth.
 		$this->probe_ts = Core::$now;
-		// Build {name}:config interpreter so add_snapshot_node dispatchable.
+		// The {name}:config interpreter makes add_snapshot_node dispatchable.
 		$this->auto_wire_interpreter();
 	}
 
 	/**
-	 * Store the raw string, parse positional tokens via parse_schema_args()
-	 * (source_dir / offsetlog_dir), then normalize, materialize the source / offsetlog
-	 * Partitions (the offsetlog is a flat segmented-log dir) and seed the in-memory
-	 * cursor from any existing offsetlog entries.
+	 * Configure the reader from its positional tokens. `parse_schema_args()`
+	 * assigns `source_dir`, `offsetlog_dir` and `deadletter_dir`; `resolve_args()`
+	 * says which source and offsetlog paths this class reads back (Tail swaps in
+	 * its `source_file`); both are checked against the runtime base directory; and
+	 * the source Partition plus the offsetlog and dead-letter sidecars are
+	 * materialized. No I/O runs here — the first poll loads the durable cursor and
+	 * restores the snapshot state.
 	 *
 	 * A replay REPLACES the source unconditionally, and each sidecar whenever its
 	 * dir moved — the `ensure_*` guards own that rule, so it reaches every reader
@@ -113,8 +154,8 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	 * sidecar publishes first and assigns after, leaving a refused slot empty for
 	 * its own guard to rebuild.
 	 *
-	 * @param list<string>|null $args
-	 * @return list<string>
+	 * @param list<string>|null $args Positional tokens, or null to read the stored set back.
+	 * @return list<string> The tokens as stored.
 	 */
 	public function arguments( ?array $args = null ): array {
 		if ( null === $args ) {
@@ -148,7 +189,12 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	}
 
 	/**
-	 * Handle TM_REQUEST introspection verbs (reply TO=FROM); else defer to Timer.
+	 * Answer a TM_REQUEST introspection verb; everything else falls through to
+	 * Timer_Node. `accepts_fill` is false, so this entry point carries no data —
+	 * it exists because introspection reaches a node the same way anything else
+	 * does, through `fill()` (ADR-1).
+	 *
+	 * @param array<int,mixed> $message Incoming Message.
 	 */
 	public function fill( array $message ): void {
 		$type_raw = $message[ Message::TYPE ];
@@ -160,7 +206,15 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 		parent::fill( $message );
 	}
 
-	/** @param array<int,mixed> $message Incoming request Message. */
+	/**
+	 * Dispatch one request verb and reply to whoever asked. `GET_LAG` is the only
+	 * verb; an unknown one comes back as an `error` payload rather than a throw,
+	 * because there is no interpreter on this path to turn a throw into a TM_ERROR
+	 * reply. TO=FROM is the whole correlation and ID and KEY ride back unchanged,
+	 * so the asker needs no registry of outstanding requests (ADR-7).
+	 *
+	 * @param array<int,mixed> $message Incoming request Message.
+	 */
 	private function handle_request( array $message ): void {
 		$sink = $this->require_sink();
 		$value_raw = $message[ Message::VALUE ];
@@ -182,16 +236,17 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 		$sink->fill( $reply );
 	}
 
-	/** Seam (Tail overrides → Log): the source segmented-log node to read. Consumer reads a Partition. */
+	/** Source seam: the segmented-log node to read. Consumer builds a Partition; Tail builds a Log. */
 	protected function make_source(): Partition_Node {
 		return new Partition_Node();
 	}
 
 	/**
-	 * Seam (Tail overrides): [source_path, offsetlog_path] from the parsed schema args.
-	 * Consumer's schema args are source_dir + offsetlog_dir.
+	 * Path seam: the source and offsetlog paths, read back off the properties
+	 * `parse_schema_args()` has just assigned. Consumer's are `source_dir` and
+	 * `offsetlog_dir`; Tail substitutes its `source_file`.
 	 *
-	 * @return array{0:string,1:string}
+	 * @return array{0:string,1:string} Source path, then offsetlog path.
 	 */
 	protected function resolve_args(): array {
 		return [ $this->source_dir, $this->offsetlog_dir ];
@@ -207,7 +262,8 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	 * has written cannot veto a peer's idle exit, and an SSE stream over one
 	 * still heartbeats for its timeout instead of closing on the first tick.
 	 *
-	 * @return float|null Epoch seconds of the newest segment's last write.
+	 * @return float|null Epoch seconds this reader went idle; null while it holds
+	 *                   unread bytes, or when the newest segment's mtime is unreadable.
 	 */
 	public function idle_since(): ?float {
 		if ( ! $this->compute_lag()['caught_up'] ) {
@@ -322,11 +378,12 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	 * constructors do no event-loop work (ADR-5), so this is safe in request
 	 * scope and on the WP-Cron pass.
 	 *
-	 * `cursor_known` says whether a committed cursor was actually found. False
-	 * means the reported backlog is the whole partition by default, which a
-	 * caller deciding whether to WAKE something must not act on —
-	 * `ensure_offsetlog()` creates the directory at construction, so an empty
-	 * one is the ordinary state between boot and the first checkpoint.
+	 * `cursor_known` says whether the reported backlog can be acted on: true when
+	 * a committed cursor was found, and true for an empty partition, where there is
+	 * nothing to be behind. False means the backlog defaults to the whole
+	 * partition, which a caller deciding whether to WAKE something must not act on
+	 * — `ensure_offsetlog()` creates the directory at construction, so an empty one
+	 * is the ordinary state between boot and the first checkpoint.
 	 *
 	 * @param string $source_dir    Partition directory the reader tails.
 	 * @param string $offsetlog_dir Its durable cursor dir; empty = no cursor at all.
@@ -506,20 +563,23 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	}
 
 	/**
-	 * True if this Consumer resumed from a durable offsetlog checkpoint (seg/off
-	 * default to -1; poll_init's load_offsetlog seeds them ≥0). Only meaningful
-	 * after the first poll — construction does no I/O. To pick a first-spawn start
-	 * position, call next_offset() at build; poll_init resumes from the checkpoint
-	 * when one exists (overriding that seek) and keeps it otherwise.
+	 * True once a frame has been committed at this reader's cursor; the tracked
+	 * segment and offset both start at -1. `load_offsetlog()` commits one the
+	 * moment it finds a durable entry, so by the time `init_position()` consults
+	 * it a true answer means the reader resumed. Construction does no I/O, so it
+	 * reads false until the first poll. To pick a first-spawn start position call
+	 * `next_offset()` at build time: a durable checkpoint overrides that seek, and
+	 * with no checkpoint the seek stands.
 	 */
 	public function has_checkpoint(): bool {
 		return -1 !== $this->checkpoint_segment || -1 !== $this->checkpoint_offset;
 	}
 
 	/**
-	 * Seam (Tail overrides → 'end'): first-spawn cursor when there's no durable
-	 * checkpoint AND no explicit next_offset(). null = leave at the constructed
-	 * default (0:0 = start), which is Consumer's behavior.
+	 * First-spawn seam: where the cursor starts when there is no durable checkpoint
+	 * and no explicit `next_offset()`. `null` leaves the constructed default of
+	 * 0:0, the start of the log, which is Consumer's behaviour; Tail returns
+	 * `'end'` so a fresh follower sees only what is appended after it starts.
 	 */
 	protected function default_offset(): ?string {
 		return null;
@@ -590,9 +650,10 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	 * Resolve a scalar position to its SEEK sentinel — the one place the alias words
 	 * map to numbers, shared with the push source, which forwards the sentinel to
 	 * whoever holds the segments rather than resolving it locally. An unknown word
-	 * reads as SEEK_START, next_offset's long-standing default case.
+	 * reads as SEEK_START, matching `next_offset()`'s default case.
 	 *
 	 * @param string|int|float $position Sentinel or alias word.
+	 * @return int A SEEK_* constant, or the numeric position itself.
 	 */
 	public static function seek_sentinel( $position ): int {
 		return match ( $position ) {
@@ -605,15 +666,15 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 
 	/**
 	 * Commit one offsetlog frame at the current cursor — UNCONDITIONALLY (no
-	 * advance-guard; the boot sequence re-commits the same cursor on purpose). The
-	 * shared base frame + Consumer's static extra ride commit_checkpoint_frame(); the
-	 * only per-call variation is the snapshot cache.
+	 * advance-guard; the boot sequence re-commits the same cursor on purpose).
+	 * `commit_checkpoint_frame()` carries the shared base frame and
+	 * `checkpoint_frame_extra()`; what this method adds is the snapshot cache.
 	 *
-	 * @param bool                    $graceful   Stamp attempts=0 (clean handoff) instead of the live count.
-	 * @param bool                    $with_state Co-commit the snapshot node's save_state(). False for the
-	 *                                            stateless boot frame written BEFORE restore — reading the
-	 *                                            un-restored node there would clobber the good cache.
-	 * @param array<array-key,mixed> $extra      Per-call frame additions.
+	 * @param bool                   $graceful   Stamp attempts=0 (clean handoff) instead of the live count.
+	 * @param bool                   $with_state Co-commit the snapshot node's save_state(). False for the
+	 *                                           stateless boot frame written BEFORE restore — reading the
+	 *                                           un-restored node there would clobber the good cache.
+	 * @param array<array-key,mixed> $extra      Frame fields merged over the base, for a caller that has some.
 	 */
 	protected function write_checkpoint_frame( bool $graceful, bool $with_state, array $extra = [] ): void {
 		// Co-commit snapshots with offset as ONE record for lockstep respawn.
@@ -687,7 +748,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 		return $out;
 	}
 
-	/** Worker-type env tag (set by SpawnController after HMAC auth); '' when unset. */
+	/** Worker-type env tag, set by `Spawn_Controller` on spawn and by `Bootstrap` on the reconcile pass; '' when unset. */
 	private static function worker_type_env(): string {
 		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- env var is set by SpawnController after HMAC auth.
 		return Core::as_string( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ?? '' );
@@ -696,13 +757,14 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	/**
 	 * Read at most one READ_BLOCK_BYTES block into $buffer (Tachikoma get_batch +
 	 * Partition::process_get). Rolls to the next segment when the current one is
-	 * drained, sets at_eof when caught up, and bounds a single oversized line.
+	 * drained, and sets at_eof when the reader is caught up on disk with no
+	 * complete line still buffered.
 	 *
 	 * The Durable_Reader refill seam: Consumer's synchronous disk read. A push source
 	 * (Remote_Source_Node) implements the same abstract seam by arming its curl valve.
 	 */
 	protected function get_batch(): void {
-		// Defeat stat cache so growth from another process's writer visible.
+		// Defeat the stat cache so another process's appends become visible.
 		\clearstatcache( true, $this->source()->partition_dir() );
 		$segments = $this->source()->get_segments( true );
 		if ( empty( $segments ) ) {
@@ -804,7 +866,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	 * oldest segment), or it was wiped and recreated smaller — a full sweep
 	 * restarts ids at 0, so a durable checkpoint can sit past EOF (rewind to
 	 * the segment start instead of waiting forever for the file to grow back).
-	 * Shared by poll() and compute_lag() so reads and lag agree on position.
+	 * Shared by get_batch() and compute_lag() so reads and lag agree on position.
 	 *
 	 * @param array<int,array{id: int,size: int}> $segments Live segment list.
 	 */
@@ -838,7 +900,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	 * STEP's advance: drive ticks until exactly one message is emitted or EOF is
 	 * reached. poll_init's first tick only loads the buffer (emits nothing in line
 	 * mode), so always tick at least once, then keep going until one message lands
-	 * or a poll leaves us genuinely at EOF with nothing buffered.
+	 * or a poll leaves the reader genuinely at EOF with nothing buffered.
 	 *
 	 * @return array{segment:int, offset:int, at_eof:bool}
 	 */
@@ -851,11 +913,12 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	}
 
 	/**
-	 * Synchronous read-to-EOF — the messaging interface a CLI (reqgrep) drives instead
-	 * of hand-rolling read_bytes_at + decode. This is Tachikoma v2.0's drain(): poll the
-	 * source until it is genuinely at EOF with no buffered complete line, fill()ing each
-	 * unpacked Message into the sink as poll() does, then emit one terminal TM_EOF (its
-	 * drain tail). The Consumer's fire_cb is the async event-loop wrapper of the same path.
+	 * Synchronous read-to-EOF — the messaging interface a CLI (reqgrep) drives
+	 * instead of hand-rolling `read_at()` and its own decode. Polls the source
+	 * until it is genuinely at EOF with no buffered complete line, filling each
+	 * unpacked Message into the sink exactly as `poll()` does, then emits one
+	 * terminal TM_EOF so the caller knows the stream ended. `fire()` is the
+	 * event-loop wrapper of the same path.
 	 *
 	 * @api Cross-plugin CLI entrypoint — reqgrep (event-logger-nodes) drives it.
 	 */
@@ -875,17 +938,20 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 		$this->sink?->fill( $eof );
 	}
 
-	/** Enable/disable the multi-writer seal-grace. Set true only for a shared log (the firehose). */
+	/** Turn the multi-writer seal-grace on or off. Set it true only for a shared log (the firehose). */
 	public function set_multi_writer( bool $flag ): void {
 		$this->multi_writer = $flag;
 	}
 
 	/**
-	 * Re-emit the Consumer's persistent config verbs (the shared time-travel ones plus
-	 * `set_multi_writer`) after the base `make_node`/`connect_node` lines, so a console
-	 * dump_config → replay round-trips them. Without the snapshot_node line, a replayed
-	 * Consumer loses its snapshot target and the downstream stateful node's save_state()
-	 * silently stops co-committing.
+	 * Re-emit the Consumer's persistent config verbs — the time-travel ones plus
+	 * every schema-declared toggle currently on (`multi_writer`,
+	 * `assume_clean_shutdown`) — after the base `make_node` and `connect_node`
+	 * lines, so a console dump_config and replay round-trips them. Without the
+	 * add_snapshot_node line a replayed Consumer loses its snapshot target, and the
+	 * downstream stateful node's save_state() silently stops co-committing.
+	 *
+	 * @return string TSL lines, each newline-terminated.
 	 */
 	public function dump_config(): string {
 		$out  = parent::dump_config();
@@ -915,9 +981,10 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	}
 
 	/**
-	 * Fold the time-travel READ surface (frames + cursor) into the canvas-poll
-	 * payload the inspector round-trips. Delegates to the Time_Travel trait, which
-	 * reads the cursor/checkpoint fields directly.
+	 * The inspector's canvas-poll payload: the time-travel READ surface (keyframes,
+	 * live cursor, polling state) merged with the dead-letter segment count it
+	 * badges. `Durable_Reader` supplies the first half straight off the cursor and
+	 * checkpoint fields; `Dead_Letter_Queue` supplies the second.
 	 *
 	 * @return array{frames: array<int,array{id:int,size:int}>, cursor: array{segment:int, offset:int}, polling: string, at_frame: int|null, on_frame: bool, deadletter_segments: int}
 	 */
@@ -937,6 +1004,13 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 		$this->deadletter = null;
 	}
 
+	/**
+	 * Topology console manifest: the palette entry, the three positional arguments
+	 * `parse_schema_args()` assigns, and the verb set — dead-letter triage, time
+	 * travel, the pump toggles and `set_multi_writer`.
+	 *
+	 * @return array<string,mixed>
+	 */
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
 			'category'      => 'I/O',

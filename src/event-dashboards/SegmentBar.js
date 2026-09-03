@@ -1,9 +1,10 @@
 /**
- * SegmentBar — single segment bar visualization (horizontal bar layout).
+ * Draws one segment file of a partition or log as a three-region fill bar.
  *
- * Shared by the worker-status tree (`TreeEntity`) and any consumer rendering a
- * partition/log's segment list. Extracted from WorkerStatus.js so the tree and
- * the Topology Manager don't depend on that module.
+ * The worker-status tree renders a row of these per partition, and any
+ * consumer holding a segment list plus a reader cursor can do the same. The
+ * three regions separate what the reader has consumed, what it still owes, and
+ * what the writer appended after the reader's last probe.
  */
 
 import { memo, useState, useEffect } from '@wordpress/element';
@@ -16,8 +17,10 @@ import { formatBytes } from '@newspack-nodes/shared/utils/formatters';
  * @typedef {Object} Segment
  * @property {number} id      Segment number — the `{file}.{N}` suffix.
  * @property {number} size    Bytes the segment holds.
- * @property {number} [mtime] Last-write time in seconds; `Workers_CI` stats it,
- *                            `Log_Sources` does not. Unused by this bar.
+ * @property {number} [mtime] Last-write time in seconds. `Workers_CI` stats it;
+ *                            `Log_Sources` does not, because
+ *                            `Partition_Node::get_segments()` collects id and
+ *                            size only. This bar never reads it.
  */
 
 /**
@@ -29,18 +32,37 @@ import { formatBytes } from '@newspack-nodes/shared/utils/formatters';
  *
  * @typedef {Object} SegmentBarProps
  * @property {Segment} segment       Segment this bar draws.
- * @property {number}  maxSize       Largest segment in the row; scales the widths.
- * @property {?number} cursorSegment Reader cursor segment ID (null = no consumer).
- * @property {?number} cursorOffset  Reader cursor offset within cursorSegment.
- * @property {?number} endSegment    Recorded probe-end segment ID (null = no consumer).
- * @property {?number} endSize       Recorded probe-end offset within endSegment.
- * @property {number}  [index]       Position in the row; staggers the fill animation.
- * @property {boolean} isNew         Whether this segment is newly appeared.
- * @property {boolean} isRemoving    Whether this segment is being removed.
+ * @property {number}  maxSize       Denominator for every width: the log's
+ *                                   declared rotation size, or the fleet-wide
+ *                                   default. Every bar in the row shares it.
+ * @property {?number} cursorSegment Reader cursor segment id (null = no consumer).
+ * @property {?number} cursorOffset  Reader cursor offset within `cursorSegment`.
+ * @property {?number} endSegment    Segment id of the partition end the reader
+ *                                   recorded at its last probe, which lags the
+ *                                   live head (null = no consumer).
+ * @property {?number} endSize       Offset of that recorded end within
+ *                                   `endSegment`.
+ * @property {number}  [index]       Position in the row; staggers the fill
+ *                                   animation.
+ * @property {boolean} [isNew]       Segment appeared since the prior snapshot.
+ * @property {boolean} [isRemoving]  Segment is gone, and drawn until it
+ *                                   finishes animating out.
  */
 
 /**
- * Single segment bar visualization (horizontal bar layout).
+ * One segment as three fills: read, backlog, and live beyond the recorded end.
+ *
+ * Widths divide by `maxSize` rather than by the segment's own size, so a full
+ * segment fills its bar and the newest, part-written one stays short. Bars are
+ * then comparable across the row.
+ *
+ * The backlog is ONE color, picked by how far behind the reader has fallen:
+ * amber while the recorded end sits in the cursor's own segment, red once it
+ * has crossed into a later one. A log nothing reads paints entirely gray,
+ * because both leading regions collapse to zero width.
+ *
+ * The stylesheet hides `segment-label-h` and `segment-size-h` in this layout,
+ * so the `title` attribute is what surfaces the id and the size.
  *
  * @type {import('react').NamedExoticComponent<SegmentBarProps>}
  */
@@ -56,7 +78,7 @@ export const SegmentBar = memo( function SegmentBar( {
 	isRemoving,
 } ) {
 	const size = segment.size;
-	// New segment mounts empty, flips to real widths next frame to animate in.
+	// A CSS transition skips mount, so draw 0-width and flip next frame.
 	const [ drawn, setDrawn ] = useState( ! isNew );
 	useEffect( () => {
 		if ( drawn ) {
@@ -65,12 +87,28 @@ export const SegmentBar = memo( function SegmentBar( {
 		const id = window.requestAnimationFrame( () => setDrawn( true ) );
 		return () => window.cancelAnimationFrame( id );
 	}, [ drawn ] );
+	/**
+	 * Width of one region as a percentage of the row's shared scale. Returns 0
+	 * before the first paint, which is what animates a new segment in, and when
+	 * `maxSize` is 0, which would otherwise divide by zero.
+	 *
+	 * @param {number} bytes Bytes the region covers.
+	 * @return {number} Percentage of `maxSize`.
+	 */
 	const pct = ( bytes ) =>
 		drawn && maxSize > 0 ? ( bytes / maxSize ) * 100 : 0;
-	// cursor + end arrive together; no consumer of this log → both are null.
+	// Cursor and end arrive together; both are null when nothing reads.
 	const hasConsumer = cursorSegment !== undefined && cursorSegment !== null;
 
-	// Bytes of THIS segment up to a (seg, offset) marker (0 if before it).
+	/**
+	 * Bytes of THIS segment lying before a `(segment, offset)` boundary: the
+	 * whole segment when the boundary is in a later one, the offset itself when
+	 * it falls inside this one, zero when it is in an earlier one.
+	 *
+	 * @param {number} boundarySeg    Segment id the boundary sits in.
+	 * @param {number} boundaryOffset Byte offset within that segment.
+	 * @return {number} Bytes of this segment before the boundary.
+	 */
 	const bytesUpTo = ( boundarySeg, boundaryOffset ) => {
 		if ( segment.id < boundarySeg ) {
 			return size;
@@ -81,9 +119,10 @@ export const SegmentBar = memo( function SegmentBar( {
 		return 0;
 	};
 
-	// Green: to read cursor; backlog: to recorded end; gray to head; none→gray.
+	// The read region ends at the cursor, the backlog at the recorded end.
 	const readEnd = hasConsumer ? bytesUpTo( cursorSegment, cursorOffset ) : 0;
 	const recordedEnd = hasConsumer ? bytesUpTo( endSegment, endSize ) : 0;
+	// A stale probe end trails the cursor; max() keeps the backlog >= 0.
 	const recorded = Math.max( readEnd, recordedEnd );
 
 	// Backlog is ONE color: yellow within-segment, red across a boundary.

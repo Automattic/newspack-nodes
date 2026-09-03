@@ -2,20 +2,22 @@
 /**
  * Job Delay
  *
- * The delayed-jobs sweep. Jobs enqueued with `not_before`/`delay` park in a
- * single hardwired `jobdelay.p0` partition (the alerts.p0 precedent: low
- * volume, one dir, one reader). This sweep runs on the existing
- * `newspack_nodes/periodic` tick: it drains the delay log with a
- * durable-cursor Consumer, delivers every due entry into the live jobintake
- * (delay fields stripped, partition key re-hashed), and circulates the
- * not-yet-due remainder back to the tail. The delay log is a circulating
- * buffer — restart-safe, no new storage, no new timers.
+ * The delayed-jobs sweep. A job enqueued with `not_before` or `delay` parks in
+ * the single hardwired `jobdelay.p0` partition — the alerts.p0 precedent: low
+ * volume, one directory, one reader. The sweep rides the existing
+ * `newspack_nodes/periodic` tick, draining the delay log with a durable-cursor
+ * Consumer, delivering every due entry into the live jobintake with its delay
+ * fields stripped and its partition key re-hashed, and circulating the
+ * not-yet-due remainder back to the tail. Treating the delay log as a
+ * circulating buffer is what makes a delayed job restart-safe while adding no
+ * storage and no timers.
  *
- * Granularity = the reconciliation pass (~60s), the one place
- * `newspack_nodes/periodic` fires. Late is correct — `not_before` means not
- * before, so firing early is the bug. Delivery is at-least-once: a crash
- * between deliver/re-append and checkpoint re-plays that sweep's entries, the
- * same guarantee the rest of the substrate gives.
+ * Granularity is the reconciliation pass, roughly sixty seconds, because that
+ * is the one place `newspack_nodes/periodic` fires. Late is correct:
+ * `not_before` means not before, so firing early is the bug. Delivery is
+ * at-least-once — a crash between delivering an entry and committing the
+ * cursor replays that sweep's entries, the same guarantee the rest of the
+ * substrate gives.
  *
  * @package Newspack_Nodes
  */
@@ -26,14 +28,25 @@ namespace Newspack_Nodes;
 
 /**
  * Job Delay sweep.
+ *
+ * Static throughout, carrying no state between passes: the durable cursor under
+ * `offsets/` and the delay log itself hold everything one sweep hands the next,
+ * so a sweep that dies mid-pass costs a replay and nothing else.
  */
 class Job_Delay {
 
-	/** Reader id: names the sweep's Consumer + its durable offsetlog dir. */
+	/**
+	 * Reader id, naming both the sweep's Consumer and its durable offsetlog
+	 * directory. Renaming it hands the next sweep a fresh cursor at the head of
+	 * the delay log, which re-delivers every entry still retained there.
+	 */
 	public const READER = 'jobdelay-sweep';
 
 	/**
-	 * Fleet-sweep entry point: sweep, never throw into the housekeeping job.
+	 * Run one sweep from the `newspack_nodes/periodic` tick, reporting a failure
+	 * instead of propagating it. The whole action fires inside a single
+	 * `Bootstrap::reconcile_step()` catch, so a throw escaping here would cost
+	 * every subscriber behind this one its turn on that tick.
 	 */
 	public static function sweep_action(): void {
 		try {
@@ -44,24 +57,30 @@ class Job_Delay {
 	}
 
 	/**
-	 * Drain jobdelay.p0 once: deliver due entries, circulate the rest.
+	 * Drain jobdelay.p0 once: deliver the due entries, circulate the rest.
 	 *
-	 * Ordering is the durability contract: held entries re-append BEFORE the
-	 * checkpoint, so an abort anywhere replays this sweep (duplicates, never
-	 * loss). Enqueuers may append mid-drain (shared log, hence multi-writer
-	 * seal-grace); anything the drain misses is simply next tick's work. A
-	 * delivery that throws (lock contention) is held and circulates instead
-	 * of aborting the entries behind it. An entry that came due mid-sweep
-	 * delivers on re-append (write_job routes by not_before).
+	 * Ordering is the durability contract. Held entries re-append BEFORE the
+	 * checkpoint, so an abort anywhere replays this sweep, which duplicates and
+	 * never drops. Enqueuers may append mid-drain, so the Consumer reads the
+	 * delay log as a multi-writer source and takes the seal grace; whatever the
+	 * drain misses is next tick's work. A delivery that throws on lock
+	 * contention is held and circulates rather than aborting the entries behind
+	 * it. An entry that came due mid-sweep delivers on its re-append, because
+	 * `Job_Intake::write_job()` routes by `not_before`.
 	 *
-	 * @param string|null $base_dir       Override base directory (tests); defaults to config.
-	 * @param int|null    $num_partitions Override partition count (tests); defaults to config.
-	 * @param float|null  $now            Due-ness clock (tests); defaults to the real clock.
-	 * @return int Number of entries delivered into the live jobintake.
+	 * @param string|null $base_dir       Base directory (tests); defaults to the substrate config.
+	 * @param int|null    $num_partitions Live-intake partition count (tests); defaults to the substrate config.
+	 * @param float|null  $now            Clock each entry's `not_before` is judged against (tests);
+	 *                                    defaults to `Core::right_now()`.
+	 * @return int Entries delivered into the live jobintake, counting any that came due mid-sweep.
+	 * @throws Worker_Should_Stop When a cooperative stop reaches a delivery (ADR-14).
+	 * @throws \RuntimeException From a write the drain callback does not wrap — the re-append
+	 *                           loop, or the Consumer's own setup. The cursor stays behind the
+	 *                           entry, so the next sweep replays it.
 	 */
 	public static function sweep( ?string $base_dir = null, ?int $num_partitions = null, ?float $now = null ): int {
 		$base_dir  = \rtrim( $base_dir ?? Config::get_base_directory(), '/' );
-		// A template, not a path. Pinned to p0 today; resolve it regardless.
+		// Layout lives in Job_Intake's template; resolve it, don't rebuild.
 		$delay_dir = Core::resolve_partition_template(
 			Job_Intake::log_dir_templates( "{$base_dir}/logs" )[ Job_Intake::DELAY_BASENAME ],
 			0
@@ -134,7 +153,7 @@ class Job_Delay {
 				$consumer->set_multi_writer( true );
 				$consumer->drain();
 
-				// Re-append precedes checkpoint: aborts dup, not drop.
+				// Re-append, then checkpoint: an abort replays this sweep.
 				foreach ( $held as $entry ) {
 					$not_before = Core::num_float( $entry['not_before'] ?? 0, 0.0 );
 					if ( ! $deliver( $entry, $not_before > 0.0 ? [ 'not_before' => $not_before ] : [] ) ) {
