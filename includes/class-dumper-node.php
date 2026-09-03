@@ -5,6 +5,14 @@
  * `_stdout`), but it's a placeable Transform node — the lossy, display-oriented
  * counterpart to the lossless Struct_To_JSON / JSON_To_Struct pair.
  *
+ * The render is one-way: a command response becomes its `payload`, a TM_PING
+ * becomes a round-trip time, and the envelope is gone. Splice in Struct_To_JSON
+ * instead wherever something downstream has to read the message back.
+ *
+ * Four behaviors belong to `wp nodes cli` and lie dormant in a graph that wires
+ * none of them: the completion intercept, the per-session TO filter, the EOF
+ * drain callback, and the `prompt` response that writes the Shell's prompt.
+ *
  * @package Newspack_Nodes
  */
 
@@ -14,39 +22,72 @@ namespace Newspack_Nodes;
 
 class Dumper_Node extends Node {
 
-	/** Highest debug-render level. The Shells validate against it; the setter clamps to it. */
+	/**
+	 * Highest debug-render level. `Shell_Node`'s `debug_level` builtin refuses
+	 * anything above it, `set_debug_level()` clamps to it, and
+	 * `src/runtime/dumper-node.js` mirrors the value for the browser REPL.
+	 */
 	public const MAX_DEBUG_LEVEL = 2;
 
 	/**
-	 * Tab-completion intercept. Gets first crack at every inbound message; if it
-	 * returns true the message is consumed (a completion reply) and rendered as
-	 * nothing. Null → no interception.
+	 * Tab-completion intercept, wired by `wp nodes cli` in readline mode. It gets
+	 * first crack at every inbound message, and returning true consumes that
+	 * message: a completion reply feeds the reader's candidate cache instead of
+	 * the terminal. Null leaves every message to the render below.
 	 *
-	 * Signature: `function ( array $message ): bool` (true = consumed).
+	 * Signature: `function ( array $message ): bool`, true when consumed.
 	 *
 	 * @var callable|null
 	 */
 	private $completion_sink = null;
 
 	/**
-	 * Render-verbosity dial: 0 = curated, 1 = + per-message header, 2 = + full envelope dump.
-	 *
-	 * @var int 0, 1, or 2.
+	 * Render-verbosity dial. Level 0 emits the curated line alone. Level 1
+	 * prefixes a `<FLAGS> from <FROM>:` header and still emits that line. Level 2
+	 * emits the whole envelope INSTEAD of it, because the envelope already
+	 * carries the VALUE and rendering both prints the payload twice.
 	 */
 	private int $debug_level = 0;
 
 	/**
-	 * Fired when a TM_EOF echo matching to_filter arrives (stdin-close drain marker).
+	 * Fired when the TM_EOF this session sent on stdin close comes back — the
+	 * drain marker saying every reply queued ahead of it has been rendered. The
+	 * cli flips its exit flag from here, so a piped script ends on the echo
+	 * rather than on the reader's five-second deadline.
+	 *
+	 * Signature: `function (): void`.
 	 *
 	 * @var callable|null
 	 */
 	private $on_eof = null;
 
+	/**
+	 * The REPL front-end that owns this Dumper. A `prompt` response writes
+	 * `$shell->prompt`, and `$shell->path` is the attachment `prompt_is_trusted()`
+	 * weighs a sender against. Null in a graph that wires no Shell, which leaves
+	 * both paths dead.
+	 */
 	private ?Shell_Node $shell = null;
 
-	/** Multi-session TO filter (this cli's $pid); render only matching or empty-TO messages. */
+	/**
+	 * This cli session's pid. Every attached session tails the SAME worker output
+	 * partition, so another session's replies arrive here too; only a TO naming
+	 * this pid, or an empty TO (an unaddressed broadcast), renders.
+	 */
 	private string $to_filter = '';
 
+	/**
+	 * Render one inbound message, in the order the cascade has to run: drop
+	 * another session's reply, let the completion intercept take its own
+	 * traffic, emit the debug header, fire the EOF drain callback, then render
+	 * by type.
+	 *
+	 * The EOF callback fires ahead of either early return, so the drain marker
+	 * reaches the cli at every verbosity. A level that swallowed it would leave
+	 * the session waiting out the reader's deadline instead.
+	 *
+	 * @param array<int,mixed> $message The 7-field positional message array.
+	 */
 	public function fill( array $message ): void {
 		// Drop messages addressed to a different cli session; empty TO renders.
 		if ( '' !== $this->to_filter ) {
@@ -131,11 +172,15 @@ class Dumper_Node extends Node {
 	/**
 	 * Forward one rendered line to the terminal as a fresh TM_BYTESTREAM.
 	 *
-	 * Mints a NEW message (TO='') so Node::fill() stamps TO=$this->target
-	 * (_stdout) — the inbound reply's TO=_output/$pid never leaks here.
+	 * Minting a new message leaves TO empty, which is what lets `Node::fill()`
+	 * stamp TO from `$this->target` (`_stdout`); forwarding the inbound message
+	 * would carry its TO of `_output/<pid>` past this node.
 	 *
-	 * NB: parent::fill() is what bumps $this->counter — so counter tracks lines
-	 * emitted (a debug_level>=1 message emits two), not inbound messages.
+	 * `parent::fill()` also bumps `$this->counter`, so the counter `ls -c` prints
+	 * tracks lines EMITTED rather than messages received — one message at debug
+	 * level 1 emits two.
+	 *
+	 * @param string $text The rendered text. A newline belongs in it; none is appended.
 	 */
 	private function emit( string $text ): void {
 		$message                   = Message::new_message();
@@ -145,9 +190,14 @@ class Dumper_Node extends Node {
 	}
 
 	/**
-	 * Level-2 dump: full envelope as a structural multi-line render.
+	 * The level-2 dump: the whole envelope as a multi-line `Message { … }` block,
+	 * one field per line in canonical field order.
 	 *
-	 * @param array<int,mixed> $message The Message to render.
+	 * `formatMessageEnvelope()` in `src/runtime/dumper-node.js` renders the same
+	 * block field for field, so one message reads identically in the terminal and
+	 * in the browser console. Change the shape here and change it there too.
+	 *
+	 * @param array<int,mixed> $message The 7-field positional message array.
 	 */
 	private function format_envelope_dump( array $message ): string {
 		$type     = Core::as_int( $message[ Message::TYPE ] ?? 0 );
@@ -175,8 +225,10 @@ class Dumper_Node extends Node {
 
 	/**
 	 * Render a TM-flag bitmask for display, naming the unmatched bits in hex.
-	 * Public: the dead-letter `dl_show` verb renders through it too. The names
-	 * come from Message::type_labels(), the one flags-to-names map.
+	 * Public because the dead-letter `dl_show` verb renders through it too. The
+	 * names come from `Message::type_labels()`, the one flags-to-names map.
+	 *
+	 * @param int $type The TYPE bitmask.
 	 */
 	public static function format_type_flags( int $type ): string {
 		$flags = Message::type_labels( $type );
@@ -184,9 +236,11 @@ class Dumper_Node extends Node {
 	}
 
 	/**
-	 * Stringify a Message::VALUE for the level-2 envelope dump (arrays/JSON-strings → JSON).
+	 * Stringify a `Message::VALUE` for display. A VALUE that already holds a JSON
+	 * object or array is decoded first, so the dump pretty-prints its structure
+	 * instead of one long escaped line.
 	 *
-	 * @param mixed $value      Raw VALUE.
+	 * @param mixed $value The raw VALUE.
 	 */
 	private static function stringify_value( $value ): string {
 		if ( \is_string( $value ) && '' !== $value && ( '{' === $value[0] || '[' === $value[0] ) ) {
@@ -196,7 +250,9 @@ class Dumper_Node extends Node {
 	}
 
 	/**
-	 * Render a command-response `payload` for terminal display (arrays → pretty JSON).
+	 * Render a command-response `payload` for terminal display. An array becomes
+	 * pretty JSON carrying a trailing newline, so the next prompt starts on its
+	 * own line; a scalar passes through as it is.
 	 *
 	 * @param mixed $payload The `payload` field of a response VALUE.
 	 */
@@ -208,7 +264,11 @@ class Dumper_Node extends Node {
 	}
 
 	/**
-	 * Indent every line after the first by $prefix.
+	 * Indent every line after the first by `$prefix`, so a multi-line VALUE stays
+	 * aligned under the envelope dump's `value:` label.
+	 *
+	 * @param string $text   The rendered value.
+	 * @param string $prefix The indent applied to the second line and on.
 	 */
 	private static function indent_following_lines( string $text, string $prefix ): string {
 		$lines = \explode( "\n", $text );
@@ -229,6 +289,7 @@ class Dumper_Node extends Node {
 	 * head is ours to trust. Bare mode has no remote peer feeding this Dumper.
 	 *
 	 * @param array<int,mixed> $message The response Message.
+	 * @return bool True when the sender may write the prompt.
 	 */
 	private function prompt_is_trusted( array $message ): bool {
 		if ( null === $this->shell ) {
@@ -243,35 +304,57 @@ class Dumper_Node extends Node {
 		return $attached === $head;
 	}
 
+	/** Give the Dumper the REPL front-end whose prompt a `prompt` response may write. */
 	public function set_shell( Shell_Node $shell ): void {
 		$this->shell = $shell;
 	}
 
+	/**
+	 * Wire the stdin-close drain callback; null clears it.
+	 *
+	 * @param callable|null $cb `function (): void`, fired on the TM_EOF echo.
+	 */
 	public function on_eof( ?callable $cb ): void {
 		$this->on_eof = $cb;
 	}
 
+	/**
+	 * Wire the tab-completion intercept; null clears it.
+	 *
+	 * @param callable|null $cb `function ( array $message ): bool`, true when it consumed the message.
+	 */
 	public function set_completion_sink( ?callable $cb ): void {
 		$this->completion_sink = $cb;
 	}
 
+	/**
+	 * Confine rendering to one cli session. An empty pid renders everything.
+	 *
+	 * @param string $pid This session's pid, the tail of the `_output/<pid>` the Shell stamps into FROM.
+	 */
 	public function set_to_filter( string $pid ): void {
 		$this->to_filter = $pid;
 	}
 
 	/**
-	 * Set the debug-render level (clamped to [0, MAX_DEBUG_LEVEL]); returns the
-	 * applied value.
+	 * Set the debug-render level, clamped to `[0, MAX_DEBUG_LEVEL]`. The applied
+	 * value comes back because the Shell echoes it: the operator reads the level
+	 * that took effect, not the one requested.
+	 *
+	 * @param int $level The requested level.
+	 * @return int The level now in force.
 	 */
 	public function set_debug_level( int $level ): int {
 		$this->debug_level = \max( 0, \min( self::MAX_DEBUG_LEVEL, $level ) );
 		return $this->debug_level;
 	}
 
+	/** The level in force. The Shell's `debug_level` builtin reads it to toggle. */
 	public function debug_level(): int {
 		return $this->debug_level;
 	}
 
+	/** @return array<string,mixed> */
 	public static function node_schema(): array {
 		return [
 			'category'    => 'Transform',

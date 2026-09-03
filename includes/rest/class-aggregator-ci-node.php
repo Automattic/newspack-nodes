@@ -1,38 +1,35 @@
 <?php
 /**
- * Aggregator_CI: command-dispatch for the hub-side aggregator dashboards.
+ * Aggregator_CI: the hub-side command surface behind the Aggregator Status
+ * dashboard.
  *
- * The dashboard reaches these verbs via a command addressed
- * `TO = _http/aggregator`. Mounts on `newspack_nodes/request_graph_ready`
- * alongside the rest of the substrate service CIs.
+ * A hub wires one `Remote_Source` per spoke partition, each pulling that
+ * spoke's log over SSE and publishing its connection state to the shared
+ * cache. This interpreter is the read side. It mounts as `aggregator` on
+ * `newspack_nodes/request_graph_ready` beside the rest of the substrate
+ * service CIs, and answers the three verbs `node_schema()` declares:
  *
- * Verbs — the three `node_schema()` declares, and only those:
- *   summary        — polled header slice: `{connected, idle, total, server_now}`
- *                    counted from `build_snapshot()`. The header reads this tiny
- *                    blob rather than re-deriving the rollup from the full
- *                    partition payload. `server_now` is the snapshot clock.
- *   servers_status — polled server-cards slice: the SAME snapshot, re-indexed as
- *                    a SEQUENTIAL ARRAY (the React card list maps over it).
- *                    Both slices go out as a JSON STRING — the substrate
- *                    SliceViewNode contract — via `Service_CI_Node::slice_verb()`.
- *   probe          — button-triggered deep probe of ONE spoke: POST its
- *                    `workers/dump_graph` through `HTTP_Out_Node::probe_command()`
- *                    and roll the reply into a whitelisted shape (worker
- *                    live/stale/dead, worst consumer lag, dead-letter total).
- *                    Never proxies raw remote JSON. The only verb here with a
- *                    remote-call surface.
+ *   summary        — the polled header slice, `{connected, idle, total,
+ *                    server_now}` counted from `build_snapshot()`, so the
+ *                    header renders the roll-up without re-deriving it from
+ *                    the full partition payload.
+ *   servers_status — the polled card slice: the same snapshot re-indexed as a
+ *                    SEQUENTIAL ARRAY, which is what the React card list maps
+ *                    over.
+ *   probe          — the button-triggered deep probe of ONE spoke, and the
+ *                    only verb here that reaches the network.
  *
- * `build_snapshot()` is the single source both slices read, so they can never
- * disagree about what they saw. It discovers every `Remote_Source` wired into
- * ANY active topology (`Topology_Analyzer::graph_for` per active name), and for
- * each configured partition reads that node's status snapshot from the cache
- * under `Remote_Source_Node::status_key_for()` — the exact key Remote_Link
- * writes. Cache reads go through `Cache_Backend::shared_first()`; a miss is an
- * empty array, not null. The spoke URL comes from the `Vault` singleton, keyed
- * by the node's vault-id argument.
+ * Both slices answer a JSON STRING through `Service_CI_Node::slice_verb()`,
+ * the shape a browser SliceViewNode parses, and both read the one
+ * `build_snapshot()` builder — so the header's counts and the cards they
+ * summarize are derived identically rather than by two roll-ups that drift.
+ * The dashboard batches the pair into a single POST, so they also answer from
+ * one request.
  *
- * Auth is the `Capabilities` role each verb declares, resolved through the
- * filterable `newspack_nodes/capability_map` — not a hardcoded capability.
+ * Each verb declares its `Capabilities` role in `node_schema()`, and
+ * `Service_CI_Node` wraps every handler with it, resolved through the
+ * filterable `newspack_nodes/capability_map` rather than a hardcoded
+ * capability.
  *
  * @package Newspack_Nodes
  */
@@ -53,18 +50,26 @@ use Newspack_Nodes\Vault;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * Hub-side dashboard verbs: two polled snapshot slices and one spoke probe.
+ */
 class Aggregator_CI_Node extends Service_CI_Node {
 
 	/**
-	 * `probe` verb — on-demand deep probe of ONE spoke: POST its
-	 * `workers/dump_graph` (via `HTTP_Out_Node::probe_command()` + its `$http_call`
-	 * seam) and roll the reply into a compact whitelisted shape. The polled
-	 * `summary`/`servers_status` slices carry connection health only; this
-	 * verb is the button-triggered depth (worker liveness, worst consumer lag,
-	 * dead-letter total). Never proxies raw remote JSON.
+	 * `probe` verb: POST one spoke's `workers/dump_graph` through
+	 * `HTTP_Out_Node::probe_command()` (and its `$http_call` seam) and answer
+	 * with the roll-up `fleet_rollup()` whitelists. The polled slices carry
+	 * connection health only, so this is where a dashboard button reaches for
+	 * worker liveness, consumer lag and dead-letter depth — one blocking
+	 * request per click, never on the poll path.
+	 *
+	 * `<id>` is the VAULT id, not the `Remote_Source` node name: the spoke's
+	 * URL and credentials live in the Vault, and `build_snapshot()` carries a
+	 * `vault_id` on every row so a card can hand it straight back.
 	 *
 	 * @param list<string> $args Verb argument tokens (`<id>`).
 	 * @return array<string,mixed> Compact per-spoke roll-up.
+	 * @throws \RuntimeException When `<id>` is missing, names no Vault entry, or the spoke call fails.
 	 */
 	public static function cmd_probe( array $args ): array {
 		$id = Command_Args::parse( $args )['positional'][0] ?? '';
@@ -79,13 +84,19 @@ class Aggregator_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Whitelist + roll up a spoke's `dump_graph` payload into named fields only:
-	 * worker live/stale/dead counts, worst consumer distance, dead-letter total.
-	 * A worker that is neither live nor stale is a never-started `dead`.
+	 * Reduce a spoke's `dump_graph` reply to named fields only: the worker
+	 * live/stale/dead counts, the largest consumer distance in bytes behind its
+	 * source, and the dead-letter segment total. A worker that is neither live
+	 * nor stale has never started, which counts as `dead`.
 	 *
-	 * @param string                 $id      Spoke id.
+	 * The whitelist is the point. `dump_graph` answers the spoke's whole
+	 * operator-grade envelope — every worker, log, node and edge — and
+	 * forwarding it would put a remote server's payload into the hub's
+	 * dashboard, plus whatever the spoke adds to that envelope next.
+	 *
+	 * @param string                 $id      The probed spoke's Vault id.
 	 * @param array<array-key,mixed> $payload The spoke's dump_graph payload.
-	 * @return array<string,mixed> Compact roll-up.
+	 * @return array{id:string,workers:array{total:int,live:int,stale:int,dead:int},worst_distance:int,deadletter_segments:int} Compact roll-up.
 	 */
 	private static function fleet_rollup( string $id, array $payload ): array {
 		$workers = Core::arr( $payload['workers'] ?? [] );
@@ -125,15 +136,19 @@ class Aggregator_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Build the per-node partition snapshot, keyed by the wired Remote_Source
-	 * NODE NAME. The single source of truth the `summary` and `servers_status`
-	 * verbs share — so the de-god dashboard slices can never disagree about
-	 * what they saw.
+	 * Build the per-node partition snapshot both slices read, keyed by the
+	 * wired `Remote_Source` NODE NAME.
 	 *
-	 * Discovers every Remote_Source wired into ANY active topology
-	 * graph, then for every configured partition reads that node's substrate
-	 * status snapshot from memcache under `Remote_Source_Node::status_key_for()`
-	 * (the exact key Remote_Link writes). Cache misses default to an empty array.
+	 * Discovery covers every active topology, since an operator wires spokes
+	 * into whatever topology suits and the substrate names none. Each
+	 * `Remote_Source` found declares two schema arguments, the Vault id and the
+	 * `remote_partition` template, and the row that comes out reads that node's
+	 * status snapshot for every configured partition. The spoke URL comes from
+	 * the `Vault` singleton, keyed by that Vault id.
+	 *
+	 * Reads go through `Cache_Backend::shared_first()`, and a miss yields an
+	 * empty block rather than a missing entry, so the cards show a row per
+	 * configured partition whether or not the reader has published yet.
 	 *
 	 * @return array<string,array{id:string,vault_id:string,url:string,partitions:array<int,array<array-key,mixed>>}>
 	 */
@@ -141,10 +156,10 @@ class Aggregator_CI_Node extends Service_CI_Node {
 		$registry = Vault::fresh();
 
 		$result = [];
-		// Readers live in ANY active topology, whatever its name.
+		// An operator wires spokes into ANY active topology.
 		foreach ( \array_keys( Bootstrap::get_topologies() ) as $topology ) {
 			$topology = Core::as_string( $topology );
-			// remote_partition has a <partition> token; fan across the count.
+			// The remote_partition token fans across the partition count.
 			$num_partitions = Bootstrap::num_partitions_for( $topology );
 			foreach ( Topology_Analyzer::graph_for( $topology )['nodes'] as $node ) {
 				if ( 'Remote_Source' !== ( $node['type'] ?? '' ) ) {
@@ -155,12 +170,11 @@ class Aggregator_CI_Node extends Service_CI_Node {
 				if ( '' === $name ) {
 					continue;
 				}
-				// args: <vault-id> <remote_partition> (2-arg schema).
 				$node_args = $node['args'] ?? [];
 				$vault_id  = $node_args[0] ?? '';
 				$template  = $node_args[1] ?? '';
 
-				// The writer's own builder, so the two cannot drift.
+				// The writer builds this key too; the two cannot drift.
 				$partitions = [];
 				for ( $p = 0; $p < $num_partitions; $p++ ) {
 					$key              = Remote_Source_Node::status_key_for( $name, Core::resolve_partition_template( $template, $p ) );
@@ -184,9 +198,13 @@ class Aggregator_CI_Node extends Service_CI_Node {
 
 	/**
 	 * One server's three-state reading, best partition wins: `connected` while
-	 * any partition streams, `idle` while one is closed at EOF and due back, and
-	 * `down` otherwise. Idle is healthy — counting it as missing reads as a
-	 * shortfall on a fleet where nothing is wrong.
+	 * any partition streams, `idle` while any sits closed with a `retry:` delay
+	 * and is due back, and `down` otherwise — a partition mid-handshake or in
+	 * error backoff reads down.
+	 *
+	 * Idle earns its own state because it is healthy: the spoke closed that
+	 * stream on purpose and says when it reopens, so counting it as missing
+	 * reads as a shortfall on a fleet where nothing is wrong.
 	 *
 	 * @param array<int,array<array-key,mixed>> $partitions Per-partition snapshots.
 	 * @return string One of connected|idle|down.
@@ -204,11 +222,17 @@ class Aggregator_CI_Node extends Service_CI_Node {
 		return $state;
 	}
 
-	/** @api Used by the substrate to provide UI etc. */
+	/**
+	 * Palette entry and verb table: the two polled slices and the probe, each
+	 * with the role `Service_CI_Node` gates its handler on.
+	 *
+	 * @api Used by the substrate to provide UI etc.
+	 * @return array<string,mixed>
+	 */
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
 			'category'    => 'Service',
-			'description' => 'Hub-side aggregator dashboards: per-server status, cache health, registered servers.',
+			'description' => 'Hub-side aggregator dashboard: per-spoke connection status and an on-demand fleet probe.',
 			'arguments'   => [],
 			'commands'    => [
 				[
@@ -244,6 +268,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 					'handler'     => self::slice_verb( static fn (): array => \array_values( self::build_snapshot() ) ),
 				],
 				[
+					// No capability declared, so the gate demands MANAGE.
 					'name'        => 'probe',
 					'description' => 'On-demand deep probe of one spoke: roll up worker live/stale/dead, worst consumer lag, and dead-letter total via its workers/dump_graph.',
 					'args'        => [

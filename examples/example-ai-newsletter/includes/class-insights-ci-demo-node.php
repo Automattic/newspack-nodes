@@ -1,10 +1,13 @@
 <?php
 /**
- * Insights_CI_Demo_Node: the dashboard's server-side read. It reads the latest offsetlog
- * snapshot the Consumer co-commits (the digest's save_state cache) and serves it as three
- * small verbs — `counts`, `top`, `accumulated` — one slice each, so the dashboard can fetch
- * each independently (one Fetcher per verb, batched into one POST per tick). Durable,
- * synchronous, no live-worker dependency.
+ * Server-side read behind the Publisher Insights dashboard.
+ *
+ * All three dashboard panels are answered from one durable source: the newest
+ * snapshot the `example-scored` Consumer co-commits into its offsetlog, which
+ * carries `Digest_Builder_Demo`'s accumulated items (its `save_state()` cache).
+ * Reading committed state off disk keeps the page synchronous and free of any
+ * live-worker dependency — a dashboard request never has to reach the fleet, and
+ * it renders exactly what the last commit held.
  *
  * @package Example_AI_Newsletter
  */
@@ -18,8 +21,18 @@ use Newspack_Nodes\Config;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * Publisher Insights service interpreter: one slice verb per dashboard panel.
+ *
+ * `counts`, `top` and `accumulated` each return a single slice rather than one
+ * blob, so the dashboard runs one Fetcher per panel and every reply lands on the
+ * Fetcher that minted it — the address IS the correlation (ADR-7), and no panel
+ * waits on another's data. The split costs no extra requests: the browser's
+ * HTTP_Out batches a tick's three commands into one POST.
+ */
 class Insights_CI_Demo_Node extends Service_CI_Node {
 
+	/** How many items the `top` verb returns, highest score first. */
 	private const TOP_N = 10;
 
 	/**
@@ -63,22 +76,27 @@ class Insights_CI_Demo_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Read every `example-scored.p*` offset dir's latest snapshot and flatten the digest
-	 * caches into one items list. `example-scored` (not bare `scored`) isolates this demo;
-	 * MUST match the topology paths. The glob + per-dir cache descent is the substrate's
-	 * Partition_Node::read_latest_snapshot_cache; this just pins the demo's glob.
+	 * Flatten every `example-scored.p*` offsetlog's latest snapshot into one items list.
 	 *
-	 * @return array<int,array<array-key,mixed>>
+	 * The glob and the per-directory cache descent belong to the substrate's
+	 * `Partition_Node::read_latest_snapshot_cache()`; this pins the demo's glob.
+	 * `example-scored` rather than a bare `scored` isolates the example's data from a real
+	 * plugin's log in the same substrate directory, so the pattern MUST match the paths the
+	 * topology declares.
+	 *
+	 * @param string $offsets_dir Substrate offsets directory holding the per-partition offsetlogs.
+	 * @return array<int,array<array-key,mixed>> Digest items from every partition, in glob order.
 	 */
 	public static function read_snapshot_items( string $offsets_dir ): array {
 		return Partition_Node::read_latest_snapshot_cache( $offsets_dir, 'example-scored.p*', 'digest' );
 	}
 
 	/**
-	 * Count items per source.
+	 * Count items per source. An item whose `source` is missing or non-string counts
+	 * under `?` rather than being dropped, so the totals still add up to the item count.
 	 *
-	 * @param array<int,array<array-key,mixed>> $items
-	 * @return array<string,int>
+	 * @param array<int,array<array-key,mixed>> $items Snapshot items.
+	 * @return array<string,int> Source name => item count.
 	 */
 	private static function shape_sources( array $items ): array {
 		$sources = [];
@@ -92,8 +110,11 @@ class Insights_CI_Demo_Node extends Service_CI_Node {
 	/**
 	 * Top-N items by score, descending, shaped to { source, title, score }.
 	 *
-	 * @param array<int,array<array-key,mixed>> $items
-	 * @return array<int,array<string,mixed>>
+	 * A missing or non-numeric score reads as 0.0 through Core::num_float(), so the
+	 * comparison never sees a null and an unscored item still sorts.
+	 *
+	 * @param array<int,array<array-key,mixed>> $items Snapshot items.
+	 * @return array<int,array<string,mixed>> At most TOP_N items, highest score first.
 	 */
 	private static function shape_top( array $items ): array {
 		\usort(
@@ -111,12 +132,21 @@ class Insights_CI_Demo_Node extends Service_CI_Node {
 		return $top;
 	}
 
+	/**
+	 * Palette entry plus the three slice verbs the dashboard polls.
+	 *
+	 * `Service_CI_Node::slice_verb()` builds each handler: it hands the interpreter — for
+	 * a Service_CI verb that IS this node — to the shape closure and JSON-encodes what the
+	 * closure returns. Every shape reads `items()`, so the three verbs of one batch share
+	 * a single offsetlog read.
+	 *
+	 * Authorization belongs to the base class, which wraps each handler in the capability
+	 * its schema declares. These three declare none, so all of them require MANAGE, and a
+	 * per-verb gate here would only stack a second check.
+	 *
+	 * @return array<string,mixed>
+	 */
 	public static function node_schema(): array {
-		// @longform Service_CI_Node::slice_verb() builds each handler: it
-		// passes this node (the interpreter IS the CI for a Service_CI verb)
-		// to the shape and JSON-encodes the result. commands_from_schema()
-		// wraps every handler with require_manage_options(), so the gate is
-		// centralized there — no per-slice gate needed.
 		return \array_merge( parent::node_schema(), [
 			'category'    => 'Service',
 			'description' => 'Reads the scored-pipeline offsetlog snapshot; serves the dashboard insights slices.',

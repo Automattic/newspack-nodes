@@ -4,23 +4,31 @@ import { overviewChartSeries } from './overviewChartSeries';
 import { RateSmoother } from '../shared/rateSmoother';
 
 /**
- * Card refresh cadence (20Hz); live rate uses the RateSmoother (10s avg, EMA).
+ * Card refresh cadence (20Hz). The live rate on those cards is a RateSmoother
+ * reading (10s window, EMA), because a raw 50ms delta reads as a burst or a
+ * zero and never as a rate.
  *
- * Its own slot by necessity: the Router ticks at 1s, so `useRouterTick` cannot
- * express 20Hz. Sub-second work is the standing exception to the hitchhike rule.
+ * Its own interval rather than a `useRouterTick` Timer, for the reason the 5s
+ * sampler keeps one: the Overview measures the page graph's own traffic, and a
+ * Router-borne timer is torn down with the graph it measures, including across
+ * a Console graph rebuild. The overlay also runs on pages that mount no graph
+ * at all, where such a Timer never arms.
  */
 const TICK_MS = 50;
 
 /**
  * Live read of the overlay's I/O telemetry for the Overview tab. The cards
- * (totals + a live rate) refresh at 20Hz off the raw counters; the two In/Out
- * CHARTS stay on the 5-second sampled series (re-rendered once per sample tick),
- * so the fast card refresh never thrashes the chart redraw.
+ * (totals plus a live rate) refresh at 20Hz off the raw counters; the two
+ * In/Out CHARTS stay on the 5-second sampled series, re-rendered once per
+ * sample tick, so the fast card refresh never thrashes the chart redraw.
  *
- * @return {{ totals: Object, rates: Object, msgRateSeries: Object, byteRateSeries: Object }}
- *   Cumulative totals, the live In/Out rates, and the Message/Byte chart series.
+ * @return {{totals:Object,rates:{byteIn:number,byteOut:number,msgIn:number,msgOut:number},msgRateSeries:Object<string,Object>,byteRateSeries:Object<string,Object>}}
+ *   The whole `IoTelemetry.snapshot()` — cumulative counters, the SSE connect
+ *   stamp and the classified message ring — the smoothed per-second In/Out
+ *   rates, and the Message/Byte chart panels, each keyed `In` and `Out`.
  */
 export function useOverviewStats() {
+	// Re-render trigger; the values themselves are read from refs at render.
 	const [ , force ] = useState( 0 );
 	const ratesRef = useRef( { byteIn: 0, byteOut: 0, msgIn: 0, msgOut: 0 } );
 	// One RateSmoother per stream + the last counter snapshot to delta against.
@@ -46,7 +54,7 @@ export function useOverviewStats() {
 			const prev = prevRef.current;
 			const sm = smoothersRef.current;
 			if ( prev ) {
-				// Counter went backward = telemetry reset; drop windows to 0.
+				// Backward counter = a reset; drop the stale 10s windows.
 				if ( s.bytesIn < prev.bytesIn || s.msgsIn < prev.msgsIn ) {
 					sm.byteIn.reset();
 					sm.byteOut.reset();

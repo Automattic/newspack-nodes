@@ -1,10 +1,12 @@
 <?php
 /**
- * WorkerCliCommand: WP-CLI subcommands for worker lifecycle management.
+ * The operator's control surface over the worker fleet: what is running, how to
+ * stop, start and restart it, and which topologies it spawns.
  *
- * Adds `wp nodes types` / `run <type>` / `restart <type>` / `status` beyond the
- * existing `ls` / `cli`. Live positions come from the shared Topic_Probe log
- * (via `CLI::consumer_rows()`), not memcache.
+ * No supervisor process exists to interrogate, so every verb reads the evidence
+ * the fleet itself writes — the `.lock.d` directories under `locks/`, the
+ * persisted deploy hold, and the Topic_Probe log carrying consumer positions
+ * (`CLI::consumer_rows()`).
  *
  * @package Newspack_Nodes
  */
@@ -13,6 +15,20 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * `wp nodes {types,run,restart,stop,start,status,activate,deactivate,gc,doctor}`,
+ * one public method per verb, registered against a single shared instance in
+ * `newspack-nodes.php`.
+ *
+ * WP-CLI parses the docblocks below as the command definition rather than as
+ * prose: `## OPTIONS` and `## EXAMPLES` become the verb's `--help` output,
+ * `@when after_wp_load` defers the callback until WordPress has loaded, and
+ * `@alias` names a second spelling. WP-CLI hands every subcommand the same
+ * `( array $args, array $assoc_args )` pair, so a verb that reads neither still
+ * declares both.
+ *
+ * @phpstan-import-type Worker_Descriptor from Bootstrap
+ */
 class Worker_CLI_Command {
 
 	/** Default seconds `stop` waits for the fleet to go quiet. */
@@ -63,7 +79,7 @@ class Worker_CLI_Command {
 	 * @when after_wp_load
 	 *
 	 * @param array<int,string>   $args       Positional arguments (unused).
-	 * @param array<string,mixed> $assoc_args --timeout.
+	 * @param array<string,mixed> $assoc_args Associative arguments; only --timeout is read.
 	 */
 	public function stop( array $args, array $assoc_args ): void {
 		unset( $args );
@@ -119,7 +135,7 @@ class Worker_CLI_Command {
 	 * heartbeating long before it exits, and calling it gone is the one lie this
 	 * command must never tell.
 	 *
-	 * @return array<int,string>
+	 * @return array<int,string> `type.pN` slot ids, each in-flight spawn tagged.
 	 */
 	private function stop_blockers(): array {
 		$blockers = \array_keys( $this->held_lock_dirs() );
@@ -158,6 +174,9 @@ class Worker_CLI_Command {
 
 	/**
 	 * Release the deploy hold and spawn the fleet.
+	 *
+	 * The hold lifts before anything is spawned, because the spawn endpoint
+	 * refuses every POST while it stands.
 	 *
 	 * ## EXAMPLES
 	 *
@@ -225,8 +244,8 @@ class Worker_CLI_Command {
 	 *
 	 * @when after_wp_load
 	 *
-	 * @param array<int,string>   $args       Positional arguments.
-	 * @param array<string,mixed> $assoc_args Associative arguments.
+	 * @param array<int,string>   $args       Positional arguments; the target.
+	 * @param array<string,mixed> $assoc_args Associative arguments; only --partition is read.
 	 */
 	public function restart( array $args, array $assoc_args ): void {
 		$target = $args[0] ?? '';
@@ -253,7 +272,8 @@ class Worker_CLI_Command {
 	/**
 	 * Fleet overview: every catalog topology with per-partition worker state
 	 * (live/stale/down from the lock heartbeats, plus uptime from the lock-dir
-	 * age), then the consumer-lag table from the Topic_Probe snapshot.
+	 * age), then the consumer-lag table from the Topic_Probe snapshot, whose
+	 * stale rows `CLI::consumer_rows()` re-measures off disk.
 	 *
 	 * ## OPTIONS
 	 *
@@ -275,8 +295,8 @@ class Worker_CLI_Command {
 	 * @alias ls
 	 * @when after_wp_load
 	 *
-	 * @param array<int,string>   $args       Positional arguments.
-	 * @param array<string,mixed> $assoc_args Associative arguments.
+	 * @param array<int,string>   $args       Positional arguments (unused).
+	 * @param array<string,mixed> $assoc_args Associative arguments; only --format is read.
 	 */
 	public function status( array $args, array $assoc_args ): void {
 		$now   = \time();
@@ -350,11 +370,13 @@ class Worker_CLI_Command {
 	}
 
 	/**
-	 * Render rows via WP_CLI format_items, or a plain aligned dump without it.
+	 * Render rows through `WP_CLI\Utils\format_items()`, falling back to
+	 * two-space-joined lines when that formatter is absent, as it is under the
+	 * test suite's WP-CLI stub.
 	 *
-	 * @param string                            $format  table|json|csv|yaml ('' = table).
-	 * @param array<int,array<string,mixed>>  $rows    Table rows.
-	 * @param array<int,string>                $columns Column order.
+	 * @param string                         $format  table|json|csv|yaml ('' = table).
+	 * @param array<int,array<string,mixed>> $rows    Table rows.
+	 * @param array<int,string>              $columns Column order.
 	 */
 	private static function render( string $format, array $rows, array $columns ): void {
 		if ( \function_exists( 'WP_CLI\\Utils\\format_items' ) ) {
@@ -374,12 +396,12 @@ class Worker_CLI_Command {
 	/**
 	 * One fleet-table row for a {topology, partition} slot.
 	 *
-	 * @param string                    $name           Topology name.
-	 * @param int                       $p              Partition.
-	 * @param array<string,mixed>|null $w              Matching liveness row, if any.
-	 * @param int                       $now            Clock.
-	 * @param int                       $on_demand_idle Whether the topology scales to zero when idle.
-	 * @return array<string,int|string>
+	 * @param string                   $name           Topology name.
+	 * @param int                      $p              Partition.
+	 * @param array<string,mixed>|null $w              Liveness row from `CLI::ls_workers()`; null when the slot holds no lock.
+	 * @param int                      $now            Unix time both durations are measured against.
+	 * @param int                      $on_demand_idle Seconds of idle before the worker exits; 0 stays resident.
+	 * @return array<string,int|string> The Worker, State, Heartbeat and Uptime cells.
 	 */
 	private static function fleet_row( string $name, int $p, ?array $w, int $now, int $on_demand_idle = 0 ): array {
 		$heartbeat_at = null === $w ? 0 : Core::as_int( $w['heartbeat_at'] );
@@ -403,8 +425,10 @@ class Worker_CLI_Command {
 	}
 
 	/**
-	 * Helper for command implementations to reach the same Cli helper without
-	 * recreating it every time.
+	 * A `CLI` helper bound to this install's base directory, constructed fresh on
+	 * each call.
+	 *
+	 * @return CLI Worker-discovery and IPC helper.
 	 */
 	private function cli(): CLI {
 		return new CLI( $this->base_dir() );
@@ -431,8 +455,8 @@ class Worker_CLI_Command {
 	 *
 	 * @when after_wp_load
 	 *
-	 * @param array<int,string>   $args       Positional arguments.
-	 * @param array<string,mixed> $assoc_args Associative arguments.
+	 * @param array<int,string>   $args       Positional arguments; the topology name.
+	 * @param array<string,mixed> $assoc_args Associative arguments (unused).
 	 */
 	public function activate( array $args, array $assoc_args ): void {
 		Bootstrap::ensure_runtime_wired();
@@ -467,8 +491,8 @@ class Worker_CLI_Command {
 	 *
 	 * @when after_wp_load
 	 *
-	 * @param array<int,string>   $args       Positional arguments.
-	 * @param array<string,mixed> $assoc_args Associative arguments.
+	 * @param array<int,string>   $args       Positional arguments; the topology name.
+	 * @param array<string,mixed> $assoc_args Associative arguments (unused).
 	 */
 	public function deactivate( array $args, array $assoc_args ): void {
 		Bootstrap::ensure_runtime_wired();
@@ -485,8 +509,8 @@ class Worker_CLI_Command {
 	 * `WP_CLI::error`s (which exits) on a missing or unknown-to-catalog name,
 	 * listing the available catalog names so the operator can pick a real one.
 	 *
-	 * @param array<int,string> $args Positional arguments.
-	 * @param string             $verb Verb name, for the usage message.
+	 * @param array<int,string> $args Positional arguments; the name is the first.
+	 * @param string            $verb Verb name, for the usage message.
 	 * @return string The validated topology name.
 	 */
 	private function require_catalog_topology( array $args, string $verb ): string {
@@ -519,8 +543,8 @@ class Worker_CLI_Command {
 	 *
 	 * @when after_wp_load
 	 *
-	 * @param array<int,string>   $args       Positional arguments.
-	 * @param array<string,mixed> $assoc_args Associative arguments.
+	 * @param array<int,string>   $args       Positional arguments (unused).
+	 * @param array<string,mixed> $assoc_args Associative arguments (unused).
 	 */
 	public function types( array $args, array $assoc_args ): void {
 		$topologies = Bootstrap::get_topologies();
@@ -546,8 +570,9 @@ class Worker_CLI_Command {
 	/**
 	 * Run a worker process directly (no spawn endpoint).
 	 *
-	 * Useful for debugging: instantiates a `WorkerBase`, runs the topology, and
-	 * blocks until the worker exits (max_runtime, OOM watermark, restart flag).
+	 * Useful for debugging: instantiates a `Worker_Base`, runs the topology, and
+	 * blocks until the worker exits on one of `Worker_Base`'s own stop triggers —
+	 * `max_runtime`, the memory watermark, a lost lock or a restart flag.
 	 *
 	 * ## OPTIONS
 	 *
@@ -570,8 +595,8 @@ class Worker_CLI_Command {
 	 *
 	 * @when after_wp_load
 	 *
-	 * @param array<int,string>   $args       Positional arguments.
-	 * @param array<string,mixed> $assoc_args Associative arguments.
+	 * @param array<int,string>   $args       Positional arguments; the worker type.
+	 * @param array<string,mixed> $assoc_args Associative arguments; only --partition is read.
 	 */
 	public function run( array $args, array $assoc_args ): void {
 		// Same footgun as `cli`: root-owned IPC/locks lock out the web user.
@@ -651,21 +676,35 @@ class Worker_CLI_Command {
 	 * @param mixed  $entry    Topology entry (array in practice; mixed per the filter contract).
 	 * @param string $key      Key to read.
 	 * @param int    $fallback Default when missing/non-scalar.
+	 * @return int The entry's value, or the fallback.
 	 */
 	private static function entry_int( $entry, string $key, int $fallback ): int {
 		$value = \is_array( $entry ) ? ( $entry[ $key ] ?? $fallback ) : $fallback;
 		return Core::as_int( $value, $fallback );
 	}
 
+	/**
+	 * The validated runtime state root every verb reads `locks/` and the log tree
+	 * under.
+	 *
+	 * @return string Canonical base directory.
+	 * @throws \RuntimeException When `base_directory` is unset or unusable.
+	 */
 	private function base_dir(): string {
 		return Config::get_base_directory();
 	}
 
 	/**
-	 * Read a string from a topology entry, coercing scalars exactly as `(string)` would.
+	 * Read a string from a topology entry or a WP-CLI `$assoc_args` map, coercing
+	 * scalars exactly as `(string)` would.
 	 *
-	 * @param mixed  $entry Topology entry (array in practice; mixed per the filter contract).
+	 * Both callers want the same empty-string default: a missing `topology` key is
+	 * the "not found in the registry" refusal, and a missing `--format` is the
+	 * table `render()` draws for `''`.
+	 *
+	 * @param mixed  $entry Topology entry or associative args (array in practice; mixed per the filter contract).
 	 * @param string $key   Key to read.
+	 * @return string The entry's value, or '' when missing or non-scalar.
 	 */
 	private static function entry_string( $entry, string $key ): string {
 		$value = \is_array( $entry ) ? ( $entry[ $key ] ?? '' ) : '';
@@ -673,10 +712,14 @@ class Worker_CLI_Command {
 	}
 
 	/**
-	 * Expand topologies registered via the `newspack_nodes/topologies` filter
-	 * into a flat list of `{type, partition, stale_timeout}` rows.
+	 * Flatten the ACTIVE topology set into one descriptor per {type, partition}
+	 * slot.
 	 *
-	 * @return array<int,array{type: string,partition: int,topology: mixed,stale_timeout: mixed}>
+	 * Active, not the whole catalog: `restart` and `run` validate their target
+	 * against these rows, so a deactivated topology is no longer a target even
+	 * while its last workers wind down.
+	 *
+	 * @return array<int,Worker_Descriptor>
 	 */
 	private function workers(): array {
 		return Bootstrap::expand_workers();
@@ -703,8 +746,8 @@ class Worker_CLI_Command {
 	 *
 	 * @when after_wp_load
 	 *
-	 * @param array<int,string>   $args       Positional arguments.
-	 * @param array<string,mixed> $assoc_args Associative arguments.
+	 * @param array<int,string>   $args       Positional arguments (unused).
+	 * @param array<string,mixed> $assoc_args Associative arguments; only --force is read.
 	 */
 	public function gc( array $args, array $assoc_args ): void {
 		Bootstrap::ensure_runtime_wired();
@@ -744,8 +787,8 @@ class Worker_CLI_Command {
 	 *
 	 * @when after_wp_load
 	 *
-	 * @param array<int,string>   $args       Positional arguments.
-	 * @param array<string,mixed> $assoc_args Associative arguments.
+	 * @param array<int,string>   $args       Positional arguments (unused).
+	 * @param array<string,mixed> $assoc_args Associative arguments (unused).
 	 */
 	public function doctor( array $args, array $assoc_args ): void {
 		$results  = Health_Checks::evaluate( Health_Probe_Client::cache_backend() );
@@ -780,8 +823,13 @@ class Worker_CLI_Command {
 	}
 
 	/**
-	 * Action handler (wired to `newspack_nodes/restart_fleet`): restart every
-	 * partition of one fleet by topology name. Best-effort; unknown → no-op.
+	 * Restart every partition of one fleet by topology name — the handler wired to
+	 * `newspack_nodes/restart_fleet`, which the `topologies` service verb fires.
+	 *
+	 * Best-effort: a name no active topology carries restarts nothing, because an
+	 * action handler has no caller to report a refusal to.
+	 *
+	 * @param string $name Topology name.
 	 */
 	public static function restart_fleet_by_name( string $name ): void {
 		$workers = Bootstrap::expand_workers();

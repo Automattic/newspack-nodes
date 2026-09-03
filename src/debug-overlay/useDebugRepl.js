@@ -1,3 +1,21 @@
+/**
+ * The debug overlay's REPL: a hook that mounts the overlay's own service nodes
+ * onto the page's exospine backbone and turns each typed line into messages the
+ * local node graph routes.
+ *
+ * The backbone hands every dashboard page a `_command_interpreter` sinking into
+ * `_router`. The overlay adds five nodes on top: `_output`, the Dumper that owns
+ * the transcript; `_stdout`, where the Shell's builtins print text;
+ * `_completion` for tab completion; and `_metadata` with `_cwd`, the canvas poll
+ * and the path it polls at.
+ *
+ * The graph stays the source of truth. React keeps no second copy of the
+ * transcript or the verbosity dial — both are Dumper state slots read back
+ * through `useNodeState`, the way the console reads every other slice — while
+ * localStorage carries the transcript, the debug level and the interpreter's
+ * `debug_state` across a reload.
+ */
+
 import {
 	useCallback,
 	useEffect,
@@ -30,15 +48,27 @@ import {
 	saveDebugState,
 } from '../topology-console/core/consolePersistence';
 
+/**
+ * The empty-transcript fallback, hoisted so every render that finds no Dumper
+ * reads the SAME array. A fresh `[]` per render would change the returned
+ * memo's identity and re-render the whole panel on every tick.
+ */
 const EMPTY_TRANSCRIPT = [];
 
 /**
- * The gate the overlay's Shell sinks into: the `_shell` Tap when one is up,
- * else the bare interpreter. It carries the Compose modal's fields out.
+ * Build the gate the overlay's Shell sinks into: the `_shell` Tap when the
+ * backbone has one, else the bare interpreter. The Tap is preferred because
+ * every command in the graph is observed there; the interpreter is the fallback
+ * for a page whose Tap is gone.
  *
- * @param {Object} interpreter Fallback sink when no Tap is mounted.
- * @param {Object} fieldsRef   Ref holding the Compose fields for this statement.
- * @return {Object} The gate node.
+ * The gate is unnamed, so nothing can address it and the Shell's reference is
+ * the only way in. That is what makes it the safe place to stamp the Compose
+ * modal's fields, which would be wrong on anything a message could be sent to.
+ *
+ * @param {Object} interpreter Fallback sink when no `_shell` Tap is mounted.
+ * @param {Object} fieldsRef   Ref holding the Compose fields for the statement
+ *                             in flight; `dispatchStatement` fills and clears it.
+ * @return {OutgoingGateNode} The gate, sunk and ready for `shell.sink`.
  */
 function makeGate( interpreter, fieldsRef ) {
 	const gate = new OutgoingGateNode();
@@ -52,10 +82,13 @@ function makeGate( interpreter, fieldsRef ) {
  * need. Builtin output bypasses `_output`: the Dumper renders MESSAGES, and a
  * builtin prints text, so `_stdout` turns that text into transcript lines.
  *
- * @param {Object}   shell     Shell owned by DebugOverlay.
+ * An already-registered `_stdout` is reused rather than replaced, which is what
+ * keeps StrictMode's double-invoked initializer from colliding on the name.
+ *
+ * @param {Object}   shell     Shell owned by the overlay's Inspector tab.
  * @param {Object}   dumper    The `_output` Dumper owning the transcript.
  * @param {Function} onSetSkin Applies a resolved skin slug.
- * @return {Object} The mounted `_stdout` node.
+ * @return {StdoutNode} The mounted `_stdout` node.
  */
 function wireStdout( shell, dumper, onSetSkin ) {
 	const stdout =
@@ -71,7 +104,36 @@ function wireStdout( shell, dumper, onSetSkin ) {
 	return stdout;
 }
 
-// Build overlay infra on the backbone render-phase (no dispatch-time race).
+/**
+ * Mount the overlay's service nodes onto the backbone, bind the Shell's
+ * outgoing sink, and hand back the Dumper plus the teardown that removes
+ * exactly what was mounted.
+ *
+ * Called from a render-phase lazy initializer, so the whole graph exists before
+ * the panel's first paint. A node built in an effect would leave the first
+ * typed line with no sink to dispatch into.
+ *
+ * The Dumper is constructed directly rather than through `makeNode`, for two
+ * reasons. `makeNode` carries only string argument tokens, and `debugLevelRef`
+ * is a live React ref. The transcript also has to exist on a page with no
+ * interpreter, which is exactly where the three `makeNode` nodes below cannot
+ * be built.
+ *
+ * `_metadata` targets `_cwd` rather than a path, so a REPL `cd` re-points one
+ * node and every poll follows it — targets resolve at fill time (ADR-7). An
+ * empty cwd leaves `_cwd.target` empty, which stamps no TO and keeps the poll
+ * in the local realm.
+ *
+ * @param {Object}   shell         Shell owned by the overlay's Inspector tab.
+ * @param {Object}   debugLevelRef Ref carrying the restored REPL verbosity; the
+ *                                 Dumper reads it per delivered message.
+ * @param {Function} onSetSkin     Applies a resolved skin slug.
+ * @param {Object}   fieldsRef     Ref holding the Compose fields for the
+ *                                 statement in flight.
+ * @return {{ dumper: Object, teardown: Function }} The `_output` Dumper, and a
+ *   teardown that drops its persistence listeners and removes every node this
+ *   build mounted.
+ */
 function buildInfra( shell, debugLevelRef, onSetSkin, fieldsRef ) {
 	const interpreter = Core.node( names.COMMAND_INTERPRETER );
 	// Idempotent under StrictMode's double-invoke: reuse an existing Dumper.
@@ -90,14 +152,13 @@ function buildInfra( shell, debugLevelRef, onSetSkin, fieldsRef ) {
 			},
 		};
 	}
-	// `_output` Dumper is backbone-class (needs debugLevelRef), so new+named.
 	const dumper = new DumperNode();
 	dumper.debugLevelRef = debugLevelRef;
 	dumper.name = names.OUTPUT;
 	dumper.sink = interpreter;
 	// Publish the restored level so the Verbose toggle reads it like any slice.
 	dumper.setDebugLevel( debugLevelRef.current );
-	// Persist only. The React read is useNodeState below, as in the console.
+	// These listeners only persist; React reads through useNodeState below.
 	const listenerId = 'useDebugRepl/transcript';
 	dumper.register( 'transcript', listenerId, ( next ) => {
 		saveTranscript( next || EMPTY_TRANSCRIPT );
@@ -107,7 +168,7 @@ function buildInfra( shell, debugLevelRef, onSetSkin, fieldsRef ) {
 		saveDebugLevel( next );
 		return true;
 	} );
-	// Seed transcript + interpreter debug_state from last session [87].
+	// Seed the transcript and interpreter debug_state from storage [87].
 	dumper.restore( loadTranscript() );
 	if ( interpreter ) {
 		interpreter.debugState = loadDebugState();
@@ -118,23 +179,23 @@ function buildInfra( shell, debugLevelRef, onSetSkin, fieldsRef ) {
 	if ( interpreter ) {
 		// Tab completion: `_completion` answers help/ls queries off the cwd.
 		completion = interpreter.makeNode( 'Completion', names.COMPLETION );
-		// Canvas-poll: Metadata fires dump_metadata at _cwd each tick.
+		// The canvas poll: Metadata fires dump_metadata at _cwd each tick.
 		metadata = interpreter.makeNode( 'Metadata', names.METADATA );
 		metadata.target = names.CWD;
 		// Hitchhike the _router TIMER; removeNode unwinds via stop_timer.
 		metadata.setTimer();
-		// `_cwd` routing indirection: scope-relative TO re-stamps the cwd.
+		// One indirection: a poll addressed to `_cwd` re-stamps the live cwd.
 		cwdNode = interpreter.makeNode( 'Node', names.CWD );
 		cwdNode.target = shell.path;
 	}
-	// Bind shell.sink to `_shell` Tap at build so open-and-type can't null it.
+	// Bind shell.sink here, so a line typed on open never finds it null.
 	shell.sink = makeGate( interpreter, fieldsRef );
 	const stdout = wireStdout( shell, dumper, onSetSkin );
 	const teardown = () => {
 		dumper.unregister( 'transcript', listenerId );
 		dumper.unregister( 'debug_level', listenerId );
 		stdout.removeNode();
-		// metadata.removeNode() -> stop_timer unregisters from _router TIMER.
+		// metadata.removeNode() stops its timer, unregistering it from _router.
 		dumper.removeNode();
 		completion?.removeNode();
 		metadata?.removeNode();
@@ -144,19 +205,28 @@ function buildInfra( shell, debugLevelRef, onSetSkin, fieldsRef ) {
 }
 
 /**
- * Mount a Dumper at `_output` (plus `_stdout`) for the page's
- * CommandInterpreter, and fill the passed-in Shell (owned by DebugOverlay) with
- * typed REPL lines, which it turns into messages bound for the local realm.
+ * Mount the overlay's service nodes for the page's CommandInterpreter, and fill
+ * the passed-in Shell with typed REPL lines, which it turns into messages bound
+ * for the local realm.
  *
- * @param {boolean}  active      When false the Dumper is torn down (no transcript).
- * @param {Object}   shell       Shell instance owned by DebugOverlay; sink wired to the local interpreter.
- * @param {Function} [onSetSkin] Apply a skin slug — drives the `set_skin` builtin.
+ * The infra is rebuilt whenever `active`, `shell` or the graph generation
+ * changes, so the overlay's "Reset Graph" reconstructs these nodes on the fresh
+ * backbone alongside everyone else's.
+ *
+ * @param {boolean}  active      When false nothing is built, and standing infra
+ *                               is torn down — which empties the transcript
+ *                               along with the Dumper that owned it.
+ * @param {Object}   shell       Shell instance owned by the overlay's Inspector
+ *                               tab; its sink is bound here, to the local
+ *                               interpreter.
+ * @param {Function} [onSetSkin] Apply a skin slug — drives the `set_skin`
+ *                               builtin.
  * @return {{ transcript: Array, sendLine: Function, append: Function, clear: Function, cwd: string, setPath: Function, ready: boolean, debugLevel: number }}
- *   Reactive transcript plus a `sendLine( line )` that fills each statement
- *   into the Shell;
- *   `append`/`clear` write the transcript directly, `cwd` mirrors Shell.path
- *   and `setPath` changes it, `ready` is true once the overlay infra nodes are
- *   mounted, and `debugLevel` is the persisted REPL verbosity.
+ *   The reactive transcript, plus a `sendLine( line, fields )` that splits the
+ *   line and fills each statement into the Shell; `append` and `clear` write
+ *   the transcript directly, `cwd` mirrors `shell.path` and `setPath` changes
+ *   it, `ready` is true once the infra nodes are mounted, and `debugLevel` is
+ *   the persisted REPL verbosity.
  */
 export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 	// Stable refs so re-renders don't rebuild the Shell or remap the Dumper.
@@ -166,7 +236,7 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 	const debugLevelRef = useRef( loadDebugLevel() );
 	// Last-persisted debug_state; sendLine writes only on change [87].
 	const lastDebugStateRef = useRef( loadDebugState() );
-	// Ref so the []-dep dispatchStatement calls the live skin applier.
+	// A ref, so the memoized build always calls the live skin applier.
 	const onSetSkinRef = useRef( onSetSkin );
 	onSetSkinRef.current = onSetSkin;
 	// Compose fields for the statement in flight, read by the outgoing gate.
@@ -177,16 +247,22 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 	// Same for the verbosity dial the `debug_level` builtin moves.
 	const debugLevel =
 		useNodeState( names.OUTPUT, 'debug_level' ) ?? debugLevelRef.current;
-	// cwd mirrors Shell.path; re-rendered so Header + _cwd follow REPL `cd`.
+	// cwd mirrors shell.path, so the Header and `_cwd` follow a REPL `cd`.
 	const [ cwd, setCwd ] = useState( '' );
+	// One extra render, so useNodeState resolves the just-mounted Dumper.
 	const [ , bumpRemount ] = useState( 0 );
 	// True once infra nodes (_output/_completion/_metadata/_cwd) are mounted.
 	const [ ready, setReady ] = useState( false );
-	// Full-rebuild signal: a bump rebuilds overlay infra off fresh backbone.
+	// Full-rebuild signal: a bump rebuilds the infra on a fresh backbone.
 	const generation = useGraphGeneration();
 
-	// Build-before-render: build infra in this lazy initializer, before paint.
+	// Holds the built infra so teardown removes exactly what was built.
 	const infraRef = useRef( null );
+	/**
+	 * Build the infra and point every ref at it. One callback because the lazy
+	 * initializer below and the mount effect both need the same build, and its
+	 * `shell` dependency is what keeps the effect from rebuilding each render.
+	 */
 	const buildNow = useCallback( () => {
 		const infra = buildInfra(
 			shell,
@@ -198,6 +274,7 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 		shellRef.current = shell;
 		infraRef.current = infra;
 	}, [ shell ] );
+	// A lazy initializer runs before first paint, ahead of any dispatch.
 	useState( () => {
 		if ( active ) {
 			buildNow();
@@ -226,15 +303,37 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 		};
 	}, [ active, shell, generation, buildNow ] );
 
+	/**
+	 * Write one entry straight into the transcript, bypassing the Shell. This is
+	 * how the overlay reports its own events, an invoke echo or an SSE error:
+	 * neither was ever a message, so neither has anything to dispatch.
+	 *
+	 * @param {Object} entry Transcript entry, in the Dumper's own shape.
+	 */
 	const append = useCallback( ( entry ) => {
 		dumperRef.current?.append( entry );
 	}, [] );
 
+	/**
+	 * Empty the transcript. The Dumper publishes a fresh empty array, so the
+	 * persisted snapshot clears through the same listener that saves it.
+	 */
 	const clear = useCallback( () => {
 		dumperRef.current?.clear();
 	}, [] );
 
-	// Run one statement through the Shell — the one door (ADR-1).
+	/**
+	 * Run one statement through the Shell. `fill()` is the Shell's only entry
+	 * point (ADR-1), so a typed line and a canvas gesture arrive by the same
+	 * door and pick up the same transcript echo.
+	 *
+	 * @param {string} statement One statement, already split off the line; a
+	 *                           blank one dispatches without echoing.
+	 * @param {Object} [fields]  Compose-modal fields for this mint. The gate
+	 *                           spends them on the way out, and the `finally`
+	 *                           clears them so a later mint is addressed as it
+	 *                           was minted.
+	 */
 	const dispatchStatement = useCallback( ( statement, fields ) => {
 		const s = shellRef.current;
 		const dumper = dumperRef.current;
@@ -263,17 +362,29 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 		}
 	}, [] );
 
+	/**
+	 * THE dispatch path: split a typed line into statements, run each one, and
+	 * do the bookkeeping a line can trigger — mirror a `cd` onto `_cwd` and the
+	 * reactive cwd, and persist the `debug_state` a `trace` moved.
+	 *
+	 * A held continuation — an open quote or a trailing backslash — owns the
+	 * whole next line, so the line is not split on `;`. That semicolon is part
+	 * of the statement the user is still typing.
+	 *
+	 * @param {string} line     One raw line from the REPL input.
+	 * @param {Object} [fields] Compose-modal fields applied to every statement
+	 *                          this line mints.
+	 */
 	const sendLine = useCallback(
 		( line, fields ) => {
 			const shellNode = shellRef.current;
-			// A held continuation owns the whole next line (no ';' splitting).
 			const stmts = shellNode?.hasPending()
 				? [ line ]
 				: splitStatements( line );
 			for ( const stmt of stmts ) {
 				dispatchStatement( stmt, fields );
 			}
-			// Mirror `cd` shell.path change to _cwd.target and reactive cwd.
+			// Mirror a `cd` onto `_cwd`'s target and the reactive cwd.
 			const s = shellRef.current;
 			if ( s && s.path !== cwd ) {
 				const cwdNode = Core.node( names.CWD );
@@ -295,7 +406,13 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 		[ dispatchStatement, cwd ]
 	);
 
-	// Programmatic path change — equivalent to typing `cd /<path>`.
+	/**
+	 * Change the cwd programmatically, as the Header's PATH selector does.
+	 * Sends the `cd` line instead of assigning `shell.path`, so the echo,
+	 * `_cwd` and the canvas repaint all follow the one dispatch path.
+	 *
+	 * @param {string} path Destination path, without the leading slash.
+	 */
 	const setPath = useCallback(
 		( path ) => {
 			sendLine( `cd /${ path }` );

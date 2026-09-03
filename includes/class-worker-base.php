@@ -1,8 +1,12 @@
 <?php
 /**
- * Worker Base: zombie-process worker lifecycle.
+ * Worker Base: the zombie-process worker lifecycle.
  *
- * acquire/release/should_continue so workers exit cleanly before OOM, max_runtime, or lock loss.
+ * A worker is an HTTP request that finishes its response and keeps running
+ * (ADR-8). This file owns everything wrapped around the drain loop: taking the
+ * lifecycle lock, building the scaffolding every worker graph starts from,
+ * handing durable cursors off at shutdown, releasing the lock, and POSTing the
+ * successor's spawn. The stop policy itself lives in `Cooperative_Stop`.
  *
  * @package Newspack_Nodes
  */
@@ -13,23 +17,51 @@ if ( ! \defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+/**
+ * The lifecycle every worker type shares. A topology closure supplies the graph;
+ * the lock, the scaffolding, the drain, the cursor handoff and the succession are
+ * all here, which is what keeps any one node from implementing its own restart.
+ *
+ * Succession releases BEFORE it respawns (ADR-8): reversed, the successor's
+ * `acquire()` meets a lock this process still holds, skips, and idles the slot
+ * until a peer's rescue. That peer scan is the `_fleet` node this class mounts
+ * (ADR-9).
+ */
 class Worker_Base {
 	use Cooperative_Stop;
 
 	/**
-	 * A fresh post-reset baseline already at/above this fraction of the memory limit is
-	 * "near the watermark" — a leak / undersized limit, not a single poison message. A
-	 * memory stop on such a baseline alerts instead of striking the message ([42]).
+	 * Fraction of the memory limit at which a fresh post-reset baseline counts as
+	 * "near the watermark" itself. A memory stop from such a baseline is a leak or
+	 * an undersized limit rather than one poison message, so the fair-shot rule
+	 * alerts instead of striking the in-flight message (ADR-12).
 	 */
 	public const BASELINE_WATERMARK_PCT = 0.50;
 
-	public const IPC_LIFETIME           = 0;
-	public const IPC_MAX_SEGMENTS       = 4;
-	public const IPC_MIN_LIFETIME       = 0;
-	public const IPC_MIN_SEGMENTS       = 2;
-	public const IPC_NUM_SEGMENTS       = 2;
-	public const IPC_SEGMENT_SIZE       = 1048576;
-	public const LOCK_CHECK_GRACE_S     = 0.25;
+	/** IPC scratch geometry: the age rule is off, so a partition is bounded by count. */
+	public const IPC_LIFETIME = 0;
+
+	/** IPC scratch geometry: hard cap; segments above it are pruned unconditionally. */
+	public const IPC_MAX_SEGMENTS = 4;
+
+	/** IPC scratch geometry: no age floor, so nothing survives the count rule by youth. */
+	public const IPC_MIN_LIFETIME = 0;
+
+	/** IPC scratch geometry: floor for the age rule, and Partition's own hard minimum. */
+	public const IPC_MIN_SEGMENTS = 2;
+
+	/** IPC scratch geometry: count-rule target the oldest segments are pruned back to. */
+	public const IPC_NUM_SEGMENTS = 2;
+
+	/** IPC scratch geometry: 1 MiB segment rotation threshold. */
+	public const IPC_SEGMENT_SIZE = 1048576;
+
+	/**
+	 * Seconds of one-shot pre-drain pause, so a concurrent spawn reads our lock as
+	 * held before it retries. Unlike the heartbeat and DB-probe intervals in
+	 * `Cooperative_Stop`, nothing throttles on this — it fires once, before work.
+	 */
+	public const LOCK_CHECK_GRACE_S = 0.25;
 
 	/**
 	 * last-PHP-error seam. Lazily-defaulted to the real `error_get_last()`;
@@ -51,23 +83,38 @@ class Worker_Base {
 	 */
 	public static ?\Closure $token_provider = null;
 
+	/** Runtime state root; this worker's `locks/` and `ipc/` trees hang off it. */
 	protected string $base_dir;
 
 	/** Fresh post-reset memory baseline, captured before the drain — the memory-guard reference point. */
 	protected int $baseline_memory = 0;
+
 	/** This worker's IPC-input Consumer — checkpointed at shutdown so a clean recycle doesn't replay consumed commands. */
 	protected ?Consumer_Node $ipc_input_consumer = null;
+
+	/** This worker's partition number, handed on to the topology closure. */
 	protected int $partition;
+
+	/** Whether the shutdown path has already run; the handler and the `finally` race for it. */
 	protected bool $shutdown_handled = false;
+
+	/** Seconds without a heartbeat after which a peer may steal this worker's lock. */
 	protected int $stale_timeout;
 
-	/**
-	 * Why the worker stopped, categorized for the shutdown handoff ([42]): 'timeout'
-	 * or 'memory' is a cooperative stop that triggers the fair-shot rule on durable
-	 * consumers; '' is operational (lock loss / restart / db) — a clean graceful handoff.
-	 */
+	/** Worker type; `{type}.p{partition}` names the lock dir, the IPC tree and the stop label. */
 	protected string $worker_type;
 
+	/**
+	 * Configure one worker. Nothing here touches the lock, the filesystem or the
+	 * graph — `execute()` owns all three, so constructing a worker is free.
+	 *
+	 * @param string $base_dir       Runtime state root; `locks/` and `ipc/` hang off it.
+	 * @param string $worker_type    Worker type, the first half of the `{type}.p{N}` id.
+	 * @param int    $partition      Partition number, the second half.
+	 * @param int    $max_runtime    Seconds this process runs before yielding to a successor.
+	 * @param int    $stale_timeout  Seconds without a heartbeat before a peer may steal the lock.
+	 * @param int    $on_demand_idle Seconds every reporter must stay idle before this process exits; 0 stays resident.
+	 */
 	public function __construct(
 		string $base_dir,
 		string $worker_type,
@@ -85,14 +132,20 @@ class Worker_Base {
 	}
 
 	/**
-	 * Full lifecycle: acquire → grace → shutdown handler → drain → release + self_respawn.
+	 * Run one worker lifetime: take the lock, build the graph, drain until a stop
+	 * trigger fires, then hand the slot to a successor.
 	 *
-	 * Idempotent shutdown via $shutdown_handled (handler + finally) so release+respawn happens once.
+	 * Two paths reach the shutdown, and both claim `$shutdown_handled` first: the
+	 * registered handler catches an `exit()` that skips the `finally`, the
+	 * `finally` catches everything else, and whichever runs first wins. Without
+	 * that flag a clean exit would hand cursors off, tear the graph down, release
+	 * and respawn twice over.
 	 *
-	 * @param callable $topology  Topology closure (signature: ($interpreter, $partition)).
-	 * @param string   $spawn_url Spawn endpoint URL for self-respawn.
-	 * @param string   $token     Current HMAC spawn token.
-	 * @return array{status: string, reason?: string, error?: string}
+	 * @param callable $topology  Topology closure, called as `( $interpreter, $partition )`.
+	 * @param string   $spawn_url Spawn endpoint URL the successor's POST goes to.
+	 * @param string   $token     HMAC spawn token, used when `$token_provider` is unwired.
+	 * @return array{status: string, reason?: string, error?: string} `skipped` plus the
+	 *   acquire failure, `load_failed` plus the topology error, or `ok`.
 	 */
 	public function execute( callable $topology, string $spawn_url, string $token ): array {
 		if ( ! $this->acquire() ) {
@@ -125,6 +178,7 @@ class Worker_Base {
 			try {
 				$this->run_topology( $topology, $interpreter );
 			} catch ( Worker_Should_Stop $e ) {
+				// A stop IS a RuntimeException; never a load failure.
 				throw $e;
 			} catch ( \RuntimeException $e ) {
 				// @longform A malformed .tsl fails loud but CLEAN: one line,
@@ -140,7 +194,7 @@ class Worker_Base {
 				];
 			}
 
-			// Fresh baseline pre-processing — memory-guard for fair-shot.
+			// Memory-guard reference: after the graph, before any work.
 			$this->baseline_memory = \memory_get_usage( true );
 
 			$ef = Event_Framework::instance();
@@ -165,18 +219,30 @@ class Worker_Base {
 		return [ 'status' => 'ok' ];
 	}
 
-	/** Invoke the topology closure (receives the interpreter + this worker's partition number). */
+	/**
+	 * Invoke the topology closure, which hangs this worker's own nodes off the
+	 * scaffolded interpreter.
+	 *
+	 * @param callable                 $topology    Called as `( $interpreter, $partition )`.
+	 * @param Command_Interpreter_Node $interpreter The scaffolded interpreter.
+	 */
 	public function run_topology( callable $topology, Command_Interpreter_Node $interpreter ): void {
 		$topology( $interpreter, $this->partition );
 	}
 
 	/**
-	 * Build the standard scaffolding (_router, _command_interpreter, _repl, input Consumer).
+	 * Build the scaffolding every worker graph starts from: `_router`,
+	 * `_command_interpreter`, `_fleet`, the `_repl` output Partition and the
+	 * anonymous IPC-input Consumer.
 	 *
-	 * @return Command_Interpreter_Node So topology closures can drive graph construction.
+	 * The interpreter sinks into the Router and everything else sinks into the
+	 * interpreter, so a topology steers flow with `target` alone and never needs a
+	 * sink chain of its own.
+	 *
+	 * @return Command_Interpreter_Node The interpreter topology closures build on.
 	 */
 	public function build_scaffolding(): Command_Interpreter_Node {
-		// Worker = command VERIFIER: set the process-wide HMAC authorize once.
+		// A worker VERIFIES commands: set the process-wide authorize once.
 		Command_Interpreter_Node::$default_authorize = Command_Auth::verifier();
 
 		$ipc_dir = self::ipc_dir( $this->base_dir, $this->worker_type, $this->partition );
@@ -194,16 +260,16 @@ class Worker_Base {
 		// supervision outlives any one process; the throttle dedupes them.
 		$interpreter->make_node( 'Fleet', Node_Names::FLEET, $this->base_dir, $this->held_lock_path() );
 
-		// _repl output Partition: allow_large_writes (dumps exceed PIPE_BUF).
+		// The _repl output Partition, which an attached `wp nodes cli` tails.
 		if ( ! \is_dir( "{$ipc_dir}/output" ) ) {
 			if ( ! Config::write_denied( 'ipc output dir' ) ) {
 				// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 				@\mkdir( "{$ipc_dir}/output", 0755, true );
 			}
 		}
-		// Graph via make_node (name -> arguments -> sink=interpreter).
+		// make_node names it, applies the arguments, and sinks it into us.
 		$repl = $interpreter->make_node( 'Partition', Node_Names::REPL, ...self::ipc_partition_args( "{$ipc_dir}/output" ) );
-		// allow_large_writes keys Lock/heartbeat off name+sink from make_node.
+		// Dumps exceed PIPE_BUF, and this worker is its only writer: no lock.
 		if ( $repl instanceof Partition_Node ) {
 			$repl->void_warranty();
 		}
@@ -222,7 +288,14 @@ class Worker_Base {
 	 * checkpoint) tail-seeks to end so it doesn't replay the input partition's
 	 * retained command history. Anonymous (a pure source — never a routed TO).
 	 *
+	 * It stamps FROM as `_repl`, which is the whole reply path: a command read out
+	 * of `input/` carries that FROM, the interpreter answers TO=FROM, and the
+	 * Router hands the answer to the `_repl` Partition writing `output/`, where
+	 * the cli is reading. Addressing IS the correlation (ADR-7) — nothing else
+	 * pairs a reply with its command.
+	 *
 	 * @param string $ipc_dir This worker's IPC dir (`{base}/ipc/{type}.p{N}`).
+	 * @return Consumer_Node The consumer, unsunk; the caller wires it.
 	 */
 	public function build_ipc_input_consumer( string $ipc_dir ): Consumer_Node {
 		$input_dir = "{$ipc_dir}/input";
@@ -232,7 +305,6 @@ class Worker_Base {
 				@\mkdir( $input_dir, 0755, true );
 			}
 		}
-		// Anonymous pure source (never a routed TO); off Core's registry.
 		$consumer = new Consumer_Node();
 		$consumer->arguments( [ $input_dir, "{$ipc_dir}/input.offsets" ] );
 		// Tail-seek skips stale history; a respawn's checkpoint overrides it.
@@ -265,10 +337,14 @@ class Worker_Base {
 	}
 
 	/**
-	 * Where a worker's IPC tree lives. One definition, because the fleet's own
-	 * scaffolding and anything asking about another worker must agree — this
-	 * layout is the SUBSTRATE's, unlike a TSL path template, so constructing it
-	 * here is not the layout assumption a `.p<N>` parse would be.
+	 * Where a worker's IPC tree lives: `{base}/ipc/{type}.p{N}`. One definition,
+	 * because the fleet's own scaffolding and anything asking about another worker
+	 * must agree — this layout is the SUBSTRATE's, unlike a TSL path template, so
+	 * constructing it here is not the layout assumption a `.p<N>` parse would be.
+	 *
+	 * @param string $base_dir  Runtime state root.
+	 * @param string $type      Worker type.
+	 * @param int    $partition Partition number.
 	 */
 	public static function ipc_dir( string $base_dir, string $type, int $partition ): string {
 		return \rtrim( $base_dir, '/' ) . "/ipc/{$type}.p{$partition}";
@@ -305,18 +381,23 @@ class Worker_Base {
 	/**
 	 * Whether this stop hands the slot straight back to a successor.
 	 *
-	 * Every other stop reason means the work outlived one process, so the slot is
-	 * handed straight on. Two say otherwise: an idle stop means there was no work
-	 * and respawning would undo the exit that just happened (a producer wakes it
-	 * instead), and an operator stop must leave the slot empty for the length of
-	 * a deploy.
+	 * Two reasons say no. An idle stop means there was no work, so respawning
+	 * would undo the exit that just happened — a producer wakes the slot instead.
+	 * An operator stop must leave the slot empty for the length of a deploy. Every
+	 * other reason means the work outlived one process, so the slot is handed on.
+	 *
+	 * @return bool True when `execute()` should POST the successor's spawn.
 	 */
 	public function should_self_respawn(): bool {
 		return ! \in_array( $this->stop_reason, [ 'idle', 'stop' ], true );
 	}
 
+	/**
+	 * Drop the lifecycle lock, flushing pending on-demand wakes first — while the
+	 * lock still reads HELD. Flush them after, and a wake for a partition this
+	 * worker itself tails finds the slot free and spawns a duplicate of us.
+	 */
 	public function release(): void {
-		// While the lock still reads HELD, or we wake ourselves.
 		Partition_Node::flush_pending_wakes();
 		if ( null !== $this->lock ) {
 			$this->lock->release();
@@ -325,11 +406,12 @@ class Worker_Base {
 	}
 
 	/**
-	 * Shutdown cursor handoff. On a clean stop (cooperative or operational) every durable
-	 * consumer is graceful/fair-shot checkpointed. On a FATAL (OOM / uncaught error that
-	 * aborted the run before the finally), the handoff is SKIPPED: leaving the boot frame's
-	 * climbing attempt count intact is what lets a deterministic fatal-poison reach the
-	 * crash-crawl threshold ([42]) instead of resetting to the baseline every lifetime.
+	 * Shutdown handoff: the `Shutdown_Sweeper` flush, then the cursors. On a clean stop
+	 * (cooperative or operational) every durable reader is graceful/fair-shot checkpointed.
+	 * On a FATAL (OOM / uncaught error that aborted the run before the finally) the handoff
+	 * is SKIPPED: leaving the boot frame's climbing attempt count intact is what lets a
+	 * deterministic fatal-poison reach the crash-crawl threshold (ADR-12) instead of
+	 * resetting to the baseline every lifetime.
 	 */
 	public function shutdown_handoff(): void {
 		if ( $this->is_fatal_shutdown() ) {
@@ -340,19 +422,20 @@ class Worker_Base {
 	}
 
 	/**
-	 * Graceful clean-shutdown handoff for every durable consumer this process owns:
-	 * the registered work consumers (Core::$nodes_by_name) plus the anonymous IPC
-	 * consumer. A graceful checkpoint stamps attempts=0 at the current cursor, so the
-	 * respawn resumes at the virgin baseline rather than counting the clean recycle as
-	 * a crash (dead-letter [42]). Only a hard crash skips this path, so only crashes
-	 * climb the attempt counter.
+	 * Clean-shutdown handoff for every durable reader this process owns: the registered
+	 * Consumers and Remote_Sources (`Core::$nodes_by_name`) plus the anonymous IPC
+	 * consumer, which no registry can see. A graceful checkpoint stamps attempts=0 at
+	 * the current cursor, so the respawn resumes at the virgin baseline rather than
+	 * counting the clean recycle as a crash. That stamp is half the crash detector:
+	 * every boot climbs attempts unconditionally, so without it an idle cursor would
+	 * cross the threshold and quarantine an innocent message (ADR-12).
 	 */
 	public function checkpoint_durable_consumers(): void {
 		foreach ( Core::$nodes_by_name as $node ) {
 			if ( $node instanceof Consumer_Node ) {
 				$this->handoff_consumer( $node );
 			} elseif ( $node instanceof Remote_Source_Node ) {
-				// Durable cursor: coop stop → fair-shot, else graceful.
+				// Also a durable cursor, but not a Consumer_Node.
 				$this->handoff_remote_source( $node );
 			}
 		}
@@ -375,7 +458,9 @@ class Worker_Base {
 	 * routes through the fair-shot rule — which strikes/quarantines an in-flight poison
 	 * message and clears an innocent one; an operational stop is a clean graceful
 	 * checkpoint (attempts=0). For memory, pass whether the fresh baseline was already
-	 * near the watermark so a leak isn't blamed on the in-flight message ([42]).
+	 * near the watermark so a leak isn't blamed on the in-flight message.
+	 *
+	 * @param Consumer_Node $node The consumer to hand off.
 	 */
 	private function handoff_consumer( Consumer_Node $node ): void {
 		$is_memory = 'memory' === $this->stop_reason;
@@ -390,7 +475,10 @@ class Worker_Base {
 	 * Shutdown handoff for one Remote_Source. Mirrors handoff_consumer: a cooperative stop
 	 * (timeout/memory) routes through the fair-shot rule; an operational stop is a clean
 	 * graceful checkpoint. For memory, pass whether the fresh baseline was already near the
-	 * watermark so a leak isn't blamed on the in-flight message ([42]).
+	 * watermark so a leak isn't blamed on the in-flight message. A Remote_Source is not a
+	 * Consumer_Node, which is why it needs a branch rather than the Consumer one.
+	 *
+	 * @param Remote_Source_Node $node The remote source to hand off.
 	 */
 	private function handoff_remote_source( Remote_Source_Node $node ): void {
 		$is_memory = 'memory' === $this->stop_reason;
@@ -402,9 +490,10 @@ class Worker_Base {
 	}
 
 	/**
-	 * Memory baseline guard ([42]): was the fresh post-reset baseline already near the
+	 * Memory baseline guard: was the fresh post-reset baseline already near the
 	 * watermark? If so a memory stop is a leak / undersized memory_limit, not a single
-	 * poison message — the fair-shot rule alerts instead of striking the in-flight message.
+	 * poison message — the fair-shot rule alerts instead of striking the in-flight
+	 * message. An unlimited memory_limit has no watermark to be near, so it answers no.
 	 */
 	protected function baseline_near_watermark(): bool {
 		$limit = $this->memory_limit_bytes();
@@ -433,7 +522,14 @@ class Worker_Base {
 		}
 	}
 
-	/** A catchable PHP fatal (OOM, uncaught error) is shutting us down — not a clean stop. */
+	/**
+	 * Whether a PHP fatal (OOM, uncaught error, parse failure) is what is shutting
+	 * us down rather than a clean stop. A fatal offers no catch point, so the last
+	 * recorded error is the only evidence there is, and reading it here — inside
+	 * the shutdown function — is the one moment it still says what happened.
+	 *
+	 * @return bool True when the run died rather than stopped.
+	 */
 	protected function is_fatal_shutdown(): bool {
 		$probe = self::$last_error ?? static fn (): ?array => \error_get_last();
 		$error = $probe();
@@ -443,6 +539,15 @@ class Worker_Base {
 		return \in_array( $error['type'], [ \E_ERROR, \E_PARSE, \E_CORE_ERROR, \E_COMPILE_ERROR, \E_USER_ERROR ], true );
 	}
 
+	/**
+	 * Take the lifecycle lock and start the runtime, heartbeat and DB-probe clocks.
+	 *
+	 * A false here is the normal case for a losing spawn, not an error:
+	 * `Lock_Node::acquire_failure()` is what separates plain contention from an I/O
+	 * refusal, so `execute()` can stay quiet about the first and log the second.
+	 *
+	 * @return bool True when this process owns the slot.
+	 */
 	public function acquire(): bool {
 		if ( ! \is_dir( "{$this->base_dir}/locks" ) ) {
 			// base_dir is operator-configured worker storage, not WP-managed.
@@ -462,6 +567,7 @@ class Worker_Base {
 		return true;
 	}
 
+	/** The `.lock.d` directory THIS worker holds: `{base}/locks/{type}.p{N}.lock.d`. */
 	protected function held_lock_path(): string {
 		return "{$this->base_dir}/locks/{$this->worker_type}.p{$this->partition}.lock.d";
 	}

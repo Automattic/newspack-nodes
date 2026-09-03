@@ -1,18 +1,25 @@
 /**
- * Shared jest setup: no runtime node may leave a timer armed past its test.
+ * Shared jest setup holding every runtime node to two timer invariants: none
+ * leaves a timer armed past its test, and none armed on the REAL clock
+ * survives into a suite's fake timers.
+ *
+ * A timer that outlives its test fires into somebody else's. That test
+ * installs fake timers and advances the clock, the zombie's callback runs
+ * against the jump, and an SseInNode reads the jump as stream silence,
+ * reconnects, and prints — which fails the running test wherever unexpected
+ * console output is a failure. Disarming suite by suite covers only the leaks
+ * somebody has already chased down, so the teardown lives here and no suite
+ * can leak one.
+ *
+ * The second invariant is `timer-hazard.js`'s: a node armed while
+ * `setInterval` was real cannot fire from `advanceTimersByTime`, so the graph
+ * never ticks and the test passes for the wrong reason. That guard decides;
+ * this file feeds it the arm, dispose, timer-swap and per-test teardown hooks.
  *
  * Loaded by `createJestConfig` ahead of each consumer's own `jest.setup.js`, so
  * the substrate and every plugin that composes runtime nodes inherit one copy.
  * Consumers that never import `@newspack-nodes/runtime` build their jest config
  * by hand and never load this.
- *
- * A node that arms a real interval and outlives its test is a live grenade: when
- * a later test installs fake timers and advances the clock, the zombie's callback
- * fires against a jumped clock inside somebody else's test. SseInNode is the one
- * that bit — it read the jump as stream silence, reconnected, and printed, which
- * fails the running test wherever unexpected console output is a failure. Fixing
- * the leaking suites one at a time missed the next one twice, so teardown lives
- * here and no suite can leak one.
  *
  * Browser-only: build-tooling suites run in the node environment and must not
  * pull in the runtime graph.
@@ -40,13 +47,11 @@ if ( 'undefined' !== typeof window ) {
 	} );
 
 	// @longform
-	// Interval accounting, and the standing guard the teardown below is
-	// measured against. Installed FIRST so the teardown captures this wrapper
-	// as its clearInterval — capture the raw one and disposal goes unrecorded,
-	// making every disposed timer read as a leak. Scoped to runtime-armed
-	// intervals: a NODE is what outlives a test and fires into the next one,
-	// while a React effect's interval is unmounted by testing-library. The
-	// Error is stored unformatted; `.stack` is read only when a suite fails.
+	// Interval accounting: each armed id maps to the Error recording where
+	// it was armed. Installed FIRST so the teardown below captures this
+	// wrapper as its clearInterval — capture the raw one and disposal goes
+	// unrecorded, making every disposed timer read as a leak. The Error is
+	// stored unformatted; `.stack` is read only when a suite fails.
 	const rawSetInterval = global.setInterval;
 	const rawClearInterval = global.clearInterval;
 	const live = new Map();
@@ -82,6 +87,10 @@ if ( 'undefined' !== typeof window ) {
 		},
 	} );
 
+	// @longform
+	// The file-end verdict, scoped to intervals armed from runtime source:
+	// a NODE is what outlives a test and fires into the next one, while a
+	// React effect's interval is unmounted by testing-library.
 	afterAll( () => {
 		const sites = [];
 		live.forEach( ( err ) => {

@@ -1,9 +1,21 @@
 <?php
 /**
- * Vault
+ * Vault: the credentials for every spoke this site connects OUT to.
  *
- * Singleton credential store for remote server configurations stored in WordPress options.
- * Servers are stored in the 'newspack_nodes_vault' option as an associative array.
+ * `HTTP_Out_Node` and `Remote_Link_Node` each name a Vault id and resolve that
+ * spoke's URL and Authorization header here, so one store answers "how do I
+ * reach this server" for the whole graph. `Sessions` is the mirror — it holds
+ * the command sessions this site issues to callers coming IN.
+ *
+ * Two sources feed one view. `newspack-nodes-config.php` pins the entries an
+ * operator deploys beside the code; the `newspack_nodes_vault` option holds the
+ * ones the Vault tab writes, and wins wherever an id appears in both. A file
+ * entry is immutable through this API, because a stored override would shadow
+ * the file forever and outlive the deploy that changed it.
+ *
+ * Passwords are sealed at rest under a key derived from `wp_salt( 'auth' )` and
+ * opened on the way out, so every caller holds plaintext and the option never
+ * does.
  *
  * @package Newspack_Nodes
  */
@@ -15,22 +27,30 @@ if ( ! \defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Vault class.
+ * The merged registry, memoized for the life of the process.
+ *
+ * That memo is why `reset_cache()` and `reset()` exist: a worker runs about ten
+ * minutes, so with no drop signal it keeps serving a password the operator has
+ * already rotated. `Config::RESET_ACTION` is that signal.
  */
 class Vault {
 
 	/**
-	 * Prefix marking encrypted values (distinguishes from legacy plaintext).
+	 * Marks a stored value as encrypted. A value without it is plaintext, which
+	 * is what lets `decrypt()` run over every entry unconditionally.
 	 */
 	public const ENCRYPTED_PREFIX = '$enc$';
 
 	/**
-	 * Maximum number of servers in the registry.
+	 * Ceiling `add()` enforces against the merged count. It bounds what the admin
+	 * UI can write; a config file declaring more is not refused, because that file
+	 * is the operator's own deploy.
 	 */
 	public const MAX_SERVERS = 100;
 
 	/**
-	 * WP option name for storing server configurations.
+	 * WP option holding the operator-written half of the registry.
+	 * Non-autoloaded; `write_option()` says why.
 	 */
 	public const OPTION_KEY = 'newspack_nodes_vault';
 
@@ -38,7 +58,9 @@ class Vault {
 	public const CONFIG_KEY = 'vault';
 
 	/**
-	 * Whitelisted config keys for partial-update merge.
+	 * The only keys `update()` takes from a caller. Everything else in the partial
+	 * is dropped before the merge, so a form post cannot reach a stored key this
+	 * class does not manage.
 	 */
 	private const ALLOWED_KEYS = [ 'url', 'auth_username', 'auth_password' ];
 
@@ -50,39 +72,41 @@ class Vault {
 	private static ?Vault $instance = null;
 
 	/**
-	 * Cached merged servers (config-file defaults + WP option overlay).
+	 * Memoized merged view: config-file defaults under the WP option overlay,
+	 * credentials already decrypted. Null until the first read builds it.
 	 *
 	 * @var array<string,array<string,mixed>>|null
 	 */
 	private ?array $servers = null;
 
 	/**
-	 * Public constructor — kept public for direct instantiation in tests.
+	 * Public so a caller can hold its own instance rather than the singleton.
+	 * The class does no construction work; every read builds itself lazily.
 	 */
 	public function __construct() {
 		// Intentionally empty.
 	}
 
 	/**
-	 * Get enabled servers — now an alias for get_all().
+	 * Every server in the Vault, under the name that reads as intent.
 	 *
-	 * The stored `enabled` boolean was removed: a spoke is "enabled" by being
-	 * present in the Vault (wired into the graph). Kept as a named method so
-	 * callers that express the "enabled spokes" intent stay readable.
+	 * A spoke is enabled by being present — wired into the graph — so no stored
+	 * flag decides it and this is an alias for `get_all()`. It keeps a name of its
+	 * own so a caller expressing "the enabled spokes" stays readable.
 	 *
 	 * @api
-	 * @return array<array-key,array<string,mixed>> Keys are array-key (not string): PHP coerces numeric server-id keys to int.
+	 * @return array<array-key,array<string,mixed>> Keys are array-key, not string: PHP coerces a numeric server id to int.
 	 */
 	public function get_enabled(): array {
 		return $this->get_all();
 	}
 
 	/**
-	 * Get a specific server by ID.
+	 * One server from the merged view, credentials decrypted.
 	 *
 	 * @api
-	 * @param string $id Server ID.
-	 * @return array<string,mixed>|null Server config or null if not found.
+	 * @param string $id Server id.
+	 * @return array<string,mixed>|null The config, or null when no entry claims that id.
 	 */
 	public function get( string $id ): ?array {
 		$servers = $this->get_all();
@@ -90,17 +114,20 @@ class Vault {
 	}
 
 	/**
-	 * Add a new server (full overwrite if the caller supplies a complete config).
+	 * Register a new server.
 	 *
-	 * Returns false if:
-	 *  - id format invalid
-	 *  - id already exists in the merged view
-	 *  - registry at capacity
-	 *  - validation fails (URL, credentials)
+	 * The stored entry is exactly `validate_config()`'s three-key projection.
+	 * Unlike `update()`, nothing is carried over from what was there before,
+	 * because a new id has nothing to carry.
+	 *
+	 * Refuses, returning false, when the id is malformed, the id already exists in
+	 * the merged view, the registry sits at `MAX_SERVERS`, the config fails
+	 * validation, or the write does not survive the re-read that verifies it.
 	 *
 	 * @api
-	 * @param string $id     Server ID (alphanumeric, hyphen, underscore; 1-64 chars).
-	 * @param array<string,mixed>  $config Server configuration.
+	 * @param string              $id     Server id (letters, digits, hyphen, underscore; 1-64 chars).
+	 * @param array<string,mixed> $config Server configuration.
+	 * @return bool True when the entry is stored.
 	 */
 	public function add( string $id, array $config ): bool {
 		if ( ! self::is_valid_id( $id ) ) {
@@ -148,9 +175,10 @@ class Vault {
 	 * by the file, so update() is a no-op (returns false) for those entries.
 	 *
 	 * @api
-	 * @param string $id      Server ID.
-	 * @param array<string,mixed>  $partial Partial configuration to merge.
-	 * @param string $new_id  Id to move the entry to; '' keeps the current one.
+	 * @param string              $id      Server id.
+	 * @param array<string,mixed> $partial Partial configuration to merge.
+	 * @param string              $new_id  Id to move the entry to; '' keeps the current one.
+	 * @return bool True when the entry is stored under its target id.
 	 */
 	public function update( string $id, array $partial, string $new_id = '' ): bool {
 		if ( ! self::is_valid_id( $id ) ) {
@@ -207,10 +235,21 @@ class Vault {
 	}
 
 	/**
-	 * Validate and sanitize a full server configuration.
+	 * Project a raw configuration onto the three keys this class manages,
+	 * sanitized, with the password sealed.
+	 *
+	 * A missing, non-string or non-HTTPS URL refuses the whole config: plain HTTP
+	 * would put the credential on the wire in the clear. The username goes through
+	 * `sanitize_text_field()`, or a control-character strip where WordPress is not
+	 * loaded; the password is stripped of control characters. Both cap at 256
+	 * bytes.
+	 *
+	 * A password arriving with `ENCRYPTED_PREFIX` is one the caller read back out
+	 * of storage, so it is verified rather than re-sealed, and dropped when it no
+	 * longer opens under the current key.
 	 *
 	 * @param array<string,mixed> $config Raw configuration.
-	 * @return array<string,mixed>|null Validated configuration or null if invalid.
+	 * @return array<string,mixed>|null The url, auth_username and auth_password triple, or null when invalid.
 	 */
 	private function validate_config( array $config ): ?array {
 		// URL is required, must be string, must be HTTPS.
@@ -268,12 +307,14 @@ class Vault {
 	}
 
 	/**
-	 * Encrypt a string for storage.
+	 * Seal a value for storage as `$enc$<base64 of nonce and ciphertext>`.
 	 *
-	 * Returns the wire-format string (`$enc$<base64>`) on success, or empty on
-	 * failure / empty input.
+	 * Empty input, or a site without libsodium, yields the empty string, and the
+	 * caller stores that: such a site holds no password rather than a plaintext
+	 * one.
 	 *
 	 * @param string $plaintext Value to encrypt.
+	 * @return string The prefixed wire format, or '' when nothing was sealed.
 	 */
 	private static function encrypt( string $plaintext ): string {
 		if ( '' === $plaintext || ! \function_exists( 'sodium_crypto_secretbox' ) ) {
@@ -286,13 +327,14 @@ class Vault {
 	}
 
 	/**
-	 * Remove a server.
+	 * Delete an option-backed server.
 	 *
-	 * Config-file servers can't be removed via the API — they reappear on next
-	 * read. Returns false for those entries.
+	 * A config-file entry is refused: the file still declares it, so the delete
+	 * would report success and the entry would reappear on the next read.
 	 *
 	 * @api
-	 * @param string $id Server ID.
+	 * @param string $id Server id.
+	 * @return bool True when the entry is gone from the option.
 	 */
 	public function remove( string $id ): bool {
 		if ( ! self::is_valid_id( $id ) ) {
@@ -322,15 +364,19 @@ class Vault {
 	}
 
 	/**
-	 * Append an audit-trail entry to PHP error_log.
+	 * Journal one credential mutation through `Core::stderr()`.
 	 *
-	 * Goes to error_log (not LogManager) intentionally: avoids feedback loops if
-	 * the log pipeline itself is unhealthy.
+	 * The substrate's own diagnostic path, never the event logger: an audit line
+	 * has to survive the log pipeline being the unhealthy thing, and this one
+	 * reaches `error_log` plus the REPL's `dmesg` ring either way.
 	 *
-	 * @param string $action Verb: added | updated | renamed | removed | registered.
-	 * @param string $id     Server ID acted upon.
-	 * @param array<string>  $fields Field names (sanitized — never values).
-	 * @param string $detail One extra `key=value` token, for what $id cannot say.
+	 * Field NAMES only, never values — a log is exactly where a credential must
+	 * not appear.
+	 *
+	 * @param string        $action Verb: added, updated, renamed or removed.
+	 * @param string        $id     Server id acted upon.
+	 * @param array<string> $fields Names of the fields written.
+	 * @param string        $detail One extra `key=value` token, for what $id cannot say.
 	 */
 	private function audit( string $action, string $id, array $fields, string $detail = '' ): void {
 		$user_id  = \function_exists( 'get_current_user_id' ) ? \get_current_user_id() : 0;
@@ -373,6 +419,8 @@ class Vault {
 	 *
 	 * Production WP defines a 3-arg update_option (option, value, autoload).
 	 * Test bootstraps may define a 2-arg fake. Cached for the process.
+	 *
+	 * @return int Parameters `update_option()` declares; 2 when reflection fails.
 	 */
 	private static function update_option_arity(): int {
 		/** @var int|null $arity */
@@ -388,10 +436,10 @@ class Vault {
 	}
 
 	/**
-	 * Get only the WP-option-managed servers (excludes config-file defaults).
+	 * The option-backed half of the registry, without the config-file defaults.
 	 *
-	 * Write paths use this so we never accidentally persist a config-file
-	 * default into the WP option (would shadow file changes forever).
+	 * Every write path reads through this, so a config-file default is never
+	 * copied into the option — a copy would shadow the file's own value forever.
 	 *
 	 * @return array<array-key,mixed>
 	 */
@@ -401,15 +449,15 @@ class Vault {
 	}
 
 	/**
-	 * Check whether a server ID originates from the config file.
+	 * Whether a server id originates from the config file.
 	 *
 	 * Reads file-only defaults via `Config::load_config_defaults()` to avoid the
 	 * circular case where `load_config()` would merge the WP option into
 	 * `vault` and make every WP-option server look like a config server.
 	 *
 	 * @api
-	 * @param string $id Server ID.
-	 * @return bool True if the server is defined in the config file.
+	 * @param string $id Server id.
+	 * @return bool True when the config file declares the server.
 	 */
 	public function is_config_server( string $id ): bool {
 		$defaults = \Newspack_Nodes\Config::load_config_defaults();
@@ -418,15 +466,18 @@ class Vault {
 	}
 
 	/**
-	 * Get all servers.
+	 * The whole registry: config-file defaults under the WP option, every entry
+	 * filled out to the three managed keys and its password opened.
 	 *
-	 * Merges config file defaults with WordPress option values.
-	 * WordPress option values override config file defaults.
+	 * The merge is `+`, not `array_merge()`, which would renumber an integer
+	 * server id. Memoized for the process, so `reset_cache()` is the only way back
+	 * to the file and the option.
 	 *
 	 * @api
-	 * @return array<array-key,array<string,mixed>> Associative array of vault id => config. Keys are
-	 *                                                 array-key (not string) because PHP coerces numeric
-	 *                                                 server-id keys to int — callers must not assume string.
+	 * @return array<array-key,array<string,mixed>> Map of vault id => config. Keys are
+	 *                                              array-key, not string, because PHP coerces a
+	 *                                              numeric server id to int — callers must not
+	 *                                              assume string.
 	 */
 	public function get_all(): array {
 		if ( null === $this->servers ) {
@@ -459,7 +510,7 @@ class Vault {
 					'auth_username' => '',
 					'auth_password' => '',
 				];
-				// Decrypt credentials (encrypted or legacy plaintext).
+				// Decrypt; an unprefixed value passes through as plaintext.
 				$pw = $server['auth_password'];
 				if ( '' !== $pw && \is_scalar( $pw ) ) {
 					$server['auth_password'] = self::decrypt( (string) $pw );
@@ -472,13 +523,15 @@ class Vault {
 	}
 
 	/**
-	 * Decrypt a stored value.
+	 * Open a stored value.
 	 *
-	 * Handles both encrypted (prefixed) and legacy plaintext values. A pre-
-	 * encryption row passes through unchanged so spoke upgrades don't break.
+	 * A value without `ENCRYPTED_PREFIX` is plaintext and passes through
+	 * untouched. That is what lets an operator write a credential into the config
+	 * file by hand, and it is why the prefix is checked before any base64 decode,
+	 * which would eat the spaces out of a passphrase.
 	 *
-	 * @param string $stored Stored value (may be encrypted or plaintext).
-	 * @return string Decrypted plaintext, original value if not encrypted, or empty on decrypt failure.
+	 * @param string $stored Stored value, sealed or plain.
+	 * @return string The plaintext, the input itself when it carries no prefix, or '' when it will not open.
 	 */
 	private static function decrypt( string $stored ): string {
 		// No ENCRYPTED_PREFIX = plaintext; else base64_decode nukes spaces.
@@ -500,23 +553,38 @@ class Vault {
 	}
 
 	/**
-	 * Derive a 32-byte encryption key from `wp_salt('auth')`.
+	 * Derive the secretbox key from `wp_salt( 'auth' )`.
 	 *
-	 * @return string 32-byte key for sodium_crypto_secretbox.
+	 * The salt IS the key, so rotating `AUTH_KEY` or `AUTH_SALT` leaves every
+	 * stored password unopenable and each spoke needs its credential retyped.
+	 *
+	 * @return string 32-byte key for `sodium_crypto_secretbox()`.
 	 */
 	private static function encryption_key(): string {
 		return \sodium_crypto_generichash( \wp_salt( 'auth' ), '', SODIUM_CRYPTO_SECRETBOX_KEYBYTES );
 	}
 
+	/**
+	 * Whether a string may name a Vault entry.
+	 *
+	 * The id becomes an array key in the option, a bare token in the audit line,
+	 * and a segment of a message path — a Test button mints FROM
+	 * `vault:test:in/<id>` and reads the echo back off it. Excluding `/`,
+	 * whitespace and quotes is what keeps all three unquoted.
+	 *
+	 * @param string $id Candidate server id.
+	 * @return bool True for 1-64 characters of letters, digits, hyphen and underscore.
+	 */
 	public static function is_valid_id( string $id ): bool {
 		return 1 === \preg_match( '/^[a-zA-Z0-9_-]{1,64}$/', $id );
 	}
 
 	/**
-	 * `credential_header()` for a decrypted server config entry.
+	 * `credential_header()` reached with a whole decrypted entry, so a caller
+	 * holding the record does not spell the three key names itself.
 	 *
 	 * @param array<array-key,mixed> $server Decrypted vault server config.
-	 * @return string The header value, or ''.
+	 * @return string The header value, or '' when the entry carries no credential.
 	 */
 	public static function credential_header_for( array $server ): string {
 		return self::credential_header(
@@ -534,15 +602,14 @@ class Vault {
 	 *
 	 * Lives on the Vault because the Vault owns credentials. Three transports
 	 * reach a spoke — HTTP_Out (push), SSE_In (pull) and HTTP_Out's blocking
-	 * probe — and each spelled this rule itself, so they could disagree about
-	 * what a stored credential means. One of them already did: the blocking
-	 * probe never learned the Bearer token, leaving a token-only spoke
-	 * reachable by the graph and unreachable by the operator's own test.
+	 * probe — and a rule spelled three times is a rule they can disagree about:
+	 * a probe that skips the Bearer token leaves a token-only spoke reachable by
+	 * the graph and unreachable by the operator's own Test button.
 	 *
 	 * @param string $user  Stored username.
 	 * @param string $pass  Stored password.
 	 * @param string $token Stored bearer token.
-	 * @return string e.g. `Basic <base64 of user:pass>`, or ''.
+	 * @return string `Basic <base64 of user:pass>`, `Bearer <token>`, or ''.
 	 */
 	public static function credential_header( string $user, string $pass, string $token = '' ): string {
 		if ( '' !== $user && '' !== $pass ) {
@@ -553,11 +620,11 @@ class Vault {
 	}
 
 	/**
-	 * The singleton with its in-process cache dropped — for request-scope
-	 * readers (service CIs) that must see writes from earlier in the same
-	 * request.
+	 * The singleton with its memo dropped — for request-scope readers (the
+	 * service CIs) that must see a write from earlier in the same request.
 	 *
 	 * @api
+	 * @return Vault The singleton, guaranteed to read through to storage next.
 	 */
 	public static function fresh(): Vault {
 		$instance = self::get_instance();
@@ -566,9 +633,10 @@ class Vault {
 	}
 
 	/**
-	 * Singleton accessor.
+	 * Singleton accessor, building the instance on first call.
 	 *
 	 * @api
+	 * @return Vault The process-wide instance.
 	 */
 	public static function get_instance(): Vault {
 		if ( null === self::$instance ) {
@@ -578,10 +646,11 @@ class Vault {
 	}
 
 	/**
-	 * Reset the in-process cache so the next read rebuilds from disk + option.
+	 * Drop the memo so the next read rebuilds from the config file and the option.
 	 *
-	 * Long-running workers (JobWorker) call this between jobs so post-admin
-	 * updates are visible without a process restart.
+	 * `fresh()` calls it for a request-scope reader that must see a write from
+	 * earlier in the same request; `reset()` calls it on the config-reload signal,
+	 * which is how a running worker picks up a rotated credential.
 	 *
 	 * @api
 	 */

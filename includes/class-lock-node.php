@@ -1,9 +1,14 @@
 <?php
 /**
- * Lock: mkdir+heartbeat locking utility.
+ * Single-holder claim on a slot, and the signal channel to whoever holds it.
  *
- * Works on macOS Docker volumes where flock fails. Atomic mkdir for acquisition,
- * heartbeat file for stale detection.
+ * One worker per `{type}.p{N}` slot and one writer per large-write Partition:
+ * a lock directory says the slot is taken, a PID-stamped heartbeat file inside
+ * it says the holder is still alive, and three flag files carry restart, stop
+ * and reload requests in from processes holding no instance. Acquisition is
+ * `mkdir`, POSIX's atomic primitive, so the claim holds on the NFS, tmpfs and
+ * Docker bind mounts where `flock` does not, and needs no daemon, no database
+ * row and no cleanup pass to be correct after a crash.
  *
  * @package Newspack_Nodes
  */
@@ -14,17 +19,34 @@ if ( ! \defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+/**
+ * Advisory lock over a directory, held for as long as its owner heartbeats.
+ *
+ * Cooperative, not enforced: nothing stops a process that never asks. A holder
+ * that stops refreshing its heartbeat for `stale_timeout` seconds is stolen
+ * from, and that is the entire recovery story for a worker lost to an OOM
+ * kill, a container restart or a SIGKILL — no reaper runs, the next acquirer
+ * cleans up. Every acquire path builds a fresh directory rather than adopting
+ * the one it displaces, so no flag or heartbeat survives a handover.
+ *
+ * A Node so a Timer can sink `KEY='heartbeat'` messages into it inside a drain
+ * loop, keeping a held lock fresh without the holder polling.
+ */
 class Lock_Node extends Node {
+	/** Holds the owner's PID; its mtime is the liveness signal every reader stats. */
 	public const HEARTBEAT_FILE = 'heartbeat';
 
 	/** Grace period (s) before stealing an orphan dir (no heartbeat) — holder may be mid-acquire. */
 	public const ORPHAN_GRACE_S = 1;
+
 	/**
 	 * Config-changed watermark: a token its CONTENT carries, compared rather
 	 * than consumed (see request_reload_at()). Distinct from RESTART_FLAG on
 	 * purpose — this says "re-read", never "exit".
 	 */
 	public const RELOAD_FLAG    = 'reload';
+
+	/** Recycle request: the holder exits and its successor takes the slot. */
 	public const RESTART_FLAG   = 'restart';
 
 	/**
@@ -36,16 +58,32 @@ class Lock_Node extends Node {
 	 */
 	public const STOP_FLAG      = 'stop';
 
+	/** Default seconds without a heartbeat before a holder becomes stealable. */
 	public const STALE_TIMEOUT  = 60;
+
+	/** Acquisition time in Unix seconds; `wp nodes status` reads it as uptime. */
 	public const STARTED_FILE   = 'started';
 
 	/** Why the last acquire() failed; '' after a success. */
 	private string $acquire_failure = '';
+
+	/**
+	 * Whether THIS process believes it holds the lock — a belief, never the
+	 * truth. Only the heartbeat PID on disk settles ownership, which is why
+	 * release() and heartbeat() verify instead of trusting the flag.
+	 */
 	private bool $is_held = false;
 
+	/** The lock directory, trailing slash stripped so the file paths compose. */
 	private string $lock_path;
+
+	/** Seconds without a heartbeat before this instance steals someone's dir. */
 	private int $stale_timeout;
 
+	/**
+	 * @param string $lock_path     Directory to claim. acquire() creates it; the caller must not.
+	 * @param int    $stale_timeout Seconds without a heartbeat before the holder is stealable.
+	 */
 	public function __construct( string $lock_path, int $stale_timeout = self::STALE_TIMEOUT ) {
 		parent::__construct();
 		$this->lock_path     = \rtrim( $lock_path, '/' );
@@ -53,9 +91,10 @@ class Lock_Node extends Node {
 	}
 
 	/**
-	 * Node entry point: KEY='heartbeat' refreshes the lock; anything else forwards via sink.
+	 * Node entry point: a `KEY='heartbeat'` message refreshes the lock, anything
+	 * else forwards via the sink.
 	 *
-	 * @param array<int,mixed> $message Unused past the KEY check; never mutated.
+	 * @param array<int,mixed> $message Read for its KEY; handed to parent::fill() otherwise.
 	 */
 	public function fill( array $message ): void {
 		if ( 'heartbeat' === $message[ Message::KEY ] ) {
@@ -86,6 +125,18 @@ class Lock_Node extends Node {
 		return true;
 	}
 
+	/**
+	 * Claim the lock, stealing an orphaned or stale dir if one is in the way.
+	 *
+	 * A failed `mkdir` on a path that is not a directory is an I/O fault rather
+	 * than contention, so it earns one free retry — the holder may have released
+	 * between the two calls — and then reports the errno through
+	 * acquire_failure(). Telling the two apart is what lets a skipped spawn stay
+	 * quiet while a broken directory gets logged.
+	 *
+	 * @param int $max_wait_ms Milliseconds to retry contention at 100ms; 0 gives up on the first refusal.
+	 * @return bool True when the lock is ours.
+	 */
 	public function acquire( int $max_wait_ms = 0 ): bool {
 		$this->acquire_failure = '';
 		$deadline   = $max_wait_ms > 0 ? Core::right_now() + ( $max_wait_ms / 1000.0 ) : 0;
@@ -179,9 +230,9 @@ class Lock_Node extends Node {
 	/**
 	 * Atomically take over the lock dir. rename() of a directory is atomic, so
 	 * of two stealers racing the same dir exactly one rename succeeds; the
-	 * loser's rename fails (source already gone) and it backs off. This closes
-	 * the force_release_at()+mkdir() window where both racers could delete each
-	 * other's heartbeat and both believe they hold the lock.
+	 * loser's rename fails (source already gone) and it backs off. Clearing the
+	 * dir in place with force_release_at() then mkdir() instead would let both
+	 * racers delete each other's heartbeat and both believe they hold the lock.
 	 *
 	 * The single-holder guarantee ultimately rests on mkdir, not rename: between
 	 * the rename (line below) and the recreate the canonical path is briefly
@@ -205,9 +256,11 @@ class Lock_Node extends Node {
 	}
 
 	/**
-	 * Write the heartbeat (PID) and started-timestamp files; both must succeed.
+	 * Write the heartbeat (PID) and started-timestamp files, then unlink the
+	 * restart flag — the only place that flag is ever cleared, so a holder
+	 * starting under a stale one would exit on its first tick.
 	 *
-	 * @return bool True if both files written; false on first failure.
+	 * @return bool True if both files were written; false on the first failure.
 	 */
 	private function write_acquire_files(): bool {
 		$hb_path      = $this->unlinked_path( self::HEARTBEAT_FILE );
@@ -235,6 +288,9 @@ class Lock_Node extends Node {
 	 * A lock-dir file path, or null when something planted a symlink there —
 	 * the write would land at its target. Spawn_Coordinator refuses to follow one
 	 * when sweeping; the writer refuses too.
+	 *
+	 * @param string $file Filename to compose inside the lock dir.
+	 * @return string|null The path, or null when a symlink occupies it.
 	 */
 	private function unlinked_path( string $file ): ?string {
 		$path = $this->lock_path . '/' . $file;
@@ -280,7 +336,10 @@ class Lock_Node extends Node {
 	}
 
 	/**
-	 * Static unconditional release: clear a lock dir regardless of staleness.
+	 * Clear a lock dir unconditionally: every file this class writes, then the
+	 * directory itself. Neither ownership nor staleness is consulted, so the
+	 * caller has to know it is entitled — release() verifies first, and claim()
+	 * rolls back a half-written dir of its own.
 	 *
 	 * @param string $lock_dir The lock directory path.
 	 */
@@ -372,6 +431,7 @@ class Lock_Node extends Node {
 		return $this->acquire_failure;
 	}
 
+	/** Whether this process last believed it held the lock; verify_ownership() is the check. */
 	public function is_held(): bool {
 		return $this->is_held;
 	}
@@ -399,11 +459,13 @@ class Lock_Node extends Node {
 	/**
 	 * Why this lock's holder should exit, or '' to keep running.
 	 *
-	 * Three unrelated situations end a worker through this one channel, and an
-	 * operator reading `restart requested` off a worker that nobody restarted
-	 * has no way to tell which — so each says what actually happened.
+	 * Three unrelated situations end a worker through this one channel —
+	 * `restart requested`, `lock heartbeat gone` and `lock stolen by pid N` —
+	 * and an operator reading a bare `restart requested` off a worker nobody
+	 * restarted cannot tell which, so each says what happened.
 	 *
-	 * Heavy clearstatcache is intentional — long-running workers won't see external changes otherwise.
+	 * Every stat clears the cache first: a long-running worker otherwise never
+	 * sees a flag another process wrote.
 	 */
 	public function restart_reason(): string {
 		\clearstatcache( true, $this->lock_path . '/' . self::RESTART_FLAG );
@@ -428,7 +490,8 @@ class Lock_Node extends Node {
 	}
 
 	/**
-	 * Static restart-pending query (path-only; no PID check).
+	 * Whether a restart is pending on a lock dir this process does not hold —
+	 * the flag file alone, since there is no PID here to compare against.
 	 *
 	 * @param string $lock_dir The lock directory path.
 	 */
@@ -442,12 +505,12 @@ class Lock_Node extends Node {
 	 * THE staleness rule for a worker heartbeat: no heartbeat file, or one
 	 * older than the threshold this worker declares.
 	 *
-	 * Four readers of this one mtime once had four policies — the respawn
-	 * decision and the Workers dashboard honoured a topology's declared
-	 * `stale_timeout`, `wp nodes status` used a flat 60, and two dashboards
-	 * hardcoded 30. So a worker mid-job (`job-spoke.tsl` lifts the threshold to
-	 * 600 precisely because a render is slow user code) read DOWN in the CLI and
-	 * the UI while the peer scan correctly left it alone.
+	 * Every reader of that mtime comes through here — the respawn decision,
+	 * `wp nodes status`, the dashboards — because a threshold each picks for
+	 * itself drifts from the rest. A worker mid-job declares a long one
+	 * (`job-spoke.tsl` sets 600, since a render is slow user code), and a reader
+	 * holding a flat 60 reports it down while the peer scan correctly leaves it
+	 * alone.
 	 *
 	 * @param string $lock_dir      The `.lock.d` directory.
 	 * @param int    $now           Clock, so one scan judges every worker alike.
@@ -476,6 +539,14 @@ class Lock_Node extends Node {
 		);
 	}
 
+	/**
+	 * The acquisition time the current holder wrote, or null when the lock dir
+	 * or the file is absent — which reads as "no uptime to show", never as an
+	 * uptime of zero.
+	 *
+	 * @param string $lock_dir The lock directory path.
+	 * @return int|null Unix seconds, or null when there is no started file.
+	 */
 	public static function get_started_time( string $lock_dir ): ?int {
 		$lock_dir = \rtrim( $lock_dir, '/' );
 		$started_file = $lock_dir . '/' . self::STARTED_FILE;
@@ -487,11 +558,19 @@ class Lock_Node extends Node {
 		return false !== $content ? (int) $content : null;
 	}
 
+	/**
+	 * Hidden from the palette: PHP builds this node directly — `Worker_Base` for
+	 * a slot, `Partition::allow_large_writes()` for a write lock — and no
+	 * topology line names it, so it declares no arguments and no verbs. The
+	 * HELD / STOLEN / RELEASED states it publishes are deliberately undeclared
+	 * too: they surface through `dump_node` and trace, and nothing subscribes.
+	 *
+	 * @return array<string,mixed>
+	 */
 	public static function node_schema(): array {
-		// Hidden: internal primitive, not a standalone graph node.
 		return [
 			'category'    => 'Hidden',
-			'description' => 'Advisory cooperative file lock with heartbeat; blocks until acquired.',
+			'description' => 'Advisory cooperative directory lock with a PID heartbeat and stale takeover.',
 			'arguments'   => [],
 			'commands'    => [],
 		];

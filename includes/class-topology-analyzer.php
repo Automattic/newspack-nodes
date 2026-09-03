@@ -8,13 +8,9 @@
  * draw, derive the write set that `find_conflicts` and `Log_Cleaner` gate on,
  * and resolve the resource dirs a topology declares.
  *
- * Split out of `Topology_Registry`, whose docblock said "name -> .tsl path
- * resolver" while about sixty of its 1459 lines did that and the rest were
- * three other classes. Analysis sat in the same file as the code that forks
- * worker processes, so every change carried the whole dependency set —
- * `Bootstrap`, `Fleet_Node`, `Worker_Base`, `update_option()`, `rest_url()` —
- * and `activate()` lived 1200 lines from the `deactivate()` its docblock
- * cross-references.
+ * It sits apart from `Topology_Registry` so that reading a topology pulls in
+ * none of the spawn path's dependencies — `Bootstrap`, `Fleet_Node`,
+ * `Worker_Base`, `update_option()`, `rest_url()`.
  *
  * The dependency runs one way: the analyzer asks `Topology_Registry` where a
  * name's source lives, and never the reverse.
@@ -37,7 +33,7 @@ class Topology_Analyzer {
 	/** @var array<string,array<string,int>> Memoized per-Partition segment_size overrides, by topology name + partition count. */
 	private static array $segment_size_overrides_cache = [];
 
-	/** @var array<string,array{statements:list<array{line:string,verb:string,values:list<string>,spans:list<string>,origin:?string,origins:list<string>,via:list<string>}>,tree:array<string,mixed>}> Memoized flattened statements by topology name. */
+	/** @var array<string,array{statements:list<array{line:string,verb:string,values:list<string>,spans:list<string>,origin:?string,origins:list<string>,via:list<string>}>,tree:array<string,mixed>}> Memoized flattened statements, keyed by topology name plus the extra includes walked with it. */
 	private static array $statements_cache = [];
 
 	/** @var array<string,array<string>> Memoized write-set by topology name. */
@@ -46,7 +42,7 @@ class Topology_Analyzer {
 	/**
 	 * Per-topology `partition:` entry metadata for the sharing exemption:
 	 * `entry => { sig: normalized make_node line, warranty: cap lifted,
-	 * partitions: a Topic's own declared count, raw }`.
+	 * partitions: a Topic's own declared count }`.
 	 *
 	 * @var array<string,array<string,array{sig: string,warranty: bool,partitions: string}>>
 	 */
@@ -69,7 +65,7 @@ class Topology_Analyzer {
 	 *
 	 * @param list<string> $include_names Directly-declared includes.
 	 *
-	 * @return array{nodes: list<array{name: string,class: string,fans_out: bool,args: list<string>,origin: list<string>,via: list<string>}>, edges: list<array{from: string,to: string,origin: list<string>,roles: list<string>,config_slots?: list<string>}>, tree: array<string,mixed>, hulls: array<string,list<string>>}
+	 * @return array{nodes: list<array{name: string,class: string,fans_out: bool,args: list<string>,verbs: list<array{verb: string,args: list<string>}>,origin: list<string>,via: list<string>}>, edges: list<array{from: string,to: string,origin: list<string>,roles: list<string>,config_slots?: list<string>}>, tree: array<string,mixed>, hulls: array<string,list<string>>}
 	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
 	 */
 	public static function expand( array $include_names ): array {
@@ -260,9 +256,10 @@ class Topology_Analyzer {
 	 * the make_node `type` token + positional `args` list, (+ the log a
 	 * Partition/Topic writes or a Consumer reads, from the path/source ARG — never
 	 * a name suffix), and edges from `connect_node` plus
-	 * `command_node <node>:config set_*_target <target>`, with `disconnect_node` applied
+	 * `command_node <node>:config set_*target <target>`, with `disconnect_node` applied
 	 * in evaluation order. Memoized.
 	 *
+	 * @param string $name Topology name.
 	 * @return array{nodes: list<array<string,int|string|list<string>>>, edges: list<array{0:string,1:string}>}
 	 */
 	public static function graph_for( string $name ): array {
@@ -359,6 +356,9 @@ class Topology_Analyzer {
 	 * Replace one named config-target slot without disturbing other setters.
 	 *
 	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges Edge-state map, by reference.
+	 * @param string       $source  Node whose configuration target is being set.
+	 * @param string       $target  New target; `''` clears the slot and adds no edge.
+	 * @param string       $slot    Setter verb naming the slot, e.g. `set_error_target`.
 	 * @param list<string> $origins Top-level includes providing the configuration.
 	 * @param-out array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges
 	 */
@@ -411,7 +411,10 @@ class Topology_Analyzer {
 	 * Mirror Node::connect_node (replace) versus Tee_Node::connect_node (append).
 	 *
 	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges Edge-state map, by reference.
-	 * @param list<string> $origins Top-level includes providing the connection.
+	 * @param string       $source   Source node.
+	 * @param string       $target   Target node.
+	 * @param list<string> $origins  Top-level includes providing the connection.
+	 * @param bool         $fans_out Whether the source keeps a target LIST rather than one target.
 	 * @param-out array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges
 	 */
 	private static function connect_edge( array &$edges, string $source, string $target, array $origins, bool $fans_out ): void {
@@ -436,6 +439,8 @@ class Topology_Analyzer {
 	 * Add one connect relationship origin.
 	 *
 	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges Edge-state map, by reference.
+	 * @param string       $source  Source node.
+	 * @param string       $target  Target node.
 	 * @param list<string> $origins Top-level includes providing the connection.
 	 * @param-out array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges
 	 */
@@ -462,7 +467,10 @@ class Topology_Analyzer {
 	 * Ensure one insertion-ordered edge-state record and return its key.
 	 *
 	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges Edge-state map, by reference.
+	 * @param string $source Source node.
+	 * @param string $target Target node.
 	 * @param-out array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges
+	 * @return string The edge's key in `$edges`.
 	 */
 	private static function ensure_edge( array &$edges, string $source, string $target ): string {
 		$key = $source . "\0" . $target;
@@ -486,6 +494,9 @@ class Topology_Analyzer {
 	 * Configuration-target roles are independent and never removed here.
 	 *
 	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges Edge-state map, by reference.
+	 * @param string      $source   Source node.
+	 * @param string|null $target   Target to remove — read only for a fan-out source; a regular Node clears its single connect target either way.
+	 * @param bool        $fans_out Whether the source keeps a target LIST rather than one target.
 	 * @param-out array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges
 	 */
 	private static function disconnect_edge( array &$edges, string $source, ?string $target, bool $fans_out ): void {
@@ -531,6 +542,12 @@ class Topology_Analyzer {
 	 *
 	 * Fan-out is the `Fanout_Targets` trait, not the Tee class — Settings_Sync
 	 * and ELN's Discovery_Collector keep a target list without a Tee ancestor.
+	 * `Tee` is asked first because `type_is()` answers for a base token even
+	 * before a namespace is registered, while `resolve_class()` returns null
+	 * until then and the trait check never runs.
+	 *
+	 * @param string $type TSL class token.
+	 * @return bool True when the class keeps a target list.
 	 */
 	private static function type_fans_out( string $type ): bool {
 		if ( self::type_is( $type, Tee_Node::class ) ) {
@@ -544,11 +561,14 @@ class Topology_Analyzer {
 	 * A make_node class token's layout kind, by LINEAGE — one classification
 	 * policy for the whole file.
 	 *
-	 * Most-derived first, since `Log_Node extends Partition_Node`. String
-	 * matching the token was the bug: a plugin subclassing Partition wrote a
-	 * real log that read as `logic`, so it was missing from the log catalog, the
-	 * probe sweep and the restart planner; a Consumer subclass fell out of
-	 * `consumer_positions()`, which is what reports reader lag.
+	 * Most-derived first, since `Log_Node extends Partition_Node`. Lineage and
+	 * not the literal token, because a plugin's Partition subclass writes a real
+	 * log while its token reads as `logic`: that drops it out of the log
+	 * catalog, the probe sweep and the restart planner, and a Consumer subclass
+	 * drops out of `consumer_positions()`, which reports reader lag.
+	 *
+	 * @param string $type TSL class token.
+	 * @return string One of `log`, `partition`, `topic`, `consumer`, `tee`, `logic`.
 	 */
 	private static function node_kind( string $type ): string {
 		return match ( true ) {
@@ -565,16 +585,17 @@ class Topology_Analyzer {
 	/**
 	 * Pairs of topologies in `$names` whose write-sets overlap — i.e. two worker
 	 * processes that would write the same file (data log or cursor) and corrupt
-	 * it. A partition BOTH declare with a byte-identical make_node line (the
-	 * `include topic-probe` pattern) is a deliberately shared multi-writer log —
-	 * atomic ≤PIPE_BUF appends + the rotate lock make that safe — and is NOT a
-	 * conflict, unless either side lifts the write cap (`void_warranty` /
-	 * `allow_large_writes`), which assumes a sole writer. Offsetlogs and
-	 * deadletter dirs stay sole-writer: any overlap conflicts.
-	 * Empty array = the set is safe to run together.
+	 * it. A partition BOTH declare with the same make_node line, whitespace
+	 * normalized (the `include topic-probe` pattern), is a deliberately shared
+	 * multi-writer log — appends at or under PIPE_BUF are atomic, and the rotate
+	 * lock covers the rest — and is NOT a conflict, unless either side lifts the
+	 * write cap (`void_warranty` / `allow_large_writes`), which assumes a sole
+	 * writer. Offsetlogs and deadletter dirs stay sole-writer: any overlap
+	 * conflicts. An empty array means the set is safe to run together.
 	 *
-	 * @param array<string> $names
+	 * @param array<string> $names Topology names to compare pairwise.
 	 * @return array<array{a: string,b: string,shared: array<string>}>
+	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
 	 */
 	public static function find_conflicts( array $names ): array {
 		$names = \array_values( \array_unique( $names ) );
@@ -621,8 +642,8 @@ class Topology_Analyzer {
 	 * (substituting BOTH `<partition>` angle and `{partition}` curly), its
 	 * `<config:…>` tokens resolved, then the first path segment under the
 	 * respective root is taken — wherever the partition token sits in the path.
-	 * No `.p{N}` regex. `$num_partitions` is passed by the caller (keeps the
-	 * registry free of a Bootstrap dep); pass `Bootstrap::num_partitions_for($name)`.
+	 * No `.p{N}` regex. The caller passes `$num_partitions`, which keeps this
+	 * class free of a `Bootstrap` dependency.
 	 *
 	 * Each bucket is a `concrete dir name => enumerated partition index` map; the
 	 * partition number comes FROM the enumeration loop, never parsed back out of a
@@ -631,7 +652,10 @@ class Topology_Analyzer {
 	 * first level) several partitions collapse to one first-level dir — the FIRST
 	 * seen is kept; nested layouts aren't represented per-partition here.
 	 *
+	 * @param string $name           Topology name.
+	 * @param int    $num_partitions Caller's worker count; pass Bootstrap::num_partitions_for($name).
 	 * @return array{logs: array<string,int>, offsets: array<string,int>}
+	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
 	 */
 	public static function resolved_resource_dirs( string $name, int $num_partitions ): array {
 		$logs_root    = Core::resolve_config_token( 'config', 'logs_dir' );
@@ -701,10 +725,11 @@ class Topology_Analyzer {
 	 * `alerts.p0` is pinned across every worker on purpose. `[]` when
 	 * `$topology` declares no such node.
 	 *
-	 * `$num_partitions` is the caller's worker count; pass
-	 * `Bootstrap::num_partitions_for($topology)`.
-	 *
-	 * @return array<int,string>
+	 * @param string $topology       Topology name.
+	 * @param string $node           Node name declared in that topology.
+	 * @param int    $num_partitions Caller's worker count; pass Bootstrap::num_partitions_for($topology).
+	 * @return array<int,string> Partition index => concrete dir.
+	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
 	 */
 	public static function resolved_node_dirs( string $topology, string $node, int $num_partitions ): array {
 		// write_set() populates both caches; read them AFTER.
@@ -724,6 +749,9 @@ class Topology_Analyzer {
 	 * A Topic's declared partition count: a literal, or a `<config:…>` token
 	 * resolved the same way the runtime resolves it. 0 means "not declared, or
 	 * unresolvable" — the caller falls back to the worker count.
+	 *
+	 * @param string $raw Literal or `<config:…>` token as written in the TSL.
+	 * @return int Declared count, capped at `Spawn_Coordinator::MAX_PARTITIONS`; 0 when absent.
 	 */
 	private static function declared_partition_count( string $raw ): int {
 		if ( '' === $raw ) {
@@ -749,7 +777,14 @@ class Topology_Analyzer {
 	 * `deadletter:` so the kinds can't false-match. A Consumer's SOURCE (1st arg
 	 * after the node name) is a read, not a write, so it's excluded.
 	 *
-	 * @return array<string>
+	 * A `Remote_Source` contributes the same pair from its own positions
+	 * (`<node> <vault> <source> [offsetlog] [dlq]`); an omitted offsetlog falls
+	 * back to the path the node derives, `<config:offsets_dir>/<node>.<source>`,
+	 * so the cursor is still claimed and still gated.
+	 *
+	 * @param string $name Topology name.
+	 * @return array<string> Sorted, namespaced token-form paths.
+	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
 	 */
 	public static function write_set( string $name ): array {
 		if ( isset( self::$write_set_cache[ $name ] ) ) {
@@ -814,7 +849,7 @@ class Topology_Analyzer {
 			}
 			// Remote_Source: <node> <vault> <source> [offsetlog] [dlq]
 			if ( 'make_node' === $verb && self::type_is( $class, Remote_Source_Node::class ) ) {
-				// The offsetlog is an ARG now; the derived path is a fallback.
+				// The offsetlog is an ARG; the derived path is the fallback.
 				$offsetlog = $values[5] ?? ( '<config:offsets_dir>/' . ( $values[2] ?? '' ) . '.' . ( $values[4] ?? '' ) );
 				$seen[ 'offsetlog:' . $offsetlog ] = true;
 				if ( isset( $values[6] ) ) {
@@ -833,6 +868,8 @@ class Topology_Analyzer {
 	 * What a Topic's `num_partitions` means when the argument is OMITTED, read
 	 * off the ONE place that declares it — `Topic_Node::node_schema()`. A copy
 	 * here, however carefully pinned by a test, is a second declaration.
+	 *
+	 * @return string The schema default, or `''` when the schema declares none.
 	 */
 	private static function topic_partitions_default(): string {
 		foreach ( Core::arr( Topic_Node::node_schema()['arguments'] ?? [] ) as $argument ) {
@@ -844,7 +881,15 @@ class Topology_Analyzer {
 		return '';
 	}
 
-	/** Whether `$topology` declares a node named `$node` — including nodes that write nothing. */
+	/**
+	 * Whether `$topology` declares a node named `$node` — including nodes that
+	 * write nothing.
+	 *
+	 * @param string $topology Topology name.
+	 * @param string $node     Node name to look for.
+	 * @return bool True when the flattened topology declares it.
+	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
+	 */
 	public static function declares_node( string $topology, string $node ): bool {
 		return \in_array( $node, self::declared_node_names( $topology ), true );
 	}
@@ -852,7 +897,9 @@ class Topology_Analyzer {
 	/**
 	 * Every node a topology declares, its own includes flattened in.
 	 *
-	 * @return list<string>
+	 * @param string $name Topology name.
+	 * @return list<string> Node names, in declaration order.
+	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
 	 */
 	private static function declared_node_names( string $name ): array {
 		$names = [];
@@ -873,8 +920,8 @@ class Topology_Analyzer {
 	 * and reducing with `Core::first_level_dir()` — the same two calls
 	 * `resolved_resource_dirs()` and `Log_Cleaner` name their dirs by, so the
 	 * override and the dir it describes can never be spelled differently. A
-	 * `.p{N}`-suffix regex lost every nested layout, and the token-verbatim
-	 * basename it produced could not match any concrete dir at all.
+	 * `.p{N}`-suffix regex misses every nested layout, and the token-verbatim
+	 * basename it yields matches no concrete dir at all.
 	 *
 	 * Partition SUBCLASSES count (`Log` is one), and a template whose size arg
 	 * is itself a token is omitted — the caller falls back to the global default.
@@ -882,7 +929,8 @@ class Topology_Analyzer {
 	 * @param string $name           Topology name.
 	 * @param int    $num_partitions Caller's worker count; pass Bootstrap::num_partitions_for($name).
 	 *
-	 * @return array<string,int>
+	 * @return array<string,int> First-level dir => segment size in bytes.
+	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
 	 */
 	public static function segment_size_overrides_for( string $name, int $num_partitions = 1 ): array {
 		$memo_key = $name . "\0" . $num_partitions;
@@ -923,6 +971,9 @@ class Topology_Analyzer {
 	 * nested layout collapsing several onto one dir) keeps the FIRST partition
 	 * that produced it; `alerts.p0` is pinned across every worker on purpose.
 	 *
+	 * @param string $template Path template, with or without a partition token.
+	 * @param string $topology Fleet name, substituted for `<topology>`.
+	 * @param int    $count    Partition count; anything below 1 still yields index 0.
 	 * @return array<int,string> Partition index => concrete path.
 	 */
 	private static function expand_template( string $template, string $topology, int $count ): array {
@@ -939,16 +990,15 @@ class Topology_Analyzer {
 	/**
 	 * Whether a TSL class token resolves to $fqcn (or a subclass).
 	 *
-	 * The write set is a SAFETY gate — it feeds `find_conflicts` and
-	 * `Log_Cleaner`'s declared-dir set — and it used to string-compare the raw
-	 * token, while the layout code beside it resolved the token and asked the
-	 * type system. A plugin subclassing Partition therefore wrote a real log
-	 * that no conflict check saw and the GC did not know was declared.
+	 * Ask the type system, never string-compare the raw token. The write set is
+	 * a SAFETY gate — it feeds `find_conflicts` and `Log_Cleaner`'s declared-dir
+	 * set — and a plugin's Partition subclass writes a real log that a token
+	 * comparison hides from both: no conflict check sees it, and the GC does not
+	 * know it is declared.
 	 *
-	 * `resolve_class()` returns null whenever no namespace has been registered
-	 * yet, so the token alone has to answer for the base classes themselves —
-	 * ONE rule (`<token>_Node` is the base's short name) where three predicates
-	 * each carried their own literal `'Tee' === $type` escape hatch.
+	 * `resolve_class()` returns null whenever no namespace is registered yet, so
+	 * the token alone has to answer for the base classes themselves. ONE rule
+	 * covers that: `<token>_Node` is the base's short name.
 	 *
 	 * @param string $type TSL class token.
 	 * @param string $fqcn Fully-qualified base class.
@@ -975,6 +1025,7 @@ class Topology_Analyzer {
 	 * @param string $name Topology to inspect.
 	 *
 	 * @return list<string> Transitive include names; empty when `$name` is unknown.
+	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
 	 */
 	public static function includes( string $name ): array {
 		if ( null === Topology_Registry::resolve( $name ) ) {
@@ -986,6 +1037,8 @@ class Topology_Analyzer {
 	}
 
 	/**
+	 * Flatten an include subtree into one deduplicated name list.
+	 *
 	 * @param array<array-key,mixed> $tree Include subtree.
 	 * @return list<string> Every name in the subtree, depth-first.
 	 */
@@ -1011,8 +1064,8 @@ class Topology_Analyzer {
 	 *
 	 * EVERY static reader goes through here (`frontmatter()` excepted — see its
 	 * docblock). Scanning the raw file makes an include-only topology (ELN's
-	 * combined.tsl is two `include` lines) look EMPTY, which silently disarmed
-	 * the write_set conflict gate.
+	 * combined.tsl is two `include` lines) look EMPTY, which silently disarms the
+	 * write_set conflict gate.
 	 *
 	 * THROWS on a broken include. The safety gates read through here: an empty
 	 * write set reads as "no conflict" to find_conflicts and as "every one of its
@@ -1182,9 +1235,10 @@ class Topology_Analyzer {
 	/**
 	 * One-line human summary of find_conflicts() output, shared by the admin
 	 * sanitizer's settings error and the spawner's refusal log so the two
-	 * gates phrase a conflict identically. Empty input → empty string.
+	 * gates phrase a conflict identically. Empty input yields an empty string.
 	 *
-	 * @param array<array{a: string,b: string,shared: array<string>}> $conflicts
+	 * @param array<array{a: string,b: string,shared: array<string>}> $conflicts find_conflicts() output.
+	 * @return string Comma-separated `a ↔ b (first shared entry)` pairs.
 	 */
 	public static function describe_conflicts( array $conflicts ): string {
 		return \implode(
@@ -1198,6 +1252,12 @@ class Topology_Analyzer {
 
 	/**
 	 * Lightweight `var name = value` extractor for fleet metadata reads (no topology execution).
+	 *
+	 * Reads the raw file rather than `statements()` — the exception that
+	 * docblock names. Only the TOP-LEVEL file's `var` lines are honored either
+	 * way, and the include walk THROWS on a broken child, while this feeds the
+	 * fleet catalog (`Topology_Registry::synthesize_entry()`): a topology has to
+	 * keep reporting its own `num_partitions` when an include under it breaks.
 	 *
 	 * A valueless `=` DELETES the key, as it does in both Shells
 	 * (Shell3.pm:2839). The discriminator is the UNTRIMMED tail, which is the
@@ -1215,7 +1275,8 @@ class Topology_Analyzer {
 	 * executed topology still applies the operator, and a junk entry here
 	 * would be a name no caller could ever ask for.
 	 *
-	 * @return array<string,string>
+	 * @param string $name Topology name.
+	 * @return array<string,string> Surviving `var` assignments, in file order.
 	 */
 	public static function frontmatter( string $name ): array {
 		if ( isset( self::$frontmatter_cache[ $name ] ) ) {

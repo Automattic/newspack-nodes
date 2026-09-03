@@ -1,24 +1,30 @@
 <?php
 /**
- * ProbeToGraphite
+ * Probe_To_Graphite: the formatter standing in front of the Graphite egress.
  *
- * Modeled on Tachikoma's `TopicProbeToGraphite.pm` over the substrate's
- * positional Probe_Record: fill() accumulates one entry per reader, fire()
- * formats `<prefix>.<reader>.<field> value ts` plaintext lines (fields:
- * distance, msgs_delta, bytes_read_delta, cache_size), batches them 16 per
- * TM_BYTESTREAM message to its sink, and clears state.
+ * It accumulates the `topicprobe.p0` records that arrive during one emit
+ * window and, on each fire, renders them as the plaintext
+ * `<prefix>.<reader>.<field> value timestamp` lines Graphite ingests — four
+ * fields per reader: `distance`, `msgs_delta`, `bytes_read_delta` and
+ * `cache_size`. The lines ship 16 to a TM_BYTESTREAM message and the
+ * accumulator empties, so each window reports the probes that arrived inside
+ * it and nothing else.
+ *
+ * A topology wires a Consumer of `topicprobe.p0` into this node, and this node
+ * into `Graphite` for the UDP hop, into `Newspack_Log` to land the same lines
+ * in the log, or into a `Tee` for both. It ports Tachikoma's
+ * `TopicProbeToGraphite.pm` onto the substrate's positional `Probe_Record`,
+ * and the reader id has every run of non-word characters replaced by an
+ * underscore before it enters the metric path, as the original does.
  *
  * Accumulation is per FIELD TYPE, which is where this parts from the original.
- * Tachikoma's `msg_sent` was the cumulative `$node->{counter}`, so its
- * latest-record-wins assignment was lossless; our MSGS_DELTA and
- * BYTES_READ_DELTA are per-sweep deltas that `drain_probe_window()` has already
- * re-baselined, so consecutive records PARTITION the work and the window's
- * truth is their SUM. DISTANCE (backlog bytes) and CACHE_SIZE (offsetlog
- * segment size) are levels, and keep the reference's latest-wins sampling.
- *
- * Wire: `Consumer topicprobe.p0 → Probe_To_Graphite → Graphite` (and/or
- * `→ Newspack_Log`). The reader id is sanitized `\W+ → _` for the metric
- * path, exactly as the original did.
+ * Tachikoma's `msg_sent` is the cumulative node counter, so keeping the latest
+ * record loses nothing there. MSGS_DELTA and BYTES_READ_DELTA are per-sweep
+ * deltas that `Consumer_Node::probe_stats()` has already re-baselined, so
+ * consecutive records PARTITION the work and the window's truth is their SUM;
+ * keeping the latest would report one sweep out of however many the window
+ * held. DISTANCE (backlog bytes) and CACHE_SIZE (offsetlog segment size) are
+ * levels, and keep the reference's latest-wins sampling.
  *
  * @package Newspack_Nodes
  */
@@ -28,16 +34,27 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * ProbeToGraphite node.
+ * Probe_To_Graphite node — `make_node Probe_To_Graphite <name> [prefix] [interval]`.
  */
 class Probe_To_Graphite_Node extends Timer_Node {
 	use Schema_Reflection;
 
+	/** Emit cadence in seconds when the interval token is absent, blank or 0. */
 	public const DEFAULT_INTERVAL_S = 15;
+
+	/** Leading metric-path segment when the prefix token is absent or blank. */
 	public const DEFAULT_PREFIX     = 'nodes.topics';
+
+	/**
+	 * Lines per emitted message, the batch size the original splices at. At the
+	 * path lengths a reader id produces that keeps a VALUE near a kilobyte —
+	 * inside the 4KB atomic-write cap a Log or Partition downstream writes
+	 * under ([ADR-4](docs/architecture-decisions.md#adr-4-pipe_buf-atomic-writes)),
+	 * and inside the one UDP datagram `Graphite_Node` sends per message.
+	 */
 	public const LINES_PER_MESSAGE  = 16;
 
-	/** Metric fields emitted per reader, in Probe_Record positions. */
+	/** Metric fields emitted per reader: leaf name => the Probe_Record position it reads. */
 	private const FIELDS = [
 		'distance'         => Probe_Record::DISTANCE,
 		'msgs_delta'       => Probe_Record::MSGS_DELTA,
@@ -48,19 +65,34 @@ class Probe_To_Graphite_Node extends Timer_Node {
 	/** Fields that PARTITION work across sweeps: summed over the window, never sampled. */
 	private const SUMMED = [ Probe_Record::MSGS_DELTA, Probe_Record::BYTES_READ_DELTA ];
 
+	/** Leading segment of every metric path, from the first positional argument. */
 	private string $prefix = self::DEFAULT_PREFIX;
 
-	/** Emit cadence in seconds; 0 takes DEFAULT_INTERVAL_S. Positional 1. */
+	/**
+	 * Emit cadence in seconds, from the second positional argument.
+	 * `cadence_ms()` floors it at one second, so a sub-second request rides the
+	 * Router heartbeat instead of spinning an own event-loop slot.
+	 */
 	private float $interval = self::DEFAULT_INTERVAL_S;
 
-	/** @var array<string,array{record: array<int,int|string>,ts: float}> Latest record per reader. */
+	/**
+	 * The open window, keyed by reader id: the record accumulated so far, and
+	 * the TIMESTAMP of the newest probe folded into it, which is the instant
+	 * every line for that reader carries.
+	 *
+	 * @var array<string,array{record:array<int,int|string>,ts:float}>
+	 */
 	private array $readers = [];
 
 	/**
-	 * `[ <prefix> <interval> ]` — defaults: [ `nodes.topics`, 15 ].
+	 * Take `[ <prefix> <interval> ]` and arm the emit timer.
 	 *
-	 * @param list<string>|null $args
-	 * @return list<string>
+	 * Clearing the accumulator here keeps a window opened under the previous
+	 * prefix and cadence from being emitted under the new ones, which would
+	 * publish a window of one length at the path of another.
+	 *
+	 * @param list<string>|null $args Positional tokens; null reads the tokens in force.
+	 * @return list<string> The tokens in force.
 	 * @throws \InvalidArgumentException When the interval token isn't numeric.
 	 */
 	public function arguments( ?array $args = null ): array {
@@ -76,6 +108,19 @@ class Probe_To_Graphite_Node extends Timer_Node {
 		return $this->arguments;
 	}
 
+	/**
+	 * Fold one probe record into the open window under its reader id.
+	 *
+	 * Only TM_STRUCT carries a record, so a bytestream line or a command reply
+	 * is ignored rather than parsed, and so is a struct whose VALUE is not an
+	 * array or whose READER slot is blank — an ephemeral reader has no
+	 * offsetlog dir and writes that slot blank, so a blank id admitted here
+	 * would merge every such reader into one series. The two SUMMED fields
+	 * accumulate onto the prior record; every other slot takes the newest
+	 * record's value.
+	 *
+	 * @param array<int,mixed> $message The 7-field positional message array.
+	 */
 	public function fill( array $message ): void {
 		if ( ! ( Core::as_int( $message[ Message::TYPE ], 0 ) & Message::TM_STRUCT ) ) {
 			return;
@@ -103,8 +148,15 @@ class Probe_To_Graphite_Node extends Timer_Node {
 	}
 
 	/**
-	 * Format the accumulated readers into plaintext lines, emit them batched,
-	 * clear the accumulator (each window reports what the probes said in it).
+	 * Render the window as plaintext lines, ship them batched, and empty the
+	 * accumulator, so the next window starts from zero.
+	 *
+	 * Each line carries the timestamp of the newest probe folded in rather than
+	 * the emit instant, so Graphite plots a sample at the moment it was taken.
+	 * The batches are minted here, so this node stamps FROM with its own name,
+	 * and they leave through `parent::fill()` rather than at the sink directly
+	 * because that is what stamps `target` into an empty TO and counts them
+	 * ([ADR-7](docs/architecture-decisions.md#adr-7-sink-vs-target-and-tofrom-replies)).
 	 */
 	public function fire(): void {
 		$lines = [];
@@ -127,6 +179,13 @@ class Probe_To_Graphite_Node extends Timer_Node {
 		}
 	}
 
+	/**
+	 * Palette entry and argument form for the topology console. `has_target` is
+	 * true because formatted lines are not a terminus: they need a Graphite, a
+	 * Newspack_Log or a Tee downstream to reach anything.
+	 *
+	 * @return array<string,mixed>
+	 */
 	public static function node_schema(): array {
 		return [
 			'category'    => 'Transform',

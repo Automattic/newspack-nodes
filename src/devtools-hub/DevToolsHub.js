@@ -1,11 +1,18 @@
 /**
- * The full-page DevTools hub host. Renders the ONE shared brand header on top,
- * the `hub`-scope tabs (through the shared DevtoolsTabHost) below it, and the
- * floating debug overlay — inside a fixed, full-height admin-page container
- * (mirroring WorkerStatusPage) so a full-screen tab (the Console's CanvasFrame)
- * gets usable height. The header is brand-only; each tab's own controls (the
- * Console's path/edit/LIVE cluster) stay inside that tab. Empty state until a
- * plugin registers a hub tab. Capability-gating is the admin page's concern.
+ * The full-page DevTools hub host — the React root behind the top-level "Nodes"
+ * admin page. It renders the ONE shared brand header, the `hub`-scope tabs
+ * under it (through the shared DevtoolsTabHost) and the floating debug overlay,
+ * inside a fixed, full-height admin-page container so a full-screen tab (the
+ * Console's CanvasFrame) has a height to fill. The header carries the brand and
+ * an empty slot the active tab portals its own controls into (the Console's
+ * path/edit/LIVE cluster), so the brand holds still across a tab switch. With
+ * no hub tab registered the host renders its empty state, and capability-gating
+ * belongs to the admin page that mounts it (`Admin::render_hub_page()`).
+ *
+ * Importing this module registers the lazy tab placeholders. The hub bundle is
+ * enqueued after event-dashboards, so the order-0 Overview is already in the
+ * registry when the tab host resolves the landing tab and the placeholders sort
+ * behind it.
  *
  * Themed via the global skin: the hub is wrapped in the canonical non-graph
  * skin/UI provider, and the live skin is the single `theme-<slug>` class on
@@ -20,16 +27,25 @@ import DebugOverlay from '../debug-overlay/DebugOverlay';
 import { registerLazyTabs } from './lazyTabs';
 import './devtools-hub.scss';
 
-// Overlay rides every tab; Console uses buildRepl=false (`_output` clash).
+/**
+ * The hub Console tab's id. The overlay rides every tab, but on this one it
+ * builds no REPL: the Console already owns a graph and a REPL, and a second
+ * pair collides on the `_output` node name.
+ */
 const CONSOLE_TAB_ID = 'topology-console';
 
-// Runs after event-dashboards (enqueued first) registered the order-0 Overview.
 registerLazyTabs();
 
 /**
  * Renders the hub page: the shared brand header, the `hub`-scope tab host, and
  * the debug overlay, inside a fixed container that starts below the admin bar
  * and to the right of the (possibly collapsed) admin menu.
+ *
+ * The overlay waits for the tab host to name an active tab, because both of its
+ * inputs are per-tab — the canvas-layout key, so two tabs never share one
+ * layout, and `buildRepl`, which the Console turns off. The host reports that
+ * id from the tab click rather than from an effect alone, so the gate flips in
+ * the same commit the new tab mounts.
  *
  * @return {import('react').ReactElement} The hub page.
  */
@@ -55,7 +71,7 @@ export default function DevToolsHub() {
 						right: '0',
 						bottom: '0',
 						zIndex: 99,
-						// Opaque --paper-3: parent boxless, else bleeds white.
+						// Paint here: a boxless parent shows admin white.
 						background: 'var(--paper-3)',
 						'--nodes-devtools-fg': 'var(--ink)',
 						transition: 'left 0.1s ease-in-out',

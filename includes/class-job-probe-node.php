@@ -12,12 +12,19 @@ namespace Newspack_Nodes;
 /**
  * Job_Probe: the Job_Worker-stats sweep, the jobs analog of Topic_Probe. A
  * Job_Worker owns many job IDENTITIES, so one swept worker yields MANY records
- * into the shared `jobstats` log where one Consumer yields one, and each carries
- * a free-text last-run message that has to be trimmed to stay under PIPE_BUF.
+ * into the shared `jobstats` log where one Consumer yields one, and each record
+ * carries a free-text last-run message. That message is why this is the only
+ * probe that trims a record to fit the PIPE_BUF cap.
  */
 class Job_Probe_Node extends Probe_Node {
 
-	/** Every Job_Worker; one with no runs yet has an empty accumulator. */
+	/**
+	 * Claim every Job_Worker in this process. A worker that has run no job yet
+	 * holds an empty accumulator and yields nothing.
+	 *
+	 * @param Node $node A node from this process's registry.
+	 * @return array<int,array<int,int|string>> One Jobstats_Record per job identity.
+	 */
 	protected function probe( Node $node ): array {
 		if ( ! $node instanceof Job_Worker_Node ) {
 			return [];
@@ -26,9 +33,14 @@ class Job_Probe_Node extends Probe_Node {
 	}
 
 	/**
-	 * A handler's last-run message is arbitrary text, so it is the one field worth
-	 * sacrificing to keep the record writable; a record that will not fit even
-	 * emptied is dropped loud rather than emitted for Partition to refuse.
+	 * Halve the last-run message until the packed record fits the PIPE_BUF cap. A
+	 * handler's message is arbitrary text, so it is the one field worth sacrificing
+	 * to keep the record writable; a record that will not fit even with that field
+	 * emptied is dropped loud rather than emitted for Partition to refuse. The drop
+	 * names the identity, so an operator can see which job mints the oversize line.
+	 *
+	 * @param array<int,mixed> $message The minted record message.
+	 * @return array<int,mixed>|null The message to emit, or null to drop it.
 	 */
 	protected function fit_to_line( array $message ): ?array {
 		$fitted = Line_Fitter::fit( $message, [ Jobstats_Record::LAST_MESSAGE ] );
@@ -40,6 +52,14 @@ class Job_Probe_Node extends Probe_Node {
 		return $fitted;
 	}
 
+	/**
+	 * Topology console manifest: the `Monitor` palette entry and the one
+	 * `interval_s` positional. Declaring it here is the whole parse — ADR-11 puts
+	 * defaults and coercion in `parse_schema_args()`, which `Probe_Node` calls to
+	 * arm the sweep timer.
+	 *
+	 * @return array<string,mixed>
+	 */
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
 			'category'    => 'Monitor',

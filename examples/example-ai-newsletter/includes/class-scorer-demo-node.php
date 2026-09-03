@@ -1,7 +1,10 @@
 <?php
 /**
- * Scorer_Demo_Node: assigns a notional priority score to one item. Knows nothing about sources
- * beyond a per-source weight. The ONE seam a real scorer replaces is score().
+ * Ranking stage of the example digest pipeline: adds a `score` field to every item, so the
+ * digest and the Publisher Insights dashboard have something to rank by.
+ *
+ * The `_Demo` suffix keeps this class off the same topology-console palette tile as the
+ * bare `Scorer_Node` a real sibling plugin registers; both can be active in one WordPress.
  *
  * @package Example_AI_Newsletter
  */
@@ -14,6 +17,12 @@ use Newspack_Nodes\Message;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * A transform on the uniform `fill()` contract (ADR-1): take one struct item, add one
+ * field, forward it. It reads `source` and `title` and nothing else, so the source nodes
+ * upstream never learn a scorer exists and the digest downstream never learns how the
+ * score was computed. `score()` is the ONE seam a real scorer replaces.
+ */
 class Scorer_Demo_Node extends Node {
 
 	/** Per-source base weight; unknown sources score 1.0. */
@@ -22,9 +31,21 @@ class Scorer_Demo_Node extends Node {
 		'community' => 3.0,
 	];
 
-	/** Title keywords that bump priority, +1.0 each (case-insensitive). */
+	/** Title keywords worth +1.0 each, matched whole-word and case-insensitively. */
 	private const KEYWORDS = [ 'award', 'launch', 'ships', 'GA', 'million', '10k' ];
 
+	/**
+	 * Score one item and forward it. A message that is not TM_STRUCT, or whose VALUE is
+	 * not an array, is dropped rather than passed along: everything downstream — the
+	 * durable `scored` partition and the dashboard slice that ranks by `score` — expects
+	 * the field this node adds.
+	 *
+	 * The scored item leaves as a fresh message rather than as a mutation of the inbound
+	 * one, so TYPE is exactly TM_STRUCT and FROM is this node's own name.
+	 * `parent::fill()` then stamps TO from `target` and forwards to the sink (ADR-7).
+	 *
+	 * @param array<int,mixed> $message The inbound message.
+	 */
 	public function fill( array $message ): void {
 		/** @var int $type */
 		$type = $message[ Message::TYPE ];
@@ -47,10 +68,16 @@ class Scorer_Demo_Node extends Node {
 	}
 
 	/**
-	 * The ONE seam a real scorer replaces: item -> notional priority score.
-	 * Deterministic: source weight + a +1.0 bump per matched title keyword.
+	 * The ONE seam a real scorer replaces: it turns one item into a notional priority
+	 * score. An LLM call belongs here, and nothing else in the file changes when it
+	 * arrives.
 	 *
-	 * @param array<string,mixed> $item
+	 * The toy is deterministic — the source weight plus 1.0 for each matched title
+	 * keyword, rounded to one decimal, with no clock and no randomness — so the suite
+	 * asserts exact scores rather than ranges.
+	 *
+	 * @param array<string,mixed> $item The item to score.
+	 * @return float
 	 */
 	protected function score( array $item ): float {
 		$source = Core::as_string( $item['source'] ?? null );
@@ -66,6 +93,13 @@ class Scorer_Demo_Node extends Node {
 		return \round( $base + $bump, 1 );
 	}
 
+	/**
+	 * Topology-console manifest: the palette tile and the node's configuration form. The
+	 * weight table lives in the constants above rather than in `arguments`, so the palette
+	 * entry carries nothing to configure and the node has no verbs.
+	 *
+	 * @return array<string,mixed>
+	 */
 	public static function node_schema(): array {
 		return [
 			'category'     => 'Transform',

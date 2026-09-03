@@ -1,9 +1,11 @@
 <?php
 /**
- * Uninstall option-cleanup helpers.
+ * Erase what a deleted plugin would otherwise leave behind: the runtime's
+ * on-disk state tree, and every option row carrying the plugin's prefix.
  *
- * Loaded only from uninstall.php (plugin delete). Kept out of the autoloader so
- * it costs nothing at runtime.
+ * Plain functions rather than a class. The classmap autoloader maps classes
+ * only, so nothing loads this file on a normal request — `uninstall.php`
+ * requires it by path.
  *
  * @package Newspack_Nodes
  */
@@ -18,6 +20,9 @@ namespace Newspack_Nodes;
  * Delete every option row for a prefix, plus its transient variants (all are
  * option rows, so this stays options-only). Prefix-based so it stays complete
  * as options come and go and catches autoload=off rows a hardcoded list misses.
+ *
+ * Takes the handle rather than reading `$wpdb` itself, so a test can pass a
+ * double.
  *
  * @param \wpdb  $wpdb   WordPress database handle.
  * @param string $prefix Option-name prefix, e.g. `newspack_nodes_`.
@@ -40,15 +45,19 @@ function delete_prefixed_options( $wpdb, string $prefix ): int {
 }
 
 /**
- * Resolve the base directory this install EXPLICITLY configured, without
- * loading the Config machinery: the option overlay, else the
+ * Resolve the base directory this install EXPLICITLY configured, in the
+ * precedence `Config` applies: the option overlay, else the
  * LOCAL_NEWSPACK_NODES_CONF file, else the shipped `newspack-nodes-config.php`.
  * '' when none of them names one.
  *
- * It deliberately stops short of the schema default. That default is the path
- * every unconfigured install on a host SHARES, so resolving to it would make
- * uninstalling one site delete another's live logs, locks and offsets. Leaving
- * a tree behind for an operator to remove is the cheaper mistake.
+ * `Config::get_base_directory()` would do two things uninstall must not: it
+ * creates the directory it resolves, and it falls back to the schema default.
+ * That default is the path every unconfigured install on a host SHARES, so
+ * resolving to it would make uninstalling one site delete another's live logs,
+ * locks and offsets. Leaving a tree behind for an operator to remove is the
+ * cheaper mistake.
+ *
+ * @return string Configured base directory, or '' when nothing configures one.
  */
 function runtime_base_directory(): string {
 	$opt = \function_exists( 'get_option' ) ? \get_option( 'newspack_nodes_base_directory' ) : false;
@@ -102,7 +111,6 @@ function delete_runtime_tree( string $base_dir ): void {
  * multisite). Tree first — its location is read from an option this deletes.
  *
  * @param string $prefix Option-name prefix.
- * @return void
  */
 function uninstall_cleanup( string $prefix ): void {
 	global $wpdb;

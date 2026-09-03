@@ -1,18 +1,27 @@
 <?php
 /**
- * Layouts_CI: command-dispatch for substrate layout-storage verbs.
+ * Layouts_CI: command-dispatch for the substrate's saved canvas positions.
  *
- * Layouts (canvas node positions) are decoupled from topologies and live at
- * `<base_directory>/layouts/<name>.layout` as `{ positions: { node_id: [x, y] } }`.
+ * A layout is the arrangement of a topology's nodes on the console canvas,
+ * stored apart from the graph it describes: one JSON file per name at
+ * `<base_directory>/layouts/<name>.layout`, holding
+ * `{ positions: { node_id: [x, y] } }`. The console asks for the layout under
+ * the topology name it is viewing, but the positions never enter that .tsl —
+ * writing them there would route every drag through `topologies save`, which
+ * restarts the matching active fleet.
  *
  * Verbs:
- *   get  — args `{name}`. Returns `{name, positions: object|null}`; never
- *          surfaces non-positions top-level keys from the saved file.
+ *   get  — args `{name}`. Returns `{name, positions: object|null}`. A missing,
+ *          unreadable or malformed file answers null, which tells the console
+ *          to auto-fit; no other top-level key of the saved file is surfaced.
  *   save — args `{name, positions: {node_id: [x,y]}}`. Returns `{name, path,
- *          positions}`; silently drops invalid entries.
+ *          positions}`, the positions being what survived sanitizing — an entry
+ *          that fails validation is dropped rather than refusing the write.
  *
- * Verb-level auth is capability-only (manage_options); errors throw
- * RuntimeException, which CommandInterpreter::interpret() wraps as TM_ERROR.
+ * Each verb names its role in `node_schema()`, `get` READ and `save` TUNE, and
+ * `Service_CI_Node::commands()` wraps the handler in that check. A refusal
+ * throws \RuntimeException, which `Command_Interpreter_Node::interpret()`
+ * catches and returns as TM_COMMAND|TM_ERROR.
  *
  * @package Newspack_Nodes
  */
@@ -27,16 +36,40 @@ use Newspack_Nodes\Service_CI_Node;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * Read and write canvas node positions by layout name.
+ */
 class Layouts_CI_Node extends Service_CI_Node {
 
-	private const ID_PATTERN      = '/^[a-zA-Z0-9_:.-]+$/';
-	private const MAX_BODY_BYTES  = 1048576;
 	/**
-	 * `get` verb handler — read a saved layout's node positions by name.
+	 * Node ids a layout may carry a position for. Deliberately wider than the
+	 * layout NAME, which becomes a file name: an id is only ever a JSON key, and
+	 * node names carry punctuation a file name should not — the `:` of an owned
+	 * sibling (`jobs:consumer`), plus `.` and `-`. An id that does not match is
+	 * dropped, so the pattern also bounds what reaches the console.
+	 */
+	private const ID_PATTERN = '/^[a-zA-Z0-9_:.-]+$/';
+
+	/**
+	 * Ceiling on the packed command envelope, in bytes — 1 MiB. A captured
+	 * graph runs to thousands of positions, so the cap sits far above any
+	 * layout the console produces and refuses only a runaway blob.
+	 */
+	private const MAX_BODY_BYTES = 1048576;
+
+	/**
+	 * `get` verb — the saved positions for one layout name.
 	 *
-	 * @param list<string> $args Verb argument.
+	 * A missing file is an answer, not an error: the console asks before the
+	 * operator has dragged anything, and a null `positions` is what sends it to
+	 * auto-fit. An unreadable or malformed file reads the same way, so a
+	 * truncated write costs the arrangement rather than the canvas. Only the
+	 * `positions` key of the file is returned.
 	 *
-	 * @return array<string,mixed>
+	 * @param list<string> $args Verb tokens; the layout name is the first.
+	 *
+	 * @return array<string,mixed> `{name, positions}`, positions null when nothing is saved.
+	 * @throws \RuntimeException When the name is absent or not file-name safe.
 	 */
 	public static function cmd_get( array $args ): array {
 		$name = self::require_valid_name( $args[0] ?? '' );
@@ -61,21 +94,31 @@ class Layouts_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * `save` verb handler — persist node positions for a layout (1 MiB cap).
+	 * `save` verb — persist a layout's node positions, creating the layouts
+	 * directory on the first write.
 	 *
-	 * @param list<string> $args Verb argument.
-	 * @param array<int|string,mixed> $envelope Verb argument.
+	 * The cap measures the packed envelope before anything is decoded, so an
+	 * oversized blob is refused without parsing it. Measuring the envelope
+	 * rather than the positions JSON counts what the transport actually carried,
+	 * arguments and all. `array_is_list()` is what narrows the envelope to the
+	 * positional message array `Message::packed_size()` takes; every real
+	 * envelope is one, so the cap always applies.
 	 *
-	 * @return array<string,mixed>
+	 * @param list<string>            $args     Verb tokens: the layout name, then the positions JSON as one token.
+	 * @param array<int|string,mixed> $envelope The inbound TM_COMMAND message, or [] for an inline dispatch.
+	 *
+	 * @return array<string,mixed> `{name, path, positions}`, positions being what survived sanitizing.
+	 * @throws \RuntimeException When the envelope exceeds the cap, the name is
+	 *                           invalid, the positions are not an object, the
+	 *                           directory cannot be created, or the write fails.
 	 */
 	public static function cmd_save( array $args, array $envelope = [] ): array {
-		// $envelope is the 7-field positional message array (a list).
 		if ( \array_is_list( $envelope ) && Message::packed_size( $envelope ) > self::MAX_BODY_BYTES ) {
 			throw new \RuntimeException(
 				\esc_html( 'body too large: layout arguments exceed 1 MiB' )
 			);
 		}
-		// `save <name> <positions-json>`: name is first token, rest is JSON.
+		// `save <name> <positions-json>`: two tokens, the blob whole.
 		[ $name_raw, $positions_json ] = self::split_first_token( $args );
 		$name      = self::require_valid_name( $name_raw );
 		$positions = \json_decode( $positions_json, true );
@@ -112,22 +155,46 @@ class Layouts_CI_Node extends Service_CI_Node {
 		];
 	}
 
+	/**
+	 * Path of one layout file. Callers pass a name `require_valid_name()` has
+	 * already accepted — that check is the only thing keeping a `..` segment or
+	 * a slash out of this concatenation.
+	 *
+	 * @param string $name Validated layout name.
+	 *
+	 * @return string Absolute path to `<base_directory>/layouts/<name>.layout`.
+	 */
 	private static function layout_path( string $name ): string {
 		return self::layouts_dir() . '/' . $name . '.layout';
 	}
 
+	/**
+	 * The layouts directory, derived from the substrate base directory so
+	 * layouts follow the rest of the runtime's storage when an operator moves
+	 * it.
+	 *
+	 * @return string Absolute path, no trailing slash.
+	 */
 	private static function layouts_dir(): string {
 		$base = Config::get_base_directory();
 		return \rtrim( $base, '/' ) . '/layouts';
 	}
 
 	/**
-	 * Sanitize a positions blob — drop entries with non-string ids,
-	 * ids that don't match ID_PATTERN, non-array positions, fewer
-	 * than 2 coordinates, or non-finite x/y.
+	 * Keep the entries that describe a node position and drop the rest.
+	 *
+	 * An entry survives when its key is a string matching ID_PATTERN and its
+	 * value is an array of at least two members whose first two are scalar or
+	 * null and cast to finite floats. Dropped, therefore: an integer key (PHP
+	 * turns the decoded JSON key "42" into one), a punctuated id, a value that
+	 * is not an array, a single coordinate, and `1e500` overflowing to INF.
+	 *
+	 * The cast normalizes what JSON decoding produced — an int for a whole
+	 * number, a string for `"12"` — so every stored coordinate is a float.
 	 *
 	 * @param array<mixed,mixed> $positions Raw positions blob from the args.
-	 * @return array<string,array{0:float,1:float}>
+	 *
+	 * @return array<string,array{0:float,1:float}> Node id => [x, y].
 	 */
 	private static function sanitize_positions( array $positions ): array {
 		$clean = [];
@@ -156,6 +223,16 @@ class Layouts_CI_Node extends Service_CI_Node {
 		return $clean;
 	}
 
+	/**
+	 * The console manifest and the verb table in one declaration.
+	 * `Service_CI_Node` builds the dispatch table from `commands[]` here, so a
+	 * verb is named once and the `capability` beside it is the role its handler
+	 * is wrapped in.
+	 *
+	 * @api Used by the substrate to provide UI etc.
+	 *
+	 * @return array<string,mixed>
+	 */
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
 			'category'    => 'Service',

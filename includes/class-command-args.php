@@ -1,16 +1,20 @@
 <?php
 /**
- * Command_Args: the shared Tachikoma-style argument grammar.
+ * Command_Args: the one argument grammar every service interpreter reads.
  *
- * Service interpreters take normal commands with arguments — required tokens
- * positional, optional named args as `--key=value`, boolean flags as bare
- * `--key`, lists comma-separated inside one value, and values with spaces
- * double-quoted. This is the ONE place that grammar lives: verb handlers
- * `parse()` the arguments string; callers and the hub->spoke forwarder
- * `format()` it. format() round-trips through parse().
+ * A command's `arguments` are a flat token array end to end — tokenized once
+ * by the Shell or a REST producer, carried verbatim through the envelope, the
+ * interpreter and `make_node`, and re-joined into a line only by
+ * `Node::serialize_args()` for `dump_config`. Inside that array the grammar is
+ * Tachikoma's: required values ride positionally in the order the verb
+ * declares, optional ones are named `--key=value`, a boolean flag is a bare
+ * `--key`, and a list is comma-separated inside one value. Verb handlers
+ * `parse()` the tokens, the producers that mint a command `format()` them,
+ * and format() round-trips through parse().
  *
- * Structured blobs (a topology .tsl body, a layout positions JSON) do NOT ride
- * here — those verbs take `<name> <blob>` and split the rest-of-line themselves.
+ * A structured blob — a topology .tsl body, a layout positions JSON — does not
+ * ride here. Those verbs take the name and the whole body as two discrete
+ * tokens, read through `Service_CI_Node::split_first_token()`.
  *
  * @package Newspack_Nodes
  */
@@ -22,9 +26,14 @@ namespace Newspack_Nodes;
 class Command_Args {
 
 	/**
-	 * Classify a pre-split token list. `--key=value` -> options[key]='value';
-	 * bare `--key` -> options[key]=true; everything else is a positional, in
-	 * order. Token boundaries are the array's — no tokenizing, no unescaping.
+	 * Classify a pre-split token list. A `--key=value` token becomes
+	 * `options[key] = 'value'`, a bare `--key` becomes `options[key] = true`,
+	 * and every other token is a positional, in order. Only the first `=`
+	 * splits, so `--expr=a=b` carries the value `a=b`.
+	 *
+	 * Token boundaries are the array's. Nothing here tokenizes or unescapes,
+	 * so a value carrying spaces or quote characters arrives whole from the
+	 * producer that split the line.
 	 *
 	 * @param list<string> $args
 	 * @return array{positional: list<string>, options: array<string,string|true>}
@@ -61,8 +70,9 @@ class Command_Args {
 	 * belongs to the caller, in its own voice: `CLI::require_flag_int` errors
 	 * out of WP-CLI, `Service_CI_Node::require_option_int` throws for a verb.
 	 *
-	 * The map is the one `parse()` mints (`--key=value` => 'value', bare
-	 * `--key` => true); WP-CLI's `$assoc_args` has the same shape.
+	 * The map is the `options` half of `parse()`, and WP-CLI's `$assoc_args`
+	 * has the same shape. A bare `--key` arrives as `true` and refuses too:
+	 * casting a flag answers 1, which names partition 1.
 	 *
 	 * @param array<string,mixed> $options    Classified options.
 	 * @param string              $key        Option name.
@@ -77,11 +87,13 @@ class Command_Args {
 	}
 
 	/**
-	 * Inverse of parse(): build the token list. Boolean true renders as a bare
-	 * `--key`; false as `--key=false`; arrays comma-joined; scalars stringified.
-	 * No quoting — a value with spaces stays inside one token (its own array
-	 * element); the serialization anchor (dump_config) quotes when it must
-	 * materialize tokens back to a single line.
+	 * Inverse of parse(): build the token list from positionals and an options
+	 * map. `true` renders as a bare `--key`, `false` as `--key=false`, an array
+	 * as its comma-joined members, and every other scalar as its string cast.
+	 *
+	 * Nothing is quoted here. A value carrying spaces stays whole inside its
+	 * own array element, and quoting belongs to `Node::serialize_args()`, the
+	 * one place tokens are re-joined into a single `dump_config` line.
 	 *
 	 * @api
 	 * @param list<string>                                       $positional

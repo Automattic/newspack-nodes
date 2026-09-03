@@ -1,52 +1,80 @@
 #!/usr/bin/env php
 <?php
 /**
- * reorder-node-methods.php — newspaper-order the methods of a PHP class.
+ * Newspaper-order the members of a PHP class, so a reader meets an entrypoint
+ * first and every helper below the code that calls it.
  *
- * The PHP twin of reorder-node-methods.js. Reorders each class body so methods
- * read top-down like a newspaper: an entrypoint, then the functions it calls,
- * then the functions those call — the stack deepening as you go down. Method
- * bodies are NEVER edited; they move as raw text spans (each method's leading
- * docblock + blank line travels with it), guarded by two invariants checked before
- * every write: (a) the multiset of every member's text is byte-identical before and
- * after (no method body edited), and (b) the multiset of every byte in the WHOLE file
- * is unchanged (no byte lost, duplicated, or added). A mismatch aborts the file and
- * fails the run. Residual observable changes — comment↔member association and
- * reflection/declaration order of members — are NOT guarded; they are the point.
+ * A class body comes out as its trait-`use` block, then its field block, then
+ * its methods in call-graph order. Member bodies are NEVER edited: each member
+ * moves as a raw text span, and its leading docblock and blank line travel with
+ * it. Two invariants are checked before any write — the multiset of member
+ * texts is byte-identical before and after, and the byte histogram of the WHOLE
+ * file is unchanged — and a mismatch aborts that file and fails the run. Two
+ * observable changes are deliberately NOT guarded, because they are the point:
+ * a comment can re-associate to a different member, and the declaration order
+ * that reflection reports shifts.
  *
- * Node detection keys on the `_Node` suffix by design (the substrate's make_node
- * contract): a class named `Node`/`*_Node`, or extending one (namespace-qualified
- * parents included), is node-ordered.
+ * `reorder-node-methods.js` is the JS twin, and `test-reorder-node-methods.sh`
+ * holds the two to the same orderings. This repo carries the authoritative copy
+ * that `sync-shared-scripts.sh` vendors into every sibling plugin, so edit it
+ * here; an edit to a vendored copy is overwritten on that sibling's next commit.
+ *
+ * Node detection keys on the `_Node` suffix — ADR-10's naming, which is what
+ * `make_node` resolves against. A class named `Node` or `*_Node`, or extending
+ * one (namespace-qualified parents included), takes the node policy.
  *
  * Two ordering policies:
  *
- *   NODE (default) — for classes extending `Node` or `*_Node`:
- *     __construct, arguments, fill, fire_cb, fire,
- *       <call-graph DFS seeded from the entrypoints fill/fire_cb/fire>,
- *     node_schema
+ *   NODE — `__construct`, `arguments`, `fill`, `fire_cb`, `fire` (the node
+ *     lifecycle in the order it runs), then the call-graph middle in
+ *     topological order, then the methods no self-dispatch edge touches in
+ *     source order, then `node_schema` last.
  *
- *   GENERIC (every other class) — __construct first, then a topological order
- *     of the call graph: a method is emitted only once EVERY caller of it
- *     already is, so no caller ever prints below something it calls. Public
- *     methods that call something lead each wave; a cycle falls to source
- *     order.
+ *   GENERIC (every other class) — `__construct`, then every remaining method
+ *     in topological order.
  *
- * Member boundaries come from token_get_all, so strings / comments / heredocs /
- * closures never confuse brace matching.
+ * Topological order means a method is emitted only once EVERY caller of it
+ * already is, so no caller ever prints below something it calls. A cycle stalls
+ * the sort, and the members left over fall through in source order.
  *
- * Usage (host php works; the container mount is read-only):
- *   php reorder-node-methods.php                 includes/class-*.php   # dry-run
- *   php reorder-node-methods.php --write          includes/class-*.php   # apply
- *   php reorder-node-methods.php --write --sort-fields class-*.php        # also sort field block
+ * Member boundaries come from `token_get_all`, so a brace inside a string,
+ * comment, heredoc or closure never confuses the scan.
  *
- * Declared field order is observable, so fields keep source order unless
- * --sort-fields is given.
+ * Declared field order is observable through `get_object_vars`, a `foreach`, an
+ * `(array)` cast and JSON, so fields keep source order unless `--sort-fields`
+ * opts into the convention sort. A run of fields under an `// @ordered` marker
+ * keeps its slot even then. A file under `tests/` or `__tests__/` is skipped
+ * whole.
  *
- * After --write, run phpcbf on the changed files to normalize the blank lines
- * between methods, then the test suite.
+ * Usage — run on the host, because the container's `/services` mount is
+ * read-only:
+ *
+ *   php reorder-node-methods.php [--check|--write] [--sort-fields] <file.php> [...]
+ *
+ * With no flag it reports what it would change and exits 0. `--check` reports
+ * the same and exits 1, which is how lint-staged gates a commit. `--write`
+ * applies, and `--sort-fields` sorts the field block as well.
+ *
+ * After `--write`, run `phpcbf` on the changed files to normalize the blank
+ * lines between members, then the test suite.
+ *
+ * @package Newspack_Nodes
+ *
+ * @phpstan-type Token array{0:int|null,1:string,2:int}
+ * @phpstan-type Member array{method:bool,name:string,static:bool,public:bool,end:int,start_fn:int,vis?:string,kind?:string}
+ * @phpstan-type ClassRec array{contentStart:int,is_node:bool,members:list<Member>}
  */
 
-// Node fixed-order prefix; 500 = call-graph middle, 1000 = node_schema (last).
+/**
+ * Fixed-order rank for a method name under the node policy.
+ *
+ * `order_methods_node()` reads the number as three bands: under 5 is the fixed
+ * prefix and sorts on the rank itself, 1000 is `node_schema` last, and the 500
+ * default is the call-graph middle.
+ *
+ * @param string $name Method name.
+ * @return int Rank.
+ */
 function priority( string $name ): int {
 	return match ( $name ) {
 		'__construct' => 0,
@@ -59,8 +87,16 @@ function priority( string $name ): int {
 	};
 }
 
-// Tokenize with char offsets. Returns list of [id|null, text, offset].
-/** @return list<Token> */
+/**
+ * Tokenize `$src`, giving every token its byte offset.
+ *
+ * `token_get_all()` reports a line number but no offset, and every member
+ * boundary here is a substring of the source.
+ *
+ * @param string $src PHP source.
+ * @return list<Token> Every token in source order, its id null for a
+ *                     single-character token.
+ */
 function tokens_with_offsets( string $src ): array {
 	$toks = token_get_all( $src );
 	$out  = [];
@@ -73,12 +109,17 @@ function tokens_with_offsets( string $src ): array {
 }
 
 /**
- * Invariant fingerprint: sorted texts of EVERY member across all processed
- * classes. Reordering is a permutation, so this multiset is unchanged unless a
- * member's own text was corrupted — which aborts the write. Covers the whole
- * rewritten region, not just method bodies.
+ * The first write invariant: sorted texts of EVERY member in the file.
  *
- * @return list<string>
+ * Reordering is a permutation, so this multiset is unchanged unless a member's
+ * own text was corrupted — which aborts the write. Each span runs from the
+ * member's `function` keyword, or from its first token for a field, to its end,
+ * so a mangled signature or body is caught here. The leading docblock, the
+ * modifiers ahead of `function`, and the whitespace between members fall to the
+ * second invariant instead, the whole-file byte histogram.
+ *
+ * @param string $src PHP source.
+ * @return list<string> Member texts, sorted.
  */
 function member_fingerprint( string $src ): array {
 	$fp = [];
@@ -92,9 +133,20 @@ function member_fingerprint( string $src ): array {
 }
 
 /**
- * Build a non-method member (const / property / trait-use) with the metadata the
- * field-ordering convention sorts on: kind, visibility, static-ness, and name.
+ * Build a non-method member — a const, a property or a trait `use` — with the
+ * metadata the field-ordering convention sorts on: kind, visibility,
+ * static-ness and name.
  *
+ * The name is recovered by regex over the member's own text rather than from
+ * the token walk, because the three kinds each spell it somewhere else.
+ *
+ * @param string $src    PHP source.
+ * @param int    $start  Byte offset of the member's first token.
+ * @param int    $end    Byte offset just past the member.
+ * @param string $vis    Declared visibility: `public`, `protected` or `private`.
+ * @param bool   $static Whether a `static` keyword was seen.
+ * @param bool   $const  Whether a `const` keyword was seen.
+ * @param bool   $use    Whether a `use` keyword was seen.
  * @return Member
  */
 function field_member( string $src, int $start, int $end, string $vis, bool $static, bool $const, bool $use ): array {
@@ -118,7 +170,10 @@ function field_member( string $src, int $start, int $end, string $vis, bool $sta
  * comment falls into the next member's leading chunk and gets orphaned onto the
  * wrong line on reorder.
  *
- * @param list<Token> $toks
+ * @param list<Token> $toks      Every token in the file.
+ * @param int         $n         Token count.
+ * @param int         $close_idx Index of the `;` or `}` that ends the member.
+ * @return int Byte offset just past the member.
  */
 function absorb_trailing_comment( array $toks, int $n, int $close_idx ): int {
 	$end  = $toks[ $close_idx ][2] + strlen( $toks[ $close_idx ][1] );
@@ -136,23 +191,39 @@ function absorb_trailing_comment( array $toks, int $n, int $close_idx ): int {
 	return $end;
 }
 
-// Last `\`-delimited segment of a qualified name (`\A\B_Node` → `B_Node`).
+/**
+ * Last `\`-delimited segment of a qualified name (`\A\B_Node` → `B_Node`).
+ *
+ * @param string $name A class name, qualified or not.
+ * @return string The unqualified name.
+ */
 function last_ns_segment( string $name ): string {
 	$pos = strrpos( $name, '\\' );
 	return false === $pos ? $name : substr( $name, $pos + 1 );
 }
 
-// @longform Class-name-shaped token: a bare T_STRING or a namespaced-name
-// token. Node detection keys on the `_Node` suffix by design — make_node
-// contract — so `extends \Newspack_Nodes\Job_Worker_Node` must be seen too.
+/**
+ * Whether a token id can spell a class name.
+ *
+ * A namespaced name arrives as one `T_NAME_*` token rather than a run of
+ * `T_STRING`s, so without those ids `extends \Newspack_Nodes\Job_Worker_Node`
+ * reads as no parent at all, and a subclass whose own name lacks the `_Node`
+ * suffix silently drops to the generic policy.
+ *
+ * @param int|null $id Token id, or null for a single-character token.
+ * @return bool
+ */
 function is_name_token( ?int $id ): bool {
 	return T_STRING === $id || T_NAME_QUALIFIED === $id || T_NAME_FULLY_QUALIFIED === $id || T_NAME_RELATIVE === $id;
 }
 
 /**
- * Find classes and their depth-1 members with offsets. In node mode only Node
- * Every class in the file, each tagged is_node so the policy can be picked.
+ * Every class in the file, with its depth-1 members and their offsets.
  *
+ * Nothing is filtered out: each record is tagged `is_node` so `reorder()` picks
+ * the policy per class.
+ *
+ * @param string $src PHP source.
  * @return list<ClassRec>
  */
 function find_classes( string $src ): array {
@@ -244,15 +315,21 @@ function find_classes( string $src ): array {
 }
 
 /**
- * A method's SELF-dispatched callees ($this->/$this?->/self::/static::), in
- * first-appearance order; a call on another object ($p->foo()) is not an edge.
- * Detection scans the TOKEN stream over the method's [start_fn, end] range, so a
- * call spelled inside a string/comment/heredoc is never an edge.
+ * A reader of one method's SELF-dispatched callees (`$this->`, `$this?->`,
+ * `self::`, `static::`), in first-appearance order; a call on another object
+ * (`$p->foo()`) is not an edge.
  *
- * @param list<Token>        $toks
- * @param list<Member>       $methods
- * @param array<string,int> $names
- * @return callable(int): list<string>
+ * Detection scans the TOKEN stream over the method's `[start_fn, end]` range,
+ * so a call spelled inside a string, comment or heredoc is never an edge. The
+ * reader takes a method index and a `$soft` flag: false returns the edges
+ * outside any closure body, which is the call graph both policies sort on; true
+ * returns only what the closure bodies call, which gates nothing and serves the
+ * generic policy as a locality tie-break.
+ *
+ * @param list<Token>       $toks    Every token in the file.
+ * @param list<Member>      $methods The class's methods, in source order.
+ * @param array<string,int> $names   Method name to its index in $methods.
+ * @return callable(int,bool=): list<string>
  */
 function callees_factory( array $toks, array $methods, array $names ): callable {
 	$nt  = count( $toks );
@@ -260,7 +337,11 @@ function callees_factory( array $toks, array $methods, array $names ): callable 
 		while ( $k < $nt && ( $toks[ $k ][0] === T_WHITESPACE || $toks[ $k ][0] === T_COMMENT || $toks[ $k ][0] === T_DOC_COMMENT ) ) $k++;
 		return $k;
 	};
-	/** @return list<string> */
+	/**
+	 * @param int  $i    Index into $methods.
+	 * @param bool $soft Return only what this method's closure bodies call.
+	 * @return list<string> Callee method names.
+	 */
 	return function ( int $i, bool $soft = false ) use ( $toks, $nt, $methods, $names, $adv ) {
 		$start = $methods[ $i ]['start_fn'];
 		$end   = $methods[ $i ]['end'];
@@ -314,14 +395,19 @@ function callees_factory( array $toks, array $methods, array $names ): callable 
 }
 
 /**
- * NODE policy: fixed prefix (constructor/arguments/fill/fire*), then a
- * topological order of the call-graph-connected middle methods where every
- * callee sits below ALL its callers (public roots grouped, then the shared
- * chain), then standalone methods in source order, then node_schema.
+ * NODE policy: the fixed prefix, the call-graph middle, the standalone methods,
+ * then `node_schema`.
  *
- * @param list<Token>  $toks
- * @param list<Member> $methods
- * @return list<int>
+ * The prefix is `__construct`, `arguments`, `fill`, `fire_cb`, `fire`,
+ * pre-placed in that order but still pulling their middle helpers in. The
+ * middle is emitted in topological order, every callee below ALL its callers,
+ * with ties broken by source order. A method no self-dispatch edge touches is
+ * standalone and follows the middle in source order. A cycle stalls the sort,
+ * and the methods left over fall through in source order.
+ *
+ * @param list<Token>  $toks    Every token in the file.
+ * @param list<Member> $methods The class's methods, in source order.
+ * @return list<int> Indices into $methods, in output order.
  */
 function order_methods_node( array $toks, array $methods ): array {
 	$names = [];
@@ -375,11 +461,20 @@ function order_methods_node( array $toks, array $methods ): array {
 	return array_merge( $prefixIdx, $placed, $standalone, $suffix );
 }
 
-// GENERIC policy: __construct, then public roots deepest-first + their trees.
 /**
- * @param list<Token>  $toks
- * @param list<Member> $methods
- * @return list<int>
+ * GENERIC policy: `__construct`, then every remaining method in topological
+ * order.
+ *
+ * A method is emitted only once EVERY caller of it already is, so no caller
+ * ever prints below something it calls. The constructor is pre-placed and gates
+ * nothing. Ties prefer, in order: the method a caller just freed, so a chain
+ * stays together; then a public method that calls something, then any other
+ * public method; then source order. A cycle stalls the sort, and the methods
+ * left over fall through in source order.
+ *
+ * @param list<Token>  $toks    Every token in the file.
+ * @param list<Member> $methods The class's methods, in source order.
+ * @return list<int> Indices into $methods, in output order.
  */
 function order_methods_generic( array $toks, array $methods ): array {
 	$names = [];
@@ -405,14 +500,13 @@ function order_methods_generic( array $toks, array $methods ): array {
 		$callees[ $i ] = $cs;
 	}
 
-	// @longform Kahn: a method is emitted only once EVERY caller of it already
-	// is, so no caller can ever print below a method it calls. Ties prefer a
-	// public method that calls something, so its own chain reads top-down,
-	// then source order. A cycle stalls the sort and falls through below.
-	// @longform Freed order is the primary tie-break, most recent first: emitting
-	// a caller pulls in the callees it just released, so a chain stays together
-	// instead of yielding to an unrelated root that merely sorts earlier. Roots
-	// free from the start share order 0 and fall to rank, then source.
+	// @longform Kahn: a method is emitted only once EVERY caller of it
+	// already is, so no caller can ever print below a method it calls.
+	// Freed order breaks ties first, most recent winning: emitting a caller
+	// pulls in the callees it just released, so a chain stays together
+	// instead of yielding to an unrelated root that merely sorts earlier.
+	// Roots free from the start share order 0 and fall to rank, then
+	// source. A cycle stalls the sort and falls through below.
 	$placed = []; $visited = []; $freed = array_fill_keys( $rest, 0 ); $tick = 0;
 	$rank = fn( $i ) => ( $methods[ $i ]['public'] && $callees[ $i ] ) ? 0 : ( $methods[ $i ]['public'] ? 1 : 2 );
 	while ( true ) {
@@ -440,14 +534,23 @@ function order_methods_generic( array $toks, array $methods ): array {
 	return array_merge( $ctor, $placed );
 }
 
-// --sort-fields kind rank: const (0) → static prop (1) → instance prop (2).
-/** @param Member $m */
+/**
+ * `--sort-fields` kind rank: const (0), static property (1), instance
+ * property (2).
+ *
+ * @param Member $m One member.
+ * @return int Rank.
+ */
 function field_kind_rank( array $m ): int {
 	return 'const' === ( $m['kind'] ?? '' ) ? 0 : ( ! empty( $m['static'] ) ? 1 : 2 );
 }
 
-// --sort-fields visibility rank: public (0) → protected (1) → private (2).
-/** @param Member $m */
+/**
+ * `--sort-fields` visibility rank: public (0), protected (1), private (2).
+ *
+ * @param Member $m One member.
+ * @return int Rank.
+ */
 function field_vis_rank( array $m ): int {
 	return [ 'public' => 0, 'protected' => 1, 'private' => 2 ][ $m['vis'] ?? 'public' ] ?? 0;
 }
@@ -460,8 +563,11 @@ function field_vis_rank( array $m ): int {
  * The marker opens a block and the first blank line closes it, so one comment
  * pins the run of fields under it and nothing else. A second marker re-opens.
  *
- * @param  Member[]   $slice     All members of the class, in source order.
- * @param  list<int>  $field_pos Indices into $slice of the non-method members.
+ * @param string    $src          PHP source.
+ * @param Member[]  $slice        All members of the class, in source order.
+ * @param int       $region_start Byte offset just past the class body's `{`.
+ * @param list<int> $field_pos    Indices into $slice of the const and property
+ *                                members; a trait `use` is not one of them.
  * @return array<int,true> Pinned $slice indices, as a set.
  */
 function pinned_field_positions( string $src, array $slice, int $region_start, array $field_pos ): array {
@@ -482,7 +588,22 @@ function pinned_field_positions( string $src, array $slice, int $region_start, a
 	return $pinned;
 }
 
-/** @return array{0: string, 1: list<string>} */
+/**
+ * Rewrite every class body in `$src` into convention order.
+ *
+ * A class body comes out as its trait-`use` block, then its field block, then
+ * its methods under the node or the generic policy. Each member travels as one
+ * chunk running from the end of the member before it, so its leading docblock,
+ * modifiers and blank lines move with it. Classes are rewritten right to left,
+ * which keeps the offsets of the ones still to come valid. A class with fewer
+ * than two members, one with no method at all, and one already in convention
+ * order are each left alone.
+ *
+ * @param string $src         PHP source.
+ * @param bool   $sort_fields Sort the field block as well.
+ * @return array{0:string,1:list<string>} The rewritten source, and one note per
+ *                                        class reordered.
+ */
 function reorder( string $src, bool $sort_fields = false ): array {
 	$classes = find_classes( $src );
 	$toks    = tokens_with_offsets( $src );
@@ -496,12 +617,7 @@ function reorder( string $src, bool $sort_fields = false ): array {
 		foreach ( $slice as $m ) if ( $m['method'] ) { $has_method = true; break; }
 		if ( ! $has_method ) continue;
 
-		// @longform Reorder the WHOLE class body: the field block (every
-		// const/prop/use) is hoisted above the methods, then the methods in
-		// call-graph order. Declared field order is OBSERVABLE
-		// (get_object_vars, foreach, (array) cast, var_dump, JSON), so
-		// fields keep source order unless --sort-fields opts into the
-		// convention sort.
+		// The region spans the whole class body: fields hoist above methods.
 		$regionStart = $cls['contentStart'];
 		$regionEnd   = $slice[ count( $slice ) - 1 ]['end'];
 		$chunks = [];
@@ -551,6 +667,10 @@ function reorder( string $src, bool $sort_fields = false ): array {
  * Write $out over $f atomically: a same-dir temp file (so rename is atomic,
  * never cross-device), chmod'd to the original mode, then renamed into place.
  * A failed step cleans up the temp file and returns false, so callers fail loud.
+ *
+ * @param string $f   Path to overwrite.
+ * @param string $out New contents.
+ * @return bool True when the rename landed.
  */
 function write_atomic( string $f, string $out ): bool {
 	$dir = dirname( $f );
@@ -572,10 +692,17 @@ $sort_fields = in_array( '--sort-fields', $argv_rest, true );
 $files       = array_values( array_filter( $argv_rest, fn( $a ) => ! str_starts_with( $a, '--' ) ) );
 if ( ! $files ) { fwrite( STDERR, "usage: php reorder-node-methods.php [--check|--write] [--sort-fields] <file.php> [...]\n" ); exit( 1 ); }
 $failed = false;
-// @longform Test code is left alone. Its methods have no call graph worth
-// ordering, setUp/tearDown are a fixture contract rather than a chain, and a
-// mock deliberately mirrors the order of the class it doubles. The gate runs on
-// every staged *.php, so tests reach it unless excluded here.
+/**
+ * Whether a path holds test code, which is left alone.
+ *
+ * Test methods have no call graph worth ordering, `setUp` and `tearDown` are a
+ * fixture contract rather than a chain, and a mock deliberately mirrors the
+ * order of the class it doubles. The gate runs on every staged `*.php`, so
+ * tests reach it unless excluded here.
+ *
+ * @param string $f Path, in either separator style.
+ * @return bool
+ */
 function is_test_path( string $f ): bool {
 	$norm = str_replace( '\\', '/', $f );
 	return str_contains( $norm, '/tests/' ) || str_contains( $norm, '/__tests__/' )

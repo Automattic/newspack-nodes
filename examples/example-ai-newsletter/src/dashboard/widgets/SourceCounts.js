@@ -1,11 +1,35 @@
+/**
+ * The "By source" card on the Publisher Insights page.
+ *
+ * The card reads one slice and nothing else. `usePublisherInsightsGraph` polls
+ * the `counts` verb into the `source-counts:view` node, and this component
+ * subscribes to that node alone — the one-slice-per-view rule from
+ * `docs/writing-a-view-node.md`. A failed `counts` read therefore takes out
+ * this card and leaves the two sibling cards showing their own data.
+ */
+
 import { __ } from '@wordpress/i18n';
 import { useNodeState } from '@newspack-nodes/runtime';
 
 /**
- * SourceCounts — the "By source" card. Reads ONLY the `source-counts:view` node's
- * slice ({ sources:{name:count} }) via useNodeState and renders one labeled
- * proportion bar per source, sized by its share of the total. A slice error
- * surfaces as a notice; no sources yet shows an empty hint.
+ * Render the per-source breakdown: one labeled proportion bar per source, each
+ * sized by its share of the total, in the order the `counts` verb returned
+ * them.
+ *
+ * `useNodeState` returns undefined until `source-counts:view` is registered,
+ * because the hook builds the graph in an effect and the first render precedes
+ * the node. The empty-slice default covers that render, and the `?? {}` covers
+ * a reply that parsed without a `sources` field.
+ *
+ * A slice error replaces the bars rather than sitting above them, because a
+ * stale proportion beside a failure notice reads as current. An empty map
+ * shows the "No sources yet" hint instead.
+ *
+ * The bar itself is `aria-hidden`: the name and count above it already carry
+ * the number, so the fill would announce nothing. Its width guard keeps counts
+ * summing to zero from sizing every fill `NaN%`.
+ *
+ * @return {import('react').ReactElement} Rendered component.
  */
 export function SourceCounts() {
 	const slice = useNodeState( 'source-counts:view', 'view' ) || {

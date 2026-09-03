@@ -1,42 +1,53 @@
-// The Topic_Probe sweep interval, and so the narrowest useful bucket.
+/**
+ * Snap every series of one Topics panel onto ONE shared, epoch-aligned
+ * time-bucket grid, so a panel's topics all draw against the same X axis.
+ *
+ * Why a grid rather than the union of the raw sample instants: each worker
+ * process runs its own Topic_Probe sweeping on an independent 15s phase, so
+ * topics living in different processes emit their samples at OFFSET instants.
+ * On the raw union every topic then carries a gap at every OTHER topic's
+ * instant, and a `?? 0` gap-fill turns a LEVEL gauge (backlog, cacheSize) into
+ * a [3MB,0,3MB,0…] sawtooth under curveMonotoneX. Flooring each sample to
+ * `floor(ts/bucket)*bucket` lands two sweeps 15s out of phase in the SAME
+ * bucket.
+ *
+ * How an empty bucket reads belongs to the metric, so the mode arrives from the
+ * call site as `fillModeForMetric( metric )`; nothing here infers it from a
+ * metric name.
+ */
+
+/** The Topic_Probe sweep cadence, and so the narrowest useful bucket. */
 const BUCKET_BASE_S = 15;
 
 /**
- * buildAlignedSeries — turn `topicChartSeries` output into the draw-ready model
- * for the d3 Topics charts: rank topics by peak, then snap every topic onto ONE
- * shared, epoch-aligned time-bucket grid and fill each bucket per the metric's
- * mode.
+ * Build one Topics panel's draw-ready model: rank the topics by peak, then fill
+ * every bucket of the shared grid for each of them.
  *
- * Why a bucket GRID, not the raw union of sample instants: each worker process
- * runs its own Topic_Probe sweeping on an independent 15s phase, so topics in
- * different processes emit their samples at OFFSET instants. Merging on the raw
- * union then leaves every topic with a gap at every OTHER topic's instant — and
- * a `?? 0` gap-fill turns a LEVEL gauge (backlog/cacheSize) into a [3MB,0,3MB,0…]
- * sawtooth under curveMonotoneX. Flooring each sample to `floor(ts/bucket)*bucket`
- * lands two 15s-out-of-phase sweeps in the SAME bucket, so the topics share one
- * axis with no interleaved-instant gaps.
+ * The ranking is load-bearing. `TopicsChart` indexes the palette and the legend
+ * by position, so the busiest topic takes the first color and heads the legend.
  *
- * Fill mode (from the call site, never inferred here by metric name):
- *   - LEVEL (`fill:'hold'`, `agg:'last'`): a bucket keeps its latest-ts value;
- *     an empty bucket carries the topic's last known value forward (0 before the
- *     topic's first sample). A smooth decline stays smooth.
- *   - RATE (`fill:'zero'`, `agg:'rate'`): a bucket re-divides its samples,
- *     Σ(value × weight) / Σweight — which is Σwork / Σelapsed, since each
- *     sample's value is its own work over its own weight. An empty bucket is 0.
- *     Taking the bucket MAX instead discarded work whenever two samples from one
- *     source landed together, which wide downsampled buckets do routinely.
+ * Fill mode:
  *
- * Bucket width is the probe interval (15s) by default, widened only enough to
- * keep the axis at or under `maxPoints` — a panel is ~1800px wide, so a denser
- * axis is sub-pixel anyway, and the cap is what keeps the d3 redraw cheap.
+ * - LEVEL (`fill:'hold'`, `agg:'last'`): a bucket keeps its latest-ts value,
+ *   and an empty bucket carries the topic's last known value forward — 0
+ *   before its first sample, and its final reading on to the right edge of the
+ *   grid. A smooth decline stays smooth.
+ * - RATE (`fill:'zero'`, `agg:'rate'`): a bucket re-divides its samples,
+ *   Σ(value × weight) / Σweight, which is Σwork / Σelapsed because each
+ *   sample's value is its own work over its own weight. An empty bucket is 0.
  *
- * @param {?Object} series      `{ [topic]: { points:[{ts,value,weight}], max, avg } }` (ts in seconds).
- * @param {number}  maxPoints   Hard cap on the rendered axis length (<=0 disables the cap).
- * @param {Object}  [mode]      Fill/aggregate mode (see `fillModeForMetric`).
+ * Bucket width is the probe cadence, widened only enough to hold the axis at or
+ * under `maxPoints`: a panel is ~1800px wide, so a denser axis is sub-pixel,
+ * and the cap is what keeps the d3 redraw cheap.
+ *
+ * @param {?Object} series      One panel's topics from `topicChartSeries`:
+ *                              `{ [topic]: { points:[{ts,value,weight}], max, avg } }`, ts in seconds.
+ * @param {number}  maxPoints   Cap on the rendered axis length; 0 or less holds the base bucket however long the axis grows.
+ * @param {Object}  [mode]      Fill/aggregate mode, from `fillModeForMetric`.
  * @param {string}  [mode.fill] `'hold'` (carry forward) or `'zero'` (default).
  * @param {string}  [mode.agg]  `'last'` (latest-ts in bucket) or `'rate'` (default).
- * @return {{ series: Array<{label:string, values:Array<{date:Date,value:number}>}>, dates: Date[] }}
- *   Ranked, grid-aligned topics plus the shared date axis (each date is the bucket instant).
+ * @return {{series:Array<{label:string,values:Array<{date:Date,value:number}>}>,dates:Array<Date>}}
+ *   The topics busiest-first, plus the bucket instants they are aligned onto.
  */
 export function buildAlignedSeries(
 	series,
@@ -69,6 +80,7 @@ export function buildAlignedSeries(
 	const windowSec = maxTs - minTs;
 	let bucketSec = BUCKET_BASE_S;
 	if ( maxPoints > 0 ) {
+		// The -2 is headroom: flooring can add a bucket at each end.
 		const denom = Math.max( 1, maxPoints - 2 );
 		bucketSec = Math.max( BUCKET_BASE_S, Math.ceil( windowSec / denom ) );
 	}
@@ -110,8 +122,8 @@ export function buildAlignedSeries(
  * LEVEL aggregate: a gauge's bucket reads its latest-ts sample.
  *
  * @param {Array<{ts:number,value:number}>} points   One topic's points.
- * @param {Function}                        bucketOf ts → bucket instant.
- * @return {Map<number,number>} Bucket instant → value.
+ * @param {(ts:number)=>number}             bucketOf Floors a ts onto its bucket instant.
+ * @return {Map<number,number>} Each bucket instant to that bucket's value.
  */
 function lastPerBucket( points, bucketOf ) {
 	const newest = new Map();
@@ -127,13 +139,15 @@ function lastPerBucket( points, bucketOf ) {
 }
 
 /**
- * RATE aggregate: a bucket re-divides the work its samples did, Σ(value×weight)
- * / Σweight. A sample with no weight falls back to 1, degrading to a plain mean
- * — still every sample counted, unlike a max.
+ * RATE aggregate: a bucket re-divides its samples' work by their weight,
+ * Σ(value×weight) / Σweight. A sample with no weight counts as 1, degrading to
+ * a plain mean — every sample still counted, unlike a bucket MAX, which throws
+ * away the work of all but one whenever two samples from one source land
+ * together, as wide downsampled buckets make routine.
  *
  * @param {Array<{ts:number,value:number,weight:number}>} points   One topic's points.
- * @param {Function}                                      bucketOf ts → bucket instant.
- * @return {Map<number,number>} Bucket instant → rate.
+ * @param {(ts:number)=>number}                           bucketOf Floors a ts onto its bucket instant.
+ * @return {Map<number,number>} Each bucket instant to that bucket's rate.
  */
 function ratePerBucket( points, bucketOf ) {
 	const sums = new Map();

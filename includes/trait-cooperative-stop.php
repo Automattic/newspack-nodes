@@ -1,11 +1,12 @@
 <?php
 /**
- * Cooperative_Stop: THE stop policy for every long-running process.
+ * Cooperative_Stop: THE stop policy for every worker process.
  *
  * `should_continue()` owns every cooperative-stop trigger — lock lost, lock dir
- * gone, lock flagged or stolen, max-runtime, memory watermark, DB liveness — and the
- * heartbeat rides along, so a process that asks whether to keep running also
- * proves it is alive. No node implements its own restart.
+ * gone, operator stop, lock flagged or stolen, max-runtime, memory watermark, DB
+ * liveness and the on-demand idle window — and the heartbeat rides along, so a
+ * process that asks whether to keep running also proves it is alive. No node
+ * implements its own restart.
  *
  * A consumer supplies the two things that genuinely differ — where its lock dir
  * lives, and what to call itself in a stop message — and inherits the policy.
@@ -77,7 +78,10 @@ trait Cooperative_Stop {
 	/** When this process started (epoch seconds). */
 	protected float $start_time = 0.0;
 
-	/** Cooperative-stop category for the shutdown handoff; '' is operational. */
+	/**
+	 * Why this process is stopping, as a category. `stop()` sets it; the shutdown
+	 * handoff and the self-respawn decision are what read it.
+	 */
 	protected string $stop_reason = '';
 
 	/**
@@ -197,6 +201,7 @@ trait Cooperative_Stop {
 	 * seconds.
 	 *
 	 * @param float $now Current time, shared with the rest of should_continue().
+	 * @return bool True once every reporter has been idle for the whole window.
 	 */
 	private function idle_window_elapsed( float $now ): bool {
 		if ( ( $now - $this->last_idle_check ) < self::IDLE_CHECK_INTERVAL_S ) {
@@ -228,9 +233,10 @@ trait Cooperative_Stop {
 	/**
 	 * Record why we are stopping and say so.
 	 *
-	 * @param string $reason   Human-readable stop reason + metrics.
-	 * @param string $category Cooperative-stop category for the shutdown handoff:
-	 *                         'timeout' | 'memory' trigger the fair-shot rule; '' is operational.
+	 * @param string $reason   Human-readable stop reason + metrics; '' stays silent.
+	 * @param string $category Cooperative-stop category. 'timeout' and 'memory' route the
+	 *                         shutdown handoff through the fair-shot rule; 'idle' and 'stop'
+	 *                         also decline the successor's spawn; '' is operational.
 	 * @return false Always — callers `return $this->stop( ... )`.
 	 */
 	private function stop( string $reason, string $category = '' ): bool {
@@ -241,6 +247,11 @@ trait Cooperative_Stop {
 		return false;
 	}
 
+	/**
+	 * The `memory_limit` ini setting in bytes, expanding a `K`, `M` or `G` suffix.
+	 * Unlimited passes through as -1, which is why every caller guards on a
+	 * non-positive limit rather than comparing against it.
+	 */
 	protected function memory_limit_bytes(): int {
 		$ini = \ini_get( 'memory_limit' );
 		if ( '-1' === $ini ) {
@@ -255,6 +266,11 @@ trait Cooperative_Stop {
 		return $num;
 	}
 
+	/**
+	 * Whether resident memory has reached `MEMORY_WATERMARK_PCT` of the limit. An
+	 * unlimited or unreadable limit has no watermark to cross, so it answers false
+	 * and leaves the stop to the other triggers.
+	 */
 	protected function memory_over_watermark(): bool {
 		$limit = $this->memory_limit_bytes();
 		if ( $limit <= 0 ) {

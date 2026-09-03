@@ -12,32 +12,48 @@
  * untouched. Residual observable changes NOT guarded: a comment may re-associate
  * to a different member, and reflection-order of the prototype's own keys shifts.
  *
+ * A class field interleaved among the methods is hoisted to the top of the
+ * region and keeps source order: declared field order is observable, so
+ * nothing sorts it. The PHP twin's --sort-fields has no counterpart here.
+ *
  * Two ordering policies:
  *
- *   NODE (default) — for Node subclasses (superclass `Node` or `*Node`):
+ *   NODE (default) — for a class named `Node` / `*Node`, or extending one:
  *     constructor, arguments (get/set), fill, fire_cb, fire,
- *       <call-graph DFS seeded from the entrypoints fill/fire_cb/fire>,
+ *       <a topological order of the middle units the call graph connects,
+ *        then the unconnected ones in source order>,
  *     node_schema
  *
  *   GENERIC (every other class) — constructor first, then a topological order
  *     of the call graph: a unit is emitted only once EVERY caller of it
- *     already is, so no caller ever prints below something it calls. Public
- *     units that call something lead each wave; a cycle falls to source order.
+ *     already is, so no caller ever prints below something it calls. Among
+ *     the units free at the same moment, the ones a just-emitted caller
+ *     released come first, then public callers, then source order.
  *
+ * Both policies break a tie by source order, and a cycle falls back to source
+ * order rather than stalling.
+ *
+ * Given no flag, the tool only prints the order it would write. `--check` turns
+ * a would-change file into exit 1, which is how lint-staged gates a commit;
+ * `--write` applies the order. A file that fails to parse or trips an invariant
+ * exits 1 under every flag. Test paths are skipped throughout.
  *
  * After --write, run `eslint --fix` on the changed files to normalize the blank
  * lines between methods, then the test suite. Sibling tool: the PHP twin
- * reorder-node-methods.php.
+ * reorder-node-methods.php; `scripts/test-reorder-node-methods.sh` runs both.
  */
 
 const fs = require( 'fs' );
 const path = require( 'path' );
 const { createRequire } = require( 'module' );
 
+/** Everything after the script name: the flags below plus the paths. */
 const argv = process.argv.slice( 2 );
+/** Apply the new order in place; without it the run only reports. */
 const write = argv.includes( '--write' );
-// --check: dry-run that FAILS when a file is out of order, for the hook.
+/** Dry run that FAILS when a file is out of order, for the commit hook. */
 const check = argv.includes( '--check' );
+/** Every non-flag argument, each taken as a path to reorder. */
 const files = argv.filter( ( a ) => ! a.startsWith( '--' ) );
 if ( ! files.length ) {
 	console.error(
@@ -48,7 +64,9 @@ if ( ! files.length ) {
 
 /**
  * Resolve from the plugin this copy lives in, so a vendored copy uses that
- * plugin's dependencies rather than reaching back into the substrate.
+ * plugin's dependencies rather than reaching back into the substrate. The
+ * filename is a placeholder — `createRequire` needs only a path to resolve
+ * FROM, and nothing reads that file.
  */
 const requireFromPlugin = createRequire(
 	path.join( __dirname, '..', 'node_modules', '__reorder_node_methods__.js' )
@@ -64,6 +82,16 @@ try {
 	process.exit( 1 );
 }
 
+/**
+ * Parse one source file into a babel AST.
+ *
+ * The plugin list covers what the dashboards and the runtime write: JSX, class
+ * fields, and private members. Syntax outside it raises, and the caller reports
+ * the parse error rather than rewriting a file it cannot see whole.
+ *
+ * @param {string} src File contents.
+ * @return {Object} The babel File node.
+ */
 function parse( src ) {
 	return parser.parse( src, {
 		sourceType: 'module',
@@ -77,16 +105,32 @@ function parse( src ) {
 }
 
 /**
- * Node-orderable if the class IS a node base (name 'Node' / '*Node') or extends
- * one. Node policy orders the base class correctly (fill/fire prefix +
- * call-graph), so unlike generic policy it needn't be excluded.
+ * Whether NODE policy applies: the class is named `Node` or `*Node`, or it
+ * extends one.
+ *
+ * A base class qualifies on its own name. NODE policy orders it correctly —
+ * the fixed prefix is exactly the base's own shape — so excluding it and
+ * falling back to GENERIC would buy nothing. A superclass reached through a
+ * member expression (`x.Node`) carries no `name` and does not match.
+ *
+ * @param {Object} cls A ClassDeclaration node.
+ * @return {boolean} True when the class takes NODE ordering.
  */
 function isNodeClass( cls ) {
 	const names = [ cls.id?.name, cls.superClass?.name ];
 	return names.some( ( n ) => !! n && ( n === 'Node' || /Node$/.test( n ) ) );
 }
 
-// Every top-level class, each tagged isNode so the policy can be picked.
+/**
+ * Visit every top-level class, tagged with the policy that applies to it.
+ *
+ * Only a `class` statement at program scope counts, bare or exported. A class
+ * nested inside a function or assigned to a variable (`const X = class {}`) is
+ * left alone.
+ *
+ * @param {Object}   ast The parsed program.
+ * @param {Function} cb  Called `( classNode, isNode )` for each class.
+ */
 function walkClasses( ast, cb ) {
 	for ( const node of ast.program.body ) {
 		let cls = null;
@@ -109,14 +153,50 @@ function walkClasses( ast, cb ) {
 	}
 }
 
+/**
+ * The static name of a class member.
+ *
+ * `key.id.name` is the private-name form, so `#foo` resolves to `foo`. A
+ * computed key resolves to neither, which is why reorderClass refuses a class
+ * carrying one outright.
+ *
+ * @param {Object} m A class member node.
+ * @return {string|undefined} The name, or undefined when the key has none.
+ */
 const mname = ( m ) => m.key && ( m.key.name ?? ( m.key.id && m.key.id.name ) );
+/**
+ * Whether the unit is the constructor.
+ *
+ * @param {Object} u A method unit.
+ * @return {boolean} True for the constructor.
+ */
 const isConstructor = ( u ) => u.members[ 0 ].kind === 'constructor';
+/**
+ * Whether the unit belongs to the class's public surface — neither the
+ * constructor nor an `_`-prefixed name. GENERIC ordering floats these above
+ * private helpers within one wave, so a chain reads from its entrypoint down.
+ *
+ * @param {Object} u A method unit.
+ * @return {boolean} True when the unit is public.
+ */
 const isPublic = ( u ) =>
 	! isConstructor( u ) &&
 	typeof u.name === 'string' &&
 	! u.name.startsWith( '_' );
 
-// Node fixed-order prefix; null = call-graph middle.
+/**
+ * Position in the NODE fixed prefix, or null for a call-graph middle unit.
+ *
+ * The prefix is the shape every Node subclass shares — construct, configure,
+ * receive, fire — so it is pinned by name rather than discovered from the call
+ * graph. `arguments` counts only as an accessor, the form the runtime declares
+ * it in, and `fill` only as an instance method, since a static `fill` is a
+ * different thing. `fireCb` and `fire_cb` are the JS and PHP-parity spellings
+ * of one method.
+ *
+ * @param {Object} m A class member node.
+ * @return {?number} Rank 0 through 4, or null.
+ */
 function topRank( m ) {
 	if ( m.kind === 'constructor' ) {
 		return 0;
@@ -137,12 +217,30 @@ function topRank( m ) {
 	return null;
 }
 
+/**
+ * Whether the member is pinned to the BOTTOM of a Node class: `nodeSchema` in
+ * the JS spelling, `node_schema` in the PHP-parity one.
+ *
+ * @param {Object} m A class member node.
+ * @return {boolean} True when the member sorts last.
+ */
 const isLast = ( m ) => {
 	const n = mname( m );
 	return n === 'nodeSchema' || n === 'node_schema';
 };
 
-// Resolve `this.foo` / `this.#foo` / `this['foo']` callees; else null.
+/**
+ * The method name a callee expression dispatches on THIS.
+ *
+ * Only `this.foo()`, `this?.foo()`, `this.#foo()` and `this['foo']()` count. A
+ * call on another object is not an edge: `p.foo()` says nothing about where
+ * this class's own `foo` belongs, and reading it as an edge invents cycles that
+ * stall the topological sort. A computed key that is not a string literal
+ * cannot be resolved, so it yields null rather than a guess.
+ *
+ * @param {Object} callee The callee of a call expression.
+ * @return {?string} The self-dispatched method name.
+ */
 function thisCallName( callee ) {
 	if (
 		! callee ||
@@ -169,12 +267,18 @@ function thisCallName( callee ) {
 
 /**
  * Collect self-dispatched calls under an AST node, in source-position order.
- * AST-based so strings / comments / template literals never forge a call edge.
+ *
+ * Reading the AST rather than the text is what keeps strings, comments and
+ * template literals from forging a call edge. A nested function body is a scope
+ * of its own: the call runs later, under whoever invokes it, so blaming the
+ * enclosing method invents an edge. The walk descends anyway and marks those
+ * hits soft — soft hits gate nothing, and only nudge the tie-break toward
+ * keeping related methods together.
+ *
+ * @param {Object}  node   Any AST node.
+ * @param {Array}   hits   Accumulator of `{name, pos, soft}`, appended in place.
+ * @param {boolean} [soft] True once the walk is inside a nested function.
  */
-// @longform A nested function body is a scope of its own: the call runs later,
-// under whoever invokes it, so blaming the enclosing method invents an
-// edge. Descend anyway, marking those hits soft — they gate nothing and
-// only nudge the tie-break toward keeping related methods together.
 function collectThisCalls( node, hits, soft = false ) {
 	if ( ! node || typeof node.type !== 'string' ) {
 		return;
@@ -212,8 +316,14 @@ function collectThisCalls( node, hits, soft = false ) {
 
 /**
  * Invariant fingerprint: sorted texts of EVERY member (methods and fields)
- * across all processed classes. Reordering is a permutation, so this multiset is
- * unchanged unless a member's own text was corrupted — which aborts the write.
+ * across all processed classes.
+ *
+ * Reordering is a permutation, so this multiset is unchanged unless a member's
+ * own text was corrupted — which aborts the write.
+ *
+ * @param {string} src The file contents the AST was parsed from.
+ * @param {Object} ast The parsed program.
+ * @return {string[]} Every member's text, sorted.
  */
 function memberTexts( src, ast ) {
 	const out = [];
@@ -225,6 +335,21 @@ function memberTexts( src, ast ) {
 	return out.sort();
 }
 
+/**
+ * Compute the reordered text of one class body.
+ *
+ * Nothing is written here. The caller splices `newText` over
+ * `[regionStart, regionEnd)`, which spans the first method through the last, so
+ * anything declared above the first method stays where it is. A get/set pair
+ * sharing a name moves as ONE unit, keeping an accessor beside its counterpart.
+ *
+ * @param {string}  src    The file contents `cls` was parsed from.
+ * @param {Object}  cls    The ClassDeclaration to reorder.
+ * @param {boolean} isNode True for NODE policy, false for GENERIC.
+ * @return {?Object} Null when the class declares no methods; `{skip, note}`
+ *                   when it is refused; otherwise `{regionStart, regionEnd,
+ *                   changed}`, carrying `newText` and `order` when changed.
+ */
 function reorderClass( src, cls, isNode ) {
 	const members = cls.body.body;
 
@@ -276,7 +401,7 @@ function reorderClass( src, cls, isNode ) {
 	// @longform The region spans the first method through the last. A
 	// class field interleaved among the methods is HOISTED to the top of
 	// the region, NOT skipped: moving a field past methods is order-
-	// independent, and the old skip left such classes silently un-ordered.
+	// independent, and skipping the class leaves it silently un-ordered.
 	const slice = members.slice( firstMethodIdx, lastMethodIdx + 1 );
 	const regionStart =
 		firstMethodIdx === 0
@@ -342,7 +467,18 @@ function reorderClass( src, cls, isNode ) {
 			}
 		} )
 	);
-	// wantSoft picks the closure-body calls instead of the direct ones.
+	/**
+	 * The units this one calls, by name, in first-call order and deduped.
+	 *
+	 * Only names this class declares, and never one of the unit's own: a unit
+	 * calling itself is not an edge, and a get/set pair calling its twin would
+	 * otherwise depend on the unit it already travels with.
+	 *
+	 * @param {Object}  u          The calling unit.
+	 * @param {boolean} [wantSoft] True to take the closure-body calls instead
+	 *                             of the direct ones.
+	 * @return {string[]} Callee names.
+	 */
 	const calleesOf = ( u, wantSoft = false ) => {
 		const self = new Set( u.members.map( mname ).filter( Boolean ) );
 		const hits = [];
@@ -540,9 +676,16 @@ function reorderClass( src, cls, isNode ) {
 	};
 }
 
-// @longform Test code is left alone. Its methods have no call graph worth
-// ordering, and a double deliberately mirrors the order of what it doubles. The
-// gate runs on every staged file, so tests reach it unless excluded here.
+/**
+ * Whether the path is test code, which is left alone.
+ *
+ * Test methods have no call graph worth ordering, and a double deliberately
+ * mirrors the order of what it doubles. The commit gate runs on every staged
+ * file, so tests reach this tool unless excluded here.
+ *
+ * @param {string} file A path, in either separator style.
+ * @return {boolean} True when the file is skipped.
+ */
 function isTestPath( file ) {
 	const norm = file.split( path.sep ).join( '/' );
 	return (
@@ -553,6 +696,18 @@ function isTestPath( file ) {
 	);
 }
 
+/**
+ * Reorder every class in one file, check the invariants, and optionally write.
+ *
+ * Classes are spliced right-to-left so an earlier class's offsets survive a
+ * later class's splice. A file whose classes all come back unchanged is never
+ * re-parsed and never written, so the invariants cost nothing on a clean run.
+ *
+ * @param {string}  file    Path to reorder.
+ * @param {boolean} doWrite True to write the result back.
+ * @return {Object} `{file, changed, notes}`, or `{file, err}` when the file
+ *                  failed to parse or an invariant did not hold.
+ */
 function reorderFile( file, doWrite ) {
 	if ( isTestPath( file ) ) {
 		return { file, changed: false, notes: [] };
@@ -622,8 +777,16 @@ function reorderFile( file, doWrite ) {
 }
 
 /**
- * Char-frequency multiset equality — a permutation of chunks conserves it, so a
- * pass that loses / duplicates / adds a byte is caught even if member texts match.
+ * Char-frequency multiset equality.
+ *
+ * A permutation of chunks conserves it, so a pass that loses, duplicates or
+ * adds a byte is caught even when every member text still matches — that damage
+ * lands in the whitespace and comments BETWEEN members, which the member
+ * fingerprint never sees.
+ *
+ * @param {string} a The source before reordering.
+ * @param {string} b The source after.
+ * @return {boolean} True when both hold exactly the same characters.
  */
 function histogramsEqual( a, b ) {
 	if ( a.length !== b.length ) {
@@ -653,8 +816,13 @@ function histogramsEqual( a, b ) {
 }
 
 /**
- * Write via a same-dir temp file + rename so a reader never sees a partial file;
- * preserve the original mode (rename would install the umask default).
+ * Write via a same-directory temp file and a rename, so a reader never sees a
+ * partial file. Same directory because a rename is atomic only within one
+ * filesystem; the temp file is created under the umask, so the original's mode
+ * is copied onto it before the rename.
+ *
+ * @param {string} file Path to replace.
+ * @param {string} out  The new contents.
  */
 function atomicWrite( file, out ) {
 	const tmp = path.join(
@@ -681,5 +849,5 @@ for ( const f of files ) {
 	} else if ( r.notes && r.notes.length ) {
 		console.log( `! ${ f }${ '\n    ' + r.notes.join( '\n    ' ) }` );
 	}
-	// else console.log( `✓ ${ f }` );
+	// Silence is the clean result: only changes and notes print.
 }

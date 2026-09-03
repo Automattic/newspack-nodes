@@ -1,16 +1,21 @@
 <?php
 /**
- * Dead_Letter_Queue: quarantine + fair-shot attempt accounting (dead-letter [42]).
+ * Dead_Letter_Queue: quarantine plus fair-shot attempt accounting (dead-letter [42]).
  *
- * Owns the reusable poison-handling core: the `:deadletter` sibling Partition, the
- * fail-loud `dead_letter()` writer, the raw-line → replayable-Message wrap
- * (`poison_from_line`), and the cooperative-stop strike accounting
- * (`record_poison_strike`). The buffer/cursor specifics that DECIDE when to call
- * these stay in the using class (Consumer's `cooperative_stop` / `drain_buffer`).
+ * This trait carries the reusable half of ADR-12: the `:deadletter` sibling Partition
+ * and its triage index, the `dead_letter()` writer, the wrap that turns a raw source
+ * line back into a replayable Message (`poison_from_line`), the attempt accounting a
+ * respawn resumes (`resume_attempts_from_frame` and `record_poison_strike`), crawl
+ * mode, and the `dl_*` triage verbs. What DECIDES when to call any of it — the buffer,
+ * the cursor and its advance — belongs to `Durable_Reader`, so no reader can adopt the
+ * quarantine and forget the accounting.
  *
- * Shared by Consumer_Node (raw-line reader, full fair-shot machinery) and
- * Remote_Source_Node (relays whole Messages; uses just the quarantine writer so a
- * poison stream message can't wedge the worker).
+ * Three classes use it, in two shapes. `Durable_Reader` mixes it into Consumer_Node
+ * and Remote_Source_Node, which both carry a durable cursor and use every piece.
+ * Partition_Node uses it for a case with no cursor at all: a short write or a
+ * failed segment open quarantines the messages that never landed, so the attempt
+ * fields stay at their baseline there and `requeue_deadletter()` is overridden into
+ * a refusal.
  *
  * @package Newspack_Nodes
  */
@@ -19,6 +24,24 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * Dead-letter mixin: what a using class owes, and what it gets back.
+ *
+ * The class must be a `Node`, because the quarantine is a patron-owned sibling built
+ * through `Sidecar`, reported through `print_less_often()` and redelivered to `sink`.
+ * It supplies the directory, by assigning `$deadletter_dir` or by overriding
+ * `deadletter_dir()`, and calls `ensure_deadletter()` before the first quarantine:
+ * `dead_letter()` writes to the sibling that call built and never builds one, so a
+ * class that skips it reports a configured quarantine as absent.
+ *
+ * In return it gets the quarantine and its triage index, the `dead_letter()` writer,
+ * the attempt accounting a respawn resumes, and crawl mode. Two surfaces stay opt-in
+ * because they belong to the using class's own schema: merge `deadletter_verbs()` into
+ * `node_schema()['commands']` for the `dl_*` triage verbs, and `deadletter_metadata()`
+ * into `dump_metadata()` for the badge count. `deadletter_sole_writer()` and
+ * `requeue_deadletter()` are the seams a class with another writer, or another
+ * downstream, overrides.
+ */
 trait Dead_Letter_Queue {
 	use Sidecar;
 
@@ -30,27 +53,42 @@ trait Dead_Letter_Queue {
 	public const CRASH_MAX_ATTEMPTS = 5;
 
 	/**
-	 * Cooperative-stop threshold ([42]): after this many fair-shot strikes (full
-	 * worker lifetimes spent on the boot-cursor message under a timeout/memory stop),
-	 * the message is dead-lettered and the cursor advances. Lower than the hard-crash
-	 * budget — a cooperative stop is a clean signal, so fewer mulligans are needed.
+	 * Cooperative-stop threshold: after this many fair-shot strikes (full worker
+	 * lifetimes spent on the boot-cursor message under a timeout or memory stop), the
+	 * message is dead-lettered and the cursor advances. Lower than the hard-crash
+	 * budget because a cooperative stop names its reason, so fewer mulligans buy the
+	 * same confidence.
 	 */
 	public const COOP_MAX_ATTEMPTS = 2;
 
 	/**
-	 * Crawl cadence ([42]): the forward-progress window a crawling node must survive
-	 * crash-free before it leaves crawl and returns to coarse checkpointing. Also the
-	 * Consumer's coarse cursor-checkpoint interval. Shared so both crawl shapes
-	 * (Consumer per-line, Remote_Source per-relayed-message) agree on the exit window.
+	 * Crawl cadence: the forward-progress window a crawling node must survive
+	 * crash-free before it leaves crawl and returns to coarse checkpointing. It is
+	 * also the coarse cursor-checkpoint interval both readers throttle to, so the two
+	 * crawl shapes — Consumer per-line, Remote_Source per-relayed-message — agree on
+	 * the exit window.
 	 */
 	public const CHECKPOINT_INTERVAL_S = 30;
 
-	/** DLQ sibling retention: 1 MiB segments, count target 16, hard cap 32; rotate by count (no time-based aging). */
+	/** Rotate a quarantine segment at 1 MiB, so one segment holds many poison records. */
 	public const DEADLETTER_SEGMENT_SIZE = 1048576;
+
+	/** Floor for Partition's age rule. Inert here, since the age rule is off. */
 	public const DEADLETTER_MIN_SEGMENTS = 2;
+
+	/** Count rule: prune the oldest segments back to sixteen. */
 	public const DEADLETTER_NUM_SEGMENTS = 16;
+
+	/** Floor for the count rule, in seconds. Zero protects no segment from it. */
 	public const DEADLETTER_MIN_LIFETIME = 0;
+
+	/**
+	 * Age rule off: quarantine ages out by COUNT, never by clock. A record that sat
+	 * all weekend is exactly the one an operator comes back for.
+	 */
 	public const DEADLETTER_LIFETIME     = 0;
+
+	/** Hard cap, pruned unconditionally: the quarantine cannot grow past 32 segments. */
 	public const DEADLETTER_MAX_SEGMENTS = 32;
 
 	/** Newest-first page size for the `dl_list` triage verb when no limit is given. */
@@ -58,16 +96,17 @@ trait Dead_Letter_Queue {
 
 	/**
 	 * Times the message at the boot cursor has been attempted without advancing past
-	 * it (dead-letter [42]). 1 = healthy baseline (a running checkpoint); 0 = a
+	 * it. One is the healthy baseline (a running checkpoint); zero is a
 	 * graceful-shutdown handoff at a genuinely un-attempted cursor. A respawn reads
-	 * the frame's value and resumes at attempts+1, so a stuck/poison cursor climbs.
+	 * the frame's value and resumes at attempts+1, so only a stuck cursor climbs.
 	 */
 	protected int $attempts = 1;
 
 	/**
-	 * Why the prior process stopped at this cursor — '' = none / hard crash (the
-	 * signature that drives crawl-mode isolation), else a cooperative-stop reason
-	 * (`timeout`/`memory`, stamped at shutdown). A respawn reads it to classify.
+	 * Why the prior process stopped at this cursor. Empty means nothing stamped it —
+	 * an uncatchable death, the signature that drives crawl-mode isolation; anything
+	 * else is a cooperative-stop reason (`timeout` or `memory`) stamped at shutdown.
+	 * A respawn reads it to tell the two apart.
 	 */
 	protected string $poison_reason = '';
 
@@ -78,9 +117,9 @@ trait Dead_Letter_Queue {
 	protected ?float $first_crash_ts = null;
 
 	/**
-	 * Hard-crash crawl mode ([42]): the node respawned into an uncatchable-death
-	 * lineage and now checkpoints per message to pin the exact culprit on a re-crash.
-	 * Surviving CHECKPOINT_INTERVAL_S of forward progress leaves it.
+	 * Hard-crash crawl mode: the node respawned into an uncatchable-death lineage and
+	 * now checkpoints per message to pin the exact culprit on a re-crash. Surviving
+	 * CHECKPOINT_INTERVAL_S of forward progress leaves it.
 	 */
 	protected bool $crawl = false;
 
@@ -88,21 +127,31 @@ trait Dead_Letter_Queue {
 	protected float $crawl_started = 0.0;
 
 	/**
-	 * Quarantine dir for poison messages (dead-letter [42]); '' = no DLQ (log + drop).
-	 * The using node is the sole writer of its DLQ sibling, so it lifts the PIPE_BUF cap.
+	 * Quarantine directory for poison messages. Empty disables the DLQ, and poison is
+	 * reported and dropped instead of stored.
 	 */
 	protected string $deadletter_dir = '';
 
-	/** Null when $deadletter_dir is empty — poison is logged and dropped instead of quarantined. */
+	/**
+	 * The quarantine Partition, or null — either because no directory is configured,
+	 * in which case poison is reported and dropped, or because `ensure_deadletter()`
+	 * has not run yet.
+	 */
 	protected ?Partition_Node $deadletter = null;
 
 	/**
-	 * Reason staged for the companion-index callback right before a :deadletter fill.
-	 * dead_letter() sets it synchronously; the index closure closes over $this to read it.
+	 * Reason staged for the companion-index callback right before a `:deadletter` fill.
+	 * `dead_letter()` sets it and clears it in the same `finally`. It is a property
+	 * rather than a parameter because Partition hands its index formatter the message
+	 * and the position only, and the callback is bound to `$this`.
 	 */
 	protected string $deadletter_reason = '';
 
-	/** Where the quarantine lives. Empty disables the DLQ; it is an ARGUMENT, not derived. */
+	/**
+	 * Where the quarantine lives; empty disables it. The trait never computes this: a
+	 * reader takes it as a positional argument, Partition derives it from the directory
+	 * whose write stalled, and an override can answer differently again.
+	 */
 	protected function deadletter_dir(): string {
 		return $this->deadletter_dir;
 	}
@@ -112,16 +161,21 @@ trait Dead_Letter_Queue {
 	 * multi-writer Partition's shared write-quarantine is not). True lifts the
 	 * sidecar's PIPE_BUF cap via void_warranty (lockless rotation) — safe only
 	 * for a sole writer.
+	 *
+	 * @return bool True when nothing else writes this quarantine.
 	 */
 	protected function deadletter_sole_writer(): bool {
 		return true;
 	}
 
 	/**
-	 * Build the quarantine Partition for the CONFIGURED dir, publishing it into
-	 * the `deadletter` slot. Idempotent on the dir, not on the property, for the
-	 * reason `ensure_offsetlog()` is: an incumbent built for a dir a replayed
-	 * `arguments()` has superseded quarantines where nothing triages.
+	 * Build the quarantine Partition for the CONFIGURED dir and publish it into the
+	 * `deadletter` slot. Idempotent on the dir rather than on the property, for the
+	 * reason `ensure_offsetlog()` is: `arguments()` is a replay setter, so an incumbent
+	 * built for a directory the arguments have since superseded would go on
+	 * quarantining where nobody triages.
+	 *
+	 * @return Partition_Node|null The sidecar, or null when no directory is configured.
 	 */
 	protected function ensure_deadletter(): ?Partition_Node {
 		$dir = \rtrim( $this->deadletter_dir(), '/' );
@@ -154,11 +208,16 @@ trait Dead_Letter_Queue {
 	}
 
 	/**
-	 * Build the Message to quarantine from a raw source line: the real unpacked
-	 * message when it parses (so `wp nodes ingest` can replay it), else the raw bytes
-	 * wrapped in a TM_BYTESTREAM for inspection. Stamps the source segment:offset:length breadcrumb.
+	 * Build the Message to quarantine from a raw source line: the real unpacked message
+	 * when it parses, so `wp nodes ingest` can replay it, else the raw bytes wrapped in
+	 * a TM_BYTESTREAM so an operator can still read what arrived. Either way ID carries
+	 * the `segment:offset:length` breadcrumb of where the line came from, which the .idx
+	 * row reports as `source`; the length counts the newline the reader consumed with it.
 	 *
-	 * @return array<int,mixed>
+	 * @param string $line    The raw line, without its trailing newline.
+	 * @param int    $segment Source segment the line was read from.
+	 * @param int    $offset  Byte offset of the line within that segment.
+	 * @return array<int,mixed> The Message to quarantine, positional.
 	 */
 	protected function poison_from_line( string $line, int $segment, int $offset ): array {
 		try {
@@ -174,16 +233,22 @@ trait Dead_Letter_Queue {
 	}
 
 	/**
-	 * Quarantine a poison message: write the (replayable) original to the :deadletter
-	 * sibling when one is configured, else log + drop. Always emits a rate-limited
-	 * alert carrying the why (reason, source breadcrumb, error) — durable via
-	 * Core::stderr's error_log, so the give-up is never silent. The caller advances
-	 * the cursor past the message regardless, so poison can't wedge the source.
+	 * Quarantine a poison message: write the replayable original to the `:deadletter`
+	 * sibling when one is configured, else report and drop. The give-up goes out
+	 * through `print_less_often`, which reaches `error_log` via `Core::stderr` and
+	 * collapses a burst to one line per reason per node. A `Worker_Should_Stop` escapes
+	 * the write's broad catch (ADR-14) with nothing committed, so the respawn
+	 * re-quarantines; any other write failure drops and says so, because a source that
+	 * retries the quarantine forever is the wedge this exists to prevent. A reader
+	 * advances its cursor past the message either way.
 	 *
 	 * Replay is `wp nodes ingest <topic> <deadletter-segment>`, which re-`fill()`s each
 	 * stored message verbatim — so the entry is the original message, not a wrapper.
 	 *
 	 * @param array<int,mixed> $message The poison Message (positional).
+	 * @param string           $reason  Why it is being quarantined; rides in the .idx row
+	 *                                  and heads the reported line.
+	 * @param \Throwable|null  $error   The throw that condemned it, when there was one.
 	 */
 	protected function dead_letter( array $message, string $reason, ?\Throwable $error = null ): void {
 		$where   = Core::as_string( $message[ Message::ID ] ?? '' );
@@ -218,6 +283,7 @@ trait Dead_Letter_Queue {
 	 *
 	 * @param array<int,mixed>  $message  The quarantined Message.
 	 * @param array<string,int> $position Its {segment,offset,length} in the sidecar.
+	 * @return string One JSON object, the .idx line for this record.
 	 */
 	private function deadletter_index_row( array $message, array $position ): string {
 		return (string) \wp_json_encode( [
@@ -233,13 +299,14 @@ trait Dead_Letter_Queue {
 	/**
 	 * List quarantined records newest-first, capped at $limit. Each row is the .idx
 	 * triage metadata (reason, attempts, first_crash_ts, quarantine ts, source
-	 * breadcrumb, sidecar locator). `total` counts ALL indexed records (the badge
-	 * number), not the returned page. `unindexed_segments` counts .log segments with
-	 * no .idx companion — records dead-lettered BEFORE this feature; they don't
-	 * appear in `rows` but remain replayable via `wp nodes ingest` and rotate out
-	 * within DEADLETTER_NUM_SEGMENTS. The DLQ is count-bounded, so the full .idx
-	 * pass behind the totals stays cheap.
+	 * breadcrumb, sidecar locator). `total` counts ALL indexed records — the badge
+	 * number — not the returned page. `unindexed_segments` counts .log segments with no
+	 * .idx companion, quarantined by a writer that wrote no index: they stay out of
+	 * `rows`, remain replayable via `wp nodes ingest`, and rotate out within
+	 * DEADLETTER_NUM_SEGMENTS. The queue is count-bounded, so the full .idx pass behind
+	 * the totals stays cheap.
 	 *
+	 * @param int $limit Rows to return; the walk still visits every record for the totals.
 	 * @return array{rows: array<int,mixed>, total: int, unindexed_segments: int}
 	 */
 	public function list_deadletter( int $limit ): array {
@@ -285,6 +352,9 @@ trait Dead_Letter_Queue {
 	 * and skipped the write lock; once any writer exceeds PIPE_BUF the kernel may
 	 * split its record, and a foreign append of ANY size can land inside the gap.
 	 * Delivering also spares the log's other tailers a record only this node failed.
+	 *
+	 * @param string $locator `segment:offset:length` in the sidecar, from dl_list.
+	 * @return string The `ok:` or `error:` line the verb replies.
 	 */
 	public function requeue_deadletter( string $locator ): string {
 		$deadletter = $this->ensure_deadletter();
@@ -315,9 +385,12 @@ trait Dead_Letter_Queue {
 
 	/**
 	 * Decode the dead-letter record at $locator into named envelope fields for the
-	 * triage UI / REPL — JSON `{ type, type_flags, timestamp, from, to, id, key,
+	 * triage UI and the REPL — JSON `{ type, type_flags, timestamp, from, to, id, key,
 	 * value, size }`. Read-only sibling of requeue_deadletter: same locator grammar,
-	 * same sidecar read, no side effects. Returns an error line on a bad locator.
+	 * same sidecar read, no side effects.
+	 *
+	 * @param string $locator `segment:offset:length` in the sidecar, from dl_list.
+	 * @return string The JSON object, or an `error:` line.
 	 */
 	public function show_deadletter( string $locator ): string {
 		$deadletter = $this->ensure_deadletter();
@@ -348,9 +421,12 @@ trait Dead_Letter_Queue {
 	}
 
 	/**
-	 * Delete every dead-letter segment (.log + its .idx), then refresh the warm segment
-	 * cache. Convenience only — the DLQ is count-rotated (DEADLETTER_NUM_SEGMENTS), so
-	 * quarantine can never grow unbounded and purge is never required for correctness.
+	 * Delete every dead-letter segment and its .idx companion, then refresh the warm
+	 * segment cache. Convenience only — the queue is count-rotated
+	 * (DEADLETTER_NUM_SEGMENTS), so quarantine cannot grow unbounded and a purge is
+	 * never required for correctness.
+	 *
+	 * @return string The `ok:` count line, or an `error:` line when no DLQ is configured.
 	 */
 	public function purge_deadletter(): string {
 		$deadletter = $this->ensure_deadletter();
@@ -377,9 +453,12 @@ trait Dead_Letter_Queue {
 
 	/**
 	 * Parse a `segment:offset:length` sidecar locator into `[segment, offset, length]`,
-	 * or null when it isn't three non-negative integers.
+	 * or null when it isn't three non-negative integers. It refuses rather than coerces
+	 * because an operator pastes this token, and a coerced `abc` reads segment 0 — a
+	 * different record, redelivered without complaint.
 	 *
-	 * @return array{0:int,1:int,2:int}|null
+	 * @param string $locator The locator as typed or pasted.
+	 * @return array{0:int,1:int,2:int}|null Null when the token is malformed.
 	 */
 	private function parse_deadletter_locator( string $locator ): ?array {
 		$parts = \explode( ':', $locator );
@@ -395,10 +474,10 @@ trait Dead_Letter_Queue {
 	}
 
 	/**
-	 * One cheap dump_metadata field so a UI can badge the DLQ: the sidecar segment count
-	 * from the warm cache. The DLQ is void_warranty (single-writer), so get_segments
-	 * serves the cache with no scandir once warm; an empty/absent dir short-circuits
-	 * before any scan. The using node merges this into dump_metadata().
+	 * One cheap dump_metadata field so a UI can badge the DLQ: the sidecar's segment
+	 * count. A sole-writer sidecar is void_warranty, so get_segments() serves the warm
+	 * cache with no scandir, and an unbuilt DLQ short-circuits before any filesystem
+	 * call at all. The using node merges this into its own dump_metadata().
 	 *
 	 * @return array{deadletter_segments:int}
 	 */
@@ -407,11 +486,14 @@ trait Dead_Letter_Queue {
 	}
 
 	/**
-	 * Fair-shot accounting for a cooperative stop ([42]): stamp this strike's reason
-	 * and the streak start (kept from the first crash, not reset), then report whether
-	 * the cooperative-stop budget is spent. True → the caller quarantines + advances;
-	 * false → the caller records the strike at the unchanged cursor so the respawn
-	 * boots on it again and climbs.
+	 * Fair-shot accounting for a cooperative stop: stamp this strike's reason and the
+	 * streak start (kept from the first crash, never reset), then report whether the
+	 * cooperative-stop budget is spent. True means the caller quarantines the message
+	 * and advances past it; false means the caller records the strike at the unchanged
+	 * cursor, so the respawn boots on the same message and the count climbs.
+	 *
+	 * @param string $reason The stop that produced the strike: 'timeout' or 'memory'.
+	 * @return bool True when the attempt count has reached COOP_MAX_ATTEMPTS.
 	 */
 	protected function record_poison_strike( string $reason ): bool {
 		$this->poison_reason = $reason;
@@ -422,15 +504,17 @@ trait Dead_Letter_Queue {
 	}
 
 	/**
-	 * Apply a restored offsetlog frame's attempt accounting to this process ([42]):
-	 * resume at attempts+1 (a graceful handoff stamped 0 → virgin 1; a crash/strike
-	 * left ≥1 → climbs), carry first_crash_ts forward, and detect a hard-crash lineage
-	 * — NO reason stamped (an uncatchable death, not a caught throw) that has exhausted
-	 * the crash budget — by entering crawl with attempts pinned at the threshold.
+	 * Apply a restored offsetlog frame's attempt accounting to this process: resume at
+	 * attempts+1, so a graceful handoff stamped 0 resumes as a virgin 1 while a crash or
+	 * a strike left at least 1 and climbs; carry first_crash_ts forward; and detect a
+	 * hard-crash lineage — no reason stamped, meaning an uncatchable death rather than a
+	 * caught throw, with the crash budget exhausted — by entering crawl with attempts
+	 * pinned at the threshold.
 	 *
-	 * Shared by Consumer (load_offsetlog) and Remote_Source (restore_position). The
-	 * using class layers its own crawl-entry side effects on the returned flag (Consumer
-	 * arms its boot-head sacrifice); poison_reason is left to the live strike path.
+	 * `Durable_Reader::arm_skip_head_from_frame()` is the only caller, reached when
+	 * Consumer loads its offsetlog and when Remote_Source restores its position; it arms
+	 * the boot-head sacrifice on the returned flag. poison_reason stays empty here —
+	 * only the live strike path stamps one.
 	 *
 	 * @param array<array-key,mixed> $entry The restored frame VALUE.
 	 * @return bool True when this restore entered crawl (a hard-crash lineage).
@@ -479,9 +563,16 @@ trait Dead_Letter_Queue {
 	}
 
 	/**
-	 * The triage verb table, merged into a using node's node_schema()['commands'] so
-	 * Consumer and Remote_Source both expose dl_list / dl_requeue / dl_purge on their
-	 * {name}:config interpreter (auto-wired by Schema_Reflection — no CI edits).
+	 * The triage verb table, merged into a using node's `node_schema()['commands']` so
+	 * Consumer and Remote_Source both expose dl_list, dl_show, dl_requeue and dl_purge
+	 * on their `{name}:config` interpreter (auto-wired by Schema_Reflection — no CI
+	 * edits). Every verb is hidden because the Inspector's Triage modal drives them:
+	 * dl_show and dl_requeue need a sidecar locator only its listing supplies, so a
+	 * generic verb button would offer an operator a field they cannot fill.
+	 *
+	 * The handlers RETURN their `error:` lines instead of throwing. A refusal throws
+	 * everywhere else in the substrate; these are values the modal renders beside the
+	 * row that produced them, not failed commands.
 	 *
 	 * @return array<int,array<string,mixed>>
 	 */
@@ -490,7 +581,6 @@ trait Dead_Letter_Queue {
 			[
 				'name'        => 'dl_list',
 				'description' => 'List quarantined dead-letter records newest-first (reason, attempts, first_crash_ts, quarantine ts, source breadcrumb, sidecar locator). Optional limit (default ' . self::DEADLETTER_LIST_DEFAULT_LIMIT . ').',
-				// Driven by the Inspector's Triage modal; hide the verb button.
 				'hidden'      => true,
 				'args'        => [
 					[ 'name' => 'limit', 'type' => 'int', 'required' => false ],
@@ -500,7 +590,6 @@ trait Dead_Letter_Queue {
 			[
 				'name'        => 'dl_show',
 				'description' => 'Decode the dead-letter record at <locator> (segment:offset:length from dl_list) — envelope fields + VALUE, read-only.',
-				// Driven by the Inspector's Triage modal; hide the verb button.
 				'hidden'      => true,
 				'args'        => [
 					[ 'name' => 'locator', 'type' => 'string', 'required' => true ],
@@ -510,7 +599,6 @@ trait Dead_Letter_Queue {
 			[
 				'name'        => 'dl_requeue',
 				'description' => 'Redeliver the dead-letter record at <locator> (segment:offset:length from dl_list) to this node\'s sink; the queued copy stays put.',
-				// Driven by the Inspector's Triage modal; hide the verb button.
 				'hidden'      => true,
 				'args'        => [
 					[ 'name' => 'locator', 'type' => 'string', 'required' => true ],
@@ -520,7 +608,6 @@ trait Dead_Letter_Queue {
 			[
 				'name'        => 'dl_purge',
 				'description' => 'Delete all dead-letter segments (.log + .idx). Convenience only — the queue is count-rotated, so this is not required for correctness.',
-				// Driven by the Inspector's Triage modal; hide the verb button.
 				'hidden'      => true,
 				'args'        => [],
 				'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_dl_purge( $interpreter ),
@@ -528,7 +615,15 @@ trait Dead_Letter_Queue {
 		];
 	}
 
-	/** The verbs run on a node's own {name}:config; a foreign patron is a wiring bug. */
+	/**
+	 * The node behind a `{name}:config` interpreter, when it is one using this trait.
+	 * The verbs run on a node's own interpreter, so a foreign patron is a wiring bug;
+	 * null lets each handler answer with an error line rather than fatal on a method
+	 * the patron does not have.
+	 *
+	 * @param Command_Interpreter_Node $interpreter The interpreter dispatching the verb.
+	 * @return self|null The using node, or null when the patron is something else.
+	 */
 	private static function deadletter_patron( Command_Interpreter_Node $interpreter ): ?self {
 		$patron = $interpreter->patron();
 		return $patron instanceof self ? $patron : null;
@@ -537,7 +632,11 @@ trait Dead_Letter_Queue {
 	/**
 	 * `dl_list` verb handler — reply the triage page as JSON.
 	 *
-	 * @param array<array-key,mixed> $args Optional limit token (default DEADLETTER_LIST_DEFAULT_LIMIT).
+	 * @param Command_Interpreter_Node $interpreter The `{name}:config` interpreter.
+	 * @param array<array-key,mixed>   $args        Optional limit token; absent takes
+	 *                                              DEADLETTER_LIST_DEFAULT_LIMIT and a
+	 *                                              non-positive one clamps to 1.
+	 * @return string The JSON page, or an `error:` line.
 	 */
 	public static function cmd_dl_list( Command_Interpreter_Node $interpreter, array $args ): string {
 		$patron = self::deadletter_patron( $interpreter );
@@ -552,7 +651,9 @@ trait Dead_Letter_Queue {
 	/**
 	 * `dl_show` verb handler — decode one record; reply JSON or an error line.
 	 *
-	 * @param array<array-key,mixed> $args The sidecar locator from dl_list.
+	 * @param Command_Interpreter_Node $interpreter The `{name}:config` interpreter.
+	 * @param array<array-key,mixed>   $args        The sidecar locator from dl_list.
+	 * @return string The decoded record as JSON, or an `error:` line.
 	 */
 	public static function cmd_dl_show( Command_Interpreter_Node $interpreter, array $args ): string {
 		$patron = self::deadletter_patron( $interpreter );
@@ -565,7 +666,9 @@ trait Dead_Letter_Queue {
 	/**
 	 * `dl_requeue` verb handler — redeliver one record; reply the ok/error line.
 	 *
-	 * @param array<array-key,mixed> $args The sidecar locator from dl_list.
+	 * @param Command_Interpreter_Node $interpreter The `{name}:config` interpreter.
+	 * @param array<array-key,mixed>   $args        The sidecar locator from dl_list.
+	 * @return string The `ok:` or `error:` line.
 	 */
 	public static function cmd_dl_requeue( Command_Interpreter_Node $interpreter, array $args ): string {
 		$patron = self::deadletter_patron( $interpreter );
@@ -575,7 +678,12 @@ trait Dead_Letter_Queue {
 		return $patron->requeue_deadletter( Core::as_string( $args[0] ?? '' ) );
 	}
 
-	/** `dl_purge` verb handler — delete all dead-letter segments; reply the count. */
+	/**
+	 * `dl_purge` verb handler — delete all dead-letter segments; reply the count.
+	 *
+	 * @param Command_Interpreter_Node $interpreter The `{name}:config` interpreter.
+	 * @return string The `ok:` count line, or an `error:` line.
+	 */
 	public static function cmd_dl_purge( Command_Interpreter_Node $interpreter ): string {
 		$patron = self::deadletter_patron( $interpreter );
 		if ( null === $patron ) {

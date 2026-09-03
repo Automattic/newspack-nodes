@@ -10,12 +10,25 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * Thrown by Event_Framework::pump() when the worker's drain continue-predicate
- * reports the worker should stop (max_runtime overrun, restart request, memory
- * watermark, lock loss) while a long in-process job is starving the drain loop.
+ * Raised by `Event_Framework::stop_check()`, and by `pump()` calling it on its
+ * throttle, when the worker's parked continue-predicate says stop while a long
+ * in-process job starves the drain loop. `Cooperative_Stop::should_continue()` owns
+ * the triggers: the lock lost, its directory gone, the lock flagged or stolen, a stop
+ * requested, `max_runtime` elapsed, memory over the watermark, or three consecutive
+ * DB-probe failures. It is asked mid-work, which skips the on-demand idle branch, so
+ * an idle exit never raises this.
  *
- * It lets the job unwind cooperatively from deep inside fill(): Job_Worker_Node
- * re-throws it past its per-job Throwable swallow (after_job still runs), and
- * Worker_Base::execute() catches it as a normal stop (release + respawn).
+ * Unwinding the whole `fill()` stack is the point, and it extends `\RuntimeException`,
+ * so a broad catch on the drain path re-throws it before handling anything else
+ * (ADR-14). Logging it, wrapping it as TM_ERROR or deferring it as an error swallows
+ * the stop, and the worker runs past its deadline until the next drain tick.
+ * `Job_Worker_Node` re-throws it past its per-job Throwable swallow, `after_job` still
+ * fires, and `Worker_Base::execute()` catches it as a normal stop whose `finally`
+ * hands off cursors, releases the lock and self-respawns.
+ *
+ * The plain form leaves the consumer cursor where it is, so the successor replays the
+ * in-flight message; the `Worker_Should_Stop_Clean` subclass is what says that message
+ * finished and the cursor may commit past it. A shared `Control_Flow` base would buy
+ * nothing while the family is those two — catching this parent first covers both.
  */
 class Worker_Should_Stop extends \RuntimeException {}

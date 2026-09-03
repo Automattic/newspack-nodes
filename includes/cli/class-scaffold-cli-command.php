@@ -1,6 +1,6 @@
 <?php
 /**
- * ScaffoldCliCommand: `wp nodes scaffold <plugin|node|topology> <name>`.
+ * Scaffold_CLI_Command: `wp nodes scaffold <plugin|node|topology> <name>`.
  *
  * Generates the first-contact files a Nodes plugin needs, matching the
  * canonical shapes in docs/writing-a-plugin.md: composer classmap autoload,
@@ -14,6 +14,16 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * One `*_template()` method per generated file, each returning a heredoc, so
+ * every shape a reader compares against docs/writing-a-plugin.md sits in this
+ * one file, with no template directory to keep in step with the tutorial.
+ *
+ * Each entry point assembles its whole path list, runs `refuse_existing()`
+ * over all of it, and only then writes. A collision anywhere aborts before the
+ * first byte, so scaffolding into an occupied directory cannot leave a
+ * half-written plugin behind.
+ */
 class Scaffold_CLI_Command {
 
 	/** Starter version stamped into the generated plugin header. */
@@ -43,8 +53,8 @@ class Scaffold_CLI_Command {
 	 *
 	 * @when after_wp_load
 	 *
-	 * @param array<int,string>   $args       Positional arguments.
-	 * @param array<string,mixed> $assoc_args Associative arguments.
+	 * @param array<int,string>   $args       Positional: the target kind, then the name.
+	 * @param array<string,mixed> $assoc_args Unused; the command declares no flags.
 	 */
 	public function scaffold( array $args, array $assoc_args ): void {
 		$what = $args[0] ?? '';
@@ -93,9 +103,10 @@ class Scaffold_CLI_Command {
 	}
 
 	/**
-	 * A stock-nodes-only topology so it runs before any custom class exists.
+	 * Emit a graph of stock nodes alone, so it activates and runs before the
+	 * operator has written — or autoloaded — a class of their own.
 	 *
-	 * @param string $name Topology name.
+	 * @param string $name Topology name, used as the Echo instance's name too.
 	 */
 	private function stock_topology_template( string $name ): string {
 		return <<<TSL
@@ -114,13 +125,14 @@ TSL;
 	 * plugin — the only combination that both autoloads and resolves.
 	 *
 	 * `scaffold plugin` classmaps exactly `includes/` and registers the plugin
-	 * prefix, so a class must be under that dir AND under that namespace.
-	 * Deriving the namespace from the cwd basename satisfied neither door: from
-	 * the plugin root the file fell outside the classmap; from `includes/` the
-	 * namespace came out `Includes`, which `make_node` never resolves. Run from
-	 * either, the answer is the same file.
+	 * prefix, so a class must sit under that directory AND under that
+	 * namespace. Taking both the path and the namespace from the cwd satisfies
+	 * neither door: run from the plugin root, the file lands outside the
+	 * classmap; run from `includes/`, the namespace comes out `Includes`,
+	 * which `make_node` never resolves. Run from either directory, and the
+	 * answer is the same file.
 	 *
-	 * @param string $class Class name (with or without the `_Node` suffix).
+	 * @param string $class Class name, with or without the `_Node` suffix.
 	 * @return array<int,string> Paths written, relative to cwd.
 	 */
 	private function scaffold_node( string $class ): array {
@@ -166,7 +178,17 @@ TSL;
 		return \array_keys( $files );
 	}
 
-	/** Write $content to $path (relative to cwd), creating parent dirs; fail loud. */
+	/**
+	 * Write one generated file, creating its parent directories; either
+	 * failure exits through `WP_CLI::error`.
+	 *
+	 * `mkdir` is suppressed and then rechecked rather than trusted: a
+	 * concurrent creator makes it return false with the directory already
+	 * there, which is success rather than the failure a bare check reports.
+	 *
+	 * @param string $path    Destination path, relative to cwd.
+	 * @param string $content Complete file body.
+	 */
 	private static function write_file( string $path, string $content ): void {
 		$dir = \dirname( $path );
 		if ( ! \is_dir( $dir ) ) {
@@ -182,7 +204,8 @@ TSL;
 	}
 
 	/**
-	 * `WP_CLI::error` (exits) if any target already exists — never overwrite.
+	 * Exit through `WP_CLI::error` when any target already exists; the
+	 * scaffolder never overwrites.
 	 *
 	 * @param array<int,string> $paths Paths relative to cwd.
 	 */
@@ -195,7 +218,8 @@ TSL;
 	}
 
 	/**
-	 * README pointing back at the substrate docs.
+	 * Point the README back at the substrate docs, which carry the walkthrough
+	 * these generated shapes match.
 	 *
 	 * @param string $slug Plugin slug.
 	 */
@@ -224,7 +248,7 @@ MD;
 	}
 
 	/**
-	 * The plugin topology: wire the scaffolded node into a stock Log (tutorial §5).
+	 * Wire the scaffolded node into a stock Log (tutorial §5).
 	 *
 	 * @param string $slug   Plugin slug (node instance + file names).
 	 * @param string $prefix Node type as `make_node` resolves it.
@@ -242,8 +266,8 @@ TSL;
 	}
 
 	/**
-	 * One working example node: a TM_STRUCT transform with `fill()`,
-	 * `arguments`, and `node_schema()` (tutorial §3 shape).
+	 * Emit one working node: a TM_STRUCT transform carrying `fill()`,
+	 * `arguments()` and `node_schema()` (tutorial §3 shape).
 	 *
 	 * @param string $namespace PHP namespace for the class.
 	 * @param string $class     Class name without the `_Node` suffix.
@@ -312,7 +336,11 @@ PHP;
 	}
 
 	/**
-	 * composer.json with the classmap autoload `make_node` reads (tutorial §1).
+	 * composer.json carrying the classmap autoload (tutorial §1).
+	 *
+	 * `make_node` and the topology console's palette both read the generated
+	 * classmap, which is why the plugin needs one and why adding or renaming a
+	 * node class means rerunning `composer dump-autoload -o`.
 	 *
 	 * @param string $slug Plugin slug.
 	 */
@@ -334,7 +362,13 @@ PHP;
 JSON;
 	}
 
-	/** The plugin bootstrap: header + deferred `register_plugin()` call (tutorial §1/§8). */
+	/**
+	 * The plugin bootstrap: the WordPress header, `Requires Plugins`, and the
+	 * one deferred `register_plugin()` call (tutorial §1 and §8).
+	 *
+	 * @param string $slug   Plugin slug. Unused; the header derives from $prefix.
+	 * @param string $prefix Namespace and class prefix, e.g. `My_Pipeline`.
+	 */
 	private function plugin_bootstrap_template( string $slug, string $prefix ): string {
 		$title   = \str_replace( '_', ' ', $prefix );
 		$version = self::STARTER_VERSION;
@@ -376,14 +410,29 @@ namespace {$prefix};
 PHP;
 	}
 
-	/** Derive the PHP namespace/class prefix from a slug: `my-pipeline` → `My_Pipeline`. */
+	/**
+	 * Derive the PHP namespace and class prefix from a slug: `my-pipeline`
+	 * becomes `My_Pipeline`.
+	 *
+	 * Every character outside `[a-z0-9-]` collapses to a dash first, so
+	 * `scaffold node` can hand it a plugin-directory name that never passed
+	 * `require_slug()` and still get a legal namespace back.
+	 *
+	 * @param string $slug Slug, or a plugin-directory name standing in for one.
+	 */
 	private static function prefix_from_slug( string $slug ): string {
 		$slug  = (string) \preg_replace( '/[^a-z0-9-]+/', '-', \strtolower( $slug ) );
 		$parts = \array_filter( \explode( '-', $slug ), static fn ( string $p ): bool => '' !== $p );
 		return \implode( '_', \array_map( 'ucfirst', $parts ) );
 	}
 
-	/** `WP_CLI::error` (exits) unless $slug matches `[a-z0-9-]+`. */
+	/**
+	 * Exit through `WP_CLI::error` unless the slug matches `[a-z0-9-]+`. One
+	 * slug becomes a directory name, a topology name and a `.tsl` filename at
+	 * once, so it is held to what all three accept.
+	 *
+	 * @param string $slug Candidate slug.
+	 */
 	private static function require_slug( string $slug ): void {
 		if ( 1 !== \preg_match( '/^[a-z0-9-]+$/', $slug ) ) {
 			\WP_CLI::error( "Invalid slug: {$slug}. Use lowercase letters, digits, and dashes only, e.g. my-pipeline." );

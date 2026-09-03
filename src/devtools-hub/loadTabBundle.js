@@ -1,20 +1,27 @@
 /**
- * Inject a lazy DevTools tab bundle on first activation. The hub ships only the
- * default tab up front; every other tab's script + style URL + localize payload
- * ride `window.NewspackNodesLazyTabs` (localized by Admin), and this loads one
- * on demand. Idempotent per handle. Setting NewspackNodesData ahead of the
- * script mirrors the inline localize wp_enqueue_script emits before an enqueued
- * bundle — so the injected bundle reads the same data it would if enqueued.
+ * Inject one DevTools tab bundle into the hub page on first activation.
+ *
+ * A tab bundle the hub filter marks `lazy` is never enqueued. `Admin` puts its
+ * script URL, stylesheet URL and localize payload on the hub handle as
+ * `window.NewspackNodesLazyTabs`, and the placeholder `lazyTabs.js` registers
+ * calls in here the first time a reader opens that tab, which keeps the heavy
+ * tab bundles off every hub page load that never reaches them.
+ *
+ * Setting `NewspackNodesData` before the script goes in mirrors the inline
+ * localize `wp_enqueue_script` emits ahead of an enqueued bundle, so an
+ * injected bundle reads the same data it would have read enqueued.
  */
 
 /**
  * One tab's load recipe, as `Admin::lazy_tab_script()` builds it.
  *
  * @typedef {Object} LazyTabEntry
- * @property {string}            src     Versioned URL of the tab's built bundle.
- * @property {string}            [style] Stylesheet URL enqueued before the script.
- * @property {Object<string, *>} [data]  Localize payload the bundle would have
- *                                       received had it been enqueued.
+ * @property {string}           src     Bundle URL, cache-busted with a `?ver=`
+ *                                      query the browser would otherwise miss.
+ * @property {Object<string,*>} data    Localize payload the bundle would have
+ *                                      received had it been enqueued.
+ * @property {string}           [style] Stylesheet URL, injected ahead of the
+ *                                      script.
  */
 
 /**
@@ -22,16 +29,29 @@
  * and the shared localize payload every bundle reads on render.
  *
  * @typedef {Window & {
- *     NewspackNodesLazyTabs?: Object<string, LazyTabEntry>,
- *     NewspackNodesData?: Object<string, *>,
+ *     NewspackNodesLazyTabs?: Object<string,LazyTabEntry>,
+ *     NewspackNodesData?: Object<string,*>,
  * }} HubWindow
  */
 
-// Handles already injected this page-load; a re-mounted placeholder is a no-op.
+/**
+ * Handles injected during this page load. A placeholder that re-mounts — a
+ * switch away from the tab and back — finds its handle here and does nothing.
+ *
+ * @type {Set<string>}
+ */
 const injected = new Set();
 
 /**
- * @param {string} handle Enqueue handle whose recipe lives in NewspackNodesLazyTabs.
+ * Inject the bundle registered under one enqueue handle, at most once.
+ *
+ * A handle absent from the map returns silently: Admin omits a bundle whose
+ * `index.js` was never built, so an unbuilt tab keeps showing its placeholder
+ * instead of fetching a 404.
+ *
+ * @param {string} handle Enqueue handle whose recipe sits in
+ *                        `NewspackNodesLazyTabs`.
+ * @return {void}
  */
 export function loadTabBundle( handle ) {
 	if ( injected.has( handle ) ) {

@@ -1,51 +1,65 @@
 <?php
 /**
- * Topologies_CI: command-dispatch for substrate topology-management verbs.
+ * Topologies_CI: command-dispatch for the substrate's topology files.
  *
- * Topologies are .tsl files describing the node graph. Stock copies the plugin
- * ships own their names; the writable user dir serves names stock does not
- * provide, and this interpreter only mutates that dir. To extend a stock
- * topology, save under a new name and `include` the stock one.
+ * A topology is a `.tsl` file describing a node graph. Stock copies the plugin
+ * ships own their names — `Topology_Registry::resolve()` reads the stock dirs
+ * before the user dir — so a user file saved under a stock name would sit
+ * inert, and save refuses one. Save under a new name and `include` the stock
+ * one; this interpreter writes and deletes only inside the user dir.
  *
  * Verbs:
- *   list   — `{topologies: [{name, source, active, num_partitions, frontmatter}], user_dir}`.
- *            `source` is 'user'|'stock'|'both'; `active` follows the operator overlay;
+ *   list   — no args. Returns `{topologies: [{name, source, active,
+ *            num_partitions, frontmatter, includes}], user_dir}`. `source` is
+ *            'user'|'stock'|'both'; `active` is the catalog narrowed by the
+ *            `topologies` config key, which is what a spawn would start;
  *            `num_partitions` is the canonical count (Bootstrap::num_partitions_for).
  *   get    — args `{name}`. Returns `{name, source, tsl, includes, expanded,
- *            resolved_config_edges}`; throws on miss. `expanded` contains only
- *            borrowed include members, while `resolved_config_edges` carries
- *            the whole topology's token-resolved config routing for the seed.
+ *            resolved_config_edges}`, and throws on an unknown name.
+ *            `expanded` contains only borrowed include members, while
+ *            `resolved_config_edges` carries the whole topology's
+ *            token-resolved config routing for the console's seed.
  *   save   — args `{name, tsl}`. Returns `{name, path, shadows_stock,
- *            restarted_fleets}`. 1 MiB cap; dry-run validation via
- *            Shell_Node::parse_statements, plus include resolution (Topology_Registry::expand
- *            rejects an unknown include, a cycle, or a make_node the body and an
- *            include declare differently — all of which would otherwise save clean
- *            and kill the worker at its next spawn); restarts the matching active fleet.
- *   expand — args `{names…}`. Returns `{nodes, edges, tree}` for an include SET:
- *            the composed graph with provenance (`origin` = the directly-declared
- *            includes providing a node, a LIST since a diamond-shared node has
- *            several; `via` = the path it entered through). Informational — the
- *            runtime is the Shell's `include`. The console's edit-mode baseline.
+ *            restarted_fleets}`, under a 1 MiB envelope cap. The body is
+ *            dry-run validated through Shell_Node::parse_statements and
+ *            Topology_Analyzer::expand, which rejects an unknown include, a
+ *            cycle, or a make_node the body and an include declare differently
+ *            — each of which would otherwise save clean and kill the worker at
+ *            its next spawn. Every catalogued topology whose graph composes the
+ *            name then restarts.
+ *   expand — args `{names…}`. Returns `{nodes, edges, tree, hulls}` for an
+ *            include SET: the composed graph with provenance (`origin` = the
+ *            directly-declared includes providing a node, a LIST since a
+ *            diamond-shared node has several; `via` = the path it entered
+ *            through; `hulls` = the node set of every topology in the tree, one
+ *            outline per include the canvas draws). Informational — the runtime
+ *            is the Shell's `include`. The console's edit-mode baseline.
  *   delete — args `{name}`. Returns `{name, deleted, stock_fallback,
  *            pruned_active, restarted_fleets}`. User copy only (stock immutable);
- *            restarts the matching active fleet (symmetry with save). When no
- *            stock fallback remains, prunes the now-orphaned name from the active
+ *            restarts the affected fleets (symmetry with save). When no stock
+ *            fallback remains, prunes the now-orphaned name from the active
  *            set (`newspack_nodes_topologies`); `pruned_active` reports whether it
  *            was present and removed.
  *   activate   — args `{name}`. Adds the name to the persisted active set
  *                (`newspack_nodes_topologies` option), invalidates the config
- *                cache, and spawns the fleet immediately. Returns the live array
- *                `{name, active:true, spawned:<int>}` (the command protocol
- *                carries VALUE as a live array, never separately JSON-encoded);
- *                throws RuntimeException (→ TM_ERROR) on unknown name, matching
- *                get/save/delete.
+ *                cache and spawns the fleet, all through the shared
+ *                `Topology_Registry::activate()`. Returns
+ *                `{name, active:true, spawned:<int>}`.
  *   deactivate — args `{name}`. Removes the name from the active set, invalidates
- *                the config cache, and drains the fleet immediately. Returns
- *                `{name, active:false}`.
+ *                the config cache and drains the fleet, through
+ *                `Topology_Registry::deactivate()`. Returns `{name, active:false}`.
+ *   connect_worker_input — args `{reader}`. Mounts that worker's input Partition
+ *                into this request's graph and answers nothing, so a command
+ *                addressed TO the worker later in the same POST batch resolves
+ *                instead of bouncing NOT_AVAILABLE.
  *
- * Verb-level auth is capability-only (manage_options); errors throw
- * RuntimeException, which CommandInterpreter::interpret() wraps as TM_ERROR.
- * Shared helpers come from Service_CI.
+ * Each verb names its role in `node_schema()` — READ for `list`, `get` and
+ * `expand`, the MANAGE default for the rest — and `Service_CI_Node::commands()`
+ * wraps every handler in that check; the name and body helpers come from the
+ * same base. A refusal throws RuntimeException, which
+ * `Command_Interpreter_Node::interpret()` returns as TM_COMMAND|TM_ERROR, and an
+ * array a verb returns rides as the reply's VALUE untouched, never separately
+ * JSON-encoded.
  *
  * @package Newspack_Nodes
  */
@@ -63,13 +77,28 @@ use Newspack_Nodes\Topology_Registry;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * List, read, write, delete and activate topology files, plus the request-scope
+ * worker-input mount the console's attached command channel rides.
+ */
 class Topologies_CI_Node extends Service_CI_Node {
 
-	private const MAX_BODY_BYTES = 1048576;
 	/**
-	 * `list` verb handler — registered topologies + active state.
+	 * Ceiling on the packed command envelope, in bytes — 1 MiB. A `.tsl` runs to
+	 * a few kilobytes, so the cap refuses a runaway body without bounding any
+	 * topology an operator would write.
+	 */
+	private const MAX_BODY_BYTES = 1048576;
+
+	/**
+	 * `list` verb handler — every registered topology, its source and its active
+	 * state.
 	 *
-	 * @return array<int|string,mixed>
+	 * Each row carries the topology's direct includes, so the console draws the
+	 * composition without a `get` per row, and the rows are sorted by name so it
+	 * renders a stable order.
+	 *
+	 * @return array<int|string,mixed> `{topologies, user_dir}`.
 	 */
 	public static function cmd_list(): array {
 		// Active = what the fleet would spawn (catalog + overlay).
@@ -101,11 +130,21 @@ class Topologies_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * `get` verb handler — one topology's TSL + metadata by name.
+	 * `get` verb handler — one topology's TSL and the metadata the console opens
+	 * it with.
 	 *
-	 * @param list<string> $args Verb argument.
+	 * The two composed views answer different questions, so neither can serve as
+	 * the other. `expanded` composes the body's INCLUDES alone, which is what
+	 * lets the editor render a borrowed node as borrowed; expanding the topology
+	 * itself would fold the body's own nodes in and make them uneditable.
+	 * `resolved_config_edges` expands the whole topology, because a config verb
+	 * pointed at a `<ns:key>` token names an edge only the server can resolve,
+	 * and the canvas draws that edge from the body's own nodes too.
 	 *
-	 * @return array<int|string,mixed>
+	 * @param list<string> $args Verb tokens; the topology name is the first.
+	 *
+	 * @return array<int|string,mixed> `{name, source, tsl, includes, expanded, resolved_config_edges}`.
+	 * @throws \RuntimeException When the name is not file-name safe, resolves to no file, or names a file that cannot be read.
 	 */
 	public static function cmd_get( array $args ): array {
 		$name = self::require_valid_name( $args[0] ?? '' );
@@ -152,6 +191,8 @@ class Topologies_CI_Node extends Service_CI_Node {
 	 * label (shared by list+get so the source flag stays consistent).
 	 *
 	 * @param array{user:?string,stock:array<int,string>} $sources describe() entry.
+	 *
+	 * @return string One of 'user', 'stock' or 'both'.
 	 */
 	private static function source_of( array $sources ): string {
 		$has_user  = null !== ( $sources['user'] ?? null );
@@ -163,12 +204,19 @@ class Topologies_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * `save` verb handler — persist a topology's TSL (size-guarded).
+	 * `save` verb handler — validate a topology body, then write it to the user
+	 * dir.
 	 *
-	 * @param list<string> $args Verb argument.
-	 * @param array<int|string,mixed> $envelope Verb argument.
+	 * Validation is a dry run of the loader's own front-end, so a refusal names
+	 * the physical line the operator typed. Nothing reaches disk until the whole
+	 * include set resolves: a body that parses can still kill the worker at its
+	 * next spawn.
 	 *
-	 * @return array<int|string,mixed>
+	 * @param list<string>            $args     Verb tokens: the name, then the whole TSL body.
+	 * @param array<int|string,mixed> $envelope The inbound TM_COMMAND message, whose packed size the 1 MiB cap measures.
+	 *
+	 * @return array<int|string,mixed> `{name, path, shadows_stock, restarted_fleets}`.
+	 * @throws \RuntimeException When the envelope exceeds the cap, the name is invalid or stock-owned, the body is empty or fails validation, or the dir or file cannot be written.
 	 */
 	public static function cmd_save( array $args, array $envelope = [] ): array {
 		// $envelope is the 7-field positional message array (a list).
@@ -177,7 +225,6 @@ class Topologies_CI_Node extends Service_CI_Node {
 				\esc_html( 'body too large: topology arguments exceed 1 MiB' )
 			);
 		}
-		// `save <name> <tsl>`: name is first token, rest-of-line is the body.
 		[ $name_raw, $tsl ] = self::split_first_token( $args );
 		$name = self::require_valid_name( $name_raw );
 		if ( '' === $tsl ) {
@@ -244,8 +291,8 @@ class Topologies_CI_Node extends Service_CI_Node {
 	 * `include` provides would save clean here and kill the worker at its next
 	 * spawn. Catch it at the boundary instead.
 	 *
-	 * @param string                                                                                          $tsl            The body being saved.
-	 * @param list<array{name: string,class: string,args: list<string>,origin: list<string>,via: list<string>}> $borrowed_nodes expand()'s node records.
+	 * @param string $tsl The body being saved.
+	 * @param list<array{name:string,class:string,fans_out:bool,args:list<string>,verbs:list<array{verb:string,args:list<string>}>,origin:list<string>,via:list<string>}> $borrowed_nodes expand()'s node records; only `name`, `class` and `args` are read.
 	 * @throws \RuntimeException On a conflicting redeclaration.
 	 */
 	private static function assert_no_borrowed_node_conflict( string $tsl, array $borrowed_nodes ): void {
@@ -279,9 +326,15 @@ class Topologies_CI_Node extends Service_CI_Node {
 	/**
 	 * `delete` verb handler — remove a user topology by name.
 	 *
-	 * @param list<string> $args Verb argument.
+	 * Only the user copy is unlinked, so a stock topology of the same name
+	 * survives and the name keeps resolving. With no stock copy behind it the
+	 * name resolves to nothing, and leaving it in the active set would make
+	 * every spawn chase a file that is gone — hence the prune.
 	 *
-	 * @return array<int|string,mixed>
+	 * @param list<string> $args Verb tokens; the topology name is the first.
+	 *
+	 * @return array<int|string,mixed> `{name, deleted, stock_fallback, pruned_active, restarted_fleets}`.
+	 * @throws \RuntimeException When the name is not file-name safe, no user copy exists, or the unlink fails.
 	 */
 	public static function cmd_delete( array $args ): array {
 		$name = self::require_valid_name( $args[0] ?? '' );
@@ -329,10 +382,12 @@ class Topologies_CI_Node extends Service_CI_Node {
 	/**
 	 * The writable `<user_dir>/<name>.tsl` path save and delete both operate on.
 	 *
-	 * One resolution, one refusal: the two verbs previously each concatenated
-	 * the path and each phrased "no user dir" its own way, so one
-	 * misconfiguration read as two different faults.
+	 * One resolution and one refusal, so a missing user dir reads as the same
+	 * fault whichever verb hits it.
 	 *
+	 * @param string $name Validated topology name.
+	 *
+	 * @return string Absolute path to the user copy, which need not exist yet.
 	 * @throws \RuntimeException When no user dir is configured.
 	 */
 	private static function user_path( string $name ): string {
@@ -351,9 +406,9 @@ class Topologies_CI_Node extends Service_CI_Node {
 	 * usually not an active fleet, so restarting only the saved name leaves
 	 * those parents running the old graph with nothing to say so.
 	 *
-	 * @param string $name Topology just written.
+	 * @param string $name Topology just written or deleted.
 	 *
-	 * @return list<string> Fleet names restarted, in catalog order.
+	 * @return list<string> Fleet names the restart action fired for, in catalog order.
 	 */
 	private static function restart_affected_fleets( string $name ): array {
 		// Catalog filter, not the overlay; the accessor latches global wiring.
@@ -380,8 +435,8 @@ class Topologies_CI_Node extends Service_CI_Node {
 	 * `direct_includes` never merges, but it does TOKENIZE, and an unbalanced
 	 * quote throws there — so it swallows that and reports no includes.
 	 *
-	 * @param string $fleet Active fleet to inspect.
-	 * @param string $name  Topology just written.
+	 * @param string $fleet Catalogued fleet to inspect.
+	 * @param string $name  Topology just written or deleted.
 	 *
 	 * @return bool True when the fleet's graph contains `$name`.
 	 */
@@ -407,7 +462,14 @@ class Topologies_CI_Node extends Service_CI_Node {
 	/**
 	 * A topology's DIRECT `include` lines, in declaration order.
 	 *
-	 * @return list<string>
+	 * Reads whichever copy `resolve()` picks, so the includes are the ones the
+	 * runtime would load. An unresolvable name and a file that will not tokenize
+	 * both answer no includes: every caller walks a graph a write may already
+	 * have broken.
+	 *
+	 * @param string $name Topology name.
+	 *
+	 * @return list<string> Direct include names; empty when the name does not resolve.
 	 */
 	private static function direct_includes( string $name ): array {
 		$path = Topology_Registry::resolve( $name );
@@ -424,12 +486,14 @@ class Topologies_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * `include` lines parsed straight out of a TSL body string — used by save's
-	 * dry-run validation, where the body isn't on disk yet.
+	 * `include` lines parsed straight out of a TSL body string rather than by
+	 * name — what lets save validate a body before it reaches disk, and what
+	 * `get` and `direct_includes` reuse once the file is read.
 	 *
 	 * @param string $tsl Topology source.
 	 *
-	 * @return list<string> Direct include names.
+	 * @return list<string> Direct include names, in declaration order.
+	 * @throws \RuntimeException When the body leaves a quote or a backslash continuation open.
 	 */
 	private static function direct_includes_from_tsl( string $tsl ): array {
 		$out = [];
@@ -444,9 +508,14 @@ class Topologies_CI_Node extends Service_CI_Node {
 	/**
 	 * `expand` verb handler — compose an include set for the console.
 	 *
-	 * @param list<string> $args Space-separated topology names.
+	 * Every name is validated although nothing is written: the analyzer opens
+	 * each file, so the file-name-safe pattern is what keeps a path out of the
+	 * argument.
 	 *
-	 * @return array<int|string,mixed>
+	 * @param list<string> $args Verb tokens, one topology name each; blanks are dropped.
+	 *
+	 * @return array<int|string,mixed> `{nodes, edges, tree, hulls}`, from Topology_Analyzer::expand().
+	 * @throws \RuntimeException On a name that is not file-name safe, an unknown include, a cycle, or a conflicting make_node.
 	 */
 	public static function cmd_expand( array $args ): array {
 		$names = $args;
@@ -460,39 +529,56 @@ class Topologies_CI_Node extends Service_CI_Node {
 	/**
 	 * `activate` verb handler — activate a topology by name.
 	 *
-	 * @param list<string> $args Verb argument.
+	 * @param list<string> $args Verb tokens; the topology name is the first.
 	 *
-	 * @return array<int|string,mixed>
+	 * @return array<int|string,mixed> `{name, active:true, spawned:<int>}`, `spawned` counting spawn POSTs requested.
+	 * @throws \RuntimeException When the name is not file-name safe or unknown, or activating it would put two fleets on one log.
 	 */
 	public static function cmd_activate( array $args ): array {
-		// Name-validate here; rest is shared Topology_Registry::activate.
+		// Only the name is checked here; the rest is Topology_Registry's.
 		return Topology_Registry::activate( self::require_valid_name( $args[0] ?? '' ) );
 	}
 
 	/**
 	 * `deactivate` verb handler — deactivate a topology by name.
 	 *
-	 * @param list<string> $args Verb argument.
+	 * @param list<string> $args Verb tokens; the topology name is the first.
 	 *
-	 * @return array<int|string,mixed>
+	 * @return array<int|string,mixed> `{name, active:false}`.
+	 * @throws \RuntimeException When the name is not file-name safe.
 	 */
 	public static function cmd_deactivate( array $args ): array {
 		return Topology_Registry::deactivate( self::require_valid_name( $args[0] ?? '' ) );
 	}
 
 	/**
-	 * `connect_worker_input` verb handler — wire a worker input edge.
+	 * `connect_worker_input` verb handler — mount one worker's input Partition
+	 * into this request's graph.
 	 *
-	 * @param list<string> $args Verb argument.
+	 * The console's attached channel sends this ahead of every command in the
+	 * same POST: the request graph is built per request, so without the mount
+	 * Router answers NOT_AVAILABLE for a TO naming the worker. Only the named
+	 * worker is mounted. A worker that cannot be — an id outside
+	 * `{topology}.p{N}`, no lock dir and no wakeable sleeper, no ipc input dir —
+	 * is not reported here; the command behind it bounces NOT_AVAILABLE.
 	 *
-	 * @return string
+	 * @param list<string> $args Verb tokens; the worker id (`{topology}.p{N}`) is the first.
+	 *
+	 * @return string Always empty, so the mount adds no reply to the batch.
 	 */
 	public static function cmd_connect_worker_input( array $args ): string {
-		// Mount the worker's input Partition into this request's graph.
 		Bootstrap::register_worker_partition( $args[0] ?? '', Bootstrap::base_dir() );
 		return '';
 	}
 
+	/**
+	 * The console manifest and the verb table in one declaration.
+	 * `Service_CI_Node` builds the dispatch table from `commands[]` here, so a
+	 * verb is named once and the `capability` beside it is the role its handler
+	 * is wrapped in. A verb declaring none takes MANAGE, the strictest.
+	 *
+	 * @return array<string,mixed>
+	 */
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
 			'category'    => 'Service',

@@ -10,36 +10,46 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * Topic_Probe: the Consumer-stats sweep, our port of Tachikoma's TopicProbe.pm
- * (consumer branch). Consumer + partition state ride together at one instant:
- * each consumer's seg:off cursor and its `bytes_behind` backlog (from real
- * on-disk segment sizes), plus the messages and bytes it moved since its
- * previous sweep. ONE record per Consumer, into the shared `topicprobe` log.
- * Log-only — no memcache; the log is the sole position source.
+ * Topic_Probe: the Consumer-stats sweep, our port of Tachikoma's `TopicProbe.pm`
+ * (consumer branch). Consumer and partition state ride together at one instant:
+ * the cursor's segment and offset, the `bytes_behind` backlog measured from real
+ * on-disk segment sizes, and the messages and bytes the reader moved since its
+ * previous sweep. Each READY Consumer yields ONE `Probe_Record` into the shared
+ * `topicprobe` log.
+ *
+ * That log is the sole live-position source: `wp nodes status` and the dashboards
+ * read it, never memcache. A record therefore exists only while a worker is
+ * running to write one, which is why `stale_after_s()` judges liveness by age.
  */
 class Topic_Probe_Node extends Probe_Node {
 
-	/** Shared probe-log dir basename (the topic-probe TSL declares the path). */
+	/**
+	 * Basename of the shared probe-log directory. `topic-probe.tsl` declares the
+	 * writer's full path; every reader composes it under its own base directory.
+	 */
 	public const LOG_DIR = 'topicprobe.p0';
 
-	/** The stock topology every install includes; its arg 0 is the cadence. */
+	/**
+	 * The stock topology carrying the `Topic_Probe` line, which the topologies
+	 * that want a sweep `include`. Its positional 0 is the declared cadence.
+	 */
 	private const TOPOLOGY = 'topic-probe';
 
-	/** Missed sweeps before a record means nobody is reporting. */
+	/** Sweeps a record may go unwritten before its writer counts as gone. */
 	private const STALE_SWEEPS = 2;
 
-	/** Memoized declared cadence; null until read. */
+	/** The memoized cadence: null before the first read, and after a forget. */
 	private static ?int $declared_interval_s = null;
 
 	/**
-	 * How old a probe record may be before it is nobody reporting rather than a
-	 * slow reader. The sweep runs unconditionally while a worker lives, so two
-	 * missed cadences means the process is gone.
+	 * Seconds a probe record may age before it means nobody is reporting rather
+	 * than a slow reader. The sweep runs unconditionally while a worker lives, so
+	 * two missed cadences mean the process is gone.
 	 *
 	 * Measured in SWEEPS against the declared cadence, not a fixed number of
 	 * seconds: `topic-probe.tsl` carries `interval_s` as arg 0, and a deployment
-	 * that retunes it would otherwise have every healthy reader read as departed
-	 * — recomputing off disk on every dashboard poll and reporting a zero rate
+	 * that retunes it would otherwise have every healthy reader read as departed,
+	 * recomputing lag off disk on every dashboard poll and reporting a zero rate
 	 * for workers that are running fine.
 	 */
 	public static function stale_after_s(): int {
@@ -47,9 +57,11 @@ class Topic_Probe_Node extends Probe_Node {
 	}
 
 	/**
-	 * The cadence `topic-probe.tsl` declares, or the class default when the
-	 * topology is unreachable. Memoized: read once per request, off a graph the
-	 * analyzer already caches.
+	 * Read the cadence `topic-probe.tsl` declares, or `DEFAULT_INTERVAL_S` when
+	 * the topology is unreachable or names no `Topic_Probe`. Memoized for the
+	 * request — a status poll asks once per reader row — off a graph the analyzer
+	 * already caches; `forget_interval()` drops the memo when the active set
+	 * changes.
 	 */
 	public static function declared_interval_s(): int {
 		if ( null !== self::$declared_interval_s ) {
@@ -72,7 +84,13 @@ class Topic_Probe_Node extends Probe_Node {
 		return self::$declared_interval_s = $declared > 0 ? $declared : self::DEFAULT_INTERVAL_S;
 	}
 
-	/** A Consumer that has reached READY; an uninitialized one has no cursor. */
+	/**
+	 * Claim every Consumer in this process that has reached READY. One still
+	 * initializing holds no cursor, so it has no position to report.
+	 *
+	 * @param Node $node A node from this process's registry.
+	 * @return array<int,array<int,int|string>> One Probe_Record, or none.
+	 */
 	protected function probe( Node $node ): array {
 		if ( ! $node instanceof Consumer_Node || null === $node->get_state( 'READY' ) ) {
 			return [];
@@ -80,11 +98,23 @@ class Topic_Probe_Node extends Probe_Node {
 		return [ $node->probe_stats() ];
 	}
 
-	/** Drop the memoized cadence. Tests, and any stock-dir change. */
+	/**
+	 * Drop the memoized cadence so the next read re-parses the topology.
+	 * `Topology_Registry::invalidate_config_cache()` calls it on every active-set
+	 * change, and a test registering a different stock dir calls it directly.
+	 */
 	public static function forget_interval(): void {
 		self::$declared_interval_s = null;
 	}
 
+	/**
+	 * Topology console manifest: the `Monitor` palette entry and the one
+	 * `interval_s` positional. Declaring it here is the whole parse — ADR-11 puts
+	 * defaults and coercion in `parse_schema_args()`, which `Probe_Node` calls to
+	 * arm the sweep timer.
+	 *
+	 * @return array<string,mixed>
+	 */
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
 			'category'    => 'Monitor',

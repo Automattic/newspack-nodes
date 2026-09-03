@@ -1,23 +1,37 @@
 /**
- * TopologyControls — the per-topology action cluster (active toggle + fleet
- * restart + Edit deep-link) shared by the Topologies and Overview hub tabs, so
- * both carry the SAME controls with one set of styles.
+ * TopologyControls — the per-topology action cluster: an activation toggle, a
+ * fleet restart and an Edit deep-link into the Console. The Overview tab
+ * renders it in two places, on each active topology's `TopologyRow` heading and
+ * on each stopped topology's chip, so both carry the SAME controls under one
+ * set of styles.
  *
- * Each action fires and returns; the answer lands a tick later on the node that
- * asked for it, and a refusal is raised by whoever owns those nodes. There is
- * nothing to await here, and so nothing to swallow.
+ * Each action fires and returns. `useTopologyManager` mints the command, and
+ * its reply comes back addressed to that node (TO=FROM, ADR-7) rather than as a
+ * return value (ADR-13); a refusal surfaces through the hook's `onError`. There
+ * is nothing here to await, and so nothing to swallow.
+ *
+ * The toggle carries no label because `role="switch"` and `aria-checked` are
+ * the style hooks as well as the semantics: shared `_buttons.scss` paints the
+ * track from the button and the knob from its `::after`. The empty body is
+ * deliberate.
  */
 
 import { __ } from '@wordpress/i18n';
 
 /**
+ * Render one topology's control cluster.
+ *
+ * Restart appears only while the topology is active, because a stopped fleet
+ * has no workers to restart.
+ *
  * @param {Object}   props
- * @param {string}   props.name         Topology name (the mutation argument).
+ * @param {string}   props.name         Topology name; every handler receives it.
  * @param {boolean}  props.active       Whether the topology is active.
- * @param {Function} props.onActivate   (name) => void.
- * @param {Function} props.onDeactivate (name) => void.
- * @param {Function} props.onRestart    (name) => void.
- * @param {string}   props.editHref     Console edit deep-link.
+ * @param {Function} props.onActivate   Activate the topology.
+ * @param {Function} props.onDeactivate Deactivate the topology.
+ * @param {Function} props.onRestart    Restart the topology's fleet.
+ * @param {string}   props.editHref     Console deep-link opening this topology
+ *                                      for editing.
  * @return {import('react').ReactElement} The control cluster.
  */
 export default function TopologyControls( {
@@ -28,6 +42,7 @@ export default function TopologyControls( {
 	onRestart,
 	editHref,
 } ) {
+	// Every handler takes the topology name and nothing else; bind it once.
 	const fire = ( fn ) => () => fn( name );
 
 	return (

@@ -6,7 +6,9 @@
  * (dashboards, SSE, introspection verbs), `tune` (declared configuration and
  * application data, bounded by a schema) and `manage` (fleet control and
  * credentials) — resolved through ONE filterable map. All three default to
- * `manage_options`, so nothing changes until a site filters one down:
+ * `manage_options`, so the cut is descriptive until a site filters one down or
+ * runs `wp nodes caps install`, which swaps that baseline for the three
+ * granular capabilities `Roles` declares:
  *
  *   add_filter( 'newspack_nodes/capability_map',
  *       fn ( $map ) => [ 'read' => 'edit_posts' ] + $map );
@@ -16,9 +18,10 @@
  * role. Endpoints call require()/can() directly.
  *
  * `$session_scope` is the second half: a scoped command session lowers the
- * CEILING for the rest of the request. It can only subtract — the map still
- * has to say yes — so a scope is never a way to gain authority the
- * authenticated user lacks.
+ * CEILING for ONE command, which `Command_Interpreter_Node::interpret()`
+ * restores around every dispatch. It can only subtract — the map still has to
+ * say yes — so a scope is never a way to gain authority the authenticated
+ * user lacks.
  *
  * Know what you grant: the `read` role's live surface is the SSE stream —
  * the RAW log firehose (request URLs, hooks, payloads) and worker IPC/REPL
@@ -33,19 +36,23 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * Capabilities gate.
+ * Role resolution and the per-command scope ceiling.
  */
 class Capabilities {
 
-	public const READ   = 'read';
-	public const TUNE   = 'tune';
+	/** Dashboards, the SSE streams, and read-only introspection verbs. */
+	public const READ = 'read';
+
+	/** Declared configuration and application data: settings, saved layouts. */
+	public const TUNE = 'tune';
+
+	/** Fleet control, the credential vault, and issuing command sessions. */
 	public const MANAGE = 'manage';
 
 	/**
-	 * A scope covering nothing. Deliberately off the ladder: it is the
-	 * pessimistic value a verifier installs while a command's authority is
-	 * still being established, so an early refusal cannot leave a wider
-	 * ceiling standing than the command that failed.
+	 * A scope covering nothing. Deliberately off the ladder: `Command_Auth`
+	 * installs it on every refused verification, so a command whose authority
+	 * never resolved cannot leave a wider ceiling standing behind it.
 	 */
 	public const NONE = 'none';
 
@@ -58,10 +65,12 @@ class Capabilities {
 	private const LADDER = [ self::READ, self::TUNE, self::MANAGE ];
 
 	/**
-	 * Scope ceiling for the current request, or null for none. Set by
-	 * Command_Auth when a scoped session's signature verifies, and cleared on
-	 * every unscoped verification, so one command's ceiling can never outlive
-	 * it. A ceiling only subtracts; see the class docblock.
+	 * Scope ceiling for the command being handled, or null for none.
+	 * `Command_Auth` writes all three states: the session's scope when a handle
+	 * verifies, null for the per-site secret because the site's own authority
+	 * carries no ceiling, and NONE on refusal. `interpret()` restores what stood
+	 * before, so one command's ceiling never outlives it. A ceiling only
+	 * subtracts; see the class docblock.
 	 *
 	 * @var string|null
 	 */
@@ -69,8 +78,10 @@ class Capabilities {
 
 	/**
 	 * Authorisation gate: throw unless the current user holds the role.
-	 * CommandInterpreter::interpret() catches and wraps as TM_COMMAND|TM_ERROR.
+	 * `Command_Interpreter_Node::interpret()` catches and wraps the refusal as
+	 * TM_COMMAND|TM_ERROR.
 	 *
+	 * @param string $role One of READ|TUNE|MANAGE.
 	 * @throws \RuntimeException When the current user lacks the role's capability.
 	 */
 	public static function require( string $role ): void {
@@ -81,8 +92,9 @@ class Capabilities {
 	}
 
 	/**
-	 * The highest role the current user holds, capped at $ceiling. Null when
-	 * they hold none of them — which is a refusal, not an empty scope.
+	 * The highest role the current user holds, capped at $ceiling — which
+	 * defaults to MANAGE and therefore caps nothing. Null when they hold none of
+	 * the three, which is a refusal rather than an empty scope.
 	 *
 	 * This is how a requested session scope is clamped: asking for `manage` as
 	 * an editor yields `read`, so a listed scope states what a session can
@@ -109,9 +121,11 @@ class Capabilities {
 	}
 
 	/**
-	 * Resolve a role to its WP capability through the filterable map.
+	 * Resolve a role to its WP capability through the filterable map, whose
+	 * baseline is `Roles::defaults()`.
 	 *
 	 * @param string $role One of READ|TUNE|MANAGE.
+	 * @return string The capability `current_user_can()` is asked for.
 	 * @throws \InvalidArgumentException On a role the map does not name (typos stay loud).
 	 */
 	public static function cap_for( string $role ): string {
@@ -128,9 +142,9 @@ class Capabilities {
 	}
 
 	/**
-	 * Whether $scope admits $role. An unrecognised scope covers nothing, so a
-	 * typo'd or forged scope string refuses everything rather than defaulting
-	 * open.
+	 * Whether $scope admits $role. An unrecognised scope or role covers nothing,
+	 * so NONE, a typo and a forged string all refuse everything rather than
+	 * defaulting open.
 	 */
 	public static function scope_covers( string $scope, string $role ): bool {
 		$held = \array_search( $scope, self::LADDER, true );

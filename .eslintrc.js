@@ -1,15 +1,24 @@
 /**
- * ESLint config — standalone (no @wordpress/scripts dependency).
+ * ESLint rules for this plugin's JavaScript: the browser runtime, the
+ * dashboards, the shared modules every sibling consumes, and the Node build
+ * scripts.
  *
- * Uses @wordpress/eslint-plugin's `recommended` config directly, plus the
- * `test-unit` override for unit tests. `parserOptions` references our own
- * babel.config.js so JSX/automatic-runtime is understood.
+ * The ruleset is `@wordpress/eslint-plugin`'s `recommended` and `i18n` configs,
+ * extended from a direct devDependency — no wp-scripts wrapper stands between
+ * this file and the rules it turns on, so a relaxation lives here and nowhere
+ * else. `root: true` stops eslint walking out of the plugin into the
+ * surrounding checkout. `recommended` also selects `@babel/eslint-parser`,
+ * which reads the repo's own `babel.config.js`; JSX and the automatic runtime
+ * are configured there, which is why this file sets no parser options.
  *
- * `import/core-modules` tells eslint-plugin-import that the bare `@newspack-nodes/*`
- * aliases resolve at runtime (build.mjs alias + jest moduleNameMapper); `d3` is
- * a peer the dashboards pull from the WP global. The `@newspack-nodes/shared/*`
- * subpath alias (canonical shared hooks/utils/components — this plugin IS the
- * home) is whitelisted via the no-unresolved `ignore` pattern below.
+ * Two settings carry the `@newspack-nodes/*` imports past the resolver, which
+ * sees neither the esbuild alias nor jest's `moduleNameMapper`.
+ * `import/core-modules` matches a whole specifier and never a prefix, so it
+ * takes the bare `@newspack-nodes/runtime` and `@newspack-nodes/debug-overlay`;
+ * the `@newspack-nodes/shared/*` subpath alias needs the `import/no-unresolved`
+ * ignore pattern instead. Both resolve to this plugin's own `src` — it is the
+ * canonical home, and importing through the alias dogfoods the specifiers
+ * consumers write.
  */
 module.exports = {
 	root: true,
@@ -18,20 +27,21 @@ module.exports = {
 		'plugin:@wordpress/eslint-plugin/i18n',
 	],
 	rules: {
-		// knip suppression tag: an export that exists for its unit test, not
-		// for callers. jsdoc/check-tag-names rejects unknown tags otherwise.
+		// knip reads `@testonly` as "this export exists for its unit test,
+		// not for callers"; without the entry, jsdoc rejects the unknown tag.
 		'jsdoc/check-tag-names': [ 'error', { definedTags: [ 'testonly' ] } ],
 		'@wordpress/i18n-text-domain': [
 			'error',
 			{ allowedTextDomain: [ 'newspack-nodes' ] },
 		],
-		// The 7-field Message TYPE is a bitmask (Tachikoma convention:
-		// TM_BYTESTREAM, TM_EOF, …); `&`/`|` on it are idiomatic, not a smell.
+		// A Message's TYPE field is a flag bitmask (TM_BYTESTREAM, TM_EOF, …),
+		// so `&` and `|` on it are the contract rather than a smell.
 		'no-bitwise': 'off',
-		// warn/error are legitimate logging (the runtime's stderr sink is the
-		// browser console); still flag stray console.log/debug/info.
+		// The runtime's stderr sink is `console.warn`, so warn and error are
+		// real logging; a stray console.log/debug/info still fails.
 		'no-console': [ 'error', { allow: [ 'warn', 'error' ] } ],
-		// `_`-prefixed args are intentionally unused (signature/override parity).
+		// A `_`-prefixed argument is deliberately unused: it holds a position
+		// in a signature an override has to match.
 		'no-unused-vars': [
 			'error',
 			{ ignoreRestSiblings: true, argsIgnorePattern: '^_' },
@@ -48,10 +58,9 @@ module.exports = {
 			},
 		],
 		// Every exported function, method and class carries a docblock. The
-		// backlog was 445 and is 0; the rule is what keeps it there. It also
-		// catches the orphaned-docblock failure — inserting a member between
+		// rule also catches the orphaned docblock: inserting a member between
 		// a docblock and its subject leaves the real function undocumented,
-		// which has happened five times and no other gate sees it.
+		// and no other gate sees it.
 		'jsdoc/require-jsdoc': [
 			'error',
 			{
@@ -63,9 +72,11 @@ module.exports = {
 				},
 			},
 		],
-		// A stale closure is a BUG, not a style note: two of these were real
-		// (a save wrote the wrong edge diff against a captured baseline), and
-		// they hid among the warnings until a review found them.
+		// A stale closure is a bug, not a style note: a component saving
+		// against a captured baseline writes the wrong diff, and at warning
+		// level that hides among the warnings. `additionalHooks` extends the
+		// check to `useSelect` and `useSuspenseSelect`, whose second argument
+		// is a dependency array the rule does not otherwise recognize.
 		'react-hooks/exhaustive-deps': [
 			'error',
 			{ additionalHooks: '^(useSelect|useSuspenseSelect)$' },
@@ -87,9 +98,8 @@ module.exports = {
 				],
 			},
 		],
-		// The `@newspack-nodes/shared/*` subpath alias resolves at runtime
-		// (build.mjs alias + jest moduleNameMapper) to this plugin's own
-		// src/shared; the static resolver can't see the alias.
+		// `import/core-modules` matches whole specifiers only, so the
+		// `@newspack-nodes/shared/*` subpath alias is exempted here instead.
 		'import/no-unresolved': [
 			'error',
 			{ ignore: [ '^@newspack-nodes/shared/' ] },
@@ -97,13 +107,19 @@ module.exports = {
 	},
 	overrides: [
 		{
+			// Unit tests run under jest — its globals and its rule set.
 			files: [ '**/@(test|__tests__)/**/*.js', '**/?(*.)test.js' ],
 			extends: [ 'plugin:@wordpress/eslint-plugin/test-unit' ],
-			// jest.setup.js defines this console-assertion helper globally.
+			// jest.setup.js defines this helper: a test declares the
+			// console.warn it expects, and undeclared output fails the test.
 			globals: { expectConsoleWarn: 'readonly' },
 		},
 		{
-			// Build/CLI scripts run under Node and legitimately log to the console.
+			// Build and CLI scripts run under Node and report through the
+			// console. build-kit's `.mjs`/`.cjs` are that tooling; its `.js`
+			// files load into the jsdom test runtime and stay browser-scoped.
+			// `jsdoc/require-jsdoc` still applies, so every exported helper
+			// keeps its docblock; only the per-argument `@param` is lifted.
 			files: [
 				'scripts/**/*.@(js|mjs)',
 				'src/build-kit/**/*.@(mjs|cjs)',
@@ -119,6 +135,8 @@ module.exports = {
 		'import/core-modules': [
 			'@newspack-nodes/runtime',
 			'@newspack-nodes/debug-overlay',
+			// `d3` is a direct dependency and resolves from node_modules on
+			// its own, so this entry is redundant.
 			'd3',
 		],
 	},

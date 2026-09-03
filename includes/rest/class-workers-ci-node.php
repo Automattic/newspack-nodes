@@ -3,17 +3,23 @@
  * Workers_CI: command-dispatch for worker-lifecycle verbs.
  *
  * Verbs:
- *   list           — minimal worker enumeration (Cli::ls_workers() projection +
- *                    live cursor positions) for programmatic callers.
- *   dump_graph     — full operator-grade envelope (`{workers[],
- *                    logs[], num_partitions, max_segments, segment_size,
- *                    timestamp}`) plus a `graph` map of active-topology-name =>
- *                    `{nodes, edges}`; the dashboard reads it; heavyweight.
- *   cleanup_status — diagnostic of what Log_Cleaner sees vs the expected set.
- *   restart        — request restart for one or more worker types.
- *   heartbeat      — refresh an SSE slot for the current user.
+ *   list           — one row per worker lock dir (`CLI::ls_workers()`): type,
+ *                    partition and heartbeat liveness, nothing else.
+ *   dump_graph     — the operator-grade envelope `collect_dump_metadata()`
+ *                    builds, plus a `graph` map of active-topology-name =>
+ *                    `{nodes, edges}` and a catalog entry for every `Log`
+ *                    file-sink. The Worker Status dashboard polls it; it stats
+ *                    the whole log tree, so it is the expensive verb here.
+ *   cleanup_status — what sits on disk under `logs/`, the set `Log_Cleaner`
+ *                    declares, and the orphans between them.
+ *   restart        — request a graceful restart of matching worker types.
+ *   heartbeat      — refresh the caller's own SSE slot lease.
  *
- * Cli + Cache are constructor-injected so tests can stub them.
+ * The substrate `CLI` is a public property the bootstrap assigns after
+ * `make_node` returns, never a constructor argument — see `$cli`. Nothing else
+ * is injected: `SSE_Slot_Pool` selects its tier through
+ * `Cache_Backend::shared_first()` at the point of use, so there is no cache
+ * handle to hold.
  *
  * @package Newspack_Nodes
  */
@@ -37,34 +43,49 @@ use Newspack_Nodes\Worker_Base;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * The `workers` service interpreter: fleet liveness, the dashboard envelope,
+ * the orphan diagnostic, restart, and SSE slot heartbeats.
+ *
+ * Every collector is static and reads state fresh, because no caller shares a
+ * process with the workers it reports on — a REST request, `Alerts::evaluate()`
+ * on the WP-Cron tick and a REPL session each start from disk and cache.
+ */
 class Workers_CI_Node extends Service_CI_Node {
 
 	/**
-	 * Cli helper the `list`/`dump_graph`/`restart` handlers reach via
-	 * `$self->cli`. Public so the bootstrap (or test) assigns it AFTER
-	 * `new Workers_CI_Node()` — the Tachikoma uniform-construction pattern
-	 * (`make_node` calls a no-arg ctor; programmatic deps come in via public
-	 * properties, not constructor args, since `arguments()` only handles
-	 * scalar config). node_schema() is static and can't `use` an instance
-	 * field, so handlers read the assigned value off `$self` at dispatch
-	 * time (legal: they're defined inside this class and so may touch its
-	 * props on any instance).
+	 * The substrate CLI the `list` and `restart` handlers reach through
+	 * `cli()`.
 	 *
-	 * Nullable + default null so a freshly-constructed interpreter is in a known,
-	 * type-safe state until the bootstrap wires up the dep; verb handlers
-	 * that dereference `$self->cli` will fail loud if the bootstrap forgot
-	 * to assign it, rather than constructing into uninitialized-property UB.
+	 * Public because a programmatic dependency arrives as a property
+	 * assignment after construction: `make_node` calls a no-arg constructor
+	 * and `arguments()` carries scalar tokens only, so an object cannot ride
+	 * in as a constructor argument (ADR-11). `node_schema()` is static and
+	 * cannot close over an instance field, so its handlers read this off the
+	 * `$self` they are handed at dispatch time.
 	 *
-	 * Native type stays `object` (a duck-typed injection seam tests fill with a
-	 * fake); the `@var` names the production CLI shape so static analysis can
-	 * see the worker-control methods the handlers call.
+	 * Nullable with a null default, so an interpreter the bootstrap has not
+	 * wired yet holds a defined value and `cli()` throws a named refusal
+	 * instead of tripping over an uninitialized typed property.
+	 *
+	 * The native type stays `object` — a duck-typed seam a test fills with a
+	 * fake — while the `@var` names the production class, so static analysis
+	 * still sees the worker-control methods the handlers call.
 	 *
 	 * @var \Newspack_Nodes\CLI|null
 	 */
 	public ?object $cli = null;
 
 	/**
-	 * `dump_graph` verb handler — the worker-graph payload.
+	 * `dump_graph` verb handler — the fleet snapshot the Worker Status
+	 * dashboard renders.
+	 *
+	 * Three reads compose into ONE reply because the browser joins them:
+	 * `collect_dump_metadata()` for live state, `collect_topology_graphs()`
+	 * for the declared `.tsl` structure, and `append_log_sinks()` for the Log
+	 * file-sinks the partitioned catalog does not cover. Separately timed verbs
+	 * would let a slow poll join a worker list against a graph and a segment
+	 * list captured at other instants.
 	 *
 	 * @return array<int|string,mixed>
 	 */
@@ -76,9 +97,13 @@ class Workers_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Build the full operator-grade envelope. Public so the substrate Alerts
-	 * evaluator reads the SAME `{workers[], consumers[], deadletter_segments}`
-	 * snapshot without re-implementing the lock-dir / heartbeat / probe reads.
+	 * Build the operator-grade envelope.
+	 *
+	 * Public so `Alerts::evaluate()` reads the SAME `workers[]`, `consumers[]`
+	 * and `deadletter_by_reader` snapshot the dashboard does. The alternative
+	 * is a second implementation of the lock-dir, heartbeat and probe reads —
+	 * two copies that drift, until an alert names a fleet the dashboard does
+	 * not show.
 	 *
 	 * @return array<string,mixed> Envelope ready for wp_json_encode.
 	 */
@@ -156,6 +181,7 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * keyed by the owning reader so alerts can name the queue. Readers with
 	 * an empty (fully triaged) dir are omitted; absent dirs glob to nothing.
 	 *
+	 * @param string $base_dir Substrate base directory.
 	 * @return array<string,int> Reader id => quarantined segment count.
 	 */
 	private static function deadletter_segments_by_reader( string $base_dir ): array {
@@ -169,16 +195,21 @@ class Workers_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Build one worker's liveness descriptor (`status`/`live`/`stale`/`idle`/`heartbeat_at`)
-	 * from the lock-dir heartbeat mtime, so the dashboard renders status badges in
-	 * one round-trip.
+	 * Build one worker's liveness descriptor (`status`, `live`, `stale`,
+	 * `idle`, `heartbeat_at`) from its lock-dir heartbeat mtime, so the
+	 * dashboard renders every status badge from a single round trip.
 	 *
 	 * `idle` is the derived conjunction every consumer wants — an on-demand
 	 * worker that is cleanly absent, as opposed to one that died holding its
 	 * lock. Deriving it once here keeps alerting and the dashboards from each
 	 * re-deciding what absence means.
 	 *
-	 * @param int $on_demand_idle Whether the topology scales to zero when idle.
+	 * @param string $type           Worker type: the fleet name its lock dir is keyed by.
+	 * @param int    $partition      Partition index this worker owns.
+	 * @param string $lock_dir       Absolute path of the worker's lock dir.
+	 * @param int    $now            Wall clock the heartbeat age is measured against.
+	 * @param int    $stale_timeout  Seconds without a heartbeat before the lock reads stale.
+	 * @param int    $on_demand_idle Idle window the topology declares; 0 means resident.
 	 * @return array<string,mixed>
 	 */
 	private static function build_worker_status(
@@ -219,18 +250,21 @@ class Workers_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Build `logs` catalog entries for every active topology's `Log` file-sink
-	 * (kind 'log' in `graph_for`). Each Log writes a single rotated file, not a
-	 * partitioned segment dir, so its entry is synthesized by stat'ing the live
-	 * file + its rotation siblings: the current file gets the highest segment id
-	 * (matching the dashboard's `newestSegId = max(id)`), older rotations descend
-	 * by mtime. `segment_size` carries the Log's `max_size` so the bar scales.
+	 * Add a `logs` catalog entry for every active topology's `Log` file-sink
+	 * (kind `log` in `graph_for`).
 	 *
-	 * Skips sinks whose `<config:KEY>` path can't resolve, and never clobbers an
-	 * existing segmented-log entry on a basename collision.
+	 * A Log writes flat `{file}.{seg}` rotations rather than a partitioned
+	 * segment dir, so `enumerate_logs()` never sees one and its entry is
+	 * synthesized here. `segment_size` carries the Log's own positional
+	 * `segment_size` argument, so the dashboard's segment bar scales to that
+	 * Log instead of to the fleet default.
+	 *
+	 * A sink whose path resolves to nothing is skipped, and a basename already
+	 * in the catalog is left alone — a real segmented-log entry outranks a
+	 * synthesized one.
 	 *
 	 * @param array<array-key,mixed> $logs Existing catalog (each entry `{name,partitions,segment_size}`).
-	 * @return array<array-key,mixed> $logs + Log sink entries.
+	 * @return array<array-key,mixed> $logs plus one entry per Log sink.
 	 */
 	private static function append_log_sinks( array $logs ): array {
 		$existing = [];
@@ -264,10 +298,10 @@ class Workers_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Per-topology structural graph for every active topology: name =>
+	 * The structural graph of every active topology: name =>
 	 * `Topology_Analyzer::graph_for( name )` (`{nodes, edges}`). The dashboard
-	 * renders the .tsl graph alongside the live fleet so operators see node
-	 * wiring next to worker status.
+	 * renders the `.tsl` wiring alongside the live fleet, so an operator reads
+	 * node structure next to worker status.
 	 *
 	 * @return array<string,array{nodes: list<array<string,int|string|list<string>>>,edges: list<array{0:string,1:string}>}>
 	 */
@@ -280,11 +314,20 @@ class Workers_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Synthesize a one-partition catalog entry for a Log sink: stat the flat
-	 * `{file}.{seg}` monotonic segments, deriving each id from the numeric
-	 * suffix (highest id = current/newest). The numeric-suffix rule must match
-	 * `Log_Sources::source_segments()` (which skips mtime); keep the two in step.
+	 * Synthesize the one-partition catalog entry for a Log sink by stat'ing its
+	 * flat `{file}.{seg}` segments, taking each id from the numeric suffix
+	 * (highest id = newest). A Log is one rotated file rather than a
+	 * per-partition fan-out, so partition 0 is the whole of it.
 	 *
+	 * The suffix rule restates `Log_Node::segment_pattern()`, the rule the
+	 * WRITER matches its own segments with; keep the two in step. Borrowing it
+	 * through an ephemeral Log_Node, as `Log_Sources::source_segments()` does,
+	 * would drop `mtime` — `Partition_Node::get_segments()` collects id and
+	 * size only, and the dashboard needs the mtime.
+	 *
+	 * @param string $path         Resolved path of the Log, with no segment suffix.
+	 * @param string $name         Catalog name; the path's basename.
+	 * @param int    $segment_size Rotation size the Log declares, in bytes.
 	 * @return array{name:string,partitions:array<int,mixed>,segment_size:int}
 	 */
 	private static function build_log_sink_entry( string $path, string $name, int $segment_size ): array {
@@ -321,16 +364,25 @@ class Workers_CI_Node extends Service_CI_Node {
 		];
 	}
 
-	/** Resolve any `<config:KEY>` tokens in a Log path; '' if a token can't resolve. */
+	/**
+	 * Resolve the `<config:KEY>` tokens in a Log's declared path.
+	 *
+	 * Non-strict: an unresolvable token becomes '', so a path that is nothing
+	 * but a token resolves to '' and `append_log_sinks()` skips that sink.
+	 *
+	 * @param string $path Raw path token from the topology graph.
+	 * @return string The resolved path.
+	 */
 	private static function resolve_path_token( string $path ): string {
 		return Core::resolve_config_tokens( $path );
 	}
 
 	/**
 	 * Union the per-Partition `segment_size` overrides across every active
-	 * topology (last-write-wins on dir collision).
+	 * topology (last write wins on a dir collision), then let the partitions
+	 * built in PHP fill the gaps through the filter.
 	 *
-	 * @return array<string,int> `{concrete first-level log dir => int}`.
+	 * @return array<string,int> Concrete first-level log dir, or the filter's bare basename, => bytes.
 	 */
 	private static function collect_segment_size_overrides(): array {
 		$out = [];
@@ -350,21 +402,22 @@ class Workers_CI_Node extends Service_CI_Node {
 		 * Segment sizes for partitions no topology declares. A Partition built
 		 * in PHP — Job_Intake's `jobfeed`, at FEED_SEGMENT_SIZE — has no
 		 * `make_node Partition|Topic|Log … <literal size>` statement to read a
-		 * size off, so the catalog reported the fleet default and the Overview
-		 * bar scaled a full 1 MiB segment to ~1.6% of the 64 MiB it assumed.
+		 * size off, so without this the catalog reports the fleet default and
+		 * the segment bar draws a full 1 MiB segment against an assumed 64 MiB.
 		 * The two sources are disjoint by construction: whatever builds a
 		 * partition sets its geometry, and only one thing builds each.
 		 *
-		 * @param array<string,int> $out basename => segment size in bytes.
+		 * @param array<string,int> $out Basename => segment size in bytes.
 		 */
 		// Union keeps the LEFT side: the filter fills gaps, never restates.
 		return $out + \apply_filters( 'newspack_nodes/segment_size_overrides', $out );
 	}
 
 	/**
-	 * The active topology catalog (`name => cfg`), or `[]` if the substrate
-	 * isn't loaded / the lookup throws. Shared preamble for every per-topology
-	 * collector below so the class_exists/try-catch contract lives in one place.
+	 * The active topology catalog (`name => cfg`), or `[]` when the substrate
+	 * is not loaded or the lookup throws. Every per-topology collector in this
+	 * class reads through it, so the `class_exists` test and the catch that
+	 * degrade an admin page to an empty fleet live in exactly one place.
 	 *
 	 * @return array<string,mixed>
 	 */
@@ -380,20 +433,26 @@ class Workers_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Enumerate the flat partition-in-name log layout, ONE flat entry per concrete
-	 * dir (NAMED by that dir, e.g. `requests.p0`, carrying that single partition's
-	 * segments) stamped with its REAL enumerated partition. The dir list is the
-	 * GC's declared set (`Log_Cleaner::declared_log_partitions`) — ONE source of
-	 * truth with the sweep:
-	 * every on-disk topology's resolved per-partition log dirs PLUS the
-	 * externally-written logs no .tsl declares (the PHP producers firehose /
-	 * jobintake, the settings log). Sourcing the
-	 * catalog from the same set the GC retains means a log a topology only
-	 * CONSUMES (written elsewhere) still resolves to a concrete entry and shows
-	 * its segments, instead of "No segments". A missing dir stats to empty
-	 * segments. Per-log `segment_size` honors any TSL literal override (keyed by
-	 * the override basename when the concrete name starts with it).
+	 * Enumerate the flat partition-in-name log layout: ONE entry per concrete
+	 * dir, named by that dir (`requests.p0`), carrying that single partition's
+	 * segments and stamped with its REAL enumerated partition.
 	 *
+	 * The dir list is the GC's declared set
+	 * (`Log_Cleaner::declared_log_partitions()`) — one source of truth with the
+	 * retention sweep. That set covers every on-disk topology's resolved
+	 * per-partition log dirs PLUS the logs no `.tsl` declares: the PHP
+	 * producers' firehose and jobintake, and the settings log. Sourcing the
+	 * catalog from the set the GC retains is what makes a log a topology only
+	 * CONSUMES resolve to a concrete entry showing its segments, rather than
+	 * to "No segments". A dir that does not exist stats to empty segments.
+	 *
+	 * The partition is the resolver's enumeration index, never parsed back out
+	 * of a name: the dashboard joins `logs[]` to `consumers[]` on
+	 * `${name}#${partition}`, and a hardcoded 0 would meet the consumer rows on
+	 * partition 0 alone.
+	 *
+	 * @param string            $log_base               Absolute `{base}/logs` dir.
+	 * @param int               $default_segment_size   Fleet-wide segment size in bytes.
 	 * @param array<string,int> $segment_size_overrides `{basename => int}` map.
 	 * @return array<int,array{name:string,partitions:array<int,mixed>,segment_size:int}>
 	 */
@@ -438,7 +497,10 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * `job.p0` (next char `.`) but not `jobs.p0` (next char `s`). Falls back to the
 	 * global default.
 	 *
+	 * @param string            $concrete               Concrete log dir name.
 	 * @param array<string,int> $segment_size_overrides `{basename => int}` map.
+	 * @param int               $default_segment_size   Fleet-wide size in bytes.
+	 * @return int Segment size in bytes for this dir.
 	 */
 	private static function segment_size_for( string $concrete, array $segment_size_overrides, int $default_segment_size ): int {
 		foreach ( $segment_size_overrides as $basename => $size ) {
@@ -454,10 +516,20 @@ class Workers_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Scan a flat concrete log dir and return the per-log status block for
-	 * `inputs_status` / `outputs_status`. Cursor fields included only when both
-	 * `$cursor_segment` and `$cursor_offset` are non-null (else the UI treats it as output-only).
+	 * Stat one flat concrete log dir into its `{name, partition, segments,
+	 * total_size}` block. A symlinked entry is skipped, so a link dropped into
+	 * a log dir cannot report a file outside it as a segment.
 	 *
+	 * The cursor fields ride along only when both `$cursor_segment` and
+	 * `$cursor_offset` are given. The browser joins each reader's cursor from
+	 * `consumers[]` when it rebuilds `inputs_status`, so `enumerate_logs()`
+	 * passes neither.
+	 *
+	 * @param string   $log_name       Concrete dir name, e.g. `requests.p0`.
+	 * @param int      $partition      Enumerated partition the dir belongs to.
+	 * @param int|null $cursor_segment Reader's segment id, or null to omit both fields.
+	 * @param int|null $cursor_offset  Reader's byte offset, or null to omit both fields.
+	 * @param string   $log_base       Absolute `{base}/logs` dir.
 	 * @return array<string,mixed>
 	 */
 	private static function build_log_status_entry(
@@ -508,8 +580,10 @@ class Workers_CI_Node extends Service_CI_Node {
 	/**
 	 * One row per active Consumer, via the canonical per-Consumer enumeration
 	 * (`CLI::consumer_rows()`, sourced from the Topic_Probe log) — shared with
-	 * `wp nodes status` so the dashboard and cli read positions exactly one way.
+	 * `wp nodes status`, so the dashboard and the cli read positions exactly
+	 * one way.
 	 *
+	 * @param string $base_dir Substrate base directory.
 	 * @return array<int,array<string,mixed>>
 	 */
 	private static function enumerate_offsetlog_rows( string $base_dir ): array {
@@ -517,10 +591,16 @@ class Workers_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Coerce a mixed value to int, reproducing PHP's `(int)` cast
-	 * (null→0, scalar→its int form, non-empty array→1) without a mixed-cast.
+	 * Coerce a mixed value to int the way PHP's `(int)` cast does: null and an
+	 * empty array to 0, a scalar to its int form, an object or a non-empty
+	 * array to 1.
+	 *
+	 * Written out branch by branch because static analysis refuses a cast from
+	 * `mixed` at this level. The trailing 0 covers the one type no branch names,
+	 * a resource, for which no config value has a meaningful int.
 	 *
 	 * @param mixed $v Raw value.
+	 * @return int
 	 */
 	private static function to_int( $v ): int {
 		if ( null === $v ) {
@@ -539,11 +619,22 @@ class Workers_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * `heartbeat` verb handler — record a worker slot heartbeat.
+	 * `heartbeat` verb handler — refresh the caller's own SSE slot lease.
 	 *
-	 * @param list<string> $args Verb argument.
+	 * Both arguments are read through `Core::canonical_decimal()`, which
+	 * refuses anything but a canonical decimal. Every other coercion family
+	 * resolves a typo to a number, and a slot invented that way names someone
+	 * else's lease. `$slot` may be 0; `$owner` may not, because 0 is the
+	 * pointer's release tombstone.
 	 *
+	 * `$owner` is the lease token `SSE_Slot_Pool::acquire()` handed this
+	 * stream, not a user id, so a refusal here means the lease is gone — never
+	 * that the caller lacks a capability. `SSE_Slot_Pool::inspect()` names
+	 * which of its six states caused it, and that name rides out in the throw.
+	 *
+	 * @param list<string> $args `[ <slot>, <owner> ]`.
 	 * @return array<string,mixed>
+	 * @throws \RuntimeException On a malformed argument, an unreachable cache backend, or a lease this owner no longer holds.
 	 */
 	public static function cmd_heartbeat( array $args ): array {
 		if ( 2 !== \count( $args ) ) {
@@ -561,7 +652,7 @@ class Workers_CI_Node extends Service_CI_Node {
 			throw new \RuntimeException( 'cache not configured' );
 		}
 		if ( ! SSE_Slot_Pool::touch( SSE_Slot_Pool::namespace_key(), $slot, $owner, SSE_Slot_Pool::ttl() ) ) {
-			// Four states share this refusal; inspect() names which.
+			// Six states share this refusal; inspect() names which.
 			$diagnosis = SSE_Slot_Pool::inspect( SSE_Slot_Pool::namespace_key(), $slot, $owner );
 			throw new \RuntimeException( \esc_html( 'SSE slot lease not owned: ' . $diagnosis['lease_state'] ) );
 		}
@@ -569,10 +660,11 @@ class Workers_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * The injected Cli, materialized non-null. Fails loud if the bootstrap
-	 * forgot to assign `$cli` before a worker-control verb dispatches.
+	 * The injected CLI, materialized non-null. Fails loud when the bootstrap
+	 * did not assign `$cli` before a worker-control verb dispatched.
 	 *
 	 * @return \Newspack_Nodes\CLI
+	 * @throws \RuntimeException When `$cli` was never assigned.
 	 */
 	public function cli(): object {
 		if ( null === $this->cli ) {
@@ -581,10 +673,10 @@ class Workers_CI_Node extends Service_CI_Node {
 		return $this->cli;
 	}
 	/**
-	 * `list` verb handler — the active-worker list via the CLI helper.
+	 * `list` verb handler — one row per worker lock dir, through the injected
+	 * CLI, carrying type, partition and heartbeat liveness.
 	 *
-	 * @param Workers_CI_Node $self Verb argument.
-	 *
+	 * @param Workers_CI_Node $self The dispatching node, carrying `$cli`.
 	 * @return array<int|string,mixed>
 	 */
 	public static function cmd_list( Workers_CI_Node $self ): array {
@@ -592,7 +684,14 @@ class Workers_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * `cleanup_status` verb handler — orphan-lock cleanup status snapshot.
+	 * `cleanup_status` verb handler — the orphan-log diagnostic.
+	 *
+	 * Reports the first-level dirs on disk under `logs/`, the set
+	 * `Log_Cleaner` declares, and the difference. Both halves come from the
+	 * calls the sweep itself makes, so this names the dirs the sweep deletes
+	 * rather than offering a second opinion about them. `orphans` are
+	 * candidates, not casualties: the sweep spares any dir written inside its
+	 * `DELETE_GRACE_S` window, and this diagnostic applies no such grace.
 	 *
 	 * @return array<string,mixed>
 	 */
@@ -619,11 +718,16 @@ class Workers_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * `restart` verb handler — request a graceful restart of matching worker(s).
+	 * `restart` verb handler — request a graceful restart of matching workers.
 	 *
-	 * @param Workers_CI_Node $self Verb argument.
-	 * @param list<string> $args Verb argument.
+	 * Naming no type — or the literal `all` — matches every worker, and
+	 * `--partition` defaults to -1, every partition. The option is read
+	 * through `require_option_int()`, which throws on a malformed value. The
+	 * coercion families all resolve `--partition=abc` to 0, restarting p0 and
+	 * reporting success.
 	 *
+	 * @param Workers_CI_Node $self The dispatching node, carrying `$cli`.
+	 * @param list<string>    $args `[ <type>…, --partition=<n> ]` tokens.
 	 * @return array<string,mixed>
 	 */
 	public static function cmd_restart( Workers_CI_Node $self, array $args ): array {
@@ -640,6 +744,24 @@ class Workers_CI_Node extends Service_CI_Node {
 		return [ 'restarted' => $restarted ];
 	}
 
+	/**
+	 * Declare the verb surface once: `Service_CI_Node` derives the dispatch
+	 * table, the capability gate, `help` and the console palette entry from
+	 * this array.
+	 *
+	 * `restart` declares no `capability` and so gates at MANAGE, the strictest
+	 * role — it stops processes. The other four declare READ so a dashboard
+	 * can poll them, `heartbeat` included: it refreshes a lease the caller
+	 * already holds and can reach no other.
+	 *
+	 * `category` replaces the `Hidden` inherited from the interpreter, which
+	 * is what lists this class in the console palette beside the other service
+	 * CIs. `arguments` is empty: `make_node` hands this node nothing, and the
+	 * CLI arrives as a property assignment instead.
+	 *
+	 * @api Used by substrate.
+	 * @return array<string,mixed> This class's schema merged over the interpreter's.
+	 */
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
 			'category'    => 'Service',

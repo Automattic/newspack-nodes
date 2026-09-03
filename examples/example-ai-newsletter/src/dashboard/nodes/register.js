@@ -1,10 +1,19 @@
 /**
- * Register the dashboard-specific node classes into the interpreter's
- * includeNodes map so they're createable via interpreter.makeNode — mirrors
- * PHP's per-plugin namespace registration. Timer/Tee/Fetcher/Tap/HttpOut are
- * runtime nodes (already registered); only the three thin slice view nodes are
- * application-specific. Imported (for its side effect) by the dashboard hook and
- * the bundle entry, so registration runs before the build.
+ * Register this dashboard's three view classes on the interpreter's node table.
+ *
+ * `CommandInterpreterNode.includeNodes` maps a make_node NAME to its class, and
+ * a class missing from it cannot be built from TSL, from the console palette, or
+ * by `makeNode( 'SourceCountsView', … )`. Registration runs at import time, so
+ * `usePublisherInsightsGraph` imports this module for the side effect alone,
+ * before `addSliceFetcher` resolves each slice's `viewClass` name.
+ *
+ * The three views are all this dashboard adds. Timer, Tee and Fetcher, the rest
+ * of the poll graph, are runtime classes the table already carries.
+ *
+ * That table is a per-bundle static (ADR-16), so these names resolve only
+ * through an interpreter this bundle mounted. The Publisher Insights page mounts
+ * its own; a graph built through another bundle's interpreter has to be handed
+ * the class itself.
  */
 import { CommandInterpreterNode } from '@newspack-nodes/runtime';
 import { SourceCountsViewNode } from './source-counts-view-node';

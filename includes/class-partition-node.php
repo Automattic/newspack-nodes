@@ -1,6 +1,13 @@
 <?php
 /**
- * Partition: file-segmented append-only log.
+ * Partition: the durable append-only log every producer in the substrate
+ * writes through.
+ *
+ * A Topic fans across Partitions, a Log extends one to write producer VALUEs,
+ * `Job_Intake` writes one, a worker's IPC input is one, and every Consumer
+ * reads one. Batching, the PIPE_BUF cap, rotation, retention, write-stall
+ * quarantine and the on-demand reader wake all live on this one write path,
+ * because it is the only place that sees every producer.
  *
  * @package Newspack_Nodes
  */
@@ -11,17 +18,60 @@ if ( ! \defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+/**
+ * Append-only log of packed Messages, kept as numbered `{seg}.log` segments in
+ * one directory.
+ *
+ * `fill()` is the only ingress (ADR-1): it packs the message, accumulates it in
+ * an in-memory batch, and appends that batch in one write small enough for the
+ * kernel to land atomically (ADR-4). A `Timer_Node`, because the flush is
+ * deferred — each batched `fill()` arms a 0-delay one-shot so `fire()` drains at
+ * the end of the current event-loop iteration. Nothing in the constructor
+ * touches the filesystem or the event loop, so request-scope code can build one
+ * (ADR-5).
+ *
+ * Many processes may append to one directory, and that is what shapes the write
+ * path. A record at or below `MAX_LINE_SIZE` needs no lock at all; rotation is
+ * serialized by an mkdir lock; and a writer that needs larger records opts in
+ * through `allow_large_writes()`, which enforces exclusivity with a `Lock_Node`,
+ * or `void_warranty()`, which trusts the caller's single-writer assertion.
+ *
+ * Segments rotate at `segment_size` and are pruned by the three retention rules
+ * `cleanup_segments()` applies. `with_index()` adds a companion `{seg}.idx`
+ * whose lines `scan_index()` walks and `locate_by()` resolves back to positions.
+ *
+ * The methods marked "Seam (Log overrides)" are the entire subclass surface:
+ * `serialize_record()`, `segment_dir()`, `get_segment_path()`,
+ * `get_index_path()`, `segment_pattern()`, `rotate_lock_path()`,
+ * `write_lock_path()` and `write_quarantine_key()`. `Log_Node` redeclares them
+ * to write VALUEs into `{file}.{seg}` and inherits the rest unchanged.
+ */
 class Partition_Node extends Timer_Node {
+	/** Positional `arguments()` parsing plus the auto-wired `{name}:config` interpreter. */
 	use Schema_Reflection;
+
+	/** Fail-loud `write_all()` and the `$fwrite` seam; every append goes through it. */
 	use File_Writer;
+
+	/** Quarantine for records whose WRITE stalled, replayable via `wp nodes ingest` (ADR-12). */
 	use Dead_Letter_Queue;
+
+	/** Age rule off: no segment is pruned for being old. */
 	public const DEFAULT_LIFETIME     = 0;
+
 	/** Hard-cap default sentinel: 0 = derive as 2 × num_segments (see derive_max_segments()). */
 	public const DEFAULT_MAX_SEGMENTS = 0;
+
+	/** Count-rule age floor off: the count rule may prune a segment of any age. */
 	public const DEFAULT_MIN_LIFETIME = 0;
+
+	/** Age-rule floor: the age rule prunes no further once this many segments remain. */
 	public const DEFAULT_MIN_SEGMENTS = 2;
+
+	/** Count-rule target: the count rule prunes back to this many segments. */
 	public const DEFAULT_NUM_SEGMENTS = 4;
 
+	/** Rotation threshold, 64 MiB: a write that would exceed it starts a new segment. */
 	public const DEFAULT_SEGMENT_SIZE = 67108864;
 
 	/**
@@ -39,19 +89,28 @@ class Partition_Node extends Timer_Node {
 	 */
 	public const DEFAULT_LOCK_WAIT_MS = 15000;
 
+	/**
+	 * How often `maybe_rescan_segments()` re-reads the directory to notice a
+	 * peer's rotation. It bounds the TOCTOU window: a writer keeps appending to a
+	 * segment a peer has already superseded for at most this long, which is also
+	 * what a multi-writer Consumer's seal grace is sized against.
+	 */
 	public const DRIFT_RESCAN_INTERVAL_SECONDS = 1.0;
 
 	/** Retention floor: no rule prunes below this, whatever min_segments says. */
 	public const MIN_SEGMENTS_FLOOR = 2;
 
 	/**
-	 * The three large-write modes, shared with `Topic_Node`, which propagates
-	 * the setting to every partition it materializes. NONE keeps the 4KB
-	 * PIPE_BUF cap; LOCK lifts it behind a held exclusivity lock; VOID lifts it
-	 * on the caller's single-writer assertion, with no lock.
+	 * Large writes off: the 4KB PIPE_BUF cap stands. `Topic_Node` carries the
+	 * same three modes and propagates whichever is set to every partition it
+	 * materializes.
 	 */
 	public const LARGE_WRITE_NONE = '';
+
+	/** Cap lifted behind a held exclusivity Lock, which ENFORCES one writer. */
 	public const LARGE_WRITE_LOCK = 'lock';
+
+	/** Cap lifted on the caller's single-writer assertion, with no lock. */
 	public const LARGE_WRITE_VOID = 'void';
 
 	/** Write-lock heartbeat age past which another writer may steal the lock. */
@@ -60,7 +119,14 @@ class Partition_Node extends Timer_Node {
 	/** Heartbeats per stale window; beats at STALE_TIMEOUT / this. */
 	public const LOCK_HEARTBEAT_DIVISOR = 3;
 
+	/** Ceiling once either large-write mode is entered: 32 MiB, far past atomicity. */
 	public const MAX_LARGE_LINE_SIZE  = 33554432;
+
+	/**
+	 * PIPE_BUF: the largest packed record one write lands atomically (ADR-4). A
+	 * message over the cap in force is dropped with a loud log rather than
+	 * truncated, because half a record desyncs every reader after it.
+	 */
 	public const MAX_LINE_SIZE        = 4096;
 
 	/**
@@ -74,7 +140,16 @@ class Partition_Node extends Timer_Node {
 
 	/** Inter-process rotation lock TTL: anything older counts as stale. */
 	public const ROTATE_LOCK_TTL_SECONDS = 5;
+
+	/**
+	 * Seconds a scanned segment list stays warm, so back-to-back reads do not
+	 * scandir per call. A reader may see a list this stale after a rotation,
+	 * which Consumer's checkpointing tolerates. A partition that lifted the write
+	 * cap has no peer to go stale against and skips the TTL entirely.
+	 */
 	public const SEGMENT_CACHE_TTL    = 0.25;
+
+	/** Data filename inside a partition dir; capture group 1 is the segment id. */
 	public const SEGMENT_PATTERN      = '/^(\d+)\.log$/';
 
 	/**
@@ -109,57 +184,94 @@ class Partition_Node extends Timer_Node {
 	 * @var array<string,array{extent: string, found: array<string,array{0: int, 1: int, 2: int}>, searched: array<string,int>}>
 	 */
 	private static array $locator_cache = [];
+
+	/** Companion-index path of the segment being written; null until init_current_segment() runs. */
 	protected ?string $current_idx_path = null;
+
+	/** Data path of the segment being written; null until init_current_segment() runs. */
 	protected ?string $current_log_path = null;
 
+	/** Id of the segment being written; null means the write state is uninitialized. */
 	protected ?int $current_segment_id = null;
+
+	/** Bytes already in the current segment — the offset the next append lands at. */
 	protected int $current_size = 0;
 
 	/**
-	 * Debounced-lock mode ([65]): when > 0, allow_large_writes acquires the write lock
-	 * lazily on the first write of a burst and releases it after this many ms of idle
-	 * (fire() debounces the release), so other processes can write between bursts. 0 =
-	 * the default acquire-and-hold-for-life mode. $lock_held tracks current ownership;
-	 * $last_write_at (Core::$now seconds) is the idle reference the debounce measures from.
+	 * Debounced-lock idle window, in milliseconds. Above 0, `allow_large_writes()`
+	 * takes the write lock lazily on the first write of a burst and `fire()` frees
+	 * it after this much quiet, so competing processes get turns between bursts.
+	 * 0 keeps the acquire-and-hold-for-life mode.
 	 */
 	protected int $debounce_lock_ms = 0;
 
-	/** @var resource|null */
+	/** @var resource|null Append handle on the current segment, opened lazily by get_handle(). */
 	protected $fh = null;
+
+	/** Segment the open handle belongs to; -1 when no handle is open. */
 	protected int $fh_segment_id = -1;
+
+	/** Timer refreshing a held write lock inside a drain loop; null in request scope, where fill() beats it inline. */
 	protected ?Timer_Node $heartbeat_timer = null;
-	/** @var resource|null */
+
+	/** @var resource|null Append handle on the current segment's `.idx`; null until a formatter is installed. */
 	protected $idx_fh = null;
 
 	/** @var (callable(array<int,mixed>, array<string,int>): (string|null))|null fn(array $message, array $position) => string|null */
 	protected $index_callback = null;
+
 	/** Formatter name set via the `with_index` verb — the round-trippable form of the index callback (which itself can't be dumped). */
 	protected ?string $index_formatter_name = null;
+
 	/** Large-write opt-in: NONE, LOCK (allow_large_writes, held Lock), VOID (void_warranty, no lock). Topic_Node carries the same three. */
 	protected string $large_write_mode = self::LARGE_WRITE_NONE;
+
+	/** Wall clock of the last write-lock heartbeat, in real seconds — staleness cannot be judged from a frozen clock. */
 	protected float $last_lock_heartbeat = 0.0;
 
+	/** Clock of the last drift rescan; DRIFT_RESCAN_INTERVAL_SECONDS is measured from here. */
 	protected float $last_segment_check = 0.0;
+
+	/** Clock of the last write, in Core::$now seconds; the debounce measures idle from here. */
 	protected float $last_write_at = 0.0;
+
+	/** Whether this process currently holds the write lock. */
 	protected bool $lock_held = false;
+
+	/** Acquisition timeout (ms) a debounced re-acquire reuses, recorded by allow_large_writes(). */
 	protected int $lock_max_wait_ms = 0;
+
+	/** Heartbeat age (s) past which another writer may steal the lock; 0 while none is armed. */
 	protected int $lock_stale_timeout = 0;
+
+	/** Age rule: prune a segment older than this many seconds; 0 disables the rule. */
 	protected int $lifetime         = self::DEFAULT_LIFETIME;
+
 	/** True HARD cap: prune oldest UNCONDITIONALLY above this (only the floor of 2 protects). 0 until arguments() derives it. */
 	protected int $max_segments     = self::DEFAULT_MAX_SEGMENTS;
+
+	/** Count-rule age floor: the count rule spares a segment younger than this many seconds. */
 	protected int $min_lifetime     = self::DEFAULT_MIN_LIFETIME;
+
+	/** Age-rule floor: the age rule stops pruning once this many segments remain. */
 	protected int $min_segments     = self::DEFAULT_MIN_SEGMENTS;
+
 	/** Count-rule target: prune above this only for segments older than min_lifetime. */
 	protected int $num_segments     = self::DEFAULT_NUM_SEGMENTS;
 
 	/** Resolved segment directory ( = the rtrim'd $dir ); segments live at {partition_dir}/{seg}.log. */
 	protected string $partition_dir = '';
 
+	/** Rotation threshold in bytes: a write that would exceed it starts a new segment. */
 	protected int $segment_size     = self::DEFAULT_SEGMENT_SIZE;
 
 	/** @var array<int,array{id:int,size:int}>|null Cached on-disk segment list (id + byte size), sorted by id. */
 	protected ?array $segments_cache = null;
+
+	/** Clock the segment cache was filled at; SEGMENT_CACHE_TTL ages it from here. */
 	protected float $segments_cache_time = 0.0;
+
+	/** Exclusivity lock held in LOCK mode; null in every other mode. */
 	protected ?Lock_Node $write_lock = null;
 
 	/** Tachikoma-parity: no-arg ctor. Wires the sibling :config interpreter; positional config arrives via arguments(). */
@@ -169,12 +281,19 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
-	 * Store the raw string, parse positional tokens via parse_schema_args(), then
-	 * normalize the values. partition_dir is the resolved $dir; a bare make_node
-	 * leaves it ''. Getter returns the raw string.
+	 * Parse the positional tokens, then normalize what they set.
 	 *
-	 * @param list<string>|null $args
-	 * @return list<string>
+	 * `parse_schema_args()` assigns each declared argument; everything after it is
+	 * what a schema declaration cannot express — the retention floor, the
+	 * max_segments derivation, and the quarantine directory derived from the
+	 * resolved segment dir. A segment_size below 1 throws instead of flooring to
+	 * a one-byte segment that would rotate on every write.
+	 *
+	 * Called with null this is the getter and returns the stored tokens;
+	 * partition_dir stays '' until a caller supplies one.
+	 *
+	 * @param list<string>|null $args Positional tokens, or null to read them back.
+	 * @return list<string> The tokens as given.
 	 */
 	public function arguments( ?array $args = null ): array {
 		if ( null === $args ) {
@@ -182,7 +301,7 @@ class Partition_Node extends Timer_Node {
 		}
 		$this->parse_schema_args( $args );
 		$this->partition_dir  = \rtrim( $this->partition_dir, '/' );
-		// Guard the seam: Log fills `file`, so partition_dir was never checked.
+		// The seam, not the field: Log fills `file`, not partition_dir.
 		Config::assert_within_base( $this->segment_dir() );
 		// Fail LOUD: 0 floored to 1 is a ONE-BYTE segment; every write rotates.
 		if ( $this->segment_size < 1 ) {
@@ -198,9 +317,17 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
-	 * Node entry point: pack the message and append to the current segment.
+	 * Node entry point: pack the message and append it to the current segment.
 	 *
-	 * @param array<int,mixed> $message Reference; not mutated.
+	 * The size check is on the PACKED bytes rather than the VALUE, because
+	 * PIPE_BUF caps what a single write lands atomically. A record over the cap in
+	 * force is dropped with a loud log; truncating it would leave a torn record
+	 * desyncing every reader after it. A record already past MAX_LINE_SIZE
+	 * bypasses the batch — batching cannot shrink it — and rides a flush of its
+	 * own. Everything smaller accumulates until the batch would cross PIPE_BUF,
+	 * or until the 0-delay one-shot armed here fires.
+	 *
+	 * @param array<int,mixed> $message The 7-field message; not mutated.
 	 */
 	public function fill( array $message ): void {
 		++$this->counter;
@@ -291,7 +418,10 @@ class Partition_Node extends Timer_Node {
 		$this->set_timer( 0, true );
 	}
 
-	/** Timer fire: drain the batch at the end of the current event-loop iteration. */
+	/**
+	 * Timer fire: drain the batch at the end of the current event-loop iteration,
+	 * and in debounced mode free the write lock once the burst has gone quiet.
+	 */
 	protected function fire(): void {
 		$this->flush();
 		// Debounced: free lock once idle past the window, else re-arm.
@@ -308,11 +438,11 @@ class Partition_Node extends Timer_Node {
 	/**
 	 * Note that this partition was written to, for the next flush to act on.
 	 *
-	 * Every producer reaches disk through a Partition — Job_Intake writes one,
-	 * a Topic fans into them, a Log extends one, a worker's IPC is one — so
-	 * this is the single place that sees every hop. Hanging the wake off
-	 * producer helpers covered only the FIRST hop: a job routed firehose →
-	 * jobs, or drained jobintake → jobs, landed where nothing woke its reader.
+	 * Every producer reaches disk through a Partition — Job_Intake writes one, a
+	 * Topic fans into them, a Log extends one, a worker's IPC input is one — so
+	 * this is the single place that sees every hop. A wake hung off the producer
+	 * helpers instead sees only the FIRST hop, and a job re-routed out of the
+	 * firehose, or drained out of jobintake, lands where nothing wakes a reader.
 	 *
 	 * Marking is deliberately cheap — the resolved directory as its own key, no
 	 * lookup, no I/O — because this runs per message. The work happens at flush:
@@ -330,11 +460,16 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
-	 * Resolve the hard-cap ceiling: an explicit value floored to num_segments, or —
-	 * when unset (0) — the derived default of twice the target count. The single
-	 * place the num_segments → max_segments derivation lives; the admin + CI disk-
-	 * ceiling displays call it so what they show matches what cleanup_segments()
-	 * actually enforces.
+	 * Resolve the hard-cap ceiling: an explicit value floored to num_segments, or,
+	 * when unset (0), twice the target count.
+	 *
+	 * The one place that derivation lives. The admin and CI disk-ceiling displays
+	 * read it too, so the ceiling an operator is shown is the ceiling
+	 * cleanup_segments() enforces.
+	 *
+	 * @param int $num_segments Count-rule target.
+	 * @param int $max_segments Explicit cap, or 0 to derive one.
+	 * @return int The hard cap cleanup_segments() prunes against.
 	 */
 	public static function derive_max_segments( int $num_segments, int $max_segments ): int {
 		$num_segments = \max( self::MIN_SEGMENTS_FLOOR, $num_segments );
@@ -346,16 +481,21 @@ class Partition_Node extends Timer_Node {
 	 * Seam (Log overrides): the on-disk path identifying this writer, which
 	 * derive_write_deadletter_dir() turns into its quarantine dir. Partition =
 	 * the segment dir, one writer identity per dir.
+	 *
+	 * @return string
 	 */
 	protected function write_quarantine_key(): string {
 		return $this->partition_dir;
 	}
 
 	/**
-	 * Write-stall quarantine dir ([159]): `{base}/deadletter/{dir-under-base,
-	 * dotted}` — unique per partition dir, beside the read-side consumer DLQs.
-	 * Anything already under deadletter/ gets NONE (a quarantine quarantining
-	 * into a quarantine would chain forever on a full disk).
+	 * Write-stall quarantine dir: `{base}/deadletter/{dir-under-base,dotted}` —
+	 * unique per partition dir, beside the read-side consumer DLQs. Anything
+	 * already under deadletter/ gets NONE, because a quarantine quarantining into
+	 * a quarantine chains forever on the full disk that caused the stall.
+	 *
+	 * @param string $dir Resolved segment dir.
+	 * @return string Quarantine dir, or '' when this writer takes none.
 	 */
 	private static function derive_write_deadletter_dir( string $dir ): string {
 		if ( '' === $dir ) {
@@ -394,14 +534,21 @@ class Partition_Node extends Timer_Node {
 	/**
 	 * Seam (Log overrides): bytes written per fill()'d message. Partition = packed envelope + newline.
 	 *
-	 * @param array<int,mixed> $message
+	 * @param array<int,mixed> $message The 7-field message to serialize.
+	 * @return string The record exactly as it lands on disk.
 	 */
 	protected function serialize_record( array $message ): string {
 		return Message::packed( $message ) . "\n";
 	}
 
 	/**
-	 * Drift / TOCTOU recovery: rescan and follow the newest segment if a peer rotated.
+	 * Drift and TOCTOU recovery: rescan and follow the newest segment when a peer
+	 * rotated, at most once per DRIFT_RESCAN_INTERVAL_SECONDS.
+	 *
+	 * A peer that only appended leaves the newest id alone, so its size is adopted
+	 * instead — rotating on our own smaller count would overshoot segment_size.
+	 *
+	 * @param float|null $now Clock to age the interval against; null resolves it.
 	 */
 	protected function maybe_rescan_segments( ?float $now = null ): void {
 		// fill() threads its read; else cached clock (no clobber) or warm.
@@ -429,6 +576,7 @@ class Partition_Node extends Timer_Node {
 		}
 	}
 
+	/** Last resort for a request-scope Partition nobody tore down: flush, then close. */
 	public function __destruct() {
 		// Flush residual batch so request-scope writes aren't GC'd unwritten.
 		$this->flush();
@@ -446,6 +594,7 @@ class Partition_Node extends Timer_Node {
 	 * timeline stays monotonic. The OFFSETLOG only — never the source log.
 	 *
 	 * @api Consumed by Consumer_Node::play() (time-travel replay), not in-substrate.
+	 * @param int $segment Newest segment to keep.
 	 */
 	public function truncate_after( int $segment ): void {
 		$segments = $this->get_segments( true );
@@ -505,7 +654,7 @@ class Partition_Node extends Timer_Node {
 	 * @param int $debounce_ms 0 (default) = acquire the lock now and hold it for life.
 	 *                         > 0 = debounced mode: acquire lazily on each write burst and
 	 *                         release after this many ms of idle so other writers can take
-	 *                         turns ([65]). Lock acquisition is deferred to the first write.
+	 *                         turns. Lock acquisition is deferred to the first write.
 	 * @throws \RuntimeException when a sibling name is refused, or the lock cannot be acquired (hold mode).
 	 * @return self
 	 */
@@ -574,7 +723,7 @@ class Partition_Node extends Timer_Node {
 	/**
 	 * Debounced mode: acquire the write lock for the current burst if we don't hold it,
 	 * re-syncing segment state from disk afterwards — another writer may have appended or
-	 * rotated while we held nothing, so the cached handle/segment/size are stale ([65]).
+	 * rotated while we held nothing, so the cached handle, segment and size are stale.
 	 *
 	 * @throws \RuntimeException when the lock can't be acquired within lock_max_wait_ms.
 	 */
@@ -598,7 +747,7 @@ class Partition_Node extends Timer_Node {
 		$this->segments_cache     = null;
 	}
 
-	/** Debounced mode: drain the batch, close the handle, and free the lock for other writers ([65]). */
+	/** Debounced mode: drain the batch, close the handle, and free the lock for other writers. */
 	private function release_debounced_lock(): void {
 		$this->flush();
 		$this->close_handle();
@@ -608,7 +757,15 @@ class Partition_Node extends Timer_Node {
 		$this->lock_held = false;
 	}
 
-	/** Append $batch to the current segment, then write companion index entries with post-flush offsets. */
+	/**
+	 * Append the batch to the current segment, then write one companion-index
+	 * entry per record that survived.
+	 *
+	 * The batch is cleared before the write, so a throw below cannot re-flush the
+	 * same bytes. Index entries come last because an entry may only point at a
+	 * record that landed: a short write truncates the partial record off, and
+	 * `recover_write_stall()` reports how many records precede the tear.
+	 */
 	public function flush(): void {
 		if ( '' === $this->batch ) {
 			return;
@@ -653,15 +810,15 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
-	 * Write-stall recovery ([159]): a short write must never silently lose the
-	 * batch OR leave a torn record desyncing every reader after it. Truncate
-	 * the partial record off the segment, then quarantine every message that
-	 * didn't land in full. Returns the count of durable leading messages.
+	 * Write-stall recovery: a short write must never silently lose the batch, nor
+	 * leave a torn record desyncing every reader after it. Truncate the partial
+	 * record off the segment, then quarantine every message that did not land in
+	 * full.
 	 *
-	 * @param resource                                                  $fh           Segment handle.
-	 * @param int                                                       $start_offset Segment size before this batch.
-	 * @param array<int,array{message: array<int,mixed>,size: int}>  $batch_args   Batched messages, in write order.
-	 * @param int                                                       $wrote        Bytes write_all() landed.
+	 * @param resource                                              $fh           Segment handle.
+	 * @param int                                                   $start_offset Segment size before this batch.
+	 * @param array<int,array{message: array<int,mixed>,size: int}> $batch_args   Batched messages, in write order.
+	 * @param int                                                   $wrote        Bytes write_all() landed.
 	 * @return int Leading messages fully on disk.
 	 */
 	protected function recover_write_stall( $fh, int $start_offset, array $batch_args, int $wrote ): int {
@@ -685,11 +842,13 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
-	 * Route messages [$from..] through the DLQ ([159]) — loud + replayable via
-	 * `wp nodes ingest`; with no quarantine dir the trait logs-and-drops loudly.
+	 * Route the messages from $from onward through the dead-letter queue: loud,
+	 * and replayable via `wp nodes ingest`. With no quarantine dir configured the
+	 * trait logs and drops instead, still loudly.
 	 *
 	 * @param array<int,array{message: array<int,mixed>,size: int}> $batch_args Batched messages.
-	 * @param int                                                      $from       First unwritten index.
+	 * @param int                                                   $from       First unwritten index.
+	 * @param string                                                $reason     Why the write failed, recorded on each record.
 	 */
 	protected function quarantine_unwritten( array $batch_args, int $from, string $reason ): void {
 		$this->ensure_deadletter();
@@ -942,9 +1101,13 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
-	 * Write one companion-index entry for the message at $offset. Caller guards on $index_callback.
+	 * Write one companion-index entry for the message at $offset. The caller
+	 * guards on $index_callback; a formatter that throws, returns nothing, or
+	 * finds no index handle costs the entry, never the record it points at.
 	 *
-	 * @param array<int,mixed> $message The unpacked message array handed to the index callback.
+	 * @param array<int,mixed> $message The unpacked message handed to the index callback.
+	 * @param int              $offset  Byte offset of the record within its segment.
+	 * @param int              $length  Byte length of the record.
 	 */
 	private function write_index_entry( array $message, int $offset, int $length ): void {
 		$callback   = $this->index_callback;
@@ -992,6 +1155,7 @@ class Partition_Node extends Timer_Node {
 		}
 	}
 
+	/** Close the log and index handles, so the next get_handle() reopens against current state. */
 	protected function close_handle(): void {
 		if ( \is_resource( $this->fh ) ) {
 			@\fclose( $this->fh );
@@ -1016,7 +1180,10 @@ class Partition_Node extends Timer_Node {
 	 * bytes don't unpack to a 7-field envelope) rather than throwing.
 	 *
 	 * @api Cross-plugin entrypoint — Performance_CI (event-logger-nodes) reads via this.
-	 * @return array<int,mixed>|null
+	 * @param int $segment Segment holding the record.
+	 * @param int $offset  Byte offset within that segment.
+	 * @param int $length  Byte length of the record.
+	 * @return array<int,mixed>|null The unpacked message, or null on a torn record.
 	 */
 	public function read_message_at( int $segment, int $offset, int $length ): ?array {
 		$bytes = $this->read_at( $segment, $offset, $length );
@@ -1043,7 +1210,7 @@ class Partition_Node extends Timer_Node {
 			return '';
 		}
 		if ( 0 === $length ) {
-			return '';  // fread() throws on $length === 0 in PHP 8.1+.
+			return '';  // fread() throws on a zero length.
 		}
 		$path = $this->get_segment_path( $segment );
 		if ( ! \file_exists( $path ) ) {
@@ -1085,16 +1252,15 @@ class Partition_Node extends Timer_Node {
 	 * table, and the second's keys would all read as misses.
 	 *
 	 * $wanted names every key to resolve, and the table, the walk and the memo
-	 * are all bounded by it. Without that bound this held one locator per key
-	 * ever written — an allocation growing with the partition rather than the
-	 * query. A stats-mirror read exhausted a 512MB request building one so its
-	 * caller could read a handful of rows; a locator costs ~300 bytes, so that
-	 * table had reached order-1M keys. The URL count is not the key count.
+	 * are all bounded by it. Unbounded, the table holds one locator per key ever
+	 * written, so it grows with the PARTITION rather than the query: at ~300 bytes
+	 * a locator, an order-1M-key partition exhausts a 512MB request to answer a
+	 * handful of rows. The URL count is not the key count.
 	 *
-	 * It defaults to EMPTY, which reads nothing. That default exists so a caller
-	 * compiled against the older one-argument form degrades to an empty result
-	 * rather than an ArgumentCountError: `Table_Node::lookup_multi()` invokes
-	 * the backing seam bare, so a fatal there is an uncaught 500.
+	 * It defaults to EMPTY, which reads nothing, so a consumer compiled against
+	 * the one-argument form degrades to an empty result rather than an
+	 * ArgumentCountError. `Table_Node::lookup_multi()` invokes the backing seam
+	 * bare, and a fatal there is an uncaught 500 on every dashboard request.
 	 *
 	 * The result is a LOOKUP table addressed by key. Its order follows $wanted,
 	 * not the index — read it by key rather than by position.
@@ -1168,6 +1334,7 @@ class Partition_Node extends Timer_Node {
 		return $out;
 	}
 
+	/** The directory this partition's segments live in, through the Log-overridable seam. */
 	public function partition_dir(): string {
 		return $this->segment_dir();
 	}
@@ -1272,7 +1439,13 @@ class Partition_Node extends Timer_Node {
 		return $out;
 	}
 
-	/** Seam (Log overrides): data-file path for a segment. Partition = {dir}/{seg}.log. */
+	/**
+	 * Seam (Log overrides): data-file path for a segment. Partition = {dir}/{seg}.log.
+	 *
+	 * @param int $segment Segment id.
+	 * @return string Absolute path, which need not exist yet.
+	 * @throws \InvalidArgumentException When the id is negative.
+	 */
 	public function get_segment_path( int $segment ): string {
 		if ( $segment < 0 ) {
 			throw new \InvalidArgumentException( 'Segment ID must be non-negative' );
@@ -1446,13 +1619,13 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
-	 * The newest committed frame's VALUE, or null when there is nothing to
-	 * resume from. When the newest segment is rotated-but-unwritten the cursor
-	 * is still in the one before it, so an empty tail falls back a segment —
-	 * the difference that made a freshly-rotated offsetlog read as "no data".
+	 * The newest committed frame's VALUE, or null when there is nothing to resume
+	 * from. A rotated-but-unwritten newest segment leaves the cursor in the one
+	 * before it, so an empty tail falls back a segment; without that fallback a
+	 * freshly-rotated offsetlog reads as "no data".
 	 *
 	 * @param self|null $offsetlog Offsetlog partition, or null.
-	 * @return array<array-key,mixed>|null
+	 * @return array<array-key,mixed>|null The frame's VALUE, or null.
 	 */
 	public static function last_frame_of( ?self $offsetlog ): ?array {
 		if ( null === $offsetlog ) {
@@ -1518,10 +1691,10 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
-	 * The write-quarantine is shared by every writer of this partition dir; it
-	 * is sole-writer only when the SOURCE is single-writer ([159] audit) — a
-	 * lockless (void_warranty) quarantine under multi-writer stalls would race
-	 * rotation exactly when every writer stalls at once (disk full).
+	 * The write quarantine is shared by every writer of this partition dir, so it
+	 * is sole-writer only when the SOURCE is. A lockless (void_warranty)
+	 * quarantine under several writers races rotation exactly when they all stall
+	 * at once, which is the full disk it exists to survive.
 	 */
 	protected function deadletter_sole_writer(): bool {
 		return $this->large_writes_allowed();
@@ -1543,6 +1716,8 @@ class Partition_Node extends Timer_Node {
 	 * WARRANTY VOID: two concurrent writers + this = silent torn-write corruption,
 	 * with no lock to stop the second writer. If you can't guarantee single-writer,
 	 * use allow_large_writes() — it ENFORCES it (and throws on a second writer).
+	 *
+	 * @return self
 	 */
 	public function void_warranty(): self {
 		$this->enter_large_write_mode( self::LARGE_WRITE_VOID );
@@ -1554,6 +1729,8 @@ class Partition_Node extends Timer_Node {
 	 * mode that disclaims the lock cannot leave one held, its heartbeat beating
 	 * and `{name}:lock` registered — a state `dump_config()` cannot express, and
 	 * would replay as a silently dropped lock.
+	 *
+	 * @param string $mode One of LARGE_WRITE_NONE, LARGE_WRITE_LOCK or LARGE_WRITE_VOID.
 	 */
 	private function enter_large_write_mode( string $mode ): void {
 		if ( self::LARGE_WRITE_LOCK !== $mode ) {
@@ -1626,13 +1803,29 @@ class Partition_Node extends Timer_Node {
 	 * reader's downstream. This quarantine holds records whose WRITE stalled, and
 	 * a Partition's sink is `_command_interpreter` — redelivering there would
 	 * hand an unwritten data record to the interpreter and lose it. Retrying the
-	 * write is a different operation, and nothing asks for it yet.
+	 * write is a different operation, and nothing asks for it.
+	 *
+	 * @param string $locator Record the trait would redeliver; ignored.
+	 * @return string The refusal, as the verb's reply text.
 	 */
 	public function requeue_deadletter( string $locator ): string {
 		unset( $locator );
 		return "error: requeue unavailable — this is a write-stall quarantine, not a reader's\n";
 	}
 
+	/**
+	 * The canonical KEY-to-partition routing function (ADR-6): CRC32 masked to 31
+	 * bits, modulo the partition count.
+	 *
+	 * Every producer and every router calls THIS one, never a hash family of its
+	 * own — two families put the same key in two partitions and break the per-key
+	 * ordering a Consumer depends on. The query string is stripped first, so one
+	 * URL's variants share a partition.
+	 *
+	 * @param string $key            Routing key.
+	 * @param int    $num_partitions Partitions in the topic.
+	 * @return int Zero-based partition index.
+	 */
 	public static function hash_to_partition( string $key, int $num_partitions ): int {
 		[ $stripped ] = \explode( '?', $key, 2 );
 		return ( \crc32( $stripped ) & 0x7FFFFFFF ) % $num_partitions;
@@ -1641,7 +1834,9 @@ class Partition_Node extends Timer_Node {
 	/**
 	 * Emit the base config plus this Partition's verb-config, from STATE — the
 	 * large-write mode and the `with_index` formatter name. (The index callback
-	 * itself can't be dumped; the formatter name is its round-trip form.)
+	 * itself cannot be dumped; the formatter name is its round-trip form.)
+	 *
+	 * @return string The `make_node` line, plus one config line per verb that is set.
 	 */
 	public function dump_config(): string {
 		$out = parent::dump_config();
@@ -1716,7 +1911,7 @@ class Partition_Node extends Timer_Node {
 				}
 				$key = $value[ $key_field ] ?? '';
 				if ( \is_string( $key ) && '' !== $key ) {
-					// chronological → last wins
+					// Records append chronologically, so the last one wins.
 					$index[ $key ] = [
 						'value'     => $value,
 						'timestamp' => Core::as_int( $message[ Message::TIMESTAMP ] ?? 0 ),
@@ -1730,14 +1925,14 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
-	 * `allow_large_writes` verb handler — lift the 4KB cap on the patron + acquire its write
-	 * lock. An optional debounce_ms arg switches to debounced mode (lock per write burst,
-	 * released after that many ms of idle) instead of acquire-and-hold ([65]).
+	 * `allow_large_writes` verb handler: lift the 4KB cap on the patron and take
+	 * its write lock. An optional debounce_ms switches to debounced mode — lock
+	 * per write burst, released after that many ms of idle — instead of
+	 * acquire-and-hold.
 	 *
-	 * @param Command_Interpreter_Node $interpreter Verb argument.
-	 * @param array<array-key,mixed>  $args        Optional debounce_ms (default 0 = hold mode).
-	 *
-	 * @return string
+	 * @param Command_Interpreter_Node $interpreter The `{name}:config` interpreter whose patron is this partition.
+	 * @param array<array-key,mixed>   $args        Optional debounce_ms in slot 0; 0 (the default) is hold mode.
+	 * @return string The verb reply.
 	 */
 	public static function cmd_allow_large_writes( Command_Interpreter_Node $interpreter, array $args ): string {
 		/** @var self $patron */
@@ -1748,11 +1943,11 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
-	 * `void_warranty` verb handler — lift the 4KB cap with NO lock (caller asserts single-writer).
+	 * `void_warranty` verb handler: lift the 4KB cap with NO lock, on the caller's
+	 * assertion that it is this partition's only writer.
 	 *
-	 * @param Command_Interpreter_Node $interpreter Verb argument.
-	 *
-	 * @return string
+	 * @param Command_Interpreter_Node $interpreter The `{name}:config` interpreter whose patron is this partition.
+	 * @return string The verb reply.
 	 */
 	public static function cmd_void_warranty( Command_Interpreter_Node $interpreter ): string {
 		/** @var self $patron */
@@ -1762,12 +1957,13 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
-	 * `with_index` verb handler — set the patron's companion-index line-formatter by name.
+	 * `with_index` verb handler: set the patron's companion-index line-formatter
+	 * by its registered name.
 	 *
-	 * @param Command_Interpreter_Node $interpreter Verb argument.
-	 * @param array<array-key,mixed>  $args        Verb argument.
-	 *
-	 * @return string
+	 * @param Command_Interpreter_Node $interpreter The `{name}:config` interpreter whose patron is this partition.
+	 * @param array<array-key,mixed>   $args        Formatter name in slot 0.
+	 * @return string The verb reply.
+	 * @throws \RuntimeException When the name is missing or unregistered.
 	 */
 	public static function cmd_with_index( Command_Interpreter_Node $interpreter, array $args ): string {
 		$args = Core::as_string( $args[0] ?? '' );
@@ -1784,6 +1980,18 @@ class Partition_Node extends Timer_Node {
 		return "ok\n";
 	}
 
+	/**
+	 * Set the sink, then re-point the heartbeat Timer and announce READY.
+	 *
+	 * The base cascade rewires an owned sibling to the patron's new sink, which is
+	 * right for every sibling but this one: the heartbeat beats the Lock, not the
+	 * partition's downstream. Wiring the sink is also the moment a partition
+	 * becomes usable, so READY fires here and a late registrant gets the cached
+	 * payload.
+	 *
+	 * @param Node|null $node New sink; pass no argument at all to read it back.
+	 * @return Node|null The sink after the call.
+	 */
 	public function sink( ?Node $node = null ): ?Node {
 		if ( 0 === \func_num_args() ) {
 			return parent::sink();
@@ -1795,7 +2003,12 @@ class Partition_Node extends Timer_Node {
 		return $result;
 	}
 
-	/** Topology console manifest: palette entry + ctor form + verb forms. */
+	/**
+	 * Topology console manifest: the palette entry, the seven positional arguments
+	 * `parse_schema_args()` assigns, and the three config verbs.
+	 *
+	 * @return array<string,mixed>
+	 */
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
 			'category'      => 'I/O',

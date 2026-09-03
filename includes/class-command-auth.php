@@ -2,20 +2,27 @@
 /**
  * Command_Auth: HMAC sign/verify for command provenance (server tier).
  *
- * The browser's trusted origin IS its process (see Message::LOCAL); the server
- * legitimately receives commands over the wire, so it can't strip — it must tell
- * an authorized wire-command from an injected one with an unforgeable marker.
- * The node that MINTS a command signs its semantics — the attached `wp nodes
- * cli` Shell via `sign()`, a browser or peer under its session key via
- * `sign_for()`. Ingress does NOT sign: conferring authority on arrival would
- * make `HTTP_In` an oracle (ADR-15). Verifier processes (workers, /command
- * request scope) install `verifier()` as CommandInterpreter's authorize policy
- * and refuse anything that doesn't verify.
+ * The browser's trusted origin IS its process, which `Message::LOCAL` marks. A
+ * server legitimately receives commands over the wire, which LOCAL cannot
+ * cross, so it needs an unforgeable marker to tell an authorized command from
+ * an injected one. The node that MINTS a command signs its semantics: the
+ * attached `wp nodes cli` Shell through `sign()`, a hub addressing a spoke
+ * through `sign_for()` under the session key it holds for that spoke. A
+ * browser mints and signs the same envelope in `src/runtime/command-auth.js`.
+ * Ingress does NOT sign: conferring authority on arrival would make `HTTP_In`
+ * an oracle (ADR-15). Verifier processes — workers, the `/command` request
+ * scope, the SSE-stream process — install `verifier()` as the interpreter's
+ * authorize policy and refuse whatever does not verify.
  *
  * Signs the SEMANTICS, never the routing: name + arguments + ts + nonce.
- * TO/FROM mutate as Router peels and nodes stamp FROM, so they are not
- * signed. The envelope rides inside VALUE (`auth`) because it must survive IPC
- * to reach the worker — it cannot ride in the stripped Message::LOCAL field.
+ * Router peels TO and nodes stamp FROM in transit, so neither is signed. The
+ * envelope rides inside VALUE (`auth`) because it must survive IPC to reach a
+ * worker, and `packed()` strips LOCAL at that boundary.
+ *
+ * A session also carries a SCOPE. `verify()` installs it as
+ * `Capabilities::$session_scope`, the ceiling over the one command being
+ * handled, and `Command_Interpreter_Node::interpret()` restores what stood
+ * before.
  *
  * @package Newspack_Nodes
  */
@@ -48,7 +55,7 @@ class Command_Auth {
 	 * atomic `Cache_Backend::local_first()->add()`. Tests reassign to exercise
 	 * the window/HMAC logic without a real cache, and to drive the replay path.
 	 *
-	 * @var \Closure(string, int): bool|null
+	 * @var (\Closure(string, int): bool)|null
 	 */
 	public static ?\Closure $claim_nonce = null;
 
@@ -56,8 +63,8 @@ class Command_Auth {
 	 * Client-side sessions keyed by VAULT ID, per-process. Not by url: two
 	 * entries may share a host with different credentials, and a url can be
 	 * edited while the id stays — both would alias one session across two
-	 * authorization contexts. Lost on worker restart,
-	 * which costs one re-auth. The verifier's own copy lives in the selected cache.
+	 * authorization contexts. Lost on worker restart, which costs one re-auth.
+	 * The verifier's own copy of the key lives in the selected cache.
 	 *
 	 * @var array<string,array{handle:string,key:string}>
 	 */
@@ -80,9 +87,13 @@ class Command_Auth {
 	public const SESSION_TTL_MIN_S = 60;
 
 	/**
-	 * Stamp an `auth` envelope onto a command Message's VALUE. No-op unless TYPE
-	 * is a request command — TM_COMMAND without TM_RESPONSE/TM_ERROR (TM_NOREPLY
-	 * rides along fine).
+	 * Stamp an `auth` envelope onto a command Message's VALUE, under the
+	 * per-site secret and with no handle. That secret is the same-host answer:
+	 * the attached cli's Shell signs with it over a filesystem-gated IPC
+	 * partition, where the signer already sits inside the trust boundary.
+	 *
+	 * No-op unless TYPE is a request command — TM_COMMAND without
+	 * TM_RESPONSE/TM_ERROR (TM_NOREPLY rides along fine).
 	 *
 	 * @param array<int,mixed> $message Message (mutated in place).
 	 */
@@ -100,7 +111,8 @@ class Command_Auth {
 	 * which is the correct failure: minters must wait for the session rather
 	 * than emit something that will rot before it can be believed.
 	 *
-	 * @param array<int,mixed> $message Message (mutated in place).
+	 * @param string           $destination Vault entry id of the remote.
+	 * @param array<int,mixed> $message     Message (mutated in place).
 	 */
 	public static function sign_for( string $destination, array &$message ): void {
 		$session = self::$sessions[ $destination ] ?? null;
@@ -115,14 +127,17 @@ class Command_Auth {
 	 * Stamp an `auth` envelope under $key. No-op unless TYPE is a request command
 	 * — TM_COMMAND without TM_RESPONSE/TM_ERROR (TM_NOREPLY rides along fine).
 	 *
-	 * $handle names the session the verifier must resolve $key from; null means
-	 * the per-site secret. It is deliberately outside `canonical()`: repointing
-	 * an envelope at another handle only makes the signature stop matching.
+	 * $handle rides in the envelope but stays outside `canonical()`, so it is
+	 * not signed: repointing an envelope at another handle only makes the
+	 * signature stop matching.
 	 *
 	 * TYPE is outside it too, so a caller may still OR flags in afterwards —
 	 * which is what lets the mint sign at build time.
 	 *
 	 * @param array<int,mixed> $message Message (mutated in place).
+	 * @param string           $key     HMAC key: the per-site secret, or a session key.
+	 * @param string|null      $handle  Session the verifier resolves $key from; null
+	 *                                  means the per-site secret.
 	 */
 	private static function stamp( array &$message, string $key, ?string $handle ): void {
 		$type  = $message[ Message::TYPE ]      ?? null;
@@ -155,13 +170,16 @@ class Command_Auth {
 	 * here — a caller-supplied handle could collide with or fixate a live
 	 * session, and caller-supplied entropy is unverifiable.
 	 *
-	 * Takes no destination or user: the verifier resolves a key by handle and
-	 * nothing more, and a signature under one session's key is verifiable only
-	 * by the site that minted it. The SCOPE does ride along, because it is the
-	 * ceiling the verifier applies — the holder of the key cannot restate it.
+	 * Takes no destination: the verifier resolves a key by handle and nothing
+	 * more, and a signature under one session's key is verifiable only by the
+	 * site that minted it. The SCOPE does ride along, because it is the ceiling
+	 * the verifier applies — the holder of the key cannot restate it. The
+	 * minting user is read off the runtime rather than passed, so a caller
+	 * cannot mint a session as somebody else.
 	 *
 	 * @param string $scope One of Capabilities::READ|TUNE|MANAGE.
-	 * @param int    $ttl   Lifetime in seconds; defaults to SESSION_TTL_S.
+	 * @param int    $ttl   Lifetime in seconds, taken as given; a caller reading
+	 *                      it off the wire clamps through bounded_ttl() first.
 	 * @return array{handle:string,key:string,scope:string,expires_in:int,now:int}
 	 * @throws \InvalidArgumentException On a scope outside the ladder.
 	 * @throws \RuntimeException When the session could not be persisted.
@@ -199,8 +217,15 @@ class Command_Auth {
 	 *
 	 * `shared_first()` prefers configured memcached, preserving shared scope.
 	 * Without it, the WordPress web pool can mint and verify through its one APCu
-	 * cache domain. This deliberately differs from the nonce claim's
-	 * `local_first()` ordering.
+	 * cache domain. The nonce claim orders the tiers the other way round, on
+	 * purpose: a session minted in a web request must resolve in a worker, while
+	 * a nonce only has to be unique to the process verifying it.
+	 *
+	 * @param string $handle Session handle the verifier resolves the key from.
+	 * @param string $key    Signing key.
+	 * @param int    $ttl    Lifetime in seconds; never slid on use.
+	 * @param string $scope  Ceiling the verifier applies, READ|TUNE|MANAGE.
+	 * @param int    $user   WordPress id of the minting user, 0 for nobody.
 	 */
 	public static function store_session( string $handle, string $key, int $ttl, string $scope = Capabilities::MANAGE, int $user = 0 ): bool {
 		$backend = Cache_Backend::shared_first();
@@ -287,11 +312,12 @@ class Command_Auth {
 	 * Authorize closure for verifier processes (worker, /command request scope).
 	 *
 	 * Accepts a command if it is either in-process (Message::LOCAL set) OR carries
-	 * a valid HMAC. LOCAL cannot cross a process boundary — packed() strips index 7
-	 * and unpacked() rejects 8-field lines — so a command arriving over IPC/the wire
-	 * never has it; trusting LOCAL therefore only admits the process's own commands
-	 * (e.g. a worker loading its topology via Shell::eval_script), while every
-	 * wire command still requires a signature.
+	 * a valid HMAC. LOCAL cannot cross a process boundary — packed() slices the
+	 * canonical seven fields and unpacked() rejects any line that is not exactly
+	 * seven — so a command arriving over IPC or the wire never has it; trusting
+	 * LOCAL therefore only admits the process's own commands (a worker loading its
+	 * topology via Shell::eval_script), while every wire command still requires a
+	 * signature.
 	 *
 	 * @return \Closure(Command_Interpreter_Node, array<int,mixed>): bool
 	 */
@@ -305,7 +331,7 @@ class Command_Auth {
 	 * honored end-to-end.
 	 *
 	 * @param Command_Interpreter_Node $interpreter Node handling the command.
-	 * @param array<int,mixed>        $message
+	 * @param array<int,mixed>         $message     Command to authorize.
 	 */
 	private static function authorize_command( Command_Interpreter_Node $interpreter, array $message ): bool {
 		return isset( $message[ Message::LOCAL ] )
@@ -316,21 +342,22 @@ class Command_Auth {
 	 * Verify a command Message's `auth` envelope: freshness window, HMAC, then a
 	 * single-use nonce claim. Returns false on any failure (fail closed).
 	 *
-	 * Refusal reasons are logged through $interpreter — the node that HANDLED the
+	 * A refusal reason logs through $interpreter — the node that HANDLED the
 	 * command, passed in by its authorize call. Never look one up: logging under
 	 * a different interpreter than the one refusing also defeats its
-	 * generic-"unauthorized" suppression, so each refusal logs twice.
+	 * generic-"unauthorized" suppression, so each refusal logs twice. Two
+	 * refusals log nothing: an unknown or expired handle, and a replayed nonce.
 	 *
-	 * @param array<int,mixed>            $message     Message to verify.
-	 * @param int|null                     $now         Verification time; defaults to time().
+	 * @param array<int,mixed>              $message     Message to verify.
+	 * @param int|null                      $now         Verification time; defaults to time().
 	 * @param Command_Interpreter_Node|null $interpreter Node to log a refusal through.
 	 */
 	public static function verify( array $message, ?int $now = null, ?Command_Interpreter_Node $interpreter = null ): bool {
 		// @longform ONE exit for the ceiling. `check()` installs the verified
 		// session's scope on the way through, and this closes it on EVERY
-		// refusal — the mutation is global and only interpret() restores it, so
-		// a caller outside that lifetime (a sibling plugin, a test) must not be
-		// able to leave a wider ceiling standing than the command that failed.
+		// refusal — the mutation is global and only interpret() restores it,
+		// so a caller outside that lifetime (a sibling plugin, a test) cannot
+		// leave a wider ceiling standing than the command that failed.
 		$ok = self::check( $message, $now, $interpreter );
 		if ( ! $ok ) {
 			Capabilities::$session_scope = Capabilities::NONE;
@@ -418,11 +445,19 @@ class Command_Auth {
 	 * instead of after every flag has been OR'd in.
 	 *
 	 * The encoding is byte-for-byte what `JSON.stringify` produces, because the
-	 * browser signs the same string with its session key. Returns
-	 * null when the value can't be JSON-encoded (e.g. non-UTF-8 arguments) so the
-	 * caller fails closed instead of collapsing distinct commands onto HMAC('').
+	 * browser signs the same string with its session key in
+	 * `src/runtime/command-auth.js`. `tests/fixtures/signatures.json` pins that
+	 * parity from both languages: each port's own suite is internally consistent
+	 * and stays green through a drift only the shared fixture catches.
 	 *
+	 * Returns null when the value can't be JSON-encoded (non-UTF-8 arguments,
+	 * say) so the caller fails closed instead of collapsing distinct commands
+	 * onto HMAC('').
+	 *
+	 * @param int                    $ts    Unix seconds, the signed TIMESTAMP.
 	 * @param array<array-key,mixed> $value Command struct (name/arguments).
+	 * @param string                 $nonce Single-use nonce, hex.
+	 * @return string|null The string to HMAC, or null when it can't be encoded.
 	 */
 	private static function canonical( int $ts, array $value, string $nonce ): ?string {
 		$name      = $value['name']      ?? '';
@@ -441,12 +476,14 @@ class Command_Auth {
 	}
 
 	/**
-	 * Resolve a session record by handle: `{key, scope}`, or null on any miss.
+	 * Resolve a session record by handle: `{key, scope, user}`, or null on any
+	 * miss.
 	 *
-	 * A record written before scopes existed is a bare key string, and its
-	 * authority was unrestricted — so it reads back as MANAGE rather than being
-	 * discarded, which would log every live client out on deploy.
+	 * A record stored as a bare key string is scopeless and nobody's: it reads
+	 * back as MANAGE under user 0 rather than being discarded, because
+	 * discarding logs out every client still holding one.
 	 *
+	 * @param string $handle Session handle, as stamped into the envelope.
 	 * @return array{key:string,scope:string,user:int}|null
 	 */
 	public static function load_session_record( string $handle ): ?array {
@@ -456,14 +493,14 @@ class Command_Auth {
 		}
 		$record = $backend->get( self::session_address( $handle ) );
 		if ( \is_string( $record ) ) {
-			// A pre-scope record is a bare key: unrestricted, and nobody's.
+			// A bare key carries no scope: unrestricted, and nobody's.
 			return '' === $record ? null : [ 'key' => $record, 'scope' => Capabilities::MANAGE, 'user' => 0 ];
 		}
 		if ( ! \is_array( $record ) ) {
 			return null;
 		}
 		$key   = Core::as_string( $record['k'] ?? null, '' );
-		// as_string() substitutes only for a NON-scalar, so `?? ''` yields ''.
+		// A missing key coalesces to null, a non-scalar, taking the '' default.
 		$scope = Core::as_string( $record['s'] ?? null, '' );
 		if ( '' === $scope ) {
 			$scope = Capabilities::MANAGE;
@@ -497,9 +534,13 @@ class Command_Auth {
 	/**
 	 * True when a Message is a signable request command: TM_COMMAND without
 	 * TM_RESPONSE/TM_ERROR, an integer TYPE, a numeric TIMESTAMP, and an array
-	 * VALUE. sign() and verify() share this ONE predicate so the signer and the
-	 * verifier agree on what is signable at all. TYPE gates that decision but is
-	 * not itself signed.
+	 * VALUE. Stamping and verification share this ONE predicate so the signer
+	 * and the verifier agree on what is signable at all. TYPE gates that
+	 * decision but is not itself signed.
+	 *
+	 * The decision reads the TYPE bits, never a `name` key in VALUE: a command
+	 * whose VALUE carries no name still signs and verifies, and a non-command
+	 * carrying one is left alone.
 	 *
 	 * @param mixed $type  Raw Message TYPE.
 	 * @param mixed $ts    Raw Message TIMESTAMP.

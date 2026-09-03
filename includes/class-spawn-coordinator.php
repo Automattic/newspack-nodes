@@ -18,8 +18,8 @@
  * directory utilities only `delete_directory_recursive` has callers outside this
  * class (`Log_Cleaner`, uninstall); `remove_stale_directory` and `is_within` are
  * its neighbours. A home of their own is defensible, but they are the jail guard
- * uninstall loads by `require_once` without an autoloader, so moving them buys a
- * new file and a new dependency for the same code.
+ * `uninstall-cleanup.php` pulls in by an explicit `require_once`, so moving them
+ * buys a new file and a new dependency for the same code.
  *
  * @package Newspack_Nodes
  */
@@ -30,9 +30,20 @@ if ( ! \defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+/**
+ * An instance is scoped to one `base_dir`, and its only state is the in-memory
+ * record of the POSTs this process fired — which is why
+ * `Bootstrap::spawn_coordinator()` can hand out a fresh one per call.
+ *
+ * The static half needs neither instance nor base_dir: the deploy hold, the
+ * spawn-token key, the conflict description, and the contained delete.
+ */
 class Spawn_Coordinator {
 
-	/** Symlink-loop defense. */
+	/**
+	 * Recursion cap on the contained delete, so a pathological tree cannot
+	 * exhaust the stack. Symlinks are a separate refusal, made at every node.
+	 */
 	public const MAX_DEPTH = 5;
 
 	/** Upper bound on partitions per topology; expand_workers clamps the spawn count to it. */
@@ -47,6 +58,9 @@ class Spawn_Coordinator {
 	/**
 	 * Deploy hold: while set, every spawn path is refused so a plugin update can
 	 * swap `includes/` with no worker running against the half-old directory.
+	 * `Spawn_Controller::spawn()` is where the refusal lands, because it is the
+	 * one gate every spawn crosses — a worker's own respawn included, and that
+	 * one never consults this class.
 	 *
 	 * An OPTION, not a file under base_dir: the point of the hold is to survive
 	 * deactivate/remove/reinstall, and base_dir is operator storage a reinstall
@@ -55,6 +69,7 @@ class Spawn_Coordinator {
 	 */
 	public const HOLD_OPTION = 'newspack_nodes_hold';
 
+	/** Runtime state root holding locks/ and ipc/, trailing slash trimmed. */
 	protected string $base_dir;
 	/** @var array<string,float> Key: "{type}|{partition}", value: timestamp. */
 	protected array $last_spawn_time = [];
@@ -101,7 +116,13 @@ class Spawn_Coordinator {
 	}
 
 	/**
-	 * Remove $dir if its newest file mtime exceeds $stale_age_s (symlink-safe, base_dir-contained).
+	 * Remove `$dir` when its newest child is older than `$stale_age_s`, symlink-safe
+	 * and contained under base_dir.
+	 *
+	 * A directory yielding no readable child mtime survives, because nothing dates
+	 * it — an empty lock dir is a mid-acquire one. A symlink or a plain file at
+	 * `$dir` is unlinked outright rather than walked, so the recursion can never
+	 * follow a link out of base_dir.
 	 *
 	 * @param string $dir          Candidate stale directory.
 	 * @param int    $stale_age_s  Threshold in seconds.
@@ -143,9 +164,9 @@ class Spawn_Coordinator {
 	/**
 	 * Every worker lock dir under `locks/`, as `path => {type, partition}`.
 	 *
-	 * The `{type}.p{N}.lock.d` layout, stated ONCE beside `lock_path()` which
-	 * writes it. Hand-written walks elsewhere had drifted to a narrower glob and
-	 * a weaker regex, so a dir one pass retired another pass never saw.
+	 * The `{type}.p{N}.lock.d` layout, read ONCE here beside the `lock_path()`
+	 * that writes it. A second hand-written walk drifts to a narrower glob or a
+	 * weaker regex, and then one pass retires a dir another pass never sees.
 	 *
 	 * @return array<string,array{type:string,partition:int}>
 	 */
@@ -198,7 +219,19 @@ class Spawn_Coordinator {
 		return $this->spawn_each( $due, 'spawn failed', $now );
 	}
 
-	/** @param array<string,mixed> $worker Worker descriptor (type, partition, …). */
+	/**
+	 * True when `$worker` is due a spawn: no lock dir at all, or a lock whose
+	 * heartbeat has aged past the descriptor's own stale timeout.
+	 *
+	 * The one exception is a cleanly ABSENT on-demand worker, which is asleep by
+	 * design and reads as not due; the wake paths own its revival. A STALE lock
+	 * spawns whatever the worker's kind, because a worker that died holding one
+	 * crashed, and crash recovery is this scan's job.
+	 *
+	 * @param array<string,mixed> $worker Worker descriptor (type, partition, …).
+	 * @param float               $now    Pass clock.
+	 * @return bool True when this worker warrants a spawn POST.
+	 */
 	public function worker_needs_spawn( array $worker, float $now ): bool {
 		$type      = Core::as_string( $worker['type'] );
 		$partition = Core::as_int( $worker['partition'] );
@@ -266,6 +299,7 @@ class Spawn_Coordinator {
 	 * STALE lock is a crash, and the ordinary spawn scan owns crash recovery.
 	 *
 	 * @param array<array-key,mixed> $worker Worker descriptor.
+	 * @return bool True when the worker holds no lock dir.
 	 */
 	private function is_absent( array $worker ): bool {
 		return ! \is_dir( $this->lock_path(
@@ -274,6 +308,14 @@ class Spawn_Coordinator {
 		) );
 	}
 
+	/**
+	 * The lock directory one worker acquires. THE writer of the
+	 * `{type}.p{N}.lock.d` layout `worker_lock_dirs()` reads back.
+	 *
+	 * @param string $type      Worker type.
+	 * @param int    $partition Partition number.
+	 * @return string Absolute path, which need not exist.
+	 */
 	public function lock_path( string $type, int $partition ): string {
 		return "{$this->base_dir}/locks/{$type}.p{$partition}.lock.d";
 	}
@@ -283,9 +325,10 @@ class Spawn_Coordinator {
 	 *
 	 * ONE rule, shared by every entry point that meets an absent worker: a
 	 * cleanly absent on-demand worker is asleep BY DESIGN and holds no lock dir,
-	 * so refusing on the missing lock alone is what kept an attach — and a
-	 * request-scope Partition mount — from ever waking one. A resident worker
-	 * with no lock dir is a typo or a dead fleet, and stays refused.
+	 * so a caller that refuses on the missing lock alone never wakes one — which
+	 * is what an attach, and a request-scope Partition mount, both need. A
+	 * resident worker with no lock dir is a typo or a dead fleet, and stays
+	 * refused.
 	 *
 	 * Matches on the id the FLEET spells (`{type}.p{N}`, unpadded), because that
 	 * is the ipc/ tree the caller goes on to read; a padded id names no worker
@@ -293,6 +336,8 @@ class Spawn_Coordinator {
 	 *
 	 * @param string $worker_id `{type}.p{N}`.
 	 * @param float  $now       Clock, so one pass judges every worker alike.
+	 * @return bool True when the id names an on-demand worker; the wake itself is
+	 *              fire-and-forget, and the throttle may still swallow it.
 	 */
 	public function wake_sleeping_worker( string $worker_id, float $now ): bool {
 		foreach ( Bootstrap::expand_workers() as $worker ) {
@@ -415,7 +460,13 @@ class Spawn_Coordinator {
 	}
 
 	/**
-	 * Internal recursion helper: enforces depth bounds + per-node symlink avoidance.
+	 * The recursion itself: depth bound, plus a symlink refusal at every node.
+	 * Containment is checked once by the public entry point, so this helper is
+	 * private — reached with an already-vetted root and never from outside.
+	 *
+	 * @param string $path      Directory to walk.
+	 * @param int    $max_depth Depth ceiling; a deeper node is left standing.
+	 * @param int    $depth     Depth of $path, 0 at the vetted root.
 	 */
 	private static function delete_directory_recursive_inner( string $path, int $max_depth, int $depth ): void {
 		if ( $depth > $max_depth ) {
@@ -488,16 +539,16 @@ class Spawn_Coordinator {
 	 * the pass, then POST each survivor, report under `$label`, and record the
 	 * POST locally.
 	 *
-	 * Four hand-copied versions of this had drifted — one skipped the local
-	 * record and re-posted what it had just spawned, one discarded the transport
-	 * error and reported a fleet that never came up. Each entry point now
-	 * differs only in the worker list it computes, which is its actual job.
+	 * Every entry point differs only in the worker list it computes, which is its
+	 * actual job. A hand-copied second loop drops the local record and re-posts
+	 * what it just spawned, or swallows the transport error and reports a fleet
+	 * that never came up.
 	 *
 	 * The refusal is a property of the SET, so it is judged over the configured
 	 * active topologies rather than the workers handed in — a single fleet cannot
-	 * see the peer it would collide with. Hand-copied to four callers, it was absent
-	 * from the three wake paths, which are the only ones that revive an
-	 * on-demand worker at all.
+	 * see the peer it would collide with. Copied per caller it goes missing from
+	 * the wake paths, which are the only ones that revive an on-demand worker at
+	 * all.
 	 *
 	 * The throttle runs FIRST because the refusal parses every configured `.tsl`
 	 * and `wake_on_demand()` is driven by a write: judged the other way round,
@@ -550,6 +601,10 @@ class Spawn_Coordinator {
 	 * Record a spawn POST in-memory only. The tick loop uses this: persisting
 	 * here would make the endpoint (which records on accept) reject the very
 	 * POST this record announces.
+	 *
+	 * @param string $type      Worker type.
+	 * @param int    $partition Partition number.
+	 * @param float  $when      Pass clock.
 	 */
 	private function record_spawn_local( string $type, int $partition, float $when ): void {
 		$this->last_spawn_time[ "{$type}|{$partition}" ] = $when;
@@ -573,7 +628,12 @@ class Spawn_Coordinator {
 		] );
 	}
 
-	/** HMAC spawn token for $now's 10s window. Per-site, never logged. */
+	/**
+	 * HMAC spawn token for $now's 10s window. Per-site, never logged.
+	 *
+	 * @param int $now Unix time selecting the window.
+	 * @return string Token the spawn endpoint accepts as its `nonce`.
+	 */
 	public function generate_spawn_token( int $now ): string {
 		return Internal_Request_Token::generate( Internal_Request_Token::PURPOSE_SPAWN, $now, $this->nonce_salt );
 	}
@@ -592,6 +652,14 @@ class Spawn_Coordinator {
 		return empty( $conflicts ) ? '' : Topology_Analyzer::describe_conflicts( $conflicts );
 	}
 
+	/**
+	 * True while `{type}.p{partition}` sits inside the shared throttle window.
+	 *
+	 * @param string $type      Worker type.
+	 * @param int    $partition Partition number.
+	 * @param float  $now       Pass clock.
+	 * @return bool True while another spawn is still suppressed.
+	 */
 	public function is_recently_spawned( string $type, int $partition, float $now ): bool {
 		$key  = "{$type}|{$partition}";
 		// In-memory has priority (current process owns the truth).
@@ -610,6 +678,9 @@ class Spawn_Coordinator {
 	/**
 	 * Load a persisted spawn timestamp; null if absent. Reads the same single
 	 * tier persist_spawn_ts wrote — a throttle window must never straddle tiers.
+	 *
+	 * @param string $key `{type}|{partition}`.
+	 * @return float|null Recorded timestamp, or null when no tier holds one.
 	 */
 	protected function load_spawn_ts( string $key ): ?float {
 		$cache_key = Cache_Backend::site_key( self::SPAWN_TS_CACHE_KEY . $key );
@@ -632,6 +703,10 @@ class Spawn_Coordinator {
 	 * Record an ACCEPTED spawn (in-memory + persisted). The spawn endpoint calls
 	 * this — the one gate every spawn crosses — so self-respawns, peer scans and
 	 * the cron pass share a single cross-process throttle window.
+	 *
+	 * @param string $type      Worker type.
+	 * @param int    $partition Partition number.
+	 * @param float  $when      Time the endpoint accepted the spawn.
 	 */
 	public function record_spawn( string $type, int $partition, float $when ): void {
 		$key                          = "{$type}|{$partition}";
@@ -640,7 +715,12 @@ class Spawn_Coordinator {
 	}
 
 	/**
-	 * Persist a spawn timestamp (Cache_Backend, transient fallback) so a respawn honors the rate limit.
+	 * Persist a spawn timestamp (Cache_Backend, transient fallback) so a respawn
+	 * honors the rate limit. The TTL is twice MIN_SPAWN_INTERVAL_S, so the entry
+	 * outlives the window it guards and then expires on its own — no sweep.
+	 *
+	 * @param string $key  `{type}|{partition}`.
+	 * @param float  $when Time the spawn was accepted.
 	 */
 	protected function persist_spawn_ts( string $key, float $when ): void {
 		$cache_key = Cache_Backend::site_key( self::SPAWN_TS_CACHE_KEY . $key );
@@ -664,6 +744,8 @@ class Spawn_Coordinator {
 	 * forges spawn tokens and nothing else, which is what makes it safe to hand
 	 * to a process outside PHP — nuclear-gyrobase exports it to the Perl engine
 	 * so a render can ring the doorbell for a job it just queued.
+	 *
+	 * @return string Purpose-bound HMAC key, stable for the life of the salt.
 	 */
 	public static function spawn_key(): string {
 		return \hash_hmac( 'sha256', 'newspack_nodes_spawn_key', \wp_salt( 'nonce' ) );
@@ -674,24 +756,39 @@ class Spawn_Coordinator {
 		return \function_exists( 'get_option' ) ? Core::as_int( \get_option( self::HOLD_OPTION, 0 ) ) : 0;
 	}
 
-	/** Place the deploy hold, stamped so `doctor` can report how long it has stood. */
+	/**
+	 * Place the deploy hold, stamped so `doctor` can report how long it has stood.
+	 *
+	 * @param int $when Unix time the hold begins.
+	 */
 	public static function set_hold( int $when ): void {
 		\update_option( self::HOLD_OPTION, $when, false );
 	}
 
+	/** Lift the deploy hold; `wp nodes start` calls it, then spawns the fleet. */
 	public static function clear_hold(): void {
 		\delete_option( self::HOLD_OPTION );
 	}
 
-	/** Validate against the current AND previous window — don't tighten, that straddle is deliberate. */
+	/**
+	 * Validate against the current AND previous window — don't tighten, that
+	 * straddle is deliberate.
+	 *
+	 * @param string $token Token carried by the spawn request.
+	 * @param int    $now   Unix time selecting the current window.
+	 * @return bool True when the token matches either window.
+	 */
 	public function validate_spawn_token( string $token, int $now ): bool {
 		return Internal_Request_Token::validate( Internal_Request_Token::PURPOSE_SPAWN, $token, $now, $this->nonce_salt );
 	}
 
 	/**
-	 * Drop restart flags for a list of worker groups (plugins call this on
-	 * deactivation). A type no longer in the fleet has no partition count to
-	 * consult, so it is swept across the full range.
+	 * Raise a restart flag on every live partition of each named group; plugins
+	 * call this on deactivation. It spawns nothing and takes no lock — each
+	 * worker reads its own flag on the next drain iteration and exits.
+	 *
+	 * A type no longer in the fleet has no partition count to consult, so it is
+	 * swept across the full MAX_PARTITIONS range.
 	 *
 	 * @param string[] $groups Group names to kill.
 	 */

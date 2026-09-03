@@ -1,11 +1,19 @@
 /**
- * SummaryCards — the fleet-vitals card row shared by the Overview and Topologies
- * hub tabs. One small component, one set of derives, so both tabs show the SAME
- * numbers (topologies/active, worker liveness, on-disk partitions, health, global
- * R/W rates, current backlog, 24h produced totals) with no per-tab drift.
+ * The fleet-vitals card row across the top of the Overview hub tab: topology and
+ * active counts, worker liveness, on-disk partitions, worst health, global read
+ * and write rates, current message rate and backlog, the 24h produced totals,
+ * and offsetlog cache size.
  *
- * All card math lives in pure derives (fleetSummary, probe24hTotals, the
- * formatters); this component is just the presentation + i18n.
+ * Every number is computed outside this component. `readRate`, `writeRate` and
+ * `logPartitions` arrive as props from `useTopologyManager`; the five pure
+ * modules beside this one — `fleetSummary`, `probe24hTotals`, `globalMsgRate`,
+ * `cacheSizeTotals` and `backlogTotal` — roll the topology rows and the
+ * `topicprobe:view` consumers up into the rest, and the shared formatters turn
+ * each figure into its display string. What is left here is the layout and the
+ * translated labels, which is what lets a card's rule be tested without
+ * rendering anything. Those rules differ card by card — the rate cards dedup
+ * co-readers of one source, the backlog and cache cards sum per reader — and
+ * each derive's own header says why.
  */
 
 import { memo } from '@wordpress/element';
@@ -23,7 +31,22 @@ import {
 } from '@newspack-nodes/shared/utils/formatters';
 import './styles/summary-cards.scss';
 
-// One card: a big value + a muted label, keyed by `mod` for styling/tests.
+/**
+ * One card: a big value over a muted label.
+ *
+ * `mod` is the card's identity, naming both the BEM modifier the stylesheet
+ * targets and the selector the unit tests query, so the two move together.
+ * Both class names are load-bearing: `newspack-nodes-card` is the shared
+ * surface — background, border, radius — every Newspack card wears, and
+ * `nodes-card` carries this row's own layout and typography.
+ *
+ * @param {Object} props
+ * @param {string} props.mod          Card identity, appended to `nodes-card--`.
+ * @param {string} props.value        The big value line, already formatted.
+ * @param {string} props.label        The muted caption beneath it.
+ * @param {string} [props.extraClass] Further classes, concatenated verbatim, so a caller supplies its own leading space.
+ * @return {import('react').ReactElement} The card.
+ */
 function Card( { mod, value, label, extraClass = '' } ) {
 	return (
 		<div
@@ -36,12 +59,20 @@ function Card( { mod, value, label, extraClass = '' } ) {
 }
 
 /**
+ * Render the card row.
+ *
+ * Health is the one card that says more than a number: it reports the worst
+ * level among the ACTIVE topologies and how many sit there ("2 stalled"), and
+ * tints itself through a `nodes-card--health-{level}` modifier. Stalled
+ * outranks behind, so a fleet carrying both reports the stalled count; a fleet
+ * with neither reads "all systems ok".
+ *
  * @param {Object}  props
- * @param {Array}   props.topologies    Topology rows from useTopologyManager.
+ * @param {?Array}  props.topologies    Topology rows from `useTopologyManager`.
  * @param {number}  props.readRate      Fleet-global read bytes/sec.
  * @param {number}  props.writeRate     Fleet-global write bytes/sec.
- * @param {number}  props.logPartitions On-disk log-partition count.
- * @param {?Object} props.consumers     topicprobe:view consumers (24h totals).
+ * @param {?number} props.logPartitions On-disk log-partition count; absent renders 0.
+ * @param {?Object} props.consumers     The `topicprobe:view` consumers map behind the rate, backlog, cache and 24h cards.
  * @return {import('react').ReactElement} The card row.
  */
 function SummaryCards( {

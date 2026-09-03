@@ -1,27 +1,28 @@
 <?php
 /**
- * HTTP_In: double-duty Node + `/command` controller. As a Node its `fill()`
- * writes the `/command` response body (200 status header on first fill, then
- * packed-Message bytes); as a controller it registers `POST /command` and
- * routes the decoded batch through the substrate's Router.
+ * `POST /newspack-nodes/v1/command`: the substrate's command door, and the
+ * `_output` Node that writes its response body.
  *
- * Uniformly routes via the substrate's Router (no IPC vs local branches —
- * worker `Partition` Nodes handle IPC). The per-request controller instance
- * registers itself as the `_output` Node; an interpreter response with TO=FROM
- * walks back to it and writes the packed Message to the HTTP body. After
- * Router::fill returns:
- *   - sent_headers true  → response already on the wire; exit().
- *   - sent_headers false → async/IPC; emit a 202 ack (real replies arrive
- *                          via the browser's open SSE stream).
- * Every incoming message is stamped with the `_output` boundary name (the client
- * sends a bare reply path — `_output`, `_sse:{pid}/…`, or '' — and never
- * hardcodes `_output`), so a reply's TO=FROM walks `_output/…` back here; a
- * session-scoped `_sse:{pid}` reply is demuxed to the SSE process by HTTP_Filter.
- * test_mode returns instead of exit().
+ * The controller decodes a JSONL batch of packed Messages and fills each one
+ * into the request-scope base interpreter. The same instance registers itself as
+ * `_output`, so an interpreter reply addressed TO=FROM (ADR-7) walks the
+ * `_output` boundary back to this object and its `fill()` writes the reply into
+ * the HTTP body. Both halves live in one class because the status code depends
+ * on what the routing did, and only the object that wrote the body knows whether
+ * a status is still available to send.
  *
- * The `$send_header` constructor argument is a test seam — production passes a
- * closure wrapping `\status_header(...)`; tests inject a recorder so PHPUnit
- * can assert which status codes were emitted.
+ * Routing is uniform: every message goes through Router, and no branch sorts
+ * local work from IPC, because a worker's input `Partition` Node IS the IPC hop.
+ *
+ * Each incoming message is stamped with the `_output` boundary name. A client
+ * sends a bare reply path — `_output`, `_sse:{pid}/{node}`, or an empty FROM —
+ * and never spells the boundary itself, so a plain reply comes straight back
+ * down this response body while a session-scoped `_sse:{pid}` reply reaches the
+ * right browser tab through `HTTP_Filter_Node` in the SSE stream process.
+ *
+ * The door verifies and never signs (ADR-15). Conferring authority on arrival
+ * would make the boundary an oracle, since anything reaching it would acquire
+ * authority whatever put it there; an unsigned wire command is refused instead.
  *
  * @package Newspack_Nodes
  */
@@ -41,6 +42,15 @@ use Newspack_Nodes\Router_Node;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * The `/command` controller and the `_output` egress Node it registers itself as.
+ *
+ * The status goes out once, at whichever comes first: `fill()` sends it as a
+ * reply opens the body, and `dispatch()` sends it after the batch when nothing
+ * wrote back. 200 means a reply is already on the wire, 401 that a command in
+ * the batch failed verification, and 202 that the batch routed onward and its
+ * replies are due on the client's open SSE stream.
+ */
 class HTTP_In_Node extends Node {
 
 	/**
@@ -62,8 +72,11 @@ class HTTP_In_Node extends Node {
 	 */
 	public const RATE_LIMIT_WINDOW_S = 1;
 
+	/** REST namespace the route registers under. */
 	public const REST_NAMESPACE = 'newspack-nodes/v1';
-	public const ROUTE          = '/command';
+
+	/** Route within that namespace; the full path is `/newspack-nodes/v1/command`. */
+	public const ROUTE = '/command';
 
 	/**
 	 * Clock seam for the rate limit. The PHPUnit suite assigns a fake
@@ -82,25 +95,59 @@ class HTTP_In_Node extends Node {
 	 */
 	public static bool $rate_limit_disabled = false;
 
+	/**
+	 * Whether this request's status line has been sent. `fill()` sets it as it
+	 * opens the body; `dispatch()` reads it to decide whether a status is still
+	 * available once the batch has routed.
+	 */
 	public bool $sent_headers = false;
 
-	/** Whether any command in this request failed verification (drives the 401). */
+	/**
+	 * Whether any command in this request failed verification. Both status
+	 * decisions read it, so a batch carrying one refusal answers 401 rather than
+	 * a reassuring 200 or 202.
+	 */
 	public bool $refused_a_command = false;
 
-	/** @var \Closure status-header seam */
+	/**
+	 * Status-header seam. It replaces the one `\status_header()` call, so the
+	 * surrounding decision — which code, and whether the body has opened — runs
+	 * as real production code under test. The PHPUnit suite injects a recorder
+	 * and asserts on the codes emitted.
+	 *
+	 * Signature: `function ( int $code ): void`.
+	 *
+	 * @var \Closure
+	 */
 	private \Closure $send_header;
 
+	/** When true, `finish()` returns instead of calling `exit`, so a test can assert on what dispatch left behind. */
 	private bool $test_mode = false;
 
+	/**
+	 * Build the controller, defaulting the status seam to `\status_header()`.
+	 *
+	 * @param \Closure|null $send_header Seam `function ( int $code ): void`; null takes the production default.
+	 */
 	public function __construct( ?\Closure $send_header = null ) {
 		$this->send_header = $send_header ?? static function ( int $code ): void {
 			\status_header( $code );
 		};
-		// Chain to base ctor (no-op now; keeps :config auto-wire available).
+		// Chain to the base ctor: it seeds the declared-event allow-list.
 		parent::__construct();
 	}
 
-	/** Node egress (terminal, not forwarded): writes the `/command` HTTP response. */
+	/**
+	 * Write one message into the `/command` response body. Terminal egress: this
+	 * Node forwards nothing onward.
+	 *
+	 * The status rides out with the first message, because once the body starts
+	 * the status line is spent — a refusal discovered later in the batch can no
+	 * longer change it. `authorize_and_latch()` raises its latch ahead of the
+	 * verifier for exactly that reason.
+	 *
+	 * @param array<int,mixed> $message The 7-field positional message array.
+	 */
 	public function fill( array $message ): void {
 		++$this->counter;
 		if ( ! $this->sent_headers ) {
@@ -114,20 +161,20 @@ class HTTP_In_Node extends Node {
 	}
 
 	/**
-	 * Permission check: the READ floor THEN the per-user rate limit. Capability
-	 * is verified first so an unauthenticated burst can't poison the
-	 * transient table (same ordering Spawn_Controller uses).
+	 * Gate the request on the fleet site, then the READ role, then the per-user
+	 * rate limit. Capability is verified before the rate limit so an
+	 * unauthenticated burst cannot poison the transient table — the ordering
+	 * `Spawn_Controller` uses.
 	 *
-	 * The door demands the LEAST any verb behind it needs, and authority is
-	 * then decided per verb — by each Service CI's declared role and, for the
-	 * base interpreter's graph vocabulary, by the MANAGE floor
-	 * `ensure_request_graph()` pins on it. Demanding MANAGE here instead made
-	 * the strictest verb set the privilege level of every caller, which is why
-	 * the log aggregator had to hold an administrator's application password to
-	 * do nothing but pull a read-only stream.
+	 * The door demands the LEAST any verb behind it needs, and authority is then
+	 * decided per verb: by each Service CI's declared role and, for the base
+	 * interpreter's graph vocabulary, by the MANAGE floor `ensure_request_graph()`
+	 * pins on it. Demanding MANAGE here would make the strictest verb set the
+	 * privilege level of every caller, leaving the log aggregator holding an
+	 * administrator's application password to pull a read-only stream.
 	 *
-	 * @param \WP_REST_Request $req Request.
-	 * @return bool|\WP_Error
+	 * @param \WP_REST_Request $req Request; the gate reads nothing from it.
+	 * @return bool|\WP_Error True to proceed, false without the READ role, a 403 off the fleet site, a 429 over budget.
 	 */
 	public function check_permission( \WP_REST_Request $req ) {
 		$gate = Bootstrap::fleet_gate();
@@ -141,10 +188,16 @@ class HTTP_In_Node extends Node {
 	}
 
 	/**
-	 * Per-user rolling-window rate limit. Increments a transient counter
-	 * keyed by user id; returns WP_Error('rate_limited', 429) when the
-	 * window's budget is exhausted. No-op without the transient API (test
-	 * contexts that skip stubbing) or when `$rate_limit_disabled` is set.
+	 * Per-user rate limit over fixed one-second buckets. Increments a transient
+	 * counter keyed by user id and bucket, and returns
+	 * `WP_Error( 'rate_limited', 429 )` once that bucket's budget is spent.
+	 *
+	 * Independent buckets are what keep a steady one-request-per-second client at
+	 * count 1 forever. One counter whose TTL every write renews instead climbs
+	 * monotonically, and 429s a client that never exceeded one request a second.
+	 *
+	 * No-op when `$rate_limit_disabled` is set, and no-op without the transient
+	 * API — a test context that stubs neither `get_transient` nor `set_transient`.
 	 *
 	 * @return true|\WP_Error
 	 */
@@ -186,6 +239,22 @@ class HTTP_In_Node extends Node {
 		return true;
 	}
 
+	/**
+	 * Route one POSTed batch and answer it.
+	 *
+	 * The batch fills the base interpreter in the order posted, serially: a
+	 * client that sends `connect_worker_input` ahead of the command it enables
+	 * depends on that order holding.
+	 *
+	 * The reply decides the status. A synchronous reply walks back to `fill()`,
+	 * which has already sent 200 or 401; when nothing writes back, the work
+	 * routed onward and this answers 202, its replies due on the client's open
+	 * SSE stream. A request-scope graph missing `_router` or `_output` answers
+	 * 500 through `emit_error()` instead.
+	 *
+	 * @param \WP_REST_Request $request Request whose body is the JSONL batch.
+	 * @throws \InvalidArgumentException When the body carries no parseable Message.
+	 */
 	public function dispatch( \WP_REST_Request $request ): void {
 		$messages = $this->messages_from_body( $request->get_body() );
 
@@ -222,17 +291,22 @@ class HTTP_In_Node extends Node {
 		$this->finish();
 	}
 
-	/** Reset the refusal latch and hand back this request's authorize policy. */
+	/**
+	 * Reset the refusal latch and hand back this request's authorize policy.
+	 *
+	 * @return \Closure(Command_Interpreter_Node,array<int,mixed>):bool
+	 */
 	private function fresh_verifier(): \Closure {
 		$this->refused_a_command = false;
 		return \Closure::fromCallable( [ $this, 'authorize_and_latch' ] );
 	}
 
 	/**
-	 * Decode the JSONL request body into an ordered list of Messages (one
-	 * packed Message per line via `Message::unpacked()`; blank lines skipped).
+	 * Decode the JSONL request body into an ordered list of Messages: one packed
+	 * Message per line through `Message::unpacked()`, blank lines skipped.
 	 *
-	 * @return array<int,array<int,mixed>>
+	 * @param string $body Raw request body.
+	 * @return array<int,array<int,mixed>> The batch, in the order posted.
 	 * @throws \InvalidArgumentException When no line parses to a Message.
 	 */
 	private function messages_from_body( string $body ): array {
@@ -251,30 +325,47 @@ class HTTP_In_Node extends Node {
 	}
 
 	/**
-	 * Lazy-construct the request-scope graph if not already in Core's registry
-	 * (idempotent). Returns the base CommandInterpreter for the
-	 * `newspack_nodes/request_graph_ready` hook. This controller instance IS
-	 * the `_output` response-writer Node.
+	 * Build the request-scope graph if this process has none yet (idempotent),
+	 * and name this instance `_output` so replies land in the HTTP body.
+	 *
+	 * Only the naming is this door's own. `Bootstrap::mount_request_graph()`
+	 * builds `_router` and `_command_interpreter` and fires
+	 * `newspack_nodes/request_graph_ready` for the service CIs, shared with every
+	 * other command door so no door ends up with a different verb surface behind
+	 * it.
+	 *
+	 * @return Command_Interpreter_Node The base interpreter the batch fills.
 	 */
 	private function ensure_request_graph(): Command_Interpreter_Node {
-		// Shared with every command door; only `_output` is this one's own.
 		$base_interpreter = Bootstrap::mount_request_graph();
 		// The graph vocabulary declares no per-verb roles; pin it at MANAGE.
 		$base_interpreter->required_capability = Capabilities::MANAGE;
-		// This controller instance IS the _output egress Node (same obj).
+		// A pre-built _output holds the name; the batch answers through it.
 		if ( ! Core::node( Node_Names::OUTPUT ) instanceof self ) {
 			$this->name( Node_Names::OUTPUT );
 		}
 		return $base_interpreter;
 	}
 
+	/**
+	 * End the request. Production calls `exit` so the REST server cannot append
+	 * its own JSON envelope to the JSONL body already written; test mode returns
+	 * instead, leaving the process alive for assertions.
+	 */
 	private function finish(): void {
 		if ( ! $this->test_mode ) {
 			exit;
 		}
 	}
 
-	/** @param array<int,mixed> $message The Message that triggered the error. */
+	/**
+	 * Answer 500 with one TM_RESPONSE|TM_ERROR frame addressed back along the
+	 * triggering message's FROM, so a client reads the failure as a Message
+	 * rather than as an HTML error page it cannot unpack.
+	 *
+	 * @param array<int,mixed> $message The Message that triggered the error.
+	 * @param string           $err     Reason, carried in the frame's VALUE.
+	 */
 	private function emit_error( array $message, string $err ): void {
 		\status_header( 500 );
 		\header( 'Content-Type: application/json' );
@@ -289,32 +380,55 @@ class HTTP_In_Node extends Node {
 	}
 
 	/**
-	 * The request's authorize policy: Command_Auth's verifier, latching any
-	 * refusal so dispatch() answers 401 instead of a reassuring 202. Named (not
-	 * an inline closure) for the same reason `authorize_command` is — the
-	 * int-keyed Message type is honored end-to-end.
+	 * This request's authorize policy: `Command_Auth`'s verifier, latching any
+	 * refusal so `dispatch()` answers 401 instead of a reassuring 202.
+	 *
+	 * The latch is raised BEFORE the verifier runs and lowered only on success,
+	 * because the verifier logs its refusal through the interpreter and that log
+	 * line can reach `fill()` and open the body — by which point the status is
+	 * spent.
+	 *
+	 * Named rather than an inline closure for the same reason
+	 * `Command_Auth::authorize_command` is: the int-keyed Message type is honored
+	 * end to end.
 	 *
 	 * @param Command_Interpreter_Node $interpreter Node handling the command.
-	 * @param array<int,mixed>        $message
+	 * @param array<int,mixed>         $message     Command to authorize.
+	 * @return bool True when the command may dispatch.
 	 */
 	public function authorize_and_latch( Command_Interpreter_Node $interpreter, array $message ): bool {
-		$refused_before = $this->refused_a_command;
-		// Pessimistic: the verifier logs before it returns, opening the body.
+		$refused_before          = $this->refused_a_command;
 		$this->refused_a_command = true;
 		$ok                      = ( Command_Auth::verifier() )( $interpreter, $message );
 		$this->refused_a_command = $refused_before || ! $ok;
 		return $ok;
 	}
 
+	/**
+	 * Clear the sent-status latch. `dispatch()` calls it on the `_output` node it
+	 * resolved, so a second batch in the same process starts with its status
+	 * still available to send.
+	 */
 	public function reset(): void {
 		$this->sent_headers = false;
 	}
 
-	/** @api Support for unit tests. */
+	/**
+	 * Toggle test mode, which makes `finish()` return instead of calling `exit`.
+	 *
+	 * @api Support for unit tests.
+	 * @param bool $on True to return from `finish()`.
+	 */
 	public function set_test_mode( bool $on ): void {
 		$this->test_mode = $on;
 	}
 
+	/**
+	 * Register `POST /newspack-nodes/v1/command`. It declares no `args`: the body
+	 * is a JSONL batch that `messages_from_body()` parses itself.
+	 *
+	 * @api Wired from Bootstrap::register_rest_routes().
+	 */
 	public function register_routes(): void {
 		\register_rest_route(
 			self::REST_NAMESPACE,
@@ -327,6 +441,13 @@ class HTTP_In_Node extends Node {
 		);
 	}
 
+	/**
+	 * Hidden from the palette and target-less: this Node exists only as the
+	 * `_output` boundary of a `/command` request, so nothing builds one through
+	 * `make_node` and it has nowhere to forward.
+	 *
+	 * @return array<string,mixed>
+	 */
 	public static function node_schema(): array {
 		return [
 			'category'    => 'Hidden',

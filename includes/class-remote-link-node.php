@@ -2,24 +2,26 @@
 /**
  * Remote_Link: the full-duplex "be the browser" SSE+HTTP channel, as one node.
  *
- * One Remote_Link patrons two hidden siblings: an `SSE_In_Node` (`<name>:sse-in`)
- * that pulls one remote partition, and an `HTTP_Out_Node` (`<name>:http-out`)
- * that carries outbound commands + the slot-keepalive heartbeat. A recurring tick
- * drives the passive SSE_In (`check_stale` + a queued `maybe_connect`), mints a
- * `workers.heartbeat` every ~HEARTBEAT_INTERVAL (filled into the patron HTTP_Out,
- * whose reply self-routes back into `fill()` for RTT bookkeeping), and publishes
- * the connection-state snapshot a dashboard reads.
+ * One Remote_Link patrons three hidden siblings: an `SSE_In_Node`
+ * (`<name>:sse-in`) that pulls one remote partition, an `HTTP_Out_Node`
+ * (`<name>:http-out`) that carries outbound commands and the slot-keepalive
+ * heartbeat, and a `Null_Node` (`<name>:null`) HTTP_Out targets so unaddressed
+ * reply-leg traffic is discarded. A recurring tick drives the passive SSE_In
+ * (`check_stale` plus a queued `maybe_connect`), mints a `workers.heartbeat`
+ * every ~HEARTBEAT_INTERVAL (filled into the patron HTTP_Out, whose reply
+ * self-routes back into `fill()` for RTT bookkeeping), and publishes the
+ * connection-state snapshot a dashboard reads.
  *
- * Credentials + URL come from the Vault entry resolved by `<vault-id>`; a missing
- * entry leaves the node disconnected (no mis-configured patrons created).
+ * Credentials and URL come from the Vault entry resolved by `<vault-id>`; a
+ * missing entry leaves the node disconnected, with no mis-configured patrons.
  *
- * Mirrors the JS RemoteLinkNode. ONE subclass specializes the base in PHP —
- * `Remote_Source_Node`, which adds the durable aggregation offsetlog and the
- * dashboard status snapshot. The seams are shaped for two because the JS side
- * still has the second (`src/runtime/remote-ipc-node.js`); PHP's `Remote_IPC_Node`
- * was deleted, so `should_connect()` has a single implementation returning a
- * constant, and the status seams (`publish_status`, `record_heartbeat_sent`,
- * `record_heartbeat_reply`) are no-ops here that only `Remote_Source_Node` fills.
+ * Mirrors the JS RemoteLinkNode. The seams are shaped for two subclasses because
+ * the JS side has two (`src/runtime/remote-ipc-node.js` is the second); PHP has
+ * only `Remote_Source_Node`, which adds the durable aggregation offsetlog and the
+ * dashboard status snapshot. So `should_connect()` has one implementation
+ * returning a constant, and the status seams (`publish_status`,
+ * `record_heartbeat_sent`, `record_heartbeat_reply`, `record_heartbeat_failure`)
+ * are no-ops here that only `Remote_Source_Node` fills.
  *
  * No topology instantiates `Remote_Link` itself; it reaches the graph as that
  * subclass, or through its `@api` dynamic entrypoints (`connect`, `close`).
@@ -40,15 +42,23 @@ class Remote_Link_Node extends Timer_Node {
 	/** `SSE_Slot_Pool` lease state for a slot released under us — expected, not an error. */
 	public const RELEASED_SLOT = 'slot_released';
 
-	/** 10Hz poll; housekeeping self-latches. Protected: PLAY re-arms it. */
+	/**
+	 * Channel tick (milliseconds). Housekeeping runs once per wall-second whatever
+	 * the rate, so the remaining ticks serve a subclass's own fast path. Protected
+	 * because `Remote_Source_Node` re-arms with it when time travel resumes.
+	 */
 	protected const TICK_INTERVAL_MS = 100;
 
-	/** Patron HTTP_Out sibling (`<name>:http-out`); carries commands + the heartbeat. */
+	/** Patron HTTP_Out sibling (`<name>:http-out`); carries commands and the heartbeat. */
 	protected ?HTTP_Out_Node $http_out = null;
 
-	/** Black hole for reply-leg traffic the wire-inbound clause stamps. */
+	/**
+	 * Sink of last resort: HTTP_Out targets it, so reply-leg traffic the spoke
+	 * left unaddressed is discarded instead of routed into this graph.
+	 */
 	protected ?Null_Node $null_sink = null;
 
+	/** Wall-second of the last heartbeat sent; the HEARTBEAT_INTERVAL gate reads it. */
 	protected int $last_heartbeat_sent = 0;
 
 	/**
@@ -65,17 +75,22 @@ class Remote_Link_Node extends Timer_Node {
 	/** Whether this link already has a connect waiting in that queue. */
 	private bool $connect_queued = false;
 
-	/** Wall-second the lease first existed; both cadences count from it. */
+	/**
+	 * Wall-second the lease first existed. The first session request holds off
+	 * half a HEARTBEAT_INTERVAL past it.
+	 */
 	protected int $link_epoch = 0;
 
 	/** Wall-second of the last session request; its own retry clock. */
 	protected int $last_session_request = 0;
 
+	/** Spoke partition to pull, `<topic>.p<N>`; SSE_In subscribes to it verbatim. */
 	protected string $remote_partition = '';
 
-	/** Patron SSE_In sibling (`<name>:sse-in`); null until first connect / Vault-resolved. */
+	/** Patron SSE_In sibling (`<name>:sse-in`); null until the Vault entry resolves. */
 	protected ?SSE_In_Node $sse_in = null;
 
+	/** Vault entry naming the spoke — its URL and credentials. Required. */
 	protected string $vault_id = '';
 
 	/** Wall-second of the last housekeeping pass; fire() latches on it. */
@@ -98,7 +113,7 @@ class Remote_Link_Node extends Timer_Node {
 	 * and stays `reload()`'s job.
 	 *
 	 * @api Dynamic entrypoint.
-	 * @param list<string>|null $args
+	 * @param list<string>|null $args Positional tokens, or null to read the current ones.
 	 * @return list<string>
 	 */
 	public function arguments( ?array $args = null ): array {
@@ -147,10 +162,11 @@ class Remote_Link_Node extends Timer_Node {
 	}
 
 	/**
-	 * Per-tick housekeeping (Timer_Node::fire_cb calls this): drive the passive
-	 * SSE_In, keep the slot alive, and publish the status snapshot. Idempotent
-	 * and cheap. `should_connect()` gates whether a tick initiates/keeps the
-	 * connection.
+	 * Per-tick housekeeping: drive the passive SSE_In, keep the slot alive, and
+	 * publish the status snapshot. Idempotent and cheap. `should_connect()` gates
+	 * whether a tick initiates or keeps the connection.
+	 *
+	 * @api Dynamic entrypoint (Timer_Node::fire_cb).
 	 */
 	public function fire(): void {
 		// Housekeeping once per second; subclass fast paths ride every tick.
@@ -184,6 +200,7 @@ class Remote_Link_Node extends Timer_Node {
 	 * predecessor.
 	 *
 	 * @param string|null $name New name; omit the argument entirely to read.
+	 * @return string The name now held.
 	 */
 	public function name( ?string $name = null ): string {
 		if ( 0 === \func_num_args() ) {
@@ -257,6 +274,9 @@ class Remote_Link_Node extends Timer_Node {
 	 * (FROM=<this node>, TO=workers, args `<slot> <owner>`) and fill it into the
 	 * patron HTTP_Out. Skips until SSE_In reports the complete lease. The slot
 	 * pool keys on (user, ip, slot, owner) — no partition.
+	 *
+	 * Signing needs a session with the spoke, so a tick that finds none asks for
+	 * one through `maybe_request_session()` and sends no heartbeat on that pass.
 	 */
 	private function maybe_send_heartbeat(): void {
 		if ( null === $this->sse_in || null === $this->http_out ) {
@@ -346,6 +366,13 @@ class Remote_Link_Node extends Timer_Node {
 		self::$connect_queue[] = [ $connect, $owner ];
 	}
 
+	/**
+	 * Ask the spoke for a command session: at most one request per
+	 * HEARTBEAT_INTERVAL, and only on this link's own second of the cadence.
+	 *
+	 * @param HTTP_Out_Node $http_out The patron that holds the session.
+	 * @param int           $now      Current wall-second.
+	 */
 	private function maybe_request_session( HTTP_Out_Node $http_out, int $now ): void {
 		// intdiv, so a 1s housekeeping tick can actually land on the boundary.
 		$offset = \intdiv( self::HEARTBEAT_INTERVAL, 2 );
@@ -390,6 +417,7 @@ class Remote_Link_Node extends Timer_Node {
 	 * Return null only for an explicit successful heartbeat response.
 	 *
 	 * @param array<int,mixed> $message Command response/error envelope.
+	 * @return string|null The failure reason, or null on success.
 	 */
 	private static function heartbeat_failure( array $message ): ?string {
 		$type  = Core::int( $message[ Message::TYPE ] );
@@ -411,7 +439,12 @@ class Remote_Link_Node extends Timer_Node {
 		return null;
 	}
 
-	/** Extract only a bounded single-line reason, never a raw response body. */
+	/**
+	 * Extract only a bounded single-line reason, never a raw response body.
+	 *
+	 * @param mixed  $payload  The response payload, a string or an array.
+	 * @param string $fallback Reason to report when the payload names none.
+	 */
 	private static function heartbeat_failure_reason( mixed $payload, string $fallback ): string {
 		$reason = \is_string( $payload ) ? $payload : '';
 		if ( \is_array( $payload ) ) {
@@ -444,9 +477,10 @@ class Remote_Link_Node extends Timer_Node {
 	}
 
 	/**
-	 * Create + register the two hidden patron siblings on first call, configuring
-	 * SSE_In from the Vault entry resolved by `<vault-id>`. A missing Vault entry
-	 * leaves the node disconnected (no mis-configured patrons) and returns null.
+	 * Create and publish the three hidden patron siblings on first call,
+	 * configuring SSE_In from the Vault entry resolved by `<vault-id>`. A missing
+	 * Vault entry leaves the node disconnected and returns null, rather than
+	 * building patrons that cannot reach a spoke.
 	 *
 	 * @return SSE_In_Node|null The SSE_In patron once configured, else null.
 	 */
@@ -519,7 +553,11 @@ class Remote_Link_Node extends Timer_Node {
 		return $sse;
 	}
 
-	/** Name the transports, then re-address HTTP_Out at the Null it targets. */
+	/**
+	 * Name the siblings through `parent::`, then re-address HTTP_Out at the
+	 * renamed Null. An override that drops the `parent::` call stops every
+	 * sibling being named, with no other symptom and no gate to catch it.
+	 */
 	protected function set_sibling_names(): void {
 		parent::set_sibling_names();
 		$this->address_null_sink();
@@ -583,11 +621,16 @@ class Remote_Link_Node extends Timer_Node {
 	}
 
 	/**
-	 * Unpack one raw `msg` payload and forward it straight downstream. Honors an empty
-	 * target (an attached worker reply carries its own
-	 * TO — the TO=FROM breadcrumb — so don't overwrite it). A false FROM stamp (over
-	 * MAX_FROM_SIZE) or an unparseable frame is dropped, never forwarded. Remote_Source
-	 * overrides the delivery seam entirely (it buffers), so this is the channel path only.
+	 * Unpack one raw `msg` payload and forward it straight downstream.
+	 *
+	 * An empty `target` leaves TO alone, because an attached worker reply carries
+	 * its own TO — the TO=FROM breadcrumb — and overwriting it strands the reply.
+	 * An unparseable frame, or one whose FROM stamp would pass MAX_FROM_SIZE, is
+	 * dropped rather than forwarded. `Remote_Source_Node` replaces the
+	 * `on_message` seam with a buffering closure of its own, so this is the
+	 * channel path only.
+	 *
+	 * @param string $raw One packed Message, as the SSE `msg` payload carried it.
 	 */
 	protected function deliver_downstream( string $raw ): void {
 		try {
@@ -614,6 +657,7 @@ class Remote_Link_Node extends Timer_Node {
 		self::$connect_queue = [];
 	}
 
+	/** Pop the oldest queued connect for the drain timer; null when the queue is dry. */
 	public static function shift_connect_queue(): ?callable {
 		$queued = \array_shift( self::$connect_queue );
 		return null === $queued ? null : $queued[0];
@@ -624,14 +668,17 @@ class Remote_Link_Node extends Timer_Node {
 		return null !== $this->sse_in ? $this->sse_in->counter() : parent::counter();
 	}
 
+	/** SSE_In's tally: the link holds no socket of its own to read. */
 	public function bytes_read(): int {
 		return $this->sse_in?->bytes_read() ?? 0;
 	}
 
+	/** HTTP_Out's tally: the link holds no socket of its own to write. */
 	public function bytes_written(): int {
 		return $this->http_out?->bytes_written() ?? 0;
 	}
 
+	/** The largest SSE frame SSE_In has delivered. */
 	public function largest_msg_sent(): int {
 		return $this->sse_in?->largest_msg_sent() ?? 0;
 	}

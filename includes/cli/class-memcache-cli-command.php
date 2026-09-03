@@ -31,8 +31,8 @@ class Memcache_CLI_Command {
 	 *
 	 * One rotation orphans every Newspack plugin's cached values at once and
 	 * touches no co-tenant install sharing the memcached. Plugins deliberately
-	 * keep no salt of their own: three independent rotations meant flushing one
-	 * left the other two serving stale values.
+	 * keep no salt of their own: with three independent rotations, flushing one
+	 * leaves the other two serving stale values.
 	 *
 	 * Workers are restarted after, because the scope is memoized per process
 	 * and a live worker keeps writing the OLD prefix until it respawns. That
@@ -43,8 +43,8 @@ class Memcache_CLI_Command {
 	 *
 	 *     wp nodes memcache flush
 	 *
-	 * @param list<string>         $args       Unused.
-	 * @param array<string,string> $assoc_args Unused.
+	 * @param list<string>        $args       Unused.
+	 * @param array<string,mixed> $assoc_args Unused.
 	 */
 	public function flush( array $args, array $assoc_args ): void {
 		Cache_Backend::rotate_salt();
@@ -84,8 +84,9 @@ class Memcache_CLI_Command {
 	 *   `job-batch:import-7719`, `job-uniq:sync:daily`, `cmd-nonce:<nonce>`.
 	 *
 	 * [--host]
-	 * : Resolve in the per-MACHINE scope instead of the per-install one. Only SSE
-	 *   slots (`sse:{user}:{ip}:{slot}`) live there.
+	 * : Resolve in the per-MACHINE scope instead of the per-install one. SSE
+	 *   connection slots are the only surface there: `sse:{slot}` holds the owner
+	 *   token, and `sse:{slot}:lease:{owner}` the identity it was issued to.
 	 *
 	 * [--key]
 	 * : Print the resolved key and exit without reading.
@@ -97,10 +98,10 @@ class Memcache_CLI_Command {
 	 *
 	 *     wp nodes memcache get table:prices:sku-9
 	 *     wp nodes memcache get --key job-batch:import-7719
-	 *     wp nodes memcache get --host sse:17:abc12345:0
+	 *     wp nodes memcache get --host sse:0
 	 *
-	 * @param list<string>          $args       Positional: the logical name.
-	 * @param array<string,string> $assoc_args Flags.
+	 * @param list<string>        $args       Positional: the logical name.
+	 * @param array<string,mixed> $assoc_args Flags; WP-CLI passes true for a bare flag.
 	 */
 	public function get( array $args, array $assoc_args = [] ): void {
 		$logical = Core::as_string( $args[0] ?? '', '' );

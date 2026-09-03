@@ -6,22 +6,24 @@ import { useDebugFrame } from './useDebugFrame';
 
 /**
  * The overlay's panel. It owns the floating-window concerns (draggable/resizable
- * frame via useDebugFrame, the wheel eater, the page-scroll lock, the resize
- * handles) AND the ONE shared header: the topology-console Header is rendered
- * here, once, above the tab bar — so every tab sits under the SAME header (same
- * height, same place) instead of each tab duplicating its own. The active tab
- * publishes any header extras it wants (the Console publishes its cwd PATH
- * selector) up via `publishHeader`; the body itself (Console graph+REPL, or the
- * I/O Overview) is header-less and lives in its tab component.
+ * frame via useDebugFrame, the wheel eater, the page-scroll lock, the eight
+ * resize handles) AND the ONE shared header: the topology-console Header is
+ * rendered here, once, above the tab bar — so every tab sits under the SAME
+ * header (same height, same place) instead of each tab duplicating its own. The
+ * active tab publishes any header extras it wants (the Console publishes its cwd
+ * PATH selector) up via `publishHeader`; the body itself (Console graph+REPL, or
+ * the I/O Overview) is header-less and lives in its tab component. The frame
+ * geometry rides along in `tabProps`, which is how a tab sizes its own body
+ * against the current panel height.
  *
  * Mounted by DebugOverlay ONLY while open, so the active tab's graph-building
  * hooks construct their infra BEFORE the subtree's first render; closing the
  * panel unmounts this component and tears that infra down.
  *
  * @param {Object}   props
- * @param {string}   props.storageKey  Layout persistence key (per dashboard).
+ * @param {string}   props.storageKey  Canvas-layout persistence key (per dashboard).
  * @param {Function} props.onClose     Close the panel (parent's setOpen(false)).
- * @param {boolean}  [props.buildRepl] When false (Console tab), the Inspector tab runs Overview-only.
+ * @param {boolean}  [props.buildRepl] False while the hub's own Console tab is active, where a second graph and REPL would collide on `_output`; the overlay's Console tab then builds neither.
  * @return {import('react').ReactElement} The panel.
  */
 export default function DebugPanel( {
@@ -45,12 +47,13 @@ export default function DebugPanel( {
 	// The active tab publishes the header controls it owns; merged into Header.
 	const [ headerExtras, setHeaderExtras ] = useState( null );
 
-	// Eat wheel scrolls inside the panel (non-passive, preventDefault).
+	// Eat the wheel inside the panel so the page behind it can't scroll.
 	useEffect( () => {
 		const el = panelRef.current;
 		if ( ! el ) {
 			return undefined;
 		}
+		// A scrollable ancestor with room left owns the wheel, not the page.
 		const consumedByInnerScroll = ( target, deltaY ) => {
 			let node = target;
 			while ( node && node !== el ) {
@@ -82,7 +85,7 @@ export default function DebugPanel( {
 		return () => el.removeEventListener( 'wheel', onWheel );
 	}, [] );
 
-	// Callback ref: track the node AND release the page-scroll lock on detach.
+	// Unmount fires no pointerleave, so detach must release the lock.
 	const setPanelRef = useCallback( ( node ) => {
 		panelRef.current = node;
 		if ( ! node ) {
@@ -90,7 +93,14 @@ export default function DebugPanel( {
 		}
 	}, [] );
 
+	// The hook types these bare; each takes the div's pointerdown.
+	const resizeHandlers =
+		/** @type {Object<string,{onPointerDown:import('react').PointerEventHandler<HTMLDivElement>}>} */ (
+			getResizeHandlers()
+		);
+
 	return (
+		// The overlay root provides the skin; a provider here would nest.
 		<div style={ { display: 'contents' } }>
 			<div
 				ref={ setPanelRef }
@@ -109,6 +119,7 @@ export default function DebugPanel( {
 					data-testid="overlay-header"
 					onPointerDown={ onHeaderPointerDown }
 					onDoubleClick={ ( e ) => {
+						// Don't maximize from an interactive header control.
 						const el = /** @type {HTMLElement} */ ( e.target );
 						const tag = el?.tagName;
 						if (
@@ -138,7 +149,7 @@ export default function DebugPanel( {
 						buildRepl,
 					} }
 				/>
-				{ Object.entries( getResizeHandlers() ).map( ( [ key, h ] ) => (
+				{ Object.entries( resizeHandlers ).map( ( [ key, h ] ) => (
 					<div
 						key={ key }
 						className={ `nodes-debug__resize nodes-debug__resize--${ key }` }

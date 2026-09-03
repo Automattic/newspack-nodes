@@ -18,14 +18,32 @@ import '../../event-dashboards/styles/overview.scss';
 // Overlay-only additions, panel-scoped so they can't bleed into the hub.
 import './overview-tab.scss';
 
-// Message levels, in chip order: error / warning / debug.
+/**
+ * The three levels IoTelemetry classifies, in chip order, each with the short
+ * label its filter chip wears. A `level` here is the exact string
+ * `recordError` / `recordWarning` / `recordDebug` push onto the message ring,
+ * because the visibility map below is keyed by it — spell one differently and
+ * that chip toggles nothing.
+ *
+ * @type {Array<{level:string,label:string}>}
+ */
 const MSG_LEVELS = [
 	{ level: 'error', label: 'err' },
 	{ level: 'warning', label: 'warn' },
 	{ level: 'debug', label: 'dbg' },
 ];
 
-// One metric card — reuses the hub SummaryCards `.nodes-card` markup + styling.
+/**
+ * One metric card, on the hub SummaryCards markup: `newspack-nodes-card` for
+ * the canonical surface role and `nodes-card` for the value/label layout, so
+ * the overlay inherits the hub's card look instead of restating it.
+ *
+ * @param {Object}                    props
+ * @param {string}                    props.id    Card id; names both the `nodes-card--<id>` modifier and the test id.
+ * @param {string}                    props.label Caption under the value.
+ * @param {import('react').ReactNode} props.value Formatted value, either a plain string or an `inOut` pair.
+ * @return {import('react').ReactElement} The card.
+ */
 function Card( { id, label, value } ) {
 	return (
 		<div
@@ -38,7 +56,16 @@ function Card( { id, label, value } ) {
 	);
 }
 
-// Compact in/out value: ↓ inbound ↑ outbound; fixed-width cells so arrows hold.
+/**
+ * A compact in/out card value: the inbound number carrying ↓, the outbound
+ * carrying ↑. Each sits in its own fixed-width right-aligned `nodes-card__io`
+ * cell, so the arrows hold their column as the digit count changes rather than
+ * sliding around under them.
+ *
+ * @param {string} inbound  Formatted inbound value.
+ * @param {string} outbound Formatted outbound value.
+ * @return {import('react').ReactElement} The two cells, as a fragment.
+ */
 function inOut( inbound, outbound ) {
 	return (
 		<>
@@ -55,19 +82,23 @@ function inOut( inbound, outbound ) {
 }
 
 /**
- * The Overview tab — the debug overlay's at-a-glance I/O board. Cards for the
- * current byte/message rates and cumulative byte/message/warning/error totals
- * (in vs out), plus the same two Tachikoma-style rate panels the hub Overview
- * shows (Message Rate, Byte Rate) but with In/Out series in place of per-topic.
+ * The Overview tab — the debug overlay's at-a-glance I/O board. The cards carry
+ * the live in/out byte and message rates, the cumulative in/out byte and message
+ * totals, the warning, error and debug counts, and the client and SSE uptimes.
+ * Under them sit the same two Tachikoma-style rate panels the hub Overview shows
+ * (Message Rate, Byte Rate) with In/Out series in place of per-topic, a button
+ * that zeroes the telemetry, and the lines this browser classified, newest
+ * first, behind err/warn/dbg chips. Those lines are the overlay's own, never the
+ * server's, which is what the "Messages (this browser)" heading says out loud.
  *
  * Header-less: the panel owns the one shared header above the tab bar, so this
- * tab is just the scrolling body, on the hub's own card / panel / chart classes
- * (no styles of its own) and the Newspack surface backdrop. It publishes nothing
- * to the shared header (the Overview has no graph cwd to navigate). Data comes
- * from useOverviewStats, fed by the always-on IoTelemetry sampler.
+ * tab renders only the scrolling body, on the hub's card, panel and chart
+ * classes plus the panel-scoped additions in `overview-tab.scss`. It publishes
+ * nothing to that header, because the Overview has no graph cwd to navigate.
+ * Data comes from `useOverviewStats`, fed by the always-on IoTelemetry sampler.
  *
  * @param {Object}   props
- * @param {Function} props.publishHeader Publish header extras to the panel's shared Header (the Overview clears them).
+ * @param {Function} props.publishHeader Publish header extras to the panel's shared Header; the Overview clears them.
  * @return {import('react').ReactElement} The Overview tab.
  */
 export default function OverviewTab( { publishHeader } ) {
@@ -96,6 +127,7 @@ export default function OverviewTab( { publishHeader } ) {
 
 	// Memoize the <li> list: reconcile when messages change, not every tick.
 	const messages = totals.messages;
+	// Seq, not length: the ring shifts at capacity, so length stalls.
 	const messagesKey = totals.messageSeq;
 	const messageList = useMemo( () => {
 		if ( messages.length === 0 ) {

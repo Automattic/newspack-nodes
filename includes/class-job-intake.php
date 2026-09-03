@@ -2,12 +2,18 @@
 /**
  * Job Intake
  *
- * Provides an interface for import/cron processes to queue large (>PIPE_BUF)
- * jobs. Jobs written here land in jobintake.log; a topology's Consumer drains
- * them into jobs.log for the Job_Worker pool.
+ * The ingress for async jobs. An import, a cron pass or a web request enqueues
+ * here and the Job_Worker pool executes later, so the producer never waits.
  *
- * Locking happens per-Partition inside `Partition::allow_large_writes()` —
- * one writer per partition, multiple partitions can write in parallel.
+ * A job lands on one of three logs. `jobintake` is the locked path, admitting
+ * an entry up to MAX_JOB_SIZE, and a topology's Consumer drains it into `jobs`
+ * for the Job_Worker pool. `jobfeed` is the unlocked path, bounded by PIPE_BUF,
+ * so a job router tails jobs alone instead of the whole firehose. `jobdelay.p0`
+ * holds what is not due yet, and `Job_Delay::sweep()` circulates it until it is.
+ *
+ * Lifting the PIPE_BUF cap takes the per-Partition write lock inside
+ * `Partition_Node::allow_large_writes()` (ADR-4) — one writer per partition,
+ * partitions writing in parallel.
  *
  * @package Newspack_Nodes
  */
@@ -19,14 +25,18 @@ if ( ! \defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Job Intake class.
+ * Partitioned writer for the three job-ingress logs.
  *
- * @api Large-write job ingress. Consumed by sibling plugins (event-logger-nodes,
+ * @api Job ingress. Consumed by sibling plugins (event-logger-nodes,
  *      nuclear-gyrobase, pyrobase) and the stock `job-intake.tsl` topology.
  */
 class Job_Intake {
 
-	/** Log basename Job_Intake writes; Bootstrap registers it as a GC-protected producer. */
+	/**
+	 * Log basename for the large-write ingress, which a Consumer drains into
+	 * `jobs`. No `.tsl` declares this dir, so Bootstrap registers it as a
+	 * GC-protected producer and Log_Cleaner leaves queued jobs alone.
+	 */
 	public const LOG_BASENAME = 'jobintake';
 
 	/**
@@ -37,9 +47,9 @@ class Job_Intake {
 	public const FEED_BASENAME = 'jobfeed';
 
 	/**
-	 * Segment rotation threshold for FEED_BASENAME, against Partition's 64 MiB
-	 * default. Every logged request can write here and a job-router only reads
-	 * the recent tail, so small segments keep retention cheap.
+	 * Segment rotation threshold for FEED_BASENAME: 1 MiB, against Partition's
+	 * 64 MiB default. Every logged request can write here and a job-router only
+	 * reads the recent tail, so small segments keep retention cheap.
 	 */
 	public const FEED_SEGMENT_SIZE = 1048576;
 
@@ -62,7 +72,7 @@ class Job_Intake {
 		self::DELAY_BASENAME => self::DELAY_BASENAME . '.p0',
 	];
 
-	/** Batch counters outlive any sane batch runtime, then self-expire. */
+	/** Batch-counter TTL: seven days outlives any batch, then self-expires. */
 	public const BATCH_TTL_S = 7 * 86400;
 
 	/** Every option write_job() accepts; anything else throws (typos stay loud). */
@@ -76,8 +86,8 @@ class Job_Intake {
 	 * Job_Router must CARRY them when it normalizes an entry onto jobs.log.
 	 *
 	 * The canonical list, because a normalizer that rebuilds a fixed record
-	 * instead of overlaying silently drops whatever it has not heard of —
-	 * which disabled retry and batch fan-in wherever such a router ran.
+	 * instead of overlaying silently drops whatever it has not heard of,
+	 * disabling retry and batch fan-in for every entry it touches.
 	 *
 	 * @var list<string>
 	 */
@@ -93,12 +103,16 @@ class Job_Intake {
 	public const MAX_JOB_ID_LEN = 128;
 
 	/**
-	 * Valid handler name pattern (must match JobRouter and JobWorker).
+	 * Handler names: a letter, then letters, digits, underscores and hyphens,
+	 * 64 characters at most. `Job_Worker_Node` and an application's `Job_Router`
+	 * validate against the same pattern — a name one accepts and another
+	 * rejects strands the job between them.
 	 */
 	private const HANDLER_NAME_PATTERN = '/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/';
 
 	/**
-	 * Round-robin counter for partition distribution.
+	 * Round-robin cursor for unkeyed writes. Static, so several intakes in one
+	 * process keep spreading instead of each starting again at p0.
 	 *
 	 * @var int
 	 */
@@ -135,10 +149,9 @@ class Job_Intake {
 	/**
 	 * Constructor.
 	 *
-	 * Both `$base_dir` and `$num_partitions` default to the substrate config
-	 * (`Config::load_config()`) — callers don't need to thread them through
-	 * unless they're targeting a non-default location (e.g. tests with a tmp
-	 * dir). Pass strings/ints explicitly to override.
+	 * Both arguments default to the substrate config — `Config::get_base_directory()`
+	 * and `Bootstrap::global_num_partitions()` — so a caller passes them only to
+	 * target a non-default location, as tests do with a tmp dir.
 	 *
 	 * @param string|null $base_dir       Base directory containing logs/ and locks/.
 	 * @param int|null    $num_partitions Number of partitions.
@@ -166,14 +179,19 @@ class Job_Intake {
 	 * alerts.p0 row). A write that fails after seeding leaves the batch open;
 	 * compare the return value against your job count.
 	 *
-	 * @api Used by external plugins.
-	 * @param array<int,array<string,mixed>> $jobs  Zero-indexed list of ['handler' => string, 'parameters' => array].
-	 * @param string|null                      $key   Optional partition key for all jobs.
-	 * @param string|null                      $batch Optional fan-in batch id (requires a selected
-	 *                                                cache backend: Memcached or APCu).
+	 * @api Bulk enqueue; pyrobase's image migration writes through it.
+	 * @param array<int,array<string,mixed>> $jobs  Zero-indexed list of entries, each carrying
+	 *                                              `handler` (string), `parameters` (array) and
+	 *                                              an optional `id` (string). An entry whose
+	 *                                              handler or parameters has the wrong type is
+	 *                                              skipped rather than written.
+	 * @param string|null                    $key   Optional partition key for all jobs.
+	 * @param string|null                    $batch Optional fan-in batch id (requires a selected
+	 *                                              cache backend: Memcached or APCu).
 	 * @return int Number of jobs successfully written.
 	 * @throws \LogicException When $batch is given with no claim store (memcached or APCu).
-	 * @throws \RuntimeException When the batch id is already active.
+	 * @throws \RuntimeException When the batch id is already active, or a partition's write lock
+	 *                           finds a live concurrent writer.
 	 */
 	public function queue_many( array $jobs, ?string $key = null, ?string $batch = null ): int {
 		$options = [];
@@ -220,27 +238,31 @@ class Job_Intake {
 	}
 
 	/**
-	 * Write a job to the job intake.
+	 * Write a job to the large-write ingress, or to jobdelay.p0 when the options
+	 * schedule it for later.
 	 *
-	 * Partition selection:
-	 * - If pinned via partition(), always uses that partition
-	 * - If key provided, hashes to consistent partition
-	 * - Otherwise, round-robin across partitions
+	 * Partition selection: a pin from partition() wins; failing that a key hashes
+	 * to one partition for good (`Partition_Node::hash_to_partition()`, ADR-6),
+	 * and an unkeyed job takes the next round-robin slot.
 	 *
-	 * @param string      $handler    Handler name (alphanumeric, underscores, hyphens, max 64 chars).
-	 * @param string|null $id         Optional per-job identity (top-level `id`) for durable
-	 * @param array<string,mixed>       $parameters Job parameters (can be large).
-	 * @param string|null $key        Optional partition key for consistent routing.
-	 *                                jobstats keying ("handler:id"); omitted entirely when null/empty.
-	 * @param array<string,mixed>       $options    Optional behaviors: `not_before` (unix ts) or `delay`
-	 *                                (seconds) schedules the job via jobdelay.p0; `retries` (int)
-	 *                                opts into Job_Worker backoff retries; `unique` + `unique_ttl`
-	 *                                dedups the enqueue within the ttl window (requires a selected
-	 *                                cache backend: Memcached or APCu);
-	 *                                `attempt`/`batch` are internal passthrough fields.
+	 * @param string              $handler    Handler name (a letter, then letters, digits,
+	 *                                        underscores and hyphens, 64 chars at most).
+	 * @param string|null         $id         Optional per-job identity (top-level `id`) for durable
+	 *                                        jobstats keying ("handler:id"); left out of the entry
+	 *                                        entirely when null or empty.
+	 * @param array<string,mixed> $parameters Job parameters (can be large).
+	 * @param string|null         $key        Optional partition key for consistent routing.
+	 * @param array<string,mixed> $options    Optional behaviors: `not_before` (unix ts) or `delay`
+	 *                                        (seconds) schedules the job via jobdelay.p0; `retries`
+	 *                                        (int) opts into Job_Worker backoff retries; `unique` +
+	 *                                        `unique_ttl` dedups the enqueue within the ttl window
+	 *                                        (requires a selected cache backend: Memcached or
+	 *                                        APCu); `attempt`/`batch` are internal passthrough
+	 *                                        fields.
 	 * @return bool True on success, false on validation failure, lock unavailable,
 	 *              write error, or a duplicate `unique` enqueue inside its window.
-	 * @throws \InvalidArgumentException On an unknown option key, not_before+delay together, or `unique` without a positive `unique_ttl`.
+	 * @throws \InvalidArgumentException On an unknown option key, not_before+delay together, or
+	 *                                   `unique` without a positive `unique_ttl`.
 	 * @throws \LogicException When `unique` is passed with no claim store (memcached or APCu).
 	 * @throws \RuntimeException From the per-Partition write lock on a genuine concurrent writer.
 	 */
@@ -254,9 +276,9 @@ class Job_Intake {
 	}
 
 	/**
-	 * Memcache keys for the batch fan-in counters and the unique-enqueue gate.
+	 * Cache keys for the batch fan-in counters and the unique-enqueue gate.
 	 * Site-scoped through Cache_Backend: one fleet spans many containers and
-	 * must agree on them, but a co-tenant install on the same memcached must
+	 * must agree on them, while a co-tenant install on the same memcached must
 	 * not join in. Builders, not prefixes — a scope the caller has to remember
 	 * to apply is one a caller eventually forgets.
 	 */
@@ -269,13 +291,16 @@ class Job_Intake {
 	 *
 	 * The same envelope write_job() produces, on FEED_BASENAME. Taking no write
 	 * lock means PIPE_BUF binds it, so an entry that only fits under the lifted
-	 * cap is refused here — route that one through queue() instead of losing it.
+	 * cap is refused here — route that one through write_job() instead of
+	 * losing it. The feed path accepts no options: scheduling, retries, batch
+	 * fan-in and unique dedup all belong to write_job().
 	 *
-	 * @param string               $handler    Handler name.
-	 * @param string|null          $id         Optional per-job identity for jobstats keying.
+	 * @param string              $handler    Handler name.
+	 * @param string|null         $id         Optional per-job identity for jobstats keying.
 	 * @param array<string,mixed> $parameters Job parameters (must fit PIPE_BUF once packed).
-	 * @param string|null          $key        Optional partition key for consistent routing.
-	 * @return bool False on validation failure or an entry over the atomic cap.
+	 * @param string|null         $key        Optional partition key for consistent routing.
+	 * @return bool True when the entry was appended; false on validation failure or an entry
+	 *              over the atomic cap.
 	 */
 	public function write_feed( string $handler, ?string $id, array $parameters, ?string $key = null ): bool {
 		return $this->write_entry( $handler, $id, $parameters, $key, [], self::FEED_BASENAME, false );
@@ -284,16 +309,20 @@ class Job_Intake {
 	/**
 	 * Shared write path for both ingress logs.
 	 *
-	 * @param string               $handler    Handler name.
-	 * @param string|null          $id         Optional per-job identity.
+	 * @param string              $handler    Handler name.
+	 * @param string|null         $id         Optional per-job identity.
 	 * @param array<string,mixed> $parameters Job parameters.
-	 * @param string|null          $key        Optional partition key.
+	 * @param string|null         $key        Optional partition key.
 	 * @param array<string,mixed> $options    write_job() options; empty for the feed path.
-	 * @param string               $basename   Target log basename.
-	 * @param bool                 $large      Lift the PIPE_BUF cap and take the write lock.
-	 *                                         The delay branch below assumes it: jobdelay is written locked.
-	 * @return bool True when the entry was handed to its Partition.
-	 * @throws \InvalidArgumentException On an unknown option key or not_before+delay together.
+	 * @param string              $basename   Target log basename.
+	 * @param bool                $large      Lift the PIPE_BUF cap and take the write lock.
+	 *                                        The delay branch below assumes it: jobdelay is written locked.
+	 * @return bool True when the entry was handed to its Partition. False on a bad handler name,
+	 *              an over-long id, an oversized entry, a feed entry over PIPE_BUF, or a duplicate
+	 *              `unique` enqueue inside its window.
+	 * @throws \InvalidArgumentException On an unknown option key, not_before+delay together, or
+	 *                                   `unique` without a positive `unique_ttl`.
+	 * @throws \LogicException When `unique` is passed with no claim store (memcached or APCu).
 	 */
 	private function write_entry( string $handler, ?string $id, array $parameters, ?string $key, array $options, string $basename, bool $large ): bool {
 		$unknown = \array_diff( \array_keys( $options ), self::OPTION_KEYS );
@@ -316,7 +345,7 @@ class Job_Intake {
 		if ( isset( $options['not_before'] ) && isset( $options['delay'] ) ) {
 			throw new \InvalidArgumentException( 'pass not_before OR delay, not both' );
 		}
-		$now        = Core::right_now(); // one request-scope read, threaded through this write_job
+		$now        = Core::right_now(); // one fresh read, threaded through this write
 		$not_before = Core::num_float( $options['not_before'] ?? 0, 0.0 );
 		if ( isset( $options['delay'] ) ) {
 			$not_before = $now + Core::num_float( $options['delay'], 0.0 );
@@ -382,7 +411,7 @@ class Job_Intake {
 		$message[ Message::TYPE ]      = Message::TM_STRUCT;
 		$message[ Message::TIMESTAMP ] = Core::$now;
 		$message[ Message::VALUE ]     = $job;
-		// serialize_record appends a newline; unlocked writes clear that too.
+		// serialize_record appends a newline; the unlocked cap counts it.
 		if ( ! $large && Message::packed_size( $message ) + 1 > Partition_Node::MAX_LINE_SIZE ) {
 			Core::stderr( '[Nodes] JobIntake: job exceeds PIPE_BUF for handler: ' . $handler . ' (use queue())' );
 			return false;
@@ -393,9 +422,20 @@ class Job_Intake {
 	}
 
 	/**
-	 * Lazily materialize the Partition for a given index. The per-Partition
-	 * `allow_large_writes()` call acquires the partition's write lock — blocks
-	 * up to ~65s on a respawn race, throws on a genuine concurrent writer.
+	 * Lazily materialize the Partition for a given index, memoized per slot.
+	 *
+	 * On the large path `allow_large_writes()` acquires that partition's write
+	 * lock, waiting `Partition_Node::DEFAULT_LOCK_WAIT_MS` (15s) and throwing
+	 * when a writer still holds it at the deadline. The wait deliberately falls
+	 * short of the lock's 60s stale window: rather than block a web request
+	 * through a dead predecessor's lease, the acquire fails and the caller
+	 * comes back.
+	 *
+	 * @param int    $partition Partition index, already clamped by the caller.
+	 * @param string $basename  Target log basename.
+	 * @param bool   $large     Lift the PIPE_BUF cap and take the write lock.
+	 * @return Partition_Node The handle for `{basename}.p{partition}`.
+	 * @throws \RuntimeException When the write lock cannot be acquired.
 	 */
 	private function partition_handle( int $partition, string $basename = self::LOG_BASENAME, bool $large = true ): Partition_Node {
 		$slot = "{$basename}.p{$partition}";
@@ -436,6 +476,7 @@ class Job_Intake {
 	 * the `<config:logs_dir>` token — registration must not touch the filesystem;
 	 * a writer with its own base passes that base's `logs` dir.
 	 *
+	 * @param string $logs_dir Root the templates hang off.
 	 * @return array<string,string> `basename => path template`.
 	 */
 	public static function log_dir_templates( string $logs_dir = '<config:logs_dir>' ): array {
@@ -457,7 +498,7 @@ class Job_Intake {
 	 * The claim store resolves shared-first: memcached scope when configured,
 	 * APCu keeping a memcached-less host functional.
 	 *
-	 * @param string               $handler Handler name (namespaces the slot).
+	 * @param string              $handler Handler name (namespaces the slot).
 	 * @param array<string,mixed> $options The write_job options (unique + unique_ttl).
 	 * @return bool True when this enqueue won the slot.
 	 * @throws \InvalidArgumentException Without a positive unique_ttl.
@@ -489,8 +530,9 @@ class Job_Intake {
 	}
 
 	/**
-	 * Close all open Partitions. `Partition::remove_node()` flushes the batch
-	 * and releases the per-Partition write lock.
+	 * Close every open Partition. `Partition_Node::remove_node()` flushes the
+	 * batch and releases the per-Partition write lock, so a caller that keeps an
+	 * intake alive past its writes holds the lock against every other writer.
 	 */
 	public function close(): void {
 		foreach ( $this->partitions as $partition ) {
@@ -502,23 +544,23 @@ class Job_Intake {
 	}
 
 	/**
-	 * Static helper to write a single job.
+	 * Static helper to write a single job: one intake, one write, closed again.
 	 *
-	 * If a key is provided, jobs with the same key always go to the same partition.
-	 * If no key is provided, jobs are distributed via round-robin.
+	 * Partition selection follows write_job().
 	 *
 	 * Lock acquisition (per-Partition, not host-wide) happens inside
-	 * `Partition::allow_large_writes()`, which blocks up to ~65s on a respawn
-	 * race and throws on a genuine concurrent live writer. We catch the
-	 * throw and return false so callers retain the boolean contract.
+	 * `Partition_Node::allow_large_writes()`, which waits 15s and throws when a
+	 * live writer still holds the lock. That throw is caught here and reported
+	 * as false, so callers keep the boolean contract; a cooperative stop is
+	 * re-thrown first (ADR-14), because it is not a write failure.
 	 *
-	 * `$base_dir` and `$num_partitions` default to the substrate config — callers
-	 * should normally just pass `(handler, parameters[, key])`. The trailing
+	 * `$base_dir` and `$num_partitions` default to the substrate config, so a
+	 * caller normally passes `(handler, id, parameters[, key])`. The trailing
 	 * overrides are for tests targeting an isolated tmp dir.
 	 *
 	 * @api Used by external plugins (pyrobase Log runtime large-write path).
 	 * @param string              $handler        Handler name.
-	 * @param string|null         $id             Optional job ID for logging.
+	 * @param string|null         $id             Optional per-job identity for jobstats keying.
 	 * @param array<string,mixed> $parameters     Job parameters.
 	 * @param string|null         $key            Optional partition key (e.g., event ID).
 	 * @param string|null         $base_dir       Override base directory.
@@ -526,6 +568,7 @@ class Job_Intake {
 	 * @param array<string,mixed> $options        Optional behaviors — see write_job().
 	 * @return bool True on success, false on validation failure or unrecoverable
 	 *              lock contention (live concurrent writer on same partition).
+	 * @throws Worker_Should_Stop When a cooperative stop lands mid-write.
 	 */
 	public static function queue(
 		string $handler,
@@ -563,7 +606,8 @@ class Job_Intake {
 	 * @param string|null         $key            Optional partition key for consistent routing.
 	 * @param string|null         $base_dir       Override the configured base dir.
 	 * @param int|null            $num_partitions Override the configured partition count.
-	 * @return bool False on validation failure or an entry over the atomic cap.
+	 * @return bool True when the entry was appended; false on validation failure or an entry
+	 *              over the atomic cap.
 	 * @throws Worker_Should_Stop When a cooperative stop lands mid-write.
 	 */
 	public static function feed(

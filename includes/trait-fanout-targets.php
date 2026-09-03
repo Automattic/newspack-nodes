@@ -9,10 +9,10 @@
  * separate sweep — `live_targets()` prunes and writes back on every call, so
  * there is no way to consume the list and skip the prune.
  *
- * That coupling is the point. Tee and Tap each carried a byte-identical copy of
- * the prune inside `fill()`; the minters that sign one command per spoke need
- * the same list, and a copy that forgot to prune would keep minting — and
- * signing — commands addressed at nodes that no longer exist.
+ * That coupling is the point. Tee, Tap and the minters that sign one command per
+ * spoke all reach the list through this one method; a private copy that forgot
+ * to prune would keep minting — and signing — commands addressed at nodes that
+ * no longer exist.
  *
  * What is deliberately NOT here: the dispatch loop. Tee prepends the remaining
  * path so routing continues past the hop; Tap hard-addresses and then passes the
@@ -27,16 +27,25 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * Fan-out mixin: the target LIST, and the failure contract every fan-out shares.
+ *
+ * Using the trait IS the declaration that a node fans out — `Core::class_fans_out()`
+ * tests for it rather than for descent from `Tee_Node`, because the minters that
+ * sign one command per spoke are `Timer_Node` subclasses. A user therefore holds
+ * a target LIST, and every `connect_node()` after the first accumulates.
+ */
 trait Fanout_Targets {
 
 	/**
-	 * Get/set the target LIST. Normalizes on read so a fan-out never reports the
-	 * scalar `''` that Node initializes: consumers would otherwise each have to
-	 * remember a constructor line, and forgetting it is invisible until someone
-	 * reads target() directly.
+	 * Get or set the target LIST, narrowing `Node::target()`'s scalar-or-array
+	 * answer to a list. Normalizing on read is what keeps a fan-out from ever
+	 * reporting the scalar `''` that Node initializes: a user would otherwise
+	 * have to remember a constructor line, and forgetting it stays invisible
+	 * until something reads `target()` directly.
 	 *
 	 * @param string|array<int,string>|null $value New target (null = getter).
-	 * @return list<string>
+	 * @return list<string> Every target, in connect order.
 	 */
 	public function target( $value = null ) {
 		$this->target = Node::target_list( null !== $value ? $value : $this->target );
@@ -44,8 +53,13 @@ trait Fanout_Targets {
 	}
 
 	/**
-	 * Add a target. Accumulates rather than replaces, and tolerates a scalar
-	 * target assigned before the first connect (a graph may `arguments()` one in).
+	 * Add a target, accumulating where `Node::connect_node()` replaces, and
+	 * ignoring a name the list already holds.
+	 *
+	 * The list is normalized first because the field may still hold the scalar a
+	 * graph assigned before the first connect (`arguments()` can carry one in).
+	 *
+	 * @param string $target Path stamped into an empty TO.
 	 */
 	public function connect_node( string $target ): void {
 		$this->target = Node::target_list( $this->target );
@@ -54,7 +68,13 @@ trait Fanout_Targets {
 		}
 	}
 
-	/** Remove one target; an empty name clears the list. */
+	/**
+	 * Remove one target; an empty name clears the list, as does a field still
+	 * holding the base class's scalar — one target offers no single entry to
+	 * remove, so clearing it matches `Node::disconnect_node()`.
+	 *
+	 * @param string $target The entry to remove; an empty name clears the list.
+	 */
 	public function disconnect_node( string $target = '' ): void {
 		if ( ! \is_array( $this->target ) || '' === $target ) {
 			$this->target = [];
@@ -68,8 +88,13 @@ trait Fanout_Targets {
 	 * Router peels the head, so the remainder continues past this hop.
 	 *
 	 * Tee and every minter that fans out address this way. Tap does not — it hard-
-	 * addresses and discards the remainder — which is why the dispatch loops stay
-	 * separate rather than becoming one loop with a flag.
+	 * addresses each copy at the bare target and drops the remainder — which is
+	 * why the dispatch loops stay separate rather than becoming one loop with a
+	 * flag.
+	 *
+	 * @param string $target    The target this copy is addressed at.
+	 * @param string $remainder What the incoming TO held; empty when it carried none.
+	 * @return string `<target>/<remainder>`, or the target alone when the remainder is empty.
 	 */
 	protected function target_path( string $target, string $remainder ): string {
 		return '' === $remainder ? $target : $target . '/' . $remainder;
@@ -80,16 +105,19 @@ trait Fanout_Targets {
 	 *
 	 * A fan-out attempts every target and re-throws afterwards, so several may
 	 * fail in one pass and only one can escape. The winner is the one whose
-	 * handling is safest, because that choice moves the consumer cursor:
-	 *
-	 *   plain Worker_Should_Stop  → replay the message (cursor stays)
-	 *   Worker_Should_Stop_Clean  → commit PAST it (cursor advances)
-	 *   anything else             → poison, dead-letter, cursor advances
+	 * handling is safest, because that choice moves the consumer cursor. A plain
+	 * `Worker_Should_Stop` replays the message and the cursor stays put;
+	 * `Worker_Should_Stop_Clean` commits past it; anything else is poison, which
+	 * dead-letters and advances too.
 	 *
 	 * Advancing past a message that needed a replay loses it; replaying a clean
 	 * one is a duplicate, which at-least-once tolerates. So a plain stop outranks
-	 * both. See tests/unit/TeeStopPrecedenceTest.php — this reverses an earlier
-	 * deliberate rule and carries a named revert signal.
+	 * both, in either arrival order, and `tests/unit/TeeStopPrecedenceTest.php`
+	 * pins that (ADR-14).
+	 *
+	 * @param \Throwable      $candidate The throwable this target just raised.
+	 * @param \Throwable|null $deferred  What the loop already holds; null until the first failure.
+	 * @return bool True when `$candidate` should take the deferred slot.
 	 */
 	protected function outranks( \Throwable $candidate, ?\Throwable $deferred ): bool {
 		if ( null === $deferred ) {
@@ -109,7 +137,7 @@ trait Fanout_Targets {
 	 * on an earlier target having been fully delivered before a later one is.
 	 * The JS port says the same, where `addSliceFetcher` rests on it.
 	 *
-	 * @return list<string>
+	 * @return list<string> The targets whose head still resolves, in connect order.
 	 */
 	protected function live_targets(): array {
 		// Inline array test, not Core::arr, so phpstan narrows the property.

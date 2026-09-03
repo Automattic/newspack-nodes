@@ -1,18 +1,18 @@
 <?php
 /**
- * Alerts: the substrate's fleet-health evaluator.
+ * Alerts: the substrate's fleet-health evaluator and journal.
  *
  * ONE place computes the operator-facing alert conditions — worker down,
  * consumer lag climbing, dead-letter growth — from the SAME snapshot
  * Workers_CI already builds (lock-dir heartbeats, the Topic_Probe cursor log,
  * the on-disk quarantine dirs). It re-implements none of those reads.
  *
- * Three consumers of the result: WP Site Health tests + the admin notice call
- * the pure `evaluate()`; `emit()` journals each alert into the substrate's
- * `alerts.p0` partition (rate-limited) for delivery consumers and dashboards
- * to tail. Thresholds are Config_System settings, read live each invocation
- * (none of the three call sites holds them in memory across a worker's
- * lifetime).
+ * Site Health and the admin notice call the read-only `evaluate()`. The fleet's
+ * periodic sweep calls `emit()`, which journals each transition into the
+ * substrate's `alerts.p0` partition for delivery consumers and dashboards to
+ * tail; a producer outside that sweep — Job_Worker's batch completion — writes
+ * its row through `journal_event()`. Thresholds are Config_System settings read
+ * live on every call, so raising one takes effect without restarting a worker.
  *
  * @package Newspack_Nodes
  */
@@ -23,39 +23,50 @@ use Newspack_Nodes\Rest\Workers_CI_Node;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * Fleet-health alerts: `evaluate()` reads the conditions, `emit()` journals the
+ * transitions between them.
+ *
+ * Every row this class mints declares a `family` and a `severity` from the
+ * constants below. `Health_Checks::fleet_results()` buckets by family — the
+ * value doubles as the Site Health result id — and refuses a row declaring
+ * none, so the taxonomy is stated once at mint time instead of reconstructed
+ * from the `key` prefix in a second file.
+ */
 class Alerts {
 
-	/**
-	 * Alert families, declared on every row this class mints.
-	 *
-	 * `Health_Checks::fleet_results()` used to reconstruct these by
-	 * `str_starts_with()` on the row's `key`, so the taxonomy lived in two
-	 * files joined only by string prefixes — and the joint failed closed:
-	 * an unrecognized prefix threw, which fatals Site Health and
-	 * `wp nodes doctor`, losing the entire environment report. This class
-	 * knows the family at mint time, so it says so.
-	 */
+	/** A configured worker is not running: it never started, or it stopped heartbeating. */
 	public const FAMILY_WORKER_LIVENESS = 'worker-liveness';
 
+	/** A consumer trails its source by more than `alert_lag_threshold` bytes. */
 	public const FAMILY_CONSUMER_LAG = 'consumer-lag';
 
+	/** Quarantined segments for one reader exceed `alert_deadletter_threshold`. */
 	public const FAMILY_DEAD_LETTERS = 'dead-letters';
 
+	/** Attention, not urgency: consumer lag, dead letters, a worker that never started. */
 	public const SEVERITY_WARNING = 'warning';
 
 	/** A worker that was running has stopped — needs attention now. */
 	public const SEVERITY_CRITICAL = 'critical';
 
-	/** A previously journaled condition that is no longer present. */
+	/**
+	 * A previously journaled condition that has cleared. Journal-only:
+	 * `evaluate()` never mints one, and `Health_Checks` refuses the severity.
+	 */
 	public const SEVERITY_RESOLVED = 'resolved';
 
-	/** Transient gate name for emit()'s rate limit. */
+	/** Transient gate holding emit() to one journal batch per `alert_emit_interval`. */
 	private const EMIT_GATE = 'newspack_nodes_alerts_emitted';
 
-	/** Option holding the last-journaled state (alert key => severity). */
+	/**
+	 * Option holding the last-journaled severity per alert key. Diffing the
+	 * current evaluation against it is what makes a transition; without it every
+	 * sweep re-journals conditions that have not changed.
+	 */
 	private const STATE_OPTION = 'newspack_nodes_alerts_state';
 
-	/** Journal dir basename. */
+	/** Journal dir basename; `log_dir_template()` appends the `.p0` partition. */
 	public const LOG_BASENAME = 'alerts';
 
 	/** @var Partition_Node|null Process-cached anonymous alerts.p0 journal writer. */
@@ -65,13 +76,14 @@ class Alerts {
 	 * Journal alert TRANSITIONS into `alerts.p0` — a row when a condition
 	 * raises or changes severity, and a `resolved` row when it clears. A
 	 * persisting condition journals nothing: the journal records state
-	 * changes, not heartbeats. Hooked to the fleet's periodic sweep; the
-	 * transient gate is a flap backstop (at most one batch per interval), and
-	 * the last-journaled state advances only on a successful write, so a
-	 * gated or failed tick reconciles on the next open window. Entries mirror
-	 * the errors family (`{ n, k:'alert', m, ts }`) plus `severity`; KEY is
-	 * the alert's stable key. The write is throw-guarded: a rotate-lock
-	 * timeout or unwritable dir must never unwind the sweep.
+	 * changes, not heartbeats. Hooked to the fleet's periodic sweep, and silent
+	 * while a deploy hold stands. The transient gate is a flap backstop (at most
+	 * one batch per `alert_emit_interval`), and the last-journaled state
+	 * advances only on a successful write, so a gated or failed tick reconciles
+	 * on the next open window. Entries mirror the errors family
+	 * (`{ n, k:'alert', m, ts }`) plus `severity`; KEY is the alert's stable
+	 * key. The write is throw-guarded: a rotate-lock timeout or unwritable dir
+	 * must never unwind the sweep.
 	 */
 	public static function emit(): void {
 		// Held: a partial evaluate() would journal false `resolved:` rows.
@@ -185,17 +197,20 @@ class Alerts {
 	 * Bootstrap registers it with the log GC and `journal()` writes through it.
 	 * No partition token: every worker on the fleet journals into the same
 	 * `alerts.p0`, so the GC declares that one dir rather than a fan-out of
-	 * `alerts.p1`+ nothing ever writes. The default root is the
-	 * `<config:logs_dir>` token — registration must not touch the filesystem.
+	 * `alerts.p1`+ nothing ever writes.
+	 *
+	 * @param string $logs_dir Resolved logs directory, or the `<config:logs_dir>` token when registration must not touch the filesystem.
 	 */
 	public static function log_dir_template( string $logs_dir = '<config:logs_dir>' ): string {
 		return \rtrim( $logs_dir, '/' ) . '/' . self::LOG_BASENAME . '.p0';
 	}
 
 	/**
-	 * Compute the current alerts (pure — no side effects). Each alert is
-	 * `{ key, severity, message, ... }`; `key` is stable per condition so a
-	 * consumer can dedupe.
+	 * Compute the current alerts. Reads only — the journal and the state option
+	 * belong to `emit()`. Each row is `{ key, family, severity, message, ... }`,
+	 * where `key` is stable per condition so a consumer can dedupe and the tail
+	 * carries the per-family detail: `reader` + `distance` for lag, `reader` +
+	 * `count` for dead letters, `type` + `partition` for a worker.
 	 *
 	 * @return array<int,array<string,mixed>>
 	 */
@@ -300,7 +315,7 @@ class Alerts {
 	 * Worst severity across a list: critical if any critical, else warning if
 	 * any warning, else '' (empty list / no alerts).
 	 *
-	 * @param array<int,array<string,mixed>> $alerts
+	 * @param array<int,array<string,mixed>> $alerts Alert rows carrying a `severity`.
 	 */
 	public static function worst_severity( array $alerts ): string {
 		$worst = '';

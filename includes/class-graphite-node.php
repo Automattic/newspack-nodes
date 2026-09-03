@@ -1,12 +1,16 @@
 <?php
 /**
- * Graphite
+ * Graphite: plaintext-metrics egress.
  *
- * Plaintext-protocol egress — the substrate's stand-in for Tachikoma's
- * `connect_inet … :2003 graphite`. fill() writes each TM_BYTESTREAM VALUE
- * (newline-terminated `path value ts` lines, pre-batched upstream by
- * Probe_To_Graphite) to the configured endpoint over UDP: fire-and-forget,
- * no connection state, no blocking in the drain loop.
+ * Ships each TM_BYTESTREAM VALUE — newline-terminated `path value ts` lines,
+ * batched 16 to a message upstream by Probe_To_Graphite — to a Graphite
+ * plaintext endpoint as one UDP datagram. It stands in for Tachikoma's
+ * `connect_inet --io --reconnect <host>:2003 graphite` and diverges on the
+ * transport: Tachikoma holds a reconnecting TCP socket, this opens and closes a
+ * connectionless one per message. A datagram needs no handshake, keeps no
+ * reconnect state, and leaves no send buffer to back up behind a collector that
+ * is down. Losing a sweep beats stalling the graph that produced it, and the
+ * upstream batching is what makes a socket per message affordable.
  *
  * @package Newspack_Nodes
  */
@@ -16,29 +20,43 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * Graphite node.
+ * Graphite node — `make_node Graphite <name> <host:port>`.
  */
 class Graphite_Node extends Node {
 	use Schema_Reflection;
 
 	/**
-	 * Datagram-write seam. Tests reassign to capture without a live server;
-	 * production resolves lazily to the real stream write so the fopen/fwrite
-	 * path stays covered logic, not mock. Signature:
-	 * `function ( string $endpoint, string $payload ): bool`.
+	 * Datagram-write seam replacing the socket open, write and close in fill();
+	 * the type gate, the empty-VALUE skip, the counter and the failure log run
+	 * as production code either way. Tests reassign it to capture payloads with
+	 * no Graphite listener, and restore null to exercise the real write.
+	 * Production never assigns it, so the lazy default inside fill() is what
+	 * runs — a closure is not a constant expression and cannot be this
+	 * property's declared default. A replacement satisfies
+	 * `function ( string $endpoint, string $payload ): bool`, returning false
+	 * when nothing left the process.
 	 *
 	 * @var \Closure|null
 	 */
 	public static ?\Closure $transport = null;
 
+	/** The `udp://host:port` stream target arguments() derives; empty until then. */
 	private string $endpoint = '';
 
 	/**
-	 * `<host:port>` — required; a metrics egress with no destination is a
-	 * misconfigured topology, not a default.
+	 * `<host:port>` — required, and prefixed with `udp://` into the endpoint
+	 * fill() writes to. A metrics egress with no destination is a misconfigured
+	 * topology rather than a default, so an absent token throws at make_node
+	 * time instead of discarding every line for the life of the worker.
 	 *
-	 * @param list<string>|null $args
-	 * @return list<string>
+	 * The check is shape-only: a colon must be present, and nothing confirms the
+	 * host resolves or that anything listens. UDP reports neither. A host that
+	 * fails to resolve at least fails the write and logs; a wrong port or a dead
+	 * collector accepts every datagram, so those surface only as metrics that
+	 * never arrive.
+	 *
+	 * @param list<string>|null $args New argument tokens (null = pure getter).
+	 * @return list<string> The tokens as given.
 	 * @throws \InvalidArgumentException Without a host:port argument.
 	 */
 	public function arguments( ?array $args = null ): array {
@@ -54,6 +72,21 @@ class Graphite_Node extends Node {
 		return $args;
 	}
 
+	/**
+	 * Write the message VALUE to the endpoint as one datagram.
+	 *
+	 * Only TM_BYTESTREAM is written: a TM_STRUCT VALUE is an array and the
+	 * plaintext protocol reads lines, so put a formatter — Probe_To_Graphite,
+	 * or a Dumper — in front. An empty VALUE is skipped, because a zero-length
+	 * datagram carries no metric and still costs a socket.
+	 *
+	 * The counter advances on every accepted message, a failed write included,
+	 * so `ls` reports what this node was asked to ship. A failure logs
+	 * rate-limited and returns — fill() returns void (ADR-13), and throwing
+	 * would take the drain loop down over an unreachable metrics host.
+	 *
+	 * @param array<int,mixed> $message The 7-field positional message array.
+	 */
 	public function fill( array $message ): void {
 		if ( ! ( Core::as_int( $message[ Message::TYPE ], 0 ) & Message::TM_BYTESTREAM ) ) {
 			return;
@@ -79,6 +112,13 @@ class Graphite_Node extends Node {
 		}
 	}
 
+	/**
+	 * Palette entry and argument form for the topology console. `has_target` is
+	 * false because the datagram is the terminus: there is nothing downstream to
+	 * connect this node to.
+	 *
+	 * @return array<string,mixed>
+	 */
 	public static function node_schema(): array {
 		return [
 			'category'    => 'I/O',

@@ -1,30 +1,33 @@
 /**
- * Overview — the hub's at-a-glance FLEET-HEALTH board (the default first paint).
- * The "is everything OK right now?" glance, so you don't have to scroll the dense
- * Topologies tree to spot trouble. Modeled on Tachikoma's topics dashboard (rate
- * + backlog, ranked) and the critique's Workers-&-Lag panel: lead with consumer
- * LAG (the health metric of a log pipeline) — as a live trend, not just a number,
- * because what matters is whether the backlog is draining or climbing.
+ * Overview — the hub's at-a-glance fleet-health board and its default first
+ * paint (tab order 0). It answers "is anything wrong right now?" without
+ * scrolling the dense per-topology detail tree.
  *
- * A live view over useTopologyManager + the Topic_Probe stream:
- *  - the shared SummaryCards row (topology/active counts, worker liveness,
- *    on-disk partitions, health, global R/W rates, 24h produced totals),
- *  - THREE Tachikoma-style Topics panels — Message Rate, Byte Rate, Backlog —
- *    each a multi-series 24h time chart (one series per topic/source) with a
- *    ranked max/avg legend, and
- *  - one row per ACTIVE topology, each FOLDABLE between a compact summary and the
- *    full live detail tree (one `TopologyRow`, folded vs unfolded), in the user's
- *    own drag order (persisted), plus a de-emphasized group of stopped topologies.
+ * A live view over `useTopologyManager` and the `topicprobe.p0` stream:
+ *  - the shared `SummaryCards` row (topology and active counts, worker
+ *    liveness, on-disk partitions, health, global read/write rates and 24h
+ *    produced totals),
+ *  - four Topics panels modeled on Tachikoma's Grafana Topics dashboard —
+ *    message rate, byte rate, backlog and cache size — each a multi-series 24h
+ *    chart carrying one series per topic and a ranked max/avg legend, and
+ *  - one `TopologyRow` per active topology, foldable between a compact summary
+ *    and the full live detail tree, then a de-emphasized group of the stopped
+ *    ones.
  *
- * Row order is the user's drag order — NOT health — so a flapping "behind" badge
- * never reshuffles the list. Order + fold state persist to localStorage.
+ * Backlog is the health metric of a log pipeline, so it is drawn as a trend
+ * rather than a bare number: whether it drains or climbs is what matters.
  *
- * The panels are the real 24h history: a second `RemoteLink` (`useTopicProbeStream`
- * in 'history' mode) replays the durable `topicprobe.p0` log from `start`, and
- * `topicChartSeries` rolls the per-reader samples up per topic into the three
- * metrics — the in-product mirror of Grafana's Topics dashboard.
+ * Rows sit in the user's drag order, never in health order, so a flapping
+ * "behind" badge cannot reshuffle the list under the pointer. That order and
+ * the fold state persist to localStorage through `overviewPrefs`.
  *
- * Reuses the same `consoleHref` deep-links so navigation stays single-sourced.
+ * `useTopicProbeStream` runs in 'history' mode, which opens the probe link at
+ * the start of the retained log, so the panels draw the real 24h history rather
+ * than the thin ring a live tail accumulates while the tab is open.
+ * `topicChartSeries` rolls each metric's per-reader samples up per topic.
+ *
+ * Deep links go through `consoleHref`, keeping Console navigation
+ * single-sourced.
  */
 
 import {
@@ -68,7 +71,13 @@ import {
 } from './overviewPrefs';
 import './styles/overview.scss';
 
-// Rendered active-row vertical bounds (display order) for pointer-drag reorder.
+/**
+ * The rendered active rows' vertical bounds, in display order — the geometry
+ * `dragGapTransforms` and `dragReorder` resolve a drag's target slot against.
+ * Order is load-bearing: both align `rects[i]` with the name at index `i`.
+ *
+ * @return {Array<{name:string,top:number,bottom:number}>} Per-row name and bounds.
+ */
 function activeRowRects() {
 	return [
 		...document.querySelectorAll(
@@ -87,8 +96,8 @@ function activeRowRects() {
 /**
  * Overview hub tab.
  *
- * @param {Object}  props                      Component props.
- * @param {Element} [props.headerControlsSlot] Hub shared-header slot to portal the "+ New Topology" control into (undefined → inline, for tests).
+ * @param {Object}   props                      Component props.
+ * @param {?Element} [props.headerControlsSlot] Hub shared-header slot to portal the "+ New Topology" control into; null means the hub's slot is still pending and renders none, undefined renders it inline.
  * @return {import('react').ReactElement} Rendered component.
  */
 export default function Overview( { headerControlsSlot } ) {

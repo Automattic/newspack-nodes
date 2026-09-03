@@ -1,14 +1,21 @@
 <?php
 /**
- * Settings_Renderer: the shared settings-field markup.
+ * The settings-page markup every plugin on the substrate shares.
  *
- * One home for the per-field reset wrapper (`data-nn-reset` flex row + the `↺`
- * toggle) and the generic controls (number / directory / textarea / checkbox
- * list). Each method RETURNS escaped HTML (pure + testable); the caller echoes it.
+ * Two surfaces live here. The field controls — number, directory, textarea,
+ * checkbox and React mount — each render one setting inside the per-field reset
+ * row. The "Effective Configuration" panel renders below the form and reports
+ * what the next worker will load. Both take the calling plugin's own Schema and
+ * option prefix, so the substrate's settings page and every consumer's draw the
+ * same markup from one implementation rather than copying it and drifting.
  *
- * The checkbox list emits a `data-nn-reset-default` hint per box, so the
- * field-reset JS restores the SHIPPED default set on ↺ instead
- * of clearing every box (see src/admin-field-reset/index.js `clear()`).
+ * Every control RETURNS escaped HTML instead of echoing it, which is what makes
+ * the markup assertable in a test without an output buffer. Escaping is this
+ * file's job, so a caller echoes the result unescaped.
+ *
+ * Substrate-coupled on purpose: the hermetic `Config_System` subset a sibling
+ * loads without the runtime excludes this file, so reaching Core, Fleet_Node
+ * and Restart_Planner here is legitimate.
  *
  * @package Newspack_Nodes
  */
@@ -20,18 +27,37 @@ use Newspack_Nodes\Fleet_Node;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * Per-field reset takes three parts, and this class emits the markup. The
+ * browser part is `src/admin-field-reset/index.js`; the save part is
+ * {@see Reset_Gate}.
+ *
+ * Every control goes out through `reset_wrapper()`, so the `↺` toggle and the
+ * `data-nn-reset` mark name ride along whether or not a renderer thought about
+ * reset. A control built outside that wrapper looks right on the page and
+ * silently cannot be reset: nothing fails, the button is simply missing.
+ */
 class Settings_Renderer {
 
-	/** Small arrays render in full; larger ones collapse so a 400-entry hook list can't dominate the row. */
+	/**
+	 * Array entries printed in full before `format_value()` summarizes instead.
+	 *
+	 * The panel gives each setting one table cell, and a rules map or an event
+	 * allowlist runs to hundreds of entries.
+	 */
 	private const ARRAY_SAMPLE = 6;
 
 	/**
-	 * Render the read-only "Effective Configuration" table below a settings form.
-	 * Each plugin hooks this to its own `settings_after_form` action.
+	 * Print the read-only "Effective Configuration" table below a settings form.
 	 *
-	 * @param Schema               $schema    The plugin's settings schema.
-	 * @param string               $prefix    WP-option name prefix.
-	 * @param array<string,mixed>  $effective Already-loaded effective config.
+	 * The one method here that echoes rather than returns, because each plugin
+	 * hooks it to its own `settings_after_form` action and an action callback has
+	 * no return channel. Every decision it prints is made in
+	 * {@see self::effective_config_rows()}, which the tests cover directly.
+	 *
+	 * @param Schema              $schema    The calling plugin's settings schema.
+	 * @param string              $prefix    WP-option name prefix (e.g. 'newspack_nodes_').
+	 * @param array<string,mixed> $effective Already-loaded effective config (the caller's Config::load_config()).
 	 */
 	public static function render_effective_config_section( Schema $schema, string $prefix, array $effective ): void {
 		$rows = self::effective_config_rows( $schema, $prefix, $effective );
@@ -64,18 +90,23 @@ class Settings_Renderer {
 	}
 
 	/**
-	 * Pure data for the "Effective Configuration" panel: one row per rendered
-	 * setting, reporting the stored value, the value the next worker will load,
-	 * any active per-request overlay override, and the live restart impact.
+	 * The panel's data, one row per rendered setting: the stored value, the value
+	 * the next worker will load, whether a stored row is overriding the default,
+	 * and which topologies a save of that setting restarts.
 	 *
-	 * Plugin-agnostic — the caller passes its own Schema, WP-option prefix, and
-	 * already-loaded effective config (each plugin's own `Config::load_config()`,
-	 * which the substrate renderer can't call directly because the consumers each
-	 * have a different `Config`).
+	 * The caller passes its already-loaded effective config because each consumer
+	 * has its own `Config` class and the substrate renderer cannot name them; the
+	 * Schema and prefix arrive the same way, which is what keeps the panel one
+	 * implementation across plugins.
 	 *
-	 * @param Schema               $schema    The plugin's settings schema.
-	 * @param string               $prefix    WP-option name prefix (e.g. 'newspack_nodes_').
-	 * @param array<string,mixed>  $effective Already-loaded effective config (the caller's Config::load_config()).
+	 * `overlay` is null unless a stored option row exists. Presence is what makes
+	 * a row an override (see Options_Overlay), so a stored '', [] or 0 reports as
+	 * one, and the column repeats the stored value rather than inventing a second
+	 * notion of override that could disagree with the overlay itself.
+	 *
+	 * @param Schema              $schema    The calling plugin's settings schema.
+	 * @param string              $prefix    WP-option name prefix (e.g. 'newspack_nodes_').
+	 * @param array<string,mixed> $effective Already-loaded effective config (the caller's Config::load_config()).
 	 * @return array<int,array{key:string,label:string,stored:string,effective:string,overlay:?string,restart:string}>
 	 */
 	public static function effective_config_rows( Schema $schema, string $prefix, array $effective ): array {
@@ -90,7 +121,7 @@ class Settings_Renderer {
 				? \__( '— (file default)', 'newspack-nodes' )
 				: self::format_value( $raw_store );
 
-			// Every setting overlays the file; operative value = load_config().
+			// load_config() applied the overlay; fall back if it omits the key.
 			$effective_value = $effective[ $key ] ?? $raw_store;
 			if ( Options_Overlay::ABSENT === $effective_value ) {
 				$effective_value = $field->register_args['default'] ?? '';
@@ -114,9 +145,18 @@ class Settings_Renderer {
 	}
 
 	/**
-	 * Human-readable restart impact for a Field's restart classification.
+	 * The sentence the panel's "Restart impact" column prints for a Field's
+	 * restart classification.
+	 *
+	 * The `[]` case is the one that reads wrong on the page: it recycles no
+	 * process, yet a save still writes every live worker's reload watermark, so
+	 * the value lands within one `_fleet` scan instead of at the end of a ~595s
+	 * worker lifetime. A classification naming node types that no ACTIVE topology
+	 * instantiates reports no consumer, which is the honest answer — nothing will
+	 * be restarted. Otherwise the column names the topologies.
 	 *
 	 * @param array<int,string>|string $restart Restart classification (see Restart_Planner).
+	 * @return string Panel text, already translated.
 	 */
 	private static function restart_impact( array|string $restart ): string {
 		if ( [] === $restart ) {
@@ -138,16 +178,23 @@ class Settings_Renderer {
 	}
 
 	/**
-	 * Display a config value: empty array → "(none)", small array joined with ', ',
-	 * large array summarized as "<n> values: <first 6>, … (+<rest> more)", scalars
-	 * cast, everything else ''.
+	 * Render one setting's value as a single line of table text.
+	 *
+	 * An associative array is summarized by its KEYS and a list by its values,
+	 * because an assoc array carries its meaning in the keys: a rules map keyed by
+	 * URL pattern reads as the patterns it covers, never as the rule bodies.
+	 * Anything past ARRAY_SAMPLE entries collapses to a count plus that sample.
+	 * An empty array reads "(none)"; an object or null reads '', since
+	 * `Core::as_string` refuses a cast it cannot make.
+	 *
+	 * @param mixed $value Stored or effective value of one setting.
+	 * @return string One line of display text.
 	 */
 	private static function format_value( mixed $value ): string {
 		if ( \is_array( $value ) ) {
 			if ( [] === $value ) {
 				return \__( '(none)', 'newspack-nodes' );
 			}
-			// Assoc array carries meaning in keys; a list, in values.
 			$source = \array_is_list( $value ) ? $value : \array_keys( $value );
 			$items  = \array_map( [ Core::class, 'as_string' ], $source );
 			$n     = \count( $items );
@@ -166,11 +213,22 @@ class Settings_Renderer {
 	}
 
 	/**
-	 * A number field. Shows blank (placeholder = default) when unset or equal to
-	 * the default; a real override shows its value. Wide ranges get `regular-text`,
-	 * narrow ones `small-text`.
+	 * A bounded number field showing the default as its placeholder.
 	 *
-	 * @param int|string $value Stored option value ('' when unset).
+	 * A value equal to the default renders BLANK, so the field reads as "not
+	 * overridden" and a save of it deletes the row through {@see Reset_Gate}
+	 * rather than storing a copy of the default. A stored copy would shadow the
+	 * declared default forever, including after that default moves.
+	 *
+	 * @param string     $id          Input element id.
+	 * @param string     $name        WP-option name the input posts under.
+	 * @param int|string $value       Stored option value ('' when no row exists).
+	 * @param int        $default     The default a reset restores; shown as the placeholder.
+	 * @param int        $min         Inclusive lower bound (the Field's).
+	 * @param int        $max         Inclusive upper bound; over 999 widens the input to `regular-text`.
+	 * @param string     $description Text rendered under the input.
+	 * @param string     $mark_name   Per-field reset mark (see Reset_Gate::mark_name()).
+	 * @return string Escaped markup, wrapped in the reset row.
 	 */
 	public static function number(
 		string $id,
@@ -196,7 +254,18 @@ class Settings_Renderer {
 		return self::reset_wrapper( $mark_name, $inner );
 	}
 
-	/** A directory/text field whose placeholder advertises the file default. */
+	/**
+	 * A path field: a plain text input whose placeholder advertises the default a
+	 * reset restores, so a blank field states what it will fall back to.
+	 *
+	 * @param string $id          Input element id.
+	 * @param string $name        WP-option name the input posts under.
+	 * @param string $value       Stored option value ('' when no row exists).
+	 * @param string $default     The default a reset restores; shown as the placeholder.
+	 * @param string $description Text rendered under the input.
+	 * @param string $mark_name   Per-field reset mark (see Reset_Gate::mark_name()).
+	 * @return string Escaped markup, wrapped in the reset row.
+	 */
 	public static function directory(
 		string $id,
 		string $name,
@@ -214,7 +283,19 @@ class Settings_Renderer {
 		return self::reset_wrapper( $mark_name, $inner );
 	}
 
-	/** A textarea whose placeholder advertises the file default (e.g. server list). */
+	/**
+	 * A multi-line field for a list setting — the memcache servers, the extra log
+	 * sources. The caller joins the entries with newlines both ways: the stored
+	 * array arrives as text and its sanitizer splits the post back apart.
+	 *
+	 * @param string $id          Textarea element id.
+	 * @param string $name        WP-option name the textarea posts under.
+	 * @param string $value       Stored entries, newline-joined ('' when no row exists).
+	 * @param string $placeholder Default entries, newline-joined.
+	 * @param string $description Text rendered under the textarea.
+	 * @param string $mark_name   Per-field reset mark (see Reset_Gate::mark_name()).
+	 * @return string Escaped markup, wrapped in the reset row.
+	 */
 	public static function textarea(
 		string $id,
 		string $name,
@@ -231,19 +312,28 @@ class Settings_Renderer {
 	}
 
 	/**
-	 * A single-boolean checkbox toggle. Emits the hidden `value="0"` sentinel (so an
-	 * unchecked box still posts) followed by the checkbox carrying its file-default
-	 * hint, then a `<label for>`. `checked="checked"` follows `value="1"` adjacently
-	 * — callers match on that. The attr is built directly (not via `\checked()`,
-	 * which echoes) so the method stays a pure string returner.
+	 * A single-boolean toggle: a hidden `value="0"` input, the checkbox, then a
+	 * `<label for>`.
+	 *
+	 * An unchecked box posts nothing, so the hidden sentinel is what lets a save
+	 * turn a setting OFF instead of leaving the stored row standing. The checkbox
+	 * carries `data-nn-reset-default`, which is what the reset JS restores on `↺`:
+	 * without it a bool defaulting to true would reset to unchecked, the one state
+	 * the operator did not ask for.
+	 *
+	 * The `checked` attribute is built inline rather than through `\checked()`,
+	 * which echoes; that would make the method print instead of return. It lands
+	 * adjacent to `value="1"`, and `SettingsRendererTest` asserts that exact run of
+	 * attributes, so inserting another between them fails the suite.
 	 *
 	 * @api
 	 * @param string $id        Checkbox element id (also the label's `for`).
-	 * @param string $name      WP-option name (shared by the hidden sentinel + checkbox).
-	 * @param bool   $checked   Whether the box renders checked (the stored/effective value).
-	 * @param bool   $default   The file default — drives `data-nn-reset-default`, independent of $checked.
+	 * @param string $name      WP-option name, shared by the hidden sentinel and the checkbox.
+	 * @param bool   $checked   Whether the box renders checked (the stored or effective value).
+	 * @param bool   $default   The declared default, driving `data-nn-reset-default` independently of $checked.
 	 * @param string $label     Visible label text.
-	 * @param string $mark_name The per-field reset mark (reset_wrapper's `data-nn-reset`).
+	 * @param string $mark_name Per-field reset mark (see Reset_Gate::mark_name()).
+	 * @return string Escaped markup, wrapped in the reset row.
 	 */
 	public static function checkbox(
 		string $id,
@@ -266,19 +356,28 @@ class Settings_Renderer {
 	}
 
 	/**
-	 * A React-mount field: a hidden JSON carrier (`{field}_json`) the form posts
-	 * back, plus the mount `<div>` whose `data-field` / `data-values` / `data-default`
-	 * the React tree reads. Generic — the caller supplies the mount id + class.
+	 * A field a React tree owns: a hidden JSON carrier plus the mount `<div>` it
+	 * reads its `data-field`, `data-values` and `data-default` from.
+	 *
+	 * The values ride a hidden input because the page is a plain `options.php`
+	 * POST and a React tree has no other way to hand its state back. Everything
+	 * identifying the mount comes from the caller, so a consumer's component
+	 * mounts here without the substrate knowing its selector.
+	 *
+	 * The reset module skips hidden inputs, so `↺` marks this option for deletion
+	 * without touching the tree: a component that wants the toggle to preview the
+	 * reset restores `data-default` itself.
 	 *
 	 * @api
-	 * @param string $field        Field short-name (drives `data-field` + the carrier id).
+	 * @param string $field        Field short-name, driving `data-field` and the carrier id.
 	 * @param string $mount_id     The mount div's id.
 	 * @param string $mount_class  The mount div's class (the React tree's selector).
-	 * @param string $option_name  WP-option name carried by the hidden JSON input.
+	 * @param string $option_name  WP-option name the hidden JSON input posts under.
 	 * @param string $values_json  JSON of the current values.
-	 * @param string $default_json JSON of the file-default values (the ↺ target).
-	 * @param string $description  Field description.
-	 * @param string $mark_name    The per-field reset mark.
+	 * @param string $default_json JSON of the declared default values (what `↺` restores).
+	 * @param string $description  Text rendered under the mount.
+	 * @param string $mark_name    Per-field reset mark (see Reset_Gate::mark_name()).
+	 * @return string Escaped markup, wrapped in the reset row.
 	 */
 	public static function react_mount(
 		string $field,
@@ -300,7 +399,22 @@ class Settings_Renderer {
 			. '<p class="description">' . \esc_html( $description ) . '</p>';
 		return self::reset_wrapper( $mark_name, $inner );
 	}
-	/** Flex row: the control(s) on the left, the reset toggle on the right. */
+	/**
+	 * Wrap a control in the flex row the reset JS binds to: the control on the
+	 * left, the `↺` toggle on the right.
+	 *
+	 * `data-nn-reset` carries the exact hidden-input name a Save must post, so the
+	 * one built module — `src/admin-field-reset/index.js`, which every settings
+	 * admin enqueues through {@see Field_Reset_Assets} — needs no plugin's option
+	 * prefix compiled into it.
+	 *
+	 * $inner is emitted verbatim, so a caller passing unescaped markup writes it
+	 * straight into the page; every renderer here escapes before calling.
+	 *
+	 * @param string $mark_name Per-field reset mark (see Reset_Gate::mark_name()).
+	 * @param string $inner     Already-escaped control markup.
+	 * @return string The wrapped row.
+	 */
 	public static function reset_wrapper( string $mark_name, string $inner ): string {
 		return '<div style="display: flex; align-items: flex-start; gap: 10px;" data-nn-reset="' . \esc_attr( $mark_name ) . '">'
 			. '<div style="flex: 1;">' . $inner . '</div>'
@@ -308,7 +422,13 @@ class Settings_Renderer {
 			. '</div>';
 	}
 
-	/** The `↺` reset-toggle button (paired with a reset_wrapper). */
+	/**
+	 * The `↺` button `reset_wrapper()` pairs with each control. It holds no
+	 * state: `data-nn-reset-toggle` is the only thing the JS looks for, and the
+	 * mark it injects lives on the wrapper.
+	 *
+	 * @return string The button markup.
+	 */
 	public static function reset_toggle(): string {
 		return '<button type="button" class="button button-secondary" data-nn-reset-toggle'
 			. ' title="' . \esc_attr__( 'Reset to default (toggle, then Save)', 'newspack-nodes' ) . '">↺</button>';

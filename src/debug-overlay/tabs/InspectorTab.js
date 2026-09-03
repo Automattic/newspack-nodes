@@ -1,3 +1,14 @@
+/**
+ * The debug overlay's Console tab: the host page's own live node graph on the
+ * shared canvas, beside a REPL that fills that page's own CommandInterpreter,
+ * so any dashboard can be read and rewired without leaving it. `tabs/index.js`
+ * registers it under the `console` id and DebugPanel hosts it.
+ *
+ * The two exported geometry helpers are what hold the transcript inside the
+ * panel. They take a number and an element rather than reading either from the
+ * component, so the arithmetic can be asserted without mounting the tab.
+ */
+
 import {
 	createInterpolateElement,
 	useCallback,
@@ -43,6 +54,7 @@ import { ChromeProvider } from '../../topology-console/ChromeContext';
  *
  * @param {Element|null} rootEl The inspector body's root element.
  * @return {number} The tab bar's rendered offsetHeight in px, or 0.
+ * @testonly Exported for its own unit tests; InspectorTab is the caller.
  */
 export function measureTabBarHeight( rootEl ) {
 	const content = rootEl?.closest?.( '.nodes-devtools__tab-content' );
@@ -56,16 +68,18 @@ export function measureTabBarHeight( rootEl ) {
 }
 
 /**
- * Max height (px) for the REPL transcript: the panel height minus the 64px
- * header row, the 38px always-visible prompt bar (`.topology-repl__bar` in
- * graph-view.scss; the transcript's `bottom: 38px` anchor sits at that bar's
- * top), and the measured tab bar the DevtoolsTabHost renders above this body.
- * The panel is content-box, so frame.h excludes its border — no extra reserve.
- * Floored at 80px so the transcript never collapses on a tiny panel.
+ * Max height (px) for the REPL transcript: the panel height minus the panel's
+ * own 64px header row (`.topology-header` in debug-overlay.scss), the 38px
+ * always-visible prompt bar (`.topology-repl__bar` in graph-view.scss; the
+ * transcript's `bottom: 38px` anchor sits at that bar's top), and the measured
+ * tab bar DevtoolsTabHost renders above this body. The panel is content-box,
+ * so frame.h excludes its border and needs no further reserve. Floored at 80px
+ * so the transcript never collapses on a tiny panel.
  *
  * @param {number} frameHeight  Panel height (frame.h) in px.
  * @param {number} tabBarHeight Measured tab bar height in px (0 if no bar).
  * @return {number} Transcript max-height in px.
+ * @testonly Exported for its own unit tests; InspectorTab is the caller.
  */
 export function replMaxHeight( frameHeight, tabBarHeight = 0 ) {
 	// -4 reserves the resize handle so full height doesn't clip it.
@@ -73,35 +87,34 @@ export function replMaxHeight( frameHeight, tabBarHeight = 0 ) {
 }
 
 /**
- * The Inspector tab — the overlay's live-graph + REPL body, extracted from
- * DebugPanel to run as a registered devtools tab. The host (DebugPanel) owns
- * the outer frame div, the resize handles, the page-scroll lock, and the wheel
- * eater; this component receives the frame geometry and header gestures as props
- * and renders only the inner content.
+ * The tab body. DebugPanel owns the floating-window concerns — the frame div,
+ * the resize handles, the page-scroll lock and the wheel eater — so this
+ * component takes the frame geometry and the header gestures as props and
+ * renders only the inner content: one ConsoleShell inside the three context
+ * providers the canvas reads its chrome, layout and catalogs from.
  *
- * Mounted ONLY while the panel is open, so its graph-building hooks
- * (useDebugRepl / useDebugGraph) construct the overlay's infra in useState lazy
- * initializers that run BEFORE this subtree's first render. The canvas therefore
- * only ever renders + auto-layouts over a complete graph, with shell.sink already
- * bound — no useEffect creates graph nodes here and there is no open-and-type
- * race to paper over at dispatch time.
+ * The panel mounts it ONLY while open, which is what lets its graph-building
+ * hooks (useDebugRepl, useDebugGraph) build the overlay's infra in useState
+ * lazy initializers running BEFORE this subtree's first render. The canvas
+ * therefore only ever renders and auto-layouts over a complete graph with
+ * `shell.sink` already bound. No effect here creates a graph node, so a line
+ * typed the instant the panel opens cannot outrun the sink it dispatches into.
  *
- * The panel owns the one shared header (above the tab bar), so this body is
- * header-less: it renders ConsoleShell with `showHeader={ false }` and publishes
- * its cwd PATH selector up to the panel via `publishHeader`.
+ * The panel also owns the one shared header above the tab bar, so this body is
+ * header-less: it renders ConsoleShell with `showHeader={ false }` and pushes
+ * its cwd PATH selector up through `publishHeader`.
  *
- * @param {Object}   props
- * @param {string}   props.storageKey    Layout persistence key (per dashboard).
- * @param {Object}   props.frame         Frame geometry { w, h } from the host.
- * @param {Function} props.publishHeader Publish header extras (the PATH selector) to the panel's shared Header.
- * @param {boolean}  [props.buildRepl]   When false (Console tab), build no infra — Overview-only.
- * @return {import('react').ReactElement} The inspector body.
+ * @param {Object}                 props
+ * @param {string}                 props.storageKey    Canvas-layout persistence key (per dashboard); the live cwd is appended, so each scope keeps its own node positions.
+ * @param {{w: number, h: number}} props.frame         Panel geometry from the host. Only the height is read, to cap the transcript.
+ * @param {Function}               props.publishHeader Publish this tab's header extras (the PATH selector) into the panel's shared Header; called with null on unmount to retract them.
+ * @param {boolean}                [props.buildRepl]   False while the hub's own Console tab is showing, where a second graph and REPL would collide on `_output`; this body then builds neither and points back at that tab.
+ * @return {import('react').ReactElement} The Console tab body.
  */
 export default function InspectorTab( {
 	storageKey,
 	frame,
 	publishHeader,
-	// false on hub Console tab — its own graph+REPL would collide on `_output`.
 	buildRepl = true,
 } ) {
 	// Measure the host tab bar so the transcript ceiling reserves its height.
@@ -126,7 +139,7 @@ export default function InspectorTab( {
 		[ measureTabBar, tabsVersion ],
 		0
 	);
-	// Palette + skin shared with the topology console; overlay uses live key.
+	// Chrome shared with the console; the overlay is live-only (LIVE key).
 	const {
 		paletteCollapsed,
 		togglePaletteCollapsed,
@@ -137,7 +150,7 @@ export default function InspectorTab( {
 		replChromeProps,
 		setReplExpanded,
 	} = useGraphSurface( { paletteKey: PALETTE_COLLAPSED_STORAGE_KEY_LIVE } );
-	// One Shell per mount; cwd empty (local-only), sink bound before render.
+	// One Shell per mount; path starts local, useDebugRepl binds its sink.
 	const shell = useMemo( () => {
 		const s = new ShellNode();
 		s.path = '';
@@ -155,10 +168,10 @@ export default function InspectorTab( {
 		ready: replReady,
 		debugLevel,
 	} = useDebugRepl( buildRepl, shell, applySkin );
-	// useDebugGraph runs first (via ref); useCanvasLayout then autolays out.
+	// Layout and rate history are per-cwd: a remote cwd is another graph.
 	const cwdScope = cwd || 'local';
 	const onPositionChangeRef = useRef( null );
-	// Resolve catalog before useDebugGraph so handler looks up is_interpreter.
+	// Catalog before useDebugGraph: its handlers read is_interpreter.
 	const jsCatalog = useJsCatalog();
 	const phpCatalog = useClassCatalog( { enabled: !! cwd } );
 	const catalog = cwd ? phpCatalog : jsCatalog;
@@ -211,13 +224,14 @@ export default function InspectorTab( {
 		? [ '', names.HTTP ]
 		: [ '' ];
 
-	// Publish cwd PATH selector to shared Header; ref-wrap setPath (churn).
+	// setPath changes on every cd; the ref keeps onPathChange stable.
 	const setPathRef = useRef( setPath );
 	setPathRef.current = setPath;
 	const stableOnPathChange = useCallback(
 		( p ) => setPathRef.current( p ),
 		[]
 	);
+	// pathOptions is rebuilt each render; compare by value, not identity.
 	const pathOptionsKey = pathOptions.join( '\n' );
 	useEffect( () => {
 		publishHeader?.( {
@@ -230,7 +244,7 @@ export default function InspectorTab( {
 	}, [ publishHeader, pathOptionsKey, cwd, stableOnPathChange ] );
 	useEffect( () => () => publishHeader?.( null ), [ publishHeader ] );
 
-	// Tab-completion: subscribe to _completion candidates via useCompletion.
+	// Tab-completion: _completion publishes candidates; useCompletion asks.
 	const completion = useNodeState( names.COMPLETION, 'candidates' ) ?? null;
 	const { requestCompletion, handleShowCandidates } = useCompletion( {
 		cwd,
@@ -257,10 +271,9 @@ export default function InspectorTab( {
 	// "Reset Layout" appears only when the user has modified the layout.
 	const hasLayoutToReset = isLayoutDirty;
 
-	// Cap the transcript at panel height minus header, prompt bar, and tab bar.
 	const replMaxHeightPx = replMaxHeight( frame.h, tabBarHeight );
 
-	// Hub Console tab: no infra (active=false) — point at Console + Overview.
+	// Hub Console tab: buildRepl=false made the hooks above inert.
 	if ( ! buildRepl ) {
 		return (
 			<div
@@ -320,6 +333,7 @@ export default function InspectorTab( {
 								showHeader={ false }
 								frame={ CanvasFrame }
 								frameProps={ {
+									// No .tsl backs the browser's graph.
 									topology: 'debug',
 									partition: null,
 									isWorker: false,
@@ -338,7 +352,7 @@ export default function InspectorTab( {
 									onInspectorToggle: toggleInspectorCollapsed,
 									// A PATH change is a different graph.
 									resetKey: `${ storageKey }|${ cwdScope }`,
-									// No cwd → local; header uses IoTelemetry.
+									// Local: no-node header reads IoTelemetry.
 									local: ! cwd,
 									// Verbose toggle reads it.
 									debugLevel,
@@ -359,7 +373,7 @@ export default function InspectorTab( {
 									) => {
 										// Pop the transcript footer.
 										setReplExpanded( true );
-										// Raw REPL line via Shell.
+										// A whole REPL line; send it as typed.
 										if ( 'command' === action ) {
 											sendLine( payload );
 											return;

@@ -1,16 +1,18 @@
 <?php
 /**
- * Topology_Loader — reads a TSL topology file and runs it through a Shell instance.
+ * Topology_Loader — builds a worker's node graph from its `.tsl` topology file.
  *
- * `<partition>` and `<topology>` are bound here via Core::$var. `<topology>` names
- * the FLEET: an offsetlog is a reader's cursor and the reader is the fleet, so two
- * processes tailing one log need two cursors. It lets two topologies declare
- * BYTE-IDENTICAL Consumer lines — so composing them with `include` dedupes to one
- * reader — while each standalone fleet still gets its own offsetlog.
+ * The loader binds the two tokens a topology cannot know about itself, then
+ * hands the file to a Shell: `<partition>` and `<topology>` go into `Core::$var`,
+ * while every `<ns:key>` token (`<config:logs_dir>`) resolves through its
+ * namespace's registered resolver instead — see `Core::register_config_namespace()`
+ * and `Config::register_token_namespace()`.
  *
- * `<ns:key>` tokens
- * (e.g. `<config:foo>`) resolve through their namespace's registered resolver
- * — see Core::register_config_namespace() / Config::register_token_namespace().
+ * `<topology>` names the FLEET. An offsetlog is a reader's cursor and the reader
+ * is the fleet, so two processes tailing one log need two cursors. The token lets
+ * two topologies declare BYTE-IDENTICAL Consumer lines — composing them with
+ * `include` then collapses to a single reader — while each standalone fleet still
+ * gets its own offsetlog.
  *
  * @package Newspack_Nodes
  */
@@ -19,18 +21,30 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * The static entry point for topology loading.
+ *
+ * The Shell it builds lives only for the call. What survives is the graph the
+ * statements registered in `Core`, which is why nothing here is an instance.
+ */
 class Topology_Loader {
 
 	/**
-	 * Load `<name>.tsl`, bind `<partition>`, and execute every statement against $sink.
+	 * Load `<name>.tsl` and execute every statement against $sink.
 	 *
-	 * `<ns:key>` tokens resolve through their namespace's registered resolver
-	 * (Core::register_config_namespace); the loader installs no config itself.
+	 * `<partition>` and `<topology>` are bound into `Core::$var` before the file
+	 * is evaluated, so the Shell's interpolation already has them. The binding is
+	 * process-global and outlives the call. A `<ns:key>` token takes no binding at
+	 * all — it reaches the resolver its namespace registered at boot, so the
+	 * loader installs no config of its own.
 	 *
-	 * @param string $name      Topology name (no .tsl suffix).
-	 * @param int    $partition Partition number for `<partition>`.
-	 * @param Node   $sink      Where dispatched Messages flow.
-	 * @throws \RuntimeException If the topology is unknown.
+	 * @param string $name      Topology name, without the `.tsl` suffix.
+	 * @param int    $partition Partition number bound to `<partition>`.
+	 * @param Node   $sink      Where the dispatched Messages flow — the worker's
+	 *                          `_command_interpreter` in production.
+	 * @throws \RuntimeException When the name is not in the registry, a topology
+	 *                           includes itself, or the file ends inside an open
+	 *                           quote or continuation.
 	 */
 	public static function load(
 		string $name,
@@ -43,13 +57,12 @@ class Topology_Loader {
 			throw new \RuntimeException( "Topology_Loader: unknown topology '$name' (not in registry)" );
 		}
 
-		// Bind the partition + fleet tokens; ns:key use registered resolvers.
 		Core::$var['partition'] = (string) $partition;
 		Core::$var['topology']  = $name;
 
 		$shell = new Shell_Node();
 		$shell->sink( $sink );
-		// No boot console: TM_NOREPLY drops replies dead-ending on _output.
+		// No boot console: TM_NOREPLY suppresses replies bound for _output.
 		$shell->want_reply( false );
 		// A cyclic .tsl fails loud at boot; it must not half-build the graph.
 		$shell->fatal_errors( true );

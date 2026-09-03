@@ -14,7 +14,7 @@
 		"fix:scss": "stylelint --customSyntax postcss-scss --fix 'src/**/*.scss'",
 		"format": "prettier --write 'src/**/*.{js,jsx,scss,json}'",
 		"format:js": "prettier --write 'src/**/*.{js,jsx}'",
-		"lint:js": "eslint 'src/**/*.{js,jsx,mjs,cjs}' 'scripts/**/*.{js,mjs}' && node scripts/lint-comments.mjs . && node scripts/lint-contract.mjs",
+		"lint:js": "eslint 'src/**/*.{js,jsx,mjs,cjs}' 'scripts/**/*.{js,mjs}' 'examples/*/src/**/*.{js,jsx,mjs,cjs}' 'examples/*/scripts/**/*.{js,mjs}' && node scripts/lint-comments.mjs . && node scripts/lint-contract.mjs",
 		"lint:php": "phpcs && php scripts/lint-comments.php .",
 		"lint:phpstan": "vendor/bin/phpstan analyse -c phpstan-deadcode.neon --memory-limit=2G --no-progress",
 		"lint:deadcode": "npm run lint:phpstan",
