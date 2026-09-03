@@ -1,14 +1,17 @@
 /**
- * <SessionsAdmin> — the thin React view over the issued-session node graph.
+ * <SessionsAdmin> — the React view over the issued-session node graph.
  *
  * Vault's mirror: Vault lists the credentials this site sends OUT, this lists
  * the ones it hands to callers coming IN — an agent's MCP client, a script on
- * a laptop. The graph (useSessionsGraph) owns the data and the transport; this
- * component reads the view model via `useNodeState('sessions:list','view')`.
+ * a laptop. `useSessionsGraph` owns the data and the transport, so every
+ * component here is presentation over the model that hook returns and over the
+ * two verbs it exposes.
  *
- * The key is disclosed exactly once, in the create response, because the
- * verifier recomputes an HMAC from it and it therefore cannot be stored as a
- * digest. That is also why the TTL ceiling is bounded rather than optional.
+ * The key is disclosed exactly once, in the create answer. The verifier
+ * recomputes an HMAC from it, so it is stored recoverable rather than hashed
+ * and nothing gets it back out of the listing. A short lifetime is the
+ * compensation, so the lifetime field carries the server's ceiling and the
+ * reason for staying well under it.
  */
 
 import { useEffect, useRef, useState } from '@wordpress/element';
@@ -21,7 +24,13 @@ import { answerStatus } from '@newspack-nodes/shared/utils/answerStatus';
 import './sessions-admin.scss';
 import { HeaderSlot } from '@newspack-nodes/shared/components/HeaderSlot';
 
-/** What each scope actually admits, in the operator's words. */
+/**
+ * What each scope admits, in the operator's words rather than `Capabilities`'.
+ *
+ * Keyed by the scope names the `list` verb serves, which is where the picker
+ * gets its options too. A scope added on the server therefore still reaches
+ * the picker; it renders with an empty description until it is named here.
+ */
 const SCOPE_BLURB = {
 	read: __(
 		'Dashboards and read-only verbs. Changes nothing.',
@@ -37,14 +46,34 @@ const SCOPE_BLURB = {
 	),
 };
 
+/**
+ * The lifetime the form prefills, in seconds — `Command_Auth::SESSION_TTL_S`.
+ *
+ * The `list` verb serves the ceiling (`ttl_max`) and not the default, so this
+ * copy is free to drift. Drift costs a prefilled number and never a bad
+ * session: `Command_Auth::bounded_ttl()` clamps whatever it is sent.
+ */
 const DEFAULT_TTL_S = 3600;
 
+/**
+ * The words a row shows for its revoke, as `answerStatus` reads them.
+ *
+ * No `ok` text: `Sessions::forget()` drops the directory row, so a revoke that
+ * succeeds takes away the line the confirmation would have been written on.
+ */
 const REVOKE_TEXTS = {
 	failed: ( e ) =>
 		// translators: %s: revocation error message.
 		sprintf( __( 'Revoke failed: %s', 'newspack-nodes' ), e ),
 };
 
+/**
+ * The words the create form shows for its own verb, as `answerStatus` reads
+ * them.
+ *
+ * No `ok` text here either: success replaces the whole form with the key
+ * panel, which says everything a confirmation line would.
+ */
 const CREATE_TEXTS = {
 	busy: __( 'Issuing…', 'newspack-nodes' ),
 	failed: ( e ) =>
@@ -66,16 +95,22 @@ function when( seconds ) {
 }
 
 /**
- * One issued session — label / scope / liveness / expiry + Revoke.
+ * One issued session: its label, scope, state, timestamps and a Revoke button.
  *
- * It owns no answer state: the revoke answers once, naming its handle, and the
- * graph keeps that answer per handle for the row to render.
+ * The row owns no answer state. A revoke answers once, naming its handle, and
+ * the graph keeps that answer per handle, so a row keeps its own line while a
+ * sibling is revoked in the same second.
+ *
+ * The state badge says `live` or `revoked` and never `expired`, because
+ * `Sessions::all()` prunes lapsed rows before it lists. A listed row that is
+ * not live therefore lost its lease early — to a revoke whose directory write
+ * failed, or to a salt rotation orphaning every key on the install.
  *
  * @param {Object}   props
  * @param {Object}   props.session  A row from the view model.
  * @param {?Object}  props.answer   This row's last answer, or null.
  * @param {boolean}  props.busy     Whether a revoke of this row is outstanding.
- * @param {Function} props.onRevoke Revoke callback (handle).
+ * @param {Function} props.onRevoke Revoke callback, taking the row's handle.
  * @return {import('react').ReactElement} The rendered row.
  */
 function SessionRow( { session, answer, busy, onRevoke } ) {
@@ -106,9 +141,7 @@ function SessionRow( { session, answer, busy, onRevoke } ) {
 						live ? 'is-success' : 'is-error'
 					}` }
 				>
-					{ /* The store names the state; a listed dead row was
-					     TAKEN, not lapsed, because lapsed rows are pruned
-					     before they are listed. */ }
+					{ /* Not live means revoked: lapsed rows never list. */ }
 					{ 'live' === state
 						? __( 'live', 'newspack-nodes' )
 						: __( 'revoked', 'newspack-nodes' ) }
@@ -163,17 +196,31 @@ function SessionRow( { session, answer, busy, onRevoke } ) {
 }
 
 /**
- * The create form. On success it hands the issued key back to the caller for
- * one-time display rather than closing straight away — the key is never
- * recoverable from the listing.
+ * How the form hands a create over: the three fields the `create` verb takes,
+ * the label already trimmed and the lifetime already a number, so the caller
+ * only has to spell them as arguments.
  *
- * @param {Object}     props
- * @param {Function}   props.onCreate Create callback (fields).
- * @param {?Object}    props.answer   The answer for the submitted label, if any.
- * @param {boolean}    props.busy     Whether the create is outstanding.
- * @param {() => void} props.onCancel Dismisses the modal.
- * @param {string[]}   props.scopes   Scope vocabulary from the view model.
- * @param {number}     props.ttlMax   Server-side TTL ceiling, in seconds.
+ * @typedef {(fields:{label:string,scope:string,ttl:number})=>void} CreateHandler
+ */
+
+/**
+ * The create form: a label, a scope and a lifetime, handed to `onCreate`.
+ *
+ * The label is validated here and only here — an unlabelled mint works, but
+ * `Sessions::record()` declines to list it, so the operator would leave with a
+ * key and no row to revoke it from. Every other refusal is the server's and
+ * arrives as the answer this form shows.
+ *
+ * Success does not close the modal. The parent swaps this form for the key
+ * panel, because the create answer is the one place the key is disclosed.
+ *
+ * @param {Object}        props
+ * @param {CreateHandler} props.onCreate Receives the validated fields.
+ * @param {?Object}       props.answer   The answer for the submitted label, if any.
+ * @param {boolean}       props.busy     Whether the create is outstanding.
+ * @param {() => void}    props.onCancel Dismisses the modal.
+ * @param {string[]}      props.scopes   Scope vocabulary from the view model.
+ * @param {number}        props.ttlMax   Server-side TTL ceiling, in seconds.
  * @return {import('react').ReactElement} The rendered form.
  */
 function CreateSessionForm( {
@@ -310,11 +357,16 @@ function CreateSessionForm( {
 }
 
 /**
- * The one-time key disclosure. Rendered in place of the form once a session is
- * issued; there is no way back to it.
+ * The one-time key disclosure, rendered in place of the form once a session is
+ * issued. Closing is final: the listing never carries the key and no verb
+ * hands it back, so a lost key is re-issued rather than recovered.
+ *
+ * Handle and key are shown joined by a dot, so one copy carries both. The wire
+ * keeps them apart — the handle names the session in the `auth` envelope, the
+ * key signs it.
  *
  * @param {Object}     props
- * @param {Object}     props.session The issued session.
+ * @param {Object}     props.session The mint: handle, key, scope and `expires_in`.
  * @param {() => void} props.onClose Dismisses the modal.
  * @return {import('react').ReactElement} The panel.
  */
@@ -357,7 +409,12 @@ function IssuedKeyPanel( { session, onClose } ) {
 }
 
 /**
- * Issued-session admin app.
+ * Issued-session admin app: the table, the create modal and the key panel.
+ *
+ * The local state is what the graph cannot hold: whether the modal is open,
+ * the session the last create disclosed, the label that create was sent with,
+ * and each row's last answer. The label is state because an answer comes back
+ * under the subject it was sent as, and a create's subject is its label.
  *
  * @param {Object}  props
  * @param {Element} [props.headerControlsSlot] Hub header slot to portal the controls into.

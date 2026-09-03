@@ -6,8 +6,8 @@
  * moved, and `elapsed` is how long that took, so the record covers
  * `[ts - elapsed, ts]`. Two topologies tailing one source each report that
  * window, from two worker processes on independent timers whose `microtime`
- * stamps never collide — so merging co-readers by exact `ts` deduped only the
- * same-process case and the total came out a multiple of the reader count.
+ * stamps never collide, so merging co-readers by exact `ts` dedups only the
+ * same-process case and leaves the total a multiple of the reader count.
  *
  * Each source is therefore integrated over the UNION of its readers' windows,
  * oldest end first: a window already covered adds nothing, one that extends the
@@ -20,8 +20,15 @@
  */
 
 /**
- * @param {Object<string,{source:string,series:Array}>} consumers The `topicprobe:view` consumers map.
- * @return {{ msgs: number, bytes: number }} Consumed totals over the retained window.
+ * Total the messages and bytes consumed across every source in the map.
+ *
+ * An entry reporting no source is skipped, because collapsing co-readers is
+ * keyed on the source and an unattributable window is exactly what would
+ * double-count. Deltas are clamped non-negative as the windows are built, so a
+ * corrupt frame cannot subtract from a total the cards present as produced work.
+ *
+ * @param {?Object<string,{source?:string,series?:Array<{ts?:number,elapsed?:number,msgs?:number,bytes?:number}>}>} consumers The `topicprobe:view` consumers map, keyed by reader id; a missing map counts as empty.
+ * @return {{msgs:number,bytes:number}} Messages and bytes consumed over the retained window, each rounded to an integer.
  */
 export function probe24hTotals( consumers ) {
 	// source → every reader's windows, to be unioned below.

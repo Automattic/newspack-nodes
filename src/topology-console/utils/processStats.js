@@ -1,8 +1,23 @@
 /**
- * A scope's ingress: produces without accepting. Shared with aggregateSeries so
- * the totals and the sparklines can't disagree about what a source is.
+ * The source/sink predicates and the process-level roll-up behind the console's
+ * two stats headers: the Inspector's process view and HullPanel's hull stats.
  *
- * @param {Object} n Node metadata.
+ * `aggregateSeries` imports the same two predicates, so a scope's totals and
+ * the sparklines beside them classify every node identically and cannot
+ * disagree about which members are its edges.
+ *
+ * Both predicates read a missing port flag as true, matching what
+ * `parseMetadata` writes for a node whose `node_schema()` declares neither.
+ * A node holding both ports is a through-node and counts toward neither total,
+ * so a message moving between two members of a scope reads as interior traffic
+ * rather than as an arrival plus a departure.
+ */
+
+/**
+ * Whether the node is one of the scope's ingresses, producing into it without
+ * accepting from it.
+ *
+ * @param {{has_target?:boolean, accepts_fill?:boolean}} n Node metadata.
  * @return {boolean} Whether the node produces into the scope.
  */
 export function isSource( n ) {
@@ -10,9 +25,10 @@ export function isSource( n ) {
 }
 
 /**
- * A scope's egress: accepts without producing.
+ * Whether the node is one of the scope's egresses, accepting into it without
+ * producing out of it.
  *
- * @param {Object} n Node metadata.
+ * @param {{has_target?:boolean, accepts_fill?:boolean}} n Node metadata.
  * @return {boolean} Whether the node consumes out of the scope.
  */
 export function isSink( n ) {
@@ -20,14 +36,17 @@ export function isSink( n ) {
 }
 
 /**
- * Roll a graph's nodes up into process-level totals for the inspector header
- * (roadmap [95]):
- *  - messagesIn  — sum of SOURCE counters (has_target, !accepts_fill): produced
- *  - messagesOut — sum of SINK counters (!has_target, accepts_fill): consumed
- *  - bytesRead / bytesWritten — summed across every node
+ * Rolls a scope's nodes up into the four totals a stats header displays.
  *
- * Port flags default true (matching parseMetadata), so a node that declares
- * neither counts toward neither in/out total.
+ * `messagesIn` sums the counters of the scope's sources and `messagesOut`
+ * those of its sinks, which is what makes the pair describe the boundary's own
+ * traffic: a hop between two members lands in neither sum. The byte counters
+ * carry no such boundary — every node reports the bytes crossing its own I/O
+ * seam — so they sum across every member.
+ *
+ * A scope built entirely of through-nodes therefore reports zero messages in
+ * and out while its byte totals still climb. That traffic belongs to whichever
+ * enclosing scope holds its source and its sink.
  *
  * @param {Array<{count?:number, bytesRead?:number, bytesWritten?:number, has_target?:boolean, accepts_fill?:boolean}>} [nodes] Node metadata for the scope; a missing list totals zero.
  * @return {{messagesIn:number, messagesOut:number, bytesRead:number, bytesWritten:number}} Totals.

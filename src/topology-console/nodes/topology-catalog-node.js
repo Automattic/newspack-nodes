@@ -1,20 +1,31 @@
 /**
- * TopologyCatalogNode — the Path menu's live topology catalog, as a graph node.
+ * The Path menu's live topology catalog: which topologies exist, how many
+ * partitions each runs, and which of them the fleet spawns.
  *
- * It was a React hook calling a one-shot client, which is a standalone
- * `fetch` outside the graph: its own POST every tick, alongside the batched one
- * the console already sends. A node emitting through `_http` during the Router's
- * TIMER notify rides the SAME lock, so `topologies list` now travels in the same
- * request as `dump_metadata` / `uptime` / `dmesg`. A batch carries whatever TO
- * each line holds — the server routes them independently.
+ * A graph node rather than a hook holding a client of its own, because that is
+ * what puts the poll inside the console's existing request. Emitting through
+ * `_http` during the Router's TIMER notify lands inside that tick's lock, so
+ * `topologies list` leaves in the same POST as `dump_metadata`, `uptime` and
+ * `dmesg`; a standalone `fetch` would add a request per tick for one row list.
+ * Batching costs nothing in routing: a batch carries whatever TO each line
+ * holds, and the server routes the lines independently.
  *
- * Poll + receive in one node, the PollerNode shape: the base mints the command
- * on the tick (Node.command stamps FROM=name, TO=target and signs it), the
- * reply comes back TO=FROM, and `publish()` turns it into the catalog.
+ * Poll and receive in one node, the `PollerNode` shape. The base mints the
+ * command on the tick — `Node.command()` stamps FROM=name, TO=target and
+ * signs it — the reply comes back TO=FROM to this node's `fill()`, and
+ * `publish()` turns it into the catalog. The addressing IS the correlation
+ * (ADR-7); no op-id, registry or promise appears anywhere on this path.
+ *
+ * The verb belongs to this node; the target and the cadence belong to the
+ * mounting hook, `useTopologyCatalog`.
  */
 
 import { PollerNode } from '../../runtime/poller-node';
 
+/**
+ * Registry name the hook mounts this node under, and the address every
+ * `useNodeState` subscriber reads the catalog through.
+ */
 export const CATALOG_NODE = 'topologies:catalog';
 
 /**
@@ -23,9 +34,9 @@ export const CATALOG_NODE = 'topologies:catalog';
  * them, so each read below carries its own default.
  *
  * @typedef {Object} CatalogLocalizedData
- * @property {Object<string, number>} [topologyWorkers]     Partition count per registered topology.
- * @property {string[]}               [activeTopologies]    Topologies the fleet spawns.
- * @property {number}                 [configNumPartitions] Partition count a topology inherits when it declares none.
+ * @property {Object<string,number>} [topologyWorkers]     Partition count per registered topology.
+ * @property {string[]}              [activeTopologies]    Topologies the fleet spawns.
+ * @property {number}                [configNumPartitions] Partition count a topology inherits when it declares none.
  */
 
 /**
@@ -37,9 +48,37 @@ export const CATALOG_NODE = 'topologies:catalog';
  */
 
 /**
- * The page-load snapshot the PHP localizer wrote — the seed before any reply.
+ * One row of a `topologies list` reply, as `Topologies_CI_Node::cmd_list()`
+ * builds it.
  *
- * @return {Object} `{ partitions, active, entries }`.
+ * @typedef {Object} TopologyListEntry
+ * @property {string}           name             Topology name.
+ * @property {string}           source           Where the `.tsl` lives: `user`, `stock` or `both`.
+ * @property {boolean}          active           Whether the fleet spawns it.
+ * @property {number}           [num_partitions] Canonical partition count for the topology.
+ * @property {Object<string,*>} [frontmatter]    The topology's frontmatter keys.
+ * @property {string[]}         [includes]       Topologies this one includes directly.
+ */
+
+/**
+ * What this node publishes on its `catalog` registration.
+ *
+ * @typedef {Object} TopologyCatalog
+ * @property {Object<string,number>} partitions Partition count per topology name.
+ * @property {string[]}              active     Names the fleet spawns.
+ * @property {TopologyListEntry[]}   entries    The reply's rows, passed through verbatim.
+ */
+
+/**
+ * Read the page-load snapshot the PHP localizer wrote — the catalog that
+ * stands until the first reply lands, and the reason a cold render never shows
+ * an empty Path menu.
+ *
+ * `entries` is empty because the localizer writes the counts and the active
+ * set alone; the rows, and the `includes` the palette draws from them, arrive
+ * with the first reply.
+ *
+ * @return {TopologyCatalog} The seed catalog.
  */
 export function seedFromGlobal() {
 	/** @type {CatalogLocalizedData} */
@@ -55,13 +94,18 @@ export function seedFromGlobal() {
 }
 
 /**
- * Map a topologies.list entry to catalog shape; num_partitions authoritative.
+ * Reduce a `topologies list` reply to the catalog the Path menu reads.
  *
- * @param {Array}  list              Raw `topologies list` entries.
- * @param {number} defaultPartitions Count for an entry omitting num_partitions.
- * @return {Object} `{ partitions, active, entries }`.
+ * A row's own `num_partitions` wins, because the server resolved it through
+ * `Bootstrap::num_partitions_for()` — which already applied that topology's
+ * frontmatter — while the fallback knows only the site-wide config value.
+ *
+ * @param {TopologyListEntry[]} list              Rows from the reply.
+ * @param {number}              defaultPartitions Count for a row declaring no `num_partitions`.
+ * @return {TopologyCatalog} The catalog to publish.
  */
 function catalogFromList( list, defaultPartitions ) {
+	/** @type {Object<string,number>} */
 	const partitions = {};
 	const active = [];
 	for ( const entry of list ) {
@@ -74,6 +118,16 @@ function catalogFromList( list, defaultPartitions ) {
 	return { partitions, active, entries: list };
 }
 
+/**
+ * The count a row inherits when it declares none, taken from the localize
+ * payload rather than hardcoded: it mirrors the substrate's `num_partitions`
+ * config value, which an operator can change.
+ *
+ * Falls back to 1, the smallest fleet that runs at all — a menu entry
+ * offering zero partitions offers nothing to select.
+ *
+ * @return {number} Partition count.
+ */
 function defaultPartitionCount() {
 	return (
 		( typeof window !== 'undefined' &&
@@ -91,13 +145,20 @@ function defaultPartitionCount() {
  */
 export class TopologyCatalogNode extends PollerNode {
 	/**
-	 * Poll `topologies list`, and publish the localized seed immediately so a
-	 * subscriber mounting before the first reply still renders a catalog.
+	 * Ask `list`, and publish the localized seed immediately so a subscriber
+	 * mounting before the first reply still renders a catalog.
 	 */
 	constructor() {
 		super();
 		this.verb = 'list';
-		// Last published signature; an identical reply is a no-op.
+		/**
+		 * Signature of the last published catalog. An identical reply is
+		 * dropped rather than republished, because `setState` notifies every
+		 * subscriber: a fresh object identity each poll would re-render the
+		 * console and rebuild its path options for no change.
+		 *
+		 * @type {?string}
+		 */
 		this.lastSig = null;
 		this.setState( 'catalog', seedFromGlobal() );
 	}
@@ -107,6 +168,9 @@ export class TopologyCatalogNode extends PollerNode {
 	 * registration, skipping a reply identical to the last one. A malformed
 	 * body keeps the last-good catalog — a transient error must not blank the
 	 * Path menu, which is the whole reason this polls rather than loads.
+	 *
+	 * An empty `topologies` array is not malformed and does apply, collapsing
+	 * the menu: a site whose last topology was deleted has none.
 	 *
 	 * @param {*} body The unwrapped reply body.
 	 */

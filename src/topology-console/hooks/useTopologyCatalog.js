@@ -1,18 +1,21 @@
 /**
- * useTopologyCatalog — the Path menu's live topology catalog.
+ * The Path menu's live topology catalog: which topologies exist, how many
+ * partitions each runs, and which of them the fleet spawns.
  *
- * It OWNS its node rather than borrowing one from useConsoleGraph, and that is
- * load-bearing. The catalog feeds `pathOptions` → `workers` → `workersKey`,
- * which is a dependency of the console graph's effect — so a node mounted by
- * that effect is destroyed by the very publish it just made, re-seeded from the
- * frozen page-load snapshot on reconstruction, and the console oscillates
- * between seed and live at the poll rate, reconnecting SSE each time.
+ * The hook OWNS its node rather than borrowing one from `useConsoleGraph`, and
+ * that ownership is load-bearing. What it returns builds the console's
+ * `pathOptions`, which builds the `workers` list, whose join is the console
+ * graph effect's `workersKey` dependency. A catalog node mounted by that effect
+ * would therefore be torn down by the very publish it had just made, rebuilt
+ * carrying the frozen page-load seed its constructor publishes, and the console
+ * would swing between seed and live at the poll cadence, reconnecting SSE each
+ * time.
  *
- * Owning it also keeps the catalog alive in edit mode, where the console graph
- * is disabled — which is exactly when `reload()` is called, on save and delete.
+ * Owning it also keeps the catalog polling in edit mode, where the console
+ * graph is disabled — and edit mode is where save and delete call `reload()`.
  *
- * A passenger, like useRouterTick: it attaches to a backbone someone else owns
- * and re-attaches when one appears.
+ * A passenger, like `useRouterTick`: it attaches to a backbone another mount
+ * owns and re-attaches whenever one comes up, rather than raising its own.
  */
 
 import { useCallback, useEffect, useMemo, useState } from '@wordpress/element';
@@ -25,22 +28,29 @@ import {
 	seedFromGlobal,
 } from '../nodes/topology-catalog-node';
 
-// Poll cadence; >1000 so the Router hitchhike throttles rather than every tick.
+/**
+ * Poll cadence in milliseconds. At 1000 or more the node hitchhikes the
+ * `_router` TIMER instead of taking a `setInterval` slot of its own, and rides
+ * the shared wall-clock grid (ADR-17), so this poll meets the console's 1s
+ * pollers on every tenth tick and leaves in their one batched POST.
+ */
 const POLL_INTERVAL_MS = 10000;
 
 /**
- * Mount the catalog node and read its published catalog.
+ * Mount the catalog node and read what it publishes.
  *
  * Before the first reply lands the returned values are the page-load seed the
  * PHP localizer wrote, so the Path menu is never empty.
  *
- * @return {{partitions: Object<string, number>, active: string[], entries: Object[], reload: () => void}}
+ * @return {{partitions: Object<string,number>, active: string[], entries: Object[], reload: () => void}}
  *   `partitions` maps each topology name to its partition count; `active` lists
- *   the activated topology names; `entries` are the raw `topologies list`
- *   entries the palette reads `includes` from; `reload` fires the poll now,
- *   which is what save and delete call in edit mode.
+ *   the topologies the fleet spawns; `entries` are the raw `topologies list`
+ *   entries the palette and the include hulls read `includes` from; `reload`
+ *   polls immediately rather than waiting out the cadence, which is what save,
+ *   delete and activate each call.
  */
 export function useTopologyCatalog() {
+	// A rebuild bumps the generation; a bare mount only raises the backbone.
 	const [ attachEpoch, setAttachEpoch ] = useState( 0 );
 	useEffect( () => {
 		const bump = () => setAttachEpoch( ( n ) => n + 1 );
@@ -61,7 +71,7 @@ export function useTopologyCatalog() {
 		const node = new TopologyCatalogNode();
 		node.name = CATALOG_NODE;
 		node.sink = interpreter;
-		// Router peels `_http`; the reply returns TO=FROM to this node.
+		// Router peels `_http`; the reply comes back TO=FROM here (ADR-7).
 		node.target = `${ names.HTTP }/topologies`;
 		node.setTimer( POLL_INTERVAL_MS );
 		return () => node.removeNode();

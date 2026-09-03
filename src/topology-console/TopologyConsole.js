@@ -1,5 +1,16 @@
 /**
- * TopologyConsole — top-level shell.
+ * The Topology Console: one canvas over a node graph, in two modes. View mode
+ * paints the live graph of the worker the cwd mounts and drives it from a
+ * REPL; edit mode paints a draft `.tsl` document and edits it with the same
+ * verbs. This module is the shell holding what both modes share — the cwd
+ * mirrored off the Shell, the canvas layout, the modals and the toast — and
+ * delegates every mechanism to a hook.
+ *
+ * Two substrate rules shape it. A typed line leaves through one door, riding a
+ * TM_BYTESTREAM into the Shell rather than a per-action API (ADR-1), and a
+ * reply comes back addressed to the node that minted the command instead of
+ * correlated by an id (ADR-7). Steering follows the same rule: the live-canvas
+ * poll moves by pointing `_cwd.target` at the new cwd, never by rewiring sinks.
  */
 
 import {
@@ -82,9 +93,15 @@ import {
 	PALETTE_COLLAPSED_STORAGE_KEY_EDIT,
 } from './themes';
 
-// Pure derivations over a topology catalog, shared by the seed and live menu.
-
-// Active topologies sort to the top of the dropdown, then alphabetical.
+/**
+ * Order a topology catalog for a menu: active topologies first, then
+ * alphabetical. The page-load seed and the live Path menu both sort through
+ * this, so the two orders cannot drift.
+ *
+ * @param {Object<string,number>} partitions Partition count per topology; only the keys are read.
+ * @param {string[]}              active     Topologies the fleet spawns.
+ * @return {string[]} Topology names, active ones first.
+ */
 function sortTopologies( partitions, active ) {
 	const activeSet = new Set( active );
 	return Object.keys( partitions ).sort( ( a, b ) => {
@@ -94,12 +111,30 @@ function sortTopologies( partitions, active ) {
 	} );
 }
 
+/**
+ * Partition indices `0..n-1` for one topology. A topology the catalog does not
+ * name counts as one partition, so its menu entry still offers p0 instead of
+ * nothing to select.
+ *
+ * @param {Object<string,number>} partitions Partition count per topology.
+ * @param {string}                topology   Topology to enumerate.
+ * @return {number[]} Indices, ascending.
+ */
 function partitionIndices( partitions, topology ) {
 	const n = partitions[ topology ] || 1;
 	return Array.from( { length: n }, ( _, i ) => i );
 }
 
-// Every cwd the Path menu offers: local graph, request scope, active workers.
+/**
+ * Every cwd the Path menu offers: the browser-local graph (`''`), the request
+ * scope (`_http`), and one `{topology}.p{N}` mount per partition of each ACTIVE
+ * topology. An inactive topology has no worker listening, so its path would
+ * name a destination that answers nothing.
+ *
+ * @param {Object<string,number>} partitions Partition count per topology.
+ * @param {string[]}              active     Topologies the fleet spawns.
+ * @return {string[]} Selectable cwds.
+ */
 function buildPathOptions( partitions, active ) {
 	const activeSet = new Set( active );
 	return [
@@ -121,11 +156,11 @@ function buildPathOptions( partitions, active ) {
  * each read below carries its own default.
  *
  * @typedef {Object} ConsoleLocalizedData
- * @property {Object<string, number>} [topologyWorkers]     Partition count per registered topology.
- * @property {string[]}               [activeTopologies]    Topologies the fleet spawns.
- * @property {number}                 [configNumPartitions] Partition count a topology inherits when it declares none.
- * @property {number}                 [configStaleTimeout]  Seconds the substrate falls back to when a topology declares no `stale_timeout`.
- * @property {number}                 [configOnDemandIdle]  Idle window a topology inherits when it declares none; 0 = resident.
+ * @property {Object<string,number>} [topologyWorkers]     Partition count per registered topology.
+ * @property {string[]}              [activeTopologies]    Topologies the fleet spawns.
+ * @property {number}                [configNumPartitions] Partition count a topology inherits when it declares none.
+ * @property {number}                [configStaleTimeout]  Seconds the substrate falls back to when a topology declares no `stale_timeout`.
+ * @property {number}                [configOnDemandIdle]  Idle window a topology inherits when it declares none; 0 keeps its workers resident.
  */
 
 /**
@@ -139,11 +174,20 @@ function buildPathOptions( partitions, active ) {
 /** @type {ConsoleWindow} */
 const CONSOLE_WINDOW = window;
 
-// Page-load snapshot — seeds the initial topology pick, NOT the live menu.
+/**
+ * Partition counts as they stood when this bundle evaluated. They seed the
+ * initial topology pick only: the Path menu reads `useTopologyCatalog`, which
+ * refetches, so a topology activated after page load still shows up there.
+ */
 const SEED_WORKERS =
 	( CONSOLE_WINDOW.NewspackNodesData &&
 		CONSOLE_WINDOW.NewspackNodesData.topologyWorkers ) ||
 	{};
+
+/**
+ * Topology names in menu order, from that same snapshot. The first is what the
+ * console opens on when the URL names no topology.
+ */
 const TOPOLOGIES = sortTopologies(
 	SEED_WORKERS,
 	( CONSOLE_WINDOW.NewspackNodesData &&
@@ -168,7 +212,11 @@ function parseWorker( cwd ) {
 	return m ? { topology: m[ 1 ], partition: Number( m[ 2 ] ) } : null;
 }
 
-// scopeFromCwd lives in utils/scope to avoid a hook→component cycle.
+/**
+ * Re-exported so the console's surface still carries it. The implementation
+ * lives in `utils/scope` because `useConsoleGraph` needs it too, and a hook
+ * importing this component would close an import cycle.
+ */
 export { scopeFromCwd };
 
 /**
@@ -215,7 +263,15 @@ export function statusLines( { ssePid, cwd, worker } ) {
 	];
 }
 
-// Longest worker menu item prefixing 'path' (its mount), or null.
+/**
+ * The worker a path is mounted on: the longest `{topology}.p{N}` entry in the
+ * menu that the path equals or descends from, so a node path inside a worker
+ * resolves to that worker. The local graph and `_http` mount none.
+ *
+ * @param {string}   path    Path to resolve, usually the mirrored cwd.
+ * @param {string[]} options Every cwd the Path menu offers.
+ * @return {?AttachedWorker} The worker, or null when the path mounts none.
+ */
 function longestWorkerPrefix( path, options ) {
 	let best = null;
 	for ( const opt of options ) {
@@ -257,9 +313,18 @@ export function toNeedsSseSession( to ) {
 	return /^[a-z0-9_-]+\.p\d+(?:\/|$)/.test( to || '' );
 }
 
-// REPL ceiling from measured appHeight − repl-bar − handle; null pre-layout.
+/** Height in px of the REPL bar, the chrome below the transcript. */
 const CONSOLE_REPL_BAR_PX = 38;
+
+/**
+ * Height in px the REPL's resize handle subtracts from the transcript. The
+ * handle straddles the transcript's top border on absolute positioning rather
+ * than stacking above it, so it subtracts nothing; the term stays named so the
+ * ceiling below reads as the sum of the chrome it accounts for.
+ */
 const CONSOLE_RESIZE_HANDLE_PX = 0;
+
+/** Floor for that ceiling; a short console keeps a usable transcript. */
 const REPL_MIN_HEIGHT_PX = 80;
 
 /**
@@ -280,6 +345,12 @@ export function replCeilingFromAppHeight( appHeight ) {
 	);
 }
 
+/**
+ * Read one query parameter off the current URL.
+ *
+ * @param {string} key Parameter name.
+ * @return {?string} The value, or null when it is absent or the URL is unreadable.
+ */
 function readUrlParam( key ) {
 	try {
 		return new URLSearchParams( window.location.search ).get( key );
@@ -287,6 +358,7 @@ function readUrlParam( key ) {
 		return null;
 	}
 }
+
 /**
  * Topology the page opens on, honoring a `?topology=` deep link. An unknown
  * name falls back rather than stranding the console on a topology this install
@@ -300,7 +372,7 @@ export function initialTopologyFromUrl( fallback ) {
 	if ( ! t ) {
 		return fallback;
 	}
-	// Honor deep link via SEED or live; SEED wins — bundles clobber live.
+	// Known to either snapshot: this bundle's copy, or the payload now.
 	const live =
 		( CONSOLE_WINDOW.NewspackNodesData &&
 			CONSOLE_WINDOW.NewspackNodesData.topologyWorkers ) ||
@@ -310,15 +382,32 @@ export function initialTopologyFromUrl( fallback ) {
 		Object.prototype.hasOwnProperty.call( live, t );
 	return known ? t : fallback;
 }
+
+/**
+ * Partition the page opens on, honoring `?partition=`. Anything that is not a
+ * non-negative integer opens p0, the one partition every topology has.
+ *
+ * @return {number} The partition index.
+ */
 function initialPartitionFromUrl() {
 	const p = parseInt( readUrlParam( 'partition' ) || '0', 10 );
 	return Number.isInteger( p ) && p >= 0 ? p : 0;
 }
 
-// Stable empty defaults so unpopulated state keeps a constant reference.
+/**
+ * The empty transcript, shared so an unpopulated Dumper hands back the same
+ * reference on every render and the REPL footer sees an unchanged prop.
+ */
 const EMPTY_TRANSCRIPT = [];
 
-// Per-mode palette key: edit and live store separately (different defaults).
+/**
+ * localStorage key the palette's collapsed state persists under. Edit and view
+ * keep separate keys because their defaults differ: the palette opens in edit
+ * mode, where it is the source of new nodes, and starts collapsed in view mode.
+ *
+ * @param {string} mode 'edit' or 'view'.
+ * @return {string} The storage key.
+ */
 function paletteKeyFor( mode ) {
 	return 'edit' === mode
 		? PALETTE_COLLAPSED_STORAGE_KEY_EDIT
@@ -475,7 +564,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		setToast( { kind: 'error', text: msg } );
 	}, [ seedError, phpCatalog.error, openError ] );
 
-	// Canvas/transcript state lives on dedicated nodes (WIRING-PLAN §4).
+	// Canvas and transcript state live on their own runtime nodes.
 	const { graph: parsed, hasNodes: parsedHasNodes } = useGraphSource( {
 		coreFallback: false,
 	} );
@@ -487,7 +576,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	// Same slot for the verbosity dial the `debug_level` builtin moves.
 	const debugLevel = useNodeState( names.OUTPUT, 'debug_level' ) ?? 0;
 
-	// The silent canvas polls fill the CommandInterpreter directly (§5).
+	// The silent canvas polls fill the CommandInterpreter directly.
 	const fillCommandInterpreter = useNodeFill( names.COMMAND_INTERPRETER );
 
 	// Re-sync mirrored cwd on shell change; restore pre-reset cwd on reset.
@@ -518,9 +607,9 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	// @longform An uploaded .tsl is the one document that arrives with NO
 	// expansion — `topologies get` ships one, a file does not — and it cannot
 	// be loaded without it: every included node would read as OWNED and the
-	// next save would write them into the file. So an upload is parked here,
-	// the expand below is pointed at ITS includes, and `handleUpload`'s effect
-	// loads the document once the answer names them.
+	// next save would write them into the file. So an upload parks here, the
+	// expansion below is asked for ITS includes, and the effect beside
+	// `handleUpload` loads the document once that answer names them.
 	const [ pendingUpload, setPendingUpload ] = useState( null );
 
 	const activeIncludes = useMemo(
@@ -574,22 +663,24 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	);
 
 	/**
-	 * THE way a document enters the editor.
+	 * THE way a document enters the editor: the OPEN dialog, an upload and the
+	 * flip into edit mode all land here.
 	 *
-	 * Open, upload and mode-change each used to re-implement this nine-step
-	 * sequence, and they had already drifted: upload never called
-	 * `assertResolved` and never set the editor identity, so after an upload
-	 * the editor still carried the previously-opened topology's name — which is
-	 * what Download names the file after and what Save prefills.
+	 * One sequence rather than three, because the editor identity it sets is
+	 * what Download names the file after and what Save prefills — a second copy
+	 * that skipped that step would leave the last-opened topology's name on the
+	 * new document.
 	 *
 	 * @param {Object}  doc                       The document to load.
 	 * @param {string}  doc.tsl                   Source text.
 	 * @param {Object}  doc.expansion             The expansion this document's
 	 *                                            borrowed nodes come from.
-	 *                                            REQUIRED: loading without it
-	 *                                            marks every included node as
-	 *                                            OWNED, and the next save writes
-	 *                                            them into the file.
+	 *                                            REQUIRED once the document
+	 *                                            declares an include, and the
+	 *                                            load throws without it: every
+	 *                                            included node would read as
+	 *                                            OWNED, and the next save would
+	 *                                            write them into the file.
 	 * @param {Object}  [doc.resolvedConfigEdges] Server-resolved config edges.
 	 * @param {string}  doc.name                  Editor identity.
 	 * @param {string}  [doc.source]              'stock' | 'user' | '' for local.
@@ -611,9 +702,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			fromServer = true,
 		} ) => {
 			const includes = DraftInterpreterNode.includesOf( tsl );
-			// @longform Loud, because the silent version is data loss: with
-			// no expansion every included node reads as OWNED, and the next
-			// save writes the borrowed graph into the file.
+			// Loud: loading a borrowed graph with no expansion is data loss.
 			if ( includes.length && ! fetchedExpansion ) {
 				throw new Error(
 					`loadIntoEditor( '${ name }' ): includes ${ includes.join(
@@ -654,13 +743,13 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	}, [ loadDraft ] );
 
 	/**
-	 * The editor's OPEN pipeline.
+	 * The topology the editor is waiting on, as `{ name, announce }`, or null
+	 * when nothing is opening.
 	 *
-	 * Both entry points — flipping into edit mode, and the OPEN dialog — used to
-	 * await their own `topologies get` beside their own `classes list`, minting
-	 * two POSTs each from a React callback. They name what they want here
-	 * instead; the poll asks until it lands, and the effect below is the one
-	 * place that turns a topology into a draft.
+	 * Both entry points — the flip into edit mode and the OPEN dialog — name
+	 * what they want here rather than awaiting a `topologies get` of their own
+	 * beside their own `classes list`. The ask rides the batched tick, and the
+	 * effect below is the one place that turns a topology into a draft.
 	 */
 	const [ opening, setOpening ] = useState( null );
 
@@ -824,6 +913,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		editingName,
 		scopeKey: scope.key,
 	} );
+	// useCanvasLayout owns positions: autoLayout once, then drags mutate it.
 	const {
 		positions: positionOverrides,
 		viewport,
@@ -1063,7 +1153,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		[ shell, appendTranscript, handlePathChange ]
 	);
 
-	// Live-canvas poll gating (WIRING-PLAN §4/§5): point _cwd.target at cwd.
+	// Live-canvas poll gating: point _cwd.target at the mirrored cwd.
 	useEffect( () => {
 		const cwdNode = Core.node( names.CWD );
 		if ( cwdNode && cwdNode.target !== cwd ) {
@@ -1082,7 +1172,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		}
 	}, [ shell, mode, ssePid, cwd, pathOptions ] );
 
-	// Tab-completion query (WIRING-PLAN §5), shared via useCompletion.
+	// Tab-completion query, shared with the debug overlay's Inspector.
 	const { requestCompletion, handleShowCandidates } = useCompletion( {
 		cwd,
 		fill: fillCommandInterpreter,
@@ -1133,8 +1223,6 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		},
 		[ liveHandlers, setReplExpanded, replInputRef ]
 	);
-
-	// useCanvasLayout owns positions: autoLayout once, then drags mutate it.
 
 	// Edit-mode toggle. Draft is authoritative; SSE pushes don't clobber it.
 	const handleModeChange = useCallback(
@@ -1233,8 +1321,6 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				: driftNodeIds( canvasGraph?.nodes, canonicalNodes ),
 		[ mode, canvasGraph, canonicalNodes ]
 	);
-
-	// snapToGrid from utils/autoLayout — same constants the renderer uses.
 
 	// Palette topology drop; edit-only, like handleDropNode.
 	const handleDropTopology = useCallback(
@@ -1472,9 +1558,9 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 
 	/**
 	 * Open a topology, from the OPEN dialog or by drilling into a hull. Both
-	 * REPLACE the draft, so a diverged one is confirmed away first — same
-	 * contract as leaving edit mode, and for the same reason. One guard for
-	 * both: they do the identical destructive thing, and only one used to ask.
+	 * REPLACE the draft, so a diverged one is confirmed away first — the same
+	 * contract as leaving edit mode, and for the same reason. One guard covers
+	 * both, because both do the identical destructive thing.
 	 */
 	const handleOpenTopology = useCallback(
 		( name ) => {
@@ -1579,13 +1665,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		window.URL.revokeObjectURL( url );
 	}, [ ownExpansion, editingName, dumpDraft ] );
 
-	// @longform UPLOAD: an uploaded .tsl is the one document that arrives with
-	// no expansion — `topologies get` ships one, a file does not. It cannot be
-	// loaded until its includes are expanded: without that, every included
-	// node reads as OWNED and the next save writes them into the file. So the
-	// upload is PARKED, the expand hook below is pointed at its includes, and
-	// the effect after it loads the document once the answer names them.
-	// The parked upload lands the moment its expansion does — and only then.
+	// A parked upload lands the moment its expansion does, and only then.
 	useEffect( () => {
 		if (
 			! pendingUpload ||
@@ -1628,8 +1708,12 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	}, [] );
 
 	/**
-	 * What used to follow the awaited save. `args[0]` is the topology name the
-	 * write carried, which is what the new-topology check was snapshotted for.
+	 * Handle the `topologies save` reply: toast the outcome, adopt the written
+	 * name and source, re-fetch the catalog the save's fleet restart changed,
+	 * and re-baseline the draft against what was WRITTEN rather than what the
+	 * canvas holds now. `args[0]` is the name the write carried, which is why
+	 * `handleSaveConfirm` snapshots its new-versus-existing check before the
+	 * reload can answer differently.
 	 */
 	const onSaved = useCallback(
 		( { result, error, errorData, args } ) => {

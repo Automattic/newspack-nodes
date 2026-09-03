@@ -1,3 +1,15 @@
+/**
+ * The browser REPL's verb surface: the `CommandInterpreterNode` class, the
+ * help text `help` answers with, and the name-to-class table `make_node`
+ * resolves against.
+ *
+ * A graph mounts one of these as `_command_interpreter`, sinking into
+ * `_router`. Here a typed line stops being transport and becomes an action on
+ * the node table — construct, wire, rename, tear down, introspect — and the
+ * result becomes a message addressed back to whoever asked, carrying
+ * TO = the request's FROM so nothing has to correlate by id (ADR-7).
+ */
+
 import { markLocal } from './command-auth';
 import { Node } from './node';
 import { TeeNode } from './tee-node';
@@ -71,7 +83,13 @@ import {
  * @typedef {typeof Node & { nodeSchema?: () => Object }} NodeClass
  */
 
-// Alias→canonical; lockstep with verb table + builtins so `help` resolves.
+/**
+ * Each alias mapped to the canonical verb whose help text it shares.
+ *
+ * Kept in lockstep with the verb table and the Shell builtins: an alias
+ * missing here makes `help <alias>` answer "no such topic" for a verb that
+ * runs perfectly well.
+ */
 const ALIAS_TO_CANONICAL = {
 	ls: 'list_nodes',
 	dump: 'dump_node',
@@ -90,7 +108,12 @@ const ALIAS_TO_CANONICAL = {
 	request: 'request_node',
 };
 
-// Per-command help text, keyed by canonical verb (mirrors PHP $H).
+/**
+ * Per-command help text, keyed by canonical verb, mirroring PHP's `$H`.
+ *
+ * Bare `help` tabulates these keys, so a verb absent here is invisible to a
+ * reader even though it dispatches.
+ */
 const HELP = {
 	make_node: 'make_node <type> <name> [<arguments>]\n    alias: make\n',
 	set_sink: 'set_sink <node> <target>\n',
@@ -137,6 +160,7 @@ const HELP = {
 	command_node:
 		'command_node <path> <verb> [<arguments>]\n    aliases: command, cmd\n',
 	request_node: 'request_node <path> [<value>]\n    alias: request\n',
+	// Not a Shell builtin: dispatched here, listed beside its inverse.
 	reply_to:
 		'reply_to <node path> <command>\n    note: runs <command> here but routes its reply to <node path>\n          (inverse of command_node).\n',
 	ping: 'ping <path>\n',
@@ -146,10 +170,16 @@ const HELP = {
 };
 
 /**
- * Verb dispatch over TM_COMMAND messages with empty TO (mirrors PHP
- * CommandInterpreter). Throws wrap as TM_ERROR, returns as TM_RESPONSE;
- * everything else passes through the sink unchanged. Ships the full PHP $C verb
- * set as built-in defaults; commands( table ) merges over them.
+ * Verb dispatch over TM_COMMAND messages with an empty TO, mirroring PHP's
+ * `Command_Interpreter_Node`.
+ *
+ * A verb that returns answers TM_RESPONSE and a verb that throws answers
+ * TM_ERROR, which is why no verb carries a try/catch of its own. A TM_PING or
+ * TM_EOF with an empty TO bounces back along FROM; everything else reaches
+ * the sink untouched.
+ *
+ * `commands( table )` MERGES over the built-in table where PHP's REPLACES it.
+ * That divergence is real: don't assume one port's behaviour from the other.
  */
 export class CommandInterpreterNode extends Node {
 	/**
@@ -158,8 +188,14 @@ export class CommandInterpreterNode extends Node {
 	 */
 	constructor() {
 		super();
-		// Per-instance authorize override; null → static default → LOCAL check.
+		/**
+		 * Per-instance gate on who may issue a command. Null defers to the
+		 * class default, and that in turn to the LOCAL taint check.
+		 *
+		 * @type {?( ( message: Array ) => boolean )}
+		 */
 		this.authorize = null;
+		/** This instance's verb table, which `commands()` merges over. */
 		this._commands = CommandInterpreterNode._defaultCommands();
 	}
 
@@ -211,7 +247,7 @@ export class CommandInterpreterNode extends Node {
 			return;
 		}
 
-		// Auth gate: needs LOCAL taint (Shell stamps it); wire cmds refused.
+		// Auth default: the LOCAL taint a Shell stamps; the wire has none.
 		const authorize =
 			this.authorize ??
 			CommandInterpreterNode.defaultAuthorize ??
@@ -319,15 +355,15 @@ export class CommandInterpreterNode extends Node {
 	 * A node whose arguments throw is torn down before the throw escapes, so a
 	 * bad make_node leaves no half-built node behind.
 	 *
-	 * @param {string|Function} type   Shell class name, as `make_node` spells it —
-	 *                                 or the class itself. A caller that already
-	 *                                 HOLDS the class hands it over: the name map
-	 *                                 is a static per bundle, so a name registered
-	 *                                 in one bundle does not resolve in another,
-	 *                                 and a hub tab builds its graph through
-	 *                                 whichever interpreter it was handed.
-	 * @param {string}          name   Name to register the node under.
-	 * @param {string[]}        [args] Constructor argument tokens.
+	 * @param {string|NodeClass} type   Shell class name, as `make_node` spells it —
+	 *                                  or the class itself. A caller that already
+	 *                                  HOLDS the class hands it over: the name map
+	 *                                  is a static per bundle, so a name registered
+	 *                                  in one bundle does not resolve in another,
+	 *                                  and a hub tab builds its graph through
+	 *                                  whichever interpreter it was handed.
+	 * @param {string}           name   Name to register the node under.
+	 * @param {string[]}         [args] Constructor argument tokens.
 	 * @return {Node} The constructed node, named and sunk to this interpreter.
 	 */
 	makeNode( type, name, args = [] ) {
@@ -429,13 +465,15 @@ export class CommandInterpreterNode extends Node {
 		return verb( this, args, envelope );
 	}
 
-	// ----- built-in verb table (1:1 with PHP $C) ----------------------------
-
 	/**
 	 * A fresh copy of the built-in verb table, aliases included.
 	 *
 	 * Each handler takes `( self, args, envelope )`, so a static verb reads the
 	 * interpreter it was called on rather than a captured instance.
+	 *
+	 * This is PHP's `$C` less the three verbs that govern a server process:
+	 * `secure` and `insecure` ratchet a command surface a browser tab does not
+	 * have, and `taillog` reads log files it cannot reach.
 	 *
 	 * @return {Object<string,Function>} Verb name to handler.
 	 */
@@ -549,7 +587,7 @@ export class CommandInterpreterNode extends Node {
 		if ( '' === path || '' === verb ) {
 			throw new Error( 'usage: reply_to <node path> <command>' );
 		}
-		// reply_to re-enters interpret(); refuse to nest (stack blowup).
+		// reply_to re-enters _interpret(); refuse to nest (stack blowup).
 		if ( 'reply_to' === verb ) {
 			throw new Error( 'reply_to cannot invoke reply_to' );
 		}
@@ -660,7 +698,7 @@ export class CommandInterpreterNode extends Node {
 			}
 		}
 		if ( 'function' === typeof src.disconnectNode ) {
-			// Primary path: base Node + Tee both implement disconnectNode now.
+			// Primary path: base Node and Tee both implement disconnectNode.
 			src.disconnectNode( target );
 		} else if ( Array.isArray( src.target ) ) {
 			// Fallback if a node lacks disconnectNode: filter from fan-out.
@@ -993,10 +1031,11 @@ export class CommandInterpreterNode extends Node {
 	 * `dump_node <name> [<keys>]` — the class as a header line, then the node's
 	 * state as pretty JSON. Keys are sorted so the output stays stable across
 	 * nodes with different ancestries; naming keys narrows the body to those.
+	 * An unknown node and an unknown key each throw.
 	 *
 	 * @param {string[]} args     Verb tokens: node name, then the keys to keep.
 	 * @param {Object}   registry Name table the node lives in.
-	 * @return {string} The dump, or the can't-find line.
+	 * @return {string} The dump, or 'no node specified' when no name is given.
 	 */
 	static _cmdDumpNode( args, registry ) {
 		const parts = args;
@@ -1063,7 +1102,7 @@ export class CommandInterpreterNode extends Node {
 		}
 		let out = '';
 		for ( const [ name, node ] of registry.nodes ) {
-			// Skip only the backbone; _output is a real node now, dumpable.
+			// Skip the backbone only; _output is a real, dumpable node.
 			if ( '_command_interpreter' === name || '_router' === name ) {
 				continue;
 			}
@@ -1170,7 +1209,7 @@ export class CommandInterpreterNode extends Node {
 			if ( '' === second ) {
 				next = ( this.debugState ?? 0 ) > 0 ? 0 : 1;
 			} else {
-				// Match PHP (int) + max(0,…): non-numeric → 0, never negative.
+				// Match PHP (int) + max(0,…): non-numeric is 0, never negative.
 				next = Math.max( 0, parseInt( second, 10 ) || 0 );
 			}
 			let count = 0;
@@ -1194,7 +1233,7 @@ export class CommandInterpreterNode extends Node {
 		if ( '' === second ) {
 			next = ( node.debugState ?? 0 ) > 0 ? 0 : 1;
 		} else {
-			// Match PHP (int) + max(0,…): non-numeric → 0, never negative.
+			// Match PHP (int) + max(0,…): non-numeric is 0, never negative.
 			next = Math.max( 0, parseInt( second, 10 ) || 0 );
 		}
 		node.debugState = next;
@@ -1557,7 +1596,7 @@ export class CommandInterpreterNode extends Node {
 	}
 
 	/**
-	 * The seven facts `list_profiles` prints, derived from one raw record. The
+	 * The six facts `list_profiles` prints, derived from one raw record. The
 	 * text table and `-s` both render THIS derivation, so the two can never
 	 * disagree about what a row means.
 	 *
@@ -1885,10 +1924,26 @@ export class CommandInterpreterNode extends Node {
 	}
 }
 
-// Process-wide default authorize policy; browser leaves it null (LOCAL check).
+/**
+ * Process-wide fallback gate, read when an instance sets no `authorize` of its
+ * own. Null leaves the LOCAL taint check in force, which is what a browser tab
+ * wants: a Shell mints every command in-process and stamps LOCAL, and nothing
+ * arriving over the wire carries it (ADR-15).
+ *
+ * The seam is static so a host can tighten every interpreter in the bundle at
+ * once, including the ones a dashboard builds later.
+ *
+ * @type {?( ( message: Array ) => boolean )}
+ */
 CommandInterpreterNode.defaultAuthorize = null;
 
-// `make_node` type→class lookup — flat table for Tachikoma's @INC require.
+/**
+ * The `make_node` name-to-class table — a flat map standing in for Tachikoma's
+ * `@INC` require, since a browser bundle has no autoloader to search.
+ *
+ * It is a per-bundle static, so a name one bundle registers does not resolve
+ * in another (ADR-16).
+ */
 CommandInterpreterNode.includeNodes = {
 	Node,
 	CommandInterpreter: CommandInterpreterNode,
@@ -1910,10 +1965,16 @@ CommandInterpreterNode.includeNodes = {
 	Uptime: UptimeNode,
 };
 
-// @longform
-// Plugins register node classes by merging a name→class map into includeNodes,
-// and get the map back: a NAME is the TSL/palette surface, but a hook hands
-// `makeNode` the CLASS (ADR-16), so both come from one declaration.
+/**
+ * Merge a plugin's node classes into `includeNodes` and hand the map back.
+ *
+ * Returning the map is what lets one declaration serve both surfaces: a NAME
+ * is what TSL and the palette spell, while a hook building a graph
+ * programmatically hands `makeNode` the CLASS instead (ADR-16).
+ *
+ * @param {Object<string,NodeClass>} map Node classes keyed by shell name.
+ * @return {Object<string,NodeClass>} The same map.
+ */
 CommandInterpreterNode.registerNodeClasses = function ( map ) {
 	Object.assign( CommandInterpreterNode.includeNodes, map );
 	return map;

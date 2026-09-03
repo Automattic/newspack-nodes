@@ -1,22 +1,33 @@
 /**
- * command-args — the shared Tachikoma-style argument grammar, mirroring PHP
- * Newspack_Nodes\Command_Args. Service interpreters take normal commands with
- * arguments as a token array: required tokens positional, optional named args
- * as `--key=value`, boolean flags as bare `--key`, lists comma-separated inside
- * one value. Callers build the token list with formatCommandArgs(); the server
- * verb parses it. format() round-trips parse(). No quoting — token boundaries
- * are the array's; the serialization anchor quotes a token when it must
- * materialize tokens back to a single line.
+ * The browser half of the one command-argument grammar, mirroring PHP
+ * `Newspack_Nodes\Command_Args`. A command's `arguments` are a flat token array
+ * end to end: required values ride positionally in the order the verb declares,
+ * optional ones are named `--key=value`, a boolean flag is a bare `--key`, and a
+ * list is comma-separated inside one value. A dashboard mints a command with
+ * formatCommandArgs() and a PHP verb parses those same tokens, so the two
+ * implementations must agree; no fixture pins them, and the jest suite mirrors
+ * `tests/unit/CommandArgsTest.php` case for case.
+ *
+ * Nothing here quotes or unescapes. Token boundaries are the array's, so a value
+ * carrying spaces — a .tsl body, a layout positions JSON — stays whole inside its
+ * own element, and quoting waits for serializeArg() in `runtime/node.js`, the one
+ * place tokens re-join into a line.
  */
 
 /**
- * Classify a pre-split token list into { positional, options }.
+ * Classify a pre-split token list. A `--key=value` token becomes
+ * `options[key] = 'value'`, a bare `--key` becomes `options[key] = true`, and
+ * every other token is a positional, in order. Only the first `=` splits, so
+ * `--expr=a=b` carries the value `a=b`. A named value stays a STRING:
+ * `--enabled=false` reads back as `'false'`, which is truthy.
  *
- * @param {string[]} args
- * @return {{ positional: string[], options: Object }} Positionals in order, plus an options map.
+ * @param {string[]} [args] Pre-split tokens; a missing list reads as empty.
+ * @return {{positional: string[], options: Record<string,string|true>}}
+ *     Positionals in arrival order, plus the named options.
  */
 export function parseCommandArgs( args ) {
 	const positional = [];
+	/** @type {Record<string,string|true>} */
 	const options = {};
 	for ( const tok of args || [] ) {
 		if ( tok.startsWith( '--' ) ) {
@@ -35,12 +46,16 @@ export function parseCommandArgs( args ) {
 }
 
 /**
- * Inverse of parseCommandArgs(): build the token list. Boolean true renders as
- * a bare `--key`; false as `--key=false`; arrays comma-joined; scalars
- * stringified. No quoting — a spaced value stays inside one token.
+ * Build the token list parseCommandArgs() reads back: `true` renders as a bare
+ * `--key`, `false` as `--key=false`, an array as its comma-joined members, and
+ * every other value as its string cast.
  *
- * @param {Array}  [positional]
- * @param {Object} [options]
+ * `false` rides explicitly because the bare form already means true and an
+ * omitted option leaves the verb's own default standing, which for a default-on
+ * setting is the opposite of what the caller asked for.
+ *
+ * @param {Array<string|number>} [positional] Values for the required tokens.
+ * @param {Object}               [options]    Named options, keyed by name.
  * @return {string[]} The token list.
  */
 export function formatCommandArgs( positional = [], options = {} ) {

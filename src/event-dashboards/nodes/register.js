@@ -42,6 +42,11 @@ CommandInterpreterNode.registerNodeClasses( OWN_CLASSES );
  * devtools hub mounts these tabs against whichever bundle's interpreter it was
  * handed ([ADR-16](../../../docs/architecture-decisions.md)).
  *
+ * The widening below is load-bearing rather than a restatement of inference.
+ * Spreading `registerSliceViews()`'s return drops its index signature, so
+ * without it every slice-view key reads as absent and `useTopologyManager`
+ * fails the type check on `views.TopologyManagerView`.
+ *
  * @type {Object<string,any>}
  */
 export const views = {

@@ -1,21 +1,46 @@
 /**
- * Synthesize "virtual" edges from a node's verb args so the layout (and canvas)
- * reflect routing the runtime's `target()` exposes but a document doesn't.
+ * One class-catalog entry, as far as this pass reads it: the verbs the class
+ * declares, and the type of each verb argument. `node_name` is the type that
+ * makes an argument a destination.
+ *
+ * @typedef {Object} CatalogClass
+ * @property {string}                                               shell_name The class name a node's `class` matches.
+ * @property {Array<{name: string, args?: Array<{type?: string}>}>} [commands] Verb specs; a class declaring none contributes no edge.
+ */
+
+/**
+ * Synthesize "virtual" edges from a node's verb arguments, so the layout and
+ * the canvas draw destinations a document never spells out as edges.
  *
  * `connect_node` is the only edge-producing line a document has, so a target
- * wired via a config verb (e.g. RequestBuilder's `set_errors_target
- * errors:partition`) never lands in the draft graph's edges — autoLayout would
- * then stack the verb-targeted node at column 0 instead of placing it downstream.
- * For each node, this re-derives an edge per verb arg whose schema `type` is
- * `node_name`, flagged `virtual: true` so the canvas can dim it and skip
- * click-to-delete.
+ * wired through a config verb — Request_Builder's `set_errors_target
+ * errors:partition` — reaches the draft graph as an invocation and never as an
+ * edge. The runtime has no such gap: the node declares that destination through
+ * `extra_targets()`, and `dump_metadata` ships it in the `targets` display
+ * union live mode draws from
+ * ([ADR-19](../../../docs/architecture-decisions.md)). Underived, the
+ * verb-targeted node has no inbound edge at all, so `autoLayout` reads it as a
+ * source and pins it to column 0 instead of placing it downstream of its
+ * producer.
  *
- * Pure: returns the SAME graph reference when there's nothing to add (so React
- * bails on a true no-op), else a new graph with the virtual edges appended.
+ * Each verb argument whose class-schema `type` is `node_name` yields one edge,
+ * flagged `virtual: true`: the canvas dims it and refuses click-to-delete,
+ * because the `disconnect_node` a deletion issues would not remove the verb
+ * line that named the target.
  *
- * @param {{nodes: Array, edges: Array, resolvedConfigEdges?: ?Array}} graph   The graph to augment; `resolvedConfigEdges` is the server's answer for `<ns:key>` config targets, and is absent or null when the document needs no resolution.
- * @param {Array<{shell_name: string, commands?: Array}>}              classes Catalog class specs.
- * @return {{nodes: Array, edges: Array, resolvedConfigEdges?: ?Array}} The graph, possibly with virtual edges added.
+ * A `<ns:key>` argument names nothing client-side — only the server resolves a
+ * config token — so it is looked up in `resolvedConfigEdges` by this node and
+ * this verb slot. A token the server resolved to nothing draws no edge, which
+ * is how a cleared config target reads as cleared rather than as an edge to the
+ * literal token text.
+ *
+ * Pure: returns the SAME graph reference when there is nothing to add, so React
+ * bails on a true no-op, and otherwise a new graph with the virtual edges
+ * appended.
+ *
+ * @param {{nodes: Array, edges: Array, resolvedConfigEdges?: ?Array}} graph   The graph to augment; `resolvedConfigEdges` is the server's answer for `<ns:key>` config targets, and is absent or null when the document carries no token to resolve.
+ * @param {Array<CatalogClass>}                                        classes Class catalog, the source of each verb's declared argument types.
+ * @return {{nodes: Array, edges: Array, resolvedConfigEdges?: ?Array}} The graph, with any virtual edges appended.
  */
 export function augmentWithVirtualEdges( graph, classes ) {
 	const classByName = new Map();

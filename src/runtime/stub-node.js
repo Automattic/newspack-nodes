@@ -1,16 +1,14 @@
 /**
- * StubNode — stands for a class this runtime cannot construct.
+ * `StubNode` — the stand-in for a class this runtime cannot construct.
  *
  * The console edits SERVER topologies, which name `Partition`, `Topic`,
- * `Consumer`, `Job_Worker` — classes with no JS implementation. Editing one has
- * never been able to run it, which is why the draft was an inert data structure
- * instead of a graph.
- *
- * A stub closes that gap without pretending: it carries the declared class name
- * and arguments and nothing else, so the structural verbs (`connect_node`,
- * `move_node`, `remove_node`, `set_sink`) and `dump_config` all work on it
- * unchanged, and a draft can be an interpreter at its own cwd rather than a
- * second implementation of one.
+ * `Consumer` and `Job_Worker` — classes the PHP substrate implements and this
+ * bundle does not. A stub carries what the topology DECLARED about such a node
+ * and none of what it does: the class name, the constructor arguments, the
+ * include provenance and whether the class fans out. The structural verbs
+ * (`connect_node`, `move_node`, `remove_node`, `set_sink`) and `dump_config`
+ * therefore work on it unchanged, which is what lets a draft be an interpreter
+ * at its own cwd rather than a second implementation of one.
  *
  * It deliberately does NOT forward. A stub describes a node; a stub that routed
  * would be a broken node, and the failure would surface somewhere far away.
@@ -21,30 +19,44 @@ import { Node } from './node';
 /**
  * Stands in for a declared node whose class has no JS implementation.
  *
- * It holds the class name and constructor arguments and nothing else, so the
- * structural verbs and `dump_config` treat it like any other node while it
- * runs none of the behaviour it describes.
+ * It holds what the topology said — class name, constructor arguments, include
+ * provenance, fan-out semantics — so the structural verbs and `dump_config`
+ * treat it like any other node while it runs none of the behaviour it
+ * describes.
  */
 export class StubNode extends Node {
 	/**
 	 * Start out standing for nothing in particular — class `Stub`, no origin,
-	 * single-target semantics. A draft interpreter sets each from the expanded
-	 * topology record it is seeding this stub from.
+	 * single-target semantics. A draft interpreter overwrites each field from
+	 * the expanded topology record it seeds this stub from.
 	 */
 	constructor() {
 		super();
-		// The class this stands for; dump_config emits it in our place.
+		/** The class this stands for; `dump_config` emits it in our place. */
 		this._shellName = 'Stub';
-		// Topologies this node came in through; empty means the file's own.
+		/**
+		 * Top-level includes that supplied this node. Empty means the file
+		 * being edited declared it, which is the whole of `borrowed`.
+		 *
+		 * @type {string[]}
+		 */
 		this.origin = [];
+		/**
+		 * The include chain from the edited file down to the one that declares
+		 * this node — the breadcrumb the inspector renders, never a route.
+		 *
+		 * @type {string[]}
+		 */
 		this.via = [];
+		/** Whether the class this stands for takes Tee fan-out semantics. */
 		this._fansOut = false;
 	}
 
 	/**
-	 * Count and drop. A stub has no behaviour to run.
+	 * Count and drop. Running the behaviour belongs to the class this stub
+	 * stands for, so the message goes no further than the count.
 	 *
-	 * @param {Array} message The 7-field positional message.
+	 * @param {Array} message The 7-field positional message, discarded here.
 	 */
 	fill( message ) {
 		this.counter++;
@@ -132,7 +144,8 @@ export class StubNode extends Node {
 	 * Drop `target`, pruning the one entry when this stub fans out and
 	 * clearing the single target otherwise.
 	 *
-	 * @param {string} target Node name to remove; empty clears a single target.
+	 * @param {string} target Entry to prune when this stub fans out; the base
+	 *                        clears the one target whatever is passed.
 	 */
 	disconnectNode( target = '' ) {
 		if ( ! this._fansOut ) {

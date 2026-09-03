@@ -12,6 +12,8 @@
  * leaves the graph useGraphRates drops its history, so the scope's past samples
  * shrink to match. A hull that loses a node reads as though it always ran
  * without it. That's the price of showing history that predates the selection.
+ *
+ * @typedef {import('../hooks/useGraphRates').RateEntry} RateEntry
  */
 
 import { isSource, isSink } from './processStats';
@@ -20,6 +22,10 @@ import { isSource, isSink } from './processStats';
  * Sum each node's samples into `out`, aligned at the END. Histories differ in
  * length — a node only starts recording once its first data arrives — so the
  * LAST sample of every node is the same poll, and the k-th from the end is too.
+ *
+ * `out` has to be at least as long as `history`, which is why callers size it
+ * through `longest()` over the same node set: a longer history writes at a
+ * negative index, which lands off the array and loses the sample.
  *
  * @param {number[]} out     Accumulator, longest-history length.
  * @param {number[]} history One node's samples.
@@ -30,7 +36,16 @@ function addFromEnd( out, history ) {
 	}
 }
 
-// The scope's series is as long as its longest-lived member's history.
+/**
+ * Measure the longest history `nodes` have recorded for one series, which is
+ * how long the scope's series is: the member that warmed first sets the
+ * window, and every shorter history right-aligns inside it.
+ *
+ * @param {Map<string,RateEntry>}                    rates useGraphRates' per-node map.
+ * @param {Array<{id:string}>}                       nodes The nodes to measure.
+ * @param {'history'|'readHistory'|'writtenHistory'} key   Which of an entry's sample rings to measure.
+ * @return {number} Sample count, zero when no member has recorded anything.
+ */
 function longest( rates, nodes, key ) {
 	let max = 0;
 	for ( const n of nodes ) {
@@ -41,9 +56,15 @@ function longest( rates, nodes, key ) {
 }
 
 /**
- * @param {Map}   rates useGraphRates' per-node map (`rateRef.current`).
- * @param {Array} nodes The nodes in scope.
- * @return {{in: number[], out: number[], read: number[], write: number[]}} Series.
+ * Roll one scope's per-node histories into the four series its sparklines
+ * plot: `in` over the scope's sources, `out` over its sinks, `read` and
+ * `write` over every member. A node the map holds no entry for is dropped from
+ * the scope, so a selection made before the first poll lands returns four empty
+ * series rather than a row of zeroes.
+ *
+ * @param {?Map<string,RateEntry>}                                        rates useGraphRates' per-node map (`rateRef.current`).
+ * @param {?Array<{id:string,has_target?:boolean,accepts_fill?:boolean}>} nodes The nodes in scope.
+ * @return {{in:number[], out:number[], read:number[], write:number[]}} One sample ring per series, oldest first.
  */
 export function aggregateSeries( rates, nodes ) {
 	const scope = ( nodes || [] ).filter( ( n ) => rates?.get( n.id ) );

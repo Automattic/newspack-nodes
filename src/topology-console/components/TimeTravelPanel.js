@@ -18,11 +18,11 @@
  *                  keyframe scrubbed to. null only when there are no frames yet.
  *                  Seeded from / reconciled to `atFrameSignal`. An atFrame that ages
  *                  out of the retained window clamps to the newest frame.
- *   - `onFrame`  — the cursor sits EXACTLY on atFrame's committed position vs has
- *                  advanced past it. !onFrame ⇒ between keyframes, so the next rewind
- *                  SNAPS onto atFrame rather than the one before it. Seeded from /
- *                  reconciled to `onFrameSignal`. A quiet live consumer is onFrame
- *                  (reads "on frame N"); an actively-reading one is off it.
+ *   - `onFrame`  — whether the cursor sits EXACTLY on atFrame's committed position or
+ *                  has advanced past it. Off the frame means between keyframes, so the
+ *                  next rewind SNAPS onto atFrame rather than the one before it. Seeded
+ *                  from / reconciled to `onFrameSignal`. A quiet live consumer is
+ *                  onFrame (reads "on frame N"); an actively-reading one is off it.
  *
  * Selection is NEVER derived from the live source `cursor` — a frame id is its
  * OFFSETLOG segment id (monotonic, climbs forever), an independent number space
@@ -40,6 +40,16 @@
 import { useEffect, useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 
+/**
+ * The consumer's live read position in the SOURCE partition, rendered as
+ * `segment:offset`. Display only: a frame id is an OFFSETLOG segment id, a
+ * separate number space, so selecting a keyframe by this segment would pick the
+ * wrong one everywhere except near zero.
+ *
+ * @param {Object}                          props        Component props.
+ * @param {?{segment:number,offset:number}} props.cursor Read position; a missing half renders an em dash.
+ * @return {?import('react').ReactElement} The cursor row, or null when the consumer reported no cursor.
+ */
 function Cursor( { cursor } ) {
 	if ( ! cursor ) {
 		return null;
@@ -58,6 +68,20 @@ function Cursor( { cursor } ) {
 	);
 }
 
+/**
+ * The keyframe ruler: one marker per retained frame, spaced by INDEX rather than
+ * by id or byte size. Ordinal spacing keeps every marker clickable-wide however
+ * far the ids have climbed and however much retention has pruned; proportional
+ * spacing would crush the markers toward one end as soon as the window skewed.
+ * The selected marker carries `--current`, and `--stepped` as well once the
+ * cursor has advanced past that keyframe.
+ *
+ * @param {Object}                         props                 Component props.
+ * @param {Array<{id:number,size:number}>} props.frames          Retained keyframes, oldest to newest by id.
+ * @param {?number}                        props.selectedFrameId Id of the keyframe the cursor is at-or-just-past.
+ * @param {boolean}                        props.offFrame        The cursor has advanced past that keyframe.
+ * @return {import('react').ReactElement} The ruler, or the empty state while nothing is retained.
+ */
 function Ruler( { frames, selectedFrameId, offFrame } ) {
 	if ( ! frames.length ) {
 		return (
@@ -92,7 +116,18 @@ function Ruler( { frames, selectedFrameId, offFrame } ) {
 	);
 }
 
-// One transport-bar button. Disabled buttons render but don't fire.
+/**
+ * One transport-bar button. A gated-off button renders disabled rather than
+ * hidden, so the five glyphs hold their positions as the gating changes and no
+ * button slides under the pointer between two clicks.
+ *
+ * @param {Object}     props          Component props.
+ * @param {string}     props.label    Accessible name, also the tooltip.
+ * @param {string}     props.glyph    Transport glyph shown as the button face.
+ * @param {boolean}    props.disabled Renders the button inert.
+ * @param {() => void} props.onClick  Runs the transport action.
+ * @return {import('react').ReactElement} The button.
+ */
 function TransportButton( { label, glyph, disabled, onClick } ) {
 	return (
 		<button
@@ -108,7 +143,20 @@ function TransportButton( { label, glyph, disabled, onClick } ) {
 	);
 }
 
-// Cursor position, in words. atFrame/nextId bracket the retained window.
+/**
+ * The cursor position in words, under the ruler. Three phrasings, because how
+ * tightly the position can be bracketed differs: on a keyframe it is exact;
+ * paused between two retained keyframes it is bounded on both sides; live it is
+ * bounded below only, since the consumer is moving and the frame ahead of it
+ * does not exist yet.
+ *
+ * @param {Object}  args                 Position pieces.
+ * @param {boolean} args.onFrame         The cursor sits exactly on the selected keyframe.
+ * @param {boolean} args.paused          The consumer is held rather than following the head.
+ * @param {?number} args.selectedFrameId Id of the keyframe the cursor is at-or-just-past.
+ * @param {?number} args.nextId          Id of the next retained keyframe; null at the newest.
+ * @return {string} The translated label.
+ */
 function positionLabel( { onFrame, paused, selectedFrameId, nextId } ) {
 	if ( onFrame ) {
 		return sprintf(
@@ -140,13 +188,13 @@ function positionLabel( { onFrame, paused, selectedFrameId, nextId } ) {
  * the panel seeds its client-side position from them and reconciles on each
  * poll, so a click reads instantly and a remount lands where the consumer is.
  *
- * @param {Object}   props                 Component props.
- * @param {Array}    [props.frames]        Offsetlog keyframes `{ id, size }`, oldest→newest by id; `id` is an offsetlog segment id, `size` its byte count.
- * @param {?Object}  [props.cursor]        Read position `{ segment, offset }` in the SOURCE partition — displayed only, never used to pick a keyframe.
- * @param {boolean}  [props.paused]        Consumer-reported pause signal. While false the consumer follows the head and only Pause is live.
- * @param {?number}  [props.atFrameSignal] Consumer-reported keyframe id the cursor is at-or-just-past; null when no frames are retained.
- * @param {boolean}  [props.onFrameSignal] Consumer-reported flag: the cursor sits exactly on that keyframe rather than past it.
- * @param {Function} [props.onTransport]   Called as `( verb, positional )` to drive the consumer's `:config` verbs through the inspector's invoke path.
+ * @param {Object}                                     props                 Component props.
+ * @param {Array<{id:number,size:number}>}             [props.frames]        Offsetlog keyframes, oldest to newest by id; `id` is an offsetlog segment id, `size` its byte count.
+ * @param {?{segment:number,offset:number}}            [props.cursor]        Read position in the SOURCE partition — displayed only, never used to pick a keyframe.
+ * @param {boolean}                                    [props.paused]        Consumer-reported pause signal. While false the consumer follows the head and only Pause is live.
+ * @param {?number}                                    [props.atFrameSignal] Consumer-reported keyframe id the cursor is at-or-just-past; null when no frames are retained.
+ * @param {boolean}                                    [props.onFrameSignal] Consumer-reported flag: the cursor sits exactly on that keyframe rather than past it.
+ * @param {(verb: string, positional: string) => void} [props.onTransport]   Drives the consumer's `:config` verbs through the inspector's invoke path.
  * @return {import('react').ReactElement} The Time Travel panel.
  */
 export default function TimeTravelPanel( {

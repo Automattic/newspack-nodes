@@ -1,11 +1,11 @@
 /**
- * Top header — brand, subtitle, cwd path selector, mode toggle.
+ * Top header — the brand, the subtitle, the cwd path selector and the mode
+ * buttons — for the topology console, the devtools hub and the debug overlay.
  *
- * The brand/subtitle and the path/mode controls are split so the brand can be
- * the ONE shared header (hub + overlay) while each tab's controls render
- * separately: `HeaderControls` is the control cluster on its own (portaled into
- * the shared header's slot by whichever tab owns it), and `Header` composes the
- * brand + (its own controls, or an empty slot the active tab portals into).
+ * The brand and the controls are exported separately so ONE header can serve
+ * every tab of a host: `HeaderControls` is the control cluster alone, which a
+ * tab portals into the shared header's slot, and `Header` renders the brand
+ * plus either its own inline controls or the empty slot the active tab fills.
  */
 
 import { useRef } from '@wordpress/element';
@@ -21,28 +21,42 @@ import { __ } from '@wordpress/i18n';
  * }} NodesDataWindow
  */
 
-/** @type {NodesDataWindow} */
+/**
+ * The page's `window`, narrowed to the localized payload.
+ *
+ * @type {NodesDataWindow}
+ */
 const NODES_WINDOW = window;
 
+/**
+ * Plugin version the subtitle stamps, empty on a page that enqueued a bundle
+ * without the payload. PHP localizes the payload before any bundle runs, so
+ * reading it once at module load is enough.
+ */
 const VERSION =
 	( NODES_WINDOW.NewspackNodesData &&
 		NODES_WINDOW.NewspackNodesData.version ) ||
 	'';
+
+/**
+ * Hostname the subtitle stamps, so the header names the install it drives.
+ */
 const HOST = window.location.hostname;
 
 /**
  * The control cluster — path selector plus the mode and action buttons — with
  * no wrapper element, so a tab can portal it into the shared header's slot.
  *
- * Every prop is optional. The debug overlay passes only `mode` and `onClose`,
- * which swaps the whole button row for a single close X; every other handler
- * is guarded at its call site.
+ * Every prop is optional. The debug overlay passes `mode` and `onClose`, plus
+ * whatever path props its active tab publishes; `onClose` swaps the whole
+ * button row for a single close X, and every other handler is guarded at its
+ * call site.
  *
  * @param {Object}                 props
- * @param {string[]}               [props.pathOptions]    Selectable cwds; the selector is hidden unless there are at least two.
+ * @param {string[]}               [props.pathOptions]    Selectable cwds; the selector renders in view mode only, and only with at least two.
  * @param {string}                 [props.path]           Current cwd. A value not in `pathOptions` (set by `cd`) is appended as an extra option.
  * @param {(path: string) => void} [props.onPathChange]   Called with the newly selected cwd.
- * @param {string}                 [props.streamStatus]   SSE status; `'open'` in view mode lights the LIVE LED.
+ * @param {string}                 [props.streamStatus]   SSE status; `'open'` in view mode marks LIVE active and pulses its LED.
  * @param {string|null}            [props.uptime]         Worker uptime for the LIVE button; an em-dash holds the slot until the first value.
  * @param {string}                 [props.mode]           `'view'` (live) or `'edit'` (editor); gates which buttons render.
  * @param {boolean}                [props.canEdit]        Whether the cwd resolves to a worker, so EDIT is offered.
@@ -96,7 +110,7 @@ export function HeaderControls( {
 							onPathChange && onPathChange( e.target.value )
 						}
 					>
-						{ /* Surface a `cd`-set off-menu cwd as an extra option. */ }
+						{ /* Add a `cd`-set off-menu cwd as an option. */ }
 						{ ( pathOptions.includes( path )
 							? pathOptions
 							: [ ...pathOptions, path ]
@@ -117,7 +131,7 @@ export function HeaderControls( {
 						aria-label={ __( 'Close', 'newspack-nodes' ) }
 						title={ __( 'Close', 'newspack-nodes' ) }
 					>
-						{ /* Inlined WP `close` X (@wordpress/icons is not a nodes dep). */ }
+						{ /* Inlined: @wordpress/icons is not a nodes dep. */ }
 						<svg
 							width="24"
 							height="24"
@@ -132,10 +146,11 @@ export function HeaderControls( {
 				</div>
 			) : (
 				<div className="topology-mode">
-					{ /* NEW + OPEN work from live too (OPEN lands you in edit).
-					     The debug overlay has no editor and takes the onClose
-					     branch above, so neither renders there without a guard.
-					     Live is a PREFIX of edit — a control never moves on you. */ }
+					{ /* @longform NEW and OPEN work from live too, and OPEN
+					     lands you in edit. The debug overlay has no editor
+					     and takes the onClose branch above, so neither
+					     renders there without a guard. Live's controls are
+					     a SUBSET of edit's, so nothing shows only in live. */ }
 					<button
 						type="button"
 						className="topology-mode__btn topology-mode__btn--new"
@@ -150,9 +165,10 @@ export function HeaderControls( {
 					>
 						{ __( 'OPEN', 'newspack-nodes' ) }
 					</button>
-					{ /* Edit only: a live SAVE could dump nothing but the
-					     EXPANDED graph, writing every included node back as
-					     this file's own. View mode holds no document. */ }
+					{ /* @longform Edit only: view mode holds no document,
+					     and a live SAVE could dump nothing but the EXPANDED
+					     graph, writing every included node back as this
+					     file's own. */ }
 					{ mode === 'edit' && (
 						<button
 							type="button"
@@ -269,7 +285,7 @@ export function HeaderControls( {
 								}` }
 							/>
 							{ __( 'LIVE', 'newspack-nodes' ) }
-							{ /* Always-rendered slot (em-dash until first uptime) so the button width is stable. */ }
+							{ /* Em-dash holds the width until uptime. */ }
 							<span className="topology-uptime">
 								{ uptime || '—' }
 							</span>
@@ -289,6 +305,13 @@ export function HeaderControls( {
  */
 
 /**
+ * Renders the header bar: the brand and subtitle, then either the control
+ * cluster inline or the empty slot the active tab portals its own controls
+ * into. A host picks one of those two, never both.
+ *
+ * Props other than the three below are forwarded to `HeaderControls`, so a
+ * caller rendering inline configures the cluster through this component.
+ *
  * @param {Object}          props
  * @param {boolean}         [props.showBrand]       Render the brand + subtitle (default true).
  * @param {boolean}         [props.showControls]    Render the controls cluster inline (default true).

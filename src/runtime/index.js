@@ -1,3 +1,21 @@
+/**
+ * The `@newspack-nodes/runtime` surface — the browser node graph as a plugin
+ * outside this repo imports it.
+ *
+ * `src/build-kit/alias-map.cjs` points that one specifier at this file for
+ * esbuild and jest alike, so the re-exports below ARE the cross-repo contract.
+ * The substrate's own bundles reach individual runtime modules by relative
+ * path, which is what keeps `poller-node`, `probe-record`, `shell-node` and
+ * the rest off the list: adding a name here promises to keep it working for
+ * every consumer pinned to a substrate tag.
+ *
+ * knip counts this file as an entry, so an export nothing imports raises no
+ * finding. Removing a name needs a manual sweep of the sibling plugins.
+ *
+ * Node classes ship as classes. A consumer subclasses `Node`, hands its own
+ * classes back through `CommandInterpreterNode.registerNodeClasses`, and may
+ * pass a class straight to `makeNode` rather than a shell name (ADR-16).
+ */
 export * from './message';
 export { Core } from './core';
 export { Node, truthy } from './node';
@@ -13,7 +31,9 @@ export { StubNode } from './stub-node';
 export { DraftInterpreterNode } from './draft-interpreter-node';
 export { mountExospine } from './exospine';
 export { nodesData } from './nodes-data';
-// The reserved node names, for shared code that cannot reach the JSON itself.
+/**
+ * The reserved node names, for shared code that cannot reach the JSON itself.
+ */
 export { default as reservedNames } from './reserved-node-names.json';
 export { SseInNode } from './sse-in-node';
 export { RemoteLinkNode } from './remote-link-node';

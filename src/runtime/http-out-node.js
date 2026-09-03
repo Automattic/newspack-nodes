@@ -1,17 +1,22 @@
 /**
- * HttpOut — the outbound `/command` POST boundary on the browser side. Whoever
- * owns it (a RemoteLink/RemoteIpc, or the console spine via `_router`) delivers a
- * single positional Message with TO already routed; `fill()` POSTs it verbatim
- * (or buffers it while locked, so a Router TIMER tick's emissions ride in ONE
- * request). The worker-attach `connect_worker_input` bundling lives in RemoteIpc
- * — this is dumb: POST what it's given. It never inspects or drops a message;
- * the sender decides what to send, and `onceInBatch()` is what it asks.
+ * HttpOut — the outbound `/command` POST boundary on the browser side.
+ * `mountExospine` mounts one per graph as `_http`, and every sender — a
+ * RemoteLink or RemoteIpc, the Router's own tick, the console spine — fills it
+ * with a single positional Message whose TO is already routed. `fill()` POSTs
+ * that Message verbatim, or buffers it while locked so one Router TIMER tick's
+ * emissions ride out in ONE request.
  *
- * Intake: a synchronous reply comes back as a packed Message in the POST body
- * (request-scope-interpreted commands). It's fed back into `this.sink`, which
- * routes by TO (there is no `_sse` convergence node anymore). A routed-onward
- * command gets a bare 202 (null response); nothing to intake — its reply arrives
- * over the SSE stream.
+ * On the way out it inspects the message for one thing, a Router bounce that
+ * must not cross the wire; everything else goes as handed. The worker-attach
+ * `connect_worker_input` bundling lives in RemoteIpc, which decides what to
+ * send and asks `onceInBatch()` whether the open batch already carries it.
+ *
+ * Intake: a synchronous reply to a request-scope-interpreted command comes back
+ * as a packed Message in the POST body. It goes into `this.sink`, which routes
+ * it by the TO the server echoed off our FROM — the addressing IS the
+ * correlation, so nothing here keys replies to asks (ADR-7). A command routed
+ * onward earns a bare 202 (null response) with nothing to intake; its reply
+ * arrives over the SSE stream.
  */
 
 import { Node } from './node';
@@ -34,8 +39,8 @@ import names from './reserved-node-names.json';
 /**
  * The TM_ERROR an undelivered command earns, addressed back to its minter.
  *
- * `undelivered` marks it as the transport's word, not the server's: a retried
- * read asks again rather than treating it as the answer.
+ * `undelivered` marks the refusal as ours rather than the server's, so a
+ * retried read asks again instead of treating it as the answer.
  *
  * @param {Array}  sent   The command Message that failed to POST.
  * @param {string} reason Human-readable failure text.
@@ -55,10 +60,6 @@ function failureReply( sent, reason ) {
 	return reply;
 }
 
-/**
- * The `_http` node — POSTs whatever it is filled with, routes what comes back.
- * See the module docblock above for the lock/flush batching and intake rules.
- */
 /**
  * One log line for a TM_ERROR reply: `<who failed>: <what was asked>: <why>`.
  *
@@ -98,18 +99,20 @@ function errorEntry( message ) {
 }
 
 /**
- *
+ * The `_http` node — POSTs whatever it is filled with, routes what comes back.
+ * See the module docblock above for the lock/flush batching and the intake
+ * rules.
  */
 export class HttpOutNode extends Node {
 	/**
-	 * Tachikoma-parity: no-arg ctor. The `client` (a transport with
-	 * `buildMessage` / `postBatch`) is a programmatic dependency — callers
-	 * assign it as a public property after construction:
+	 * Tachikoma-parity: no-arg ctor. The `client` — a `CommandTransport`, which
+	 * is anything carrying `postBatch` — is a programmatic dependency callers
+	 * assign as a public property after construction:
 	 * `const h = new HttpOutNode(); h.client = client;`
 	 */
 	constructor() {
 		super();
-		// Safe default — callers MUST assign before fill(); else fill() throws.
+		// Unset is fine: _post() defaults to the localized transport.
 		this.client = null;
 		// When locked, fill() buffers; flush() drains it as ONE postBatch.
 		this.locked = false;
@@ -233,12 +236,12 @@ export class HttpOutNode extends Node {
 	 * Here rather than in the transport for two reasons the transport cannot
 	 * supply: the FROM has been stamped by the time this runs, and a refusal
 	 * the transport FABRICATED is marked `undelivered` — that one is the POST
-	 * failing, which `post()` already reports once, rate-limited, instead of
-	 * once per command in the batch.
+	 * failing, which the transport's own `post()` already reports once,
+	 * rate-limited, instead of once per command in the batch.
 	 *
 	 * The heartbeat judges its own replies and logs the ones that matter, so
 	 * those reach the tile through stderr like any other logged line. Counting
-	 * them here as well put the expected `slot_released` race — one per
+	 * them here as well would put the expected `slot_released` race — one per
 	 * reconnect, forever — on the tile, and textlessly.
 	 *
 	 * @param {Array} message An accepted, stamped reply.
@@ -342,7 +345,7 @@ export class HttpOutNode extends Node {
 		return {
 			category: 'I/O',
 			description: 'Browser → /command HTTP boundary (the `_http` node).',
-			// POSTs out, routes replies to FROM; no `target`, no out-port.
+			// The wire-inbound clause re-homes unaddressed output onto it.
 			has_target: true,
 			arguments: [],
 			commands: [],

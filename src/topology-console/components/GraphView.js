@@ -20,42 +20,44 @@ import { aggregateSeries } from '../utils/aggregateSeries';
  * The reusable graph-editing surface, shared by the topology console and the
  * debug overlay. Returns a Fragment (no wrapper element) so it drops into the
  * console's existing CSS-grid `topology-app` shell without changing the DOM.
- * Owns selection + Delete-key + rates; data, command handlers, layout props,
- * the canvas `frame`, and display flags are injected.
+ * It owns three things — the selection, the Delete key, and the per-node rate
+ * histories. Everything else is injected: the graph, the command handlers, the
+ * canvas `frame`, and the display flags. Selecting a node, an edge or a hull
+ * clears the other two, so Delete has one unambiguous target.
  *
- * @param {Object}           props
- * @param {Object}           props.graph              { nodes, edges } to render.
- * @param {FrameComponent}   props.frame              Component wrapping the canvas (CanvasFrame for the console; a plain frame for the overlay). Receives `frameProps` + children.
- * @param {Object}           props.frameProps         Props forwarded to `frame`.
- * @param {string}           props.resetKey           Identity key; a bump clears rate history and the edge/hull selection.
- * @param {?Object}          [props.viewportDelta]    Persisted `{ dcx, dcy, zoom }` offset from autofit; forwarded to the canvas, which restores it on the first freeze. Null autofits.
- * @param {boolean}          props.interactive        Gesture machinery on (default true).
- * @param {boolean}          props.editMode           Draft-only canvas affordances.
- * @param {boolean}          props.showPalette        Render the class palette.
- * @param {boolean}          props.paletteLoading     Catalog fetch-in-flight flag for the palette (default false).
- * @param {string}           props.streamStatus       For Inspector display.
- * @param {Function}         props.onConnect          (from, to)
- * @param {Function}         props.onRemoveNode       (id)
- * @param {Function}         props.onRemoveEdge       (from, to)
- * @param {Function}         props.onDropNode         (shellName, pos)
- * @param {Function}         props.onInspectorAction  (action, nodeId, payload)
- * @param {Function}         props.onRenameNode       (id, next)
- * @param {Function}         props.onUpdateArgs       (id, args)
- * @param {Function}         props.onUpdateVerbs      (id, verbs)
- * @param {Function}         props.onSelectionChange  (selectedId) — optional side-effect.
- * @param {string}           props.selection          Optional controlled NODE selection; when its value changes the internal node selection re-syncs to it (lets a consumer re-point selection after a rename or clear it). It never speaks for the edge or hull selection — null is the node selection's empty value, which is precisely the state an edge selection leaves behind. `undefined` leaves GraphView fully self-controlled.
- * @param {boolean}          props.inspectorCollapsed When true, the inspector collapses to a slim expand-rail (consumer-owned state, mirrors the palette). Default false.
- * @param {Function}         props.onInspectorToggle  () — fires when the inspector collapse/expand chevron is clicked; consumer toggles its `inspectorCollapsed` state.
- * @param {boolean}          props.local              When true the graph is the browser's own (local) graph, so the no-node header reads wire-accurate IoTelemetry (matching the Overview tab) instead of rolling up dump_metadata. Default false (remote/worker scope).
- * @param {Set<string>|null} props.driftIds           Node ids that exist live but not in the registered .tsl (runtime drift); painted distinctly. null = no drift info.
- * @param {number}           [props.debugLevel]       Live Dumper verbosity dial (0/1/2); the Inspector's no-node Verbose toggle reads it. Default 0.
- * @param {Array}            [props.hulls]            One soft hull per directly-declared include: `{ include, nodeIds }[]`, forwarded to SchematicCanvas.
- * @param {string}           [props.currentTopology]  The topology being edited; disables dragging it (or an ancestor) onto itself.
- * @param {Function}         [props.onDropTopology]   ({ name, x, y }) — a topology dragged from the Palette onto the canvas.
- * @param {Object}           [props.includeTree]      `topologies expand`'s `tree`; forwarded to Inspector's IncludeTree as `tree`.
- * @param {Array}            [props.includes]         The draft's directly-declared includes; forwarded to the Palette (as `declaredIncludes`, to grey out already-included entries) AND to Inspector, which gates both the IncludeTree rows and the hull panel's remove button on it.
- * @param {Function}         [props.onRemoveInclude]  (name) — removes a declared include; reached from the IncludeTree rows, the hull panel's remove button, and the Delete key on a selected hull.
- * @param {Function}         [props.onOpenTopology]   (name) — drill into a hull's topology (open its .tsl).
+ * @param {Object}                 props
+ * @param {Object}                 props.graph                { nodes, edges } to render.
+ * @param {FrameComponent}         props.frame                Component wrapping the canvas (CanvasFrame in the console, a plain frame in the overlay). Receives `frameProps` and the canvas as children.
+ * @param {Object}                 [props.frameProps]         Props forwarded to `frame`.
+ * @param {string}                 props.resetKey             Identity key; a change clears the rate history and both the edge and hull selections.
+ * @param {?Object}                [props.viewportDelta]      Persisted `{ dcx, dcy, zoom }` offset from autofit; the canvas applies it once it knows its first autofit box. Null autofits.
+ * @param {boolean}                [props.interactive]        Gate for every canvas gesture. Default true.
+ * @param {boolean}                [props.editMode]           Draft mode: the Palette gains its topologies, the Inspector becomes the config form, and Delete removes a selected edge or hull. Default false.
+ * @param {boolean}                [props.showPalette]        Render the class palette. Default false.
+ * @param {boolean}                [props.paletteLoading]     The catalog fetch is in flight; the palette shows a placeholder until classes arrive. Default false.
+ * @param {string}                 [props.streamStatus]       SSE state for the Inspector; absent or 'open' reads as live.
+ * @param {Function}               [props.onConnect]          (from, to) — a wire was dropped on an IN port. Omitted disables wire drags.
+ * @param {Function}               [props.onRemoveNode]       (id)
+ * @param {Function}               [props.onRemoveEdge]       (from, to)
+ * @param {Function}               [props.onDropNode]         ({ shellName, x, y }) — a palette class dropped on the canvas, x/y already projected into SVG space.
+ * @param {Function}               [props.onInspectorAction]  (action, nodeId, value, flags) — every command the Inspector sends.
+ * @param {Function}               [props.onRenameNode]       (id, next) — returns false when the name is already taken.
+ * @param {Function}               [props.onUpdateArgs]       (id, args) — writes constructor args back to the draft.
+ * @param {Function}               [props.onUpdateVerbs]      (id, invocations) — writes verb calls back to the draft.
+ * @param {Function}               [props.onSelectionChange]  (selectedId|null) — mirrors the NODE selection outward; null whenever no node is selected.
+ * @param {?string}                [props.selection]          Controlled NODE selection, letting a consumer re-point it after a rename or clear it. A non-null value also clears the edge selection; null does not, because null is the node selection's own empty value and exactly what an edge selection leaves behind. The hull selection is never touched. `undefined` leaves GraphView self-controlled.
+ * @param {boolean}                [props.inspectorCollapsed] Collapse the inspector to a slim expand-rail. Consumer-owned state, mirroring the palette. Default false.
+ * @param {Function}               [props.onInspectorToggle]  () — the collapse/expand chevron was clicked; the consumer flips its own `inspectorCollapsed`.
+ * @param {?Set<string>}           [props.driftIds]           Node ids that exist live but not in the registered .tsl (runtime drift); painted distinctly. Null means no drift information.
+ * @param {boolean}                [props.local]              The graph is the browser's own, so the no-node header reads wire-accurate IoTelemetry, as the overlay's Overview tab does, instead of rolling up dump_metadata. Default false (remote or worker scope).
+ * @param {number}                 [props.debugLevel]         Live Dumper verbosity; the Inspector's no-node Debug toggle lights at 1 and Verbose at 2. Default 0.
+ * @param {Array}                  [props.hulls]              One soft hull per include, `{ include, depth, nodeIds }[]`. Forwarded to SchematicCanvas, and the scope `hullNodes` reads for the selected hull's sparklines.
+ * @param {string}                 [props.currentTopology]    The topology being edited; the Palette refuses to drag it, or any topology that includes it, onto itself.
+ * @param {Function}               [props.onDropTopology]     ({ name, x, y }) — a topology dragged from the Palette onto the canvas.
+ * @param {Object}                 [props.includeTree]        `topologies expand`'s `tree`; forwarded to Inspector's IncludeTree as `tree`.
+ * @param {string[]}               [props.includes]           The draft's DIRECTLY-declared includes. The Palette greys out entries already included, Inspector gates its IncludeTree rows and the hull panel's remove button on it, and it is what makes a hull deletable here — a hull drawn for a nested include has no line to remove.
+ * @param {(name: string) => void} [props.onRemoveInclude]    Removes a declared include; reached from the IncludeTree rows, the hull panel's remove button, and the Delete key on a selected hull.
+ * @param {Function}               [props.onOpenTopology]     (name) — drill into a hull's topology (open its .tsl).
  * @return {import('react').ReactElement} The graph-editing surface as a Fragment.
  */
 export default function GraphView( {
@@ -96,6 +98,7 @@ export default function GraphView( {
 	const [ selectedEdge, setSelectedEdge ] = useState( null );
 	// A hull selection is cleared by selecting a node — the node wins.
 	const [ selectedHull, setSelectedHull ] = useState( null );
+	// Hover is lifted here so an Inspector node link highlights its card.
 	const [ hoveredId, setHoveredId ] = useState( null );
 
 	// Re-sync the NODE selection to an external value (rename re-point).
@@ -117,10 +120,10 @@ export default function GraphView( {
 	}, [ resetKey ] );
 
 	// @longform A sparkline point is a dump_metadata SNAPSHOT. The canvas graph
-	// is rebuilt far more often than one arrives — a catalog republishing was
-	// enough — and sampling per rebuild files an empty point for every rebuild
-	// in between, which reads as a spike at the poll and shrinks the ring's
-	// window to a fraction of what its label claims.
+	// is rebuilt far more often than one arrives — a catalog republish alone
+	// rebuilds it — so sampling per rebuild files an empty point for every
+	// rebuild in between, which reads as a spike at the poll and shrinks the
+	// ring's window to a fraction of what its label claims.
 	const snapshot = useNodeState( names.METADATA, 'metadata' );
 	const { rateRef, rateVersion } = useGraphRates(
 		snapshot ?? graph,

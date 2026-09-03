@@ -5,25 +5,28 @@
  * node may use a different local name, while its required `reader` argument
  * remains the remote worker address. `cd /{local-name}` routes commands to it.
  *
- * It EXTENDS RemoteLink — composing the same SseIn + HttpOut + Heartbeat children
- * and the connected→slot bridge — and adds the two halves of the worker-attach send
- * path:
+ * It EXTENDS RemoteLink — composing the same `<name>:sse-in` child over the
+ * shared `_http` + `_heartbeat` backbone, and the same connected→slot bridge —
+ * and adds the two halves of the worker-attach send path:
  *  - The outgoing reply-FROM wrap: a command minted by a reply node
  *    (`_output`/`_metadata`/…) gets FROM rewritten to the private reply address
  *    `_sse:{pid}/{node}` so the server's HTTP_Filter can demux its ASYNC reply
  *    back to THIS session's stream. The `_sse` head is the server's wire
- *    contract (unchanged on the PHP side), not this node's name.
+ *    contract, spelled the same in PHP, not this node's name.
  *  - The `connect_worker_input` bundling: each send rides a leading
  *    `connect_worker_input {reader}` so the stateless request-scope graph mounts
  *    the worker's input Partition before the command routes to it.
  *
  * Single live connection: a send boots this link's SseIn, closing whichever
  * RemoteIpc held it (the same swap the console does when the cwd changes worker).
- * The PHP side will hold several at once — same composition, different start
- * policy. Both messages route through the process-wide `_http` singleton as ONE
- * POST (lock/flush), so the per-request mount and the command land in the same
- * server process. The mount serves that whole POST rather than this send, so
- * `_http` — which owns the POST — is asked whether it has already been sent.
+ * SSE slots are a finite host-wide pool, and only the attached worker's stream is
+ * read. PHP has no Remote_Ipc and steals nothing: each Remote_Source patrons its
+ * own HTTP_Out, so several links connect at once.
+ *
+ * Both messages route through the process-wide `_http` singleton as ONE POST
+ * (lock/flush), so the per-request mount and the command land in the same server
+ * process. The mount serves that whole POST rather than this send, so `_http` —
+ * which owns the POST — is asked whether it has already been sent.
  */
 
 import { Core } from './core';
@@ -34,18 +37,21 @@ import names from './reserved-node-names.json';
 
 /**
  * One worker's attached command channel. The console mounts it under the
- * worker's address and `cd /{local-name}` routes commands through it; the
- * required `reader` argument names the remote worker they ride to. See the file
- * header above for the send path and the single-live-connection rule.
+ * worker's address, `cd /{local-name}` routes commands through it, and the
+ * required `reader` argument names the remote worker each command rides to. See
+ * the file header for the send path and the single-live-connection rule.
  */
 export class RemoteIpcNode extends RemoteLinkNode {
-	// The RemoteIpc holding the live SseIn (one/session; a send swaps it).
+	/**
+	 * The RemoteIpc holding the live SseIn — one per session, and a send on any
+	 * other RemoteIpc takes it. Null while no stream is open.
+	 *
+	 * @type {?RemoteIpcNode}
+	 */
 	static active = null;
 
 	/**
-	 * Start unconfigured — `reader` arrives with `arguments`. An attached IPC is
-	 * not a subscription, so received messages keep the worker's TO=FROM
-	 * addressing instead of being re-homed to this node's target.
+	 * Start unconfigured — `reader` arrives with `arguments`.
 	 */
 	constructor() {
 		super();
@@ -82,7 +88,7 @@ export class RemoteIpcNode extends RemoteLinkNode {
 	 * POST. The mount rides once per batch, not once per send — `_http` owns
 	 * that claim, so it cannot outlive the batch it describes.
 	 *
-	 * @param {Array} message Positional Message; TO is the remainder past {worker}.
+	 * @param {Array} message Positional Message; TO is the remainder past this node's name.
 	 */
 	fill( message ) {
 		this.counter++;
@@ -138,6 +144,10 @@ export class RemoteIpcNode extends RemoteLinkNode {
 	 * Make this link's SseIn the live stream, closing whichever RemoteIpc held
 	 * it. One stream per session — the console performs this same swap when the
 	 * cwd moves to another worker.
+	 *
+	 * It drops the parent's `positions` seed and always tail-seeks: an attached
+	 * command channel carries replies to commands this session is about to
+	 * send, so there is no earlier position worth resuming from.
 	 */
 	connect() {
 		this._assertConfigured();
@@ -154,9 +164,9 @@ export class RemoteIpcNode extends RemoteLinkNode {
 
 	/**
 	 * Refuse to touch the wire without a remote worker address. RemoteLink calls
-	 * this before building children or opening the stream, which is why an
-	 * unconfigured RemoteIpc fails at configuration time instead of sending
-	 * commands into an empty address.
+	 * this before building children or opening the stream, so an unconfigured
+	 * RemoteIpc throws on its first connect or send rather than posting commands
+	 * into an empty address.
 	 *
 	 * @throws {Error} When no `reader` is configured.
 	 */
@@ -187,8 +197,8 @@ export class RemoteIpcNode extends RemoteLinkNode {
 	/**
 	 * Console teardown: tear down THIS link's own `:sse-in` and unregister the
 	 * RemoteIpc, but leave the SHARED `_http`/`_heartbeat` for the graph to tear
-	 * down. Clear the shared slot only when we were the active stream (so removing
-	 * a cd'd-away link can't drop the live worker's keepalive).
+	 * down. Clear the shared slot only when this link held the live stream, so
+	 * removing a cd'd-away link cannot drop the live worker's keepalive.
 	 */
 	removeNode() {
 		// removeNode, not close: the named child must leave the table too.

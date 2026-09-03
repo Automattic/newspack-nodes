@@ -10,73 +10,147 @@ import {
 } from '../../runtime/message';
 import { reconstructWorkers } from './reconstructWorkers';
 
-// A gap beyond GAP_INTERVALS heartbeats = paused/resumed; rebaseline.
+/**
+ * One rate step: a byte position, when it last advanced, and the rate that
+ * advance produced. `reconstructWorkers` computes these and hands them back;
+ * this node only carries them between polls.
+ *
+ * @typedef {{value:number,ts:number,rate:number}} RateStep
+ */
+
+/**
+ * Heartbeat intervals of silence that mean the tab was hidden, not the fleet
+ * slow.
+ *
+ * Everything carried across a gap that long describes a window nobody watched:
+ * every segment rotated away during it would animate out at once, and the rate
+ * baselines predate a stretch of unobserved work. `_emitModel` drops all four
+ * pieces of prior state and starts from this snapshot instead.
+ */
 const GAP_INTERVALS = 6;
 
 /**
- * `workerstatus:transform` — turn a `dump_graph` reply into the enriched
- * render model.
+ * `workerstatus:transform` — turns a `dump_graph` reply into the enriched
+ * render model the Worker Status view publishes.
  *
- * The transform receives the reply
- * directly from HttpOut (TO=transform, FROM=workers): VALUE = `{ name, payload }`
- * where `payload` is the workers/logs metadata snapshot. Anything other than a
- * `dump_graph` reply is ignored — the view is the receiver for restart /
- * error replies (FROM=view).
+ * `addSliceFetcher` mounts it in the worker slice's `transform` slot, so the
+ * join sits on the `workerstatus:in` → `workerstatus:view` edge rather than
+ * inside the view: the Fetcher mints `dump_graph` under the receiver Tee's
+ * name, the server replies TO=FROM, and the Tee fans that reply here. `target`
+ * is the view. A reply arrives as VALUE = `{ name, payload }`, and only a
+ * `dump_graph` one is transformed — `restart`, `activate` and `deactivate`
+ * mint under the view's own name, so their replies land there instead.
  *
- * The dump_graph payload is LEAN and POSITIONAL — PHP does not pre-join
- * worker attribution. This transform REBUILDS the rich `workers[]` array
- * (the shape `topologyGraph.buildTopologySections` / `TreeEntity` / `SegmentBar`
- * read) by joining the four inputs: `graph` (.tsl structure), `workers`
- * (liveness only), `consumers` (per-reader probe STATE), and `logs` (live
- * segment lists) — see `reconstructWorkers`. The join lives entirely here so
- * everything downstream stays unchanged.
+ * The payload is LEAN and POSITIONAL. PHP ships four independent sections —
+ * `graph` (the `.tsl` structure), `workers` (liveness), `consumers` (per-reader
+ * probe state) and `logs` (live segment lists) — and pre-joins no worker
+ * attribution, because one verb answering from one atomic snapshot is what
+ * keeps the four coherent. `reconstructWorkers` joins them here into the rich
+ * `workers[]` array that `topologyGraph.buildTopologySections`, `TreeEntity`
+ * and `SegmentBar` read, so the join lives in one place and nothing downstream
+ * sees the lean shape.
  *
- * Read/write byte rates are CLIENT-SIDE deltas across two polls: read_rate = Δ(absolute cursor byte
- * position)/Δts, write_rate = Δ(partition total live bytes)/Δts, both keyed as
- * the downstream already reads them. Stateful for the rate deltas (per-reader
- * prior cursor position, per-source prior total bytes) and the segment
- * slide-in/-out animation (PREVIOUS snapshot's segment ids/data, sourced from
- * the TRIMMED inputs_status so animations match what's rendered).
+ * `reconstructWorkers` is stateless, so this node carries everything spanning
+ * two polls: the rate baselines it hands back on every call, the prior
+ * snapshot's segment ids and data, the last sample timestamp, and the sticky
+ * scalars a poll may omit. Rates run on the PROBE's cadence rather than the
+ * poll's — `steppedRate` recomputes only when a byte position actually
+ * advances — because the cursor and end positions come from a sweep slower
+ * than the poll, and a poll-clock delta would read zero repeatedly and then
+ * spike. Reads are keyed by reader and writes by concrete partition name,
+ * which is how `TreeEntity` already reads them.
  *
- * The model's `prevSegments` is the PRIOR snapshot's segment ids (so the render
- * path can flag genuinely-new segments for the slide-in animation); the node's
- * own `_prevSegments` is advanced synchronously for the NEXT delta.
+ * The model's `prevSegments` is the PRIOR snapshot's segment ids, which is what
+ * lets the render path tell a genuinely new segment from one already drawn;
+ * `_prevSegments` advances to this snapshot for the next delta.
  */
 export class WorkerStatusTransformNode extends Node {
 	/**
-	 * Seed the cross-poll state this transform carries: the previous snapshot's
-	 * segment ids and data (segment slide-in/-out animation), the per-reader and
-	 * per-source rate baselines, the last sample timestamp (hidden-tab gap
-	 * detection), and the sticky scalars a poll may omit.
+	 * Seeds every piece of cross-poll state, since `reconstructWorkers` keeps
+	 * none of its own. The sticky scalars start at the values the substrate
+	 * ships as defaults, so a render before the first reply is shaped rather
+	 * than blank.
 	 */
 	constructor() {
 		super();
-		this._prevSegments = {}; // logKey → Set of segment ids
-		this._prevSegmentData = {}; // logKey → Map id → segment
-		// Probe-cadence rate state: reader/source → { value, ts, rate }.
+		/**
+		 * The prior snapshot's segment ids per concrete partition name. A
+		 * segment absent from its entry is new, and animates in.
+		 *
+		 * @type {Object<string,Set<number>>}
+		 */
+		this._prevSegments = {};
+		/**
+		 * The prior snapshot's segments themselves, per concrete partition
+		 * name. Ids alone say a segment left; the record is what draws it
+		 * while it animates out.
+		 *
+		 * @type {Object<string,Map<number,Object>>}
+		 */
+		this._prevSegmentData = {};
+		/**
+		 * Read-rate baseline per reader id.
+		 *
+		 * @type {Object<string,RateStep>}
+		 */
 		this._prevRead = {};
+		/**
+		 * Write-rate baseline per concrete partition name.
+		 *
+		 * @type {Object<string,RateStep>}
+		 */
 		this._prevWrite = {};
-		// Last snapshot's data.timestamp; detects a hidden-tab gap.
+		/**
+		 * The last snapshot's `data.timestamp`, the clock the hidden-tab gap
+		 * is measured against. Null until the first reply arrives.
+		 *
+		 * @type {?number}
+		 */
 		this._lastSampleTs = null;
-		// Sticky scalars: a poll omitting a field retains the last good value.
+		/**
+		 * Segment size in bytes, scaling the segment bars. Sticky: a poll
+		 * that omits the field keeps the last good value.
+		 *
+		 * @type {number}
+		 */
 		this._segmentSize = 64 * 1024 * 1024;
+		/**
+		 * The server's clock at the last snapshot, in seconds — what the
+		 * render path ages heartbeats and uptimes against. Sticky.
+		 *
+		 * @type {number}
+		 */
 		this._currentTime = Math.floor( Date.now() / 1000 );
-		// Worker_Base::HEARTBEAT_INTERVAL_S — the stall-pad denominator.
+		/**
+		 * The fleet's heartbeat interval in seconds
+		 * (`Worker_Base::HEARTBEAT_INTERVAL_S`), the unit `GAP_INTERVALS`
+		 * multiplies into the hidden-tab gap threshold. Sticky.
+		 *
+		 * @type {number}
+		 */
 		this._heartbeatIntervalS = 10;
-		// On-disk log-partition count (summary card); sticky like above.
+		/**
+		 * On-disk log-partition count, which `SummaryCards` shows. Sticky.
+		 *
+		 * @type {number}
+		 */
 		this._logPartitions = 0;
 	}
 
 	/**
-	 * Accept a poll reply and emit the render model. A TM_ERROR re-routes
-	 * untouched to the view's error path; only a `dump_graph` reply is
-	 * transformed, and anything else is dropped (the view owns restart replies).
+	 * Absorb one poll reply and emit the render model.
+	 *
+	 * A TM_ERROR is re-addressed to the view and forwarded untouched, so the
+	 * disconnect banner surfaces without this node inventing a model. A
+	 * `dump_graph` reply is transformed; anything else is dropped, because the
+	 * mutation replies it would otherwise see belong to the view.
 	 *
 	 * @param {Array} message The 7-field positional message; VALUE is `{ name,
-	 *                        payload }` where `payload` is the metadata snapshot.
+	 *                        payload }` where `payload` is the snapshot.
+	 * @return {void}
 	 */
 	fill( message ) {
-		// Overrides base fill() (mints a new message); count here for overlay.
+		// Base fill() counts; this override never calls it, so count here.
 		this.counter += 1;
 		const value = message[ VALUE ];
 		if ( ! value || 'object' !== typeof value ) {
@@ -99,18 +173,28 @@ export class WorkerStatusTransformNode extends Node {
 	}
 
 	/**
-	 * Rebuild the rich render model from the lean dump_graph payload and send it
-	 * to the target as `{ action: 'model', model }`. Advances the segment and
-	 * rate-delta state for the next snapshot.
+	 * Rebuild the rich render model from the lean `dump_graph` payload and send
+	 * it to the target as `{ action: 'model', model }`.
 	 *
-	 * @param {Object} data The lean dump_graph payload: `graph`, `workers`,
-	 *                      `consumers`, `logs`, `timestamp`, and
-	 *                      the sticky scalars (`segment_size`,
-	 *                      `heartbeat_interval_s`, `log_partitions`).
+	 * The order matters. The gap check runs first, against the PREVIOUS
+	 * snapshot's heartbeat interval, so a rebaseline discards the stale state
+	 * before `reconstructWorkers` deltas against it. The model then reads the
+	 * prior segment ids, and only afterwards does this node advance its own
+	 * state — reversed, every segment would look already-seen and nothing
+	 * would ever animate in.
+	 *
+	 * @param {Object} data The lean `dump_graph` payload: `graph`, `workers`,
+	 *                      `consumers`, `logs`, `timestamp`, and the sticky
+	 *                      scalars (`segment_size`, `heartbeat_interval_s`,
+	 *                      `log_partitions`).
+	 * @return {void}
 	 */
 	_emitModel( data ) {
+		/** @type {Object<string,Set<number>>} */
 		const newPrevSegments = {};
+		/** @type {Object<string,Map<number,Object>>} */
 		const newPrevSegmentData = {};
+		/** @type {Object<string,Array<Object>>} */
 		const newRemoving = {};
 
 		// Hidden-tab gap (> GAP_INTERVALS): drop prev state, fresh baseline.
@@ -128,7 +212,7 @@ export class WorkerStatusTransformNode extends Node {
 		}
 		this._lastSampleTs = ts !== undefined ? ts : this._lastSampleTs;
 
-		// Join graph + liveness + probe state + live segments → rich workers[].
+		// Join graph, liveness, probe state and live segments into workers[].
 		const rebuilt = reconstructWorkers( data, {
 			read: this._prevRead,
 			write: this._prevWrite,
@@ -180,7 +264,7 @@ export class WorkerStatusTransformNode extends Node {
 			}
 		} );
 
-		// model.prevSegments = the PRIOR snapshot (flags this one's new segs).
+		// model.prevSegments is the PRIOR snapshot, flagging new segments.
 		const modelPrevSegments = this._prevSegments;
 
 		// Sticky scalars: update only when present (else keep last good).
@@ -224,7 +308,7 @@ export class WorkerStatusTransformNode extends Node {
 		}
 		const out = newMessage();
 		out[ TYPE ] = TM_STRUCT;
-		// Mint: stamp FROM = our name; TO=target so the router routes it.
+		// A mint: stamp FROM with our name, TO with the target, for Router.
 		out[ FROM ] = this.name;
 		out[ TO ] = this.target;
 		out[ VALUE ] = { action: 'model', model };

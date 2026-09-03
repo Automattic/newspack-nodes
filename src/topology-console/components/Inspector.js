@@ -1,5 +1,15 @@
 /**
- * Right-pane inspector for the selected node.
+ * Inspector — the console's right pane, and every panel that can fill it.
+ *
+ * One component serves four selections: a hull, nothing at all (the
+ * `_command_interpreter` process view), a live node, and a draft node in edit
+ * mode. Each form is generated from the selected class's `node_schema()`
+ * rather than written per class, so a new node type arrives with its editor
+ * already built.
+ *
+ * The shared presentation lives elsewhere — `InspectorFields` for the section
+ * and row primitives, `ProcessStats` for the stats body — because HullPanel
+ * renders both and this file imports HullPanel.
  */
 
 import { useEffect, useRef, useState } from '@wordpress/element';
@@ -34,22 +44,62 @@ import { edgeHasConnectRole } from '../utils/consoleGraph';
 import { primaryButtonClass } from '@newspack-nodes/shared/utils/buttonClass';
 import { useCatalog } from '../CatalogContext';
 
-// A Consumer/Tail node: its dump_metadata carries both `frames` and a `cursor`.
+/**
+ * Whether the node reads a durable log, so the Time Travel panel applies.
+ *
+ * Read off the reported metadata rather than the class name: any node that
+ * publishes keyframes and a cursor can drive the transport, and matching on
+ * class would miss a subclass.
+ *
+ * @param {Object} node Node metadata from the graph.
+ * @return {boolean} True when the node reports both `frames` and a `cursor`.
+ */
 function isConsumerNode( node ) {
 	return Array.isArray( node?.frames ) && !! node?.cursor;
 }
 
-// Hide config-edit affordances for the `_repl` anchor only (id + reserved).
+/**
+ * Whether the node's configuration belongs to the console rather than the user.
+ *
+ * A reserved anchor is auto-mounted by the runtime, so rename, delete,
+ * constructor and verb affordances stay hidden: editing them would describe a
+ * node the next boot rebuilds anyway. `_repl` is matched by id as well, so it
+ * stays locked even when its metadata carries no `reserved` flag.
+ *
+ * @param {Object} node Node metadata from the graph.
+ * @return {boolean} True when config-edit affordances are withheld.
+ */
 function isReserved( node ) {
 	return !! ( node && ( node.reserved || '_repl' === node.id ) );
 }
 
-// Borrowed via `include` — origin is a SET (a diamond-shared node has several).
+/**
+ * Whether the node reaches this document through an `include`.
+ *
+ * `origin` is a SET rather than one name, because a diamond-shared node is
+ * provided by several includes at once.
+ *
+ * @param {Object} node Node metadata from the graph.
+ * @return {boolean} True when at least one other topology declares the node.
+ */
 function isBorrowed( node ) {
 	return Array.isArray( node?.origin ) && node.origin.length > 0;
 }
 
-// Clickable node-name links; unknown names render as plain dim text.
+/**
+ * A comma-separated run of node names, each selecting its node when clicked.
+ *
+ * A name outside `nodeIds` renders as dim text instead: it points at something
+ * the graph on screen does not hold, and a button that selects nothing reads
+ * as broken.
+ *
+ * @param {Object}      props
+ * @param {string[]}    [props.names]    Names in display order; empty renders an em dash.
+ * @param {Set<string>} [props.nodeIds]  Ids present in the graph; anything else is not a link.
+ * @param {Function}    [props.onSelect] (name) — selects the clicked node.
+ * @param {Function}    [props.onHover]  (name|null) — highlights it on the canvas, null on leave.
+ * @return {import('react').ReactElement} The name list.
+ */
 function NodeLinks( { names, nodeIds, onSelect, onHover } ) {
 	if ( ! names || ! names.length ) {
 		return (
@@ -94,17 +144,21 @@ function NodeLinks( { names, nodeIds, onSelect, onHover } ) {
 }
 
 /**
- * Shared absorb-last core (positionalArgs is the string-input front door). The draft
- * whitespace-splits a `make_node`/`cmd` line's tail into a token array with no schema
- * knowledge, so a free-text arg with spaces (e.g. add_profile's `text`) arrives as many
- * tokens. Collapse the tail into the LAST declared slot so a one-arg verb binds the whole
- * value, not just the first token — and so serializeArg quotes it back into one
- * round-trippable token. Idempotent: an already-collapsed list (length <= count) is
- * returned unchanged, so applying it on edit-writeback never re-splits.
+ * Bind a token array to the positional slots the schema declares.
  *
- * @param {string[]} args  Token array from the draft (invocation.args / ctorArgs).
- * @param {number}   count Number of positional args the schema declares.
- * @return {string[]} Args of length <= count, last slot absorbing the tail.
+ * The parser whitespace-splits a `make_node` or `cmd` line's tail with no
+ * schema knowledge, so a free-text argument holding spaces — a scorer's
+ * `add_profile <text>`, say — arrives as several tokens. Collapsing the tail
+ * into the LAST declared slot is what binds the whole value to a one-argument
+ * verb rather than its first word, and what lets the serializer quote it back
+ * into one round-trippable token.
+ *
+ * Idempotent: a list already at or under `count` is returned unchanged, so
+ * applying it again on edit write-back never re-splits what it just joined.
+ *
+ * @param {string[]} args  Token array — a draft invocation's args, draft ctor args, or a live node's `arguments`.
+ * @param {number}   count Positional arguments the schema declares.
+ * @return {string[]} Args of length <= count, the last slot absorbing the tail.
  */
 function absorbTrailingArgs( args, count ) {
 	const list = Array.isArray( args ) ? args : [];
@@ -134,7 +188,19 @@ function argDisplayValue( token ) {
 	return tokenize( String( token ) ).join( ' ' );
 }
 
-// Remote/worker scope: roll up dump_metadata via processStats + rate series.
+/**
+ * Process stats for a worker or remote graph, rolled up from its metadata.
+ *
+ * The totals come from the nodes' own counters and the sparklines from the
+ * poll-sampled rate rings. The dmesg strip comes from `_dmesg`, whose poll the
+ * console aims at the process being VIEWED, so the counts describe that worker
+ * rather than the browser; zeros stand until it first publishes.
+ *
+ * @param {Object} props
+ * @param {Array}  props.nodes      Node metadata for the whole graph.
+ * @param {Object} props.rateSeries `{ in, out, read, write }` sample rings.
+ * @return {import('react').ReactElement} The stats header.
+ */
 function GraphProcessStats( { nodes, rateSeries } ) {
 	const { messagesIn, messagesOut, bytesRead, bytesWritten } =
 		processStats( nodes );
@@ -158,7 +224,12 @@ function GraphProcessStats( { nodes, rateSeries } ) {
 	);
 }
 
-// Human window label for the IoTelemetry rate ring's span (seconds).
+/**
+ * Label for the span the browser's own telemetry ring covers.
+ *
+ * @param {number} span Seconds between the ring's oldest and newest sample.
+ * @return {string} "last ~Nm" or "last ~Ns"; "live" while the ring spans nothing yet.
+ */
 function formatTelemetryWindow( span ) {
 	if ( span >= 60 ) {
 		return sprintf(
@@ -177,7 +248,16 @@ function formatTelemetryWindow( span ) {
 	return __( 'live', 'newspack-nodes' );
 }
 
-// Browser scope: wire-accurate IoTelemetry counters (no graph double-count).
+/**
+ * Process stats for the browser's OWN graph, read from `IoTelemetry`.
+ *
+ * The telemetry store counts the wire, so this header and the Overview tab
+ * report the same numbers instead of two roll-ups of the same local traffic.
+ * The store lives outside React, so the component subscribes to it and forces
+ * a render rather than holding the counters in state.
+ *
+ * @return {import('react').ReactElement} The stats header.
+ */
 function BrowserProcessStats() {
 	const [ , force ] = useState( 0 );
 	useEffect(
@@ -215,7 +295,15 @@ function BrowserProcessStats() {
 	);
 }
 
-// Browser graphs read own IoTelemetry; remote/worker roll up dump_metadata.
+/**
+ * The process-stats header, taking its counters from whichever scope applies.
+ *
+ * @param {Object}  props
+ * @param {Array}   props.nodes      Node metadata, for a worker or remote graph.
+ * @param {Object}  props.rateSeries `{ in, out, read, write }` sample rings.
+ * @param {boolean} [props.local]    The graph is the browser's own, so read IoTelemetry.
+ * @return {import('react').ReactElement} The stats header.
+ */
 function ProcessStatsHeader( { nodes, rateSeries, local } ) {
 	return local ? (
 		<BrowserProcessStats />
@@ -224,6 +312,17 @@ function ProcessStatsHeader( { nodes, rateSeries, local } ) {
 	);
 }
 
+/**
+ * How long ago the node's counter last moved.
+ *
+ * A node whose counter has never moved carries no timestamp. On an open stream
+ * that means idle rather than unknown, so it reads "streaming" instead of an
+ * age nobody can compute.
+ *
+ * @param {?number} ts   Unix seconds of the last counter change; nullish when it never changed.
+ * @param {boolean} live Whether the SSE stream is open.
+ * @return {string} A relative age, "just now", "streaming", or an em dash.
+ */
 function formatLastSeen( ts, live ) {
 	if ( ts === undefined || ts === null ) {
 		return live ? __( 'streaming', 'newspack-nodes' ) : '—';
@@ -253,8 +352,21 @@ function formatLastSeen( ts, live ) {
 	);
 }
 
-// Edit-mode form: schema-driven Constructor + Verbs for the draft node.
-
+/**
+ * The draft node's name, validated as it is typed and committed on blur.
+ *
+ * The input is local state so a half-typed name never reaches the draft: an
+ * intermediate value collides with a sibling or fails the character rule on
+ * nearly every keystroke. Enter commits by blurring, Escape restores the
+ * node's current name, and a rename the caller refuses snaps back with the
+ * reason, since the collision it lost to is invisible from here.
+ *
+ * @param {Object}      props
+ * @param {Object}      props.node           The selected draft node; `id` is its current name.
+ * @param {Set<string>} props.takenNames     Every other name in the draft.
+ * @param {Function}    [props.onRenameNode] (oldId, newId) — returns false when it refuses.
+ * @return {import('react').ReactElement} The name row.
+ */
 function NameField( { node, takenNames, onRenameNode } ) {
 	const [ value, setValue ] = useState( node.id );
 	const [ error, setError ] = useState( '' );
@@ -441,19 +553,50 @@ function VerbRow( {
 	);
 }
 
-// Live target wins, else catalog default, else true (mirrors OUT-port gating).
+/**
+ * Whether the node routes onward, so a Routing section is worth showing.
+ *
+ * The live value wins, the catalog answers for a draft node that has never
+ * run, and an unknown class reads as routing. That is the order the canvas
+ * gates its OUT port on, so a node cannot show a port here and lack one there.
+ *
+ * @param {Object} node    Node metadata from the graph.
+ * @param {Array}  catalog Class catalog entries.
+ * @return {boolean} True when the node has an outbound target.
+ */
 function nodeHasTarget( node, catalog ) {
 	const schema = catalog.find( ( c ) => c.shell_name === node.class );
 	return node.has_target ?? schema?.has_target ?? true;
 }
 
-// Fan-out per catalog fans_out; falls back to the runtime target shape.
+/**
+ * Whether the node routes to MANY targets, as a Tee does.
+ *
+ * The catalog's declaration decides it; a class the catalog does not carry
+ * falls back to the shape of the live target, which is an array only where the
+ * node fans out.
+ *
+ * @param {Object} node    Node metadata from the graph.
+ * @param {Array}  catalog Class catalog entries.
+ * @return {boolean} True when the node takes more than one target.
+ */
 function nodeFansOut( node, catalog ) {
 	const schema = catalog.find( ( c ) => c.shell_name === node.class );
 	return schema?.fans_out ?? Array.isArray( node.target );
 }
 
-// Tee fans out to many targets; everything else has a single target.
+/**
+ * The Routing editor, in whichever shape the node's target takes.
+ *
+ * @param {Object}   props
+ * @param {Object}   props.node           The selected node.
+ * @param {string[]} props.nodeNames      Every other node, offered as a target.
+ * @param {Array}    props.targets        This node's outbound edges, `{ from, to, virtual? }`.
+ * @param {Array}    props.catalog        Class catalog entries.
+ * @param {Function} [props.onConnect]    (from, to) — adds a target.
+ * @param {Function} [props.onRemoveEdge] (from, to) — drops one.
+ * @return {import('react').ReactElement} The routing row.
+ */
 function TargetsField( {
 	node,
 	nodeNames,
@@ -486,6 +629,22 @@ function TargetsField( {
 	);
 }
 
+/**
+ * The fan-out editor: one chip per wired target, plus a picker for the rest.
+ *
+ * The picker offers only nodes this one is not already wired to, since
+ * re-adding an existing target is a no-op the runtime would accept silently.
+ * A virtual edge comes from a verb argument rather than a `connect_node` line,
+ * so its chip carries no clear button — removing it means editing the verb.
+ *
+ * @param {Object}   props
+ * @param {Object}   props.node           The selected node.
+ * @param {string[]} props.nodeNames      Every other node, offered as a target.
+ * @param {Array}    props.targets        This node's outbound edges, `{ from, to, virtual? }`.
+ * @param {Function} [props.onConnect]    (from, to) — wires a new target.
+ * @param {Function} [props.onRemoveEdge] (from, to) — unwires one.
+ * @return {import('react').ReactElement} The targets row.
+ */
 function TeeTargetsField( {
 	node,
 	nodeNames,
@@ -549,6 +708,23 @@ function TeeTargetsField( {
 	);
 }
 
+/**
+ * The single-target editor: a select over every other node, plus `(none)`.
+ *
+ * `connect_node` on a node that does not fan out replaces its target, so
+ * switching needs no disconnect first and only `(none)` removes the edge. A
+ * target the draft does not hold is appended to the options so it still
+ * displays, and the verb-derived edges are named in a hint rather than
+ * offered, because this control edits the one physical target.
+ *
+ * @param {Object}   props
+ * @param {Object}   props.node           The selected node.
+ * @param {string[]} props.nodeNames      Every other node, offered as a target.
+ * @param {Array}    props.targets        This node's outbound edges, `{ from, to, virtual? }`.
+ * @param {Function} [props.onConnect]    (from, to) — points the node at a target.
+ * @param {Function} [props.onRemoveEdge] (from, to) — clears it.
+ * @return {import('react').ReactElement} The target row.
+ */
 function SingleTargetField( {
 	node,
 	nodeNames,
@@ -615,6 +791,15 @@ function SingleTargetField( {
 	);
 }
 
+/**
+ * One target in the fan-out editor.
+ *
+ * @param {Object}        props
+ * @param {string}        props.label     Target node name.
+ * @param {boolean}       [props.virtual] Edge derived from a verb argument: styled apart, never cleared here.
+ * @param {?(() => void)} [props.onClear] Removes the edge; absent on a virtual edge or a read-only pane.
+ * @return {import('react').ReactElement} The chip.
+ */
 function RoutingChip( { label, virtual, onClear } ) {
 	return (
 		<span
@@ -641,7 +826,18 @@ function RoutingChip( { label, virtual, onClear } ) {
 	);
 }
 
-// Read-only verb args (borrowed nodes): disabled inputs mirroring the ctor row.
+/**
+ * A locked verb's arguments as disabled inputs.
+ *
+ * Disabled inputs rather than plain text, so a locked row occupies the same
+ * space as an editable one and the pane does not reflow as the selection moves
+ * between an owned node and a borrowed one.
+ *
+ * @param {Object}  props
+ * @param {Object}  props.spec       Verb entry from the class schema.
+ * @param {?Object} props.invocation The call whose args are shown; nullish renders nothing.
+ * @return {?import('react').ReactElement} The argument rows, or null when there are none.
+ */
 function LockedVerbArgs( { spec, invocation } ) {
 	const argSpecs = spec.args || [];
 	if ( ! invocation || argSpecs.length === 0 ) {
@@ -663,7 +859,17 @@ function LockedVerbArgs( { spec, invocation } ) {
 	);
 }
 
-// Single verb: a disabled checkbox, ticked when the borrowed node invokes it.
+/**
+ * A verb the including topology declared: a disabled checkbox and its args.
+ *
+ * Shown rather than hidden, because the setting is in force on the running
+ * node and a reader who cannot see it will declare it a second time.
+ *
+ * @param {Object}  props
+ * @param {Object}  props.spec       Verb entry from the class schema.
+ * @param {?Object} props.invocation The seeded call, or null when the verb is not invoked.
+ * @return {import('react').ReactElement} The locked verb row.
+ */
 function LockedVerb( { spec, invocation } ) {
 	return (
 		<div className="topology-edit-verb">
@@ -687,7 +893,14 @@ function LockedVerb( { spec, invocation } ) {
 	);
 }
 
-// `multiple` verb: one read-only row per invocation (none renders nothing).
+/**
+ * A `multiple` verb the including topology declared: one locked row per call.
+ *
+ * @param {Object} props
+ * @param {Object} props.spec        Verb entry from the class schema.
+ * @param {Array}  props.invocations The seeded calls; an empty list renders nothing.
+ * @return {import('react').ReactElement} The locked rows.
+ */
 function LockedMultipleVerb( { spec, invocations } ) {
 	return (
 		<div className="topology-edit-verb-group">
@@ -708,7 +921,26 @@ function LockedMultipleVerb( { spec, invocations } ) {
 	);
 }
 
-// Borrowed node: config is immutable here — wiring stays editable on canvas.
+/**
+ * The edit-mode form for a node this document borrows through an include.
+ *
+ * The constructor is read-only and there is no rename or delete: those
+ * arguments belong to the topology that defines the node, and editing them
+ * here would write a line this file cannot own. Routing stays editable, and so
+ * do the verb calls this document aims at the node — `VerbsSection` locks the
+ * seeded half by itself.
+ *
+ * @param {Object}   props
+ * @param {Object}   props.node            The selected borrowed node.
+ * @param {Array}    props.catalog         Class catalog entries.
+ * @param {string[]} props.formatters      Registered formatter names.
+ * @param {Array}    props.vaults          Vault entries.
+ * @param {Object}   props.parsed          The draft graph, `{ nodes, edges }`.
+ * @param {Function} [props.onUpdateVerbs] (nodeId, invocations) — writes the verb calls back.
+ * @param {Function} [props.onConnect]     (from, to) — adds a target.
+ * @param {Function} [props.onRemoveEdge]  (from, to) — drops one.
+ * @return {import('react').ReactElement} The locked form.
+ */
 function LockedForm( {
 	node,
 	catalog,
@@ -812,19 +1044,19 @@ function LockedForm( {
  *
  * A borrowed node's INCLUDE half is read-only — that configuration belongs to
  * the topology that defines it — while the lines THIS document aims at the
- * node are this document's to edit. Stock `hub-control.tsl` is nothing but
- * that shape: `include settings-sync`, then three `add_setting` lines at it.
- * `handleUpdateVerbs` drops the seeded half before it writes, so an edit here
- * can only ever change the file's own declarations.
+ * node are this document's to edit. Event-logger-nodes' `hub-control.tsl` is
+ * exactly that shape: `include settings-sync`, then `add_setting` lines aimed
+ * at the included node. `handleUpdateVerbs` drops the seeded half before it
+ * writes, so an edit here can only change the file's own declarations.
  *
  * @param {Object}   props
  * @param {Object}   props.node            The selected node.
- * @param {Array}    props.commandSpecs    Configurable verbs from the catalog.
- * @param {Array}    props.verbInvocations Seeded rows first, then declared.
- * @param {string[]} props.nodeNames       Other node ids, for node_name args.
- * @param {Object}   props.formatters      Formatter registry.
- * @param {Object}   props.vaults          Vault registry.
- * @param {Function} props.onUpdateVerbs   (nodeId, invocations) — writes back.
+ * @param {Array}    props.commandSpecs    Configurable verbs from the class schema.
+ * @param {Array}    props.verbInvocations This node's calls; a seeded row came from the include.
+ * @param {string[]} props.nodeNames       Other node ids, offered for `node_name` args.
+ * @param {string[]} props.formatters      Registered formatter names.
+ * @param {Array}    props.vaults          Vault entries.
+ * @param {Function} props.onUpdateVerbs   (nodeId, invocations) — writes the calls back.
  * @return {import('react').ReactElement} The section.
  */
 function VerbsSection( {
@@ -982,6 +1214,28 @@ function VerbsSection( {
 	);
 }
 
+/**
+ * The edit-mode form for a node this document owns.
+ *
+ * Identity, Routing, Constructor and Verbs, every one of them generated from
+ * the class schema. A reserved anchor keeps its header alone: the runtime
+ * mounts it, so a rename, a deletion or a changed argument would describe a
+ * node the next boot rebuilds from its own definition.
+ *
+ * @param {Object}   props
+ * @param {Object}   props.node            The selected draft node.
+ * @param {Array}    props.catalog         Class catalog entries.
+ * @param {string[]} props.formatters      Registered formatter names.
+ * @param {Array}    props.vaults          Vault entries.
+ * @param {Object}   props.parsed          The draft graph, `{ nodes, edges }`.
+ * @param {Function} [props.onUpdateArgs]  (nodeId, args) — writes the constructor args back.
+ * @param {Function} [props.onUpdateVerbs] (nodeId, invocations) — writes the verb calls back.
+ * @param {Function} [props.onRemoveNode]  (nodeId) — deletes the node.
+ * @param {Function} [props.onRenameNode]  (oldId, newId) — returns false when it refuses.
+ * @param {Function} [props.onRemoveEdge]  (from, to) — drops a target.
+ * @param {Function} [props.onConnect]     (from, to) — adds one.
+ * @return {import('react').ReactElement} The edit form.
+ */
 function EditForm( {
 	node,
 	catalog,
@@ -1037,7 +1291,7 @@ function EditForm( {
 				</button>
 			) }
 
-			{ /* Reserved anchors (e.g. _repl) are auto-mounted and fixed: no rename. */ }
+			{ /* A reserved anchor is auto-mounted: no rename. */ }
 			{ ! isReserved( node ) && (
 				<Section title={ __( 'Identity', 'newspack-nodes' ) }>
 					<NameField
@@ -1115,7 +1369,27 @@ function EditForm( {
 	);
 }
 
-// Modal collecting a verb's args (CtorField widgets), then fires 'invoke'.
+/**
+ * Collects a verb's arguments, then invokes it on the live node.
+ *
+ * Each argument renders through `CtorField`, so a verb argument gets the same
+ * schema-driven widget a constructor argument does — one pickers-and-types
+ * implementation, not two. An argument left empty is dropped rather than sent
+ * as a blank token, which would fill its positional slot and shift every
+ * argument after it.
+ *
+ * @param {Object}     props
+ * @param {string}     props.nodeId     Node the verb runs on.
+ * @param {string}     props.verb       Verb name; titles the dialog.
+ * @param {string}     props.kind       `command` or `request`; picks the message type minted.
+ * @param {Array}      props.args       The verb's argument specs from the class schema.
+ * @param {string[]}   props.formatters Registered formatter names.
+ * @param {Array}      props.vaults     Vault entries.
+ * @param {string[]}   props.nodeNames  Nodes offered for `node_name` arguments.
+ * @param {Function}   props.onAction   (action, nodeId, payload) — dispatches the invoke.
+ * @param {() => void} props.onDismiss  Closes the dialog.
+ * @return {import('react').ReactElement} The dialog.
+ */
 function VerbArgModal( {
 	nodeId,
 	verb,
@@ -1196,7 +1470,23 @@ function VerbArgModal( {
 	);
 }
 
-// One schema verb button; argless fire now, args open VerbArgModal.
+/**
+ * One verb from the class schema, as a button.
+ *
+ * An argument-free verb fires on the click; one that takes arguments opens
+ * `VerbArgModal` first. The label is the bare verb name either way, so a
+ * `request` verb names its TM_REQUEST type in the tooltip instead.
+ *
+ * @param {Object}   props
+ * @param {string}   props.nodeId     Node the verb runs on.
+ * @param {Object}   props.spec       Verb entry from the class schema.
+ * @param {string}   props.kind       `command` or `request`; picks the message type minted.
+ * @param {string[]} props.formatters Registered formatter names.
+ * @param {Array}    props.vaults     Vault entries.
+ * @param {string[]} props.nodeNames  Nodes offered for `node_name` arguments.
+ * @param {Function} [props.onAction] (action, nodeId, payload) — dispatches the invoke.
+ * @return {import('react').ReactElement} The button, and its dialog while open.
+ */
 function VerbButton( {
 	nodeId,
 	spec,
@@ -1258,7 +1548,13 @@ function VerbButton( {
 	);
 }
 
-// Value-taking node verbs: each opens ONE shared prompt modal keyed by verb.
+/**
+ * The value-taking node verbs, keyed by the action the inspector dispatches.
+ *
+ * One `PromptModal` serves all five: the entry supplies the confirm label and
+ * the noun the prompt asks for, so a sixth verb is a line here rather than
+ * another dialog.
+ */
 const PROMPT_VERBS = {
 	cmd: { label: 'Command', noun: 'phrase' },
 	send: { label: 'Send', noun: 'bytes' },
@@ -1267,7 +1563,12 @@ const PROMPT_VERBS = {
 	send_struct: { label: 'Struct', noun: 'JSON' },
 };
 
-// COMMANDS group: stateless [label, verb] transcript-dumps.
+/**
+ * The no-selection Commands group, as `[ label, verb ]` pairs.
+ *
+ * Each dumps its reply into the transcript and changes nothing, which is what
+ * separates them from the Toggles: none has a state to reflect back.
+ */
 const NO_NODE_COMMANDS = [
 	[ 'dmesg', 'dmesg' ],
 	[ 'config', 'dump_config' ],
@@ -1279,7 +1580,21 @@ const NO_NODE_COMMANDS = [
 	[ 'ping', 'ping' ],
 ];
 
-// Register modal: wire a listener to a source node's registration event.
+/**
+ * Wires a listener node to one of a source node's registration events.
+ *
+ * The events come from the class catalog, so only what the node actually
+ * publishes is offered; the button opening this dialog is hidden entirely for
+ * a class that declares none.
+ *
+ * @param {Object}                                  props
+ * @param {string}                                  props.source    Node publishing the event.
+ * @param {string[]}                                props.events    Registration events the class declares.
+ * @param {string[]}                                props.nodeNames Nodes offered as the listener.
+ * @param {(target: string, event: string) => void} props.onConfirm Registers the listener.
+ * @param {() => void}                              props.onCancel  Closes without registering.
+ * @return {import('react').ReactElement} The dialog.
+ */
 function RegisterModal( { source, events, nodeNames, onConfirm, onCancel } ) {
 	const [ event, setEvent ] = useState( events[ 0 ] || '' );
 	const [ target, setTarget ] = useState( nodeNames[ 0 ] || '' );
@@ -1362,7 +1677,21 @@ const COMPOSE_TYPES = [
 	[ 'TM_EOF (send_eof)', 'send_eof', false ],
 ];
 
-// Compose modal: pick target+TYPE+value → CLI verb; flags applied downstream.
+/**
+ * Mints one message of any type at any node — the canvas's whole CLI surface.
+ *
+ * Every envelope field left blank keeps what the minting verb stamps, so the
+ * ordinary case is a target and a value: FROM defaults to this session's reply
+ * path, which is what brings a reply back to the console. TM_RESPONSE and
+ * TM_ERROR are checkboxes rather than types because they are bits the sender
+ * ORs onto whichever type the verb mints.
+ *
+ * @param {Object}                                                             props
+ * @param {string[]}                                                           props.nodeNames Nodes offered as the destination.
+ * @param {(action: string, to: string, value: string, flags: Object) => void} props.onConfirm Sends the message: the CLI verb, its target, the value, and the envelope overrides.
+ * @param {() => void}                                                         props.onCancel  Closes without sending.
+ * @return {import('react').ReactElement} The dialog.
+ */
 function ComposeModal( { nodeNames, onConfirm, onCancel } ) {
 	const [ to, setTo ] = useState( nodeNames[ 0 ] || '' );
 	const [ typeIdx, setTypeIdx ] = useState( 0 );
@@ -1555,33 +1884,33 @@ function ComposeModal( { nodeNames, onConfirm, onCancel } ) {
  * schema-driven config form — locked when the node is borrowed through an
  * include, since its configuration belongs to the topology that defines it.
  *
- * @param {Object}      props
- * @param {?string}     props.selectedId        Selected node id; null falls through to the hull or process view.
- * @param {?string}     [props.selectedHull]    Selected include, shown only while no node is selected.
- * @param {Array}       [props.hulls]           Every hull, `{ include, nodeIds }[]`.
- * @param {Function}    [props.onOpenTopology]  (name) — drill into a hull's own topology.
- * @param {Object}      props.parsed            The graph — `{ nodes, edges, pwd, profiling }`.
- * @param {?string}     props.streamStatus      SSE state; absent or 'open' reads as live.
- * @param {?Object}     props.rateInfo          Selected node's rate history and last-changed timestamp.
- * @param {Object}      props.rateSeries        `{ in, out, read, write }` sample rings for the whole graph.
- * @param {Object}      props.hullRateSeries    The same rings, scoped to the selected hull.
- * @param {boolean}     [props.local]           Browser graph: read IoTelemetry rather than rolling up dump_metadata.
- * @param {number}      [props.debugLevel]      Live `debug_level`; lights the debug and verbose toggles.
- * @param {Function}    [props.onAction]        (action, nodeId, value, flags) — every command this pane sends.
- * @param {Function}    [props.onSelect]        (name) — follow a node link.
- * @param {Function}    [props.onHover]         (name|null) — highlight a link's target on the canvas.
- * @param {Set<string>} [props.nodeIds]         Ids that exist; a name outside it renders as dim text, not a link.
- * @param {boolean}     [props.editMode]        Draft graph: the node view becomes the config form.
- * @param {Function}    [props.onUpdateArgs]    (nodeId, args) — writes constructor args back to the draft.
- * @param {Function}    [props.onUpdateVerbs]   (nodeId, invocations) — writes verb calls back to the draft.
- * @param {Function}    [props.onRemoveNode]    (nodeId) — delete the node from the draft.
- * @param {Function}    [props.onRenameNode]    (oldId, newId) — returns false when the name is already taken.
- * @param {Function}    [props.onRemoveEdge]    (from, to) — drop a physical edge.
- * @param {Function}    [props.onConnect]       (from, to) — add a target; a non-fan-out node replaces its own.
- * @param {Object}      [props.tree]            Nested include tree, for the no-selection Includes list.
- * @param {string[]}    [props.includes]        Directly-declared includes — only those have a line to remove.
- * @param {Function}    [props.onRemoveInclude] (name) — remove an include line.
- * @param {Function}    [props.onRemoveHull]    (name) — remove the include a hull stands for.
+ * @param {Object}                 props
+ * @param {?string}                props.selectedId        Selected node id; null falls through to the hull or process view.
+ * @param {?string}                [props.selectedHull]    Selected include, shown only while no node is selected.
+ * @param {Array}                  [props.hulls]           Every hull, `{ include, nodeIds }[]`.
+ * @param {Function}               [props.onOpenTopology]  (name) — drill into a hull's own topology.
+ * @param {Object}                 props.parsed            The graph — `{ nodes, edges, pwd, profiling }`.
+ * @param {?string}                props.streamStatus      SSE state; absent or 'open' reads as live.
+ * @param {?Object}                props.rateInfo          Selected node's rate history and last-changed timestamp.
+ * @param {Object}                 props.rateSeries        `{ in, out, read, write }` sample rings for the whole graph.
+ * @param {Object}                 props.hullRateSeries    The same rings, scoped to the selected hull.
+ * @param {boolean}                [props.local]           Browser graph: read IoTelemetry rather than rolling up dump_metadata.
+ * @param {number}                 [props.debugLevel]      Live `debug_level`; lights the debug and verbose toggles.
+ * @param {Function}               [props.onAction]        (action, nodeId, value, flags) — every command this pane sends.
+ * @param {Function}               [props.onSelect]        (name) — follow a node link.
+ * @param {Function}               [props.onHover]         (name|null) — highlight a link's target on the canvas.
+ * @param {Set<string>}            [props.nodeIds]         Ids that exist; a name outside it renders as dim text, not a link.
+ * @param {boolean}                [props.editMode]        Draft graph: the node view becomes the config form.
+ * @param {Function}               [props.onUpdateArgs]    (nodeId, args) — writes constructor args back to the draft.
+ * @param {Function}               [props.onUpdateVerbs]   (nodeId, invocations) — writes verb calls back to the draft.
+ * @param {Function}               [props.onRemoveNode]    (nodeId) — delete the node from the draft.
+ * @param {Function}               [props.onRenameNode]    (oldId, newId) — returns false when the name is already taken.
+ * @param {Function}               [props.onRemoveEdge]    (from, to) — drop a physical edge.
+ * @param {Function}               [props.onConnect]       (from, to) — add a target; a non-fan-out node replaces its own.
+ * @param {Object}                 [props.tree]            Nested include tree, for the no-selection Includes list.
+ * @param {string[]}               [props.includes]        Directly-declared includes — only those have a line to remove.
+ * @param {(name: string) => void} [props.onRemoveInclude] Removes a declared include line.
+ * @param {Function}               [props.onRemoveHull]    (name) — remove the include a hull stands for.
  * @return {import('react').ReactElement} The inspector pane.
  */
 export default function Inspector( {
@@ -1622,7 +1951,7 @@ export default function Inspector( {
 	const [ promptVerb, setPromptVerb ] = useState( null );
 	// Whether the "Register a listener" modal is open.
 	const [ registerOpen, setRegisterOpen ] = useState( false );
-	// Whether the no-node message-composer (roadmap [46]) is open.
+	// Whether the no-node message composer is open.
 	const [ composeOpen, setComposeOpen ] = useState( false );
 	// Which no-node modal view is open, or null when closed.
 	const [ stripModal, setStripModal ] = useState( null );
@@ -1712,8 +2041,7 @@ export default function Inspector( {
 					local={ local }
 				/>
 				<div data-testid="inspector-commands">
-					{ /* VIEWS — buttons that open a modal (inspection panels +
-					     the composer), never a command down the transcript. */ }
+					{ /* Views open a modal; none reaches the transcript. */ }
 					<Section title={ __( 'Views', 'newspack-nodes' ) }>
 						<div className="topology-insp__commands">
 							<button
@@ -1760,13 +2088,9 @@ export default function Inspector( {
 							>
 								{ __( 'Compose', 'newspack-nodes' ) }
 							</button>
-
-							{ /* TOGGLES — stateful two-state buttons. Each flips
-					     optimistically (label swap + is-active) and reconciles to
-					     server truth: Trace + Profiling against the metadata poll,
-					     Verbose against the live LOCAL debug_level. */ }
 						</div>
 					</Section>
+					{ /* Each flips optimistically; the poll reconciles. */ }
 					<Section title={ __( 'Toggles', 'newspack-nodes' ) }>
 						<div className="topology-insp__commands">
 							<button
@@ -1892,7 +2216,7 @@ export default function Inspector( {
 							</button>
 						</div>
 					</Section>
-					{ /* COMMANDS — stateless verb dumps into the transcript. */ }
+					{ /* Stateless verb dumps into the transcript. */ }
 					<Section title={ __( 'Commands', 'newspack-nodes' ) }>
 						<div className="topology-insp__commands">
 							{ NO_NODE_COMMANDS.map( ( [ label, cmd ] ) => (
@@ -2085,7 +2409,7 @@ export default function Inspector( {
 							) }
 						</>
 					) }
-					{ /* sink + from dropped — substrate plumbing, no edit-mode equivalent. */ }
+					{ /* sink and from omitted: substrate plumbing. */ }
 				</Section>
 			) }
 
@@ -2450,8 +2774,7 @@ export default function Inspector( {
 					) }
 				</div>
 			</Section>
-			{ /* TM_COMMAND verbs + TM_REQUEST verbs from this class's node_schema. */ }
-			{ /* Reserved spine nodes (e.g. _repl) skip these — the user doesn't own their configuration. */ }
+			{ /* Class verbs; a reserved anchor's config is not the user's. */ }
 			{ ! isReserved( node ) &&
 				( () => {
 					const schema = catalog.find(

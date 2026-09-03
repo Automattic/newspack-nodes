@@ -26,6 +26,19 @@ const RETRY_AFTER_S = 15;
 const ASK_EXPIRY_S = 120;
 
 /**
+ * One ask: what a trigger puts on the wire, and what a reply settles.
+ *
+ * @typedef {Object} Ask
+ * @property {?string[]} args    Argument tokens to send. Null marks the ask for
+ *                               removal at the end of this trigger.
+ * @property {?string}   path    The subject it is about, ridden on FROM; null
+ *                               addresses the bare receiver.
+ * @property {number}    askedAt Seconds when it went on the wire, 0 until then.
+ * @property {boolean}   live    Minted from `command_args`, so a re-ask reads
+ *                               the getter again instead of replaying it.
+ */
+
+/**
  * Fetcher — turn ANY trigger message into ONE configured command send. The
  * dashboard composition primitive: `Timer → Tee → Fetchers → _shell/_http/<ci>`,
  * where the Timer tick hitchhikes every fetcher's command into one HTTP POST.
@@ -40,22 +53,23 @@ const ASK_EXPIRY_S = 120;
  * dashboard emit live arguments that track React UI state (filter / sort / page)
  * without re-wiring the graph — the getter reads the current state at fire time.
  * A `null` return means there is nothing to send THIS tick. Any other non-array
- * return coerces to []. A static token array stays byte-identical to the
- * pre-getter behavior (only callers that opt in pass a getter).
+ * return coerces to []. A static token array is sent as it stands.
  *
- * ONE ask stands at a time. An ask goes into the `outbox` when it is sent and
- * leaves when its reply settles it, and a trigger that finds one there mints
- * nothing — so a one-second refresh on a four-second verb asks once and waits,
- * instead of queueing four identical commands the server is still working
- * through. `retry_after_s` is the fail-open valve: an answer that never came
- * stops holding the outbox open after that long. Zero disables it, which is what
- * a WRITE wants — an unanswered write may already have applied.
+ * A trigger mints ONE ask, and mints nothing while any ask still stands — so a
+ * one-second refresh on a four-second verb asks once and waits, instead of
+ * queueing four identical commands the server is still working through. An ask
+ * goes into the `outbox` when it is sent and leaves when its reply settles it
+ * or it stands past `ASK_EXPIRY_S`; either way, leaving notifies `settled`.
+ * `retry_after_s` is the fail-open valve: an answer that never came stops
+ * holding the outbox open after that long. Zero disables it, which is what a
+ * WRITE wants — an unanswered write may already have applied.
  *
  * `send()` is the other way in, for a caller with an answer to wait on: it parks
  * arguments the next trigger puts on the wire, so a mutation rides the same
  * batch as everything else instead of minting its own POST. It also parks the
- * SUBJECT the ask is about, which rides on FROM so the answer comes back naming
- * it — that is how ONE Fetcher serves many rows with nothing correlated.
+ * SUBJECT the ask is about, which rides on FROM so the answer comes back
+ * naming it — that is how ONE Fetcher serves many rows with nothing correlated
+ * (ADR-7).
  *
  * `fill()` IGNORES a trigger's payload — every message that is not a REPLY is
  * just a trigger. The command is configured on the node, never read from the
@@ -67,10 +81,15 @@ export class FetcherNode extends Node {
 	/**
 	 * Predeclare the configured fields the `arguments` setter fills — where the
 	 * server's reply routes back to, which verb to send, and that verb's
-	 * arguments — plus the outbox those asks stand in.
+	 * arguments — plus the outbox those asks stand in and the retry window that
+	 * re-asks an unanswered one.
 	 */
 	constructor() {
 		super();
+		/**
+		 * The local node the reply routes back to. It is stamped as the emitted
+		 * command's FROM, and the server answers TO=FROM.
+		 */
 		this.receiver = '';
 		/**
 		 * The verb to send. NOT named `command`: that would shadow the inherited
@@ -83,15 +102,15 @@ export class FetcherNode extends Node {
 		 * The verb's argument tokens, or the fire-time getter described in the
 		 * class docblock. `''` is the unconfigured state.
 		 *
-		 * @type {string|string[]|Function}
+		 * @type {string|string[]|(() => ?string[])}
 		 */
 		this.command_args = '';
 		/**
-		 * The asks on the wire, or waiting for the next trigger. Each is
-		 * `{ args, path, askedAt }`, `askedAt` 0 until it is sent; a reply
-		 * naming its `path` takes it out. Read it to ask what is outstanding.
+		 * The asks on the wire, or waiting for the next trigger. A reply naming
+		 * an ask's `path` takes it out, and so does the expiry. Read it to know
+		 * what is outstanding — a table reads the paths to see which row waits.
 		 *
-		 * @type {Array<{args: ?string[], path: ?string, askedAt: number, live: boolean}>}
+		 * @type {Ask[]}
 		 */
 		this.outbox = [];
 		/**
@@ -103,6 +122,9 @@ export class FetcherNode extends Node {
 	}
 
 	/**
+	 * Declared because the setter below would otherwise shadow the inherited
+	 * getter away, leaving `arguments` unreadable on this class alone.
+	 *
 	 * @return {string[]} The `<receiver> <command> [<command_args>...]` tokens.
 	 */
 	get arguments() {
@@ -130,10 +152,11 @@ export class FetcherNode extends Node {
 	/**
 	 * Settle a reply, or send what the trigger is due to send.
 	 *
-	 * A trigger's type, VALUE and addressing are ignored — one trigger sends
-	 * every ask that is due, or none at all while the browser holds no signing
-	 * session, an earlier ask is still outstanding, or the fire-time getter
-	 * reports nothing to send.
+	 * A trigger's type, VALUE and addressing are ignored: it sends every ask
+	 * that is due, retires the ones that have stood too long, and mints one
+	 * more only when the outbox is empty. It sends nothing at all while the
+	 * browser holds no signing session, and nothing new while the fire-time
+	 * getter reports nothing to send.
 	 *
 	 * @param {Array} message A command REPLY, or any message at all as a trigger.
 	 */
@@ -200,7 +223,7 @@ export class FetcherNode extends Node {
 	/**
 	 * Re-read a live ask's arguments before asking again.
 	 *
-	 * @param {Object} ask The outbox entry, mutated with the current args.
+	 * @param {Ask} ask The outbox entry, mutated with the current args.
 	 * @return {boolean} False when the getter has nothing to ask about now, in
 	 *                   which case the ask is marked for removal.
 	 */
@@ -227,8 +250,8 @@ export class FetcherNode extends Node {
 	 * @param {boolean} [supersede] Replace what is waiting instead of queueing
 	 *                              behind it — nobody wants the older answer once
 	 *                              a newer question has been asked.
-	 * @return {Object} The ask just parked, so a caller sending it in the same
-	 *                  breath need not go looking for what it pushed.
+	 * @return {Ask} The ask just parked, so a caller sending it in the same
+	 *               breath need not go looking for what it pushed.
 	 */
 	send( args, path = null, supersede = false ) {
 		const ask = {
@@ -258,7 +281,7 @@ export class FetcherNode extends Node {
 	 * Whether this ask goes on the wire now: never sent, or unanswered for
 	 * longer than the window.
 	 *
-	 * @param {Object} ask One outbox entry.
+	 * @param {Ask}    ask One outbox entry.
 	 * @param {number} now Seconds, read once for the whole trigger.
 	 * @return {boolean} True when the trigger should send it.
 	 */
@@ -274,9 +297,11 @@ export class FetcherNode extends Node {
 	/**
 	 * Put one ask on the wire, addressed so its reply comes back naming it, and
 	 * stamp when it went — the stamp is part of the send, so no caller can put
-	 * an ask on the wire without starting its window.
+	 * an ask on the wire without starting its window. `markLocal()` taints the
+	 * message LOCAL and signs it here, because the node that MINTS a command is
+	 * what signs it (ADR-15).
 	 *
-	 * @param {Object} ask The outbox entry to send.
+	 * @param {Ask}    ask The outbox entry to send.
 	 * @param {number} now Seconds, read once for the whole trigger.
 	 */
 	_ask( ask, now ) {
@@ -298,7 +323,7 @@ export class FetcherNode extends Node {
 	}
 
 	/**
-	 * Take the answered ask out of the outbox, and say so.
+	 * Take the answered ask out of the outbox and notify `settled`.
 	 *
 	 * A transport refusal is not an answer: the batch never reached the verb,
 	 * so an ask that may be asked again is re-armed for the next trigger rather

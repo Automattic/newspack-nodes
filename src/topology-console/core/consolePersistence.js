@@ -1,12 +1,19 @@
 /**
- * localStorage persistence for the console's session state [87]: the recent
- * transcript, command history, debug_level, and the browser's debug_state.
+ * localStorage persistence for the console's session state [87]: the debug
+ * overlay's transcript, the topology console's hub transcript, the REPL command
+ * history, `debug_level`, and the interpreter's `debug_state`.
  *
- * Every accessor is try/catch-guarded so private-mode / disabled / quota-full
- * storage degrades to in-memory defaults rather than throwing, and corrupt
- * stored values fall back to the same defaults. Shared by the topology console
- * (ReplFooter history) and the debug overlay (transcript / debug_level /
- * debug_state), so it lives in topology-console/core where both can import it.
+ * Every read and write goes through `readStorage` / `writeStorage`, so
+ * private-mode, disabled or quota-full storage degrades to in-memory defaults
+ * rather than throwing, and a corrupt stored value falls back to those same
+ * defaults. Credential values are masked on the way IN: what a browser stores
+ * has no expiry, and the server never hands a stored password back
+ * (`Vault_CI_Node::public_shape` strips it).
+ *
+ * Both REPLs share this module — the topology console for the hub transcript
+ * and ReplFooter's history, the debug overlay for the transcript, the debug
+ * level and the debug state — so it lives in `topology-console/core`, where
+ * each can import it.
  */
 
 import { TRANSCRIPT_MAX } from '../../runtime/dumper-node';
@@ -14,17 +21,44 @@ import { Core } from '../../runtime/core';
 import { REDACTED } from '../../runtime/node';
 import { readStorage, writeStorage } from '../../shared/utils/storage';
 
+/** Namespace prefix on every key this module owns. */
 const NS = 'newspack-nodes:console:';
+
+/** Where the debug overlay's transcript is stored. */
 const TRANSCRIPT_KEY = `${ NS }transcript`;
-// Separate key so hub worker-realm and overlay transcripts never clobber.
+
+/**
+ * Where the topology console's hub transcript is stored. Its own key, so the
+ * worker-realm lines and the overlay's transcript never clobber each other.
+ */
 const HUB_TRANSCRIPT_KEY = `${ NS }hub-transcript`;
+
+/** Where the REPL's command history is stored. */
 const HISTORY_KEY = `${ NS }history`;
+
+/** Where the transcript's rendering verbosity is stored. */
 const DEBUG_LEVEL_KEY = `${ NS }debug-level`;
+
+/** Where the interpreter's `debug_state` is stored. */
 const DEBUG_STATE_KEY = `${ NS }debug-state`;
 
-// The transcript's own cap is Dumper's TRANSCRIPT_MAX, so a restore agrees.
+/**
+ * Most command lines a persisted history keeps. A transcript takes its cap from
+ * Dumper's `TRANSCRIPT_MAX` instead, so a restored transcript holds exactly
+ * what the live ring would.
+ */
 const MAX_PERSISTED_HISTORY = 100;
 
+/**
+ * Read a JSON array from storage.
+ *
+ * Absent, unreadable, unparseable and non-array values all answer with an empty
+ * array — a caller restoring a transcript or a history has one
+ * nothing-to-restore branch for the four.
+ *
+ * @param {string} key Storage key.
+ * @return {Array} The stored array, empty when there is nothing usable.
+ */
 function readArray( key ) {
 	const raw = readStorage( key );
 	if ( null === raw ) {
@@ -38,15 +72,28 @@ function readArray( key ) {
 	}
 }
 
+/**
+ * Read an integer from storage.
+ *
+ * @param {string} key Storage key.
+ * @return {number} The stored integer, 0 when unset or unparseable.
+ */
 function readInt( key ) {
 	const n = parseInt( readStorage( key ) ?? '', 10 );
 	return Number.isFinite( n ) ? n : 0;
 }
 
-// All three token shapes in ONE pass: chained passes ate each other.
+/**
+ * Matches an argument token in each of the three shapes a value arrives in:
+ * the whole token quoted (`'--k=a b'`), the value quoted (`--k="a b"`), and a
+ * bare value running to the next space. One alternation covers all three
+ * because a second pass re-matches the redaction the first one wrote and eats
+ * its closing quote.
+ */
 const ARG_TOKEN =
 	/(['"])(--[\w.-]+=)(?:\\.|(?!\1)[^\\])*\1|(--[\w.-]+=)('(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|\S*)/g;
 
+/** Matches a `"name": "value"` pair inside a rendered JSON command payload. */
 const JSON_PAIR = /("[\w.-]+"\s*:\s*)"(?:\\.|[^"\\])*"/g;
 
 /**
@@ -58,11 +105,11 @@ const JSON_PAIR = /("[\w.-]+"\s*:\s*)"(?:\\.|[^"\\])*"/g;
  *
  * A value ends where its QUOTING says it ends, not at the first space. A
  * passphrase makes `Node::serialize_args()` quote the whole token —
- * `'--auth_password=correct horse battery'` — and an earlier value matcher
- * that stopped at whitespace left everything past the first word sitting in
- * localStorage beside the redaction marker. Both quote characters appear:
- * serialize_args emits single quotes, the JSON payload shape double. The
- * masked line stays quoted as it arrived, so history recalls it replayable.
+ * `'--auth_password=correct horse battery'` — so a matcher stopping at
+ * whitespace leaves everything past the first word sitting in localStorage
+ * beside the redaction marker. Both quote characters appear: serialize_args
+ * emits single quotes, the JSON payload shape double. The masked line stays
+ * quoted as it arrived, so history recalls it replayable.
  *
  * @param {string} text A console line.
  * @return {string} The line with credential values masked.
@@ -90,6 +137,13 @@ function redactSecrets( text ) {
 		);
 }
 
+/**
+ * Persist a transcript under one key: the newest `TRANSCRIPT_MAX` entries, each
+ * line masked. An entry whose `text` is not a string is stored as it arrived.
+ *
+ * @param {string} key     Storage key.
+ * @param {Array}  entries Stamped transcript entries, oldest first.
+ */
 function saveTranscriptTo( key, entries ) {
 	const safe = ( entries || [] )
 		.slice( -TRANSCRIPT_MAX )
@@ -103,7 +157,7 @@ function saveTranscriptTo( key, entries ) {
 
 /**
  * Restore the debug overlay's transcript from the last session. Feed the result
- * to `Dumper_Node.restore()`, which takes the entries as already stamped.
+ * to `DumperNode.restore()`, which takes the entries as already stamped.
  *
  * @return {Object[]} Stamped transcript entries, oldest first; empty when
  *                    nothing is stored, storage is unavailable, or the stored
@@ -157,7 +211,7 @@ export function loadHistory() {
 /**
  * Persist the REPL's command history, newest MAX_PERSISTED_HISTORY lines only,
  * masked the same way the transcript is — the typed line and its transcript
- * echo are the same keystroke, so one of the two masked was no mask at all.
+ * echo are the same keystroke, so masking one without the other masks nothing.
  *
  * @param {string[]} entries Command lines, oldest first.
  */

@@ -1,12 +1,11 @@
 import { Node } from '../../runtime/node';
 import { TIMESTAMP, VALUE } from '../../runtime/message';
-// Namespaced: the two record layouts both export ELAPSED_MS.
 
-// Fixed 24h live window; older records dropped/pruned. Seconds (epoch).
+// Fixed 24h live window, in seconds; an older record is dropped or pruned.
 const RETENTION_S = 86400;
-// Per-key ring cap ABOVE the 24h window (N+1=5761); prune is the real boundary.
+// Per-key ring cap above the 24h window at the 15s cadence; prune is the bound.
 const MAX_SAMPLES = RETENTION_S / 15 + 1; // 5761
-// Throttle publish (replay bursts thrash): leading-edge + trailing flush.
+// Throttle publish (a full-replay burst thrashes React): leading + trailing.
 const PUBLISH_THROTTLE_MS = 500;
 // Evict a key unseen this long; measured by arrival, not record ts.
 const ENTRY_TTL_MS = 300000; // 5 min
@@ -16,8 +15,8 @@ const ENTRY_TTL_MS = 300000; // 5 min
  *
  * The base owns the whole entry lifecycle — admit, create, touch, push, cap,
  * prune, evict, publish — so a subclass owns only which slot of a record
- * carries the per-key identity, how one record folds into an entry, and what
- * the published per-key snapshot is.
+ * carries the per-key identity, which key the model publishes under, how one
+ * record folds into an entry, and what the published per-key snapshot is.
  *
  * @typedef  {Object} ProbeStreamMapping
  * @property {number}                                                               identitySlot Record slot carrying the per-key identity.
@@ -33,22 +32,28 @@ const ENTRY_TTL_MS = 300000; // 5 min
  */
 
 /**
- * Shared base for the durable-probe stream view nodes (Topic_Probe + Jobstats),
- * both of which live below it in this file.
+ * Shared base for the durable-probe stream view nodes — `TopicProbeViewNode`
+ * and `JobstatsViewNode`, each in its own file beside this one.
  *
  * Owns everything a probe stream needs that is not its record layout: the
  * per-key entries, the ring, the throttle, the TTL, the eviction and the prune.
- * A subclass supplies `identitySlot`, `_fold(entry, value, ts)`,
- * `_entryView(entry)` and `modelKey`. Everything is O(1) per record and does NOT
- * publish; setState('view', …) is time-throttled so a 24h replay burst doesn't
- * thrash React. The series is bounded two ways: a hard ring cap at `maxSamples`,
- * and the live 24h window (records older than RETENTION_S are dropped on arrival
- * and pruned as wall-clock advances past them).
+ * A subclass supplies `identitySlot`, `modelKey`, `_fold(entry, value, ts)` and
+ * `_entryView(entry)`. Folding a record costs one push and a sweep of the live
+ * keys, never a walk of a series; every walk — the prune, the snapshot's
+ * per-key copies — waits for a publish, and `setState('view', …)` is
+ * time-throttled so a 24h replay burst does not thrash React. The series is
+ * bounded two ways: a hard ring cap at `maxSamples`, and the live 24h window (a
+ * record older than RETENTION_S is dropped on arrival, and a sample is pruned
+ * as wall-clock advances past it).
  *
  * @param {number} [maxSamples] Per-key ring cap (defaults to MAX_SAMPLES).
  * @param {number} [ttlMs]      Per-key liveness TTL (defaults to ENTRY_TTL_MS).
  */
 export class ProbeStreamViewNode extends Node {
+	/**
+	 * What `nodeSchema()` reports to the console palette and to `help`. Every
+	 * concrete subclass overrides it.
+	 */
 	static description =
 		'Durable probe-stream render-model sink (the React view node).';
 
@@ -77,12 +82,15 @@ export class ProbeStreamViewNode extends Node {
 	 * publish (throttled).
 	 *
 	 * Anything that is not a positional record, or whose identity slot is not a
-	 * non-empty string, is ignored. A gap longer than the TTL means the stream
-	 * was hidden rather than every producer dying, so each entry's lease shifts
-	 * forward by the outage instead of the whole model evicting on this frame.
-	 * A record predating the live window is not folded at all: the durable
-	 * replay tail is longer than the window, so dropping it on arrival beats
-	 * carrying it until the next prune.
+	 * non-empty string, is ignored rather than refused: `fill()` runs in the
+	 * drain with no per-message try/catch, so a throw here aborts the whole
+	 * message turn.
+	 *
+	 * A gap longer than the TTL means the stream was hidden rather than every
+	 * producer dying, so each entry's lease shifts forward by the outage instead
+	 * of the whole model evicting on this frame. A record predating the live
+	 * window is not folded at all: the durable replay tail is longer than the
+	 * window, so dropping it on arrival beats carrying it until the next prune.
 	 *
 	 * @this {ProbeStreamSubclass}
 	 * @param {Array} message The 7-field positional message; VALUE is the
@@ -103,7 +111,7 @@ export class ProbeStreamViewNode extends Node {
 		}
 
 		const now = Date.now();
-		// Big gap = stream hidden, not dying: shift leases by the outage.
+		// A long gap means the stream was hidden: shift leases, don't evict.
 		if ( this._lastFill && now - this._lastFill > this.ttlMs ) {
 			const outage = now - this._lastFill;
 			for ( const c of Object.values( this.entries ) ) {

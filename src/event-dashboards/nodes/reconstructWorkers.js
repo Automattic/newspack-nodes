@@ -1,45 +1,67 @@
 /**
- * Rebuild the RICH `workers[]` array (the pre-migration shape that
- * `topologyGraph.buildTopologySections` / `TreeEntity` / `SegmentBar` read)
- * from the lean positional `dump_graph` payload, by joining the four inputs:
+ * Join the lean `dump_graph` payload into the rich `workers[]` array that
+ * `topologyGraph.buildTopologySections`, `TreeEntity` and `SegmentBar` read.
  *
- *   graph     — the `.tsl` structure ({ topology → { nodes, edges } }); a
- *               `consumer` node carries `reads` = its source-log template.
- *   workers   — LIVENESS only per (type, partition).
- *   consumers — per-reader probe STATE (cursor / partition end / distance).
- *   logs      — LIVE per-partition segment lists.
+ * `Workers_CI::cmd_dump_graph` answers four unjoined views, because PHP does no
+ * worker attribution; the browser walks the graph once per poll instead.
  *
- * The segment bar paints the FULL live segments in three regions (green read,
- * red/yellow recorded backlog, gray live-beyond-the-probe), so this join carries
- * the untrimmed live segments through plus each consumer's recorded (end_segment,
- * end_size) — the bar derives the regions itself per tree, never a global trim.
+ * - `graph` is the declared `.tsl` structure, one `{nodes,edges}` per topology.
+ *   A `consumer` node carries `reads`, its source-log template, and `reader`,
+ *   its offsetlog template.
+ * - `workers` carries liveness alone, one row per (type, partition).
+ * - `consumers` carries each reader's probe state: its cursor, the partition
+ *   end it recorded, and how far behind that leaves it.
+ * - `logs` carries the live per-partition segment lists.
  *
- * PARTITION token substitution is `topologyGraph.substituteTokens`, so a
- * `<partition>` in the consumer's `reads` template becomes the partition NUMBER.
+ * A template still holds its `<partition>` and `<topology>` tokens, and
+ * `topologyGraph.substituteTokens` is the one thing that resolves them, so a
+ * match never parses a concrete name by position.
+ *
+ * `SegmentBar` receives the UNTRIMMED live segments plus each consumer's
+ * recorded `(end_segment, end_size)` and derives its three regions from the two
+ * together: what the reader has consumed, what it still owes, and what the
+ * writer appended after the reader's last probe. Trimming the segments to the
+ * recorded end here would erase that third region for every tree at once.
  */
 
 import { contractTees, substituteTokens } from '../topologyGraph';
 
-// reader === name, or name followed by a separator suffix (prereq.p0/-0).
+/**
+ * Does a probe row's reader id belong to the named consumer?
+ *
+ * A reader id is the consumer's own name, or that name followed by a separator
+ * and a suffix — `prereq.p0`, `prereq-0`. Demanding the `.`, `_` or `-` is what
+ * stops `prereq` from claiming `prereq2.p0`.
+ *
+ * @param {string} reader Reader id carried by a probe row.
+ * @param {string} name   Consumer node name from the graph.
+ * @return {boolean} True when the reader id names that consumer.
+ */
 const readerIsHandler = ( reader, name ) =>
 	reader === name ||
 	( reader.startsWith( name ) &&
 		/^[._-]/.test( reader.slice( name.length ) ) );
 
 /**
- * For each `consumer` node, resolve ALL the logic handlers it feeds — every
- * non-tee/non-log node reachable after contracting `tee` nodes out (same in×out
- * → direct-edge contraction as `topologyGraph.collapseGraph`). A consumer that
- * fans through a tee to several processors (firehose → request-builder AND
- * job-router) yields one handler EACH, so each processor's collapsed-graph
- * vertex gets its own worker row (one row per target) —
- * picking only the first would silently drop the other processors' tree rows.
- * A consumer feeding a log directly (no logic node) falls back to its own name.
+ * Resolve every logic handler each `consumer` node feeds.
  *
- * @param {Object} graphTopo `{ nodes:[{name,kind,reads?,reader?}], edges:[[from,to]] }`.
- * @return {Array<{name:string,sourceTemplate:string,readerTemplate:string,handlers:string[]}>} One
- *   per consumer node. `sourceTemplate` is the source-log template, `readerTemplate` the offsetlog
- *   template that names the reader; both still carry their `<partition>`/`<topology>` tokens.
+ * `contractTees` replaces the pair `x→tee`, `tee→y` with the direct edge `x→y`,
+ * which lands a consumer on the same collapsed vertices
+ * `topologyGraph.collapseGraph` renders. Both readers of a `.tsl` graph share
+ * that ONE implementation, because a worker row attributed to a vertex the tree
+ * never draws is a row nobody sees.
+ *
+ * A consumer that fans through a tee to several processors — a firehose feeding
+ * both the request-builder and the job-router — yields one handler EACH, so
+ * every processor's vertex gets its own worker row. Taking only the first
+ * silently drops the other processors' tree rows. A consumer feeding a log
+ * directly, with no logic node between, falls back to its own name.
+ *
+ * @param {Object} graphTopo One topology's `{ nodes:[{name,kind,reads?,reader?}], edges:[[from,to]] }`.
+ * @return {Array<{name:string,sourceTemplate:string,readerTemplate:string,handlers:string[]}>} One entry
+ *   per consumer node: its name, its source-log template, the offsetlog template that names its reader,
+ *   and every handler its rows attach to. Both templates still carry their `<partition>`/`<topology>`
+ *   tokens.
  */
 function consumerHandlers( graphTopo ) {
 	const nodes = Array.isArray( graphTopo?.nodes ) ? graphTopo.nodes : [];
@@ -84,11 +106,29 @@ function consumerHandlers( graphTopo ) {
 	return out;
 }
 
-// Sum of every live segment's size — the partition's full size on disk.
+/**
+ * Total bytes the live segments hold — the partition's full size on disk.
+ *
+ * @param {Array<{size?:number}>} segments One partition's live segment list.
+ * @return {number} Sum of every segment's size.
+ */
 const liveTotal = ( segments ) =>
 	segments.reduce( ( acc, seg ) => acc + ( seg.size || 0 ), 0 );
 
-// Absolute byte position: whole segments behind `segment`, plus the offset.
+/**
+ * Absolute byte position of `(segment, offset)`: every whole segment behind
+ * `segment`, plus the offset inside it.
+ *
+ * Segment ids only ever rise, so `id < segment` means "already behind". The
+ * total is measured from the oldest LIVE segment, so a retention sweep dropping
+ * an old segment shrinks it — the backward move `steppedRate` rebaselines on
+ * rather than reporting as a negative rate.
+ *
+ * @param {Array<{id:number,size:number}>} segments Live segments, in any order.
+ * @param {number}                         segment  Segment the position sits in.
+ * @param {number}                         offset   Byte offset inside `segment`.
+ * @return {number} Bytes from the start of the oldest live segment.
+ */
 const bytePosition = ( segments, segment, offset ) =>
 	segments.reduce(
 		( acc, seg ) => ( seg.id < segment ? acc + seg.size : acc ),
@@ -96,18 +136,20 @@ const bytePosition = ( segments, segment, offset ) =>
 	) + offset;
 
 /**
- * Probe-cadence rate step. The cursor/end byte positions come from the 15s
- * Topic_Probe snapshot but dump_graph polls ~1s, so deltaing against the poll
- * clock gives 14 zeros then a 15× spike. Instead recompute ONLY when the value
- * actually advances (= new probe data), over the real elapsed time since the
- * last advance, and HOLD the rate while the value is unchanged. A value that
- * goes backward (segment GC / worker restart) rebaselines and holds the last
- * rate rather than spiking negative.
+ * Advance one probe-cadence rate step.
  *
- * @param {?{value:number,ts:number,rate:number}} prev  Prior step (or undefined).
- * @param {number}                                value Current byte position.
- * @param {number}                                now   Current snapshot time (s).
- * @return {{value:number,ts:number,rate:number}} The next step (carry forward).
+ * The cursor and end byte positions come from the Topic_Probe sweep, which runs
+ * every 15s, while the dashboard polls `dump_graph` every 5s. Deltaing against
+ * the poll clock would report two zeros and then a 3× spike. The rate is
+ * recomputed only when the value ADVANCES — which is new probe data — over the
+ * real elapsed time since that last advance, and HELD while the value stands. A
+ * value that moves backward (a retention sweep, a worker restart) rebaselines
+ * and keeps the last rate rather than spiking negative.
+ *
+ * @param {{value:number,ts:number,rate:number}|undefined} prev  Prior step; undefined on the first sample.
+ * @param {number}                                         value Current byte position.
+ * @param {number}                                         now   Snapshot time, in seconds.
+ * @return {{value:number,ts:number,rate:number}} The step to carry into the next poll.
  */
 function steppedRate( prev, value, now ) {
 	if ( ! prev ) {
@@ -127,15 +169,21 @@ function steppedRate( prev, value, now ) {
 }
 
 /**
- * Join the four lean inputs into the rich `workers[]` array plus the
- * partition-keyed rate maps the downstream reads. Stateless: the caller passes
- * the prior-poll rate state and gets the next state back, so the node owns no
- * join logic. Rates are PROBE-cadence (see `steppedRate`) — the segment lists
- * carry the FULL live data (the bar derives its regions from the recorded end).
+ * Join the four lean inputs into the rich `workers[]` array plus the two rate
+ * maps `globalRates` sums.
  *
- * @param {Object} data  The lean dump_graph payload (`graph`, `workers`, `consumers`, `logs`, `timestamp`).
- * @param {Object} prior `{ read:{reader→step}, write:{source→step} }` from the previous poll.
- * @return {Object} `{ workers, logs, byteRates, writeRates, nextRead, nextWrite }`.
+ * Nothing is held between polls: the caller passes the previous poll's rate
+ * baselines and gets the next ones back. The state stays in the transform node,
+ * and the join stays a plain function a test can call twice.
+ *
+ * Both rates run on the PROBE cadence rather than the poll cadence — see
+ * `steppedRate`. The `logs` come back untouched, so the segment bar still sees
+ * the full live data.
+ *
+ * @param {Object} data  The `dump_graph` payload: `graph`, `workers`, `consumers`, `logs`, `timestamp`.
+ * @param {Object} prior Previous poll's rate baselines: `read` keyed by reader id, `write` by source.
+ * @return {Object} `{ workers, logs, byteRates, writeRates, nextRead, nextWrite }` — the rich rows, the
+ *   live logs, read rate per reader, write rate per source, and the two baselines for the next poll.
  */
 export function reconstructWorkers( data, prior ) {
 	const graph = data.graph || {};
@@ -174,7 +222,7 @@ export function reconstructWorkers( data, prior ) {
 	consumers.forEach( ( row ) => {
 		const live =
 			liveByName.get( `${ row.source }#${ row.partition }` ) || [];
-		// HEAD position; end_size is NOT capped (it lags, stuck W at 0).
+		// The probe's recorded HEAD; capping end_size stalls the rate.
 		const total = bytePosition( live, row.end_segment, row.end_size );
 		const prevMax = writeTotals.get( row.source );
 		if ( prevMax === undefined || total > prevMax ) {
@@ -196,7 +244,7 @@ export function reconstructWorkers( data, prior ) {
 		writeRates[ source ] = step.rate;
 	} );
 
-	// Read step per reader, computed ONCE up front (per-topology was N×M).
+	// Read step per reader, once up front; inside the loop it is N×M.
 	const readStepByReader = new Map();
 	consumers.forEach( ( row ) => {
 		if ( readStepByReader.has( row.reader ) ) {
@@ -211,11 +259,10 @@ export function reconstructWorkers( data, prior ) {
 		);
 		readStepByReader.set( row.reader, step );
 		nextRead[ row.reader ] = step;
-		// @longform Keyed by READER, which is what a fleet-wide sum needs.
-		// Keying by handler wrote one entry per downstream handler, so a
-		// reader fanning through a Tee was counted once per handler in the
-		// global read rate; the key also dropped the topology, so two
-		// topologies over the same source collided last-write-wins.
+		// @longform Key by READER, which is what a fleet-wide sum needs.
+		// A handler key counts a reader fanning through a Tee once per
+		// downstream handler, and a source key merges two topologies
+		// reading that one source into a single last-write-wins entry.
 		byteRates[ row.reader ] = step.rate;
 	} );
 

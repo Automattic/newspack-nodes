@@ -7,12 +7,18 @@ import './Modal.scss';
  * a `role="dialog"` box carrying the canonical `.newspack-nodes-modal` role, so
  * every dashboard's dialog looks identical without declaring its own selectors.
  *
- * ESC and a backdrop mousedown invoke `onClose`. Callers own their own initial
- * focus, so each dialog can focus the element that fits it.
+ * ESC and a mousedown outside the box invoke `onClose`, both through the shared
+ * `useDismissable`. The backdrop covers the viewport and carries no handler of
+ * its own, which is what keeps it `role="presentation"`: a click handler there
+ * would make it interactive, and an interactive element owes the keyboard the
+ * equivalent ESC already provides.
+ *
+ * Callers own their own initial focus, so each dialog can focus the element
+ * that fits it.
  *
  * @param {Object}                    props
  * @param {string}                    props.ariaLabel           Accessible dialog label.
- * @param {Function}                  props.onClose             Dismiss handler (ESC / backdrop).
+ * @param {() => void}                props.onClose             Dismiss handler (ESC / backdrop).
  * @param {string}                    [props.className]         Extra classes on the dialog box.
  * @param {string}                    [props.backdropClassName] Extra classes on the BACKDROP — where
  *                                                              `position`/`z-index` live, so a dialog
@@ -28,7 +34,6 @@ export default function Modal( {
 	backdropClassName = '',
 	children,
 } ) {
-	// ESC + click-outside; the backdrop IS the region outside the dialog.
 	const dialogRef = useRef( null );
 	useDismissable( dialogRef, onClose );
 

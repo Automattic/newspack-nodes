@@ -1,26 +1,40 @@
 /**
- * TimelineView — a parsed, filterable view over the REPL transcript's DEBUG
- * traces. When a node's debug_state is on it emits `<node>: DEBUG: <event>
- * <payload>` lines (Node::set_state → stderr) which land in the transcript;
- * this view parses those lines into a compact table. It is NOT new plumbing —
- * just an alternate render of the same transcript array, so it works in both
- * the topology console and the debug overlay Console tab, local or cd'd.
+ * The DEBUG-trace timeline: the REPL transcript parsed into a filterable
+ * node/event/payload table.
+ *
+ * A node whose `debug_state` is above zero (what the `trace` verb sets) emits
+ * a `<node>: DEBUG: <event> <payload>` line on its stderr chain as it
+ * publishes state — `Node::set_state()` in a worker, its `setState` mirror in
+ * the browser — and those lines land in the `_output` transcript the REPL
+ * already renders. This view is an alternate render of THAT array, not new
+ * plumbing: it opens no stream and mounts no node, which is what lets it work
+ * unchanged in the topology console, in the debug overlay's Console tab, and
+ * while the console is cd'd into a worker.
  */
 
 import { useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import './timeline-view.scss';
 
-// DEBUG line; node \S+ (sidecar colons survive); payload line-scoped (.*).
+/**
+ * One DEBUG trace line: the node name, the event, and an optional payload.
+ *
+ * Nothing anchors the front, so the match starts at the last space-free token
+ * before ` DEBUG: ` and steps over the log prefix and process midfix the line
+ * arrives carrying. That token is `\S+` rather than a name pattern so a
+ * sidecar's own colons survive (`scored:consumer`, `combined.p0:crawler`), and
+ * the payload runs to end of line, since the caller matches one line at a time.
+ */
 const DEBUG_TRACE = /(\S+):\s+DEBUG:\s+(\S+)(?:\s+(.*))?$/;
 
 /**
- * Entry ts (epoch seconds) → local HH:MM:SS, matching the zone `log_prefix`
- * stamps onto the very lines these rows are parsed FROM. A UTC cell beside a
- * local-stamped line is two clocks describing one event.
+ * Format an entry's timestamp as a local `HH:MM:SS` cell. The transcript
+ * stamps `ts` browser-side, so the viewer's zone is the one that instant
+ * belongs to — the zone `Core.log_prefix` puts on the lines beside it. A UTC
+ * cell there would be two clocks describing one event.
  *
  * @param {number} ts Epoch seconds.
- * @return {string} `HH:MM:SS`, or an em dash when there is no usable ts.
+ * @return {string} `HH:MM:SS`, or an em dash when ts is not a finite number.
  */
 function formatTime( ts ) {
 	if ( 'number' !== typeof ts || ! Number.isFinite( ts ) ) {
@@ -32,7 +46,19 @@ function formatTime( ts ) {
 		.join( ':' );
 }
 
-// Keep DEBUG entries; scan per line so the verbose envelope `}` isn't captured.
+/**
+ * Parse the transcript into timeline rows, keeping only the entries that carry
+ * a DEBUG trace.
+ *
+ * Each entry is scanned line by line and the first match wins, so one entry
+ * yields at most one row. Matching the whole text instead would capture across
+ * lines: at verbosity 2 the Dumper renders the entire message envelope with
+ * the trace riding its `value:` line, and the payload would swallow the
+ * closing `}`.
+ *
+ * @param {Array<{key:string,ts:number,text:string}>} transcript Dumper transcript entries, oldest first.
+ * @return {Array<{key:string,ts:number,node:string,event:string,payload:string}>} One row per traced entry, in transcript order.
+ */
 function parseRows( transcript ) {
 	const rows = [];
 	for ( const entry of transcript ) {
@@ -58,10 +84,19 @@ function parseRows( transcript ) {
 }
 
 /**
- * @param {Object}                    props
- * @param {Array}                     props.transcript The Dumper transcript entries (`{ ts, kind, text, key }`).
- * @param {import('react').ReactNode} [props.actions]  Controls rendered in line with the filter inputs (left side).
- * @return {import('react').ReactElement} The timeline grid + filters.
+ * Render the trace table under its two filters.
+ *
+ * Parsing runs on every render rather than behind a memo: the Dumper's
+ * transcript is a bounded ring and every filter keystroke re-renders anyway,
+ * so a cache would cost more than the scan it saves. Rows hold transcript
+ * order, oldest first, because a trace is read as a sequence. Both filters are
+ * case-insensitive substrings over one column each, and the empty state names
+ * the Trace toggle, since a fleet with no traced node produces no rows at all.
+ *
+ * @param {Object}                                    props
+ * @param {Array<{key:string,ts:number,text:string}>} [props.transcript] The Dumper transcript entries.
+ * @param {import('react').ReactNode}                 [props.actions]    Controls rendered in line with the filter inputs (left side).
+ * @return {import('react').ReactElement} The filter row plus the trace grid, or the empty state.
  */
 export default function TimelineView( { transcript = [], actions = null } ) {
 	const [ nodeFilter, setNodeFilter ] = useState( '' );

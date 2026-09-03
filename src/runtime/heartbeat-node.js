@@ -1,34 +1,63 @@
 /**
- * Heartbeat — the `_heartbeat` node. A silent poll node (like Metadata / Uptime)
- * that, on the Router TIMER, emits a `workers/heartbeat` command to refresh this
- * session's SSE slot TTL. Emitting on the TIMER lets the poke ride in the SAME
- * batched POST as the canvas polls (one request per tick) instead of its own
- * setInterval. The reply is consumed by `fill()` — never routed to the transcript.
+ * Heartbeat — the `_heartbeat` node, which keeps this page's SSE slot leases
+ * alive by poking `workers/heartbeat` on a cadence.
  *
- * The exact slot lease is refreshed EXCLUSIVELY by this client poke (the
- * server's check_slot never refreshes it); without it the worker-partition slot
- * TTLs out and the browser reconnects. The server owns the TTL.
+ * A lease is refreshed EXCLUSIVELY by this client poke. The server's
+ * `check_slot` inspects the lease on every drain iteration and never extends
+ * it, so a stream that stops poking loses its lease at the TTL: the check
+ * fails, the server sends `disconnect`, and the browser reconnects. The server
+ * still owns the TTL — the client only says "still here".
+ *
+ * Riding the Router TIMER rather than a `setInterval` of its own puts the poke
+ * on the same wall-clock grid as every canvas poll (ADR-17), so it travels in
+ * that tick's one batched POST instead of a request of its own. Each reply
+ * comes back TO=FROM to `fill()` (ADR-7) and stops there: nothing is forwarded
+ * to the transcript, and this node publishes no state.
  */
 
 import { TimerNode } from './timer-node';
 import { Core } from './core';
 import { TYPE, VALUE, TM_ERROR, TM_RESPONSE } from './message';
 
+/**
+ * A wire lease owner: a canonical positive decimal, carried as a string.
+ *
+ * PHP mints the owner with `random_int( 1, PHP_INT_MAX )`, so a token can
+ * exceed `Number.MAX_SAFE_INTEGER`; parsing one here and re-stringifying it
+ * would round it and poke with a lease nobody holds. Zero is excluded because
+ * the slot pointer reserves it as the release tombstone.
+ */
 const LEASE_OWNER_RE = /^[1-9][0-9]*$/;
-// @longform Matches Remote_Link_Node::HEARTBEAT_INTERVAL doing the identical
-// job server-side, and clears SSE_Slot_Pool::$ttl (60s) four times over. 5s
-// was 12x more often than the lease actually needs.
+
+/**
+ * Milliseconds between pokes, per live lease.
+ *
+ * It matches `Remote_Link_Node::HEARTBEAT_INTERVAL`, which does the identical
+ * job server-side, and divides the lease TTL — 60 seconds by default, floored
+ * at 45 by `SSE_Slot_Pool::ttl()` — so one lost poke still leaves a refresh
+ * before expiry.
+ */
 const POKE_INTERVAL_MS = 15000;
-// Remote_Link_Node::RELEASED_SLOT — an idled-out stream, not a fault.
+
+/**
+ * The `SSE_Slot_Pool` lease state naming a slot released out from under this
+ * stream. The server reports it as a refusal, but it is a race with a stream
+ * that already closed rather than a fault. Mirrors
+ * `Remote_Link_Node::RELEASED_SLOT`.
+ */
 const RELEASED_SLOT = 'slot_released';
 
 /**
- * The `_heartbeat` node: one poke per live lease, on every Router tick.
+ * The `_heartbeat` node: one poke per live lease, every `POKE_INTERVAL_MS`.
  *
- * A lease is registered per stream identity by `setSlot()` and forgotten by
- * `clearSlot()`; registering one arms the poke timer, dropping the last one
- * stops it. `lastHeartbeatResponse` / `lastHeartbeatError` hold the most recent
- * outcome — the only trace a reply leaves, since nothing is forwarded onward.
+ * A stream registers its lease with `setSlot()` and drops it with
+ * `clearSlot()`; the first registration arms the poke timer and the last
+ * removal stops it, so a page holding no stream costs nothing. One shared
+ * `_heartbeat` serves every stream — `mountExospine` wires it as a backbone
+ * singleton, and each `RemoteLinkNode` keys its own lease by its own identity.
+ *
+ * `lastHeartbeatResponse` / `lastHeartbeatError` hold the most recent outcome.
+ * They are the only trace a reply leaves.
  */
 export class HeartbeatNode extends TimerNode {
 	/**
@@ -37,7 +66,7 @@ export class HeartbeatNode extends TimerNode {
 	 */
 	constructor() {
 		super();
-		// Most recently connected lease, retained for node status/debugging.
+		// Newest live lease, mirrored flat for inspection.
 		this.slot = null;
 		this.leaseOwner = null;
 		// Stream identity is the map key; wire lease owner lives in the value.
@@ -47,10 +76,12 @@ export class HeartbeatNode extends TimerNode {
 	}
 
 	/**
-	 * Consume a heartbeat reply. Only TM_RESPONSE and TM_ERROR are recorded;
-	 * any other type is counted and dropped, because a reply never travels on
-	 * to the transcript. A TM_ERROR, or a body that is not `success: true`,
-	 * clears the prior green status and leaves the reason inspectable.
+	 * Consume a heartbeat reply — where every poke ends, since nothing is
+	 * forwarded on. Only TM_RESPONSE and TM_ERROR are read; any other type is
+	 * counted and dropped. A command reply arrives wrapped as
+	 * `{ name, arguments, payload }`, and anything else arrives as itself.
+	 * A failure clears the green status and leaves its reason inspectable;
+	 * a success stamps the time.
 	 *
 	 * @param {Array} message The 7-field positional message.
 	 */
@@ -77,7 +108,7 @@ export class HeartbeatNode extends TimerNode {
 			failure = this._safeError( payload, 'Heartbeat rejected' );
 		}
 		if ( null !== failure ) {
-			// A released slot is a race, not a fault. Say nothing.
+			// A released slot is a race, not a fault: no record, no log.
 			if ( ! failure.includes( RELEASED_SLOT ) ) {
 				this._recordFailure( failure );
 				// Rate-limited: a standing failure would log every tick.
@@ -92,9 +123,12 @@ export class HeartbeatNode extends TimerNode {
 	}
 
 	/**
-	 * Router TIMER subscriber: poke every live lease through the sink. An
-	 * unauthenticated tick emits nothing at all — `command()` returns null
-	 * until the session lands, and the next tick carries the pokes.
+	 * Router TIMER subscriber: poke every live lease through the sink.
+	 *
+	 * An unauthenticated tick emits nothing. `command()` refuses to mint until
+	 * the session lands, and that readiness is per-page rather than per-lease,
+	 * so the first refusal decides the whole loop. `markDue()` keeps the unsent
+	 * tick from spending the cadence, and the next one carries the pokes.
 	 */
 	fire() {
 		if ( 0 === this._leases.size || ! this.sink ) {
@@ -103,9 +137,8 @@ export class HeartbeatNode extends TimerNode {
 		for ( const lease of this._leases.values() ) {
 			const m = this._pollMessage( lease );
 			if ( ! m ) {
-				// Still due: an unsent tick does not spend the cadence.
 				this.markDue();
-				return; // unauthenticated: the next tick carries it
+				return;
 			}
 			this.counter++;
 			this.sink.fill( m );
@@ -140,7 +173,8 @@ export class HeartbeatNode extends TimerNode {
 	/**
 	 * Reduce a reply body to one short error line. Only the known scalar
 	 * fields are read — a raw body is never retained or stringified — and the
-	 * winner is trimmed, newline-flattened, and capped at 512 characters.
+	 * winner is trimmed, newline-flattened, and capped at 512 characters so a
+	 * remote string cannot pin an unbounded value in node state.
 	 *
 	 * @param {*}      payload  The decoded reply body, of whatever shape it arrived in.
 	 * @param {string} fallback Used when no field carries a non-empty string.
@@ -163,14 +197,16 @@ export class HeartbeatNode extends TimerNode {
 	}
 
 	/**
-	 * Record one stream's exact lease and arm the poke timer. Both halves of
-	 * the lease are validated because a missing or malformed owner is a
-	 * protocol error, not a value to poke with — it throws rather than leasing
-	 * a slot the server will refuse.
+	 * Record one stream's exact lease and arm the poke timer. Both halves are
+	 * validated because a missing or malformed owner is a protocol error, not
+	 * a value to poke with — it throws rather than leasing a slot the server
+	 * will refuse. The status pair resets, since the new lease has no outcome
+	 * yet.
 	 *
 	 * @param {number}        slot          SSE slot the stream holds.
 	 * @param {string}        leaseOwner    Wire token proving ownership; a canonical positive decimal.
 	 * @param {Object|string} [streamOwner] Stream identity keying the lease; defaults to this node.
+	 * @throws {Error} When the slot is not a non-negative integer, or the owner is not a canonical positive decimal string.
 	 */
 	setSlot( slot, leaseOwner, streamOwner = this ) {
 		if ( ! Number.isInteger( slot ) || slot < 0 ) {

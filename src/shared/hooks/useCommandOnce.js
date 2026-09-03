@@ -73,6 +73,8 @@ const encodeSubject = ( subject ) =>
 		: encodeURIComponent( subject );
 
 /**
+ * Read a subject back off the reply that named it.
+ *
  * @param {?string} path The reply's remaining TO, as the address delivered it.
  * @return {?string} The subject the sender named, or null.
  */
@@ -80,28 +82,53 @@ const decodeSubject = ( path ) =>
 	'string' === typeof path && path ? decodeURIComponent( path ) : null;
 
 /**
- * @param {Object}   o             Options.
- * @param {string}   o.command     The verb to send.
- * @param {string}   [o.ci]        The server CI mount the verb lives on; omit for
- *                                 an interpreter builtin, which has none.
- * @param {string}   [o.scope]     Names this verb's own nodes; defaults to
- *                                 `<ci>:<command>`, and only needs giving when two
- *                                 hooks would otherwise collide on it.
- * @param {Function} [o.onDone]    `( { result, error, errorData, args, subject
- *                                 } ) => void`, once per reply. `args` are the
- *                                 ones it answered and `subject` is what it was
- *                                 ABOUT, both read off the reply itself.
- * @param {boolean}  [o.retry]     True for an idempotent READ; see above.
- * @param {Function} [o.subjectOf] `( args ) => subject` — what this send is
- *                                 ABOUT. It rides in the reply's ADDRESS (FROM
- *                                 becomes `<receiver>/<subject>`, so the answer
- *                                 arrives with the subject as its remaining TO),
- *                                 which is how ONE node answers about many
- *                                 rows with no table. Defaults to the first
- *                                 token; override it for a verb whose first
- *                                 token is a sub-verb rather than a subject
- *                                 (`taillog read <source> <position>`) or a
- *                                 whole document (a rule as JSON).
+ * One reply, unpacked, as `onDone` receives it.
+ *
+ * @typedef {Object} CommandAnswer
+ * @property {?Object}  result    The payload, or null when the reply refused.
+ * @property {?string}  error     The refusal, or null when the verb succeeded.
+ * @property {?Object}  errorData Structured refusal detail, where there is any.
+ * @property {string[]} args      The argument tokens the reply echoed back.
+ * @property {?string}  subject   What the send was ABOUT, read off the reply.
+ */
+
+/**
+ * What a caller waiting on an answer runs, once per reply.
+ *
+ * @typedef {(answer: CommandAnswer) => void} OnDone
+ */
+
+/**
+ * Names what a send is ABOUT, reading the tokens it is about to send.
+ *
+ * @typedef {(args: string[]) => ?string} SubjectOf
+ */
+
+/**
+ * Mounts one verb's Fetcher, receiver and result node onto the batched tick,
+ * and hands back the `run()` that sends it. See the module overview above.
+ *
+ * @param {Object}    o             Options.
+ * @param {string}    o.command     The verb to send.
+ * @param {string}    [o.ci]        The server CI mount the verb lives on; omit
+ *                                  for an interpreter builtin, which has none.
+ * @param {string}    [o.scope]     Names this verb's own nodes; defaults to
+ *                                  `<ci>:<command>`, and only needs giving when
+ *                                  two hooks would otherwise collide on it.
+ * @param {OnDone}    [o.onDone]    Runs once per reply. `args` are the ones it
+ *                                  answered and `subject` is what it was ABOUT,
+ *                                  both read off the reply itself.
+ * @param {boolean}   [o.retry]     True for an idempotent READ; see above.
+ * @param {SubjectOf} [o.subjectOf] What this send is ABOUT. It rides in the
+ *                                  reply's ADDRESS (FROM becomes
+ *                                  `<receiver>/<subject>`, so the answer arrives
+ *                                  with the subject as its remaining TO), which
+ *                                  is how ONE node answers about many rows with
+ *                                  no table. Defaults to the first token;
+ *                                  override it for a verb whose first token is
+ *                                  a sub-verb rather than a subject (`taillog
+ *                                  read <source> <position>`) or a whole
+ *                                  document (a rule as JSON).
  * @return {{run: (args: string[]) => void, isPending: (subject: ?string) => boolean, result: ?Object, error: ?string, errorData: ?Object, answeredArgs: ?string[], pending: boolean}}
  *   A screen serving many rows reads each answer through `onDone`, which
  *   names the subject it was about; what is returned here is the last one.
@@ -115,7 +142,7 @@ export function useCommandOnce( {
 	subjectOf = ( args ) => args[ 0 ] ?? null,
 	...rest
 } ) {
-	// An unknown option is a mistake: a stale `target` lost every reply.
+	// Refuse an option this hook would ignore: the caller counts on it.
 	const unknown = Object.keys( rest );
 	if ( unknown.length ) {
 		throw new TypeError(
@@ -130,14 +157,14 @@ export function useCommandOnce( {
 
 	// @longform No ref for `onDone` or `retry`: `useNodeEvent` keeps its own
 	// live callback ref, so the closure registered below is already the latest
-	// one on every notification. A second layer freshening the same values
-	// froze nothing — and `retryRef` tracked `retry` per render while the
-	// node's `retry_after_s` is written once, so the two could disagree about
-	// what "this is a read" means.
+	// one on every notification. A ref over `retry` is worse than redundant:
+	// it tracks per render, while the node's `retry_after_s` is written once
+	// at build, so the two disagree about whether this is a read.
 	const subjectOfRef = useRef( subjectOf );
 	subjectOfRef.current = subjectOf;
 	// A bump, not a copy: the outbox IS what is outstanding.
 	const [ , bumpOutbox ] = useState( 0 );
+	/** Re-render, so `outstanding` is read fresh out of the outbox. */
 	const publishOutstanding = useCallback(
 		() => bumpOutbox( ( n ) => n + 1 ),
 		[]
@@ -199,6 +226,10 @@ export function useCommandOnce( {
 	// The outbox emptying is what ends a row's spinner, not the reply landing.
 	useNodeEvent( fetcher, 'settled', publishOutstanding );
 
+	/**
+	 * Send this verb once, with `args` as its tokens; a non-array sends none.
+	 * A read already asking the same question sends nothing.
+	 */
 	const run = useCallback(
 		( args ) => {
 			const node = Core.node( fetcher );

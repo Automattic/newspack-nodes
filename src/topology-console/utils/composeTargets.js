@@ -1,17 +1,28 @@
+/**
+ * composeTargets — the destinations the message composer offers, read off the
+ * graph the operator is looking at.
+ *
+ * Both canvases share it: the topology console passes `parsed.nodes`, the
+ * debug overlay `graph.nodes`.
+ */
+
 import names from '../../runtime/reserved-node-names.json';
 
 /**
- * Build the message-composer's full "To (node)" target list from the VIEWED
- * graph (`parsed.nodes`) — never from `Core.nodes`, which at a remote worker
- * cwd holds only the browser's own scaffolding (SseIn/HttpOut/…), not the
- * worker's graph. `_command_interpreter` always leads (it's the interpreter
- * TM_COMMAND targets by default); every other node contributes its own id, plus
- * its `:config` sidecar ONLY when the node actually has one (`node.has_config`,
- * reported by dump_metadata) — not every node does, so synthesizing `<id>:config`
- * for all of them listed dead targets. Sorted.
+ * Build the composer's full "To (node)" list from the VIEWED graph.
  *
- * @param {Array} nodes `parsed.nodes` — the graph currently on screen.
- * @return {string[]} Compose target ids, `_command_interpreter` first.
+ * The source is the viewed graph and never `Core.nodes`, which at a remote
+ * worker cwd holds only the browser's own scaffolding (SseIn, HttpOut and the
+ * rest) rather than the worker's nodes. `_command_interpreter` leads for two
+ * reasons: `parseMetadata` hides the backbone, so no graph carries it, and the
+ * modal preselects the first entry, which is the destination a command wants.
+ * Every other node contributes its own id, plus its `<id>:config` sidecar ONLY
+ * when `node.has_config` reports one registered — most nodes have none, so
+ * synthesizing the sidecar for all of them offers dead targets.
+ *
+ * @param {Array<{id?: string, has_config?: boolean}>} nodes The graph on screen.
+ * @return {string[]} Compose target ids: `_command_interpreter`, then the rest
+ *                    deduplicated and sorted. A node with no id is skipped.
  */
 export function buildComposeTargets( nodes ) {
 	const rest = new Set();

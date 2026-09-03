@@ -1,8 +1,14 @@
 /**
- * `_metadata` Node + the dump_metadata payload helpers. One file per
- * Tachikoma concept: producing a dump_metadata snapshot of Core.nodes,
- * parsing one back into a { nodes, edges } graph, and the Node subclass
- * that polls + publishes for the canvas via setState('metadata', ...).
+ * The `dump_metadata` snapshot: writing one from a live registry, reading one
+ * back as the `{ nodes, edges }` graph the canvas draws, and the `_metadata`
+ * Node that keeps a remote worker's graph in step with the browser's.
+ *
+ * Producer and parser sit together because they are one wire shape with two
+ * ends, and a field taught to one but not the other stays invisible until the
+ * canvas draws the graph wrong. `coreToGraph()` composes the pair directly, so
+ * an in-process console renders exactly what a remote one does with no round
+ * trip. The other producer of this shape is PHP
+ * `Command_Interpreter_Node::cmd_dump_metadata()`.
  */
 
 import { Core } from './core';
@@ -14,11 +20,20 @@ import reservedNames from './reserved-node-names.json';
 
 /**
  * Snapshot every registered node into a dump_metadata-shaped object keyed by
- * node name. Patron-linked nodes are plumbing and are skipped.
+ * node name. Patron-linked nodes are plumbing the canvas must not draw, so
+ * they are skipped.
+ *
+ * Every entry carries `class`, `counter`, `sink`, `target`, `targets`,
+ * `debug_state`, `arguments`, `lgst_msg`, `bytes_read`, `bytes_written`,
+ * `accepts_fill`, `has_target` and `has_config`; `registrations` rides along
+ * when the node has node-name listeners, and a full snapshot adds `_header`.
+ * Both `target` and `targets` ship because a flattened list cannot express a
+ * Tee fan-out (ADR-19): `target` is the routing value a console mutation
+ * patches, `targets` the display union the edges are drawn from.
  *
  * @param {string} [only]     Single node name to snapshot; '' = all nodes.
  * @param {Object} [registry] The name table to read; defaults to Core's.
- * @return {Object} Map of node name to { class, counter, sink, target, targets, debug_state, arguments, lgst_msg, bytes_read, bytes_written }.
+ * @return {Object} Map of node name to its metadata entry.
  */
 export function dumpMetadataPayload( only = '', registry = Core.registry ) {
 	const out = {};
@@ -31,7 +46,7 @@ export function dumpMetadataPayload( only = '', registry = Core.registry ) {
 		}
 		// Per-node port flags from the node's schema; default true if none.
 		const schema = node.constructor?.nodeSchema?.() ?? null;
-		// Shell name, or the class a stub STANDS FOR — else the catalog misses.
+		// A stub declares the class it STANDS FOR, so the catalog matches.
 		const ctorName = node.constructor?.name ?? 'Node';
 		out[ name ] = {
 			class:
@@ -82,7 +97,11 @@ export function canonicalReverseCwd( rawPwd ) {
 	return ( rawPwd || '' ).replace( /\/[^/]+$/, `/${ reservedNames.OUTPUT }` );
 }
 
-// Backbone-only hiding: the probe is TSL-declared and shows like any node.
+/**
+ * Node names `parseMetadata()` drops. Only the backbone hides: `_router` and
+ * `_command_interpreter` sit in every graph and say nothing about the topology
+ * being drawn. Everything else shows, TSL-declared probes included.
+ */
 const SCAFFOLDING = new Set( [
 	reservedNames.COMMAND_INTERPRETER,
 	reservedNames.ROUTER,
@@ -269,9 +288,9 @@ export function computePollIntervalMs( nodeCount ) {
  * Metadata — `_metadata`. A Poller on `dump_metadata`: it rides the `_router`
  * TIMER, mints the verb at the live cwd, and publishes the parsed graph for the
  * canvas ( useNodeState( '_metadata', 'metadata' ) ). It holds no throttle of
- * its own — the base times it on the shared grid, so this poll leaves in the
- * same POST as everything else due that tick — and a cwd change repaints at
- * once because the console `markDue()`s it where it repoints `_cwd`.
+ * its own — the base times it on the shared grid (ADR-17), so this poll leaves
+ * in the same POST as everything else due that tick — and a cwd change repaints
+ * at once because the console `markDue()`s it where it repoints `_cwd`.
  */
 export class MetadataNode extends PollerNode {
 	/**
@@ -300,10 +319,11 @@ export class MetadataNode extends PollerNode {
 	}
 
 	/**
-	 * Take the `dump_metadata` reply — the base has already unwrapped the
-	 * envelope — keep the raw name→meta map for later optimistic patches,
-	 * rescale the cadence to the graph size, and publish the parsed graph.
-	 * Anything that does not decode to an object is dropped.
+	 * Take the `dump_metadata` reply — `fill()` has already unwrapped the
+	 * envelope — keep the raw name→meta map on `rawMap`, which the console's
+	 * connect and disconnect handlers read and the two optimistic patchers
+	 * rewrite, rescale the cadence to the graph size, and publish the parsed
+	 * graph. Anything that does not decode to an object is dropped.
 	 *
 	 * @param {*} meta The unwrapped payload: a name→meta object, or its JSON.
 	 */
@@ -324,9 +344,8 @@ export class MetadataNode extends PollerNode {
 		}
 		this.rawMap = incoming;
 		const parsed = parseMetadata( incoming );
-		// Scale the cadence to the graph, re-arming only when it changes.
 		this.pollIntervalMs = computePollIntervalMs( parsed.nodes.length );
-		// Re-arm only when the cadence actually moved (the substrate rule).
+		// Re-arm only when the cadence moved; the recurring timer stays armed.
 		if (
 			'inactive' !== this.mode &&
 			this.pollIntervalMs !== this.interval_ms
@@ -379,6 +398,8 @@ export class MetadataNode extends PollerNode {
 	/**
 	 * Console palette entry — hidden, takes no arguments, and accepts no
 	 * user-routed fill (its only input is its own poll reply).
+	 *
+	 * @return {Object} The node schema.
 	 */
 	static nodeSchema() {
 		return {

@@ -1,16 +1,32 @@
 /**
- * RateSmoother — windowed-average + EMA rate smoother.
+ * Windowed-average + EMA rate smoother, behind every live per-second readout.
  *
- * Aggregates observed counts into per-second buckets over a sliding window
- * (O(1) per add via a running total — no O(n) window scan), divides the window
- * total by the window length to get an average rate, then low-pass filters that
- * with an exponential moving average. This is the smoothing the Partition Viewer
- * lines/s readout uses; the overlay's live I/O counters share it so the two
- * read the same way and can't drift.
+ * A raw delta between two samples reads as a burst or a zero, never as a rate.
+ * So counts land in per-second buckets over a sliding window, the window total
+ * divided by the window length gives an average, and an exponential moving
+ * average low-pass filters that average into a figure steady enough to read.
  *
- * Defaults: a 10-second window and a 0.1 EMA alpha.
+ * `LogStreamViewNode` drives its lines/s from one, so every log-stream
+ * dashboard — Partition Viewer, Log Viewer, and downstream adopters like ELN's
+ * Request Log — smooths alike; the debug overlay's Overview cards drive their
+ * byte and message In/Out rates from four more. Sharing the arithmetic is what
+ * keeps two readouts of the same traffic from disagreeing.
+ *
+ * The window is a running total, not a scan: an add folds its own count in and
+ * subtracts whatever fell out the back, and the bucket list holds at most one
+ * entry per second of the window.
+ */
+
+/**
+ * Default sliding-window length in seconds. A longer window averages over more
+ * history, so any one second's traffic moves the rate less.
  */
 const DEFAULT_WINDOW_SEC = 10;
+
+/**
+ * Default EMA alpha: the fraction of the gap between the window average and
+ * the smoothed value that each `add()` closes.
+ */
 const DEFAULT_SMOOTHING = 0.1;
 
 /**
@@ -21,11 +37,13 @@ const DEFAULT_SMOOTHING = 0.1;
  */
 export class RateSmoother {
 	/**
-	 * @param {number} windowSec Sliding-window length in seconds. The window
-	 *                           total is divided by it to get the average rate.
-	 * @param {number} smoothing EMA alpha: the fraction of the gap between that
-	 *                           average and the current smoothed value each
-	 *                           `add()` closes. Lower reacts more slowly.
+	 * @param {number} [windowSec] Sliding-window length in seconds. The window
+	 *                             total is divided by it to get the average
+	 *                             rate. Defaults to 10.
+	 * @param {number} [smoothing] EMA alpha: the fraction of the gap between
+	 *                             that average and the current smoothed value
+	 *                             each `add()` closes. Lower reacts more
+	 *                             slowly. Defaults to 0.1.
 	 */
 	constructor(
 		windowSec = DEFAULT_WINDOW_SEC,
@@ -63,11 +81,11 @@ export class RateSmoother {
 	/**
 	 * Read the current rate without folding anything into the window.
 	 *
-	 * Add-on-arrival feeders (the viewers' lps) freeze when the stream goes
-	 * quiet: with no adds the window never expires and the readout holds its
-	 * last value. Expiring here lets an idle stream's rate decay to zero over
-	 * the window. The smoothed value snaps down to the window average and never
-	 * up, so rises stay EMA-smooth while falls track the emptying window.
+	 * Add-on-arrival feeders like the lines/s readout freeze when the stream
+	 * goes quiet: with no adds the window never expires and the readout holds
+	 * its last value. Expiring here lets an idle stream's rate decay to zero
+	 * over the window. The smoothed value snaps down to the window average and
+	 * never up, so rises stay EMA-smooth while falls track the emptying window.
 	 *
 	 * @param {number} nowMs Read time, epoch milliseconds.
 	 * @return {number} The smoothed rate, in events per second.
@@ -82,7 +100,11 @@ export class RateSmoother {
 	}
 
 	/**
-	 * Drop buckets older than the window from the running total.
+	 * Drop buckets older than the window from the list and the running total.
+	 *
+	 * A bucket leaves at `sec - windowSec`, so the window covers the whole
+	 * trailing `windowSec` seconds and no more. Both `add()` and `read()` call
+	 * this, which is what lets a rate decay with no traffic behind it.
 	 *
 	 * @param {number} sec Current time, floored to whole seconds.
 	 */
@@ -96,9 +118,14 @@ export class RateSmoother {
 
 	/**
 	 * Return to a cold start: empty window, zero total, zero smoothed rate.
+	 *
+	 * A feeder whose source counter can rewind calls this on the rewind — the
+	 * overlay does, on a telemetry reset. A negative delta clamps to zero, so
+	 * without the reset the pre-reset counts sit in the window and keep
+	 * reporting a rate for a further `windowSec` seconds.
 	 */
 	reset() {
-		// Per-second `{ sec, count }` buckets, a running total, the EMA rate.
+		/** @type {Array<{sec:number,count:number}>} Per-second count buckets. */
 		this.buckets = [];
 		this.windowTotal = 0;
 		this.smoothed = 0;

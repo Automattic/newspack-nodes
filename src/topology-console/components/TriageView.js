@@ -1,16 +1,19 @@
 /**
- * TriageView — the selected consumer/tail/remote-source node's dead-letter queue,
- * shown inside the Inspector's wide Triage modal. It dispatches the `dl_list` /
- * `dl_show` / `dl_requeue` / `dl_purge` verbs at the node's `:config`
- * interpreter via onAction. `dl_list` replies a JSON string, parsed defensively
- * into the table so a bad reply shows an error row, not a crash.
+ * TriageView — the dead-letter queue of the selected consumer-family node, shown
+ * inside the Inspector's wide Triage modal. It dispatches the hidden `dl_list` /
+ * `dl_show` / `dl_requeue` / `dl_purge` verbs at that node's `:config`
+ * interpreter through `onAction`, and renders the `dl_list` page as a table of
+ * quarantined records carrying per-row View and Requeue buttons.
  *
  * Each verb mints its command FROM its OWN receiver node, so the reply lands
- * there and the addressing IS the correlation (ADR-7). This used to arm a
- * one-shot capture slot on the shared `_output` Dumper and match the reply by
- * command NAME — a single field, so a second verb overwrote the first's
- * callback, which is why a `viewPending` flag had to forbid a concurrent
- * `dl_show`.
+ * there and the addressing IS the correlation (ADR-7). One shared receiver would
+ * hold one callback, and a `dl_show` dispatched while a `dl_list` was still in
+ * flight would overwrite the callback waiting for the list.
+ *
+ * Every reply is read defensively, because it crosses the wire from a worker: a
+ * refusal arrives as a TM_ERROR line, and a success body can still be malformed
+ * JSON. Both belong in the status line rather than thrown out of the dispatch
+ * that delivered them.
  */
 
 import {
@@ -37,8 +40,8 @@ import './triage-view.scss';
  * REPL prints it — dl_show's keyed reply is regrouped into the positional
  * message it came from, so there is one message rendering, not two.
  *
- * @param {Object} record Decoded `dl_show` reply.
- * @param {string} reason Quarantine reason from the dl_list row.
+ * @param {{type:number,timestamp:number,from:string,to:string,id:string,key:string,value:*}} record Decoded `dl_show` reply.
+ * @param {string}                                                                            reason Quarantine reason from the dl_list row.
  * @return {string} Body text.
  */
 function recordBody( record, reason ) {
@@ -57,7 +60,18 @@ function recordBody( record, reason ) {
 	] );
 }
 
-// Parse the dl_list JSON reply; a malformed/shapeless reply flags parseError.
+/**
+ * Decode a `dl_list` reply into the model the table renders.
+ *
+ * A body that is not JSON, or JSON carrying no `rows` array, sets `parseError`
+ * instead of throwing, so a worker answering something unexpected costs the
+ * operator a status line rather than the modal. `total` counts every indexed
+ * record the node holds, not the rows in this page, which is what makes it the
+ * badge number.
+ *
+ * @param {*} payload The reply payload, a JSON string when the verb succeeded.
+ * @return {{rows:Array<Object>,total:number,unindexed:number,parseError:boolean}} The page, empty when the reply could not be read.
+ */
 function parseList( payload ) {
 	let data = null;
 	try {
@@ -77,9 +91,18 @@ function parseList( payload ) {
 }
 
 /**
+ * The Triage modal body: the node's quarantined records, over Refresh and a
+ * two-click Purge.
+ *
+ * The table is fetched on mount, whenever the inspected node changes, and after
+ * each mutating verb — never on a timer. A dead-letter queue changes when a
+ * message dies or an operator acts, and a background refetch would close the
+ * record panel and disarm the purge confirmation under the hands of whoever
+ * opened them.
+ *
  * @param {Object}   props
- * @param {Object}   props.node     The selected node ({ id }).
- * @param {Function} props.onAction Console action dispatcher (fires the invoke).
+ * @param {Object}   props.node     The selected node; only `id` is read, as the verb destination.
+ * @param {Function} props.onAction Console action dispatcher — `( action, nodeId, payload )`.
  * @return {import('react').ReactElement} The triage modal body.
  */
 export default function TriageView( { node, onAction } ) {
@@ -87,14 +110,14 @@ export default function TriageView( { node, onAction } ) {
 	const [ data, setData ] = useState( null );
 	// The last ok/error line from a verb reply, { text, isError } or null.
 	const [ status, setStatus ] = useState( null );
-	// Two-click purge: first click arms this, second click fires dl_purge.
+	// Whether Purge is armed, waiting on its confirming second click.
 	const [ confirmPurge, setConfirmPurge ] = useState( false );
-	// The open record panel, { locator, record } from dl_show, or null.
+	// The open record panel, { locator, record, body }, or null when closed.
 	const [ shown, setShown ] = useState( null );
-	// dl_show in flight, so the row's View button can show progress.
+	// dl_show in flight; every View button is disabled until it replies.
 	const [ viewPending, setViewPending ] = useState( false );
 
-	// Ref to the latest onAction keeps runVerb stable across polls.
+	// The latest onAction, read at dispatch rather than captured per render.
 	const onActionRef = useRef( onAction );
 	onActionRef.current = onAction;
 	// Drop reply callbacks that land after the modal closes (no stray refetch).
@@ -111,6 +134,16 @@ export default function TriageView( { node, onAction } ) {
 	if ( null === receiversRef.current ) {
 		receiversRef.current = {};
 	}
+	/**
+	 * The reply address for one verb, mounting its receiver on first use.
+	 *
+	 * The receiver is a `CallbackNode` named `_triage:<verb>`, and it reads the
+	 * verb's current `onReply` at delivery rather than capturing one, so the
+	 * callback that ran is always the one the latest dispatch installed.
+	 *
+	 * @param {string} verb The dead-letter verb this receiver answers for.
+	 * @return {string} The receiver's node name, sent as the command's `replyTo`.
+	 */
 	const replyNodeFor = useCallback( ( verb ) => {
 		const name = `_triage:${ verb }`;
 		if ( ! receiversRef.current[ verb ] ) {
@@ -129,7 +162,7 @@ export default function TriageView( { node, onAction } ) {
 		return name;
 	}, [] );
 
-	// Tear down with the modal, or a later one inherits the names.
+	// Free the names, or the next modal's receiver throws a collision.
 	useEffect(
 		() => () => {
 			Object.values( receiversRef.current || {} ).forEach( ( entry ) => {
@@ -140,6 +173,18 @@ export default function TriageView( { node, onAction } ) {
 		[]
 	);
 
+	/**
+	 * Dispatch one dead-letter verb at the node's `:config` interpreter.
+	 *
+	 * Reading `onAction` through its ref is what pins this callback's identity.
+	 * The console hands down a fresh dispatcher on every poll, and a `runVerb`
+	 * that changed with it would refetch the list on each one.
+	 *
+	 * @param {string}                                   verb       Verb name, `dl_list`, `dl_show`, `dl_requeue` or `dl_purge`.
+	 * @param {string}                                   positional The verb's positional arguments; empty when it takes none.
+	 * @param {Object}                                   byName     The same arguments keyed by argument name.
+	 * @param {(payload: any, isError: boolean) => void} onReply    Runs on the reply, unless the modal has closed.
+	 */
 	const runVerb = useCallback(
 		( verb, positional, byName, onReply ) => {
 			const replyTo = replyNodeFor( verb );
@@ -155,8 +200,14 @@ export default function TriageView( { node, onAction } ) {
 		[ node.id, replyNodeFor ]
 	);
 
+	/**
+	 * Refetch the page, dropping what the previous one anchored.
+	 *
+	 * An open record panel and an armed purge both belong to the page they were
+	 * opened on: the panel's locator may no longer resolve, and a purge
+	 * confirmed against a stale count is not the purge the operator agreed to.
+	 */
 	const refresh = useCallback( () => {
-		// Any explicit refetch disarms a pending purge confirmation + panel.
 		setConfirmPurge( false );
 		setShown( null );
 		runVerb( 'dl_list', '', {}, ( payload, isError ) => {
@@ -168,13 +219,23 @@ export default function TriageView( { node, onAction } ) {
 		} );
 	}, [ runVerb ] );
 
-	// Fetch on mount and whenever the inspected node changes — NOT per poll.
+	// A ref, so a re-created dispatcher cannot retrigger this fetch.
 	const refreshRef = useRef( refresh );
 	refreshRef.current = refresh;
 	useEffect( () => {
 		refreshRef.current();
 	}, [ node.id ] );
 
+	/**
+	 * Open the record panel for one row, or report why it stayed closed.
+	 *
+	 * The body is formatted once here, not per render, so re-rendering the table
+	 * never re-parses an envelope. `reason` rides in from the row because it
+	 * decides what the panel shows — see `recordBody`.
+	 *
+	 * @param {string} locator The record's `segment:offset:length` in the sidecar.
+	 * @param {string} reason  Quarantine reason from the row.
+	 */
 	const view = ( locator, reason ) => {
 		setConfirmPurge( false );
 		setViewPending( true );
@@ -200,11 +261,19 @@ export default function TriageView( { node, onAction } ) {
 				} );
 				return;
 			}
-			// Decoded here, with the envelope, rather than on every render.
 			setShown( { locator, record, body: recordBody( record, reason ) } );
 		} );
 	};
 
+	/**
+	 * Redeliver one record to the node's sink, then refetch.
+	 *
+	 * `dl_requeue` answers an `ok:` or `error:` line instead of throwing, so the
+	 * status line takes the reply either way. The quarantined copy stays put,
+	 * which is why the refetched page still lists the row.
+	 *
+	 * @param {string} locator The record's `segment:offset:length` in the sidecar.
+	 */
 	const requeue = ( locator ) => {
 		setConfirmPurge( false );
 		runVerb( 'dl_requeue', locator, { locator }, ( payload, isError ) => {
@@ -213,6 +282,12 @@ export default function TriageView( { node, onAction } ) {
 		} );
 	};
 
+	/**
+	 * Arm the purge on the first click and send `dl_purge` on the second.
+	 *
+	 * `dl_purge` unlinks every dead-letter segment, so the confirmation lives in
+	 * the button itself rather than a second modal over this one.
+	 */
 	const purge = () => {
 		if ( ! confirmPurge ) {
 			setConfirmPurge( true );

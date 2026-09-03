@@ -1,41 +1,45 @@
 /**
- * useTopologyManager — the data hook for the Topology Manager / Overview fleet
- * board, rebuilt as a GENUINE node graph on the substrate's batched-poll toolkit
- * (helpers H3/H4). It surfaces EVERY topology (active AND inactive) with
- * provenance + active flag, merges the live worker-status section onto the active
- * ones, and exposes `activate` / `deactivate` / `restart` mutations.
+ * useTopologyManager — the data behind the Overview fleet board. It surfaces
+ * EVERY topology the server knows, active and inactive alike, each carrying its
+ * provenance and its active flag; it merges the live worker-status section onto
+ * the active ones; and it exposes the `activate`, `deactivate` and `restart`
+ * mutations.
  *
- * Graph (clipped onto the rule-#2 backbone the toolkit owns):
+ * Graph, clipped onto the rule-#2 backbone `useBatchedPoll` owns:
  *
  *   topologymanager:timer (Timer) ─> topologymanager:tee (Tee) ─> fetch-workers   ─┐ target = _shell/_http/workers
  *                                                              └> fetch-topologies ┤ target = _shell/_http/topologies
  *   workerstatus:in    (Tee) ─> workerstatus:transform ─> workerstatus:view ─> React
  *   topologymanager:in (Tee) ─> topologymanager:view                        ─> React
  *
- * `useBatchedPoll` owns ALL the poll boilerplate (the `_shell`-Tap + `_http`
- * HttpOut, the fan-out Tee + the router-hitchhike Timer, the lock/flush batch
- * bracket so a tick's two fetcher commands ride ONE POST, and the page-visibility
- * + `paused` gates). This hook supplies only its two slices via `addSliceFetcher`:
- *  - the worker slice fires `dump_graph` and rides the H4 `transform` slot, so the
- *    `WorkerStatusTransform` enrich-join lands on a graph EDGE (the workerstatus:in → view
- *    edge), not inside the view;
+ * `useBatchedPoll` owns every piece of the poll boilerplate: the `_shell` Tap
+ * and the `_http` HttpOut egress, the fan-out Tee and the router-hitchhike
+ * Timer, the lock/flush bracket that puts a tick's two fetcher commands in ONE
+ * POST, and the page-visibility and `paused` gates. This hook adds only its two
+ * slices, through `addSliceFetcher`:
+ *  - the worker slice fires `dump_graph` and fills the `transform` slot, so
+ *    the `WorkerStatusTransform` enrich-join lands on the graph EDGE between
+ *    `workerstatus:in` and the view rather than inside the view;
  *  - the topology slice fires `topologies list` straight into its view.
  *
- * SERVER APPROACH: `dump_graph` stays ONE verb (the four sections workers /
- * consumers / logs / graph must be joined from one coherent atomic snapshot — see
- * reconstructWorkers — so it can't be split into independently-timed slice verbs),
- * fanned to one transform→view on the client. `topologies list` is genuinely
- * independent → its own slice. Neither needs a server change; both are existing
- * verbs.
+ * `dump_graph` stays ONE verb rather than splitting into per-section slices.
+ * `reconstructWorkers` joins its four sections — workers, consumers, logs and
+ * graph — and that join is sound only over a single atomic snapshot, which
+ * independently-timed slices cannot give it. `topologies list` shares nothing
+ * with that snapshot, so it earns a slice of its own. Both verbs already exist;
+ * neither needs a server change.
  *
- * Mutations are one-shots on the same tick (graph-visible through `_shell`), not
- * hook-callback → interpreter.fill: `dispatchAwaited` mounts a one-shot Fetcher
- * targeting `_shell/_http/<ci>` with FROM=<view>, fans a single trigger through it,
- * overlay's `connect _shell` sees the command flow.
+ * The three mutations are `useCommandOnce` sends rather than a hook callback
+ * calling `interpreter.fill`. Each parks its arguments in its own Fetcher's
+ * outbox and pokes the Router, so the command leaves inside the same lock/flush
+ * bracket as the poll and the debug overlay's `connect _shell` sees it flow. A
+ * refusal returns a tick later as the verb's error text, addressed to the node
+ * that asked (TO=FROM, ADR-7); `onError` reports it, and there is no promise to
+ * reject.
  *
- * The merge: index the worker-status model's per-topology sections by name (its
- * `graph` keys are topology names); for each `topologies.list` row attach
- * `status = byName[row.name] ?? null`.
+ * The merge indexes the worker-status model's per-topology sections by name —
+ * its `graph` keys ARE topology names — and hands every `topologies list` row
+ * `status = byName[ row.name ] ?? null`.
  */
 
 import {
@@ -58,20 +62,29 @@ import { partitionSummaries } from '../partitionSummaries';
 import { views } from '../nodes/register';
 import { egressPath } from '@newspack-nodes/shared/helpers/egressPath';
 
-// Stale once the last successful poll is older than this many poll intervals.
+/** Stale once the last successful poll is older than this many poll intervals. */
 const STALE_POLL_INTERVALS = 3;
 
-// A consumer is "behind" only once its catch-up ETA reaches this many seconds.
+/** A consumer counts as "behind" once its catch-up ETA reaches this many seconds. */
 const BEHIND_ETA_S = 60;
 
+/** The view node publishing the enriched worker-status model. */
 const WORKER_VIEW = 'workerstatus:view';
+
+/** The view node publishing the topology list. */
 const TOPOLOGY_VIEW = 'topologymanager:view';
 
-// The server-side CIs the slices target through the substrate's `_shell/_http`.
+/** The server CI owning `dump_graph` and `restart`. */
 const WORKERS_CI = 'workers';
+
+/** The server CI owning `list`, `activate` and `deactivate`. */
 const TOPOLOGIES_CI = 'topologies';
 
-// Two slices: worker-status rides the transform slot; topology-list its view.
+/**
+ * The two poll slices, in the shape `addSliceFetcher` wires. The worker slice
+ * takes the `transform` slot so its enrich-join sits on a graph edge; the
+ * topology list needs no join and goes straight to its view.
+ */
 const SLICES = [
 	{
 		fetcher: 'fetch-workers',
@@ -96,18 +109,20 @@ const SLICES = [
 ];
 
 /**
- * Index the worker-status model's per-topology sections by name. The model's
- * `graph` keys ARE topology names; a topology's section is its graph entry plus
- * the workers whose `type` matches, carried alongside the SAME enriched
- * rate/segment/time slices WorkerStatus passes to TopologySection — so the
- * manager tree renders rates / ETA / segment bars / uptime with full richness,
- * not a degraded `{ graph, workers }` reduction (which both crashed TreeEntity's
- * un-defaulted `byteRates` read and would have shown a false 0 B/s under load).
- * A topology absent from the live graph has no section (→ null), which is what
- * the inactive rows get.
+ * Index the worker-status model's per-topology sections by name, which its
+ * `graph` keys already are. A section carries that graph entry, the workers
+ * whose `type` matches, and the model's rate, segment and time slices whole.
+ * `TopologyRow` reads `logs` to build the subtree and passes `writeRates`,
+ * `segmentSize`, `currentTime`, `prevSegments` and `removingSegments` on to
+ * `TopologySection`, so a reduced `{ graph, workers }` section would arrive
+ * there with all five undefined.
  *
- * @param {Object} model The worker-status view model (may be null pre-poll).
- * @return {Object} name → enriched section, for every topology in the graph.
+ * A topology absent from the live graph gets no section, which is what an
+ * inactive row wants.
+ *
+ * @param {?Object} model The worker-status view model; null before the first poll.
+ * @return {Object} Every topology in the live graph, keyed by name, mapped to
+ *   its enriched section.
  */
 function sectionsByName( model ) {
 	if ( ! model || ! model.graph ) {
@@ -134,26 +149,26 @@ function sectionsByName( model ) {
 }
 
 /**
- * Derive a topology's per-partition stall flags and rolled-up health from its
- * live status section. A partition is stalled when the server marked its
+ * Derive a topology's per-partition stall flags and its rolled-up health from
+ * the live status section. A partition is stalled when the server marked its
  * worker `stale`; health rolls up to `stalled` if any partition stalled, else
- * `behind` if any consumer is behind, else `ok`. An inactive topology (no
- * section) gets no partitions and `ok`.
+ * `behind` if any consumer is behind, else `ok`. An inactive topology has no
+ * section, so it gets no partitions and `ok`.
  *
- * The server's flag, not a local re-derivation: it judges each heartbeat
- * against the topology's OWN declared `stale_timeout`, which the job pools
- * raise to 600s. Re-deriving as `heartbeatIntervalS × 3` called a live
- * job-worker stalled at 31s, so this view contradicted `wp nodes status`
- * reading the same heartbeat. One heartbeat, one threshold.
+ * The stall verdict is the server's flag, never re-derived here: the server
+ * judges each heartbeat against the topology's OWN declared `stale_timeout`,
+ * which the job pools raise to 600s, so a local `heartbeatIntervalS × 3` would
+ * call a live job worker stalled at 31s and contradict `wp nodes status`
+ * reading that same heartbeat.
  *
- * The per-partition fold is `partitionSummaries()`, which TopologyRow and
- * fleetSummary already share — a fourth hand-rolled copy of the same group-by
- * is how the two would drift apart again.
+ * The per-partition fold is `partitionSummaries()`, the same one `TopologyRow`
+ * and `fleetSummary` use.
  *
- * @param {?Object} section A topology's enriched status section (or null).
- * @return {{ partitions: Array, health: string, etaSeconds: number }} Partition
- *   stall flags, rolled-up health, and the worst catch-up ETA across the
- *   topology's consumers in seconds (0 = caught up, Infinity = stalled).
+ * @param {?Object} section A topology's enriched status section, or null.
+ * @return {{ partitions: Array, health: string, etaSeconds: number }} The
+ *   partition stall flags, the rolled-up health, and the worst catch-up ETA
+ *   across the topology's consumers in seconds (0 caught up, Infinity
+ *   stalled).
  */
 function deriveHealth( section ) {
 	if ( ! section ) {
@@ -163,7 +178,6 @@ function deriveHealth( section ) {
 	let anyBehind = false;
 	let worstEta = 0;
 	for ( const wk of workers ) {
-		// A consumer counts as "behind" only if its catch-up ETA is >= 1 min.
 		const eta = etaSeconds( wk.behind, wk.read_rate );
 		if ( eta >= BEHIND_ETA_S ) {
 			anyBehind = true;
@@ -222,24 +236,41 @@ function deriveConnected( {
 }
 
 /**
- * Mount the Topology Manager graph and expose its model plus mutations. See the
- * file header for the graph and the merge it performs.
+ * A mutation the server refused, as `onError` receives it.
  *
- * @param {Object}   [opts]           Options (testing seams).
- * @param {Function} [opts.onError]   `( { name, message } ) => void` for a
- *                                    refused mutation. It arrives here rather
- *                                    than as a rejected promise: the answer to
- *                                    an activate lands on the node that asked,
- *                                    a tick later, with the name it was about.
- * @param {boolean}  [opts.paused]    Suspend polling (e.g. an Overview drag in flight).
- * @param {number}   [opts.refreshMs] Poll interval in ms; also the unit of the
- *                                    staleness window. Defaults to 5000.
+ * @typedef {Object} TopologyRefusal
+ * @property {string} name    The topology the refused verb named.
+ * @property {string} message The verb's error text.
+ */
+
+/**
+ * Mount the Topology Manager graph and expose its model and its mutations. See
+ * the file header for the graph and the merge it performs.
+ *
+ * @param {Object}                       [opts]           Options.
+ * @param {(r: TopologyRefusal) => void} [opts.onError]   Called with each refused
+ *                                                        mutation. The refusal
+ *                                                        arrives here rather than
+ *                                                        as a rejected promise:
+ *                                                        the answer to an activate
+ *                                                        lands on the node that
+ *                                                        asked, a tick later,
+ *                                                        naming the topology it
+ *                                                        was about.
+ * @param {boolean}                      [opts.paused]    Suspend polling, as the
+ *                                                        Overview does while a row
+ *                                                        drag is in flight.
+ * @param {number}                       [opts.refreshMs] Poll interval in ms, and
+ *                                                        the unit of the staleness
+ *                                                        window. Defaults to 5000.
  * @return {{ topologies: Array, readRate: number, writeRate: number,
- *   logPartitions: number, activate: Function, deactivate: Function,
- *   restart: Function, connected: boolean }} The Topology Manager data +
- *   mutations: every topology row (status merged onto the active ones), the
- *   fleet-global R/W byte rates + on-disk log-partition count for the summary
- *   cards, the mutation verbs, and connected.
+ *   logPartitions: number, activate: (name: string) => void,
+ *   deactivate: (name: string) => void,
+ *   restart: (name: string, partition?: number) => void, connected: boolean }}
+ *   Every topology row, with the live status merged onto the active ones; the
+ *   fleet-global read and write byte rates and the on-disk log-partition count
+ *   the summary cards draw; the three mutation verbs; and whether the board is
+ *   connected.
  */
 export function useTopologyManager( opts = {} ) {
 	const { paused = false } = opts;
@@ -259,11 +290,16 @@ export function useTopologyManager( opts = {} ) {
 		timerName: 'topologymanager:timer',
 		teeName: 'topologymanager:tee',
 		paused,
-		// Omitted = every router tick; refreshMs only reached the bump.
+		// One cadence for the poll and the freshness re-check below.
 		intervalMs: refreshMs,
 	} );
 
-	// One one-shot per verb; its answer names the topology it was about.
+	/**
+	 * Report a refused mutation. The interpreter echoes the command's arguments
+	 * into its reply, so `args[ 0 ]` is the topology the refusal answers.
+	 *
+	 * @param {{error: ?string, args: string[]}} reply One verb's answer.
+	 */
 	const onMutationDone = useCallback( ( { error, args } ) => {
 		if ( error ) {
 			onErrorRef.current?.( { name: args[ 0 ], message: error } );

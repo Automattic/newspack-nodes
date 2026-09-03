@@ -1,6 +1,19 @@
 /* global requestAnimationFrame, cancelAnimationFrame */
 /**
- * Shared hook for time-series chart rendering (resize, scroll, tooltip).
+ * The one d3 frame every dashboard time chart is drawn on.
+ *
+ * A caller owns its marks and nothing else: `openFrame` wipes the container
+ * and hands back the plot box, `drawAxes` and `drawLegend` dress it,
+ * `setupTooltip` binds the hover column, and `useTimeChart` re-runs the draw
+ * whenever the picture would change. Panels across the substrate and its
+ * consumers therefore share one set of margins, one tick style and one hover
+ * behaviour, and a fix to any of them lands in all of them at once.
+ *
+ * Nothing here reads a host global. The retention window, the series and the
+ * formatters all arrive as arguments, and a parameter a caller may not pass
+ * yet carries a default — `retentionSeconds`, `yLabel` — so a consumer built
+ * against an older substrate degrades to the plainer chart rather than
+ * failing on a signature it has never seen.
  */
 
 import { useCallback, useEffect, useRef } from '@wordpress/element';
@@ -8,30 +21,60 @@ import * as d3 from 'd3';
 
 import { useContainerRefit } from './useContainerRefit';
 
-// --- Constants ---
-
 /**
- * Retention window assumed when a caller does not supply one: 24 hours.
+ * Window `buildTimeSlots()` covers when its caller names none: 24 hours.
  *
- * The substrate does not know any host's retention and must not go looking.
- * Reading a consumer plugin's localized global from this module gave every
- * OTHER consumer the fallback silently, and froze the value at
- * bundle-evaluation time whatever the host localized afterwards. A host owns
- * its own window and passes it to `buildTimeSlots()`.
+ * The substrate knows no host's retention and must not go looking for one.
+ * Reading a consumer's localized global here would hand every OTHER consumer
+ * this fallback silently, and would freeze the value at bundle-evaluation time
+ * whatever the host localizes afterwards. A host owns its own window and
+ * passes it to `buildTimeSlots()`; `newspack-event-logger-nodes`'s
+ * `src/overview/retention.js` is the worked example.
  */
 export const DEFAULT_RETENTION_SECONDS = 86400;
+
+/**
+ * Pitch of one bucket, in minutes. It matches the five-minute bucket the
+ * server files stats under, so one slot reads exactly one stored record.
+ */
 export const BUCKET_MINUTES = 5;
+
+/** The bucket pitch in seconds — the divisor a per-second rate uses. */
 export const BUCKET_SECONDS = BUCKET_MINUTES * 60;
+
+/** The bucket pitch in milliseconds — the unit `Date` arithmetic takes. */
 export const BUCKET_MS = BUCKET_SECONDS * 1000;
+
+/**
+ * Slots the default window holds. A chart drawing a window of its own reads
+ * `buildTimeSlots( seconds ).length` instead; this constant follows
+ * `DEFAULT_RETENTION_SECONDS` alone.
+ */
 export const NUM_BUCKETS = Math.ceil(
 	DEFAULT_RETENTION_SECONDS / BUCKET_SECONDS
 );
 
+/**
+ * Plot-box insets in pixels, each side sized by what it has to clear: `right`
+ * reserves the legend column, `bottom` the time labels `drawAxes` rotates 45
+ * degrees, and `left` the value labels plus the rotated axis title. Marks
+ * scale to the inner box, so a chart never draws over them.
+ */
 export const MARGIN = { top: 20, right: 160, bottom: 65, left: 60 };
 
-// Value-axis ticks a 200-280px plot reads comfortably.
+/**
+ * Value-axis ticks asked of d3, which reads the count as a hint. Five is what
+ * the 200-280px plots the dashboards draw read comfortably.
+ */
 const Y_TICKS = 5;
 
+/**
+ * Series colors, indexed modulo the length so a chart with more series than
+ * colors repeats rather than running out. The first ten are Tableau 10, which
+ * stay apart on a dense overlay; the rest extend the run for the long topic
+ * and category lists. Each hue has to read on a light and a dark panel, since
+ * a chart with no theme tokens falls back to these (`resolveChartPalette`).
+ */
 export const PALETTE = [
 	'#4e79a7',
 	'#f28e2b',
@@ -55,13 +98,18 @@ export const PALETTE = [
 	'#aec7e8',
 ];
 
-// --- Helpers ---
-
 /**
- * Build 5-minute time slots over a retention window.
+ * Build the five-minute slots a chart's time axis is drawn over.
  *
- * @param {number} [retentionSeconds] Window to cover; defaults to 24 hours.
- * @return {Array} Array of { date, bucketKey } objects.
+ * Each slot carries both readings of one bucket. `date` is local wall clock,
+ * which is what the axis labels and the tooltip show; `bucketKey` is the UTC
+ * `YYYY-MM-DD-HH-MM` name the server files that bucket under (`gmdate(
+ * 'Y-m-d-H-i' )` floored to five minutes), which is what a caller looks its
+ * stats up by. Deriving both in one place is what stops the two spellings
+ * drifting apart in each consumer.
+ *
+ * @param {number} [retentionSeconds] Seconds of history to cover; defaults to 24 hours.
+ * @return {Array<{date:Date,bucketKey:string}>} One slot per five minutes, oldest first.
  */
 export const buildTimeSlots = (
 	retentionSeconds = DEFAULT_RETENTION_SECONDS
@@ -88,10 +136,14 @@ export const buildTimeSlots = (
 };
 
 /**
- * Format X axis tick labels.
+ * Label one time-axis tick as `M/D H:MM`, in the reader's own zone.
  *
- * @param {Date} d Date object.
- * @return {string} Formatted label.
+ * The date rides along because a day-long window crosses midnight, and ticks
+ * reading `23:55` then `0:00` need the day to order. The year does not: it
+ * doubles the width of a label the axis already rotates to fit.
+ *
+ * @param {Date} d Instant the tick sits at.
+ * @return {string} Tick label.
  */
 export const formatXTick = ( d ) => {
 	const month = d.getMonth() + 1;
@@ -105,11 +157,13 @@ export const formatXTick = ( d ) => {
  * Wipe a chart container and open a fresh frame in it.
  *
  * Every render redraws from scratch; d3 holds no update join. The container's
- * measured width drives the plot box, so a resize is just another render.
+ * measured width drives the plot box, so a resize is just another render, and
+ * an unlaid container falls back to 800px rather than drawing a zero-width
+ * chart.
  *
- * @param {Element} container Container element the chart owns.
- * @param {number}  height    Total SVG height in pixels.
- * @return {Object} { svg, g, width, innerW, innerH } — `g` is the plot area.
+ * @param {Element} container Container element the chart owns; its contents are replaced.
+ * @param {number}  height    Total SVG height in pixels, margins included.
+ * @return {{svg: Object, g: Object, width: number, innerW: number, innerH: number}} The SVG, the plot-area group translated by `MARGIN`, and the measured box.
  */
 export const openFrame = ( container, height ) => {
 	const root = d3.select( container );
@@ -136,6 +190,12 @@ export const openFrame = ( container, height ) => {
 
 /**
  * Draw the axis frame: rotated time axis, value axis, and Y-axis title.
+ *
+ * Time labels are rotated 45 degrees and capped at eight ticks, because a
+ * day's 288 slots at `M/D H:MM` overprint each other several times over. The
+ * value axis ticks through `yFormat`, and through the ladder `yFormat` may
+ * carry: a formatter counting in anything but base 10 has to choose its own
+ * tick values, or d3's round numbers print as fractions of its unit.
  *
  * @param {Object}                                      g                D3 group selection (inner chart area).
  * @param {Object}                                      params           Configuration.
@@ -182,11 +242,16 @@ export const drawAxes = (
 };
 
 /**
- * Draw vertical legend on right side of chart.
+ * Draw the series legend down the right margin, one row per item.
  *
- * @param {Object} svg   D3 SVG selection.
- * @param {Array}  items Legend items with color and label.
- * @param {number} width Chart total width.
+ * The column is `MARGIN.right` wide and neither wraps nor scrolls, so a label
+ * over 20 characters is cut to 18 and an ellipsis instead of running under the
+ * next panel. Rows come out 16px apart in the order given, which leaves the
+ * ranking to the caller.
+ *
+ * @param {Object}                             svg   D3 SVG selection.
+ * @param {Array<{color:string,label:string}>} items One row per series, in draw order.
+ * @param {number}                             width Chart total width; the column hangs off its right edge.
  */
 export const drawLegend = ( svg, items, width ) => {
 	const legend = svg
@@ -222,18 +287,36 @@ export const drawLegend = ( svg, items, width ) => {
 };
 
 /**
- * Set up interactive tooltip with highlight bar on a chart group.
+ * The rows a tooltip lists for the hovered bucket, in display order. Values
+ * arrive already formatted, because only the caller knows the unit.
  *
- * @param {Object}   g                    D3 group selection (inner chart area).
- * @param {Object}   params               Configuration.
- * @param {number}   params.innerW        Chart inner width.
- * @param {number}   params.innerH        Chart inner height.
- * @param {Array}    params.dates         Array of Date objects for each slot.
- * @param {Object}   params.x             D3 x scale.
- * @param {Function} params.formatEntry   Format function: (idx) => Array<{label, value}>.
- * @param {Object}   params.tooltipRef    React ref to tooltip div.
- * @param {Object}   params.lastMouseXRef React ref tracking mouse x.
- * @param {Object}   params.containerRef  React ref to container div.
+ * @typedef {( index: number ) => Array<{label:string,value:string}>} EntryFormatter
+ */
+
+/**
+ * Bind the hover: a highlight column on the nearest bucket, and a tooltip
+ * listing that bucket's rows.
+ *
+ * A transparent rectangle over the whole plot takes the pointer, so every
+ * column is hoverable, the empty ones included. The move handler records the
+ * pointer and schedules a frame rather than drawing in place: d3 reports moves
+ * far more often than the display refreshes, and each pass rebuilds the
+ * tooltip's children and re-measures the viewport.
+ *
+ * The tooltip anchors below the chart and flips above or left when that would
+ * carry it past a viewport edge, which is what keeps the last panel on a long
+ * dashboard from opening its tooltip off-screen.
+ *
+ * @param {Object}         g                    D3 group selection (inner chart area).
+ * @param {Object}         params               Configuration.
+ * @param {number}         params.innerW        Chart inner width.
+ * @param {number}         params.innerH        Chart inner height.
+ * @param {Array}          params.dates         One `Date` per slot, ascending; the hover snaps to the nearest.
+ * @param {Object}         params.x             D3 x scale over `dates`.
+ * @param {EntryFormatter} params.formatEntry   Rows to list for the hovered slot.
+ * @param {Object}         params.tooltipRef    React ref to tooltip div.
+ * @param {Object}         params.lastMouseXRef React ref tracking mouse x.
+ * @param {Object}         params.containerRef  React ref to container div.
  */
 export const setupTooltip = (
 	g,
@@ -274,7 +357,7 @@ export const setupTooltip = (
 
 		highlight.attr( 'x', xPos - bucketWidth / 2 ).attr( 'opacity', 1 );
 
-		// Build tooltip with safe DOM methods.
+		// Labels are wire data: build with textContent, never innerHTML.
 		tooltip.textContent = '';
 		const header = document.createElement( 'strong' );
 		header.textContent = dates[ idx ].toLocaleTimeString();
@@ -338,20 +421,35 @@ export const setupTooltip = (
 		} )
 		.on( 'mouseleave', hideTooltip );
 
-	// Restore tooltip if mouse was over chart before re-render.
+	// Restore the hover this redraw would otherwise have dropped.
 	if ( lastMouseXRef.current !== null ) {
 		showTooltip( lastMouseXRef.current );
 	}
 };
 
-// --- Hook ---
+/**
+ * The elements one chart's draw is wired through, plus its pointer state.
+ *
+ * @typedef  {Object} ChartRefs
+ * @property {Object} containerRef  Ref to the element the SVG is drawn into.
+ * @property {Object} tooltipRef    Ref to the tooltip element.
+ * @property {Object} lastMouseXRef Ref holding the last pointer x, or null.
+ */
 
 /**
- * Hook providing the render/resize/scroll lifecycle for time-series charts.
- * Callers must memoize `renderFn` (else infinite re-renders).
+ * Own a chart's refs, and re-run its draw whenever the picture changes.
  *
- * @param {Function} renderFn Memoized render fn; receives { containerRef, tooltipRef, lastMouseXRef }.
- * @return {Object} { containerRef, tooltipRef, lastMouseXRef } refs to pass to JSX.
+ * The hook redraws on the two events that change what a chart shows —
+ * `renderFn`'s own identity, which carries its data and theme, and a resize of
+ * the container. It also hides the tooltip when the page scrolls, or when the
+ * modal body does for a chart opened inside one: the tooltip is positioned
+ * against the chart, and a scroll it does not hear about strands it.
+ *
+ * Callers must memoize `renderFn`. The drawing effect depends on it, so an
+ * unstable one re-renders forever.
+ *
+ * @param {( refs: ChartRefs ) => void} renderFn Draws one frame into `refs.containerRef`.
+ * @return {ChartRefs} Refs to attach to the container and tooltip elements.
  */
 export function useTimeChart( renderFn ) {
 	const containerRef = useRef( null );
@@ -362,7 +460,7 @@ export function useTimeChart( renderFn ) {
 		renderFn( { containerRef, tooltipRef, lastMouseXRef } );
 	}, [ renderFn ] );
 
-	// Initial render and data change.
+	// Draw on mount, and again each time `renderFn` re-identifies.
 	useEffect( () => {
 		renderChart();
 	}, [ renderChart ] );
@@ -370,7 +468,7 @@ export function useTimeChart( renderFn ) {
 	// The dep that binds it: a chart rendering null has no container yet.
 	useContainerRefit( containerRef, renderChart, [ renderChart ] );
 
-	// Hide tooltip on scroll.
+	// The tooltip is positioned against the chart; a scroll strands it.
 	useEffect( () => {
 		const el = containerRef.current;
 		if ( ! el ) {

@@ -1,26 +1,90 @@
+/**
+ * The one message shape in the browser: the 7-field positional array, its type
+ * bitmask, and the JSON codec that puts it on the wire.
+ *
+ * Index through the constants below. There is no object form and no hash form
+ * (ADR-2): the array in memory IS the array on the wire, so no boundary pays
+ * for a key-to-index translation and a forwarding path indexes rather than
+ * hashes.
+ *
+ * `includes/class-message.php` decides the layout. Every index, flag and label
+ * here mirrors it, and `__tests__/message.test.js` pins them, so a drift
+ * between the two ports fails a suite rather than a production decode. The
+ * ports part company on malformed input alone: PHP throws where `unpack()`
+ * hands back a fresh message.
+ */
+
+/**
+ * Bitmask of the TM_* flags below. Test it with `&` — a strict `===` misses
+ * every composite, and composites are routine (`TM_COMMAND | TM_RESPONSE`).
+ */
 export const TYPE = 0;
+
+/** Unix timestamp in seconds, a float, stamped at mint. */
 export const TIMESTAMP = 1;
+
+/** Slash-delimited path the message came from; a reply addresses TO=FROM. */
 export const FROM = 2;
+
+/** Slash-delimited path it is bound for; Router peels one segment per hop. */
 export const TO = 3;
+
+/** Producer-owned identifier — a reader's `{segment}:{offset}:{length}`. */
 export const ID = 4;
+
+/** Partition and grouping key. A forwarder carries it, never overwrites it. */
 export const KEY = 5;
+
+/** The payload: a string under TM_BYTESTREAM, a struct under TM_STRUCT. */
 export const VALUE = 6;
 
-/** @testonly Alias of VALUE; exported so the wire-shape test can pin it. */
+/**
+ * Last canonical index. `pack()` and `unpack()` slice through it, which is what
+ * drops whatever sits past VALUE.
+ *
+ * @testonly Exported so the wire-shape test can pin the layout.
+ */
 export const LAST_VALUE_INDEX = VALUE;
 
-// LOCAL: provenance taint after the 7 fields; pack() strips it off the wire.
+/**
+ * Provenance taint appended AFTER the canonical seven, so its presence means
+ * "minted in this process". `pack()` slices it off and nothing arriving over
+ * the wire can carry it, which is what makes it trustworthy as the
+ * interpreter's default authorization gate (ADR-15).
+ */
 export const LOCAL = 7;
 
+/** A string VALUE — one raw line or frame. Mutually exclusive with TM_STRUCT. */
 export const TM_BYTESTREAM = 1;
+
+/** End of a stream. An interpreter bounces an unaddressed one TO=FROM. */
 export const TM_EOF = 2;
+
+/** Round-trip probe carrying its send time; the receiver bounces it back. */
 export const TM_PING = 4;
+
+/** Graph construction and administration, dispatched by an interpreter. */
 export const TM_COMMAND = 8;
+
+/**
+ * A structured VALUE — an array or an object. Consumers gate on this flag, not
+ * on the VALUE's runtime type.
+ */
 export const TM_STRUCT = 16;
+
+/** A failure, addressed TO=FROM so it walks the breadcrumb trail back. */
 export const TM_ERROR = 32;
+
+/** An unsolicited notice; its VALUE is a flat string, never a struct. */
 export const TM_INFO = 64;
+
+/** A live query, answered in the addressed node's own `fill()`. */
 export const TM_REQUEST = 128;
+
+/** Marks an answer, so the interpreter it passes does not re-dispatch it. */
 export const TM_RESPONSE = 256;
+
+/** Fire-and-forget command: the interpreter suppresses the routed reply. */
 export const TM_NOREPLY = 512;
 
 /**
@@ -38,9 +102,10 @@ export const TM_UNTYPED = 1024;
  * The ONE flags-to-names map, beside the constants it names. Renderers read it
  * through typeLabels() and supply their own separator and no-match label; a
  * private copy is how a renderer ends up omitting a flag. Mirror of PHP
- * Message::TYPE_NAMES.
+ * Message::TYPE_NAMES, in that file's order — the order both ports RENDER in,
+ * which is not numeric order.
  *
- * @type {Array<[number, string]>}
+ * @type {Array<[number,string]>}
  */
 const TYPE_NAMES = [
 	[ TM_BYTESTREAM, 'TM_BYTESTREAM' ],
@@ -96,9 +161,15 @@ export function typeLabels( type ) {
 }
 
 /**
- * A fresh 7-field positional message. The slots are heterogeneous — VALUE
- * carries a string, a struct, or a command object — so the array is untyped
- * on purpose; `Message::*` constants are what say which index means what.
+ * Mint a message: TM_UNTYPED, a timestamp, and empty strings everywhere else.
+ * The caller assigns TYPE.
+ *
+ * TIMESTAMP is Unix SECONDS as a float rather than `Date.now()` milliseconds,
+ * because PHP stamps seconds and a message crosses between the two ports.
+ *
+ * The slots are heterogeneous — VALUE carries a string, a struct, or a command
+ * object — so the array is untyped on purpose; the field constants above are
+ * what say which index means what.
  *
  * @return {Array} The 7-field positional message.
  */
@@ -116,7 +187,6 @@ export function newMessage() {
  * @return {string} JSON array of exactly 7 fields.
  */
 export function pack( m ) {
-	// Emit the canonical 7 fields only; slicing drops any LOCAL taint.
 	return JSON.stringify( m.slice( 0, LAST_VALUE_INDEX + 1 ) );
 }
 
@@ -139,7 +209,6 @@ export function unpack( s ) {
 		return newMessage();
 	}
 	if ( Array.isArray( d ) && d.length >= 7 ) {
-		// Drop any trailing field (e.g. a tampered LOCAL) — canonical 7 only.
 		return d.slice( 0, LAST_VALUE_INDEX + 1 );
 	}
 	return newMessage();
@@ -161,13 +230,29 @@ export function byteLength( str ) {
 }
 
 /**
- * Composer inputs → TYPE bits + FROM/ID/KEY/TIMESTAMP, mutating `m` in place.
+ * The Compose modal's inputs for one mint. Every field is optional, and a blank
+ * one means "leave the minted value alone" rather than "clear it".
  *
- * One-shot per mint: unlike the Shell's `message.*` vars nothing persists into
- * the next statement, and a blank input leaves the parsed field as-is.
+ * @typedef {Object} ComposeFields
+ * @property {boolean}       [response]  ORs TM_RESPONSE onto TYPE.
+ * @property {boolean}       [error]     ORs TM_ERROR onto TYPE.
+ * @property {string}        [from]      Replaces FROM.
+ * @property {string}        [id]        Replaces ID.
+ * @property {string}        [key]       Replaces KEY.
+ * @property {string|number} [timestamp] Replaces TIMESTAMP.
+ */
+
+/**
+ * Stamp the Compose modal's inputs onto a minted message: `response` and
+ * `error` OR their TYPE bits on, and FROM, ID, KEY and TIMESTAMP each take the
+ * field that names them.
  *
- * @param {Array}  m      Parsed message, mutated.
- * @param {Object} fields `{ response, error, from, id, key, timestamp }`.
+ * The stamp is one-shot per mint. The Shell's `message.*` vars are shell state
+ * and persist across statements; these do not, so the modal addresses the one
+ * message the operator composed and nothing after it.
+ *
+ * @param {Array}          m      Parsed message, mutated in place.
+ * @param {?ComposeFields} fields Compose inputs; nullish is a no-op.
  * @return {Array} The same message.
  */
 export function applyComposeFields( m, fields ) {

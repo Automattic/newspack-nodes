@@ -6,9 +6,9 @@ import { PartitionViewerViewNode } from './partition-viewer-view-node';
  * Extends the Partition Viewer's view for the two things `LogStreamViewNode`
  * alone would not give it: `shapeRow()`, which turns an SSE envelope into a
  * row carrying `content` and the debug trio, and the `selected` model field
- * the source picker binds to — the base's own `select` verb clears the ring
- * and the seek tracker but records no name. The ring, the paused belt and the
- * seek tracking come from that shared base beneath both dashboards.
+ * the source picker binds to — `LogStreamViewNode`'s own `select` verb clears
+ * the ring and the seek tracker but records no name. The ring, the paused belt
+ * and the seek tracking come from that shared base beneath both dashboards.
  *
  * The rows are plain log-FILE lines rather than packed partition envelopes:
  * the `Tail` behind `/log/stream` stamps the line as VALUE, leaves KEY empty
@@ -16,6 +16,10 @@ import { PartitionViewerViewNode } from './partition-viewer-view-node';
  * line. The inherited `partition` column therefore reads the number out of a
  * `<base>.pN` topology source and falls to a first-seen index for a plain file
  * — a column the Log Viewer never renders, drawing one cell per row.
+ *
+ * The inherited `logs` catalog rides along unused. `useLogViewerGraph` polls
+ * `taillog sources` and hands the picker those rows itself, so nothing ever
+ * sends the `logs` control and the published `logs` array stays empty.
  *
  * A separate class keeps the two dashboards' view models free to diverge
  * without an edit to one touching the other.

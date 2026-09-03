@@ -1,16 +1,33 @@
 /**
- * stampOrigins — give every node the includes that provide it.
+ * stampOrigins — mark each canvas node with the includes that provide it.
  *
- * A node's provenance lives in the tsl, not in the runtime: dump_metadata nodes
- * carry no `origin` of their own. Reading it off the node therefore works only
- * until the first poll, which is why the borrowed-node lock used to appear on
- * entry and vanish a second later. Provenance comes from the expand baseline —
- * the same membership map the hulls are drawn from — so the two can't disagree.
+ * Provenance lives in the TSL, not in the runtime: the nodes a `dump_metadata`
+ * poll returns carry no `origin` of their own, so live mode has nothing to read
+ * it off. Taking it from the expand baseline instead — the same membership map
+ * the hulls are drawn from — holds the mark steady across polls and leaves the
+ * mark and the hulls unable to disagree about who provides a node.
+ *
+ * A non-empty `origin` is what makes a node borrowed, and three surfaces act on
+ * it: SchematicCanvas draws the lock, GraphView refuses the delete key, and the
+ * Inspector renders the read-only form.
  */
 
 /**
- * @param {Object} graph      { nodes, edges }.
- * @param {Object} membership include => [nodeId, …], from the expand baseline.
+ * Stamps `origin` onto every node an include provides.
+ *
+ * Stamped nodes are copies. The baseline graph is memoized upstream and read by
+ * the hull membership too, so a mutation would outlive this render: a node an
+ * include no longer provides would keep the stale `origin` and stay locked. A
+ * node in no include keeps its identity, and an empty membership returns the
+ * graph itself, so the memo downstream skips its work.
+ *
+ * A node several includes provide carries every one of them, in membership
+ * order. Cluster drag and cluster layout both select on that list, so such a
+ * node moves with either include.
+ *
+ * @param {Object}                  graph      The canvas graph, `{ nodes, edges }`.
+ * @param {Object<string,string[]>} membership Member node ids keyed by include
+ *                                             name, from the expand baseline.
  * @return {Object} The graph, its member nodes carrying `origin`.
  */
 export function stampOrigins( graph, membership ) {

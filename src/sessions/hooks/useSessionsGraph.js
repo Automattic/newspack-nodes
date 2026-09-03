@@ -1,9 +1,9 @@
 /**
- * useSessionsGraph — the issued-session list.
+ * useSessionsGraph — the issued-session table and the verbs that change it.
  *
  * The table is the `sessions list` catalog, polled as a slice like every other
- * catalog in the substrate. `useCatalogSlice` owns the poll, so a revoke owes
- * the table no reload and a refused tick keeps what is on screen.
+ * catalog in the substrate. `useCatalogSlice` owns the poll, so a refused tick
+ * keeps what is on screen rather than emptying the table.
  *
  * ONE node per verb serves every row, because the SUBJECT rides in the ADDRESS.
  * A revoke of `h-4471` is minted FROM `sessions:revoke:in/h-4471`; the server
@@ -18,16 +18,42 @@ import { useCommandOnce } from '@newspack-nodes/shared/hooks/useCommandOnce';
 import { formatCommandArgs } from '../../runtime/command-args';
 import { views } from '../nodes/register';
 
+/** The server CI mount all three verbs address (`Sessions_CI_Node`). */
 const SESSIONS_CI = 'sessions';
 
-/** A row goes live → expired on the clock, so the table re-lists on its own. */
+/**
+ * A session lapses on its own TTL with nobody editing, so this listing goes
+ * stale on a clock rather than on an edit. Polling well under the catalog
+ * default retires a row about when it expires.
+ */
 const LIST_INTERVAL_MS = 5000;
 
 /**
- * @param {Object}   [o]
- * @param {Function} [o.onAnswer] `( { verb, subject, error, result } )` — once
- *                                per reply, naming the row it was about.
- * @return {{createSession: Function, revokeSession: Function, pendingVerb: (subject: string) => ?string, sessions: ?Object[], scopes: string[], ttlMax: number, loading: boolean, error: ?string}}
+ * One reply, as `onAnswer` receives it: which verb answered, which row it was
+ * about, and what came back.
+ *
+ * @typedef {Object} SessionAnswer
+ * @property {'create'|'revoke'} verb      The verb this reply answers.
+ * @property {?string}           subject   The row it was about, read off the
+ *                                         reply's address. It is the first
+ *                                         argument token, so a create answers
+ *                                         to its label and a revoke to its
+ *                                         handle.
+ * @property {?Object}           result    What the verb returned, or null when
+ *                                         it refused. A create's response is
+ *                                         the only place the session key is
+ *                                         ever disclosed.
+ * @property {?string}           error     The refusal, or null.
+ * @property {?Object}           errorData Structured detail behind a refusal.
+ * @property {string[]}          args      The argument tokens it answered.
+ */
+
+/**
+ * @param {Object}                          [o]          Options.
+ * @param {(answer: SessionAnswer) => void} [o.onAnswer] Runs once per reply,
+ *                                                       naming the row it was
+ *                                                       about.
+ * @return {{createSession: (fields: {label: string, scope: string, ttl: number}) => void, revokeSession: (handle: string) => void, pendingVerb: (subject: ?string) => ?string, sessions: ?Object[], scopes: string[], ttlMax: number, loading: boolean, error: ?string, refresh: () => void}}
  *   The table's model and the two verbs; each answer reaches the caller
  *   through `onAnswer`.
  */

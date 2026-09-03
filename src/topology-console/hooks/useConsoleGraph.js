@@ -1,22 +1,42 @@
-// Stable, so an omitted catalog is not a fresh identity every render.
-const NO_CATALOG = { classes: [], loading: false, error: null };
+/**
+ * The topology console's per-session browser node graph: the nodes it mounts,
+ * how a command reaches a worker, and how the answer gets back.
+ *
+ * SEND. A Shell statement sinks through the console's outgoing gate into
+ * `_shell`, then `_command_interpreter`, then `_router`. The Router peels the
+ * worker's name off TO and hands the command to that worker's RemoteIpc, which
+ * bundles a leading `connect_worker_input` and POSTs the pair through the
+ * shared `_http`.
+ *
+ * RECEIVE. Each RemoteIpc owns an SseIn child that forwards parsed frames to
+ * `_router`, which peels the reply node's name and delivers to `_output` (the
+ * Dumper), `_metadata`, `_uptime` or `_dmesg`. Nothing here correlates a
+ * reply: the server answers TO=FROM, so the address a node minted is what
+ * brings its own answer home (ADR-7).
+ *
+ * Flow is steered by each node's `target`, never by pointing a `sink` at an
+ * arbitrary node (ADR-7). All three pollers target `_cwd`, whose own `target`
+ * IS the cwd, so a `cd` re-aims the three of them by moving one string.
+ *
+ * The pollers hold no clock of their own. Each arms its cadence on the shared
+ * wall-clock grid the `_router` TIMER drives (ADR-17), so harmonic cadences
+ * meet on one tick and everything minted there leaves in one batched POST.
+ *
+ * Every class this file resolves by NAME through `makeNode` is a substrate
+ * builtin, present in every bundle's class table. A view class from another
+ * bundle is not, and has to be handed over as the class itself (ADR-16).
+ *
+ * Node names come from `reserved-node-names.json`, canonical for PHP and JS.
+ */
 
 /**
- * useConsoleGraph — mounts the per-session in-browser node graph. Send: Shell →
- * _command_interpreter → _router ─[peel {worker}]→ the worker's RemoteIpc (which
- * bundles connect_worker_input + the command and POSTs through the shared _http).
- * Receive: each worker's RemoteIpc owns a SseIn that forwards parsed frames →
- * _router ─[peel reply-node]→ _output (Dumper) | _metadata | _uptime. The
- * _metadata / _uptime poll nodes emit on the Router TIMER (batched into one POST
- * per tick by the shared _http) addressed to `_cwd`; the active
- * RemoteIpc's composed Heartbeat keeps its SSE slot alive. Mounted while
- * `enabled`; torn down on unmount or edit mode. Node names come from the
- * shared-canonical reserved-node-names.json.
+ * The catalog a caller that passes none gets.
  *
- * One RemoteIpc per active worker, named `{topology}.p{N}`: `cd /{worker}` routes
- * straight to it. Only one stream is live at a time — the active worker's
- * RemoteIpc steals it on a send/connect.
+ * One stable object rather than a fresh literal per render: `catalog.classes`
+ * is a dependency of the seed effect below, and a new array each render would
+ * re-run that effect on every pass.
  */
+const NO_CATALOG = { classes: [], loading: false, error: null };
 
 import { useEffect, useRef, useState } from '@wordpress/element';
 import { Core } from '../../runtime/core';
@@ -33,6 +53,10 @@ import { graphFromTsl } from '../utils/draftToGraph';
 import { DraftInterpreterNode } from '../../runtime/draft-interpreter-node';
 import { primeExpandedIncludes } from './useExpandedIncludes';
 
+/**
+ * What a document arriving with no include expansion is composed against: no
+ * nodes, no edges, no include tree, no hulls.
+ */
 const EMPTY_EXPANSION = { nodes: [], edges: [], tree: {}, hulls: {} };
 import { withReplAnchor, withResolvedConfigEdges } from '../utils/consoleGraph';
 import { augmentWithVirtualEdges } from '../utils/virtualEdges';
@@ -47,19 +71,35 @@ import usePageVisibility from '@newspack-nodes/shared/hooks/usePageVisibility';
 import names from '../../runtime/reserved-node-names.json';
 import { ROUTER_TICK_MS } from '../../runtime/router-node';
 
+/** Stands in for a cleared transcript, so persistence stores `[]`, not null. */
 const EMPTY_TRANSCRIPT = [];
 
 /**
- * @param {Object}   params
- * @param {string}   params.topology      Topology name.
- * @param {number}   params.partition     Partition number.
- * @param {boolean}  params.enabled       Mount the graph (false = edit mode).
- * @param {string[]} params.workers       Active worker readers (`['aggregator.p0', …]`); one RemoteIpc per entry.
- * @param {boolean}  params.streamEnabled Open the active worker's SSE stream (cwd is a worker). The graph stays mounted regardless; this only gates the EventSource, so cd-ing off a worker stops streaming without rebuilding. Default true.
- * @param {Object}   params.debugLevelRef React ref holding the Dumper verbosity dial.
- * @param {Object}   params.catalog       The PHP class catalog slice — `{ classes, loading, error }`.
- * @return {Object} Connection state, the anonymous Shell, and any pre-metadata
- *                  seed failure.
+ * Mount the console's node graph for one session and keep it standing while
+ * `enabled`.
+ *
+ * One RemoteIpc per active worker, named `{topology}.p{N}`, so `cd /{worker}`
+ * routes straight to it and no node demultiplexes replies for several workers
+ * (ADR-7). Only one SSE stream is live at a time, because slots are a finite
+ * host-wide pool: the active worker's RemoteIpc steals it on a send or a
+ * connect.
+ *
+ * The view nodes come down on unmount and on entering edit mode. The backbone
+ * beneath them stands for as long as the console is mounted.
+ *
+ * @param {Object}            params
+ * @param {string}            params.topology        Topology name.
+ * @param {number}            params.partition       Partition number.
+ * @param {boolean}           params.enabled         Mount the graph; false is edit mode.
+ * @param {string[]}          [params.workers]       Active worker readers (`['aggregator.p0', …]`); one RemoteIpc per entry.
+ * @param {boolean}           [params.streamEnabled] Open the active worker's SSE stream (cwd is a worker). The graph stays mounted regardless; this only gates the EventSource, so cd-ing off a worker stops streaming without rebuilding. Default true.
+ * @param {{current: number}} params.debugLevelRef   Ref holding the Dumper's verbosity dial.
+ * @param {Object}            [params.catalog]       The PHP class catalog slice — `{ classes, loading, error }`. The seed waits on it: without a class's schema a custom fan-out seeds the wrong edges.
+ * @return {{status: string, ssePid: ?number, shell: ?ShellNode, seedError: ?Object, outgoing: ?OutgoingGateNode}}
+ *   `status` is `open`, `connecting` while no SSE pid has landed, or `closed`
+ *   in edit mode. `shell` is the anonymous Shell a REPL fills and `outgoing`
+ *   its gate. `seedError` is whatever the pre-metadata seed threw — unnarrowed,
+ *   because its consumer folds it into a union with two REST error shapes.
  */
 export function useConsoleGraph( {
 	topology,
@@ -76,10 +116,10 @@ export function useConsoleGraph( {
 	const [ outgoing, setOutgoing ] = useState( null );
 	const [ seedError, setSeedError ] = useState( null );
 
-	// Hidden tab throttles the heartbeat → slot TTLs out; gate on visibility.
+	// A hidden tab throttles the heartbeat until the slot TTLs out.
 	const isPageVisible = usePageVisibility();
 
-	// Reset Graph bumps generation → re-runs the effect, rebuilding the graph.
+	// Reset Graph bumps the generation, which re-runs the effects below.
 	const generation = useGraphGeneration();
 
 	// The mount TSL seed, as its own slice; painted by the effect below.
@@ -103,7 +143,7 @@ export function useConsoleGraph( {
 	// the console is mounted, and only a graph-generation bump replaces it.
 	// Edit mode stops the stream and drops every view node, but a save, a
 	// delete and an include expansion all happen in edit mode — tearing the
-	// interpreter down under them left their commands sinking into a removed
+	// interpreter down under them leaves their commands sinking into a removed
 	// node, silently.
 	useEffect( () => {
 		const { teardown } = mountExospine();
@@ -118,7 +158,7 @@ export function useConsoleGraph( {
 		}
 		const reader = `${ topology }.p${ partition }`;
 
-		// The shared rule-#2 backbone: _command_interpreter → _router.
+		// The shared rule-#2 backbone: _command_interpreter sinks into _router.
 		const {
 			interpreter,
 			shell: shellTap,
@@ -126,12 +166,12 @@ export function useConsoleGraph( {
 		} = mountExospine();
 		// Interpreter ships the PHP verb set as built-ins (no overrides).
 
-		// Reply nodes sink into the interpreter (rule #2); Dumper stays bare.
+		// Rule #2: the Dumper sinks into the interpreter and stamps no target.
 		const dumper = new DumperNode();
 		dumper.debugLevelRef = debugLevelRefRef.current;
 		dumper.name = names.OUTPUT;
 		dumper.sink = interpreter;
-		// Persist/restore transcript; teardown drops it on switch/reload.
+		// Persist on every change; restore what the last session left.
 		const transcriptListenerId = 'useConsoleGraph/transcript';
 		dumper.register( 'transcript', transcriptListenerId, ( next ) => {
 			saveHubTranscript( next || EMPTY_TRANSCRIPT );
@@ -159,12 +199,13 @@ export function useConsoleGraph( {
 			/** @type {import('../../runtime/dmesg-node').DmesgNode} */ (
 				interpreter.makeNode( 'Dmesg', names.DMESG )
 			);
+		// Built for its name alone: React reads `_completion`'s candidates.
 		const completion = interpreter.makeNode(
 			'Completion',
 			names.COMPLETION
 		);
 
-		// One RemoteIpc per worker (SseIn+HttpOut+Heartbeat); one live stream.
+		// One RemoteIpc per worker, each owning an SseIn; one live stream.
 		const readers = new Set( [ reader, ...workers ] );
 		const remotes = [];
 		for ( const wr of readers ) {
@@ -180,7 +221,7 @@ export function useConsoleGraph( {
 			remotes.push( remote );
 		}
 
-		// `_cwd`.target IS the cwd; polls to `_cwd`, Router stamps TO.
+		// Polls address `_cwd`; its `target` is the cwd and re-stamps TO.
 		const cwdNode = new Node();
 		cwdNode.name = names.CWD;
 		cwdNode.sink = interpreter;
@@ -190,7 +231,7 @@ export function useConsoleGraph( {
 		const outgoingGate = new OutgoingGateNode();
 		outgoingGate.sink = shellTap;
 
-		// Anonymous React Shell; sinks into the gate → Tap → interpreter.
+		// Anonymous React Shell, sinking into the gate ahead of `_shell`.
 		const consoleShell = new ShellNode();
 		consoleShell.path = reader;
 		consoleShell.sink = outgoingGate;
@@ -204,14 +245,14 @@ export function useConsoleGraph( {
 
 		setSsePid( null );
 
-		// Canvas poll on one Router TIMER (1s): all emissions ride in ONE POST.
+		// The Router's grid drives all three; a shared tick is ONE POST.
 		metadata.sink = interpreter;
 		uptime.sink = interpreter;
 		dmesg.sink = interpreter;
 		metadata.target = names.CWD;
 		uptime.target = names.CWD;
 		dmesg.target = names.CWD;
-		// Poll nodes hitchhike the _router TIMER (fireCb runs each tick).
+		// A bare setTimer() arms each poller at its own cadence, not 1s.
 		metadata.setTimer();
 		uptime.setTimer();
 		dmesg.setTimer();
@@ -238,17 +279,17 @@ export function useConsoleGraph( {
 			setShell( null );
 			setOutgoing( null );
 		};
-		// `workersKey` is the stable projection of `workers` (id churn).
+		// `workersKey` projects `workers` stably; the array's identity churns.
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [ topology, partition, enabled, workersKey, generation ] );
 
 	/**
-	 * Paint the declared topology before SSE/dump_metadata arrives.
+	 * Paint the declared topology before the first `dump_metadata` reply lands.
 	 *
 	 * Seed the COMPOSED graph. A topology that mostly `include`s others owns few
 	 * nodes of its own, so seeding the parsed file alone paints a sliver and the
-	 * rest pops in on the next dump_metadata — a staged paint autofit can't
-	 * survive. `get` ships the expansion; `expand()` is the fallback.
+	 * rest pops in on the next `dump_metadata` — a staged paint no autofit
+	 * survives. `topologies get` ships the expansion that composition needs.
 	 */
 	useEffect( () => {
 		// Without `fans_out` a custom fan-out seeds wrong edges, confidently.
@@ -264,6 +305,14 @@ export function useConsoleGraph( {
 		let cancelled = false;
 		setSeedError( null );
 
+		/**
+		 * Compose the document with its expansion, then seed `_metadata`.
+		 *
+		 * `async` with nothing to await: it turns a synchronous throw —
+		 * `withResolvedConfigEdges` on a document whose `<ns:key>` targets
+		 * arrived unresolved — into the rejection the `catch` below reports
+		 * as `seedError`.
+		 */
 		const paint = async () => {
 			const { tsl, expanded } = seedTopology;
 			const resolvedConfigEdges = seedTopology.resolved_config_edges;

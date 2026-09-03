@@ -21,35 +21,77 @@ import { useCommandOnce } from '@newspack-nodes/shared/hooks/useCommandOnce';
 import { formatCommandArgs } from '../../runtime/command-args';
 import { views } from '../nodes/register';
 
+/** The server CI mount the list poll and all four verbs are addressed to. */
 const VAULT_CI = 'vault';
 
 /**
- * Credentials change only when the operator on this tab edits them, and that
- * edit lands through its own answer — so the poll is the RETRY, not a feed. Slow
- * enough to cost nothing, often enough that a turned-over session recovers
- * without a reload.
+ * The list poll's cadence. Credentials change only when the operator on this
+ * tab edits them, and that edit lands through its own answer — so the poll is
+ * the RETRY, not a feed. Slow enough to cost nothing, often enough that a
+ * turned-over session recovers without a reload.
  */
 const LIST_INTERVAL_MS = 30000;
 
 /**
- * @param {Object}   [o]
- * @param {Function} [o.onAnswer] `( { verb, subject, error } )` — once per
- *                                reply, naming the row it was about.
- * @return {{addServer: Function, updateServer: Function, removeServer: Function, testServer: Function, pendingVerb: (subject: string) => ?string, servers: ?Object[], loading: boolean, error: ?string, refresh: Function}}
- *   The table's model and the verbs. Each answer reaches the caller through
- *   `onAnswer`, which is where a row learns its own outcome.
+ * One verb's outcome for one row, as `onAnswer` receives it.
+ *
+ * @typedef {Object} VaultAnswer
+ * @property {string}  verb    The verb answered: add, update, delete or test.
+ * @property {?string} subject The server id the send was about, read off the
+ *                             reply's own address.
+ * @property {?string} error   The refusal, or null when the verb succeeded.
+ */
+
+/**
+ * What the screen runs to file one row's outcome.
+ *
+ * @typedef {(answer: VaultAnswer) => void} OnVaultAnswer
+ */
+
+/**
+ * The fields the add and the edit form both collect.
+ *
+ * @typedef {Object} VaultServerFields
+ * @property {string} id            The id the entry is to carry.
+ * @property {string} url           The spoke's HTTPS base URL.
+ * @property {string} auth_username HTTP Basic user, or '' for none.
+ * @property {string} auth_password HTTP Basic password; blank on an edit keeps
+ *                                  the stored one.
+ */
+
+/**
+ * Mount the vault catalog and its four verbs, and hand back the table's model
+ * with the calls that change it.
+ *
+ * @param {Object}        [o]          Options.
+ * @param {OnVaultAnswer} [o.onAnswer] Runs once per reply, naming the row it
+ *                                     was about. This is where a row learns
+ *                                     its own outcome; the model carries none.
+ * @return {{addServer: (fields: VaultServerFields) => void, updateServer: (id: string, fields: VaultServerFields) => void, removeServer: (id: string) => void, testServer: (id: string) => void, pendingVerb: (subject: ?string) => ('add'|'update'|'delete'|'test'|null), servers: ?Object[], loading: boolean, error: ?string, refresh: () => void}}
+ *   The catalog model — `servers` stays null until the first reply lands —
+ *   plus the four verbs and `pendingVerb()`.
  */
 export function useVaultGraph( { onAnswer } = {} ) {
 	const list = useCatalogSlice( {
 		scope: 'vault:list',
 		ci: VAULT_CI,
+		// The CLASS, not the name: `includeNodes` is per-bundle (ADR-16).
 		viewClass: views.VaultListView,
 		key: 'servers',
 		intervalMs: LIST_INTERVAL_MS,
 	} );
 
-	// A mutation shows in the table at once; the cadence is only the retry.
 	const { refresh } = list;
+
+	/**
+	 * Build one verb's `onDone`: hand the answer to the caller under the verb
+	 * that earned it, then re-`list()` after a write. A mutation shows in the
+	 * table at once; the cadence is only the retry.
+	 *
+	 * @param {'add'|'update'|'delete'|'test'} verb The verb being answered for.
+	 * @return {(answer: {subject: ?string, error: ?string}) => void} The
+	 *   handler `useCommandOnce` runs once per reply to that verb.
+	 */
 	const answered =
 		( verb ) =>
 		( { subject, error } ) => {
@@ -85,10 +127,12 @@ export function useVaultGraph( { onAnswer } = {} ) {
 	const { run: runRemove } = remove;
 	const { run: runTest } = test;
 
-	// @longform WHICH verb a row is waiting on — the outbox knows, so the
-	// screen asks rather than flipping a flag beside every click and clearing
-	// it in every answer. The verb, not a boolean: it is what picks the row's
-	// wording while the work runs.
+	/**
+	 * WHICH verb a row is waiting on, or null. The outbox knows, so the screen
+	 * asks rather than flipping a flag beside every click and clearing it in
+	 * every answer. The verb, not a boolean: it is what picks the row's wording
+	 * while the work runs.
+	 */
 	const pendingVerb = useCallback(
 		( subject ) => {
 			if ( add.isPending( subject ) ) {
@@ -105,7 +149,10 @@ export function useVaultGraph( { onAnswer } = {} ) {
 		[ add, update, remove, test ]
 	);
 
-	// id is positional; credentials are named args (no enabled flag).
+	/**
+	 * Send `add`. The id is positional; the credentials are named args. There
+	 * is no enabled flag to send — a spoke is enabled by being in the vault.
+	 */
 	const addServer = useCallback(
 		( fields ) =>
 			runAdd(
@@ -118,7 +165,11 @@ export function useVaultGraph( { onAnswer } = {} ) {
 		[ runAdd ]
 	);
 
-	// Addressed by the id the entry HAS; the one it moves TO rides as a field.
+	/**
+	 * Send `update`, addressed by the id the entry HAS; the one it moves TO
+	 * rides as `--new_id`. The URL and the username always ride; the password
+	 * is the one field an edit may leave out.
+	 */
 	const updateServer = useCallback(
 		( id, fields ) => {
 			const options = {};
@@ -136,11 +187,13 @@ export function useVaultGraph( { onAnswer } = {} ) {
 		[ runUpdate ]
 	);
 
+	/** Send `delete`; the server refuses an entry the config file pins. */
 	const removeServer = useCallback(
 		( id ) => runRemove( formatCommandArgs( [ id ] ) ),
 		[ runRemove ]
 	);
 
+	/** Send `test`: probe the spoke and report whether it answers. */
 	const testServer = useCallback(
 		( id ) => runTest( formatCommandArgs( [ id ] ) ),
 		[ runTest ]
@@ -148,6 +201,7 @@ export function useVaultGraph( { onAnswer } = {} ) {
 
 	return {
 		...list,
+		// Before the view node exists, the model is bare, not the empty slice.
 		servers: list.servers ?? null,
 		addServer,
 		updateServer,

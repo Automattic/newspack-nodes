@@ -41,7 +41,8 @@ const LOG_STREAM_ENDPOINT = 'newspack-nodes/v1/log/stream';
 /**
  * The Log Viewer catalog's arguments. `sources` is a reserved `taillog` form
  * answering with the registry as struct rows, where the bare verb renders a
- * table for a human.
+ * table for a human. The slice takes its arguments as a fire-time getter, so
+ * even a fixed list is a function.
  *
  * @return {string[]} The verb's arguments.
  */
@@ -56,7 +57,7 @@ const RAW_LOGS_CI = 'raw-logs';
  * args[1]: the reply is addressed by its subject (ADR-7), and the subject of
  * `read <source> <position>` is not the first token.
  *
- * @type {{command: string, argsFor: Function, subjectOf: Function}}
+ * @type {{command: string, argsFor: (sub: string, position: string) => string[], subjectOf: (args: string[]) => string}}
  */
 const LOGVIEWER_STEP_READ = {
 	command: 'taillog',
@@ -79,8 +80,9 @@ const PARTITION_STEP_READ = { ci: RAW_LOGS_CI, command: 'read_message' };
  *
  * @param {Object} opts            Everything the two dashboards differ in.
  * @param {string} opts.prefix     Names every node this graph owns:
- *                                 `<prefix>:link`, `:stream`, `:view` and
- *                                 the `<prefix>:list:*` catalog slice.
+ *                                 `<prefix>:link`, `:stream`, `:view`, the
+ *                                 `<prefix>:list:*` catalog slice and the
+ *                                 `<prefix>:read:*` stepped read.
  * @param {any}    opts.viewClass  The view-model node's class, handed over
  *                                 rather than named (ADR-16).
  * @param {string} [opts.endpoint] SSE endpoint override; omit for
@@ -89,7 +91,7 @@ const PARTITION_STEP_READ = { ci: RAW_LOGS_CI, command: 'read_message' };
  *                                 polled catalog slice.
  * @param {Object} opts.stepRead   `{ ci, command, argsFor, subjectOf }` for the
  *                                 one-record read behind the paused step.
- * @return {{ catalog: Array, viewRef: Object, control: Function, select: Function, seek: Function, resubscribe: Function, setPaused: Function, step: () => void, setFilter: (term: string) => void, clear: () => void }}
+ * @return {{ catalog: Array, viewRef: Object, control: Function, select: (log: string) => void, seek: Function, resubscribe: Function, setPaused: (paused: boolean) => void, step: () => void, setFilter: (term: string) => void, clear: () => void }}
  *   The catalog rows, the live view node, and the shared controls.
  */
 function useLogReaderGraph( opts ) {
@@ -148,11 +150,11 @@ function defaultSourceName( sources ) {
  * catalogued by `taillog sources`. It picks a default the first time a catalog
  * arrives with nothing selected, and never re-picks.
  *
- * @return {{ selectSource: Function, setPaused: Function, seek: Function, sources: Array, step: () => void, clear: () => void, setFilter: (term: string) => void }}
- *   Control callbacks + the source catalog (name/mode/availability/segments)
- *   for the picker and segment sidebar. The catalog keeps itself fresh, being
- *   a poll; `step` (paused only) delivers one record from the cursor, and
- *   `clear` empties the ring.
+ * @return {{ selectSource: (name: string) => void, setPaused: (paused: boolean) => void, seek: (name: string, positions: ?Object, source?: Object) => void, sources: Array, step: () => void, clear: () => void, setFilter: (term: string) => void }}
+ *   Control callbacks and the source catalog (name, mode, availability and
+ *   segments) the picker and the segment sidebar render from. The catalog
+ *   keeps itself fresh, being a poll; `step` (paused only) delivers one record
+ *   from the cursor, and `clear` empties the ring.
  */
 export function useLogViewerGraph() {
 	const {
@@ -189,15 +191,16 @@ export function useLogViewerGraph() {
 	}, [ sources, select, viewRef ] );
 
 	/**
-	 * Reposition the source + set the view mode. Live tail (null positions)
+	 * Reposition the source and set the view mode. Live tail (null positions)
 	 * follows; Replay (positions) captures the source's live boundary for the
 	 * Replay→Live flip via `browseControl()` — newest segment for a segmented
 	 * source, byte size (null segment) for a file, `follow` for an empty one.
 	 *
-	 * The boundary comes from the row the CALLER holds, synchronously — it is
-	 * approximate either way, since the head segment grows while any fresher
-	 * read is in flight, and the caller re-catalogs on its own cadence and on
-	 * rotation.
+	 * The boundary comes from the row the CALLER holds, synchronously, and is
+	 * approximate either way: the head segment keeps growing while the read is
+	 * in flight, and the `taillog sources` poll is the only thing that
+	 * freshens the row. The Log Viewer mounts no rail refresh of its own, so a
+	 * rotation is not caught until the next poll.
 	 *
 	 * @param {string}  name      The source name to (re)open.
 	 * @param {?Object} positions The SSE positions seed; null tails live.
@@ -231,7 +234,7 @@ export function useLogViewerGraph() {
  * directory, catalogued by `list_logs`. The whole catalog goes to the view,
  * which owns the selection; only the view's FIRST pick opens a stream.
  *
- * @return {{ selectLog: Function, setPaused: Function, seek: Function, step: () => void, clear: () => void, setFilter: (term: string) => void }}
+ * @return {{ selectLog: (log: string) => void, setPaused: (paused: boolean) => void, seek: Function, step: () => void, clear: () => void, setFilter: (term: string) => void }}
  *   Control callbacks for the thin React view (the view's own state is read via
  *   useNodeState): `selectLog( log )` re-points the stream at a partition,
  *   `setPaused( paused )` gates it, `seek( log, positions, source )` switches

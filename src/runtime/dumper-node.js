@@ -7,15 +7,21 @@
  *
  * Flood-safe: a console connected to a firehose Tee can receive thousands of
  * frames/sec (a full-speed segment replay). Per-message work is O(1) — write
- * into a bounded ring and mark dirty — and the expensive publish (React render +
- * localStorage persist, both hung off `setState('transcript')`) is COALESCED to
- * one frame-scheduled flush. Past the ring cap between flushes, lines drop with a
- * rate-limited count (MemorySieve degrade) rather than OOM the tab.
+ * into a bounded ring and queue one flush — and the expensive publish (React
+ * render + localStorage persist, both hung off `setState('transcript')`) is
+ * COALESCED to a single frame-scheduled flush. Writes past the ring cap between
+ * flushes are overwritten and announced as one rate-limited count, a MemorySieve
+ * degrade in place of an OOM tab.
  */
 
 import { Node } from './node';
 
-/** Highest debug-render level. The Shell validates against it; the setter clamps to it. Mirror of PHP Dumper_Node::MAX_DEBUG_LEVEL. */
+/**
+ * Highest debug-render level. The Shell's `debug_level` builtin refuses
+ * anything above it and `setDebugLevel()` clamps to it. Mirrors PHP
+ * `Dumper_Node::MAX_DEBUG_LEVEL`, so the browser REPL and the cli offer an
+ * operator the same levels.
+ */
 export const MAX_DEBUG_LEVEL = 2;
 import {
 	TYPE,
@@ -37,27 +43,51 @@ import {
 	typeLabels,
 } from './message';
 
+/**
+ * Entries the transcript holds. It bounds the ring, the flood accounting and
+ * the persisted snapshot alike, so a restored session shows exactly what a live
+ * flush would have published.
+ */
 export const TRANSCRIPT_MAX = 200;
 
-// Rate-limit the flood drop notice: at most one entry per this interval (ms).
+/** Shortest gap between two flood drop notices, in milliseconds. */
 const DROP_NOTICE_INTERVAL_MS = 1000;
 
-// Coalesced-publish frame scheduler (test seam); rAF, or a setTimeout shim.
+/**
+ * Frame scheduler behind the coalesced publish: `requestAnimationFrame` where
+ * the host has one, a ~60Hz timeout everywhere else (jsdom, a worker). The
+ * constructor copies it onto `_schedule`, and that property is the seam a test
+ * reassigns to publish synchronously.
+ *
+ * @param {function(): void} cb Runs on the next frame.
+ * @return {*} Handle to hand `cancelFrame`.
+ */
 const scheduleFrame =
 	'function' === typeof requestAnimationFrame
 		? ( cb ) => requestAnimationFrame( cb )
 		: ( cb ) => setTimeout( cb, 16 );
+
+/**
+ * Cancel a queued frame through whichever branch `scheduleFrame` took.
+ *
+ * @param {*} handle What `scheduleFrame` returned.
+ * @return {void}
+ */
 const cancelFrame =
 	'function' === typeof cancelAnimationFrame
 		? ( handle ) => cancelAnimationFrame( handle )
 		: ( handle ) => clearTimeout( handle );
 
+/**
+ * Test one TYPE flag. TYPE is a bitmask carrying several concerns at once, so
+ * every dispatch below asks about a flag rather than comparing the field.
+ *
+ * @param {number} type Message TYPE bitmask.
+ * @param {number} flag The `TM_*` flag to look for.
+ * @return {boolean} Whether that flag is set.
+ */
 const has = ( type, flag ) => ( type & flag ) !== 0;
 
-/**
- *
- * @param type
- */
 /**
  * Human-readable TYPE: every set flag named, joined, with the unmatched bits in
  * hex when none match. The Dumper's header and the Partition Viewer's TYPE
@@ -73,7 +103,16 @@ export function formatTypeLabel( type ) {
 		: `TM_UNKNOWN(0x${ type.toString( 16 ) })`;
 }
 
-// Objects/arrays → pretty JSON, strings pass through, null/undefined → ''.
+/**
+ * Render a Message VALUE as transcript text. An object or an array becomes
+ * pretty JSON, a string passes through untouched, and null or undefined becomes
+ * the empty string, which is what lets a caller treat an empty render as falsy.
+ * A value JSON refuses — a cycle, say — falls back to its `String()` form
+ * rather than throwing mid-render.
+ *
+ * @param {*} value Any VALUE, of any shape.
+ * @return {string} The text to put in the transcript.
+ */
 function stringifyValue( value ) {
 	if ( typeof value === 'string' ) {
 		return value;
@@ -88,7 +127,14 @@ function stringifyValue( value ) {
 	}
 }
 
-// debug_level 1 header: `<TM_FLAGS> from <FROM>:`.
+/**
+ * The `debug_level 1` header, written ahead of the payload render. It names
+ * every TYPE flag and the sender, so the operator sees what KIND of message
+ * produced the next line without the render repeating any of it.
+ *
+ * @param {Array} message Positional Message array.
+ * @return {string} `<TM_FLAGS> from <FROM>:`.
+ */
 function buildDebugHeader1( message ) {
 	return `${ formatTypeLabel( message[ TYPE ] ) } from ${
 		message[ FROM ] || ''
@@ -96,12 +142,13 @@ function buildDebugHeader1( message ) {
 }
 
 /**
- * The full positional-envelope dump — `debug_level 2`, and what the REPL
- * prints. Exported so any surface showing one message renders it identically
- * rather than inventing its own shape.
+ * The whole positional envelope as a multi-line `Message { … }` block: what
+ * `debug_level 2` renders in place of the payload, and what the Triage view
+ * shows for a single captured message. Exported so every surface displaying one
+ * whole message renders it identically rather than inventing its own shape.
  *
  * @param {Array} message Positional Message array.
- * @return {string} The `Message { … }` block.
+ * @return {string} The `Message { … }` block, without a trailing newline.
  */
 export function formatMessageEnvelope( message ) {
 	const ts = message[ TIMESTAMP ] ?? '';
@@ -132,12 +179,15 @@ export function formatMessageEnvelope( message ) {
 }
 
 /**
- * Render one positional Message into a `{ kind, text }` transcript entry, or
- * null to drop. Structured (object/array) payloads render as pretty JSON — a
- * command reply's `value.payload` and any object VALUE go through stringifyValue
- * so a `dump_node` struct renders instead of dropping / showing `[object Object]`.
+ * Render one positional Message into a transcript entry, dispatching on the
+ * TYPE flags. A command reply carries `{ name, payload }` in VALUE, so the
+ * payload is unwrapped before rendering; every structured payload goes through
+ * `stringifyValue`, which is what makes a `dump_node` struct read as JSON rather
+ * than `[object Object]`. TM_EOF renders nothing — it ends a stream rather than
+ * carrying anything to show.
  *
  * @param {Array} message Positional Message array.
+ * @return {?{kind: string, text: string}} The entry, or null to render nothing.
  */
 function renderMessage( message ) {
 	const type = message[ TYPE ];
@@ -229,7 +279,6 @@ export class DumperNode extends Node {
 		const type = message[ TYPE ];
 		const level = this.debugLevelRef.current;
 		if ( level >= 2 ) {
-			// Level 2 replaces the render with the full envelope dump.
 			this._write( {
 				kind: 'info',
 				text: formatMessageEnvelope( message ),
@@ -277,9 +326,10 @@ export class DumperNode extends Node {
 	 * a local info/error line — and publish at once. These are user-driven and
 	 * low-frequency, so they never need the frame coalescing `fill()` uses.
 	 *
-	 * @param {Object} entry Transcript entry: `text`, a `kind` that selects the
+	 * @param {Object} entry Transcript entry: `text`, a `kind` selecting the
 	 *                       line's style ('sent', 'recv', 'info', 'error'), and
-	 *                       the `prompt` an echo renders ahead of its text.
+	 *                       an optional `prompt` an echo renders ahead of its
+	 *                       text.
 	 */
 	append( entry ) {
 		this._write( entry );
@@ -291,7 +341,8 @@ export class DumperNode extends Node {
 	 * browser's `_stdout` stream hands over. A terminal takes bytes; the
 	 * transcript takes lines, so this is where the two meet.
 	 *
-	 * @param {string} text Chunk as written, trailing newline included.
+	 * @param {string} text Chunk as written, trailing newline included; a value
+	 *                      that is not a string writes nothing.
 	 */
 	appendText( text ) {
 		if ( '' === text || 'string' !== typeof text ) {
@@ -470,11 +521,13 @@ export class DumperNode extends Node {
 	}
 
 	/**
-	 * Move the verbosity dial and publish it, so the ref `_render` reads and the
-	 * React toggle that displays it can never disagree. The Shell's
-	 * `debug_level` builtin is the only caller.
+	 * Move the verbosity dial and publish it in one step, so the ref `fill()`
+	 * reads and the React toggle that displays it can never disagree. Callers are
+	 * the Shell's `debug_level` builtin and the console's restore of a persisted
+	 * level. A level outside the range is clamped rather than refused, because
+	 * the Shell has already refused anything above MAX_DEBUG_LEVEL.
 	 *
-	 * @param {number} level New debug level (0/1/2).
+	 * @param {number} level Requested level, clamped to 0..MAX_DEBUG_LEVEL.
 	 */
 	setDebugLevel( level ) {
 		this.debugLevelRef.current = Math.max(

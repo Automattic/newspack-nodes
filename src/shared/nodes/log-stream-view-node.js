@@ -4,6 +4,12 @@ import { SeekTracker } from './seekTracker';
 import { RateSmoother } from '../rateSmoother';
 import { isControl } from '../helpers/controlMsg';
 
+/**
+ * Default ring cap, and with it the ceiling on a view's memory: every live row
+ * holds its whole shaped payload, so the cap times the row size is what a
+ * dashboard left open all day costs. Past it each arrival overwrites the
+ * oldest row, which is why the ring never grows and never compacts.
+ */
 const MAX_LINES = 100000;
 
 /**
@@ -12,8 +18,9 @@ const MAX_LINES = 100000;
  * Log / Error Log). One improvement here lands in all of them.
  *
  * Owns the whole common core:
- * - the O(1) newest-first ring (`linesCount` / `lineAt(i)` / `lines`), the
- *   monotonic `id` stamp and `isEven` stripe `LogRowList` renders from;
+ * - the O(1) newest-first ring (`linesCount` / `lineAt(i)` / `lines`) that
+ *   `LogRowList` walks, the monotonic `id` each row carries as its React key,
+ *   and the `isEven` flag a row renderer stripes from;
  * - the paused belt + step budget (a `step` control admits N frames);
  * - the decaying `lps` readout (`RateSmoother.read` — idle rates fall to 0);
  * - seek tracking (`SeekTracker` breadcrumbs; publishes on segment change or
@@ -31,7 +38,10 @@ const MAX_LINES = 100000;
  */
 export class LogStreamViewNode extends Node {
 	/**
-	 * @param {number} [maxLines] Ring cap; defaults to MAX_LINES (100000).
+	 * Build the empty view: an empty ring, a live seek tracker, and no
+	 * controller — the graph assigns `controlFrom` before a control arrives.
+	 *
+	 * @param {number} [maxLines] Ring cap; `MAX_LINES` when omitted or zero.
 	 */
 	constructor( maxLines ) {
 		super();
@@ -69,6 +79,11 @@ export class LogStreamViewNode extends Node {
 	 * Route one arriving message: a control from `controlFrom` runs through
 	 * `_control()` and republishes; anything else is a raw stream envelope the
 	 * subclass shapes into a row.
+	 *
+	 * The origin alone says which it is — ADR-7 addressing, applied to
+	 * controls. A record whose VALUE happens to carry an `action` field is
+	 * still a record, so sniffing the payload for one runs the view's verbs on
+	 * live data and swallows whole streams.
 	 *
 	 * @param {Array} message The 7-field positional message.
 	 */
@@ -368,8 +383,10 @@ export class LogStreamViewNode extends Node {
 	}
 
 	/**
-	 * Schema behind the console palette and `help`. Hidden and target-less: a
-	 * terminal receiver that settles replies has nothing to forward on.
+	 * Schema behind the console palette and `help`. Hidden, because a
+	 * dashboard graph wires this node rather than an operator, and
+	 * target-less: it publishes a render model and forwards nothing, so it
+	 * draws no out-port.
 	 *
 	 * @return {Object} The node schema.
 	 */
@@ -377,7 +394,6 @@ export class LogStreamViewNode extends Node {
 		return {
 			category: 'Hidden',
 			description: 'Log-stream render-model sink (the React view node).',
-			// Terminal receiver: settles replies, no target → no out-port.
 			has_target: false,
 			arguments: [],
 			commands: [],

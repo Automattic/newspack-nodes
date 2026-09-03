@@ -2,36 +2,34 @@ import { __ } from '@wordpress/i18n';
 import { LIVE } from '../nodes/seekTracker';
 import './LogBrowser.scss';
 
+/** @typedef {import('react').ReactNode} ItemNode */
+
 /**
- * LogBrowser — the shared Kafka-UI-style browse sidebar. A Live/Replay control
- * pair sits above a selectable item list; the items are shaped by render props.
- * Both log-stream dashboards drive it as a SEGMENT browser (the Partition
- * Viewer from `log_status.segments`, the Log Viewer from `taillog
- * sources[].segments`). It is presentational: browse STATE lives in
- * `useLogPositions`, which the consumer drives from these callbacks.
+ * LogBrowser — the shared Kafka-UI-style browse sidebar: a Live/Replay control
+ * pair above a selectable item list whose rows the render props shape. Both
+ * log-stream dashboards drive it as a SEGMENT browser (the Partition Viewer
+ * from `log_status.segments`, the Log Viewer from `taillog sources[].segments`).
  *
- * @param {Object}     props
- * @param {string}     props.mode          'live' | 'replay' (view-derived).
- * @param {() => void} props.onFollow      Return to the live tail. Wired straight
- *                                         to the Live button's `onClick`, so the
- *                                         click event is passed but unread.
- * @param {() => void} props.onReplay      Replay from the earliest record. Same
- *                                         `onClick` wiring as `onFollow`.
- * @param {Array}      props.items         The `{id, size}` segments (or any render-prop-shaped items).
- * @param {*}          [props.selectedKey] Key of the browsed item (the clicked one, or null).
- *                                         NOT guaranteed to name a listed item:
- *                                         replay-from-start passes the literal
- *                                         `'start'` token, which matches no id.
- *                                         `activeKey` is what highlights then.
- * @param {*}          [props.activeKey]   Key of the item last RECEIVED from; wins over
- *                                         selectedKey for the highlight when provided.
- *                                         This is why a non-item selectedKey is fine.
- * @param {Function}   props.onSelectItem  `(item) => void` — browse that item.
- * @param {Function}   props.itemKey       `(item) => string|number`.
- * @param {Function}   props.itemLabel     `(item) => ReactNode`.
- * @param {Function}   [props.itemMeta]    `(item) => ReactNode` secondary line.
- * @param {string}     [props.title]       Sidebar heading.
- * @param {*}          [props.emptyLabel]  Rendered when `items` is empty.
+ * It keeps no state. `useSegmentBrowse` supplies every callback and both keys:
+ * `useLogPositions` owns the clicked segment, and `mode` is the view node's
+ * `SeekTracker.mode`. Live/Replay therefore stays one state machine, rather
+ * than a second copy here that could disagree with the records arriving.
+ *
+ * @template T The listed item — a segment row carrying `id` and `size` in both
+ * dashboards.
+ * @param {Object}                     props
+ * @param {string}                     props.mode          Displayed mode: 'live' lights Live, anything else lights Replay.
+ * @param {() => void}                 props.onFollow      Return to the live tail. Wired straight to the button's `onClick`, so a click event arrives and goes unread.
+ * @param {() => void}                 props.onReplay      Replay from the earliest record; the same `onClick` wiring as `onFollow`.
+ * @param {Array<T>}                   props.items         The rows to list, drawn in array order.
+ * @param {?(string|number)}           [props.selectedKey] Key of the clicked item. NOT guaranteed to name a listed item: replay-from-start passes the literal `'start'` token, which matches no id, and `activeKey` lights the row instead.
+ * @param {?(string|number)}           [props.activeKey]   Key of the item the newest record ARRIVED from; it outranks `selectedKey` for the highlight.
+ * @param {(item: T) => void}          props.onSelectItem  Browse that item.
+ * @param {(item: T) => string|number} props.itemKey       The row's React key, and the value both highlight keys are matched against.
+ * @param {(item: T) => ItemNode}      props.itemLabel     The row's primary line.
+ * @param {(item: T) => ItemNode}      [props.itemMeta]    The row's secondary line; omitted, the row is label-only.
+ * @param {string}                     [props.title]       Sidebar heading; omitted, none is drawn.
+ * @param {ItemNode}                   [props.emptyLabel]  Drawn in place of the list when `items` is empty.
  * @return {import('react').ReactElement} The sidebar.
  */
 export default function LogBrowser( {
