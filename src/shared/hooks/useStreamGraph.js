@@ -90,7 +90,7 @@ CommandInterpreterNode.registerNodeClasses( {
  * @param {?Object} [o.openAt]      The FIRST open's seek seed; null tails.
  * @param {boolean} [o.clearOnOpen] Empty the view before every open, for a
  *                                  model whose rows go stale across a gap.
- * @return {{ prefix: string, linkRef: Object, viewRef: Object, isPausedRef: Object, isActive: boolean, control: Function, resubscribe: Function, seek: Function, setPaused: Function, setFilter: (term: string) => void, clear: () => void, targetRef: Object }}
+ * @return {{ prefix: string, linkRef: Object, viewRef: Object, isPausedRef: Object, isActive: boolean, control: Function, resubscribe: Function, seek: Function, setPaused: (paused: boolean) => void, setFilter: (term: string) => void, clear: () => void, targetRef: Object }}
  *   The live handles, the gate's state, and the controls the dashboard drives.
  */
 export function useStreamGraph( {

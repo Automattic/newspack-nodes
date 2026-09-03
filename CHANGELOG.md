@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **`lint:js` scans `examples/` — it used to skip them entirely.** eslint's globs named `src/` and `scripts/`, and `lint-contract.mjs` walked `src/` alone, so the AI-newsletter example sat on three `name-lookup-in-option` violations while the gate reported clean. An example is the code a reader copies, so a violation there teaches itself onward. `SCAN_ROOTS` now carries `examples` beside `src`; `walk()` returns nothing for a root that does not exist, so a plugin with no examples scans exactly as before.
+- **`useStreamGraph` declares what `setPaused` actually takes.** Its `@return` called it a bare `Function`, which carries no call signature, so the three consumers that correctly declare `(paused: boolean) => void` — event-logger-nodes' glob, error-log and request-log hooks — each failed the type gate in their own repo with the cause a repo away.
 - **The AI-newsletter example passes its view CLASSES, not their registered names.** `CommandInterpreterNode`'s name table is a per-bundle static (ADR-16), so a name resolves only through an interpreter that bundle mounted, and a hub tab building the graph through another bundle's would find nothing. `../nodes/register` still runs, for the TSL and palette lookups that have no class to hand.
 
 ### Documentation
