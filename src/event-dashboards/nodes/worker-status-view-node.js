@@ -7,10 +7,16 @@ import {
 } from '../../runtime/message';
 import { SliceViewNode } from '@newspack-nodes/shared/nodes/slice-view-node';
 
-// Segment slide-out window (ms): how long a removing row lingers.
+/** Segment slide-out window in ms: how long a removing row lingers. */
 const REMOVING_CLEAR_MS = 400;
 
-// Empty model so a pre-poll error still publishes a render-able view.
+/**
+ * The shaped-but-empty model, carrying every field the Worker Status widgets
+ * destructure so a render before the first poll — or a poll that errors before
+ * any model arrives — is still valid.
+ *
+ * @return {Object} A fresh empty render model.
+ */
 const emptyModel = () => ( {
 	workers: [],
 	logs: [],
@@ -27,29 +33,49 @@ const emptyModel = () => ( {
 } );
 
 /**
- * `workerstatus:view` — owns the Worker Status view model, the single surface
- * React reads via useNodeState('workerstatus:view','view').
+ * `workerstatus:view` — owns the Worker Status view model, the one surface
+ * React reads through `useNodeState( 'workerstatus:view', 'view' )`.
  *
- * A SliceViewNode whose slice arrives pre-parsed from the transform rather than
- * as a JSON payload, so `fill()` routes the struct actions itself and defers
+ * A `SliceViewNode` whose slice arrives already parsed: `workerstatus:transform`
+ * sits on the receiver-Tee edge ahead of it and mints a TM_STRUCT carrying the
+ * enriched model, so there is no JSON payload for the base `_parse()` to
+ * decode. `fill()` therefore dispatches the struct actions itself and defers
  * every TM_ERROR to the base — which keeps the model already on screen, adds
  * `error`, and clears `loading`.
  *
- * Everything that arrives here is un-correlated: mutations such as `restart` are
- * minted by their own request nodes, so their replies land there, not here.
- *  - TM_STRUCT `{ action:'model', model }` from the transform stores + publishes
- *    the model (the dump_graph reply path: HttpOut → transform → view).
- *  - TM_STRUCT `{ action:'clear-removing' }` blanks removingSegments.
- *  - A model with non-empty removingSegments schedules a 400ms self-fill of
- *    `clear-removing` so the slide-out animation completes (timer lives here,
- *    in the graph, not in the React view).
+ * The base identifies a control by its FROM, because a reply carrying an
+ * `action` field is still a reply. Here the transform mints one action and this
+ * node mints the other into itself, so the action name is the whole selector
+ * and `controlFrom` stays unset.
+ *
+ * Nothing arriving here needs correlating. A mutation such as `restart` is
+ * minted by its own `useCommandOnce` node and the server replies TO=FROM, so
+ * that reply lands there; this node sees the poll's model and its failures
+ * (ADR-7).
+ *
+ * The three inbound shapes:
+ *  - TM_STRUCT `{ action: 'model', model }` from the transform stores the model
+ *    and publishes it — the `dump_graph` reply, enriched.
+ *  - TM_STRUCT `{ action: 'clear-removing' }` blanks `removingSegments`.
+ *  - TM_ERROR surfaces on `error` without blanking the model.
+ *
+ * A model marking segments as removing arms a REMOVING_CLEAR_MS self-fill of
+ * `clear-removing`, so the slide-out animation runs to completion. The timer
+ * lives here, in the graph, rather than in the React view, where a re-render
+ * would restart it.
  */
 export class WorkerStatusViewNode extends SliceViewNode {
 	/**
-	 * Publishes the empty model (base) and zeroes the slide-out clear timer.
+	 * Publish the empty model through the base, with no slide-out clear armed.
 	 */
 	constructor() {
 		super();
+		/**
+		 * The pending `clear-removing` self-fill, or null when none is armed.
+		 * Held so `_setModel()` can restart it and `removeNode()` cancel it.
+		 *
+		 * @type {?ReturnType<typeof setTimeout>}
+		 */
 		this._clearTimer = null;
 	}
 
@@ -93,12 +119,12 @@ export class WorkerStatusViewNode extends SliceViewNode {
 	}
 
 	/**
-	 * Store and publish the transform's enriched snapshot, then arm the slide-out
-	 * clear when it marks segments as removing.
+	 * Store and publish the transform's enriched snapshot, then arm the
+	 * slide-out clear when it marks segments as removing.
 	 *
-	 * The timer lives here rather than in React so the animation window survives a
-	 * re-render; a fresh model restarts it, so the last removal always gets its full
-	 * REMOVING_CLEAR_MS.
+	 * The timer lives here rather than in React so the animation window
+	 * survives a re-render; a fresh model carrying removals restarts it, so the
+	 * last removal always gets its full REMOVING_CLEAR_MS.
 	 *
 	 * @param {Object} model The enriched dump_graph snapshot, replacing the current
 	 *                       model wholesale; `removingSegments` drives the timer.
@@ -124,7 +150,8 @@ export class WorkerStatusViewNode extends SliceViewNode {
 
 	/**
 	 * Push the current model out under the `view` event — the one surface React
-	 * reads through useNodeState.
+	 * reads through useNodeState. `setState` caches it, so a widget mounting
+	 * after the poll still reads the current model.
 	 *
 	 * @return {void}
 	 */
@@ -133,7 +160,8 @@ export class WorkerStatusViewNode extends SliceViewNode {
 	}
 
 	/**
-	 * The shaped-but-empty model a render before the first poll reads.
+	 * The shaped-but-empty model a render before the first poll reads. The base
+	 * constructor publishes it, so `view` is never undefined.
 	 *
 	 * @return {Object} Empty render model.
 	 */
@@ -145,8 +173,9 @@ export class WorkerStatusViewNode extends SliceViewNode {
 	 * Cancel the slide-out timer, so a pending clear can't setState into a view
 	 * nobody is reading, then hand off to the base.
 	 *
-	 * The graph's teardown calls `removeNode()` on every node it built, which is
-	 * why the destructor belongs here and no caller reaches in for it.
+	 * `mountExospine` removes every node its build registered, on unmount and
+	 * on each Reset Graph rebuild, which is why the cancel belongs here and no
+	 * caller reaches in for it.
 	 *
 	 * @return {void}
 	 */
@@ -159,10 +188,13 @@ export class WorkerStatusViewNode extends SliceViewNode {
 	}
 
 	/**
-	 * Hidden from the node palette: the dashboard wires this sink itself, and it
-	 * takes no arguments and no target.
+	 * Node metadata behind `help <Type>` and the console's node palette.
+	 * Overrides the description alone: the Hidden category, the empty argument
+	 * list and `has_target: false` come from the base, which is right here —
+	 * the dashboard hook wires this sink itself, and a view is terminal.
 	 *
-	 * @return {Object} The `node_schema()` descriptor the console and `help` read.
+	 * @return {Object} Schema: category, description, registrations, arguments,
+	 *                  commands, has_target.
 	 */
 	static nodeSchema() {
 		return {

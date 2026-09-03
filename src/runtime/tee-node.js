@@ -3,21 +3,30 @@ import { TO } from './message';
 
 /**
  * TeeNode — fan-out: every connected target gets its own copy of each message.
+ * Browser counterpart of PHP `Newspack_Nodes\Tee_Node`.
  *
  * `target` holds a LIST here rather than the base class's single path, which is
- * what makes `connect_node` append instead of replace. Each copy is addressed
+ * what makes `connectNode` append instead of replace. Each copy is addressed
  * to `<target>/<TO>` — bare `<target>` when TO is empty — so a fan-out can sit
  * mid-path and each branch still routes down whatever path remains.
+ *
+ * Tee forwards no original and consumes nothing: every TYPE fans out, and a
+ * message that finds no live target stops here. A graph that needs the original
+ * to carry on past the fan-out uses `TapNode`.
  *
  * Fan-out follows CONNECT order, and that is contractual: a consumer may
  * depend on an earlier target having been fully delivered — synchronously,
  * through Router — before a later one is. `addSliceFetcher` does exactly that,
  * fanning a reply to the view before the Fetcher that settles the ask.
  *
- * Targets are pruned on every fill against THIS node's registry: a draft graph's
- * nodes are invisible to any other registry, so resolving elsewhere would read
- * every edge as dead and drop it. A target that throws is logged and the
- * fan-out continues, so one broken branch cannot silence the others.
+ * Targets are pruned on every fill against THIS node's registry, by their FIRST
+ * path segment: a draft graph's nodes are invisible to any other registry, so
+ * resolving elsewhere would read every edge as dead and drop it, and a
+ * path-shaped target lives as long as its head node does. A target that throws
+ * is logged and the fan-out continues, so one broken branch cannot silence the
+ * others. The PHP twin instead defers the outranking throwable and re-raises it
+ * after the loop (ADR-14), which keeps a consumer cursor from advancing past a
+ * message that needs a replay; the browser has no such cursor.
  */
 export class TeeNode extends Node {
 	/**
@@ -33,7 +42,13 @@ export class TeeNode extends Node {
 	 * Copy the message to every live target, addressing each copy so Router
 	 * carries it down the rest of the path.
 	 *
-	 * @param {Array} message The 7-field positional message; each target gets its own copy.
+	 * The incoming message is left alone and each target gets an array of its
+	 * own, so one branch's TO cannot reach the next; the copy is shallow, so a
+	 * struct VALUE is still shared between branches. The counter records
+	 * messages filled, not copies emitted — what `dump_metadata` reports.
+	 *
+	 * @param {Array} message The 7-field positional message, read but not rewritten.
+	 * @throws {Error} When a live target exists and no sink is wired.
 	 */
 	fill( message ) {
 		this.counter++;
@@ -62,7 +77,8 @@ export class TeeNode extends Node {
 
 	/**
 	 * Append a fan-out target, promoting a single-path `target` to a list first
-	 * (`removeNode` resets it to the empty string). A repeat connect is ignored.
+	 * (`removeNode` resets it to the empty string). A repeat connect is ignored,
+	 * so re-wiring an existing edge cannot deliver to that target twice.
 	 *
 	 * @param {string} owner Node name or path each message is copied to.
 	 */
@@ -90,7 +106,9 @@ export class TeeNode extends Node {
 	}
 
 	/**
-	 * Console-palette entry. Routing node with no positional configuration.
+	 * Console-palette entry: a routing primitive with no positional arguments —
+	 * targets arrive through `connectNode`, so an operator types none of them,
+	 * and Tee declares no verbs. The two port flags are what the canvas draws.
 	 *
 	 * @return {Object} The node schema.
 	 */

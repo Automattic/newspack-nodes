@@ -11,7 +11,8 @@
  * as `reply`) is mounted on the backbone while the modal is open, routed
  * through `_cwd` so it reports the current scope — browser-local at root, the
  * cd'd worker when pivoted. PHP and JS emit the same keys, so either renders
- * unchanged.
+ * unchanged. The toolbar sets profiling in that same scope, so one modal both
+ * starts the measurement and reads it.
  */
 
 import { useEffect, useMemo, useRef, useState } from '@wordpress/element';
@@ -24,10 +25,18 @@ import names from '../../runtime/reserved-node-names.json';
 import { Grid, useSortState } from './SortableGrid';
 import './inspector-views.scss';
 
-// The one poller node the view mounts + reads.
+/**
+ * The one poller node the view mounts and reads. `Core` is a per-page registry
+ * every dashboard on the page shares, so the name is prefixed to keep it clear
+ * of the other views' pollers.
+ */
 const POLLER = 'profiler:poller';
 
-// list_profiles' own columns, in its own order.
+/**
+ * `list_profiles`' own columns, in its own order. Everything but WHAT sorts
+ * numerically, which is what `shape()` keeps its fixed-decimal text parseable
+ * for.
+ */
 const COLS = [
 	{ key: 'avg', label: 'AVERAGE', numeric: true },
 	{ key: 'time', label: 'TIME', numeric: true },
@@ -38,8 +47,32 @@ const COLS = [
 	{ key: 'what', label: 'WHAT' },
 ];
 
-// Fixed-decimal display, kept sortable: the numeric column Number()-parses it.
+/**
+ * One `list_profiles -s` row: the stats the verb derives from a raw profile
+ * record, plus the node name — or `--total--` — in `what`.
+ *
+ * @typedef {import('../../runtime/command-interpreter-node').ProfileStats & {what:string}} ProfileRow
+ */
+
+/**
+ * Format one numeric cell to a fixed number of decimals. The grid sorts a
+ * numeric column by `Number( cell )`, so the padded text still compares as the
+ * value it prints.
+ *
+ * @param {number} v      Raw cell value.
+ * @param {number} places Decimals to keep.
+ * @return {string} The fixed-decimal text.
+ */
 const fmt = ( v, places ) => Number( v ).toFixed( places );
+
+/**
+ * One reply row as the grid renders it, at the decimals the verb's own text
+ * table prints: AVERAGE to six, TIME, WINDOW and RATE to two. COUNT, AGE and
+ * WHAT ride verbatim, being two whole numbers and a name.
+ *
+ * @param {ProfileRow} r One `list_profiles -s` row.
+ * @return {Record<string,string|number>} The row, formatted for display.
+ */
 const shape = ( r ) => ( {
 	avg: fmt( r.avg, 6 ),
 	time: fmt( r.time, 2 ),
@@ -50,7 +83,12 @@ const shape = ( r ) => ( {
 	what: r.what,
 } );
 
-/** @return {import('react').ReactElement} The Profiler modal view. */
+/**
+ * Mount the poller, render its rows as a sortable grid, and stand the
+ * profiling control above them.
+ *
+ * @return {import('react').ReactElement} The Profiler modal view.
+ */
 export default function ProfilerView() {
 	const [ sort, onSort ] = useSortState( 'avg', 'desc' );
 	// Bumped after mount so useNodeState rebinds to the freshly-created poller.
@@ -105,7 +143,22 @@ export default function ProfilerView() {
 	}, [ reply ] );
 	const showStop = null !== optimistic ? optimistic : profilingOn;
 
-	// Set profiling in the viewed scope via explicit `profile on`/`off`.
+	/**
+	 * Set profiling in the viewed scope, and show the new state on the click
+	 * rather than a poll later: the button reads optimistically until a reply
+	 * confirms or overrules it.
+	 *
+	 * Sends the explicit `profile on` / `profile off` rather than the bare
+	 * toggle, because a toggle carries the reading it was clicked against — a
+	 * stale one turns profiling off in the scope the operator meant to
+	 * measure. The poller MINTS the command, stamping FROM with its own name
+	 * and signing it, and TO is written afterwards: the signature covers the
+	 * semantics alone, so the destination stays the caller's to choose
+	 * (ADR-15). Firing the poller straight after puts the confirming reply on
+	 * this tick instead of the next interval.
+	 *
+	 * @param {boolean} enable Whether profiling should run in that scope.
+	 */
 	const setProfiling = ( enable ) => {
 		disagreeRef.current = 0;
 		setOptimistic( enable );

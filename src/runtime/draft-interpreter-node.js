@@ -55,6 +55,16 @@ import {
 import names from './reserved-node-names.json';
 
 /**
+ * One `command_node` statement a node carries, declared or seeded.
+ *
+ * @typedef {Object} Invocation
+ * @property {string}   verb      Verb name.
+ * @property {string[]} args      Argument tokens; a declared one keeps its
+ *                                quote span.
+ * @property {boolean}  viaConfig True when the target carried `:config`.
+ */
+
+/**
  * Spans back to values, through the one tokenizer.
  *
  * `run()` carries SPANS so a node argument keeps its quote type, which is
@@ -124,9 +134,10 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	}
 
 	/**
-	 * Run one TSL statement, as the Shell would.
+	 * Run a typed TSL line, as the Shell would.
 	 *
-	 * @param {string} line A single statement.
+	 * @param {string} line One statement, or several the Shell's `;` split
+	 *                      separates.
 	 */
 	run( line ) {
 		for ( const statement of parseStatements( line ) ) {
@@ -139,9 +150,9 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	 *
 	 * The expansion is seeded FIRST, because that is when an `include` happens:
 	 * its nodes exist by the time the file's own `connect_node` names one. The
-	 * console used to fold the file's edge operations over the expansion in a
-	 * bespoke pass beside the parser, which is the same ordering re-implemented
-	 * — here the nodes' own `connectNode`/`disconnectNode` do it.
+	 * file's edge operations then fold over the expansion through the nodes'
+	 * own `connectNode`/`disconnectNode`, so nothing beside the parser
+	 * re-implements that ordering.
 	 *
 	 * @param {string} tsl                   Topology source.
 	 * @param {Object} [baseline]            `topologies expand` result.
@@ -170,14 +181,15 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	/**
 	 * Fill one already-parsed statement, as the Shell would.
 	 *
-	 * @param {Object} statement From `parseStatements`.
+	 * @param {{verb: string, values: string[], spans: string[], raw: string,
+	 *          line: number}} statement From `parseStatements`.
 	 */
 	_runStatement( statement ) {
 		const [ verb ] = statement.values;
-		// SPANS, not values: the quote type is meaning, not decoration.
 		const m = newMessage();
 		// NOREPLY: no sink, so a routed reply would go nowhere.
 		m[ TYPE ] = TM_COMMAND | TM_NOREPLY;
+		// SPANS, not values: the quote type is meaning, not decoration.
 		m[ VALUE ] = { name: verb, arguments: statement.spans.slice( 1 ) };
 		this.fill( markLocal( m ) );
 	}
@@ -279,10 +291,10 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	/**
 	 * Undo a claim whose replacement never arrived.
 	 *
-	 * @param {?Object} claimed The borrowed node that was torn down.
-	 * @param {string}  name    Its name.
-	 * @param {?Array}  verbs   Its seeded invocations.
-	 * @param {Array}   targets The edges the include had wired.
+	 * @param {?Object}       claimed The borrowed node that was torn down.
+	 * @param {string}        name    Its name.
+	 * @param {?Invocation[]} verbs   Its seeded invocations.
+	 * @param {string[]}      targets The edges the include wired.
 	 */
 	_restoreClaimed( claimed, name, verbs, targets ) {
 		if ( ! claimed ) {
@@ -490,14 +502,15 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	 * the delete form exists to draw. PHP re-joins tokens, so only what would
 	 * end the line, or vanish from it, needs the quotes.
 	 *
+	 * A baseline edge this document no longer declares is written as an
+	 * explicit `disconnect_node` line, because a Tee's `connect_node` APPENDS
+	 * and absolute state therefore cannot express a removal. Without includes
+	 * there is nothing to remove FROM, and a dropped edge is a line not
+	 * written.
+	 *
 	 * @param {Object} [baseline] The `topologies expand` result a fresh load
-	 *                            starts from. Edges it supplies that we no
-	 *                            longer declare become explicit
-	 *                            `disconnect_node` lines — a Tee's
-	 *                            `connect_node` APPENDS, so absolute state
-	 *                            cannot express a removal. Without includes
-	 *                            there is nothing to remove FROM, and a
-	 *                            dropped edge is just a line not written.
+	 *                            starts from; omit it for a file that includes
+	 *                            nothing.
 	 * @return {string} TSL, or '' for an empty document.
 	 */
 	dumpDocument( baseline = null ) {
@@ -574,7 +587,7 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	 * Only the invocations the DOCUMENT declares — what a save writes back.
 	 *
 	 * @param {string} name Node name.
-	 * @return {Array} `{ verb, args, viaConfig }` entries; empty when none.
+	 * @return {Invocation[]} Its declared invocations; empty when none.
 	 */
 	declaredInvocationsFor( name ) {
 		return this._invocations.get( name ) ?? [];
@@ -587,7 +600,7 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	 * they would run in. `dumpDocument` writes only the file's half back.
 	 *
 	 * @param {string} name Node name.
-	 * @return {Array} `{ verb, args, viaConfig }` entries; empty when none.
+	 * @return {Invocation[]} Seeded then declared; empty when none.
 	 */
 	invocationsFor( name ) {
 		return [
@@ -631,7 +644,7 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	 * Only the invocations an INCLUDE supplies — not the document's to write.
 	 *
 	 * @param {string} name Node name.
-	 * @return {Array} `{ verb, args, viaConfig }` entries; empty when none.
+	 * @return {Invocation[]} Its seeded invocations; empty when none.
 	 */
 	seededInvocationsFor( name ) {
 		return this._seeded.get( name ) ?? [];
@@ -645,7 +658,7 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	 * INTERPRETER-class node takes verbs directly. The tokenizer canonicalises
 	 * `cmd` and `command` to `command_node`, so there is nothing else to catch.
 	 *
-	 * @param {string[]} args Token array after the verb.
+	 * @param {string[]} args `<node>[:config] <verb> [<args>...]`, as spans.
 	 * @return {string} The reply line.
 	 */
 	_cmdCommandNode( args ) {
@@ -669,11 +682,11 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	/**
 	 * `set_arguments <node> [args…]` — rewrite a node's constructor args.
 	 *
-	 * Tachikoma's verb, aliased `set`, absent here until now: the one real gap
-	 * the interpreter parity triage found. An editor rewriting ctor args needs
-	 * exactly this, which is a good sign it is the right shape.
+	 * Tachikoma's verb, aliased `set`. The tokens are stored as SPANS, the way
+	 * `make_node` stores them, so `_makeNodeLine` writes them back without
+	 * re-quoting a value whose quote type carries its interpolation semantics.
 	 *
-	 * @param {string[]} args Token array after the verb.
+	 * @param {string[]} args `<node name> [<arguments>...]`, as spans.
 	 * @return {string} The reply line.
 	 */
 	_cmdSetArguments( args ) {
@@ -694,8 +707,8 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	/**
 	 * Replace a node's declared invocations wholesale. See divergence 3.
 	 *
-	 * @param {string} name Node name.
-	 * @param {Array}  list `{ verb, args, viaConfig }` entries.
+	 * @param {string}       name Node name.
+	 * @param {Invocation[]} list The node's whole declared set.
 	 */
 	replaceInvocations( name, list ) {
 		this._invocations.set( name, list.slice() );
@@ -713,8 +726,8 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	/**
 	 * One `command_node` statement.
 	 *
-	 * @param {string} name Node the verb is aimed at.
-	 * @param {Object} inv  `{ verb, args, viaConfig }`.
+	 * @param {string}     name Node the verb is aimed at.
+	 * @param {Invocation} inv  The invocation to write.
 	 * @return {string} The statement.
 	 */
 	static _verbLine( name, inv ) {

@@ -1,17 +1,28 @@
 /**
- * Tick ladders for value axes whose formatter does not count in base 10.
+ * Ticks and units for a value axis, so every label reads round and in one unit.
  *
  * d3 picks tick values that are round in base 10, and a formatter that divides
  * by anything else then prints every one of them as a fraction: a byte axis
  * ticked at 1,000,000 reads "977 KB". A formatter carries the ladder its unit
  * is round in as a `tickValues` property, and `drawAxes` ticks the axis with
  * it — see `formatters.js` for the byte ladders and `drawAxes` for the call.
- *
- * Each takes the axis scale, so the base-10 ladder can defer to d3's own
+ * Each ladder takes the axis scale, so the base-10 one can defer to d3's own
  * `scale.ticks()` without this module importing d3.
+ *
+ * `axisDuration` is the other half of a readable axis: it picks the unit the
+ * whole axis reads in, which a per-value formatter cannot do.
  */
 
+/** Milliseconds in a second, the first rung `durationUnit` climbs to. */
 const MS_PER_SECOND = 1000;
+
+/**
+ * Milliseconds in a kilosecond, the ladder's top rung.
+ *
+ * A thousand seconds rather than minutes or hours, because those divide by 60
+ * and would print d3's round tick values as fractions — the same defect
+ * `binaryTicks` exists to spare a byte axis.
+ */
 const MS_PER_KILOSECOND = 1000 * MS_PER_SECOND;
 
 /**
@@ -48,11 +59,21 @@ const durationUnit = ( maxMs ) => {
  * which a detail panel wants and an axis must not have. Build this once from
  * the domain and hand it to every tick.
  *
+ * The formatter carries `integerTicks`, because a narrow axis reading in
+ * milliseconds would otherwise tick at half a millisecond and round two
+ * neighbouring ticks to the same label.
+ *
  * @param {number} maxMs Largest value the axis has to show, in milliseconds.
  * @return {AxisFormatter} Formatter, e.g. `0ms`/`250ms` or `0s`/`140s`.
  */
 export const axisDuration = ( maxMs ) => {
 	const { divisor, suffix, decimals } = durationUnit( maxMs );
+	/**
+	 * Render one tick in the unit this axis settled on.
+	 *
+	 * @param {number} ms A value on the axis, in milliseconds.
+	 * @return {string} The tick label, e.g. `4.2s`.
+	 */
 	const format = ( ms ) => {
 		const value = ms / divisor;
 		// Trailing `.0` is noise on a tick.

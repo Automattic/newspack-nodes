@@ -1,3 +1,8 @@
+/**
+ * PartitionViewerViewNode — the Partition Viewer's ring and view model.
+ * `LogViewerViewNode` extends it, so an edit here reaches both dashboards.
+ */
+
 import {
 	FROM,
 	KEY,
@@ -9,41 +14,65 @@ import {
 } from '../../runtime/message';
 import { LogStreamViewNode } from '../../shared/nodes/log-stream-view-node';
 
+/**
+ * Longest `content` and `value` a row keeps, past which both are clipped with
+ * an ellipsis. A table cell shows one line, so the rest would never be read
+ * there; Debug mode renders `raw` instead and clips far later.
+ */
 const MAX_LINE_LENGTH = 1000;
-// @longform Debug-mode raw retention per row. Well past PIPE_BUF on purpose: a
-// non-lifted partition caps at 4096 bytes, so this only ever clips large-write
-// records — the ones debug mode is the only way to read. The ring holds `raw`
-// per row, so this is a per-row ceiling on that memory, not a typical size.
+
+/**
+ * Longest `raw` a row keeps — the payload Debug mode renders. Well past
+ * PIPE_BUF on purpose: a non-lifted partition caps a record at 4096 bytes
+ * (ADR-4), so this clips only large-write records, the ones Debug mode is the
+ * only way to read. The ring holds `raw` per row, which makes this a per-row
+ * ceiling on that memory rather than a typical size.
+ */
 const MAX_RAW_LENGTH = 262144;
+
+/**
+ * The `.pN` suffix a FROM path segment carries when it names a partition
+ * directory; capture group 1 is the partition number.
+ */
 const PARTITION_RE = /\.p(\d+)$/;
 
 /**
- * `partition:view` — owns the Partition Viewer view model.
+ * `partition:view` — owns the Partition Viewer's view model.
  *
- * A `LogStreamViewNode` subclass: the ring, paused belt + step budget,
- * decaying lps, seek tracking, and the shared control verbs
- * (`pause`/`step`/`connection`/`browse`/`follow`/`clear`) all live in the
- * shared base. This class adds the Partition Viewer's specifics:
- * - the `select` (set + clear) and `logs` (catalog) controls, and the
- *   `{ logs, selected }` view-model fields they publish;
- * - `shapeRow()`: shapes a raw SSE log envelope into a row — `KEY: VALUE`
- *   line clipped at MAX_LINE_LENGTH, the debug trio (`msgId`, `key`, `raw`
- *   clipped at MAX_RAW_LENGTH, `struct`), and the partition column derived
- *   from the first FROM segment with a `.pN` suffix (else a stable
- *   first-seen dir index).
+ * `LogStreamViewNode` holds everything the log-stream dashboards share: the
+ * ring, the paused belt and step budget, the decaying lps readout, seek
+ * tracking, and the `pause`, `step`, `connection`, `browse`, `follow`,
+ * `clear`, `filter` and `select` control verbs. This class adds what belongs
+ * to the Partition Viewer alone:
+ *
+ * - `shapeRow()`, which shapes a raw SSE envelope into a row carrying all
+ *   seven positional message fields (ADR-2) — a record IS a Message, so the
+ *   Cols picker draws a cell per field — plus the debug trio (`msgId`, `key`,
+ *   `raw`) and a partition column;
+ * - the `select` and `logs` controls, and the `{ logs, selected }` model
+ *   fields the toolbar's log dropdown renders from.
+ *
+ * The node is terminal: it publishes a model and forwards nothing, which is
+ * what `has_target: false` in the schema says.
  */
 export class PartitionViewerViewNode extends LogStreamViewNode {
 	/**
-	 * Source directory → column, for streams whose FROM names no partition.
-	 * Built on first miss and never cleared, so a directory keeps its column
-	 * for the life of the node.
+	 * The column each source directory was assigned, for streams whose FROM
+	 * names no partition. Built on first miss and never cleared, so a
+	 * directory keeps its column for the life of the node.
 	 *
-	 * @type {Map<string, number>|undefined}
+	 * @type {Map<string,number>|undefined}
 	 */
 	_partitionIndex;
 
 	/**
-	 * @param {number} [maxLines] Buffer cap (base default; injectable for tests).
+	 * Seed the two fields this view adds to the base model: the catalog the
+	 * log dropdown lists, and the log being tailed. `usePartitionViewerGraph`
+	 * reads `selected` off the node to tell whether an arriving catalog just
+	 * produced the first selection, and opens a stream only then.
+	 *
+	 * @param {number} [maxLines] Ring cap; the base's default when omitted,
+	 *                            and what a test shrinks to force eviction.
 	 */
 	constructor( maxLines ) {
 		super( maxLines );
@@ -54,9 +83,13 @@ export class PartitionViewerViewNode extends LogStreamViewNode {
 	/**
 	 * Shape a raw SSE log envelope into a Partition Viewer row.
 	 *
-	 * `content` keeps the `KEY: VALUE` prefix the filter matches on, `value`
-	 * is the bare column, and `raw` is the debug-mode payload (a struct VALUE
-	 * arrives JSON-encoded). All three are clipped.
+	 * `content` carries the `KEY: VALUE` line the ingest filter matches on and
+	 * `value` the bare payload, both clipped at MAX_LINE_LENGTH; `raw` carries
+	 * the whole payload Debug mode renders, clipped at the far higher
+	 * MAX_RAW_LENGTH. A struct VALUE reaches all three JSON-encoded.
+	 *
+	 * An empty VALUE returns null: there is no payload to render, and the base
+	 * then drops the envelope without moving the seek breadcrumb.
 	 *
 	 * @param {Array} message The 7-field positional message.
 	 * @return {?{partition: number, type: number, timestamp: number, from: string, to: string, msgId: string, key: string, struct: boolean, raw: string, value: string, content: string}} The row, or null when the VALUE is empty.
@@ -103,12 +136,14 @@ export class PartitionViewerViewNode extends LogStreamViewNode {
 	/**
 	 * Resolve the partition column one envelope belongs in.
 	 *
-	 * The first FROM segment carrying a `.pN` suffix wins. A FROM that names
-	 * no partition falls back to a first-seen index per source directory, so
-	 * two unrelated dirs never collapse into one column.
+	 * The first FROM segment carrying a `.pN` suffix wins, so a bare
+	 * `firehose.p3` stamp and a grouped `offsets/combined.firehose.p3/reader`
+	 * one land in the same column. A FROM naming no partition falls back to a
+	 * first-seen index per source directory — its first two path segments — so
+	 * two unrelated directories never collapse into one column.
 	 *
 	 * @param {Array} message The 7-field positional message.
-	 * @return {number} The column index.
+	 * @return {number} The column index, which a debug row stamps as `data-p`.
 	 */
 	_partitionFor( message ) {
 		const parts = String( message[ FROM ] || '' ).split( '/' );
@@ -125,19 +160,27 @@ export class PartitionViewerViewNode extends LogStreamViewNode {
 	}
 
 	/**
-	 * Handle the Partition Viewer's own control verbs, deferring the shared
-	 * ones (`pause`/`step`/`connection`/`browse`/`follow`/`clear`) to the base.
+	 * Handle the Partition Viewer's own control verbs, deferring every shared
+	 * one (`pause`, `step`, `connection`, `browse`, `follow`, `clear`,
+	 * `filter`) to the base.
 	 *
-	 * `select` switches the tailed log; `logs` publishes the catalog and
-	 * adopts its first entry when nothing is selected yet.
+	 * `select` records the log now tailed, resets the seek tracker and empties
+	 * the ring: rows read under the previous subscription do not belong to the
+	 * new one, and a fresh log tails live rather than from the browse cursor
+	 * the last one left.
 	 *
-	 * @param {{action: string, log?: string, logs?: Array<{key: string}>}} value The control payload.
+	 * `logs` publishes the catalog and adopts its first entry when nothing is
+	 * selected yet, which is the only way a fresh dashboard reaches a
+	 * selection. `usePartitionViewerGraph` opens the stream only when this
+	 * adoption is what produced the selection, so a later catalog cannot yank
+	 * a reader out of a replay.
+	 *
+	 * @param {?{action?: string, log?: string, logs?: Array<{key: string}>}} value The control payload; `action` picks the verb.
 	 */
 	_control( value ) {
 		const action = value?.action;
 		if ( 'select' === action ) {
 			this.selected = value.log;
-			// A fresh log tails live from a clean slate — drop browse cursor.
 			this.seek.select();
 			this._clear();
 		} else if ( 'logs' === action ) {
@@ -165,8 +208,10 @@ export class PartitionViewerViewNode extends LogStreamViewNode {
 	}
 
 	/**
-	 * Schema behind the console palette and `help` — the base's, redescribed
-	 * for this dashboard.
+	 * Node metadata behind `help <Type>` and the console's node palette. Keeps
+	 * the base's Hidden category, absent target and empty argument list, and
+	 * overrides the description alone — otherwise the palette would label this
+	 * node the generic log-stream sink.
 	 *
 	 * @return {Object} The node schema.
 	 */

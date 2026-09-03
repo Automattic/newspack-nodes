@@ -1,15 +1,25 @@
 /**
  * The console's slice views, declared rather than subclassed.
  *
- * Each was a one-shot load behind a latch or a memoised promise, so a single
- * failure blocked its list for the life of the page — the palette empty, the
- * OPEN dialog empty, the vault_id dropdown empty, until a reload. Polled, the
- * tick IS the retry, and a bad reply keeps whatever is already on screen.
+ * Each owns one polled catalog and nothing else: the palette's Node classes
+ * and formatter names, and the OPEN dialog's saved topologies. Neither needs
+ * more than an empty model and a guard-then-map parse, which is what
+ * `sliceView()` takes as a declaration. Both verbs answer a decoded struct
+ * rather than a JSON string, so neither declares `json`.
+ *
+ * A parse returns null on a shape it cannot use, keeping the slice already on
+ * screen; the next tick is the retry. A stale list beats an empty one.
  */
 
 import { registerSliceViews } from '@newspack-nodes/shared/nodes/slice-view-node';
 
-/** The view classes, handed to `makeNode` — a name is per-bundle. */
+/**
+ * The view classes. `useCatalogs` hands `makeNode` the class itself rather than
+ * its name, because the devtools hub mounts the console against an interpreter
+ * from another bundle and `includeNodes` is a per-bundle static
+ * ([ADR-16](../../../docs/architecture-decisions.md)). Registering the names
+ * still serves TSL and the console palette.
+ */
 export const views = registerSliceViews( {
 	// Both lists or nothing: half a palette is worse than one a tick stale.
 	ClassCatalogView: {
@@ -24,7 +34,7 @@ export const views = registerSliceViews( {
 				: null,
 	},
 
-	// The OPEN dialog's catalog; a save owes it no reload.
+	// The rows or nothing; an empty user_dir means no writable directory.
 	TopologyListView: {
 		empty: { topologies: null, userDir: '', error: null },
 		parse: ( body ) =>

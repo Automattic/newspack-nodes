@@ -1,3 +1,14 @@
+/**
+ * `Node` — the base class every browser-side node extends, and the module-level
+ * rules that belong beside it: the credential mask the drop audit and
+ * `dump_node` share, the TSL quoting `dumpConfig()` round-trips through, and
+ * the positional argument walk a subclass opts into.
+ *
+ * Counterpart of PHP `Newspack_Nodes\Node`. Both runtimes drive the same graph,
+ * and a rule spelled twice drifts, so `MAX_FROM_SIZE`, the redaction rule, the
+ * argument coercions and the argument quoting each name their PHP twin.
+ */
+
 import { markLocal, readyToMint } from './command-auth';
 import { Core } from './core';
 import {
@@ -21,7 +32,8 @@ import names from './reserved-node-names.json';
  * @typedef {Object} ArgumentSpec
  * @property {string}  name       Node property the token is assigned to.
  * @property {string}  [type]     `int`, `float`, `bool`; anything else is a string.
- * @property {*}       [default]  Value used when a later position went unfilled.
+ * @property {*}       [default]  Value taken when this position went unfilled
+ *                                and some token arrived.
  * @property {boolean} [required] Throw when no token reaches this position.
  */
 
@@ -54,7 +66,11 @@ import names from './reserved-node-names.json';
 /** Longest FROM path `stampMessage()` builds before it drops the message. */
 export const MAX_FROM_SIZE = 1024;
 
-// Types whose VALUE is included in the dropMessage audit line.
+/**
+ * Types whose VALUE the `dropMessage()` audit line carries. The four control
+ * planes say in one line what was lost; a bytestream or struct payload is bulk
+ * data that would bury the reason beside it.
+ */
 const DROP_PAYLOAD_TYPES = TM_INFO | TM_REQUEST | TM_ERROR | TM_COMMAND;
 
 /**
@@ -127,8 +143,8 @@ function maskForDump( key, value ) {
  * The base contract every runtime node honors: `fill( message )`.
  *
  * A node connects two ways — `sink`, the node reference `fill()` forwards to,
- * and `target`, the path stamped into `message[ TO ]` when TO is empty. The
- * rest of this class is the machinery every subclass inherits: the
+ * and `target`, the path stamped into `message[ TO ]` when TO is empty
+ * (ADR-7). The rest of this class is the machinery every subclass inherits: the
  * registration/notify table, FROM stamping, rate-limited logging, and the
  * `dump_config` / `dump_node` serialization.
  */
@@ -139,6 +155,7 @@ export class Node {
 	 */
 	constructor() {
 		this._name = '';
+		/** The physical next hop `fill()` forwards to; a node, not a path. */
 		this.sink = null;
 		/**
 		 * Where this node routes: one path, or many on a fan-out node. The
@@ -153,10 +170,15 @@ export class Node {
 		this._bytesRead = 0;
 		this._bytesWritten = 0;
 		this._largestMsgSent = 0;
+		/** Listeners by event, then by listener id; `null` means node-name mode. */
 		this.registrations = {};
+		/** Last payload per event, so a late `register()` gets current state. */
 		this.setStateCache = {};
+		/** Non-zero traces every scalar `setState()` to stderr. */
 		this.debugState = 0;
+		/** The node this one is plumbing for; set hides it from the canvas. */
 		this.patron = null;
+		/** The `{name}:config` sibling interpreter, torn down with this node. */
 		this.interpreter = null;
 		this._arguments = [];
 		this.seedRegistrations();
@@ -189,7 +211,11 @@ export class Node {
 	 * Forward a message to the wired sink, addressing it to this node's
 	 * `target` when the message carries no TO of its own.
 	 *
+	 * Nothing comes back: a node cannot observe what its sink did with the
+	 * message, and an outcome travels as a message of its own (ADR-13).
+	 *
 	 * @param {Array} message The 7-field positional message, mutated in place.
+	 * @throws {Error} When no sink is wired.
 	 */
 	fill( message ) {
 		if ( ! this.sink ) {
@@ -221,13 +247,14 @@ export class Node {
 	}
 
 	/**
-	 * Register a listener for a pre-declared `event` (throws otherwise).
-	 * `cb === null` selects node-name dispatch; a cached setState payload
-	 * is delivered immediately.
+	 * Register a listener for a pre-declared `event`. `cb === null` selects
+	 * node-name dispatch; a cached setState payload is delivered immediately.
 	 *
-	 * @param {string}        event    Pre-declared event name on this node.
-	 * @param {string}        listener Listener id; node-name mode needs a registered node name.
-	 * @param {Function|null} cb       Closure dispatch when truthy; node-name dispatch when null.
+	 * @param {string}          event    Pre-declared event name on this node.
+	 * @param {string}          listener Listener id; node-name mode needs a registered node name.
+	 * @param {?function(*): *} cb       Closure dispatch when truthy; node-name dispatch when null.
+	 * @throws {Error} When `event` was never seeded — a typo would otherwise
+	 *                 register a listener nothing notifies.
 	 */
 	register( event, listener, cb = null ) {
 		if ( ! ( event in this.registrations ) ) {
@@ -438,6 +465,10 @@ export class Node {
 	/**
 	 * Emit round-trippable config: make_node + set_sink? + connect_node lines.
 	 *
+	 * The `set_sink` line is skipped when the sink is the command interpreter:
+	 * `make_node` wires that one itself, so the line would restate a default on
+	 * every load.
+	 *
 	 * @return {string} TSL that rebuilds this node, each line newline-terminated.
 	 */
 	dumpConfig() {
@@ -491,10 +522,11 @@ export class Node {
 	 * hand-building messages.
 	 *
 	 * Completing here (rather than leaving a separate mint step) is safe because
-	 * LOCAL cannot leave the process: packed() slices to 7 fields and unpacked()
-	 * rejects 8. The signature covers only the SEMANTICS — ts, name, arguments,
-	 * nonce — so a caller may still rewrite TO/FROM afterwards, which the
-	 * Shell and RemoteIpc both do.
+	 * LOCAL cannot leave the process: `pack()` slices to the canonical seven
+	 * fields on the way out, and `unpack()` truncates the eighth a peer claims
+	 * on the way in. The signature covers only the SEMANTICS — ts, name,
+	 * arguments, nonce — so a caller may still rewrite TO/FROM afterwards,
+	 * which the Shell and RemoteIpc both do.
 	 *
 	 * Returns null when there is no session yet, and asks for one. Signing is
 	 * synchronous and cannot wait for /auth, so the caller holds instead — a poll
@@ -504,6 +536,7 @@ export class Node {
 	 * @param {string}   name Command verb (e.g. 'connect_node').
 	 * @param {string[]} args Positional argument tokens (the verb classifies them).
 	 * @return {?Array} A signed, LOCAL-marked Message, or null if unauthenticated.
+	 * @throws {Error} When `args` is not a token array.
 	 */
 	command( name, args = [] ) {
 		if ( ! Array.isArray( args ) ) {
@@ -605,8 +638,9 @@ export class Node {
 	/**
 	 * Put this node in another name table, before it has a name.
 	 *
-	 * @param {Object} registry The registry to join; setting it after the name
-	 *                          would leave the node registered elsewhere.
+	 * @param {Object} registry The registry to join.
+	 * @throws {Error} When the node is already named — it would stay registered
+	 *                 in the table it is leaving.
 	 */
 	set registry( registry ) {
 		if ( '' !== this._name ) {
@@ -618,7 +652,8 @@ export class Node {
 	/**
 	 * Register this node under `name`, or rename it if it already has one.
 	 *
-	 * @param {string} name The new name; it must be free in this registry.
+	 * @param {string} name The new name.
+	 * @throws {Error} When `name` is already registered in this registry.
 	 */
 	set name( name ) {
 		const registry = this.registry;
@@ -651,10 +686,10 @@ export class Node {
 	/**
 	 * Node-name listeners keyed by event; closures excluded, empty omitted.
 	 *
-	 * @return {Object<string, string[]>} Listener node names, per event.
+	 * @return {Object<string,string[]>} Listener node names, per event.
 	 */
 	registeredListeners() {
-		/** @type {Object<string, string[]>} */
+		/** @type {Object<string,string[]>} */
 		const out = {};
 		for ( const [ event, listeners ] of Object.entries(
 			this.registrations
@@ -691,7 +726,10 @@ export class Node {
 	}
 
 	/**
-	 * Serializable state snapshot for `dump_node`; node refs render as '{...}'.
+	 * Serializable state snapshot for the `dump_node` verb: every own field,
+	 * plus the subclass name under `class`. A node reference renders as
+	 * '{...}' instead of recursing into a second node's whole state, and every
+	 * value passes through `maskForDump()`, since an operator reads this.
 	 *
 	 * @return {Object} Field names to their displayable values.
 	 */
@@ -795,8 +833,9 @@ function commandLine( ...tokens ) {
 /**
  * THE bool parse for schema args and toggle verbs — the mirror of PHP
  * `Schema_Reflection::truthy()`. Exported because the PHP side names it as the
- * JS counterpart, and because a local re-spelling of this list is what let
- * `set_is_hub` accept `true`/`1` while rejecting `yes`/`on`.
+ * JS counterpart, and because a second spelling of this list elsewhere is how
+ * a toggle verb such as `set_is_hub` ends up taking `true`/`1` and refusing
+ * `yes`/`on`.
  *
  * @param {string} token A raw argument token.
  * @return {boolean} Whether the token reads as true.
@@ -821,6 +860,7 @@ export function truthy( token ) {
  * @param {string} type  Declared schema type.
  * @param {string} name  Argument name, for the refusal.
  * @return {*} The coerced value.
+ * @throws {Error} When an `int` or `float` token is not the number it declares.
  */
 function coerceArgument( token, type, name ) {
 	switch ( type ) {
@@ -846,15 +886,22 @@ function coerceArgument( token, type, name ) {
 }
 
 /**
- * The Schema_Reflection positional walk (PHP trait `parse_schema_args`): assign each
- * token of `args` to its matching declared `nodeSchema().arguments` property on `node`,
- * coerced to the declared type. Opt-in — the base setter does not call it. A node with no
- * declared arguments is a no-op; excess tokens are ignored, missing optional tokens use
- * their schema defaults only when input supplied an earlier token, and a missing required
- * token throws even when the input is empty. Empty optional input preserves ctor defaults.
+ * The Schema_Reflection positional walk (PHP trait `parse_schema_args`): assign
+ * each token of `args` to the property its declared `nodeSchema().arguments`
+ * entry names, coerced to the declared type. Opt-in — the base `set arguments`
+ * never calls it, and a node declaring no arguments is a no-op.
+ *
+ * Excess tokens are ignored. A blank token at an `int` or `float` position
+ * reads as "not supplied", so a line can fill a later position without
+ * inventing a number for an earlier one. An unfilled position takes its schema
+ * default only once some token arrived, which leaves a node built with no
+ * arguments at all on the defaults its constructor set. A required position
+ * throws even when the input is empty.
  *
  * @param {Node}     node A node whose ctor exposes a static nodeSchema().
  * @param {string[]} args Positional argument tokens (pre-split, quote-resolved).
+ * @throws {Error} When a spec carries no name, names a property the node does
+ *                 not own, or leaves a required position unfilled.
  */
 export function parseSchemaArgs( node, args ) {
 	const ctor = /** @type {NodeClass} */ ( node.constructor );

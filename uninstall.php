@@ -1,9 +1,15 @@
 <?php
 /**
- * Newspack Nodes uninstall cleanup.
+ * Newspack Nodes uninstall entry point: erase what a deleted plugin would
+ * otherwise orphan — the capability grants and the hub role, the runtime's
+ * on-disk state tree, and every `newspack_nodes_` option row.
  *
- * Runs ONLY on plugin delete (WordPress defines WP_UNINSTALL_PLUGIN), never on
- * deactivate. Removes every `newspack_nodes_` option this plugin created.
+ * WordPress defines WP_UNINSTALL_PLUGIN and runs this on plugin DELETE only,
+ * never on deactivate, so deactivating and reactivating keeps every setting.
+ *
+ * The plugin's own entry point never ran here and no autoloader is
+ * registered, so this file requires the classmap that resolves `Roles`, and
+ * the cleanup helpers by path — plain functions a classmap cannot map.
  *
  * @package Newspack_Nodes
  */

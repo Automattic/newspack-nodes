@@ -1,20 +1,52 @@
 /**
- * overviewPrefs — localStorage persistence for the Overview tab's user-chosen
- * active-topology order and folded/unfolded state. Storage access goes through
- * shared/utils/storage, so a disabled or quota'd localStorage degrades to the
- * default (readers → [] / empty Set, writers → no-op) and never throws; only the
- * JSON decoding is this module's own.
+ * overviewPrefs — the Overview board's remembered layout: the drag order of
+ * the active topologies, which of them are unfolded, and which entities inside
+ * a topology's tree are folded shut. Overview seeds its React state from these
+ * readers and writes back on every change, so a reload restores the board the
+ * user arranged rather than the default one.
+ *
+ * The two fold sets are inverted, each naming the exceptions to its own
+ * default: a topology row stays folded until it appears in the EXPANDED set,
+ * while a within-tree entity stays open until it appears in the COLLAPSED set.
+ *
+ * Reads and writes go through `shared/utils/storage`, so a disabled or full
+ * localStorage never throws — a reader falls back to its empty default and a
+ * writer does nothing. Decoding the JSON, and deleting the stale v1 fold key
+ * (the shared module offers no delete), are this module's own and carry their
+ * own guards.
  */
 
 import { readStorage, writeStorage } from '../shared/utils/storage';
 
+/** Storage key for the active topologies in the user's drag order. */
 const ORDER_KEY = 'newspack-nodes:overview:order';
+
+/** Storage key for the topology names whose rows are UNFOLDED. */
 const EXPANDED_KEY = 'newspack-nodes:overview:expanded';
-// v2: fold keys gained a topology prefix, so v1 entries name no live entity.
+
+/**
+ * Storage key for the within-tree entity keys that are FOLDED shut.
+ *
+ * A fold key is rooted at its topology (`firehose>completed`), and the `:v2`
+ * suffix is what separates it from the unrooted keys sitting under
+ * `COLLAPSED_KEY_V1`.
+ */
 const COLLAPSED_KEY = 'newspack-nodes:overview:collapsed:v2';
+
+/** The unrooted fold key `COLLAPSED_KEY` replaces; `readCollapsed` deletes it. */
 const COLLAPSED_KEY_V1 = 'newspack-nodes:overview:collapsed';
 
-// Read a JSON string-array from localStorage; anything not a clean array → [].
+/**
+ * Read and decode a JSON string-array from storage.
+ *
+ * Overview hands the exported readers straight to `useState`, so a throw here
+ * would take down the dashboard's first paint. A payload that is absent,
+ * unparseable or not an array therefore yields [], costing the user the
+ * remembered layout and nothing else.
+ *
+ * @param {string} key Storage key to read.
+ * @return {string[]} The decoded array, or [] when the payload is unusable.
+ */
 function readStringArray( key ) {
 	const raw = readStorage( key );
 	if ( null === raw ) {
@@ -28,55 +60,64 @@ function readStringArray( key ) {
 	}
 }
 
-// Persist a JSON string-array; disabled/quota'd storage is a silent no-op.
+/**
+ * Encode a string-array as JSON and store it.
+ *
+ * @param {string}   key   Storage key to write.
+ * @param {string[]} names Values to store.
+ */
 function writeStringArray( key, names ) {
 	writeStorage( key, JSON.stringify( names ) );
 }
 
 /**
- * Read the persisted active-topology order.
+ * Read the persisted drag order of the active topologies.
  *
- * @return {string[]} The stored order, or [] when absent/corrupt/disabled.
+ * @return {string[]} The stored order, or [] when nothing usable is stored.
  */
 export function readOrder() {
 	return readStringArray( ORDER_KEY );
 }
 
 /**
- * Persist the active-topology order.
+ * Persist the drag order of the active topologies.
  *
- * @param {string[]} names The order to store.
+ * @param {string[]} names Topology names, in display order.
  */
 export function writeOrder( names ) {
 	writeStringArray( ORDER_KEY, names );
 }
 
 /**
- * Read the persisted set of UNFOLDED topology names.
+ * Read the set of UNFOLDED topology names.
  *
- * @return {Set<string>} The stored set, or an empty Set when absent/corrupt/disabled.
+ * @return {Set<string>} The unfolded names, empty when nothing usable is
+ *                       stored — which is the fully folded board.
  */
 export function readExpanded() {
 	return new Set( readStringArray( EXPANDED_KEY ) );
 }
 
 /**
- * Persist the set of UNFOLDED topology names (stored as a JSON array).
+ * Persist the set of UNFOLDED topology names, stored as a JSON array.
  *
- * @param {Set<string>} set The unfolded names.
+ * @param {Set<string>} set The unfolded topology names.
  */
 export function writeExpanded( set ) {
 	writeStringArray( EXPANDED_KEY, [ ...set ] );
 }
 
 /**
- * Read the persisted set of COLLAPSED within-tree fold keys (the inner
- * node/partition folds, distinct from the topology-level unfold above).
+ * Read the set of FOLDED within-tree entity keys — the node and partition
+ * folds inside one topology's tree, distinct from the topology-level fold
+ * above.
  *
- * Drops any v1 entry on the way past: fold keys gained a topology prefix, so
- * what is stored there names no entity that exists.
+ * Every fold key is rooted at its topology, so an entry under the unrooted v1
+ * key names no entity the tree draws. Reading deletes that key outright rather
+ * than leaving a payload nothing will ever match.
  *
- * @return {Set<string>} The stored set, or an empty Set when absent/corrupt/disabled.
+ * @return {Set<string>} The folded entity keys, empty when nothing usable is
+ *                       stored.
  */
 export function readCollapsed() {
 	try {
@@ -88,9 +129,9 @@ export function readCollapsed() {
 }
 
 /**
- * Persist the set of COLLAPSED within-tree fold keys (stored as a JSON array).
+ * Persist the set of FOLDED within-tree entity keys, stored as a JSON array.
  *
- * @param {Set<string>} set The collapsed fold keys.
+ * @param {Set<string>} set The folded entity keys.
  */
 export function writeCollapsed( set ) {
 	writeStringArray( COLLAPSED_KEY, [ ...set ] );

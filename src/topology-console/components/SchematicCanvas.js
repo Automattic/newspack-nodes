@@ -1,5 +1,13 @@
 /**
- * SchematicCanvas — raw SVG drafting-room canvas.
+ * The console's drawing surface: the canvas component, and the pure geometry it
+ * draws with — port anchors, edge curves, the fit-all viewBox, sparkline paths
+ * and the level-of-detail thresholds.
+ *
+ * A card is where a node's two connection contracts become visible. Its IN port
+ * stands for `fill()`, the one entry point every node answers (ADR-1), so a
+ * card draws one unless the node opts out; its OUT port stands for `target`,
+ * the logical TO path a node stamps into what it sends (ADR-7), and dragging a
+ * wire between the two is what the console turns into `connect_node`.
  */
 
 import {
@@ -33,17 +41,44 @@ import { RATE_HISTORY_MAX } from '../hooks/useGraphRates';
 import { edgeHasConnectRole } from '../utils/consoleGraph';
 import { useCatalog } from '../CatalogContext';
 
-// Exported so the palette drag ghost can render the same node-card geometry.
+/**
+ * Card width in world (viewBox) units. Exported because the palette's drag
+ * ghost draws the geometry the drop will land on, and a second copy of the
+ * number makes the ghost lie the moment one of them moves.
+ */
 export const NODE_W = 196;
+
+/**
+ * Card height in world units.
+ */
 export const NODE_H = 84;
+
+/**
+ * Radius of the IN and OUT port dots, in world units.
+ */
 export const PORT_R = 4.5;
-// Movement (SVG units) before a pointer-down counts as a drag, not a click.
+
+/**
+ * Movement in SVG units before a pointer-down counts as a drag rather than a
+ * click. Under it a card press selects, a background press deselects or
+ * autofits, and a hull press commits no reposition.
+ */
 const DRAG_THRESHOLD = 3;
 
-// Hull palette size; mirrors `@for $i from 0 through 5` in graph-view.scss.
+/**
+ * How many hull colour classes exist, mirroring `@for $i from 0 through 5` in
+ * graph-view.scss. An index past the end paints an unstyled hull.
+ */
 const HULL_COLORS = 6;
 
-// Stable per-include color; a paint-index color would shuffle on drag.
+/**
+ * The colour class for one include's hull, hashed from the include name so the
+ * colour holds still. Colouring by paint order would reshuffle every hull the
+ * moment a drag changed the area sort the paths are drawn in.
+ *
+ * @param {string} include Include name.
+ * @return {number} An index in `[0, HULL_COLORS)`.
+ */
 function hullColorIndex( include ) {
 	let h = 0;
 	for ( let i = 0; i < include.length; i++ ) {
@@ -52,7 +87,15 @@ function hullColorIndex( include ) {
 	return h % HULL_COLORS;
 }
 
-// Convert pointer (viewport) coords to SVG coords via the CTM scale.
+/**
+ * Project a pointer's client coordinates into the canvas's world units, through
+ * the inverse of its screen CTM.
+ *
+ * @param {?SVGSVGElement} svg     The canvas element.
+ * @param {number}         clientX Pointer X in client coordinates.
+ * @param {number}         clientY Pointer Y in client coordinates.
+ * @return {{x:number,y:number}} The point in world units.
+ */
 function screenToSvg( svg, clientX, clientY ) {
 	// jsdom has no SVG geometry; fall back to raw coords (deltas still hold).
 	if ( ! svg || ! svg.createSVGPoint ) {
@@ -67,6 +110,12 @@ function screenToSvg( svg, clientX, clientY ) {
 		: { x: clientX, y: clientY };
 }
 
+/**
+ * The card's message counter.
+ *
+ * @param {?number} count Messages the node has handled, absent until its first stats reading.
+ * @return {string} The grouped count, or an em dash when there is no reading — a zero would claim the node handled nothing.
+ */
 function compactCount( count ) {
 	if ( count === null || count === undefined ) {
 		return '—';
@@ -74,16 +123,31 @@ function compactCount( count ) {
 	return count.toLocaleString();
 }
 
-// The two port anchors on a card, in world units. Five call sites had them.
+/**
+ * Where a wire leaves a card: the OUT port anchor, in world units.
+ *
+ * @param {{position:{x:number,y:number}}} n Positioned graph node.
+ * @return {{x:number,y:number}} The anchor.
+ */
 const outPort = ( n ) => ( {
 	x: n.position.x + NODE_W,
 	y: n.position.y + NODE_H / 2,
 } );
+
+/**
+ * Where a wire lands: the IN port anchor, in world units.
+ *
+ * @param {{position:{x:number,y:number}}} n Positioned graph node.
+ * @return {{x:number,y:number}} The anchor.
+ */
 const inPort = ( n ) => ( { x: n.position.x, y: n.position.y + NODE_H / 2 } );
 
 /**
- * Whether a node draws an IN port — and so whether a wire may land on it.
- * Per-node flag first, then its class's, defaulting to the base Node contract.
+ * Whether a node draws an IN port, and so whether a wire may land on it.
+ *
+ * The per-node flag wins, then its class's, and the default is true: every node
+ * answers `fill()` (ADR-1), so it is the node accepting nothing that has to say
+ * so.
  *
  * @param {Object} n       Graph node.
  * @param {Object} catalog Class catalog keyed by shell name.
@@ -94,20 +158,32 @@ function acceptsFill( n, catalog ) {
 }
 
 /**
- * Whether a node draws an OUT port — the wire-drag source.
+ * Whether a node draws an OUT port, the wire-drag source. The port stands for
+ * `target`, the logical TO path a node stamps into the messages it sends
+ * (ADR-7), which is what a dropped wire writes through `connect_node`.
  *
  * @param {Object} n       Graph node.
  * @param {Object} catalog Class catalog keyed by shell name.
- * @return {boolean} True when the node has a target.
+ * @return {boolean} True when the node can carry a target.
  */
 function hasTarget( n, catalog ) {
 	return n.has_target ?? catalog?.[ n.class ]?.has_target ?? true;
 }
 
+/**
+ * The wire between two cards: a cubic bezier leaving the OUT port horizontally
+ * and arriving at the IN port the same way, so which end is the source reads
+ * without following the line. The 60-unit floor on the control offset holds
+ * that S-curve when the two cards nearly touch, and the path stops 6 units
+ * short of the IN port to leave the arrow marker its room.
+ *
+ * @param {Object} a Source node, positioned.
+ * @param {Object} b Destination node, positioned.
+ * @return {string} An SVG path `d`.
+ */
 function edgePath( a, b ) {
 	const { x: x1, y: y1 } = outPort( a );
 	const { x: x2, y: y2 } = inPort( b );
-	// Cubic bezier S-curve so edge source/destination read clearly.
 	const dx = Math.max( 60, Math.abs( x2 - x1 ) * 0.5 );
 	const c1x = x1 + dx;
 	const c2x = x2 - dx;
@@ -116,14 +192,35 @@ function edgePath( a, b ) {
 	},${ y2 }`;
 }
 
-// Fallback canvas size before measurement (jsdom / first render).
+/**
+ * Canvas width in px assumed while the element reports no layout — the first
+ * render, and jsdom.
+ */
 const AUTOFIT_FALLBACK_W = 1280;
+
+/**
+ * Canvas height in px assumed while the element reports no layout.
+ */
 const AUTOFIT_FALLBACK_H = 720;
-// Fraction of the binding dimension the graph fills (fit-all ~90%).
+
+/**
+ * Fraction of the binding canvas dimension a fit-all viewport fills, which
+ * leaves the graph a margin instead of butting it against the frame.
+ */
 const AUTOFIT_FILL = 0.9;
-// Cap on autofit zoom-IN (px/world) so a tiny graph doesn't balloon.
+
+/**
+ * Cap on how far autofit zooms IN, in px per world unit, so a two-node graph
+ * reads as two cards rather than two billboards.
+ */
 const AUTOFIT_MAX_SCALE = 2;
-// World-unit bbox of the nodes; null for empty, || NODE_* guards a zero span.
+
+/**
+ * The world-unit bounding box of the positioned nodes, whole cards included.
+ *
+ * @param {Array<{position:{x:number,y:number}}>} nodes Positioned nodes.
+ * @return {?{minX:number,minY:number,maxX:number,maxY:number,w:number,h:number}} The box, or null for an empty graph. A span of zero falls back to one card, so the scale arithmetic downstream never divides by it.
+ */
 function nodesBBox( nodes ) {
 	if ( ! nodes.length ) {
 		return null;
@@ -148,15 +245,21 @@ function nodesBBox( nodes ) {
 	};
 }
 
-// Zero-delta slack: a resize re-derive drifts ULPs; a real pan moves decades.
+/**
+ * Slack for reading a stored delta as zero. Re-deriving a delta across a resize
+ * drifts by a few ULPs, while a real pan or zoom moves orders of magnitude
+ * further, so nothing lands between the two.
+ */
 const AUTOFIT_DELTA_EPSILON = 1e-6;
 
 /**
- * Whether a stored delta is indistinguishable from `{ 0, 0, 1 }` — the view
- * was never panned or zoomed, so it still IS autofit.
+ * Whether a stored delta is indistinguishable from `{ 0, 0, 1 }`, meaning the
+ * view was never panned or zoomed and so still IS autofit — which is what lets
+ * the canvas keep re-fitting as nodes arrive instead of freezing at the fit it
+ * first landed on.
  *
  * @param {{dcx:number,dcy:number,zoom:number}} delta Stored offset from autofit.
- * @return {boolean} True when the viewport still IS autofit.
+ * @return {boolean} True when the view is still autofit.
  */
 function isAutofitView( delta ) {
 	return (
@@ -166,12 +269,32 @@ function isAutofitView( delta ) {
 	);
 }
 
+/**
+ * Whether two viewBoxes describe the same rect. Exact comparison is enough:
+ * both sides come out of the same autofit arithmetic over the same inputs, so a
+ * difference means the fit itself moved.
+ *
+ * @param {?{x:number,y:number,w:number,h:number}} a One box; a missing box is never equal.
+ * @param {?{x:number,y:number,w:number,h:number}} b The other box.
+ * @return {boolean} True when both exist and every field matches.
+ */
 function boxesEqual( a, b ) {
 	return (
 		!! a && !! b && a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h
 	);
 }
 
+/**
+ * The fit-all viewBox: scale the node bounding box to AUTOFIT_FILL of the
+ * canvas, capped at AUTOFIT_MAX_SCALE, then centre it in the band above the
+ * bottom inset. The box keeps the FULL canvas height, so the graph sits in that
+ * upper band while the transcript overlays the rest.
+ *
+ * @param {Array}                nodes           Positioned nodes; an empty graph takes a canvas-sized box at the origin.
+ * @param {?{w:number,h:number}} [canvasSize]    Measured canvas in px, or null to take the fallback size.
+ * @param {number}               [bottomInsetPx] Bottom band the graph must clear.
+ * @return {string} A `"x y w h"` viewBox.
+ */
 function tightViewBoxFor( nodes, canvasSize = null, bottomInsetPx = 0 ) {
 	const minW = canvasSize?.w || AUTOFIT_FALLBACK_W;
 	const minH = canvasSize?.h || AUTOFIT_FALLBACK_H;
@@ -179,9 +302,7 @@ function tightViewBoxFor( nodes, canvasSize = null, bottomInsetPx = 0 ) {
 	if ( ! bbox ) {
 		return `0 0 ${ minW } ${ minH }`;
 	}
-	// Usable height = canvas minus the bottom obstruction; graph fits above it.
 	const usableH = Math.max( 1, minH - Math.max( 0, bottomInsetPx ) );
-	// Scale to fill AUTOFIT_FILL of the binding dim, capped for tiny graphs.
 	const scale = Math.min(
 		AUTOFIT_MAX_SCALE,
 		AUTOFIT_FILL * Math.min( minW / bbox.w, usableH / bbox.h )
@@ -191,29 +312,63 @@ function tightViewBoxFor( nodes, canvasSize = null, bottomInsetPx = 0 ) {
 	const centerX = ( bbox.minX + bbox.maxX ) / 2;
 	const centerY = ( bbox.minY + bbox.maxY ) / 2;
 	const x = centerX - w / 2;
-	// Center the bbox in the top usable band (else full-canvas center).
+	// Centre the bbox in the usable band, not in the whole canvas.
 	const y = centerY - usableH / ( 2 * scale );
 	return `${ x } ${ y } ${ w } ${ h }`;
 }
 
-// Wheel zoom step (multiplicative), cursor-anchored.
+/**
+ * Multiplicative zoom per wheel notch, applied around the cursor.
+ */
 const ZOOM_STEP = 1.12;
-// How far past the whole-graph fit you can zoom OUT.
+
+/**
+ * How far past the whole-graph fit the wheel zooms OUT, as a fraction of the
+ * fit scale.
+ */
 const ZOOM_MIN = 0.25;
-// Deepest zoom-IN as ABSOLUTE px/world so a giant graph stays card-readable.
+
+/**
+ * Deepest zoom-IN, as an absolute px-per-world scale rather than a multiple of
+ * the fit scale: a huge graph starts fitted so far out that a relative cap
+ * would stop it well short of a readable card.
+ */
 const SCALE_MAX = 3;
-// Floor on-screen node size (px) so a card never drops to a sub-pixel rect.
+
+/**
+ * Floor on a card's on-screen size in px. Below it the card background rounds
+ * to a sub-pixel rect and disappears.
+ */
 const MIN_NODE_PX = 2;
-// Overscan fraction of off-screen nodes each side so panning stays smooth.
+
+/**
+ * Off-screen band rendered each side, as a fraction of the viewport, so a pan
+ * uncovers cards that are already in the DOM.
+ */
 const NODE_OVERSCAN = 0.5;
-// LOD scale below which cards drop to bare rects; passed to viewportCull.
+
+/**
+ * Scale (px per world unit) below which cards drop to bare rects, handed to
+ * `viewportCull` as its `showDetail` threshold.
+ */
 const LOD_DETAIL_SCALE = 0.35;
-// Floor a hair ABOVE the LOD threshold so rounding can't tip cards into LOD.
+
+/**
+ * The scale autofit refuses to reserve transcript room below — a hair above the
+ * LOD threshold, so rounding cannot tip a fit-all view into bare rects.
+ */
 const LOD_FLOOR_SCALE = LOD_DETAIL_SCALE * 1.2;
-// A near-covering transcript counts as "full": frame as if it were CLOSED.
+
+/**
+ * Bottom obstruction, as a fraction of canvas height, at which the transcript
+ * counts as covering the canvas.
+ */
 const TRANSCRIPT_FULL_FRACTION = 0.9;
 
-// Window in which a pointerdown's paired mousedown counts as the same press.
+/**
+ * Window in which a pointerdown and the mousedown paired with it count as one
+ * press.
+ */
 const DOWN_DEDUPE_MS = 50;
 
 /**
@@ -282,9 +437,20 @@ function autofitFor( nodes, canvasPx, obstructionPx ) {
 	return tightViewBoxFor( nodes, size, inset );
 }
 
-// Arrow-key pan: viewport fraction per keypress; shift pans faster.
+/**
+ * Arrow-key pan distance, as a fraction of the viewport per keypress.
+ */
 const PAN_STEP = 0.08;
+
+/**
+ * Arrow-key pan distance while shift is held.
+ */
 const PAN_STEP_FAST = 0.25;
+
+/**
+ * Which way each arrow key pans, as an `[x, y]` unit vector. A key absent from
+ * the table is left to the page.
+ */
 const ARROW_PAN = {
 	ArrowLeft: [ -1, 0 ],
 	ArrowRight: [ 1, 0 ],
@@ -292,19 +458,40 @@ const ARROW_PAN = {
 	ArrowDown: [ 0, 1 ],
 };
 
-// Above this many on-screen edges, suppress the edge-flow anim (raster peg).
+/**
+ * On-screen edge count above which the flow animation is dropped. Every
+ * animated edge repaints, and a canvas full of them pegs the rasteriser long
+ * before the motion tells a reader anything.
+ */
 const EDGE_FLOW_MAX = 40;
 
-// Bloom blur radius in SCREEN px (÷ scale each render for a constant glow).
+/**
+ * Bloom blur radius per skin, in SCREEN px. `bloomStdDev` divides by the
+ * current scale every render, so the glow keeps one size on screen however far
+ * the canvas is zoomed.
+ */
 const BLOOM_STDDEV_PX = { crt: 5, neo: 4 };
-// stdDeviation (world units) for a screen-constant glow; 0 when unmeasured.
+
+/**
+ * The filter's `stdDeviation` in world units, for a glow of constant screen
+ * size.
+ *
+ * @param {number} px    Blur radius in screen px.
+ * @param {number} scale Current px per world unit; Infinity until the canvas is measured.
+ * @return {string|number} The world-unit deviation, or 0 while the scale is unusable — no blur beats a blur of unknown size.
+ */
 function bloomStdDev( px, scale ) {
 	return Number.isFinite( scale ) && scale > 0
 		? ( px / scale ).toFixed( 2 )
 		: 0;
 }
 
-// Parse "x y w h" into an object; safe fallback on malformed input.
+/**
+ * Read a `"x y w h"` viewBox string back into a rect.
+ *
+ * @param {string} str A viewBox attribute value.
+ * @return {{x:number,y:number,w:number,h:number}} The rect, or a fallback-sized box at the origin when the string is malformed.
+ */
 function parseViewBox( str ) {
 	const parts = str.split( /\s+/ ).map( Number );
 	if ( parts.length !== 4 || parts.some( Number.isNaN ) ) {
@@ -313,18 +500,42 @@ function parseViewBox( str ) {
 	return { x: parts[ 0 ], y: parts[ 1 ], w: parts[ 2 ], h: parts[ 3 ] };
 }
 
-// Sparkline area inside each node card, auto-scaled to the window's max.
+/**
+ * Left inset of the card's sparkline, in world units from the card's edge.
+ */
 const SPARK_X = 11;
+
+/**
+ * Top of the sparkline band, in world units from the card's top edge.
+ */
 const SPARK_Y = 48;
+
+/**
+ * Sparkline width: the card less an equal inset each side.
+ */
 const SPARK_W = NODE_W - 2 * SPARK_X;
+
+/**
+ * Sparkline height, and so the plot's full-scale deflection.
+ */
 const SPARK_H = 16;
+
+/**
+ * The card's rate sparkline, scaled to the tallest sample it holds and
+ * right-aligned across the full `RATE_HISTORY_MAX` window: the newest sample
+ * sits at the right edge and a short history walks in from there. Stretching a
+ * short history across the card would make a node with two samples read like a
+ * node with a full minute of them.
+ *
+ * @param {?number[]} history Trailing msg/s samples, oldest first.
+ * @return {?string} An SVG path `d`, or null under two samples — one point makes no line.
+ */
 function sparklinePath( history ) {
 	if ( ! history || history.length < 2 ) {
 		return null;
 	}
 	const max = Math.max( ...history, 1e-9 );
 	const step = SPARK_W / ( RATE_HISTORY_MAX - 1 );
-	// Right-align: newest sample at the right edge, earlier ones walk left.
 	const startIdx = RATE_HISTORY_MAX - history.length;
 	return history
 		.map( ( v, i ) => {
@@ -339,7 +550,10 @@ function sparklinePath( history ) {
 		.join( ' ' );
 }
 
-// Below this msg/s a node reads as idle: no rate label, and a dimmed card.
+/**
+ * Messages per second below which a node reads as idle: no rate label, and in
+ * live mode a dimmed card.
+ */
 const IDLE_RATE_FLOOR = 0.05;
 
 /**
@@ -354,7 +568,13 @@ export function isIdleRate( rate ) {
 	return ! rate || rate < IDLE_RATE_FLOOR;
 }
 
-// Per-node rate label; null below the idle floor, so a dead node shows none.
+/**
+ * The per-card rate label, at the precision the card has room for: whole
+ * messages per second in the hundreds, one decimal in the tens, two below.
+ *
+ * @param {number} [rate] Messages per second for one node.
+ * @return {?string} The label, or null below the idle floor — an idle node shows no rate rather than `0.00 /s`.
+ */
 function formatNodeRate( rate ) {
 	if ( isIdleRate( rate ) ) {
 		return null;
@@ -376,24 +596,24 @@ function formatNodeRate( rate ) {
  * level-of-detail drop to bare rects when cards zoom below readable size.
  * Layout (positions, viewport) comes from LayoutContext, not from props.
  *
- * @param {Object}       props
- * @param {Object}       props.parsed         Graph to draw: `{ nodes, edges }`. Only nodes carrying a position override are rendered.
- * @param {?string}      props.selectedId     Id of the selected node, or null.
- * @param {Function}     props.onSelect       (id) — a card was clicked without dragging.
- * @param {Function}     props.onDeselect     () — the background was clicked while something was selected.
- * @param {?string}      props.hoveredId      Id of the hovered node; lifted so the Inspector drives the same highlight.
- * @param {Function}     props.onHover        (id|null) — the pointer entered or left a card.
- * @param {Object}       props.rateRef        `useGraphRates` ref; `.current` maps node id → `{ rate, history, … }`. Omitted in edit mode, which paints no rates.
- * @param {?Object}      props.viewportDelta  Stored `{ dcx, dcy, zoom }` offset from autofit, applied once the first autofit is known.
- * @param {Function}     props.onConnect      (fromId, toId) — a wire was dropped on an IN port. Omitted disables wire drags.
- * @param {boolean}      [props.interactive]  Gate for every gesture (default true).
- * @param {boolean}      [props.editMode]     Draft-only affordances: edge hit-targets and the wire-source port styling (default false).
- * @param {?Object}      [props.selectedEdge] The selected edge as `{ from, to }`, or null.
- * @param {Function}     [props.onSelectEdge] ({ from, to }) — an edge hit-target was clicked (edit mode only).
- * @param {?Set<string>} [props.driftIds]     Node ids live in the worker but absent from the .tsl; painted `is-drift`. null = no drift info.
- * @param {Array}        [props.hulls]        One soft hull per include, at any depth: `{ include, nodeIds, depth }[]`.
- * @param {?string}      [props.selectedHull] Include name of the selected hull, or null.
- * @param {Function}     [props.onSelectHull] (include) — a hull was pressed.
+ * @param {Object}                                  props
+ * @param {Object}                                  props.parsed         Graph to draw: `{ nodes, edges }`. Only nodes carrying a position override are rendered.
+ * @param {?string}                                 props.selectedId     Id of the selected node, or null.
+ * @param {(id: string) => void}                    props.onSelect       A card was clicked without dragging.
+ * @param {() => void}                              props.onDeselect     The background was clicked while something was selected — a node, an edge or a hull.
+ * @param {?string}                                 props.hoveredId      Id of the hovered node; lifted so the Inspector drives the same highlight.
+ * @param {(id: string|null) => void}               props.onHover        The pointer entered a card, or left one.
+ * @param {Object}                                  props.rateRef        `useGraphRates` ref whose `.current` is a Map from node id to `{ rate, history, … }`. Omitted in edit mode, which has no rates to paint.
+ * @param {?Object}                                 props.viewportDelta  Stored `{ dcx, dcy, zoom }` offset from autofit, applied once the first autofit is known.
+ * @param {Function}                                props.onConnect      (fromId, toId) — a wire was dropped on an IN port. Omitting it disables wire drags.
+ * @param {boolean}                                 [props.interactive]  Gate for every gesture. Default true.
+ * @param {boolean}                                 [props.editMode]     Draft-only affordances: the edge hit-targets and the wire-source port styling. Default false.
+ * @param {?Object}                                 [props.selectedEdge] The selected edge as `{ from, to }`, or null.
+ * @param {(edge: {from:string,to:string}) => void} [props.onSelectEdge] An edge hit-target was clicked; edit mode only.
+ * @param {?Set<string>}                            [props.driftIds]     Node ids that exist in the worker but not in the .tsl, painted `is-drift`. Null means no drift information.
+ * @param {Array}                                   [props.hulls]        One soft hull per include, at any depth: `{ include, nodeIds, depth }[]`.
+ * @param {?string}                                 [props.selectedHull] Include name of the selected hull, or null.
+ * @param {(include: string) => void}               [props.onSelectHull] A hull was pressed.
  * @return {import('react').ReactElement} The canvas `<svg>`.
  */
 export default function SchematicCanvas( {
@@ -405,15 +625,12 @@ export default function SchematicCanvas( {
 	onHover,
 	rateRef,
 	viewportDelta,
-	// interactive gates gestures; editMode gates only draft-only affordances.
 	onConnect,
 	interactive = true,
 	editMode = false,
 	selectedEdge = null,
 	onSelectEdge,
-	// Ids live but NOT in the .tsl (runtime drift); painted via `is-drift`.
 	driftIds = null,
-	// One soft hull per include, at ANY depth: { include, nodeIds }.
 	hulls = [],
 	selectedHull = null,
 	onSelectHull,
@@ -466,7 +683,7 @@ export default function SchematicCanvas( {
 		[ parsed, positionOverrides ]
 	);
 
-	// Mirror of `nodes` for the freeze effect (keyed on length).
+	// Committed nodes, for the effects that read them without listing them.
 	const nodesRef = useRef( nodes );
 	nodesRef.current = nodes;
 
@@ -494,9 +711,9 @@ export default function SchematicCanvas( {
 		displayNodes.forEach( ( n ) => map.set( n.id, n ) );
 		return map;
 	}, [ displayNodes ] );
-	// Autofit viewBox for current nodes+canvas; setViewport + freeze share it.
+	// The autofit box a persisted viewport delta is measured against.
 	const autofitBoxRef = useRef( null );
-	// Parent viewport; null = autofit. Persisted as a delta from autofit.
+	// Commit a viewport, and with it its delta from the current autofit.
 	const setViewport = useCallback(
 		( vp ) => {
 			if ( ! onViewportChange ) {
@@ -521,7 +738,7 @@ export default function SchematicCanvas( {
 	const portDownGuard = useRef( null );
 	portDownGuard.current ||= makeDownGuard();
 
-	// SVG ref for projecting HTML drop coords back into viewBox space.
+	// The <svg>: canvas measurement, the wheel listener, and projection.
 	const svgRef = useRef( null );
 
 	// Wire-drag state; port hits stopPropagation so this and pan don't fight.
@@ -673,7 +890,7 @@ export default function SchematicCanvas( {
 		Number.isFinite( scale ) && scale > 0 ? MIN_NODE_PX / scale : 0;
 	const nodeRenderW = Math.max( NODE_W, minNodeWorld );
 	const nodeRenderH = Math.max( NODE_H, minNodeWorld );
-	// Cache autofit so persist + freeze share one basis.
+	// Re-derive that basis whenever the nodes or the canvas move.
 	useEffect( () => {
 		autofitBoxRef.current = parseViewBox(
 			autofitFor( nodesRef.current, canvasPx, bottomObstructionPx )
@@ -735,7 +952,7 @@ export default function SchematicCanvas( {
 		}
 		const vp = viewportRef.current;
 		if ( ! vp ) {
-			// Uncontrolled/not-frozen: the null-viewport path already re-fits.
+			// Uncontrolled: the fit-once effect above re-fits on its own.
 			prevSurfaceRef.current = cur;
 			return;
 		}
@@ -757,7 +974,7 @@ export default function SchematicCanvas( {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [ canvasPx, bottomObstructionPx ] );
 
-	// hoveredId is lifted so the Inspector can drive the same highlight.
+	// Guarded, so a mount that wants no hover reporting can omit onHover.
 	const setHovered = ( id ) => {
 		if ( onHover ) {
 			onHover( id );
@@ -989,7 +1206,7 @@ export default function SchematicCanvas( {
 			);
 		}
 		setDrag( null );
-		// Reset click-suppress flag next microtask (click still sees drag).
+		// Reset the click-suppress flag once the click has read it.
 		const wasDragged = draggedRef.current;
 		setTimeout( () => {
 			draggedRef.current = wasDragged ? true : false;
@@ -1073,7 +1290,13 @@ export default function SchematicCanvas( {
 		}
 	};
 
-	// One node card; all visible cards share the single bloom-filtered group.
+	/**
+	 * One node card. Every visible card renders into the one bloom-filtered
+	 * group, so the glow costs a single blur pass rather than one per card.
+	 *
+	 * @param {Object} n A positioned node from `displayNodes`.
+	 * @return {import('react').ReactElement} The card's `<g>`.
+	 */
 	const renderNode = ( n ) => {
 		const isSelected = n.id === selectedId;
 		const isHovered = n.id === hoveredId;
@@ -1136,7 +1359,7 @@ export default function SchematicCanvas( {
 				{ /* Labels/ports/spark only when zoomed in. */ }
 				{ showDetail && (
 					<>
-						{ /* Ports on the card edge, outside the clip. */ }
+						{ /* Labels clipped to the card; ports sit outside. */ }
 						<g clipPath="url(#topology-node-clip)">
 							{ /* Title band behind type/id; per-skin fill. */ }
 							<rect
@@ -1175,7 +1398,6 @@ export default function SchematicCanvas( {
 									⏸
 								</text>
 							) }
-							{ /* Borrowed via `include`: locked, but its wiring stays editable. */ }
 							{ isBorrowed && (
 								<text
 									className="topology-node__lock"
@@ -1542,7 +1764,7 @@ export default function SchematicCanvas( {
 						);
 						( stub ? plainEdges : bloomEdges ).push( el );
 					} );
-					// Too many on-screen edges → drop flow animation.
+					// Past EDGE_FLOW_MAX the flow animation drops out.
 					const still =
 						bloomEdges.length + plainEdges.length > EDGE_FLOW_MAX
 							? ' topology-edges--still'

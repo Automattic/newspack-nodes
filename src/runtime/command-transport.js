@@ -1,8 +1,13 @@
 /**
- * The `/command` transport — POST a batch of packed Messages, route what comes
- * back. HttpOut's own wire, factored out of it only so the file stays readable:
- * there is no client CLASS any more, because there was never a second
- * implementation and the one seam anybody used was a test double.
+ * The `/command` egress: POST a batch of packed Messages, hand back the replies
+ * for HttpOut to route. It is HttpOut's wire, kept in its own file so that node
+ * stays readable, and a plain object carrying one method, so a substitute is an
+ * object literal rather than a subclass.
+ *
+ * It signs nothing. The node that MINTS a command signs it (ADR-15); a
+ * transport signing on the way out would confer authority on whatever reached
+ * the egress. Replies need no correlation either: the server answers TO = FROM,
+ * so each one is already addressed to the node that asked (ADR-7).
  *
  * A refusal answers each command the way the server would (`TM_ERROR`,
  * `TO = FROM`) rather than resolving empty, which a caller cannot tell from the
@@ -26,10 +31,29 @@ import { Core } from './core';
 import { IoTelemetry, byteLength } from './io-telemetry';
 import { nodesData, refreshNodesNonce } from './nodes-data';
 
-// JSONL body, so NOT application/json (WP would reject the newlines).
+/**
+ * Content type of the batch POST.
+ *
+ * JSONL is not one JSON document, so the body must never be declared
+ * `application/json`: WordPress parses that content type itself and answers
+ * `rest_invalid_json` before `Http_In` is ever reached.
+ */
 const COMMAND_CONTENT_TYPE = 'text/plain; charset=UTF-8';
 
-// The `code` off a WP REST error body ('rest_no_route'), or '' if unreadable.
+/**
+ * What a boundary node's `client` must provide: POST a batch as JSONL and
+ * resolve the replies it earns.
+ *
+ * @typedef {Object} CommandTransport
+ * @property {(messages: Array<Array>, packed?: Array<string>) => Promise<Array<Array>>} postBatch The batch POST.
+ */
+
+/**
+ * The `code` a WP REST error body carries, such as `rest_no_route`.
+ *
+ * @param {string} text The raw response body.
+ * @return {string} The code, or '' when the body is not a readable REST error.
+ */
 function restErrorCode( text ) {
 	try {
 		return JSON.parse( text )?.code ?? '';
@@ -95,13 +119,15 @@ function refusalReply( sent, status, code ) {
 }
 
 /**
- * A transport bound to one REST base + nonce.
+ * A transport bound to one REST base and nonce.
  *
- * @param {Object}    o
- * @param {string}    o.baseUrl      REST root, e.g. `/wp-json/`.
- * @param {string}    o.nonce        WP REST nonce.
- * @param {?Function} [o.renewNonce] Async nonce refresh, for a stale-nonce retry.
- * @return {{ postBatch: Function }} The transport HttpOut drives.
+ * @param {Object}                 o              The binding.
+ * @param {string}                 o.baseUrl      REST root, e.g. `/wp-json/`.
+ * @param {string}                 o.nonce        WP REST nonce.
+ * @param {?() => Promise<string>} [o.renewNonce] Async nonce refresh, for a
+ *                                                stale-nonce retry. Absent
+ *                                                means one attempt only.
+ * @return {CommandTransport} The transport HttpOut drives.
  */
 export function commandTransport( { baseUrl, nonce, renewNonce = null } ) {
 	let currentNonce = nonce;
@@ -110,15 +136,15 @@ export function commandTransport( { baseUrl, nonce, renewNonce = null } ) {
 	 * POST one body, returning the replies AND why it was refused, if it was.
 	 *
 	 * The refusal travels with the result of the attempt that earned it. Held
-	 * in a closure instead, it outlived a nonce-renewal retry: a recovered 403
-	 * then answered a successful 202 — whose body is empty, exactly like a
+	 * in a closure it would outlive a nonce-renewal retry, so a recovered 403
+	 * would answer the retry's 202 — whose body is empty, exactly like a
 	 * refusal — with a fabricated TM_ERROR per command.
 	 *
 	 * @param {string}  body            JSONL, one packed Message per line.
 	 * @param {number}  outCount        Message count, for boundary accounting.
 	 * @param {boolean} [mayRenewNonce] False on the retry, so it renews once.
-	 * @return {Promise<{messages: Array<Array>, refusal: ?Object}>} Replies,
-	 *   and the refusal when the substrate turned the batch away.
+	 * @return {Promise<{messages: Array<Array>, refusal: ?{status: number, code: string}}>}
+	 *   Replies, and the refusal when the substrate turned the batch away.
 	 */
 	const post = async ( body, outCount, mayRenewNonce = true ) => {
 		// Outbound boundary accounting: request bytes + message count.
@@ -182,8 +208,9 @@ export function commandTransport( { baseUrl, nonce, renewNonce = null } ) {
 		 * @param {Array<string>} [packed] Pre-packed lines (same order) — HttpOut
 		 *                                 packs each to size its write, so it passes
 		 *                                 them rather than serializing twice.
-		 * @return {Promise<Array<Array>>} Every reply in the JSONL body; empty when
-		 *   the command was routed onward (202).
+		 * @return {Promise<Array<Array>>} Every reply the JSONL body carries, one
+		 *   fabricated refusal per command when the batch was turned away, and empty
+		 *   when the server routed the batch onward (202).
 		 */
 		async postBatch( messages, packed ) {
 			const lines = packed ?? messages.map( ( m ) => pack( m ) );
@@ -210,7 +237,7 @@ export function commandTransport( { baseUrl, nonce, renewNonce = null } ) {
  * The transport bound to the PHP-localized `window.NewspackNodesData`. HttpOut
  * defaults to this, so a palette-drop never needs the nonce threaded in.
  *
- * @return {{ postBatch: Function }} A transport on the localized base + nonce.
+ * @return {CommandTransport} A transport on the localized base and nonce.
  */
 export function defaultTransport() {
 	const { restUrl, nonce } = nodesData();

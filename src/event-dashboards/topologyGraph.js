@@ -1,32 +1,55 @@
 /**
- * Pure builder: the `.tsl` graph (`dump_graph.graph`) supplies tree STRUCTURE;
- * worker rows + the logs catalog supply the STATUS overlay.
+ * Builds the entity tree a topology's dashboard section draws.
  *
- * Per topology, the raw graph collapses into a log-centric vertex graph: a
- * `consumer` node becomes its `reads` log, a `partition`/`topic`/`log` becomes
- * its `writes` log, a `tee` is contracted out, and a `logic` node stays itself.
- * Roots are in-degree-0 vertices; an alpha-DFS with a cycle guard yields the
- * tree. Collapse keys ONLY on the emitted `kind`/`reads`/`writes` fields —
- * never on node-name suffixes. Within any sibling list, convergent logic
- * siblings (same non-empty downstream set — even a shared log) join onto one
- * entity so the shared subtree is built once; a log repeats only across
- * different subtrees / generations, never for same-level siblings.
+ * The `.tsl` graph (`dump_graph.graph`) supplies the tree STRUCTURE, and the
+ * worker rows plus the logs catalog supply the STATUS overlay. Every function
+ * here is pure, so a view node rebuilds the whole tree from each snapshot and
+ * holds no state of its own.
+ *
+ * Per topology the raw graph collapses into a log-centric vertex graph: a
+ * `consumer` node becomes its `reads` log, a `partition`, `topic` or `log`
+ * node becomes its `writes` log, a `tee` is contracted out, and a `logic` node
+ * stays itself. Roots are the in-degree-0 vertices, and a depth-first walk
+ * with a cycle guard yields the tree, every sibling list alphabetical.
+ *
+ * The collapse keys ONLY on the emitted `kind`/`reads`/`writes` fields, never
+ * on a node-name suffix, so what a topology author calls a node cannot change
+ * the shape of the tree. Within a sibling list, convergent logic siblings —
+ * those sharing one non-empty downstream set, a shared log included — join
+ * onto a single entity, so the subtree below them is built once. A log
+ * therefore repeats across branches and generations, never within one sibling
+ * list.
  */
 
-// Paths carry `<partition>` or a Topic's `{partition}` — match either.
+/**
+ * Both spellings a partition token takes in a `.tsl` path.
+ *
+ * A Consumer's path argument carries `<partition>`, while a Topic names its
+ * own partitions with `{partition}`. Both reach the dashboard verbatim, so
+ * every reader here matches either.
+ */
 const PARTITION_TOKENS = [ '<partition>', '{partition}' ];
+
+/** The fleet-name token a reader's offsetlog path carries. */
 const TOPOLOGY_TOKEN = '<topology>';
+
+/**
+ * The partition token a vertex carries, or null when it carries none.
+ *
+ * @param {string} vertex A graph vertex name or path template.
+ * @return {?string} The token found, in `PARTITION_TOKENS` order.
+ */
 const partitionTokenIn = ( vertex ) =>
 	PARTITION_TOKENS.find( ( t ) => vertex.includes( t ) ) ?? null;
 
 /**
- * Bind a `.tsl` path template the way Topology_Loader does: every partition
+ * Bind a `.tsl` path template the way `Topology_Loader` does: every partition
  * token, plus `<topology>` when a fleet name is supplied.
  *
  * ONE substituter over ONE token list. An offsetlog is a reader's cursor and
- * the reader is the FLEET, so reader templates carry `<topology>`: binding only
- * the partition left `firehose.<topology>.p0` never matching the live
- * `firehose.combined.p0`, which cost every segment bar its cursor.
+ * the reader is the FLEET, so a reader template carries `<topology>` too:
+ * binding the partition alone leaves `firehose.<topology>.p0`, which matches
+ * no live `firehose.combined.p0` and costs every segment bar its cursor.
  *
  * @param {string}        template            Path template.
  * @param {Object}        bindings            What to bind.
@@ -46,30 +69,36 @@ export function substituteTokens( template, { partition, topology } ) {
 }
 
 /**
- * Concrete catalog entries a log VERTEX resolves to, with each match's partition
- * NUMBER, layout-agnostic and parse-free of position. `graph_for` emits the
- * writes/reads basename verbatim from the .tsl path arg, so a partitioned vertex
- * carries the literal `<partition>` token wherever it sits (`firehose.p<partition>`,
- * `<partition>-req`, …). A concrete catalog entry matches when the vertex's literal
- * text brackets it (pre…post) AND the substituted middle is a non-empty all-digits
- * string (the partition NUMBER). That digit check — not a position parse — is what
- * keeps a token-at-end vertex (`firehose.p<partition>`, pre `firehose.p`) from
- * grabbing a sibling `firehose.priority.p0` whose middle would be `riority.p0`. The
- * middle digits ARE the partition value (the substituted token VALUE). A token-free
- * vertex (a Log sink `digest.md`, a clean logical name) matches only its exact
- * catalog twin (partition 0); if nothing matches we fall back to the vertex itself
- * so the tree still shows the node.
+ * The concrete catalog entries a log VERTEX resolves to, each with its
+ * partition NUMBER.
+ *
+ * `Topology_Analyzer::graph_for` emits the `reads`/`writes` basename verbatim
+ * from the `.tsl` path argument, so a partitioned vertex carries the literal
+ * partition token wherever the author put it: `firehose.p<partition>`,
+ * `<partition>-req`, and anything else. A catalog entry matches when the text
+ * on either side of the token brackets it AND the middle it substitutes for is
+ * a non-empty run of digits, which is the partition number itself.
+ *
+ * The digit test, rather than a parse of the token's position, is what keeps
+ * `firehose.p<partition>` from claiming a sibling `firehose.priority.p0`,
+ * whose middle would read `riority.p0`. It also keeps the reader free of any
+ * `.p{N}` assumption: the layout lives in the `.tsl` path, never here.
+ *
+ * A token-free vertex — a `Log` sink such as `digest.md` — is already its own
+ * concrete name, so it resolves against the entry spelled exactly that and
+ * never a near neighbour like `digest.markdown`. When nothing matches, the
+ * vertex stands in for itself so the tree still draws the log.
  *
  * @param {string}   vertex       The graph log-vertex name.
  * @param {string[]} catalogNames All concrete catalog entry names.
- * @return {Array<{name:string,partition:number}>} Matches (partition-sorted), or [{name:vertex,partition:0}].
+ * @return {Array<{name:string,partition:number}>} The matches, partition-ordered, or the vertex itself at partition 0.
  */
 function concreteLogNames( vertex, catalogNames ) {
 	const token = partitionTokenIn( vertex );
 	if ( null === token ) {
 		return [ { name: vertex, partition: 0 } ];
 	}
-	// Multi-token vertex (unrealistic): pre=before first, post=after last.
+	// A multi-token vertex brackets on its first and its last token.
 	const tokenAt = vertex.indexOf( token );
 	const lastTokenAt = vertex.lastIndexOf( token );
 	const pre = vertex.slice( 0, tokenAt );
@@ -95,11 +124,15 @@ function concreteLogNames( vertex, catalogNames ) {
 }
 
 /**
- * The LOGICAL display name for a log VERTEX: the `<partition>` token removed plus
- * one flanking separator cleaned. `firehose.p<partition>` → `firehose`,
- * `<partition>-req` → `req`, token-free `digest.md` → `digest.md`. Display-only
- * heuristic: a partition-bearing log renders as ONE logical entity, its concrete
- * partitions as sub-rows.
+ * The LOGICAL display name of a log VERTEX: the partition token removed, along
+ * with the separator flanking it.
+ *
+ * `firehose.p<partition>` reads as `firehose`, `<partition>-req` as `req`, and
+ * a token-free `digest.md` as itself. A partition-bearing log draws as ONE
+ * entity with its concrete partitions as sub-rows, and this is that entity's
+ * name — display only, never a key anything resolves by. Stripping everything
+ * would leave an unnamed row, so a vertex made entirely of token and
+ * separators keeps its literal text.
  *
  * @param {string} vertex The graph log-vertex name.
  * @return {string} The token-stripped logical name.
@@ -123,19 +156,29 @@ function logicalLogName( vertex ) {
 	return '' !== name ? name : vertex;
 }
 
-// @longform Resolve a graph log vertex for one worker partition. Worker rows
-// carry the concrete probe source, while a tree branch keeps the TSL tokenized
-// vertex.
+/**
+ * Bind a graph log vertex to one worker's partition.
+ *
+ * A worker row names the concrete log it probes, while the branch above it
+ * keeps the tokenized `.tsl` vertex; binding the vertex is what lets the two
+ * be compared.
+ *
+ * @param {string}        vertex    The tokenized log vertex.
+ * @param {number|string} partition The worker's partition index.
+ * @return {string} The concrete log name.
+ */
 const concreteLogForPartition = ( vertex, partition ) =>
 	substituteTokens( vertex, { partition } );
 
 /**
- * Contract every `tee` out of an edge list: the pair x→T, T→y becomes the
- * direct edge x→y, repeated until no edge touches a tee.
+ * Contract every `tee` out of an edge list, so each pair of edges through a
+ * tee becomes one direct edge, repeated until no edge touches a tee.
  *
- * Both readers of a `.tsl` graph must land on the same collapsed vertices —
- * `collapseGraph` renders them and `reconstructWorkers.consumerHandlers`
- * attributes worker rows to them — so the rewrite has ONE implementation.
+ * A Tee is fan-out plumbing rather than work a reader tracks, so the tree
+ * draws what a branch actually feeds. Both readers of a `.tsl` graph have to
+ * land on the same collapsed vertices — `collapseGraph` renders them and
+ * `reconstructWorkers.consumerHandlers` attributes worker rows to them — so
+ * the rewrite has ONE implementation.
  *
  * @param {Array<Array<string>>}        rawEdges `[ from, to ]` pairs; never mutated.
  * @param {( name: string ) => boolean} isTee    True for a tee vertex.
@@ -158,7 +201,22 @@ export function contractTees( rawEdges, isTee ) {
 	return edges;
 }
 
+/**
+ * The lowercase form of a name, for case-insensitive ordering.
+ *
+ * @param {string} s The name to fold.
+ * @return {string} Its lowercase form.
+ */
 const lc = ( s ) => String( s ).toLowerCase();
+
+/**
+ * Order two names case-insensitively, so a sibling list reads alphabetically
+ * whatever case a topology file spells each node in.
+ *
+ * @param {string} a The first name.
+ * @param {string} b The second name.
+ * @return {number} The comparison `Array.prototype.sort` wants.
+ */
 const byLower = ( a, b ) => {
 	const x = lc( a );
 	const y = lc( b );
@@ -169,10 +227,17 @@ const byLower = ( a, b ) => {
 };
 
 /**
- * Collapse workers into steps keyed by (type, handler, source).
+ * Collapse worker rows into steps keyed by type, handler and source.
  *
- * @param {Array} workers Worker descriptors.
- * @return {Array} Step descriptors with merged worker rows.
+ * The key omits the partition, so every partition of one handler reading one
+ * source lands in a single step. `collectLogPartitions` reads a step's rows
+ * for the cursor of each partition, and its fallback tiers return the first
+ * step that yields any: keyed per partition, a log would show one partition
+ * and drop the rest. A step takes its `inputs` and `outputs` from the first
+ * row of its key, which names the same source log as every other row there.
+ *
+ * @param {Array<Object>} workers Worker descriptors.
+ * @return {Array<Object>} One step per key, each carrying its worker rows.
  */
 function buildSteps( workers ) {
 	const byKey = new Map();
@@ -197,19 +262,28 @@ function buildSteps( workers ) {
 }
 
 /**
- * Resolve a log's partition list + cursor flag. Ported from WorkerStatus.js's
- * `collectLogPartitions` (cursor-merge / canonical-slot / worker-data fallback);
- * the locals it closed over are read off `ctx` instead.
+ * Resolve one log's partition slots, and whether a reader's cursor rides along.
  *
- * @param {string} logName The log file name.
- * @param {Object} ctx     { stepByKey, producers, consumers, logSlotsByName }.
- * @return {Object} { partitions, hasCursor }.
+ * Three tiers, in order. The canonical catalog slots win, each merged with the
+ * cursor and recorded end that this topology's own consumer probed. A log with
+ * no catalog entry falls back to the consuming workers' `inputs_status`, which
+ * is what a partition directory that does not exist yet looks like. A log
+ * nothing reads falls back to the producing workers' `outputs_status`, which
+ * carries segments but no cursor.
+ *
+ * Only THIS topology's workers are read, because two topologies reading one
+ * log sit at different cursors; merging them would drag both segment bars to
+ * whichever one renders last.
+ *
+ * @param {string} logName The concrete log name.
+ * @param {Object} ctx     `{ stepByKey, producers, consumers, logSlotsByName }`, built by `buildTopologySections`.
+ * @return {{partitions:Array<Object>,hasCursor:boolean}} The slots, and true when one carries a cursor.
  */
 function collectLogPartitions( logName, ctx ) {
 	const { stepByKey, producers, consumers, logSlotsByName } = ctx;
 	const consumerKeys = consumers.get( logName ) || [];
 
-	// Cursor + probe end per partition, from THIS topology's own worker.
+	// Cursor and probe end per partition, from THIS topology's worker.
 	const probeByPartition = new Map();
 	let hasCursor = false;
 	for ( const ckey of consumerKeys ) {
@@ -299,12 +373,22 @@ function collectLogPartitions( logName, ctx ) {
 /**
  * Collapse one topology's raw `.tsl` graph into a log-centric vertex graph.
  *
- * Maps each node to a vertex (consumer→reads log, partition/topic/log→writes
- * log, logic→itself), contracts every tee (in×out → direct edges) until none remain,
- * then resolves endpoints, drops self-loops, and dedups edges.
+ * A `consumer` maps to the log it reads, a `partition`, `topic` or `log` to
+ * the log it writes, and every other node to itself; a `tee` contracts out.
+ * Distinct nodes therefore share a vertex whenever they name one log, which is
+ * what draws two writers of `jobs.log` as one branch instead of two.
+ *
+ * Endpoints resolve after the contraction, then self-loops drop and duplicate
+ * edges collapse. A direct edge from a log's reader to its writer would
+ * otherwise leave that vertex pointing at itself, taking its in-degree-0 root
+ * status with it and leaving the topology with no root to draw.
+ *
+ * A node that names no log — a `consumer` with an empty `reads` — has no
+ * vertex, so it and every edge touching it drop out with it.
  *
  * @param {Object} graphTopo `{ nodes:[{name,kind,reads?,writes?}], edges:[[from,to]] }`.
- * @return {Object} `{ outAdj, inDegree, isLog }` over the vertex set.
+ * @return {{outAdj:Map<string,Set<string>>,inDegree:Map<string,number>,isLog:Map<string,boolean>}} The vertex
+ *   set: out-neighbours, in-degree, and whether each vertex is a log rather than a logic node.
  */
 function collapseGraph( graphTopo ) {
 	const nodes = Array.isArray( graphTopo?.nodes ) ? graphTopo.nodes : [];
@@ -378,10 +462,16 @@ function collapseGraph( graphTopo ) {
 /**
  * Build one node/log tree section per topology.
  *
- * @param {Object} graph       `dump_graph.graph` keyed by topology.
- * @param {Array}  workers     Worker descriptors (status overlay).
- * @param {Array}  logsCatalog Top-level `logs` array (canonical per-log slots).
- * @return {Array} Sections `[{ topology, workers, tree }]`, alpha-sorted by topology.
+ * A section carries its topology's own worker rows and a `tree` of entities.
+ * A `node` entity holds the rows of the branch that reaches it; a `log` entity
+ * holds one row per concrete partition, the segment size those rows scale to,
+ * and whether a reader's cursor rides along. Every entity carries a
+ * topology-scoped `key` the dashboards fold on, and a `children` array.
+ *
+ * @param {Object}        graph         `dump_graph.graph`, keyed by topology.
+ * @param {Array<Object>} workers       Worker descriptors: the status overlay.
+ * @param {Array<Object>} [logsCatalog] The top-level `logs` array, holding the canonical per-log slots.
+ * @return {Array<{topology:string,workers:Array<Object>,tree:Array<Object>}>} One section per topology, alphabetical.
  */
 export function buildTopologySections( graph, workers, logsCatalog = [] ) {
 	const logSlotsByName = new Map();
@@ -406,7 +496,7 @@ export function buildTopologySections( graph, workers, logsCatalog = [] ) {
 		const tWorkers = byType.get( topology ) || [];
 		const { outAdj, inDegree, isLog } = collapseGraph( graphTopo );
 
-		// Status-overlay: worker rows keyed for collectLogPartitions.
+		// Index the worker rows the way collectLogPartitions reads them.
 		const steps = buildSteps( tWorkers );
 		const stepByKey = new Map( steps.map( ( s ) => [ s.key, s ] ) );
 		const producers = new Map();
@@ -434,6 +524,19 @@ export function buildTopologySections( graph, workers, logsCatalog = [] ) {
 			}
 			workersByHandler.get( handler ).push( wk );
 		} );
+		/**
+		 * The worker rows this branch's handler owns.
+		 *
+		 * A handler fed by two logs — a `job-router` reading both `firehose` and
+		 * `jobintake` — carries one row per source, and each row belongs under the
+		 * log that feeds it. The nearest log ancestor on the path, bound to the
+		 * row's own partition, is that test. A row naming no source stays on every
+		 * branch, as does every row when no log sits above the handler at all.
+		 *
+		 * @param {string}      handler The vertex name, which is also the handler name.
+		 * @param {Set<string>} path    The vertices from the root down to this one's parent.
+		 * @return {Array<Object>} The rows to hang on this entity.
+		 */
 		const workersForBranch = ( handler, path ) => {
 			const workersForHandler = workersByHandler.get( handler ) || [];
 			const upstreamLog = [ ...path ]
@@ -451,12 +554,38 @@ export function buildTopologySections( graph, workers, logsCatalog = [] ) {
 		};
 
 		const catalogNames = [ ...logSlotsByName.keys() ];
+		/**
+		 * One vertex's out-neighbours.
+		 *
+		 * @param {string} vertex The vertex to expand.
+		 * @return {string[]} Its children, case-insensitively sorted.
+		 */
 		const childrenOf = ( vertex ) =>
 			[ ...( outAdj.get( vertex ) || [] ) ].sort( byLower );
+		/**
+		 * Build one vertex's entity, as a log or as a node.
+		 *
+		 * @param {string}      vertex The vertex to draw.
+		 * @param {Set<string>} path   The vertices from the root down to its parent.
+		 * @param {string}      prefix The parent entity's key.
+		 * @return {Object} The entity.
+		 */
 		const makeVertex = ( vertex, path, prefix ) =>
 			isLog.get( vertex )
 				? makeLog( vertex, path, prefix )
 				: makeNode( vertex, path, prefix );
+		/**
+		 * Build one entity's children, ending the branch on a cycle.
+		 *
+		 * A vertex already on the path is its own ancestor, so descending into it
+		 * again would never return. The branch stops there and the rest of the
+		 * topology still draws.
+		 *
+		 * @param {string}      vertex    The entity's own vertex.
+		 * @param {Set<string>} path      The vertices from the root down to its parent.
+		 * @param {string}      parentKey The entity's key, which prefixes each child's.
+		 * @return {Array<Object>} The child entities, or none on a cycle.
+		 */
 		const makeKids = ( vertex, path, parentKey ) => {
 			if ( path.has( vertex ) ) {
 				return [];
@@ -468,11 +597,25 @@ export function buildTopologySections( graph, workers, logsCatalog = [] ) {
 			);
 		};
 
-		// Out-neighbor signature; convergent siblings share downstream.
+		/**
+		 * The out-neighbour signature convergent siblings share.
+		 *
+		 * @param {string} vertex The vertex to sign.
+		 * @return {string} Its sorted out-neighbours, JSON-encoded.
+		 */
 		const signatureOf = ( vertex ) =>
 			JSON.stringify( [ ...( outAdj.get( vertex ) || [] ) ].sort() );
 
-		// Join logic siblings converging on the same non-empty subtree.
+		/**
+		 * May these same-signature siblings draw as one entity?
+		 *
+		 * Only logic vertices join, and only when they share a downstream. Two
+		 * logs with one downstream are still two logs, each with its own segments
+		 * and cursor, and leaves that feed nothing have no shared subtree to save.
+		 *
+		 * @param {string[]} members Siblings sharing an out-neighbour signature.
+		 * @return {boolean} True when they render as one entity.
+		 */
 		const joinable = ( members ) => {
 			if ( members.length < 2 ) {
 				return false;
@@ -483,7 +626,17 @@ export function buildTopologySections( graph, workers, logsCatalog = [] ) {
 			);
 		};
 
-		// Emit a sibling list, joining convergent logic-only groups.
+		/**
+		 * Build one sibling list, joining each convergent logic group.
+		 *
+		 * Grouping by kind and signature is what keeps the subtree below a
+		 * convergence from being built once per sibling that feeds it.
+		 *
+		 * @param {string[]}    siblings The vertices at this level.
+		 * @param {Set<string>} path     The vertices from the root down to their parent.
+		 * @param {string}      prefix   The parent entity's key.
+		 * @return {Array<Object>} The entities, alphabetical.
+		 */
 		const makeSiblings = ( siblings, path, prefix ) => {
 			const groups = new Map();
 			siblings.forEach( ( vertex ) => {
@@ -507,9 +660,33 @@ export function buildTopologySections( graph, workers, logsCatalog = [] ) {
 			} );
 			return entities.sort( byName );
 		};
-		// Position key = topology + tree path; the topology scopes every key.
+		/**
+		 * One entity's fold key: its parent's key, then its own id.
+		 *
+		 * The chain starts at the topology name, so every key is scoped to its
+		 * topology.
+		 *
+		 * @param {string} prefix The parent's key, or the topology at a root.
+		 * @param {string} id     The vertex name, or the joined members.
+		 * @return {string} The key the dashboards fold on.
+		 */
 		const childKey = ( prefix, id ) => `${ prefix }>${ id }`;
+		/**
+		 * Order two entities by name, case-insensitively.
+		 *
+		 * @param {{name:string}} a The first entity.
+		 * @param {{name:string}} b The second entity.
+		 * @return {number} The comparison `Array.prototype.sort` wants.
+		 */
 		const byName = ( a, b ) => byLower( a.name, b.name );
+		/**
+		 * Build a `node` entity: one logic vertex and the rows that staff it.
+		 *
+		 * @param {string}      vertex The logic vertex.
+		 * @param {Set<string>} path   The vertices from the root down to its parent.
+		 * @param {string}      prefix The parent entity's key.
+		 * @return {Object} The entity.
+		 */
 		const makeNode = ( vertex, path, prefix ) => {
 			const key = childKey( prefix, vertex );
 			return {
@@ -520,6 +697,19 @@ export function buildTopologySections( graph, workers, logsCatalog = [] ) {
 				children: makeKids( vertex, path, key ),
 			};
 		};
+		/**
+		 * Build one `node` entity out of several convergent logic vertices.
+		 *
+		 * Their rows pool onto it and the shared subtree is built once, from the
+		 * first member: they carry the same out-neighbours, which is what put them
+		 * in one group. `names` keeps the members apart for a renderer that wants
+		 * them, and the key joins their ids so it stays theirs alone.
+		 *
+		 * @param {string[]}    members The convergent vertices.
+		 * @param {Set<string>} path    The vertices from the root down to their parent.
+		 * @param {string}      prefix  The parent entity's key.
+		 * @return {Object} The joined entity.
+		 */
 		const makeJoinedNode = ( members, path, prefix ) => {
 			const ids = [ ...members ].sort();
 			const nextPath = new Set( path );
@@ -534,7 +724,22 @@ export function buildTopologySections( graph, workers, logsCatalog = [] ) {
 				children: makeSiblings( childrenOf( ids[ 0 ] ), nextPath, key ),
 			};
 		};
-		// A log vertex groups its concrete partitions into ONE entity.
+		/**
+		 * Build a `log` entity: one logical log, its concrete partitions as rows.
+		 *
+		 * A tokenized vertex resolves to every catalog entry it matches, and each
+		 * becomes a row named by that CONCRETE entry — the key the rate maps use,
+		 * so a row finds its rate without rebuilding one. The row's partition
+		 * number comes from that name match, never from the slot: a slot that fell
+		 * back to a worker row carries the WORKER's partition. `segment_size`
+		 * comes from the first partition declaring one, since the partitions of a
+		 * log share it.
+		 *
+		 * @param {string}      vertex The log vertex, tokenized or concrete.
+		 * @param {Set<string>} path   The vertices from the root down to its parent.
+		 * @param {string}      prefix The parent entity's key.
+		 * @return {Object} The entity.
+		 */
 		const makeLog = ( vertex, path, prefix ) => {
 			const concretes = concreteLogNames( vertex, catalogNames );
 			const name = logicalLogName( vertex );
@@ -544,7 +749,7 @@ export function buildTopologySections( graph, workers, logsCatalog = [] ) {
 					const collected = collectLogPartitions( concrete, ctx );
 					hasCursor = hasCursor || collected.hasCursor;
 					const slot = collected.partitions[ 0 ] || {};
-					// CONCRETE catalog name = rate key (matches recordLog).
+					// The concrete name is the rate key `recordLog` writes.
 					return { ...slot, partition, name: concrete };
 				}
 			);
@@ -568,10 +773,11 @@ export function buildTopologySections( graph, workers, logsCatalog = [] ) {
 		const rootVertices = [ ...inDegree.keys() ].filter(
 			( v ) => 0 === inDegree.get( v )
 		);
-		// @longform Rooted at the TOPOLOGY, not at ''. Overview renders every
-		// row against one shared fold set, and `topic-probe.tsl` is included by
-		// seven topologies — a key naming only the tree path made `topicprobe`
-		// the same entity in all of them, so folding one folded them all.
+		// @longform Rooted at the TOPOLOGY, not at ''. Overview draws every
+		// row against ONE shared fold set, and seven topologies include
+		// `topic-probe.tsl`, so a key naming only the tree path makes
+		// `topicprobe` one entity across all of them: folding it in one row
+		// folds it in every row.
 		const roots = makeSiblings( rootVertices, new Set(), topology );
 		sections.push( { topology, workers: tWorkers, tree: roots } );
 	}

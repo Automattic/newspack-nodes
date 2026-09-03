@@ -1,24 +1,29 @@
 /**
- * useLogPositions — the browse-model → SSE `positions` mapping shared by the
- * Partition Viewer and the Log Viewer (both browse segments; only file-MODE
- * log sources have none). Seeks ride the existing `positions` transport
- * verbatim (RemoteLink `setSubscribe(sub, positions)` → SSE `&positions=` →
- * `SSE_Out::position_arg` → `next_offset`):
+ * The browse model both log-stream dashboards share, expressed as the SSE
+ * `positions` seed their transport already carries. The Partition Viewer and
+ * the Log Viewer both browse segments; only a file-mode log source has none.
  *
- *   - Live / follow → `null` positions ⇒ the server defaults each sub to 'end'.
- *   - Browse a segment → `{ [sub]: { segment, offset: 0 } }` (a `{segment,offset}`
- *     seek; in file mode the segment slot simply holds the inode).
- *   - Replay from start → `{ [sub]: 'start' }` (the magic token → offset 0 of the
- *     earliest segment).
- *   - Page back → the previous EXISTING segment id from the segment list.
+ * A seek needs no transport of its own. `RemoteLink.setSubscribe( sub,
+ * positions )` puts the seed on the stream URL as `&positions=`, the
+ * controller narrows each entry through `SSE_Out::position_arg`, and the
+ * Consumer opens there through `next_offset()`. Four seeds cover every
+ * control:
  *
- * No new server verb is needed — the segment list rides the existing catalog
- * verbs (`log_status` for the Partition Viewer, `taillog sources` for the Log
- * Viewer).
+ * - Live and follow send no positions at all, which is what makes the server
+ *   default each subscription to 'end'.
+ * - Browsing a segment sends `{ [sub]: { segment, offset: 0 } }`. In file mode
+ *   the segment slot holds the file's inode.
+ * - An offset jump sends that same pair carrying the offset that was typed.
+ * - Replay sends `{ [sub]: 'start' }`, the token the server resolves to the
+ *   earliest retained record.
  *
- * `useSegmentBrowse` at the foot of the file composes this into the whole
- * browse controller a dashboard mounts: rail maintenance, the seek handlers,
- * and the rail itself.
+ * The rail rides the catalog verb each dashboard already calls — `log_status`
+ * for the Partition Viewer, `taillog sources` for the Log Viewer — so browsing
+ * costs no server verb of its own.
+ *
+ * `useSegmentBrowse`, at the foot of the file, composes all of this into the
+ * one controller a dashboard mounts: rail maintenance, the seek handlers, and
+ * the rail itself.
  */
 
 import {
@@ -36,16 +41,33 @@ import parseOffsetJump from '../utils/parseOffsetJump';
 import useRouterTick from './useRouterTick';
 import { useCommandOnce } from './useCommandOnce';
 
-// The substrate service CI that catalogs and reads the on-disk logs.
+/**
+ * Where one subscription resumes: an exact record boundary, or a token the
+ * server resolves for itself ('start').
+ *
+ * @typedef {{segment:number,offset:number}|string} SeekPosition
+ */
+
+/**
+ * The one thing `stepPosition` asks of a RemoteLink — where its stream has
+ * read to — named so a caller holding any cursor source can supply it.
+ *
+ * @typedef {{cursor: (sub: string) => ({segment:number,offset:number}|undefined)}} CursorSource
+ */
+
+/** The substrate service CI that catalogs and reads the on-disk logs. */
 const RAW_LOGS_CI = 'raw-logs';
 
-// Rail maintenance cadence (segment rotation + size growth).
+/**
+ * How often the rail re-catalogs, in milliseconds. Segments rotate and grow
+ * under a dashboard left open, so a rail nobody refreshes lists the past.
+ */
 const SEGMENTS_REFRESH_MS = 10000;
 
 /** A rail with nothing to re-catalog still needs a callable for the tick. */
 const NOOP = () => {};
 
-// One array, so "no segments" is the same value every render.
+/** One array, so "no segments" is the same value every render. */
 const NO_SEGMENTS = [];
 
 /**
@@ -63,18 +85,22 @@ function tailPositions() {
  *
  * @param {string} sub       The subscription (partition dir or log-source name).
  * @param {number} segmentId The segment to open; in file mode, the inode.
- * @return {Object} Positions keyed by subscription, holding a `{segment, offset}` seek.
+ * @return {Object<string,{segment:number,offset:number}>} Positions keyed by
+ *   subscription, holding a `{segment, offset}` seek.
  */
 export function segmentPositions( sub, segmentId ) {
 	return { [ sub ]: { segment: segmentId, offset: 0 } };
 }
 
 /**
- * Seek a subscription to the earliest retained record, using the magic
- * 'start' token the server resolves to offset 0 of the oldest segment.
+ * Seek a subscription to the earliest retained record, through the 'start'
+ * token the server resolves for itself. The token beats naming the oldest
+ * segment: retention can drop that segment between the catalog reply and the
+ * seek, and 'start' is resolved at the moment the reader opens.
  *
  * @param {string} sub The subscription (partition dir or log-source name).
- * @return {Object} Positions keyed by subscription, holding the 'start' token.
+ * @return {Object<string,string>} Positions keyed by subscription, holding the
+ *   'start' token.
  */
 export function replayPositions( sub ) {
 	return { [ sub ]: 'start' };
@@ -82,14 +108,15 @@ export function replayPositions( sub ) {
 
 /**
  * The read-verb position a Step should ask for: the pending seek if there is
- * one, else wherever the live stream left off. A magic token ('start' from
- * Replay) rides through verbatim — the read verbs speak the same vocabulary as
- * the seek transport — and an explicit cursor formats as `<segment>:<offset>`.
+ * one, else wherever the live stream left off. A token ('start' from Replay)
+ * rides through verbatim, because the read verbs speak the same position
+ * vocabulary as the seek transport; an explicit cursor formats as
+ * `<segment>:<offset>`.
  *
- * @param {Object}  link      The RemoteLink, for the cursor it has reached.
- * @param {string}  sub       The subscription being stepped.
- * @param {?Object} positions The pending target's positions, if any.
- * @return {?string} The position argument, or null if there is no cursor.
+ * @param {CursorSource}                 link      The RemoteLink, for the cursor its stream has reached.
+ * @param {string}                       sub       The subscription being stepped.
+ * @param {?Object<string,SeekPosition>} positions The pending target's positions, if any.
+ * @return {?string} The position argument, or null when there is no cursor.
  */
 export function stepPosition( link, sub, positions ) {
 	const cursor = positions?.[ sub ] ?? link.cursor( sub );
@@ -111,8 +138,8 @@ export function stepPosition( link, sub, positions ) {
  * hook's — one concept, one state machine.
  *
  * @param {string} sub The subscription (partition dir or log-source name).
- * @return {{ segmentId: (number|string|null), follow: Function, browseSegment: Function, replay: Function }}
- *   The clicked segment + the actions, each returning its positions seed.
+ * @return {{segmentId: ?(number|string), follow: () => null, browseSegment: (id: number) => Object<string,{segment:number,offset:number}>, replay: () => Object<string,string>}}
+ *   The clicked segment and the three actions, each returning its seed.
  */
 export default function useLogPositions( sub ) {
 	// A number seeks that segment; 'start' replays; null tails.
@@ -153,11 +180,12 @@ export default function useLogPositions( sub ) {
  * The answer NAMES the dir it is about, so a selection that moved on while the
  * reply was in flight is dropped without a cancellation flag (ADR-7).
  *
- * @param {Object} o
+ * @param {Object} o       Rail inputs.
  * @param {string} o.sub   The partition dir; '' empties the rail and asks nothing.
  * @param {string} o.scope Names this read's own nodes.
- * @return {{ source: Object, refresh: () => void }} The source row for
- *   `useSegmentBrowse`, and the re-catalog its rail timer drives.
+ * @return {{source: {segments: Array<{id:number,size:number}>}, refresh: () => void}}
+ *   The source row for `useSegmentBrowse`, and the re-catalog its rail timer
+ *   drives.
  */
 export function useLogStatusSegments( { sub, scope } ) {
 	const [ segments, setSegments ] = useState( NO_SEGMENTS );
@@ -203,22 +231,24 @@ export function useLogStatusSegments( { sub, scope } ) {
  * already holds; the Partition Viewer fetches `log_status` per partition), not
  * in what browsing one means.
  *
- * The source row rides every seek because it carries the replay boundary, and
- * both of its shapes matter: `segments` for a segmented log, `bytes` for a
- * file-mode source that has none (see `browseControl`).
+ * Every seek that STATES positions carries the source row, because
+ * `browseControl` reads the replay boundary out of it, and both of its shapes
+ * matter: `segments` for a segmented log, `bytes` for a file-mode source that
+ * has none. A follow states no positions and needs no row.
  *
- * @param {Object}   o                     Controller inputs.
- * @param {string}   o.sub                 The subscription; '' disarms the rail.
- * @param {Object}   o.source              The source row (`{segments, bytes}`).
- * @param {Function} [o.refresh]           Re-catalog the rail, for a source whose
- *                                         segment list is not itself polled. Omit
- *                                         it and no rail timer is mounted.
- * @param {string}   [o.railName]          Timer node name for the refresh tick.
- * @param {string}   o.mode                Displayed 'live' | 'replay' (the view's).
- * @param {?number}  o.lastReceivedSegment Segment the last record arrived from.
- * @param {Function} o.seek                `(sub, positions, source?) => void`.
- * @param {Function} o.setPaused           Pause the stream for time travel.
- * @param {Function} o.step                Deliver one record while paused.
+ * @param {Object}                    o                     Controller inputs.
+ * @param {string}                    o.sub                 The subscription; '' disarms the rail.
+ * @param {Object}                    o.source              The source row (`{segments, bytes}`).
+ * @param {() => void}                [o.refresh]           Re-catalog the rail, for a source whose
+ *                                                          segment list is not itself polled. Omit
+ *                                                          it and no rail timer is armed.
+ * @param {string}                    [o.railName]          Timer node name for the refresh tick;
+ *                                                          only a rail with a `refresh` arms one.
+ * @param {string}                    o.mode                Displayed 'live' | 'replay' (the view's).
+ * @param {?number}                   o.lastReceivedSegment Segment the last record arrived from.
+ * @param {Function}                  o.seek                `( sub, positions, source? ) => void`.
+ * @param {(paused: boolean) => void} o.setPaused           Pause the stream for time travel.
+ * @param {() => void}                o.step                Deliver one record while paused.
  * @return {{ jump: (text: string) => void, sidebar: import('react').ReactElement }}
  *   The offset-input handler and the configured rail.
  */
@@ -243,7 +273,7 @@ export function useSegmentBrowse( {
 		enabled: Boolean( sub ) && Boolean( refresh ),
 	} );
 
-	// A record from an unknown segment = rotation; re-catalog once (no loops).
+	// An unknown segment means rotation; re-catalog once, never in a loop.
 	const staleSegmentRef = useRef( null );
 	useEffect( () => {
 		if (
@@ -282,6 +312,7 @@ export function useSegmentBrowse( {
 			return;
 		}
 		setPaused( true );
+		// browseSegment lights the rail; the jump carries its own offset.
 		browseSegment( position.segment );
 		seekWithin( { [ sub ]: position }, source );
 		step();

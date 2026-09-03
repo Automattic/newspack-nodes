@@ -3,6 +3,8 @@
  * every scope that has counters — the process header (browser, worker) and a
  * selected hull. Lives outside Inspector so HullPanel, which Inspector imports,
  * can render the same view without an import cycle.
+ *
+ * @typedef {{label: string, history: number[], currentValue: number, format: (value:number)=>string}} ActivityRow One sparkline's label, samples, latest value and formatter.
  */
 
 import { __, sprintf } from '@wordpress/i18n';
@@ -19,7 +21,7 @@ import { FieldRow, Section } from './InspectorFields';
  * from 100/s up, one decimal above 1/s, two below it — so a trickle stays
  * legible without handing a busy node six digits.
  *
- * @param {number|null|undefined} rate Messages per second; nullish reads "—".
+ * @param {number|null|undefined} rate Messages per second; nullish reads "— /s".
  * @return {string} The rate, suffixed "/s".
  */
 export function formatRate( rate ) {
@@ -64,22 +66,20 @@ export function formatActivityWindow( nodeCount ) {
 }
 
 /**
- * The curve for one sample series, spread across the full width.
+ * The curve for one sample series, spread across the full width: the first
+ * sample sits at x=0, the last at `width`, and the tallest sample at y=0.
  *
- * The geometry is sized by the DATA, not by a module constant. It used to step
- * by `width / ( RATE_HISTORY_MAX - 1 )` and start at
- * `RATE_HISTORY_MAX - history.length`, an undocumented 60-sample cap on
- * the `history` prop that the browser scope violates by 12x — `IoTelemetry`'s
- * ring holds 720. That put the first 660 points at negative x where the viewBox
- * clips them, so an hour-long ring drew only its last five minutes while `max`
- * and the peak label still spanned the whole hour: a curve permanently
- * flattened by a busy minute that scrolled off-screen, and a window label that
- * disagreed with what was drawn.
+ * The geometry is sized by the DATA, never by a ring-capacity constant,
+ * because the two scopes feed rings of different length — the graph scope's
+ * `RATE_HISTORY_MAX` holds 60 samples, `IoTelemetry`'s browser ring holds 720.
+ * A step derived from one capacity puts every sample past it at negative x,
+ * where the viewBox clips it, while `max` and the peak label still span the
+ * whole ring: the curve reads as flattened by a spike that is nowhere on it.
  *
  * @param {number[]} history Samples, oldest first.
  * @param {number}   width   Viewbox width.
  * @param {number}   height  Viewbox height.
- * @return {?string} An SVG path, or null when there is nothing to draw.
+ * @return {?string} An SVG path, or null for fewer than two samples.
  */
 function inspectorSparklinePath( history, width, height ) {
 	if ( ! history || history.length < 2 ) {
@@ -103,6 +103,10 @@ function inspectorSparklinePath( history, width, height ) {
  * One labeled sparkline row: the curve, its latest value, and its peak. The
  * curve auto-scales to its own maximum, so the peak label is what keeps rows
  * comparable — without it a trickle and a flood draw the same shape.
+ *
+ * The 270×32 viewBox is arbitrary units rather than pixels, since
+ * `preserveAspectRatio="none"` stretches the curve to whatever width CSS
+ * gives the row.
  *
  * @param {Object}                 props
  * @param {string}                 props.label        Row label, e.g. "messages in /s".
@@ -153,6 +157,14 @@ export function SparklineRow( { label, history, currentValue, format } ) {
 	);
 }
 
+/**
+ * The newest sample of a series, which is the "current" value a row shows. An
+ * empty series reads 0, so a scope that has recorded nothing yet renders the
+ * same row shape as a busy one.
+ *
+ * @param {number[]} arr Samples, oldest first.
+ * @return {number} The last sample, or 0 when there is none.
+ */
 const lastSample = ( arr ) => ( arr.length ? arr[ arr.length - 1 ] : 0 );
 
 /**
@@ -163,7 +175,7 @@ const lastSample = ( arr ) => ( arr.length ? arr[ arr.length - 1 ] : 0 );
  * @param {number[]} msgOut    Messages-out per-second samples.
  * @param {number[]} byteRead  Bytes-read per-second samples.
  * @param {number[]} byteWrite Bytes-written per-second samples.
- * @return {Array} Rows shaped for SparklineRow's props.
+ * @return {ActivityRow[]} Rows shaped for SparklineRow's props.
  */
 export function buildActivity( msgIn, msgOut, byteRead, byteWrite ) {
 	const row = ( label, series, format ) => ( {
@@ -193,14 +205,12 @@ export function buildActivity( msgIn, msgOut, byteRead, byteWrite ) {
  * `levels` is given. A hull passes none — err/warn counts are process-wide, so
  * showing them under one include's name would attribute the whole process to it.
  *
- * @param {Object}      props
- * @param {string}      props.windowMeta Trailing-window label for Activity.
- * @param {Array}       props.activity   Rows from buildActivity().
- * @param {Object}      props.totals     Cumulative msgsIn/msgsOut/bytes{Read,Written}.
- * @param {Object|null} [props.levels]   Process dmesg counts; omitted or null
- *                                       renders no dmesg strip.
- * @param {string}      [props.testId]   data-testid for the wrapper; defaults to
- *                                       `inspector-process-stats`.
+ * @param {Object}                                                                     props
+ * @param {string}                                                                     props.windowMeta Trailing-window label for Activity.
+ * @param {ActivityRow[]}                                                              props.activity   Rows from buildActivity(); each label keys its row.
+ * @param {{msgsIn: number, msgsOut: number, bytesRead: number, bytesWritten: number}} props.totals     Counters accumulated since the process started.
+ * @param {?{errors: number, warnings: number, debug: number}}                         [props.levels]   Process dmesg counts; omitted or null renders no dmesg strip.
+ * @param {string}                                                                     [props.testId]   data-testid for the wrapper; defaults to `inspector-process-stats`.
  * @return {import('react').ReactElement} The stats body.
  */
 export function ProcessStatsView( {
@@ -281,11 +291,13 @@ export function ProcessStatsView( {
 }
 
 /**
- * Rate series → the four Activity rows, for callers holding a
- * useAggregateRateSeries result.
+ * Turns a scope's aggregated rate series into the four Activity rows, for the
+ * callers holding an `aggregateSeries()` result rather than four bare rings.
+ * A missing series renders four empty rows, so a scope selected before any
+ * poll has landed still draws its labels.
  *
- * @param {Object} series `{ in, out, read, write }` sample rings.
- * @return {Array} Activity rows.
+ * @param {?{in?: number[], out?: number[], read?: number[], write?: number[]}} series Sample rings for the scope.
+ * @return {ActivityRow[]} Activity rows.
  */
 export function activityFromSeries( series ) {
 	const {

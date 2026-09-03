@@ -1,6 +1,7 @@
 /**
- * TopicProbeViewNode — the consumer-lag stream. See ProbeStreamViewNode for
- * the ring, the retention window and the record decoding it shares.
+ * TopicProbeViewNode — the per-consumer throughput and backlog stream behind the
+ * Overview's Topics panels and summary cards. See ProbeStreamViewNode for the
+ * ring, the retention window and the eviction it shares.
  */
 
 import * as Probe from '../../runtime/probe-record';
@@ -10,20 +11,32 @@ import { ProbeStreamViewNode } from './probe-stream-view-node';
  * `topicprobe:view` — owns the Topic_Probe stream view model.
  *
  * Each inbound frame is one Consumer's lean POSITIONAL probe record (the
- * `Probe_Record` layout); the snapshot instant is the Message TIMESTAMP. The view
- * accumulates, PER `READER`, a bounded series of `{ ts, elapsed, msgs, bytes,
- * msgRate, byteRate, backlog, cacheSize }`. Every field comes from ONE record:
- * `msgs`/`bytes` are its deltas, `elapsed` the interval they cover, the rates
- * their quotient, `backlog`/`cacheSize` its levels verbatim. Nothing is
- * differenced across records, so a worker recycle (which used to look like a
- * counter reset) is just another window.
+ * `Probe_Record` layout), and the snapshot instant is the Message TIMESTAMP. Per
+ * reader the view pushes one sample onto a bounded series of
+ * `{ ts, elapsed, msgs, bytes, msgRate, byteRate, backlog, cacheSize }`: the raw
+ * deltas `probe24hTotals` integrates into the 24h cards, beside the rates and
+ * levels `topicChartSeries` plots. Every value is read off THAT record and
+ * nothing is differenced across records, so a worker recycle is another window
+ * rather than a counter reset the reader has to detect.
  *
  * @param {number} [maxSamples] Per-consumer ring cap.
  * @param {number} [ttlMs]      Consumer liveness TTL.
  */
 export class TopicProbeViewNode extends ProbeStreamViewNode {
+	/**
+	 * Record slot the base keys entries by: the reader id, which is the basename
+	 * of the consumer's offsetlog directory.
+	 */
 	identitySlot = Probe.READER;
+
+	/**
+	 * Wrapper key the published model uses, so React reads `view.consumers`.
+	 */
 	modelKey = 'consumers';
+
+	/**
+	 * What `nodeSchema()` reports to the console palette and to `help`.
+	 */
 	static description =
 		'Topic_Probe stream render-model sink (the React view node).';
 
@@ -33,7 +46,9 @@ export class TopicProbeViewNode extends ProbeStreamViewNode {
 	 * Every field is read off THIS record: `msgs`/`bytes` are its deltas (clamped
 	 * non-negative), `elapsed` the seconds they cover, the rates their quotient —
 	 * 0 when the window is empty rather than a division by zero — and `backlog`
-	 * and `cacheSize` its levels verbatim.
+	 * and `cacheSize` its levels verbatim. The source partition rides on the entry
+	 * rather than the sample, because it names the topic every one of that
+	 * reader's samples came from.
 	 *
 	 * @param {Object}               c     The consumer's entry, keyed by `READER`.
 	 * @param {Array<string|number>} value The positional `Probe_Record` VALUE.

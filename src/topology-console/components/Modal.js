@@ -1,6 +1,13 @@
 /**
- * Modal — minimal centered dialog (ConfirmModal + PromptModal + NewNodeModal).
- * ESC and backdrop-click dismiss; the primary action focuses on mount.
+ * The dialog layer of the topology console and the debug overlay: `ModalShell`,
+ * which owns the backdrop, the panel chrome and the dismiss wiring, and the
+ * three stock dialogs built on it — a confirmation, a single-line prompt, and
+ * the new-node form a palette drop opens.
+ *
+ * Every dialog closes three ways: its × button, ESC, and a mousedown outside
+ * the panel. Each focuses on mount where the answer begins — the confirm
+ * button for a yes/no, the text input with its initial value selected for the
+ * two that take typing — so a dialog can be answered without the mouse.
  */
 
 import { createPortal, useEffect, useRef, useState } from '@wordpress/element';
@@ -11,18 +18,28 @@ import { serializeCtorArgs } from '../utils/tslArgs';
 import { primaryButtonClass } from '@newspack-nodes/shared/utils/buttonClass';
 
 /**
- * ModalShell — the backdrop, panel, header, and dismiss wiring every dialog in
- * the console reuses. Renders through a portal on `document.body` so no
- * ancestor's overflow or stacking context can clip it, and horizontally
- * centers on the debug panel when one is mounted.
+ * ModalShell — the backdrop, panel, header and dismiss wiring every dialog in
+ * the console and the debug overlay reuses.
+ *
+ * It renders through a portal on `document.body`, so no ancestor's overflow or
+ * stacking context can clip it and the fixed backdrop dims the whole page,
+ * overlay panel included. That portal lands outside the app root, which is
+ * where the skin selectors are scoped, so it re-establishes the skin, theme
+ * and UI classes on a root of its own; `display: contents` keeps that root
+ * from adding a box between `<body>` and the backdrop. With a debug-overlay
+ * panel mounted the dialog centers horizontally over that panel instead of the
+ * viewport.
+ *
+ * The panel carries two class families: `topology-modal*` for the console's
+ * geometry, `newspack-nodes-modal*` for the canonical shared paint.
  *
  * @param {Object}                    props
  * @param {string}                    props.title       Dialog title, also its accessible name.
- * @param {() => void}                props.onDismiss   Runs on ESC, backdrop click, and the close button.
+ * @param {() => void}                props.onDismiss   Runs on ESC, a mousedown outside the panel, and the close button.
  * @param {boolean}                   [props.wide]      Add the large-panel modifier class.
  * @param {string}                    [props.className] Extra classes on the panel.
  * @param {import('react').ReactNode} props.children    Body and action rows.
- * @return {import('react').ReactNode} The portal, or null without a document.
+ * @return {import('react').ReactNode} The portal, or null where there is no document.
  */
 export function ModalShell( {
 	title,
@@ -32,7 +49,7 @@ export function ModalShell( {
 	children,
 } ) {
 	const ref = useRef( null );
-	// ESC + click-outside; the backdrop is a scrim the hook already covers.
+	// The backdrop needs no handler: a mousedown on it is outside the panel.
 	useDismissable( ref, onDismiss );
 
 	if ( typeof document === 'undefined' ) {
@@ -97,7 +114,7 @@ export function ModalShell( {
  * @param {string}                    [props.cancelLabel]  Label on the dismiss button.
  * @param {boolean}                   [props.danger]       Style the primary button as destructive.
  * @param {() => void}                props.onConfirm      Runs when the primary button is pressed.
- * @param {() => void}                props.onCancel       Runs on cancel, ESC, and backdrop click.
+ * @param {() => void}                props.onCancel       Runs on cancel, ESC, and a mousedown outside the panel.
  * @return {import('react').ReactNode} The dialog.
  */
 export function ConfirmModal( {
@@ -146,11 +163,11 @@ export function ConfirmModal( {
  * @param {import('react').ReactNode} props.body           Prompt text above the input.
  * @param {string}                    [props.initialValue] Value the input starts with, pre-selected.
  * @param {string}                    [props.placeholder]  Placeholder for the empty input.
- * @param {RegExp}                    [props.pattern]      Value must match this to submit.
+ * @param {RegExp}                    [props.pattern]      Value must match this to submit; a miss names it in a hint.
  * @param {string}                    [props.confirmLabel] Label on the primary button.
  * @param {string}                    [props.cancelLabel]  Label on the dismiss button.
  * @param {(value: string) => void}   props.onConfirm      Runs with the entered value.
- * @param {() => void}                props.onCancel       Runs on cancel, ESC, and backdrop click.
+ * @param {() => void}                props.onCancel       Runs on cancel, ESC, and a mousedown outside the panel.
  * @return {import('react').ReactNode} The dialog.
  */
 export function PromptModal( {
@@ -226,24 +243,29 @@ export function PromptModal( {
 }
 
 /**
- * NewNodeModal — prompted on a palette drop in live mode (topology console
- * and debug overlay). A name input (pre-filled with the auto-generated
- * `${shell}1` etc.) above the class's node_schema-enriched Constructor fields —
- * the SAME `CtorField` widgets edit mode renders (typed text, formatter/node
- * pickers, per-field defaults), instead of one freeform args string. On confirm
- * the per-field values serialize to the positional args string (defaults filled,
- * trailing empties dropped — matching what the editor writes), and `onConfirm`
- * fires with `{ name, args }` so the caller formats the make_node line.
+ * NewNodeModal — the form a palette drop opens in live mode, in both the
+ * topology console and the debug overlay. It takes the node's name, pre-filled
+ * with the auto-generated one, above one row per constructor argument the
+ * class's `node_schema()` declares.
+ *
+ * Those rows are the `CtorField` widgets edit mode renders — typed text,
+ * formatter, node and vault pickers, per-field defaults — rather than a single
+ * freeform args string, so adding a node live offers the same pickers and
+ * typed inputs the editor does. On confirm the per-field values
+ * serialize positionally with defaults filled and trailing empties dropped,
+ * which is what the editor writes for the same node, and `onConfirm` receives
+ * `{ name, args }` for the caller to format into its `make_node` line.
  *
  * @param {Object}                                         props
- * @param {string}                                         props.shellName    Class shell name (e.g. "Partition").
- * @param {string}                                         props.defaultName  Auto-generated id (pre-fills name).
- * @param {Array}                                          [props.argSchema]  [{ name, type?, required?, default? }, ...]
- * @param {Array}                                          [props.nodeNames]  Other node ids (for node_name arg pickers).
- * @param {Array}                                          [props.formatters] Registered formatter names (formatter_name args).
- * @param {Array}                                          [props.vaults]     Registered Vault entries (vault_id args).
+ * @param {string}                                         props.shellName    Class shell name, such as "Partition".
+ * @param {string}                                         props.defaultName  Auto-generated node id; pre-fills the name input.
+ * @param {import('./CtorField').CtorArgSpec[]}            [props.argSchema]  Constructor arguments the class declares.
+ * @param {string[]}                                       [props.nodeNames]  Node ids the `node_name` pickers offer.
+ * @param {string[]}                                       [props.formatters] Registered formatter names, for `formatter_name` arguments.
+ * @param {import('./CtorField').VaultEntry[]}             [props.vaults]     Vault entries, for `vault_id` arguments.
  * @param {(node: { name: string, args: string }) => void} props.onConfirm    Runs with the node id and its serialized args string.
- * @param {() => void}                                     props.onCancel     Runs on cancel, ESC, and backdrop click.
+ * @param {() => void}                                     props.onCancel     Runs on cancel, ESC, and a mousedown outside the panel.
+ * @return {import('react').ReactNode} The dialog.
  */
 export function NewNodeModal( {
 	shellName,

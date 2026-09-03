@@ -1,23 +1,37 @@
+/**
+ * useAskPicker — ask-about-this-element picking, shared by every dashboard.
+ *
+ * One `data-ask` attribute is the whole opt-in, so a surface needs no
+ * per-element wiring and the picker needs no per-surface branching. The class
+ * and attribute names are exported because two outside parties name them too:
+ * `src/shared/styles/_components.scss` and a consumer's own trigger button.
+ */
+
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 
 /** Marks the document while picking; the stylesheet turns the cursor into a `?`. */
 export const ASKING_CLASS = 'newspack-nodes-asking';
 
-/** The one attribute. Any element becomes askable by carrying it. */
+/**
+ * The opt-in attribute. Any element becomes askable by carrying it, and its
+ * value is the descriptor the consumer asks about.
+ */
 const ASK_ATTR = 'data-ask';
 
 /**
- * The picker's own controls, which it must NOT swallow: the capture-phase
- * handler suppresses every click while armed, so a trigger without this never
- * receives its own `onClick` and could not cancel.
+ * Marks the picker's own controls, which it must NOT swallow: the capture-phase
+ * handler suppresses every click and keypress while armed, so a trigger without
+ * this attribute never receives its own `onClick` and could not cancel the mode
+ * it opened.
  */
 export const ASK_TRIGGER_ATTR = 'data-ask-trigger';
 
 /**
- * Every `[data-ask]` from $el outward, innermost first. DOM nesting already
- * expresses containment — a span sits inside its request, a row inside its URL
- * — so the chain is what makes the small descriptor vocabulary self-sufficient
- * without a second attribute for scope.
+ * Collect every `[data-ask]` descriptor from `el` outward, innermost first and
+ * each one once. DOM nesting already expresses containment — a span sits
+ * inside its request, a row inside its URL — so the chain is what makes the
+ * small descriptor vocabulary self-sufficient without a second attribute for
+ * scope.
  *
  * @param {Element} el The clicked element.
  * @return {string[]} Descriptors, target first.
@@ -45,10 +59,10 @@ function chainFrom( el ) {
  * decides everything.
  *
  * ONE picker, though, however many triggers open it. The mode is document-level
- * — it marks the body, retargets every `[data-ask]` and swallows the next click
- * in the capture phase — so a second instance fights the first over that one
- * mode, and an unmounting one clears the body class mid-pick. Hold it once and
- * render as many triggers as there are places worth asking from.
+ * — it marks the body, makes every `[data-ask]` focusable and swallows the next
+ * click in the capture phase — so a second instance fights the first over that
+ * one mode, and an unmounting one clears the body class mid-pick. Hold it once
+ * and render as many triggers as there are places worth asking from.
  *
  * While picking, the target's own handler is suppressed in the CAPTURE phase,
  * for modified and unmodified clicks alike. That matters more than it looks:
@@ -58,9 +72,9 @@ function chainFrom( el ) {
  * the convention already shipping (macOS treats Control-click as a secondary
  * click, and the mousedown read is the working answer to it).
  *
- * @param {Object}   options
- * @param {Function} options.onPick      Called `( descriptors, { additive } )`.
- * @param {Function} [options.onAbandon] Called when Escape gives the selection up.
+ * @param {Object}                                                     options
+ * @param {(descriptors: string[], meta: {additive: boolean}) => void} options.onPick      Called with the descriptor chain, target first; an additive pick keeps the picker armed for the next one.
+ * @param {() => void}                                                 [options.onAbandon] Called when Escape gives the selection up, which a finished pick never is.
  * @return {{ active: boolean, start: () => void, cancel: () => void }} Picker controls.
  */
 export function useAskPicker( { onPick, onAbandon } ) {

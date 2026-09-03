@@ -1,8 +1,13 @@
 /**
- * Edit-mode palette of node classes. Dragging an item to the canvas uses
- * pointer events (Firefox-safe; native HTML5 DnD never initiates there): a
- * pointer-down arms a ghost that follows the cursor, and pointer-up over the
- * canvas SVG projects the cursor into SVG space and calls onDropNode.
+ * The palette dock: the source end of every add-a-node gesture on the
+ * schematic canvas, mounted by the topology console and by the debug overlay's
+ * inspector tab.
+ *
+ * The drag runs on pointer events rather than native HTML5 drag-and-drop,
+ * which never initiates from these tiles in Firefox. A pointer-down arms a
+ * ghost that follows the cursor, and a pointer-up over the canvas SVG projects
+ * the cursor into SVG space and hands the consumer that point, so a dropped
+ * node lands where the operator let go.
  */
 
 import { useRef, useState } from '@wordpress/element';
@@ -11,9 +16,28 @@ import { NODE_W, NODE_H, PORT_R } from './SchematicCanvas';
 import { useCatalog } from '../CatalogContext';
 import { useChrome } from '../ChromeContext';
 
-// Categories kept in the catalog but NOT draggable (Service CIs are mounted).
+/**
+ * Categories the catalog carries that the palette must never offer.
+ *
+ * A Service CI is mounted on `newspack_nodes/request_graph_ready`, never
+ * declared in TSL, so a tile for one would drop a node no topology can build.
+ * Those entries still belong in the catalog, because the inspector reads the
+ * same list for a selected node's verbs and arguments — which is why the
+ * refusal sits here rather than in the `classes list` verb.
+ */
 const NON_DRAGGABLE_CATEGORIES = new Set( [ 'Service', 'Remote' ] );
 
+/**
+ * Buckets the class list into one group per category.
+ *
+ * Categories come out in the order they first appear, which the catalog's
+ * `[category, shell_name]` sort makes alphabetical; each bucket is sorted by
+ * shell name, so a tile's position never depends on the order the entries
+ * arrived in.
+ *
+ * @param {ReadonlyArray<Object>} classes Class-catalog entries, each carrying `category` and `shell_name`.
+ * @return {Object} Class entries keyed by category, sorted within each group.
+ */
 function groupByCategory( classes ) {
 	const out = {};
 	for ( const c of classes ) {
@@ -28,12 +52,17 @@ function groupByCategory( classes ) {
 }
 
 /**
- * Transitive include closure of `name`, from the DAG `topologies list` gives us.
+ * Every topology `name` includes, directly or through another include.
  *
- * @param {string}                            name   Topology whose closure to compute.
- * @param {Map<string, {includes: string[]}>} byName Topology name → entry.
- * @param {Set<string>}                       [seen] Accumulator (internal recursion).
- * @return {Set<string>} every topology transitively included by `name`.
+ * The palette asks this to refuse a drag that would form a cycle, so it walks
+ * the whole `topologies list` DAG rather than the filtered tiles. `seen`
+ * doubles as the visited set: an include chain that loops back terminates
+ * instead of recursing forever.
+ *
+ * @param {string}                           name   Topology whose closure to compute.
+ * @param {Map<string,{includes: string[]}>} byName Topology name to its list entry.
+ * @param {Set<string>}                      [seen] Accumulator the recursion threads through.
+ * @return {Set<string>} Every topology transitively included by `name`.
  */
 function includeClosure( name, byName, seen = new Set() ) {
 	for ( const child of byName.get( name )?.includes || [] ) {
@@ -47,12 +76,12 @@ function includeClosure( name, byName, seen = new Set() ) {
 }
 
 /**
- * The palette dock: a filter box over the node classes the catalog registers,
+ * Renders the dock: a filter box over the node classes the catalog registers,
  * grouped by category, plus — in edit mode — the topologies that can be dragged
  * in as includes. Catalog data comes from CatalogContext and the collapse state
  * from ChromeContext; only the drop callbacks are the consumer's.
  *
- * @param {Object}   props
+ * @param {Object}   props                    Component props.
  * @param {boolean}  [props.loading]          Catalog fetch is in flight; the dock shows a placeholder until classes arrive. Default false.
  * @param {Function} [props.onDropNode]       ({ shellName, x, y }) — a class dropped on the canvas, x/y already projected into SVG space.
  * @param {boolean}  [props.editMode]         Render the draggable Topologies section. Default false.
@@ -72,7 +101,7 @@ export default function Palette( {
 	const { classes, topologies } = useCatalog();
 	const { paletteCollapsed: collapsed, onPaletteToggle: onToggle } =
 		useChrome();
-	// Drag ghost following the cursor (or null); dragRef keeps handlers stable.
+	// Ghost is render state; the ref carries the in-flight drag identity.
 	const [ ghost, setGhost ] = useState( null );
 	const dragRef = useRef( null );
 	// Case-insensitive filter over shell name + description; empty = full list.

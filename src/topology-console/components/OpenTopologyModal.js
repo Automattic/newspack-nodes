@@ -1,6 +1,8 @@
 /**
  * OpenTopologyModal — pick a saved topology to load into the edit-mode draft.
- * Entries are grouped by source (user first) with an `active` badge.
+ * Entries group by source in a fixed order — user, both, stock — with an
+ * `active` badge. Picking reports the name and nothing else: the console owns
+ * the switch to edit mode and the confirm a dirty draft needs.
  */
 
 import { useEffect, useRef } from '@wordpress/element';
@@ -10,15 +12,23 @@ import { ModalShell } from './Modal';
 /**
  * Saved-topology picker.
  *
+ * Cancel takes focus on mount, so Enter dismisses instead of loading whichever
+ * topology happens to sort first.
+ *
  * @param {Object}                 props
  * @param {Array<Object>}          props.topologies Catalog entries; each carries
  *                                                  `name`, `source` (`user`, `both`,
  *                                                  or `stock` — anything else groups
  *                                                  under stock), and `active`.
  * @param {boolean}                props.loading    The catalog fetch has not settled.
- * @param {string|null}            props.error      Refusal text; replaces the
- *                                                  list with an error banner.
- * @param {(name: string) => void} props.onPick     Receives the chosen topology name.
+ * @param {string|null}            props.error      Failure from the catalog poll. Only
+ *                                                  its presence is read: the banner
+ *                                                  carries a fixed message, and it sits
+ *                                                  above whatever the last good tick
+ *                                                  listed rather than replacing it.
+ * @param {(name: string) => void} props.onPick     Receives the chosen topology name,
+ *                                                  on the item's mousedown rather than
+ *                                                  its click.
  * @param {() => void}             props.onCancel   Dismiss without choosing.
  * @return {import('react').ReactElement} The modal.
  */

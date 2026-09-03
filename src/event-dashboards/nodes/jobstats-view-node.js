@@ -10,28 +10,43 @@ import { ProbeStreamViewNode } from './probe-stream-view-node';
  * `jobstats:view` — owns the Jobstats stream view model.
  *
  * Each inbound frame is one job identity's lean POSITIONAL record (the
- * `Jobstats_Record` layout); the snapshot instant is the Message TIMESTAMP. Per
- * identity `IDENTITY` the view pushes each record onto a bounded series carrying its
- * raw deltas (what the table sums into WINDOWED totals) alongside the per-second
- * rates the charts plot — every value read off THAT record, never differenced
- * across records, so a worker recycle is just another window rather than a
- * counter reset to detect. Windowed totals (runs, errors, items, delta-weighted
- * avg duration) are summed over the retained window in `_entryView`, so they
- * shrink with the series as old samples prune. Last-run detail comes from the
- * latest record.
+ * `Jobstats_Record` layout), and the snapshot instant is the Message TIMESTAMP.
+ * Per identity the view pushes one sample onto a bounded series carrying that
+ * record's raw deltas — what the table sums into windowed totals — beside the
+ * per-second rates the charts plot. Every value is read off THAT record and
+ * nothing is differenced across records, so a worker recycle is another window
+ * rather than a counter reset the reader has to detect.
+ *
+ * The windowed rollup — runs, failures, items, mean duration and mean queue
+ * wait — is summed over the retained series in `_entryView`, so it shrinks with
+ * the series as the base prunes samples out of the live window. Last-run
+ * detail comes from the newest record.
  *
  * @param {number} [maxSamples] Per-identity ring cap.
  * @param {number} [ttlMs]      Identity liveness TTL.
  */
 export class JobstatsViewNode extends ProbeStreamViewNode {
+	/**
+	 * Record slot the base keys entries by: `handler:id`, or `handler` when the
+	 * job carries no id.
+	 */
 	identitySlot = Job.IDENTITY;
+
+	/**
+	 * Wrapper key the published model uses, so React reads `view.handlers`.
+	 */
 	modelKey = 'handlers';
+
+	/**
+	 * What `nodeSchema()` reports to the console palette and to `help`.
+	 */
 	static description =
 		'Jobstats stream render-model sink (the React view node).';
 
 	/**
-	 * The published per-identity snapshot: the windowed rollup the table reads, the
-	 * newest record's last-run detail, and a copy of the series the charts plot.
+	 * The published per-identity snapshot: its identity and handler name, the
+	 * windowed rollup the table reads, the newest record's last-run detail, and
+	 * a copy of the series the charts plot.
 	 *
 	 * @param {Object} c The internal entry (its series plus the last-run detail).
 	 * @return {Object} { key, handler, windowed, latest, series }.
@@ -54,13 +69,17 @@ export class JobstatsViewNode extends ProbeStreamViewNode {
 	}
 
 	/**
-	 * Sum the retained series' deltas into windowed totals + a delta-weighted mean
-	 * duration + queue latency (Σ Δ / Σ Δruns; 0 when no runs). Derived on each
-	 * snapshot, NOT running-summed, so the base's prune (which shifts old samples
-	 * off `series`) shrinks these totals for free — no eviction bookkeeping.
+	 * Sum the retained series' deltas into the rollup the table renders: the
+	 * run, failure and item totals, plus a mean run duration and a mean queue
+	 * wait, each the summed milliseconds over the summed runs — 0 for a window
+	 * with no runs rather than a division by zero.
+	 *
+	 * Derived on every snapshot rather than running-summed, so the base's prune
+	 * (which shifts aged-out samples off `series`) shrinks these totals for
+	 * free, with no eviction bookkeeping to keep in step.
 	 *
 	 * @param {Array<Object>} series The per-identity ring of samples.
-	 * @return {Object} { runs, errors, itemsOk, itemsErr, avgDurationMs }.
+	 * @return {Object} { runs, errors, itemsOk, itemsErr, avgDurationMs, avgQueueMs }.
 	 */
 	_windowedTotals( series ) {
 		let runs = 0;
@@ -91,11 +110,13 @@ export class JobstatsViewNode extends ProbeStreamViewNode {
 	 * Fold one jobstats record into its identity's entry and yield its sample.
 	 *
 	 * Every value is read off THIS record: its deltas (clamped non-negative) are
-	 * what the table sums, `elapsed` is the interval they cover, and the rates are
-	 * their quotient — 0 for an empty window rather than a division by zero. The
-	 * last-run detail rides as the entry's newest values.
+	 * what the table sums, `elapsed` is the interval they cover, and the rates
+	 * are their quotient — 0 for an empty window rather than a division by zero.
+	 * Queue latency is the exception, dividing by the window's runs rather than
+	 * its seconds, because it is a mean wait per run. The last-run detail rides
+	 * as the entry's newest values.
 	 *
-	 * @param {Object}               c     The identity's entry (`handler:id` or `handler`).
+	 * @param {Object}               c     The identity's entry, keyed by `IDENTITY`.
 	 * @param {Array<string|number>} value The positional `Jobstats_Record` VALUE.
 	 * @param {number}               ts    Snapshot instant (epoch seconds) from TIMESTAMP.
 	 * @return {Object} The sample to push onto the entry's series.

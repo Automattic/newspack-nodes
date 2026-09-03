@@ -1,3 +1,16 @@
+/**
+ * Timer — the time-driven node base, and the wall-clock grid every periodic
+ * poll on the page fires on.
+ *
+ * A timer riding the `_router` TIMER — what a cadence of 1000ms or more asks
+ * for — fires on a boundary of a grid derived from the clock alone (ADR-17),
+ * never on elapsed time since its own last fire. Two surfaces polling on one
+ * cadence therefore converge however far apart they were opened, harmonic
+ * cadences meet on the same tick, and everything minted during that tick leaves
+ * in `HttpOut`'s one batched POST. The grid lives here and nowhere else: a
+ * subclass picks a harmonic interval and never computes a boundary.
+ */
+
 import { Core } from './core';
 import { Node } from './node';
 import names from './reserved-node-names.json';
@@ -58,15 +71,23 @@ export function nextBoundary( after, intervalMs ) {
 }
 
 /**
- * Timer — periodic / one-shot fire in two modes (Tachikoma parity):
- *  - own slot: `setTimer(ms)` / `make_node Timer t 1000` — a setInterval slot.
- *  - Router-hitchhike: `setTimer()` (no args) / `make_node Timer t` — registers
- *    'TIMER' on the _router and rides its per-tick `notify_timer`, which calls
- *    this node's `fireCb()` DIRECTLY (no routed message). Timer does NOT override
- *    `fill()`.
- * `fireCb()` returns early without a sink; otherwise `fire()` emits a TM_BYTESTREAM
- * carrying the timestamp via sink to target and notifies 'FIRE' subscribers.
- * Subclasses override `fire()`; consumers register on 'FIRE'.
+ * Fires on a cadence, in one of two scheduling modes (Tachikoma parity).
+ *
+ * `setTimer()` picks between them. A named node asking for no interval, or for
+ * one of 1000ms or more, registers 'TIMER' on `_router` and rides the tick the
+ * graph already pays for, `fireCb()` throttling that ride down to the cadence
+ * the node asked for. Everything else — a sub-second cadence, an unnamed node,
+ * the Router itself — takes a `setInterval` slot of its own and needs a
+ * concrete interval.
+ *
+ * The hitchhike is a DIRECT call: `RouterNode.notifyTimer()` resolves each
+ * registered name to its node and calls `fireCb()` on it. No message is routed,
+ * and Timer overrides no `fill()`.
+ *
+ * `fireCb()` is the framework-side hook and `fire()` the subclass override
+ * point. The default `fire()` emits a TM_BYTESTREAM carrying the current
+ * timestamp at `target` and notifies 'FIRE' subscribers, which is what a
+ * consumer wanting nothing but the tick registers for.
  */
 export class TimerNode extends Node {
 	/**
@@ -75,24 +96,31 @@ export class TimerNode extends Node {
 	 */
 	constructor() {
 		super();
+		// The setInterval handle of an own slot; null whenever none is armed.
 		this._handle = null;
-		// Predeclared so the schema setter walker assigns it from `arguments=`.
+		// An own property, so parseSchemaArgs() can assign the declared arg.
 		this.interval_ms = 0;
 		// 'inactive' | 'event_framework' (own slot) | 'router' (hitchhike).
 		this.mode = 'inactive';
+		// Dispatches that reached fire(), where counter counts messages sent.
 		this.fireCount = 0;
+		// Disarm after the first fire; one-time wakeups only, see setTimer().
 		this.oneshot = false;
 		// Router can't hitchhike its own TIMER; RouterNode self-arms instead.
 		this.isRouter = false;
-		// Throttle clock for hitchhike timers with interval_ms > 1000.
+		// Grid clock of a hitchhiker over 1000ms; seconds, Core.now() scale.
 		this.lastFireTime = 0;
 		// Stamped onto each message's KEY (Tachikoma STREAM); '' = unset.
 		this.key = '';
 	}
 
 	/**
-	 * The token list as stored by the base Node — Timer keeps it verbatim and
-	 * reads it only in the setter below.
+	 * The token list as stored by the base Node, kept verbatim and read only
+	 * by the setter below.
+	 *
+	 * Redeclaring it is what keeps it reachable: a subclass defining only the
+	 * setter shadows the inherited accessor pair, leaving the getter undefined
+	 * and every read of `arguments` undefined with it.
 	 *
 	 * @return {string[]} Last-set argument tokens.
 	 */
@@ -101,10 +129,10 @@ export class TimerNode extends Node {
 	}
 
 	/**
-	 * Arm the BASE Timer from its one optional token: no token hitchhikes the
-	 * Router tick, an integer arms a slot of that many milliseconds, anything
-	 * else throws. A subclass sets its own interval from `setTimer()`, so this
-	 * auto-arm deliberately stops at `TimerNode` itself.
+	 * Arm the BASE Timer from its one optional token: no token takes the
+	 * Router's own cadence, an integer arms that cadence in milliseconds, and
+	 * anything else throws. A subclass sets its own interval from `setTimer()`,
+	 * so this auto-arm deliberately stops at `TimerNode` itself.
 	 *
 	 * @param {string[]} value Argument tokens; token 0 is the interval in ms.
 	 */
@@ -126,9 +154,14 @@ export class TimerNode extends Node {
 
 	/**
 	 * One tick of whichever slot is armed (Timer::fire_cb). A oneshot timer
-	 * disarms itself first; a sinkless timer does nothing. A hitchhiking timer
-	 * whose `interval_ms` exceeds the 1s Router tick throttles here, so only
-	 * ticks at or past its own cadence reach `fire()`.
+	 * disarms itself first; a sinkless timer does nothing.
+	 *
+	 * A hitchhiker whose `interval_ms` exceeds the 1s Router tick throttles
+	 * here against the shared wall-clock grid, never against elapsed time since
+	 * its own last fire (ADR-17): the tick that reaches `fire()` is the first at
+	 * or past the next boundary, so two nodes on one cadence fire on the same
+	 * tick however far apart they were armed. An own slot already fires at
+	 * `interval_ms` and skips the test.
 	 */
 	fireCb() {
 		if ( this.oneshot ) {
@@ -285,6 +318,9 @@ export class TimerNode extends Node {
 	 * Due on the next tick, whatever the cadence says — what a caller means by
 	 * "this changed, poll now". The grid resumes from wherever that fire lands.
 	 *
+	 * Only a hitchhiker above the 1s tick reads `lastFireTime`, so this changes
+	 * nothing for an own slot.
+	 *
 	 * @return {void}
 	 */
 	markDue() {
@@ -327,7 +363,7 @@ export class TimerNode extends Node {
 
 	/**
 	 * Console-palette entry. The one optional positional is the interval in
-	 * milliseconds; omitting it rides the Router tick instead of taking a slot.
+	 * milliseconds; omitting it takes the Router's own cadence.
 	 *
 	 * @return {Object} The node schema.
 	 */

@@ -1,28 +1,30 @@
 /**
- * RemoteLinkNode — the full-duplex "be the browser" SSE+HTTP channel, as one
- * node. It composes what every SSE dashboard and the console worker attachment
- * used to wire by hand:
+ * RemoteLinkNode — the full-duplex "be the browser" SSE+HTTP channel as one
+ * node. A dashboard makes ONE RemoteLink where it would otherwise wire three
+ * nodes and the bridge between them:
  *
- *   an SseIn        — inbound EventSource stream (frames → link sink/target).
- *                     THIS link's own `<name>:sse-in`: registered so `trace`
- *                     can reach it, patron-owned so the canvas skips it.
- *   `_http`         — the process-wide HttpOut singleton, the outbound /command
- *                     POST boundary. Configured here, never aliased per link.
- *   `_heartbeat`    — the process-wide Heartbeat singleton, slot keepalive.
- *                     Armed and stopped by this link's connection lifecycle.
+ * - `<name>:sse-in` is this link's own SseIn child, the inbound EventSource
+ *   stream. It is named so `trace` reaches it, and patron-owned so the canvas
+ *   skips it.
+ * - `_http` is the process-wide HttpOut singleton, the outbound `/command` POST
+ *   boundary. This link configures it, and never aliases one per link.
+ * - `_heartbeat` is the process-wide Heartbeat singleton, which keeps the
+ *   stream's slot lease alive. This link's connection lifecycle arms and stops
+ *   it.
  *
- * The last two are shared backbone, not per-link children — a second link
- * configures the same two nodes.
+ * The last two are shared backbone rather than per-link children: a second
+ * RemoteLink configures those same two nodes.
  *
- * plus the `connected → lease` bridge (the SseIn's connect handshake carries
- * the exact slot + lease owner the Heartbeat must keep alive). A dashboard
- * makes ONE RemoteLink instead of three nodes + a bridge registration;
- * RemoteIpc extends it with the worker-relay send and single-connection steal.
+ * The bridge is the fourth piece. The SseIn's `connected` handshake carries the
+ * exact slot and lease owner the Heartbeat must keep alive, and
+ * `ensureChildren()` registers the handlers that carry one to the other.
+ * RemoteIpc extends this class with the worker-relay send and the
+ * single-connection steal.
  *
- * Mirrors the PHP Remote_Source_Node, which is a patron owning an SSE_In_Node +
- * HTTP_Out_Node. The durable offsetlog that distinguishes aggregation is a
+ * Mirrors the PHP `Remote_Source_Node`, a patron owning an `SSE_In_Node` and an
+ * `HTTP_Out_Node`. The durable offsetlog that distinguishes aggregation is a
  * PHP-only `Remote_Source extends Remote_Link` concern — the browser has no
- * durable cursor, so JS ships only RemoteLink + RemoteIpc.
+ * durable cursor, so JS ships RemoteLink and RemoteIpc alone.
  */
 
 import { Core } from './core';
@@ -53,31 +55,66 @@ import names from './reserved-node-names.json';
  * shared HttpOut command boundary, and the Heartbeat that keeps the stream's
  * slot lease alive.
  *
- * `subscribe` (the sole positional argument) names what the stream carries, and
- * nothing opens until `connect()`, `send()` or `connectNode()` builds the
- * children. Records arrive on the link's own `sink`/`target`, so a consumer
- * wires a RemoteLink exactly as it would wire any other source node.
+ * `subscribe`, the sole positional argument, names what the stream carries.
+ * Nothing opens at construction: the first `connect()`, `connectNode()`,
+ * `reconnect()`, `setSubscribe()` or `send()` builds the children, and each of
+ * those refuses while no subscription has been supplied. Records arrive on the
+ * link's own `sink` and `target`, so a consumer wires a RemoteLink exactly as
+ * it wires any other source node.
  */
 export class RemoteLinkNode extends Node {
 	/**
 	 * Start unconfigured and childless: `ensureChildren()` builds the stream on
-	 * the first connect or send, and `_assertConfigured()` refuses until
-	 * `arguments` has supplied a subscription.
+	 * the first call that needs one, and `_assertConfigured()` refuses every
+	 * such call until `arguments` has supplied a subscription.
 	 */
 	constructor() {
 		super();
-		// Transport for the HttpOut; ensureChildren defaults it if unset.
+		/**
+		 * Transport the shared HttpOut posts through. Left null,
+		 * `ensureChildren()` installs `defaultTransport()`.
+		 *
+		 * @type {?import('./command-transport').CommandTransport}
+		 */
 		this.client = null;
+		/**
+		 * This link's own inbound stream, built on first use.
+		 *
+		 * @type {?SseInNode}
+		 */
 		this.sseIn = null;
+		/**
+		 * The shared `_heartbeat`, held from `ensureChildren()` so `close()`
+		 * can drop this link's lease without a registry lookup. Backbone, so
+		 * this link never tears it down.
+		 */
 		this.heartbeat = null;
+		/** Comma-separated subscription list; empty until `arguments` sets it. */
 		this.subscribe = '';
-		// Override the SseIn REST route (e.g. /log/stream); '' keeps default.
+		/**
+		 * REST route the SseIn opens, such as `newspack-nodes/v1/log/stream`.
+		 * Empty keeps SseIn's own `/messages/stream` default.
+		 */
 		this.endpoint = '';
-		// A RemoteLink is a SUBSCRIPTION: SseIn re-homes records to target.
+		/**
+		 * Whether each received record is re-homed to this node's target. A
+		 * RemoteLink is a SUBSCRIPTION, so it is; RemoteIpc clears it, keeping
+		 * the worker's TO=FROM reply addressing (ADR-7).
+		 */
 		this.rehomeReceived = true;
-		// Optional hook fired with the SseIn's `connected` payload.
+		/**
+		 * Optional hook fired with the SseIn's `connected` payload, once the
+		 * slot lease has reached the Heartbeat.
+		 *
+		 * @type {?( ( payload: string ) => void )}
+		 */
 		this.onConnected = null;
-		// Optional hook fired AFTER close() — reset stream-tied state.
+		/**
+		 * Optional hook fired at the end of `close()`, so the owner can reset
+		 * whatever it keeps tied to the stream that just went away.
+		 *
+		 * @type {?( () => void )}
+		 */
 		this.onClose = null;
 	}
 
@@ -102,7 +139,9 @@ export class RemoteLinkNode extends Node {
 	}
 
 	/**
-	 * Re-point the stream at a new subscription, closing and reopening it.
+	 * Re-point the stream at a new subscription, closing and reopening it. The
+	 * child takes the new tokens as well as the parsed list, so the `arguments`
+	 * its own `dump_config()` emits names what it is streaming.
 	 *
 	 * @param {string[]}  subscribe Subscriptions the reopened stream carries.
 	 * @param {?SeekSeed} positions Where to resume each partition; null tail-seeks every name.
@@ -120,7 +159,9 @@ export class RemoteLinkNode extends Node {
 	/**
 	 * Send out through the ONE `_http` boundary — every browser graph has
 	 * exactly one, and that shared buffer is what lets a tick's commands batch
-	 * into a single POST regardless of which TO each of them carries.
+	 * into a single POST regardless of which TO each of them carries. A graph
+	 * mid-rebuild has no `_http`, so the message is dropped as NOT_AVAILABLE
+	 * rather than vanishing.
 	 *
 	 * @param {Array} message Positional Message to post.
 	 */
@@ -177,10 +218,10 @@ export class RemoteLinkNode extends Node {
 	}
 
 	/**
-	 * Reopen, stating no seek. The stream resumes past whatever it read and
-	 * keeps the seek it opened with where it read nothing — a caller
-	 * recomputing that seek from the outside is how a refused stream's replay
-	 * became a tail.
+	 * Reopen, stating no seek. The stream resumes past whatever it read, and
+	 * where it read nothing it keeps the seek it opened with. A caller
+	 * recomputing that seek from the outside turns a refused stream's replay
+	 * into a tail.
 	 *
 	 * @param {?string[]} subscribe Re-point the subscription, or null to keep it.
 	 */
@@ -218,8 +259,15 @@ export class RemoteLinkNode extends Node {
 	}
 
 	/**
-	 * Create + register the three children and wire the connected→slot bridge.
-	 * Idempotent — the first send() or connect() builds them; later calls no-op.
+	 * Build this link's SseIn, hand the shared `_http` its transport, and
+	 * register the handlers bridging the SseIn's `connected` handshake to a
+	 * Heartbeat slot lease. Idempotent: the first call that needs a stream
+	 * builds it, and every later call returns at once.
+	 *
+	 * Only the SseIn is created. `_http` and `_heartbeat` are looked up and
+	 * configured, because they are backbone every link on the page shares.
+	 *
+	 * @throws {Error} When no subscription has been supplied.
 	 */
 	ensureChildren() {
 		this._assertConfigured();
@@ -321,8 +369,13 @@ export class RemoteLinkNode extends Node {
 	}
 
 	/**
+	 * Where a subscription's stream has read to, for a caller reopening from
+	 * there. A non-glob subscription IS its partition directory, which is how
+	 * SseIn keys the positions it tracks.
+	 *
 	 * @param {string} sub The subscription to read.
-	 * @return {?{segment: number, offset: number}} Where the stream has read to, or undefined before its first record.
+	 * @return {{segment:number,offset:number}|undefined} The next-record
+	 *   boundary, or undefined before the stream's first record.
 	 */
 	cursor( sub ) {
 		return this.sseIn?.lastPositions?.[ sub ];
@@ -330,7 +383,7 @@ export class RemoteLinkNode extends Node {
 
 	/**
 	 * Composite stat delegation: the records arrive on the SseIn child, so its
-	 * tally is the link's own until a stream exists.
+	 * tally is this link's. Before a stream exists the base counter stands.
 	 *
 	 * @return {number} Records received.
 	 */

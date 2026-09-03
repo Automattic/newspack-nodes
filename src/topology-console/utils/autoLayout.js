@@ -1,23 +1,47 @@
 /**
- * Compute x/y positions for a parsed {nodes, edges} graph.
+ * Grid geometry for the topology canvas: the automatic layout, and the snap
+ * every drag lands on.
  *
- * Left-to-right layered layout. Columns come from a Coffman-Graham-flavored
- * layering: true sources pin to column 0, true sinks to the rightmost column,
- * and every interior node is placed in the deepest feasible layer that respects
- * edge direction (between its longest-path-from-source and longest-path-to-sink
- * bounds), pulled to the barycenter of its neighbours' columns so a "processor
- * tier" aligns in one column instead of spreading by raw longest-path. Rows are
- * driven by the unchanged barycenter + spring engine.
- * Returns new node objects with `position: {x, y}`; does not mutate.
+ * `autoLayout` turns a parsed `{nodes, edges}` graph into left-to-right layered
+ * positions; `snapToGrid`, `snapPosition` and `snapClusterDelta` quantise a
+ * pointer gesture; `placeBelow` finds a slot for a node that appears after the
+ * layout ran. All of them measure from the four step-and-pad constants below,
+ * which `SchematicCanvas` also draws its background grid from, so a dragged
+ * card and a laid-out card cannot land on different grids. The snap helpers
+ * quantise to HALF a step, because `autoLayout` puts a fan-out producer on a
+ * half row and a full-step lattice could not reproduce its own output.
+ *
+ * Columns come from a Coffman-Graham-flavored layering: a true source pins to
+ * column 0, a true sink to the rightmost column, and an interior node takes the
+ * barycenter of its neighbours' columns clamped into the band its edges allow
+ * (longest path from a source on the left, longest path to a sink on the
+ * right), so a "processor tier" aligns in one column instead of spreading by
+ * raw longest-path. Rows come from barycenter crossing-reduction in index
+ * space, a median settle, and a symmetric spread of same-column overlaps.
  */
 
-// Exported so drag-snap lands on the same grid (single source of truth).
+/** Horizontal distance between layout columns, in canvas pixels. */
 export const X_STEP = 240;
+
+/** Vertical distance between layout rows, in canvas pixels. */
 export const Y_STEP = 110;
+
+/** Canvas x of column 0, and the snap lattice's horizontal origin. */
 export const X_PAD = 60;
+
+/** Canvas y of row 0, and the snap lattice's vertical origin. */
 export const Y_PAD = 80;
-// Card size the grid centres on; SchematicCanvas owns the rendered pair.
+
+/**
+ * Card width the snap grid centres on.
+ *
+ * `snapToGrid` converts a pointer centre into the top-left the canvas stores,
+ * so it has to know how wide the card renders. `SchematicCanvas` owns the
+ * rendered pair; a mismatch puts every drop off-centre by half the difference.
+ */
 const NODE_W = 196;
+
+/** Card height the snap grid centres on; the partner of `NODE_W`. */
 const NODE_H = 84;
 
 /**
@@ -68,15 +92,15 @@ export function snapPosition( x, y ) {
  * then move every member by that same delta.
  *
  * Snapping each member's own position would quantise away the cluster's internal
- * offsets and reshape the group you grabbed. But snapping the raw delta instead
- * only preserves whatever offset a member already had — an off-grid cluster
- * could never be tidied by dragging its hull, and hull drags used to commit an
- * unsnapped delta, so those clusters are out there. Anchoring gives both: the
- * shape survives and the cluster lands on the grid.
+ * offsets and reshape the group you grabbed. Snapping the raw delta instead
+ * preserves whatever offset a member already carries, so an off-grid cluster
+ * could never be tidied by dragging its hull. Anchoring gives both: the shape
+ * survives and the cluster lands on the grid. An empty map has no anchor, so
+ * the raw delta passes through.
  *
- * @param {Object<string, {x: number, y: number}>} origin Members' start positions.
- * @param {number}                                 dx     Raw pointer dx.
- * @param {number}                                 dy     Raw pointer dy.
+ * @param {Object<string,{x: number, y: number}>} origin Members' start positions.
+ * @param {number}                                dx     Raw pointer dx.
+ * @param {number}                                dy     Raw pointer dy.
  * @return {{dx: number, dy: number}} The snapped delta to apply to every member.
  */
 export function snapClusterDelta( origin, dx, dy ) {
@@ -94,10 +118,14 @@ export function snapClusterDelta( origin, dx, dy ) {
 }
 
 /**
- * Tuck a newly-appeared (undropped) node below the left-most-then-bottom-most
- * node. Empty map → the origin cell. `positions` should hold only on-screen nodes.
+ * Tuck a node that appeared after the layout ran below the bottom-most card of
+ * the left-most column.
  *
- * @param {Object} positions Map of nodeId → { x, y }.
+ * Hand it only the nodes currently on the canvas: an entry left behind by a
+ * deleted node would tuck new cards underneath a card nobody can see. An empty
+ * or missing map yields the origin cell.
+ *
+ * @param {?Object<string,{x: number, y: number}>} positions Node id to position.
  * @return {{x: number, y: number}} The new node's position.
  */
 export function placeBelow( positions ) {
@@ -120,8 +148,38 @@ export function placeBelow( positions ) {
 	return { x: minX, y: bottom + Y_STEP };
 }
 
+/**
+ * Round a row index to the nearest half.
+ *
+ * Rows land on the same half-step lattice the snap helpers quantise to, so a
+ * spread block's fractional row stays a position a later drag can reproduce.
+ *
+ * @param {number} v Row index, whole or fractional.
+ * @return {number} The row rounded to the nearest 0.5.
+ */
 const snapHalf = ( v ) => Math.round( v * 2 ) / 2;
+
+/**
+ * Midpoint of an array's smallest and largest value.
+ *
+ * A fan centres on its OUTERMOST neighbours rather than their mean: a mean
+ * drags the node toward whichever side is crowded, bending the one link to the
+ * lone neighbour on the other side.
+ *
+ * @param {Array<number>} arr Neighbour rows; an empty array yields NaN.
+ * @return {number} The midpoint of the extremes.
+ */
 const midMinMax = ( arr ) => ( Math.min( ...arr ) + Math.max( ...arr ) ) / 2;
+
+/**
+ * Median of a numeric array.
+ *
+ * The settle passes order a column by its neighbours' rows, where the median
+ * resists the one distant neighbour that would drag a mean across the column.
+ *
+ * @param {Array<number>} arr Values to take the median of.
+ * @return {number} The median, or 0 for an empty array.
+ */
 const median = ( arr ) => {
 	const s = arr.slice().sort( ( a, b ) => a - b );
 	const n = s.length;
@@ -130,7 +188,17 @@ const median = ( arr ) => {
 	}
 	return n % 2 ? s[ ( n - 1 ) / 2 ] : ( s[ n / 2 - 1 ] + s[ n / 2 ] ) / 2;
 };
-// Stable numeric-key sort; ties keep prior (alphabetical) order.
+
+/**
+ * Sort by a numeric key, keeping the input order for equal keys.
+ *
+ * Columns start in alphabetical id order, so a tie resolves the same way on
+ * every run and one topology always lays out identically.
+ *
+ * @param {Array<*>}            arr Items to sort.
+ * @param {function(*): number} key The sort key for one item.
+ * @return {Array<*>} A new sorted array; `arr` is left alone.
+ */
 const stableSort = ( arr, key ) =>
 	arr
 		.map( ( v, i ) => [ v, i ] )
@@ -138,21 +206,24 @@ const stableSort = ( arr, key ) =>
 		.map( ( x ) => x[ 0 ] );
 
 /**
- * Lay a parsed graph out on the grid, per the layering described at the top.
+ * Lay a parsed graph out on the grid, using the layering described at the top.
  *
  * `parsed` is `{ nodes: [ { id } ], edges: [ { from, to } ] }`; null, or either
  * key missing, reads as empty. An edge whose endpoints are not both in `nodes`
  * is skipped, so a graph carrying a dangling edge lays out rather than throwing.
+ * A graph with no edges at all becomes an alphabetical, roughly square grid; a
+ * node with no edges inside a graph that has them stacks below one end column.
  *
- * @param {?Object} parsed The graph to lay out.
- * @return {{nodes: Array<Object>, edges: Array<Object>}} Copies of the nodes,
- * each carrying `position: {x, y}`, and `edges` passed through unchanged.
+ * @param {?{nodes?: Array<{id: string}>, edges?: Array<{from: string, to: string}>}} parsed The graph to lay out.
+ * @return {{nodes: Array<{id: string, position: {x: number, y: number}}>, edges: Array<Object>}}
+ * Every input node copied with a `position` added, and `edges` passed straight
+ * through. Neither input array nor any input node is mutated.
  */
 export function autoLayout( parsed ) {
 	const nodes = parsed?.nodes ?? [];
 	const edges = parsed?.edges ?? [];
 
-	// No edges → alpha-sorted column-major grid (depth would stack col 0).
+	// Edgeless nodes would all stack in column 0; grid them instead.
 	if ( edges.length === 0 && nodes.length > 0 ) {
 		const sorted = [ ...nodes ].sort( ( a, b ) =>
 			a.id.localeCompare( b.id )
@@ -274,7 +345,7 @@ export function autoLayout( parsed ) {
 		}
 	}
 
-	// Isolated-left when deep+source-heavy; NOT ≥2-components (broke test).
+	// Isolated cards go left only when the graph is deep and source-heavy.
 	const sourceCount = ids.filter(
 		( id ) => isSource( id ) && ! isIsolated( id )
 	).length;

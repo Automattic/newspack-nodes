@@ -15,34 +15,87 @@ import names from '../../runtime/reserved-node-names.json';
 import { Core } from '../../runtime/core';
 import { canonicalReverseCwd } from '../../runtime/metadata-node';
 
+/** @typedef {import('../../runtime/message').ComposeFields} ComposeFields */
+
+/** @typedef {{ kind: string, text: string, prompt?: string }} TranscriptEntry */
+
 /**
- * Shared canvas/Inspector command handlers for the debug overlay and topology
- * console: connect / remove / disconnect / send / trace / invoke / drop. The
- * non-invoke verbs become command lines routed through the injected `dispatch`,
- * which BOTH consumers point at their `sendLine` — the one path that owns the
- * echo, compose fields, cwd mirror and debug_state persist; `invoke`
- * builds the raw TM_COMMAND / TM_REQUEST itself because it needs the
- * is_interpreter→target decision, the request/command split, the prefix/replyFrom
- * wrapping, and the SSE-session guard — none of which a command line can express.
+ * Routes one verb as a command line. Both consumers point this at their own
+ * `sendLine`; `flags` rides only when the Compose pane supplies reply flags.
  *
- * `prefix`/`replyFrom` default to identity (the overlay is local: cwd '' makes the
- * Shell's own prefix identity anyway); the console injects `shell.prefix` /
- * `shell.replyFrom` so an invoke routes to the attached worker's cwd. `sseGuard(to)`
- * returns false to block an attached-worker invoke before a live stream exists
- * (the overlay leaves it at the always-allow default). `onDropStage` stages the
- * NewNodeModal payload; the consumer's commit dispatches the make_node.
+ * @typedef {(line: string, verb: string, args: string, flags?: ComposeFields) => void} Dispatch
+ */
+
+/**
+ * Runs one Inspector verb. `payload` is the verb's argument — a phrase for
+ * `send`, a level for `trace`, the `{ verb, kind, positional, replyTo }` record
+ * for `invoke` — and `flags` the Compose pane's reply flags.
  *
- * @param {Object}   args
- * @param {?Object}  args.shell          Session Shell (its sink fills the invoke message).
- * @param {Object}   args.graph          Live graph ({ nodes, edges }); invoke resolves a node's class.
- * @param {Array}    args.catalogClasses Class catalog entries (shell_name + is_interpreter).
- * @param {Function} args.dispatch       (echoLine, name, args) — routes a verb command line.
- * @param {Function} args.append         Append one transcript entry (invoke echo + sse error).
- * @param {Function} args.onDropStage    Stage the NewNodeModal payload on a palette drop.
- * @param {Function} [args.prefix]       Wrap the invoke TO (defaults to identity).
- * @param {Function} [args.replyFrom]    Wrap the invoke FROM (defaults to identity).
- * @param {Function} [args.sseGuard]     (to) → false to block + error an invoke (defaults to always-allow).
- * @return {{ onConnect: Function, onRemoveEdge: Function, onRemoveNode: Function, onDropNode: Function, onInspectorAction: Function }} The handlers.
+ * @typedef {(action: string, nodeId: string, payload?: (string|number|Object), flags?: ComposeFields) => void} InspectorAction
+ */
+
+/**
+ * The NewNodeModal payload a palette drop stages.
+ *
+ * @typedef  {Object} DropStage
+ * @property {string} shellName   Dropped class, as the palette names it.
+ * @property {string} defaultName Name the modal offers, free of collisions.
+ * @property {Array}  argSchema   The class's argument schema; empty when it takes none.
+ * @property {number} x           Drop site, already projected into SVG space.
+ * @property {number} y           Drop site, already projected into SVG space.
+ */
+
+/**
+ * The gesture handlers, each one dispatch away from the graph it mutates.
+ *
+ * @typedef  {Object} GraphHandlers
+ * @property {(from: string, to: string) => void}                          onConnect         Draw an edge, then patch the FROM node's target.
+ * @property {(from: string, to: string) => void}                          onRemoveEdge      Erase an edge, then drop `to` from the FROM node's target.
+ * @property {(id: string) => void}                                        onRemoveNode      Remove a node and take it off the canvas.
+ * @property {(drop: { shellName: string, x: number, y: number }) => void} onDropNode        Stage a palette drop for NewNodeModal.
+ * @property {InspectorAction}                                             onInspectorAction Run one Inspector verb against a node.
+ */
+
+/**
+ * One handler set for the canvas and Inspector gestures, shared by the debug
+ * overlay and the topology console: connect, disconnect, remove, palette drop,
+ * the Inspector's dump / command / tail / send / trace verbs, and invoke.
+ *
+ * Every gesture but `invoke` becomes a command line handed to `dispatch`, which
+ * both consumers point at their own `sendLine`. That is the path the REPL
+ * prompt uses, and it owns the transcript echo, the Compose fields, the cwd
+ * mirror and the `debug_state` persist; a second dispatch path would let a
+ * gesture such as `trace` skip all four.
+ *
+ * `invoke` builds its own message, because a command line expresses none of
+ * what it decides: whether the verb goes to the node or to its `:config`
+ * sibling (the catalog's `is_interpreter` flag), whether the message is a
+ * TM_COMMAND or a TM_REQUEST, how `prefix` and `replyFrom` scope it to the
+ * attached worker's cwd, and whether `sseGuard` refuses it for want of a live
+ * stream. The `_output` Dumper mints and signs the command — the minter signs,
+ * never the ingress (ADR-15) — and hands back null while a session is being
+ * re-established, which drops the gesture rather than send it unsigned. The
+ * reply is addressed rather than correlated: the server answers TO the FROM
+ * `replyFrom` stamped (ADR-7), which is why a caller owning its own reply node
+ * passes `replyTo` instead of an operation id.
+ *
+ * Every mutation also patches `_metadata`'s raw map, so the canvas repaints
+ * before the next poll. The patch mirrors the server rather than guessing:
+ * `connect_node` APPENDS on a Tee, so the patch appends too, and replacing
+ * there would erase the fan-out's other edges until the next poll put them
+ * back.
+ *
+ * @param {Object}                           args
+ * @param {?Object}                          args.shell          Session Shell. `invoke` fills its sink and reads `shell.path` for the echo prompt; without one `invoke` does nothing.
+ * @param {{ nodes: Array, edges: Array }}   args.graph          The live graph. `invoke` reads the target node's class from it, and a palette drop derives a name that does not collide.
+ * @param {Array}                            args.catalogClasses Class catalog entries, matched on `shell_name`: `is_interpreter` picks the invoke target, and `arguments` becomes the drop modal's schema.
+ * @param {Dispatch}                         args.dispatch       Routes each non-invoke gesture.
+ * @param {(entry: TranscriptEntry) => void} args.append         Appends one transcript entry — the invoke echo, and the refusal `sseGuard` produces.
+ * @param {(drop: DropStage) => void}        args.onDropStage    Stages a palette drop; the consumer's commit dispatches the `make_node`.
+ * @param {(to: string) => string}           [args.prefix]       Wraps the invoke TO, defaulting to identity.
+ * @param {(node: string) => string}         [args.replyFrom]    Wraps the invoke FROM, defaulting to identity.
+ * @param {(to: string) => boolean}          [args.sseGuard]     Returns false to refuse an invoke and append an error, defaulting to always-allow. Only an attached-worker reply rides the stream, so the overlay keeps the default.
+ * @return {GraphHandlers} The gesture handlers.
  */
 export function useGraphHandlers( {
 	shell,
@@ -56,7 +109,7 @@ export function useGraphHandlers( {
 	sseGuard = () => true,
 } ) {
 	return useMemo( () => {
-		// Optimistically patch local metadata; canvas updates before the poll.
+		// Patch the local metadata so the canvas repaints before the poll.
 		const patch = ( name, p ) =>
 			name && Core.node( names.METADATA )?.optimisticPatch( name, p );
 		return {
@@ -66,9 +119,10 @@ export function useGraphHandlers( {
 					'connect_node',
 					`${ from } ${ to }`
 				);
-				// connect appends; use append — replace drops Tee edges.
+				// Tee's connect_node appends; replacing drops its edges.
 				const current = Core.node( names.METADATA )?.rawMap?.[ from ]
 					?.target;
+				/** @type {string|Array} */
 				let next = to;
 				if ( Array.isArray( current ) ) {
 					next = current.includes( to )
@@ -83,7 +137,7 @@ export function useGraphHandlers( {
 					'disconnect_node',
 					`${ from } ${ to }`
 				);
-				// Mirror disconnect: drop `to` from Tee array, else clear it.
+				// Mirror the server: drop `to` from a Tee array, else clear.
 				const current = Core.node( names.METADATA )?.rawMap?.[ from ]
 					?.target;
 				if ( Array.isArray( current ) ) {
@@ -99,7 +153,7 @@ export function useGraphHandlers( {
 				patch( id, null );
 			},
 			onDropNode: ( { shellName, x, y } ) => {
-				// Live drops go through NewNodeModal to rename/add args.
+				// A live drop opens NewNodeModal to edit its name and args.
 				const defaultName = generateNodeName( graph, shellName );
 				const cls = ( catalogClasses || [] ).find(
 					( c ) => c.shell_name === shellName
@@ -108,7 +162,7 @@ export function useGraphHandlers( {
 				onDropStage( { shellName, defaultName, argSchema, x, y } );
 			},
 			onInspectorAction: ( action, nodeId, payload, flags ) => {
-				// Compose reply flags ride as optional 4th arg (omitted else).
+				// Compose reply flags ride as a 4th argument, omitted if none.
 				const dispatchVerb = ( line, verb, args ) =>
 					flags
 						? dispatch( line, verb, args, flags )
@@ -122,14 +176,14 @@ export function useGraphHandlers( {
 						nodeId
 					);
 				} else if ( 'command' === action ) {
-					// Command: split payload into verb (first token) + args.
+					// A raw command line, split into verb and arguments.
 					const line = String( payload ).trim();
 					const sp = line.indexOf( ' ' );
 					const verb = -1 === sp ? line : line.slice( 0, sp );
 					const args = -1 === sp ? '' : line.slice( sp + 1 ).trim();
 					dispatch( line, verb, args );
 				} else if ( 'tail' === action ) {
-					// Bare connect appends reply FROM; append, don't replace.
+					// A bare connect_node appends the reply path as a target.
 					dispatch(
 						`connect_node ${ nodeId }`,
 						'connect_node',
@@ -148,7 +202,7 @@ export function useGraphHandlers( {
 						patch( nodeId, { target: next } );
 					}
 				} else if ( 'disconnect' === action ) {
-					// Bare disconnect drops this reply path; keep Tee's edges.
+					// A bare disconnect drops only this reply path from a Tee.
 					dispatch(
 						`disconnect_node ${ nodeId }`,
 						'disconnect_node',
@@ -187,7 +241,7 @@ export function useGraphHandlers( {
 						`${ nodeId } ${ payload }`
 					);
 				} else if ( 'send_struct' === action ) {
-					// Quote+escape JSON to survive the tokenizer [#32].
+					// Quote the JSON so the tokenizer keeps it one token [#32].
 					const json = quoteToken( payload );
 					dispatchVerb(
 						`send_struct ${ nodeId } ${ json }`,
@@ -197,7 +251,7 @@ export function useGraphHandlers( {
 				} else if ( 'send_eof' === action ) {
 					dispatchVerb( `send_eof ${ nodeId }`, 'send_eof', nodeId );
 				} else if ( 'register' === action || 'unregister' === action ) {
-					// payload `<target> <event>`; verb adds register <source>.
+					// Payload is `<target> <event>`; nodeId is the source.
 					dispatch(
 						`${ action } ${ nodeId } ${ payload }`,
 						action,
@@ -210,7 +264,7 @@ export function useGraphHandlers( {
 						'trace',
 						`${ nodeId } ${ level }`
 					);
-					// Reflect the level now; `*` fans in ONE publish.
+					// Reflect the level now; `*` fans out in ONE publish.
 					if ( '*' === nodeId ) {
 						Core.node( names.METADATA )?.optimisticPatchAll( {
 							debug_state: level,
@@ -223,7 +277,7 @@ export function useGraphHandlers( {
 						return;
 					}
 					const { verb, kind, positional, replyTo } = payload;
-					// Route by catalog is_interpreter, not `:config` (remote).
+					// The catalog flag decides, not a search for `:config`.
 					const node = ( graph?.nodes || [] ).find(
 						( n ) => n.id === nodeId
 					);
@@ -239,7 +293,7 @@ export function useGraphHandlers( {
 							? nodeId
 							: `${ nodeId }:config`;
 					const to = prefix( commandTarget );
-					// Only attached-worker replies ride stream; local, no pid.
+					// Only an attached worker's reply needs the SSE session.
 					if ( ! sseGuard( to ) ) {
 						append( {
 							kind: 'error',
@@ -253,7 +307,7 @@ export function useGraphHandlers( {
 					let m;
 					let echo;
 					if ( 'request' === kind ) {
-						// TYPE first: a later-typed message goes unsigned.
+						// Mirror the Shell: mark LOCAL; a request is unsigned.
 						m = newMessage();
 						m[ TYPE ] = TM_REQUEST;
 						m[ VALUE ] = positional

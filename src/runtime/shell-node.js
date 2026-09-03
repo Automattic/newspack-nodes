@@ -1,13 +1,18 @@
 /**
- * ShellNode — the anonymous, React-driven REPL parser node. A typed line becomes a
- * single positional Message (the substrate's only format) and is filled into
- * the sink (`_command_interpreter`); builtins (`print`, `debug_level`) act and
- * emit their output through `_stdout`, returning nothing (ADR-13).
+ * The browser REPL's front-end, in two forms over one tokenizer: `ShellNode`,
+ * the live parser a typed line is filled into, and `parseStatements()`, the
+ * side-effect-free reader a draft topology's TSL is parsed with.
  *
- * Mirrors the verb vocabulary of PHP `class-shell.php` + the prior utils/shell.js
- * (ping / tell / send / send_eof / request / cmd + a bare-verb default). The
- * reply path is FROM=`_http/<ssePid>/<reply-node>`; typed input replies route
- * to `_output` (the Dumper). TO=`prefix(path)` (path defaults to `_http/{reader}`).
+ * A typed line becomes ONE positional Message (ADR-2) filled into the sink the
+ * host wires, which carries it on to `_command_interpreter`. Builtins (`print`,
+ * `var`, `debug_level`) act and emit through `_stdout`, minting no Message
+ * (ADR-13).
+ *
+ * The verb vocabulary mirrors PHP `Shell_Node`: ping / tell / send / send_eof /
+ * request / cmd, plus the bare-verb default that sends TM_COMMAND to the cwd.
+ * TO is `prefix( path )` against that cwd, which starts empty (the local graph)
+ * and a host moves with `cd`. FROM is the bare reply node `_output` (the
+ * Dumper); scoping a reply to one SSE session is `_sse:{pid}`'s job downstream.
  */
 
 import { markLocal } from './command-auth';
@@ -47,7 +52,10 @@ const VERB_ALIASES = {
 	cmd: 'command_node',
 };
 
-// `<name> [ <op> [ <value> ] ]` — the operator set of Shell3's `$H{'var'}`.
+/**
+ * The `var` grammar — `<name> [ <op> [ <value> ] ]`, carrying the operator set
+ * of Shell3's `$H{'var'}`. Mirrors PHP Shell_Node::VAR_GRAMMAR.
+ */
 const VAR_GRAMMAR =
 	/^([^\s=+\-*/.|]+(?:\.[^\s=+\-*/.|]+)*)\s*(\/\/=|\|\|=|[.+\-*/]=|\+\+|--|=)?([\s\S]*)$/;
 
@@ -157,14 +165,14 @@ export function tokenize( line ) {
 }
 
 /**
- * Inverse of tokenize() for a SINGLE token: quote+escape a value so tokenize()
- * delivers it back as one intact token. Used by the message composer to send
- * JSON to `send_struct` without the caller hand-escaping it [#32]. With the
- * escape-aware tokenizer this is exactly serializeArg, so any value — including
- * one carrying every quote char — round-trips (never unrepresentable).
+ * Inverse of tokenize() for a SINGLE token: quote and escape a value so
+ * tokenize() delivers it back as one intact token — how the message composer
+ * hands JSON to `send_struct` without escaping it itself. It is exactly
+ * serializeArg, because the tokenizer resolves escapes: every value round-trips,
+ * including one carrying every quote character.
  *
  * @param {string} value The token to quote (e.g. a JSON string).
- * @return {string} The value quoted+escaped so tokenize() recovers it intact.
+ * @return {string} The value quoted and escaped for tokenize() to recover.
  */
 export function quoteToken( value ) {
 	return serializeArg( value );
@@ -542,49 +550,63 @@ export function serializeDraftArg( value ) {
 
 /**
  * The REPL front-end Node: `fill( message )` turns the typed line carried in a
- * TM_BYTESTREAM VALUE into positional Messages filled into the sink. It also
- * carries the shell state a line is
- * parsed against — the cwd, the `var` namespace, and any held continuation —
- * and doubles as the throwaway shell `parseStatements()` drives the static TSL
- * front-end with. Anonymous by contract: naming it throws.
+ * TM_BYTESTREAM VALUE into positional Messages filled into the sink. It holds
+ * the state a line is parsed against — the cwd, the `var` namespace, the held
+ * continuation — and doubles as the throwaway shell `parseStatements()` drives
+ * the static TSL front-end with.
+ *
+ * Anonymous by contract: the name setter throws, because unaddressability is
+ * the security boundary (ADR-7).
  */
 export class ShellNode extends Node {
 	/**
 	 * Build an unwired shell — empty cwd, no vars, replies wanted, nothing
 	 * pending. The host supplies the rest after construction: `path`, `config`,
-	 * `statusLines`, the `onDispatch` tap, and the `sink` the graph wires.
+	 * `statusLines`, `host`, the `onDispatch` tap, and the `sink` the graph
+	 * wires.
 	 */
 	constructor() {
 		super();
-		// cwd: node-path bare verbs route to by default. Set by the host.
+		/** The cwd bare verbs route to by default. The host sets it. */
 		this.path = '';
-		// `var`-set values, read back by <name> interpolation (PHP Core::$var).
+		/**
+		 * `var`-set values, read back by `<name>` interpolation. PHP keeps
+		 * them process-global in `Core::$var`; a browser shell owns its own.
+		 */
 		this.vars = {};
-		// The `<ns:key>` namespace a host supplies; unset warns, never blanks.
+		/** Map `<config:key>` resolves through; a miss warns and yields ''. */
 		this.config = {};
-		// Lines emitted by the local `status` builtin; host-populated.
+		/** Lines the local `status` builtin prints; the host fills them. */
 		this.statusLines = [];
-		// When true, parsed lines are reported back to the host for echoing.
+		/**
+		 * The `show_parse` toggle. PHP dumps every parsed line's tokens while
+		 * it is on; nothing here reads the flag.
+		 */
 		this.showParse = false;
-		// Interactive REPLs want replies; a script/topology loader unsets it.
+		/**
+		 * Interactive REPLs want replies; a script or topology load unsets it.
+		 */
 		this._wantReply = true;
-		// Open-quote continuation (raw); resumes on the next line.
+		/** Open-quote continuation (raw); the next line resumes it. */
 		this.quoteContinuation = '';
-		// The open quote char while continuing ('' = none); drives the prompt.
+		/** Open quote char while continuing ('' = none); drives the prompt. */
 		this.pendingQuote = '';
-		// Backslash continuation: ONE trailing \<newline> splices with nothing.
+		/** Backslash continuation: the next line splices on, no separator. */
 		this.lineContinuation = '';
-		// Dispatch tap: invoked with every outgoing Message before the sink.
+		/** Dispatch tap: called with every outgoing Message before the sink. */
 		this.onDispatch = null;
-		// The skins are the host's: it owns the stylesheet and the storage.
+		/** Skin callbacks; the host owns the stylesheet and its storage. */
 		this.host = {};
 	}
 
 	/**
 	 * The one entry point (ADR-1): a TM_BYTESTREAM whose VALUE is the typed
 	 * line or script. Splits it into statements, parses each, and fills the
-	 * sink with whatever became a Message. Builtins act and emit through
-	 * `stdout()`; nothing comes back (ADR-13). Port of PHP `Shell_Node::fill()`.
+	 * sink with whatever became a Message, each inheriting the inbound KEY when
+	 * it minted none. Builtins act and emit through `stdout()`; nothing comes
+	 * back (ADR-13). TM_EOF reports a held continuation before it forwards, and
+	 * anything that is not REPL input passes through rather than being dropped.
+	 * Port of PHP `Shell_Node::fill()`.
 	 *
 	 * The Shell stays unnamed and unroutable, so no message can ARRIVE here by
 	 * routing: a caller either holds this reference or sinks into it.
@@ -867,7 +889,8 @@ export class ShellNode extends Node {
 	 * with no value DELETES it (Shell3.pm:2839); else the operator set applies.
 	 *
 	 * @param {string} assignment The raw token tail.
-	 * @return {Object|null} A local echo/error signal, or null.
+	 * @return {null} Always null: a var command prints through `stdout()` and
+	 *                mints no Message.
 	 */
 	varCommand( assignment ) {
 		// trimStart only: a trailing whitespace VALUE must reach the grammar.
@@ -934,7 +957,7 @@ export class ShellNode extends Node {
 	 * @param {string}  value    Right-hand side, already stripped.
 	 * @param {boolean} hasValue Whether a value token followed the operator;
 	 *                           false selects the delete / `++` / `--` branch.
-	 * @return {Object|null} A local error signal, or null.
+	 * @return {null} Always null: every branch assigns or prints a usage error.
 	 */
 	operate( name, op, value, hasValue ) {
 		const exists = name in this.vars;
@@ -1173,19 +1196,21 @@ export class ShellNode extends Node {
 	}
 
 	/**
-	 * When want_reply is off, OR TM_NOREPLY onto a TM_COMMAND (no-op otherwise).
-	 * Mirrors PHP Shell_Node::stamp_noreply — mutates in place and returns the
-	 * message so message-return branches can `return this.stampNoreply( message )`.
+	 * Seal a minted Message: OR TM_NOREPLY onto a TM_COMMAND when want_reply is
+	 * off (a no-op otherwise), then `markLocal()` it, which sets LOCAL and signs
+	 * the command. Every mint branch returns through here, so nothing leaves
+	 * the Shell unsigned — the minter signs, never the ingress (ADR-15).
+	 * Mirrors PHP Shell_Node::stamp_noreply plus the `Command_Auth::sign()` PHP
+	 * makes in `fill()`.
 	 *
 	 * @param {Array} message Message to stamp in place.
-	 * @return {Array} The same message.
+	 * @return {Array} The same message, so a mint branch can return it.
 	 */
 	stampNoreply( message ) {
 		const type = message[ TYPE ] ?? 0;
 		if ( ! this._wantReply && type & TM_COMMAND ) {
 			message[ TYPE ] = type | TM_NOREPLY;
 		}
-		// The Shell's completion point: every parse branch ends here.
 		return markLocal( message );
 	}
 
@@ -1205,7 +1230,7 @@ export class ShellNode extends Node {
 	/**
 	 * End-of-input gate: a held continuation at EOF is Tachikoma's
 	 * `got EOF while waiting for tokens` — report it through `_stdout` and
-	 * clear, as PHP's `flush_pending(): void` does.
+	 * clear, as PHP's `flush_pending()` does.
 	 */
 	flushPending() {
 		const pending = (
@@ -1238,7 +1263,11 @@ export class ShellNode extends Node {
 		stdout.fill( m );
 	}
 
-	/** True while a quote/backslash continuation holds an open statement. */
+	/**
+	 * Is a statement still open?
+	 *
+	 * @return {boolean} True while a quote or backslash continuation holds one.
+	 */
 	hasPending() {
 		return '' !== this.quoteContinuation || '' !== this.lineContinuation;
 	}
@@ -1268,7 +1297,8 @@ export class ShellNode extends Node {
 
 	/**
 	 * Refuses every name: the Shell is the unnamed REPL front-end, and naming a
-	 * node registers it as a routable destination, which this one is not.
+	 * node registers it as a routable destination. Unaddressability is the
+	 * security boundary (ADR-7).
 	 *
 	 * @param {string} value The rejected name.
 	 * @throws {Error} Always.

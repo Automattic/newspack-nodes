@@ -1,22 +1,25 @@
 /**
- * consoleGraph — shaping and reading a console graph, in EITHER mode.
+ * consoleGraph — the graph transforms the Topology Console's two modes share.
  *
- * Split out of `draftGraph.js`, which was two things under one misleading name:
- * 147 lines of draft mutation, and this — 581 lines that `Inspector`,
- * `SchematicCanvas`, `useConsoleGraph`, `useExpandedIncludes` and
- * `useGraphHandlers` all use to render a LIVE graph. Only the mutation half is
- * the draft's, and only that half goes when the draft becomes an interpreter.
+ * Every function here READS a graph and returns a new one: whether an edge is
+ * a removable physical connection, the fold of a document's `set_*target`
+ * lines into config-role edges, the canvas's reserved `_repl` anchor, and the
+ * unique name a palette drop takes. None of them mutates a document. Mutation
+ * belongs to the draft interpreter, where a TSL verb can reach it, so a
+ * transform here that DECIDED something would be in the wrong place.
  */
 
 /**
  * True when an edge is a physical `connect_node` connection — the only kind
  * the editor may remove.
  *
- * Edges without role metadata predate the composed-baseline contract and are
- * physical connect_node edges. Config-only edges describe routing; they are
- * not editor-removable connections.
+ * Removing an edge issues `disconnect_node`, which undoes nothing else: a
+ * config-role edge exists because a `set_*target` verb named its destination,
+ * and that line would outlive the gesture. An edge carrying no `roles` array
+ * is physical — the live graph and the virtual-edge pass both emit bare edges,
+ * and the config fold below is the only thing that ever labels one.
  *
- * @param {Object} edge Graph edge; `roles` is absent on pre-contract edges.
+ * @param {Object} edge Graph edge; `roles` is absent on a plain connection.
  * @return {boolean} True when the edge carries a connect role.
  */
 export function edgeHasConnectRole( edge ) {
@@ -31,12 +34,18 @@ export const CONFIG_TARGET_VERB_RE = /^set_\w*target$/;
 
 /**
  * Attach the server-resolved config edge contract to a parsed topology.
- * A missing contract is only invalid when the file actually needs token
- * resolution; ordinary token-free fixtures and older saved files need none.
+ *
+ * A `<ns:key>` target names nothing client-side — only the server resolves the
+ * token — so a document carrying one that arrives without the list would wire
+ * an edge to the literal token text. Refusing is the loud half of that: the
+ * missing contract is a server response the console cannot paint. A
+ * token-free document needs no list and passes through untouched.
  *
  * @param {Object} graph Parsed topology graph.
- * @param {*}      edges `topologies get.resolved_config_edges`.
+ * @param {*}      edges `topologies get.resolved_config_edges`; anything but
+ *                       an array counts as no contract at all.
  * @return {Object} Graph carrying the resolved edge list.
+ * @throws {Error} When a token target has no resolved-edge list to name it.
  */
 export function withResolvedConfigEdges( graph, edges ) {
 	if ( Array.isArray( edges ) ) {
@@ -67,7 +76,9 @@ export function withResolvedConfigEdges( graph, edges ) {
  *
  * The last step of composing a document with its expansion: a `set_*target`
  * verb produces an edge, and a `<ns:key>` token in one has to be resolved
- * against the server's answer before it names anything.
+ * against the server's answer before it names anything. An endpoint no node
+ * provides is skipped, so a setter pointing at a node the composed graph lacks
+ * draws nothing rather than a dangling edge.
  *
  * @param {Object} graph Graph carrying `configOverrides` + `resolvedConfigEdges`.
  * @return {Object} The graph with config edges folded in.
@@ -87,7 +98,10 @@ export function withConfigEdges( graph ) {
 	};
 }
 
-// `_repl`: worker's auto-mounted Partition; reserved anchor, never in a .tsl.
+/**
+ * The worker's auto-mounted REPL Partition, as a canvas node. Reserved: no
+ * `.tsl` declares it, and the document never gains a line that does.
+ */
 const REPL_ANCHOR = {
 	id: '_repl',
 	name: '_repl',
@@ -110,16 +124,33 @@ export function withReplAnchor( graph ) {
 	return { ...graph, nodes: [ ...graph.nodes, REPL_ANCHOR ] };
 }
 
+/**
+ * The `set_*target` slots an edge stands for.
+ *
+ * @param {Object} edge Graph edge.
+ * @return {Array<string>} The slot list, empty on an edge with no config role.
+ */
 const configSlotsOf = ( edge ) =>
 	Array.isArray( edge?.config_slots ) ? edge.config_slots : [];
 
+/**
+ * An edge's roles, reading a bare edge as a physical connection — the same
+ * default the server's expansion and the draft interpreter apply.
+ *
+ * @param {Object} edge Graph edge.
+ * @return {Array<string>} The role list.
+ */
 const edgeRolesOf = ( edge ) =>
 	Array.isArray( edge?.roles ) ? edge.roles : [ 'connect' ];
 
 /**
- * Fold top-level config setters over an expanded include baseline. Slots are
- * independent: replacing errors routing must not erase completed routing, and
- * removing the last config slot must not erase a physical connect role.
+ * Fold top-level config setters over an expanded include baseline.
+ *
+ * Each setter vacates its own slot wherever that slot currently sits, then
+ * claims its new endpoint. Slots are independent: retargeting errors routing
+ * must not erase completed routing, and vacating an edge's last config slot
+ * must not erase a physical connect role the same edge carries. A setter with
+ * an empty target only vacates.
  *
  * @param {Array} edges     Current explicit-role edge state.
  * @param {Array} overrides Ordered borrowed-node config target setters.
@@ -192,6 +223,9 @@ function applyConfigOverrides( edges, overrides, alive = null ) {
  * Resolve tokenized override targets for graph folding without changing the
  * raw overrides that serialize back into the topology file.
  *
+ * A token the server's list does not answer resolves to an empty target, which
+ * vacates the slot instead of drawing an edge to the token text.
+ *
  * @param {Array} overrides     Raw parsed config overrides.
  * @param {Array} resolvedEdges Server-resolved config edges.
  * @return {Array} Overrides carrying concrete graph targets.
@@ -212,6 +246,9 @@ function resolveConfigOverrideTargets( overrides, resolvedEdges ) {
 
 /**
  * Produce a unique name for a new `shellName` instance (`echo`, `echo-2`, …).
+ *
+ * The first instance takes the bare lowercased class, so a one-of-a-kind node
+ * reads as `echo` rather than `echo-1`.
  *
  * @param {Object} graph     Graph to search for collisions.
  * @param {string} shellName Class name (e.g. 'Echo').

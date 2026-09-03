@@ -1,30 +1,76 @@
 /* global requestAnimationFrame, cancelAnimationFrame */
 
+/**
+ * The shared, ring-aware DOM-virtualized log list the substrate's log-stream
+ * dashboards render their rows through (Partition Viewer, Log Viewer).
+ *
+ * It reads a ring-backed view node (`linesCount` + `lineAt( i )`, newest first,
+ * both O(1)) and pulls ONLY the on-screen window each animation frame, so a
+ * 100k-row ring costs O(rows on screen) per frame and the rows never become
+ * React state. The window bounds come from scroll geometry read live inside
+ * that frame rather than from `useVirtualization`, whose deferred scroll-state
+ * re-render lands a frame behind the pull it would have to feed. New rows glide
+ * into place behind an offset that decays to zero, or hold the reader's
+ * position when they land above someone scrolled into history. Filtering
+ * happens at INGEST on the view node, so the ring holds only what is displayed
+ * and this windows straight off it.
+ *
+ * Per-frame work is bounded by the VIEWPORT rather than the input rate, the
+ * flood discipline the console's `DumperNode` carries. The glide debt is
+ * capped at MAX_DEBT_ROWS, stats publishes coalesce to STATS_INTERVAL_MS, and
+ * row elements re-map only when the model commits.
+ */
+
 import { useState, useEffect, useRef, useMemo } from '@wordpress/element';
 import './LogRowList.scss';
 
+/** Rows pulled past each edge of the viewport, so a scroll shows no gap. */
 const OVERSCAN = 5;
 
-// @longform Smooth-scroll hysteresis (upper = 2x lower): gliding STOPS once
-// scrollTop passes STOP_GLIDE_ROWS row heights and only RESUMES back under
-// RESUME_GLIDE_ROWS, so a reader hovering near the top can't flip between
-// glide and scroll-anchor modes every frame.
+/**
+ * Scroll depth, in row heights, under which new rows resume gliding.
+ *
+ * It pairs with STOP_GLIDE_ROWS as hysteresis, the stop threshold sitting at
+ * twice the resume threshold: on a single threshold a reader hovering at the
+ * boundary flips between gliding and scroll-anchoring every frame.
+ */
 const RESUME_GLIDE_ROWS = 1;
+
+/**
+ * Scroll depth, in row heights, past which gliding stops and new rows anchor
+ * `scrollTop` instead. The upper half of the hysteresis band.
+ */
 const STOP_GLIDE_ROWS = 2;
 
-// @longform Glide budget: rows of smooth-scroll debt a flood may queue.
-// Uncapped, a firehose accrues debt faster than the 1%/frame decay clears
-// it (50k lines/s ≈ 88k rows steady-state), pushing the window past the
-// ring (blank viewport) and churning hundreds of rows per frame. Past the
-// budget the excess appears instantly — the data always shows, only the
-// animation drops (MemorySieve degrade, per the console Dumper).
+/**
+ * Rows of smooth-scroll debt a flood may queue — the glide budget.
+ *
+ * Uncapped, a firehose accrues debt faster than the 1%-per-frame decay clears
+ * it (50k lines/s settles near 88k rows), which pushes the window past the ring
+ * — a blank viewport — and churns hundreds of rows per frame. Past the budget
+ * the excess appears instantly: the data always shows and only the animation
+ * drops — the MemorySieve degrade the console's `DumperNode` makes under the
+ * same pressure.
+ */
 const MAX_DEBT_ROWS = 300;
 
-// Stats publish cadence: coalesce toolbar re-renders off the frame rate.
+/** Stats publish cadence, coalescing toolbar re-renders off the frame rate. */
 const STATS_INTERVAL_MS = 250;
 
-// Debug mode renders natural-height rows unvirtualized; bound the DOM cost.
+/**
+ * Newest rows the debug regime renders. They take their natural height and are
+ * not virtualized, so this cap is what bounds the DOM cost.
+ */
 export const DEBUG_MAX_ROWS = 500;
+
+/**
+ * The ring-backed view node this list windows over.
+ *
+ * @typedef  {Object}                LogRowSource
+ * @property {number}                linesCount Rows the ring holds.
+ * @property {(i: number) => Object} lineAt     One row, by newest-first index.
+ * @property {number}                [lps]      Lines per second, when the view node measures one.
+ */
 
 /**
  * The committed render model: the pulled window plus the geometry placing it.
@@ -36,9 +82,20 @@ export const DEBUG_MAX_ROWS = 500;
  * @property {Object[]} rows        The pulled window, newest first.
  * @property {number}   spacerTop   Height in px of the spacer standing in for the rows above the window.
  * @property {number}   totalHeight Full scroll height in px; 0 in the debug regime, which is unvirtualized.
- * @property {number}   visible     Rows actually shown: the ring total, or the
- *                                  DEBUG_MAX_ROWS cap in debug.
+ * @property {number}   visible     Rows the ring holds. It sizes `totalHeight`
+ *                                  and gates the empty state, so it stays the
+ *                                  full count in the debug regime, where only
+ *                                  DEBUG_MAX_ROWS of them render.
  * @property {number}   [offset]    Smooth-scroll offset in px, committed with its rows. Absent in the debug regime, which never glides.
+ */
+
+/**
+ * The counts the list reports up to the consumer's toolbar.
+ *
+ * @typedef  {Object} LogRowStats
+ * @property {number} total   Rows the ring holds.
+ * @property {number} visible Rows on display: the ring total, or the DEBUG_MAX_ROWS cap in the debug regime.
+ * @property {number} lps     Lines per second, passed through from the view node; an idle stream decays to 0.
  */
 
 /**
@@ -55,34 +112,15 @@ export const DEBUG_MAX_ROWS = 500;
  */
 
 /**
- * LogRowList — the shared, ring-aware DOM-virtualized log list.
- *
- * Consumes a ring-backed view node (`linesCount` + `lineAt(i)`, newest first, both
- * O(1)) and, each rAF frame, pulls ONLY the on-screen window via `lineAt(i)` — it
- * never materializes the whole ring, so a 100k buffer costs O(rows-on-screen) per
- * frame. The window bounds are computed inline from live scroll geometry (the
- * canvas renderer's algorithm) instead of `useVirtualization`, whose deferred
- * scroll-state re-render lags the single-frame pull. New rows smooth-scroll into
- * place via an offset that decays to zero (or hold the reader's position when
- * scrolled into history), and `{ total, visible, lps }` is reported up to the
- * consumer's toolbar. Filtering happens at INGEST on the view node, so the
- * ring holds only what is displayed and this windows straight off it.
- *
- * Flood-safe, per the console Dumper: per-frame work is bounded regardless of
- * INPUT RATE.
- * The glide debt is capped at MAX_DEBT_ROWS (excess rows appear instantly —
- * the animation drops, never the data), stats publishes coalesce to
- * STATS_INTERVAL_MS, and row elements re-map only on a model commit.
- *
- * @param {Object}    props
- * @param {Function}  props.getNode         `() => node|null`; node exposes `linesCount`, `lineAt(i)`, optional `lps`.
- * @param {number}    props.rowHeight       Fixed row height in px.
- * @param {RenderRow} props.renderRow       Renders one row of the pulled window.
- * @param {*}         [props.emptyLabel]    Rendered when no rows are visible.
- * @param {Function}  [props.onStats]       `({ total, visible, lps }) => void`, on change, coalesced to STATS_INTERVAL_MS.
- * @param {number}    [props.resetSignal]   Change it to rebase the projection (clear / new subscription).
- * @param {boolean}   [props.debug]         Unvirtualized debug regime: the newest DEBUG_MAX_ROWS rows at natural height.
- * @param {string}    [props.listClassName] Extra class on the scroll container.
+ * @param {Object}                       props
+ * @param {() => LogRowSource|null}      props.getNode         Read fresh each frame, so a graph rebuild is picked up.
+ * @param {number}                       props.rowHeight       Fixed row height in px; every window bound is computed from it.
+ * @param {RenderRow}                    props.renderRow       Renders one row of the pulled window.
+ * @param {*}                            [props.emptyLabel]    Rendered in place of the rows while the ring is empty.
+ * @param {(stats: LogRowStats) => void} [props.onStats]       Called on change, and no more often than STATS_INTERVAL_MS.
+ * @param {number}                       [props.resetSignal]   Change it to rebase the projection (a clear, or a new subscription).
+ * @param {string}                       [props.listClassName] Extra class on the scroll container.
+ * @param {boolean}                      [props.debug]         Unvirtualized debug regime: the newest DEBUG_MAX_ROWS rows at natural height.
  * @return {import('react').ReactElement} The virtualized list.
  */
 export default function LogRowList( {
@@ -101,9 +139,9 @@ export default function LogRowList( {
 	const rafRef = useRef( null );
 	// Hysteresis state: whether new rows glide (true) or anchor scrollTop.
 	const glidingRef = useRef( true );
-	// Newest row id already smooth-scrolled for (monotonic; cap-robust).
+	// Newest row id already glided for. Ids climb even when the ring is full.
 	const lastTopIdRef = useRef( 0 );
-	// Latest of each so the rAF reads without re-subscribing.
+	// The latest `onStats`, so the frame reads it without re-subscribing.
 	const onStatsRef = useRef( onStats );
 	onStatsRef.current = onStats;
 	// Change-detect gate: idle frames push no React state.
@@ -132,7 +170,7 @@ export default function LogRowList( {
 		} )
 	);
 
-	// Rebase on clear: forget motion + the new-row baseline.
+	// Rebase on clear: forget the motion and the new-row baseline.
 	useEffect( () => {
 		lastTopIdRef.current = 0;
 		offsetRef.current = 0;
@@ -153,12 +191,28 @@ export default function LogRowList( {
 	}, [ resetSignal ] );
 
 	useEffect( () => {
+		/**
+		 * One frame: read the ring, advance the glide, and commit a model when
+		 * the window it renders changed.
+		 *
+		 * It re-arms on every exit path, so the debug branch's early return
+		 * cannot drop the loop.
+		 *
+		 * @param {number} frameTs This frame's timestamp, as rAF hands it over.
+		 */
 		const draw = ( frameTs ) => {
 			const node = getNode();
 			const total = node?.linesCount ?? 0;
 			const lps = node?.lps ?? 0;
 
-			// On change AND on cadence; a throttled change lands next window.
+			/**
+			 * Report the counts up, on change AND on cadence.
+			 *
+			 * A change throttled inside the interval is not queued: the first
+			 * frame past the interval publishes whatever is current then.
+			 *
+			 * @param {number} visibleNow Rows on display this frame.
+			 */
 			const pushStats = ( visibleNow ) => {
 				const s = statsPushedRef.current;
 				if (
@@ -175,9 +229,10 @@ export default function LogRowList( {
 				}
 			};
 
+			// Ingest filters, so the display count is the ring total.
 			const visible = total;
 
-			// MONOTONIC top id: new-row detection AND the ring-rotation tell.
+			// Monotonic top id: it detects new rows, and a full ring rotating.
 			const topRow = node?.lineAt( 0 );
 			const topId = topRow ? topRow.id : 0;
 
@@ -248,13 +303,13 @@ export default function LogRowList( {
 					// @longform Hold the reader's position when scrolled into
 					// history. Exact, because `overflow-anchor: none` stops the
 					// browser correcting for the same rows a second time; with
-					// anchoring on, both fired and every new row moved the
-					// reader by two.
+					// anchoring on both corrections land and every new row
+					// moves the reader by two.
 					list.scrollTop += newRows * rowHeight;
 				}
 			}
 
-			// Clamp to the glide budget: excess appears instantly, never blank.
+			// Clamp to the glide budget so the window cannot outrun the ring.
 			const maxDebt = MAX_DEBT_ROWS * rowHeight;
 			if ( offsetRef.current < -maxDebt ) {
 				offsetRef.current = -maxDebt;
@@ -311,7 +366,7 @@ export default function LogRowList( {
 				pushed.start = start;
 				pushed.end = end;
 				pushed.topId = topId;
-				// Offset commits WITH its rows: translate never leads window.
+				// The offset commits with its rows; it never leads them.
 				setModel( {
 					rows,
 					spacerTop: start * rowHeight,

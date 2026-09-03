@@ -1,5 +1,8 @@
 /**
- * REPL footer — collapsible transcript + prompt + command input + status.
+ * The REPL footer both graph surfaces mount — the topology console and the
+ * debug overlay's Inspector tab. It carries the transcript pane, the prompt,
+ * the command input and the connection-status pill, so one terminal serves
+ * both consumers rather than each growing its own.
  */
 
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
@@ -7,7 +10,39 @@ import { __ } from '@wordpress/i18n';
 import { longestCommonPrefix } from '../../runtime/completion-node';
 import { loadHistory, saveHistory } from '../core/consolePersistence';
 
-// Split value into the trailing whitespace token + the head before it.
+/**
+ * One rendered transcript line, in the shape the Dumper stamps.
+ *
+ * @typedef {Object} TranscriptEntry
+ * @property {string} key      React list key.
+ * @property {string} kind     Line style: `sent`, `recv`, `info` or `error`.
+ * @property {string} text     The line itself.
+ * @property {string} [prompt] Prompt a `sent` line renders ahead of its text;
+ *                             absent, the current `prompt` prop stands in.
+ */
+
+/**
+ * A completion reply, in the shape the CompletionNode publishes.
+ *
+ * @typedef {Object} CompletionReply
+ * @property {number}   seq        Publication sequence. The footer acts on a
+ *                                 reply once, so a re-render over an applied
+ *                                 one changes nothing while a second Tab on
+ *                                 an identical candidate list still lands.
+ * @property {string[]} candidates Candidates the interpreter returned.
+ */
+
+/**
+ * Split a command line into its trailing token and the head before it.
+ *
+ * Completion applies to that token alone, and the head is what the completed
+ * token is joined back onto. A line ending in whitespace yields an empty
+ * token, so Tab there offers every candidate rather than re-completing the
+ * word already typed.
+ *
+ * @param {string} value The current input value.
+ * @return {{head:string,token:string}} The head, its trailing whitespace kept, and the token after it.
+ */
 function splitTrailingToken( value ) {
 	const lastSpace = value.search( /\s\S*$/ );
 	if ( -1 === lastSpace ) {
@@ -18,6 +53,7 @@ function splitTrailingToken( value ) {
 	return { head, token: value.slice( lastSpace + 1 ) };
 }
 
+/** Connection-status pill label for each stream state. */
 const STATUS_LABELS = {
 	connecting: __( 'CONNECTING', 'newspack-nodes' ),
 	open: __( 'CONNECTED', 'newspack-nodes' ),
@@ -25,12 +61,29 @@ const STATUS_LABELS = {
 	closed: __( 'CLOSED', 'newspack-nodes' ),
 };
 
-// Transcript pane sizing; default 20% of canvas, drag-resizable, persisted.
+/** localStorage key the operator's transcript height persists under. */
 const HEIGHT_STORAGE_KEY = 'newspack-nodes:topology-console:repl-height';
+
+/** Floor the transcript never shrinks below, in pixels. */
 const HEIGHT_MIN_PX = 80;
-const RESIZE_STEP_PX = 20; // Arrow-key nudge for the resize handle.
-// Pre-layout FALLBACK; callers pass measured maxHeightPx. 174=32+64+40+38.
+
+/** Pixels one ArrowUp or ArrowDown nudges the resize handle. */
+const RESIZE_STEP_PX = 20;
+
+/**
+ * Chrome the transcript can never occupy, in pixels: 32 for the WordPress
+ * admin bar, 64 for the hub header, 40 for the tab bar and 38 for the prompt
+ * bar. It is the pre-layout fallback alone — a consumer that has measured its
+ * own panel passes `maxHeightPx`, which wins wherever it is given.
+ */
 const FIXED_CHROME_PX = 174;
+
+/**
+ * The height an operator who has never resized the pane opens it at: a fifth
+ * of the canvas, and never under the floor.
+ *
+ * @return {number} Height in pixels; 200 where there is no `window`.
+ */
 function defaultHeight() {
 	if ( typeof window === 'undefined' ) {
 		return 200;
@@ -40,8 +93,21 @@ function defaultHeight() {
 		Math.round( ( window.innerHeight - FIXED_CHROME_PX ) * 0.2 )
 	);
 }
-// Handle is centered on the top edge; reserve its 3px overhang from clipping.
+
+/**
+ * Pixels held back above the transcript for the resize handle. The 6px handle
+ * straddles the pane's top edge, so reserving its whole height keeps the half
+ * that overhangs from clipping against the chrome above.
+ */
 const RESIZE_HANDLE_OVERHANG_PX = 6;
+
+/**
+ * The ceiling a drag, a nudge or a double-click may not pass when the consumer
+ * measures nothing itself. Subtracting the fixed chrome and the handle keeps
+ * the pane's top edge, and the handle straddling it, clear of the chrome.
+ *
+ * @return {number} Ceiling in pixels; 800 where there is no `window`.
+ */
 function maxHeight() {
 	if ( typeof window === 'undefined' ) {
 		return 800;
@@ -51,6 +117,16 @@ function maxHeight() {
 		window.innerHeight - FIXED_CHROME_PX - RESIZE_HANDLE_OVERHANG_PX
 	);
 }
+
+/**
+ * Read the height this browser last left the transcript at.
+ *
+ * Reading localStorage throws in private mode and wherever site data is
+ * blocked, so every failure — the throw, a missing entry, a value under the
+ * floor — returns null and the caller falls back to `defaultHeight()`.
+ *
+ * @return {?number} The stored height in pixels, or null.
+ */
 function loadStoredHeight() {
 	try {
 		const raw = window.localStorage.getItem( HEIGHT_STORAGE_KEY );
@@ -68,21 +144,21 @@ function loadStoredHeight() {
  * focus and Esc to minimize, and a transcript height that survives reloads —
  * while the parent owns the transcript itself and the expanded state.
  *
- * @param {Object}   props
- * @param {string}   props.prompt                  Text shown before `>`; both consumers pass the shell cwd.
- * @param {string}   [props.streamStatus]          Stream state: `connecting`, `open`, `error`, or `closed`. Absent (local overlay) reads as LIVE.
- * @param {boolean}  props.canSend                 False disables the input and shows the connecting placeholder.
- * @param {Function} props.onSubmit                Receives the trimmed command line on Enter.
- * @param {Function} [props.onClear]               Clears the transcript; bound to Ctrl/Cmd+L and the ✕ button.
- * @param {Object[]} [props.transcript]            Entries to render, each `{ key, kind, text, prompt? }`.
- * @param {boolean}  props.expanded                Whether the transcript pane is open.
- * @param {Function} [props.onExpandedChange]      Receives the next expanded state, or an updater function.
- * @param {Object}   [props.inputRef]              External ref to the prompt input, so the parent can blur or refocus it.
- * @param {Function} [props.onComplete]            Receives the whole input line on Tab to request candidates.
- * @param {?Object}  [props.completion]            Completion reply `{ seq, candidates }`; a fresh `seq` re-applies it.
- * @param {Function} [props.onShowCandidates]      Receives the ambiguous matches on the second and later Tab of a run.
- * @param {?number}  [props.maxHeightPx]           Ceiling for the transcript height; null measures against the window.
- * @param {Function} [props.onOverlayHeightChange] Receives the px the transcript covers of the canvas (0 when collapsed).
+ * @param {Object}                      props
+ * @param {string}                      props.prompt                  Text shown before `>`, and what an echoed line carrying no prompt of its own renders; both consumers pass the shell cwd.
+ * @param {string}                      [props.streamStatus]          Stream state: `connecting`, `open`, `error`, or `closed`. Absent (the local overlay graph) reads as LIVE.
+ * @param {boolean}                     props.canSend                 False disables the input and shows the connecting placeholder.
+ * @param {(command:string)=>void}      props.onSubmit                Receives the trimmed command line on Enter.
+ * @param {()=>void}                    [props.onClear]               Clears the transcript; bound to Ctrl/Cmd+L and the ✕ button.
+ * @param {TranscriptEntry[]}           [props.transcript]            Entries to render, oldest first.
+ * @param {boolean}                     props.expanded                Whether the transcript pane is open.
+ * @param {(expanded:boolean)=>void}    [props.onExpandedChange]      Receives the next expanded state, an updater already resolved against the current one.
+ * @param {{current:?HTMLInputElement}} [props.inputRef]              External ref to the prompt input, so the parent can blur or refocus it.
+ * @param {(line:string)=>void}         [props.onComplete]            Receives the whole input line on Tab to request candidates.
+ * @param {?CompletionReply}            [props.completion]            Completion reply; a fresh `seq` re-applies it.
+ * @param {(matches:string[])=>void}    [props.onShowCandidates]      Receives the ambiguous matches on the second and later Tab of a run.
+ * @param {?number}                     [props.maxHeightPx]           Ceiling for the transcript height; null measures against the window.
+ * @param {(px:number)=>void}           [props.onOverlayHeightChange] Receives the px the transcript covers of the canvas (0 when collapsed).
  * @return {import('react').ReactElement} The footer element.
  */
 export default function ReplFooter( {
@@ -94,15 +170,11 @@ export default function ReplFooter( {
 	transcript = [],
 	expanded,
 	onExpandedChange,
-	// Optional external ref so the parent can blur / re-focus the prompt.
 	inputRef: externalInputRef,
-	// Tab-completion query/reply; onShowCandidates lists ambiguous matches.
 	onComplete,
 	completion = null,
 	onShowCandidates,
-	// Optional ceiling override for maxHeight(); overlay passes inner height.
 	maxHeightPx = null,
-	// Px the transcript overlays the canvas; autofit reserves that band.
 	onOverlayHeightChange,
 } ) {
 	const [ value, setValue ] = useState( '' );
@@ -111,7 +183,7 @@ export default function ReplFooter( {
 	// Start past-the-end so the first ArrowUp recalls the newest command.
 	const historyCursor = useRef( history.current.length );
 	const historyDraft = useRef( '' );
-	// Token completed on the last Tab + last applied seq (guards re-apply).
+	// The token the last Tab asked about, and the seq already applied.
 	const pendingToken = useRef( null );
 	const lastAppliedSeq = useRef( null );
 	// Consecutive Tab-press count; readline lists ambiguous on 2nd+ press.
@@ -152,7 +224,7 @@ export default function ReplFooter( {
 		inputRef.current?.focus();
 	};
 
-	// Absent streamStatus (local overlay) → LIVE; avoids .toUpperCase() crash.
+	// The local overlay passes no streamStatus; its graph is always LIVE.
 	const statusLabel = streamStatus
 		? STATUS_LABELS[ streamStatus ] || streamStatus.toUpperCase()
 		: __( 'LIVE', 'newspack-nodes' );
@@ -218,7 +290,7 @@ export default function ReplFooter( {
 		}
 	}, [ maxHeightPx ] );
 
-	// Drag the top edge to resize, clamped to [HEIGHT_MIN_PX, maxHeight()].
+	// Drag the top edge to resize, clamped to the floor and the ceiling.
 	const handleResizeStart = useCallback(
 		( ev ) => {
 			ev.preventDefault();
@@ -423,7 +495,7 @@ export default function ReplFooter( {
 		// Reset the cursor past-the-end and drop the stashed draft.
 		historyCursor.current = entries.length;
 		historyDraft.current = '';
-		// Pass the raw line up; the parent runs it through shell.
+		// Hand the trimmed line up; the parent runs it through the Shell.
 		onSubmit( trimmed );
 		setValue( '' );
 		setExpanded( true );
@@ -453,7 +525,7 @@ export default function ReplFooter( {
 							'Resize transcript',
 							'newspack-nodes'
 						) }
-						// Arrow-key splitter = a vertical one-axis slider.
+						// An arrow-key splitter is a one-axis vertical slider.
 						role="slider"
 						aria-orientation="vertical"
 						aria-valuemin={ HEIGHT_MIN_PX }
@@ -541,7 +613,7 @@ export default function ReplFooter( {
 						setValue( ev.target.value );
 					} }
 					onKeyDown={ handleKeyDown }
-					// Focus → show transcript; blur→hide handled elsewhere.
+					// Focus opens the transcript; Esc and the buttons close it.
 					onFocus={ () => setExpanded( true ) }
 					disabled={ ! canSend }
 					autoComplete="off"

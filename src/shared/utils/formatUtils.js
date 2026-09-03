@@ -1,5 +1,14 @@
 /**
- * Format utilities for dashboards.
+ * The color and readout vocabulary the dashboards share: event and hook
+ * colors, HTTP status colors, duration colors and classes, and the two
+ * timestamp formats. Rendering all of them through one module is what keeps a
+ * 5xx bar, a `sql:` span and a slow-request cell reading the same in the
+ * topology console, the event dashboards and every consuming plugin.
+ *
+ * Every color here is a literal hex, and skin-independent by design: these
+ * paint fills — chart bars, badges, flame frames — while the text colors that
+ * follow the theme live in the SCSS tokens. `getTextColor` is how a label
+ * stays legible on a fill this module hands out.
  */
 
 /**
@@ -9,8 +18,8 @@
  * but no color contributes nothing.
  *
  * @typedef {Object} HookCategories
- * @property {Object<string, string[]>} [_patterns] Regex sources per category.
- * @property {Object<string, string>}   [_colors]   Hex color per category.
+ * @property {Object<string,string[]>} [_patterns] Regex sources per category.
+ * @property {Object<string,string>}   [_colors]   Hex color per category.
  */
 
 /**
@@ -20,12 +29,15 @@
  *
  * @typedef {Window & {
  *     eventLoggerHookCategories?: HookCategories,
- *     eventLoggerCustomColors?: Object<string, string>,
+ *     eventLoggerCustomColors?: Object<string,string>,
  * }} ColorConfigWindow
  */
 
 /**
- * System-level colors for events.
+ * The fixed colors, keyed by the base name `getStateColor` reduces an event to.
+ *
+ * Two keys carry a fallback role: `hook` colors a hook no category pattern
+ * claims, and `default` colors a name this table does not hold at all.
  */
 const SYSTEM_COLORS = {
 	process: '#FF7043',
@@ -33,12 +45,13 @@ const SYSTEM_COLORS = {
 	hook: '#66BB6A',
 	plugin: '#AB47BC', // Purple for plugin timing.
 	complete: '#4CAF50',
-	// @longform Query and outbound-HTTP spans are named `base: detail`, so they
-	// resolve here on the base — and both fell through to `request`'s grey,
-	// which left the two most expensive things in a trace the two least
-	// visible. HTTP takes the hook categorizer's own HTTP color so a span reads
-	// like the hooks around it; SQL has no category to borrow from and takes a
-	// hue the 63 in hook_categories.json do not use.
+	// @longform Query and outbound-HTTP spans are named `base: detail`, so
+	// they resolve here on the base. Both carry a hue of their own rather
+	// than sharing `request`'s grey, which would leave the two most
+	// expensive things in a trace the two least visible. HTTP takes the
+	// hook categorizer's own HTTP color so a span reads like the hooks
+	// around it; SQL has no category to borrow from and takes a hue the 63
+	// in hook_categories.json do not use.
 	sql: '#8E24AA',
 	http: '#42A5F5',
 	aggregate: '#9e9e9e',
@@ -47,14 +60,31 @@ const SYSTEM_COLORS = {
 };
 
 /**
- * Dark badge ink, the alternative to white.
+ * The dark ink `getTextColor` weighs against white: WordPress admin's
+ * near-black, so a badge label matches the text around it.
  */
 const DARK_INK = '#1e1e1e';
 
 /**
- * Compiled regex patterns for hook categorization (built lazily).
+ * Compiled hook-category patterns, built on the first lookup and never again.
+ *
+ * PHP inlines the categories on `window` before any bundle runs, so one build
+ * per page load is correct and a later mutation of the global is not picked up.
  */
 let compiledPatternsCache = null;
+
+/**
+ * The compiled hook-category patterns, compiling them on first use.
+ *
+ * A pattern the browser refuses to compile is dropped and the rest still
+ * color what they match: an operator's category file is not worth a
+ * dashboard-wide throw. Absent or half-declared config caches the empty list,
+ * costing one scan rather than one per lookup.
+ *
+ * @return {Array<{regex: RegExp, color: string}>} Each category's patterns in
+ *                                                 declaration order, paired
+ *                                                 with that category's color.
+ */
 const getCompiledPatterns = () => {
 	if ( compiledPatternsCache ) {
 		return compiledPatternsCache;
@@ -90,15 +120,23 @@ const getCompiledPatterns = () => {
 };
 
 /**
- * Cache for hook→color lookups.
+ * Memoized lookups from hook name to color, misses included.
+ *
+ * A miss caches `null` rather than nothing, which is why the read tests
+ * `!== undefined`. The common case in a busy trace is a hook no category
+ * claims, and rerunning every pattern against it on each row is the cost
+ * worth avoiding.
  */
 const hookColorCache = {};
 
 /**
- * Get color for a hook name using pattern matching.
+ * The category color for a hook name, matched against the compiled patterns.
  *
- * @param {string} hookName Hook name to look up.
- * @return {string|null} Color or null if no match.
+ * The first pattern that matches wins, so the order the categories appear in
+ * decides an overlapping name.
+ *
+ * @param {string} hookName Hook name, with no trailing ` hook`.
+ * @return {string|null} The category's color, or null when nothing matches.
  */
 const getHookColor = ( hookName ) => {
 	if ( hookColorCache[ hookName ] !== undefined ) {
@@ -120,6 +158,10 @@ const getHookColor = ( hookName ) => {
 /**
  * Parse a 3- or 6-digit hex color into its channels.
  *
+ * Both widths arrive — this module writes six digits and an operator's
+ * category color may be three — and the leading `#` is optional. Anything
+ * else, including a non-string, returns null for the caller to fall back on.
+ *
  * @param {string} hex Hex color code.
  * @return {{r: number, g: number, b: number}|null} Channels, or null if unparseable.
  */
@@ -138,7 +180,11 @@ const parseHex = ( hex ) => {
 };
 
 /**
- * Convert hex color to RGBA with opacity.
+ * A hex color as `rgba()` at the given opacity.
+ *
+ * An unparseable hex falls back to black rather than throwing. The callers
+ * tint table rows and badges from operator-supplied colors, where a bad value
+ * should cost one row its highlight and not the render.
  *
  * @param {string} hex     Hex color code.
  * @param {number} opacity Opacity value (0-1).
@@ -151,6 +197,10 @@ export const hexToRgba = ( hex, opacity ) => {
 
 /**
  * WCAG relative luminance of a hex color.
+ *
+ * The WCAG 2 sRGB definition, which is where the constants come from: each
+ * channel is linearized, then the three are weighted by how much the eye
+ * takes from them. An unparseable color reads as black.
  *
  * @param {string} hex Hex color code.
  * @return {number} Relative luminance (0-1); 0 if unparseable.
@@ -175,8 +225,9 @@ const relativeLuminance = ( hex ) => {
  * Pick a legible foreground for a background color.
  *
  * Hook-category colors are operator-customizable and many are pale, so a fixed
- * white label drops to ~1.5:1 contrast. Choose whichever ink wins on WCAG
- * relative luminance.
+ * white label drops to ~1.5:1 contrast. Take whichever of white and `DARK_INK`
+ * holds the higher WCAG contrast ratio against the background; an unparseable
+ * background takes white.
  *
  * @param {string} background Background hex color.
  * @return {string} Foreground hex color.
@@ -194,10 +245,21 @@ export const getTextColor = ( background ) => {
 };
 
 /**
- * Get color for a state/event/node.
+ * The color for an event, span or node name.
  *
- * @param {string} name Event/node name.
- * @return {string} Hex color.
+ * The name reduces to a base first: a trailing ` (start)`/` (complete)` marker
+ * comes off, then everything from the first colon, so `process (start)` and
+ * `sql: SELECT wp_posts` resolve alongside `process` and `sql`. The base then
+ * resolves in four steps — a ` hook` suffix through the category patterns and
+ * `SYSTEM_COLORS.hook` behind them, a ` plugin` suffix to the plugin color, an
+ * operator's `eventLoggerCustomColors` entry, and `SYSTEM_COLORS` last.
+ *
+ * The operator's overrides sit ahead of `SYSTEM_COLORS` and behind the two
+ * suffixes, so an install can recolor `sql` or `process` without flattening
+ * the per-hook categorization underneath it.
+ *
+ * @param {?string} name Event/node name.
+ * @return {string} Hex color; an empty or unknown name takes the default grey.
  */
 export const getStateColor = ( name ) => {
 	if ( ! name ) {
@@ -240,7 +302,13 @@ export const getStateColor = ( name ) => {
 };
 
 /**
- * Status code color palette - single source of truth.
+ * The chart-fill colors for the four HTTP status classes and the unknown one,
+ * read by every bar, dot and legend swatch that splits traffic by status.
+ *
+ * Fills only. Status TEXT follows the skin and lives in the SCSS tokens
+ * (`$status-2xx` and its siblings in `shared/styles/_tokens.scss`); a second
+ * status-text palette here is what `src/theme/__tests__/skinRamps.test.js`
+ * refuses.
  */
 export const STATUS_COLORS = {
 	'2xx': '#4caf50', // Green - success.
@@ -251,7 +319,10 @@ export const STATUS_COLORS = {
 };
 
 /**
- * Get status category string from HTTP status code.
+ * The status class an HTTP status code falls in.
+ *
+ * Anything below 200 is `unknown`, which covers 1xx and the absent status a
+ * request that never finished reports.
  *
  * @param {number} status HTTP status code.
  * @return {string} Category key ('2xx', '3xx', '4xx', '5xx', or 'unknown').
@@ -273,7 +344,7 @@ export const getStatusCategory = ( status ) => {
 };
 
 /**
- * Get color for HTTP status code.
+ * The chart fill for an HTTP status code, through its status class.
  *
  * @param {number} status HTTP status code.
  * @return {string} CSS color value.
@@ -282,7 +353,11 @@ export const getStatusColor = ( status ) =>
 	STATUS_COLORS[ getStatusCategory( status ) ];
 
 /**
- * Get color for duration based on value.
+ * The readout color for a duration: green to one second, orange from there to
+ * five, red past five.
+ *
+ * `getDurationClass` cuts on the same two thresholds, so a colored number and
+ * a classed cell describing one duration cannot disagree.
  *
  * @param {number} ms Duration in milliseconds.
  * @return {string} CSS color value.
@@ -298,7 +373,8 @@ export const getDurationColor = ( ms ) => {
 };
 
 /**
- * Get CSS class suffix for duration based on value.
+ * The CSS class suffix for a duration, cut at the same one and five seconds
+ * `getDurationColor` uses.
  *
  * @param {number} ms Duration in milliseconds.
  * @return {string} CSS class suffix ('fast', 'slow', or 'critical').
@@ -314,7 +390,11 @@ export const getDurationClass = ( ms ) => {
 };
 
 /**
- * Get CSS class suffix for HTTP status code.
+ * The CSS class suffix for an HTTP status code.
+ *
+ * An alias of `getStatusCategory`: the class suffix and the category key are
+ * the same string, and the two names let a call site say which one it means
+ * while the class boundaries stay written once.
  *
  * @param {number} status HTTP status code.
  * @return {string} CSS class suffix.
@@ -326,8 +406,9 @@ export const getStatusClass = ( status ) => getStatusCategory( status );
  * wall-clock timestamps that can be hours or days old (dead-letter records,
  * config-audit rows, spoke heartbeats) — a bare clock time is ambiguous there.
  *
- * @param {number} ts Epoch seconds.
- * @return {string} Formatted string, or an em dash for a non-finite ts.
+ * @param {?number} ts Epoch seconds.
+ * @return {string} Formatted string, or an em dash when ts is missing or not a
+ *                  finite number.
  */
 export const formatLocalDateTime = ( ts ) => {
 	if ( 'number' !== typeof ts || ! Number.isFinite( ts ) ) {
@@ -341,9 +422,15 @@ export const formatLocalDateTime = ( ts ) => {
 };
 
 /**
- * Format a duration in milliseconds.
+ * A duration as a readout, laddered per value: microseconds below 0.1ms, two
+ * decimals of milliseconds below 1ms, one decimal below a second, and seconds
+ * to two decimals above that.
  *
- * @param {number} ms Milliseconds.
+ * Per-value laddering is what a detail panel wants and what an axis must not
+ * have — `axisDuration` in `axis-ticks.js` is the version that holds one unit
+ * across a whole scale.
+ *
+ * @param {?number} ms Milliseconds; null or undefined reads as `-`.
  * @return {string} Formatted string.
  */
 export const formatDuration = ( ms ) => {

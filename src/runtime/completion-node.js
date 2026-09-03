@@ -1,17 +1,23 @@
 /**
- * Completion — the `_completion` node. `_router` delivers the `help`/`ls`
- * completion reply (KEY='completion') here; the node splits the bare
- * newline-separated candidate payload into an array and publishes it as
- * `{ candidates, seq }` ( useNodeState( '_completion', 'candidates' ) ). The
- * `seq` increments on every fill so an identical candidate list still
- * notifies the subscriber (the ReplFooter must re-apply LCP per Tab).
+ * The `_completion` node: turns a tab-completion reply into the candidate list
+ * the REPL input completes against.
+ *
+ * `useCompletion` mints the `help` / `ls` query on this node, so FROM is
+ * `_completion`, the interpreter answers TO=FROM, and `_router` peels that name
+ * and delivers here — the addressing is the correlation (ADR-7), and nothing
+ * keys off KEY. `KEY='completion'` belongs to the REQUEST instead: it is what
+ * makes `help` and `ls` answer with a bare newline-separated candidate list
+ * rather than their tabulated human output. `fill()` splits that payload and
+ * publishes `{ candidates, seq }` on the `candidates` slot, which the input
+ * reads through `useNodeState( '_completion', 'candidates' )`.
  */
 
 import { Node } from './node';
 import { VALUE, payloadOf } from './message';
 
 /**
- * Longest common prefix of a list of strings. Pure helper.
+ * Longest common prefix of a list of strings — what the first Tab extends the
+ * input to, so completion stops where the candidates stop agreeing.
  *
  * @param {string[]} strings Candidate strings.
  * @return {string} The longest prefix shared by every string ('' if none).
@@ -43,7 +49,8 @@ export function longestCommonPrefix( strings ) {
  * column on a fixed character grid. The in-browser, panel-width-responsive
  * equivalent of the interpreter's tabulate() (the PHP / Tachikoma `help` grid).
  *
- * @param {string[]} candidates
+ * @param {string[]} candidates The candidates to lay out; an empty or absent
+ *                              list yields ''.
  * @return {string} The aligned, gap-joined row (no trailing padding).
  */
 export function tabulateCandidates( candidates ) {
@@ -59,15 +66,20 @@ export function tabulateCandidates( candidates ) {
 }
 
 /**
- * The `_completion` node: owns the `candidates` state slot the ReplFooter
- * subscribes to, and the `seq` counter that makes a repeated candidate list
- * still notify that subscriber.
+ * Owns the `candidates` state slot the REPL input subscribes to, and the `seq`
+ * stamped on every publication.
+ *
+ * `ReplFooter` records the `seq` it applied and acts only on a newer one, so a
+ * second Tab on the same token completes again even though the candidate list
+ * is identical, while a re-render over the reply it already applied does not.
  */
 export class CompletionNode extends Node {
 	/**
-	 * Seeds the `candidates` registration slot by hand — `nodeSchema()`
-	 * declares no `registrations`, so `seedRegistrations()` leaves none — and
-	 * starts the notification sequence at zero.
+	 * Opens the `candidates` registration slot and starts the sequence at zero.
+	 * `nodeSchema()` declares no `registrations`, so `seedRegistrations()` opens
+	 * nothing, and `register()` refuses an event nobody seeded: seeding here is
+	 * what lets a `register` verb subscribe to the channel. The React hook needs
+	 * no help — `useNodeEvent()` declares the event it subscribes to.
 	 */
 	constructor() {
 		super();
@@ -78,14 +90,15 @@ export class CompletionNode extends Node {
 	/**
 	 * Publish the candidates carried by a completion reply. The reply VALUE is
 	 * either the bare newline-separated candidate text or a `{ name, payload }`
-	 * object whose payload holds it; any other shape publishes an empty list.
+	 * envelope whose payload holds it; blank lines are dropped, and a shape that
+	 * is neither publishes an empty list rather than throwing on the delivery
+	 * path.
 	 *
 	 * @param {Array} message The 7-field positional message.
 	 */
 	fill( message ) {
 		this.counter++;
 		const value = message[ VALUE ];
-		// Reply VALUE is `{ name, payload }`; candidate list is the payload.
 		let text = payloadOf( value );
 		if ( typeof text !== 'string' ) {
 			text = '';
@@ -108,7 +121,7 @@ export class CompletionNode extends Node {
 		return {
 			category: 'Hidden',
 			description: 'Receives tab-completion reply; publishes candidates.',
-			// Receives the reply and publishes candidates; never forwards.
+			// A terminal: candidates leave through setState, not a sink.
 			has_target: false,
 			arguments: [],
 			commands: [],

@@ -1,21 +1,25 @@
 /**
- * <VaultAdmin> — the thin React view over the Vault server-credential node graph.
+ * <VaultAdmin> — the React view over the Vault server-credential node graph.
  *
- * The graph (useVaultGraph) owns all data + the CRUD transport across two
- * per-concern views; this component reads the credential-LIST view model via
- * `useNodeState('vault:list','view')` and renders a server-credential table +
- * the add/edit form. (The TEST-result concern publishes into the sibling
- * `vault:test` view; each row's Test status is surfaced locally from the test()
- * callback.) The credential list uses the substrate's canonical themed table.
- * The form keeps WordPress's structural `form-table` layout.
+ * `useVaultGraph` owns the data and the transport: the table is the `vault
+ * list` catalog polled as a slice, and add, update, delete and test are
+ * one-shot commands. This file renders that model and keeps only what no
+ * answer supplies — the form's own refusals, and which row it is open on.
+ *
+ * Every answer arrives already naming the row it is about, because the subject
+ * rides in the reply's ADDRESS (ADR-7). `onAnswer` files each one under that
+ * id, so one `answers` map serves the table and the form alike, and a row keeps
+ * its own line while a sibling is being tested.
  *
  * ONE form serves add and edit, seeded blank or from the row: the two collect
  * the same four fields, and the verb is the only difference — so it is the only
  * thing that varies, right down to the words the status line uses.
  *
- * A successful add / edit / remove re-`list()`s and the table re-renders from
- * the fresh model (no page reload). Test status + the form's validation
- * messages are local component state.
+ * A successful add, update or delete refreshes the catalog slice, and the table
+ * re-renders from the fresh model with no page reload.
+ *
+ * The table wears the substrate's canonical themed class; the form keeps
+ * WordPress's structural `form-table` layout.
  */
 
 import { useEffect, useRef, useState } from '@wordpress/element';
@@ -29,7 +33,10 @@ import Modal from '@newspack-nodes/shared/components/Modal';
 import { HeaderSlot } from '@newspack-nodes/shared/components/HeaderSlot';
 
 /**
- * Minimal confirm dialog. The confirm button focuses on mount.
+ * Minimal confirm dialog for a removal.
+ *
+ * The confirm button takes focus on mount, so the dialog is operable from the
+ * keyboard the moment it opens. ESC and the backdrop cancel through `Modal`.
  *
  * @param {Object}     props
  * @param {() => void} props.onCancel  Dismisses without removing.
@@ -71,11 +78,24 @@ function ConfirmRemoveModal( { onCancel, onConfirm } ) {
 	);
 }
 
+/**
+ * A refusal in the plainest words a status line can carry.
+ *
+ * @param {string} e The refusal text the reply carried.
+ * @return {string} The status line.
+ */
 const errorText = ( e ) =>
 	// translators: %s: error message.
 	sprintf( __( 'Error: %s', 'newspack-nodes' ), e );
 
-// What each verb says about its own outcome, in that verb's own words.
+/**
+ * What each verb says about its own outcome, in that verb's own words.
+ *
+ * `answerStatus` reads `busy`, `failed` and `ok`, and says nothing for a key
+ * that is absent — which is why only `test` names its success. Add, update and
+ * delete announce themselves in the table the answer refreshed, so a line
+ * saying so as well would be noise.
+ */
 const VERB_TEXTS = {
 	add: { busy: __( 'Adding…', 'newspack-nodes' ), failed: errorText },
 	update: { busy: __( 'Saving…', 'newspack-nodes' ), failed: errorText },
@@ -94,23 +114,29 @@ const VERB_TEXTS = {
 	},
 };
 
-/** What the form starts from when it is adding rather than editing. */
+/**
+ * What the form starts from when it is adding rather than editing.
+ *
+ * The blank id IS the signal: `ServerForm`, `ServerModal` and `saveServer` each
+ * read `'' === server.id` to tell an add from an edit, so there is no second
+ * mode flag that could disagree with the seed.
+ */
 const BLANK_SERVER = { id: '', url: '', auth_username: '' };
 
 /**
- * A single server row — id / url / status + Test / Edit / Remove actions.
+ * A single server row — its id, url and status, with Test, Edit and Remove.
  *
  * The row renders the answer that NAMED it. Each reply arrives already
  * addressed to one server — the sender put it in the reply path — so the table
  * hands each row its own, and a sibling being tested cannot blank this line.
  *
- * @param {Object}   props          Component props.
- * @param {Object}   props.server   Public server shape from the view model.
- * @param {?Object}  props.answer   This row's last answer, or null.
- * @param {?string}  props.pending  The verb outstanding about this row, if any.
- * @param {Function} props.onEdit   Edit callback (server).
- * @param {Function} props.onRemove Remove callback (id).
- * @param {Function} props.onTest   Test callback (id).
+ * @param {Object}                          props          Component props.
+ * @param {Object}                          props.server   Public server shape from the view model: id, url, auth_username, has_credentials, is_config.
+ * @param {?{verb: string, error: ?string}} props.answer   This row's last answer, or null.
+ * @param {?string}                         props.pending  The verb outstanding about this row, if any.
+ * @param {Function}                        props.onEdit   Opens the form on this server; called with the row.
+ * @param {Function}                        props.onRemove Removes the server; called with its id.
+ * @param {Function}                        props.onTest   Probes the connection; called with the id.
  * @return {import('react').ReactElement} The rendered row.
  */
 function ServerRow( { server, answer, pending, onEdit, onRemove, onTest } ) {
@@ -119,7 +145,7 @@ function ServerRow( { server, answer, pending, onEdit, onRemove, onTest } ) {
 	const busy = Boolean( pending );
 	// Pinned by the config file, so the store refuses both verbs anyway.
 	const pinned = Boolean( server.is_config );
-	// The outstanding verb picks the words; the answered one after.
+	// An outstanding verb picks the words; once answered, the answer does.
 	const status = answerStatus(
 		answer,
 		VERB_TEXTS[ pending ?? answer?.verb ] ?? {},
@@ -186,6 +212,10 @@ function ServerRow( { server, answer, pending, onEdit, onRemove, onTest } ) {
 /**
  * The form's own refusal, before anything is sent.
  *
+ * The store refuses all three cases as well, so this buys the operator a
+ * message beside the field rather than a round trip ending in `add failed:
+ * check URL format`.
+ *
  * @param {string} id  Trimmed server id.
  * @param {string} url Trimmed server URL.
  * @return {string} The refusal text, or '' when the fields are usable.
@@ -204,20 +234,20 @@ function validate( id, url ) {
 }
 
 /**
- * The server form — id / url / username / password + submit. Owns the field
- * state + the validation/status line. Rendered inside the server modal.
+ * The server form — id, url, username and password, plus submit. Owns the field
+ * state and the validation/status line. Rendered inside the server modal.
  *
- * The seed says which act this is: a server with no id yet is one being added,
- * the same signal the rules editor takes from its own blank draft. The answer
- * arrives named after the id that was SENT — the row's existing one on an edit
- * — like every other verb here, so the form renders it the way a row does.
+ * The seed says which act this is: a server with no id yet is one being added.
+ * The answer arrives named after the id that was SENT — the row's existing one
+ * on an edit — like every other verb here, so the form reads it the way a row
+ * does.
  *
- * @param {Object}     props          Component props.
- * @param {Object}     props.server   The row being edited, or BLANK_SERVER.
- * @param {Function}   props.onSave   Save callback (fields).
- * @param {?Object}    props.answer   The answer for the submitted id, if any.
- * @param {boolean}    props.busy     Whether the save is outstanding.
- * @param {() => void} props.onCancel Dismisses the modal from the footer Cancel button.
+ * @param {Object}                          props          Component props.
+ * @param {Object}                          props.server   The row being edited, or BLANK_SERVER.
+ * @param {Function}                        props.onSave   Save callback; called with the four trimmed fields.
+ * @param {?{verb: string, error: ?string}} props.answer   The answer for the submitted id, if any.
+ * @param {boolean}                         props.busy     Whether the save is outstanding.
+ * @param {() => void}                      props.onCancel Dismisses the modal from the footer Cancel button.
  * @return {import('react').ReactElement} The rendered form.
  */
 function ServerForm( { server, onSave, answer, busy, onCancel } ) {
@@ -401,12 +431,12 @@ function ServerForm( { server, onSave, answer, busy, onCancel } ) {
  * The server modal: the heading + the ServerForm. Closes on a successful save
  * (the answer clears `editing`) or on ESC / backdrop / Cancel.
  *
- * @param {Object}     props         Component props.
- * @param {Object}     props.server  The row being edited, or BLANK_SERVER.
- * @param {Function}   props.onSave  Save callback (fields).
- * @param {?Object}    props.answer  The answer for the submitted id, if any.
- * @param {boolean}    props.busy    Whether the save is outstanding.
- * @param {() => void} props.onClose Dismisses the modal.
+ * @param {Object}                          props         Component props.
+ * @param {Object}                          props.server  The row being edited, or BLANK_SERVER.
+ * @param {Function}                        props.onSave  Save callback; called with the four trimmed fields.
+ * @param {?{verb: string, error: ?string}} props.answer  The answer for the submitted id, if any.
+ * @param {boolean}                         props.busy    Whether the save is outstanding.
+ * @param {() => void}                      props.onClose Dismisses the modal.
  * @return {import('react').ReactElement} The modal.
  */
 function ServerModal( { server, onSave, answer, busy, onClose } ) {
@@ -430,11 +460,14 @@ function ServerModal( { server, onSave, answer, busy, onClose } ) {
 }
 
 /**
- * Vault server-credential admin app. Reads the view model the graph publishes
- * and renders the server table + add/edit form.
+ * The Vault credential screen: the server table and the add/edit modal.
  *
- * @param {Object}  props                      Props.
- * @param {Element} [props.headerControlsSlot] Hub shared-header slot to portal the controls into.
+ * Holds three pieces of screen state and no data — which row the form is open
+ * on, which id the outstanding save was addressed to, and each row's last
+ * answer. Everything else comes from `useVaultGraph`.
+ *
+ * @param {Object}   props                      Component props.
+ * @param {?Element} [props.headerControlsSlot] Hub shared-header slot to portal the Add control into; null withholds it while the host's slot mounts, undefined renders it inline.
  * @return {import('react').ReactElement} The rendered admin app.
  */
 export default function VaultAdmin( { headerControlsSlot } ) {
@@ -482,7 +515,7 @@ export default function VaultAdmin( { headerControlsSlot } ) {
 		updateServer( editing.id, fields );
 	};
 
-	// Portal the +Add trigger into the hub header slot (undefined=inline).
+	// The Add trigger, which the hub header takes when it offers a slot.
 	const controls = (
 		<button
 			type="button"

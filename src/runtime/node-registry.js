@@ -1,12 +1,13 @@
 /**
- * NodeRegistry — the name→node table.
+ * NodeRegistry — the name→node table a graph addresses itself through.
  *
- * Split out of Core, which was two things wearing one name: this table, and
- * process state (clock, rate-limited stderr, generation counters, teardown).
- * Perl has the same seam — `%Tachikoma::Nodes` is the table, `$Tachikoma::Now`
- * is not — and Tachikoma's answer to a second namespace is a Job: a second
- * process, hence a second table. What isolates a namespace is the table, not
- * the clock, so that is the only part worth a second copy.
+ * The rest of the per-process state lives in Core (clock, rate-limited stderr,
+ * generation counters, teardown), which keeps one registry as the default every
+ * node registers in. Perl draws the same line — `%Tachikoma::Nodes` is the
+ * table, `$Tachikoma::Now` is not — and Tachikoma's answer to a second
+ * namespace is a Job: a second process, hence a second table. What isolates a
+ * namespace is the table, not the clock, so that is the only part worth a
+ * second copy.
  *
  * A node holds the registry it belongs to (`Node#registry`, defaulting to
  * Core's). An interpreter that owns one gives it to the nodes it makes, and
@@ -22,19 +23,29 @@ export class NodeRegistry {
 	 * the Map rather than deleting and re-inserting.
 	 */
 	constructor() {
-		/** @type {Map<string, Object>} Nodes by name, in insertion order. */
+		/** @type {Map<string,Object>} Nodes by name, in insertion order. */
 		this.nodes = new Map();
 	}
 
 	/**
+	 * The node registered under `name`.
+	 *
 	 * @param {string} name Node name.
-	 * @return {?Object} The node, or null — never undefined.
+	 * @return {?Object} The node, or null — `Map.get`'s undefined normalized
+	 *                   here, so every caller's `null !==` test holds.
 	 */
 	node( name ) {
 		return this.nodes.get( name ) ?? null;
 	}
 
 	/**
+	 * Add a node under a name this table does not already hold.
+	 *
+	 * A collision throws rather than overwriting, which would leave the
+	 * displaced node holding its sinks and timers while nothing can address
+	 * it. `Node`'s name setter runs the same check first, so a caller can
+	 * refuse in its own voice before reaching here.
+	 *
 	 * @param {string} name Node name.
 	 * @param {Object} node The node.
 	 */
@@ -54,6 +65,11 @@ export class NodeRegistry {
 	 * the order `dump_config` writes — so a rename would rewrite the whole
 	 * file instead of one line.
 	 *
+	 * The rebuild trusts its caller both ways: a `from` this table does not
+	 * hold changes nothing, and a `to` it already holds collapses two entries
+	 * into one, dropping a node. `Node`'s name setter checks that `to` is free
+	 * before it calls.
+	 *
 	 * @param {string} from Current name.
 	 * @param {string} to   New name.
 	 */
@@ -66,6 +82,12 @@ export class NodeRegistry {
 	}
 
 	/**
+	 * Free a name; one this table does not hold is a no-op.
+	 *
+	 * The node itself is untouched — sink, target, timers and registrations
+	 * all stand. Tearing it down as well is `Node#removeNode()`, which clears
+	 * those references and drops the name last.
+	 *
 	 * @param {string} name Node name.
 	 */
 	unregisterNode( name ) {

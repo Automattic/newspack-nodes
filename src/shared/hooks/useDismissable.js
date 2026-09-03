@@ -5,13 +5,22 @@
  * Mousedown, not click: a dialog dismissed on click can be re-opened by the
  * same gesture that closed it (the button underneath receives the mouseup),
  * and a drag that starts inside and ends outside is not a click away.
+ *
+ * Both listeners sit on `document`, one pair per mounted caller, so ESC
+ * dismisses every open dialog at once. `preventDefault()` suppresses the
+ * browser's own handling of the key, never a sibling listener.
  */
 
 import { useEffect, useRef } from '@wordpress/element';
 
 /**
- * @param {Object}   ref       Ref to the dialog element; a click inside it is not outside.
- * @param {Function} onDismiss Called on ESC and on a mousedown outside the ref.
+ * Dismisses on ESC, and on a mousedown landing outside the given element.
+ *
+ * Until `ref.current` is attached nothing counts as outside, so a dialog whose
+ * ref never lands closes on ESC alone rather than on the first click anywhere.
+ *
+ * @param {{current: HTMLElement|null}} ref       The dialog element; a mousedown inside it is not outside.
+ * @param {() => void}                  onDismiss Runs on ESC and on a mousedown outside `ref`.
  * @return {void}
  */
 export function useDismissable( ref, onDismiss ) {

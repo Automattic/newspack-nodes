@@ -1,10 +1,10 @@
 /**
  * useContainerRefit — re-run a callback when an element's box changes.
  *
- * Every chart and canvas in the tree hand-rolled this, and each copy carried
- * the same two defects: a window listener whose every event rebuilt the whole
- * SVG, and a bare `return` where ResizeObserver is missing, leaving the
- * element unable to re-fit at all.
+ * Every chart and canvas refits through this one hook: a debounce, so a drag
+ * across a panel edge costs one rebuild rather than one per resize event, and
+ * a window listener where ResizeObserver is missing, so the element refits
+ * instead of freezing at the width it was first drawn at.
  */
 
 import { useEffect, useRef } from '@wordpress/element';
@@ -12,10 +12,13 @@ import { useEffect, useRef } from '@wordpress/element';
 /**
  * The element's CONTENT box, measured the way an observation reports it.
  *
- * `clientWidth` is the padding box and is integer-rounded, so it is not
- * comparable to a `contentRect` without both corrections.
+ * `clientWidth` is the padding box, so the padding comes off here; it is also
+ * integer-rounded, which `same()` absorbs. The clamp earns its place because
+ * `clientWidth` already excludes the scrollbar gutter, so a padded panel
+ * mid-animation measures narrower than its own padding — layout calls that 0,
+ * and a negative matches no observation.
  *
- * @param {Object} el The observed element.
+ * @param {Element} el The observed element.
  * @return {{w: number, h: number}} Content width and height.
  */
 const contentBox = ( el ) => {
@@ -35,7 +38,8 @@ const contentBox = ( el ) => {
 };
 
 /**
- * Within a pixel: one side is rounded, the other is not.
+ * Within a pixel, because a seed read from `clientWidth` is integer-rounded
+ * and the `contentRect` it is compared against is not.
  *
  * @param {{w: number, h: number}} a One box.
  * @param {{w: number, h: number}} b The other.
@@ -44,43 +48,47 @@ const contentBox = ( el ) => {
 const same = ( a, b ) => Math.abs( a.w - b.w ) < 1 && Math.abs( a.h - b.h ) < 1;
 
 /**
+ * The observed element: a ref holding it, or a resolver reaching it through
+ * the DOM — a sibling or an ancestor no component holds a ref to.
+ *
+ * @typedef {{current: ?Element}|(() => ?Element)} ElementSource
+ */
+
+/**
  * Debounced refit on container resize, falling back to the window.
  *
  * The container is what matters: a panel or sidebar can resize it while the
  * window never moves. Where ResizeObserver is missing the window is the only
- * signal left, and it is better than none.
+ * signal left, and it is better than none. With no window at all — a server
+ * render — nothing binds.
  *
- * `observe()` reports the box the caller has just drawn, so acting on it costs
- * a redundant rebuild. Skipping the FIRST observation would be wrong — the
- * spec seeds the reported size to 0x0, so an element still hidden or unlaid
- * gets no initial observation and its real 0-to-N resize would be the one
- * swallowed. Only an UNCHANGED box is ignored — at the seed and at every
- * observation after it, so a callback feeding back into its own container
- * settles rather than looping.
+ * An unchanged box never reaches the callback. That is what drops the
+ * observation `observe()` delivers on bind, reporting the box the caller has
+ * just drawn, and what makes a callback that resizes its own container settle
+ * instead of loop. Nothing is skipped for being FIRST, so an element hidden
+ * at bind still refits when it is revealed.
  *
- * @param {Object|Function} ref        Ref to the observed element, or a
- *                                     resolver returning it, for an element
- *                                     reached through the DOM rather than held.
+ * @param {ElementSource} ref          The observed element, held or resolved.
  *                                     Read once, at bind: it is deliberately
  *                                     NOT a dep, so an inline arrow does not
  *                                     rebuild the observer every render. Pass
  *                                     `deps` to re-bind on a new element.
- * @param {Function}        callback   Run after the box settles. Read through
+ * @param {() => void}    callback     Run after the box settles. Read through
  *                                     a ref, so an inline arrow is free and it
  *                                     never belongs in `deps`.
- * @param {Array}           deps       Re-bind when these change. Pass whatever
+ * @param {Array}         [deps]       Re-bind when these change. Pass whatever
  *                                     makes `ref` resolve to a DIFFERENT
  *                                     element — binding is skipped entirely
  *                                     while it resolves to nothing, so a
  *                                     caller that renders null before its data
  *                                     arrives must list something that changes
  *                                     when it stops. Keep the length constant.
- * @param {number}          debounceMs Quiet period. 0 runs the callback in the
- *                                     observation itself, which is after
- *                                     layout and before paint — right for a
- *                                     measurement. A callback that resizes
- *                                     what it observes still runs once per
- *                                     distinct box, so it must converge.
+ * @param {number}        [debounceMs] Quiet period, 150ms by default. 0 runs
+ *                                     the callback in the observation itself,
+ *                                     which is after layout and before paint —
+ *                                     right for a measurement. A callback that
+ *                                     resizes what it observes still runs once
+ *                                     per distinct box, so it must converge.
  * @return {void}
  */
 export function useContainerRefit(
@@ -123,13 +131,11 @@ export function useContainerRefit(
 			};
 		}
 
-		// @longform `observe()` reports the box the caller has just drawn, so
-		// acting on it costs a redundant rebuild. It is delivered only when
-		// there IS a box: the spec seeds the reported size to 0x0, so a hidden
-		// or unlaid element gets nothing, and its reveal is a real resize —
-		// which is why an unmeasurable seed starts as no box at all rather
-		// than as 0x0. Every LATER observation is compared the same way, so a
-		// callback that resizes what it observes settles instead of looping.
+		// @longform The seed is what `observe()`'s own observation is compared
+		// against, so the box the caller has just drawn costs no rebuild. A
+		// measurement of 0x0 means unmeasurable — hidden, unlaid — as often as
+		// it means empty, so an unmeasurable element seeds no box at all and
+		// the first observation to arrive always runs.
 		const seed = contentBox( el );
 		let last = seed.w > 0 || seed.h > 0 ? seed : null;
 		const ro = new window.ResizeObserver( ( entries ) => {

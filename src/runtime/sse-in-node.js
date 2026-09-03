@@ -1,24 +1,28 @@
 /* global EventSource */
 /**
- * SseInNode — the SSE receive-ingress node: opens an EventSource, snoops the
- * `connected` handshake for `pid()`, and fills each parsed `msg` frame into the
- * local graph. Composed by RemoteLink as the per-link `<patron>:sse-in`.
+ * Bring a server's message stream into the browser node graph.
  *
- * Receive-only: inbound frames route through the EventSource listener →
- * `super.fill` (Node.fill, route-by-TO). The outgoing reply-FROM wrap
- * (`_sse:{pid}/{node}`) lives in RemoteIpc.
+ * `SseInNode` opens an EventSource, snoops the `connected` handshake for the
+ * session pid, slot and lease owner, and fills every parsed `msg` frame into
+ * the local graph. RemoteLink composes it as the per-link `<patron>:sse-in`.
  *
- * Tachikoma-parity: no-arg ctor. Positional config arrives via `arguments=`; the
- * setter opts into the Schema_Reflection walk (parseSchemaArgs) and then splits
- * the comma-separated `subscribe` token into the array the runtime expects (the
- * walk only assigns strings).
+ * The node is receive-only. Each inbound frame reaches the graph through an
+ * EventSource listener that calls `super.fill`, the base Node's route-by-TO.
+ * RemoteIpc, not this node, wraps an outgoing reply FROM as
+ * `_sse:{pid}/{node}`.
  *
- * Visibility: lifecycle + errors are reported via set_state for dashboards —
- * CONNECTING (opening) → CONNECTED (handshake) → DISCONNECTED / RECONNECTING,
- * plus ERROR for stream-error / malformed frames. Every error path ALSO
- * `printLessOften`s so the rate is tunable. Per the substrate convention every
- * set_state payload is a STRING (the `connected` envelope is a flat `KEY VALUE`
- * string; pid is parsed into a plain field, not node state).
+ * Tachikoma parity keeps the constructor argument-free. Positional config
+ * arrives through `arguments=`, whose setter opts into the Schema_Reflection
+ * walk (`parseSchemaArgs`) and then splits the comma-separated `subscribe`
+ * token, because the walk assigns strings where the runtime wants an array.
+ *
+ * Dashboards read the lifecycle through `setState`: CONNECTING on open,
+ * CONNECTED on handshake, then DISCONNECTED or RECONNECTING, and ERROR for a
+ * stream error or a malformed frame. Every error path also calls
+ * `printLessOften`, which prints one line per key per window, so a flapping
+ * endpoint cannot flood the console. Every payload is a STRING, the substrate
+ * convention: the `connected` envelope is a flat `KEY VALUE` string, and the
+ * pid lands in a plain field rather than in node state.
  */
 import { parseSchemaArgs } from './node';
 import { TimerNode } from './timer-node';
@@ -38,16 +42,32 @@ import {
 	unpack,
 } from './message';
 
-// ID is the `segment:offset:length` breadcrumb; FROM carries the producer path.
+/**
+ * The `segment:offset:length` breadcrumb a record carries in its ID.
+ * `_trackPosition` pairs it with the partition directory FROM names.
+ */
 const ID_POSITION_RE = /^(\d+):(\d+):(\d+)$/;
 
-// PHP lease owners travel as canonical decimals; never convert them to Number.
+/**
+ * A PHP lease owner as it travels: a canonical positive decimal string.
+ * Never parsed into a Number — an owner id can exceed
+ * `Number.MAX_SAFE_INTEGER`, so rounding one hands the heartbeat a lease
+ * nobody holds. `HeartbeatNode` carries the same pattern for the same reason.
+ */
 const LEASE_OWNER_RE = /^[1-9][0-9]*$/;
 
-// PHP Log_Discovery::GROUPS prefixed roots: positions key on the FULL stamp.
+/**
+ * The `Log_Discovery::GROUPS` roots a stamp keeps its prefix under.
+ * `SSE_Out_Node::stamp_for()` returns a bare basename for the `logs` group and
+ * `{group}/{basename}` for these two, so a position under one keys on the full
+ * stamp rather than on its first path segment alone.
+ */
 const GROUP_PREFIXES = new Set( [ 'offsets', 'deadletter' ] );
 
-// Default REST route opened; RemoteLink overrides it for /log/stream.
+/**
+ * REST route opened unless a patron overrides `endpoint`. RemoteLink points a
+ * log link at `/log/stream`, which is identical on the wire.
+ */
 const DEFAULT_STREAM_ENDPOINT = 'newspack-nodes/v1/messages/stream';
 
 /**
@@ -60,34 +80,47 @@ const DEFAULT_STREAM_ENDPOINT = 'newspack-nodes/v1/messages/stream';
  * `recent` (-2) has no JS spelling. It is live on the PHP side — `wp nodes
  * reqgrep --recent` and the `request_grep` verb's `scope=recent` both seek it —
  * but both build a local Consumer rather than crossing this wire, so no browser
- * caller has ever asked for it. Add it when one does, not before.
+ * caller asks for it. Add it when one does, not before.
  */
 export const SEEK_START = 0;
 
 /** @testonly The tail seek. Production names it inside seekMap(), not by import. */
 export const SEEK_END = -1;
 
-// Heartbeat-timeout watchdog: force a fresh stream after STALE + GRACE silence.
+/** The server's heartbeat cadence, mirroring `SSE_Out_Node::HEARTBEAT_MS`. */
 const HEARTBEAT_CADENCE_MS = 2000;
+
+/** Three heartbeats of silence: the point a stream reads as suspect. */
 const STALE_AFTER_MS = HEARTBEAT_CADENCE_MS * 3;
+
+/** Slack over the stale bound for a slow server or a throttled tab. */
 const GRACE_MS = 4000;
+
+/** Silence past this forces a fresh stream — the watchdog's one threshold. */
 const FORCE_AFTER_MS = STALE_AFTER_MS + GRACE_MS;
+
+/** How often `fire()` measures the silence; well under FORCE_AFTER_MS. */
 const WATCHDOG_INTERVAL_MS = 2000;
-// @longform Bound on the CONNECTING stand-down. A browser between connections
-// owns its own `retry:` gap, but one wedged in CONNECTING fires no `error`, so
-// an unbounded stand-down leaves nothing to recover it. Comfortably above any
-// advertised reopen delay, so a normal gap never trips it.
+
+/**
+ * Bound on the CONNECTING stand-down. A browser between connections owns its
+ * own `retry:` gap, but one wedged in CONNECTING fires no `error`, so an
+ * unbounded stand-down leaves nothing to recover it. It sits comfortably above
+ * any advertised reopen delay, so a normal gap never trips it.
+ */
 const CONNECTING_FORCE_AFTER_MS = 60000;
 
 /**
- * Reconnect backoff, mirroring the PHP half's INITIAL_BACKOFF / MAX_BACKOFF
- * (`includes/class-sse-in-node.php`). Every reconnect path used to retry on the
- * flat watchdog interval and never widen, so a hard-down or 429ing endpoint got
- * 30 requests a minute per open tab, indefinitely — and each attempt takes a
- * slot from a pool capped at 10 per user/IP, whose refusal is itself a 429 that
- * feeds the same loop.
+ * Reconnect backoff floor, doubled on each failed attempt.
+ *
+ * Retrying on the flat watchdog interval instead gives a hard-down or 429ing
+ * endpoint 30 requests a minute per open tab, indefinitely — and each attempt
+ * takes a slot from the `sse_max_slots` pool, whose refusal is itself a 429
+ * feeding the same loop.
  */
 const INITIAL_BACKOFF_MS = 2000;
+
+/** Backoff ceiling, matching the PHP half's `MAX_BACKOFF` of 30 seconds. */
 const MAX_BACKOFF_MS = 30000;
 
 /**
@@ -103,8 +136,9 @@ const MAX_BACKOFF_MS = 30000;
  * The receive half of a remote link: one EventSource, the watchdog that
  * notices when it dies silently, and the session identity the `connected`
  * handshake hands back. `start()` opens the stream; each `msg` frame is
- * unpacked and filled into the local graph, while `connected`, `heartbeat`
- * and `disconnect` are snooped for liveness and lifecycle rather than routed.
+ * unpacked and filled into the local graph, while `connected`, `retry`,
+ * `heartbeat` and `disconnect` are snooped for lifecycle, reopen cadence and
+ * liveness rather than routed.
  */
 export class SseInNode extends TimerNode {
 	/**
@@ -202,7 +236,7 @@ export class SseInNode extends TimerNode {
 	 *
 	 * `fireCb()` keeps the scheduling — counter, throttle, oneshot — and calls
 	 * `fire()` last; a Timer subclass REPLACES `fire()` with whatever its tick
-	 * means, as Uptime mints its command and Router runs notifyTimer. So this
+	 * means, as PollerNode replaces it with minting its poll command. So this
 	 * does not call `super.fire()`. Here that also matters concretely: the base
 	 * emits a TM_BYTESTREAM timestamp down its sink, and this node's sink is the
 	 * DATA path, where a timestamp is indistinguishable from a record.
@@ -305,9 +339,9 @@ export class SseInNode extends TimerNode {
 
 	/**
 	 * Recover from a stream the browser gave up on. A stale nonce is the usual
-	 * cause, so global credentials are renewed and the stream restarted;
-	 * explicit remote credentials cannot be renewed, leaving a reconnect as
-	 * the only move.
+	 * cause, so this renews the global credentials and restarts. An explicit
+	 * remote nonce cannot be renewed, and a caller can bar renewal outright
+	 * through `mayRenewNonce`; both of those reconnect instead.
 	 */
 	_recoverConnection() {
 		const stream = this._es;
@@ -337,14 +371,14 @@ export class SseInNode extends TimerNode {
 	}
 
 	/**
-	 * Own the reopen the browser was about to make for us.
+	 * Own the reopen the browser is about to make for us.
 	 *
-	 * EventSource reconnects by itself on the server's `retry:`
-	 * field, which SSE_Out no longer sends — the interval arrives as a `retry`
-	 * EVENT instead, so the browser would fall back to its own default and the
-	 * two halves of one link would disagree about the cadence. Closing the
-	 * stream is what stops that built-in retry from racing this one. Backoff
-	 * covers the case where the server advertised nothing.
+	 * EventSource reconnects by itself on the server's `retry:` field, which
+	 * SSE_Out does not send — the interval arrives as a `retry` EVENT instead,
+	 * so a browser left to itself falls back to its own default and the two
+	 * halves of one link disagree about the cadence. Closing the stream is what
+	 * stops that built-in retry from racing this one; the backoff covers a
+	 * server that advertised nothing.
 	 */
 	_scheduleReopen() {
 		if ( this._reopenTimer ) {
@@ -567,15 +601,15 @@ export class SseInNode extends TimerNode {
 
 	/**
 	 * What to ask for per subscription: the position this stream reached, or
-	 * SEEK_END when it has none. Stating the seek is the point — carrying "tail"
-	 * by OMITTING the parameter is what left a real `{segment: 0, offset: 0}`
+	 * SEEK_END when it has none. Stating the seek is the point — carrying
+	 * "tail" by OMITTING the parameter leaves a real `{segment: 0, offset: 0}`
 	 * unable to mean the start of the log on the PHP side.
 	 *
 	 * A reopen resumes past what it read, so a position reached wins over the
 	 * seed that opened the stream. A stream that read NOTHING — refused by the
 	 * slot pool before its first frame — has none, and there the seed stands:
-	 * overwriting it with "wherever we got to" is what turned a chart asking to
-	 * replay from the start of the log into one showing a single live point.
+	 * overwriting it with "wherever we got to" turns a chart asking to replay
+	 * from the start of the log into one showing a single live point.
 	 *
 	 * A GLOB is the one seek a client cannot state: the server expands it into
 	 * concrete dirs and keys positions by those, so an entry filed under
@@ -609,9 +643,10 @@ export class SseInNode extends TimerNode {
 	}
 
 	/**
-	 * Close the stream and forget everything tied to this connection: the
-	 * visibility listener, the watchdog, the frame clock, the session lease,
-	 * and any terminal disconnect. Safe when nothing is open.
+	 * Close the stream and forget everything tied to this connection: any
+	 * pending reopen, the visibility listener, the watchdog, the frame clock,
+	 * the session lease, and any terminal disconnect. Safe when nothing is
+	 * open, and `start()` calls it first.
 	 */
 	close() {
 		if ( this._reopenTimer ) {

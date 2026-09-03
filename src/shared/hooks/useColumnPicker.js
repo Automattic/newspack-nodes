@@ -1,5 +1,9 @@
 /**
- * useColumnPicker — the shared "Cols" toolbar control.
+ * A table's visible column set, and the CSS grid track list that lays it out.
+ *
+ * `useColumnPicker` owns the selection and persists it; the checkbox row that
+ * edits it is `components/ColumnPicker`. `gridTemplate` is exported on its own
+ * for the tables whose column set is fixed and need only the track list.
  *
  * @package
  */
@@ -38,16 +42,22 @@ function restore( raw, known, fallback, aliases ) {
 	}
 }
 
-// No rename to carry — the common case, and one stable identity for it.
+/**
+ * The alias map a picker with no renamed column uses. Empty, and shared by
+ * every such caller rather than minted fresh on each one.
+ *
+ * @type {Object<string,string>}
+ */
 const NO_ALIASES = {};
 
 /**
- * The CSS grid track list for a set of columns, in display order.
+ * The CSS grid track list for a set of columns, in display order. A column
+ * declaring no `width` takes an `auto` track.
  *
  * One owner, because a table's header and its rows are laid out from the
  * same widths and must not drift.
  *
- * @param {Object}        columns Column declarations keyed by field.
+ * @param {Object}        columns Column declarations keyed by field; only `width` is read.
  * @param {Array<string>} order   Fields, in the order they are drawn.
  * @return {string} A `grid-template-columns` value.
  */
@@ -62,12 +72,12 @@ export const gridTemplate = ( columns, order ) =>
  * end — the header and the cells are both built from this list, so appending
  * would silently reorder the table.
  *
- * @param {Object}   opts                Options.
- * @param {Object}   opts.columns        Canonical map: key → `{ label, width, tooltip, className }`.
- * @param {string}   opts.storageKey     localStorage key for the selection.
- * @param {string[]} opts.defaultVisible Keys visible before the user chooses.
- * @param {Object}   [opts.aliases]      Retired key → current key, for a column renamed after selections were already stored.
- * @return {{visibleColumns: string[], toggleColumn: Function, isVisible: Function, gridTemplate: string}}
+ * @param {Object}                opts                Options.
+ * @param {Object}                opts.columns        Canonical map: key → `{ label, width, tooltip, className }`.
+ * @param {string}                opts.storageKey     localStorage key for the selection.
+ * @param {string[]}              opts.defaultVisible Keys visible before the user chooses.
+ * @param {Object<string,string>} [opts.aliases]      Retired key → current key, for a column renamed after selections were already stored.
+ * @return {{visibleColumns: string[], toggleColumn: (col: string) => void, isVisible: (col: string) => boolean, gridTemplate: string}}
  *   The selection and its derived layout.
  */
 export function useColumnPicker( {

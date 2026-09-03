@@ -1,17 +1,37 @@
 /**
- * IncludeTree — the authoritative include structure for the file being
- * edited.
+ * IncludeTree — one topology file's include structure, as a nested list.
  *
- * Top level = this file's directly-declared includes (removable); deeper
- * levels are read-only (open that file to act on its includes). This is where
- * you remove an include you have NOT selected: "which include provides this
- * node" is a SET (a shared node has several providers), but "remove an
- * include" is one row — that's what sidesteps the diamond. A SELECTED hull is
- * unambiguous, so it also removes from its own panel and the Delete key.
+ * A top-level row is an include the file declares itself, so it is one line to
+ * remove; a deeper row belongs to another file's declaration and is read-only,
+ * because acting on it means opening that file.
+ *
+ * Removing an include here is what sidesteps the diamond. "Which include
+ * provides this node" is a SET, since a shared node has several providers,
+ * while "remove this include" is one row — so this tree is how an include you
+ * have NOT selected comes out. A selected hull is unambiguous already: its own
+ * panel and the Delete key remove that one.
+ *
+ * The Inspector renders the edited file's includes with the remove control;
+ * HullPanel reuses the same list read-only for a selected hull's own subtree.
  */
 
 import { __ } from '@wordpress/i18n';
 
+/**
+ * One include row, and beneath it the includes that row brings in.
+ *
+ * The remove control appears on a root row only, and only when `onRemove` is
+ * supplied: a deeper row's declaration lives in a file this tree is not
+ * showing, so removing it would edit something off screen. The recursion says
+ * that twice, passing both `depth + 1` and a null callback.
+ *
+ * @param {Object}                        props
+ * @param {string}                        props.name       Topology this row stands for.
+ * @param {Object}                        [props.subtree]  What `name` includes, `{ name: subtree }` recursively; empty renders a leaf.
+ * @param {number}                        props.depth      0 for a declared include, deeper for one inherited through it.
+ * @param {((name: string) => void)|null} [props.onRemove] Removes the declared include this row names. Null renders the row read-only.
+ * @return {import('react').ReactElement} One list item, nesting a child list when the include has children.
+ */
 function Branch( { name, subtree, depth, onRemove } ) {
 	const kids = Object.keys( subtree || {} );
 	return (
@@ -55,10 +75,10 @@ function Branch( { name, subtree, depth, onRemove } ) {
  * skipped. Only roots get a remove control, and only when `onRemove` is
  * supplied — a deeper row belongs to another file's declaration.
  *
- * @param {Object}        props
- * @param {Object}        [props.tree]     Nested include tree from `topologies expand`: `{ name: subtree }`, recursively. Default {}.
- * @param {string[]}      [props.includes] The edited file's directly-declared includes, in declaration order; selects and orders the root rows. Default [].
- * @param {Function|null} [props.onRemove] (name) — removes a declared include. Null or absent renders the tree read-only.
+ * @param {Object}                        props
+ * @param {Object}                        [props.tree]     Nested include tree from `topologies expand`: `{ name: subtree }`, recursively. Default {}.
+ * @param {string[]}                      [props.includes] The file's directly-declared includes, in declaration order; selects and orders the root rows. Default [].
+ * @param {((name: string) => void)|null} [props.onRemove] Removes a declared include. Null or absent renders the tree read-only.
  * @return {import('react').ReactElement} The Includes section.
  */
 export default function IncludeTree( { tree = {}, includes = [], onRemove } ) {

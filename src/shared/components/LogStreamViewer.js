@@ -1,14 +1,22 @@
 /**
- * LogStreamViewer — the shared chrome of the substrate's log-stream dashboards
- * (Partition Viewer, Log Viewer): a toolbar (source dropdown, filter, line
- * counts + rate, pause, clear) that portals into the hub header slot when
- * given one, the reconnect banner, and the sidebar + virtualized row-list body.
+ * LogStreamViewer — the chrome every log-stream dashboard wears.
  *
- * Presentational + local UI state only. The consumer mounts its own node graph
- * and passes the differing pieces: the picker catalog, the fully-configured
- * `LogBrowser` sidebar element, the row renderer, and the `getViewNode`
- * accessor (the ring `LogRowList` reads) — so this component stays
- * runtime-free like its `LogRowList` sibling.
+ * It owns the toolbar (counts and rate, source picker, filter, offset jump,
+ * pause, step, debug, clear), the reconnect banner, the collapsible browse
+ * rail and the virtualized row list, so the Partition Viewer, the Log Viewer
+ * and an adopter's own stream all behave alike.
+ *
+ * The consumer owns the node graph and passes what differs: the picker
+ * catalog, the configured `LogBrowser` rail, the row renderer, and the
+ * `getViewNode` accessor the ring-reading `LogRowList` calls each frame. This
+ * component keeps presentational state only — filter text, rail visibility,
+ * the debug toggle, the counts reported up — and every control leaves as a
+ * message through a consumer callback. A control that reached into the view
+ * node instead would leave the node's id stamp and rate smoother loaded, and
+ * the next frame would overwrite it.
+ *
+ * Its one runtime touch is `Core.subscribeGraphGeneration`, which re-sends the
+ * filter after a rebuild: the gate lives on the node, not in render.
  */
 
 import { useEffect, useState } from '@wordpress/element';
@@ -20,10 +28,19 @@ import LogListHeader from './LogListHeader';
 import ConnectionBanner from './ConnectionBanner';
 import { HeaderSlot } from './HeaderSlot';
 
-// What the toolbar shows before the first frame, and after a Clear.
+/** What the toolbar shows before the first frame, and after a Clear. */
 const EMPTY_STATS = { total: 0, visible: 0, lps: 0 };
 
-// Pretty-print a struct row's raw JSON; anything else renders verbatim.
+/**
+ * The debug VALUE of one row: a struct's raw JSON pretty-printed, anything
+ * else verbatim.
+ *
+ * Unparseable JSON falls back to the raw text rather than an error, because a
+ * malformed line is the one a reader most needs to see.
+ *
+ * @param {Object} row One row, as the view node yields it from the ring.
+ * @return {string} The text of the VALUE cell.
+ */
 export const debugValue = ( row ) => {
 	if ( row.struct && row.raw ) {
 		try {
@@ -35,7 +52,16 @@ export const debugValue = ( row ) => {
 	return row.raw ?? row.content;
 };
 
-// One debug row; the KEY column is what the two variants differ by.
+/**
+ * Build the shared debug-row renderer for one column layout.
+ *
+ * A factory rather than a component, because `LogRowList` memoizes its mapped
+ * window on the renderer's identity: both variants are built once at module
+ * scope below, so a re-render of this viewer never re-maps the rows.
+ *
+ * @param {boolean} hasKey Whether the row carries a KEY cell.
+ * @return {RenderRow} The one-row renderer.
+ */
 const debugRow = ( hasKey ) => ( row ) => (
 	<div
 		key={ row.id }
@@ -58,12 +84,21 @@ const debugRow = ( hasKey ) => ( row ) => (
 	</div>
 );
 
-// Module-scope: a stable identity keeps LogRowList's row memoization live.
+/** The default debug row: ID, KEY and VALUE. */
 const renderDebugRow = debugRow( true );
-// Log Viewer variant: raw lines carry no KEY — two columns only.
+
+/** The keyless variant, for a source whose raw lines carry no KEY. */
 const renderDebugRowNoKey = debugRow( false );
 
-// The debug-mode column header (ID [· Key] · Value), shared cell classes.
+/**
+ * The debug-mode column header matching the shared debug row.
+ *
+ * Its cells reuse the row's classes, so header and rows take their widths
+ * from one CSS rule.
+ *
+ * @param {boolean} hasKeyColumn Whether to include the KEY column.
+ * @return {import('react').ReactElement} The header row.
+ */
 const debugHeader = ( hasKeyColumn ) => (
 	<LogListHeader
 		columns={ [
@@ -93,37 +128,39 @@ const debugHeader = ( hasKeyColumn ) => (
 /** @typedef {import('./LogRowList').RenderRow} RenderRow */
 
 /**
- * @param {Object}                 props                      Props.
- * @param {string}                 props.className            Root class; the body wrapper is `${className}__body`.
- * @param {string}                 props.ariaLabel            The region's accessible name.
- * @param {string}                 [props.title]              Inline page heading (adopters without a hub header).
- * @param {?Element}               [props.headerControlsSlot] Hub shared-header slot to portal the controls into; null renders none, undefined renders them inline.
- * @param {?Array}                 [props.pickerOptions]      `{ key, label, disabled? }` rows for the source dropdown; empty or absent = no picker.
- * @param {string}                 [props.selectedKey]        The picked option's key; required only with a picker.
- * @param {Function}               [props.onPick]             `(key) => void` — switch the source; required only with a picker.
- * @param {string}                 [props.pickerEmptyLabel]   Status text for an empty catalog; omit to say nothing about one.
- * @param {string}                 [props.pickerLabel]        The picker's accessible name; defaulted, never absent.
- * @param {boolean}                props.isPaused             The view's paused flag.
- * @param {boolean}                props.connectionError      The view's reconnect flag.
- * @param {() => void}             props.onTogglePause        Pause/resume the stream.
- * @param {() => void}             [props.onStep]             Step one message (paused-only); absent = no step button.
- * @param {Function}               [props.onJump]             Jump handler for the offset input; absent = no input.
- * @param {Function}               props.getViewNode          `() => node` — the live ring node `LogRowList` reads.
- * @param {() => void}             props.onClear              Send the view's `clear` control. Required.
- * @param {*}                      props.sidebar              The configured `LogBrowser` element.
- * @param {RenderRow}              props.renderRow            One-row renderer, forwarded to `LogRowList`.
- * @param {number}                 props.rowHeight            Fixed row height (px).
- * @param {string}                 [props.listClassName]      Extra `LogRowList` class.
- * @param {(term: string) => void} props.onFilter             Send the view's `filter` control; the node gates ingest on it. Required.
- * @param {string}                 [props.filterPlaceholder]  Filter input placeholder override.
- * @param {Function}               [props.renderCount]        `(stats) => string` count label override.
- * @param {Function}               [props.renderRate]         `(lps) => string` rate label override.
- * @param {*}                      [props.toolbarExtras]      Extra toolbar controls (before Clear).
- * @param {*}                      [props.belowToolbar]       Panel under the banner (e.g. a column picker).
- * @param {*}                      [props.listHeader]         Header row above the list (adds a `${className}__main` wrapper).
- * @param {RenderRow}              [props.renderDebugRow]     Debug-mode row renderer; defaults to the shared ID/Key/Value row.
- * @param {*}                      [props.renderDebugHeader]  Debug-mode header; defaults to the shared ID/Key/Value header.
- * @param {boolean}                [props.hasKeyColumn]       False drops the debug KEY column (keyless raw lines).
+ * Render the log-stream chrome around a consumer's view node.
+ *
+ * @param {Object}                    props                      Props.
+ * @param {string}                    props.className            Root class; the body wrapper is `${className}__body`.
+ * @param {string}                    props.ariaLabel            The region's accessible name.
+ * @param {string}                    [props.title]              Inline page heading, for an adopter with no hub header.
+ * @param {?Element}                  [props.headerControlsSlot] Hub shared-header slot to portal the controls into; null renders none, undefined renders them inline.
+ * @param {?Array<Object>}            [props.pickerOptions]      `{ key, label, disabled? }` rows for the source dropdown; empty or absent renders no picker.
+ * @param {string}                    [props.selectedKey]        The picked option's key; required only with a picker.
+ * @param {Function}                  [props.onPick]             `(key) => void` — switch the source; required only with a picker.
+ * @param {string}                    [props.pickerEmptyLabel]   Status text for an empty catalog; omit to say nothing about one.
+ * @param {string}                    [props.pickerLabel]        The picker's accessible name; defaulted, never absent.
+ * @param {boolean}                   props.isPaused             The view's paused flag.
+ * @param {boolean}                   props.connectionError      The view's reconnect flag.
+ * @param {() => void}                props.onTogglePause        Pause or resume the stream.
+ * @param {() => void}                [props.onStep]             Deliver one message; absent renders no step button, and it is disabled while the stream runs.
+ * @param {(offset: string) => void}  [props.onJump]             Handler for the offset input, called on Enter with the trimmed text; absent renders no input.
+ * @param {() => ?Object}             props.getViewNode          The live ring node `LogRowList` reads. Read per call, so a graph rebuild is picked up.
+ * @param {() => void}                props.onClear              Send the view's `clear` control.
+ * @param {*}                         props.sidebar              The configured `LogBrowser` element; falsy docks no rail.
+ * @param {RenderRow}                 props.renderRow            One-row renderer, forwarded to `LogRowList`.
+ * @param {number}                    props.rowHeight            Fixed row height in px.
+ * @param {string}                    [props.listClassName]      Extra `LogRowList` class.
+ * @param {(term: string) => void}    [props.onFilter]           Send the view's `filter` control; the node gates INGEST on it, so the ring holds only what is displayed.
+ * @param {string}                    [props.filterPlaceholder]  Filter input placeholder override.
+ * @param {(stats: Object) => string} [props.renderCount]        Count-label override, taking `{ total, visible, lps }`; the default counts lines.
+ * @param {(lps: number) => string}   [props.renderRate]         Rate-label override; the default reads lines per second.
+ * @param {*}                         [props.toolbarExtras]      Extra toolbar controls, placed before Clear.
+ * @param {*}                         [props.belowToolbar]       Panel under the banner, such as a column picker.
+ * @param {*}                         [props.listHeader]         Header row above the list.
+ * @param {RenderRow}                 [props.renderDebugRow]     Debug-mode row renderer; defaults to the shared debug row `hasKeyColumn` picks.
+ * @param {*}                         [props.renderDebugHeader]  Debug-mode header; defaults to the header matching that row.
+ * @param {boolean}                   [props.hasKeyColumn]       False drops the debug KEY column, for a source whose raw lines carry no KEY.
  * @return {import('react').ReactElement} Rendered component.
  */
 export default function LogStreamViewer( {
@@ -184,10 +221,11 @@ export default function LogStreamViewer( {
 	const [ stats, setStats ] = useState( EMPTY_STATS );
 
 	// @longform The gate lives on the view node, which a graph rebuild
-	// replaces — "Reset Graph", a renewed session, a remount. The input would
-	// still read the typed term while the fresh node admitted everything, so
-	// re-send it whenever the generation moves. Render-time filtering survived
-	// a rebuild for free because it lived here; this does not.
+	// replaces — "Reset Graph", a renewed session, a remount. The input still
+	// reads the typed term while the fresh node admits everything, so re-send
+	// it whenever the generation moves. Filtering at render would survive a
+	// rebuild for free; filtering at ingest, which is what keeps the ring
+	// holding only displayed rows, does not.
 	useEffect(
 		() => Core.subscribeGraphGeneration( () => onFilter?.( filter ) ),
 		[ filter, onFilter ]
@@ -206,7 +244,7 @@ export default function LogStreamViewer( {
 		? __( 'Paused', 'newspack-nodes' )
 		: __( 'Waiting for log lines…', 'newspack-nodes' );
 
-	// Controls strip portals into the hub header slot; undefined = inline.
+	// HeaderSlot places these: portalled, inline, or withheld by the host.
 	const controls = (
 		<div className="newspack-nodes-toolbar">
 			<span className="newspack-nodes-toolbar-stats">
@@ -427,9 +465,9 @@ export default function LogStreamViewer( {
 					</div>
 				) }
 
-				{ /* ONE stable wrapper in BOTH modes: reparenting the list
-				     across the debug toggle would remount it (fresh refs =
-				     the whole ring replayed as a glide). */ }
+				{ /* ONE stable wrapper in BOTH modes. Reparenting the list
+				     across the debug toggle would remount it, and its fresh
+				     refs would replay the whole ring as one glide. */ }
 				<div
 					className={ `${ className }__main newspack-nodes-log-main` }
 				>

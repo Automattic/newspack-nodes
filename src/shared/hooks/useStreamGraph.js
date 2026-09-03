@@ -33,6 +33,10 @@
  * A dashboard whose subscription is CHOSEN rather than declared passes no
  * `subscribe` at all: the link is built bare and opens nothing until a catalog
  * names one through `resubscribe`.
+ *
+ * `useSteppedRead` and `useLogCatalog` sit beside it because they are the same
+ * graph's other halves: the single record a paused stream steps by, and the
+ * polled list its subscription is named from.
  */
 
 import {
@@ -57,6 +61,25 @@ import { controlMsg } from '../helpers/controlMsg';
 import { browseControl } from '../nodes/seekTracker';
 
 /**
+ * What a stepped read's verb takes to fetch ONE record.
+ *
+ * @typedef {( sub: string, position: string ) => string[]} ArgsFor
+ */
+
+/**
+ * The subject a stepped read's reply is addressed by (ADR-7), read back out of
+ * the arguments `ArgsFor` built.
+ *
+ * @typedef {( args: string[] ) => string} SubjectOf
+ */
+
+/**
+ * Which of a catalog's rows a dashboard offers.
+ *
+ * @typedef {( row: Object ) => boolean} CatalogFilter
+ */
+
+/**
  * The plain `<sub> <position>` read; a verb with a sub-verb declares its own.
  *
  * @param {string} sub      The subscription being stepped.
@@ -65,9 +88,10 @@ import { browseControl } from '../nodes/seekTracker';
  */
 const POSITIONAL_READ = ( sub, position ) => [ sub, position ];
 
-/** Segments, sizes and partitions move slowly; no need for every tick. */
+/** Segments, sizes and partitions move slowly; ten seconds is often enough. */
 const CATALOG_POLL_MS = 10000;
 
+/** One array, so an empty catalog keeps its identity across renders. */
 const NO_ROWS = [];
 
 CommandInterpreterNode.registerNodeClasses( {
@@ -78,10 +102,11 @@ CommandInterpreterNode.registerNodeClasses( {
  * Mount one dashboard's stream graph and own its connection lifecycle. See the
  * module docblock for the backbone and the gating contract.
  *
- * @param {Object}  o
+ * @param {Object}  o               The dashboard's declaration.
  * @param {string}  o.prefix        Names the three nodes this graph owns.
- * @param {?string} o.subscribe     What the stream carries; null to open
- *                                  nothing until `resubscribe` names it.
+ * @param {?string} [o.subscribe]   What the stream carries; omit it or pass
+ *                                  null to open nothing until `resubscribe`
+ *                                  names one.
  * @param {any}     o.viewClass     The view-model node's class, handed over
  *                                  rather than named (ADR-16).
  * @param {string}  [o.endpoint]    SSE endpoint override; omit for
@@ -90,7 +115,7 @@ CommandInterpreterNode.registerNodeClasses( {
  * @param {?Object} [o.openAt]      The FIRST open's seek seed; null tails.
  * @param {boolean} [o.clearOnOpen] Empty the view before every open, for a
  *                                  model whose rows go stale across a gap.
- * @return {{ prefix: string, linkRef: Object, viewRef: Object, isPausedRef: Object, isActive: boolean, control: Function, resubscribe: Function, seek: Function, setPaused: (paused: boolean) => void, setFilter: (term: string) => void, clear: () => void, targetRef: Object }}
+ * @return {{ prefix: string, linkRef: Object, viewRef: Object, isPausedRef: Object, isActive: boolean, control: (value: Object) => void, resubscribe: (subs: string[], positions: ?Object) => void, seek: (sub: string, positions: ?Object, source?: Object) => void, setPaused: (paused: boolean) => void, setFilter: (term: string) => void, clear: () => void, targetRef: Object }}
  *   The live handles, the gate's state, and the controls the dashboard drives.
  */
 export function useStreamGraph( {
@@ -333,16 +358,22 @@ export function useStreamGraph( {
  * subscription being stepped — so `subjectOf` must be `argsFor` read backwards:
  * a verb with a sub-verb does not carry its source at args[0].
  *
- * @param {Object}   o
- * @param {Object}   o.graph       The `useStreamGraph` handle to step.
- * @param {string}   [o.ci]        The service CI the read verb lives on.
- * @param {string}   o.command     The read verb.
- * @param {string}   [o.scope]     Names this read's own nodes; `<prefix>:read`
- *                                 by default.
- * @param {Function} [o.argsFor]   `( sub, position ) => string[]`; the plain
- *                                 `<sub> <position>` verb by default.
- * @param {Function} [o.subjectOf] `( args ) => sub`, `argsFor` read backwards.
- * @return {() => void} Deliver one record from the cursor; a no-op unless paused.
+ * A record answered after Play is dropped rather than admitted: the live stream
+ * is delivering again, and a stale step would insert a row behind the tail.
+ *
+ * @param {Object}    o             Options.
+ * @param {Object}    o.graph       The `useStreamGraph` handle to step.
+ * @param {string}    [o.ci]        The service CI the read verb lives on; an
+ *                                  interpreter builtin has none.
+ * @param {string}    o.command     The read verb.
+ * @param {string}    [o.scope]     Names this read's own nodes; `<prefix>:read`
+ *                                  by default.
+ * @param {ArgsFor}   [o.argsFor]   The plain `<sub> <position>` read by
+ *                                  default.
+ * @param {SubjectOf} [o.subjectOf] `argsFor` read backwards; the first token by
+ *                                  default.
+ * @return {() => void} Deliver one record from the recorded cursor; a no-op
+ *   unless the stream is paused and pointed at a subscription.
  */
 export function useSteppedRead( {
 	graph,
@@ -398,12 +429,17 @@ export function useSteppedRead( {
  * recover on the next tick, with no loader and no retry of their own — a
  * refusal is an ANSWER, so nothing re-asks it.
  *
- * @param {Object}   o
- * @param {string}   o.prefix   Names the slice's nodes, `<prefix>:list:*`.
- * @param {string}   o.command  The catalog verb.
- * @param {string}   o.target   Where to send it (`egressPath( ci )`).
- * @param {Function} [o.argsFn] The verb's arguments; none by default.
- * @param {Function} [o.keep]   Keep only the rows this dashboard offers.
+ * @param {Object}          o          Options.
+ * @param {string}          o.prefix   Names the slice's nodes,
+ *                                     `<prefix>:list:*`.
+ * @param {string}          o.command  The catalog verb.
+ * @param {string}          o.target   Where to send it (`egressPath( ci )`).
+ * @param {() => ?string[]} [o.argsFn] The verb's arguments, read at fire time;
+ *                                     none by default.
+ * @param {CatalogFilter}   [o.keep]   Keep only the rows this dashboard
+ *                                     offers. Declare it once: it is a memo
+ *                                     dependency, so a fresh arrow each render
+ *                                     hands back a fresh array each render.
  * @return {Object[]} The catalog rows.
  */
 export function useLogCatalog( { prefix, command, target, argsFn, keep } ) {

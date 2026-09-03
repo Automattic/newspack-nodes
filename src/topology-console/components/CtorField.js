@@ -1,24 +1,27 @@
 /**
- * CtorField — one schema-driven constructor-argument input, shared by the
- * edit-mode Inspector and the live-drop NewNodeModal so both render the same
- * node_schema-enriched widgets (formatter/node pickers, typed text, reset-↺).
+ * One schema-driven argument input, shared by the edit-mode Inspector, its
+ * verb-argument modals and the live-drop NewNodeModal. All of them read the
+ * same `node_schema()` declaration, so all of them render the same widget for
+ * a given argument: a picker for the three name types, typed text everywhere
+ * else, and a reset control. A second implementation would drift from the
+ * schema the others read.
  */
 
 import { __, sprintf } from '@wordpress/i18n';
 
 /**
- * Attributes the `<input>` for a schema type needs. Every type stays a text
- * input — any argument may hold a `<config:...>` token — so the type only
- * narrows the on-screen keyboard or supplies a placeholder.
+ * Attributes the `<input>` for a schema type needs. Every type renders a text
+ * input, because any argument may hold a `<config:...>` token a checkbox or a
+ * number input would reject, and the loader coerces each token to its declared
+ * type when the node is constructed. The type only narrows the on-screen
+ * keyboard or supplies a placeholder.
  *
  * @param {string} type Schema argument type (`bool`, `int`, `float`, …).
  */
 function inputForType( type ) {
 	switch ( type ) {
 		case 'bool':
-			// Text, not checkbox, so the field can hold a `<config:...>` token.
 			return { type: 'text', placeholder: 'true | false | <config:...>' };
-		// All types are text; loader coerces at runtime (tokens are strings).
 		case 'int':
 			return { type: 'text', inputMode: 'numeric' };
 		case 'float':
@@ -35,13 +38,14 @@ function inputForType( type ) {
  * they are, so editing never destroys input the loader would have accepted.
  *
  * @param {string} type Schema argument type (`bool`, `int`, `float`, …).
- * @param {*}      raw  Raw input value.
- * @return {*} A number for a complete `int`/`float`, `'true'`/`'false'` for a
- *             `bool`, otherwise the value as a string or passed through.
+ * @param {*}      raw  Raw input value. A field hands over a string; a stored
+ *                      argument can arrive as a JSON boolean.
+ * @return {*} A number for a complete `int` or `float`, `''` for an empty
+ *             numeric field, `'true'`/`'false'` for a JS boolean, and the
+ *             string form of anything else.
  */
 export function coerceValue( type, raw ) {
 	if ( 'bool' === type ) {
-		// Store strings as-is; normalize legacy JS booleans to "true"/"false".
 		if ( 'boolean' === typeof raw ) {
 			return raw ? 'true' : 'false';
 		}
@@ -51,7 +55,6 @@ export function coerceValue( type, raw ) {
 		if ( '' === raw ) {
 			return '';
 		}
-		// Pure-integer strings → number; tokens/partial input pass through.
 		return /^-?\d+$/.test( String( raw ).trim() )
 			? parseInt( raw, 10 )
 			: raw;
@@ -68,7 +71,9 @@ export function coerceValue( type, raw ) {
 }
 
 /**
- * One constructor argument, as a node's `node_schema()` declares it.
+ * One constructor argument, as a node's `node_schema()` declares it. A verb
+ * argument carries the same shape, which is what lets the verb modals render
+ * their arguments through this component too.
  *
  * @typedef  {Object}  CtorArgSpec
  * @property {string}  name          Argument name; labels the row and keys the
@@ -79,8 +84,11 @@ export function coerceValue( type, raw ) {
  *                                   a narrowed keyboard.
  * @property {boolean} [required]    Marks the label with an asterisk.
  * @property {string}  [description] Label tooltip.
- * @property {*}       [default]     Fills the placeholder while the field is
- *                                   empty.
+ * @property {*}       [default]     Stands in for a value the draft has not
+ *                                   set, and shows as the placeholder once the
+ *                                   field is an empty string.
+ *                                   `serializeCtorArgs` substitutes it when
+ *                                   the draft becomes a `make_node` line.
  */
 
 /**
@@ -89,25 +97,30 @@ export function coerceValue( type, raw ) {
  * @typedef  {Object} VaultEntry
  * @property {string} id    Vault key stored as the argument value.
  * @property {string} [url] Remote URL, shown beside the id to disambiguate.
+ *                          An entry without one renders as the bare id.
  */
 
 /**
- * Renders one constructor argument. The `formatter_name`, `vault_id` and
- * `node_name` types get a picker — each falling back to free text when its list
- * is empty — and every other type gets a text input, since any argument may
- * hold a `<config:...>` token that a checkbox or number input would reject.
+ * Renders one argument row. The `formatter_name`, `vault_id` and `node_name`
+ * types get a picker, each falling back to free text when its list is empty so
+ * an install with nothing registered can still type the value; every other
+ * type gets a text input. The reset control writes an empty string rather than
+ * the default itself, which is what leaves `serializeCtorArgs` free to
+ * substitute the schema default when the draft becomes a `make_node` line.
  *
- * @param {Object}       props              Component props.
- * @param {CtorArgSpec}  props.spec         Schema entry this field edits.
- * @param {*}            [props.value]      Current value; `spec.default` fills
- *                                          the placeholder when it is empty.
- * @param {Function}     props.onChange     Receives the new value, coerced to
- *                                          the declared type.
- * @param {string[]}     [props.nodeNames]  Node names the `node_name` picker
- *                                          offers.
- * @param {string[]}     [props.formatters] Registered formatter names.
- * @param {VaultEntry[]} [props.vaults]     Vault entries the `vault_id` picker
- *                                          offers.
+ * @param {Object}             props              Component props.
+ * @param {CtorArgSpec}        props.spec         Schema entry this field edits.
+ * @param {*}                  [props.value]      Current value. A nullish
+ *                                                value puts `spec.default` in
+ *                                                the field; an empty string
+ *                                                shows it as the placeholder.
+ * @param {(value: *) => void} props.onChange     Receives the new value,
+ *                                                coerced to the declared type.
+ * @param {string[]}           [props.nodeNames]  Node names the `node_name`
+ *                                                picker offers.
+ * @param {string[]}           [props.formatters] Registered formatter names.
+ * @param {VaultEntry[]}       [props.vaults]     Vault entries the `vault_id`
+ *                                                picker offers.
  * @return {import('react').ReactElement} The field row.
  */
 export function CtorField( {
@@ -121,7 +134,6 @@ export function CtorField( {
 	const meta = inputForType( spec.type );
 	const id = `topology-ctor-${ spec.name }`;
 	if ( 'formatter_name' === spec.type ) {
-		// Pick from registered formatters; empty list falls back to free text.
 		if ( formatters.length === 0 ) {
 			return (
 				<div className="topology-edit-row">
@@ -176,7 +188,6 @@ export function CtorField( {
 		);
 	}
 	if ( 'vault_id' === spec.type ) {
-		// Registered Vault entries; empty list falls back to free text.
 		if ( vaults.length === 0 ) {
 			return (
 				<div className="topology-edit-row">
@@ -237,7 +248,7 @@ export function CtorField( {
 		);
 	}
 	if ( 'node_name' === spec.type ) {
-		// node_name args define a logical edge synthesized onto the canvas.
+		// A node_name verb arg also draws a virtual edge on the canvas.
 		return (
 			<div className="topology-edit-row">
 				<label
@@ -266,7 +277,7 @@ export function CtorField( {
 			</div>
 		);
 	}
-	// Normalize legacy JS-boolean bool args to "true"/"false" strings.
+	// A stored arg can be a JSON boolean; the field shows "true"/"false".
 	const rawValue = value ?? spec.default ?? '';
 	let currentValue = rawValue;
 	if ( 'boolean' === typeof rawValue ) {

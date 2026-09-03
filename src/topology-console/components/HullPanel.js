@@ -45,6 +45,11 @@ function relatives( tree, include ) {
 }
 
 /**
+ * Flattens an include subtree into the names it contains.
+ *
+ * Containment runs the full depth, so `relatives` needs every level: a
+ * grandchild's nodes belong to the hull as much as a child's do.
+ *
  * @param {Object} node Include subtree.
  * @return {string[]} Every topology under `node`, at any depth.
  */
@@ -58,7 +63,12 @@ function descendants( node ) {
 /**
  * Edges with exactly one endpoint inside the hull — its interface.
  *
- * @param {Array}       edges   Graph edges.
+ * An edge with both endpoints inside is the include's private wiring, and one
+ * with neither belongs to another scope; only a crossing edge says how the
+ * borrowed subsystem is used. The DESTINATION names the direction: an edge
+ * landing on a member is inbound, one leaving a member outbound.
+ *
+ * @param {Array}       edges   Graph edges, each `{ from, to }` node ids.
  * @param {Set<string>} members Node ids inside the hull.
  * @return {{inbound: Array, outbound: Array}} Boundary edges by direction.
  */
@@ -81,10 +91,11 @@ function boundaryEdges( edges, members ) {
  * whole graph: `in` is what the member SOURCES produced, `out` what the member
  * SINKS consumed — so a message hopping between two members isn't counted twice.
  *
- * Consequence worth knowing: an include made only of pass-through nodes (no
- * source, no sink) reads 0/0 — its traffic is interior to some other scope's
- * boundary. The window label takes the WHOLE graph's node count because that, not
- * the hull's size, is what the metadata poll interval scales with.
+ * An include made only of pass-through nodes has neither a source nor a sink,
+ * so its message totals read 0/0 while its byte totals still sum: that traffic
+ * is interior to some other scope's boundary. The window label takes the WHOLE
+ * graph's node count, because the metadata poll interval scales with the graph
+ * rather than with the hull.
  *
  * @param {Object} props
  * @param {Array}  props.nodes      The hull's member nodes.
@@ -193,7 +204,7 @@ export default function HullPanel( {
 					</button>
 				) }
 
-				{ /* Only a DIRECTLY-declared include has a line here to remove. */ }
+				{ /* Only a DIRECTLY-declared include has a line to remove. */ }
 				{ editMode && onRemoveHull && includes.includes( include ) && (
 					<button
 						type="button"
@@ -206,7 +217,7 @@ export default function HullPanel( {
 				) }
 			</div>
 
-			{ /* A draft graph has no counters — the whole inspector hides stats in edit mode. */ }
+			{ /* A draft graph has no counters, so edit mode hides stats. */ }
 			{ ! editMode && (
 				<HullStats
 					nodes={ nodes }

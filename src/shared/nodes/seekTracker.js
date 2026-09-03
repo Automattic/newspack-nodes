@@ -1,56 +1,54 @@
 /**
- * SeekTracker — the node-side seek/position tracker for log-stream view nodes.
+ * The node-side seek and position tracking behind every log-stream view node.
  *
- * A view node that streams a segmented log wants two Kafka-UI feedback signals as
- * records arrive: which segment the last record came FROM (the rail highlight),
- * and whether a replay has CAUGHT UP to the live tail (Replay→Live flip). Both
- * derive from each record's `segment:offset:length` ID breadcrumb; this class owns
- * that derivation so the Partition Viewer, the Log Viewer, and the ELN Request /
- * Error Log view nodes share ONE implementation instead of three copies.
+ * A view node streaming a segmented log owes its UI two feedback signals as
+ * records arrive: which segment the last record came FROM, which the rail
+ * highlights, and whether a replay has caught up to the live tail, which flips
+ * the view from Replay back to Live. Both derive from each record's
+ * `segment:offset:length` ID breadcrumb, and this module owns that derivation so
+ * the Partition Viewer, the Log Viewer and the ELN Request / Error Log view
+ * nodes share ONE implementation instead of three.
  *
- * It is deliberately NOT a React hook — it is plain node-side state a view node
- * composes (`this.seek = new SeekTracker()`) and drives from `fill()`. The view
- * node owns publishing; `track()` returns whether anything the view publishes
- * changed (segment or mode), so the view publishes on change only (no per-record
- * setState storm).
- *
- * Modes:
- * - `browse(endSegment, endOffset)` — enter replay, capturing the live boundary a
- *   replayed record must reach to be "caught up". A NULL `endSegment` enters
- *   replay with NO auto-flip: this is the file-mode opaque-inode contract (a Tail
- *   over a raw file puts the file's inode — unorderable — in the segment slot, so
- *   there is no meaningful numeric end to catch up to; the caller flips manually).
- * - `follow()` — return to the live tail, dropping the boundary.
- * - `select()` — a fresh subscription: live from a clean slate (also forgets the
- *   last-received segment so the rail highlight resets).
+ * `SeekTracker` is deliberately not a React hook. It is plain node-side state,
+ * and the view node keeps ownership of publishing: `track()` reports whether
+ * anything the view publishes changed, so the view publishes on change instead
+ * of calling setState once per record.
  */
 
-// A record's Message ID position breadcrumb: `segment:offset:length`.
+/**
+ * Matches a record's Message ID position breadcrumb, `segment:offset:length`.
+ * An ID in any other shape — a command reply, an opaque hash — carries no
+ * position, so `track()` ignores it.
+ */
 const ID_POSITION_RE = /^(\d+):(\d+):(\d+)$/;
 
-/** Tailing the head. */
+/** The mode value for a view tailing the live head. */
 export const LIVE = 'live';
 
-/** Browsing history until a replayed record reaches the captured boundary. */
+/**
+ * The mode value for a view replaying history, held until a record reaches the
+ * boundary `browse()` captured.
+ */
 export const REPLAY = 'replay';
 
 /**
- * The `browse` control for a source, as `LogStreamViewNode._control()` accepts
- * it — the whole deliverable, not half of one.
+ * Derive the whole `browse` control for a source, in the shape
+ * `LogStreamViewNode._control()` accepts.
  *
- * Both boundary shapes live here because they are one decision. A segmented
- * source catches up on `(newest id, its size)`. A file-mode source has no
- * orderable segment (a Tail over a raw file puts the opaque inode in the
- * segment slot), so it catches up on byte size alone and flips on inode
- * rotation. Splitting the two put half the rule in this module and half inline
- * in one consumer, which is why three call sites could never agree.
+ * Both boundary shapes belong here because they are one decision. A segmented
+ * source catches up on the newest segment id and that segment's byte size. A
+ * file-mode source has no orderable segment — a Tail over a raw file puts the
+ * opaque inode in the segment slot — so it catches up on byte size alone and
+ * flips when the inode rotates. Returning half the control leaves every
+ * consumer to invent the other half, and three of them invent three.
  *
  * @param {Object}                           source            The source row.
  * @param {Array<{id?:number,size?:number}>} [source.segments] Segment list.
  * @param {number}                           [source.bytes]    File-mode size.
  * @return {{action:string,endSegment:?number,endOffset:number}|{action:string}}
  *   A `browse` control, or `follow` when the source carries no boundary.
- * @throws {TypeError} When the boundary segment carries no numeric size.
+ * @throws {TypeError} When a segment newer than every segment before it carries
+ *   no numeric size.
  */
 export function browseControl( { segments = [], bytes = 0 } ) {
 	const boundary = endPosition( segments );
@@ -71,16 +69,18 @@ export function browseControl( { segments = [], bytes = 0 } ) {
 /**
  * The live boundary a replay must reach to be "caught up": the newest segment's
  * id and its byte size, from a segment list (`log_status.segments` or `taillog
- * sources[].segments` — same shape). Null when no segment carries a numeric id,
- * which is the file-mode case `browseControl` answers with a byte boundary.
+ * sources[].segments` — the same shape). Null when no segment carries a numeric
+ * id, which is the file-mode case `browseControl()` answers with a byte
+ * boundary.
  *
- * Module-private: `browseControl()` is the whole deliverable and the only
- * surface consumers need. Exporting the half is what let three of them build
- * the other half three different ways.
+ * Module-private, because `browseControl()` is the whole control and the only
+ * surface a consumer needs; an exported half is a half every consumer completes
+ * its own way.
  *
  * @param {Array<{id?:number,size?:number}>} segments The `{id, size}` segments.
  * @return {{segment:number,offset:number}|null} The boundary, or null.
- * @throws {TypeError} When the newest segment carries no numeric size.
+ * @throws {TypeError} When a segment newer than every segment before it carries
+ *   no numeric size.
  */
 function endPosition( segments ) {
 	let segment = null;
@@ -104,11 +104,13 @@ function endPosition( segments ) {
 }
 
 /**
- * Node-side seek state for a log-stream view node: the segment the last record
- * arrived from, and whether a replay has caught up to the live tail. A view node
- * composes one (`this.seek = new SeekTracker()`), drives `track()` from `fill()`,
- * and publishes only when `track()` reports a change. See the module docblock
- * above for the mode contract, including the null-segment file-mode case.
+ * The seek state one log-stream view node keeps: the segment the last record
+ * arrived from, and whether a replay has caught up to the live tail.
+ *
+ * A view node composes one (`this.seek = new SeekTracker()`) and drives
+ * `track()` from `fill()`. `mode` holds `LIVE` or `REPLAY`; `browse()`,
+ * `follow()` and `select()` move between them, and `track()` leaves replay on
+ * its own once a record reaches the captured boundary.
  */
 export class SeekTracker {
 	/**
@@ -128,11 +130,14 @@ export class SeekTracker {
 	}
 
 	/**
-	 * Track a record's `segment:offset:length` ID breadcrumb.
+	 * Record where one arriving record sits, from its `segment:offset:length` ID
+	 * breadcrumb, and leave replay once that position reaches the boundary
+	 * `browse()` captured. An ID in any other shape carries no position and
+	 * changes nothing.
 	 *
-	 * @param {*} id The record's Message ID (a breadcrumb string, else ignored).
+	 * @param {*} id The record's Message ID; a non-breadcrumb ID is ignored.
 	 * @return {boolean} True when the received segment changed or the mode
-	 *   flipped — the caller's publish-on-change gate.
+	 *   flipped, which is the caller's publish-on-change gate.
 	 */
 	track( id ) {
 		const match = ID_POSITION_RE.exec( 'string' === typeof id ? id : '' );
@@ -151,7 +156,7 @@ export class SeekTracker {
 		) {
 			this.referenceSegment = segment;
 		}
-		// Caught up to the seek boundary: past it is live tail → flip live.
+		// At or past the seek boundary, the record is live tail: go live.
 		let modeChanged = false;
 		if ( REPLAY === this.mode && this._caughtUp( segment, offsetEnd ) ) {
 			this.follow();
@@ -164,9 +169,10 @@ export class SeekTracker {
 	 * Return to the live tail, dropping the catch-up boundary. The last received
 	 * segment survives, so the rail highlight stays where the records are.
 	 *
-	 * The ONE cleared shape: `select()` is this plus forgetting the breadcrumb,
-	 * the constructor is `select()`, and the replay→live flip is this. Four
-	 * hand-maintained copies meant a new field would reach three of them.
+	 * This method is the ONE cleared shape: `select()` is this plus forgetting
+	 * the breadcrumb, the constructor is `select()`, and `track()`'s flip out of
+	 * replay calls it. Four hand-maintained copies would leave a new field out of
+	 * three of them.
 	 */
 	follow() {
 		this.mode = LIVE;
@@ -199,9 +205,15 @@ export class SeekTracker {
 	}
 
 	/**
-	 * Enter replay, capturing the catch-up boundary. Segmented: (endSegment,
-	 * size). File mode: null segment + a positive byte size (catch up by size,
-	 * or on inode rotation). Null segment + 0/absent size → never auto-flips.
+	 * Enter replay, capturing the boundary a replayed record must reach to count
+	 * as caught up.
+	 *
+	 * A segmented source passes the newest segment id and that segment's byte
+	 * size. A file-mode source passes a null segment with a positive byte size,
+	 * because a Tail over a raw file puts the file's unorderable inode in the
+	 * segment slot: catch-up is by byte size on the first inode seen, or by that
+	 * inode rotating. A null segment with no size enters a replay that never
+	 * auto-flips, leaving the flip to the caller.
 	 *
 	 * @param {?number} endSegment The end segment id, or null for file mode.
 	 * @param {number}  endOffset  The catch-up byte boundary.

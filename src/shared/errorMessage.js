@@ -1,17 +1,27 @@
 /**
- * The readable text behind a TM_ERROR payload.
+ * The readable text behind a TM_ERROR reply.
  *
- * A verb's failure arrives as a bare string, as a `{ message }` object, or as
- * something a caller cannot render at all; every surface that shows one wants
- * the same coercion, so it lives here rather than in each of them.
+ * Every failure surface coerces the same payload shapes and has to agree on
+ * the wording when there is nothing to render, so both live here rather than
+ * in each of them.
  */
 
 /**
- * Coerce a TM_ERROR payload (string / { message } / anything else) to a
- * human-readable string.
+ * Coerce a TM_ERROR payload to text a person can read.
  *
- * @param {*} payload The reply's VALUE.payload.
- * @return {string} The readable message; 'Operation failed' as a last resort.
+ * The argument is whatever `payloadOf( message[ VALUE ] )` handed back: the
+ * VALUE itself when a bare TM_ERROR carries a string, the `payload` field when
+ * a TM_COMMAND|TM_ERROR wraps a verb's refusal, or an object carrying
+ * `message` beside the structured detail a caller renders separately.
+ *
+ * An empty string takes the fallback rather than passing through, because an
+ * error box with nothing in it reads as success.
+ *
+ * Passing `null` asks for the fallback alone, which is how a caller-side
+ * failure with no reply behind it gets the same wording as one off the wire.
+ *
+ * @param {*} payload The reply's payload, in any shape.
+ * @return {string} The readable message, or 'Operation failed'.
  */
 export function errorMessage( payload ) {
 	if ( 'string' === typeof payload && payload.length > 0 ) {

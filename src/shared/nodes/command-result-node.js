@@ -12,7 +12,7 @@ import { errorMessage } from '../errorMessage';
  * CommandResultNode — where a ONE-SHOT command's reply lands.
  *
  * The mirror of `SliceViewNode`, and deliberately its opposite on both counts.
- * A slice keeps the last good model and swallows a bad tick, because a widget
+ * A slice keeps the model already on screen when a tick fails, because a widget
  * that blanks on one refused poll is worse than a slightly stale one. A
  * one-shot has a caller waiting on the answer to a save it just sent: every
  * reply publishes, refusals included, or the caller waits forever for news that
@@ -25,7 +25,11 @@ import { errorMessage } from '../errorMessage';
  */
 export class CommandResultNode extends Node {
 	/**
-	 * Publish this reply, whatever it says.
+	 * Publish this reply on `result`, whatever it says.
+	 *
+	 * Both branches publish the same seven fields — `ok`, `args`, `subject`,
+	 * `payload`, `error`, `errorData` and `undelivered` — so a consumer reads
+	 * `ok` to branch and never has to test which fields arrived.
 	 *
 	 * @param {Array} message The 7-field positional message.
 	 */
@@ -40,7 +44,7 @@ export class CommandResultNode extends Node {
 		// peeled this node off it: the subject the command was about. The
 		// sender appended it to FROM, the server echoed TO = FROM, and the
 		// path routed the answer here — so one node answers about many
-		// subjects and none of them is filed under anything.
+		// subjects and none of them is filed under anything (ADR-7).
 		const subject = message[ TO ] || null;
 		if ( 0 !== ( ( message[ TYPE ] || 0 ) & TM_ERROR ) ) {
 			this.setState( 'result', {
@@ -69,6 +73,10 @@ export class CommandResultNode extends Node {
 	}
 
 	/**
+	 * Console-palette entry. Hidden because `useCommandOnce` builds this node
+	 * itself rather than an operator wiring one, and terminal — the reply
+	 * settles here, so there is nothing to target.
+	 *
 	 * @return {Object} The node schema.
 	 */
 	static nodeSchema() {

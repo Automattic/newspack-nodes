@@ -1,9 +1,22 @@
 import { Node } from '../../runtime/node';
 import { TIMESTAMP, VALUE } from '../../runtime/message';
 
-// Config-audit is low-volume; a day's option-name events fit well under this.
+/**
+ * Entries held before the oldest ARRIVAL is dropped.
+ *
+ * The dashboard subscribes in history mode, replaying the whole of
+ * `settings.p0` retention, so this cap is what bounds a long-lived tab. Only
+ * `newspack_`-prefixed options are watched, and a day of their changes sits
+ * well under it.
+ */
 const MAX_ENTRIES = 5000;
-// Throttle publish (a full-replay burst thrashes React): leading + trailing.
+
+/**
+ * Shortest gap between two `setState` calls, in milliseconds.
+ *
+ * Leading edge plus one trailing flush, so a replay burst publishes at its
+ * start and again when it settles rather than re-rendering React per frame.
+ */
 const PUBLISH_THROTTLE_MS = 500;
 
 /**
@@ -12,9 +25,15 @@ const PUBLISH_THROTTLE_MS = 500;
  * Each inbound frame is one settings-change event (`Settings_Event_Writer` writes
  * VALUE = `{ option }` plus, for allowlisted options, `old`/`new` value excerpts;
  * the instant is the Message TIMESTAMP). The view appends `{ id, ts, option, old?,
- * new? }` to a bounded list (oldest dropped past `maxEntries`) and publishes a
- * throttled newest-first snapshot via `setState('view', { entries })`. Nothing is
- * deduped — every change is its own event.
+ * new? }` to a bounded ring (the oldest ARRIVAL dropped past `maxEntries`) and
+ * publishes a throttled newest-first snapshot via `setState('view', { entries })`.
+ * Nothing is deduped — every change is its own event, so two edits to one option
+ * are two rows.
+ *
+ * A terminal view node: no target, no sink, and it sends nothing. `fill()`
+ * returns on every shape it cannot use instead of throwing, because Router
+ * dispatches it with no per-message try/catch and a throw would abort the whole
+ * message turn.
  *
  * @param {number} [maxEntries] Ring cap (defaults to MAX_ENTRIES; injectable for tests).
  */
@@ -43,6 +62,10 @@ export class SettingsAuditViewNode extends Node {
 	 * the overlay's throughput reflects everything that arrived. `old` and `new`
 	 * ride only when the writer's allowlist let the value excerpts through, so both
 	 * are copied only when present as strings.
+	 *
+	 * `id` is the arrival sequence, which breaks a timestamp tie in `snapshot()`
+	 * and gives React a key that survives every re-sort. A frame carrying no
+	 * TIMESTAMP records `ts` 0, which the table renders as an em dash.
 	 *
 	 * @param {Array} message The 7-field positional message; VALUE is the event
 	 *                        record, TIMESTAMP the instant of the change.

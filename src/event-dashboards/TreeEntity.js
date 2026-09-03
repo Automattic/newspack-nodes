@@ -1,12 +1,13 @@
 /**
- * Renders one topology's node/log tree: what each worker is doing, and how far
+ * Draws a topology's node/log tree: what each worker is doing, and how far
  * behind each log's readers are.
  *
  * `topologyGraph.buildTopologySections` builds the entity tree; this component
- * walks it, one instance per entity. A `node` entity draws a status strip of
- * per-partition worker pills. A `log` entity draws one row per partition,
- * carrying that partition's write rate and its segment bars, one `SegmentBar`
- * each.
+ * renders one entity of it and recurses into that entity's children, so
+ * `TopologySection`'s call on a root paints the whole subtree. A `node` entity
+ * draws a status strip of per-partition worker pills. A `log` entity draws one
+ * row per partition, carrying that partition's write rate and its segment
+ * bars, one `SegmentBar` each.
  *
  * The caller owns the fold state and passes it in as a `collapsed` Set plus an
  * `onToggle` callback. Overview keeps ONE Set across every topology and
@@ -126,7 +127,13 @@ const NodeRow = memo( function NodeRow( { entity } ) {
  *                                                           `buildTopologySections`;
  *                                                           its `partitions` array
  *                                                           holds one entry per
- *                                                           concrete catalog partition.
+ *                                                           concrete catalog partition,
+ *                                                           and `hasCursor` says whether
+ *                                                           any reader reported a
+ *                                                           position. The flag is OR'd
+ *                                                           across the partitions, so a
+ *                                                           partition no consumer reads
+ *                                                           still draws gray bars.
  * @property {Object<string,number>}        writeRates       Bytes written per second.
  * @property {number}                       segmentSize      Fleet-wide segment size in
  *                                                           bytes, scaling the bars of
@@ -233,11 +240,17 @@ const LogRows = memo( function LogRows( {
  *                                                           joined node also carries
  *                                                           `names`, the members it
  *                                                           stands for.
- * @property {number}                       depth            Nesting level; each level
- *                                                           indents 14px.
+ * @property {number}                       depth            Nesting level; the row's
+ *                                                           left margin is `depth * 14`
+ *                                                           pixels.
  * @property {Set<string>}                  collapsed        Keys of the folded
  *                                                           entities, owned by the
  *                                                           caller.
+ *                                                           `buildTopologySections`
+ *                                                           scopes every key to its
+ *                                                           topology, so one Set shared
+ *                                                           across topologies folds each
+ *                                                           of them independently.
  * @property {(key: string) => void}        onToggle         Called with an entity key
  *                                                           to fold or unfold it.
  * @property {Object<string,number>}        writeRates       Write rates, for `LogRows`.
