@@ -25,7 +25,7 @@ class TopicProbeNamingTest extends TestCase {
 	private const SCANNED = [ 'includes', 'src', 'tests', 'docs', 'topologies', 'examples', 'scripts', '.claude' ];
 
 	/** Docs whose job is to name retired surfaces so a consumer can rewrite them. */
-	private const HISTORY = [ 'CHANGELOG.md', 'docs/upgrading.md' ];
+	private const HISTORY = [ 'CHANGELOG.md', 'docs/upgrading.md', 'docs/stability.md', 'tests/unit/SpawnCoordinatorNamingTest.php' ];
 
 	/**
 	 * `TopicProbe` survives only in these continuations: `.pm` / `ToGraphite` name
