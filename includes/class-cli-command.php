@@ -53,6 +53,17 @@ class CLI_Command {
 	public static ?\Closure $stdin = null;
 
 	/**
+	 * stdout seam. Lazily-defaulted to the real STDOUT at the call site. Tests
+	 * reassign to a `php://memory` stream so a REPL fixture that runs a real
+	 * verb renders into the fixture instead of the phpunit runner's terminal.
+	 *
+	 * Signature: `function (): resource`.
+	 *
+	 * @var (\Closure(): resource)|null
+	 */
+	public static ?\Closure $stdout = null;
+
+	/**
 	 * Resolved terminal policy: `[ stdin stream, is_tty, has_readline ]`. Null
 	 * until `terminal()` derives it, which it does exactly once.
 	 *
@@ -216,7 +227,7 @@ class CLI_Command {
 		$interpreter->sink( $router );
 
 		// `_stdout`: terminal writer; Dumper reaches via target/TO (ADR-7).
-		$stdout = new TTY_Out_Node();
+		$stdout = new TTY_Out_Node( ( self::$stdout ?? static fn () => \STDOUT )() );
 		$stdout->name( Node_Names::STDOUT );
 		$stdout->sink( $interpreter );
 

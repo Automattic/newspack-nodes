@@ -104,12 +104,23 @@ class CliCommandTest extends TestCase {
 			\rewind( $stream );
 			return $stream;
 		};
-		$start = \microtime( true );
+		// `ls` really renders; without this its node list lands on the runner's
+		// terminal, mid progress-bar.
+		$rendered            = \fopen( 'php://memory', 'w+' );
+		CLI_Command::$stdout = static fn () => $rendered;
+		$start               = \microtime( true );
 
 		( new CLI_Command() )->cli( [], [] );
 
 		$this->assertLessThan( 1.0, \microtime( true ) - $start, 'the reader must survive its first delivering fire' );
 
+		// The line was really delivered and really ran: `ls` names the graph's
+		// own nodes. Asserting it keeps a silent no-op from passing this test.
+		\rewind( $rendered );
+		$this->assertStringContainsString( Node_Names::STDOUT, (string) \stream_get_contents( $rendered ) );
+
+		CLI_Command::$stdout = null;
+		\fclose( $rendered );
 		Core::cleanup_all_nodes();
 	}
 
