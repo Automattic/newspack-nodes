@@ -8,7 +8,7 @@ The finished code is in [`examples/example-ai-newsletter/`](../examples/example-
 
 If you haven't run the example yet, do [getting-started.md](getting-started.md) first — the same pipeline, five minutes, no building.
 
-> **Diffing against the shipped code — the `_Demo` suffix.** The teaching snippets below use bare names (`Releases_Source_Node`, `Summarizer_Node`, …), but the bundled example carries a `_Demo` suffix on every class — `Releases_Source_Demo_Node`, files `class-*-demo-node.php`, namespace `Example_AI_Newsletter` — to deconflict from the real sibling plugin (`newspack-intelligence`) that can be loaded in the same WP. Likewise the topology file is `topologies/example-ai-newsletter.tsl` (name `example-ai-newsletter`) and the durable log is `example-scored.p*`. So when you diff against [`examples/example-ai-newsletter/`](../examples/example-ai-newsletter/), map each bare name to its `_Demo` form. The teaching code reads cleaner without the suffix; the example needs it.
+> **Diffing against the shipped code — the `_Demo` suffix.** The teaching snippets below use bare names (`Releases_Source_Node`, `Summarizer_Node`, …), but the bundled example carries a `_Demo` suffix on every class — `Releases_Source_Demo_Node`, files `class-*-demo-node.php`, namespace `Example_AI_Newsletter` — to deconflict from the real sibling plugin (`newspack-intelligence`) that can be loaded in the same WP. Node *names* differ too, because the shipped topology namespaces each one by its owner: this walkthrough's `tee` and `log` are `digest:tee` and `digest:log` there. Likewise the topology file is `topologies/example-ai-newsletter.tsl` (name `example-ai-newsletter`) and the durable log is `example-scored.p*`. So when you diff against [`examples/example-ai-newsletter/`](../examples/example-ai-newsletter/), map each bare name to its shipped form. The teaching code reads cleaner without the suffix; the example needs it.
 
 ---
 
@@ -74,7 +74,7 @@ add_action(
 );
 ```
 
-That's the whole "register a Nodes plugin" story — one call. (It used to be four separate hook registrations; collapsing them into `register_plugin` was a substrate refinement that fell out of writing *this* walkthrough — when a step feels like boilerplate, the fix belongs in the substrate, not the tutorial.)
+That's the whole "register a Nodes plugin" story — one call. `register_plugin` does exactly two things: it hands your prefix to `Command_Interpreter_Node::register_namespace()`, so `make_node Foo` resolves `Newspack_AI_Newsletter\Foo_Node` ([ADR-10](architecture-decisions.md#adr-10-class-naming--make_node-namespace-resolution)), and it hands your directory to `register_stock_dir()`, so every `.tsl` in it enters the catalog. Both are idempotent, so a second `plugins_loaded` pass costs nothing.
 
 Topologies are **not** owned by the plugin that registers them. The substrate builds one catalog from the union of every registered dir, and its own `newspack_nodes/spawn_worker` handler spawns any topology in the active set, whichever plugin shipped it. Your call only makes your classes resolvable and your `.tsl` files discoverable.
 
@@ -87,7 +87,9 @@ if ( ! \method_exists( '\Newspack_Nodes\Bootstrap', 'version_at_least' )
 }
 ```
 
-(You can also skip the hand-written files entirely: `wp nodes scaffold plugin <slug>` writes five starter files in this walkthrough's shapes — bootstrap, classmap `composer.json`, one working node, a topology, and a README. It never overwrites. See [cli.md](cli.md).)
+`version_at_least()` shipped in substrate 0.54.0, so the `method_exists` guard is what covers anything older: that substrate has no notice to show, and your plugin goes dormant in silence. Set your floor to the oldest substrate you test against, not the newest you have.
+
+(You can also skip the hand-written files entirely: `wp nodes scaffold plugin <slug>` writes five starter files in this walkthrough's shapes — bootstrap, classmap `composer.json`, one working node, a topology, and a README. `wp nodes scaffold node <Class_Name>` and `wp nodes scaffold topology <slug>` each write one file into the current directory. None of them ever overwrites. See [cli.md](cli.md).)
 
 Run `composer dump-autoload -o` now, and again whenever you add or rename a node — the classmap is what `make_node` and the console palette read.
 
@@ -148,13 +150,13 @@ class Releases_Source_Node extends Node {
 }
 ```
 
-**The emit pattern (important).** A node that *generates* a message sends it with `parent::fill( $message )`, not `$this->fill( $message )`. The base `Node::fill()` does two things: it stamps `TO` from this node's `target` (whatever `connect_node` wired downstream) and forwards to the `sink`. Calling `$this->fill()` would re-enter *your own* `fill()` and recurse. So: build the message, `parent::fill()`. (Generator nodes across the substrate follow this exact pattern — see `Tail::forward_line()`.)
+**The emit pattern.** A node that *generates* a message sends it with `parent::fill( $message )`, not `$this->fill( $message )`. The base `Node::fill()` does two things: it stamps `TO` from this node's `target` (whatever `connect_node` wired downstream) and forwards to the `sink`. Calling `$this->fill()` would re-enter *your own* `fill()` and recurse. So: build the message, `parent::fill()`. (Generator nodes across the substrate follow this exact pattern — see `Tail::forward_line()`.)
 
 **Emits are fire-and-forget; the request gets one reply.** Each item goes out and is never acknowledged — no ack, and `fill()` returns nothing to inspect ([ADR-3](architecture-decisions.md#adr-3-fire-and-forget-messaging)). The TICK *request* is different: the handler closes with a single `TM_STRUCT | TM_RESPONSE` addressed to `TO = $message[FROM]`, the breadcrumb the caller stamped, carrying `{ emitted }`. Read `FROM`, `ID`, and `KEY` off the untouched request — which is why each emitted item is built in `$response`, never by reassigning `$message`. The substrate's own readers reply the same way; see `Consumer_Node::handle_request`'s `GET_LAG`.
 
 **Where does `TICK` come from?** It's a **runtime trigger**, so it's a `TM_REQUEST` you handle in `fill()` — *not* a `TM_COMMAND` verb on a sibling interpreter. (Reserve `TM_COMMAND` / `node_schema()['commands']` for *admin/config* that runs at build time; see the convention box in §0.) `fill()` branches on the `TM_REQUEST` flag and does the work.
 
-You still document the verb in `node_schema()`, under a **`requests`** key (the runtime counterpart to `commands`) so the console palette and per-node Inspector list it:
+You still document the verb in `node_schema()`, under a **`requests`** key (the runtime counterpart to `commands`) so the console palette, the per-node Inspector and the REPL's `help Releases_Source` all list it:
 
 ```php
 	public static function node_schema(): array {
@@ -239,7 +241,7 @@ It's a pure transform — no verbs, only `fill()`. Wire a source to it and watch
 > request_node releases TICK
 ```
 
-`connect_node releases summarizer` set the releases node's `target` to `summarizer`; each emitted item is now stamped `TO=summarizer` and the router delivers it. The TICK still replies `{ emitted: 2 }` to you, but the items themselves go to the summarizer, which adds a `summary` and forwards. (Add a `Log` after the summarizer if you want to eyeball the struct — or trust the counts in step 5.)
+`connect_node releases summarizer` set the releases node's `target` to `summarizer`; each emitted item is now stamped `TO=summarizer` and the router delivers it. The TICK still replies `{ emitted: 2 }` to you, but the items themselves go to the summarizer, which adds a `summary` and forwards. (To eyeball the struct, splice a `Struct_To_JSON` in front of a `Log`. A Log writes the message VALUE through `Core::as_string()`, which returns `''` for an array, so a bare `TM_STRUCT` lands as an empty record. Or trust the counts in step 5.)
 
 ---
 
@@ -316,7 +318,7 @@ The draft has to land somewhere. You don't write a file-writer node — the subs
 
 ```
 > make_node Digest_Builder digest
-> make_node Log log /tmp/example-ai-newsletter/digest.md
+> make_node Log log <config:logs_dir>/digest.md
 > connect_node summarizer digest
 > connect_node digest log
 > request_node releases TICK
@@ -329,10 +331,12 @@ The draft has to land somewhere. You don't write a file-writer node — the subs
 }
 ```
 
+**Write inside the base directory, and let a token find it.** `<config:logs_dir>` is a config token the Shell resolves before `make_node` ever sees the line — `{base_directory}/logs`, which is `/tmp/newspack-nodes/logs` unless the Nodes Runtime settings page says otherwise (`wp nodes doctor` prints the resolved base directory). Spell a path of your own and the node refuses it: every storage node asserts its directory lies inside the base directory, so `/tmp/example-ai-newsletter/digest.md` throws `storage path /tmp/example-ai-newsletter is outside the runtime base directory`.
+
 The REPL renders a struct reply as pretty-printed JSON, so `{ flushed: 2 }` comes back on three lines. Both replies are the `_output` Dumper's work, not the nodes' — they addressed `TO = $message[FROM]` and the router did the rest.
 
 ```bash
-cat /tmp/example-ai-newsletter/digest.md.0     # Log lays segments out as {file}.0, {file}.1, … — there is no bare {file}
+cat /tmp/newspack-nodes/logs/digest.md.0     # Log lays segments out as {file}.0, {file}.1, … — there is no bare {file}
 # # Newsletter draft
 #
 # - Roundup Block ships — AI summarizes selected posts into a draft.
@@ -347,7 +351,7 @@ Four nodes, a working pipeline. You wrote three; `Log` you reused.
 
 Typing `make_node`/`connect_node` by hand is how you explore. To run it as a real, persistent worker, write the same lines to a topology file.
 
-`topologies/example-ai-newsletter.tsl` — shown here **simplified for teaching** (it already includes the `community` source from step 6 and the `Tee` tap; if you're following along, leave `community` and its `connect_node` out until step 6):
+`topologies/example-ai-newsletter.tsl` — shown here **simplified for teaching** (it already includes the `community` source from step 6 and the `Tee`; if you're following along, leave `community` and its `connect_node` out until step 6):
 
 ```
 var num_partitions = 1
@@ -356,7 +360,7 @@ make_node Community_Source  community
 make_node Summarizer        summarizer
 make_node Digest_Builder    digest
 make_node Tee               tee
-make_node Log               log  /tmp/example-ai-newsletter/digest.md 1 2 7
+make_node Log               log  <config:logs_dir>/digest.md 1 2 7
 connect_node releases   summarizer
 connect_node community  summarizer
 connect_node summarizer digest
@@ -370,9 +374,9 @@ connect_node tee        _repl
 A few things this file adds that the by-hand session didn't:
 
 - `var num_partitions = 1` is a topology **variable** — frontmatter the runtime reads to size the worker pool. (`var <name> = <value>` is a Shell verb; `num_partitions` is the one the runtime acts on. Omit it and the topology falls back to the runtime's own `num_partitions` setting, 1 by default, but copy the line so the example partitions the way the shipped file does.)
-- Two more frontmatter variables the runtime acts on: `var stale_timeout = <seconds>` sizes the heartbeat window before a peer may steal this worker's lock, and `var on_demand_idle = <seconds>`, (default 5, sizing the window) makes the pool scale to zero when idle instead of staying resident. On-demand is opt-in per topology because it trades residency for a WordPress bootstrap per wake — the right trade on a spoke holding two PHP-FPM children, not necessarily on a busy hub. See [architecture-guide.md](architecture-guide.md).
-- A `Tee` fans the draft into **two** sinks — the `Log` file *and* `_repl`, the output IPC partition every worker mounts. The `_repl` tap is what lets the topology console (and an attached `wp nodes cli`) *see* the draft scroll by; without it the draft only ever lands in the file. (`Tee` is the fan-out node §6 comes back to.)
-- `Log log <file> 1 2 7` passes the node's positional `arguments` — `file`, `segment_size` (`1` → roll every write), `min_segments` (`2`, the age-rule floor), `num_segments` (`7`, the count-rule target: prune the oldest back to seven). The by-hand version omitted them and took the defaults (one large growing segment).
+- Two more frontmatter variables the runtime acts on. `var stale_timeout = <seconds>` sizes the heartbeat window before a peer may steal this worker's lock; the fleet-wide default is 60. `var on_demand_idle = <seconds>` scales the pool to zero once every reporter has been idle that long; 0, the default, keeps the workers resident. On-demand is opt-in per topology because it trades residency for a WordPress bootstrap per wake — the right trade on a spoke holding two PHP-FPM children, not on a busy hub. See [architecture-guide.md](architecture-guide.md).
+- A `Tee` fans the draft into **two** sinks — the `Log` file *and* `_repl`, the output IPC partition every worker mounts. The `_repl` tap is what lets the topology console (and an attached `wp nodes cli`) *see* the draft scroll by; without it the draft only ever lands in the file. The shipped `.tsl` wires only the log leg, so add the `_repl` one when you want to watch. (`Tee` is the fan-out node §6 comes back to.)
+- `Log log <file> 1 2 7` passes the node's positional `arguments` — `file`, `segment_size` (`1` → roll every write), `min_segments` (`2`, the age-rule floor), `num_segments` (`7`, the count-rule target: prune the oldest back to seven). Three more follow, all defaulted here: `max_segments`, `min_lifetime` and `lifetime`. The by-hand version omitted every one and took the defaults (one large growing segment).
 
 `register_plugin` (step 1) already pointed at `topologies/`, so this file is now a catalog entry. Activate it — `wp nodes activate` adds the topology to the active set and spawns its fleet immediately (the shipped active set is empty, so nothing spawns until you say so; the Overview tab of the **Nodes** admin page has the same Activate control):
 
@@ -383,7 +387,7 @@ wp nodes status
 #   example-ai-newsletter.p0  live  3s ago  2m 10s
 ```
 
-Open the **topology console**. There's your graph — the same boxes and arrows you drew above — now live, with a message count on every edge. This is the payoff of the uniform contract: because every node speaks `fill()` and announces itself via `node_schema()`, the dashboard can render and drive a graph it has never seen. You didn't build any of this observability.
+Open the **topology console** — the Console tab of the Nodes admin menu. There's your graph — the same boxes and arrows you drew above — now live, with a message count on every edge. This is the payoff of the uniform contract: because every node speaks `fill()` and announces itself via `node_schema()`, the dashboard can render and drive a graph it has never seen. You didn't build any of this observability.
 
 `cd` into the worker and drive it from the console's REPL — or attach a terminal in:
 
@@ -483,7 +487,7 @@ Notice what `connect_node community summarizer` is: just another node pointing i
 
 The example is deterministic on purpose, but every external touchpoint is a single seam:
 
-- **Sources** — the toy `items()` returns a canned array. The real one returns ingest results: a `context-a8c` GitHub/Linear query, an RSS pull, a DB read. Nothing downstream changes — the summarizer and digest never knew the items were canned.
+- **Sources** — the toy `items()` returns a canned array. The real one returns ingest results: a GitHub query, a Linear query, an RSS pull. `newspack-intelligence` ships those three as `Github_Source_Node`, `Linear_Source_Node` and `Feed_Source_Node`, each hanging the seam on a `Source` interface's `fetch()` rather than on `items()`. Nothing downstream changes — the summarizer and digest never knew the items were canned.
 - **Summarizer** — the toy `summarize()` returns a template string. The real one calls your AI model. The graph is identical; one method body changes.
 
 ```php
@@ -499,7 +503,7 @@ Two method bodies stand between this walkthrough and a production newsletter pip
 
 ## 8. Ship it — the essential rigging
 
-The example above runs *inside* this repo. A real plugin lives in its own repo and installs on a site that already has the substrate. Four essentials get you there — no more. (The sibling **`newspack-cache-cozy`** plugin is the minimal, fully-rigged reference: one node + a mu-plugin drop-in, every file below and nothing else. Read it alongside this section.)
+The example above runs *inside* this repo. A real plugin lives in its own repo and installs on a site that already has the substrate. Four essentials get you there — no more. (The sibling **`newspack-cache-cozy`** plugin is the minimal, fully-rigged reference: one node plus a mu-plugin drop-in, carrying each of the four below as a real file to copy. Read it alongside this section.)
 
 ### a. Depend on the substrate — declare it, defer your wiring
 
@@ -518,11 +522,11 @@ Two things, and resist adding a third:
   }, 11 );
   ```
 
-That's the whole story when your plugin deploys in lockstep with the substrate — `Requires Plugins` + a presence check. When it ships to sites you don't control, "present but too old" becomes a real case: add the substrate's canonical handshake right after the presence check (`Bootstrap::version_at_least( '<floor>', '<Plugin Name>' )`, shown earlier) instead of hand-rolling per-symbol capability probes — one mechanism, one admin notice. Keep the floor honest: the oldest substrate you actually test against, bumped only when you adopt a newer API.
+That's the whole story when your plugin deploys in lockstep with the substrate — `Requires Plugins` + a presence check. When it ships to sites you don't control, "present but too old" becomes a real case: add the substrate's canonical handshake right after the presence check (`Bootstrap::version_at_least( '<floor>', '<Plugin Name>' )`, shown earlier) instead of hand-rolling per-symbol capability probes — one mechanism, one admin notice. Keep the floor honest: the oldest substrate you actually test against, bumped only when you adopt a newer API. `scripts/check-substrate-floor.sh` — shared tooling the substrate distributes to every sibling — mechanizes that check. It collects each substrate API your code calls through PHPStan, resolves each to its declaring class, and names the oldest substrate tag that defines all of them.
 
 ### b. Test it — the bootstrap is the only non-obvious part
 
-Each node tests exactly as the recap below describes: build a message, call `fill()`, assert on a `Capture_Sink_Node`. The one piece that isn't obvious is the **test bootstrap**, because your tests need the substrate's classes (`Node`, `Timer_Node`, `Core`, `Message`) without a running WordPress. cache-cozy's `tests/bootstrap.php` is the template, in three `require` layers:
+Each node tests exactly as the recap below describes: build a message, call `fill()`, assert on a `Capture_Sink_Node`. The one piece that isn't obvious is the **test bootstrap**, because your tests need the substrate's classes (`Node`, `Timer_Node`, `Core`, `Message`) without a running WordPress. cache-cozy's `tests/bootstrap.php` is the template, in three layers:
 
 1. Define, as `if ( ! function_exists() )` stubs, only the WordPress functions your plugin needs to behave differently from the shared shims — an option store with a test seam, a capture-shaped `add_action`, and so on. Declaring them first is what makes them win.
 2. `require` the substrate's `tests/Helpers/wp-shims.php` (the canonical WP stubs, which fill in everything you skipped), then the substrate plugin from its sibling checkout, then `tests/Helpers/TestCase.php` (resets `Core` in `setUp`) and `tests/Helpers/CaptureSink.php`.
@@ -534,12 +538,12 @@ Your test classes then `extend \Newspack_Nodes\Tests\TestCase`. Add a `tests/php
 
 Copy two configs and you lint identically to the substrate: `phpcs.xml.dist` (the `WordPress-VIP-Go` ruleset) and `phpstan.neon.dist` (level 10 + `phpstan-strict-rules`, minus the five rules that fight WordPress idioms — `empty()`, truthy conditionals in `if` and in loops, the short ternary, and variable variables). Two node-plugin-specific settings point PHPStan at the substrate, so your `extends Timer_Node` resolves with real types and `NEWSPACK_NODES_VERSION` resolves at all:
 ```neon
-bootstrapFiles:
+scanFiles:
     - ../newspack-nodes/newspack-nodes.php
 scanDirectories:
     - ../newspack-nodes/includes
 ```
-(Point both at wherever your newspack-nodes checkout lives.) `composer.json` pulls in `automattic/vipwpcs`, `phpstan/phpstan` + `phpstan-strict-rules` + `szepeviktor/phpstan-wordpress` as dev deps; cache-cozy's is a ~50-line copy-and-rename.
+`scanDirectories` covers the substrate's classes under `includes/`; `scanFiles` adds the plugin root file, which is where `NEWSPACK_NODES_VERSION` is defined. Point both at wherever your newspack-nodes checkout lives. Your own `bootstrapFiles` stays your plugin's root file, so PHPStan sees the constants it defines. `composer.json` pulls in `automattic/vipwpcs`, `phpstan/phpstan` + `phpstan-strict-rules` + `szepeviktor/phpstan-wordpress` as dev deps; cache-cozy's is a ~50-line copy-and-rename.
 
 ### d. Release it
 
@@ -557,7 +561,7 @@ And here's the thing worth sitting with: **Ana and Ben never met.** Ana wrote th
 
 That's the bet of Nodes. You add capability by wiring a node, not by editing a system. Uphold the contract, and your piece drops into a graph full of pieces you've never seen — and theirs drop into yours.
 
-And the same contract is what makes each node testable in isolation: the example ships PHPUnit suites under [`examples/example-ai-newsletter/tests/`](../examples/example-ai-newsletter/tests/) — one per node, plus a `PipelineTest` that wires the whole graph. Each test does exactly what the substrate does: construct a message, call `fill()`, and assert on what landed in a `Capture_Sink_Node`. No worker, no router, no topology — only the contract.
+And the same contract is what makes each node testable in isolation: the example ships PHPUnit suites under [`examples/example-ai-newsletter/tests/`](../examples/example-ai-newsletter/tests/) — one per node, a `PipelineTest` that wires the whole graph, and the dashboard chapter's own mount, enqueue and verb tests. Each one does exactly what the substrate does: construct a message, call `fill()`, and assert on what landed in a `Capture_Sink_Node`. No worker, no router, no topology — only the contract.
 
 ---
 
@@ -567,6 +571,10 @@ And the same contract is what makes each node testable in isolation: the example
 - **[writing-a-real-plugin.md](writing-a-real-plugin.md)** — the production deep dive: picks up where §7 stops and walks the real `newspack-intelligence` plugin — a `Source` interface, real connectors (GitHub, Linear, RSS/Atom), credentials in the substrate's Vault, and a network test seam.
 - **[getting-started.md](getting-started.md)** — the five-minute tour (if you skipped it).
 - **[architecture-guide.md](architecture-guide.md)** — the full model: drain loop, partitions, workers, fleet revival, the REPL.
+- **[architecture-decisions.md](architecture-decisions.md)** — the ADRs behind the contracts this guide leans on, each with the condition that would reopen it.
+- **[cli.md](cli.md)** — every `wp nodes` subcommand, including the `scaffold` and `activate` verbs used above.
+- **[troubleshooting.md](troubleshooting.md)** — the REPL, worker health, log layout, the failure modes that recur, and how to read the wire format on disk.
 - **[API.md](API.md)** — the REST endpoints.
+- **[README.md](README.md)** — the doc map: every guide above in reading order, plus `writing-a-real-dashboard.md` and `writing-a-view-node.md`, which pick up after the dashboard chapter.
 - **[`examples/example-ai-newsletter/`](../examples/example-ai-newsletter/)** — the complete, tested code for this walkthrough.
 - **`newspack-cache-cozy`** — the minimal, fully-rigged *standalone* plugin (one node + a mu-plugin drop-in): the §8 essentials — `Requires Plugins` + a deferred presence-gated loader, test bootstrap, phpcs/phpstan, release workflow — as real files to copy.

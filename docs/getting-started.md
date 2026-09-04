@@ -7,9 +7,11 @@ You know PHP and WordPress. You've never touched a "node graph." This page gets 
 This runtime is WordPress-internal; there is no standalone mode. It assumes four things.
 
 - **PHP 8.2+** — declared in the plugin header (`Requires PHP: 8.2`) and enforced by `composer.json` (`"php": ">=8.2"`).
-- **WordPress, with WP-Cron and the REST API.** The substrate's lifecycle *is* WordPress: config in the options table, the cold-start safety net on WP-Cron, worker spawn / commands / SSE over the REST API. (The plugin header declares no minimum WordPress version — run a current release.)
+- **WordPress 6.5+, with WP-Cron and the REST API.** The substrate's lifecycle *is* WordPress: config in the options table, the cold-start safety net on WP-Cron, worker spawn / commands / SSE over the REST API.
 - **WP-CLI** — every command on this page (`wp plugin …`, `wp nodes status`, `wp nodes cli …`) is WP-CLI.
-- **Cache backend — APCu covers one web cache domain; Memcached spans domains.** The runtime comes up without Memcached: `shared_first()` prefers a configured Memcached and otherwise takes usable APCu. Normal workers are long-running REST-spawned web requests, so they share the web server's APCu domain with the browser/hub command-auth endpoints. An attached `wp nodes cli` need not see that APCu: it signs commands with the site secret and ships them to the worker over filesystem IPC, where the web worker verifies them and records nonce claims through its own backend. A debugging-only direct `wp nodes run` differs for its first lifetime because it runs in WP-CLI — without Memcached it needs CLI APCu enabled until its REST-spawned successor takes over. Another host, or an independent PHP-FPM/APCu pool, requires Memcached. With neither backend, or on a command-session miss, command verification fails closed.
+- **A cache backend — APCu covers one cache domain; Memcached spans several.** Either one alone brings the runtime up. `Cache_Backend` resolves a tier two ways: `local_first()` takes APCu and falls back to Memcached, which is what a same-host surface such as the single-use command nonce wants; `shared_first()` takes Memcached and falls back to APCu, which is what cross-process state wants. Workers are long-running REST-spawned web requests, so they share the web server's APCu domain with the browser and hub endpoints that mint commands, and an attached `wp nodes cli` needs no APCu of its own — it signs each command with the per-site secret and ships it over filesystem IPC for the worker to verify. A directly launched `wp nodes run` is the exception for its first lifetime, because it runs inside WP-CLI: without Memcached it needs CLI APCu until its REST-spawned successor takes over. A second host, or an independent PHP-FPM/APCu pool, requires Memcached. With neither backend, command verification fails closed.
+
+Once the plugin is active, `wp nodes doctor` grades that environment — the cache backend, the runtime directory, its ownership, the WP-Cron housekeeping pass and the configuration keys — marking each result `ok`, `WARN` or `FAIL` and exiting non-zero on a `FAIL`.
 
 ## Rosetta: WordPress → Nodes
 
@@ -20,8 +22,8 @@ is what the left column becomes when it needs durability, ordering, or a live vi
 |---|---|---|
 | `add_action()` / `do_action()` | `Hook_Node`, or `register()` / `notify()` on any node | Same pub/sub idea, wired in a topology file instead of scattered through code |
 | `wp_schedule_event()` (cron) | `Timer_Node` | Fires inside an always-on worker: no traffic dependence, no drift |
-| `wp_schedule_single_event()` | `Job_Intake::queue( …, [ 'delay' => $s ] )` | Durable (survives restarts), visible in `wp nodes status` |
-| Action Scheduler job | `Job_Intake::queue()` + a `newspack_nodes/job_handlers` handler | Adds retries with backoff, batch fan-in, per-job stats |
+| `wp_schedule_single_event()` | `Job_Intake::queue( …, [ 'delay' => $s ] )` | Durable: the entry parks in the `jobdelay.p0` log and survives a restart. The sweep that delivers it rides the minute cadence, so it fires late, never early |
+| Action Scheduler job | `Job_Intake::queue()` + a `newspack_nodes/job_handlers` handler | Adds opt-in retries with exponential backoff, batch fan-in, per-job stats |
 | `error_log()` → debug.log | `Log_Node` | Segmented, size/age-rotated, tailable from the dashboard |
 | Custom events table (`$wpdb`) | `Topic` / `Partition` | An append-only log you can replay from any offset |
 | Reading that table in a loop | `Consumer_Node` | A durable cursor: crash, respawn, resume where you left off |
@@ -52,28 +54,31 @@ For the full model — the drain loop, workers, partitions, the REPL — see [ar
 
 ## Step 0: sixty seconds in the REPL
 
-Before any pipeline, meet the thing you'll poke at every pipeline with. With only the plugin active (no workers, no topologies), `wp nodes cli` opens a **bare REPL** — a local interpreter in the wp-cli process:
+Before any pipeline, meet the thing you'll poke at every pipeline with. Given no worker argument, `wp nodes cli` opens a **bare REPL** — a local node graph running inside the wp-cli process, whether or not anything else is live:
 
 ```
 $ wp nodes cli
-> list_nodes -a            # the REPL is itself a node graph: shell, interpreter, router, output
+/> list_nodes -a            # the REPL is itself a node graph: shell, interpreter, router, output
 _command_interpreter
 _output
 _router
 _shell
 _stdout
-> make_node Echo hello     # construct a live node
+/> make_node Echo hello     # construct a live node
 ok
-> dump_node hello          # its config + state (note sink: where fill() forwards)
+/> dump_node hello          # its properties, alphabetical (note sink: where fill() forwards)
 Echo_Node {
-    "name": "hello",
-    "sink": "_command_interpreter",
+    "arguments": [],
     ...
+    "name": "hello",
+    ...
+    "sink": "_command_interpreter",
+    "target": ""
 }
-> help make_node           # every verb documents itself; bare `help` lists all
+/> help make_node           # every verb documents itself; bare `help` lists all
 ```
 
-Exit with ctrl-D. Everything else in these docs — building graphs, inspecting workers, rewiring live topologies — is these same verbs, either here or pivoted into a running worker (`wp nodes cli <worker>.p<N>`). The full verb table is in [troubleshooting.md](troubleshooting.md); the terms are in the [glossary](README.md#glossary).
+Run it as the same user as the workers — `wp nodes cli` refuses root, because a root-owned IPC directory locks the web user out of its own worker. Exit with ctrl-D. Everything else in these docs — building graphs, inspecting workers, rewiring live topologies — is these same verbs, either here or pivoted into a running worker (`wp nodes cli <worker>.p<N>`). The full verb table is in [troubleshooting.md](troubleshooting.md), every `wp nodes` subcommand is in [cli.md](cli.md), and the terms are in the [glossary](README.md#glossary).
 
 ## Feel it in 5 minutes
 
@@ -81,26 +86,26 @@ The repo ships a runnable example: `examples/example-ai-newsletter/`, a scored, 
 
 ```bash
 # 1. Install and activate the example from its release asset. The example is its
-#    own plugin (own composer.json + vendor/autoload) and loads after the
-#    substrate, so newspack-nodes must be active first — it no-ops if the
-#    substrate is absent.
+#    own plugin (own composer.json + vendor/autoload); it registers itself on
+#    `plugins_loaded` and no-ops when the substrate is absent, so newspack-nodes
+#    has to be active — but activation order does not matter.
 wp plugin activate newspack-nodes
 wp plugin install https://github.com/Automattic/newspack-nodes/releases/latest/download/example-ai-newsletter.zip --activate
 
-# 2. Where the digest gets written (Log appends here).
-mkdir -p /tmp/example-ai-newsletter
-
-# 3. Activate the topology, then see the worker. Activating the example
+# 2. Activate the topology, then look at the fleet. Activating the example
 #    *registers* its `example-ai-newsletter` topology, but the shipped default
 #    active set is empty — nothing spawns by surprise. Activate it from the
-#    Nodes admin page's Overview tab, or from the CLI:
+#    Nodes admin menu's Overview tab, or from the CLI:
 wp nodes activate example-ai-newsletter
-#    Now it has been spawned:
+#   Success: Activated 'example-ai-newsletter' and spawned 1 worker(s).
 wp nodes status
-#   example-ai-newsletter.p0  live  3s ago  2m 10s
+#   Worker                    State  Heartbeat  Uptime
+#   example-ai-newsletter.p0  live   3s ago     12s
 ```
 
-Open the **topology console** (the Console tab of the Nodes admin page): you'll see the `example-ai-newsletter` graph — `releases` and `community` both feeding `summarizer`, then `scorer` appending to the durable `scored:partition`, a `scored:consumer` tailing that log into `digest`, then a `digest:tee` that fans to the built-in `digest:log` — with live message counts on every edge.
+Every path the pipeline writes hangs off the runtime's base directory, and the nodes create each directory as they need it. Nothing to make by hand.
+
+Open the **topology console** (the Console tab of the Nodes admin menu): you'll see the `example-ai-newsletter` graph — `releases` and `community` both feeding `summarizer`, then `scorer` appending to the durable `scored:partition`, a `scored:consumer` tailing that log into `digest`, then a `digest:tee` that fans to the built-in `digest:log` — with live message counts on every edge.
 
 Now drive it by hand. Attach a REPL to the running worker and fire the runtime triggers — `TICK` and `FLUSH` are `TM_REQUEST`s (sent with `request_node`), not admin commands. Each node answers along the FROM breadcrumb, so the REPL prints a small JSON reply while the items themselves flow downstream:
 
@@ -108,24 +113,28 @@ Now drive it by hand. Attach a REPL to the running worker and fire the runtime t
 wp nodes cli example-ai-newsletter.p0
 ```
 ```
-> request_node releases TICK       # releases source emits its 2 canned items
+/example-ai-newsletter.p0> request_node releases TICK    # the releases source emits its 2 canned items
 {
     "emitted": 2
 }
-> request_node community TICK      # the other source emits its 3
+/example-ai-newsletter.p0> request_node community TICK   # the other source emits its 3
 {
     "emitted": 3
 }
-> request_node digest FLUSH        # assemble + write the draft
+/example-ai-newsletter.p0> request_node digest FLUSH     # assemble and write the draft
 {
     "flushed": 5
 }
 ```
 
-Each `TICK` sends its items down the whole chain — summarizer, scorer, `scored:partition`, `scored:consumer`, digest — so watch the counts climb on every edge in the console. `flushed` counts what the consumer had delivered by the time you typed `FLUSH`; the `scored` partition is durable and the consumer paces it, so give the ticks a beat first. `FLUSH` writes the assembled draft:
+Each `TICK` sends its items down the whole chain — summarizer, scorer, `scored:partition`, `scored:consumer`, digest — so watch the counts climb on every edge in the console. `flushed` counts what the consumer had delivered by the time you typed `FLUSH`; the `scored` partition is durable and the consumer paces it, so give the ticks a beat first. `FLUSH` writes the assembled draft under the runtime's logs directory:
 
 ```bash
-cat /tmp/example-ai-newsletter/digest.md.0   # Log writes segments {file}.0, {file}.1, … — there is no bare {file}
+# {base_directory}/logs, where base_directory defaults to /tmp/newspack-nodes.
+# `wp nodes doctor` names the resolved path; the Nodes Runtime settings page sets it.
+# Log writes segments {file}.0, {file}.1, … and never a bare {file}. This demo
+# rotates on every write, so a second FLUSH lands in digest.md.1.
+cat /tmp/newspack-nodes/logs/digest.md.0
 # # Newsletter draft
 #
 # - Roundup Block ships — AI summarizes selected posts into a draft.
@@ -136,11 +145,12 @@ You just watched a handful of independent nodes cooperate without any of them kn
 
 ## When you get it wrong
 
-The runtime tries to make each error name its own fix. Four you'll probably meet:
+The runtime tries to make each error name its own fix. Five you'll probably meet:
 
 - **`unknown class: Summarizer`** — from a `make_node` line (a topology, or `make_node` at the REPL). The type didn't resolve to a `{prefix}Summarizer_Node` class under any registered namespace. Either the name is wrong, or the class file hasn't reached the autoloader yet — see the next one.
-- **A Node class you just added isn't in the topology-editor palette** (and `make_node` can't resolve it). The palette scans the *composer classmap* for concrete `*_Node` classes — `Classes_CI_Node::cmd_list()` walks `ClassLoader::getClassMap()` — so a brand-new class file stays invisible until you regenerate the map: `composer dump-autoload -o`.
+- **A Node class you just added isn't in the topology-editor palette** (and `make_node` can't resolve it). The palette scans the *composer classmaps* for concrete `*_Node` classes — `Classes_CI_Node::cmd_list()` walks every registered `ClassLoader`'s `getClassMap()` — so a brand-new class file stays invisible until you regenerate the map: `composer dump-autoload -o`.
 - **``no worker 'exmaple-ai-newsletter.p0' (run `wp nodes status` to list active workers)``** — from `wp nodes cli <typo>`. The reader id doesn't match a live worker. Do what it says and run `wp nodes status`. The cause is often not a typo at all: the active set is empty (nothing spawns by surprise), so run `wp nodes activate <topology>` first.
+- **`wp nodes cli must run as the same user as the workers, not root.`** — the guard that keeps a root session from seeding the worker's IPC directory as root and locking the web user out. Re-run under the web user. If a root run already created those directories, recover with `chown -R <web-user>:<web-user> {base_directory}/ipc/`.
 - **`Command_Auth: no APCu and no memcache; refusing command (single-use unverifiable)`** in the log — a wire command reached a verifier with no usable cache backend, so it cannot enforce single-use nonces and fails closed. For a normal REST-spawned worker, enable web APCu or configure Memcached. For a directly launched `wp nodes run`, enable CLI APCu or configure Memcached; across hosts or independent web pools, use Memcached (see *Before you start*).
 
 ## Next: build one yourself

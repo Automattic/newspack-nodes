@@ -1,6 +1,6 @@
 # Newspack Nodes — Documentation Map
 
-Fourteen docs, three reading orders. New here? Read **Start here** top to bottom. Shipping something? Jump to **Take it to production**. Need a fact? Go straight to **Reference**.
+Fifteen docs, three reading orders. New here? Read **Start here** top to bottom. Shipping something? Jump to **Take it to production**. Need a fact? Go straight to **Reference**.
 
 ## Start here
 
@@ -36,15 +36,17 @@ Facts, not tutorials.
 
 The short expansions the rest of the docs assume.
 
-- **node** — an object with one entry point, `fill( array $message ): void`; all capability is nodes wired together.
+- **node** — an object with one entry point, `fill( array $message ): void`. Nodes never call each other's methods; they pass messages.
 - **message** — the 7-field positional array `[ TYPE, TIMESTAMP, FROM, TO, ID, KEY, VALUE ]`, always indexed via the `Message::*` constants.
 - **sink** — a node's physical next hop: `fill()` hands the message there when done.
 - **target** — a node's logical address string, stamped into `TO` when a message has none; `_router` resolves it.
 - **topology** — a worker's node graph, described in a `.tsl` file.
-- **TSL** — the topology script language: `.tsl` files of shell verbs (`make_node`, `connect_node`, …) that `Topology_Loader` executes to build a worker's graph. The format (and extension) comes from Tachikoma.
-- **CI / command interpreter** — `Command_Interpreter_Node`, the verb dispatcher: it turns a TM_COMMAND like `make_node Log mylog` into the call, and its verb table is where `help` text comes from. "A CI verb" means an entry in one of these.
+- **TSL** — the shell language of those `.tsl` files: verbs like `make_node`, `connect_node` and `cmd` that `Topology_Loader` evaluates through a `Shell_Node` to build a worker's graph. The format and the extension come from Tachikoma.
+- **CI / command interpreter** — `Command_Interpreter_Node`, the verb dispatcher: it turns a TM_COMMAND like `make_node Tee fanout` into the call, and its verb table is where `help` text comes from. "A CI verb" means an entry in one of these.
 - **REPL** — `wp nodes cli`: an interactive shell speaking those verbs, either locally or pivoted into a live worker.
-- **Topic / Partition** — the durable append-only segmented log (Partition is one partition's files; Topic routes writes across N of them by KEY hash).
+- **Topic / Partition** — the durable append-only segmented log. Partition is one partition's files; Topic routes each write to one of N, by a TO already pinned to `p{N}`, else by KEY hash, else round-robin.
 - **Consumer** — the durable reader: tails a Partition with a crash-safe cursor (the **offsetlog**) so it resumes where it left off.
-- **worker** — a long-running WP-CLI process draining one topology's graph; named `{type}.p{N}`.
-- **`_fleet`** — the peer-spawn scan every worker runs on its router tick; WP-Cron cold-starts a fleet with nothing left running.
+- **dead letter** — the `:deadletter` sibling Partition a durable reader quarantines a poison message into once its retries are spent, so the cursor advances and the payload survives ([ADR-12](architecture-decisions.md#adr-12-dead-letter-poison--crash-lifecycle)).
+- **worker** — a long-running PHP process draining one topology's graph, spawned over `POST /newspack-nodes/v1/workers/spawn` and detached from that request; named `{type}.p{N}`. `wp nodes run` starts one in the foreground instead, for debugging.
+- **drain loop** — `Event_Framework::drain()`, the loop every long-running process lives inside: each tick tests the loop predicate, blocks once until the next timer falls due, then fires the completed cURL transfers and the expired timers.
+- **`_fleet`** — the peer-spawn scan every worker runs every 15 seconds; WP-Cron cold-starts a fleet with nothing left running.
