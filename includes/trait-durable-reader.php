@@ -195,11 +195,10 @@ trait Durable_Reader {
 		if ( null === $this->offsetlog ) {
 			return;
 		}
-		$message                       = Message::new_message();
-		$message[ Message::TYPE ]      = Message::TM_STRUCT;
-		$message[ Message::TIMESTAMP ] = Core::$now;
-		$message[ Message::FROM ]      = $this->name;
-		$message[ Message::VALUE ]     = $value;
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_STRUCT;
+		$message[ Message::FROM ]  = $this->name;
+		$message[ Message::VALUE ] = $value;
 		$this->offsetlog->fill( $message );
 		$this->offsetlog->flush();
 	}

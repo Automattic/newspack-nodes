@@ -117,12 +117,11 @@ class Tail_Node extends Consumer_Node {
 		if ( $size > $this->largest_msg_sent ) {
 			$this->largest_msg_sent = $size;
 		}
-		$message                       = Message::new_message();
-		$message[ Message::TYPE ]      = Message::TM_BYTESTREAM;
-		$message[ Message::TIMESTAMP ] = Core::$now;
-		$message[ Message::FROM ]      = '' !== $this->stamp_override ? $this->stamp_override : $this->name;
-		$message[ Message::ID ]        = "{$this->cursor_segment}:{$abs_offset}:{$size}";
-		$message[ Message::VALUE ]     = $bytes;
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::FROM ]  = '' !== $this->stamp_override ? $this->stamp_override : $this->name;
+		$message[ Message::ID ]    = "{$this->cursor_segment}:{$abs_offset}:{$size}";
+		$message[ Message::VALUE ] = $bytes;
 		parent::fill( $message );
 	}
 

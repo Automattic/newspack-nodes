@@ -407,10 +407,9 @@ class Job_Intake {
 		}
 
 		// TM_STRUCT ($job is structured) so Partition::fill packs and appends.
-		$message                       = Message::new_message();
-		$message[ Message::TYPE ]      = Message::TM_STRUCT;
-		$message[ Message::TIMESTAMP ] = Core::$now;
-		$message[ Message::VALUE ]     = $job;
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_STRUCT;
+		$message[ Message::VALUE ] = $job;
 		// serialize_record appends a newline; the unlocked cap counts it.
 		if ( ! $large && Message::packed_size( $message ) + 1 > Partition_Node::MAX_LINE_SIZE ) {
 			Core::stderr( '[Nodes] JobIntake: job exceeds PIPE_BUF for handler: ' . $handler . ' (use queue())' );
