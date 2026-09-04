@@ -22,6 +22,9 @@ class SpawnCoordinatorNamingTest extends TestCase {
 	/** Trees the rename must have reached; CHANGELOG history is checked separately. */
 	private const SCANNED = [ 'includes', 'src', 'tests', 'docs', 'topologies', 'examples', 'scripts', '.claude' ];
 
+	/** Docs whose job is to name retired surfaces so a consumer can rewrite them. */
+	private const HISTORY = [ 'CHANGELOG.md', 'docs/upgrading.md', 'docs/stability.md' ];
+
 	/**
 	 * Identifiers, not the bare word: `docs/upgrading.md` has to name what the
 	 * supervisor WAS, exactly as the CHANGELOG does. These are the names that
@@ -45,27 +48,22 @@ class SpawnCoordinatorNamingTest extends TestCase {
 		$found = [];
 		foreach ( self::SCANNED as $dir ) {
 			foreach ( $this->scan( "{$root}/{$dir}" ) as $file ) {
-				// The migration guide has to name what each thing WAS, exactly
-				// as the CHANGELOG does — that IS its content.
-				if ( \str_ends_with( $file, 'docs/upgrading.md' ) ) {
-					continue;
-				}
-				$hit = $this->retired_names_in( (string) \file_get_contents( $file ) );
-				if ( [] !== $hit ) {
-					$found[] = \substr( $file, \strlen( $root ) + 1 ) . ': ' . \implode( ', ', $hit );
+				$relative = \substr( $file, \strlen( $root ) + 1 );
+				if ( ! \in_array( $relative, self::HISTORY, true )
+					&& $this->retired_names_in( (string) \file_get_contents( $file ) ) ) {
+					$found[] = $relative;
 				}
 			}
 		}
 		foreach ( \glob( "{$root}/*.{php,md,json,tsl}", \GLOB_BRACE ) ?: [] as $file ) {
-			if ( \str_ends_with( $file, 'CHANGELOG.md' ) ) {
+			if ( \in_array( \basename( $file ), self::HISTORY, true ) ) {
 				continue;
 			}
-			$hit = $this->retired_names_in( (string) \file_get_contents( $file ) );
-			if ( [] !== $hit ) {
-				$found[] = \basename( $file ) . ': ' . \implode( ', ', $hit );
+			if ( $this->retired_names_in( (string) \file_get_contents( $file ) ) ) {
+				$found[] = \basename( $file );
 			}
 		}
-		$this->assertSame( [], $found, "retired supervisor names survive:\n" . \implode( "\n", $found ) );
+		$this->assertSame( [], $found, "the retired TopicProbe name survives:\n" . \implode( "\n", $found ) );
 	}
 
 	public function test_the_changelog_documents_the_rename(): void {
