@@ -102,13 +102,12 @@ abstract class Probe_Node extends Timer_Node implements Shutdown_Sweeper {
 				continue;
 			}
 			foreach ( $records as $record ) {
-				$message                       = Message::new_message();
-				$message[ Message::TYPE ]      = Message::TM_STRUCT;
-				$message[ Message::TIMESTAMP ] = Core::$now;
-				$message[ Message::FROM ]      = $this->name;
-				$message[ Message::TO ]        = $this->target;
-				$message[ Message::VALUE ]     = $record;
-				$fitted                        = $this->fit_to_line( $message );
+				$message                   = Message::new_message();
+				$message[ Message::TYPE ]  = Message::TM_STRUCT;
+				$message[ Message::FROM ]  = $this->name;
+				$message[ Message::TO ]    = $this->target;
+				$message[ Message::VALUE ] = $record;
+				$fitted                    = $this->fit_to_line( $message );
 				if ( null === $fitted ) {
 					continue;
 				}
