@@ -1,40 +1,84 @@
 # Writing a View Node
 
-A **view node** is the terminal node of a dashboard slice: it receives *one*
-command reply, parses it into a render model, and publishes that model for a
-React widget. Nothing downstream. This is the one-page contract — the full
-walkthrough is [writing-a-dashboard.md](writing-a-dashboard.md), and the base
-class is [`@newspack-nodes/shared/nodes/slice-view-node`](../src/shared/nodes/slice-view-node.js).
+A **view node** is the terminal node of a dashboard slice: it receives what
+lands on that slice — one command reply per poll, or a stream's records —
+parses it into a render model, and publishes the model for a React widget.
+Nothing downstream. This is the one-page contract; the full walkthrough is
+[writing-a-dashboard.md](writing-a-dashboard.md), and the base class is [`@newspack-nodes/shared/nodes/slice-view-node`](../src/shared/nodes/slice-view-node.js).
 
-Extend `SliceViewNode`, override `emptySlice()` (and `_parse()` when the reply
-payload isn't already your model), and you have a correct view node:
+## Declare it; subclass only when the view owns more than its slice
+
+A view whose whole content is an empty model and a guard-then-map parse is a
+**declaration**, not a class. `registerSliceViews()` builds each declared class
+and enters it in the browser interpreter's name table in one call —
+`src/topology-console/nodes/register.js` is the pattern:
+
+```js
+import { registerSliceViews } from '@newspack-nodes/shared/nodes/slice-view-node';
+
+export const views = registerSliceViews( {
+	// The rows or nothing; an empty user_dir means no writable directory.
+	TopologyListView: {
+		empty: { topologies: null, userDir: '', error: null },
+		parse: ( body ) =>
+			Array.isArray( body?.topologies )
+				? {
+						topologies: body.topologies,
+						userDir: body.user_dir || '',
+						error: null,
+				  }
+				: null,
+	},
+} );
+```
+
+| Key | What it declares |
+|---|---|
+| `empty` | The shaped-but-empty model, copied per node so one view's mutation never surfaces in the next. |
+| `parse` | The map from reply to model. Returning `null` keeps the model already on screen; omit `parse` when the reply *is* the slice. |
+| `json` | That the verb answers a JSON **string**, so `parse` receives the decoded body. A verb answering a struct comes through unencoded — leave it off. |
+| `description` | The console-palette description, the only part of the schema a declaration can restate. |
+
+`registerSliceViews()` returns the classes keyed by name, and a dashboard needs
+both halves. A **name** serves TSL, the console palette and `make_node` typed
+into the REPL; the **class** is what a hook hands `addSliceFetcher` as its
+`viewClass`, because `includeNodes` is a per-bundle static and a hub tab mounted
+against another bundle's interpreter cannot resolve a name its own bundle
+registered ([ADR-16](architecture-decisions.md#adr-16-js-node-class-resolution--names-are-the-tsl-surface-classes-are-the-api)).
+
+`sliceView()` alone returns one class, which is what a view shared across
+dashboards wants instead: `CatalogListViewNode` is declared that way in
+`src/shared/nodes/catalog-list-view-node.js`, and `useStreamGraph.js` registers
+it under the name `CatalogListView`.
+
+Subclass `SliceViewNode` when the view owns more than a slice — its own `fill()`,
+a ring buffer, a timer, a teardown. Override `emptySlice()`, and `_parse()` when
+the reply payload is not already your model:
 
 ```js
 import { SliceViewNode } from '@newspack-nodes/shared/nodes/slice-view-node';
 
-export class SourceCountsViewNode extends SliceViewNode {
+export class AccumulatedViewNode extends SliceViewNode {
+	// Shaped-but-empty so a render BEFORE the first reply is valid.
 	emptySlice() {
-		// Shaped-but-empty so a render BEFORE the first reply is valid.
-		return { counts: {}, loading: true, error: null };
-	}
-	_parse( payload ) {
-		// payload = the slice verb's reply, a JSON string.
-		const slice = super._parse( payload ); // JSON.parse; null on garbage
-		return slice && { counts: slice, loading: false, error: null };
+		return { accumulated: 0 };
 	}
 }
 ```
 
-Register the class — `CommandInterpreterNode.registerNodeClasses( {
-SourceCountsView: SourceCountsViewNode } )` (import `CommandInterpreterNode`
-from `@newspack-nodes/runtime`) — and React reads it with
-`useNodeState( 'source-counts:view', 'view' )`.
+Register it — `CommandInterpreterNode.registerNodeClasses( { AccumulatedView:
+AccumulatedViewNode } )`, importing `CommandInterpreterNode` from
+`@newspack-nodes/runtime` — and React reads it with
+`useNodeState( 'accumulated:view', 'view' )`.
 
 ## 3 routing facts
 
 1. **A view node is a terminal — no `target`, no `sink`** (`has_target: false`).
    It receives, parses, publishes, stops. If you catch yourself forwarding out
-   of a view, it isn't a view — it's a `Tee` or a transform.
+   of a view, it isn't a view — it's a `Tee` or a transform. A per-slice
+   merge or dedup belongs on the receiver-Tee → view edge, which is what
+   `addSliceFetcher`'s `transform` slot drops it onto; `WorkerStatusTransform`
+   is the shipped example.
 
 2. **You never fetch your own data — the `TO = FROM` reply delivers it.**
    Upstream, a `Timer → Tee → Fetcher` poll sends your slice verb to the service
@@ -46,8 +90,8 @@ from `@newspack-nodes/runtime`) — and React reads it with
    Fetcher → receiver → view path, so the `counts` reply lands ONLY on
    `source-counts:view`, never on a sibling. There is no god node holding
    `{ counts, top, accumulated }` — decompose the command *and* the view. A view
-   sitting at counter `0 / 0 B` in the topology console is a god node with a
-   React app stapled on.
+   whose counter never moves while the dashboard renders is not the node
+   receiving that data; a god node upstream is.
 
 ## `setState( 'view', model )`
 
@@ -64,6 +108,38 @@ this.setState( 'view', this.model );
 - **`setState`, not `notify`.** `setState` caches the latest payload, so a widget
   that mounts *after* the reply still gets the current model (a late `register()`
   replays the cache).
+- **The base rebuilds the model, it does not merge into it.** A parsed reply
+  publishes `{ ...settled, ...slice }`, where `settled` holds the resting values
+  of whichever status fields your empty model declares — `loading: false`,
+  `error: null`. That is what retires the previous tick's spinner and error.
+  Declare `loading` and `error` in `empty` when the widget renders them; a view
+  declaring neither still gets an `error` field on a TM_ERROR, and the next good
+  reply drops it.
+
+## Controls: a view its own dashboard drives
+
+A dashboard that drives its own slice — a modal opening, a Pause button, a
+refused id — fills a control straight into the view instead of waiting for a
+reply. Both halves live in
+[`@newspack-nodes/shared/helpers/controlMsg`](../src/shared/helpers/controlMsg.js):
+`controlMsg( view, value )` mints one and `isControl( view, message )` admits it.
+
+A control is recognised by **who sent it**, never by what its payload looks like
+— a reply carrying an `action` field is still a reply, and sniffing for one
+swallows whole streams. The view declares the origin it trusts in `controlFrom`,
+which `addSliceFetcher` assigns from its own `controlFrom` option. A view that
+declares none takes no controls, and `controlMsg()` throws rather than stamp an
+empty origin, so a forgotten assignment fails loud instead of leaving a dead
+button.
+
+The base handles three verbs off `value.action`, and a subclass handles its own
+first, deferring the rest with `super._control( value )`:
+
+| `action` | Effect |
+|---|---|
+| `loading` | Raises the spinner and clears the error, keeping the data on screen. |
+| `clear` | Resets the model to `emptySlice()`. |
+| `error` | Surfaces `value.error` without blanking the data. |
 
 ## No throw from `fill()`
 
@@ -75,17 +151,92 @@ reply). So `fill()` must be *total*: every message shape returns cleanly.
 The base `SliceViewNode.fill()` already gives you this — preserve it if you
 override:
 
-- **`TM_ERROR` first.** A transport error (e.g. the Router's `NOT_AVAILABLE`)
-  arrives as a bare *string* `VALUE`. Surface it as
-  `{ ...this.model, error, loading: false }` and `return` — keep the slice
-  already on screen, and stop the spinner, so one transient failure neither
-  blanks a working widget nor leaves it loading forever.
-- **Garbage keeps the prior slice.** A non-object `VALUE`, or a payload that fails
-  `JSON.parse`, must `return` and leave the last good model in place — a transient
-  bad reply must never blank a working widget. `_parse` returns `null` for this,
-  and the base skips the `setState`.
-- **Wrap the parse.** `JSON.parse` throws on malformed input; the base's `_parse`
-  try/catches it. If you parse anything yourself, do the same.
+- **Origin first, then TYPE.** A message from `controlFrom` is a control; a
+  `TM_ERROR` is a failure; anything else is this slice's reply.
+- **`TM_ERROR` before the parse.** A transport error (the Router's
+  `NOT_AVAILABLE`, say) arrives as a bare *string* `VALUE`. The base surfaces it
+  as `{ ...this.model, error, loading: false }` and returns — keeping the slice
+  already on screen, and stopping the spinner, so one transient failure neither
+  blanks a working widget nor leaves it loading forever. `errorMessage()` is
+  what coerces any payload shape to readable text.
+- **Garbage keeps the prior slice.** A non-object `VALUE`, or a payload `_parse`
+  cannot use, must `return` and leave the last good model in place. `_parse`
+  reports that by returning `null`, and the base skips the `setState`.
+- **Wrap the parse.** `_parse` receives the reply VALUE's `payload` field. The
+  base decodes it only when it is a **string**, try/catching the `JSON.parse`;
+  if you parse anything yourself, do the same.
 
 Never `throw` to signal a bad reply — `return`, and either surface an error slice
 or keep the prior one.
+
+Count what arrives, too. A terminal node has no sink to count for it, so
+`fill()` bumps `this.counter` on every message — including the ones it drops.
+That counter is the throughput the topology console and the debug overlay draw.
+
+## The node schema
+
+A view declares itself Hidden and terminal. The base's schema is usually the
+whole of it:
+
+```js
+static nodeSchema() {
+	return {
+		category: 'Hidden',
+		description: 'Owns one dashboard slice for its React widget.',
+		registrations: [ 'view' ],
+		arguments: [],
+		commands: [],
+		has_target: false,
+	};
+}
+```
+
+**Hidden** because a dashboard wires its slice views itself rather than an
+operator dropping one from the palette, and **`has_target: false`** because a
+view settles its reply and forwards nothing. `registrations` names the state
+keys a direct `register()` call may use; `useNodeState` seeds a key it does not
+find, which is why the stream views ship with no `registrations` at all.
+
+## What ships
+
+Every view node in this repo, and which contract it follows.
+
+| Node | Where | Base, and what it owns |
+|---|---|---|
+| `SliceViewNode` | `src/shared/nodes/slice-view-node.js` | `Node`; the contract above, plus `sliceView()` and `registerSliceViews()` |
+| `CatalogListViewNode` | `src/shared/nodes/catalog-list-view-node.js` | A `sliceView()` declaration; a picker's rows, published under `items` for `useLogCatalog` |
+| `LogStreamViewNode` | `src/shared/nodes/log-stream-view-node.js` | `Node`; the log-stream base — newest-first ring, pause and step, decaying lines/s, seek breadcrumbs, and the `pause` / `step` / `connection` / `browse` / `follow` / `clear` / `filter` / `select` controls. Subclasses implement `shapeRow()` and extend `_control()` / `viewModel()` |
+| `ClassCatalogView`, `TopologyListView` | `src/topology-console/nodes/register.js` | `sliceView()` declarations; the palette's classes and formatters, and the OPEN dialog's topologies |
+| `AggregatorSummaryView`, `AggregatorServersView` | `src/event-aggregator/nodes/register.js` | `sliceView()` declarations, both `json: true`; the header strip and the server cards |
+| `SessionListView` | `src/sessions/nodes/register.js` | A `sliceView()` declaration; the issued sessions, the TTL ceiling and the scope ladder in one slice |
+| `VaultListView` | `src/vault/nodes/register.js` | A `sliceView()` declaration; the credential table |
+| `TopologyManagerView` | `src/event-dashboards/nodes/register.js` | A `sliceView()` declaration; the Topology Manager list |
+| `WorkerStatusViewNode` | `src/event-dashboards/nodes/worker-status-view-node.js` | `SliceViewNode`; its slice arrives already parsed, as a TM_STRUCT from `WorkerStatusTransform`, so it dispatches the struct actions itself and defers TM_ERROR to the base |
+| `PartitionViewerViewNode`, `LogViewerViewNode` | `src/event-dashboards/nodes/` | `LogStreamViewNode`; `LogViewerViewNode` extends `PartitionViewerViewNode` |
+| `ProbeStreamViewNode` | `src/event-dashboards/nodes/probe-stream-view-node.js` | `Node`; per-key entries, a ring, a publish throttle, TTL eviction and a 24h prune. Subclasses declare `identitySlot`, `modelKey`, `_fold()` and `_entryView()` |
+| `TopicProbeViewNode`, `JobstatsViewNode` | `src/event-dashboards/nodes/` | `ProbeStreamViewNode`; the consumer series under `consumers`, the job-handler series under `handlers` |
+| `SettingsAuditViewNode` | `src/event-dashboards/nodes/settings-audit-view-node.js` | `Node`; a throttled newest-first ring of settings-change events |
+| `SourceCountsViewNode`, `TopTableViewNode`, `AccumulatedViewNode` | `examples/example-ai-newsletter/src/dashboard/nodes/` | `SliceViewNode`, one `emptySlice()` each; the walkthrough's three slices |
+
+`WorkerStatusTransformNode` sits beside them and is **not** a view: it rides the
+receiver-Tee → view edge, enriching the reply before the view stores it.
+
+## The one-shot mirror
+
+A view holds a model that keeps arriving — a poll's replies, or a stream's
+records. A command with a caller waiting on its answer — a save, a delete, a
+test — lands on
+[`CommandResultNode`](../src/shared/nodes/command-result-node.js) instead, which
+`useCommandOnce` builds.
+
+The two are deliberate opposites. A slice keeps the model already on screen when
+a tick fails, because a widget that blanks on one refused poll is worse than a
+slightly stale one; a one-shot publishes **every** reply on `result`, refusals
+included, with the same seven fields either way — `ok`, `args`, `subject`,
+`payload`, `error`, `errorData`, `undelivered` — so the caller reads `ok` to
+branch and never waits on news that already arrived.
+
+Read the two differently, too. A widget renders a slice through
+`useNodeState`, which carries the latest payload. Anything acting once per
+one-shot **answer** registers a listener instead, because two replies inside one
+React batch cost one re-render and the rendered state shows only the last.

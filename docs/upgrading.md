@@ -4,7 +4,207 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 **Maintenance rule:** a release that changes any consumer-facing contract adds its entry here in the same commit as its CHANGELOG entry. No entry means nothing to do.
 
-## Unreleased
+## 2.44.0
+
+- **A `Fetcher` keeps ONE ask outstanding at a time.** An ask goes onto the node's
+  `outbox` when it is sent and leaves when a reply settles it; a trigger that finds
+  one there mints nothing. A dashboard that drove a Fetcher on a fixed refresh no
+  longer queues identical asks behind a slow verb. Two valves bound the wait:
+  `retry_after_s` (15s) re-arms a read whose answer never came, and `ASK_EXPIRY_S`
+  (120s) is the outer bound on how long any ask may stand.
+
+  `FetcherNode.send( args, path, supersede )` is the entry point for a caller with
+  an answer to wait on, and `isAsking()` reports whether that subject is still
+  outstanding. `useCommandOnce` sends through the same outbox rather than keeping
+  a queue of its own, so two writes in one commit ride ONE POST.
+
+- **`addSliceFetcher` fans the receiver `Tee` back to its Fetcher, last.** Tee
+  fan-out order is contractual in both ports: a receiver reaches its view before
+  the Fetcher that settles the ask, which is what lets a consumer acting once per
+  answer read `isAsking()` while the reply renders. A custom fan-out that reorders,
+  batches or defers its targets breaks that.
+
+## 2.43.1
+
+- **An `HTTP_Out` transport stamps its own name onto every inbound FROM.** A reply
+  from `foo` arrives reading `_http/foo`, which routes; bare `foo` named a node the
+  receiving graph does not have. Outbound is untouched — a command going out has
+  not been anywhere yet. Anything matching a reply's FROM against a remote node
+  name needs the `_http/` prefix, and the `MAX_FROM_SIZE` guard now covers this
+  boundary, so a reply looping hub → spoke → hub is dropped by the transport that
+  overflowed the path.
+
+## 2.41.0
+
+- **`Partition_Node::locate_by()` takes the key set it should resolve.** The
+  signature is `locate_by( \Closure $extract, array $wanted = [] )`, and the key set
+  bounds the table, the index walk and the memo alike. Passing nothing reads
+  NOTHING — the default exists so a consumer compiled against the one-argument form
+  degrades to an empty result instead of an `ArgumentCountError` through
+  `Table_Node::lookup_multi()`, which invokes the seam bare. Name your keys:
+
+  ```php
+  $rows = $partition->locate_by( $extract, $urls );   // was locate_by( $extract )
+  ```
+
+  The old form built one locator per distinct key ever written, so a caller
+  resolving a handful of rows paid an allocation that grew with the partition. The
+  per-directory memo is discarded whole past `MAX_LOCATOR_MEMO_KEYS` (100000).
+
+## 2.40.0
+
+- **Every substrate config default lives in `Settings_Schema`, and
+  `newspack-nodes-config.php` resolves to an empty array.** Each `Field` carries its
+  key's built-in value, `Config::load_config_defaults()` starts from
+  `Settings_Schema::get()->defaults()`, and the shipped config file lists every key
+  commented out beside that default. A deploy preserves the operator's file, so a
+  key added later never appears in it — a default that lived only there read as
+  null forever on every existing install.
+
+  The four `SSE_Slot_Pool::DEFAULT_*` class constants are deleted. Read a bound
+  through `SSE_Slot_Pool::max_slots()`, `reserved_slots()`, `max_streams()` or
+  `ttl()`, each of which falls back to what the schema declares.
+
+- **An unrecognized config key is REPORTED, never thrown.** `Config::unknown_keys(
+  $config )` is the pure query and `Config::unrecognized_keys()` the live one; the
+  finding surfaces as the `config-keys` result in Site Health and `wp nodes doctor`,
+  which report eight checks. Throwing at `plugins_loaded:-10001` would take wp-admin
+  down the day a key is renamed, so a misspelled key leaves the real one on its
+  default and names itself instead.
+
+- **A TSL `<config:vault>` token is refused.** `vault`, `vault_verify_ssl` and
+  `vault_require_ssl` are `ui: false` Fields, and the token resolver refuses
+  `Vault::CONFIG_KEY` outright. The `Vault` API is the only way to the encrypted
+  credential store.
+
+- **Uninstall removes the runtime tree only when one is explicitly configured.**
+  `runtime_base_directory()` in `uninstall-cleanup.php` consults the option,
+  `LOCAL_NEWSPACK_NODES_CONF` and an UNCOMMENTED config entry, and returns `''`
+  otherwise. With every ledger key commented out it used to resolve to the schema
+  default `/tmp/newspack-nodes` — the path every unconfigured install on a host
+  shares — and take a sibling's live logs, locks and offsets with it.
+
+## 2.37.0
+
+- **A node that writes past its own `target` declares those destinations through
+  `extra_targets()`.** Override that instead of `target()`, and read the union back
+  with `display_targets()`, which drops empties, de-duplicates and puts the routing
+  target first:
+
+  ```php
+  // before — a target() override appending its own extras
+  public function target( $value = null ) { … }
+  // after
+  protected function extra_targets(): array {
+      return [ $this->stats_target, $this->flame_target ];
+  }
+  ```
+
+  Widening `target()` itself breaks two callers that read an array answer as "this
+  node fans out": `disconnect_node` peels an entry out of a Tee rather than clearing
+  a scalar, and the topology console decides between appending and replacing on the
+  same test. `dump_metadata` therefore carries both keys — `target` is the routing
+  value, `targets` the display union — and `parseMetadata` prefers the wire
+  `targets`, falling back to normalizing `target` so an older worker still draws its
+  edges. A declared destination is presentation only and must never acquire a caller
+  in `fill()` ([ADR-19](architecture-decisions.md#adr-19-a-node-may-declare-a-destination-it-writes-without-routing)).
+  `Node::target_list()` is the one scalar-or-array-to-list normalization.
+
+- **`LogStreamViewNode` handles the `select` control verb itself.** A subclass that
+  declared its own drops it: the base resets the seek tracker, clears the ring, and
+  arms breadcrumb tracking on the `dir` the payload names — `''` widens back to a
+  glob and disarms. Report the arming from `seekTracking()` rather than implementing
+  an abstract hook.
+
+- **`useColumnPicker` takes an `aliases` map, retired key to current.** `restore()`
+  keeps stored keys that still exist, which is right for a removed column and wrong
+  for a renamed one: without the map, one upgrade turned a rename into a permanent
+  loss of that column from every saved layout.
+
+- **`formatTime` and the chart frame helpers are on the shared surface.** Import
+  `formatTime` from `@newspack-nodes/shared/utils/formatUtils`, and `openFrame` /
+  `drawAxes` from `@newspack-nodes/shared/hooks/useTimeChart`, rather than keeping a
+  per-plugin copy of a time axis, its 8-tick cap, its 45-degree label rotation and
+  its rotated Y title.
+
+- **A `node_schema()` verb can declare a string `setter`, the twin of `toggle`.**
+  Name the property and one closure factory synthesizes both the handler and the
+  `dump_config` fragment; a hand-rolled trim-and-assign closure per verb is no
+  longer needed. A dumped `toggle` reads `true` rather than `1`, and `truthy()`
+  accepts either coming back, so an older dump replays unchanged.
+
+## 2.34.0
+
+- **`LogStreamViewer`'s `pickerOptions` is two values, not three.** `null` used to
+  mean "no picker" and `[]` "say the empty label"; empty and absent now mean the
+  same thing, and `pickerEmptyLabel` alone decides whether an empty catalog gets
+  words. An adopter passing `pickerOptions={ [] }` and expecting a label must pass
+  `pickerEmptyLabel`.
+
+- **`useStreamGraph` replaces `useVisibilityGatedLink` and `useGatedSubscription`.**
+  Both owned the same mechanism — close the stream while inactive, and on reopen
+  choose between the recorded seek, a same-dir resume and a tail — one from the
+  mount side with no pause, the other from the pause side with no mount. The one
+  hook also builds the RemoteLink → Tee → view graph four dashboards each wrote out
+  by hand.
+
+- **`useLogCatalog` is the one polled catalog slice.** `usePartitionViewerGraph`'s
+  `fetchLogStatus` / `logStatus` pair is gone with the hand-rolled `log_status` →
+  segment-rail plumbing both sides carried; `useSegmentBrowse` resolves its own rail.
+
+- **Four unused surfaces are removed.** `LRU_Cache::get_multi()` and `set_multi()`
+  had no caller in any plugin; `CommandInterpreterNode.isCommandInterpreter` had no
+  reader, and `dump_config` reaches for `instanceof` as the PHP twin does; and the
+  `authGeneration` re-export from `runtime/index.js` goes, though `authGeneration()`
+  itself stays and imports from its own module.
+
+- **A `make_node` line that will not build now refuses at load, loudly.** Three
+  places stopped guessing:
+  - `Grep_Node` compiles its pattern in `arguments()` and throws
+    `InvalidArgumentException` on one that will not compile. `make_node Grep g
+    '[unclosed'` used to be taken at face value and then DROP every message behind a
+    warning storm.
+  - `Schema_Reflection::coerce_argument()` refuses a malformed positional instead of
+    casting it. `(int) 'abc'` was 0 and `(int) '9.9'` was 9, and zero is a live value
+    for every knob it feeds — `lifetime 0` disables age pruning, `max_segments 0`
+    means "derive".
+  - `wp nodes restart <type> --partition=abc` is refused rather than restarting
+    partition 0 and reporting success. Read an operator flag through
+    `CLI::require_flag_int()` or `Service_CI_Node::require_option_int()`, never
+    through the lenient `Core::as_int()`.
+
+## 2.33.1
+
+- **`useAskPicker`'s `onNothing` is gone.** It shipped in 2.33.0 and turned a click
+  on nothing askable — a routine miss — into a consumer's error channel. The picker
+  stays armed and the `?` cursor is what says so. `onAbandon` remains.
+
+## 2.32.0
+
+- **Commands ride the router tick; `useRequestNode`, `useReconcile` and the `Request`
+  node class are gone.** A dashboard used to mint its own POST per awaited verb from
+  a React callback, outside the `lock`/`flush` bracket the Router opens around each
+  tick. Send through a Fetcher fanned from a hitchhiking Timer instead — `useCommandOnce`
+  for one verb with an answer to wait on, `useBatchedPoll` for a slice:
+
+  ```js
+  // before
+  const request = useRequestNode( … );
+  // after
+  const { run, isPending } = useCommandOnce( { … } );
+  ```
+
+  `CommandResultNode` is where a one-shot's reply lands. Every reply publishes,
+  refusals included, and each carries the ARGUMENTS it answered and the SUBJECT its
+  address named. `RouterNode.requestTick()` asks for a tick NOW, coalesced to one per
+  commit, so a click's mutation goes on the tick it asked for.
+
+- **`answerFor( subject )` is gone: the subject rides in the reply ADDRESS.** A
+  minter appends what it is asking about to its own FROM — `vault:test:in/spoke-01`
+  — the server echoes `TO = FROM`, `_router` peels the receiver, and the answer
+  arrives naming the row. So ONE node per verb still serves ten rows: split by JOB,
+  never by SUBJECT ([ADR-7](architecture-decisions.md#adr-7-sink-vs-target-and-tofrom-replies)).
+  A subject is one path segment, escaped going out and read back on arrival.
 
 - **`RemoteLink::resumePositions()` is gone; reopen with `reconnect()`.**
   A caller that recomputed the seek from outside the stream had only half the
@@ -40,6 +240,64 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   answerStatus( { error }, TEXTS, isPending( subject ) );
   ```
 
+- **A browser Timer fires on a shared wall-clock grid.** `fireCb` fires on
+  `nextBoundary( lastFire, interval )` rather than on its own arming time, so
+  harmonic cadences meet and batch: 5s, 10s, 15s and 30s all land together every 30
+  seconds, in one POST. ONE offset (`GRID_PHASE_MS`, exported on
+  `@newspack-nodes/runtime` as of 2.32.1) serves every cadence — pin your clock to a
+  boundary rather than hardcoding a phase. JS only; the PHP `Timer_Node` is unchanged
+  ([ADR-17](architecture-decisions.md#adr-17-timers-fire-on-a-shared-wall-clock-grid)).
+
+- **A programmatic builder hands `makeNode` the CLASS, not a registered name.**
+  `CommandInterpreterNode.includeNodes` is a per-bundle static, so a name one bundle
+  registers does not resolve in another — a devtools-hub tab building its graph
+  through another bundle's interpreter finds nothing, with every test green, because
+  a test loads one bundle. A NAME stays the TSL and palette surface. `register.js`
+  files export their classes as well as registering them, and
+  `registerNodeClasses( map )` returns the map so one declaration serves both
+  ([ADR-16](architecture-decisions.md#adr-16-js-node-class-resolution--names-are-the-tsl-surface-classes-are-the-api)).
+  `scripts/lint-contract.mjs` fails the build on a name resolved where a class
+  belongs, and on the four other routing-contract shapes; it is vendored into every
+  sibling and wired into `lint:js` and `pre-commit`.
+
+## 2.31.0
+
+- **`POST /v1/command` demands READ at the door, and every verb declares its own
+  role.** Authority is cut by BLAST RADIUS: `read` changes nothing, `tune` writes
+  values a schema already bounds, `manage` takes the site down or hands out access.
+  Declare the role in `node_schema()` (`'capability' => 'read'`); a verb declaring
+  none gets MANAGE, the strictest. The base interpreter is pinned to MANAGE by the
+  controller, with a READ exception list for the builtins every dashboard drives
+  (`taillog`, `dump_metadata`, `list_nodes`, `uptime`, …). All three roles still
+  default to `manage_options`, so nothing changes until a site filters
+  `newspack_nodes/capability_map` or runs `wp nodes caps install`.
+
+- **`POST /v1/auth` accepts `scope`, `label` and `ttl`, and the response carries
+  `scope`.** A session's scope is clamped at mint to what the issuing user actually
+  holds and lowers the CEILING for one command; it can only ever subtract.
+  `Command_Auth::verify()` fails CLOSED on every refusal.
+
+- **`wp nodes caps <status|install|uninstall>` and `wp nodes hub-user <login>`.**
+  `install()` grants all three capabilities to every role that already held
+  `manage_options`, so a site with a custom Ops role is not locked out by a
+  migration billed as non-breaking. `hub-user` then creates the least-privilege
+  aggregator user and issues it an application password, shown once — which retires
+  the admin application password a hub used to hold on every spoke to do nothing but
+  pull a read-only stream.
+
+## 2.30.0
+
+- **Log-stream filtering is an INGEST gate on the view node.** `LogRowList` loses its
+  `filter` and `matchRow` props along with its per-frame scan of the ring;
+  `LogStreamViewer` gains `onFilter`, which sends the view's `filter` control. A
+  subclass with more searchable fields overrides `matchesFilter( fields, filterLower )`
+  on its view node. Filtering at render time meant non-matching rows still consumed
+  ring slots, so a rare match aged out while its filter still stood. Changing the
+  filter does not clear the ring; `Clear` is the control that empties it, and the
+  filter is re-sent on a graph rebuild.
+
+## 2.29.0
+
 - **The SSE slot pool is host-wide, and its methods lost `$user_id` / `$ip_hash`.**
   The pool was keyed per user/IP, so it never bounded a host — each additional
   reader arrived with its own budget. Slots are now one pooled keyspace per
@@ -53,7 +311,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   SSE_Slot_Pool::acquire( $ns, $user_id, $ip_hash, $max_slots, $ttl );
   SSE_Slot_Pool::touch( $ns, $user_id, $ip_hash, $slot, $owner, $ttl );
   // after
-  SSE_Slot_Pool::acquire( $ns, SSE_Slot_Pool::identity(), $max_streams, $max_per_identity, $ttl );
+  SSE_Slot_Pool::acquire( $ns, SSE_Slot_Pool::identity(), $max_streams, $max_per_identity, $ttl, $reserved );
   SSE_Slot_Pool::touch( $ns, $slot, $owner, $ttl );
   ```
 
@@ -64,18 +322,44 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   orphaned — nothing sweeps them, so they sit until cache eviction or restart.
   Bounded and harmless, but not self-cleaning.
 
-  Both bounds and the TTL are now config keys (`sse_max_streams`,
-  `sse_max_slots`, `sse_slot_ttl`). Read [sse-host-budget.md](sse-host-budget.md)
-  before raising any of them — an SSE stream holds a php-fpm child for its whole
-  life, and exhausting the pool puts the EDGE into auto-defensive mode for 60
-  seconds for every visitor to the site. Two floors are enforced rather than
-  documented: `sse_slot_ttl` is raised to the 45s re-auth window if configured
-  below it, and `sse_max_slots` is capped at `sse_max_streams`.
+  Both bounds and the TTL are config keys (`sse_max_streams`, `sse_max_slots`,
+  `sse_slot_ttl`). Read [sse-host-budget.md](sse-host-budget.md) before raising any
+  of them — an SSE stream holds a php-fpm child for its whole life, and exhausting
+  the pool puts the EDGE into auto-defensive mode for 60 seconds for every visitor
+  to the site. Two floors are enforced rather than documented: `sse_slot_ttl` is
+  raised to the 45s re-auth window if configured below it, and `sse_max_slots` is
+  capped at `sse_max_streams`.
 
   Hub operators: a `Remote_Source` pull draws from the spoke's host budget like
   any browser. Set `sse_reserved_slots => 1` on each spoke so dashboard tabs
   cannot starve the pull. It comes out of `sse_max_streams`, so a spoke with 6
   streams and 1 reserved serves 5 browsers and keeps the sixth for the hub.
+
+## 2.28.0
+
+- **`Table_Node` drops the read-through L1.** The third `make_node Table` argument,
+  `table()`'s third parameter and the `l1_ttl` TSL token are gone; the node takes
+  `<namespace> [ttl]` and `Table_Node::table( $ns, $ttl )` is the whole static
+  signature. Drop the third token from any TSL line. It shipped in 2.21.0 and never
+  had a consumer.
+
+- **An opt-in accumulator tier replaces it.** `accumulator( $bucket_size,
+  $num_buckets )` puts an `LRU_Cache` in front for values a caller is still folding
+  into, with `accumulate()` / `accumulated()` / `accumulating()` / `reset()`.
+  `accumulated()` reads through to `lookup()` for a cold key, so an evicted entry
+  resumes from what was last stored, and `accumulate()` without opting in THROWS
+  rather than silently dropping the value.
+
+- **`Table_Node::store()` returns `bool`.** True when the backend accepted the
+  write. A caller that shadows its writes durably must not record a set the backend
+  refused, or a failed write is resurrected on cold boot as though it had landed.
+  Callers ignoring the return are unaffected.
+
+- **`LRU_Cache::without_promotion()` and its `$promote` flag are gone.** The
+  read-through L1 was their only consumer: promotion-off is what a cache of storage
+  wants and what an accumulator must not have, since eviction there loses counts.
+
+## 2.27.0
 
 - **`before_job` is a FILTER, and `after_job`'s arguments moved.** Every listener on
   `newspack_nodes/job_worker/before_job` now receives the decision as its FIRST
@@ -114,6 +398,14 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 - **Producers emit `{handler, id, parameters}`.** Presentation only; consumers read by
   key, so nothing to do unless you byte-compare log lines.
+
+## 2.26.1
+
+- **A durable reader's cursor names the next UNREAD record.** A reader booting onto
+  a 2.26.0 offsetlog frame that still carries `quarantined` forwards that record
+  once, because the key no longer means anything: one duplicate per stuck cursor, no
+  data loss. Nothing to change — a dead-lettered record is now committed past rather
+  than marked and re-read.
 
 ## 2.26.0
 
@@ -193,6 +485,73 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   assigns still drives rendering, but `DumperNode.setDebugLevel()` is the only
   thing that should move it, so a React mirror updated by hand will drift.
 
+## 2.23.0
+
+- **The SSE `id:` line and the whole `Last-Event-ID` chain are gone; `positions`
+  is the only resume input.** This reverses the 2.11.0 note below.
+  `track_cursor()`, `cursor_token()`, `sanitize_id()`, `resume_positions()`,
+  `parse_cursor_token()` and `send_sse_event()`'s `$id` parameter go with it. A
+  freshly constructed `EventSource` never sends `Last-Event-ID` — only the
+  browser's own in-place retry does — so every path that built a new stream
+  (visibility change, nonce renewal, watchdog force) tail-seeked past the window
+  the reader had come back for. The `connected` envelope now ends with
+  `CURSORS <dir>=<segment>:<offset>`, comma-separated, naming where each
+  subscription STARTS, so a stream that closes having delivered nothing still
+  leaves a resume point. A hand-rolled client reads that, advances its own
+  cursor from each record's FROM and ID breadcrumb, and sends the result back as
+  `positions`.
+
+- **The reopen schedule is an `event: retry`, not the protocol `retry:`
+  field.** The protocol field arms the browser's own reconnect, and a
+  browser-made reconnect is the only thing that sends `Last-Event-ID`. The
+  client owns the schedule instead: the JS takes over an `EventSource` entering
+  CONNECTING, closes it, and reopens on the server's interval. The value is
+  still `sse_retry_ms`; read it off the `retry` event rather than off the field.
+
+## 2.22.0
+
+- **The `commandClient` seam is gone.** Every hook that took it —
+  `useBatchedPoll`, `useVaultGraph`, `useTopologyManager`,
+  `useAggregatorStatusGraph`, the stream hooks and both Viewers — no longer
+  does, and several lost their options object with it. Injecting a client double
+  replaced the whole transport subsystem, so a hook test exercising it ran
+  neither `HttpOut` nor pack/unpack, the Router or the interpreter. Replace
+  `fetch` alone with `installFakeCommandWire`, which records what was POSTED on
+  `wire.batches` and leaves the rest as real covered code. `makeFakeCommandClient`
+  is deleted, and no `CommandClient` class remains anywhere in the runtime: the
+  egress is `HttpOut` plus a lazily-defaulted `commandTransport`.
+
+- **`Probe_To_Graphite_Node` emits `<prefix>.<reader>.<field>`.** The hostname
+  and the hardcoded `nodes.topics` segment leave the middle of the path, and the
+  prefix carries the whole leading path, defaulting to `nodes.topics` — a
+  per-host tree started a fresh series every time a worker moved hosts, and the
+  fleet is network-global. This supersedes the path in the 2.11.0 note below.
+  `bytes_read_delta` and `cache_size` join `distance` and `msgs_delta`, and the
+  default interval drops from 60s to 15s. Re-point any Graphite dashboard that
+  names one of these series.
+
+## 2.21.0
+
+- **`Table_Node::lookup()` is an instance method**, and the namespace and TTL
+  come from the table rather than from every call:
+
+  ```php
+  $value = Table_Node::table( $ns, $ttl )->lookup( $key );   // was Table_Node::lookup( $ns, $key )
+  ```
+
+  `store()`, `forget()` and `rm()` are instance methods for the same reason;
+  `entry_key()` stays static. This release also gave `table()` a third `l1_ttl`
+  argument, removed again in 2.28.0 above.
+
+- **A job handler is called `( string $id, array $parameters )`, and receives no
+  `Message`.** `$id` leads because every job has one and it is what the request
+  context is named for; a producer that omits it is a bug rather than a
+  shorthand. There is no additive intermediate — reversed, a handler declared
+  for an array receives a string and dies at the boundary — so the substrate and
+  every handler in every consumer ship together. Per-job request context belongs
+  to `newspack_nodes/job_worker/before_job` and `…/after_job` alone; listeners on
+  those two are unaffected.
+
 ## 2.12.0
 
 - **`Bootstrap::supervisor()` is renamed to `Bootstrap::spawn_coordinator()`,
@@ -245,7 +604,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 - **`/messages/stream` and `/log/stream` now END on their own.** A stream that
   carries no `msg` event for `sse_idle_timeout` seconds (default 15) closes,
-  after advertising the SSE `retry:` field (`sse_retry_ms`, default 15000) at
+  after advertising the SSE `retry:` field (`sse_retry_ms`, default 5000) at
   stream start. A browser `EventSource` needs no change — reopening on `retry:`
   is what it is for, and it echoes the `id:` below automatically. A hand-rolled
   client does: treat a clean EOF as a scheduled reconnect, not a failure, and
@@ -380,12 +739,14 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   recognised and falls through to the rate aggregate.
 
 - **`newspack_nodes/supervisor_periodic` is renamed to
-  `newspack_nodes/periodic`.** There is no supervisor left to name, and the
-  cadence is unchanged at 15s. There is no alias and no deprecation shim: a
-  subscriber still on the old name is never called, silently. Rewrite each
-  `add_action( 'newspack_nodes/supervisor_periodic', … )` to
+  `newspack_nodes/periodic`, and it fires on the minute.** There is no supervisor
+  left to name, and the hook now rides `Bootstrap::reconcile_fleet()` with the rest
+  of housekeeping rather than the supervisor's 15-second tick. There is no alias and
+  no deprecation shim: a subscriber still on the old name is never called, silently.
+  Rewrite each `add_action( 'newspack_nodes/supervisor_periodic', … )` to
   `add_action( 'newspack_nodes/periodic', … )` — the callback, priority and
-  argument count all stay as they are.
+  argument count all stay as they are. Work that needs a tighter cadence belongs on
+  your own `Timer_Node`.
 
 ## 2.3.5
 
