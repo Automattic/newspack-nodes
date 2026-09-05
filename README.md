@@ -16,7 +16,7 @@ This is the Lego-bricks architecture pitched at the team meetup, brought to PHP/
 
 Job queues exist. These don't, anywhere else in WordPress:
 
-- **A live topology console.** A graph editor over the running fleet: see every node and edge with live message counts, rewire a graph, save it back to its `.tsl` — from the browser.
+- **A live topology console.** A graph editor over the running fleet: see every node and edge with live message counts, rewire a graph, save it as a `.tsl` — from the browser. The stock files stay immutable, so an edit saves under a new name that `include`s the stock one.
 - **An attached REPL.** `wp nodes cli <worker>.p0` pivots into a live worker over IPC: inspect with `dump_node`, `trace`, and `stats`, rewire sinks, send test messages — no restart, no redeploy.
 - **Time-travel debugging.** Readers checkpoint durable cursors, so a Consumer can pause, single-step, and seek back through the log's history while you watch downstream react.
 - **A Jobs dashboard.** Per-handler throughput, failures, run duration, queue latency, and backlog — replayed 24 hours deep from the durable jobstats log the workers already write.
@@ -63,11 +63,11 @@ New to Nodes? Start with **[getting-started.md](docs/getting-started.md)** — r
 - **[writing-a-view-node.md](docs/writing-a-view-node.md)** — the one-page contract for a dashboard slice's terminal view node.
 - **[architecture-guide.md](docs/architecture-guide.md)** — full substrate design: message format, node contracts, drain loop, REPL.
 - **[architecture-decisions.md](docs/architecture-decisions.md)** — the load-bearing ADRs and the conditions that would reopen them.
-- **[API.md](docs/API.md)** — REST endpoint reference.
+- **[API.md](docs/API.md)** — the REST endpoints and their envelopes, command signing, the two SSE streams, and every `newspack_nodes/*` hook.
 - **[cli.md](docs/cli.md)** — every `wp nodes` subcommand and the flows they combine into.
 - **[troubleshooting.md](docs/troubleshooting.md)** — the REPL, worker health, log paths, and the failure modes we actually hit.
 - **[sse-host-budget.md](docs/sse-host-budget.md)** — what one SSE stream costs in php-fpm children, and what happens when they run out.
-- **[stability.md](docs/stability.md)** — the frozen surfaces, the deprecation policy, and what stays internal.
+- **[stability.md](docs/stability.md)** — the frozen surfaces, what changing one costs, and what stays internal; no name is aliased.
 - **[upgrading.md](docs/upgrading.md)** — each breaking change with its fix, for moving a consumer across substrate versions.
 - **[tachikoma-lineage.md](docs/tachikoma-lineage.md)** — the Perl this runtime varies from, file and symbol, and why each divergence was chosen.
 
@@ -75,7 +75,7 @@ The complete code lives in [`examples/example-ai-newsletter/`](examples/example-
 
 ## Quick Start
 
-You need PHP 8.2 or newer, WordPress 6.5 or newer, WP-CLI, and a cache backend (Memcached, or APCu on a single web host). Install as a standard WordPress plugin, then:
+You need PHP 8.2 or newer, WordPress 6.5 or newer, and a cache backend — Memcached, or APCu on a single web host. Workers spawn over the REST API, so the runtime itself needs no WP-CLI — the verbs below and the REPL do. Install as a standard WordPress plugin, then:
 
 ```bash
 # Activate (no app — just the runtime).
@@ -114,10 +114,11 @@ To get workers running, install an application plugin that registers a topology 
 - **Null** — counts and discards. The destination for traffic that must go somewhere and do nothing.
 - **Job_Worker** — generic async-job dispatch. Local and remote handler maps arrive through the `newspack_nodes/{job,remote_job}_handlers` filters, per-job context through the `newspack_nodes/job_worker/before_job` filter and the matching `after_job` action. Ships `topologies/job-worker.tsl`.
 - **Echo** — routing helper that re-addresses on the way through (path-prepend, return-to-sender).
-- **Callback** — closure-as-Node adapter, for an inline transform or a terminal used once.
+- **Callback** — closure-as-Node adapter: the terminal that runs arbitrary PHP once per message, so a one-off needs no subclass of its own. It forwards nothing unless the closure fills the sink itself.
 - **Hook** — a WordPress action or filter as a node. The plugin-extensibility surface.
 - **Timer** — base class for time-driven nodes (Router extends it).
 - **HTTP_Out**, **SSE_In**, **Remote_Link**, **Remote_Source** — the cross-site channels. HTTP_Out batches outbound TM_COMMAND envelopes into one POST per drain tick; SSE_In pulls a remote stream over the cURL-multi; Remote_Link owns the pair and adds heartbeat, reconnect and status; Remote_Source extends Remote_Link with a durable cursor for aggregating a remote log.
+- **Settings_Sync** — the hub end of the settings control plane. A Consumer tails the watched-option changes into it, and it pushes each option's current value to the spokes, minting one command per spoke and signing that command under the spoke's own session key. Ships `topologies/settings-sync.tsl`.
 - **Lock**, **Fleet** — the worker lifecycle. Lock claims one `{type}.p{N}` slot with an atomic `mkdir`, heartbeats inside it, and carries restart, stop and reload flags in to whoever holds it; Fleet mounts as `_fleet` in every worker and respawns any peer whose heartbeat has gone stale, every 15 seconds.
 - **Service_CI** — the verb-table base. An interpreter declares each verb once in `node_schema()`, and this class derives the dispatch table, wraps every handler in the capability that schema names, and shares the argument parsers. Every console, dashboard and settings command surface is one.
 - **Shell** + **Command_Interpreter** + **Dumper** — REPL components. `wp nodes cli` wires them between `TTY_In` and `TTY_Out`, the readline-aware terminal pair; `Stdin`, `Stdout` and `Stderr` are the bare stream counterparts a graph splices in with no terminal attached. `make_node` (resolves a node type by namespace prefix + `_Node` suffix) is callable as both a shell verb and a PHP method.
@@ -128,7 +129,7 @@ For the full mental model, see [architecture-guide.md](docs/architecture-guide.m
 
 ## REST API
 
-The runtime ships six REST endpoints: the worker spawn handler; a session issuer that hands a client the key it signs commands with; a unified command-dispatch endpoint (`HTTP_In_Node`, which routes a posted command envelope through the request-scope graph to a service CI); two server-sent-events streams (`SSE_Out_Node` drains partitions to dashboards, `Log_Stream_Out_Node` tails a named log source); and an internal loopback probe that reports the web runtime's cache posture to `wp nodes doctor`. Application plugins register their own endpoints (status, dashboards, additional streams, etc.) on top.
+The runtime ships six REST endpoints: the worker spawn handler; a session issuer that hands a client the key it signs commands with; a unified command-dispatch endpoint (`HTTP_In_Node`, which routes a posted command envelope through the request-scope graph to a service CI); two server-sent-events streams (`SSE_Out_Node` drains partitions to dashboards, `Log_Stream_Out_Node` tails a named log source); and an internal loopback probe that reports the web runtime's cache posture to `wp nodes doctor`. An application extends that surface with service-CI verbs behind `/command` and dashboards subscribed to the streams, rather than with routes of its own — `newspack-event-logger-nodes` registers exactly one, its MCP controller.
 
 ```
 POST  /wp-json/newspack-nodes/v1/workers/spawn
@@ -143,16 +144,16 @@ See [API.md](docs/API.md) for the request/response shapes.
 
 ## Testing
 
-WP stubs and an in-memory memcache double are what remove the infrastructure, so
-the whole suite runs on a bare laptop, macOS included.
+WP stubs and an in-memory memcache double remove the infrastructure, so the
+whole suite runs on a bare laptop, macOS included.
 `npm install && composer install && npm run build` sets up a fresh clone, and
-`composer install && cd tests && ../vendor/bin/phpunit --enforce-time-limit`
+`cd tests && ../vendor/bin/phpunit --enforce-time-limit`
 runs it. Use the vendored binary rather than a system `phpunit` — composer
 constrains PHPUnit to 10.x, and a newer major dies on the bootstrap.
 
 ## Status
 
-The load-bearing names are frozen for the current major. **[docs/stability.md](docs/stability.md)** is the contract — which surfaces are frozen (the node contract, the message, TSL, the stock node types, the CLI, REST, hooks, Config_System, consumer boot), the deprecation policy, and what stays internal. Breaking changes are curated with their fix in [docs/upgrading.md](docs/upgrading.md) (start at your installed version, apply everything above it); [CHANGELOG.md](CHANGELOG.md) has the full story per release. Five production plugins declare `Requires Plugins: newspack-nodes`, `newspack-event-logger-nodes` first among them.
+**[docs/stability.md](docs/stability.md)** is the contract — the ten declared surfaces (the node contract, the message, TSL, the stock node types, the CLI, REST, hooks, Config_System, Config_Utils, consumer boot) and what stays internal. The list is a reference, not a promise of stillness: a minor may still move one of those names, and nothing in the tree carries `@deprecated`, so an old spelling is rejected rather than aliased. That is why every consumer-facing change lands in [docs/upgrading.md](docs/upgrading.md) with its rewrite beside it — start at your installed version and apply everything above it; [CHANGELOG.md](CHANGELOG.md) has the full story per release. Five production plugins declare `Requires Plugins: newspack-nodes`, `newspack-event-logger-nodes` first among them.
 
 ## License
 

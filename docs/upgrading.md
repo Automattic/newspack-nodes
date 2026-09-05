@@ -4,6 +4,22 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 **Maintenance rule:** a release that changes any consumer-facing contract adds its entry here in the same commit as its CHANGELOG entry. No entry means nothing to do.
 
+## 2.46.1
+
+- **A session minted without a `label` is never recorded in the command-session
+  directory.** Automatic `/auth` mints arrive several per dashboard load, and at
+  `Sessions::MAX_ROWS` (50) they evicted the sessions an operator issued on
+  purpose. The session itself works exactly as before; only its directory row is
+  gone, so `sessions list` and the Sessions tab no longer show it, and
+  `sessions revoke <handle>` still takes it if you kept the handle. Pass `label`
+  on `POST /v1/auth` for any session you mean to find again.
+
+- **A listed session whose lease has gone reads `revoked`, not `expired`.**
+  `Sessions::all()` prunes lapsed rows before it lists, so a dead row that
+  survives the prune was TAKEN — by `forget()`, or by the salt rotation
+  `wp nodes memcache flush` performs. A client matching on `state` needs the new
+  word.
+
 ## 2.44.0
 
 - **A `Fetcher` keeps ONE ask outstanding at a time.** An ask goes onto the node's
@@ -33,6 +49,32 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   name needs the `_http/` prefix, and the `MAX_FROM_SIZE` guard now covers this
   boundary, so a reply looping hub → spoke → hub is dropped by the transport that
   overflowed the path.
+
+  Take 2.43.3 with it. Stamping the transport's name made a Router bounce
+  ROUTABLE, so an error the far side could not route was answered with an error
+  of its own and the two ends POSTed at each other about twenty times a second
+  until the tab closed. Both `HTTP_Out` ports now refuse to send a message the
+  Router bounced, keyed on the Router as SENDER rather than on `TM_ERROR` alone —
+  an operator composing a message may set the error flag deliberately.
+
+## 2.43.0
+
+- **A component that repaints a canonical control fails the build.**
+  `scripts/lint-styles.mjs` reads the SCSS and the JSX together — the classes
+  riding a `.button` are derived from the markup rather than listed — and
+  refuses a selector that names a canonical control, a component-specific class
+  and an APPEARANCE property at once. Sizing and placing a shared control is how
+  a component fits one in and still passes. Every sibling vendors the gate
+  through `scripts/sync-shared-scripts.sh`, so it arrives on the next
+  `pre-commit`; a rule that genuinely must paint opts out with `styles-ok:` and
+  a reason on the same line.
+
+- **The shared `.button` lays out as `display: inline-flex`.** `.wp-core-ui
+  .button` sets `inline-block` two classes deep, so a single-class component
+  rule asking for `flex` silently did nothing. Consumers inline this stylesheet,
+  so a dashboard picks the change up on its next build; a component that worked
+  around the old behaviour by re-declaring `display` on its own button is now
+  the second copy the gate above refuses.
 
 ## 2.41.0
 
@@ -83,6 +125,16 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   otherwise. With every ledger key commented out it used to resolve to the schema
   default `/tmp/newspack-nodes` — the path every unconfigured install on a host
   shares — and take a sibling's live logs, locks and offsets with it.
+
+## 2.37.1
+
+- **`@longform` inside a docblock is an error.** The tag exempts an INLINE
+  comment from the 80-column rule, and a docblock is exempt already — so inside
+  one it marks nothing while reading as an opt-out the next editor goes hunting
+  for. `scripts/lint-comments.php` and `lint-comments.mjs` both report it, and
+  both are vendored into every sibling, so the gate arrives with the next
+  `pre-commit`. Delete the tag from any docblock line that opens with it; prose
+  that merely names it still passes.
 
 ## 2.37.0
 
@@ -319,8 +371,8 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   changes on the wire: a connection still holds exactly ONE lease, so
   `workers heartbeat <slot> <owner>` is unaffected. Old lease keys expire within
   `sse_slot_ttl`; old POINTER keys were written with no expiry and are simply
-  orphaned — nothing sweeps them, so they sit until cache eviction or restart.
-  Bounded and harmless, but not self-cleaning.
+  orphaned — nothing sweeps them, so they sit, bounded and harmless, until
+  cache eviction or a restart.
 
   Both bounds and the TTL are config keys (`sse_max_streams`, `sse_max_slots`,
   `sse_slot_ttl`). Read [sse-host-budget.md](sse-host-budget.md) before raising any
@@ -427,6 +479,8 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   goes first anyway, expect one replay per spoke partition and let it settle rather
   than restarting workers mid-replay.
 
+## 2.25.0
+
 - **`Tail`'s `source_mode` argument is gone; single-file follow is its own class.**
   The two source shapes are now two classes, the way every other "same spine,
   different source" pair in the substrate already is (`Log extends Partition`,
@@ -449,6 +503,19 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   mode tokens; `Log_Sources::open_tail( $entry )` is the ONE place a token
   becomes a reader class. In-tree callers (the `taillog read` builtin and the
   `/log/stream` SSE controller) already route through it.
+
+- **`LogStreamViewer` requires `onClear`.** Clear travels as a control message to
+  the view node; the fallback that reached past the graph and assigned
+  `node.lines = []` — the very thing the control replaced — is gone, so a viewer
+  mounted without the prop throws on the first click. Send the view's `clear`
+  control from the handler you pass.
+
+- **`DumperNode.captureNextReply()` is gone**, with `CAPTURE_TTL_MS` and the
+  `_maybeCapture` machinery. A single-slot pending-reply map keyed by command name,
+  living on the shared `_output` node, is the correlation
+  [ADR-7](architecture-decisions.md#adr-7-sink-vs-target-and-tofrom-replies) rules
+  out. Mint the command FROM your own receiver node instead: the server echoes
+  `TO = FROM`, so the reply lands there and the addressing correlates it.
 
 ## 2.24.0
 
@@ -643,7 +710,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   no longer valid; there is nothing to spawn. Cold start is WP-Cron's single
   pass, not a spawn request.
 - **`wp nodes doctor` replaces the `supervisor-liveness` check with
-  `housekeeping`.** The report was still seven results at that version. The new one is
+  `housekeeping`.** The report was seven results at that version. The new one is
   load-bearing in a way the old one was not: fleet housekeeping — retention,
   orphan partition and IPC reaping, the delayed-jobs sweep, alert emission and
   every `newspack_nodes/periodic` subscriber — now rides the minute cron pass
@@ -748,6 +815,29 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   argument count all stay as they are. Work that needs a tighter cadence belongs on
   your own `Timer_Node`.
 
+## 2.9.0
+
+- **`max_segments` moved ahead of `min_lifetime` in the retention positionals.**
+  `Partition`, `Log` and `Topic` all declare
+  `segment_size, min_segments, num_segments, max_segments, min_lifetime, lifetime`.
+  The hard cap used to sit in the trailing slot, so a TSL line that passed the
+  five other axes and omitted it now reads its `min_lifetime` as `max_segments`
+  and its `lifetime` as `min_lifetime`, leaving the age rule off. Pass the slot
+  explicitly — `0` derives the cap as `2 × num_segments` through
+  `Partition_Node::derive_max_segments()`:
+
+  ```tsl
+  # before — max_segments in the trailing slot
+  make_node Partition topicprobe:log <path> 1048576 2 8 86400 86400
+  # after — max_segments is the fourth axis, derived here
+  make_node Partition topicprobe:log <path> 1048576 2 8 0 86400 86400
+  ```
+
+- **The stock probe node is `topicprobe`, not `_topicprobe`.** A `connect_node`,
+  a `cmd` or a `target` naming the underscored form resolves nothing. The log
+  path `topicprobe.p0` is unchanged; the node TYPE was renamed separately in
+  2.11.0 below.
+
 ## 2.3.5
 
 - **`wp nodes restart <type>` restarts every partition; `--all-partitions` is
@@ -800,6 +890,25 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   `sign_for()` (PHP) — a hand-built `TM_COMMAND` message that skips this step
   is constructed but never delivered. See
   [API.md → Command Signing](API.md#command-signing).
+
+## 0.53.0
+
+- **The retention axes are renamed.** `max_lifetime` becomes `lifetime` — the
+  age rule, `0` disabling it — and `max_segments` becomes `num_segments`, the
+  count target the oldest are pruned back to, but only ones older than
+  `min_lifetime`. The freed `max_segments` name is now the true hard cap, which
+  prunes the oldest UNCONDITIONALLY above its count and closes the
+  unbounded-growth hole a partition full of young segments fell through. Rename
+  the `<config:max_lifetime>` and `<config:max_segments>` TSL tokens to
+  `<config:lifetime>` and `<config:num_segments>`, and the
+  `wp nodes ingest --max_segments` flag to `--num_segments`. The positional
+  order moved again in 2.9.0 above.
+
+- **Static TSL analysis splits statements on an unquoted `;`,** matching what the
+  runtime Shell always did. A `.tsl` whose `;`-joined line the conflict gate,
+  the orphan sweep and the console graph had all misread as one malformed
+  statement is now parsed as the several statements it builds — so a deployed
+  file may surface a real conflict those gates had been missing.
 
 ## 0.51.0
 

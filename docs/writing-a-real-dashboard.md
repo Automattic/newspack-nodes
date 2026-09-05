@@ -70,10 +70,9 @@ One array, two consumers. That coupling is the whole section: **`category: 'Hidd
 
 A Service CI like `Insights_CI` is **mounted** into every request graph (`make_node( 'Insights_CI', 'insights-demo' )` on `request_graph_ready` — toy guide §2). It is *never* `make_node`'d from the canvas. Dragging it from the palette would mint a stray second `insights-demo` node that nobody routes to — a duplicate with no purpose. So you want it gone from the palette. But you still want its verb buttons in the inspector: select the mounted `insights-demo` node, see its `counts` / `top` / `accumulated` buttons, fire one. Dropping it from the catalog kills both.
 
-The substrate's answer is a **palette-only** filter, not a catalog drop. `Palette` keeps a `NON_DRAGGABLE_CATEGORIES` denylist:
+The substrate's answer is a **palette-only** filter, not a catalog drop. `Palette` keeps a `NON_DRAGGABLE_CATEGORIES` denylist — "categories the catalog carries that the palette must never offer", as its docblock puts it:
 
 ```js
-// Categories kept in the catalog but NOT draggable (Service CIs are mounted).
 const NON_DRAGGABLE_CATEGORIES = new Set( [ 'Service', 'Remote' ] );
 …
 const draggable = classes.filter(
@@ -105,17 +104,17 @@ The class-level gate is coarse. Inside a class that made the catalog, `strip_com
 | `multiple` | the topology editor | the verb may be invoked more than once, one row per invocation |
 | `action` | the topology editor | the verb is an action, not configuration, so the editor omits it |
 
-A malformed entry — a non-array, or one with no name — is skipped rather than thrown, because one bad class must not fatal a catalog `list` that scans every registered class.
+A malformed entry — a non-array, or one with no name — is skipped rather than allowed to throw, because one bad class must not fatal a catalog `list` that scans every registered class.
 
-Five more catalog fields drive the console's own editors, and a class that declares none of them inherits `Node::node_schema()`'s defaults:
+Five more catalog fields drive the console's own editors. A class declares three of them in its schema, inheriting `Node::node_schema()`'s defaults where it declares none; `Classes_CI` derives the other two from the class itself, so no schema can misstate them:
 
-| Field | What it decides |
-|---|---|
-| `is_interpreter` | Whether the class extends `Command_Interpreter_Node`, which is where §2's command buttons address. |
-| `fans_out` | Whether the node's target is a LIST, which makes the inspector render target chips instead of a single field. |
-| `has_target` | Whether the node routes outbound at all; the inspector hides the Routing row without it, and the canvas gates its OUT port on the same answer. |
-| `accepts_fill` | Whether the node takes an inbound message; the palette tile and the canvas both draw the IN port from it. |
-| `registrations` | Which register events the class accepts, which the inspector offers in its "Register a listener" modal. |
+| Field | Where it comes from | What it decides |
+|---|---|---|
+| `accepts_fill` | the schema, default `true` | Whether the node takes an inbound message; the palette tile and the canvas both draw the IN port from it. |
+| `has_target` | the schema, default `true` | Whether the node routes outbound at all; the inspector hides the Routing row without it, and the canvas gates its OUT port on the same answer. |
+| `registrations` | the schema, default `[]` | Which register events the class accepts, which the inspector offers in its "Register a listener" modal. |
+| `is_interpreter` | derived: the class extends `Command_Interpreter_Node` | Where §2's command buttons address — the node itself rather than its `:config` sibling. |
+| `fans_out` | derived: the class uses the `Fanout_Targets` trait | Whether the target is a LIST, which makes the inspector render target chips instead of a single field. |
 
 ---
 
@@ -221,7 +220,7 @@ useEffect( measureApp, [ measureApp ] );
 useContainerRefit( appRef, measureApp, [ measureApp ], 0 );
 ```
 
-`useContainerRefit` is the shared hook every chart and canvas observes through: it ignores the observation `observe()` delivers for the box you just drew, debounces the rest, and falls back to a `window` listener where `ResizeObserver` is missing. A `debounceMs` of `0` runs the callback in the observation itself — after layout, before paint — which is what a measurement wants.
+`useContainerRefit` is the shared hook every chart and canvas observes through, and §8 covers what it does under load. The argument that matters here is the last one: a `debounceMs` of `0` runs the callback in the observation itself — after layout, before paint — which is what a measurement wants.
 
 It then derives the ceiling from the *measured* app height, subtracting only the grid's own rows (`replCeilingFromAppHeight` in `TopologyConsole.js`):
 
@@ -243,14 +242,14 @@ Note what it *doesn't* subtract: there's no header term. The console grid is `gr
 
 That measurement is also what keeps the ceiling honest under a moving frame: the console renders as a `fullBleed` tab **inside the DevtoolsTabHost tab bar** (`src/topology-console/tabMeta.js`), and the `window.innerHeight − FIXED_CHROME_PX` fallback cannot see that bar. Measure the container and the drift can't happen.
 
-**Host B — the debug overlay's Console tab (`InspectorTab`).** Same disease, different frame. It measures *its own* tab bar instead of hardcoding it (`src/debug-overlay/tabs/InspectorTab.js`):
+**Host B — the debug overlay's Console tab (`InspectorTab`).** Same disease, different frame. It measures *its own* tab bar instead of hardcoding it, and answers `0` where the host renders no bar at all (`src/debug-overlay/tabs/InspectorTab.js`):
 
 ```js
 export function measureTabBarHeight( rootEl ) {
 	const content = rootEl?.closest?.( '.nodes-devtools__tab-content' );
 	const bar = content?.previousElementSibling;
 	if ( ! bar?.classList?.contains( 'nodes-devtools__tabbar' ) ) {
-		return 0;   // single-tab host: no bar
+		return 0;
 	}
 	return bar.offsetHeight;
 }
@@ -267,7 +266,7 @@ export function replMaxHeight( frameHeight, tabBarHeight = 0 ) {
 
 Three nuances are worth lifting out of that body. First, the `- 4` **reserves the resize handle** so full height doesn't clip it; the console passes `0` there, for the reason given above. Second, the prompt bar it subtracts is `38` because the transcript's CSS anchor sits at `bottom: 38px` — the bar's *actual* rendered height, not the round `40` you'd guess (`.topology-repl__transcript` in `src/topology-console/styles/graph-view.scss`). Get that number from the CSS, not from intuition. Third, this path hardcodes the panel header (`64`) and the bar (`38`) but *measures* the tab bar, so the ceiling stays honest if the bar wraps to two rows.
 
-Both helpers take a number and an element rather than reading either from the component, so the arithmetic is assertable without mounting the tab.
+Each helper takes its input as an argument — an element for the measurement, two numbers for the arithmetic — rather than reading it off the component, so both are assertable without mounting the tab.
 
 The pattern, stated once: `ReplFooter` is a pure consumer of `maxHeightPx`; **each host measures its own frame and hands the floor in.** A floating panel never knows its own bounds from the viewport — it knows them from the box it's mounted in. If you build a third REPL surface, you measure, you don't guess `window.innerHeight − 174`.
 
@@ -299,7 +298,7 @@ The failure mode is a clean two-stage trap. `@wordpress/element` and `@wordpress
 
 The fix is the absence itself: **omit `@wordpress/icons` from `WP_EXTERNALS` so esbuild bundles it** from `node_modules` like any ordinary library. The icon's SVG ends up inlined in your bundle (esbuild already loads `.svg` and `.png` as `dataurl` — `index.mjs`), `window.wp.icons` is never read, and the `.asset.php` no longer lists the phantom `wp-icons`.
 
-The general rule for any package you're tempted to add to that map: **only externalize packages WordPress registers as runtime scripts.** The map holds ten today — `@wordpress/element`, `-api-fetch`, `-components`, `-blocks`, `-block-library`, `-i18n`, `-data`, plus `react`, `react-dom`, and `react/jsx-runtime` — and WP serves every one. Everything else is bundled for the same reason the icons are: `d3`, which the shared time charts draw through, and `@noble/hashes`, which the runtime's command signer needs synchronously, publish no WordPress global either. Treat the `WP_EXTERNALS` map as a closed set you extend only with proof WP registers the handle.
+The general rule for any package you're tempted to add to that map: **only externalize packages WordPress registers as runtime scripts.** The map holds ten entries — `@wordpress/element`, `-api-fetch`, `-components`, `-blocks`, `-block-library`, `-i18n`, `-data`, plus `react`, `react-dom`, and `react/jsx-runtime` — and WP serves every one. Everything else is bundled for the same reason the icons are: `d3`, which the shared time charts draw through, and `@noble/hashes`, which the runtime's command signer needs synchronously, publish no WordPress global either. Treat the `WP_EXTERNALS` map as a closed set you extend only with proof WP registers the handle.
 
 ---
 
@@ -387,15 +386,97 @@ The toy ran `npm run build` and `wp nodes status` and called it done. Shipping f
 | `@newspack-nodes/debug-overlay` | `src/debug-overlay/DebugOverlay.js` |
 | `@newspack-nodes/shared` | `src/shared` (a directory; subpaths append) |
 
-Everything reached through them is *inlined* into each consumer's bundle at build time — there is no shared runtime script. `src/build-kit` is the fourth shared tree and is not an alias at all: a consumer's `scripts/build.mjs` and `jest.config.js` `require` it by real path. Either way, editing `ReplFooter`'s ceiling logic or `WP_EXTERNALS` means rebuilding **and redeploying every consumer** — `newspack-nodes` itself, `newspack-event-logger-nodes`, `newspack-intelligence`, and the in-repo example — or the un-rebuilt ones ship the old inline copy. The toy's single bundle hid this; a real change to the shared kit doesn't get that luxury.
+Everything reached through them is *inlined* into each consumer's bundle at build time — there is no shared runtime script. `src/build-kit` is the fourth shared tree and is not an alias at all: a consumer's `scripts/build.mjs` and `jest.config.js` load it by real path. Either way, editing `ReplFooter`'s ceiling logic or `WP_EXTERNALS` means rebuilding **and redeploying every consumer** — `newspack-nodes` itself, `newspack-event-logger-nodes`, `newspack-intelligence`, and the in-repo example — or the un-rebuilt ones ship the old inline copy. The toy's single bundle hid this; a real change to the shared kit doesn't get that luxury.
+
+**`src/build-kit/index.mjs` exports five names, and your `scripts/build.mjs` calls one.** `buildDashboards()` is that one. The other four serve it, and the kit exports them so its own tests can reach them (`src/build-kit/__tests__/buildKit.test.js`); the `esbuildAlias` and `assertNoRetiredOverrides` your script also loads come from `alias-map.cjs` beside it:
+
+| Export | What it does |
+|---|---|
+| `buildDashboards( opts )` | Builds — or, under `watch`, keeps rebuilding — every entry, one esbuild context each. The one export a consumer calls. |
+| `WP_EXTERNALS` | §4's specifier → `{ global, handle }` map, driving both the import rewrite and the `.asset.php` dependency list. |
+| `substrateVersion()` | Returns the `SUBSTRATE_VERSION` literal the kit stamps as every bundle's `/* @newspack-nodes <version> */` banner, so a deployed bundle names the substrate it was built against. `scripts/bump-version.sh` rewrites it alongside the plugin header, the `NEWSPACK_NODES_VERSION` constant and `package.json`. |
+| `assertAliasPathsExist( alias )` | Throws on the first alias pointing nowhere, naming that alias and `NEWSPACK_NODES_SRC`. `buildDashboards()` calls it before esbuild starts, which is what turns a bad checkout into a fixable message instead of an `ERR_MODULE_NOT_FOUND` from deep inside a resolve. |
+| `emitAssetPhp( handles, version )` | Renders the `<base>.asset.php` manifest, sorted and deduped, so it changes only when the dependencies do. The `version` it stamps is a content hash of the emitted JS, so a rebuild that changed nothing leaves the tracked `build/` tree alone. |
 
 **One env var names the substrate, and the retired four are refused.** A consumer's release workflow checks the substrate out and points `NEWSPACK_NODES_SRC` at its `src`; every alias and the kit path derive from that. `assertNoRetiredOverrides()` throws when `NEWSPACK_NODES_RUNTIME`, `_DEBUG_OVERLAY`, `_SHARED` or `_BUILD_KIT` is set — refused rather than ignored, because a stale override that silently does nothing is how a release builds against the wrong checkout and still goes green.
 
-**Mounting the debug overlay needs more jest config than the toy showed.** [writing-a-dashboard.md](writing-a-dashboard.md) §6 hands you a 2-key `createJestConfig` (`aliasBase` + `pinReactFrom`) — enough for the toy's thin view. But the moment you follow its §9 and mount `<DebugOverlay>` in your dashboard, jest has to resolve what the overlay drags in, and `d3` is the one that bites: the overlay's `OverviewTab` → `TopicsChart` pulls it transitively, and it ships ESM-only. Give `extraMappers` an entry for every module jest must resolve outside your own `node_modules` — `newspack-intelligence` installs `d3` and maps `^d3$` at its own tree, while the in-repo `examples/example-ai-newsletter/jest.config.js` installs no `d3` at all and maps it, along with `@wordpress/api-fetch`, at the substrate's. Add a `transformIgnorePatterns` alongside that opts d3's ESM packages out of the transform skip.
+**Pin your own dependencies, or a dev build ships two copies of one.** `NEWSPACK_NODES_SRC` moves the substrate; it does not move where a bare import resolves. Aliased substrate source importing `d3` (the shared time charts) or `@noble/hashes` (the command signer) resolves it from the substrate's own tree first, and `nodePaths` is the fallback esbuild reaches only after that fails. In CI the substrate is a dependency-free checkout, so the fallback finds your copy; in a dev checkout the sibling has `node_modules`, so esbuild bundles a second copy under a different absolute path — 88KB of duplicate d3 in event-logger-nodes' overview bundle. Both standalone consumers close it with the same loop over the dependencies they declare, reading `package.json` and writing into an `alias` binding they lift out of the `buildDashboards` call (`newspack-event-logger-nodes/scripts/build.mjs`, verbatim in `newspack-intelligence`). Two edits make the standalone script in [writing-a-dashboard.md](writing-a-dashboard.md) §6 take that loop: widen its `node:fs` import to `import { existsSync, readFileSync } from 'node:fs';`, and bind the alias map above the call as `const alias = esbuildAlias( SUBSTRATE_SRC );` so the call can pass `alias` where it now inlines that projection.
+
+```js
+for ( const dep of Object.keys(
+	JSON.parse( readFileSync( path.join( ROOT, 'package.json' ), 'utf8' ) )
+		.dependencies || {}
+) ) {
+	// `@wordpress/*` is externalised by a plugin; a path alias would defeat it.
+	if ( ! dep.startsWith( '@wordpress/' ) ) {
+		alias[ dep ] = path.resolve( ROOT, 'node_modules', dep );
+	}
+}
+```
+
+`@wordpress/*` skips the loop because those specifiers belong to §4's externals plugin, which matches the bare name: alias one to a path and the bundle carries a copy of a package WordPress already serves. The in-repo example needs no loop — it declares no `d3`, and its `nodePaths` names the substrate's own `node_modules`, so one tree answers every bare import. [writing-a-dashboard.md](writing-a-dashboard.md) §6 hands you that example's script, so a standalone plugin that changes only `SUBSTRATE_SRC` builds green and ships the duplicate.
+
+**Mounting the debug overlay needs more jest config than the toy showed.** [writing-a-dashboard.md](writing-a-dashboard.md) §6 hands you a 2-key `createJestConfig` (`aliasBase` + `pinReactFrom`) — enough for the toy's thin view. But the moment you follow its §9 and mount `<DebugOverlay>` in your dashboard, jest has to resolve what the overlay drags in, and `d3` is the one that bites: the overlay's `OverviewTab` pulls it in transitively through `TopicsChart`, and it ships ESM-only. Give `extraMappers` an entry for every module jest must resolve outside your own `node_modules` — `newspack-intelligence` installs `d3` and maps `^d3$` at its own tree, while the in-repo `examples/example-ai-newsletter/jest.config.js` installs no `d3` at all and maps it, along with `@wordpress/api-fetch`, at the substrate's. Add a `transformIgnorePatterns` alongside that opts d3's ESM packages out of the transform skip.
 
 **Restart workers after deploy.** Otherwise the running worker process holds the old class for up to ~10 more minutes; `wp nodes restart …` (per the env's restart verbs) makes the new node code live.
 
 **The `_Demo` suffix is a deconfliction tactic, not decoration.** The in-repo teaching example (`examples/example-ai-newsletter/`) names its classes `Scorer_Demo_Node`, `Insights_CI_Demo_Node`, `Releases_Source_Demo_Node`, … while the real plugin uses bare `Scorer_Node`, `Insights_CI_Node`, and so on. Both can be active at once, and §1 showed the catalog scans *every* registered namespace — so without the suffix the toy's `Scorer` and the real plugin's `Scorer` would collide on one palette tile and one inspector lookup (`shell_name === 'Scorer'` matching two classes). The `_Demo` suffix gives the example its own `Scorer_Demo` shell name, keeping the two pipelines distinct in the one shared catalog. If you ship an example alongside a real plugin, suffix the example.
+
+### What `@newspack-nodes/shared` holds
+
+The alias resolves to a directory with no index, so every import names a subpath. The map below is the whole of that directory: one row per module, its exported names, and what it is for. [stability.md](stability.md) puts this surface outside the frozen set — a consumer resolves it at build time from its own pinned substrate checkout, so the table says what is there, not what stays. Read it before writing a primitive of your own; §8 covers what several of these cost under load.
+
+| Module | Exports | What it is |
+|---|---|---|
+| `errorMessage` | `errorMessage` | The readable text behind a TM_ERROR reply, including the wording for a payload carrying nothing. |
+| `rateSmoother` | `RateSmoother` | Windowed average plus EMA behind every per-second readout, because a raw delta between two samples reads as a burst or a zero. |
+| `theme` | `applySkin`, `initSkin`, `resetSkin`, `getStoredTheme`, `isValidTheme`, `THEMES`, `DEFAULT_THEME`, `THEME_STORAGE_KEY`, `SKIN_EVENT` | Skin storage and application. One `theme-<slug>` class on `<html>` is the whole skin state, so no two surfaces on a page can disagree. |
+| `components/ColumnPicker` | `ColumnPicker` (default) | The checkbox row a "Cols" toolbar button reveals; `useColumnPicker` owns the selection it edits. |
+| `components/ConnectionBanner` | `ConnectionBanner` (default) | The polite live-region banner a dashboard renders while its transport is down. |
+| `components/HeaderSlot` | `HeaderSlot` | A dashboard's own controls, portalled into the host's shared header or rendered inline where no host offers a slot. |
+| `components/LogBrowser` | `LogBrowser` (default) | The Live/Replay browse rail; both log-stream dashboards drive it as a segment browser. |
+| `components/LogListHeader` | `LogListHeader` (default) | The column-header row capping a log pane, sized from the same cell classes as the rows. |
+| `components/LogRowList` | `LogRowList` (default), `DEBUG_MAX_ROWS` | §8's ring-aware virtualized row list, plus the cap on the un-virtualized debug regime. |
+| `components/LogStreamViewer` | `LogStreamViewer` (default), `debugValue` | The chrome every log-stream dashboard wears: toolbar, reconnect banner, browse rail and row list. |
+| `components/Modal` | `Modal` (default) | The plain-DOM dialog shell carrying the canonical `.newspack-nodes-modal` role, dismissed through `useDismissable`. |
+| `devtools/DevtoolsTabHost` | `DevtoolsTabHost` (default) | §5's one tab host, behind both the floating overlay and the full-page hub. |
+| `devtools/tabRegistry` | `registerDevtoolsTab`, `getDevtoolsTabs`, `getDevtoolsTabsVersion`, `subscribeDevtoolsTabs`, `resetDevtoolsTabs` | §5's registry on `window`: a bundle registers at import time, the host reads and subscribes, and a test resets. |
+| `helpers/addSliceFetcher` | `addSliceFetcher` | One dashboard slice wired in one call, with the Fetcher connected last (§8). |
+| `helpers/controlMsg` | `controlMsg`, `isControl` | The one minter of a view node's control message, and the recognizer that admits what it mints. |
+| `helpers/egressPath` | `egressPath` | The TO path a browser-minted command travels: the observe-only `_shell` Tap, the `_http` egress, then the server CI. |
+| `hooks/useAdminMenuWidth` | `useAdminMenuWidth` (default) | The WordPress admin menu's width as a number, so a fixed-position UI sits flush against a menu that folds. |
+| `hooks/useAskPicker` | `useAskPicker`, `ASK_TRIGGER_ATTR`, `ASKING_CLASS` | Ask-about-this-element picking off one `data-ask` attribute; the attribute and class are exported because the shared SCSS and a consumer's trigger button name them too. |
+| `hooks/useBatchedPoll` | `useBatchedPoll`, `useCatalogSlice` | §8's poll backbone — exospine mount, fan-out Tee, hitchhiking Timer, visibility gate — and the catalog slice whose next tick is its retry. |
+| `hooks/useColumnPicker` | `useColumnPicker`, `gridTemplate` | A table's persisted visible-column set, and the CSS grid track list that lays it out. |
+| `hooks/useCommandOnce` | `useCommandOnce` | One verb sent exactly once per call on the batched tick, its reply landing on the hook's own result node. |
+| `hooks/useContainerRefit` | `useContainerRefit` | The resize hook of §3 and §8: debounced by default, `0` for a measurement, and deaf to the observation for the box it just drew. |
+| `hooks/useDeepLinkedSelection` | `useDeepLinkedSelection` (default) | A picker's `?param=` contract: seed the selection once from the URL, then reflect every user pick back into it. |
+| `hooks/useDismissable` | `useDismissable` | ESC and mousedown-outside, the two ways every dialog closes besides its own button. |
+| `hooks/useLogPositions` | `useLogPositions` (default), `useLogStatusSegments`, `useSegmentBrowse`, `segmentPositions`, `replayPositions`, `stepPosition` | The browse model both log-stream dashboards share, expressed as the SSE `positions` seed their stream URL already carries. |
+| `hooks/usePageVisibility` | `usePageVisibility` (default) | The one read of tab visibility every substrate poller gates on. |
+| `hooks/usePersistedState` | `usePersistedState`, `usePersistedChoice` | A preference that outlives the page: read the key, validate what came back, fall back, write it again. |
+| `hooks/useRouterTick` | `useRouterTick` (default) | "Call me on the router heartbeat", for any React poller — a passenger on a backbone another mount owns. |
+| `hooks/useStreamGraph` | `useStreamGraph`, `useSteppedRead`, `useLogCatalog` | A streaming dashboard's whole graph (link, stream Tee, view), the one-record stepped read, and the polled subscription catalog. |
+| `hooks/useTimeChart` | `useTimeChart`, `openFrame`, `drawAxes`, `drawLegend`, `setupTooltip`, `buildTimeSlots`, `formatXTick`, `MARGIN`, `PALETTE`, `BUCKET_MS`, `BUCKET_SECONDS`, `BUCKET_MINUTES`, `NUM_BUCKETS`, `DEFAULT_RETENTION_SECONDS` | The one d3 frame every dashboard time chart is drawn on; a caller owns its marks and nothing else. |
+| `hooks/useVirtualization` | `useVirtualization` (default) | Row-window math for a long list, measured against whichever element actually scrolls. Its scroll state lands in React, which is why `LogRowList` reads geometry live instead. |
+| `nodes/catalog-list-view-node` | `CatalogListViewNode` | The slice view holding a picker's catalog; `useLogCatalog` is its only builder. |
+| `nodes/command-result-node` | `CommandResultNode` | Where a one-shot command's reply lands. Every reply publishes and notifies, refusals included — the opposite of a slice. |
+| `nodes/log-stream-view-node` | `LogStreamViewNode` | The view-node base under every log-stream dashboard: the 100 000-row ring, the paused belt and step budget, the decaying rate readout, seek tracking and the shared control verbs. |
+| `nodes/seekTracker` | `SeekTracker`, `browseControl`, `LIVE`, `REPLAY` | Node-side seek and position tracking, derived from each record's `segment:offset:length` breadcrumb. |
+| `nodes/slice-view-node` | `SliceViewNode`, `sliceView`, `registerSliceViews` | The per-widget view-node base a dashboard's slices extend, its declarative factory, and the name registration a TSL or palette surface needs ([ADR-16](architecture-decisions.md#adr-16-js-node-class-resolution--names-are-the-tsl-surface-classes-are-the-api)). |
+| `test-utils/fakeCommandWire` | `installFakeCommandWire`, `makeFakeCommandWire`, `answerBatch`, `commandReply` | A `/command` server double whose seam is the wire, so pack/unpack, HttpOut, the Router and the interpreter all run for real. |
+| `test-utils/fastClock` | `runClockFast` | The substrate clock run faster than the wall clock, so a test reaches the next poll boundary instead of waiting it out. |
+| `utils/answerStatus` | `answerStatus` | An answer as the line a row or form shows for it: working, failed with this text, or succeeded. |
+| `utils/axis-ticks` | `axisDuration`, `binaryTicks`, `integerTicks` | Ticks and units for a value axis, so a byte axis ticked in base 10 never reads "977 KB". |
+| `utils/buttonClass` | `primaryButtonClass` | The one composition of a confirm button's class list, disabled state included. |
+| `utils/fnv1a` | `fnv1a` (default) | The 12-character URL identity this port shares with PHP's `Log_Manager::url_hash()`; the two agree on ASCII. |
+| `utils/formatters` | `formatBytes`, `formatByteRate`, `formatMsgRate`, `formatCount`, `formatAge`, `formatEta`, `formatEtaSeconds`, `etaSeconds`, `compactFixed` | The presentation formatters, so no two surfaces disagree about what 881869 bytes reads as. |
+| `utils/formatUtils` | `formatDuration`, `formatLocalDateTime`, `formatTime`, `getDurationClass`, `getDurationColor`, `getStateColor`, `getStatusCategory`, `getStatusClass`, `getStatusColor`, `getTextColor`, `hexToRgba`, `STATUS_COLORS` | The shared color and readout vocabulary. Every color is a literal hex and skin-independent, because these paint fills; the text colors that follow the theme live in the SCSS tokens. |
+| `utils/parseOffsetJump` | `parseOffsetJump` (default) | The grammar behind the Jump box, whose three-part form is a message ID verbatim. |
+| `utils/queryParams` | `getQueryParam`, `setQueryParam` | The `?param=` deep-link surface, written so setting one param preserves every other. |
+| `utils/storage` | `readStorage`, `writeStorage` | `localStorage` without the try/catch at every call site; both absorb the failure and leave the caller on its default. |
+
+Two things in `src/shared/` sit off that table. `styles/` holds twelve SCSS partials — the tokens, the mixins, the focus rules, and the component roles for buttons, controls, the toolbar, the modal and a field scope — and SCSS reaches them through the same alias: `@forward "@newspack-nodes/shared/styles/tokens"` resolves because the build kit's Sass importer swaps the prefix for its absolute path, Sass never having seen esbuild's alias map. Never import one of those partials from JavaScript through the alias — jest's `^@newspack-nodes/shared/(.*)$` mapper matches ahead of its style mock, and babel then parses SCSS as JS — which is why a shared component imports its own stylesheet by relative path. `test-utils/` belongs to a consumer's jest suite rather than its bundle, and `fakeCommandWire` is the most-imported subpath across the substrate and its consumers.
 
 ---
 
@@ -405,9 +486,11 @@ The toy polls three verbs and renders three numbers, so nothing it does can hurt
 
 **A poll cadence has a floor of 1000 ms, and it is a `TypeError` below it.** `useBatchedPoll` requires `intervalMs >= 1000` (`src/shared/hooks/useBatchedPoll.js`) because 1000 ms is `TimerNode`'s router-hitchhike threshold. The batch **is** the lock/flush bracket the Router puts around `notifyTimer`, so only a hitchhiking timer sits inside it; a sub-second value takes its own `setInterval` slot firing outside the bracket, which is one POST per slice per tick and no batch at all. Above 1000 ms the timer throttles against the shared wall-clock grid ([ADR-17](architecture-decisions.md#adr-17-timers-fire-on-a-shared-wall-clock-grid)), so two surfaces on one cadence meet on the same tick and share the POST. Sub-second work belongs to `useRouterTick`, which is a passenger on somebody else's backbone.
 
-**A surface nobody is looking at costs nothing.** Three gates, in ascending order of thrift: `usePageVisibility` stops the hitchhike while the tab is hidden; `paused` suspends an open surface — a drag in flight — while still delivering the one first load it owes; `enabled: false` owns nothing at all, no request and no named node. The console's three catalogs (`useClassCatalog`, `useTopologyList`, `useVaults` in `src/topology-console/hooks/useCatalogs.js`) all default to `enabled: false`, so an unopened palette or OPEN dialog never issues a request.
+**A surface nobody is looking at costs nothing.** Three gates, in ascending order of thrift: `usePageVisibility` stops the hitchhike while the tab is hidden; `paused` suspends an open surface — a drag in flight — while still delivering the one first load it owes; `enabled: false` owns nothing at all, no request and no named node. The three catalog hooks (`useClassCatalog`, `useTopologyList`, `useVaults` in `src/topology-console/hooks/useCatalogs.js`) all default to `enabled: false`, so every caller opts a catalog in deliberately: the console holds its classes and vaults open, hands the OPEN dialog's topology list `enabled: openModalShown`, and the overlay's Console tab enables its class catalog only once it has a cwd.
 
-**A catalog is a slow slice, and the tick is its retry.** `useCatalogSlice` defaults to a 30 000 ms cadence (`CATALOG_MS` in `src/shared/hooks/useBatchedPoll.js`). A refusal needs no latch and no memoized promise, because the next tick asks again — which is also why a catalog slice recovers on its own after a worker restart.
+The same gate is worth more on a **streaming** dashboard, where it frees a scarce server resource rather than a request. An SSE stream occupies one php-fpm child for its whole life, so the substrate caps concurrent streams in a slot pool. `useStreamGraph` (`src/shared/hooks/useStreamGraph.js`) opens the stream only while the tab is visible and the user has not paused, and routes pause down the same close path as the visibility gate — so pausing returns the slot, and a paused stream stays closed through hide and show. [sse-host-budget.md](sse-host-budget.md) carries the arithmetic behind the bounds.
+
+**A catalog is a slow slice, and the tick is its retry.** `useCatalogSlice` defaults to a 30 000 ms cadence (`CATALOG_MS` in `src/shared/hooks/useBatchedPoll.js`). A refusal needs no latch and no memoized promise, because the next tick asks again — which is also how a session that turns over recovers without a reload. A bad tick keeps whatever is already on screen, since an empty palette is the worse answer.
 
 **Tee fan-out order is contractual, and the Fetcher goes last.** `addSliceFetcher` connects the receiver Tee to the transform-or-view first and the Fetcher second (`src/shared/helpers/addSliceFetcher.js`): a consumer that acts once per ANSWER asks `isAsking()` as the reply renders, and a settled ask is gone by then. Reverse the two and the view sees a Fetcher that already forgot what it asked.
 
@@ -435,14 +518,15 @@ The toy polls three verbs and renders three numbers, so nothing it does can hurt
 
 | The shared surface | The contract it imposes |
 |---|---|
-| `Classes_CI` one catalog → Palette + Inspector | `'Hidden'`/`''` drops from BOTH; `'Service'` is palette-only-hidden, inspector-kept |
+| `Classes_CI`'s one catalog, feeding Palette and Inspector | `'Hidden'`/`''` drops from BOTH; `'Service'` is palette-only-hidden, inspector-kept |
 | `node_schema['requests']` | `TM_REQUEST` triggers render as `kind="request"` buttons, addressed to the node; `commands` go to `<node>:config` unless the class is an interpreter |
-| `ReplFooter` `maxHeightPx` | each host MEASURES its own frame and tab bar; viewport math drifts |
+| `ReplFooter` `maxHeightPx` | each host MEASURES its own frame, and the overlay its tab bar besides; viewport math drifts |
 | `WP_EXTERNALS` | externalize ONLY packages WP registers as runtime scripts (icons, d3 and `@noble/hashes` are bundled) |
 | `DevtoolsTabHost` + the tab registry | one host, `host`-scoped tabs, globally distinct ids, lazy-keyed mount, `fullBleed` for canvas tabs |
 | `tabMeta.js` + `lazy` bundles | one descriptor spelling for the placeholder and the bundle, so a lazy tab does not rename itself on arrival |
 | the Vault hub tab + `set_vault_id` | credentials live in the Vault; the topology only references an entry |
 | `release:archive` / setup zip / `NEWSPACK_NODES_SRC` | rebuild before deploy; a shared edit rebuilds every consumer |
+| a standalone consumer's `alias` map | pin every non-`@wordpress/*` dependency to your own `node_modules`, or a dev build bundles the substrate's copy beside yours |
 | `useBatchedPoll` / `addSliceFetcher` | one tick is one POST; the cadence floor is 1000 ms and connect order is contractual |
 | `LogRowList` / `ProbeStreamViewNode` / `TopicsChart` | bound the work by the viewport and the pixel budget, never by the input rate |
 
@@ -453,7 +537,7 @@ The first guide's lesson was that you add a dashboard by composing primitives. T
 ## Where to go next
 
 - **[writing-a-dashboard.md](writing-a-dashboard.md)** — the toy this guide hardens; the poll loop, the view node, the enqueue.
-- **[writing-a-view-node.md](writing-a-view-node.md)** — the view-node bases (`sliceView`, `LogStreamViewNode`, `CommandResultNode`) §8's throttles and rings sit on.
+- **[writing-a-view-node.md](writing-a-view-node.md)** — the view-node bases (`sliceView`, `LogStreamViewNode`, `CommandResultNode`) that §8's throttles and rings sit on.
 - **[writing-a-real-plugin.md](writing-a-real-plugin.md)** — this guide's sibling: the real headless pipeline (connectors, the `Source` seam) and the full credentials-in-the-Vault / config-in-the-topology model §6 only gestures at.
 - **[writing-a-plugin.md](writing-a-plugin.md)** — the original toy pipeline walkthrough, if you skipped it.
 - **[architecture-guide.md](architecture-guide.md)** — the substrate model behind the catalog, the tab host, and the build kit.

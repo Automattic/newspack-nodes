@@ -13,8 +13,9 @@ Read `AGENTS.md` first for the architecture-decisions and key-files map; this sk
 ## When to Use
 
 - Adding a Node subclass to the substrate — something every consumer benefits from, not something application-specific
-- Adding or modifying a Command_Interpreter shell verb, or a Service CI verb
+- Adding or modifying a Command_Interpreter shell verb, a Service CI verb, or a `wp nodes` subcommand
 - Adding a browser-runtime node under `src/runtime/`, or a topology under `topologies/`
+- Adding or changing a substrate setting, which means editing `Settings_Schema` and nothing else
 - Touching Worker or fleet-revival lifecycle code
 - Any change that ships in `newspack-nodes/` and rides through the deploy and restart cycle
 
@@ -28,7 +29,7 @@ The boundary that matters: **does this belong in the substrate?** Substrate code
 
 Substrate-appropriate: a generic Filter node, a new TYPE flag, a Tail buffering mode, a Router heuristic, a file-writing primitive (Log), a routing helper (Echo), generic async-job *dispatch* (`Job_Worker_Node`). Substrate-inappropriate: a node that knows what a "request" is.
 
-The seam: generic job dispatch is substrate, but the per-job request *context* is application-side. `Job_Worker_Node` is the substrate's job seam — apps register handlers through the `newspack_nodes/job_handlers` and `newspack_nodes/remote_job_handlers` filters, and hook per-job context through `newspack_nodes/job_worker/before_job` (a **filter**: returning false skips the job), `newspack_nodes/job_worker/after_job` and `newspack_nodes/job_worker/batch_complete` (both actions). Extend job-dispatch-adjacent substrate code through those, and never pull request-aware code into `Job_Worker_Node`.
+The seam: generic job dispatch is substrate, but the per-job request *context* is application-side. `Job_Worker_Node` is the substrate's job seam — apps register handlers through the `newspack_nodes/job_handlers` and `newspack_nodes/remote_job_handlers` filters, and hook per-job context through `newspack_nodes/job_worker/before_job` (a **filter**: returning false skips the job), `newspack_nodes/job_worker/after_job` and `newspack_nodes/job_worker/batch_complete` (both actions). `after_job` fires from a `finally`, so a declined or thrown job still tears its context down, and a listener that throws is logged rather than allowed to mask the job's own error. Extend job-dispatch-adjacent substrate code through those, and never pull request-aware code into `Job_Worker_Node`.
 
 ### Phase 2: Implement
 
@@ -39,18 +40,19 @@ For a new Node subclass:
 3. To get schema arguments onto properties, `use Schema_Reflection` — `Node` itself carries none of it — and override `arguments()` to run the tokens through `parse_schema_args()`. Follow the `Partition_Node` reference: `if ( null === $args ) { return parent::arguments(); }` for the pure getter, else `parse_schema_args( $args )` and then derive. `parse_schema_args()` assigns each declared name to the matching property (a name that is not a real property is refused), records the raw tokens into `$this->arguments` so `dump_config()` round-trips, fills a missing token from its schema `default`, and **throws** when the argument is `required` — so a bare `make_node Foo` fails loud instead of writing filesystem-root junk like `/p0`. ADR-11's amendment is the one exception: declare a positional optional when the node refuses the same invariant at the point of use, because a required token that only makes a deferred caller invent a placeholder moves the failure from loud to silent.
 4. Per [ADR-5](../../../docs/architecture-decisions.md#adr-5-lazy-init-for-topic--partition), event-loop and filesystem work (`set_timer`, `mkdir`, `fopen`, `scandir`, `Core::node()`) stays OUT of both the constructor and `arguments()` for request-scope nodes such as Topic and Partition. File handles open lazily on first `fill()`. Path validation is fine there — Partition calls `Config::assert_within_base()` from `arguments()`.
 5. Programmatic dependencies (objects, callables, streams) are public properties the caller assigns AFTER `make_node` returns, not constructor parameters. Object arguments passed positionally to `make_node` are filtered out by `is_scalar` with a rate-limited warning, because they cannot round-trip. Reference: `Workers_CI_Node::$cli`, which the bootstrap assigns and whose `cli()` accessor throws a named refusal when nothing did.
-6. **No registration needed.** `make_node Foo` resolves `\Newspack_Nodes\Foo_Node` through the registered namespace prefix, and the console palette scans the composer classmap for concrete `*_Node` Node subclasses whose `node_schema()` declares a category. Put the class under `Newspack_Nodes\` (the prefix the plugin registers via `Command_Interpreter_Node::register_namespace()`) and regenerate the classmap with `composer build:autoloaders` (= `composer install --optimize-autoloader`) or `composer dump-autoload -o`. A `Hidden` category, an empty category or a `hidden` flag keeps a node out of the palette while `make_node` still resolves it.
-7. Newspaper-order the methods: constructor, `arguments`, `fill`, `fire_cb`, `fire`, the call-graph middle, `node_schema` last. Declared fields keep source order, because a `foreach`, an `(array)` cast and JSON all observe it. `scripts/reorder-node-methods.php --check` gates this at commit; fix with `php scripts/reorder-node-methods.php --write <file>` on the host, then `phpcbf`.
-8. Add a row to AGENTS.md's `## Layout` table for the new file. If the change shifts an architecture decision — a new lifecycle ordering, a new constructor restriction — write or amend the ADR in `docs/architecture-decisions.md` and add its row to the AGENTS.md decision table. Numbers are stable: supersede, never renumber.
+6. Runtime verbs come from the same schema. A `node_schema()['commands']` entry naming a property under `toggle` or `setter` gets both its handler and its `dump_config()` fragment synthesized by `declared_setter()`; anything else declares an explicit `handler` callable. Call `auto_wire_interpreter()` from the constructor, as `Partition_Node`, `Consumer_Node` and `Table_Node` do, and the trait publishes the sibling `{name}:config` interpreter that answers them — the one a topology addresses as `cmd jobs:consumer:config set_line_mode true`. A verb declaring none of the three is catalog-only and dispatches to nothing.
+7. **No registration needed.** `make_node Foo` resolves `\Newspack_Nodes\Foo_Node` through the registered namespace prefix, and the console palette scans the composer classmap for concrete `*_Node` Node subclasses whose `node_schema()` declares a category. Put the class under `Newspack_Nodes\` (the prefix the plugin registers via `Command_Interpreter_Node::register_namespace()`) and regenerate the classmap with `composer build:autoloaders` (= `composer install --optimize-autoloader`) or `composer dump-autoload -o`. A `Hidden` category, an empty category or a `hidden` flag keeps a node out of the palette while `make_node` still resolves it.
+8. Newspaper-order the methods: constructor, `arguments`, `fill`, `fire_cb`, `fire`, the call-graph middle, `node_schema` last. Declared fields keep source order, because a `foreach`, an `(array)` cast and JSON all observe it. `scripts/reorder-node-methods.php --check` gates this at commit; fix with `php scripts/reorder-node-methods.php --write <file>` on the host, then `phpcbf`.
+9. Add a row to AGENTS.md's `## Layout` table for the new file. If the change shifts an architecture decision — a new lifecycle ordering, a new constructor restriction — write or amend the ADR in `docs/architecture-decisions.md` and add its row to the AGENTS.md decision table. Numbers are stable: supersede, never renumber.
 
-A consumer plugin gets the same shapes for free from `wp nodes scaffold {plugin,node,topology}`, which writes the canonical files from `docs/writing-a-plugin.md` and never overwrites. It scaffolds into a plugin's `includes/`, so substrate classes are still hand-written.
+A consumer plugin gets the same shapes for free from `wp nodes scaffold {plugin,node,topology}`, which writes the canonical shapes of `docs/writing-a-plugin.md`: `plugin` creates `./<name>/` with a bootstrap, a composer.json, one working node, a topology wiring it and a README, while `node` and `topology` each write one file into the current directory. It refuses every path before writing the first byte, so a collision leaves nothing half-written — and substrate classes are still hand-written.
 
 For a new Command_Interpreter verb:
 
 1. Add to `$H` (help text) and `$C` (callable map) in `init_C()`. Aliases get their own `$C` row pointing at the same `cmd_foo` static; document them in the canonical verb's `$H` entry (`alias: bar`).
 2. Add a `cmd_foo()` static method. The `$C` closures carry `( Command_Interpreter_Node $self, array $args )`, plus a third `array $envelope` where the verb reads the issuing message, and they hand the handler a pre-split token array normalized through `arg_strings()`, so parse positionals with `[ $arg1, $arg2 ] = array_pad( $args, N, '' )` — never `preg_split` on a string. Classify `--key=value` and bare `--key` flags via `Command_Args::parse( $args )`, and read an integer option through `Command_Args::option_int()`, which returns null on a non-numeric value rather than coercing it to zero.
 3. A verb the Shell answers itself never reaches interpreter dispatch. Pure shell state (`cd`, `include`, `var`, `print`) belongs in `Shell_Node::run_builtin()`, which mints no message; a verb minting a message of its own TYPE (`tell_node` as TM_INFO, `send_node` as TM_BYTESTREAM) belongs in `parse()`'s verb switch. Document either in `$H` anyway, so `help` covers everything the user can type.
-4. **A refusal throws; a `return` is a result.** `interpret()` catches `\Throwable` and wraps the response as `TM_COMMAND|TM_ERROR`, so every `usage: …`, unknown-name and denial raises. Returning the refusal as a string leaves the caller unable to tell refusal from success — the `error:`-shaped returns that remain are values a caller consumes, not refusals. Add no per-verb `try/catch`: the central catch is the contract, and it re-throws `Worker_Should_Stop` first so a cooperative stop still propagates ([ADR-14](../../../docs/architecture-decisions.md#adr-14-cooperative-stop-propagates-through-broad-catches)).
+4. **A refusal throws; a `return` is a result.** `interpret()` catches `\Throwable` and wraps the response as `TM_COMMAND|TM_ERROR`, so every `usage: …`, unknown-name and denial raises. Returning the refusal as a string leaves the caller unable to tell refusal from success. The `error:`-shaped returns still standing in `trait-dead-letter-queue.php`, `trait-durable-reader.php`, `class-partition-node.php`, `class-table-node.php` and `class-settings-sync-node.php` are the exception; do not copy them into a new verb. Add no per-verb `try/catch`: the central catch is the contract, and it re-throws `Worker_Should_Stop` first so a cooperative stop still propagates ([ADR-14](../../../docs/architecture-decisions.md#adr-14-cooperative-stop-propagates-through-broad-catches)).
 
 For a new Service CI verb (the capability-gated surface dashboards and the admin call):
 
@@ -58,11 +60,17 @@ For a new Service CI verb (the capability-gated surface dashboards and the admin
 2. Name the role deliberately — `Capabilities::READ`, `TUNE` or `MANAGE`, cut by blast radius. A verb declaring none gets MANAGE, the strictest role rather than the loosest.
 3. Parse arguments through the shared `protected static` helpers — `split_first_token()`, `require_valid_name()`, `require_option_int()` — and build a read-only slice from `slice_verb()`, which JSON-encodes what a shape callable returns over the CI's memoized snapshot.
 
+For a new `wp nodes` subcommand:
+
+1. Put the class in `includes/cli/class-{name}-cli-command.php` and register the verb in `newspack-nodes.php`'s `WP_CLI` block. The block constructs each command object and registers bound methods, because the verb methods cannot be static (wp-cli#5472).
+2. Read every integer flag through `CLI::require_flag_int()`, which refuses `--partition=abc` rather than casting it to 0 and restarting the wrong fleet.
+3. Document the verb in `docs/cli.md`, the CLI reference.
+
 For a new browser-runtime node (`src/runtime/`):
 
 1. Write `src/runtime/{name}-node.js` exporting a `Node` subclass, then add its shell name to `CommandInterpreterNode.includeNodes` — a bundle has no autoloader, so that flat map stands in for the classmap. A consumer plugin merges its own through `CommandInterpreterNode.registerNodeClasses( map )`. The NAME is what TSL and the palette spell, while a builder assembling a graph in code hands `makeNode` the CLASS, because `includeNodes` is a per-bundle static ([ADR-16](../../../docs/architecture-decisions.md#adr-16-js-node-class-resolution--names-are-the-tsl-surface-classes-are-the-api)).
 2. Mirror the PHP argument contract: declare positionals in `static nodeSchema()`, and call `parseSchemaArgs( this, value )` from the class's own `set arguments` after `super.arguments = value`, as `SseInNode` does. A `Hidden` category keeps the node off the palette here too.
-3. `scripts/lint-contract.mjs` is the gate the other reviewers miss, because it fails the ADR violations that WORK: a correlation table, a minted op-id, a registry of pending replies, a KEY demux, a subclass computing its own timer boundary, a hook naming a class. One line opts out with `contract-ok:` and a reason; a file that implements the routing belongs in the script's `EXEMPT` list.
+3. `scripts/lint-contract.mjs` is the gate the other reviewers miss, because it fails the ADR violations that WORK: a correlation table, a minted id, a parked resolver pair, a registry of pending replies, a KEY demux, a subclass computing its own timer boundary, a hook naming a class. One line opts out with `contract-ok:` and a reason; a file that implements the routing belongs in the script's `EXEMPT` list. It walks JavaScript alone, so nothing mechanical reads the PHP equivalents.
 
 For a new or changed topology (`topologies/*.tsl`):
 
@@ -73,14 +81,18 @@ For a new or changed topology (`topologies/*.tsl`):
 
 ### Phase 3: Test, lint, deploy, restart
 
-Push runs the full gate for you (`scripts/pre-push`): the JS suite with coverage, the per-file JS coverage gate, `lint-docs.sh`, every gate's self-tests, and then — scoped to what the push touched — `lint:php`, a container deploy, the coverage suite and the per-class 90% gate for PHP; `lint:js` and `build` for JS; `lint:scss` and `build` for SCSS. Run the narrow commands below while you work, and let the push run the rest.
+Push runs the full gate for you (`scripts/pre-push`): the JS suite with coverage, the per-file JS coverage gate, `lint-docs.sh` (a grep gate over `docs/`, `README.md`, `AGENTS.md` and `.claude/skills` catching prose that drifted from the runtime — this file included), every gate's self-tests, and then — scoped to what the push touched — `lint:php`, a container deploy, the coverage suite and the per-class 90% gate for PHP; `lint:js` and `build` for JS; `lint:scss` and `build` for SCSS. Run the narrow commands below while you work, and let the push run the rest.
 
 ```bash
-# Unit, integration and examples suites. Use the vendored binary, NOT the system
-# phpunit — the container ships 11.x, composer pins 10.5.x, and mixing them dies
-# on DispatchingEmitter::exportsObjects(). --enforce-time-limit aborts a hung
-# test (readline without a TTY, an infinite drain loop) at the per-test budget
-# instead of stalling the whole suite. Filter while iterating.
+# Unit, integration and examples suites. Use the vendored binary, NOT whatever
+# `phpunit` a host puts on PATH — composer's lock pins 10.5.64, and a newer
+# major dies on our bootstrap with DispatchingEmitter::exportsObjects().
+# --enforce-time-limit aborts a hung test (readline without a TTY, an infinite
+# drain loop) at the per-test budget instead of stalling the whole suite; a
+# class-level #[Medium] raises that budget to PHPUnit's medium limit for the
+# six classes that legitimately need longer. Filter while iterating.
+# tests/run-coverage.sh runs the same configuration under XDEBUG_MODE=coverage
+# and writes the clover the per-class gate reads.
 cd tests && ../vendor/bin/phpunit --enforce-time-limit --filter FooNodeTest
 
 # Lint. lint:php is phpcs plus the PHP comment gate; lint:js is eslint, the JS
@@ -89,6 +101,7 @@ npm run lint:php
 npm run lint:js
 npm run lint:scss
 npm run lint:types
+npm run lint:shell
 
 # JS. jest runs on the host, and the push holds every src/ file to 90%.
 # `build` recompiles the ten bundles PHP enqueues; release:archive runs it

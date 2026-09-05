@@ -55,10 +55,11 @@ Paths below are relative to `lib/Tachikoma/`, with one exception worth knowing: 
 | `get_batch()` | `Nodes/Consumer.pm:435` `get_batch` |
 | `SEEK_START` (0), `SEEK_END` (-1), `SEEK_RECENT` (-2) | `Nodes/Consumer.pm`'s "valid offsets: start (0), recent (-2), end (-1)" |
 | `$buffer` (read-ahead + trailing partial) | `Nodes/Consumer.pm`'s buffer |
-| `poll_cb` swapped from `poll_init` to `poll_active`, or to `poll_crawl` after a crash | `$self->{fill}` function-pointer dispatch |
+| `poll_cb` swapped from `poll_init` to `poll_active`, or to `poll_crawl` after a crash | the same function-pointer dispatch through `$self->{fill}`. Consumer does not use it; the pattern is `Nodes/FileHandle.pm`'s, called at `:190` and swapped at `:74` and `:299` |
+| `add_snapshot_node()` co-committing state with the cursor | `Nodes/Consumer.pm:524-529`, which hands the same `{timestamp, offset, cache}` record to its `edge`'s `on_save_snapshot` under `cache_type=snapshot`; the operator wires that edge with `connect_edge` (`Nodes/CommandInterpreter.pm:1303`) |
 | `POLLING` state INIT → ACTIVE | `Nodes/Consumer.pm` status INIT → ACTIVE |
-| `add_snapshot_node()` co-committing state with the cursor | the snapshot cache — `connect_edge` + `cache_type=snapshot` |
 | `Log_Node` writing VALUEs, not envelopes | `Nodes/Log.pm` |
+| `Tail_Node` — the durable reader of a `Log`'s `{file}.{seg}` segments | no upstream original; `Nodes/Tail.pm` is the single-file follower, which our `File_Tail_Node` subclass ports instead |
 | `File_Tail_Node` dropping a dead generation's partial line | `Nodes/Tail.pm:418`, the `line_buffer` clear in `note_fh` |
 | the cli's TM_EOF round trip on stdin close | `Nodes/FileHandle.pm:260` `handle_EOF` → `:285` `send_EOF` |
 
@@ -74,12 +75,12 @@ Paths below are relative to `lib/Tachikoma/`, with one exception worth knowing: 
 | `Value_Timeout_Node` | `Nodes/PayloadTimeout.pm` (v2.0.905), whose `payload` we spell `value` |
 | `Table_Node` | `Nodes/Table.pm` — the vocabulary; the backing store diverges (see below) |
 | `LRU_Cache` | `Nodes/Table.pm`'s bucket LRU (`lru_lookup`, `:197`), lifted out as its own class |
-| `Connect_Queue_Timer_Node` | `Nodes/JobSpawnTimer.pm` and `Job.pm`'s `@SPAWN_QUEUE` — one process-wide timer popping one queued closure per fire |
+| `Connect_Queue_Timer_Node`, on a 500 ms cadence | `Nodes/JobSpawnTimer.pm` and `Job.pm`'s `@SPAWN_QUEUE` — one process-wide timer popping one queued closure per fire and removing itself when the queue runs dry, at `Job.pm`'s `$SPAWN_QUEUE_TIMER` of 250 ms |
 | `Struct_To_JSON_Node` / `JSON_To_Struct_Node` | the `Nodes/StorableToJSON.pm` / `Nodes/JSONtoStorable.pm` pair |
 | `Probe_To_Graphite_Node` | `Nodes/TopicProbeToGraphite.pm` |
 | `Graphite_Node` | no node of its own upstream — `TopicProbeToGraphite` sinks its lines into whatever egress the operator wired; the transport diverges (see below) |
 | `Topic_Probe_Node` | `Nodes/TopicProbe.pm`, consumer branch |
-| `Callback_Node` — a closure as a terminal, so a one-off consumer needs no subclass | `Nodes/Callback.pm`, which likewise takes the closure in its constructor and refuses `arguments()` |
+| `Callback_Node` — a closure as a terminal, so a one-off consumer needs no subclass | `Nodes/Callback.pm`, which takes the closure in its constructor too and dies on `arguments()`. Ours needs no such refusal: a constructor with a required argument is one `make_node` cannot call ([ADR-11](architecture-decisions.md#adr-11-make_node-construction-sequence)) |
 | `Dumper_Node` rendering any message to one human-readable line | `Nodes/Dumper.pm` |
 | `Stdin_Node` / `Stdout_Node`, and the `TTY_In_Node` / `TTY_Out_Node` pair that adds readline and prompts | `Nodes/STDIO.pm` and its `Nodes/TTY.pm` subclass |
 | `Stderr_Node` writing a TM_BYTESTREAM VALUE through the node stderr chain | `Nodes/StdErr.pm` |
@@ -95,11 +96,11 @@ Every `Shell3.pm` citation below is load-bearing: our tokenizer is meant to be t
 | `want_reply()` | `Nodes/Shell.pm:392` `$self->{want_reply}` |
 | `stamp_noreply()` (JS `stampNoreply()`) — OR TM_NOREPLY onto a command when want_reply is off | `Nodes/Shell.pm:252`, inside `send_command` |
 | the BUILTINS switch: a builtin runs, anything else mints a command | `Nodes/Shell.pm:94`'s dispatch into `%BUILTINS` (`:106`ff) |
-| `print` writes verbatim; no `echo` | `Shell3.pm:1363` |
+| `print` writes verbatim, and neither shell has an `echo` | `Shell3.pm:1363`'s `$BUILTINS{'print'}` |
 | `var` assignment operators (`= .= += -= *= /= //= \|\|=`, `++`, `--`) | `Shell3.pm` `var_assignment` / `$H{'var'}` / `operate()` / `operate_with_value()` |
 | reading an unset var defines it empty | `Shell3.pm:2715` (`//= q()`) |
 | `var <name> =` with no value deletes | `Shell3.pm:2838`, inside `operate()`'s no-value branch at `:2834` |
-| junk where an operator belongs is fatal | `Shell3.pm:632` — `Unexpected token in assignment` |
+| junk where an operator belongs is refused — `var: unexpected token in assignment`, printed rather than fatal | `Shell3.pm:632`, where the same junk is a fatal parse error, `Unexpected token in assignment` |
 | the uninitialized-value warning printed RAW to stderr | `Shell3.pm:3303` — a direct `print {*STDERR}`, and `get_shared`'s empty return |
 | `message.*` vars stamped at the mint | `Shell3.pm:2240-2241` does the same for FROM and STREAM |
 | unquoted `#` comments to end of line, anywhere | `Shell3.pm:303` |
@@ -107,7 +108,7 @@ Every `Shell3.pm` citation below is load-bearing: our tokenizer is meant to be t
 | double-quote escapes (`\e \n \r \t`, `\" \\ \< \>`) | `Shell3.pm` `string1` |
 | single-quote / backtick escapes (`\'`, `` \` ``, `\\`) | `Shell3.pm` `string2` |
 | an open quote continues the statement onto the next line | `Shell3.pm`'s quote continuation |
-| `got EOF while waiting for tokens` | the same fatal upstream |
+| `got EOF while waiting for tokens` on input that ends inside an open quote — thrown under `fatal_errors` so a mangled `.tsl` never half-loads, printed in a REPL | `Shell3.pm:157`, which writes the same text to stderr and, off a TTY with errors accumulated, shuts every node down |
 | `.tsl` topology files | the TSL format and extension |
 
 ### Command interpreter
@@ -119,9 +120,9 @@ Every `Shell3.pm` citation below is load-bearing: our tokenizer is meant to be t
 | `list_profiles`, slowest average first with a `--total--` row | `Nodes/CommandInterpreter.pm:2145` `list_profiles` |
 | `dmesg` | `Nodes/CommandInterpreter.pm:2040` `dmesg` |
 | `set_sink` | `Nodes/CommandInterpreter.pm:1289` `connect_sink` |
-| `trace`, which sets `debug_state` | `Nodes/CommandInterpreter.pm`'s `debug_state` verb |
+| `trace`, which sets `debug_state` | `Nodes/CommandInterpreter.pm:1624` `debug_state` |
 | `move_node` / `move` / `mv` | `Nodes/CommandInterpreter.pm:645` `move_node`, aliased at `:663` and `:667` |
-| `register` / `unregister` verbs | `Nodes/CommandInterpreter.pm` `register` / `unregister` |
+| `register` / `unregister` verbs | `Nodes/CommandInterpreter.pm:610` `register`, `:628` `unregister` |
 | `tabulate()` living on the interpreter | `Nodes/CommandInterpreter.pm:2958`, the same placement |
 | naming an interpreter arms the secure level | `Nodes/CommandInterpreter.pm:3033` `name()` |
 | `secure` / `insecure` | `$C{secure}` (`:2221`) / `$C{insecure}` (`:2264`) and `Config.pm:231`'s `secure_level` |
@@ -129,12 +130,12 @@ Every `Shell3.pm` citation below is load-bearing: our tokenizer is meant to be t
 | removing a node that threw during construction | `Nodes/CommandInterpreter.pm:2701` |
 | the no-arg ctor → `name()` → `arguments()` → `sink()` sequence | `Nodes/CommandInterpreter.pm:2692-2698` |
 | a refusal raised rather than returned | every `die` in `Nodes/CommandInterpreter.pm`'s verb table |
-| `Command_Args`' positional + `--key[=value]` grammar | Tachikoma's argument grammar |
+| `Command_Args`' positional + `--key[=value]` grammar, parsed once and carried as tokens | `Getopt::Long`'s `GetOptionsFromString`, which `Nodes/CommandInterpreter.pm` (`:22`) re-runs per verb over the raw argument string |
 | signing the command SEMANTICS, not the envelope | `Command.pm:82-86`'s `sign` over `id:timestamp:name:arguments:payload` |
 
 ### The JavaScript port
 
-The browser runtime under `src/runtime/` is a second independent implementation of the same model, not a binding onto the PHP one. Of its 38 modules the shared core is `Message`, `Node`, `Router`, `CommandInterpreter`, `Shell`, `Tee`, `Tap`, `Timer`, `Echo`, `Dumper` and `Callback`; the rest — pollers, the SSE and IPC channels, the dashboard view nodes — are browser-only and have no Perl to consult. The pieces that must agree byte for byte with PHP are pinned by shared fixtures: `shell-node.js` `parseStatements` against `tests/fixtures/statements/`, and `probe-record.js` / `jobstats-record.js` against their PHP twins.
+The browser runtime under `src/runtime/` is a second independent implementation of the same model, not a binding onto the PHP one. Thirteen of its 38 modules have Perl to consult: `core.js` and `node-registry.js` divide `../Tachikoma.pm` between them, and `message.js`, `node.js`, `router-node.js`, `command-interpreter-node.js`, `shell-node.js`, `tee-node.js`, `timer-node.js`, `echo-node.js`, `dumper-node.js`, `callback-node.js` and `stdout-node.js` carry their namesakes. `http-out-node.js` borrows the one `Nodes/Socket.pm` clause its PHP twin does. The rest — `tap-node.js`, the pollers, the SSE and IPC channels, the dashboard view nodes — answer to the browser alone. The pieces that must agree byte for byte with PHP are pinned by shared fixtures: `shell-node.js` `parseStatements` against `tests/fixtures/statements/`, and `probe-record.js` / `jobstats-record.js` against their PHP twins.
 
 | Here | Upstream |
 |------|----------|
@@ -196,7 +197,13 @@ Perl's `fill` returns values (`return $self->SUPER::fill(...)`, `return $self->c
 
 `target` is Tachikoma's `owner`. The second physical output (`Node.pm:507`) simply does not exist here.
 
-**Why:** no node has needed one, and leaving it out keeps "physical vs logical" a two-concept distinction instead of three. [ADR-7](architecture-decisions.md#adr-7-sink-vs-target-and-tofrom-replies) records what would justify introducing it — a genuine second *physical* output, not a routing convenience.
+**Why:** nothing here has needed a second physical output, and leaving it out keeps "physical vs logical" a two-concept distinction instead of three. Upstream's substantive use of `edge` is Consumer's snapshot cache; ours is `add_snapshot_node()`, a list of NAMES the commit addresses through the Router. [ADR-7](architecture-decisions.md#adr-7-sink-vs-target-and-tofrom-replies) records what would justify introducing it — a genuine second *physical* output, not a routing convenience.
+
+### There is no broker, and a partition has no replica
+
+`Nodes/Partition.pm`'s `make_node` form takes `--replication_factor` and `--leader`, and `Nodes/Broker.pm` elects which host leads which partition, then rebalances when a broker falls behind its share. `Nodes/Topic.pm` addresses that broker, never a partition. Ours carries neither concept: `Topic_Node` writes to the `Partition_Node`s its own topology names, and a partition is one directory on one host's filesystem.
+
+**Why:** an election needs long-lived peers that can see each other, and every worker here is a request that exits at 595 seconds and revives from a lock directory. The durable thing is the filesystem rather than the process, so partition ownership is settled by what a topology declares instead of by a vote, and losing that filesystem is the platform's problem rather than the substrate's. Crossing a host boundary is a PULL: `Remote_Source_Node` reads a spoke's partition over SSE under its own durable cursor — Tachikoma's followers-request-from-leaders, with the election removed.
 
 ### A read block is 64 KB, and an offset names a byte within a segment
 
@@ -206,13 +213,13 @@ Perl's `fill` returns values (`return $self->SUPER::fill(...)`, `return $self->c
 
 ### `Consumer_Node::drain()` has no upstream original
 
-`drain()` polls the source until it is genuinely at EOF with no buffered complete line, then emits one terminal TM_EOF. Upstream `Nodes/Consumer.pm` has no such method; `Tachikoma.pm:96` `drain` is the process event loop, a different thing entirely.
+`drain()` polls the source until it is genuinely at EOF with no buffered complete line, then emits one terminal TM_EOF. Upstream `Nodes/Consumer.pm` has no such method; `../Tachikoma.pm:96` `drain` is the process event loop, a different thing entirely.
 
-**Why:** it is the messaging interface a CLI drives — event-logger-nodes' `wp nodes reqgrep` — instead of hand-rolling `read_at()` and its own decode. The terminal marker follows `Nodes/FileHandle.pm:260` `handle_EOF` → `:285` `send_EOF`, and the same TM_EOF bounce is what drains the attached `wp nodes cli` when stdin closes.
+**Why:** it is the messaging interface a reader in request scope drives — event-logger-nodes' `wp nodes reqgrep` and its `Performance_CI_Node`, the substrate's own `Job_Delay` sweep — instead of hand-rolling `read_at()` and its own decode. The terminal marker follows `Nodes/FileHandle.pm:260` `handle_EOF` → `:285` `send_EOF`, and the same TM_EOF bounce is what drains the attached `wp nodes cli` when stdin closes.
 
 ### Secure level 0 means only "undeclared"
 
-Upstream, level 0 also disables command signing — `Command.pm:87-89` returns before signing when `secure_level` is 0, and RSA over ~10,000 startup commands is slow — which seals the network as a consequence.
+Upstream, level 0 also disables command signing: `Command.pm:87-89` returns before signing when `secure_level` is 0, which seals the network as a consequence. Upstream signs asymmetrically — `--scheme=<rsa,rsa-sha256,ed25519>` — which costs orders of magnitude more per command than a MAC does.
 
 **Why ours differs:** our signature is HMAC-SHA256, which costs microseconds, so signing is never the thing a level buys you. That frees 0 to mean exactly one thing here: a command surface exists and nobody has declared a policy for it, which is why the Router tick warns once while it holds. `null` is the state below it — a graph-only script that never names an interpreter has no surface, so it is never warned.
 
@@ -220,9 +227,9 @@ Two smaller differences in the same ladder. Tachikoma's `%DISABLED` level 1 remo
 
 ### A REPL session can forge ID and TIMESTAMP
 
-The Shell reads `message.from`, `message.key`, `message.id` and `message.timestamp` from var scope and stamps them onto the outgoing message. Upstream exposes the first two — `Shell3.pm:2240-2241` reads `message.from` and `message.stream` the same way — but not the second two: ID is shell-owned pipeline-correlation state with no var, and TIMESTAMP is always the real clock.
+The Shell reads `message.from`, `message.key`, `message.id` and `message.timestamp` from var scope and stamps them onto the outgoing message. Upstream exposes the first two — `Shell3.pm:2240-2241` reads `message.from` and `message.stream` the same way — but not the second two: ID is shell-owned pipeline-correlation state with no var (`Shell3.pm:2242` takes it from `$self->message_id`), and TIMESTAMP is whatever `Message.pm:63` `new` stamped from the clock.
 
-**Why:** replaying a message with an arbitrary ID or timestamp is precisely what debugging a correlation-dependent or time-dependent node requires. The forgeability is the feature, and it reaches no further than a REPL: an unset `message.timestamp` leaves the mint clock alone.
+**Why:** replaying a message with an arbitrary ID or timestamp is precisely what debugging a correlation-dependent or time-dependent node requires. The forgeability is the feature, and it reaches no further than a REPL: an unset `message.timestamp` leaves the mint clock alone. Overriding FROM earns its exposure differently — a reply is addressed TO=FROM, so setting it routes the answer somewhere other than the session's own Dumper.
 
 ### Backticks quote; they do not execute
 
@@ -262,11 +269,18 @@ Upstream has `enable_profiling` / `disable_profiling`. Ours has `profile [ on | 
 
 ## What has no upstream original
 
-Tachikoma is a long-running daemon: `bin/tachikoma-server` starts the Router process, and that process *is* the supervisor. Every worker here is a PHP request that exits within 595 seconds, so the whole lifecycle layer is new work with no Perl to consult.
+Tachikoma is a long-running daemon: the checkout's `bin/tachikoma-server` starts the Router process, and that process *is* the supervisor. Every worker here is a PHP request that exits within 595 seconds, so the whole lifecycle layer is new work with no Perl to consult.
 
 - **A worker is an HTTP request that outlives its response.** `POST /newspack-nodes/v1/workers/spawn` is the one door every spawn enters; the handler calls `ignore_user_abort( true )` and `set_time_limit( 0 )`, fires `newspack_nodes/spawn_worker`, and runs the graph inline for its whole lifetime before the response is written. The caller POSTed fire-and-forget on a 250 ms budget and hung up long before.
 - **There is no supervisor and no reaper.** `Cooperative_Stop::should_continue()` owns every stop trigger, `Worker_Base::execute()`'s `finally` releases the lock and then self-respawns, `Fleet_Node` revives peers every 15 seconds, and `Bootstrap::reconcile_fleet()` on WP-Cron is the minute-cadence cold-start tier ([ADR-8](architecture-decisions.md#adr-8-worker-zombie-pattern), [ADR-9](architecture-decisions.md#adr-9-two-tier-safety-net)).
-- **There is no Job.** Tachikoma isolates anything that can block in a forked process talking over a socketpair. Nothing here forks: `Job_Worker_Node` dispatches each job inside its own worker, and a second process means another spawned request. Crash isolation therefore comes from the dead-letter lifecycle ([ADR-12](architecture-decisions.md#adr-12-dead-letter-poison--crash-lifecycle)) rather than from a process boundary.
+- **There is no Job.** Tachikoma isolates anything that can block in a forked process talking over a socketpair on FD 5 (`Job.pm:198-233`). Nothing here forks: `Job_Worker_Node` dispatches each job inside its own worker, and a second process means another spawned request. Crash isolation therefore comes from the dead-letter lifecycle ([ADR-12](architecture-decisions.md#adr-12-dead-letter-poison--crash-lifecycle)) rather than from a process boundary.
+
+The lifecycle is not the only place with no Perl behind it. These carry Tachikoma's contract and none of its code, because what they talk to is WordPress:
+
+- **WordPress is the sink.** `Hook_Node` fires `do_action` / `apply_filters` on each VALUE, so a plugin reaches somebody else's topology without editing it, and `Newspack_Log_Node` fires `newspack_log`.
+- **A request owns the boundary, not the process.** `HTTP_In_Node`, `SSE_Out_Node`, `Log_Stream_Out_Node`, `SSE_In_Node`, `HTTP_Filter_Node` and the substrate's `*_CI_Node` service interpreters live and die with one REST request, where `Nodes/Socket.pm` and the `HTTP_*` family hold a descriptor for the process's whole life. That is why `HTTP_Out_Node` borrows one clause from `Socket.pm` and nothing else.
+- **The async-job path.** `Job_Worker_Node`, `Job_Intake` and `Job_Delay` exist because there is no Job to fork into, and `Job_Probe_Node` sweeps them the way `Nodes/TopicProbe.pm` sweeps consumers.
+- **Composition of our own.** `Tap_Node` (Tee plus hard targets and passthrough), `Tail_Node`, `Remote_Link_Node` / `Remote_Source_Node`, `Settings_Sync_Node`, and `Line_Fitter` — a static PIPE_BUF fitter rather than a node.
 
 ## Upstream that is not public
 

@@ -22,9 +22,12 @@ that base is available and `ensure_runtime_wired()` has run.
 | [`/log/stream`](#log-stream) | GET | READ |
 | [`/health/cache`](#internal-cache-health) | POST | Internal HMAC token |
 
-`Bootstrap::fleet_gate()` runs first on every one of them: the fleet is
-network-global, so a multisite subsite gets `403 newspack_nodes_not_fleet_site`
-whatever else it presents.
+`Bootstrap::fleet_gate()` opens every one of those permission callbacks: the
+fleet is network-global, so a multisite subsite gets
+`403 newspack_nodes_not_fleet_site` whatever else it presents. WordPress checks
+a route's declared `args` before it reaches any permission callback, so a route
+that requires a parameter answers `400 rest_missing_callback_param` ahead of
+even the gate.
 
 Two HTTP entry points sit outside the namespace. The settings page posts to
 WordPress's `admin-post.php` under the actions `newspack_nodes_reset_settings`
@@ -37,7 +40,8 @@ The substrate is also its own client. `HTTP_Out_Node` POSTs batched JSONL
 command envelopes to a remote spoke's `/command` (`COMMAND_PATH`) and
 establishes the session that signs them at that spoke's `/auth` (`AUTH_PATH`);
 `SSE_In_Node` pulls `/messages/stream` over cURL. Both speak the shapes
-documented below.
+documented below, under bounds of their own — see
+[The substrate as client](#the-substrate-as-client).
 
 For the full architecture and rationale, see [architecture-guide.md](architecture-guide.md).
 
@@ -80,8 +84,8 @@ Body: form-encoded (`application/x-www-form-urlencoded`) or JSON (`application/j
 ```json
 {
   "spawned": true,
-  "type": "combined",
-  "partition": 3
+  "type": "job-worker",
+  "partition": 0
 }
 ```
 
@@ -158,7 +162,7 @@ rather than at each spawner, because this is the one gate they all cross.
 #### 429 Too Many Requests
 
 ```json
-{ "code": "spawn_throttled", "message": "combined.p3 spawned less than 15s ago", "data": { "status": 429 } }
+{ "code": "spawn_throttled", "message": "job-worker.p0 spawned less than 15s ago", "data": { "status": 429 } }
 ```
 
 The `{type}|{partition}` pair is inside the shared throttle window. The
@@ -254,8 +258,8 @@ The spawn handler sets two `$_SERVER` keys once auth passes, before it fires
 `newspack_nodes/spawn_worker`:
 
 ```php
-$_SERVER['NEWSPACK_NODES_WORKER_TYPE']      = $type;        // e.g. "firehose-workers"
-$_SERVER['NEWSPACK_NODES_WORKER_PARTITION'] = (string) $partition;  // e.g. "3"
+$_SERVER['NEWSPACK_NODES_WORKER_TYPE']      = $type;        // e.g. "job-worker"
+$_SERVER['NEWSPACK_NODES_WORKER_PARTITION'] = (string) $partition;  // e.g. "0"
 ```
 
 These are process-identity tags, not credentials. Three things read them:
@@ -455,7 +459,7 @@ Per-slot semantics (named here for documentation only — the wire is positional
 | `TYPE` (index 0) | int | Bitmask. `TM_COMMAND` (`8`) for a dispatch. |
 | `TIMESTAMP` (index 1) | float | Unix timestamp. The signature covers it truncated to whole seconds, and the freshness window is checked against it. |
 | `FROM` (index 2) | string | Reply path. `HTTP_In_Node` stamps `_output` onto it on the way in, so a bare reply path (`_output`, `_sse:{pid}/…`, or empty) walks back to this endpoint. |
-| `TO` (index 3) | string | CI shell-name (e.g. `topologies`, `workers`). Router peels the head off; subpaths flow through. Empty TO is dispatched by the base CI in-place. |
+| `TO` (index 3) | string | CI node name (e.g. `topologies`, `workers`). Router peels the head off; subpaths flow through. Empty TO is dispatched by the base CI in-place. |
 | `ID` (index 4) | string | Caller-chosen correlation id. The CI's reply carries the same `id`. |
 | `KEY` (index 5) | string | Routing and correlation metadata (e.g. `'completion'` triggers REPL completion-list mode on `help` and `ls`). |
 | `VALUE` (index 6) | array | The inner Command_Interpreter envelope `{name, arguments}` as a live JSON array. `name` is the verb; `arguments` is a **flat token array** (`list<string>` argv) — the Shell and the browser transport tokenize ONCE at the producer boundary, and the tokens ride verbatim through envelope, interpreter and `make_node`. Every verb, scalar and structured alike, reads its data from that array (`$args[0]`, `$args[1]`, …). VALUE also carries `auth`, the HMAC envelope every minter stamps; see [Command Signing](#command-signing). |
@@ -516,8 +520,8 @@ derives both the dispatch table and the capability gate from that declaration. A
 verb that declares no `capability` demands MANAGE, so silence is the strictest
 role rather than the loosest.
 
-| CI shell-name | Class | Verbs (role) |
-|---------------|-------|--------------|
+| Node name | Class | Verbs (role) |
+|-----------|-------|--------------|
 | `classes` | `Classes_CI_Node` | `list` (read) |
 | `layouts` | `Layouts_CI_Node` | `get` (read), `save` (tune) |
 | `topologies` | `Topologies_CI_Node` | `list` (read), `get` (read), `expand` (read), `save`, `delete`, `activate`, `deactivate`, `connect_worker_input` (manage) |
@@ -528,6 +532,16 @@ role rather than the loosest.
 | `status` | `Status_CI_Node` | `get` (read) |
 | `sessions` | `Sessions_CI_Node` | `list`, `create`, `revoke` (manage — issuing one hands out access) |
 | `workers` | `Workers_CI_Node` | `list`, `dump_graph`, `cleanup_status`, `heartbeat` (read), `restart` (manage) |
+
+The first column is the NODE name — `make_node`'s second argument, and what a
+caller puts in TO. A CI's SHELL name is a different string: the class short name
+minus `_Node`, so `Layouts_CI_Node` is addressed as `layouts` and described as
+`Layouts_CI`. `Command_Interpreter_Node::shell_name_for()` derives that name;
+the `classes` CI's `list` verb reports it under `shell_name`, `dump_metadata`
+returns it as `class`, and the topology console's Inspector looks a node's verbs
+up by it. It is also what `help Layouts_CI` renders a schema for, because
+`Bootstrap` registers the `Newspack_Nodes\Rest\` prefix alongside
+`Newspack_Nodes\`.
 
 Every CI also answers a `help` verb, which `Service_CI_Node::commands()` seeds
 gated at MANAGE before the parent can inject an ungated one; it returns that
@@ -580,9 +594,12 @@ answers its own vocabulary: `secure`, `insecure`, `make_node` (alias `make`),
 `taillog`, `dump_node` (alias `dump`), `dump_config`, `dump_metadata`, `stats`,
 `uptime`, `trace`, `help` and `reply_to`. `help <NodeType>` resolves the same
 registered class table as `make_node` and renders its `node_schema()` /
-`nodeSchema()` identically in PHP and browser-local JS. The REPL adds its own
-client-side builtins (`command_node`, `request_node`, `ping`, `show_parse`,
-`status`); those never reach this endpoint. Addressing a command with empty TO
+`nodeSchema()` identically in PHP and browser-local JS. `Shell_Node` intercepts
+its own builtins before any of it: `cd` (alias `chdir`), `include`, `var`,
+`print`, `clear`, `debug_level`, `status` and `show_parse` change REPL state and
+mint nothing, while `command_node`, `request_node`, `ping`, `tell_node`,
+`send_node`, `send_struct` and `send_eof` mint a message addressed elsewhere
+rather than dispatching under their own name. Addressing a command with empty TO
 dispatches against the root table; a non-empty TO routes to the named CI.
 
 The `secure` verb climbs a ladder and never descends, disabling verb CLASSES
@@ -684,7 +701,7 @@ expire every read-only stream after one slot TTL.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `subscribe` | string | yes | CSV of subscription names, described below. Blank entries between commas are dropped. |
-| `positions` | string | no | Optional resume positions: a JSON object keyed by the STAMP each subscription resolves to. A value is either an exact `{segment, offset}` object or a **seek sentinel** — `0` start, `-1` end (live tail), `-2` recent — Tachikoma's vocabulary (`Consumer.pm`: *"valid offsets: start (0), recent (-2), end (-1)"*), mirrored as `Consumer_Node::SEEK_START` / `SEEK_END` / `SEEK_RECENT`. The words `start`, `recent` and `end` are accepted aliases. Stating the seek as a number is what makes `{segment: 0, offset: 0}` mean the START of the log rather than an absent value: `SSE_In_Node` always sends a position, using `-1` when it has none, so a source resuming a `0:0` checkpoint replays its backlog instead of being tail-seeked past it. Malformed JSON, or a value that is not a JSON object, is treated as omitted. Omitting the parameter tail-seeks every subscription, which is what a browser dashboard does on a first connect. |
+| `positions` | string | no | Optional resume positions: a JSON object keyed by the STAMP each subscription resolves to. A value is either an exact `{segment, offset}` object or a **seek sentinel** — `0` start, `-1` end (live tail), `-2` recent — Tachikoma's vocabulary (`Consumer.pm`: *"valid offsets: start (0), recent (-2), end (-1)"*), mirrored as `Consumer_Node::SEEK_START` / `SEEK_END` / `SEEK_RECENT`. The words `start`, `recent` and `end` are accepted aliases. Stating the seek as a number is what makes `{segment: 0, offset: 0}` mean the START of the log rather than an absent value: `SSE_In_Node` always sends a position, using `-1` when it has none, so a source resuming a `0:0` checkpoint replays its backlog instead of being tail-seeked past it. Malformed JSON, or a value decoding to anything but an array, is treated as omitted. Omitting the parameter tail-seeks every subscription, which is what a browser dashboard does on a first connect. |
 | `multi_writer` | boolean | no | Read the subscribed logs with the multi-writer seal-grace (`Consumer_Node::SEAL_GRACE_SECONDS`). Set it for a log every request process on this server appends to — the firehose — where a peer can keep writing to segment N for up to `Partition_Node::DRIFT_RESCAN_INTERVAL_SECONDS` after N+1 appears; without it the reader advances off N on sight and orphans that straggler, typically a request's terminal `process (complete)`. The CLIENT asserts it, because nothing on disk records which logs are shared. It applies to log Consumers only — a worker IPC attach has one writer and never takes the grace. Default off: a single-writer log seals N the instant it creates N+1, so the grace would be pure added latency. `Remote_Source_Node` sends it through its `set_multi_writer` config verb; browser dashboards leave it unset. |
 
 #### Subscription grammar
@@ -730,7 +747,7 @@ Five events go out, in this order of first appearance:
 A client consumes the `disconnect` frame and RETAINS both halves — the machine
 KEY it branches on and the display VALUE it shows — so the transport close that
 follows cannot replace a real reason with a generic one. `SSE_In_Node` is the
-reference implementation: it trims each half to 512 characters, drops a frame
+reference implementation: it trims each half to 512 bytes, drops a frame
 carrying an empty KEY or VALUE, and holds what is left as its terminal state.
 
 The stream **closes itself after `sse_idle_timeout` seconds** (default 15) with
@@ -836,6 +853,7 @@ role, with no nonce.
 |-------|------|----------|-------------|
 | `subscribe` | string | yes | CSV of registry NAMES. An unknown name throws the teaching `unknown log source` error listing the names that exist. No globs — registry sources are fixed for the life of a stream, and Tail's missing-file grace covers a source that appears, rotates or truncates mid-stream. |
 | `positions` | string | no | Optional resume positions, same vocabulary as `/messages/stream`: a JSON object keyed by registry name, each value a `{segment, offset}` object or a seek sentinel (`0` start, `-1` end, `-2` recent), with `start`, `recent` and `end` accepted as aliases. `File_Tail` folds `recent` to the start, because one file has no previous segment to fall back to. The shape round-trips unchanged from the client's perspective: for a segmented source `segment` is the segment id; for a file-mode source the file's inode occupies the same slot, and the cursor self-validates against the live file and degrades to 0 on mismatch. Omit to start at `end` (live tail). |
+| `multi_writer` | boolean | no | Accepted but inert. The route registration is inherited unchanged, while a subscription here resolves to a `Tail_Node`, and the seal-grace belongs to a Consumer. |
 
 ### Response
 
@@ -843,6 +861,62 @@ Identical to `/messages/stream`: each line the Tail emits arrives as an SSE
 `msg` event carrying the packed 7-field Message (`TM_BYTESTREAM`, FROM stamped
 with the registry name), with the same envelopes, heartbeat, 429 slot-gating and
 flush behavior.
+
+## The substrate as client
+
+Two nodes call these endpoints on a remote server instead of serving them: a hub
+POSTs commands to its spokes through `HTTP_Out_Node` and pulls their streams back
+through `SSE_In_Node`. Both bound themselves, and an operator diagnosing a
+flapping spoke reads it against the numbers below.
+
+### `HTTP_Out_Node` — `/command` and `/auth`
+
+`fill()` buffers each message verbatim and arms a one-shot timer; the next drain
+tick joins the batch into one JSONL body and POSTs it on the Event_Framework's
+shared cURL multi, so neither call blocks. A spoke with no session yet gets the
+`/auth` handshake first, one handshake at a time, and its batch is HELD while
+that completes. A batch is dropped only when the spoke cannot be addressed at
+all: no Vault entry, no url, or a plaintext url while `vault_require_ssl` stands.
+
+| Constant | Value | Bounds |
+|---|---|---|
+| `REQUEST_TIMEOUT` | 15 seconds | One non-blocking POST, as `CURLOPT_TIMEOUT`. |
+| `MAX_REPLY_BYTES` | 8388608 (8 MiB) | One spoke's reply body, capped because the write callback buffers it into the PHP heap. |
+
+The blocking path — `probe_command()`, behind `vault test` and `aggregator
+probe` — bounds itself tighter: a 5-second timeout, no redirects, and a 1 MiB
+`limit_response_size`, because an operator is waiting on the verdict.
+
+### `SSE_In_Node` — `/messages/stream`
+
+It owns one easy handle, one `{segment, offset}` cursor and one connection's
+parser state; a patron (`Remote_Source_Node`) drives `maybe_connect()` and
+`check_stale()`, and every `data:` payload reaches that patron raw through the
+`on_message` seam. It always sends `positions`, using `-1` when it holds no
+cursor, so a resumed `0:0` replays its backlog instead of being tail-seeked past
+it. It also sends `X-Newspack-Nodes-Pull: 1`, which draws the stream from
+`sse_reserved_slots` rather than from the share browsers claim — a fairness hint
+and not a boundary, since the endpoint already requires READ and any holder of it
+could send the header.
+
+| Constant | Value | Bounds |
+|---|---|---|
+| `CONNECT_TIMEOUT` | 5 seconds | The connect, as `CURLOPT_CONNECTTIMEOUT`. The transfer itself is untimed (`CURLOPT_TIMEOUT` 0), which is what `check_stale()` covers instead. |
+| `HEARTBEAT_TIMEOUT` | 45 seconds | The silence `check_stale()` reads as a dead stream. `SSE_Out_Node` heartbeats every 2 seconds, so only a broken link reaches it. |
+| `INITIAL_BACKOFF` / `MAX_BACKOFF` | 1 / 30 seconds | The reconnect delay, doubling on each failure and reset to the floor by any received event. A close the server scheduled with `retry:` takes the advertised delay instead, clamped to the same range and leaving the failure state untouched. |
+| `MAX_BUFFER_SIZE` | 33554432 (32 MiB) | Received bytes holding no newline. |
+| `MAX_EVENT_SIZE` | 33554432 (32 MiB) | One event's accumulated `data:`. |
+
+Either overflow returns 0 from the write callback, which aborts the transfer, and
+retires the lease; the patron's next `maybe_connect()` reopens after the backoff.
+A peer that sent 32 MiB with no record boundary is broken rather than slow.
+
+The browser mirror, `src/runtime/sse-in-node.js`, opens the same endpoint through
+`EventSource` and keeps its own numbers: a watchdog ticking every 2 seconds
+forces a fresh stream after 10 seconds of silence (three heartbeats plus 4
+seconds of grace), and after 60 seconds wedged in CONNECTING; its reconnect
+backoff runs 2 to 30 seconds and clears on a live `connected` handshake. Only the
+ceiling matches the PHP half — a throttled tab needs slack a worker does not.
 
 ## Extensibility hooks
 
@@ -861,7 +935,7 @@ answer. Every `newspack_nodes/*` name and signature is frozen 1.0 surface — se
 | `newspack_nodes/periodic` | — | `Bootstrap::reconcile_fleet()`. The minute-cadence tick for work that needs no worker; `Alerts::emit()` and `Job_Delay::sweep_action()` ride it. Each step is wrapped alone, so a subscriber that throws costs only its own step. |
 | `newspack_nodes/after_reconcile` | — | `Bootstrap::reconcile_fleet()`, after the pass. |
 | `newspack_nodes/restart_fleet` | `string $name` | `Topologies_CI_Node`, once per AFFECTED fleet on a topology save or delete — a saved child restarts every parent that composes it, transitively. |
-| `newspack_nodes/declare_config_keys` | — | `Config`, lazily, when it meets a key nothing has declared yet. Register your own keys here. |
+| `newspack_nodes/declare_config_keys` | — | `Config`, on the first key check of the process and again on any miss. Call `Config::register_keys()` here and nothing else — see below. |
 | `newspack_nodes/config_reset` | — | `Config::reset()`. Drop anything memoized from config: the substrate drops log-dir scans, parsed TSL and vault credentials here. |
 | `newspack_nodes/job_worker/after_job` | `string $handler, string $id, ?array $outcome` | `Job_Worker_Node`, always — after a success, a throw, or a decline. Tear down per-job request context here. |
 | `newspack_nodes/job_worker/batch_complete` | `string $batch` | `Job_Worker_Node`, when a batch's last job settles. |
@@ -941,3 +1015,59 @@ Because the hook fires on every command request, keep CIs stateless: pure verb
 dispatchers with their dependencies injected. For the application-side build-out,
 read the per-CI `node_schema()` declarations under
 `newspack-event-logger-nodes/includes/app/`.
+
+### `newspack_nodes/declare_config_keys`
+
+`Config::value()` refuses a key nothing declared: it throws `unknown config key
+'<key>' — not declared by any registered schema` rather than answer null. The
+substrate derives the declared set on the first key check of the process —
+registering its own `Settings_Schema` overlay keys, then firing this action so
+every consumer plugin declares its own — and `Config::is_declared()` fires it
+again on a miss, which is how a plugin that loads after that first read still
+gets its keys accepted for the rest of the request.
+
+**Signature:**
+
+```php
+do_action( 'newspack_nodes/declare_config_keys' );
+```
+
+No arguments. A callback calls `Config::register_keys( array $keys )` with
+UNPREFIXED key names, and nothing else:
+
+```php
+function my_app_declare_config_keys(): void {
+    \Newspack_Nodes\Config::register_keys( \My_App\Settings_Schema::get()->overlay_keys() );
+}
+\add_action( 'newspack_nodes/declare_config_keys', 'my_app_declare_config_keys' );
+```
+
+Declare from CODE — a schema, or a literal defaults array — and never from a
+config file's keys, which is the rule `Config::declare_keys()` follows for the
+substrate's own. Deriving from the file makes an operator's typo self-declaring:
+the misspelling becomes valid, the real key falls back to its default, and
+nothing says so. It also leaves an install whose file predates a key unable to
+read that key at all. A plugin whose schema names only its overlay keys
+registers the union, as nuclear-gyrobase does with its code defaults and its WP
+option schema.
+
+Register the hook at PLUGIN FILE SCOPE, not from a deferred `plugins_loaded`
+loader. The substrate PULLS the declaration from inside a read, and that read can
+precede the loader: event-logger-nodes' profiler logs its first line at
+`plugins_loaded:-10001`, well ahead of a loader at priority 11, and `value()`
+would throw on a real key. A plugin whose slug sorts before `newspack-nodes`
+loads while no substrate class exists, so it hooks the literal action name rather
+than the `Config::DECLARE_ACTION` constant.
+
+Do nothing else in the callback. It runs from inside a config read, on any
+request and in any process, so a config read, an option write or I/O from here
+fires at an unpredictable point in the request. A read of a still-undeclared key
+from a callback is re-entrant — the declaring guard bounds it, but it cannot see
+keys a later callback declares.
+
+Declarations accumulate and are never pruned. `Config::reset()` drops the cached
+config and re-arms the derive, and the declared set survives it, so a dropped
+callback cannot un-declare keys that already resolve. The registry is flat and
+shared: every plugin's keys land in the one set, and `Config::is_declared()` is
+the primitive a consumer plugin's own `value()` accessor calls to validate a key
+before reading its own merged config.

@@ -8,7 +8,7 @@ argument-hint: "[file or class]"
 
 Substrate-specific review pass. The twenty ADRs in `docs/architecture-decisions.md` carry the rationale; this skill applies them to a diff. "Decision N" in AGENTS.md and in code comments means ADR-N.
 
-Some of this is mechanized already — `scripts/lint-contract.mjs` (the JS shapes of ADR-7, ADR-16 and ADR-17), `scripts/lint-docs.sh`, `scripts/lint-comments.{php,mjs}`, PHPStan level 10, and the 90% per-class and per-file coverage gates. Spend the review on what no gate reads: whether the change conforms to the contract, and whether it degrades safely for a consumer running the previous release.
+Some of this is mechanized already — `scripts/lint-contract.mjs` (the JS shapes of ADR-7, ADR-16 and ADR-17), `scripts/lint-docs.sh`, `scripts/lint-comments.{php,mjs}`, `scripts/reorder-node-methods.{php,js} --check` over every staged file, PHPStan level 10, and the 90% per-class and per-file coverage gates. Spend the review on what no gate reads: whether the change conforms to the contract, and whether it degrades safely for a consumer running the previous release.
 
 ## When to Use
 
@@ -22,7 +22,7 @@ If the diff touches `Partition_Node` (shell name Partition) `fill()`, its batch 
 
 - `Partition_Node::MAX_LINE_SIZE` is 4096 bytes, measured on the PACKED record plus its newline. Two opt-ins lift it to `MAX_LARGE_LINE_SIZE` (32 MiB): `allow_large_writes()`, which ENFORCES a single writer with a `Lock_Node` at `{segment_dir}/write.lock.d`, and `void_warranty()`, which takes the caller's single-writer assertion with no lock.
 - A diff that raises the small-write cap is wrong: it breaks atomic append for every concurrent producer.
-- An oversize record is DROPPED whole, never truncated — half a record desyncs every reader after it. The drop goes through `Node::drop_message()`, which leaves a rate-limited audit line naming the type flags, FROM, TO and the redacted payload. Verify a new >4 KB producer either lifts the cap or fits under it; do not let a diff make that drop quiet.
+- An oversize record is DROPPED whole, never truncated — half a record desyncs every reader after it. The drop goes through `Node::drop_message()`, which leaves a rate-limited audit line naming the type flags, FROM and TO — plus the redacted payload for the four control types (`TM_INFO`, `TM_REQUEST`, `TM_ERROR`, `TM_COMMAND`), so a dropped data record names its address and nothing else. Verify a new >4 KB producer either lifts the cap or fits under it; do not let a diff make that drop quiet.
 - A record that must survive rather than be dropped goes through `Line_Fitter::fit( $message, $fields )` immediately before the sink, which halves each named trimmable VALUE field until the packed line fits. `$fields` is a sacrifice order — most expendable first — and a field outside the list is never touched. `fit()` returns null once every listed field is spent, and the caller drops that loud through `print_less_often()` rather than emit oversize. `Job_Probe_Node` is the reference. `Probe_Record` carries no trimmable field and is emitted unfitted on purpose.
 
 ### 2. Lazy init for Topic / Partition (ADR-5)
@@ -40,15 +40,15 @@ Push all of it to first use (first `fill()`, first `read_at()`). Derived scalar 
 Don't conflate them:
 
 - **Mint FROM (set FROM=own name).** A node that *mints* a brand-new message sets FROM to its own name: `Timer_Node::fire()` and `Probe_Node`'s sweep, `Node::notify()`, `Shell_Node` (through `reply_from()`), `Tail_Node`, which assigns FROM directly at its I/O boundary rather than through the helper, and every node minting a reply — the interpreter's responses, `Table_Node`, `Job_Worker_Node`'s `GET_HEALTH`, `Router_Node`'s routing error. The Consumer offsetlog checkpoint record also carries the Consumer's name in FROM. None are bugs; don't flag them.
-- **Breadcrumb-prepend `stamp_message()` (prepend own name to an existing FROM trail).** It belongs at a boundary where a message ENTERS this graph from outside: `Durable_Reader::forward_line()` (Consumer and Remote_Source), `HTTP_In_Node`, `HTTP_Out_Node::accept_inbound()` on the reply leg, and `Remote_Link_Node::deliver_downstream()`. A node minting a fresh message into an empty FROM may also reach for it — `Value_Timeout_Node` and `Probe_To_Graphite_Node` do — which is minting, not breadcrumbing. `stamp_message()` on a Tee, Tap, Hook, Callback or any application forwarder is almost certainly a bug: it pollutes the trail and breaks reverse-direction routing. Pass-through forwarders relay the message untouched.
+- **Breadcrumb-prepend `stamp_message()` (prepend own name to an existing FROM trail).** It belongs at a boundary where a message ENTERS this graph from outside: `Durable_Reader::forward_line()` (Consumer and Remote_Source), `HTTP_In_Node`, `HTTP_Out_Node::accept_inbound()` on the reply leg, and `Remote_Link_Node::deliver_downstream()`. A node minting a fresh message into an empty FROM may also reach for it — `Value_Timeout_Node`, `Probe_To_Graphite_Node` and `Consumer_Node::drain()`'s terminal TM_EOF do — which is minting, not breadcrumbing. `stamp_message()` on a Tee, Tap, Hook, Callback or any application forwarder is almost certainly a bug: it pollutes the trail and breaks reverse-direction routing. Pass-through forwarders relay the message untouched.
 
 `stamp_message()` refuses two ways and returns false — an empty `$name`, which would compose a `/from` path Router cannot resolve, and a trail past `Node::MAX_FROM_SIZE` (1024), which means a cycle is growing it. Both guards are essential; the CALLER must drop the message on a false.
 
 ### 4. CRC32 + 31-bit-mask routing (ADR-6)
 
-`Partition_Node::hash_to_partition()` is canonical. Any diff introducing partition routing (Topic, a keyed Job_Intake mode, anything else) MUST call it. Diverging hash families silently misroute the same key to different partitions across producers, breaking the per-key ordering a Consumer depends on.
+`Partition_Node::hash_to_partition()` is canonical. Any diff introducing partition routing (Topic, a keyed Job_Intake mode, anything else) MUST call it. One partition has one consumer, so the hash IS the concurrency control: a key's messages are processed serially by one process, and per-key mutexes never have to exist. Diverging hash families split a key across partitions silently — no error, just wrong colocation — and take that guarantee with them.
 
-The function strips the query string (`explode( '?', $key, 2 )[0]`) before hashing, so one URL's variants share a partition. Don't bypass that.
+The function strips the query string (`explode( '?', $key, 2 )[0]`) before hashing, so one URL's variants share a partition, then masks with `& 0x7FFFFFFF` for 32-bit-PHP safety. Don't bypass either step. A site needing different behaviour is a new, named routing function, never a quiet second hash.
 
 ### 5. sink vs target, and TO=FROM replies (ADR-7)
 
@@ -57,16 +57,19 @@ Reverse direction (any response, error, ack): `TO = $message[FROM]`.
 
 `sink` is the physical next node `fill()` forwards to; `target` is the logical destination — a path string stamped into `message[TO]`, Tachikoma's `owner`. This port has no `edge`. `_router` resolves a non-empty TO by peeling its head segment. A diff that conflates the two, or invents an `edge` property, is a smell.
 
-### 6. Worker lifecycle ordering (ADR-8)
+### 6. Worker lifecycle and the two-tier safety net (ADR-8, ADR-9)
 
 `Worker_Base::execute()`'s `finally` does `release()` THEN `self_respawn()`. Reversed, the successor's acquire hits the lock the old process still holds and skips, and `Spawn_Coordinator::MIN_SPAWN_INTERVAL_S` (15) keeps the slot empty until a peer's rescue. Don't reorder.
 
 `Internal_Request_Token::validate()` accepts TWO windows — the current and the previous `WINDOW_S` (10 seconds each), so a token lives 10 to 20 seconds. Don't tighten to one: the tolerance absorbs clock skew and request latency across a boundary. The purpose string is inside the hash, so a `spawn` token never validates at `health-cache`.
 
-### 6b. `fill()` returns void (ADR-13)
+Revival has two tiers and no supervisor process. Every worker mounts `_fleet` (`Fleet_Node`), which every 15 seconds (`SCAN_INTERVAL_MS`) spawns any fleet worker whose lock dir is missing or whose heartbeat exceeds its `stale_timeout`, at most `MAX_SPAWNS_PER_TICK` (4) a pass — each POST is a blocking cURL inside the drain loop, so a cold fleet spreads its spawns over consecutive passes instead of stalling one. `Bootstrap::reconcile_fleet()` on WP-Cron is the cold-start tier, for a fleet with nothing left to scan. Its `run_reconcile_steps()` runs seven steps in a fixed order, each alone behind its own catch: revival first (`newspack_nodes/before_reconcile`, `spawn_due_workers()`, `wake_readers_with_backlog()`), then housekeeping (lock-dir reconcile, retention, orphan IPC, `newspack_nodes/periodic`). A diff reordering revival behind housekeeping, folding the steps into one `try`, or adding a spawner that reaches past the endpoint enforcing the 15s throttle is a regression.
+
+### 6b. One entry point, returning void (ADR-1, ADR-13)
 
 Every node's entry point is `fill( array $message ): void`. A node emits into its sink and learns *nothing* about what happened downstream — delivered, dropped, queued, transformed. Flag any diff that:
 
+- Opens a second way in — a `write()`, a `process()`, or a `parse()`/`dispatch()` pair the caller sequences, which is the same parallel API with its pieces renamed. Helpers are fine as `fill()`'s own internals; nothing outside the node calls one to get a message in. A node whose natural input is not a Message does not widen its signature either: the producer wraps the line as a `TM_BYTESTREAM` VALUE and `fill()` unwraps it.
 - Drops the `: void` return type, or adds a non-void return type to a `fill()`.
 - Uses `return <expr>;` inside a `fill()` body (bare `return;` for early exit is fine).
 - Reads, assigns, or branches on a `fill()` call's result (`$x = $sink->fill( … )`). A node that must know an outcome receives it *as a message* — a TO=FROM reply (ADR-7) or a `TM_ERROR` (ADR-3) routed back — never as a return value.
@@ -87,9 +90,18 @@ Testing stays "construct a message, call `fill()`, inspect the *sink*" (`Capture
 
 A broad catch that logs, wraps `TM_ERROR`, or defers `Worker_Should_Stop` without that explicit-first re-throw swallows the stop, and the worker runs past its deadline. That was a live bug: a mid-job stop was guaranteed only on the direct firehose path, because an intervening Tee or Command_Interpreter ate it. Three deliberate carve-outs, each documented at its site — don't flag them, and don't let a new broad catch omit the re-throw:
 
-- **Fan-out (Tee and Tap, through `Fanout_Targets`).** Both attempt EVERY target and defer one throwable; neither swallows, because a target skipped by an early throw never receives the message once the poison path advances the cursor. `outranks()` decides which escapes: a plain `Worker_Should_Stop` (replay) beats both a `Worker_Should_Stop_Clean` (commit past) and a poison (dead-letter, cursor advances), in either arrival order, because advancing past a message that needed a replay loses it while replaying a clean one is a duplicate at-least-once tolerates. `tests/unit/TeeStopPrecedenceTest.php` pins it and carries the signal for the reverted earlier rule. Tap additionally performs its passthrough BEFORE re-throwing — the passthrough IS the pipeline, and a `Worker_Should_Stop_Clean` commits past the message. Tap's old behaviour, swallowing an ordinary target throw and re-throwing the stop immediately, is superseded; a diff restoring it is a regression.
+- **Fan-out (Tee and Tap, through `Fanout_Targets`).** Both attempt EVERY target and defer one throwable; neither swallows, because a target skipped by an early throw never receives the message once the poison path advances the cursor. `outranks()` decides which escapes: a plain `Worker_Should_Stop` (replay) beats both a `Worker_Should_Stop_Clean` (commit past) and a poison (dead-letter, cursor advances), in either arrival order, because advancing past a message that needed a replay loses it while replaying a clean one is a duplicate at-least-once tolerates. `tests/unit/TeeStopPrecedenceTest.php` pins it and carries the signal for the reverted earlier rule. Tap additionally performs its passthrough BEFORE re-throwing — the passthrough IS the pipeline, and a `Worker_Should_Stop_Clean` commits past the message. A diff restoring Tap's superseded carve-out — swallowing an ordinary target throw, re-throwing the stop immediately — is a regression.
 - **Post-success `finally` — `Job_Worker_Node`'s `newspack_nodes/job_worker/after_job` action.** It swallows everything, `Worker_Should_Stop` included: the handler already ran, so propagating out of cleanup would false-poison a settled job (ADR-12). Its `before_job` counterpart is NOT a carve-out — it follows the rule, and swallows only a listener's own error.
 - **`Log_Manager::finish()`, in newspack-event-logger-nodes.** It marks the request aborted, writes the terminal, then re-raises, because terminal-LAST is a wire contract: `Reqgrep_Core` finalizes and evicts the rid on the terminal, so anything written after it arrives at a request that no longer exists.
+
+### 6d. Poison and crash lifecycle (ADR-12)
+
+`Dead_Letter_Queue` and `Durable_Reader` share this between `Consumer_Node` and `Remote_Source_Node`, and `Partition_Node` reuses the same trait for a short write with no cursor at all. The cursor names the NEXT UNREAD position: a record disposed of rather than forwarded — dead-lettered or dropped — advances the cursor past itself and commits there gracefully, so no boot re-encounters it and no quarantine marker has to exist.
+
+- A caught throw is quarantined ON SIGHT to the `:deadletter` sibling, replayable through `wp nodes ingest`. A diff adding automatic retry is wrong: a caught throw is deterministic per message, so retrying only wedges the stream, and the transient failures retries would target are upstream.
+- Attempt accounting lives in the offsetlog frame (`attempts`, `reason`, `first_crash_ts`), and a graceful shutdown stamps `attempts=0`. The handoff is deliberately SKIPPED on a fatal, because a count left climbing is what carries a deterministic fatal-poison to `CRASH_MAX_ATTEMPTS` (5) and into crawl. A diff stamping on every exit path disarms the crash detector; one dropping the stamp makes a clean ~10-minute recycle read as a crash, so an idle cursor climbs to the threshold and quarantines an innocent message.
+- Crawl checkpoints after EVERY message so a re-crash pins the culprit, and exits to the healthy baseline after `CHECKPOINT_INTERVAL_S` (30) crash-free — but never while the boot-pinned suspect is still armed. The cooperative-stop path is separate and bounded by `COOP_MAX_ATTEMPTS` (2).
+- The four triage verbs — `dl_list`, `dl_show`, `dl_requeue`, `dl_purge` — merge into the using node's `node_schema()['commands']`, so both readers expose them on their `{name}:config` interpreter with no CI edit. A fifth belongs there too, never hand-added to a service CI.
 
 ### 7. No TM_PERSIST, answer or cancel (ADR-3)
 
@@ -97,7 +109,9 @@ These were deliberately not ported. If a diff reintroduces them, push back: the 
 
 If a change seems to need ack or cancel for a real reason, build slot tracking at the producer that needs it — never a global persist contract.
 
-### 8. Type flag semantics
+### 8. Message shape and type flags (ADR-2)
+
+One shape everywhere: the 7-field positional array (`TYPE=0`, `TIMESTAMP=1`, `FROM=2`, `TO=3`, `ID=4`, `KEY=5`, `VALUE=6`), indexed through the `Message::*` constants. `packed()` / `unpacked()` are JSON of that same array, so the wire shape IS the memory shape and no boundary needs a translation layer. There is no object form, and a string subscript is a silent-corruption footgun: `$message['type'] = …` lands under a key beside the seven, `packed()` emits the seven positional fields and drops it, and TYPE keeps the value the write meant to replace.
 
 - `TM_BYTESTREAM` (1): VALUE is a string — one raw line or frame.
 - `TM_STRUCT` (16): VALUE is an array.
@@ -109,8 +123,9 @@ The full bitmask from `includes/class-message.php`: `TM_BYTESTREAM=1`, `TM_EOF=2
 
 Flag NAMES come from `Message::TYPE_NAMES` through `Message::type_labels()`, mirrored in `src/runtime/message.js`. A renderer holding a private copy is how a flag goes unnamed; both ports move together.
 
-### 8b. `arguments()` Tachikoma parity (ADR-11)
+### 8b. `make_node` construction and class naming (ADR-10, ADR-11)
 
+- Every class is `Word_Word`, acronyms all-caps (`HTTP`, `SSE`, `CLI`, `LRU`, `CI`, `JSON`, `TTY`). A Node subclass ends `_Node`, a helper does not, and the shell name is the short name minus that suffix (`Tee_Node` → `Tee`). `make_node( $type )` constructs the first `{$prefix}{$type}_Node` that is a concrete Node subclass, across the prefixes plugins register through `Command_Interpreter_Node::register_namespace()`. Resolution rides on the suffix and the prefix, so there is no `class_map` to add a row to; a diff proposing one is a regression.
 - The constructor must be parameter-less for `make_node`-buildable nodes; positional config is declared in `node_schema()['arguments']` as `[ { name, type, default?, required? } ]`.
 - A schema `default` is a real typed value (ints, floats, class constants) or a `<ns:key>` token string such as `'<config:max_segments>'`, which `Schema_Reflection::resolve_default()` resolves through its namespace resolver and coerces to the declared type. A schema default lives in PHP and never passes through the TSL loader, so a token default resolves here rather than crashing the walker.
 - `arguments( ?array $args )` takes a **token array** (`list<string>`), never a joined string. Follow the `Partition_Node` reference: `if ( null === $args ) { return parent::arguments(); }` (pure getter), else `parse_schema_args( $args )` and then derive. There is NO `'' === $args` short-circuit — `parse_schema_args()` fills each missing position from its schema `default` or throws `Missing required argument: <name>`, so a bare `make_node Partition foo` fails loud instead of writing filesystem-root junk like `/p0`.
@@ -194,7 +209,7 @@ Adding, renaming or removing a verb or its arguments on any `*_CI_Node` `node_sc
 
 `Node::extra_targets()` declares the destinations a node writes WITHOUT going through `target` — a partition filled directly at flush, a conditional per-message TO. `Node::display_targets()` unions them with `target_list( target() )`, primary first, de-duplicated, empties dropped, and the union is consumed by PRESENTATION only: `ls`'s TARGET column and `dump_metadata`'s `targets` key. `fill()` continues to read `$this->target` alone, and a caller appearing for `display_targets()` on the routing path means ADR-7 is the decision in play.
 
-The union is POSITIONAL, and that has bitten four consumers: index 0 is the routing target only when a routing target is SET, so a node with an empty `target` and one declared extra puts the EXTRA at index 0. A consumer that needs the routing value reads `target`; one that must split the union splits by the routing COUNT, never at a fixed index.
+The union is POSITIONAL, and consumers have read index 0 as the routing target and been wrong: index 0 is the routing target only when a routing target is SET, so a node with an empty `target` and one declared extra puts the EXTRA at index 0. A consumer that needs the routing value reads `target`; one that must split the union splits by the routing COUNT, never at a fixed index.
 
 ### 12. A Table may front a durable record; the walk stays in the app (ADR-18)
 
@@ -229,7 +244,7 @@ A node mints a command stamped `FROM = <its own name>`; the server replies `TO =
 - a transport method returning a Promise the caller awaits;
 - `KEY` pressed into service as a demux discriminator.
 
-"Several verbs batch into one tick, so replies need telling apart" is one node doing N jobs. The fix is N nodes, each with its own FROM — split by JOB, never by SUBJECT, because the subject rides in the ADDRESS. See `addSliceFetcher`'s docblock ("an independent reply path per slice, nothing crossing") and `RuntimeView`'s two pollers. Batching is orthogonal: `HTTP_Out`'s lock and flush already put the whole tick in one POST. `lint-contract.mjs` catches these five shapes in JavaScript; PHP has no such gate, so read for them.
+"Several verbs batch into one tick, so replies need telling apart" is one node doing N jobs. The fix is N nodes, each with its own FROM — split by JOB, never by SUBJECT, because the subject rides in the ADDRESS. See `addSliceFetcher`'s docblock ("an independent reply path per slice, nothing crossing") and `RuntimeView`'s two pollers. Batching is orthogonal: `HTTP_Out`'s lock and flush already put the whole tick in one POST. `lint-contract.mjs` catches them in JavaScript across five rules; PHP has no such gate, so read for them.
 
 ## Style gates (lighter-weight)
 
@@ -246,7 +261,7 @@ Substrate tests live in `tests/{unit,integration}/` — 206 unit files (with `Ad
 
 Each test must fail on the OLD code and be seeded with values distinct from every default and fallback — one seeded with the default still passes when the change is ignored. `tests/bootstrap.php` shims WordPress rather than loading it; check it before adding a new global function call. Run the suite with `--enforce-time-limit`, so a test blocking on stdin or spinning in a drain loop aborts at its budget instead of hanging.
 
-The push gate holds every class at 90% line coverage and every `src/` file at 90%. A file landing below that fails the push, not the review.
+The push gate holds every `includes/` class and every `src/` file at 90% statement coverage. A file landing below that fails the push, not the review.
 
 ## Common review nits that aren't bugs
 

@@ -62,7 +62,7 @@ The digest from the first guide accumulates summaries in memory and flushes them
 
 A `Scorer` is a transform exactly like the summarizer: receive a struct item, add a field, forward. The one seam a real scorer replaces is `score()`.
 
-> Each PHP file below opens with the same preamble writing-a-plugin.md §2 established — `namespace Newspack_AI_Newsletter;` plus the `use Newspack_Nodes\{ Node, Message, Command_Interpreter_Node };` (or `Service_CI_Node`/`Partition_Node`/`Config`) it needs. The snippets show only the class body.
+> Each PHP file below opens with the same preamble writing-a-plugin.md §2 established — `namespace Newspack_AI_Newsletter;` plus the `use Newspack_Nodes\{ Node, Message, Core, Command_Interpreter_Node };` (or `Service_CI_Node`/`Partition_Node`/`Config`) it needs. The snippets show only the class body.
 
 `includes/class-scorer-node.php`:
 
@@ -74,21 +74,6 @@ class Scorer_Node extends Node {
 
 	/** Bonus keywords — a title hit adds 1.0 each. */
 	private const KEYWORDS = [ 'award', 'launch', 'ships', 'GA', 'million', '10k' ];
-
-	/** The ONE seam a real scorer replaces: item -> notional priority score. */
-	protected function score( array $item ): float {
-		$source = Core::as_string( $item['source'] ?? null );
-		$base   = self::SOURCE_WEIGHT[ $source ] ?? 1.0;
-		$title  = Core::as_string( $item['title'] ?? null );
-		$bump   = 0.0;
-		foreach ( self::KEYWORDS as $kw ) {
-			// Word-boundary match — 'GA' must not fire on "Garage".
-			if ( 1 === \preg_match( '/\b' . \preg_quote( $kw, '/' ) . '\b/i', $title ) ) {
-				$bump += 1.0;
-			}
-		}
-		return \round( $base + $bump, 1 );
-	}
 
 	public function fill( array $message ): void {
 		$type = $message[ Message::TYPE ];
@@ -106,6 +91,21 @@ class Scorer_Node extends Node {
 		$out[ Message::FROM ]  = $this->name;
 		$out[ Message::VALUE ] = $item;
 		parent::fill( $out );   // stamp TO from target, forward to sink
+	}
+
+	/** The ONE seam a real scorer replaces: item -> notional priority score. */
+	protected function score( array $item ): float {
+		$source = Core::as_string( $item['source'] ?? null );
+		$base   = self::SOURCE_WEIGHT[ $source ] ?? 1.0;
+		$title  = Core::as_string( $item['title'] ?? null );
+		$bump   = 0.0;
+		foreach ( self::KEYWORDS as $kw ) {
+			// Word-boundary match — 'GA' must not fire on "Garage".
+			if ( 1 === \preg_match( '/\b' . \preg_quote( $kw, '/' ) . '\b/i', $title ) ) {
+				$bump += 1.0;
+			}
+		}
+		return \round( $base + $bump, 1 );
 	}
 }
 ```
@@ -378,7 +378,7 @@ fill( message ) {
 
 Read `fill()` carefully — apart from a reply, it **ignores its trigger message entirely**. Its type, VALUE and addressing go unread: any message that is not a reply is only the *trigger* to emit *the Fetcher's own configured command*. The command is configured on the node at `make_node` time (`fetch-counts`'s command is `counts`, fixed), **never read from the triggering message**.
 
-Two fields on the node are the whole of its state. `outbox` holds the asks in flight, so a table can read which rows are still waiting; `command_args` holds either a static token array or a **fire-time getter** the trigger calls, which is how a filter, a sort or a page value tracks React state without re-wiring the graph. `send( args, path, supersede )` is the other way in, for a caller with an answer to wait on: it parks arguments the next trigger puts on the wire, and parks the **subject** the ask is about, which rides on FROM so the answer comes back naming it. That is how one Fetcher serves many rows with nothing correlated. `useCommandOnce` is that path packaged — reach for it rather than driving `send()` by hand.
+Two fields are what a caller reaches for. `outbox` holds the asks in flight, so a table can read which rows are still waiting; `command_args` holds either a static token array or a **fire-time getter** the trigger calls, which is how a filter, a sort or a page value tracks React state without re-wiring the graph. `send( args, path, supersede )` is the other way in, for a caller with an answer to wait on: it parks arguments the next trigger puts on the wire, and parks the **subject** the ask is about, which rides on FROM so the answer comes back naming it. That is how one Fetcher serves many rows with nothing correlated. `useCommandOnce` is that path packaged — reach for it rather than driving `send()` by hand.
 
 > **A node that sends the command its message carries is a `Shell`, and that's verboten.** A Shell *sends* arbitrary commands; a command *interpreter* is what *interprets* them. A named, always-firing node that relays whatever verb its incoming message names is a Shell wired into the graph — exactly the thing the substrate forbids. The Fetcher is the safe inverse: the command is fixed on the node, the message is only a trigger. When you need "on a tick, send verb X to node Y", reach for a `Fetcher`, never a Shell.
 
@@ -387,7 +387,7 @@ Two fields on the node are the whole of its state. `outbox` holds the asks in fl
 `Timer ─> Tee ─> 3 Fetchers`, each Fetcher `connectNode`'d to **`_shell/_http/insights-demo`**:
 
 - **`_http`** is the substrate's `HttpOut` egress — the boundary that POSTs the command batch to `/command`.
-- **`_shell`** is an **observe-only `Tap`** sitting *in front* of `_http`. A `Tap` forwards everything to its sink unchanged, but it's a named node on the send path — so you can `connect _shell` in the console and **watch every command going out** without touching the graph. Routing the Fetchers through `_shell/_http/insights-demo` (not `_http/insights-demo` directly) is what buys you that observability. (`TO = _shell/_http/insights-demo` means: the router peels `_shell` → the Tap forwards to `_http` → `HttpOut` peels itself and POSTs to `insights-demo`.)
+- **`_shell`** is an **observe-only `Tap`** sitting *in front* of `_http`. A `Tap` forwards everything to its sink unchanged, but it's a named node on the send path — so you can `connect _shell` in the console and **watch every command going out** without touching the graph. Routing the Fetchers through `_shell/_http/insights-demo` (not `_http/insights-demo` directly) is what buys you that observability. Read `TO = _shell/_http/insights-demo` hop by hop: the router peels `_shell`, the Tap forwards to `_http`, and `HttpOut` peels itself and POSTs to `insights-demo`.
 
 Both names are reserved, so spell the path through **`egressPath( ci )`** (`@newspack-nodes/shared/helpers/egressPath`) rather than by hand: it returns `_shell/_http/<ci>`, or a bare `_shell/_http` for a command-interpreter builtin such as `taillog`. Skipping the Tap is silent — the command still arrives, and `connect _shell` simply stops seeing it.
 
@@ -411,7 +411,8 @@ import { isControl } from '@newspack-nodes/shared/helpers/controlMsg';
 export class SliceViewNode extends Node {
 	constructor() {
 		super();
-		// `registrations: [ 'view' ]` in nodeSchema() is what React subscribes to
+		// `registrations: [ 'view' ]` in nodeSchema() names the key a direct
+		// register() may use; useNodeEvent seeds the key React subscribes on.
 		this.model = this.emptySlice();
 		this.settled = {};   // the status fields THIS shape declares, at rest
 		if ( 'loading' in this.model ) { this.settled.loading = false; }
@@ -452,6 +453,8 @@ export class SliceViewNode extends Node {
 
 Three branches, three failure rules, and none of them blanks the widget. A **control** is recognised by who sent it (`controlFrom`), never by what its payload looks like — ADR-7 addressing applied to controls, so a reply carrying an `action` field is still a reply. A **TM_ERROR** keeps the slice already on screen and adds `error` while clearing `loading`, so a transient failure neither empties a working widget nor leaves it spinning. An **unparseable payload** keeps the prior slice untouched. `_parse()` reports what it cannot use by returning null, never by throwing: `fill()` runs synchronously in the drain with no per-message try/catch, so a throw aborts the whole turn.
 
+> **Three more message helpers.** `@newspack-nodes/runtime` re-exports `payloadOf` alongside the field constants, and three of its siblings measure or label a message rather than parse one. `typeLabels( type )` returns one label per flag set in a TYPE bitmask, and an empty array when no known flag matches — the Dumper renders that case as `TM_UNKNOWN(0x…)` itself. `byteLength( str )` measures a string in UTF-8 bytes the way PHP's `strlen()` does, through `Blob` rather than the `TextEncoder` jsdom lacks; the command transport and `HttpOut` weigh their wire traffic with it. `valueSize( m )` measures a message's VALUE through it — UTF-8 bytes for a string, and the character length of the JSON encoding, an estimate rather than a wire-exact count, for a struct or a command object.
+
 Each subclass supplies **only** its empty slice — that is the whole subclass, `src/dashboard/nodes/source-counts-view-node.js`:
 
 ```js
@@ -472,14 +475,14 @@ export class SourceCountsViewNode extends SliceViewNode {
 ```js
 import { registerSliceViews } from '@newspack-nodes/shared/nodes/slice-view-node';
 
-export const VIEWS = registerSliceViews( {
+export const views = registerSliceViews( {
 	SourceCountsView: { empty: { sources: {} } },
 	TopTableView:     { empty: { top: [] } },
 	AccumulatedView:  { empty: { accumulated: 0 } },
 } );
 ```
 
-Subclass instead — as the example does, one file each — only for a view that owns more than its slice: its own `fill()`, a timer, a teardown. Either way the classes are what the graph is built from; the names are for TSL and the console palette.
+Every dashboard the substrate ships declares its views this way. Subclass only for a view that owns more than its slice — its own `fill()`, a timer, a teardown; the example keeps one file per view because a tutorial has to show the class before it shows the shorthand. Either way the classes are what the graph is built from, and the names are for TSL and the console palette.
 
 Register the classes so `makeNode` can find them by name (the JS analogue of the PHP classmap) — `Timer`/`Tee`/`Fetcher`/`Tap`/`HttpOut` are runtime nodes and already registered. `src/dashboard/nodes/register.js`:
 
@@ -543,7 +546,7 @@ export function usePublisherInsightsGraph( opts = {} ) {
 
 `useBatchedPoll` owns everything that used to be hand-wired here — the `mountExospine` call that brings the `_shell` Tap and the `_http` HttpOut, the fan-out `Tee`, the router-hitchhike `Timer`, and the page-visibility gate. It returns `{ interpreterRef, pollNow }`: the live interpreter, and a `pollNow()` that marks this poll due and runs the Router's tick, which is how a filter change refreshes without waiting out the cadence. Each `addSliceFetcher` wires one Fetcher → `_shell/_http/insights-demo`, its receiver Tee, its view node, and the receiver's edge back to the Fetcher that settles the ask. (When a slice needs a per-slice merge or dedup, pass `addSliceFetcher` a `transform: { name, nodeClass, args }` and it drops that node onto the receiver-Tee → view edge — so the transform lands on a graph edge, not inside the view.)
 
-Four more options ride in the same bag:
+Four options ride in the same bag:
 
 - **`intervalMs`** — set the poll cadence, **required and at least 1000 ms**; a lower value throws a `TypeError` naming the timer. That floor is `TimerNode`'s own hitchhike threshold: a sub-second timer takes its own `setInterval` slot outside the Router's lock/flush bracket, which costs one POST per slice per tick and batches nothing. Exactly 1000 rides every router tick; above that the Timer throttles against the shared wall-clock grid ([ADR-17](architecture-decisions.md#adr-17-timers-fire-on-a-shared-wall-clock-grid)), so two surfaces on one cadence meet on the same tick and share the POST. Changing the value re-arms the Timer live — the Aggregator dashboard wires it straight to a refresh dropdown (`intervalMs: parseInt( refreshInterval, 10 ) || parseInt( DEFAULT_REFRESH_MS, 10 )`). Sub-second work belongs to `useRouterTick`.
 - **`paused`** — suspend polling *without* unmounting the graph (it stops the Timer's hitchhike, exactly like a hidden tab, and resumes when false). The Overview dashboard passes `paused: dragging` so a poll doesn't fight a drag in flight. A paused mount still delivers its one first load, because a surface that has never shown its data has no cadence to suspend.
@@ -621,7 +624,7 @@ export function AccumulatedCard() {
 }
 ```
 
-`SourceCounts` reads `source-counts:view` and renders one proportion bar per source — with its **own** error notice and its **own** "No sources yet" empty hint. `TopTable` reads `top-table:view` and renders the score-ranked table, with its own error/empty branches — that per-widget ownership of empty and error state *is* the composition: each card degrades independently. The `|| { … }` fallback in each (`useNodeState` returns undefined before the first reply) means the first render is valid — the view node guarantees its shaped-but-empty slice on construction.
+`SourceCounts` reads `source-counts:view` and renders one proportion bar per source — with its **own** error notice and its **own** "No sources yet" empty hint. `TopTable` reads `top-table:view` and renders the score-ranked table, with its own error/empty branches — that per-widget ownership of empty and error state *is* the composition: each card degrades independently. The `|| { … }` fallback in each covers the one render before the hook's effect mounts the node, where `useNodeState` has no node to read and returns undefined. From construction onward the view node publishes its own shaped-but-empty slice, so every later render is valid without it.
 
 `TopTable` also owns the newsletter actions — the **Draft newsletter**, **Copy markdown** and **Create draft post** buttons — because they operate on *its* `top` items. Both documents are composed in the browser; only **Create draft post** leaves it, and it goes to the WP REST API (`POST /wp/v2/posts`), never back through the node graph. That call sits behind a `createDraft` prop defaulting to `apiFetch`, so a test hands the component a fake that resolves or rejects and exercises both rendered outcomes without touching the network. The three actions share one tiny normalizer so the on-screen preview, the markdown draft and the draft-post HTML all agree on a row's display strings, `src/dashboard/itemLabel.js`:
 
@@ -677,7 +680,9 @@ That is the entire view layer: three thin widgets reading three nodes, two clien
 
 ## 6. Build it — a few lines, not a build system
 
-The JS needs bundling (JSX, the `@wordpress/*` and `@newspack-nodes/*` imports, SCSS) into a single `build/dashboard/index.js` WordPress can enqueue. The substrate ships the builder; your `scripts/build.mjs` declares its entries and injects its own tools:
+The JS needs bundling (JSX, the `@wordpress/*` and `@newspack-nodes/*` imports, SCSS) into a single `build/dashboard/index.js` WordPress can enqueue. The substrate ships the builder; your `scripts/build.mjs` declares its entries and injects its own tools. Only one thing differs between a plugin bundled in this repo and a standalone one — **where the substrate's `src` directory is** — so both forms are below. Pick the one that matches where your plugin lives.
+
+**In this repo**, `examples/example-ai-newsletter/scripts/build.mjs` — the example sits at `examples/<name>/`, so `src` is at a fixed depth:
 
 ```js
 import esbuild from 'esbuild';
@@ -716,13 +721,41 @@ buildDashboards( {
 } ).catch( ( err ) => { console.error( err ); process.exit( 1 ); } );
 ```
 
+**A standalone plugin** lives in `wp-content/plugins/<slug>/`, where [writing-a-plugin.md](writing-a-plugin.md) §1 put yours, and `../../src` there resolves to `wp-content/src` — so the guard above fires and the build stops at `build-kit not found`. Replace the `SUBSTRATE_SRC` block and the two loads with the resolution both standalone consumers ship — `newspack-event-logger-nodes/scripts/build.mjs` and `newspack-intelligence/scripts/build.mjs`, which spell it identically down to the error string (and name the constant `substrateSrc`):
+
+```js
+// A sibling newspack-nodes checkout by default; NEWSPACK_NODES_SRC wherever
+// the substrate sits elsewhere, as a release workflow's checkout does.
+const SUBSTRATE_SRC =
+	process.env.NEWSPACK_NODES_SRC || path.resolve( ROOT, '../newspack-nodes/src' );
+if ( ! existsSync( SUBSTRATE_SRC ) ) {
+	throw new Error(
+		`substrate src not found at ${ SUBSTRATE_SRC } — set NEWSPACK_NODES_SRC when building outside a sibling newspack-nodes checkout`
+	);
+}
+
+const { buildDashboards } = await import(
+	pathToFileURL( path.join( SUBSTRATE_SRC, 'build-kit/index.mjs' ) ).href
+);
+const { esbuildAlias, assertNoRetiredOverrides } = (
+	await import( pathToFileURL( path.join( SUBSTRATE_SRC, 'build-kit/alias-map.cjs' ) ).href )
+).default;
+
+// Refuse the retired per-alias overrides; never silently ignore one.
+assertNoRetiredOverrides( process.env );
+```
+
+**That sibling has to be a git clone.** The release zip carries the runtime alone — `includes/`, `topologies/`, `build/` and a production `vendor/` — because `.distignore` drops `src/`, `scripts/`, `tests/` and `docs/`. So `wp plugin install newspack-nodes.zip`, the install [getting-started.md](getting-started.md) walks you through, leaves a substrate at `wp-content/plugins/newspack-nodes/` with no `src/` in it — at exactly the path the default resolves to. The build then stops on `substrate src not found at …`, and pointing `NEWSPACK_NODES_SRC` at that same directory changes nothing. Clone the substrate repository beside your plugin, or point `NEWSPACK_NODES_SRC` at that clone's `src`. You need the clone three more times: the `jest.config.js` below spells it literally in both the `require()` and `aliasBase`, since jest reads no environment variable; [writing-a-plugin.md](writing-a-plugin.md) §8b's test bootstrap loads the substrate's `tests/Helpers/`; and §8c's PHPStan config scans `../newspack-nodes/includes`.
+
+The guard moves from the kit file onto the directory, because the directory is what the variable names: a wrong `NEWSPACK_NODES_SRC` should say so rather than report a missing `index.mjs`. The `buildDashboards` call below it changes in one place — `nodePaths` becomes your own `node_modules` (`path.resolve( ROOT, 'node_modules' )`), since the substrate checkout beside you may have none. A plugin that declares dependencies of its own, as both standalone consumers declare `d3` and `@noble/hashes`, needs one more loop to pin them; [writing-a-real-dashboard.md](writing-a-real-dashboard.md) §7 carries that loop and the 88KB duplicate it prevents.
+
 `buildDashboards` rewrites each `@wordpress/*` import listed in its `WP_EXTERNALS` map to the matching `window.wp.*` global (and records the dependency in `index.asset.php` so WordPress enqueues the right handles), compiles your SCSS, content-hashes the bundle for cache-busting, and emits the RTL companion. It checks every alias path *before* esbuild starts, so a bad checkout fails with a fixable line naming the missing directory.
 
-**One base path, three aliases, one resolver.** `src/build-kit/alias-map.cjs` is the single place `@newspack-nodes/runtime`, `@newspack-nodes/shared` and `@newspack-nodes/debug-overlay` are written down; `esbuildAlias( base )` projects them for esbuild and `jestModuleNameMapper( base )` for jest, so the two cannot disagree about where an alias points. The `.cjs` extension is load-bearing — `jest.cjs` must `require()` it synchronously while `build.mjs` imports it as a module. A standalone plugin points `base` at its sibling `newspack-nodes` checkout, overridable per-environment through **one** env var, `NEWSPACK_NODES_SRC`, the substrate's `src` directory. The in-repo example reads no env var: its depth is fixed, so a variable there would only be a way to build against a different checkout by accident.
+**One base path, three aliases, one resolver.** `src/build-kit/alias-map.cjs` is the single place `@newspack-nodes/runtime`, `@newspack-nodes/shared` and `@newspack-nodes/debug-overlay` are written down; `esbuildAlias( base )` projects them for esbuild and `jestModuleNameMapper( base )` for jest, so the two cannot disagree about where an alias points. The `.cjs` extension is load-bearing — `jest.cjs` must `require()` it synchronously while `build.mjs` imports it as a module. Both forms above hand `base` the same value they hand the kit, which is the point of the single override: `NEWSPACK_NODES_SRC` names the substrate's `src` directory, and everything derives from it. The in-repo example reads no env var, because its depth is fixed and a variable there would only be a way to build against a different checkout by accident.
 
-`assertNoRetiredOverrides( process.env )` is the guard a standalone consumer calls beside it. There used to be four independent overrides, one per alias plus the kit, all naming paths inside that same directory; a release workflow had to set every one, and omitting any single one silently resolved to a nonexistent sibling path. Setting a retired name now throws and names it, rather than being ignored.
+`assertNoRetiredOverrides( process.env )` defends that single override. There used to be four independent ones, one per alias plus the kit, all naming paths inside that same directory; a release workflow had to set every one, and omitting any single one silently resolved to a nonexistent sibling path. Setting a retired name now throws and names it, rather than being ignored.
 
-The jest config is one call too, `jest.config.js`:
+The jest config is one call too, and it splits the same two ways — `jest.config.js` **in this repo**:
 
 ```js
 const path = require( 'node:path' );
@@ -734,7 +767,21 @@ module.exports = createJestConfig( {
 } );
 ```
 
-`createJestConfig` also takes `extraMappers` (the example pins `@wordpress/api-fetch` and `d3` at the substrate's installed copies) and `transformIgnorePatterns` (d3 and `@noble/*` ship ESM only, so they opt out of the node_modules transform skip). It resolves two `<rootDir>` files it expects you to provide — jest's convention, not the substrate's:
+and **a standalone plugin**, reaching `jest.cjs` through the sibling checkout:
+
+```js
+const path = require( 'node:path' );
+const { createJestConfig } = require( '../newspack-nodes/src/build-kit/jest.cjs' );
+
+module.exports = createJestConfig( {
+	aliasBase:    path.resolve( __dirname, '../newspack-nodes/src' ),
+	pinReactFrom: path.resolve( __dirname, 'node_modules' ),
+} );
+```
+
+Jest reads no `NEWSPACK_NODES_SRC`: the `require()` is a literal path, so the sibling checkout is spelled twice in this file and the env var moves the build alone. The release workflow builds without running jest, so nothing there depends on the two agreeing — but a `jest.config.js` aimed at a different substrate than the bundle is a suite passing against code you do not ship.
+
+`createJestConfig` also takes `extraMappers` (the example pins `@wordpress/api-fetch` and `d3` at the substrate's installed copies), `transformIgnorePatterns` (d3 and `@noble/*` ship ESM only, so they opt out of the node_modules transform skip) and `testPathIgnorePatterns` (the substrate excludes `/examples/`, which runs its own suite). It resolves two `<rootDir>` files it expects you to provide — jest's convention, not the substrate's:
 
 ```js
 // jest.setup.js — @testing-library matchers (toBeInTheDocument, …)
@@ -744,6 +791,13 @@ import '@testing-library/jest-dom';
 // jest.style-mock.js — SCSS/CSS imports are stubbed in tests
 module.exports = {};
 ```
+
+Ahead of your `jest.setup.js` the factory loads one of its own, `src/build-kit/jest-node-timers.js`. It holds every runtime node your suite mounts to two timer invariants, and breaking either fails the test:
+
+- **No runtime interval outlives the test file.** The harness wraps `TimerNode`'s `setTimer`/`stopTimer`, disarms after each test whatever that test armed, and closes any `SseInNode` it opened — so a suite owns no timer teardown of its own. An interval armed from `src/runtime/` that is still live after the last test throws from `afterAll`, naming the frame that armed it, because a timer outliving its test fires into the next one.
+- **A node armed on the real clock must not still be armed when the suite fakes `setInterval`.** Its handle belongs to the real clock, so `advanceTimersByTime` never fires it: the graph does not tick and the test passes for the wrong reason. `createTimerHazardGuard` (`src/build-kit/timer-hazard.js`) catches the swap and throws at that test's teardown, naming the arming line in your `__tests__` file (`firstFrame` picks that frame out of the stack) and the three one-line remedies — install fake timers before you mount or arm the graph, dispose the stale graph before re-mounting under them, or fake only what you advance: `jest.useFakeTimers( { doNotFake: [ 'setInterval', 'requestAnimationFrame' ] } )`. Faking `setTimeout` alone to drive a component debounce is not a hazard and is not reported.
+
+Both invariants are browser-only. The file's body sits behind a `typeof window` check, so a suite declaring `/* @jest-environment node */` — the build-tooling tests — pulls no runtime graph in and is held to neither.
 
 The example's `jest.setup.js` earns three more blocks, and a dashboard suite wants all three. It **authenticates the command session** in a `beforeEach` (`forgetSession`, `__setAuthFetch`, `ensureSession` from `src/runtime/command-auth`) — every Fetcher holds until `readyToMint()` says yes, which is what production does, so without it every poll test asserts silence. It installs Node's `TextEncoder` and `webcrypto` over jsdom's, which ships neither and the command signer needs both. And it **fails any test emitting an unexpected `console.warn` or `console.error`**, letting through only the substrate's own timestamped `Core.stderr()` lines.
 
@@ -811,7 +865,13 @@ if ( \is_admin() ) {
 
 A standalone plugin dashboard gets its **own** top-level menu (`add_menu_page`) — it shouldn't squat inside the substrate's menus, which belong to Nodes' own tools: `Admin::MENU_SLUG` (`newspack-nodes`) for settings, `Admin::HUB_MENU_SLUG` (`newspack-nodes-hub`) for the DevTools hub that carries the Console, Overview, Jobs, Vault and the rest. If your dashboard genuinely *is* a Nodes-internal tool, register it as a `host: 'hub'` DevTools tab — `registerDevtoolsTab( { id, label, host, component, order, slug } )` from `@newspack-nodes/shared/devtools/tabRegistry` — rather than as an `add_submenu_page`. Either way, the gate above (`current_user_allowed()`) keeps visibility consistent with the substrate.
 
-This example mounts `DebugOverlay` in §9, so its stylesheet explicitly depends on `newspack-nodes-graph` (which brings the canonical UI and theme handles with it). `GraphView` deliberately has no stylesheet side-effect import: every host that renders the graph owns this dependency, keeping the graph CSS in one build asset instead of copying it into each consumer bundle.
+This example mounts `DebugOverlay` in §9, so its stylesheet names `newspack-nodes-graph`, and WordPress loads the two handles beneath it in the same cascade. The substrate registers three, each depending on the one before:
+
+- **`newspack-nodes-theme`** defines the `--np-*` custom properties — the one definition of the product palette, type scale and spacing scale.
+- **`newspack-nodes-ui`** adds the component appearance under the `.newspack-nodes-ui` scope, and depends on the theme.
+- **`newspack-nodes-graph`** adds the topology-canvas artwork and layout, and depends on the UI sheet.
+
+A dashboard that draws no graph omits `style_deps` and takes the registrar's default, `[ 'wp-components', 'newspack-nodes-ui' ]`. A consumer wanting the palette without the component skin names `newspack-nodes-theme` alone and carries `.newspack-nodes-theme` on its root, as pyrobase's editor pages do — the tokens are defined on that class, so a root without it resolves no `var(--np-*)`. The same holds one level up: the component rules scope under `.newspack-nodes-ui`, so a host opts into the skin by carrying that class too. This page carries neither, because `DebugOverlay` supplies both on its own root whenever no ancestor is already a provider. `GraphView` deliberately has no stylesheet side-effect import: every host that renders the graph owns this dependency, keeping the graph CSS in one build asset instead of copying it into each consumer bundle.
 
 > **← a substrate refinement.** `enqueue_insights_assets` was ~40 lines: read the `$_GET['page']` and bail if it's not yours; `file_exists` the bundle; `require` the `index.asset.php` manifest for deps + version; `wp_enqueue_script`; the `index.css` sidecar; `wp_localize_script` the REST root + nonce as `NewspackNodesData` (which the JS transport reads). Every dashboard repeated it. It became **`Admin::enqueue_react_page( $args )`** — page-gate, manifest deps/version, CSS (and the RTL companion, which no site previously activated), and the `NewspackNodesData` localize, returning the handle so a caller can layer extras. You pass it where your bundle is and which page it's for.
 
@@ -822,11 +882,15 @@ The `NewspackNodesData` the registrar localizes (`{ restUrl, nonce }`) is exactl
 ## 8. Run it — drive the pipeline, watch the dashboard, then inspect the graph
 
 ```bash
-# Build the bundle, then deploy + activate the plugin on a site with the substrate.
+# Regenerate the classmap, build the bundle, then deploy + activate the plugin
+# on a site with the substrate.
+composer dump-autoload -o
 npm run build
 wp nodes activate example-ai-newsletter   # add to the active set + spawn the fleet now
-wp nodes status                               #   example-ai-newsletter  0  live  3s ago  2m 10s
+wp nodes status                           #   example-ai-newsletter.p0  live  3s ago  2m 10s
 ```
+
+Skip the dump and the worker boots into `unknown class: Scorer`: §1a added that class file, and `make_node Scorer` resolves it through `class_exists()` against the classmap. §2's `Insights_CI` is the one exception — its mount `require_once`s its own file, so it needs no dump.
 
 The worker is live but its snapshot is empty until the pipeline runs. Drive it from the worker's REPL — the sources emit on a `TICK` runtime request (`request_node`, not an admin command):
 
@@ -909,5 +973,3 @@ That table *is* the lesson, and it's the same one the first guide ends on, lifte
 - **[architecture-decisions.md](architecture-decisions.md)** — the ADRs this guide leans on: [ADR-7](architecture-decisions.md#adr-7-sink-vs-target-and-tofrom-replies) (TO=FROM replies), [ADR-16](architecture-decisions.md#adr-16-js-node-class-resolution--names-are-the-tsl-surface-classes-are-the-api) (classes, not names) and [ADR-17](architecture-decisions.md#adr-17-timers-fire-on-a-shared-wall-clock-grid) (the timer grid).
 - **[`examples/example-ai-newsletter/`](../examples/example-ai-newsletter/)** — the complete, tested code for this walkthrough, including the `src/dashboard/` suites (each node, hook and widget driven through the fake command wire, no browser).
 - **`newspack-event-logger-nodes`** — the production application: four admin dashboards (Performance, Error Log, Gyroscope, Request Log) built on these same primitives, including the SSE ones this guide's poll shape deliberately doesn't cover.
-</content>
-</invoke>
