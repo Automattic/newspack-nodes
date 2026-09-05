@@ -8,8 +8,8 @@ its entire life, so every open stream is subtracted from the site's worker
 allocation until the client goes away. That makes the slot pool a capacity
 reservation, and the numbers below are the reservation's arithmetic.
 
-`GET /newspack-nodes/v1/messages/stream` and `GET
-/newspack-nodes/v1/log/stream` both stream, and they draw on one pool.
+Two routes stream — `GET /newspack-nodes/v1/messages/stream` and `GET
+/newspack-nodes/v1/log/stream` — and they draw on one pool.
 `Log_Stream_Out_Node` subclasses `SSE_Out_Node`, inheriting every wire concern
 and differing only in what a subscription resolves to. The budget is per host,
 not per route.
@@ -36,10 +36,11 @@ Two consequences drive the defaults:
 Source: [Clarification on Auto-Defensive
 Mode](https://edgeopsp2.wordpress.com/2025/02/27/clarification-on-auto-defensive-mode/)
 (edgeopsp2, 2025-02-27) — mechanism in Mark George's comment, the burst-capacity
-expectation and the 60-second window in Barry's. Auto-defensive mode was
-disabled for Newspack while it was being tuned; treat that as a reprieve that
-can be withdrawn, not as an exemption. The observed client-side cycle of
-alternating refusal and burst windows is not described there.
+expectation and the 60-second window in Barry's. That post records the mode
+disabled for Newspack during tuning, and nothing in this repository can confirm
+it still is, so treat it as a reprieve that can be withdrawn rather than as an
+exemption. The alternating refusal and burst windows seen from the client are
+not described there.
 
 ## The arithmetic
 
@@ -48,11 +49,11 @@ Against a ~10-worker allocation, with "the goal is always under 10 CPUs":
 | Reserved for | Children |
 |---|---|
 | SSE streams (`sse_max_streams`) | 6 |
-| Node workers | one each |
-| Page requests, cron, loopback | the remainder, ~3 with a single worker |
+| Node workers | 1 per running worker |
+| Page requests, cron, loopback | the rest, about 3 with one worker running |
 
-A worker is a php-fpm request that never returns: the process holding the spawn
-connection **is** the worker, for its whole ~595-second life
+A worker holds a php-fpm child for its whole ~595-second life: the process
+holding the spawn connection **is** the worker
 ([ADR-8](architecture-decisions.md#adr-8-worker-zombie-pattern)). One is
 spawned per active topology partition, and an on-demand topology's worker exits
 when idle, so the row moves with the fleet: four running workers have spent four
@@ -69,8 +70,9 @@ anything: slots are pooled host-wide, and the per-identity cap only stops a
 single reader with many tabs from taking the site down alone. An identity is
 `{user id}:{8-hex md5 of REMOTE_ADDR}`, so every tab one person opens spends the
 same share. Three, because an idle stream closes after `sse_idle_timeout`
-(15 seconds) and reopens `sse_retry_ms` later (5 seconds), and its dead lease
-can linger for the whole TTL while the client is already asking for another.
+(15 seconds) and reopens `sse_retry_ms` later (5 seconds), and a stream whose
+process dies before the release leaves its lease standing for the whole TTL
+while the client is already asking for another.
 
 The share is approximate; the host cap is exact. A lease read that fails counts
 as not-held, so two connections from one identity can both see a stale count and
@@ -94,13 +96,20 @@ the file `LOCAL_NEWSPACK_NODES_CONF` names, or as a `newspack_nodes_<key>`
 option. The `settings set` verb refuses a value outside the declared bounds; a
 value written straight into a config file or an option is taken as written, and
 only the pool's own clamps in `max_streams()`, `max_slots()`,
-`reserved_slots()` and `ttl()` bind it.
+`reserved_slots()` and `ttl()` bind it. `sse_idle_timeout` and `sse_retry_ms`
+declare no bounds at all, so the verb refuses both as unknown settings and a
+config file or an option is the only way to move either.
 
 Each knob reads through `SSE_Slot_Pool::budget()`, which falls back to the
 default `Settings_Schema` declares
 ([ADR-20](architecture-decisions.md#adr-20-a-config-default-lives-in-code-every-config-file-is-an-override-surface))
 rather than to zero. Read unguarded, an operator's blank entry would collapse
 the host cap to 1.
+
+`Bootstrap::register_rest_routes()` installs the pool's four seams on
+`SSE_Out_Node` in the pass that registers the two routes, so a stream and its
+meter arrive together. Nothing else installs them, and left null `acquire`
+hands back an unmetered sentinel lease that no cap binds.
 
 ## What a refused stream sees
 
@@ -109,8 +118,9 @@ the host cap to 1.
 are out, 429 is no longer sayable.
 
 Acquire, check and touch fail **closed**: with neither memcached nor APCu
-answering, ownership is unverifiable and every stream is refused. Release fails
-open, because a lease expires on its own.
+answering, ownership is unverifiable and every stream is refused. `wp nodes
+doctor`'s `cache-backend` check is where that reads as a cause rather than as a
+slot shortage. Release fails open, because a lease expires on its own.
 
 A stream that loses its lease mid-flight — the TTL expired, or a rival claimed
 the slot — gets a `disconnect` event and the drain loop returns.
@@ -125,12 +135,12 @@ browser tab does. It has no reservation and no priority: enough dashboard tabs
 open on a spoke will refuse the hub's pull, and the hub's view of that spoke
 goes stale until a slot frees.
 
-`sse_reserved_slots` (default 0) holds slots back from browsers so a pull always
-finds one. A spoke sets 1. The reservation comes **out of** `sse_max_streams`,
-not on top of it: with 6 streams and 1 reserved, browsers claim 5 and the sixth
-waits for the pull. Nobody's ceiling moves — the setting only decides who may
-reach the last slot. A pull is otherwise bounded exactly like a browser, same
-per-identity share and same TTL.
+`sse_reserved_slots` holds slots back from browsers so a pull always finds one.
+It ships at 0, and a spoke sets 1. The reservation comes **out of**
+`sse_max_streams`, not on top of it: with 6 streams and 1 reserved, browsers
+claim 5 and the sixth waits for the pull. Nobody's ceiling moves — the setting
+only decides who may reach the last slot. A pull is otherwise bounded exactly
+like a browser, same per-identity share and same TTL.
 
 The pull announces itself with an `X-Newspack-Nodes-Pull` request header. That
 is a fairness hint, not a security boundary: the endpoint already requires the
@@ -177,8 +187,9 @@ collapse those instead.
 Each slot is two cache keys under that scope: `sse:{slot}`, a permanent integer
 pointer holding a positive owner or the release tombstone 0, and
 `sse:{slot}:lease:{owner}`, the expiring liveness key whose value is the
-holder's identity. The pointer count **is** the host cap. Read either from the
-CLI, which rebuilds the machine scope behind `--host`:
+holder's identity. The pointer count **is** the host cap. Every substrate key
+is addressed `newspack_nodes:{version}:{scope}:{logical}`, which is what lets
+the CLI rebuild the machine scope from a logical name behind `--host`:
 
 ```bash
 wp nodes memcache get --host sse:0

@@ -43,13 +43,13 @@ dump_node <node> [<keys>]             config + state of one node (alias: dump)
 dump_config [<regex>]                 the running topology as round-trippable shell verbs
 dump_metadata                         JSON keyed by node name — one round trip draws the whole graph
 stats [-a] [<regex>]                  NAME COUNT LGST_MSG READ WRITTEN; siblings by default, -a for every node
-uptime                                clock time, plus days+HH:MM:SS since this worker spawned
+uptime                                UTC clock, then elapsed at the coarsest scale that fits: 07s, 3m 04s, 2h 09m, 4d 01:12:33
 pwd                                   the cwd and the reply's FROM trail, as ` <cwd> -> <from>`
 list_timers [-s]                      ID ACTIVE INTERVAL MODE NEXT ONESHOT FIRES TYPE NAME
 list_handles [-s]                     ID COUNT TYPE NAME — the cURL-multi handles the drain loop selects on
 profile [on|off]                      toggle or set _router's per-node self-time profiling
 list_profiles [-s] [<regex>]          the profile table, slowest average first
-trace [<node>] [<level>]              set a node's debug_state, tracing set_state() to _repl; bare toggles this interpreter
+trace [<node>|*] [<level>]            set a node's debug_state, tracing set_state() to _repl; bare toggles this interpreter, * sets every node
 log <message>                         write <message> to the worker's stderr
 dmesg                                 this process's last 100 stderr lines
 taillog [<source>] [<max_kb>]         tail a registered log FILE by name; no args lists the registry
@@ -60,7 +60,7 @@ help [<topic>]                        the full help, or one verb
 
 `-s` on `list_timers`, `list_handles` and `list_profiles` returns the same rows as a struct, for a view that wants to sort them. Secure levels freeze definitions without stopping the flow, and they enforce cumulatively: level 1 disables the `make_node` class (`make_node`, `move_node`, `remove_node`), level 2 adds the `command_node` class (`reply_to`), and level 3 adds the `connect_node` class (`connect_node`, `disconnect_node`, `set_sink`, `register`, `unregister`) — aliases included throughout. A node classifies its own verbs into those classes through `node_schema()['verb_classes']`.
 
-These mint an addressed message. The Shell composes `<path>` with the cwd through `prefix()`, so `cd graphite.p0` then `command_node "" status` dispatches `status` to that worker without further typing:
+These mint an addressed message. The Shell composes `<path>` with the cwd through `prefix()`, so inside `wp nodes cli graphite.p0` — or after `cd graphite.p0` — `command_node topicprobe:consumer:config dl_list` addresses `graphite.p0/topicprobe:consumer:config`. All but `ping` need a non-empty `<path>` and answer `usage: …` without one, so `command_node "" <verb>` does NOT address the cwd; to reach the cwd itself, type the verb bare, since any verb the Shell does not intercept becomes a TM_COMMAND addressed there. Bare `ping` measures the round trip to the cwd.
 
 ```
 command_node <path> <verb> [<args>]   TM_COMMAND, without changing cwd (aliases: command, cmd)
@@ -126,7 +126,7 @@ wp nodes stop [--timeout=<s>]              # hold the fleet and wait for every l
 wp nodes start                             # release the hold and spawn
 ```
 
-`wp nodes doctor` prints eight rows — cache backend, filesystem, ownership, housekeeping, config keys, and one per alert family — plus a `fleet-hold` row while a deploy hold stands and an `other-alerts` row when an alert declares a family no bucket claims. The cache row comes from a loopback probe of the WEB runtime, because a CLI process sees a different cache posture than the one serving requests.
+`wp nodes doctor` prints eight rows — cache backend, filesystem, ownership, housekeeping, config keys, and one per alert family — plus a `fleet-hold` row while a deploy hold stands and an `other-alerts` row when an alert declares a family no bucket claims. The cache row comes from a loopback probe of the WEB runtime, because a CLI process sees a different cache posture than the one serving requests. The three alert rows come from `Alerts::evaluate()`, which reads its thresholds live on every run, so `doctor` never trails a setting you just changed. `alert_emit_interval` throttles the journal alone: `Alerts::emit()` writes at most one batch of alert transitions into `alerts.p0` per that many seconds, 300 by default.
 
 `wp nodes run` is the tool for "the worker spawns but exits immediately". The process stays attached, so its stderr reaches your terminal, and it closes with `Worker exited with status:` — `ok`, `skipped (<reason>)`, or `load_failed (<message>)`. A cooperative stop names itself on stderr first: `lock lost`, `lock dir gone`, `stop requested`, `restart requested`, `lock heartbeat gone`, `lock stolen by pid <n>`, `memory watermark (<used>MB / <limit>MB, <pct>%)` or `db check failed 3 times`. The routine `max_runtime` recycle and an on-demand idle exit stay silent by design.
 
@@ -140,6 +140,7 @@ wp nodes start                             # release the hold and spawn
 | `idle` | An on-demand topology (`on_demand_idle > 0`) has scaled to zero and holds no lock. Not a fault. |
 | `held` | A deploy hold stands, so nothing will spawn until `wp nodes start`. |
 | `inactive` | The topology is in the catalog but not in the `topologies` config key. |
+| `live (inactive)` | A deactivated topology's worker still holds its lock and is winding down. `stale (inactive)` reads the same way. |
 
 Uptime comes from the lock directory's `started` file. Alongside `heartbeat` and `started`, three flag files let any other process steer the holder: `restart` (exit and hand the slot straight to a successor), `stop` (exit and leave the slot empty for the length of a deploy) and `reload` (re-read config without exiting).
 
@@ -165,13 +166,15 @@ Listing a partition directory you will also see `{seg}.idx` sidecars beside some
 
 ## Common failure modes
 
-**A worker spawns but exits immediately.** Run `wp nodes run <type> --partition=<N>` and read the status it prints. `skipped (lock_held)` means another process already holds the slot, which is idempotent and harmless. `load_failed` means the `.tsl` would not parse; the worker deliberately does not self-respawn, because respawning would hot-loop the same bad file. A held fleet answers HTTP 409 `fleet_held` at the spawn endpoint, so check `wp nodes doctor` for a `fleet-hold` row. On the application side, the event logger's `Log_Manager` bails inert under root rather than leaving root-owned segments the web user could never append to — so a wp-cron run with `--allow-root` produces a worker that runs and logs nothing. Run wp-cron as the web user.
+**A worker spawns but exits immediately.** Run `wp nodes run <type> --partition=<N>` and read the status it prints. `skipped (lock_held)` means another process already holds the slot, which is idempotent and harmless; any other skip reason names a real I/O fault (`mkdir failed at <path>`, `lock dir unwritable at <path>`) and is the one the worker also logs. `load_failed` means the `.tsl` would not parse; the worker deliberately does not self-respawn, because respawning would hot-loop the same bad file. A held fleet answers HTTP 409 `fleet_held` at the spawn endpoint, so check `wp nodes doctor` for a `fleet-hold` row. On the application side, the event logger's `Log_Manager` bails inert under root rather than leaving root-owned segments the web user could never append to — so a wp-cron run with `--allow-root` produces a worker that runs and logs nothing. Run wp-cron as the web user.
 
-**Every storage-backed command throws "Runtime directory … is owned by uid N" or "… is writable by group or other".** `Config::get_base_directory()` refuses a tree this process does not privately own, because whoever owns the base path owns every log, lock, offset and topology beneath it, and a planted `.tsl` runs with full interpreter authority on the next spawn. Root is exempt from the refusal and warned instead, since a root-owned file is what the web user cannot append to. Recover with `chown -R <web-user>:<web-user> {base}` and `chmod -R go-w {base}`. `wp nodes doctor` survives the refusal and shows it: the `filesystem` row carries the message verbatim, and the `ownership` row repeats the uid comparison advisorily.
+**Every storage-backed command throws "Runtime directory … is owned by uid N" or "… is writable by group or other".** `Config::get_base_directory()` refuses a tree this process does not privately own, because whoever owns the base path owns every log, lock, offset and topology beneath it, and a planted `.tsl` runs with full interpreter authority on the next spawn. Root is exempt from the OWNERSHIP half and warned instead, since a root-owned file is what the web user cannot append to; the group-or-other-writable half refuses every uid, root included. Recover with `chown -R <web-user>:<web-user> {base}` and `chmod -R go-w {base}`. `wp nodes doctor` survives the refusal and shows it: the `filesystem` row carries the message verbatim, and the `ownership` row repeats the uid comparison advisorily.
 
 **No worker spawns, and stderr repeats "refusing to spawn — topology write-conflict".** Two active topologies write the same partition log, which would corrupt it, so `spawn_each()` refuses the whole set rather than half of it. The message names both topologies and the path they share, as `a ↔ b (<path>)`. Deactivate one with `wp nodes deactivate <topology>`; activation consults the same analyzer, so it refuses to persist the conflicting set in the first place.
 
 **Every slot reads `held`.** `wp nodes stop` wrote the `newspack_nodes_hold` option and nothing cleared it. `wp nodes doctor` reports `fleet-hold` with its age; `wp nodes start` releases it and spawns. The hold is an option rather than a file under the base directory precisely so it survives a deactivate/reinstall cycle that wipes `/tmp/newspack-nodes`.
+
+**A deploy quarantines records, and stderr shows `DEAD-LETTER [throw]`.** Plugin files were replaced under a live worker. Its autoloader is still resolving classes out of `includes/` mid-swap, and `Durable_Reader::forward_line()` catches every `\Throwable` a handler raises — a class-not-found included — quarantines that record and advances the cursor, so the loss is silent apart from the stderr line. `wp nodes restart` does not help: the flag hands the slot straight to a successor, which boots into the same half-swapped directory. Take the fleet down for the swap instead — `wp nodes stop && ./deploy.sh && wp nodes start`. `stop` blocks until every lock dir is gone and exits non-zero otherwise, so the deploy never runs against a live process.
 
 **Nothing runs on a fresh install.** The `topologies` config key defaults to empty, so an install activates nothing. `wp nodes types` lists the catalog; `wp nodes activate <topology>` opts one in and spawns its fleet immediately.
 
@@ -183,7 +186,9 @@ Listing a partition directory you will also see `{seg}.idx` sidecars beside some
 
 **Records vanish between producer and log.** Partition measures the **packed** bytes and drops anything over the cap in force with a loud, rate-limited stderr line, because half a record desyncs every reader after it. The default cap is PIPE_BUF, 4096 bytes. A producer that legitimately needs more opts in with `allow_large_writes()` (a held write lock, enforced) or `void_warranty()` (the caller asserts single-writer), both of which lift it to 32 MiB.
 
-**Dead letters are accumulating.** `wp nodes doctor` warns on the `dead-letters` row once a reader passes `alert_deadletter_threshold`, which defaults to 0 — the first quarantined record. Inspect them with `dl_list` / `dl_show` on the reader's `:config` interpreter, redeliver one with `dl_requeue`, or replay a whole segment back through its topic with `wp nodes ingest <topic> {base}/deadletter/<reader-id>/*.log`. `dl_purge` clears them; the queue is count-rotated, so purging is a convenience rather than a correctness requirement.
+**A reader is falling behind, and `wp nodes doctor` warns on the `consumer-lag` row.** A reader warns once its distance from the head of its source passes `alert_lag_threshold`, which counts BYTES and defaults to 67108864 — one segment at the default `segment_size`. `wp nodes status` prints the same distances reader by reader. Both read the `Topic_Probe` sweep, which appends one record per READY Consumer at the cadence `topic-probe.tsl` declares, 15 seconds as shipped. A row whose record has aged past two sweeps is re-measured off disk, so a reader that died caught up reports the backlog piling up behind it rather than its parting snapshot. Lag that climbs under a live reader means the producer outruns it: widen the topic across more partitions, one Consumer each.
+
+**Dead letters are accumulating.** `wp nodes doctor` warns on the `dead-letters` row once a reader passes `alert_deadletter_threshold`, which counts quarantined SEGMENTS and defaults to 0, so the first one warns. Inspect them with `dl_list` / `dl_show` on the reader's `:config` interpreter, redeliver one with `dl_requeue`, or replay a whole segment back through its topic with `wp nodes ingest <topic> {base}/deadletter/<reader-id>/*.log`. `dl_purge` clears them; the queue is count-rotated, so purging is a convenience rather than a correctness requirement.
 
 **Disk fills with directories nothing writes any more.** Deactivating a topology orphans its log and offsetlog directories — stopping its workers does not, because a dir is an orphan only when no ACTIVE topology declares it. The reconcile pass sweeps them each window but spares anything written in the last hour (`Log_Cleaner::DELETE_GRACE_S`, 3600s), so a mid-deploy blip cannot eat live data. `wp nodes gc` sweeps now, and `wp nodes gc --force` drops that grace to zero for a topology you just tore down.
 
@@ -209,7 +214,7 @@ Listing a partition directory you will also see `{seg}.idx` sidecars beside some
 
 **An SSE stream is refused with HTTP 429.** The slot pool is full, or it fails closed because no cache backend answered — `wp nodes doctor`'s `cache-backend` row settles which. Slots are pooled per `{machine}:{site}`, and the bounds are `sse_max_streams` (6) for the whole host, `sse_max_slots` (3) for one identity's share of it, and `sse_reserved_slots` (0) held back from browsers. Read [sse-host-budget.md](sse-host-budget.md) before raising any of them; a stream holds a php-fpm child for its whole life.
 
-**`wp nodes stop` times out.** It exits non-zero naming the stragglers, and the fleet stays held. Its blocker list includes any slot with a spawn already in flight, read off the shared throttle, because a worker that released and POSTed its own respawn moments before the hold landed holds no lock while it bootstraps. Without memcached it warns that it cannot see PHP-FPM's timestamps, since APCu does not span SAPIs.
+**`wp nodes stop` times out.** It exits non-zero naming the stragglers, and the fleet stays held. Its blocker list includes any slot with a spawn already in flight, read off the shared throttle, because a worker that released and POSTed its own respawn moments before the hold landed holds no lock while it bootstraps. A `could not write the stop flag for: <slots>` warning is the ownership footgun again — the workers own their lock dirs and this command does not — and every one of those slots will still be up when the timeout expires. Without memcached it warns that it cannot see PHP-FPM's timestamps, since APCu does not span SAPIs.
 
 ## Inspecting wire format on disk
 

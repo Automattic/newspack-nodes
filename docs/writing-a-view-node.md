@@ -52,8 +52,9 @@ dashboards wants instead: `CatalogListViewNode` is declared that way in
 it under the name `CatalogListView`.
 
 Subclass `SliceViewNode` when the view owns more than a slice — its own `fill()`,
-a ring buffer, a timer, a teardown. Override `emptySlice()`, and `_parse()` when
-the reply payload is not already your model:
+a ring buffer, a timer, a teardown. Override `emptySlice()`, returning a fresh
+object each call because the `clear` control rebuilds the model from it, and
+`_parse()` when the reply payload is not already your model:
 
 ```js
 import { SliceViewNode } from '@newspack-nodes/shared/nodes/slice-view-node';
@@ -71,6 +72,13 @@ AccumulatedViewNode } )`, importing `CommandInterpreterNode` from
 `@newspack-nodes/runtime` — and React reads it with
 `useNodeState( 'accumulated:view', 'view' )`.
 
+`examples/example-ai-newsletter`'s three views subclass for that shape alone;
+each would read as a declaration carrying `json: true`. A view that earns a
+class owns a ring, a timer or its own `fill()`, and one holding a timer cancels
+it in `removeNode()` before calling `super.removeNode()`: a torn-down node whose
+timer still fires publishes into a graph the dashboard has already replaced.
+`WorkerStatusViewNode` and `ProbeStreamViewNode` are the shipped examples.
+
 ## 3 routing facts
 
 1. **A view node is a terminal — no `target`, no `sink`** (`has_target: false`).
@@ -84,14 +92,16 @@ AccumulatedViewNode } )`, importing `CommandInterpreterNode` from
    Upstream, a `Timer → Tee → Fetcher` poll sends your slice verb to the service
    CI, stamping **`FROM = your receiver`**. The server replies **`TO = FROM`**, so
    the reply routes back to your receiver `Tee`, which fans it to your view. Your
-   `fill()` handles the arriving reply; it never sends the request.
+   `fill()` handles the arriving reply; it never sends the request. A stream
+   view sends nothing either: `useStreamGraph` mounts the `RemoteLink` that
+   opens the SSE connection and the `Tee` that fans each record in.
 
 3. **One slice per view — replies never cross.** Each slice verb has its own
    Fetcher → receiver → view path, so the `counts` reply lands ONLY on
    `source-counts:view`, never on a sibling. There is no god node holding
    `{ counts, top, accumulated }` — decompose the command *and* the view. A view
-   whose counter never moves while the dashboard renders is not the node
-   receiving that data; a god node upstream is.
+   still sitting at counter `0` in the topology console while its widget renders
+   data is not the node receiving it — look upstream for the god node that is.
 
 ## `setState( 'view', model )`
 
@@ -127,19 +137,22 @@ reply. Both halves live in
 A control is recognised by **who sent it**, never by what its payload looks like
 — a reply carrying an `action` field is still a reply, and sniffing for one
 swallows whole streams. The view declares the origin it trusts in `controlFrom`,
-which `addSliceFetcher` assigns from its own `controlFrom` option. A view that
-declares none takes no controls, and `controlMsg()` throws rather than stamp an
-empty origin, so a forgotten assignment fails loud instead of leaving a dead
-button.
+which the graph builder assigns: `addSliceFetcher` from its own `controlFrom`
+option, `useStreamGraph` from the view's own name. A view that declares none
+takes no controls, and `controlMsg()` throws rather than stamp an empty origin,
+so a forgotten assignment fails loud instead of leaving a dead button.
 
-The base handles three verbs off `value.action`, and a subclass handles its own
-first, deferring the rest with `super._control( value )`:
+`SliceViewNode` handles three verbs off `value.action`, and a subclass handles
+its own first, deferring the rest with `super._control( value )`:
 
 | `action` | Effect |
 |---|---|
-| `loading` | Raises the spinner and clears the error, keeping the data on screen. |
+| `loading` | Raises the spinner and clears the error, leaving the data on screen. |
 | `clear` | Resets the model to `emptySlice()`. |
-| `error` | Surfaces `value.error` without blanking the data. |
+| `error` | Stops the spinner and surfaces `value.error` — `Operation failed` when it carries none — leaving the data on screen. |
+
+`LogStreamViewNode` recognises a control the same way and answers eight verbs of
+its own, so a stream view's Pause button rides this channel too.
 
 ## No throw from `fill()`
 
@@ -194,32 +207,38 @@ static nodeSchema() {
 **Hidden** because a dashboard wires its slice views itself rather than an
 operator dropping one from the palette, and **`has_target: false`** because a
 view settles its reply and forwards nothing. `registrations` names the state
-keys a direct `register()` call may use; `useNodeState` seeds a key it does not
-find, which is why the stream views ship with no `registrations` at all.
+keys a direct `register()` call may use; `useNodeState` subscribes through
+`useNodeEvent`, which seeds a key it does not find, so a view that only React
+reads needs none — the stream views declare no `registrations` at all.
 
 ## What ships
 
-Every view node in this repo, and which contract it follows.
+Every view node in this repo, and which contract it follows. A registered name
+is the class short name minus the trailing `Node`, written out by hand in the
+bundle's `register.js` rather than derived. A `sliceView()` declaration returns
+an anonymous class, so a name is all it has; a base no bundle registers has only
+a class, and no TSL line can name one.
 
-| Node | Where | Base, and what it owns |
-|---|---|---|
-| `SliceViewNode` | `src/shared/nodes/slice-view-node.js` | `Node`; the contract above, plus `sliceView()` and `registerSliceViews()` |
-| `CatalogListViewNode` | `src/shared/nodes/catalog-list-view-node.js` | A `sliceView()` declaration; a picker's rows, published under `items` for `useLogCatalog` |
-| `LogStreamViewNode` | `src/shared/nodes/log-stream-view-node.js` | `Node`; the log-stream base — newest-first ring, pause and step, decaying lines/s, seek breadcrumbs, and the `pause` / `step` / `connection` / `browse` / `follow` / `clear` / `filter` / `select` controls. Subclasses implement `shapeRow()` and extend `_control()` / `viewModel()` |
-| `ClassCatalogView`, `TopologyListView` | `src/topology-console/nodes/register.js` | `sliceView()` declarations; the palette's classes and formatters, and the OPEN dialog's topologies |
-| `AggregatorSummaryView`, `AggregatorServersView` | `src/event-aggregator/nodes/register.js` | `sliceView()` declarations, both `json: true`; the header strip and the server cards |
-| `SessionListView` | `src/sessions/nodes/register.js` | A `sliceView()` declaration; the issued sessions, the TTL ceiling and the scope ladder in one slice |
-| `VaultListView` | `src/vault/nodes/register.js` | A `sliceView()` declaration; the credential table |
-| `TopologyManagerView` | `src/event-dashboards/nodes/register.js` | A `sliceView()` declaration; the Topology Manager list |
-| `WorkerStatusViewNode` | `src/event-dashboards/nodes/worker-status-view-node.js` | `SliceViewNode`; its slice arrives already parsed, as a TM_STRUCT from `WorkerStatusTransform`, so it dispatches the struct actions itself and defers TM_ERROR to the base |
-| `PartitionViewerViewNode`, `LogViewerViewNode` | `src/event-dashboards/nodes/` | `LogStreamViewNode`; `LogViewerViewNode` extends `PartitionViewerViewNode` |
-| `ProbeStreamViewNode` | `src/event-dashboards/nodes/probe-stream-view-node.js` | `Node`; per-key entries, a ring, a publish throttle, TTL eviction and a 24h prune. Subclasses declare `identitySlot`, `modelKey`, `_fold()` and `_entryView()` |
-| `TopicProbeViewNode`, `JobstatsViewNode` | `src/event-dashboards/nodes/` | `ProbeStreamViewNode`; the consumer series under `consumers`, the job-handler series under `handlers` |
-| `SettingsAuditViewNode` | `src/event-dashboards/nodes/settings-audit-view-node.js` | `Node`; a throttled newest-first ring of settings-change events |
-| `SourceCountsViewNode`, `TopTableViewNode`, `AccumulatedViewNode` | `examples/example-ai-newsletter/src/dashboard/nodes/` | `SliceViewNode`, one `emptySlice()` each; the walkthrough's three slices |
+| Class | Registers as | Where | Base, and what it owns |
+|---|---|---|---|
+| `SliceViewNode` | — | `src/shared/nodes/slice-view-node.js` | `Node`; the contract above, plus `sliceView()` and `registerSliceViews()` |
+| `CatalogListViewNode` | `CatalogListView` | `src/shared/nodes/catalog-list-view-node.js` | A `sliceView()` declaration; a picker's rows, published under `items` for `useLogCatalog` |
+| `LogStreamViewNode` | — | `src/shared/nodes/log-stream-view-node.js` | `Node`; the log-stream base — newest-first ring, pause and step, decaying lines/s, seek breadcrumbs, and the `pause` / `step` / `connection` / `browse` / `follow` / `clear` / `filter` / `select` controls. Subclasses implement `shapeRow()` and extend `_control()` / `viewModel()` |
+| — | `ClassCatalogView`, `TopologyListView` | `src/topology-console/nodes/register.js` | `sliceView()` declarations; the palette's classes and formatters, and the OPEN dialog's topologies |
+| — | `AggregatorSummaryView`, `AggregatorServersView` | `src/event-aggregator/nodes/register.js` | `sliceView()` declarations, both `json: true`; the header strip and the server cards |
+| — | `SessionListView` | `src/sessions/nodes/register.js` | A `sliceView()` declaration; the issued sessions, the TTL ceiling and the scope ladder in one slice |
+| — | `VaultListView` | `src/vault/nodes/register.js` | A `sliceView()` declaration; the credential table |
+| — | `TopologyManagerView` | `src/event-dashboards/nodes/register.js` | A `sliceView()` declaration; the Topology Manager list |
+| `WorkerStatusViewNode` | `WorkerStatusView` | `src/event-dashboards/nodes/worker-status-view-node.js` | `SliceViewNode`; its slice arrives already parsed, as a TM_STRUCT from `WorkerStatusTransform`, so it dispatches the struct actions itself and defers TM_ERROR to the base |
+| `PartitionViewerViewNode`, `LogViewerViewNode` | `PartitionViewerView`, `LogViewerView` | `src/event-dashboards/nodes/` | `LogStreamViewNode`; `LogViewerViewNode` extends `PartitionViewerViewNode` |
+| `ProbeStreamViewNode` | — | `src/event-dashboards/nodes/probe-stream-view-node.js` | `Node`; per-key entries, a ring, a publish throttle, TTL eviction and a 24h prune. Subclasses declare `identitySlot`, `modelKey`, `_fold()` and `_entryView()` |
+| `TopicProbeViewNode`, `JobstatsViewNode` | `TopicProbeView`, `JobstatsView` | `src/event-dashboards/nodes/` | `ProbeStreamViewNode`; the consumer series under `consumers`, the job-handler series under `handlers` |
+| `SettingsAuditViewNode` | `SettingsAuditView` | `src/event-dashboards/nodes/settings-audit-view-node.js` | `Node`; a throttled newest-first ring of settings-change events |
+| `SourceCountsViewNode`, `TopTableViewNode`, `AccumulatedViewNode` | `SourceCountsView`, `TopTableView`, `AccumulatedView` | `examples/example-ai-newsletter/src/dashboard/nodes/` | `SliceViewNode`, one `emptySlice()` each; the walkthrough's three slices |
 
-`WorkerStatusTransformNode` sits beside them and is **not** a view: it rides the
-receiver-Tee → view edge, enriching the reply before the view stores it.
+`WorkerStatusTransformNode`, registered as `WorkerStatusTransform`, sits beside
+them and is **not** a view: it rides the receiver-Tee → view edge, enriching the
+reply before the view stores it.
 
 ## The one-shot mirror
 

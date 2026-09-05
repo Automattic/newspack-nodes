@@ -203,9 +203,9 @@ topology-worker IPC, and workers are per-host by construction. Outside the zone 
 guarantees don't hold — NFS/overlay mounts void the 4 KB append atomicity, and
 containers with separate `/tmp` are separate hosts (each runs its own fleet against its
 own base dir; pointing two containers' config at one *path* that is two
-filesystems split-brains silently). There is no runtime detection of exotic mounts —
-earlier drafts prescribed "detect-and-refuse," but no reliable portable signal exists on
-the platforms we run on. State the habitat; deploy inside it.
+filesystems split-brains silently). Nothing detects an exotic mount at runtime, because
+no portable signal identifies one reliably on the platforms we run on. State the habitat;
+deploy inside it.
 
 **Revisit if:** a deployment genuinely needs cross-host coordination — that is a different
 transport (the hub/spoke remote channels), not a shared filesystem.
@@ -239,11 +239,11 @@ first message.
 **Status:** Accepted
 
 **Context:** The same key must always land on the same partition regardless of producer.
-Same key → one partition → its single consumer: a key's messages are processed serially, by
-one process, in append order. Sometimes the point is the order; often it's pure
-non-concurrency — per-key mutexes, CAS loops, and read-modify-write guards never need to
-exist. The hash IS the concurrency control. Divergent hash families silently split a key
-across partitions and break all of it.
+One partition has one consumer, so a key's messages are processed serially, by one process,
+in append order. Sometimes the point is the order; often it is pure non-concurrency — per-key
+mutexes, CAS loops, and read-modify-write guards never need to exist. The hash IS the
+concurrency control. Divergent hash families silently split a key across partitions and break
+all of it.
 
 **Decision:** `Partition_Node::hash_to_partition()` is canonical: strip the query string
 (`explode('?')`), CRC32, then `& 0x7FFFFFFF` for 32-bit-PHP safety. Every routing site MUST
@@ -288,7 +288,7 @@ sets none is unaffected.
 
 `SSE_In` carries no such refusal, because a subscription's records are not replies. Its
 patron chooses instead: `RemoteLink` sets `homeToTarget`, re-homing every non-command record
-to the target, while `RemoteIpc` leaves it unset and lets each record keep the TO it arrived
+to the target, while `RemoteIpc` sets it false and lets each record keep the TO it arrived
 with. A command reply is exempt from the re-home either way — the server addressed it to the
 node that minted the command, and overwriting that TO delivers it to the subscription's view
 instead of its receiver.
@@ -301,7 +301,11 @@ instead of its receiver.
   contrast with Tachikoma is instructive: its `pivot_client` physically re-sinks the Shell
   into a remote socket and removes the local interpreter; here nothing rewires — the graph
   stays put and only the address changes.
-- **TO=FROM replies need no correlation table.** The breadcrumb is the return address.
+- **TO=FROM replies need no correlation table.** The breadcrumb is the return address, and
+  `scripts/lint-contract.mjs` holds the JavaScript under `src/` and `examples/` to it: the
+  `reply-keyed-map`, `resolver-pair`, `promise-registry`, `op-id` and `key-demux` rules refuse
+  a table filed under an argument, a parked resolver pair, a registry of pending resolvers, an
+  id minted into `message[ID]`, and KEY read as a demultiplexer.
 - **A subject rides in the address, so one node answers about many rows.** A minter that
   serves N subjects appends the one it is asking about to its own FROM —
   `vault:test:in/spoke-01`. The server echoes `TO = FROM`, `_router` peels the receiver, and
@@ -921,9 +925,11 @@ export const views = registerSliceViews( { ClassCatalogView: { empty, parse } } 
 `makeNode( type, name, args )` accepts either — `'function' === typeof type` selects the class
 directly and skips resolution entirely. Registration is still required, for TSL and the
 palette; it is no longer what a hook depends on. Enforced mechanically by
-`scripts/lint-contract.mjs` rule `name-lookup-in-hook`, whose builtin allow-list is read from
-`includeNodes`' own declaration — the runtime's own classes ship in every bundle, so resolving
-one by name is always safe.
+`scripts/lint-contract.mjs`: `name-lookup-in-hook` catches a name passed to `makeNode`, and
+`name-lookup-in-option` catches the same break one hop out, in a hook option's `viewClass` /
+`viewType` / `nodeClass`. Both read their builtin allow-list from `includeNodes`' own
+declaration — the runtime's own classes ship in every bundle, so resolving one by name is
+always safe.
 
 **Alternatives considered:**
 
@@ -1173,12 +1179,13 @@ wp-admin fataled.
 **Decision:** The schema declares every key AND its default, in code. Every config file — the
 one in the plugin, and the operator's — is an override surface and nothing more.
 
-A plugin declares defaults one of two ways, and both are first-class. Where it already has a
-`Config_System\Field` per setting, the Field carries the default and `Schema::defaults()` is the
-base (`newspack-nodes`, `newspack-event-logger-nodes`). Where it has no Field layer, a plain
-static `Config::config_defaults()` array is the base (`newspack-nuclear-gyrobase`,
-`newspack-pyrobase`). Declaring the same key in both places is the drift this ADR exists to
-prevent — pick the one the plugin already has.
+A plugin declares defaults one of two ways, and both are first-class. Where a
+`Config_System\Field` carries the default, `Schema::defaults()` is the base (`newspack-nodes`,
+`newspack-event-logger-nodes`). Otherwise a plain static `Config::config_defaults()` array is
+the base — `newspack-nuclear-gyrobase`, which has no Field layer at all, and
+`newspack-pyrobase`, whose 15 Fields render settings and declare no `default:`. Declaring the
+same key in both places is the drift this ADR exists to prevent — pick the one the plugin
+already has.
 
 The declared key set derives from the SCHEMA, never from a file. A key the schema does not
 declare is refused by `Config::value()`.

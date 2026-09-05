@@ -4,18 +4,18 @@ Every substrate command lives under `wp nodes`. This page is the quick reference
 
 | Verb | What it does |
 |---|---|
-| `wp nodes status` (alias `ls`) | Reports the fleet: one row per partition of every active topology (`live`, `stale`, `down`, `held` or `idle`, with heartbeat age and uptime), then a row for each lock a deactivated type still holds, then a parked `inactive` row for every catalog topology that is not active, and last the consumer-lag table. `--format=table\|json\|csv\|yaml`. |
+| `wp nodes status` (alias `ls`) | Reports the fleet: one row per partition of every active topology — `live`, `stale`, `down`, `held` while a deploy hold stands, or `idle` where the topology declares an on-demand idle window, each with heartbeat age and uptime — then one row per lock a deactivated type still holds, tagged `(inactive)`, then a parked `inactive` row for every catalog topology that is not active, and last the consumer-lag table. `--format=table\|json\|csv\|yaml`. |
 | `wp nodes types` | Lists the active topology groups the fleet spawns — name, partition count, stale timeout (60s unless the topology sets one), and topology path. |
 | `wp nodes doctor` | Renders the canonical health report: eight rows plus up to two conditional ones, each `ok` / `WARN` / `FAIL`. Recommendations warn and exit 0; any critical result exits 1. |
 | `wp nodes gc [--force]` | Sweeps orphan log and offsetlog dirs now, instead of waiting for the next reconciliation pass. A dir is orphaned when no active topology declares it. Spares a dir written in the last hour unless `--force` drops that grace to zero. |
 | `wp nodes run <type> [--partition=<N>]` | Runs one worker in the foreground, started directly rather than through the spawn endpoint, and blocks until it exits, then prints the worker's own exit reason. The debugging tool for "spawns but immediately exits". Partition 0 by default; refuses root. |
 | `wp nodes restart <type\|all> [--partition=<N>]` | Writes a restart flag into each matched lock dir; the holders exit cleanly and their self-respawn starts them fresh. Every partition of the matched type restarts unless `--partition` narrows it. |
 | `wp nodes stop [--timeout=<s>]` | Holds the fleet down for a deploy: refuses every spawn path, asks each worker to exit, then blocks until every lock dir is gone. Waits 90 seconds by default, and exits non-zero naming the workers still holding locks if that expires. The hold persists until `wp nodes start`. |
-| `wp nodes start` | Releases the hold, clears any straggler's stop flag, and spawns the fleet. |
+| `wp nodes start` | Releases the hold, clears any straggler's stop flag, and requests a spawn for every due slot. Each request is a fire-and-forget POST, so `wp nodes status` is what confirms the fleet came back. |
 | `wp nodes activate <topology>` / `deactivate <topology>` | Adds or removes a catalog topology from the active set and spawns or drains its fleet now. The same primitive the Topologies settings UI calls. |
 | `wp nodes cli [<type>.p<N>]` | Opens the REPL. Bare, it runs a local interpreter; with a worker id it pivots into that live worker over IPC. Refuses root. See [troubleshooting.md](troubleshooting.md) for the in-REPL verb table. |
 | `wp nodes scaffold <plugin\|node\|topology> <name>` | Generates a working starting point: a whole consumer plugin directory, a single Node class, or a `.tsl` topology — the shapes from [writing-a-plugin.md](writing-a-plugin.md). Slugs are `[a-z0-9-]+`, class names `[A-Za-z_]+`. Never overwrites. |
-| `wp nodes ingest <topic> [<file>...]` | Replays packed partition-segment records (dead-letter segments included) back through a Topic — re-partitioned by KEY, appended to the destination segments. Omit the file list to read packed records from stdin instead. |
+| `wp nodes ingest <topic> [<file>...]` | Replays packed partition-segment records (dead-letter segments included) back through a Topic — re-partitioned against the destination's geometry, appended to its segments. Omit the file list to read packed records from stdin instead. |
 | `wp nodes memcache get <logical> [--host] [--key] [--porcelain]` | Reads one cache entry by its LOGICAL name — the substrate rebuilds `newspack_nodes:{version}:{scope}:{logical}`, so you never type the version or the site hash. `--key` prints the resolved address without reading; `--host` resolves in the per-machine scope; `--porcelain` prints the value alone. |
 | `wp nodes memcache flush` | Rotates the install's cache salt: every Newspack plugin key here is orphaned at once, every issued command session with them, and no co-tenant sharing the memcached is touched. Restarts the fleet after, because a live worker keeps writing the old prefix until it respawns; a restart that fails warns and leaves the new scope to the next spawn. The CLI half of the settings page's Flush Caches button. |
 | `wp nodes caps [status\|install\|uninstall]` | Reports or changes the capability model: which WordPress capability each of the three roles resolves to, and the swap onto real capabilities. |
@@ -26,7 +26,7 @@ Every substrate command lives under `wp nodes`. This page is the quick reference
 **Is the fleet healthy?**
 
 ```bash
-wp nodes doctor        # canonical environment + fleet health report
+wp nodes doctor        # environment and fleet health, in one report
 wp nodes status        # detailed fleet and consumer tables
 ```
 
@@ -46,14 +46,18 @@ wp nodes stop && ./deploy.sh && wp nodes start
 ```
 
 `stop` exits non-zero if any worker still holds its lock, so the deploy never
-runs against a live process. While the hold stands, every slot that holds no
-lock reads `held` in `wp nodes status`, and `doctor` (and Site Health) carry a
-`fleet-hold` warning with its age — a hold hours old is almost certainly a
-forgotten `wp nodes start`.
+runs against a live process. A spawn already in flight blocks it too: a worker
+that released its lock just before the hold landed holds no lock while it
+bootstraps, and its successor would come up against the half-swapped
+directory. Without memcached that check cannot read the spawn timestamps, and
+`stop` warns that it is blind to them. While the hold stands, every slot that
+holds no lock reads `held` in `wp nodes status`, and `doctor` (and Site Health)
+carry a `fleet-hold` warning with its age — a hold hours old is almost
+certainly a forgotten `wp nodes start`.
 
-Each restarted worker gets a fresh WordPress bootstrap. Run that command after
-all topology-provider plugins have been installed and activated, so each
-worker's process-local catalog includes the complete plugin set.
+Each restarted worker gets a fresh WordPress bootstrap. Restart only after
+every topology-provider plugin is installed and activated, so each worker's
+process-local catalog holds the complete plugin set.
 
 **Debugging one worker** — a foreground run shows boot errors and the exit reason; the REPL inspects a live graph without disturbing it:
 
@@ -79,7 +83,7 @@ cd my-pipeline && composer dump-autoload -o
 wp nodes ingest firehose {base_dir}/deadletter/<reader>/*.log
 ```
 
-`<topic>` is either a bare log name, expanded to `<config:logs_dir>/<name>.p<partition>`, or a full dir-template carrying a `<partition>` (or `{partition}`) token, taken as written once its `<config:…>` tokens resolve. Omit the file list to pipe packed records on stdin instead — useful with a filtered `wp nodes reqgrep` or `zcat` output. A line that will not unpack is counted and skipped, so a torn record at a segment's tail cannot abandon the replay.
+`<topic>` is either a bare log name, expanded to `<config:logs_dir>/<name>.p<partition>`, or a full dir-template carrying a `<partition>` (or `{partition}`) token, taken as written once its `<config:…>` tokens resolve. Each record then picks its destination partition the way any Topic write does: a TO already pinned to `p<N>` keeps that pin, a record carrying a KEY hashes by KEY, and one with neither lands round-robin. Omit the file list to pipe packed records on stdin instead — useful with a filtered `wp nodes reqgrep` or `zcat` output. A line that will not unpack is counted and skipped, so a torn record at a segment's tail cannot abandon the replay.
 
 The destination's geometry defaults to the configured `num_partitions`, `segment_size` and `num_segments`; an explicit dir-template defaults to one partition instead, because the template names a layout already on disk. `--num_partitions=<n>`, `--segment_size=<bytes>` and `--num_segments=<n>` override each in turn, which is what makes re-segmenting an existing log the same operation as a replay. Records above the 4KB PIPE_BUF cap need `--allow_large_writes` (a held per-partition lock) or `--void_warranty` (no lock, caller asserts single-writer); either raises the cap to 32 MiB, and passing both is refused. `--dry-run` writes nothing, reports the largest record it saw, and says which of those flags you need.
 

@@ -3,11 +3,17 @@
 The names below are the substrate's declared surface: the shapes
 [API.md](API.md), [cli.md](cli.md) and the ADRs document. A consumer reaches
 past them constantly — `Core`, `Config`, `Job_Intake`, `Cache_Backend`,
-`Partition_Node`, `Table_Node` and `Bootstrap::node_dirs()` carry the siblings'
-heaviest traffic and appear nowhere below. Nothing forbids that, and those
-names move: `Job_Intake` re-ordered its arguments in 2.27.0, and `Table_Node`
-dropped its read-through L1 in 2.28.0. Every consumer-facing change lands in
-[upgrading.md](upgrading.md) with the rewrite beside it, frozen or not.
+`Partition_Node`, `Table_Node` and the `Bootstrap` pair `node_dirs()` and
+`node_partitions()` carry the siblings' heaviest traffic and appear nowhere
+below. That pair is how a reader finds a node's partitions across every ACTIVE
+topology declaring it: `node_dirs()` answers partition index => directory for a
+Partition or Topic node, and `node_partitions()` the ascending indices alone,
+for per-partition state that never lands on disk — event-logger-nodes builds
+one memcache `Stats_Store` per flame-builder index from it. Nothing forbids
+reaching past the list, and those names move: `Job_Intake` re-ordered its
+arguments in 2.27.0, and `Table_Node` dropped its read-through L1 in 2.28.0.
+Every consumer-facing change lands in [upgrading.md](upgrading.md) with the
+rewrite beside it, frozen or not.
 
 ## Frozen surfaces
 
@@ -26,15 +32,19 @@ dropped its read-through L1 in 2.28.0. Every consumer-facing change lands in
    what makes its presence worth trusting ([ADR-15](architecture-decisions.md#adr-15-command-authorization-local-taint--the-minter-signs)).
    On-disk Partition segments written by any release in the current major stay
    readable by every later release in that major. That covers the packed
-   ENVELOPE, not a positional record layout inside a VALUE: a producer owns its
-   own record, and `Probe_Record` and `Jobstats_Record` both re-cut their fields
-   in 2.11.0.
+   ENVELOPE, never the record inside a VALUE: a producer owns its own record,
+   `Probe_Record` and `Jobstats_Record` both re-cut their fields in 2.11.0, and
+   a durable reader's offsetlog frame retired its `quarantined` key in 2.26.1.
 3. **TSL.** The statement grammar (`Shell_Node::parse_statements()` semantics),
    the shell builtins (`var`, `include`, and `cd` with its alias `chdir`), the
    graph verbs (`make_node`, `set_sink`, `connect_node`, `disconnect_node`,
    `move_node`, `remove_node`, `register`, `unregister`, and `command_node` with
    its aliases `command` and `cmd`), the one-way `secure` ratchet every stock
-   topology closes with, and `<config:KEY>` token resolution. The grammar is one
+   topology closes with, and token resolution: the `<partition>` and
+   `<topology>` variables `Topology_Loader` binds before it evaluates the file,
+   and the `<ns:key>` form each namespace resolves through the resolver it
+   registered at boot — `<config:KEY>` is the substrate's, and a consumer adds
+   its own through `Core::register_config_namespace()`. The grammar is one
    grammar in both ports: `src/runtime/shell-node.js`'s `parseStatements` is
    held to `parse_statements()` by the shared `tests/fixtures/statements/`
    corpus, which the PHP and JS suites both read.
@@ -58,18 +68,61 @@ dropped its read-through L1 in 2.28.0. Every consumer-facing change lands in
 7. **Hooks.** Every `newspack_nodes/*` action and filter name and signature,
    enumerated with its arguments and its firing site in
    [API.md → Extensibility hooks](API.md#extensibility-hooks).
-8. **Config_System.** The public API of `Field`, `Schema`, `Options_Overlay`,
-   `Reset_Gate`, `Field_Reset_Assets`, `Settings_Renderer` and
-   `Restart_Planner`. The first five carry a second guarantee — they stay
-   loadable without the substrate, so a consumer's hermetic harness can require
-   the five files alone, as pyrobase's `tests/load-config-system.php` does.
-   A substrate call added to any of the five breaks that harness — a
-   coercion-helper sweep once reached for `Core::`, and pyrobase's mock suite
-   fataled on a missing `Newspack_Nodes\Core`. The other two use the substrate
-   legitimately; event-logger-nodes consumes both.
-9. **Consumer boot.** `Topology_Registry::register_plugin()`,
-   `Command_Interpreter_Node::register_namespace()`,
-   `Bootstrap::version_at_least()`, `NEWSPACK_NODES_VERSION`.
+8. **Config_System.** The public API of seven classes, name by name:
+   - `Field` — the constructor, its readonly declaration (`key`, `type`,
+     `section`, `id`, `restart`, `min`, `max`, `default`, `ui`,
+     `register_args`, and the derived `delete_on_blank`, `render` and
+     `sanitize`), `label()`, `sanitize_callback()`, `is_setting()`,
+     `is_rendered()` and `render_id()`.
+   - `Schema` — the `( $prefix, $fields, $sections )` constructor,
+     `overlay_keys()`, `setting_option_names()`, `delete_on_blank_options()`,
+     `restart_for()`, `field_for_short()`, `defaults()`, `prefix()`,
+     `fields()`, `rendered_fields()`, `register_options()` and
+     `register_sections_and_fields()`.
+   - `Options_Overlay` — `apply()`, `stored_value()` and the `ABSENT`
+     sentinel that reports a missing option row.
+   - `Reset_Gate` — `register()`, `resolve()` and `mark_name()`.
+   - `Field_Reset_Assets` — `enqueue()` and `highlight_style()`.
+   - `Settings_Renderer` — `render_effective_config_section()` and
+     `effective_config_rows()` behind the Effective Configuration panel, the
+     five controls `number()`, `directory()`, `textarea()`, `checkbox()` and
+     `react_mount()`, and the `reset_wrapper()` / `reset_toggle()` pair every
+     control goes out through.
+   - `Restart_Planner` — `plan()`, `request_restarts()`, `request_reloads()`
+     and `topologies_for()`.
+
+   The first five carry a second guarantee — they stay loadable without the
+   substrate, so a consumer's hermetic harness can require the five files
+   alone, as pyrobase's `tests/load-config-system.php` does. A substrate call
+   added to any of the five breaks that harness — a coercion-helper sweep once
+   reached for `Core::`, and pyrobase's mock suite fataled on a missing
+   `Newspack_Nodes\Core`. The other two use the substrate legitimately;
+   event-logger-nodes consumes both.
+9. **Config_Utils.** `validate_config_path()`, `load_config_file()` and the
+   `validate_config_values()` walk beneath them — the file half of
+   [ADR-20](architecture-decisions.md#adr-20-a-config-default-lives-in-code-every-config-file-is-an-override-surface),
+   which the substrate's own `Config` and event-logger-nodes' `Config` both read
+   their configuration through. Each takes a trailing prefix string naming the
+   calling class in the log line or the exception. Three guarantees a consumer
+   builds on: a config file overrides the schema defaults for the keys it names,
+   so a missing one returns the passed config untouched; a file returning
+   anything but a tree of scalars, nulls and arrays throws; and a path failing
+   any check logs through `Core::stderr()` and comes back null, leaving the
+   caller to decide whether a bad path is fatal. That `Core::` call is why this
+   class sits outside item 8's hermetic subset.
+10. **Consumer boot.** `Topology_Registry::register_plugin()`,
+    `Command_Interpreter_Node::register_namespace()`,
+    `Bootstrap::version_at_least()`, and three constants the entry point
+    defines: `NEWSPACK_NODES_VERSION`, the handshake a consumer compares
+    against; `NEWSPACK_NODES_DIR`, the plugin's filesystem root, holding the
+    autoloader, the stock topologies and `build/`; and `NEWSPACK_NODES_URL`, the
+    browser base for that same `build/`. Both paths end in the slash their
+    `plugin_dir_path()` / `plugin_dir_url()` sources give them.
+    `Field_Reset_Assets::enqueue()`, frozen in item 8, reads the build's
+    `index.asset.php` off DIR and its script src off URL. URL is the one that
+    can go missing — the plugin defines it only where `plugin_dir_url()` exists
+    — so every reader guards it: `enqueue()` returns early and
+    `Admin::build_url()` falls back to the empty string.
 
 Not frozen: any class, method, JS module, dashboard markup, SCSS or option name
 absent from that list. The three `@newspack-nodes/*` build aliases — `runtime`,
@@ -82,9 +135,9 @@ the substrate ships.
 ## The version gap
 
 The substrate ships before its consumers, by necessity: a consumer pins a
-substrate tag, so the tag has to exist first. A host running the new substrate
-against a not-yet-updated consumer is therefore a guaranteed window, and two
-mechanisms cover it from opposite ends.
+substrate tag, so the tag has to exist first. The window where a host runs the
+new substrate against a not-yet-updated consumer is therefore guaranteed, not
+hypothetical, and two mechanisms cover it from opposite ends.
 
 **A consumer declares its floor.** `Bootstrap::version_at_least( $min,
 $dependent )` returns false and posts an admin notice naming the plugin, the
@@ -109,11 +162,10 @@ up.
 
 ## How a frozen name changes
 
-A change to a name above lands in [upgrading.md](upgrading.md) with the rewrite
-beside it, in the same commit as its CHANGELOG entry — the rule every
-consumer-facing change follows, listed or not. What the list buys is a
-reference: these names are written down in API.md, cli.md and the ADRs, so a
-consumer builds against prose instead of against the substrate's source.
+A change to a name above lands in [upgrading.md](upgrading.md) in the same
+commit as its CHANGELOG entry — the rule every consumer-facing change follows,
+listed or not. What the list buys is a reference: a consumer builds against
+prose instead of against the substrate's source.
 
 It buys neither stillness nor an alias. No file in the tree carries
 `@deprecated`, and the record is plain: `newspack_nodes/supervisor_periodic`
@@ -122,12 +174,12 @@ became `newspack_nodes/periodic`, `wp nodes restart supervisor` was removed and
 a TSL node type, all inside 2.11.0, and each entry says so outright: no alias,
 no shim, the old spelling rejected rather than ignored.
 
-Nor was 2.11.0 the end of it: `Tail` lost its `source_mode` argument in 2.26.0,
+Nor was 2.11.0 the end of it: `Tail` lost its `source_mode` argument in 2.25.0,
 and `POST /v1/command` began demanding READ at the door in 2.31.0. Read
 upgrading.md before every minor upgrade, not only before a major.
 
 Additive change — new verbs, new nodes, new hooks, new optional arguments — is
-free and unannounced.
+free, and earns a CHANGELOG line rather than an upgrading.md entry.
 
 ## Versioning
 

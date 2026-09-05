@@ -1,18 +1,18 @@
 /**
  * alias-map — the ONE resolver for the `@newspack-nodes/*` consumption surface.
  *
- * Every consumer of the substrate's shared code resolves the same four import
+ * Every consumer of the substrate's shared code resolves the same three import
  * specifiers, and each toolchain wants them in a different shape: esbuild takes
  * plain prefix keys, jest takes anchored regexes with a `$1` subpath capture.
  * Both are DERIVED here from a single base directory — the substrate's `src`.
+ * The build kit itself carries no alias: a consumer reaches it by joining
+ * `build-kit/index.mjs` onto that same base.
  *
- * It previously existed four times: nodes' `scripts/build.mjs` spelled out
- * absolute paths, each consumer's and the bundled example's spelled out their
- * own with a separate env override per alias, and `jest.cjs` built the regex
- * map independently. That
- * enumeration is what made the release trap possible — a consumer's CI had to
- * set FOUR `NEWSPACK_NODES_*` env vars and omitting any one silently resolved to
- * a nonexistent sibling path. One base means one override.
+ * Four `NEWSPACK_NODES_*` env vars once configured those paths independently,
+ * one per alias plus one for the kit, while `jest.cjs` built its regex map from
+ * literals of its own. Omitting any one of the four fell back to a nonexistent
+ * sibling path and died deep inside esbuild, naming nothing. One base means one
+ * override.
  *
  * The `.cjs` extension is load-bearing, not stylistic: `jest.cjs` must
  * `require()` it synchronously while `build.mjs` imports it as an ES module. A
@@ -92,11 +92,9 @@ function jestModuleNameMapper( base ) {
 }
 
 /**
- * The four per-alias overrides `NEWSPACK_NODES_SRC` replaced. Refused, never
- * ignored: a stale override that silently does nothing is how a release builds
- * against the wrong checkout and still goes green.
- *
- * Remove once every consumer's release.yml has shipped on NEWSPACK_NODES_SRC.
+ * The four overrides `NEWSPACK_NODES_SRC` replaced: one per alias, plus one for
+ * the build kit, which has no alias. Refused, never ignored — a stale export
+ * left beside a correct SRC does nothing, and the build still goes green.
  */
 const RETIRED = [
 	'NEWSPACK_NODES_RUNTIME',

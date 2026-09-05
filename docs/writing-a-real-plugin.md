@@ -15,7 +15,7 @@ The shape is unchanged — three sources fan into a durable `ingest` partition, 
 
 > **The one thing to hold onto (still):** every node has one entry point, `fill( array $message ): void`. Nothing below changes that. The real connectors are *more code* than the toy, but they're the same node — they still mint a `TM_STRUCT` per item and forward to their sink. Everything new lives behind `fetch()`, which `fill()` calls and the graph never sees.
 
-The finished code is in the sibling [`newspack-intelligence/`](../../newspack-intelligence/) repo. Read along, or diff it against the toy.
+The finished code is in the sibling [`newspack-intelligence`](https://github.com/Automattic/newspack-intelligence) repo. Read along, or diff it against the toy.
 
 ---
 
@@ -32,12 +32,12 @@ scored:consumer ─ digest ─ digest:tee ─ digest:log
 gate:consumer ─ gate ─ gate:tojson ─ gate:log              (observer, own cursor)
 ```
 
-It ships as five `.tsl` files, not one. `topologies/newspack-intelligence.tsl` is an aggregator that `include`s a file per stage — `-ingest`, `-summary`, `-digest`, and `-gate`. `register_plugin()` catalogs *every* `.tsl` in `topologies/`, so a stage can be activated alone and run as its own fleet — instead of the aggregator, never alongside it ([§6](#6-ship--operate-it)). Each file declares `var num_partitions = 1`, `include`s `topic-probe`, and closes with `secure`, which climbs the security ratchet one level: at level 1 `make_node` is refused, so the built graph can no longer be rebuilt from the wire. A `secure` line inside an *included* file is skipped — `Shell_Node::declares_secure_level()` drops it — so only the topology actually being loaded decides the process level. Without that skip the first stage's `secure` would refuse every `make_node` in the three stages behind it. The aggregator also restates the resident default, `var on_demand_idle = 0`; a stage meant to sleep between collects would raise it.
+It ships as five `.tsl` files, not one. `topologies/newspack-intelligence.tsl` is an aggregator that `include`s a file per stage — `-ingest`, `-summary`, `-digest`, and `-gate`. `register_plugin()` catalogs *every* `.tsl` in `topologies/`, so a stage can be activated alone and run as its own fleet — instead of the aggregator, never alongside it ([§6](#6-ship--operate-it)). Each file declares `var num_partitions = 1`, `include`s `topic-probe`, and closes with `secure`, which climbs the security ratchet one level: at level 1 `make_node` is refused, so the built graph can no longer be rebuilt from the wire. A `secure` line inside an *included* file is skipped — `Shell_Node::declares_secure_level()` drops it — so only the topology being loaded decides the process level. Without that skip the first stage's `secure` would refuse every `make_node` in the three stages behind it. The aggregator also restates the resident default, `var on_demand_idle = 0`; a stage meant to sleep between collects would raise it.
 
 Three connector **sources** fan into the `ingest` partition (fan-in, exactly as Ben's community source fanned into the summarizer in the toy — the target is a partition now, not the summarizer). What's genuinely new from the toy's perspective is concentrated at the two ends, plus that new partition in the middle:
 
 - **The source end.** The toy's `items()` returned a literal array. The real sources `fetch()` over HTTP, normalize wildly different payloads (GitHub REST, Linear GraphQL, RSS/Atom XML) into one item shape, dedup against what they've already emitted, and need credentials.
-- **The credentials.** A real source is useless without a token. The secret lives in the substrate's **Vault** (the devtools-hub's *Vault* tab), and the topology carries only a *pointer* to it — a `set_vault_id <id>` verb on the node's `.tsl` line, resolved to the raw secret at `config()`. The rest of a source's config is topology verbs too (`add_repo`, `add_url`, `set_model`, …). None of it lives in a WordPress Settings page or an options row.
+- **The credentials.** A real source is useless without a token. The secret lives in the substrate's **Vault** (the devtools-hub's *Vault* tab), and the topology carries only a *pointer* to it — a `set_vault_id <id>` verb on the node's `.tsl` line, resolved to the raw secret at `config()`. The rest of a source's config is topology verbs too (`add_repo`, `add_url`, `set_model`, …). None of that config lives in a Settings page or an options row.
 - **The ingest partition.** A source TICK writes raw items to a durable log — a *fast* append, no per-item LLM work — so the worker keeps heartbeating during a collect. The `ingest:consumer` then paces those items through the blocking summarizer/scorer LLM calls one read-block per drain, spreading the enrich across drain cycles. The partition is the buffer between the bursty sources and the slow enrich.
 
 The middle — summarizer, scorer, the two partitions, consumers, digest — is its own story (the LLM seam, the durable `scored` log, the snapshot co-commit), and so is the gate observer hanging off `ingest`. This guide stays at the source end, the ingest buffer, and the credentials, because that's the part the toy guide explicitly deferred. We'll write it in the order you'd discover it: the contract first, then the base that implements it, then the three connectors, then the credentials that feed them, then wiring and ship.
@@ -86,8 +86,8 @@ The call site resolves the seam lazily, with a ternary — null means "use the r
 ```php
 $response = null !== self::$http_get ? ( self::$http_get )( $url, $args ) : \wp_remote_get( $url, $args );
 if ( \is_wp_error( $response ) ) {
-	// print_less_often keys on the FIRST argument only; pass the varying
-	// message as a second one or a per-repo string defeats the rate limiting.
+	// print_less_often keys on its FIRST argument alone, so the varying message
+	// rides as a second one; folding it into the first defeats the rate limit.
 	$this->print_less_often( 'GitHub fetch failed: ', $response->get_error_message() );
 	return [];
 }
@@ -144,7 +144,7 @@ The base owns four things the toy duplicated:
 
 **TICK handling.** `fill()` branches on `TM_REQUEST` and calls `handle_request()` — once, in the base. Unlike the toy, the production source sends no `{ emitted }` reply to its caller. It closes every TICK with a terminal `DONE` instead, which travels *downstream* to the digest rather than back to whoever ticked it — see below.
 
-**Dedup by item `id`, then a terminal `DONE`.** A real source is polled on a timer; each TICK re-fetches the same window and would re-emit items the digest already has. So the base keeps a bounded `$seen` set and drops anything it's emitted before — then, in a `finally`, emits one `TM_INFO` `DONE` so the digest can count collection progress (§5 spells out the auto-compose it drives):
+**Dedup by item `id`, then a terminal `DONE`.** A real source is TICKed over and over — the dashboard's *Collect* button, or `request_node github TICK` by hand — and every TICK re-fetches the same window, which would re-emit items the digest already has. So the base keeps a bounded `$seen` set and drops anything it's emitted before — then, in a `finally`, emits one `TM_INFO` `DONE` so the digest can count collection progress (§5 spells out the auto-compose it drives):
 
 ```php
 private function handle_request( array $message ): void {
@@ -442,7 +442,7 @@ The verb also carries a typed schema arg, `type: 'vault_id'` — that type is wh
 
 A schema `handler` is a dispatch closure — it receives the pre-split **token array** `array $args` (`list<string>` argv), not a string. The static `cmd_set_vault_id` resolves the patron node and delegates the first token to the string instance method: `$patron->set_vault_id( Core::as_string( $args[0] ?? '' ) )`. The instance verb methods (`set_vault_id`, `add_repo`) each take a single `string` because each expects one scalar token — the array-to-scalar seam lives in the dispatch closure.
 
-> **A one-property verb can skip the trio.** `Schema_Reflection` reads a `'toggle' => 'some_flag'` and then a `'setter' => 'vault_id'` before it looks for `handler`. Either names a property. `declared_setter()` synthesizes the handler — it coerces the first token and calls the patron's own `set_vault_id()` — and `dump_setters()` / `dump_toggles()` emit the round-trip line for every such verb in one call. A verb that assigns one value therefore needs no closure, no static `cmd_*`, and no per-verb branch in `dump_config()`. The connectors here spell all three out; `Consumer_Node`'s `multi_writer` is the substrate's example of the short route. `add_repo` and `add_url` cannot take it: they *append* to a list rather than assign to a property, which is what their hand-written handlers buy.
+> **A one-property verb can skip the trio.** `Schema_Reflection` reads a `'toggle' => 'some_flag'` and then a `'setter' => 'vault_id'` before it looks for `handler`. Either names a property. `declared_setter()` synthesizes the handler — it coerces the first token and calls the patron's own `set_vault_id()` — and `dump_setters()` / `dump_toggles()` emit the round-trip line for every such verb in one call. A verb that assigns one value therefore needs no closure, no static `cmd_*`, and no per-verb branch in `dump_config()`. The connectors here spell all three out; `Consumer_Node`'s `set_multi_writer` is the substrate's example of the short route: one `'toggle' => 'multi_writer'` declaration, and a `dump_config()` that calls `dump_toggles()` without naming the verb. `add_repo` and `add_url` cannot take it: they *append* to a list rather than assign to a property, which is what their hand-written handlers buy.
 
 ### Repos and feeds are ordered verbs, not options
 
@@ -540,7 +540,7 @@ if ( "DONE\n" === $value ) {
 }
 ```
 
-`$total` is the digest's **second** `make_node` argument — `make_node Digest_Builder digest scored:partition 3`, where `3` is the source count. Nothing computes it: the `.tsl` literal has to match the sources the topology actually TICKs, which `Insights_CI_Node` keeps in one private `SOURCE_NODES` list (`github`, `linear`, `feed`) that its Collect verb both counts and iterates. Add a fourth connector and both the list and that literal move. Counting *distinct* `FROM` names, not raw signals, keeps the tally idempotent across re-ticks and replays, so a stale `DONE` can't overshoot. And because `DONE` rides the same `ingest`-to-`scored`-to-`digest` path in order, it lands after every item it follows, so the compose sees a complete cycle.
+`$total` is the digest's **second** `make_node` argument — `make_node Digest_Builder digest scored:partition 3`, where `3` is the source count. Nothing computes it: the `.tsl` literal has to match the sources the topology TICKs, which `Insights_CI_Node` keeps in one private `SOURCE_NODES` list (`github`, `linear`, `feed`) that its Collect verb both counts and iterates. Add a fourth connector and both the list and that literal move. Counting *distinct* `FROM` names, not raw signals, keeps the tally idempotent across re-ticks and replays, so a stale `DONE` can't overshoot. And because `DONE` rides the same `ingest`-to-`scored`-to-`digest` path in order, it lands after every item it follows, so the compose sees a complete cycle.
 
 So driving it by hand is a **RESET, then a TICK per source** — the dashboard's *Collect* button does exactly this:
 
@@ -552,6 +552,8 @@ So driving it by hand is a **RESET, then a TICK per source** — the dashboard's
 # …the third DONE reaches the digest and it composes + writes digest:log automatically.
 ```
 
+Nothing in the shipped topology collects on a schedule — no `Timer` node TICKs a source — so every cycle starts with that Collect button, or with those four lines typed into `wp nodes cli`. Collecting on a cadence instead would take a `Timer_Node` subclass whose `fire()` mints the same `RESET` and `TICK` requests.
+
 RESET also explains the digest's *first* argument. Emptying the accumulator changes this node's state but not the consumer's cursor, so the offsetlog would keep the stale item list and a restart would reload it. RESET therefore appends one throwaway message to the named `scored:partition`, which advances `scored:consumer` and makes its next checkpoint co-commit the emptied snapshot.
 
 The only manual compose verb is `REGENERATE`, which recomposes a draft from the items *already* collected (no re-fetch). With no creds the TICKs emit nothing, the three `DONE`s still arrive, and the digest composes an empty draft — add a Vault entry + an `add_repo` and re-collect to see items flow.
@@ -562,7 +564,7 @@ The only manual compose verb is `REGENERATE`, which recomposes a draft from the 
 
 A real plugin lives in its own repo and installs on a site that already has the substrate. The §8 essentials from the toy guide all apply (`Requires Plugins: newspack-nodes`, the deferred `plugins_loaded` loader, the test bootstrap, phpcs/phpstan, the release workflow). Here are the operational gotchas specific to taking *this* plugin live.
 
-**Deploy installs a prebuilt zip — build first.** The setup script installs the existing `release/*.zip`; it does **not** build. So the loop is *build, then deploy*:
+**Deploy installs a prebuilt zip — build first.** A deploy installs the `release/*.zip` that is already there; it does **not** build one. So the loop is *build, then deploy*:
 
 ```bash
 npm run release:archive    # builds release/<plugin>.zip
@@ -573,26 +575,34 @@ Skip the build and your live `wp nodes` runs the *old* code — and because the 
 
 **After adding node classes, regenerate the autoloader.** The classmap is what `make_node` resolves against ([ADR-10](architecture-decisions.md#adr-10-class-naming--make_node-namespace-resolution)) and what `Classes_CI` scans to populate the console palette. After adding or renaming a node run `composer build:autoloaders` (= `composer install --optimize-autoloader`) or `composer dump-autoload -o`. The release zip is already optimized, so a freshly-built zip needs no separate dump.
 
-**Restart long-lived processes after the complete deploy.** A running worker
-holds the old class in its PHP process for the rest of its ~595-second lifespan
-([ADR-8](architecture-decisions.md#adr-8-worker-zombie-pattern)). Wait until all
-topology-provider plugins have been installed and activated as WordPress
-plugins, then refresh the workers:
+**Swapping the plugin's files takes the fleet DOWN, not a restart.** A running
+worker holds the old class in its PHP process for the rest of its ~595-second
+lifespan ([ADR-8](architecture-decisions.md#adr-8-worker-zombie-pattern)), so new
+code needs a refresh either way. But overwriting `includes/` underneath a live
+worker makes its autoloader fail on the plugin's own classes, and the consumer
+quarantines whatever was in flight as poison. Hold the fleet down across the
+install instead:
 
 ```bash
-wp nodes restart all
+wp nodes stop && <install the zip> && wp nodes start
 ```
 
-Run it as the worker's OS user — the same account the web server runs as, not
+`wp nodes stop` exits non-zero while any worker still holds its lock, so the
+install never lands on a live process. `wp nodes restart all` is the lighter
+tool for the case where the files are already in place — after activating a
+second provider plugin, say.
+
+Run these as the worker's OS user — the same account the web server runs as, not
 root. `Config::assert_private_to_us()` refuses a runtime tree owned by another
 non-root uid outright, and only warns for root, because root's hazard runs the
 other way: the files it leaves behind are root-owned, and the web-user worker
 cannot write them.
 
-Each restarted worker gets a fresh WordPress bootstrap, rebuilding its
-process-local topology catalog from the complete provider set. Restart only
-after every provider is in place: a worker born while a provider's plugin
-directory was temporarily absent stays blind to it until its natural turnover.
+Every worker that comes back gets a fresh WordPress bootstrap, rebuilding its
+process-local topology catalog from the complete provider set. Bring the fleet
+back only after every provider is in place: a worker born while a provider's
+plugin directory was temporarily absent stays blind to it until its natural
+turnover.
 
 **Topologies register, but you activate them.** `register_plugin()` (in the bootstrap) makes every `.tsl` in `topologies/` a *catalog* entry; only a topology in the *active* set is spawned. Activate the aggregator — it `include`s the four stage files, so they need no activation of their own — from the Overview tab of the **Nodes** admin page or from the CLI, then confirm:
 
@@ -602,7 +612,7 @@ wp nodes status
 #   <plugin-topology>.p0  live  3s ago  2m 10s
 ```
 
-Activate the aggregator *or* the stages, never both. `Topology_Analyzer::find_conflicts()` runs on every activation and refuses two active topologies whose write sets overlap; `ingest:partition` and `scored:partition` each lift the write cap with `void_warranty`, and a lifted cap assumes a sole writer. Running one stage as its own fleet therefore means deactivating the aggregator first.
+Activate the aggregator *or* the stages, never both. `Topology_Analyzer::find_conflicts()` runs on every activation and refuses two active topologies whose write sets overlap. A partition both declare with the identical `make_node` line is tolerated as a deliberate multi-writer log — but not these two: `ingest:partition` and `scored:partition` each lift the write cap with `void_warranty`, and a lifted cap assumes a sole writer. Offsetlogs never share at all, so the consumers collide whatever the cap does. Running one stage as its own fleet therefore means deactivating the aggregator first.
 
 **Tests are hermetic — no network.** The closure-HTTP seam is what buys that: a test sets `$http_get` or `$http_post` to return a canned body, so nothing leaves the box.
 
@@ -624,7 +634,7 @@ You added three real classes — `Github_Source_Node`, `Linear_Source_Node`, `Fe
 
 And here's what you **still** never touched. The summarizer, the scorer, the digest builder — none of them learned the items stopped being canned; they consume `{ source, id, title, url, body, timestamp }` exactly as before. The router, the worker lifecycle, fleet revival, the topology console, the Vault credential store, the offsetlog snapshot in the durable middle — all reused. The connectors dropped into a graph full of pieces they've never seen, because they upheld the one contract: a message arrives at `fill()`, you do your work, you forward it to your sink.
 
-That was the short hop the toy guide promised — `items()` → `fetch()`. It turned out to be two method bodies of *intent* wrapped in a base class of *plumbing*, a Vault-backed credential pointer, and a test seam. The intent really was small. The plumbing is what the substrate lets you write once and stop thinking about.
+That was the short hop the toy guide promised — `items()` → `fetch()`. It turned out to be two method bodies of *intent* wrapped in a base class of *plumbing*, a Vault-backed credential pointer, and a test seam. The intent was small. The plumbing is what the substrate lets you write once and stop thinking about.
 
 ---
 
@@ -635,4 +645,4 @@ That was the short hop the toy guide promised — `items()` → `fetch()`. It tu
 - **[writing-a-dashboard.md](writing-a-dashboard.md)** — the original toy Publisher Insights React dashboard walkthrough.
 - **[architecture-guide.md](architecture-guide.md)** — the full model: drain loop, partitions, workers, fleet revival, the REPL.
 - **[architecture-decisions.md](architecture-decisions.md)** — the load-bearing ADRs (ADR-3 fire-and-forget, ADR-4 PIPE_BUF, ADR-5 lazy init).
-- **[`../../newspack-intelligence/`](../../newspack-intelligence/)** — the complete production plugin: `includes/`, the five composed `.tsl` files under `topologies/`, the PHPUnit suite.
+- **[`newspack-intelligence`](https://github.com/Automattic/newspack-intelligence)** — the complete production plugin: `includes/`, the five composed `.tsl` files under `topologies/`, the PHPUnit suite.
