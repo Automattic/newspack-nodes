@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.49.3] - 2026-09-07
+
+### Fixed
+
+- **`Partition_Node`'s locator memo capped keys per DIRECTORY while holding unlimited directories.** `MAX_LOCATOR_MEMO_KEYS` (100,000) bounds one slot, so the real ceiling was that number times however many partition dirs a process ever touched — no ceiling at all. A reader that fans across one mirror per partition fills a slot fast, and event-logger-nodes' PHP suite, which builds a fresh temp dir per test, ran the pool to 672MB and killed PHPUnit with no message. `MAX_LOCATOR_MEMO_DIRS` (8) now drops every slot past that count, on the same discard-whole idiom the key cap already uses — a discard costs a re-walk, never a wrong answer. The suite peaks at 102MB.
+
 ## [2.49.2] - 2026-09-06
 
 ### Fixed

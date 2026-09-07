@@ -4071,6 +4071,33 @@ class PartitionTest extends TestCase {
 		$this->assertLessThan( $over, \count( $after[ $dir ]['searched'] ), 'the memo was discarded, not grown' );
 	}
 
+	/**
+	 * The memo is bounded across DIRECTORIES too, not only within one.
+	 *
+	 * `MAX_LOCATOR_MEMO_KEYS` caps one directory's slot; without a cap on the
+	 * slots themselves the real ceiling is that number times however many
+	 * directories a process touches, which is no ceiling at all. A reader that
+	 * presents a whole read window per partition fills a slot fast.
+	 */
+	public function test_the_memo_is_bounded_across_directories(): void {
+		$parse = static fn ( string $line ): ?array => self::unpack_index_line( $line );
+		$first = $this->indexed_partition( 'dirbound0', 3 );
+		$this->assertArrayHasKey( 'k2', $first->locate_by( $parse, [ 'k2' ] ) );
+
+		// One directory past the cap, each with its own slot.
+		for ( $i = 1; $i <= Partition_Node::MAX_LOCATOR_MEMO_DIRS; $i++ ) {
+			$this->indexed_partition( "dirbound{$i}", 1 )->locate_by( $parse, [ 'k1' ] );
+		}
+
+		$cache = ( new \ReflectionProperty( Partition_Node::class, 'locator_cache' ) )->getValue();
+		$this->assertLessThanOrEqual(
+			Partition_Node::MAX_LOCATOR_MEMO_DIRS,
+			\count( $cache ),
+			'a slot per directory ever touched is not a bound'
+		);
+		$this->assertArrayHasKey( 'k2', $first->locate_by( $parse, [ 'k2' ] ), 'a discard costs a walk, not an answer' );
+	}
+
 	/** An empty wanted set reads nothing at all. */
 	public function test_locate_by_reads_nothing_for_an_empty_wanted_set(): void {
 		$p    = $this->indexed_partition( 'emptywant', 6 );
