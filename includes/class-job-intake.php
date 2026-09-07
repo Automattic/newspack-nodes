@@ -94,12 +94,12 @@ class Job_Intake {
 	public const DISPATCH_FIELDS = [ 'retries', 'attempt', 'batch', 'key' ];
 
 	/**
-	 * Maximum job size in bytes (32 MB). The canonical cap: Job_Worker_Node and
+	 * Maximum job size in bytes (32 MiB). The canonical cap: Job_Worker_Node and
 	 * an application's Job_Router derive their limit from this constant.
 	 */
 	public const MAX_JOB_SIZE = 32 * 1024 * 1024;
 
-	/** Max chars for the optional per-job `id` (it rides in every jobstats record IDENTITY). */
+	/** Max bytes for the optional per-job `id`; it rides in that job's jobstats IDENTITY. */
 	public const MAX_JOB_ID_LEN = 128;
 
 	/**
@@ -181,10 +181,11 @@ class Job_Intake {
 	 *
 	 * @api Bulk enqueue; pyrobase's image migration writes through it.
 	 * @param array<int,array<string,mixed>> $jobs  Zero-indexed list of entries, each carrying
-	 *                                              `handler` (string), `parameters` (array) and
-	 *                                              an optional `id` (string). An entry whose
-	 *                                              handler or parameters has the wrong type is
-	 *                                              skipped rather than written.
+	 *                                              `handler` (string), `parameters` (array — an
+	 *                                              omitted one reads as empty) and an optional
+	 *                                              `id` (string). An entry whose handler or
+	 *                                              parameters has the wrong type is skipped
+	 *                                              rather than written.
 	 * @param string|null                    $key   Optional partition key for all jobs.
 	 * @param string|null                    $batch Optional fan-in batch id (requires a selected
 	 *                                              cache backend: Memcached or APCu).
@@ -192,6 +193,7 @@ class Job_Intake {
 	 * @throws \LogicException When $batch is given with no claim store (memcached or APCu).
 	 * @throws \RuntimeException When the batch id is already active, or a partition's write lock
 	 *                           finds a live concurrent writer.
+	 * @throws Worker_Should_Stop When a cooperative stop lands mid-write.
 	 */
 	public function queue_many( array $jobs, ?string $key = null, ?string $batch = null ): int {
 		$options = [];
@@ -259,12 +261,14 @@ class Job_Intake {
 	 *                                        (requires a selected cache backend: Memcached or
 	 *                                        APCu); `attempt`/`batch` are internal passthrough
 	 *                                        fields.
-	 * @return bool True on success, false on validation failure, lock unavailable,
-	 *              write error, or a duplicate `unique` enqueue inside its window.
+	 * @return bool True when the entry was handed to its Partition. False on a bad handler name,
+	 *              an over-long id, an entry that will not encode or exceeds MAX_JOB_SIZE, or a
+	 *              duplicate `unique` enqueue inside its window.
 	 * @throws \InvalidArgumentException On an unknown option key, not_before+delay together, or
 	 *                                   `unique` without a positive `unique_ttl`.
 	 * @throws \LogicException When `unique` is passed with no claim store (memcached or APCu).
-	 * @throws \RuntimeException From the per-Partition write lock on a genuine concurrent writer.
+	 * @throws \RuntimeException From the per-Partition write lock on a live concurrent writer.
+	 * @throws Worker_Should_Stop When a cooperative stop lands mid-write.
 	 */
 	public function write_job( string $handler, ?string $id, array $parameters, ?string $key = null, array $options = [] ): bool {
 		return $this->write_entry( $handler, $id, $parameters, $key, $options, self::LOG_BASENAME, true );
@@ -299,8 +303,9 @@ class Job_Intake {
 	 * @param string|null         $id         Optional per-job identity for jobstats keying.
 	 * @param array<string,mixed> $parameters Job parameters (must fit PIPE_BUF once packed).
 	 * @param string|null         $key        Optional partition key for consistent routing.
-	 * @return bool True when the entry was appended; false on validation failure or an entry
-	 *              over the atomic cap.
+	 * @return bool True when the entry was handed to its Partition; false on validation failure
+	 *              or an entry over the atomic cap.
+	 * @throws Worker_Should_Stop When a cooperative stop lands mid-write.
 	 */
 	public function write_feed( string $handler, ?string $id, array $parameters, ?string $key = null ): bool {
 		return $this->write_entry( $handler, $id, $parameters, $key, [], self::FEED_BASENAME, false );
@@ -318,11 +323,13 @@ class Job_Intake {
 	 * @param bool                $large      Lift the PIPE_BUF cap and take the write lock.
 	 *                                        The delay branch below assumes it: jobdelay is written locked.
 	 * @return bool True when the entry was handed to its Partition. False on a bad handler name,
-	 *              an over-long id, an oversized entry, a feed entry over PIPE_BUF, or a duplicate
-	 *              `unique` enqueue inside its window.
+	 *              an over-long id, an entry that will not encode or exceeds MAX_JOB_SIZE, a feed
+	 *              entry over PIPE_BUF, or a duplicate `unique` enqueue inside its window.
 	 * @throws \InvalidArgumentException On an unknown option key, not_before+delay together, or
 	 *                                   `unique` without a positive `unique_ttl`.
 	 * @throws \LogicException When `unique` is passed with no claim store (memcached or APCu).
+	 * @throws \RuntimeException From the per-Partition write lock, on the large path only.
+	 * @throws Worker_Should_Stop When a cooperative stop lands mid-write.
 	 */
 	private function write_entry( string $handler, ?string $id, array $parameters, ?string $key, array $options, string $basename, bool $large ): bool {
 		$unknown = \array_diff( \array_keys( $options ), self::OPTION_KEYS );
@@ -331,12 +338,11 @@ class Job_Intake {
 			throw new \InvalidArgumentException( 'unknown job option(s): ' . \implode( ', ', $unknown ) );
 		}
 
-		// Validate handler name.
 		if ( ! \preg_match( self::HANDLER_NAME_PATTERN, $handler ) ) {
 			return false;
 		}
 
-		// The id rides in every jobstats KEY — bound it here.
+		// The id rides in this job's jobstats IDENTITY — bound it here.
 		if ( null !== $id && \strlen( $id ) > self::MAX_JOB_ID_LEN ) {
 			Core::stderr( '[Nodes] JobIntake: Job id exceeds ' . self::MAX_JOB_ID_LEN . ' chars for handler: ' . $handler );
 			return false;
@@ -355,7 +361,6 @@ class Job_Intake {
 			return false;
 		}
 
-		// Select partition.
 		if ( null !== $this->pinned_partition ) {
 			$partition = $this->pinned_partition;
 		} elseif ( null !== $key && '' !== $key ) {
@@ -365,7 +370,6 @@ class Job_Intake {
 			self::$round_robin = ( self::$round_robin + 1 ) % \PHP_INT_MAX;
 		}
 
-		// Clamp partition to valid range.
 		$partition = \max( 0, \min( $partition, $this->num_partitions - 1 ) );
 
 		// On the wire too: a raw log line reads handler, id, parameters.
@@ -406,7 +410,7 @@ class Job_Intake {
 			return false;
 		}
 
-		// TM_STRUCT ($job is structured) so Partition::fill packs and appends.
+		// TM_STRUCT: VALUE is an array, so Partition_Node::fill packs it.
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_STRUCT;
 		$message[ Message::VALUE ] = $job;
@@ -448,10 +452,10 @@ class Job_Intake {
 		// pid+object-id token: 2nd JobIntake won't clash with stale Core regs.
 		$instance_token = \getmypid() . '-' . \spl_object_id( $this );
 		$p              = new Partition_Node();
-		// Sibling plumbing: patron-link so dump_metadata hides from canvas.
+		// Patron-link: no {name}:config sibling, and hidden from the canvas.
 		$p->patron( $p );
 		$p->name( "{$basename}.{$instance_token}.p{$partition}" );
-		// Rule 4: sink into the interpreter only when one is in scope.
+		// Nothing raises a CI on a plain page render; sink when one exists.
 		$ci = Core::node( Node_Names::COMMAND_INTERPRETER );
 		if ( null === $p->sink() && null !== $ci ) {
 			$p->sink( $ci );
@@ -565,8 +569,10 @@ class Job_Intake {
 	 * @param string|null         $base_dir       Override base directory.
 	 * @param int|null            $num_partitions Override partition count.
 	 * @param array<string,mixed> $options        Optional behaviors — see write_job().
-	 * @return bool True on success, false on validation failure or unrecoverable
-	 *              lock contention (live concurrent writer on same partition).
+	 * @return bool True on success; false when write_job() refuses the entry, or when a live
+	 *              writer still holds that partition's lock at the deadline.
+	 * @throws \InvalidArgumentException On a bad option, exactly as write_job() raises it.
+	 * @throws \LogicException When `unique` is passed with no claim store (memcached or APCu).
 	 * @throws Worker_Should_Stop When a cooperative stop lands mid-write.
 	 */
 	public static function queue(
@@ -605,8 +611,8 @@ class Job_Intake {
 	 * @param string|null         $key            Optional partition key for consistent routing.
 	 * @param string|null         $base_dir       Override the configured base dir.
 	 * @param int|null            $num_partitions Override the configured partition count.
-	 * @return bool True when the entry was appended; false on validation failure or an entry
-	 *              over the atomic cap.
+	 * @return bool True when the entry was handed to its Partition, which `close()` then flushes;
+	 *              false on validation failure or an entry over the atomic cap.
 	 * @throws Worker_Should_Stop When a cooperative stop lands mid-write.
 	 */
 	public static function feed(
@@ -626,8 +632,6 @@ class Job_Intake {
 			$result = $intake->write_feed( $handler, $id, $parameters, $key );
 		} catch ( Worker_Should_Stop $e ) {
 			throw $e; // ADR-14: a cooperative stop is not a write failure.
-		} catch ( \RuntimeException $e ) {
-			$result = false;
 		} finally {
 			$intake->close();
 		}
