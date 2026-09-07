@@ -2,14 +2,14 @@
 /**
  * The event loop every long-running substrate process runs inside.
  *
- * One `drain()` call owns the process: it waits for the next thing to fall due,
- * fires it, and asks its caller whether to go round again. Timers are the only
- * scheduling primitive — local file polling (Tail, Consumer, the cli's stdin
- * reader) arms a `Timer_Node` rather than registering a descriptor, so the loop
- * holds exactly one blocking waiter however many sources are active. cURL is the
- * exception it cannot express that way: an easy handle hides its socket behind
- * cURL's API, so registered handles move the wait from `usleep` to
- * `curl_multi_select` over one shared multi handle.
+ * One `drain()` call owns the process: it asks its caller whether to go round
+ * again, waits for the next thing to fall due, and fires it. Timers are the
+ * only scheduling primitive — local file polling (Tail, Consumer, the cli's
+ * stdin reader) arms a `Timer_Node` rather than registering a descriptor, so
+ * the loop holds exactly one blocking waiter however many sources are active.
+ * cURL is the exception it cannot express that way: an easy handle hides its
+ * socket behind cURL's API, so registered handles move the wait from `usleep`
+ * to `curl_multi_select` over one shared multi handle.
  *
  * @package Newspack_Nodes
  */
@@ -29,20 +29,22 @@ namespace Newspack_Nodes;
 class Event_Framework {
 
 	/**
-	 * Wait cap, in microseconds, for a tick with no timer armed.
+	 * How long a tick with no timer armed waits, in microseconds.
 	 *
-	 * It bounds the `usleep` and the `curl_multi_select` timeout alike, so a tick
-	 * with nothing scheduled to wake it still re-checks the loop predicate,
-	 * dispatches signals, and picks up a timer armed by whatever ran this tick.
+	 * The same value serves as the `usleep` duration and the `curl_multi_select`
+	 * timeout, so a tick with nothing scheduled to wake it still re-checks the
+	 * loop predicate, dispatches signals, and picks up a timer armed by whatever
+	 * ran this tick.
 	 */
 	private const IDLE_TIMEOUT_US = 100_000;
 
 	/**
 	 * Minimum seconds between `pump()` liveness checks.
 	 *
-	 * Callers reach `pump()` once per firehose write, many times a second, and
-	 * each check beats the worker's lock on disk. Throttling to a second leaves
-	 * the writes in between costing one clock read.
+	 * `Partition_Node` reaches `pump()` on every record it writes, many times a
+	 * second on a busy firehose, and each check re-stats the worker's lock
+	 * directory. Throttling to a second leaves the writes in between costing one
+	 * clock read.
 	 */
 	private const PUMP_INTERVAL_S = 1.0;
 
@@ -94,11 +96,13 @@ class Event_Framework {
 	/**
 	 * Run the event loop until $should_continue says stop.
 	 *
-	 * Drains nest — an SSE stream drains inside a worker that is already
-	 * draining — so every field the loop owns is saved and restored rather than
-	 * assigned. Nulling them on the way out instead would leave the outer worker
-	 * with no parked predicate, silently disabling its `pump()` seam for the rest
-	 * of the process.
+	 * Every field the loop owns is saved on the way in and restored on the way
+	 * out, so a drain entered from inside another one hands the outer loop back
+	 * its parked predicate. Nulling those fields instead would leave the outer
+	 * worker without a predicate, silently disabling its `pump()` seam for the
+	 * rest of the process. Zeroing `last_pump` on entry is the other half: it
+	 * lets the first `pump()` of a cooperative-stop drain run its check rather
+	 * than inherit an earlier drain's throttle.
 	 *
 	 * @param callable $should_continue Loop predicate; false ends the loop. Under
 	 *   $cooperative_stop it is also called with true from `stop_check()`, meaning
@@ -107,6 +111,9 @@ class Event_Framework {
 	 *   re-run it from inside a long job and raise Worker_Should_Stop. Only
 	 *   Worker_Base opts in: a cli or SSE drain passes a generic "this loop is
 	 *   done" predicate and must never be thrown out of its own loop.
+	 * @throws Worker_Should_Stop Raised by `pump()` or `stop_check()` from inside
+	 *   a job and propagated out; `Worker_Base::execute()` catches it around the
+	 *   drain as a normal stop.
 	 */
 	public function drain( callable $should_continue, bool $cooperative_stop = false ): void {
 		$has_pcntl      = \function_exists( 'pcntl_signal_dispatch' );
@@ -144,7 +151,7 @@ class Event_Framework {
 
 			$timeout_us = $this->next_timer_timeout_us();
 
-			// 1 blocking call/iteration: the shared multi, or usleep to timer.
+			// The tick's one blocking wait: the shared multi, or a usleep.
 			if ( ! empty( $this->curl_owners ) && null !== $this->curl_multi ) {
 				// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_multi_select
 				\curl_multi_select( $this->curl_multi, $timeout_us / 1_000_000.0 );
@@ -159,6 +166,7 @@ class Event_Framework {
 
 			Core::right_now();
 
+			// A snapshot: a timer disarmed mid-scan still fires this tick.
 			foreach ( $this->timers as $id => $node ) {
 				if ( $node->next_fire > Core::$now ) {
 					continue;
@@ -176,14 +184,15 @@ class Event_Framework {
 	/**
 	 * Service the shared multi handle and route every completion it reports.
 	 *
-	 * The poll is a replaceable seam, so a row that is not an array is skipped
-	 * rather than trusted: a malformed reply must not take the loop down.
+	 * The poll is a replaceable seam, so a reply that is not an array — or a row
+	 * inside one that is not — is skipped rather than trusted: a malformed reply
+	 * must not take the loop down.
 	 */
 	private function drain_curl_multi(): void {
 		if ( null === $this->curl_multi ) {
 			return;
 		}
-		// Raw cURL: wp_remote_get is one-shot; SSE pulls need curl_multi_*.
+		// Raw cURL: wp_remote_get is one-shot; the loop needs curl_multi_*.
 		$poll = self::$curl_poll ?? static function ( \CurlMultiHandle $multi ): array {
 			// phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_multi_exec, WordPress.WP.AlternativeFunctions.curl_curl_multi_info_read
 			$still_running = 0;
@@ -236,7 +245,7 @@ class Event_Framework {
 	 * Microseconds to wait before the soonest armed timer is due.
 	 *
 	 * Yields IDLE_TIMEOUT_US when no timer is armed, and 0 when one is already
-	 * overdue — which makes the tick skip its blocking wait and fire at once.
+	 * overdue, which drops the tick's wait to nothing so the timer fires at once.
 	 *
 	 * @return int Microseconds, never negative.
 	 */
@@ -258,8 +267,8 @@ class Event_Framework {
 	 * Attach an easy handle to the shared multi and record its owner. The next
 	 * tick services it and routes its completion to `$node->on_curl_message()`.
 	 *
-	 * Registering also seeds the node's completion counter, so `list_handles`
-	 * shows a row for a node whose first transfer has yet to finish.
+	 * Registering also seeds the node's completion counter at zero, so the first
+	 * completion increments an existing key instead of warning on a missing one.
 	 *
 	 * @param Node        $node The node completions belong to.
 	 * @param \CurlHandle $easy The easy handle it owns.
@@ -294,18 +303,22 @@ class Event_Framework {
 	 *
 	 * A job that never yields starves the drain loop, so the worker's lock stops
 	 * beating and its max_runtime, restart and memory stops go unnoticed until
-	 * the job ends. Callers on the firehose write path reach this per write, and
-	 * the throttle keeps a per-line write from re-running the check every time.
-	 * It no-ops unless a cooperative-stop drain is active, so a web request, a
-	 * cli or an SSE stream is never thrown out of its own loop.
+	 * the job ends. `Partition_Node` reaches this on every record it writes, and
+	 * an importer walking pages of a blocking API reaches it at each fetch, so
+	 * the throttle is what keeps a per-line firehose write from re-running the
+	 * check every time. It no-ops unless a cooperative-stop drain is active, so a
+	 * web request, a cli or an SSE stream is never thrown out of its own loop.
 	 *
 	 * The throttle reads the live clock through `Core::right_now()` rather than
 	 * the cached `Core::$now`, which nothing refreshes while a blocking job runs
 	 * — a frozen read could not gate anything. Going through `right_now()` also
-	 * un-freezes that cached clock at pump cadence, which is what keeps mid-job
-	 * message TIMESTAMPs advancing.
+	 * un-freezes that cached clock on every pump a worker makes, throttled or
+	 * not, which is what keeps mid-job message TIMESTAMPs advancing.
 	 *
 	 * The decision itself is `stop_check()`; this is its throttled form.
+	 *
+	 * @throws Worker_Should_Stop When the throttle allows a check and the parked
+	 *   predicate says stop.
 	 */
 	public function pump(): void {
 		// Deliberate duplicate: spares non-workers a right_now() per write.
@@ -384,7 +397,7 @@ class Event_Framework {
 	 * by a node the registry has just dropped would otherwise keep firing into a
 	 * graph that no longer exists.
 	 *
-	 * @api Support for unit tests.
+	 * @api Test teardown.
 	 */
 	public static function reset(): void {
 		self::$instance = null;

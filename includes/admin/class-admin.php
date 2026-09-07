@@ -37,19 +37,22 @@ use Newspack_Nodes\Worker_Base;
  * Substrate admin surface: two hosts and the assets both need.
  *
  * The top-level "Nodes" page is a React mount div; every dashboard reaches it
- * as a DevTools tab bundle rather than its own submenu, so one hub renders the
- * Console, Topologies, Vault, Sessions, Aggregator and Raw Logs. The Settings →
- * Nodes Runtime page is server-rendered through the WP Settings API.
+ * as a DevTools tab bundle rather than its own submenu, so one hub renders
+ * Overview, Jobs, Console, Partition Viewer, Log Viewer, Config Audit, Vault,
+ * Sessions and Aggregator. The Settings → Nodes Runtime page is server-rendered
+ * through the WP Settings API.
  *
  * Every `*_callback` static here is a callable `Settings_Schema` names — a
  * `Field`'s renderer or a section's intro. WordPress invokes them through
  * `do_settings_sections()`; nothing in this class calls them directly. They are
- * static and referenced as `[ Admin::class, '…' ]` so a worker building the
- * schema for its overlay key-list never autoloads the admin surface.
+ * static because the schema names them as `[ Admin::class, '…' ]` pairs, which
+ * reach no instance. Building the schema still loads this class:
+ * `Field::__construct()` runs `is_callable()` over each pair, which autoloads
+ * Admin even inside a worker.
  */
 class Admin {
 
-	/** Top-level menu slug for the DevTools hub — the "Nodes" landing page (Console + Topologies + Raw Logs tabs, deep-linked via `&tab=`). */
+	/** Top-level menu slug for the DevTools hub — the "Nodes" landing page, whose tabs deep-link as `&tab=<slug>`. */
 	public const HUB_MENU_SLUG = 'newspack-nodes-hub';
 
 	/** Menu page slug for add_options_page() (the `?page=` fragment). */
@@ -80,9 +83,10 @@ class Admin {
 	public const SETTINGS_PAGE = 'newspack_nodes';
 
 	/**
-	 * Wire every admin hook: the two menus, settings registration, the reset and
-	 * flush admin-post handlers, the stylesheet and bundle enqueues, the tab-bundle
-	 * filters, and the worker-restart request on save.
+	 * Wire every admin hook: the top-level menu and the settings submenu, settings
+	 * registration, the reset and flush admin-post handlers, the stylesheet and
+	 * bundle enqueues, the tab-bundle filters, the worker-restart request on save,
+	 * the Effective Configuration panel and the fleet-alert notice.
 	 *
 	 * Stylesheet registration runs at priorities 1 to 3 so the token sheet exists
 	 * before the appearance sheet that consumes it, and both exist before any
@@ -95,7 +99,6 @@ class Admin {
 		\add_action( 'admin_init', [ $this, 'register_settings' ] );
 		\add_action( 'admin_post_' . self::RESET_ACTION, [ $this, 'handle_reset_settings' ] );
 		\add_action( 'admin_post_' . self::FLUSH_ACTION, [ $this, 'handle_flush_cache' ] );
-		// Priority 1: register the token sheet before any dashboard deps on it.
 		\add_action( 'admin_enqueue_scripts', [ $this, 'register_theme_style' ], 1 );
 		\add_action( 'admin_enqueue_scripts', [ $this, 'register_ui_style' ], 2 );
 		\add_action( 'admin_enqueue_scripts', [ $this, 'register_graph_style' ], 3 );
@@ -104,7 +107,7 @@ class Admin {
 		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_devtools_hub_assets' ] );
 		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_devtools_tab_bundles' ] );
 
-		// Console + Topology Manager load on the top-level hub as tab bundles.
+		// Every hub tab arrives through this filter, eager or lazy.
 		\add_filter( 'newspack_nodes/devtools_tab_bundles', [ $this, 'register_event_dashboards_tab_bundle' ] );
 		\add_filter( 'newspack_nodes/devtools_tab_bundles', [ $this, 'register_vault_tab_bundle' ] );
 		\add_filter( 'newspack_nodes/devtools_tab_bundles', [ $this, 'register_sessions_tab_bundle' ] );
@@ -115,16 +118,15 @@ class Admin {
 		\add_action( 'updated_option', [ $this, 'maybe_request_worker_restart' ], 10, 1 );
 		\add_action( 'added_option', [ $this, 'maybe_request_worker_restart' ], 10, 1 );
 
-		// Read-only "Effective Configuration" panel below the settings form.
 		\add_action( 'newspack_nodes/settings_after_form', [ $this, 'render_effective_config_section' ] );
 
-		// One fleet-alert summary notice on the Nodes admin pages.
 		\add_action( 'admin_notices', [ $this, 'render_alert_notice' ] );
 	}
 
 	/**
 	 * Enqueue the event-dashboards bundle on the top-level "Nodes" hub page,
-	 * where its `host:'hub'` tabs (Topology Manager + Raw Logs) register.
+	 * where its five `host:'hub'` tabs register: Overview, Jobs, Partition Viewer,
+	 * Log Viewer and Config Audit.
 	 *
 	 * @param string $hook `admin_enqueue_scripts` hook suffix, ignored: the page
 	 *                     gate is `?page=`, which reads the same for a top-level
@@ -175,15 +177,17 @@ class Admin {
 	/**
 	 * Enqueue every plugin-registered DevTools tab bundle on the hub page.
 	 *
-	 * A contributor returns `{ handle, dir, url[, localize][, lazy] }` — the
-	 * `enqueue_react_page` shape — through the `newspack_nodes/devtools_tab_bundles`
-	 * filter. A plain bundle is enqueued so its tabs register as the hub shell
-	 * boots. A `lazy` bundle is not enqueued at all: its load recipe goes into the
+	 * A contributor returns `{ handle, dir, url[, localize][, lazy] }` through the
+	 * `newspack_nodes/devtools_tab_bundles` filter — the `enqueue_react_page`
+	 * shape without the `page` gate, which this method supplies as the hub slug.
+	 * A plain bundle is enqueued so its tabs register as the hub shell boots. A
+	 * `lazy` bundle is not enqueued at all: its load recipe goes into the
 	 * `NewspackNodesLazyTabs` map on the hub handle, and the shell fetches it on
-	 * first tab activation. Each entry is validated here and dropped whole rather
-	 * than coerced, so one malformed contribution cannot break the others; the
-	 * page gate, the build-existence gate and manifest resolution belong to
-	 * `enqueue_react_page` and `lazy_tab_script`.
+	 * first tab activation. An entry missing `handle`, `dir` or `url`, or carrying
+	 * a non-scalar one, is skipped whole, so one malformed contribution cannot
+	 * break the others; the three that pass are cast to string. The
+	 * build-existence gate and manifest resolution belong to `enqueue_react_page`
+	 * and `lazy_tab_script`.
 	 *
 	 * @param string $hook `admin_enqueue_scripts` hook suffix, ignored; see
 	 *                     enqueue_event_dashboards_assets().
@@ -402,12 +406,12 @@ class Admin {
 		self::render_number( 'min_segments', \__( 'Floor for the age rule: keep at least this many segments even when pruning old ones by max lifetime.', 'newspack-nodes' ) );
 	}
 
-	/** Target the count rule prunes down to, above `min_lifetime`. */
+	/** Target the count rule prunes down to; `min_lifetime` spares younger segments. */
 	public static function num_segments_callback(): void {
 		self::render_number( 'num_segments', \__( 'Count-rule target: prune the oldest back to this many segments — but only ones older than min lifetime.', 'newspack-nodes' ) );
 	}
 
-	/** Hard cap neither the count rule nor `min_lifetime` can override. */
+	/** Unconditional ceiling: `min_lifetime` spares nothing above it. */
 	public static function max_segments_callback(): void {
 		self::render_number( 'max_segments', \__( 'True hard cap: prune the oldest UNCONDITIONALLY above this many segments (min lifetime does not protect them). 0 = automatic (twice num segments).', 'newspack-nodes' ) );
 	}
@@ -442,7 +446,7 @@ class Admin {
 		self::render_number( 'remote_lifetime', \__( 'Age rule: prune remote segments older than this many seconds down to remote min segments. 0 = disabled.', 'newspack-nodes' ) );
 	}
 
-	/** Hard cap on remote spokes, which `remote_min_lifetime` cannot override. */
+	/** Unconditional ceiling on remote spokes: `remote_min_lifetime` spares nothing above it. */
 	public static function remote_max_segments_callback(): void {
 		self::render_number( 'remote_max_segments', \__( 'True hard cap on remote servers: prune the oldest UNCONDITIONALLY above this many segments. 0 = automatic (twice remote num segments).', 'newspack-nodes' ) );
 	}
@@ -491,7 +495,6 @@ class Admin {
 	private static function render_number( string $field, string $description ): void {
 		$bounds = Settings_Schema::get()->field_for_short( $field );
 		if ( null === $bounds || null === $bounds->min || null === $bounds->max ) {
-			// Unbounded rendered number = schema bug; don't paper over it.
 			throw new \RuntimeException(
 				\esc_html( "settings field declares no bounds: {$field}" )
 			);
@@ -519,9 +522,14 @@ class Admin {
 
 	/**
 	 * Advertise the event-dashboards bundle as a DevTools tab bundle so the hub
-	 * page enqueues it and its `host: 'hub'` tabs (Topology Manager + Raw Logs)
-	 * register there. `enqueue_event_dashboards_assets()` also enqueues it
-	 * directly; WordPress deduplicates by handle, so the second one is a no-op.
+	 * page enqueues it and its five `host: 'hub'` tabs — Overview, Jobs, Partition
+	 * Viewer, Log Viewer and Config Audit — register there. Eager rather than
+	 * lazy because Overview sits at order 0 and is therefore the hub's landing
+	 * tab, so its bundle has to be there before anyone clicks anything.
+	 * `enqueue_event_dashboards_assets()` also enqueues this handle, and runs
+	 * first. WordPress deduplicates the SCRIPT by handle but concatenates the
+	 * localize blocks, so the `restUrl` and `nonce` this path builds are emitted
+	 * second and are what `NewspackNodesData` ends up holding.
 	 *
 	 * @param array<int,mixed> $bundles Existing tab bundles.
 	 * @return array<int,mixed> Bundles with the event-dashboards bundle appended.
@@ -571,6 +579,10 @@ class Admin {
 	 * way the `topologies.list` verb derives it. Two derivations would let the
 	 * page-load snapshot and the live refetch disagree, and the console would
 	 * redraw its dropdown for no reason a reader could see.
+	 *
+	 * Wires the runtime first, because that is where the registry learns the
+	 * per-deployment topology directory; without it the catalog is the stock
+	 * directories alone and a saved `.tsl` never reaches the dropdown.
 	 *
 	 * @param array<int,mixed> $bundles Existing tab bundles.
 	 * @return array<int,mixed> Bundles with the topology-console bundle appended.
@@ -722,6 +734,8 @@ class Admin {
 	 * Falls back to the caller's version when the file is unreadable, checked
 	 * first so `md5_file()` never runs on an unreadable path and warns.
 	 *
+	 * @api Pyrobase, event-logger-nodes and nuclear-gyrobase version their own
+	 *      stylesheets through this.
 	 * @param string $css_path Filesystem path to the stylesheet.
 	 * @param string $fallback Version to use when the file is unreadable.
 	 * @return string Content hash, or the fallback.
@@ -749,9 +763,12 @@ class Admin {
 	 *
 	 * One summary rather than a notice per alert: `evaluate()` returns an entry per
 	 * worker, per lagging consumer and per dead-lettering reader, so a fleet-wide
-	 * problem yields a screenful. Shown only on the substrate's own admin pages,
-	 * and only to a user holding the MANAGE capability; nothing renders when the
-	 * fleet is clean.
+	 * problem yields a screenful. Shown only where the `?page=` slug begins
+	 * `newspack-nodes`, and only to a user `current_user_allowed()` admits;
+	 * nothing renders when the fleet is clean.
+	 *
+	 * @throws \RuntimeException Through `Alerts::evaluate()`, when the runtime base
+	 *   directory will not resolve.
 	 */
 	public function render_alert_notice(): void {
 		if ( ! self::current_user_allowed() ) {
@@ -785,8 +802,8 @@ class Admin {
 
 	/**
 	 * Register the DevTools hub as the top-level "Nodes" admin menu. The page it
-	 * renders is the hub's React mount div; the Console, Topologies and the rest
-	 * arrive on it as tab bundles.
+	 * renders is the hub's React mount div; Overview, the Console and every other
+	 * tab arrive on it as tab bundles.
 	 */
 	public function register_topology_admin_page(): void {
 		if ( ! self::current_user_allowed() ) {
@@ -807,10 +824,11 @@ class Admin {
 	}
 
 	/**
-	 * Register the event-dashboard admin pages. Every event dashboard is a
-	 * `host:'hub'` DevTools tab on the top-level "Nodes" page, so this registers
-	 * nothing: it is the `admin_menu` priority-11 seam a dashboard needing its own
-	 * standalone page would hook, running after the hub menu exists.
+	 * Register the event-dashboard admin pages, of which there are none: every
+	 * event dashboard is a `host:'hub'` DevTools tab on the top-level "Nodes"
+	 * page. The body is the permission check and nothing after it, so this
+	 * `admin_menu` callback — priority 11, running once the hub menu exists —
+	 * has no effect.
 	 */
 	public function register_event_dashboard_pages(): void {
 		if ( ! self::current_user_allowed() ) {
@@ -907,9 +925,10 @@ class Admin {
 	}
 
 	/**
-	 * Base-directory field: an absolute path, with the file default as the
-	 * placeholder. Blank means "use that default", which is what makes the field
-	 * resettable without a magic sentinel value.
+	 * Base-directory field: an absolute path whose placeholder is the effective
+	 * default — the schema's, as the config files override it. Blank means "use
+	 * that default", which is what makes the field resettable without a magic
+	 * sentinel value.
 	 */
 	public static function base_directory_callback(): void {
 		$defaults = Config::load_config_defaults();
@@ -992,6 +1011,9 @@ class Admin {
 	 * automatic. Multiplying by the hard cap rather than the count target is what
 	 * makes this the ceiling `Partition_Node::cleanup_segments()` enforces; the
 	 * count target yields a number the fleet routinely exceeds.
+	 *
+	 * @throws \RuntimeException Through `Log_Discovery::on_disk()`, when the
+	 *   runtime base directory will not resolve.
 	 */
 	public static function total_storage_callback(): void {
 		$defaults     = Config::load_config_defaults();
@@ -999,7 +1021,6 @@ class Admin {
 		$num_segments = \get_option( 'newspack_nodes_num_segments', '' );
 		$max_segments = \get_option( 'newspack_nodes_max_segments', '' );
 
-		// Use config defaults for empty values.
 		$segment_size = '' === $segment_size ? self::default_int( $defaults, 'segment_size', 64 * 1024 * 1024 ) : Core::as_int( $segment_size );
 		$num_segments = '' === $num_segments ? self::default_int( $defaults, 'num_segments', 8 ) : Core::as_int( $num_segments );
 		$max_segments = '' === $max_segments ? self::default_int( $defaults, 'max_segments', 0 ) : Core::as_int( $max_segments );
@@ -1133,8 +1154,9 @@ class Admin {
 	 * Permission gate for every admin page and handler here: the MANAGE capability,
 	 * narrowed by the optional `allowed_users` list from Config.
 	 *
-	 * MANAGE resolves through the `newspack_nodes/capability_map` filter and
-	 * defaults to `manage_options`. An empty `allowed_users` means every user
+	 * MANAGE resolves through the `newspack_nodes/capability_map` filter, whose
+	 * default is `manage_options` until `wp nodes caps install` swaps in
+	 * `newspack_nodes_manage`. An empty `allowed_users` means every user
 	 * holding it. A populated one additionally requires the current user's
 	 * `user_login` to be a member — the capability is still checked first, so a
 	 * demoted account loses access at once and nobody has to edit the list.
@@ -1195,9 +1217,9 @@ class Admin {
 	 * so an operator can see the value each setting actually resolves to once the
 	 * config files and the option rows have both been applied.
 	 *
-	 * Hooked to `newspack_nodes/settings_after_form` and delegated to the shared
-	 * `Settings_Renderer`, which every sibling plugin's settings page also calls:
-	 * the panel is one implementation, not one per plugin.
+	 * Hooked to `newspack_nodes/settings_after_form` and delegated to
+	 * `Settings_Renderer`, which event-logger-nodes' settings page calls the same
+	 * way: the panel is one implementation, not one per plugin.
 	 */
 	public function render_effective_config_section(): void {
 		Settings_Renderer::render_effective_config_section( Settings_Schema::get(), self::OPTION_PREFIX, Config::load_config() );
@@ -1215,7 +1237,6 @@ class Admin {
 		$schema = Settings_Schema::get();
 		$schema->register_options( self::OPTIONS_GROUP );
 
-		// Reset toggle or blanked field deletes row so the file default wins.
 		Reset_Gate::register(
 			self::RESET_MARK_FIELD,
 			$schema->setting_option_names(),
@@ -1253,10 +1274,10 @@ class Admin {
 	 * Hostnames may carry underscores, which container DNS names routinely do.
 	 *
 	 * Stores the typed array shape, so the raw option overlay in
-	 * `Config::load_config()` yields an array directly and every consumer —
-	 * `Consumer_Node`, ELN's `init_memcached` — can gate on `is_array()`. A line
-	 * that fails the pattern is dropped rather than passed through, because one
-	 * malformed entry would otherwise poison the whole server pool.
+	 * `Config::load_config()` yields an array directly and its one consumer,
+	 * `Bootstrap::init_memcached()`, can gate on `is_array()`. A line that fails
+	 * the pattern is dropped rather than passed through, because one malformed
+	 * entry would otherwise poison the whole server pool.
 	 *
 	 * @param mixed $value Newline-separated server list.
 	 * @return array<int,string> Validated `host:port` entries, empty when none pass.
@@ -1328,17 +1349,19 @@ class Admin {
 	 * second one on a field's very first save, and hooking only the first would
 	 * silently skip the restart exactly once per setting.
 	 *
-	 * A worker picks the request up at its next graceful exit, so the recycle
-	 * never interrupts a message mid-flight.
+	 * A worker sees the request at its next continue check: between messages, and
+	 * inside a long unit of work wherever `Event_Framework::pump()` asks, which
+	 * unwinds `fill()` by raising `Worker_Should_Stop`.
 	 *
 	 * @param string $option Option name (the full WP option key).
+	 * @throws \Newspack_Nodes\Worker_Should_Stop When the save runs inside a worker
+	 *   that the planner finds has been asked to stop (ADR-14).
 	 */
 	public function maybe_request_worker_restart( string $option ): void {
 		if ( ! \str_starts_with( $option, self::OPTION_PREFIX ) ) {
 			return;
 		}
 
-		// Reset cached config so this request sees the new value.
 		Config::reset();
 
 		$short = \substr( $option, \strlen( self::OPTION_PREFIX ) );

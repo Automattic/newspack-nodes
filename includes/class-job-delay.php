@@ -2,15 +2,15 @@
 /**
  * Job Delay
  *
- * The delayed-jobs sweep. A job enqueued with `not_before` or `delay` parks in
- * the single hardwired `jobdelay.p0` partition — the alerts.p0 precedent: low
- * volume, one directory, one reader. The sweep rides the existing
- * `newspack_nodes/periodic` tick, draining the delay log with a durable-cursor
- * Consumer, delivering every due entry into the live jobintake with its delay
- * fields stripped and its partition key re-hashed, and circulating the
- * not-yet-due remainder back to the tail. Treating the delay log as a
- * circulating buffer is what makes a delayed job restart-safe while adding no
- * storage and no timers.
+ * The delayed-jobs sweep. A job whose `not_before` or `delay` puts it in the
+ * future parks in the single hardwired `jobdelay.p0` partition — the alerts.p0
+ * precedent: low volume, one directory, one reader. The sweep rides the
+ * existing `newspack_nodes/periodic` tick, draining the delay log with a
+ * durable-cursor Consumer, delivering every due entry into the live jobintake
+ * with its `not_before` stripped and its partition key re-hashed, and
+ * circulating the not-yet-due remainder back to the tail. Treating the delay
+ * log as a circulating buffer is what makes a delayed job restart-safe while
+ * adding no storage and no timers.
  *
  * Granularity is the reconciliation pass, roughly sixty seconds, because that
  * is the one place `newspack_nodes/periodic` fires. Late is correct:
@@ -36,9 +36,10 @@ namespace Newspack_Nodes;
 class Job_Delay {
 
 	/**
-	 * Reader id, naming both the sweep's Consumer and its durable offsetlog
-	 * directory. Renaming it hands the next sweep a fresh cursor at the head of
-	 * the delay log, which re-delivers every entry still retained there.
+	 * Reader id: the sweep's Consumer takes it as a node name, and the durable
+	 * cursor lives in `offsets/jobdelay-sweep.p0`. Renaming it hands the next
+	 * sweep a fresh cursor at the head of the delay log, which re-delivers every
+	 * entry still retained there.
 	 */
 	public const READER = 'jobdelay-sweep';
 
@@ -70,13 +71,17 @@ class Job_Delay {
 	 *
 	 * @param string|null $base_dir       Base directory (tests); defaults to the substrate config.
 	 * @param int|null    $num_partitions Live-intake partition count (tests); defaults to the substrate config.
-	 * @param float|null  $now            Clock each entry's `not_before` is judged against (tests);
-	 *                                    defaults to `Core::right_now()`.
-	 * @return int Entries delivered into the live jobintake, counting any that came due mid-sweep.
+	 * @param float|null  $now            Clock the hold-or-deliver decision reads, defaulting to
+	 *                                    `Core::right_now()` (tests); a re-append routes against
+	 *                                    the real clock whatever this says.
+	 * @return int Entries delivered into the live jobintake, counting any that came due
+	 *             mid-sweep. Zero when the delay dir does not exist yet.
 	 * @throws Worker_Should_Stop When a cooperative stop reaches a delivery (ADR-14).
-	 * @throws \RuntimeException From a write the drain callback does not wrap — the re-append
-	 *                           loop, or the Consumer's own setup. The cursor stays behind the
-	 *                           entry, so the next sweep replays it.
+	 * @throws \RuntimeException From outside the delivery catch: resolving the base
+	 *                           directory, the Consumer's setup — a source or offsetlog
+	 *                           path outside the runtime tree — or a re-append write. The
+	 *                           checkpoint never runs, so the next sweep replays from the
+	 *                           same cursor.
 	 */
 	public static function sweep( ?string $base_dir = null, ?int $num_partitions = null, ?float $now = null ): int {
 		$base_dir  = \rtrim( $base_dir ?? Config::get_base_directory(), '/' );
@@ -162,6 +167,7 @@ class Job_Delay {
 						++$delivered; // Came due mid-sweep; write_job routed it live.
 					}
 				}
+				// Graceful: the drain ended at EOF, with nothing mid-attempt.
 				$consumer->checkpoint( true );
 			} finally {
 				$consumer->remove_node();

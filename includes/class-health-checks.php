@@ -12,8 +12,8 @@ namespace Newspack_Nodes;
 
 /**
  * The environment and fleet report: cache backend, runtime filesystem,
- * ownership, housekeeping cron and configuration keys, followed by the three
- * alert families.
+ * ownership, housekeeping cron, configuration keys and the three alert
+ * families.
  *
  * Declaring a check here is what keeps the two surfaces in sync. Site Health's
  * `direct` test and `wp nodes doctor` both render whatever `evaluate()`
@@ -34,10 +34,10 @@ final class Health_Checks {
 	/** Nothing to act on. */
 	public const STATUS_GOOD = 'good';
 
-	/** Worth attention; the fleet still runs. */
+	/** Worth attention, not urgency. */
 	public const STATUS_RECOMMENDED = 'recommended';
 
-	/** Broken now: workers cannot run, or shared state is unreliable. */
+	/** Broken now: the cache tier, the runtime directory, the housekeeping cron, the configuration or a worker. */
 	public const STATUS_CRITICAL = 'critical';
 
 	/**
@@ -96,6 +96,7 @@ final class Health_Checks {
 	 *
 	 * @param HealthResult|null $cache_result Validated remote cache result, or null for a local probe.
 	 * @return list<HealthResult>
+	 * @throws \UnexpectedValueException When an alert row is not an array, omits a required field, or declares an unrecognized severity.
 	 */
 	public static function evaluate( ?array $cache_result = null ): array {
 		$configured = '';
@@ -180,11 +181,12 @@ final class Health_Checks {
 	 * topology is active.
 	 *
 	 * Housekeeping rides `Bootstrap::reconcile_fleet()` on the minute cron, so a
-	 * missing `newspack_nodes/reconcile` event loses retention, orphan reaping,
-	 * alert emission, the delayed-jobs sweep and every `newspack_nodes/periodic`
-	 * subscriber — silently, while every other check stays green. The same event
-	 * is the cold-start revival tier, and a veto is easy to miss because a
-	 * short-circuited schedule is silent.
+	 * missing `newspack_nodes/reconcile` event loses cold-start worker revival,
+	 * the backlog wake, lock-dir reconciliation, log retention, orphan IPC
+	 * reaping and every `newspack_nodes/periodic` subscriber — `Alerts::emit()`
+	 * and `Job_Delay::sweep_action()` among them. Nothing else shows it: a
+	 * failed schedule and a vetoed one both report through
+	 * `Core::print_less_often()`, which reaches stderr and not wp-admin.
 	 *
 	 * @return HealthResult
 	 */
@@ -220,9 +222,9 @@ final class Health_Checks {
 	 *
 	 * A refused base directory is inspected too, at the configured path: an
 	 * owner mismatch is the likeliest cause of that refusal, and naming it beats
-	 * repeating the refusal message. Where posix is absent the uid reads -1 and
-	 * the answer is `recommended`, because unverifiable is not the same as
-	 * wrong.
+	 * repeating the refusal message. Where posix is absent the uid reads -1: a
+	 * validated base then answers `recommended`, because unverifiable is not the
+	 * same as wrong, and a refused one repeats the refusal after all.
 	 *
 	 * @param string|null $base_dir   Validated base directory, or null when it refused to resolve.
 	 * @param string      $configured Configured base path, unvalidated.
@@ -385,18 +387,22 @@ final class Health_Checks {
 	}
 
 	/**
-	 * Bucket the alert rows by the family each declares, then turn every bucket
-	 * into one result.
+	 * Bucket the alert rows by the family each declares, then report one result
+	 * per fleet family — plus `other-alerts`, which appears only when a row
+	 * landed in it.
 	 *
-	 * A row missing `key`, `message` or `severity`, or declaring a severity
-	 * outside warning and critical, throws: severity is what picks the result's
-	 * status, so an unrecognized one would quietly demote a critical fleet
-	 * condition to a recommendation. An unrecognized family decides nothing but
-	 * which bucket the row lands in, so it falls through to `other-alerts`.
+	 * A row omitting `key`, `family`, `message` or `severity` throws, and so does
+	 * one declaring a severity outside `Alerts::SEVERITY_WARNING` and
+	 * `Alerts::SEVERITY_CRITICAL`: severity is what picks the result's status,
+	 * so an unrecognized one would quietly demote a critical fleet condition to
+	 * a recommendation, and the journal-only `Alerts::SEVERITY_RESOLVED` is
+	 * refused for that reason. An unrecognized family decides nothing but which
+	 * bucket the row lands in, so it falls through to `other-alerts` rather than
+	 * throwing.
 	 *
 	 * @param array<int,mixed> $alerts Alerts evaluator output, validated here.
 	 * @return list<HealthResult>
-	 * @throws \UnexpectedValueException When a row is not an array, omits a required field, or declares a severity outside the two Alerts mints.
+	 * @throws \UnexpectedValueException When a row is not an array, omits a required field, or declares a severity `Alerts::evaluate()` never mints.
 	 */
 	private static function fleet_results( array $alerts ): array {
 		$groups = [
@@ -421,11 +427,6 @@ final class Health_Checks {
 				'message'  => $message,
 				'severity' => $severity,
 			];
-			// @longform Bucket on the family Alerts declares. An unrecognized
-			// one surfaces under 'other' and is never thrown: this runs as a WP
-			// `direct` Site Health test and under `wp nodes doctor`, so a throw
-			// would lose the cache, filesystem and ownership results too:
-			// the whole report, because one alert kind was new.
 			$group_id = self::required_alert_string( $alert, 'family' );
 			if ( ! isset( $groups[ $group_id ] ) ) {
 				$group_id = 'other-alerts';
@@ -437,7 +438,6 @@ final class Health_Checks {
 			self::alert_result( Alerts::FAMILY_CONSUMER_LAG, 'Consumer lag', $groups[ Alerts::FAMILY_CONSUMER_LAG ], 'All consumers are within the configured lag threshold.' ),
 			self::alert_result( Alerts::FAMILY_DEAD_LETTERS, 'Dead letters', $groups[ Alerts::FAMILY_DEAD_LETTERS ], 'No reader exceeds the configured dead-letter threshold.' ),
 		];
-		// Only when a row arrived that no family claimed.
 		if ( [] !== $groups['other-alerts'] ) {
 			$results[] = self::alert_failures( 'other-alerts', 'Other alerts', $groups['other-alerts'] );
 		}
@@ -544,11 +544,12 @@ final class Health_Checks {
 	 *
 	 * An unknown status throws here rather than reaching Site Health, whose
 	 * renderer `match`es the three canonical values and would fatal on a fourth
-	 * without naming the result that carried it.
+	 * without naming the result that carried it. The first critical returns
+	 * immediately, so a status after it goes unchecked.
 	 *
 	 * @param list<array{status:string}> $results Report results, validated here.
 	 * @return HealthStatus
-	 * @throws \UnexpectedValueException When a result carries a status outside the three constants.
+	 * @throws \UnexpectedValueException When a result ahead of the first critical carries a status outside the three constants.
 	 */
 	public static function worst_status( array $results ): string {
 		$worst = self::STATUS_GOOD;

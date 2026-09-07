@@ -14,15 +14,15 @@
  * scope, the SSE-stream process — install `verifier()` as the interpreter's
  * authorize policy and refuse whatever does not verify.
  *
- * Signs the SEMANTICS, never the routing: name + arguments + ts + nonce.
+ * Signs the SEMANTICS, never the routing: ts + name + arguments + nonce.
  * Router peels TO and nodes stamp FROM in transit, so neither is signed. The
  * envelope rides inside VALUE (`auth`) because it must survive IPC to reach a
  * worker, and `packed()` strips LOCAL at that boundary.
  *
- * A session also carries a SCOPE. `verify()` installs it as
+ * A session also carries a SCOPE. Verifying installs it as
  * `Capabilities::$session_scope`, the ceiling over the one command being
- * handled, and `Command_Interpreter_Node::interpret()` restores what stood
- * before.
+ * handled; a refusal leaves `Capabilities::NONE`, and
+ * `Command_Interpreter_Node::interpret()` restores what stood before.
  *
  * @package Newspack_Nodes
  */
@@ -31,12 +31,16 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * Static signer and verifier — no instance state, so a Shell, a worker or a
+ * REST handler reaches it without wiring a node.
+ */
 class Command_Auth {
 
 	/** Max accepted future skew (verifier clock behind the signer). */
 	public const MAX_FUTURE_S = 10;
 
-	/** Max accepted age of a signature (two 10s windows of straddle tolerance). */
+	/** Max accepted age of a signature; with MAX_FUTURE_S, the acceptance span. */
 	public const MAX_PAST_S = 20;
 
 	/**
@@ -44,7 +48,7 @@ class Command_Auth {
 	 * (MAX_PAST_S + MAX_FUTURE_S = 30s of verifier-wall time): the nonce entry is
 	 * claimed at first-verify time, not at ts, so a clock-skewed verifier whose
 	 * entry expires while the freshness window is still open would otherwise let a
-	 * replay through at the boundary. 60s = span + a generous margin.
+	 * replay through at the boundary. 60s doubles that span.
 	 */
 	public const NONCE_TTL_S = 60;
 
@@ -53,7 +57,8 @@ class Command_Auth {
 	 * when the nonce is newly claimed (first use), false on replay OR when no
 	 * store is available (fail closed). Lazily-defaulted at the call site to an
 	 * atomic `Cache_Backend::local_first()->add()`. Tests reassign to exercise
-	 * the window/HMAC logic without a real cache, and to drive the replay path.
+	 * the freshness and HMAC logic without a real cache, and drive the replay
+	 * path.
 	 *
 	 * @var (\Closure(string, int): bool)|null
 	 */
@@ -238,7 +243,8 @@ class Command_Auth {
 
 	/**
 	 * Drop a session so its key stops verifying immediately. The cache entry IS
-	 * the authority; a directory row without it is already dead.
+	 * the authority; a directory row without it is already dead. False when the
+	 * handle was already gone, or no cache backend exists.
 	 */
 	public static function revoke_session( string $handle ): bool {
 		$backend = Cache_Backend::shared_first();
@@ -247,8 +253,8 @@ class Command_Auth {
 
 	/**
 	 * Which of these handles still have a live key, as a `handle => true` set.
-	 * ONE multi-get: a directory listing asking per row is 50 round trips for
-	 * one screen, and the rest of the substrate batches its cache reads.
+	 * ONE multi-get: `Sessions::MAX_ROWS` caps the directory at 50, so asking
+	 * per row is 50 round trips for one screen.
 	 *
 	 * @param list<string> $handles Handles to test.
 	 * @return array<string,true>
@@ -277,9 +283,10 @@ class Command_Auth {
 	}
 
 	/**
-	 * Drop the session with a remote, so the next command to it re-auths. Fired
-	 * when a Vault entry is re-credentialed or removed: the far side has
-	 * forgotten the key, or the credentials that bought it no longer apply.
+	 * Drop the session with a remote, so the next command to it re-auths. Two
+	 * callers reach it: a Vault entry re-credentialed or removed, whose
+	 * credentials no longer buy the session, and a 401 from the far side, which
+	 * has forgotten the key.
 	 */
 	public static function forget_session( string $destination ): void {
 		unset( self::$sessions[ $destination ] );
@@ -296,6 +303,9 @@ class Command_Auth {
 	 * read through a `??`, and the resulting signature would be refused at the far
 	 * end under a misleading diagnosis. Fail here, where the cause is visible.
 	 *
+	 * @param string $destination Vault entry id of the remote.
+	 * @param string $handle      Session handle the remote issued.
+	 * @param string $key         Signing key from the same `/auth` response.
 	 * @throws \InvalidArgumentException When any argument is empty.
 	 */
 	public static function remember_session( string $destination, string $handle, string $key ): void {
@@ -309,7 +319,8 @@ class Command_Auth {
 	}
 
 	/**
-	 * Authorize closure for verifier processes (worker, /command request scope).
+	 * Authorize closure for a verifier process: a worker, the `/command` request
+	 * scope, or the SSE stream.
 	 *
 	 * Accepts a command if it is either in-process (Message::LOCAL set) OR carries
 	 * a valid HMAC. LOCAL cannot cross a process boundary — packed() slices the
@@ -343,10 +354,11 @@ class Command_Auth {
 	 * single-use nonce claim. Returns false on any failure (fail closed).
 	 *
 	 * A refusal reason logs through $interpreter — the node that HANDLED the
-	 * command, passed in by its authorize call. Never look one up: logging under
-	 * a different interpreter than the one refusing also defeats its
-	 * generic-"unauthorized" suppression, so each refusal logs twice. Two
-	 * refusals log nothing: an unknown or expired handle, and a replayed nonce.
+	 * command, passed in by its authorize call. Never look one up:
+	 * `drop_message()` throttles on the node-midfixed text, so a refusal logged
+	 * through any other node misnames the drop and suppresses on a key of its
+	 * own. Two refusals log nothing: an unknown or expired handle, and a
+	 * replayed nonce.
 	 *
 	 * @param array<int,mixed>              $message     Message to verify.
 	 * @param int|null                      $now         Verification time; defaults to time().
@@ -425,7 +437,7 @@ class Command_Auth {
 			return false;
 		}
 
-		// Strict single-use: claim the nonce; false = replay or no store.
+		// Strict single-use. A claim fails on replay, or with no store.
 		$claim = self::$claim_nonce ?? static function ( string $nonce, int $ttl ): bool {
 			$backend = Cache_Backend::local_first();
 			if ( null === $backend ) {
@@ -493,14 +505,13 @@ class Command_Auth {
 		}
 		$record = $backend->get( self::session_address( $handle ) );
 		if ( \is_string( $record ) ) {
-			// A bare key carries no scope: unrestricted, and nobody's.
 			return '' === $record ? null : [ 'key' => $record, 'scope' => Capabilities::MANAGE, 'user' => 0 ];
 		}
 		if ( ! \is_array( $record ) ) {
 			return null;
 		}
+		// An absent field reads null — a non-scalar, so as_string() gives ''.
 		$key   = Core::as_string( $record['k'] ?? null, '' );
-		// A missing key coalesces to null, a non-scalar, taking the '' default.
 		$scope = Core::as_string( $record['s'] ?? null, '' );
 		if ( '' === $scope ) {
 			$scope = Capabilities::MANAGE;

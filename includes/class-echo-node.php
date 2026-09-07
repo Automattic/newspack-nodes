@@ -1,7 +1,7 @@
 <?php
 /**
  * Echo: the re-addressing node. It rewrites a message's TO and touches nothing
- * else, so a graph re-routes traffic by splicing a node in rather than by
+ * else, so a graph re-routes traffic by splicing an Echo in rather than by
  * rewiring sinks (ADR-7). Ported from Tachikoma's `Nodes::Echo`.
  *
  * `target` and the incoming TO pick one of four cases. A target plus a TO
@@ -12,8 +12,10 @@
  * no target passes through untouched, and a target with an empty TO takes the
  * base stamp, so the message goes to the target rather than back to FROM.
  *
- * A TM_ERROR with an empty TO is dropped instead of bounced. Returning it would
- * land an error trail on a producer that never asked for one.
+ * A TM_ERROR with an empty TO is dropped instead of bounced, because returning
+ * it would land an error trail on a producer that never asked for one. The
+ * drop runs ahead of the four cases, so an Echo with a target discards the
+ * error rather than stamping the target on it.
  *
  * @package Newspack_Nodes
  */
@@ -22,16 +24,19 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * Echo node — `make_node Echo <name>`.
+ */
 class Echo_Node extends Node {
 
 	/**
-	 * Re-address the message, then forward it to the sink unchanged.
+	 * Re-address the message, then forward it to the sink.
 	 *
 	 * TYPE is read leniently, because a message decoded off the wire can carry it
 	 * as a numeric string and the error drop must not depend on the producer's
 	 * JSON typing. The test is bitwise rather than the equality `Echo.pm` uses:
-	 * the command interpreter mints its refusals as `TM_COMMAND|TM_ERROR`, and an
-	 * exact match would let the substrate's commonest error shape bounce.
+	 * the command interpreter mints every refusal as `TM_COMMAND|TM_ERROR`, and
+	 * an exact match would let a bare Echo bounce each one back to its producer.
 	 *
 	 * A non-string target is Tee's fan-out form, which composes no path, so Echo
 	 * reads it as no target and an empty TO still returns to sender.
@@ -54,7 +59,8 @@ class Echo_Node extends Node {
 	}
 
 	/**
-	 * Console-palette entry: a routing primitive with no positional arguments.
+	 * Console-palette entry: a routing primitive with no positional arguments
+	 * and no verbs.
 	 *
 	 * @return array<string,mixed>
 	 */

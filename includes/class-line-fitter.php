@@ -11,9 +11,11 @@
  * rows.
  *
  * The fit measures PACKED bytes, because a character clip is only a proxy for
- * the byte boundary: JSON escapes a multibyte character to six bytes and an
- * astral one to twelve. A caller that clips for display still routes the
- * packed message through here before writing.
+ * the byte boundary: `Message::packed()` escapes a multibyte character to six
+ * bytes and an astral one to twelve. An upstream character cap is a first pass
+ * and never the guarantee — `Job_Worker_Node` clips its stat message at
+ * `MAX_STAT_MESSAGE_LEN` to bound the accumulator, and `Job_Probe_Node` still
+ * fits the packed record here.
  *
  * @package Newspack_Nodes
  */
@@ -30,7 +32,7 @@ namespace Newspack_Nodes;
 final class Line_Fitter {
 
 	/**
-	 * Fit a message's PACKED line, newline included, under
+	 * Fit a message's PACKED line, newline included, within
 	 * `Partition_Node::MAX_LINE_SIZE` by halving the trimmable VALUE string
 	 * fields named in `$fields`. Returns the fitting message, or null when no
 	 * listed field is left to cut — callers drop that loud with
@@ -47,10 +49,11 @@ final class Line_Fitter {
 	 * put the most expendable field first. Fields outside the list are never
 	 * touched — a bulk field that isn't listed forces the drop no matter how
 	 * much is trimmed around it. List string fields only: a listed number is
-	 * read as a string and written back as one.
+	 * read as a string and written back as one, and a listed array or object
+	 * reads as empty and is skipped like a spent field.
 	 *
-	 * An oversize message whose VALUE is not an array returns null untouched —
-	 * a TM_BYTESTREAM string VALUE has no named fields to cut. An empty
+	 * An oversize message whose VALUE is not an array returns null — a
+	 * TM_BYTESTREAM string VALUE has no named fields to cut. An empty
 	 * `$fields` also returns null, even for a message already under the cap;
 	 * every caller passes a non-empty list.
 	 *
@@ -69,7 +72,7 @@ final class Line_Fitter {
 					return null;
 				}
 				$s = Core::as_string( $value[ $field ] ?? '' );
-				// Missing or spent field: nothing left to halve, try the next.
+				// Missing, spent or non-scalar: nothing to cut; try the next.
 				if ( '' === $s ) {
 					break;
 				}

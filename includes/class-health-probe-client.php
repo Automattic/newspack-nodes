@@ -15,9 +15,10 @@ namespace Newspack_Nodes;
  * A CLI process picks its own cache backend, so `Health_Checks::cache_backend()`
  * run under WP-CLI reports a posture no visitor ever sees — WP-CLI's APCu is not
  * the web server's. Asking the web runtime through
- * `POST /newspack-nodes/v1/health/cache` reports the backend that serves requests.
+ * `POST /newspack-nodes/v1/health/cache` reports the backend that serves
+ * requests; `Rest\Health_Cache_Controller` is the half that answers.
  *
- * The reply is untrusted. It is accepted only when it matches the exact shape
+ * The reply is untrusted. It stands only when it matches the exact shape
  * `Health_Checks` produces, and every other outcome returns a locally authored
  * result rather than remote text, because doctor prints these messages to a
  * terminal.
@@ -58,12 +59,18 @@ final class Health_Probe_Client {
 	 * Fetch the web runtime's cache result, or a locally authored `recommended`
 	 * result when the loopback cannot be verified.
 	 *
-	 * Each rejected HTTP status gets its own message because each names a
-	 * different fix: a 3xx is a redirect the probe declines to follow, a 401
-	 * means HTTP authentication fronts the site, a 403 means the route refused
-	 * the token, a 404 means the CLI and web plugin versions differ. The 401
-	 * also warns about worker respawn, which posts across the same loopback and
-	 * meets the same gate.
+	 * Two bounds hold the reply: 2048 bytes off the wire and a decode depth of
+	 * 16, where the four-key result carries a few hundred bytes across two
+	 * levels.
+	 *
+	 * Four rejections get their own message because each names a different fix:
+	 * 301 through 399 is a redirect the probe declines to follow, a 401 means
+	 * HTTP authentication fronts the site, a 403 means the route refused the
+	 * token, and a 404 means the route is missing, as it would be when the CLI
+	 * and web plugin versions differ. Every other status but 200 — 300 among
+	 * them — reports its number and nothing more. The 401 also warns about
+	 * worker respawn, which posts across the same loopback and meets the same
+	 * HTTP-authentication gate.
 	 *
 	 * @return HealthResult
 	 */
@@ -81,6 +88,7 @@ final class Health_Probe_Client {
 			'timeout'             => 5,
 			'redirection'         => 0,
 			'limit_response_size' => 2048,
+			// Both internal loopback calls share `spawn_verify_ssl`.
 			'sslverify'           => Core::$verify_spawn_tls,
 			'body'                => [ 'token' => $token ],
 		];

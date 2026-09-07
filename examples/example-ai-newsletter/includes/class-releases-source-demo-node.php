@@ -1,7 +1,8 @@
 <?php
 /**
- * The ingest source at the head of the AI-newsletter example pipeline: on a TICK
- * request it emits canned release-notes items toward `summarizer`.
+ * One of the two ingest sources at the head of the AI-newsletter example
+ * pipeline: on a TICK request it emits canned release-notes items toward
+ * `summarizer`.
  *
  * @package Example_AI_Newsletter
  */
@@ -18,20 +19,20 @@ use Newspack_Nodes\Message;
  *
  * Every class in this example carries a `_Demo` suffix so the walkthrough and a
  * real plugin built from it stay distinct while both are active in one
- * WordPress: `make_node` and the console palette resolve a single class
- * catalog, where two classes of the same shell name share one palette tile and
- * one Inspector lookup.
+ * WordPress. A shell name is the class name minus `_Node` (ADR-10), and two
+ * classes sharing one resolve as one everywhere: `make_node` builds whichever
+ * registered namespace prefix answers first, and the console keys both its
+ * palette tile and its Inspector lookup by that name.
  */
 class Releases_Source_Demo_Node extends Node {
 
 	/**
-	 * Handle the TICK trigger and ignore every other message.
+	 * Run the TICK batch on any TM_REQUEST and ignore every other type.
 	 *
 	 * TICK drives an already-running graph, so it arrives as a TM_REQUEST
 	 * handled here rather than as a TM_COMMAND verb on a sibling interpreter;
-	 * TM_COMMAND is the startup and administration plane. The numeric guard
-	 * casts TYPE before the bitwise test, and a TYPE that is not numeric reads
-	 * as 0 and matches no flag.
+	 * TM_COMMAND is the startup and administration plane. A TYPE that is not
+	 * numeric reads as 0 and matches no flag.
 	 *
 	 * @param array<int,mixed> $message The 7-field positional message array.
 	 */
@@ -45,8 +46,8 @@ class Releases_Source_Demo_Node extends Node {
 	/**
 	 * Emit each item as its own TM_STRUCT message, then reply with the count.
 	 *
-	 * The items go out fire-and-forget: nothing acknowledges them and `fill()`
-	 * returns nothing to inspect (ADR-3). The request gets exactly one reply,
+	 * The items go out fire-and-forget: nothing acknowledges them (ADR-3) and
+	 * `fill()` returns nothing to inspect (ADR-13). The request gets one reply,
 	 * echoing the ID and KEY it carried. Each item is built in a fresh message
 	 * rather than by reassigning the request, because the reply reads that
 	 * request's FROM, ID and KEY after the loop. Every TM_REQUEST emits — TICK
@@ -61,11 +62,11 @@ class Releases_Source_Demo_Node extends Node {
 			$response[ Message::TYPE ]  = Message::TM_STRUCT;
 			$response[ Message::FROM ]  = $this->name;
 			$response[ Message::VALUE ] = [ 'source' => 'releases' ] + $item;
-			// parent::fill stamps TO from the connected target, then sinks.
+			// parent::fill stamps TO from the target; our fill() would drop it.
 			parent::fill( $response );
 			++$emitted;
 		}
-		// Reply { emitted } TO=FROM per Consumer_Node::handle_request.
+		// TO=FROM is the whole correlation; no table of pending asks (ADR-7).
 		$reply                   = Message::new_message();
 		$reply[ Message::TYPE ]  = Message::TM_STRUCT | Message::TM_RESPONSE;
 		$reply[ Message::FROM ]  = $this->name;
@@ -80,7 +81,9 @@ class Releases_Source_Demo_Node extends Node {
 	 * Return the batch to emit.
 	 *
 	 * This is the ONE seam a real source replaces: override it with an HTTP
-	 * fetch or a feed parse and the rest of the node is unchanged. Canned items
+	 * fetch or a feed parse and the rest of the node is unchanged. Leave the
+	 * `source` key out — `handle_request()` stamps it on, and its value wins
+	 * the union, so an override can neither omit it nor change it. Canned items
 	 * keep the walkthrough deterministic, and the suite asserts a TICK reports
 	 * an `emitted` of 2.
 	 *

@@ -32,7 +32,7 @@ final class Node_Names {
 	/** Browser-side node publishing the tab-completion candidates a `help`/`ls` reply carries. */
 	public const COMPLETION          = '_completion';
 
-	/** Browser-side routing indirection: the console points its target at the current working directory, and `_metadata` polls through it. */
+	/** Browser-side routing indirection: its `target` holds the current working directory, so every poller addresses `_cwd` and one `cd` re-aims them all. */
 	public const CWD                 = '_cwd';
 
 	/** Browser-side node publishing the error, warning and debug line counts the inspector shows. */
@@ -53,13 +53,13 @@ final class Node_Names {
 	/** The reply boundary. A minter stamps `FROM = _output/<id>`, so the TO=FROM answer lands here. */
 	public const OUTPUT              = '_output';
 
-	/** The worker's output IPC Partition; a cli reply arrives with it prefixed onto FROM. */
+	/** The worker's output IPC Partition, and the FROM its input Consumer stamps, so the TO=FROM reply routes back through it to the attached cli. */
 	public const REPL                = '_repl';
 
 	/** Path dispatch: peel the head of TO and fill the node registered under it. */
 	public const ROUTER              = '_router';
 
-	/** Reserved. Nothing in this tree registers a node under it, so a grep for the value finds only this constant and its JSON twin. */
+	/** Held in reserve: nothing registers a node under it. `Settings_Event_Writer` names its transient Partition `settings:writer` instead. */
 	public const SETTINGS_LOG        = '_settings:log';
 
 	/** `Connect_Queue_Timer_Node`'s single instance, mounted only while the connect queue holds work. */
@@ -68,23 +68,23 @@ final class Node_Names {
 	/** The `SSE_Out_Node` egress. A browser command carries `_sse:<pid>` in FROM so the stream process can gate the reply to its own session. */
 	public const SSE                 = '_sse';
 
-	/** The FROM stamp `Stdin_Node` puts on the lines it emits. */
+	/** The FROM stamp `Stdin_Node` puts on the lines and the EOF marker it emits; no node is registered under it. */
 	public const STDIN               = '_stdin';
 
 	/** The terminal writer the cli's `_output` Dumper targets. */
 	public const STDOUT              = '_stdout';
 
-	/** Browser-side node publishing the uptime the canvas footer shows. */
+	/** Browser-side node publishing the elapsed run the console header's LIVE button shows. */
 	public const UPTIME              = '_uptime';
 
 	/**
-	 * The names a session mounts for itself, whatever graph it then runs.
+	 * The baseline names `dump_config` skips and `remove_node` refuses.
 	 *
-	 * `cmd_dump_config()` skips them because every session already has them, so
-	 * emitting them would build each one twice on replay. `cmd_remove_node()`
-	 * refuses them because destroying one breaks the session issuing the
-	 * command: without `_router` no addressed message is deliverable, and
-	 * without `_command_interpreter` no further verb runs.
+	 * A dump omits them because every session already has them, so emitting one
+	 * would build it twice on replay. A remove refuses them because destroying
+	 * one breaks the session issuing the command: without `_router` no
+	 * addressed message is deliverable, and without `_command_interpreter` no
+	 * further verb runs.
 	 *
 	 * @var array<int,string>
 	 */

@@ -18,11 +18,13 @@ namespace Newspack_Nodes;
 /**
  * Invokes a callable on every message and stops there.
  *
- * Callback needs no sink and forwards nothing; a closure that means to transform
- * and pass on fills its own sink from inside. Its constructor takes a required
- * argument, which is why `make_node` cannot build it — that sequence
- * instantiates with `new $fqcn()` (ADR-11) — so PHP constructs it directly and
- * no topology line ever names it.
+ * Callback needs no sink, forwards nothing and stamps no `target` into TO; a
+ * closure that means to transform and pass on fills the next node itself. Its
+ * constructor takes a required argument, which is why `make_node` cannot build
+ * it — that sequence instantiates with `new $fqcn()` (ADR-11) — so callers
+ * construct it directly in PHP and no topology line ever names it. Tachikoma's
+ * `Callback.pm`, the model, guards the same ground by dying whenever
+ * `arguments()` is handed anything.
  */
 class Callback_Node extends Node {
 
@@ -49,7 +51,9 @@ class Callback_Node extends Node {
 	 *
 	 * The parameter is by value, so a callback declaring `array &$message`
 	 * mutates this node's copy and nothing the caller can see. Transforming a
-	 * message means forwarding the changed copy yourself.
+	 * message means forwarding the changed copy yourself. The JS mirror,
+	 * `src/runtime/callback-node.js`, hands the array over by reference, so a
+	 * closure that writes into the message edits the caller's copy there.
 	 *
 	 * @param array<int,mixed> $message The 7-field positional message array.
 	 */

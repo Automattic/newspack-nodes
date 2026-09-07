@@ -1,30 +1,42 @@
 /* eslint-env jest */
-// Jest setup — adds @testing-library/jest-dom matchers (toBeInTheDocument, …)
-// and FAILS any test that emits an unexpected console.warn or console.error
-// (mirrors the sibling newspack-nodes setup).
 import '@testing-library/jest-dom';
 
-// The substrate's `Core.stderr()` / `printLessOften()` (../../src/runtime/core.js)
-// route node faults, rate-limited logs, and dropped-message notices through
-// console.warn (never console.error, to skip devtools' error counter), each line
-// stamped `YYYY-MM-DD HH:MM:SS <ZONE> <argv0>: `. Those are expected spam on any test
-// exercising a fault path, so warn lines matching that signature are dropped. EVERY
-// other console.warn and EVERY console.error (React `act(...)` warnings, third-party
-// deprecations, genuine errors) is recorded and re-thrown in afterEach, failing the
-// test. Throwing in afterEach — not inside the mock — keeps React's render/commit
-// from swallowing the throw or cascading into confusing secondary failures, and the
-// captured Error preserves the call site.
+// @longform
+// FAIL any test that emits a console.warn or console.error, with one
+// exemption. `Core.stderr()` and `printLessOften()`, in
+// ../../src/runtime/core.js, route node faults, rate-limited logs and
+// dropped-message notices through console.warn — the only console call that
+// file makes — stamping each line `YYYY-MM-DD HH:MM:SS <zone> <argv0>: `. A
+// warn carrying that prefix is discarded unread, so the substrate's own spam
+// never fails a test exercising a fault path. Every other console.warn and
+// EVERY console.error (React `act(...)` warnings, third-party deprecations,
+// genuine errors) is recorded, and afterEach throws the first. Throwing there
+// rather than inside the mock keeps React's render and commit from swallowing
+// the throw or cascading into confusing secondary failures, and the captured
+// Error preserves the call site.
 //
-// Tests that legitimately assert on console.warn/error install their own
-// `jest.spyOn( console, … )`; that shadows the recorder for that test and the
-// afterEach restore unwinds both.
+// A test asserting on console output installs its own `jest.spyOn( console,
+// … )`. jest.spyOn hands back the mock already in place rather than layering
+// a second one, so the test's implementation replaces the recorder's, and
+// afterEach's one restore per channel returns the real console.
 
-// The Core.stderr() line prefix: ISO-ish date + the local zone + " <argv0>: ".
+/**
+ * The `Core.stderr()` line prefix. The zone token is held to the shapes
+ * `Intl.DateTimeFormat` emits under `timeZoneName: 'short'` — a bare `\S+`
+ * there would match any `<date> <time> <word> <word>: ` warning and discard
+ * it, which is the gate swallowing the lines it exists to report.
+ */
 const SUBSTRATE_STDERR =
 	/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d (?:UTC|GMT[+-][\d:]+|[A-Z]{2,5}) \S+: /;
 
 let violations = [];
 
+/**
+ * Build the mock implementation for one console channel.
+ *
+ * @param {string} channel 'warn' or 'error'; also names the violation.
+ * @return {Function} What to install on `console[ channel ]`.
+ */
 const record =
 	( channel ) =>
 	( ...args ) => {
@@ -65,16 +77,20 @@ afterEach( () => {
 } );
 
 /**
- * jsdom ships neither TextEncoder nor WebCrypto's subtle, both of which the
- * command signer needs. Node has real implementations — use those rather than a
- * stub, so the suite exercises the same primitives the browser will.
+ * jsdom supplies neither TextEncoder nor TextDecoder, and its `crypto` carries
+ * `getRandomValues` but no `subtle`. The command signer reaches TextEncoder
+ * through the `utf8ToBytes` in @noble/hashes and mints its nonce from
+ * `getRandomValues`, so a missing `subtle` is the tell that `crypto` is
+ * jsdom's and the whole object gives way to Node's webcrypto. These are
+ * Node's own implementations rather than stubs, so the suite exercises the
+ * primitives the browser will run.
  */
 const { TextEncoder, TextDecoder } = require( 'util' );
 const { webcrypto } = require( 'crypto' );
 global.TextEncoder = global.TextEncoder || TextEncoder;
 global.TextDecoder = global.TextDecoder || TextDecoder;
 if ( ! global.crypto?.subtle ) {
-	// jsdom exposes crypto as a read-only accessor, so plain assignment no-ops.
+	// jsdom's crypto is a getter with no setter; assignment cannot replace it.
 	Object.defineProperty( global, 'crypto', {
 		value: webcrypto,
 		configurable: true,
@@ -82,8 +98,12 @@ if ( ! global.crypto?.subtle ) {
 	} );
 }
 
-// Every emitter holds until authenticated, which is what production does — so
-// the harness authenticates too, or every poll test asserts silence.
+// @longform
+// Every emitter holds until authenticated, which is what production does —
+// `Node.command()` returns null and `FetcherNode.fill()` returns early when
+// `readyToMint()` is false — so the harness authenticates too, or every poll
+// test asserts silence. `__setAuthFetch` stands in for the POST /auth round
+// trip.
 const auth = require( '../../src/runtime/command-auth' );
 beforeEach( async () => {
 	auth.forgetSession();

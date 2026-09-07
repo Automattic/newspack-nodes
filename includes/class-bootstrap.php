@@ -2,11 +2,11 @@
 /**
  * The substrate's WordPress boundary.
  *
- * Every hook WordPress owns — activation, `admin_init`, `rest_api_init`,
- * `cron_schedules`, the minute reconcile event and Site Health — enters the
- * substrate through this file, and every question about the ACTIVE topology
- * set is answered here: which workers exist, how many partitions each carries,
- * which directories they read and write.
+ * The lifecycle hooks land here — activation and deactivation, `admin_init`,
+ * `rest_api_init`, `cron_schedules`, the minute reconcile event, the
+ * schedule-veto diagnostics and Site Health — and so does every question about
+ * the ACTIVE topology set: which workers exist, how many partitions each
+ * carries, which directories they read and write.
  *
  * @package Newspack_Nodes
  */
@@ -66,9 +66,9 @@ class Bootstrap {
 
 	/**
 	 * `\Memcached`-construction seam. Lazily-defaulted to a closure that builds
-	 * the real handle. Tests reassign in setUp to return an in-memory double so
-	 * the server-parsing + empty-check + context-aware-failure path runs as real
-	 * production code rather than being mocked away.
+	 * the real handle. Tests reassign it to an in-memory double so the
+	 * `host:port` parsing and the empty-server-list null run as real production
+	 * code rather than being mocked away.
 	 *
 	 * Signature: `function (): \Memcached`.
 	 *
@@ -108,10 +108,10 @@ class Bootstrap {
 	/** @var array<string,list<array<array-key,mixed>>>|null Request-static half of the wake map. */
 	private static ?array $on_demand_wake_map = null;
 
-	/** Wake-map cache key; `Cache_Backend` scopes it. Rows carry offsetlog_dir. */
+	/** Wake-map key prefix; the active set's digest completes it and `Cache_Backend` scopes it. Rows carry offsetlog_dir. */
 	private const ON_DEMAND_WAKE_KEY = 'on_demand_wake_v2:';
 
-	/** Seconds a wake map survives an edited `.tsl`; activation busts the key outright. */
+	/** Seconds a wake map survives an edited `.tsl`; a changed active set keys elsewhere. */
 	private const ON_DEMAND_WAKE_TTL_S = 60;
 
 	/**
@@ -127,12 +127,13 @@ class Bootstrap {
 	 * nothing tails is simply absent from the map, which is why no exclusion
 	 * rule is needed for offsetlogs, deadletter dirs or scratch.
 	 *
-	 * Cached in APCu (`local_first`, memcached only as its fallback) because
-	 * the derivation globs both topology dirs and parses every `.tsl`, while
-	 * the askers sit on request paths. Host-LOCAL is the correct tier: the
+	 * Cached in APCu (`local_first`, memcached only as its fallback) because the
+	 * derivation globs the user dir and every stock dir and parses every `.tsl`,
+	 * while the askers sit on request paths. Host-LOCAL is the correct tier: the
 	 * inputs are TSL files on disk, which differ per host. The key carries the
-	 * active set, so activation cannot serve a stale answer; the TTL is what
-	 * covers an edited `.tsl`, and a stale miss costs one cron-cadence wake.
+	 * active set, so activation cannot serve a stale answer. Every other input
+	 * rides the TTL alone — an edited `.tsl`, the global `num_partitions`, the
+	 * fleet-wide `on_demand_idle` — and a stale miss costs one cron-cadence wake.
 	 *
 	 * @return array<string,list<array<array-key,mixed>>>
 	 */
@@ -196,8 +197,10 @@ class Bootstrap {
 	/**
 	 * Seconds a worker stays idle before exiting; 0 means it stays resident.
 	 *
-	 * The window IS the flag — declaring one opts a topology in — so absence
-	 * has to read as 0, or a topology that declares none scales to zero.
+	 * The window IS the flag — declaring one opts a topology in — so a descriptor
+	 * declaring none falls to $default, and that default is 0 unless the operator
+	 * set a fleet-wide window. Reading absence as nonzero would scale to zero a
+	 * topology that never opted in.
 	 *
 	 * @param array<array-key,mixed> $descriptor Topology entry or worker descriptor.
 	 * @param int                    $default    Fleet-wide window when the descriptor declares none.
@@ -231,13 +234,15 @@ class Bootstrap {
 	 * The stale threshold one topology declares, or the default.
 	 *
 	 * Every consumer that starts from a TYPE rather than a descriptor reads it
-	 * here: `wp nodes status`, and the render lease nuclear-gyrobase hands its
-	 * Perl child. A consumer that scans for itself reads DOWN to the default for
-	 * a topology that raises its threshold, calling a worker dead while the peer
-	 * scan correctly leaves it running. One heartbeat, one threshold.
+	 * here: `CLI::ls_workers()` behind `wp nodes status`, and the render lease
+	 * nuclear-gyrobase hands its Perl child. A consumer that judges staleness
+	 * for itself falls back to the flat default, calling a worker on a topology
+	 * that raised its threshold dead while the peer scan correctly leaves it
+	 * running. One heartbeat, one threshold.
 	 *
 	 * @param string $type The topology name.
 	 * @return int Seconds.
+	 * @throws \RuntimeException When the runtime base directory is unusable.
 	 */
 	public static function stale_timeout_for( string $type ): int {
 		$topologies = self::get_topologies();
@@ -264,7 +269,12 @@ class Bootstrap {
 		self::activate();
 	}
 
-	/** Activation hook: schedule the reconcile cron at minute cadence. */
+	/**
+	 * Schedule the reconcile cron at minute cadence — the activation hook, and
+	 * the self-heal re-arm. The `true` fifth argument asks `wp_schedule_event()`
+	 * for a WP_Error, so a refused schedule reports its own code and message
+	 * rather than a bare false.
+	 */
 	public static function activate(): void {
 		if ( ! \wp_next_scheduled( self::CRON_EVENT ) ) {
 			$result = \wp_schedule_event( \time() + 5, self::CRON_SCHEDULE, self::CRON_EVENT, [], true );
@@ -295,6 +305,7 @@ class Bootstrap {
 	 *
 	 * @param string $node Node name as its topology declares it.
 	 * @return array<int,string> Partition index => directory.
+	 * @throws \RuntimeException When the base directory is unusable, or a topology declares an unknown include, a cycle, or a conflicting make_node.
 	 */
 	public static function node_dirs( string $node ): array {
 		$dirs = [];
@@ -316,6 +327,7 @@ class Bootstrap {
 	 *
 	 * @param string $node Node name as its topology declares it.
 	 * @return list<int> Partition indices, ascending.
+	 * @throws \RuntimeException When the base directory is unusable, or a topology declares an unknown include, a cycle, or a conflicting make_node.
 	 */
 	public static function node_partitions( string $node ): array {
 		$seen = [];
@@ -380,7 +392,7 @@ class Bootstrap {
 	 * graph, never a topology name — names are deployment config (renamable,
 	 * user-dir-shadowable) and a name-keyed signal drifts silently into a no-op.
 	 * `Remote_Source` IS-A `Remote_Link`, so the second declaration is redundant
-	 * today and stays declared in case that stops being true.
+	 * and stays declared in case that stops being true.
 	 *
 	 * Best-effort: a Vault save never fails on the signal it triggers.
 	 */
@@ -475,9 +487,15 @@ class Bootstrap {
 	}
 
 	/**
-	 * Full topology catalog (ignores the operator overlay); the admin checkboxes render against this.
+	 * Full topology catalog as the `newspack_nodes/topologies` filter publishes
+	 * it, before the `topologies` config key narrows it to the active set.
+	 *
+	 * Wires the runtime first because `ensure_runtime_wired()` is where the user
+	 * topology dir is registered, and a catalog built ahead of it misses every
+	 * user `.tsl`.
 	 *
 	 * @return array<array-key,mixed> Topology name => entry.
+	 * @throws \RuntimeException When the runtime base directory is unusable.
 	 */
 	public static function get_topology_catalog(): array {
 		self::ensure_runtime_wired();
@@ -530,15 +548,16 @@ class Bootstrap {
 	}
 
 	/**
-	 * Spawn FIRST — it is the revival path and the only time-critical step, so
-	 * janitorial work may never preempt it by throwing. Every step then stands
-	 * alone, because each one runs third-party code: `expand_workers()` fires the
-	 * `topologies` filter, and `periodic` is whatever subscribed. One bad
-	 * provider must not cost the others their window.
+	 * Spawn ahead of the janitorial steps — it is the revival path and the only
+	 * time-critical one, so housekeeping may never preempt it by throwing. Every
+	 * step then stands alone, because each one runs third-party code:
+	 * `expand_workers()` fires the `topologies` filter, and `periodic` is
+	 * whatever subscribed. One bad provider must not cost the others their
+	 * window.
 	 */
 	private static function run_reconcile_steps(): void {
-		// @longform Third-party surface, so it gets its own step: fired bare it
-		// both escaped the callback and skipped the spawn behind it.
+		// @longform Third-party surface, so it gets its own step: fired bare,
+		// a throw escapes the callback and skips the spawn behind it.
 		self::reconcile_step( 'before', static fn() => \do_action( 'newspack_nodes/before_reconcile' ) );
 		$coordinator = self::spawn_coordinator();
 		$base_dir    = self::base_dir();
@@ -579,19 +598,19 @@ class Bootstrap {
 		}
 	}
 
-	/** Fleet enable gate (default true); false unschedules the cron and stops the peer scan. */
+	/** Fleet enable gate (default true); false unschedules the cron, blocks the self-heal re-arm and stops the peer scan. */
 	public static function is_fleet_enabled(): bool {
 		return self::$fleet_enabled_override ?? true;
 	}
 
 	/**
 	 * Veto-time diagnostic for the reconcile cron, registered on
-	 * pre_schedule_event AND pre_reschedule_event at PHP_INT_MAX - 2. When an
-	 * earlier callback short-circuits OUR event with false or a WP_Error,
-	 * log the active filter chain — the culprit is in it by definition.
-	 * These filters run inside wp_schedule_event/wp_reschedule_event, which
-	 * every cron runner still calls (Cron Control short-circuits these same
-	 * filters on Atomic), unlike the wp-cron.php-only error actions.
+	 * `pre_schedule_event` AND `pre_reschedule_event` at PHP_INT_MAX - 2. When an
+	 * earlier callback short-circuits OUR event with false or a WP_Error, log the
+	 * active filter chain — the culprit is in it by definition. These filters run
+	 * inside `wp_schedule_event()` and `wp_reschedule_event()`, which every cron
+	 * runner calls, unlike `cron_reschedule_event_error` and
+	 * `cron_unschedule_event_error`, which only `wp-cron.php` fires.
 	 *
 	 * @param mixed $pre   Short-circuit value accumulated by earlier callbacks.
 	 * @param mixed $event Event object (hook, timestamp, schedule, args, interval).
@@ -726,7 +745,11 @@ class Bootstrap {
 		( new HTTP_In_Node() )->register_routes();
 	}
 
-	/** The request-scope spawn coordinator (factory seam for tests). */
+	/**
+	 * The request-scope spawn coordinator (factory seam for tests).
+	 *
+	 * @throws \RuntimeException When the default factory cannot resolve the base directory.
+	 */
 	public static function spawn_coordinator(): Spawn_Coordinator {
 		$factory = self::$spawn_coordinator_factory ?? static fn (): Spawn_Coordinator => new Spawn_Coordinator( self::base_dir() );
 		return $factory();
@@ -734,9 +757,10 @@ class Bootstrap {
 
 	/**
 	 * Wire the substrate runtime: the node-class namespaces `make_node` resolves
-	 * against, the `<config:…>` token namespace, the user topology directory, the
-	 * substrate's own filter and `newspack_nodes/periodic` subscriptions, and the
-	 * self-respawn token provider.
+	 * against, the `<config:…>` token namespace, the user topology directory,
+	 * the substrate's own log-producer and segment-size filters, its
+	 * `newspack_nodes/periodic` and `newspack_nodes/vault/changed` subscribers,
+	 * and the self-respawn token provider.
 	 *
 	 * Idempotent and lazy — diagnostic entry points wire only their non-storage
 	 * dependencies, while node-graph/storage entry points call this method and
@@ -747,6 +771,8 @@ class Bootstrap {
 	 * on an unusable base and Fleet_Node swallows that, so flagging first would
 	 * leave a worker half-wired for its whole life with no second chance. Every
 	 * step is idempotent, which is what makes the retry safe.
+	 *
+	 * @throws \RuntimeException When the runtime base directory is unusable.
 	 */
 	public static function ensure_runtime_wired(): void {
 		self::ensure_diagnostics_wired();
@@ -762,22 +788,23 @@ class Bootstrap {
 		\add_filter( 'newspack_nodes/segment_size_overrides', [ self::class, 'register_segment_sizes' ] );
 		// Self-respawn tokens must be minted at POST time, not worker boot.
 		Worker_Base::$token_provider ??= static fn (): string => self::spawn_coordinator()->generate_spawn_token( \time() );
-		// Fleet alerting: rate-limited alert emission.
+		// Fleet alerting: journal alert transitions into alerts.p0.
 		\add_action( 'newspack_nodes/periodic', [ Alerts::class, 'emit' ] );
-		// Delayed-jobs sweep: circulate jobdelay.p0, deliver due entries.
+		// Delayed-jobs sweep: deliver due entries, circulate the rest.
 		\add_action( 'newspack_nodes/periodic', [ Job_Delay::class, 'sweep_action' ] );
 		// A re-credentialed or removed spoke invalidates its command session.
 		\add_action( 'newspack_nodes/vault/changed', [ self::class, 'forget_command_session' ] );
 		// ...and the workers holding its credentials must re-read them.
 		\add_action( 'newspack_nodes/vault/changed', [ self::class, 'reload_vault_consumers' ] );
-		// Footgun: don't wire SSE_Slot_Pool here; force-loads SSE REST routes.
+		// Footgun: don't wire SSE_Slot_Pool here; it autoloads SSE_Out_Node.
 		self::$runtime_wired = true;
 	}
 
 	/**
 	 * Register diagnostics that must remain available when runtime storage is
-	 * misconfigured. This path may read non-storage config and initialize the
-	 * selected cache being probed, but must not resolve the base directory.
+	 * misconfigured: the spawn TLS flag, the shared `\Memcached` handle the cache
+	 * probe reports on, and the Site Health test. This path may read non-storage
+	 * config, but must not resolve the base directory.
 	 */
 	public static function ensure_diagnostics_wired(): void {
 		if ( self::$diagnostics_wired ) {
@@ -794,17 +821,19 @@ class Bootstrap {
 
 	/**
 	 * Build the one shared `\Memcached` handle on `Core::$memd` from the
-	 * substrate's own `memcache_servers` config. The substrate owns this — every
-	 * substrate path that needs caching (command-auth nonce single-use, SSE slot
-	 * pool, Consumer cursor publish) reads `Core::$memd` and must not depend on
-	 * an application plugin to populate it.
+	 * substrate's own `memcache_servers` config. The substrate owns this —
+	 * `Cache_Backend` selects that handle for every substrate surface that needs
+	 * shared state (the command-auth nonce, the SSE slot pool, the spawn
+	 * throttle) and must not depend on an application plugin to populate it.
 	 *
 	 * Empty/invalid server list sets `Core::$memd = null` — deliberately NOT a
-	 * fallback handle. Null is what the consumers' own fail paths key on:
-	 * command-auth refuses + logs once (single-use unverifiable), stats fail
-	 * soft, SSE slots fail closed. A non-null fallback (an unreachable localhost,
-	 * say) would suppress command-auth's `instanceof` warning and fail closed
-	 * silently instead. No-op when the PECL `\Memcached` class is absent.
+	 * fallback handle. Null withdraws the memcached tier, leaving `Cache_Backend`
+	 * on APCu; only when neither answers do the consumers reach their own fail
+	 * paths, command-auth refusing an unverifiable single-use nonce and the SSE
+	 * pool refusing a slot. A non-null but unreachable handle is worse than none:
+	 * `shared_first()` prefers memcached, so every operation would fail against a
+	 * dead server rather than fall through to APCu. No-op when the PECL
+	 * `\Memcached` class is absent.
 	 */
 	public static function init_memcached(): void {
 		if ( ! \class_exists( '\Memcached' ) ) {
@@ -840,7 +869,13 @@ class Bootstrap {
 		}
 	}
 
-	/** Configured base directory for runtime state (locks/, ipc/, logs/). */
+	/**
+	 * Configured base directory for runtime state (locks/, ipc/, logs/,
+	 * offsets/, topologies/).
+	 *
+	 * @return string Canonical, validated base path.
+	 * @throws \RuntimeException When `base_directory` is empty or non-scalar, or the directory cannot be created, is a symlink, resolves outside its parent, or belongs to another uid.
+	 */
 	public static function base_dir(): string {
 		return Config::get_base_directory();
 	}
@@ -946,7 +981,7 @@ class Bootstrap {
 			return false;
 		}
 		$part = new Partition_Node();
-		// Patron + sink to in-scope interpreter (Rule 4 skips both if none).
+		// patron() before name(): it refuses a node already named and wired.
 		$ci = Core::node( Node_Names::COMMAND_INTERPRETER );
 		if ( null !== $ci ) {
 			$part->patron( $ci );
@@ -960,7 +995,7 @@ class Bootstrap {
 		return true;
 	}
 
-	/** Drop the request-static half of the wake map; activation calls this. */
+	/** Drop the request-static half of the wake map; `Topology_Registry::invalidate_config_cache()` calls it. */
 	public static function forget_on_demand_readers(): void {
 		self::$on_demand_wake_map = null;
 	}

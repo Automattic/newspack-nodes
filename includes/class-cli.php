@@ -1,13 +1,14 @@
 <?php
 /**
- * CLI: worker discovery, consumer position and attached-cli IPC paths for the
- * `wp nodes` verbs and the dashboard that mirrors them.
+ * CLI: worker discovery, consumer position, restart flags and attached-cli IPC
+ * paths for the `wp nodes` verbs and the dashboard that mirrors them.
  *
- * Everything here measures one runtime tree on disk — lock dirs for worker
+ * Every instance method works one runtime tree on disk — lock dirs for worker
  * liveness, the topicprobe log for consumer position, offsetlogs and segment
  * sizes when that log has gone stale. The measurements live here rather than in
  * the command classes so `Workers_CI` serves the dashboard the same rows
- * `wp nodes status` prints; two readers of one tree drift.
+ * `wp nodes status` prints, because two independent readers of one tree drift
+ * apart.
  *
  * @package Newspack_Nodes
  */
@@ -18,8 +19,9 @@ namespace Newspack_Nodes;
 
 /**
  * An instance is scoped to ONE base directory, and every path it builds hangs
- * off that. The static half — the uid seam, the root refusal, flag parsing, byte
- * and duration formatting — needs no tree and is callable from request scope.
+ * off that. The public statics — the uid seam, the root refusal, worker-id and
+ * flag parsing, byte and duration formatting — need no tree and are callable
+ * from request scope.
  */
 class CLI {
 
@@ -50,12 +52,14 @@ class CLI {
 	}
 
 	/**
-	 * Resolve the input and output IPC paths for a `{type}.p{N}` reader id.
+	 * Resolve the input and output IPC paths for a `{type}.p{N}` reader id,
+	 * spawning an on-demand worker that is asleep.
 	 *
 	 * A missing lock dir does not by itself mean a missing worker: an on-demand
 	 * worker sleeps holding no lock, so the miss falls through to
-	 * `Spawn_Coordinator::wake_sleeping_worker()` and only a refusal there is an
-	 * error; refusing on the absent lock alone refuses every on-demand worker.
+	 * `Spawn_Coordinator::wake_sleeping_worker()`, which spawns the worker when
+	 * it owns that id. Only a refusal there is an error; refusing on the absent
+	 * lock alone refuses every on-demand worker.
 	 *
 	 * @param string $worker_id Worker id in `{type}.p{N}` form.
 	 * @return array{input:string,output:string,type:string,partition:int}
@@ -64,7 +68,7 @@ class CLI {
 	public function attach_to_worker( string $worker_id ): array {
 		[ $type, $partition ] = self::parse_worker_id( $worker_id );
 		$lock_dir             = "{$this->base_dir}/locks/{$worker_id}.lock.d";
-		// This class is base-dir scoped; the shared coordinator may not be.
+		// Not Bootstrap's shared one: that hangs off the global tree.
 		if ( ! \is_dir( $lock_dir )
 			&& ! ( new Spawn_Coordinator( $this->base_dir ) )->wake_sleeping_worker( $worker_id, Core::right_now() ) ) {
 			throw new \InvalidArgumentException(
@@ -114,13 +118,16 @@ class CLI {
 	 *
 	 * `msgs` is the newest record's per-probe-interval count, not a cumulative.
 	 *
+	 * The rows come out in the order the tail window first names each reader, so
+	 * a caller rendering a table sorts them.
+	 *
 	 * @return array<int,array{reader:string,source:string,partition:int,cursor_segment:int,cursor_offset:int,end_segment:int,end_size:int,distance:int,msgs:int}> A list; `reader` is the id.
 	 */
 	public function consumer_rows(): array {
 		$rows = [];
 		$now  = (int) Core::right_now();
 		foreach ( $this->read_probe_frames() as $reader => $frame ) {
-			// reader is `{source_basename}.p{N}`: partition lives in the name.
+			// The reader id is an offsetlog basename ending `.p{N}`.
 			if ( ! \preg_match( '/^(.+)\.p(\d+)$/', $reader, $m ) ) {
 				continue;
 			}
@@ -214,6 +221,11 @@ class CLI {
 	 * record exists only while a worker is running to write one. The timestamp
 	 * is therefore the only thing separating a reporting reader from a departed
 	 * one, and departed is what `consumer_rows()` falls back on.
+	 *
+	 * `Partition_Node::read_tail_frames_by()` scans the newest segment's last
+	 * 128 KiB, so a reader with no record inside that window is absent from the
+	 * map rather than stale: it drops out of the status table instead of being
+	 * re-measured off disk.
 	 *
 	 * @return array<string,array{value:array<mixed>,timestamp:int}> Reader id → its latest record and that record's snapshot time.
 	 */
@@ -370,7 +382,7 @@ class CLI {
 	 * @param array<int,array<string,mixed>> $workers   List of `[type=>str, partition=>int]`.
 	 * @param array<string,bool>             $filter    Optional `[type => bool]`; empty or an `all` key = wildcard.
 	 * @param int                            $partition Only this partition if >= 0; -1 = any.
-	 * @return int Number of restart-flag files written.
+	 * @return int Number of restart-flag files written; 0 under root, where `Config::write_denied()` refuses every write.
 	 */
 	public function restart_workers( array $workers, array $filter = [], int $partition = -1 ): int {
 		if ( ! Bootstrap::fleet_site() ) {
@@ -402,6 +414,8 @@ class CLI {
 
 	/**
 	 * Format byte counts compactly for the Behind column of `wp nodes status`.
+	 *
+	 * GB is the top of the ladder, so a terabyte reads `1024GB`.
 	 *
 	 * @param int $bytes Byte count.
 	 * @return string A single unit, e.g. `938B`, `1.4KB`, `2.1MB`.

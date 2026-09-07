@@ -20,16 +20,16 @@ namespace Newspack_Nodes;
  *
  * `wp nodes` groups every runtime subcommand. The substrate (newspack-nodes)
  * provides worker lifecycle and graph inspection; the event-logger application
- * (newspack-event-logger-nodes) adds the `reqgrep` firehose tool. Run any
- * subcommand with `--help` for its own options.
+ * (newspack-event-logger-nodes) adds the `reqgrep` firehose reader and
+ * `ruleset-bench`. Run any subcommand with `--help` for its own options.
  *
  * ## EXAMPLES
  *
- *     # List active workers and their heartbeats
+ *     # Per-partition worker state, then the consumer-lag table
  *     wp nodes status
  *
  *     # Attach a REPL to a live worker
- *     wp nodes cli firehose-workers-and-jobs.p0
+ *     wp nodes cli job-worker.p0
  *
  *     # Restart every worker type
  *     wp nodes restart all
@@ -40,11 +40,11 @@ namespace Newspack_Nodes;
 class CLI_Command {
 
 	/**
-	 * stdin seam. Lazily-defaulted to the real STDIN at the call sites. Tests
-	 * reassign to a fixture stream (e.g. an empty `php://memory`) so the
-	 * bare-REPL drain sees non-TTY EOF even when the phpunit runner's own
-	 * STDIN is an interactive terminal (which would park the reader at a
-	 * readline prompt forever).
+	 * stdin seam. Lazily-defaulted to the real STDIN inside `terminal()`, its
+	 * only reader. Tests reassign to a fixture stream (e.g. an empty
+	 * `php://memory`) so the bare-REPL drain sees non-TTY EOF even when the
+	 * phpunit runner's own STDIN is an interactive terminal, which would park
+	 * the reader at a readline prompt forever.
 	 *
 	 * Signature: `function (): resource`.
 	 *
@@ -53,9 +53,10 @@ class CLI_Command {
 	public static ?\Closure $stdin = null;
 
 	/**
-	 * stdout seam. Lazily-defaulted to the real STDOUT at the call site. Tests
-	 * reassign to a `php://memory` stream so a REPL fixture that runs a real
-	 * verb renders into the fixture instead of the phpunit runner's terminal.
+	 * stdout seam. Lazily-defaulted to the real STDOUT where `build_repl_graph()`
+	 * constructs `_stdout`. Tests reassign to a `php://memory` stream so a REPL
+	 * fixture that runs a real verb renders into the fixture instead of the
+	 * phpunit runner's terminal.
 	 *
 	 * Signature: `function (): resource`.
 	 *
@@ -77,12 +78,12 @@ class CLI_Command {
 	 * ## OPTIONS
 	 *
 	 * [<worker>]
-	 * : Worker id in the form {type}.p{N}, e.g. firehose-workers.p0.
+	 * : Worker id in the form {type}.p{N}, e.g. job-worker.p0.
 	 *
 	 * ## EXAMPLES
 	 *
 	 *     wp nodes cli
-	 *     wp nodes cli firehose-workers.p0
+	 *     wp nodes cli job-worker.p0
 	 *
 	 * @api WP-CLI subcommand `wp nodes cli` — invoked by WP-CLI via reflection, not called in PHP.
 	 * @param array<int,string>   $args       Positionals. Empty opens bare mode; `$args[0]` is the worker id otherwise.
@@ -95,8 +96,9 @@ class CLI_Command {
 	}
 
 	/**
-	 * Drive the REPL from the drain loop until stdin reaches EOF, reading through
-	 * readline on a TTY and `fgets` otherwise.
+	 * Drive the REPL from the drain loop until stdin closes and the reader flips
+	 * its exit flag, reading through readline when stdin is a terminal and the
+	 * extension is loaded, and through `fgets` otherwise.
 	 *
 	 * The reader is a timer-driven node rather than a blocking `while ( fgets() )`
 	 * loop, so the one drain that services the graph's timers, the IPC Consumer
@@ -114,31 +116,31 @@ class CLI_Command {
 		// Skip prompts when stdin is piped; they break `... | grep` consumers.
 		$reader = new TTY_In_Node( $shell, $stdout, $has_readline, $stdin, $is_tty );
 
-		// Sink needed: Timer_Node::fire_cb() skips fire()/stdin-drain if none.
+		// A sink is required: fire_cb() returns before fire() without one.
 		$reader->sink( $shell );
 
-		// Completion replies (KEY='completion') feed the cache, not printed.
+		// A KEY='completion' reply feeds the cache instead of the screen.
 		if ( $has_readline ) {
 			$dumper->set_completion_sink(
 				fn ( array $message ): bool => $reader->ingest_completion_reply( $message )
 			);
-			// Seed cache once intercept is wired, so first Tab has candidates.
+			// Seed now: an earlier query's reply would land on the terminal.
 			$reader->send_completion_queries();
 		}
 
-		// On worker's TM_EOF echo, flip exit so scripts don't orphan replies.
+		// The TM_EOF echo ends the drain ahead of the reader's deadline.
 		$dumper->on_eof( static function () use ( $reader ): void {
 			$reader->exit = true;
 		} );
 
-		// Recurring: fire() re-paces itself, never re-arms to stay alive.
+		// Recurring, not oneshot: a oneshot strands the reader off the loop.
 		$reader->set_timer( 0 );
 		Event_Framework::instance()->drain( static fn () => ! $reader->exit );
 
 		if ( $has_readline ) {
 			\readline_callback_handler_remove();
 		}
-		// Trailing newline on a TTY; skipped when piped (breaks consumers).
+		// A trailing newline on a TTY only; it would corrupt a piped stream.
 		if ( $is_tty ) {
 			\WP_CLI::log( '' );
 		}
@@ -150,15 +152,15 @@ class CLI_Command {
 	 *
 	 * Resolving the worker's IPC paths comes before any node is constructed, so an
 	 * unknown worker id is refused by `WP_CLI::error` while the failure is still a
-	 * single line. The summary is stashed instead of printed for the reason the
-	 * prompts and the trailing newline are suppressed off a TTY: a piped session
-	 * emits what the script asked for and nothing else.
+	 * single line. Stashing the summary rather than printing it serves the rule
+	 * the suppressed prompts and trailing newline serve: a piped session emits
+	 * what the script asked for and nothing else.
 	 *
 	 * @param array<int,string> $args WP-CLI positionals. Empty opens bare mode; `$args[0]` is the worker id otherwise.
 	 * @return array{0:Shell_Node,1:Dumper_Node,2:TTY_Out_Node} The nodes `run_repl()` drives.
 	 */
 	private function prepare_repl( array $args ): array {
-		// Refuse root: root cli makes IPC dirs root-owned, locks out non-root.
+		// A root session seeds the IPC dirs root-owned, locking the fleet out.
 		CLI::refuse_root( 'cli' );
 
 		$cli = new CLI( Bootstrap::base_dir() );
@@ -177,7 +179,6 @@ class CLI_Command {
 
 		[ $shell, $dumper, $stdout ] = $this->build_repl_graph( $attached, $ipc );
 
-		// Stash the mode summary; the `status` builtin renders it on demand.
 		if ( $attached && null !== $ipc ) {
 			$shell->status_lines = [
 				"Attached-cli mode for {$args[0]}",
@@ -226,27 +227,25 @@ class CLI_Command {
 		$interpreter->name( Node_Names::COMMAND_INTERPRETER );
 		$interpreter->sink( $router );
 
-		// `_stdout`: terminal writer; Dumper reaches via target/TO (ADR-7).
 		$stdout = new TTY_Out_Node( ( self::$stdout ?? static fn () => \STDOUT )() );
 		$stdout->name( Node_Names::STDOUT );
 		$stdout->sink( $interpreter );
 
-		// `_output`: Shell stamps FROM=_output/$pid, so replies route here.
 		$dumper = new Dumper_Node();
 		$dumper->name( Node_Names::OUTPUT );
 		$dumper->sink( $interpreter );
 		$dumper->target( Node_Names::STDOUT );
 
-		// Tap node for introspection of what the shell is sending.
+		// CONSOLE_TAP is `_shell`: the session's view of what the Shell sends.
 		$console_tap = new Tap_Node();
 		$console_tap->name( Node_Names::CONSOLE_TAP );
 		$console_tap->sink( $interpreter );
 
-		// Shell stays anonymous (Shell::name throws); `ls` filters by sink.
+		// Anonymous by rule: naming a Shell_Node throws (ADR-7).
 		$shell = new Shell_Node();
 		$shell->sink( $console_tap );
 
-		// Empty in bare mode; defined here so it's in scope for guarded blocks.
+		// Empty in bare mode, and declared here for the guarded blocks below.
 		$worker_id = ( $attached && null !== $ipc ) ? "{$ipc['type']}.p{$ipc['partition']}" : '';
 		if ( $attached && null !== $ipc ) {
 			$shell->prompt = "/{$worker_id}> ";
@@ -258,26 +257,26 @@ class CLI_Command {
 		$stdout->set_readline_mode( $has_readline );
 
 		if ( $attached && null !== $ipc ) {
-			// 1-partition IPC; skip allow_large_writes for concurrent appends.
+			// No allow_large_writes: several sessions append here at once.
 			$ipc_out = new Partition_Node();
 			$ipc_out->arguments( Worker_Base::ipc_partition_args( $ipc['input'] ) );
 			$ipc_out->name( $worker_id );
 			$ipc_out->sink( $interpreter );
 			$shell->path = $worker_id;
 
-			// reply-in: ephemeral, so empty offsetlog_dir (no durable cursor).
+			// The reply leg is ephemeral: no offsetlog_dir, no cursor.
 			$reply_in = new Node();
 			$reply_in->sink( $router );
 			$reply_in->target( Node_Names::OUTPUT );
 			$ipc_in = new Consumer_Node();
 			$ipc_in->arguments( [ $ipc['output'] ] );
 			$ipc_in->next_offset( 'end' );
-			// Worker id at the HEAD of FROM; the tail is the worker's own text.
+			// The stamp heads FROM; the worker's own path becomes the tail.
 			$ipc_in->set_stamp_as( $worker_id );
 			$ipc_in->sink( $reply_in );
 		}
 
-		// Renders only empty-TO or this-pid messages here; other sessions drop.
+		// Only an empty TO or this pid renders; another session's reply drops.
 		$dumper->set_to_filter( $pid );
 
 		return [ $shell, $dumper, $stdout ];
@@ -294,7 +293,7 @@ class CLI_Command {
 	 */
 	private function terminal(): array {
 		if ( null === $this->terminal ) {
-			// readline only on a real TTY; on a pipe it spins at 100% CPU.
+			// Readline needs a real TTY: on a pipe it spins at 100% CPU.
 			$stdin          = ( self::$stdin ?? static fn () => \STDIN )();
 			$is_tty         = \function_exists( 'posix_isatty' ) && @\posix_isatty( $stdin );
 			$this->terminal = [ $stdin, $is_tty, $is_tty && \function_exists( 'readline_callback_handler_install' ) ];

@@ -1,17 +1,18 @@
 <?php
 /**
- * Log_Cleaner: log-only GC for orphan flat-layout data dirs.
+ * Log_Cleaner: the GC for undeclared dirs under `logs/` and `offsets/`.
  *
- * Sweeps first-level `logs/*` and `offsets/*` dirs against a config-declared set
- * (topology .tsl declarations + PHP-registered producers, both stating their own
- * layout as a path template). The declared set is built by substituting the
- * `<partition>` token — wherever it sits in a declared path — over 0..N-1, so
- * there is no `.p{N}` regex and no layout this class spells itself.
+ * Sweeps the first level of both against a config-declared set (topology .tsl
+ * declarations + PHP-registered producers, both stating their own layout as a
+ * path template). The declared set is built by substituting the partition
+ * token — `<partition>` or `{partition}`, wherever it sits in a declared path —
+ * over 0..N-1, so there is no `.p{N}` regex and no layout this class spells
+ * itself.
  *
  * Liveness-free: it reads no worker lock, lock dir, ipc dir or live-worker
  * descriptor. A dir survives because config declares it, never because a
- * process holds it; worker and topology lifecycle — lock-dir reconcile,
- * orphan-ipc reaping — belongs to Fleet_Node and Spawn_Coordinator.
+ * process holds it. Worker lifecycle belongs elsewhere: `Fleet_Node` revives
+ * peers, and `Spawn_Coordinator` reconciles lock dirs and reaps orphan ipc.
  *
  * @package Newspack_Nodes
  */
@@ -35,25 +36,25 @@ namespace Newspack_Nodes;
  */
 class Log_Cleaner {
 
-	/** Undeclared dirs younger than this (newest inner mtime) are spared. */
+	/** Seconds of quiet (newest inner mtime) that spare an undeclared dir. */
 	public const DELETE_GRACE_S = 3600;
 
 	/**
 	 * Remove first-level `logs/*` + `offsets/*` dirs not in the config-declared set.
 	 *
-	 * A bucket is swept only when it is both non-null and non-empty. `null` marks
-	 * a degraded declared set — an unresolvable `<config:logs_dir>` /
-	 * `<config:offsets_dir>` root, an active topology that will not resolve, an
-	 * unreadable `.tsl`, or a producer template declaring no dir under the logs
-	 * root — and nothing else in the union can mask it: an unresolvable logs root
-	 * leaves the producer names holding the set non-empty while every topology dir
-	 * is absent from it, so the sweep would delete them all. Empty means the app
-	 * has not loaded its topologies yet, which is equally no reason to delete.
+	 * A bucket is swept only when it is both non-null and non-empty. `null` is
+	 * `declared_dirs()`'s fail-closed sentinel for a set it could not build
+	 * completely, and sweeping against a partial set deletes live dirs. Empty
+	 * means nothing has declared anything yet — no active topology, no registered
+	 * producer — which is equally no reason to delete.
 	 *
 	 * @param string $base_dir Base data directory.
 	 * @param int    $grace    Seconds of quiet an undeclared dir needs before it is
 	 *                         swept; 0 sweeps it however recently it was written.
-	 * @return array<int,string> Absolute paths of the directories removed.
+	 * @return array<int,string> Paths of the dirs removed; a delete that leaves the
+	 *                           dir standing is omitted.
+	 * @throws \RuntimeException Before any delete, when the config or the topology
+	 *                           catalog will not load.
 	 */
 	public static function cleanup_orphan_partitions( string $base_dir, int $grace = self::DELETE_GRACE_S ): array {
 		$base_dir = \rtrim( $base_dir, '/' );
@@ -106,6 +107,11 @@ class Log_Cleaner {
 	/**
 	 * Newest mtime across a dir and its first-level entries. Appends touch
 	 * segment FILES (not the dir), so the dir mtime alone under-reports life.
+	 * The walk stops at the first level, so a nested layout appending below it
+	 * reads as quiet and its grace can expire while it is still being written.
+	 *
+	 * @param string $path Directory to stat.
+	 * @return int Unix timestamp; 0 when neither the dir nor an entry stats.
 	 */
 	private static function newest_mtime( string $path ): int {
 		$newest = (int) @\filemtime( $path );
@@ -127,6 +133,7 @@ class Log_Cleaner {
 	 * than a partial truth.
 	 *
 	 * @return array<int,string>
+	 * @throws \RuntimeException When the config or the topology catalog will not load.
 	 */
 	public static function declared_log_dirs(): array {
 		return \array_keys( self::declared_dirs()['logs'] ?? [] );
@@ -141,6 +148,7 @@ class Log_Cleaner {
 	 * the consumer rows on partition 0 alone. A degraded declared set yields `[]`.
 	 *
 	 * @return array<string,int>
+	 * @throws \RuntimeException When the config or the topology catalog will not load.
 	 */
 	public static function declared_log_partitions(): array {
 		return self::declared_dirs()['logs'] ?? [];
@@ -155,21 +163,24 @@ class Log_Cleaner {
 	 * deactivated; no live worker's dirs are at risk, because anything spawning is
 	 * by definition in the active set. The log bucket additionally unions the
 	 * PHP-registered producer templates (firehose / jobintake / … × clamped config
-	 * num_partitions) and the settings log — logs with no consumer-offset of their
-	 * own, hence log-only.
+	 * num_partitions) and the settings log — dirs written from PHP rather than
+	 * from a worker's node graph, which no topology need declare.
 	 *
 	 * A `null` bucket is the fail-closed sentinel the caller MUST skip its sweep
-	 * on. An unresolvable config root nulls its own bucket; an active topology
-	 * name that neither resolves nor synthesizes, an unreadable `.tsl`, and a
-	 * producer template declaring no dir under the logs root null BOTH. All four
-	 * leave live dirs out of a set other contributors keep non-empty, which is
-	 * the shape that deletes data.
+	 * on. An unresolvable config root nulls its own bucket, which no path resolves
+	 * under and which therefore comes back empty anyway. The other three null
+	 * BOTH: an active topology name that neither resolves nor synthesizes, an
+	 * unreadable `.tsl`, and a producer template declaring no dir under the logs
+	 * root each leave live dirs out of a set the remaining contributors keep
+	 * non-empty, which is the shape that deletes data.
 	 *
 	 * Each non-null bucket is a `concrete dir name => enumerated partition index`
 	 * map (the partition comes from the resolver's enumeration loop, never parsed
 	 * out of a name); the whitelisted settings log is partition 0.
 	 *
 	 * @return array{logs: array<string,int>|null, offsets: array<string,int>|null}
+	 * @throws \RuntimeException When `Config::value()` rejects a key or
+	 *                           `Bootstrap::get_topologies()` cannot build the catalog.
 	 */
 	private static function declared_dirs(): array {
 		$logs_root    = Core::resolve_config_token( 'config', 'logs_dir' );
@@ -224,7 +235,7 @@ class Log_Cleaner {
 			foreach ( $producers as $dir => $partition ) {
 				$logs[ $dir ] ??= $partition;
 			}
-			// Whitelist the auto-mounted settings log (only if a set exists).
+			// settings.p0 has no write_set entry; never seed an empty bucket.
 			if ( ! empty( $logs ) ) {
 				$logs[ Settings_Event_Writer::SETTINGS_LOG_DIR ] ??= 0;
 			}
@@ -237,10 +248,10 @@ class Log_Cleaner {
 	}
 
 	/**
-	 * Concrete log dir names for the request-scope PHP producers, feeding the log
-	 * bucket of `declared_dirs()`. Each registered value is a PATH TEMPLATE in the
-	 * same vocabulary a `.tsl` write_set entry uses
-	 * (`<config:logs_dir>/firehose.p<partition>`), expanded over the clamped
+	 * Concrete log dir names for the PHP producers, feeding the log bucket of
+	 * `declared_dirs()`. Each registered value is a PATH TEMPLATE in the same
+	 * vocabulary a `.tsl` write_set entry uses
+	 * (`<config:logs_dir>/firehose.p{partition}`), expanded over the clamped
 	 * global config num_partitions through the one shared resolver and reduced to
 	 * its first-level dir — so a producer owns its own layout and the token may
 	 * sit anywhere, exactly as `Topology_Analyzer::resolved_resource_dirs` treats
@@ -254,6 +265,7 @@ class Log_Cleaner {
 	 * here fails closed; this one must too.
 	 *
 	 * @return array<string,int>|null `concrete dir name => enumerated partition index`.
+	 * @throws \RuntimeException When the `num_partitions` config read fails.
 	 */
 	public static function producer_log_dirs(): ?array {
 		$root   = Core::resolve_config_token( 'config', 'logs_dir' );
@@ -297,7 +309,7 @@ class Log_Cleaner {
 		return \array_keys( $out );
 	}
 
-	/** Global config num_partitions — THE accessor, so the declared set and every producer agree. */
+	/** Bootstrap's clamped global num_partitions, so every producer expands the same range. */
 	private static function config_num_partitions(): int {
 		return Bootstrap::global_num_partitions();
 	}

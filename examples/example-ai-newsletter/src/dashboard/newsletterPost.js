@@ -1,21 +1,22 @@
 /**
- * Payload builder for the "Create draft post" action: score-ranked items become
- * a WordPress post title and an HTML list. The markup is built in the browser —
- * the only server call is the caller's POST.
+ * Payload builder for the "Create draft post" action: the score-ranked items
+ * become a WordPress post. The markup is built in the browser — the only
+ * server call is the caller's POST.
  *
- * Escaping belongs here rather than to WordPress. A user holding
- * `unfiltered_html`, which an administrator on a single site does, is exempt
- * from kses, so the stored post keeps whatever markup an item title carried.
+ * Escaping belongs here rather than to WordPress. `add_menu_page()` registers
+ * the Publisher Insights page under `manage_options`, and a single-site
+ * administrator also holds `unfiltered_html`, which exempts the post from
+ * kses — so markup an item title carried would be stored verbatim.
  */
 
 import { __ } from '@wordpress/i18n';
 import { itemLabel } from './itemLabel';
 
 /**
- * HTML-significant characters mapped to their entities. Element text needs `&`,
- * `<` and `>`; the two quote characters ride along so the same escape holds
- * wherever a value lands in an attribute. `'` maps to the numeric `&#039;`
- * rather than `&apos;`, which HTML 4 does not define.
+ * The five HTML-significant characters mapped to their entities. This module
+ * interpolates element text, which needs `&`, `<` and `>`; the two quote
+ * characters ride along so one escape also covers an attribute value. `'`
+ * maps to the numeric `&#039;` because HTML 4 defines no `&apos;`.
  *
  * @type {Object<string,string>}
  */
@@ -31,9 +32,9 @@ const HTML_ENTITIES = {
  * Escape the five HTML-significant characters so a title or a source cannot
  * break out of the markup this module builds.
  *
- * The `String()` coercion carries weight: `itemLabel` passes an item's own
- * `title` through whenever it is truthy, so an item carrying a numeric title
- * hands this a number, which has no `replace()`.
+ * The `String()` coercion is load-bearing: `itemLabel` passes an item's own
+ * `title` or `source` through whenever it is truthy, so a numeric title hands
+ * this a number, which has no `replace()`.
  *
  * @param {*} value Display text from `itemLabel`, not necessarily a string.
  * @return {string} HTML-safe text.
@@ -46,15 +47,16 @@ function escapeHtml( value ) {
 }
 
 /**
- * Render the score-ranked items as a draft post's title and an HTML list of
- * bolded `title — source` pairs. The `top-table:view` slice arrives
- * score-ordered, so the list keeps the order it is given instead of sorting
- * again.
+ * Build the draft post: the translated "Publisher Newsletter" title and a
+ * `<ul>` holding one `<li>` per ranked item, each reading
+ * `<strong>title</strong> — source`. The `top-table:view` slice arrives
+ * ordered by descending score, so the list keeps the order it is given
+ * instead of sorting again.
  *
  * The two returned fields are what the "Create draft post" action sends to
  * `POST /wp/v2/posts`; the caller adds `status: 'draft'`.
  *
- * @param {Array<{source?:string,title?:string,score?:number}>} items Ranked items.
+ * @param {Array<{source?:string,title?:string,score?:number}>} [items] Ranked items.
  * @return {{title:string,content:string}} Draft-post title and HTML content.
  */
 export function newsletterPost( items = [] ) {

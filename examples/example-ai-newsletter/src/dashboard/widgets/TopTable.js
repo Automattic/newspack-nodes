@@ -20,8 +20,9 @@ import { itemLabel } from '../itemLabel';
  * Create the draft post through the REST API.
  *
  * This is the default value of the `createDraft` prop, and the prop is the
- * seam: a test hands `<TopTable/>` a fake that resolves or rejects, so both
- * rendered outcomes are exercised without touching the network.
+ * seam: a test hands `<TopTable/>` a fake that resolves or rejects, so the
+ * "Edit draft" link and the error notice are both exercised without touching
+ * the network.
  *
  * @param {Object} draft         The post to create.
  * @param {string} draft.title   Post title.
@@ -42,18 +43,33 @@ const defaultCreateDraft = ( { title, content } ) =>
  * Reads ONLY the `top-table:view` node's slice (`{ top: […] }`) through
  * `useNodeState`, which is the one-slice-per-view rule of
  * `docs/writing-a-view-node.md`: a view holding every slice would put one
- * slice's error notice on all three cards. That slice produces three renders —
- * an error notice, an empty hint until the first scored items arrive, and the
- * table. The model arrives score-ordered, so the rows keep its order and the
- * rank column is the row index.
+ * slice's error notice on all three cards. `useNodeState` returns undefined
+ * until `top-table:view` is registered, because the hook builds the graph in
+ * an effect and the first render precedes the node. The empty-slice default
+ * covers that render, and the `?? []` covers a reply that parsed without a
+ * `top` field.
+ *
+ * The slice renders three ways — an error notice, an empty hint until the
+ * first scored items arrive, and the table. The error branch runs first, so a
+ * failed read replaces the table instead of showing the previous reply's rows
+ * beside a notice. The model arrives score-ordered, so the rows keep its order
+ * and the rank column is the row index plus one.
  *
  * Each score bar is sized against the highest score on screen rather than a
  * fixed ceiling, so the top row fills its track and the rest read as a
- * proportion of it.
+ * proportion of it. The width guard keeps a top score of zero from sizing
+ * every bar `NaN%`, and the track is `aria-hidden` because the number beside
+ * it already carries the value.
  *
- * The preview, the "Copied" flag, the edit link and the error notice are local
- * `useState` rather than slice fields, because the next poll reply replaces the
- * whole model and would take an action's result with it.
+ * The preview, the "Copied" flag, the edit link, the error notice and the
+ * in-flight flag are local `useState` rather than slice fields, because the
+ * next poll reply replaces the whole model and would take an action's result
+ * with it. The preview holds the array captured at the click, so a later poll
+ * refreshes the table beneath an unchanged preview.
+ *
+ * The preview labels each item through `itemLabel`, so an empty title reads
+ * `(untitled)`; the table prints `title` and `source` as the reply carried
+ * them, so the same item's title cell is blank.
  *
  * @param {Object}   props               Component props.
  * @param {Function} [props.createDraft] Seam for the draft-post REST call,
@@ -116,9 +132,10 @@ export function TopTable( { createDraft = defaultCreateDraft } = {} ) {
 	 * Create the WordPress draft post from the ranked items.
 	 *
 	 * A reply carrying no `id` gets an error notice instead of an "Edit draft"
-	 * link, which would otherwise point at `post=undefined`. The button stays
-	 * disabled across the round trip, so a second click cannot open a second
-	 * draft.
+	 * link, which would otherwise point at `post=undefined`. A rejection carrying
+	 * a `message` surfaces that text, so the REST error reaches the notice rather
+	 * than a generic line. The button stays disabled across the round trip, so a
+	 * second click cannot open a second draft.
 	 */
 	const onCreateDraft = () => {
 		setCreating( true );

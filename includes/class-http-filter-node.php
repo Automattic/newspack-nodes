@@ -4,19 +4,21 @@
  * stream process.
  *
  * Every browser tab attached to the same worker consumes that worker's output
- * Partition, so without a gate each tab receives every other tab's command
- * replies. Pid equality is the only correct test, because one session is
- * exactly one stream process.
+ * Partition, so without a gate each tab would receive every other tab's command
+ * replies. One stream process serves exactly one session, so its pid names the
+ * session.
  *
- * A browser mints a command stamped FROM `_sse:<sse-pid>/<reply-node>` and
- * `HTTP_In` adds the `_output` boundary, so the worker's TO=FROM reply (ADR-7)
- * comes back addressed `_output/_sse:<sse-pid>/<reply-node>`. A Consumer in the
- * SSE process forwards every TO-bearing record into `_router`, which peels the
- * leading `_output` and fills this Node — registered under that name, sinking
- * into the `SSE_Out` egress — with TO=`_sse:<sse-pid>/<reply-node>`. Matching
- * that head against this process's own `_sse:<pid>` and stripping it leaves the
- * browser-side reply node, `_output` for the console's Dumper, as the TO the
- * client's own router dispatches on.
+ * A browser mints a command stamped FROM `_sse:<sse-pid>/<reply-node>`,
+ * `HTTP_In` adds the `_output` boundary, and the worker's IPC-input Consumer
+ * adds `_repl`. The worker's TO=FROM reply (ADR-7) is therefore addressed
+ * `_repl/_output/_sse:<sse-pid>/<reply-node>`, and the worker's Router peels
+ * `_repl` on the way into the output Partition. A Consumer in the SSE process
+ * reads that record and forwards it through the interpreter into `_router`,
+ * which peels the leading `_output` and fills this Node — registered under
+ * that name, sinking into the `SSE_Out` egress — with TO set to
+ * `_sse:<sse-pid>/<reply-node>`. Matching that head against this process's own
+ * `_sse:<pid>` and stripping it leaves the browser-side reply node, `_output`
+ * for the console's Dumper, as the TO the client's own router dispatches on.
  *
  * @package Newspack_Nodes
  */
@@ -27,8 +29,9 @@ namespace Newspack_Nodes;
 
 /**
  * The `_output` boundary of one SSE stream process, bound to that process's
- * pid. The pid is a programmatic dependency, so the SSE controller constructs
- * this Node directly and `make_node` never reaches it.
+ * pid. `SSE_Out_Node` builds it with `getmypid()`, patrons it to itself so
+ * `dump_metadata` and `dump_config` skip the plumbing, then names it `_output`
+ * and sinks it into itself; nothing else constructs one.
  */
 class HTTP_Filter_Node extends Node {
 
@@ -49,31 +52,32 @@ class HTTP_Filter_Node extends Node {
 	/**
 	 * Forward a reply addressed to this session and drop every other one.
 	 *
-	 * The counter counts both, so `ls` reports what the gate saw rather than
+	 * The counter counts both, so `ls -c` reports what the gate saw rather than
 	 * what it passed; a filter with no traffic and a filter dropping all of it
 	 * would otherwise show the same row. The drop is silent by contract
 	 * (ADR-13) — `fill()` returns nothing, so a producer cannot tell a gated
 	 * reply from a delivered one.
 	 *
 	 * @param array<int,mixed> $message The 7-field positional message array.
+	 * @throws \RuntimeException When no sink is wired.
 	 */
 	public function fill( array $message ): void {
 		$sink = $this->require_sink();
 		++$this->counter;
 		[ $head, $reply_node ] = Message::split_first( Core::as_string( $message[ Message::TO ] ) );
-		// Match this session's `_sse:<pid>` head; drop others silently.
 		if ( Node_Names::SSE . ':' . $this->own_pid !== $head ) {
 			return;
 		}
-		// The remainder (e.g. `_output`) is the browser-side reply-node.
 		$message[ Message::TO ] = $reply_node;
 		$sink->fill( $message );
 	}
 
 	/**
-	 * Topology console manifest: hidden, with no arguments and no verbs. The
-	 * controller hands this Node a pid, so it can reach neither the palette nor
-	 * a TSL `make_node` line, and it exposes nothing an operator would call.
+	 * Topology console manifest: hidden, with no arguments and no verbs.
+	 *
+	 * `Hidden` is what keeps it out of the class palette. A TSL `make_node`
+	 * line cannot build it either: `make_node` constructs with `new $fqcn()`,
+	 * and this constructor requires a pid.
 	 *
 	 * @return array<string,mixed>
 	 */

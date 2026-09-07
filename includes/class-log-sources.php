@@ -29,14 +29,18 @@ namespace Newspack_Nodes;
  * `/log/stream` subscription opens. Static throughout, because the registry
  * resolves per request out of the options table and the active topologies —
  * there is nothing to hold between calls.
+ *
+ * `read_at()` is the one member that takes no registry entry: it single-steps
+ * whatever durable reader it is handed, which is how `Raw_Logs_CI_Node`'s
+ * `read_message` verb reads a partition through this same model.
  */
 class Log_Sources {
 
 	/**
 	 * Seek words the human-facing surfaces accept, aliasing
 	 * `Consumer_Node::SEEK_*` (start 0, recent -2, end -1). The numbers are what
-	 * travels on the wire; `next_offset()` resolves these words to them, so both
-	 * spellings reach one behaviour.
+	 * travels on the wire; `Consumer_Node::seek_sentinel()` resolves the words to
+	 * them, so both spellings reach one behaviour.
 	 */
 	public const MAGIC_POSITIONS = [ 'start', 'recent', 'end' ];
 
@@ -52,8 +56,9 @@ class Log_Sources {
 	public static ?\Closure $builtin_sources = null;
 
 	/**
-	 * Legal registry-name charset, which an SSE subscription name shares. The
-	 * first character excludes `.`, so `.` and `..` can never name a source.
+	 * Legal registry-name charset, gating the config and topology families
+	 * through `is_valid_name()`. The first character excludes `.`, so `.` and
+	 * `..` can never name a source.
 	 */
 	private const NAME_PATTERN = '/^[a-z0-9_-][a-z0-9_.-]*$/D';
 
@@ -67,7 +72,7 @@ class Log_Sources {
 	 * `taillog [<source>] [max_kb]` builtin — the last `max_kb` KB (16 by
 	 * default, 64 at most) of a durable aggregated log FILE, addressed by fixed
 	 * registry NAME (built-ins + config `log_sources` + active-topology Log
-	 * nodes). Three replies are reserved: no source lists the registry with
+	 * nodes). Three forms are special: no source lists the registry with
 	 * per-source availability; the name `sources` returns the registry as a
 	 * struct (array) a GUI reads; and `read <source> <segment>:<offset>` returns
 	 * the single line at a position (the paused single-step debugger). An
@@ -119,14 +124,12 @@ class Log_Sources {
 		if ( false === $size ) {
 			return "log unavailable: $path (cannot read)";
 		}
-		// Read only the last window via the built-in's offset (kernel seek).
 		$start = $size > $max_bytes ? $size - $max_bytes : 0;
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_get_contents, WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown -- Bounded diagnostic read of a fixed-registry log path, never a URL.
 		$data = \file_get_contents( $path, false, null, $start, $max_bytes );
 		if ( false === $data ) {
 			return "log unavailable: $path (cannot read)";
 		}
-		// Drop the partial first line: the window started mid-line.
 		if ( $start > 0 ) {
 			$nl   = \strpos( $data, "\n" );
 			$data = false === $nl ? '' : \substr( $data, $nl + 1 );
@@ -155,7 +158,7 @@ class Log_Sources {
 	}
 
 	/**
-	 * Tabulate the registry: SOURCE, AVAILABLE (exists + readable), BYTES, PATH.
+	 * Tabulate the registry: SOURCE, AVAILABLE (`is_available()`), BYTES, PATH.
 	 * Reuses the ONE Command_Interpreter_Node::tabulate renderer.
 	 *
 	 * @param array<string,array{path: string,mode: string}> $registry Name → entry.
@@ -187,15 +190,15 @@ class Log_Sources {
 	 * Tail (file or segmented mode) seeked there and single-stepped through the
 	 * Durable_Reader debugger, so inode validation, segment rolls, and partial
 	 * lines behave exactly as they do on the live stream, and the emitted
-	 * record carries the stamped FROM + ID breadcrumb. File mode validates the
-	 * segment slot as the file's inode (a breadcrumb round-trip); a mismatch
+	 * record carries the stamped FROM and the ID breadcrumb. File mode validates
+	 * the segment slot as the file's inode (a breadcrumb round-trip); a mismatch
 	 * re-seeks to 0 rather than reading a rotated-away generation. `read_at()`
 	 * owns the position grammar and the cursor contract.
 	 *
 	 * @param array<string,array{path: string,mode: string}> $registry Name → entry.
 	 * @param string $name     Registry source name.
 	 * @param string $position `<segment>:<offset>[:<length>]`, or a MAGIC_POSITIONS word.
-	 * @return array<string,mixed>|string The line + cursor, or a teaching error.
+	 * @return array<string,mixed>|string The line and its cursor, or a teaching error.
 	 */
 	private static function taillog_read( array $registry, string $name, string $position ): array|string {
 		if ( ! isset( $registry[ $name ] ) ) {
@@ -230,11 +233,10 @@ class Log_Sources {
 	 * `finally`. A reader left armed with no sink fires forever inside the
 	 * worker's drain loop.
 	 *
-	 * Position grammar is the seek transport's — a `MAGIC_POSITIONS` token, or
-	 * `<segment>:<offset>` with an optional trailing `:<length>` that is
-	 * tolerated and IGNORED (the reader knows the record's real length). The
-	 * `cursor` returned is the POST-step position, i.e. exactly where the next
-	 * step resumes.
+	 * The position is a `MAGIC_POSITIONS` word, or `<segment>:<offset>` with an
+	 * optional trailing `:<length>` that is tolerated and IGNORED, because the
+	 * reader knows the record's real length. The `cursor` returned is the
+	 * POST-step position, exactly where the next step resumes.
 	 *
 	 * `Tail_Node extends Consumer_Node`, so the segmented, file-follow and
 	 * partition readers all drive identically; only construction and the verb
@@ -247,7 +249,7 @@ class Log_Sources {
 	 * @param string        $position Magic token, or `<segment>:<offset>[:<length>]`.
 	 * @param string        $verb     Verb name for the teaching errors.
 	 *
-	 * @return array{source:string,message:array<array-key,mixed>,cursor:array{segment:int,offset:int},at_eof:bool}|string
+	 * @return array{source:string,message:array<array-key,mixed>,cursor:array{segment:int,offset:int},at_eof:bool}|string The record and its cursor, or a teaching error.
 	 */
 	public static function read_at( Consumer_Node $reader, string $label, string $position, string $verb ): array|string {
 		$captured = null;
@@ -303,7 +305,7 @@ class Log_Sources {
 	 * segments } row per (deduped) registry entry, as a plain array a GUI reads to
 	 * build its source picker — mirrors the dump_metadata array-reply precedent.
 	 * `bytes` is the byte size a tail would read (the Log Viewer's replay-catch-up
-	 * boundary); null when the source has no readable file. `segments` is the
+	 * boundary); null when the source has no file to size. `segments` is the
 	 * `{id, size}` list a segment browser renders — [] in file mode.
 	 *
 	 * @param array<string,array{path: string,mode: string}> $registry Name → entry.
@@ -327,12 +329,16 @@ class Log_Sources {
 
 	/**
 	 * The byte size a tail would read from $entry — its NEWEST segment if segmented,
-	 * else the file. Null when there is no readable file (missing, or a segmented
-	 * source with no segment yet). Sizes what a Log Viewer replay must catch up to.
+	 * else the file. Null when there is nothing to size: a missing path, a failed
+	 * `filesize()`, or a segmented source with no segment yet. Sizes what a Log
+	 * Viewer replay must catch up to.
+	 *
+	 * Readability is `is_available()`'s question, not this one: a present file the
+	 * process cannot open still reports its size.
 	 *
 	 * @param array{path: string, mode: string}   $entry    A registry() entry.
 	 * @param list<array{id: int,size: int}>|null $segments A source_segments() list to reuse, or null to list here.
-	 * @return int|null Bytes, or null when there is nothing readable.
+	 * @return int|null Bytes, or null when there is nothing to size.
 	 */
 	private static function tail_bytes( array $entry, ?array $segments = null ): ?int {
 		if ( Tail_Node::MODE_SEGMENTED === $entry['mode'] ) {
@@ -384,6 +390,7 @@ class Log_Sources {
 	 *
 	 * @param array{path: string, mode: string} $entry A registry() entry.
 	 * @return list<array{id: int,size: int}>
+	 * @throws Worker_Should_Stop When a cooperative stop lands mid-listing.
 	 */
 	private static function source_segments( array $entry ): array {
 		if ( Tail_Node::MODE_SEGMENTED !== $entry['mode'] ) {
@@ -404,8 +411,8 @@ class Log_Sources {
 	}
 
 	/**
-	 * The merged registry: built-ins → config → topologies, first name wins,
-	 * realpath-deduped (insertion order is priority).
+	 * The merged registry: built-ins, then config, then topologies. First name
+	 * wins and realpath dedupe keeps the first, so insertion order is priority.
 	 *
 	 * @return array<string,array{path: string,mode: string}>
 	 */
@@ -460,10 +467,12 @@ class Log_Sources {
 	 * Segmented sources inferred from every `Log` node in the active topologies,
 	 * one per partition where the path template carries a partition token. Named
 	 * by lowercased writes-basename (+ `.p{N}` when the template is per-partition
-	 * but the basename isn't). The graph scan is display-grade: a broken topology
-	 * degrades to skipping that topology, never a thrown stream.
+	 * but the basename isn't). The graph scan is display-grade: a failure stops
+	 * that topology's scan where it happened, keeps the entries already listed,
+	 * and never throws into the stream.
 	 *
 	 * @return array<string,array{path: string,mode: string}>
+	 * @throws Worker_Should_Stop When a cooperative stop lands mid-scan.
 	 */
 	private static function topology_entries(): array {
 		$partitions_by_type = [];
@@ -568,6 +577,9 @@ class Log_Sources {
 	 * Whether $name is a legal registry name: the NAME_PATTERN charset, no `..`,
 	 * and neither of the words `taillog` reserves for its sub-verbs, `sources`
 	 * and `read` — a source wearing either would be unreachable behind it.
+	 *
+	 * @param string $name Candidate registry name.
+	 * @return bool True when the name is legal.
 	 */
 	public static function is_valid_name( string $name ): bool {
 		if ( \in_array( $name, [ 'sources', 'read' ], true ) || \str_contains( $name, '..' ) ) {
@@ -586,7 +598,7 @@ class Log_Sources {
 		$resolve = self::$builtin_sources ?? static function (): array {
 			$sources = [];
 			$php     = \ini_get( 'error_log' );
-			// Only a real file — 'syslog' / relative / '' aren't tailable.
+			// Only a real file: 'syslog' and an empty setting aren't tailable.
 			if ( \is_string( $php ) && '' !== $php && \is_file( $php ) ) {
 				$sources['php'] = $php;
 			}

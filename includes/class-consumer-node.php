@@ -42,9 +42,10 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	use Durable_Reader;
 
 	/**
-	 * Bytes read per poll — one block, then yield the event loop (Tachikoma's
-	 * BUFSIZ in Partition::process_get). A poll drains the buffer it already
-	 * holds, reads ONE more block, and returns so other nodes get a turn.
+	 * Bytes read per poll — one block, then yield the event loop. A poll drains
+	 * the buffer it already holds, reads ONE more block, and returns so other
+	 * nodes get a turn. Tachikoma reads one BUFSIZ block (131072) per
+	 * `Partition::process_get` for the same reason.
 	 */
 	public const READ_BLOCK_BYTES = 65536;
 
@@ -110,7 +111,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 
 	/**
 	 * State loaded for snapshot names that could not restore (node absent at
-	 * boot). Folded back into every recommitted frame so an unresolvable
+	 * boot). Seeds the cache of every state-carrying frame, so an unresolvable
 	 * node's durable state survives until a live save_state() replaces it.
 	 *
 	 * @var array<string,array<array-key,mixed>>
@@ -126,7 +127,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	/** Probe baseline: $bytes_read as of the previous probe_stats() sweep. */
 	private int $probe_bytes = 0;
 
-	/** Probe baseline: Core::$now at the previous sweep; the constructor opens the first window. */
+	/** Probe baseline: Core::$now as of the previous probe_stats() sweep. */
 	private float $probe_ts = 0.0;
 
 	/** Tachikoma-parity: no-arg ctor. Positional config arrives via arguments(). */
@@ -172,7 +173,6 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 		$source->arguments( [ $this->source_dir ] );
 		$source->sink( $this->sink );
 		$source->patron( $this );
-		// Assign before publish: a refusal must unwind to the live node.
 		$this->retract_sibling( 'source' );
 		$this->source = $source;
 		$this->publish_sibling( 'source', $source );
@@ -180,7 +180,6 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 		$this->ensure_offsetlog();
 		$this->ensure_deadletter();
 
-		// No I/O at construction: first poll loads cursor + restores snapshot.
 		$this->poll_cb = $this->poll_init( ... );
 		$this->set_timer( self::POLL_INTERVAL_EOF_MS );
 		$this->set_state( 'POLLING', 'ACTIVE' );
@@ -286,11 +285,12 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	/**
 	 * Probe seam: the snapshot `Topic_Probe` reads from outside this Consumer, as
 	 * the POSITIONAL `Probe_Record` array (kept tiny for 24h SSE replay). A
-	 * DRAINING read — call it once per sweep. Positions ride verbatim (`SOURCE`,
-	 * `READER`, the cursor, the partition END, `DISTANCE`, `CACHE_SIZE`); the
-	 * counters ride as the work done since the previous call, with the interval
-	 * that work covers, so a reader divides ONE record instead of differencing
-	 * across records (which read a ~595s worker recycle as a counter reset).
+	 * DRAINING read — call it once per sweep. Positions and levels ride verbatim
+	 * (`SOURCE`, `READER`, the cursor, the partition END, `END_BYTES`, `DISTANCE`
+	 * and `CACHE_SIZE`); the counters ride as the work done since the previous call,
+	 * with the interval that work covers, so a reader divides ONE record instead
+	 * of differencing across records (which read a ~595s worker recycle as a
+	 * counter reset).
 	 *
 	 * @return array<int,int|string> A `Probe_Record`-indexed positional array.
 	 */
@@ -351,9 +351,9 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	}
 
 	/**
-	 * How far behind this reader is. THE lag seam: `GET_LAG`, `probe_stats()`
-	 * and `idle_since()` all read it, so a subclass substituting one byte-source
-	 * for another overrides this alone and the three can never disagree.
+	 * How far behind this reader is. THE lag seam: a subclass substituting one
+	 * byte source for another overrides this alone, so the `GET_LAG` reply, the
+	 * probe record and the idle check can never disagree.
 	 *
 	 * @return array{bytes_behind: int, segments_behind: int, caught_up: bool, end_segment: int, end_size: int, end_bytes: int, cursor_segment: int, cursor_offset: int}
 	 */
@@ -382,8 +382,8 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	 * a committed cursor was found, and true for an empty partition, where there is
 	 * nothing to be behind. False means the backlog defaults to the whole
 	 * partition, which a caller deciding whether to WAKE something must not act on
-	 * — `ensure_offsetlog()` creates the directory at construction, so an empty one
-	 * is the ordinary state between boot and the first checkpoint.
+	 * — an offsetlog holding no committed frame is the ordinary state between
+	 * boot and the first checkpoint.
 	 *
 	 * @param string $source_dir    Partition directory the reader tails.
 	 * @param string $offsetlog_dir Its durable cursor dir; empty = no cursor at all.
@@ -460,7 +460,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 		foreach ( $segments as $s ) {
 			$id   = $s['id'];
 			$size = $s['size'];
-			// Absolute byte pos (sum of segment sizes); browser derives rate.
+			// Summed over EVERY live segment, cursor or not: the footprint.
 			$end_bytes += $size;
 			if ( $id < $cursor_segment ) {
 				continue;
@@ -472,7 +472,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 				++$segments_behind;
 			}
 		}
-		// Partition END from SAME read as cursor; topologies tab trims here.
+		// End read off the SAME listing as the cursor; mixing overstates lag.
 		$last = \end( $segments );
 		return [
 			'bytes_behind'    => $bytes_behind,
@@ -489,7 +489,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 
 	/**
 	 * Durable_Reader boot seam: Consumer's "where do I start" is a durable seek. Seed
-	 * the cursor from the offsetlog, restore the snapshot node's state (the whole
+	 * the cursor from the offsetlog, restore each snapshot node's state (the whole
 	 * topology exists by the first poll), then apply the default_offset() seek when
 	 * there's no checkpoint and no explicit next_offset(). A durable checkpoint
 	 * OVERRIDES a pre-poll next_offset() (resume wins); with no checkpoint, that seek
@@ -514,7 +514,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 				}
 			}
 			if ( $restored ) {
-				// Restore survived: recommit cache stateful; boot stateless.
+				// A restore landed, so recommit WITH state; boot had none.
 				$this->write_checkpoint_frame( false, true );
 			}
 		}
@@ -546,9 +546,9 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 		$this->boot_cursor_offset  = $this->cursor_offset;
 		// Resume attempt accounting and arm the boot head-skip (ADR-12).
 		$this->arm_skip_head_from_frame( $entry );
-		// Offset + cache from ONE record, so cursor and state stay aligned.
+		// The offset and the cache ride one record, so they stay aligned.
 		$this->loaded_cache = \is_array( $entry['cache'] ?? null ) ? $entry['cache'] : null;
-		// Crash streak past wipe window: discard the corrupt resumable state.
+		// Crash streak past the wipe window: drop the suspect resumable state.
 		if (
 			null !== $this->loaded_cache
 			&& null !== $this->first_crash_ts
@@ -558,7 +558,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 				. self::STATE_WIPE_AFTER_S . 's crash streak; discarding (suspected corrupt state, not a poison message)' );
 			$this->loaded_cache = null;
 		}
-		// Stateless boot frame BEFORE restore: crash still advances counter.
+		// Stateless boot frame BEFORE restore: a crash still climbs attempts.
 		$this->write_checkpoint_frame( false, false );
 	}
 
@@ -592,11 +592,12 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	 * The sentinels are Tachikoma's (`Consumer.pm`: "valid offsets: start (0),
 	 * recent (-2), end (-1)"), and they are what travels on the wire — a signed
 	 * number expresses every seek, so `0` is unambiguously the START of the log
-	 * rather than doubling as "no position given". The words are aliases the
-	 * human-facing boundaries still speak (the `taillog` verb, TSL, dashboards);
-	 * they resolve here, so there is one behaviour behind both spellings. An
-	 * exact resume keeps the pair, because our Partition addresses a byte within
-	 * a numbered segment where Tachikoma's is absolute across the log.
+	 * rather than doubling as "no position given". The words are the aliases the
+	 * human-facing surfaces speak — `Log_Sources::MAGIC_POSITIONS`, which the
+	 * `taillog read` position grammar accepts — and `seek_sentinel()` resolves
+	 * them, so one behaviour stands behind both spellings. An exact resume keeps
+	 * the pair, because our Partition addresses a byte within a numbered segment
+	 * where Tachikoma's is absolute across the log.
 	 *
 	 * @param string|int|array<array-key,mixed> $position Sentinel, alias, or explicit `{segment, offset}`.
 	 */
@@ -671,10 +672,12 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	 * `checkpoint_frame_extra()`; what this method adds is the snapshot cache.
 	 *
 	 * @param bool                   $graceful   Stamp attempts=0 (clean handoff) instead of the live count.
-	 * @param bool                   $with_state Co-commit the snapshot node's save_state(). False for the
+	 * @param bool                   $with_state Co-commit each snapshot node's save_state(). False for the
 	 *                                           stateless boot frame written BEFORE restore — reading the
-	 *                                           un-restored node there would clobber the good cache.
-	 * @param array<array-key,mixed> $extra      Frame fields merged over the base, for a caller that has some.
+	 *                                           un-restored nodes there would clobber the good cache.
+	 * @param array<array-key,mixed> $extra      Frame fields for a caller that has some. They fill in
+	 *                                           UNDER the base and `checkpoint_frame_extra()`, which
+	 *                                           keep their own value on a shared key.
 	 */
 	protected function write_checkpoint_frame( bool $graceful, bool $with_state, array $extra = [] ): void {
 		// Co-commit snapshots with offset as ONE record for lockstep respawn.
@@ -694,10 +697,10 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	}
 
 	/**
-	 * Consumer's frame extras beyond the shared base: its identity + downstream wiring the
-	 * dashboard labels by. `source_log` is the real source log basename — two readers can
-	 * tail the same log under distinct offset-dir names (firehose vs firehose.job-router);
-	 * the dashboard labels by this, not the disambiguated offset dir.
+	 * Consumer's frame extras beyond the shared base: its name, its downstream wiring, and the
+	 * worker type this process was spawned as. `source_log` is the basename of the log itself,
+	 * which the offsetlog dir's is not — three event-logger topologies tail `firehose.p0`
+	 * under `<topology>.firehose.p0` cursors, so only this field names the shared log.
 	 *
 	 * @return array<array-key,mixed>
 	 */
@@ -714,7 +717,8 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	/**
 	 * Resolve the Consumer's immediate downstream processor(s) to `{name, class}` entries.
 	 *
-	 * A Tee target is expanded to its targets so the dashboard shows the real processors.
+	 * A Tee target expands to its own targets, so the frame names the processors that do the
+	 * work rather than the fan-out node in front of them.
 	 *
 	 * @return array<int,array{name:string,class:string}>
 	 */
@@ -750,7 +754,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 
 	/** Worker-type env tag, set by `Spawn_Controller` on spawn and by `Bootstrap` on the reconcile pass; '' when unset. */
 	private static function worker_type_env(): string {
-		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- env var is set by SpawnController after HMAC auth.
+		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- env var is set by Spawn_Controller after HMAC auth.
 		return Core::as_string( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ?? '' );
 	}
 
@@ -784,7 +788,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 		if ( $read_at >= $seg_size ) {
 			$next = $this->next_segment_id( $segments, $this->cursor_segment );
 			if ( null !== $next ) {
-				// Multi-writer grace: hold boundary steady for SEAL_GRACE.
+				// Multi-writer grace: hold the boundary for SEAL_GRACE_SECONDS.
 				if ( $this->multi_writer
 					&& $this->cursor_segment >= $newest_id - 1
 					&& ! $this->segment_sealed( $this->cursor_segment, $seg_size ) ) {
@@ -805,7 +809,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 
 		$length   = \min( self::READ_BLOCK_BYTES, $seg_size - $read_at );
 		$bytes = $this->source()->read_at( $this->cursor_segment, $read_at, $length );
-		// Consumers are user-facing read nodes, so surface bytes_read here too.
+		// The source Partition counts these too; probe_stats reads OURS.
 		$this->bytes_read += \strlen( $bytes );
 		$this->buffer     .= $bytes;
 
@@ -819,6 +823,8 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	 * Smallest live segment id greater than $after, or null when $after is the newest.
 	 *
 	 * @param array<int,array{id: int,size: int}> $segments Live segment list.
+	 * @param int                                 $after    Segment id to step past.
+	 * @return int|null The next id, or null when there is none.
 	 */
 	private function next_segment_id( array $segments, int $after ): ?int {
 		$next = null;
@@ -847,10 +853,12 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	}
 
 	/**
-	 * Source Partition, materialized by arguments(). Throws if a read runs
-	 * before configuration. Protected so a subclass reading a source the
-	 * segment model cannot express (File_Tail's single inode) can say so by
-	 * name rather than leaving the parent's invariant quietly violated.
+	 * Source Partition, materialized by arguments(). Protected so a subclass
+	 * reading a source the segment model cannot express (File_Tail's single
+	 * inode) can say so by name rather than leaving the parent's invariant
+	 * quietly violated.
+	 *
+	 * @throws \RuntimeException When a read runs before arguments() built it.
 	 */
 	protected function source(): Partition_Node {
 		if ( null === $this->source ) {
@@ -913,14 +921,15 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	}
 
 	/**
-	 * Synchronous read-to-EOF — the messaging interface a CLI (reqgrep) drives
+	 * Synchronous read-to-EOF — the messaging interface a one-shot caller drives
 	 * instead of hand-rolling `read_at()` and its own decode. Polls the source
 	 * until it is genuinely at EOF with no buffered complete line, filling each
 	 * unpacked Message into the sink exactly as `poll()` does, then emits one
-	 * terminal TM_EOF so the caller knows the stream ended. `fire()` is the
-	 * event-loop wrapper of the same path.
+	 * terminal TM_EOF so the caller knows the stream ended. The event loop drives
+	 * that same `poll()` one tick at a time from `fire()`, which never ends and so
+	 * emits no TM_EOF.
 	 *
-	 * @api Cross-plugin CLI entrypoint — reqgrep (event-logger-nodes) drives it.
+	 * @api Driven by Job_Delay's due sweep here, and across plugins by event-logger-nodes' reqgrep CLI and Performance_CI_Node.
 	 */
 	public function drain(): void {
 		do {
@@ -948,8 +957,8 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	 * every schema-declared toggle currently on (`multi_writer`,
 	 * `assume_clean_shutdown`) — after the base `make_node` and `connect_node`
 	 * lines, so a console dump_config and replay round-trips them. Without the
-	 * add_snapshot_node line a replayed Consumer loses its snapshot target, and the
-	 * downstream stateful node's save_state() silently stops co-committing.
+	 * add_snapshot_node lines a replayed Consumer loses its snapshot targets, and
+	 * their save_state() silently stops co-committing.
 	 *
 	 * @return string TSL lines, each newline-terminated.
 	 */
@@ -993,9 +1002,10 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	}
 
 	/**
-	 * Drop the slots the base cascade just tore down. A slot still pointing at
-	 * a torn-down node hands `ensure_offsetlog()`/`source()` a node whose name,
-	 * sink and patron are gone — writes reach disk, nothing is addressable.
+	 * Drop the handles on the siblings the base cascade just tore down. It empties
+	 * the sibling SLOTS; a property still pointing at a removed node would hand
+	 * `ensure_offsetlog()` or `source()` one whose name, sink and patron are gone —
+	 * writes reach disk, nothing is addressable.
 	 */
 	public function remove_node(): void {
 		parent::remove_node();
@@ -1020,7 +1030,6 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 				[ 'name' => 'offsetlog_dir',  'type' => 'string', 'default' => '', 'description' => 'Directory for the durable read-cursor offsetlog (resume-after-restart); empty disables checkpointing.' ],
 				[ 'name' => 'deadletter_dir', 'type' => 'string', 'default' => '', 'description' => 'Directory where poison/dead-letter records are quarantined; empty disables the dead-letter queue.' ],
 			],
-			// Verbs: DLQ triage + time-travel + pump + set_multi_writer.
 			'commands'      => \array_merge(
 				self::deadletter_verbs(),
 				self::time_travel_verbs(),

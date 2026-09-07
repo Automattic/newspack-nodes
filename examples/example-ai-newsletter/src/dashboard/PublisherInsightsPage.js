@@ -1,10 +1,11 @@
 /**
  * Publisher Insights admin page — the chrome around three independent slices.
  *
- * The example plugin's submenu prints an empty `#example-ai-newsletter-insights`
- * div and `index.js` roots this component into it. Nothing here fetches or
- * renders a number: the poll graph lives in `usePublisherInsightsGraph`, and
- * each widget reads its own view node.
+ * The plugin's top-level admin menu page prints an empty
+ * `#example-ai-newsletter-insights` div inside the standard `.wrap`, and
+ * `index.js` roots this component into it. Nothing here fetches or renders a
+ * number, and the three newsletter actions ride inside `TopTable`, beside the
+ * rows they act on.
  */
 
 import { __ } from '@wordpress/i18n';
@@ -30,8 +31,9 @@ import './styles/insights.scss';
  * `AccumulatedCard` renders a bare KPI tile carrying its own surface, so it
  * sits in the `__stats` flex row rather than in a `__card` of its own.
  *
- * `DebugOverlay` gates itself on the debug flag and renders null otherwise; its
- * `storageKey` scopes the panel's persisted layout to this dashboard.
+ * `DebugOverlay` gates itself on the sticky `?nodes-debug=1` flag and renders
+ * null otherwise. Its `storageKey` keys the Console tab's canvas node positions
+ * to this dashboard; the panel's own frame geometry is global and ignores it.
  *
  * @return {import('react').ReactElement} Rendered component.
  */

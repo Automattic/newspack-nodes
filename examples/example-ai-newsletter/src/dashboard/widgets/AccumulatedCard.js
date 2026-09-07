@@ -15,13 +15,15 @@ import { useNodeState } from '@newspack-nodes/runtime';
  * Render the total-items KPI: the count and its label.
  *
  * `useNodeState` returns undefined until `accumulated:view` is registered,
- * because the hook builds the graph in an effect and the first render precedes
- * the node. The empty-slice default covers that render, and the `?? 0` covers a
- * reply that parsed without an `accumulated` field.
+ * because `usePublisherInsightsGraph` builds the graph in an effect and the
+ * first render precedes the node. The empty-slice default covers that render,
+ * and the `?? 0` covers a reply that parsed without an `accumulated` field.
  *
  * A slice error replaces the tile rather than sitting under the count, because
  * a stale number beside a failure notice reads as current. The notice carries
- * its own surface, so it needs no `eai-insights__stat` wrapper.
+ * its own surface, so it needs no `eai-insights__stat` wrapper, and the "Total
+ * items" label goes with the count. Both sibling cards, in contrast, keep their
+ * heading above their own notice.
  *
  * @return {import('react').ReactElement} Rendered component.
  */

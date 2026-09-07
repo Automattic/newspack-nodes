@@ -2,7 +2,10 @@
 /**
  * Holds what a node needs from the process it runs in — the registry it is
  * dispatched through, the tick clock, the diagnostic path — so a graph wired
- * at runtime never has to thread any of it down the chain.
+ * at runtime never has to thread any of it down the chain. Beside those sit the
+ * process-wide helpers no single node owns: `<ns:key>` token resolution, the
+ * mixed-value read family, the raw-curl spawn POST, and the rule that decides a
+ * property name reads as a credential.
  *
  * @package Newspack_Nodes
  */
@@ -32,13 +35,15 @@ class Core {
 	private const SECRET_NAME_PATTERNS = [ 'password', 'passwd', 'secret', 'token', 'credential', 'api_key', 'apikey', 'private_key' ];
 
 	/**
-	 * Topology `<ns:key>` token resolvers, registered at boot.
+	 * Topology `<ns:key>` token resolvers, keyed by namespace and registered at
+	 * boot through `register_config_namespace()`.
 	 *
-	 * Each namespace owner registers its own resolver; there is no merged
-	 * config array. Process-lifetime (NOT cleared by reset(), like namespace
-	 * registrations).
+	 * Each namespace owner registers its own resolver; there is no merged config
+	 * array. `reset()` leaves the map alone, because a registration made once at
+	 * boot has nothing left to re-register it, and dropping it would leave every
+	 * `<ns:key>` token unresolvable.
 	 *
-	 * @var array<string,callable(string):mixed> ns => callable(string $key): mixed
+	 * @var array<string,callable(string):mixed>
 	 */
 	public static array $config_resolvers = [];
 
@@ -51,29 +56,29 @@ class Core {
 	 * interpreter, so it has no policy to declare and is never warned about one.
 	 * Naming an interpreter arms it to 0: a surface exists and nobody has said
 	 * what policy it is under. `insecure` declares -1; `secure` climbs 1..3,
-	 * each level removing management verbs. Tachikoma's level 0 also disables
-	 * signing (RSA over ~10k startup commands is slow) and seals the network
-	 * because of it; our HMAC costs microseconds, so 0 is only the undeclared
-	 * state here.
+	 * each level removing management verbs. Tachikoma's 0 means something else:
+	 * there `Command::sign()` returns unsigned and `Socket::accept_connection()`
+	 * refuses every inbound connection. Here 0 is only the undeclared state.
 	 */
 	public static ?int $secure_level = null;
 
 	/**
 	 * Whether the substrate's internal loopback requests — the spawn POST here
 	 * and `Health_Probe_Client`'s fetch — verify the TLS peer and hostname.
-	 * True by default; Bootstrap lowers it from `spawn_verify_ssl` for
-	 * deployments fronted by a self-signed internal certificate. Config is a
-	 * layer above Core, so it is injected rather than read.
+	 * Bootstrap sets it from `spawn_verify_ssl`, which defaults to true and is
+	 * turned off only for a deployment fronted by a self-signed internal
+	 * certificate. Config is a layer above Core, so it is injected rather than
+	 * read.
 	 */
 	public static bool $verify_spawn_tls = true;
 
 	/**
 	 * libcurl-call seam. Lazily-defaulted at the call site to a closure wrapping
-	 * the real libcurl call. Tests reassign in bootstrap to capture POST bodies
-	 * without short-circuiting the curl_init / curl_setopt_array / errno-
-	 * classification path — that lets the suite cover the real setopt + error-
-	 * classification logic. Shared by Spawn_Coordinator (spawn fan-out) and Worker_Base
-	 * (self-respawn): one helper, one seam, single source of truth.
+	 * the real libcurl call. Tests reassign it in bootstrap to capture POST
+	 * bodies while the curl_init, curl_setopt_array and errno-classification
+	 * path around it keeps running as production code. `Spawn_Coordinator`
+	 * (spawn fan-out) and `Worker_Base` (self-respawn) reach it through the one
+	 * `fire_and_forget_post()`.
 	 *
 	 * Signature: `function (\CurlHandle $ch, array $body): mixed`.
 	 *
@@ -84,7 +89,7 @@ class Core {
 	/** Memoized `home_url()` host for the log midfix; cleared by reset(). */
 	private static string $log_host = '';
 
-	/** Process start time, stamped each Core::reset(); the `uptime` verb subtracts it from $now. */
+	/** Process start time, stamped each Core::reset(); log_midfix() and the `uptime` verb subtract it from $now. */
 	public static float $init_time = 0.0;
 
 	/** @var float Seconds before a rate-limiter entry is eligible for pruning. */
@@ -93,17 +98,25 @@ class Core {
 	/**
 	 * The one process-wide Memcached handle, built by the substrate's own
 	 * `Bootstrap::init_memcached()` from `memcache_servers` so that no substrate
-	 * path waits on an application plugin to populate it. Null when unconfigured
-	 * or unreachable, and deliberately not a fallback handle: every consumer's
-	 * fail path keys on that null — command-auth refuses an unverifiable
-	 * single-use nonce, SSE slots fail closed, stats fail soft.
+	 * path waits on an application plugin to populate it. Null when no server is
+	 * configured, and deliberately not a stub handle, so a caller can tell the
+	 * two apart.
+	 *
+	 * Most consumers reach it through `Cache_Backend`, which falls back to APCu,
+	 * so the null alone fails nobody. Only once NEITHER tier answers does
+	 * `Command_Auth` refuse a command as an unverifiable single-use nonce, or
+	 * `SSE_Slot_Pool` withhold a lease. `wp nodes stop` reads the null directly,
+	 * to warn that its in-flight-spawn check cannot see PHP-FPM's timestamps.
+	 *
+	 * A CONFIGURED server still yields a handle when it is down, because
+	 * `addServer()` never connects.
 	 */
 	public static ?\Memcached $memd = null;
 
 	/** @var array<string,Node> Registered nodes keyed by name; every entry is a Node ($this from Node::name()). */
 	public static array $nodes_by_name = [];
 
-	/** @var float Microsecond-resolution timestamp; updated by the event loop or in tests. */
+	/** @var float Microsecond-resolution timestamp; refreshed per tick through right_now(), pinned directly in tests. */
 	public static float $now = 0.0;
 
 	/** @var array<string> The 100 most recent stderr lines; `dmesg` dumps them. */
@@ -143,16 +156,18 @@ class Core {
 	 *
 	 * The TLS handshake sets the floor. On a site with a real certificate TCP
 	 * lands in under a millisecond but the handshake finishes around 17ms, so a
-	 * budget near that aborts mid-handshake and the fleet never starts — in
-	 * total silence, because nothing reaches the access log and
-	 * CURLE_OPERATION_TIMEDOUT counts as success.
+	 * budget near that aborts mid-handshake and the fleet never starts. Nothing
+	 * reaches the access log either, because nothing arrived; the only reason
+	 * that is not silent as well is `classify_post_result()`, which refuses to
+	 * call a half-sent body delivered.
 	 */
 	private const SPAWN_POST_TIMEOUT_MS = 250;
 
 	/**
 	 * Resolve `<partition>` (and `<topology>`, when the fleet is known) in a path
 	 * template, then every `<ns:key>` config token in the result. `<topology>`
-	 * names the FLEET — see Topology_Loader.
+	 * names the FLEET — see Topology_Loader. Both tokens are also accepted in
+	 * the brace spelling, `{partition}` and `{topology}`.
 	 *
 	 * @param string      $template Path template.
 	 * @param int         $p        Partition index.
@@ -187,6 +202,8 @@ class Core {
 	 * coercing to a feature-off default. Owned-empty ('') never throws; only an
 	 * unregistered namespace, a resolver returning null (key not owned), or a
 	 * non-scalar result is "unresolvable".
+	 *
+	 * @throws \RuntimeException In strict mode, on an unresolvable token.
 	 */
 	public static function resolve_config_token( string $ns, string $key, bool $strict = false ): string {
 		$resolver = self::$config_resolvers[ $ns ] ?? null;
@@ -221,6 +238,11 @@ class Core {
 	 * payload printed on the first occurrence but never folded into the key, so
 	 * a flood of one category with differing values (Tachikoma's `$text, @extra`)
 	 * collapses to one line instead of one per distinct value.
+	 *
+	 * This static form keys PROCESS-wide, so two callers passing the same $text
+	 * share one entry. `Node::print_less_often()` keys the same
+	 * `$recent_log_timers` map by the midfixed text, so each node throttles on
+	 * its own.
 	 */
 	public static function print_less_often( string $text, string ...$extra ): void {
 		$timestamp = self::$recent_log_timers[ $text ] ?? null;
@@ -272,7 +294,6 @@ class Core {
 	 */
 	public static function _stderr( string $text, bool $raw = false ): void {
 		if ( self::$in_stderr ) {
-			// Re-entry guard: go straight to error_log to avoid recursion.
 			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
 			\error_log( \rtrim( $text ) );
 			return;
@@ -297,7 +318,7 @@ class Core {
 	}
 
 	/**
-	 * Per-line process-identity midfix.
+	 * Per-line process-identity midfix: `<site host> <argv0>[<pid>][<uptime>s]: `.
 	 *
 	 * With no text, returns the bare midfix. With text, chomps a
 	 * trailing newline, prepends the midfix to every line, and appends one
@@ -314,7 +335,7 @@ class Core {
 	/** Process identity for log_midfix: worker type when set, else SAPI. Public so Node::log_midfix can apply the $0-starts-with-name guard. */
 	public static function argv0(): string {
 		if ( isset( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ) && \is_scalar( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ) && '' !== $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ) {
-			// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- env var is set by SpawnController after HMAC auth.
+			// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- env var is set by Spawn_Controller after HMAC auth, or by Bootstrap on the reconcile pass.
 			return \sanitize_text_field( \wp_unslash( (string) $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ) );
 		}
 		return \PHP_SAPI;
@@ -357,16 +378,17 @@ class Core {
 	}
 
 	/**
-	 * Return the class to boot state — the node registry, the log ring and its
-	 * rate-limiter timers, the Shell vars, the memcached handle, the
-	 * secure-level declaration, and the site identity Core and Cache_Backend
-	 * each memoize — then reinstall the default stderr handler and restamp
-	 * `$init_time`. `Event_Framework::reset()` goes with it, so an orphaned
-	 * node's armed timer cannot outlive the graph that armed it.
+	 * Return the class to per-run boot state — the node registry, the shutdown
+	 * flag, the log ring and its rate-limiter timers, the stderr re-entry guard,
+	 * the Shell vars, the memcached handle, the secure-level declaration, the
+	 * memoized log host, and Cache_Backend's memoized site, salt and machine —
+	 * then reinstall the default stderr handler and restamp `$init_time`.
+	 * `Event_Framework::reset()` goes with it, so an orphaned node's armed timer
+	 * cannot outlive the graph that armed it.
 	 *
-	 * `$config_resolvers` survives: a namespace owner registers its resolver
-	 * once at boot, so dropping them would leave every `<ns:key>` token
-	 * unresolvable with nothing left to re-register.
+	 * Four members survive, because they are process wiring rather than per-run
+	 * state: `$config_resolvers`, `$curl_exec`, `$verify_spawn_tls` and
+	 * `$log_timeout`.
 	 */
 	public static function reset(): void {
 		self::$nodes_by_name     = [];
@@ -398,16 +420,17 @@ class Core {
 			\error_log( \rtrim( $text ) );
 		} );
 		self::$init_time = self::right_now();
-		// Drop the timer set too, else an orphaned node's armed timer survives.
 		Event_Framework::reset();
 	}
 
 	/**
-	 * The one fresh-clock call site (Tachikoma's $Tachikoma::Right_Now). Reads the
-	 * live hi-res clock, refreshes the cached per-tick clock as a side benefit, and
-	 * returns it. Inside the drain loop read Core::$now directly (the loop refreshes
-	 * it per tick); call this only where a genuinely fresh timestamp is needed
-	 * outside the drain (request/CLI scope) or where a blocking job has frozen $now.
+	 * The one production writer of `Core::$now` (Tachikoma's
+	 * $Tachikoma::Right_Now); tests pin the property directly. Reads the live
+	 * hi-res clock, refreshes the cached per-tick clock as a side benefit, and
+	 * returns it. Inside the drain loop read Core::$now directly
+	 * (the loop refreshes it per tick); call this only where a genuinely fresh
+	 * timestamp is needed outside the drain (request/CLI scope), or where a
+	 * blocking job has frozen $now.
 	 */
 	public static function right_now(): float {
 		self::$now = \microtime( true );
@@ -415,7 +438,7 @@ class Core {
 	}
 
 	/**
-	 * Per-line timestamp prefix.
+	 * Per-line timestamp prefix: `Y-m-d H:i:s UTC `.
 	 *
 	 * With no text, returns the bare prefix. With text, chomps a
 	 * trailing newline, prepends the prefix to every line, and appends one
@@ -427,7 +450,6 @@ class Core {
 			return $prefix;
 		}
 		$text = \rtrim( $text, "\n" );
-		// Prepend the prefix to the start of every line (Perl m///mg).
 		$text = $prefix . \str_replace( "\n", "\n" . $prefix, $text );
 		return $text . "\n";
 	}
@@ -439,7 +461,8 @@ class Core {
 
 	/**
 	 * Raw-curl fire-and-forget POST. Bypasses wp_remote_post (Requests floors timeout at 1s);
-	 * CURLOPT_NOSIGNAL + a sub-second TIMEOUT_MS means CURLE_OPERATION_TIMEDOUT is expected and counted as success.
+	 * CURLOPT_NOSIGNAL + a sub-second TIMEOUT_MS means CURLE_OPERATION_TIMEDOUT is expected, and
+	 * `classify_post_result()` counts it as success once the whole body is on the wire.
 	 *
 	 * @param string              $url  Target URL.
 	 * @param array<string,mixed> $body POST body.
@@ -452,7 +475,7 @@ class Core {
 		if ( ! \function_exists( 'curl_init' ) ) {
 			return 'curl extension not available';
 		}
-		// phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_init,WordPress.WP.AlternativeFunctions.curl_curl_setopt_array,WordPress.WP.AlternativeFunctions.curl_curl_exec,WordPress.WP.AlternativeFunctions.curl_curl_errno,WordPress.WP.AlternativeFunctions.curl_curl_error,WordPress.WP.AlternativeFunctions.curl_curl_getinfo -- raw curl is intentional. wp_remote_post() routes through Requests, whose Curl transport at src/Transport/Curl.php:427 does `max( (int) $timeout, 1 )` and clamps any sub-second timeout up to 1 full second — defeating this helper's sub-second CURLOPT_TIMEOUT_MS fire-and-forget contract. Raw curl is the only path that honors a sub-second timeout.
+		// phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_init,WordPress.WP.AlternativeFunctions.curl_curl_setopt_array,WordPress.WP.AlternativeFunctions.curl_curl_exec,WordPress.WP.AlternativeFunctions.curl_curl_errno,WordPress.WP.AlternativeFunctions.curl_curl_error,WordPress.WP.AlternativeFunctions.curl_curl_getinfo -- raw curl is intentional. wp_remote_post() routes through Requests, whose Curl transport at src/Transport/Curl.php:431 does `$timeout = max($options['timeout'], 1)` and clamps any sub-second timeout up to 1 full second — defeating this helper's sub-second CURLOPT_TIMEOUT_MS fire-and-forget contract. Raw curl is the only path that honors a sub-second timeout.
 		$ch = \curl_init();
 		if ( false === $ch ) {
 			return 'curl_init failed';
@@ -495,7 +518,6 @@ class Core {
 			return null;
 		}
 		if ( \CURLE_OPERATION_TIMEDOUT === $errno ) {
-			// Partway is not delivery; only a whole body honors the contract.
 			return $uploaded >= $expected
 				? null
 				: \sprintf( 'timed out after %d of %d bytes were sent: %s', $uploaded, $expected, $error );
@@ -528,8 +550,9 @@ class Core {
 
 	/**
 	 * The first-level dir `$concrete` occupies under `$root` — the unit both the
-	 * log GC's declared set and the dashboard catalog work in, since a nested
-	 * layout (`{logs}/req/3`) is retained and swept as its top dir. `''` when
+	 * log GC's declared set and `Topology_Analyzer`'s per-dir `segment_size`
+	 * overrides are keyed by, since a nested layout
+	 * (`<config:logs_dir>/req/3`) is retained and swept as `req`. `''` when
 	 * `$concrete` lies outside `$root`, which is not a failed expansion: a
 	 * template may legitimately resolve elsewhere. A `$root` of `''` or `/`
 	 * yields `''` for every path.
@@ -542,7 +565,7 @@ class Core {
 		return \explode( '/', \substr( $concrete, \strlen( $prefix ) ) )[0];
 	}
 
-	/** True while the stderr handler is on the stack; pump() reads it to skip a log-write stop. */
+	/** True while the stderr handler is on the stack; `Event_Framework::stop_check()` reads it to skip a log-write stop. */
 	public static function in_stderr(): bool {
 		return self::$in_stderr;
 	}
@@ -562,29 +585,30 @@ class Core {
 	}
 
 	/**
-	 * Canonical scalar→string read of a mixed Message field; '' for non-scalars
-	 * (arrays/objects/null).
+	 * Canonical scalar→string read of a mixed Message field; a non-scalar
+	 * (array, object, null) takes $default, '' unless the caller says otherwise.
 	 *
-	 * @api Consumed by sibling plugins (event-logger-nodes, pyrobase, ai-newsletter).
+	 * @api Consumed by sibling plugins.
 	 */
 	public static function as_string( mixed $value, string $default = '' ): string {
 		return \is_scalar( $value ) ? (string) $value : $default;
 	}
 
 	/**
-	 * Canonical scalar→int read of a mixed field; 0 for non-scalars
-	 * (arrays/objects/null).
+	 * Canonical scalar→int read of a mixed field; a non-scalar (array, object,
+	 * null) takes $default, 0 unless the caller says otherwise.
 	 *
-	 * @api Consumed by sibling plugins (event-logger-nodes, pyrobase, ai-newsletter).
+	 * @api Consumed by sibling plugins.
 	 */
 	public static function as_int( mixed $value, int $default = 0 ): int {
 		return \is_scalar( $value ) ? (int) $value : $default;
 	}
 
 	/**
-	 * Canonical scalar→float read of a mixed field; 0.0 for non-scalars.
+	 * Canonical scalar→float read of a mixed field; a non-scalar takes $default,
+	 * 0.0 unless the caller says otherwise.
 	 *
-	 * @api Consumed by sibling plugins (event-logger-nodes, ai-newsletter).
+	 * @api Consumed by sibling plugins.
 	 */
 	public static function as_float( mixed $value, float $default = 0.0 ): float {
 		return \is_scalar( $value ) ? (float) $value : $default;
@@ -595,7 +619,7 @@ class Core {
 	 * otherwise. No casting — unlike as_string(), an int/bool never
 	 * stringifies (the rejection is load-bearing at pattern/keyword reads).
 	 *
-	 * @api Consumed by sibling plugins (event-logger-nodes, ai-newsletter).
+	 * @api Consumed by sibling plugins.
 	 */
 	public static function str( mixed $value, string $default = '' ): string {
 		return \is_string( $value ) ? $value : $default;
@@ -605,7 +629,7 @@ class Core {
 	 * Array passthrough: the value itself when it IS an array, $default
 	 * otherwise.
 	 *
-	 * @api Consumed by sibling plugins (event-logger-nodes, ai-newsletter).
+	 * @api Consumed by sibling plugins.
 	 *
 	 * @param array<array-key,mixed> $default
 	 * @return array<array-key,mixed>
@@ -619,7 +643,7 @@ class Core {
 	 * No coercion — unlike num_int(), a numeric string or float never
 	 * converts (exact-int is the right strictness for wire TYPE fields).
 	 *
-	 * @api Consumed by sibling plugins (event-logger-nodes, ai-newsletter).
+	 * @api Consumed by sibling plugins.
 	 */
 	public static function int( mixed $value, int $default = 0 ): int {
 		return \is_int( $value ) ? $value : $default;
@@ -627,10 +651,11 @@ class Core {
 
 	/**
 	 * Strict numeric→int read for ARITHMETIC paths: anything non-numeric
-	 * (bool, 'abc', '12abc', null, array) contributes exactly 0, so corrupt
-	 * data can never inflate a sum. Use as_int() for lenient cast-style reads.
+	 * (bool, 'abc', '12abc', null, array) takes $default — 0 unless the caller
+	 * says otherwise, so corrupt data can never inflate a sum. Use as_int() for
+	 * lenient cast-style reads.
 	 *
-	 * @api Consumed by sibling plugins (event-logger-nodes, ai-newsletter).
+	 * @api Consumed by sibling plugins.
 	 */
 	public static function num_int( mixed $value, int $default = 0 ): int {
 		return \is_numeric( $value ) ? (int) $value : $default;
@@ -639,23 +664,26 @@ class Core {
 	/**
 	 * Strict numeric→float read for ARITHMETIC paths; see num_int().
 	 *
-	 * @api Consumed by sibling plugins (event-logger-nodes, ai-newsletter).
+	 * @api Consumed by sibling plugins.
 	 */
 	public static function num_float( mixed $value, float $default = 0.0 ): float {
 		return \is_numeric( $value ) ? (float) $value : $default;
 	}
 
 	/**
-	 * REFUSING read of an operator- or wire-supplied integer: an int, or a
-	 * canonical non-negative decimal string inside PHP's range, else null.
+	 * REFUSING read of an operator- or wire-supplied integer: a non-negative
+	 * int, or a canonical non-negative decimal string inside PHP's range, else
+	 * null. A negative int is refused with everything else — it stringifies and
+	 * then fails the same pattern.
 	 *
 	 * The other families all resolve to a number, so a typo picks one silently:
-	 * `as_int('abc')` and `num_int('abc', -1)` both name a real partition. Null
-	 * is a refusal the caller reports — `WP_CLI::error()` on a flag, a throw in
-	 * a verb — so `--partition=2m` says so instead of restarting p2.
+	 * `as_int('abc')` and `num_int('abc')` both return 0, naming partition 0.
+	 * Null is a refusal the caller reports — `WP_CLI::error()` on a flag, a throw
+	 * in a verb — so `--partition=2m` says so instead of restarting p2.
 	 *
 	 * @param mixed $value      Raw token.
 	 * @param bool  $allow_zero Whether '0' is acceptable.
+	 * @return int|null The parsed value, or null when the token is not canonical.
 	 */
 	public static function canonical_decimal( mixed $value, bool $allow_zero = true ): ?int {
 		$token = \is_int( $value ) ? (string) $value : $value;
@@ -695,12 +723,13 @@ class Core {
 	 * Whether a node class fans out — keeps a target LIST rather than one target.
 	 *
 	 * The capability is the `Fanout_Targets` trait, NOT descent from `Tee_Node`:
-	 * the minters that sign one command per spoke (Settings_Sync, ELN's
-	 * Discovery_Collector) are Timer_Node subclasses that use the trait. Asking
-	 * about the base class calls them single-target, and the graph then collapses
-	 * every connect_node after the first.
+	 * the minters that sign one command per spoke (`Settings_Sync_Node`, ELN's
+	 * `Discovery_Collector_Node`) are Timer_Node subclasses that use the trait.
+	 * Asking about the base class calls them single-target, and the graph then
+	 * collapses every connect_node after the first.
 	 *
 	 * @param class-string|string $fqcn Fully-qualified class name.
+	 * @return bool True when the class or an ancestor uses `Fanout_Targets`.
 	 */
 	public static function class_fans_out( string $fqcn ): bool {
 		if ( ! \class_exists( $fqcn ) ) {
@@ -714,7 +743,11 @@ class Core {
 		return false;
 	}
 
-	/** The node bound to $name, or null; Router resolves each TO segment here. */
+	/**
+	 * The node bound to $name, or null — the lookup behind the interpreter's
+	 * verbs, Timer_Node finding `_router`, and every node that addresses a peer
+	 * by name. Router_Node reads `$nodes_by_name` directly on the dispatch path.
+	 */
 	public static function node( string $name ): ?Node {
 		return self::$nodes_by_name[ $name ] ?? null;
 	}

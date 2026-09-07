@@ -1,7 +1,12 @@
 <?php
 /**
  * Summarizer_Demo_Node: the summarize stage of the example digest pipeline. One
- * item arrives, the same item leaves carrying a one-line summary.
+ * item arrives, and the same item leaves carrying a summary line.
+ *
+ * The `_Demo` suffix keeps the shell name distinct from the `Summarizer` that
+ * newspack-intelligence registers: `resolve_class()` walks the registered
+ * namespaces in order and caches the first `{prefix}Summarizer_Node` it finds, so
+ * one shared name would hand both topologies whichever plugin registered first.
  *
  * @package Example_AI_Newsletter
  */
@@ -27,7 +32,11 @@ class Summarizer_Demo_Node extends Node {
 	 * FROM this node. A message that is not TM_STRUCT, or whose VALUE is not an
 	 * array, is ignored: a pure transform carries no verbs and no requests.
 	 *
-	 * @param array<int,mixed> $message Message reference.
+	 * The fresh message leaves with an empty TO, which `parent::fill()` stamps from
+	 * `target` when one is wired — `connect_node summarizer scorer` in the example
+	 * topology — before forwarding to the sink.
+	 *
+	 * @param array<int,mixed> $message The inbound message.
 	 */
 	public function fill( array $message ): void {
 		/** @var int $type */
@@ -54,10 +63,12 @@ class Summarizer_Demo_Node extends Node {
 	 * The ONE seam a real summarizer replaces. The demo builds the line from a
 	 * template — the title, an em dash, and the first 80 characters of the body —
 	 * so the example pipeline runs with no API key and no network. An absent or
-	 * non-string title reads as `(untitled)`.
+	 * non-string title reads as `(untitled)`, and an absent or non-scalar body as
+	 * the empty string. The body is copied verbatim, so a newline inside those 80
+	 * characters reaches the digest, which renders each summary as one bullet.
 	 *
 	 * @param array<string,mixed> $item Item to summarize.
-	 * @return string One-line summary.
+	 * @return string The summary line.
 	 */
 	protected function summarize( array $item ): string {
 		$title = \is_string( $item['title'] ?? null ) ? $item['title'] : '(untitled)';
@@ -66,9 +77,9 @@ class Summarizer_Demo_Node extends Node {
 	}
 
 	/**
-	 * Palette entry and console manifest for the topology console. The node takes
-	 * no constructor arguments and declares no verbs; wiring is its whole
-	 * configuration.
+	 * Topology-console manifest: the palette tile and the node's configuration
+	 * form. The node declares no positional arguments and no verbs, so wiring is
+	 * its whole configuration.
 	 *
 	 * @return array<string,mixed>
 	 */

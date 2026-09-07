@@ -1,10 +1,14 @@
 <?php
 /**
- * Ranking stage of the example digest pipeline: adds a `score` field to every item, so the
- * digest and the Publisher Insights dashboard have something to rank by.
+ * Ranking stage of the example digest pipeline: it adds a `score` field to every item. The
+ * Publisher Insights dashboard's `top` slice ranks by that field; the digest carries it
+ * along without reading it.
  *
- * The `_Demo` suffix keeps this class off the same topology-console palette tile as the
- * bare `Scorer_Node` a real sibling plugin registers; both can be active in one WordPress.
+ * The `_Demo` suffix keeps the shell name `Scorer_Demo` clear of the bare `Scorer` that
+ * newspack-intelligence's `Scorer_Node` claims, and both plugins can be active in one
+ * WordPress. `make_node` resolves a type through the first registered namespace holding a
+ * `{$type}_Node`, so one shared name would hand both topologies whichever plugin
+ * registered first.
  *
  * @package Example_AI_Newsletter
  */
@@ -19,13 +23,13 @@ use Newspack_Nodes\Message;
 
 /**
  * A transform on the uniform `fill()` contract (ADR-1): take one struct item, add one
- * field, forward it. It reads `source` and `title` and nothing else, so the source nodes
- * upstream never learn a scorer exists and the digest downstream never learns how the
- * score was computed. `score()` is the ONE seam a real scorer replaces.
+ * field, forward it. It reads `source` and `title` and nothing else, which is what lets
+ * the `releases` and `community` items fan through one scorer, and it confines a real
+ * scorer to `score()`.
  */
 class Scorer_Demo_Node extends Node {
 
-	/** Per-source base weight; unknown sources score 1.0. */
+	/** Per-source base weight; an unknown source falls back to 1.0. */
 	private const SOURCE_WEIGHT = [
 		'releases'  => 5.0,
 		'community' => 3.0,
@@ -36,15 +40,16 @@ class Scorer_Demo_Node extends Node {
 
 	/**
 	 * Score one item and forward it. A message that is not TM_STRUCT, or whose VALUE is
-	 * not an array, is dropped rather than passed along: everything downstream — the
-	 * durable `scored` partition and the dashboard slice that ranks by `score` — expects
-	 * the field this node adds.
+	 * not an array, is dropped rather than passed along: it cannot carry a `score`, and
+	 * the durable `scored:partition` log downstream is what the dashboard's `top` slice
+	 * ranks. The two guards are a whitelist, so a TM_INFO control signal — a source's
+	 * DONE, say — dies here too; this example mints none.
 	 *
 	 * The scored item leaves as a fresh message rather than as a mutation of the inbound
 	 * one, so TYPE is exactly TM_STRUCT and FROM is this node's own name.
 	 * `parent::fill()` then stamps TO from `target` and forwards to the sink (ADR-7).
 	 *
-	 * @param array<int,mixed> $message The inbound message.
+	 * @param array<int,mixed> $message The 7-field positional message array.
 	 */
 	public function fill( array $message ): void {
 		/** @var int $type */
@@ -74,10 +79,11 @@ class Scorer_Demo_Node extends Node {
 	 *
 	 * The toy is deterministic — the source weight plus 1.0 for each matched title
 	 * keyword, rounded to one decimal, with no clock and no randomness — so the suite
-	 * asserts exact scores rather than ranges.
+	 * asserts exact scores rather than ranges. A missing or non-scalar `source` or
+	 * `title` reads as the empty string, so an item carrying neither scores 1.0.
 	 *
 	 * @param array<string,mixed> $item The item to score.
-	 * @return float
+	 * @return float The item's priority score.
 	 */
 	protected function score( array $item ): float {
 		$source = Core::as_string( $item['source'] ?? null );
@@ -94,9 +100,9 @@ class Scorer_Demo_Node extends Node {
 	}
 
 	/**
-	 * Topology-console manifest: the palette tile and the node's configuration form. The
-	 * weight table lives in the constants above rather than in `arguments`, so the palette
-	 * entry carries nothing to configure and the node has no verbs.
+	 * Topology-console manifest: the palette tile and the node's argument form. The weight
+	 * table is a constant rather than a constructor argument, so the form carries nothing
+	 * to configure, and a pure transform declares no verbs.
 	 *
 	 * @return array<string,mixed>
 	 */

@@ -30,7 +30,9 @@ if ( ! \defined( 'ABSPATH' ) ) {
  * the one it displaces, so no flag or heartbeat survives a handover.
  *
  * A Node so a Timer can sink `KEY='heartbeat'` messages into it inside a drain
- * loop, keeping a held lock fresh without the holder polling.
+ * loop, keeping a held lock fresh without the holder polling:
+ * `Partition_Node::allow_large_writes()` wires that pair in hold mode. A worker
+ * beats its own lock directly instead, from `should_continue()`.
  */
 class Lock_Node extends Node {
 	/** Holds the owner's PID; its mtime is the liveness signal every reader stats. */
@@ -108,9 +110,10 @@ class Lock_Node extends Node {
 	}
 
 	/**
-	 * Refresh the heartbeat file. Verifies ownership first; returns false if stolen (flips is_held).
+	 * Refresh the heartbeat file, verifying ownership first; a lock lost since
+	 * the last check flips is_held on the way out.
 	 *
-	 * @return bool True if heartbeat refreshed; false if not held or lost.
+	 * @return bool True when the file was touched; false when the lock is not held, was stolen, or a symlink sits at the heartbeat path.
 	 */
 	public function heartbeat(): bool {
 		if ( ! $this->verify_ownership() ) {
@@ -196,7 +199,8 @@ class Lock_Node extends Node {
 	 * Steal an existing lock dir if orphaned (no heartbeat, past grace) or stale (mtime > timeout).
 	 *
 	 * Non-blocking: the orphan grace is judged by the dir's own mtime, never by
-	 * sleeping — acquire() runs in request scope (SSE / CLI) and must not stall.
+	 * sleeping — acquire() runs in request scope, where `Job_Intake::queue()`
+	 * takes a Partition write lock, and must not stall.
 	 *
 	 * @return bool True if the dir is now ours.
 	 */
@@ -242,6 +246,10 @@ class Lock_Node extends Node {
 	 * other returns false. Keep the recreate an `mkdir` (an unconditional
 	 * rename-back or removing the existence check would reopen a double-holder).
 	 *
+	 * A process killed between the rename and the discard leaks the `.stealing.`
+	 * scratch dir, and `Spawn_Coordinator::reap_steal_scratch_dirs()` is what
+	 * collects it.
+	 *
 	 * @return bool True if WE won the recreate and now hold the dir.
 	 */
 	private function steal_atomically(): bool {
@@ -256,11 +264,13 @@ class Lock_Node extends Node {
 	}
 
 	/**
-	 * Write the heartbeat (PID) and started-timestamp files, then unlink the
-	 * restart flag — the only place that flag is ever cleared, so a holder
-	 * starting under a stale one would exit on its first tick.
+	 * Write the heartbeat (PID) and started-timestamp files, then unlink any
+	 * restart flag a peer wrote into the dir between the mkdir and this call.
+	 * The new holder would otherwise read it on its first `restart_reason()`
+	 * and exit. Everywhere else the flag goes only with the dir, through
+	 * force_release_at().
 	 *
-	 * @return bool True if both files were written; false on the first failure.
+	 * @return bool True when both files landed; false on a symlink at either path or a failed write.
 	 */
 	private function write_acquire_files(): bool {
 		$hb_path      = $this->unlinked_path( self::HEARTBEAT_FILE );
@@ -369,20 +379,20 @@ class Lock_Node extends Node {
 	}
 
 	/**
-	 * Static politely request restart: create a file inside the lock dir.
+	 * Ask the lock's holder to recycle: write the restart flag into its dir.
 	 *
 	 * @param string $lock_dir The lock directory path.
-	 * @return bool True if the flag file was created.
+	 * @return bool True if the flag file was written.
 	 */
 	public static function request_restart_at( string $lock_dir ): bool {
 		return self::write_flag_at( $lock_dir, self::RESTART_FLAG, 'restart flag', (string) \time() );
 	}
 
 	/**
-	 * Static politely request STOP: exit and leave the slot empty.
+	 * Ask the lock's holder to exit and leave the slot empty.
 	 *
 	 * @param string $lock_dir The lock directory path.
-	 * @return bool True if the flag file was created.
+	 * @return bool True if the flag file was written.
 	 */
 	public static function request_stop_at( string $lock_dir ): bool {
 		return self::write_flag_at( $lock_dir, self::STOP_FLAG, 'stop flag', (string) \time() );
@@ -408,12 +418,12 @@ class Lock_Node extends Node {
 
 	/**
 	 * Write one signal file into a lock dir the caller does not hold. The three
-	 * flags differ only in name, diagnostic and contents; the refusal to write
-	 * into a missing dir or under a write-denied config is one rule.
+	 * flags differ only in name, diagnostic and contents; refusing a missing dir
+	 * and refusing to write as root is one rule for all three.
 	 *
 	 * @param string $lock_dir The lock directory path.
 	 * @param string $flag     Flag filename constant.
-	 * @param string $what     Diagnostic label for Config::write_denied().
+	 * @param string $what     Label `Config::write_denied()` logs the skipped write under.
 	 * @param string $contents The signal itself.
 	 * @return bool True if the flag file was written.
 	 */
@@ -466,6 +476,8 @@ class Lock_Node extends Node {
 	 *
 	 * Every stat clears the cache first: a long-running worker otherwise never
 	 * sees a flag another process wrote.
+	 *
+	 * @return string The reason, or '' to keep running.
 	 */
 	public function restart_reason(): string {
 		\clearstatcache( true, $this->lock_path . '/' . self::RESTART_FLAG );
@@ -494,6 +506,7 @@ class Lock_Node extends Node {
 	 * the flag file alone, since there is no PID here to compare against.
 	 *
 	 * @param string $lock_dir The lock directory path.
+	 * @return bool True when a restart flag sits in the dir.
 	 */
 	public static function is_restart_pending( string $lock_dir ): bool {
 		$lock_dir = \rtrim( $lock_dir, '/' );
@@ -508,9 +521,9 @@ class Lock_Node extends Node {
 	 * Every reader of that mtime comes through here — the respawn decision,
 	 * `wp nodes status`, the dashboards — because a threshold each picks for
 	 * itself drifts from the rest. A worker mid-job declares a long one
-	 * (`job-spoke.tsl` sets 600, since a render is slow user code), and a reader
-	 * holding a flat 60 reports it down while the peer scan correctly leaves it
-	 * alone.
+	 * (`job-worker.tsl` sets 600, because a handler beats only where it reaches
+	 * `should_continue()`), and a reader holding a flat 60 reports it down while
+	 * the peer scan correctly leaves it alone.
 	 *
 	 * @param string $lock_dir      The `.lock.d` directory.
 	 * @param int    $now           Clock, so one scan judges every worker alike.
@@ -526,8 +539,8 @@ class Lock_Node extends Node {
 	}
 
 	/**
-	 * The stale threshold a worker descriptor declares, defaulting to
-	 * STALE_TIMEOUT. The one place that `?? STALE_TIMEOUT` fallback lives.
+	 * The stale threshold a worker descriptor declares, falling back to
+	 * STALE_TIMEOUT when the key is absent or holds a non-scalar.
 	 *
 	 * @param array<array-key,mixed> $descriptor A worker descriptor or topology entry.
 	 * @return int Seconds.
@@ -560,7 +573,7 @@ class Lock_Node extends Node {
 
 	/**
 	 * Hidden from the palette: PHP builds this node directly — `Worker_Base` for
-	 * a slot, `Partition::allow_large_writes()` for a write lock — and no
+	 * a slot, `Partition_Node::allow_large_writes()` for a write lock — and no
 	 * topology line names it, so it declares no arguments and no verbs. The
 	 * HELD / STOLEN / RELEASED states it publishes are deliberately undeclared
 	 * too: they surface through `dump_node` and trace, and nothing subscribes.

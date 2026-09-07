@@ -3,17 +3,19 @@
  * The one message shape: a 7-field positional array, its type bitmask, and the
  * JSON codec that puts it on the wire.
  *
- * Index through the constants here. `$message['type']` coerces to index 0 and
- * corrupts TYPE with no error, which is why there is no hash form and no object
- * form (ADR-2). Indexed access is what keeps the drain loop cheap, and one shape
- * in memory, in JS and on the wire is what spares every boundary a translation
- * layer: `packed()` and `unpacked()` are JSON of the array itself.
+ * Index through the constants here. There is no hash form and no object form
+ * (ADR-2): indexed access is what keeps the drain loop cheap, and one shape in
+ * memory, in JS and on the wire is what spares every boundary a translation
+ * layer — `packed()` and `unpacked()` are JSON of the array itself. A string key
+ * is the footgun that shape carries: `$message['type']` appends an eighth
+ * element rather than setting TYPE, and `packed()` slices it away without a word.
  *
  * The field NAMES are the budgeted divergence from Tachikoma — KEY rather than
  * STREAM, VALUE rather than PAYLOAD, TIMESTAMP at index 1 so WHAT and WHEN group
  * at the front. `src/runtime/message.js` mirrors every constant and both codecs;
- * the ports part company only on malformed input, where PHP throws and JS hands
- * back a fresh message.
+ * the two part company only on a frame the codec refuses. PHP throws there. JS
+ * truncates a frame carrying more than seven fields and hands back a fresh
+ * message for everything else.
  *
  * @package Newspack_Nodes
  */
@@ -50,14 +52,16 @@ class Message {
 	public const VALUE     = 6;
 
 	/**
-	 * Last canonical index. A copier slices `array_slice( $m, 0,
-	 * LAST_VALUE_INDEX + 1 )` to drop whatever a caller appended past VALUE.
+	 * Last canonical index. `packed()` slices `array_slice( $m, 0,
+	 * LAST_VALUE_INDEX + 1 )`, which is what drops whatever a caller appended
+	 * past VALUE.
 	 */
 	public const LAST_VALUE_INDEX = self::VALUE;
 
 	/**
-	 * Provenance taint appended AFTER the canonical seven. A Shell sets it on a
-	 * command it mints in-process, so its presence means "born here". `packed()`
+	 * Provenance taint appended AFTER the canonical seven. A Shell stamps it on
+	 * what it mints from a console line, and the interpreter's `reply_to` verb on
+	 * the command it re-addresses, so its presence means "born here". `packed()`
 	 * never emits it and `unpacked()` rejects an 8-field line, so it cannot cross
 	 * a process boundary — an SSE or IPC message inherently lacks it, which is
 	 * precisely what makes its presence worth trusting. The client-tier
@@ -103,9 +107,9 @@ class Message {
 	/**
 	 * The ONE flags-to-names map, beside the constants it names. Renderers read
 	 * it through type_labels() and supply their own separator and no-match
-	 * label; a private copy is how a renderer ends up omitting a flag. The order
-	 * is the order both ports render in, pinned to `src/runtime/message.js` —
-	 * label order, not numeric order.
+	 * label; a private copy is how a renderer ends up omitting a flag. The
+	 * declared order is the order both ports render in — label order, not
+	 * numeric order — and `src/runtime/message.js` mirrors it.
 	 *
 	 * @var array<int,string>
 	 */
@@ -151,14 +155,12 @@ class Message {
 	public static function packed( array $message ): string {
 		// The canonical seven; the slice is what keeps LOCAL in-process.
 		$fields = \array_slice( $message, 0, self::LAST_VALUE_INDEX + 1 );
-		// Substitute a bad byte rather than fail the whole encode.
 		$flags = \JSON_UNESCAPED_SLASHES | \JSON_INVALID_UTF8_SUBSTITUTE;
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.json_encode_json_encode -- hot path; the wrapper is the ?: fallback.
 		$json = \json_encode( $fields, $flags ) ?: \wp_json_encode( $fields, $flags );
 		if ( false !== $json ) {
 			return $json;
 		}
-		// Residual failure: log loudly, substitute a frame, never emit ''.
 		$reason = \json_last_error_msg();
 		Core::stderr( 'Message::packed(): encode failed: ' . $reason );
 		$error_message                 = self::new_message();
@@ -198,7 +200,7 @@ class Message {
 	 * the line to the `:deadletter` sibling rather than abandoning the read.
 	 *
 	 * @param string $data One packed frame, without its trailing newline.
-	 * @throws \InvalidArgumentException When the frame is not a 7-element positional JSON array.
+	 * @throws \InvalidArgumentException When the frame is not valid JSON, or not a 7-element positional array.
 	 * @return array<int,mixed> The 7-field positional message array.
 	 */
 	public static function unpacked( string $data ): array {
@@ -250,10 +252,10 @@ class Message {
 	 * Split a slash-delimited path into `[ first_segment, remainder ]`. The
 	 * remainder is `''` when there is no slash.
 	 *
-	 * This is the one place a leading path segment is taken — Router's dispatch
-	 * peel, the fan-out liveness prune that tests a target's head node, and the
-	 * HTTP_Filter pid gate all read it, so a second `explode()` beside them is a
-	 * second definition of what a path is.
+	 * The call sites that read a leading segment through it: Router's
+	 * `send_error` names the node an unpeeled TO was bound for, the fan-out
+	 * liveness prune tests a target's head node, HTTP_Filter gates on its own
+	 * pid, and Settings_Sync resolves a target's head to its HTTP_Out.
 	 *
 	 * @param string $path A slash-delimited node path, possibly a bare name.
 	 * @return array{0:string,1:string}

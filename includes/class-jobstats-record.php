@@ -23,12 +23,12 @@ namespace Newspack_Nodes;
  * The Message's TIMESTAMP is the sweep instant, never duplicated here.
  *
  * Indices mirror `src/runtime/jobstats-record.js`, and
- * `tests/unit/JobstatsRecordTest.php` pins both halves: a browser reading one
- * slot off misreads every field after it.
+ * `tests/unit/JobstatsRecordTest.php` pins both halves plus the dense 0..12
+ * ordering: a browser reading one slot off misreads every field after it.
  */
 class Jobstats_Record {
 
-	/** Job identity: `handler:id` when the entry carries a top-level `id`, else `handler`. */
+	/** Job identity: `handler:id` when the dispatch resolved a job `id`, else `handler` alone. */
 	public const IDENTITY = 0;
 
 	/** Handler name — the `id`-free half of IDENTITY, so a reader groups a handler's ids without re-splitting. */
@@ -36,15 +36,18 @@ class Jobstats_Record {
 
 	/**
 	 * Runs during ELAPSED_MS, successful or failed. A job the `before_job` filter
-	 * declined and a job a cooperative stop aborted both record nothing, so this
-	 * counts work completed rather than entries dequeued.
+	 * declined or crashed on, and a job a cooperative stop aborted, all record
+	 * nothing, so this counts work completed rather than entries dequeued.
 	 */
 	public const RUNS_DELTA = 2;
 
 	/**
 	 * Runs during ELAPSED_MS whose outcome classified as `error` — a subset of
-	 * RUNS_DELTA. A run that processed items AND reported errors classifies as
-	 * `success`, so its item-level failure lands in ITEMS_ERR_DELTA, not here.
+	 * RUNS_DELTA. Only a run reporting errors beside an explicit `success_count`
+	 * of 0 classifies that way: errors beside processed items, and errors beside
+	 * the -1 "no stats reported" sentinel, both read as `success` and leave the
+	 * item-level failure in ITEMS_ERR_DELTA. A throwing handler counts here; an
+	 * opted-in retry re-parks the entry, so each attempt records its own error.
 	 */
 	public const ERRORS_DELTA = 3;
 
@@ -53,8 +56,9 @@ class Jobstats_Record {
 
 	/**
 	 * Sum of queue latencies (handler dispatch minus the entry's enqueue timestamp)
-	 * during ELAPSED_MS, milliseconds. An entry carrying no timestamp contributes
-	 * zero, so the sum understates the wait rather than inventing one.
+	 * during ELAPSED_MS, milliseconds. An entry carrying no timestamp, or one
+	 * stamped after dispatch, contributes zero, so the sum understates the wait
+	 * rather than inventing one.
 	 */
 	public const QUEUE_MS_DELTA = 5;
 
@@ -68,7 +72,7 @@ class Jobstats_Record {
 	/** Sum of handler-reported `error_count` during ELAPSED_MS. */
 	public const ITEMS_ERR_DELTA = 7;
 
-	/** Wall-clock epoch (seconds) of the last run, drained records included. */
+	/** Wall-clock epoch (seconds) the last run ended — the clock is read once the handler returns or throws. */
 	public const LAST_TS = 8;
 
 	/** Duration of the last run, milliseconds. */
@@ -79,9 +83,10 @@ class Jobstats_Record {
 
 	/**
 	 * One-line summary of the last run, capped at
-	 * `Job_Worker_Node::MAX_STAT_MESSAGE_LEN`. It is the record's only free text,
-	 * so `Job_Probe_Node::fit_to_line()` trims this field and no other to keep the
-	 * write under PIPE_BUF — halving an identity would corrupt what readers key on.
+	 * `Job_Worker_Node::MAX_STAT_MESSAGE_LEN` characters. It is the record's only
+	 * free text, so `Job_Probe_Node::fit_to_line()` trims this field and no other
+	 * to keep the write under PIPE_BUF — halving an identity would corrupt what
+	 * readers key on.
 	 */
 	public const LAST_MESSAGE = 11;
 

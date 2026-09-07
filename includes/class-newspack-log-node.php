@@ -1,6 +1,6 @@
 <?php
 /**
- * NewspackLog: egress into the sanctioned Newspack observability pipeline.
+ * Newspack_Log: egress into the sanctioned Newspack observability pipeline.
  *
  * fill() fires `do_action( 'newspack_log', $code, $text, $params )`. Newspack
  * Manager listens and, at log_level >= 2, ships the entry fire-and-forget over
@@ -9,9 +9,9 @@
  * Manager installed nothing listens and the call is a silent no-op, so a
  * topology carrying this node costs a self-hosted stack nothing.
  *
- * `Probe_To_Graphite_Node` feeds it the same plaintext lines it feeds
- * `Graphite_Node` (`Consumer topicprobe.p0 → Probe_To_Graphite → Newspack_Log`);
- * any other producer's records are taken the same way.
+ * A topology wires `Probe_To_Graphite_Node` into this node to land the same
+ * plaintext lines `Graphite_Node` ships over UDP, or wires a `Tee` in front to
+ * send them both ways. Any other producer's records are taken the same way.
  *
  * @package Newspack_Nodes
  */
@@ -21,31 +21,30 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * NewspackLog node — `make_node Newspack_Log <name> <code>`.
+ * Newspack_Log node — `make_node Newspack_Log <name> <code>`.
  *
- * A terminus: fill() hands the record to WordPress and forwards nothing, so
- * this node wires no sink and declares no target.
+ * A terminus: fill() hands the record to WordPress and forwards nothing, so it
+ * needs no sink.
  */
 class Newspack_Log_Node extends Node {
 	use Schema_Reflection;
 
 	/**
-	 * The code every entry from this node is filed under, and the field Kibana
-	 * filters by. Empty until arguments() runs, which refuses to leave it so.
+	 * The code every entry is filed under, and the field Kibana filters by.
+	 * arguments() derives it from the first token; empty until then.
 	 */
 	private string $code = '';
 
 	/**
-	 * `<code>` — required; the log entry code Kibana filters by, in the
-	 * `feature`-style naming the rest of the Newspack pipeline uses.
+	 * `<code>` — required; the log entry code Kibana filters by.
 	 *
-	 * The code is what makes an entry findable, and every entry this node files
-	 * carries the same one, so an absent or empty token throws at make_node time
-	 * rather than filing a worker's whole output under the empty string.
+	 * Every entry this node files carries the same code, and the code is what
+	 * makes an entry findable, so an absent or blank token throws at make_node
+	 * time rather than filing a worker's whole output under the empty string.
 	 *
 	 * @param list<string>|null $args New argument tokens (null = pure getter).
 	 * @return list<string> The tokens as given.
-	 * @throws \InvalidArgumentException Without a non-empty code argument.
+	 * @throws \InvalidArgumentException When the code token is missing or blank.
 	 */
 	public function arguments( ?array $args = null ): array {
 		if ( null === $args ) {
@@ -74,9 +73,9 @@ class Newspack_Log_Node extends Node {
 	 * is not a file line. Every entry is typed `debug` at log_level 2, which
 	 * ships to logstash without paging Slack — what a metrics feed wants.
 	 *
-	 * The counter advances on every accepted message, so `ls` reports what this
-	 * node filed. Nothing reports back: do_action returns no disposition, and
-	 * fill() has none to give (ADR-13).
+	 * The counter advances on every accepted message, so `ls -c` reports what
+	 * this node filed. Nothing reports back: do_action returns no disposition,
+	 * and fill() has none to give (ADR-13).
 	 *
 	 * @param array<int,mixed> $message The 7-field positional message array.
 	 */

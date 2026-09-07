@@ -2,16 +2,21 @@
 /**
  * Configuration reads and runtime-directory resolution for the substrate.
  *
- * A read resolves three layers in order: the `Settings_Schema` code defaults,
- * the config files that override them, and the WordPress options a site has
- * stored. The SCHEMA alone says which keys exist, so `value()` refuses a
- * renamed or misspelled key instead of falling back to a default (ADR-20).
+ * A read resolves four layers, weakest first: the `Settings_Schema` code
+ * defaults, `newspack-nodes-config.php`, the file named by
+ * `LOCAL_NEWSPACK_NODES_CONF`, and the stored WordPress options — where
+ * PRESENCE decides the last one, so a stored '', [] or false beats both files.
+ * SCHEMAS alone say which keys exist, the substrate's plus every consumer
+ * plugin's, so `value()` refuses a renamed or misspelled key instead of falling
+ * back to a default (ADR-20).
  *
  * The same class owns the runtime base directory: it resolves the base and its
  * logs, locks and offsets subdirectories, refusing any that is a symlink, is
- * reachable by traversal, or belongs to another uid — whoever wins the race to
- * a predictable base path owns every log, lock, offset and topology beneath it.
- * `assert_within_base()` keeps a node's storage path inside that tree.
+ * reachable by traversal, is writable by group or other, or belongs to another
+ * uid — whoever wins the race to a predictable base path owns every log, lock,
+ * offset and topology beneath it. Root is exempt from that last refusal and
+ * warned instead. `assert_within_base()` keeps a node's storage path inside
+ * that tree.
  *
  * @package Newspack_Nodes
  */
@@ -33,18 +38,18 @@ class Config {
 	 * Contract for a callback: call `Config::register_keys()` and nothing else. It runs
 	 * from INSIDE a config read (any request, any process), so config reads, option
 	 * writes, or I/O from a callback fire at an unpredictable point in the request —
-	 * and a read of a still-undeclared key from here is re-entrant (bounded by the
-	 * declaring guard, but it will not see keys a later callback declares).
+	 * and `value()` on a key no earlier callback has declared THROWS, because the
+	 * declaring guard suppresses the re-fire that would otherwise find it.
 	 */
 	public const DECLARE_ACTION = 'newspack_nodes/declare_config_keys';
 
 	/** Action fired from reset() so dependent Configs can invalidate their caches. */
 	public const RESET_ACTION = 'newspack_nodes/config_reset';
 
-	/** @var array<string,mixed>|null Cached config (file defaults + WordPress options). */
+	/** @var array<string,mixed>|null Cached effective config: the defaults under the option overlay. */
 	private static $config = null;
 
-	/** @var array<string,mixed>|null Cached config defaults from files. */
+	/** @var array<string,mixed>|null Cached defaults: schema values under both config files. */
 	private static $config_defaults = null;
 
 	/**
@@ -64,7 +69,7 @@ class Config {
 	 */
 	public static ?\Closure $read_shipped_config = null;
 
-	/** @var bool Inside declare_keys(): a DECLARE_ACTION callback that reads config can't re-enter. */
+	/** @var bool A DECLARE_ACTION dispatch is running; a callback that reads config can't re-enter. */
 	private static bool $declaring = false;
 
 	/** @var bool declare_keys() ran; reset() clears it so a reload re-derives. */
@@ -76,7 +81,7 @@ class Config {
 	/** @var string|null Memoized validated base directory; cleared by reset(). */
 	private static ?string $validated_base_directory = null;
 
-	/** @var array<string,string> Memoized base-relative subdirs (logs/locks/offsets); cleared by reset(). */
+	/** @var array<string,string> Memoized canonical {base}/{sub} paths keyed by subdir name; cleared by reset(). */
 	private static array $validated_subdirs = [];
 
 	/**
@@ -84,22 +89,23 @@ class Config {
 	 *
 	 * @api
 	 * @return string
-	 * @throws \RuntimeException If base or logs directory cannot be created or realpath doesn't match.
+	 * @throws \RuntimeException If the base directory or {base}/logs fails ensure_path().
 	 */
 	public static function get_logs_directory(): string {
 		return self::validated_subdir( 'logs' );
 	}
 
 	/**
-	 * Refuse a storage path outside the runtime tree. `/command` is full graph
-	 * construction at manage_options, so on a stock install this crosses no
-	 * boundary — but where administrator file writes are deliberately disabled
-	 * (DISALLOW_FILE_MODS, VIP-style installs) an unconstrained partition path
-	 * restores an arbitrary write. Empty is unconfigured, not an escape. Tail is
-	 * deliberately NOT constrained: reading /var/log/... is its whole job.
+	 * Refuse a storage path outside the runtime tree. `/command` builds the whole
+	 * graph behind the MANAGE role, which defaults to manage_options, so on a
+	 * stock install this crosses no boundary — but where administrator file
+	 * writes are deliberately disabled (DISALLOW_FILE_MODS, VIP-style installs)
+	 * an unconstrained partition path restores an arbitrary write. Empty is
+	 * unconfigured, not an escape. `File_Tail_Node` is deliberately NOT
+	 * constrained: following php's own error_log is its whole job.
 	 *
 	 * @param string $path Storage path a node is about to read or write.
-	 * @throws \RuntimeException When the path escapes the base directory.
+	 * @throws \RuntimeException When the path escapes the base directory, or the base itself will not resolve.
 	 */
 	public static function assert_within_base( string $path ): void {
 		if ( '' === $path || self::within_base( $path ) ) {
@@ -119,6 +125,7 @@ class Config {
 	 *
 	 * @param string $path Path to test.
 	 * @return bool True when $path is the base directory or sits under it.
+	 * @throws \RuntimeException When the base directory will not resolve.
 	 */
 	public static function within_base( string $path ): bool {
 		$base = \rtrim( self::get_base_directory(), '/' );
@@ -151,8 +158,9 @@ class Config {
 	/**
 	 * Get the locks directory path ({base}/locks).
 	 *
+	 * @api
 	 * @return string
-	 * @throws \RuntimeException If base or locks directory cannot be created or realpath doesn't match.
+	 * @throws \RuntimeException If the base directory or {base}/locks fails ensure_path().
 	 */
 	public static function get_locks_directory(): string {
 		return self::validated_subdir( 'locks' );
@@ -161,8 +169,9 @@ class Config {
 	/**
 	 * Get the offsets directory path ({base}/offsets).
 	 *
+	 * @api
 	 * @return string
-	 * @throws \RuntimeException If base or offsets directory cannot be created or realpath doesn't match.
+	 * @throws \RuntimeException If the base directory or {base}/offsets fails ensure_path().
 	 */
 	public static function get_offsets_directory(): string {
 		return self::validated_subdir( 'offsets' );
@@ -173,7 +182,7 @@ class Config {
 	 *
 	 * @param string $sub Subdirectory name under the base directory.
 	 * @return string Validated canonical path.
-	 * @throws \RuntimeException If base or the subdir cannot be created or realpath doesn't match.
+	 * @throws \RuntimeException If the base directory or the subdir fails ensure_path().
 	 */
 	private static function validated_subdir( string $sub ): string {
 		return self::$validated_subdirs[ $sub ] ??= self::ensure_path( self::get_base_directory() . '/' . $sub );
@@ -182,8 +191,9 @@ class Config {
 	/**
 	 * The validated runtime base directory, memoized for the process.
 	 *
-	 * @return string Canonical, privately owned base path.
-	 * @throws \RuntimeException When base_directory is unset or non-scalar, or the directory fails ensure_path().
+	 * @api
+	 * @return string Canonical base path, ownership- and permission-checked.
+	 * @throws \RuntimeException When a config file is invalid, base_directory is empty or non-scalar, or the directory fails ensure_path().
 	 */
 	public static function get_base_directory(): string {
 		if ( null !== self::$validated_base_directory ) {
@@ -203,11 +213,11 @@ class Config {
 	/**
 	 * Create a directory when absent and return its canonical path.
 	 *
-	 * Creation is mode 0700; every check after it runs against the RESOLVED
-	 * path, and `assert_private_to_us()` refuses a tree another uid owns. This
-	 * is the one gate the base directory and its logs, locks and offsets
-	 * subdirectories pass through, so a check relaxed here is relaxed for all
-	 * four.
+	 * Creation is mode 0700; ownership and permissions are then checked against
+	 * the RESOLVED path, and `assert_private_to_us()` refuses a tree another uid
+	 * owns. This is the one gate the base directory and its logs, locks and
+	 * offsets subdirectories pass through, so a check relaxed here is relaxed
+	 * for all four.
 	 *
 	 * @param string $path Directory path to ensure.
 	 * @return string Validated canonical path.
@@ -234,7 +244,7 @@ class Config {
 
 		// @longform The plantable attack is a symlink AT the leaf redirecting
 		// writes; symlinked ANCESTORS (macOS /tmp, /var -> /private/...) are
-		// OS facts. So: leaf must be a real dir, and the whole path must
+		// OS facts. So: the leaf must not be a link, and the whole path must
 		// equal its parent-resolved expectation (catches `..` traversal too).
 		$parent = \realpath( \dirname( $path ) );
 		if ( \is_link( $path ) || false === $parent || \rtrim( $parent, '/' ) . '/' . \basename( $path ) !== $real ) {
@@ -271,7 +281,7 @@ class Config {
 	 * the web user, so they are the ones left unable to write. That warns.
 	 *
 	 * @param string $real Resolved runtime directory.
-	 * @throws \RuntimeException When another NON-ROOT uid owns it, or group/other can write.
+	 * @throws \RuntimeException When a NON-ROOT process finds another uid owning it, or group/other can write.
 	 */
 	private static function assert_private_to_us( string $real ): void {
 		$uid   = CLI::uid();
@@ -329,7 +339,7 @@ class Config {
 	 * @api
 	 * @param string $key Unprefixed config key.
 	 * @return mixed The configured value, or null when the key is declared but unset.
-	 * @throws \RuntimeException If $key is not in the registered set.
+	 * @throws \RuntimeException If $key is not in the registered set, or a config file is invalid.
 	 */
 	public static function value( string $key ): mixed {
 		if ( ! self::is_declared( $key ) ) {
@@ -348,7 +358,7 @@ class Config {
 	 *
 	 * A miss re-fires DECLARE_ACTION before it answers false: a consumer plugin
 	 * that loads AFTER the first read (this plugin's own file scope reads
-	 * memcache_servers on an admin request) hooks the action too late for that
+	 * spawn_verify_ssl on an admin request) hooks the action too late for that
 	 * pull, and a one-shot derive would deny its keys for the rest of the
 	 * request. Only the action re-fires — the substrate's own keys are already
 	 * registered (declarations are monotone) — and only on a miss, which
@@ -429,6 +439,9 @@ class Config {
 	/**
 	 * The configured base path, unvalidated — '' when unset. `wp nodes doctor`
 	 * needs the path ensure_path() REFUSED in order to explain the refusal.
+	 *
+	 * @return string
+	 * @throws \RuntimeException When a config file is invalid — never for the base-directory refusal this exists to explain.
 	 */
 	public static function configured_base_directory(): string {
 		$base_dir = self::load_config()['base_directory'] ?? null;
@@ -436,11 +449,12 @@ class Config {
 	}
 
 	/**
-	 * The effective configuration: file defaults with the stored WordPress
-	 * options overlaid. Memoized for the process; `reset()` clears it.
+	 * The effective configuration: `load_config_defaults()` with the stored
+	 * WordPress options overlaid. Memoized for the process; `reset()` clears it.
 	 *
+	 * @api
 	 * @return array<string,mixed>
-	 * @throws \RuntimeException If an explicit local config path or value tree is invalid.
+	 * @throws \RuntimeException When either config file returns anything but a tree of scalars, nulls and arrays, or LOCAL_NEWSPACK_NODES_CONF names no canonical readable PHP file.
 	 */
 	public static function load_config(): array {
 		if ( null !== self::$config ) {
@@ -467,6 +481,7 @@ class Config {
 	 * would otherwise report a clean file.
 	 *
 	 * @return list<string>
+	 * @throws \RuntimeException When a config file is invalid; the `config-keys` check catches it and reports that instead.
 	 */
 	public static function unrecognized_keys(): array {
 		self::load_config_defaults();
@@ -480,7 +495,7 @@ class Config {
 	 * override surfaces.
 	 *
 	 * @return array<string,mixed>
-	 * @throws \RuntimeException If an explicit local config path or value tree is invalid.
+	 * @throws \RuntimeException When either config file returns anything but a tree of scalars, nulls and arrays, or LOCAL_NEWSPACK_NODES_CONF names no canonical readable PHP file.
 	 */
 	public static function load_config_defaults(): array {
 		if ( null !== self::$config_defaults ) {
@@ -545,7 +560,7 @@ class Config {
 	 * refuses an undeclared key — but that is not a total barrier, because
 	 * `register_token_namespace()` resolves `<config:key>` off `load_config()`
 	 * directly, so an undeclared local key IS reachable from a TSL token. The
-	 * hatch is operator-owned and CLI-scoped, which is why it stays open.
+	 * hatch is operator-owned, which is why it stays open.
 	 *
 	 * @param array<string,mixed> $config Any config array.
 	 * @return list<string>
@@ -581,8 +596,11 @@ class Config {
 	 * registry and its auth credentials, and the Vault API is the only reader.
 	 * Every other key reads straight off load_config().
 	 *
-	 * Called once at boot; an application registers its own namespace for its
-	 * own keys.
+	 * Registered from two places: `Bootstrap::ensure_runtime_wired()` is lazy, so
+	 * `Settings_Event_Writer::init()` registers it as well — an option change can
+	 * arrive first, and the Partition that writer builds resolves its `<config:*>`
+	 * schema defaults strictly. The map holds one closure per namespace, so
+	 * re-registering costs nothing.
 	 */
 	public static function register_token_namespace(): void {
 		Core::register_config_namespace(
@@ -640,6 +658,8 @@ class Config {
 	 * Drop the cached config, defaults, stray-key list and validated paths, then
 	 * fire `newspack_nodes/config_reset` so dependent Configs invalidate too.
 	 * The declared key set survives — see `register_keys()`.
+	 *
+	 * @api
 	 */
 	public static function reset(): void {
 		self::$config                   = null;
@@ -654,14 +674,19 @@ class Config {
 	}
 
 	/**
-	 * Drop WP's per-process option snapshots so workers see fresh writes. Pair
-	 * with (and run before) Config::reset(), which reads through get_option.
+	 * Drop WP's per-process option snapshots so workers see fresh writes. Where a
+	 * `Config::reset()` follows, this must run FIRST: reset only forces the next
+	 * `load_config()`, whose option layer resolves through `get_option()`, so a
+	 * purge afterwards leaves any read landing in between memoized on the stale
+	 * snapshot.
 	 *
 	 * Purges the two aggregate groups AND each schema key's own cache entry —
 	 * WP core caches an option under its own key in addition to alloptions/
 	 * notoptions, so a long-running process (a draining worker) that read
 	 * a key once would otherwise keep serving that stale value even after this
 	 * runs, no matter how often it's called.
+	 *
+	 * @api
 	 */
 	public static function invalidate_options_cache(): void {
 		if ( ! \function_exists( 'wp_cache_delete' ) ) {

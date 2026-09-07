@@ -2,11 +2,12 @@
 /**
  * Job Worker
  *
- * Dispatches normalized job entries — the jobs.log records an application's
- * `Job_Router_Node` writes — to handlers that application registers through
- * WordPress filters. The substrate owns the dispatch, the retry, the batch
- * fan-in and the stats; the application owns the handlers and the request
- * context each one runs in.
+ * Dispatches normalized job entries to handlers an application registers through
+ * WordPress filters. The entries come off jobs.log, written either by
+ * `topologies/job-intake.tsl`, which copies `Job_Intake`'s ingress across on a
+ * substrate-only install, or by an application's `Job_Router_Node`. The
+ * substrate owns the dispatch, the retry, the batch fan-in and the stats; the
+ * application owns the handlers and the request context each one runs in.
  *
  * Two handler maps, registered independently:
  *   - local_handlers  — entries with k='job', which every host's own worker
@@ -27,14 +28,17 @@
  * plugins_loaded has fired by the time a topology evaluates; eager loading
  * saves a `load_handlers` line in every TSL.
  *
- * Handler signature: `( string $id, array $parameters )` — $id FIRST, because
- * every job has one and it is what the request context is named for; a
- * producer that omits it is a bug, not a shorthand. Per-job request context
- * belongs to `before_job` / `after_job` alone, so a handler neither opens one
- * nor needs the Message to do it.
+ * Handler signature: `( string $id, array $parameters )` — $id FIRST, because it
+ * is the substrate's first-class job identity: the stats accumulator keys on
+ * `handler:id`, and an application names its per-job request context from it. The
+ * id is OPTIONAL — `Job_Intake::write_job()` takes `?string $id` and leaves an
+ * empty one out of the entry, so a handler receives `''`, the identity falls back
+ * to the bare handler name and the request context to `/jobs/{handler}`. That
+ * context belongs to `before_job` / `after_job` alone, so a handler neither opens
+ * one nor needs the Message to do it.
  *
  * That context — suspending a parent logger, rewriting $_SERVER to a synthetic
- * /jobs/{handler} URL — is NOT a substrate concern. fill() runs the
+ * /jobs/{handler}/{id} URL — is NOT a substrate concern. fill() runs the
  * `newspack_nodes/job_worker/before_job` FILTER ( $run, $handler, $id,
  * $message ) and fires the `…/after_job` action ( $handler, $id, $outcome )
  * around each handler so an application hooks its own. The action runs in a
@@ -168,9 +172,8 @@ class Job_Worker_Node extends Node {
 	 * Dispatch one jobs.log entry, or answer a TM_REQUEST verb.
 	 *
 	 * A message that is not a TM_STRUCT entry, or one naming a handler this node
-	 * does not own, is dropped without a word: a worker seeing a handler it does
-	 * not own is the normal hub-and-spoke case, not a misconfiguration. An
-	 * oversized entry and an invalid handler name are each reported, rate-limited.
+	 * does not own, is dropped without a word. An oversized entry and an invalid
+	 * handler name are each reported, rate-limited.
 	 *
 	 * The handler call sits between the before_job filter and the after_job action
 	 * the file header describes. A throw is poison by default — it propagates to
@@ -200,7 +203,7 @@ class Job_Worker_Node extends Node {
 			$this->print_less_often( 'oversized entry, skipping' );
 			return;
 		}
-		// Entry carries kind k (job or remote_job), handler, parameters, ts.
+		// `k` is the kind field Job_Intake and Job_Router both write.
 		$kind = $entry['k'] ?? '';
 		if ( 'job' !== $kind && 'remote_job' !== $kind ) {
 			return;
@@ -227,7 +230,7 @@ class Job_Worker_Node extends Node {
 		// Identity: top-level `id` distinguishes jobs sharing one handler name.
 		$id = Core::as_string( $entry['id'] ?? '', '' );
 
-		// XXX: legacy gyrobase envelope; remove once every engine emits `id`.
+		// XXX: gyrobase envelope with no id; drop when every engine emits one.
 		if ( '' === $id && 'evtemplate' === $handler && \is_array( $parameters )
 			&& isset( $parameters['queue'], $parameters['template'] )
 			&& \array_key_exists( 'parameters', $parameters ) ) {
@@ -256,7 +259,6 @@ class Job_Worker_Node extends Node {
 		$identity = ( '' !== $id ) ? "{$handler}:{$id}" : $handler;
 		$ts       = Core::num_float( $entry['ts'] ?? 0, 0.0 );
 
-		// Apps hook request context on before/after_job; asymmetry deliberate.
 		$before_ok       = false;
 		$declined        = false;
 		$outcome         = null;
@@ -269,7 +271,7 @@ class Job_Worker_Node extends Node {
 			} catch ( Worker_Should_Stop $e ) {
 				throw $e;
 			} catch ( \Throwable $e ) {
-				// before_job listener crash must not kill batch; swallow, skip.
+				// A listener's crash must not dead-letter the job; skip it.
 				$this->print_less_often( 'before_job listener threw: ', $e->getMessage() );
 			}
 			if ( $before_ok ) {
@@ -393,8 +395,8 @@ class Job_Worker_Node extends Node {
 	 * member settles on a re-run or an operator `dl_requeue`s the quarantined
 	 * entry; a batch that never completes is pointing at its dead letter.
 	 *
-	 * @param string                                                                $batch   Batch id.
-	 * @param array{status:string,message:string,items_ok:int,items_err:int}|null   $outcome Classified outcome (null: job skipped by a before_job crash).
+	 * @param string                                                              $batch   Batch id.
+	 * @param array{status:string,message:string,items_ok:int,items_err:int}|null $outcome Classified outcome (null: job skipped by a before_job crash).
 	 */
 	private function settle_batch( string $batch, ?array $outcome ): void {
 		$backend = Cache_Backend::shared_first();
@@ -429,12 +431,14 @@ class Job_Worker_Node extends Node {
 	}
 
 	/**
-	 * Classify a handler's return value into an outcome, honoring the pyrobase-cron
-	 * contract verbatim: `success_count` defaults to -1 (the "no stats reported"
-	 * sentinel) and `error_count` to 0. Errors with no items processed is the only
-	 * error status; errors alongside items is a success reading "Completed with
-	 * errors"; anything else is a plain success. The -1 sentinel never reaches the
-	 * items total, which clamps at 0.
+	 * Classify a handler's return value into an outcome. The thresholds are
+	 * `\Newspack_Pyrobase\Cron\CronManager::job_handler()`'s: `success_count`
+	 * defaults to -1 (the "no stats reported" sentinel), `error_count` to 0, and
+	 * errors with no items processed is the only error. The status vocabulary
+	 * diverges — pyrobase reads errors ALONGSIDE items as `partial` where this
+	 * reads a success carrying "Completed with errors", so
+	 * `Jobstats_Record::LAST_STATUS` sorts two values rather than three. The -1
+	 * sentinel never reaches the items total, which clamps at 0.
 	 *
 	 * @param mixed $result The handler's return value, usually null.
 	 * @return array{status:string,message:string,items_ok:int,items_err:int} Status, one-line message and the two item counts.
@@ -518,8 +522,9 @@ class Job_Worker_Node extends Node {
 	 * the asker keeps no registry of outstanding requests (ADR-7).
 	 *
 	 * The payload REPORTS memory without acting on it. The watermark that ends a
-	 * process before PHP's uncatchable fatal-on-OOM belongs to
-	 * `Worker_Base::should_continue()`, which owns every cooperative-stop trigger.
+	 * process before PHP's uncatchable fatal-on-OOM belongs to the
+	 * `Cooperative_Stop` trait's `should_continue()`, which owns every
+	 * cooperative-stop trigger for every worker type.
 	 *
 	 * @param array<int,mixed> $message Incoming request Message.
 	 */
@@ -559,7 +564,8 @@ class Job_Worker_Node extends Node {
 	/**
 	 * PHP's `memory_limit` in bytes, expanding the k/m/g suffix ini_get returns.
 	 *
-	 * @return int Bytes, or -1 where the limit is unlimited.
+	 * @return int Bytes; -1 where the limit is unlimited, 0 where PHP reports no
+	 *             parseable value — which is why the caller tests for > 0.
 	 */
 	private function memory_limit_bytes(): int {
 		$ini = \ini_get( 'memory_limit' );
@@ -589,6 +595,9 @@ class Job_Worker_Node extends Node {
 	 * A name failing HANDLER_NAME_PATTERN or a value that is not callable is
 	 * skipped rather than refused, so one bad registration cannot cost a worker
 	 * every other handler in the same filter.
+	 *
+	 * Both maps are additive. A second call merges into what the first read, so
+	 * dropping a filter never un-registers the handler it added.
 	 */
 	public function load_handlers_from_filters(): void {
 		if ( ! \function_exists( 'apply_filters' ) ) {

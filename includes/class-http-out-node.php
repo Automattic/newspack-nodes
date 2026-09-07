@@ -13,11 +13,12 @@
  * per-setting commands on a single timer tick and ride to the spoke together.
  *
  * Credentials resolve from the Vault by server id: Basic Auth, or a Bearer
- * token when the entry carries no username and password. No caller-supplied url
- * or secret reaches the wire.
+ * token when the entry lacks a username or a password. The push side looks the
+ * entry up itself; `probe_command()` is handed one, and both its callers read
+ * it out of the Vault first.
  *
- * `probe_command()` runs the same protocol over one synchronous request, for an
- * operator action that must return a verdict now — Vault_CI `test`,
+ * `probe_command()` runs the same protocol on the blocking WP-HTTP transport,
+ * for an operator action that must return a verdict now — Vault_CI `test`,
  * Aggregator_CI `probe`. Same idiom as `Topic_Node` and `Partition_Node`: the
  * Node owns its domain and exposes a request-scope entry point beside the
  * event-loop one. One owner is what keeps the two transports agreeing on what a
@@ -36,7 +37,7 @@ class HTTP_Out_Node extends Timer_Node {
 	/** Transfer timeout for one non-blocking POST, in seconds; the blocking class API bounds itself tighter. */
 	public const REQUEST_TIMEOUT = 15;
 
-	/** Cap on a spoke's reply body; it is buffered into the PHP heap. */
+	/** Cap on a spoke's reply body, 8 MiB; it is buffered into the PHP heap. */
 	public const MAX_REPLY_BYTES = 8388608;
 
 	/**
@@ -73,10 +74,10 @@ class HTTP_Out_Node extends Timer_Node {
 	public static ?\Closure $curl_dispatch = null;
 
 	/**
-	 * libcurl result-read seam. Lazily defaulted to a closure returning the easy
-	 * handle's HTTP code and response body. Tests reassign it to inject a
-	 * synthetic result, so the classification, the JSONL unpack and the reply
-	 * forwarding run as real production code without a network transfer.
+	 * libcurl result-read seam. Null reads the easy handle's HTTP code and its
+	 * buffered body directly. Tests reassign it to inject a synthetic result, so
+	 * the classification, the JSONL unpack and the reply forwarding run as real
+	 * production code without a network transfer.
 	 *
 	 * Signature: `function ( \CurlHandle $easy ): array{code:int,body:string}`.
 	 *
@@ -168,14 +169,14 @@ class HTTP_Out_Node extends Timer_Node {
 	 * A batch is DROPPED when the spoke cannot be addressed at all: no Vault
 	 * entry, no url, or a plaintext url while `vault_require_ssl` stands. It is
 	 * HELD when only the session is missing, since discarding traffic over a
-	 * handshake that the next tick may well complete is the worse trade. A
-	 * session-less tick runs the handshake even with nothing queued, because
+	 * handshake the pending `/auth` reply may well complete is the worse trade.
+	 * A session-less tick runs the handshake even with nothing queued, because
 	 * every minter refuses to queue without a session — waiting for traffic to
 	 * trigger the handshake deadlocks both sides.
 	 *
-	 * Public, widening Timer_Node's protected `fire()`, so the Event_Framework
-	 * can invoke the flush directly and a test can drive one tick without a live
-	 * event loop.
+	 * Public, widening Timer_Node's protected `fire()`, so a test can drive one
+	 * flush without a live event loop. The Event_Framework itself reaches it
+	 * through `fire_cb()`, like every other timer.
 	 */
 	public function fire(): void {
 		$batch                   = $this->batch;
@@ -194,7 +195,6 @@ class HTTP_Out_Node extends Timer_Node {
 			return;
 		}
 
-		// The operator requires HTTPS and this url is not; drop the batch.
 		if ( self::https_required( $url ) ) {
 			$this->drop_batch( $batch, 'vault_require_ssl set but url is not https' );
 			return;
@@ -204,7 +204,7 @@ class HTTP_Out_Node extends Timer_Node {
 		if ( ! \is_array( $server ) ) {
 			return;
 		}
-		// Held, not dropped: the next tick may well get a session.
+		// Held, not dropped: the /auth reply re-arms this flush.
 		if ( ! $established ) {
 			$this->batch = \array_merge( $batch, $this->batch );
 			$this->request_session( $server, $url );
@@ -318,8 +318,9 @@ class HTTP_Out_Node extends Timer_Node {
 	}
 
 	/**
-	 * Event_Framework completion callback, invoked once per CURLMSG_DONE.
-	 * Forwards each reply Message in a 200 body to the sink, where it self-routes
+	 * Event_Framework completion callback, invoked once per CURLMSG_DONE. A
+	 * handle recorded as `auth` goes to `on_session_reply()`. A command handle
+	 * forwards each reply Message in a 200 body to the sink, where it self-routes
 	 * by TO=FROM through `_command_interpreter` and then `_router`; the JS mirror
 	 * is `_post` in `src/runtime/http-out-node.js`. Transport errors and non-200
 	 * codes are reported rate-limited — bar HTTP_In's 202, which acks an async
@@ -354,7 +355,7 @@ class HTTP_Out_Node extends Timer_Node {
 		} else {
 			$res = $this->read_result( $easy );
 			if ( 200 !== $res['code'] ) {
-				// 401: dead session handle; forget it or every send re-signs.
+				// 401: the spoke dropped this handle; every send now fails.
 				if ( 401 === $res['code'] ) {
 					Command_Auth::forget_session( $this->vault_id );
 				}
@@ -392,9 +393,9 @@ class HTTP_Out_Node extends Timer_Node {
 
 	/**
 	 * Adopt the session the spoke issued, then re-arm the held batch. A refusal
-	 * only clears the in-flight flag: the batch stays put and the next fill or
-	 * tick retries, since discarding traffic over a handshake failure that may
-	 * be transient is worse than waiting.
+	 * only clears the in-flight flag: the batch stays put until the next `fill()`
+	 * or a minter's `ensure_session()` retries, since discarding traffic over a
+	 * handshake failure that may be transient is worse than waiting.
 	 *
 	 * @param int    $code HTTP status the `/auth` POST returned.
 	 * @param string $body Raw `/auth` response body.
@@ -443,7 +444,7 @@ class HTTP_Out_Node extends Timer_Node {
 	private function accept_inbound( array &$reply ): bool {
 		$type = Core::int( $reply[ Message::TYPE ], 0 );
 		$to   = Core::as_string( $reply[ Message::TO ] );
-		// Socket.pm:853, through the guarded method; see the docblock.
+		// Socket.pm:852, through the guarded method; see the docblock.
 		if ( ! $this->stamp_message( $reply, $this->name ) ) {
 			return false;
 		}
@@ -544,10 +545,12 @@ class HTTP_Out_Node extends Timer_Node {
 	/**
 	 * POST a packed TM_COMMAND to a spoke's `/command` and return the reply's
 	 * decoded `payload`. Blocking, for an operator action that needs a verdict
-	 * in-band: a WP_Error, a non-200, a body carrying no command envelope, a
-	 * TM_ERROR reply and a missing or non-array payload all throw, so a caller
-	 * never has to read a verdict out of a returned value. The caller whitelists
-	 * the payload itself, which is what keeps raw remote JSON off our surfaces.
+	 * in-band: a plaintext url under `vault_require_ssl`, a spoke that will not
+	 * issue a session, a WP_Error, a non-200, a body carrying no command
+	 * envelope, a TM_ERROR reply and a missing or non-array payload all throw,
+	 * so a caller never has to read a verdict out of a returned value. The
+	 * caller whitelists the payload itself, which keeps raw remote JSON off our
+	 * surfaces.
 	 *
 	 * @param string                 $dest      Vault server id — the session identity.
 	 * @param array<array-key,mixed> $server    Decrypted vault server config.
