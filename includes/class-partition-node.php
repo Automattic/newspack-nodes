@@ -138,6 +138,17 @@ class Partition_Node extends Timer_Node {
 	 */
 	public const MAX_LOCATOR_MEMO_KEYS = 100000;
 
+	/**
+	 * Directories the locator memo holds slots for before it is dropped whole.
+	 *
+	 * The key cap above bounds ONE slot; without this the ceiling is that
+	 * number times however many directories a process touches, which is no
+	 * ceiling. A dashboard fans across one mirror per partition and a worker
+	 * reads one, so this is several times what either needs — it exists so a
+	 * process that walks many partitions cannot accumulate a slot per dir.
+	 */
+	public const MAX_LOCATOR_MEMO_DIRS = 8;
+
 	/** Inter-process rotation lock TTL: anything older counts as stale. */
 	public const ROTATE_LOCK_TTL_SECONDS = 5;
 
@@ -1268,9 +1279,10 @@ class Partition_Node extends Timer_Node {
 	 * The memo is per directory, keyed on the segment extent, and holds what was
 	 * FOUND and what was SEARCHED FOR separately — so an absent key stays
 	 * answered and a miss-heavy reader does not re-walk the index per batch. It
-	 * is discarded WHOLE at MAX_LOCATOR_MEMO_KEYS as well as on an append, so a
-	 * long-lived reader can pay a re-walk mid-request; that costs time, never a
-	 * wrong answer, because a discard is always followed by a full walk.
+	 * is discarded WHOLE at MAX_LOCATOR_MEMO_KEYS as well as on an append, and
+	 * every slot is dropped at MAX_LOCATOR_MEMO_DIRS, so a long-lived reader
+	 * can pay a re-walk mid-request; that costs time, never a wrong answer,
+	 * because a discard is always followed by a full walk.
 	 *
 	 * @api Readers resolving many keys to positions before reading any of them.
 	 * @param \Closure(string): ?array{key: string, offset: int, length: int} $extract Line parser.
@@ -1287,6 +1299,11 @@ class Partition_Node extends Timer_Node {
 			$extent .= $segment['id'] . ':' . $segment['size'] . ',';
 		}
 		$dir = $this->partition_dir();
+		// A slot per directory ever touched is not a bound; drop the lot.
+		if ( ! isset( self::$locator_cache[ $dir ] )
+			&& \count( self::$locator_cache ) >= self::MAX_LOCATOR_MEMO_DIRS ) {
+			self::$locator_cache = [];
+		}
 		// Discard whole: after one walk a key costs nothing to keep.
 		if ( ( self::$locator_cache[ $dir ]['extent'] ?? null ) !== $extent
 			|| \count( self::$locator_cache[ $dir ]['searched'] ) > self::MAX_LOCATOR_MEMO_KEYS ) {
