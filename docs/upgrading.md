@@ -22,12 +22,14 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## 2.44.0
 
-- **A `Fetcher` keeps ONE ask outstanding at a time.** An ask goes onto the node's
-  `outbox` when it is sent and leaves when a reply settles it; a trigger that finds
-  one there mints nothing. A dashboard that drove a Fetcher on a fixed refresh no
-  longer queues identical asks behind a slow verb. Two valves bound the wait:
-  `retry_after_s` (15s) re-arms a read whose answer never came, and `ASK_EXPIRY_S`
-  (120s) is the outer bound on how long any ask may stand.
+- **A `Fetcher` mints no new ask while one is outstanding.** An ask goes onto the
+  node's `outbox` when it is sent and leaves when a reply settles it, and the
+  trigger reads the outbox before minting. A dashboard that drove a Fetcher on a
+  fixed refresh no longer queues identical asks behind a slow verb. Two valves
+  bound the wait: `retry_after_s` re-arms an ask whose answer never came — 15
+  seconds on the node, 5 for a `useCommandOnce` read, 0 for a write, which is
+  never re-asked — and `ASK_EXPIRY_S` (120s) is the outer bound on how long any
+  ask may stand.
 
   `FetcherNode.send( args, path, supersede )` is the entry point for a caller with
   an answer to wait on, and `isAsking()` reports whether that subject is still
@@ -40,22 +42,25 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   answer read `isAsking()` while the reply renders. A custom fan-out that reorders,
   batches or defers its targets breaks that.
 
+## 2.43.3
+
+- **Neither `HTTP_Out` port sends a message the Router bounced.** Stamping the
+  transport's name (2.43.1 below) made a Router bounce ROUTABLE, so an error the
+  far side could not route was answered with an error of its own, and the two ends
+  POSTed at each other about twenty times a second until the tab closed. The
+  refusal is keyed on the Router as SENDER rather than on `TM_ERROR` alone,
+  because an operator composing a message may set the error flag deliberately.
+
 ## 2.43.1
 
-- **An `HTTP_Out` transport stamps its own name onto every inbound FROM.** A reply
-  from `foo` arrives reading `_http/foo`, which routes; bare `foo` named a node the
-  receiving graph does not have. Outbound is untouched — a command going out has
-  not been anywhere yet. Anything matching a reply's FROM against a remote node
-  name needs the `_http/` prefix, and the `MAX_FROM_SIZE` guard now covers this
-  boundary, so a reply looping hub → spoke → hub is dropped by the transport that
-  overflowed the path.
-
-  Take 2.43.3 with it. Stamping the transport's name made a Router bounce
-  ROUTABLE, so an error the far side could not route was answered with an error
-  of its own and the two ends POSTed at each other about twenty times a second
-  until the tab closed. Both `HTTP_Out` ports now refuse to send a message the
-  Router bounced, keyed on the Router as SENDER rather than on `TM_ERROR` alone —
-  an operator composing a message may set the error flag deliberately.
+- **An `HTTP_Out` transport stamps its own NAME onto every inbound FROM.** A reply
+  from `foo` arrives reading `<transport>/foo`, which routes, where bare `foo`
+  named a node the receiving graph does not have: `_http/foo` in a browser graph,
+  `remote:austin/foo` at a PHP transport node named `remote:austin`. Outbound is
+  untouched — a command going out has not been anywhere yet. Anything matching a
+  reply's FROM against a remote node name needs that prefix, and `MAX_FROM_SIZE`
+  now guards this boundary, so a reply looping from hub to spoke and back is
+  dropped by the transport that overflowed the path.
 
 ## 2.43.0
 
@@ -109,10 +114,10 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 - **An unrecognized config key is REPORTED, never thrown.** `Config::unknown_keys(
   $config )` is the pure query and `Config::unrecognized_keys()` the live one; the
-  finding surfaces as the `config-keys` result in Site Health and `wp nodes doctor`,
-  which report eight checks. Throwing at `plugins_loaded:-10001` would take wp-admin
-  down the day a key is renamed, so a misspelled key leaves the real one on its
-  default and names itself instead.
+  finding surfaces as the `config-keys` result in Site Health and `wp nodes doctor`.
+  Throwing at `plugins_loaded:-10001` would take wp-admin down the day a key is
+  renamed, so a misspelled key leaves the real one on its default and names itself
+  instead.
 
 - **A TSL `<config:vault>` token is refused.** `vault`, `vault_verify_ssl` and
   `vault_require_ssl` are `ui: false` Fields, and the token resolver refuses
@@ -201,14 +206,16 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   by hand.
 
 - **`useLogCatalog` is the one polled catalog slice.** `usePartitionViewerGraph`'s
-  `fetchLogStatus` / `logStatus` pair is gone with the hand-rolled `log_status` →
-  segment-rail plumbing both sides carried; `useSegmentBrowse` resolves its own rail.
+  `fetchLogStatus` / `logStatus` pair is gone, and with it the hand-rolled
+  plumbing from `log_status` to the segment rail that both sides carried;
+  `useSegmentBrowse` resolves its own rail.
 
 - **Four unused surfaces are removed.** `LRU_Cache::get_multi()` and `set_multi()`
   had no caller in any plugin; `CommandInterpreterNode.isCommandInterpreter` had no
-  reader, and `dump_config` reaches for `instanceof` as the PHP twin does; and the
-  `authGeneration` re-export from `runtime/index.js` goes, though `authGeneration()`
-  itself stays and imports from its own module.
+  reader, since both ports suppress a `set_sink` line by the interpreter's NAME
+  (`_command_interpreter`); and the `authGeneration` re-export from
+  `runtime/index.js` goes, though `authGeneration()` itself stays and imports from
+  its own module.
 
 - **A `make_node` line that will not build now refuses at load, loudly.** Three
   places stopped guessing:
@@ -295,9 +302,13 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 - **A browser Timer fires on a shared wall-clock grid.** `fireCb` fires on
   `nextBoundary( lastFire, interval )` rather than on its own arming time, so
   harmonic cadences meet and batch: 5s, 10s, 15s and 30s all land together every 30
-  seconds, in one POST. ONE offset (`GRID_PHASE_MS`, exported on
-  `@newspack-nodes/runtime` as of 2.32.1) serves every cadence — pin your clock to a
-  boundary rather than hardcoding a phase. JS only; the PHP `Timer_Node` is unchanged
+  seconds, in one POST. ONE offset (`GRID_PHASE_MS`) serves every cadence, and the
+  grid lives in `TimerNode` alone — a subclass picks a harmonic interval and never
+  computes a boundary, which is what `lint-contract.mjs`'s `grid-math` rule
+  enforces. A TEST that has to know where a boundary falls imports the offset
+  from `@newspack-nodes/runtime` (2.32.1 exports it) and pins its clock FORWARD to
+  just past one; moving a clock back reads to every watchdog as a stream gone
+  silent. JS only; the PHP `Timer_Node` is unchanged
   ([ADR-17](architecture-decisions.md#adr-17-timers-fire-on-a-shared-wall-clock-grid)).
 
 - **A programmatic builder hands `makeNode` the CLASS, not a registered name.**
@@ -309,8 +320,9 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   `registerNodeClasses( map )` returns the map so one declaration serves both
   ([ADR-16](architecture-decisions.md#adr-16-js-node-class-resolution--names-are-the-tsl-surface-classes-are-the-api)).
   `scripts/lint-contract.mjs` fails the build on a name resolved where a class
-  belongs, and on the four other routing-contract shapes; it is vendored into every
-  sibling and wired into `lint:js` and `pre-commit`.
+  belongs — in a `makeNode` call or a hook option — and on six other contract
+  shapes; it is vendored into every sibling and wired into `lint:js` and
+  `pre-commit`.
 
 ## 2.31.0
 
@@ -325,9 +337,11 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   `newspack_nodes/capability_map` or runs `wp nodes caps install`.
 
 - **`POST /v1/auth` accepts `scope`, `label` and `ttl`, and the response carries
-  `scope`.** A session's scope is clamped at mint to what the issuing user actually
-  holds and lowers the CEILING for one command; it can only ever subtract.
-  `Command_Auth::verify()` fails CLOSED on every refusal.
+  `scope`.** A scope is a CEILING, so it can only ever subtract: the session is
+  granted the highest role the issuing user holds WITHIN the scope it asked for,
+  and the response names what was granted rather than what was requested. An
+  unrecognised scope is refused outright; `ttl` is clamped to 60..86400 seconds
+  and defaults to 3600; `Command_Auth::verify()` fails CLOSED on every refusal.
 
 - **`wp nodes caps <status|install|uninstall>` and `wp nodes hub-user <login>`.**
   `install()` grants all three capabilities to every role that already held
@@ -370,17 +384,17 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   `check()`, `release()` and `inspect()` drop the same two parameters. Nothing
   changes on the wire: a connection still holds exactly ONE lease, so
   `workers heartbeat <slot> <owner>` is unaffected. Old lease keys expire within
-  `sse_slot_ttl`; old POINTER keys were written with no expiry and are simply
-  orphaned — nothing sweeps them, so they sit, bounded and harmless, until
-  cache eviction or a restart.
+  `sse_slot_ttl`; old POINTER keys were written with no expiry and are orphaned —
+  nothing sweeps them, so they sit, bounded and harmless, until cache eviction or
+  a restart.
 
   Both bounds and the TTL are config keys (`sse_max_streams`, `sse_max_slots`,
   `sse_slot_ttl`). Read [sse-host-budget.md](sse-host-budget.md) before raising any
   of them — an SSE stream holds a php-fpm child for its whole life, and exhausting
   the pool puts the EDGE into auto-defensive mode for 60 seconds for every visitor
-  to the site. Two floors are enforced rather than documented: `sse_slot_ttl` is
-  raised to the 45s re-auth window if configured below it, and `sse_max_slots` is
-  capped at `sse_max_streams`.
+  to the site. Two bounds are enforced rather than documented: `sse_slot_ttl` is
+  raised to the 45-second re-auth window when configured below it, and
+  `sse_max_slots` is capped at `sse_max_streams`.
 
   Hub operators: a `Remote_Source` pull draws from the spoke's host budget like
   any browser. Set `sse_reserved_slots => 1` on each spoke so dashboard tabs
@@ -461,8 +475,8 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## 2.26.0
 
-- **The SSE `positions` wire carries seek sentinels, and a hub upgrades before its
-  spokes.** `SSE_In_Node` now always sends a position, using `-1` (`SEEK_END`) when it
+- **The SSE `positions` wire carries seek sentinels, so a spoke upgrades before its
+  hub.** `SSE_In_Node` now always sends a position, using `-1` (`SEEK_END`) when it
   has none, where it previously OMITTED the parameter to mean the same thing. An
   upgraded hub pulling a spoke that is still on an older substrate sends `-1` to a
   `next_offset()` that does not know the sentinels: it falls through that method's
@@ -540,12 +554,17 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   any sibling plugin used either API.
 
 - **A browser graph needs a `_stdout` node, or builtin output goes nowhere.**
-  `print`, `status`, `show_parse`, `debug_level` and every usage line now emit
-  through `Core.node( '_stdout' )` rather than `_output` — the Dumper renders
+  `print`, `var`, `status`, `show_parse`, `debug_level` and every usage line now
+  emit through `Core.node( '_stdout' )` rather than `_output` — the Dumper renders
   MESSAGES, and a builtin prints text. Mount a `StdoutNode` whose stream writes
   into whatever the host shows; both REPLs hand it
   `{ write: ( text ) => dumper.appendText( text ) }`. Without one, the Shell
-  drops the text silently, exactly as PHP does.
+  drops the text silently, and the browser has no fallback of its own: PHP's
+  `Shell_Node::stdout()` hands the line to `Node::print_less_often()` when
+  nothing answers to `_stdout`, so a worker's builtin output and TSL refusals
+  still reach the stderr log, rate-limited. The two ports also differ in
+  strictness — PHP takes only an `Stdout_Node` instance, the browser whatever
+  node holds the name.
 
 - **`debug_level` is Dumper state, not a caller-held ref.** Read it with
   `useNodeState( '_output', 'debug_level' )`. The `debugLevelRef` a consumer
@@ -664,8 +683,8 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   `: pointer_owner_mismatch`, `: liveness_missing`, `: backend_read_error` or
   `: recovered_during_inspection`. A client matching on the exact old string
   needs a prefix match instead. `slot_released` is the release tombstone
-  (pointer 0) and means a normal reconnect race, not a takeover — a client of
-  its own should treat it as routine, as `Remote_Link_Node` now does.
+  (pointer 0) and means a normal reconnect race, not a takeover — treat it as
+  routine, as `Remote_Link_Node` does.
 
 ## 2.11.0
 
@@ -710,13 +729,12 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   no longer valid; there is nothing to spawn. Cold start is WP-Cron's single
   pass, not a spawn request.
 - **`wp nodes doctor` replaces the `supervisor-liveness` check with
-  `housekeeping`.** The report was seven results at that version. The new one is
-  load-bearing in a way the old one was not: fleet housekeeping — retention,
-  orphan partition and IPC reaping, the delayed-jobs sweep, alert emission and
-  every `newspack_nodes/periodic` subscriber — now rides the minute cron pass
-  alongside cold-start revival, so an install whose `newspack_nodes/reconcile`
-  event was vetoed or cleared loses all of it silently. If doctor reports it
-  CRITICAL, run
+  `housekeeping`.** The new check is load-bearing in a way the old one was not:
+  fleet housekeeping — retention, orphan partition and IPC reaping, the
+  delayed-jobs sweep, alert emission and every `newspack_nodes/periodic`
+  subscriber — now rides the minute cron pass alongside cold-start revival, so an
+  install whose `newspack_nodes/reconcile` event was vetoed or cleared loses all of
+  it silently. If doctor reports it CRITICAL, run
   `wp cron event schedule newspack_nodes/reconcile now newspack_nodes_minute`
   (visiting wp-admin also re-arms it, on `admin_init`).
 
@@ -836,7 +854,18 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 - **The stock probe node is `topicprobe`, not `_topicprobe`.** A `connect_node`,
   a `cmd` or a `target` naming the underscored form resolves nothing. The log
   path `topicprobe.p0` is unchanged; the node TYPE was renamed separately in
-  2.11.0 below.
+  2.11.0 above.
+
+- **`wp nodes scaffold node` writes into the plugin's `includes/`, under the
+  plugin namespace.** Both doors have to open at once: `scaffold plugin`
+  classmaps exactly `includes/` and registers the plugin prefix, so a class
+  taking its path AND its namespace from the cwd satisfied neither — run from
+  the plugin root the file fell outside the classmap, run from `includes/` the
+  namespace came out `Includes`, which `make_node` never resolves. The command
+  derives the plugin root from the cwd, creates `includes/` when it is missing,
+  and writes the same file from either directory. Only a cwd named `includes`
+  puts the class beside you. This narrows the 2.3.5 note below to `scaffold
+  topology`.
 
 ## 2.3.5
 
@@ -846,7 +875,9 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   rejected, not ignored. `--partition=<N>` still narrows to one.
 - **`wp nodes scaffold node|topology` writes into the current directory**, not
   into `includes/` and `topologies/`. `scaffold plugin` still creates the full
-  tree; cd to where you want the file, or move it after.
+  tree; cd to where you want the file, or move it after. 2.9.0 above returns
+  `scaffold node` to `includes/`, so the rule holds for `scaffold topology`
+  alone, which drops a bare `<name>.tsl` wherever you stand.
 - **The `runtime_stats` verb is removed.** It bundled `list_timers`,
   `list_handles` and the Router profile table into one struct for the devtools
   views, and its profile third had silently fallen behind the text verb's
@@ -915,20 +946,34 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 - **`set_snapshot_node` deleted; `add_snapshot_node` replaces it.** A Consumer now
   snapshots a LIST of nodes; the offsetlog frame's `cache` is a map keyed by node name.
   Fix: rename the verb in your TSL (repeat the line per node). If you READ frames
-  (`Partition_Node::read_latest_snapshot_cache()`), pass the new required `$node`
+  (`Partition_Node::read_latest_snapshot_cache()`), pass the required `$node`
   argument and descend `cache[<node>]`. Frames written by 0.50.x skip their snapshot
   restore once on upgrade (state re-accumulates; cursors resume normally).
-- **`Job_Router` (event-logger) sheds `stale_timeout`** — staleness is the new
+- **`Job_Router` (event-logger) sheds `stale_timeout`** — staleness is the
   `Age_Sieve` node's job. Fix: drop Job_Router's positional argument and wire
-  `make_node Age_Sieve jobs:sieve 60 1` between it and `jobs:partition`.
+  `make_node Age_Sieve jobs:sieve 900 1` between it and `jobs:partition`, which
+  is what stock `job-router.tsl` ships.
 
 ## 0.50.0
 
 - **Consumer cursors re-keyed to `{topology}.{source}.pN`.** Offsetlog paths in the
   stock topologies flip from `{source}.{topology}.pN`; no migration shim — on upgrade
-  every consumer starts from its `default_offset` (the firehose default is `recent`).
-  Fix: nothing to do unless you pinned custom offsetlog paths; then re-key them to
-  match and expect one cursor reset.
+  every consumer starts from its `default_offset`, which is the start of the log for
+  a `Consumer` and the end for a `Tail`. Fix: nothing to do unless you pinned custom
+  offsetlog paths; then re-key them to match and expect one cursor reset.
+
+## 0.49.0
+
+- **The `newspack_nodes/alert` action is gone; alerts are journaled to
+  `alerts.p0`.** `Alerts::emit()` writes one TM_STRUCT record per severity
+  TRANSITION into the substrate's own `alerts.p0` partition — KEY is the stable
+  condition key, and VALUE carries `m`, `ts` and `severity` (`warning`,
+  `critical`, or `resolved` when a condition clears). There is no alias and no
+  shim: a subscriber still on the action is never called, silently. Tail
+  `alerts.p0` with a Consumer for push delivery, and journal a condition of your
+  own with `Alerts::journal_event( $key, $text, $severity )`. `Log_Cleaner` spares
+  the directory through the `newspack_nodes/registered_log_producers` filter, so
+  it survives on an install where no topology declares it.
 
 ## 0.48.0
 

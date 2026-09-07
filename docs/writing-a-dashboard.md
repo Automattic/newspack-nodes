@@ -8,7 +8,7 @@ The finished code is in [`examples/example-ai-newsletter/`](../examples/example-
 
 Do [writing-a-plugin.md](writing-a-plugin.md) first if you haven't — this guide assumes the digest pipeline (sources → summarizer → digest) and the `fill`/`sink`/`target`/`node_schema` vocabulary.
 
-> **Diffing against the shipped code — the `_Demo` suffix.** The teaching snippets use bare names (`Scorer_Node`, `Insights_CI_Node`, …), but the bundled example carries a `_Demo` suffix on every class — `Scorer_Demo_Node`, `Insights_CI_Demo_Node`, files `class-*-demo-node.php`, namespace `Example_AI_Newsletter` — to deconflict from the real sibling plugin (`newspack-intelligence`) that can be loaded in the same WP. Likewise the topology file is `topologies/example-ai-newsletter.tsl` (name `example-ai-newsletter`), the durable log is `example-scored.p*`, and the mounted service CI node is `insights-demo`. So when you diff against [`examples/example-ai-newsletter/`](../examples/example-ai-newsletter/), map each bare name → its `_Demo` form.
+> **Diffing against the shipped code — the `_Demo` suffix.** The teaching snippets use bare names (`Scorer_Node`, `Insights_CI_Node`, …), but the bundled example carries a `_Demo` suffix on every class — `Scorer_Demo_Node`, `Insights_CI_Demo_Node`, files `class-*-demo-node.php`, namespace `Example_AI_Newsletter` — to deconflict from the real sibling plugin (`newspack-intelligence`) that can be loaded in the same WP. Likewise the topology file is `topologies/example-ai-newsletter.tsl` (name `example-ai-newsletter`), the durable log is `example-scored.p*`, and the mounted service CI node is `insights-demo`. So when you diff against [`examples/example-ai-newsletter/`](../examples/example-ai-newsletter/), map each bare name to its `_Demo` form. The JS carries no suffix and needs none, but it does not line up name for name with the real plugin either: both ship a `src/dashboard/PublisherInsightsPage.js`, while newspack-intelligence's hook is `useInsightsGraph` and its third widget is `AccumulatedPanel`, which owns the newsletter actions — Collect, Regenerate digest, Copy markdown and Create draft post — leaving its `TopTable` the ranked table and no buttons at all. Here the hook is `usePublisherInsightsGraph`, the third widget is the passive `AccumulatedCard`, and §5's actions sit on `TopTable`. Read the widget names before assuming a file is the one you want.
 
 > **A note on how this guide was written.** Every section below ends at a primitive in the substrate — `enqueue_react_page`, `buildDashboards`, `createJestConfig`, `Fetcher`, `read_latest_snapshot_cache`, `useBatchedPoll`, `addSliceFetcher`. None of those existed when the dashboard was first built: each was 20–250 lines of copy-paste in the example until writing *this* walkthrough made the boilerplate impossible to ignore, at which point it moved into the substrate. That's the same rule the first guide follows — **when a step feels like boilerplate, the fix belongs in the substrate, not the tutorial.** Where a step is one call today, this guide says what it replaced, so you can see the seam.
 
@@ -62,7 +62,7 @@ The digest from the first guide accumulates summaries in memory and flushes them
 
 A `Scorer` is a transform exactly like the summarizer: receive a struct item, add a field, forward. The one seam a real scorer replaces is `score()`.
 
-> Each PHP file below opens with the same preamble writing-a-plugin.md §2 established — `namespace Newspack_AI_Newsletter;` plus the `use Newspack_Nodes\{ Node, Message, Core, Command_Interpreter_Node };` (or `Service_CI_Node`/`Partition_Node`/`Config`) it needs. The snippets show only the class body.
+> Each PHP file below opens with the same preamble writing-a-plugin.md §2 established — `namespace Newspack_AI_Newsletter;`, then one `use Newspack_Nodes\<Class>;` line per class it needs. §1's nodes need `Node`, `Message` and `Core`; §2's service interpreter needs `Core`, `Service_CI_Node`, `Partition_Node` and `Config`. The snippets show only the class body.
 
 `includes/class-scorer-node.php`:
 
@@ -107,10 +107,26 @@ class Scorer_Node extends Node {
 		}
 		return \round( $base + $bump, 1 );
 	}
+
+	/** Palette tile and argument form. The weights are a constant, so there's nothing to configure. */
+	public static function node_schema(): array {
+		return [
+			'category'     => 'Transform',
+			'description'  => 'Assigns a notional priority score to one item; source-agnostic.',
+			'arguments'    => [],
+			'commands'     => [],
+			'accepts_fill' => true,
+			'has_target'   => true,
+		];
+	}
 }
 ```
 
 It slots between the summarizer and the digest: `summarizer → scorer → …`. Nothing else changes — the summarizer never learns there's a score, the digest never learns how it was computed. Same lesson as Ben's source in [writing-a-plugin.md](writing-a-plugin.md) §6. The toy scorer carries no clock and no randomness, so its suite asserts exact scores rather than ranges; an LLM call belongs in `score()` and nothing else in the file changes when it arrives.
+
+A pure transform still declares its schema, and those six keys are the whole of it — a category, a description, and the two flags saying it takes a `fill` and honours a `target`. Omit `node_schema()` and the class inherits `Node`'s default, whose `category` is the empty string, and the console's class catalog refuses an empty category exactly as it refuses `Hidden`: no palette tile, no inspector entry. `make_node Scorer` still builds the node, so the omission costs you the console and shows no other symptom.
+
+The two guards at the top of `fill()` are a **whitelist**, not a filter: a message that is neither TM_STRUCT nor an array VALUE dies here rather than passing through. This example mints nothing else, so nothing breaks. Add a control signal — a source's terminal `DONE`, which [writing-a-real-plugin.md](writing-a-real-plugin.md) uses to auto-compose the digest — and the scorer strands it. The real `Scorer_Node` in newspack-intelligence therefore opens `fill()` with one more branch, `if ( $type & Message::TM_INFO ) { parent::fill( $message ); return; }`, forwarding the signal untouched before the scoring work. That is the line you add the day your pipeline gains control traffic.
 
 ### b. Durability — write to a log, tail it back, snapshot the result
 
@@ -146,7 +162,9 @@ Three new ideas, all using nodes the substrate ships:
 
 - **`<config:...>` and `<partition>` tokens.** The `Log`/`Partition`/`Consumer` arguments interpolate runtime config (the substrate's `logs_dir`, `segment_size`, …) and the worker's partition index, so the same `.tsl` works for any partition count. They're substrate-registered token namespaces — you use them, you don't declare them. `Log` and `Partition` take the same seven positionals: the path, then `segment_size`, `min_segments`, `num_segments`, `max_segments`, `min_lifetime`, `lifetime`. Run `help Log` in the REPL for what each one prunes.
 - **`scorer → scored:partition` writes the durable log;** `scored:consumer → digest` tails it straight back into the digest. The Consumer reads each scored record and `fill()`s it into the digest, exactly as a `connect_node` would.
-- **`cmd scored:consumer:config add_snapshot_node digest`** is the key line. It tells the Consumer: each time you checkpoint your read cursor, also call `digest->save_state()` and co-commit that blob into your offsetlog **under the record's `cache` key, keyed by node name** — so a web request reads it straight back as `$value['cache']['digest']` (that's the `cache['digest']['items']` §2's reader pulls; your `save_state()` shape *is* the dashboard's read contract). On respawn the Consumer restores the cursor *and* hands the blob back via `digest->restore_state()` — **in lockstep**, so the digest's accumulated items and the cursor can never disagree. (`cmd scored:partition:config void_warranty` lifts the partition's 4 KB atomic-write cap, because a scored batch can exceed `PIPE_BUF` — see [ADR-4](architecture-decisions.md#adr-4-pipe_buf-atomic-writes).)
+- **`cmd scored:consumer:config add_snapshot_node digest`** is the key line. It tells the Consumer: each time you checkpoint your read cursor, also call `digest->save_state()` and co-commit that blob into your offsetlog **under the record's `cache` key, keyed by node name** — so a web request reads it straight back as `$value['cache']['digest']` (that's the `cache['digest']['items']` §2's reader pulls; your `save_state()` shape *is* the dashboard's read contract). On respawn the Consumer restores the cursor *and* hands the blob back via `digest->restore_state()` — **in lockstep**, so the digest's accumulated items and the cursor can never disagree. (Both `void_warranty` lines lift the 4 KB atomic-write cap on the node they configure, because both write records that can exceed `PIPE_BUF` — a scored batch on the partition, a composed markdown draft on `digest:log`. An oversize record is **dropped whole**, never truncated, so without those lines a flush reports `{ flushed: N }` while `digest.md.0` stays empty. See [ADR-4](architecture-decisions.md#adr-4-pipe_buf-atomic-writes); any node that emits a composed document into a `Log` needs the same line.)
+
+**When a checkpoint happens decides how fresh the dashboard is,** so read the cadence and its guard together. `Durable_Reader::fire()` calls `checkpoint()` only once `Dead_Letter_Queue::CHECKPOINT_INTERVAL_S` — 30 seconds — has elapsed since the last durable commit, and `checkpoint()` then returns early unless the read cursor moved since that commit. Two consequences follow. A freshly consumed record can sit up to a checkpoint interval before any frame carries it. And a change that moves **no** cursor writes no frame at all: a `FLUSH` is exactly that, so the digest empties its items in memory while the offsetlog — and every dashboard card reading it — keeps showing the pre-flush list until another scored record advances the cursor, or the worker shuts down gracefully and takes the `checkpoint( true )` path that skips the advance guard. The page renders what the last commit held, which is not the same as what the worker holds now.
 
 **The durable-snapshot recipe — lift these four lines.** This is the reusable pattern for *any* "make a worker's in-memory state readable from a web request" need; rename `scored` → your log name and `digest` → your state node:
 
@@ -158,6 +176,8 @@ cmd <log>:consumer:config add_snapshot_node <state-node>
 ```
 
 Then `connect_node <producer> <log>:partition` and `connect_node <log>:consumer <state-node>`. The four lines stay explicit on purpose: they're real nodes, so the topology console renders the durability and you can inspect the log and the read cursor live — a one-line macro would hide the `Partition`/`Consumer` and make the whole mechanism invisible on the canvas.
+
+**Keep the snapshot bounded.** Every checkpoint carries the state node's whole `save_state()` payload under the frame's `cache` key — there is no diff and no cap, so each commit re-serializes the entire accumulator. The demo stays cheap because a `FLUSH` empties `$items`. A state node lifted from this recipe that accumulates and never drains makes every offsetlog frame larger than the last, so drain it, cap it, or snapshot a summary rather than the raw items. `add_snapshot_node` lifts the offsetlog's own `PIPE_BUF` cap for you — the worker holding the topology lock is its sole writer — so an oversized frame is written rather than dropped, and the cost is size, not loss.
 
 The digest node implements the snapshot contract — two small methods:
 
@@ -182,6 +202,8 @@ public function restore_state( array $state ): void {
 }
 ```
 
+**A name that cannot restore degrades rather than losing state.** If the node `add_snapshot_node` names is absent by the first poll, declares no `restore_state()`, or has no blob in the frame, `Consumer_Node::init_position()` logs a rate-limited `WARNING: snapshot node '<name>' missing, stateless, or absent from the frame; skipping its restore` and carries on rather than throwing. The blob it could not hand back is kept, not dropped: it seeds the cache of every state-carrying checkpoint frame this reader writes from then on, so the state survives until either a live `save_state()` replaces it or a boot where the node does exist restores it. A typo in the snapshot node name therefore reads as *never restored, never lost* — and that warning is the only place it shows.
+
 That's the whole durability story: the worker writes a snapshot the web request can read. Restart the worker, drive the pipeline, and `offsets/example-scored.p0` now holds the digest's scored items. Nothing in the dashboard reads in-memory state — it reads that snapshot.
 
 ---
@@ -190,13 +212,15 @@ That's the whole durability story: the worker writes a snapshot the web request 
 
 The browser can't read a file off the worker's disk. It speaks the **command protocol**: a `POST` of a `TM_COMMAND` to `/newspack-nodes/v1/command`, which the substrate routes to a node by name. So we mount a **service interpreter** into every web request and give it verbs.
 
-The decomposition decision here is the same one we make on the client: a single `insights` verb returning `{sources, top, accumulated}` would be a **god command** — one verb that computes everything, that no one can reuse a slice of, that the dashboard can only fetch all-or-nothing. **God commands are as bad as god nodes.** So `Insights_CI` exposes **three small verbs**, one slice each:
+The decomposition decision here is the same one we make on the client: a single `insights` verb returning `{sources, top, accumulated}` would be a **god command** — one verb that computes everything, that no one can reuse a slice of, that the dashboard can only fetch all-or-nothing. So `Insights_CI` exposes **three small verbs**, one slice each:
 
 - `counts` → `{ "sources": { "releases": 2, "community": 3 } }`
 - `top` → `{ "top": [ { "source", "title", "score" }, … ] }`
 - `accumulated` → `{ "accumulated": 5 }`
 
 Each is independently fetchable (one `Fetcher` per verb, §3) — and because all three run inside one POST (§4's batching), they share **one** offsetlog read instead of globbing and unpacking the snapshot three times. That's the **memoized read** (`items()` + the `$read_items` closure seam): the first verb to run reads the snapshot once and caches the flattened items; the other two reuse the cache.
+
+**All three count the same list, and that list is the digest's *unflushed* buffer.** It is the `items` the digest's `save_state()` handed the Consumer at its last commit, so `accumulated` is a pending count, not a lifetime total, and `counts` and `top` describe the same pending items. `request_node digest FLUSH` — the runtime trigger [writing-a-plugin.md](writing-a-plugin.md) §4 teaches you to type at the REPL — empties `$items` after emitting the draft, so once the Consumer's next cursor-advancing checkpoint commits the emptied list, **By source**, the score-ranked table and the **Total items** card all drop to zero together and climb again as new scored records arrive. The dashboard's own **Draft newsletter** button does *not* flush: it renders the markdown in the browser from the `top` slice it already holds, and leaves the numbers alone.
 
 A service interpreter is a `Service_CI_Node` — a `Command_Interpreter_Node` whose verb table comes from its `node_schema()`, the same double-duty schema you already write for nodes. `includes/class-insights-ci-node.php`:
 
@@ -241,7 +265,7 @@ class Insights_CI_Node extends Service_CI_Node {
 
 	/** Read every `example-scored.p*` offset dir's latest snapshot, flatten the digest caches. */
 	public static function read_snapshot_items( string $offsets_dir ): array {
-		return \Newspack_Nodes\Partition_Node::read_latest_snapshot_cache( $offsets_dir, 'example-scored.p*', 'digest' );
+		return Partition_Node::read_latest_snapshot_cache( $offsets_dir, 'example-scored.p*', 'digest' );
 	}
 
 	/** Count items per source → { source: count }. An unnamed source counts under `?`. */
@@ -313,7 +337,7 @@ public static function node_schema(): array {
 }
 ```
 
-A read-only dashboard can widen that gate by declaring the role on the verb — `'capability' => \Newspack_Nodes\Capabilities::READ` beside `'name'`, which is what the substrate's own dashboard verbs do. The three roles are `read` (dashboards, SSE, introspection), `tune` (declared configuration and application data) and `manage` (fleet control and credentials); all three resolve to `manage_options` until an operator runs `wp nodes caps install`.
+A read-only dashboard can widen that gate by declaring the role on the verb — `'capability' => \Newspack_Nodes\Capabilities::READ` beside `'name'`, which is what the substrate's own dashboard verbs do. The three roles are `read` (dashboards, SSE, introspection), `tune` (declared configuration and application data) and `manage` (fleet control and credentials); all three resolve to `manage_options` until a site filters one down through `newspack_nodes/capability_map` or an operator runs `wp nodes caps install`.
 
 Mount the CI on every request, exactly as a god-command dashboard would — the decomposition is in the *verbs*, not the mount:
 
@@ -328,6 +352,8 @@ function mount_insights_ci( \Newspack_Nodes\Command_Interpreter_Node $base ): vo
 }
 add_action( 'newspack_nodes/request_graph_ready', __NAMESPACE__ . '\\mount_insights_ci' );
 ```
+
+The `require_once` is not the autoloader repeated. Composer's classmap is refreshed only by a hand-run `composer dump-autoload -o`, so a class added or renamed since the last dump would have `make_node` answering `unknown class` from inside a live request. Requiring the file makes the mount independent of how fresh the classmap is — which is why §8's `composer dump-autoload -o` step notes this one node as its exception. Delete the line and you have coupled every dashboard request to a build step nobody runs.
 
 Each verb returns its **slice as a JSON string** — `counts` gives `{sources}`, `top` gives `{top}`, `accumulated` gives `{accumulated}`. No transform node, no second round-trip; the browser's three fetches each get a finished slice in the POST response body. That choice — small slices, synchronous reads — is what makes the client three pure polls with no SSE.
 
@@ -378,7 +404,7 @@ fill( message ) {
 
 Read `fill()` carefully — apart from a reply, it **ignores its trigger message entirely**. Its type, VALUE and addressing go unread: any message that is not a reply is only the *trigger* to emit *the Fetcher's own configured command*. The command is configured on the node at `make_node` time (`fetch-counts`'s command is `counts`, fixed), **never read from the triggering message**.
 
-Two fields are what a caller reaches for. `outbox` holds the asks in flight, so a table can read which rows are still waiting; `command_args` holds either a static token array or a **fire-time getter** the trigger calls, which is how a filter, a sort or a page value tracks React state without re-wiring the graph. `send( args, path, supersede )` is the other way in, for a caller with an answer to wait on: it parks arguments the next trigger puts on the wire, and parks the **subject** the ask is about, which rides on FROM so the answer comes back naming it. That is how one Fetcher serves many rows with nothing correlated. `useCommandOnce` is that path packaged — reach for it rather than driving `send()` by hand.
+Two fields are what a caller reaches for. `outbox` holds the asks in flight, so a table can read which rows are still waiting; `command_args` holds either a static token array or a **fire-time getter** the trigger calls, which is how a filter, a sort or a page value tracks React state without re-wiring the graph. Build those tokens with **`formatCommandArgs( positional, options )`** (`@newspack-nodes/runtime`) rather than spelling `--key=value` by hand: it is the browser half of the one argument grammar, mirroring PHP `Newspack_Nodes\Command_Args`, so what a dashboard mints is what the verb parses. Required values ride positionally in the order the verb declares, `true` renders as a bare `--key`, `false` as an explicit `--key=false` (the bare form already means true, and omitting the option leaves a default-on setting standing), and an array as its comma-joined members — `formatCommandArgs( [ id ], { limit: 50, categories: true } )`. Nothing quotes anything: token boundaries are the array's, so a value carrying spaces — a `.tsl` body, a JSON blob — stays whole inside its own element. `send( args, path, supersede )` is the other way in, for a caller with an answer to wait on: it parks arguments the next trigger puts on the wire, and parks the **subject** the ask is about, which rides on FROM so the answer comes back naming it. That is how one Fetcher serves many rows with nothing correlated. `useCommandOnce` is that path packaged — reach for it rather than driving `send()` by hand.
 
 > **A node that sends the command its message carries is a `Shell`, and that's verboten.** A Shell *sends* arbitrary commands; a command *interpreter* is what *interprets* them. A named, always-firing node that relays whatever verb its incoming message names is a Shell wired into the graph — exactly the thing the substrate forbids. The Fetcher is the safe inverse: the command is fixed on the node, the message is only a trigger. When you need "on a tick, send verb X to node Y", reach for a `Fetcher`, never a Shell.
 
@@ -387,9 +413,9 @@ Two fields are what a caller reaches for. `outbox` holds the asks in flight, so 
 `Timer ─> Tee ─> 3 Fetchers`, each Fetcher `connectNode`'d to **`_shell/_http/insights-demo`**:
 
 - **`_http`** is the substrate's `HttpOut` egress — the boundary that POSTs the command batch to `/command`.
-- **`_shell`** is an **observe-only `Tap`** sitting *in front* of `_http`. A `Tap` forwards everything to its sink unchanged, but it's a named node on the send path — so you can `connect _shell` in the console and **watch every command going out** without touching the graph. Routing the Fetchers through `_shell/_http/insights-demo` (not `_http/insights-demo` directly) is what buys you that observability. Read `TO = _shell/_http/insights-demo` hop by hop: the router peels `_shell`, the Tap forwards to `_http`, and `HttpOut` peels itself and POSTs to `insights-demo`.
+- **`_shell`** is an **observe-only `Tap`** sitting *in front* of `_http`. A `Tap` forwards everything to its sink unchanged, but it's a named node on the send path — so you can `connect _shell` in the console and **watch every command going out** without touching the graph. Routing the Fetchers through `_shell/_http/insights-demo` (not `_http/insights-demo` directly) is what buys you that observability. Read `TO = _shell/_http/insights-demo` hop by hop: the Router peels `_shell` and hands the message to the Tap, whose sink returns it through the interpreter to the Router, which peels `_http`; `HttpOut` then POSTs what is left, `insights-demo`, as the command's TO.
 
-Both names are reserved, so spell the path through **`egressPath( ci )`** (`@newspack-nodes/shared/helpers/egressPath`) rather than by hand: it returns `_shell/_http/<ci>`, or a bare `_shell/_http` for a command-interpreter builtin such as `taillog`. Skipping the Tap is silent — the command still arrives, and `connect _shell` simply stops seeing it.
+Both names are reserved, so spell the path through **`egressPath( ci )`** (`@newspack-nodes/shared/helpers/egressPath`) rather than by hand: it returns `_shell/_http/<ci>`, or a bare `_shell/_http` for a command-interpreter builtin such as `taillog`. Skipping the Tap is silent — the command still arrives, and `connect _shell` stops seeing it.
 
 ### c. The receiver reply path — why a `counts` reply only touches the counts view
 
@@ -397,11 +423,13 @@ Each Fetcher stamps **`FROM = its receiver Tee`** (`fetch-counts` → `FROM=coun
 
 Each receiver `Tee` fans the reply **back to its own Fetcher** as well, which is what takes the ask off that Fetcher's outbox. `addSliceFetcher` connects the Fetcher **last**, after the view, because a Tee fans out in connect order and the ask must still stand while the reply renders. Until the ask settles, the Fetcher is quiet: a one-second refresh on a four-second verb asks once and waits, instead of stacking four identical commands the server is still working through. An answer that never arrives stops holding the outbox open after `retry_after_s` (15 seconds by default; 0 disables the re-ask, which is what a write wants), and an ask that stands for 120 seconds is retired outright — so a lost reply costs one slow refresh rather than a dead widget.
 
+That receiver belongs to its Fetcher alone. Mint a send straight from a receiver — outside the Fetcher polling through it — and that reply settles whatever ask the Fetcher had outstanding, because a pathless ask matches any pathless reply. The cost is one extra command in flight, and the next tick levels it out; where one ask at a time has to be exact, give the out-of-band send a receiver of its own.
+
 ### d. The thin view node
 
 > **One-pager:** [writing-a-view-node.md](writing-a-view-node.md) distills this section into the view-node contract — the 3 routing facts, `setState('view')`, and why `fill()` must never throw.
 
-Each view node is a `SliceViewNode` subclass that parses *its own* slice reply and publishes it. The base ships in the substrate — `@newspack-nodes/shared/nodes/slice-view-node` (shown here so you know the contract; it was a per-dashboard copy until it became a shared primitive):
+Each view node is a `SliceViewNode` subclass that parses *its own* slice reply and publishes it. The base ships in the substrate — `@newspack-nodes/shared/nodes/slice-view-node`, shown here so you know the contract:
 
 ```js
 import { Node, TYPE, VALUE, TM_ERROR, payloadOf } from '@newspack-nodes/runtime';
@@ -451,7 +479,7 @@ export class SliceViewNode extends Node {
 }
 ```
 
-Three branches, three failure rules, and none of them blanks the widget. A **control** is recognised by who sent it (`controlFrom`), never by what its payload looks like — ADR-7 addressing applied to controls, so a reply carrying an `action` field is still a reply. A **TM_ERROR** keeps the slice already on screen and adds `error` while clearing `loading`, so a transient failure neither empties a working widget nor leaves it spinning. An **unparseable payload** keeps the prior slice untouched. `_parse()` reports what it cannot use by returning null, never by throwing: `fill()` runs synchronously in the drain with no per-message try/catch, so a throw aborts the whole turn.
+Three branches, three failure rules, and none of them blanks the widget. A **control** is recognised by who sent it (`controlFrom`), never by what its payload looks like — ADR-7 addressing applied to controls, so a reply carrying an `action` field is still a reply. The base takes three: `loading` spins while keeping the data on screen, `clear` resets to the empty slice, and `error` surfaces a caller-side failure without blanking the data. A dashboard that drives its own view names that origin through `addSliceFetcher`'s `controlFrom`; most views omit it, and a view with no origin can take no control at all. A **TM_ERROR** keeps the slice already in the model and adds `error` while clearing `loading`, so the data survives the failure and nothing is left spinning — what reaches the screen is then the widget's call, and §5's three all choose to render the notice in place of the data. An **unparseable payload** keeps the prior slice untouched. `_parse()` reports what it cannot use by returning null, never by throwing: `fill()` runs synchronously in the drain with no per-message try/catch, so a throw aborts the whole turn.
 
 > **Three more message helpers.** `@newspack-nodes/runtime` re-exports `payloadOf` alongside the field constants, and three of its siblings measure or label a message rather than parse one. `typeLabels( type )` returns one label per flag set in a TYPE bitmask, and an empty array when no known flag matches — the Dumper renders that case as `TM_UNKNOWN(0x…)` itself. `byteLength( str )` measures a string in UTF-8 bytes the way PHP's `strlen()` does, through `Blob` rather than the `TextEncoder` jsdom lacks; the command transport and `HttpOut` weigh their wire traffic with it. `valueSize( m )` measures a message's VALUE through it — UTF-8 bytes for a string, and the character length of the JSON encoding, an estimate rather than a wire-exact count, for a struct or a command object.
 
@@ -468,7 +496,7 @@ export class SourceCountsViewNode extends SliceViewNode {
 
 `top-table-view-node.js` returns `{ top: [] }`; `accumulated-view-node.js` returns `{ accumulated: 0 }`. That's it — each owns one slice and nothing else.
 
-> The `errorMessage` import is itself a substrate refinement: coercing a `TM_ERROR` payload (string / `{message}` / anything) to a readable string was copy-pasted across every dashboard view node, so it lives in **`@newspack-nodes/shared/errorMessage`** now.
+> The `errorMessage` import is itself a substrate refinement: coercing a `TM_ERROR` payload (string / `{message}` / anything) to a readable string was copy-pasted across every dashboard view node, so it lives in **`@newspack-nodes/shared/errorMessage`**.
 
 **Three subclasses whose whole content is a literal are three declarations.** `sliceView( { empty, parse, json, description } )` returns the class those values imply, and `registerSliceViews( views )` declares a bundle's views, registers their names, and hands the classes back:
 
@@ -476,13 +504,15 @@ export class SourceCountsViewNode extends SliceViewNode {
 import { registerSliceViews } from '@newspack-nodes/shared/nodes/slice-view-node';
 
 export const views = registerSliceViews( {
-	SourceCountsView: { empty: { sources: {} } },
-	TopTableView:     { empty: { top: [] } },
-	AccumulatedView:  { empty: { accumulated: 0 } },
+	SourceCountsView: { json: true, empty: { sources: {} } },
+	TopTableView:     { json: true, empty: { top: [] } },
+	AccumulatedView:  { json: true, empty: { accumulated: 0 } },
 } );
 ```
 
-Every dashboard the substrate ships declares its views this way. Subclass only for a view that owns more than its slice — its own `fill()`, a timer, a teardown; the example keeps one file per view because a tutorial has to show the class before it shows the shorthand. Either way the classes are what the graph is built from, and the names are for TSL and the console palette.
+`json: true` is what these three verbs require, and it is the one flag a subclass never needs: `slice_verb()` JSON-encodes, so the payload lands as a string, and a declaration decodes it only when told to — the substrate's own Aggregator views set the flag for the same reason, while the Vault and Sessions catalogs answer a live struct and omit it. A declaration also takes a `parse` that reshapes the decoded body, and a `description` for the palette tile.
+
+A substrate view that is only its slice is declared this way, the Topology Console's two catalogs among them. Subclass only for a view that owns more than its slice: its own `fill()`, a ring buffer, a timer, a teardown. That is what the Event Dashboards bundle writes out beside its one declaration, and the example keeps one file per view because a tutorial has to show the class before it shows the shorthand. Either way the classes are what the graph is built from, and the names are for TSL and the console palette.
 
 Register the classes so `makeNode` can find them by name (the JS analogue of the PHP classmap) — `Timer`/`Tee`/`Fetcher`/`Tap`/`HttpOut` are runtime nodes and already registered. `src/dashboard/nodes/register.js`:
 
@@ -499,7 +529,7 @@ CommandInterpreterNode.registerNodeClasses( {
 } );
 ```
 
-> **Hand `makeNode` the CLASS, not the name** ([ADR-16](architecture-decisions.md#adr-16-js-node-class-resolution--names-are-the-tsl-surface-classes-are-the-api)). `includeNodes` is a per-bundle static, so a name resolves only through an interpreter *this* bundle mounted; a hub tab building its graph through another bundle's interpreter would find nothing. The registration above still earns its keep — TSL and the palette have no class to hand — but §4's `SLICES` table carries the imported classes.
+> **Hand `makeNode` the CLASS, not the name** ([ADR-16](architecture-decisions.md#adr-16-js-node-class-resolution--names-are-the-tsl-surface-classes-are-the-api)). `includeNodes` is a per-bundle static, so a name resolves only through an interpreter *this* bundle mounted; a hub tab building its graph through another bundle's interpreter would find nothing. The registration above still earns its keep, for the two paths that can only spell a name: a `make_node SourceCountsView` typed at the REPL or replayed from TSL text, and `help SourceCountsView`, which reaches the schema through the same `includeNodes` lookup. The console palette is not one of them — `SliceViewNode.nodeSchema()` declares `category: 'Hidden'`, every subclass and every `sliceView()` declaration inherits it, and the class catalog drops a Hidden category before it builds a tile. §4's `SLICES` table carries the imported classes.
 
 ---
 
@@ -518,7 +548,7 @@ import { TopTableViewNode } from '../nodes/top-table-view-node';
 import { AccumulatedViewNode } from '../nodes/accumulated-view-node';
 
 const SERVER = 'insights-demo';   // the server-side CI mount (real product owns unsuffixed `insights`)
-const TARGET = `_shell/_http/${ SERVER }`;
+const TARGET = `_shell/_http/${ SERVER }`;   // egressPath( SERVER ) composes the same string
 
 // A digest moves on the order of minutes, so this is a retry, not a feed.
 const DEFAULT_INTERVAL_MS = 30000;
@@ -544,7 +574,7 @@ export function usePublisherInsightsGraph( opts = {} ) {
 }
 ```
 
-`useBatchedPoll` owns everything that used to be hand-wired here — the `mountExospine` call that brings the `_shell` Tap and the `_http` HttpOut, the fan-out `Tee`, the router-hitchhike `Timer`, and the page-visibility gate. It returns `{ interpreterRef, pollNow }`: the live interpreter, and a `pollNow()` that marks this poll due and runs the Router's tick, which is how a filter change refreshes without waiting out the cadence. Each `addSliceFetcher` wires one Fetcher → `_shell/_http/insights-demo`, its receiver Tee, its view node, and the receiver's edge back to the Fetcher that settles the ask. (When a slice needs a per-slice merge or dedup, pass `addSliceFetcher` a `transform: { name, nodeClass, args }` and it drops that node onto the receiver-Tee → view edge — so the transform lands on a graph edge, not inside the view.)
+`useBatchedPoll` owns everything a hook would otherwise wire by hand — the `mountExospine` call that brings the `_shell` Tap and the `_http` HttpOut, the fan-out `Tee`, the router-hitchhike `Timer`, and the page-visibility gate. It returns `{ interpreterRef, pollNow }`: the live interpreter, and a `pollNow()` that marks this poll due and runs the Router's tick, which is how a filter change refreshes without waiting out the cadence. Each `addSliceFetcher` wires one Fetcher → `_shell/_http/insights-demo`, its receiver Tee, its view node, and the receiver's edge back to the Fetcher that settles the ask. A function `build` returns runs as cleanup before those nodes come down, which is where a dashboard releases whatever it started that is not a node. (When a slice needs a per-slice merge or dedup, pass `addSliceFetcher` a `transform: { name, nodeClass, args }` and it drops that node onto the receiver-Tee → view edge — so the transform lands on a graph edge, not inside the view.)
 
 Four options ride in the same bag:
 
@@ -553,18 +583,18 @@ Four options ride in the same bag:
 - **`enabled`** — gate a tab nobody has opened: `false` costs nothing at all, with no first load, no timer and no named node, and flipping it true delivers the first load then.
 - **`passenger`** — clip onto a backbone somebody else owns, for a poll that is *part* of a page rather than its graph. The owner keeps the full rebuild; a passenger re-attaches when the backbone comes back.
 
-A slice can also emit *live* command args per tick: `addSliceFetcher` takes an `argsFn: () => argsTokens` fire-time getter, returning a flat token array, that it assigns to the Fetcher's `command_args`. A `null` return sends nothing that tick. The toy's three verbs take no args, so it needs none.
+A slice can also emit *live* command args per tick: `addSliceFetcher` takes an `argsFn: () => argsTokens` fire-time getter, returning the flat token array `formatCommandArgs` builds, that it assigns to the Fetcher's `command_args`. A `null` return sends nothing that tick. The toy's three verbs take no args, so it needs none.
 
-Two ideas carry the whole hook; the toolkit owns them now instead of each hook copying them:
+Two ideas carry the whole hook, and the toolkit owns both:
 
 - **The tick hitchhike and the batch bracket.** `insights:timer` is a `Timer` registered on `_router`'s TIMER channel, so it fires on the router tick. **The Router owns the bracket**, not this hook: `RouterNode.fireCb()` calls `_http.lock()`, notifies every TIMER registrant, and flushes in a `finally`. So when the tick fans out through the Tee to all three Fetchers, each command buffers behind the `_http` lock and the single flush ships them as **one `postBatch`**. **Fan-out is free: three Fetchers, one HTTP round-trip** — add a fourth slice and it is still one POST per tick. A mount opening a bracket of its own would make that tick pay for a second POST, which is exactly why `useBatchedPoll` opens none. (Same batching principle the worker side gets from the drain loop: more traffic per tick, the same fixed cost.)
 - **Page-visibility gating.** While the tab is hidden, the toolkit calls `timer.stopTimer()` to unregister the Timer from the router TIMER, so a tick fans out to nothing and no POST goes out; becoming visible re-arms it and delivers any first load still owed. No wasted polls behind a backgrounded tab.
 
-> **← a substrate refinement.** The `_shell`-Tap wiring, the Timer/Tee fan-out and the page-visibility plumbing used to be **hand-wired here** — roughly 50 lines of `useEffect` plus `mountExospine`, copy-pasted across this example, the topology console's poll dashboards, and the performance hook. It became **`useBatchedPoll( … )`** (the mount, `_shell`/`_http`, the Timer and Tee, the visibility gate, the first-load and unsigned-tick retries) and **`addSliceFetcher()`** (the per-slice Fetcher → receiver-Tee → view block, with its optional transform slot). The hook collapsed to its slices. That's the dogfooding rule this guide runs on: the moment a third caller copied the wiring, it moved into the substrate — so §4 is now one call, exactly like §6 and §7.
+> **← a substrate refinement.** The `_shell`-Tap wiring, the Timer/Tee fan-out and the page-visibility plumbing used to be **hand-wired here** — roughly 50 lines of `useEffect` plus `mountExospine`, copy-pasted across this example, the topology console's poll dashboards, and the performance hook. It became **`useBatchedPoll( … )`** (the mount, `_shell`/`_http`, the Timer and Tee, the visibility gate, the first-load and unsigned-tick retries) and **`addSliceFetcher()`** (the per-slice Fetcher → receiver-Tee → view block, with its optional transform slot). The hook collapsed to its slices. That's the dogfooding rule this guide runs on: the moment a third caller copied the wiring, it moved into the substrate — so §4 is one call, exactly like §6 and §7.
 
 > **A catalog is one call further.** `useCatalogSlice( { scope, ci, viewClass, key } )` polls one CI's `list` verb as a slice and hands back the published model plus `loading`, `error` and `refresh()`. The tick *is* the retry, so a refusal recovers with no latch and no memoised promise. Its default cadence is 30 seconds, on the reasoning that a catalog changes when someone edits it.
 
-The reply routing is worth reading once, because it's the whole graph in miniature. A Fetcher emits `TO=_shell/_http/insights-demo` (peeled hop by hop to the egress) and `FROM=countsIn`. The service CI's `counts` verb replies `TO=FROM=countsIn`, the router delivers it to the `countsIn` Tee, and the Tee fans it to `source-counts:view`. Same TO/FROM mechanics as the PHP side — the only browser-specific nodes are `_http` (the egress) and `_shell` (the observe Tap in front of it).
+The reply routing is worth reading once, because it's the whole graph in miniature. A Fetcher emits `TO=_shell/_http/insights-demo` (peeled hop by hop to the egress) and `FROM=countsIn`. The service CI's `counts` verb replies `TO=FROM=countsIn`, the router delivers it to the `countsIn` Tee, and the Tee fans it to `source-counts:view`. Same TO/FROM mechanics as the PHP side; the browser adds two hops the server's request graph has no need of, `_shell` the observe Tap and `_http` the egress that carries the command across the wire. `Bootstrap::mount_request_graph()` raises `_router` and `_command_interpreter` and stops there.
 
 ---
 
@@ -626,12 +656,23 @@ export function AccumulatedCard() {
 
 `SourceCounts` reads `source-counts:view` and renders one proportion bar per source — with its **own** error notice and its **own** "No sources yet" empty hint. `TopTable` reads `top-table:view` and renders the score-ranked table, with its own error/empty branches — that per-widget ownership of empty and error state *is* the composition: each card degrades independently. The `|| { … }` fallback in each covers the one render before the hook's effect mounts the node, where `useNodeState` has no node to read and returns undefined. From construction onward the view node publishes its own shaped-but-empty slice, so every later render is valid without it.
 
-`TopTable` also owns the newsletter actions — the **Draft newsletter**, **Copy markdown** and **Create draft post** buttons — because they operate on *its* `top` items. Both documents are composed in the browser; only **Create draft post** leaves it, and it goes to the WP REST API (`POST /wp/v2/posts`), never back through the node graph. That call sits behind a `createDraft` prop defaulting to `apiFetch`, so a test hands the component a fake that resolves or rejects and exercises both rendered outcomes without touching the network. The three actions share one tiny normalizer so the on-screen preview, the markdown draft and the draft-post HTML all agree on a row's display strings, `src/dashboard/itemLabel.js`:
+**A slice error replaces the data rather than sitting beside it,** and that is a widget decision, not the base class's. §3d's `SliceViewNode` keeps the prior slice in the model on a TM_ERROR; each of these three then tests `slice.error` **first** and returns the notice alone, because a stale count or a stale proportion bar next to a failure notice reads as current. Testing it first also settles precedence: `SourceCounts` shows "No sources yet" for an empty map only while the slice carries no error. A fourth widget picks one of the two shapes deliberately, and they differ only in the frame. A card with a heading — `SourceCounts`, `TopTable` — keeps its `<section>` and `<h2>` and swaps the body beneath it. A bare KPI tile like `AccumulatedCard` has no heading to keep, and `eai-insights__notice` carries its own surface, so it returns the notice with no `eai-insights__stat` wrapper and the "Total items" label goes with the count.
+
+Two attributes carry the WCAG AA commitment the Newspack in-product design system makes, and both are conventions a fourth widget inherits. Every error notice is `role="alert"`, the one in the listing above included, because a failure arrives on a poll tick with no focus change and nothing else would surface it to a screen reader. `SourceCounts`'s proportion bar is `aria-hidden="true"`, because the source name and count printed above it already announce the number and the fill would announce nothing. Note its width guard while you are there — `total ? ( count / total ) * 100 : 0` — since counts summing to zero would otherwise size every fill `NaN%`.
+
+`TopTable` also owns the newsletter actions — the **Draft newsletter**, **Copy markdown** and **Create draft post** buttons — because they operate on *its* `top` items. Both documents are composed in the browser; only **Create draft post** leaves it, and it goes to the WP REST API (`POST /wp/v2/posts`), never back through the node graph. That call sits behind a `createDraft` prop defaulting to `apiFetch`, so a test hands the component a fake that resolves or rejects and exercises both rendered outcomes without touching the network.
+
+Read which button drives which builder, because the function name and the first label do not pair up. **Draft newsletter** sets local state and renders the on-screen `<ul>` preview from the `top` array; **Copy markdown** is what calls `draftNewsletter()` and hands the result to `navigator.clipboard.writeText`; **Create draft post** calls `newsletterPost()`.
+
+**An action's result lives in React state, never in the slice.** The preview array, the "Copied" flag, the "Edit draft" link, the draft error and the in-flight flag are all `useState` on the widget, because §3d's `SliceViewNode` rebuilds its model whole on every reply — `{ ...settled, ...slice }` — so anything published into the slice, including through `controlMsg()`, is gone at the next poll thirty seconds later. The rule that follows: a field belongs in the slice only when the next reply *should* retire it, as it should retire a spinner or a refusal, and anything the user has to go on seeing across polls belongs in component state. The preview holds the array captured at the click for the same reason, so a later poll refreshes the table beneath an unchanged preview.
+
+Two of the three buttons can fail, and each degrades rather than dying quietly. **Copy markdown** tests `window.navigator.clipboard` and its `writeText` before calling either — the API is absent on an insecure origin and on older browsers — and renders "Clipboard unavailable here — copy from the preview instead." where an unguarded call would leave a dead button and nothing in the console; it flags "Copied" only once the `writeText` promise resolves, since a denied permission or an unfocused document still rejects it. **Create draft post** stays `disabled` across the round trip, so a second click cannot open a second draft, and it has three outcomes rather than two: a reply carrying an `id` builds the link, a reply without one gets an error notice instead of a `post=undefined` link, and a rejection surfaces its own `message`. The link itself is `${ window.location.origin }/wp-admin/post.php?post=<id>&action=edit`, which assumes the site sits at the domain root under the default admin path — `origin` drops a subdirectory install's path, and the link 404s there.
+
+Those three actions share one tiny resolver so the preview, the markdown draft and the draft-post HTML agree on what an empty field reads as, `src/dashboard/itemLabel.js`:
 
 ```js
 import { __ } from '@wordpress/i18n';
 
-/** Normalize a ranked item to display strings — shared empty-field fallbacks, applied once. */
 export function itemLabel( item = {} ) {
 	return {
 		title:  item.title  || __( '(untitled)', 'example-ai-newsletter' ),
@@ -639,6 +680,10 @@ export function itemLabel( item = {} ) {
 	};
 }
 ```
+
+Three things about those four lines. It **resolves**, it does not coerce: a truthy field passes through as it stands, so an item whose `title` arrives as a number hands the caller a number, and the text is raw — each renderer escapes or formats for its own target. `||` rather than `??` is deliberate on `title`, because §2's `shape_top()` already writes `'title' => $item['title'] ?? ''` and leaves the replacement to the client, which needs `__()`; `??` would let that empty string through and blank the preview, the markdown and the draft post at once. The `'?'` on `source`, in contrast, repeats a literal `shape_top()` also writes, so the same placeholder lives in two languages and the two must stay in step — this arm only catches the empty string or non-string the PHP `??` misses.
+
+The three actions are the only consumers. `TopTable`'s own table cells print `item.source` and `item.title` straight off the slice, so an item that `shape_top()` gave an empty title renders a blank cell in the table and `(untitled)` in the preview two inches below it.
 
 `draftNewsletter` then turns the already-ranked `top` into markdown, `src/dashboard/draftNewsletter.js`:
 
@@ -656,9 +701,11 @@ export function draftNewsletter( items = [] ) {
 }
 ```
 
-Its sibling `src/dashboard/newsletterPost.js` builds the draft post's `{ title, content }` from the same items, as an HTML list. It escapes the five HTML-significant characters itself rather than leaving that to WordPress: an administrator on a single site holds `unfiltered_html` and is exempt from kses, so an item title carrying markup would be stored as markup. `draftNewsletter` escapes nothing, because its destination is the clipboard.
+Its sibling `src/dashboard/newsletterPost.js` builds the draft post's `{ title, content }` from the same items, as an HTML list. It escapes the five HTML-significant characters itself rather than leaving that to WordPress: an administrator on a single site holds `unfiltered_html` and is exempt from kses, so an item title carrying markup would be stored as markup. Its `escapeHtml()` opens with `String( value )`, and that coercion is load-bearing rather than habit — `itemLabel` hands back the item's own field whenever it is truthy, and a numeric title has no `.replace()`. `draftNewsletter` escapes nothing, because its destination is the clipboard.
 
-`PublisherInsightsPage` reads `import './styles/insights.scss'` — create that file. Style it to the **Newspack in-product design system**: Cobalt (`#003DA5`) for the primary action, neutral surfaces (`#fff` / `#f7f7f7`) and borders (`#ddd`), `#1e1e1e` / `#6c6c6c` text, Inter, the 4/8/16/24 spacing scale, and functional colors (error `#B32D2E` on subtle `#FCF0F1`) only for status. The example's `insights.scss` is the reference. **Lay it out in flow** — a normal block in the admin content column — *not* `position: fixed` / full-bleed: that overlay pattern belongs to the Topology Console and the DevTools hub (which deliberately take over the viewport), and on a standalone admin page it hides the WP admin bar and menu.
+`content` is classic HTML — a plain `<ul>` of `<li><strong>title</strong> — source</li>`, with no block delimiters — so the created draft opens in the editor as one Classic block. That is the cheap shape, and it is a choice: newspack-intelligence's `markdownToBlockMarkup()` runs its text through `pasteHandler` and `serialize` to store real core blocks instead. Pick the second when the draft is meant to be edited as blocks.
+
+`PublisherInsightsPage` reads `import './styles/insights.scss'` — create that file. Style it to the **Newspack in-product design system**: Cobalt (`#003DA5`) for the primary action, neutral surfaces (`#fff` / `#f7f7f7`) and borders (`#ddd`), `#1e1e1e` / `#6c6c6c` text, Inter, the 4/8/16/24/32px spacing scale, and functional colors (error `#B32D2E` on subtle `#FCF0F1`) only for status. The example's `insights.scss` is the reference. **Lay it out in flow** — a normal block in the admin content column — *not* `position: fixed` / full-bleed: that overlay pattern belongs to the Topology Console and the DevTools hub (which deliberately take over the viewport), and on a standalone admin page it hides the WP admin bar and menu.
 
 The bundle entry mounts the page into the div the PHP enqueue will render, `src/dashboard/index.js`:
 
@@ -666,15 +713,21 @@ The bundle entry mounts the page into the div the PHP enqueue will render, `src/
 import { createRoot } from '@wordpress/element';
 import PublisherInsightsPage from './PublisherInsightsPage';
 
+// Hand-matched to §7's INSIGHTS_MOUNT_ID. No constant crosses the PHP/JS
+// boundary, so changing one side alone leaves the page blank with nothing logged.
+const MOUNT_ID = 'example-ai-newsletter-insights';
+
 document.addEventListener( 'DOMContentLoaded', () => {
-	const el = document.getElementById( 'example-ai-newsletter-insights' );
+	const el = document.getElementById( MOUNT_ID );
 	if ( el ) {
 		createRoot( el ).render( <PublisherInsightsPage /> );
 	}
 } );
 ```
 
-That is the entire view layer: three thin widgets reading three nodes, two client-side document builders over one shared normalizer, and one mount.
+The listener still fires because `Admin::enqueue_react_page()` enqueues the bundle **in the footer**, below the mount div: a footer script runs while the document is still parsing, so `DOMContentLoaded` has yet to fire. The `if ( el )` guard is not there because the div might be missing — the registrar's `?page=` gate means the bundle loads only where the div is printed — but because `createRoot( null )` throws. A bundle injected *after* load misses the event entirely and must mount at module evaluation instead, which is what `src/devtools-hub/index.js` and event-logger-nodes' `src/requests/index.js` do: they arrive through the lazy DevTools tab path, `Admin::lazy_tab_script()` and the `NewspackNodesLazyTabs` map. Converting this page into a `host: 'hub'` tab ([writing-a-real-dashboard.md](writing-a-real-dashboard.md)) means making that swap.
+
+That is the entire view layer: three thin widgets reading three nodes, two client-side document builders over one shared resolver, and one mount.
 
 ---
 
@@ -751,9 +804,13 @@ The guard moves from the kit file onto the directory, because the directory is w
 
 `buildDashboards` rewrites each `@wordpress/*` import listed in its `WP_EXTERNALS` map to the matching `window.wp.*` global (and records the dependency in `index.asset.php` so WordPress enqueues the right handles), compiles your SCSS, content-hashes the bundle for cache-busting, and emits the RTL companion. It checks every alias path *before* esbuild starts, so a bad checkout fails with a fixable line naming the missing directory.
 
+**The entry must be named `index.js`,** in both forms above. The kit names every output after the entry filename — `<base>.js`, `<base>.asset.php`, `<base>.css` and `<base>-rtl.css` — while `Admin::enqueue_react_page()` resolves all four by the literal name `index` inside the `dir` you hand it. So one `outDir` holds exactly one bundle, and the directory is the only part of the path you choose. The `entry` key reads as free-form and is not: rename it to `dashboard.js` and the build still succeeds, but the registrar's `file_exists` gate finds no `index.js`, returns null, and enqueues nothing.
+
+That silent null is worth recognising, because a checkout or a release zip that never ran `npm run build` produces the identical symptom. The menu callback still prints its empty mount div inside `.wrap`, and there is no PHP error, no 404 and nothing in the console. The debug overlay is no help either — §9 mounts it from inside `PublisherInsightsPage`, so it lives in the very bundle that failed to load. Confirm `build/dashboard/index.js` exists on the server before looking anywhere else.
+
 **One base path, three aliases, one resolver.** `src/build-kit/alias-map.cjs` is the single place `@newspack-nodes/runtime`, `@newspack-nodes/shared` and `@newspack-nodes/debug-overlay` are written down; `esbuildAlias( base )` projects them for esbuild and `jestModuleNameMapper( base )` for jest, so the two cannot disagree about where an alias points. The `.cjs` extension is load-bearing — `jest.cjs` must `require()` it synchronously while `build.mjs` imports it as a module. Both forms above hand `base` the same value they hand the kit, which is the point of the single override: `NEWSPACK_NODES_SRC` names the substrate's `src` directory, and everything derives from it. The in-repo example reads no env var, because its depth is fixed and a variable there would only be a way to build against a different checkout by accident.
 
-`assertNoRetiredOverrides( process.env )` defends that single override. There used to be four independent ones, one per alias plus the kit, all naming paths inside that same directory; a release workflow had to set every one, and omitting any single one silently resolved to a nonexistent sibling path. Setting a retired name now throws and names it, rather than being ignored.
+`assertNoRetiredOverrides( process.env )` defends that single override. Four names are retired — `NEWSPACK_NODES_RUNTIME`, `NEWSPACK_NODES_DEBUG_OVERLAY`, `NEWSPACK_NODES_SHARED` and `NEWSPACK_NODES_BUILD_KIT`, one per alias plus the kit — and setting any of them throws and names it. Ignored instead, a stale export left beside a correct `NEWSPACK_NODES_SRC` would do nothing while the build went green.
 
 The jest config is one call too, and it splits the same two ways — `jest.config.js` **in this repo**:
 
@@ -781,6 +838,8 @@ module.exports = createJestConfig( {
 
 Jest reads no `NEWSPACK_NODES_SRC`: the `require()` is a literal path, so the sibling checkout is spelled twice in this file and the env var moves the build alone. The release workflow builds without running jest, so nothing there depends on the two agreeing — but a `jest.config.js` aimed at a different substrate than the bundle is a suite passing against code you do not ship.
 
+`pinReactFrom` names the one `node_modules` all four React specifiers resolve through — `react`, `react-dom`, `react/jsx-runtime` and `@wordpress/element`. A standalone plugin carries its own copy of those, beside the substrate sources jest maps through the `@newspack-nodes/*` aliases, and every substrate hook you mount reaches `useState` and `useEffect` through `@wordpress/element` — `DebugOverlay` among them. Let both copies load and those hooks run against a different React instance than your own components use, which fails on the first render with `Invalid hook call`. The substrate's own `jest.config.js` omits the option because there is one `node_modules` in play and nothing to disambiguate.
+
 `createJestConfig` also takes `extraMappers` (the example pins `@wordpress/api-fetch` and `d3` at the substrate's installed copies), `transformIgnorePatterns` (d3 and `@noble/*` ship ESM only, so they opt out of the node_modules transform skip) and `testPathIgnorePatterns` (the substrate excludes `/examples/`, which runs its own suite). It resolves two `<rootDir>` files it expects you to provide — jest's convention, not the substrate's:
 
 ```js
@@ -795,11 +854,15 @@ module.exports = {};
 Ahead of your `jest.setup.js` the factory loads one of its own, `src/build-kit/jest-node-timers.js`. It holds every runtime node your suite mounts to two timer invariants, and breaking either fails the test:
 
 - **No runtime interval outlives the test file.** The harness wraps `TimerNode`'s `setTimer`/`stopTimer`, disarms after each test whatever that test armed, and closes any `SseInNode` it opened — so a suite owns no timer teardown of its own. An interval armed from `src/runtime/` that is still live after the last test throws from `afterAll`, naming the frame that armed it, because a timer outliving its test fires into the next one.
-- **A node armed on the real clock must not still be armed when the suite fakes `setInterval`.** Its handle belongs to the real clock, so `advanceTimersByTime` never fires it: the graph does not tick and the test passes for the wrong reason. `createTimerHazardGuard` (`src/build-kit/timer-hazard.js`) catches the swap and throws at that test's teardown, naming the arming line in your `__tests__` file (`firstFrame` picks that frame out of the stack) and the three one-line remedies — install fake timers before you mount or arm the graph, dispose the stale graph before re-mounting under them, or fake only what you advance: `jest.useFakeTimers( { doNotFake: [ 'setInterval', 'requestAnimationFrame' ] } )`. Faking `setTimeout` alone to drive a component debounce is not a hazard and is not reported.
+- **A node armed on the real clock must not still be armed when the suite fakes `setInterval`.** Its handle belongs to the real clock, so `advanceTimersByTime` never fires it: the graph does not tick and the test passes for the wrong reason. `createTimerHazardGuard` (`src/build-kit/timer-hazard.js`) catches the swap and throws at that test's teardown, naming the arming line in your `__tests__` file (`firstFrame` picks that frame out of the stack) and the three one-line remedies — install fake timers before you mount or arm the graph, dispose the stale graph before re-mounting under them, or fake only what you advance: `jest.useFakeTimers( { doNotFake: [ 'setInterval', 'requestAnimationFrame' ] } )`. Faking `setTimeout` alone to drive a component debounce is not a hazard and is not reported. Restoring real timers later in the same test is not a fourth remedy: the guard latches the fake install for the whole test instead of sampling timer state at teardown, where a `finally` calling `useRealTimers()` would read real and hide it — the stranding happened during the fake window whatever the test did afterwards. Disposing the graph, or re-arming it under the fake timers, is what clears the report.
 
 Both invariants are browser-only. The file's body sits behind a `typeof window` check, so a suite declaring `/* @jest-environment node */` — the build-tooling tests — pulls no runtime graph in and is held to neither.
 
-The example's `jest.setup.js` earns three more blocks, and a dashboard suite wants all three. It **authenticates the command session** in a `beforeEach` (`forgetSession`, `__setAuthFetch`, `ensureSession` from `src/runtime/command-auth`) — every Fetcher holds until `readyToMint()` says yes, which is what production does, so without it every poll test asserts silence. It installs Node's `TextEncoder` and `webcrypto` over jsdom's, which ships neither and the command signer needs both. And it **fails any test emitting an unexpected `console.warn` or `console.error`**, letting through only the substrate's own timestamped `Core.stderr()` lines.
+The example's `jest.setup.js` earns three more blocks, and a dashboard suite wants all three. It **authenticates the command session** in a `beforeEach` (`forgetSession`, `__setAuthFetch`, `ensureSession` from `src/runtime/command-auth`) — every Fetcher holds until `readyToMint()` says yes, which is what production does, so without it every poll test asserts silence. It installs Node's `TextEncoder` and `webcrypto`: jsdom supplies no `TextEncoder` at all, which the signer reaches through `@noble/hashes`' `utf8ToBytes`, and jsdom's `crypto` — carrying `getRandomValues`, which the signer's nonce needs, but no `subtle` — gives way to Node's whole object, the missing `subtle` being the tell that it is jsdom's. The signer itself never calls `subtle`; its HMAC comes from `@noble/hashes` because it must be synchronous. And it **fails any test emitting an unexpected `console.warn` or `console.error`**, letting through only the substrate's own timestamped `Core.stderr()` lines.
+
+That third block is the **loose** variant of the gate, and a real plugin should carry the strict one. The example discards every warn matching the `SUBSTRATE_STDERR` prefix unread, so a node fault, a `printLessOften()` line or a dropped-message notice vanishes and a dashboard test whose graph genuinely faults passes green with no trace. The substrate's own `jest.setup.js`, and event-logger-nodes', close that hole with a declaration: `global.expectConsoleWarn( 'Router: dropped message not addressed' )` suppresses exactly the warn a test means to provoke, an undeclared substrate warn fails the test, and a declared one that never fires fails it too. Copy that setup, not this one, the moment your suite exercises a fault path.
+
+`SUBSTRATE_STDERR` is itself a hand-maintained copy — the same regex sits in six `jest.setup.js` files across these plugins — of the prefix `localStamp()` in `src/runtime/core.js` builds from `Intl.DateTimeFormat( 'en-CA', { timeZoneName: 'short' } )`. Its zone alternation (`UTC`, `GMT±H[:MM]`, or a two-to-five-letter abbreviation) tracks exactly what that emits. Change the stamp and the exemption breaks in every copy at once, surfacing as unrelated suites failing on substrate spam. Widening the zone token to a bare `\S+` does the opposite and makes the gate swallow the ordinary `<date> <time> <word> <word>: ` warnings it exists to report.
 
 Tests drive the graph through the **wire**, not the client: `installFakeCommandWire( replyFor )` from `@newspack-nodes/shared/test-utils/fakeCommandWire` stubs `global.fetch` (and `/auth`), so packing, `HttpOut`, the Router and the interpreter all run for real and replies come back `TO = FROM`. `wire.batches` is what was posted, which is how the example asserts that one tick is one POST carrying three commands. Its companion `runClockFast( factor )` from `test-utils/fastClock` shadows `Core.now()` so a test reaches the next poll boundary instead of waiting out a 30-second cadence.
 
@@ -813,7 +876,25 @@ And the `npm run build` / `npm run test:js` the guide keeps invoking are `packag
 	"test:js": "jest --passWithNoTests"
 }
 ```
-(Plus the dependencies any React/esbuild project needs — `esbuild`, `sass`, `rtlcss`, `jest`, `jest-environment-jsdom`, `babel-jest`, `@testing-library/*`, `@wordpress/element`/`i18n`/`api-fetch`, `react`/`react-dom`; copy the example's `package.json` and `babel.config.js` rather than hand-rolling them. `babel.config.js` is for jest alone — esbuild reads none of it — and must set `targets: { node: 'current' }` and the automatic JSX runtime, matching the kit's `jsx: 'automatic'`, because nothing under `src/` binds `React`.)
+(Plus the dependencies any React/esbuild project needs — `esbuild`, `sass`, `rtlcss`, `jest`, `jest-environment-jsdom`, `babel-jest`, `@testing-library/*`, `@wordpress/element`/`i18n`/`api-fetch`, `react`/`react-dom`; copy the example's `package.json` and `babel.config.js` rather than hand-rolling them.)
+
+`babel.config.js` is read by jest and by eslint's parser; esbuild reads none of it. Babel resolves a root config from the **working directory** rather than from the file being processed, so whichever Babel-driven tool you launch from the plugin root reads yours: `babel-jest` when the suite runs, and `@babel/eslint-parser` when `eslint .` or an editor lints from there. (`@wordpress/eslint-plugin`'s `esnext` config injects its own preset only when it finds no babel config; with one present, the parser reads yours.) That makes both settings load-bearing beyond the test run:
+
+- **`@babel/preset-react` with `runtime: 'automatic'`** matches the kit's esbuild `jsx: 'automatic'`, so JSX resolves through `react/jsx-runtime`. Nothing under `src/` binds `React` — the dashboard imports `createRoot` and `useState` from `@wordpress/element` — so the classic runtime would fail every JSX file on an undefined `React`, in lint as well as in test. This is why the `.eslintrc.js` below sets no `parserOptions`.
+- **`targets: { node: 'current' }`** compiles for the Node running the suite. Without it `@babel/preset-env` falls back to browserslist resolution, which walks *up* the tree: this package declares no `browserslist` key, so it would inherit the substrate's two levels up and down-compile the tests to the WordPress browser matrix for nothing. An explicit `targets` overrides an own key and an inherited one alike.
+
+The eslint config splits the same two ways `build.mjs` and `jest.config.js` do. **In this repo**, the substrate's `.eslintrc.js` is `root: true`, so an example inherits the whole ruleset — including the `import/core-modules` and `import/no-unresolved` settings that carry `@newspack-nodes/runtime`, `@newspack-nodes/shared/*` and `@newspack-nodes/debug-overlay` past the resolver — and `examples/example-ai-newsletter/.eslintrc.js` restates one rule and adds one ignore:
+
+```js
+module.exports = {
+	rules: {
+		'@wordpress/i18n-text-domain': [ 'error', { allowedTextDomain: [ 'example-ai-newsletter' ] } ],
+	},
+	ignorePatterns: [ 'build/' ],
+};
+```
+
+The text domain is the only thing it *must* restate: the root config allows `newspack-nodes` alone, while §5's strings read `__( 'Publisher Insights', 'example-ai-newsletter' )`. Restating a rule with options **replaces** the inherited options rather than merging them, which is the intent here — no file in the example may use the substrate's domain. Without those two keys `npm run lint:js` errors on every `__()` in the example, and `pre-push` runs `lint:js` on any JS push, so the whole repo is blocked. The `build/` ignore is not for `lint:js`, whose globs reach only `examples/*/src` and `examples/*/scripts`; it covers `eslint .` from the plugin root and an editor linting the open bundle. **A standalone plugin** inherits none of that and needs a full `root: true` config carrying the `@newspack-nodes/*` resolver exemptions itself — `newspack-intelligence/.eslintrc.js` is the shape to copy.
 
 > **← two substrate refinements.** `scripts/build.mjs` was ~250 lines — the `@wordpress/*`→global externals plugin, the SCSS plugin, the asset-manifest emitter, the RTL pass, the watch/one-shot orchestration — copy-pasted across the substrate, the example, and the event-logger plugin. It became **`buildDashboards()`** (esbuild/sass/rtlcss are *injected*, so a sibling-checkout plugin with no `node_modules` of its own still resolves them). And the jest config hid a real footgun — the `@newspack-nodes/shared` mapper is listed **before** the `\.(css|scss)$` style-mock, and first match wins, so a style imported *through the alias* (`@newspack-nodes/shared/styles/x.scss`) resolves to the real file and babel-jest crashes parsing SCSS as JS instead of mocking it. **`createJestConfig()`** bakes that order in, and shared components import their own styles by relative path so the mock catches them. `npm run build`, `npm run test:js`, done.
 
@@ -824,7 +905,11 @@ And the `npm run build` / `npm run test:js` the guide keeps invoking are `packag
 Finally, register the admin page (a menu item + a mount div) and enqueue the bundle on it. The enqueue is one substrate call. In the plugin file:
 
 ```php
+// The `?page=` slug WordPress routes on, and the element id §5's index.js looks
+// up. They hold the same string and answer different consumers, so each is its
+// own constant: changing one implies nothing about the other.
 const INSIGHTS_MENU_SLUG = 'example-ai-newsletter-insights';
+const INSIGHTS_MOUNT_ID  = 'example-ai-newsletter-insights';
 
 // Register the dashboard as its OWN top-level menu — it's this plugin's page, not
 // a Nodes-substrate tool, so it stands alone rather than nesting under "Nodes".
@@ -836,7 +921,7 @@ function register_insights_admin_page(): void {
 	}
 	\add_menu_page(
 		'Publisher Insights', 'Publisher Insights', 'manage_options', INSIGHTS_MENU_SLUG,
-		static fn () => print( '<div class="wrap"><div id="' . \esc_attr( INSIGHTS_MENU_SLUG ) . '"></div></div>' ),
+		static fn () => print( '<div class="wrap"><div id="' . \esc_attr( INSIGHTS_MOUNT_ID ) . '"></div></div>' ),
 		'dashicons-chart-bar', 58.7
 	);
 }
@@ -863,6 +948,10 @@ if ( \is_admin() ) {
 }
 ```
 
+`version_fallback` is the script's cache-busting version in the two cases the manifest cannot answer: `build/dashboard/index.asset.php` exists but carries no string `version`, or no manifest exists at all and `filemtime()` on the bundle is unreadable — in that second case the dependency list also falls back to a fixed `wp-element, wp-components, wp-api-fetch, wp-i18n`. Pass your **own** plugin version, as the example does. Omit the key and the registrar falls back to `NEWSPACK_NODES_VERSION`, the substrate's version rather than yours, so a rebuild against an unchanged substrate would serve a stale bundle from cache.
+
+`page` takes one slug or a list of them, which is how a single bundle covers several admin pages; the hub's tab-bundle path passes a list for exactly that. The stylesheet beside the bundle cache-busts on its own content hash rather than on that version, through **`Admin::css_cache_version( $css_path, $fallback )`** — a SCSS-only rebuild leaves both the JS hash and the plugin version untouched, so a sheet keyed on either serves from cache behind a stale `?ver=` and only a hard refresh lands the change. The registrar calls it for you on `index.css`; call it yourself for any stylesheet you enqueue outside the registrar, as pyrobase, nuclear-gyrobase and event-logger-nodes do.
+
 A standalone plugin dashboard gets its **own** top-level menu (`add_menu_page`) — it shouldn't squat inside the substrate's menus, which belong to Nodes' own tools: `Admin::MENU_SLUG` (`newspack-nodes`) for settings, `Admin::HUB_MENU_SLUG` (`newspack-nodes-hub`) for the DevTools hub that carries the Console, Overview, Jobs, Vault and the rest. If your dashboard genuinely *is* a Nodes-internal tool, register it as a `host: 'hub'` DevTools tab — `registerDevtoolsTab( { id, label, host, component, order, slug } )` from `@newspack-nodes/shared/devtools/tabRegistry` — rather than as an `add_submenu_page`. Either way, the gate above (`current_user_allowed()`) keeps visibility consistent with the substrate.
 
 This example mounts `DebugOverlay` in §9, so its stylesheet names `newspack-nodes-graph`, and WordPress loads the two handles beneath it in the same cascade. The substrate registers three, each depending on the one before:
@@ -873,9 +962,11 @@ This example mounts `DebugOverlay` in §9, so its stylesheet names `newspack-nod
 
 A dashboard that draws no graph omits `style_deps` and takes the registrar's default, `[ 'wp-components', 'newspack-nodes-ui' ]`. A consumer wanting the palette without the component skin names `newspack-nodes-theme` alone and carries `.newspack-nodes-theme` on its root, as pyrobase's editor pages do — the tokens are defined on that class, so a root without it resolves no `var(--np-*)`. The same holds one level up: the component rules scope under `.newspack-nodes-ui`, so a host opts into the skin by carrying that class too. This page carries neither, because `DebugOverlay` supplies both on its own root whenever no ancestor is already a provider. `GraphView` deliberately has no stylesheet side-effect import: every host that renders the graph owns this dependency, keeping the graph CSS in one build asset instead of copying it into each consumer bundle.
 
-> **← a substrate refinement.** `enqueue_insights_assets` was ~40 lines: read the `$_GET['page']` and bail if it's not yours; `file_exists` the bundle; `require` the `index.asset.php` manifest for deps + version; `wp_enqueue_script`; the `index.css` sidecar; `wp_localize_script` the REST root + nonce as `NewspackNodesData` (which the JS transport reads). Every dashboard repeated it. It became **`Admin::enqueue_react_page( $args )`** — page-gate, manifest deps/version, CSS (and the RTL companion, which no site previously activated), and the `NewspackNodesData` localize, returning the handle so a caller can layer extras. You pass it where your bundle is and which page it's for.
+> **← a substrate refinement.** `enqueue_insights_assets` was ~40 lines: read the `$_GET['page']` and bail if it's not yours; `file_exists` the bundle; `require` the `index.asset.php` manifest for deps + version; `wp_enqueue_script`; the `index.css` sidecar; `wp_localize_script` the REST root + nonce as `NewspackNodesData` (which the JS transport reads). Every dashboard repeated it. It became **`Admin::enqueue_react_page( $args )`** — page-gate, manifest deps/version, CSS and its RTL companion, and the `NewspackNodesData` localize, returning the handle so a caller can layer extras. You pass it where your bundle is and which page it's for.
 
-The `NewspackNodesData` the registrar localizes (`{ restUrl, nonce }`) is exactly what the JS `defaultTransport()` reads to authenticate the `POST /command` — so `enqueue_react_page` (PHP) and HttpOut's lazily-defaulted transport (JS) are the two ends of one wire.
+The `NewspackNodesData` the registrar localizes (`{ restUrl, nonce }`) is exactly what the JS `defaultTransport()` reads to authenticate the `POST /command` — so `enqueue_react_page` (PHP) and HttpOut's lazily-defaulted transport (JS) are the two ends of one wire. A `localize` key in the same args bag merges *over* those two, which is how a bundle ships page data without inventing a second global: the Topology Console arrives that way carrying its per-topology partition counts, the active topology set, and the three config-inherited defaults its settings panel offers as hints for unset frontmatter.
+
+**Give one handle one enqueue site.** `wp_localize_script()` concatenates onto a handle rather than replacing, so two enqueues of the same script emit two `var NewspackNodesData = …;` statements and the later assignment wins whole — the earlier call's extras are not merged in, they are gone. The substrate's own event-dashboards bundle is enqueued on both the hub path and the tab-bundle path, and the tab-bundle payload is the one that survives. Either enqueue a bundle in one place, or pass the complete payload everywhere you enqueue it.
 
 ---
 
@@ -902,7 +993,7 @@ wp nodes cli example-ai-newsletter.p0
 > request_node community TICK
 ```
 
-Each `TICK` flows `source → summarizer → scorer → scored:partition`; the Consumer tails the scored records into the digest and co-commits the snapshot. Now open **Publisher Insights** (its own top-level item) in wp-admin. The page mounts, the three Fetchers fire on the first load (one POST), and you see it: **By source** counts, the **score-ranked table** (releases items at 6, community at 4–3, exactly the Scorer's weights) with its **Draft newsletter** button, and the **Total items** card. It refreshes every 30 seconds while the tab is visible. `TICK` the sources again and watch the counts climb on the next poll.
+Each `TICK` flows `source → summarizer → scorer → scored:partition`; the Consumer tails the scored records into the digest and co-commits the snapshot. Now open **Publisher Insights** (its own top-level item) in wp-admin. The page mounts, the three Fetchers fire on the first load (one POST), and you see it: **By source** counts, the **score-ranked table** (releases items at 6, community at 4–3, exactly the Scorer's weights) with its **Draft newsletter** button, and the **Total items** card. It refreshes every 30 seconds while the tab is visible. `TICK` the sources again and the counts climb once the Consumer's next checkpoint commits the new items — the two 30-second cadences are unaligned, so allow about a minute rather than expecting the very next poll. A `request_node digest FLUSH` here takes all three cards back to zero a checkpoint later, for the reason §2 gives.
 
 **Now the payoff the god node forfeits — inspect the live graph.** Because every edge carries real traffic, you can introspect any of it without redeploying. The dashboard's nodes live in the *browser*, so their REPL is the page's own — the debug overlay (§9) or the topology console — not `wp nodes cli`, which attaches to the worker's server-side graph:
 
@@ -911,7 +1002,7 @@ Each `TICK` flows `source → summarizer → scorer → scored:partition`; the C
 > ls                # insights:timer, insights:tee, fetch-* — all at non-zero counters
 ```
 
-Drop a `Tee` onto any edge to fork a copy of the traffic; `connect _shell` to watch the three commands stream out each tick; watch the three counters (`fetch-counts`, `fetch-top`, `fetch-acc`) move independently. A god view-node at counter 0 gives you none of that — there's nothing flowing to observe. *That* is why you built the dashboard on Nodes instead of stapling a fetch loop to a React component.
+Drop a `Tee` onto any edge to fork a copy of the traffic, and watch the three counters — `fetch-counts`, `fetch-top`, `fetch-acc` — move independently. A god view-node at counter 0 gives you none of that — there's nothing flowing to observe. *That* is why you built the dashboard on Nodes instead of stapling a fetch loop to a React component.
 
 You drove a server-side worker and a browser React app with the same protocol — a `TICK` runtime request to the sources, then a batched poll of three slice verbs — because both ends speak it.
 
@@ -919,7 +1010,7 @@ You drove a server-side worker and a browser React app with the same protocol �
 
 ## 9. Make it inspectable: mount the debug overlay
 
-§8 ended on the payoff — *inspect the live graph*. From the worker's REPL that's `wp nodes cli`; **on the page itself** it's the **debug overlay**, and wiring it in is two lines. The overlay reads the page's *own* live `mountExospine` graph — the very `Core.nodes` your hook built — and renders it in the shared GraphView: every node, every edge, every counter, plus a REPL to poke it (`connect`/`remove`/`invoke`). That's the whole reason you built the dashboard as a genuine node graph instead of a fetch loop stapled to a component — the graph is *there* to be inspected, so put the inspector on the page.
+§8 ended on the payoff — *inspect the live graph*. From the worker's REPL that's `wp nodes cli`; **on the page itself** it's the **debug overlay**, and wiring it in is two lines. The overlay reads the page's *own* live `mountExospine` graph — the same `Core.nodes` your hook built — and renders it in the shared GraphView: every node, every edge, every counter, plus a REPL that types `connect` and `remove` at it and an inspector that invokes a node's verbs. The graph is there to be inspected, so put the inspector on the page.
 
 Add the import and render it inside the page, alongside the widgets:
 
@@ -933,7 +1024,7 @@ That's the entire wiring — `PublisherInsightsPage` already does exactly this (
 
 - **It's self-gated by `isDebugEnabled`.** The overlay renders `null` unless debug is on — `?nodes-debug=1` in the URL turns it on and sticks it in `localStorage` (so it survives navigation), `?nodes-debug=0` turns it off. Absent the param, the sticky flag decides. So a shipped dashboard carries the overlay dormant: invisible to normal visitors, one query param away for you. (It's a pure dev affordance — no capability/PHP gate — so the FAB only ever appears for someone who deliberately flipped the flag.)
 - **`storageKey` is per-dashboard.** It scopes the **canvas** layout — where each node sits on the graph — so name it `newspack-nodes:debug:<dashboard>`: `newspack-nodes:debug:example-insights` here, `newspack-nodes:debug:hub:<tab>` on the DevTools hub, where each tab builds a graph of its own. Reusing one key across pages would make two different graphs fight over one set of node positions. The panel's own frame geometry is global and ignores it. (A third prop, `buildRepl: false`, tells the Console tab to point at the page's existing console instead of building a second graph and REPL — the hub passes it on its Console tab, where the two would collide on `_output`.)
-- **It reads the live graph, not a snapshot.** Because the overlay subscribes to the same `Core.nodes` your `useBatchedPoll` hook built, opening it (`Ctrl+\`` toggles the panel) shows the real thing live: `insights:timer`, `insights:tee`, the three `fetch-*` Fetchers, the receiver Tees, the view nodes — each at its real counter, climbing on every tick. Drop a `Tee` onto an edge or `invoke` a verb right from the panel. A god view-node at counter 0 would give the overlay nothing to draw; *this* graph is the payoff, and the overlay is how you see it.
+- **It reads the live graph, not a snapshot.** Because the overlay subscribes to the same `Core.nodes` your `useBatchedPoll` hook built, opening it (`` Ctrl+` `` toggles the panel) shows the real thing live: `insights:timer`, `insights:tee`, the three `fetch-*` Fetchers, the receiver Tees, the view nodes — each at its real counter, climbing on every tick. Drop a `Tee` onto an edge or `invoke` a verb right from the panel. A god view-node at counter 0 would give the overlay nothing to draw; *this* graph is the payoff, and the overlay is how you see it.
 
 One mount, and every dashboard you build the right way becomes self-documenting — the node graph you composed is visible, live, on its own page.
 
@@ -941,9 +1032,9 @@ One mount, and every dashboard you build the right way becomes self-documenting 
 
 ## 10. Recap — what you wrote vs. what the substrate gave you
 
-**You wrote:** a `Scorer` node (one `fill`, one `score()` seam), two snapshot methods on the digest, the four durable-snapshot topology lines, an `Insights_CI` with **three small slice verbs** sharing one memoized read, **three thin `SliceViewNode` subclasses** (each only an `emptySlice()`), a `useBatchedPoll` hook whose `build` is one `addSliceFetcher` per slice, **three thin widgets** each reading its own node, the two client-side document builders and their shared label normalizer, and the thin build/jest/enqueue glue — a `scripts/build.mjs`, a `jest.config.js`, and the two enqueue functions.
+**You wrote:** a `Scorer` node (one `fill`, one `score()` seam), two snapshot methods on the digest, the four durable-snapshot topology lines, an `Insights_CI` with **three small slice verbs** sharing one memoized read, **three thin `SliceViewNode` subclasses** (each only an `emptySlice()`), a `useBatchedPoll` hook whose `build` is one `addSliceFetcher` per slice, **three thin widgets** each reading its own node, the two client-side document builders and their shared label normalizer, and the thin build/jest/enqueue glue — a `scripts/build.mjs`, a `jest.config.js`, and the menu registration beside the enqueue.
 
-**The substrate gave you:** the durable log + snapshotting Consumer, the command protocol and routing, the `_http`/`_shell` boundary, the JS node runtime and `mountExospine`, `useNodeState`, the **`Fetcher`** composition primitive, and — the through-line of this guide — primitives that each used to be boilerplate in this very example:
+**The substrate gave you:** the durable log + snapshotting Consumer, the command protocol and routing, the `_http`/`_shell` boundary, the JS node runtime and `mountExospine`, `useNodeState`, the **`Fetcher`** composition primitive, and — the through-line of this guide — primitives that each used to be boilerplate in this example:
 
 | You call | It replaced |
 |---|---|
@@ -959,7 +1050,7 @@ One mount, and every dashboard you build the right way becomes self-documenting 
 | `Admin::enqueue_react_page()` | a 40-line page-gate + manifest + localize |
 | `installFakeCommandWire()` | a hand-stubbed command client per suite, which tested past the wire |
 
-That table *is* the lesson, and it's the same one the first guide ends on, lifted to the client with one addition: **dashboards are composed node graphs, not a god view-node + god command.** You add a dashboard by composing primitives — a Timer, a Tee, Fetchers, thin view nodes, small verbs — not by building a dashboard framework and not by funneling everything through one node and one command. Uphold the `fill()` contract, decompose both sides, lean on the shared pieces, and the next dashboard is the handful of files you care about: the slice verbs, the view nodes, the widgets, and the hook that wires them.
+That table *is* the lesson, and it's the same one the first guide ends on, lifted to the client with one addition: **dashboards are composed node graphs, not a god view-node + god command.** You add a dashboard by composing primitives — a Timer, a Tee, Fetchers, thin view nodes, small verbs — never by building a dashboard framework. Uphold the `fill()` contract, decompose both sides, lean on the shared pieces, and the next dashboard is the handful of files you care about: the slice verbs, the view nodes, the widgets, and the hook that wires them.
 
 ---
 
