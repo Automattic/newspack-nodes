@@ -12,11 +12,11 @@ Read these in order — each builds on the last.
 
 ## Take it to production
 
-The toy guides above stop at "works on my page." These pick up where they leave off.
+The toy guides above stop at "works on my page"; these three go further.
 
 - **[writing-a-real-plugin.md](writing-a-real-plugin.md)** — read when you're taking the toy pipeline to real sources: durable ingest partition, credentials in the Vault, terminal-`DONE` auto-compose.
 - **[writing-a-real-dashboard.md](writing-a-real-dashboard.md)** — read when your dashboard has to survive the Topology Console, the DevTools overlay, and `release:archive` — the shared-surface contracts you didn't sign up for.
-- **[writing-a-view-node.md](writing-a-view-node.md)** — read when you need the one-page contract for a dashboard slice's terminal view node: one reply in, one render model out.
+- **[writing-a-view-node.md](writing-a-view-node.md)** — read when you need the one-page contract for a dashboard slice's terminal view node: a poll's reply or a stream's records in, one render model out.
 
 ## Reference
 
@@ -28,7 +28,7 @@ Facts, not tutorials.
 - **[cli.md](cli.md)** — read when you need a `wp nodes` verb: the one-page reference for every subcommand and the common flows.
 - **[troubleshooting.md](troubleshooting.md)** — read when something live is misbehaving: the REPL, worker health, log paths, and the failure modes we actually hit.
 - **[sse-host-budget.md](sse-host-budget.md)** — read before changing an SSE slot bound: what a stream costs in php-fpm children, and what the platform does when they run out.
-- **[stability.md](stability.md)** — read when you need to know what you can build on: the frozen surfaces, the names deliberately left free, and what changing a frozen one costs.
+- **[stability.md](stability.md)** — read when you need to know what you can build on: the frozen surfaces, the heavily-used names left off that list, and what changing a frozen name buys — an upgrading.md entry, never an alias.
 - **[upgrading.md](upgrading.md)** — read when you're moving a consumer plugin across substrate versions: the breaking changes, with the fix beside each.
 - **[tachikoma-lineage.md](tachikoma-lineage.md)** — read when you need the Perl this runtime varies from: what came from where, file and symbol, and why each deliberate difference was chosen.
 
@@ -39,19 +39,23 @@ The short expansions the rest of the docs assume.
 - **node** — an object with one entry point, `fill( array $message ): void`. Nodes never call each other's methods; they pass messages.
 - **message** — the 7-field positional array `[ TYPE, TIMESTAMP, FROM, TO, ID, KEY, VALUE ]`, always indexed via the `Message::*` constants.
 - **sink** — a node's physical next hop: `fill()` hands the message there when done.
-- **target** — a node's logical address string, stamped into `TO` when a message has none; `_router` resolves it.
-- **owned sibling** — a node another node builds, owns and names `{patron}:{suffix}`: `Partition`'s `lock`, `Consumer`'s `source`, `Durable_Reader`'s `offsetlog`, the auto-wired `:config` interpreter. `publish_sibling()` enrols it in the owner's rename, sink and teardown cascades.
+- **target** — a node's logical address, stamped into `TO` when a message has none; `_router` resolves it. A fan-out node holds a list of them rather than one string.
+- **`node_schema()`** — a node's static declaration of itself: its palette category and description, its positional `arguments`, its runtime `commands`, and the `registrations` another node may `register()` for. `Schema_Reflection` assigns the argument tokens onto the declared properties and auto-wires the `{name}:config` interpreter from it; the topology console builds the palette entry and the configuration form from it too.
+- **Tee / Tap** — the fan-out pair. A Tee copies each message to every live target, addresses the copy `<target>/<TO>` so `_router` carries it down whatever path remains, and forwards no original. A Tap addresses each copy at the target alone and passes the original on down `sink`, so it splices into a live pipeline without diverting it. Any node using the `Fanout_Targets` trait fans out too, which is what `Core::class_fans_out()` tests for.
+- **owned sibling** — a node another node builds, owns and names `{patron}:{suffix}`: `Partition`'s `lock`, `Consumer`'s `source`, `Durable_Reader`'s `offsetlog`, the auto-wired `:config` interpreter. `publish_sibling()` enrols it in the owner's four cascades — the name-collision pre-check, the rename, the sink and the teardown.
 - **patron** — the node that owns a sibling. `Schema_Reflection::auto_wire_interpreter()` mounts a `{name}:config` interpreter whose patron is the configured node, and a verb handler reaches that node back through `$interpreter->patron()`. Setting a patron hides the sibling from the canvas and drops its own `:config` interpreter, so it must run before `name()` — it refuses a node already named and wired.
 - **topology** — a worker's node graph, described in a `.tsl` file.
 - **TSL** — the shell language of those `.tsl` files: verbs like `make_node`, `connect_node` and `command_node` that `Topology_Loader` evaluates through a `Shell_Node` to build a worker's graph. The format and the extension come from Tachikoma.
-- **CI / command interpreter** — `Command_Interpreter_Node`, the verb dispatcher: it turns a TM_COMMAND like `make_node Tee fanout` into the call, and its verb table is where `help` text comes from. "A CI verb" means an entry in one of these. A **service CI** is a `Service_CI_Node` subclass, whose table comes from its `node_schema()` and whose every handler is wrapped in the capability that schema names.
+- **CI / command interpreter** — `Command_Interpreter_Node`, the verb dispatcher: it turns a TM_COMMAND like `make_node Tee fanout` into the call; every interpreter answers `help` whatever else its table holds. "A CI verb" means an entry in one of those tables. A **service CI** is a `Service_CI_Node` subclass, whose table comes from its `node_schema()` and whose every handler is wrapped in the capability that schema names.
 - **REPL** — `wp nodes cli`: an interactive shell speaking those verbs, in a graph of its own (bare mode) or attached over IPC to a live worker.
 - **Topic / Partition** — the durable append-only segmented log. Partition is one partition's files; Topic routes each write to one of N, by a TO already pinned to `p{N}`, else by KEY hash, else round-robin.
 - **Consumer** — the durable reader: tails a Partition with a crash-safe cursor (the **offsetlog**) so it resumes where it left off.
-- **dead letter** — the `:deadletter` sibling Partition a durable reader quarantines a poison message into: on sight when a downstream `fill()` throws, and on the crash paths once the attempt count implicates a message. The cursor advances past it either way, so the payload survives and `wp nodes ingest` replays it ([ADR-12](architecture-decisions.md#adr-12-dead-letter-poison--crash-lifecycle)).
+- **dead letter** — the `:deadletter` sibling Partition a durable reader quarantines a poison message into: on sight when a downstream `fill()` throws, and on the crash paths once the attempt count implicates a message. The cursor advances past it either way, so the payload survives and `wp nodes ingest` replays it. A Partition quarantines its own failures there too — the messages a short write or a failed segment open never landed — and has no cursor to advance ([ADR-12](architecture-decisions.md#adr-12-dead-letter-poison--crash-lifecycle)).
+- **Table** — the keyed store, backed by memcached and falling back to APCu, so any process reads what a worker wrote. `fill()` stores KEY→VALUE write-through and passes the message on, so a table composes mid-graph; `Table_Node::table( $ns )` reaches the same store from a REST handler, wp-admin or the CLI ([ADR-18](architecture-decisions.md#adr-18-a-table-can-front-a-durable-record-the-walk-that-finds-it-stays-in-the-app)).
 - **worker** — a long-running PHP process draining one topology's graph, spawned over `POST /newspack-nodes/v1/workers/spawn` and detached from that request; named `{type}.p{N}`. `wp nodes run` starts one in the foreground instead, for debugging.
 - **drain loop** — `Event_Framework::drain()`, the loop every long-running process lives inside: each tick tests the loop predicate, blocks once until the next timer falls due, then fires the completed cURL transfers and the expired timers.
 - **`_fleet`** — the peer-spawn scan every worker runs every 15 seconds; WP-Cron cold-starts a fleet with nothing left running.
-- **Vault** — the encrypted credential store. An operator enters a secret once; a topology carries only that entry's id, and the node resolves the id to the secret when it reads its config.
+- **job** — a unit of deferred work. A producer enqueues one through `Job_Intake::feed()` (bounded by PIPE_BUF, no lock) or `Job_Intake::queue()` (up to `MAX_JOB_SIZE`, 32 MiB, behind the partition write lock) and returns; the `Job_Worker_Node` pool runs it later through a handler the application registers on the `newspack_nodes/job_handlers` filter, called as `( string $id, array $parameters )`.
+- **Vault** — the credentials for every server this site connects out to. An operator enters a secret once and a topology carries only that entry's id; each password is sealed at rest under a key derived from `wp_salt( 'auth' )` and opened on the way out, so the stored option never holds plaintext.
 - **hub / spoke** — the aggregation pair. A hub wires one `Remote_Source` per spoke partition, each pulling that spoke's log over SSE under its own durable cursor; the Vault entry the node names supplies that spoke's URL and credential.
 - **slice** — one dashboard feed. A Fetcher sends one verb toward a service CI, the reply routes back to that slice's receiver `Tee`, and the slice's view node parses it into a render model. `addSliceFetcher()` wires the three in one call.

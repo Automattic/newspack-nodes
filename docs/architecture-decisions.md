@@ -67,6 +67,15 @@ to N targets, so one target's edits would leak into the next's; and a caller rea
 request's FROM/ID *after* forwarding (the standard reply pattern) would find them clobbered.
 Nodes compose because no node can reach back through a `fill()` call.
 
+The JS runtime keeps the discipline without the language behind it. `Node.fill()` hands its
+sink the SAME array, so the boundary holds only where a node copies before forwarding:
+`TeeNode` and `TapNode` `slice()` the message once per branch at fan-out, which is the case
+the by-value rule exists for. That copy is SHALLOW — a `TM_STRUCT` VALUE is one object shared
+by every branch's copy — so a struct is immutable past a Tee or a Tap, and a downstream that
+must edit one clones it first. `CallbackNode` is where a caller can watch the difference: it
+is terminal, forwards nothing, and hands the closure the caller's own array, so a closure
+that writes into the message edits what the sender still holds.
+
 **Alternatives considered:** Per-node typed methods (`enqueue()`, `publish()`, `handle()`) —
 rejected: they break uniform composition, and testing any node is "construct a message, call
 `fill()`, inspect the sink."
@@ -97,7 +106,9 @@ VALUE=6]`, always indexed via the `Message::*` constants. `packed()` / `unpacked
 of the array — the wire shape IS the memory shape. There is **no** object form; if you see
 one it is a bug to delete. Deliberate Tachikoma divergences: KEY not STREAM, VALUE not
 PAYLOAD, TIMESTAMP at index 1. `TM_BYTESTREAM` (string VALUE) and `TM_STRUCT` (array VALUE)
-are mutually exclusive; array-VALUE consumers gate on TM_STRUCT.
+are mutually exclusive; array-VALUE consumers gate on TM_STRUCT. `new_message()` mints TYPE as
+`TM_UNTYPED`, a free high bit matching no type gate, so a message its minter forgot to type is
+inert rather than every type at once, and the drop audit names it.
 
 One field sits outside the seven: `LOCAL` at index 7, the in-process provenance taint a
 Shell stamps on a command it mints. It is appended AFTER the canonical fields and both
@@ -105,16 +116,18 @@ ports slice it off in `packed()` / `pack()`, so it cannot cross a process bounda
 is exactly what makes it usable as an authorization signal (ADR-15). Nothing else may be
 appended on that basis.
 
-**Alternatives considered:** Associative array / value object — rejected:
-`$message['type']` silently coerces to index 0 and corrupts TYPE with no error, and an
-object form reintroduces the per-boundary translation layer.
+**Alternatives considered:** Associative array / value object — rejected: PHP casts only a
+NUMERIC string key to an int, so `$message['type']` appends an EIGHTH element under the string
+key rather than setting TYPE, and `packed()` slices it away without a word — the write vanishes
+on the wire while TYPE keeps whatever it held. An object form reintroduces the per-boundary
+translation layer.
 
 **Consequences:** Indexing without the constants is a silent-corruption footgun. The
 positional shape is the divergence budget against Tachikoma — anything further must be
 justified separately.
 
 **Revisit if:** profiling shows associative arrays are no longer slower in the drain hot path
-**and** a typed value object can eliminate the index-0 coercion footgun without a wire/memory
+**and** a typed value object can eliminate the string-key footgun without a wire/memory
 translation layer.
 
 ---
@@ -135,8 +148,8 @@ otherwise a worker's boot-topology replies route to `_output/<pid>` (absent in a
 bounce a dropped `NOT_AVAILABLE` every startup.
 
 **Alternatives considered:** Keeping the persist/ack contract — rejected: the synchronous
-single-threaded drain already IS the backpressure (a slow node slows the drain slows the next
-`poll()`), and there is no queue to overflow.
+single-threaded drain already IS the backpressure (a slow node slows the drain, which slows
+the next `poll()`), and there is no queue to overflow.
 
 **Consequences:** No at-least-once guarantee at the message layer; durability comes from the
 log/offsetlog tier. (TM_PERSIST is not a rival to that tier — in Tachikoma the ack IS the
@@ -144,8 +157,8 @@ tier's advance/discard signal, needed because consumption is asynchronous from d
 the reader owns its cursor entirely — Consumer's chop, Remote_Source's commit-on-arrival at
 each message's start — so "safe to resume" is always local knowledge, in the same
 synchronous drain that dispatched the message, and an ack has nothing to signal.)
-A slow handler stalls its worker's drain — intended; that is the flow control. Future
-slot-based flow control lives at the producer that needs it, never graph-wide.
+A slow handler stalls its worker's drain, which is the flow control rather than a defect.
+Slot-based flow control belongs at the producer that needs it, never graph-wide.
 
 **Revisit if:** a producer needs genuinely decoupled queueing, **or** the drain stops being
 single-threaded, **or** offset advance is decoupled from delivery (async handlers, in-flight
@@ -161,7 +174,10 @@ windows) — each breaks the "delivered = safe to advance" coincidence the remov
 guarantees an append-mode `write()` ≤ `PIPE_BUF` (4096 bytes) on a local filesystem does not
 interleave — which lets the firehose skip a lock on the common path.
 
-**Decision:** Default write limit 4096 bytes, lock-free. >4 KB requires an explicit opt-in:
+**Decision:** Default write limit 4096 bytes (`MAX_LINE_SIZE`), lock-free. A record over that
+requires one of two explicit opt-ins, each of which raises the ceiling all the way to
+`MAX_LARGE_LINE_SIZE`, 32 MiB — far past atomicity, so a large write is only as safe as the
+exclusivity behind it:
 
 - **`allow_large_writes()`** — ENFORCED exclusivity: takes a `Lock` at
   `{partition_dir}/write.lock.d/`. Acquisition retries at 100 ms up to `max_wait_ms`
@@ -174,7 +190,7 @@ interleave — which lets the firehose skip a lock on the common path.
   heartbeating and gets its own lock stolen while alive. Topology workers pass 0 (try-lock) or
   a debounce window and retry on the next tick. An optional `debounce_ms` takes the lock per
   write burst and frees it after that much quiet instead of holding it for the partition's
-  lifetime — still enforced, just yielded between bursts so intermittent large writers can
+  lifetime — still enforced, only yielded between bursts so intermittent large writers can
   take turns.
 - **`void_warranty()`** — ASSERTED exclusivity: lifts the cap and skips the write/rotate
   locks on the caller's assertion that it is the sole writer. For partitions already inside a
@@ -184,17 +200,31 @@ interleave — which lets the firehose skip a lock on the common path.
 The two are one MODE, not two flags: taking the lock supersedes a voided warranty, and a
 refused acquisition puts the cap all the way back down — a lifted cap with no lock behind it
 is the corruption both opt-ins exist to bound, so the unwind must never arrive at it.
+`Topic_Node` carries the same three modes and applies whichever is set to every partition it
+materializes, so a topic-wide producer opts in once.
 
-Concurrent large writes without either opt-in silently corrupt.
+Without an opt-in the cap holds rather than tearing: a record whose packed bytes plus the
+newline Partition appends exceed `MAX_LINE_SIZE` is dropped with a rate-limited `WARNING:`
+line, because half a record desyncs every reader after it.
+
+A third route keeps the 4 KB cap instead of lifting it.
+`Line_Fitter::fit( $message, $fields )` trims the record at the producer, immediately before
+the sink: it halves the VALUE string fields named in `$fields` — a sacrifice order, most
+expendable first — until the packed line plus its newline fits, and returns null when no
+listed field is left to cut, which the caller drops loud. The two opt-ins are for a record
+that must survive whole; the fit is for one carrying an expendable field, where a fitted line
+keeps its head and an unfitted one is gone.
+`Job_Probe_Node` fits every jobstats record, and event-logger-nodes fits its error entries,
+its completed-request summaries and its in-flight gyroscope rows.
 
 **Alternatives considered:** Always locking — rejected: taxes the firehose for a rare case.
 Only the enforced opt-in — rejected: a partition already inside a single-writer boundary
 would pay a redundant second lock (plus heartbeat upkeep) to re-prove what the topology lock
 guarantees.
 
-**Consequences:** Callers must know their payload size. Forgetting the opt-in on a >4 KB
-concurrent producer is a silent-corruption path — as is `void_warranty()` where single-writer
-isn't true (when in doubt, take the enforcing form).
+**Consequences:** Callers must know their payload size. A producer that outgrows 4 KB loses
+every oversize record to the drop until it fits or opts in; `void_warranty()` where
+single-writer isn't true tears them instead (when in doubt, take the enforcing form).
 
 **Habitable zone:** everything under `base_directory` — locks, partitions, offsets, IPC —
 is scoped to **one host's local POSIX filesystem, shared by that host's PHP processes**.
@@ -250,7 +280,7 @@ all of it.
 call it.
 
 **Alternatives considered:** Per-producer hashing — rejected: divergent hashes misroute the
-same key silently (no error, just wrong colocation).
+same key silently (no error, only wrong colocation).
 
 **Consequences:** All routing converges on one function; a site needing different behavior
 must be an explicit, named alternative, never a divergent re-implementation.
@@ -266,11 +296,11 @@ key family is required — then a *new, named* routing function, not a quiet sec
 
 **Decision:** `sink` is the **physical** next node `fill()` forwards to. `target` is the
 **logical** destination (Tachikoma's `owner`). The base `Node::fill` stamps it into
-`message[TO]` only when TO is empty; the routing nodes go further — Tee (array target,
-fan-out) sets TO per target, the target itself or `target/TO` prepended so the remainder
-routes onward after the Router peels the head, and Echo completes the re-addressing matrix
-(prepend when both set, bounce `TO=FROM` when both empty, fall through to the base stamp
-otherwise), and drops a `TM_ERROR` whose TO is empty rather than bouncing it back to a
+`message[TO]` only when TO is empty. The routing nodes go further. Tee (array target,
+fan-out) sets TO per target — the target alone, or `target/TO` prepended so the remainder
+routes onward after the Router peels the head. Echo completes the re-addressing matrix:
+prepend when both are set, bounce `TO=FROM` when both are empty, fall through to the base
+stamp otherwise. It drops a `TM_ERROR` whose TO is empty rather than bouncing one back to a
 producer expecting no error trail. `_router` resolves a non-empty TO by peeling the head
 segment. Replies set `TO=$message[FROM]` to walk the breadcrumb back.
 
@@ -285,6 +315,16 @@ browser transcript instead of dying at `_router` as *message not addressed*), wh
 addressed non-reply arriving **while a target is set** is the remote choosing its own
 destination inside us, and is refused. With no target neither arm engages, so a graph that
 sets none is unaffected.
+
+Inside a graph that is the harmless case; at a wire boundary it is the open one. Any
+`HTTP_Out` a remote can reply into needs a target, and a `Null_Node` is what it points at: a
+Null swallows the remote's unaddressed output and counts it, where aiming the target at the
+relay that owns the egress would send the spoke's own output straight back out.
+`Remote_Link_Node` builds its `<name>:null` and re-points `HTTP_Out` at it on every rename.
+The per-spoke `make_node HTTP_Out <name> <vault-id>` an operator wires by hand for
+`topologies/settings-sync.tsl` ships with no target at all, so giving it one is the operator's
+step, and skipping it leaves the reply leg forwarding whatever the spoke addresses into the
+local graph.
 
 `SSE_In` carries no such refusal, because a subscription's records are not replies. Its
 patron chooses instead: `RemoteLink` sets `homeToTarget`, re-homing every non-command record
@@ -316,9 +356,11 @@ instead of its receiver.
   this ADR forbids is a table that decides WHICH ask a reply belongs to. This is what
   "ONE node doing N jobs — make it N nodes" does NOT mean: a table of ten servers is one node
   per verb, not fifty. Split by JOB (a verb, a poll, a stream), never by SUBJECT. A subject
-  is one path segment, so it is escaped going out and read back on arrival
-  (`useCommandOnce`'s `subjectOf`), and a first token too long to be an address — a document
-  rather than an identity — is refused where the caller can fix it.
+  is one path segment, so it goes out `encodeURIComponent`'d and is read back on arrival
+  (`useCommandOnce`'s `subjectOf`). An escaped subject past `SUBJECT_MAX` (128 characters) is a
+  document rather than an identity: the command goes out carrying no subject and the log names
+  the one that needs a `subjectOf` of its own — better than raising out of a click handler, and
+  better than addressing a reply past the substrate's `MAX_FROM_SIZE`.
 - **Late binding.** Targets resolve at fill-time: any construction order, cyclic graphs
   wireable. Eager reference-binding breaks reordered and cyclic graphs.
 - **In practice, targets route everything — data included.** The discipline in both realms
@@ -365,8 +407,8 @@ compelling and proven more efficient.
 process. A long-running worker is therefore an HTTP request whose caller walks away, which
 keeps executing after the disconnect and respawns a successor before its clock runs out.
 
-**Decision:** Workers spawn via HTTP POST to an HMAC-validated `/spawn` endpoint. The
-CALLER abandons the connection — `Core::fire_and_forget_post()` budgets 250 ms
+**Decision:** Workers spawn through an HMAC-validated `POST /newspack-nodes/v1/workers/spawn`.
+The CALLER abandons the connection — `Core::fire_and_forget_post()` budgets 250 ms
 (`SPAWN_POST_TIMEOUT_MS`), long enough to write the request and never long enough to await
 the reply — and the endpoint survives that abort on `ignore_user_abort(true)` +
 `set_time_limit(0)`, running the worker inline for its whole lifetime. Nothing detaches from
@@ -374,11 +416,10 @@ FPM or the process group: the process holding the connection IS the worker. Life
 (`Cooperative_Stop::DEFAULT_MAX_RUNTIME`). Self-respawn fires in `finally`, with `release()`
 **before** `self_respawn()` so the successor can acquire the lock immediately.
 
-`fastcgi_finish_request()` is deliberately absent. It once ran ahead of the
-`WP_REST_Response`, which COMPLETES the response, so WordPress was handed one it could no
-longer send: an empty body and "headers already sent" in the log, unnoticed because every
-caller discards the body anyway. Releasing the connection early bought nothing, since no
-caller waits for it.
+`fastcgi_finish_request()` is deliberately absent. Called ahead of the `WP_REST_Response` —
+which COMPLETES the response — it hands WordPress one it can no longer send: an empty body and
+"headers already sent" in the log, unnoticed because every caller discards the body anyway.
+Releasing the connection early buys nothing, since no caller waits for it.
 
 **Alternatives considered:** A resident daemon — unavailable on the platform. No self-respawn
 (rescue-only restart) — rejected: every ~10-minute recycle would idle the slot until a peer's
@@ -396,7 +437,7 @@ dance collapses into a normal long-lived loop.
 
 ## ADR-9: Two-tier safety net
 
-**Status:** Accepted (revised — the middle tier is no longer a process)
+**Status:** Accepted
 
 **Context:** With no daemon, a dead worker must be revived by something already in the
 system — and whatever revives it can itself die.
@@ -412,13 +453,12 @@ per-pass cap.
 
 **Alternatives considered:** Self-respawn only — rejected: nothing catches a worker that dies
 before it can respawn. An OS-level process supervisor (systemd, a platform worker tier) —
-unavailable. A DEDICATED supervisor process as the middle tier — that is what this ADR
-originally specified, and it was deleted: the supervisor was never a supervisor in the OS
-sense. It could not signal a worker, reap it, or restart it in place — it polled lock-dir
-mtimes and POSTed to an HTTP endpoint. Polling is work the pollees can do for each other, and
-the throttle that makes three spawners safe makes N safe. What this ADR established
-is that revival must not depend on a single process; peer scanning honors that more
-completely than a dedicated tier did, and gives back a permanently-resident PHP-FPM child.
+unavailable. A DEDICATED supervisor process as the middle tier — rejected: it is no supervisor
+in the OS sense, since it can neither signal a worker, reap it, nor restart it in place. All it
+does is poll lock-dir mtimes and POST to an HTTP endpoint, and polling is work the pollees do
+for each other; the throttle that makes three spawners safe makes N safe. Revival must not
+depend on a single process, and peer scanning honors that more completely than a dedicated
+tier while giving back a permanently-resident PHP-FPM child.
 
 **Consequences:** N independent spawners (each worker's `finally`, each worker's `_fleet`
 scan, cron), bounded against respawn storms by the 15s `is_recently_spawned` throttle. The
@@ -430,8 +470,8 @@ waits up to a cron minute — which is why the cold-start pass deserves its dire
 
 `run_reconcile_steps()` runs seven steps in a fixed order, each alone behind its own
 `try`/`catch` so no one step can cost the others their window. Revival comes first —
-`newspack_nodes/before_reconcile` (a third-party hook, isolated because firing it
-bare once escaped the callback and skipped the spawn behind it), then
+`newspack_nodes/before_reconcile` (a third-party hook, isolated because a throw from it fired
+bare escapes the callback and skips the spawn behind it), then
 `Spawn_Coordinator::spawn_due_workers()`, then `wake_readers_with_backlog()`, the only pass
 that notices an external producer's write. Housekeeping follows: lock-dir reconcile,
 retention sweeps, orphan-IPC reaping, `newspack_nodes/periodic`. Housekeeping therefore
@@ -471,6 +511,15 @@ types with no central table to edit (and no merge conflicts on it).
 **Consequences:** Naming is load-bearing — resolution depends on the `_Node` suffix and the
 prefix. Renames require `composer dump-autoload -o` or the palette won't see them.
 
+A short-name collision is silent and sticky. `Command_Interpreter_Node::resolve_class()` walks
+the registered namespaces in registration order, returns the first concrete match, and
+MEMOIZES it for the life of the process — misses are never cached, successes always are. Two
+active plugins each shipping a `Summarizer_Node` therefore hand BOTH topologies whichever
+registered first, `make_node` raises nothing, and a later `register_namespace()` cannot
+displace the cached answer. A plugin author's defence is a distinctive short name rather than
+load order, which is why every class in `examples/example-ai-newsletter/includes/` carries a
+`_Demo` suffix.
+
 **Revisit if:** namespace prefixes collide (two prefixes resolving the same `$type`) — then a
 tiebreak rule or an explicit registry after all.
 
@@ -491,10 +540,13 @@ $ctor_args, '\is_scalar' )`, re-indexed) — then `sink( $this )`. `arguments()`
 a **flat token array** (`list<string>` argv), NOT a space-joined string:
 `Node::arguments( ?array $args = null ): array`. Tokens are carried verbatim; the ONLY
 place they re-join into a single line is the serialization anchor `Node::serialize_args( array
-$tokens ): string` (used by `dump_config()`), which single-quotes any token bearing whitespace /
-quote / backtick / backslash / emptiness and escapes `\` and `'` so the round-trip is lossless
-for ANY token. The base `arguments()` stores the token array and does NOT parse. A node wanting
-declared positional args assigned to props opts into `Schema_Reflection` and calls
+$tokens ): string` (used by `dump_config()`), whose per-token `serialize_arg()` single-quotes
+an empty token or one bearing whitespace, a quote, a backtick, a backslash, `#`, `;` or `<`,
+and escapes `\` and `'`, so the round-trip is lossless for ANY token. `<` is on that list for
+a reason that is not tokenizing: `interpolate()` runs before `tokenize()`, so quoting is what
+keeps a stored `<config:logs_dir>` unexpanded on the next load. The base `arguments()` stores
+the token array and does NOT parse. A node wanting declared positional args assigned to props
+opts into `Schema_Reflection` and calls
 `parse_schema_args( array $args )` from its `arguments()` override (JS mirrors: base stores;
 consumers call `parseSchemaArgs( node, args )`). `parse_schema_args()` records the token array
 into `$this->arguments` (so `dump_config()` round-trips) and is the single source of defaults: a
@@ -505,6 +557,25 @@ filesystem-root junk. Derived state (Partition's `partition_dir`) computes after
 public properties assigned AFTER `make_node`; object args are filtered (`is_scalar`) because
 they can't round-trip.
 
+To set a later positional and leave an earlier one at its schema default, pass an empty token
+in its place: `make_node Partition p /dir '' '' 7` sets `num_segments` while `segment_size`
+and `min_segments` keep their `<config:segment_size>` and `<config:min_segments>` defaults. The placeholder works for `int` and
+`float` alone — a blank `bool` token coerces to false and a blank `string` is taken as the
+literal empty string, so a blank in either of those slots means what it says. That asymmetry
+is why the topology console fills the defaults into the TEXT it emits rather than leaving the
+slots blank: `applyDefaults()` in `src/topology-console/utils/tslArgs.js` writes each declared
+default into an empty slot and `trimTrailingEmpties()` ends the line at the last argument the
+author set, before `editorLines.js` builds the `make_node` or `set_arguments` line. That copy
+of the rule is separate from the runtime's `parseSchemaArgs()`, which assigns properties on a
+live browser-side node, so a change to either reaches neither the other nor the PHP original.
+
+Three trait users hand-roll the check instead. `Newspack_Log_Node`, `Graphite_Node` and
+`Table_Node` `use Schema_Reflection` for the schema the palette and `help` read, never call
+`parse_schema_args()`, and read token 0 through `Core::as_string()` to throw a message of
+their own — `Table requires a namespace argument`, not `Missing required argument:
+namespace`. Nothing holds them to the schema's `required` flag; they are the standing
+exceptions to the opt-in rule, and a new node conforms rather than joining them.
+
 Re-declaring a name is decided by the same tokens: identical class AND tokens return the
 existing node (so replaying a dump, or including a topology twice, is idempotent), anything
 else throws `make_node conflict`. And a node that throws while being named or configured is
@@ -514,15 +585,16 @@ removed rather than left half-built in the registry.
 round-trippable single-string config and diverges from the Tachikoma sequence. Object args
 through `make_node` — filtered deliberately.
 
-**Consequences:** Defaults and required-arg enforcement live in one place — no per-override
-`if ( '' === $args ) return;` guards. A bare `make_node` of a node with a `required` arg
+**Consequences:** For every node that calls `parse_schema_args()`, defaults and required-arg
+enforcement live in one place — no per-override `if ( '' === $args ) return;` guards; the
+three that hand-roll carry their own. A bare `make_node` of a node with a `required` arg
 throws at construction — intended, fail loud. Nodes configured via post-`make_node` public
 properties declare no required positionals and construct bare.
 
 **Revisit if:** throw-on-required proves too strict for a legitimate deferred-config flow
 that must build a bare node before configuring it.
 
-**Amendment:** that flow arrived — a dashboard whose subscription is CHOSEN from a catalog
+**Amendment:** that flow exists — a dashboard whose subscription is CHOSEN from a catalog
 must build its `RemoteLink` before anything names one. A required positional is therefore
 enforced at construction UNLESS the node refuses the same invariant at the point of USE.
 Where both exist the point-of-use refusal is the contract and the positional is optional:
@@ -536,8 +608,8 @@ constructor was given — and past this class's own setter, so a subclass declar
 DIFFERENT positional (`RemoteIpc`'s `reader`) does not have it overwritten with a
 subscription. The cost is real and accepted: a graph dumped while a node is still
 unconfigured emits a `make_node` line that REFUSES on replay. That is the deferred flow
-being loud about its own window, and it is strictly better than the placeholder it
-replaces, which replayed cleanly into the wrong log.
+being loud about its own window, and it beats the placeholder alternative, which replays
+cleanly into the wrong log.
 
 ---
 
@@ -574,6 +646,14 @@ sacrifice a head for. There is no re-encounter to recognise, and so no quarantin
   (raw bytes preserved); a torn frame carries no crumb of its own, so a pull source places it
   at the spoke's own next-read position — the one authority it has — and a length-less crumb
   moves the cursor by nothing rather than by a local length in the wrong byte space.
+  `Tail_Node` — and `File_Tail_Node` under it — is a THIRD override of that seam, and it
+  wraps nothing: each line leaves as raw `TM_BYTESTREAM` bytes through a bare
+  `parent::fill()`, so a `\Throwable` from a Tail's sink escapes the drain loop instead of
+  reaching `dead_letter()`, and the cursor never advances past the line. The same catch is
+  what sets `stopped_in_fill`, so `cooperative_stop()` cannot strike a Tail's in-flight
+  message either and `COOP_MAX_ATTEMPTS` never applies to one. A Tail reaches its
+  `:deadletter` sibling only through the crawl-entry head sacrifice, once the attempt count
+  has climbed — never on the first throw.
 - **Cooperative stop (timeout / memory): the fair-shot path.** At shutdown,
   `cooperative_stop()` strikes the in-flight message only when the worker stopped ON the
   message it booted on (cursor never advanced, `Worker_Should_Stop` escaped its `fill()`); at
@@ -594,13 +674,24 @@ sacrifice a head for. There is no re-encounter to recognise, and so no quarantin
   deeper in the checkpoint window; crawl's per-message frames pin the true culprit for the
   next boot).
 
+A Consumer's offsetlog frame carries its snapshot nodes' state beside the cursor, and that
+co-committed `cache` is DISCARDED rather than restored when the boot frame's `first_crash_ts`
+is older than `Consumer_Node::STATE_WIPE_AFTER_S` (900 seconds). State that has survived a
+quarter-hour crash streak is the suspect, not any one message, so the snapshot nodes come up
+empty and the cursor resumes alone. A graceful stop stamps `first_crash_ts` null alongside the
+`attempts=0`, so the window never accrues across clean recycles. The only symptom is a
+rate-limited `WARNING:` naming the discard — read it before taking a Request_Builder or
+Digest_Builder that came back with nothing accumulated for lost data.
+
 The reusable core (`attempts` accounting, `record_poison_strike`,
 `resume_attempts_from_frame`, `crawl_interval_elapsed` / `exit_crawl`, `dead_letter`, the
 `CRASH_MAX_ATTEMPTS = 5` / `COOP_MAX_ATTEMPTS = 2` / `CHECKPOINT_INTERVAL_S = 30`
 thresholds) lives in `Dead_Letter_Queue`; the cursor and its advance live in
 `Durable_Reader`, so no reader can forget either. `Partition_Node` uses the same
 trait for a third case with no cursor at all: a short write or a failed segment open
-quarantines the messages that never landed. The crumb STAMPS `segment:offset:length`, and a
+quarantines the messages that never landed. It refuses `dl_requeue` there, because
+redelivering a record that was never written is a different operation from retrying the
+write, and nothing asks for it. The crumb STAMPS `segment:offset:length`, and a
 pull source reads all three: the start places the record, the length advances past it. A
 two-part `segment:offset` crumb is still accepted, and moves the cursor by nothing.
 
@@ -651,10 +742,10 @@ the caller. That is exactly the callee-coupling the uniform contract exists to r
 `Tee` filling N targets has no single disposition to hand back anyway, and flow control is the
 single-threaded drain (ADR-3), not a return code the caller inspects.
 
-Perl Tachikoma's `fill` *did* return values (`return $self->SUPER::fill(...)`,
+Perl Tachikoma's `fill` *does* return values (`return $self->SUPER::fill(...)`,
 `return $self->cancel(...)`) — an artifact of Perl having no way to declare a `void` return,
 so every sub yields its last expression whether or not anyone is meant to read it. Nothing
-downstream was; the returns were internal bookkeeping that leaked into the signature.
+downstream reads them; they are internal bookkeeping leaking into the signature.
 
 **Decision:** `fill( array $message ): void`. A node emits into its sink and learns nothing
 about what happens next: it does not care what other nodes do with its messages, and is not
@@ -692,9 +783,9 @@ in-process job to unwind the worker's `fill()` stack and stop cooperatively (tim
 It extends `\RuntimeException`, so any broad `catch (\Throwable|\Exception)` on the drain path
 catches it — and if that catch treats it as an error (logs it, wraps it `TM_ERROR`, defers it),
 the stop is swallowed: the worker runs past its deadline until the next drain tick re-checks
-the predicate. That was a live bug — a mid-job stop was guaranteed only on the direct
-`Log_Manager → Topic → Partition` firehose path; an intervening Tee or Command_Interpreter
-ate it.
+the predicate. Without the rule a mid-job stop is guaranteed only on the direct
+`Log_Manager → Topic → Partition` firehose path, because an intervening Tee or
+Command_Interpreter eats it.
 
 **Decision:** A broad catch on the message/drain path re-throws `Worker_Should_Stop` before
 handling anything else — it's cooperative-stop signalling, not an error. Catch it explicitly
@@ -716,30 +807,26 @@ at each site:
   order. Advancing past a message that needed a replay loses it; replaying a clean one is a
   duplicate the contract already tolerates.
 
-  *Superseded:* Tap previously swallowed ordinary target errors as non-fatal ("a broken tap
-  can't break the pipeline") and re-threw `Worker_Should_Stop` immediately. The justification
-  was categorical — taps are observability — and nothing enforces that category: a snapshot
-  node raising `Worker_Should_Stop_Clean` from a tap participates in cursor semantics. The
-  immediate re-throw also skipped the passthrough. Both are gone.
-
-  *Superseded:* the deferred slot previously preferred `Worker_Should_Stop_Clean` in either
-  order, added while chasing duplicate deliveries in request-builder. The revert signal is
-  recorded in `tests/unit/TeeStopPrecedenceTest.php`.
-- **Post-success `finally` (`Job_Worker_Node`'s `newspack_nodes/job_worker/after_job`).**
-  Swallows everything, WSS included: the handler already succeeded, so propagating anything
-  from post-success cleanup would false-poison a completed job (the drain would quarantine an
-  already-processed message — see ADR-12). Its `before_job` counterpart is NOT a carve-out —
-  it follows the rule, re-throwing WSS first and swallowing only a listener's own error, which
-  skips that one job instead of killing the batch.
-
+  Tap claims no exemption as observability. That category is a claim nothing enforces — a
+  snapshot node raising `Worker_Should_Stop_Clean` from a tap participates in cursor semantics
+  — so Tap defers an ordinary target error exactly as Tee does rather than swallowing it as
+  "a broken tap can't break the pipeline". Preferring the clean stop in the deferred slot is
+  the inversion `tests/unit/TeeStopPrecedenceTest.php` exists to catch.
+- **Post-job `finally` (`Job_Worker_Node`'s `newspack_nodes/job_worker/after_job`).**
+  Swallows everything, WSS included. It fires whether the handler returned or threw, so
+  propagating out of it would either false-poison a completed job — the drain would
+  quarantine an already-processed message, see ADR-12 — or mask the failure it fired after.
+  Its `before_job` counterpart is NOT a carve-out: it follows the rule, re-throwing WSS first
+  and swallowing only a listener's own error, which skips that one job instead of killing the
+  batch.
 - **`Log_Manager::finish()` (newspack-event-logger-nodes).** Every line it writes before the
   terminal is a write — the orphan drain, the memory line, the resources line, and `complete()`
-  itself — so a stop can land on any of them. Skipping the terminal stranded the request in
-  flight until eviction, because `finished` latches on entry and nothing retried it, on any job
-  whose lock went away mid-request. It marks the request aborted, writes the terminal, then
-  re-raises. Same shape as Tap's passthrough: the terminal IS the record, and terminal-LAST is a
-  wire contract rather than a preference — `Reqgrep_Core` finalizes and evicts the rid on it, so
-  anything written after arrives at a request that no longer exists.
+  itself — so a stop can land on any of them. Skipping the terminal strands the request in
+  flight until eviction, because `finished` latches on entry and nothing retries it. It marks
+  the request aborted, writes the terminal, then re-raises. Same shape as Tap's passthrough:
+  the terminal IS the record, and terminal-LAST is a wire contract rather than a preference —
+  `Reqgrep_Core` finalizes and evicts the rid on it, so anything written after arrives at a
+  request that no longer exists.
 
 **Alternatives considered:** A marker interface / `Control_Flow` exception base caught separately
 — premature: the control-flow family today is `Worker_Should_Stop` plus its subclass
@@ -773,11 +860,16 @@ is a per-instance `authorize` closure (`$this->authorize ?? self::$default_autho
 back to the bare LOCAL test), checked for EVERY command in `interpret()`; a refusal returns
 `unauthorized: <verb>` instead of dispatching.
 
-- **Client tier** — `Message::LOCAL` (index 7), set by a `Shell_Node` on a command it mints
-  in-process. The default policy is `isset( $message[ Message::LOCAL ] )`. Both ports slice
-  `packed()` / `pack()` to `LAST_VALUE_INDEX + 1` and PHP's `unpacked()` rejects a line that
-  is not exactly seven fields, so LOCAL cannot cross a boundary — which is precisely what
-  makes its presence mean something.
+- **Client tier** — `Message::LOCAL` (index 7), set on a command minted in-process. Two
+  sites stamp it: a `Shell_Node` on the command it mints from a console line, and
+  `Command_Interpreter_Node::cmd_reply_to()` on the sub-command it re-addresses so the reply
+  routes to a named node path. The second is safe because the outer `reply_to` has already
+  cleared the same `authorize` gate, and the verb refuses a nested `reply_to` outright — FROM
+  is set raw there, so the recursion would be unbounded. The default policy is
+  `isset( $message[ Message::LOCAL ] )`. Both ports slice `packed()` / `pack()` to
+  `LAST_VALUE_INDEX + 1` and PHP's `unpacked()` rejects a line that is not exactly seven
+  fields, so LOCAL cannot cross a boundary — which is precisely what makes its presence mean
+  something.
 - **Server tier** — verifier processes install `Command_Auth::verifier()`, which accepts a
   LOCAL command OR one carrying a valid HMAC envelope at `VALUE['auth']`. The envelope rides
   INSIDE VALUE so it survives IPC, unlike the stripped LOCAL.
@@ -820,6 +912,24 @@ stamps its handle; a signature under one remote's key verifies only there, which
 command to its destination without signing TO. No session means no signature: a minter waits
 rather than emitting something that will be refused.
 
+Waiting alone DEADLOCKS, because every minter refuses to queue unsigned and nothing else would
+ever ask for the handshake, so the skip branch has to kick it. A minter resolves its egress by
+running the target's head segment through `Core::node()`, type-tests the result for
+`HTTP_Out_Node`, and calls `HTTP_Out_Node::ensure_session()`, which fires the node when
+`Command_Auth::has_session()` says there is none. That public method exists for this and
+nothing else. `Settings_Sync_Node::send_set()` is the worked example; ELN's
+`Discovery_Collector_Node` repeats it line for line, so a third minter copies the shape rather
+than inventing one.
+
+On the JS side the mint is a base-class method. `Node.command( name, args )` builds a
+TM_COMMAND, stamps FROM from this node's name and TO from its target, and hands back the
+message signed and LOCAL-marked — or null when `readyToMint()` finds no session, having asked
+for one on the way. Signing is synchronous and cannot await `/auth`, so a null is the caller's
+cue to hold and retry on a later tick rather than to emit: `PollerNode.fire()` re-arms with
+`markDue()`, `HeartbeatNode` skips that poll, and `RemoteIpcNode` defers its
+`connect_worker_input`. Nothing throws. A JS node minting its own command goes through this
+rather than hand-building a message.
+
 Freshness is an age/skew check (`MAX_PAST_S = 20`, `MAX_FUTURE_S = 10`). Replay protection
 claims the nonce with an atomic `add()` at `NONCE_TTL_S = 60`. The two claims deliberately
 choose different cache tiers: nonces via `Cache_Backend::local_first()`, because a claim only
@@ -837,11 +947,10 @@ Stated non-goal: **HMAC-SHA256 at every tier; no asymmetric signing anywhere.**
 
 **Alternatives considered:**
 
-- **Sign at the ingress** — the original design, where `HTTP_In` conferred authority on
-  arrival after WordPress auth. Rejected: it makes the boundary an ORACLE. Anything reaching
-  it acquires authority regardless of what put it there, so a wire-arrived frame routed into
-  the egress node would go back out signed. Moving the signature to the mint is what closes
-  that; the ingress signs nothing.
+- **Sign at the ingress**, letting `HTTP_In` confer authority on arrival after WordPress auth
+  — rejected: it makes the boundary an ORACLE. Anything reaching it acquires authority
+  regardless of what put it there, so a wire-arrived frame routed into the egress node would
+  go back out signed. Signing at the mint is what closes that; the ingress signs nothing.
 - **LOCAL alone, everywhere** — rejected: LOCAL cannot cross a process boundary, which is
   what makes it trustworthy in-process and useless for a worker that legitimately receives
   commands over IPC.
@@ -853,12 +962,11 @@ Stated non-goal: **HMAC-SHA256 at every tier; no asymmetric signing anywhere.**
   so a signature covering them would break in flight. This substrate is a variant of
   Tachikoma, whose `Command.pm::sign` covers `id:timestamp:name:arguments:payload` for the
   same reason.
-- **Asymmetric signing (Ed25519)** — previously deferred "until cross-server command
-  authority exists". That authority now exists (hub → spoke via `sign_for()`) and HMAC covers
-  it, because both ends of a session are the same trust domain: the site that minted the key
-  is the site that verifies it. Public-key signing buys non-repudiation and third-party
-  verification; no consumer needs either, and it costs a key-distribution problem we do not
-  otherwise have.
+- **Asymmetric signing (Ed25519)** — rejected even where cross-server command authority
+  exists (hub → spoke via `sign_for()`), because HMAC covers it: both ends of a session are
+  the same trust domain, since the site that minted the key is the site that verifies it.
+  Public-key signing buys non-repudiation and third-party verification; no consumer needs
+  either, and it costs a key-distribution problem we do not otherwise have.
 - **`crypto.subtle` in the browser** — rejected: it returns promises, and awaiting one makes
   the Shell's dispatch async, moving every graph mutation a microtask later. Synchronous
   `@noble/hashes` instead.
@@ -868,10 +976,10 @@ Stated non-goal: **HMAC-SHA256 at every tier; no asymmetric signing anywhere.**
 
 **Consequences:** `Message::LOCAL` at index 7 is the one field outside ADR-2's seven, and it
 exists solely for this decision — nothing else may be appended on that basis, and nothing may
-rely on it surviving a boundary. The envelope change was breaking and forced the 2.0.0 major.
-A client must establish a session before it can mint at all, and a minter without one skips
-instead of emitting. Cross-port canonical parity becomes a standing maintenance obligation:
-each language's own suite stays green through a drift only the shared fixture catches. A
+rely on it surviving a boundary. A client must establish a session before it can mint at all,
+and a minter without one skips instead of emitting, asking for the handshake as it goes. Cross-port canonical parity is a standing
+maintenance obligation: each language's own suite stays green through a drift only the shared
+fixture catches. A
 re-credentialed or removed Vault entry must forget its session
 (`newspack_nodes/vault/changed`), or the next command signs under a key the far side has
 already forgotten.
@@ -889,8 +997,11 @@ cache tier it lives in.
 
 **Context:** The browser runtime resolves `make_node <Type>` through
 `CommandInterpreterNode.includeNodes`, a flat name→class table each bundle extends at import
-time via `registerNodeClasses()`. That table is a **per-bundle static**: two bundles loaded on
-the same page hold two copies. It works for TSL and the console palette, where the graph is
+time via `registerNodeClasses()` — an `Object.assign` onto the table, so a name already there
+is REPLACED with no warning, the runtime's own `Tee`, `Timer`, `Fetcher`, `HttpOut` and the
+rest of the `includeNodes` declaration included, and every later `make_node Tee` in that
+bundle then builds the consumer's class. Treat those builtin keys as reserved. The table is a
+**per-bundle static**: two bundles loaded on the same page hold two copies. It works for TSL and the console palette, where the graph is
 authored as text and the interpreter reading it is the one whose bundle registered the class.
 
 It fails the moment a graph is built through *someone else's* interpreter. The devtools hub
@@ -898,13 +1009,14 @@ mounts tabs from several bundles against one backbone, so a hook resolving `make
 'ClassCatalogView' )` asks an interpreter whose bundle never registered that name and gets
 `unknown class: ClassCatalogView` — at runtime, in the browser, with every test green,
 because a test loads exactly one bundle. ADR-10 governs the PHP side and explicitly refuses a
-class map; the JS side has always had one, and this is the consequence nobody wrote down.
+class map; the JS side has one, and this is its consequence.
 
 **Decision:** A NAME is for the text path — TSL, the palette, `make_node` typed in the REPL.
-A programmatic builder hands `makeNode` the **class itself**, imported from the `register.js`
-that owns it, which therefore exports its classes rather than only registering them. A bundle
-whose views are written out registers the map and exports it; one whose views are declared
-lets `registerSliceViews()` do both and exports what it returns:
+A programmatic builder hands `makeNode` the **class itself**. Where that class is imported
+from is the bundle's business, and two shapes are in use. In the first, `register.js` owns the
+classes and exports them, so a hook imports its `views` map: a bundle whose views are written
+out registers that map and exports it, and one whose views are declared as slices lets
+`registerSliceViews()` do both and exports what it returns:
 
 Views written out as classes register the map and export it
 (`src/event-dashboards/nodes/register.js`):
@@ -922,14 +1034,26 @@ the map, and returns it (`src/topology-console/nodes/register.js`):
 export const views = registerSliceViews( { ClassCatalogView: { empty, parse } } );
 ```
 
+A bundle whose views each have a module of their own imports them from those modules instead,
+and its `register.js` registers without exporting anything.
+`examples/example-ai-newsletter` is that shape: `usePublisherInsightsGraph` imports
+`SourceCountsViewNode` and its two siblings into the `viewClass` entries of its `SLICES`
+table, and imports `../nodes/register` for the registration side effect alone. Both shapes
+conform; what this ADR forbids is the NAME, never a particular import path.
+
 `makeNode( type, name, args )` accepts either — `'function' === typeof type` selects the class
 directly and skips resolution entirely. Registration is still required, for TSL and the
-palette; it is no longer what a hook depends on. Enforced mechanically by
+palette, but no hook depends on it. Enforced mechanically by
 `scripts/lint-contract.mjs`: `name-lookup-in-hook` catches a name passed to `makeNode`, and
 `name-lookup-in-option` catches the same break one hop out, in a hook option's `viewClass` /
-`viewType` / `nodeClass`. Both read their builtin allow-list from `includeNodes`' own
+`viewType` / `nodeClass`. Both match a quoted string literal, so a class handed
+in directly trips neither. Both read their builtin allow-list from `includeNodes`'s own
 declaration — the runtime's own classes ship in every bundle, so resolving one by name is
-always safe.
+always safe — and both stand DOWN when no substrate is in reach to read it from: the plugin's
+own `src/runtime`, a sibling `../newspack-nodes`, or the `.newspack-nodes` a release workflow
+clones. For pyrobase, nuclear-gyrobase and cache-cozy that is the standing state, so a
+`viewClass` or `makeNode` string literal passes the gate there and the only signal is a
+one-line `console.warn`. The other six rules keep running rather than the whole gate exiting.
 
 **Alternatives considered:**
 
@@ -943,10 +1067,10 @@ always safe.
 - **Resolving by name lazily against a chain of interpreters.** Rejected: it re-invents dynamic
   scope, and picks arbitrarily between two bundles that both registered the name.
 
-**Consequences:** `register.js` files export a `views` map and hooks import it, so a dead view
-class is now a normal unused-export finding instead of a name nobody notices is unreachable.
-The name and the class are declared in one place. A hook that still passes a name fails the
-contract gate rather than the browser.
+**Consequences:** A view class reaches its hook as an IMPORT — off a `views` map, or straight
+from the module that defines it — so a dead one is a normal unused-export finding instead of a
+name nobody notices is unreachable. A hook that still passes a name fails the contract gate
+rather than the browser.
 
 **Revisit if:** the runtime gains a single cross-bundle class registry with collision handling
 — then names become safe again everywhere and the rule retires with the decision.
@@ -959,11 +1083,11 @@ contract gate rather than the browser.
 
 **Context:** Every browser poll rides the `_router` TIMER, and `HTTP_Out` batches whatever was
 minted during one tick into a single POST. That batching is the whole reason the graph has one
-heartbeat — but a hitchhiking timer whose interval exceeds the 1s tick threw the benefit away.
-It paced itself from its OWN last fire, so *when* a surface was opened decided which second it
-polled in: a 5s catalog opened at :02 and another opened at :04 never shared a tick again, and
-each paid its own POST forever. A page with four cadences paid four requests where one would
-do, and no test could see it — every poll worked.
+heartbeat, and a hitchhiking timer whose interval exceeds the 1s tick throws the benefit away
+the moment it paces itself from its OWN last fire. *When* a surface opens then decides which
+second it polls in: a 5s catalog opened at :02 and another opened at :04 never share a tick
+again, and each pays its own POST forever. A page with four cadences pays four requests where
+one would do, and no test sees it — every poll works.
 
 **Decision:** `TimerNode.fireCb()` fires on a boundary of a wall-clock GRID, not on elapsed
 time since its own last fire:
@@ -978,16 +1102,22 @@ bucket rotation survive a process restart with its predecessor's phase intact.
 
 **ONE phase serves every cadence** (`GRID_PHASE_MS`), never one per interval. That is what
 keeps the harmonics: a 10s boundary is every second 5s boundary and a 30s boundary every sixth,
-so 5s/10s/15s/30s polls all meet every 30 seconds and leave together. A per-interval phase —
-the first implementation — slides each cadence a few hundred milliseconds off the others and
-destroys exactly the alignment the grid exists for. The offset itself only keeps the grid off
-:00, where every other periodic job on the box already is.
+so 5s/10s/15s/30s polls all meet every 30 seconds and leave together. A per-interval phase
+slides each cadence a few hundred milliseconds off the others and destroys exactly the
+alignment the grid exists for. The offset itself only keeps the grid off :00, where every
+other periodic job on the box already is.
 
 **The grid lives in `TimerNode` and nowhere else**, and `scripts/lint-contract.mjs`'s
 `grid-math` rule keeps it there. A subclass picks a harmonic interval and nothing more; it
-never computes a boundary. `MetadataNode` is the cautionary case: it kept a second throttle of
-its own, its poll drifted off the grid, and the fix had to be written twice before it became a
-`PollerNode` like the others.
+never computes a boundary. A second throttle inside a subclass slides that node's poll off the
+grid however correct the throttle is on its own terms, which is why `MetadataNode` extends
+`PollerNode` rather than pacing itself.
+
+That rule reads JavaScript alone — it matches the camelCase `nextBoundary` and `GRID_PHASE_MS`
+under `src/` and `examples/` — and the invariant is scoped to match. `LRU_Cache::next_boundary()`
+is a second grid on the PHP side, on purpose: it carries no phase offset, because no cadence
+inside the cache has to align with another, and it snaps to an epoch grid rather than
+Table.pm's localtime components so no boundary lands in a DST discontinuity.
 
 The throttle applies only where it can: a node registered on the `_router` tick with an
 interval above the 1000 ms tick. A node holding its own `setInterval` slot — a sub-second
@@ -999,14 +1129,23 @@ boundary test.
 - **Per-interval phase.** Rejected on the harmonics, above.
 - **A shared scheduler node every timer registers with.** Rejected: the Router already IS the
   one heartbeat, and a second coordinator is state where arithmetic suffices.
-- **Snapping each timer to the first tick after arming.** Rejected — that is the behaviour this
-  replaces; it is exactly what made the phase depend on when a surface opened.
+- **Snapping each timer to the first tick after arming.** Rejected: it makes the phase depend
+  on when a surface opened, which is the whole failure the grid removes.
 
 **Consequences:** The first period after arming is the short remainder of the period the timer
 opened in, so a poll can fire twice in quick succession at mount. That is the cost of
 converging immediately, and it is paid once. Tests that assert "no second fire within N
 seconds" become clock-dependent unless they pin the clock — pin it FORWARD to just past a
 boundary, since moving it back reads to every watchdog as a stream gone silent.
+
+Two methods refresh outside the cadence without leaving the grid. `markDue()` clears
+`lastFireTime`, so the very next Router tick fires — a dashboard answering a filter change or
+a `cd` uses it. `markFired()` is the inverse: it treats the poll as having just happened and
+counts from the NEXT boundary, so the following fire owes a full interval. It is deliberately
+not `lastFireTime = now`, which lands anywhere inside the period and can fire again one tick
+later, which is the duplicate request it exists to suppress. `PollerNode`, `MetadataNode`,
+`useRouterTick`, `useBatchedPoll`'s `pollNow()` and the topology console's `cd` refresh all go
+through the pair rather than pacing themselves.
 
 **Revisit if:** the runtime gains sub-second cadences, where a 360ms phase is a large fraction
 of a period and the grid would need its own scale.
@@ -1043,12 +1182,12 @@ the record the backing read, or a cache failure silently becomes a data failure.
 answers a key is the app's business, not the table's. `Partition_Node` treats index lines as
 opaque strings because the formatter that wrote them belongs to the caller, so
 `locate_by( \Closure $extract, array $wanted )` takes the line parser and the keys to
-resolve, and returns key → position for those keys only — the key set bounds the table,
-the index walk and the memo, because a whole-index table grows with the partition
-rather than the query and exhausted a 512MB request while resolving a handful of rows
-(a locator costs ~300 bytes, so that table had reached order-1M keys). The result is a
-lookup table addressed by key. Its ORDER carries no meaning — that is separate from the
-newest-per-key rule below, which is about WHICH record a key resolves to, not the order
+resolve, and returns key → position for those keys only. The key set bounds the table, the
+index walk and the memo, because a whole-index table grows with the PARTITION rather than the
+query: at ~300 bytes a locator, an order-1M-key partition exhausts a 512MB request to answer
+a handful of rows. The result is a lookup table addressed by key; its order follows `$wanted`
+rather than the index, so read it by key and never by position. That is separate from the
+newest-per-key rule below, which decides WHICH record a key resolves to rather than the order
 the keys come back in.
 
 `read_many()` reads those positions one file handle per SEGMENT. Partition owns the walk,
@@ -1061,6 +1200,14 @@ but not the kind the reopen condition below means: it is per process, it is disc
 moment an append changes the segment extent or the memo passes its key ceiling, and it
 caches "this index did not answer for this key", never "this record does not exist". A
 reader that must distinguish those asks the record.
+
+The memo is a class-level static keyed by the resolved partition DIRECTORY rather than held
+per instance, so every Partition object pointed at that directory shares one table. That
+assumes one index format per directory — which `with_index` already implies — and it is the
+one way to get a WRONG answer out of `locate_by()` instead of a slow one: two readers of the
+same directory passing different `$extract` parsers share whichever walked first, and the
+second reader's keys land in `searched` as answered-and-absent, so each of its lookups comes
+back a silent miss.
 
 One sharp edge: `scan_index()` skips a segment whose `.idx` is missing or unreadable, and
 the extent is built from the `.log` id and size — so a transient index read failure
@@ -1102,12 +1249,13 @@ than in `lookup()`.
 
 **Context:** [ADR-7](#adr-7-sink-vs-target-and-tofrom-replies) splits destinations two ways:
 `sink` is the physical next hop, `target` is the logical TO path. A third kind exists in
-practice and had no name. `Flame_Builder_Node` resolves its stats-mirror Partition by NAME
-through `Core::node()` and fills it directly at flush, bypassing both its sink and its target;
-`Request_Builder_Node` stamps TO per message from one of four conditional routes rather than
-from the single `target` field. Both are real destinations, and neither appeared in `target()`,
-so the console drew those partitions with no inbound edge while they filled — a node reading as
-disconnected at the moment it is being written to.
+practice, and neither of the two names it. `Flame_Builder_Node` resolves its stats-mirror
+Partition by NAME through `Core::node()` and fills it directly at flush, bypassing both its
+sink and its target; `Request_Builder_Node` stamps TO per message from one of four conditional
+routes rather than from the single `target` field. Both are real destinations, and neither
+appears in `target()`, so without a declaration the console draws those partitions with no
+inbound edge while they fill — a node reading as disconnected at the moment it is being
+written to.
 
 **Decision:** `Node::extra_targets(): list<string>` is a DECLARATION, not a route. A node
 returns the destinations it writes without going through `target`; `Node::display_targets()`
@@ -1145,9 +1293,9 @@ surface and must never acquire a caller in `fill()`.
 The union is POSITIONAL: `target_list( target() )` first, then the extras. So index 0 is the
 routing target only when a routing target is SET — a node with an empty `target` and one
 declared extra puts the EXTRA at index 0, and a consumer slicing `[0]` as "the target" presents
-a presentation-only destination as the routing contract. Consumers have read index 0 as the
-routing target and been wrong. A consumer needing the routing value reads `target`; one that
-must split the union splits by the routing COUNT, never at a fixed index.
+a presentation-only destination as the routing contract. A consumer needing the routing value
+reads `target`; one that must split the union splits by the routing COUNT, never at a fixed
+index.
 
 **Revisit if:** anything routes on `display_targets()`, at which point the two planes have
 merged and ADR-7 is the decision in play; or if `edge` is reintroduced, which would absorb the
@@ -1159,12 +1307,12 @@ physical-write case and leave only the conditional-TO one.
 
 **Status:** Accepted
 
-**Context:** Substrate config had three homes for a default and they had drifted in both
-directions. Four `sse_*` keys existed only in `Settings_Schema`, deferring to
-`SSE_Slot_Pool::DEFAULT_*` class constants; three `vault*` keys existed only in
-`newspack-nodes-config.php`, declared by nothing. `Config::declare_keys()` derived the valid
-key set from `array_keys( load_config_defaults() )` — the config FILE — so the file was
-simultaneously the override surface and the declaration.
+**Context:** Substrate config had three homes for a default, and they had drifted in both
+directions: `sse_*` keys declared only in `Settings_Schema` and deferring to
+`SSE_Slot_Pool` class constants, and `vault*` keys named only in `newspack-nodes-config.php`
+and declared by nothing. `Config::declare_keys()` derived the valid key set from
+`array_keys( load_config_defaults() )` — the config FILE — so the file was simultaneously the
+override surface and the declaration.
 
 That coupling fails in two directions, and both have shipped. **Forward:** a deploy preserves
 the operator's config file, so a key added later never appears in it, and a default living only
@@ -1204,6 +1352,16 @@ takes down every request including wp-admin the day a key is renamed, recoverabl
 It is logged rate-limited and surfaced in Site Health and `wp nodes doctor` as `config-keys`.
 Loud means visible, not fatal.
 
+That report covers the SHIPPED file alone. `note_unrecognized_keys()` runs inside
+`load_config_defaults()` the moment that file is read, BEFORE the
+`LOCAL_NEWSPACK_NODES_CONF` layer is applied, so a typo in an operator's local override is
+neither reported nor refused and a clean `config-keys` row is no evidence that file is clean.
+The hatch is open on purpose, and it reaches further than `Config::value()`'s refusal
+suggests: `Config::register_token_namespace()`'s resolver reads `load_config()` with no
+declaration gate, so `<config:anything_in_the_local_file>` resolves, while a genuinely
+misspelled `<config:key>` expands to `''` behind a rate-limited warning wherever
+interpolation is non-strict — a schema-arg default is the one place it throws.
+
 **The shipped config file ships every key COMMENTED OUT beside its default**, so it doubles as
 the documentation of what can be set and uncommenting one line is the whole edit. A drift test
 parses those lines back and compares them to the code defaults key-for-key and value-for-value,
@@ -1213,8 +1371,8 @@ because a documented default that drifts is worse than none.
 
 - **Keep the file as the base and add a completeness test.** Rejected: the test can only see the
   file in THIS checkout, and the failure is on an installed host whose file is older.
-- **Throw on an unknown file key, as Nuclear did.** Rejected: see above. It converts an
-  operator typo into an outage, and the file is not ours to validate that strictly.
+- **Throw on an unknown file key.** Rejected: see above. It converts an operator typo into an
+  outage, and the file is not ours to validate that strictly.
 - **Register the file's keys so nothing is ever refused.** Rejected: that is the backward
   failure — it makes typos self-declaring and silently shadows the real key.
 - **Put every default in a `Field`, including for plugins with no settings UI.** Rejected:
@@ -1229,8 +1387,10 @@ completeness itself; the shared `Schema` cannot enforce it, because plugins whos
 in a `config_defaults()` array legitimately declare none.
 
 A reader must not fall back to zero where the schema declares a value:
-`Core::num_int( Config::value( $k ) )` returns 0 for a null or blank entry, which collapsed the
-whole-host SSE cap to 1. Read through a helper that falls back to the DECLARED default.
+`Core::num_int( Config::value( $k ) )` answers 0 for a null or blank entry, and read
+unguarded that 0 would collapse the `max( 1, … )` behind `SSE_Slot_Pool::max_streams()` to a
+whole-host cap of one stream. Read through a helper that falls back to the DECLARED default,
+as `SSE_Slot_Pool::budget()` does.
 
 Uninstall must not treat the schema default as "this install's directory". It is the path every
 unconfigured install on a host shares, and deleting it takes a sibling's live logs, locks and
