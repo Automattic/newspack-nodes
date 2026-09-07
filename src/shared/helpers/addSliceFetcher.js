@@ -1,5 +1,6 @@
 /** @typedef {import('../../runtime/node').NodeClass} NodeClass */
 /** @typedef {import('../../runtime/tee-node').TeeNode} TeeNode */
+/** @typedef {import('../../runtime/node').Node} Node */
 
 /**
  * The transform node a slice inserts between its receiver Tee and its view.
@@ -50,7 +51,7 @@
  * @param {string}           slice.command       The verb the Fetcher sends.
  * @param {string}           slice.view          View node name.
  * @param {string|NodeClass} slice.viewClass     The view node's class, or its registered name. Hand the CLASS when you have it: the name map is a per-bundle static, so a hub tab building its graph through another bundle's interpreter cannot resolve a name its own bundle registered (ADR-16).
- * @param {TeeNode}          slice.tee           The fan-out Tee node the tick fans through.
+ * @param {TeeNode|Node}     slice.tee           The node the tick fans out from. A Tee for a slice hanging off a shared poll; a Timer for one that owns its own cadence, as the URL-detail modal does. All this needs is `connectNode`, which both carry — declaring the Tee alone refuses the second shape the toolkit was built for.
  * @param {string}           slice.target        Egress path the Fetcher targets (`_shell/_http/<ci>`).
  * @param {string}           [slice.controlFrom] Control origin for a view that takes local controls: the FROM its dashboard mints under. Omitted for the majority, whose view class owns no control path — stamping every view plants an inert field on them, and the wrong name on any view whose controls come from its transform rather than itself.
  * @param {SliceTransform}   [slice.transform]   Node inserted on the receiver-Tee → view edge.
