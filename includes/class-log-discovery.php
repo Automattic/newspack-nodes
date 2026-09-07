@@ -3,10 +3,11 @@
  * Answers "which partition directories exist on disk?" for the whole substrate.
  *
  * Three readers share the one answer: the admin storage estimate counts
- * `on_disk()`, the Raw Logs catalog lists `groups()`, and the SSE subscription
- * parser validates a `{group}/` prefix against `GROUPS`. A Partition added to a
- * topology therefore reaches all three with no registration step and no
- * per-application catalog to keep in step with the topologies.
+ * `on_disk()`, the Raw Logs catalog lists `groups()`, and `SSE_Out_Node`
+ * validates a subscription's `{group}/` prefix against `GROUPS`. A Partition
+ * added to a topology therefore reaches all three as soon as its directory
+ * exists, with no registration step and no per-application catalog to keep in
+ * step with the topologies.
  *
  * @package Newspack_Nodes
  */
@@ -18,19 +19,22 @@ namespace Newspack_Nodes;
 /**
  * A per-process cache over one `glob()` per browsable root.
  *
- * Both entry points memoize, so a directory created after the process booted
- * becomes visible only once `reset()` runs. A failed scan caches its empty list
- * like any other result and stands until then.
+ * The two entry points memoize separately, so a directory created after the
+ * process booted becomes visible only once `reset()` runs, and a failed scan
+ * caches its empty list like any other result and stands until then. Neither
+ * is a pure read: the first scan resolves the runtime root through
+ * `Config::get_base_directory()`, which creates that tree at mode 0700 when it
+ * is absent.
  */
 final class Log_Discovery {
 
 	/**
-	 * Seam over the single `glob()` call each scan makes. Tests reassign it to
-	 * force the error branch — `glob()` returns false on an I/O fault, where a
-	 * no-match returns `[]` — without damaging a real directory, leaving the
-	 * sort, the basename map and the memoization under real coverage. It
-	 * defaults at the call site because a closure cannot be a constant
-	 * expression.
+	 * Seam over the `glob()` call every scan makes; `groups()` reaches it once
+	 * per root. Tests reassign it to force the error branch — `glob()` returns
+	 * false on an I/O fault where a no-match returns `[]` — without damaging a
+	 * real directory, which leaves the sort, the basename map and the
+	 * memoization under real coverage. It defaults at the call site because a
+	 * closure cannot be a constant expression.
 	 *
 	 * Signature: `function ( string $pattern, int $flags ): array|false`.
 	 *
@@ -44,16 +48,17 @@ final class Log_Discovery {
 	 * `logs` holds the data partitions, `offsets` the durable reader cursors,
 	 * and `deadletter` the poison and write-stall quarantines. All three hold
 	 * packed partition dirs, so the Partition Viewer renders any of them.
-	 * `SSE_Out_Node` accepts a `{group}/` subscription prefix from this list
-	 * alone and refuses every other one, which is what keeps a caller-supplied
-	 * prefix from reaching a path.
+	 * `SSE_Out_Node::parse_group()` accepts a `{group}/` subscription prefix
+	 * from this list and refuses every other one, an explicit `logs/` included,
+	 * because a bare name already addresses that root. That list is what keeps
+	 * a caller-supplied prefix out of the glob path the node then builds.
 	 */
 	public const GROUPS = [ 'logs', 'offsets', 'deadletter' ];
 
 	/** @var list<string>|null Memoized `logs` basenames; null before a scan. */
 	private static ?array $cached = null;
 
-	/** @var array<string,list<string>>|null Memoized per-root basenames. */
+	/** @var array<string,list<string>>|null Memoized per-root basenames; null before a scan. */
 	private static ?array $cached_groups = null;
 
 	/**
@@ -63,9 +68,13 @@ final class Log_Discovery {
 	 * keeps a `Log` file-sink's segment files out of the list.
 	 *
 	 * @return list<string>
-	 * @throws \RuntimeException When `base_directory` is unconfigured. There is
-	 *                          no silent `/tmp` default: a phantom tree reports
-	 *                          "no logs" while the writer fills the real one.
+	 * @throws \RuntimeException Through `Config::get_base_directory()`: a
+	 *                          malformed config file, an empty or non-scalar
+	 *                          `base_directory`, or a runtime root that will
+	 *                          not resolve or that another uid owns. Nothing
+	 *                          here catches it: a substituted path would
+	 *                          report "no logs" while the writer fills the
+	 *                          real tree.
 	 */
 	public static function on_disk(): array {
 		if ( null !== self::$cached ) {
@@ -91,7 +100,8 @@ final class Log_Discovery {
 	 * checking first.
 	 *
 	 * @return array<string,list<string>>
-	 * @throws \RuntimeException When `base_directory` is unconfigured.
+	 * @throws \RuntimeException Through `Config::get_base_directory()`, on the
+	 *                          same conditions as `on_disk()`.
 	 */
 	public static function groups(): array {
 		if ( null !== self::$cached_groups ) {
@@ -113,8 +123,8 @@ final class Log_Discovery {
 	}
 
 	/**
-	 * Drop both memoized scans. `newspack-nodes.php` wires this to
-	 * `Config::RESET_ACTION`, the signal a config reload fires.
+	 * Drop both memoized scans. `newspack-nodes.php` hooks this to
+	 * `Config::RESET_ACTION`, which `Config::reset()` fires.
 	 */
 	public static function reset(): void {
 		self::$cached        = null;

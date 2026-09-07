@@ -1,9 +1,8 @@
 <?php
 /**
- * The digest pipeline's terminal accumulator, and the walkthrough's worked example
- * of the two contracts a stateful end-of-graph node signs: a TM_REQUEST runtime
- * trigger, and a save_state/restore_state snapshot the Consumer co-commits with
- * its cursor.
+ * The digest pipeline's accumulator, and the walkthrough's worked example of the
+ * two contracts a stateful node honors: a TM_REQUEST runtime trigger, and a
+ * save_state/restore_state snapshot the Consumer co-commits with its cursor.
  *
  * @package Example_AI_Newsletter
  */
@@ -49,7 +48,9 @@ class Digest_Builder_Demo_Node extends Node {
 	 * fill() rather than as a TM_COMMAND verb on the `:config` interpreter:
 	 * commands build and administer a graph, requests drive one that already
 	 * runs. A TM_STRUCT whose VALUE is not an array is dropped rather than
-	 * accumulated, because the renderer reads `summary` off each item.
+	 * accumulated, because the renderer reads `summary` off each item. The
+	 * numeric guard casts TYPE before either bitwise test, so a TYPE that is not
+	 * numeric reads as 0 and matches neither gate.
 	 *
 	 * @param array<int,mixed> $message The 7-field positional message array.
 	 */
@@ -68,6 +69,7 @@ class Digest_Builder_Demo_Node extends Node {
 		}
 		/** @var array<string,mixed> $value */
 		$this->items[] = $value;
+		// parent::fill does the counting, and this branch never calls it.
 		++$this->counter;
 	}
 
@@ -77,7 +79,11 @@ class Digest_Builder_Demo_Node extends Node {
 	 *
 	 * Every TM_REQUEST flushes: FLUSH is the only verb the schema declares, so
 	 * there is no verb table to consult. `Consumer_Node::handle_request` is the
-	 * contrast — it names GET_LAG and refuses anything else.
+	 * contrast — it reads the verb off VALUE and answers an unknown one with an
+	 * `error` payload.
+	 *
+	 * An item whose `summary` is missing or not a string renders as an empty
+	 * bullet rather than being skipped.
 	 *
 	 * The draft leaves with an empty TO, which is what lets parent::fill stamp it
 	 * from `target` and hand it to the sink. The reply instead goes TO the
@@ -120,6 +126,11 @@ class Digest_Builder_Demo_Node extends Node {
 	 * Keep the digest bounded: every checkpoint the Consumer writes carries this
 	 * whole payload, however many items have accumulated since the last flush.
 	 *
+	 * The `items` key is a second contract. `Insights_CI_Demo_Node` reads it back
+	 * off the committed frame through the substrate's
+	 * `Partition_Node::read_latest_snapshot_cache()`, so the Publisher Insights
+	 * dashboard renders without reaching a live worker.
+	 *
 	 * @return array{items: array<int,array<array-key,mixed>>}
 	 */
 	public function save_state(): array {
@@ -148,9 +159,10 @@ class Digest_Builder_Demo_Node extends Node {
 	}
 
 	/**
-	 * Palette entry, plus the FLUSH declaration `help Digest_Builder_Demo` and the
-	 * topology console render. Declaring it under `requests` rather than `commands`
-	 * is what tells a reader to fire it with `request_node`, not with `cmd`.
+	 * The palette entry, plus the FLUSH declaration that `help Digest_Builder_Demo`
+	 * prints and the topology console renders as an Inspector button. It sits under
+	 * `requests` rather than `commands`, which is what makes that button send
+	 * `request_node` rather than `command_node`.
 	 *
 	 * @return array<string,mixed>
 	 */

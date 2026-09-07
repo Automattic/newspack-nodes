@@ -2,16 +2,19 @@
 /**
  * Purpose-separated HMACs authorizing the substrate's internal loopback requests.
  *
- * Two endpoints are called by the site itself rather than by a person: the
- * spawn controller a worker, a peer scan or the cron pass POSTs to, and the
- * health-cache probe `wp nodes doctor` reads the WEB runtime's posture from.
- * Neither caller carries a user session, so a capability check would refuse
- * every legitimate request; each presents a token minted from a shared secret
- * instead.
+ * Two endpoints take requests the site makes of itself: the spawn controller,
+ * which a worker's self-respawn, a peer scan and the cold-start cron pass all
+ * POST to, and the health-cache probe, which reports the web runtime's cache
+ * posture to `wp nodes doctor`. No such caller carries a user session, so a
+ * capability check would refuse every one of them; each presents a token minted
+ * from a shared secret instead. Spawn keeps a second door beside the token, for
+ * a caller holding the `manage` role and a valid WordPress nonce.
  *
  * The purpose string sits INSIDE the hashed message, so a token minted for one
  * endpoint never validates at the other and a leaked one reaches only the
- * endpoint it was issued for.
+ * endpoint it was issued for. Nothing else enters the message: a spawn token
+ * names neither worker type nor partition, so until its window passes it
+ * authorizes any spawn the endpoint would otherwise accept.
  *
  * @package Newspack_Nodes
  */
@@ -40,15 +43,16 @@ final class Internal_Request_Token {
 	 *
 	 * Because `validate()` takes the previous window too, a token lives between
 	 * 10 and 20 seconds. That straddle absorbs the clock skew and the request
-	 * latency between minting and arrival; accepting one window alone fails
-	 * every mint that lands after a boundary. Do not tighten it.
+	 * latency between minting and arrival; accepting the current window alone
+	 * would refuse every token that crosses a boundary in flight. Do not
+	 * tighten it.
 	 */
 	public const WINDOW_S = 10;
 
-	/** Purpose for `POST /v1/workers/spawn`, minted by `Spawn_Coordinator`. */
+	/** Purpose for `POST /newspack-nodes/v1/workers/spawn`, minted by `Spawn_Coordinator`. */
 	public const PURPOSE_SPAWN = 'spawn';
 
-	/** Purpose for `POST /v1/health/cache`, minted by `Health_Probe_Client`. */
+	/** Purpose for `POST /newspack-nodes/v1/health/cache`, minted by `Health_Probe_Client`. */
 	public const PURPOSE_HEALTH_CACHE = 'health-cache';
 
 	/** Static only: a token is a pure function of its inputs, so there is nothing to hold. */
@@ -113,7 +117,7 @@ final class Internal_Request_Token {
 	 * same token on every install, so anyone knowing the algorithm can compute
 	 * it, and an empty purpose collapses the separation the constants exist for.
 	 * A caller that reaches here has a broken key or a missing constant, so it
-	 * throws instead of minting something that authorizes the wrong request.
+	 * throws rather than mint or accept a token authorizing the wrong request.
 	 *
 	 * @param string $purpose Purpose to check.
 	 * @param string $salt    HMAC key to check.

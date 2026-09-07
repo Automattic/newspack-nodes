@@ -3,14 +3,14 @@
  * Graphite: plaintext-metrics egress.
  *
  * Ships each TM_BYTESTREAM VALUE — newline-terminated `path value ts` lines,
- * batched 16 to a message upstream by Probe_To_Graphite — to a Graphite
+ * batched 16 to a message by the Probe_To_Graphite in front — to a Graphite
  * plaintext endpoint as one UDP datagram. It stands in for Tachikoma's
  * `connect_inet --io --reconnect <host>:2003 graphite` and diverges on the
  * transport: Tachikoma holds a reconnecting TCP socket, this opens and closes a
  * connectionless one per message. A datagram needs no handshake, keeps no
  * reconnect state, and leaves no send buffer to back up behind a collector that
- * is down. Losing a sweep beats stalling the graph that produced it, and the
- * upstream batching is what makes a socket per message affordable.
+ * is down. Losing a sweep beats stalling the graph that produced it, and that
+ * batching is what makes a socket per message affordable.
  *
  * @package Newspack_Nodes
  */
@@ -57,7 +57,8 @@ class Graphite_Node extends Node {
 	 *
 	 * @param list<string>|null $args New argument tokens (null = pure getter).
 	 * @return list<string> The tokens as given.
-	 * @throws \InvalidArgumentException Without a host:port argument.
+	 * @throws \InvalidArgumentException When the first token is missing, blank
+	 *                                   or colon-less.
 	 */
 	public function arguments( ?array $args = null ): array {
 		if ( null === $args ) {
@@ -76,14 +77,19 @@ class Graphite_Node extends Node {
 	 * Write the message VALUE to the endpoint as one datagram.
 	 *
 	 * Only TM_BYTESTREAM is written: a TM_STRUCT VALUE is an array and the
-	 * plaintext protocol reads lines, so put a formatter — Probe_To_Graphite,
-	 * or a Dumper — in front. An empty VALUE is skipped, because a zero-length
-	 * datagram carries no metric and still costs a socket.
+	 * plaintext protocol reads lines, so Probe_To_Graphite, or another formatter
+	 * emitting them, belongs in front. Nothing here splits a VALUE — one message
+	 * is one datagram — so that formatter sizes it, as
+	 * `Probe_To_Graphite_Node::LINES_PER_MESSAGE` does at 16 lines. An empty
+	 * VALUE is skipped, because a zero-length datagram carries no metric and
+	 * still costs a socket. `Core::as_string()` reads a non-scalar as '', so a
+	 * struct mistyped TM_BYTESTREAM takes that same skip.
 	 *
 	 * The counter advances on every accepted message, a failed write included,
-	 * so `ls` reports what this node was asked to ship. A failure logs
-	 * rate-limited and returns — fill() returns void (ADR-13), and throwing
-	 * would take the drain loop down over an unreachable metrics host.
+	 * so `ls -c` reports what this node was asked to ship. A failure logs
+	 * rate-limited and returns: fill() returns void (ADR-13), and an exception
+	 * raised under Probe_To_Graphite's timer fire escapes the event loop
+	 * uncaught, ending the worker run over an unreachable metrics host.
 	 *
 	 * @param array<int,mixed> $message The 7-field positional message array.
 	 */

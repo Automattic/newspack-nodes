@@ -7,19 +7,21 @@
  * backend — a claim must never straddle tiers:
  *
  * - `local_first()`  — APCu, else memcached. For same-host hot surfaces: the
- *   command-auth nonce claim and `Bootstrap::on_demand_wake_map()`, whose
- *   inputs are this host's own files. The web pool rides shared memory, and a
- *   CLI process (its own APCu segment, usually disabled) falls through to
- *   memcached.
+ *   command-auth nonce claim, and `Bootstrap::on_demand_wake_map()`, whose
+ *   inputs are this host's own `.tsl` files. The web pool rides shared memory,
+ *   and a CLI process (its own APCu segment, usually disabled) falls through
+ *   to memcached.
  * - `shared_first()` — memcached, else APCu. For cross-process sources of
  *   truth (command sessions, SSE slots, tables, batch counters, spawn
  *   throttles): configured memcached keeps its scope; a host without it
  *   (stock Atomic posture) stays FUNCTIONAL on APCu instead of failing
  *   closed, trading CLI visibility.
  *
- * Both return null when neither backend is available, and callers keep their
- * fail-closed behavior. The operations mirror the `\Memcached` subset the
- * substrate uses, and the APCu arm matches memcached semantics: false on a
+ * Both return null when neither backend is available, and each caller decides
+ * what that means: a Table refuses to construct and the command-auth nonce
+ * refuses to claim, while the spawn throttle falls back to a transient and the
+ * on-demand wake map recomputes. The operations mirror the `\Memcached` subset
+ * the substrate uses, and the APCu arm matches memcached semantics: false on a
  * miss, a counter clamped at zero, and increment and decrement refusing a key
  * that does not exist.
  *
@@ -34,9 +36,10 @@ namespace Newspack_Nodes;
  * An instance is one selected tier: a memcached handle, or null, which selects
  * the APCu arm.
  *
- * The static half is the key grammar — `site_key()`, `host_key()` and the
- * `key()` they both compose through — so every surface spells a key the same
- * way and `wp nodes memcache get` can rebuild one from a logical name.
+ * The static half selects a tier and owns the key grammar — `site_key()`,
+ * `host_key()` and the `key()` they both compose through — so every surface
+ * spells a key the same way and `wp nodes memcache get` can rebuild one from a
+ * logical name.
  */
 final class Cache_Backend {
 
@@ -81,7 +84,10 @@ final class Cache_Backend {
 	 */
 	public static ?string $salt = null;
 
-	/** Memoized machine half; empty until `machine()` resolves it. */
+	/**
+	 * Memoized machine half; empty until `machine()` resolves it. `Core::reset()`
+	 * clears it.
+	 */
 	public static string $machine = '';
 
 	/**
@@ -104,7 +110,8 @@ final class Cache_Backend {
 	public static ?\Closure $apcu_cache_info = null;
 
 	/**
-	 * APCu shared-memory seam. Production calls `apcu_sma_info( true )`.
+	 * APCu shared-memory seam. Production calls `apcu_sma_info( true )`; tests
+	 * feed the `avail_mem` figure without populating APCu.
 	 *
 	 * @var \Closure(bool): (array<string,mixed>|false)|null
 	 */
@@ -120,7 +127,8 @@ final class Cache_Backend {
 
 	/**
 	 * Key for state one INSTALL owns, shared by every container serving it —
-	 * tables, batch counters, unique-enqueue claims, stats, render caches.
+	 * tables, batch counters, unique-enqueue claims, spawn throttles, command
+	 * nonces.
 	 *
 	 * The site half is the discriminator because it is the half that varies
 	 * where installs collide: co-tenants share a database (separate table
@@ -177,11 +185,11 @@ final class Cache_Backend {
 		$db     = \defined( 'DB_NAME' ) ? Core::as_string( \constant( 'DB_NAME' ), '' ) : '';
 		$prefix = '';
 		if ( isset( $GLOBALS['wpdb'] ) && \is_object( $GLOBALS['wpdb'] ) ) {
-			// base_prefix is the network half; prefix alone is this blog's.
+			// base_prefix is the network half; the blog's is a last resort.
 			$prefix = Core::as_string( $GLOBALS['wpdb']->base_prefix ?? ( $GLOBALS['wpdb']->prefix ?? '' ), '' );
 		}
 		if ( '' === $db && '' === $prefix ) {
-			// Last resort, and co-tenants SHARE it — hence the warning.
+			// Memoized last resort; co-tenants SHARE it — hence the warning.
 			Core::print_less_often( 'ERROR: cache scope unresolvable (no DB_NAME, no $wpdb): keys are NOT install-scoped' );
 			return self::$site = 'unscoped';
 		}
@@ -191,13 +199,13 @@ final class Cache_Backend {
 	/**
 	 * The install's cache salt. Empty until something rotates it.
 	 *
-	 * Read through `$wpdb` rather than `get_option()` because pyrobase's
-	 * `bin/pyrate` runs under SHORTINIT, where the option API is stubbed to
-	 * return defaults — and pyrate warms the SAME caches the web serves.
-	 * Reading the row directly is what keeps one rotation coherent across both.
+	 * Read from the option ROW through `$wpdb`, never `get_option()`: a
+	 * SHORTINIT boot has `$wpdb` connected before WordPress defines the option
+	 * API at all, and pyrobase's CLI shim then stubs `get_option()` to hand back
+	 * the default. `rotate_salt()` guards `update_option()` for the same reason.
 	 *
-	 * @return string The stored salt, or '' when none is stored and when no
-	 *                `\wpdb` is available to read one.
+	 * @return string The stored salt, or '' when no row holds one and when no
+	 *                `\wpdb` is available to read it.
 	 */
 	public static function salt(): string {
 		if ( null !== self::$salt ) {
@@ -295,8 +303,8 @@ final class Cache_Backend {
 	 * bounded identity pointers. A failed comparison is a lost race and must
 	 * never fall back to set().
 	 *
-	 * The APCu arm confirms the swap with a read-back, so a true return there
-	 * means the replacement is what the key holds.
+	 * The APCu arm re-reads after the swap, so a true return there means the
+	 * read-back saw the replacement.
 	 *
 	 * @param string $key         The cache key.
 	 * @param int    $expected    Value the key must currently hold.
@@ -327,11 +335,12 @@ final class Cache_Backend {
 	}
 
 	/**
-	 * Invoke Memcached CAS without coercing its opaque token.
+	 * Hand `Memcached::cas()` the opaque token exactly as the extended read
+	 * returned it.
 	 *
-	 * Extension releases expose float-only or string|int|float signatures.
-	 * Calling through the native callable preserves the exact token returned by
-	 * GET_EXTENDED; converting a 64-bit integer token to float can lose it.
+	 * Extension releases declare that parameter `float` or `string|int|float`,
+	 * so the token rides as the union and nothing here narrows it: a 64-bit
+	 * token cast to float loses its low digits.
 	 *
 	 * @param callable         $cas         The bound `[ $memcached, 'cas' ]`.
 	 * @param string|int|float $token       CAS token from the extended read.
@@ -476,7 +485,9 @@ final class Cache_Backend {
 	 * co-tenant's is touched. THE flush — plugins do not keep their own.
 	 *
 	 * Clearing the memoized `$site` is half the work, since the salt folds
-	 * into it; a process that kept the old scope would keep the old keys.
+	 * into it; a process that kept the old scope would keep the old keys. Peer
+	 * processes keep theirs until they restart, which is why both callers
+	 * recycle the fleet.
 	 *
 	 * @return string The new salt.
 	 */

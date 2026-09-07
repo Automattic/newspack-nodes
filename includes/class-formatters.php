@@ -20,15 +20,16 @@ namespace Newspack_Nodes;
  *
  * Three surfaces read it: `Partition_Node::with_index_named()`, the `with_index`
  * verb on Partition and Topic, and `Classes_CI`, which publishes `list_names()`
- * as the topology console's picker for a `formatter_name` constructor argument.
- * The registry itself constrains nothing beyond `callable` — the signature a
- * name must satisfy belongs to whoever calls it, which for the companion-index
- * formatters is `fn(array $message, array $position): ?string`.
+ * as the topology console's picker for a `formatter_name` argument, a type only
+ * `with_index` declares. The registry constrains nothing beyond `callable` —
+ * the signature a name must satisfy belongs to whoever calls it, which for the
+ * companion-index formatters is `fn(array $message, array $position): ?string`.
  */
 class Formatters {
 
 	/**
-	 * Registered callables, keyed by the name TSL and verb arguments address.
+	 * Registered callables, keyed by the name a verb argument or a PHP caller
+	 * addresses.
 	 *
 	 * @var array<string,callable>
 	 */
@@ -37,9 +38,9 @@ class Formatters {
 	/**
 	 * Register a callable under a name, replacing whatever held that name.
 	 *
-	 * @api Used by external plugins
+	 * @api Called from consumer plugins; the substrate has no production caller.
 	 *
-	 * @param string   $name Name a topology file or verb argument addresses it by.
+	 * @param string   $name Name the registry keys this callable under.
 	 * @param callable $cb   The callable. Nothing checks its signature here; the
 	 *                       caller that resolves the name defines what it takes.
 	 */
@@ -63,10 +64,9 @@ class Formatters {
 	}
 
 	/**
-	 * List every registered name.
+	 * List every registered name, in registration order.
 	 *
-	 * `Classes_CI` sorts these into the topology console's picker, so a node
-	 * argument declaring `formatter_name` offers the names this process holds.
+	 * `Classes_CI` sorts the result before publishing it; nothing here does.
 	 *
 	 * @return array<int,string> Registered formatter names.
 	 */

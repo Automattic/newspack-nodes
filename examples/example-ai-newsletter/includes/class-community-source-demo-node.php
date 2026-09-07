@@ -1,7 +1,9 @@
 <?php
 /**
- * The walkthrough's second source, which demonstrates fan-in: two nodes point
- * their target at one summarizer, and no node between them merges the streams.
+ * The walkthrough's second source: on a TICK request it emits canned
+ * publisher-community items toward `summarizer`, which `releases` already
+ * feeds. A second wire into one node is all fan-in takes — nothing between
+ * them merges the streams.
  *
  * @package Example_AI_Newsletter
  */
@@ -18,8 +20,9 @@ use Newspack_Nodes\Message;
  *
  * Near-identical to `Releases_Source_Demo_Node` by design: the walkthrough's
  * point is that a second author needs only the item contract — a TM_STRUCT
- * message carrying `{ source, title, url, body }` — plus one `connect_node`
- * line. `docs/writing-a-real-plugin.md` shows the abstract `Source_Node` that
+ * message carrying `{ source, title, url, body }` — plus the two topology
+ * lines, `make_node` and `connect_node`. The substrate's
+ * `docs/writing-a-real-plugin.md` shows the abstract `Source_Node` that
  * collapses the duplication once three connectors share it.
  */
 class Community_Source_Demo_Node extends Node {
@@ -29,10 +32,11 @@ class Community_Source_Demo_Node extends Node {
 	 *
 	 * TICK is a runtime trigger, so it arrives as a TM_REQUEST handled here in
 	 * fill(), never as a TM_COMMAND verb — that flag carries startup and
-	 * administration. A source mints messages and consumes none, so every other
-	 * type falls through.
+	 * administration. A source mints messages and consumes none, so anything else
+	 * is dropped rather than forwarded to the sink. A TYPE that is not numeric
+	 * reads as 0 and matches no flag.
 	 *
-	 * @param array<int,mixed> $message Incoming request Message.
+	 * @param array<int,mixed> $message The 7-field positional message array.
 	 */
 	public function fill( array $message ): void {
 		$type = \is_numeric( $message[ Message::TYPE ] ) ? (int) $message[ Message::TYPE ] : 0;
@@ -49,7 +53,7 @@ class Community_Source_Demo_Node extends Node {
 	 * unread, because TICK is the only request the schema declares. The reply
 	 * echoes the request's ID and KEY, matching `Consumer_Node::handle_request`.
 	 *
-	 * @param array<int,mixed> $message Incoming request Message.
+	 * @param array<int,mixed> $message The TICK request.
 	 */
 	private function handle_request( array $message ): void {
 		$emitted = 0;
@@ -58,7 +62,7 @@ class Community_Source_Demo_Node extends Node {
 			$response[ Message::TYPE ]  = Message::TM_STRUCT;
 			$response[ Message::FROM ]  = $this->name;
 			$response[ Message::VALUE ] = [ 'source' => 'community' ] + $item;
-			// parent::fill stamps TO from the target and sinks; $this recurses.
+			// parent::fill stamps TO from the target; our fill() would drop it.
 			parent::fill( $response );
 			++$emitted;
 		}
@@ -76,10 +80,11 @@ class Community_Source_Demo_Node extends Node {
 	/**
 	 * The one seam a real source replaces: the batch of items to ingest.
 	 *
-	 * Canned data keeps the walkthrough deterministic. A real source fetches
-	 * here — a feed, an API, a table — and returns the same shape. It does not
-	 * set the `source` key: `handle_request()` stamps that onto every item, so
-	 * an override cannot forget it.
+	 * Canned data keeps the walkthrough deterministic, and the suite asserts a
+	 * TICK reports an `emitted` of 3. A real source fetches here — a feed, an
+	 * API, a table — and returns the same shape. It leaves the `source` key
+	 * alone: `handle_request()` unions that in ahead of the item, so an override
+	 * can neither forget it nor change it.
 	 *
 	 * @return array<int,array<string,string>> Items keyed `title`, `url` and `body`.
 	 */
@@ -92,12 +97,14 @@ class Community_Source_Demo_Node extends Node {
 	}
 
 	/**
-	 * Declares the node for `make_node`, the console palette and the Inspector.
+	 * Describes the node for the console palette, the Inspector and `help`.
 	 *
-	 * The `requests` entry is what draws the Inspector's TICK button and what
-	 * `help Community_Source_Demo` prints.
+	 * The `requests` entry draws the Inspector's TICK button and the REQUESTS
+	 * row of `help Community_Source_Demo`. `accepts_fill` stays true because the
+	 * request itself arrives at `fill()`, and no `commands` entry is declared,
+	 * since a runtime trigger never becomes a TM_COMMAND verb.
 	 *
-	 * @return array<string,mixed>
+	 * @return array<string,mixed> The base schema with this node's entries merged over it.
 	 */
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [

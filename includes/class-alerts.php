@@ -4,15 +4,17 @@
  *
  * ONE place computes the operator-facing alert conditions — worker down,
  * consumer lag climbing, dead-letter growth — from the SAME snapshot
- * Workers_CI already builds (lock-dir heartbeats, the Topic_Probe cursor log,
- * the on-disk quarantine dirs). It re-implements none of those reads.
+ * `Workers_CI_Node::collect_dump_metadata()` already builds (lock-dir
+ * heartbeats, the `topicprobe.p0` records, the on-disk quarantine dirs). It
+ * re-implements none of those reads.
  *
- * Site Health and the admin notice call the read-only `evaluate()`. The fleet's
- * periodic sweep calls `emit()`, which journals each transition into the
- * substrate's `alerts.p0` partition for delivery consumers and dashboards to
- * tail; a producer outside that sweep — Job_Worker's batch completion — writes
- * its row through `journal_event()`. Thresholds are Config_System settings read
- * live on every call, so raising one takes effect without restarting a worker.
+ * Site Health, `wp nodes doctor` and the admin notice call the read-only
+ * `evaluate()`. The minute reconcile pass calls `emit()`, which journals each
+ * transition into the substrate's `alerts.p0` partition; a producer outside
+ * that pass — `Job_Worker_Node`'s batch completion — writes its row through
+ * `journal_event()`. Thresholds come from `Config::value()` at evaluation
+ * time, and no long-lived worker reads them, so raising one applies on the
+ * next reconcile pass without a restart.
  *
  * @package Newspack_Nodes
  */
@@ -27,8 +29,8 @@ use Newspack_Nodes\Rest\Workers_CI_Node;
  * Fleet-health alerts: `evaluate()` reads the conditions, `emit()` journals the
  * transitions between them.
  *
- * Every row this class mints declares a `family` and a `severity` from the
- * constants below. `Health_Checks::fleet_results()` buckets by family — the
+ * Every alert row `evaluate()` mints declares a `family` and a `severity` from
+ * the constants below. `Health_Checks::fleet_results()` buckets by family — the
  * value doubles as the Site Health result id — and refuses a row declaring
  * none, so the taxonomy is stated once at mint time instead of reconstructed
  * from the `key` prefix in a second file.
@@ -44,25 +46,31 @@ class Alerts {
 	/** Quarantined segments for one reader exceed `alert_deadletter_threshold`. */
 	public const FAMILY_DEAD_LETTERS = 'dead-letters';
 
-	/** Attention, not urgency: consumer lag, dead letters, a worker that never started. */
+	/** Attention, not urgency: consumer lag, dead letters, a worker that never started, a batch that reported errors. */
 	public const SEVERITY_WARNING = 'warning';
 
 	/** A worker that was running has stopped — needs attention now. */
 	public const SEVERITY_CRITICAL = 'critical';
 
 	/**
-	 * A previously journaled condition that has cleared. Journal-only:
-	 * `evaluate()` never mints one, and `Health_Checks` refuses the severity.
+	 * A condition that has cleared: `emit()` mints one when a journaled alert
+	 * stops firing, `Job_Worker_Node` when a batch completes without errors.
+	 * Journal-only — `evaluate()` never mints one, and `Health_Checks` refuses
+	 * the severity.
 	 */
 	public const SEVERITY_RESOLVED = 'resolved';
 
-	/** Transient gate holding emit() to one journal batch per `alert_emit_interval`. */
+	/**
+	 * Transient gate: at most one `emit()` pass per `alert_emit_interval`
+	 * seconds. It arms on every pass that reaches it, journal or not, so a
+	 * transition raised inside the window waits for the next one.
+	 */
 	private const EMIT_GATE = 'newspack_nodes_alerts_emitted';
 
 	/**
 	 * Option holding the last-journaled severity per alert key. Diffing the
 	 * current evaluation against it is what makes a transition; without it every
-	 * sweep re-journals conditions that have not changed.
+	 * pass re-journals conditions that have not changed.
 	 */
 	private const STATE_OPTION = 'newspack_nodes_alerts_state';
 
@@ -76,14 +84,16 @@ class Alerts {
 	 * Journal alert TRANSITIONS into `alerts.p0` — a row when a condition
 	 * raises or changes severity, and a `resolved` row when it clears. A
 	 * persisting condition journals nothing: the journal records state
-	 * changes, not heartbeats. Hooked to the fleet's periodic sweep, and silent
-	 * while a deploy hold stands. The transient gate is a flap backstop (at most
-	 * one batch per `alert_emit_interval`), and the last-journaled state
-	 * advances only on a successful write, so a gated or failed tick reconciles
-	 * on the next open window. Entries mirror the errors family
-	 * (`{ n, k:'alert', m, ts }`) plus `severity`; KEY is the alert's stable
-	 * key. The write is throw-guarded: a rotate-lock timeout or unwritable dir
-	 * must never unwind the sweep.
+	 * changes, not heartbeats. Hooked to `newspack_nodes/periodic` on the minute
+	 * reconcile pass, and silent while a deploy hold stands. The transient gate
+	 * is the flap backstop, and the last-journaled state advances only on a
+	 * successful write, so a gated or failed tick reconciles on the next open
+	 * window. Rows go out through `journal_event()`, keyed by the alert's stable
+	 * key, and a write that throws is caught here: the periodic action runs
+	 * every subscriber inside ONE reconcile step, so an escape would cost
+	 * `Job_Delay::sweep_action()` its window. The `evaluate()` call ahead of the
+	 * try is NOT guarded — a refused base directory is the operator's to fix,
+	 * and the reconcile step reports it.
 	 */
 	public static function emit(): void {
 		// Held: a partial evaluate() would journal false `resolved:` rows.
@@ -145,16 +155,20 @@ class Alerts {
 	}
 
 	/**
-	 * Journal one row into alerts.p0 — the errors-family entry shape plus
-	 * `severity`, KEY = a stable per-condition key so consumers can dedupe.
-	 * Used by emit()'s transition rows and by non-fleet event producers
-	 * (Job_Worker batch completion). Throws on write failure; callers own
-	 * the swallow-or-not decision.
+	 * Journal one row into `alerts.p0`: the firehose entry shape (`n`, `k`, `m`,
+	 * `ts`) plus `severity`, with `k` fixed at `alert` — the keyword ELN's
+	 * request builder routes to its alerts partition — and `n` a constant 1,
+	 * because an alert row belongs to no request sequence. KEY is the caller's
+	 * stable per-condition key, so consumers can dedupe. Used by `emit()`'s
+	 * transition rows and by producers outside the reconcile pass
+	 * (`Job_Worker_Node` batch completion), which own the swallow-or-not
+	 * decision.
 	 *
 	 * @api Cross-class journal entry point.
 	 * @param string $key      Stable condition key (e.g. `batch:{id}`).
 	 * @param string $text     Human-readable one-liner (short by construction; PIPE_BUF-safe).
 	 * @param string $severity One of the SEVERITY_* constants.
+	 * @throws \RuntimeException When the logs directory will not resolve, or the journal path escapes the runtime base.
 	 */
 	public static function journal_event( string $key, string $text, string $severity ): void {
 		// Fresh read: a caller outside the drain may hold a frozen Core::$now.
@@ -173,6 +187,7 @@ class Alerts {
 		];
 		$journal                       = self::journal();
 		$journal->fill( $message );
+		// fill() only batches; its 0-delay flush timer needs an event loop.
 		$journal->flush();
 	}
 
@@ -194,12 +209,13 @@ class Alerts {
 
 	/**
 	 * Dir template for the alerts journal — the one place its layout is written.
-	 * Bootstrap registers it with the log GC and `journal()` writes through it.
+	 * Bootstrap declares it to `Log_Cleaner`, and `journal()` writes through it.
 	 * No partition token: every worker on the fleet journals into the same
 	 * `alerts.p0`, so the GC declares that one dir rather than a fan-out of
 	 * `alerts.p1`+ nothing ever writes.
 	 *
 	 * @param string $logs_dir Resolved logs directory, or the `<config:logs_dir>` token when registration must not touch the filesystem.
+	 * @return string
 	 */
 	public static function log_dir_template( string $logs_dir = '<config:logs_dir>' ): string {
 		return \rtrim( $logs_dir, '/' ) . '/' . self::LOG_BASENAME . '.p0';
@@ -213,6 +229,7 @@ class Alerts {
 	 * `count` for dead letters, `type` + `partition` for a worker.
 	 *
 	 * @return array<int,array<string,mixed>>
+	 * @throws \RuntimeException When the runtime base directory will not resolve; `Health_Checks` guards the call for that reason.
 	 */
 	public static function evaluate(): array {
 		// Held suppresses only what the STOP caused; dead letters predate it.
@@ -313,9 +330,10 @@ class Alerts {
 
 	/**
 	 * Worst severity across a list: critical if any critical, else warning if
-	 * any warning, else '' (empty list / no alerts).
+	 * any warning, else '' — an empty list, or rows carrying neither.
 	 *
 	 * @param array<int,array<string,mixed>> $alerts Alert rows carrying a `severity`.
+	 * @return string
 	 */
 	public static function worst_severity( array $alerts ): string {
 		$worst = '';

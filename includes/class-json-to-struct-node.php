@@ -3,10 +3,12 @@
  * JSON_To_Struct: decode a TM_BYTESTREAM JSON line back into a TM_STRUCT array.
  *
  * The read-side inverse of Struct_To_JSON_Node (the Tachikoma JSONtoStorable /
- * StorableToJSON pair): splice one behind the Tail or Consumer reading a log a
- * struct producer wrote, and downstream nodes get the array VALUE back. A line
- * that is not a JSON array or object passes through as a plain bytestream, so a
- * log mixing serialized structs with plain text survives the node intact.
+ * StorableToJSON pair): splice one behind the Tail streaming a Log a
+ * Struct_To_JSON producer wrote, and downstream nodes get the array VALUE back.
+ * A Consumer needs none, because the packed envelope it unpacks already carries
+ * the array VALUE and the producer's TYPE. A line that is not a JSON array or
+ * object passes through as a plain bytestream, so a log mixing serialized
+ * structs with plain text survives the node intact.
  *
  * @package Newspack_Nodes
  */
@@ -26,7 +28,9 @@ class JSON_To_Struct_Node extends Node {
 	 *
 	 * Only the BYTESTREAM bit is swapped for STRUCT, so a co-existing flag —
 	 * TM_RESPONSE on a Consumer or Job_Worker reply — survives the round trip
-	 * Struct_To_JSON started. Assigning the whole TYPE would strip it.
+	 * Struct_To_JSON started. Assigning the whole TYPE would strip it. The line
+	 * terminator Struct_To_JSON appends needs no trimming: `json_decode` ignores
+	 * trailing whitespace.
 	 *
 	 * A non-string VALUE, a TYPE without TM_BYTESTREAM, and a line decoding to
 	 * anything but an array all forward untouched. `json_decode` also succeeds

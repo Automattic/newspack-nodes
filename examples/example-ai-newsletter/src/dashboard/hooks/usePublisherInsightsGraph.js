@@ -3,17 +3,16 @@
  * Timer, one fan-out Tee, and one Fetcher per card, each card's reply
  * travelling its own path back to its own view node.
  *
- *   insights:timer (Timer) ─> insights:tee (Tee) ─> fetch-counts (Fetcher) ─┐
+ *   insights:timer (Timer) ─> insights:tee (Tee) ─┬> fetch-counts (Fetcher) ─┐
  *                                                 ├> fetch-top    (Fetcher) ─┤  target = _shell/_http/insights-demo
  *                                                 └> fetch-acc    (Fetcher) ─┘
  *   countsIn (Tee) ─> source-counts:view ─> <SourceCounts/>
  *   topIn    (Tee) ─> top-table:view     ─> <TopTable/>
  *   accIn    (Tee) ─> accumulated:view   ─> <AccumulatedCard/>
  *
- * The rejected alternative is one view node behind one `insights` verb. That
- * is the god object: every card re-renders on every field, and the server
- * computes the whole model to answer any part of it. Here the counts reply
- * never touches the top table.
+ * One view node behind a single omnibus verb would be the god object: every
+ * card re-renders on every field, and the server computes the whole model to
+ * answer any part of it. Here the counts reply never touches the top table.
  *
  * Each Fetcher stamps FROM with its receiver Tee and the service CI replies
  * TO=FROM, so the address is the correlation and no slice needs an operation
@@ -45,10 +44,11 @@ import { AccumulatedViewNode } from '../nodes/accumulated-view-node';
 const SERVER = 'insights-demo';
 
 /**
- * Poll cadence. A digest moves on the order of minutes, so thirty seconds is a
- * retry rather than a feed. `useBatchedPoll` refuses anything below 1000ms:
- * under the router tick a Timer takes a slot of its own outside the lock and
- * flush, which costs one POST per slice instead of one per tick.
+ * Poll cadence, in milliseconds. All three cards read one committed offsetlog
+ * snapshot, which moves only when the pipeline commits, so thirty seconds is a
+ * retry rather than a feed. `useBatchedPoll` throws below 1000ms: under that
+ * floor a Timer takes its own `setInterval` slot and fires outside the Router's
+ * lock and flush, which costs one POST per slice instead of one per tick.
  */
 const DEFAULT_INTERVAL_MS = 30000;
 
@@ -57,6 +57,10 @@ const DEFAULT_INTERVAL_MS = 30000;
  * `_shell` Tap, then the `_http` HttpOut, then the server CI. Going through
  * `_shell` rather than straight to `_http` is what lets `connect _shell` in the
  * console watch every command leaving the page.
+ *
+ * `egressPath( SERVER )` from `@newspack-nodes/shared/helpers/egressPath`
+ * composes the same string. A dashboard outside this tutorial calls it rather
+ * than respelling two reserved names.
  */
 const TARGET = `_shell/_http/${ SERVER }`;
 
@@ -100,6 +104,8 @@ const SLICES = [
  *
  * @param {Object} [opts]            Caller overrides.
  * @param {number} [opts.intervalMs] Poll cadence in ms; 1000 or greater.
+ * @return {void} Each widget reads its own slice through `useNodeState`.
+ * @throws {TypeError} When `opts.intervalMs` is below the 1000ms floor.
  */
 export function usePublisherInsightsGraph( opts = {} ) {
 	useBatchedPoll( {

@@ -6,12 +6,16 @@ import { SliceViewNode } from '@newspack-nodes/shared/nodes/slice-view-node';
  * receiver Tee for the `insights-demo` CI's `top` verb, so that reply lands
  * here and never touches the counts or accumulated slices, and `<TopTable/>`
  * reads the published model through `useNodeState( 'top-table:view', 'view' )`.
- * `nodes/register.js` registers the class as `TopTableView`, the name the graph
- * resolves through `viewClass`.
  *
- * The verb answers `{ top: [ { source, title, score } ] }`, which is the slice
- * itself, so the base class's JSON parse needs no override and this class
- * declares only its empty model.
+ * The verb answers `{ top: [ { source, title, score } ] }` as JSON — at most
+ * ten items, highest score first — and that IS the slice, so the base class's
+ * parse needs no override and this class declares only its empty model.
+ *
+ * `register.js` registers the class as `TopTableView`, the name a TSL or
+ * console `make_node` resolves. The console's class palette skips it: the
+ * schema it inherits from `SliceViewNode` declares the `Hidden` category. The
+ * dashboard graph hands `addSliceFetcher` the class itself instead, because
+ * that name table is a per-bundle static (ADR-16).
  */
 export class TopTableViewNode extends SliceViewNode {
 	/**
@@ -19,9 +23,9 @@ export class TopTableViewNode extends SliceViewNode {
 	 * so a render arriving before the first reply is valid — `<TopTable/>` reads
 	 * its empty state off `top.length`.
 	 *
-	 * It declares no `loading` or `error` field: the widget shows an empty table
-	 * rather than a spinner, and a TM_ERROR reply adds `error` on its own, which
-	 * the next good reply drops when it rebuilds the model.
+	 * It declares no `loading` or `error` field: the card shows its "No scored
+	 * items yet" hint rather than a spinner, and a TM_ERROR reply adds `error`
+	 * on its own, which the next good reply drops when it rebuilds the model.
 	 *
 	 * @return {{top: Array<Object>}} Empty render model.
 	 */

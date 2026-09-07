@@ -3,13 +3,15 @@
  * Grep: the payload filter.
  *
  * Forwards a message whose VALUE matches a PCRE and drops every other one, so
- * one branch of a graph carries only the traffic a reader asked for. The stock
- * debug tap splices a Grep between a Dumper and a Stderr for exactly that.
+ * one branch of a graph carries only the traffic a reader asked for. The
+ * `Tee → Dumper → Grep → Stderr` debug tap the docs describe is that shape; no
+ * shipped topology wires one.
  *
  * The pattern is the sole criterion; there is no type gate. A TM_COMMAND or a
  * TM_EOF whose VALUE misses the pattern drops with the data, so keep control
- * traffic off a grepped edge. The drop is silent: fill() returns nothing, so a
- * producer cannot tell a filtered message from a delivered one (ADR-13).
+ * traffic off a grepped edge. Where `Grep.pm` `cancel()`s the message it
+ * refuses, this port drops it silently: `fill()` returns nothing, so a producer
+ * cannot tell a filtered message from a delivered one (ADR-13).
  *
  * Modeled on Tachikoma's `Grep.pm`.
  *
@@ -26,7 +28,7 @@ namespace Newspack_Nodes;
 class Grep_Node extends Node {
 	use Schema_Reflection;
 
-	/** Grep.pm's default. `.` matches any byte but a newline, so a VALUE of newlines alone is what it drops. */
+	/** Grep.pm's `qr{.}` default. `.` matches any byte but a newline, so an empty VALUE or one of newlines alone drops. */
 	private const MATCH_EVERYTHING = '.';
 
 	/** The PCRE body as the operator typed it — the schema-declared argument. */
@@ -39,6 +41,9 @@ class Grep_Node extends Node {
 	 * Assign `pattern` from the positional token and compile it.
 	 *
 	 * `[ <pattern> ]` is a PCRE body, wrapped in `{}` the way Grep.pm wraps qr{}.
+	 * A delimited regex is therefore taken literally: `/foo/i` compiles clean and
+	 * matches those six characters rather than `foo`. A trailing modifier has
+	 * nowhere to go either, so ask for case-insensitivity inline with `(?i)`.
 	 *
 	 * The pattern compiles HERE, not at first fill(): `preg_match` answers a bad
 	 * pattern with a warning and `false`, and a `false` return drops the message,
@@ -46,7 +51,7 @@ class Grep_Node extends Node {
 	 * stream. The operator typed it on one line; that line is where it fails.
 	 *
 	 * @param list<string>|null $args New argument tokens (null = pure getter).
-	 * @return list<string> The tokens as given.
+	 * @return list<string> The stored argument tokens.
 	 * @throws \InvalidArgumentException When the pattern will not compile.
 	 */
 	public function arguments( ?array $args = null ): array {
@@ -59,10 +64,10 @@ class Grep_Node extends Node {
 			$this->pattern = self::MATCH_EVERYTHING;
 		}
 		$compiled = '{' . $this->pattern . '}';
-		// @ turns the compile warning into the refusal below, not silence.
+		// @ silences the warning; the refusal below carries its message.
 		if ( false === @\preg_match( $compiled, '' ) ) {
 			$why = Core::as_string( \error_get_last()['message'] ?? '', '' );
-			// preg_last_error_msg() says INTERNAL_ERROR for a compile failure.
+			// preg_last_error_msg() only says "Internal error" here.
 			$why = '' === $why ? '' : ' — ' . \preg_replace( '/^preg_match\(\): /', '', $why );
 			$this->refuse_argument( "pattern is not a valid regex, got '{$this->pattern}'{$why}" );
 		}
@@ -78,11 +83,16 @@ class Grep_Node extends Node {
 	 * front. The pattern then reads JSON syntax: quotes and braces are part of the
 	 * subject.
 	 *
-	 * @param array<int,mixed> $message Message reference.
+	 * The count lives in `parent::fill()`, so `ls -c` and `dump_metadata` report
+	 * what this node FORWARDED rather than what reached it. A miss also returns
+	 * before `require_sink()`, so a Grep wired to nothing stays quiet until its
+	 * first match.
+	 *
+	 * @param array<int,mixed> $message The 7-field positional message array.
 	 */
 	public function fill( array $message ): void {
 		$value = $message[ Message::VALUE ];
-		// Substitute a bad byte; failing to '' would drop a matching message.
+		// Substitute bad bytes: a failed encode casts to '' and drops a match.
 		$subject = \is_string( $value )
 			? $value
 			: (string) \wp_json_encode( $value, \JSON_UNESCAPED_SLASHES | \JSON_INVALID_UTF8_SUBSTITUTE );
@@ -93,8 +103,9 @@ class Grep_Node extends Node {
 
 	/**
 	 * Topology console manifest: the `Filtering` palette entry and the one
-	 * `pattern` positional. Declaring it here is the whole parse — ADR-11 puts
-	 * defaults and coercion in `parse_schema_args()`, not in `arguments()`.
+	 * `pattern` positional. That declaration is the parse — ADR-11 keeps defaults
+	 * and coercion in `parse_schema_args()`; `arguments()` adds only the
+	 * blank-token substitution and the compile.
 	 *
 	 * @return array<string,mixed>
 	 */

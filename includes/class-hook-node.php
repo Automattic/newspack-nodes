@@ -3,9 +3,9 @@
  * Hook: the WordPress extensibility bridge into a running graph.
  *
  * A plugin that wants to watch or rewrite what flows through somebody else's
- * topology should not have to ship a Node subclass or edit that topology.
- * Splice a Hook into the chain and the ordinary `add_action` / `add_filter` API
- * reaches the stream: observers read each payload, filters replace it.
+ * topology should not have to ship a Node subclass to do it. Splice a Hook into
+ * the chain and the ordinary `add_action` / `add_filter` API reaches the
+ * stream: an action observes each payload, a filter replaces it.
  *
  * @package Newspack_Nodes
  */
@@ -15,16 +15,21 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * Fires one WordPress hook per message, in one of two modes.
+ * Fires one WordPress hook per message, in one of two modes —
+ * `make_node Hook <name> <hook_name> [ <filter> ]`.
  *
- * Action mode, the default, fires `do_action( $hook_name, $value )` and forwards
- * the message untouched. Filter mode fires `apply_filters( $hook_name, $value )`
- * and adopts the return as the new VALUE.
+ * Action mode, the default, fires `do_action( $hook_name, $value )` and leaves
+ * VALUE and TYPE as they stand. Filter mode fires
+ * `apply_filters( $hook_name, $value )` and adopts the return as the new VALUE.
  *
  * Either way the hook is handed the VALUE alone, never the envelope, so a
  * listener reads and rewrites the payload but cannot re-address the message.
- * Hook forwards rather than mints, so it leaves FROM alone as well: a message
- * crossing it still names the source that stamped it.
+ * Hook mints nothing, so FROM crosses untouched and still names the source that
+ * stamped it; the inherited `fill()` stamps TO from `target` when TO is empty,
+ * as it does for every forwarder.
+ *
+ * `src/runtime/hook-node.js` shares the name and nothing else: the browser has
+ * no WordPress hooks, so that class gates each message on a closure instead.
  */
 class Hook_Node extends Node {
 	use Schema_Reflection;
@@ -36,8 +41,9 @@ class Hook_Node extends Node {
 	protected string $hook_name = '';
 
 	/**
-	 * Take no constructor arguments, which is what ADR-11's construction
-	 * sequence requires: `new`, then `name()`, then `arguments()`.
+	 * Tachikoma-parity: no-arg ctor. ADR-11 builds a node in four steps — `new`,
+	 * `name()`, `arguments()`, `sink()` — so every positional token arrives
+	 * through `arguments()`.
 	 */
 	public function __construct() {
 		parent::__construct();
@@ -53,6 +59,8 @@ class Hook_Node extends Node {
 	 *
 	 * @param list<string>|null $args Positional tokens, or null to read.
 	 * @return list<string> The tokens now in force.
+	 * @throws \InvalidArgumentException When the required `hook_name` token is
+	 *                                   missing.
 	 */
 	public function arguments( ?array $args = null ): array {
 		if ( null === $args ) {
@@ -73,10 +81,13 @@ class Hook_Node extends Node {
 	 * schema and would otherwise dispatch on the empty hook name, where no
 	 * listener can be waiting.
 	 *
-	 * Filter mode restamps TYPE from the shape of the return — a list array is
-	 * TM_STRUCT, and a scalar, an object or an associative array is
-	 * TM_BYTESTREAM. TYPE is replaced rather than bit-swapped, so the forwarded
-	 * message carries that one flag alone.
+	 * Filter mode restamps TYPE from the shape of the return: a list array is
+	 * TM_STRUCT, and every other return — a scalar, null, an object, an
+	 * associative array — is TM_BYTESTREAM. TYPE is replaced rather than
+	 * bit-swapped, so a message that arrived TM_COMMAND or TM_REQUEST crosses
+	 * carrying the one new flag alone. An associative array therefore leaves
+	 * here as an array VALUE under TM_BYTESTREAM, which a consumer gating on
+	 * TM_STRUCT — the documented gate for an array VALUE — denies.
 	 *
 	 * @param array<int,mixed> $message The 7-field positional message array.
 	 * @throws \RuntimeException When no sink is wired or no hook name is set.

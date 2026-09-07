@@ -13,8 +13,9 @@
  * built, so a cache restored into a fresh process keeps its predecessor's
  * phase; and rotate_if_due() rolls once per elapsed window rather than once
  * per call, so a gap is repaid in one pass. Both come from Table.pm: without
- * them a fleet whose workers recycle faster than the window — a 30s idle exit
- * against a 200s window — ages nothing out at all.
+ * them a worker that exits before its window closes restarts the wait, and a
+ * fleet recycling faster than the event logger's 200-second rotation ages
+ * nothing out at all.
  *
  * Every shape that uses it wants promotion. A WORKING SET (the event logger's
  * in-flight requests, keyed by request id) reads eviction as "this one never
@@ -93,7 +94,7 @@ class LRU_Cache {
 	 *
 	 * @api Consumers read a working set one key at a time.
 	 * @param string $key Cache key.
-	 * @return mixed Value, or null when the key is absent.
+	 * @return mixed Value, or null when the key is absent — a stored null is indistinguishable from a miss.
 	 */
 	public function get( string $key ) {
 		$i = $this->bucket_of( $key );
@@ -337,8 +338,7 @@ class LRU_Cache {
 	 *
 	 * Indices are monotonic and ride through get_state(), so `current` climbs
 	 * for the life of the log while only num_buckets buckets exist. Counting
-	 * down from it would make every miss walk that whole history — a live
-	 * worker holding three buckets sits at index 2053.
+	 * down from it would make every miss walk that whole history.
 	 *
 	 * @return list<int>
 	 */
@@ -382,11 +382,12 @@ class LRU_Cache {
 	/**
 	 * Restore a get_state() snapshot, replacing everything held now.
 	 *
-	 * Malformed input leaves the cache untouched rather than throwing. The
-	 * restored buckets are clamped only in that `current` lands on a real
-	 * bucket index: a snapshot holding more buckets than num_buckets, or
-	 * fuller ones than bucket_size, stays oversized until successive
-	 * rotations trim it one bucket at a time.
+	 * A non-array `buckets` or a non-int `current` leaves the cache untouched
+	 * rather than throwing; an absent or empty `buckets` empties it. Otherwise
+	 * the snapshot is adopted as it stands, with `current` floored at 0 and
+	 * capped at the highest restored bucket index: a snapshot holding more
+	 * buckets than num_buckets, or fuller ones than bucket_size, stays
+	 * oversized until successive rotations trim it one bucket at a time.
 	 *
 	 * @api Consumers restore a persisted working set at worker start.
 	 * @param array<string,mixed> $state State array from get_state().

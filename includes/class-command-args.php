@@ -3,18 +3,23 @@
  * Command_Args: the one argument grammar every service interpreter reads.
  *
  * A command's `arguments` are a flat token array end to end — tokenized once
- * by the Shell or a REST producer, carried verbatim through the envelope, the
- * interpreter and `make_node`, and re-joined into a line only by
- * `Node::serialize_args()` for `dump_config`. Inside that array the grammar is
- * Tachikoma's: required values ride positionally in the order the verb
- * declares, optional ones are named `--key=value`, a boolean flag is a bare
- * `--key`, and a list is comma-separated inside one value. Verb handlers
- * `parse()` the tokens, the producers that mint a command `format()` them,
- * and format() round-trips through parse().
+ * by the Shell or a REST producer, carried through the envelope, the
+ * interpreter and `make_node` with the token boundaries intact, and re-joined
+ * into a line only by `Node::serialize_args()` for `dump_config`. Inside that
+ * array the grammar is Tachikoma's: required values ride positionally in the
+ * order the verb declares, optional ones are named `--key=value`, a boolean
+ * flag is a bare `--key`, and a list is comma-separated inside one value. Verb
+ * handlers `parse()` the tokens and the producers that mint a command
+ * `format()` them. The round trip restores the positionals and the option
+ * names; the values come back as strings, so `--enabled=false` reads as the
+ * truthy `'false'`, and a bare flag's `true` alone survives as itself.
  *
- * A structured blob — a topology .tsl body, a layout positions JSON — does not
- * ride here. Those verbs take the name and the whole body as two discrete
- * tokens, read through `Service_CI_Node::split_first_token()`.
+ * A structured blob — a topology .tsl body, a layout positions JSON — rides as
+ * one token but skips this grammar: those verbs read the name and the whole
+ * body through `Service_CI_Node::split_first_token()`.
+ *
+ * `src/runtime/command-args.js` is the browser half. No fixture pins the two,
+ * so a change to the grammar has to be made in both.
  *
  * @package Newspack_Nodes
  */
@@ -23,17 +28,23 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * Stateless and static: `parse()` classifies a token list, `format()` builds
+ * one, and `option_int()` is the refusing integer read of a named option.
+ */
 class Command_Args {
 
 	/**
 	 * Classify a pre-split token list. A `--key=value` token becomes
 	 * `options[key] = 'value'`, a bare `--key` becomes `options[key] = true`,
 	 * and every other token is a positional, in order. Only the first `=`
-	 * splits, so `--expr=a=b` carries the value `a=b`.
+	 * splits, so `--expr=a=b` carries the value `a=b`, and a repeated key
+	 * keeps its last occurrence.
 	 *
-	 * Token boundaries are the array's. Nothing here tokenizes or unescapes,
-	 * so a value carrying spaces or quote characters arrives whole from the
-	 * producer that split the line.
+	 * Token boundaries are the array's. Nothing here tokenizes or unescapes, so
+	 * a value carrying spaces, quote characters or commas arrives whole from
+	 * the producer that split the line. A comma list stays one value; reading
+	 * the members out of it belongs to the verb handler.
 	 *
 	 * @param list<string> $args
 	 * @return array{positional: list<string>, options: array<string,string|true>}
@@ -62,7 +73,8 @@ class Command_Args {
 
 	/**
 	 * The ONE typed read of an operator-supplied option: absent takes the
-	 * fallback, present must be a canonical decimal, anything else is null.
+	 * fallback, present must be a non-negative canonical decimal — an int or
+	 * the digits as a string — and anything else is null.
 	 *
 	 * Null is a REFUSAL, not a value — every `Core` coercion family resolves to
 	 * a number instead, so `--partition=abc` picks p0 and `--timeout=2m` picks
@@ -78,6 +90,7 @@ class Command_Args {
 	 * @param string              $key        Option name.
 	 * @param int|null            $fallback   Value when the option is absent.
 	 * @param bool                $allow_zero Whether 0 is acceptable.
+	 * @return int|null The value when canonical, $fallback when absent, null when malformed.
 	 */
 	public static function option_int( array $options, string $key, ?int $fallback = null, bool $allow_zero = true ): ?int {
 		if ( ! isset( $options[ $key ] ) ) {
@@ -90,12 +103,16 @@ class Command_Args {
 	 * Inverse of parse(): build the token list from positionals and an options
 	 * map. `true` renders as a bare `--key`, `false` as `--key=false`, an array
 	 * as its comma-joined members, and every other scalar as its string cast.
+	 * A member carrying a comma is indistinguishable from two once a handler
+	 * splits the value back apart. `false` carries its value explicitly because
+	 * the bare form already means true, and omitting the option would leave the
+	 * handler's own default standing.
 	 *
 	 * Nothing is quoted here. A value carrying spaces stays whole inside its
 	 * own array element, and quoting belongs to `Node::serialize_args()`, the
 	 * one place tokens are re-joined into a single `dump_config` line.
 	 *
-	 * @api
+	 * @api Consumed by sibling plugins.
 	 * @param list<string>                                       $positional
 	 * @param array<string,string|int|float|bool|array<mixed>>   $options
 	 * @return list<string>
@@ -110,7 +127,7 @@ class Command_Args {
 			if ( \is_array( $value ) ) {
 				$value = \implode( ',', \array_map( '\strval', $value ) );
 			} elseif ( false === $value ) {
-				// bare-flag `true` handled above; only false remains here.
+				// (string) false is '', so false gets the word, not a cast.
 				$value = 'false';
 			} else {
 				$value = (string) $value;

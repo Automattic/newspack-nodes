@@ -20,6 +20,10 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * Dumper node — `make_node Dumper <name>`. It takes no arguments: the TYPE
+ * bitmask picks the render, and `debug_level` dials the verbosity at runtime.
+ */
 class Dumper_Node extends Node {
 
 	/**
@@ -30,10 +34,10 @@ class Dumper_Node extends Node {
 	public const MAX_DEBUG_LEVEL = 2;
 
 	/**
-	 * Tab-completion intercept, wired by `wp nodes cli` in readline mode. It gets
-	 * first crack at every inbound message, and returning true consumes that
-	 * message: a completion reply feeds the reader's candidate cache instead of
-	 * the terminal. Null leaves every message to the render below.
+	 * Tab-completion intercept, wired by `wp nodes cli` in readline mode. It sees
+	 * every message the TO filter admits, ahead of the render, and returning true
+	 * consumes that message: a completion reply feeds the reader's candidate
+	 * cache instead of the terminal. Null leaves every message to the render.
 	 *
 	 * Signature: `function ( array $message ): bool`, true when consumed.
 	 *
@@ -42,10 +46,10 @@ class Dumper_Node extends Node {
 	private $completion_sink = null;
 
 	/**
-	 * Render-verbosity dial. Level 0 emits the curated line alone. Level 1
-	 * prefixes a `<FLAGS> from <FROM>:` header and still emits that line. Level 2
-	 * emits the whole envelope INSTEAD of it, because the envelope already
-	 * carries the VALUE and rendering both prints the payload twice.
+	 * Render-verbosity dial. Level 0 emits the curated line alone. Level 1 emits
+	 * a `<FLAGS> from <FROM>:` header line ahead of it. Level 2 emits the whole
+	 * envelope INSTEAD of the curated line, because the envelope already carries
+	 * the VALUE and rendering both prints the payload twice.
 	 */
 	private int $debug_level = 0;
 
@@ -63,9 +67,9 @@ class Dumper_Node extends Node {
 
 	/**
 	 * The REPL front-end that owns this Dumper. A `prompt` response writes
-	 * `$shell->prompt`, and `$shell->path` is the attachment `prompt_is_trusted()`
-	 * weighs a sender against. Null in a graph that wires no Shell, which leaves
-	 * both paths dead.
+	 * `$shell->prompt`, and `$shell->path` — the session's cwd — is what
+	 * `prompt_is_trusted()` weighs a sender against. Null in a graph that wires no
+	 * Shell, where a `prompt` response renders like any other.
 	 */
 	private ?Shell_Node $shell = null;
 
@@ -82,9 +86,9 @@ class Dumper_Node extends Node {
 	 * traffic, emit the debug header, fire the EOF drain callback, then render
 	 * by type.
 	 *
-	 * The EOF callback fires ahead of either early return, so the drain marker
-	 * reaches the cli at every verbosity. A level that swallowed it would leave
-	 * the session waiting out the reader's deadline instead.
+	 * The EOF callback fires ahead of the level-2 early return, so the drain
+	 * marker reaches the cli at every verbosity. A level that swallowed it would
+	 * leave the session waiting out the reader's five-second deadline instead.
 	 *
 	 * @param array<int,mixed> $message The 7-field positional message array.
 	 */
@@ -99,7 +103,7 @@ class Dumper_Node extends Node {
 			}
 		}
 
-		// Tab-completion replies feed cli's candidate cache, not terminal.
+		// Tab-completion replies feed cli's candidate cache, not the terminal.
 		if ( null !== $this->completion_sink && ( $this->completion_sink )( $message ) ) {
 			return;
 		}
@@ -127,6 +131,7 @@ class Dumper_Node extends Node {
 			return;
 		}
 
+		// A response VALUE that is not an array falls to the struct render.
 		if ( $type & Message::TM_COMMAND ) {
 			if ( $type & Message::TM_RESPONSE ) {
 				$cmd = $message[ Message::VALUE ];
@@ -170,7 +175,7 @@ class Dumper_Node extends Node {
 	}
 
 	/**
-	 * Forward one rendered line to the terminal as a fresh TM_BYTESTREAM.
+	 * Forward one rendered line to the target as a fresh TM_BYTESTREAM.
 	 *
 	 * Minting a new message leaves TO empty, which is what lets `Node::fill()`
 	 * stamp TO from `$this->target` (`_stdout`); forwarding the inbound message
@@ -224,7 +229,8 @@ class Dumper_Node extends Node {
 	}
 
 	/**
-	 * Render a TM-flag bitmask for display, naming the unmatched bits in hex.
+	 * Render a TM-flag bitmask for display, joining the matched names with ` | `.
+	 * A bitmask no name matches — 0 among them — reads `TM_UNKNOWN(0x<hex>)`.
 	 * Public because the dead-letter `dl_show` verb renders through it too. The
 	 * names come from `Message::type_labels()`, the one flags-to-names map.
 	 *
@@ -238,7 +244,8 @@ class Dumper_Node extends Node {
 	/**
 	 * Stringify a `Message::VALUE` for display. A VALUE that already holds a JSON
 	 * object or array is decoded first, so the dump pretty-prints its structure
-	 * instead of one long escaped line.
+	 * instead of one long escaped line. A string that opens with `{` or `[` but
+	 * does not parse decodes to null, and renders empty.
 	 *
 	 * @param mixed $value The raw VALUE.
 	 */
@@ -252,7 +259,8 @@ class Dumper_Node extends Node {
 	/**
 	 * Render a command-response `payload` for terminal display. An array becomes
 	 * pretty JSON carrying a trailing newline, so the next prompt starts on its
-	 * own line; a scalar passes through as it is.
+	 * own line. Everything else goes through `Core::as_string()`, which passes a
+	 * scalar through and turns null or an object into the empty string.
 	 *
 	 * @param mixed $payload The `payload` field of a response VALUE.
 	 */
@@ -286,7 +294,10 @@ class Dumper_Node extends Node {
 	 * operator believe they are attached elsewhere and type the next command
 	 * there. FROM is X-Forwarded-For — the IPC Consumer stamps the worker id at
 	 * the HEAD and everything after it is whatever the worker wrote, so only the
-	 * head is ours to trust. Bare mode has no remote peer feeding this Dumper.
+	 * head is ours to trust. An empty `path` trusts every sender: bare mode wires
+	 * no Consumer, so nothing remote reaches this Dumper there — but `cd /` and
+	 * `cd ..` empty an attached session's path while its Consumer keeps
+	 * delivering.
 	 *
 	 * @param array<int,mixed> $message The response Message.
 	 * @return bool True when the sender may write the prompt.
@@ -354,7 +365,12 @@ class Dumper_Node extends Node {
 		return $this->debug_level;
 	}
 
-	/** @return array<string,mixed> */
+	/**
+	 * Topology console manifest: a Transform with no arguments and no verbs,
+	 * declaring a target, since every rendered line leaves through it.
+	 *
+	 * @return array<string,mixed>
+	 */
 	public static function node_schema(): array {
 		return [
 			'category'    => 'Transform',

@@ -8,14 +8,16 @@
  * while a Log's segments are what `Tail_Node` streams back and what an operator
  * can open in a pager.
  *
- * It differs from `Partition_Node` at three seams and nowhere else. It
- * serializes the message VALUE instead of the packed envelope; it lays segments
- * out as `{file}.0`, `{file}.1`, … beside the file rather than `{seg}.log`
- * inside a directory of its own, and never writes a bare `{file}`; and its
+ * It changes three things about a Partition. It serializes the message VALUE
+ * instead of the packed envelope; it takes a `file` positional in place of
+ * `partition_dir` and redeclares the seven path seams, so segments land beside
+ * that file as `{file}.0`, `{file}.1`, … rather than as `{seg}.log` inside a
+ * directory of their own, and a bare `{file}` is never written; and its
  * `fill()` drops control messages instead of writing them. Segments, monotonic
  * rotation, the three retention rules, the rotate and write locks,
  * `allow_large_writes()` / `void_warranty()` and the batch/flush path are the
- * parent's, unchanged. Mirrors Tachikoma::Nodes::Log, which writes VALUEs too.
+ * parent's, unchanged but for the paths they use. Mirrors
+ * Tachikoma::Nodes::Log, which writes VALUEs too.
  *
  * @package Newspack_Nodes
  */
@@ -42,9 +44,9 @@ class Log_Node extends Partition_Node {
 	 * Everything else is a data record, written through the parent's batched
 	 * segment path using this class's VALUE `serialize_record()` seam.
 	 *
-	 * A dropped message still advances `counter`, because the parent counts every
-	 * message it is handed and `counter()` reports what the node received rather
-	 * than what it wrote.
+	 * A dropped message still advances `counter`: this method increments it on
+	 * the way out, keeping the parent's convention that `counter()` reports what
+	 * the node received rather than what it wrote.
 	 *
 	 * @param array<int,mixed> $message The 7-field positional message array.
 	 */
@@ -117,7 +119,10 @@ class Log_Node extends Partition_Node {
 	 * The basename is quoted and both ends are anchored, so a sibling Log's
 	 * segments, the companion `.idx` files and the two lock directories cannot be
 	 * read as segments of this Log. `Log_Sources::source_segments()` builds a
-	 * throwaway Log on a path to borrow this rule rather than restate it.
+	 * throwaway Log on a path to borrow this rule rather than restate it;
+	 * `Workers_CI_Node::build_log_sink_entry()` restates it instead, because it
+	 * needs the mtime `get_segments()` does not collect, so a change here has to
+	 * reach that copy as well.
 	 *
 	 * @return string PCRE whose capture group 1 is the segment id.
 	 */
@@ -163,9 +168,10 @@ class Log_Node extends Partition_Node {
 	/**
 	 * Topology console manifest: the required `file` positional in front of the
 	 * parent's retention knobs. The parent merge supplies the `I/O` category, the
-	 * `allow_large_writes` / `void_warranty` verbs and `has_target => false`.
-	 * Declaring the arguments here is the whole parse — ADR-11 puts defaults and
-	 * coercion in `parse_schema_args()`, not in `arguments()`.
+	 * `allow_large_writes`, `void_warranty` and `with_index` verbs, the `READY`
+	 * registration and `has_target => false`. Declaring the arguments here is the
+	 * whole parse — ADR-11 puts defaults and coercion in `parse_schema_args()`,
+	 * not in `arguments()`.
 	 *
 	 * @return array<string,mixed>
 	 */

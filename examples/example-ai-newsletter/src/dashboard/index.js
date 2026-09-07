@@ -1,18 +1,21 @@
 /**
- * Publisher Insights dashboard entry point — the `build/dashboard` bundle
- * esbuild compiles from this file (`scripts/build.mjs`).
+ * Publisher Insights dashboard entry point. Mounting is the whole job: the
+ * plugin's admin page callback prints an empty container div inside the
+ * standard `.wrap`, and this file renders `PublisherInsightsPage` into it. The
+ * poll graph, the three widgets, the debug overlay and the stylesheet all hang
+ * off that component.
  *
- * Mounting is the whole job. The plugin's admin page callback prints a bare
- * container div and nothing else, and this file renders `PublisherInsightsPage`
- * into it; the graph, the widgets and the styling all hang off that component.
- * `Admin::enqueue_react_page()` enqueues the bundle in the footer, below that
- * markup, so the listener registered here is in place before `DOMContentLoaded`
- * fires.
+ * `scripts/build.mjs` names this file as its one entry, so the substrate's
+ * build kit compiles it into the `build/dashboard` bundle WordPress enqueues.
  *
- * The same enqueue already gates the bundle to the Publisher Insights page, so
- * a missing container means the bundle loaded somewhere it was not expected.
- * Rendering nothing is the right answer there rather than throwing on a page
- * that never asked for the dashboard.
+ * `Admin::enqueue_react_page()` enqueues that bundle in the footer, below the
+ * mount div. A footer script runs while the document is still parsing, so
+ * `DOMContentLoaded` has yet to fire and the listener registered here still
+ * receives it.
+ *
+ * That same enqueue gates the bundle on `?page=`, so the mount div is present
+ * on every page the bundle loads on. The guard below keeps a missing element a
+ * silent no-op rather than the throw `createRoot( null )` raises.
  */
 
 import { createRoot } from '@wordpress/element';
@@ -22,8 +25,9 @@ import PublisherInsightsPage from './PublisherInsightsPage';
  * Id of the container div the Publisher Insights admin page prints.
  *
  * Hand-matched to `INSIGHTS_MOUNT_ID` in `example-ai-newsletter.php`. No
- * constant crosses the PHP/JS boundary, so changing one side alone leaves the
- * page blank with nothing logged.
+ * constant crosses the PHP/JS boundary — the enqueue localizes `restUrl` and
+ * `nonce` and nothing else — so changing one side alone leaves the page blank
+ * with nothing logged.
  *
  * @type {string}
  */

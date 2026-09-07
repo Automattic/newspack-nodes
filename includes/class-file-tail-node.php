@@ -9,15 +9,16 @@
  * from 0, resets on in-place truncation, and tolerates a missing path.
  *
  * The cursor shape is the inherited one — the inode occupies the container slot
- * where a segment id sits, so `<inode>:<offset>:<length>` rides the existing
- * offsetlog frame and DLQ machinery with no new field. A resume validates the
- * persisted cursor against the current file: a foreign, zero or absent
- * generation reads it whole, and a mid-line offset in the RIGHT generation
- * syncs forward onto the next newline — never cross-generation hunting.
+ * a segment id sits in, so the offsetlog frame's `segment` field and the
+ * `<inode>:<offset>:<length>` breadcrumb on every emitted and quarantined
+ * message need no new field. A resume validates the persisted cursor against
+ * the current file: a foreign, zero or absent generation reads it whole, and a
+ * mid-line offset in the RIGHT generation syncs forward onto the next newline —
+ * never cross-generation hunting.
  *
- * `compute_lag()` is the ONE substituted seam. `GET_LAG`, `probe_stats()` and
- * `idle_since()` all read it, so the request reply, the probe record and the
- * idle check cannot answer the same question three ways.
+ * Lag has ONE substitution, `compute_lag()`. The `GET_LAG` reply, the probe
+ * record and the idle check all read it, so the three cannot answer the same
+ * question three ways.
  *
  * This class has no source Partition — a single inode is not a segment list —
  * so `source()` refuses by name instead of failing as an init error.
@@ -29,22 +30,30 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * File_Tail node — `make_node File_Tail <name> <source_file> [offsetlog_dir]
+ * [deadletter_dir]`.
+ *
+ * `source_file` is the exact filename followed, not the `{file}.{seg}` base the
+ * segmented parent reads.
+ */
 class File_Tail_Node extends Tail_Node {
 
 	/**
 	 * The open read handle for the currently-followed generation, or null when
 	 * none is open — the path is absent, unreadable, or not yet opened. A
 	 * rotated-away generation stays open here until drained to EOF. Its inode
-	 * lives in the inherited $cursor_segment; 0 = no open container.
+	 * lives in the inherited $cursor_segment, which reads 0 while no generation
+	 * is open.
 	 *
 	 * @var resource|null
 	 */
 	protected $follow_handle = null;
 
 	/**
-	 * An explicit array-form next_offset() seek {inode, offset} made BEFORE the
-	 * file opens (build time), awaiting validation on the first poll once the
-	 * live inode is known. A runtime seek (handle already open) validates
+	 * The generation and offset of an array-form next_offset() seek made BEFORE
+	 * the file opens (build time), awaiting validation on the first poll once
+	 * the live inode is known. A runtime seek (handle already open) validates
 	 * immediately and leaves this null. A null `inode` names no generation, so
 	 * its offset says nothing about this file: read it whole.
 	 *
@@ -71,8 +80,8 @@ class File_Tail_Node extends Tail_Node {
 	 * lands on the offsetlog instead, whose sidecar Partition asserts it when
 	 * `ensure_offsetlog()` builds it.
 	 *
-	 * @param list<string>|null $args
-	 * @return list<string>
+	 * @param list<string>|null $args Positional tokens, or null to read the stored set back.
+	 * @return list<string> The tokens as stored.
 	 */
 	public function arguments( ?array $args = null ): array {
 		if ( null === $args ) {
@@ -81,7 +90,7 @@ class File_Tail_Node extends Tail_Node {
 		$this->parse_schema_args( $args );
 		$this->ensure_offsetlog();
 		$this->ensure_deadletter();
-		// No I/O at construction; first poll opens + seats the cursor (ADR-5).
+		// No I/O at build time; first poll opens and seats the cursor (ADR-5).
 		$this->poll_cb = $this->poll_init( ... );
 		$this->set_timer( self::POLL_INTERVAL_EOF_MS );
 		$this->set_state( 'POLLING', 'ACTIVE' );
@@ -165,10 +174,15 @@ class File_Tail_Node extends Tail_Node {
 	 * Boot seam: open the current generation (its inode into $cursor_segment),
 	 * then seat the byte cursor with Consumer's precedence — durable-resume-wins:
 	 *   1. a durable offsetlog frame (its `segment` slot is the stored inode), validated;
-	 *   2. else an explicit build-time next_offset() hint — an array {inode,offset} seek is
-	 *      validated the SAME way, a magic 'start'/'end' seek already seated cursor_offset;
+	 *   2. else an explicit build-time next_offset() hint — an array {segment,offset} seek is
+	 *      validated the SAME way, a scalar seek already seated cursor_offset;
 	 *   3. else default to END.
 	 * A build-time hint must LOSE to a durable checkpoint, or every respawn re-reads the whole file.
+	 *
+	 * Reading the frame directly, rather than through `load_offsetlog()`, keeps
+	 * the live inode in the container slot the stored one would overwrite. A
+	 * File_Tail therefore restores no snapshot cache and arms no crash-lineage
+	 * head skip.
 	 */
 	protected function init_position(): void {
 		$this->open_generation( $this->source_file );
@@ -189,12 +203,12 @@ class File_Tail_Node extends Tail_Node {
 	}
 
 	/**
-	 * Reposition the read cursor. There are no segments: SEEK_END is the file size, SEEK_START and
-	 * SEEK_RECENT are 0 (one file has no previous segment to fall back to), and an explicit array
-	 * {segment: inode, offset} is a RESUME CANDIDATE validated through the same
-	 * validate_resume_offset() path as a durable frame (a foreign/absent generation or a shrunk
-	 * file reads from 0; a mid-line offset syncs forward). A runtime seek (handle already open)
-	 * validates now; a build-time one defers to the first poll.
+	 * Reposition the read cursor. There are no segments: SEEK_END and its `end` alias are the file
+	 * size, every other sentinel, alias or number is 0 (one file has no previous segment to fall
+	 * back to), and an explicit array {segment: inode, offset} is a RESUME CANDIDATE validated
+	 * through the same validate_resume_offset() path as a durable frame (a foreign/absent
+	 * generation or a shrunk file reads from 0; a mid-line offset syncs forward). A runtime seek
+	 * (handle already open) validates now; a build-time one defers to the first poll.
 	 *
 	 * @param string|int|array<array-key,mixed> $position Seek sentinel, alias word, or explicit {segment,offset}.
 	 */
@@ -205,7 +219,6 @@ class File_Tail_Node extends Tail_Node {
 		$this->file_seek_candidate = null;
 		$this->pending_line_sync   = false;
 		if ( \is_array( $position ) ) {
-			// A missing key names NO generation; 0 would name a closed handle.
 			$inode  = isset( $position['segment'] ) ? Core::num_int( $position['segment'] ) : null;
 			$offset = \max( 0, Core::num_int( $position['offset'] ?? 0 ) );
 			if ( null !== $this->follow_handle ) {
@@ -233,8 +246,8 @@ class File_Tail_Node extends Tail_Node {
 	 * is a moment between generations, not a stream nobody writes, and hanging up
 	 * on one would drop the reader before the new file appears.
 	 *
-	 * @return float|null Epoch seconds the followed file last grew, or null while
-	 *                    the path is absent or bytes are still unread.
+	 * @return float|null Epoch seconds the followed file was last written, or null
+	 *                    while the path is absent or bytes are still unread.
 	 */
 	public function idle_since(): ?float {
 		$stat = $this->path_stat();
@@ -249,9 +262,11 @@ class File_Tail_Node extends Tail_Node {
 	 * rides `end_segment` exactly as it rides `cursor_segment`, so the probe
 	 * record and the GET_LAG reply name the same generation.
 	 *
-	 * The buffered-but-unemitted bytes count as READ — a reader holding a
-	 * partial line has consumed it — so `bytes_behind` here is what the probe's
-	 * DISTANCE reports, one definition for both.
+	 * The read position is `lag_cursor_offset()`, which may honour a queued seek
+	 * the first poll has yet to validate, while the `cursor_offset` field reports
+	 * the raw cursor. Buffered-but-unemitted bytes count as READ — a reader
+	 * holding a partial line has consumed it — so `bytes_behind` here is what the
+	 * probe's DISTANCE reports, one definition for both.
 	 *
 	 * @return array{bytes_behind:int,segments_behind:int,caught_up:bool,end_segment:int,end_size:int,end_bytes:int,cursor_segment:int,cursor_offset:int}
 	 */
@@ -298,8 +313,8 @@ class File_Tail_Node extends Tail_Node {
 
 	/**
 	 * Close the follow handle before the base teardown. Nothing in the sibling
-	 * cascade knows about an fopen handle, so a torn-down reader would otherwise
-	 * hold the descriptor for the rest of the worker's life.
+	 * cascade closes an fopen handle, so a torn-down reader would otherwise hold
+	 * the descriptor until the object itself is collected.
 	 */
 	public function remove_node(): void {
 		$this->close_follow_handle();
@@ -346,8 +361,8 @@ class File_Tail_Node extends Tail_Node {
 	 * generation is absent, zero or foreign, the file shrank below the cursor, or
 	 * nothing is open here to validate against. A cursor in the RIGHT generation
 	 * that is not just past a newline is mid-line: resume there and sync forward
-	 * onto the next one. cursor == size (the file ends exactly on
-	 * the last emitted newline) is valid and reads nothing until it grows.
+	 * onto the next one. cursor == size — the file ends exactly on the last
+	 * emitted newline — is valid and reads nothing until the file grows.
 	 *
 	 * @param int|null $stored_inode Generation the cursor was recorded against; null when unnamed.
 	 * @param int      $cursor       Persisted byte offset within that generation.
@@ -471,11 +486,11 @@ class File_Tail_Node extends Tail_Node {
 	}
 
 	/**
-	 * The ONE stat of the followed path: size, inode and mtime out of a single
-	 * clearstatcache+stat pair, so a caller needing two of them pays one syscall
-	 * and reads a consistent triple instead of three separately-timed ones.
+	 * Size, inode and mtime out of a single clearstatcache+stat pair, so a caller
+	 * needing two of them pays one syscall and reads a consistent triple instead
+	 * of three separately-timed ones.
 	 *
-	 * @return array{size:int,ino:int,mtime:int}|null Null when the path is absent.
+	 * @return array{size:int,ino:int,mtime:int}|null Null when the path is unset, absent or unreadable.
 	 */
 	private function path_stat(): ?array {
 		$path = $this->source_file;
@@ -496,9 +511,9 @@ class File_Tail_Node extends Tail_Node {
 	}
 
 	/**
-	 * Probe snapshot: the parent's record, relabelled. Every position and
-	 * counter comes from the inherited path — `compute_lag()` above is the only
-	 * substitution — so the dashboard and the GET_LAG reply cannot drift.
+	 * Probe snapshot: the parent's record with SOURCE relabelled. There is no
+	 * source_dir, so the inherited SOURCE would be blank — label the record by
+	 * the followed filename instead.
 	 *
 	 * @return array<int,int|string>
 	 */

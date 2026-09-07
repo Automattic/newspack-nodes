@@ -1,8 +1,8 @@
 <?php
 /**
- * Shared config-file handling, so no plugin's `Config` class re-implements it.
+ * Shared config-file handling for the `Config` classes built on the substrate.
  *
- * The substrate and every sibling plugin read configuration the same way
+ * Every plugin that has a `Config` class reads configuration the same way
  * (ADR-20): the schema declares each key and its default in code, and a PHP
  * file the deployment owns overrides the values it names. This class is the
  * file half of that — resolve the path, execute the file, and prove that what
@@ -16,8 +16,12 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * Static helpers called by `Newspack_Nodes\Config` and by the `Config` class of
- * every plugin built on the substrate. The class carries no state.
+ * Static helpers called by `Newspack_Nodes\Config` and
+ * `Newspack_Event_Logger_Nodes\Config`. The class carries no state.
+ *
+ * `docs/stability.md` counts all three methods among the frozen surfaces: a
+ * consumer plugin's `Config` may read its configuration through them, so a
+ * signature here cannot move under it.
  */
 class Config_Utils {
 
@@ -25,16 +29,17 @@ class Config_Utils {
 	 * Layer a PHP config file over $config and return the merged array.
 	 *
 	 * The file is an override surface, never the base: it wins for the keys
-	 * it names and leaves the rest of $config alone (ADR-20). A missing file
-	 * is ordinary — a deployment that overrides nothing ships none — so
-	 * $config comes back untouched. The file is EXECUTED, so a caller passes
-	 * a path it trusts; an operator-supplied one goes through
-	 * `validate_config_path()` first.
+	 * it names and leaves the rest of $config alone (ADR-20). The merge is one
+	 * level deep, so a key holding an array is replaced wholesale rather than
+	 * blended into the base. A missing file is not an error, and $config comes
+	 * back untouched. The file is EXECUTED, so a caller passes a path it
+	 * trusts; an operator-supplied one goes through `validate_config_path()`
+	 * first.
 	 *
-	 * A file returning anything but a scalar/array tree throws. ADR-20's
-	 * "report, never throw" governs an unrecognized KEY, which each `Config`
-	 * handles in `note_unrecognized_keys()`; it does not cover a file that
-	 * yielded no usable tree at all.
+	 * A file returning anything but an array of scalars, nulls and arrays
+	 * throws. ADR-20's "report, never throw" governs an unrecognized KEY,
+	 * which the calling `Config` handles in `note_unrecognized_keys()`; it
+	 * does not cover a file that yielded no usable tree at all.
 	 *
 	 * @param array<string,mixed> $config           Base config to merge into.
 	 * @param string              $config_file      Absolute path to a PHP file returning an array.
@@ -56,7 +61,6 @@ class Config_Utils {
 		// drop every default it was handed.
 		$parsed_config = ( static fn ( string $file ) => require $file )( $config_file );
 		if ( \is_array( $parsed_config ) && self::validate_config_values( $parsed_config ) ) {
-			// require'd config: dynamic array; validated above as scalar/array.
 			/** @var array<string,mixed> $parsed_config */
 			return [ ...$config, ...$parsed_config ];
 		}
@@ -103,9 +107,9 @@ class Config_Utils {
 	 * Resolve a config path to a canonical, readable PHP file; null otherwise.
 	 *
 	 * The path arrives from the environment (`LOCAL_NEWSPACK_NODES_CONF`) and
-	 * whatever it names is about to be executed, so every check runs against
-	 * the REAL path: the `.php` suffix is retested after `realpath()`, because
-	 * a symlink called `config.php` can point at anything. A null byte is
+	 * whatever it names is about to be executed, so the `.php` suffix is
+	 * retested after `realpath()`, beside the file and readability checks: a
+	 * symlink called `config.php` can point at anything. A null byte is
 	 * refused first — `realpath()` raises an uncaught `ValueError` on one.
 	 * Failure logs and returns null instead of throwing, leaving the caller to
 	 * decide whether a bad path is fatal. Control characters are stripped from

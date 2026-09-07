@@ -15,6 +15,9 @@ namespace Newspack_Nodes;
  * into the shared `jobstats` log where one Consumer yields one, and each record
  * carries a free-text last-run message. That message is why this is the only
  * probe that trims a record to fit the PIPE_BUF cap.
+ *
+ * `topologies/job-worker.tsl` mounts the sweep beside the workers it claims and
+ * sinks it into `jobstats.p0`, the one log every job-worker partition appends to.
  */
 class Job_Probe_Node extends Probe_Node {
 
@@ -37,7 +40,8 @@ class Job_Probe_Node extends Probe_Node {
 	 * handler's message is arbitrary text, so it is the one field worth sacrificing
 	 * to keep the record writable; a record that will not fit even with that field
 	 * emptied is dropped loud rather than emitted for Partition to refuse. The drop
-	 * names the identity, so an operator can see which job mints the oversize line.
+	 * names the identity, but `print_less_often()` keys on the head text alone, so
+	 * one throttle window names a single offender.
 	 *
 	 * @param array<int,mixed> $message The minted record message.
 	 * @return array<int,mixed>|null The message to emit, or null to drop it.
@@ -54,9 +58,11 @@ class Job_Probe_Node extends Probe_Node {
 
 	/**
 	 * Topology console manifest: the `Monitor` palette entry and the one
-	 * `interval_s` positional. Declaring it here is the whole parse — ADR-11 puts
-	 * defaults and coercion in `parse_schema_args()`, which `Probe_Node` calls to
-	 * arm the sweep timer.
+	 * `interval_s` positional, which replaces the `interval_ms` Timer_Node
+	 * declares because the merge takes `arguments` whole. Declaring it here is
+	 * the whole parse — ADR-11 puts defaults and coercion in
+	 * `parse_schema_args()`, and `Probe_Node::arguments()` calls that before
+	 * arming the sweep timer.
 	 *
 	 * @return array<string,mixed>
 	 */

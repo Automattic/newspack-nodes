@@ -28,11 +28,12 @@ namespace Newspack_Nodes;
 class Command_Interpreter_Node extends Node {
 
 	/**
-	 * Process-wide default command-authorization policy. A verifier process
-	 * (worker, /command request) sets this ONCE at bootstrap so EVERY interpreter in the
-	 * process — the main `_command_interpreter` plus the patron interpreters embedded in
-	 * Partitions and other config-bearing nodes — inherits it without per-instance
-	 * wiring. Null → the built-in LOCAL-provenance check (client tier).
+	 * Process-wide default command-authorization policy. A verifier process — a
+	 * worker, a `/command` request, an SSE stream — sets this once as it builds
+	 * its graph, so EVERY interpreter in the process (the main
+	 * `_command_interpreter` plus the patron interpreters embedded in Partitions
+	 * and other config-bearing nodes) inherits it without per-instance wiring.
+	 * Null → the built-in LOCAL-provenance check (client tier).
 	 * Signature: `function ( Command_Interpreter_Node $ci, array $message ): bool`
 	 * (true = allow). The interpreter comes first so a refusal is logged through
 	 * the node that actually handled the command — the reason and the generic
@@ -46,14 +47,14 @@ class Command_Interpreter_Node extends Node {
 	/**
 	 * Verb classes disabled at each secure level, modeled on Tachikoma's
 	 * %DISABLED. DECLARED per level — each entry says only what that level
-	 * ADDS, which is how Ruleset and Scheduler declare only their own level-3
-	 * verbs. ENFORCED cumulatively: `refuse_at_secure_level()` refuses a class
-	 * declared at ANY level at or below the current one, which is the union
-	 * Tachikoma's `CommandInterpreter::disabled()` setter materializes by
-	 * folding 1 into 2 and 2 into 3 when the map is assigned. Declaring per
-	 * level and enforcing per level are different things: enforcing per level
-	 * lets a climb re-enable what a lower level disabled, and `secure` refuses to
-	 * descend, so nothing can recover it.
+	 * ADDS, which is how Tachikoma's Ruleset and Scheduler declare only their
+	 * own level-3 verbs. ENFORCED cumulatively: `refuse_at_secure_level()`
+	 * refuses a class declared at ANY level at or below the current one, which
+	 * is the union Tachikoma's `CommandInterpreter::disabled()` setter
+	 * materializes by folding 1 into 2 and 2 into 3 when the map is assigned.
+	 * Enforcing the levels one at a time instead would let a climb re-enable
+	 * what a lower level disabled, and `secure` refuses to descend, so nothing
+	 * could put the refusal back.
 	 *
 	 * The ladder freezes definitions and never disables the machine: reads
 	 * still read, wired flow still flows, defined verbs still run.
@@ -93,9 +94,10 @@ class Command_Interpreter_Node extends Node {
 	];
 
 	/**
-	 * Registered class namespace prefixes. `make_node('Tee')` resolves the
-	 * first `{$prefix}Tee_Node` that exists and is a Node subclass. The catalog
-	 * (Classes_CI) scans the composer classmap for FQCNs under these prefixes.
+	 * Registered class namespace prefixes. `make_node('Tee')` resolves the first
+	 * `{$prefix}Tee_Node` that exists, subclasses Node and is concrete. The
+	 * catalog (Classes_CI) scans the composer classmap for FQCNs under these
+	 * prefixes.
 	 *
 	 * @var array<string,bool> Prefix → true (set semantics).
 	 */
@@ -187,13 +189,16 @@ class Command_Interpreter_Node extends Node {
 	/**
 	 * Bounce a drain marker, interpret a local command, or forward everything else.
 	 *
-	 * Only a TM_COMMAND with an EMPTY TO belongs to this interpreter; a non-empty
-	 * TO means the command is still in transit toward another node, so it goes to
-	 * the sink. Dispatching on a non-empty TO would make every interpreter along a
-	 * path eat the commands meant for its downstream peers. TM_PING and TM_EOF
-	 * with an empty TO bounce back along FROM: the cli emits that TM_EOF when
-	 * stdin closes and waits for the bounce, which is what drains its output
-	 * partition before it exits.
+	 * Only a TM_COMMAND with an EMPTY TO and no TM_RESPONSE bit belongs to this
+	 * interpreter; a non-empty TO means the command is still in transit toward
+	 * another node, so it goes to the sink. Dispatching on a non-empty TO would
+	 * make every interpreter along a path eat the commands meant for its
+	 * downstream peers. The response bit is the other half of the guard: a verb
+	 * reply is minted TM_COMMAND|TM_RESPONSE, so one arriving with its TO already
+	 * peeled empty passes through instead of re-entering the verb table. TM_PING
+	 * and TM_EOF with an empty TO bounce back along FROM: the cli emits that
+	 * TM_EOF when stdin closes and leaves its drain loop running until the bounce
+	 * arrives, so replies still in flight reach the terminal first.
 	 *
 	 * @param array<int,mixed> $message Inbound message.
 	 */
@@ -204,14 +209,12 @@ class Command_Interpreter_Node extends Node {
 		$type_raw = $message[ Message::TYPE ];
 		$type     = Core::num_int( $type_raw );
 
-		// TM_PING / TM_EOF with empty TO: bounce along FROM (drain marker).
 		if ( ( $type & ( Message::TM_PING | Message::TM_EOF ) ) && '' === $message[ Message::TO ] ) {
 			$message[ Message::TO ] = $message[ Message::FROM ];
 			$sink->fill( $message );
 			return;
 		}
 
-		// Only handle empty-TO commands; non-empty TO forwards downstream.
 		if ( ( $type & Message::TM_COMMAND ) && ! ( $type & Message::TM_RESPONSE ) && '' === $message[ Message::TO ] ) {
 			$this->interpret( $message );
 			return;
@@ -226,7 +229,11 @@ class Command_Interpreter_Node extends Node {
 	 * is why no verb carries its own try/catch. `Worker_Should_Stop` is control
 	 * flow rather than a verb error, so it re-throws (ADR-14). The reply goes
 	 * TO=FROM carrying the inbound ID and KEY, because the address the caller
-	 * minted IS the correlation (ADR-7); an empty result sends nothing at all.
+	 * minted IS the correlation (ADR-7); an empty string result sends nothing.
+	 *
+	 * A VALUE that is not an array, or that carries no `name` key, is dropped
+	 * instead — `drop_message()` leaves one rate-limited audit line, and the
+	 * caller gets no reply at all.
 	 *
 	 * @param array<int,mixed> $message Incoming command Message to interpret.
 	 */
@@ -318,10 +325,10 @@ class Command_Interpreter_Node extends Node {
 	 * verb table, so they cover a subclass's own table as well as the shared one.
 	 * An unknown verb throws, like every other refusal.
 	 *
-	 * @param string                  $name     Verb name.
-	 * @param list<string>            $args     Pre-split argument tokens (verbs classify via Command_Args).
-	 * @param array<int,mixed>        $envelope Inbound TM_COMMAND message, or [] for inline calls.
-	 * @return mixed Verb result: a string for most verbs, an array for the struct-returning ones (`dump_metadata`, `taillog sources`, and the `-s` forms of `list_timers` / `list_handles` / `list_profiles`).
+	 * @param string           $name     Verb name.
+	 * @param list<string>     $args     Pre-split argument tokens (a verb wanting flags classifies them through Command_Args).
+	 * @param array<int,mixed> $envelope Inbound TM_COMMAND message, or [] for inline calls.
+	 * @return mixed Verb result: a string for most verbs, an array for the struct-returning ones (`dump_metadata`, `taillog sources`, `taillog read`, and the `-s` forms of `list_timers` / `list_handles` / `list_profiles`).
 	 */
 	public function dispatch( string $name, array $args = [], array $envelope = [] ): mixed {
 		$role = $this->capability_for( $name );
@@ -364,7 +371,8 @@ class Command_Interpreter_Node extends Node {
 	 * warning, because `arguments()` has to stay a flat token list for
 	 * `dump_config()` to round-trip. Redeclaring a name with the same class and
 	 * the same tokens returns the node already registered, so reloading a topology
-	 * is idempotent while a genuine collision throws.
+	 * is idempotent while a genuine collision throws. A node born under a traced
+	 * interpreter inherits its `debug_state`, so `trace` covers what comes next.
 	 *
 	 * @param string $type    Shell name (resolved as `{$prefix}{$type}_Node`, or the bare base `Node`).
 	 * @param string $name    Unique name for the new node (registered with Core).
@@ -377,7 +385,7 @@ class Command_Interpreter_Node extends Node {
 			return null;
 		}
 		$ref = new \ReflectionClass( $fqcn );
-		// Abstract subclass (e.g. Service_CI_Node) not instantiable; null.
+		// Defensive: resolve_class() already skips abstract classes.
 		if ( $ref->isAbstract() ) {
 			return null;
 		}
@@ -427,8 +435,8 @@ class Command_Interpreter_Node extends Node {
 
 	/**
 	 * Default `help` for an interpreter with a custom verb table: its verb names, sorted,
-	 * one per line (includes `help` itself). The base interpreter overrides this with the
-	 * richer sectioned help via its own `help` verb in self::$C.
+	 * one per line (includes `help` itself). The base table's own `help` verb in self::$C
+	 * displaces this with the tabulated topic list and the per-topic text.
 	 *
 	 * @return string Newline-separated sorted verb names.
 	 */
@@ -524,7 +532,7 @@ class Command_Interpreter_Node extends Node {
 			'stats' => "stats [-a] [<regex>]\n    columns: NAME COUNT LGST_MSG READ WRITTEN.\n    default: sibling nodes of this interpreter; -a: all nodes.\n",
 			'help' => "help [ <topic> ]\n",
 
-			// Shell-level builtins: Shell intercepts; listed for `help`.
+			// Shell-handled verbs, listed only so `help` covers them too.
 			'cd' => "cd [ <path> ]\n    alias: chdir\n    note: empty path resets cwd to the local interpreter.\n",
 			'include' => "include <file>\n    note: shell builtin — reads <file> and evals each line through\n          THIS shell, as though piped into the REPL (cwd and vars\n          apply). Never a wire command.\n",
 			'debug_level' => "debug_level [0|1|2]\n    note: sets the local Dumper verbosity level.\n",
@@ -586,7 +594,8 @@ class Command_Interpreter_Node extends Node {
 	 * Coerce a dispatch closure's raw `array $args` to the canonical argv shape —
 	 * a re-indexed list of strings. The verb dispatch closures are declared
 	 * `array $args` (an inline closure param can't carry a narrower phpdoc type),
-	 * so each verb handler normalizes at entry. The tokens are already strings at
+	 * so a handler wanting an argv list normalizes at entry; the few that only
+	 * test one token read `$args` directly. The tokens are already strings at
 	 * runtime — interpret() coerces the wire arguments before dispatch — so this
 	 * is a static-analysis pin, not a behavioral coercion.
 	 *
@@ -599,8 +608,8 @@ class Command_Interpreter_Node extends Node {
 
 	/**
 	 * Refuse a verb whose class is disabled at the current secure level, or
-	 * null to proceed. A node's own verbs classify themselves through
-	 * `node_schema()['verb_classes']`.
+	 * null to proceed. VERB_CLASSES answers first; a verb it does not name falls
+	 * through to the patron's `node_schema()['verb_classes']`.
 	 *
 	 * The caller RAISES this: a denial is not a result, and Tachikoma treats a
 	 * disabled command as an authorization failure rather than a reply.
@@ -619,7 +628,7 @@ class Command_Interpreter_Node extends Node {
 		return null;
 	}
 
-	/** This node's own class for a verb, from node_schema; '' when unclassified. */
+	/** The patron's class for a verb, or this node's own; '' when unclassified. */
 	private function schema_verb_class( string $verb ): string {
 		$patron = $this->patron();
 		$schema = null !== $patron ? $patron::node_schema() : static::node_schema();
@@ -628,9 +637,9 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	/**
-	 * `secure [<level>]` — climb the ratchet. Bare climbs one level, capped at
-	 * 3; an explicit level must be >= 1 and may never descend. Follows
-	 * Tachikoma's $C{secure}.
+	 * `secure [<level>]` — climb the ratchet. Bare climbs one level; an explicit
+	 * level must be all digits, be at least 1, and may never descend. Both forms
+	 * cap at 3, so `secure 9` lands on 3. Follows Tachikoma's $C{secure}.
 	 *
 	 * @param list<string> $args Verb arguments.
 	 */
@@ -757,9 +766,11 @@ class Command_Interpreter_Node extends Node {
 	/**
 	 * `disconnect_node <node> [<target>]` — drop a target.
 	 *
-	 * Only a fan-out node defaults the omitted target to the issuing FROM, undoing
-	 * that session's own default `connect_node`; a single-target node clears its
-	 * target whatever name it is handed.
+	 * A node whose `target()` reads as a LIST — every `Fanout_Targets` node,
+	 * connected or not — defaults the omitted target to the issuing FROM, undoing
+	 * that session's own default `connect_node`, and refuses with the usage line
+	 * when there is no FROM to fall back on. Every other node holds a scalar
+	 * target, which `Node::disconnect_node()` clears whatever name it is handed.
 	 *
 	 * @param list<string>            $args     Verb arguments.
 	 * @param array<array-key,mixed> $envelope The command Message.
@@ -774,7 +785,7 @@ class Command_Interpreter_Node extends Node {
 		if ( null === $src ) {
 			throw new \RuntimeException( \esc_html( "unknown node: $name" ) );
 		}
-		// For a Tee, no target removes the issuing FROM from the fan-out.
+		// A fan-out list: no target removes the issuing FROM from it.
 		if ( '' === $target && \is_array( $src->target() ) ) {
 			$target = Core::as_string( $envelope[ Message::FROM ] ?? '' );
 			if ( '' === $target ) {
@@ -831,7 +842,7 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	/**
-	 * `move_node <node name> <new name>` — Tachikoma CommandInterpreter.pm:643.
+	 * `move_node <node name> <new name>` — Tachikoma CommandInterpreter.pm:645.
 	 *
 	 * Node::name() owns the work: registry re-key, collision guard, and the
 	 * cascade to owned siblings. Authorised under `make_node`, as in the
@@ -878,7 +889,7 @@ class Command_Interpreter_Node extends Node {
 		}
 
 		if ( $list_matches ) {
-			// Anchored `@regex@` so user-supplied / and ^$ don't need escaping.
+			// Anchored here, and `@` delimiters spare a user-supplied `/`.
 			$names = [];
 			foreach ( \array_keys( Core::$nodes_by_name ) as $candidate ) {
 				if ( @\preg_match( '@^' . $glob . '$@', $candidate ) ) {
@@ -931,7 +942,6 @@ class Command_Interpreter_Node extends Node {
 	 * @param array<array-key,mixed> $envelope The command Message.
 	 */
 	private static function cmd_list_nodes( Command_Interpreter_Node $self, array $args, array $envelope = [] ): string {
-		// Completion mode: bare node names only, ignoring -clst flags.
 		$is_completion = 'completion' === ( $envelope[ Message::KEY ] ?? '' );
 		$list_matches  = false;
 		$show_count    = false;
@@ -958,7 +968,7 @@ class Command_Interpreter_Node extends Node {
 			$argv[] = $tok;
 		}
 
-		// Completion mode: bare names, all nodes (like -a) for `cd <tab>`.
+		// Completion: bare names, every node (like -a), for `cd <tab>`.
 		if ( $is_completion ) {
 			$show_count   = false;
 			$show_sink    = false;
@@ -1047,8 +1057,8 @@ class Command_Interpreter_Node extends Node {
 	 * `log <message>` builtin — broadcast `$args` through this node's stderr chain.
 	 *
 	 * It returns nothing, so the text reaches the session out of band through the
-	 * wired stderr sink (a worker's `_repl`, the REPL's `_output`, the JSONL body
-	 * of a POST /command) instead of as a command reply.
+	 * stderr sink `Core::reset()` wires — the first of `_repl`, `_sse` and
+	 * `_output` that is mounted — instead of as a command reply.
 	 *
 	 * @param list<string> $args Verb arguments.
 	 */
@@ -1068,6 +1078,9 @@ class Command_Interpreter_Node extends Node {
 	 * Snapshot a node's state via Node::dump_node(), optionally key-filtered and
 	 * sorted for stability, stringified with a class-name header (display-only).
 	 *
+	 * An unknown node and an unknown key both throw; an omitted name alone
+	 * returns its complaint as the reply text.
+	 *
 	 * @param list<string> $args
 	 */
 	private static function cmd_dump_node( array $args ): string {
@@ -1085,11 +1098,10 @@ class Command_Interpreter_Node extends Node {
 		$wanted   = \array_slice( $parts, 1 );
 		$snapshot = $node->dump_node();
 
-		// class heads the dump; pulled out so not a body key / filter target.
+		// `class` heads the output, so it is neither a body key nor filterable.
 		$class_raw = $snapshot['class'] ?? '';
 		$class     = Core::as_string( $class_raw );
 		unset( $snapshot['class'] );
-		// `class` is in the header, so requesting it as a key is a no-op.
 		$wanted = \array_values( \array_filter( $wanted, static fn ( $k ): bool => 'class' !== $k ) );
 
 		// Alphabetical so output stable across nodes with different ancestors.
@@ -1119,14 +1131,13 @@ class Command_Interpreter_Node extends Node {
 	 */
 	private static function cmd_dump_config( string $glob = '' ): string {
 		$glob = \trim( $glob );
-		// Arg is a regex glob on node names; malformed pattern matches nothing.
 		$out = '';
 		foreach ( \array_keys( Core::$nodes_by_name ) as $name ) {
 			if ( \in_array( $name, Node_Names::SESSION_SCAFFOLDING, true ) ) {
-				continue; // Skip baseline scaffolding.
+				continue;
 			}
 			if ( '' !== $glob && 1 !== \preg_match( '{' . $glob . '}', $name ) ) {
-				continue; // regex-glob filter — skip names not matching.
+				continue; // A malformed glob matches nothing.
 			}
 			// $name from Core::$nodes_by_name keys; lookup always present.
 			/** @var \Newspack_Nodes\Node $node Node from the registry. */
@@ -1165,9 +1176,9 @@ class Command_Interpreter_Node extends Node {
 				continue;
 			}
 			$schema = $node::node_schema();
-			// @longform Hook-mounted infrastructure has no owner to patron it —
-			// the connect-queue timer is shared by every Remote_Link — so a
-			// schema saying hidden is the only signal it can give. The palette
+			// @longform A shared singleton has no owner to patron it — one
+			// connect-queue timer serves every Remote_Link — so a schema
+			// saying hidden is the only signal it can give. The palette
 			// already honours it; the canvas has to as well.
 			if ( true === ( $schema['hidden'] ?? false ) ) {
 				continue;
@@ -1316,9 +1327,10 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	/**
-	 * `list_handles` — tabulate the Event_Framework's registered cURL multi handles
-	 * (the SSE/HTTP egress nodes the drain loop selects on). Analogous to
-	 * Tachikoma CommandInterpreter's list_fds.
+	 * `list_handles` — tabulate the nodes holding a cURL easy handle in the
+	 * Event_Framework's shared multi, which is what the drain loop selects on:
+	 * `SSE_In_Node`'s inbound pull and `HTTP_Out_Node`'s outbound batch.
+	 * Analogous to Tachikoma CommandInterpreter's list_fds.
 	 *
 	 * @param  bool $structured Return handle_rows() instead of the text table.
 	 * @return string|list<array{id:int,count:int,type:string,name:string}>
@@ -1372,8 +1384,10 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	/**
-	 * Structured rows for every registered cURL multi handle — the one loop the
-	 * list_handles table and its `-s` form both build from.
+	 * Structured rows for every node holding a cURL handle — the one loop the
+	 * list_handles table and its `-s` form both build from. `curl_handles()`
+	 * collapses a node's handles to one row, so `id` is the NODE's object id and
+	 * `count` its completion counter.
 	 *
 	 * @return list<array{id:int,count:int,type:string,name:string}>
 	 */
@@ -1474,6 +1488,7 @@ class Command_Interpreter_Node extends Node {
 	 * and `-s` render THIS derivation, so the two can never disagree.
 	 *
 	 * @param  array{avg:float,time:float,count:int,timestamp:float,oldest:float} $info Raw record.
+	 * @param  float                                                             $now  Read time, against which `age` is measured.
 	 * @return array{avg:float,time:float,count:int,window:float,rate:float,age:int}
 	 */
 	private static function profile_stats( array $info, float $now ): array {
@@ -1517,7 +1532,8 @@ class Command_Interpreter_Node extends Node {
 	/**
 	 * One list_profiles table row: the shared stats struct, formatted.
 	 *
-	 * @param  array{avg:float,time:float,count:int,window:float,rate:float,age:int} $r Stats.
+	 * @param  array{avg:float,time:float,count:int,window:float,rate:float,age:int} $r    Stats.
+	 * @param  string                                                                $what The WHAT column: a node name, or `--total--`.
 	 * @return list<string>
 	 */
 	private static function profile_row( array $r, string $what ): array {
@@ -1537,7 +1553,7 @@ class Command_Interpreter_Node extends Node {
 	 */
 	private static function cmd_uptime(): string {
 		$uptime = (int) ( Core::$now - Core::$init_time );
-		// gmdate (UTC) over date() for predictability across worker timezones.
+		// gmdate over date: one clock whatever a worker's timezone is.
 		$clock   = \gmdate( 'H:i:s', (int) Core::$now );
 		$elapsed = self::format_uptime( $uptime );
 		return "{$clock}  up {$elapsed}\n";
@@ -1549,7 +1565,6 @@ class Command_Interpreter_Node extends Node {
 	 * column holds one width for as long as a worker stays in a given scale.
 	 */
 	private static function format_uptime( int $seconds ): string {
-		// Trailing components zero-pad to 2 digits for steady width.
 		if ( $seconds < 60 ) {
 			return \sprintf( '%02ds', $seconds );
 		}
@@ -1571,9 +1586,12 @@ class Command_Interpreter_Node extends Node {
 	/**
 	 * `trace [ <node name> | * [ <level> ] ]` — toggle or set a node's debug level.
 	 *
-	 * No argument toggles this interpreter, a bare number sets it, `*` applies one
-	 * level to every registered node, and a name targets that node. The replies
-	 * name `debug_state` because that is the property the verb writes.
+	 * No argument toggles this interpreter, a bare number sets it, a name targets
+	 * that node, and `*` writes one level across every registered node — toggling
+	 * from this interpreter's own state when no level follows. The replies name
+	 * `debug_state` because that is the property the verb writes, and the two
+	 * self-targeting forms name `_command_interpreter` literally, whichever
+	 * interpreter handled the command.
 	 *
 	 * @param list<string> $args Verb arguments.
 	 */
@@ -1618,7 +1636,8 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	/**
-	 * `help` — no args lists all command names tabulated; a topic returns that command's help.
+	 * `help` — no args tabulates every help TOPIC; a topic returns its own text,
+	 * and a topic naming no verb falls through to that node type's schema help.
 	 *
 	 * @param list<string>            $args     Verb arguments.
 	 * @param array<array-key,mixed> $envelope The command Message.
@@ -1710,13 +1729,13 @@ class Command_Interpreter_Node extends Node {
 
 	/**
 	 * Column-aligned table rendering; the last left-aligned column isn't padded.
-	 * Public so the substrate's other text-table consumers (Log_Sources' taillog
-	 * listing, Node_Schema_Help, Service_CI subclasses) share the ONE renderer
-	 * rather than growing copies. Tachikoma keeps tabulate in CI; so do we.
+	 * Public so the substrate's other text-table consumers — Log_Sources' taillog
+	 * listing and Node_Schema_Help — share the ONE renderer rather than growing
+	 * copies. Tachikoma keeps tabulate in CI; so do we.
 	 *
 	 * @param array<int,string>            $dirs   One per column ('left' or 'right').
 	 * @param array<int,string>|null       $header Optional header row; null skips it.
-	 * @param array<int,array<int,string>> $rows
+	 * @param array<int,array<int,string>> $rows   Pre-stringified cells; a short row pads with empties.
 	 */
 	public static function tabulate( array $dirs, ?array $header, array $rows ): string {
 		$ncols = \count( $dirs );
@@ -1795,9 +1814,11 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	/**
+	 * Name the node, opening the secure ratchet at 0 if nothing has set it.
+	 *
 	 * Naming an interpreter is the moment this process gains a command surface,
-	 * so it is the moment the policy becomes something someone has to declare.
-	 * Follows Tachikoma's CommandInterpreter::name().
+	 * so it is the moment the ratchet has to hold a declared value rather than
+	 * null. Follows Tachikoma's CommandInterpreter::name().
 	 */
 	public function name( ?string $name = null ): string {
 		// Parent splits getter/setter on func_num_args(); null would write.
