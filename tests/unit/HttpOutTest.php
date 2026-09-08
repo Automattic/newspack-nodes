@@ -324,6 +324,7 @@ class HttpOutTest extends TestCase {
 
 	public function test_on_curl_message_strips_output_prefix_from_reply_to(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();
+		$node->allow_replies_to( 'spoke-austin' );
 
 		$reply                   = Message::new_message();
 		$reply[ Message::TYPE ]  = Message::TM_BYTESTREAM;
@@ -439,6 +440,70 @@ class HttpOutTest extends TestCase {
 		$this->assertSame( 'discovery-collector', $sink->captured[0][ Message::TO ] ?? null );
 	}
 
+	/**
+	 * A reserved name is not a destination an operator may open.
+	 *
+	 * `Node_Names` are the wire's own scaffolding, and `_router` reaches every
+	 * node in the graph while `_command_interpreter` runs every verb — so one
+	 * `allow_replies_to _router` hands the remote back exactly the addressing
+	 * this allowlist exists to bound. Refused by PREFIX rather than by the
+	 * `Node_Names` list: `_` is what marks a name reserved, and nothing routed
+	 * carries one, `_http` included (its replies are read off the response body).
+	 */
+	public function test_allow_replies_to_refuses_a_reserved_name(): void {
+		[ $node, $easy ] = $this->node_with_one_inflight();
+		$node->allow_replies_to( '_router' );
+
+		$reply                   = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_RESPONSE;
+		$reply[ Message::TO ]    = '_router/_command_interpreter';
+		$reply[ Message::VALUE ] = 'make_node Tee pwned';
+
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [
+			'code' => 200,
+			'body' => Message::packed( $reply ) . "\n",
+		];
+		$sink = new Capture_Sink_Node();
+		$sink->name( '_command_interpreter' );
+		$node->sink( $sink );
+
+		$node->on_curl_message( $this->done_info( $easy ) );
+
+		$this->assertSame( [], $sink->captured, 'a reserved head never enters the allowlist' );
+	}
+
+	/**
+	 * The remote must not choose its arm out of the allowlist.
+	 *
+	 * `accept_inbound()` gated only the REPLY arm, and the remote sets the bit
+	 * that decides which arm a message lands in — so clearing TM_RESPONSE on a
+	 * target-less egress walked past `allow_replies_to` into the untargeted
+	 * pass-through, and every node sinks into `_command_interpreter` and then
+	 * `_router` (ADR-7). Once a link has DECLARED its destinations, they bound
+	 * anything addressed, whatever type bits it carries.
+	 */
+	public function test_on_curl_message_refuses_an_undeclared_address_with_no_reply_bit(): void {
+		[ $node, $easy ] = $this->node_with_one_inflight();
+		$node->allow_replies_to( 'settings-sync' );
+
+		$reply                   = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$reply[ Message::TO ]    = '_command_interpreter';
+		$reply[ Message::VALUE ] = 'make_node Tee pwned';
+
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [
+			'code' => 200,
+			'body' => Message::packed( $reply ) . "\n",
+		];
+		$sink = new Capture_Sink_Node();
+		$sink->name( '_command_interpreter' );
+		$node->sink( $sink );
+
+		$node->on_curl_message( $this->done_info( $easy ) );
+
+		$this->assertSame( [], $sink->captured, 'no target, no reply bit — still not a destination it may name' );
+	}
+
 	/** A DEEPER path under a declared head still routes: the head is what Router peels. */
 	public function test_on_curl_message_admits_a_deeper_path_under_a_declared_head(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();
@@ -482,6 +547,7 @@ class HttpOutTest extends TestCase {
 
 	public function test_on_curl_message_leaves_reply_to_without_prefix_unchanged(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();
+		$node->allow_replies_to( 'settings-sync' );
 
 		$reply                   = Message::new_message();
 		$reply[ Message::TYPE ]  = Message::TM_BYTESTREAM;
@@ -754,6 +820,7 @@ class HttpOutTest extends TestCase {
 
 	public function test_on_curl_message_forwards_reply_messages_to_sink(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();
+		$node->allow_replies_to( 'settings-sync' );
 
 		$reply1                   = Message::new_message();
 		$reply1[ Message::TYPE ]  = Message::TM_BYTESTREAM;

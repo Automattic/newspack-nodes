@@ -295,6 +295,44 @@ test( 'verb throwing returns TM_COMMAND|TM_ERROR with the message', () => {
 	expect( got[ 0 ][ VALUE ].payload ).toBe( 'boom\n' );
 } );
 
+/**
+ * TM_ERROR is a reply, so the interpreter must PASS it, never run it.
+ *
+ * `_respond()` addresses a reply TO the request's FROM, so an errored command
+ * that arrived with an empty FROM produces a TM_COMMAND|TM_ERROR with an empty
+ * TO — which the command test read as a fresh command and interpreted again,
+ * unbounded and synchronously. PHP's `is_request_command()` masks TM_ERROR
+ * beside TM_RESPONSE for exactly this; the JS half did not.
+ */
+test( 'TM_COMMAND|TM_ERROR is forwarded, never interpreted', () => {
+	const sink = new Node();
+	const got = [];
+	sink.fill = ( m ) => got.push( [ ...m ] );
+
+	let ran = 0;
+	const interpreter = new CommandInterpreterNode();
+	interpreter.name = 'test_interpreter';
+	interpreter.sink = sink;
+	interpreter.commands( {
+		boom: () => {
+			ran++;
+			throw new Error( 'boom' );
+		},
+	} );
+
+	const m = newMessage();
+	m[ TYPE ] = TM_COMMAND | TM_ERROR;
+	m[ FROM ] = '';
+	m[ TO ] = '';
+	m[ VALUE ] = { name: 'boom', arguments: '' };
+	m[ LOCAL ] = true;
+	interpreter.fill( m );
+
+	expect( ran ).toBe( 0 );
+	expect( got ).toHaveLength( 1 );
+	expect( got[ 0 ][ TYPE ] ).toBe( TM_COMMAND | TM_ERROR );
+} );
+
 test( 'command without LOCAL provenance is refused (unauthorized), verb not run', () => {
 	const sink = new Node();
 	const got = [];

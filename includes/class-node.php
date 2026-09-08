@@ -312,14 +312,40 @@ class Node {
 			$this->print_less_often( 'ERROR: ' . static::class . ' stamp_message() called with empty name' );
 			return false;
 		}
-		$from = Core::as_string( $message[ Message::FROM ] );
-		$new  = '' === $from ? $name : ( $name . '/' . $from );
+		$new = self::stamped_path( $message, $name );
 		if ( \strlen( $new ) > self::MAX_FROM_SIZE ) {
 			$this->print_less_often( 'ERROR: path exceeded ' . self::MAX_FROM_SIZE . ' bytes; dropping from: ', $new );
 			return false;
 		}
 		$message[ Message::FROM ] = $new;
 		return true;
+	}
+
+	/**
+	 * Whether `stamp_message()` would take this message — asked WITHOUT the
+	 * warning, for a boundary that reports the refusal some other way.
+	 *
+	 * `HTTP_In_Node` is the one: a drop's stderr line routes into `_output` once
+	 * a request graph exists, which opens the response body and spends the
+	 * status line, so it asks first and answers the client with a frame.
+	 *
+	 * @param array<int,mixed> $message The 7-field message array.
+	 * @param string           $name    The name that would be prepended.
+	 * @return bool False when the stamp would be refused.
+	 */
+	public static function can_stamp( array $message, string $name ): bool {
+		return '' !== $name && \strlen( self::stamped_path( $message, $name ) ) <= self::MAX_FROM_SIZE;
+	}
+
+	/**
+	 * The FROM path `$name` would compose, so the check and the write agree.
+	 *
+	 * @param array<int,mixed> $message The 7-field message array.
+	 * @param string           $name    The name to prepend.
+	 */
+	private static function stamped_path( array $message, string $name ): string {
+		$from = Core::as_string( $message[ Message::FROM ] );
+		return '' === $from ? $name : ( $name . '/' . $from );
 	}
 
 	/**
@@ -435,8 +461,9 @@ class Node {
 		$type_str = empty( $labels ) ? 'TYPE_UNKNOWN' : \implode( '|', $labels );
 
 		// NOT_AVAILABLE keeps no "WARNING:" prefix (matches Perl drop_message).
-		$prefix   = 'NOT_AVAILABLE' === $error ? "$error - " : "WARNING: $error - ";
-		$parts    = [ "$prefix$type_str" ];
+		$prefix   = 'NOT_AVAILABLE' === $error ? $error : "WARNING: $error";
+		// A REMOTE-set bitmask: in the head it was 2048 throttle keys.
+		$parts    = [ "$prefix -", $type_str ];
 		$from     = Core::as_string( $message[ Message::FROM ] );
 		if ( '' !== $from ) {
 			$parts[] = 'from: ' . $from;
@@ -456,10 +483,9 @@ class Node {
 			$parts[] = 'payload: ' . $value_str;
 		}
 
-		// Key on $parts[0] (stable category); tail prints once, unkeyed.
+		// Key on the REASON alone; the tail prints once, unkeyed.
 		$head = \array_shift( $parts );
-		$tail = empty( $parts ) ? '' : ' ' . \implode( ' ', $parts );
-		$this->print_less_often( $head, $tail );
+		$this->print_less_often( $head, ' ' . \implode( ' ', $parts ) );
 	}
 
 	/**

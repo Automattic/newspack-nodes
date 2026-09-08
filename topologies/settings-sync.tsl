@@ -4,8 +4,22 @@
 #
 # Runs ONCE (not per-partition): `var num_partitions = 1` mounts a single
 # instance regardless of the operator's data num_partitions. The pipeline is
-# correctly inert until an operator wires a per-spoke `make_node HTTP_Out
-# <name> <vault-id>` from the topology console and connects settings-sync to it.
+# correctly inert until an operator wires a per-spoke egress from the topology
+# console and connects settings-sync to it. One Null for the graph, then four
+# lines per spoke, of which the middle two are not optional:
+#
+#   make_node Null null
+#   make_node HTTP_Out settings:austin <vault-id>
+#   connect_node settings:austin null
+#   cmd settings:austin:config allow_replies_to settings-sync
+#   connect_node settings-sync settings:austin
+#
+# `connect_node <egress> null` gives the egress a target, so a spoke's
+# UNADDRESSED output lands in a Null rather than travelling on as it stands.
+# `allow_replies_to` then declares what the spoke MAY address, and the list
+# fails closed: without it the acks are dropped. On a hub also running the
+# event logger's `hub-control`, declare `discovery-collector` beside it.
+#
 # settings-sync fans out itself: one command per spoke, each signed under that
 # spoke's session key. A Tee cannot do it — re-addressing a signed command
 # after the mint makes it verify nowhere.

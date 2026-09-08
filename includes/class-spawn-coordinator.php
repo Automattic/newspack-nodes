@@ -174,7 +174,7 @@ class Spawn_Coordinator {
 		$out = [];
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_glob -- Operator storage, never WP-managed.
 		foreach ( \glob( "{$this->base_dir}/locks/*.lock.d" ) ?: [] as $path ) {
-			if ( ! \preg_match( '/^(.+)\.p(\d+)$/', \basename( $path, '.lock.d' ), $m ) ) {
+			if ( ! \preg_match( '/^(.+)\.p(\d+)$/D', \basename( $path, '.lock.d' ), $m ) ) {
 				continue; // Non-partitioned dir — not a worker.
 			}
 			$out[ $path ] = [ 'type' => $m[1], 'partition' => (int) $m[2] ];

@@ -97,7 +97,7 @@ class Dumper_Node extends Node {
 		if ( '' !== $this->to_filter ) {
 			$to = Core::as_string( $message[ Message::TO ] );
 			if ( '' !== $to
-				&& ! \preg_match( '/^(?:_output\/)?' . \preg_quote( $this->to_filter, '/' ) . '$/', $to )
+				&& ! \preg_match( '/^(?:_output\/)?' . \preg_quote( $this->to_filter, '/' ) . '$/D', $to )
 			) {
 				return;
 			}

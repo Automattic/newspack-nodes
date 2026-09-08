@@ -96,7 +96,7 @@ class CLI {
 	 * @throws \InvalidArgumentException If worker_id can't be parsed.
 	 */
 	public static function parse_worker_id( string $worker_id ): array {
-		if ( ! \preg_match( '/^(.+)\.p(\d+)$/', $worker_id, $m ) ) {
+		if ( ! \preg_match( '/^(.+)\.p(\d+)$/D', $worker_id, $m ) ) {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- terminal message, not HTML; cli_safe() strips control chars, and esc_html() would mangle the text.
 			throw new \InvalidArgumentException( 'invalid reader id: ' . self::cli_safe( $worker_id ) . ' (expected {type}.p{N})' );
 		}
@@ -128,7 +128,7 @@ class CLI {
 		$now  = (int) Core::right_now();
 		foreach ( $this->read_probe_frames() as $reader => $frame ) {
 			// The reader id is an offsetlog basename ending `.p{N}`.
-			if ( ! \preg_match( '/^(.+)\.p(\d+)$/', $reader, $m ) ) {
+			if ( ! \preg_match( '/^(.+)\.p(\d+)$/D', $reader, $m ) ) {
 				continue;
 			}
 			$record = $frame['value'];
@@ -257,7 +257,7 @@ class CLI {
 		$now     = \time();
 		$workers = [];
 		foreach ( \scandir( $locks_dir ) ?: [] as $entry ) {
-			if ( ! \preg_match( '/^(.+)\.p(\d+)\.lock\.d$/', $entry, $m ) ) {
+			if ( ! \preg_match( '/^(.+)\.p(\d+)\.lock\.d$/D', $entry, $m ) ) {
 				continue;
 			}
 			$workers[] = [

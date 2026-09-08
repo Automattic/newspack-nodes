@@ -428,6 +428,47 @@ class HTTPInTest extends TestCase {
 		$this->assertSame( [ 401 ], $codes );
 	}
 
+	/**
+	 * A boundary refusal must not spend the status line before the 401 latch.
+	 *
+	 * `fill()` decides the status on the FIRST write and the status is spent
+	 * once the body starts, which is why `authorize_and_latch()` raises its
+	 * latch ahead of the verifier. Answering a refused message inside the
+	 * routing loop wrote that first frame before a later unauthorized command
+	 * had been seen, so the batch answered 200 and the 401 never ran.
+	 */
+	public function test_a_boundary_refusal_does_not_pre_empt_the_batch_401(): void {
+		$this->build_graph_sans_output();
+
+		$long                    = \str_repeat( 'a', 1020 );
+		$unstampable             = Message::new_message();
+		$unstampable[ Message::TYPE ]  = Message::TM_COMMAND;
+		$unstampable[ Message::FROM ]  = $long;
+		$unstampable[ Message::VALUE ] = [ 'name' => 'uptime', 'arguments' => [] ];
+
+		$stale                       = Message::new_message();
+		$stale[ Message::TYPE ]      = Message::TM_COMMAND;
+		$stale[ Message::TIMESTAMP ] = (int) Core::$now - 3600;
+		$stale[ Message::FROM ]      = '_http';
+		$stale[ Message::VALUE ]     = [ 'name' => 'uptime', 'arguments' => [] ];
+		Command_Auth::sign( $stale );
+
+		$req = new \WP_REST_Request();
+		$req->set_body( Message::packed( $unstampable ) . "\n" . Message::packed( $stale ) );
+		$req->set_header( 'content-type', 'application/json' );
+
+		$codes = [];
+		$ctrl  = new HTTP_In_Node( static function ( int $code ) use ( &$codes ): void {
+			$codes[] = $code;
+		} );
+		$ctrl->set_test_mode( true );
+		\ob_start();
+		$ctrl->dispatch( $req );
+		\ob_get_clean();
+
+		$this->assertSame( [ 401 ], $codes );
+	}
+
 	/** The 401 is the refusal's, not the boundary's: an accepted command answers 200. */
 	public function test_an_accepted_command_does_not_answer_401(): void {
 		$this->build_graph_sans_output();
@@ -1121,13 +1162,35 @@ class HTTPInTest extends TestCase {
 			]
 		);
 
-		$ctrl = new HTTP_In_Node();
+		$self = $this;
+		$ctrl = new HTTP_In_Node(
+			static function ( int $code ) use ( $self ): void {
+				$self->status_codes[] = $code;
+			}
+		);
 		$ctrl->set_test_mode( true );
 		\ob_start();
 		$ctrl->dispatch( $req );
-		\ob_get_clean();
+		$body = \ob_get_clean();
 
 		$this->assertSame( [], $capture->captured, 'an unstampable path never reaches the graph' );
+		$frames = \array_values(
+			\array_filter(
+				\array_map(
+					static fn ( string $line ): ?array => '' === \trim( $line ) ? null : Message::unpacked( $line ),
+					\explode( "\n", $body )
+				)
+			)
+		);
+		$errors = \array_values(
+			\array_filter(
+				$frames,
+				static fn ( array $m ): bool => (bool) ( Core::int( $m[ Message::TYPE ], 0 ) & Message::TM_ERROR )
+			)
+		);
+		$this->assertCount( 1, $errors, 'the dropped command is answered, not left outstanding' );
+		$this->assertSame( $long, $errors[0][ Message::TO ], 'addressed back along the FROM the client sent' );
+		$this->assertSame( [ 200 ], $this->status_codes, 'one status, and a reply status: a refusal is not an auth failure' );
 	}
 
 }

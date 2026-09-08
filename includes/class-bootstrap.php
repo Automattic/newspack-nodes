@@ -961,7 +961,7 @@ class Bootstrap {
 	 * @return bool True iff the partition is now mounted.
 	 */
 	public static function register_worker_partition( string $worker_id, string $base_dir ): bool {
-		if ( ! \preg_match( '/^[a-z0-9_-]+\.p\d+$/', $worker_id ) ) {
+		if ( ! \preg_match( '/^[a-z0-9_-]+\.p\d+$/D', $worker_id ) ) {
 			return false;
 		}
 		if ( Core::node( $worker_id ) instanceof Partition_Node ) {

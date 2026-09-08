@@ -273,6 +273,15 @@ export class HttpOutNode extends Node {
 	 * is part of its own address. Through `stampMessage`, like every transport
 	 * that stamps: RemoteLink is the sibling, and its two guards are the point.
 	 *
+	 * PHP's `HTTP_Out_Node` additionally bounds every addressed message by a
+	 * declared `allow_replies_to` list, and this side deliberately has no
+	 * counterpart. There the remote is a SPOKE, which names nodes in a graph it
+	 * does not own; here the remote is the server this session is logged into,
+	 * and the addresses coming back are the breadcrumbs this backbone minted —
+	 * `_output/<id>`, `_completion`, `_metadata`, `_dmesg`. A fail-closed list
+	 * over names the browser chose itself would gate the console against its own
+	 * replies, so the gate belongs on the side that did not mint them.
+	 *
 	 * @param {Array} message A positional Message, mutated in place.
 	 * @return {boolean} True if the message may be forwarded to the sink.
 	 */

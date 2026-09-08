@@ -690,7 +690,7 @@ class Core {
 		if ( ! \is_string( $token ) ) {
 			return null;
 		}
-		$pattern = $allow_zero ? '/^(?:0|[1-9][0-9]*)$/' : '/^[1-9][0-9]*$/';
+		$pattern = $allow_zero ? '/^(?:0|[1-9][0-9]*)$/D' : '/^[1-9][0-9]*$/D';
 		if ( 1 !== \preg_match( $pattern, $token ) ) {
 			return null;
 		}

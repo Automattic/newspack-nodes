@@ -451,40 +451,37 @@ class HTTP_Out_Node extends Timer_Node {
 	 * which can name itself, not by the Router a layer later, which cannot.
 	 *
 	 * A reply — TM_RESPONSE or TM_ERROR — self-routes by the TO the remote echoed
-	 * off our own FROM breadcrumb. Anything else on the reply leg is the remote
-	 * addressing OUR graph, and `target` decides what that means: unaddressed
-	 * output (a `log` broadcast, say) belongs to the target, while an addressed
-	 * non-reply arriving while a target is set is the remote picking its own
-	 * destination inside us — refused. With no target neither arm engages.
+	 * off our own FROM breadcrumb, so an ADDRESSED message is the remote naming a
+	 * node inside our graph, and every node sinks into `_command_interpreter` and
+	 * then `_router` (ADR-7), so whatever it names is reached. `allow_replies_to`
+	 * is therefore the whole gate and bounds anything addressed, whatever type
+	 * bits ride with it: the remote sets those bits, so keying off them let a
+	 * spoke pick its arm out of the allowlist. Nothing declared means nothing
+	 * addressed passes. Unaddressed output — a `log` broadcast, say — is the
+	 * target's, and with no target it goes on to the sink as it stands.
 	 *
 	 * @param array<int,mixed> $reply Reply Message, mutated in place.
 	 * @return bool True if the reply may be forwarded to the sink.
 	 */
 	private function accept_inbound( array &$reply ): bool {
-		$type = Core::int( $reply[ Message::TYPE ], 0 );
-		$to   = Core::as_string( $reply[ Message::TO ] );
+		$to = Core::as_string( $reply[ Message::TO ] );
 		// Socket.pm:852, through the guarded method; see the docblock.
 		if ( ! $this->stamp_message( $reply, $this->name ) ) {
 			return false;
 		}
-		// A directed error is a reply too; undirected output is the target's.
-		if ( '' !== $to && $type & ( Message::TM_RESPONSE | Message::TM_ERROR ) ) {
+		if ( '' !== $to ) {
 			if ( ! $this->reply_allowed( $to ) ) {
-				$this->drop_message( $reply, "reply addressed to {$to}; not in allow_replies_to" );
+				// Constant: drop_message keys its throttle on the reason.
+				$this->drop_message( $reply, 'addressed outside allow_replies_to' );
 				return false;
 			}
 			return true;
 		}
 		// Single-valued, like Tachikoma's owner; the array form is Tee's.
 		$target = $this->target();
-		if ( ! \is_string( $target ) || '' === $target ) {
-			return true;
+		if ( \is_string( $target ) && '' !== $target ) {
+			$reply[ Message::TO ] = $target;
 		}
-		if ( '' !== $to ) {
-			$this->drop_message( $reply, "message addressed while target is set to {$target}" );
-			return false;
-		}
-		$reply[ Message::TO ] = $target;
 		return true;
 	}
 
@@ -829,14 +826,23 @@ class HTTP_Out_Node extends Timer_Node {
 	 * button's echoed breadcrumb arrives on, and what the remaining path means
 	 * belongs to the node receiving it.
 	 *
+	 * A RESERVED head is refused: `_router` reaches every node in the graph and
+	 * `_command_interpreter` runs every verb, so declaring one hands back the
+	 * addressing this list exists to bound. By prefix rather than by the
+	 * `Node_Names` list, because `_` is what marks a name reserved and nothing
+	 * routed carries one — `_http` replies are read off the response body.
+	 *
 	 * @api Topology `allow_replies_to`, and Remote_Link seeding its patron.
 	 * @param string $path Reply destination to admit; a leading head is enough.
+	 * @return bool True when the head was declared.
 	 */
-	public function allow_replies_to( string $path ): void {
+	public function allow_replies_to( string $path ): bool {
 		$head = \explode( '/', \trim( $path ), 2 )[0];
-		if ( '' !== $head ) {
-			$this->reply_allowlist[ $head ] = true;
+		if ( '' === $head || \str_starts_with( $head, '_' ) ) {
+			return false;
 		}
+		$this->reply_allowlist[ $head ] = true;
+		return true;
 	}
 
 	/**
@@ -854,7 +860,9 @@ class HTTP_Out_Node extends Timer_Node {
 		}
 		/** @var self $patron */
 		$patron = $interpreter->patron();
-		$patron->allow_replies_to( $path );
+		if ( ! $patron->allow_replies_to( $path ) ) {
+			throw new \RuntimeException( "allow_replies_to: reserved name: {$path}" );
+		}
 		return "ok\n";
 	}
 

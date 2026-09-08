@@ -546,7 +546,7 @@ class Workers_CI_Node extends Service_CI_Node {
 			$files = @\scandir( $segment_dir );
 			if ( \is_array( $files ) ) {
 				foreach ( $files as $file ) {
-					if ( \preg_match( '/^(\d+)\.log$/', $file, $m ) ) {
+					if ( \preg_match( '/^(\d+)\.log$/D', $file, $m ) ) {
 						$path = "{$segment_dir}/{$file}";
 						if ( \is_link( $path ) ) {
 							continue;

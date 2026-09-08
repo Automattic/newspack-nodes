@@ -197,7 +197,7 @@ class Topology_Analyzer {
 			$node_name  = $has_config ? \substr( $target, 0, -\strlen( ':config' ) ) : $target;
 			$inner_verb = $values[2] ?? '';
 			// `:config set_*target` is a routing EDGE, not a config verb.
-			if ( $has_config && \preg_match( '/^set_\w*target$/', $inner_verb ) ) {
+			if ( $has_config && \preg_match( '/^set_\w*target$/D', $inner_verb ) ) {
 				// One token: the runtime handler reads $args[0].
 				$edge_target = Core::resolve_config_tokens( $values[3] ?? '' );
 				self::set_config_edge( $edges, $node_name, $edge_target, $inner_verb, $origins );
@@ -338,7 +338,7 @@ class Topology_Analyzer {
 				continue;
 			}
 			if ( 'command_node' === $verb && \str_ends_with( $values[1] ?? '', ':config' )
-				&& \preg_match( '/^set_\w*target$/', $values[2] ?? '' ) ) {
+				&& \preg_match( '/^set_\w*target$/D', $values[2] ?? '' ) ) {
 				$node_name = \substr( $values[1], 0, -\strlen( ':config' ) );
 				self::set_config_edge( $edges, $node_name, Core::resolve_config_tokens( $values[3] ?? '' ), $values[2], [ $name ] );
 			}
@@ -1301,7 +1301,7 @@ class Topology_Analyzer {
 			}
 			$key = \trim( \substr( $assignment, 0, $eq ) );
 			// A compound operator leaves its head on the key; skip, never coin.
-			if ( '' === $key || 1 !== \preg_match( '/^[A-Za-z_]\w*$/', $key ) ) {
+			if ( '' === $key || 1 !== \preg_match( '/^[A-Za-z_]\w*$/D', $key ) ) {
 				continue;
 			}
 			// Untrimmed: a valueless `=` deletes, `= ""` sets empty. See above.

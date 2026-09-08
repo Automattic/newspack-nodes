@@ -221,7 +221,9 @@ export class CommandInterpreterNode extends Node {
 			return;
 		}
 
-		const isCommand = type & TM_COMMAND && ! ( type & TM_RESPONSE );
+		// TM_ERROR is a reply too: TO an empty FROM it re-enters as a command.
+		const isCommand =
+			type & TM_COMMAND && ! ( type & ( TM_RESPONSE | TM_ERROR ) );
 		if ( ! isCommand || message[ TO ] !== '' ) {
 			if ( this.sink ) {
 				this.sink.fill( message );

@@ -74,6 +74,20 @@ class JobIntakeTest extends TestCase {
 		$intake->close();
 	}
 
+	/**
+	 * `$` matches before a TRAILING NEWLINE, so the gate is `D`-anchored.
+	 *
+	 * `HANDLER_NAME_PATTERN` is labelled SECURITY and is what stops an
+	 * aggregated spoke string from reaching jobs.log as a dispatch key — and a
+	 * newline inside a value written to a line-oriented log is a second line.
+	 */
+	public function test_rejects_a_handler_name_with_a_trailing_newline(): void {
+		$intake = new Job_Intake( $this->tmp );
+		$this->assertFalse( $intake->write_job( "sync\n", null, [] ) );
+		$this->assertFalse( Job_Intake::queue( "sync\n", null, [], null, $this->tmp ) );
+		$intake->close();
+	}
+
 	public function test_accepts_alphanumeric_underscore_handler(): void {
 		$intake = new Job_Intake( $this->tmp );
 		$this->assertTrue( $intake->write_job( 'good_handler', null, [ 'x' => 1 ] ) );

@@ -573,7 +573,10 @@ class Remote_Link_Node extends Timer_Node {
 		if ( '' !== $this->name && null !== $this->http_out && null !== $this->null_sink ) {
 			$this->http_out->target( $this->null_sink->name() );
 			// The heartbeat reply self-routes here; declare it with the target.
-			$this->http_out->allow_replies_to( $this->name );
+			if ( ! $this->http_out->allow_replies_to( $this->name ) ) {
+				// Reserved head: replies are dropped, silently otherwise.
+				$this->print_less_often( 'ERROR: reserved node name, replies cannot be declared: ', $this->name );
+			}
 		}
 	}
 

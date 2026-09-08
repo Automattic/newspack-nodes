@@ -324,12 +324,18 @@ class Table_Node extends Node {
 	 * read hits the table instead of the system of record. A table with no
 	 * backing recovers nothing, which is what makes a miss stay a miss.
 	 *
-	 * An entry may carry its OWN remaining lifetime, and a SPENT one re-warms
-	 * under the table's instead of reading as a miss. That does not reopen the
-	 * table's "one table, one lifetime" rule, which governs what a CALLER
-	 * stores: a backing is re-materializing an entry that already had a life,
-	 * and giving it a fresh full TTL would extend what it is restoring. A
-	 * lifetime already spent re-warms under the table TTL rather than vanishing.
+	 * An entry may carry its OWN remaining lifetime, which is what it is warmed
+	 * for. That does not reopen the table's "one table, one lifetime" rule,
+	 * which governs what a CALLER stores: a backing is re-materializing an entry
+	 * that already had a life, and giving it a fresh full TTL would extend what
+	 * it is restoring.
+	 *
+	 * A SPENT remainder is SERVED and not warmed (ADR-18). A stated `ttl` bounds
+	 * the CACHE and decays from the WRITE, which says nothing about how long the
+	 * record is still READ — refusing one made an evicted hourly URL index
+	 * unrecoverable from the fine buckets it derives from, with the data on disk
+	 * the whole time. So it costs the entry its cache slot, not the read, and
+	 * what a re-materialized entry is warmed for is the BACKING's to state.
 	 *
 	 * @param list<string> $keys Keys that missed.
 	 * @return array<string,mixed> Values recovered, under the caller's keys.

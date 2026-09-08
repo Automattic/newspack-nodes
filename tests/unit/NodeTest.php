@@ -149,6 +149,31 @@ class NodeTest extends TestCase {
 	}
 
 	/**
+	 * The rate limiter keys on the REASON, never on anything the message says.
+	 *
+	 * `print_less_often()` keys on the head and keeps one timer per key for the
+	 * process, so anything remote-controlled in the head is a way to defeat the
+	 * throttle AND to grow `Core::$recent_log_timers` without bound. The TYPE is
+	 * a bitmask of eleven flags the sender picks: 2048 keys from one drop site.
+	 */
+	public function test_drop_message_keys_the_throttle_on_the_reason_alone(): void {
+		$buf = '';
+		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );
+		$n = new Capture_Sink_Node();
+		$n->name( 'alice' );
+
+		foreach ( [ Message::TM_INFO, Message::TM_BYTESTREAM, Message::TM_PING ] as $type ) {
+			$message                  = Message::new_message();
+			$message[ Message::TYPE ] = $type;
+			$message[ Message::FROM ] = 'spoke';
+			$n->drop_message( $message, 'SAME_REASON' );
+		}
+
+		$this->assertSame( 1, \substr_count( $buf, 'SAME_REASON' ), 'three types, one line' );
+		$this->assertStringContainsString( 'TM_INFO', $buf, 'the type still prints, in the unkeyed tail' );
+	}
+
+	/**
 	 * The drop line JSON-encodes the whole VALUE, and the Vault admin UI sends
 	 * credentials as a `--auth_password=<plaintext>` token inside it. The class
 	 * already owns the redaction rule — Core::is_secret_property(), applied by

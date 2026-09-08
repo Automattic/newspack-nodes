@@ -1174,9 +1174,17 @@ every miss. An entry may carry its own remaining `ttl`.
 
 That does not reopen "one table, one lifetime", which governs what a CALLER stores: a
 backing is re-materializing an entry that already had a life, and handing it a fresh full
-TTL would extend what it is restoring. A stated lifetime that has run out is a miss, not a
-resurrection. Warming the table is best-effort — a backend that went away must still serve
-the record the backing read, or a cache failure silently becomes a data failure.
+TTL would extend what it is restoring.
+
+**A spent remainder is SERVED and not warmed.** Refusing it outright was the earlier rule
+and it was wrong, because a stated `ttl` bounds the CACHE and decays from the WRITE, which
+says nothing about how long the record is still READ. On the caller that drove this ADR
+that refusal made an evicted hourly URL index unrecoverable from the fine buckets it is
+derived from — the data was on disk and the table declined to hand it back. So `ttl <= 0`
+now costs the entry its cache slot, not the read. What a re-materialized entry is warmed
+for is the BACKING's to state, and the same call site is where a footprint bound belongs.
+Warming the table is best-effort besides — a backend that went away must still serve the
+record the backing read, or a cache failure silently becomes a data failure.
 
 **The complement, and the boundary this ADR is about.** Finding WHICH durable record
 answers a key is the app's business, not the table's. `Partition_Node` treats index lines as

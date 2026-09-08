@@ -136,7 +136,7 @@ TSL;
 	 * @return array<int,string> Paths written, relative to cwd.
 	 */
 	private function scaffold_node( string $class ): array {
-		if ( 1 !== \preg_match( '/^[A-Za-z_]+$/', $class ) ) {
+		if ( 1 !== \preg_match( '/^[A-Za-z_]+$/D', $class ) ) {
 			\WP_CLI::error( "Invalid class name: {$class}. Use letters and underscores only, e.g. My_Filter." );
 		}
 		$class = (string) \preg_replace( '/_Node$/', '', $class );
@@ -434,7 +434,7 @@ PHP;
 	 * @param string $slug Candidate slug.
 	 */
 	private static function require_slug( string $slug ): void {
-		if ( 1 !== \preg_match( '/^[a-z0-9-]+$/', $slug ) ) {
+		if ( 1 !== \preg_match( '/^[a-z0-9-]+$/D', $slug ) ) {
 			\WP_CLI::error( "Invalid slug: {$slug}. Use lowercase letters, digits, and dashes only, e.g. my-pipeline." );
 		}
 	}

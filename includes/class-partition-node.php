@@ -161,7 +161,7 @@ class Partition_Node extends Timer_Node {
 	public const SEGMENT_CACHE_TTL    = 0.25;
 
 	/** Data filename inside a partition dir; capture group 1 is the segment id. */
-	public const SEGMENT_PATTERN      = '/^(\d+)\.log$/';
+	public const SEGMENT_PATTERN      = '/^(\d+)\.log$/D';
 
 	/**
 	 * get_segments() directory-scan seam. Lazily-defaulted at the call site to a
@@ -884,10 +884,7 @@ class Partition_Node extends Timer_Node {
 		$lock_dir = $this->rotate_lock_path();
 		$dir      = $this->segment_dir();
 
-		if ( ! \is_dir( $dir ) ) {
-			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
-			@\mkdir( $dir, 0755, true );
-		}
+		$this->ensure_segment_dir( $dir );
 
 		// Atomic acquire via mkdir.
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
@@ -948,26 +945,25 @@ class Partition_Node extends Timer_Node {
 
 		$next_id = empty( $segments ) ? 0 : ( \end( $segments )['id'] + 1 );
 
+		$log_path = $this->get_segment_path( $next_id );
+
 		$this->current_segment_id = $next_id;
 		$this->current_size       = 0;
-		$this->current_log_path   = $this->get_segment_path( $next_id );
+		$this->current_log_path   = $log_path;
 		$this->current_idx_path   = $this->get_index_path( $next_id );
 
 		// Touch the empty file so get_handle()'s guard won't reset to seg 0.
-		if ( ! \is_dir( $this->segment_dir() ) ) {
-			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
-			@\mkdir( $this->segment_dir(), 0755, true );
-		}
+		$this->ensure_segment_dir( $this->segment_dir() );
 		// umask 022 would leave these world-readable, as get_handle() notes.
 		$prev_umask = \umask( 0077 );
 		try {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_touch, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_touch
-			$touched = @\touch( $this->current_log_path );
+			$touched = @\touch( $log_path );
 		} finally {
 			\umask( $prev_umask );
 		}
 		if ( ! $touched ) {
-			$this->print_less_often( 'WARNING: touch() failed for ', $this->current_log_path );
+			$this->print_less_often( 'WARNING: touch() failed for ', $log_path );
 		}
 
 		// Keep cache warm: scan + new empty segment; cleanup prunes in place.
@@ -1042,9 +1038,9 @@ class Partition_Node extends Timer_Node {
 	 * @return resource|null Log handle, or null on open failure.
 	 */
 	protected function get_handle() {
-		if ( ! \is_dir( $this->segment_dir() ) ) {
-			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
-			@\mkdir( $this->segment_dir(), 0755, true );
+		$existed = \is_dir( $this->segment_dir() );
+		$this->ensure_segment_dir( $this->segment_dir() );
+		if ( ! $existed ) {
 			// Whole tree got wiped; reset from disk (lands at segment 0).
 			$this->init_current_segment();
 		} elseif ( null === $this->current_log_path || ! \file_exists( $this->current_log_path ) ) {
@@ -1094,6 +1090,36 @@ class Partition_Node extends Timer_Node {
 			$this->idx_fh = ( false === $idx_fh ) ? null : $idx_fh;
 		}
 		return $this->fh;
+	}
+
+	/**
+	 * The segment directory, created 0700 and TIGHTENED to 0700 if it was not.
+	 *
+	 * Segments are 0600, but a traversable directory still publishes the
+	 * listing, and a segment name is an offset — how much was written, and when
+	 * it rotated. A mode passed to `mkdir` applies once, so an install that
+	 * predates this keeps 0755 forever unless a writer fixes it on the way past;
+	 * nothing else probes permissions. Only the LEAF tightens: `mkdir` with
+	 * `$recursive` applies the mode to every ancestor it creates, and the base
+	 * tree is shared, so 0700 there would lock out a differing uid. Group and
+	 * other are MASKED off rather than the mode being set: a 0500 directory is
+	 * a deliberate state, and widening it back would be a change nobody asked
+	 * for.
+	 *
+	 * @param string $dir Directory to create or tighten.
+	 */
+	protected function ensure_segment_dir( string $dir ): void {
+		if ( ! \is_dir( $dir ) ) {
+			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
+			@\mkdir( $dir, 0755, true );
+		}
+		\clearstatcache( true, $dir );
+		$mode = @\fileperms( $dir );
+		if ( false !== $mode && 0 !== ( $mode & 0077 ) ) {
+			// Mask, never set: a 0500 dir is a deliberate state to leave alone.
+			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.chmod_chmod
+			@\chmod( $dir, $mode & 0700 );
+		}
 	}
 
 	/**

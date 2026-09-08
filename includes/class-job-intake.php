@@ -108,7 +108,7 @@ class Job_Intake {
 	 * validate against the same pattern — a name one accepts and another
 	 * rejects strands the job between them.
 	 */
-	private const HANDLER_NAME_PATTERN = '/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/';
+	private const HANDLER_NAME_PATTERN = '/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/D';
 
 	/**
 	 * Round-robin cursor for unkeyed writes. Static, so several intakes in one
