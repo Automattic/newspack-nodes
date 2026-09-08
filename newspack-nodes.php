@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Newspack Nodes
  * Description: WordPress-internal node-graph runtime for composable services.
- * Version: 2.50.2
+ * Version: 2.51.0
  * Author: Automattic
  * Author URI: https://newspack.com/
  * License: GPL-2.0-or-later
@@ -32,7 +32,7 @@
 
 /** Substrate version: the consumer handshake, and the admin bundles' cache buster. */
 if ( ! \defined( 'NEWSPACK_NODES_VERSION' ) ) {
-	\define( 'NEWSPACK_NODES_VERSION', '2.50.2' );
+	\define( 'NEWSPACK_NODES_VERSION', '2.51.0' );
 }
 /** Filesystem root: the autoloader, the bundled topologies and the built assets. */
 if ( ! \defined( 'NEWSPACK_NODES_DIR' ) ) {

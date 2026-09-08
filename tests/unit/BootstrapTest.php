@@ -1833,4 +1833,40 @@ class BootstrapTest extends TestCase {
 		}
 	}
 
+	/**
+	 * Activation seeds the cache salt, so no install runs on a computable scope.
+	 *
+	 * `Cache_Backend::site()` folds the salt into the install scope, and an
+	 * empty salt leaves that scope derivable from `DB_NAME` and the table
+	 * prefix alone — both knowable by a co-tenant on the same memcached.
+	 */
+	/**
+	 * An install activated BEFORE the salt existed never re-runs activation: its
+	 * cron is already scheduled, so the self-heal returns early. Seeding ahead of
+	 * that check is what reaches it.
+	 */
+	public function test_the_self_heal_seeds_the_salt_on_an_already_healthy_install(): void {
+		\delete_option( \Newspack_Nodes\Cache_Backend::SALT_OPTION );
+		\Newspack_Nodes\Cache_Backend::$salt = null;
+		\Newspack_Nodes\Cache_Backend::$site = '';
+		Bootstrap::activate();                      // schedules the cron
+		\delete_option( \Newspack_Nodes\Cache_Backend::SALT_OPTION );
+		\Newspack_Nodes\Cache_Backend::$salt = null;
+		\Newspack_Nodes\Cache_Backend::$site = '';
+
+		Bootstrap::self_heal_reconcile_cron();
+
+		$this->assertNotSame( '', \Newspack_Nodes\Cache_Backend::salt() );
+	}
+
+	public function test_activation_seeds_the_cache_salt(): void {
+		\delete_option( \Newspack_Nodes\Cache_Backend::SALT_OPTION );
+		\Newspack_Nodes\Cache_Backend::$salt = null;
+		\Newspack_Nodes\Cache_Backend::$site = '';
+
+		Bootstrap::activate();
+
+		$this->assertNotSame( '', \Newspack_Nodes\Cache_Backend::salt() );
+	}
+
 }

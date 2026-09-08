@@ -196,12 +196,15 @@ trait Dead_Letter_Queue {
 			self::DEADLETTER_MIN_LIFETIME,
 			self::DEADLETTER_LIFETIME,
 		] );
-		// Sole writer: the cap lifts so poison over PIPE_BUF still quarantines.
+		// @longform Sole writer: the cap lifts so poison over PIPE_BUF still
+		// quarantines, and only then is an index sound — an .idx row records
+		// the offset a record landed at, which on a quarantine peers share is
+		// this writer's guess. A shared one loses TRIAGE metadata and nothing
+		// else: `wp nodes ingest` replays the .log verbatim either way.
 		if ( $this->deadletter_sole_writer() ) {
 			$deadletter->void_warranty();
+			$deadletter->with_index( $this->deadletter_index_row( ... ) );
 		}
-		// Triage metadata rides in .idx; ingest replays only .log (verbatim).
-		$deadletter->with_index( $this->deadletter_index_row( ... ) );
 		$this->publish_sibling( 'deadletter', $deadletter );
 		$this->deadletter = $deadletter;
 		return $deadletter;

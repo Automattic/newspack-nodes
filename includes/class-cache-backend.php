@@ -197,35 +197,6 @@ final class Cache_Backend {
 	}
 
 	/**
-	 * The install's cache salt. Empty until something rotates it.
-	 *
-	 * Read from the option ROW through `$wpdb`, never `get_option()`: a
-	 * SHORTINIT boot has `$wpdb` connected before WordPress defines the option
-	 * API at all, and pyrobase's CLI shim then stubs `get_option()` to hand back
-	 * the default. `rotate_salt()` guards `update_option()` for the same reason.
-	 *
-	 * @return string The stored salt, or '' when no row holds one and when no
-	 *                `\wpdb` is available to read it.
-	 */
-	public static function salt(): string {
-		if ( null !== self::$salt ) {
-			return self::$salt;
-		}
-		$wpdb = $GLOBALS['wpdb'] ?? null;
-		if ( ! $wpdb instanceof \wpdb ) {
-			return self::$salt = '';
-		}
-		// %i keeps the query a literal string with the table as an identifier.
-		$sql = $wpdb->prepare(
-			'SELECT option_value FROM %i WHERE option_name = %s LIMIT 1',
-			$wpdb->options,
-			self::SALT_OPTION
-		);
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared
-		return self::$salt = Core::as_string( $wpdb->get_var( $sql ), '' );
-	}
-
-	/**
 	 * Machine half, for the one scope that rations a per-MACHINE resource:
 	 * SSE connection slots compose `machine():site()` in
 	 * `SSE_Slot_Pool::namespace_key()`. Nothing else should — the hostname
@@ -456,6 +427,77 @@ final class Cache_Backend {
 	}
 
 	/**
+	 * Seed the salt if this install has none, and leave a live one alone.
+	 *
+	 * Without it the scope is `md5( DB_NAME . ':' . base_prefix . ':' . '' )` —
+	 * every ingredient computable by anyone who can reach the same memcached,
+	 * which is what makes a shared cache injectable rather than merely
+	 * readable. Activation is the moment to close that, because it is the one
+	 * point where orphaning the keyspace costs nothing: there are no keys yet.
+	 *
+	 * Idempotent BY DESIGN, and that is the whole difference from
+	 * `rotate_salt()`: activation runs again on every plugin update, and a
+	 * rotation there would orphan a live install's keys on each one.
+	 *
+	 * @api Called by `Bootstrap::activate()`.
+	 * @return string The salt in force afterwards.
+	 */
+	public static function ensure_salt(): string {
+		$salt = self::salt();
+		return '' === $salt ? self::rotate_salt() : $salt;
+	}
+
+	/**
+	 * Rotate the salt: every key on this install is orphaned at once, and no
+	 * co-tenant's is touched. THE flush — plugins do not keep their own.
+	 *
+	 * Clearing the memoized `$site` is half the work, since the salt folds
+	 * into it; a process that kept the old scope would keep the old keys. Peer
+	 * processes keep theirs until they restart, which is why both callers
+	 * recycle the fleet.
+	 *
+	 * @return string The new salt.
+	 */
+	public static function rotate_salt(): string {
+		$salt = \function_exists( 'wp_generate_password' ) ? \wp_generate_password( 12, false ) : (string) \time();
+		if ( \function_exists( 'update_option' ) ) {
+			\update_option( self::SALT_OPTION, $salt, true );
+		}
+		self::$salt = $salt;
+		self::$site = '';
+		return $salt;
+	}
+
+	/**
+	 * The install's cache salt. Empty until something rotates it.
+	 *
+	 * Read from the option ROW through `$wpdb`, never `get_option()`: a
+	 * SHORTINIT boot has `$wpdb` connected before WordPress defines the option
+	 * API at all, and pyrobase's CLI shim then stubs `get_option()` to hand back
+	 * the default. `rotate_salt()` guards `update_option()` for the same reason.
+	 *
+	 * @return string The stored salt, or '' when no row holds one and when no
+	 *                `\wpdb` is available to read it.
+	 */
+	public static function salt(): string {
+		if ( null !== self::$salt ) {
+			return self::$salt;
+		}
+		$wpdb = $GLOBALS['wpdb'] ?? null;
+		if ( ! $wpdb instanceof \wpdb ) {
+			return self::$salt = '';
+		}
+		// %i keeps the query a literal string with the table as an identifier.
+		$sql = $wpdb->prepare(
+			'SELECT option_value FROM %i WHERE option_name = %s LIMIT 1',
+			$wpdb->options,
+			self::SALT_OPTION
+		);
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared
+		return self::$salt = Core::as_string( $wpdb->get_var( $sql ), '' );
+	}
+
+	/**
 	 * Write many entries under ONE ttl in a single round trip — the write-side
 	 * counterpart of `read_multi()`, for a caller that just resolved a page of
 	 * misses and would otherwise pay a round trip per key.
@@ -478,27 +520,6 @@ final class Cache_Backend {
 			return $this->memd->setMulti( $items, $ttl );
 		}
 		return [] === \apcu_store( $items, null, $ttl );
-	}
-
-	/**
-	 * Rotate the salt: every key on this install is orphaned at once, and no
-	 * co-tenant's is touched. THE flush — plugins do not keep their own.
-	 *
-	 * Clearing the memoized `$site` is half the work, since the salt folds
-	 * into it; a process that kept the old scope would keep the old keys. Peer
-	 * processes keep theirs until they restart, which is why both callers
-	 * recycle the fleet.
-	 *
-	 * @return string The new salt.
-	 */
-	public static function rotate_salt(): string {
-		$salt = \function_exists( 'wp_generate_password' ) ? \wp_generate_password( 12, false ) : (string) \time();
-		if ( \function_exists( 'update_option' ) ) {
-			\update_option( self::SALT_OPTION, $salt, true );
-		}
-		self::$salt = $salt;
-		self::$site = '';
-		return $salt;
 	}
 
 	/**

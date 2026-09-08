@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.51.0] - 2026-09-08
+
+### Security
+
+- **The cache scope was computable on any install that had never rotated its salt.** `Cache_Backend::site()` folds `salt()` into the install scope, and `salt()` returned `''` until an operator pressed the admin flush button or ran `wp nodes memcache flush` — leaving the scope derived from `DB_NAME` and the network table prefix alone, both knowable by a co-tenant on the same memcached. A computable scope is what turns a shared cache from readable into *injectable*: `Spawn_Coordinator::load_spawn_ts()` replanted stops the fleet spawning, silently. New `Cache_Backend::ensure_salt()` seeds one and is idempotent — the difference from `rotate_salt()`, which activation runs on every plugin update would otherwise use to orphan a live keyspace each time. `Bootstrap::activate()` calls it, and so does `self_heal_reconcile_cron()` AHEAD of its own early return, because an install activated before the salt existed has a scheduled cron and would never reach `activate()` again.
+- **`with_index()` now requires a sole-writer partition.** An `.idx` row records the offset a record landed at, and on a log peers append to that offset is the writer's guess. `allow_large_writes()` proves exclusivity with a held lock and `void_warranty()` asserts it; with neither, `with_index()` throws. Every shipped topology already paired them — `flames:partition`, `flame-stats:partition` and `requests:partition` each call `void_warranty` on the line before — so this makes an existing convention enforced. `dump_config()` already emits the large-write line first, so a graph still round-trips. The dead-letter queue followed the same rule: it armed an index unconditionally while opting into sole-writer only when the SOURCE was, so a quarantine shared with peers now goes unindexed, losing triage metadata and nothing else (`wp nodes ingest` replays the `.log` verbatim either way).
+
+### Fixed
+
+- **A short write no longer attempts a quarantine it cannot write.** The dead-letter queue is a Partition on the same filesystem, so whatever refused the batch refuses that too — the attempt only bought a second failure. The stall path is now loud, indexes nothing, and truncates the torn record only on a partition that has claimed sole writer; on a shared segment the tail rides and the reader dead-letters the line it cannot unpack. Note the cost on a shared segment: the torn record has no terminator, so the next append lands on that line and is lost with it.
+- **`scan_index()` and `locate_by()` no longer require a write-side formatter.** Both returned early unless `with_index()` had been called, which is meaningless for a READER over another process's directory — `locate_by()`'s own docblock says *"@api Readers resolving many keys to positions"*. Consumers were arming a write formatter on a read-only handle purely to unlock the read, which the sole-writer rule above then refused; event-logger-nodes did it in two places. The locator memo is keyed by directory and static, and the guard existed so a formatterless instance could not poison it with false misses — reading the real index removes that hazard instead of guarding it, because the entries such a reader records are true.
+
 ## [2.50.2] - 2026-09-08
 
 ### Fixed

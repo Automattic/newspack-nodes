@@ -544,6 +544,39 @@ class CacheBackendTest extends TestCase {
 		Cache_Backend::$site = '';
 		$this->assertSame( $before, Cache_Backend::site_key( 'table:prices:sku-9' ) );
 	}
+	/**
+	 * A fresh install has no salt, so the scope is `md5(DB_NAME:prefix:"")` —
+	 * computable by anyone who can reach the same memcached. `ensure_salt()`
+	 * closes that at activation, and is idempotent so a re-activation does not
+	 * orphan a live keyspace.
+	 */
+	public function test_ensure_salt_seeds_an_absent_salt(): void {
+		\delete_option( Cache_Backend::SALT_OPTION );
+		Cache_Backend::$salt = null;
+		Cache_Backend::$site = '';
+		$unsalted = Cache_Backend::site_key( 'table:prices:sku-9' );
+
+		$seeded = Cache_Backend::ensure_salt();
+
+		$this->assertNotSame( '', $seeded, 'a salt is minted' );
+		$this->assertSame( $seeded, Cache_Backend::salt(), 'and readable back' );
+		$this->assertNotSame( $unsalted, Cache_Backend::site_key( 'table:prices:sku-9' ), 'the scope moved' );
+	}
+
+	/** Re-activation must not rotate: that would orphan every live key. */
+	public function test_ensure_salt_keeps_an_existing_salt(): void {
+		\delete_option( Cache_Backend::SALT_OPTION );
+		Cache_Backend::$salt = null;
+		Cache_Backend::$site = '';
+		$first = Cache_Backend::ensure_salt();
+		$scope = Cache_Backend::site_key( 'table:prices:sku-9' );
+
+		$second = Cache_Backend::ensure_salt();
+
+		$this->assertSame( $first, $second, 'the second call is a no-op' );
+		$this->assertSame( $scope, Cache_Backend::site_key( 'table:prices:sku-9' ) );
+	}
+
 	public function test_the_salt_is_read_from_the_option_row_not_get_option(): void {
 		// bin/pyrate runs under SHORTINIT, where get_option() is stubbed to
 		// return the default — so a salt read that way is invisible to the CLI

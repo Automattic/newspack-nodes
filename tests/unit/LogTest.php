@@ -312,7 +312,7 @@ class LogTest extends TestCase {
 		);
 	}
 
-	public function test_a_stalled_write_quarantines_the_unwritten_records(): void {
+	public function test_a_stalled_write_is_loud_and_leaves_the_torn_tail(): void {
 		$this->use_base_dir( $this->tmp );
 
 		$log = new Log_Node();
@@ -344,10 +344,16 @@ class LogTest extends TestCase {
 			Partition_Node::$fwrite = null;
 		}
 
-		$this->assertSame( 'alpha-verse', (string) \file_get_contents( "{$this->tmp}/logs/digest.md.0" ) );
+		// This Log made no sole-writer claim, so the torn tail is NOT truncated:
+		// a truncate cuts at this writer's guess about a file peers append to.
+		// The record before the tear survives; the tear itself rides.
+		$written = (string) \file_get_contents( "{$this->tmp}/logs/digest.md.0" );
+		$this->assertStringStartsWith( 'alpha-verse', $written );
+		$this->assertGreaterThan( \strlen( 'alpha-verse' ), \strlen( $written ), 'the torn tail rides' );
 
-		$quarantined = (string) \file_get_contents( "{$this->tmp}/deadletter/logs.digest.md/0.log" );
-		$this->assertStringContainsString( 'beta-verse', $quarantined );
-		$this->assertStringContainsString( 'gamma-verse', $quarantined );
+		// No quarantine: the dead-letter queue is a Partition on the same disk,
+		// so whatever refused these bytes refuses those. Recovery happens at the
+		// reader, which dead-letters the line it cannot unpack and advances.
+		$this->assertFileDoesNotExist( "{$this->tmp}/deadletter/logs.digest.md/0.log" );
 	}
 }

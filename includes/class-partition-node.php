@@ -774,8 +774,9 @@ class Partition_Node extends Timer_Node {
 	 *
 	 * The batch is cleared before the write, so a throw below cannot re-flush the
 	 * same bytes. Index entries come last because an entry may only point at a
-	 * record that landed: a short write truncates the partial record off, and
-	 * `recover_write_stall()` reports how many records precede the tear.
+	 * record that landed, so a torn batch is reported and left unindexed. The
+	 * torn record is cut off a sole-writer segment; on a shared one it stays,
+	 * and a reader dead-letters the line it cannot unpack and advances.
 	 */
 	public function flush(): void {
 		if ( '' === $this->batch ) {
@@ -804,14 +805,27 @@ class Partition_Node extends Timer_Node {
 		$start_offset        = $this->current_size;
 		$wrote               = $this->write_all( $fh, $batch_bytes, $this->current_log_path );
 		$this->current_size += $wrote;
-		$kept                = \count( $batch_args );
+
 		if ( $wrote < $batch_len ) {
-			$kept = $this->recover_write_stall( $fh, $start_offset, $batch_args, $wrote );
+			$this->truncate_torn_record( $fh, $start_offset, $batch_args, $wrote );
+			// @longform Loud, and nothing else. Quarantining here would be a
+			// promise this process cannot keep: the dead-letter is a
+			// Partition on the same filesystem, so whatever refused these
+			// bytes refuses those too. Nothing is indexed either — an .idx
+			// row for a record that only partly landed points a reader at a
+			// tear. On a shared segment the torn tail therefore rides, and
+			// the reader dead-letters the line it cannot unpack.
+			$this->print_less_often(
+				'write stalled, batch not indexed: ',
+				"{$wrote}/{$batch_len} bytes to " . Core::as_string( $this->current_log_path )
+			);
+			$this->touch_segments_cache();
+			return;
 		}
 
 		if ( null !== $this->index_callback ) {
 			$offset = $start_offset;
-			foreach ( \array_slice( $batch_args, 0, $kept ) as $item ) {
+			foreach ( $batch_args as $item ) {
 				$this->write_index_entry( $item['message'], $offset, $item['size'] );
 				$offset += $item['size'];
 			}
@@ -821,35 +835,37 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
-	 * Write-stall recovery: a short write must never silently lose the batch, nor
-	 * leave a torn record desyncing every reader after it. Truncate the partial
-	 * record off the segment, then quarantine every message that did not land in
-	 * full.
+	 * Cut the torn record off the segment — SOLE-WRITER partitions only.
+	 *
+	 * A truncate cuts at an offset derived from this process's own accounting,
+	 * which on a log peers append to is a guess, and the bytes past it are
+	 * theirs. `allow_large_writes()` proves exclusivity with a held lock and
+	 * `void_warranty()` asserts it; with neither, the tail stays torn and the
+	 * reader dead-letters the line it cannot unpack.
 	 *
 	 * @param resource                                              $fh           Segment handle.
 	 * @param int                                                   $start_offset Segment size before this batch.
 	 * @param array<int,array{message: array<int,mixed>,size: int}> $batch_args   Batched messages, in write order.
 	 * @param int                                                   $wrote        Bytes write_all() landed.
-	 * @return int Leading messages fully on disk.
 	 */
-	protected function recover_write_stall( $fh, int $start_offset, array $batch_args, int $wrote ): int {
-		$kept       = 0;
+	protected function truncate_torn_record( $fh, int $start_offset, array $batch_args, int $wrote ): void {
+		if ( ! $this->large_writes_allowed() ) {
+			return;
+		}
 		$kept_bytes = 0;
 		foreach ( $batch_args as $item ) {
 			if ( $kept_bytes + $item['size'] > $wrote ) {
 				break;
 			}
 			$kept_bytes += $item['size'];
-			++$kept;
 		}
-		if ( $kept_bytes < $wrote ) {
-			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_ftruncate, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_ftruncate -- substrate-owned segment file under base_dir, not WP-managed.
-			@\ftruncate( $fh, \max( 0, $start_offset + $kept_bytes ) );
-			@\fseek( $fh, 0, \SEEK_END );
+		if ( $kept_bytes >= $wrote ) {
+			return;
 		}
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_ftruncate, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_ftruncate -- substrate-owned segment file under base_dir, not WP-managed.
+		@\ftruncate( $fh, \max( 0, $start_offset + $kept_bytes ) );
+		@\fseek( $fh, 0, \SEEK_END );
 		$this->current_size = $start_offset + $kept_bytes;
-		$this->quarantine_unwritten( $batch_args, $kept, 'write stalled' );
-		return $kept;
 	}
 
 	/**
@@ -1323,8 +1339,8 @@ class Partition_Node extends Timer_Node {
 	 * @return array<string,array{0: int, 1: int, 2: int}> key => [segment, offset, length].
 	 */
 	public function locate_by( \Closure $extract, array $wanted = [] ): array {
-		// No formatter reads nothing, so it must not record a miss either.
-		if ( [] === $wanted || null === $this->index_callback ) {
+		// Read-side like scan_index(); asking for nothing records no miss.
+		if ( [] === $wanted ) {
 			return [];
 		}
 		$extent = '';
@@ -1392,19 +1408,17 @@ class Partition_Node extends Timer_Node {
 	/**
 	 * Walk every JSONL .idx entry across all segments and invoke the callback per entry.
 	 *
-	 * Only meaningful when a with_index() formatter is installed — without it no
-	 * .idx is written, so this early-returns. Callback signature: fn(string $line,
-	 * int $segment). Return false from the callback to terminate the scan early.
+	 * READ-side, and deliberately independent of `with_index()`: a reader over
+	 * another process's directory has no formatter of its own, and the
+	 * per-segment `file_exists` below already skips a log that carries no index.
+	 * Callback signature: fn(string $line, int $segment). Return false from the
+	 * callback to terminate the scan early.
 	 *
 	 * @api
 	 * @param callable $cb           Per-entry callback.
 	 * @param bool     $newest_first Iterate newest segment first when true.
 	 */
 	public function scan_index( callable $cb, bool $newest_first = false ): void {
-		if ( null === $this->index_callback ) {
-			return;
-		}
-
 		$segments = $this->get_segments();
 		if ( $newest_first ) {
 			$segments = \array_reverse( $segments );
@@ -1736,6 +1750,14 @@ class Partition_Node extends Timer_Node {
 	 * @return self
 	 */
 	public function with_index( callable $callback ): self {
+		if ( ! $this->large_writes_allowed() ) {
+			throw new \RuntimeException( \esc_html(
+				'with_index() requires a sole-writer partition: call allow_large_writes() '
+				. '(enforced by a held lock) or void_warranty() (asserted) first. An index '
+				. 'entry records the offset a record landed at, and on a log peers append to '
+				. 'that offset is this writer\'s guess.'
+			) );
+		}
 		$this->index_callback = $callback;
 		return $this;
 	}
