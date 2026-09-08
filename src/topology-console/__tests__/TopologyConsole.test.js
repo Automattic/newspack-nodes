@@ -497,7 +497,7 @@ jest.mock( '../components/Inspector', () => ( props ) => {
 				onClick={ () =>
 					props.onAction &&
 					props.onAction( 'invoke', 'n1', {
-						verb: 'GET_LAG',
+						verb: 'GET_HEALTH',
 						kind: 'request',
 						positional: '',
 						byName: {},
@@ -1625,7 +1625,7 @@ describe( 'TopologyConsole boot', () => {
 		const sent = Array.from( items ).find(
 			( i ) => i.dataset.kind === 'sent'
 		);
-		expect( sent.textContent ).toMatch( /request_node n1 GET_LAG/ );
+		expect( sent.textContent ).toMatch( /request_node n1 GET_HEALTH/ );
 	} );
 
 	it( 'Inspector command invoke on an INTERPRETER node targets the bare node (no :config)', async () => {
@@ -3128,14 +3128,14 @@ describe( 'TopologyConsole boot', () => {
 		} );
 		await act( async () => {
 			lastInspectorProps.onAction( 'invoke', 'request-builder', {
-				verb: 'GET_LAG',
+				verb: 'GET_HEALTH',
 				kind: 'command',
 				positional: '',
 				byName: {},
 			} );
 		} );
 		const posted = globalThis.__httpPosts.find(
-			( m ) => m[ VALUE ] && m[ VALUE ].name === 'GET_LAG'
+			( m ) => m[ VALUE ] && m[ VALUE ].name === 'GET_HEALTH'
 		);
 		expect( posted ).not.toBeUndefined();
 		expect( posted[ TO ] ).toBe( 'demo.p0/request-builder:config' );
@@ -3143,7 +3143,7 @@ describe( 'TopologyConsole boot', () => {
 			container.querySelectorAll( '[data-testid="repl-transcript"] li' )
 		).find( ( i ) => i.dataset.kind === 'sent' );
 		expect( sent.textContent ).toMatch(
-			/command_node request-builder:config GET_LAG/
+			/command_node request-builder:config GET_HEALTH/
 		);
 	} );
 
@@ -3158,14 +3158,14 @@ describe( 'TopologyConsole boot', () => {
 		} );
 		await act( async () => {
 			lastInspectorProps.onAction( 'invoke', 'request-builder', {
-				verb: 'GET_LAG',
+				verb: 'GET_HEALTH',
 				kind: 'request',
 				positional: '',
 				byName: {},
 			} );
 		} );
 		const posted = globalThis.__httpPosts.find(
-			( m ) => m[ TYPE ] === TM_REQUEST && m[ VALUE ] === 'GET_LAG'
+			( m ) => m[ TYPE ] === TM_REQUEST && m[ VALUE ] === 'GET_HEALTH'
 		);
 		expect( posted ).not.toBeUndefined();
 		expect( posted[ TO ] ).toBe( 'demo.p0/request-builder' );
@@ -3173,7 +3173,7 @@ describe( 'TopologyConsole boot', () => {
 			container.querySelectorAll( '[data-testid="repl-transcript"] li' )
 		).find( ( i ) => i.dataset.kind === 'sent' );
 		expect( sent.textContent ).toMatch(
-			/request_node request-builder GET_LAG/
+			/request_node request-builder GET_HEALTH/
 		);
 	} );
 
@@ -3186,13 +3186,18 @@ describe( 'TopologyConsole boot', () => {
 			fireEvent.click( getByText( 'select-n1' ) );
 		} );
 		await act( async () => {
-			lastInspectorProps.onAction( 'cmd', 'request-builder', 'GET_LAG', {
-				response: true,
-				error: true,
-			} );
+			lastInspectorProps.onAction(
+				'cmd',
+				'request-builder',
+				'GET_HEALTH',
+				{
+					response: true,
+					error: true,
+				}
+			);
 		} );
 		const posted = globalThis.__httpPosts.find(
-			( m ) => m[ VALUE ] && m[ VALUE ].name === 'GET_LAG'
+			( m ) => m[ VALUE ] && m[ VALUE ].name === 'GET_HEALTH'
 		);
 		expect( posted ).not.toBeUndefined();
 		expect( posted[ TYPE ] & TM_COMMAND ).toBeTruthy();
@@ -3209,12 +3214,17 @@ describe( 'TopologyConsole boot', () => {
 			fireEvent.click( getByText( 'select-n1' ) );
 		} );
 		await act( async () => {
-			lastInspectorProps.onAction( 'cmd', 'request-builder', 'GET_LAG', {
-				from: '_output/7734',
-			} );
+			lastInspectorProps.onAction(
+				'cmd',
+				'request-builder',
+				'GET_HEALTH',
+				{
+					from: '_output/7734',
+				}
+			);
 		} );
 		const posted = globalThis.__httpPosts.find(
-			( m ) => m[ VALUE ] && m[ VALUE ].name === 'GET_LAG'
+			( m ) => m[ VALUE ] && m[ VALUE ].name === 'GET_HEALTH'
 		);
 		expect( posted ).not.toBeUndefined();
 		expect( posted[ FROM ] ).toBe( `${ names.SSE }:1234/_output/7734` );

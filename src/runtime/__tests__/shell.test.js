@@ -482,10 +482,10 @@ describe( 'Shell node — verb vocabulary (positional TM_* messages)', () => {
 	} );
 
 	it( 'request <node> <args> → TM_REQUEST with the args as VALUE', () => {
-		const { m } = drive( 'request my_node GET_LAG' );
+		const { m } = drive( 'request my_node GET_HEALTH' );
 		expect( m[ TYPE ] ).toBe( TM_REQUEST );
 		expect( m[ TO ] ).toBe( '_http/demo.p0/my_node' );
-		expect( m[ VALUE ] ).toBe( 'GET_LAG' );
+		expect( m[ VALUE ] ).toBe( 'GET_HEALTH' );
 	} );
 
 	it( 'cmd <node> <verb> <args> → TM_COMMAND targeting that node', () => {

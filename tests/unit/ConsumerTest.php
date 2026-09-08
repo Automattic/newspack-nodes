@@ -110,6 +110,18 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( [], $this->values_in( $stale ), 'nothing reaches the superseded dir' );
 	}
 
+	/**
+	 * Read the reader's lag through the seam itself. `compute_lag()` is
+	 * protected — it is a seam for subclasses, not an API — and `probe_stats()`
+	 * carries only `bytes_behind`, so the `caught_up` and `segments_behind`
+	 * invariants have to be read here.
+	 *
+	 * @return array<string,mixed> The compute_lag() payload.
+	 */
+	private function compute_lag( Consumer_Node $c ): array {
+		return ( new \ReflectionMethod( $c, 'compute_lag' ) )->invoke( $c );
+	}
+
 	/** Dead-letter one bytestream message through the node's own quarantine path. */
 	private function quarantine( Consumer_Node $c, string $value ): void {
 		$message                   = Message::new_message();
@@ -2677,20 +2689,18 @@ class ConsumerTest extends TestCase {
 		$this->assertStringStartsWith( '0:0:', $cap->captured[0][ Message::ID ], 'rewind must restart at segment offset 0' );
 	}
 
-	public function test_handle_request_GET_LAG_reports_replay_when_cursor_past_eof(): void {
+	public function test_compute_lag_reports_replay_when_cursor_past_eof(): void {
 		// Companion to the recreated-segment recovery: a cursor past EOF means
-		// the whole segment is pending replay. GET_LAG must say so instead of
-		// clamping to bytes_behind=0 / caught_up=true (which masked a wedged
+		// the whole segment is pending replay. compute_lag() must say so instead
+		// of clamping to bytes_behind=0 / caught_up=true (which masked a wedged
 		// consumer as healthy).
 		$source = new Partition_Node();
 		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'after-wipe' );
 		$segment_size = (int) $source->get_segments( true )[0]['size'];
 
-		$c   = new Consumer_Node();
+		$c = new Consumer_Node();
 		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
-		$cap = new Capture_Sink_Node();
-		$c->sink( $cap );
 
 		// Stale cursor past EOF, plus a stale partial line LONGER than the
 		// recreated segment — the old remainder subtraction would clamp
@@ -2702,44 +2712,30 @@ class ConsumerTest extends TestCase {
 		$rem = $ref->getProperty( 'buffer' );
 		$rem->setValue( $c, str_repeat( 'x', $segment_size + 1 ) );
 
-		$req                   = Message::new_message();
-		$req[ Message::TYPE ]  = Message::TM_REQUEST;
-		$req[ Message::FROM ]  = 'asker';
-		$req[ Message::VALUE ] = 'GET_LAG';
-		$c->fill( $req );
-
-		$data = $cap->captured[0][ Message::VALUE ]['data'];
-		$this->assertSame( $segment_size, $data['bytes_behind'], 'cursor past EOF replays the whole segment' );
-		$this->assertFalse( $data['caught_up'], 'a wedged cursor must not report caught_up' );
+		$lag = $this->compute_lag( $c );
+		$this->assertSame( $segment_size, $lag['bytes_behind'], 'cursor past EOF replays the whole segment' );
+		$this->assertFalse( $lag['caught_up'], 'a wedged cursor must not report caught_up' );
 	}
 
-	public function test_handle_request_GET_LAG_reports_pending_segments_when_cursor_segment_deleted(): void {
+	public function test_compute_lag_reports_pending_segments_when_cursor_segment_deleted(): void {
 		// Deleted-cursor-segment twin: poll() will rewind to the oldest segment
-		// and replay everything, so GET_LAG must report every segment as
+		// and replay everything, so compute_lag() must report every segment as
 		// pending — not skip them all because their ids sit below the cursor.
 		$source = new Partition_Node();
 		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'after-wipe' );
 		$segment_size = (int) $source->get_segments( true )[0]['size'];
 
-		$c   = new Consumer_Node();
+		$c = new Consumer_Node();
 		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
-		$cap = new Capture_Sink_Node();
-		$c->sink( $cap );
 
 		$ref = new \ReflectionClass( $c );
 		$segment = $ref->getProperty( 'cursor_segment' );
 		$segment->setValue( $c, 84 ); // checkpointed segment no longer exists
 
-		$req                   = Message::new_message();
-		$req[ Message::TYPE ]  = Message::TM_REQUEST;
-		$req[ Message::FROM ]  = 'asker';
-		$req[ Message::VALUE ] = 'GET_LAG';
-		$c->fill( $req );
-
-		$data = $cap->captured[0][ Message::VALUE ]['data'];
-		$this->assertSame( $segment_size, $data['bytes_behind'], 'rewind to oldest segment replays everything' );
-		$this->assertFalse( $data['caught_up'], 'a cursor on a deleted segment must not report caught_up' );
+		$lag = $this->compute_lag( $c );
+		$this->assertSame( $segment_size, $lag['bytes_behind'], 'rewind to oldest segment replays everything' );
+		$this->assertFalse( $lag['caught_up'], 'a cursor on a deleted segment must not report caught_up' );
 	}
 
 	public function test_poll_advances_across_segment_boundary(): void {
@@ -3262,95 +3258,40 @@ class ConsumerTest extends TestCase {
 	}
 
 	// ============================================================================
-	// fill() / handle_request() — TM_REQUEST introspection verbs.
+	// compute_lag() — the reply-free lag payload probe_stats() and idle_since() read.
 	// ============================================================================
 
-	public function test_fill_routes_TM_REQUEST_to_handle_request(): void {
-		// fill() must detect TM_REQUEST (without TM_RESPONSE) and dispatch to
-		// handle_request() — NOT forward to sink. This is the introspection
-		// path that powers the GET_LAG verb.
-		$source = new Partition_Node();
-		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
-		$this->produce_line( $source, 'one' );
-		$this->produce_line( $source, 'two' );
-
+	public function test_compute_lag_returns_caught_up_when_empty(): void {
+		// An empty source partition: bytes_behind=0, segments_behind=0,
+		// caught_up=true.
 		$c = new Consumer_Node();
 		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
-		$c->name( 'my-consumer' );
-		$cap = new Capture_Sink_Node();
-		$c->sink( $cap );
 
-		$req                       = Message::new_message();
-		$req[ Message::TYPE ]      = Message::TM_REQUEST;
-		$req[ Message::FROM ]      = 'asker';
-		$req[ Message::ID ]        = 'req-1';
-		$req[ Message::KEY ]       = 'k';
-		$req[ Message::VALUE ]     = 'GET_LAG';
-		$c->fill( $req );
-
-		$this->assertCount( 1, $cap->captured, 'request must produce exactly one reply' );
-		$reply = $cap->captured[0];
-		$this->assertSame(
-			Message::TM_STRUCT | Message::TM_RESPONSE,
-			$reply[ Message::TYPE ],
-			'reply must carry TM_STRUCT|TM_RESPONSE'
-		);
-		$this->assertSame( 'my-consumer', $reply[ Message::FROM ], 'reply FROM = Consumer name' );
-		$this->assertSame( 'asker', $reply[ Message::TO ], 'reply TO walks breadcrumb back via FROM' );
-		$this->assertSame( 'req-1', $reply[ Message::ID ], 'reply ID echoes request ID' );
-		$this->assertSame( 'k', $reply[ Message::KEY ], 'reply KEY echoes request KEY' );
-		$this->assertIsArray( $reply[ Message::VALUE ] );
-		$this->assertSame( 'GET_LAG', $reply[ Message::VALUE ]['verb'] );
-		$this->assertIsArray( $reply[ Message::VALUE ]['data'] );
+		$lag = $this->compute_lag( $c );
+		$this->assertSame( 0, $lag['bytes_behind'] );
+		$this->assertSame( 0, $lag['segments_behind'] );
+		$this->assertTrue( $lag['caught_up'] );
 	}
 
-	public function test_handle_request_GET_LAG_returns_caught_up_when_empty(): void {
-		// Spec: GET_LAG reply payload for an empty source partition has
-		// bytes_behind=0, segments_behind=0, caught_up=true.
-		$c   = new Consumer_Node();
-		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
-		$cap = new Capture_Sink_Node();
-		$c->sink( $cap );
-
-		$req                   = Message::new_message();
-		$req[ Message::TYPE ]  = Message::TM_REQUEST;
-		$req[ Message::FROM ]  = 'asker';
-		$req[ Message::VALUE ] = 'GET_LAG';
-		$c->fill( $req );
-
-		$data = $cap->captured[0][ Message::VALUE ]['data'];
-		$this->assertSame( 0, $data['bytes_behind'] );
-		$this->assertSame( 0, $data['segments_behind'] );
-		$this->assertTrue( $data['caught_up'] );
-	}
-
-	public function test_handle_request_GET_LAG_returns_bytes_behind_when_unread(): void {
-		// With pending bytes on the source partition, GET_LAG must report
+	public function test_compute_lag_returns_bytes_behind_when_unread(): void {
+		// With pending bytes on the source partition, lag must report
 		// bytes_behind > 0 and caught_up=false. line_remainder bytes don't
 		// inflate the count (they're already "fetched", just not emitted yet).
 		$source = new Partition_Node();
 		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'pending' );
 
-		$c   = new Consumer_Node();
+		$c = new Consumer_Node();
 		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
-		$cap = new Capture_Sink_Node();
-		$c->sink( $cap );
 		// Don't poll — leave the bytes behind so the lag computation has work.
 
-		$req                   = Message::new_message();
-		$req[ Message::TYPE ]  = Message::TM_REQUEST;
-		$req[ Message::FROM ]  = 'asker';
-		$req[ Message::VALUE ] = 'GET_LAG';
-		$c->fill( $req );
-
-		$data = $cap->captured[0][ Message::VALUE ]['data'];
-		$this->assertGreaterThan( 0, $data['bytes_behind'], 'unread bytes must surface in bytes_behind' );
-		$this->assertSame( 0, $data['segments_behind'], 'single-segment lag has 0 segments_behind' );
-		$this->assertFalse( $data['caught_up'] );
+		$lag = $this->compute_lag( $c );
+		$this->assertGreaterThan( 0, $lag['bytes_behind'], 'unread bytes must surface in bytes_behind' );
+		$this->assertSame( 0, $lag['segments_behind'], 'single-segment lag has 0 segments_behind' );
+		$this->assertFalse( $lag['caught_up'] );
 	}
 
-	public function test_handle_request_GET_LAG_counts_segments_behind(): void {
+	public function test_compute_lag_counts_segments_behind(): void {
 		// Multi-segment: a consumer parked on segment 0 with newer segments
 		// available must report segments_behind > 0.
 		$source = new Partition_Node();
@@ -3362,10 +3303,8 @@ class ConsumerTest extends TestCase {
 		$segments = $source->get_segments( true );
 		$this->assertGreaterThanOrEqual( 2, \count( $segments ), 'need multi-segment for this test' );
 
-		$c   = new Consumer_Node();
+		$c = new Consumer_Node();
 		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
-		$cap = new Capture_Sink_Node();
-		$c->sink( $cap );
 
 		// Park cursor at oldest segment, offset 0 — every newer segment is
 		// behind.
@@ -3375,18 +3314,12 @@ class ConsumerTest extends TestCase {
 		$offset = $ref->getProperty( 'cursor_offset' );
 		$offset->setValue( $c, 0 );
 
-		$req                   = Message::new_message();
-		$req[ Message::TYPE ]  = Message::TM_REQUEST;
-		$req[ Message::FROM ]  = 'asker';
-		$req[ Message::VALUE ] = 'GET_LAG';
-		$c->fill( $req );
-
-		$data = $cap->captured[0][ Message::VALUE ]['data'];
-		$this->assertGreaterThan( 0, $data['segments_behind'], 'segments_behind must count newer segments' );
-		$this->assertGreaterThan( 0, $data['bytes_behind'] );
+		$lag = $this->compute_lag( $c );
+		$this->assertGreaterThan( 0, $lag['segments_behind'], 'segments_behind must count newer segments' );
+		$this->assertGreaterThan( 0, $lag['bytes_behind'] );
 	}
 
-	public function test_handle_request_GET_LAG_measures_bytes_behind_from_the_cursor(): void {
+	public function test_compute_lag_measures_bytes_behind_from_the_cursor(): void {
 		// Lag is measured from the CURSOR: bytes that have been read into the
 		// buffer are not yet emitted, and the cursor only advances in
 		// drain_buffer()'s finally, after fill() returns. Discounting the buffer
@@ -3404,83 +3337,10 @@ class ConsumerTest extends TestCase {
 		$rem = $ref->getProperty( 'buffer' );
 		$rem->setValue( $c, 'xyz' ); // 3 bytes
 
-		$cap = new Capture_Sink_Node();
-		$c->sink( $cap );
-
-		$req                   = Message::new_message();
-		$req[ Message::TYPE ]  = Message::TM_REQUEST;
-		$req[ Message::FROM ]  = 'asker';
-		$req[ Message::VALUE ] = 'GET_LAG';
-		$c->fill( $req );
-
-		$data           = $cap->captured[0][ Message::VALUE ]['data'];
-		$segments       = $source->get_segments( true );
-		$total_bytes    = (int) $segments[0]['size'];
-		$this->assertSame( $total_bytes, $data['bytes_behind'], 'buffered bytes are read, not done' );
-	}
-
-	public function test_handle_request_unknown_verb_returns_error_payload(): void {
-		// Spec: unknown verbs reply with `[ 'error' => "unknown request verb: $VERB" ]`.
-		$c   = new Consumer_Node();
-		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
-		$cap = new Capture_Sink_Node();
-		$c->sink( $cap );
-
-		$req                   = Message::new_message();
-		$req[ Message::TYPE ]  = Message::TM_REQUEST;
-		$req[ Message::FROM ]  = 'asker';
-		$req[ Message::VALUE ] = 'WHO_KNOWS';
-		$c->fill( $req );
-
-		$this->assertCount( 1, $cap->captured );
-		$data = $cap->captured[0][ Message::VALUE ]['data'];
-		$this->assertArrayHasKey( 'error', $data );
-		$this->assertStringContainsString( 'WHO_KNOWS', $data['error'] );
-		$this->assertSame( 'WHO_KNOWS', $cap->captured[0][ Message::VALUE ]['verb'] );
-	}
-
-	public function test_handle_request_verb_is_case_insensitive_and_strips_args(): void {
-		// Spec: verb extraction is strtoupper(explode(' ', trim($value), 2)[0]).
-		// "get_lag extra args" → GET_LAG.
-		$c   = new Consumer_Node();
-		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
-		$cap = new Capture_Sink_Node();
-		$c->sink( $cap );
-
-		$req                   = Message::new_message();
-		$req[ Message::TYPE ]  = Message::TM_REQUEST;
-		$req[ Message::FROM ]  = 'asker';
-		$req[ Message::VALUE ] = '  get_lag trailing args ignored  ';
-		$c->fill( $req );
-
-		$reply = $cap->captured[0];
-		$this->assertSame( 'GET_LAG', $reply[ Message::VALUE ]['verb'] );
-		$data = $reply[ Message::VALUE ]['data'];
-		// GET_LAG shape (not the error shape) — verifies the verb was
-		// recognized after trim+upper+arg-strip.
-		$this->assertArrayHasKey( 'bytes_behind', $data );
-	}
-
-	public function test_handle_request_reply_uses_stamp_override_in_FROM(): void {
-		// IPC input Consumer (cli/scaffolding case): set_stamp_as('_repl') —
-		// the request reply's FROM must use the override, NOT the underlying
-		// name. Otherwise replies wouldn't route through the worker's _repl
-		// Partition.
-		$c = new Consumer_Node();
-		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
-		$c->name( 'real-name' );
-		$c->set_stamp_as( '_repl' );
-
-		$cap = new Capture_Sink_Node();
-		$c->sink( $cap );
-
-		$req                   = Message::new_message();
-		$req[ Message::TYPE ]  = Message::TM_REQUEST;
-		$req[ Message::FROM ]  = 'cli';
-		$req[ Message::VALUE ] = 'GET_LAG';
-		$c->fill( $req );
-
-		$this->assertSame( '_repl', $cap->captured[0][ Message::FROM ], 'reply FROM uses stamp_override' );
+		$lag         = $this->compute_lag( $c );
+		$segments    = $source->get_segments( true );
+		$total_bytes = (int) $segments[0]['size'];
+		$this->assertSame( $total_bytes, $lag['bytes_behind'], 'buffered bytes are read, not done' );
 	}
 
 	// ============================================================================
@@ -3785,12 +3645,11 @@ class ConsumerTest extends TestCase {
 	// node_schema() — palette manifest for the topology console.
 	// ============================================================================
 
-	public function test_node_schema_declares_io_category_and_request_verbs(): void {
+	public function test_node_schema_declares_io_category_and_no_request_verbs(): void {
 		// Topology console reads node_schema() to render the palette entry.
-		// Consumer is in the I/O category and declares one request verb (GET_LAG)
-		// — surfaceable in the topology editor as an introspection request an
-		// operator can fire from the canvas. The other read verbs were folded into
-		// dump_metadata.
+		// Consumer is in the I/O category and declares no request verbs, so the
+		// editor offers none: the read verbs were folded into dump_metadata, and
+		// lag is read off probe_stats() rather than asked for over the wire.
 		$schema = Consumer_Node::node_schema();
 		$this->assertIsArray( $schema );
 		$this->assertSame( 'I/O', $schema['category'] );
@@ -3812,20 +3671,9 @@ class ConsumerTest extends TestCase {
 			$names
 		);
 
-		// Request verbs are READ-ONLY. GET_OFFSET / LIST_FRAMES / READ_STATE were
-		// folded into dump_metadata (its dump_metadata hook), leaving just
-		// GET_LAG. STEP is NOT here — it mutates, so it's an auth-gated command.
-		$this->assertCount( 1, $schema['requests'] );
-		$verbs = \array_column( $schema['requests'], 'name' );
-		$this->assertContains( 'GET_LAG', $verbs );
-		$this->assertNotContains( 'GET_OFFSET', $verbs, 'GET_OFFSET folded into dump_metadata' );
-		$this->assertNotContains( 'LIST_FRAMES', $verbs, 'LIST_FRAMES folded into dump_metadata' );
-		$this->assertNotContains( 'READ_STATE', $verbs, 'READ_STATE folded into dump_metadata' );
-		$this->assertNotContains( 'STEP', $verbs, 'STEP mutates — it must not be an un-gated request verb' );
-		foreach ( $schema['requests'] as $req ) {
-			$this->assertNotSame( '', $req['description'] );
-			$this->assertNotSame( '', $req['reply_shape'] );
-		}
+		// No request surface: the key is absent, not an empty list, so
+		// Node_Schema_Help and the console Inspector render no request section.
+		$this->assertArrayNotHasKey( 'requests', $schema );
 	}
 
 	// ============================================================================

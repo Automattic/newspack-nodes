@@ -16,9 +16,8 @@
  * mid-line offset in the RIGHT generation syncs forward onto the next newline —
  * never cross-generation hunting.
  *
- * Lag has ONE substitution, `compute_lag()`. The `GET_LAG` reply, the probe
- * record and the idle check all read it, so the three cannot answer the same
- * question three ways.
+ * Lag has ONE substitution, `compute_lag()`. The probe record and the idle check
+ * both read it, so the two cannot answer the same question in different ways.
  *
  * This class has no source Partition — a single inode is not a segment list —
  * so `source()` refuses by name instead of failing as an init error.
@@ -259,8 +258,7 @@ class File_Tail_Node extends Tail_Node {
 
 	/**
 	 * Lag seam: file size − read position, with no segments behind. The inode
-	 * rides `end_segment` exactly as it rides `cursor_segment`, so the probe
-	 * record and the GET_LAG reply name the same generation.
+	 * rides `end_segment` exactly as it rides `cursor_segment`.
 	 *
 	 * The read position is `lag_cursor_offset()`, which may honour a queued seek
 	 * the first poll has yet to validate, while the `cursor_offset` field reports

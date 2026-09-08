@@ -576,6 +576,16 @@ class TailFileFollowTest extends TestCase {
 	}
 
 	/**
+	 * Read the follower's lag through the seam itself — `compute_lag()` is
+	 * protected, and `probe_stats()` carries no `caught_up`.
+	 *
+	 * @return array<string,mixed> The compute_lag() payload.
+	 */
+	private function compute_lag( File_Tail_Node $t ): array {
+		return ( new \ReflectionMethod( $t, 'compute_lag' ) )->invoke( $t );
+	}
+
+	/**
 	 * The two source shapes are two CLASSES, not one class with a mode flag —
 	 * so a File_Tail owns no source Partition and says so by name. The parent's
 	 * bare "not initialized" sent a reader hunting for a missing arguments()
@@ -601,8 +611,8 @@ class TailFileFollowTest extends TestCase {
 		$this->assertInstanceOf( \Newspack_Nodes\Log_Node::class, $src, 'segmented Tail reads a Log' );
 	}
 
-	public function test_file_mode_GET_LAG_reports_bytes_behind_from_live_file_size(): void {
-		// File mode has no segmented source, so it answers GET_LAG from the live
+	public function test_file_mode_compute_lag_reports_bytes_behind_from_live_file_size(): void {
+		// File mode has no segmented source, so it measures lag from the live
 		// file size here instead of deferring to Consumer. next_offset('start')
 		// leaves the whole file unread, so every byte is behind.
 		$path = "{$this->tmp}/debug.log";
@@ -610,35 +620,16 @@ class TailFileFollowTest extends TestCase {
 
 		$t = $this->follow( $path );
 		$t->next_offset( 'start' );
-		$t->name( 'debugtail' );
-		$cap = new Capture_Sink_Node();
-		$t->sink( $cap );
 
-		$req                   = Message::new_message();
-		$req[ Message::TYPE ]  = Message::TM_REQUEST;
-		$req[ Message::FROM ]  = 'lag-asker';
-		$req[ Message::ID ]    = 'req-77';
-		$req[ Message::KEY ]   = 'kk';
-		$req[ Message::VALUE ] = 'GET_LAG';
-		$t->fill( $req );
-
-		$this->assertCount( 1, $cap->captured, 'a GET_LAG request yields exactly one reply' );
-		$reply = $cap->captured[0];
-		$this->assertSame( Message::TM_STRUCT | Message::TM_RESPONSE, $reply[ Message::TYPE ] );
-		$this->assertSame( 'debugtail', $reply[ Message::FROM ], 'reply FROM is the Tail name' );
-		$this->assertSame( 'lag-asker', $reply[ Message::TO ], 'reply TO walks the breadcrumb back' );
-		$this->assertSame( 'req-77', $reply[ Message::ID ] );
-		$this->assertSame( 'kk', $reply[ Message::KEY ] );
-		$this->assertSame( 'GET_LAG', $reply[ Message::VALUE ]['verb'] );
-		$data = $reply[ Message::VALUE ]['data'];
-		$this->assertSame( 12, $data['bytes_behind'], 'the whole unread file is behind' );
-		$this->assertSame( 0, $data['segments_behind'], 'a single file has no segment backlog' );
-		$this->assertFalse( $data['caught_up'] );
-		$this->assertSame( 12, $data['end_size'] );
-		$this->assertSame( 12, $data['end_bytes'] );
+		$lag = $this->compute_lag( $t );
+		$this->assertSame( 12, $lag['bytes_behind'], 'the whole unread file is behind' );
+		$this->assertSame( 0, $lag['segments_behind'], 'a single file has no segment backlog' );
+		$this->assertFalse( $lag['caught_up'] );
+		$this->assertSame( 12, $lag['end_size'] );
+		$this->assertSame( 12, $lag['end_bytes'] );
 	}
 
-	public function test_file_mode_GET_LAG_reports_caught_up_after_draining(): void {
+	public function test_file_mode_compute_lag_reports_caught_up_after_draining(): void {
 		$path = "{$this->tmp}/debug.log";
 		\file_put_contents( $path, "seven-7\n" ); // 8 bytes.
 
@@ -648,56 +639,29 @@ class TailFileFollowTest extends TestCase {
 		$t->sink( $cap );
 		$this->pump( $t ); // Drain to EOF so nothing is behind.
 
-		$req                   = Message::new_message();
-		$req[ Message::TYPE ]  = Message::TM_REQUEST;
-		$req[ Message::FROM ]  = 'asker';
-		$req[ Message::VALUE ] = 'GET_LAG';
-		$t->fill( $req );
-
-		$reply = \end( $cap->captured );
-		$data  = $reply[ Message::VALUE ]['data'];
-		$this->assertSame( 0, $data['bytes_behind'] );
-		$this->assertTrue( $data['caught_up'], 'a fully-drained file reports caught_up' );
+		$lag = $this->compute_lag( $t );
+		$this->assertSame( 0, $lag['bytes_behind'] );
+		$this->assertTrue( $lag['caught_up'], 'a fully-drained file reports caught_up' );
 	}
 
-	public function test_file_mode_unknown_request_verb_replies_with_error_payload(): void {
-		$path = "{$this->tmp}/debug.log";
-		\file_put_contents( $path, "x\n" );
-
-		$t = $this->follow( $path );
-		$cap = new Capture_Sink_Node();
-		$t->sink( $cap );
-
-		$req                   = Message::new_message();
-		$req[ Message::TYPE ]  = Message::TM_REQUEST;
-		$req[ Message::FROM ]  = 'asker';
-		$req[ Message::VALUE ] = 'FROBNICATE now';
-		$t->fill( $req );
-
-		$this->assertCount( 1, $cap->captured );
-		$data = $cap->captured[0][ Message::VALUE ]['data'];
-		$this->assertSame( 'unknown request verb: FROBNICATE', $data['error'], 'only the first token is the verb, upper-cased' );
-	}
-
-	public function test_file_mode_request_without_a_sink_throws(): void {
+	public function test_file_mode_fill_without_a_sink_throws(): void {
 		$path = "{$this->tmp}/debug.log";
 		\file_put_contents( $path, "x\n" );
 
 		$t = $this->follow( $path ); // No sink wired.
 
-		$req                   = Message::new_message();
-		$req[ Message::TYPE ]  = Message::TM_REQUEST;
-		$req[ Message::FROM ]  = 'asker';
-		$req[ Message::VALUE ] = 'GET_LAG';
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = 'nowhere-to-go';
 
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'fill requires a wired sink' );
-		$t->fill( $req );
+		$t->fill( $message );
 	}
 
-	public function test_file_mode_non_request_message_passes_through_to_the_sink(): void {
-		// A non-TM_REQUEST message in file mode delegates to the parent producer
-		// fill, which forwards to the sink — the interpreter/routing path.
+	public function test_file_mode_fill_passes_through_to_the_sink(): void {
+		// A message addressed to a follower in file mode takes Node::fill()'s
+		// ordinary path and forwards to the sink — the routing path.
 		$path = "{$this->tmp}/debug.log";
 		\file_put_contents( $path, "x\n" );
 

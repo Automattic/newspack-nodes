@@ -51,7 +51,7 @@ class Community_Source_Demo_Node extends Node {
 	 * The per-item emits are fire-and-forget: nothing acks them and nothing
 	 * waits (ADR-3). Every TM_REQUEST runs the batch — the VALUE verb goes
 	 * unread, because TICK is the only request the schema declares. The reply
-	 * echoes the request's ID and KEY, matching `Consumer_Node::handle_request`.
+	 * echoes the request's ID and KEY, matching `Job_Worker_Node::handle_request`.
 	 *
 	 * @param array<int,mixed> $message The TICK request.
 	 */
@@ -66,7 +66,7 @@ class Community_Source_Demo_Node extends Node {
 			parent::fill( $response );
 			++$emitted;
 		}
-		// TO=FROM addresses the reply, as Consumer_Node::handle_request does.
+		// TO=FROM addresses the reply, as Job_Worker_Node::handle_request does.
 		$reply                   = Message::new_message();
 		$reply[ Message::TYPE ]  = Message::TM_STRUCT | Message::TM_RESPONSE;
 		$reply[ Message::FROM ]  = $this->name;
