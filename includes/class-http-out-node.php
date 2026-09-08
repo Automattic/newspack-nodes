@@ -892,6 +892,8 @@ class HTTP_Out_Node extends Timer_Node {
 						[ 'name' => 'path', 'type' => 'string', 'required' => true ],
 					],
 					'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_allow_replies_to( $interpreter, $args ),
+					// One call per destination: the console renders a row each.
+					'multiple'    => true,
 				],
 			],
 			'requests'    => [],
