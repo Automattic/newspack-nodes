@@ -7,7 +7,7 @@
  * update, delete, test. Asserts the public credential-stripped shape (no
  * `logs`, no credentials), the manage_options auth gate on the four mutating
  * verbs, the decoupled `newspack_nodes/vault/changed` action firing on
- * mutations, and the `/command` discovery probe wire shape via the static
+ * mutations, and the `/command` status probe wire shape via the static
  * `$http_call` closure seam.
  *
  * @package Newspack_Nodes
@@ -175,6 +175,253 @@ class VaultCINodeTest extends TestCase {
 	}
 
 	// ---------------------------------------------------------------------
+	// --user / --password — the operator-facing option spellings, translated
+	// onto the stored auth_username / auth_password keys.
+	// ---------------------------------------------------------------------
+
+	public function test_add_stores_user_and_password_options_under_the_auth_keys(): void {
+		$out = VerbHarness::fire(
+			new Vault_CI_Node(),
+			'vault',
+			'add',
+			'vault-new-2207 --url=https://added.example --user=vault-user-2207 --password=vault-pw-5541'
+		);
+
+		$this->assertIsArray( $out );
+		$this->assertSame( 'vault-new-2207', $out['id'] );
+		Vault::get_instance()->reset_cache();
+		$stored = Vault::get_instance()->get( 'vault-new-2207' );
+		$this->assertSame( 'vault-user-2207', $stored['auth_username'] );
+		$this->assertSame( 'vault-pw-5541', $stored['auth_password'] );
+	}
+
+	public function test_update_stores_user_and_password_options_under_the_auth_keys(): void {
+		Vault::get_instance()->add( 'vault-edit-2207', [
+			'url'           => 'https://before.example',
+			'auth_username' => 'vault-user-3390',
+			'auth_password' => 'vault-pw-3390',
+		] );
+		Vault::get_instance()->reset_cache();
+
+		$out = VerbHarness::fire(
+			new Vault_CI_Node(),
+			'vault',
+			'update',
+			'vault-edit-2207 --user=vault-user-5541 --password=vault-pw-7716'
+		);
+
+		$this->assertIsArray( $out );
+		Vault::get_instance()->reset_cache();
+		$stored = Vault::get_instance()->get( 'vault-edit-2207' );
+		$this->assertSame( 'vault-user-5541', $stored['auth_username'] );
+		$this->assertSame( 'vault-pw-7716', $stored['auth_password'] );
+	}
+
+	public function test_update_keeps_the_stored_password_when_no_password_option_rides(): void {
+		Vault::get_instance()->add( 'vault-keep-2207', [
+			'url'           => 'https://before.example',
+			'auth_username' => 'vault-user-3390',
+			'auth_password' => 'vault-pw-3390',
+		] );
+		Vault::get_instance()->reset_cache();
+
+		VerbHarness::fire(
+			new Vault_CI_Node(),
+			'vault',
+			'update',
+			'vault-keep-2207 --url=https://after.example --user=vault-user-5541'
+		);
+
+		Vault::get_instance()->reset_cache();
+		$stored = Vault::get_instance()->get( 'vault-keep-2207' );
+		$this->assertSame( 'https://after.example', $stored['url'] );
+		$this->assertSame( 'vault-user-5541', $stored['auth_username'] );
+		$this->assertSame( 'vault-pw-3390', $stored['auth_password'] );
+	}
+
+	public function test_update_clears_the_stored_password_when_the_option_is_blank(): void {
+		Vault::get_instance()->add( 'vault-clear-2207', [
+			'url'           => 'https://before.example',
+			'auth_username' => 'vault-user-3390',
+			'auth_password' => 'vault-pw-3390',
+		] );
+		Vault::get_instance()->reset_cache();
+
+		VerbHarness::fire(
+			new Vault_CI_Node(),
+			'vault',
+			'update',
+			[ 'vault-clear-2207', '--password=' ]
+		);
+
+		Vault::get_instance()->reset_cache();
+		$stored = Vault::get_instance()->get( 'vault-clear-2207' );
+		$this->assertSame( '', $stored['auth_password'] );
+		$this->assertSame( 'vault-user-3390', $stored['auth_username'] );
+	}
+
+	// ---------------------------------------------------------------------
+	// An option the verb does not read is refused, because both writers read
+	// an absent option as an intention: `add` stores a blank field and reports
+	// the id, `update` leaves the stored one alone and reports a save.
+	// ---------------------------------------------------------------------
+
+	public function test_add_refuses_an_option_it_does_not_read(): void {
+		$out = VerbHarness::fire(
+			new Vault_CI_Node(),
+			'vault',
+			'add',
+			'vault-unknown-8814 --url=https://unknown.example --credential=vault-pw-9930'
+		);
+
+		Vault::get_instance()->reset_cache();
+		$this->assertNull(
+			Vault::get_instance()->get( 'vault-unknown-8814' ),
+			'a refused add stores nothing: an unread option otherwise registers a spoke with empty credentials'
+		);
+		$this->assertIsString( $out, 'an unread option is a refusal, not a stored entry' );
+		$this->assertStringContainsString( 'unknown option --credential', $out );
+		$this->assertStringContainsString( 'this verb takes --url, --user, --password', $out );
+	}
+
+	public function test_update_refuses_an_option_it_does_not_read(): void {
+		Vault::get_instance()->add( 'vault-unknown-6650', [
+			'url'           => 'https://before.example',
+			'auth_username' => 'vault-user-6650',
+			'auth_password' => 'vault-pw-6650',
+		] );
+		Vault::get_instance()->reset_cache();
+
+		// `auth_password` is the stored KEY, not an option this verb reads —
+		// one instance of the general rule, and the shape a stale script sends.
+		$out = VerbHarness::fire(
+			new Vault_CI_Node(),
+			'vault',
+			'update',
+			'vault-unknown-6650 --auth_password=vault-pw-7742'
+		);
+
+		$this->assertIsString( $out, 'an unread option is a refusal, not a save that changed nothing' );
+		$this->assertStringContainsString( 'unknown option --auth_password', $out );
+		$this->assertStringContainsString( 'this verb takes --new_id, --url, --user, --password', $out );
+		Vault::get_instance()->reset_cache();
+		$stored = Vault::get_instance()->get( 'vault-unknown-6650' );
+		$this->assertSame( 'vault-pw-6650', $stored['auth_password'], 'a refused update leaves the stored credential alone' );
+	}
+
+	public function test_update_accepts_the_options_it_reads(): void {
+		Vault::get_instance()->add( 'vault-known-3308', [ 'url' => 'https://before.example' ] );
+		Vault::get_instance()->reset_cache();
+
+		$out = VerbHarness::fire(
+			new Vault_CI_Node(),
+			'vault',
+			'update',
+			'vault-known-3308 --new_id=vault-known-9971 --url=https://after.example --user=vault-user-9971 --password=vault-pw-9971'
+		);
+
+		$this->assertIsArray( $out, 'the id is positional and the four named options all pass' );
+		$this->assertSame( 'vault-known-9971', $out['id'] );
+	}
+
+	// ---------------------------------------------------------------------
+	// A valueless option is refused too. `Command_Args::parse()` reads a bare
+	// `--key` as boolean true, and every option these two verbs read carries a
+	// value — so a shell that ate the value, or an operator who forgot it,
+	// otherwise casts to the literal '1' and stores it as the credential.
+	// ---------------------------------------------------------------------
+
+	public function test_add_refuses_a_valueless_password(): void {
+		$out = VerbHarness::fire(
+			new Vault_CI_Node(),
+			'vault',
+			'add',
+			[ 'vault-bare-4409', '--url=https://bare.example', '--password' ]
+		);
+
+		Vault::get_instance()->reset_cache();
+		$stored = Vault::get_instance()->get( 'vault-bare-4409' );
+		$this->assertSame(
+			'',
+			$stored['auth_password'] ?? '',
+			'a bare --password must not store the boolean true cast as the credential'
+		);
+		$this->assertNull( $stored, 'a refused add stores nothing at all' );
+		$this->assertIsString( $out, 'a valueless option is a refusal, not a stored entry' );
+		$this->assertStringContainsString( '--password needs a value', $out );
+	}
+
+	public function test_update_refuses_a_valueless_password(): void {
+		Vault::get_instance()->add( 'vault-bare-6183', [
+			'url'           => 'https://bare.example',
+			'auth_username' => 'vault-user-6183',
+			'auth_password' => 'vault-pw-6183',
+		] );
+		Vault::get_instance()->reset_cache();
+
+		$out = VerbHarness::fire(
+			new Vault_CI_Node(),
+			'vault',
+			'update',
+			[ 'vault-bare-6183', '--password' ]
+		);
+
+		Vault::get_instance()->reset_cache();
+		$stored = Vault::get_instance()->get( 'vault-bare-6183' );
+		$this->assertSame(
+			'vault-pw-6183',
+			$stored['auth_password'],
+			'a bare --password must leave the stored credential alone, not overwrite it with the boolean cast'
+		);
+		$this->assertIsString( $out, 'a valueless option is a refusal, not a save' );
+		$this->assertStringContainsString( '--password needs a value', $out );
+	}
+
+	public function test_update_refuses_a_valueless_new_id(): void {
+		Vault::get_instance()->add( 'vault-bare-2764', [ 'url' => 'https://bare.example' ] );
+		Vault::get_instance()->reset_cache();
+
+		$out = VerbHarness::fire(
+			new Vault_CI_Node(),
+			'vault',
+			'update',
+			[ 'vault-bare-2764', '--new_id' ]
+		);
+
+		$this->assertIsString( $out );
+		// The option guard reaches it first, and says what is missing where
+		// `invalid server id` only said the value was unusable.
+		$this->assertStringContainsString( '--new_id needs a value', $out );
+		Vault::get_instance()->reset_cache();
+		$this->assertNotNull( Vault::get_instance()->get( 'vault-bare-2764' ), 'a refused rename moves nothing' );
+	}
+
+	// ---------------------------------------------------------------------
+	// `add` reads the url as an OPTION, so an absent one is a missing option
+	// and says so — `Vault::add()`'s generic refusal names the URL format,
+	// which is the wrong cause when no url was sent at all.
+	// ---------------------------------------------------------------------
+
+	public function test_add_refuses_a_missing_url(): void {
+		$out = VerbHarness::fire(
+			new Vault_CI_Node(),
+			'vault',
+			'add',
+			[ 'vault-nourl-8057' ]
+		);
+
+		$this->assertIsString( $out );
+		$this->assertStringContainsString( 'url required', $out );
+		$this->assertStringNotContainsString(
+			'check URL format',
+			$out,
+			'an absent --url is a missing option, not a malformed one'
+		);
+		Vault::get_instance()->reset_cache();
+		$this->assertNull( Vault::get_instance()->get( 'vault-nourl-8057' ) );
+	}
+
+	// ---------------------------------------------------------------------
 	// update --new_id — the id is an editable field, so an edit can rename.
 	// ---------------------------------------------------------------------
 
@@ -239,8 +486,8 @@ class VaultCINodeTest extends TestCase {
 		Vault::get_instance()->add( 'vault-keep-7735', [ 'url' => 'https://before.example' ] );
 		Vault::get_instance()->reset_cache();
 
-		// Present and empty is the same operator mistake as a bare `--new_id`,
-		// and swallowing it reports a rename that never happened.
+		// Present and empty asks to move the entry to nothing, and swallowing
+		// it reports a rename that never happened.
 		$out = VerbHarness::fire(
 			new Vault_CI_Node(),
 			'vault',
@@ -300,10 +547,10 @@ class VaultCINodeTest extends TestCase {
 	}
 
 	// ---------------------------------------------------------------------
-	// test verb — discovery.get probe through the /command endpoint.
+	// test verb — status.get probe through the /command endpoint.
 	// ---------------------------------------------------------------------
 
-	public function test_test_verb_posts_discovery_get_command(): void {
+	public function test_test_verb_posts_status_get_command(): void {
 		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		Vault::get_instance()->reset_cache();
 
@@ -312,7 +559,7 @@ class VaultCINodeTest extends TestCase {
 			$seen  = [ 'url' => $url, 'body' => $args['body'], 'headers' => $args['headers'] ];
 			$reply = Message::new_message();
 			$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
-			$reply[ Message::VALUE ] = [ 'name' => 'get', 'payload' => [ 'lag' => 3 ] ];
+			$reply[ Message::VALUE ] = [ 'name' => 'get', 'payload' => [ 'version' => '9.9.9-probe' ] ];
 			return [ 'response' => [ 'code' => 200 ], 'body' => Message::packed( $reply ) ];
 		};
 
@@ -321,7 +568,6 @@ class VaultCINodeTest extends TestCase {
 		$this->assertIsArray( $out );
 		$this->assertSame( 'spoke1', $out['id'] );
 		$this->assertSame( 'connected', $out['status'] );
-		$this->assertSame( 3, $out['response']['lag'] );
 		$this->assertSame( 'https://e.com/wp-json/newspack-nodes/v1/command', $seen['url'] );
 		$this->assertSame( 'text/plain; charset=UTF-8', $seen['headers']['Content-Type'] );
 		$this->assertStringStartsWith( 'Basic ', $seen['headers']['Authorization'] );
@@ -329,7 +575,7 @@ class VaultCINodeTest extends TestCase {
 		$decoded = Message::unpacked( $seen['body'] );
 		$this->assertSame( Message::TM_COMMAND, $decoded[ Message::TYPE ] );
 		$this->assertSame( \Newspack_Nodes\Node_Names::HTTP, $decoded[ Message::FROM ] );
-		$this->assertSame( 'discovery', $decoded[ Message::TO ] );
+		$this->assertSame( 'status', $decoded[ Message::TO ] );
 		$this->assertSame( 'get', $decoded[ Message::VALUE ]['name'] );
 	}
 
@@ -356,7 +602,6 @@ class VaultCINodeTest extends TestCase {
 		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'test', 'spoke1' );
 
 		$this->assertSame( 'connected', $out['status'] );
-		$this->assertSame( 5, $out['response']['lag'] );
 	}
 
 	public function test_test_verb_returns_error_on_non_200(): void {
@@ -484,7 +729,6 @@ class VaultCINodeTest extends TestCase {
 		unset( $GLOBALS['_wp_test_remote_post_response'] );
 		$this->assertIsArray( $out );
 		$this->assertSame( 'connected', $out['status'] );
-		$this->assertSame( 7, $out['response']['lag'] );
 	}
 
 	public function test_test_verb_errors_when_transport_returns_wp_error(): void {
@@ -560,7 +804,7 @@ class VaultCINodeTest extends TestCase {
 		$this->assertStringContainsString( 'non-array command payload', $out );
 	}
 
-	public function test_test_verb_whitelists_hooks_events_and_lag(): void {
+	public function test_test_verb_answers_a_verdict_and_forwards_no_spoke_fields(): void {
 		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com' ] );
 		Vault::get_instance()->reset_cache();
 		HTTP_Out_Node::$http_call = static function ( string $url, array $args ): array {
@@ -569,10 +813,10 @@ class VaultCINodeTest extends TestCase {
 			$reply[ Message::VALUE ] = [
 				'name'    => 'get',
 				'payload' => [
-					'registered_hooks' => [ 'hook_a', 42, 'hook_b' ], // non-strings filtered out.
-					'custom_events'    => [ 'evt_a' ],
-					'lag'              => '12',                        // coerced to int.
-					'secret'           => 'should-not-surface',       // not whitelisted.
+					'registered_hooks' => [ 'wp_footer_zeta', 'save_post_zeta' ],
+					'custom_events'    => [ 'newspack_zeta_event' ],
+					'lag'              => 8675309,
+					'version'          => '9.9.9-probe',
 				],
 			];
 			return [ 'response' => [ 'code' => 200 ], 'body' => Message::packed( $reply ) ];
@@ -581,10 +825,10 @@ class VaultCINodeTest extends TestCase {
 		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'test', 'spoke1' );
 
 		$this->assertIsArray( $out );
-		$this->assertSame( [ 'hook_a', 'hook_b' ], $out['response']['registered_hooks'] );
-		$this->assertSame( [ 'evt_a' ], $out['response']['custom_events'] );
-		$this->assertSame( 12, $out['response']['lag'] );
-		$this->assertArrayNotHasKey( 'secret', $out['response'] );
+		// Exact key set: a future whitelist cannot creep a spoke's payload back in.
+		$this->assertSame( [ 'id', 'status' ], \array_keys( $out ) );
+		$this->assertSame( 'spoke1', $out['id'] );
+		$this->assertSame( 'connected', $out['status'] );
 	}
 
 	// ---------------------------------------------------------------------
@@ -605,5 +849,70 @@ class VaultCINodeTest extends TestCase {
 			$this->assertNotContains( 'logs', $arg_names, "'{$name}' must not declare a logs arg" );
 			$this->assertNotContains( 'enabled', $arg_names, "'{$name}' must not declare an enabled arg" );
 		}
+	}
+
+	public function test_add_and_update_declare_the_credentials_as_user_and_password(): void {
+		$verbs = [];
+		foreach ( Vault_CI_Node::node_schema()['commands'] as $verb ) {
+			$verbs[ $verb['name'] ] = $verb;
+		}
+		foreach ( [ 'add', 'update' ] as $name ) {
+			$arg_names = \array_map( static fn ( array $a ): string => $a['name'], $verbs[ $name ]['args'] );
+			$this->assertContains( 'user', $arg_names, "'{$name}' must declare a user arg" );
+			$this->assertContains( 'password', $arg_names, "'{$name}' must declare a password arg" );
+			$this->assertNotContains( 'auth_username', $arg_names, "'{$name}' must not declare auth_username" );
+			$this->assertNotContains( 'auth_password', $arg_names, "'{$name}' must not declare auth_password" );
+		}
+	}
+
+	public function test_declared_options_are_exactly_the_options_each_verb_accepts(): void {
+		$verbs = [];
+		foreach ( Vault_CI_Node::node_schema()['commands'] as $verb ) {
+			$verbs[ $verb['name'] ] = $verb;
+		}
+		foreach ( [ 'add' => 'vault-bind-1926', 'update' => 'vault-bind-3547' ] as $name => $id ) {
+			// Per the one command grammar, a required arg rides POSITIONALLY;
+			// everything else is a `--key=value` the handler has to read.
+			$declared = [];
+			foreach ( $verbs[ $name ]['args'] as $arg ) {
+				if ( empty( $arg['required'] ) ) {
+					$declared[] = $arg['name'];
+				}
+			}
+			$accepted = $this->accepted_options( $name, $id );
+			\sort( $declared );
+			\sort( $accepted );
+			$this->assertSame(
+				$accepted,
+				$declared,
+				"'{$name}' must declare as an option exactly what it accepts as one: a declared "
+					. 'positional the handler reads off --key is never sent, and an arg the guard '
+					. 'does not accept is offered by help and the palette and then refused'
+			);
+		}
+	}
+
+	/**
+	 * The option names a verb ACCEPTS, read out of its own refusal — firing an
+	 * option no verb reads makes `assert_known_options()` name the set it takes.
+	 *
+	 * @param string $verb Verb name.
+	 * @param string $id   Positional id; the guard runs ahead of every lookup.
+	 * @return list<string> Accepted option names.
+	 */
+	private function accepted_options( string $verb, string $id ): array {
+		// Each fire() builds a whole request-scope graph, so the previous one's
+		// `_router` has to go before the second verb is asked.
+		VerbHarness::reset();
+		$out = VerbHarness::fire(
+			new Vault_CI_Node(),
+			'vault',
+			$verb,
+			[ $id, '--vault-not-an-option-1926=x' ]
+		);
+
+		$this->assertIsString( $out, "'{$verb}' must refuse an option it does not read" );
+		$this->assertSame( 1, \preg_match( '/this verb takes --(.+)$/', $out, $m ) );
+		return \explode( ', --', $m[1] );
 	}
 }

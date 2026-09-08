@@ -613,7 +613,7 @@ class Node {
 	 * Snapshot of this node's state for the REPL `dump_node` verb. Credentials
 	 * are masked by the same one rule the drop audit uses — redact_secrets(),
 	 * which reaches a secret nested inside an ordinary property (an
-	 * `--auth_password=…` token in $arguments) as well as a secret-named one.
+	 * `--password=…` token in $arguments) as well as a secret-named one.
 	 *
 	 * @return array<string,mixed>
 	 */
@@ -651,7 +651,7 @@ class Node {
 	/**
 	 * Mask credentials in a dropped message's VALUE, by the same rule
 	 * `dump_node()` uses — `Core::is_secret_property()`. Two shapes carry them:
-	 * a secret-named array key, and a `--auth_password=…` argument token, which
+	 * a secret-named array key, and a `--password=…` argument token, which
 	 * is how the Vault admin UI sends them. The key survives; only the value
 	 * goes, because the drop line is a diagnostic.
 	 *

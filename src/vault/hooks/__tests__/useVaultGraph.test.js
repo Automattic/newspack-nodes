@@ -257,8 +257,8 @@ describe( 'useVaultGraph — what a row is waiting on', () => {
 			result.current.addServer( {
 				id: 'spoke-04',
 				url: 'https://d.example.test',
-				auth_username: 'reader',
-				auth_password: 'hunter2',
+				auth_username: 'reader-2207',
+				auth_password: 'hunter-5541',
 			} )
 		);
 
@@ -267,8 +267,8 @@ describe( 'useVaultGraph — what a row is waiting on', () => {
 		expect( add[ VALUE ].arguments ).toEqual( [
 			'spoke-04',
 			'--url=https://d.example.test',
-			'--auth_username=reader',
-			'--auth_password=hunter2',
+			'--user=reader-2207',
+			'--password=hunter-5541',
 		] );
 		expect( add[ FROM ] ).toBe( 'vault:add:in/spoke-04' );
 	}, 30000 );
@@ -293,14 +293,14 @@ describe( 'useVaultGraph — what a row is waiting on', () => {
 			'spoke-was-4471',
 			'--new_id=spoke-now-6612',
 			'--url=https://after.example.test',
-			'--auth_username=editor-4471',
-			'--auth_password=pw-8823',
+			'--user=editor-4471',
+			'--password=pw-8823',
 		] );
 		// The reply is about the row on screen, which still wears the old id.
 		expect( update[ FROM ] ).toBe( 'vault:update:in/spoke-was-4471' );
 	}, 30000 );
 
-	// A blank password field means "leave it alone" — sending `--auth_password=`
+	// A blank password field means "leave it alone" — sending `--password=`
 	// would clear the stored one, so the token has to be absent entirely.
 	test( 'updateServer omits the password entirely when none was typed', async () => {
 		const wire = installWire( { list: {}, update: { ok: 1 } } );
@@ -321,7 +321,7 @@ describe( 'useVaultGraph — what a row is waiting on', () => {
 		expect( update[ VALUE ].arguments ).toEqual( [
 			'spoke-was-4471',
 			'--url=https://after.example.test',
-			'--auth_username=editor-4471',
+			'--user=editor-4471',
 		] );
 	}, 30000 );
 } );

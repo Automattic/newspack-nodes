@@ -98,14 +98,14 @@ const JSON_PAIR = /("[\w.-]+"\s*:\s*)"(?:\\.|[^"\\])*"/g;
 
 /**
  * Mask credential values in a console line. Two shapes carry them: a
- * `--auth_password=…` argument token (what the Vault UI sends, what the REPL
+ * `--password=…` argument token (what the Vault UI sends, what the REPL
  * echoes verbatim, and what the history recalls), and a `"password":"…"` pair
  * inside a rendered command payload. The name survives so the line still
  * reads; only the value goes.
  *
  * A value ends where its QUOTING says it ends, not at the first space. A
  * passphrase makes `Node::serialize_args()` quote the whole token —
- * `'--auth_password=correct horse battery'` — so a matcher stopping at
+ * `'--password=correct horse battery'` — so a matcher stopping at
  * whitespace leaves everything past the first word sitting in localStorage
  * beside the redaction marker. Both quote characters appear: serialize_args
  * emits single quotes, the JSON payload shape double. The masked line stays
