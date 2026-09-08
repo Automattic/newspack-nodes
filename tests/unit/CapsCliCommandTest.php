@@ -49,12 +49,14 @@ class CapsCliCommandTest extends TestCase {
 		unset(
 			$GLOBALS['_wp_test_app_password_error'],
 			$GLOBALS['_wp_test_insert_user_error'],
-			$GLOBALS['_wp_test_unreadable_user']
+			$GLOBALS['_wp_test_unreadable_user'],
+			$GLOBALS['_wp_test_managed_roles']
 		);
 		Roles::uninstall();
 	}
 
 	protected function tearDown(): void {
+		unset( $GLOBALS['_wp_test_managed_roles'] );
 		Roles::uninstall();
 		$GLOBALS['_wp_test_users'] = [];
 		\delete_option( 'newspack_nodes_allowed_users' );
@@ -181,6 +183,86 @@ class CapsCliCommandTest extends TestCase {
 		$this->command->hub_user( [ 'editor-bob' ], [] );
 
 		$this->assertSame( [ Roles::HUB_ROLE ], $GLOBALS['_wp_test_users']['editor-bob']['roles'] );
+	}
+
+	/**
+	 * The credential's authority is the two USER capabilities, which live in
+	 * this user's own meta and never consult `WP_Roles`. They are granted after
+	 * `set_role()`, which replaces the whole capability map — granted first,
+	 * they would be wiped by the role the same call sets.
+	 */
+	public function test_the_new_user_holds_the_role_and_both_capabilities(): void {
+		$this->command->caps( [ 'install' ], [] );
+
+		$this->command->hub_user( [ 'osprey' ], [ 'no-password' => true ] );
+
+		$user = $GLOBALS['_wp_test_users']['osprey'];
+		$this->assertSame( [ Roles::HUB_ROLE ], $user['roles'] );
+		$this->assertTrue( $user['caps'][ Roles::CAP_READ ] ?? false );
+		$this->assertTrue( $user['caps'][ Roles::CAP_TUNE ] ?? false );
+	}
+
+	/**
+	 * A host that enforces its own role set reverts `newspack_nodes_hub`, and
+	 * `WP_User` then derives `roles` by filtering the capability map through
+	 * `WP_Roles::is_role()` — so binding the account to that role alone leaves
+	 * it with nothing, authenticating with its application password and being
+	 * refused at `can( READ )`. The direct grants are what it runs on.
+	 */
+	public function test_the_capabilities_are_granted_where_the_host_refuses_the_role(): void {
+		$GLOBALS['_wp_test_managed_roles'] = true;
+		$this->command->caps( [ 'install' ], [] );
+
+		$this->command->hub_user( [ 'kittiwake' ], [ 'no-password' => true ] );
+
+		$user = $GLOBALS['_wp_test_users']['kittiwake'];
+		$this->assertSame( [], $user['roles'], 'the host carries no such role' );
+		$this->assertTrue( $user['caps'][ Roles::CAP_READ ] ?? false );
+		$this->assertTrue( $user['caps'][ Roles::CAP_TUNE ] ?? false );
+	}
+
+	/** Re-roling replaces the capability map, so the grants outlive it. */
+	public function test_an_existing_user_keeps_the_capabilities_past_the_role_swap(): void {
+		$this->command->caps( [ 'install' ], [] );
+		$GLOBALS['_wp_test_users']['dunlin'] = [
+			'ID'    => 41,
+			'email' => 'dunlin@example.test',
+			'roles' => [ 'editor' ],
+			'caps'  => [ 'edit_posts' => true ],
+		];
+
+		$this->command->hub_user( [ 'dunlin' ], [ 'no-password' => true ] );
+
+		$user = $GLOBALS['_wp_test_users']['dunlin'];
+		$this->assertSame( [ Roles::HUB_ROLE ], $user['roles'] );
+		$this->assertTrue( $user['caps'][ Roles::CAP_READ ] ?? false );
+		$this->assertTrue( $user['caps'][ Roles::CAP_TUNE ] ?? false );
+		$this->assertArrayNotHasKey( 'edit_posts', $user['caps'] );
+	}
+
+	public function test_status_reports_the_hub_role_beside_the_map(): void {
+		$this->command->caps( [ 'install' ], [] );
+		$this->command->caps( [], [] );
+
+		$this->assertStringContainsString( 'hub role: present', $this->printed_lines() );
+	}
+
+	/**
+	 * `granular: yes` alone reads as a wholly successful install on a host that
+	 * refused the role. The warning names what happens instead, so an operator
+	 * reading it knows nothing is broken.
+	 */
+	public function test_install_warns_and_reports_when_the_hub_role_did_not_take(): void {
+		$GLOBALS['_wp_test_managed_roles'] = true;
+
+		$this->command->caps( [ 'install' ], [] );
+
+		$this->assertStringContainsString( 'granular: yes', $this->printed_lines() );
+		$this->assertStringContainsString( 'hub role: absent', $this->printed_lines() );
+		$warnings = \implode( "\n", $GLOBALS['_test_wp_cli_warns'] );
+		$this->assertStringContainsString( Roles::HUB_ROLE, $warnings );
+		$this->assertStringContainsString( Roles::CAP_READ, $warnings );
+		$this->assertStringContainsString( Roles::CAP_TUNE, $warnings );
 	}
 
 	/**

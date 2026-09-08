@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.53.1] - 2026-09-08
+
+### Fixed
+
+- **`wp nodes hub-user` minted an aggregator credential that authenticated and was then refused, on any host that decides which roles may exist.** The operator saw both verbs report success — `caps install` set `newspack_nodes_granular_caps`, so `wp nodes caps` printed `granular: yes`, and `hub-user` created the account and printed its application password — and then every request from the hub answered 401, which reads as a bad password. It was not: on a managed host, `add_role()` persists for a process or two and is reverted, so `newspack_nodes_hub` was gone by the time `hub-user` ran, while the capability grants to roles the host already carried survived. `set_role()` on a role that no longer exists leaves the account holding NOTHING — `WP_User::get_role_caps()` derives `roles` by filtering the capability map through `WP_Roles::is_role()` — so the credential reached `Capabilities::can( READ )` with zero capabilities. `hub-user` now grants `newspack_nodes_read` and `newspack_nodes_tune` to the USER directly, on every host, which is what `can()` actually reads: a user capability lives in that user's own meta and `current_user_can()` finds it without consulting `WP_Roles`. The role is set only where `Roles::hub_role_exists()` — a live read, like `granular()`, because a host can revert the role days later — says it is there, and set BEFORE the grants, since `set_role()` replaces the whole capability map. Where the role is used it still removes the account's other roles, so the least-privilege claim is unchanged. `wp nodes caps` prints `hub role: present|absent` beside `granular:`, the two halves a host can answer differently, and `caps install` warns when the role did not take, naming the direct grants so an operator reading it knows nothing is broken.
+
 ## [2.53.0] - 2026-09-08
 
 ### Security
