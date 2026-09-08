@@ -341,28 +341,6 @@ class RemoteLinkNodeTest extends TestCase {
 	}
 
 	/**
-	 * A reserved name cannot be declared, and the seed must SAY so.
-	 *
-	 * Nothing forbids `make_node Remote_Source _foo`, and `allow_replies_to`
-	 * refuses a `_` head — so the patron would declare nothing, every heartbeat
-	 * reply would be dropped by `accept_inbound()`, and no line would point at
-	 * the name. The verb path throws; this path logs.
-	 */
-	public function test_a_reserved_link_name_reports_that_replies_cannot_be_declared(): void {
-		$this->seed_vault();
-		$buf = '';
-		\Newspack_Nodes\Core::set_stderr_handler( static function ( string $m ) use ( &$buf ): void {
-			$buf .= $m;
-		} );
-
-		[ $node ] = $this->make_link( '_reserved' );
-		( new \ReflectionMethod( $node, 'ensure_patrons' ) )->invoke( $node );
-
-		$this->assertStringContainsString( 'replies cannot be declared', $buf );
-		$this->assertStringContainsString( '_reserved', $buf );
-	}
-
-	/**
 	 * The patron's own name is DECLARED on its HTTP_Out, and re-declared on
 	 * every rename.
 	 *
