@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.50.0] - 2026-09-08
+
 ### Security
 
 - **A spoke's reply chose its own destination inside the hub, and every node routes.** `HTTP_Out_Node::accept_inbound()` returns early for a `TM_RESPONSE`/`TM_ERROR` so a reply can self-route on the FROM breadcrumb we minted — the `Remote_Link` heartbeat and event-logger-nodes' `Discovery_Collector` both depend on it. But the REMOTE sets the bit that makes a message a reply, and that early return precedes the `target` refusal twelve lines below whose docblock names this exact case: *"an addressed non-reply arriving while a target is set is the remote picking its own destination inside us — refused."* Every node sinks into `_command_interpreter` and then `_router` (ADR-7), so the spoke's `TO` is routed, not decorative: on a live aggregator hub that is thirty names, `_router`, `_command_interpreter`, `_fleet` and two offsetlogs among them. Command execution stays blocked — the verifier is process-wide, the reply is unsigned, and `Message::LOCAL` cannot cross `unpacked()` — but a node's `fill()` is reachable, and `Discovery_Collector::fill()` merges an unsolicited payload straight into the hook picker's staging options.
@@ -15,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **Operator action required on any hand-wired `HTTP_Out`.** A per-spoke egress created from the topology console — the shape `settings-sync.tsl` documents — carries no declaration and will drop its acks until one is added: `cmd <name>:config allow_replies_to settings-sync` and, on a hub running the event logger's `hub-control`, `allow_replies_to discovery-collector`.
 
 ### Changed
+
+- **A durable backing's record now outranks the cache TTL it was written with.** `Table_Node::read_through()` refused an entry whose stated remaining life had run out — *"a STATED lifetime that ran out is a miss, not a resurrection."* That treats a cache TTL as a statement about the DATA, and it is not one: event-logger-nodes keeps a fine URL bucket two hours in memcache because the fine tier is the largest thing that schema puts in a 512MB cache, while mirroring it for twice the stats window. The refusal therefore made the durable tier useless for exactly the data whose cache lifetime is shortest — an evicted `urls_h` key could never be rebuilt from the fine buckets decision 17 says it derives from, which is the premise for leaving the coarse tier unmirrored at all. The entry is now SERVED either way, and warmed only when its stated remainder is positive: a spent one is not worth a cache slot, and a backing that wants an entry gone stops returning it. `Stats_Store` supplies the honest number — `window_remaining()`, seconds until the bucket leaves the RETENTION window — so a 23-hour-old hour re-warms for an hour rather than for a fresh full one.
 
 - **The cross-language statement pin no longer pins line NUMBERS.** `tests/fixtures/statements/*.json` are the golden the PHP `StatementFrontEndParityTest` and the JS `parse-statements.fixture.test.js` both hold their front end to. They carried each statement's `line`, so editing a COMMENT in a shipped `.tsl` failed both suites and demanded a fixture regeneration — churn standing between an author and a comment rather than a guarantee. Both halves now drop `line` before comparing. The parser still emits it and `Shell_Node` still accumulates it; it is diagnostic, and what the pin is for is the verb, its arguments and the raw text.
 

@@ -324,11 +324,12 @@ class Table_Node extends Node {
 	 * read hits the table instead of the system of record. A table with no
 	 * backing recovers nothing, which is what makes a miss stay a miss.
 	 *
-	 * An entry may carry its OWN remaining lifetime. That does not reopen the
+	 * An entry may carry its OWN remaining lifetime, and a SPENT one re-warms
+	 * under the table's instead of reading as a miss. That does not reopen the
 	 * table's "one table, one lifetime" rule, which governs what a CALLER
 	 * stores: a backing is re-materializing an entry that already had a life,
 	 * and giving it a fresh full TTL would extend what it is restoring. A
-	 * lifetime already spent stores nothing and reads as the miss it is.
+	 * lifetime already spent re-warms under the table TTL rather than vanishing.
 	 *
 	 * @param list<string> $keys Keys that missed.
 	 * @return array<string,mixed> Values recovered, under the caller's keys.
@@ -340,12 +341,12 @@ class Table_Node extends Node {
 		$out   = [];
 		$warm  = [];
 		foreach ( ( $this->backing )( $keys ) as $key => $entry ) {
-			// A STATED lifetime that ran out is a miss, not a resurrection.
-			if ( isset( $entry['ttl'] ) && $entry['ttl'] <= 0 ) {
-				continue;
+			// Served either way; a spent remainder is not worth a cache slot.
+			$left = \array_key_exists( 'ttl', $entry ) ? Core::as_int( $entry['ttl'] ) : $this->ttl;
+			if ( $left > 0 ) {
+				// Grouped by lifetime: a round trip per TTL, not per key.
+				$warm[ $left ][ self::entry_key( $this->namespace, (string) $key ) ] = $entry['value'];
 			}
-			// Grouped by lifetime: a round trip per TTL, not per key.
-			$warm[ $entry['ttl'] ?? $this->ttl ][ self::entry_key( $this->namespace, (string) $key ) ] = $entry['value'];
 			$out[ (string) $key ] = $entry['value'];
 		}
 		// Best-effort: a dead backend must not turn a read into a miss.

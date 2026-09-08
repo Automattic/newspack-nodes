@@ -409,11 +409,29 @@ class TableNodeTest extends TestCase {
 		$this->assertSame( [ 'usd' => 400 ], $table->lookup( 'sku-4' ) );
 	}
 
-	public function test_an_entry_whose_lifetime_ran_out_is_not_stored(): void {
+	/**
+	 * A SPENT remaining life is served from the record, and not warmed.
+	 *
+	 * The backing is the system of record; the cache TTL it was written with is
+	 * a FOOTPRINT bound on the cache, not a statement that the data expired.
+	 * Refusing a spent entry made the durable tier useless for exactly the data
+	 * whose cache lifetime is shortest — event-logger-nodes' fine URL buckets
+	 * are kept two hours in memcache and mirrored for twice the stats window,
+	 * and the refusal meant an evicted hourly key could never be rebuilt from
+	 * them. A backing that wants an entry gone stops returning it; one that
+	 * states a spent remainder is saying "serve this, but it is not worth a
+	 * cache slot".
+	 */
+	public function test_an_entry_whose_remaining_life_is_spent_is_still_served(): void {
 		$table = Table_Node::table( 'prices', 600 );
 		$table->backed_by( static fn ( array $keys ): array => [ 'sku-8' => [ 'value' => [ 'usd' => 800 ], 'ttl' => 0 ] ] );
 
-		$this->assertNull( $table->lookup( 'sku-8' ), 'a spent lifetime is a miss, not a resurrection' );
+		$this->assertSame( [ 'usd' => 800 ], $table->lookup( 'sku-8' ), 'the record answers' );
+		$this->assertArrayNotHasKey(
+			Table_Node::entry_key( 'prices', 'sku-8' ),
+			$this->memd->expiries(),
+			'and takes no cache slot: a spent remainder is not worth warming'
+		);
 	}
 
 	public function test_lookup_multi_returns_found_only_keyed_by_the_callers_key(): void {
