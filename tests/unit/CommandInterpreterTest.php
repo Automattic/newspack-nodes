@@ -3599,6 +3599,33 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertSame( 2, Core::$secure_level );
 	}
 
+	/**
+	 * TM_ERROR is a REPLY, not a command.
+	 *
+	 * Every refusal is minted `TM_COMMAND|TM_ERROR` addressed `TO = FROM`, so
+	 * dispatching one makes a refusal answer a refusal, and each pass mints
+	 * another inside one PHP process. `Command_Auth::is_request_command()`
+	 * already excludes TM_ERROR; the interpreter's own gate did not.
+	 *
+	 * Asserted through a SIDE EFFECT: `make_node` builds a node when it runs,
+	 * so the registry says whether the verb executed.
+	 */
+	public function test_a_TM_ERROR_command_is_not_executed(): void {
+		$interpreter = new Command_Interpreter_Node();
+		$sink        = new Capture_Sink_Node();
+		$interpreter->sink( $sink );
+
+		$m                   = $this->command_message( 'make_node', 'Echo ghost-of-a-refusal', true );
+		$m[ Message::TYPE ] |= Message::TM_ERROR;
+
+		$interpreter->fill( $m );
+
+		$this->assertNull(
+			\Newspack_Nodes\Core::node( 'ghost-of-a-refusal' ),
+			'a reply carrying TM_ERROR must never execute its verb'
+		);
+	}
+
 }
 
 /** Fixture: a node declaring a display-only extra target. */

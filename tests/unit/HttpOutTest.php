@@ -382,6 +382,86 @@ class HttpOutTest extends TestCase {
 		$this->assertSame( [], $sink->captured );
 	}
 
+	/**
+	 * A reply bit is the REMOTE's to set, so it must not buy arbitrary addressing.
+	 *
+	 * `accept_inbound()` returns early for TM_RESPONSE/TM_ERROR so a reply can
+	 * self-route on the FROM breadcrumb we minted — the `Remote_Link` heartbeat
+	 * and ELN's `Discovery_Collector` both depend on it. That early return also
+	 * skips the `target` refusal below it, and every node sinks into
+	 * `_command_interpreter` and then `_router` (ADR-7), so the spoke's TO is
+	 * routed: on a live aggregator hub that is thirty names, `_router`,
+	 * `_command_interpreter` and `_fleet` among them.
+	 */
+	public function test_on_curl_message_refuses_a_reply_addressed_outside_the_allowlist(): void {
+		[ $node, $easy ] = $this->node_with_one_inflight();
+		$node->target( 'settings:tw0:null' );
+
+		$reply                   = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$reply[ Message::TO ]    = '_command_interpreter';
+		$reply[ Message::VALUE ] = [ 'name' => 'make_node', 'payload' => 'ok' ];
+
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [
+			'code' => 200,
+			'body' => Message::packed( $reply ) . "\n",
+		];
+		$sink = new Capture_Sink_Node();
+		$sink->name( '_command_interpreter' );
+		$node->sink( $sink );
+
+		$node->on_curl_message( $this->done_info( $easy ) );
+
+		$this->assertSame( [], $sink->captured, 'an undeclared destination is refused' );
+	}
+
+	/** A path the graph DECLARED still self-routes, which is the whole point. */
+	public function test_on_curl_message_admits_a_reply_on_a_declared_path(): void {
+		[ $node, $easy ] = $this->node_with_one_inflight();
+		$node->target( 'settings:tw0:null' );
+		$node->allow_replies_to( 'discovery-collector' );
+
+		$reply                   = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$reply[ Message::TO ]    = 'discovery-collector';
+		$reply[ Message::VALUE ] = [ 'name' => 'discovery', 'payload' => [] ];
+
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [
+			'code' => 200,
+			'body' => Message::packed( $reply ) . "\n",
+		];
+		$sink = new Capture_Sink_Node();
+		$sink->name( '_command_interpreter' );
+		$node->sink( $sink );
+
+		$node->on_curl_message( $this->done_info( $easy ) );
+
+		$this->assertSame( 'discovery-collector', $sink->captured[0][ Message::TO ] ?? null );
+	}
+
+	/** A DEEPER path under a declared head still routes: the head is what Router peels. */
+	public function test_on_curl_message_admits_a_deeper_path_under_a_declared_head(): void {
+		[ $node, $easy ] = $this->node_with_one_inflight();
+		$node->target( 'settings:tw0:null' );
+		$node->allow_replies_to( 'vault:test:in' );
+
+		$reply                  = Message::new_message();
+		$reply[ Message::TYPE ] = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$reply[ Message::TO ]   = 'vault:test:in/spoke-01';
+
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [
+			'code' => 200,
+			'body' => Message::packed( $reply ) . "\n",
+		];
+		$sink = new Capture_Sink_Node();
+		$sink->name( '_command_interpreter' );
+		$node->sink( $sink );
+
+		$node->on_curl_message( $this->done_info( $easy ) );
+
+		$this->assertSame( 'vault:test:in/spoke-01', $sink->captured[0][ Message::TO ] ?? null );
+	}
+
 	/** No target: neither arm engages, so existing graphs are untouched. */
 	public function test_on_curl_message_passes_an_unaddressed_non_response_when_no_target(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();
@@ -426,6 +506,7 @@ class HttpOutTest extends TestCase {
 	 */
 	public function test_on_curl_message_stamps_our_name_on_an_inbound_from(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();
+		$node->allow_replies_to( 'hub-control' );
 
 		$reply                   = Message::new_message();
 		$reply[ Message::TYPE ]  = Message::TM_RESPONSE;
@@ -446,6 +527,7 @@ class HttpOutTest extends TestCase {
 	/** An error is a reply too, and needs the same path back out. */
 	public function test_on_curl_message_stamps_our_name_on_an_inbound_error_from(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();
+		$node->allow_replies_to( 'hub-control' );
 
 		$reply                   = Message::new_message();
 		$reply[ Message::TYPE ]  = Message::TM_ERROR;
@@ -706,6 +788,7 @@ class HttpOutTest extends TestCase {
 	public function test_on_curl_message_forwards_a_command_error_reply(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();
 		$node->target( 'settings:tw0:null' );
+		$node->allow_replies_to( 'settings-sync' );
 
 		$reply                   = Message::new_message();
 		$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_ERROR;
@@ -735,6 +818,7 @@ class HttpOutTest extends TestCase {
 	public function test_on_curl_message_stamps_an_undirected_error_onto_the_target(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();
 		$node->target( 'settings:tw0:null' );
+		$node->allow_replies_to( 'settings-sync' );
 
 		$reply                   = Message::new_message();
 		$reply[ Message::TYPE ]  = Message::TM_ERROR;
@@ -759,6 +843,7 @@ class HttpOutTest extends TestCase {
 	public function test_on_curl_message_forwards_a_bare_error_reply(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();
 		$node->target( 'settings:tw0:null' );
+		$node->allow_replies_to( 'settings-sync' );
 
 		$reply                   = Message::new_message();
 		$reply[ Message::TYPE ]  = Message::TM_ERROR;

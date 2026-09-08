@@ -416,4 +416,14 @@ final class VaultTest extends TestCase {
 	public function test_credential_header_for_is_empty_when_a_spoke_needs_no_credential(): void {
 		$this->assertSame( '', Vault::credential_header_for( [] ) );
 	}
+	/**
+	 * `$` matches before a trailing newline; the docblock says the id stays
+	 * unquoted in an audit line and a message path, so a newline in it splits
+	 * the record it is written into. The `D` modifier is the whole fix.
+	 */
+	public function test_an_id_with_a_trailing_newline_is_refused(): void {
+		$this->assertFalse( Vault::is_valid_id( "spoke-one\n" ), 'a trailing newline must not pass' );
+		$this->assertTrue( Vault::is_valid_id( 'spoke-one' ), 'and the ordinary id still does' );
+	}
+
 }

@@ -576,7 +576,8 @@ class Vault {
 	 * @return bool True for 1-64 characters of letters, digits, hyphen and underscore.
 	 */
 	public static function is_valid_id( string $id ): bool {
-		return 1 === \preg_match( '/^[a-zA-Z0-9_-]{1,64}$/', $id );
+		// D: else `$` also matches before a trailing newline.
+		return 1 === \preg_match( '/^[a-zA-Z0-9_-]{1,64}$/D', $id );
 	}
 
 	/**

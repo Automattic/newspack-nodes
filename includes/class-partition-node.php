@@ -958,8 +958,15 @@ class Partition_Node extends Timer_Node {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 			@\mkdir( $this->segment_dir(), 0755, true );
 		}
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_touch, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_touch
-		if ( ! @\touch( $this->current_log_path ) ) {
+		// umask 022 would leave these world-readable, as get_handle() notes.
+		$prev_umask = \umask( 0077 );
+		try {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_touch, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_touch
+			$touched = @\touch( $this->current_log_path );
+		} finally {
+			\umask( $prev_umask );
+		}
+		if ( ! $touched ) {
 			$this->print_less_often( 'WARNING: touch() failed for ', $this->current_log_path );
 		}
 

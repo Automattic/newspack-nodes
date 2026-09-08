@@ -340,6 +340,42 @@ class RemoteLinkNodeTest extends TestCase {
 		$this->assertSame( [ 'link-northbound-9203' ], $this->reload_subscribers( $fleet ) );
 	}
 
+	/**
+	 * The patron's own name is DECLARED on its HTTP_Out, and re-declared on
+	 * every rename.
+	 *
+	 * The heartbeat reply self-routes back to `fill()` on the FROM breadcrumb
+	 * this node minted, and `HTTP_Out` admits an addressed reply only for a
+	 * declared path — so a link that did not declare itself would lose its own
+	 * RTT bookkeeping the moment the allowlist closed. `address_null_sink()`
+	 * runs on the first build and on every rename, which is why the seed rides
+	 * with the target rather than sitting in the constructor.
+	 */
+	public function test_a_link_declares_its_own_name_as_a_reply_destination(): void {
+		$this->seed_vault();
+		[ $node ] = $this->make_link( 'link-southbound-4471' );
+		( new \ReflectionMethod( $node, 'ensure_patrons' ) )->invoke( $node );
+
+		$dumped = static function ( string $link ): string {
+			$http = \Newspack_Nodes\Core::node( $link . ':http-out' );
+			return null === $http ? '' : $http->dump_config();
+		};
+
+		$this->assertStringContainsString(
+			'allow_replies_to link-southbound-4471',
+			$dumped( 'link-southbound-4471' ),
+			'the first build declares the patron'
+		);
+
+		$node->name( 'link-northbound-9203' );
+
+		$this->assertStringContainsString(
+			'allow_replies_to link-northbound-9203',
+			$dumped( 'link-northbound-9203' ),
+			'and the rename re-declares it'
+		);
+	}
+
 	public function test_a_renamed_link_unregisters_from_reload_on_teardown(): void {
 		$fleet = $this->mount_fleet();
 		$this->seed_vault();

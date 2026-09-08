@@ -215,7 +215,8 @@ class Command_Interpreter_Node extends Node {
 			return;
 		}
 
-		if ( ( $type & Message::TM_COMMAND ) && ! ( $type & Message::TM_RESPONSE ) && '' === $message[ Message::TO ] ) {
+		// TM_ERROR is a reply, as is_request_command() already says.
+		if ( ( $type & Message::TM_COMMAND ) && ! ( $type & ( Message::TM_RESPONSE | Message::TM_ERROR ) ) && '' === $message[ Message::TO ] ) {
 			$this->interpret( $message );
 			return;
 		}

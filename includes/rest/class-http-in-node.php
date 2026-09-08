@@ -278,8 +278,10 @@ class HTTP_In_Node extends Node {
 		// Route the batch in order through the base interpreter (serial).
 		$out->reset();
 		foreach ( $messages as $message ) {
-			// Stamp with _output constant, not $this->name (pre-built differs).
-			$this->stamp_message( $message, Node_Names::OUTPUT );
+			// Stamp with _output; a refusal means the boundary drops it.
+			if ( ! $this->stamp_message( $message, Node_Names::OUTPUT ) ) {
+				continue;
+			}
 			// Ingress does NOT sign: authority comes from the minter.
 			$base_interpreter->fill( $message );
 		}
