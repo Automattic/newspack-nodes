@@ -67,35 +67,6 @@ class TTY_Out_Node extends Stdout_Node {
 	private ?Shell_Node $shell = null;
 
 	/**
-	 * Whether the owned stream is a real terminal, settled once at
-	 * construction. False sends every write down the plain parent path, since
-	 * ANSI escapes are noise in a pipe or a file.
-	 */
-	private bool $stdout_is_tty;
-
-	/**
-	 * Take the stream over from `Stdout_Node` and settle the TTY question once.
-	 *
-	 * Production reads `posix_isatty()`. Tests pass `$force_tty` because a
-	 * `php://memory` stream is never a terminal, and forcing it true is the only
-	 * way to exercise the redraw against a buffer the test can read back.
-	 *
-	 * @param resource|null $stdout    Defaults to STDOUT. Pass php://memory for tests.
-	 * @param bool|null     $force_tty Override the posix_isatty() detection; null detects.
-	 */
-	public function __construct( $stdout = null, ?bool $force_tty = null ) {
-		parent::__construct( $stdout );
-
-		if ( null !== $force_tty ) {
-			$this->stdout_is_tty = $force_tty;
-		} else {
-			$this->stdout_is_tty = \is_resource( $this->stdout )
-				&& \function_exists( 'posix_isatty' )
-				&& @\posix_isatty( $this->stdout );
-		}
-	}
-
-	/**
 	 * Point the writer at the Shell it reads the live prompt from. Wired after
 	 * construction because `CLI_Command::build_repl_graph()` mounts this writer
 	 * before the Shell exists.
@@ -136,11 +107,23 @@ class TTY_Out_Node extends Stdout_Node {
 	 * than through an `fwrite` of its own, so a test holding this node's stream
 	 * keeps prompts out of phpunit's output.
 	 *
-	 * @param string $prompt Prompt text, written verbatim.
+	 * The prompt is untrusted text: `Dumper_Node::fill()` writes
+	 * `Shell_Node::$prompt` from an attached worker's `prompt` response, and
+	 * `prompt_is_trusted()` weighs only WHO sent it, never what it says. So it
+	 * is rendered here like any other payload, which the bypass would otherwise
+	 * skip.
+	 *
+	 * It is rendered BARE even on a terminal, as it is at every other site that
+	 * draws this prompt. Reverse video is how the renderer calls out an anomaly
+	 * inside data the operator is reading; the prompt is chrome, redrawn on
+	 * every async write, so highlighting there is constant noise rather than a
+	 * signal. One prompt, one appearance, and that appearance is plain.
+	 *
+	 * @param string $prompt Prompt text, control characters not yet rendered.
 	 */
 	public function write_prompt( string $prompt ): void {
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
-		\fwrite( $this->stdout, $prompt );
+		\fwrite( $this->stdout, Core::terminal_safe( $prompt, false ) );
 		$this->prompt_displayed = true;
 	}
 
@@ -158,7 +141,16 @@ class TTY_Out_Node extends Stdout_Node {
 	 * prompt drawn behind it would sit mid-line. Tachikoma's `Dumper.pm` gates
 	 * `update_prompt` on the same trailing newline.
 	 *
-	 * @param string $text Bytes to write, exactly as they should appear.
+	 * The payload and the re-issued prompt are both rendered on the way in, and
+	 * the escape sandwich is composed around them afterwards: the ANSI this node
+	 * writes deliberately is its own, and nothing arriving here may add to it.
+	 * The plain path renders in `parent::write()` instead, so neither text is
+	 * rendered twice. The payload keeps reverse video on a terminal; the prompt
+	 * goes bare, matching what `write_prompt()` and readline's own install put
+	 * on screen, so a forced redisplay cannot make the prompt flicker between
+	 * two looks.
+	 *
+	 * @param string $text Bytes to write, control characters not yet rendered.
 	 */
 	protected function write( string $text ): void {
 		if ( ! $this->stdout_is_tty || ! $this->prompt_displayed || null === $this->shell ) {
@@ -168,8 +160,9 @@ class TTY_Out_Node extends Stdout_Node {
 
 		$prompt = '';
 		if ( \str_ends_with( $text, "\n" ) ) {
-			 $prompt = $this->shell->prompt;
+			 $prompt = Core::terminal_safe( $this->shell->prompt, false );
 		}
+		$text = Core::terminal_safe( $text, true );
 
 		// The cli owns this terminal stream, not a WP-Filesystem path.
 		// phpcs:disable WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite

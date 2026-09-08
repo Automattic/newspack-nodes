@@ -358,7 +358,7 @@ class Settings_Schema {
 					default: [],
 					ui: false,
 				),
-				// Login allow-list narrowing admin access; empty = no filter.
+				// Login allow-list narrowing every role; empty = no filter.
 				new Field(
 					key: 'allowed_users',
 					type: 'array_strings',

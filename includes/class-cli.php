@@ -72,8 +72,8 @@ class CLI {
 		if ( ! \is_dir( $lock_dir )
 			&& ! ( new Spawn_Coordinator( $this->base_dir ) )->wake_sleeping_worker( $worker_id, Core::right_now() ) ) {
 			throw new \InvalidArgumentException(
-				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- terminal message, not HTML; cli_safe() strips control chars, and esc_html() would render the quotes as &#039;.
-				"no worker '" . self::cli_safe( $worker_id ) . "' (run `wp nodes status` to list active workers)"
+				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- terminal message, not HTML; terminal_safe() renders control chars, and esc_html() would render the quotes as &#039;.
+				"no worker '" . Core::terminal_safe( $worker_id ) . "' (run `wp nodes status` to list active workers)"
 			);
 		}
 		return [
@@ -97,8 +97,8 @@ class CLI {
 	 */
 	public static function parse_worker_id( string $worker_id ): array {
 		if ( ! \preg_match( '/^(.+)\.p(\d+)$/D', $worker_id, $m ) ) {
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- terminal message, not HTML; cli_safe() strips control chars, and esc_html() would mangle the text.
-			throw new \InvalidArgumentException( 'invalid reader id: ' . self::cli_safe( $worker_id ) . ' (expected {type}.p{N})' );
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- terminal message, not HTML; terminal_safe() renders control chars, and esc_html() would mangle the text.
+			throw new \InvalidArgumentException( 'invalid reader id: ' . Core::terminal_safe( $worker_id ) . ' (expected {type}.p{N})' );
 		}
 		return [ $m[1], (int) $m[2] ];
 	}
@@ -349,25 +349,11 @@ class CLI {
 		$value = Command_Args::option_int( $assoc_args, $key, $fallback, $allow_zero );
 		if ( null === $value ) {
 			$bound = $allow_zero ? 'non-negative' : 'positive';
-			\WP_CLI::error( "--{$key} must be a {$bound} integer; got: " . self::cli_safe( Core::as_string( $assoc_args[ $key ] ) ) );
+			\WP_CLI::error( "--{$key} must be a {$bound} integer; got: " . Core::terminal_safe( Core::as_string( $assoc_args[ $key ] ) ) );
 			// The real error() exits; a stub returning must not fall through.
 			throw new \RuntimeException( \esc_html( "invalid --{$key}" ) );
 		}
 		return $value;
-	}
-
-	/**
-	 * Make an untrusted token safe to echo in a TERMINAL error message: strip C0
-	 * control characters + DEL so a crafted one can't inject an ANSI / escape
-	 * sequence, while keeping the printable text and the message's literal
-	 * quotes. This is terminal sanitization, not HTML output — esc_html() is the
-	 * wrong tool here (it renders `'` as `&#039;` in the shell).
-	 *
-	 * @param string $worker_id Untrusted text — a worker id, or an operator-supplied flag value.
-	 * @return string The same text with the control characters removed.
-	 */
-	private static function cli_safe( string $worker_id ): string {
-		return (string) \preg_replace( '/[\x00-\x1F\x7F]/', '', $worker_id );
 	}
 
 	/**

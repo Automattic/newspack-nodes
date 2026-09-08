@@ -824,16 +824,45 @@ class ShellTest extends TestCase {
 		$this->assertSame( 0, $capture->dumper->debug_level(), 'toggle back 1→0' );
 	}
 
-	public function test_parse_clear_emits_the_terminal_erase_sequence(): void {
-		// QoL parity with the browser REPL's Ctrl-L. A terminal has no
-		// transcript to wipe, so the wipe is output: erase display, home cursor.
+	public function test_parse_clear_sends_no_message_down_the_rendering_path(): void {
+		// `clear` composes its own control sequence, so it takes the raw seam
+		// rather than minting a Message that Stdout_Node::write() would render.
 		$capture = $this->register_output_capture();
 
 		$shell = new Shell_Node();
 
 		$this->assertNull( $shell->parse( 'clear' ), 'clear sends no Message' );
-		$this->assertNotEmpty( $capture->captured, 'clear printed nothing' );
-		$this->assertSame( "\033[2J\033[H", $capture->captured[0][ Message::VALUE ] );
+		$this->assertSame( [], $capture->captured, 'clear must not take the rendering path' );
+	}
+
+	public function test_parse_clear_reaches_the_terminal_as_raw_escape_bytes(): void {
+		// QoL parity with the browser REPL's Ctrl-L: erase display, home cursor.
+		// Capture_Stdout_Node overrides fill(), so a message-level assertion
+		// never reaches Stdout_Node::write(), where the rendering lives — which
+		// is why this drives a REAL Stdout_Node over a memory stream instead.
+		$mem    = \fopen( 'php://memory', 'r+' );
+		$stdout = new \Newspack_Nodes\Stdout_Node( $mem, true );
+		$stdout->name( Node_Names::STDOUT );
+
+		$shell = new Shell_Node();
+		$this->assertNull( $shell->parse( 'clear' ) );
+
+		\rewind( $mem );
+		$this->assertSame( "\033[2J\033[H", \stream_get_contents( $mem ) );
+	}
+
+	public function test_parse_print_still_renders_control_bytes_at_the_terminal(): void {
+		// The bypass is the `clear` builtin's alone: `print` echoes whatever the
+		// operator typed, so it stays on the rendering path.
+		$mem    = \fopen( 'php://memory', 'r+' );
+		$stdout = new \Newspack_Nodes\Stdout_Node( $mem, false );
+		$stdout->name( Node_Names::STDOUT );
+
+		$shell = new Shell_Node();
+		$this->assertNull( $shell->parse( "print sump\x1B[2Jgraben" ) );
+
+		\rewind( $mem );
+		$this->assertSame( 'sump<1B>[2Jgraben', \stream_get_contents( $mem ) );
 	}
 
 	public function test_parse_debug_level_with_explicit_argument_sets(): void {

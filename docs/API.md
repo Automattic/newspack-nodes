@@ -32,9 +32,9 @@ even the gate.
 Two HTTP entry points sit outside the namespace. The settings page posts to
 WordPress's `admin-post.php` under the actions `newspack_nodes_reset_settings`
 and `newspack_nodes_flush_cache`, each gated by its own nonce and by
-`Admin::current_user_allowed()` — the MANAGE role, narrowed further by the
-`allowed_users` config list — and each answering with a redirect back to the
-settings page.
+`Capabilities::can( MANAGE )` — the MANAGE role, which the `allowed_users`
+config list narrows for every surface — and each answering with a redirect back
+to the settings page.
 
 The substrate is also its own client. `HTTP_Out_Node` POSTs batched JSONL
 command envelopes to a remote spoke's `/command` (`COMMAND_PATH`) and

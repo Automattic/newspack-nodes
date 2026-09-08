@@ -214,13 +214,19 @@ class TTY_In_Node extends Stdin_Node {
 	 * buffer chews back through the prompt text. Marking the prompt on the
 	 * TTY_Out is what makes an async reply wipe and redraw around it instead of
 	 * writing over it.
+	 *
+	 * An attached worker's `prompt` response writes `Shell_Node::$prompt`, so
+	 * readline is handed untrusted text and prints it to the terminal itself.
+	 * The rendering is unconditionally off a terminal: readline counts the
+	 * prompt's display width, and an ANSI run it cannot see past would leave the
+	 * line editor miscounting every keystroke.
 	 */
 	private function install_handler(): void {
 		$install = self::$readline_handler_install ?? static function ( string $prompt, callable $cb ): void {
 			\readline_callback_handler_install( $prompt, $cb );
 		};
 		$install(
-			$this->shell->prompt,
+			Core::terminal_safe( $this->shell->prompt ),
 			fn ( ?string $line ) => $this->handle_readline_line( $line )
 		);
 		$this->out->mark_prompt_displayed();

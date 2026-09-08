@@ -35,6 +35,44 @@ class Core {
 	private const SECRET_NAME_PATTERNS = [ 'password', 'passwd', 'secret', 'token', 'credential', 'api_key', 'apikey', 'private_key' ];
 
 	/**
+	 * The bytes `terminal_safe()` renders: the C0 controls, DEL, and the C1
+	 * range 0x80-0x9F. Tab (0x09) and newline (0x0A) are the deliberate
+	 * omissions. Both patterns below are built from this one class so they
+	 * cannot drift.
+	 *
+	 * The threat model is a terminal in UTF-8 MODE, which is what every
+	 * terminal reading these logs runs. Under it a 0x80-0x9F byte reaches this
+	 * class only when no well-formed sequence claims it, because CONTROL_SCAN
+	 * tries the sequence branches first — so what renders here is a byte that
+	 * decodes to nothing, and rendering it costs no legible text.
+	 *
+	 * A terminal OUTSIDE that mode is out of scope, and cannot be brought into
+	 * it. It reads the same byte as 8-bit CSI or OSC wherever it sits,
+	 * including inside a character a UTF-8 terminal decodes as text, so serving
+	 * both would mean rendering every high byte and mangling all non-ASCII
+	 * text. The two modes disagree about what identical bytes MEAN; this code
+	 * answers for one of them.
+	 */
+	private const CONTROL_CLASS = '[\x00-\x08\x0B-\x1F\x7F-\x9F]';
+
+	/** Detection test: does this text hold any byte worth a render pass at all? */
+	private const CONTROL_CHARS = '/' . self::CONTROL_CLASS . '/';
+
+	/**
+	 * Render pass, ordered by what a UTF-8-mode terminal ACTS on.
+	 * `\xC2[\x80-\x9F]` leads, because it encodes exactly the C1 block and such
+	 * a terminal acts on the codepoint it decodes to — VTE dispatches U+009B
+	 * from its ground state straight into CSI_ENTRY — so it renders as that
+	 * codepoint. The three general sequence branches follow, so a 0x80-0x9F
+	 * byte sitting inside any OTHER well-formed character is claimed by that
+	 * character and returned untouched: `\xC3\x9B` decodes to `Û`, which is
+	 * text, so `terminal_safe("\xC3\x9B2J")` correctly returns its input
+	 * byte-identical. Only a byte belonging to no sequence falls through to the
+	 * control class and renders.
+	 */
+	private const CONTROL_SCAN = '/\xC2[\x80-\x9F]|[\xC2-\xDF][\x80-\xBF]|[\xE0-\xEF][\x80-\xBF]{2}|[\xF0-\xF4][\x80-\xBF]{3}|' . self::CONTROL_CLASS . '/';
+
+	/**
 	 * Topology `<ns:key>` token resolvers, keyed by namespace and registered at
 	 * boot through `register_config_namespace()`.
 	 *
@@ -546,6 +584,85 @@ class Core {
 			\CURLOPT_SSL_VERIFYHOST    => self::$verify_spawn_tls ? 2 : 0,
 			\CURLOPT_SSL_VERIFYPEER    => self::$verify_spawn_tls,
 		];
+	}
+
+	/**
+	 * Render the control characters in untrusted text as visible `<XX>` tokens,
+	 * so a log line, a worker id or a flag value cannot drive the terminal it is
+	 * printed on. A visitor controls the URL, Referer and User-Agent a notice
+	 * copies into `debug.log`, and `taillog debug` puts that line in front of an
+	 * operator: raw, an `\033]0;…\007` sets the window title, a `\r` rewrites the
+	 * line the operator already read, and `\033[2J` clears the screen.
+	 *
+	 * It RENDERS rather than refuses, and rather than strips. A log tail
+	 * legitimately holds whatever the log holds, so refusing the line — the
+	 * choice `Health_Probe_Client::valid_result()` makes for its fixed-shape
+	 * health string — would withhold the very evidence the operator opened the
+	 * tail for, and stripping the byte would hide the attack from the person
+	 * reading it. The token shows exactly what the file contained.
+	 *
+	 * Newline and tab pass through: a tail whose newlines read `<0A>` is one
+	 * useless line, and tabs carry the column structure. `\r` does NOT — it is
+	 * the line-rewriting primitive this exists for. A well-formed NON-control
+	 * character passes through byte-identical, a 0x80-0x9F continuation byte
+	 * inside it included. The C1 block is the exception on both counts: a lone
+	 * 0x80-0x9F byte is 8-bit CSI or OSC on an xterm, rxvt or screen outside
+	 * UTF-8 mode, and its two-byte `\xC2` encoding is the same control to a
+	 * terminal IN that mode, which acts on the codepoint rather than the bytes
+	 * carrying it. Both render as the codepoint — `<9B>`, never `<C2><9B>`.
+	 *
+	 * @param string $text   Untrusted text on its way to a terminal.
+	 * @param bool   $is_tty Whether the destination stream is a real terminal;
+	 *                       true wraps each token in reverse video, false emits
+	 *                       the bare token so a pipe, a file or a test capture
+	 *                       carries no ANSI at all.
+	 * @throws \RuntimeException When the render pass fails: returning '' there
+	 *                           would drop the line the tail was opened to show.
+	 */
+	public static function terminal_safe( string $text, bool $is_tty = false ): string {
+		// Fast path: most lines carry nothing to render, and allocate nothing.
+		if ( ! \preg_match( self::CONTROL_CHARS, $text ) ) {
+			return $text;
+		}
+		$open     = $is_tty ? "\033[7m" : '';
+		$close    = $is_tty ? "\033[27m" : '';
+		$rendered = \preg_replace_callback(
+			self::CONTROL_SCAN,
+			static function ( array $m ) use ( $open, $close ): string {
+				$codepoint = self::control_codepoint( $m[0] );
+				return null === $codepoint
+					? $m[0]
+					: $open . \sprintf( '<%02X>', $codepoint ) . $close;
+			},
+			$text
+		);
+		if ( null === $rendered ) {
+			throw new \RuntimeException(
+				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
+				'terminal_safe: control-character rendering failed: ' . \preg_last_error_msg()
+			);
+		}
+		return $rendered;
+	}
+
+	/**
+	 * The codepoint a CONTROL_SCAN match renders as, or null for a character
+	 * that passes through byte-identical. A lone byte is its own codepoint. Two
+	 * bytes are a whole character, and only `\xC2` with a second byte at or
+	 * below 0x9F is one — the C1 block, which a terminal in UTF-8 mode decodes
+	 * and acts on, so it renders as what it decodes to. `\xC2\xA0` is one
+	 * codepoint above that block and passes, as every longer sequence does.
+	 *
+	 * @param string $match One whole match from CONTROL_SCAN.
+	 */
+	private static function control_codepoint( string $match ): ?int {
+		if ( 1 === \strlen( $match ) ) {
+			return \ord( $match );
+		}
+		if ( 2 === \strlen( $match ) && 0xC2 === \ord( $match[0] ) && 0x9F >= \ord( $match[1] ) ) {
+			return \ord( $match[1] );
+		}
+		return null;
 	}
 
 	/**

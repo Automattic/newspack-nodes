@@ -915,8 +915,8 @@ const INSIGHTS_MOUNT_ID  = 'example-ai-newsletter-insights';
 // a Nodes-substrate tool, so it stands alone rather than nesting under "Nodes".
 // The callback prints only the React mount div inside the standard `.wrap`.
 function register_insights_admin_page(): void {
-	if ( ! \class_exists( '\Newspack_Nodes\Admin\Admin' )
-		|| ! \Newspack_Nodes\Admin\Admin::current_user_allowed() ) {
+	if ( ! \class_exists( '\Newspack_Nodes\Capabilities' )
+		|| ! \Newspack_Nodes\Capabilities::can( \Newspack_Nodes\Capabilities::MANAGE ) ) {
 		return;
 	}
 	\add_menu_page(
@@ -929,7 +929,7 @@ function register_insights_admin_page(): void {
 // Enqueue the bundle on that page — one call.
 function enqueue_insights_assets(): void {
 	if ( ! \class_exists( '\Newspack_Nodes\Admin\Admin' )
-		|| ! \Newspack_Nodes\Admin\Admin::current_user_allowed() ) {
+		|| ! \Newspack_Nodes\Capabilities::can( \Newspack_Nodes\Capabilities::MANAGE ) ) {
 		return;
 	}
 	\Newspack_Nodes\Admin\Admin::enqueue_react_page( [
@@ -952,7 +952,7 @@ if ( \is_admin() ) {
 
 `page` takes one slug or a list of them, which is how a single bundle covers several admin pages; the hub's tab-bundle path passes a list for exactly that. The stylesheet beside the bundle cache-busts on its own content hash rather than on that version, through **`Admin::css_cache_version( $css_path, $fallback )`** — a SCSS-only rebuild leaves both the JS hash and the plugin version untouched, so a sheet keyed on either serves from cache behind a stale `?ver=` and only a hard refresh lands the change. The registrar calls it for you on `index.css`; call it yourself for any stylesheet you enqueue outside the registrar, as pyrobase, nuclear-gyrobase and event-logger-nodes do.
 
-A standalone plugin dashboard gets its **own** top-level menu (`add_menu_page`) — it shouldn't squat inside the substrate's menus, which belong to Nodes' own tools: `Admin::MENU_SLUG` (`newspack-nodes`) for settings, `Admin::HUB_MENU_SLUG` (`newspack-nodes-hub`) for the DevTools hub that carries the Console, Overview, Jobs, Vault and the rest. If your dashboard genuinely *is* a Nodes-internal tool, register it as a `host: 'hub'` DevTools tab — `registerDevtoolsTab( { id, label, host, component, order, slug } )` from `@newspack-nodes/shared/devtools/tabRegistry` — rather than as an `add_submenu_page`. Either way, the gate above (`current_user_allowed()`) keeps visibility consistent with the substrate.
+A standalone plugin dashboard gets its **own** top-level menu (`add_menu_page`) — it shouldn't squat inside the substrate's menus, which belong to Nodes' own tools: `Admin::MENU_SLUG` (`newspack-nodes`) for settings, `Admin::HUB_MENU_SLUG` (`newspack-nodes-hub`) for the DevTools hub that carries the Console, Overview, Jobs, Vault and the rest. If your dashboard genuinely *is* a Nodes-internal tool, register it as a `host: 'hub'` DevTools tab — `registerDevtoolsTab( { id, label, host, component, order, slug } )` from `@newspack-nodes/shared/devtools/tabRegistry` — rather than as an `add_submenu_page`. Either way, the gate above (`Capabilities::can( MANAGE )`) keeps visibility consistent with the substrate.
 
 This example mounts `DebugOverlay` in §9, so its stylesheet names `newspack-nodes-graph`, and WordPress loads the two handles beneath it in the same cascade. The substrate registers three, each depending on the one before:
 

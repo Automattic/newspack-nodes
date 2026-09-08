@@ -14,9 +14,26 @@ use Newspack_Nodes\Tests\TestCase;
 class CapabilitiesTest extends TestCase {
 
 	protected function tearDown(): void {
-		$GLOBALS['_wp_test_current_user_can'] = [];
-		$GLOBALS['_wp_actions']               = [];
+		$GLOBALS['_wp_test_current_user_can']   = [];
+		$GLOBALS['_wp_test_current_user_login'] = '';
+		$GLOBALS['_wp_actions']                 = [];
+		\Newspack_Nodes\Config::reset();
 		parent::tearDown();
+	}
+
+	/**
+	 * Seed the operator allowlist and the login `can()` will match against it.
+	 * The logins are deliberately unlike every other fixture in the suite, so a
+	 * test that passes did so on this seed rather than on a leaked one.
+	 *
+	 * @param list<string> $allowed Logins the operator listed.
+	 * @param string       $login   The authenticated user's `user_login`.
+	 */
+	private function seed_allowlist( array $allowed, string $login ): void {
+		\update_option( 'newspack_nodes_allowed_users', $allowed );
+		\Newspack_Nodes\Config::reset();
+		$GLOBALS['_wp_test_current_user_can']   = [ 'manage_options' => true ];
+		$GLOBALS['_wp_test_current_user_login'] = $login;
 	}
 
 	public function test_both_roles_default_to_manage_options(): void {
@@ -103,5 +120,88 @@ class CapabilitiesTest extends TestCase {
 		);
 		$this->expectException( \InvalidArgumentException::class );
 		Capabilities::cap_for( Capabilities::TUNE );
+	}
+	// ---- allowed_users narrows the capability, not just the admin menu ----
+
+	/**
+	 * The finding: an administrator the operator deliberately kept out of
+	 * `allowed_users` still held every role, so every REST permission callback
+	 * and every gated verb admitted them.
+	 */
+	public function test_can_refuses_a_capable_user_the_allowlist_excludes(): void {
+		$this->seed_allowlist( [ 'quill', 'mercator' ], 'redshank' );
+
+		$this->assertFalse( Capabilities::can( Capabilities::READ ) );
+		$this->assertFalse( Capabilities::can( Capabilities::TUNE ) );
+		$this->assertFalse( Capabilities::can( Capabilities::MANAGE ) );
+		$this->assertNull( Capabilities::highest_held() );
+	}
+
+	public function test_can_admits_a_capable_user_the_allowlist_names(): void {
+		$this->seed_allowlist( [ 'quill', 'mercator' ], 'mercator' );
+
+		$this->assertTrue( Capabilities::can( Capabilities::READ ) );
+		$this->assertTrue( Capabilities::can( Capabilities::MANAGE ) );
+		$this->assertSame( Capabilities::MANAGE, Capabilities::highest_held() );
+	}
+
+	/** The shipped default: an empty list narrows nobody. */
+	public function test_can_ignores_an_empty_allowlist(): void {
+		$this->seed_allowlist( [], 'redshank' );
+
+		$this->assertTrue( Capabilities::can( Capabilities::READ ) );
+		$this->assertTrue( Capabilities::can( Capabilities::MANAGE ) );
+	}
+
+	/**
+	 * WP-CLI without `--user`, a worker process and WP-Cron all run with no
+	 * login. There is nothing for the list to narrow, so it does not apply —
+	 * the capability check is the whole gate on that path.
+	 */
+	public function test_can_ignores_the_allowlist_with_no_logged_in_user(): void {
+		$this->seed_allowlist( [ 'quill', 'mercator' ], '' );
+
+		$this->assertTrue( Capabilities::can( Capabilities::MANAGE ) );
+	}
+
+	/**
+	 * `can()` is reached from four REST permission callbacks and from
+	 * `Auto_Tuner_Node::fill()`. A throw out of the allowlist read is an
+	 * uncaught 500 in place of a 403 at the first, and an ADR-13 violation at
+	 * the second, so an unreadable config fails the gate CLOSED and says so.
+	 */
+	public function test_can_fails_closed_when_the_config_cannot_be_read(): void {
+		$previous = \getenv( 'LOCAL_NEWSPACK_NODES_CONF' );
+		\putenv( 'LOCAL_NEWSPACK_NODES_CONF=/nonexistent-allowlist-conf-6712.php' );
+		\Newspack_Nodes\Config::reset();
+		\Newspack_Nodes\Core::$recent_log        = [];
+		\Newspack_Nodes\Core::$recent_log_timers = [];
+		$GLOBALS['_wp_test_current_user_can']   = [ 'manage_options' => true ];
+		$GLOBALS['_wp_test_current_user_login'] = 'shearwater';
+
+		try {
+			$this->assertFalse(
+				Capabilities::can( Capabilities::MANAGE ),
+				'an unreadable config refuses the role rather than propagating'
+			);
+			$this->assertStringContainsString(
+				'allowed_users',
+				\implode( "\n", \Newspack_Nodes\Core::$recent_log ),
+				'the refusal is reported, not silent'
+			);
+		} finally {
+			\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . ( false === $previous ? '' : $previous ) );
+			\Newspack_Nodes\Config::reset();
+		}
+	}
+
+	/** A scalar `allowed_users` is a config typo, and must not fail open. */
+	public function test_can_refuses_when_a_scalar_allowlist_names_someone_else(): void {
+		\update_option( 'newspack_nodes_allowed_users', 'quill' );
+		\Newspack_Nodes\Config::reset();
+		$GLOBALS['_wp_test_current_user_can']   = [ 'manage_options' => true ];
+		$GLOBALS['_wp_test_current_user_login'] = 'redshank';
+
+		$this->assertFalse( Capabilities::can( Capabilities::MANAGE ) );
 	}
 }

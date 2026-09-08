@@ -111,4 +111,38 @@ class StdoutNodeTest extends TestCase {
 		$this->assertSame( '', $this->fill_value( $res ) );
 		\fclose( $res );
 	}
+
+	public function test_fill_renders_an_escape_byte_in_the_value_as_a_visible_token(): void {
+		// A visitor's User-Agent reaches an operator's terminal through the log
+		// tail; the escape has to arrive as text, never as an instruction.
+		$this->assertSame( '<1B>]0;quarry<07>', $this->fill_value( "\x1B]0;quarry\x07" ) );
+	}
+
+	public function test_fill_renders_a_carriage_return_in_the_value_as_a_visible_token(): void {
+		$this->assertSame( 'denied<0D>granted', $this->fill_value( "denied\rgranted" ) );
+	}
+
+	public function test_fill_leaves_newlines_and_tabs_in_the_value_alone(): void {
+		$this->assertSame( "quarry\tp4419\n", $this->fill_value( "quarry\tp4419\n" ) );
+	}
+
+	public function test_fill_writes_a_multibyte_value_byte_identical(): void {
+		$text = "\u{5834}\u{6240} caf\u{e9} \u{2713}";
+		$this->assertSame( $text, $this->fill_value( $text ) );
+	}
+
+	public function test_fill_adds_no_ansi_off_a_terminal(): void {
+		// A php://memory stream is no terminal, so the token stands alone.
+		$this->assertStringNotContainsString( "\033[7m", $this->fill_value( "\x1Bx" ) );
+	}
+
+	public function test_write_raw_puts_control_bytes_on_the_stream_unrendered(): void {
+		// The one bypass around the rendering, for a caller composing a control
+		// sequence on purpose. Everything on the message path keeps rendering.
+		$mem  = \fopen( 'php://memory', 'r+' );
+		$node = new Stdout_Node( $mem, true );
+		$node->write_raw( "\033[2J\033[H" );
+		\rewind( $mem );
+		$this->assertSame( "\033[2J\033[H", \stream_get_contents( $mem ) );
+	}
 }

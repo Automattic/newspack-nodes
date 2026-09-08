@@ -625,6 +625,27 @@ class CliTest extends TestCase {
 		}
 	}
 
+	public function test_require_flag_int_renders_control_bytes_in_the_rejected_value(): void {
+		// The refusal is echoed to a terminal; a stripped byte would hide from
+		// the operator what was actually in the flag.
+		$GLOBALS['_test_wp_cli_errors'] = [];
+		try {
+			CLI::require_flag_int( [ 'partition' => "4419\x1B[2J" ], 'partition', -7 );
+			$this->fail( 'a malformed operator flag must not resolve to a partition' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertStringContainsString(
+				'got: 4419<1B>[2J',
+				$GLOBALS['_test_wp_cli_errors'][0] ?? ''
+			);
+		}
+	}
+
+	public function test_parse_worker_id_renders_control_bytes_in_the_refusal(): void {
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'invalid reader id: quarry<0D>granted' );
+		CLI::parse_worker_id( "quarry\rgranted" );
+	}
+
 	public function test_require_flag_int_errors_on_zero_when_zero_is_disallowed(): void {
 		$GLOBALS['_test_wp_cli_errors'] = [];
 		try {

@@ -191,15 +191,15 @@ reason. Catch it, or let the surrounding controller's catch own it.
     to whoever resolves the name — for the companion-index formatters, to
     `Partition_Node::with_index()`.
 
-    Four `Admin\Admin` statics are the admin half of the same contract.
+    Three `Admin\Admin` statics are the admin half of the same contract.
     `enqueue_react_page()` is the registrar every consumer dashboard enqueues
     through, and returns null rather than enqueueing when the build is absent.
     `css_cache_version()` versions a stylesheet on its content hash, so a
     SCSS-only rebuild lands instead of serving from cache behind an unchanged
-    `?ver=`. `current_user_allowed()` is the MANAGE capability narrowed by the
-    `allowed_users` list. `devtools_overlay_pages()` collects the page slugs a
+    `?ver=`. `devtools_overlay_pages()` collects the page slugs a
     bundle contributing an overlay tab must enqueue on, so an overlay embedded
-    by one plugin still shows another's tab. Nuclear-gyrobase calls
+    by one plugin still shows another's tab. The gate a consumer's own menu asks
+    is `Capabilities::can( MANAGE )`, item 12 below. Nuclear-gyrobase calls
     `css_cache_version()` with no `class_exists()` guard, so withdrawing one is
     a fatal rather than a degradation.
 11. **The cooperative stop.** `Worker_Should_Stop`, its
@@ -212,6 +212,27 @@ reason. Catch it, or let the surrounding controller's catch own it.
     that name fails SILENTLY: a `catch` on a class that no longer exists never
     matches, the broad `catch ( \Throwable )` behind it swallows the stop,
     nothing fatals, nothing logs, and the worker runs past its deadline.
+12. **The capability gate.** The three role constants `Capabilities::READ`,
+    `TUNE` and `MANAGE`, and the three entry points a consumer reaches them
+    through: `can( $role )`, the boolean a menu, a REST `permission_callback`
+    or a request-path decision asks; `require( $role )`, which throws the
+    refusal `Command_Interpreter_Node::interpret()` wraps as
+    TM_COMMAND|TM_ERROR; and `cap_for( $role )`, the WP capability a consumer
+    hands `add_menu_page()` so its own pages open to exactly the holders the
+    substrate admits. The constants are wire-adjacent rather than internal:
+    every `capability` in a consumer's `node_schema()['commands']` is one of
+    the three, and `Service_CI_Node` reads them out of the INSTALLED substrate.
+    `can()` also applies the operator's `allowed_users` list, and returns false
+    rather than throwing when the config behind that list will not load — a
+    permission callback answers 403 instead of 500, and a `fill()` on the
+    request path keeps [ADR-13](architecture-decisions.md#adr-13-fill-returns-nothing).
+
+    `$session_scope` and the `NONE` constant go with them: a consumer
+    authenticating its own credential installs the session's scope as a ceiling
+    for one command, as event-logger-nodes' `MCP_Controller` does, and NONE is
+    what a refusal installs. `highest_held()`, `scope_covers()` and
+    `operator_list_excludes()` are the substrate's own and stay outside this
+    contract.
 
 Not frozen: any class, method, JS module, dashboard markup, SCSS or option name
 absent from that list. The three `@newspack-nodes/*` build aliases — `runtime`,

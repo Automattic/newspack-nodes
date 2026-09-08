@@ -742,6 +742,137 @@ class CoreTest extends TestCase {
 	public function test_apply_midfix_with_no_text_returns_the_bare_midfix(): void {
 		$this->assertSame( 'zebra: ', Core::apply_midfix( 'zebra: ', null ) );
 	}
+
+	// ── terminal_safe (control-character rendering for a TTY) ─────────────
+
+	public function test_terminal_safe_returns_a_clean_string_unchanged(): void {
+		$this->assertSame( 'quarry 4419 ok', Core::terminal_safe( 'quarry 4419 ok' ) );
+	}
+
+	public function test_terminal_safe_renders_an_escape_byte_as_a_visible_token(): void {
+		$this->assertSame( '<1B>[2Jquarry', Core::terminal_safe( "\x1B[2Jquarry" ) );
+	}
+
+	public function test_terminal_safe_renders_a_carriage_return_as_a_visible_token(): void {
+		// \r is the line-rewriting primitive: unrendered, `denied<CR>granted`
+		// shows the operator only the second half.
+		$this->assertSame( 'denied<0D>granted', Core::terminal_safe( "denied\rgranted" ) );
+	}
+
+	public function test_terminal_safe_passes_newline_and_tab_through_unchanged(): void {
+		// A log tail whose newlines render as <0A> is one useless line, and tabs
+		// carry the column structure of the line they sit in.
+		$this->assertSame( "quarry\tp4419\nmarl\tp8802\n", Core::terminal_safe( "quarry\tp4419\nmarl\tp8802\n" ) );
+	}
+
+	public function test_terminal_safe_renders_a_delete_byte_as_a_visible_token(): void {
+		$this->assertSame( 'marl<7F>8802', Core::terminal_safe( "marl\x7F8802" ) );
+	}
+
+	public function test_terminal_safe_renders_a_nul_byte_as_a_visible_token(): void {
+		$this->assertSame( '<00>marl', Core::terminal_safe( "\x00marl" ) );
+	}
+
+	public function test_terminal_safe_passes_non_control_multibyte_utf8_through_byte_identical(): void {
+		// A well-formed sequence encoding no control is claimed whole, so
+		// escaping its continuation bytes cannot mangle a character in the log.
+		// U+0080-U+009F is the one block this does not cover: those encode a
+		// control the terminal acts on, and render as their codepoint.
+		$text = "\u{5834}\u{6240} \u{2014} caf\u{e9} \u{2713} \u{444}";
+		$this->assertSame( $text, Core::terminal_safe( $text ) );
+	}
+
+	public function test_terminal_safe_wraps_the_token_in_reverse_video_on_a_terminal(): void {
+		$this->assertSame( "quarry\033[7m<1B>\033[27m4419", Core::terminal_safe( "quarry\x1B4419", true ) );
+	}
+
+	public function test_terminal_safe_emits_no_ansi_off_a_terminal(): void {
+		// Piped, redirected or captured by a test: the bare token and nothing else.
+		$this->assertSame( 'quarry<1B>4419', Core::terminal_safe( "quarry\x1B4419", false ) );
+	}
+
+	public function test_terminal_safe_renders_every_byte_of_a_multi_escape_run(): void {
+		$this->assertSame( '<1B><1B><08>', Core::terminal_safe( "\x1B\x1B\x08" ) );
+	}
+
+	public function test_terminal_safe_is_idempotent_off_a_terminal(): void {
+		$once = Core::terminal_safe( "marl\x1B\x0D8802" );
+		$this->assertSame( $once, Core::terminal_safe( $once ) );
+	}
+
+	public function test_terminal_safe_renders_a_lone_c1_csi_byte_as_a_visible_token(): void {
+		// A terminal outside UTF-8 mode (LANG=C) reads a bare 0x9B as 8-bit CSI,
+		// so `\x9B2J` clears the screen exactly as `\x1B[2J` does.
+		$this->assertSame( 'sump<9B>2J', Core::terminal_safe( "sump\x9B2J" ) );
+	}
+
+	public function test_terminal_safe_renders_a_lone_c1_osc_byte_as_a_visible_token(): void {
+		// 0x9D is 8-bit OSC on the same terminals: it sets the window title.
+		$this->assertSame( 'graben<9D>0;pwned', Core::terminal_safe( "graben\x9D0;pwned" ) );
+	}
+
+	public function test_terminal_safe_renders_a_utf8_encoded_c1_csi_as_its_codepoint(): void {
+		// C2 9B is well-formed UTF-8 for U+009B, and an xterm IN UTF-8 mode
+		// decodes it and acts on the CSI, so `\xC2\x9B2J` clears the screen just
+		// as the lone byte does outside UTF-8 mode. The token names the
+		// codepoint the terminal would have run, not the bytes carrying it.
+		$this->assertSame( 'drumlin<9B>2J', Core::terminal_safe( "drumlin\xC2\x9B2J" ) );
+	}
+
+	public function test_terminal_safe_renders_a_utf8_encoded_c1_osc_as_its_codepoint(): void {
+		// C2 9D is U+009D, 8-bit OSC: it sets the window title.
+		$this->assertSame( 'esker<9D>0;7731', Core::terminal_safe( "esker\xC2\x9D0;7731" ) );
+	}
+
+	public function test_terminal_safe_passes_the_character_one_codepoint_above_the_c1_block_through(): void {
+		// U+00A0 NO-BREAK SPACE is C2 A0, one codepoint past the block, and is no
+		// control at all. The BEL is there to defeat the fast path, so the render
+		// pass really runs over the A0.
+		$this->assertSame( "kame\u{00A0}moraine<07>", Core::terminal_safe( "kame\u{00A0}moraine\x07" ) );
+	}
+
+	public function test_terminal_safe_passes_c1_range_continuation_bytes_through_inside_their_character(): void {
+		// Every one of these carries a 0x80-0x9F byte INSIDE a well-formed
+		// sequence: U+1F6A8 is F0 9F 9A A8, U+2081 is E2 82 81, U+0489 is D2 89.
+		$text = "\u{1F6A8} \u{2081} \u{0489}";
+		$this->assertSame( $text, Core::terminal_safe( $text ) );
+	}
+
+	public function test_terminal_safe_passes_a_three_byte_character_carrying_a_9b_byte_through(): void {
+		// U+265B is E2 99 9B. The threat model is a UTF-8-mode terminal, which
+		// decodes that as the chess piece and acts on no control, so the 0x9B is
+		// a continuation byte here and the C1 branch must not claim it.
+		$text = "moraine\u{265B}2265";
+		$this->assertSame( $text, Core::terminal_safe( $text ) );
+	}
+
+	public function test_terminal_safe_passes_a_four_byte_character_carrying_a_9b_byte_through(): void {
+		// U+1F69B is F0 9F 9A 9B, carrying 0x9A and 0x9B as continuation bytes.
+		$text = "\u{1F69B} drumlin";
+		$this->assertSame( $text, Core::terminal_safe( $text ) );
+	}
+
+	public function test_terminal_safe_renders_a_c1_byte_left_over_from_a_truncated_sequence(): void {
+		// F0 opens a 4-byte sequence that stops after one continuation byte, so
+		// the 9F belongs to no character and renders. The lead byte is not a
+		// terminal control on any terminal and is left where it is.
+		$this->assertSame( "\xF0<9F>ok", Core::terminal_safe( "\xF0\x9Fok" ) );
+	}
+
+	public function test_terminal_safe_throws_when_the_render_pass_fails(): void {
+		// preg_replace_callback() returns null on a PCRE error, and a (string)
+		// cast would turn that into '' — the operator silently loses the very
+		// log line the tail was opened to show them.
+		$limit = \ini_get( 'pcre.backtrack_limit' );
+		\ini_set( 'pcre.backtrack_limit', '0' );
+		try {
+			$this->expectException( \RuntimeException::class );
+			$this->expectExceptionMessage( 'terminal_safe: control-character rendering failed' );
+			Core::terminal_safe( "sump\x1Bgraben" );
+		} finally {
+			\ini_set( 'pcre.backtrack_limit', false === $limit ? '1000000' : $limit );
+		}
+	}
 }
 
 /**

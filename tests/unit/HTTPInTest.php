@@ -20,8 +20,10 @@ class HTTPInTest extends TestCase {
 	private array $status_codes = [];
 
 	protected function tearDown(): void {
-		Command_Auth::$claim_nonce            = null;
-		$GLOBALS['_wp_test_current_user_can'] = [];
+		Command_Auth::$claim_nonce              = null;
+		$GLOBALS['_wp_test_current_user_can']   = [];
+		$GLOBALS['_wp_test_current_user_login'] = '';
+		\Newspack_Nodes\Config::reset();
 		parent::tearDown();
 	}
 
@@ -824,6 +826,33 @@ class HTTPInTest extends TestCase {
 		$req  = new \WP_REST_Request( 'POST' );
 
 		$this->assertTrue( $ctrl->check_permission( $req ) );
+	}
+
+	/**
+	 * The command door: an administrator the operator kept out of
+	 * `allowed_users` must not reach `/command`, whatever nonce they lifted off
+	 * a wp-admin page.
+	 */
+	public function test_check_permission_refuses_an_administrator_the_allowlist_excludes(): void {
+		$this->reset_rl_state();
+		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
+		$GLOBALS['_wp_test_current_user_id']                    = 4471;
+		$GLOBALS['_wp_test_current_user_login']                 = 'redshank';
+		\update_option( 'newspack_nodes_allowed_users', [ 'quill', 'mercator' ] );
+		\Newspack_Nodes\Config::reset();
+
+		$this->assertNotTrue( ( new HTTP_In_Node() )->check_permission( new \WP_REST_Request( 'POST' ) ) );
+	}
+
+	public function test_check_permission_admits_an_administrator_the_allowlist_names(): void {
+		$this->reset_rl_state();
+		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
+		$GLOBALS['_wp_test_current_user_id']                    = 4471;
+		$GLOBALS['_wp_test_current_user_login']                 = 'quill';
+		\update_option( 'newspack_nodes_allowed_users', [ 'quill', 'mercator' ] );
+		\Newspack_Nodes\Config::reset();
+
+		$this->assertTrue( ( new HTTP_In_Node() )->check_permission( new \WP_REST_Request( 'POST' ) ) );
 	}
 
 	public function test_check_permission_returns_429_after_burst_exceeded(): void {

@@ -337,44 +337,6 @@ class AdminTest extends TestCase {
 		$this->assertFalse( \method_exists( Admin::class, 'topologies_section_callback' ) );
 	}
 
-	// ---- current_user_allowed --------------------------------------------
-
-	public function test_current_user_allowed_requires_manage_options(): void {
-		$GLOBALS['_wp_test_current_user_can']['manage_options'] = false;
-		$this->assertFalse( Admin::current_user_allowed() );
-
-		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
-		$this->assertTrue( Admin::current_user_allowed() );
-	}
-
-	public function test_current_user_allowed_empty_whitelist_allows_any_admin(): void {
-		$this->use_base_dir( $this->base_dir, [ 'allowed_users' => [] ] );
-		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
-		$GLOBALS['_wp_test_current_user_login']                 = 'someone';
-		$this->assertTrue( Admin::current_user_allowed() );
-	}
-
-	public function test_current_user_allowed_whitelist_admits_listed_user(): void {
-		$this->use_base_dir( $this->base_dir, [ 'allowed_users' => [ 'alice', 'bob' ] ] );
-		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
-		$GLOBALS['_wp_test_current_user_login']                 = 'bob';
-		$this->assertTrue( Admin::current_user_allowed() );
-	}
-
-	public function test_current_user_allowed_whitelist_blocks_unlisted_user(): void {
-		$this->use_base_dir( $this->base_dir, [ 'allowed_users' => [ 'alice', 'bob' ] ] );
-		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
-		$GLOBALS['_wp_test_current_user_login']                 = 'carol';
-		$this->assertFalse( Admin::current_user_allowed() );
-	}
-
-	public function test_current_user_allowed_whitelist_still_requires_manage_options(): void {
-		$this->use_base_dir( $this->base_dir, [ 'allowed_users' => [ 'alice' ] ] );
-		$GLOBALS['_wp_test_current_user_can']['manage_options'] = false;
-		$GLOBALS['_wp_test_current_user_login']                 = 'alice';
-		$this->assertFalse( Admin::current_user_allowed() );
-	}
-
 	// ---- handle_reset_settings -------------------------------------------
 
 	public function test_handle_reset_settings_rejects_missing_nonce(): void {
