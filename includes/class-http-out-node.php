@@ -97,6 +97,20 @@ class HTTP_Out_Node extends Timer_Node {
 	/** Vault id whose url and credentials this node POSTs to. */
 	protected string $vault_id = '';
 
+	/**
+	 * Path HEADS a reply from the remote may address, as a set.
+	 *
+	 * A reply self-routes on the TO the remote echoed off our own FROM
+	 * breadcrumb — but the remote sets the type bit that makes it a reply, so
+	 * without this it also picks the destination, and every node sinks into
+	 * `_command_interpreter` and then `_router` (ADR-7). Empty admits nothing
+	 * addressed: an undeclared link is a closed one. `Remote_Link_Node` seeds
+	 * its own name, so a patron's heartbeat needs no declaration.
+	 *
+	 * @var array<string,true>
+	 */
+	protected array $reply_allowlist = [];
+
 	/** One handshake at a time; a held batch must not fan out N /auth POSTs. */
 	protected bool $auth_in_flight = false;
 
@@ -111,9 +125,14 @@ class HTTP_Out_Node extends Timer_Node {
 	 */
 	private static array $bodies = [];
 
-	/** Tachikoma-parity: no-arg ctor. Positional config arrives via arguments(); no I/O here (ADR-5). */
+	/**
+	 * Tachikoma-parity: no-arg ctor. Wires the sibling `:config` interpreter that
+	 * carries `allow_replies_to`; positional config arrives via arguments(); no
+	 * I/O here (ADR-5).
+	 */
 	public function __construct() {
 		parent::__construct();
+		$this->auto_wire_interpreter();
 	}
 
 	/**
@@ -450,6 +469,10 @@ class HTTP_Out_Node extends Timer_Node {
 		}
 		// A directed error is a reply too; undirected output is the target's.
 		if ( '' !== $to && $type & ( Message::TM_RESPONSE | Message::TM_ERROR ) ) {
+			if ( ! $this->reply_allowed( $to ) ) {
+				$this->drop_message( $reply, "reply addressed to {$to}; not in allow_replies_to" );
+				return false;
+			}
 			return true;
 		}
 		// Single-valued, like Tachikoma's owner; the array form is Tee's.
@@ -767,6 +790,11 @@ class HTTP_Out_Node extends Timer_Node {
 		return Vault::credential_header_for( $server );
 	}
 
+	/** Whether a reply's TO names a declared destination. */
+	private function reply_allowed( string $to ): bool {
+		return isset( $this->reply_allowlist[ \explode( '/', $to, 2 )[0] ] );
+	}
+
 	/**
 	 * Run the handshake when this spoke has no session yet.
 	 *
@@ -794,6 +822,56 @@ class HTTP_Out_Node extends Timer_Node {
 	}
 
 	/**
+	 * Declare a path a reply from the remote may address.
+	 *
+	 * Stored by HEAD segment, because that is what `Router_Node` peels: a
+	 * declared `vault:test:in` admits the `vault:test:in/spoke-01` a Test
+	 * button's echoed breadcrumb arrives on, and what the remaining path means
+	 * belongs to the node receiving it.
+	 *
+	 * @api Topology `allow_replies_to`, and Remote_Link seeding its patron.
+	 * @param string $path Reply destination to admit; a leading head is enough.
+	 */
+	public function allow_replies_to( string $path ): void {
+		$head = \explode( '/', \trim( $path ), 2 )[0];
+		if ( '' !== $head ) {
+			$this->reply_allowlist[ $head ] = true;
+		}
+	}
+
+	/**
+	 * `allow_replies_to` verb handler: declare a reply destination on the patron.
+	 *
+	 * @param Command_Interpreter_Node $interpreter The auto-wired `:config` sidecar.
+	 * @param array<array-key,mixed>   $args        Verb argument tail.
+	 * @return string
+	 * @throws \RuntimeException When no path is given.
+	 */
+	public static function cmd_allow_replies_to( Command_Interpreter_Node $interpreter, array $args ): string {
+		$path = \trim( Core::as_string( $args[0] ?? '' ) );
+		if ( '' === $path ) {
+			throw new \RuntimeException( 'usage: allow_replies_to <path>' );
+		}
+		/** @var self $patron */
+		$patron = $interpreter->patron();
+		$patron->allow_replies_to( $path );
+		return "ok\n";
+	}
+
+	/**
+	 * Replay the declared reply destinations, so the round trip rebuilds them.
+	 *
+	 * @api Used by substrate.
+	 */
+	public function dump_config(): string {
+		$out = parent::dump_config();
+		foreach ( \array_keys( $this->reply_allowlist ) as $path ) {
+			$out .= $this->config_line( 'allow_replies_to', Core::as_string( $path ) );
+		}
+		return $out;
+	}
+
+	/**
 	 * @api Dynamic entrypoint.
 	 * @return array<string,mixed>
 	 */
@@ -805,7 +883,16 @@ class HTTP_Out_Node extends Timer_Node {
 			'arguments'   => [
 				[ 'name' => 'vault_id', 'type' => 'vault_id', 'required' => true, 'description' => 'Which spoke to connect to — a Vault-registered server (URL + credentials).' ],
 			],
-			'commands'    => [],
+			'commands'    => [
+				[
+					'name'        => 'allow_replies_to',
+					'description' => 'Admit a reply from the remote addressed to this path. Empty admits nothing addressed: the remote sets the bit that makes a message a reply, so an undeclared link would let it pick any node in this graph.',
+					'args'        => [
+						[ 'name' => 'path', 'type' => 'string', 'required' => true ],
+					],
+					'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_allow_replies_to( $interpreter, $args ),
+				],
+			],
 			'requests'    => [],
 		];
 	}

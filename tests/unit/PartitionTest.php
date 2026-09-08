@@ -3882,6 +3882,40 @@ class PartitionTest extends TestCase {
 		$p->arguments( [ "{$this->tmp}.p0", '1', '2', '4', '0', '0', '86400', '0' ] );
 		$this->assertStringContainsString( "{$this->tmp}.p0 1 ", $p->dump_config() );
 	}
+	/**
+	 * A ROTATED segment is created as private as the first one.
+	 *
+	 * `get_handle()` wraps its `fopen` in `umask( 0077 )`; the rotation path
+	 * created the next segment with `touch()` outside that guard, so under the
+	 * usual 022 every segment after the first landed world-readable — and a
+	 * firehose segment carries request URLs and env values.
+	 */
+	public function test_a_rotated_segment_is_not_world_readable(): void {
+		$p = new Partition_Node();
+		// segment_size 1 forces a rotation on the second record.
+		$p->arguments( [ "{$this->tmp}.rotmode", '1', '2', '8', '0', '0', '86400', '0' ] );
+		$p->void_warranty();
+		for ( $i = 1; $i <= 6; $i++ ) {
+			$this->write_keyed( $p, "k{$i}", "value {$i}" );
+			$p->flush();
+		}
+
+		$rotated = \array_values( \array_filter(
+			(array) \glob( "{$this->tmp}.rotmode/*.log" ),
+			static fn ( $f ): bool => \basename( (string) $f ) !== '0.log'
+		) );
+		if ( [] === $rotated ) {
+			$this->fail( 'no rotation; dir held: ' . \implode( ', ', \array_map( 'basename', (array) \glob( "{$this->tmp}.rotmode/*" ) ) ) );
+		}
+		foreach ( $rotated as $file ) {
+			$this->assertSame(
+				'0600',
+				\substr( \sprintf( '%o', (int) \fileperms( (string) $file ) ), -4 ),
+				\basename( (string) $file ) . ' must not be readable by other uids'
+			);
+		}
+	}
+
 	/** Write N indexed records and return the partition over them. */
 	private function indexed_partition( string $suffix, int $count ): Partition_Node {
 		$p = new Partition_Node();

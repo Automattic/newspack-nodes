@@ -572,6 +572,8 @@ class Remote_Link_Node extends Timer_Node {
 	private function address_null_sink(): void {
 		if ( '' !== $this->name && null !== $this->http_out && null !== $this->null_sink ) {
 			$this->http_out->target( $this->null_sink->name() );
+			// The heartbeat reply self-routes here; declare it with the target.
+			$this->http_out->allow_replies_to( $this->name );
 		}
 	}
 

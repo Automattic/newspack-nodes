@@ -1094,4 +1094,40 @@ class HTTPInTest extends TestCase {
 		$GLOBALS['_wp_test_current_user_can'] = [];
 	}
 
+	/**
+	 * A FROM the boundary cannot stamp is dropped BY the boundary.
+	 *
+	 * `Node::stamp_message()` refuses when the stamped path would pass
+	 * MAX_FROM_SIZE and leaves FROM unchanged — "the caller must drop the
+	 * message on either". The Router's own length check is a layer later and
+	 * not on this path, so an unstamped FROM in the eight-byte window between
+	 * 1017 and 1024 reached the graph naming its own reply destination.
+	 */
+	public function test_dispatch_drops_a_message_it_cannot_stamp(): void {
+		$base_interpreter = $this->build_graph();
+		$capture          = new Capture_Sink_Node();
+		$capture->name( 'capture_service' );
+		$capture->sink( $base_interpreter );
+
+		// 1020 bytes: stamping adds `_output/` and passes MAX_FROM_SIZE (1024).
+		$long = \str_repeat( 'a', 1020 );
+		$req  = $this->make_request(
+			[
+				'type'  => Message::TM_COMMAND,
+				'to'    => 'capture_service',
+				'from'  => $long,
+				'sign'  => false,
+				'value' => [ 'name' => 'echo', 'arguments' => [] ],
+			]
+		);
+
+		$ctrl = new HTTP_In_Node();
+		$ctrl->set_test_mode( true );
+		\ob_start();
+		$ctrl->dispatch( $req );
+		\ob_get_clean();
+
+		$this->assertSame( [], $capture->captured, 'an unstampable path never reaches the graph' );
+	}
+
 }
