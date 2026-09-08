@@ -456,8 +456,9 @@ class HTTP_Out_Node extends Timer_Node {
 	 * then `_router` (ADR-7), so whatever it names is reached. `allow_replies_to`
 	 * is therefore the whole gate and bounds anything addressed, whatever type
 	 * bits ride with it: the remote sets those bits, so keying off them let a
-	 * spoke pick its arm out of the allowlist. Nothing declared means nothing
-	 * addressed passes. Unaddressed output — a `log` broadcast, say — is the
+	 * spoke pick its arm out of the allowlist. It matches the WHOLE path, so a
+	 * declaration admits one destination rather than a subtree. Nothing declared
+	 * means nothing addressed passes. Unaddressed output — a `log` broadcast, say — is the
 	 * target's, and with no target it goes on to the sink as it stands.
 	 *
 	 * @param array<int,mixed> $reply Reply Message, mutated in place.
@@ -787,9 +788,9 @@ class HTTP_Out_Node extends Timer_Node {
 		return Vault::credential_header_for( $server );
 	}
 
-	/** Whether a reply's TO names a declared destination. */
+	/** Whether a reply's TO is a declared destination, in full. */
 	private function reply_allowed( string $to ): bool {
-		return isset( $this->reply_allowlist[ \explode( '/', $to, 2 )[0] ] );
+		return isset( $this->reply_allowlist[ $to ] );
 	}
 
 	/**
@@ -821,28 +822,22 @@ class HTTP_Out_Node extends Timer_Node {
 	/**
 	 * Declare a path a reply from the remote may address.
 	 *
-	 * Stored by HEAD segment, because that is what `Router_Node` peels: a
-	 * declared `vault:test:in` admits the `vault:test:in/spoke-01` a Test
-	 * button's echoed breadcrumb arrives on, and what the remaining path means
-	 * belongs to the node receiving it.
-	 *
-	 * A RESERVED head is refused: `_router` reaches every node in the graph and
-	 * `_command_interpreter` runs every verb, so declaring one hands back the
-	 * addressing this list exists to bound. By prefix rather than by the
-	 * `Node_Names` list, because `_` is what marks a name reserved and nothing
-	 * routed carries one — `_http` replies are read off the response body.
+	 * The WHOLE path, matched exactly. A declared `settings-sync` admits a TO of
+	 * `settings-sync` and nothing else — not `settings-sync/x`, and not
+	 * `_router/settings-sync`. Matching the head instead would make one
+	 * declaration a prefix rule, and `_router` peels the head and dispatches on
+	 * the rest, so `allow_replies_to _router` would have re-opened the whole
+	 * graph through the list that exists to bound it. A remote that legitimately
+	 * answers on a deeper path is declared at that path.
 	 *
 	 * @api Topology `allow_replies_to`, and Remote_Link seeding its patron.
-	 * @param string $path Reply destination to admit; a leading head is enough.
-	 * @return bool True when the head was declared.
+	 * @param string $path Reply destination to admit, in full.
 	 */
-	public function allow_replies_to( string $path ): bool {
-		$head = \explode( '/', \trim( $path ), 2 )[0];
-		if ( '' === $head || \str_starts_with( $head, '_' ) ) {
-			return false;
+	public function allow_replies_to( string $path ): void {
+		$path = \trim( $path );
+		if ( '' !== $path ) {
+			$this->reply_allowlist[ $path ] = true;
 		}
-		$this->reply_allowlist[ $head ] = true;
-		return true;
 	}
 
 	/**
@@ -860,9 +855,7 @@ class HTTP_Out_Node extends Timer_Node {
 		}
 		/** @var self $patron */
 		$patron = $interpreter->patron();
-		if ( ! $patron->allow_replies_to( $path ) ) {
-			throw new \RuntimeException( "allow_replies_to: reserved name: {$path}" );
-		}
+		$patron->allow_replies_to( $path );
 		return "ok\n";
 	}
 
