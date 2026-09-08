@@ -10,8 +10,9 @@
  * the real functions read a TTY the test runner does not have.
  *
  * The reader sinks into the Shell, so the base emit primitives already deliver a
- * typed line into the parser and there is nothing here to override; the
- * `$shell` reference exists to read the live prompt. Completion rides the same
+ * typed line into the parser and `emit_line()` overrides only to retire the
+ * spent prompt first; the `$shell` reference exists to read the live prompt,
+ * and the `$out` reference to draw and retire it. Completion rides the same
  * path as anything else typed: `help` and `ls` go out through that Shell
  * carrying `KEY='completion'`, and the replies come back through the session's
  * Dumper into the candidate caches below.
@@ -143,7 +144,6 @@ class TTY_In_Node extends Stdin_Node {
 			$delivered = parent::drain_once();
 			if ( $delivered && $this->show_prompts ) {
 				// Fresh prompt after each processed line (reader parity).
-				$this->prompt_displayed = false;
 				$this->show_prompt_fallback();
 			}
 			return $delivered;
@@ -187,6 +187,25 @@ class TTY_In_Node extends Stdin_Node {
 	}
 
 	/**
+	 * Retire the prompt the operator's newline spent, then deliver the line.
+	 *
+	 * The sink runs synchronously inside the parent, so the reply to this line
+	 * is written while the call is still on the stack. Clearing first is what
+	 * keeps `TTY_Out_Node::write()` off the redraw path for that reply: the
+	 * fallback draws the next prompt once the line is dispatched, and a redraw
+	 * behind the reply would leave two on screen. Both paths retire the prompt
+	 * here and nowhere else — the readline callback only records its line, and
+	 * `drain_once()` emits it through this method.
+	 *
+	 * @param string $line One line as the reader took it.
+	 */
+	protected function emit_line( string $line ): void {
+		$this->prompt_displayed      = false;
+		$this->out->prompt_displayed = false;
+		parent::emit_line( $line );
+	}
+
+	/**
 	 * (Re-)install the readline callback handler with the real prompt.
 	 *
 	 * PHP auto-removes the handler per delivered line, so this runs again on every
@@ -210,9 +229,9 @@ class TTY_In_Node extends Stdin_Node {
 	/**
 	 * Write the prompt for the non-readline path, where nothing redraws it.
 	 *
-	 * The flag makes this idempotent: `drain_once()` clears it after each
-	 * delivered line and calls back here, so the operator gets exactly one prompt
-	 * per read however many times the drain ticks in between.
+	 * The flag makes this idempotent: `emit_line()` clears it as each line is
+	 * delivered and `drain_once()` calls back here, so the operator gets exactly
+	 * one prompt per read however many times the drain ticks in between.
 	 */
 	private function show_prompt_fallback(): void {
 		if ( $this->prompt_displayed ) {
@@ -314,8 +333,8 @@ class TTY_In_Node extends Stdin_Node {
 	 * calls this from inside `readline_callback_read_char()`, and `drain_once()`
 	 * owns what follows a line — emit, then either the EOF marker or the handler
 	 * re-install — so that sequence lives in one place instead of straddling a
-	 * callback. Clearing the TTY_Out flag marks the prompt gone: readline consumed
-	 * the line, and what the terminal now shows is the operator's own echo.
+	 * callback. Retiring the prompt belongs to that sequence too: `emit_line()`
+	 * clears the flag, and nothing writes to the TTY_Out in between.
 	 *
 	 * @param string|null $line The line readline delivered, or null at end of input.
 	 */
@@ -327,8 +346,7 @@ class TTY_In_Node extends Stdin_Node {
 		if ( '' !== $line && \function_exists( 'readline_add_history' ) ) {
 			\readline_add_history( $line );
 		}
-		$this->queue[]              = $line;
-		$this->out->prompt_displayed = false;
+		$this->queue[] = $line;
 	}
 
 	/**
