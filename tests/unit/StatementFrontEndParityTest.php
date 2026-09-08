@@ -50,7 +50,7 @@ class StatementFrontEndParityTest extends TestCase {
 			\mkdir( $this->statements_dir(), 0755, true );
 		}
 		foreach ( $this->tsl_fixtures() as $name => $path ) {
-			$statements = Shell_Node::parse_statements( (string) \file_get_contents( $path ) );
+			$statements = self::without_lines( Shell_Node::parse_statements( (string) \file_get_contents( $path ) ) );
 			$json_path  = $this->statements_dir() . "/{$name}.json";
 			if ( $regen ) {
 				\file_put_contents(
@@ -63,7 +63,7 @@ class StatementFrontEndParityTest extends TestCase {
 				$json_path,
 				"missing statement fixture for {$name}; regenerate with NEWSPACK_NODES_REGEN_STATEMENTS=1"
 			);
-			$expected = \json_decode( (string) \file_get_contents( $json_path ), true );
+			$expected = self::without_lines( (array) \json_decode( (string) \file_get_contents( $json_path ), true ) );
 			$this->assertSame( $expected, $statements, "PHP front-end drifted from committed fixture {$name}.json" );
 		}
 		if ( $regen ) {
@@ -72,4 +72,27 @@ class StatementFrontEndParityTest extends TestCase {
 			$this->markTestIncomplete( 'statement fixtures regenerated; rerun WITHOUT the env var to pin them' );
 		}
 	}
+	/**
+	 * The statement list with each `line` dropped.
+	 *
+	 * The pin is on what the two front ends PARSE — the verb, its arguments and
+	 * the raw text. A line NUMBER is diagnostic only, and pinning it made every
+	 * comment edit in a shipped `.tsl` a fixture regeneration, which is churn
+	 * standing between an author and a comment rather than a guarantee.
+	 *
+	 * @param array<int,mixed> $statements Parsed statement list.
+	 * @return array<int,mixed>
+	 */
+	private static function without_lines( array $statements ): array {
+		return \array_map(
+			static function ( $statement ) {
+				if ( \is_array( $statement ) ) {
+					unset( $statement['line'] );
+				}
+				return $statement;
+			},
+			$statements
+		);
+	}
+
 }

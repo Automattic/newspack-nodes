@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **A per-spoke egress needs a target AND a declaration.** With no target set, `accept_inbound()` passes an addressed message from the remote whatever it carries, so a target-less egress admits MORE than a declared one — point it at a Null, as `Remote_Link_Node` does for its own patron.
   **Operator action required on any hand-wired `HTTP_Out`.** A per-spoke egress created from the topology console — the shape `settings-sync.tsl` documents — carries no declaration and will drop its acks until one is added: `cmd <name>:config allow_replies_to settings-sync` and, on a hub running the event logger's `hub-control`, `allow_replies_to discovery-collector`.
 
+### Changed
+
+- **The cross-language statement pin no longer pins line NUMBERS.** `tests/fixtures/statements/*.json` are the golden the PHP `StatementFrontEndParityTest` and the JS `parse-statements.fixture.test.js` both hold their front end to. They carried each statement's `line`, so editing a COMMENT in a shipped `.tsl` failed both suites and demanded a fixture regeneration — churn standing between an author and a comment rather than a guarantee. Both halves now drop `line` before comparing. The parser still emits it and `Shell_Node` still accumulates it; it is diagnostic, and what the pin is for is the verb, its arguments and the raw text.
+
 ### Fixed
 
 - **A rotated segment was created world-readable.** `get_handle()` wraps its `fopen` in `umask( 0077 )`; the rotation path created the next segment with `touch()` outside that guard, so under the usual 022 every segment after the first landed `0644` — and a firehose segment carries request URLs and environment values. Confirmed live before the fix: `firehose.p0/1520.log` was `-rw-r--r--` while the same partition's first segment was `-rw-------`, and a read as another uid returned a real record.
