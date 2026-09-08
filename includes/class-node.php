@@ -435,13 +435,12 @@ class Node {
 		$target = Core::node( $listener );
 		if ( null === $target ) {
 			$this->print_less_often( "WARNING: $listener forgot to unregister from $event on " . $this->name );
-			return false; // Drop the dead registration.
+			return false;
 		}
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_INFO;
 		$message[ Message::FROM ]  = $this->name;
 		$message[ Message::KEY ]   = $event;
-		// Never null — TM_INFO VALUEs are strings.
 		$message[ Message::VALUE ] = $payload ?? '';
 		$target->fill( $message );
 		return true;
@@ -459,10 +458,7 @@ class Node {
 		$type     = Core::num_int( $type_raw );
 		$labels   = Message::type_labels( $type );
 		$type_str = empty( $labels ) ? 'TYPE_UNKNOWN' : \implode( '|', $labels );
-
-		// NOT_AVAILABLE keeps no "WARNING:" prefix (matches Perl drop_message).
 		$prefix   = 'NOT_AVAILABLE' === $error ? $error : "WARNING: $error";
-		// A REMOTE-set bitmask: in the head it was 2048 throttle keys.
 		$parts    = [ "$prefix -", $type_str ];
 		$from     = Core::as_string( $message[ Message::FROM ] );
 		if ( '' !== $from ) {
@@ -474,16 +470,12 @@ class Node {
 		}
 		$value = $message[ Message::VALUE ];
 		if ( ( $type & self::PAYLOAD_TYPES ) && '' !== $value ) {
-			// @longform json-encode array VALUEs, substituting bad bytes: this
-			// line IS the drop diagnostic, so a blank payload hides the cause.
 			$redacted  = self::redact_secrets( $value );
 			$value_str = \is_array( $redacted )
 				? (string) \wp_json_encode( $redacted, \JSON_UNESCAPED_SLASHES | \JSON_INVALID_UTF8_SUBSTITUTE )
 				: Core::as_string( $redacted );
 			$parts[] = 'payload: ' . $value_str;
 		}
-
-		// Key on the REASON alone; the tail prints once, unkeyed.
 		$head = \array_shift( $parts );
 		$this->print_less_often( $head, ' ' . \implode( ' ', $parts ) );
 	}
@@ -565,14 +557,12 @@ class Node {
 	public function dump_config(): string {
 		$short = Command_Interpreter_Node::shell_name_for( $this );
 		$out   = self::command_line( 'make_node', $short, $this->name, ...$this->arguments );
-
 		if ( null !== $this->sink ) {
 			$sink_name = $this->sink->name();
 			if ( '' !== $sink_name && Node_Names::COMMAND_INTERPRETER !== $sink_name ) {
 				$out .= self::command_line( 'set_sink', $this->name, $sink_name );
 			}
 		}
-
 		if ( \is_array( $this->target ) ) {
 			foreach ( $this->target as $owner ) {
 				$out .= self::command_line( 'connect_node', $this->name, $owner );
@@ -580,8 +570,6 @@ class Node {
 		} elseif ( '' !== $this->target ) {
 			$out .= self::command_line( 'connect_node', $this->name, $this->target );
 		}
-
-		// Verb-configured nodes override dump_config() to emit their own lines.
 		return $out;
 	}
 
@@ -642,7 +630,6 @@ class Node {
 			if ( 'sink' === $key && $value instanceof Node ) {
 				$value = $value->name();
 			}
-			// Mask a non-empty credential whole; an empty one stays visible.
 			if ( Core::is_secret_property( $key )
 				&& ( ( \is_string( $value ) && '' !== $value ) || ( \is_array( $value ) && [] !== $value ) ) ) {
 				$value = self::REDACTED;
@@ -652,13 +639,11 @@ class Node {
 			if ( \is_object( $value ) ) {
 				$value = '(' . \get_class( $value ) . ')';
 			}
-			// Resources aren't JSON-encodable; coerce so encode won't fail.
 			if ( \is_resource( $value ) ) {
 				$value = '(resource:' . \get_resource_type( $value ) . ')';
 			}
 			$snapshot[ $key ] = $value;
 		}
-		// Subclass-aware class name; cmd_dump_node surfaces it as dump header.
 		$snapshot['class'] = $ref->getShortName();
 		return $snapshot;
 	}
@@ -715,7 +700,6 @@ class Node {
 				);
 			}
 			$this->patron = $node;
-			// Sidecar needs no `{name}:config`; drop auto-wired interpreter.
 			$this->retract_sibling( 'config' );
 			$this->interpreter = null;
 		}
@@ -828,7 +812,6 @@ class Node {
 	 * @return string The token, quoted and escaped where it needs to be.
 	 */
 	public static function serialize_arg( string $token ): string {
-		// Quote empty or any metachar; `#`/`;` end the LINE.
 		if ( '' !== $token && ! \preg_match( '/[\s\'"`\\\\#;<]/', $token ) ) {
 			return $token;
 		}

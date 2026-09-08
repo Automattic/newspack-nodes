@@ -350,6 +350,28 @@ const isFocusProperty = ( property ) =>
 	'box-shadow' === property ||
 	'border-color' === property;
 
+// A numeric top-level `const` read out of a module's SOURCE. This file runs in
+// the node environment, so a component carrying the number cannot be imported;
+// its AST is how that number is held to the stylesheet it was copied from.
+const numericConstant = ( file, name ) => {
+	const ast = parseJavaScript( fs.readFileSync( file, 'utf8' ), {
+		sourceType: 'module',
+		plugins: [ 'jsx' ],
+	} );
+	let value;
+	walkAst( ast, ( node ) => {
+		if (
+			'VariableDeclarator' === node.type &&
+			name === node.id?.name &&
+			'NumericLiteral' === node.init?.type
+		) {
+			value = node.init.value;
+		}
+	} );
+	expect( value ).toEqual( expect.any( Number ) );
+	return value;
+};
+
 const declarationsForSelector = ( stylesheet, selector ) => {
 	let declarations;
 	stylesheet.walkRules( ( rule ) => {
@@ -1841,12 +1863,19 @@ describe( 'canonical appearance ownership', () => {
 			} )
 		);
 
+		// ModalShell copies this floor into MODAL_MIN_W to decide whether a
+		// debug-overlay panel can contain a dialog at all. Let the two drift
+		// and the gate permits an anchor the geometry cannot honour.
+		const modalMinW = numericConstant(
+			path.join( NODES_SRC, 'topology-console/components/Modal.js' ),
+			'MODAL_MIN_W'
+		);
 		expect(
 			declarationsForSelector( graphStylesheet, '.topology-modal' )
 		).toEqual(
 			expect.objectContaining( {
-				'min-width': '360px',
-				'max-width': '560px',
+				'min-width': `${ modalMinW }px`,
+				'max-width': 'min(560px, var(--nodes-modal-max-w, 100%))',
 			} )
 		);
 		expect(
@@ -2066,7 +2095,7 @@ describe( 'canonical appearance ownership', () => {
 			declarationsForSelector( graphStylesheet, '.topology-modal' )
 		).toEqual(
 			expect.objectContaining( {
-				'max-height': '100%',
+				'max-height': 'min(100%, var(--nodes-modal-max-h, 100%))',
 				display: 'flex',
 				'flex-direction': 'column',
 			} )

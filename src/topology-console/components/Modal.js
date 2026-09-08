@@ -10,12 +10,43 @@
  * two that take typing — so a dialog can be answered without the mouse.
  */
 
-import { createPortal, useEffect, useRef, useState } from '@wordpress/element';
+import {
+	createPortal,
+	useEffect,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from '@wordpress/element';
 import { useDismissable } from '@newspack-nodes/shared/hooks/useDismissable';
 import { __, sprintf } from '@wordpress/i18n';
 import { CtorField } from './CtorField';
 import { serializeCtorArgs } from '../utils/tslArgs';
 import { primaryButtonClass } from '@newspack-nodes/shared/utils/buttonClass';
+
+// Breathing room between a panel-anchored dialog's edge and the panel's own.
+const PANEL_GUTTER = 16;
+
+/**
+ * `.topology-modal`'s own `min-width`, which outranks any max-width the panel
+ * cap narrows. `styleOwnership` pins this to the stylesheet it is copied from.
+ *
+ * @testonly
+ */
+export const MODAL_MIN_W = 360;
+
+// @longform Chrome the caps cannot shrink, measured off graph-view.scss: a 40px
+// header (24px close control + 8px padding each side) over a 51px actions row
+// (30px button + 10px padding each side + a 1px border). The body absorbs every
+// other squeeze — it carries `min-height: 0` and scrolls — so these two are the
+// dialog's irreducible height.
+const MODAL_CHROME_H = 40 + 51;
+
+// @longform Below either floor plus its gutters a panel cannot contain a dialog
+// however tight the caps are, and `useDebugFrame` lets one be dragged down to
+// 200x120 — so there the dialog stays viewport-centred rather than anchoring
+// and painting outside the panel it is supposed to belong to.
+const MIN_ANCHOR_W = MODAL_MIN_W + 2 * PANEL_GUTTER;
+const MIN_ANCHOR_H = MODAL_CHROME_H + 2 * PANEL_GUTTER;
 
 /**
  * ModalShell — the backdrop, panel, header and dismiss wiring every dialog in
@@ -26,12 +57,21 @@ import { primaryButtonClass } from '@newspack-nodes/shared/utils/buttonClass';
  * overlay panel included. That portal lands outside the app root, which is
  * where the skin selectors are scoped, so it re-establishes the skin, theme
  * and UI classes on a root of its own; `display: contents` keeps that root
- * from adding a box between `<body>` and the backdrop. With a debug-overlay
- * panel mounted the dialog centers horizontally over that panel instead of the
- * viewport.
+ * from adding a box between `<body>` and the backdrop.
  *
- * The panel carries two class families: `topology-modal*` for the console's
- * geometry, `newspack-nodes-modal*` for the canonical shared paint.
+ * Rendered inside a debug-overlay panel big enough to hold it, the dialog
+ * belongs to that panel rather than the viewport: it centers on the panel in
+ * both axes and hands the panel's box down as `--nodes-modal-max-w` /
+ * `--nodes-modal-max-h`, which the stylesheet narrows its standing width and
+ * height caps with, so no edge escapes the overlay. That cap is what makes the
+ * vertical anchor safe — a dialog taller than the panel scrolls in its own
+ * body instead of stranding its head above the fixed backdrop. The measurement
+ * is all that crosses: the geometry stays in CSS. Anywhere else — no panel, a
+ * panel the dialog does not render inside, or one under MIN_ANCHOR_W /
+ * MIN_ANCHOR_H — it centers on the viewport as it always has.
+ *
+ * The dialog panel carries two class families: `topology-modal*` for the
+ * console's geometry, `newspack-nodes-modal*` for the canonical shared paint.
  *
  * @param {Object}                    props
  * @param {string}                    props.title       Dialog title, also its accessible name.
@@ -49,24 +89,61 @@ export function ModalShell( {
 	children,
 } ) {
 	const ref = useRef( null );
+	// Sentinel at the render site: a dialog's panel is the one it is nested in.
+	const anchorRef = useRef( null );
+	const [ panelRect, setPanelRect ] = useState( null );
 	// The backdrop needs no handler: a mousedown on it is outside the panel.
 	useDismissable( ref, onDismiss );
+
+	useLayoutEffect( () => {
+		const panel = anchorRef.current?.closest( '.nodes-debug__panel' );
+		const measure = () => {
+			const rect = panel?.getBoundingClientRect();
+			setPanelRect(
+				rect &&
+					MIN_ANCHOR_W <= rect.width &&
+					MIN_ANCHOR_H <= rect.height
+					? rect
+					: null
+			);
+		};
+		measure();
+		if ( ! panel ) {
+			return undefined;
+		}
+		// @longform The panel's own box, not the window's: `useDebugFrame`
+		// re-clamps the panel on a window resize through a batched state
+		// update, so a listener on the same event reads the box it had before
+		// that landed. A ResizeObserver fires after layout whatever moved it.
+		if ( typeof window.ResizeObserver === 'undefined' ) {
+			window.addEventListener( 'resize', measure );
+			return () => window.removeEventListener( 'resize', measure );
+		}
+		const observer = new window.ResizeObserver( measure );
+		observer.observe( panel );
+		return () => observer.disconnect();
+	}, [] );
 
 	if ( typeof document === 'undefined' ) {
 		return null;
 	}
-	// Horizontal only: a vertical anchor strands a tall head offscreen.
-	const panelRect = document
-		.querySelector( '.nodes-debug__panel' )
-		?.getBoundingClientRect();
 	const modalStyle = panelRect
 		? /** @type {import('react').CSSProperties} */ ( {
 				position: 'absolute',
 				left: panelRect.left + panelRect.width / 2,
-				transform: 'translateX(-50%)',
+				top: panelRect.top + panelRect.height / 2,
+				transform: 'translate(-50%, -50%)',
+				'--nodes-modal-max-w': `${ Math.max(
+					0,
+					panelRect.width - 2 * PANEL_GUTTER
+				) }px`,
+				'--nodes-modal-max-h': `${ Math.max(
+					0,
+					panelRect.height - 2 * PANEL_GUTTER
+				) }px`,
 		  } )
 		: undefined;
-	return createPortal(
+	const portal = createPortal(
 		<div
 			className="newspack-nodes-skin-root newspack-nodes-theme newspack-nodes-ui"
 			style={ { display: 'contents' } }
@@ -100,6 +177,12 @@ export function ModalShell( {
 			</div>
 		</div>,
 		document.body
+	);
+	return (
+		<>
+			<span ref={ anchorRef } hidden />
+			{ portal }
+		</>
 	);
 }
 
