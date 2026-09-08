@@ -69,8 +69,12 @@ const REQUIRED_SKIN_ROLES = [
 	'--font-display-stencil',
 ];
 const PAPER_ROLES = [ '--paper', '--paper-2', '--paper-3' ];
+// Every role that PAINTS a surface rather than drawing a line over one. A
+// translucent value here reads whatever sits behind the skin — the WP-admin
+// page under a dashboard, the page under a dialog — so each must be opaque.
+// `--grid` is deliberately absent: it is a rule drawn over the canvas.
+const OPAQUE_SURFACE_ROLES = [ ...PAPER_ROLES, '--paper-shadow', '--repl-bg' ];
 const INK_ROLES = [ '--ink', '--ink-2', '--ink-3', '--ink-4' ];
-const AURORA_BASE = '#0b1020';
 const MINIMUM_TEXT_CONTRAST = 4.5;
 const CONTRAST_FOREGROUND_TOKENS = new Set( [
 	'--on-cyan',
@@ -736,11 +740,10 @@ const renderedColor = ( slug, color, background ) => {
 	if ( 1 === color.a ) {
 		return color;
 	}
-	const base = background || parseColor( AURORA_BASE );
-	if ( 'aurora' !== slug && ! background ) {
+	if ( ! background ) {
 		throw new Error( `${ slug } unexpectedly uses a translucent color` );
 	}
-	return composite( color, base );
+	return composite( color, background );
 };
 
 const resolvedColor = ( skin, role ) =>
@@ -769,14 +772,10 @@ const resolvedColors = ( skin, roles ) => {
 
 const paperColors = ( slug, skin ) => {
 	const colors = resolvedColors( skin, PAPER_ROLES );
-	if ( 'aurora' !== slug ) {
-		expect(
-			PAPER_ROLES.filter( ( role, index ) => 1 !== colors[ index ].a )
-		).toEqual( [] );
-		return colors;
-	}
-	const background = parseColor( AURORA_BASE );
-	return colors.map( ( color ) => composite( color, background ) );
+	expect(
+		PAPER_ROLES.filter( ( role, index ) => 1 !== colors[ index ].a )
+	).toEqual( [] );
+	return colors;
 };
 
 const selectorHasClass = ( selector, className ) =>
@@ -896,16 +895,11 @@ const effectiveGraphDeclaration = ( slug, className, property ) => {
 
 const effectiveSurfaceColor = ( value, skin, underlay ) => {
 	const surface = resolveCssColor( value, skin );
-	const root =
-		underlay ||
-		resolveCssColor( 'var(--paper-3)', skin ) ||
-		parseColor( AURORA_BASE );
+	const root = underlay || resolveCssColor( 'var(--paper-3)', skin );
 	if ( ! surface || ! root ) {
 		return null;
 	}
-	const effectiveRoot =
-		1 === root.a ? root : composite( root, parseColor( AURORA_BASE ) );
-	return 1 === surface.a ? surface : composite( surface, effectiveRoot );
+	return 1 === surface.a ? surface : composite( surface, root );
 };
 
 const semanticForegroundValue = ( value ) =>
@@ -2152,6 +2146,22 @@ describe( 'theme skin ramps', () => {
 			).toEqual( [] );
 			const papers = paperColors( slug, tokens );
 			expect( new Set( papers.map( colorKey ) ).size ).toBe( 3 );
+		} );
+
+		it( 'paints every surface role opaque', () => {
+			const tokens = requiredSkin();
+			const translucent = OPAQUE_SURFACE_ROLES.filter( ( role ) => {
+				const color = resolvedColor( tokens, role );
+				return color && 1 !== color.a;
+			} );
+			expect( translucent ).toEqual( [] );
+		} );
+
+		it( 'gives the REPL a surface of its own', () => {
+			const tokens = requiredSkin();
+			expect( colorKey( resolvedColor( tokens, '--repl-bg' ) ) ).not.toBe(
+				colorKey( resolvedColor( tokens, '--paper-3' ) )
+			);
 		} );
 
 		it( 'defines four distinct ink roles', () => {

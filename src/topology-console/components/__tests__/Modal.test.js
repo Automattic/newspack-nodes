@@ -8,6 +8,14 @@ import { render, fireEvent, act } from '@testing-library/react';
 import { ConfirmModal, PromptModal, ModalShell, NewNodeModal } from '../Modal';
 
 describe( 'ModalShell', () => {
+	// A failed assertion skips the rest of its test, so the stub panel a
+	// panel-anchoring test appends is torn down here, not inline.
+	afterEach( () => {
+		document
+			.querySelectorAll( '.nodes-debug__panel' )
+			.forEach( ( el ) => el.remove() );
+	} );
+
 	it( 'renders its title + children', () => {
 		const { baseElement, getByText } = render(
 			<ModalShell title="My Verb" onDismiss={ () => {} }>
@@ -95,24 +103,173 @@ describe( 'ModalShell', () => {
 		expect( provider.classList.contains( 'topology-app' ) ).toBe( false );
 	} );
 
-	it( 'centers the dialog over the overlay panel (not the viewport) when one is present', () => {
-		// Whole-page dim, but the dialog centres over the panel, not viewport.
+	// A stub overlay panel of the given box, appended to <body>.
+	const overlayPanel = ( { width, height, left = 380, top = 140 } ) => {
 		const panel = document.createElement( 'div' );
 		panel.className = 'nodes-debug__panel';
+		panel.getBoundingClientRect = () => ( {
+			left,
+			top,
+			width,
+			height,
+			right: left + width,
+			bottom: top + height,
+			x: left,
+			y: top,
+		} );
 		document.body.appendChild( panel );
+		return panel;
+	};
+
+	// Every inline value the panel anchor writes, read as one shape so an
+	// unexpected extra fails alongside a wrong one.
+	const positioning = ( dialog ) => ( {
+		position: dialog.style.position,
+		left: dialog.style.left,
+		top: dialog.style.top,
+		maxW: dialog.style.getPropertyValue( '--nodes-modal-max-w' ),
+		maxH: dialog.style.getPropertyValue( '--nodes-modal-max-h' ),
+	} );
+
+	const VIEWPORT_CENTRED = {
+		position: '',
+		left: '',
+		top: '',
+		maxW: '',
+		maxH: '',
+	};
+
+	const renderShell = ( container ) =>
 		render(
 			<ModalShell title="x" onDismiss={ () => {} }>
 				<div />
-			</ModalShell>
+			</ModalShell>,
+			container ? { container } : undefined
 		);
+
+	it( 'centres the dialog on its overlay panel and bounds it to that panel', () => {
+		// Whole-page dim, but the dialog belongs to the panel: centred on it
+		// in both axes and capped to its box, so no edge escapes the overlay.
+		renderShell( overlayPanel( { width: 900, height: 620 } ) );
 		const dialog = document.body.querySelector( '.topology-modal' );
-		expect( dialog.style.position ).toBe( 'absolute' );
-		expect( dialog.style.transform ).toContain( 'translateX' );
-		// Horizontal only: a vertical anchor puts a tall dialog's head above
-		// the fixed backdrop, where nothing can scroll to it.
-		expect( dialog.style.left ).not.toBe( '' );
-		expect( dialog.style.top ).toBe( '' );
-		panel.remove();
+		// The panel's box reaches the stylesheet as a cap it narrows the
+		// standing max-width with, rather than as a replacement for it.
+		expect( positioning( dialog ) ).toEqual( {
+			position: 'absolute',
+			left: '830px',
+			top: '450px',
+			maxW: '868px',
+			maxH: '588px',
+		} );
+		expect( dialog.style.transform ).toBe( 'translate(-50%, -50%)' );
+	} );
+
+	it( 'ignores an overlay panel the dialog does not render inside', () => {
+		// The hub mounts the floating overlay beside every tab, so a Console
+		// tab dialog must not follow a panel that merely happens to be open.
+		overlayPanel( { width: 900, height: 620 } );
+		renderShell();
+		expect(
+			positioning( document.body.querySelector( '.topology-modal' ) )
+		).toEqual( VIEWPORT_CENTRED );
+	} );
+
+	it( 'ignores a containing panel too small to hold a dialog', () => {
+		// Below the dialog's own floors the caps cannot contain it, so
+		// anchoring would paint it outside the panel it belongs to.
+		renderShell( overlayPanel( { width: 240, height: 118 } ) );
+		expect(
+			positioning( document.body.querySelector( '.topology-modal' ) )
+		).toEqual( VIEWPORT_CENTRED );
+	} );
+
+	it( 're-measures when its panel is resized', () => {
+		let observed = null;
+		const disconnect = jest.fn();
+		window.ResizeObserver = class {
+			constructor( cb ) {
+				this.cb = cb;
+			}
+			observe( el ) {
+				observed = { el, cb: this.cb };
+			}
+			disconnect = disconnect;
+		};
+		const panel = overlayPanel( { width: 900, height: 620 } );
+		renderShell( panel );
+		expect( observed.el ).toBe( panel );
+		panel.getBoundingClientRect = () => ( {
+			left: 100,
+			top: 60,
+			width: 500,
+			height: 400,
+			right: 600,
+			bottom: 460,
+			x: 100,
+			y: 60,
+		} );
+		act( () => observed.cb() );
+		expect(
+			positioning( document.body.querySelector( '.topology-modal' ) )
+		).toEqual( {
+			position: 'absolute',
+			left: '350px',
+			top: '260px',
+			maxW: '468px',
+			maxH: '368px',
+		} );
+		delete window.ResizeObserver;
+	} );
+
+	it( 'disconnects the panel observer on unmount (no leak)', () => {
+		const disconnect = jest.fn();
+		window.ResizeObserver = class {
+			constructor( cb ) {
+				this.cb = cb;
+			}
+			observe() {}
+			disconnect = disconnect;
+		};
+		const { unmount } = renderShell(
+			overlayPanel( { width: 900, height: 620 } )
+		);
+		act( () => unmount() );
+		expect( disconnect ).toHaveBeenCalled();
+		delete window.ResizeObserver;
+	} );
+
+	it( 'falls back to the window where ResizeObserver is missing', () => {
+		const panel = overlayPanel( { width: 900, height: 620 } );
+		renderShell( panel );
+		panel.getBoundingClientRect = () => ( {
+			left: 100,
+			top: 60,
+			width: 500,
+			height: 400,
+			right: 600,
+			bottom: 460,
+			x: 100,
+			y: 60,
+		} );
+		act( () => {
+			window.dispatchEvent( new window.Event( 'resize' ) );
+		} );
+		expect(
+			positioning( document.body.querySelector( '.topology-modal' ) )
+		).toEqual( {
+			position: 'absolute',
+			left: '350px',
+			top: '260px',
+			maxW: '468px',
+			maxH: '368px',
+		} );
+	} );
+
+	it( 'leaves the dialog viewport-centred when no overlay panel is present', () => {
+		renderShell();
+		expect(
+			positioning( document.body.querySelector( '.topology-modal' ) )
+		).toEqual( VIEWPORT_CENTRED );
 	} );
 } );
 

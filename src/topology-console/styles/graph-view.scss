@@ -2156,12 +2156,6 @@
 			),
 			var(--canvas);
 	}
-
-	.topology-repl {
-		background: rgba(255, 255, 255, 0.06);
-		backdrop-filter: blur(9px);
-		-webkit-backdrop-filter: blur(9px);
-	}
 }
 
 // 08 — Botanical Naturalist
@@ -2491,10 +2485,13 @@
 	z-index: 1000000;
 }
 
+// ModalShell sets the two --nodes-modal-max-* custom properties from the debug
+// overlay panel's box; unset (console, no overlay) they fall back to the
+// backdrop, leaving the standing caps in charge.
 .topology-modal {
 	min-width: 360px;
-	max-width: 560px;
-	max-height: 100%;
+	max-width: min(560px, var(--nodes-modal-max-w, 100%));
+	max-height: min(100%, var(--nodes-modal-max-h, 100%));
 	display: flex;
 	flex-direction: column;
 }
@@ -2637,8 +2634,8 @@
 // narrow for grids, so this dialog runs wide; its body is a bounded flex column
 // so the inner grid / timeline body owns the only scrollbar, not the dialog.
 .topology-modal.topology-modal--large {
-	width: min(92vw, 1000px);
-	max-width: min(92vw, 1000px);
+	width: min(92vw, 1000px, var(--nodes-modal-max-w, 100vw));
+	max-width: min(92vw, 1000px, var(--nodes-modal-max-w, 100vw));
 }
 
 .topology-modal__body.topology-inspview {
