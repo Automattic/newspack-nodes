@@ -516,18 +516,18 @@ describe( 'useGraphHandlers', () => {
 			],
 		} );
 		result.current.onInspectorAction( 'invoke', 'n1', {
-			verb: 'GET_LAG',
+			verb: 'GET_HEALTH',
 			kind: 'request',
 			positional: '',
 		} );
 		const m = shell.sink.fills[ 0 ];
 		expect( m[ TYPE ] ).toBe( TM_REQUEST );
 		expect( m[ TO ] ).toBe( 'n1' );
-		expect( m[ VALUE ] ).toBe( 'GET_LAG' );
+		expect( m[ VALUE ] ).toBe( 'GET_HEALTH' );
 		expect( append ).toHaveBeenCalledWith(
 			expect.objectContaining( {
 				kind: 'sent',
-				text: 'request_node n1 GET_LAG',
+				text: 'request_node n1 GET_HEALTH',
 			} )
 		);
 	} );

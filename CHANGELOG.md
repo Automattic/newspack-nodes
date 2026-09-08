@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **`GET_LAG`, the Consumer/Tail request verb, is gone — it had no production caller.** Nothing in the substrate or any consumer plugin sent it; the only callers were the REPL's `request_node`, the console Inspector and the tests. Lag itself is untouched: `compute_lag()` remains the one seam, `probe_stats()` and `idle_since()` still read it, and an operator reads the distance off `wp nodes status`'s `Behind` column, which renders the probe record's `distance`. With the verb went `Consumer_Node::handle_request()`, the `requests` entry in its `node_schema()` — the key is absent now, not empty, so `help Consumer` and the Inspector render no request section — and `Consumer_Node::fill()`, whose only reason to exist was dispatching that verb. Removing the override changes no behavior: its body had become `parent::fill()`, and `Tail_Node::forward_line()`'s `parent::fill()` now resolves to `Node::fill()` directly, which is where its TM_BYTESTREAM already landed. The six tests that read the reply payload for its lag arithmetic — including the two wedged-cursor regressions from 0.15.0 — now call the `compute_lag()` seam instead, so that coverage survives the verb.
+
+### Documentation
+
+- **Six documents, plus three docblock citations in the example plugin.** The architecture guide now says the substrate ships TWO request verbs, `GET_HEALTH` and Table's `GET <key>`, and names `Job_Worker_Node::handle_request` as the canonical example; it also drops `Consumer_Node::fill()` from the list of overrides that inherit the FROM stamp by forwarding through `parent::fill`. `writing-a-plugin.md` moves its "shape to copy" exemplar to `Job_Worker_Node` and adds `Table_Node` as the deliberate contrast — case-SENSITIVE match, no `TM_RESPONSE` bit, no `{verb, data}` envelope, an unknown verb dropped with no reply at all. `getting-started.md` no longer promises a requests section for `help Consumer`. The three demo nodes in `example-ai-newsletter` cited `Consumer_Node::handle_request` for their reply shape and now cite `Job_Worker_Node::handle_request`, which matches it line for line. `AGENTS.md`, `nodes-review` and `nodes-debugging` follow, the last pointing an operator at `wp nodes status`'s `Behind` column instead of a verb.
+
 ## [2.49.3] - 2026-09-07
 
 ### Fixed

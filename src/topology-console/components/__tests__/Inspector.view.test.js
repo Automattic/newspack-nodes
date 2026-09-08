@@ -1911,13 +1911,15 @@ describe( 'Inspector (view mode)', () => {
 		const catalog = [
 			{
 				shell_name: 'Echo',
-				commands: [ { name: 'GET_LAG', description: 'Lag' } ],
+				commands: [
+					{ name: 'set_line_mode', description: 'Line mode' },
+				],
 			},
 		];
 		const { getByText } = renderNode( { catalog, onAction } );
-		fireEvent.click( getByText( 'GET_LAG' ) );
+		fireEvent.click( getByText( 'set_line_mode' ) );
 		expect( onAction ).toHaveBeenCalledWith( 'invoke', 'echo', {
-			verb: 'GET_LAG',
+			verb: 'set_line_mode',
 			kind: 'command',
 			positional: '',
 			byName: {},

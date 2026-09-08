@@ -82,7 +82,7 @@ Echo_Node {
 /> help make_node           # every verb documents itself; bare `help` lists all
 ```
 
-`help` also takes a node type: `help Consumer` prints that class's description, arguments, commands, requests and registrations straight from its `node_schema()`. An empty section prints nothing, so a node that declares none — `Tee`, say — comes back as its description alone.
+`help` also takes a node type: `help Consumer` prints that class's description, arguments, commands and registrations straight from its `node_schema()`, and `help Job_Worker` adds the requests section — the runtime verbs, which Consumer declares none of. An empty section prints nothing, so a node that declares none — `Tee`, say — comes back as its description alone.
 
 Run it as the same user as the workers; `wp nodes cli` refuses root. Exit with ctrl-D. Everything else in these docs — building graphs, inspecting workers, rewiring live topologies — is these same verbs, either here or pivoted into a running worker (`wp nodes cli <worker>.p<N>`). The full verb table is in [troubleshooting.md](troubleshooting.md), every `wp nodes` subcommand is in [cli.md](cli.md), and the terms are in the [glossary](README.md#glossary).
 

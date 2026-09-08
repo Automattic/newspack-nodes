@@ -33,21 +33,6 @@ class ConsumerTimeTravelTest extends TestCase {
 		parent::tearDown();
 	}
 
-	/**
-	 * Fire a TM_REQUEST verb at the Consumer and return the reply's data payload.
-	 * STEP also emits the stepped data line, so the reply is whatever lands LAST.
-	 */
-	private function request( Consumer_Node $c, Capture_Sink_Node $cap, string $verb ): mixed {
-		$req                   = Message::new_message();
-		$req[ Message::TYPE ]  = Message::TM_REQUEST;
-		$req[ Message::FROM ]  = 'asker';
-		$req[ Message::VALUE ] = $verb;
-		$c->fill( $req );
-		$reply = $cap->captured[ \count( $cap->captured ) - 1 ];
-		$this->assertSame( $verb, $reply[ Message::VALUE ]['verb'], 'reply must be the verb response' );
-		return $reply[ Message::VALUE ]['data'];
-	}
-
 	/** Drive a checkpoint at the given cursor by setting it then committing. */
 	private function checkpoint_at( Consumer_Node $c, int $segment, int $offset ): void {
 		$c->next_offset( [ 'segment' => $segment, 'offset' => $offset ] );
@@ -804,43 +789,22 @@ class ConsumerTimeTravelTest extends TestCase {
 	}
 
 	// ============================================================================
-	// Regression: GET_LAG survives; the consolidated read verbs are gone.
+	// Regression: the Consumer answers no request verbs at all.
 	// ============================================================================
 
-	public function test_existing_get_lag_still_works(): void {
-		$c = new Consumer_Node();
-		$c->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
-		$c->name( 'firehose:consumer' );
-		$cap = new Capture_Sink_Node();
-		$c->sink( $cap );
-
-		$data = $this->request( $c, $cap, 'GET_LAG' );
-		$this->assertArrayHasKey( 'bytes_behind', $data );
-		$this->assertArrayHasKey( 'caught_up', $data );
-	}
-
 	/**
-	 * The three read verbs folded into dump_metadata are gone from the request
-	 * schema AND from handle_request dispatch (unknown-verb error).
+	 * The read verbs folded into dump_metadata are gone, and so is GET_LAG —
+	 * which had no production caller. `requests` is absent from the schema
+	 * rather than empty, so nothing renders a request section for a Consumer.
 	 */
-	public function test_consolidated_read_verbs_are_removed(): void {
+	public function test_the_consumer_declares_no_request_verbs(): void {
 		$schema = Consumer_Node::node_schema();
-		$verbs  = \array_column( $schema['requests'], 'name' );
-		$this->assertNotContains( 'LIST_FRAMES', $verbs );
-		$this->assertNotContains( 'READ_STATE', $verbs );
-		$this->assertNotContains( 'GET_OFFSET', $verbs );
+		$this->assertArrayNotHasKey( 'requests', $schema );
 
-		$c = new Consumer_Node();
-		$c->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
-		$c->name( 'firehose:consumer' );
-		$cap = new Capture_Sink_Node();
-		$c->sink( $cap );
-
-		foreach ( [ 'LIST_FRAMES', 'READ_STATE', 'GET_OFFSET' ] as $gone ) {
-			$data = $this->request( $c, $cap, $gone );
-			$this->assertArrayHasKey( 'error', $data, "{$gone} must be an unknown verb now" );
-			$this->assertStringContainsString( 'unknown request verb', $data['error'] );
-		}
+		// The time-travel transport stays where it was: commands, not requests.
+		$commands = \array_column( $schema['commands'], 'name' );
+		$this->assertContains( 'SEEK_FRAME', $commands );
+		$this->assertContains( 'STEP', $commands );
 	}
 
 	// ============================================================================

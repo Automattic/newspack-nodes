@@ -25,14 +25,14 @@ if ( ! \defined( 'ABSPATH' ) ) {
  * `{file}.{seg}` segments instead; `File_Tail_Node` goes further and follows a
  * single inode.
  *
- * Three surfaces ask how far behind the reader is — the `GET_LAG` request,
- * `probe_stats()` for the topicprobe sweep, and `idle_since()` for an on-demand
- * worker deciding whether to exit — and all three read `compute_lag()`. A
- * subclass with a different byte source overrides that one method, so the three
- * answers cannot disagree.
+ * Two surfaces ask how far behind the reader is — `probe_stats()` for the
+ * topicprobe sweep, and `idle_since()` for an on-demand worker deciding whether
+ * to exit — and both read `compute_lag()`. A subclass with a different byte
+ * source overrides that one method, so the two answers cannot disagree.
  *
- * A Consumer is a source, not a processor: `accepts_fill` is false, and `fill()`
- * exists to answer TM_REQUEST introspection rather than to carry data.
+ * A Consumer is a source, not a processor: `accepts_fill` is false, so the
+ * canvas draws no in-port, and it overrides no `fill()` — a message addressed
+ * here anyway takes `Node::fill()`'s ordinary path to the sink.
  */
 class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	/** Positional `arguments()` parsing plus the auto-wired `{name}:config` interpreter. */
@@ -187,54 +187,6 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 		return $args;
 	}
 
-	/**
-	 * Answer a TM_REQUEST introspection verb; everything else falls through to
-	 * Timer_Node. `accepts_fill` is false, so this entry point carries no data —
-	 * it exists because introspection reaches a node the same way anything else
-	 * does, through `fill()` (ADR-1).
-	 *
-	 * @param array<int,mixed> $message Incoming Message.
-	 */
-	public function fill( array $message ): void {
-		$type_raw = $message[ Message::TYPE ];
-		$type     = Core::num_int( $type_raw );
-		if ( $type & Message::TM_REQUEST ) {
-			$this->handle_request( $message );
-			return;
-		}
-		parent::fill( $message );
-	}
-
-	/**
-	 * Dispatch one request verb and reply to whoever asked. `GET_LAG` is the only
-	 * verb; an unknown one comes back as an `error` payload rather than a throw,
-	 * because there is no interpreter on this path to turn a throw into a TM_ERROR
-	 * reply. TO=FROM is the whole correlation and ID and KEY ride back unchanged,
-	 * so the asker needs no registry of outstanding requests (ADR-7).
-	 *
-	 * @param array<int,mixed> $message Incoming request Message.
-	 */
-	private function handle_request( array $message ): void {
-		$sink = $this->require_sink();
-		$value_raw = $message[ Message::VALUE ];
-		$value     = Core::as_string( $value_raw );
-		$verb      = \strtoupper( \explode( ' ', \trim( $value ), 2 )[0] );
-
-		$payload = match ( $verb ) {
-			'GET_LAG' => $this->compute_lag(),
-			default   => [ 'error' => "unknown request verb: {$verb}" ],
-		};
-
-		$reply                   = Message::new_message();
-		$reply[ Message::TYPE ]  = Message::TM_STRUCT | Message::TM_RESPONSE;
-		$reply[ Message::FROM ]  = '' !== $this->stamp_override ? $this->stamp_override : $this->name;
-		$reply[ Message::TO ]    = $message[ Message::FROM ];
-		$reply[ Message::ID ]    = $message[ Message::ID ];
-		$reply[ Message::KEY ]   = $message[ Message::KEY ];
-		$reply[ Message::VALUE ] = [ 'verb' => $verb, 'data' => $payload ];
-		$sink->fill( $reply );
-	}
-
 	/** Source seam: the segmented-log node to read. Consumer builds a Partition; Tail builds a Log. */
 	protected function make_source(): Partition_Node {
 		return new Partition_Node();
@@ -352,8 +304,8 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 
 	/**
 	 * How far behind this reader is. THE lag seam: a subclass substituting one
-	 * byte source for another overrides this alone, so the `GET_LAG` reply, the
-	 * probe record and the idle check can never disagree.
+	 * byte source for another overrides this alone, so the probe record and the
+	 * idle check can never disagree.
 	 *
 	 * @return array{bytes_behind: int, segments_behind: int, caught_up: bool, end_segment: int, end_size: int, end_bytes: int, cursor_segment: int, cursor_offset: int}
 	 */
@@ -1045,13 +997,6 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 					],
 				]
 			),
-			'requests'      => [
-				[
-					'name'        => 'GET_LAG',
-					'description' => 'Bytes/messages behind the source partition tail.',
-					'reply_shape' => '{ bytes_behind, segments_behind, caught_up }',
-				],
-			],
 			'registrations' => [ 'READY' ],
 			'accepts_fill'  => false,
 		] );

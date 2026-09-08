@@ -78,9 +78,9 @@ class Digest_Builder_Demo_Node extends Node {
 	 * reply with the number flushed.
 	 *
 	 * Every TM_REQUEST flushes: FLUSH is the only verb the schema declares, so
-	 * there is no verb table to consult. `Consumer_Node::handle_request` is the
-	 * contrast — it reads the verb off VALUE and answers an unknown one with an
-	 * `error` payload.
+	 * there is no verb table to consult. `Job_Worker_Node::handle_request` is
+	 * the contrast — it reads the verb off VALUE and answers an unknown one with
+	 * an `error` payload.
 	 *
 	 * An item whose `summary` is missing or not a string renders as an empty
 	 * bullet rather than being skipped.
