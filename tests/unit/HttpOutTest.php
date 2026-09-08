@@ -787,6 +787,42 @@ class HttpOutTest extends TestCase {
 		$this->assertTrue( $schema['arguments'][0]['required'] );
 	}
 
+	/**
+	 * `allow_replies_to` is declared REPEATABLE, or the console cannot express it.
+	 *
+	 * A hub egress needs one declaration per destination the spoke may address —
+	 * `settings-sync` AND `discovery-collector` on a hub running `hub-control`.
+	 * Without `multiple`, the Inspector renders a single checkbox and one field
+	 * (`Inspector.js` branches on `cspec.multiple`), so an operator can only ever
+	 * declare one, and a round trip through the console drops the rest. The
+	 * allowlist fails closed, so what is dropped is silently dropped.
+	 */
+	public function test_allow_replies_to_is_declared_repeatable(): void {
+		$commands = HTTP_Out_Node::node_schema()['commands'];
+		$verb     = null;
+		foreach ( $commands as $command ) {
+			if ( 'allow_replies_to' === ( $command['name'] ?? '' ) ) {
+				$verb = $command;
+			}
+		}
+
+		$this->assertNotNull( $verb, 'the verb is declared at all' );
+		$this->assertTrue( $verb['multiple'] ?? false, 'declared repeatable, as Settings_Sync::add_setting is' );
+	}
+
+	/** Every declaration round-trips, so a dump replays the whole allowlist. */
+	public function test_dump_config_replays_every_declaration(): void {
+		$node = new HTTP_Out_Node();
+		$node->name( 'settings:austinchronicle' );
+		$node->allow_replies_to( 'settings-sync' );
+		$node->allow_replies_to( 'discovery-collector' );
+
+		$dump = $node->dump_config();
+
+		$this->assertStringContainsString( 'allow_replies_to settings-sync', $dump );
+		$this->assertStringContainsString( 'allow_replies_to discovery-collector', $dump );
+	}
+
 	public function test_constructor_does_no_io(): void {
 		// Constructing must register nothing on the shared multi (ADR-5: no event-loop work in ctor).
 		Event_Framework::reset();

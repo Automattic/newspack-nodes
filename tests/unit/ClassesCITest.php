@@ -184,6 +184,39 @@ class ClassesCITest extends TestCase {
 		);
 	}
 
+	/**
+	 * HTTP_Out's `allow_replies_to` is the second multi verb, and the one an
+	 * operator meets most: a hub egress needs `settings-sync` AND, under
+	 * `hub-control`, `discovery-collector`. Without the flag reaching the
+	 * catalog the console offers one checkbox and one field, so the second
+	 * declaration cannot be made — and the allowlist fails closed, so what
+	 * cannot be declared is silently dropped.
+	 */
+	public function test_list_preserves_the_multiple_flag_on_allow_replies_to(): void {
+		$result   = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'list' );
+		$http_out = null;
+		foreach ( $result['classes'] as $entry ) {
+			if ( 'HTTP_Out' === $entry['shell_name'] ) {
+				$http_out = $entry;
+				break;
+			}
+		}
+		$this->assertNotNull( $http_out, 'HTTP_Out must appear in the catalog' );
+
+		$verb = null;
+		foreach ( $http_out['commands'] as $command ) {
+			if ( 'allow_replies_to' === $command['name'] ) {
+				$verb = $command;
+				break;
+			}
+		}
+		$this->assertNotNull( $verb, 'allow_replies_to must be in the catalog' );
+		$this->assertTrue(
+			$verb['multiple'] ?? false,
+			'allow_replies_to must carry multiple:true, or the console caps it at one declaration'
+		);
+	}
+
 	public function test_list_carries_the_action_flag_on_an_action_verb(): void {
 		// An `action: true` verb RUNS something on a live node — `Table`'s `rm`
 		// deletes an entry — so it is not configuration and the editor must not

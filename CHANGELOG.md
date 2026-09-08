@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.50.2] - 2026-09-08
+
+### Fixed
+
+- **`allow_replies_to` was not declared repeatable, so the console could express only one.** The Inspector branches on a verb's `multiple` flag: without it a verb renders as a single checkbox and a single argument field, and a round trip through the console keeps the last value and drops the rest. A hub egress needs a declaration per destination — `settings-sync`, and `discovery-collector` on a hub running the event logger's `hub-control` — so the cap was one short of the minimum, and the allowlist fails closed, which means what could not be declared was silently dropped. Now `'multiple' => true`, as `Settings_Sync_Node::add_setting` already was; `Classes_CI_Node` carries the flag through to the catalog the console reads.
+
 ### Fixed
 
 - **The Aurora Glass skin painted its surfaces translucent, so a dashboard read through to the WordPress admin behind it.** `paper`, `paper-2` and `paper-shadow` were white at 6-16% over `paper-3`, and are now exactly that composite as an opaque value, so the ramp holds and nothing shows through. `repl-bg` could not be treated the same way: it was a 55% scrim of `paper-3` over the canvas, which composites back to `paper-3` itself and leaves the REPL with nothing but its 1px border to separate it — it is `paper-3` darkened to 81% instead, the same repl-under-canvas relationship blueprint, nord, synthwave, neotokyo and scada all carry. Two `.theme-aurora` overrides repainting canonical roles with hardcoded `rgba` + `backdrop-filter` — `.topology-header` and `.topology-repl` — are gone, and the defaults are correct on their own. Six `--on-*` contrast overrides went with them: against an opaque `paper` the derived default already clears AA. Two consequences are deliberate rather than pixel-identical: node fills no longer read the canvas gradient through, and a dialog is no longer see-through onto the page. The skin keeps its aurora canvas, accents and type.
