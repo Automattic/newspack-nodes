@@ -43,8 +43,8 @@ const INSIGHTS_MOUNT_ID = 'example-ai-newsletter-insights';
  * arrive on it as tabs. A dashboard that genuinely is a Nodes-internal tool registers as a
  * `host: 'hub'` DevTools tab instead of a submenu there.
  *
- * Visibility follows `Admin::current_user_allowed()` because the page reads pipeline
- * state: `manage_options` alone would show it to administrators the substrate's
+ * Visibility follows `Capabilities::can( MANAGE )` because the page reads pipeline
+ * state: a bare `manage_options` check would show it to administrators the substrate's
  * `allowed_users` list excludes, and this page's audience should match the runtime's
  * other surfaces.
  *
@@ -53,10 +53,10 @@ const INSIGHTS_MOUNT_ID = 'example-ai-newsletter-insights';
  * the item below Comments and above the separator WordPress registers at 59.
  */
 function register_insights_admin_page(): void {
-	if ( ! \function_exists( 'add_menu_page' ) || ! \class_exists( '\Newspack_Nodes\Admin\Admin' ) ) {
+	if ( ! \function_exists( 'add_menu_page' ) || ! \class_exists( '\Newspack_Nodes\Capabilities' ) ) {
 		return;
 	}
-	if ( ! \Newspack_Nodes\Admin\Admin::current_user_allowed() ) {
+	if ( ! \Newspack_Nodes\Capabilities::can( \Newspack_Nodes\Capabilities::MANAGE ) ) {
 		return;
 	}
 	\add_menu_page(
@@ -97,7 +97,7 @@ function enqueue_insights_assets( string $hook = '' ): void {
 	if ( ! \function_exists( 'wp_enqueue_script' ) || ! \class_exists( '\Newspack_Nodes\Admin\Admin' ) ) {
 		return;
 	}
-	if ( ! \Newspack_Nodes\Admin\Admin::current_user_allowed() ) {
+	if ( ! \Newspack_Nodes\Capabilities::can( \Newspack_Nodes\Capabilities::MANAGE ) ) {
 		return;
 	}
 

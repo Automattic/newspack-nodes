@@ -27,6 +27,12 @@
  * say yes — so a scope is never a way to gain authority the authenticated
  * user lacks.
  *
+ * The operator's `allowed_users` list is the third half, and it narrows every
+ * role rather than the admin menus alone: a login absent from a populated list
+ * holds nothing, so `/command`, `/auth`, both SSE streams, the spawn endpoint's
+ * external path and every gated verb refuse it. It applies to an authenticated
+ * actor only — see `allowed_by_operator_list()`.
+ *
  * Know what you grant: `read` is not just the shaped dashboards. It reaches
  * the RAW log firehose — request URLs, hooks, payloads — live on the SSE
  * stream beside worker IPC and REPL output, and record by record through
@@ -135,7 +141,71 @@ class Capabilities {
 		if ( null !== self::$session_scope && ! self::scope_covers( self::$session_scope, $role ) ) {
 			return false;
 		}
-		return \function_exists( 'current_user_can' ) && \current_user_can( self::cap_for( $role ) );
+		if ( ! \function_exists( 'current_user_can' ) || ! \current_user_can( self::cap_for( $role ) ) ) {
+			return false;
+		}
+		return self::allowed_by_operator_list();
+	}
+
+	/**
+	 * Whether the operator's `allowed_users` list admits the logged-in user.
+	 * Checked AFTER the capability, so a demoted account loses authority at once
+	 * and nobody has to edit the list; an empty list — the shipped default —
+	 * narrows nobody.
+	 *
+	 * The list can only narrow an AUTHENTICATED actor. With no login there is
+	 * nothing to match, so the list does not apply and the capability check is
+	 * the whole gate: WP-CLI without `--user`, a worker process and WP-Cron all
+	 * run that way, and a populated list must not disarm the fleet.
+	 *
+	 * A config that will not load refuses instead of propagating. `can()` is
+	 * what four REST `permission_callback`s answer with, where a throw is an
+	 * uncaught 500 rather than a 403, and what `Auto_Tuner_Node::fill()` asks
+	 * on the request path, where ADR-13 forbids one — so the read is caught
+	 * here and reported, the same trade `Health_Checks` makes for an alert
+	 * family it cannot bucket. The `\InvalidArgumentException` `cap_for()`
+	 * raises on a broken capability map is a different contract and still
+	 * propagates.
+	 *
+	 * @return bool True when no list applies or the current login is on it.
+	 */
+	private static function allowed_by_operator_list(): bool {
+		$login = \function_exists( 'wp_get_current_user' )
+			? Core::as_string( \wp_get_current_user()->user_login )
+			: '';
+		if ( '' === $login ) {
+			return true;
+		}
+
+		try {
+			return ! self::operator_list_excludes( $login );
+		} catch ( \RuntimeException $e ) {
+			Core::print_less_often(
+				'Capabilities: allowed_users unreadable, refusing every role: ',
+				$e->getMessage()
+			);
+			return false;
+		}
+	}
+
+	/**
+	 * Whether a populated `allowed_users` list omits $login. The one place the
+	 * list's shape is read, so `wp nodes hub-user` warns on exactly the logins
+	 * `can()` will refuse — a hub account absent from a populated list answers
+	 * 401 at `HTTP_In_Node::check_permission()` with nothing to say why.
+	 *
+	 * @param string $login A `user_login` to test against the list.
+	 * @return bool True when a list is configured and does not name $login.
+	 * @throws \RuntimeException Through `Config::value()`, when a config file is invalid.
+	 */
+	public static function operator_list_excludes( string $login ): bool {
+		$allowed = Config::value( 'allowed_users' );
+		if ( ! \is_array( $allowed ) ) {
+			// A scalar is a config typo, never an absent list: narrow to it.
+			$single  = Core::as_string( $allowed );
+			$allowed = '' === $single ? [] : [ $single ];
+		}
+		return [] !== $allowed && ! \in_array( $login, $allowed, true );
 	}
 
 	/**

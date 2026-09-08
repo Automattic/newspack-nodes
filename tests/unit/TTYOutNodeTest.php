@@ -106,4 +106,133 @@ class TTYOutNodeTest extends TestCase {
 		$this->assertSame( '/x> ', \stream_get_contents( $mem ) );
 		$this->assertTrue( $node->prompt_displayed );
 	}
+
+	// ── control characters in the payload and in the prompt ───────────────
+
+	public function test_redraw_renders_payload_escapes_while_keeping_its_own_ansi(): void {
+		// force_tty reaches the redraw path: the node's own save/wipe/restore
+		// sandwich has to survive, and only the arriving text is rendered.
+		$mem   = \fopen( 'php://memory', 'r+' );
+		$node  = new TTY_Out_Node( $mem, true );
+		$shell = new Shell_Node();
+		$shell->prompt = '/quarry> ';
+		$node->set_shell( $shell );
+		$node->mark_prompt_displayed();
+		$m = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$m[ Message::VALUE ] = "GET /\x1B]0;pwned\x07 4419\n";
+		$node->fill( $m );
+		\rewind( $mem );
+		$this->assertSame(
+			"\033[s\r\033[2KGET /\033[7m<1B>\033[27m]0;pwned\033[7m<07>\033[27m 4419\n/quarry> \033[u",
+			\stream_get_contents( $mem )
+		);
+	}
+
+	public function test_readline_redraw_renders_a_carriage_return_in_the_payload(): void {
+		$mem   = \fopen( 'php://memory', 'r+' );
+		$node  = new TTY_Out_Node( $mem, true );
+		$shell = new Shell_Node();
+		$shell->prompt = '/quarry> ';
+		$node->set_shell( $shell );
+		$node->set_readline_mode( true );
+		$node->mark_prompt_displayed();
+		$m = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$m[ Message::VALUE ] = "denied\rgranted\n";
+		$node->fill( $m );
+		\rewind( $mem );
+		$this->assertSame(
+			"\r\033[2Kdenied\033[7m<0D>\033[27mgranted\n/quarry> ",
+			\stream_get_contents( $mem )
+		);
+	}
+
+	public function test_redraw_renders_an_escape_in_a_worker_set_prompt(): void {
+		// `Dumper_Node::fill()` writes `$shell->prompt` from a worker's `prompt`
+		// response, so the re-issued prompt is untrusted text too.
+		$mem   = \fopen( 'php://memory', 'r+' );
+		$node  = new TTY_Out_Node( $mem, true );
+		$shell = new Shell_Node();
+		$shell->prompt = "/quarry\x1B[31m> ";
+		$node->set_shell( $shell );
+		$node->set_readline_mode( true );
+		$node->mark_prompt_displayed();
+		$m = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$m[ Message::VALUE ] = "marl 8802\n";
+		$node->fill( $m );
+		\rewind( $mem );
+		$this->assertSame(
+			"\r\033[2Kmarl 8802\n/quarry<1B>[31m> ",
+			\stream_get_contents( $mem )
+		);
+	}
+
+	public function test_write_prompt_renders_an_escape_in_a_worker_set_prompt(): void {
+		$mem  = \fopen( 'php://memory', 'r+' );
+		$node = new TTY_Out_Node( $mem, false );
+		$node->write_prompt( "/quarry\x1B[2J> " );
+		\rewind( $mem );
+		$this->assertSame( '/quarry<1B>[2J> ', \stream_get_contents( $mem ) );
+	}
+
+	public function test_write_prompt_leaves_the_prompt_bare_on_a_terminal(): void {
+		// The prompt is chrome, redrawn on every async write, so its rendered
+		// tokens are never reverse-videoed — one prompt, one plain appearance.
+		$mem  = \fopen( 'php://memory', 'r+' );
+		$node = new TTY_Out_Node( $mem, true );
+		$node->write_prompt( "/sump\x9B2J> " );
+		\rewind( $mem );
+		$this->assertSame( '/sump<9B>2J> ', \stream_get_contents( $mem ) );
+	}
+
+	public function test_redraw_prompt_matches_the_appearance_readline_drew(): void {
+		// TTY_In_Node::install_handler() hands readline a bare-rendered prompt;
+		// a redraw that reverse-videoed it would make the prompt flicker between
+		// two looks on every forced redisplay.
+		$mem   = \fopen( 'php://memory', 'r+' );
+		$node  = new TTY_Out_Node( $mem, true );
+		$shell = new Shell_Node();
+		$shell->prompt = "/sump\x9B2J> ";
+		$node->set_shell( $shell );
+		$node->set_readline_mode( true );
+		$node->mark_prompt_displayed();
+		$m = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$m[ Message::VALUE ] = "graben 4419\n";
+		$node->fill( $m );
+		\rewind( $mem );
+		$this->assertSame(
+			"\r\033[2Kgraben 4419\n/sump<9B>2J> ",
+			\stream_get_contents( $mem )
+		);
+	}
+
+	public function test_plain_path_renders_escapes_with_no_ansi_off_a_terminal(): void {
+		$mem  = \fopen( 'php://memory', 'r+' );
+		$node = new TTY_Out_Node( $mem, false );
+		$m    = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$m[ Message::VALUE ] = "marl\x1B[2J8802";
+		$node->fill( $m );
+		\rewind( $mem );
+		$this->assertSame( 'marl<1B>[2J8802', \stream_get_contents( $mem ) );
+	}
+
+	public function test_redraw_leaves_a_tab_in_the_payload_alone(): void {
+		$mem   = \fopen( 'php://memory', 'r+' );
+		$node  = new TTY_Out_Node( $mem, true );
+		$shell = new Shell_Node();
+		$shell->prompt = '/quarry> ';
+		$node->set_shell( $shell );
+		$node->set_readline_mode( true );
+		$node->mark_prompt_displayed();
+		$m = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$m[ Message::VALUE ] = "quarry\tp4419\n";
+		$node->fill( $m );
+		\rewind( $mem );
+		$this->assertSame( "\r\033[2Kquarry\tp4419\n/quarry> ", \stream_get_contents( $mem ) );
+	}
 }

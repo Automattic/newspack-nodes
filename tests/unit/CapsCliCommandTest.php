@@ -57,6 +57,8 @@ class CapsCliCommandTest extends TestCase {
 	protected function tearDown(): void {
 		Roles::uninstall();
 		$GLOBALS['_wp_test_users'] = [];
+		\delete_option( 'newspack_nodes_allowed_users' );
+		\Newspack_Nodes\Config::reset();
 		parent::tearDown();
 	}
 
@@ -179,6 +181,48 @@ class CapsCliCommandTest extends TestCase {
 		$this->command->hub_user( [ 'editor-bob' ], [] );
 
 		$this->assertSame( [ Roles::HUB_ROLE ], $GLOBALS['_wp_test_users']['editor-bob']['roles'] );
+	}
+
+	/**
+	 * `allowed_users` narrows every role from inside `Capabilities::can()`, so a
+	 * hub user absent from a populated list is refused at `can( READ )` on its
+	 * first `/command` POST and the operator reads an opaque 401. The verb warns
+	 * rather than refuses: the operator may be adding the login next.
+	 */
+	public function test_hub_user_warns_when_the_allowlist_omits_the_new_login(): void {
+		$this->command->caps( [ 'install' ], [] );
+		\update_option( 'newspack_nodes_allowed_users', [ 'petrel', 'skua' ] );
+		\Newspack_Nodes\Config::reset();
+
+		$this->command->hub_user( [ 'nodes-hub' ], [ 'no-password' => true ] );
+
+		$warnings = \implode( "\n", $GLOBALS['_test_wp_cli_warns'] );
+		$this->assertStringContainsString( 'allowed_users', $warnings );
+		$this->assertStringContainsString( 'nodes-hub', $warnings );
+		$this->assertSame(
+			[ \Newspack_Nodes\Roles::HUB_ROLE ],
+			$GLOBALS['_wp_test_users']['nodes-hub']['roles'],
+			'a warning, never a refusal'
+		);
+	}
+
+	public function test_hub_user_says_nothing_when_the_allowlist_names_the_login(): void {
+		$this->command->caps( [ 'install' ], [] );
+		\update_option( 'newspack_nodes_allowed_users', [ 'petrel', 'nodes-hub' ] );
+		\Newspack_Nodes\Config::reset();
+
+		$this->command->hub_user( [ 'nodes-hub' ], [ 'no-password' => true ] );
+
+		$this->assertSame( [], $GLOBALS['_test_wp_cli_warns'] );
+	}
+
+	/** The shipped default narrows nobody, so there is nothing to warn about. */
+	public function test_hub_user_says_nothing_when_no_allowlist_is_configured(): void {
+		$this->command->caps( [ 'install' ], [] );
+
+		$this->command->hub_user( [ 'nodes-hub' ], [ 'no-password' => true ] );
+
+		$this->assertSame( [], $GLOBALS['_test_wp_cli_warns'] );
 	}
 
 	/** `--no-password` sets the role up without minting a credential. */

@@ -239,6 +239,28 @@ class TTYInNodeTest extends TestCase {
 		\fclose( $stream );
 	}
 
+	public function test_readline_install_renders_control_bytes_in_a_worker_set_prompt(): void {
+		// `Dumper_Node::fill()` writes `$shell->prompt` from an attached worker's
+		// `prompt` response, and readline prints it straight to the terminal. The
+		// token is rendered bare here: readline counts the prompt's width, and an
+		// unmarked ANSI run would corrupt its line editing.
+		$shell         = new Shell_Node();
+		$shell->prompt = "/marl\x1B]0;pwned\x07> ";
+		$shell->sink( new Capture_Sink_Node() );
+
+		$installed = null;
+		TTY_In_Node::$readline_handler_install = static function ( string $prompt, callable $cb ) use ( &$installed ): void {
+			$installed ??= $prompt;
+		};
+
+		$stream = $this->memory_stream( '' );
+		$reader = new TTY_In_Node( $shell, $this->out(), true, $stream );
+		$reader->sink( $shell );
+
+		$this->assertSame( '/marl<1B>]0;pwned<07>> ', $installed );
+		\fclose( $stream );
+	}
+
 	public function test_readline_line_reaches_shell_and_reinstalls_handler(): void {
 		// Readline mode: constructor installs the handler once (marking the prompt
 		// on the TTY_Out). handle_readline_line only RECORDS the line; the drain

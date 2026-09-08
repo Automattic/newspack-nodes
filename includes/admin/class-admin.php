@@ -758,173 +758,6 @@ class Admin {
 	}
 
 	/**
-	 * Render ONE fleet-alert notice: the count the `Alerts` evaluator returns and
-	 * the worst severity among them, linked to Site Health for the detail.
-	 *
-	 * One summary rather than a notice per alert: `evaluate()` returns an entry per
-	 * worker, per lagging consumer and per dead-lettering reader, so a fleet-wide
-	 * problem yields a screenful. Shown only where the `?page=` slug begins
-	 * `newspack-nodes`, and only to a user `current_user_allowed()` admits;
-	 * nothing renders when the fleet is clean.
-	 *
-	 * @throws \RuntimeException Through `Alerts::evaluate()`, when the runtime base
-	 *   directory will not resolve.
-	 */
-	public function render_alert_notice(): void {
-		if ( ! self::current_user_allowed() ) {
-			return;
-		}
-		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
-		$page = isset( $_GET['page'] ) && \is_string( $_GET['page'] ) ? \sanitize_text_field( \wp_unslash( $_GET['page'] ) ) : '';
-		if ( ! \str_starts_with( $page, 'newspack-nodes' ) ) {
-			return;
-		}
-		$alerts = \Newspack_Nodes\Alerts::evaluate();
-		if ( empty( $alerts ) ) {
-			return;
-		}
-		$worst = \Newspack_Nodes\Alerts::worst_severity( $alerts );
-		$class = \Newspack_Nodes\Alerts::SEVERITY_CRITICAL === $worst ? 'notice-error' : 'notice-warning';
-		$message = \sprintf(
-			/* translators: 1: number of active fleet alerts, 2: worst severity (warning|critical). */
-			\__( 'Newspack Nodes: %1$d fleet alert(s), worst severity %2$s.', 'newspack-nodes' ),
-			\count( $alerts ),
-			$worst
-		);
-		\printf(
-			'<div class="notice %s"><p>%s <a href="%s">%s</a></p></div>',
-			\esc_attr( $class ),
-			\esc_html( $message ),
-			\esc_url( \admin_url( 'site-health.php' ) ),
-			\esc_html__( 'View fleet health', 'newspack-nodes' )
-		);
-	}
-
-	/**
-	 * Register the DevTools hub as the top-level "Nodes" admin menu. The page it
-	 * renders is the hub's React mount div; Overview, the Console and every other
-	 * tab arrive on it as tab bundles.
-	 */
-	public function register_topology_admin_page(): void {
-		if ( ! self::current_user_allowed() ) {
-			return;
-		}
-		if ( ! \function_exists( 'add_menu_page' ) ) {
-			return;
-		}
-		\add_menu_page(
-			\__( 'Newspack Nodes', 'newspack-nodes' ),
-			\__( 'Nodes', 'newspack-nodes' ),
-			Capabilities::cap_for( Capabilities::MANAGE ),
-			self::HUB_MENU_SLUG,
-			[ $this, 'render_hub_page' ],
-			'dashicons-networking',
-			81
-		);
-	}
-
-	/**
-	 * Register the event-dashboard admin pages, of which there are none: every
-	 * event dashboard is a `host:'hub'` DevTools tab on the top-level "Nodes"
-	 * page. The body is the permission check and nothing after it, so this
-	 * `admin_menu` callback — priority 11, running once the hub menu exists —
-	 * has no effect.
-	 */
-	public function register_event_dashboard_pages(): void {
-		if ( ! self::current_user_allowed() ) {
-			return;
-		}
-	}
-
-	/**
-	 * Render the DevTools hub mount element, the whole server-side output of the
-	 * top-level "Nodes" landing page. Every tab on it comes from a bundle the
-	 * `newspack_nodes/devtools_tab_bundles` filter contributed.
-	 */
-	public function render_hub_page(): void {
-		if ( ! self::current_user_allowed() ) {
-			\wp_die( \esc_html__( 'You do not have permission to access this page.', 'newspack-nodes' ) );
-		}
-		echo '<div id="newspack-nodes-hub" class="newspack-nodes-hub-page"></div>';
-	}
-
-	/**
-	 * Register the server-rendered settings page as Settings → Nodes Runtime.
-	 */
-	public function add_admin_menu(): void {
-		if ( ! self::current_user_allowed() ) {
-			return;
-		}
-		if ( ! \function_exists( 'add_options_page' ) ) {
-			return;
-		}
-		\add_options_page(
-			\__( 'Nodes Runtime Settings', 'newspack-nodes' ),
-			\__( 'Nodes Runtime', 'newspack-nodes' ),
-			Capabilities::cap_for( Capabilities::MANAGE ),
-			self::MENU_SLUG,
-			[ $this, 'render_settings_page' ]
-		);
-	}
-
-	/**
-	 * Render the settings page: the Settings-API form, plus a hidden form each for
-	 * Reset to Defaults and Flush Caches.
-	 *
-	 * The two destructive actions post to `admin-post.php` rather than riding the
-	 * settings form, because `options.php` would treat them as a save. Their
-	 * buttons live in the settings form's submit row and submit the hidden form
-	 * they belong to, so the page reads as one control panel.
-	 */
-	public function render_settings_page(): void {
-		if ( ! self::current_user_allowed() ) {
-			\wp_die( \esc_html__( 'You do not have permission to access this page.', 'newspack-nodes' ) );
-		}
-		$reset_url = \function_exists( 'admin_url' )
-			? \admin_url( 'admin-post.php' )
-			: '/wp-admin/admin-post.php';
-		?>
-		<div class="wrap newspack-nodes-settings-wrap newspack-nodes-theme newspack-nodes-ui">
-			<h1><?php \esc_html_e( 'Nodes Runtime Settings', 'newspack-nodes' ); ?></h1>
-			<form method="post" action="options.php">
-				<?php
-				\settings_fields( self::OPTIONS_GROUP );
-				\do_settings_sections( self::SETTINGS_PAGE );
-				?>
-				<p class="submit">
-					<?php \submit_button( \__( 'Save Settings', 'newspack-nodes' ), 'primary', 'submit', false ); ?>
-					<span style="display:inline-block; margin-left: 10px;">
-						<input type="button" class="button button-secondary"
-							value="<?php \esc_attr_e( 'Reset to Defaults', 'newspack-nodes' ); ?>"
-							onclick="if ( confirm( '<?php echo \esc_js( \__( 'Are you sure you want to reset all substrate settings to defaults? This cannot be undone.', 'newspack-nodes' ) ); ?>' ) ) { document.getElementById( 'newspack-nodes-reset-form' ).submit(); }" />
-					</span>
-					<?php // Flush posts its own form; submit it from this row. ?>
-					<span style="display:inline-block; margin-left: 10px;">
-						<input type="button" class="button button-secondary"
-							value="<?php \esc_attr_e( 'Flush Caches', 'newspack-nodes' ); ?>"
-							onclick="document.getElementById( 'newspack-nodes-flush-form' ).submit();" />
-					</span>
-				</p>
-			</form>
-			<form id="newspack-nodes-reset-form" method="post" action="<?php echo \esc_url( $reset_url ); ?>" style="display:none;">
-				<input type="hidden" name="action" value="<?php echo \esc_attr( self::RESET_ACTION ); ?>">
-				<?php \wp_nonce_field( self::RESET_ACTION, self::RESET_NONCE ); ?>
-			</form>
-			<form id="newspack-nodes-flush-form" method="post" action="<?php echo \esc_url( $reset_url ); ?>" style="display:none;">
-				<input type="hidden" name="action" value="<?php echo \esc_attr( self::FLUSH_ACTION ); ?>">
-				<?php \wp_nonce_field( self::FLUSH_ACTION, self::FLUSH_NONCE ); ?>
-			</form>
-			<?php
-			// Extension plugins inject sections below the form.
-			\do_action( 'newspack_nodes/settings_after_form' );
-			Field_Reset_Assets::enqueue();
-			echo Field_Reset_Assets::highlight_style(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- static CSS literal.
-			?>
-		</div>
-		<?php
-	}
-
-	/**
 	 * Base-directory field: an absolute path whose placeholder is the effective
 	 * default — the schema's, as the config files override it. Blank means "use
 	 * that default", which is what makes the field resettable without a magic
@@ -1071,6 +904,173 @@ class Admin {
 	}
 
 	/**
+	 * Render ONE fleet-alert notice: the count the `Alerts` evaluator returns and
+	 * the worst severity among them, linked to Site Health for the detail.
+	 *
+	 * One summary rather than a notice per alert: `evaluate()` returns an entry per
+	 * worker, per lagging consumer and per dead-lettering reader, so a fleet-wide
+	 * problem yields a screenful. Shown only where the `?page=` slug begins
+	 * `newspack-nodes`, and only to a user holding the MANAGE role;
+	 * nothing renders when the fleet is clean.
+	 *
+	 * @throws \RuntimeException Through `Alerts::evaluate()`, when the runtime base
+	 *   directory will not resolve.
+	 */
+	public function render_alert_notice(): void {
+		if ( ! Capabilities::can( Capabilities::MANAGE ) ) {
+			return;
+		}
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$page = isset( $_GET['page'] ) && \is_string( $_GET['page'] ) ? \sanitize_text_field( \wp_unslash( $_GET['page'] ) ) : '';
+		if ( ! \str_starts_with( $page, 'newspack-nodes' ) ) {
+			return;
+		}
+		$alerts = \Newspack_Nodes\Alerts::evaluate();
+		if ( empty( $alerts ) ) {
+			return;
+		}
+		$worst = \Newspack_Nodes\Alerts::worst_severity( $alerts );
+		$class = \Newspack_Nodes\Alerts::SEVERITY_CRITICAL === $worst ? 'notice-error' : 'notice-warning';
+		$message = \sprintf(
+			/* translators: 1: number of active fleet alerts, 2: worst severity (warning|critical). */
+			\__( 'Newspack Nodes: %1$d fleet alert(s), worst severity %2$s.', 'newspack-nodes' ),
+			\count( $alerts ),
+			$worst
+		);
+		\printf(
+			'<div class="notice %s"><p>%s <a href="%s">%s</a></p></div>',
+			\esc_attr( $class ),
+			\esc_html( $message ),
+			\esc_url( \admin_url( 'site-health.php' ) ),
+			\esc_html__( 'View fleet health', 'newspack-nodes' )
+		);
+	}
+
+	/**
+	 * Register the DevTools hub as the top-level "Nodes" admin menu. The page it
+	 * renders is the hub's React mount div; Overview, the Console and every other
+	 * tab arrive on it as tab bundles.
+	 */
+	public function register_topology_admin_page(): void {
+		if ( ! Capabilities::can( Capabilities::MANAGE ) ) {
+			return;
+		}
+		if ( ! \function_exists( 'add_menu_page' ) ) {
+			return;
+		}
+		\add_menu_page(
+			\__( 'Newspack Nodes', 'newspack-nodes' ),
+			\__( 'Nodes', 'newspack-nodes' ),
+			Capabilities::cap_for( Capabilities::MANAGE ),
+			self::HUB_MENU_SLUG,
+			[ $this, 'render_hub_page' ],
+			'dashicons-networking',
+			81
+		);
+	}
+
+	/**
+	 * Register the event-dashboard admin pages, of which there are none: every
+	 * event dashboard is a `host:'hub'` DevTools tab on the top-level "Nodes"
+	 * page. The body is the permission check and nothing after it, so this
+	 * `admin_menu` callback — priority 11, running once the hub menu exists —
+	 * has no effect.
+	 */
+	public function register_event_dashboard_pages(): void {
+		if ( ! Capabilities::can( Capabilities::MANAGE ) ) {
+			return;
+		}
+	}
+
+	/**
+	 * Render the DevTools hub mount element, the whole server-side output of the
+	 * top-level "Nodes" landing page. Every tab on it comes from a bundle the
+	 * `newspack_nodes/devtools_tab_bundles` filter contributed.
+	 */
+	public function render_hub_page(): void {
+		if ( ! Capabilities::can( Capabilities::MANAGE ) ) {
+			\wp_die( \esc_html__( 'You do not have permission to access this page.', 'newspack-nodes' ) );
+		}
+		echo '<div id="newspack-nodes-hub" class="newspack-nodes-hub-page"></div>';
+	}
+
+	/**
+	 * Register the server-rendered settings page as Settings → Nodes Runtime.
+	 */
+	public function add_admin_menu(): void {
+		if ( ! Capabilities::can( Capabilities::MANAGE ) ) {
+			return;
+		}
+		if ( ! \function_exists( 'add_options_page' ) ) {
+			return;
+		}
+		\add_options_page(
+			\__( 'Nodes Runtime Settings', 'newspack-nodes' ),
+			\__( 'Nodes Runtime', 'newspack-nodes' ),
+			Capabilities::cap_for( Capabilities::MANAGE ),
+			self::MENU_SLUG,
+			[ $this, 'render_settings_page' ]
+		);
+	}
+
+	/**
+	 * Render the settings page: the Settings-API form, plus a hidden form each for
+	 * Reset to Defaults and Flush Caches.
+	 *
+	 * The two destructive actions post to `admin-post.php` rather than riding the
+	 * settings form, because `options.php` would treat them as a save. Their
+	 * buttons live in the settings form's submit row and submit the hidden form
+	 * they belong to, so the page reads as one control panel.
+	 */
+	public function render_settings_page(): void {
+		if ( ! Capabilities::can( Capabilities::MANAGE ) ) {
+			\wp_die( \esc_html__( 'You do not have permission to access this page.', 'newspack-nodes' ) );
+		}
+		$reset_url = \function_exists( 'admin_url' )
+			? \admin_url( 'admin-post.php' )
+			: '/wp-admin/admin-post.php';
+		?>
+		<div class="wrap newspack-nodes-settings-wrap newspack-nodes-theme newspack-nodes-ui">
+			<h1><?php \esc_html_e( 'Nodes Runtime Settings', 'newspack-nodes' ); ?></h1>
+			<form method="post" action="options.php">
+				<?php
+				\settings_fields( self::OPTIONS_GROUP );
+				\do_settings_sections( self::SETTINGS_PAGE );
+				?>
+				<p class="submit">
+					<?php \submit_button( \__( 'Save Settings', 'newspack-nodes' ), 'primary', 'submit', false ); ?>
+					<span style="display:inline-block; margin-left: 10px;">
+						<input type="button" class="button button-secondary"
+							value="<?php \esc_attr_e( 'Reset to Defaults', 'newspack-nodes' ); ?>"
+							onclick="if ( confirm( '<?php echo \esc_js( \__( 'Are you sure you want to reset all substrate settings to defaults? This cannot be undone.', 'newspack-nodes' ) ); ?>' ) ) { document.getElementById( 'newspack-nodes-reset-form' ).submit(); }" />
+					</span>
+					<?php // Flush posts its own form; submit it from this row. ?>
+					<span style="display:inline-block; margin-left: 10px;">
+						<input type="button" class="button button-secondary"
+							value="<?php \esc_attr_e( 'Flush Caches', 'newspack-nodes' ); ?>"
+							onclick="document.getElementById( 'newspack-nodes-flush-form' ).submit();" />
+					</span>
+				</p>
+			</form>
+			<form id="newspack-nodes-reset-form" method="post" action="<?php echo \esc_url( $reset_url ); ?>" style="display:none;">
+				<input type="hidden" name="action" value="<?php echo \esc_attr( self::RESET_ACTION ); ?>">
+				<?php \wp_nonce_field( self::RESET_ACTION, self::RESET_NONCE ); ?>
+			</form>
+			<form id="newspack-nodes-flush-form" method="post" action="<?php echo \esc_url( $reset_url ); ?>" style="display:none;">
+				<input type="hidden" name="action" value="<?php echo \esc_attr( self::FLUSH_ACTION ); ?>">
+				<?php \wp_nonce_field( self::FLUSH_ACTION, self::FLUSH_NONCE ); ?>
+			</form>
+			<?php
+			// Extension plugins inject sections below the form.
+			\do_action( 'newspack_nodes/settings_after_form' );
+			Field_Reset_Assets::enqueue();
+			echo Field_Reset_Assets::highlight_style(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- static CSS literal.
+			?>
+		</div>
+		<?php
+	}
+
+	/**
 	 * Rotate the install's cache salt — THE flush — then recycle the fleet.
 	 *
 	 * One rotation orphans every Newspack plugin's cached values at once and
@@ -1084,7 +1084,7 @@ class Admin {
 		if ( '' === $nonce || ! \wp_verify_nonce( $nonce, self::FLUSH_ACTION ) ) {
 			\wp_die( \esc_html__( 'Security check failed.', 'newspack-nodes' ) );
 		}
-		if ( ! self::current_user_allowed() ) {
+		if ( ! Capabilities::can( Capabilities::MANAGE ) ) {
 			\wp_die( \esc_html__( 'You do not have permission to perform this action.', 'newspack-nodes' ) );
 		}
 
@@ -1127,7 +1127,7 @@ class Admin {
 		if ( '' === $nonce || ! \wp_verify_nonce( $nonce, self::RESET_ACTION ) ) {
 			\wp_die( \esc_html__( 'Security check failed.', 'newspack-nodes' ) );
 		}
-		if ( ! self::current_user_allowed() ) {
+		if ( ! Capabilities::can( Capabilities::MANAGE ) ) {
 			\wp_die( \esc_html__( 'You do not have permission to perform this action.', 'newspack-nodes' ) );
 		}
 
@@ -1148,32 +1148,6 @@ class Admin {
 			)
 		);
 		exit;
-	}
-
-	/**
-	 * Permission gate for every admin page and handler here: the MANAGE capability,
-	 * narrowed by the optional `allowed_users` list from Config.
-	 *
-	 * MANAGE resolves through the `newspack_nodes/capability_map` filter, whose
-	 * default is `manage_options` until `wp nodes caps install` swaps in
-	 * `newspack_nodes_manage`. An empty `allowed_users` means every user
-	 * holding it. A populated one additionally requires the current user's
-	 * `user_login` to be a member — the capability is still checked first, so a
-	 * demoted account loses access at once and nobody has to edit the list.
-	 *
-	 * @return bool True when the current user may reach the substrate admin.
-	 */
-	public static function current_user_allowed(): bool {
-		if ( ! Capabilities::can( Capabilities::MANAGE ) ) {
-			return false;
-		}
-
-		$allowed_users = Config::value( 'allowed_users' );
-		if ( empty( $allowed_users ) || ! \is_array( $allowed_users ) ) {
-			return true;
-		}
-
-		return \in_array( \wp_get_current_user()->user_login, $allowed_users, true );
 	}
 
 	/**

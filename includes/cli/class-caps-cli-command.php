@@ -83,6 +83,12 @@ class Caps_CLI_Command {
 	 * resolves to `manage_options` until then. An existing user is converted
 	 * rather than added to: its other roles are removed.
 	 *
+	 * It WARNS when the operator's `allowed_users` list is populated and does
+	 * not name this login: that list narrows every role from inside
+	 * `Capabilities::can()`, so the account would answer 401 on its first
+	 * `/command` POST with nothing on the wire to say why. A warning rather
+	 * than a refusal, since the list may be the operator's next edit.
+	 *
 	 * The password is printed ONCE and never stored here — copy it into the
 	 * hub's Vault entry for this spoke. The user holds read + tune and nothing
 	 * else, so this credential is permanent by design: the link is permanent,
@@ -148,6 +154,14 @@ class Caps_CLI_Command {
 			// Sole role: an aggregator that also edits isn't least-privilege.
 			$user->set_role( Roles::HUB_ROLE );
 			\WP_CLI::success( "Set {$login} to the " . Roles::HUB_ROLE . ' role (previous roles removed).' );
+		}
+		if ( Capabilities::operator_list_excludes( $login ) ) {
+			\WP_CLI::warning(
+				"The operator's allowed_users list does not name {$login}, so every request it "
+					. "makes is refused at can( READ ) and answers 401. Add '{$login}' to "
+					. 'allowed_users in newspack-nodes-config.php, or to the '
+					. 'newspack_nodes_allowed_users option.'
+			);
 		}
 
 		if ( isset( $assoc_args['no-password'] ) ) {

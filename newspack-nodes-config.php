@@ -33,9 +33,13 @@
 \defined( 'ABSPATH' ) || exit;
 
 return [
-    // A `user_login` allowlist over the substrate admin pages, checked after
-    // the MANAGE capability, so a demoted account loses access without an edit
-    // here. Empty allows every user who holds that capability.
+    // A `user_login` allowlist narrowing every capability role, so it governs
+    // the REST control plane — `/command`, `/auth`, both SSE streams, the spawn
+    // endpoint's external path — as well as the admin pages. Checked after the
+    // capability, so a demoted account loses access without an edit here, and
+    // only for a logged-in user, so CLI, cron and workers are never narrowed.
+    // Empty allows every user who holds the role; a login named here must
+    // include any service account, such as the log aggregator's hub user.
     // 'allowed_users'              => [],
 
     // Runtime root: the logs, locks, offsets, deadletter and IPC dirs hang off

@@ -23,11 +23,34 @@ class AuthControllerTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
-		$GLOBALS['_wp_test_current_user_can'] = [];
-		$GLOBALS['_wp_test_is_multisite']     = false;
-		$GLOBALS['_wp_test_is_main_site']     = true;
-		Core::$memd                           = $this->prev_memd;
+		$GLOBALS['_wp_test_current_user_can']   = [];
+		$GLOBALS['_wp_test_current_user_login'] = '';
+		$GLOBALS['_wp_test_is_multisite']       = false;
+		$GLOBALS['_wp_test_is_main_site']       = true;
+		Core::$memd                             = $this->prev_memd;
+		\Newspack_Nodes\Config::reset();
 		parent::tearDown();
+	}
+
+	/**
+	 * `/auth` is where an excluded administrator would otherwise obtain a
+	 * signing key scoped to their own capabilities — manage, on a site that has
+	 * not filtered the map — and every signed command follows from it.
+	 */
+	public function test_an_administrator_the_allowlist_excludes_is_refused(): void {
+		\update_option( 'newspack_nodes_allowed_users', [ 'quill', 'mercator' ] );
+		\Newspack_Nodes\Config::reset();
+		$GLOBALS['_wp_test_current_user_login'] = 'redshank';
+
+		$this->assertFalse( ( new Auth_Controller() )->check_permission( new \WP_REST_Request() ) );
+	}
+
+	public function test_an_administrator_the_allowlist_names_is_permitted(): void {
+		\update_option( 'newspack_nodes_allowed_users', [ 'quill', 'mercator' ] );
+		\Newspack_Nodes\Config::reset();
+		$GLOBALS['_wp_test_current_user_login'] = 'quill';
+
+		$this->assertTrue( ( new Auth_Controller() )->check_permission( new \WP_REST_Request() ) );
 	}
 
 	public function test_issues_a_session_whose_key_resolves_by_its_handle(): void {

@@ -4,6 +4,27 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 **Maintenance rule:** a release that changes any consumer-facing contract adds its entry here in the same commit as its CHANGELOG entry. No entry means nothing to do.
 
+## Unreleased
+
+- **`Admin\Admin::current_user_allowed()` is REMOVED.** Replace it with
+  `\Newspack_Nodes\Capabilities::can( \Newspack_Nodes\Capabilities::MANAGE )`,
+  which is what it did — `Capabilities::can()` now applies the `allowed_users`
+  allowlist itself, so the wrapper was the same rule written twice. A consumer
+  still calling the old name fatals with `Call to undefined method`; there is no
+  alias and no deprecation shim.
+
+- **`allowed_users` narrows every capability role, not the admin menus alone.**
+  A populated list now governs `/command`, `/auth`, `/messages/stream`,
+  `/log/stream`, the spawn endpoint's external path and every capability-gated
+  verb. Two consequences for a site that already sets it. Any SERVICE account
+  reaching this site over the REST plane — the log aggregator's hub user, an
+  `HTTP_Out` credential in another site's Vault — must be added to the list, or
+  it starts answering 401. And the list applies to an authenticated actor only:
+  WP-CLI without `--user`, workers and WP-Cron carry no login, so nothing there
+  is narrowed. A scalar `allowed_users` — a config typo — is read as a
+  one-login list rather than as no list at all, where the admin gate used to
+  treat it as absent and admit everyone.
+
 ## 2.46.1
 
 - **A session minted without a `label` is never recorded in the command-session

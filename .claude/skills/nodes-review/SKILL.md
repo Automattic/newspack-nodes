@@ -206,7 +206,7 @@ Three roles cut by blast radius — `read` (dashboards, SSE, introspection), `tu
 
 A verb declares its role in `node_schema()['commands']`, and `Service_CI_Node::commands()` runs every table through `gate_table()` on INSTALL, wrapping each handler in `Capabilities::require()` for the role the schema names that verb. A hand-built table is gated too — the lookup is by verb NAME — and a name the schema does not declare gets MANAGE, the strictest role rather than the loosest. What escapes is a table that never passes through `commands()` at all: an assignment straight to the inherited `protected $commands`, or a `commands()` override that skips the gate. Flag the reverse case as well, because the role is keyed by name rather than by handler: a table installed after construction under a schema-declared name inherits that declaration's role while the handler beneath it is a different callable, so the role on file no longer describes what runs.
 
-`Admin::current_user_allowed()` is the single funnel for the settings UI: `Capabilities::can( MANAGE )` first, then the optional `allowed_users` login whitelist (empty means every user holding MANAGE). A diff bypassing it on an admin entry point, or weakening the whitelist, is security-relevant.
+`Capabilities::can( MANAGE )` is the single funnel for the settings UI, and `can()` itself applies the optional `allowed_users` login allowlist (empty means every user holding the role, and no logged-in user means no list to apply). A diff bypassing it on an admin entry point, or weakening the allowlist, is security-relevant.
 
 ### 10. Command interpreter dispatch and authorization (ADR-15)
 

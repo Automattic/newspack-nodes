@@ -718,7 +718,7 @@ class Shell_Node extends Node {
 				$this->stdout( \implode( ' ', $args ) );
 				return true;
 			case 'clear':
-				$this->stdout( "\033[2J\033[H" );
+				$this->stdout_control( "\033[2J\033[H" );
 				return true;
 			case 'debug_level':
 				$this->debug_level_command( $args[0] ?? '' );
@@ -1213,6 +1213,26 @@ class Shell_Node extends Node {
 		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
 		$message[ Message::VALUE ] = $line;
 		$stdout->fill( $message );
+	}
+
+	/**
+	 * Write a control sequence the Shell composed itself, unrendered.
+	 *
+	 * `stdout()` above is the untrusted path and renders every control byte, so
+	 * `clear` routed through it prints `<1B>[2J<1B>[H` rather than clearing the
+	 * screen. This is the deliberate bypass, and the only caller is that one
+	 * builtin — a payload someone else authored keeps going through `stdout()`.
+	 *
+	 * Silent with no `_stdout`: a `.tsl` loaded at worker boot has no terminal
+	 * to erase, and an escape sequence in `error_log` helps nobody.
+	 *
+	 * @param string $bytes Sequence this Shell composed, written verbatim.
+	 */
+	private function stdout_control( string $bytes ): void {
+		$stdout = Core::node( Node_Names::STDOUT );
+		if ( $stdout instanceof Stdout_Node ) {
+			$stdout->write_raw( $bytes );
+		}
 	}
 
 	/**

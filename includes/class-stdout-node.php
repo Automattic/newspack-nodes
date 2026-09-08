@@ -1,9 +1,17 @@
 <?php
 /**
- * Stdout: the bare terminal sink. It coerces a message VALUE to a string and
- * fwrites it to the stream it owns, adding nothing — no newline, no framing,
- * no branch on message type — so whatever a Dumper or an interpreter reply
- * already rendered reaches the terminal byte for byte.
+ * Stdout: the bare terminal sink. It coerces a message VALUE to a string,
+ * renders its control characters visible, and fwrites it to the stream it owns,
+ * adding nothing else — no newline, no framing, no branch on message type — so
+ * whatever a Dumper or an interpreter reply already rendered reaches the
+ * terminal as the text it is, never as instructions to the terminal.
+ *
+ * Two paths, and which one a caller takes is the whole security boundary here.
+ * Everything arriving as a MESSAGE — a Dumper's line, an interpreter reply, a
+ * tailed log, `wp nodes reqgrep` — goes through `fill()` and is rendered, which
+ * is the default and needs no opting in. `write_raw()` is the single bypass,
+ * for a caller composing a control sequence deliberately, and the only one in
+ * the tree is `Shell_Node`'s `clear` builtin.
  *
  * Rendering belongs upstream, which is why there is no type dispatch here: a
  * scalar VALUE prints the same whether it arrives as TM_BYTESTREAM or
@@ -38,13 +46,34 @@ class Stdout_Node extends Node {
 	protected $stdout;
 
 	/**
-	 * Take ownership of the output stream.
-	 *
-	 * @param resource|null $stdout Defaults to STDOUT. Pass php://memory for tests.
+	 * Whether the owned stream is a real terminal, settled once at construction
+	 * and read by every write. It decides ANSI alone: a rendered control
+	 * character is reverse-videoed on a terminal and bare in a pipe, a file or a
+	 * test capture. `TTY_Out_Node` reads it for its redraw as well.
 	 */
-	public function __construct( $stdout = null ) {
+	protected bool $stdout_is_tty;
+
+	/**
+	 * Take ownership of the output stream and settle the TTY question once.
+	 *
+	 * Production reads `posix_isatty()`. Tests pass `$force_tty` because a
+	 * `php://memory` stream is never a terminal, and forcing it true is the only
+	 * way to exercise the terminal paths against a buffer the test can read back.
+	 *
+	 * @param resource|null $stdout    Defaults to STDOUT. Pass php://memory for tests.
+	 * @param bool|null     $force_tty Override the posix_isatty() detection; null detects.
+	 */
+	public function __construct( $stdout = null, ?bool $force_tty = null ) {
 		parent::__construct();
 		$this->stdout = $stdout ?? \STDOUT;
+
+		if ( null !== $force_tty ) {
+			$this->stdout_is_tty = $force_tty;
+			return;
+		}
+		$this->stdout_is_tty = \is_resource( $this->stdout )
+			&& \function_exists( 'posix_isatty' )
+			&& @\posix_isatty( $this->stdout );
 	}
 
 	/**
@@ -64,14 +93,32 @@ class Stdout_Node extends Node {
 	}
 
 	/**
-	 * Write seam: the one `fwrite` on the data path, and the only call a
-	 * subclass has to intercept. `TTY_Out_Node` overrides it to wipe and redraw
-	 * around a live prompt, which is why the coercion and the counter sit in
-	 * `fill()` — an override inherits both instead of reimplementing them.
+	 * Write seam: the one `fwrite` on the data path, the one place a control
+	 * character in a payload is rendered visible, and the only call a subclass
+	 * has to intercept. `TTY_Out_Node` overrides it to wipe and redraw around a
+	 * live prompt, which is why the coercion and the counter sit in `fill()` —
+	 * an override inherits both instead of reimplementing them.
 	 *
-	 * @param string $text Bytes to write, exactly as they should appear.
+	 * @param string $text Bytes to write, control characters not yet rendered.
 	 */
 	protected function write( string $text ): void {
+		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
+		\fwrite( $this->stdout, Core::terminal_safe( $text, $this->stdout_is_tty ) );
+	}
+
+	/**
+	 * Put bytes on the stream verbatim, rendering nothing and framing nothing.
+	 *
+	 * The one bypass around `write()`, for a caller that MEANS its control
+	 * bytes: `Shell_Node`'s `clear` builtin sends an erase-display sequence, and
+	 * rendered it would print `<1B>[2J<1B>[H` instead of clearing the screen.
+	 * Nothing on the message path reaches here — a caller has to name it — and
+	 * `TTY_Out_Node` inherits it unchanged, so a raw write skips the prompt
+	 * redraw as well as the rendering.
+	 *
+	 * @param string $text Trusted bytes, written exactly as given.
+	 */
+	public function write_raw( string $text ): void {
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
 		\fwrite( $this->stdout, $text );
 	}
