@@ -90,6 +90,11 @@ class CoreTest extends TestCase {
 		$this->assertNull( Core::canonical_decimal( '0', false ), 'allow_zero=false rejects zero' );
 		$this->assertNull( Core::canonical_decimal( '9223372036854775808' ), 'past PHP_INT_MAX' );
 		$this->assertSame( \PHP_INT_MAX, Core::canonical_decimal( (string) \PHP_INT_MAX ) );
+		// `$` matches before a trailing newline, so every anchored validator in
+		// this tree carries `D`. Here it is the whole point of the word
+		// CANONICAL: "42\n" is not the canonical spelling of 42.
+		$this->assertNull( Core::canonical_decimal( "42\n" ), 'a trailing newline is not canonical' );
+		$this->assertNull( Core::canonical_decimal( "1\n", false ) );
 	}
 
 	public function test_coercion_helpers_take_an_optional_default_for_the_miss_case(): void {

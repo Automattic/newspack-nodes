@@ -1293,7 +1293,7 @@ class Admin {
 			if ( '' === $line ) {
 				continue;
 			}
-			if ( \preg_match( '/^[a-zA-Z0-9._\-]+:\d{1,5}$/', $line ) ) {
+			if ( \preg_match( '/^[a-zA-Z0-9._\-]+:\d{1,5}$/D', $line ) ) {
 				$sanitized_lines[] = $line;
 			}
 		}

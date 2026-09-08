@@ -954,7 +954,7 @@ class Command_Interpreter_Node extends Node {
 			if ( '' === $tok ) {
 				continue;
 			}
-			if ( \preg_match( '/^-([aclst]+)$/', $tok, $m ) ) {
+			if ( \preg_match( '/^-([aclst]+)$/D', $tok, $m ) ) {
 				$length = \strlen( $m[1] );
 				for ( $i = 0; $i < $length; ++$i ) {
 					$opt = $m[1][ $i ];

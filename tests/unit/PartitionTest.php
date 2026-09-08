@@ -3889,8 +3889,22 @@ class PartitionTest extends TestCase {
 	 * created the next segment with `touch()` outside that guard, so under the
 	 * usual 022 every segment after the first landed world-readable — and a
 	 * firehose segment carries request URLs and env values.
+	 *
+	 * The umask is PINNED to 022 for the duration: a runner whose own umask is
+	 * already 0077 masks the bits itself, and the test then passes against the
+	 * defect it exists to catch.
 	 */
 	public function test_a_rotated_segment_is_not_world_readable(): void {
+		$prior = \umask( 0022 );
+		try {
+			$this->assert_rotated_segments_are_private();
+		} finally {
+			\umask( $prior );
+		}
+	}
+
+	/** The body of the umask-pinned check above; separated so the mask is restored on failure. */
+	private function assert_rotated_segments_are_private(): void {
 		$p = new Partition_Node();
 		// segment_size 1 forces a rotation on the second record.
 		$p->arguments( [ "{$this->tmp}.rotmode", '1', '2', '8', '0', '0', '86400', '0' ] );
@@ -3914,6 +3928,93 @@ class PartitionTest extends TestCase {
 				\basename( (string) $file ) . ' must not be readable by other uids'
 			);
 		}
+		// The DIRECTORY too: 0600 segments behind a 0755 dir still publish the
+		// listing, and a segment name is an offset — how much was written, and
+		// when it rotated.
+		$this->assertSame(
+			'0700',
+			\substr( \sprintf( '%o', (int) \fileperms( "{$this->tmp}.rotmode" ) ), -4 ),
+			'the segment directory must not be traversable by other uids'
+		);
+	}
+
+	/**
+	 * A directory ALREADY on disk is tightened, not left as it was created.
+	 *
+	 * A mode passed to `mkdir` applies once, so every install predating this
+	 * keeps its 0755 segment directories forever unless a writer fixes one on
+	 * the way past. Nothing else probes permissions — `Health_Checks` has no
+	 * `fileperms` call anywhere — so this is the only pass there is.
+	 */
+	public function test_an_existing_segment_directory_is_tightened(): void {
+		$prior = \umask( 0022 );
+		try {
+			$dir = "{$this->tmp}/tree/legacy.p0";
+			\mkdir( $dir, 0755, true );
+			\chmod( $dir, 0755 );
+
+			$this->partition_over( $dir );
+
+			$this->assertSame( '0700', $this->mode_of( $dir ), 'a writer tightens the directory it found' );
+		} finally {
+			\umask( $prior );
+		}
+	}
+
+	/**
+	 * Only the LEAF tightens.
+	 *
+	 * `mkdir` with `$recursive` applies the mode to every ancestor it creates,
+	 * and the base tree is shared — a deployment whose web request and worker
+	 * run as different uids loses the second to a 0700 `logs_dir`.
+	 */
+	public function test_tightening_the_segment_directory_spares_its_parents(): void {
+		$prior = \umask( 0022 );
+		try {
+			$this->partition_over( "{$this->tmp}/shared/fresh.p0" );
+
+			$this->assertSame( '0700', $this->mode_of( "{$this->tmp}/shared/fresh.p0" ) );
+			$this->assertSame( '0755', $this->mode_of( "{$this->tmp}/shared" ), 'the shared parent is left alone' );
+		} finally {
+			\umask( $prior );
+		}
+	}
+
+	/**
+	 * Tightening masks group and other off; it never LOOSENS the owner's bits.
+	 *
+	 * A read-only segment directory is a deliberate state — `do_rotate`'s
+	 * touch-failure path is exercised by exactly that — and a pass that widened
+	 * it back to 0700 would be a permission change nobody asked for.
+	 */
+	public function test_tightening_never_restores_a_bit_the_owner_dropped(): void {
+		$dir = "{$this->tmp}/ro.p0";
+		\mkdir( $dir, 0700, true );
+		\chmod( $dir, 0500 );
+
+		$p = new Partition_Node();
+		$p->arguments( [ $dir ] );
+		$p->void_warranty();
+		$ref = new \ReflectionMethod( $p, 'ensure_segment_dir' );
+		$ref->invoke( $p, $dir );
+
+		$this->assertSame( '0500', $this->mode_of( $dir ) );
+		\chmod( $dir, 0700 );
+	}
+
+	/** Four-digit octal mode of a path, re-statted. */
+	private function mode_of( string $path ): string {
+		\clearstatcache( true, $path );
+		return \substr( \sprintf( '%o', (int) \fileperms( $path ) ), -4 );
+	}
+
+	/** Write one record through a partition rooted at $dir, so its dir is realized. */
+	private function partition_over( string $dir ): void {
+		$p = new Partition_Node();
+		$p->arguments( [ $dir ] );
+		$p->void_warranty();
+		$this->write_keyed( $p, 'k1', 'value 1' );
+		$p->flush();
 	}
 
 	/** Write N indexed records and return the partition over them. */

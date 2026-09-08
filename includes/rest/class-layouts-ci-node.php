@@ -48,7 +48,7 @@ class Layouts_CI_Node extends Service_CI_Node {
 	 * sibling (`jobs:consumer`), plus `.` and `-`. An id that does not match is
 	 * dropped, so the pattern also bounds what reaches the console.
 	 */
-	private const ID_PATTERN = '/^[a-zA-Z0-9_:.-]+$/';
+	private const ID_PATTERN = '/^[a-zA-Z0-9_:.-]+$/D';
 
 	/**
 	 * Ceiling on the packed command envelope, in bytes — 1 MiB. A captured

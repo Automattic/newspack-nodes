@@ -230,7 +230,7 @@ abstract class Service_CI_Node extends Command_Interpreter_Node {
 	 */
 	protected static function require_valid_name(
 		string $name,
-		string $pattern = '/^[a-zA-Z0-9_-]+$/'
+		string $pattern = '/^[a-zA-Z0-9_-]+$/D'
 	): string {
 		if ( ! \preg_match( $pattern, $name ) ) {
 			throw new \RuntimeException(

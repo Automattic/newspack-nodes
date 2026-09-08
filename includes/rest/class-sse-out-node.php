@@ -273,7 +273,7 @@ class SSE_Out_Node extends Node {
 			if ( false !== $slash && \in_array( \substr( $sub, 0, $slash ), Log_Discovery::GROUPS, true ) ) {
 				$sub = \substr( $sub, $slash + 1 );
 			}
-			if ( \preg_match( '/^[a-z0-9_-]+\.p(\d+)$/', $sub, $m ) ) {
+			if ( \preg_match( '/^[a-z0-9_-]+\.p(\d+)$/D', $sub, $m ) ) {
 				return (int) $m[1];
 			}
 		}

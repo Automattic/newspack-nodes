@@ -277,13 +277,21 @@ class HTTP_In_Node extends Node {
 
 		// Route the batch in order through the base interpreter (serial).
 		$out->reset();
+		$refused = [];
 		foreach ( $messages as $message ) {
-			// Stamp with _output; a refusal means the boundary drops it.
-			if ( ! $this->stamp_message( $message, Node_Names::OUTPUT ) ) {
+			// Asked, not attempted: see boundary_refusal().
+			if ( ! self::can_stamp( $message, Node_Names::OUTPUT ) ) {
+				$refused[] = $message;
 				continue;
 			}
+			$this->stamp_message( $message, Node_Names::OUTPUT );
 			// Ingress does NOT sign: authority comes from the minter.
 			$base_interpreter->fill( $message );
+		}
+		// After the batch: the 401 latch must settle first.
+		foreach ( $refused as $message ) {
+			$this->drop_message( $message, 'path exceeded ' . Node::MAX_FROM_SIZE . ' bytes' );
+			$out->fill( self::boundary_refusal( $message ) );
 		}
 
 		if ( ! $out->sent_headers ) {
@@ -291,6 +299,38 @@ class HTTP_In_Node extends Node {
 			( $this->send_header )( $this->refused_a_command ? 401 : 202 );
 		}
 		$this->finish();
+	}
+
+	/**
+	 * The reply a message refused AT the boundary gets, addressed back along the
+	 * FROM the client sent — unstamped, because stamping is what failed.
+	 *
+	 * Without it the batch answers as if it routed: `stamp_message()` warns to
+	 * stderr, the request-scope stderr sink writes that warning into `_output`,
+	 * and the client reads a 200 carrying a `stderr` frame that retires no ask.
+	 * A client tracking replies by ID then waits for one that will never come.
+	 *
+	 * The boundary ASKS `Node::can_stamp()` rather than attempting the stamp,
+	 * and both the diagnostic and this frame are emitted after the batch: once a
+	 * request graph exists `Core::stderr` routes into `_output`, and `fill()`
+	 * decides the status on its first write, so a drop warned inside the loop
+	 * opened the response body and spent the status on 200 before a later
+	 * unauthorized command could raise the 401 latch. The latch is NOT raised
+	 * here — an overflowing path is not an auth failure, and a 401 makes
+	 * `HTTP_Out_Node` forget its session and re-handshake, which for a path the
+	 * client keeps sending is a loop.
+	 *
+	 * @param array<int,mixed> $message The message the boundary refused.
+	 * @return array<int,mixed> A TM_RESPONSE|TM_ERROR frame carrying its ID.
+	 */
+	private static function boundary_refusal( array $message ): array {
+		$r                   = Message::new_message();
+		$r[ Message::TYPE ]  = Message::TM_RESPONSE | Message::TM_ERROR;
+		$r[ Message::FROM ]  = Node_Names::OUTPUT;
+		$r[ Message::TO ]    = $message[ Message::FROM ];
+		$r[ Message::ID ]    = $message[ Message::ID ];
+		$r[ Message::VALUE ] = 'path exceeded ' . Node::MAX_FROM_SIZE . " bytes\n";
+		return $r;
 	}
 
 	/**

@@ -127,7 +127,7 @@ class Log_Node extends Partition_Node {
 	 * @return string PCRE whose capture group 1 is the segment id.
 	 */
 	protected function segment_pattern(): string {
-		return '/^' . \preg_quote( \basename( $this->file ), '/' ) . '\.(\d+)$/';
+		return '/^' . \preg_quote( \basename( $this->file ), '/' ) . '\.(\d+)$/D';
 	}
 
 	/**

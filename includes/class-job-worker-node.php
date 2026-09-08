@@ -87,7 +87,7 @@ class Job_Worker_Node extends Node {
 	public const CACHE_FLUSH_INTERVAL = 50;
 
 	/** Accepted handler names. Job_Intake and an application's router hold matching copies. */
-	public const HANDLER_NAME_PATTERN = '/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/';
+	public const HANDLER_NAME_PATTERN = '/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/D';
 
 	/** Largest entry this node dispatches, taken from the one canonical cap. */
 	public const MAX_JOB_SIZE = Job_Intake::MAX_JOB_SIZE;
