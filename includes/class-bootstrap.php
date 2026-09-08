@@ -257,6 +257,10 @@ class Bootstrap {
 		if ( ! self::is_fleet_enabled() ) {
 			return;
 		}
+		// @longform Ahead of the cron check: an install activated before the
+		// salt existed is healthy, so `activate()` below never runs for it and
+		// its cache scope stays computable. Memoized per process: one row read.
+		Cache_Backend::ensure_salt();
 		if ( ! self::runtime_base_is_available() ) {
 			return;
 		}
@@ -276,6 +280,8 @@ class Bootstrap {
 	 * rather than a bare false.
 	 */
 	public static function activate(): void {
+		// An unsalted install has a computable cache scope.
+		Cache_Backend::ensure_salt();
 		if ( ! \wp_next_scheduled( self::CRON_EVENT ) ) {
 			$result = \wp_schedule_event( \time() + 5, self::CRON_SCHEDULE, self::CRON_EVENT, [], true );
 			if ( \is_wp_error( $result ) ) {

@@ -54,9 +54,17 @@ class PartitionTest extends TestCase {
 		}
 	}
 
-	// ── write-stall dead-letter: flush must never silently lose a batch ─────
+	// ── write stall: loud, unindexed, and left for a reader to skip ────────
 
-	public function test_flush_write_stall_quarantines_unwritten_messages_and_truncates_the_torn_tail(): void {
+	/**
+	 * A stalled write is reported and left alone — not quarantined.
+	 *
+	 * Quarantining would be a promise this process cannot keep: the dead-letter
+	 * is a Partition on the same filesystem, so whatever refused these bytes
+	 * refuses those too. The tear stays on disk, and a READER dead-letters the
+	 * line it cannot unpack and advances — recovery where it can actually run.
+	 */
+	public function test_flush_write_stall_is_loud_and_leaves_the_torn_tail(): void {
 		$this->use_base_dir( $this->tmp );
 		$p = new Partition_Node();
 		$p->name( 'stall' );
@@ -95,27 +103,42 @@ class PartitionTest extends TestCase {
 			Partition_Node::$fwrite = null;
 		}
 
-		// The torn partial record is truncated off — framing survives.
 		$log = (string) \file_get_contents( "{$this->tmp}/logs/stall.p0/0.log" );
-		$this->assertSame( $first_len, \strlen( $log ), 'the torn partial record must be truncated off' );
+		$this->assertGreaterThan( $first_len, \strlen( $log ), 'the torn tail is left where it fell' );
 		$this->assertStringContainsString( 'alpha-payload', $log );
 
-		// The unwritten messages are quarantined (replayable), not lost.
-		$dl = (string) \file_get_contents( "{$this->tmp}/deadletter/logs.stall.p0/0.log" );
-		$this->assertStringContainsString( 'beta-payload', $dl );
-		$this->assertStringContainsString( 'gamma-payload', $dl );
-		$this->assertStringNotContainsString( 'alpha-payload', $dl, 'the durably-written record must not double-quarantine' );
+		// No quarantine: the filesystem that refused the log refuses this too.
+		$this->assertFalse(
+			\file_exists( "{$this->tmp}/deadletter/logs.stall.p0/0.log" ),
+			'a stalled write must not pretend it quarantined the batch'
+		);
 
-		// Recovery: a later write appends cleanly and every line still parses.
+		// Recovery: a later write appends AFTER the torn tail, and a reader gets
+		// past it the way Consumer does — an unparseable line is dead-lettered
+		// and the cursor advances, so the records either side both survive.
 		$m4                   = Message::new_message();
 		$m4[ Message::TYPE ]  = Message::TM_BYTESTREAM;
 		$m4[ Message::VALUE ] = 'delta-payload';
 		$p->fill( $m4 );
 		$p->flush();
-		$lines = \array_values( \array_filter( \explode( "\n", (string) \file_get_contents( "{$this->tmp}/logs/stall.p0/0.log" ) ) ) );
-		$this->assertCount( 2, $lines );
-		$this->assertSame( 'alpha-payload', Message::unpacked( $lines[0] )[ Message::VALUE ] );
-		$this->assertSame( 'delta-payload', Message::unpacked( $lines[1] )[ Message::VALUE ] );
+
+		$lines  = \array_values( \array_filter( \explode( "\n", (string) \file_get_contents( "{$this->tmp}/logs/stall.p0/0.log" ) ) ) );
+		$parsed = [];
+		$torn   = 0;
+		foreach ( $lines as $line ) {
+			try {
+				$parsed[] = Message::unpacked( $line )[ Message::VALUE ];
+			} catch ( \InvalidArgumentException $e ) {
+				++$torn;
+			}
+		}
+
+		// This partition made no sole-writer claim, so nothing truncates: the torn
+		// tail stays, unterminated, and the next append lands on that same line.
+		// The record before the tear survives; `delta` does not. A reader
+		// dead-letters the unparseable line and advances past both.
+		$this->assertSame( 1, $torn, 'the torn record stays on disk, unparseable' );
+		$this->assertSame( [ 'alpha-payload' ], $parsed, 'only the record before the tear survives' );
 	}
 
 	public function test_flush_open_failure_quarantines_the_whole_batch(): void {
@@ -146,7 +169,7 @@ class PartitionTest extends TestCase {
 		$this->assertStringContainsString( 'omega-payload', $dl, 'an unopenable segment must quarantine the batch, not drop it' );
 	}
 
-	public function test_large_write_stall_truncates_and_quarantines_the_message(): void {
+	public function test_large_write_stall_truncates_the_torn_record_on_a_sole_writer(): void {
 		$this->use_base_dir( $this->tmp );
 		$p = new Partition_Node();
 		$p->name( 'bigstall' );
@@ -178,9 +201,15 @@ class PartitionTest extends TestCase {
 			Partition_Node::$fwrite = null;
 		}
 
-		$this->assertSame( 0, \filesize( "{$this->tmp}/logs/bigstall.p0/0.log" ), 'the torn large record must be truncated off' );
-		$dl = (string) \file_get_contents( "{$this->tmp}/deadletter/logs.bigstall.p0/0.log" );
-		$this->assertStringContainsString( '-large-tail', $dl );
+		// void_warranty() asserts sole writer, so the torn record is cut off —
+		// nothing else is appending to this segment for the truncate to reach.
+		$this->assertSame( 0, \filesize( "{$this->tmp}/logs/bigstall.p0/0.log" ), 'the torn record is truncated off' );
+		// NOT quarantined: whatever refused these bytes refuses the dead-letter
+		// queue on the same filesystem too.
+		$this->assertFileDoesNotExist(
+			"{$this->tmp}/deadletter/logs.bigstall.p0/0.log",
+			'a stall does not attempt a quarantine it cannot write'
+		);
 	}
 
 	public function test_write_deadletter_stays_locked_for_a_multi_writer_source(): void {
@@ -1310,6 +1339,7 @@ class PartitionTest extends TestCase {
 		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		// with_index() so the .idx companion handle actually opens (default mode
 		// never opens idx_fh, leaving the is_resource(idx_fh) assert false).
+		$p->void_warranty();
 		$p->with_index( fn ( array $message, array $pos ) => 'entry' );
 		$this->produce_into( $p, 'hello' );
 
@@ -1553,6 +1583,7 @@ class PartitionTest extends TestCase {
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", (string) ( 1024 * 1024 ), "2", "4", "86400", "0" ] );
 		$received = null;
+		$p->void_warranty();
 		$p->with_index( function ( array $message, array $pos ) use ( &$received ) {
 			$received = $message;
 			return 'entry';
@@ -1570,6 +1601,7 @@ class PartitionTest extends TestCase {
 		// segment, whatever producer time the lines themselves carry.
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", "1024", "2", "4", "0", "86400", "0" ] );
+		$p->void_warranty();
 		$p->with_index( static fn ( array $message, array $pos ): string => 'seg-' . $pos['segment'] );
 		for ( $i = 0; $i < 30; ++$i ) {
 			$this->produce_into( $p, \str_repeat( 'x', 100 ) );
@@ -1595,6 +1627,7 @@ class PartitionTest extends TestCase {
 		// the reading a time-bounded walk must never be given.
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", (string) ( 1024 * 1024 ), "2", "4", "0", "86400", "0" ] );
+		$p->void_warranty();
 		$p->with_index( static fn ( array $message, array $pos ): string => 'seg-' . $pos['segment'] );
 		$this->produce_into( $p, 'first' );
 		$p->index_mtimes();
@@ -1607,6 +1640,7 @@ class PartitionTest extends TestCase {
 	public function test_with_index_uses_callback_for_idx_format(): void {
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", (string) ( 1024 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->void_warranty();
 		$p->with_index( function ( array $message, array $pos ) {
 			return (string) json_encode( [
 				'segment' => $pos['segment'],
@@ -1651,6 +1685,7 @@ class PartitionTest extends TestCase {
 		// already open for the current segment — the .idx has to open anyway.
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", (string) ( 1024 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->void_warranty();
 		$this->produce_into( $p, 'written-before-the-verb' );
 
 		$p->with_index( fn ( array $message, array $pos ) => 'indexed:' . $message[ Message::VALUE ] );
@@ -1666,6 +1701,7 @@ class PartitionTest extends TestCase {
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", (string) ( 1024 * 1024 ), "2", "4", "86400", "0" ] );
 		// The callback reads the unpacked message array's inner VALUE directly.
+		$p->void_warranty();
 		$p->with_index( function ( array $message, array $pos ) {
 			$value = (string) ( $message[ Message::VALUE ] ?? '' );
 			return ( strpos( $value, 'skip' ) === 0 ) ? null : 'kept';
@@ -1681,6 +1717,7 @@ class PartitionTest extends TestCase {
 	public function test_with_index_callback_returning_empty_string_skips_overflow(): void {
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", (string) ( 1024 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->void_warranty();
 		$p->with_index( function ( array $message, array $pos ) {
 			$value = (string) ( $message[ Message::VALUE ] ?? '' );
 			return ( strpos( $value, 'overflow' ) === 0 ) ? '' : 'kept';
@@ -1696,6 +1733,7 @@ class PartitionTest extends TestCase {
 	public function test_scan_index_with_jsonl_callback_format(): void {
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", (string) ( 1024 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->void_warranty();
 		$p->with_index( function ( array $message, array $pos ) {
 			return (string) json_encode( [ 'l' => $message[ Message::VALUE ] ?? '', 'o' => $pos['offset'] ] );
 		} );
@@ -1723,6 +1761,7 @@ class PartitionTest extends TestCase {
 	public function test_scan_index_early_termination_jsonl(): void {
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", (string) ( 1024 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->void_warranty();
 		$p->with_index( fn ( array $message, array $pos ) => 'entry' );
 		$this->produce_into( $p, 'a' );
 		$this->produce_into( $p, 'b' );
@@ -1800,6 +1839,7 @@ class PartitionTest extends TestCase {
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$p->name( 'my_part' );
+		$p->void_warranty();
 		$sibling = \Newspack_Nodes\Core::node( 'my_part:config' );
 
 		$result = $sibling->dispatch( 'with_index', [ 'a2-test-formatter' ] );
@@ -2356,6 +2396,7 @@ class PartitionTest extends TestCase {
 		// written and the next fill continues normally.
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
+		$p->void_warranty();
 		$p->with_index( static function () {
 			throw new \RuntimeException( 'formatter exploded' );
 		} );
@@ -2377,6 +2418,7 @@ class PartitionTest extends TestCase {
 		// with_index is on (JSONL path), so each segment normally gets an .idx.
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", "64", "2", "4", "0", "86400", "0" ] );
+		$p->void_warranty();
 		$p->with_index( fn ( array $message, array $pos ) => 'entry' );
 		$this->produce_into( $p, \str_repeat( 'a', 40 ) ); // seg 0.
 		$this->produce_into( $p, \str_repeat( 'b', 40 ) ); // forces rotate.
@@ -2507,6 +2549,7 @@ class PartitionTest extends TestCase {
 		// empty string yields no entries, so the segment contributes nothing.
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
+		$p->void_warranty();
 		$p->with_index( fn ( array $message, array $pos ) => 'entry' );
 		$this->produce_into( $p, 'seed' ); // creates p0/ + 0.idx with one entry.
 
@@ -2930,6 +2973,7 @@ class PartitionTest extends TestCase {
 		// Confirms the `array_reverse($lines)` branch (line 890).
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", (string) ( 1024 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->void_warranty();
 		$p->with_index( static function ( array $message, array $pos ) {
 			return (string) \json_encode( [ 'v' => $message[ Message::VALUE ] ?? '' ] );
 		} );
@@ -2954,6 +2998,7 @@ class PartitionTest extends TestCase {
 		// callback only sees the two real entries.
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", (string) ( 1024 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->void_warranty();
 		$p->with_index(
 			static function ( array $message, array $pos ) {
 				return 'real-entry';
@@ -4152,29 +4197,32 @@ class PartitionTest extends TestCase {
 	}
 
 	/**
-	 * An instance with no index formatter must not answer for the directory.
+	 * A reader with no formatter of its own answers from the writer's index.
 	 *
-	 * `scan_index()` returns immediately when `index_callback` is null, so such
-	 * an instance finds nothing — and the memo is keyed by DIRECTORY and static,
-	 * so recording those keys as searched would make a second instance WITH a
-	 * formatter read them as answered misses, for the life of the process.
+	 * `locate_by()` is read-side: the formatter WRITES `.idx` rows, and a reader
+	 * over another process's directory has none. It used to return immediately
+	 * for such an instance, which is why the memo — keyed by DIRECTORY and
+	 * static — had to be protected from it: a blind instance that finds nothing
+	 * would record every key as searched-and-absent, and a second instance WITH
+	 * a formatter would read those as answered misses for the life of the
+	 * process. Reading the real index removes the hazard rather than guarding
+	 * it: the entries the blind reader records are true.
 	 */
-	public function test_a_partition_without_an_index_does_not_answer_for_the_dir(): void {
+	public function test_a_reader_without_a_formatter_answers_from_the_written_index(): void {
 		// The records must exist FIRST: an append moves the extent, which would
-		// discard the poisoned memo and hide the bug.
+		// discard the memo and hide a wrong entry.
 		$seeing = $this->indexed_partition( 'noindex', 2 );
 		$parse  = static fn ( string $line ): ?array => self::unpack_index_line( $line );
 
 		$blind = new Partition_Node();
 		$blind->arguments( [ "{$this->tmp}.noindex" ] );
-		$blind->void_warranty();
 
-		$this->assertSame( [], $blind->locate_by( $parse, [ 'k1' ] ), 'no formatter, no answer' );
+		$this->assertArrayHasKey( 'k1', $blind->locate_by( $parse, [ 'k1' ] ), 'the reader needs no formatter' );
 
 		$this->assertArrayHasKey(
 			'k1',
 			$seeing->locate_by( $parse, [ 'k1' ] ),
-			'a blind instance must not have recorded k1 as searched-and-absent'
+			'and it left the shared memo answering correctly'
 		);
 	}
 
@@ -4353,9 +4401,9 @@ class PartitionTest extends TestCase {
 		$this->write_keyed( $writer, 'only', 'a short record' );
 		$writer->flush();
 
+		// The reader needs no formatter of its own; scan_index is read-side.
 		$reader = new Partition_Node();
 		$reader->arguments( [ $dir ] );
-		$reader->with_index( static fn ( array $message, array $position ): string => '' );
 		$seen = 0;
 		$reader->scan_index(
 			static function ( string $line, int $segment ) use ( &$seen ): bool {
