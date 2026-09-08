@@ -91,7 +91,7 @@ export const REDACTED = '<redacted>';
 /**
  * Mask credentials in a value, mirroring PHP `Node::redact_secrets()` by the
  * one rule `Core.isSecretProperty()` owns. Two shapes carry them: a
- * secret-named key, and a `--auth_password=…` argument token, which is how the
+ * secret-named key, and a `--password=…` argument token, which is how the
  * Vault admin UI sends them. The name survives; only the value goes.
  *
  * @param {*} value Any VALUE, at any depth.
@@ -123,7 +123,7 @@ function redactSecrets( value ) {
  * dump_node's credential mask, mirroring PHP `Node::dump_node()`: a non-empty
  * secret-NAMED property is masked whole, anything else goes through the same
  * `redactSecrets()` the drop audit uses, so a secret nested in an ordinary
- * property (an `--auth_password=…` token in arguments) is caught too. An empty
+ * property (a `--password=…` token in arguments) is caught too. An empty
  * credential stays visible — there is nothing to leak and its absence is state.
  *
  * @param {string} key   Property name.

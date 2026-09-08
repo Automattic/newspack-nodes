@@ -175,7 +175,7 @@ class NodeTest extends TestCase {
 
 	/**
 	 * The drop line JSON-encodes the whole VALUE, and the Vault admin UI sends
-	 * credentials as a `--auth_password=<plaintext>` token inside it. The class
+	 * credentials as a `--password=<plaintext>` token inside it. The class
 	 * already owns the redaction rule — Core::is_secret_property(), applied by
 	 * dump_node() — it just was not applied here.
 	 */
@@ -829,7 +829,7 @@ class NodeTest extends TestCase {
 
 	public function test_dump_node_redacts_a_secret_nested_in_an_ordinary_property(): void {
 		// dump_node() and drop_message() mask by ONE rule. The shape that
-		// matters is the `--auth_password=…` argument token the Vault admin UI
+		// matters is the `--password=…` argument token the Vault admin UI
 		// sends: it sits in $arguments, whose own name is not a secret, so a
 		// top-level-name-only test prints the credential in full.
 		$node = new class() extends Node {

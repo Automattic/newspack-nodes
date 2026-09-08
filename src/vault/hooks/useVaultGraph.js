@@ -158,8 +158,8 @@ export function useVaultGraph( { onAnswer } = {} ) {
 			runAdd(
 				formatCommandArgs( [ fields.id ], {
 					url: fields.url,
-					auth_username: fields.auth_username,
-					auth_password: fields.auth_password,
+					user: fields.auth_username,
+					password: fields.auth_password,
 				} )
 			),
 		[ runAdd ]
@@ -177,10 +177,10 @@ export function useVaultGraph( { onAnswer } = {} ) {
 				options.new_id = fields.id;
 			}
 			options.url = fields.url;
-			options.auth_username = fields.auth_username;
-			// Blank keeps the stored one; `--auth_password=` would CLEAR it.
+			options.user = fields.auth_username;
+			// Blank keeps the stored one; `--password=` would CLEAR it.
 			if ( fields.auth_password ) {
-				options.auth_password = fields.auth_password;
+				options.password = fields.auth_password;
 			}
 			return runUpdate( formatCommandArgs( [ id ], options ) );
 		},
