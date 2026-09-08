@@ -39,9 +39,10 @@ class TTY_Out_Node extends Stdout_Node {
 
 	/**
 	 * Whether a prompt is on screen, and so whether the next write has to wipe
-	 * and redraw one. Public because `TTY_In_Node` clears it directly the moment
-	 * readline hands over a submitted line: the terminal echoed that line's
-	 * newline, so the prompt is spent and the next write must not redraw it.
+	 * and redraw one. Public because `TTY_In_Node::emit_line()` clears it
+	 * directly as it delivers a submitted line: the terminal echoed that line's
+	 * newline, so the prompt is spent, and the reply the sink writes inside that
+	 * same dispatch must not redraw it.
 	 */
 	public bool $prompt_displayed = false;
 

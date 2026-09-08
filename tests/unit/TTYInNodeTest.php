@@ -11,7 +11,9 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
+use Newspack_Nodes\Callback_Node;
 use Newspack_Nodes\Message;
+use Newspack_Nodes\Node;
 use Newspack_Nodes\Shell_Node;
 use Newspack_Nodes\TTY_In_Node;
 use Newspack_Nodes\TTY_Out_Node;
@@ -132,6 +134,53 @@ class TTYInNodeTest extends TestCase {
 		\fclose( $stream );
 	}
 
+	public function test_non_readline_reply_does_not_redraw_the_spent_prompt(): void {
+		// The operator's own newline retires the prompt, so a reply written while
+		// that line is still being dispatched must not redraw one: the ctor's
+		// prompt and the post-line fallback are the only two that reach the
+		// screen. force_tty plus a wired Shell is what arms TTY_Out's redraw.
+		$shell         = new Shell_Node();
+		$shell->prompt = 'zz9% ';
+
+		$mem = \fopen( 'php://memory', 'w+' );
+		$out = new TTY_Out_Node( $mem, true );
+		$out->set_shell( $shell );
+
+		// Stands in for the session's Dumper: answers every dispatched line with
+		// one newline-terminated reply through the very writer drawing prompts.
+		$shell->sink(
+			new class( $out ) extends Node {
+				private TTY_Out_Node $out;
+
+				public function __construct( TTY_Out_Node $out ) {
+					parent::__construct();
+					$this->out = $out;
+				}
+
+				public function fill( array $message ): void {
+					$reply                   = Message::new_message();
+					$reply[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+					$reply[ Message::VALUE ] = "ok\n";
+					$this->out->fill( $reply );
+				}
+			}
+		);
+
+		$stream = $this->memory_stream( "make Vault_CI vault\n" );
+		$reader = new TTY_In_Node( $shell, $out, false, $stream, true );
+		$reader->sink( $shell );
+
+		$reader->fire();
+
+		\rewind( $mem );
+		$this->assertSame(
+			2,
+			\substr_count( (string) \stream_get_contents( $mem ), $shell->prompt ),
+			'ctor prompt + one fallback redraw; the reply must not draw a third'
+		);
+		\fclose( $stream );
+	}
+
 	public function test_constructor_does_not_seed_completion_queries(): void {
 		// Regression: with has_readline=true the ctor must NOT fire the completion
 		// seed queries. run_repl seeds them only AFTER set_completion_sink is wired;
@@ -192,13 +241,22 @@ class TTYInNodeTest extends TestCase {
 
 	public function test_readline_line_reaches_shell_and_reinstalls_handler(): void {
 		// Readline mode: constructor installs the handler once (marking the prompt
-		// on the TTY_Out). handle_readline_line queues a line and clears the
-		// prompt flag; fire() drains it to the shell and re-installs the handler.
+		// on the TTY_Out). handle_readline_line only RECORDS the line; the drain
+		// emits it — retiring the prompt before the sink runs, so the reply
+		// written inside that dispatch takes the plain write path — then
+		// re-installs the handler.
 		$shell = new Shell_Node();
 		$cap   = new Capture_Sink_Node();
-		$shell->sink( $cap );
 		$out    = $this->out();
 		$stream = $this->memory_stream( '' );
+
+		$flag_during_dispatch = null;
+		$shell->sink( new Callback_Node(
+			static function ( array $message ) use ( &$flag_during_dispatch, $out, $cap ): void {
+				$flag_during_dispatch ??= $out->prompt_displayed;
+				$cap->fill( $message );
+			}
+		) );
 
 		$install_calls = 0;
 		TTY_In_Node::$readline_handler_install = static function ( string $prompt, callable $cb ) use ( &$install_calls ): void {
@@ -211,13 +269,14 @@ class TTYInNodeTest extends TestCase {
 		$this->assertTrue( $out->prompt_displayed, 'install marks the prompt displayed' );
 
 		$reader->handle_readline_line( 'ls' );
-		$this->assertFalse( $out->prompt_displayed, 'queuing a line clears the prompt flag' );
+		$this->assertTrue( $out->prompt_displayed, 'queuing only records the line; the prompt stands until the drain emits it' );
 
 		$reader->fire();
 
 		$dispatched = self::non_completion( $cap->captured );
 		$this->assertCount( 1, $dispatched, 'the queued line reached the shell' );
 		$this->assertSame( Message::TM_COMMAND, $dispatched[0][ Message::TYPE ] );
+		$this->assertFalse( $flag_during_dispatch, 'the drain retires the prompt before the sink runs' );
 		$this->assertSame( 2, $install_calls, 'fire() re-installs the handler after a delivered line' );
 		$this->assertTrue( $out->prompt_displayed, 're-install re-marks the prompt displayed' );
 
