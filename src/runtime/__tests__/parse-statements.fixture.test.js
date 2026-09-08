@@ -44,6 +44,12 @@ const TSL_SOURCES = Object.fromEntries(
 
 const GOLDEN_NAMES = namesIn( 'tests/fixtures/statements', '.json' ).sort();
 
+// The pin is on what both front ends PARSE. A line NUMBER is diagnostic only,
+// and pinning it made every comment edit in a shipped .tsl a fixture
+// regeneration — churn between an author and a comment, not a guarantee.
+const withoutLines = ( statements ) =>
+	statements.map( ( { line, ...rest } ) => rest );
+
 describe( 'parseStatements — PHP-generated fixture parity', () => {
 	it( 'covers every committed golden, and every golden has a source', () => {
 		expect( Object.keys( TSL_SOURCES ).sort() ).toEqual( GOLDEN_NAMES );
@@ -62,7 +68,9 @@ describe( 'parseStatements — PHP-generated fixture parity', () => {
 					'utf8'
 				)
 			);
-			expect( parseStatements( tsl ) ).toEqual( expected );
+			expect( withoutLines( parseStatements( tsl ) ) ).toEqual(
+				withoutLines( expected )
+			);
 		}
 	);
 } );
