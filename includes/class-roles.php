@@ -18,6 +18,13 @@
  * credential lifetime, and a permanent link is right to hold a permanent
  * credential.
  *
+ * The role is the half a host can refuse. A managed host enforces which roles
+ * may exist and reverts one it did not sanction, while the grants to roles it
+ * already carries stand, so `install()` reports the outcome through
+ * `hub_role_exists()` instead of throwing and `hub-user` grants the two
+ * capabilities to the aggregator account directly. That direct grant is what
+ * the credential runs on either way; the role only makes it legible.
+ *
  * Operators reach all of this through `wp nodes caps` and `wp nodes hub-user`.
  * It is reversible: `uninstall()` puts the map back and drops the role, and
  * `uninstall.php` calls it because these capabilities live in WordPress's own
@@ -87,6 +94,12 @@ class Roles {
 	 * granted it by another plugin — would otherwise lose the entire
 	 * substrate in one step, which is the opposite of a non-breaking
 	 * migration.
+	 *
+	 * The hub role is the one half that can silently fail to land: a managed
+	 * host reverts a role it did not sanction, and the capability half still
+	 * succeeded there, so this reports the outcome through `hub_role_exists()`
+	 * rather than throwing. `hub-user` grants the two capabilities to the
+	 * aggregator account directly whichever way it went.
 	 */
 	public static function install(): void {
 		foreach ( self::current_map() as $role_slug ) {
@@ -183,5 +196,15 @@ class Roles {
 			$out[ (string) $slug ] = $definition;
 		}
 		return $out;
+	}
+
+	/**
+	 * Whether the hub role is actually there. A live read, like `granular()`,
+	 * and for the same reason: a managed host enforces which roles may exist
+	 * and reverts one it did not sanction, so a flag captured at install time
+	 * would go stale days later while this answer stays current.
+	 */
+	public static function hub_role_exists(): bool {
+		return null !== \get_role( self::HUB_ROLE );
 	}
 }

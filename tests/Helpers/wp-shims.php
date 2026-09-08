@@ -217,6 +217,10 @@ if ( ! function_exists( 'get_role' ) ) {
 
 if ( ! function_exists( 'add_role' ) ) {
 	function add_role( $slug, $display, $caps = [] ) {
+		// A managed host enforces its role set: a new role is reverted.
+		if ( ! empty( $GLOBALS['_wp_test_managed_roles'] ) ) {
+			return null;
+		}
 		if ( isset( $GLOBALS['_wp_test_roles'][ $slug ] ) ) {
 			return null;
 		}
@@ -835,9 +839,21 @@ if ( ! class_exists( 'WP_User_Stub' ) ) {
 			$this->user_login = $login;
 		}
 
-		/** Sole role, as `set_role()` is in WordPress: it replaces the set. */
+		/**
+		 * Sole role, as `set_role()` is in WordPress: it replaces the whole
+		 * capability map. `WP_User::get_role_caps()` then derives `roles` by
+		 * filtering that map through `WP_Roles::is_role()`, so a role the host
+		 * does not carry leaves the user with no roles and no capabilities.
+		 */
 		public function set_role( string $role ): void {
-			$GLOBALS['_wp_test_users'][ $this->user_login ]['roles'] = [ $role ];
+			$user          = &$GLOBALS['_wp_test_users'][ $this->user_login ];
+			$user['caps']  = [];
+			$user['roles'] = null === \get_role( $role ) ? [] : [ $role ];
+		}
+
+		/** A user capability: this user's own meta, never a WP_Roles lookup. */
+		public function add_cap( string $cap, bool $grant = true ): void {
+			$GLOBALS['_wp_test_users'][ $this->user_login ]['caps'][ $cap ] = $grant;
 		}
 	}
 }
@@ -854,11 +870,13 @@ if ( ! function_exists( 'wp_insert_user' ) ) {
 		if ( isset( $GLOBALS['_wp_test_users'][ $login ] ) ) {
 			return new WP_Error( 'existing_user_login', 'Sorry, that username already exists!' );
 		}
-		$id = 1 + \count( $GLOBALS['_wp_test_users'] ?? [] );
+		$id   = 1 + \count( $GLOBALS['_wp_test_users'] ?? [] );
+		$role = (string) ( $args['role'] ?? '' );
 		$GLOBALS['_wp_test_users'][ $login ] = [
 			'ID'    => $id,
 			'email' => (string) ( $args['user_email'] ?? '' ),
-			'roles' => [ (string) ( $args['role'] ?? '' ) ],
+			'caps'  => [],
+			'roles' => null === \get_role( $role ) ? [] : [ $role ],
 		];
 		return $id;
 	}

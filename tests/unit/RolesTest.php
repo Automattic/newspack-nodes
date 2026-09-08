@@ -26,6 +26,7 @@ class RolesTest extends TestCase {
 
 	protected function tearDown(): void {
 		\delete_option( Roles::OPTION );
+		unset( $GLOBALS['_wp_test_managed_roles'] );
 		$GLOBALS['_wp_test_roles']            = [];
 		$GLOBALS['_wp_test_current_user_can'] = [];
 		$GLOBALS['_wp_actions']               = [];
@@ -127,6 +128,35 @@ class RolesTest extends TestCase {
 
 		$this->assertSame( 'edit_pages', Capabilities::cap_for( Capabilities::READ ) );
 		$this->assertSame( Roles::CAP_MANAGE, Capabilities::cap_for( Capabilities::MANAGE ) );
+	}
+
+	public function test_the_hub_role_reads_back_once_the_host_accepted_it(): void {
+		Roles::install();
+
+		$this->assertTrue( Roles::hub_role_exists() );
+	}
+
+	/**
+	 * A managed host enforces which roles may exist, and reverts one it did not
+	 * sanction. The capability half of the migration still lands there — the
+	 * grants go to roles the host already carries — so install() reports the
+	 * outcome rather than throwing, and a caller reads it back.
+	 */
+	public function test_a_host_that_refuses_the_role_still_gets_the_capabilities(): void {
+		$GLOBALS['_wp_test_managed_roles'] = true;
+
+		Roles::install();
+
+		$this->assertTrue( Roles::granular() );
+		$this->assertTrue( $GLOBALS['_wp_test_roles']['administrator']['capabilities'][ Roles::CAP_MANAGE ] ?? false );
+		$this->assertFalse( Roles::hub_role_exists() );
+	}
+
+	public function test_the_hub_role_is_gone_after_uninstall(): void {
+		Roles::install();
+		Roles::uninstall();
+
+		$this->assertFalse( Roles::hub_role_exists() );
 	}
 
 	public function test_install_is_idempotent(): void {
