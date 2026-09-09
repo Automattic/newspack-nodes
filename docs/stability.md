@@ -270,15 +270,24 @@ answers nothing for a dynamically-named method or a callee typed as a union or
 script reports is a lower bound, not a guarantee for code shaped that way.
 
 **A new parameter degrades.** Adding a *required* parameter to a public method
-closes the window with a fatal instead. `Partition_Node::locate_by( \Closure
-$extract, array $wanted = [] )` bounds its index walk by the key set in that
-second parameter and defaults it to empty — a value that reads nothing, so a
-consumer compiled against the one-argument form comes back empty rather than
-raising `ArgumentCountError`. The default is not a convenience:
-`Table_Node::lookup_multi()` reaches a partition through the app's backing
-closure and invokes it without a try/catch, so a fatal inside is an uncaught 500
-on every dashboard request. A default whose behaviour is safe and useless is
-what lets a stale consumer degrade until it catches up.
+closes the window with a fatal instead. `Partition_Node::locate_by()` bounds its
+index walk by a key set that arrived as a second parameter, and shipped it
+defaulting to empty — a value that reads nothing, so a consumer compiled against
+the one-argument form came back empty rather than raising `ArgumentCountError`.
+That default was not a convenience: `Table_Node::lookup_multi()` reaches a
+partition through the app's backing closure and invokes it without a try/catch,
+so a fatal inside is an uncaught 500 on every dashboard request. A default whose
+behaviour is safe and useless is what lets a stale consumer degrade until it
+catches up.
+
+**It is a bridge, and it comes out once every consumer has crossed it.** With
+each caller's `version_at_least()` floor past the release that added the
+parameter, no build can still reach the one-argument form, and an optional
+parameter left standing is fail-silent the other way — a caller that forgets it
+resolves nothing and reports success. So the signature is
+`locate_by( \Closure $extract, array $wanted )`, required: event-logger-nodes is
+its only caller in the family and floors at 2.53.0, past the 2.51.0 that added
+`$wanted`.
 
 ## How a frozen name changes
 

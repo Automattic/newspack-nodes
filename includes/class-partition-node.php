@@ -1317,10 +1317,11 @@ class Partition_Node extends Timer_Node {
 	 * a locator, an order-1M-key partition exhausts a 512MB request to answer a
 	 * handful of rows. The URL count is not the key count.
 	 *
-	 * It defaults to EMPTY, which reads nothing, so a consumer compiled against
-	 * the one-argument form degrades to an empty result rather than an
-	 * ArgumentCountError. `Table_Node::lookup_multi()` invokes the backing seam
-	 * bare, and a fatal there is an uncaught 500 on every dashboard request.
+	 * It is REQUIRED, and an empty one is the caller's own statement rather than
+	 * a default: a reader that forgot its keys resolves nothing and reports
+	 * success, which is a silent miss on every key and indistinguishable from a
+	 * partition holding none of them. Required makes that mistake a fatal at the
+	 * call site, where the omitted argument is.
 	 *
 	 * The result is a LOOKUP table addressed by key. Its order follows $wanted,
 	 * not the index — read it by key rather than by position.
@@ -1338,7 +1339,7 @@ class Partition_Node extends Timer_Node {
 	 * @param list<string> $wanted Keys to resolve; empty reads nothing.
 	 * @return array<string,array{0: int, 1: int, 2: int}> key => [segment, offset, length].
 	 */
-	public function locate_by( \Closure $extract, array $wanted = [] ): array {
+	public function locate_by( \Closure $extract, array $wanted ): array {
 		// Read-side like scan_index(); asking for nothing records no miss.
 		if ( [] === $wanted ) {
 			return [];

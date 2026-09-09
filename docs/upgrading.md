@@ -6,6 +6,16 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **`Partition_Node::locate_by()`'s key set is REQUIRED.** The signature is
+  `locate_by( \Closure $extract, array $wanted )`; the `= []` default is gone.
+  A call naming no key set raises `ArgumentCountError` where it used to return
+  an empty table. Nothing in the family reached the one-argument form — the only
+  caller is event-logger-nodes' `Flame_Builder_Node`, whose floor of 2.53.0 is
+  past the 2.51.0 that added the parameter — so the default's degrade window had
+  already closed, and an optional key set is fail-silent the other way: a caller
+  that forgets it resolves nothing and reports success over an empty result.
+  Name your keys, as `locate_by( $extract, $urls )` already does.
+
 - **The gyrobase legacy-envelope branch is REMOVED from `Job_Worker_Node::fill()`.**
   An entry with no top-level `id` naming the `evtemplate` handler, whose
   `parameters` held `queue`, `template` and a nested `parameters`, had its

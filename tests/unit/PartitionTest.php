@@ -4281,6 +4281,22 @@ class PartitionTest extends TestCase {
 		$this->assertArrayHasKey( 'k2', $first->locate_by( $parse, [ 'k2' ] ), 'a discard costs a walk, not an answer' );
 	}
 
+	/**
+	 * Naming NO key set is a fatal at the call site, not an empty table.
+	 *
+	 * An empty set is a statement — the caller asked for nothing and gets
+	 * nothing. An OMITTED set is a mistake, and answering it would make the
+	 * reader resolve nothing and report success: a silent miss on every key,
+	 * indistinguishable from a partition that holds none of them.
+	 */
+	public function test_locate_by_refuses_a_call_naming_no_key_set(): void {
+		$p     = $this->indexed_partition( 'unnamedkeys', 4 );
+		$parse = static fn ( string $line ): ?array => self::unpack_index_line( $line );
+
+		$this->expectException( \ArgumentCountError::class );
+		$p->locate_by( $parse );
+	}
+
 	/** An empty wanted set reads nothing at all. */
 	public function test_locate_by_reads_nothing_for_an_empty_wanted_set(): void {
 		$p    = $this->indexed_partition( 'emptywant', 6 );
