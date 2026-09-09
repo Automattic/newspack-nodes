@@ -230,32 +230,6 @@ class Job_Worker_Node extends Node {
 		// Identity: top-level `id` distinguishes jobs sharing one handler name.
 		$id = Core::as_string( $entry['id'] ?? '', '' );
 
-		// XXX: gyrobase envelope with no id; drop when every engine emits one.
-		if ( '' === $id && 'evtemplate' === $handler && \is_array( $parameters )
-			&& isset( $parameters['queue'], $parameters['template'] )
-			&& \array_key_exists( 'parameters', $parameters ) ) {
-			$id = Core::as_string( $parameters['template'], '' );
-			if ( \strlen( $id ) > Job_Intake::MAX_JOB_ID_LEN ) {
-				$this->print_less_often( 'legacy job id over the cap, dropping: ', $handler );
-				return;
-			}
-			$legacy = $parameters['parameters'];
-			// Hand-parsed: parse_str() rewrites `.` and space in keys.
-			$parameters = \is_array( $legacy ) ? $legacy : [];
-			if ( \is_string( $legacy ) && '' !== $legacy ) {
-				$parameters = [];
-				foreach ( \explode( '&', \str_replace( '&amp;', '&', $legacy ) ) as $pair ) {
-					if ( '' === $pair ) {
-						continue;
-					}
-					[ $pair_key, $pair_value ] = \array_pad( \explode( '=', $pair, 2 ), 2, '' );
-					if ( '' !== $pair_key ) {
-						$parameters[ \urldecode( $pair_key ) ] = \urldecode( $pair_value );
-					}
-				}
-			}
-		}
-
 		$identity = ( '' !== $id ) ? "{$handler}:{$id}" : $handler;
 		$ts       = Core::num_float( $entry['ts'] ?? 0, 0.0 );
 

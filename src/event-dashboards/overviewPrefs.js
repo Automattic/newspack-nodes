@@ -11,9 +11,8 @@
  *
  * Reads and writes go through `shared/utils/storage`, so a disabled or full
  * localStorage never throws — a reader falls back to its empty default and a
- * writer does nothing. Decoding the JSON, and deleting the stale v1 fold key
- * (the shared module offers no delete), are this module's own and carry their
- * own guards.
+ * writer does nothing. Decoding the JSON is this module's own, and carries its
+ * own guard.
  */
 
 import { readStorage, writeStorage } from '../shared/utils/storage';
@@ -27,14 +26,9 @@ const EXPANDED_KEY = 'newspack-nodes:overview:expanded';
 /**
  * Storage key for the within-tree entity keys that are FOLDED shut.
  *
- * A fold key is rooted at its topology (`firehose>completed`), and the `:v2`
- * suffix is what separates it from the unrooted keys sitting under
- * `COLLAPSED_KEY_V1`.
+ * A fold key is rooted at its topology (`firehose>completed`).
  */
 const COLLAPSED_KEY = 'newspack-nodes:overview:collapsed:v2';
-
-/** The unrooted fold key `COLLAPSED_KEY` replaces; `readCollapsed` deletes it. */
-const COLLAPSED_KEY_V1 = 'newspack-nodes:overview:collapsed';
 
 /**
  * Read and decode a JSON string-array from storage.
@@ -112,19 +106,10 @@ export function writeExpanded( set ) {
  * folds inside one topology's tree, distinct from the topology-level fold
  * above.
  *
- * Every fold key is rooted at its topology, so an entry under the unrooted v1
- * key names no entity the tree draws. Reading deletes that key outright rather
- * than leaving a payload nothing will ever match.
- *
  * @return {Set<string>} The folded entity keys, empty when nothing usable is
  *                       stored.
  */
 export function readCollapsed() {
-	try {
-		window.localStorage.removeItem( COLLAPSED_KEY_V1 );
-	} catch ( _err ) {
-		// localStorage disabled; nothing to drop.
-	}
 	return new Set( readStringArray( COLLAPSED_KEY ) );
 }
 

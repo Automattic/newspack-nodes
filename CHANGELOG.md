@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.54.0] - 2026-09-08
+
+### Removed
+
+- **BREAKING: the gyrobase legacy-envelope branch is gone from `Job_Worker_Node::fill()`.** An entry with no top-level `id` naming the `evtemplate` handler, whose `parameters` held `queue`, `template` and a nested `parameters`, had its identity synthesized from `parameters['template']` and its `$parameters` replaced by that nested value — hand-decoded as a query string, because `parse_str()` rewrites `.` and space in keys. **A producer still emitting that envelope now reaches its handler with the OUTER envelope as its parameters** — `queue`, `template` and the undecoded nested `parameters`, in place of the payload it meant to send — under the bare identity `evtemplate` rather than `evtemplate:<template>`. It is the wrong argument, not a missing one, so the handler runs and renders nothing. `Gyrobase::Log::_queue_job()` builds the flat envelope, `handler` then `id` then `parameters`, and pyrobase does the same; that is the one shape the substrate reads, and the top-level `id` is the one identity. The `Job_Intake::MAX_JOB_ID_LEN` guard on the lifted id goes with the branch — `Job_Intake::write_entry()` already enforces that cap at the ingress, where the id is the producer's own.
+
 ## [2.53.1] - 2026-09-08
 
 ### Fixed
