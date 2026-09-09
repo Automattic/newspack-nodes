@@ -6,6 +6,17 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **The gyrobase legacy-envelope branch is REMOVED from `Job_Worker_Node::fill()`.**
+  An entry with no top-level `id` naming the `evtemplate` handler, whose
+  `parameters` held `queue`, `template` and a nested `parameters`, had its
+  identity lifted from `parameters['template']` and its parameters replaced by
+  that nested value, query-string-decoded. A producer still emitting that
+  envelope now hands its handler the OUTER envelope — `queue`, `template` and the
+  undecoded nested `parameters` — under the bare identity `evtemplate`: the wrong
+  argument rather than a missing one, so the handler runs and renders nothing.
+  Emit the flat envelope every current engine emits, `{handler, id, parameters}`
+  with the identity in the top-level `id`.
+
 - **`Admin\Admin::current_user_allowed()` is REMOVED.** Replace it with
   `\Newspack_Nodes\Capabilities::can( \Newspack_Nodes\Capabilities::MANAGE )`,
   which is what it did — `Capabilities::can()` now applies the `allowed_users`

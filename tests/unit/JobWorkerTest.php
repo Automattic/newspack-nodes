@@ -5,6 +5,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Job_Intake;
 use Newspack_Nodes\Job_Worker_Node;
+use Newspack_Nodes\Jobstats_Record;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Worker_Should_Stop;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
@@ -261,107 +262,6 @@ class JobWorkerTest extends TestCase {
 		}
 	}
 
-	// --- XXX: legacy gyrobase envelope shim ---------------------------------
-
-	public function test_legacy_gyrobase_envelope_lifts_its_template_into_the_id(): void {
-		// XXX: prod gyrobase queues {queue, template, parameters} with no
-		// top-level id, so the handler used to receive '' and return without
-		// rendering. Remove this test with the shim.
-		$jw   = new Job_Worker_Node();
-		$seen = [];
-		$this->register_job_handler( $jw, 'evtemplate', function ( $id, $p ) use ( &$seen ) { $seen = [ $id, $p ]; } );
-
-		$jw->fill( $this->job_message( 'evtemplate', [
-			'queue'      => 'runTemplate',
-			'template'   => 'https://hub/Tools/UpdateSite.html',
-			'parameters' => [ 'Name' => 'Bend' ],
-		] ) );
-
-		$this->assertSame( [ 'https://hub/Tools/UpdateSite.html', [ 'Name' => 'Bend' ] ], $seen );
-	}
-
-	public function test_legacy_gyrobase_envelope_parses_a_query_string_body(): void {
-		// No evLog attributes means the legacy producer left `parameters` as the
-		// raw, form-encoded query string rather than a hash.
-		$jw   = new Job_Worker_Node();
-		$seen = [];
-		$this->register_job_handler( $jw, 'evtemplate', function ( $id, $p ) use ( &$seen ) { $seen = [ $id, $p ]; } );
-
-		$jw->fill( $this->job_message( 'evtemplate', [
-			'queue'      => 'runTemplate',
-			'template'   => 'https://hub/Tools/UpdateSite.html',
-			'parameters' => 'Name=Bend&amp;ID=808579',
-		] ) );
-
-		$this->assertSame(
-			[ 'https://hub/Tools/UpdateSite.html', [ 'Name' => 'Bend', 'ID' => '808579' ] ],
-			$seen
-		);
-	}
-
-	public function test_legacy_envelope_preserves_dotted_parameter_names(): void {
-		// XXX: parse_str() rewrites `.` and space in keys to `_`; dotted field
-		// names are idiomatic on the gyrobase side, and the shim exists to
-		// reproduce the old producer's payload exactly. Remove with the shim.
-		$jw   = new Job_Worker_Node();
-		$seen = [];
-		$this->register_job_handler( $jw, 'evtemplate', function ( $id, $p ) use ( &$seen ) { $seen = $p; } );
-
-		$jw->fill( $this->job_message( 'evtemplate', [
-			'queue'      => 'runTemplate',
-			'template'   => 'Tools/UpdateSite.html',
-			'parameters' => 'Site.Id=7391&Mailing+City=Bend',
-		] ) );
-
-		$this->assertSame( [ 'Site.Id' => '7391', 'Mailing City' => 'Bend' ], $seen );
-	}
-
-	public function test_legacy_envelope_with_a_null_parameters_key_still_lifts_its_template(): void {
-		// XXX: isset() is false for a present-but-null `parameters`, which would
-		// drop the envelope through unlifted. Remove with the shim.
-		$jw   = new Job_Worker_Node();
-		$seen = [];
-		$this->register_job_handler( $jw, 'evtemplate', function ( $id, $p ) use ( &$seen ) { $seen = [ $id, $p ]; } );
-
-		$jw->fill( $this->job_message( 'evtemplate', [
-			'queue'      => 'runTemplate',
-			'template'   => 'Tools/UpdateSite.html',
-			'parameters' => null,
-		] ) );
-
-		$this->assertSame( [ 'Tools/UpdateSite.html', [] ], $seen );
-	}
-
-	public function test_the_legacy_shim_only_applies_to_evtemplate(): void {
-		// XXX: shape alone is not proof — another handler whose parameters
-		// legitimately carry these three keys would have its payload replaced
-		// and its identity rewritten. Remove with the shim.
-		$jw   = new Job_Worker_Node();
-		$seen = [];
-		$this->register_job_handler( $jw, 'importer', function ( $id, $p ) use ( &$seen ) { $seen = [ $id, $p ]; } );
-
-		$envelope = [ 'queue' => 'q', 'template' => 'T.html', 'parameters' => [ 'x' => 1 ] ];
-		$jw->fill( $this->job_message( 'importer', $envelope ) );
-
-		$this->assertSame( [ '', $envelope ], $seen, 'a non-evtemplate handler keeps its parameters verbatim' );
-	}
-
-	public function test_the_legacy_shim_respects_the_job_id_cap(): void {
-		// Every other id path bounds the id at MAX_JOB_ID_LEN, because it rides
-		// in every jobstats record IDENTITY.
-		$jw  = new Job_Worker_Node();
-		$ran = false;
-		$this->register_job_handler( $jw, 'evtemplate', function () use ( &$ran ) { $ran = true; } );
-
-		$jw->fill( $this->job_message( 'evtemplate', [
-			'queue'      => 'runTemplate',
-			'template'   => \str_repeat( 'z', Job_Intake::MAX_JOB_ID_LEN + 1 ),
-			'parameters' => [],
-		] ) );
-
-		$this->assertFalse( $ran, 'an overlong lifted id is refused, not truncated into a wrong identity' );
-	}
-
 	public function test_a_declined_job_is_not_counted_as_executed(): void {
 		$jw = new Job_Worker_Node();
 		$this->register_job_handler( $jw, 'evtemplate', fn () => null );
@@ -372,24 +272,55 @@ class JobWorkerTest extends TestCase {
 		$this->assertSame( 0, $this->jobs_executed( $jw ), 'a declined job did no work' );
 	}
 
-	public function test_a_modern_entry_is_untouched_by_the_legacy_shim(): void {
-		// A current producer sets the id itself; a `template` parameter must not
-		// be mistaken for the legacy envelope.
+	public function test_an_entry_whose_parameters_nest_a_parameters_key_is_passed_through_whole(): void {
+		// `parameters` is opaque: nothing here reads its shape, so an envelope
+		// carrying queue/template/parameters reaches the handler verbatim.
 		$jw   = new Job_Worker_Node();
 		$seen = [];
 		$this->register_job_handler( $jw, 'evtemplate', function ( $id, $p ) use ( &$seen ) { $seen = [ $id, $p ]; } );
 
-		$jw->fill( $this->job_message(
-			'evtemplate',
-			[ 'template' => 'PostTask.html', 'silo' => 'archive' ],
-			'job',
-			'Tools/Run.html'
-		) );
+		$envelope = [
+			'queue'      => 'renderBatch',
+			'template'   => 'Almanac/Digest.html',
+			'parameters' => [ 'Edition.Slug' => 'redmond-9142' ],
+		];
+		$jw->fill( $this->job_message( 'evtemplate', $envelope ) );
 
-		$this->assertSame( [ 'Tools/Run.html', [ 'template' => 'PostTask.html', 'silo' => 'archive' ] ], $seen );
+		$this->assertSame( [ '', $envelope ], $seen );
+		$this->assertSame(
+			[ 'evtemplate' ],
+			\array_map( static fn ( $r ) => $r[ Jobstats_Record::IDENTITY ], $jw->probe_stats() )
+		);
 	}
 
 	// --- Job identity threaded to handler + before/after actions -------------
+
+	public function test_a_flat_envelope_reaches_its_handler_with_its_parameters_and_a_composite_identity(): void {
+		$jw   = new Job_Worker_Node();
+		$seen = [];
+		$this->register_job_handler( $jw, 'evtemplate', function ( $id, $p ) use ( &$seen ) { $seen = [ $id, $p ]; } );
+
+		$parameters = [ 'Edition.Slug' => 'sisters-6620', 'Copies' => '4471' ];
+		$jw->fill( $this->job_message( 'evtemplate', $parameters, 'job', 'Almanac/Rebuild.html' ) );
+
+		$this->assertSame( [ 'Almanac/Rebuild.html', $parameters ], $seen );
+		$this->assertSame(
+			[ 'evtemplate:Almanac/Rebuild.html' ],
+			\array_map( static fn ( $r ) => $r[ Jobstats_Record::IDENTITY ], $jw->probe_stats() )
+		);
+	}
+
+	public function test_an_entry_with_no_id_takes_the_bare_handler_as_its_identity(): void {
+		$jw = new Job_Worker_Node();
+		$this->register_job_handler( $jw, 'sluice', fn () => null );
+
+		$jw->fill( $this->job_message( 'sluice', [ 'Depot' => 'terrebonne-5583' ] ) );
+
+		$this->assertSame(
+			[ 'sluice' ],
+			\array_map( static fn ( $r ) => $r[ Jobstats_Record::IDENTITY ], $jw->probe_stats() )
+		);
+	}
 
 	public function test_two_param_handler_receives_the_top_level_id(): void {
 		$jw          = new Job_Worker_Node();
@@ -403,17 +334,18 @@ class JobWorkerTest extends TestCase {
 		$this->assertSame( 'films-2026', $captured_id );
 	}
 
-	public function test_single_param_handler_still_runs_when_id_present(): void {
-		// BC pin: a legacy one-arg handler ignores the extra id arg and still runs.
+	public function test_a_handler_declaring_only_the_id_still_runs(): void {
+		// PHP hands a userland closure its extra arguments harmlessly, so a
+		// handler wanting the id alone declares the id alone.
 		$jw       = new Job_Worker_Node();
-		$received = null;
-		$this->register_job_handler( $jw, 'legacy', function ( $id, $params ) use ( &$received ) {
-			$received = $params;
+		$received = 'NO_ID';
+		$this->register_job_handler( $jw, 'terse', function ( $id ) use ( &$received ) {
+			$received = $id;
 		} );
 
-		$jw->fill( $this->job_message( 'legacy', [ 'y' => 2 ], 'job', 'bc-1' ) );
+		$jw->fill( $this->job_message( 'terse', [ 'y' => 2 ], 'job', 'bc-1' ) );
 
-		$this->assertSame( [ 'y' => 2 ], $received );
+		$this->assertSame( 'bc-1', $received );
 		$this->assertSame( 1, $this->jobs_executed( $jw ) );
 	}
 

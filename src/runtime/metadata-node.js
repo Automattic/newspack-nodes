@@ -182,7 +182,7 @@ export function parseMetadata( payload ) {
 		if ( SCAFFOLDING.has( name ) || '_header' === name ) {
 			continue;
 		}
-		// Display union, pre head-collapse; older workers send `target` only.
+		// Display union; an optimistic patch sets `target` alone (ADR-19).
 		const targets = (
 			Array.isArray( meta.targets )
 				? meta.targets
