@@ -96,23 +96,23 @@ it( 'persists the selection and restores it', () => {
 	] );
 } );
 
-it( 'restores a stored key through a rename, in canonical order', () => {
-	// A renamed column is not a removed one: filtering by the current keys
-	// alone drops it from every selection saved before the rename, and the
-	// write-back makes that permanent.
+it( 'restores the stored keys it declares, in canonical order', () => {
+	// Storage hands back whatever was written to it, so the declared set is
+	// the only vocabulary: `schooner` is dropped rather than translated onto
+	// a key that does exist, and the survivors come back declaration-first
+	// however the stored array ordered them.
 	window.localStorage.setItem(
-		'cols:renamed',
-		JSON.stringify( [ 'ts', 'val' ] )
+		'cols:retired',
+		JSON.stringify( [ 'value', 'schooner', 'type' ] )
 	);
 	const { result } = renderHook( () =>
 		useColumnPicker( {
 			columns: COLUMNS,
-			storageKey: 'cols:renamed',
-			defaultVisible: [ 'type' ],
-			aliases: { val: 'value' },
+			storageKey: 'cols:retired',
+			defaultVisible: [ 'ts' ],
 		} )
 	);
-	expect( result.current.visibleColumns ).toEqual( [ 'ts', 'value' ] );
+	expect( result.current.visibleColumns ).toEqual( [ 'type', 'value' ] );
 } );
 
 it( 'ignores a stored set naming columns that no longer exist', () => {

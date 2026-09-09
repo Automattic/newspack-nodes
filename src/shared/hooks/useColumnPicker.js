@@ -13,19 +13,16 @@ import { usePersistedState } from './usePersistedState';
 
 /**
  * Decode a persisted selection, keeping only columns that still exist. A stored
- * set naming a removed column would otherwise render a header cell with no
- * data under it. A RENAMED column is not a removed one, so `aliases` maps each
- * retired key onto its current one first: dropping it would lose that column
- * from every selection saved before the rename, and the write-back would make
- * the loss permanent.
+ * key the caller no longer declares is dropped: storage hands back whatever was
+ * written to it, and the declared set is the only vocabulary this reads, so a
+ * key outside it would render a header cell with no data under it.
  *
- * @param {?string}               raw      The stored string, or null.
- * @param {string[]}              known    Declared column keys, in canonical order.
- * @param {string[]}              fallback Selection to use when nothing usable is stored.
- * @param {Object<string,string>} aliases  Retired key → current key.
+ * @param {?string}  raw      The stored string, or null.
+ * @param {string[]} known    Declared column keys, in canonical order.
+ * @param {string[]} fallback Selection to use when nothing usable is stored.
  * @return {string[]} The restored selection.
  */
-function restore( raw, known, fallback, aliases ) {
+function restore( raw, known, fallback ) {
 	if ( null === raw ) {
 		return fallback;
 	}
@@ -34,21 +31,12 @@ function restore( raw, known, fallback, aliases ) {
 		if ( ! Array.isArray( parsed ) ) {
 			return fallback;
 		}
-		const wanted = parsed.map( ( key ) => aliases[ key ] ?? key );
-		const kept = known.filter( ( key ) => wanted.includes( key ) );
+		const kept = known.filter( ( key ) => parsed.includes( key ) );
 		return kept.length ? kept : fallback;
 	} catch ( e ) {
 		return fallback;
 	}
 }
-
-/**
- * The alias map a picker with no renamed column uses. Empty, and shared by
- * every such caller rather than minted fresh on each one.
- *
- * @type {Object<string,string>}
- */
-const NO_ALIASES = {};
 
 /**
  * The CSS grid track list for a set of columns, in display order. A column
@@ -72,24 +60,18 @@ export const gridTemplate = ( columns, order ) =>
  * end — the header and the cells are both built from this list, so appending
  * would silently reorder the table.
  *
- * @param {Object}                opts                Options.
- * @param {Object}                opts.columns        Canonical map: key → `{ label, width, tooltip, className }`.
- * @param {string}                opts.storageKey     localStorage key for the selection.
- * @param {string[]}              opts.defaultVisible Keys visible before the user chooses.
- * @param {Object<string,string>} [opts.aliases]      Retired key → current key, for a column renamed after selections were already stored.
+ * @param {Object}   opts                Options.
+ * @param {Object}   opts.columns        Canonical map: key → `{ label, width, tooltip, className }`.
+ * @param {string}   opts.storageKey     localStorage key for the selection.
+ * @param {string[]} opts.defaultVisible Keys visible before the user chooses.
  * @return {{visibleColumns: string[], toggleColumn: (col: string) => void, isVisible: (col: string) => boolean, gridTemplate: string}}
  *   The selection and its derived layout.
  */
-export function useColumnPicker( {
-	columns,
-	storageKey,
-	defaultVisible,
-	aliases = NO_ALIASES,
-} ) {
+export function useColumnPicker( { columns, storageKey, defaultVisible } ) {
 	const known = useMemo( () => Object.keys( columns ), [ columns ] );
 	const [ visibleColumns, setVisibleColumns ] = usePersistedState(
 		storageKey,
-		( raw ) => restore( raw, known, defaultVisible, aliases ),
+		( raw ) => restore( raw, known, defaultVisible ),
 		JSON.stringify
 	);
 
