@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.55.1] - 2026-09-08
+
+### Fixed
+
+- **`wp nodes gc` now reclaims offsetlogs when no topology is active.** The offset sweep ran only on a non-EMPTY declared set, and deactivating the last topology empties it — so a fleet reading `inactive` across the board reported "No orphan dirs to sweep" while every consumer cursor stayed on disk, `--force` included. Empty is not the degraded case: `declared_dirs()` returns `null` for every input it cannot build completely, so empty means the set built cleanly and nothing claims an offsetlog, which is precisely when no consumer is running and a cursor is reclaimable. The log sweep still skips an empty set, and the asymmetry is deliberate: log dirs are also declared from PHP through `newspack_nodes/registered_log_producers`, where empty can mean that filter has not run rather than that nothing writes, and sweeping then would take a live firehose and `settings.p0` with it.
+
 ## [2.55.0] - 2026-09-08
 
 ### Removed

@@ -42,11 +42,23 @@ class Log_Cleaner {
 	/**
 	 * Remove first-level `logs/*` + `offsets/*` dirs not in the config-declared set.
 	 *
-	 * A bucket is swept only when it is both non-null and non-empty. `null` is
-	 * `declared_dirs()`'s fail-closed sentinel for a set it could not build
-	 * completely, and sweeping against a partial set deletes live dirs. Empty
-	 * means nothing has declared anything yet — no active topology, no registered
-	 * producer — which is equally no reason to delete.
+	 * `null` is `declared_dirs()`'s fail-closed sentinel for a set it could not
+	 * build completely, and sweeping against a partial set deletes live dirs, so
+	 * neither bucket is swept on it. Every degraded input returns it, which is
+	 * what makes EMPTY mean something different: the set built cleanly and
+	 * nothing declared anything.
+	 *
+	 * The offset sweep therefore runs on an empty set. Offsetlogs are declared by
+	 * topologies alone, so empty means no topology is active, so no consumer is
+	 * running — the one moment a cursor is certainly reclaimable. Skipping it
+	 * left a fleet with everything deactivated unable to reclaim an offset at
+	 * all, however long it sat.
+	 *
+	 * The log sweep does not, and the asymmetry is the point: log dirs are also
+	 * declared from PHP through `newspack_nodes/registered_log_producers`, and an
+	 * empty log set can mean that filter has not run yet rather than that nothing
+	 * writes. Sweeping then would delete a live firehose, and `settings.p0` with
+	 * it — it is seeded onto a non-empty set only.
 	 *
 	 * @param string $base_dir Base data directory.
 	 * @param int    $grace    Seconds of quiet an undeclared dir needs before it is
@@ -67,7 +79,7 @@ class Log_Cleaner {
 			self::sweep( "{$base_dir}/logs", $declared['logs'], $base_dir, $deleted, $grace );
 		}
 
-		if ( null !== $declared['offsets'] && ! empty( $declared['offsets'] ) ) {
+		if ( null !== $declared['offsets'] ) {
 			self::sweep( "{$base_dir}/offsets", $declared['offsets'], $base_dir, $deleted, $grace );
 		}
 
@@ -160,7 +172,8 @@ class Log_Cleaner {
 	 * source the fleet spawns from) once, filling both buckets UNIFORMLY. Driving
 	 * retention off the active set rather than the on-disk `.tsl` glob means a
 	 * superseded-but-shipped topology's logs AND offsetlogs are reclaimed once it's
-	 * deactivated; no live worker's dirs are at risk, because anything spawning is
+	 * deactivated — down to the last one, since the offset sweep runs on an empty
+	 * set too; no live worker's dirs are at risk, because anything spawning is
 	 * by definition in the active set. The log bucket additionally unions the
 	 * PHP-registered producer templates (firehose / jobintake / … × clamped config
 	 * num_partitions) and the settings log — dirs written from PHP rather than

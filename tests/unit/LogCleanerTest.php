@@ -566,16 +566,35 @@ class LogCleanerTest extends TestCase {
 		$this->assertDirectoryExists( $kept );
 	}
 
-	public function test_empty_offset_set_skips_offset_sweep(): void {
+	public function test_empty_offset_set_still_sweeps(): void {
 		// A topology declares a Partition (so the log sweep runs) but NO
-		// Consumer offsetlog → offset declared set empty → fail-closed skip.
+		// Consumer offsetlog. Nothing claims an offsetlog, so everything under
+		// offsets/ is an orphan. Empty is not the fail-closed sentinel — `null`
+		// is, and every degraded build returns it.
 		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests' ) );
 
 		$orphan = $this->seed_offsetlog_dir( 'anything', 0 );
 
 		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
 
-		$this->assertDirectoryExists( $orphan );
+		$this->assertDirectoryDoesNotExist( $orphan );
+	}
+
+	public function test_sweeps_offsets_when_the_last_topology_is_deactivated(): void {
+		// Deactivating the last topology empties the offset bucket, and an empty
+		// bucket used to skip the sweep — so a fleet with everything inactive
+		// could never reclaim a cursor, however long it sat. No topology active
+		// means no consumer running, which is exactly when it is safe to.
+		$this->declare_inactive_topology(
+			'complete-cozy',
+			"make_node Consumer scored:consumer <config:logs_dir>/scored.p<partition> <config:offsets_dir>/scored.p<partition>\n"
+		);
+
+		$cursor = $this->seed_offsetlog_dir( 'complete-cozy.firehose', 0 );
+
+		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
+
+		$this->assertDirectoryDoesNotExist( $cursor );
 	}
 
 	public function test_sweeps_undeclared_non_partition_offsetlog_dir(): void {
