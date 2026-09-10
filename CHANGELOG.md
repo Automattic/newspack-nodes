@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The Vault refuses to run without libsodium rather than storing nothing.** `encrypt()` returned `''` when `sodium_crypto_secretbox` was absent, so `vault add` and `vault update` on such a host stored an empty password and reported success — an operator believed a credential was in place when nothing was. `decrypt()` did the same for a sealed value it could not open, which is a deployment fault rather than bad data. Both throw a `RuntimeException` naming libsodium now. The check sits behind `Vault::$sodium_available`, a closure seam tests reassign to reach the refusal without stripping the extension.
+
 - **The Vault refuses an unsealed password from the option store.** `add()` always seals, so a non-empty `auth_password` in `newspack_nodes_vault` without the `$enc$` prefix was planted by something with database write, never written by this plugin — and `servers()` honoured it as plaintext, which let that something downgrade a sealed credential to one of its choosing. It reads as `''` now. The config file is unchanged: it is the operator's own, and a credential written there by hand is still read as written.
 
 ## [2.55.1] - 2026-09-08
