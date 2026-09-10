@@ -99,6 +99,16 @@ if [[ -f "$docslint" ]]; then
 	ok "lint-docs clean"
 fi
 
+# The @wordpress/* family compiles against the API the browser is handed, so a
+# declaration carrying a range, or a lock resolved past it, builds against the
+# wrong WordPress.
+wppin="$(git rev-parse --show-toplevel)/scripts/lint-wp-pin.mjs"
+if [[ -f "$wppin" ]]; then
+	step "lint-wp-pin (@wordpress/* declared exactly and locked to it)"
+	node "$wppin" || fail "lint-wp-pin failed — a @wordpress/* dependency carries a range or the lock drifted (see above)"
+	ok "wp pin clean"
+fi
+
 # The reorder twins move code as raw spans behind two hard invariants, and
 # pre-commit gates on them — so their own tests have to run somewhere.
 reordertest="$(git rev-parse --show-toplevel)/scripts/test-reorder-node-methods.sh"
@@ -116,6 +126,15 @@ if [[ -f "$commenttest" ]]; then
 	step "test-lint-comments (the comment gate's own tests)"
 	bash "$commenttest" || fail "test-lint-comments failed — the comment gate is broken (see above)"
 	ok "comment gate clean"
+fi
+
+# The pin gate decides whether a @wordpress/* drift ships, so its own tests run
+# here, in the substrate, before the copy syncs downstream.
+wppintest="$(git rev-parse --show-toplevel)/scripts/test-lint-wp-pin.sh"
+if [[ -f "$wppintest" ]]; then
+	step "test-lint-wp-pin (the pin gate's own tests)"
+	bash "$wppintest" || fail "test-lint-wp-pin failed — the pin gate is broken (see above)"
+	ok "pin gate clean"
 fi
 
 # The coverage gates decide whether a push is allowed at all, so a hole in one

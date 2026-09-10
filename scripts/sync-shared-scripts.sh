@@ -34,6 +34,7 @@ SHARED="reorder-node-methods.php reorder-node-methods.js coverage-gate-js.mjs
 	test-fix-blank-lines.sh
 	lint-contract.mjs
 	lint-styles.mjs
+	lint-wp-pin.mjs test-lint-wp-pin.sh
 	check-substrate-floor.sh phpstan-substrate-floor.php phpstan-floor.neon
 	pre-commit commit-msg lint-docs.sh"
 
