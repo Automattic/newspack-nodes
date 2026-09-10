@@ -54,6 +54,16 @@ class Vault {
 	 */
 	public const OPTION_KEY = 'newspack_nodes_vault';
 
+	/**
+	 * libsodium-availability seam. Tests reassign to `fn () => false` to reach
+	 * the refusal without stripping the extension from the interpreter.
+	 * Replaces `\function_exists( 'sodium_crypto_secretbox' )`.
+	 * Signature: `function (): bool`
+	 *
+	 * @var \Closure|null
+	 */
+	public static ?\Closure $sodium_available = null;
+
 	/** The config-array key the same registry occupies; see Config's token resolver. */
 	public const CONFIG_KEY = 'vault';
 
@@ -314,12 +324,14 @@ class Vault {
 	 * one.
 	 *
 	 * @param string $plaintext Value to encrypt.
-	 * @return string The prefixed wire format, or '' when nothing was sealed.
+	 * @return string The prefixed wire format, or '' for an empty plaintext.
+	 * @throws \RuntimeException When libsodium is absent.
 	 */
 	private static function encrypt( string $plaintext ): string {
-		if ( '' === $plaintext || ! \function_exists( 'sodium_crypto_secretbox' ) ) {
+		if ( '' === $plaintext ) {
 			return '';
 		}
+		self::require_sodium( 'seal' );
 		$nonce      = \random_bytes( SODIUM_CRYPTO_SECRETBOX_NONCEBYTES );
 		$ciphertext = \sodium_crypto_secretbox( $plaintext, $nonce, self::encryption_key() );
 		// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- binary-safe storage.
@@ -536,15 +548,14 @@ class Vault {
 	 *
 	 * @param string $stored Stored value, sealed or plain.
 	 * @return string The plaintext, the input itself when it carries no prefix, or '' when it will not open.
+	 * @throws \RuntimeException When libsodium is absent.
 	 */
 	private static function decrypt( string $stored ): string {
 		// No ENCRYPTED_PREFIX = plaintext; else base64_decode nukes spaces.
 		if ( 0 !== \strpos( $stored, self::ENCRYPTED_PREFIX ) ) {
 			return $stored;
 		}
-		if ( ! \function_exists( 'sodium_crypto_secretbox_open' ) ) {
-			return '';
-		}
+		self::require_sodium( 'open' );
 		// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- binary-safe storage.
 		$decoded = \base64_decode( \substr( $stored, \strlen( self::ENCRYPTED_PREFIX ) ), true );
 		if ( false === $decoded || \strlen( $decoded ) < SODIUM_CRYPTO_SECRETBOX_NONCEBYTES ) {
@@ -566,6 +577,24 @@ class Vault {
 	 */
 	private static function encryption_key(): string {
 		return \sodium_crypto_generichash( \wp_salt( 'auth' ), '', SODIUM_CRYPTO_SECRETBOX_KEYBYTES );
+	}
+
+	/**
+	 * Refuse loudly on a host without libsodium.
+	 *
+	 * Returning '' here stored an empty password and reported success, so an
+	 * operator believed a credential was in place when nothing was; and a sealed
+	 * value that cannot be opened is a deployment fault, not bad data.
+	 *
+	 * @param string $verb What was being attempted, for the message.
+	 * @throws \RuntimeException When the extension is absent.
+	 */
+	private static function require_sodium( string $verb ): void {
+		$available = self::$sodium_available ?? static fn (): bool => \function_exists( 'sodium_crypto_secretbox' );
+		if ( ! $available() ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
+			throw new \RuntimeException( "Vault: cannot {$verb} a credential without libsodium" );
+		}
 	}
 
 	/**

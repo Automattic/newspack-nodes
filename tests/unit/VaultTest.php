@@ -345,6 +345,38 @@ final class VaultTest extends TestCase {
 	// encrypt — empty plaintext shortcut (private; exercised via reflection).
 	// ---------------------------------------------------------------------
 
+	/**
+	 * A host without libsodium cannot seal. Storing '' and reporting success
+	 * would leave an operator believing a credential is in place when nothing
+	 * is; the only honest answer is to refuse.
+	 */
+	public function test_encrypt_refuses_without_libsodium(): void {
+		Vault::$sodium_available = static fn (): bool => false;
+		try {
+			$method = new \ReflectionMethod( Vault::class, 'encrypt' );
+			$this->expectException( \RuntimeException::class );
+			$this->expectExceptionMessage( 'libsodium' );
+			$method->invoke( null, 'shibboleth-cardamom' );
+		} finally {
+			Vault::$sodium_available = null;
+		}
+	}
+
+	/** The same for a sealed value it cannot open: a deployment fault, not bad data. */
+	public function test_decrypt_refuses_a_sealed_value_without_libsodium(): void {
+		$seal   = new \ReflectionMethod( Vault::class, 'encrypt' );
+		$sealed = $seal->invoke( null, 'shibboleth-cardamom' );
+		Vault::$sodium_available = static fn (): bool => false;
+		try {
+			$open = new \ReflectionMethod( Vault::class, 'decrypt' );
+			$this->expectException( \RuntimeException::class );
+			$this->expectExceptionMessage( 'libsodium' );
+			$open->invoke( null, $sealed );
+		} finally {
+			Vault::$sodium_available = null;
+		}
+	}
+
 	public function test_encrypt_returns_empty_for_empty_plaintext(): void {
 		$method = new \ReflectionMethod( Vault::class, 'encrypt' );
 		$this->assertSame( '', $method->invoke( null, '' ) );
