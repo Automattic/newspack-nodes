@@ -234,7 +234,7 @@ abstract class TestCase extends PHPUnitTestCase {
 	 */
 	/**
 	 * Seed the Vault option as `add()` would write it: every non-empty password
-	 * sealed. `servers()` reads an unsealed option value as planted, so a test
+	 * sealed. `get_all()` reads an unsealed option value as planted, so a test
 	 * that writes the option directly has to seal the way the plugin does.
 	 *
 	 * @param array<string,array<string,mixed>> $servers `id => entry` map.
