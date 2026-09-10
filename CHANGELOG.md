@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.55.2] - 2026-09-10
+
 ### Fixed
 
 - **The Vault refuses to run without libsodium rather than storing nothing.** `encrypt()` returned `''` when `sodium_crypto_secretbox` was absent, so `vault add` and `vault update` on such a host stored an empty password and reported success — an operator believed a credential was in place when nothing was. `decrypt()` did the same for a sealed value it could not open, which is a deployment fault rather than bad data. Both throw a `RuntimeException` naming libsodium now. The check sits behind `Vault::$sodium_available`, a closure seam tests reassign to reach the refusal without stripping the extension.
