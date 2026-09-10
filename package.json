@@ -28,9 +28,9 @@
 	},
 	"dependencies": {
 		"@noble/hashes": "^2.2.0",
-		"@wordpress/api-fetch": "^7.40.1",
-		"@wordpress/element": "^6.40.1",
-		"@wordpress/i18n": "^6.13.1",
+		"@wordpress/api-fetch": "7.40.1",
+		"@wordpress/element": "6.40.1",
+		"@wordpress/i18n": "6.13.1",
 		"d3": "^7.9.0"
 	},
 	"devDependencies": {
