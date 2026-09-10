@@ -27,14 +27,12 @@ class SettingsSyncFanoutTest extends TestCase {
 		parent::setUp();
 		$this->prev_memd = Core::$memd;
 		Core::$memd      = new InMemoryMemcached();
-		\update_option(
-			Vault::OPTION_KEY,
+		$this->seed_vault_servers(
 			[
 				'tw0' => [ 'url' => 'https://tw0.example', 'auth_username' => 'u', 'auth_password' => 'p' ],
 				'tw1' => [ 'url' => 'https://tw1.example', 'auth_username' => 'u', 'auth_password' => 'p' ],
 			]
 		);
-		Vault::get_instance()->reset_cache();
 	}
 
 	protected function tearDown(): void {

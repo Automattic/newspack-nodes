@@ -113,11 +113,10 @@ class AggregatorCITest extends TestCase {
 	 * @param string               $id     Server id.
 	 * @param array<string, mixed> $config Server config (url, enabled, auth_*).
 	 */
-	private function seed_vault( string $id, array $config ): void {
-		$existing            = $GLOBALS['_wp_options'][ Vault::OPTION_KEY ] ?? [];
-		$existing[ $id ]     = $config;
-		$GLOBALS['_wp_options'][ Vault::OPTION_KEY ] = $existing;
-		Vault::get_instance()->reset_cache();
+	protected function seed_vault( string $id, array $config ): void {
+		$existing         = $GLOBALS['_wp_options'][ Vault::OPTION_KEY ] ?? [];
+		$existing[ $id ]  = $config;
+		$this->seed_vault_servers( \is_array( $existing ) ? $existing : [ $id => $config ] );
 	}
 
 	// ---------------------------------------------------------------------

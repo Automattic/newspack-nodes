@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The Vault refuses an unsealed password from the option store.** `add()` always seals, so a non-empty `auth_password` in `newspack_nodes_vault` without the `$enc$` prefix was planted by something with database write, never written by this plugin — and `servers()` honoured it as plaintext, which let that something downgrade a sealed credential to one of its choosing. It reads as `''` now. The config file is unchanged: it is the operator's own, and a credential written there by hand is still read as written.
+
 ## [2.55.1] - 2026-09-08
 
 ### Fixed

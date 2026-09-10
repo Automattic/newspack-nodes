@@ -70,11 +70,10 @@ class RemoteSourceNodeTest extends TestCase {
 		parent::tearDown();
 	}
 
-	private function seed_vault( string $id, array $entry ): void {
+	protected function seed_vault( string $id, array $entry ): void {
 		// A spoke that can be sent to has authed; the heartbeat signs for it.
 		Command_Auth::remember_session( $id, \str_repeat( 'b', 32 ), 'spoke-session-key' );
-		\update_option( Vault::OPTION_KEY, [ $id => $entry ] );
-		Vault::get_instance()->reset_cache();
+		parent::seed_vault( $id, $entry );
 	}
 
 	/**
