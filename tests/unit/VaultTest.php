@@ -141,6 +141,22 @@ final class VaultTest extends TestCase {
 		$this->assertSame( 'plain text pw', $rec['auth_password'] );
 	}
 
+	/**
+	 * `add()` always seals, so a non-empty password in the OPTION store without
+	 * the prefix was planted by something with database write, not written by
+	 * this plugin. Honouring it would let that something downgrade a sealed
+	 * credential to one it chose. The config file is the operator's own and is
+	 * the one place plaintext is still read.
+	 */
+	public function test_an_unprefixed_password_in_the_option_store_is_refused(): void {
+		\update_option( Vault::OPTION_KEY, [
+			'planted' => [ 'url' => 'https://e.com', 'auth_password' => 'shibboleth-cardamom' ],
+		] );
+		$vault = Vault::get_instance();
+		$vault->reset_cache();
+		$this->assertSame( '', $vault->get( 'planted' )['auth_password'] );
+	}
+
 	public function test_malformed_encrypted_password_decrypts_to_empty(): void {
 		\update_option( Vault::OPTION_KEY, [
 			'x' => [ 'url' => 'https://e.com', 'auth_password' => Vault::ENCRYPTED_PREFIX . '@@@not-base64' ],

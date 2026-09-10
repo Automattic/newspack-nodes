@@ -25,11 +25,6 @@ class HttpOutTest extends TestCase {
 		};
 	}
 
-	private function seed_vault( string $id, array $entry ): void {
-		\update_option( Vault::OPTION_KEY, [ $id => $entry ] );
-		Vault::get_instance()->reset_cache();
-	}
-
 	protected function tearDown(): void {
 		HTTP_Out_Node::$curl_dispatch = null;
 		HTTP_Out_Node::$curl_result   = null;

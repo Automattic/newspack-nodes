@@ -40,11 +40,6 @@ class HttpOutSessionTest extends TestCase {
 		parent::tearDown();
 	}
 
-	private function seed_vault( string $id, array $entry ): void {
-		\update_option( Vault::OPTION_KEY, [ $id => $entry ] );
-		Vault::get_instance()->reset_cache();
-	}
-
 	private function make_node( string $id ): HTTP_Out_Node {
 		$node = new HTTP_Out_Node();
 		$node->name( 'remote:' . $id );

@@ -510,10 +510,12 @@ class Vault {
 					'auth_username' => '',
 					'auth_password' => '',
 				];
-				// Decrypt; an unprefixed value passes through as plaintext.
 				$pw = $server['auth_password'];
 				if ( '' !== $pw && \is_scalar( $pw ) ) {
-					$server['auth_password'] = self::decrypt( (string) $pw );
+					// add() seals; unprefixed in the OPTION means planted.
+					$planted = \is_array( $option ) && isset( $option[ $id ] )
+						&& 0 !== \strpos( (string) $pw, self::ENCRYPTED_PREFIX );
+					$server['auth_password'] = $planted ? '' : self::decrypt( (string) $pw );
 				}
 				$normalized[ (string) $id ] = $server;
 			}
@@ -528,7 +530,9 @@ class Vault {
 	 * A value without `ENCRYPTED_PREFIX` is plaintext and passes through
 	 * untouched. That is what lets an operator write a credential into the config
 	 * file by hand, and it is why the prefix is checked before any base64 decode,
-	 * which would eat the spaces out of a passphrase.
+	 * which would eat the spaces out of a passphrase. The caller decides whether
+	 * plaintext is admissible from where the value came: `servers()` refuses it
+	 * from the option store, where nothing this plugin writes is unsealed.
 	 *
 	 * @param string $stored Stored value, sealed or plain.
 	 * @return string The plaintext, the input itself when it carries no prefix, or '' when it will not open.

@@ -232,6 +232,31 @@ abstract class TestCase extends PHPUnitTestCase {
 	 * test that asserts on a live stream has to advance that queue rather than
 	 * assume `fire()` connected inline.
 	 */
+	/**
+	 * Seed the Vault option as `add()` would write it: every non-empty password
+	 * sealed. `servers()` reads an unsealed option value as planted, so a test
+	 * that writes the option directly has to seal the way the plugin does.
+	 *
+	 * @param array<string,array<string,mixed>> $servers `id => entry` map.
+	 */
+	protected function seed_vault_servers( array $servers ): void {
+		$seal = new \ReflectionMethod( \Newspack_Nodes\Vault::class, 'encrypt' );
+		$seal->setAccessible( true );
+		foreach ( $servers as &$entry ) {
+			if ( '' !== ( $entry['auth_password'] ?? '' ) ) {
+				$entry['auth_password'] = $seal->invoke( null, $entry['auth_password'] );
+			}
+		}
+		unset( $entry );
+		\update_option( \Newspack_Nodes\Vault::OPTION_KEY, $servers );
+		\Newspack_Nodes\Vault::get_instance()->reset_cache();
+	}
+
+	/** One server, through `seed_vault_servers()`. */
+	protected function seed_vault( string $id, array $entry ): void {
+		$this->seed_vault_servers( [ $id => $entry ] );
+	}
+
 	protected function drain_connect_queue(): void {
 		while ( true ) {
 			$connect = \Newspack_Nodes\Remote_Link_Node::shift_connect_queue();

@@ -45,11 +45,6 @@ class RemoteSourceTimeTravelTest extends TestCase {
 		parent::tearDown();
 	}
 
-	private function seed_vault( string $id, array $entry ): void {
-		\update_option( Vault::OPTION_KEY, [ $id => $entry ] );
-		Vault::get_instance()->reset_cache();
-	}
-
 	/** Stub the SSE dispatch; optionally capture each connect's opts. */
 	private function stub_sse_connect( ?array &$captured = null ): void {
 		SSE_In_Node::$curl_dispatch = static function ( array $opts ) use ( &$captured ): \CurlHandle {
