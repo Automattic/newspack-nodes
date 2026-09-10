@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.55.3] - 2026-09-10
+
 ### Changed
 
 - **The `@wordpress/*` family is declared exactly, and a push gate holds the lock to the declaration.** Every runtime package was declared with a caret at its `wp-7.0` version, and the committed lock had climbed to trunk (`api-fetch` 7.52.0, `element` 6.46.0 and `i18n` 6.25.0 against 7.40.1, 6.40.1 and 6.13.1), so `npm ci` built against an API ahead of the one WordPress 7.0 hands the browser. The build externalizes the family to `wp.*`, so nothing shipped changes; what changes is the API the bundle was compiled, linted and type-checked against. The gate is shared to every sibling. The declarations drop the caret, the lock is rebuilt at the tag, and `scripts/lint-wp-pin.mjs`, run from `pre-push`, fails a push when a declaration carries a range or the lock resolves elsewhere.
