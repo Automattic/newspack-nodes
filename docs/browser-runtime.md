@@ -1,5 +1,4 @@
 # Dashboards and the browser runtime
-*Part 8 of 10 in Newspack Nodes and the Event Logger. Previous: Hub and spoke. Next: Writing a plugin and running it.*
 
 Every dashboard in these two plugins is a React page in wp-admin, and none runs a fetch loop. Each is a topology in the browser.
 
@@ -47,9 +46,8 @@ The kit rewrites every `@wordpress/*` import except `@wordpress/icons` to the `w
 
 ## Read more
 
-- [newspack-nodes/docs/writing-a-dashboard.md](https://github.com/Automattic/newspack-nodes/blob/v2.55.3/docs/writing-a-dashboard.md)
-- [newspack-nodes/docs/writing-a-view-node.md](https://github.com/Automattic/newspack-nodes/blob/v2.55.3/docs/writing-a-view-node.md)
-- [newspack-nodes/docs/sse-host-budget.md](https://github.com/Automattic/newspack-nodes/blob/v2.55.3/docs/sse-host-budget.md)
-- [newspack-nodes/docs/architecture-decisions.md](https://github.com/Automattic/newspack-nodes/blob/v2.55.3/docs/architecture-decisions.md), [ADR-16](https://github.com/Automattic/newspack-nodes/blob/v2.55.3/docs/architecture-decisions.md#adr-16-js-node-class-resolution--names-are-the-tsl-surface-classes-are-the-api)
+- [writing-a-dashboard.md](writing-a-dashboard.md)
+- [writing-a-view-node.md](writing-a-view-node.md)
+- [sse-host-budget.md](sse-host-budget.md)
+- [architecture-decisions.md](architecture-decisions.md), [ADR-16](architecture-decisions.md#adr-16-js-node-class-resolution--names-are-the-tsl-surface-classes-are-the-api)
 
-*Part 8 of 10 in Newspack Nodes and the Event Logger. Previous: Hub and spoke. Next: Writing a plugin and running it.*

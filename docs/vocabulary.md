@@ -1,11 +1,10 @@
 # The vocabulary
-*Part 2 of 10 in Newspack Nodes and the Event Logger. Previous: Why a message runtime inside WordPress. Next: Logs on disk.*
 
-Six words carry the rest of the series: message, node, sink, target, router and topology. Each one is defined here once.
+Six words carry the rest of the chapters: message, node, sink, target, router and topology. Each one is defined here once.
 
 ## The message
 
-A message is one PHP array with seven numbered slots: type, timestamp, FROM, TO, id, key and value. Code reads each through a constant on the `Message` class, `Message::TYPE` through `Message::VALUE`, never through a bare number or a string key. A numbered slot costs less than a hash key on the runtime's busiest path, so the format is an array, not an object ([ADR-2](https://github.com/Automattic/newspack-nodes/blob/v2.55.3/docs/architecture-decisions.md#adr-2-one-message-format-the-7-field-positional-array)). The architecture decisions sit in `docs/architecture-decisions.md`, and this series cites them by number. Across a process boundary the array travels as a JSON list of seven, and the receiver accepts nothing else.
+A message is one PHP array with seven numbered slots: type, timestamp, FROM, TO, id, key and value. Code reads each through a constant on the `Message` class, `Message::TYPE` through `Message::VALUE`, never through a bare number or a string key. A numbered slot costs less than a hash key on the runtime's busiest path, so the format is an array, not an object ([ADR-2](architecture-decisions.md#adr-2-one-message-format-the-7-field-positional-array)). [architecture-decisions.md](architecture-decisions.md) records the architecture decisions, and the chapters cite them by number. Across a process boundary the array travels as a JSON list of seven, and the receiver accepts nothing else.
 
 The type slot is a bitmask of eleven flags, one bit each: TM_BYTESTREAM is a raw line of text, TM_COMMAND an instruction, TM_STRUCT a structured array, TM_ERROR a failure and TM_RESPONSE an answer, and the other six are TM_EOF, TM_PING, TM_INFO, TM_REQUEST, TM_NOREPLY and TM_UNTYPED. Flags combine, so a reply to a command carries TM_COMMAND and TM_RESPONSE together, 8 + 256 = 264, and a node tests for a flag with a bitwise AND: `264 & TM_RESPONSE` is 256, where `264 === TM_RESPONSE` is false and misses every combination.
 
@@ -15,9 +14,9 @@ Timestamp is the moment of minting, and the signature check on a command reads i
 
 ## The node, its sink and its target
 
-A node has one entry point, `fill()`, which takes a message and returns nothing ([ADR-1](https://github.com/Automattic/newspack-nodes/blob/v2.55.3/docs/architecture-decisions.md#adr-1-uniform-fill-contract), [ADR-13](https://github.com/Automattic/newspack-nodes/blob/v2.55.3/docs/architecture-decisions.md#adr-13-fill-returns-nothing)). Whatever a node learns leaves as another message, so any node composes with any other and a test runs three lines: build a message, fill it, assert on what comes out.
+A node has one entry point, `fill()`, which takes a message and returns nothing ([ADR-1](architecture-decisions.md#adr-1-uniform-fill-contract), [ADR-13](architecture-decisions.md#adr-13-fill-returns-nothing)). Whatever a node learns leaves as another message, so any node composes with any other and a test runs three lines: build a message, fill it, assert on what comes out.
 
-Every node carries a sink and a target, and only the target is yours to write. The sink is another node object, the physical next hop; the target is a string path. The base `fill()` writes the target into an empty TO, counts the message, and hands it to the sink ([ADR-7](https://github.com/Automattic/newspack-nodes/blob/v2.55.3/docs/architecture-decisions.md#adr-7-sink-vs-target-and-tofrom-replies)). Every node a topology builds gets the same sink, the command interpreter, and delivery happens two hops later.
+Every node carries a sink and a target, and only the target is yours to write. The sink is another node object, the physical next hop; the target is a string path. The base `fill()` writes the target into an empty TO, counts the message, and hands it to the sink ([ADR-7](architecture-decisions.md#adr-7-sink-vs-target-and-tofrom-replies)). Every node a topology builds gets the same sink, the command interpreter, and delivery happens two hops later.
 
 ## The command interpreter and the router
 
@@ -33,11 +32,11 @@ The smallest shipped topology, `topologies/topic-probe.tsl`, is four lines. Line
 
 ![An annotated listing of the four lines of topic-probe.tsl with a note on each, the five topology verbs, and the record's walk from the probe through the command interpreter and the router to the partition on disk](img/d02b.png)
 
-Part 3 opens that log and reads the numbers on line two.
+[Logs on disk](logs-on-disk.md) opens that log and reads the numbers on line two.
 
 ## The reply
 
-A node answering a message copies the request's FROM into the reply's TO, with the request's id and key ([ADR-7](https://github.com/Automattic/newspack-nodes/blob/v2.55.3/docs/architecture-decisions.md#adr-7-sink-vs-target-and-tofrom-replies)). Nothing keeps a table of outstanding requests, matches an id, or resolves a promise: the address the caller mints is the correlation.
+A node answering a message copies the request's FROM into the reply's TO, with the request's id and key ([ADR-7](architecture-decisions.md#adr-7-sink-vs-target-and-tofrom-replies)). Nothing keeps a table of outstanding requests, matches an id, or resolves a promise: the address the caller mints is the correlation.
 
 Suppose `wp nodes cli` opens a console with process id 4242. A typed line leaves with TO `job-worker.p0`, the worker's name, and FROM `_output/4242`, the reply renderer's name and the process id, so FROM is the address an answer has to reach. The console's router hands it to the node of that name, which appends it to the worker's input log, the only channel the two processes share. The worker's reader prefixes `_repl`, the output log's name, to FROM. TO is empty by then, so the interpreter runs the verb and answers to `_repl/_output/4242`, with its own name in FROM. Each router on the way back peels one segment: the worker's lands the reply in the output log addressed to `_output/4242`, and the console's hands its renderer one addressed to `4242`, printed only when that is its own process id. Several consoles share one output log without seeing each other's answers.
 
@@ -49,9 +48,8 @@ A node that mints a message writes its own name into FROM, and each process boun
 
 ## Read more
 
-- [`newspack-nodes/docs/architecture-guide.md`](https://github.com/Automattic/newspack-nodes/blob/v2.55.3/docs/architecture-guide.md#message-format), the sections [Message Format](https://github.com/Automattic/newspack-nodes/blob/v2.55.3/docs/architecture-guide.md#message-format) through [Topologies](https://github.com/Automattic/newspack-nodes/blob/v2.55.3/docs/architecture-guide.md#topologies-tsl)
-- [`newspack-nodes/docs/architecture-decisions.md`](https://github.com/Automattic/newspack-nodes/blob/v2.55.3/docs/architecture-decisions.md#adr-1-uniform-fill-contract), [ADR-1](https://github.com/Automattic/newspack-nodes/blob/v2.55.3/docs/architecture-decisions.md#adr-1-uniform-fill-contract), [ADR-2](https://github.com/Automattic/newspack-nodes/blob/v2.55.3/docs/architecture-decisions.md#adr-2-one-message-format-the-7-field-positional-array), [ADR-7](https://github.com/Automattic/newspack-nodes/blob/v2.55.3/docs/architecture-decisions.md#adr-7-sink-vs-target-and-tofrom-replies) and [ADR-13](https://github.com/Automattic/newspack-nodes/blob/v2.55.3/docs/architecture-decisions.md#adr-13-fill-returns-nothing)
-- [`newspack-nodes/topologies/`](https://github.com/Automattic/newspack-nodes/tree/v2.55.3/topologies), the four shipped files
+- [`architecture-guide.md`](architecture-guide.md#message-format), the sections [Message Format](architecture-guide.md#message-format) through [Topologies](architecture-guide.md#topologies-tsl)
+- [`architecture-decisions.md`](architecture-decisions.md#adr-1-uniform-fill-contract), [ADR-1](architecture-decisions.md#adr-1-uniform-fill-contract), [ADR-2](architecture-decisions.md#adr-2-one-message-format-the-7-field-positional-array), [ADR-7](architecture-decisions.md#adr-7-sink-vs-target-and-tofrom-replies) and [ADR-13](architecture-decisions.md#adr-13-fill-returns-nothing)
+- [`topologies/`](../topologies), the four shipped files
 - `docs/notes/TSL.md`, which lives in the dndocker tree and has no public home
 
-*Part 2 of 10 in Newspack Nodes and the Event Logger. Previous: Why a message runtime inside WordPress. Next: Logs on disk.*

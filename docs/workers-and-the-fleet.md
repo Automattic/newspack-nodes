@@ -1,5 +1,4 @@
 # Workers and the fleet
-*Part 4 of 10 in Newspack Nodes and the Event Logger. Previous: Logs on disk. Next: Commands, capabilities and sessions.*
 
 WordPress hosting offers no daemon, so a worker is a PHP request that outlives its caller: it takes the lock on one slot, one partition of one topology, drains messages for about ten minutes, and hands the slot to a successor it POSTs itself. The fleet is every such worker, and it keeps its own slots filled.
 
@@ -45,9 +44,8 @@ Each `wp nodes status` row is one slot in one of five states: live, a heartbeat 
 
 ## Read more
 
-- [newspack-nodes/docs/architecture-decisions.md](https://github.com/Automattic/newspack-nodes/blob/v2.55.3/docs/architecture-decisions.md), [ADR-8](https://github.com/Automattic/newspack-nodes/blob/v2.55.3/docs/architecture-decisions.md#adr-8-worker-zombie-pattern), [ADR-9](https://github.com/Automattic/newspack-nodes/blob/v2.55.3/docs/architecture-decisions.md#adr-9-two-tier-safety-net) and [ADR-14](https://github.com/Automattic/newspack-nodes/blob/v2.55.3/docs/architecture-decisions.md#adr-14-cooperative-stop-propagates-through-broad-catches)
-- [newspack-nodes/docs/cli.md](https://github.com/Automattic/newspack-nodes/blob/v2.55.3/docs/cli.md)
-- [newspack-nodes/docs/troubleshooting.md](https://github.com/Automattic/newspack-nodes/blob/v2.55.3/docs/troubleshooting.md)
+- [architecture-decisions.md](architecture-decisions.md), [ADR-8](architecture-decisions.md#adr-8-worker-zombie-pattern), [ADR-9](architecture-decisions.md#adr-9-two-tier-safety-net) and [ADR-14](architecture-decisions.md#adr-14-cooperative-stop-propagates-through-broad-catches)
+- [cli.md](cli.md)
+- [troubleshooting.md](troubleshooting.md)
 - `docs/notes/atomic-php-workers-are-the-cpu-budget.md`, which lives in the dndocker tree and has no public home
 
-*Part 4 of 10 in Newspack Nodes and the Event Logger. Previous: Logs on disk. Next: Commands, capabilities and sessions.*
