@@ -62,6 +62,7 @@ Start with **[getting-started.md](docs/getting-started.md)** — the bundled exa
 - **[writing-a-real-plugin.md](docs/writing-a-real-plugin.md)** — take that toy to the production version, two method bodies away.
 - **[writing-a-real-dashboard.md](docs/writing-a-real-dashboard.md)** — the production realities of shipping a dashboard (console, DevTools overlay, release).
 - **[writing-a-view-node.md](docs/writing-a-view-node.md)** — the one-page contract for a dashboard slice's terminal view node.
+- **[series/README.md](docs/series/README.md)** — the introductory series, one post per part with its diagrams: the ground between this README and the architecture guide.
 - **[architecture-guide.md](docs/architecture-guide.md)** — full substrate design: message format, node contracts, drain loop, REPL.
 - **[architecture-decisions.md](docs/architecture-decisions.md)** — the load-bearing ADRs and the conditions that would reopen them.
 - **[API.md](docs/API.md)** — the REST endpoints and their envelopes, command signing, the two SSE streams, and every `newspack_nodes/*` hook.

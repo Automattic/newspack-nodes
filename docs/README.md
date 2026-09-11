@@ -22,6 +22,7 @@ The toy guides above stop at "works on my page"; these three go further.
 
 Facts, not tutorials.
 
+- **[series/README.md](series/README.md)** — read when you want the whole runtime explained once, with diagrams, before the reference: nine posts from the message to the operator's loop, each pointing at the guide section and the ADRs it rests on.
 - **[architecture-guide.md](architecture-guide.md)** — read when you need the full substrate design: message format, node contracts, drain loop, REPL.
 - **[architecture-decisions.md](architecture-decisions.md)** — read when you want to change a load-bearing behavior: the ADRs, why each was chosen, and the condition that would reopen it.
 - **[API.md](API.md)** — read when you're calling the runtime over HTTP or extending it from PHP: the REST endpoints and their envelopes, command signing, the two SSE streams, and every `newspack_nodes/*` hook.
