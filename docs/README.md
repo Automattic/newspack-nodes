@@ -1,37 +1,45 @@
 # Newspack Nodes — Documentation Map
 
-Fifteen docs, three reading orders. New here? Read **Start here** top to bottom. Shipping something? Jump to **Take it to production**. Need a fact? Go straight to **Reference**.
+Twenty-four docs in three groups, in reading order. New here? Read **Understand it** top to bottom. Building something? Go to **Build with it**. Need a fact? Go straight to **Reference**.
 
-## Start here
+## Understand it
 
-Read these in order — each builds on the last.
+Eight chapters, each explaining one mechanism at the depth the reference assumes, with diagrams. Read them in order; each builds on the last.
 
-- **[getting-started.md](getting-started.md)** — read when you've never touched a node graph: zero to a running example pipeline you can poke at by hand, in about five minutes.
-- **[writing-a-plugin.md](writing-a-plugin.md)** — read when you want to build your own: the AI-newsletter digest from an empty directory, one node at a time, run after every step.
-- **[writing-a-dashboard.md](writing-a-dashboard.md)** — read when the headless pipeline works and you want a React admin dashboard that reads its live state.
+- **[why-a-message-runtime.md](why-a-message-runtime.md)**: read when you want the case for the runtime in one sitting: the problem, a worker's life, the file tree, the hub that pulls and the worker-slot budget. It expands the top-level README's "Why", so read it before the architecture guide's Overview.
+- **[vocabulary.md](vocabulary.md)**: read when you meet message, node, sink, target, router or topology for the first time: each defined once, then the reply's walk back along FROM. Read it before the guide's Message Format through Topologies sections, which give the same facts field by field.
+- **[logs-on-disk.md](logs-on-disk.md)**: read when you want to know what a Partition writes, why a record stays under 4 KB, how a Consumer resumes after a crash and where the runtime directory keeps it all. Read it before the guide's Storage and Consumer sections.
+- **[workers-and-the-fleet.md](workers-and-the-fleet.md)**: read when you want to know what a worker is, how a slot is held and handed on, and who revives a dead fleet. Read it before cli.md and troubleshooting.md, which assume its five slot states.
+- **[commands-capabilities-and-sessions.md](commands-capabilities-and-sessions.md)**: read when you want to know how a command proves who minted it and who may run a verb: the signature, the three roles and the session. Read it before API.md's Command Signing section, which gives the envelope byte by byte.
+- **[hub-and-spoke.md](hub-and-spoke.md)**: read when one site must read another site's log: Remote_Source and the SSE pull, the command session, the reply gate, the Vault and the hub user. The event logger's hub-control.md carries the settings push and the live hub.
+- **[browser-runtime.md](browser-runtime.md)**: read when you want to know what a dashboard is, a topology in the browser, with its two channels to a worker, the SSE slot pool and the build kit. Read it before writing-a-dashboard.md, which builds one page on this model.
+- **[writing-and-running-a-plugin.md](writing-and-running-a-plugin.md)**: read when you want the whole loop from scaffold to release in one sitting: the node, the topology, the deploy order, the REPL and the release pin. Read it before writing-a-plugin.md, which builds the same plugin one step at a time and assumes you know what each step is for.
 
-## Take it to production
+## Build with it
 
-The toy guides above stop at "works on my page"; these three go further.
+Tutorials, each run after every step. The first three stop at "works on my page"; the last three go to production.
 
-- **[writing-a-real-plugin.md](writing-a-real-plugin.md)** — read when you're taking the toy pipeline to real sources: durable ingest partition, credentials in the Vault, terminal-`DONE` auto-compose.
-- **[writing-a-real-dashboard.md](writing-a-real-dashboard.md)** — read when your dashboard has to survive the Topology Console, the DevTools overlay, and `release:archive` — the shared-surface contracts you didn't sign up for.
-- **[writing-a-view-node.md](writing-a-view-node.md)** — read when you need the one-page contract for a dashboard slice's terminal view node: a poll's reply or a stream's records in, one render model out.
+- **[getting-started.md](getting-started.md)**: read when you've never touched a node graph: zero to a running example pipeline you can poke at by hand, in about five minutes.
+- **[writing-a-plugin.md](writing-a-plugin.md)**: read when you want to build your own: the AI-newsletter digest from an empty directory, one node at a time. writing-and-running-a-plugin.md covers the same ground in one sitting; read it first.
+- **[writing-a-dashboard.md](writing-a-dashboard.md)**: read when the headless pipeline works and you want a React admin dashboard that reads its live state. browser-runtime.md explains the model this page is built on; read it first.
+- **[writing-a-real-plugin.md](writing-a-real-plugin.md)**: read when you're taking the toy pipeline to real sources: durable ingest partition, credentials in the Vault, terminal-`DONE` auto-compose.
+- **[writing-a-real-dashboard.md](writing-a-real-dashboard.md)**: read when your dashboard has to survive the Topology Console, the DevTools overlay, and `release:archive`: the shared-surface contracts you didn't sign up for.
+- **[writing-a-view-node.md](writing-a-view-node.md)**: read when you need the one-page contract for a dashboard slice's terminal view node: a poll's reply or a stream's records in, one render model out. browser-runtime.md gives the one-node-per-widget rule it enforces.
 
 ## Reference
 
-Facts, not tutorials.
+Facts, not tutorials. The chapters above tell the same story once; come here for the field-by-field detail.
 
-- **[series/README.md](series/README.md)** — read when you want the whole runtime explained once, with diagrams, before the reference: nine posts from the message to the operator's loop, each pointing at the guide section and the ADRs it rests on.
-- **[architecture-guide.md](architecture-guide.md)** — read when you need the full substrate design: message format, node contracts, drain loop, REPL.
-- **[architecture-decisions.md](architecture-decisions.md)** — read when you want to change a load-bearing behavior: the ADRs, why each was chosen, and the condition that would reopen it.
-- **[API.md](API.md)** — read when you're calling the runtime over HTTP or extending it from PHP: the REST endpoints and their envelopes, command signing, the two SSE streams, and every `newspack_nodes/*` hook.
-- **[cli.md](cli.md)** — read when you need a `wp nodes` verb: the one-page reference for every subcommand and the common flows.
-- **[troubleshooting.md](troubleshooting.md)** — read when something live is misbehaving: the REPL, worker health, log paths, and the failure modes we actually hit.
-- **[sse-host-budget.md](sse-host-budget.md)** — read before changing an SSE slot bound: what a stream costs in php-fpm children, and what the platform does when they run out.
-- **[stability.md](stability.md)** — read when you need to know what you can build on: the frozen surfaces, the heavily-used names left off that list, and what changing a frozen name buys — an upgrading.md entry, never an alias.
-- **[upgrading.md](upgrading.md)** — read when you're moving a consumer plugin across substrate versions: the breaking changes, with the fix beside each.
-- **[tachikoma-lineage.md](tachikoma-lineage.md)** — read when you need the Perl this runtime varies from: what came from where, file and symbol, and why each deliberate difference was chosen.
+- **[architecture-guide.md](architecture-guide.md)**: read when you need the full substrate design: message format, node contracts, drain loop, REPL. vocabulary.md and logs-on-disk.md cover its first half at story depth; read those first.
+- **[architecture-decisions.md](architecture-decisions.md)**: read when you want to change a load-bearing behavior: the ADRs, why each was chosen, and the condition that would reopen it. The chapters cite them by number.
+- **[security-model.md](security-model.md)**: read when you need the trust boundaries in one place: the signing model, the three roles, the reply gate, the Vault's cryptography and what the runtime chooses to live with. It assumes commands-capabilities-and-sessions.md and hub-and-spoke.md; read both first.
+- **[API.md](API.md)**: read when you're calling the runtime over HTTP or extending it from PHP: the REST endpoints and their envelopes, command signing, the two SSE streams, and every `newspack_nodes/*` hook.
+- **[cli.md](cli.md)**: read when you need a `wp nodes` verb: the one-page reference for every subcommand and the common flows.
+- **[troubleshooting.md](troubleshooting.md)**: read when something live is misbehaving: the REPL, worker health, log paths, and the failure modes we actually hit.
+- **[sse-host-budget.md](sse-host-budget.md)**: read before changing an SSE slot bound: what a stream costs in php-fpm children, and what the platform does when they run out. browser-runtime.md's slot-pool section is the short form.
+- **[stability.md](stability.md)**: read when you need to know what you can build on: the frozen surfaces, the heavily-used names left off that list, and what changing a frozen name buys: an upgrading.md entry, never an alias.
+- **[upgrading.md](upgrading.md)**: read when you're moving a consumer plugin across substrate versions: the breaking changes, with the fix beside each.
+- **[tachikoma-lineage.md](tachikoma-lineage.md)**: read when you need the Perl this runtime varies from: what came from where, file and symbol, and why each deliberate difference was chosen.
 
 ## Glossary
 
@@ -60,3 +68,5 @@ The short expansions the rest of the docs assume.
 - **Vault** — the credentials for every server this site connects out to. An operator enters a secret once and a topology carries only that entry's id; each password is sealed at rest under a key derived from `wp_salt( 'auth' )` and opened on the way out, so the stored option never holds plaintext.
 - **hub / spoke** — the aggregation pair. A hub wires one `Remote_Source` per spoke partition, each pulling that spoke's log over SSE under its own durable cursor; the Vault entry the node names supplies that spoke's URL and credential.
 - **slice** — one dashboard feed. A Fetcher sends one verb toward a service CI, the reply routes back to that slice's receiver `Tee`, and the slice's view node parses it into a render model. `addSliceFetcher()` wires the three in one call.
+
+The chapters' diagrams render from `docs/superpowers/series/2026-09-nodes-eln/img/` in the dndocker tree; `docs/img/` holds the rendered PNGs.

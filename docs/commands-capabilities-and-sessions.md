@@ -1,5 +1,4 @@
 # Commands, capabilities and sessions
-*Part 5 of 10 in Newspack Nodes and the Event Logger. Previous: Workers and the fleet. Next: The Event Logger.*
 
 ## A command is a message
 
@@ -7,7 +6,7 @@ Control rides the same rails as data. A command is a message carrying the TM_COM
 
 ## The minter signs
 
-WordPress can name the sender of a REST request, but not the builder of a message once it has crossed into a worker. [ADR-15](https://github.com/Automattic/newspack-nodes/blob/v2.55.3/docs/architecture-decisions.md#adr-15-command-authorization-local-taint--the-minter-signs) answers with the minter's own signature: an endpoint that signed whatever arrived would be an oracle. `wp nodes cli` signs under the site's secret; a browser or a hub signs under a session key. The door, `POST /newspack-nodes/v1/command`, takes a batch of commands, authenticates the request, requires the read role, rate-limits per user, stamps its node name `_output` onto each command's FROM, and signs nothing.
+WordPress can name the sender of a REST request, but not the builder of a message once it has crossed into a worker. [ADR-15](architecture-decisions.md#adr-15-command-authorization-local-taint--the-minter-signs) answers with the minter's own signature: an endpoint that signed whatever arrived would be an oracle. `wp nodes cli` signs under the site's secret; a browser or a hub signs under a session key. The door, `POST /newspack-nodes/v1/command`, takes a batch of commands, authenticates the request, requires the read role, rate-limits per user, stamps its node name `_output` onto each command's FROM, and signs nothing.
 
 ![A swimlane sequence of one command from its minter through the door, the router and two gates to a verb handler, and its reply back into the HTTP response](img/d05.png)
 
@@ -37,9 +36,8 @@ The Event Logger hands the same verbs to an agent over JSON-RPC at `POST /newspa
 
 ## Read more
 
-- [`newspack-nodes/docs/architecture-decisions.md`, ADR-15](https://github.com/Automattic/newspack-nodes/blob/v2.55.3/docs/architecture-decisions.md#adr-15-command-authorization-local-taint--the-minter-signs)
-- [`newspack-nodes/docs/API.md`](https://github.com/Automattic/newspack-nodes/blob/v2.55.3/docs/API.md), the [Command Signing](https://github.com/Automattic/newspack-nodes/blob/v2.55.3/docs/API.md#command-signing) and [Command Dispatch](https://github.com/Automattic/newspack-nodes/blob/v2.55.3/docs/API.md#command-dispatch) sections
-- [`newspack-nodes/includes/class-capabilities.php`](https://github.com/Automattic/newspack-nodes/blob/v2.55.3/includes/class-capabilities.php), whose file docblock is the capability model on one page
+- [`architecture-decisions.md`, ADR-15](architecture-decisions.md#adr-15-command-authorization-local-taint--the-minter-signs)
+- [`API.md`](API.md), the [Command Signing](API.md#command-signing) and [Command Dispatch](API.md#command-dispatch) sections
+- [`includes/class-capabilities.php`](../includes/class-capabilities.php), whose file docblock is the capability model on one page
 - [`newspack-event-logger-nodes/includes/app/class-mcp-controller.php`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.95.3/includes/app/class-mcp-controller.php)
 
-*Part 5 of 10 in Newspack Nodes and the Event Logger. Previous: Workers and the fleet. Next: The Event Logger.*

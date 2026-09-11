@@ -54,24 +54,11 @@ don't add a runtime for one job.
 
 ## Learn it
 
-Start with **[getting-started.md](docs/getting-started.md)** — the bundled example pipeline, running in about five minutes — then work through the `docs/` set (mapped by reading order in **[docs/README.md](docs/README.md)**):
+**[docs/README.md](docs/README.md)** maps the whole set in reading order, in three groups:
 
-- **[getting-started.md](docs/getting-started.md)** — zero to a running pipeline you can poke at by hand.
-- **[writing-a-plugin.md](docs/writing-a-plugin.md)** — build the AI-newsletter example from an empty directory, one node at a time.
-- **[writing-a-dashboard.md](docs/writing-a-dashboard.md)** — add a React admin dashboard that reads the pipeline's live state.
-- **[writing-a-real-plugin.md](docs/writing-a-real-plugin.md)** — take that toy to the production version, two method bodies away.
-- **[writing-a-real-dashboard.md](docs/writing-a-real-dashboard.md)** — the production realities of shipping a dashboard (console, DevTools overlay, release).
-- **[writing-a-view-node.md](docs/writing-a-view-node.md)** — the one-page contract for a dashboard slice's terminal view node.
-- **[series/README.md](docs/series/README.md)** — the introductory series, one post per part with its diagrams: the ground between this README and the architecture guide.
-- **[architecture-guide.md](docs/architecture-guide.md)** — full substrate design: message format, node contracts, drain loop, REPL.
-- **[architecture-decisions.md](docs/architecture-decisions.md)** — the load-bearing ADRs and the conditions that would reopen them.
-- **[API.md](docs/API.md)** — the REST endpoints and their envelopes, command signing, the two SSE streams, and every `newspack_nodes/*` hook.
-- **[cli.md](docs/cli.md)** — every `wp nodes` subcommand and the flows they combine into.
-- **[troubleshooting.md](docs/troubleshooting.md)** — the REPL, worker health, log paths, and the failure modes we actually hit.
-- **[sse-host-budget.md](docs/sse-host-budget.md)** — what one SSE stream costs in php-fpm children, and what happens when they run out.
-- **[stability.md](docs/stability.md)** — the frozen surfaces, what changing one costs, and what stays internal; no name is aliased.
-- **[upgrading.md](docs/upgrading.md)** — each breaking change with its fix, for moving a consumer across substrate versions.
-- **[tachikoma-lineage.md](docs/tachikoma-lineage.md)** — the Perl this runtime varies from, file and symbol, and why each divergence was chosen.
+- **Understand it.** Eight chapters, one mechanism each, with diagrams: [why a message runtime](docs/why-a-message-runtime.md), [the vocabulary](docs/vocabulary.md), [logs on disk](docs/logs-on-disk.md), [workers and the fleet](docs/workers-and-the-fleet.md), [commands, capabilities and sessions](docs/commands-capabilities-and-sessions.md), [hub and spoke](docs/hub-and-spoke.md), [the browser runtime](docs/browser-runtime.md) and [writing and running a plugin](docs/writing-and-running-a-plugin.md). Read them in order; each builds on the last.
+- **Build with it.** Tutorials, run after every step. [getting-started.md](docs/getting-started.md) has the bundled example pipeline running in about five minutes; [writing-a-plugin.md](docs/writing-a-plugin.md) and [writing-a-dashboard.md](docs/writing-a-dashboard.md) build the AI-newsletter example and its dashboard from an empty directory; [writing-a-real-plugin.md](docs/writing-a-real-plugin.md), [writing-a-real-dashboard.md](docs/writing-a-real-dashboard.md) and [writing-a-view-node.md](docs/writing-a-view-node.md) take both to production.
+- **Reference.** [architecture-guide.md](docs/architecture-guide.md), [architecture-decisions.md](docs/architecture-decisions.md), [security-model.md](docs/security-model.md), [API.md](docs/API.md), [cli.md](docs/cli.md), [troubleshooting.md](docs/troubleshooting.md), [sse-host-budget.md](docs/sse-host-budget.md), [stability.md](docs/stability.md), [upgrading.md](docs/upgrading.md) and [tachikoma-lineage.md](docs/tachikoma-lineage.md).
 
 The complete code lives in [`examples/example-ai-newsletter/`](examples/example-ai-newsletter/).
 

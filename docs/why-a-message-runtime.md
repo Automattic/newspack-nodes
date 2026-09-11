@@ -1,5 +1,4 @@
 # Why a message runtime inside WordPress
-*Part 1 of 10 in Newspack Nodes and the Event Logger. Next: The vocabulary.*
 
 ## The problem
 
@@ -27,14 +26,9 @@ A **hub** aggregates **spokes**, the customer sites it watches. For each spoke t
 
 The budget governs the design. On Atomic a "CPU" is a PHP worker slot, and a resident worker holds one for its whole life, busy or idle. Ten resident workers against a ten-worker allocation leave nothing for page requests, which backlog, and the site answers 429. Resident workers stay under the contracted allocation, with headroom for HTTP. The lever is a topology that scales to zero: with `on_demand_idle` set to an idle window, a worker whose readers have all reached the end of their logs waits out that window, exits and leaves no lock; the next write respawns it. Every deployment config under `services/` sets the window to 30 seconds. Count worker slots, not topologies.
 
-## The series
-
-Part 2 is The vocabulary; Part 3, Logs on disk; Part 4, Workers and the fleet; Part 5, Commands, capabilities and sessions; Part 6, The event logger; Part 7, Hub and spoke; Part 8, Dashboards and the browser runtime; Part 9, Writing a plugin and running it; Part 10, the security review request to SecOps.
-
 ## Read more
 
-- [`newspack-nodes/README.md`](https://github.com/Automattic/newspack-nodes/blob/v2.55.3/README.md)
-- [`newspack-nodes/docs/architecture-guide.md`](https://github.com/Automattic/newspack-nodes/blob/v2.55.3/docs/architecture-guide.md)
+- [`README.md`](../README.md)
+- [`architecture-guide.md`](architecture-guide.md)
 - `docs/notes/atomic-php-workers-are-the-cpu-budget.md`, the note the worker-slot budget draws on; it lives in the dndocker tree and has no public home
 
-*Part 1 of 10 in Newspack Nodes and the Event Logger. Next: The vocabulary.*
