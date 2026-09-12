@@ -30,13 +30,13 @@ A holder of `manage` is administrator power by another name and is not treated a
 
 ## The hub/spoke trust boundary
 
-**Code:** `includes/class-http-out-node.php`: `accept_inbound()` (:467), `allow_replies_to()` (:836), `reply_allowed()` (:792), `$reply_allowlist` (:112); `includes/class-router-node.php`: `fill()`; `includes/class-remote-link-node.php`: `address_null_sink()` (:572); `topologies/settings-sync.tsl`; [ADR-7](architecture-decisions.md#adr-7-sink-vs-target-and-tofrom-replies).
+**Code:** [`includes/class-http-out-node.php`](../includes/class-http-out-node.php): `accept_inbound()` (:467), `allow_replies_to()` (:836), `reply_allowed()` (:792), `$reply_allowlist` (:112); [`includes/class-router-node.php`](../includes/class-router-node.php): `fill()`; [`includes/class-remote-link-node.php`](../includes/class-remote-link-node.php): `address_null_sink()` (:572); [`topologies/settings-sync.tsl`](../topologies/settings-sync.tsl); [ADR-7](architecture-decisions.md#adr-7-sink-vs-target-and-tofrom-replies).
 
 **The reply gate.** The spoke writes every field of a reply, `TO` included, and each `HTTP_Out` node's `allow_replies_to` list decides what the hub delivers. `accept_inbound()` checks each inbound reply's `TO` through `reply_allowed()` against `$reply_allowlist`, which the `allow_replies_to` config verb fills; a reply addressed outside the list is dropped. The list fails closed: an `HTTP_Out` with no declaration delivers no reply at all. `Remote_Link_Node::address_null_sink()` gives a spoke's unaddressed output a `Null` target, so it lands nowhere rather than travelling on as it stands. `topologies/settings-sync.tsl` shows the declaration shape, one `cmd <egress>:config allow_replies_to settings-sync` per spoke egress. The logger's [hub and spoke wiring](https://github.com/Automattic/newspack-event-logger-nodes/blob/main/docs/architecture-guide.md#hub-vs-spoke-topology) mounts these nodes.
 
 ![The reply gate and what it delivers to](img/2026-09-08-reply-gate.png)
 
-**A spoke cannot run a command on the hub.** Only the spoke mints sessions, and they sign the hub's commands to the spoke; `Worker_Base:246` installs the HMAC check in every hub process; and `Message::LOCAL` cannot cross the wire. [Command authorization (two-tier)](architecture-guide.md#command-authorization-two-tier) and [ADR-15](architecture-decisions.md#adr-15-command-authorization-local-taint--the-minter-signs) cover signing.
+**A spoke cannot run a command on the hub.** Only the spoke mints sessions, and they sign the hub's commands to the spoke; [`Worker_Base:246`](../includes/class-worker-base.php#L246) installs the HMAC check in every hub process; and `Message::LOCAL` cannot cross the wire. [Command authorization (two-tier)](architecture-guide.md#command-authorization-two-tier) and [ADR-15](architecture-decisions.md#adr-15-command-authorization-local-taint--the-minter-signs) cover signing.
 
 ### What an accepted `TO` can reach
 
@@ -62,35 +62,35 @@ Both choices are open; see [Tradeoffs](#tradeoffs).
 
 ## The shared-memcache salt
 
-**Code:** `includes/class-cache-backend.php`: `site()` (:181, :196), `salt()` (:482), `ensure_salt()` (:445), the keyspace-split warning (:160-179); `includes/class-command-auth.php`: `session_address()` (:534).
+**Code:** [`includes/class-cache-backend.php`](../includes/class-cache-backend.php): `site()` (:181, :196), `salt()` (:482), `ensure_salt()` (:445), the keyspace-split warning (:160-179); [`includes/class-command-auth.php`](../includes/class-command-auth.php): `session_address()` (:534).
 
 ![One memcached pool, many sites](img/2026-09-10-shared-cache-pool.png)
 
-On WP Cloud one memcached pool serves many sites, so every key carries a per-install scope, `substr( md5( DB_NAME . ':' . base_prefix . ':' . salt() ), 0, 12 )`. A neighbour can work out the database name and the prefix, so only the salt keeps the scope unguessable, and a guessable scope lets that neighbour write a key this install reads. `Bootstrap::activate()` and the `admin_init` self-heal (`includes/class-bootstrap.php:263`, `:284`) call `ensure_salt()`, which mints one only where none exists. Three readers trust such keys: `Spawn_Coordinator::load_spawn_ts()` reads `last_spawn:`, where a planted far-future timestamp reads as a worker just started, so nothing revives it; `Aggregator_CI` shows `remote:{name}:{partition}`, the connection status `write_status()` merges; and the logger's `Stats_Store` feeds the performance dashboards.
+On WP Cloud one memcached pool serves many sites, so every key carries a per-install scope, `substr( md5( DB_NAME . ':' . base_prefix . ':' . salt() ), 0, 12 )`. A neighbour can work out the database name and the prefix, so only the salt keeps the scope unguessable, and a guessable scope lets that neighbour write a key this install reads. `Bootstrap::activate()` and the `admin_init` self-heal ([`includes/class-bootstrap.php:263`](../includes/class-bootstrap.php#L263), `:284`) call `ensure_salt()`, which mints one only where none exists. Three readers trust such keys: `Spawn_Coordinator::load_spawn_ts()` reads `last_spawn:`, where a planted far-future timestamp reads as a worker just started, so nothing revives it; `Aggregator_CI` shows `remote:{name}:{partition}`, the connection status `write_status()` merges; and the logger's [`Stats_Store`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.95.3/includes/class-stats-store.php) feeds the performance dashboards.
 
-The scope is a random per-install salt rather than a derivation from the site secret, which is what `session_address()` does for command sessions; its comment says *"the cache is shared infrastructure, not a trusted store."* Two facts argue against copying it. Folding `wp_salt('nonce')` into `site()` risks the split keyspace `site()`'s docblock warns about, and `wp_salt()` is unavailable under the SHORTINIT boot, where `salt()` reads the option row through `$wpdb` instead. Rotating that salt is the logger's schema migration; the logger's security model records the choice.
+The scope is a random per-install salt rather than a derivation from the site secret, which is what `session_address()` does for command sessions; its comment says *"the cache is shared infrastructure, not a trusted store."* Two facts argue against copying it. Folding `wp_salt('nonce')` into `site()` risks the split keyspace `site()`'s docblock warns about, and `wp_salt()` is unavailable under the SHORTINIT boot, where `salt()` reads the option row through `$wpdb` instead. Rotating that salt is the logger's schema migration; the logger's [security model](https://github.com/Automattic/newspack-event-logger-nodes/blob/main/docs/security-model.md#tradeoffs) records the choice.
 
 ## The inbound `FROM` ceiling at `/command`
 
-**Code:** `includes/class-node.php`: `stamp_message()` (:310), `can_stamp()` (:336), `MAX_FROM_SIZE` (:39); `includes/rest/class-http-in-node.php`: `dispatch()` (:258), `boundary_refusal()` (:326).
+**Code:** [`includes/class-node.php`](../includes/class-node.php): `stamp_message()` (:310), `can_stamp()` (:336), `MAX_FROM_SIZE` (:39); [`includes/rest/class-http-in-node.php`](../includes/rest/class-http-in-node.php): `dispatch()` (:258), `boundary_refusal()` (:326).
 
-`MAX_FROM_SIZE` caps `FROM` at 1,024 bytes; [Message Format](architecture-guide.md#message-format) covers the ceiling. `/command` checks it through `can_stamp()` before accepting a message and answers an overflow with a refusal frame, because the boundary can name the door an overflow came in by and the router, a layer later, cannot (`includes/class-http-out-node.php:450`). Enforcement inside the process rests on convention: `stamp_message()` returns `false`, its docblock says *"the caller must drop the message on either"*, and a caller that ignores the return compiles, passes review and ships.
+`MAX_FROM_SIZE` caps `FROM` at 1,024 bytes; [Message Format](architecture-guide.md#message-format) covers the ceiling. `/command` checks it through `can_stamp()` before accepting a message and answers an overflow with a refusal frame, because the boundary can name the door an overflow came in by and the router, a layer later, cannot ([`includes/class-http-out-node.php:450`](../includes/class-http-out-node.php#L450)). Enforcement inside the process rests on convention: `stamp_message()` returns `false`, its docblock says *"the caller must drop the message on either"*, and a caller that ignores the return compiles, passes review and ships.
 
 ## What reaches the operator's terminal
 
-**Code:** `includes/class-core.php`: `terminal_safe()` (:622), `CONTROL_CLASS` (:56), `CONTROL_SCAN` (:73); `includes/class-stdout-node.php`: `write()` (:104), `write_raw()`; `includes/class-tty-out-node.php`; `includes/class-log-sources.php`: `tail_file()`.
+**Code:** [`includes/class-core.php`](../includes/class-core.php): `terminal_safe()` (:622), `CONTROL_CLASS` (:56), `CONTROL_SCAN` (:73); [`includes/class-stdout-node.php`](../includes/class-stdout-node.php): `write()` (:104), `write_raw()`; [`includes/class-tty-out-node.php`](../includes/class-tty-out-node.php); [`includes/class-log-sources.php`](../includes/class-log-sources.php): `tail_file()`.
 
 ![From a visitor's request to the operator's terminal](img/2026-09-10-terminal-chain.png)
 
 A visitor's URL or `User-Agent` carrying the escape byte `0x1B` reaches `wp-content/debug.log` through a PHP notice, and `taillog debug` in `wp nodes cli` prints it to the operator's terminal. Every terminal writer passes its text through `Core::terminal_safe()`, which renders each control character as a visible token such as `<1B>`, inverse video on a TTY, because a stripped byte hides the attack from the reader. `CONTROL_CLASS` is `[\x00-\x08\x0B-\x1F\x7F-\x9F]`; `CONTROL_SCAN` adds the C1 range in UTF-8 (`\xC2[\x80-\x9F]`). `Stdout_Node::write_raw()` bypasses it for a caller composing a sequence on purpose, and the console's `clear` command is its only user.
 
-**Rendering rather than refusing, for a UTF-8 terminal.** `terminal_safe()` refuses nothing, where `Health_Probe_Client::valid_result()` refuses a remote health message carrying any control, line-separator or paragraph-separator character: that message has a fixed shape, and a log tail holds whatever the log holds. It defends UTF-8 mode, the mode every terminal reading these logs runs in; another mode means escaping every high byte and mangling every non-ASCII log line.
+**Rendering rather than refusing, for a UTF-8 terminal.** `terminal_safe()` refuses nothing, where [`Health_Probe_Client::valid_result()`](../includes/class-health-probe-client.php) refuses a remote health message carrying any control, line-separator or paragraph-separator character: that message has a fixed shape, and a log tail holds whatever the log holds. It defends UTF-8 mode, the mode every terminal reading these logs runs in; another mode means escaping every high byte and mangling every non-ASCII log line.
 
 ## The Vault's cryptography
 
-**Code:** `includes/class-vault.php`: `encrypt()` (:311), `decrypt()` (:475), `encryption_key()` (:499), `require_sodium()` (:513), `get_all()` (:438); `includes/rest/class-vault-ci-node.php`: the `add` and `update` verbs.
+**Code:** [`includes/class-vault.php`](../includes/class-vault.php): `encrypt()` (:311), `decrypt()` (:475), `encryption_key()` (:499), `require_sodium()` (:513), `get_all()` (:438); [`includes/rest/class-vault-ci-node.php`](../includes/rest/class-vault-ci-node.php): the `add` and `update` verbs.
 
-The Vault seals each password with `sodium_crypto_secretbox`, keyed by `sodium_crypto_generichash( wp_salt( 'auth' ), '', 32 )` under a fresh `random_bytes` nonce, and stores it in an option as `$enc$` plus the base64 of nonce and ciphertext. Without libsodium `encrypt()` and `decrypt()` throw through `require_sodium()`, so `vault add` and `vault update` fail loudly rather than store. [Service CIs](architecture-guide.md#repl-wp-nodes-cli) and [Command authorization (two-tier)](architecture-guide.md#command-authorization-two-tier) cover the Vault's place in the command channel.
+The Vault seals each password with [`sodium_crypto_secretbox`](https://www.php.net/manual/en/function.sodium-crypto-secretbox.php), keyed by [`sodium_crypto_generichash`](https://www.php.net/manual/en/function.sodium-crypto-generichash.php)`( wp_salt( 'auth' ), '', 32 )` under a fresh `random_bytes` nonce, and stores it in an option as `$enc$` plus the base64 of nonce and ciphertext. Without libsodium `encrypt()` and `decrypt()` throw through `require_sodium()`, so `vault add` and `vault update` fail loudly rather than store. [Service CIs](architecture-guide.md#repl-wp-nodes-cli) and [Command authorization (two-tier)](architecture-guide.md#command-authorization-two-tier) cover the Vault's place in the command channel.
 
 - **The key derives from the auth salt.** Rotating `AUTH_KEY` or `AUTH_SALT` makes every sealed value unreadable, with no re-key path.
 - **An unsealed stored value reads as empty.** `add()` and `update()` always seal, so a password without the `$enc$` prefix can only come from database write access, and `get_all()` treats it as empty. The option is the only source; the config file declares no Vault entry.
@@ -99,28 +99,28 @@ The Vault seals each password with `sodium_crypto_secretbox`, keyed by `sodium_c
 
 **Code:** the 314 non-test JavaScript files under the two `src/` trees, this plugin's and the logger's.
 
-- **One HTML sink**, the logger's `src/overview/PerformanceDashboard.js:852-856`, is a `<script type="application/json">` element of page facts; `factsJson()` escapes `<` to `\u003C` and both Unicode line terminators, the correct guard for that context.
-- **One `href` built from data**, the logger's `src/current-request/CurrentRequestTab.js:162`, joins an admin URL PHP supplies to `encodeURIComponent( rid )`.
+- **One HTML sink**, the logger's [`src/overview/PerformanceDashboard.js:852-856`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.95.3/src/overview/PerformanceDashboard.js#L852-L856), is a `<script type="application/json">` element of page facts; `factsJson()` escapes `<` to `\u003C` and both Unicode line terminators, the correct guard for that context.
+- **One `href` built from data**, the logger's [`src/current-request/CurrentRequestTab.js:162`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.95.3/src/current-request/CurrentRequestTab.js#L162), joins an admin URL PHP supplies to `encodeURIComponent( rid )`.
 
 Everything else renders through React text nodes; browser storage holds layout, theme, panel heights and telemetry counters; the two `style` values built from data are numeric percentages; and neither tree holds an `innerHTML`, `eval`, `new Function`, `document.write` or `postMessage` listener.
 
-The [browser runtime](architecture-guide.md#browser-topology-console-srctopology-console-srcruntime) carries no reply allowlist on its `HttpOutNode`, because its remote is the server the operator is logged into and the browser itself mints every address that comes back (`src/runtime/http-out-node.js:277`).
+The [browser runtime](architecture-guide.md#browser-topology-console-srctopology-console-srcruntime) carries no reply allowlist on its `HttpOutNode`, because its remote is the server the operator is logged into and the browser itself mints every address that comes back ([`src/runtime/http-out-node.js:277`](../src/runtime/http-out-node.js#L277)).
 
 Every `@wordpress/*` runtime package is pinned to the `wp-7.0` dist tag, and each build externalises them to the copy WordPress loads. An advisory reachable only past the pin is dismissed with a written reason.
 
 ## The other doors
 
-**Code:** `includes/rest/class-auth-controller.php` (:110), `includes/rest/class-spawn-controller.php` (:84-97, :252), `includes/rest/class-health-cache-controller.php` (:89-97), `includes/rest/class-http-in-node.php` (:184-187, :384), `includes/rest/class-sse-out-node.php` (:1117-1123); `includes/class-command-interpreter-node.php`: `READ_VERBS` (:171), `capability_for()` (:360); `includes/class-log-sources.php`: `parse_entry()` (:557); `includes/class-config.php`: `assert_within_base()` (:110); `includes/rest/class-topologies-ci-node.php` (:603); `includes/class-job-worker-node.php` (:207-218).
+**Code:** [`includes/rest/class-auth-controller.php`](../includes/rest/class-auth-controller.php) (:110), [`includes/rest/class-spawn-controller.php`](../includes/rest/class-spawn-controller.php) (:84-97, :252), [`includes/rest/class-health-cache-controller.php`](../includes/rest/class-health-cache-controller.php) (:89-97), [`includes/rest/class-http-in-node.php`](../includes/rest/class-http-in-node.php) (:184-187, :384), [`includes/rest/class-sse-out-node.php`](../includes/rest/class-sse-out-node.php) (:1117-1123); [`includes/class-command-interpreter-node.php`](../includes/class-command-interpreter-node.php): `READ_VERBS` (:171), `capability_for()` (:360); [`includes/class-log-sources.php`](../includes/class-log-sources.php): `parse_entry()` (:557); [`includes/class-config.php`](../includes/class-config.php): `assert_within_base()` (:110); [`includes/rest/class-topologies-ci-node.php`](../includes/rest/class-topologies-ci-node.php) (:603); [`includes/class-job-worker-node.php`](../includes/class-job-worker-node.php) (:207-218).
 
 [Secure levels](architecture-guide.md#secure-levels) and [Command authorization (two-tier)](architecture-guide.md#command-authorization-two-tier) cover capabilities and sessions. Every other substrate door checks what it should:
 
 | Door | Who opens it | What it checks |
 |---|---|---|
-| `POST /v1/auth`, minting a command session | `read` | Fleet gate; scope clamped to the caller's roles; lifetime 60 seconds to one day. |
-| `POST /v1/workers/spawn` | An internal 10-second token, or `manage` with a nonce at one call per two seconds | Token, capability, rate limit, nonce, in that order; type and partition checked against the active set. |
-| `POST /v1/health/cache` | An internal token | Shape, then HMAC with the purpose inside the hash; the handler reads nothing from the request. |
-| `POST /v1/command` | `read`, and at most 30 requests per user per second, 429 past that | HMAC on every wire command; a role on every verb; the graph vocabulary pinned to `manage`. |
-| Both event streams, `GET /v1/log/stream` and `GET /v1/messages/stream` | `read`, no nonce | Roots confined to the three log groups; `..` refused. |
+| [`POST /v1/auth`](API.md#establishing-a-session), minting a command session | `read` | Fleet gate; scope clamped to the caller's roles; lifetime 60 seconds to one day. |
+| [`POST /v1/workers/spawn`](API.md#worker-spawn) | An internal 10-second token, or `manage` with a nonce at one call per two seconds | Token, capability, rate limit, nonce, in that order; type and partition checked against the active set. |
+| [`POST /v1/health/cache`](API.md#internal-cache-health) | An internal token | Shape, then HMAC with the purpose inside the hash; the handler reads nothing from the request. |
+| [`POST /v1/command`](API.md#command-dispatch) | `read`, and at most 30 requests per user per second, 429 past that | HMAC on every wire command; a role on every verb; the graph vocabulary pinned to `manage`. |
+| Both event streams, [`GET /v1/log/stream`](API.md#log-stream) and [`GET /v1/messages/stream`](API.md#sse-stream) | `read`, no nonce | Roots confined to the three log groups; `..` refused. |
 | The two `admin_post` handlers, reset settings and flush cache (the logger registers a third, its own reset) | `manage` with a nonce | Nonce, then capability. |
 | The settings page, sole writer of `log_sources`, `memcache_servers`, `base_directory` and the TLS toggles | Literal `manage_options` | WordPress enforces `manage_options` on the option group; `settings set` accepts only bounded integers. |
 | `sessions`, `vault`, `workers restart` and `topologies` verbs | `manage` | Names through one regex; integers through a refusing read; URLs `https://` only. |
@@ -128,7 +128,7 @@ Every `@wordpress/*` runtime package is pinned to the `wp-7.0` dist tag, and eac
 | `wp nodes ingest`, `scaffold`, `cli`, `run` | A shell as the site user | Root refused; input files must exist; `ingest` does not confine its destination, which a shell reaches anyway. |
 | The TLS toggles `spawn_verify_ssl`, `vault_verify_ssl`, `vault_require_ssl` | The config file | Default on; the Vault refuses `http://` regardless; the last matters only for a url planted in the option by database write. |
 
-The logger's MCP server and profiler mu-plugin are two more doors, described in [its security model](https://github.com/Automattic/newspack-event-logger-nodes/blob/main/docs/security-model.md).
+The logger's MCP server and profiler mu-plugin are two more doors, described in [its security model](https://github.com/Automattic/newspack-event-logger-nodes/blob/main/docs/security-model.md#the-other-doors).
 
 Three need a paragraph each.
 
@@ -138,7 +138,7 @@ Three need a paragraph each.
 
 **What `manage` can mount.** A worker evaluates a saved topology as trusted local commands, so a `manage` holder mounts any node class, `Hook` included, which fires a WordPress action with the payload. `assert_within_base()` confines every storage path to the runtime directory, lexically with `..` resolved, so nothing lands in the webroot. `manage` is administrator power by another name, and the model treats it so.
 
-A spoke's job runs on the hub through `Job_Worker_Node` (`includes/class-job-worker-node.php:207-218`) and the logger's `Remote_Job_Rewrite`; the logger's security model states that requirement.
+A spoke's job runs on the hub through `Job_Worker_Node` (`includes/class-job-worker-node.php:207-218`) and the logger's [`Remote_Job_Rewrite`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.95.3/includes/class-remote-job-rewrite-node.php); the logger's [security model](https://github.com/Automattic/newspack-event-logger-nodes/blob/main/docs/security-model.md#the-remote-job-rewrite) states that requirement.
 
 ## Tradeoffs
 
@@ -160,7 +160,7 @@ Each choice below is made and reasoned; where the question stays open, the parag
 
 ## Dependencies and the release path
 
-A GitHub Actions workflow builds each release from exactly the packages the committed lockfile names; two of its four third-party actions are pinned to a commit and two to a major version the owner can move. `newspack-nodes` has no open advisory in npm or composer. Composer requires only PHP, and `vendor/` stays out of the zip.
+A [GitHub Actions workflow](../.github/workflows/release.yml) builds each release from exactly the packages the committed lockfile names; two of its four third-party actions are pinned to a commit and two to a major version the owner can move. `newspack-nodes` has no open advisory in npm or composer. Composer requires only PHP, and `vendor/` stays out of the zip.
 
 The GitHub Release is a record, not the artifact anyone installs. Sites run a zip the deploy script builds from `main` and installs over SSH beside the site's config file, which carries no credential.
 
