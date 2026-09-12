@@ -1,0 +1,76 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.map { display:grid; grid-template-columns: 236px 20px minmax(0,1fr) 270px; gap:8px 8px; align-items:stretch; }
+.map .hd { font-size:11px; font-weight:600; color:#50575E; text-transform:uppercase; letter-spacing:.02em; }
+.src { background:#F6F7F7; border:1px solid #DCDCDE; border-radius:7px; padding:8px 10px; font-size:11.5px; line-height:1.45; color:#3C434A; }
+.src b { display:block; color:#101517; font-size:12px; margin-bottom:2px; }
+.ar { display:flex; align-items:center; justify-content:center; color:#003DA5; font-size:16px; }
+.key { background:#F0F4FB; border:1px solid #C3D3EC; border-radius:7px; padding:8px 10px; font-size:11.5px; line-height:1.45; }
+.key .k { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight:700; color:#003DA5; font-size:12.5px; margin-right:6px; }
+.key.only { border:1.5px dashed #003DA5; background:#fff; }
+.chips { display:flex; flex-wrap:wrap; gap:4px; margin-top:5px; }
+.chips span { overflow-wrap:anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:11px; padding:1px 6px; border-radius:4px; background:#fff; border:1px solid #C3D3EC; color:#1D2327; }
+.cav { font-size:11.5px; line-height:1.45; color:#50575E; padding:6px 2px; }
+.cav b { color:#B32D2E; font-weight:600; }
+.mono { overflow-wrap:anywhere; }
+.readers { display:flex; gap:16px; margin-top:18px; }
+.readers > * { flex:1; }
+.readers p { font-size:12.5px; margin:0 0 6px; }
+</style>
+<div class="sheet">
+<h1>One snapshot, two readers: where each <span class="mono">dump_graph</span> key comes from</h1>
+<p class="sub"><span class="mono">Workers_CI_Node::collect_dump_metadata()</span> reads the lock dirs, the topicprobe log, the log catalog, the dead-letter dirs and config into one envelope. Read a row left to right to see what a key is measured from, what each of its rows carries, and where it can mislead.</p>
+
+<div class="map">
+  <div class="hd">Read from</div><div></div><div class="hd">Key, and one row's fields</div><div class="hd">Caveat</div>
+
+  <div class="src"><b>The lock dirs</b><span class="mono">Bootstrap::expand_workers()</span> names every <span class="mono">(type, partition)</span> in the active set; each one's <span class="mono">locks/{type}.p{N}.lock.d/heartbeat</span> mtime is judged against its own topology's stale timeout.</div>
+  <div class="ar">→</div>
+  <div class="key"><span class="k">workers[]</span>one liveness row per worker
+    <div class="chips"><span>type</span><span>partition</span><span>status</span><span>started_at</span><span>heartbeat_age</span><span>heartbeat_at</span><span>live</span><span>stale</span><span>idle</span><span>restart_pending</span></div></div>
+  <div class="cav"><span class="mono">idle</span> is an on-demand worker cleanly absent, as against one that died holding its lock; both read not <span class="mono">live</span>.</div>
+
+  <div class="src"><b>The topicprobe log</b>The last 128 KiB of <span class="mono">topicprobe.p0</span>'s newest segment, one <span class="mono">Probe_Record</span> per reader, through <span class="mono">CLI::consumer_rows()</span>.</div>
+  <div class="ar">→</div>
+  <div class="key"><span class="k">consumers[]</span>one row per reader that reported inside the window
+    <div class="chips"><span>reader</span><span>source</span><span>partition</span><span>cursor_segment</span><span>cursor_offset</span><span>end_segment</span><span>end_size</span><span>distance</span><span>msgs</span></div></div>
+  <div class="cav"><b>A report, not an inventory:</b> not one row per offsetlog dir on disk. A reader absent from the window drops out rather than reading stale. A record older than <span class="mono">Topic_Probe_Node::stale_after_s()</span>, two sweeps of the declared cadence (15 s by default), is re-measured off its offsetlog through <span class="mono">Consumer_Node::lag_from_disk()</span>. Rows come in the order the window first names each reader, so <span class="mono">wp nodes status</span> sorts them itself.</div>
+
+  <div class="src"><b>The log catalog</b>Every log the retention sweep declares, its <span class="mono">segment_size</span> taken from the TSL and the <span class="mono">newspack_nodes/segment_size_overrides</span> filter.</div>
+  <div class="ar">→</div>
+  <div class="key"><span class="k">logs[]</span><span class="mono">{ name, partitions[], segment_size }</span>
+    <div class="chips"><span>partitions[].partition</span><span>partitions[].segments[]: { id, size, mtime }</span><span>partitions[].total_size</span></div></div>
+  <div class="cav">The dashboard joins <span class="mono">consumers[]</span> to it on <span class="mono">{name}#{partition}</span>. A <span class="mono">Log</span> file sink always reports the one partition 0.</div>
+
+  <div class="src"><b>The logs root</b>A fresh glob of <span class="mono">logs/*</span> directories.</div>
+  <div class="ar">→</div>
+  <div class="key"><span class="k">log_partitions</span>the partition dirs actually on disk, a count</div>
+  <div class="cav">Measured, not declared: it can disagree with <span class="mono">logs[]</span>.</div>
+
+  <div class="src"><b>The dead-letter dirs</b><span class="mono">deadletter/&lt;reader&gt;/*.log</span>, each quarantined segment counted once.</div>
+  <div class="ar">→</div>
+  <div class="key"><span class="k">deadletter_by_reader</span>reader id → quarantined segment count<br><span class="k">deadletter_segments</span>their sum</div>
+  <div class="cav">A reader whose dir is empty, every segment triaged, is omitted.</div>
+
+  <div class="src"><b>Config and the clock</b>Read through the substrate config at call time.</div>
+  <div class="ar">→</div>
+  <div class="key"><span class="k">num_partitions</span> <span class="k">max_segments</span> <span class="k">segment_size</span> <span class="k">timestamp</span> <span class="k">heartbeat_interval_s</span></div>
+  <div class="cav"><span class="mono">num_partitions</span> is the raw value cast to int, where <span class="mono">status get</span>'s is clamped into <span class="mono">[1, MAX_PARTITIONS]</span>. <span class="mono">max_segments</span> is the disk ceiling: the hard cap, or 2 × <span class="mono">num_segments</span> when none is set. <span class="mono">heartbeat_interval_s</span> is 10.</div>
+
+  <div class="src"><b>The active topologies' <span class="mono">.tsl</span></b><span class="mono">Topology_Analyzer::graph_for()</span> per active name.</div>
+  <div class="ar">→</div>
+  <div class="key only"><span class="k">graph</span>topology name → <span class="mono">{ nodes, edges }</span></div>
+  <div class="cav"><span class="mono">dump_graph</span> only, together with the <span class="mono">Log</span> sinks it appends to <span class="mono">logs[]</span>; <span class="mono">Alerts</span> never sees either.</div>
+</div>
+
+<div class="readers">
+  <div class="card">
+    <h3><span class="mono">workers dump_graph</span>: the dashboard's one round trip</h3>
+    <p>The six sources above, plus <span class="mono">graph</span> and a <span class="mono">logs[]</span> entry for each active topology's <span class="mono">Log</span> file sink, in ONE reply: the browser joins a worker list against a graph and a segment list, and separately timed verbs would capture those at different instants. A real segmented-log entry outranks a synthesized one of the same name.</p>
+  </div>
+  <div class="card">
+    <h3><span class="mono">Alerts::evaluate()</span>: the same snapshot</h3>
+    <p>It calls <span class="mono">collect_dump_metadata()</span> itself and reads <span class="mono">workers[]</span>, <span class="mono">consumers[]</span> and <span class="mono">deadletter_by_reader</span> for its worker-liveness, consumer-lag and dead-letters families, so an alert can never name a fleet the dashboard does not show. A second reader of the lock dirs and the probe log would drift from the first.</p>
+  </div>
+</div>
+</div>

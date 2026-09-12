@@ -1,0 +1,81 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.tree { position:relative; width:1052px; height:130px; }
+.tree svg { position:absolute; left:0; top:0; width:1052px; height:130px; overflow:visible; }
+.tree svg path { fill:none; stroke:#003DA5; stroke-width:1.8; }
+.tree svg .red path { stroke:#B32D2E; }
+.tree svg text { font-family:Inter, -apple-system, Helvetica, Arial, sans-serif; font-size:12px; fill:#50575E; }
+.tree .q { position:absolute; left:326px; top:0; width:400px; background:#003DA5; color:#fff; border-radius:9px; padding:12px 16px; font-size:14px; font-weight:700; text-align:center; line-height:1.4; }
+.tree .q small { display:block; font-weight:400; font-size:12px; opacity:.85; margin-top:3px; }
+.branches { display:flex; gap:26px; align-items:stretch; }
+.branches .branch { flex:1; }
+.branch h3 { font-size:14px; margin:0 0 6px; }
+.branch p { font-size:12.2px; line-height:1.45; }
+.branch .verbs { display:flex; flex-wrap:wrap; gap:5px; margin:0 0 9px; }
+.branch .verbs span { font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:11.5px; background:#F0F4FB; border:1px solid #C3D3EC; border-radius:4px; padding:3px 7px; }
+.branch.refuse .verbs span { background:#FBEAEA; border-color:#E6A3A3; color:#B32D2E; }
+.branch.ok .verbs span { background:#EDF7ED; border-color:#9EC89E; color:#1E5B1E; }
+.line { font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:11.5px; background:#101517; color:#fff; border-radius:6px; padding:7px 9px; line-height:1.45; overflow-wrap:anywhere; margin:0 0 8px; }
+.line .w { color:#F5C77E; }
+.line .g { color:#A7D6A7; }
+.below { display:flex; gap:18px; margin-top:20px; align-items:stretch; }
+.below > * { flex:1; }
+</style>
+<div class="sheet">
+<h1>What each verb does when root runs it</h1>
+<p class="sub">Workers run as the web user and own every lock, IPC and segment file. Root is refused by two verbs, warned by one, and skipped past by the rest, so a root run reports success while writing nothing. The exception is <span class="mono">ingest</span>, which writes as root and leaves the damage for later.</p>
+
+<div class="tree">
+  <svg viewBox="0 0 1052 130">
+    <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker>
+    <marker id="r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#B32D2E"/></marker></defs>
+    <path d="M526 70 V96"/>
+    <path d="M122 96 H930"/>
+    <g class="red"><path d="M122 96 V126" marker-end="url(#r)"/></g>
+    <path d="M392 96 V126" marker-end="url(#a)"/>
+    <path d="M660 96 V126" marker-end="url(#a)"/>
+    <path d="M930 96 V126" marker-end="url(#a)"/>
+  </svg>
+
+  <div class="q">Is the effective uid 0?<small><span class="mono">CLI::uid()</span> answers; each verb asks for itself, cli and run at entry, the rest before each write</small></div>
+</div>
+<div class="branches">
+  <div class="branch refuse card">
+    <h3>Refuse outright</h3>
+    <div class="verbs"><span>cli</span><span>run</span></div>
+    <div class="line"><span class="w">Error:</span> wp nodes cli must run as the same user as the workers, not root.</div>
+    <p>Both would seed <span class="mono">{base}/ipc/</span> and <span class="mono">locks/</span> root-owned, and the workers could never append to their own IPC again. Recovery after a run that got through: <span class="mono">chown -R &lt;webuser&gt;</span> of the base dir, which <span class="mono">doctor</span>'s <span class="mono">ownership</span> row names.</p>
+  </div>
+
+  <div class="branch card">
+    <h3>Warn, then wait anyway</h3>
+    <div class="verbs"><span>stop</span></div>
+    <div class="line"><span class="w">Warning:</span> could not write the stop flag for: job-worker.p0, …</div>
+    <p>Every stop flag is refused, so no worker exits. The command spins its whole timeout (90 s by default) and then exits non-zero, listing those same workers as stragglers. It is the one write-shaped verb that says so.</p>
+  </div>
+
+  <div class="branch card">
+    <h3>Skip the write, report success</h3>
+    <div class="verbs"><span>restart</span><span>memcache flush</span><span>a settings save</span></div>
+    <div class="line">WARNING: running as root; skipping restart flag - a root-owned file would be unwritable by the workers<br><span class="g">Success:</span> Requested restart for 0 worker(s).</div>
+    <p>The restart flags, the fleet restart <span class="mono">memcache flush</span> runs after rotating the salt, and the reload watermark a settings save writes are all passed over. The warning is rate-limited on its shared prefix: the first refusal in the process prints, every later one is silent. Exit status is 0.</p>
+  </div>
+
+  <div class="branch ok card">
+    <h3>Work as usual</h3>
+    <div class="verbs"><span>status</span><span>types</span><span>doctor</span></div>
+    <p>Read-only verbs need no write, so denial costs them nothing. That is why denial is non-fatal by design.</p>
+  </div>
+</div>
+
+<div class="below">
+  <div class="callout">
+    <h4><span class="mono">ingest</span> neither refuses nor skips</h4>
+    <p>It writes through <span class="mono">Topic_Node</span>, which materializes partition directories and <span class="mono">{seg}.log</span> segments under <span class="mono">logs_dir</span> on first use. A root replay leaves root-owned dirs and segments the workers can no longer append to, rotate or prune. Nothing says so at the time; the damage surfaces later as <span class="mono">doctor</span>'s <span class="mono">ownership</span> row.</p>
+  </div>
+  <div class="note" style="margin-top:0">
+    <h4>Reading a quiet result</h4>
+    <p>A <span class="mono">0 worker(s)</span> restart on a fleet that is plainly live is a root run, not an empty fleet. A multisite subsite prints the same line for a different reason: the fleet is network-global and runs on the main site alone, so a subsite's <span class="mono">restart</span> flags nobody and still exits 0.</p>
+  </div>
+</div>
+</div>

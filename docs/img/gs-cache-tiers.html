@@ -1,0 +1,78 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+h2 { font-size:15px; margin:0 0 10px; }
+.tiers { display:flex; gap:18px; }
+.tiers > .card { flex:1; }
+.order { display:flex; align-items:center; gap:8px; margin:8px 0 10px; }
+.order .t { flex:1; border-radius:7px; padding:9px 10px; font-size:12.2px; line-height:1.4; text-align:center; }
+.order .apcu { background:#F0F4FB; border:1px solid #C3D3EC; color:#003DA5; }
+.order .memd { background:#003DA5; color:#fff; }
+.order .arrow { color:#787C82; font-size:12px; white-space:nowrap; }
+.order .t b { display:block; font-size:12.5px; }
+.card p { font-size:12.4px; }
+.pools { position:relative; width:1052px; height:280px; margin-top:20px; }
+.pool { position:absolute; border:2px dashed #B0B3B8; border-radius:10px; padding:34px 12px 12px; background:#fff; }
+.pool > .lbl { position:absolute; left:12px; top:9px; font-size:12.5px; font-weight:700; color:#101517; }
+.pool > .lbl small { font-weight:400; color:#50575E; }
+.proc { position:absolute; background:#F0F4FB; border:1px solid #C3D3EC; border-radius:7px; padding:7px 10px; font-size:11.8px; line-height:1.4; color:#50575E; }
+.proc b { display:block; color:#101517; font-size:12.2px; }
+.proc.cli { background:#EDF7ED; border-color:#9EC89E; }
+.proc.run { background:#FBEAEA; border-color:#E6A3A3; }
+.memd-bar { position:absolute; left:0; top:232px; width:1052px; background:#003DA5; color:#fff; border-radius:8px; padding:10px 14px; font-size:12.5px; text-align:center; }
+.pools svg { position:absolute; left:0; top:0; width:1052px; height:280px; overflow:visible; }
+.pools svg path { fill:none; stroke:#1E5B1E; stroke-width:1.8; }
+.pools svg text { font-family:Inter, -apple-system, Helvetica, Arial, sans-serif; font-size:11.5px; fill:#1E5B1E; }
+.needs { display:flex; gap:14px; margin-top:20px; }
+.needs > div { flex:1; border-radius:8px; padding:10px 12px; font-size:12.2px; line-height:1.45; }
+.needs b { display:block; font-size:12.5px; margin-bottom:3px; }
+.needs .g { background:#EDF7ED; border:1px solid #9EC89E; color:#2B5F2B; }
+.needs .b { background:#F0F4FB; border:1px solid #C3D3EC; color:#1c3f7a; }
+.needs .r { background:#FBEAEA; border:1px solid #E6A3A3; color:#5C2223; }
+</style>
+<div class="sheet">
+<h1>Which cache backend each process needs, and why</h1>
+<p class="sub">APCu is one PHP pool's own shared-memory segment; Memcached is reachable from every process configured for it. Either alone brings the runtime up. With neither, command verification fails closed, because a single-use nonce cannot be claimed anywhere.</p>
+
+<div class="tiers">
+  <div class="card">
+    <h2><span class="mono">Cache_Backend::local_first()</span></h2>
+    <div class="order"><div class="t apcu"><b>APCu</b>same host, fastest</div><span class="arrow">else →</span><div class="t memd"><b>Memcached</b></div></div>
+    <p>For a same-host surface, where a claim only has to be unique to the process that verifies it: the single-use command nonce (<span class="mono">Command_Auth</span>, claimed for 60 s), and the on-demand wake map <span class="mono">Bootstrap</span> caches.</p>
+  </div>
+  <div class="card">
+    <h2><span class="mono">Cache_Backend::shared_first()</span></h2>
+    <div class="order"><div class="t memd"><b>Memcached</b>every process sees it</div><span class="arrow">else →</span><div class="t apcu"><b>APCu</b></div></div>
+    <p>For cross-process sources of truth: a command session minted in a web request MUST resolve in a worker, so sessions, tables and the SSE slot pool claim here. A claim never straddles tiers; null means nothing is available and the caller keeps its fail-closed behaviour.</p>
+  </div>
+</div>
+
+<div class="pools">
+  <svg viewBox="0 0 1052 280">
+    <defs><marker id="g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#1E5B1E"/></marker></defs>
+    <path d="M714 100 H584" marker-end="url(#g)"/>
+    <text x="649" y="90" text-anchor="middle">signed command</text>
+    <text x="649" y="116" text-anchor="middle">over filesystem IPC</text>
+  </svg>
+  <div class="pool" style="left:0;top:0;width:580px;height:196px">
+    <span class="lbl">The web PHP-FPM pool <small>— one APCu segment, shared by every process in it</small></span>
+    <div class="proc" style="left:14px;top:40px;width:180px"><b>REST-spawned worker</b>a long-running web request: verifies each command's nonce here</div>
+    <div class="proc" style="left:207px;top:40px;width:180px"><b>browser console</b>mints commands under a session key issued by <span class="mono">/auth</span></div>
+    <div class="proc" style="left:400px;top:40px;width:166px"><b>hub endpoints</b><span class="mono">/command</span> and the SSE stream, same pool</div>
+    <div class="proc" style="left:14px;top:134px;width:552px;background:#fff;border-style:dashed"><b>The session and the nonce both live in this segment</b>so a worker, a tab and a hub agree without Memcached — on one host, in one pool.</div>
+  </div>
+  <div class="proc cli" style="left:716px;top:36px;width:164px"><b>attached wp nodes cli</b>needs no APCu of its own: it signs each command with the per-site secret and the worker claims the nonce</div>
+  <div class="proc run" style="left:882px;top:36px;width:170px"><b>wp nodes run, first lifetime</b>runs inside WP-CLI, outside the web pool: without Memcached it needs CLI APCu until its REST-spawned successor takes over</div>
+  <div class="memd-bar">Memcached — the only tier a second host, an independent PHP-FPM pool, or WP-CLI shares with the web pool</div>
+</div>
+
+<div class="needs">
+  <div class="g"><b>One host, one web pool</b>Web APCu alone is enough. The worker, the browser and the hub endpoints share the segment.</div>
+  <div class="b"><b>A directly launched <span class="mono">wp nodes run</span></b>CLI APCu or Memcached, for its first lifetime only. Its successor is REST-spawned and back in the web pool.</div>
+  <div class="r"><b>A second host or an independent pool</b>Memcached, no alternative: a session minted in one APCu segment cannot resolve in another, and every command from that side is refused.</div>
+</div>
+
+<div class="note">
+  <h4>What <span class="mono">wp nodes doctor</span> reports</h4>
+  <p>The <span class="mono">cache-backend</span> row asks the WEB runtime over the loopback, because a CLI process sees a different posture. <span class="mono">Command_Auth: no APCu and no memcache; refusing command (single-use unverifiable)</span> in the log is the same fact seen from a verifier: every wire command is refused until one backend answers.</p>
+</div>
+</div>

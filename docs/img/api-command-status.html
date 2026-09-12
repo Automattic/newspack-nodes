@@ -1,0 +1,92 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.flow { display:grid; grid-template-columns: 30px 1fr 1.25fr; gap:8px 10px; align-items:stretch; }
+.flow .n { width:24px; height:24px; border-radius:12px; background:#003DA5; color:#fff; font-size:12px; font-weight:700; text-align:center; line-height:24px; margin-top:8px; }
+.flow .st { background:#fff; border:1px solid #C3D3EC; border-radius:7px; padding:9px 12px; font-size:12.5px; line-height:1.5; }
+.flow .st b { color:#003DA5; }
+.flow .out { display:flex; flex-direction:column; gap:6px; }
+.o { border-radius:6px; padding:7px 10px; font-size:12px; line-height:1.45; border:1px solid #C3D3EC; background:#F0F4FB; }
+.o .code { display:inline-block; min-width:36px; font-weight:700; margin-right:6px; }
+.o.deny { background:#FBEAEA; border-color:#E6A3A3; color:#5C2223; }
+.o.deny .code { color:#B32D2E; }
+.o.ok { background:#EDF7ED; border-color:#9EC89E; color:#1E5B1E; }
+.o.ok .code { color:#1E5B1E; }
+.o.silent { background:#F6F7F7; border:1px dashed #B0B3B8; color:#50575E; }
+.o .t { display:inline-block; font-size:11px; padding:1px 6px; border-radius:4px; background:#fff; border:1px solid #C3C4C7; color:#50575E; margin-left:4px; vertical-align:1px; }
+.hd { font-size:11px; font-weight:600; color:#50575E; text-transform:uppercase; letter-spacing:.02em; padding:0 2px 0; }
+.mono { overflow-wrap:anywhere; }
+.bottom { display:flex; gap:16px; margin-top:18px; align-items:stretch; }
+.bottom > * { flex:1; }
+.bottom p { font-size:12.5px; }
+.bottom .card p { margin-bottom:6px; }
+</style>
+<div class="sheet">
+<h1>The status line is decided at the first byte, so read the body too</h1>
+<p class="sub">One POST carries a JSONL batch. Each stage either turns the whole request away, writes a packed Message into the body, or writes nothing. The status rides out with the first write and is spent from then on, which is why a refusal latch is raised ahead of the verifier and lowered only on success, and why a capability refusal cannot change a 200.</p>
+
+<div class="flow">
+  <div></div><div class="hd">Stage, in order</div><div class="hd">What the caller gets</div>
+
+  <div class="n">1</div>
+  <div class="st"><b>At the door.</b> WordPress parses an <span class="mono">application/json</span> body itself, and JSONL is not one document. The permission callback wants the fleet site, the <span class="blue">read</span> role and a free rate-limit bucket. Send <span class="mono">text/plain; charset=UTF-8</span>.</div>
+  <div class="out">
+    <div class="o deny"><span class="code">400</span><span class="mono">rest_invalid_json</span>: the body never reaches <span class="mono">HTTP_In_Node</span> <span class="t">WP error object</span></div>
+    <div class="o deny"><span class="code">401</span><span class="mono">rest_forbidden</span> anonymously, <b>403</b> once logged in; <b>403</b> <span class="mono">newspack_nodes_not_fleet_site</span>; <b>429</b> <span class="mono">rate_limited</span> past 30 POSTs in one second <span class="t">WP error object</span></div>
+  </div>
+
+  <div class="n">2</div>
+  <div class="st"><b><span class="mono">messages_from_body()</span>.</b> Blank lines are skipped; every other line must decode to a 7-element positional array, and <span class="mono">Message::unpacked()</span> throws on the first that does not, or when no line parses. This runs before any status or byte is written, WordPress wraps no route callback in a <span class="mono">try</span>, and the substrate installs no exception handler.</div>
+  <div class="out">
+    <div class="o deny"><span class="code">—</span>WordPress's uncaught-exception response: the critical-error page, or a stack trace under <span class="mono">WP_DEBUG_DISPLAY</span>. Not a packed Message; a client that unpacks every body has to survive it <span class="t">HTML</span></div>
+  </div>
+
+  <div class="n">3</div>
+  <div class="st"><b><span class="mono">ensure_request_graph()</span></b> builds <span class="mono">_router</span> and the base interpreter and fires <span class="mono">newspack_nodes/request_graph_ready</span>; then an <span class="mono">instanceof</span> guard checks that <span class="mono">_router</span> is a <span class="mono">Router_Node</span> and <span class="mono">_output</span> an <span class="mono">HTTP_In_Node</span>.</div>
+  <div class="out">
+    <div class="o deny"><span class="code">500</span><span class="mono">[288, ts, "_command", &lt;from&gt;, &lt;id&gt;, "", "request-scope graph not initialized (missing _router or _output)"]</span>, TYPE 288 = TM_RESPONSE|TM_ERROR, <span class="mono">Content-Type: application/json</span>. A bootstrap misconfiguration; no application error takes this path <span class="t">packed Message</span></div>
+  </div>
+
+  <div class="n">4</div>
+  <div class="st"><b>Per command, in posted order.</b> <span class="mono">_output</span> is stamped onto FROM; a FROM that would pass <span class="mono">MAX_FROM_SIZE</span> (1024 bytes) is set aside instead, and the rest fill the base interpreter.</div>
+  <div class="out">
+    <div class="o"><span class="code">—</span>Path too long: after the batch, a <span class="mono">TM_RESPONSE|TM_ERROR</span> (288) frame reading <span class="mono">path exceeded 1024 bytes</span> is written under the command's own ID. The latch stays down, since it is not an auth failure <span class="t">packed Message</span></div>
+  </div>
+
+  <div class="n">5</div>
+  <div class="st"><b><span class="mono">interpret()</span>: the struct, then the signature, then the role.</b> A VALUE that is not an array, or carries no <span class="mono">name</span>, is dropped before anything else. <span class="mono">Command_Auth</span> then verifies the signature, and <span class="mono">dispatch()</span> gates the verb through <span class="mono">Capabilities::require()</span> at its declared role.</div>
+  <div class="out">
+    <div class="o silent"><span class="code">—</span><span class="mono">drop_message( 'invalid command struct' )</span>: no TM_ERROR, no reply, one rate-limited audit line. Signing keys on the TYPE bit, so such a command signs cleanly and then vanishes before verification runs</div>
+    <div class="o deny"><span class="code">—</span>Signature refused: the latch is raised, and the reply <span class="mono">TM_COMMAND|TM_ERROR</span> (40) carrying <span class="mono">unauthorized: &lt;verb&gt;</span> walks TO=FROM back into the body. The cause goes only to the server's drop audit <span class="t">packed Message</span></div>
+    <div class="o"><span class="code">—</span>Capability refused: <span class="mono">TM_COMMAND|TM_ERROR</span> (40) with the literal payload <span class="mono">permission denied: &lt;role&gt; capability required</span>. The latch is never raised, so the batch still answers 200 or 202: a client reading the status as the authorization answer takes this for success <span class="t">packed Message</span></div>
+  </div>
+
+  <div class="n">6</div>
+  <div class="st"><b>The handler runs.</b> A return becomes the reply; a throw becomes an error reply; three things here produce no reply at all, and the struct drop at stage 5 is a fourth.</div>
+  <div class="out">
+    <div class="o ok"><span class="code">—</span><span class="mono">TM_COMMAND|TM_RESPONSE</span> (264), the request's ID and KEY, VALUE <span class="mono">{ name, arguments, payload }</span>; a throw answers 40 with the exception text as <span class="mono">payload</span> <span class="t">packed Message</span></div>
+    <div class="o silent"><span class="code">—</span>No reply: the message went to a per-worker <span class="mono">Partition</span> and travels by disk IPC, its replies due on the open SSE stream · the verb returned <span class="mono">''</span> (<span class="mono">secure</span>, <span class="mono">insecure</span>, <span class="mono">log</span> and <span class="mono">reply_to</span>, the last two having already sent their output down the stderr chain and to the path they name) · the command carried <span class="mono">TM_NOREPLY</span> (512), OR'd in after signing, which TYPE allows because it sits outside the signed string; it reports an error to stderr instead</div>
+  </div>
+
+  <div class="n">7</div>
+  <div class="st"><b>The status.</b> The first reply to reach <span class="mono">_output</span>'s <span class="mono">fill()</span> sends it and opens the body; if nothing was written, <span class="mono">dispatch()</span> sends it alone. Then the controller <span class="mono">exit()</span>s so the REST server cannot append its own JSON envelope.</div>
+  <div class="out">
+    <div class="o ok"><span class="code">200</span>at least one reply is on the wire and nothing failed verification <span class="t">JSONL</span></div>
+    <div class="o ok"><span class="code">202</span>nothing written back and nothing refused: the batch routed onward <span class="t">empty body</span></div>
+    <div class="o deny"><span class="code">401</span>any command failed verification, whatever else the body carries: every real reply still rides beside the refusal <span class="t">JSONL or empty</span></div>
+  </div>
+</div>
+
+<div class="bottom">
+  <div class="card">
+    <h3>What the browser transport mints on its own</h3>
+    <p><span class="mono">postBatch()</span> unpacks the body whatever the status, because a 401 batch still carries every real reply, and returns those verbatim.</p>
+    <p>Only a body that unpacks to nothing is a bare WordPress REST error object (<span class="mono">rest_forbidden</span>, <span class="mono">rest_no_route</span>, the 429). There the transport mints one <span class="mono">TM_COMMAND|TM_ERROR</span> per command it posted, addressed back to that command's own FROM, with <span class="mono">payload</span> <span class="mono">Command refused (HTTP &lt;status&gt; &lt;code&gt;)</span> and <span class="mono">undelivered: true</span> beside it. That flag separates a batch that never arrived, where asking again is the recovery, from a verb that really refused; <span class="mono">CommandResultNode</span> passes it to a view node unchanged.</p>
+    <p style="margin:0">A transport failure is neither: <span class="mono">fetch</span> rejecting rejects the promise.</p>
+  </div>
+  <div class="callout">
+    <h4>Three refusals a status code cannot tell apart</h4>
+    <p>A 200 or 202 can carry a capability refusal (stage 5) or hide a struct drop (stage 5); a 401 from the door (stage 1) is a WordPress error object where the verification 401 (stage 7) is JSONL. Read the reply payload as well as the status, and treat an empty-bodied 202 for a command that expected an answer as a possible drop: the only evidence is the audit line in stderr and <span class="mono">dmesg</span>.</p>
+    <p>The substrate, event-logger-nodes and intelligence suites all assert the literal <span class="mono">permission denied</span> string, which makes it a de facto contract.</p>
+  </div>
+</div>
+</div>

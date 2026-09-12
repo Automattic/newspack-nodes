@@ -1,0 +1,133 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+  h2 { font-size: 15px; margin: 22px 0 8px; }
+  h2 .mono { font-weight: 600; }
+  svg text { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 12.5px; fill: #101517; paint-order: stroke; stroke: #FBFBFC; stroke-width: 4px; stroke-linejoin: round; }
+  svg text.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  svg text.nm { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight: 700; font-size: 13px; stroke: none; }
+  svg text.sub { font-size: 11.5px; fill: #50575E; stroke: none; }
+  svg text.lbl { font-size: 11.5px; fill: #003DA5; }
+  svg text.req { font-size: 11.5px; fill: #B32D2E; font-weight: 600; stroke: none; }
+  svg text.frame { font-size: 12px; fill: #50575E; font-weight: 600; stroke: none; }
+  svg .node { fill: #fff; stroke: #C3C4C7; stroke-width: 1.2; }
+  svg .stock { fill: #F0F4FB; stroke: #C3D3EC; }
+  svg .disk { fill: #FFF8E6; stroke: #E0C36B; }
+  svg .wire { fill: none; stroke: #003DA5; stroke-width: 1.8; }
+  svg .tail { fill: none; stroke: #1E5B1E; stroke-width: 1.8; stroke-dasharray: 5 4; }
+  svg .req { fill: none; stroke: #B32D2E; stroke-width: 1.6; stroke-dasharray: 3 3; }
+  svg .frame { fill: none; stroke: #B0B3B8; stroke-width: 1.4; stroke-dasharray: 6 5; }
+  .legend { display: flex; gap: 20px; font-size: 12px; color: #50575E; margin: 6px 0 0; align-items: center; flex-wrap: wrap; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .sw { width: 22px; height: 0; border-top: 2px solid #003DA5; }
+  .sw.g { border-top: 2px dashed #1E5B1E; }
+  .sw.r { border-top: 2px dotted #B32D2E; }
+  .bx { width: 14px; height: 11px; border: 1px solid #C3D3EC; background: #F0F4FB; border-radius: 3px; }
+  .bx.d { background: #FFF8E6; border-color: #E0C36B; }
+  .three { display: flex; gap: 14px; margin-top: 18px; align-items: stretch; }
+  .three > * { flex: 1 1 0; min-width: 0; }
+  .three p { font-size: 12.5px; }
+</style>
+<div class="sheet">
+<h1>Two sources fan into one pipeline; the shipped file adds a durable middle</h1>
+<p class="sub">The graph you type by hand in §0 to §6, then the same graph as <span class="mono">topologies/example-ai-newsletter.tsl</span> ships it. <span class="mono">var num_partitions = 1</span> makes one worker, <span class="mono">example-ai-newsletter.p0</span>, and it holds every node.</p>
+
+<h2 style="margin-top:0">The teaching graph: four classes you write, two stock nodes you reuse</h2>
+<svg width="1052" height="262" viewBox="0 0 1052 262">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker>
+    <marker id="r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#B32D2E"/></marker>
+    <marker id="g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#1E5B1E"/></marker>
+  </defs>
+  <!-- the TICK request, from above -->
+  <text class="req mono" x="20" y="14">request_node releases TICK</text>
+  <path class="req" d="M110 20 V 54" marker-end="url(#r)"/>
+  <!-- sources -->
+  <rect class="node" x="20" y="60" width="180" height="46" rx="8"/><text class="nm" x="110" y="80" text-anchor="middle">releases</text><text class="sub" x="110" y="96" text-anchor="middle">Releases_Source_Node</text>
+  <rect class="node" x="20" y="150" width="180" height="46" rx="8"/><text class="nm" x="110" y="170" text-anchor="middle">community</text><text class="sub" x="110" y="186" text-anchor="middle">Community_Source_Node, §6</text>
+  <!-- summarizer, digest, tee -->
+  <rect class="node" x="300" y="105" width="150" height="46" rx="8"/><text class="nm" x="375" y="125" text-anchor="middle">summarizer</text><text class="sub" x="375" y="141" text-anchor="middle">Summarizer_Node</text>
+  <rect class="node" x="540" y="105" width="160" height="46" rx="8"/><text class="nm" x="620" y="125" text-anchor="middle">digest</text><text class="sub" x="620" y="141" text-anchor="middle">Digest_Builder_Node</text>
+  <rect class="node stock" x="750" y="105" width="90" height="46" rx="8"/><text class="nm" x="795" y="125" text-anchor="middle">tee</text><text class="sub" x="795" y="141" text-anchor="middle">stock Tee</text>
+  <!-- log and _repl -->
+  <rect class="node stock" x="880" y="60" width="164" height="46" rx="8"/><text class="nm" x="962" y="80" text-anchor="middle">log</text><text class="sub" x="962" y="96" text-anchor="middle">stock Log</text>
+  <rect class="node stock" x="880" y="150" width="164" height="46" rx="8"/><text class="nm" x="962" y="170" text-anchor="middle">_repl</text><text class="sub" x="962" y="186" text-anchor="middle">the output IPC partition</text>
+  <text class="sub" x="1044" y="46" text-anchor="end">&lt;config:logs_dir&gt;/digest.md.0, .1, …</text>
+  <!-- wires -->
+  <path class="wire" d="M200 83 C 250 83, 250 128, 294 128" marker-end="url(#a)"/>
+  <path class="wire" d="M200 173 C 250 173, 250 128, 294 128" marker-end="url(#a)"/>
+  <text class="lbl" x="206" y="70">TM_STRUCT, one per item</text>
+  <path class="wire" d="M450 128 H 534" marker-end="url(#a)"/>
+  <text class="lbl" x="492" y="118" text-anchor="middle">item + summary</text>
+  <path class="wire" d="M700 128 H 744" marker-end="url(#a)"/>
+  <text class="lbl" x="722" y="118" text-anchor="middle">draft</text>
+  <text class="sub" x="722" y="170" text-anchor="middle">TM_BYTESTREAM</text>
+  <path class="wire" d="M840 128 C 862 128, 862 83, 874 83" marker-end="url(#a)"/>
+  <path class="wire" d="M840 128 C 862 128, 862 173, 874 173" marker-end="url(#a)"/>
+  <text class="lbl" x="795" y="97" text-anchor="middle">a copy each</text>
+  <!-- the FLUSH request, from below -->
+  <path class="req" d="M620 236 V 157" marker-end="url(#r)"/>
+  <text class="req mono" x="540" y="254">request_node digest FLUSH</text>
+  <text class="sub" x="20" y="236">each reply goes back TO = FROM, to the REPL that asked</text>
+</svg>
+<div class="legend">
+  <span><span class="sw"></span> <span class="mono">connect_node</span>: the target, the TO each forward is stamped with (the sink stays <span class="mono">_router</span>)</span>
+  <span><span class="sw r"></span> a TM_REQUEST, typed in the REPL or clicked in the Inspector</span>
+  <span><span class="bx"></span> a stock node, reused unchanged</span>
+</div>
+
+<h2>The shipped <span class="mono">topologies/example-ai-newsletter.tsl</span>: a scorer and a durable log between summarizer and digest</h2>
+<svg width="1052" height="345" viewBox="0 0 1052 345">
+  <rect class="frame" x="6" y="6" width="1040" height="290" rx="12"/>
+  <text class="frame mono" x="22" y="26">example-ai-newsletter.p0</text>
+  <text class="sub" x="1030" y="26" text-anchor="end">one worker: var num_partitions = 1, so &lt;partition&gt; is 0</text>
+  <!-- row 1 -->
+  <rect class="node" x="22" y="48" width="120" height="40" rx="8"/><text class="nm" x="82" y="73" text-anchor="middle">releases</text>
+  <rect class="node" x="22" y="104" width="120" height="40" rx="8"/><text class="nm" x="82" y="129" text-anchor="middle">community</text>
+  <rect class="node" x="200" y="76" width="130" height="40" rx="8"/><text class="nm" x="265" y="101" text-anchor="middle">summarizer</text>
+  <rect class="node" x="380" y="76" width="110" height="40" rx="8"/><text class="nm" x="435" y="101" text-anchor="middle">scorer</text>
+  <path class="wire" d="M142 68 C 175 68, 175 96, 194 96" marker-end="url(#a)"/>
+  <path class="wire" d="M142 124 C 175 124, 175 96, 194 96" marker-end="url(#a)"/>
+  <path class="wire" d="M330 96 H 374" marker-end="url(#a)"/>
+  <path class="wire" d="M490 96 H 544" marker-end="url(#a)"/>
+  <!-- partition -->
+  <g>
+    <path class="disk" d="M550 72 a80 8 0 0 1 160 0 v40 a80 8 0 0 1 -160 0 z"/>
+    <ellipse class="disk" cx="630" cy="72" rx="80" ry="8"/>
+    <text class="nm" x="630" y="96" text-anchor="middle">scored:partition</text>
+    <text class="sub mono" x="630" y="111" text-anchor="middle">logs/example-scored.p0</text>
+  </g>
+  <text class="sub" x="630" y="140" text-anchor="middle">Partition; void_warranty lifts the 4 KB write cap</text>
+  <!-- consumer -->
+  <rect class="node" x="770" y="76" width="130" height="40" rx="8"/><text class="nm" x="835" y="101" text-anchor="middle">scored:consumer</text>
+  <path class="tail" d="M712 96 H 764" marker-end="url(#g)"/>
+  <text class="sub" x="738" y="88" text-anchor="middle">tails</text>
+  <!-- offsetlog + deadletter, the consumer's second and third arguments -->
+  <rect class="node stock" x="515" y="154" width="230" height="34" rx="6"/><text class="sub mono" x="630" y="169" text-anchor="middle">offsets/example-scored.p0</text><text class="sub" x="630" y="182" text-anchor="middle">cursor + the digest's snapshot</text>
+  <rect class="node stock" x="515" y="194" width="230" height="30" rx="6"/><text class="sub mono" x="630" y="213" text-anchor="middle">deadletter/example-scored.p0</text>
+  <path class="tail" d="M764 171 H 751" marker-end="url(#g)"/>
+  <path class="tail" d="M764 209 H 751" marker-end="url(#g)"/>
+  <path class="tail" d="M764 171 V 209"/>
+  <!-- digest, tee, log: the return leg -->
+  <path class="wire" d="M835 116 V 244" marker-end="url(#a)"/>
+  <text class="lbl" x="850" y="175">scored items,</text>
+  <text class="lbl" x="850" y="190">tailed back in</text>
+  <rect class="node" x="770" y="250" width="130" height="40" rx="8"/><text class="nm" x="835" y="275" text-anchor="middle">digest</text>
+  <rect class="node stock" x="560" y="250" width="130" height="40" rx="8"/><text class="nm" x="625" y="275" text-anchor="middle">digest:tee</text>
+  <rect class="node stock" x="236" y="250" width="284" height="40" rx="8"/><text class="nm" x="378" y="270" text-anchor="middle">digest:log</text><text class="sub mono" x="378" y="284" text-anchor="middle">digest.md 1 2 7 0 0 0 · void_warranty</text>
+  <path class="wire" d="M770 270 H 696" marker-end="url(#a)"/>
+  <path class="wire" d="M560 270 H 526" marker-end="url(#a)"/>
+  <text class="sub" x="530" y="314" text-anchor="middle">cmd scored:consumer:config add_snapshot_node digest: the digest's save_state() is written into the offsetlog with every checkpoint, so a respawned worker restores both together.</text>
+  <text class="sub" x="530" y="334" text-anchor="middle">This is the durability the dashboard chapter reads from. The shipped file wires no _repl leg; add one to the Tee when you want to watch the draft scroll by.</text>
+</svg>
+
+<div class="three">
+  <div class="card">
+    <h3>Fan-in needs no node</h3>
+    <p><span class="mono">connect_node community summarizer</span> is a second node pointing its target at the same downstream. Every forward is stamped <span class="mono">TO = summarizer</span> and the router delivers it.</p>
+  </div>
+  <div class="card">
+    <h3>Fan-out is the one case that needs one</h3>
+    <p>A <span class="mono">Tee</span> keeps a single sink, <span class="mono">_router</span>, and forwards one copy per target; the copies differ only in the TO each carries. Without the <span class="mono">_repl</span> leg the draft lands in the file and nowhere you can see.</p>
+  </div>
+</div>
+</div>

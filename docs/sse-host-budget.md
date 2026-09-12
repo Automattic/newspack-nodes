@@ -26,9 +26,10 @@ request, and the stream that holds the worker sees neither.
 The platform may also put the site into defensive mode on its own: the edge
 location that saw the refusals answers every visitor through it with a
 browser challenge for a minute at a time, extended while the overload lasts.
-That mode was turned off for Newspack sites in February 2025, during its
-tuning, and nothing in this repository can confirm it still is, so treat it as
-a reprieve that can be withdrawn rather than as an exemption.
+Newspack sites carry an opt-out from that mode, made during its tuning in
+February 2025, and nothing in this repository can confirm the opt-out still
+stands, so treat it as a reprieve that can be withdrawn rather than as an
+exemption.
 
 Two consequences drive the defaults:
 
@@ -52,54 +53,18 @@ it.
 
 ## The arithmetic
 
-The post's sizing goal is "always under 10 CPUs". Against a ~10-worker
-allocation:
+![Three rows of ten php-fpm children. With one node worker running, six streams and the worker leave about three children for pages, cron and the loopback; with four workers running, six streams and four workers leave none, so the next reader queues, and is refused with 429 when no child frees in time; with one slot reserved, browsers claim five and the sixth waits for the hub's pull. A bar chart below gives cache reads per second by open streams, 30 at one, 180 at the default six, 1,920 at the schema maximum of 64, from ten 100 ms ticks a second times the three reads in check(). A side card explains the per-identity share of three, and a note says six is a budget, not a target.](img/sse-host-arithmetic.png)
 
-| Spent on | Children |
-|---|---|
-| SSE streams (`sse_max_streams`) | 6 |
-| Node workers | 1 per running worker |
-| Page requests, cron, loopback | the rest, about 3 with one worker running |
-
-A worker holds a php-fpm child for its whole ~595-second life: the process
-holding the spawn connection **is** the worker
-([ADR-8](architecture-decisions.md#adr-8-worker-zombie-pattern)). One is
-spawned per active topology partition, and an on-demand topology's worker exits
-when idle, so the row moves with the fleet: four running workers have spent four
-children before a single dashboard connects. Read the live count from [`wp nodes
-status`](cli.md) before raising a stream bound.
-
-Six is the ceiling that still leaves the site serving pages while fully
-subscribed. It is a **budget, not a target** — a deployment that reaches it
-regularly wants a larger allocation or fewer dashboards, because the remaining
-headroom is what absorbs a traffic spike.
-
-A stream spends cache traffic as well as a child. [`SSE_Slot_Pool::check()`](../includes/class-sse-slot-pool.php)
-reads the pointer, then the liveness key, then the pointer again — the second
-re-read is there because a rival can reclaim the slot between the first two —
-and `SSE_Out_Node`'s drain predicate calls it on every tick. A tick with no
-timer armed waits [`Event_Framework::IDLE_TIMEOUT_US`](../includes/class-event-framework.php), 100 ms, so every open
-stream spends at least thirty cache reads a second policing its own lease
-before any data moves: around 180 a second on a fully subscribed host at 6, and
-around 1,900 at the schema's maximum of 64. Raising `sse_max_streams` buys
-php-fpm children and cache round trips in proportion.
-
-`sse_max_slots` (3) is one reader's share of that budget. It does not reserve
-anything: slots are pooled host-wide, and the per-identity cap only stops a
-single reader with many tabs from taking the site down alone. An identity is
-`{user id}:{8-hex md5 of REMOTE_ADDR}`, so every tab one person opens draws on
-the same share. Three, because an idle stream closes after `sse_idle_timeout`
-(15 seconds) and reopens `sse_retry_ms` later (5 seconds), and a stream whose
-process dies before the release leaves its lease standing for the whole TTL
-while the client is already asking for another.
-
-The share is approximate; the host cap is exact. Two connections from one
-identity can both read the count before either claims, and a lease read that
-fails counts as not-held, so either path lets one reader exceed its share. That
-direction is deliberate: an exact count would need a second compare-and-swapped
-counter, and a wrong value there leaks capacity permanently rather than for one
-TTL. The host cap needs no counter, because a claim is a compare-and-swap on a
-fixed number of pointers.
+The post's sizing goal is "always under 10 CPUs", and a stream spends more
+than a child. A worker holds a php-fpm child for its whole ~595-second life,
+because the process holding the spawn connection **is** the worker
+([ADR-8](architecture-decisions.md#adr-8-worker-zombie-pattern)); one is
+spawned per active topology partition, and an on-demand topology's worker
+exits when idle, giving its child back. A stream holds cache traffic too: [`SSE_Slot_Pool::check()`](../includes/class-sse-slot-pool.php)
+runs in `SSE_Out_Node`'s drain predicate on every tick, and a tick with no
+timer armed waits [`Event_Framework::IDLE_TIMEOUT_US`](../includes/class-event-framework.php).
+Read the live worker count from [`wp nodes status`](cli.md) before raising a
+stream bound.
 
 ## The bounds and where to set them
 
@@ -194,64 +159,42 @@ the readers the host exists for, so `reserved_slots()` always leaves at least
 one.
 
 An aggregator brings up every `Remote_Source` in one tick, and N simultaneous
-connects are what a spoke's pool answers with 429. Each connect therefore goes
-through [`Remote_Link_Node::queue_connect()`](../includes/class-remote-link-node.php) onto [`Connect_Queue_Timer_Node`](../includes/class-connect-queue-timer-node.php),
+connects are what a spoke's pool answers with 429, so each connect goes through
+[`Remote_Link_Node::queue_connect()`](../includes/class-remote-link-node.php)
+onto [`Connect_Queue_Timer_Node`](../includes/class-connect-queue-timer-node.php),
 which pops one every `INTERVAL_MS` (500 ms) and retires when the queue runs
 dry.
 
-On a hub already up, the queue never runs dry and the timer never retires.
-Every link's once-per-second housekeeping `fire()` re-queues its connect as soon
-as the previous closure has run — `queue_connect()` clears its `connect_queued`
-flag inside the closure, not on a successful connect — and the closure costs
-nothing when the stream is healthy, because [`SSE_In_Node::maybe_connect()`](../includes/class-sse-in-node.php)
-returns at once on an open handle. A hub with N live links therefore holds
-roughly N entries permanently and polls them round-robin: each link's reconnect
-check comes round every N × 500 ms rather than every second. Sixty links leave a
-dropped stream unattended for up to thirty seconds before the first reopen
-attempt, on top of `SSE_In_Node`'s own backoff. `INTERVAL_MS` is a class
-constant with no config key, so unlike `sse_max_streams` and
-`sse_reserved_slots` the ramp cannot be tuned at runtime.
+On a hub already up the queue never runs dry. Each link's once-per-second
+housekeeping re-queues its connect as soon as the previous closure has run —
+`queue_connect()` clears its `connect_queued` flag inside the closure, not on a
+successful connect — and the closure costs nothing while the stream is healthy,
+because [`SSE_In_Node::maybe_connect()`](../includes/class-sse-in-node.php)
+returns at once on an open handle. N live links therefore hold about N entries
+and are polled round-robin, so each link's reconnect check comes round every
+N × 500 ms: sixty links leave a dropped stream unattended for up to thirty
+seconds before the first reopen, on top of `SSE_In_Node`'s own backoff.
+`INTERVAL_MS` is a class constant with no config key, so unlike
+`sse_max_streams` and `sse_reserved_slots` the ramp cannot be tuned at runtime.
 
 ## Why the TTL is 60 and not shorter
 
-The floor is **three** [`Remote_Link_Node::HEARTBEAT_INTERVAL`](../includes/class-remote-link-node.php)s, 45 seconds, not
-two. Only an owner-matched `workers heartbeat <slot> <owner>` refreshes a lease
-— `check()` never does — and a client that loses its session stops heartbeating
-for the whole re-auth round trip. A TTL sized for heartbeat loss alone fences a
-stream that is merely re-authenticating, which costs the reader its slot at the
-moment it is least able to reclaim one.
-
-A machine pull's round trip has a floor of its own. `maybe_send_heartbeat()`
-sends nothing while [`Command_Auth::has_session()`](../includes/class-command-auth.php) is false, and
-`maybe_request_session()` decides how long the link stays that way: it may ask
-for a session only on its own second of the cadence,
-`crc32( name ) % HEARTBEAT_INTERVAL`, at most once per interval, and not until
-half an interval past the moment its lease first existed. That phase runs on the
-absolute clock and comes from the link's name deliberately. The connect queue
-spreads first boot alone, whereas a spoke restart or a key rotation drops every
-link's session at once, leaving every link past its retry gate and asking
-together, and losing a session resets nothing about a name-derived phase. A mass
-re-auth can therefore leave one link silent for as long as fifteen seconds plus
-its retry gate — part of why the floor is three heartbeat intervals rather than
-two.
-
-The refresh is the CLIENT's, and only the client's. The lease it pokes with
-arrives in the `connected` envelope, which carries `SLOT` and `OWNER` beside the
-stream's PID and cursors. A browser pokes the verb from its [`_heartbeat` node](../src/runtime/heartbeat-node.js)
-every 15 seconds (`POKE_INTERVAL_MS`), one poke per live lease; a machine pull
-pokes it from `Remote_Link_Node` on the same cadence. That node is one per page,
-not one per stream: each link registers its own lease against the shared
-`_heartbeat` under its own identity and drops it on close, so a page holding
-several streams spends several of its identity's slots and refreshes them all in
-one tick. The server checks the
-lease on every drain iteration and extends nothing, so a stream lives exactly
-as long as its client keeps saying so, however long the connection stays open.
-Fifteen seconds divides the TTL, so one lost poke still leaves a refresh before
-expiry.
+![A timeline of one machine pull's lease over sixty seconds, in three rows. Pokes land at 0 and 15 seconds; the poke at 30 seconds is refused with 401, which is when the link drops its session, and pokes resume at 60. The session row shows a spoke restart or key rotation at 16 seconds dropping every link's session on the spoke at once, the link learning of it only from that 401, and the three gates its ask must pass: its own second of the cadence, at most once per interval, and never inside the first 7 seconds of its lease. The lease row shows the 60-second lease from the last poke outliving the gap, a 45-second TTL expiring exactly at the poke that saves it, and a 30-second TTL fencing the stream at 45 seconds, mid re-auth. Two cards below say whose poke refreshes a lease and why the ask is phased by name.](img/sse-ttl-floor.png)
 
 Shortening the TTL to reclaim crashed readers faster grows more tempting as the
-pool shrinks. 45 is the wall, and `ttl()` enforces it: a configured
+pool shrinks, and 45 seconds is the wall. The floor is **three**
+[`Remote_Link_Node::HEARTBEAT_INTERVAL`](../includes/class-remote-link-node.php)s,
+45 seconds, not two, and [`SSE_Slot_Pool::ttl()`](../includes/class-sse-slot-pool.php) enforces it: a configured
 `sse_slot_ttl` below the floor is raised to it rather than honoured.
+`maybe_send_heartbeat()` sends nothing while
+[`Command_Auth::has_session()`](../includes/class-command-auth.php) is false,
+and that reads the hub's own session map, which `HTTP_Out` empties when a poke
+comes back 401; `maybe_request_session()` then gates the ask as the diagram
+shows. The refresh
+is the client's alone: a browser pokes from its
+[`_heartbeat` node](../src/runtime/heartbeat-node.js), a machine pull from
+`Remote_Link_Node`, and the server checks the lease on every drain iteration
+and extends nothing.
 
 ## Scope
 

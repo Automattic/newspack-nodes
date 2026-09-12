@@ -1,0 +1,137 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.g { position: relative; width: 1052px; height: 640px; }
+.g svg.wire { position: absolute; left: 0; top: 0; }
+.nd { position: absolute; background: #fff; border: 1px solid #C3D3EC; border-radius: 7px; padding: 8px 11px; font-size: 12px; line-height: 1.4; }
+.nd .t { display: block; font-weight: 700; font-size: 11.5px; color: #101517; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.nd .k { display: block; color: #50575E; font-size: 11.5px; }
+.g .panel { position: absolute; }
+.g .panel header { font-size: 13px; padding: 8px 12px; }
+.g .panel .body { padding: 10px 12px 4px; }
+.g .panel .chip { font-size: 11.5px; line-height: 1.4; padding: 5px 9px; margin-bottom: 6px; }
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 4px; }
+.tab { font-size: 11px; line-height: 1.3; padding: 3px 7px; border-radius: 4px; background: #F0F4FB; border: 1px solid #C3D3EC; color: #101517; white-space: nowrap; }
+.tab b { color: #003DA5; font-weight: 700; margin-right: 3px; }
+.tab.lazy { border-style: dashed; }
+.tab.fb { background: #EDF7ED; border-color: #9EC89E; }
+.tab.eln { background: #FFF6E5; border-color: #E8C98A; }
+.flds { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.fld { font-size: 11px; padding: 2px 7px; border-radius: 4px; background: #F6F7F7; border: 1px solid #DCDCDE; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.fld.req { background: #E8EEF9; border-color: #003DA5; color: #003DA5; font-weight: 600; }
+.band { position: absolute; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: #787C82; }
+.cap { position: absolute; font-size: 11.5px; color: #50575E; background: #FBFBFC; padding: 0 5px; white-space: nowrap; line-height: 1.3; text-align: center; }
+.mono { overflow-wrap: anywhere; }
+.rowc { display: flex; gap: 16px; margin-top: 16px; align-items: stretch; }
+.rowc > * { flex: 1; }
+.card h3 { font-size: 14px; }
+.card .chip { font-size: 12px; line-height: 1.45; }
+.card .chip:last-child { margin-bottom: 0; }
+.step { display: flex; gap: 9px; align-items: flex-start; margin-bottom: 6px; }
+.step .n { flex: 0 0 auto; width: 19px; height: 19px; border-radius: 10px; background: #003DA5; color: #fff; font-size: 11.5px; font-weight: 700; text-align: center; line-height: 19px; margin-top: 1px; }
+.step .t { font-size: 12px; line-height: 1.45; color: #50575E; }
+.step .t b { color: #101517; font-weight: 600; }
+</style>
+<div class="sheet">
+<h1>One registry on <span class="mono">window</span>, one <span class="mono">TabHost</span>, two hosts</h1>
+<p class="sub">Every tab-bearing bundle registers a descriptor at import time; each host reads its own tabs plus the <span class="mono">both</span> ones and mounts only the active one. The registry lives on <span class="mono">window</span> because each bundle is its own IIFE: a module-local map would give the station one empty registry per bundle.</p>
+
+<div class="g" id="g">
+<svg class="wire" id="wire" width="1052" height="640"><defs>
+<marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker>
+</defs></svg>
+
+<div class="panel" id="overlay" style="left:0;top:0;width:300px">
+  <header>the floating overlay · <span class="mono">host="overlay"</span></header>
+  <div class="body">
+    <div class="chip"><span class="mono">DebugPanel</span> renders one <span class="mono">Header</span> above the bar and hands every tab <span class="mono">publishHeader</span>, <span class="mono">storageKey</span> and <span class="mono">frame</span> in <span class="mono">tabProps</span>. A tab publishes its own controls and retracts them with <span class="mono">null</span> on unmount.</div>
+    <div class="tabs">
+      <span class="tab"><b>0</b>io-overview · Overview</span>
+      <span class="tab"><b>1</b>console · Console</span>
+      <span class="tab eln"><b>2</b>eln-current-request · Request</span>
+    </div>
+    <div class="chip"><span class="mono">newspack_nodes/overlay_pages</span> names every admin page beyond the station that mounts the overlay; each plugin contributing a tab enqueues on every slug in the list.</div>
+  </div>
+</div>
+
+<div class="panel" id="registry" style="left:346px;top:0;width:360px">
+  <header>the registry · <span class="mono">window.__newspackNodesTabs</span></header>
+  <div class="body">
+    <div class="chip"><span class="mono">registerTab( d )</span> — a repeated <span class="mono">id</span> <b>shadows</b> the holder; the key space is not partitioned by host, so ids are globally distinct (the overlay's Overview is <span class="mono">io-overview</span> for that reason). <span class="mono">host</span> must be <span class="mono">overlay</span>, <span class="mono">station</span> or <span class="mono">both</span>; <span class="mono">order</span> is normalized to a finite number; <span class="mono">slug</span> defaults to the id.</div>
+    <div class="chip"><span class="mono">getTabs( host )</span> — its own tabs plus every <span class="mono">both</span> tab, each <span class="mono">gate()</span> run per read, sorted by <span class="mono">order</span> then label. <span class="mono">subscribeTabs</span>, <span class="mono">getTabsVersion</span>, <span class="mono">resetTabs</span> beside it.</div>
+    <div class="flds">
+      <span class="fld req">id</span><span class="fld req">label</span><span class="fld req">host</span><span class="fld req">component</span>
+      <span class="fld">order</span><span class="fld">slug</span><span class="fld">param</span><span class="fld">gate</span><span class="fld">icon</span><span class="fld">fullBleed</span>
+    </div>
+  </div>
+</div>
+
+<div class="panel" id="station" style="left:752px;top:0;width:300px">
+  <header>the station · <span class="mono">host="station"</span></header>
+  <div class="body">
+    <div class="chip"><span class="mono">Station.js</span>: a <span class="mono">position: fixed</span> full-height container set against <span class="mono">useAdminMenuWidth()</span>, one shared header whose controls slot reaches every tab as <span class="mono">headerControlsSlot</span>, and <span class="mono">syncUrl</span>.</div>
+    <div class="tabs">
+      <span class="tab"><b>0</b>overview</span>
+      <span class="tab"><b>10</b>jobs</span>
+      <span class="tab lazy fb"><b>15</b>topology-console · ?tab=console</span>
+      <span class="tab fb"><b>20</b>partition-viewer</span>
+      <span class="tab fb"><b>25</b>log-viewer</span>
+      <span class="tab"><b>30</b>config-audit</span>
+      <span class="tab lazy"><b>30</b>vault</span>
+      <span class="tab lazy"><b>35</b>sessions</span>
+      <span class="tab lazy"><b>40</b>aggregator</span>
+    </div>
+    <div class="chip" style="margin-bottom:8px">dashed: lazy · green: <span class="mono">fullBleed</span> · the two 30s tie, so the label sorts Config Audit first. <span class="mono">onActiveTabChange</span> reports the RESOLVED id, which keys the overlay's <span class="mono">storageKey</span> and drops <span class="mono">buildRepl</span> on the Console.</div>
+  </div>
+</div>
+
+<div class="band" style="left:0;top:426px">how a lazy station tab arrives</div>
+<div class="nd" id="filter" style="left:0;top:452px;width:268px"><span class="t">newspack_nodes/station_tab_bundles</span><span class="k">PHP filter; each entry <span class="mono">{ handle, dir, url, localize?, lazy? }</span>. <span class="mono">enqueue_station_tab_bundles()</span> runs on the station page alone and skips an entry missing <span class="mono">handle</span>, <span class="mono">dir</span> or <span class="mono">url</span>.</span></div>
+<div class="nd" id="recipe" style="left:300px;top:452px;width:224px"><span class="t">window.NewspackNodesLazyTabs</span><span class="k">for each <span class="mono">lazy: true</span> entry, <span class="mono">lazy_tab_script()</span> writes a load recipe: versioned <span class="mono">index.js</span>, its style, its localize data. No built <span class="mono">index.js</span>, no recipe.</span></div>
+<div class="nd" id="placeholder" style="left:556px;top:452px;width:230px"><span class="t">lazyTabs.js · LAZY_TABS</span><span class="k">four <span class="mono">{ meta, handle }</span> pairs by hand: Console, Vault, Sessions, Aggregator. Each registers a placeholder spreading its <span class="mono">tabMeta.js</span>, so label, order, slug and <span class="mono">fullBleed</span> resolve before any bundle loads.</span></div>
+<div class="nd" id="load" style="left:818px;top:452px;width:234px"><span class="t">first activation</span><span class="k">Mounting IS activation: the placeholder renders <span class="mono">Loading…</span> and calls <span class="mono">loadTabBundle( handle )</span>, which injects the script. The bundle's own <span class="mono">tabs.js</span> spreads the same <span class="mono">tabMeta</span> with its component, and its <span class="mono">registerTab</span> shadows the placeholder by id.</span></div>
+</div>
+
+<div class="rowc">
+  <div class="card">
+    <h3>What <span class="mono">TabHost</span> does for every tab</h3>
+    <div class="step"><div class="n">1</div><div class="t"><b>Mounts only the active tab</b>, keyed on its id, so each tab's build-before-render runs fresh on every switch; <span class="mono">host</span> is applied after <span class="mono">tabProps</span> spreads, so a caller cannot hand a tab the wrong surface.</div></div>
+    <div class="step"><div class="n">2</div><div class="t"><b>Hides the bar at one tab</b>; adds <span class="mono">.is-full-bleed</span> to the pane for a <span class="mono">fullBleed</span> tab, opting it out of the default vertical scroll.</div></div>
+    <div class="step"><div class="n">3</div><div class="t"><b>WAI-ARIA tabs</b>: <span class="mono">role="tablist"</span> over <span class="mono">role="tab"</span> buttons and one <span class="mono">role="tabpanel"</span>, a roving <span class="mono">tabIndex</span>, arrow keys wrapping at both ends, Home and End; every other key falls through.</div></div>
+    <div class="step" style="margin-bottom:0"><div class="n">4</div><div class="t"><b>Lands on whichever tab sorts first at first render</b>, resolved once in a lazy state initializer. Overview holds that slot only because <span class="mono">Admin</span> registers <span class="mono">enqueue_event_dashboards_assets()</span> ahead of <span class="mono">enqueue_station_assets()</span> on the same hook.</div></div>
+  </div>
+  <div class="card">
+    <h3><span class="mono">syncUrl</span>, and the one thing a consumer cannot do</h3>
+    <div class="chip">The initial tab comes from <span class="mono">?tab=&lt;slug&gt;</span>; the resolved tab is mirrored back through <span class="mono">replaceState</span>; a tab's declared <span class="mono">param</span> survives only while it is showing. The first click retires the initial slug for the page's life; until then a slug no tab holds yet is retried on every registry version bump, which is what lets a slow lazy bundle still be reached by link.</div>
+    <div class="chip danger"><b><span class="mono">lazy</span> is substrate-internal.</b> <span class="mono">LAZY_TABS</span> has no filter, and <span class="mono">loadTabBundle()</span> sits in <span class="mono">src/station/</span>, which no alias reaches. Mark a consumer bundle <span class="mono">lazy</span> and PHP writes its recipe correctly, nothing registers a placeholder, the tab never joins the bar, and nothing logs a word. Ship an eager bundle, as event-logger-nodes' Request tab does.</div>
+  </div>
+</div>
+</div>
+<script>
+(function () {
+  var g = document.getElementById('g'), svg = document.getElementById('wire'), NS = 'http://www.w3.org/2000/svg';
+  function el(t, a) { var e = document.createElementNS(NS, t); for (var k in a) e.setAttribute(k, a[k]); return e; }
+  function box(id) { var n = document.getElementById(id); return { x: n.offsetLeft, y: n.offsetTop, w: n.offsetWidth, h: n.offsetHeight }; }
+  function pt(b, s, f) { f = f === undefined ? 0.5 : f;
+    if (s === 'r') return [b.x + b.w, b.y + b.h * f]; if (s === 'l') return [b.x, b.y + b.h * f];
+    if (s === 't') return [b.x + b.w * f, b.y]; return [b.x + b.w * f, b.y + b.h]; }
+  function edge(e) {
+    var a = pt(box(e.from), e.fs, e.f0), b = pt(box(e.to), e.ts, e.f1), d, hz = 'lr'.indexOf(e.fs) >= 0, hz2 = 'lr'.indexOf(e.ts) >= 0;
+    if (hz && hz2) { var dx = (b[0] - a[0]) / 2; d = 'M' + a[0] + ' ' + a[1] + ' C' + (a[0] + dx) + ' ' + a[1] + ' ' + (b[0] - dx) + ' ' + b[1] + ' ' + b[0] + ' ' + b[1]; }
+    else if (!hz && !hz2) { var dy = (b[1] - a[1]) / 2; d = 'M' + a[0] + ' ' + a[1] + ' C' + a[0] + ' ' + (a[1] + dy) + ' ' + b[0] + ' ' + (b[1] - dy) + ' ' + b[0] + ' ' + b[1]; }
+    else if (hz) { d = 'M' + a[0] + ' ' + a[1] + ' H' + b[0] + ' V' + b[1]; }
+    else { d = 'M' + a[0] + ' ' + a[1] + ' V' + b[1] + ' H' + b[0]; }
+    svg.appendChild(el('path', { d: d, stroke: '#003DA5', 'stroke-width': 1.7, fill: 'none', 'marker-end': 'url(#a)', 'stroke-dasharray': e.dash ? '4 4' : 'none' }));
+    if (e.label) { var c = document.createElement('div'); c.className = 'cap'; c.innerHTML = e.label; g.appendChild(c);
+      var mx = e.ax !== undefined ? e.ax : (a[0] + b[0]) / 2 + (e.lx || 0), my = e.ay !== undefined ? e.ay : (a[1] + b[1]) / 2 + (e.ly || 0);
+      c.style.left = (mx - c.offsetWidth / 2) + 'px'; c.style.top = (my - c.offsetHeight / 2) + 'px'; }
+  }
+  [
+    { from: 'registry', fs: 'l', to: 'overlay', ts: 'r', f0: 0.3, f1: 0.3, label: 'reads', ly: -13 },
+    { from: 'registry', fs: 'r', to: 'station', ts: 'l', f0: 0.3, f1: 0.3, label: 'reads', ly: -13 },
+    { from: 'filter', fs: 'r', to: 'recipe', ts: 'l' },
+    { from: 'recipe', fs: 'r', to: 'placeholder', ts: 'l' },
+    { from: 'placeholder', fs: 'r', to: 'load', ts: 'l' },
+    { from: 'placeholder', fs: 't', to: 'registry', ts: 'b', f0: 0.2, f1: 0.5, dash: true, label: 'registerTab( placeholder ), then the real tab under the same id', ax: 560, ay: 400 }
+  ].forEach(edge);
+})();
+</script>

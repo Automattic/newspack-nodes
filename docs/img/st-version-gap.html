@@ -1,0 +1,94 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+h2 { font-size:15px; margin:0 0 10px; }
+.two { display:flex; gap:20px; margin-top:20px; align-items:stretch; }
+.two > .card { flex:1; }
+.card p { font-size:12.5px; }
+.cmp { display:flex; gap:14px; margin-top:12px; }
+.cmp > div { flex:1; }
+.cmp .callout p, .cmp .ok p { font-size:12px; }
+</style>
+<div class="sheet">
+<h1>The substrate ships first, so a host runs new substrate against an old consumer</h1>
+<p class="sub">A consumer pins a substrate tag, so the tag has to exist before the consumer can build. The window is guaranteed, not hypothetical, and two mechanisms cover it from opposite ends: the consumer declares a floor, and the substrate degrades a new parameter until every floor has passed it.</p>
+
+<div class="card" style="padding-bottom:10px">
+  <h2>One parameter's life across the window: <span class="mono">Partition_Node::locate_by( $extract, $wanted )</span></h2>
+  <svg width="1012" height="346" viewBox="0 0 1012 346" font-family="Inter, -apple-system, Helvetica, Arial, sans-serif" font-size="11.5">
+    <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs>
+    <!-- columns: 2.41.0 x=300, 2.53.0 x=560, 2.55.0 x=800; timeline starts x=150 -->
+    <g stroke="#DCDCDE" stroke-width="1">
+      <line x1="300" y1="14" x2="300" y2="262"/><line x1="560" y1="14" x2="560" y2="262"/><line x1="800" y1="14" x2="800" y2="262"/>
+    </g>
+    <g fill="#101517" font-weight="700" text-anchor="middle" font-size="12.5">
+      <text x="300" y="284">2.41.0</text><text x="560" y="284">2.53.0</text><text x="800" y="284">2.55.0</text>
+    </g>
+    <g fill="#50575E" text-anchor="middle" font-size="10.5">
+      <text x="300" y="298"><tspan font-family="ui-monospace, Menlo, monospace">$wanted</tspan> added, defaulting to []</text>
+      <text x="300" y="311">the key set that bounds the index walk</text>
+      <text x="560" y="298">the floor ELN declares</text>
+      <text x="800" y="298">the default retired: required</text>
+    </g>
+    <g fill="#101517" font-weight="700" font-size="12.5">
+      <text x="0" y="46">Substrate</text><text x="0" y="122">Consumer</text><text x="0" y="206">A stale call</text>
+    </g>
+    <g fill="#50575E" font-size="11">
+      <text x="0" y="61">tags first, on its</text><text x="0" y="75">own cadence</text>
+      <text x="0" y="137">event-logger-nodes,</text><text x="0" y="151">built against its pin</text>
+      <text x="0" y="221">one argument, from a</text><text x="0" y="235">build before 2.41.0</text>
+    </g>
+    <!-- substrate row -->
+    <rect x="150" y="32" width="150" height="18" rx="3" fill="#E8EEF9" stroke="#C3D3EC"/>
+    <text x="225" y="45" fill="#003DA5" text-anchor="middle" font-size="10.5">( $extract )</text>
+    <rect x="300" y="32" width="500" height="18" rx="3" fill="#D6EAD6" stroke="#9EC89E"/>
+    <text x="550" y="45" fill="#1E5B1E" text-anchor="middle" font-size="10.5">( $extract, array $wanted = [] ) — a bridge: [] reads nothing, so a one-argument caller degrades</text>
+    <rect x="800" y="32" width="212" height="18" rx="3" fill="#003DA5"/>
+    <text x="906" y="45" fill="#fff" text-anchor="middle" font-size="10.5" font-weight="700">( $extract, array $wanted )</text>
+    <!-- consumer row -->
+    <rect x="150" y="108" width="410" height="18" rx="3" fill="#F6F7F7" stroke="#B0B3B8" stroke-dasharray="4 3"/>
+    <text x="355" y="121" fill="#50575E" text-anchor="middle" font-size="10.5">the pin lags: it records the substrate at ELN's last bump, until bump-substrate-pin.sh</text>
+    <rect x="560" y="108" width="452" height="18" rx="3" fill="#D6EAD6" stroke="#9EC89E"/>
+    <text x="786" y="121" fill="#1E5B1E" text-anchor="middle" font-size="10.5">version_at_least( '2.53.0', … ): passes both arguments, the family's only caller</text>
+    <!-- stale-call row -->
+    <rect x="300" y="192" width="500" height="18" rx="3" fill="#D6EAD6" stroke="#9EC89E"/>
+    <text x="550" y="205" fill="#1E5B1E" text-anchor="middle" font-size="10.5">empty result, no fatal: lookup_multi() invokes the backing bare, so a throw there is a 500</text>
+    <rect x="800" y="192" width="212" height="18" rx="3" fill="#FBEAEA" stroke="#E6A3A3"/>
+    <text x="906" y="205" fill="#B32D2E" text-anchor="middle" font-size="10.5" font-weight="700">ArgumentCountError at the call</text>
+    <!-- bridge retirement arrow -->
+    <path d="M560 132 L560 168 L792 168" fill="none" stroke="#003DA5" stroke-width="1.6" marker-end="url(#a)"/>
+    <text x="568" y="148" fill="#003DA5" font-size="10.5">every floor past 2.41.0:</text><text x="568" y="161" fill="#003DA5" font-size="10.5">no build can reach the one-argument form</text>
+    <text x="0" y="338" fill="#50575E">Left standing past its window the default is fail-silent the other way: a caller that forgets the argument resolves nothing and reports success. Required makes that omission a fatal where it is.</text>
+  </svg>
+</div>
+
+<div class="two">
+  <div class="card">
+    <h2>From the consumer's end: the floor</h2>
+    <p><span class="mono">Bootstrap::version_at_least( $min, $dependent )</span> returns false and posts an admin notice naming the plugin, the version it needs and the version it found, so a consumer built against a newer substrate stays dormant instead of fataling mid-request.</p>
+    <div class="callout" style="margin-top:8px">
+      <h4>Guard the call with <span class="mono">method_exists()</span></h4>
+      <p>A substrate predating the method carries no such method, so the call meant to prevent a fatal becomes one. Event-logger-nodes, intelligence and cache-cozy each test for it first.</p>
+    </div>
+    <p style="margin-top:10px"><span class="mono">scripts/check-substrate-floor.sh</span>, authored here and vendored into every consumer though only event-logger-nodes' <span class="mono">pre-push</span> runs it, proves the floor covers every substrate API the plugin calls: PHPStan resolves each call to its declaring class, then the script searches the substrate's tags for the first release that answers it, walking traits and the <span class="mono">extends</span> chain the way PHP would.</p>
+    <div class="ok" style="margin-top:8px">
+      <h4>Sound, not complete</h4>
+      <p>A call counts only where PHPStan resolves the callee to ONE definite declaring class. A dynamically-named method, or a callee typed as a union or <span class="mono">mixed</span>, goes uncounted, so the floor the script reports is a lower bound, not a guarantee for code shaped that way.</p>
+    </div>
+  </div>
+  <div class="card">
+    <h2>From the substrate's end: a new parameter degrades</h2>
+    <p>Adding a <em>required</em> parameter to a public method closes the window with a fatal instead. A default whose behaviour is safe and useless — <span class="mono">[]</span>, which reads nothing — is what lets a stale consumer degrade until it catches up.</p>
+    <div class="cmp">
+      <div class="ok">
+        <h4>Inside the window</h4>
+        <p>The bridge stands. A consumer compiled against the one-argument form comes back empty rather than raising <span class="mono">ArgumentCountError</span> through a seam that catches nothing, which would be a 500 on every dashboard request.</p>
+      </div>
+      <div class="callout">
+        <h4>Past the window</h4>
+        <p>The bridge comes out. With each caller's floor past the release that added the parameter, an optional parameter left standing only hides a forgotten argument.</p>
+      </div>
+    </div>
+    <p style="margin-top:10px">The arithmetic that retires this bridge: event-logger-nodes, the only caller, floors at 2.53.0, past the 2.41.0 that added <span class="mono">$wanted</span>.</p>
+  </div>
+</div>
+</div>

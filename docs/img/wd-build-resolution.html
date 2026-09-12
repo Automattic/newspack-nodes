@@ -1,0 +1,97 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.stage { display: flex; gap: 16px; align-items: stretch; }
+.stage > .card { flex: 1; }
+.card h3 { font-size: 14px; }
+.card .chip { font-size: 12px; line-height: 1.45; padding: 6px 10px; }
+.card .chip:last-child { margin-bottom: 0; }
+.down { display: flex; justify-content: center; align-items: center; height: 34px; gap: 10px; font-size: 12px; color: #50575E; }
+.down svg { flex: 0 0 auto; }
+.map { width: 100%; border-collapse: collapse; font-size: 12px; line-height: 1.4; }
+.map td { padding: 5px 8px; border-top: 1px solid #E3E4E6; vertical-align: top; color: #50575E; }
+.map tr:first-child td { border-top: none; }
+.map td:first-child { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: #003DA5; white-space: nowrap; }
+.out { display: flex; gap: 8px; flex-wrap: wrap; }
+.out .f { flex: 1 1 140px; background: #F6F7F7; border: 1px solid #DCDCDE; border-radius: 5px; padding: 6px 9px; font-size: 11.5px; line-height: 1.4; }
+.out .f b { display: block; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: #101517; font-weight: 600; }
+.panel .body { padding: 12px 14px; }
+.panel .chip { font-size: 12px; line-height: 1.45; }
+.mono { overflow-wrap: anywhere; }
+.step { display: flex; gap: 9px; align-items: flex-start; margin-bottom: 6px; }
+.step .n { flex: 0 0 auto; width: 19px; height: 19px; border-radius: 10px; background: #003DA5; color: #fff; font-size: 11.5px; font-weight: 700; text-align: center; line-height: 19px; margin-top: 1px; }
+.step .t { font-size: 12px; line-height: 1.45; color: #50575E; }
+.step .t b { color: #101517; font-weight: 600; }
+</style>
+<div class="sheet">
+<h1>One base path resolves the substrate for the build, the tests and the page</h1>
+<p class="sub"><span class="mono">NEWSPACK_NODES_SRC</span> names the substrate's <span class="mono">src</span>; <span class="mono">alias-map.cjs</span> derives every alias from it for esbuild and jest alike; <span class="mono">buildDashboards</span> writes the four files <span class="mono">Admin::enqueue_react_page()</span> resolves by the literal name <span class="mono">index</span>.</p>
+
+<div class="stage">
+  <div class="card">
+    <h3>In this repo · <span class="mono">examples/&lt;name&gt;/scripts/build.mjs</span></h3>
+    <div class="chip"><span class="mono">SUBSTRATE_SRC = path.resolve( ROOT, '../../src' )</span> — a fixed depth, so no environment variable: one there would only build against a different checkout by accident.</div>
+    <div class="chip"><span class="mono">nodePaths: [ '../../node_modules' ]</span> answers every bare import from the substrate's one tree.</div>
+  </div>
+  <div class="card">
+    <h3>Standalone · <span class="mono">wp-content/plugins/&lt;slug&gt;/scripts/build.mjs</span></h3>
+    <div class="chip"><span class="mono">process.env.NEWSPACK_NODES_SRC || path.resolve( ROOT, '../newspack-nodes/src' )</span>, guarded on the directory, so a wrong path says <span class="mono">substrate src not found at …</span>.</div>
+    <div class="chip">The sibling must be a <b>git clone</b>: the release zip carries <span class="mono">includes/</span>, <span class="mono">topologies/</span>, <span class="mono">build/</span> and <span class="mono">vendor/</span>, and <span class="mono">.distignore</span> drops <span class="mono">src/</span>.</div>
+    <div class="chip danger"><span class="mono">assertNoRetiredOverrides( process.env )</span> throws on <span class="mono">NEWSPACK_NODES_RUNTIME</span>, <span class="mono">_DEBUG_OVERLAY</span>, <span class="mono">_SHARED</span> or <span class="mono">_BUILD_KIT</span>, naming the one set. Ignored, a stale export would do nothing while the build went green.</div>
+  </div>
+</div>
+
+<div class="down"><svg width="18" height="26" viewBox="0 0 18 26"><path d="M9 2 V20" stroke="#003DA5" stroke-width="1.8"/><path d="M3 15 L9 22 L15 15" fill="none" stroke="#003DA5" stroke-width="1.8"/></svg><span>the base, an absolute path to <span class="mono">src</span></span></div>
+
+<div class="panel">
+  <header><span class="mono">src/build-kit/alias-map.cjs</span> — the one resolver; <span class="mono">.cjs</span> because jest <span class="mono">require()</span>s it synchronously while <span class="mono">build.mjs</span> imports it</header>
+  <div class="body">
+    <table class="map">
+      <tr><td>@newspack-nodes/runtime</td><td>→ <span class="mono">&lt;src&gt;/runtime/index.js</span></td><td rowspan="3" style="width:46%"><b style="color:#101517">Two projections of one table.</b> <span class="mono">esbuildAlias( base )</span> hands <span class="mono">build.mjs</span> its <span class="mono">alias</span>; <span class="mono">jestModuleNameMapper( base )</span> is what <span class="mono">createJestConfig( { aliasBase } )</span> installs. Jest reads no environment variable: <span class="mono">jest.config.js</span> spells the sibling path literally, twice, so the env var moves the build alone. <span class="mono">assertAliasPathsExist()</span> throws before esbuild starts, naming the alias that points nowhere.</td></tr>
+      <tr><td>@newspack-nodes/debug-overlay</td><td>→ <span class="mono">&lt;src&gt;/debug-overlay/DebugOverlay.js</span></td></tr>
+      <tr><td>@newspack-nodes/shared</td><td>→ <span class="mono">&lt;src&gt;/shared/</span>, a directory; subpaths append, and Sass reaches it through the kit's importer</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="down"><svg width="18" height="26" viewBox="0 0 18 26"><path d="M9 2 V20" stroke="#003DA5" stroke-width="1.8"/><path d="M3 15 L9 22 L15 15" fill="none" stroke="#003DA5" stroke-width="1.8"/></svg><span><span class="mono">buildDashboards( { esbuild, sass, rtlcss, root, entries, alias, nodePaths, watch } )</span></span></div>
+
+<div class="stage">
+  <div class="card" style="flex:1.15">
+    <h3>What each import becomes</h3>
+    <div class="chip"><b>Ten externals</b> in <span class="mono">WP_EXTERNALS</span>: <span class="mono">@wordpress/element</span>, <span class="mono">api-fetch</span>, <span class="mono">components</span>, <span class="mono">blocks</span>, <span class="mono">block-library</span>, <span class="mono">i18n</span>, <span class="mono">data</span>, <span class="mono">react</span>, <span class="mono">react-dom</span>, <span class="mono">react/jsx-runtime</span>. Each import is rewritten to its <span class="mono">window.wp.*</span> or <span class="mono">window.React*</span> global, and its handle lands in <span class="mono">index.asset.php</span>.</div>
+    <div class="chip"><b>Bundled</b>: everything else — <span class="mono">@wordpress/icons</span>, <span class="mono">d3</span>, <span class="mono">@noble/hashes</span> — because WordPress registers no runtime script for it. <span class="mono">.svg</span> and <span class="mono">.png</span> inline as data URLs.</div>
+    <div class="chip"><b>Aliased</b>: the three <span class="mono">@newspack-nodes/*</span> specifiers inline the substrate source into this bundle; a bare import inside that source resolves from the substrate's tree first, then <span class="mono">nodePaths</span>.</div>
+    <div class="chip"><span class="mono">keepNames: true</span>, because <span class="mono">Node.shellClassName()</span> and the REPL's <span class="mono">list_timers</span> rows read <span class="mono">constructor.name</span>.</div>
+  </div>
+  <div class="card">
+    <h3>The entry must be <span class="mono">index.js</span></h3>
+    <p style="margin-bottom:8px">Every output is named after the entry file, and the registrar looks for the literal name <span class="mono">index</span> inside <span class="mono">dir</span>. One <span class="mono">outDir</span> holds exactly one bundle.</p>
+    <div class="out">
+      <div class="f"><b>index.js</b>minified; its hash is the version</div>
+      <div class="f"><b>index.asset.php</b><span class="mono">{ dependencies, version }</span> — the version is a hash of the emitted JS</div>
+      <div class="f"><b>index.css</b>compiled SCSS</div>
+      <div class="f"><b>index-rtl.css</b>the rtlcss companion</div>
+    </div>
+  </div>
+</div>
+
+<div class="down"><svg width="18" height="26" viewBox="0 0 18 26"><path d="M9 2 V20" stroke="#003DA5" stroke-width="1.8"/><path d="M3 15 L9 22 L15 15" fill="none" stroke="#003DA5" stroke-width="1.8"/></svg><span><span class="mono">Admin::enqueue_react_page( [ handle, page, dir, url, version_fallback, style_deps, localize ] )</span>, on <span class="mono">admin_enqueue_scripts</span></span></div>
+
+<div class="stage">
+  <div class="card" style="flex:1.3">
+    <div class="step"><div class="n">1</div><div class="t"><b>Page gate.</b> <span class="mono">page</span> is one <span class="mono">?page=</span> slug or a list; anywhere else the call returns null.</div></div>
+    <div class="step"><div class="n">2</div><div class="t"><b><span class="mono">file_exists( dir/index.js )</span></b>, else null: nothing enqueued, no PHP error, no 404, nothing in the console. An unbuilt checkout, a zip that never ran <span class="mono">npm run build</span> and an entry renamed to <span class="mono">dashboard.js</span> all present this way; the mount div still prints empty.</div></div>
+    <div class="step"><div class="n">3</div><div class="t"><b>Manifest.</b> Dependencies and version from <span class="mono">index.asset.php</span>. With no manifest, the dependencies fall back to <span class="mono">wp-element, wp-components, wp-api-fetch, wp-i18n</span> and the version to the bundle's <span class="mono">filemtime()</span>. <span class="mono">version_fallback</span> stands in for a manifest with no string version, or an unreadable <span class="mono">filemtime()</span>; omit the key and it falls to <span class="mono">NEWSPACK_NODES_VERSION</span>, the substrate's version rather than yours.</div></div>
+    <div class="step"><div class="n">4</div><div class="t"><b><span class="mono">wp_enqueue_script</span> in the footer</b>, below the mount div, which is why <span class="mono">index.js</span> can still wait on <span class="mono">DOMContentLoaded</span>.</div></div>
+    <div class="step"><div class="n">5</div><div class="t"><b><span class="mono">index.css</span></b> under <span class="mono">style_deps</span> (default <span class="mono">[ 'wp-components', 'newspack-nodes-ui' ]</span>), versioned by <span class="mono">css_cache_version()</span>, its own content hash, so a SCSS-only rebuild busts the cache; <span class="mono">index-rtl.css</span> rides as RTL data.</div></div>
+    <div class="step" style="margin-bottom:0"><div class="n">6</div><div class="t"><b><span class="mono">wp_localize_script</span></b> emits <span class="mono">NewspackNodesData = { restUrl, nonce, …localize }</span>. The JS <span class="mono">defaultTransport()</span> reads exactly that to authenticate <span class="mono">POST /command</span>: the registrar and <span class="mono">HttpOut</span>'s transport are the two ends of one wire.</div></div>
+  </div>
+  <div class="card">
+    <h3>Three stylesheets, one cascade</h3>
+    <div class="chip"><span class="mono">newspack-nodes-theme</span> — the <span class="mono">--np-*</span> tokens: palette, type scale, spacing scale. Defined on <span class="mono">.newspack-nodes-theme</span>.</div>
+    <div class="chip"><span class="mono">newspack-nodes-ui</span> → depends on theme — component appearance under <span class="mono">.newspack-nodes-ui</span>.</div>
+    <div class="chip"><span class="mono">newspack-nodes-graph</span> → depends on ui — the topology-canvas artwork; name it when the page mounts <span class="mono">DebugOverlay</span> or <span class="mono">GraphView</span>.</div>
+    <div class="callout" style="margin-top:10px"><p><b>One handle, one enqueue site.</b> <span class="mono">wp_localize_script()</span> concatenates: two enqueues of one handle emit two <span class="mono">var NewspackNodesData</span> statements and the later assignment wins whole.</p></div>
+  </div>
+</div>
+</div>

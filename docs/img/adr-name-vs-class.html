@@ -1,0 +1,61 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.two { display:flex; gap:16px; align-items:stretch; }
+.two > div { flex:1; }
+.bundle { border-radius:10px; overflow:hidden; background:#fff; border:2px solid #C3C4C7; }
+.bundle > header { padding:9px 14px; font-size:13.5px; font-weight:700; color:#fff; background:#50575E; }
+.bundle.b > header { background:#003DA5; } .bundle.b { border-color:#003DA5; }
+.bundle .body { padding:10px 14px 12px; font-size:12.5px; line-height:1.5; color:#50575E; }
+.tbl { display:flex; flex-wrap:wrap; gap:5px; margin:6px 0 8px; }
+.tbl span { background:#F0F4FB; border:1px solid #C3D3EC; border-radius:4px; padding:3px 7px; font-family:ui-monospace, Menlo, monospace; font-size:11.5px; }
+.tbl span.own { background:#E8EEF9; border-color:#C3D3EC; }
+.tbl span.miss { background:#FBEAEA; border-color:#E6A3A3; color:#B32D2E; }
+.pair { display:flex; gap:16px; margin-top:16px; align-items:stretch; }
+.pair > div { flex:1; }
+.pair p { font-size:12.5px; }
+.code { background:#101517; color:#fff; border-radius:8px; padding:10px 12px; font-family:ui-monospace, Menlo, monospace; font-size:12px; line-height:1.55; margin-top:8px; overflow-wrap:anywhere; }
+.code .c1 { color:#8FB6F0; } .code .c2 { color:#A7D6A7; }
+.mono { overflow-wrap:anywhere; }
+</style>
+<div class="sheet">
+<h1>In the browser a name resolves inside one bundle, so a hook hands <span class="mono">makeNode</span> the class</h1>
+<p class="sub"><span class="mono">CommandInterpreterNode.includeNodes</span> is a per-bundle static: a flat name→class table each bundle extends at import time with <span class="mono">registerNodeClasses()</span>, an <span class="mono">Object.assign</span> that replaces a name already there with no warning. Two bundles on one page hold two copies. ADR-10 refuses a class map on the PHP side; this is the JS side's consequence of having one.</p>
+
+<div class="two">
+  <div class="bundle">
+    <header>Bundle A: the station backbone</header>
+    <div class="body">
+      Its <span class="mono">includeNodes</span> after import:
+      <div class="tbl"><span>Tee</span><span>Timer</span><span>Fetcher</span><span>HttpOut</span><span>… the runtime's own</span><span class="own" style="background:#E8EEF9;border-color:#C3D3EC">JobstatsView</span></div>
+      A tab from bundle B mounts against this backbone and asks its interpreter for <span class="mono">makeNode( 'ClassCatalogView' )</span>: <span class="tbl" style="display:inline-flex;margin:0"><span class="miss">unknown class: ClassCatalogView</span></span> — at runtime, in the browser, with every test green, because a test loads exactly one bundle.
+    </div>
+  </div>
+  <div class="bundle b">
+    <header>Bundle B: the topology console</header>
+    <div class="body">
+      Its own copy of the table:
+      <div class="tbl"><span>Tee</span><span>Timer</span><span>Fetcher</span><span>HttpOut</span><span>…</span><span class="own">ClassCatalogView</span></div>
+      Registering <span class="mono">Tee</span> here would silently replace the runtime's <span class="mono">Tee</span> for every later <span class="mono">make_node Tee</span> in this bundle: treat the builtin keys as reserved. Registration stays required for TSL and the palette, where the graph is authored as text and the interpreter reading it is the one whose bundle registered the class.
+    </div>
+  </div>
+</div>
+
+<div class="pair">
+  <div class="ok">
+    <h4>The decision: a NAME is for the text path, a CLASS is the API</h4>
+    <p><span class="mono">makeNode( type, name, args )</span> accepts either; <span class="mono">'function' === typeof type</span> selects the class directly and skips resolution. A programmatic builder imports the class. Three conforming shapes: a bundle whose views are written out registers a map and exports it; one whose views are declared as slices lets <span class="mono">registerSliceViews()</span> build, register and return them; and one whose views each have a module imports them from those modules, its <span class="mono">register.js</span> exporting nothing, which is <span class="mono">examples/example-ai-newsletter</span>'s shape. What is forbidden is the NAME, never a particular import path.</p>
+    <div class="code"><span class="c1">const</span> OWN_CLASSES = { JobstatsView: JobstatsViewNode };<br>CommandInterpreterNode.registerNodeClasses( OWN_CLASSES );<br><span class="c1">export const</span> views = { ...OWN_CLASSES, ...registerSliceViews( { <span class="c2">/* … */</span> } ) };</div>
+  </div>
+  <div class="card">
+    <h3>Enforced by <span class="mono">scripts/lint-contract.mjs</span></h3>
+    <p><span class="mono">name-lookup-in-hook</span> catches a name passed to <span class="mono">makeNode</span>; <span class="mono">name-lookup-in-option</span> catches the same break one hop out, in a hook option's <span class="mono">viewClass</span> / <span class="mono">viewType</span> / <span class="mono">nodeClass</span>. Both match a quoted string literal, so a class handed in trips neither, and both read their builtin allow-list from <span class="mono">includeNodes</span>'s own declaration, since the runtime's classes ship in every bundle. With no substrate in reach — no <span class="mono">src/runtime</span>, no sibling <span class="mono">../newspack-nodes</span>, no <span class="mono">.newspack-nodes</span> clone — both stand down behind a one-line <span class="mono">console.warn</span> while the other six rules keep running; that is the standing state for pyrobase, nuclear-gyrobase and cache-cozy.</p>
+    <p>A dead view class is then a normal unused-export finding, and a hook that still passes a name fails the gate rather than the browser.</p>
+  </div>
+</div>
+
+<div class="row" style="gap:12px;margin-top:16px;align-items:stretch">
+  <div class="callout" style="flex:1"><h4>Rejected: a window-global registry</h4><p>As <span class="mono">src/shared/tabs/tabRegistry.js</span> uses for tabs. It makes every bundle's node classes globally visible and collides on name, the ambiguity the per-bundle static avoids. A station tab is meant to be reachable across bundles; a view class is not.</p></div>
+  <div class="callout" style="flex:1"><h4>Rejected: every bundle registers every class</h4><p>Couples each plugin's build to the union of all of them, and the failure is still silent until the missing one is asked for.</p></div>
+  <div class="callout" style="flex:1"><h4>Rejected: lazy resolution across a chain of interpreters</h4><p>Re-invents dynamic scope and picks arbitrarily between two bundles that both registered the name. Revisit if the runtime gains one cross-bundle registry with collision handling.</p></div>
+</div>
+</div>

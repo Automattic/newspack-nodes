@@ -1,0 +1,75 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.stage { position:relative; width:1052px; height:340px; }
+.stage svg { position:absolute; left:0; top:0; width:1052px; height:380px; overflow:visible; }
+.stage svg path { fill:none; stroke:#003DA5; stroke-width:1.8; }
+.stage svg .req path { stroke:#B32D2E; stroke-dasharray:5 4; }
+.stage svg text { font-family:Inter, -apple-system, Helvetica, Arial, sans-serif; font-size:11.5px; fill:#50575E; }
+.stage svg .req text { fill:#B32D2E; font-weight:700; }
+.stage svg .mono { font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.n { position:absolute; background:#fff; border:1px solid #C3D3EC; border-radius:8px; padding:8px 10px; width:170px; font-size:11.5px; line-height:1.4; color:#50575E; }
+.n b { display:block; font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:12.2px; color:#101517; margin-bottom:2px; }
+.n.dur { border:2px solid #003DA5; }
+.n.src { border-color:#9EC89E; background:#F6FBF6; }
+.n.log { border-color:#787C82; }
+.n .req { color:#B32D2E; font-weight:700; }
+.reqs { display:flex; gap:14px; margin-top:16px; }
+.reqs .r { flex:1; background:#fff; border:1px solid #C3C4C7; border-radius:8px; padding:10px 12px; font-size:12.2px; line-height:1.45; color:#50575E; }
+.reqs .r .cmd { font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:11.8px; background:#101517; color:#fff; border-radius:5px; padding:6px 9px; margin:0 0 7px; }
+.reqs .r .cmd .p { color:#8FB6F0; } .reqs .r .cmd .o { color:#A7D6A7; }
+.two { display:flex; gap:18px; margin-top:16px; }
+.two > * { flex:1; }
+.two p { font-size:12.3px; }
+</style>
+<div class="sheet">
+<h1>The example pipeline: nine nodes, one durable log, and three requests you type</h1>
+<p class="sub">Beside one <span class="mono">var</span> and three <span class="mono">cmd</span> lines (two <span class="mono">void_warranty</span>, one <span class="mono">add_snapshot_node</span>), <span class="mono">example-ai-newsletter.tsl</span> is <span class="mono">make_node</span> and <span class="mono">connect_node</span> statements. The sources emit nothing on their own: each <span class="mono">TICK</span> pushes canned items down the whole chain, and <span class="mono">FLUSH</span> writes what the consumer has delivered so far.</p>
+
+<div class="stage">
+  <svg viewBox="0 0 1052 380">
+    <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs>
+    <path d="M190 60 L256 98" marker-end="url(#a)"/>
+    <path d="M190 170 L256 122" marker-end="url(#a)"/>
+    <path d="M430 110 H496" marker-end="url(#a)"/>
+    <path d="M670 110 H736" marker-end="url(#a)"/>
+    <text x="463" y="102" text-anchor="middle">+ summary</text>
+    <text x="703" y="102" text-anchor="middle">+ score</text>
+    <path d="M825 150 V214" marker-end="url(#a)" stroke-dasharray="3 3"/>
+    <text x="834" y="186">tails the log on disk</text>
+    <path d="M736 260 H670" marker-end="url(#a)"/>
+    <path d="M496 260 H430" marker-end="url(#a)"/>
+    <path d="M256 260 H190" marker-end="url(#a)"/>
+    <text x="703" y="252" text-anchor="middle">scored item</text>
+    <text x="463" y="252" text-anchor="middle">draft</text>
+    <text x="223" y="252" text-anchor="middle">draft</text>
+  </svg>
+
+  <div class="n src" style="left:20px;top:22px"><b>releases</b>Releases_Source_Demo: 2 canned items <span class="req">on TICK</span></div>
+  <div class="n src" style="left:20px;top:132px"><b>community</b>Community_Source_Demo: 3 canned items <span class="req">on TICK</span></div>
+  <div class="n" style="left:260px;top:72px"><b>summarizer</b>Summarizer_Demo: adds a one-line <span class="mono">summary</span></div>
+  <div class="n" style="left:500px;top:72px"><b>scorer</b>Scorer_Demo: adds a notional <span class="mono">score</span></div>
+  <div class="n dur" style="left:740px;top:72px"><b>scored:partition</b>durable; <span class="mono">void_warranty</span> lifts the 4 KB cap</div>
+
+  <div class="n dur" style="left:740px;top:222px"><b>scored:consumer</b>durable cursor; snapshots <span class="mono">digest</span> into its offsetlog</div>
+  <div class="n" style="left:500px;top:222px"><b>digest</b>Digest_Builder_Demo: accumulates; renders <span class="req">on FLUSH</span></div>
+  <div class="n" style="left:260px;top:222px"><b>digest:tee</b>Tee, one target</div>
+  <div class="n log" style="left:20px;top:222px"><b>digest:log</b>Log <span class="mono">&lt;logs_dir&gt;/digest.md 1 2 7 0 0 0</span></div>
+</div>
+
+<div class="reqs">
+  <div class="r"><div class="cmd"><span class="p">/example-ai-newsletter.p0&gt;</span> request_node releases TICK<br><span class="o">{ "emitted": 2 }</span></div><span class="mono">TICK</span> and <span class="mono">FLUSH</span> are <span class="mono">TM_REQUEST</span>s, sent with <span class="mono">request_node</span>, not admin commands. The reply rides the FROM breadcrumb back to the REPL while the items flow downstream, so watch the console counters climb card by card.</div>
+  <div class="r"><div class="cmd"><span class="p">/example-ai-newsletter.p0&gt;</span> request_node community TICK<br><span class="o">{ "emitted": 3 }</span></div>Five items now sit in <span class="mono">scored:partition</span>. The consumer paces the durable log, so give the ticks a beat before flushing.</div>
+  <div class="r"><div class="cmd"><span class="p">/example-ai-newsletter.p0&gt;</span> request_node digest FLUSH<br><span class="o">{ "flushed": 5 }</span></div><span class="mono">flushed</span> counts what the consumer had delivered by the time you typed it. The draft opens <span class="mono"># Newsletter draft</span> and lists one bullet per summary.</div>
+</div>
+
+<div class="two">
+  <div class="card">
+    <h3>Where the draft lands</h3>
+    <p><span class="mono">{base_directory}/logs/digest.md.0</span>, where <span class="mono">base_directory</span> defaults to <span class="mono">/tmp/newspack-nodes</span> and <span class="mono">wp nodes doctor</span> names the resolved path. A Log writes segments <span class="mono">{file}.0</span>, <span class="mono">{file}.1</span>, … and never a bare <span class="mono">{file}</span>. This Log's <span class="mono">segment_size</span> is 1 byte, so it rotates on every write: a second FLUSH lands in <span class="mono">digest.md.1</span>, and the count rule keeps seven.</p>
+  </div>
+  <div class="ok">
+    <h4>Nothing is created by hand</h4>
+    <p>Every path hangs off the runtime's base directory, and each node creates its directory as it first needs it. The log paths say <span class="mono">example-scored</span> rather than <span class="mono">scored</span> so the demo's data stays apart from a real plugin's <span class="mono">scored</span> log in the same substrate dir.</p>
+  </div>
+</div>
+</div>

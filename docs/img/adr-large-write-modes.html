@@ -1,0 +1,103 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.gate { display:flex; align-items:stretch; gap:0; margin-bottom:18px; }
+.gate .in { flex:0 0 250px; background:#fff; border:1px solid #C3C4C7; border-radius:9px; padding:14px 16px; }
+.gate .in h3 { font-size:14px; margin:0 0 6px; }
+.gate .in p { font-size:12.5px; color:#50575E; margin:0; line-height:1.5; }
+.gate .test { flex:1; display:flex; flex-direction:column; justify-content:center; align-items:center; padding:0 18px; text-align:center; }
+.gate .test .q { font-size:13.5px; font-weight:700; }
+.gate .test .q .mono { color:#003DA5; }
+.gate .test .arr { font-size:11.5px; color:#787C82; margin-top:4px; }
+.gate .out { flex:0 0 250px; display:flex; flex-direction:column; gap:10px; }
+.gate .out > div { border-radius:9px; padding:11px 14px; font-size:12.5px; line-height:1.45; }
+.cols { display:flex; gap:16px; align-items:stretch; }
+.col { flex:1; }
+.col > h2 { font-size:13px; text-transform:uppercase; letter-spacing:.04em; color:#50575E; margin:0 0 10px; font-weight:600; }
+.route { background:#fff; border:1px solid #C3C4C7; border-radius:9px; padding:14px 16px; margin-bottom:12px; }
+.route h3 { font-size:14px; margin:0 0 6px; }
+.route p { font-size:12.5px; color:#50575E; margin:0 0 6px; line-height:1.5; }
+.route p:last-child { margin-bottom:0; }
+.route .cap { display:inline-block; font-size:11.5px; font-weight:700; border-radius:4px; padding:2px 7px; margin-left:6px; vertical-align:1px; }
+.cap.keep { background:#EDF7ED; color:#1E5B1E; border:1px solid #9EC89E; }
+.cap.lift { background:#FBEAEA; color:#B32D2E; border:1px solid #E6A3A3; }
+.route.lock { border-color:#003DA5; }
+.route.void { border-color:#B32D2E; }
+.modes { margin-top:6px; display:flex; align-items:center; gap:10px; }
+.mode { flex:1; border-radius:8px; padding:10px 12px; font-size:12.5px; line-height:1.45; text-align:center; }
+.mode b { display:block; font-family:ui-monospace, Menlo, monospace; font-size:12.5px; margin-bottom:3px; }
+.mode.none { background:#F6F7F7; border:1px dashed #B0B3B8; }
+.mode.lockm { background:#E8EEF9; border:1px solid #003DA5; }
+.mode.voidm { background:#FBEAEA; border:1px solid #E6A3A3; }
+.modes .arrow { font-size:12px; color:#50575E; text-align:center; width:120px; line-height:1.35; }
+.mono { overflow-wrap:anywhere; }
+</style>
+<div class="sheet">
+<h1>Four things can happen to a record at the 4 KB line</h1>
+<p class="sub">POSIX keeps an append-mode <span class="mono">write()</span> of at most <span class="mono">PIPE_BUF</span> (4096 bytes) from interleaving, so the firehose skips a lock on the common path. A record that will not fit is dropped whole, trimmed at the producer, or written under one of two opt-ins that lift the ceiling to 32 MiB.</p>
+
+<div class="gate">
+  <div class="in">
+    <h3>A record reaches <span class="mono">Partition::fill()</span></h3>
+    <p>Measured as its <b>packed</b> bytes plus the newline Partition appends. JSON escapes a multibyte character to six bytes and an astral one to twelve, so the VALUE's own length is only a proxy.</p>
+  </div>
+  <div class="test">
+    <div class="q">packed + 1 &gt; <span class="mono">MAX_LINE_SIZE</span> (4096)?</div>
+    <div class="arr">no: appended, lock-free, atomic &nbsp;·&nbsp; yes: dropped (right) or one of the three routes below</div>
+  </div>
+  <div class="out">
+    <div class="ok" style="padding:10px 14px"><b>Fits.</b> One <span class="mono">write()</span>, no lock, no interleave.</div>
+    <div class="callout" style="padding:10px 14px"><b>Does not fit, no opt-in.</b> Dropped with a rate-limited <span class="mono">WARNING:</span>, because half a record desyncs every reader after it.</div>
+  </div>
+</div>
+
+<div class="cols">
+  <div class="col">
+    <h2>Keeps the cap</h2>
+    <div class="route">
+      <h3><span class="mono">Line_Fitter::fit( $message, $fields )</span> <span class="cap keep">4096</span></h3>
+      <p>Runs at the producer, immediately before the sink. <span class="mono">$fields</span> is a sacrifice order, most expendable first: the first field is halved until the packed line plus newline fits or the field is spent, and only then does the next open. Fields outside the list are never touched.</p>
+      <p>Returns <span class="mono">null</span> when no listed field is left to cut, and the caller drops loud. A fitted line keeps its head; an unfitted one is gone.</p>
+      <p><span class="mono">Job_Probe_Node</span> fits every jobstats record; event-logger-nodes fits its error entries, completed-request summaries and in-flight gyroscope rows.</p>
+    </div>
+    <div class="route" style="margin-bottom:0">
+      <h3>The cap held rather than torn <span class="cap keep">4096</span></h3>
+      <p>The default. A producer that outgrows 4 KB loses every oversize record until it fits or opts in. Callers must know their payload size.</p>
+    </div>
+  </div>
+  <div class="col">
+    <h2>Lifts the cap: enforced</h2>
+    <div class="route lock" style="margin-bottom:0">
+      <h3><span class="mono">allow_large_writes( $max_wait_ms, $debounce_ms )</span> <span class="cap lift">32 MiB</span></h3>
+      <p>Takes a <span class="mono">Lock</span> at <span class="mono">{partition_dir}/write.lock.d/</span>. Acquisition retries every 100 ms up to <span class="mono">max_wait_ms</span> (<span class="mono">DEFAULT_LOCK_WAIT_MS</span>, 15 s), steals a lock dir that is orphaned or whose heartbeat has aged past <span class="mono">LOCK_STALE_TIMEOUT_SECONDS</span> (60 s), and throws at timeout.</p>
+      <p>15 s is sized for external writers with no loop to come back to: a page render through pyrobase's Log runtime, <span class="mono">wp nodes ingest</span>. It does not outwait a crashed predecessor, because sitting through the 60 s stale window blocks longer than the lease a caller inside a drain loop works under, and that caller stops heartbeating and has its own lock stolen while alive. Topology workers pass 0 (try-lock) or a debounce and retry next tick.</p>
+      <p><span class="mono">debounce_ms &gt; 0</span> takes the lock per write burst and frees it after that much quiet, so intermittent large writers take turns. Still enforced.</p>
+    </div>
+  </div>
+  <div class="col">
+    <h2>Lifts the cap: asserted</h2>
+    <div class="route void" style="margin-bottom:0">
+      <h3><span class="mono">void_warranty()</span> <span class="cap lift">32 MiB</span></h3>
+      <p>No lock, no heartbeat: the caller asserts it is the sole writer. For partitions already inside a single-writer boundary, such as a worker's own offsetlog under its topology lock or a per-worker durable log, where a second lock would only re-prove what the topology lock guarantees.</p>
+      <p class="red"><b>Two concurrent writers + <span class="mono">void_warranty()</span> = silent torn-write corruption.</b> When in doubt, take the enforcing form.</p>
+      <p>Every large write is only as safe as the exclusivity behind it: 32 MiB (<span class="mono">MAX_LARGE_LINE_SIZE</span>) is far past atomicity.</p>
+    </div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:16px;padding-bottom:14px">
+  <h3>One mode, not two flags</h3>
+  <div class="modes">
+    <div class="mode none"><b>NONE</b>cap 4096, no lock</div>
+    <div class="arrow">a refused acquisition puts the cap all the way back down, a prior void included</div>
+    <div class="mode lockm"><b>LOCK</b>cap 32 MiB, lock held or debounced</div>
+    <div class="arrow">taking the lock supersedes a voided warranty</div>
+    <div class="mode voidm"><b>VOID</b>cap 32 MiB, on the caller's word</div>
+  </div>
+  <p style="margin-top:10px">A lifted cap with no lock behind it is the corruption both opt-ins exist to bound, so the unwind must never arrive at it. <span class="mono">Topic_Node</span> carries the same three modes and applies whichever is set to every partition it materializes, so a topic-wide producer opts in once.</p>
+</div>
+
+<div class="note">
+  <h4>Habitable zone</h4>
+  <p>Everything under <span class="mono">base_directory</span> — locks, partitions, offsets, IPC — is scoped to one host's local POSIX filesystem, shared by that host's PHP processes. NFS and overlay mounts void the 4 KB append atomicity; containers with separate <span class="mono">/tmp</span> are separate hosts, and two containers pointed at one path that is two filesystems split-brain silently. Nothing detects an exotic mount at runtime, because no portable signal identifies one on the platforms we run on.</p>
+</div>
+</div>

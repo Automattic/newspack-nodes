@@ -1,0 +1,104 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+  .two { display: grid; grid-template-columns: 400px 1fr; gap: 18px; align-items: stretch; }
+  .col { border-radius: 10px; overflow: hidden; background: #fff; border: 2px solid #C3C4C7; }
+  .col.here { border-color: #003DA5; }
+  .col > header { padding: 10px 16px; font-size: 14.5px; font-weight: 700; background: #50575E; color: #fff; }
+  .col.here > header { background: #003DA5; }
+  .col > header span { font-weight: 400; opacity: .85; font-size: 12.5px; margin-left: 8px; }
+  .col .body { padding: 14px 16px 10px; }
+  .col p { font-size: 12.5px; color: #50575E; line-height: 1.5; margin: 0 0 8px; }
+  .col p b { color: #101517; font-weight: 600; }
+  svg text { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 12px; fill: #101517; }
+  svg text.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  svg text.sub { font-size: 11px; fill: #50575E; }
+  svg text.nm { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight: 700; font-size: 12px; }
+  svg text.w { fill: #fff; font-weight: 700; font-size: 11.5px; }
+  svg .node { fill: #fff; stroke: #C3C4C7; stroke-width: 1.2; }
+  svg .proc { fill: #F6F7F7; stroke: #50575E; stroke-width: 1.4; }
+  svg .req { fill: #E8EEF9; stroke: #003DA5; stroke-width: 1.4; }
+  svg .wire { fill: none; stroke: #50575E; stroke-width: 1.6; }
+  svg .wire.b { stroke: #003DA5; }
+  svg .wire.r { stroke: #B32D2E; stroke-dasharray: 4 3; }
+  svg text.r { fill: #B32D2E; font-size: 11px; }
+  svg text.b { fill: #003DA5; font-size: 11px; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 16px; }
+  .grid .card h3 { font-size: 14px; }
+  .grid p { font-size: 12.5px; }
+</style>
+<div class="sheet">
+<h1>A daemon that supervises itself, or a request that outlives its response</h1>
+<p class="sub">Tachikoma is a long-running process, and that process is the supervisor. Every worker here is a PHP request that exits within 595 seconds, so the whole lifecycle layer is new work with no Perl to consult, and so is everything that talks to WordPress.</p>
+
+<div class="two">
+  <div class="col">
+    <header>Tachikoma <span>a process</span></header>
+    <div class="body">
+      <svg width="366" height="210" viewBox="0 0 366 210">
+        <defs><marker id="g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#50575E"/></marker></defs>
+        <rect class="proc" x="4" y="30" width="358" height="90" rx="9"/>
+        <text class="nm" x="16" y="50">bin/tachikoma-server</text>
+        <text class="sub" x="16" y="66">starts the Router process; it runs until stopped</text>
+        <rect class="node" x="16" y="76" width="100" height="32" rx="6"/><text class="mono" x="66" y="96" text-anchor="middle">_router</text>
+        <rect class="node" x="128" y="76" width="110" height="32" rx="6"/><text class="mono" x="183" y="96" text-anchor="middle">Select.pm</text>
+        <text class="sub" x="248" y="90">reader, writer and</text><text class="sub" x="248" y="103">watcher descriptors</text>
+        <rect class="proc" x="16" y="160" width="346" height="42" rx="9"/>
+        <text class="nm" x="28" y="178">a Job: a forked child</text>
+        <text class="sub" x="28" y="193">Job.pm: init_filehandles, connect_parent, connect_child</text>
+        <path class="wire" d="M183 120 V 154" marker-end="url(#g)"/>
+        <text class="sub" x="192" y="142">socketpair on FD 5</text>
+        <text class="sub" x="4" y="18">anything that can block is isolated in a process of its own</text>
+      </svg>
+      <p><b>Supervision is the process.</b> Peers are long-lived and can see each other, which is what lets <span class="mono">Nodes/Broker.pm</span> elect a leader per partition and rebalance when one falls behind.</p>
+      <p><b>Crash isolation is the fork.</b> A Job that dies takes its own process and nothing else. <span class="mono">Nodes/JobController.pm</span> restarts one flagged to restart, no sooner than its 60-second <span class="mono">$THROTTLE_DELAY</span> after the last.</p>
+    </div>
+  </div>
+
+  <div class="col here">
+    <header>Newspack Nodes <span>a request, 595 seconds at a time</span></header>
+    <div class="body">
+      <svg width="600" height="240" viewBox="0 0 600 240">
+        <defs><marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker>
+        <marker id="r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#B32D2E"/></marker></defs>
+        <!-- timeline -->
+        <rect class="req" x="4" y="30" width="470" height="74" rx="9"/>
+        <text class="nm" x="16" y="50">POST /newspack-nodes/v1/workers/spawn</text>
+        <text class="sub" x="16" y="65">the one door every spawn enters</text>
+        <text class="sub" x="16" y="79">ignore_user_abort( true ) · set_time_limit( 0 ) · newspack_nodes/spawn_worker</text>
+        <text class="sub" x="16" y="93">the graph runs inline for the request's whole life; the caller hung up long ago</text>
+        <text class="b" x="484" y="50">fire-and-forget,</text><text class="b" x="484" y="64">on a 250 ms</text><text class="b" x="484" y="78">budget</text>
+        <!-- lock -->
+        <rect class="node" x="4" y="118" width="150" height="40" rx="7"/><text class="nm" x="79" y="135" text-anchor="middle">locks/&lt;type&gt;.p&lt;N&gt;/</text><text class="sub" x="79" y="150" text-anchor="middle">mkdir claim + heartbeat file</text>
+        <text class="sub" x="164" y="135">stale after stale_timeout, 60 s by default:</text>
+        <text class="sub" x="164" y="150">the next acquirer steals it and does the cleanup</text>
+        <!-- respawn -->
+        <path class="wire b" d="M474 184 C 560 184, 560 106, 480 100" marker-end="url(#b)"/>
+        <rect class="req" x="4" y="164" width="470" height="40" rx="9"/>
+        <text class="nm" x="16" y="181">finally: release the lock, then POST the successor</text>
+        <text class="sub" x="16" y="196">the same door; a new request, a new 595 seconds, the same lock directory</text>
+        <text class="b" x="572" y="142" text-anchor="middle">at most</text><text class="b" x="572" y="156" text-anchor="middle">595 s later</text>
+        <text class="sub" x="4" y="18">every worker is an HTTP request that outlives its response</text>
+        <text class="r" x="4" y="220">Killed instead: no finally, no respawn. The lock goes stale, and a peer's _fleet scan every 15 s,</text>
+        <text class="r" x="4" y="234">or the minute cron pass, spawns the successor.</text>
+      </svg>
+      <p><b>There is no supervisor and no reaper.</b> <span class="mono">Cooperative_Stop::should_continue()</span> owns every stop trigger, <span class="mono">Worker_Base::execute()</span>'s <span class="mono">finally</span> releases the lock and then self-respawns, <span class="mono">Fleet_Node</span> revives peers every 15 seconds, and <span class="mono">Bootstrap::reconcile_fleet()</span> on WP-Cron is the minute-cadence cold-start tier. <span class="mono">Lock_Node</span> is what makes the missing reaper safe.</p>
+      <p><b>There is no Job.</b> Nothing forks: <span class="mono">Job_Worker_Node</span> dispatches each job inside its own worker, and a second process means another spawned request. Crash isolation comes from the dead-letter lifecycle rather than a process boundary. No broker either: partition ownership is what a topology declares, because an election needs peers that can see each other and the durable thing is the filesystem rather than the process.</p>
+    </div>
+  </div>
+</div>
+
+<div class="grid">
+  <div class="card">
+    <h3>WordPress is the sink</h3>
+    <p><span class="mono">Hook_Node</span> fires <span class="mono">do_action</span> / <span class="mono">apply_filters</span> on each VALUE, so a plugin reaches somebody else's topology without editing it, and <span class="mono">Newspack_Log_Node</span> fires <span class="mono">newspack_log</span>. Tachikoma's contract, none of its code.</p>
+  </div>
+  <div class="card">
+    <h3>A request owns the boundary, not the process</h3>
+    <p><span class="mono">HTTP_In_Node</span>, <span class="mono">SSE_Out_Node</span>, <span class="mono">Log_Stream_Out_Node</span>, <span class="mono">SSE_In_Node</span>, <span class="mono">HTTP_Filter_Node</span> and the <span class="mono">*_CI_Node</span> service interpreters live and die with one REST request, where <span class="mono">Nodes/Socket.pm</span> and the <span class="mono">HTTP_*</span> family hold a descriptor for the process's whole life. That is why <span class="mono">HTTP_Out_Node</span> borrows one clause from <span class="mono">Socket.pm</span> and nothing else.</p>
+  </div>
+  <div class="card">
+    <h3>Composition of our own</h3>
+    <p>The async-job path, <span class="mono">Job_Worker_Node</span>, <span class="mono">Job_Intake</span> and <span class="mono">Job_Delay</span>, exists because there is no Job to fork into; <span class="mono">Job_Probe_Node</span> sweeps them the way <span class="mono">TopicProbe.pm</span> sweeps consumers. <span class="mono">Tap_Node</span>, <span class="mono">Tail_Node</span>, <span class="mono">Remote_Link_Node</span> / <span class="mono">Remote_Source_Node</span>, <span class="mono">Settings_Sync_Node</span> and <span class="mono">Line_Fitter</span>, a static PIPE_BUF fitter rather than a node, have no Perl behind them; <span class="mono">Value_Timeout_Node</span>'s <span class="mono">save_state()</span> / <span class="mono">restore_state()</span> pair is a snapshot seam on a ported node, the one stock node an operator can name in <span class="mono">add_snapshot_node</span> without a subclass.</p>
+  </div>
+</div>
+</div>

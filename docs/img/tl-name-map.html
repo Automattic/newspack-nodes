@@ -1,0 +1,118 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+  .grp { background: #fff; border: 1px solid #C3C4C7; border-radius: 9px; overflow: hidden; margin-bottom: 14px; }
+  .grp > header { display: grid; grid-template-columns: 196px 18px 1fr; padding: 8px 12px; background: #F6F7F7; border-bottom: 1px solid #DCDCDE; font-size: 13.5px; font-weight: 700; }
+  .grp > header span.h { color: #003DA5; }
+  .grp > header span.u { color: #50575E; }
+  .r { display: grid; grid-template-columns: 196px 18px 1fr; align-items: baseline; padding: 4px 12px; border-top: 1px solid #F0F0F1; font-size: 12px; line-height: 1.4; }
+  .r:first-of-type { border-top: none; }
+  .r .u, .r .h { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; overflow-wrap: anywhere; }
+  .r .u { color: #50575E; }
+  .r .h { color: #101517; }
+  .r .a { color: #B0B3B8; text-align: center; }
+  .r small { display: block; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 11px; color: #787C82; }
+  .r.ren { background: #F0F4FB; }
+  .r.ren .h { color: #003DA5; font-weight: 600; }
+  .r.div { box-shadow: inset 3px 0 0 #B32D2E; }
+  .r.gone .h, .r.ours .u { color: #A7AAAD; }
+  .r.ours { background: #FBFBFC; }
+  .r.ours .h { color: #1E5B1E; font-weight: 600; }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 22px; font-size: 12px; color: #50575E; margin: 0 0 16px; align-items: center; }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; }
+  .sw { width: 26px; height: 14px; border-radius: 3px; border: 1px solid #DCDCDE; background: #fff; }
+  .sw.ren { background: #F0F4FB; border-color: #C3D3EC; }
+  .sw.div { box-shadow: inset 3px 0 0 #B32D2E; }
+  .sw.ours { background: #FBFBFC; border-style: dashed; }
+</style>
+<div class="sheet">
+<h1>Where each Tachikoma name lands in the port, and where it changed spelling</h1>
+<p class="sub">The upstream file or symbol on the left, the port's class on the right. A blue row is a rename to learn once; a red edge marks a deliberate divergence, each argued in its own section of this document; a dash is a name with no counterpart on that side.</p>
+
+<div class="legend">
+  <span><span class="sw"></span> same name, same job</span>
+  <span><span class="sw ren"></span> renamed</span>
+  <span><span class="sw div"></span> ported, and diverges on purpose</span>
+  <span><span class="sw ours"></span> one side only</span>
+</div>
+
+<div class="two">
+<div>
+  <div class="grp">
+    <header><span class="u">Message.pm · Node.pm · Tachikoma.pm</span><span></span><span class="h">here</span></header>
+    <div class="r div"><span class="u">TYPE FROM TO ID</span><span class="a">→</span><span class="h">TYPE TIMESTAMP FROM TO ID<small>TIMESTAMP moves from slot 5 to slot 1</small></span></div>
+    <div class="r ren div"><span class="u">STREAM</span><span class="a">→</span><span class="h">KEY<small>what hash_to_partition() routes on</small></span></div>
+    <div class="r ren div"><span class="u">PAYLOAD</span><span class="a">→</span><span class="h">VALUE</span></div>
+    <div class="r div"><span class="u">IS_UNTHAWED</span><span class="a">→</span><span class="h">LOCAL<small>a provenance taint, never on the wire</small></span></div>
+    <div class="r div"><span class="u">packed: pack 'xxxx N n/a* …'</span><span class="a">→</span><span class="h">packed(): JSON<small>no TM_STORABLE</small></span></div>
+    <div class="r ren"><span class="u">owner</span><span class="a">→</span><span class="h">target</span></div>
+    <div class="r"><span class="u">sink · fill</span><span class="a">→</span><span class="h">sink · fill()</span></div>
+    <div class="r div"><span class="u">fill returns a value</span><span class="a">→</span><span class="h">fill(): void</span></div>
+    <div class="r gone div"><span class="u">edge</span><span class="a">→</span><span class="h">—<small>add_snapshot_node() takes its one job</small></span></div>
+    <div class="r gone div"><span class="u">answer() · cancel()</span><span class="a">→</span><span class="h">—<small>no TM_PERSIST, no max_unanswered</small></span></div>
+    <div class="r"><span class="u">stamp_message · drop_message</span><span class="a">→</span><span class="h">Node::stamp_message() · drop_message()</span></div>
+    <div class="r"><span class="u">register · notify · set_state</span><span class="a">→</span><span class="h">Node::register() · notify() · set_state()</span></div>
+    <div class="r ren"><span class="u">$Tachikoma::Right_Now</span><span class="a">→</span><span class="h">Core::right_now()</span></div>
+    <div class="r ren"><span class="u">@RECENT_LOG</span><span class="a">→</span><span class="h">Core::$recent_log<small>the same 100-line cap</small></span></div>
+    <div class="r ren"><span class="u">%Tachikoma::Nodes</span><span class="a">→</span><span class="h">Core::$nodes_by_name</span></div>
+  </div>
+
+  <div class="grp">
+    <header><span class="u">Router, loop, lifecycle</span><span></span><span class="h">here</span></header>
+    <div class="r"><span class="u">Nodes/Router.pm</span><span class="a">→</span><span class="h">Router_Node</span></div>
+    <div class="r"><span class="u">Nodes/Timer.pm</span><span class="a">→</span><span class="h">Timer_Node<small>stamps KEY where upstream stamps STREAM</small></span></div>
+    <div class="r ren div"><span class="u">EventFrameworks/Select.pm</span><span class="a">→</span><span class="h">Event_Framework<small>timers and cURL handles, no descriptors</small></span></div>
+    <div class="r gone div"><span class="u">Job.pm, a forked child</span><span class="a">→</span><span class="h">—<small>Job_Worker_Node runs jobs inside its own worker</small></span></div>
+    <div class="r gone div"><span class="u">Nodes/Broker.pm</span><span class="a">→</span><span class="h">—<small>a topology declares partition ownership</small></span></div>
+    <div class="r ours"><span class="u">—</span><span class="a">→</span><span class="h">Worker_Base · Fleet_Node · Lock_Node<small>a worker is a request that exits within 595 s</small></span></div>
+    <div class="r ours"><span class="u">—</span><span class="a">→</span><span class="h">Hook_Node · HTTP_In_Node · SSE_Out_Node · *_CI_Node<small>what talks to WordPress</small></span></div>
+  </div>
+
+  <div class="grp">
+    <header><span class="u">Shell, interpreter, signing</span><span></span><span class="h">here</span></header>
+    <div class="r div"><span class="u">Nodes/Shell.pm · Shell3.pm</span><span class="a">→</span><span class="h">Shell_Node<small>a backtick quotes and never executes</small></span></div>
+    <div class="r"><span class="u">Nodes/CommandInterpreter.pm</span><span class="a">→</span><span class="h">Command_Interpreter_Node</span></div>
+    <div class="r ren"><span class="u">list_fds</span><span class="a">→</span><span class="h">list_handles</span></div>
+    <div class="r ren"><span class="u">connect_sink</span><span class="a">→</span><span class="h">set_sink</span></div>
+    <div class="r ren"><span class="u">debug_state (verb)</span><span class="a">→</span><span class="h">trace</span></div>
+    <div class="r ren div"><span class="u">enable_ · disable_profiling</span><span class="a">→</span><span class="h">profile [ on | off ]</span></div>
+    <div class="r div"><span class="u">%DISABLED verb names</span><span class="a">→</span><span class="h">DISABLED_CLASSES<small>level 1 removes the make_node class</small></span></div>
+    <div class="r ren"><span class="u">Getopt::Long</span><span class="a">→</span><span class="h">Command_Args</span></div>
+    <div class="r ren div"><span class="u">Command.pm sign (rsa, ed25519)</span><span class="a">→</span><span class="h">Command_Auth<small>HMAC-SHA256</small></span></div>
+  </div>
+</div>
+
+<div>
+  <div class="grp">
+    <header><span class="u">Nodes/</span><span></span><span class="h">here</span></header>
+    <div class="r div"><span class="u">Partition.pm</span><span class="a">→</span><span class="h">Partition_Node<small>no replica, no leader</small></span></div>
+    <div class="r div"><span class="u">Topic.pm</span><span class="a">→</span><span class="h">Topic_Node<small>writes its own partitions, not a broker</small></span></div>
+    <div class="r div"><span class="u">Consumer.pm</span><span class="a">→</span><span class="h">Consumer_Node<small>64 KB read block; {segment, offset} resume</small></span></div>
+    <div class="r"><span class="u">Log.pm</span><span class="a">→</span><span class="h">Log_Node</span></div>
+    <div class="r ren"><span class="u">Tail.pm</span><span class="a">→</span><span class="h">File_Tail_Node<small>the single-file follower</small></span></div>
+    <div class="r ours"><span class="u">—</span><span class="a">→</span><span class="h">Tail_Node<small>reads a Log's {file}.{seg} segments</small></span></div>
+    <div class="r div"><span class="u">Tee.pm</span><span class="a">→</span><span class="h">Tee_Node<small>no TM_PERSIST ledger, no timeout</small></span></div>
+    <div class="r ours"><span class="u">—</span><span class="a">→</span><span class="h">Tap_Node<small>a Tee with hard targets and passthrough</small></span></div>
+    <div class="r"><span class="u">Grep.pm</span><span class="a">→</span><span class="h">Grep_Node</span></div>
+    <div class="r div"><span class="u">Null.pm</span><span class="a">→</span><span class="h">Null_Node<small>the counting half; no load generator</small></span></div>
+    <div class="r div"><span class="u">Echo.pm</span><span class="a">→</span><span class="h">Echo_Node<small>tests the TM_ERROR bit, not equality</small></span></div>
+    <div class="r ren div"><span class="u">AgeSieve.pm</span><span class="a">→</span><span class="h">Age_Sieve_Node<small>zero takes the 900 s default</small></span></div>
+    <div class="r ren"><span class="u">PayloadTimeout.pm</span><span class="a">→</span><span class="h">Value_Timeout_Node</span></div>
+    <div class="r gone div"><span class="u">MemorySieve.pm</span><span class="a">→</span><span class="h">—<small>its cancel() is the call ADR-3 removed</small></span></div>
+    <div class="r div"><span class="u">Table.pm</span><span class="a">→</span><span class="h">Table_Node + LRU_Cache<small>cache-backed; an absent key is an error</small></span></div>
+    <div class="r ren"><span class="u">JobSpawnTimer.pm</span><span class="a">→</span><span class="h">Connect_Queue_Timer_Node<small>500 ms where upstream uses 250 ms</small></span></div>
+    <div class="r ren"><span class="u">StorableToJSON.pm</span><span class="a">→</span><span class="h">Struct_To_JSON_Node<small>compact, one line per record</small></span></div>
+    <div class="r ren"><span class="u">JSONtoStorable.pm</span><span class="a">→</span><span class="h">JSON_To_Struct_Node</span></div>
+    <div class="r"><span class="u">TopicProbe.pm</span><span class="a">→</span><span class="h">Topic_Probe_Node</span></div>
+    <div class="r ren div"><span class="u">TopicProbeToGraphite.pm</span><span class="a">→</span><span class="h">Probe_To_Graphite_Node<small>the two delta fields sum</small></span></div>
+    <div class="r ours div"><span class="u">— (an operator's socket)</span><span class="a">→</span><span class="h">Graphite_Node<small>a datagram per message</small></span></div>
+    <div class="r"><span class="u">Callback.pm</span><span class="a">→</span><span class="h">Callback_Node</span></div>
+    <div class="r"><span class="u">Dumper.pm</span><span class="a">→</span><span class="h">Dumper_Node</span></div>
+    <div class="r ren"><span class="u">STDIO.pm</span><span class="a">→</span><span class="h">Stdin_Node · Stdout_Node</span></div>
+    <div class="r ren div"><span class="u">TTY.pm</span><span class="a">→</span><span class="h">TTY_In_Node · TTY_Out_Node<small>the writer owns the prompt redraw</small></span></div>
+    <div class="r ren div"><span class="u">StdErr.pm</span><span class="a">→</span><span class="h">Stderr_Node<small>a strict terminal, never mid-chain</small></span></div>
+    <div class="r div"><span class="u">Socket.pm, one clause</span><span class="a">→</span><span class="h">HTTP_Out_Node<small>the wire-inbound FROM and owner routing</small></span></div>
+  </div>
+</div>
+</div>
+</div>

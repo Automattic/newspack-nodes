@@ -1,0 +1,97 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.rule { display:flex; gap:0; align-items:stretch; position:relative; }
+.rule svg.w { position:absolute; left:0; top:0; overflow:visible; pointer-events:none; }
+.rule .box { border-radius:9px; padding:12px 14px; font-size:12.5px; line-height:1.5; }
+.rule .in { flex:0 0 250px; background:#fff; border:1px solid #C3C4C7; }
+.rule .in b { display:block; font-size:13.5px; margin-bottom:4px; }
+.rule .q { flex:0 0 230px; align-self:center; margin:0 46px 0 34px; background:#fff; border:2px solid #003DA5; display:flex; flex-direction:column; justify-content:center; text-align:center; }
+.rule .q b { font-size:13.5px; }
+.rule .q .mono { color:#003DA5; }
+.rule .outs { flex:1; display:flex; flex-direction:column; gap:10px; }
+.rule .outs .y { background:#EDF7ED; border:1px solid #9EC89E; color:#1E5B1E; }
+.rule .outs .n { background:#F0F4FB; border:1px solid #C3D3EC; color:#101517; }
+.rule .outs .bad { background:#FBEAEA; border:1px solid #E6A3A3; color:#5C2223; }
+.carve { display:flex; gap:14px; margin-top:16px; align-items:stretch; }
+.carve > div { flex:1; }
+.carve .card h3 { font-size:14px; }
+.carve .card p { font-size:12px; }
+.prec { margin-top:16px; }
+.prec table { width:100%; border-collapse:collapse; font-size:12.5px; }
+.prec th, .prec td { border:1px solid #C3C4C7; padding:8px 12px; text-align:left; vertical-align:top; }
+.prec th { background:#F6F7F7; font-size:11.5px; text-transform:uppercase; letter-spacing:.03em; color:#50575E; }
+.prec td.win { background:#EDF7ED; color:#1E5B1E; font-weight:600; }
+.prec td.lose { background:#FBEAEA; color:#B32D2E; }
+.prec td.same { background:#F6F7F7; color:#787C82; }
+.mono { overflow-wrap:anywhere; }
+</style>
+<div class="sheet">
+<h1>A broad catch re-throws the stop before it handles anything else</h1>
+<p class="sub"><span class="mono">Worker_Should_Stop</span> extends <span class="mono">\RuntimeException</span>, so every <span class="mono">catch (\Throwable)</span> on the drain path catches it. Treated as an error, the stop is swallowed and the worker runs past its deadline until the next drain tick re-checks. Three sites carve themselves out.</p>
+
+<div class="rule">
+  <div class="box in"><b>Inside a broad catch on the message or drain path</b><span class="mono">Event_Framework::stop_check()</span> raises it from a long in-process job (timeout, memory, shutdown); <span class="mono">pump()</span> is its throttled form, which firehose writers reach per write. Without the rule a mid-job stop is guaranteed only on the direct firehose path, from <span class="mono">Log_Manager</span> through <span class="mono">Topic</span> to <span class="mono">Partition</span>, because an intervening Tee or Command_Interpreter eats it.</div>
+  <div class="box q"><b>Is it a <span class="mono">Worker_Should_Stop</span>?</b><span style="font-size:11.5px;color:#50575E;margin-top:4px">One explicit-first catch on the parent covers the subclass too</span></div>
+  <div class="outs">
+    <div class="box y"><b>Yes:</b> <span class="mono">catch (Worker_Should_Stop $e) { throw $e; }</span> — it is control flow, not an error.</div>
+    <div class="box n"><b>No:</b> handle it as a real error: log it, wrap it <span class="mono">TM_ERROR</span>, defer it. Broad catches stay legal.</div>
+    <div class="box bad"><b>The failure the rule prevents:</b> the stop logged as an error, the worker draining on past <span class="mono">max_runtime</span> or the memory watermark.</div>
+  </div>
+</div>
+<script>
+(function () {
+var r = document.querySelector('.rule'), i = r.querySelector('.in'), q = r.querySelector('.q'), y = r.querySelector('.y'), n = r.querySelector('.n');
+var NS = 'http://www.w3.org/2000/svg', s = document.createElementNS(NS, 'svg');
+s.setAttribute('class', 'w'); s.setAttribute('width', r.offsetWidth); s.setAttribute('height', r.offsetHeight);
+s.innerHTML = '<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs>';
+function p(d, label, lx, ly) {
+var e = document.createElementNS(NS, 'path');
+e.setAttribute('d', d); e.setAttribute('stroke', '#003DA5'); e.setAttribute('stroke-width', '1.8'); e.setAttribute('fill', 'none'); e.setAttribute('marker-end', 'url(#a)');
+s.appendChild(e);
+}
+var qy = q.offsetTop + q.offsetHeight / 2, qx = q.offsetLeft + q.offsetWidth, ox = y.offsetLeft;
+p('M' + (i.offsetLeft + i.offsetWidth) + ' ' + qy + ' H' + (q.offsetLeft - 2));
+[y, n].forEach(function (b) {
+var by = b.offsetTop + b.offsetHeight / 2;
+p('M' + qx + ' ' + qy + ' C' + (qx + 26) + ' ' + qy + ' ' + (ox - 26) + ' ' + by + ' ' + (ox - 2) + ' ' + by);
+});
+r.appendChild(s);
+})();
+</script>
+
+<div class="carve">
+  <div class="card">
+    <h3>Carve-out 1: fan-out (Tee and Tap, via <span class="mono">Fanout_Targets</span>)</h3>
+    <p>A target throwing says nothing about its siblings, so a fan-out attempts EVERY target and defers the throwable: a skipped healthy target is a permanent loss once the poison path dead-letters the message and advances the cursor. Completing the fan-out preserves at-least-once; duplicates on replay are its accepted cost, and they arise with any fan-out regardless of when it throws.</p>
+    <p>Tap always performs its passthrough before re-throwing — the passthrough IS the pipeline, and a <span class="mono">Worker_Should_Stop_Clean</span> commits PAST the message, so aborting early would drop it from the main path. Tap claims no exemption as observability: a snapshot node raising the clean stop from a tap participates in cursor semantics, so Tap defers an ordinary target error exactly as Tee does rather than swallowing it.</p>
+  </div>
+  <div class="card">
+    <h3>Carve-out 2: post-job <span class="mono">finally</span></h3>
+    <p><span class="mono">Job_Worker_Node</span>'s <span class="mono">newspack_nodes/job_worker/after_job</span> swallows everything, WSS included. It fires whether the handler returned or threw, so propagating out of it would either false-poison a completed job — the drain would quarantine an already-processed message (ADR-12) — or mask the failure it fired after.</p>
+    <p>Its <span class="mono">before_job</span> counterpart is NOT a carve-out: it re-throws WSS first and swallows only a listener's own error, which skips that one job instead of killing the batch.</p>
+  </div>
+  <div class="card">
+    <h3>Carve-out 3: <span class="mono">Log_Manager::finish()</span> (event-logger-nodes)</h3>
+    <p>Every line it writes before the terminal is a write — the orphan drain, the memory line, the resources line, <span class="mono">complete()</span> itself — so a stop can land on any of them. Skipping the terminal strands the request in flight until eviction, because <span class="mono">finished</span> latches on entry and nothing retries it. So it marks the request aborted, writes the terminal, then re-raises.</p>
+    <p>Terminal-last is a wire contract: <span class="mono">Reqgrep_Core</span> finalizes and evicts the rid on it, so anything written after arrives at a request that no longer exists.</p>
+  </div>
+</div>
+
+<div class="card prec">
+  <h3>What a fan-out keeps in its deferred slot: <span class="mono">Fanout_Targets::outranks( $candidate, $deferred )</span></h3>
+  <table>
+    <thead><tr><th style="width:26%">A target throws…</th><th>…while a plain <span class="mono">Worker_Should_Stop</span> is deferred</th><th>…while a <span class="mono">Worker_Should_Stop_Clean</span> is deferred</th><th>…while a poison is deferred</th></tr></thead>
+    <tbody>
+      <tr><td>a plain <span class="mono">Worker_Should_Stop</span> (replay)</td><td class="same">kept: same outcome</td><td class="win">replaces it</td><td class="win">replaces it</td></tr>
+      <tr><td>a <span class="mono">Worker_Should_Stop_Clean</span> (commit past)</td><td class="lose">the plain stop stands</td><td class="same">replaces it: same outcome</td><td class="win">replaces it</td></tr>
+      <tr><td>a poison (dead-letter, cursor advances)</td><td class="lose">the plain stop stands</td><td class="lose">the clean stop stands</td><td class="same">the first poison stands</td></tr>
+    </tbody>
+  </table>
+  <p style="margin-top:10px">The winner moves the consumer cursor, so the slot holds whichever throwable is safest to act on. Advancing past a message that needed a replay loses it; replaying a clean one is a duplicate the contract already tolerates. <span class="mono">tests/unit/TeeStopPrecedenceTest.php</span> pins the inversion.</p>
+</div>
+
+<div class="note">
+  <h4>Why no marker interface yet</h4>
+  <p>The control-flow family is <span class="mono">Worker_Should_Stop</span> plus its subclass, so one explicit-first catch on the parent already covers both. A second, unrelated control-flow exception is the revisit condition: introduce a shared base and catch that.</p>
+</div>
+</div>

@@ -1,0 +1,101 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+  .four { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; align-items: stretch; }
+  .col { background: #fff; border: 1px solid #C3C4C7; border-radius: 9px; padding: 0 0 12px; overflow: hidden; }
+  .col header { background: #003DA5; color: #fff; padding: 9px 14px; font-size: 14px; font-weight: 700; }
+  .col header span { font-weight: 400; opacity: .85; }
+  .col .in { padding: 12px 14px 0; }
+  .col p { font-size: 12px; color: #50575E; line-height: 1.45; margin: 0 0 7px; }
+  .col .mono { white-space: nowrap; }
+  .file { font-size: 12px; margin: 0 0 8px; }
+  .file .f { display: inline-block; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; color: #003DA5; background: #F0F4FB; border: 1px solid #C3D3EC; border-radius: 4px; padding: 2px 6px; margin-bottom: 3px; white-space: nowrap; }
+  .file .w { display: block; color: #50575E; line-height: 1.4; }
+  .code { background: #101517; color: #E8EAED; border-radius: 6px; padding: 7px 10px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 10.5px; line-height: 1.5; white-space: pre; overflow-wrap: normal; margin: 6px 0 8px; }
+  .code .c { color: #8C9096; } .code .k { color: #7FB0FF; } .code .v { color: #9FD89F; }
+  .layer { border-radius: 6px; padding: 7px 10px; font-size: 11.5px; line-height: 1.4; margin-bottom: 5px; border: 1px solid #C3D3EC; background: #F0F4FB; }
+  .layer b { display: block; color: #003DA5; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 2px; }
+  .layer.top { background: #fff; }
+  .layer.mid { background: #E8EEF9; }
+  .layer.bot { background: #D9E3F5; }
+  .wins { font-size: 11px; color: #50575E; text-align: center; margin: 0 0 6px; }
+  .bottom { display: flex; gap: 14px; margin-top: 16px; align-items: stretch; }
+  .bottom > * { flex: 1 1 0; min-width: 0; }
+  .bottom p { font-size: 12.5px; }
+</style>
+<div class="sheet">
+<h1>Four essentials rig a standalone plugin, and cache-cozy ships a file for each</h1>
+<p class="sub">A real plugin installs on a site that already has the substrate. Declare the dependency, defer the wiring, borrow the test bootstrap, copy two lint configs, and let a tag build the zip. The sibling <span class="mono">newspack-cache-cozy</span> is the minimal fully-rigged reference: one node, a mu-plugin drop-in, and every file below to copy.</p>
+
+<div class="four">
+  <div class="col">
+    <header>a. Depend <span>· the bootstrap</span></header>
+    <div class="in">
+      <div class="code"><span class="c">/**</span>
+<span class="c"> * Requires Plugins: </span><span class="v">newspack-nodes</span>
+<span class="c"> */</span></div>
+      <p>WordPress 6.5+ keeps the substrate active. It guarantees presence, never a version.</p>
+      <div class="code">add_action( <span class="v">'plugins_loaded'</span>, function () {
+  if ( ! class_exists( <span class="v">'\Newspack_Nodes\Timer_Node'</span> ) ) return;
+  if ( ! method_exists( Bootstrap::class, <span class="v">'version_at_least'</span> )
+    || ! Bootstrap::version_at_least( <span class="v">'0.54.0'</span>, <span class="v">'My Plugin'</span> ) ) return;
+  $load();
+}, <span class="k">11</span> );</div>
+      <p>Plugins load alphabetically, so a slug sorting before <span class="mono">newspack-nodes</span> is included before the substrate's classes exist. Every plugin file is included before <span class="mono">plugins_loaded</span> fires, so any priority is late enough: cache-cozy uses 11, the bundled example 12.</p>
+      <p>Below the floor the plugin goes dormant behind an admin notice, on substrates from 0.54.0 on; older ones have no notice, so the <span class="mono">method_exists</span> guard is what covers them, in silence. <span class="mono">scripts/check-substrate-floor.sh</span> computes the floor: it collects each substrate API you call through PHPStan, resolves each to its declaring class, and names the oldest tag defining all of them.</p>
+    </div>
+  </div>
+
+  <div class="col">
+    <header>b. Test <span>· tests/bootstrap.php</span></header>
+    <div class="in">
+      <p class="wins">Declared first wins, so the layers stack in this order.</p>
+      <div class="layer top"><b>1. your stubs</b><span class="mono">if ( ! function_exists() )</span> stubs for only the WordPress functions your plugin needs to behave differently: an option store with a test seam, a capture-shaped <span class="mono">add_action</span>.</div>
+      <div class="layer mid"><b>2. the substrate</b><span class="mono">tests/Helpers/wp-shims.php</span>, the canonical WP stubs filling in what you skipped; the substrate plugin from its sibling checkout; <span class="mono">tests/Helpers/TestCase.php</span>; <span class="mono">tests/Helpers/CaptureSink.php</span>.</div>
+      <div class="layer bot"><b>3. your code</b><span class="mono">vendor/autoload.php</span>, your classmap, and any mu-plugin drop-in.</div>
+      <p style="margin-top:8px">Each test builds a message, calls <span class="mono">fill()</span> and asserts on a <span class="mono">Capture_Sink_Node</span>. Extend <span class="mono">\Newspack_Nodes\Tests\TestCase</span>: its <span class="mono">setUp</span> resets <span class="mono">Core</span> and pins <span class="mono">Cache_Backend::$apcu_usable</span> to a closure returning false. <span class="mono">local_first()</span> prefers APCu, so on a host with CLI APCu enabled a test seeding <span class="mono">Core::$memd</span> sees its claims land where the fixture never reads, and passes or fails by the host's php.ini. A hand-rolled harness sets the pin and restores it, because public static state outlives the test that wrote it. <span class="mono">$apcu_cache_info</span> and <span class="mono">$apcu_sma_info</span> are the sibling seams behind the expunge and free-memory figures.</p>
+      <div class="code">composer require --dev phpunit/phpunit:^10.0
+cd tests &amp;&amp; ../vendor/bin/phpunit</div>
+      <p>A <span class="mono">tests/phpunit.xml</span> names <span class="mono">bootstrap="bootstrap.php"</span>. Run the vendored binary, never the one on <span class="mono">PATH</span>: an 11.x loader over a 10.x vendor tree dies with <span class="mono">DispatchingEmitter::exportsObjects</span>, which is why every plugin in the family pins 10.x.</p>
+    </div>
+  </div>
+
+  <div class="col">
+    <header>c. Lint <span>· two configs and scripts/</span></header>
+    <div class="in">
+      <div class="file"><span class="f">phpcs.xml.dist</span><span class="w">the <span class="mono">WordPress-VIP-Go</span> ruleset</span></div>
+      <div class="file"><span class="f">phpstan.neon.dist</span><span class="w">level 10 + <span class="mono">phpstan-strict-rules</span>, minus the five rules that fight WordPress idioms: <span class="mono">empty()</span>, truthy conditionals in <span class="mono">if</span> and in loops, the short ternary, variable variables</span></div>
+      <div class="code">scanFiles:
+    - ../newspack-nodes/newspack-nodes.php
+scanDirectories:
+    - ../newspack-nodes/includes</div>
+      <p><span class="mono">scanDirectories</span> resolves your <span class="mono">extends Timer_Node</span> with real types; <span class="mono">scanFiles</span> adds the root file, where <span class="mono">NEWSPACK_NODES_VERSION</span> is defined. Point both at wherever your substrate checkout lives.</p>
+      <p>Your own <span class="mono">bootstrapFiles</span> stays your plugin's root file, so PHPStan sees the constants it defines. Dev deps: <span class="mono">automattic/vipwpcs</span>, <span class="mono">phpstan/phpstan</span>, <span class="mono">phpstan-strict-rules</span>, <span class="mono">szepeviktor/phpstan-wordpress</span>, beside the pinned phpunit; cache-cozy's <span class="mono">composer.json</span> is a ~50-line copy-and-rename.</p>
+      <div class="file"><span class="f">scripts/</span><span class="w">copied wholesale. <span class="mono">"post-install-cmd": [ "git config core.hooksPath scripts" ]</span> puts the tracked <span class="mono">pre-commit</span> and <span class="mono">commit-msg</span> under Git; each <span class="mono">pre-commit</span> runs <span class="mono">sync-shared-scripts.sh</span> first, refreshing the rest from a sibling substrate checkout and staging what changed.</span></div>
+      <div class="file"><span class="f">reorder-node-methods.php</span><span class="w">holds a Node subclass's methods in newspaper order</span></div>
+      <div class="file"><span class="f">lint-comments.php</span><span class="w">holds an inline comment to one line. Both run through <span class="mono">lint-staged</span>. <span class="mono">wp nodes scaffold plugin</span> writes none of this.</span></div>
+    </div>
+  </div>
+
+  <div class="col">
+    <header>d. Release <span>· a tag ships it</span></header>
+    <div class="in">
+      <div class="file"><span class="f">build-release.sh</span><span class="w">stages via <span class="mono">.distignore</span>, runs <span class="mono">composer install --no-dev --optimize-autoloader</span>, zips the plugin dir</span></div>
+      <div class="file"><span class="f">.github/workflows/release.yml</span><span class="w">tag-triggered: runs the script and publishes the zip with the matching <span class="mono">CHANGELOG.md</span> section as the notes</span></div>
+      <div class="code">git tag v1.2.3 &amp;&amp; git push origin v1.2.3</div>
+      <p>cache-cozy's pair works as-is after a slug rename.</p>
+      <div class="file"><span class="f">uninstall.php</span><span class="w">once your plugin stores options: runs only on delete, and deletes every option row under your prefix, transient rows and every site on multisite included</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="bottom">
+  <div class="ok">
+    <h4>In lockstep with the substrate, the header and a presence check suffice</h4>
+    <p>When the plugin ships with the substrate, <span class="mono">Requires Plugins</span> plus <span class="mono">class_exists</span> is the whole story. "Present but too old" is a real case only on sites you do not control; then the canonical handshake, one mechanism and one admin notice, replaces per-symbol capability probes. Bump the floor only when you adopt a newer API, and set it to the oldest substrate you test against.</p>
+  </div>
+  <div class="callout">
+    <h4>Dashboards are a separate story</h4>
+    <p>Everything here is server-side PHP. A React admin dashboard means the substrate's shared-JS build, the <span class="mono">@newspack-nodes/shared</span> alias, esbuild and jest; that is <span class="mono">writing-a-dashboard.md</span>. This guide stops at a fully working, fully tested, headless node plugin.</p>
+  </div>
+</div>
+</div>

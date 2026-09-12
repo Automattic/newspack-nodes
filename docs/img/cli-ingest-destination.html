@@ -1,0 +1,105 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+h2 { font-size:15px; margin:0 0 10px; }
+.cols { display:flex; gap:18px; align-items:stretch; }
+.cols > * { flex:1; }
+.card p, .card li { font-size:12.5px; }
+.card ul { margin:0; padding-left:18px; color:#50575E; line-height:1.5; }
+.form { display:flex; gap:12px; }
+.form .f { flex:1 1 0; min-width:0; overflow-wrap:anywhere; background:#fff; border:1px solid #C3C4C7; border-radius:8px; padding:10px 12px; font-size:12.2px; line-height:1.45; color:#50575E; }
+.form .f b { display:block; color:#101517; font-size:12.5px; margin-bottom:4px; }
+.cmd { font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:11.8px; background:#101517; color:#fff; border-radius:6px; padding:8px 10px; line-height:1.5; overflow-wrap:anywhere; margin:6px 0; }
+.cmd .c1 { color:#8FB6F0; } .cmd .c2 { color:#A7D6A7; } .cmd .c3 { color:#F5C77E; }
+.geo { width:100%; border-collapse:collapse; font-size:12px; margin-top:6px; }
+.geo th { text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.03em; color:#50575E; padding:3px 8px; border-bottom:1px solid #C3C4C7; }
+.geo td { padding:5px 8px; border-bottom:1px solid #E3E4E6; vertical-align:top; color:#50575E; }
+.geo td:first-child { font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color:#101517; white-space:nowrap; }
+.geo tr.pin td { background:#FBEAEA; }
+.geo tr.pin td:first-child { color:#B32D2E; }
+.dec svg text { font-family:Inter, -apple-system, Helvetica, Arial, sans-serif; font-size:12px; }
+.win { display:flex; gap:4px; margin:8px 0 4px; }
+.win .s { height:30px; border-radius:5px; display:flex; align-items:center; justify-content:center; font-size:11px; }
+.win .gone { flex:1; background:#F6F7F7; border:1px dashed #B0B3B8; color:#787C82; }
+.win .kept { flex:1; background:#003DA5; color:#fff; }
+</style>
+<div class="sheet">
+<h1>Where an ingested record lands, and what the destination keeps</h1>
+<p class="sub">Every record read from a dead-letter or partition segment goes back in through <span class="mono">Topic_Node::fill()</span>. The destination's shape is decided once, from the <span class="mono">&lt;topic&gt;</span> argument and three flags; each record's partition is decided per record, from its own envelope.</p>
+
+<div class="cols">
+  <div class="card">
+    <h2>1. The destination is taken as written</h2>
+    <div class="form">
+      <div class="f"><b>A bare log name</b><span class="mono">firehose</span> expands to <span class="mono">&lt;config:logs_dir&gt;/firehose.p&lt;partition&gt;</span>, with the configured <span class="mono">num_partitions</span>.</div>
+      <div class="f"><b>A dir-template</b>Carries a <span class="mono">&lt;partition&gt;</span> or <span class="mono">{partition}</span> token and is used verbatim once its <span class="mono">&lt;config:…&gt;</span> tokens resolve. It defaults to ONE partition, because the template names a layout already on disk.</div>
+    </div>
+    <div class="callout" style="margin-top:12px">
+      <h4>Neither form is checked against the declared log set</h4>
+      <p><span class="mono">wp nodes ingest firehoze …</span> builds <span class="mono">firehoze.p0/</span>, replays into it and ends with <span class="mono">Ingested N record(s).</span> Nothing declares that dir, so the orphan sweep deletes it an hour after the last write, or <span class="mono">wp nodes gc --force</span> at once. The <span class="mono">Destination:</span> line the command prints first is the only confirmation the replay landed where you meant.</p>
+    </div>
+  </div>
+
+  <div class="card dec">
+    <h2>2. Each record picks its own partition</h2>
+    <svg width="470" height="196" viewBox="0 0 470 196">
+      <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs>
+      <g fill="none" stroke="#003DA5" stroke-width="1.6" marker-end="url(#a)">
+        <path d="M120 40 H208"/><path d="M60 58 V90"/>
+        <path d="M120 108 H208"/><path d="M60 126 V158"/>
+        <path d="M120 176 H208"/>
+      </g>
+      <g fill="#F0F4FB" stroke="#C3D3EC"><rect x="4" y="22" width="112" height="36" rx="7"/><rect x="4" y="90" width="112" height="36" rx="7"/><rect x="4" y="158" width="112" height="36" rx="7"/></g>
+      <g fill="#101517" font-weight="700" text-anchor="middle"><text x="60" y="44">TO reads p&lt;N&gt;?</text><text x="60" y="112">KEY non-empty?</text><text x="60" y="180">neither</text></g>
+      <g fill="#003DA5" font-size="11"><text x="66" y="80">no</text><text x="66" y="148">no</text></g>
+      <g fill="#fff" stroke="#003DA5"><rect x="210" y="22" width="256" height="36" rx="7"/><rect x="210" y="90" width="256" height="36" rx="7"/><rect x="210" y="158" width="256" height="36" rx="7"/></g>
+      <g fill="#101517"><text x="222" y="37" font-weight="700">keeps its pin</text><text x="222" y="52" fill="#50575E" font-size="11.2">back to the partition it came from</text>
+      <text x="222" y="105" font-weight="700">hash_to_partition( KEY )</text><text x="222" y="120" fill="#50575E" font-size="11.2">CRC32 &amp; 0x7FFFFFFF, modulo the count</text>
+      <text x="222" y="173" font-weight="700">round-robin</text><text x="222" y="188" fill="#50575E" font-size="11.2">the next slot in turn</text></g>
+    </svg>
+    <p>A pin past the destination's count — a p3 replayed into a two-partition Topic — is out of range and falls through to the KEY hash, or to round-robin when it carries no KEY, rather than failing, so a replay into a narrower Topic still lands. A line that will not unpack is counted and skipped, so a torn record at a segment's tail cannot abandon the replay. A filtered <span class="mono">wp nodes reqgrep</span> or a <span class="mono">zcat</span> pipes in on stdin when no file is named.</p>
+  </div>
+</div>
+
+<div class="cols" style="margin-top:18px">
+  <div class="card">
+    <h2>3. Geometry: three flags, four axes pinned</h2>
+    <table class="geo">
+      <thead><tr><th>Axis</th><th>Default</th><th>Set by</th></tr></thead>
+      <tbody>
+        <tr><td>num_partitions</td><td>config <span class="mono">num_partitions</span>; 1 for a dir-template</td><td><span class="mono">--num_partitions=&lt;n&gt;</span></td></tr>
+        <tr><td>segment_size</td><td>config <span class="mono">segment_size</span> (64 MiB shipped)</td><td><span class="mono">--segment_size=&lt;bytes&gt;</span></td></tr>
+        <tr><td>num_segments</td><td>config <span class="mono">num_segments</span> (8 shipped)</td><td><span class="mono">--num_segments=&lt;n&gt;</span></td></tr>
+        <tr class="pin"><td>min_segments</td><td>2</td><td>pinned</td></tr>
+        <tr class="pin"><td>max_segments</td><td>0</td><td>pinned</td></tr>
+        <tr class="pin"><td>min_lifetime, lifetime</td><td>0, 0</td><td>pinned</td></tr>
+      </tbody>
+    </table>
+    <p style="margin-top:8px">Overriding any of the three is what makes re-segmenting an existing log the same operation as a replay. The three geometry flags refuse zero, a sign, a leading zero and a suffix.</p>
+  </div>
+  <div class="card">
+    <h2>The window trap: a replay prunes its own head</h2>
+    <p>Age retention is off on purpose — every re-ingested segment carries a fresh mtime — but <span class="mono">min_lifetime</span> at 0 also strips the count rule's age floor, so the destination prunes its oldest segment the moment it holds more than <span class="mono">num_segments</span>.</p>
+    <div class="cmd"><span class="c1">wp nodes ingest</span> firehose old/*.log <span class="c3">--segment_size=1048576 --num_segments=2</span></div>
+    <div class="win"><div class="s gone">seg 0, pruned</div><div class="s gone">seg 1, pruned</div><div class="s gone">seg 2, pruned</div><div class="s kept">seg 3, 1 MiB</div><div class="s kept">seg 4, 1 MiB</div></div>
+    <p>The destination holds 2 MiB and nothing more: a replay longer than that deletes its earlier output as it proceeds and keeps only the tail. Restoring a whole log means sizing <span class="mono">--num_segments</span> and <span class="mono">--segment_size</span> to span the source, then judging the destination against the source rather than assuming it complete.</p>
+  </div>
+</div>
+
+<div class="card" style="margin-top:18px">
+  <h2>4. Records above the 4 KB PIPE_BUF cap</h2>
+  <div class="cols">
+    <div>
+      <div class="cmd"><span class="c3">--allow_large_writes</span></div>
+      <p>A held per-partition lock, taken lazily when the first record routes to each partition. Against a partition a live writer holds it stalls 15 seconds, then aborts the replay with a fatal — after the records already routed have been accepted and flushed.</p>
+    </div>
+    <div>
+      <div class="cmd"><span class="c3">--void_warranty</span></div>
+      <p>No lock; the caller asserts single-writer. It cannot stall or abort this way, which is the trade the assertion buys. Either flag raises the cap to 32 MiB. Passing both is refused.</p>
+    </div>
+    <div>
+      <div class="cmd"><span class="c2">--dry-run</span></div>
+      <p>Writes nothing, reports the largest record it saw, and says which of the two flags you need. Without either flag an oversize record is skipped and counted, never written torn.</p>
+    </div>
+  </div>
+</div>
+</div>

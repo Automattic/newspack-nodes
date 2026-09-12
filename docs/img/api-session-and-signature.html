@@ -1,0 +1,111 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.wire { display:flex; align-items:flex-end; gap:0; font-size:15px; line-height:1.2; padding:12px 14px 12px; }
+.wire .br { color:#787C82; padding:0 3px; align-self:flex-end; }
+.slot { display:flex; flex-direction:column; align-items:center; gap:5px; text-align:center; padding:0 7px; }
+.slot .nm { color:#101517; font-weight:700; white-space:nowrap; }
+.slot .d { font-family:Inter, sans-serif; font-size:11px; color:#50575E; line-height:1.35; }
+.slot.hi .nm { color:#003DA5; }
+.slot.out .nm { color:#787C82; text-decoration:line-through; }
+.slot.out .d { color:#787C82; }
+.two { display:flex; gap:16px; align-items:flex-start; }
+.two > * { flex:1; }
+.two .card p { font-size:12.5px; }
+.kv { font-size:12.5px; line-height:1.5; color:#50575E; margin:0 0 6px; }
+.kv b { color:#101517; }
+.lad { display:grid; grid-template-columns: 34px 1.3fr 1fr; gap:6px; margin-top:8px; }
+.lad > div { font-size:12px; line-height:1.45; padding:8px 10px; border-radius:6px; background:#F0F4FB; border:1px solid #C3D3EC; }
+.lad .n { background:#003DA5; color:#fff; font-weight:700; text-align:center; border:none; padding:8px 0; }
+.lad .hd { background:transparent; border:none; font-size:11px; font-weight:600; color:#50575E; text-transform:uppercase; letter-spacing:.02em; padding:0 10px 2px; }
+.lad .r { color:#B32D2E; }
+.lad .quiet { background:#FBEAEA; border-color:#E6A3A3; color:#5C2223; }
+.ceil { display:flex; gap:8px; margin-top:10px; }
+.ceil > div { flex:1; font-size:12px; line-height:1.4; padding:8px 10px; border-radius:6px; border:1px solid #C3D3EC; background:#F0F4FB; }
+.ceil > div.none { background:#FBEAEA; border-color:#E6A3A3; color:#5C2223; }
+.mono { overflow-wrap:anywhere; }
+h2 { font-size:15px; margin:0 0 8px; }
+</style>
+<div class="sheet">
+<h1>A session key signs the semantics of a command and nothing else</h1>
+<p class="sub">The door authenticates the request and signs nothing. <span class="mono">POST /auth</span> hands out the key once; the node that mints a command signs four things under it; the verifier recomputes the same string and claims the nonce once. Everything that changes in transit stays outside the signature.</p>
+
+<div class="two">
+  <div class="card">
+    <h2><span class="mono">POST /auth</span>, three optional fields</h2>
+    <p class="kv"><b>scope</b> — <span class="mono">read</span>, <span class="mono">tune</span> or <span class="mono">manage</span>; default <span class="mono">manage</span>, CLAMPED to the highest role the minting user holds. Unknown: <span class="red">400 invalid_scope</span>; a caller holding no role never reaches <span class="mono">issue()</span>: the permission callback returns false, and WordPress answers <span class="red">401 rest_forbidden</span> anonymously, <span class="red">403</span> logged in. <span class="mono">issue()</span> repeats that refusal as <span class="red">403 invalid_scope</span>, so the clamp and the gate stay one decision.</p>
+    <p class="kv"><b>label</b> — the Sessions-tab name, through <span class="mono">sanitize_text_field()</span> then cut to 64 characters; empty keeps the session out of the listing. <span class="mono">sessions create</span> echoes the label as SENT, so the next <span class="mono">list</span> can disagree.</p>
+    <p class="kv"><b>ttl</b> — seconds, clamped into 60 … 86400, default 3600. Never slid on use.</p>
+    <p class="kv" style="margin:0"><b>No error code for a failed mint.</b> <span class="mono">mint_session()</span> throws <span class="mono">RuntimeException</span> when <span class="mono">store_session()</span> cannot persist the key (no cache backend, or a handle already taken) and nothing catches it on this route, so the POST fails as an uncaught exception; the <span class="mono">sessions create</span> verb reaches the same throw and reports it as a command error.</p>
+  </div>
+  <div class="panel" style="flex:1.15;font-size:14px">
+    <header>The response, disclosed once</header>
+    <div class="wire mono">
+      <span class="br">{</span>
+      <span class="slot hi" style="flex:1"><span class="nm">handle</span><span class="d">32 hex chars, server-chosen: a caller's handle could collide with or fixate a live session</span></span>
+      <span class="slot hi" style="flex:1"><span class="nm">key</span><span class="d">64 hex chars, never shown again; the cache holds it recoverable, not hashed, so the HMAC can be recomputed: the argument for a short ttl over a long-lived token</span></span>
+      <span class="slot" style="flex:.7"><span class="nm">scope</span><span class="d">what was GRANTED, not asked</span></span>
+      <span class="slot" style="flex:.8"><span class="nm">expires_in</span><span class="d">seconds; a leaked handle expires on schedule</span></span>
+      <span class="slot" style="flex:.7"><span class="nm">now</span><span class="d">server clock; the client aligns its TIMESTAMP to it</span></span>
+      <span class="br">}</span>
+    </div>
+    <div class="body" style="padding-top:0">
+      <p style="font-size:12.5px;color:#50575E;margin:0">The session records the minting user too, so a credential presented outside a browser, an MCP client or a script, acts as that user under the scope as its ceiling.</p>
+    </div>
+  </div>
+</div>
+
+<div class="panel" style="margin-top:18px">
+  <header>What the minter signs: <span class="mono">JSON.stringify([ TIMESTAMP, name, arguments, nonce ])</span>, HMAC-SHA256 under the key</header>
+  <div class="wire mono">
+    <span class="br">[</span>
+    <span class="slot hi" style="flex:1"><span class="nm">TIMESTAMP</span><span class="d">whole seconds; the freshness window reads it</span></span><span class="br">,</span>
+    <span class="slot hi" style="flex:1"><span class="nm">name</span><span class="d">the verb</span></span><span class="br">,</span>
+    <span class="slot hi" style="flex:1.2"><span class="nm">arguments</span><span class="d">the flat token list, re-indexed</span></span><span class="br">,</span>
+    <span class="slot hi" style="flex:1"><span class="nm">nonce</span><span class="d">32 hex chars, single use</span></span>
+    <span class="br">]</span>
+    <span style="flex:.4"></span>
+    <span class="slot out" style="flex:.8"><span class="nm">TYPE</span><span class="d">flags such as TM_NOREPLY are OR'd in after the mint</span></span>
+    <span class="slot out" style="flex:.8"><span class="nm">TO</span><span class="d">Router peels it in transit</span></span>
+    <span class="slot out" style="flex:.8"><span class="nm">FROM</span><span class="d">nodes stamp it in transit</span></span>
+    <span class="slot out" style="flex:.8"><span class="nm">handle</span><span class="d">rides beside the signature</span></span>
+  </div>
+  <div class="body" style="padding-top:0">
+    <div class="two">
+      <div>
+        <p class="kv" style="margin-bottom:4px">The result rides under <span class="mono">VALUE.auth</span>:</p>
+        <div class="wire mono" style="padding:6px 0 0;border:1px solid #C3D3EC;border-radius:7px;background:#F7F9FD;padding:10px 12px">
+          <span class="br">{</span>
+          <span class="slot" style="flex:1"><span class="nm">nonce</span><span class="d">32 hex</span></span>
+          <span class="slot" style="flex:1"><span class="nm">sig</span><span class="d">64 hex HMAC</span></span>
+          <span class="slot" style="flex:1.3"><span class="nm">handle</span><span class="d">the session; absent means the per-site secret</span></span>
+          <span class="br">}</span>
+        </div>
+      </div>
+      <div>
+        <p class="kv"><b><span class="mono">Command_Auth::sign()</span></b> omits the handle and signs under the per-site secret: the same-process path the attached <span class="mono">wp nodes cli</span> takes over a filesystem-gated IPC partition, never a browser.</p>
+        <p class="kv"><b><span class="mono">sign_for( $destination, … )</span></b> signs under the session held with that remote, and choosing the key IS the destination binding: a signature under one spoke's key verifies only there. No session: it refuses to sign. A VALUE that cannot be JSON-encoded is left unsigned on purpose, so the verifier refuses it rather than fall back to HMAC('').</p>
+        <p class="kv" style="margin:0">The bytes are exactly what <span class="mono">JSON.stringify</span> produces, because <span class="mono">src/runtime/command-auth.js</span> signs the same string; <span class="mono">tests/fixtures/signatures.json</span> pins the parity from both languages.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:18px">
+  <h2>Verification, in order, and what each refusal tells the server's audit</h2>
+  <div class="lad">
+    <div class="hd"></div><div class="hd">Check</div><div class="hd">On refusal, the drop line reads</div>
+    <div class="n">0</div><div>A command marked <span class="mono">LOCAL</span>, minted in this process, skips every check: <span class="mono">LOCAL</span> cannot survive <span class="mono">Message::packed()</span>, so only the process's own commands carry it.</div><div>—</div>
+    <div class="n">1</div><div>TYPE carries TM_COMMAND and neither TM_RESPONSE nor TM_ERROR, TIMESTAMP is numeric, and VALUE is an array holding <span class="mono">auth.nonce</span> and <span class="mono">auth.sig</span>.</div><div class="r">verification failed: wrong type · bad envelope</div>
+    <div class="n">2</div><div>TIMESTAMP sits within <b>20 s</b> behind or <b>10 s</b> ahead of the verifier's clock (<span class="mono">MAX_PAST_S</span>, <span class="mono">MAX_FUTURE_S</span>).</div><div class="r">verification failed: timestamp out of range</div>
+    <div class="n">3</div><div>The key resolves: the session named by <span class="mono">handle</span>, or the per-site secret when there is none.</div><div class="quiet">Nothing at all for an unknown or expired handle: a line here would let a caller probe the session store through the log.</div>
+    <div class="n">4</div><div><span class="mono">sig</span> equals the HMAC recomputed over the same canonical string under that key.</div><div class="r">verification failed: invalid signature · signature mismatch</div>
+    <div class="n">5</div><div><span class="mono">nonce</span> claims once through an atomic cache add, <span class="mono">NONCE_TTL_S</span> = 60 s; no backend means no claim and a refusal.</div><div class="quiet">Nothing for a replayed nonce, for the same reason.</div>
+  </div>
+  <p class="kv" style="margin:12px 0 4px"><b>The ceiling installed in <span class="mono">Capabilities::$session_scope</span> for this one command</b>, restored by <span class="mono">Command_Interpreter_Node::interpret()</span> afterwards:</p>
+  <div class="ceil">
+    <div><b>A verified session</b> installs its scope, which can only subtract from what the user's capability grants.</div>
+    <div><b>The per-site secret</b> installs <span class="mono">null</span>: the site's own authority carries no ceiling.</div>
+    <div class="none"><b>Every refusal</b> installs <span class="mono">Capabilities::NONE</span>, so a command whose authority never resolved leaves no wider ceiling standing behind it. The reply is <span class="mono">TM_COMMAND|TM_ERROR</span> carrying <span class="mono">unauthorized: &lt;verb&gt;</span>, names no cause, and the whole batch answers 401.</div>
+  </div>
+</div>
+</div>

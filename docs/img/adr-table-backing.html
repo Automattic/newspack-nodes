@@ -1,0 +1,87 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.seq { position: relative; width: 1052px; }
+.seq svg.wire { position: absolute; left: 0; top: 0; }
+.seq .lane { position: absolute; top: 0; width: 240px; min-height: 96px; }
+.seq .lane h3 { font-size: 14.5px; }
+.seq .lane p { font-size: 12px; margin: 0; }
+.seq .hop { position: absolute; background: #fff; border: 1px solid #C3D3EC; border-radius: 7px; padding: 9px 12px 9px 40px; font-size: 12.5px; line-height: 1.5; color: #101517; }
+.seq .hop.app { border-color: #C3C4C7; background: #FBFBFC; }
+.seq .n { position: absolute; left: 10px; top: 9px; width: 22px; height: 22px; border-radius: 50%; background: #003DA5; color: #fff; font-size: 12px; font-weight: 700; text-align: center; line-height: 22px; }
+.seq .cap { position: absolute; font-size: 12px; color: #50575E; text-align: center; background: #FBFBFC; padding: 0 6px; white-space: nowrap; }
+.two { display:flex; gap:16px; margin-top:16px; align-items:stretch; }
+.two > div { flex:1; }
+.two .card p { font-size:12.5px; }
+.mono { overflow-wrap: anywhere; }
+</style>
+<div class="sheet">
+<h1>A Table fronts a durable record, and the walk that finds it stays in the app</h1>
+<p class="sub">A miss falls through a closure the application installed, which asks Partition for the newest record per key and hands back an entry with the life it has LEFT. Partition owns the index walk, its memo and the syscalls; the app owns only what a line means.</p>
+
+<div class="seq" id="seq">
+<svg class="wire" id="wire"><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs></svg>
+
+<div class="lane card" data-lane="0"><h3>Caller</h3><p>A dashboard request: <span class="mono" style="white-space:nowrap">lookup( $key )</span> or <span class="mono" style="white-space:nowrap">lookup_multi( $keys )</span>.</p></div>
+<div class="lane card" data-lane="1"><h3><span class="mono">Table_Node</span></h3><p>The keyed store over the shared cache tier, one TTL fixed at construction.</p></div>
+<div class="lane card" data-lane="2"><h3>The backing closure</h3><p>Installed by <span class="mono">backed_by( \Closure )</span>. The application's: it knows the line format.</p></div>
+<div class="lane card" data-lane="3"><h3><span class="mono">Partition_Node</span></h3><p>Treats index lines and keys as opaque strings. Owns the walk.</p></div>
+
+<div class="hop" data-arrow="0,1" data-cap="lookup" data-span="1,2"><span class="n">1</span>A hit is served from the cache. A miss, an expiry and a backend read error all take the same branch: through the backing when one is installed, and back as null when none is. A miss is never remembered as a miss.</div>
+
+<div class="hop app" data-arrow="1,2" data-cap="every miss, asked ONCE" data-span="2,3"><span class="n">2</span><span class="mono">lookup_multi()</span> asks once for all of its misses. The closure receives the key list and returns <span class="mono">key => { value, ttl? }</span>.</div>
+
+<div class="hop" data-arrow="2,3" data-cap="locate_by( $extract, $wanted )" data-span="2,4"><span class="n">3</span>The app passes its line parser and the keys to resolve, and gets key → position for those keys only. The key set bounds the table, the walk and the memo: a whole-index table grows with the PARTITION, and at ~300 bytes a locator an order-1M-key partition exhausts a 512 MB request to answer a handful of rows. The result's order follows <span class="mono">$wanted</span>, so read it by key, never by position.</div>
+
+<div class="hop" data-span="2,4"><span class="n">4</span><b>Inside Partition.</b> One newest-first pass over the <span class="mono">.idx</span> sidecars: the first line a key appears on is its last write, within a segment and across them. A segment whose <span class="mono">.idx</span> is missing or unreadable is skipped and the extent is built from the <span class="mono">.log</span> id and size, so a transient read failure (EMFILE, a rotation in flight, a permissions blip) is recorded as absence, and the memo keeps it recorded until the log grows.</div>
+
+<div class="hop" data-span="2,4"><span class="n">5</span><b>Inside Partition.</b> The memo, a class-level static keyed by the resolved partition DIRECTORY, records what was found AND what was searched for, so an absent key stays answered instead of costing a walk per batch. It is discarded the moment an append changes the segment extent or <span class="mono">searched</span> passes <span class="mono">MAX_LOCATOR_MEMO_KEYS</span> (100,000). It caches "this index did not answer for this key", never "this record does not exist".</div>
+
+<div class="hop" data-arrow="2,3" data-cap="read_many( $positions )" data-span="2,4"><span class="n">6</span>Reads the located positions one file handle per SEGMENT and returns the lines; the app decodes each into a value and the remaining <span class="mono">ttl</span>.</div>
+
+<div class="hop" data-arrow="2,1" data-cap="key => { value, ttl }" data-span="1,3"><span class="n">7</span>A spent remainder (<span class="mono">ttl &lt;= 0</span>) is SERVED and not warmed: a stated <span class="mono">ttl</span> bounds the cache and decays from the write, which says nothing about how long the record is still read. Entries with life left are warmed grouped by lifetime, one round trip per TTL, best-effort: a dead backend must not turn a read into a miss.</div>
+
+<div class="hop" data-arrow="1,0" data-cap="value" data-span="0,2"><span class="n">8</span>The caller cannot tell a backed miss from "absent everywhere"; one that needs the distinction asks the record directly.</div>
+</div>
+
+<div class="two">
+  <div class="callout">
+    <h4>The one way to get a WRONG answer out of <span class="mono">locate_by()</span></h4>
+    <p>The memo assumes one index format per directory, which <span class="mono">with_index</span> already implies. Two readers of the same directory passing different <span class="mono">$extract</span> parsers share whichever walked first, and the second reader's keys land in <span class="mono">searched</span> as answered-and-absent, so each of its lookups comes back a silent miss.</p>
+  </div>
+  <div class="callout">
+    <h4>Rejected</h4>
+    <p>Leaving it in the application: two consumers in one plugin need it (<span class="mono">Rule_Set::hooks_for()</span> over an option, the stats mirror over a Partition), and each copy would carry its own key translation, TTL decay and scope guard. Pushing the line format down so Partition parses index entries: every consumer's fixed-width layout would land in the substrate. Letting the backing write through <span class="mono">store()</span>: it applies the table's TTL, which is exactly what a restore must not do.</p>
+  </div>
+  <div class="ok">
+    <h4>Why the remaining-TTL rule and the newest-record rule are one rule</h4>
+    <p>The lifetime is read off whichever record the key lands on, so resolving to an older write makes a live entry read as expired and vanish silently rather than loudly. A <span class="mono">PartitionTest</span> case pins it. Revisit if a consumer needs a miss to stay a miss, or a backing so slow that the fill belongs on a queue rather than in <span class="mono">lookup()</span>.</p>
+  </div>
+</div>
+</div>
+<script>
+(function () {
+  var L = [128, 392, 656, 920], seq = document.getElementById('seq'), svg = document.getElementById('wire');
+  var NS = 'http://www.w3.org/2000/svg';
+  function el(t, a) { var e = document.createElementNS(NS, t); for (var k in a) e.setAttribute(k, a[k]); return e; }
+  var lanes = seq.querySelectorAll('.lane'), headBottom = 0;
+  lanes.forEach(function (c) { var i = +c.dataset.lane; c.style.left = (L[i] - 120) + 'px'; headBottom = Math.max(headBottom, c.offsetHeight); });
+  var y = headBottom + 18;
+  seq.querySelectorAll('[data-span]').forEach(function (b) {
+    var s = b.dataset.span.split(',').map(Number), x0 = L[s[0]] - 118, x1 = L[s[1]] - 10;
+    if (s[1] === 4) x1 = 1042;
+    if (b.dataset.arrow) {
+      var a = b.dataset.arrow.split(',').map(Number), ay = y + 22, dir = a[1] > a[0] ? 1 : -1;
+      svg.appendChild(el('path', { d: 'M' + L[a[0]] + ' ' + ay + ' H' + (L[a[1]] - 6 * dir), stroke: '#003DA5', 'stroke-width': 1.8, fill: 'none', 'marker-end': 'url(#a)' }));
+      var cap = document.createElement('div'); cap.className = 'cap'; cap.textContent = b.dataset.cap;
+      cap.style.top = (ay - 20) + 'px'; seq.appendChild(cap);
+      cap.style.left = ((L[a[0]] + L[a[1]]) / 2 - cap.offsetWidth / 2) + 'px';
+      y = ay + 10;
+    }
+    b.style.left = x0 + 'px'; b.style.width = (x1 - x0) + 'px'; b.style.top = y + 'px';
+    y += b.offsetHeight + 12;
+  });
+  var boxes = seq.querySelectorAll('[data-span]'), lastTop = boxes[boxes.length - 1].offsetTop;
+  seq.style.height = y + 'px'; svg.setAttribute('width', 1052); svg.setAttribute('height', y);
+  L.forEach(function (x) { svg.insertBefore(el('path', { d: 'M' + x + ' ' + (headBottom + 4) + ' V' + (lastTop - 4), stroke: '#B0B3B8', 'stroke-dasharray': '4 5', 'stroke-width': 1.5 }), svg.firstChild.nextSibling); });
+})();
+</script>

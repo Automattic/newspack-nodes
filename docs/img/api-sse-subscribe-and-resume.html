@@ -1,0 +1,76 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+h2 { font-size:15px; margin:0 0 8px; }
+.dec { display:grid; grid-template-columns: 1fr 1fr 1fr; gap:8px; }
+.dec .q { background:#F0F4FB; border:1px solid #C3D3EC; border-radius:7px; padding:9px 11px; font-size:12px; line-height:1.45; }
+.dec .q b { display:block; color:#003DA5; font-size:12.5px; margin-bottom:3px; }
+.dec .q.deny { background:#EDF7ED; border-color:#9EC89E; color:#2B5F2B; } .dec .q.deny b { color:#1E5B1E; }
+.wire { display:flex; align-items:flex-end; gap:0; font-size:13.5px; line-height:1.2; padding:12px 14px 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.slot { display:flex; flex-direction:column; align-items:center; gap:5px; text-align:center; }
+.slot .nm { color:#003DA5; font-weight:700; white-space:nowrap; }
+.slot .d { font-family:Inter, sans-serif; font-size:11px; color:#50575E; line-height:1.35; }
+.slot.opt .nm { color:#787C82; }
+.two { display:flex; gap:16px; margin-top:18px; align-items:stretch; }
+.two > * { flex:1; }
+.two .card p, .two .panel p { font-size:12.5px; }
+.sent { display:flex; gap:6px; margin:8px 0 10px; }
+.sent div { flex:1; background:#F0F4FB; border:1px solid #C3D3EC; border-radius:6px; padding:7px 9px; font-size:11.5px; line-height:1.4; }
+.sent div b { display:block; font-size:14px; color:#003DA5; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.crumb { display:flex; align-items:center; gap:8px; margin:8px 0 10px; font-size:12px; }
+.crumb .m { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background:#101517; color:#fff; border-radius:6px; padding:8px 11px; font-size:12.5px; }
+.crumb .m .k { color:#A7D6A7; }
+.crumb .ar { color:#003DA5; font-size:18px; }
+.crumb .m { white-space:nowrap; flex:0 0 auto; }
+.mono { overflow-wrap:anywhere; }
+</style>
+<div class="sheet">
+<h1>What a subscription names, where it starts, and how a client resumes</h1>
+<p class="sub">A name resolves either to a worker's IPC output or to a glob over partition directories. Each reader is stamped, and the stamp keys three things: the starting cursor in the <span class="mono">connected</span> handshake, the FROM on every delivered record, and the <span class="mono">positions</span> a client sends back. <span class="mono">positions</span> is the ONLY resume input: no <span class="mono" style="white-space:nowrap">Last-Event-ID</span>, no SSE <span class="mono">id:</span> field.</p>
+
+<h2>Resolving one name from <span class="mono">subscribe</span> (a CSV; blank entries dropped)</h2>
+<div class="dec">
+  <div class="q"><b>1. Split the group</b>A name is <span class="mono">[&lt;group&gt;/]&lt;rest&gt;</span>. No slash means <span class="mono">logs</span>. The group must be <span class="mono">offsets</span> or <span class="mono">deadletter</span> (<span class="mono">Log_Discovery::GROUPS</span> minus the default); an explicit <span class="mono">logs/</span> prefix is refused, as is anything outside the list. That is what keeps a caller-supplied prefix from reaching a path.</div>
+  <div class="q"><b>2. Check the rest</b>It must match <span class="mono">/^[a-z0-9_-][a-z0-9_.*-]*$/D</span> and contain no <span class="mono">..</span>, which leaves <span class="mono">*</span> as the only wildcard and confines a glob to one level under a browsable root. Anything else throws <span class="mono">InvalidArgumentException</span>.</div>
+  <div class="q deny"><b>3a. Worker IPC</b>A bare exact name, no group and no <span class="mono">*</span>, whose worker holds a live channel at <span class="mono">{base}/ipc/{name}/output</span>, tails that channel tail-seeked: the attached console. It never reports idle, and one writer means it never takes the multi-writer grace.</div>
+  <div class="q" style="grid-column: 1 / span 3"><b>3b. Partition dirs</b>Everything else globs <span class="mono">{base}/{group}/{rest}</span> for directories and opens one Consumer per match: itself for an exact name, every partition dir for <span class="mono">firehose.*</span>. The stamp is the dir basename for a <span class="mono">logs</span> subscription and <span class="mono">{group}/{basename}</span> for a grouped one. A valid pattern matching nothing opens nothing. With <span class="mono">multi_writer</span> set, each log Consumer takes the seal grace (<span class="mono">SEAL_GRACE_SECONDS</span> = 2), because a peer can keep appending to segment N for up to <span class="mono">DRIFT_RESCAN_INTERVAL_SECONDS</span> (1) after N+1 appears; the client asserts it, since nothing on disk records which logs are shared, and a single-writer log would only pay the latency.</div>
+</div>
+
+<div class="panel" style="margin-top:18px">
+  <header>The <span class="mono">connected</span> envelope: a TM_INFO frame from <span class="mono">_stream</span>, VALUE a flat <span class="mono">KEY VALUE</span> string, never JSON</header>
+  <div class="wire">
+    <span class="slot" style="flex:1"><span class="nm">PID &lt;pid&gt;</span><span class="d">a browser stamps it into the FROM of attached commands, <span class="mono">_sse:{pid}/{node}</span>, so the server's filter demuxes async replies to this tab; must be a positive canonical decimal</span></span>
+    <span class="slot" style="flex:.8"><span class="nm">SLOT &lt;slot&gt;</span><span class="d">may be 0</span></span>
+    <span class="slot" style="flex:1"><span class="nm">OWNER &lt;owner&gt;</span><span class="d">an opaque positive decimal fencing token; clients keep it as TEXT, never a precision-limited number. Out of the CONNECTED state payload and every stderr line</span></span>
+    <span class="slot" style="flex:1"><span class="nm">SUBSCRIPTIONS &lt;csv&gt;</span><span class="d">as requested</span></span>
+    <span class="slot" style="flex:.8"><span class="nm">INTERVAL &lt;ms&gt;</span><span class="d">the heartbeat cadence, 2000</span></span>
+    <span class="slot opt" style="flex:1.2"><span class="nm">CURSORS &lt;csv&gt;</span><span class="d">omitted when empty; else <span class="mono">stamp=segment:offset</span> pairs, the STARTING point of each live subscription. A stamp holding a space or comma is skipped rather than desync the pairing</span></span>
+  </div>
+  <div class="body" style="padding-top:0">
+    <p style="font-size:12.5px;color:#50575E;margin:0"><span class="mono">SSE_In_Node</span> validates rather than tolerates: a non-string VALUE, an odd token count, or a missing or non-canonical SLOT, OWNER or PID retires the lease, sets ERROR carrying <span class="mono">connected envelope missing or invalid &lt;FIELD&gt;</span>, and returns 0 from the write callback so the stream returns only after the backoff. Unknown extra pairs are ignored, so ADDING a field is safe; renaming one of those three, or spelling OWNER as anything but a positive decimal, kills every machine pull. The matching keepalive is <span class="mono">workers heartbeat [ slot, owner ]</span>, and the server owns the lease TTL.</p>
+  </div>
+</div>
+
+<div class="two">
+  <div class="card">
+    <h2>Advancing: every <span class="mono">msg</span> carries its own breadcrumb</h2>
+    <div class="crumb">
+      <span class="m">ID <span class="k">"{segment}:{offset}:{length}"</span></span>
+      <span class="ar">→</span>
+      <span>next read boundary is <span class="mono">offset + length</span> within <span class="mono">segment</span></span>
+    </div>
+    <p>FROM is stamped with the subscription's stamp, so the client knows which cursor to move. It starts from the CURSORS in the handshake, advances out of each delivered record, and sends the result back as <span class="mono">positions</span> on the next connect, so it is never handed a cursor it did not compute. CURSORS exists because an idle close makes zero-message streams the normal case: a reopen with no position tail-seeks and drops whatever arrived in the gap. <span class="mono">SSE_In_Node</span>, pulling over cURL, keeps its cursor the same way.</p>
+    <p style="margin:0">Omitting <span class="mono">positions</span> tail-seeks every subscription, which is what a browser dashboard does on a first connect.</p>
+  </div>
+  <div class="card">
+    <h2><span class="mono">positions</span>: a JSON object keyed by stamp</h2>
+    <p>A value is an exact <span class="mono">{segment, offset}</span> object, or one of Tachikoma's three seek sentinels, mirrored as <span class="mono">Consumer_Node::SEEK_*</span>, with the words accepted as aliases:</p>
+    <div class="sent">
+      <div><b>0 · start</b>byte 0 of the first segment</div>
+      <div><b>-1 · end</b>the newest segment's current size: a live tail</div>
+      <div><b>-2 · recent</b>byte 0 of the SECOND-newest segment, or of the only one, so it can replay up to a whole segment</div>
+    </div>
+    <p>Stating the seek as a number is what lets <span class="mono">{segment: 0, offset: 0}</span> mean the START of the log rather than an absent value: <span class="mono">SSE_In_Node</span> always sends a position, <span class="mono">-1</span> when it has none, so a source resuming a <span class="mono">0:0</span> checkpoint replays its backlog instead of being tail-seeked past it.</p>
+    <p style="margin:0">Malformed JSON, or a value decoding to anything but an array, is treated as omitted. A per-key value goes the other way: <span class="mono">position_arg()</span> keeps a number as a number and a word as a string, and <span class="mono">seek_sentinel()</span> resolves any word it does not recognise to <span class="mono">SEEK_START</span>, so ONE typo'd position word replays that subscription's whole log rather than tail-seeking it.</p>
+  </div>
+</div>
+</div>

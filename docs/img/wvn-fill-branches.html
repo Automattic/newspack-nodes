@@ -1,0 +1,105 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.g { position: relative; width: 1052px; height: 616px; }
+.g svg.wire { position: absolute; left: 0; top: 0; }
+.nd { position: absolute; background: #fff; border: 1px solid #C3D3EC; border-radius: 7px; padding: 8px 11px; font-size: 12px; line-height: 1.4; }
+.nd .t { display: block; font-weight: 700; font-size: 12.5px; color: #101517; }
+.nd .k { display: block; color: #50575E; font-size: 11.5px; }
+.nd .k .mono { color: #101517; }
+.nd.q { border-color: #003DA5; background: #F0F4FB; }
+.nd.q .t { color: #003DA5; }
+.nd.out { background: #EDF7ED; border-color: #9EC89E; }
+.nd.out .t { color: #1E5B1E; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.nd.out .k { color: #2B5F2B; }
+.nd.keep { background: #F6F7F7; border-color: #C3C4C7; }
+.nd.keep .t { color: #50575E; }
+.nd.err { background: #FBEAEA; border-color: #E6A3A3; }
+.nd.err .t { color: #B32D2E; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.nd.err .k { color: #5C2223; }
+.cap { position: absolute; font-size: 11.5px; color: #50575E; background: #FBFBFC; padding: 0 5px; white-space: nowrap; line-height: 1.3; text-align: center; }
+.cap.yes { color: #003DA5; font-weight: 600; }
+.cap.no { color: #787C82; font-weight: 600; }
+.mono { overflow-wrap: anywhere; }
+.rowc { display: flex; gap: 16px; margin-top: 16px; align-items: stretch; }
+.rowc > * { flex: 1; }
+.card h3 { font-size: 14px; }
+.card .chip { font-size: 12px; line-height: 1.45; }
+.card .chip:last-child { margin-bottom: 0; }
+</style>
+<div class="sheet">
+<h1><span class="mono">fill()</span> is total: every message shape returns, and three of them publish</h1>
+<p class="sub">The base <span class="mono">SliceViewNode.fill()</span> decides by origin first, then by type, then by shape. Nothing here throws, because the Router dispatches <span class="mono">target.fill( message )</span> with no per-message try/catch and a throw would abort the whole turn that delivered the reply.</p>
+
+<div class="g" id="g">
+<svg class="wire" id="wire" width="1052" height="616"><defs>
+<marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker>
+<marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#787C82"/></marker>
+</defs></svg>
+
+<div class="nd" id="in" style="left:0;top:0;width:200px"><span class="t">a message lands</span><span class="k"><span class="mono">this.counter += 1</span> before anything else: a terminal node has no sink to count for it, and this counter is the throughput the console and overlay draw</span></div>
+
+<div class="nd q" id="q1" style="left:0;top:130px;width:200px"><span class="t">FROM === controlFrom?</span><span class="k">origin, never payload: a reply carrying an <span class="mono">action</span> field is still a reply. A view with no <span class="mono">controlFrom</span> takes no controls, and <span class="mono">controlMsg()</span> throws rather than stamp an empty origin</span></div>
+<div class="nd out" id="ctl" style="left:260px;top:130px;width:300px"><span class="t">_control( value.action )</span><span class="k"><span class="mono">loading</span> → <span class="mono">{ ...model, loading: true, error: null }</span><br><span class="mono">clear</span> → <span class="mono">emptySlice()</span><br><span class="mono">error</span> → <span class="mono">{ ...model, loading: false, error: value.error || 'Operation failed' }</span><br>an unknown verb changes nothing; a subclass handles its own first and defers with <span class="mono">super._control()</span></span></div>
+
+<div class="nd q" id="q2" style="left:0;top:314px;width:200px"><span class="t">TYPE & TM_ERROR?</span><span class="k">a transport refusal, such as the Router's <span class="mono">NOT_AVAILABLE</span>, arrives as a bare string VALUE</span></div>
+<div class="nd err" id="errm" style="left:260px;top:314px;width:300px"><span class="t">{ ...model, error, loading: false }</span><span class="k"><span class="mono">error</span> is <span class="mono">errorMessage( payloadOf( value ) )</span>. The slice already on screen is kept and the spinner stopped; whether the widget still draws it is the widget's call</span></div>
+
+<div class="nd q" id="q3" style="left:0;top:440px;width:200px"><span class="t">VALUE an object?</span><span class="k">only an object carries a parseable slice</span></div>
+
+<div class="nd q" id="q4" style="left:260px;top:440px;width:300px"><span class="t">_parse( value.payload ) → null?</span><span class="k">a string is <span class="mono">JSON.parse</span>d in a try/catch and must decode to an object; a declared <span class="mono">parse</span> runs on the decoded body when <span class="mono">json</span>, else on the raw payload; null on anything it cannot use</span></div>
+<div class="nd keep" id="drop2" style="left:260px;top:560px;width:300px"><span class="t">return — the prior slice stays on screen</span><span class="k">transient garbage never blanks a widget</span></div>
+
+<div class="nd out" id="pub" style="left:670px;top:440px;width:382px"><span class="t">model = { ...settled, ...slice }</span><span class="k">Rebuilt, not merged: <span class="mono">settled</span> holds the resting value of each status field the empty model declares — <span class="mono">loading: false</span>, <span class="mono">error: null</span> — so this tick's reply retires last tick's spinner and error. Anything published into the slice by other means is gone at the next reply; a field belongs in the slice only when the next reply should retire it.</span></div>
+
+<div class="nd out" id="set" style="left:670px;top:130px;width:382px"><span class="t">setState( 'view', model )</span><span class="k">Every control, every error and every parsed reply publishes here; <span class="mono">useNodeState( '&lt;subject&gt;:view', 'view' )</span> reads it. <span class="mono">setState</span> caches the latest payload, so a widget that mounts after the reply still gets the current model — a late <span class="mono">register()</span> replays the cache — and the constructor seeds it from <span class="mono">emptySlice()</span> so a render before the first reply is valid.</span></div>
+</div>
+
+<div class="rowc">
+  <div class="card">
+    <h3>Preserve the order if you override</h3>
+    <div class="chip"><b>Origin first, then TYPE.</b> Sniffing a payload for a control swallows whole streams; testing TM_ERROR after the shape check would drop a bare-string refusal as garbage, leaving any spinner running and no error on screen.</div>
+    <div class="chip"><b>Garbage keeps the prior slice.</b> <span class="mono">_parse</span> reports what it cannot use by returning null, never by throwing; if you decode anything yourself, wrap it the same way.</div>
+    <div class="chip"><b>Recovery without a reload.</b> The next parsed reply rebuilds from <span class="mono">settled</span>, which carries no <span class="mono">error</span>, so the card draws its data again on that tick.</div>
+  </div>
+  <div class="card">
+    <h3>The one-shot mirror</h3>
+    <div class="chip">A slice keeps the model it holds when a tick fails. <span class="mono">CommandResultNode</span>, which <span class="mono">useCommandOnce</span> builds, does the opposite: every reply publishes on <span class="mono">result</span>, refusals included, with the same seven fields either way — <span class="mono">ok</span>, <span class="mono">args</span>, <span class="mono">subject</span>, <span class="mono">payload</span>, <span class="mono">error</span>, <span class="mono">errorData</span>, <span class="mono">undelivered</span> — so a caller reads <span class="mono">ok</span> to branch and never waits on news that already arrived.</div>
+    <div class="chip">Read them differently, too: a widget renders a slice through <span class="mono">useNodeState</span>, but anything acting once per one-shot answer registers a listener, because two replies inside one React batch cost one re-render and the rendered state shows only the last.</div>
+  </div>
+</div>
+</div>
+<script>
+(function () {
+  var g = document.getElementById('g'), svg = document.getElementById('wire'), NS = 'http://www.w3.org/2000/svg';
+  function el(t, a) { var e = document.createElementNS(NS, t); for (var k in a) e.setAttribute(k, a[k]); return e; }
+  function box(id) { var n = document.getElementById(id); return { x: n.offsetLeft, y: n.offsetTop, w: n.offsetWidth, h: n.offsetHeight }; }
+  function pt(b, s, f) { f = f === undefined ? 0.5 : f;
+    if (s === 'r') return [b.x + b.w, b.y + b.h * f]; if (s === 'l') return [b.x, b.y + b.h * f];
+    if (s === 't') return [b.x + b.w * f, b.y]; return [b.x + b.w * f, b.y + b.h]; }
+  function edge(e) {
+    var a = pt(box(e.from), e.fs, e.f0), b = pt(box(e.to), e.ts, e.f1), d, hz = 'lr'.indexOf(e.fs) >= 0, hz2 = 'lr'.indexOf(e.ts) >= 0;
+    if (hz && hz2) { var dx = (b[0] - a[0]) / 2; d = 'M' + a[0] + ' ' + a[1] + ' C' + (a[0] + dx) + ' ' + a[1] + ' ' + (b[0] - dx) + ' ' + b[1] + ' ' + b[0] + ' ' + b[1]; }
+    else if (!hz && !hz2) { var dy = (b[1] - a[1]) / 2; d = 'M' + a[0] + ' ' + a[1] + ' C' + a[0] + ' ' + (a[1] + dy) + ' ' + b[0] + ' ' + (b[1] - dy) + ' ' + b[0] + ' ' + b[1]; }
+    else if (hz) { d = 'M' + a[0] + ' ' + a[1] + ' H' + b[0] + ' V' + b[1]; }
+    else { d = 'M' + a[0] + ' ' + a[1] + ' V' + b[1] + ' H' + b[0]; }
+    svg.appendChild(el('path', { d: d, stroke: e.grey ? '#787C82' : '#003DA5', 'stroke-width': 1.7, fill: 'none', 'marker-end': e.grey ? 'url(#ag)' : 'url(#a)', 'stroke-dasharray': e.dash ? '4 4' : 'none' }));
+    if (e.label) { var c = document.createElement('div'); c.className = 'cap' + (e.cls ? ' ' + e.cls : ''); c.innerHTML = e.label; g.appendChild(c);
+      var mx = e.ax !== undefined ? e.ax : (a[0] + b[0]) / 2 + (e.lx || 0), my = e.ay !== undefined ? e.ay : (a[1] + b[1]) / 2 + (e.ly || 0);
+      c.style.left = (mx - c.offsetWidth / 2) + 'px'; c.style.top = (my - c.offsetHeight / 2) + 'px'; }
+  }
+  [
+    { from: 'in', fs: 'b', to: 'q1', ts: 't' },
+    { from: 'q1', fs: 'r', to: 'ctl', ts: 'l', f0: 0.25, f1: 0.25, label: 'yes', cls: 'yes', ly: -14 },
+    { from: 'q1', fs: 'b', to: 'q2', ts: 't', label: 'no', cls: 'no', lx: 16 },
+    { from: 'q2', fs: 'r', to: 'errm', ts: 'l', label: 'yes', cls: 'yes', ly: -14 },
+    { from: 'q2', fs: 'b', to: 'q3', ts: 't', label: 'no', cls: 'no', lx: 16 },
+    { from: 'q3', fs: 'r', to: 'q4', ts: 'l', label: 'yes', cls: 'yes', ly: -14 },
+    { from: 'q3', fs: 'b', to: 'drop2', ts: 'l', f0: 0.5, label: 'no', cls: 'no', ax: 116, ay: 545 },
+    { from: 'q4', fs: 'b', to: 'drop2', ts: 't', f0: 0.5, f1: 0.5, label: 'null', cls: 'no', lx: 20 },
+    { from: 'q4', fs: 'r', to: 'pub', ts: 'l', f0: 0.3, f1: 0.3, label: 'a slice', cls: 'yes', ly: -14 },
+    { from: 'ctl', fs: 'r', to: 'set', ts: 'l', f0: 0.5, f1: 0.3 },
+    { from: 'errm', fs: 'r', to: 'set', ts: 'l', f0: 0.5, f1: 0.75 },
+    { from: 'pub', fs: 't', to: 'set', ts: 'b', f0: 0.5, f1: 0.5 }
+  ].forEach(edge);
+})();
+</script>

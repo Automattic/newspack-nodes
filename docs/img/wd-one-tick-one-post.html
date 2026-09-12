@@ -1,0 +1,100 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.seq { position: relative; width: 1052px; }
+.seq svg.wire { position: absolute; left: 0; top: 0; }
+.seq .lane { position: absolute; top: 0; width: 196px; min-height: 104px; }
+.seq .lane h3 { font-size: 14px; }
+.seq .lane p { font-size: 12px; margin: 0; }
+.seq .hop { position: absolute; background: #fff; border: 1px solid #C3D3EC; border-radius: 7px;
+  padding: 9px 12px 9px 40px; font-size: 12.5px; line-height: 1.5; color: #101517; }
+.seq .n { position: absolute; left: 10px; top: 9px; width: 22px; height: 22px; border-radius: 50%;
+  background: #003DA5; color: #fff; font-size: 12px; font-weight: 700; text-align: center; line-height: 22px; }
+.seq .panel { position: absolute; }
+.seq .panel header { position: relative; padding-left: 44px; font-size: 14px; }
+.seq .panel header .n { background: #fff; color: #003DA5; left: 12px; top: 8px; }
+.seq .panel .body { padding: 12px 14px 6px; }
+.seq .panel .chip { font-size: 12.5px; line-height: 1.45; padding: 7px 10px; }
+.seq .cap { position: absolute; font-size: 12px; color: #50575E; text-align: center; background: #FBFBFC; padding: 0 6px; white-space: nowrap; }
+.mono { overflow-wrap: anywhere; }
+.cols { display: flex; gap: 16px; margin-top: 18px; align-items: flex-start; }
+.cols > * { flex: 1; }
+.card h3 { font-size: 14px; }
+.card .chip { font-size: 12.5px; line-height: 1.45; }
+</style>
+<div class="sheet">
+<h1>One router tick is one POST, however many slices ride it</h1>
+<p class="sub">The Router owns the batch bracket: it locks <span class="mono">_http</span>, notifies every hitchhiking timer, and flushes in a <span class="mono">finally</span>. Three Fetchers fan out inside that bracket and their three commands leave in one request; a fourth slice adds a command, not a POST.</p>
+
+<div class="seq" id="seq">
+<svg class="wire" id="wire"><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs></svg>
+
+<div class="lane card" data-lane="0"><h3><span class="mono">_router</span></h3><p>Fires every <span class="mono">ROUTER_TICK_MS</span>, 1,000 ms, on its own slot.</p></div>
+<div class="lane card" data-lane="1"><h3>Timer → Tee</h3><p><span class="mono">insights:timer</span> rides the Router's TIMER channel; <span class="mono">insights:tee</span> fans its tick.</p></div>
+<div class="lane card" data-lane="2"><h3>Three Fetchers</h3><p>Each holds one configured verb and an outbox of asks in flight.</p></div>
+<div class="lane card" data-lane="3"><h3><span class="mono">_shell</span> → <span class="mono">_http</span></h3><p>The observe-only Tap, then the <span class="mono">HttpOut</span> egress that buffers while locked.</p></div>
+<div class="lane card" data-lane="4"><h3>Server</h3><p><span class="mono">/newspack-nodes/v1/command</span> routes each command to <span class="mono">insights-demo</span>.</p></div>
+
+<div class="hop" data-arrow="0,3" data-cap="lock()" data-span="0,3"><span class="n">1</span><span class="mono">RouterNode.fireCb()</span> opens the bracket: <span class="mono">_http.lock()</span>, so every <span class="mono">fill()</span> reaching <span class="mono">_http</span> buffers instead of posting.</div>
+
+<div class="hop" data-arrow="0,1" data-cap="notifyTimer()" data-span="0,3"><span class="n">2</span><span class="mono">notifyTimer()</span> calls each TIMER registrant's <span class="mono">fireCb()</span> directly. A cadence of exactly 1,000 ms fires every tick; above it the Timer throttles to its interval on the shared wall-clock grid (ADR-17), so two surfaces on one cadence meet on the same tick.</div>
+
+<div class="hop" data-arrow="1,2" data-cap="trigger ×3" data-span="1,3"><span class="n">3</span>The Tee fans the tick to the three Fetchers. A Fetcher reads nothing off its trigger: type, VALUE and addressing are ignored.</div>
+
+<div class="panel" data-span="2,4">
+  <header><span class="n">4</span>Each Fetcher decides what to send</header>
+  <div class="body">
+    <div class="chip">No signing session yet: send nothing; the next poll carries it.</div>
+    <div class="chip">An ask is standing: re-send it only once <span class="mono">retry_after_s</span> (15 s; 0 disables) has passed unanswered, retire it outright at 120 s, and mint nothing new.</div>
+    <div class="chip">Outbox empty: mint ONE ask — <span class="mono">TM_COMMAND</span>, <span class="mono">FROM = receiver</span>, <span class="mono">VALUE = { name, arguments }</span> — mark it LOCAL (this process's own mint, and its signature), and forward with <span class="mono">TO = _shell/_http/insights-demo</span>.</div>
+  </div>
+</div>
+
+<div class="hop" data-arrow="2,3" data-cap="fill, buffered" data-span="2,4"><span class="n">5</span>The Router peels <span class="mono">_shell</span>, the Tap passes the command through, the Router peels <span class="mono">_http</span>, and <span class="mono">HttpOut</span> pushes it onto its buffer with <span class="mono">insights-demo</span> as the remaining TO.</div>
+
+<div class="hop" data-arrow="3,4" data-cap="finally: flush() — one postBatch" data-span="2,4"><span class="n">6</span>The bracket closes in a <span class="mono">finally</span>, even when a subscriber throws. <span class="mono">flush()</span> packs the buffer once and POSTs it as one batch; a tick that buffered nothing costs no request.</div>
+
+<div class="hop" data-arrow="4,3" data-cap="three replies, one response" data-span="1,4"><span class="n">7</span>Each verb replies <span class="mono">TO = FROM</span>. The response hands every reply to <span class="mono">_command_interpreter</span>, the Router delivers it to that Fetcher's receiver Tee, the Tee fans it to the view, and last to the Fetcher, which takes the ask off its outbox.</div>
+</div>
+
+<div class="cols">
+  <div class="card">
+    <h3>What stops the tick from fanning out</h3>
+    <div class="chip"><b>Hidden tab:</b> <span class="mono">timer.stopTimer()</span> unregisters the Timer from the Router's TIMER channel, so the tick fans out to nothing and nothing POSTs; visible again re-arms it and delivers any first load still owed.</div>
+    <div class="chip"><b><span class="mono">paused</span>:</b> the same stop while a surface is open — a drag in flight — except that a first load still owed is delivered.</div>
+    <div class="chip"><b><span class="mono">enabled: false</span>:</b> no first load, no timer, no named node; flipping it true delivers the first load then.</div>
+    <div class="chip" style="margin-bottom:0"><b><span class="mono">pollNow()</span>:</b> marks the poll due and runs the Router's tick, so a filter change refreshes inside the bracket without waiting out the cadence.</div>
+  </div>
+  <div class="callout">
+    <h4>Below 1,000 ms the batch is gone</h4>
+    <p><span class="mono">useBatchedPoll</span> throws a <span class="mono">TypeError</span> naming the timer for any <span class="mono">intervalMs</span> under 1,000, because that floor is <span class="mono">TimerNode</span>'s own hitchhike threshold. A sub-second timer takes a <span class="mono">setInterval</span> slot of its own, outside the lock/flush bracket: one POST per slice per tick and nothing batched. Sub-second work rides <span class="mono">useRouterTick</span>, a passenger on the Router's own tick.</p>
+    <p>A mount opening a bracket of its own would make the tick pay for a second POST, which is why <span class="mono">useBatchedPoll</span> opens none.</p>
+  </div>
+</div>
+</div>
+<script>
+(function () {
+  var L = [105, 315, 526, 736, 947], seq = document.getElementById('seq'), svg = document.getElementById('wire');
+  var NS = 'http://www.w3.org/2000/svg';
+  function el(t, a) { var e = document.createElementNS(NS, t); for (var k in a) e.setAttribute(k, a[k]); return e; }
+  var lanes = seq.querySelectorAll('.lane'), headBottom = 0;
+  lanes.forEach(function (c) { var i = +c.dataset.lane; c.style.left = (L[i] - 98) + 'px'; headBottom = Math.max(headBottom, c.offsetHeight); });
+  var y = headBottom + 18;
+  seq.querySelectorAll('[data-span]').forEach(function (b) {
+    var s = b.dataset.span.split(',').map(Number), x0 = L[s[0]] - 95, x1 = L[s[1]] - 10;
+    if (s[1] === 4) x1 = 1042;
+    if (b.dataset.arrow) {
+      var a = b.dataset.arrow.split(',').map(Number), ay = y + 22, dir = a[1] > a[0] ? 1 : -1;
+      svg.appendChild(el('path', { d: 'M' + L[a[0]] + ' ' + ay + ' H' + (L[a[1]] - 6 * dir), stroke: '#003DA5', 'stroke-width': 1.8, fill: 'none', 'marker-end': 'url(#a)' }));
+      var cap = document.createElement('div'); cap.className = 'cap'; cap.textContent = b.dataset.cap;
+      cap.style.top = (ay - 20) + 'px'; seq.appendChild(cap);
+      cap.style.left = ((L[a[0]] + L[a[1]]) / 2 - cap.offsetWidth / 2) + 'px';
+      y = ay + 10;
+    }
+    b.style.left = x0 + 'px'; b.style.width = (x1 - x0) + 'px'; b.style.top = y + 'px';
+    y += b.offsetHeight + 12;
+  });
+  var boxes = seq.querySelectorAll('[data-span]'), lastTop = boxes[boxes.length - 1].offsetTop;
+  seq.style.height = y + 'px'; svg.setAttribute('width', 1052); svg.setAttribute('height', y);
+  L.forEach(function (x) { svg.insertBefore(el('path', { d: 'M' + x + ' ' + (headBottom + 4) + ' V' + (lastTop - 4), stroke: '#B0B3B8', 'stroke-dasharray': '4 5', 'stroke-width': 1.5 }), svg.firstChild.nextSibling); });
+})();
+</script>

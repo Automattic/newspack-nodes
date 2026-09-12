@@ -6,14 +6,14 @@ You know PHP and WordPress. You've never touched a "node graph." This page gets 
 
 This runtime is WordPress-internal; there is no standalone mode. It assumes four things.
 
-- **PHP 8.2+** — declared in the plugin header (`Requires PHP: 8.2`) and enforced by `composer.json` (`"php": ">=8.2"`).
+- **PHP 8.2+** — declared in the plugin header (`Requires PHP: 8.2`) and enforced by [`composer.json`](../composer.json) (`"php": ">=8.2"`).
 - **WordPress 6.5+, with WP-Cron and the REST API.** The substrate's lifecycle *is* WordPress: configuration overrides in the options table, the cold-start safety net on WP-Cron, and worker spawn, commands and SSE over the REST API.
 - **WP-CLI** — every command on this page (`wp plugin …`, `wp nodes status`, `wp nodes cli …`) is WP-CLI.
 - **A cache backend — APCu is one PHP pool's own shared-memory segment; Memcached is reachable from every process configured for it.** Either one alone brings the runtime up; with neither, command verification fails closed.
 
-`Cache_Backend` resolves a tier two ways: `local_first()` takes APCu and falls back to Memcached, which is what a same-host surface such as the single-use command nonce wants; `shared_first()` takes Memcached and falls back to APCu, which is what cross-process state wants. Workers are long-running REST-spawned web requests, so they share the web pool's APCu segment with the browser and hub endpoints that mint commands, and an attached `wp nodes cli` needs no APCu of its own — it signs each command with the per-site secret and ships it over filesystem IPC for the worker to verify. A directly launched `wp nodes run` is the exception for its first lifetime, because it runs inside WP-CLI: without Memcached it needs CLI APCu until its REST-spawned successor takes over. A command session minted in one APCu segment cannot resolve in another, so a second host or an independent PHP-FPM pool requires Memcached.
+![Two cards contrast Cache_Backend::local_first, APCu then Memcached, for a same-host claim such as the single-use command nonce, with shared_first, Memcached then APCu, for cross-process truth such as a command session. Below, the web PHP-FPM pool holds one APCu segment shared by the REST-spawned worker, the browser console and the hub endpoints; an attached wp nodes cli sits outside it, signing with the per-site secret over filesystem IPC and needing no APCu; a directly launched wp nodes run sits outside it too and needs CLI APCu or Memcached for its first lifetime. A bar names Memcached as the only tier a second host or an independent pool shares with the web pool. The one thing it makes visible is why a session minted in one APCu segment cannot resolve in another.](img/gs-cache-tiers.png)
 
-Once the plugin is active, `wp nodes doctor` grades that environment — the cache backend, the runtime directory, its ownership, the WP-Cron housekeeping pass, the configuration keys and the fleet's worker-liveness, consumer-lag and dead-letter alerts — marking each result `ok`, `WARN` or `FAIL` and exiting non-zero on a `FAIL`. Two rows are conditional: a standing deploy hold, naming its age and the `wp nodes start` that lifts it, and `other-alerts`, holding any alert the three fleet families leave unclaimed.
+Once the plugin is active, [`wp nodes doctor`](cli.md#doctor-health-report) grades that environment — the cache backend, the runtime directory, its ownership, the WP-Cron housekeeping pass, the configuration keys and the fleet's worker-liveness, consumer-lag and dead-letter alerts — marking each result `ok`, `WARN` or `FAIL` and exiting non-zero on a `FAIL`. Two rows are conditional: a standing deploy hold, naming its age and the `wp nodes start` that lifts it, and `other-alerts`, holding any alert the three fleet families leave unclaimed.
 
 ## Rosetta: WordPress → Nodes
 
@@ -21,17 +21,17 @@ You already know these ideas — they wear different names here. The right colum
 
 | You know… | In Nodes… | The difference that matters |
 |---|---|---|
-| `add_action()` / `do_action()` | `Hook_Node`, or `register()` / `notify()` on any node | Same pub/sub idea, wired in a topology file instead of scattered through code |
-| `wp_schedule_event()` (cron) | `Timer_Node` | Fires inside an always-on worker, so no traffic is needed; an interval under the one-second router tick takes its own event-loop slot |
-| `wp_schedule_single_event()` | `Job_Intake::queue( $handler, $id, $params, null, null, null, [ 'delay' => $s ] )` | Durable: the entry parks in the `jobdelay.p0` log and survives a restart. The sweep that delivers it rides the minute cadence, so it fires late, never early. `$options` is the seventh parameter, behind `$key` and the `$base_dir` and `$num_partitions` overrides tests use — pass the three nulls |
+| `add_action()` / `do_action()` | [`Hook_Node`](../includes/class-hook-node.php), or `register()` / `notify()` on any node | Same pub/sub idea, wired in a topology file instead of scattered through code |
+| `wp_schedule_event()` (cron) | [`Timer_Node`](../includes/class-timer-node.php) | Fires inside an always-on worker, so no traffic is needed; an interval under the one-second router tick takes its own event-loop slot |
+| `wp_schedule_single_event()` | [`Job_Intake::queue`](../includes/class-job-intake.php)`( $handler, $id, $params, null, null, null, [ 'delay' => $s ] )` | Durable: the entry parks in the `jobdelay.p0` log and survives a restart. The sweep that delivers it rides the minute cadence, so it fires late, never early. `$options` is the seventh parameter, behind `$key` and the `$base_dir` and `$num_partitions` overrides tests use — pass the three nulls |
 | Action Scheduler job | `Job_Intake::queue()` + a `newspack_nodes/job_handlers` handler | Adds opt-in retries with exponential backoff, batch fan-in and per-job stats, all on the queued path. Its small-job counterpart `Job_Intake::feed()` accepts no options at all |
-| `error_log()` (debug.log) | `Log_Node` | Segmented: it rotates at a byte size, prunes by count and age, and the dashboard tails it |
-| Custom events table (`$wpdb`) | `Topic` / `Partition` | An append-only log you can replay from any offset |
-| Reading that table in a loop | `Consumer_Node` | A durable cursor: crash, respawn, resume where you left off |
-| Transient / object-cache value | `Table_Node` | Keyed store any process reads via `Table_Node::table( $ns )->lookup( $key )` |
-| `get_option()` for a plugin setting | `Config::value( $key )` on your plugin's own `Config` | Four layers resolve one key — schema default, config file, `LOCAL_NEWSPACK_NODES_CONF` file, stored option — and an undeclared key throws instead of falling back. `\Newspack_Nodes\Config::value()` resolves the substrate's own keys and returns null for yours, so give your plugin its own `Config` over its own `Config_System\Schema` and register its keys on `newspack_nodes/declare_config_keys` for the same fail-loud check |
-| REST endpoint per admin action | a CI verb (`Service_CI_Node`) | One schema entry: dispatch, auth, and help come free |
-| admin-ajax polling | the SSE stream | Push, not poll: one connection carries every subscription a dashboard opens |
+| `error_log()` (debug.log) | [`Log_Node`](../includes/class-log-node.php) | Segmented: it rotates at a byte size, prunes by count and age, and the dashboard tails it |
+| Custom events table (`$wpdb`) | [`Topic`](../includes/class-topic-node.php) / [`Partition`](../includes/class-partition-node.php) | An append-only log you can replay from any offset |
+| Reading that table in a loop | [`Consumer_Node`](../includes/class-consumer-node.php) | A durable cursor: crash, respawn, resume where you left off |
+| Transient / object-cache value | [`Table_Node`](../includes/class-table-node.php) | Keyed store any process reads via `Table_Node::table( $ns )->lookup( $key )` |
+| `get_option()` for a plugin setting | [`Config::value( $key )`](../includes/class-config.php) on your plugin's own `Config` | Four layers resolve one key — schema default, config file, `LOCAL_NEWSPACK_NODES_CONF` file, stored option — and an undeclared key throws instead of falling back. `\Newspack_Nodes\Config::value()` resolves the substrate's own keys and returns null for yours, so give your plugin its own `Config` over its own `Config_System\Schema` and register its keys on `newspack_nodes/declare_config_keys` for the same fail-loud check |
+| REST endpoint per admin action | a CI verb ([`Service_CI_Node`](../includes/class-service-ci-node.php)) | One schema entry: dispatch, auth, and help come free |
+| admin-ajax polling | the [SSE stream](API.md#sse-stream) | Push, not poll: one connection carries every subscription a dashboard opens |
 
 ## The whole idea, one screen
 
@@ -88,7 +88,9 @@ Run it as the same user as the workers; `wp nodes cli` refuses root. Exit with c
 
 ## Feel it in 5 minutes
 
-The repo ships a runnable example: `examples/example-ai-newsletter/`, a scored, durable digest pipeline built from small nodes. It is deterministic — no API keys, no network — so it runs anywhere. Two sources (`releases`, `community`) emit canned items into a `summarizer` that condenses each; a `scorer` then adds a notional priority and appends each item to the durable `scored:partition`. A `Consumer` tails that log into the `digest` builder, which assembles a markdown draft and fans it through a `Tee` into the built-in `Log`, which writes it to a file.
+The repo ships a runnable example: [`examples/example-ai-newsletter/`](../examples/example-ai-newsletter/), a scored, durable digest pipeline built from small nodes. It is deterministic — no API keys, no network — so it runs anywhere.
+
+![The example graph as two rows of cards: releases and community, each emitting canned items on TICK, feed summarizer, which adds a summary, then scorer, which adds a score, then the durable scored:partition; scored:consumer tails that log into digest, which renders on FLUSH, through digest:tee into digest:log. Three transcript cards show request_node releases TICK answering emitted 2, request_node community TICK answering emitted 3, and request_node digest FLUSH answering flushed 5, and two boxes give where digest.md.0 lands and why nothing is created by hand. The one thing it makes visible is that the sources emit nothing until a request you type arrives.](img/gs-example-pipeline.png)
 
 ```bash
 # 1. Install the runtime and the example from their release assets — the same
@@ -113,11 +115,9 @@ wp nodes status
 #   ... one `inactive` row per catalog topology you have not activated.
 ```
 
-Every path the pipeline writes hangs off the runtime's base directory, and the nodes create each directory as they need it, so you make nothing by hand.
-
 Open the **topology console** (the Console tab of the Nodes admin menu): the `example-ai-newsletter` graph is drawn there, each card carrying its own live message count, and the wire between two moving cards animating while traffic flows.
 
-Now drive it by hand. Attach a REPL to the running worker and fire the runtime triggers — `TICK` and `FLUSH` are `TM_REQUEST`s (sent with `request_node`), not admin commands. Each node answers along the FROM breadcrumb, so the REPL prints a small JSON reply while the items themselves flow downstream:
+Now drive it by hand. Attach a REPL to the running worker and fire the runtime triggers:
 
 ```bash
 wp nodes cli example-ai-newsletter.p0
@@ -137,13 +137,8 @@ wp nodes cli example-ai-newsletter.p0
 }
 ```
 
-Each `TICK` sends its items down the whole chain, so watch the counts climb card by card in the console. `flushed` counts what the consumer had delivered by the time you typed `FLUSH`; `scored:partition` is durable and the consumer paces it, so give the ticks a beat first. `FLUSH` writes the assembled draft under the runtime's logs directory:
-
 ```bash
-# {base_directory}/logs, where base_directory defaults to /tmp/newspack-nodes.
-# `wp nodes doctor` names the resolved path; the Nodes Runtime settings page sets it.
-# Log writes segments {file}.0, {file}.1, … and never a bare {file}. This demo
-# rotates on every write, so a second FLUSH lands in digest.md.1.
+# {base_directory}/logs; the Nodes Runtime settings page sets base_directory.
 cat /tmp/newspack-nodes/logs/digest.md.0
 # # Newsletter draft
 #
@@ -158,11 +153,11 @@ You just watched a handful of independent nodes cooperate without any of them kn
 Six failures you'll probably meet, and what each one is telling you:
 
 - **`unknown class: Summarizer`** — from a `make_node` line (a topology, or `make_node` at the REPL). The type didn't resolve to a `{prefix}Summarizer_Node` class under any registered namespace. Either the name is wrong, or the class file hasn't reached the autoloader yet — see the next one.
-- **A Node class you just added isn't in the topology-editor palette** (and `make_node` can't resolve it). The palette scans the *composer classmaps* for concrete `*_Node` classes — `Classes_CI_Node::cmd_dump()` walks every registered `ClassLoader`'s `getClassMap()` — so a brand-new class file stays invisible until you regenerate the map: `composer dump-autoload -o`. A class already in a fresh map but still missing from the palette is hiding itself — an empty or `Hidden` `category`, or a `hidden` flag, in its `node_schema()`. `make_node` builds it all the same, and so does `help <Type>`, which renders the schema whatever the palette does with it — a help block back means the class resolved and the classmap is fresh, `no such topic` means it did not.
+- **A Node class you just added isn't in the topology-editor palette** (and `make_node` can't resolve it). The palette scans the *composer classmaps* for concrete `*_Node` classes — [`Classes_CI_Node::cmd_dump()`](../includes/rest/class-classes-ci-node.php) walks every registered `ClassLoader`'s `getClassMap()` — so a brand-new class file stays invisible until you regenerate the map: `composer dump-autoload -o`. A class already in a fresh map but still missing from the palette is hiding itself — an empty or `Hidden` `category`, or a `hidden` flag, in its `node_schema()`. `make_node` builds it all the same, and so does `help <Type>`, which renders the schema whatever the palette does with it — a help block back means the class resolved and the classmap is fresh, `no such topic` means it did not.
 - **``no worker 'exmaple-ai-newsletter.p0' (run `wp nodes status` to list active workers)``** — from `wp nodes cli <typo>`. The reader id doesn't match a live worker. Do what it says and run `wp nodes status`. The cause is often not a typo at all: the active set is empty (nothing spawns by surprise), so run `wp nodes activate <topology>` first.
 - **`wp nodes cli must run as the same user as the workers, not root.`** — the guard that keeps a root session from seeding the worker's IPC directory as root and locking the web user out. Re-run under the web user. If a root run already created those directories, recover with `chown -R <web-user>:<web-user> {base_directory}/ipc/`.
-- **`Runtime directory /tmp/newspack-nodes is owned by uid 501, but this process runs as uid 33`** — the runtime tree must be privately owned by the process using it, and `Config::ensure_path()` adopts an existing directory as readily as it creates one, so whichever account ran a `wp nodes` verb first owns everything under `base_directory`. `chown -R` it to the web user, or point `base_directory` at a fresh path; the same gate refuses a tree that is group- or other-writable. `wp nodes doctor`'s `ownership` row makes the comparison before a worker does.
-- **`Command_Auth: no APCu and no memcache; refusing command (single-use unverifiable)`** in the log — a wire command reached a verifier with no usable cache backend, so it cannot enforce single-use nonces and fails closed. For a normal REST-spawned worker, enable web APCu or configure Memcached. For a directly launched `wp nodes run`, enable CLI APCu or configure Memcached; across hosts or independent web pools, use Memcached (see *Before you start*).
+- **`Runtime directory /tmp/newspack-nodes is owned by uid 501, but this process runs as uid 33`** — the runtime tree must be privately owned by the process using it, and [`Config::ensure_path()`](../includes/class-config.php) adopts an existing directory as readily as it creates one, so whichever account ran a `wp nodes` verb first owns everything under `base_directory`. `chown -R` it to the web user, or point `base_directory` at a fresh path; the same gate refuses a tree that is group- or other-writable. [`wp nodes doctor`](cli.md#doctor-health-report)'s `ownership` row makes the comparison before a worker does.
+- **`Command_Auth: no APCu and no memcache; refusing command (single-use unverifiable)`** in the log — a wire command reached [`Command_Auth`](../includes/class-command-auth.php), the verifier, with no usable cache backend behind it, so it cannot enforce single-use nonces and fails closed. For a normal REST-spawned worker, enable web APCu or configure Memcached. For a directly launched `wp nodes run`, enable CLI APCu or configure Memcached; across hosts or independent web pools, use Memcached (see *Before you start*).
 
 ## Next: build one yourself
 

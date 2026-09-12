@@ -1,0 +1,111 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.planes { display:flex; gap:16px; align-items:stretch; }
+.plane { flex:1; border-radius:10px; overflow:hidden; background:#fff; border:2px solid #C3C4C7; }
+.plane > header { padding:10px 16px; font-size:14.5px; font-weight:700; color:#fff; }
+.plane.phys { border-color:#50575E; } .plane.phys > header { background:#50575E; }
+.plane.logi { border-color:#003DA5; } .plane.logi > header { background:#003DA5; }
+.plane > header .mono { font-weight:400; opacity:.9; }
+.plane .body { padding:12px 16px 14px; }
+.plane p { font-size:12.5px; color:#50575E; margin:0 0 7px; line-height:1.5; }
+.plane p:last-child { margin-bottom:0; }
+.wire { display:flex; align-items:center; gap:8px; font-size:12.5px; margin:4px 0 10px; }
+.wire .n { background:#F0F4FB; border:1px solid #C3D3EC; border-radius:5px; padding:5px 9px; font-family:ui-monospace, Menlo, monospace; }
+.wire .a { color:#787C82; white-space:nowrap; font-size:11.5px; }
+.plane.phys .wire .n { background:#F6F7F7; border-color:#C3C4C7; }
+.props { display:flex; gap:16px; margin-top:16px; align-items:stretch; }
+.props > div { flex:1; }
+.props h4 .mono { font-weight:400; }
+.dec { margin-top:16px; }
+.dec svg text { font-family:Inter, -apple-system, Helvetica, Arial, sans-serif; }
+.mono { overflow-wrap:anywhere; }
+</style>
+<div class="sheet">
+<h1>Two planes, because each carries a property the other cannot</h1>
+<p class="sub"><span class="mono">sink</span> is a node reference: the physical next hop <span class="mono">fill()</span> forwards to. <span class="mono">target</span> is a string path stamped into TO when TO is empty, which <span class="mono">_router</span> resolves one segment at a time. Replies set TO to the request's FROM and need no table.</p>
+
+<div class="planes">
+  <div class="plane phys">
+    <header>Physical: <span class="mono">sink</span></header>
+    <div class="body">
+      <div class="wire"><span class="n">node</span><span class="a">fill() forwards to →</span><span class="n">sink</span></div>
+      <p>An object reference, so it cannot leave the process and cannot be named. A node reachable only by sink is <b>unaddressable</b>: absent from the registry, no TO path reaches it.</p>
+      <p>The stdin reader and <span class="mono">Shell_Node</span> (<span class="mono">wp nodes cli</span>, and the JS Shell) are deliberately unnamed. The Shell is the privilege point (it marks commands LOCAL and signs them); a crafted TM_BYTESTREAM that could route TO a Shell would turn unsigned bytes into authorized commands. <span class="mono">Shell_Node::name()</span> throws on any argument. The only way in is the physical input path: stdin feeds the Shell, and the Shell feeds the interpreter. No name, no attack surface.</p>
+    </div>
+  </div>
+  <div class="plane logi">
+    <header>Logical: <span class="mono">target</span> and TO</header>
+    <div class="body">
+      <div class="wire"><span class="n">node</span><span class="a">stamps target into an empty TO →</span><span class="n">_command_interpreter</span></div>
+      <div class="wire" style="margin-top:-4px"><span class="a">→</span><span class="n">_router</span><span class="a">peels the head segment →</span><span class="n" style="white-space:nowrap">named node</span><span class="a">… until TO is empty</span></div>
+      <p>A TO path is a <b>serializable address</b>: it rides inside the message across IPC partitions, SSE, HTTP and the browser, where a reference cannot. cd'ing into a worker and the <span class="mono">_output/&lt;pid&gt;</span> cross-process replies depend on it. Tachikoma's <span class="mono">pivot_client</span> re-sinks the Shell into a socket and removes the local interpreter; here nothing rewires, only the address changes.</p>
+      <p>Targets resolve at fill time, so construction order and cycles are free. In practice targets route everything, data included: every node sinks into <span class="mono">_command_interpreter</span> → <span class="mono">_router</span>, one chokepoint for NOT_AVAILABLE and the routing counter, and the router hop is paid on the hot path.</p>
+      <p>Tee sets TO per target — the target alone, or <span class="mono">target/TO</span> so the remainder routes on after the peel. Echo prepends when both are set, bounces TO=FROM when both are empty, and drops a TM_ERROR whose TO is empty.</p>
+    </div>
+  </div>
+</div>
+
+<div class="props">
+  <div class="callout">
+    <h4>All-logical routing loses unaddressability</h4>
+    <p>Every node must hold an address to receive anything, so the Shell becomes reachable by path and security by construction becomes security by checks.</p>
+  </div>
+  <div class="callout">
+    <h4>All-physical routing loses the serializable address</h4>
+    <p>No cd into a remote worker, no cross-process TO=FROM reply, and a rewire on every pivot. A single combined "next" pointer falls to this argument, and no port has one.</p>
+  </div>
+  <div class="ok">
+    <h4>Both are load-bearing, so the split is minimal, not redundant</h4>
+    <p>A subject rides in the address too: a minter serving N rows asks as <span class="mono">vault:test:in/spoke-01</span>, the echo peels <span class="mono">vault:test:in</span> and the reply arrives carrying <span class="mono">spoke-01</span>. Split by JOB (a verb, a poll, a stream), never by subject. A subject past <span class="mono">SUBJECT_MAX</span> (128) goes out with none.</p>
+  </div>
+</div>
+
+<div class="card dec">
+  <h3>Inbound at a wire boundary: what PHP's <span class="mono">HTTP_Out</span> does with what the remote sends back</h3>
+  <svg width="1012" height="212" viewBox="0 0 1012 212" font-size="12">
+    <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker>
+    <marker id="r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#B32D2E"/></marker></defs>
+    <rect x="0" y="70" width="180" height="72" rx="8" fill="#F0F4FB" stroke="#C3D3EC"/>
+    <text x="90" y="96" text-anchor="middle" font-weight="700">a message in the reply body</text>
+    <text x="90" y="113" text-anchor="middle" fill="#50575E" font-size="11.5">every field written by the remote,</text>
+    <text x="90" y="128" text-anchor="middle" fill="#50575E" font-size="11.5">TO and type bits included</text>
+    <rect x="222" y="82" width="150" height="48" rx="8" fill="#fff" stroke="#003DA5"/>
+    <text x="297" y="102" text-anchor="middle" font-weight="700">TO empty?</text>
+    <text x="297" y="118" text-anchor="middle" fill="#50575E" font-size="11.5">type bits are not consulted</text>
+    <g stroke="#003DA5" stroke-width="1.6" fill="none" marker-end="url(#a)">
+      <path d="M180 106 L220 106"/>
+      <path d="M372 94 L428 44"/>
+      <path d="M372 118 L428 168"/>
+    </g>
+    <text x="368" y="68" text-anchor="end" fill="#003DA5" font-size="11.5">no: addressed</text>
+    <text x="368" y="150" text-anchor="end" fill="#003DA5" font-size="11.5">yes: unaddressed</text>
+    <rect x="430" y="14" width="270" height="52" rx="8" fill="#fff" stroke="#003DA5"/>
+    <text x="565" y="35" text-anchor="middle" font-weight="700">on the allow_replies_to list?</text>
+    <text x="565" y="52" text-anchor="middle" fill="#50575E" font-size="11.5">matched as the whole path, never a subtree</text>
+    <rect x="430" y="146" width="270" height="52" rx="8" fill="#fff" stroke="#003DA5"/>
+    <text x="565" y="167" text-anchor="middle" font-weight="700">target set?</text>
+    <text x="565" y="184" text-anchor="middle" fill="#50575E" font-size="11.5">single-valued, like Tachikoma's owner</text>
+    <g stroke="#003DA5" stroke-width="1.6" fill="none" marker-end="url(#a)">
+      <path d="M700 30 L738 16"/>
+      <path d="M700 162 L738 148"/>
+      <path d="M700 182 L738 196"/>
+    </g>
+    <g stroke="#B32D2E" stroke-width="1.6" fill="none" marker-end="url(#r)">
+      <path d="M700 50 L738 66"/>
+    </g>
+    <rect x="740" y="0" width="272" height="30" rx="6" fill="#EDF7ED" stroke="#9EC89E"/>
+    <text x="876" y="19" text-anchor="middle" fill="#1E5B1E">delivered: whatever it names is reached</text>
+    <rect x="740" y="52" width="272" height="44" rx="6" fill="#FBEAEA" stroke="#E6A3A3"/>
+    <text x="876" y="70" text-anchor="middle" fill="#B32D2E">dropped: addressed outside allow_replies_to</text>
+    <text x="876" y="86" text-anchor="middle" fill="#5C2223" font-size="11.5">nothing declared means nothing addressed passes</text>
+    <text x="716" y="144" text-anchor="middle" fill="#003DA5" font-size="11">yes</text><text x="716" y="207" text-anchor="middle" fill="#003DA5" font-size="11">no</text><text x="716" y="12" text-anchor="middle" fill="#003DA5" font-size="11">yes</text><text x="716" y="74" text-anchor="middle" fill="#B32D2E" font-size="11">no</text>
+    <rect x="740" y="132" width="272" height="30" rx="6" fill="#EDF7ED" stroke="#9EC89E"/>
+    <text x="876" y="151" text-anchor="middle" fill="#1E5B1E">TO = target, then on to the sink</text>
+    <rect x="740" y="182" width="272" height="30" rx="6" fill="#F6F7F7" stroke="#B0B3B8"/>
+    <text x="876" y="201" text-anchor="middle" fill="#50575E">on to the sink as it stands</text>
+  </svg>
+  <p>A reply self-routes by the TO the remote echoed off our FROM breadcrumb, so anything addressed is the remote naming a node inside our graph, and every node sinks into <span class="mono">_router</span>, so whatever it names would be reached. The list is therefore the whole gate, and the remote sets the type bits, so keying off them would let a spoke pick its arm. Unaddressed output — a server-side <span class="mono">log</span> broadcast, minted with no TO and packed verbatim into the reply body — belongs to the target: that is how it reaches the browser transcript instead of dying at <span class="mono">_router</span> as <em>message not addressed</em>.</p>
+  <p>The browser's <span class="mono">HttpOut</span> keeps Tachikoma's type-bit test instead: a <span class="mono">TM_RESPONSE</span> or <span class="mono">TM_ERROR</span> carrying a TO self-routes, an addressed non-reply is refused while a target is set, and no allowlist applies, because its remote is the server the session is logged into and every address coming back is a breadcrumb the browser minted.</p>
+  <p><span class="mono">Remote_Link_Node</span> builds a <span class="mono">Null_Node</span> as <span class="mono">&lt;name&gt;:null</span>, points <span class="mono">HTTP_Out</span> at it on every rename, and lists its own name so its heartbeat replies reach it; a Null swallows the remote's unaddressed output and counts it, where aiming the target at the relay that owns the egress would send the spoke's output straight back out. The per-spoke <span class="mono">HTTP_Out</span> an operator wires for <span class="mono">topologies/settings-sync.tsl</span> needs both lines by hand: <span class="mono">connect_node &lt;egress&gt; null</span> and <span class="mono">cmd &lt;egress&gt;:config allow_replies_to settings-sync</span>. <span class="mono">SSE_In</span> carries no such gate, because a subscription's records are not replies: <span class="mono">RemoteLink</span> sets <span class="mono">homeToTarget</span> and re-homes every non-command record, <span class="mono">RemoteIpc</span> sets it false, and a command reply keeps the TO the server addressed to its minter either way, because overwriting it would deliver the reply to the subscription's view instead of its receiver.</p>
+</div>
+</div>

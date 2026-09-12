@@ -1,0 +1,45 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.walk { display:flex; align-items:stretch; gap:0; }
+.walk .st { flex:1; border-radius:8px; padding:10px 12px; font-size:12px; line-height:1.45; background:#fff; border:1px solid #C3C4C7; }
+.walk .st b { display:block; font-size:12.5px; margin-bottom:3px; }
+.walk .st .mono { font-size:11.5px; }
+.walk .st.hit { border-color:#003DA5; background:#F7F9FD; }
+.walk .st.memo { border-color:#B32D2E; background:#FFF8F8; }
+.walk .a { flex:0 0 26px; display:flex; align-items:center; justify-content:center; color:#787C82; font-size:16px; }
+.two { display:flex; gap:16px; margin-top:16px; align-items:stretch; }
+.two > div { flex:1; }
+.two p { font-size:12.5px; }
+.mono { overflow-wrap:anywhere; }
+</style>
+<div class="sheet">
+<h1>A short name walks the registered namespaces, and the first hit is cached for life</h1>
+<p class="sub">No central registry: a plugin calls <span class="mono">Command_Interpreter_Node::register_namespace( 'My_Prefix\' )</span> once, and <span class="mono">make_node( $type )</span> constructs the first concrete <span class="mono">{$prefix}{$type}_Node</span>. The shell name is the class minus <span class="mono">_Node</span>: <span class="mono">Tee_Node</span> is <span class="mono">Tee</span>.</p>
+
+<div class="card" style="padding-bottom:12px">
+  <h3><span class="mono">resolve_class( 'Summarizer' )</span></h3>
+  <div class="walk">
+    <div class="st memo"><b>0 · the memo</b><span class="mono">self::$resolve_cache[ $type ]</span> set? Return it. Successes are always cached, misses never.</div>
+    <div class="a">→</div>
+    <div class="st"><b>1 · <span class="mono">Newspack_Nodes\</span></b>registered at boot. <span class="mono">Newspack_Nodes\Summarizer_Node</span>: no such class.</div>
+    <div class="a">→</div>
+    <div class="st hit"><b>2 · <span class="mono">Plugin_A\</span></b>registered first by load order. <span class="mono">Plugin_A\Summarizer_Node</span> is a concrete Node subclass: cached, returned.</div>
+    <div class="a">→</div>
+    <div class="st"><b>3 · <span class="mono">Plugin_B\</span></b>also ships a <span class="mono">Summarizer_Node</span>. Never consulted again for this name, in this process.</div>
+    <div class="a">→</div>
+    <div class="st"><b>no match</b><span class="mono">null</span>, and <span class="mono">make_node</span> answers <span class="mono">unknown class: Summarizer</span>. An abstract match is a miss, not a fatal.</div>
+  </div>
+</div>
+
+<div class="two">
+  <div class="callout">
+    <h4>A short-name collision is silent and sticky</h4>
+    <p>Two active plugins each shipping a <span class="mono">Summarizer_Node</span> hand BOTH topologies whichever registered first; <span class="mono">make_node</span> raises nothing, and a later <span class="mono">register_namespace()</span> cannot displace the cached answer. The defence is a distinctive short name rather than load order, which is why every class in <span class="mono">examples/example-ai-newsletter/includes/</span> carries a <span class="mono">_Demo</span> suffix. Revisit if two prefixes resolve the same type: a tiebreak rule, or an explicit registry after all.</p>
+  </div>
+  <div class="card">
+    <h3>Naming is load-bearing</h3>
+    <p>Every PHP class is <span class="mono">Word_Word</span>; acronyms (<span class="mono">HTTP</span>, <span class="mono">SSE</span>, <span class="mono">CLI</span>, <span class="mono">LRU</span>, <span class="mono">CI</span>, <span class="mono">JSON</span>, <span class="mono">TTY</span>) stay all-caps. Node subclasses end <span class="mono">_Node</span>; helpers do not (<span class="mono">Event_Framework</span>, <span class="mono">Worker_Base</span>, <span class="mono">CLI</span>). Test infrastructure stays PascalCase; the one exception is the <span class="mono">Capture_Sink_Node</span> double, a real <span class="mono">make_node</span>'d Node.</p>
+    <p>The palette (<span class="mono">Classes_CI</span> <span class="mono">dump</span>) scans the composer classmap for concrete <span class="mono">*_Node</span> subclasses and refuses a <span class="mono">Hidden</span> category, an empty one, and a <span class="mono">node_schema()</span> carrying <span class="mono">'hidden' =&gt; true</span>. After adding or renaming a class, run <span class="mono">composer dump-autoload -o</span>, or neither <span class="mono">make_node</span> nor the palette sees it.</p>
+  </div>
+</div>
+</div>

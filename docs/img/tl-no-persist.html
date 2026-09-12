@@ -1,0 +1,94 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: stretch; }
+  .col { border-radius: 10px; overflow: hidden; background: #fff; border: 2px solid #C3C4C7; }
+  .col.here { border-color: #003DA5; }
+  .col > header { padding: 10px 16px; font-size: 14.5px; font-weight: 700; background: #50575E; color: #fff; }
+  .col.here > header { background: #003DA5; }
+  .col > header span { font-weight: 400; opacity: .85; font-size: 12.5px; margin-left: 8px; }
+  .col .body { padding: 14px 16px 6px; }
+  svg text { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 12px; fill: #101517; }
+  svg text.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  svg text.sub { font-size: 11px; fill: #50575E; }
+  svg text.nm { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight: 700; font-size: 12.5px; }
+  svg .node { fill: #fff; stroke: #C3C4C7; stroke-width: 1.2; }
+  svg .q { fill: #F6F7F7; stroke: #B0B3B8; stroke-dasharray: 4 3; }
+  svg .wire { fill: none; stroke: #50575E; stroke-width: 1.8; }
+  svg .wire.b { stroke: #003DA5; }
+  svg path.ack { fill: none; stroke: #B32D2E; stroke-width: 1.6; stroke-dasharray: 5 3; }
+  svg text.ack { fill: #B32D2E; font-size: 11px; }
+  svg text.lbl { fill: #003DA5; font-size: 11px; }
+  .row { display: grid; grid-template-columns: 150px 1fr; gap: 6px 12px; font-size: 12.5px; line-height: 1.45; padding: 8px 0; border-top: 1px solid #E3E4E6; }
+  .row .k { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; color: #101517; }
+  .row .v { color: #50575E; }
+  .col.here .row .k { color: #003DA5; }
+  .gone { color: #B32D2E; font-weight: 600; }
+  .bottom { display: flex; gap: 16px; margin-top: 16px; align-items: stretch; }
+  .bottom > * { flex: 1 1 0; min-width: 0; }
+  .bottom p { font-size: 12.5px; }
+</style>
+<div class="sheet">
+<h1>No TM_PERSIST: the drain is the backpressure, and the reader owns its cursor</h1>
+<p class="sub">Tachikoma's ack handshake earns its keep when producer and consumer are decoupled by a queue that can fill. Here every boundary is synchronous and the whole graph drains on one CPU, so an ack has nothing to signal. Null, Tee, Grep, AgeSieve and PayloadTimeout on both sides, plus MemorySieve, which has no counterpart here.</p>
+
+<div class="two">
+  <div class="col">
+    <header>Tachikoma <span>producer, queue, consumer, and a reply for every message</span></header>
+    <div class="body">
+      <svg width="470" height="150" viewBox="0 0 470 150">
+        <defs><marker id="g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#50575E"/></marker>
+        <marker id="r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#B32D2E"/></marker></defs>
+        <rect class="node" x="2" y="40" width="140" height="44" rx="7"/><text class="nm" x="72" y="58" text-anchor="middle">producer</text><text class="sub" x="72" y="74" text-anchor="middle">msg_unanswered &lt; max</text>
+        <rect class="q" x="170" y="40" width="130" height="44" rx="7"/><text class="nm" x="235" y="58" text-anchor="middle">output_buffer</text><text class="sub" x="235" y="74" text-anchor="middle">a queue that can fill</text>
+        <rect class="node" x="330" y="40" width="136" height="44" rx="7"/><text class="nm" x="398" y="58" text-anchor="middle">consumer</text><text class="sub" x="398" y="74" text-anchor="middle">answer() or cancel()</text>
+        <path class="wire" d="M142 54 H 164" marker-end="url(#g)"/>
+        <path class="wire" d="M300 54 H 324" marker-end="url(#g)"/>
+        <text class="sub" x="232" y="30" text-anchor="middle">TYPE | TM_PERSIST</text>
+        <path class="ack" d="M406 84 V 112 H 64 V 90" marker-end="url(#r)"/>
+        <text class="ack mono" x="235" y="128" text-anchor="middle">TM_PERSIST | TM_RESPONSE, TO = FROM, PAYLOAD 'answer' or 'cancel'</text>
+        <text class="sub" x="235" y="146" text-anchor="middle">the producer counts replies down and stops sending at max_unanswered</text>
+      </svg>
+      <div class="row"><span class="k">Node.pm answer(), cancel()</span><span class="v">every node replies to a TM_PERSIST message, one way or the other</span></div>
+      <div class="row"><span class="k">Null.pm</span><span class="v">also a load generator: fires cached TM_PERSIST payloads while <span class="mono">msg_unanswered &lt; max_unanswered</span></span></div>
+      <div class="row"><span class="k">Tee.pm</span><span class="v">keeps a TM_PERSIST ledger per fan-out, expired by the <span class="mono">[ &lt;timeout&gt; ]</span> argument</span></div>
+      <div class="row"><span class="k">Grep, AgeSieve, PayloadTimeout</span><span class="v"><span class="mono">cancel()</span> a message they refuse, so the producer can tell filtered from delivered</span></div>
+      <div class="row"><span class="k">MemorySieve.pm</span><span class="v">reads a downstream node's <span class="mono">output_buffer</span>, or a Topic's pending batches, and <span class="mono">cancel()</span>s at the pipeline entry once it reaches <span class="mono">max_size</span></span></div>
+    </div>
+  </div>
+
+  <div class="col here">
+    <header>Newspack Nodes <span>one synchronous drain, one CPU, void <span class="mono">fill()</span></span></header>
+    <div class="body">
+      <svg width="470" height="150" viewBox="0 0 470 150">
+        <defs><marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs>
+        <rect class="node" x="2" y="40" width="124" height="44" rx="7"/><text class="nm" x="64" y="58" text-anchor="middle">producer</text><text class="sub" x="64" y="74" text-anchor="middle">fill() returns void</text>
+        <rect class="node" x="156" y="40" width="160" height="44" rx="7"/><text class="nm" x="236" y="58" text-anchor="middle">Partition</text><text class="sub" x="236" y="74" text-anchor="middle">a log on disk, not a queue</text>
+        <rect class="node" x="346" y="40" width="120" height="44" rx="7"/><text class="nm" x="406" y="58" text-anchor="middle">Consumer</text><text class="sub" x="406" y="74" text-anchor="middle">owns its cursor</text>
+        <path class="wire b" d="M126 54 H 150" marker-end="url(#b)"/>
+        <path class="wire b" d="M316 54 H 340" marker-end="url(#b)"/>
+        <text class="lbl" x="120" y="30" text-anchor="middle">a synchronous call</text>
+        <text class="lbl" x="350" y="30" text-anchor="middle">a timer-driven read</text>
+        <text class="sub" x="235" y="112" text-anchor="middle">Nothing comes back. "Safe to resume" is local knowledge in the same drain</text>
+        <text class="sub" x="235" y="128" text-anchor="middle">that dispatched the message, checkpointed to the offsetlog by the reader itself.</text>
+        <text class="sub" x="235" y="146" text-anchor="middle">Only TM_NOREPLY survives as a reply-control flag.</text>
+      </svg>
+      <div class="row"><span class="k">Node::fill(): void</span><span class="v"><span class="gone">no answer(), no cancel(), no max_unanswered</span>. A node cannot observe its sink's disposition; outcomes come back as messages, TO = FROM or TM_ERROR</span></div>
+      <div class="row"><span class="k">Null_Node</span><span class="v">the counting black hole alone; the load-generator half is absent, because the window it paced against no longer exists</span></div>
+      <div class="row"><span class="k">Tee_Node</span><span class="v">no ledger, no timeout argument: every target is attempted, and the strongest throwable escapes</span></div>
+      <div class="row"><span class="k">Grep, Age_Sieve, Value_Timeout</span><span class="v">return without forwarding, silently (<span class="mono">Age_Sieve</span> prints a rate-limited warning only under <span class="mono">should_warn</span>); a producer cannot tell a filtered message from a delivered one</span></div>
+      <div class="row"><span class="k">MemorySieve</span><span class="v"><span class="gone">no counterpart</span>: it reads what is now a private buffer and makes the very call this decision removed</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="bottom">
+  <div class="card">
+    <h3>Where the shape comes back: the browser's sink</h3>
+    <p><span class="mono">dumper-node.js</span> writes each frame into a bounded transcript ring in O(1) and coalesces the expensive publish, the React render and the <span class="mono">localStorage</span> persist, onto one <span class="mono">requestAnimationFrame</span> flush, announcing the frames it overwrote as a single rate-limited count. A console attached to a firehose Tee degrades into a readable transcript instead of an OOM tab. It needs no <span class="mono">cancel()</span>: the drop happens inside the sink, whose cost is not paid in the drain, rather than at the entry to a queue that would otherwise fill.</p>
+  </div>
+  <div class="callout">
+    <h4>Do not reintroduce it</h4>
+    <p>The removal is intentional. ADR-3 records the full reasoning and the three conditions that would reopen it; until one of them holds, an ack has nothing to signal and a ledger has nothing to expire.</p>
+  </div>
+</div>
+</div>

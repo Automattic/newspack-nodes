@@ -1,0 +1,64 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.pipe { display:flex; align-items:center; gap:0; margin-bottom:18px; }
+.hop { flex:1; background:#003DA5; color:#fff; border-radius:9px; padding:10px 12px; font-size:12.5px; line-height:1.35; text-align:center; }
+.hop .mono { display:block; font-size:12px; opacity:.9; }
+.arr { flex:0 0 26px; text-align:center; color:#003DA5; font-size:18px; line-height:1; }
+.cols { display:grid; grid-template-columns:repeat(4, 1fr); gap:14px; align-items:start; }
+.colh { font-size:13px; font-weight:700; margin:0 0 8px; color:#101517; }
+.colh .sub2 { display:block; font-weight:400; font-size:11.5px; color:#50575E; margin-top:2px; }
+.case { background:#fff; border:1px solid #C3C4C7; border-radius:8px; padding:0; margin-bottom:10px; overflow:hidden; }
+.case .sym { background:#FBEAEA; color:#B32D2E; border-bottom:1px solid #E6A3A3; padding:7px 10px; font-size:11.5px; line-height:1.4; font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap:anywhere; }
+.case .sym.quiet { background:#F6F7F7; color:#50575E; border-color:#DCDCDE; font-family:Inter, sans-serif; font-style:italic; }
+.case .sym.quiet b { font-style:normal; font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight:600; color:#101517; }
+.case .v { padding:8px 10px 9px; font-size:11.5px; line-height:1.45; color:#50575E; }
+.case .v b { color:#101517; font-weight:600; }
+.case .v .mono { color:#101517; }
+.wide { margin-top:6px; }
+.wide .case .v { column-count:2; column-gap:22px; }
+.mono { overflow-wrap:anywhere; }
+</style>
+<div class="sheet">
+<h1>A message that is not flowing left a mark at one of the five stations past its producer</h1>
+<p class="sub">Follow the message's own path. At each station the substrate either writes a stderr line, moves a counter, or sets a node state; a red header is the line to grep for, a grey one is the reading that has no line. A Consumer reads what a Partition wrote, a Tail what a Log wrote.</p>
+
+<div class="pipe">
+  <div class="hop">producer<span class="mono">fill() → sink / target</span></div><div class="arr">→</div>
+  <div class="hop">_router<span class="mono">peels TO</span></div><div class="arr">→</div>
+  <div class="hop">Tee / Grep<span class="mono">fan-out, filter</span></div><div class="arr">→</div>
+  <div class="hop">Partition<span class="mono">packed bytes → {seg}.log</span></div><div class="arr">→</div>
+  <div class="hop">Durable_Reader<span class="mono">Consumer, Tail</span></div><div class="arr">→</div>
+  <div class="hop">Job_Worker<span class="mono">handler map</span></div>
+</div>
+
+<div class="cols">
+  <div>
+    <div class="colh">At <span class="mono">_router</span><span class="sub2">every drop is a rate-limited stderr line</span></div>
+    <div class="case"><div class="sym">WARNING: message not addressed</div><div class="v">TO is empty: the minter stamped no <span class="mono">target</span> and nothing filled TO on the way in. Give the node a target, or sink it straight into the receiver.</div></div>
+    <div class="case"><div class="sym">WARNING: path exceeded 1024 bytes</div><div class="v">A routing cycle grew FROM past <span class="mono">MAX_FROM_SIZE</span>.</div></div>
+    <div class="case"><div class="sym">WARNING: breaking recursion</div><div class="v">A <span class="mono">NOT_AVAILABLE</span> bounce whose own return path is missing too.</div></div>
+    <div class="case"><div class="sym">NOT_AVAILABLE</div><div class="v">The HEAD segment resolved, the Router peeled it, and a later segment names nothing. A Tee keeps such a target alive: <span class="mono">spoke/settings</span> lives as long as <span class="mono">spoke</span> does. Fix the topology, or <span class="mono">disconnect_node &lt;tee&gt; &lt;target&gt;</span>.</div></div>
+  </div>
+  <div>
+    <div class="colh">At a Tee or a filter<span class="sub2">read <span class="mono">ls -c</span>; the counter counts what a node FORWARDED</span></div>
+    <div class="case"><div class="sym quiet"><b>ls -c</b>: the Tee's counter climbs, every downstream counter holds still</div><div class="v"><span class="mono">live_targets()</span> prunes dead entries on every read, so a Tee heals on its next message; once the last one goes the Tee is a terminus. It forwards no original, the loop runs zero times, Router never sees the message, nothing bounces. <span class="mono">ls -t &lt;tee&gt;</span> or <span class="mono">dump_node &lt;tee&gt;</span> shows what survived; re-<span class="mono">connect_node</span> the branch.</div></div>
+    <div class="case"><div class="sym">fill requires a wired sink</div><div class="v">The loud sibling: <span class="mono">fill()</span> calls <span class="mono">require_sink()</span> before it reads the target list, so a Tee with no sink throws on its first message.</div></div>
+    <div class="case"><div class="sym quiet"><b>ls -c</b>: a Grep or Age_Sieve sits at 0 while traffic reaches it</div><div class="v"><span class="mono">++$this->counter</span> lives inside <span class="mono">Node::fill()</span>; a miss returns before it. The node may be seeing every message and matching none. Tap the edge with a Tee before calling the upstream dead.</div></div>
+  </div>
+  <div>
+    <div class="colh">Into the Partition<span class="sub2">measured on PACKED bytes, batched to the tick</span></div>
+    <div class="case"><div class="sym">WARNING: oversize: &lt;n&gt; &gt; 4096</div><div class="v">Over the cap in force, dropped whole: half a record desyncs every reader after it. <span class="mono">allow_large_writes()</span> (a held write lock) or <span class="mono">void_warranty()</span> (the caller asserts single-writer) lifts it to 32 MiB.</div></div>
+    <div class="case"><div class="sym quiet">the reader polls and sees nothing new</div><div class="v">The batch has not flushed. <span class="mono">set_timer( 0, true )</span> drains it at the end of the current event-loop iteration, so a synchronous write-then-read with no tick between always comes up empty. <span class="mono">ls -la</span> the segment's mtime and size.</div></div>
+    <div class="case"><div class="sym">DEAD-LETTER [write stalled]<br>DEAD-LETTER [segment open failed]</div><div class="v">Full disk. The partial record is truncated off the segment and every message the batch did not land is quarantined into the Partition's own <span class="mono">{base}/deadletter/{dotted-path}/</span>. <span class="mono">dl_requeue</span> refuses those: a Partition's sink is <span class="mono">_command_interpreter</span>, where redelivering an unwritten record would lose it, so replay with <span class="mono">wp nodes ingest</span> once there is room.</div></div>
+  </div>
+  <div>
+    <div class="colh">Out of the log<span class="sub2">a reader loses data the way a writer can</span></div>
+    <div class="case"><div class="sym">DEAD-LETTER [throw]</div><div class="v">Plugin files replaced under a live worker: its autoloader fails mid-swap, <span class="mono">forward_line()</span> catches the <span class="mono">\Throwable</span>, quarantines the record and advances. <span class="mono">restart</span> boots a successor into the same half-swapped dir; <span class="mono">wp nodes stop &amp;&amp; ./deploy.sh &amp;&amp; wp nodes start</span> instead: <span class="mono">stop</span> blocks until every lock dir is gone and exits non-zero otherwise, so the deploy never meets a live process.</div></div>
+    <div class="case"><div class="sym quiet"><b>dump_node</b> or <b>trace</b>: state <b>OVERFLOW</b></div><div class="v">A producer stopped mid-line. The partial-line buffer grew past <span class="mono">MAX_LINE_BUFFER_SIZE</span>, 32 MiB; the partial is discarded, the cursor skips those bytes, and a stderr line names segment, offset and limit. The bytes are gone either way; chase the producer.</div></div>
+  </div>
+</div>
+<div class="wide">
+  <div class="colh">At <span class="mono">Job_Worker</span><span class="sub2">the last hop, and the quietest</span></div>
+    <div class="case"><div class="sym quiet"><b>jobs.p{N}</b> holds the entry; nothing runs, nothing logs</div><div class="v"><span class="mono">Job_Worker_Node::fill()</span> drops silently on a handler it does not own — both kinds, deliberately, since every hub-destined job reaches a spoke's worker as an unownable <span class="mono">k='job'</span>, and a warning apiece would flood for work the hub completes — so a handler registered only on <span class="mono">newspack_nodes/remote_job_handlers</span> is invisible on every spoke and a typo'd name produces nothing — and on a non-<span class="mono">TM_STRUCT</span>, a non-array VALUE or an unknown <span class="mono">k</span>. Only two drops speak, both rate-limited: over <span class="mono">MAX_JOB_SIZE</span> (dropped, never dead-lettered, so outside ADR-12), and a name failing <span class="mono">HANDLER_NAME_PATTERN</span>. <span class="mono">request_node job-worker GET_HEALTH</span> reports <span class="mono">local_handler_count</span> and <span class="mono">remote_handler_count</span>.</div></div>
+</div>
+</div>

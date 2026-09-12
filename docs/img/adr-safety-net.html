@@ -1,0 +1,85 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.stage { position:relative; width:1052px; height:430px; }
+.stage .card, .stage .panel { position:absolute; }
+.stage svg { position:absolute; left:0; top:0; width:1052px; height:430px; overflow:visible; }
+.stage svg path { fill:none; stroke:#003DA5; stroke-width:1.8; }
+.stage svg text { font-family:Inter, -apple-system, Helvetica, Arial, sans-serif; font-size:11.5px; fill:#003DA5; }
+.tier { font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:#787C82; font-weight:600; display:block; margin-bottom:4px; }
+.card h3 { font-size:14px; }
+.card p { font-size:12px; }
+.steps { display:flex; gap:6px; align-items:stretch; margin-top:8px; }
+.step { flex:1; background:#fff; border:1px solid #C3C4C7; border-radius:8px; padding:9px 10px; font-size:11.5px; line-height:1.4; color:#50575E; }
+.step b { display:block; color:#101517; font-size:12px; margin-bottom:3px; }
+.step .n { display:inline-block; width:18px; height:18px; border-radius:9px; background:#003DA5; color:#fff; font-size:11px; font-weight:700; text-align:center; line-height:18px; margin-right:5px; }
+.step.revive { border-color:#003DA5; background:#F7F9FD; }
+.two { display:flex; gap:16px; margin-top:16px; align-items:stretch; }
+.two > div { flex:1; }
+.mono { overflow-wrap:anywhere; }
+</style>
+<div class="sheet">
+<h1>Three spawners, one gate, and a minute pass that also keeps house</h1>
+<p class="sub">Nothing resident supervises the fleet. Every worker respawns itself and revives its peers, WP-Cron catches a fleet with nothing left running, and all three cross the same throttled endpoint, so N spawners are as safe as one.</p>
+
+<div class="stage">
+  <svg viewBox="0 0 1052 430">
+    <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" style="fill:#003DA5;stroke:none"/></marker></defs>
+    <path d="M165 206 L165 262 L500 262 L500 288" marker-end="url(#a)"/>
+    <path d="M526 206 L526 288" marker-end="url(#a)"/>
+    <path d="M887 206 L887 262 L552 262 L552 288" marker-end="url(#a)"/>
+    <text x="330" y="256" text-anchor="middle">POST /newspack-nodes/v1/workers/spawn, HMAC-validated</text>
+  </svg>
+
+  <div class="card" style="left:0;top:0;width:330px;height:206px">
+    <span class="tier">Tier 1 · every worker, itself</span>
+    <h3>The <span class="mono">finally</span> in <span class="mono">Worker_Base::execute()</span></h3>
+    <p><span class="mono">release()</span> first, then <span class="mono">self_respawn()</span>, so the successor can take the lock at once. Runs at the end of every ~595 s lifetime; the slot changes hands immediately instead of idling until a rescue.</p>
+    <p class="grey">Reversed, the successor's acquire hits the still-held lock and skips.</p>
+  </div>
+
+  <div class="card" style="left:361px;top:0;width:330px;height:206px">
+    <span class="tier">Tier 1 · every worker, its peers</span>
+    <h3><span class="mono">_fleet</span> (<span class="mono">Fleet_Node</span>), every 15 s</h3>
+    <p><span class="mono">SCAN_INTERVAL_MS</span>. Spawns any fleet worker whose lock dir is missing or whose heartbeat has aged past its <span class="mono">stale_timeout</span>, at most <span class="mono">MAX_SPAWNS_PER_TICK</span> (4) per pass: each POST is a blocking cURL inside a drain loop, so a cold fleet spreads its spawns over consecutive passes rather than stalling one.</p>
+  </div>
+
+  <div class="card" style="left:722px;top:0;width:330px;height:206px">
+    <span class="tier">Tier 2 · WP-Cron, once a minute</span>
+    <h3><span class="mono">Bootstrap::reconcile_fleet()</span></h3>
+    <p>Catches a fleet with nothing left running: with every worker dead there is nothing left to scan, so a total fleet death waits up to a cron minute. One pass that revives first and then keeps house, with no per-pass cap.</p>
+    <p class="grey">Which is why the cold-start pass has its own direct tests.</p>
+  </div>
+
+  <div class="panel" style="left:150px;top:290px;width:752px">
+    <header>The one gate: <span class="mono" style="font-weight:400">is_recently_spawned</span>, 15 s per slot</header>
+    <div class="body" style="padding:10px 14px">
+      <p style="font-size:12.5px;margin:0;line-height:1.5;color:#50575E">The spawn endpoint enforces and records the throttle, because it is the one gate every spawner crosses. An accepted spawn writes <span class="mono">last_spawn:{type}|{partition}</span> through <span class="mono">Cache_Backend::shared_first()</span>, falling back to a transient, at a TTL of twice <span class="mono">MIN_SPAWN_INTERVAL_S</span> so the record outlives the window it guards and expires on its own. A slot spawned under 15 s ago is refused, so respawn storms are bounded however many spawners there are.</p>
+    </div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:16px;padding-bottom:14px">
+  <h3>The minute pass, <span class="mono">Bootstrap::run_reconcile_steps()</span>: seven steps in a fixed order, each alone behind its own <span class="mono">try</span>/<span class="mono">catch</span></h3>
+  <div class="steps">
+    <div class="step revive" style="flex:1.5"><b><span class="n">1</span>before_reconcile</b>A third-party hook, isolated because a throw from it fired bare would escape the callback and skip the spawn behind it.</div>
+    <div class="step revive"><b><span class="n">2</span>spawn_due_workers()</b>Revival, ahead of every janitorial step.</div>
+    <div class="step revive"><b><span class="n">3</span>wake_readers_with_backlog()</b>The only pass that notices an external producer's write.</div>
+    <div class="step" style="flex:.7"><b><span class="n">4</span>lock-dir reconcile</b></div>
+    <div class="step"><b><span class="n">5</span>retention sweeps</b><span class="mono">Log_Cleaner</span>'s delete grace alone is an hour.</div>
+    <div class="step" style="flex:.7"><b><span class="n">6</span>orphan-IPC reaping</b></div>
+    <div class="step" style="flex:1.6"><b><span class="n">7</span>newspack_nodes/periodic</b>Alerts, the delayed-jobs sweep and every subscriber; <span class="mono">not_before</span> granularity is therefore a minute, and late is what it means.</div>
+  </div>
+  <p style="margin-top:10px">No step can cost the others their window. Housekeeping depends on no live worker at all: retention and orphan reaping run while the fleet is down, which is when disk most needs reclaiming.</p>
+</div>
+
+<div class="two">
+  <div class="callout">
+    <h4>Rejected: a dedicated supervisor process as the middle tier</h4>
+    <p>It is no supervisor in the OS sense: it can neither signal a worker, reap it, nor restart it in place. All it does is poll lock-dir mtimes and POST to an HTTP endpoint, and polling is work the pollees do for each other. Revival must not depend on a single process; peer scanning honors that more completely while giving back a permanently resident PHP-FPM child. Self-respawn alone was rejected too, since nothing catches a worker that dies before it can respawn, and an OS-level supervisor is unavailable on the platform.</p>
+  </div>
+  <div class="ok">
+    <h4>What N independent spawners buy</h4>
+    <p>Supervision survives the loss of any single process rather than dying with one. The throttle that makes three spawners safe makes N safe. Revisit only if an OS-level process supervisor becomes available, at which point the tiered self-revival collapses into it.</p>
+  </div>
+</div>
+</div>

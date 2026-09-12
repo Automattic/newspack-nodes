@@ -1,0 +1,87 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start; }
+  .col h2 { font-size: 15px; margin: 0 0 10px; }
+  .steps { border: 1px solid #C3C4C7; border-radius: 9px; background: #fff; overflow: hidden; }
+  .st { display: flex; gap: 10px; align-items: flex-start; padding: 9px 12px; border-top: 1px solid #E3E4E6; font-size: 12.5px; line-height: 1.45; }
+  .st:first-child { border-top: none; }
+  .st .n { flex: 0 0 22px; height: 22px; border-radius: 50%; background: #003DA5; color: #fff; font-size: 11.5px; font-weight: 700; text-align: center; line-height: 22px; }
+  .st .t { flex: 1; color: #101517; }
+  .st .t .d { display: block; color: #50575E; font-size: 12px; }
+  .st.real { background: #EDF7ED; }
+  .st.real .n { background: #1E5B1E; }
+  .st.seam { background: #FBEAEA; border-top: 1px dashed #E6A3A3; border-bottom: 1px dashed #E6A3A3; }
+  .st.seam .n { background: #B32D2E; }
+  .st.fake { background: #F6F7F7; color: #787C82; }
+  .st.fake .n { background: #C3C4C7; }
+  .st.fake .t, .st.fake .t .d { color: #787C82; }
+  .verdict { margin-top: 10px; }
+  .verdict p { font-size: 12.5px; }
+  .legend { display: flex; gap: 20px; font-size: 12px; color: #50575E; margin: 8px 0 18px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .sw { width: 14px; height: 12px; border-radius: 3px; border: 1px solid #C3C4C7; }
+  .code { background: #101517; color: #E8EAED; border-radius: 6px; padding: 8px 11px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0 0 10px; }
+  .code .c { color: #8C9096; } .code .k { color: #7FB0FF; } .code .v { color: #9FD89F; }
+  .bottom { display: flex; gap: 16px; margin-top: 18px; align-items: stretch; }
+  .bottom > * { flex: 1 1 0; min-width: 0; }
+  .bottom p { font-size: 12.5px; }
+</style>
+<div class="sheet">
+<h1>The seam replaces one call and leaves everything around it under coverage</h1>
+<p class="sub">A connector's <span class="mono">fetch()</span> is where the network lives, and the network is the one thing a test cannot touch. The same fetch, twice: with the transport call swapped by a closure property, and with the whole method swapped by a test subclass.</p>
+
+<div class="legend">
+  <span><span class="sw" style="background:#EDF7ED;border-color:#9EC89E"></span> real production code, running and measured</span>
+  <span><span class="sw" style="background:#FBEAEA;border-color:#E6A3A3"></span> the test's replacement</span>
+  <span><span class="sw" style="background:#F6F7F7"></span> reported covered, never executed</span>
+</div>
+
+<div class="two">
+  <div class="col">
+    <h2>A static <span class="mono">\Closure</span> property, null by default</h2>
+    <div class="code"><span class="k">public static</span> ?\Closure $http_get = <span class="k">null</span>;
+<span class="c">// at the one call site</span>
+$response = <span class="k">null</span> !== self::$http_get
+    ? ( self::$http_get )( $url, $args )
+    : \wp_remote_get( $url, $args );</div>
+    <div class="steps">
+      <div class="st real"><span class="n">1</span><span class="t">Build the URL and headers<span class="d"><span class="mono">Accept: application/vnd.github+json</span>, the <span class="mono">User-Agent</span> GitHub requires, and <span class="mono">Authorization: Bearer</span> only when a token is set</span></span></div>
+      <div class="st seam"><span class="n">2</span><span class="t">The transport call<span class="d">The test assigns <span class="mono">$http_get = fn( $url, $args ) =&gt; [ 'response' =&gt; [ 'code' =&gt; 200 ], 'body' =&gt; $canned_json ]</span> and resets it to null in <span class="mono">tearDown</span>. Nothing leaves the box.</span></span></div>
+      <div class="st real"><span class="n">3</span><span class="t"><span class="mono">is_wp_error()</span> branch<span class="d">rate-limited <span class="mono">print_less_often( 'GitHub fetch failed: ', $msg )</span>, keyed on the first argument alone, then <span class="mono">[]</span></span></span></div>
+      <div class="st real"><span class="n">4</span><span class="t">non-200 branch<span class="d">returns <span class="mono">[]</span>: a failed repo or endpoint contributes nothing and never throws</span></span></div>
+      <div class="st real"><span class="n">5</span><span class="t"><span class="mono">json_decode</span>, then <span class="mono">Core::arr()</span><span class="d">a non-array body reads as no items</span></span></div>
+      <div class="st real"><span class="n">6</span><span class="t">Per-endpoint normalization<span class="d">the <span class="mono">merged_at</span> filter, the <span class="mono">pull_request</span> drop, the stable ids, <span class="mono">normalize_item()</span></span></span></div>
+    </div>
+    <div class="ok verdict"><h4>Five of six steps run as production code</h4><p>The seam substitutes the side effect and exercises everything around it, which is where the bugs live.</p></div>
+  </div>
+
+  <div class="col">
+    <h2>A <span class="mono">protected function http_get()</span>, overridden in a test subclass</h2>
+    <div class="code"><span class="k">class</span> Fake_Github <span class="k">extends</span> Github_Source_Node {
+    <span class="k">protected function</span> http_get( ... ): array {
+        <span class="k">return</span> $canned;   <span class="c">// the whole body, replaced</span>
+    }
+}</div>
+    <div class="steps">
+      <div class="st fake"><span class="n">1</span><span class="t">Build the URL and headers</span></div>
+      <div class="st seam"><span class="n">2</span><span class="t">The whole method body<span class="d">what ran is the test's override</span></span></div>
+      <div class="st fake"><span class="n">3</span><span class="t"><span class="mono">is_wp_error()</span> branch</span></div>
+      <div class="st fake"><span class="n">4</span><span class="t">non-200 branch</span></div>
+      <div class="st fake"><span class="n">5</span><span class="t"><span class="mono">json_decode</span>, then <span class="mono">Core::arr()</span></span></div>
+      <div class="st real"><span class="n">6</span><span class="t">Per-endpoint normalization<span class="d">runs, on whatever the override handed back</span></span></div>
+    </div>
+    <div class="callout verdict"><h4>Green on paper, unmeasured in fact</h4><p>Coverage marks <span class="mono">http_get()</span> covered while its production body, steps 1 to 5, never executed in any test. The standing rule across these plugins is the closure property, never the helper-and-subclass form.</p></div>
+  </div>
+</div>
+
+<div class="bottom">
+  <div class="card">
+    <h3>One seam per connector</h3>
+    <p>GitHub and Feed carry <span class="mono">$http_get</span>; Linear's single GraphQL POST carries <span class="mono">$http_post</span>. The signature every replacement satisfies: <span class="mono">function ( string $url, array $args ): array|\WP_Error</span>. The suite is hermetic: <span class="mono">cd tests &amp;&amp; ../vendor/bin/phpunit</span> touches no network.</p>
+  </div>
+  <div class="card">
+    <h3>Fetches block, and that is fine</h3>
+    <p><span class="mono">wp_remote_get</span> with a 15-second timeout is synchronous, and so is the Linear POST. Unacceptable in a web request; but connector fetches run inside a background worker, which is why the file carries <span class="mono">phpcs:ignore</span> notes for the VIP remote-request rules. The worker is the isolation boundary, and the same reasoning licenses the LLM calls downstream.</p>
+  </div>
+</div>
+</div>

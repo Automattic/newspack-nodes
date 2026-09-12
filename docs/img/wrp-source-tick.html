@@ -1,0 +1,95 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+  .cols { display: flex; gap: 18px; align-items: flex-start; }
+  .flow { flex: 0 0 560px; }
+  .side { flex: 1 1 0; min-width: 0; }
+  .side > * + * { margin-top: 12px; }
+  .side .card h3 { font-size: 14px; }
+  .side p { font-size: 12.5px; }
+  .blk { position: relative; background: #fff; border: 1px solid #C3D3EC; border-radius: 9px; padding: 11px 14px 11px 46px; margin-bottom: 24px; }
+  .blk:not(.last)::after { content: ""; position: absolute; left: 20px; bottom: -24px; height: 24px; border-left: 2px solid #003DA5; }
+  .blk:not(.last)::before { content: ""; position: absolute; left: 16px; bottom: -24px; border: 5px solid transparent; border-top: 8px solid #003DA5; z-index: 1; }
+  .blk .n { position: absolute; left: 11px; top: 10px; width: 24px; height: 24px; border-radius: 50%; background: #003DA5; color: #fff; font-size: 12.5px; font-weight: 700; text-align: center; line-height: 24px; }
+  .blk h3 { font-size: 14px; margin: 2px 0 6px; }
+  .blk p { font-size: 12.5px; color: #50575E; margin: 0 0 6px; line-height: 1.5; }
+  .blk p:last-child { margin-bottom: 0; }
+  .loop { border: 2px dashed #C3D3EC; border-radius: 9px; padding: 10px 12px 4px; margin: 6px 0 8px; background: #FBFBFC; }
+  .loop .lbl { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: #003DA5; margin-bottom: 8px; }
+  .dec { display: grid; grid-template-columns: 1fr; gap: 6px; margin-bottom: 8px; }
+  .dec .q { display: grid; grid-template-columns: 196px 1fr; gap: 10px; align-items: baseline; background: #F0F4FB; border: 1px solid #C3D3EC; border-radius: 6px; padding: 7px 10px; font-size: 12px; line-height: 1.4; }
+  .dec .q b { display: block; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight: 600; color: #003DA5; white-space: nowrap; }
+  .dec .q.skip { background: #FBEAEA; border-color: #E6A3A3; }
+  .dec .q.skip b { color: #B32D2E; }
+  .dec .q.go { background: #EDF7ED; border-color: #9EC89E; }
+  .dec .q.go b { color: #1E5B1E; }
+  .msg { display: grid; grid-template-columns: 62px 1fr; gap: 2px 10px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.5; background: #F0F4FB; border: 1px solid #C3D3EC; border-radius: 6px; padding: 7px 10px; margin: 6px 0 8px; }
+  .msg .k { color: #50575E; }
+  .msg b { color: #003DA5; font-weight: 600; }
+  .msg.info { background: #FFF8E6; border-color: #E0C36B; }
+  .msg.info b { color: #8A6D1E; }
+  .fin { border: 2px solid #E0C36B; border-radius: 9px; background: #FFFCF3; }
+  .fin .n { background: #8A6D1E; }
+  .shape { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; background: #F0F4FB; border: 1px solid #C3D3EC; border-radius: 6px; padding: 8px 10px; line-height: 1.6; margin: 6px 0; }
+  .shape b { color: #003DA5; font-weight: 600; }
+</style>
+<div class="sheet">
+<h1>A TICK ends in DONE whatever <span class="mono">fetch()</span> did</h1>
+<p class="sub">The abstract <span class="mono">Source_Node</span> owns the whole request: the trigger, the dedup, the emit and the terminal marker. A connector supplies two methods, <span class="mono">config()</span> and <span class="mono">fetch()</span>, and never touches a message.</p>
+
+<div class="cols">
+  <div class="flow">
+    <div class="blk">
+      <span class="n">1</span>
+      <h3>A TM_REQUEST reaches <span class="mono">fill()</span></h3>
+      <p><span class="mono">Core::num_int( $message[ TYPE ] ) &amp; TM_REQUEST</span> is the whole test. The dashboard's Collect button and <span class="mono">request_node github TICK</span> mint the same message. No <span class="mono">{ emitted }</span> reply goes back to the caller.</p>
+    </div>
+    <div class="blk">
+      <span class="n">2</span>
+      <h3><span class="mono">try</span>: <span class="mono">fetch( $this-&gt;config() )</span>, then one pass over the items</h3>
+      <p><span class="mono">config()</span> reads the node's verbs and opens the Vault pointer; <span class="mono">fetch()</span> blocks on the network and returns normalized items. Both are the connector's.</p>
+      <div class="loop">
+        <div class="lbl">for each item</div>
+        <div class="dec">
+          <div class="q skip"><b>id is not a string, or ''</b><span>no dedup key, and the contract requires one: <span class="mono">continue</span></span></div>
+          <div class="q skip"><b>isset( $seen[ $id ] )</b><span>emitted on an earlier TICK: every TICK re-fetches the same window, so <span class="mono">continue</span></span></div>
+          <div class="q go"><b>remember( $id )</b><span>past <span class="mono">MAX_SEEN = 2000</span> entries the oldest are sliced off, so a worker ticking all through its ten-minute life holds at most 2000 ids</span></div>
+        </div>
+        <div class="msg">
+          <span class="k">TYPE</span><span><b>TM_STRUCT</b></span>
+          <span class="k">FROM</span><span>the node's name: github, linear or feed</span>
+          <span class="k">TO</span><span>stamped from the target by <span class="mono">parent::fill()</span>: <b>ingest:partition</b></span>
+          <span class="k">VALUE</span><span>the normalized item</span>
+        </div>
+        <p>Fire-and-forget: no reply, no ack, and the single-threaded drain is the backpressure.</p>
+      </div>
+    </div>
+    <div class="blk fin last">
+      <span class="n">3</span>
+      <h3><span class="mono">finally</span>: one DONE, even when <span class="mono">fetch()</span> threw</h3>
+      <div class="msg info">
+        <span class="k">TYPE</span><span><b>TM_INFO</b></span>
+        <span class="k">FROM</span><span>the node's name, which keys the digest's per-source tally</span>
+        <span class="k">VALUE</span><span>"DONE\n"</span>
+      </div>
+      <p><span class="mono">fetch()</span> is synchronous, so DONE is minted after every item this TICK produced and rides the same path behind them. One failing source cannot stall collection: it reports DONE with nothing ahead of it.</p>
+    </div>
+  </div>
+
+  <div class="side">
+    <div class="card">
+      <h3>The item contract, from <span class="mono">normalize_item()</span></h3>
+      <div class="shape">{ <b>source</b>, <b>id</b>: "$source:$id", <b>title</b>, <b>url</b>, <b>body</b>, <b>timestamp</b> }</div>
+      <p>The id is namespaced so a GitHub <span class="mono">#release-5</span> and a Linear <span class="mono">ENG-5</span> never collide in the dedup set; the bare id each connector passes must already be stable per item. Title, url and body go through <span class="mono">Core::str()</span>; a date that will not <span class="mono">strtotime</span> becomes <span class="mono">timestamp 0</span> rather than a throw. Downstream, the summarizer cannot tell a merged PR from a blog post, and does not need to.</p>
+    </div>
+    <div class="callout">
+      <h4><span class="mono">$seen</span> is process memory and dies with the worker</h4>
+      <p>A fresh worker re-emits whatever its next fetch still returns. Deliberate: <span class="mono">Digest_Builder_Node</span> dedups on the same id, so the digest stays correct and only the summarize and score stages upstream pay for the repeat. A TICK-driven source has no Consumer offsetlog to co-commit a snapshot into, so the <span class="mono">add_snapshot_node</span> route the digest uses is unavailable here.</p>
+    </div>
+    <div class="card">
+      <h3>What the base declares for every connector</h3>
+      <p>The constructor calls <span class="mono">auto_wire_interpreter()</span>, which reads <span class="mono">node_schema()['commands']</span> and mounts a sibling <span class="mono">Command_Interpreter_Node</span> named <span class="mono">{node}:config</span>; that is what makes <span class="mono">cmd github:config set_vault_id …</span> lines work. <span class="mono">source_schema()</span> hands each subclass one shape: category <span class="mono">Source</span>, one <span class="mono">TICK</span> request, and <span class="mono">accepts_fill</span> false, because a source mints messages and consumes none.</p>
+      <p><span class="mono">Source_Node</span> is abstract and declares no <span class="mono">node_schema()</span>. <span class="mono">make_node Source</span> returns null rather than fataling: <span class="mono">resolve_class()</span> skips an abstract match and keeps scanning the remaining namespaces.</p>
+    </div>
+  </div>
+</div>
+</div>

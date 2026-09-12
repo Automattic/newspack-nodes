@@ -1,0 +1,63 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.dec svg text { font-family:Inter, -apple-system, Helvetica, Arial, sans-serif; }
+.two { display:flex; gap:16px; margin-top:16px; align-items:stretch; }
+.two > div { flex:1; }
+.two .card p, .two .callout p, .two .ok p { font-size:12.5px; }
+.mono { overflow-wrap:anywhere; }
+</style>
+<div class="sheet">
+<h1>One hash decides where a key lands, and the hash is the concurrency control</h1>
+<p class="sub">One partition has one consumer, so a key's messages are processed serially, by one process, in append order. Per-key mutexes, CAS loops and read-modify-write guards never need to exist, as long as every producer computes the same partition for the same key.</p>
+
+<div class="card dec" style="padding-bottom:8px">
+  <h3>How <span class="mono">Topic_Node::fill()</span> picks a partition, in order</h3>
+  <svg width="1012" height="230" viewBox="0 0 1012 230" font-size="12">
+    <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs>
+    <rect x="0" y="92" width="120" height="46" rx="8" fill="#F0F4FB" stroke="#C3D3EC"/>
+    <text x="60" y="112" text-anchor="middle" font-weight="700">a message</text>
+    <text x="60" y="128" text-anchor="middle" fill="#50575E" font-size="11.5">any TYPE is packed</text>
+    <rect x="160" y="80" width="200" height="70" rx="8" fill="#fff" stroke="#003DA5"/>
+    <text x="260" y="103" text-anchor="middle" font-weight="700">TO begins p&lt;N&gt;,</text>
+    <text x="260" y="119" text-anchor="middle" font-weight="700">and N &lt; num_partitions?</text>
+    <text x="260" y="138" text-anchor="middle" fill="#50575E" font-size="11">an out-of-range pin falls through</text>
+    <rect x="420" y="80" width="170" height="70" rx="8" fill="#fff" stroke="#003DA5"/>
+    <text x="505" y="110" text-anchor="middle" font-weight="700">KEY non-empty?</text>
+    <text x="505" y="128" text-anchor="middle" fill="#50575E" font-size="11">the producer's grouping</text>
+    <g stroke="#003DA5" stroke-width="1.6" fill="none" marker-end="url(#a)">
+      <path d="M120 115 L158 115"/>
+      <path d="M360 115 L418 115"/>
+      <path d="M260 80 L260 40 L640 40"/>
+      <path d="M590 115 L640 115"/>
+      <path d="M505 150 L505 205 L640 205"/>
+    </g>
+    <text x="368" y="110" fill="#003DA5" font-size="11">no</text>
+    <text x="266" y="56" fill="#003DA5" font-size="11">yes: the pin wins</text>
+    <text x="596" y="110" fill="#003DA5" font-size="11">yes</text>
+    <text x="511" y="176" fill="#003DA5" font-size="11">no</text>
+    <rect x="642" y="26" width="370" height="30" rx="6" fill="#EDF7ED" stroke="#9EC89E"/>
+    <text x="827" y="45" text-anchor="middle" fill="#1E5B1E">partition N, exactly as addressed</text>
+    <rect x="642" y="86" width="370" height="60" rx="6" fill="#E8EEF9" stroke="#003DA5"/>
+    <text x="827" y="106" text-anchor="middle" font-weight="700" fill="#003DA5">hash_to_partition( KEY, num_partitions )</text>
+    <text x="827" y="122" text-anchor="middle" fill="#50575E" font-size="11.5">strip the query string: explode( '?' )</text>
+    <text x="827" y="137" text-anchor="middle" fill="#50575E" font-size="11.5">then ( crc32( key ) &amp; 0x7FFFFFFF ) % num_partitions</text>
+    <rect x="642" y="190" width="370" height="30" rx="6" fill="#F6F7F7" stroke="#B0B3B8"/>
+    <text x="827" y="209" text-anchor="middle" fill="#50575E">round-robin: the next partition in turn</text>
+  </svg>
+</div>
+
+<div class="two">
+  <div class="callout">
+    <h4>Rejected: per-producer hashing</h4>
+    <p>Divergent hash families silently split a key across partitions and break all of it: no error, only wrong colocation. Every routing site calls <span class="mono">Partition_Node::hash_to_partition()</span>; a site needing different behaviour is an explicit, named alternative, never a divergent re-implementation.</p>
+  </div>
+  <div class="card">
+    <h3>Why the 31-bit mask</h3>
+    <p><span class="mono">crc32()</span> returns a value that is negative on 32-bit PHP for half its range; masking with <span class="mono">0x7FFFFFFF</span> keeps the modulo non-negative on every build. The query string is stripped so <span class="mono">/page?cb=1</span> and <span class="mono">/page?cb=2</span> land together.</p>
+  </div>
+  <div class="ok">
+    <h4>Revisit if</h4>
+    <p>The partition count outgrows CRC32's distribution, or a genuinely different key family is required: then a NEW, named routing function, not a quiet second hash.</p>
+  </div>
+</div>
+</div>

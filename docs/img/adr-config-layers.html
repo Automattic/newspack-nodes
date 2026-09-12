@@ -1,0 +1,64 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.wrap { display:flex; gap:18px; align-items:flex-start; }
+.stack { flex:1.1; display:flex; flex-direction:column; gap:8px; }
+.layer { position:relative; border-radius:9px; padding:11px 14px 11px 52px; font-size:12.5px; line-height:1.5; background:#fff; border:1px solid #C3C4C7; }
+.layer .n { position:absolute; left:14px; top:11px; width:26px; height:26px; border-radius:50%; background:#003DA5; color:#fff; font-weight:700; font-size:13px; text-align:center; line-height:26px; }
+.layer b { display:block; font-size:13.5px; margin-bottom:2px; }
+.layer .w { color:#50575E; }
+.layer.code { border:2px solid #003DA5; background:#F7F9FD; }
+.layer.opt { border-color:#003DA5; }
+.dir { text-align:center; font-size:11.5px; color:#787C82; text-transform:uppercase; letter-spacing:.05em; }
+.side { flex:1; display:flex; flex-direction:column; gap:12px; }
+.side .card p { font-size:12.5px; }
+.contrast { display:flex; gap:16px; margin-top:16px; align-items:stretch; }
+.contrast > div { flex:1; }
+.mono { overflow-wrap:anywhere; }
+</style>
+<div class="sheet">
+<h1>The schema declares every key and its default; every file is an override</h1>
+<p class="sub">Four layers resolve one key, weakest first. The declared key set derives from the schema, never from a file, so an operator's typo cannot declare itself, and a key added after the operator's file was copied still has a value.</p>
+
+<div class="wrap">
+  <div class="stack">
+    <div class="dir">strongest: read last, wins by PRESENCE</div>
+    <div class="layer opt"><span class="n">4</span><b>A stored <span class="mono">newspack_nodes_&lt;key&gt;</span> option</b><span class="w"><span class="mono">Options_Overlay::apply()</span>: a stored <span class="mono">''</span>, <span class="mono">[]</span> or <span class="mono">false</span> beats both files. Written by the settings page, the <span class="mono">settings</span> verb and <span class="mono">wp nodes activate</span>; <span class="mono">Config</span> itself writes no option.</span></div>
+    <div class="layer"><span class="n">3</span><b>The file named by <span class="mono">LOCAL_NEWSPACK_NODES_CONF</span></b><span class="w">CLI and testing. Applied, on purpose, AFTER <span class="mono">note_unrecognized_keys()</span> has run inside <span class="mono">load_config_defaults()</span>, so a typo here is neither reported nor refused, and a clean <span class="mono">config-keys</span> row says nothing about this file.</span></div>
+    <div class="layer"><span class="n">2</span><b><span class="mono">newspack-nodes-config.php</span>, the shipped file</b><span class="w">Every key commented out beside its default, so uncommenting one line is the whole edit; it resolves to an empty array as shipped. Each setup script copies the deployment's own file over this path with <span class="mono">cp -f</span>, so it is the operator's, not ours. A key the schema does not declare is REPORTED here — rate-limited, and as <span class="mono">config-keys</span> in Site Health and <span class="mono">wp nodes doctor</span> — never thrown: the first read is at <span class="mono">plugins_loaded:-10001</span>, and a throw there takes down every request including wp-admin the day a key is renamed, recoverable only over SSH.</span></div>
+    <div class="layer code"><span class="n">1</span><b><span class="mono">Settings_Schema</span>: the default, in code</b><span class="w">One <span class="mono">Config_System\Field</span> per key carries the default, its bounds and its restart class. <span class="mono">Config::value()</span> refuses a key the schema does not declare. A key with no sensible universal value declares <span class="mono">null</span>, and that is identity, not a missing default: <span class="mono">publication</span>, <span class="mono">script_alias</span>, <span class="mono">table_prefix</span>, credentials, host paths.</span></div>
+    <div class="dir">weakest: the base everything else overrides</div>
+  </div>
+  <div class="side">
+    <div class="card">
+      <h3>Two declaration shapes, both first-class</h3>
+      <p>Where a <span class="mono">Field</span> carries the default, <span class="mono">Schema::defaults()</span> is the base: newspack-nodes, newspack-event-logger-nodes. Otherwise a static <span class="mono">Config::config_defaults()</span> array is: newspack-nuclear-gyrobase, which has no Field layer, and newspack-pyrobase, whose 15 Fields render settings and declare no <span class="mono">default:</span> against 86 keys. Declaring a key in both places is the drift this decision exists to prevent.</p>
+      <p><span class="mono">Schema::defaults()</span> OMITS a keyed Field written without <span class="mono">default:</span>, which makes that key null on every install; a plugin using it as its base asserts completeness itself. A drift test parses the shipped file's commented lines back and holds them to the code defaults key for key and value for value.</p>
+    </div>
+    <div class="card">
+      <h3>Read through a helper that falls back to the DECLARED default</h3>
+      <p><span class="mono">Core::num_int( Config::value( $k ) )</span> answers 0 for a null or blank entry; read unguarded, that 0 would collapse the <span class="mono">max( 1, … )</span> behind <span class="mono">SSE_Slot_Pool::max_streams()</span> to a whole-host cap of one stream. <span class="mono">SSE_Slot_Pool::budget()</span> is the shape.</p>
+      <p>The <span class="mono">&lt;config:key&gt;</span> token resolver reads <span class="mono">load_config()</span> with no declaration gate, so anything in the local file resolves, while a misspelled key expands to <span class="mono">''</span> behind a rate-limited warning wherever interpolation is non-strict; a schema-arg default is the one place it throws.</p>
+    </div>
+  </div>
+</div>
+
+<div class="contrast">
+  <div class="callout">
+    <h4>Rejected: the file as declaration, failing forward</h4>
+    <p>A deploy preserves the operator's file, so a key added later never appears in it, and a default living only there reads null forever: <span class="mono">sse_idle_timeout</span> shipped inert that way, silently, for weeks. A completeness test cannot help, because it sees the file in THIS checkout while the failure is on a host whose file is older.</p>
+  </div>
+  <div class="callout">
+    <h4>Rejected: the file as declaration, failing backward</h4>
+    <p>Deriving the key set from <span class="mono">array_keys( load_config_defaults() )</span> makes a typo self-declaring: <span class="mono">base_directroy</span> becomes valid, the real <span class="mono">base_directory</span> falls back, and the runtime writes its whole tree somewhere else with nothing in the log. Registering the file's keys so nothing is refused is the same failure.</p>
+  </div>
+  <div class="callout">
+    <h4>Rejected: throwing on an unknown file key</h4>
+    <p>It converts an operator typo into an outage, and the file is not ours to validate that strictly. The inverse is as fatal: with the file as the declaration, an environment without one declares nothing, the first <span class="mono">Config::value()</span> throws <span class="mono">unknown config key</span>, and every request including wp-admin fails, as Nuclear Gyrobase's did. Loud means visible, not fatal. Putting every default in a <span class="mono">Field</span> was rejected too: pyrobase would carry 71 Fields no page shows.</p>
+  </div>
+</div>
+
+<div class="note">
+  <h4>Uninstall never resolves the schema default</h4>
+  <p>It is the path every unconfigured install on a host shares, and deleting it takes a sibling's live logs, locks and offsets. <span class="mono">runtime_base_directory()</span> resolves only the explicit sources: the option, the <span class="mono">LOCAL_NEWSPACK_NODES_CONF</span> file, the shipped file. Revisit if a plugin needs a default that cannot be expressed in code, a value derived from the host at runtime: the answer is a resolver called from the declaration, not a value in a file.</p>
+</div>
+</div>

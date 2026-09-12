@@ -1,0 +1,96 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+  .cols { display: flex; gap: 18px; align-items: flex-start; }
+  .flow { flex: 0 0 600px; }
+  .side { flex: 1 1 0; min-width: 0; }
+  .side > * + * { margin-top: 12px; }
+  .hop { position: relative; background: #fff; border: 1px solid #C3D3EC; border-radius: 9px; padding: 12px 14px 12px 46px; margin-bottom: 26px; }
+  .hop:not(:last-child)::after { content: ""; position: absolute; left: 20px; bottom: -26px; width: 0; height: 26px; border-left: 2px solid #003DA5; }
+  .hop:not(:last-child)::before { content: ""; position: absolute; left: 16px; bottom: -26px; border: 5px solid transparent; border-top: 8px solid #003DA5; z-index: 1; }
+  .hop .n { position: absolute; left: 11px; top: 11px; width: 24px; height: 24px; border-radius: 50%; background: #003DA5; color: #fff; font-size: 12.5px; font-weight: 700; text-align: center; line-height: 24px; }
+  .hop h3 { font-size: 14px; margin: 2px 0 6px; }
+  .hop p { font-size: 12.5px; color: #50575E; margin: 0 0 6px; line-height: 1.5; }
+  .hop p:last-child { margin-bottom: 0; }
+  .msg { display: grid; grid-template-columns: 90px 1fr; gap: 2px 10px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.5; background: #F0F4FB; border: 1px solid #C3D3EC; border-radius: 6px; padding: 7px 10px; margin: 6px 0 8px; }
+  .msg.reply { background: #EDF7ED; border-color: #9EC89E; }
+  .msg .k { color: #50575E; }
+  .msg b { color: #003DA5; font-weight: 600; }
+  .msg.reply b { color: #1E5B1E; }
+  .ctr { display: flex; align-items: center; gap: 10px; background: #fff; border: 1px solid #C3C4C7; border-radius: 9px; padding: 10px 14px; }
+  .ctr .big { font-size: 30px; font-weight: 700; color: #003DA5; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .ctr p { font-size: 12.5px; color: #50575E; margin: 0; line-height: 1.45; }
+  .side .card p, .side .callout p, .side .ok p { font-size: 12.5px; }
+  .side .card h3 { font-size: 14px; }
+  .tag { display: inline-block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; padding: 2px 7px; border-radius: 4px; background: #F0F4FB; color: #003DA5; border: 1px solid #C3D3EC; margin-left: 6px; vertical-align: 2px; }
+</style>
+<div class="sheet">
+<h1>One TICK moves the source's counter by three, not two</h1>
+<p class="sub">A request arrives at <span class="mono">fill()</span>. Each item leaves through <span class="mono">parent::fill()</span>, and so does the reply, so the count you watch climb in the console is the items plus the answer. Nothing on this path reads the verb.</p>
+
+<div class="cols">
+  <div class="flow">
+    <div class="hop">
+      <span class="n">1</span>
+      <h3>The request arrives</h3>
+      <div class="msg">
+        <span class="k">TYPE</span><span><b>TM_REQUEST</b></span>
+        <span class="k">FROM</span><span><b>_output/&lt;pid&gt;</b>, the breadcrumb the REPL stamped</span>
+        <span class="k">TO</span><span>releases, peeled by the router on delivery</span>
+        <span class="k">VALUE</span><span>"TICK", the tail of the typed line joined with spaces</span>
+      </div>
+      <p><span class="mono">fill()</span> tests <span class="mono">TYPE &amp; TM_REQUEST</span> and nothing else. <span class="mono">request_node releases TICK</span>, <span class="mono">request_node releases typo</span> and a bare <span class="mono">request_node releases</span> all emit the same batch: with one entry under <span class="mono">requests</span>, the flag is the whole dispatch.</p>
+    </div>
+
+    <div class="hop">
+      <span class="n">2</span>
+      <h3>One message per item, minted fresh <span class="tag">counter +1 each</span></h3>
+      <div class="msg">
+        <span class="k">TYPE</span><span><b>TM_STRUCT</b></span>
+        <span class="k">FROM</span><span>releases, this node's own name</span>
+        <span class="k">TO</span><span>empty at the mint, then <b>summarizer</b>: <span class="mono">Node::fill()</span> stamps the target when TO is empty</span>
+        <span class="k">ID, KEY</span><span>empty, and TIMESTAMP is the cached clock</span>
+        <span class="k">VALUE</span><span>[ 'source' =&gt; 'releases' ] + $item</span>
+      </div>
+      <p>Built in <span class="mono">$response</span>, never by reassigning <span class="mono">$message</span>, because step 3 still reads the untouched request. Two items leave as two forwards, and nothing acknowledges either.</p>
+    </div>
+
+    <div class="hop">
+      <span class="n">3</span>
+      <h3>One reply, addressed with the request's own FROM <span class="tag">counter +1</span></h3>
+      <div class="msg reply">
+        <span class="k">TYPE</span><span><b>TM_STRUCT | TM_RESPONSE</b></span>
+        <span class="k">FROM</span><span>releases</span>
+        <span class="k">TO</span><span><b>$message[FROM]</b>, so TO is already set and <span class="mono">Node::fill()</span> stamps nothing</span>
+        <span class="k">ID, KEY</span><span>copied off the request</span>
+        <span class="k">VALUE</span><span>[ 'emitted' =&gt; 2 ]</span>
+      </div>
+      <p>The router walks it back to <span class="mono">_output</span>, whose Dumper prints <span class="mono">{ "emitted": 2 }</span>. The reply is the only thing the REPL shows; with nothing wired the two items reach <span class="mono">_router</span> with an empty TO and are dropped with one <span class="mono">message not addressed</span> warning on stderr.</p>
+    </div>
+
+    <div class="ctr">
+      <span class="big">3</span>
+      <p>What the console card, <span class="mono">ls -c</span> and <span class="mono">stats</span> read after one TICK: <span class="mono">Node::fill()</span> increments the protected base counter on every forward, items and reply alike.</p>
+    </div>
+  </div>
+
+  <div class="side">
+    <div class="callout">
+      <h4>A request minted with no FROM delivers its reply as an item</h4>
+      <p>An empty FROM leaves the reply's TO empty, <span class="mono">parent::fill()</span> stamps <span class="mono">summarizer</span> onto it, and <span class="mono">{ emitted }</span> flows downstream as though a source had emitted it. <span class="mono">Job_Worker_Node</span> and <span class="mono">Table_Node</span> send replies through <span class="mono" style="white-space:nowrap">$this-&gt;require_sink()-&gt;fill( $reply )</span>, which stamps no TO and counts nothing. The walkthrough keeps <span class="mono">parent::fill()</span> for symmetry with the emit; a source of your own should take the <span class="mono">require_sink()</span> form.</p>
+    </div>
+    <div class="callout">
+      <h4>Never <span class="mono">$this-&gt;fill()</span> to send</h4>
+      <p>That re-enters this node's own <span class="mono">fill()</span> and recurses. <span class="mono">parent::fill()</span> is the emit; <span class="mono">Tail_Node::forward_line()</span> is the same pattern in the substrate.</p>
+    </div>
+    <div class="card">
+      <h3>A second verb means parsing VALUE</h3>
+      <p>The <span class="mono">requests</span> array documents verbs for the Inspector and <span class="mono">help</span>; it dispatches nothing. <span class="mono">Job_Worker_Node::handle_request()</span> is the shape to copy: uppercase the first token of VALUE, test it, and answer an unknown verb with an <span class="mono">error</span> payload rather than a throw, because no interpreter sits on this path to turn a throw into a TM_ERROR reply.</p>
+      <p><span class="mono">Table_Node::handle_request()</span> and its <span class="mono">GET &lt;key&gt;</span> is the other exemplar, deliberately different: case-sensitive, a reply with no TM_RESPONSE bit and no <span class="mono">{ verb, data }</span> envelope, and an unknown verb dropped with no reply at all.</p>
+    </div>
+    <div class="card">
+      <h3>Narrow TYPE before the bitwise test</h3>
+      <p><span class="mono">$message[ Message::TYPE ]</span> is typed <span class="mono">mixed</span>. The shipped sources and the digest narrow it, <span class="mono">is_numeric( … ) ? (int) … : 0</span>, so a non-numeric TYPE matches no flag; <span class="mono">Core::num_int()</span> is that test behind a name, and the substrate's own nodes call it rather than repeat the ternary. The shipped transforms take a <span class="mono">/** @var int */</span> annotation instead, which satisfies PHPStan and does nothing at runtime: a TYPE arriving as a non-numeric string raises <span class="mono">TypeError: Unsupported operand types: string &amp; int</span> there. Narrow wherever a message can reach you off the wire.</p>
+    </div>
+  </div>
+</div>
+</div>

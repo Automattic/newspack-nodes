@@ -1,0 +1,77 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+h2 { font-size:15px; margin:0 0 8px; }
+.steps { display:flex; gap:6px; align-items:stretch; }
+.steps .s { flex:1; background:#fff; border:1px solid #C3D3EC; border-radius:7px; padding:8px 10px; font-size:11.5px; line-height:1.4; position:relative; }
+.steps .s b { display:block; font-size:12.5px; color:#003DA5; margin-bottom:3px; }
+.steps .s.ev b { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.steps .s.deny { background:#FBEAEA; border-color:#E6A3A3; color:#5C2223; } .steps .s.deny b { color:#B32D2E; }
+.tick { display:grid; grid-template-columns: 26px 1fr 1.1fr; gap:6px 8px; align-items:stretch; }
+.tick .n { width:22px; height:22px; border-radius:11px; background:#003DA5; color:#fff; font-size:11.5px; font-weight:700; text-align:center; line-height:22px; margin-top:6px; }
+.tick .q { background:#F0F4FB; border:1px solid #C3D3EC; border-radius:6px; padding:7px 10px; font-size:12px; line-height:1.45; }
+.tick .a { border-radius:6px; padding:7px 10px; font-size:12px; line-height:1.45; border:1px solid #C3C4C7; background:#fff; }
+.tick .a.end { background:#FBEAEA; border-color:#E6A3A3; color:#5C2223; }
+.tick .a.clean { background:#EDF7ED; border-color:#9EC89E; color:#1E5B1E; }
+.tick .a.on { background:#F6F7F7; border-style:dashed; color:#50575E; }
+.two { display:flex; gap:16px; margin-top:18px; align-items:stretch; }
+.two > * { flex:1; }
+.two .card p { font-size:12.5px; }
+table.seam { width:100%; border-collapse:collapse; font-size:11.5px; line-height:1.4; margin-top:6px; }
+table.seam th { text-align:left; font-size:11px; color:#50575E; text-transform:uppercase; letter-spacing:.02em; padding:0 8px 6px 0; font-weight:600; }
+table.seam td { padding:6px 8px 6px 0; border-top:1px solid #E3E4E6; vertical-align:top; }
+.mono { overflow-wrap:anywhere; }
+.nums { display:flex; gap:6px; margin-top:8px; }
+.nums div { flex:1; background:#F0F4FB; border:1px solid #C3D3EC; border-radius:6px; padding:7px 9px; font-size:11.5px; line-height:1.35; text-align:center; }
+.nums div b { display:block; font-size:15px; color:#003DA5; }
+.nums .mono { overflow-wrap:normal; }
+.nw { white-space:nowrap; }
+</style>
+<div class="sheet">
+<h1>A stream's life: one slot lease, five events, two clocks and three ways it ends</h1>
+<p class="sub"><span class="mono">GET /messages/stream</span> holds one PHP-FPM child from the slot acquire to the <span class="mono">finally</span> that releases it. The server reads the lease on every tick and never refreshes it; the client's <span class="mono">workers heartbeat</span> is the only thing that does. <span class="mono">/log/stream</span> is identical on the wire.</p>
+
+<h2>Open, in order</h2>
+<div class="steps">
+  <div class="s deny"><b>acquire slot</b>Once per stream, BEFORE any header, so a refusal can still answer <span class="mono">429 too_many_connections</span>. Unwired, it hands back an unmetered sentinel lease, and the other three seams do nothing.</div>
+  <div class="s"><b>headers</b><span class="mono">set_time_limit( 0 )</span>, <span class="mono">ignore_user_abort</span>, <span class="mono nw">Content-Type:</span> <span class="mono nw">text/event-stream</span>, <span class="mono nw">X-Accel-Buffering:</span> <span class="mono">no</span>, <span class="mono nw">Content-Encoding:</span> <span class="mono">none</span>, zlib off, output buffers torn down.</div>
+  <div class="s ev"><b>retry</b>First, because every close relies on it: VALUE is <span class="mono">sse_retry_ms</span> (default 5000). An event rather than the protocol <span class="mono">retry:</span> field, since the client owns reconnect. At 0 or below the client ignores it.</div>
+  <div class="s"><b>build the graph</b><span class="mono">_router</span>, an interpreter under <span class="mono">Command_Auth::verifier()</span>, this controller as <span class="mono">_sse</span>, an <span class="mono">HTTP_Filter_Node</span> as <span class="mono">_output</span> keyed to this pid; then one Consumer per subscription.</div>
+  <div class="s ev"><b>connected</b>The handshake: PID, SLOT, OWNER, the subscriptions, the heartbeat INTERVAL and each subscription's STARTING cursor. Chased by a padding comment of exactly 4096 bytes, because a bare <span class="mono">flush()</span> does not clear proxy and TLS buffers.</div>
+</div>
+
+<h2 style="margin-top:18px">Then, on every drain tick, about ten times a second</h2>
+<div class="tick">
+  <div class="n">1</div><div class="q"><span class="mono">$check_slot( $lease, $partition )</span> false?</div><div class="a end"><b>disconnect</b>: <span class="mono">KEY=slot_lease_lost</span>, <span class="mono">VALUE</span> <span class="mono">SSE slot lease lost</span>, one JSON diagnostic line through the node stderr chain, then close. The terminal frame always means failure: the lease was taken from under the stream.</div>
+  <div class="n">2</div><div class="q"><span class="mono">connection_aborted()</span>?</div><div class="a clean">The client went away: close, nothing sent.</div>
+  <div class="n">3</div><div class="q">No <span class="mono">msg</span> for <span class="mono">sse_idle_timeout</span> seconds (default 15; 0 streams until the client goes away)?</div><div class="a clean">Idle close, so a dashboard nobody watches stops holding a PHP-FPM child: a bare EOF with no terminal event, so the client reopens on the <span class="mono">retry</span> schedule. A stream that opens at EOF on a source quiet ten minutes ago is already ten minutes idle and closes on its first tick; an attached worker console never reports idle, because someone is reading it.</div>
+  <div class="n">4</div><div class="q">2000 ms since the last <span class="mono">heartbeat</span> (<span class="mono">HEARTBEAT_MS</span>)?</div><div class="a on"><b>heartbeat</b>, VALUE the tick timestamp. Deliberately not data: it never defers the idle close. Glob subscriptions self-heal here: a newly matching dir opens tail-seeked, a vanished one drops, and a <span class="mono">glob()</span> I/O error skips the removal pass rather than re-tail every partition.</div>
+  <div class="n">5</div><div class="q">Anything written since the last flush?</div><div class="a on">The 4096-byte padding comment, then <span class="mono">flush()</span>, before the drain sleeps. Every SSE parser discards a comment. Each delivered record went out as a <span class="mono">msg</span> event carrying the packed Message; only those count as data.</div>
+</div>
+
+<div class="two">
+  <div class="card">
+    <h2>The <span class="mono">finally</span></h2>
+    <p>Every Consumer, the default route, the interpreter, the filter and the router are removed and the <span class="mono">_sse</span> name unregistered, then <span class="mono">$release_slot( $lease, $partition )</span> runs, so neither a clean close nor a throw leaves the slot held until its TTL expires. An unexpected exception writes the same diagnostic line first, tagged <span class="mono">unexpected_exception</span>, and is rethrown.</p>
+    <h2 style="margin-top:12px">The four Closure seams, wired by <span class="mono">SSE_Slot_Pool::wire()</span></h2>
+    <table class="seam">
+      <tr><th>Seam</th><th>Called</th></tr>
+      <tr><td class="mono">$acquire_slot( int $partition ): array{slot,owner}|false</td><td>Once, before any header.</td></tr>
+      <tr><td class="mono">$check_slot( array $lease, int $partition ): bool</td><td>Every tick. It only READS: refreshing the TTL here would let a stream nobody watches hold its slot forever.</td></tr>
+      <tr><td class="mono">$release_slot( array $lease, int $partition ): void</td><td>From the <span class="mono">finally</span>.</td></tr>
+      <tr><td class="mono">$inspect_slot( array $lease, int $partition ): array</td><td>Only once a check has failed, to name the backend and lease state in the diagnostic. The healthy path never pays it.</td></tr>
+    </table>
+    <p style="margin:8px 0 0">A fifth, <span class="mono">$diagnostic_log</span>, narrows the close-context line for tests. The partition handed to the pool is the number of the first <span class="mono">{type}.p{N}</span>-shaped subscription, or <span class="mono">-1</span>; the shipped pool ignores it and pools host-wide.</p>
+  </div>
+  <div class="card">
+    <h2>The lease, and who keeps it alive</h2>
+    <p>Both stream routes draw on one host-wide pool. A browser's <span class="mono">_heartbeat</span> node pokes every 15 s with <span class="mono">workers heartbeat [ slot, owner ]</span>, both canonical decimal tokens from the <span class="mono">connected</span> handshake; the server owns the TTL and the client cannot lengthen it. A closed tab pokes nothing, so its slot frees itself one TTL after the last poke. <span class="mono">workers heartbeat</span> is a <span class="blue">read</span> verb because manage would expire every read-only stream after one TTL.</p>
+    <div class="nums">
+      <div><b>6</b><span class="mono">sse_max_streams</span> per host</div>
+      <div><b>3</b><span class="mono">sse_max_slots</span> per identity</div>
+      <div><b>0</b><span class="mono">sse_reserved_slots</span>, the tail a browser stops short of and a hub's pull may claim</div>
+      <div><b>60 s</b><span class="mono">sse_slot_ttl</span>, floored at three hub heartbeats</div>
+    </div>
+    <p style="margin:10px 0 0">A client consuming <span class="mono">disconnect</span> RETAINS both halves, the machine KEY it branches on and the display VALUE, so the transport close that follows cannot replace a real reason with a generic one. <span class="mono">SSE_In_Node</span> is the reference: it trims each half to 512 bytes, treats a frame with an empty KEY or VALUE as fatal (ERROR, lease retired, transfer aborted), and holds what is left as its terminal state. <span class="mono">sse-host-budget.md</span> carries the arithmetic behind each number.</p>
+  </div>
+</div>
+</div>
