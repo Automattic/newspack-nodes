@@ -1,0 +1,87 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.budget { display:flex; gap:16px; align-items:stretch; }
+.bcard { flex:1; background:#fff; border:1px solid #C3C4C7; border-radius:9px; padding:14px 16px 16px; }
+.bcard h3 { font-size:15px; margin:0 0 4px; }
+.bcard .cap { font-size:12.5px; color:#50575E; line-height:1.45; margin:0 0 12px; }
+.slots { display:flex; gap:6px; }
+.slot {
+  flex:1; height:62px; border-radius:7px; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; font-size:11.5px; line-height:1.25; text-align:center;
+}
+.slot.w { background:#003DA5; color:#fff; }
+.slot.free { background:#EDF7ED; border:1px solid #9EC89E; color:#1E5B1E; }
+.slot.visitor { background:#F0F4FB; border:1px solid #C3D3EC; color:#003DA5; }
+.slot.blocked { background:#FBEAEA; border:1px solid #E6A3A3; color:#B32D2E; }
+.cols { display:flex; gap:16px; align-items:stretch; margin-top:20px; }
+.step { display:flex; gap:9px; align-items:flex-start; margin-bottom:7px; }
+.step .n {
+  flex:0 0 auto; width:19px; height:19px; border-radius:10px; background:#003DA5; color:#fff;
+  font-size:11.5px; font-weight:700; text-align:center; line-height:19px; margin-top:1px;
+}
+.step .t { font-size:12.5px; line-height:1.45; color:#50575E; }
+.step .t b { color:#101517; font-weight:600; }
+.cmd {
+  background:#101517; color:#fff; border-radius:8px; padding:12px 14px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size:12.5px; line-height:1.6; overflow-wrap:anywhere;
+}
+.cmd .c1 { color:#8FB6F0; }
+.cmd .c2 { color:#A7D6A7; }
+.mono { overflow-wrap:anywhere; }
+</style>
+<div class="sheet">
+  <h1>Two ways a slot goes deliberately empty</h1>
+  <p class="sub">On Atomic hosting a CPU is a PHP worker slot, and a worker holding one is a worker a visitor cannot have. An on-demand topology gives its slot back while its log is quiet. A deploy hold empties every slot at once.</p>
+
+  <div class="budget">
+    <div class="bcard">
+      <h3>Ten resident workers on a ten-slot site</h3>
+      <p class="cap">The budget is spent before a visitor arrives.</p>
+      <div class="slots">
+        <div class="slot w">worker</div><div class="slot w">worker</div><div class="slot w">worker</div><div class="slot w">worker</div><div class="slot w">worker</div>
+        <div class="slot w">worker</div><div class="slot w">worker</div><div class="slot w">worker</div><div class="slot w">worker</div><div class="slot w">worker</div>
+      </div>
+      <div class="callout" style="margin-top:9px">
+        <p>The host answers <b>599</b>, and readers see <b>429</b> for sixty seconds.</p>
+      </div>
+    </div>
+    <div class="bcard">
+      <h3>The same site with an idle window above zero</h3>
+      <p class="cap">A worker whose log has been quiet exits and holds nothing.</p>
+      <div class="slots">
+        <div class="slot w">worker</div><div class="slot w">worker</div><div class="slot w">worker</div>
+        <div class="slot free">given<br>back</div><div class="slot free">given<br>back</div><div class="slot free">given<br>back</div><div class="slot free">given<br>back</div>
+        <div class="slot visitor">visitor</div><div class="slot visitor">visitor</div><div class="slot visitor">visitor</div>
+      </div>
+      <div class="ok" style="margin-top:9px">
+        <p>Readers get served, and the substrate takes a slot back only when it has work to do.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="cols">
+    <div class="card" style="flex:1">
+      <h3>When an on-demand worker leaves</h3>
+      <p>Every consumer in its graph has to sit at the end of its log for the whole idle window. Then the worker exits without respawning, and it holds no lock.</p>
+      <p>Neither the peer scan nor the cron pass treats that absence as due. A stale lock still spawns, because a stale lock is a crash rather than an exit.</p>
+    </div>
+
+    <div class="card" style="flex:1.1">
+      <h3>Three things wake it</h3>
+      <div class="step"><div class="n">1</div><div class="t"><b>A producer writes</b> to a partition it tails.</div></div>
+      <div class="step"><div class="n">2</div><div class="t"><b>An operator attaches a console.</b></div></div>
+      <div class="step"><div class="n">3</div><div class="t"><b>The minute cron pass measures backlog on disk.</b> It is the only tier that notices a process appending to a partition file from outside the substrate.</div></div>
+    </div>
+
+    <div class="card" style="flex:1.55">
+      <h3>Deploying new code</h3>
+      <div class="step"><div class="n">A</div><div class="t"><b>New code already on disk:</b> <span class="mono">wp nodes restart</span> writes the restart flag, each holder exits and self-respawns, and the old class dies with the process.</div></div>
+      <div class="step"><div class="n">B</div><div class="t"><b>New files to swap in:</b> take the fleet down first. A live worker's autoloader fails mid-swap, and a restarted successor boots into the same half-swapped directory.</div></div>
+      <div class="cmd" style="margin:10px 0 10px">
+        <span class="c1">wp nodes stop</span> &amp;&amp; wp plugin install release/&lt;plugin&gt;.zip --force &amp;&amp; <span class="c2">wp nodes start</span>
+      </div>
+      <p>The stop verb flags every lock directory and blocks until every lock is gone, ninety seconds by default. It exits non-zero and names the stragglers when that wait expires.</p>
+    </div>
+  </div>
+</div>

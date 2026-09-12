@@ -1,0 +1,44 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<div class="sheet">
+  <h1>One memcached pool, many sites, and the one ingredient a neighbour cannot compute</h1>
+  <p class="sub">On WP Cloud every site on a pool writes into one keyspace. A scope string in each key is what keeps them apart.</p>
+
+  <div class="row" style="gap:0;align-items:flex-start">
+    <div class="card" style="flex:0 0 380px">
+      <h3>How this site builds its scope</h3>
+      <p class="mono" style="margin:0 0 10px;font-size:12.5px">substr( md5( DB_NAME : base_prefix : salt ), 0, 12 )</p>
+      <div class="chip" style="margin-bottom:6px"><span class="mono">DB_NAME</span> — <span class="grey">a neighbour on the pool can work it out</span></div>
+      <div class="chip" style="margin-bottom:6px"><span class="mono">base_prefix</span> — <span class="grey">likewise, and usually <span class="mono">wp_</span></span></div>
+      <div class="chip" style="border-color:#003DA5;background:#E8EEF9;margin-bottom:10px"><span class="mono blue"><strong>salt</strong></span> — <span class="blue">random, minted once per install, stored in an option. The only secret in the recipe.</span></div>
+      <p style="margin:0">Every key then reads <span class="mono">newspack_nodes:v3:&lt;scope&gt;:&lt;name&gt;</span>.</p>
+    </div>
+
+    <div class="conn" style="flex:0 0 150px;padding-top:110px">
+      <svg width="150" height="26" viewBox="0 0 150 26"><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#B32D2E"/></marker></defs><path d="M4 13 L136 13" stroke="#B32D2E" stroke-width="1.8" marker-end="url(#a)"/></svg>
+      <div class="cap" style="margin-top:8px"><strong class="red">if the scope is guessable</strong><br><span class="grey">a neighbour writes a key this site reads</span></div>
+    </div>
+
+    <div class="panel" style="flex:1 1 auto">
+      <header>Three keys this site trusts</header>
+      <div class="body">
+        <div class="callout" style="margin-bottom:10px">
+          <h4>last_spawn:&lt;worker&gt;</h4>
+          <p style="margin:0">When a worker was last started. A far-future value reads as "just started", so nothing revives the worker and nothing says so.</p>
+        </div>
+        <div class="callout" style="margin-bottom:10px">
+          <h4>remote:&lt;name&gt;:&lt;partition&gt;</h4>
+          <p style="margin:0">A spoke's connection status. Merged on write and shown to an operator on the aggregator page.</p>
+        </div>
+        <div class="callout">
+          <h4>ELN stats entries</h4>
+          <p style="margin:0">The numbers the performance dashboards draw.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    <h4>Question 2a</h4>
+    <p>Is a random per-install salt the right protection, or should the scope derive from the site secret, as command sessions already do through <span class="mono">wp_salt('nonce')</span>? Two costs stand against copying that: folding the site secret into the scope risks splitting the keyspace on an install that predates it, and the salt is read straight from the database because the lightest boot path has no option API.</p>
+  </div>
+</div>

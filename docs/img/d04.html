@@ -1,0 +1,135 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.tl { background:#fff; border:1px solid #C3C4C7; border-radius:9px; padding:6px 0 0; }
+.cols { display:flex; gap:16px; align-items:stretch; margin-top:20px; }
+.step { display:flex; gap:9px; align-items:flex-start; margin-bottom:7px; }
+.step .n {
+  flex:0 0 auto; width:19px; height:19px; border-radius:10px; background:#003DA5; color:#fff;
+  font-size:11.5px; font-weight:700; text-align:center; line-height:19px; margin-top:1px;
+}
+.step .t { font-size:12.5px; line-height:1.45; color:#50575E; }
+.step .t b { color:#101517; font-weight:600; }
+.step.stop .n { background:#B32D2E; }
+.listing {
+  background:#F7F8F9; border:1px solid #C3C4C7; border-radius:7px; padding:11px 13px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size:12.5px; line-height:1.75; color:#101517; overflow-wrap:anywhere;
+}
+.listing i { font-style:normal; color:#50575E; font-family:Inter,-apple-system,sans-serif; }
+.listing .f { color:#003DA5; }
+.card p.tight { margin-bottom:9px; }
+</style>
+<div class="sheet">
+  <h1>A worker's 595 seconds</h1>
+  <p class="sub">A worker is a PHP request that outlives its caller. It crosses one gate, takes a lock, drains messages until a predicate says stop, and releases the lock before it POSTs its own successor.</p>
+
+  <div class="tl">
+  <svg width="1052" height="286" viewBox="0 0 1052 286">
+    <defs>
+      <marker id="ab" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker>
+      <marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#787C82"/></marker>
+    </defs>
+
+    <!-- rail -->
+    <rect x="48" y="140" width="944" height="10" rx="5" fill="#C3D3EC"/>
+    <rect x="180" y="140" width="620" height="10" rx="5" fill="#003DA5"/>
+    <rect x="800" y="140" width="192" height="10" rx="5" fill="#1E5B1E"/>
+
+    <!-- ticks -->
+    <path d="M48 128 V162 M120 132 V158 M180 128 V162 M800 128 V162 M992 128 V162" stroke="#101517" stroke-width="1.6"/>
+    <!-- heartbeat ticks -->
+    <g stroke="#fff" stroke-width="1.6">
+      <path d="M240 140 V150 M300 140 V150 M360 140 V150 M420 140 V150 M480 140 V150 M540 140 V150 M600 140 V150 M660 140 V150 M720 140 V150 M780 140 V150"/>
+    </g>
+
+    <!-- above-rail labels -->
+    <text x="48" y="44" font-size="13.5" font-weight="700" fill="#101517">1. Spawn POST</text>
+    <text x="48" y="63" font-size="12.5" font-family="ui-monospace, Menlo, monospace" fill="#003DA5">/newspack-nodes/v1/workers/spawn</text>
+    <text x="48" y="82" font-size="12.5" fill="#50575E">Carries the topology name, a partition</text>
+    <text x="48" y="99" font-size="12.5" fill="#50575E">number and a token.</text>
+    <text x="48" y="121" font-size="12.5" fill="#101517">t = 0</text>
+    <text x="188" y="121" font-size="12.5" fill="#101517">2. Lock taken</text>
+
+    <text x="392" y="52" font-size="13.5" font-weight="700" fill="#101517">3. The drain loop</text>
+    <text x="392" y="70" font-size="12.5" fill="#50575E">Build the router, the command interpreter and the</text>
+    <text x="392" y="88" font-size="12.5" fill="#50575E">peer-scanning _fleet node, then hang the topology's</text>
+    <text x="392" y="106" font-size="12.5" fill="#50575E">nodes off that. Deliver messages and fire timers.</text>
+    <text x="392" y="124" font-size="12.5" fill="#50575E">Each white tick is a heartbeat, one every 10 seconds.</text>
+
+    <text x="800" y="52" font-size="13.5" font-weight="700" fill="#1E5B1E">4. The finally block</text>
+    <text x="800" y="70" font-size="12.5" fill="#2B5F2B">Checkpoint every consumer's</text>
+    <text x="800" y="88" font-size="12.5" fill="#2B5F2B">offsetlog. Tear the graph down.</text>
+    <text x="800" y="121" font-size="12.5" fill="#101517">595 s: stop</text>
+
+    <!-- below-rail labels -->
+    <text x="120" y="180" font-size="12.5" fill="#B32D2E">250 ms: the caller hangs up</text>
+    <text x="120" y="197" font-size="12.5" fill="#50575E">The endpoint ignores the abort, lifts the time limit, and</text>
+    <text x="120" y="214" font-size="12.5" fill="#50575E">serves the rest of the request as the worker.</text>
+
+    <text x="560" y="180" font-size="12.5" fill="#50575E">The platform caps a request at fifteen minutes, so</text>
+    <text x="560" y="197" font-size="12.5" fill="#50575E">a worker lives 595 seconds, the value of</text>
+    <text x="560" y="214" font-size="12.5" font-family="ui-monospace, Menlo, monospace" fill="#101517">Cooperative_Stop::DEFAULT_MAX_RUNTIME</text>
+
+    <!-- release, then respawn, and the loop home -->
+    <path d="M992 145 H1016 V250 H60 V168" fill="none" stroke="#787C82" stroke-width="1.8" stroke-dasharray="5 4" marker-end="url(#ag)"/>
+    <text x="300" y="243" font-size="12.5" fill="#50575E">5. Release the lock, then POST the successor with a fresh token: about 144 hand-offs a day, per worker.</text>
+    <text x="48" y="277" font-size="12.5" fill="#50575E">The successor finds the lock free and takes it at once.</text>
+  </svg>
+  </div>
+
+  <div class="cols">
+    <div class="card" style="flex:1.05">
+      <h3>The gate every spawn climbs</h3>
+      <div class="step"><div class="n">1</div><div class="t"><b>Token</b> is a keyed hash, valid for the current ten-second window or the one before it.</div></div>
+      <div class="step"><div class="n">2</div><div class="t"><b>Partition</b> names the slot. A topology with four partitions has four workers.</div></div>
+      <div class="step stop"><div class="n">&#10007;</div><div class="t">A partition outside the topology's range.</div></div>
+      <div class="step stop"><div class="n">&#10007;</div><div class="t">A standing deploy hold, answered <b>409</b>.</div></div>
+      <div class="step stop"><div class="n">&#10007;</div><div class="t">This slot spawned within the last <b>15 s</b>, answered <b>429</b>.</div></div>
+      <div class="step"><div class="n">3</div><div class="t">Record the accepted spawn in the shared cache, which is memcached, falling back to APCu and then to a transient. The refusal holds against whoever sends the second POST.</div></div>
+      <p style="margin-top:10px">Self-respawn, a peer's revival and the cron pass all POST this one endpoint, so a single gate throttles every tier.</p>
+    </div>
+
+    <div class="card" style="flex:1.15">
+      <h3>The lock directory, one per slot, under the runtime base directory</h3>
+      <div class="listing">
+locks/{type}.p{N}.lock.d/<br>
+&nbsp;&nbsp;<span class="f">heartbeat</span> &nbsp;<i>touched every 10 s</i><br>
+&nbsp;&nbsp;<span class="f">started</span><br>
+&nbsp;&nbsp;<span class="f">restart stop reload</span><br>
+&nbsp;&nbsp;<i style="margin-left:14px">three flags another process may write</i>
+      </div>
+      <p class="tight" style="margin-top:11px">A directory already held means this worker exits as <span class="grey">skipped</span>, so one process runs each slot.</p>
+      <p>A heartbeat older than the topology's stale timeout marks the holder dead and frees the lock to a peer. The default is <span class="blue">60 s</span>; the job-worker topology uses <span class="blue">600 s</span>, because a CPU-bound job reaches no heartbeat point.</p>
+    </div>
+
+    <div class="card" style="flex:1.25">
+      <h3><span class="mono">should_continue()</span>, asked every pass</h3>
+      <div class="step"><div class="n">1</div><div class="t">The lock is still held and its directory still there.</div></div>
+      <div class="step"><div class="n">2</div><div class="t">No operator wrote the <span class="mono">stop</span> flag.</div></div>
+      <div class="step"><div class="n">3</div><div class="t">No <span class="mono">restart</span> flag stands.</div></div>
+      <div class="step"><div class="n">4</div><div class="t">The runtime is under <b>595 s</b>.</div></div>
+      <div class="step"><div class="n">5</div><div class="t">Memory is under <b>80 percent</b> of the PHP limit.</div></div>
+      <div class="step"><div class="n">6</div><div class="t">The database answers, probed every <b>30 s</b>. Three misses stop the worker.</div></div>
+      <div class="step"><div class="n">7</div><div class="t">An on-demand worker has not been idle for its whole window.</div></div>
+      <div class="ok" style="margin-top:10px">
+        <h4>The heartbeat rides inside the same call</h4>
+        <p>A process that asks whether to keep running proves it is alive. A long job asks from inside its work, so it heartbeats and stops on time.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="cols">
+    <div class="callout" style="flex:1.6">
+      <h4>Release before respawn, never after</h4>
+      <p>Reversed, the successor meets a lock this process still holds, exits as skipped, and the slot idles until a peer's scan notices.</p>
+    </div>
+    <div class="callout" style="flex:1.7">
+      <h4>Three stops decline the respawn</h4>
+      <p>An operator <span class="mono">stop</span>, which must leave the slot empty for a deploy. An on-demand idle exit, which has no work. A topology that fails to load, which would loop on the same bad file.</p>
+    </div>
+    <div class="callout" style="flex:1.4">
+      <h4>A death before the finally leaves nothing behind</h4>
+      <p>An out-of-memory kill checkpoints no cursor and releases no lock. The safety net covers that case.</p>
+    </div>
+  </div>
+</div>

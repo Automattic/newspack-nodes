@@ -1,0 +1,143 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+  .lanes {
+    position:relative;
+    display:grid; grid-template-columns: 1fr 1fr 1fr;
+    grid-template-rows: auto repeat(7, auto) 16px;
+    column-gap:18px; row-gap:0; margin-top:6px;
+  }
+  .lane-h { grid-row:1; background:#003DA5; color:#fff; border-radius:9px 9px 0 0; padding:9px 14px; font-size:13.5px; font-weight:700; }
+  .lane-h span { font-weight:400; opacity:.85; }
+  .lane-h.disk { background:#50575E; }
+  .lane-b {
+    grid-row:2 / -1;
+    border-left:1px dashed #B0B3B8; border-right:1px dashed #B0B3B8;
+    border-bottom:1px dashed #B0B3B8; border-radius:0 0 9px 9px;
+  }
+  #arrows { position:absolute; left:0; top:0; z-index:1; pointer-events:none; }
+  .hop { position:relative; z-index:2; background:#fff; border:1px solid #C3C4C7; border-radius:9px; padding:11px 13px; margin:34px 12px 0; }
+  .hop.out { border-color:#003DA5; }
+  .hop.back { border-color:#1E5B1E; }
+  .hop h4 { font-size:13px; margin:0 0 6px; display:flex; align-items:center; gap:8px; }
+  .hop p { font-size:12.5px; color:#50575E; margin:0 0 5px; line-height:1.5; }
+  .hop p:last-child { margin-bottom:0; }
+  .n { flex:0 0 auto; width:21px; height:21px; border-radius:50%; background:#003DA5; color:#fff; font-size:11.5px; font-weight:700; display:flex; align-items:center; justify-content:center; }
+  .n.g { background:#1E5B1E; }
+  .addr { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:12px; line-height:1.65; background:#F0F4FB; border:1px solid #C3D3EC; border-radius:5px; padding:6px 9px; margin:0 0 6px; overflow-wrap:anywhere; color:#101517; }
+  .addr.g { background:#EDF7ED; border-color:#9EC89E; }
+  .addr b { color:#003DA5; }
+  .addr.g b { color:#1E5B1E; }
+  .legend { display:flex; gap:18px; align-items:center; font-size:12.5px; color:#50575E; margin:14px 0 0; }
+  .key { display:flex; align-items:center; gap:7px; }
+  .sw { width:26px; height:0; border-top:3px solid #003DA5; border-radius:2px; }
+  .sw.g { border-top-color:#1E5B1E; }
+</style>
+<div class="sheet">
+  <h1>A reply needs no bookkeeping: TO is the request's FROM</h1>
+  <p class="sub">One typed line crosses two processes and a pair of logs on disk, and comes back. Nothing holds a table of outstanding requests, matches an id, or resolves a promise. The address the caller mints is the correlation.</p>
+
+  <div class="legend">
+    <div class="key"><span class="sw"></span> hops 1 to 4, the command going out</div>
+    <div class="key"><span class="sw g"></span> hops 5 to 7, the reply coming back, each router peeling one segment off TO</div>
+  </div>
+
+  <div class="lanes" id="lanes">
+    <svg id="arrows"><defs>
+      <marker id="ab" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker>
+      <marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#1E5B1E"/></marker>
+    </defs></svg>
+
+    <div class="lane-h" style="grid-column:1">Console process <span>&middot; <span class="mono">wp nodes cli</span>, pid 4242</span></div>
+    <div class="lane-h disk" style="grid-column:2">The two logs on disk</div>
+    <div class="lane-h" style="grid-column:3">Worker process <span>&middot; <span class="mono">job-worker.p0</span></span></div>
+
+    <div class="lane-b" style="grid-column:1"></div>
+    <div class="lane-b" style="grid-column:2"></div>
+    <div class="lane-b" style="grid-column:3"></div>
+
+    <div class="hop out" id="h1" style="grid-column:1;grid-row:2">
+      <h4><span class="n">1</span> The shell mints the command</h4>
+      <div class="addr">FROM = <b>_output/4242</b><br>TO &nbsp;&nbsp;= <b>job-worker.p0</b></div>
+      <p>You type a line. <span class="mono">_output</span> is the reply renderer's name and 4242 is the process id, so FROM is the address an answer has to reach.</p>
+    </div>
+
+    <div class="hop out" id="h2" style="grid-column:1;grid-row:3">
+      <h4><span class="n">2</span> The console's router forwards</h4>
+      <p>It splits TO at the first slash, finds <span class="mono">job-worker.p0</span> in its own table of nodes, and hands that node the remainder, which is empty.</p>
+    </div>
+
+    <div class="hop out" id="h3" style="grid-column:2;grid-row:4">
+      <h4><span class="n">3</span> The input log</h4>
+      <p>That node appends the command to the worker's input log. The two processes share no memory: the file is the channel.</p>
+    </div>
+
+    <div class="hop out" id="h4" style="grid-column:3;grid-row:5">
+      <h4><span class="n">4</span> The worker's reader stamps FROM</h4>
+      <div class="addr">FROM = <b>_repl</b>/_output/4242<br>TO &nbsp;&nbsp;= <span class="grey">empty</span></div>
+      <p>Crossing into the worker puts one more name in front of FROM: <span class="mono">_repl</span>, the output log's name, the way back out.</p>
+    </div>
+
+    <div class="hop back" id="h5" style="grid-column:3;grid-row:6">
+      <h4><span class="n g">5</span> The interpreter answers</h4>
+      <div class="addr g">TO &nbsp;&nbsp;= <b>_repl/_output/4242</b><br>FROM = <b>_command_interpreter</b></div>
+      <p>TO is empty, so the command is for this process. The interpreter runs the verb and copies the request's FROM into the reply's TO, along with its id and key.</p>
+    </div>
+
+    <div class="hop back" id="h6" style="grid-column:2;grid-row:7">
+      <h4><span class="n g">6</span> The output log</h4>
+      <div class="addr g">TO &nbsp;&nbsp;= <b>_output/4242</b></div>
+      <p>The worker's router peels <span class="mono">_repl</span>, and the reply lands on disk addressed to what is left.</p>
+    </div>
+
+    <div class="hop back" id="h7" style="grid-column:1;grid-row:8">
+      <h4><span class="n g">7</span> The renderer prints, and only for its own console</h4>
+      <div class="addr g">TO &nbsp;&nbsp;= <b>4242</b></div>
+      <p>The console's router peels one more segment and hands its renderer a reply addressed to 4242. The renderer prints it only when that is its own process id, so several consoles share one output log without seeing each other's answers.</p>
+    </div>
+  </div>
+
+  <div class="callout" style="margin-top:18px">
+    <h4>FROM is bounded at 1,024 bytes</h4>
+    <p>A loop would grow the trail without end, so a node refuses to stamp past <span class="mono">Node::MAX_FROM_SIZE</span>, and the router drops a message that arrives over it. A message off the wire is stamped by another process, out of reach of the first check.</p>
+  </div>
+</div>
+<script>
+(function () {
+  var lanes = document.getElementById( 'lanes' );
+  var svg = document.getElementById( 'arrows' );
+  var R = lanes.getBoundingClientRect();
+  svg.setAttribute( 'width', R.width );
+  svg.setAttribute( 'height', R.height );
+  svg.setAttribute( 'viewBox', '0 0 ' + R.width + ' ' + R.height );
+  var NS = 'http://www.w3.org/2000/svg';
+  var box = [];
+  for ( var i = 1; i <= 7; i++ ) {
+    box.push( document.getElementById( 'h' + i ).getBoundingClientRect() );
+  }
+  for ( var j = 0; j < 6; j++ ) {
+    var a = box[ j ], b = box[ j + 1 ];
+    var ax = a.left - R.left + a.width / 2, ay = a.bottom - R.top;
+    var bx = b.left - R.left + b.width / 2, by = b.top - R.top - 3;
+    var d;
+    if ( Math.abs( ax - bx ) < 2 ) {
+      d = 'M' + ax + ' ' + ay + 'L' + bx + ' ' + by;
+    } else {
+      var my = ( ay + by ) / 2, r = 8, s = bx > ax ? 1 : -1;
+      d = 'M' + ax + ' ' + ay +
+          'L' + ax + ' ' + ( my - r ) +
+          'Q' + ax + ' ' + my + ' ' + ( ax + s * r ) + ' ' + my +
+          'L' + ( bx - s * r ) + ' ' + my +
+          'Q' + bx + ' ' + my + ' ' + bx + ' ' + ( my + r ) +
+          'L' + bx + ' ' + by;
+    }
+    var green = j + 2 >= 5;
+    var p = document.createElementNS( NS, 'path' );
+    p.setAttribute( 'd', d );
+    p.setAttribute( 'fill', 'none' );
+    p.setAttribute( 'stroke', green ? '#1E5B1E' : '#003DA5' );
+    p.setAttribute( 'stroke-width', '1.8' );
+    p.setAttribute( 'marker-end', 'url(#' + ( green ? 'ag' : 'ab' ) + ')' );
+    svg.appendChild( p );
+  }
+})();
+</script>

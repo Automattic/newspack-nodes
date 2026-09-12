@@ -1,0 +1,160 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+  h2 { font-size: 16px; margin: 26px 0 10px; }
+  .listing { display: grid; grid-template-columns: 500px 1fr; gap: 7px 16px; }
+  .listing .ln { display: flex; align-items: center; gap: 10px; background: #101517; color: #E8EAED; border-radius: 6px; padding: 8px 12px; font-size: 13px; white-space: pre; }
+  .listing .ln .n { color: #8C9096; font-size: 11.5px; flex: 0 0 14px; }
+  .listing .ln .k { color: #7FB0FF; }
+  .listing .ln .v { color: #9FD89F; }
+  .listing .ln.dim { background: #3C4043; }
+  .listing .why { font-size: 12.5px; color: #50575E; line-height: 1.45; display: flex; align-items: center; }
+  .listing .why b { color: #101517; font-weight: 600; }
+  .code { background: #101517; color: #E8EAED; border-radius: 8px; padding: 12px 14px; font-size: 12px; line-height: 1.6; white-space: pre; margin: 0; }
+  .code .n { color: #8C9096; display: inline-block; width: 22px; }
+  .code .k { color: #7FB0FF; }
+  .code .v { color: #9FD89F; }
+  .anatomy { display: grid; grid-template-columns: 648px 1fr; gap: 16px; align-items: start; }
+  .anatomy .chip { font-size: 12.5px; line-height: 1.45; }
+  .anatomy .chip b { color: #003DA5; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight: 600; margin-right: 4px; }
+  svg text { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 12.5px; fill: #101517; paint-order: stroke; stroke: #FBFBFC; stroke-width: 4px; stroke-linejoin: round; }
+  svg text.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  svg text.sub { font-size: 12px; fill: #50575E; }
+  svg text.lane { font-weight: 700; font-size: 13px; stroke: none; }
+  svg text.num { font-size: 11.5px; font-weight: 700; fill: #fff; stroke: none; }
+</style>
+<div class="sheet">
+<h1>Three nodes, one topology, and a TICK's path through them</h1>
+<p class="sub">The topology file holds the lines the REPL accepts. A node is a class with one entry point, <span class="mono">fill()</span>; the graph never calls anything else, so each node tests alone.</p>
+
+<h2 style="margin-top:0"><span class="mono">topologies/my-pipeline.tsl</span>, line by line</h2>
+<div class="listing">
+  <div class="ln"><span class="n">1</span><span class="mono"><span class="k">var</span> num_partitions = <span class="v">1</span></span></div>
+  <div class="why"><span><b>Frontmatter.</b> <span class="mono">num_partitions</span> sizes the worker pool. <span class="mono">stale_timeout</span> and <span class="mono">on_demand_idle</span> are the other two names the runtime acts on.</span></div>
+  <div class="ln"><span class="n">2</span><span class="mono"><span class="k">make_node</span> Releases_Source   releases</span></div>
+  <div class="why"><span><b>Source.</b> Emits canned items on a TICK request and replies with the count.</span></div>
+  <div class="ln"><span class="n">3</span><span class="mono"><span class="k">make_node</span> Summarizer        summarizer</span></div>
+  <div class="why"><span><b>Transform.</b> Adds one line to each item.</span></div>
+  <div class="ln"><span class="n">4</span><span class="mono"><span class="k">make_node</span> Digest_Builder    digest</span></div>
+  <div class="why"><span><b>Accumulator.</b> Collects items and writes a markdown draft on FLUSH.</span></div>
+  <div class="ln"><span class="n">5</span><span class="mono"><span class="k">make_node</span> Log log <span class="v">&lt;config:logs_dir&gt;</span>/digest.md 1 2 7</span></div>
+  <div class="why"><span><b>A stock Log.</b> <span class="mono">&lt;config:logs_dir&gt;</span> resolves inside the runtime's base directory; a path outside it is refused.</span></div>
+  <div class="ln"><span class="n">6</span><span class="mono"><span class="k">connect_node</span> releases   summarizer</span></div>
+  <div class="why"><span><b>Sinks.</b> Each <span class="mono">connect_node</span> names a node's physical next hop; a message a node forwards lands there.</span></div>
+  <div class="ln"><span class="n">7</span><span class="mono"><span class="k">connect_node</span> summarizer digest</span></div>
+  <div class="why"></div>
+  <div class="ln"><span class="n">8</span><span class="mono"><span class="k">connect_node</span> digest     log</span></div>
+  <div class="why"></div>
+  <div class="ln dim"><span class="n">9</span><span class="mono"><span class="k">secure</span></span></div>
+  <div class="why"><span><b>Production files close here.</b> A one-way ratchet whose first level refuses <span class="mono">make_node</span> once the graph stands. <span class="mono">wp nodes activate</span> then spawns the workers; nothing spawns until you say so.</span></div>
+</div>
+
+<h2>A TICK through the graph</h2>
+<svg width="1052" height="520" viewBox="0 0 1052 520">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker>
+    <marker id="g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#1E5B1E"/></marker>
+  </defs>
+  <!-- lane heads -->
+  <g>
+    <rect x="15" y="4" width="180" height="40" rx="8" fill="#fff" stroke="#C3C4C7"/><text class="lane" x="105" y="29" text-anchor="middle">operator</text>
+    <rect x="225" y="4" width="180" height="40" rx="8" fill="#fff" stroke="#C3C4C7"/><text class="lane mono" x="315" y="29" text-anchor="middle">releases</text>
+    <rect x="435" y="4" width="180" height="40" rx="8" fill="#fff" stroke="#C3C4C7"/><text class="lane mono" x="525" y="29" text-anchor="middle">summarizer</text>
+    <rect x="645" y="4" width="180" height="40" rx="8" fill="#fff" stroke="#C3C4C7"/><text class="lane mono" x="735" y="29" text-anchor="middle">digest</text>
+    <rect x="855" y="4" width="180" height="40" rx="8" fill="#fff" stroke="#C3C4C7"/><text class="lane mono" x="945" y="29" text-anchor="middle">log</text>
+    <text class="sub" x="105" y="60" text-anchor="middle">REPL, or a timer</text>
+    <text class="sub" x="315" y="60" text-anchor="middle">Releases_Source_Node</text>
+    <text class="sub" x="525" y="60" text-anchor="middle">Summarizer_Node</text>
+    <text class="sub" x="735" y="60" text-anchor="middle">Digest_Builder_Node</text>
+    <text class="sub" x="945" y="60" text-anchor="middle">stock Log</text>
+  </g>
+  <!-- lifelines -->
+  <g stroke="#C3C4C7" stroke-dasharray="4 4" stroke-width="1.2">
+    <line x1="105" y1="70" x2="105" y2="500"/><line x1="315" y1="70" x2="315" y2="500"/><line x1="525" y1="70" x2="525" y2="500"/><line x1="735" y1="70" x2="735" y2="500"/><line x1="945" y1="70" x2="945" y2="500"/>
+  </g>
+  <!-- hop 1 -->
+  <g>
+    <line x1="105" y1="112" x2="308" y2="112" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/>
+    <circle cx="105" cy="112" r="10" fill="#003DA5"/><text class="num" x="105" y="116" text-anchor="middle">1</text>
+    <text class="mono" x="210" y="95" text-anchor="middle">request_node releases TICK</text>
+    <text class="sub" x="210" y="130" text-anchor="middle">a TM_REQUEST message reaches fill()</text>
+  </g>
+  <!-- hop 2 -->
+  <g>
+    <line x1="315" y1="182" x2="518" y2="182" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/>
+    <circle cx="315" cy="182" r="10" fill="#003DA5"/><text class="num" x="315" y="186" text-anchor="middle">2</text>
+    <text x="420" y="165" text-anchor="middle">one message per canned item</text>
+    <text class="sub" x="420" y="200" text-anchor="middle">via parent::fill(): TO from target, on to the sink</text>
+  </g>
+  <!-- hop 3: reply back -->
+  <g>
+    <line x1="315" y1="240" x2="112" y2="240" stroke="#1E5B1E" stroke-width="1.8" marker-end="url(#g)"/>
+    <circle cx="315" cy="240" r="10" fill="#1E5B1E"/><text class="num" x="315" y="244" text-anchor="middle">3</text>
+    <text class="mono" x="210" y="225" text-anchor="middle">reply { emitted }</text>
+    <text class="sub" x="196" y="258" text-anchor="middle">addressed to its sender: TO = FROM</text>
+  </g>
+  <!-- hop 4 -->
+  <g>
+    <line x1="525" y1="300" x2="728" y2="300" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/>
+    <circle cx="525" cy="300" r="10" fill="#003DA5"/><text class="num" x="525" y="304" text-anchor="middle">4</text>
+    <text x="630" y="283" text-anchor="middle">the item plus one line</text>
+    <text class="sub" x="630" y="318" text-anchor="middle">summarizer's fill(), then parent::fill()</text>
+  </g>
+  <!-- hop 5: accumulate -->
+  <g>
+    <rect x="655" y="335" width="160" height="34" rx="6" fill="#F0F4FB" stroke="#C3D3EC"/>
+    <text x="735" y="357" text-anchor="middle" style="stroke:none">accumulates each item</text>
+  </g>
+  <!-- hop 6: FLUSH -->
+  <g>
+    <line x1="105" y1="410" x2="728" y2="410" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/>
+    <circle cx="105" cy="410" r="10" fill="#003DA5"/><text class="num" x="105" y="414" text-anchor="middle">5</text>
+    <text class="mono" x="420" y="393" text-anchor="middle">request_node digest FLUSH</text>
+    <text class="sub" x="420" y="428" text-anchor="middle">the second request the graph answers</text>
+  </g>
+  <!-- hop 7: draft to log -->
+  <g>
+    <line x1="735" y1="468" x2="938" y2="468" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/>
+    <circle cx="735" cy="468" r="10" fill="#003DA5"/><text class="num" x="735" y="472" text-anchor="middle">6</text>
+    <text x="840" y="451" text-anchor="middle">the markdown draft</text>
+    <text class="sub mono" x="840" y="486" text-anchor="middle">&lt;config:logs_dir&gt;/digest.md</text>
+  </g>
+</svg>
+
+<h2>The node's two declarations</h2>
+<div class="anatomy">
+  <pre class="code"><span class="n">1</span><span class="k">public static function</span> node_schema(): array {
+<span class="n">2</span>    <span class="k">return</span> \array_merge( parent::node_schema(), [
+<span class="n">3</span>        'category'    =&gt; <span class="v">'Source'</span>,
+<span class="n">4</span>        'description' =&gt; <span class="v">'Emits canned items on a TICK request.'</span>,
+<span class="n">5</span>        'arguments'   =&gt; [],
+<span class="n">6</span>        'requests'    =&gt; [
+<span class="n">7</span>            [ 'name' =&gt; <span class="v">'TICK'</span>,
+<span class="n">8</span>              'description' =&gt; <span class="v">'Emit the current batch.'</span>,
+<span class="n">9</span>              'reply_shape' =&gt; <span class="v">'{ emitted }'</span> ],
+<span class="n">10</span>        ],
+<span class="n">11</span>    ] );
+<span class="n">12</span>}</pre>
+  <div>
+    <div class="chip"><b>L2</b> Merges over the base schema, so the verbs every node answers stay declared.</div>
+    <div class="chip"><b>L3</b> <span class="mono">category</span> groups the node in the console palette.</div>
+    <div class="chip"><b>L5</b> <span class="mono">arguments</span> are positional: the words after the name on a <span class="mono">make_node</span> line.</div>
+    <div class="chip"><b>L6</b> A <span class="mono">request</span> is a runtime trigger. <span class="mono">fill()</span> handles it on the <span class="mono">TM_REQUEST</span> flag; <span class="mono">request_node</span> fires it; <span class="mono">reply_shape</span> documents the answer.</div>
+    <div class="chip"><b>commands</b> A configuration verb, run when the graph is built. A node declaring one gets a sibling interpreter named <span class="mono">&lt;node&gt;:config</span>, reached with <span class="mono">command_node</span>.</div>
+  </div>
+</div>
+
+<div class="row" style="gap:14px; margin-top:16px">
+  <div class="card" style="flex:1 1 0; min-width:0">
+    <h3><span class="mono">fill( $message )</span>, the one entry point</h3>
+    <p>Handle the flags you answer, transform what you forward. A node that generates a message calls <span class="mono">parent::fill()</span>, which stamps the destination from its target and forwards to the sink.</p>
+  </div>
+  <div class="callout" style="flex:1 1 0; min-width:0">
+    <h4>Never <span class="mono">$this-&gt;fill()</span></h4>
+    <p>Calling the node's own <span class="mono">fill()</span> to send a message re-enters the handler and recurses. <span class="mono">parent::fill()</span> is the way out.</p>
+  </div>
+  <div class="ok" style="flex:1 1 0; min-width:0">
+    <h4>Each node tests alone</h4>
+    <p>Build a message, call <span class="mono">fill()</span>, assert on what lands in a <span class="mono">Capture_Sink_Node</span>. No worker, no fleet.</p>
+  </div>
+</div>
+</div>

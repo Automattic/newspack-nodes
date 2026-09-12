@@ -1,0 +1,94 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.seq { position: relative; width: 1052px; }
+.seq svg.wire { position: absolute; left: 0; top: 0; }
+.seq .lane { position: absolute; top: 0; width: 196px; min-height: 118px; }
+.seq .lane h3 { font-size: 14.5px; }
+.seq .lane p { font-size: 12px; margin: 0; }
+.seq .hop { position: absolute; background: #fff; border: 1px solid #C3D3EC; border-radius: 7px;
+  padding: 9px 12px 9px 40px; font-size: 12.5px; line-height: 1.5; color: #101517; }
+.seq .n { position: absolute; left: 10px; top: 9px; width: 22px; height: 22px; border-radius: 50%;
+  background: #003DA5; color: #fff; font-size: 12px; font-weight: 700; text-align: center; line-height: 22px; }
+.seq .panel { position: absolute; }
+.seq .panel header { position: relative; padding-left: 44px; font-size: 14px; }
+.seq .panel header .n { background: #fff; color: #003DA5; left: 12px; top: 8px; }
+.seq .panel .body { padding: 12px 14px 6px; }
+.seq .panel .chip { font-size: 12.5px; line-height: 1.45; padding: 7px 10px; }
+.seq .cap { position: absolute; font-size: 12px; color: #50575E; text-align: center; background: #FBFBFC; padding: 0 6px; white-space: nowrap; }
+.mono { overflow-wrap: anywhere; }
+</style>
+<div class="sheet">
+<h1>A command's round trip through the door</h1>
+<p class="sub">Nine hops carry one command from its minter to a verb handler, and its reply back into the same HTTP response. The door authenticates the request and signs nothing; two gates inside the interpreter decide the command.</p>
+
+<div class="seq" id="seq">
+<svg class="wire" id="wire"><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs></svg>
+
+<div class="lane card" data-lane="0"><h3>Minter</h3><p>The browser shell, the attached <span class="mono">wp nodes cli</span>, or a hub addressing a spoke.</p></div>
+<div class="lane card" data-lane="1"><h3>The door</h3><p><span class="mono">POST /newspack-nodes/v1/command</span>. The controller is also the node <span class="mono">_output</span>.</p></div>
+<div class="lane card" data-lane="2"><h3>Router</h3><p>Splits TO on <span class="mono">/</span>, peels the head, and forwards to the node it names.</p></div>
+<div class="lane card" data-lane="3"><h3>Interpreter</h3><p>The process's own <span class="mono">_command_interpreter</span>, or a <span class="mono">Service_CI_Node</span> such as the topology catalog.</p></div>
+<div class="lane card" data-lane="4"><h3>Handler</h3><p>One entry in the interpreter's verb table: a callable and a declared role.</p></div>
+
+<div class="hop" data-span="0,2"><span class="n">1</span>TYPE carries <span class="mono">TM_COMMAND</span>; VALUE is <span class="mono">{ name, arguments }</span>, a verb and a flat list of strings. The minter signs before the command leaves its process: <span class="mono">wp nodes cli</span> under the site's secret, a browser or a hub under a session key.</div>
+
+<div class="hop" data-arrow="0,1" data-cap="signed batch, HTTPS" data-span="1,3"><span class="n">2</span>WordPress authenticates the request, requires the <span class="blue">read</span> role, rate-limits per user, and stamps <span class="mono">_output</span> onto each command's FROM. The door signs nothing: authority comes from the minter's signature and nowhere else.</div>
+
+<div class="hop" data-arrow="1,2" data-cap="fill" data-span="2,4"><span class="n">3</span>TO and FROM change in transit, so the signature covers neither. It covers <span class="mono">[ TIMESTAMP, name, arguments, nonce ]</span> and nothing else.</div>
+
+<div class="panel" data-arrow="2,3" data-cap="TO peeled empty" data-span="2,4">
+  <header><span class="n">4</span>Gate 1: the signature names the minter</header>
+  <div class="body">
+    <div class="chip">One policy stands at every <span class="mono">Command_Interpreter_Node</span>, in a worker, at the command endpoint and behind a dashboard's event stream: admit a command carrying <span class="mono">Message::LOCAL</span>, which is built in this process, and otherwise verify or refuse.</div>
+    <div class="chip">Otherwise <span class="mono">VALUE.auth</span> must verify. The TIMESTAMP is at most 20 s old or 10 s ahead; <span class="mono">sig</span> matches the HMAC recomputed under the resolved key; <span class="mono">nonce</span> claims once through an atomic cache add, so a replay fails under a valid signature.</div>
+    <div class="chip">The session <span class="mono">handle</span> rides outside the signed string. Its scope becomes the ceiling over this one command.</div>
+    <div class="chip danger">Refusal replies <span class="mono">unauthorized: &lt;verb&gt;</span>, and the batch answers 401.</div>
+  </div>
+</div>
+
+<div class="panel" data-span="2,4">
+  <header><span class="n">5</span>Gate 2: the capability map says yes</header>
+  <div class="body">
+    <div class="chip">The verb's schema declares <span class="blue">read</span>, <span class="blue">tune</span> or <span class="blue">manage</span>. Silence means manage.</div>
+    <div class="chip">The base interpreter's graph verbs, <span class="mono">make_node</span> among them, declare nothing, so the door pins them at manage; an exception list of read-only builtins such as <span class="mono">list_nodes</span>, which every dashboard drives, answers read.</div>
+    <div class="chip">The ceiling only subtracts. The user's capability must still be there.</div>
+    <div class="chip danger">Refusal replies <span class="mono">permission denied: &lt;role&gt; capability required</span>. The batch still answers 200: the signature passed.</div>
+  </div>
+</div>
+
+<div class="hop" data-arrow="3,4" data-cap="dispatch" data-span="3,4"><span class="n">6</span>The handler runs and returns a result, or throws.</div>
+
+<div class="hop" data-arrow="4,3" data-cap="result" data-span="2,4"><span class="n">7</span>The reply carries <span class="mono">TM_COMMAND | TM_RESPONSE</span>, or <span class="mono">TM_COMMAND | TM_ERROR</span> when the handler throws or a gate refuses. TO is the inbound FROM; id and key are copied; VALUE is <span class="mono">{ name, arguments, payload }</span>.</div>
+
+<div class="hop" data-arrow="3,1" data-cap="TO = _output" data-span="0,2"><span class="n">8</span>The Router walks the reply back to <span class="mono">_output</span>, whose <span class="mono">fill</span> writes the packed reply into the HTTP body.</div>
+
+<div class="hop" data-arrow="1,0" data-cap="HTTP response" data-span="0,4"><span class="n">9</span>The status rides with the first reply. <span class="blue">200</span>: a reply is on the wire. <span class="blue">202</span>: the batch routes on to a worker, and replies are due on the open event stream. <span class="red">401</span>: a signature failed.</div>
+</div>
+</div>
+<script>
+(function () {
+  var L = [105, 315, 526, 736, 947], seq = document.getElementById('seq'), svg = document.getElementById('wire');
+  var NS = 'http://www.w3.org/2000/svg';
+  function el(t, a) { var e = document.createElementNS(NS, t); for (var k in a) e.setAttribute(k, a[k]); return e; }
+  var lanes = seq.querySelectorAll('.lane'), headBottom = 0;
+  lanes.forEach(function (c) { var i = +c.dataset.lane; c.style.left = (L[i] - 98) + 'px'; headBottom = Math.max(headBottom, c.offsetHeight); });
+  var y = headBottom + 18;
+  seq.querySelectorAll('[data-span]').forEach(function (b) {
+    var s = b.dataset.span.split(',').map(Number), x0 = L[s[0]] - 95, x1 = L[s[1]] - 10;
+    if (s[1] === 4) x1 = 1042;
+    if (b.dataset.arrow) {
+      var a = b.dataset.arrow.split(',').map(Number), ay = y + 22, dir = a[1] > a[0] ? 1 : -1;
+      svg.appendChild(el('path', { d: 'M' + L[a[0]] + ' ' + ay + ' H' + (L[a[1]] - 6 * dir), stroke: '#003DA5', 'stroke-width': 1.8, fill: 'none', 'marker-end': 'url(#a)' }));
+      var cap = document.createElement('div'); cap.className = 'cap'; cap.textContent = b.dataset.cap;
+      cap.style.top = (ay - 20) + 'px'; seq.appendChild(cap);
+      cap.style.left = ((L[a[0]] + L[a[1]]) / 2 - cap.offsetWidth / 2) + 'px';
+      y = ay + 10;
+    }
+    b.style.left = x0 + 'px'; b.style.width = (x1 - x0) + 'px'; b.style.top = y + 'px';
+    y += b.offsetHeight + 12;
+  });
+  var boxes = seq.querySelectorAll('[data-span]'), lastTop = boxes[boxes.length - 1].offsetTop;
+  seq.style.height = y + 'px'; svg.setAttribute('width', 1052); svg.setAttribute('height', y);
+  L.forEach(function (x) { svg.insertBefore(el('path', { d: 'M' + x + ' ' + (headBottom + 4) + ' V' + (lastTop - 4), stroke: '#B0B3B8', 'stroke-dasharray': '4 5', 'stroke-width': 1.5 }), svg.firstChild.nextSibling); });
+})();
+</script>

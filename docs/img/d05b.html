@@ -1,0 +1,104 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.stair { position: relative; }
+.step { display: flex; gap: 0; align-items: stretch; margin-bottom: 12px; }
+.step .name { flex: 0 0 236px; border-right: none; border-radius: 9px 0 0 9px; }
+.step .reach { flex: 1 1 0; border-radius: 0 9px 9px 0; }
+.step .name h3 { font-size: 16px; margin: 0 0 7px; }
+.step .name p { font-size: 12.5px; margin: 0 0 4px; }
+.step .reach .chip { margin: 0 0 7px; font-size: 12.5px; line-height: 1.45; }
+.step .reach .chip:last-child { margin-bottom: 0; }
+.grid { display: grid; grid-template-columns: 178px repeat(3, 1fr); gap: 6px; }
+.grid > div { font-size: 12.5px; padding: 9px 11px; border-radius: 6px; line-height: 1.4; }
+.grid .hd { background: #003DA5; color: #fff; font-weight: 700; text-align: center; }
+.grid .rh { background: #EDEFF2; font-weight: 700; }
+.grid .cell { background: #F0F4FB; border: 1px solid #C3D3EC; text-align: center; }
+.grid .cut { background: #FBEAEA; border: 1px solid #E6A3A3; color: #B32D2E; text-align: center; }
+.grid .corner { background: transparent; font-size: 11.5px; color: #50575E; }
+.mono { overflow-wrap: anywhere; }
+.cmd { background: #101517; color: #fff; border-radius: 8px; padding: 12px 15px; font-size: 13px; line-height: 1.6; }
+.cmd .c { color: #9BB7E6; }
+</style>
+<div class="sheet">
+<h1>Three roles, and a ceiling that only subtracts</h1>
+<p class="sub">Authority splits by blast radius. Each role resolves to a WordPress capability through one filterable map, and a verb declares the role it needs in its schema. A verb that declares nothing gets manage.</p>
+
+<div class="stair">
+  <div class="step">
+    <div class="card name" style="background:#F7F9FD">
+      <h3><span class="blue">read</span></h3>
+      <p>Stock: <span class="mono">manage_options</span></p>
+      <p>Installed: <span class="mono">newspack_nodes_read</span></p>
+      <p class="grey">The floor at the command door: every batch needs it.</p>
+    </div>
+    <div class="card reach">
+      <div class="chip">The dashboards, both event streams, and the read-only builtins every dashboard drives, such as <span class="mono">list_nodes</span>.</div>
+      <div class="chip">Every service verb whose schema declares read.</div>
+      <div class="chip danger">The raw firehose, live on the stream and record by record through <span class="mono">raw-logs read_message</span>: request URLs, hooks and payloads. Know what you grant.</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="card name" style="background:#F7F9FD">
+      <h3><span class="blue">tune</span></h3>
+      <p>Stock: <span class="mono">manage_options</span></p>
+      <p>Installed: <span class="mono">newspack_nodes_tune</span></p>
+      <p class="grey">Declared configuration and application data, each bounded by a schema.</p>
+    </div>
+    <div class="card reach">
+      <div class="chip">Substrate settings, read through the declared schema.</div>
+      <div class="chip">Saved dashboard layouts.</div>
+      <div class="chip">The Event Logger's logging rules, which decide what the firehose records.</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="card name" style="background:#F7F9FD">
+      <h3><span class="blue">manage</span></h3>
+      <p>Stock: <span class="mono">manage_options</span></p>
+      <p>Installed: <span class="mono">newspack_nodes_manage</span></p>
+      <p class="grey">The default for any verb that declares no role.</p>
+    </div>
+    <div class="card reach">
+      <div class="chip">Fleet control: starting, stopping and restarting workers.</div>
+      <div class="chip">The credential vault.</div>
+      <div class="chip">Minting sessions and revoking them.</div>
+      <div class="chip">The base interpreter's graph verbs, <span class="mono">make_node</span> among them, which build and rewire the graph.</div>
+    </div>
+  </div>
+</div>
+
+<div class="row" style="gap:20px; margin-top:22px; align-items:stretch">
+  <div style="flex:1.2 1 0" class="stack">
+    <div class="cmd mono">
+      <span class="c"># Swap the three roles off manage_options and onto capabilities of their own.</span><br>
+      wp nodes caps install<br>
+      <span class="c"># Grant read and tune to a log aggregator's account.</span><br>
+      wp nodes hub-user &lt;login&gt;
+    </div>
+    <div class="ok">
+      <h4>What the install does</h4>
+      <p>It grants all three capabilities to every role already holding <span class="mono">manage_options</span>, so nobody loses access on the day it runs, and creates <span class="mono">newspack_nodes_hub</span> with read and tune only. A hub user's application password can read the stream and set the logger's options. It cannot restart the fleet or read the vault.</p>
+    </div>
+  </div>
+
+  <div style="flex:1 1 0" class="stack">
+    <div class="grid">
+      <div class="corner">Scope minted, against the highest role the minting user holds</div>
+      <div class="hd">user is read</div>
+      <div class="hd">user is tune</div>
+      <div class="hd">user is manage</div>
+      <div class="rh">asks for <span class="mono">read</span></div>
+      <div class="cell">read</div><div class="cell">read</div><div class="cell">read</div>
+      <div class="rh">asks for <span class="mono">tune</span></div>
+      <div class="cut">read</div><div class="cell">tune</div><div class="cell">tune</div>
+      <div class="rh">asks for <span class="mono">manage</span></div>
+      <div class="cut">read</div><div class="cut">tune</div><div class="cell">manage</div>
+    </div>
+    <div class="callout">
+      <h4>A scope states authority, never requests it</h4>
+      <p>The auth endpoint clamps a requested scope to the highest role its minting user holds, and the response says which role came back. Verifying a command installs that scope as the ceiling over it, and the capability map must still say yes underneath. A manage session minted by a read-only user is a read session.</p>
+    </div>
+  </div>
+</div>
+</div>

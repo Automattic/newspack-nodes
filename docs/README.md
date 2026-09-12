@@ -69,4 +69,4 @@ The short expansions the rest of the docs assume.
 - **hub / spoke** — the aggregation pair. A hub wires one `Remote_Source` per spoke partition, each pulling that spoke's log over SSE under its own durable cursor; the Vault entry the node names supplies that spoke's URL and credential.
 - **slice** — one dashboard feed. A Fetcher sends one verb toward a service CI, the reply routes back to that slice's receiver `Tee`, and the slice's view node parses it into a render model. `addSliceFetcher()` wires the three in one call.
 
-The chapters' diagrams render from `docs/superpowers/series/2026-09-nodes-eln/img/` in the dndocker tree; `docs/img/` holds the rendered PNGs.
+Every diagram is an HTML sheet under `docs/img/` beside the PNG it renders to; `docs/img/render.sh` re-renders them all through headless Chrome.

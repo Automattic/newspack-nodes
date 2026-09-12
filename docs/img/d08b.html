@@ -1,0 +1,150 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+h2 { font-size:15px; margin:0 0 10px; }
+.slots { display:flex; gap:12px; }
+.slot { flex:1; border:1px solid #C3C4C7; border-radius:9px; background:#fff; padding:10px 12px; font-size:12px; line-height:1.4; }
+.slot .t { font-weight:700; font-size:12.5px; margin-bottom:6px; }
+.key { border-radius:5px; padding:5px 8px; margin-top:5px; font-size:11.5px; line-height:1.35; }
+.key.ptr { background:#E8EEF8; border:1px solid #C3D3EC; }
+.key.lease { background:#EDF7ED; border:1px solid #9EC89E; color:#1E5B1E; }
+.slot.free .key { background:#F6F7F7; border:1px dashed #B0B3B8; color:#787C82; }
+.slot.a { border-color:#003DA5; }
+.slot.b { border-color:#7F54B3; }
+.slot.deny { background:#FBEAEA; border:1px solid #E6A3A3; color:#5C2223; }
+.slot.deny .t { color:#B32D2E; }
+.legend { display:flex; gap:22px; font-size:12px; color:#50575E; margin:10px 0 0; }
+.legend span { display:inline-flex; align-items:center; gap:6px; }
+.sw { width:12px; height:12px; border-radius:3px; border:1px solid #C3C4C7; }
+.two { display:flex; gap:20px; margin-top:22px; align-items:stretch; }
+.two > .card { flex:1; }
+.two .card p { font-size:12.5px; }
+</style>
+<div class="sheet">
+<h1>The slot pool meters the stream</h1>
+<p class="sub">A stream holds one php-fpm child, one of the site's fixed pool of PHP processes, for its whole life. When PHP requests back up, the platform challenges every visitor for sixty seconds, so the pool caps streams before the platform steps in.</p>
+
+<h2>Six slots per host, three per identity, one lease each</h2>
+<div class="slots">
+  <div class="slot a"><div class="t">Slot 1</div><div class="key ptr">owner → identity A</div><div class="key lease">lease, 60 s</div></div>
+  <div class="slot a"><div class="t">Slot 2</div><div class="key ptr">owner → identity A</div><div class="key lease">lease, 60 s</div></div>
+  <div class="slot a"><div class="t">Slot 3</div><div class="key ptr">owner → identity A</div><div class="key lease">lease, 60 s</div></div>
+  <div class="slot b"><div class="t">Slot 4</div><div class="key ptr">owner → identity B</div><div class="key lease">lease, 60 s</div></div>
+  <div class="slot b"><div class="t">Slot 5</div><div class="key ptr">owner → identity B</div><div class="key lease">lease, 60 s</div></div>
+  <div class="slot free"><div class="t">Slot 6</div><div class="key">no owner</div><div class="key">no lease</div></div>
+  <div class="slot deny"><div class="t">A's fourth tab</div>A holds its three, so the request answers <b>429</b> before any header goes out, and the free slot stays free for B or a hub's pull.</div>
+</div>
+<div class="legend">
+  <span><span class="sw" style="background:#E8EEF8;border-color:#C3D3EC"></span>permanent owner pointer</span>
+  <span><span class="sw" style="background:#EDF7ED;border-color:#9EC89E"></span>expiring liveness key, the lease</span>
+  <span>Each slot is those two cache keys and nothing else.</span>
+</div>
+
+<div class="card" style="margin-top:22px;padding-bottom:12px">
+  <h2>One stream's lease, from acquire to expiry</h2>
+  <svg width="1012" height="272" viewBox="0 0 1012 272" font-family="Inter, -apple-system, Helvetica, Arial, sans-serif" font-size="12">
+    <!-- scale: 7.2 px per second, origin x=150, 0..105 s -->
+    <g stroke="#DCDCDE" stroke-width="1">
+      <line x1="150" y1="18" x2="150" y2="212"/><line x1="258" y1="18" x2="258" y2="212"/><line x1="366" y1="18" x2="366" y2="212"/>
+      <line x1="474" y1="18" x2="474" y2="212"/><line x1="582" y1="18" x2="582" y2="212"/><line x1="690" y1="18" x2="690" y2="212"/>
+      <line x1="798" y1="18" x2="798" y2="212"/>
+    </g>
+    <g fill="#787C82" text-anchor="middle" font-size="11.5">
+      <text x="150" y="234">0 s</text><text x="258" y="234">15</text><text x="366" y="234">30</text><text x="474" y="234">45</text>
+      <text x="582" y="234">60</text><text x="690" y="234">75</text><text x="798" y="234">90</text><text x="906" y="234">105 s</text>
+    </g>
+    <g fill="#101517" font-weight="700" font-size="12.5">
+      <text x="0" y="42">Browser</text><text x="0" y="100">Lease</text><text x="0" y="197">Server</text>
+    </g>
+    <g fill="#50575E" font-size="11.5">
+      <text x="0" y="57">one _heartbeat node</text><text x="0" y="71">per page</text><text x="0" y="115">one row per touch</text><text x="0" y="212">drain-tick check</text>
+    </g>
+    <g fill="#003DA5">
+      <rect x="144" y="32" width="13" height="13" rx="3"/>
+      <circle cx="258" cy="38" r="5.5"/><circle cx="366" cy="38" r="5.5"/><circle cx="474" cy="38" r="5.5"/>
+    </g>
+    <g fill="#003DA5" font-size="11.5">
+      <text x="163" y="42">acquire</text><text x="268" y="42">poke</text><text x="376" y="42">poke</text>
+      <text x="484" y="42">last poke, then the tab closes</text>
+    </g>
+    <g>
+      <rect x="150" y="62" width="432" height="14" rx="2" fill="#D6EAD6"/>
+      <rect x="258" y="84" width="432" height="14" rx="2" fill="#B5D9B5"/>
+      <rect x="366" y="106" width="432" height="14" rx="2" fill="#8BC48B"/>
+      <rect x="474" y="128" width="432" height="14" rx="2" fill="#3D833D"/>
+    </g>
+    <g font-size="11.5" text-anchor="end">
+      <text x="574" y="73" fill="#1E5B1E">expires 60 s after acquire</text>
+      <text x="682" y="95" fill="#1E5B1E">each poke pushes it out again</text>
+      <text x="790" y="117" fill="#1E5B1E">and again</text>
+      <text x="898" y="139" fill="#fff" font-weight="700">60 s of unattended life left, one whole TTL</text>
+    </g>
+    <text x="150" y="162" fill="#50575E" font-size="11.5">A closed tab pokes nothing, so the slot frees itself one TTL after the last poke.</text>
+    <rect x="150" y="190" width="756" height="14" rx="3" fill="#F0F4FB" stroke="#C3D3EC"/>
+    <g stroke="#003DA5" stroke-width="1" opacity="0.55"><line x1="160" y1="192" x2="160" y2="202"/><line x1="180" y1="192" x2="180" y2="202"/><line x1="200" y1="192" x2="200" y2="202"/><line x1="220" y1="192" x2="220" y2="202"/><line x1="240" y1="192" x2="240" y2="202"/><line x1="260" y1="192" x2="260" y2="202"/><line x1="280" y1="192" x2="280" y2="202"/><line x1="300" y1="192" x2="300" y2="202"/><line x1="320" y1="192" x2="320" y2="202"/><line x1="340" y1="192" x2="340" y2="202"/><line x1="360" y1="192" x2="360" y2="202"/><line x1="380" y1="192" x2="380" y2="202"/><line x1="400" y1="192" x2="400" y2="202"/><line x1="420" y1="192" x2="420" y2="202"/><line x1="440" y1="192" x2="440" y2="202"/><line x1="460" y1="192" x2="460" y2="202"/><line x1="480" y1="192" x2="480" y2="202"/><line x1="500" y1="192" x2="500" y2="202"/><line x1="520" y1="192" x2="520" y2="202"/><line x1="540" y1="192" x2="540" y2="202"/><line x1="560" y1="192" x2="560" y2="202"/><line x1="580" y1="192" x2="580" y2="202"/><line x1="600" y1="192" x2="600" y2="202"/><line x1="620" y1="192" x2="620" y2="202"/><line x1="640" y1="192" x2="640" y2="202"/><line x1="660" y1="192" x2="660" y2="202"/><line x1="680" y1="192" x2="680" y2="202"/><line x1="700" y1="192" x2="700" y2="202"/><line x1="720" y1="192" x2="720" y2="202"/><line x1="740" y1="192" x2="740" y2="202"/><line x1="760" y1="192" x2="760" y2="202"/><line x1="780" y1="192" x2="780" y2="202"/><line x1="800" y1="192" x2="800" y2="202"/><line x1="820" y1="192" x2="820" y2="202"/><line x1="840" y1="192" x2="840" y2="202"/><line x1="860" y1="192" x2="860" y2="202"/><line x1="880" y1="192" x2="880" y2="202"/><line x1="900" y1="192" x2="900" y2="202"/></g>
+    <text x="150" y="256" fill="#50575E" font-size="11.5">The server reads the lease on every drain tick, about ten times a second, and extends nothing.</text>
+    <line x1="906" y1="56" x2="906" y2="204" stroke="#B32D2E" stroke-width="1.8" stroke-dasharray="4 3"/>
+    <text x="898" y="180" fill="#B32D2E" font-size="11.5" text-anchor="end" font-weight="700">lease gone: disconnect, release</text>
+  </svg>
+</div>
+
+<div class="two">
+  <div class="card">
+    <h2>A slot's states</h2>
+    <svg width="470" height="150" viewBox="0 0 470 150" font-family="Inter, -apple-system, Helvetica, Arial, sans-serif" font-size="12">
+      <defs><marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs>
+      <rect x="4" y="50" width="110" height="46" rx="8" fill="#F6F7F7" stroke="#B0B3B8" stroke-dasharray="4 3"/>
+      <text x="59" y="78" text-anchor="middle" font-weight="700">free</text>
+      <rect x="180" y="50" width="110" height="46" rx="8" fill="#EDF7ED" stroke="#9EC89E"/>
+      <text x="235" y="70" text-anchor="middle" font-weight="700" fill="#1E5B1E">held</text>
+      <text x="235" y="86" text-anchor="middle" fill="#2B5F2B" font-size="11.5">pointer + lease</text>
+      <rect x="356" y="50" width="110" height="46" rx="8" fill="#FBEAEA" stroke="#E6A3A3"/>
+      <text x="411" y="70" text-anchor="middle" font-weight="700" fill="#B32D2E">lost</text>
+      <text x="411" y="86" text-anchor="middle" fill="#5C2223" font-size="11.5">lease missing</text>
+      <g stroke="#003DA5" stroke-width="1.6" fill="none" marker-end="url(#b)">
+        <path d="M114 73 L178 73"/>
+        <path d="M290 73 L354 73"/>
+        <path d="M235 50 C 215 14, 255 14, 236 48"/>
+        <path d="M411 96 C 411 136, 59 136, 59 98"/>
+      </g>
+      <text x="146" y="66" text-anchor="middle" fill="#003DA5" font-size="11.5">acquire</text>
+      <text x="322" y="90" text-anchor="middle" fill="#003DA5" font-size="11.5">60 s,</text>
+      <text x="322" y="102" text-anchor="middle" fill="#003DA5" font-size="11.5">no touch</text>
+      <text x="278" y="24" fill="#003DA5" font-size="11.5">touch, every 15 s</text>
+      <text x="235" y="142" text-anchor="middle" fill="#003DA5" font-size="11.5">release</text>
+    </svg>
+    <p><b>Acquire, check and touch fail closed</b>: with no cache backend answering, ownership is unverifiable and every stream is refused. <b>Release fails open</b>, because a lease expires on its own.</p>
+  </div>
+  <div class="card">
+    <h2>What a refused browser does</h2>
+    <svg width="470" height="150" viewBox="0 0 470 150" font-family="Inter, -apple-system, Helvetica, Arial, sans-serif" font-size="11.5">
+      <g fill="#E8EEF8" stroke="#C3D3EC">
+        <rect x="8" y="102" width="62" height="16" rx="3"/>
+        <rect x="86" y="86" width="62" height="32" rx="3"/>
+        <rect x="164" y="54" width="62" height="64" rx="3"/>
+      </g>
+      <g fill="#003DA5">
+        <rect x="242" y="22" width="62" height="96" rx="3"/>
+        <rect x="320" y="22" width="62" height="96" rx="3"/>
+        <rect x="398" y="22" width="62" height="96" rx="3"/>
+      </g>
+      <g fill="#003DA5" text-anchor="middle" font-weight="700">
+        <text x="39" y="98">2 s</text><text x="117" y="82">4 s</text><text x="195" y="50">8 s</text>
+      </g>
+      <g fill="#fff" text-anchor="middle" font-weight="700">
+        <text x="273" y="74">16 s</text><text x="351" y="74">30 s</text><text x="429" y="74">30 s</text>
+      </g>
+      <line x1="8" y1="118" x2="460" y2="118" stroke="#C3C4C7"/>
+      <g fill="#787C82" text-anchor="middle">
+        <text x="39" y="134">1st</text><text x="117" y="134">2nd</text><text x="195" y="134">3rd</text>
+        <text x="273" y="134">4th</text><text x="351" y="134">5th</text><text x="429" y="134">6th retry</text>
+      </g>
+    </svg>
+    <p>A refusal is a <span class="red">429</span> that fails the browser's EventSource outright, and the page reopens the stream under a backoff doubling from 2 s to a 30 s ceiling, so a tab the pool keeps refusing settles at one attempt every 30 s.</p>
+  </div>
+</div>
+
+<div class="note">
+  <h4>Why six</h4>
+  <p>Six is the ceiling that leaves the site serving pages while fully subscribed. It is a budget, not a target: a host that reaches it regularly wants fewer dashboards or a larger allocation, because the headroom left over is what absorbs a traffic spike. A hub's pull of a spoke draws on the same six.</p>
+</div>
+</div>

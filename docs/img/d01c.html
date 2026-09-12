@@ -1,0 +1,153 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+  .seg { display: flex; gap: 4px; margin-top: 7px; }
+  .seg > div { flex: 1 1 0; border: 1px solid #C3D3EC; border-radius: 4px; background: #F0F4FB; text-align: center;
+               font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; padding: 5px 0; color: #003DA5; }
+  .seg > div.old { background: #FBEAEA; border-color: #E6A3A3; color: #B32D2E; }
+  .seg > div.hot { background: #003DA5; border-color: #003DA5; color: #fff; font-weight: 700; }
+  .mini { font-size: 11.5px; color: #50575E; line-height: 1.45; margin: 5px 0 0; }
+  .tile { background: #fff; border: 1px solid #C3C4C7; border-radius: 9px; padding: 12px 14px; position: relative; }
+  .tile h3 { font-size: 13.5px; margin: 0 0 6px; }
+  .tile p { font-size: 12px; color: #50575E; margin: 0 0 5px; line-height: 1.5; }
+  .tile p:last-child { margin-bottom: 0; }
+  .writers > div { border: 1px solid #C3C4C7; border-radius: 6px; background: #fff; font-size: 11.5px; padding: 5px 8px; margin-bottom: 5px; overflow-wrap: anywhere; }
+  .lane { font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; color: #003DA5; font-weight: 600; margin: 0 0 7px; }
+  /* An arrow anchors to the card it joins, so it always sits on that card's centre line. */
+  .hop { position: absolute; top: 50%; width: var(--w); }
+  .hop.left { left: calc(-1 * var(--w)); }
+  .hop.right { right: calc(-1 * var(--w)); }
+  .hop svg { display: block; margin: -13px auto 0; }
+  .hop .cap { position: absolute; top: 17px; left: 0; width: 100%; text-align: center; font-size: 12px; line-height: 1.4; }
+</style>
+<div class="sheet">
+<h1>Durable state is a log on disk, and a hub reads it from far away</h1>
+<p class="sub">One primitive carries the whole pipeline: an append-only partition of packed messages in numbered segment files. Locally the readers are nodes in the same process. Across sites the reader is a hub, pulling the same partition over SSE under a cursor it owns.</p>
+
+<div class="panel">
+  <header>On one site &middot; many writers, one log, one reader that remembers its place</header>
+  <div class="body">
+    <div class="row" style="gap:0;align-items:flex-start">
+      <div style="flex:0 0 150px">
+        <p class="lane">Writers</p>
+        <div class="writers">
+          <div>PHP request &middot; page view</div>
+          <div>PHP request &middot; admin screen</div>
+          <div>PHP request &middot; REST call</div>
+          <div>WP-Cron pass</div>
+          <div>A node in a worker</div>
+        </div>
+        <p class="mini">Each appends one record and moves on. No writer takes a lock.</p>
+      </div>
+
+      <div style="flex:0 0 176px;margin-left:92px">
+        <p class="lane">Topic</p>
+        <div class="tile">
+          <div class="hop left" style="--w:92px">
+            <svg width="92" height="26" viewBox="0 0 92 26"><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs><path d="M2 13 L80 13" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/></svg>
+            <div class="cap">one record,<br>under 4&nbsp;KB</div>
+          </div>
+          <h3>Hash the KEY</h3>
+          <p>The Topic picks one partition per write from a hash of the message's KEY, so every line of one request lands in the same log and one reader sees them in order.</p>
+        </div>
+      </div>
+
+      <div style="flex:1 1 0;margin-left:70px">
+        <p class="lane">Partitions on disk</p>
+        <div class="tile">
+          <div class="hop left" style="--w:70px">
+            <svg width="70" height="26" viewBox="0 0 70 26"><path d="M2 13 L58 13" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/></svg>
+            <div class="cap">append</div>
+          </div>
+          <div class="hop right" style="--w:70px">
+            <svg width="70" height="26" viewBox="0 0 70 26"><path d="M4 13 L60 13" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/></svg>
+            <div class="cap">tail</div>
+          </div>
+          <h3 class="mono">logs/firehose.p0/</h3>
+          <div class="seg"><div class="old">0.log</div><div>1.log</div><div>2.log</div><div class="hot">3.log</div></div>
+          <p class="mini">Numbered segments. Writers append to the newest; retention deletes from the oldest end.</p>
+        </div>
+        <div class="tile" style="margin-top:9px">
+          <h3 class="mono">logs/firehose.p1/</h3>
+          <div class="seg"><div class="old">0.log</div><div>1.log</div><div class="hot">2.log</div></div>
+        </div>
+        <div class="tile" style="margin-top:9px">
+          <h3 class="mono">logs/jobs.p0/</h3>
+          <p class="mini" style="margin-top:0">Blocking work is a job entry appended here and read by the job worker, so nothing slow ever runs inside another worker's drain loop.</p>
+        </div>
+      </div>
+
+      <div style="flex:0 0 230px;margin-left:70px">
+        <p class="lane">Reader</p>
+        <div class="tile">
+          <h3>Consumer</h3>
+          <p>Reads from its cursor, unpacks each record into a message, fills its sink, and advances.</p>
+          <p><b>Checkpoint:</b> the position goes to <span class="mono">offsets/&hellip;</span>, a tiny second partition called the offsetlog. A recycled worker resumes from the newest entry.</p>
+          <p><b>Poison:</b> a record that makes the reader throw goes to <span class="mono">deadletter/&hellip;</span> and the cursor moves past it. A job that throws is dead-lettered the same way.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="row" style="gap:16px;align-items:stretch;margin-top:14px">
+      <div class="callout" style="flex:1 1 0">
+        <h4>The 4 KB rule is what removes the lock</h4>
+        <p>A record stays under 4 KB, the size a POSIX append lands atomically, so many PHP requests write one firehose log at once and none of them coordinates. Every field a record carries competes for that budget.</p>
+      </div>
+      <div class="note" style="flex:1 1 0;margin-top:0">
+        <h4>Retention prunes oldest-first, by three rules</h4>
+        <p>An age limit deletes segments older than a lifetime. A target segment count deletes down to that target, sparing any segment younger than a minimum lifetime. A hard cap, twice the target by default, deletes above it whatever the ages are.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="panel" style="margin-top:22px">
+  <header>Across sites &middot; the hub pulls, and the spokes push nothing</header>
+  <div class="body">
+    <div class="row" style="gap:0;align-items:stretch">
+      <div class="stack" style="flex:0 0 250px">
+        <div class="tile">
+          <div class="hop right" style="--w:124px">
+            <svg width="124" height="26" viewBox="0 0 124 26"><path d="M4 13 L114 13" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/></svg>
+            <div class="cap">pulled over SSE<br>under cursor A</div>
+          </div>
+          <h3>Spoke: customer site A</h3>
+          <p>Its own <span class="mono">firehose.p0</span> on its own disk, served by <span class="mono">GET /messages/stream</span>.</p>
+        </div>
+        <div class="tile">
+          <div class="hop right" style="--w:124px">
+            <svg width="124" height="26" viewBox="0 0 124 26"><path d="M4 13 L114 13" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/></svg>
+            <div class="cap">pulled over SSE<br>under cursor B</div>
+          </div>
+          <h3>Spoke: customer site B</h3>
+          <p>Its own <span class="mono">firehose.p0</span> on its own disk, served by <span class="mono">GET /messages/stream</span>.</p>
+        </div>
+        <div class="tile">
+          <div class="hop right" style="--w:124px">
+            <svg width="124" height="26" viewBox="0 0 124 26"><path d="M4 13 L114 13" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/></svg>
+            <div class="cap">pulled over SSE<br>under cursor C</div>
+          </div>
+          <h3>Spoke: customer site C</h3>
+          <p>Its own <span class="mono">firehose.p0</span> on its own disk, served by <span class="mono">GET /messages/stream</span>.</p>
+        </div>
+      </div>
+
+      <div style="flex:1 1 0;margin-left:124px;display:flex;gap:14px;align-items:stretch">
+        <div class="tile" style="flex:1 1 0;border-color:#003DA5">
+          <h3>Hub: one topology, one worker</h3>
+          <p>One <b>Remote_Source</b> node per spoke. Each opens that spoke's SSE stream endpoint and pulls its firehose partition into a partition of its own on the hub's disk, one per spoke, where the hub's dashboards read it.</p>
+          <p>Each holds its own durable cursor, so a restart resumes where the hub stopped rather than where the spoke did.</p>
+        </div>
+        <div class="tile" style="flex:1 1 0">
+          <h3>Vault</h3>
+          <p>The operator enters each spoke's URL and password once. The topology line carries the entry's id and nothing else, so the graph is safe to read and to check in.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="ok" style="margin-top:16px">
+      <h4>Pulling is what makes flow control free</h4>
+      <p>The hub asks for what it can take. When its buffer crosses 512 KB it stops reading the socket, the TCP window closes on the spoke, and nothing is dropped: the spoke keeps its log until the hub comes back for it.</p>
+    </div>
+  </div>
+</div>
+</div>
