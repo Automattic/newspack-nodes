@@ -169,4 +169,3 @@ The GitHub Release is a record, not the artifact anyone installs. Sites run a zi
 ## Not examined
 
 - **Everything outside the two plugins.** This model reads other code only where it writes the firehose or calls into the two trees, and follows nothing past that boundary.
-- **The deploy script and its transport.**
