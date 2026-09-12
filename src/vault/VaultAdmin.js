@@ -131,7 +131,7 @@ const BLANK_SERVER = { id: '', url: '', auth_username: '' };
  * hands each row its own, and a sibling being tested cannot blank this line.
  *
  * @param {Object}                          props          Component props.
- * @param {Object}                          props.server   Public server shape from the view model: id, url, auth_username, has_credentials, is_config.
+ * @param {Object}                          props.server   Public server shape from the view model: id, url, auth_username, has_credentials.
  * @param {?{verb: string, error: ?string}} props.answer   This row's last answer, or null.
  * @param {?string}                         props.pending  The verb outstanding about this row, if any.
  * @param {Function}                        props.onEdit   Opens the form on this server; called with the row.
@@ -143,8 +143,6 @@ function ServerRow( { server, answer, pending, onEdit, onRemove, onTest } ) {
 	const { id, url } = server;
 	const [ isConfirmOpen, setIsConfirmOpen ] = useState( false );
 	const busy = Boolean( pending );
-	// Pinned by the config file, so the store refuses both verbs anyway.
-	const pinned = Boolean( server.is_config );
 	// An outstanding verb picks the words; once answered, the answer does.
 	const status = answerStatus(
 		answer,
@@ -184,7 +182,7 @@ function ServerRow( { server, answer, pending, onEdit, onRemove, onTest } ) {
 					type="button"
 					className="button button-small nodes-vault__edit"
 					data-server-id={ id }
-					disabled={ busy || pinned }
+					disabled={ busy }
 					onClick={ () => onEdit( server ) }
 				>
 					{ __( 'Edit', 'newspack-nodes' ) }
@@ -193,7 +191,7 @@ function ServerRow( { server, answer, pending, onEdit, onRemove, onTest } ) {
 					type="button"
 					className="button button-small button-link-delete nodes-vault__remove"
 					data-server-id={ id }
-					disabled={ busy || pinned }
+					disabled={ busy }
 					onClick={ () => setIsConfirmOpen( true ) }
 				>
 					{ __( 'Remove', 'newspack-nodes' ) }

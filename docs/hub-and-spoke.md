@@ -18,7 +18,7 @@ The reply rides the same response, and the spoke writes every field of it, TO in
 
 ## The Vault and the hub user
 
-The Vault is the hub's store of spokes: an HTTPS URL, a username and a password under each short id. Its tab writes entries to a WordPress option; the substrate config file can pin entries the tab cannot edit. Each password is sealed with libsodium under a key derived from the site's auth salt and opened only on the way out, so rotating that salt leaves every stored password unopenable. Workers memoize the Vault for life, so a credential change asks each worker holding a Remote_Source to reload and rebuild its hidden nodes.
+The Vault is the hub's store of spokes: an HTTPS URL, a username and a password under each short id. Its tab and the `vault` CI verbs write entries to a WordPress option, the only source. Each password is sealed with libsodium under a key derived from the site's auth salt and opened only on the way out, so rotating that salt leaves every stored password unopenable. Workers memoize the Vault for life, so a credential change asks each worker holding a Remote_Source to reload and rebuild its hidden nodes.
 
 The hub logs in to a spoke as a user on that spoke, holding only the hub role, the read and tune capabilities from [Commands, capabilities and sessions](commands-capabilities-and-sessions.md). A stolen hub credential buys one spoke's stream and its logger settings, never its fleet or its credentials.
 

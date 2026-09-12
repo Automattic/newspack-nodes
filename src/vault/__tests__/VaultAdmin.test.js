@@ -30,14 +30,12 @@ const SAMPLE_SERVERS = [
 		url: 'https://a.example.test',
 		auth_username: 'reader-4471',
 		has_credentials: true,
-		is_config: false,
 	},
 	{
 		id: 'spoke-02',
 		url: 'https://b.example.test',
 		auth_username: '',
 		has_credentials: false,
-		is_config: true,
 	},
 ];
 
@@ -507,26 +505,21 @@ describe( 'VaultAdmin', () => {
 		);
 	} );
 
-	// A config-file server is pinned by the file; offering buttons that can
-	// only ever be refused is worse than not offering them.
-	it( 'disables Edit and Remove on a config-file server', () => {
+	// The option is the only source, so every row is editable and removable.
+	it( 'offers Edit and Remove on every server', () => {
 		registerViewFixture( { servers: SAMPLE_SERVERS, loading: false } );
 		const { container } = mount();
-		const pinned = container.querySelector(
-			'tr[data-server-id="spoke-02"]'
-		);
-		expect( pinned.querySelector( '.nodes-vault__edit' ).disabled ).toBe(
-			true
-		);
-		expect( pinned.querySelector( '.nodes-vault__remove' ).disabled ).toBe(
-			true
-		);
-		const editable = container.querySelector(
-			'tr[data-server-id="spoke-01"]'
-		);
-		expect( editable.querySelector( '.nodes-vault__edit' ).disabled ).toBe(
-			false
-		);
+		for ( const id of [ 'spoke-01', 'spoke-02' ] ) {
+			const row = container.querySelector(
+				`tr[data-server-id="${ id }"]`
+			);
+			expect( row.querySelector( '.nodes-vault__edit' ).disabled ).toBe(
+				false
+			);
+			expect( row.querySelector( '.nodes-vault__remove' ).disabled ).toBe(
+				false
+			);
+		}
 	} );
 
 	it( 'opens the add modal blank even after an edit was opened first', () => {

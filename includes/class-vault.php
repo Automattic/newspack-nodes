@@ -7,11 +7,8 @@
  * reach this server" for the whole graph. `Sessions` is the mirror — it holds
  * the command sessions this site issues to callers coming IN.
  *
- * Two sources feed one view. `newspack-nodes-config.php` pins the entries an
- * operator deploys beside the code; the `newspack_nodes_vault` option holds the
- * ones the Vault tab writes, and wins wherever an id appears in both. A file
- * entry is immutable through this API, because a stored override would shadow
- * the file forever and outlive the deploy that changed it.
+ * The `newspack_nodes_vault` option is the one source: the Vault tab and the
+ * `vault` CI verbs write it, and nothing else feeds the view.
  *
  * Passwords are sealed at rest under a key derived from `wp_salt( 'auth' )` and
  * opened on the way out, so every caller holds plaintext and the option never
@@ -27,7 +24,7 @@ if ( ! \defined( 'ABSPATH' ) ) {
 }
 
 /**
- * The merged registry, memoized for the life of the process.
+ * The registry, memoized for the life of the process.
  *
  * That memo is why `reset_cache()` and `reset()` exist: a worker runs about ten
  * minutes, so with no drop signal it keeps serving a password the operator has
@@ -36,21 +33,16 @@ if ( ! \defined( 'ABSPATH' ) ) {
 class Vault {
 
 	/**
-	 * Marks a stored value as encrypted. A value without it is plaintext, which
-	 * is what lets `decrypt()` run over every entry unconditionally.
+	 * Marks a stored value as sealed. `add()` and `update()` seal every password,
+	 * so a stored value without it was never written by this class.
 	 */
 	public const ENCRYPTED_PREFIX = '$enc$';
 
-	/**
-	 * Ceiling `add()` enforces against the merged count. It bounds what the admin
-	 * UI can write; a config file declaring more is not refused, because that file
-	 * is the operator's own deploy.
-	 */
+	/** Ceiling `add()` enforces on the registry. */
 	public const MAX_SERVERS = 100;
 
 	/**
-	 * WP option holding the operator-written half of the registry.
-	 * Non-autoloaded; `write_option()` says why.
+	 * WP option holding the registry. Non-autoloaded; `write_option()` says why.
 	 */
 	public const OPTION_KEY = 'newspack_nodes_vault';
 
@@ -63,9 +55,6 @@ class Vault {
 	 * @var \Closure|null
 	 */
 	public static ?\Closure $sodium_available = null;
-
-	/** The config-array key the same registry occupies; see Config's token resolver. */
-	public const CONFIG_KEY = 'vault';
 
 	/**
 	 * The only keys `update()` takes from a caller. Everything else in the partial
@@ -82,8 +71,8 @@ class Vault {
 	private static ?Vault $instance = null;
 
 	/**
-	 * Memoized merged view: config-file defaults under the WP option overlay,
-	 * credentials already decrypted. Null until the first read builds it.
+	 * Memoized view of the option, credentials already decrypted. Null until
+	 * the first read builds it.
 	 *
 	 * @var array<string,array<string,mixed>>|null
 	 */
@@ -112,7 +101,7 @@ class Vault {
 	}
 
 	/**
-	 * One server from the merged view, credentials decrypted.
+	 * One server, credentials decrypted.
 	 *
 	 * @api
 	 * @param string $id Server id.
@@ -130,8 +119,8 @@ class Vault {
 	 * Unlike `update()`, nothing is carried over from what was there before,
 	 * because a new id has nothing to carry.
 	 *
-	 * Refuses, returning false, when the id is malformed, the id already exists in
-	 * the merged view, the registry sits at `MAX_SERVERS`, the config fails
+	 * Refuses, returning false, when the id is malformed, the id already exists,
+	 * the registry sits at `MAX_SERVERS`, the config fails
 	 * validation, or the write does not survive the re-read that verifies it.
 	 *
 	 * @api
@@ -181,9 +170,6 @@ class Vault {
 	 * key across, validated or not — the operator editing a spoke never retypes
 	 * a credential, and never silently loses one this projection cannot see.
 	 *
-	 * Config-file servers are fully immutable — URL and credentials are pinned
-	 * by the file, so update() is a no-op (returns false) for those entries.
-	 *
 	 * @api
 	 * @param string              $id      Server id.
 	 * @param array<string,mixed> $partial Partial configuration to merge.
@@ -196,11 +182,6 @@ class Vault {
 		}
 		$all = $this->get_all();
 		if ( ! isset( $all[ $id ] ) ) {
-			return false;
-		}
-
-		// Config-file servers are fully immutable.
-		if ( $this->is_config_server( $id ) ) {
 			return false;
 		}
 
@@ -339,10 +320,7 @@ class Vault {
 	}
 
 	/**
-	 * Delete an option-backed server.
-	 *
-	 * A config-file entry is refused: the file still declares it, so the delete
-	 * would report success and the entry would reappear on the next read.
+	 * Delete a server.
 	 *
 	 * @api
 	 * @param string $id Server id.
@@ -354,9 +332,6 @@ class Vault {
 		}
 		$all = $this->get_all();
 		if ( ! isset( $all[ $id ] ) ) {
-			return false;
-		}
-		if ( $this->is_config_server( $id ) ) {
 			return false;
 		}
 
@@ -448,42 +423,11 @@ class Vault {
 	}
 
 	/**
-	 * The option-backed half of the registry, without the config-file defaults.
+	 * The whole registry, every entry filled out to the three managed keys and
+	 * its password opened.
 	 *
-	 * Every write path reads through this, so a config-file default is never
-	 * copied into the option — a copy would shadow the file's own value forever.
-	 *
-	 * @return array<array-key,mixed>
-	 */
-	private function get_wp_servers(): array {
-		$option = \get_option( self::OPTION_KEY, [] );
-		return Core::arr( $option );
-	}
-
-	/**
-	 * Whether a server id originates from the config file.
-	 *
-	 * Reads file-only defaults via `Config::load_config_defaults()` to avoid the
-	 * circular case where `load_config()` would merge the WP option into
-	 * `vault` and make every WP-option server look like a config server.
-	 *
-	 * @api
-	 * @param string $id Server id.
-	 * @return bool True when the config file declares the server.
-	 */
-	public function is_config_server( string $id ): bool {
-		$defaults = \Newspack_Nodes\Config::load_config_defaults();
-		$file     = $defaults['vault'] ?? [];
-		return \is_array( $file ) && isset( $file[ $id ] );
-	}
-
-	/**
-	 * The whole registry: config-file defaults under the WP option, every entry
-	 * filled out to the three managed keys and its password opened.
-	 *
-	 * The merge is `+`, not `array_merge()`, which would renumber an integer
-	 * server id. Memoized for the process, so `reset_cache()` is the only way back
-	 * to the file and the option.
+	 * Memoized for the process, so `reset_cache()` is the only way back to the
+	 * option.
 	 *
 	 * @api
 	 * @return array<array-key,array<string,mixed>> Map of vault id => config. Keys are
@@ -493,26 +437,8 @@ class Vault {
 	 */
 	public function get_all(): array {
 		if ( null === $this->servers ) {
-			// Read file defaults DIRECTLY; load_config cache zombies deletes.
-			$config_defaults = \Newspack_Nodes\Config::load_config_defaults()['vault'] ?? [];
-			if ( ! \is_array( $config_defaults ) ) {
-				$config_defaults = [];
-			}
-
-			// Get WordPress option (may override config defaults).
-			$option = \get_option( self::OPTION_KEY, null );
-
-			if ( \is_array( $option ) ) {
-				// Use `+` not array_merge (renumbers int server-id keys).
-				$merged = $option + $config_defaults;
-			} else {
-				// No (or non-array) option - use config defaults.
-				$merged = $config_defaults;
-			}
-
-			// Normalize: file entries skip validate_config; may lack keys.
 			$normalized = [];
-			foreach ( $merged as $id => $server ) {
+			foreach ( $this->get_wp_servers() as $id => $server ) {
 				if ( ! \is_array( $server ) ) {
 					continue;
 				}
@@ -524,10 +450,7 @@ class Vault {
 				];
 				$pw = $server['auth_password'];
 				if ( '' !== $pw && \is_scalar( $pw ) ) {
-					// add() seals; unprefixed in the OPTION means planted.
-					$planted = \is_array( $option ) && isset( $option[ $id ] )
-						&& 0 !== \strpos( (string) $pw, self::ENCRYPTED_PREFIX );
-					$server['auth_password'] = $planted ? '' : self::decrypt( (string) $pw );
+					$server['auth_password'] = self::decrypt( (string) $pw );
 				}
 				$normalized[ (string) $id ] = $server;
 			}
@@ -539,21 +462,19 @@ class Vault {
 	/**
 	 * Open a stored value.
 	 *
-	 * A value without `ENCRYPTED_PREFIX` is plaintext and passes through
-	 * untouched. That is what lets an operator write a credential into the config
-	 * file by hand, and it is why the prefix is checked before any base64 decode,
-	 * which would eat the spaces out of a passphrase. The caller decides whether
-	 * plaintext is admissible from where the value came: `servers()` refuses it
-	 * from the option store, where nothing this plugin writes is unsealed.
+	 * A value without `ENCRYPTED_PREFIX` reads as no password: `add()` and
+	 * `update()` seal every one, so an unsealed value was planted by something
+	 * with database write, and honouring it would let that something downgrade
+	 * a sealed credential to one it chose. The prefix is checked before any
+	 * base64 decode, which would eat the spaces out of a passphrase.
 	 *
-	 * @param string $stored Stored value, sealed or plain.
-	 * @return string The plaintext, the input itself when it carries no prefix, or '' when it will not open.
+	 * @param string $stored Stored value.
+	 * @return string The plaintext, or '' when the value is unsealed or will not open.
 	 * @throws \RuntimeException When libsodium is absent.
 	 */
 	private static function decrypt( string $stored ): string {
-		// No ENCRYPTED_PREFIX = plaintext; else base64_decode nukes spaces.
 		if ( 0 !== \strpos( $stored, self::ENCRYPTED_PREFIX ) ) {
-			return $stored;
+			return '';
 		}
 		self::require_sodium( 'open' );
 		// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- binary-safe storage.
@@ -595,6 +516,16 @@ class Vault {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
 			throw new \RuntimeException( "Vault: cannot {$verb} a credential without libsodium" );
 		}
+	}
+
+	/**
+	 * The stored map, as written: sealed passwords, no defaults filled in.
+	 *
+	 * @return array<array-key,mixed>
+	 */
+	private function get_wp_servers(): array {
+		$option = \get_option( self::OPTION_KEY, [] );
+		return Core::arr( $option );
 	}
 
 	/**
@@ -680,7 +611,7 @@ class Vault {
 	}
 
 	/**
-	 * Drop the memo so the next read rebuilds from the config file and the option.
+	 * Drop the memo so the next read rebuilds from the option.
 	 *
 	 * `fresh()` calls it for a request-scope reader that must see a write from
 	 * earlier in the same request; `reset()` calls it on the config-reload signal,

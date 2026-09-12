@@ -56,24 +56,29 @@ final class VaultTest extends TestCase {
 	}
 
 	/**
-	 * Stub Config's file-only defaults so a server reads as a config-file server.
-	 *
-	 * @param array<string, array<string, mixed>> $servers Vault server map.
+	 * The option is the ONE source. An entry the config file declares under
+	 * `vault` is not a Vault entry: it never shows in `get_all()`, and a stored
+	 * entry sharing its id is edited and removed as freely as any other.
 	 */
-	private function seed_config_servers( array $servers ): void {
+	public function test_a_config_file_vault_entry_is_ignored(): void {
 		$ref = new \ReflectionProperty( \Newspack_Nodes\Config::class, 'config_defaults' );
-		$ref->setValue( null, [ 'vault' => $servers ] );
-		Vault::get_instance()->reset_cache();
-	}
-
-	public function test_config_file_server_update_is_a_noop(): void {
-		$this->seed_config_servers( [ 'cfg' => [ 'url' => 'https://pinned.example' ] ] );
+		$ref->setValue( null, [ 'vault' => [
+			'vault-file-7301' => [ 'url' => 'https://file-only.example' ],
+			'vault-both-5146' => [ 'url' => 'https://file-side.example' ],
+		] ] );
 		$vault = Vault::get_instance();
-		$this->assertTrue( $vault->is_config_server( 'cfg' ) );
-		// Config-file servers are fully immutable — update() can change nothing.
-		$this->assertFalse( $vault->update( 'cfg', [ 'url' => 'https://changed.example' ] ) );
 		$vault->reset_cache();
-		$this->assertSame( 'https://pinned.example', $vault->get( 'cfg' )['url'] );
+		$this->assertTrue( $vault->add( 'vault-both-5146', [ 'url' => 'https://option-side.example' ] ) );
+		$vault->reset_cache();
+
+		$this->assertArrayNotHasKey( 'vault-file-7301', $vault->get_all() );
+		$this->assertSame( 'https://option-side.example', $vault->get( 'vault-both-5146' )['url'] );
+		$this->assertTrue( $vault->update( 'vault-both-5146', [ 'url' => 'https://edited.example' ] ) );
+		$vault->reset_cache();
+		$this->assertSame( 'https://edited.example', $vault->get( 'vault-both-5146' )['url'] );
+		$this->assertTrue( $vault->remove( 'vault-both-5146' ) );
+		$vault->reset_cache();
+		$this->assertNull( $vault->get( 'vault-both-5146' ) );
 	}
 
 	public function test_fresh_returns_singleton_with_cache_dropped(): void {
@@ -87,35 +92,8 @@ final class VaultTest extends TestCase {
 	}
 
 	// ---------------------------------------------------------------------
-	// get_all — defensive normalization of malformed config / option data.
+	// get_all — defensive normalization of malformed option data.
 	// ---------------------------------------------------------------------
-
-	public function test_get_all_coerces_non_array_config_vault_to_empty(): void {
-		$ref = new \ReflectionProperty( \Newspack_Nodes\Config::class, 'config_defaults' );
-		$ref->setValue( null, [ 'vault' => 'not-an-array' ] );
-		Vault::get_instance()->reset_cache();
-
-		// The coercion guard turns a non-array config `vault` into [] BEFORE the
-		// normalize foreach. Without it, foreach over the string still yields [] but
-		// emits a PHP warning — so the empty result alone can't catch a regression.
-		// Capture warnings and assert none fired.
-		$warnings = [];
-		\set_error_handler(
-			static function ( int $errno, string $message ) use ( &$warnings ): bool {
-				$warnings[] = $message;
-				return true;
-			},
-			\E_WARNING
-		);
-		try {
-			$result = Vault::get_instance()->get_all();
-		} finally {
-			\restore_error_handler();
-		}
-
-		$this->assertSame( [], $result );
-		$this->assertSame( [], $warnings, 'get_all() must coerce a non-array config vault without emitting a PHP warning' );
-	}
 
 	public function test_get_all_skips_non_array_server_entries(): void {
 		\update_option( Vault::OPTION_KEY, [
@@ -130,23 +108,14 @@ final class VaultTest extends TestCase {
 	}
 
 	// ---------------------------------------------------------------------
-	// decrypt — plaintext passthrough + failure on malformed ciphertext.
+	// decrypt — unsealed values and malformed ciphertext both read as empty.
 	// ---------------------------------------------------------------------
 
-	public function test_plaintext_config_password_passes_through_decrypt(): void {
-		// Config-file servers bypass validate_config, so their passwords are
-		// stored verbatim; decrypt() must return a non-encrypted value unchanged.
-		$this->seed_config_servers( [ 'cfg' => [ 'url' => 'https://e.com', 'auth_password' => 'plain text pw' ] ] );
-		$rec = Vault::get_instance()->get( 'cfg' );
-		$this->assertSame( 'plain text pw', $rec['auth_password'] );
-	}
-
 	/**
-	 * `add()` always seals, so a non-empty password in the OPTION store without
+	 * `add()` always seals, so a non-empty password in the option store without
 	 * the prefix was planted by something with database write, not written by
 	 * this plugin. Honouring it would let that something downgrade a sealed
-	 * credential to one it chose. The config file is the operator's own and is
-	 * the one place plaintext is still read.
+	 * credential to one it chose.
 	 */
 	public function test_an_unprefixed_password_in_the_option_store_is_refused(): void {
 		\update_option( Vault::OPTION_KEY, [
@@ -258,17 +227,6 @@ final class VaultTest extends TestCase {
 		$vault->reset_cache();
 		// A refused move applies nothing at all — not even the valid field.
 		$this->assertSame( 'https://before.example', $vault->get( 'vault-keep-7735' )['url'] );
-	}
-
-	public function test_update_refuses_to_rename_a_config_file_server(): void {
-		$this->seed_config_servers( [ 'vault-cfg-5528' => [ 'url' => 'https://pinned.example' ] ] );
-		$vault = Vault::get_instance();
-
-		$this->assertFalse( $vault->update( 'vault-cfg-5528', [], 'vault-moved-5528' ) );
-
-		$vault->reset_cache();
-		$this->assertNull( $vault->get( 'vault-moved-5528' ) );
-		$this->assertNotNull( $vault->get( 'vault-cfg-5528' ) );
 	}
 
 	// ---------------------------------------------------------------------
@@ -383,7 +341,7 @@ final class VaultTest extends TestCase {
 	}
 
 	// ---------------------------------------------------------------------
-	// update — happy path + rejection paths (non-config server).
+	// update — happy path + rejection paths.
 	// ---------------------------------------------------------------------
 
 	public function test_update_merges_partial_into_existing_server(): void {
@@ -431,11 +389,6 @@ final class VaultTest extends TestCase {
 
 	public function test_remove_rejects_unknown_id(): void {
 		$this->assertFalse( Vault::get_instance()->remove( 'ghost' ) );
-	}
-
-	public function test_remove_rejects_config_file_server(): void {
-		$this->seed_config_servers( [ 'cfg' => [ 'url' => 'https://pinned.example' ] ] );
-		$this->assertFalse( Vault::get_instance()->remove( 'cfg' ) );
 	}
 
 	/**

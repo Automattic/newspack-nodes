@@ -49,7 +49,6 @@ class SettingsSchemaTest extends TestCase {
 		'topologies',
 		'allowed_users',
 		'spawn_verify_ssl',
-		'vault',
 		'vault_verify_ssl',
 		'vault_require_ssl',
 	];

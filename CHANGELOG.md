@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **The `vault` config key and the config-file Vault source.** `Vault::get_all()` reads the `newspack_nodes_vault` option alone, so the Vault tab and the `vault` CI verbs are the only writers and nothing pins an entry: `Vault::is_config_server()`, the `is_config` field of the public server shape, the Vault tab's disabled-row state, the `vault` Settings_Schema Field and its ledger entry are gone. A file-declared entry is ignored and reported as an unrecognized key, and `<config:vault>` stays refused by name so a stale file hands no credential to a `.tsl`; re-enter each spoke with `vault add` or the Vault tab.
+
 ## [2.55.3] - 2026-09-10
 
 ### Changed

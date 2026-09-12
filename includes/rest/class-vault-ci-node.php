@@ -65,7 +65,7 @@ class Vault_CI_Node extends Service_CI_Node {
 		$out = [];
 		/** @var array<string,mixed> $config */
 		foreach ( $registry->get_all() as $id => $config ) {
-			$out[ $id ] = self::public_shape( (string) $id, $config, $registry );
+			$out[ $id ] = self::public_shape( (string) $id, $config );
 		}
 		return $out;
 	}
@@ -84,38 +84,32 @@ class Vault_CI_Node extends Service_CI_Node {
 		if ( null === $server ) {
 			throw new \RuntimeException( \esc_html( "server not found: {$id}" ) );
 		}
-		return self::public_shape( $id, $server, $registry );
+		return self::public_shape( $id, $server );
 	}
 
 	/**
 	 * Project a stored server config into its public dashboard shape. Strips the
-	 * password and adds computed `has_credentials` + `is_config` flags. The
-	 * username stays: it is half an address, not a secret, and an edit form
-	 * cannot offer to change what it cannot show — which holds only while every
+	 * password and adds the computed `has_credentials` flag. The username
+	 * stays: it is half an address, not a secret, and an edit form cannot
+	 * offer to change what it cannot show — which holds only while every
 	 * vault verb is MANAGE by construction. Declaring one READ discloses it.
 	 *
-	 * @param string              $id       Server id.
-	 * @param array<string,mixed> $config   Stored server config.
-	 * @param Vault               $registry Backing vault.
+	 * @param string              $id     Server id.
+	 * @param array<string,mixed> $config Stored server config.
 	 * @return array<string,mixed> Public server record.
 	 */
-	private static function public_shape( string $id, array $config, Vault $registry ): array {
+	private static function public_shape( string $id, array $config ): array {
 		return [
 			'id'              => $id,
 			'url'             => Core::as_string( $config['url'] ?? '' ),
 			'auth_username'   => Core::as_string( $config['auth_username'] ?? '' ),
 			'has_credentials' => ! empty( $config['auth_username'] ) && ! empty( $config['auth_password'] ),
-			'is_config'       => $registry->is_config_server( $id ),
 		];
 	}
 
 	/**
 	 * `add` verb handler — register a server under the id the first positional
 	 * names; returns that id.
-	 *
-	 * The pinned check the other mutating verbs run is unnecessary here: a
-	 * config-file entry occupies its id in the merged view, so `assert_free_id()`
-	 * refuses it as taken before the store ever sees it.
 	 *
 	 * @param list<string> $args Verb argument tokens: `<id> --url=<url> [--user=<u>] [--password=<p>]`.
 	 * @return array<string,mixed> The stored id, as `[ 'id' => <id> ]`.
@@ -168,9 +162,8 @@ class Vault_CI_Node extends Service_CI_Node {
 	 * @param list<string> $args Verb argument tokens: `<id> [--new_id=<id>] [--url=<url>] [--user=<u>] [--password=<p>]`.
 	 * @return array<string,mixed> The entry's id after the write, as `[ 'id' => <id> ]`.
 	 * @throws \RuntimeException When an option is not one this verb reads or carries
-	 *                           no value, the id is absent or unknown, the config file
-	 *                           pins the entry, the new id is unusable, or the store
-	 *                           refuses the write.
+	 *                           no value, the id is absent or unknown, the new id is
+	 *                           unusable, or the store refuses the write.
 	 */
 	public static function cmd_update( array $args ): array {
 		$parsed = Command_Args::parse( $args );
@@ -184,7 +177,6 @@ class Vault_CI_Node extends Service_CI_Node {
 		if ( null === $existing ) {
 			throw new \RuntimeException( \esc_html( "server not found: {$id}" ) );
 		}
-		self::assert_not_pinned( $id, $registry );
 		$new_id = self::renamed_to( $opts, $id, $registry );
 		$partial = self::partial_config( $opts );
 		if ( ! $registry->update( $id, $partial, $new_id ) ) {
@@ -308,8 +300,7 @@ class Vault_CI_Node extends Service_CI_Node {
 	 *
 	 * @param list<string> $args Verb argument tokens; the id is the first positional.
 	 * @return array<string,mixed> The removed id, as `[ 'id' => <id> ]`.
-	 * @throws \RuntimeException When no entry claims that id, the config file pins
-	 *                           it, or the store refuses the write.
+	 * @throws \RuntimeException When no entry claims that id, or the store refuses the write.
 	 */
 	public static function cmd_delete( array $args ): array {
 		$registry = Vault::fresh();
@@ -317,27 +308,11 @@ class Vault_CI_Node extends Service_CI_Node {
 		if ( null === $registry->get( $id ) ) {
 			throw new \RuntimeException( \esc_html( "server not found: {$id}" ) );
 		}
-		self::assert_not_pinned( $id, $registry );
 		if ( ! $registry->remove( $id ) ) {
 			throw new \RuntimeException( 'delete failed' );
 		}
 		self::fire_changed( $id, 'removed' );
 		return [ 'id' => $id ];
-	}
-
-	/**
-	 * Refuse an entry the config file pins. `update` and `delete` both ask,
-	 * because the store refuses both for this reason and a bare `false` cannot
-	 * say which reason it was.
-	 *
-	 * @param string $id       Server id.
-	 * @param Vault  $registry Backing vault.
-	 * @throws \RuntimeException When the config file pins the entry.
-	 */
-	private static function assert_not_pinned( string $id, Vault $registry ): void {
-		if ( $registry->is_config_server( $id ) ) {
-			throw new \RuntimeException( \esc_html( "pinned by the config file, so it cannot be changed here: {$id}" ) );
-		}
 	}
 
 	/**

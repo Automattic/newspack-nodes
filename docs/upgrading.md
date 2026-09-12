@@ -6,6 +6,15 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **The `vault` config key is REMOVED.** `Vault::get_all()` reads the
+  `newspack_nodes_vault` option alone; an entry declared under `vault` in
+  `newspack-nodes-config.php` or a `LOCAL_NEWSPACK_NODES_CONF` file is ignored,
+  and the key is reported as unrecognized. Nothing pins an entry any more, so
+  `Vault::is_config_server()` and the `is_config` field of the `vault list` and
+  `vault get` public shape are gone too. Re-enter each spoke through
+  `wp nodes cli` with `vault add <id> --url=<https url> [--user=<u>] [--password=<p>]`
+  or through the Vault tab.
+
 - **`Partition_Node::locate_by()`'s key set is REQUIRED.** The signature is
   `locate_by( \Closure $extract, array $wanted )`; the `= []` default is gone.
   A call naming no key set raises `ArgumentCountError` where it used to return
@@ -164,7 +173,8 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 - **A TSL `<config:vault>` token is refused.** `vault`, `vault_verify_ssl` and
   `vault_require_ssl` are `ui: false` Fields, and the token resolver refuses
   `Vault::CONFIG_KEY` outright. The `Vault` API is the only way to the encrypted
-  credential store.
+  credential store. (Superseded above: the `vault` key is
+  gone; the token is still refused by name, so a stale file declaring the key hands nothing to a `.tsl`.)
 
 - **Uninstall removes the runtime tree only when one is explicitly configured.**
   `runtime_base_directory()` in `uninstall-cleanup.php` consults the option,

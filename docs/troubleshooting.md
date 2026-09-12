@@ -87,8 +87,6 @@ debug_level [0|1|2]                   the local Dumper's verbosity
 show_parse                            toggle a parsed-command dump before every command
 ```
 
-Two more builtins exist only in the BROWSER REPLs — the topology console and the debug overlay's Inspector tab — where the Shell acts on them locally and mints no Message: `set_skin <name>` switches the skin and `list_skins` prints the registry, one `slug — Label` line each with `*` on the active one. Neither reaches an interpreter verb table, so `help` never names them and `wp nodes cli` does not answer to them at all.
-
 ### Reaching a node's own verbs
 
 A node that declares commands in `node_schema()` gets a sibling interpreter named `{node}:config`, and `command_node` addresses it. That is how the dead-letter triage verbs are reached, for instance:

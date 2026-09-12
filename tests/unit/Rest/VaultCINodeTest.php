@@ -532,20 +532,6 @@ class VaultCINodeTest extends TestCase {
 		$this->assertSame( 'https://before.example', Vault::get_instance()->get( 'vault-keep-7735' )['url'] );
 	}
 
-	public function test_update_names_the_config_file_as_the_reason_it_refuses(): void {
-		$ref = new \ReflectionProperty( \Newspack_Nodes\Config::class, 'config_defaults' );
-		$ref->setValue( null, [ 'vault' => [ 'vault-cfg-5528' => [ 'url' => 'https://pinned.example' ] ] ] );
-		Vault::get_instance()->reset_cache();
-
-		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'update', 'vault-cfg-5528 --url=https://after.example' );
-
-		$ref->setValue( null, null );
-		\Newspack_Nodes\Config::reset();
-		$this->assertIsString( $out );
-		// "update failed" leaves the operator guessing; name the config file.
-		$this->assertStringContainsString( 'config file', $out );
-	}
-
 	// ---------------------------------------------------------------------
 	// test verb — status.get probe through the /command endpoint.
 	// ---------------------------------------------------------------------
@@ -690,18 +676,6 @@ class VaultCINodeTest extends TestCase {
 		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'delete', 'ghost' );
 		$this->assertIsString( $out );
 		$this->assertStringContainsString( 'server not found: ghost', $out );
-	}
-
-	public function test_delete_throws_for_config_file_server(): void {
-		$ref = new \ReflectionProperty( \Newspack_Nodes\Config::class, 'config_defaults' );
-		$ref->setValue( null, [ 'vault' => [ 'cfg' => [ 'url' => 'https://pinned.example' ] ] ] );
-		Vault::get_instance()->reset_cache();
-		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'delete', 'cfg' );
-		$this->assertIsString( $out );
-		// Both mutating verbs name the config file; a bare "delete failed" left
-		// the operator guessing at the one cause they cannot fix from here.
-		$this->assertStringContainsString( 'config file', $out );
-		\Newspack_Nodes\Config::reset();
 	}
 
 	public function test_test_verb_throws_on_unknown_server(): void {
