@@ -1,4 +1,4 @@
-# Dashboards and the browser runtime
+# The browser runtime
 
 Every dashboard in these two plugins is a React page in wp-admin, and none runs a fetch loop. Each is a topology in the browser.
 
