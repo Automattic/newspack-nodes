@@ -41,7 +41,7 @@ which fails when the runtime base directory is unusable; the analyzer behind
 topology it walks declares an unknown include, an include cycle or a conflicting
 `make_node` — someone else's `.tsl`, not the node the caller asked about.
 Event-logger-nodes calls `node_dirs()` on dashboard request paths from
-[`Performance_CI_Node`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.95.3/includes/app/class-performance-ci-node.php) and [`Flame_Builder_Node`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.95.3/includes/class-flame-builder-node.php), where an uncaught throw is a 500
+[`Performance_CI_Node`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.96.0/includes/app/class-performance-ci-node.php) and [`Flame_Builder_Node`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.96.0/includes/class-flame-builder-node.php), where an uncaught throw is a 500
 on every dashboard request, and wraps `includes()` in a try/catch for the same
 reason. Catch it, or let the surrounding controller's catch own it.
 
@@ -228,7 +228,7 @@ reason. Catch it, or let the surrounding controller's catch own it.
 
     `$session_scope` and the `NONE` constant go with them: a consumer
     authenticating its own credential installs the session's scope as a ceiling
-    for one command, as event-logger-nodes' [`MCP_Controller`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.95.3/includes/app/class-mcp-controller.php) does, and NONE is
+    for one command, as event-logger-nodes' [`MCP_Controller`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.96.0/includes/app/class-mcp-controller.php) does, and NONE is
     what a refusal installs. `highest_held()`, `scope_covers()` and
     `operator_list_excludes()` are the substrate's own and stay outside this
     contract.
@@ -244,7 +244,7 @@ substrate.
 
 ## The version gap
 
-![A timeline in three rows across substrate releases 2.41.0, 2.53.0 and 2.55.0. The substrate row shows locate_by's signature gaining an optional $wanted, the key set that bounds its index walk, defaulting to an empty array at 2.41.0, a bridge that reads nothing, and losing the default at 2.55.0. The consumer row shows event-logger-nodes' pin lagging until its next bump, then declaring version_at_least 2.53.0 and passing both arguments. The stale-call row shows a one-argument caller getting an empty result inside the window and an ArgumentCountError past it, with an arrow from the consumer's floor to the retirement: once every floor is past 2.41.0, no build can reach the one-argument form. Two cards below cover the floor mechanism, its method_exists guard and check-substrate-floor.sh as a lower bound, and the degrade-then-retire rule for a new parameter.](img/st-version-gap.png)
+![A timeline in three rows across substrate releases 2.41.0, 2.55.0 and 2.56.0. The substrate row shows locate_by's signature gaining an optional $wanted, the key set that bounds its index walk, defaulting to an empty array at 2.41.0, a bridge that reads nothing, and losing the default at 2.55.0. The consumer row shows event-logger-nodes' pin lagging until its next bump, then declaring version_at_least 2.56.0. The stale-call row shows a one-argument caller getting an empty result inside the window and an ArgumentCountError past it, with an arrow from the consumer's floor back to the retirement: the family's only caller has its floor past 2.41.0, so no build can reach the one-argument form and the bridge is out; inside the window lookup_multi() invoked the backing bare, so a throw there was a 500. Two cards below cover the floor mechanism, its method_exists guard and check-substrate-floor.sh as a lower bound, and the degrade-then-retire rule for a new parameter.](img/st-version-gap.png)
 
 The substrate ships before its consumers, by necessity: a consumer pins a
 substrate tag, so the tag has to exist first. The window where a host runs the
@@ -254,7 +254,7 @@ hypothetical, and two mechanisms cover it from opposite ends.
 **A consumer declares its floor.** [`Bootstrap::version_at_least( $min,
 $dependent )`](../includes/class-bootstrap.php) returns false and posts an admin notice, so a consumer built
 against a newer substrate stays dormant instead of fataling mid-request. Guard
-the call with `method_exists()`, as [event-logger-nodes](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.95.3/newspack-event-logger-nodes.php), intelligence and
+the call with `method_exists()`, as [event-logger-nodes](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.96.0/newspack-event-logger-nodes.php), intelligence and
 cache-cozy each do. [`scripts/check-substrate-floor.sh`](../scripts/check-substrate-floor.sh) proves the floor covers
 every substrate API the plugin calls, and is sound rather than complete: a
 call resolved to a union, `mixed` or a dynamic name goes uncounted, so the
@@ -267,7 +267,7 @@ that default comes out once every consumer's floor is past the release that
 added it. [`Partition_Node::locate_by( \Closure $extract, array $wanted )`](../includes/class-partition-node.php)
 is the worked case above: `$wanted`, the key set that bounds the index walk,
 is required because event-logger-nodes is its only caller in the family and
-floors at 2.53.0, past the 2.41.0 that added it.
+floors at 2.56.0, past the 2.41.0 that added it.
 
 ## How a frozen name changes
 

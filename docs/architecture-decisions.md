@@ -690,7 +690,7 @@ A minter resolves its egress by running the target's head segment through `Core:
 type-tests the result for `HTTP_Out_Node`, and calls
 [`HTTP_Out_Node::ensure_session()`](../includes/class-http-out-node.php), which exists for that and nothing else: it fires the node
 when `Command_Auth::has_session()` says there is none. [`Settings_Sync_Node::send_set()`](../includes/class-settings-sync-node.php)
-is the worked example; ELN's [`Discovery_Collector_Node`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.95.3/includes/class-discovery-collector-node.php) repeats it line for line, so a third
+is the worked example; ELN's [`Discovery_Collector_Node`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.96.0/includes/class-discovery-collector-node.php) repeats it line for line, so a third
 minter copies the shape rather than inventing one. On the JS side [`Node.command( name, args )`](../src/runtime/node.js)
 builds the TM_COMMAND, stamps FROM from the node's name and TO from its target, and hands back
 the message signed and LOCAL-marked — or null when `readyToMint()` finds no session, having
@@ -874,7 +874,7 @@ of a period and the grid would need its own scale.
 
 **Context:** Read-through over a durable system of record — read a keyed store, miss, fall
 back to the record, store the answer back — has two consumers in `newspack-event-logger-nodes`:
-[`Rule_Set::hooks_for()`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.95.3/includes/class-rule-set.php) over a non-autoloaded option, and the stats mirror over a
+[`Rule_Set::hooks_for()`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.96.0/includes/class-rule-set.php) over a non-autoloaded option, and the stats mirror over a
 `Partition`, which also needs key translation, TTL decay and a scope guard. An idea two
 consumers in one plugin both need belongs lower down. A restored entry needs the life it has
 LEFT, and `Table_Node` fixes TTL at construction, so without a per-entry lifetime a consumer

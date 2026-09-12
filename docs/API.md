@@ -233,7 +233,7 @@ These are process-identity tags, not credentials. Three things read them:
 
 - **[`Core::argv0()`](../includes/class-core.php)** puts the worker type in every log line's midfix, so a firehose line names the process that wrote it instead of the SAPI.
 - **[`Consumer_Node::checkpoint_frame_extra()`](../includes/class-consumer-node.php)** stamps `worker_type` into each offsetlog checkpoint, which is how the dashboard labels a reader by the fleet it belongs to.
-- **Consumer plugins** keep worker self-traffic out of the global request counters. [`Log_Manager`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.95.3/includes/class-log-manager.php) in event-logger-nodes allow-lists both keys in its environment capture and reads the type to tag its own `process (start)` frame; [`Request_Builder_Node`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.95.3/includes/class-request-builder-node.php) reads the type back off that capture and marks the record `is_worker`, which [`Flame_Builder_Node`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.95.3/includes/class-flame-builder-node.php) files per URL but drops from the global roll-up. Nuclear-gyrobase reads the partition to build the lock lease it hands the Perl engine.
+- **Consumer plugins** keep worker self-traffic out of the global request counters. [`Log_Manager`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.96.0/includes/class-log-manager.php) in event-logger-nodes allow-lists both keys in its environment capture and reads the type to tag its own `process (start)` frame; [`Request_Builder_Node`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.96.0/includes/class-request-builder-node.php) reads the type back off that capture and marks the record `is_worker`, which [`Flame_Builder_Node`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.96.0/includes/class-flame-builder-node.php) files per URL but drops from the global roll-up. Nuclear-gyrobase reads the partition to build the lock lease it hands the Perl engine.
 
 [`Bootstrap::reconcile_fleet()`](../includes/class-bootstrap.php) writes the same keys (`'reconcile'` and `'0'`) so
 the WP-Cron reconciliation pass is tagged consistently with topology workers,
@@ -242,7 +242,7 @@ mu-plugin writes `'cache-cozy'` on its warm loopback so that deliberately
 expensive render lands outside the global stats. The value is a stats dimension,
 not a worker type: nothing compares against the literal. What every writer
 shares is that no client can reach the key, since PHP exposes request headers
-under an `HTTP_` prefix — which is why event-logger-nodes' [`Auto_Tuner_Node`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.95.3/includes/class-auto-tuner-node.php)
+under an `HTTP_` prefix — which is why event-logger-nodes' [`Auto_Tuner_Node`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.96.0/includes/class-auto-tuner-node.php)
 treats the type's mere presence as proof of worker context before it rewrites
 the ruleset.
 
@@ -1077,7 +1077,7 @@ find no path to `_output`, and drop on the floor. Always go through
 Because the hook fires on every command request, keep CIs stateless: pure verb
 dispatchers with their dependencies injected. For the application-side build-out,
 read the per-CI `node_schema()` declarations under
-[`newspack-event-logger-nodes/includes/app/`](https://github.com/Automattic/newspack-event-logger-nodes/tree/v0.95.3/includes/app).
+[`newspack-event-logger-nodes/includes/app/`](https://github.com/Automattic/newspack-event-logger-nodes/tree/v0.96.0/includes/app).
 
 ### `newspack_nodes/declare_config_keys`
 
@@ -1113,7 +1113,7 @@ registered key is never in that map and `\Newspack_Nodes\Config::value(
 whole action exists to prevent. A consumer owns its own `Config` whose `value()`
 calls `Newspack_Nodes\Config::is_declared()` to validate the key and then reads its OWN
 merged config — its schema defaults, its own option overlay, and the substrate
-config layered underneath — as [`Newspack_Event_Logger_Nodes\Config::value()`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.95.3/includes/class-config.php) and
+config layered underneath — as [`Newspack_Event_Logger_Nodes\Config::value()`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.96.0/includes/class-config.php) and
 its `load_config()` do. The one exception is a consumer key an operator writes
 into `LOCAL_NEWSPACK_NODES_CONF`, which is deliberately free-form and does land
 in the substrate's map.

@@ -25,7 +25,7 @@ The toy graph and the real graph are the same boxes and arrows, plus a durable *
 
 ![The production graph as five nested topology files. The aggregator newspack-intelligence.tsl (var on_demand_idle = 0, var num_partitions = 1, include topic-probe, four includes, secure) frames four stage bands. Ingest: github (set_vault_id github and five add_repo lines), linear (set_vault_id linear) and feed (three add_url lines, no credential) fan into ingest:partition, logs/ingest.p0 under void_warranty. Summary: ingest:consumer in line mode feeds the LLM summarizer and the scorer into scored:partition. Digest: scored:consumer, with add_snapshot_node digest, feeds digest (Digest_Builder scored:partition 3), digest:tee and digest:log (digest.md 1 2 7 0 0 0). Gate: gate:consumer tails the same ingest log under offsets/gate.p0 into gate, gate:tojson and gate:log. Dashed green lines mark each Consumer tailing a Partition under its own offsetlog.](img/wrp-production-topology.png)
 
-It ships as five `.tsl` files, not one. [`topologies/newspack-intelligence.tsl`](https://github.com/Automattic/newspack-intelligence/blob/v0.9.11/topologies/newspack-intelligence.tsl) is an aggregator that `include`s a file per stage — `-ingest`, `-summary`, `-digest`, and `-gate` — and restates the resident default, `var on_demand_idle = 0`, which a stage meant to sleep between collects would raise. `register_plugin()` catalogs *every* `.tsl` in `topologies/`, so a stage can be activated alone and run as its own fleet — instead of the aggregator, never alongside it ([§6](#6-ship--operate-it)).
+It ships as five `.tsl` files, not one. [`topologies/newspack-intelligence.tsl`](https://github.com/Automattic/newspack-intelligence/blob/v0.9.12/topologies/newspack-intelligence.tsl) is an aggregator that `include`s a file per stage — `-ingest`, `-summary`, `-digest`, and `-gate` — and restates the resident default, `var on_demand_idle = 0`, which a stage meant to sleep between collects would raise. `register_plugin()` catalogs *every* `.tsl` in `topologies/`, so a stage can be activated alone and run as its own fleet — instead of the aggregator, never alongside it ([§6](#6-ship--operate-it)).
 
 Three connector **sources** fan into the `ingest` partition (fan-in, exactly as Ben's community source fanned into the summarizer in the toy — the target is a partition now, not the summarizer). What's genuinely new from the toy's perspective is concentrated at the two ends, plus the ingest partition between them:
 
@@ -41,7 +41,7 @@ The middle — summarizer, scorer, the two partitions, consumers, digest — is 
 
 The toy's "seam" was a `protected function items(): array` you'd override. That's fine for canned data. Real connectors promote the seam to a named contract — an interface — so the abstract base can depend on it and every connector is forced to honor it.
 
-[`includes/interface-source.php`](https://github.com/Automattic/newspack-intelligence/blob/v0.9.11/includes/interface-source.php):
+[`includes/interface-source.php`](https://github.com/Automattic/newspack-intelligence/blob/v0.9.12/includes/interface-source.php):
 
 ```php
 namespace Newspack_Intelligence;
@@ -57,7 +57,7 @@ interface Source {
 }
 ```
 
-One method. Give me a config, hand me back normalized items. `fetch()` is where the network lives — and the network is exactly the thing tests can't touch. So every connector exposes a **closure-HTTP seam**: a static, nullable `\Closure` property that, when set, stands in for the one [`wp_remote_get`](https://developer.wordpress.org/reference/functions/wp_remote_get/)/`wp_remote_post` call. From [`Github_Source_Node`](https://github.com/Automattic/newspack-intelligence/blob/v0.9.11/includes/class-github-source-node.php):
+One method. Give me a config, hand me back normalized items. `fetch()` is where the network lives — and the network is exactly the thing tests can't touch. So every connector exposes a **closure-HTTP seam**: a static, nullable `\Closure` property that, when set, stands in for the one [`wp_remote_get`](https://developer.wordpress.org/reference/functions/wp_remote_get/)/`wp_remote_post` call. From [`Github_Source_Node`](https://github.com/Automattic/newspack-intelligence/blob/v0.9.12/includes/class-github-source-node.php):
 
 ```php
 /**
@@ -101,7 +101,7 @@ The standing rule across these plugins is the static `\Closure` property, never 
 
 In the toy, *every* source hand-rolls its own `fill()` and its own `handle_request()` — Ana's releases source and Ben's community source are near-identical copies. That's fine for two canned sources in a tutorial. For three real connectors that all need TICK handling, dedup, fire-and-forget emit, and normalization, copying that boilerplate three times is how drift creeps in. All of it therefore lives in one abstract base, `Source_Node`, leaving each connector only the two things that genuinely differ.
 
-[`includes/class-source-node.php`](https://github.com/Automattic/newspack-intelligence/blob/v0.9.11/includes/class-source-node.php):
+[`includes/class-source-node.php`](https://github.com/Automattic/newspack-intelligence/blob/v0.9.12/includes/class-source-node.php):
 
 ```php
 abstract class Source_Node extends Node implements Source {
@@ -218,7 +218,7 @@ Three APIs, three payload shapes, two auth schemes and one connector that needs 
 
 ### GitHub — three endpoints, per-endpoint isolation
 
-[`Github_Source_Node`](https://github.com/Automattic/newspack-intelligence/blob/v0.9.11/includes/class-github-source-node.php) pulls **Releases**, **Merged PRs**, and **Issues** across every repo registered via `add_repo`. `config()` returns the repo list plus the token it resolves from the node's `vault_id`; `fetch()` loops the repos:
+[`Github_Source_Node`](https://github.com/Automattic/newspack-intelligence/blob/v0.9.12/includes/class-github-source-node.php) pulls **Releases**, **Merged PRs**, and **Issues** across every repo registered via `add_repo`. `config()` returns the repo list plus the token it resolves from the node's `vault_id`; `fetch()` loops the repos:
 
 ```php
 public function fetch( array $config ): array {
@@ -275,7 +275,7 @@ if ( '' !== $token ) {
 
 ### Linear — GraphQL, raw-token auth
 
-[`Linear_Source_Node`](https://github.com/Automattic/newspack-intelligence/blob/v0.9.11/includes/class-linear-source-node.php) is a single GraphQL **POST**, behind a `$http_post` seam. `config()` returns just the token it resolves from the node's `vault_id`; `fetch()` short-circuits to `[]` when there's no token (no creds, nothing to do), then posts a fixed query:
+[`Linear_Source_Node`](https://github.com/Automattic/newspack-intelligence/blob/v0.9.12/includes/class-linear-source-node.php) is a single GraphQL **POST**, behind a `$http_post` seam. `config()` returns just the token it resolves from the node's `vault_id`; `fetch()` short-circuits to `[]` when there's no token (no creds, nothing to do), then posts a fixed query:
 
 ```php
 private const QUERY = '{ issues(first: 30, orderBy: updatedAt) { nodes { identifier title url description updatedAt } } }';
@@ -306,7 +306,7 @@ Each node's `identifier` (e.g. `ENG-123`) is the stable per-item id; a node with
 
 ### Feed — RSS 2.0 *and* Atom, from untrusted XML
 
-[`Feed_Source_Node`](https://github.com/Automattic/newspack-intelligence/blob/v0.9.11/includes/class-feed-source-node.php) reads any number of RSS/Atom URLs from `feeds`, GETs each (behind `$http_get`), and parses the body. The parse is the interesting part, because the input is **untrusted third-party XML**:
+[`Feed_Source_Node`](https://github.com/Automattic/newspack-intelligence/blob/v0.9.12/includes/class-feed-source-node.php) reads any number of RSS/Atom URLs from `feeds`, GETs each (behind `$http_get`), and parses the body. The parse is the interesting part, because the input is **untrusted third-party XML**:
 
 ```php
 $prev = \libxml_use_internal_errors( true );
@@ -378,7 +378,7 @@ protected function config(): array {
 }
 ```
 
-`resolve_vault_secret()` (the [`Vault_Secret`](https://github.com/Automattic/newspack-intelligence/blob/v0.9.11/includes/trait-vault-secret.php) trait, shared by both token-bearing sources and the LLM-config trait) is the entire resolution — and it fails *soft*, returning `''` whenever the id is blank, unknown, or the substrate Vault class isn't even loaded:
+`resolve_vault_secret()` (the [`Vault_Secret`](https://github.com/Automattic/newspack-intelligence/blob/v0.9.12/includes/trait-vault-secret.php) trait, shared by both token-bearing sources and the LLM-config trait) is the entire resolution — and it fails *soft*, returning `''` whenever the id is blank, unknown, or the substrate Vault class isn't even loaded:
 
 ```php
 protected function resolve_vault_secret( string $vault_id ): string {
@@ -587,11 +587,11 @@ Activate the aggregator *or* the stages, never both. [`Topology_Analyzer::find_c
 cd tests && ../vendor/bin/phpunit
 ```
 
-Lint to the same bar as the substrate. `npm run lint:php` runs phpcs (VIP Go) and then the comment-length gate; `npm run lint:phpstan` runs [`phpstan-deadcode.neon`](https://github.com/Automattic/newspack-intelligence/blob/v0.9.11/phpstan-deadcode.neon), which includes the level-10 + strict-rules config and adds the ShipMonk dead-code overlay. Read a dead-code finding skeptically: this is an application on a substrate the analysis cannot see, so `fill()`, `arguments()`, `node_schema()` and the rest of the Node contract read as dead here and are not — the config names those exemptions rather than muting the rule, and anything outside the list is a real finding.
+Lint to the same bar as the substrate. `npm run lint:php` runs phpcs (VIP Go) and then the comment-length gate; `npm run lint:phpstan` runs [`phpstan-deadcode.neon`](https://github.com/Automattic/newspack-intelligence/blob/v0.9.12/phpstan-deadcode.neon), which includes the level-10 + strict-rules config and adds the ShipMonk dead-code overlay. Read a dead-code finding skeptically: this is an application on a substrate the analysis cannot see, so `fill()`, `arguments()`, `node_schema()` and the rest of the Node contract read as dead here and are not — the config names those exemptions rather than muting the rule, and anything outside the list is a real finding.
 
-**Release the substrate before the plugin that pins it.** A consumer importing an `@newspack-nodes/*` alias checks the substrate out in CI at a literal tag — `ref: v2.55.2` in [`.github/workflows/release.yml`](https://github.com/Automattic/newspack-intelligence/blob/v0.9.11/.github/workflows/release.yml), feeding `NEWSPACK_NODES_SRC` — while a local build resolves the same alias to your working tree. When the two disagree the build still succeeds, so **a green Release workflow proves nothing about which substrate got bundled.** Tag the substrate first, let `scripts/bump-version.sh` rewrite the pin (it refuses a substrate version with no local tag), then verify the published asset: download the release zip and `diff -rq` its `build/` against your local one. Identical bytes means the pin was right.
+**Release the substrate before the plugin that pins it.** A consumer importing an `@newspack-nodes/*` alias checks the substrate out in CI at a literal tag — `ref: v2.56.0` in [`.github/workflows/release.yml`](https://github.com/Automattic/newspack-intelligence/blob/v0.9.12/.github/workflows/release.yml), feeding `NEWSPACK_NODES_SRC` — while a local build resolves the same alias to your working tree. When the two disagree the build still succeeds, so **a green Release workflow proves nothing about which substrate got bundled.** Tag the substrate first, let `scripts/bump-version.sh` rewrite the pin (it refuses a substrate version with no local tag), then verify the published asset: download the release zip and `diff -rq` its `build/` against your local one. Identical bytes means the pin was right.
 
-**The pin is not the floor.** Two version numbers relate a consumer to the substrate and answer different questions. The `ref:` pin decides which substrate SOURCE a CI build bundles; the `Bootstrap::version_at_least()` call in the deferred loader ([the toy guide's §8a](writing-a-plugin.md#a-depend-on-the-substrate--declare-it-defer-your-wiring)) decides which INSTALLED substrate the plugin will run against, going dormant behind an admin notice below it. They move independently, and a pin several tags ahead of the floor is the normal state: intelligence pins v2.55.2 and floors at 2.53.0.
+**The pin is not the floor.** Two version numbers relate a consumer to the substrate and answer different questions. The `ref:` pin decides which substrate SOURCE a CI build bundles; the `Bootstrap::version_at_least()` call in the deferred loader ([the toy guide's §8a](writing-a-plugin.md#a-depend-on-the-substrate--declare-it-defer-your-wiring)) decides which INSTALLED substrate the plugin will run against, going dormant behind an admin notice below it. They move independently: the pin advances at every consumer bump, the floor only when the plugin calls something newer, so a pin ahead of the floor is the normal state between releases. Intelligence pins v2.56.0 and floors at 2.56.0 because this release needs the station's overlay-page filter.
 
 ---
 

@@ -4,7 +4,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 **Maintenance rule:** a release that changes any consumer-facing contract adds its entry here in the same commit as its CHANGELOG entry. No entry means nothing to do.
 
-## Unreleased
+## 2.56.0
 
 - **The DevTools hub is RENAMED the station, and the DevTools tab system the
   tab system, with no alias for any old name.** A hub is the site that pulls
@@ -76,15 +76,19 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   `wp nodes cli` with `vault add <id> --url=<https url> [--user=<u>] [--password=<p>]`
   or through the Vault tab.
 
+## 2.55.0
+
 - **[`Partition_Node::locate_by()`](../includes/class-partition-node.php)'s key set is REQUIRED.** The signature is
   `locate_by( \Closure $extract, array $wanted )`; the `= []` default is gone.
   A call naming no key set raises `ArgumentCountError` where it used to return
   an empty table. Nothing in the family reached the one-argument form — the only
-  caller is event-logger-nodes' [`Flame_Builder_Node`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.95.3/includes/class-flame-builder-node.php), whose floor of 2.53.0 is
-  past the 2.51.0 that added the parameter — so the default's degrade window had
+  caller is event-logger-nodes' [`Flame_Builder_Node`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.96.0/includes/class-flame-builder-node.php), whose floor of 2.56.0 is
+  past the 2.41.0 that added the parameter — so the default's degrade window had
   already closed, and an optional key set is fail-silent the other way: a caller
   that forgets it resolves nothing and reports success over an empty result.
   Name your keys, as `locate_by( $extract, $urls )` already does.
+
+## 2.54.0
 
 - **The gyrobase legacy-envelope branch is REMOVED from [`Job_Worker_Node::fill()`](../includes/class-job-worker-node.php).**
   An entry with no top-level `id` naming the `evtemplate` handler, whose
@@ -96,6 +100,8 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   argument rather than a missing one, so the handler runs and renders nothing.
   Emit the flat envelope every current engine emits, `{handler, id, parameters}`
   with the identity in the top-level `id`.
+
+## 2.53.0
 
 - **`Admin\Admin::current_user_allowed()` is REMOVED.** Replace it with
   `\Newspack_Nodes\Capabilities::can( \Newspack_Nodes\Capabilities::MANAGE )`,
