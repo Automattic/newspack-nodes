@@ -375,7 +375,7 @@ Real sources need tokens, repo lists and feed URLs. **None of it goes on a WordP
 
 ### The Vault — where the operator enters the token
 
-The Vault is a real tab in the devtools hub (`admin.php?page=newspack-nodes-hub&tab=vault`), a React surface under `newspack-nodes/src/vault/` backed by `Vault_CI_Node` and the `newspack_nodes_vault` option. An operator adds one entry per credential — an `id`, a `url`, and a Basic-Auth `auth_username` / `auth_password` pair; the token goes in `auth_password`. `Vault::validate_config()` requires the `url` and refuses anything that is not HTTPS, even for an entry that exists only to carry a token, so point it at the API root the token belongs to (`https://api.github.com`, `https://api.linear.app`); the connectors here read the password and nothing else. It sanitizes both credential fields — the username through `sanitize_text_field()`, the password through a control-character strip — and then caps each at **256 bytes**, silently: `add()` and `update()` still return true, and the entry seals the truncated value. A token longer than that stores broken, and the only symptom is a 401 from the far side. The `list`/`get` verbs return only the **public shape** — `{ id, url, auth_username, has_credentials, is_config }` — so the SECRET never leaves the server, not even to the dashboard that manages it. The username does: it is half an address rather than a secret, and the Edit form cannot offer to change what it cannot show.
+The Vault is a real tab in the devtools hub (`admin.php?page=newspack-nodes-hub&tab=vault`), a React surface under `newspack-nodes/src/vault/` backed by `Vault_CI_Node` and the `newspack_nodes_vault` option. An operator adds one entry per credential — an `id`, a `url`, and a Basic-Auth `auth_username` / `auth_password` pair; the token goes in `auth_password`. `Vault::validate_config()` requires the `url` and refuses anything that is not HTTPS, even for an entry that exists only to carry a token, so point it at the API root the token belongs to (`https://api.github.com`, `https://api.linear.app`); the connectors here read the password and nothing else. It sanitizes both credential fields — the username through `sanitize_text_field()`, the password through a control-character strip — and then caps each at **256 bytes**, silently: `add()` and `update()` still return true, and the entry seals the truncated value. A token longer than that stores broken, and the only symptom is a 401 from the far side. The `list`/`get` verbs return only the **public shape** — `{ id, url, auth_username, has_credentials }` — so the SECRET never leaves the server, not even to the dashboard that manages it. The username does: it is half an address rather than a secret, and the Edit form cannot offer to change what it cannot show.
 
 ```php
 // Vault_CI_Node::public_shape() — the password is computed away, never returned.
@@ -384,7 +384,6 @@ return [
 	'url'             => Core::as_string( $config['url'] ?? '' ),
 	'auth_username'   => Core::as_string( $config['auth_username'] ?? '' ),
 	'has_credentials' => ! empty( $config['auth_username'] ) && ! empty( $config['auth_password'] ),
-	'is_config'       => $registry->is_config_server( $id ),
 ];
 ```
 

@@ -12,8 +12,8 @@
  * Four layers, weakest first: the schema default, this file, the file named by
  * `LOCAL_NEWSPACK_NODES_CONF`, and a stored `newspack_nodes_<key>` option.
  * PRESENCE decides the option layer rather than truthiness, so a stored '', []
- * or false beats both files — for every declared key, including the `vault` and
- * `topologies` ones the settings page never renders.
+ * or false beats both files — for every declared key, including the
+ * `topologies` one the settings page never renders.
  *
  * Pinning is not the same as leaving a key alone: a pinned value survives a
  * later change to the schema default.
@@ -122,13 +122,6 @@ return [
 
     // The active set, by Topology_Registry name; each spawns its own fleet.
     // 'topologies'                 => [],
-
-    // Spokes pinned beside the code: id => url, auth_username, auth_password.
-    // The Vault API writes the `newspack_nodes_vault` option instead, and that
-    // wins on a shared id, so an entry pinned here is immutable through the
-    // API — and its password sits in this file as plaintext, where the
-    // option's is sealed under `wp_salt( 'auth' )`.
-    // 'vault'                      => [],
 
     // Verify the TLS peer: spawn_verify_ssl on the internal loopback calls
     // (worker spawn, health cache), vault_verify_ssl on Vault spoke calls.

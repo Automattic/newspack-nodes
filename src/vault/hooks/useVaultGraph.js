@@ -187,7 +187,7 @@ export function useVaultGraph( { onAnswer } = {} ) {
 		[ runUpdate ]
 	);
 
-	/** Send `delete`; the server refuses an entry the config file pins. */
+	/** Send `delete`. */
 	const removeServer = useCallback(
 		( id ) => runRemove( formatCommandArgs( [ id ] ) ),
 		[ runRemove ]

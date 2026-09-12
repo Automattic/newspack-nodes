@@ -592,15 +592,15 @@ class Config {
 	 *
 	 * Three names resolve off the base directory rather than off config:
 	 * `<config:logs_dir>`, `<config:offsets_dir>` and `<config:deadletter_dir>`.
-	 * `<config:vault>` refuses, because that key holds the remote-server
-	 * registry and its auth credentials, and the Vault API is the only reader.
 	 * Every other key reads straight off load_config().
 	 *
 	 * Registered from two places: `Bootstrap::ensure_runtime_wired()` is lazy, so
 	 * `Settings_Event_Writer::init()` registers it as well — an option change can
 	 * arrive first, and the Partition that writer builds resolves its `<config:*>`
 	 * schema defaults strictly. The map holds one closure per namespace, so
-	 * re-registering costs nothing.
+	 * re-registering costs nothing. `<config:vault>` is refused by name: the
+	 * key is no longer declared, and an unrecognized key is reported rather
+	 * than stripped, so a stale deploy's file could still carry plaintext there.
 	 */
 	public static function register_token_namespace(): void {
 		Core::register_config_namespace(
@@ -615,9 +615,9 @@ class Config {
 				if ( isset( $derived[ $key ] ) ) {
 					return \rtrim( self::get_base_directory(), '/' ) . '/' . $derived[ $key ];
 				}
-				// Credential store; the Vault API is the only way in.
-				if ( Vault::CONFIG_KEY === $key ) {
-					Core::print_less_often( 'newspack-nodes: <config:vault> refused; use the Vault API' );
+				// A stale file may still declare `vault`; refuse it by name.
+				if ( 'vault' === $key ) {
+					Core::print_less_often( 'newspack-nodes: <config:vault> refused; the Vault holds credentials' );
 					return null;
 				}
 				$cfg = self::load_config();

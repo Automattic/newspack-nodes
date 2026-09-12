@@ -17,9 +17,8 @@ const LISTED = {
 		id: 'aspen',
 		url: 'https://a.example',
 		has_credentials: true,
-		is_config: false,
 	},
-	github: { id: 'github', url: '', has_credentials: true, is_config: false },
+	github: { id: 'github', url: '', has_credentials: true },
 };
 
 let replyFor;

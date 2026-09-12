@@ -88,12 +88,12 @@ A visitor's URL or `User-Agent` carrying the escape byte `0x1B` reaches `wp-cont
 
 ## The Vault's cryptography
 
-**Code:** `includes/class-vault.php`: `encrypt()` (:330), `decrypt()` (:553), `encryption_key()` (:578), `require_sodium()` (:592), `get_all()` (:494); `includes/rest/class-vault-ci-node.php`: the `add` and `update` verbs.
+**Code:** `includes/class-vault.php`: `encrypt()` (:311), `decrypt()` (:475), `encryption_key()` (:499), `require_sodium()` (:513), `get_all()` (:438); `includes/rest/class-vault-ci-node.php`: the `add` and `update` verbs.
 
 The Vault seals each password with `sodium_crypto_secretbox`, keyed by `sodium_crypto_generichash( wp_salt( 'auth' ), '', 32 )` under a fresh `random_bytes` nonce, and stores it in an option as `$enc$` plus the base64 of nonce and ciphertext. Without libsodium `encrypt()` and `decrypt()` throw through `require_sodium()`, so `vault add` and `vault update` fail loudly rather than store. [Service CIs](architecture-guide.md#repl-wp-nodes-cli) and [Command authorization (two-tier)](architecture-guide.md#command-authorization-two-tier) cover the Vault's place in the command channel.
 
 - **The key derives from the auth salt.** Rotating `AUTH_KEY` or `AUTH_SALT` makes every sealed value unreadable, with no re-key path.
-- **An unsealed stored value reads as empty.** `add()` and `update()` always seal, so a password without the `$enc$` prefix can only come from database write access, and `get_all()` treats it as empty. The config file is the operator's own and is read as written.
+- **An unsealed stored value reads as empty.** `add()` and `update()` always seal, so a password without the `$enc$` prefix can only come from database write access, and `get_all()` treats it as empty. The option is the only source; the config file declares no Vault entry.
 
 ## The JavaScript surface
 
@@ -126,7 +126,7 @@ Every `@wordpress/*` runtime package is pinned to the `wp-7.0` dist tag, and eac
 | `sessions`, `vault`, `workers restart` and `topologies` verbs | `manage` | Names through one regex; integers through a refusing read; URLs `https://` only. |
 | `layouts save` | `tune` | Name, size and every coordinate, before a byte is written. |
 | `wp nodes ingest`, `scaffold`, `cli`, `run` | A shell as the site user | Root refused; input files must exist; `ingest` does not confine its destination, which a shell reaches anyway. |
-| The TLS toggles `spawn_verify_ssl`, `vault_verify_ssl`, `vault_require_ssl` | The config file | Default on; the Vault refuses `http://` regardless; the last matters only for entries hand-written into the config file. |
+| The TLS toggles `spawn_verify_ssl`, `vault_verify_ssl`, `vault_require_ssl` | The config file | Default on; the Vault refuses `http://` regardless; the last matters only for a url planted in the option by database write. |
 
 The logger's MCP server and profiler mu-plugin are two more doors, described in [its security model](https://github.com/Automattic/newspack-event-logger-nodes/blob/main/docs/security-model.md).
 
@@ -151,7 +151,7 @@ Each choice below is made and reasoned; where the question stays open, the parag
 - **The `FROM` ceiling is enforced by convention inside the process.** `stamp_message()` returns `false` and the caller must drop the message. Whether that is mechanizable, as a `#[\NoDiscard]`-style contract or a lint rule, is open.
 - **The terminal renders control characters rather than refusing them**, and defends UTF-8 mode only. Whether rendering is right for the tail, and whether UTF-8 is the right scope, is open.
 - **The Vault key derives from the auth salt.** Rotating `AUTH_KEY` or `AUTH_SALT` unseals nothing and re-keys nothing. Whether a key derived from a value WordPress expects operators to rotate is the right choice is open.
-- **A plaintext password is refused from the option store and accepted from the config file.** Every password the plugin stores carries the `$enc$` prefix, so a value without it in the option is tampering or a bug and `servers()` reads it as no password. The same value in the substrate config file is taken as written, because that file is the operator's own deploy and is where a hand-entered credential is expected. Whether plaintext should be admissible from the file at all is open.
+- **The option is the Vault's only source, and a plaintext password in it reads as no password.** Every password the plugin stores carries the `$enc$` prefix, so a value without it in the option is tampering or a bug and `get_all()` reads it as empty. The config file declares no Vault entry, so no plaintext credential is admissible from anywhere.
 - **The browser runtime's `HttpOutNode` carries no reply allowlist**, because the browser mints every address that comes back. Whether that exemption is sound is open.
 - **`log_sources` refuses only a relative path, `..` and NUL.** The parser could refuse `wp-config.php` through an allowlist of roots or a denylist of extensions; whether it should is open.
 - **The `@wordpress/*` `wp-7.0` pin.** Any advisory reachable only past the pin is dismissed, with a written reason.

@@ -209,16 +209,14 @@ class ConfigSchemaTest extends TestCase {
 	}
 
 	/**
-	 * The vault trio is overlay-only. `vault` IS the encrypted credential store
-	 * (`newspack_nodes_vault`), and a ui-visible Field's option auto-joins the
-	 * Config Audit VALUES allowlist; the two SSL keys turn certificate
+	 * The two vault SSL keys are overlay-only: each turns certificate
 	 * verification OFF, which is a config-file decision like `spawn_verify_ssl`,
 	 * not a checkbox.
 	 */
-	public function test_the_vault_trio_is_declared_but_never_rendered(): void {
+	public function test_the_vault_ssl_pair_is_declared_but_never_rendered(): void {
 		$schema = Settings_Schema::get();
 
-		foreach ( [ 'vault', 'vault_verify_ssl', 'vault_require_ssl' ] as $key ) {
+		foreach ( [ 'vault_verify_ssl', 'vault_require_ssl' ] as $key ) {
 			$field = $schema->field_for_short( $key );
 			$this->assertNotNull( $field, "{$key} must be declared" );
 			$this->assertFalse( $field->ui, "{$key} must never render in the settings page" );
@@ -228,21 +226,42 @@ class ConfigSchemaTest extends TestCase {
 	}
 
 	/**
-	 * A TSL `<config:vault>` token must never hand out the credential store.
-	 *
-	 * Declaring `vault` as a keyed Field puts it in `overlay_keys()`, so
-	 * `Options_Overlay` merges the encrypted `newspack_nodes_vault` option into
-	 * `load_config()` — which is exactly what the token namespace resolves off.
+	 * The credential store is not a config key. `newspack_nodes_vault` is the
+	 * Vault's own option, outside `overlay_keys()`, so `Options_Overlay` never
+	 * merges it into `load_config()` and a TSL `<config:vault>` token resolves
+	 * nothing.
 	 */
-	public function test_the_config_token_namespace_refuses_the_vault(): void {
+	public function test_the_config_token_namespace_does_not_reach_the_vault(): void {
 		\putenv( 'LOCAL_NEWSPACK_NODES_CONF' );
 		Config::reset();
+		\update_option( \Newspack_Nodes\Vault::OPTION_KEY, [ 'vault-opt-9127' => [ 'url' => 'https://spoke-9127.example' ] ] );
 		Config::register_token_namespace();
 		$resolve = \Newspack_Nodes\Core::$config_resolvers['config'] ?? null;
 
 		$this->assertNotNull( $resolve, 'the config token namespace must be registered' );
+		$this->assertNotContains( 'vault', Settings_Schema::get()->overlay_keys() );
 		$this->assertNull( $resolve( 'vault' ) );
 		$this->assertSame( '/tmp/newspack-nodes', $resolve( 'base_directory' ) );
+		\delete_option( \Newspack_Nodes\Vault::OPTION_KEY );
+	}
+
+	/**
+	 * A deploy that still declares `vault` in its config file: the key is
+	 * unrecognized and stays in the loaded array, so the token would hand a
+	 * `.tsl` the plaintext registry unless the resolver refuses it by name.
+	 */
+	public function test_the_config_token_refuses_a_vault_key_a_stale_file_still_declares(): void {
+		\putenv( 'LOCAL_NEWSPACK_NODES_CONF' );
+		Config::reset();
+		$ref = new \ReflectionProperty( Config::class, 'config_defaults' );
+		$ref->setValue( null, [ 'vault' => [ 'vault-stale-4418' => [ 'url' => 'https://stale.example', 'auth_password' => 'plain-4418' ] ] ] );
+		Config::register_token_namespace();
+		$resolve = \Newspack_Nodes\Core::$config_resolvers['config'] ?? null;
+
+		$this->assertNotNull( $resolve );
+		$this->assertNull( $resolve( 'vault' ), 'a stale file-declared vault must not reach a TSL token' );
+		$ref->setValue( null, null );
+		Config::reset();
 	}
 
 	/**

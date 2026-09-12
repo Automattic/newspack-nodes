@@ -372,13 +372,6 @@ class Settings_Schema {
 					default: true,
 					ui: false,
 				),
-				// Encrypted credentials; a ui Field would log their values.
-				new Field(
-					key: 'vault',
-					type: 'array_strings',
-					default: [],
-					ui: false,
-				),
 				// Lowered ONLY for a self-signed cert; not a checkbox.
 				new Field(
 					key: 'vault_verify_ssl',
