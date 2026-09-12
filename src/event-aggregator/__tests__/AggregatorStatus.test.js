@@ -22,7 +22,7 @@ jest.mock( '../hooks/useAggregatorStatusGraph', () => {
 
 import { createElement } from '@wordpress/element';
 import { render, act } from '@testing-library/react';
-import { Core } from '@newspack-nodes/runtime';
+import { Core, mountExospine } from '@newspack-nodes/runtime';
 import AggregatorStatus from '../AggregatorStatus';
 
 const {
@@ -814,11 +814,19 @@ describe( 'AggregatorStatus', () => {
 		registerSlices( {
 			servers: { servers: SAMPLE_SERVERS, loading: false },
 		} );
+		// The clock rides a backbone somebody else owns, as a named Timer.
+		let host;
+		act( () => {
+			host = mountExospine( () => {} );
+		} );
 		const { container } = mount();
 		act( () => {
 			jest.advanceTimersByTime( 1000 );
 		} );
 		expect( container.textContent ).toContain( 'server1' );
+		expect( Core.node( 'aggregator-clock:timer' ) ).toBeTruthy();
+		expect( Core.node( 'aggregator:clock' ) ).toBeNull();
+		host.teardown();
 		jest.useRealTimers();
 	} );
 

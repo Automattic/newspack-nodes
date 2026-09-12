@@ -425,7 +425,7 @@ class Bootstrap {
 	 * through the same `partitions_of()` derivation `expand_workers()` uses, so
 	 * the count the Path menu shows can never disagree with what the fleet
 	 * SPAWNS. Every reader comes here — the admin localizer, the
-	 * `topologies.list` verb, the retention sweep, the restart planner.
+	 * `topologies.dump` verb, the retention sweep, the restart planner.
 	 *
 	 * @param string $name Topology name.
 	 * @return int Partition count in [1, MAX_PARTITIONS].

@@ -630,22 +630,22 @@ role rather than the loosest.
 
 | Node name | Class | Verbs (role) |
 |-----------|-------|--------------|
-| `classes` | `Classes_CI_Node` | `list` (read) |
+| `classes` | `Classes_CI_Node` | `dump` (read) |
 | `layouts` | `Layouts_CI_Node` | `get` (read), `save` (tune) |
-| `topologies` | `Topologies_CI_Node` | `list` (read), `get` (read), `expand` (read), `save`, `delete`, `activate`, `deactivate`, `connect_worker_input` (manage) |
-| `raw-logs` | `Raw_Logs_CI_Node` | `list_logs`, `log_status`, `read_message` (read) |
+| `topologies` | `Topologies_CI_Node` | `dump` (read), `get` (read), `expand` (read), `save`, `delete`, `activate`, `deactivate`, `connect_worker_input` (manage) |
+| `raw-logs` | `Raw_Logs_CI_Node` | `list_logs`, `dump_log`, `read_message` (read) |
 | `vault` | `Vault_CI_Node` | `list`, `get`, `add`, `update`, `delete`, `test` (manage) |
-| `aggregator` | `Aggregator_CI_Node` | `summary` (read), `servers_status` (read), `probe` (manage — on-demand per-spoke deep roll-up) |
+| `aggregator` | `Aggregator_CI_Node` | `summary` (read), `list_servers` (read), `probe` (manage — on-demand per-spoke deep roll-up) |
 | `settings` | `Settings_CI_Node` | `get` (read), `set` (tune) |
 | `status` | `Status_CI_Node` | `get` (read) |
 | `sessions` | `Sessions_CI_Node` | `list`, `create`, `revoke` (manage — issuing one hands out access) |
-| `workers` | `Workers_CI_Node` | `list`, `dump_graph`, `cleanup_status`, `heartbeat` (read), `restart` (manage) |
+| `workers` | `Workers_CI_Node` | `list`, `dump_graph`, `dump_cleanup`, `heartbeat` (read), `restart` (manage) |
 
 The first column is the NODE name — `make_node`'s second argument, and what a
 caller puts in TO. A CI's SHELL name is a different string: the class short name
 minus `_Node`, so `Layouts_CI_Node` is addressed as `layouts` and described as
 `Layouts_CI`. `Command_Interpreter_Node::shell_name_for()` derives that name;
-the `classes` CI's `list` verb reports it under `shell_name`, `dump_metadata`
+the `classes` CI's `dump` verb reports it under `shell_name`, `dump_metadata`
 returns it as `class`, and the topology console's Inspector looks a node's verbs
 up by it. It is also what `help Layouts_CI` renders a schema for, because
 `Bootstrap` registers the `Newspack_Nodes\Rest\` prefix alongside
@@ -700,7 +700,7 @@ re-measured through `Consumer_Node::lag_from_disk()`. The rows come out in the
 order the tail window first names each reader, so a caller rendering a table
 sorts them itself, as `wp nodes status` does.
 
-**`workers cleanup_status` names candidates, not casualties.** It answers
+**`workers dump_cleanup` names candidates, not casualties.** It answers
 `{ logs_dir, on_disk_basenames, expected_basenames, orphans }` — every
 first-level dir under `logs/`, the set `Log_Cleaner::declared_log_dirs()`
 retains, and the difference between them. Both halves are the calls the sweep
@@ -747,7 +747,7 @@ token text; the console's document loader throws there, and
 `augmentWithVirtualEdges()` draws no edge at all for a token the server resolved
 to nothing.
 
-**`aggregator` — one `id` field, two meanings.** `servers_status` returns one
+**`aggregator` — one `id` field, two meanings.** `list_servers` returns one
 row per wired `Remote_Source`, keyed by the NODE name in `id` and carrying the
 Vault credential id separately as `vault_id`. `probe <id>` wants the VAULT id,
 answers `server not found: <id>` for anything else, and echoes it back as its
@@ -909,7 +909,7 @@ roles it needs. The live-mode Inspector's verb modals and the Service-CI tables
 above are where arguments and capabilities surface; help is a summary, not the
 verb reference.
 
-`Classes_CI`'s `list` verb inlines the serializable half of every concrete Node
+`Classes_CI`'s `dump` verb inlines the serializable half of every concrete Node
 class's schema for the topology-editor palette and the live-mode Inspector. It
 returns `{ classes[], formatters[] }`, each class carrying `shell_name`, `fqcn`,
 `category`, `description`, `arguments`, `commands`, `requests`,
@@ -928,9 +928,9 @@ the palette.
 
 **Every verb reads from the `arguments` token array.** Verbs taking a single
 scalar — `topologies get` / `delete` / `activate` / `deactivate` /
-`connect_worker_input`, `layouts get`, `raw-logs log_status` — read `$args[0]`
+`connect_worker_input`, `layouts get`, `raw-logs dump_log` — read `$args[0]`
 straight from the inner envelope's `arguments` list, so they are typeable in the
-REPL (`command_node topologies get Home`), and `log_status` answers
+REPL (`command_node topologies get Home`), and `dump_log` answers
 `{ log_id, segments: [ { id, size } ], segment_count, total_size }` for the one
 partition dir it inspects. `raw-logs read_message` reads two positional tokens
 the same way, the log key then the position — that position being the

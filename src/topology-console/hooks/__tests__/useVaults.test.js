@@ -67,6 +67,9 @@ describe( 'useVaults', () => {
 		] );
 		const sent = replyFor.mock.calls[ 0 ][ 0 ];
 		expect( sent[ VALUE ].name ).toBe( 'list' );
+		// The subject is the vault; the verb rides on the Fetcher alone.
+		expect( Core.node( 'vault:view' ) ).toBeTruthy();
+		expect( Core.node( 'vault:list:view' ) ).toBeNull();
 	} );
 
 	it( 'does not fetch when disabled', () => {

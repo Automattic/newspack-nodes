@@ -44,7 +44,7 @@ describe( 'useTopologyList', () => {
 		expect( replyFor ).not.toHaveBeenCalled();
 	} );
 
-	it( 'fetches topologies.list when enabled flips true', async () => {
+	it( 'fetches topologies.dump when enabled flips true', async () => {
 		const { result, rerender } = renderHook(
 			( { enabled } ) => useTopologyList( { enabled } ),
 			{ initialProps: { enabled: false } }
@@ -54,9 +54,12 @@ describe( 'useTopologyList', () => {
 		await waitFor( () =>
 			expect( result.current.topologies ).toEqual( LISTED.topologies )
 		);
-		expect( verbs() ).toEqual( [ 'list' ] );
+		expect( verbs() ).toEqual( [ 'dump' ] );
 		expect( result.current.userDir ).toBe( '/wp/uploads/topologies' );
 		expect( result.current.loading ).toBe( false );
+		// Named for what it shows, never for the verb it sends.
+		expect( Core.node( 'topologies:view' ) ).toBeTruthy();
+		expect( Core.node( 'topologies:list:view' ) ).toBeNull();
 	} );
 
 	// A save used to owe the catalog a `reload()`. The tick carries the new
@@ -144,6 +147,9 @@ describe( 'useTopology', () => {
 		expect( replyFor.mock.calls[ 0 ][ 0 ][ VALUE ].arguments ).toEqual( [
 			'demo',
 		] );
+		// Each reader's slice is its own subject, `<scope>-topology`.
+		expect( Core.node( 'test-topology:result' ) ).toBeTruthy();
+		expect( Core.node( 'topologies:get:test:result' ) ).toBeNull();
 	} );
 
 	// Half a loaded page is the failure this replaces: the old awaited fetch

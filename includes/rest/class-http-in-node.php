@@ -55,7 +55,7 @@ class HTTP_In_Node extends Node {
 
 	/**
 	 * Default per-user burst budget per RATE_LIMIT_WINDOW_S. The topology
-	 * console fans out a handful of `list` requests on mount (classes,
+	 * console fans out a handful of catalog requests on mount (classes,
 	 * topologies, layouts, ...) and dispatches commands at the speed the
 	 * operator types — well under 30/s in practice. The cap exists to bound
 	 * a buggy script hammering the endpoint, not to throttle normal use.

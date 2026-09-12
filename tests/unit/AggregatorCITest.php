@@ -120,10 +120,10 @@ class AggregatorCITest extends TestCase {
 	}
 
 	// ---------------------------------------------------------------------
-	// build_snapshot (exercised via the servers_status slice)
+	// build_snapshot (exercised via the list_servers slice)
 	// ---------------------------------------------------------------------
 
-	public function test_servers_status_discovers_remote_sources_in_any_active_topology(): void {
+	public function test_list_servers_discovers_remote_sources_in_any_active_topology(): void {
 		// Readers live in include-based overlays with their own names (e.g.
 		// aggregator-tw0); the dashboard must not be married to the literal
 		// topology name 'aggregator'.
@@ -140,7 +140,7 @@ class AggregatorCITest extends TestCase {
 		$this->seed_vault( 'xvault', [ 'url' => 'https://x9.example' ] );
 
 		$decoded = \json_decode(
-			VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'servers_status' ),
+			VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'list_servers' ),
 			true
 		);
 
@@ -149,11 +149,11 @@ class AggregatorCITest extends TestCase {
 		$this->assertSame( 'xvault', $decoded[0]['vault_id'] );
 	}
 
-	public function test_servers_status_uses_empty_block_on_cache_miss(): void {
+	public function test_list_servers_uses_empty_block_on_cache_miss(): void {
 		$this->seed_aggregator_topology( [ [ 'spoke-b', 'other', 'firehose.p<partition>' ] ] );
 
 		$decoded = \json_decode(
-			VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'servers_status' ),
+			VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'list_servers' ),
 			true
 		);
 
@@ -161,7 +161,7 @@ class AggregatorCITest extends TestCase {
 		$this->assertSame( [], $decoded[0]['partitions'][0] );
 	}
 
-	public function test_servers_status_reads_every_configured_partition(): void {
+	public function test_list_servers_reads_every_configured_partition(): void {
 		// One Remote_Source whose remote_partition embeds the `<partition>` token
 		// fans across all configured partitions: with num_partitions=2 the snapshot
 		// reads np:remote:spoke-c:firehose.p0 AND ...firehose.p1, keyed by partition
@@ -171,7 +171,7 @@ class AggregatorCITest extends TestCase {
 		Core::$memd->set( \Newspack_Nodes\Remote_Source_Node::status_key_for( 'spoke-c', 'firehose.p1' ), [ 'connected' => false ], 60 );
 
 		$decoded = \json_decode(
-			VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'servers_status' ),
+			VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'list_servers' ),
 			true
 		);
 
@@ -181,13 +181,13 @@ class AggregatorCITest extends TestCase {
 		$this->assertFalse( $decoded[0]['partitions'][1]['connected'] );
 	}
 
-	public function test_servers_status_ignores_non_remote_source_nodes(): void {
+	public function test_list_servers_ignores_non_remote_source_nodes(): void {
 		// The rewrite node + Topic sink are in the graph too; only Remote_Source
 		// nodes become snapshot entries.
 		$this->seed_aggregator_topology( [ [ 'spoke-d', 'denver', 'firehose.p<partition>' ] ] );
 
 		$decoded = \json_decode(
-			VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'servers_status' ),
+			VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'list_servers' ),
 			true
 		);
 
@@ -294,7 +294,7 @@ class AggregatorCITest extends TestCase {
 	}
 
 	// ---------------------------------------------------------------------
-	// servers_status verb (de-god slice: the heavy per-server partition data)
+	// list_servers verb (de-god slice: the heavy per-server partition data)
 	//
 	// The servers slice carries the full per-server partition snapshot the
 	// server cards render. Same discovery + memcache read as `status`, but
@@ -302,18 +302,39 @@ class AggregatorCITest extends TestCase {
 	// and encoded as a JSON STRING (SliceViewNode contract).
 	// ---------------------------------------------------------------------
 
-	public function test_servers_status_verb_returns_empty_array_when_no_remote_sources_wired(): void {
+	public function test_list_servers_answers_the_server_snapshot_list(): void {
 		$this->seed_aggregator_topology( [] );
 
 		$decoded = \json_decode(
-			VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'servers_status' ),
+			VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'list_servers' ),
 			true
 		);
 
 		$this->assertSame( [], $decoded );
 	}
 
-	public function test_servers_status_verb_returns_sequential_array_of_server_snapshots(): void {
+	/** The verb is `list_servers`; the noun-first name is refused, not aliased. */
+	public function test_servers_status_is_refused_as_an_unknown_command(): void {
+		$this->seed_aggregator_topology( [] );
+
+		$result = VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'servers_status' );
+
+		$this->assertIsString( $result );
+		$this->assertStringContainsString( 'unknown command: servers_status', $result );
+	}
+
+	public function test_list_servers_verb_returns_empty_array_when_no_remote_sources_wired(): void {
+		$this->seed_aggregator_topology( [] );
+
+		$decoded = \json_decode(
+			VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'list_servers' ),
+			true
+		);
+
+		$this->assertSame( [], $decoded );
+	}
+
+	public function test_list_servers_verb_returns_sequential_array_of_server_snapshots(): void {
 		$this->seed_aggregator_topology( [ [ 'spoke-a', 'austin', 'firehose.p<partition>' ] ] );
 		$this->seed_vault( 'austin', [ 'url' => 'https://spoke.example/' ] );
 		Core::$memd->set(
@@ -323,7 +344,7 @@ class AggregatorCITest extends TestCase {
 		);
 
 		$decoded = \json_decode(
-			VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'servers_status' ),
+			VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'list_servers' ),
 			true
 		);
 
@@ -337,16 +358,16 @@ class AggregatorCITest extends TestCase {
 		$this->assertSame( 200, $decoded[0]['partitions'][0]['last_http_code'] );
 	}
 
-	public function test_servers_status_verb_rejects_unauthorized(): void {
+	public function test_list_servers_verb_rejects_unauthorized(): void {
 		$GLOBALS['_wp_test_current_user_can'] = [];
-		$result                               = VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'servers_status' );
+		$result                               = VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'list_servers' );
 
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'permission denied', $result );
 	}
 
 	public function test_slice_verbs_agree_on_the_same_snapshot(): void {
-		// summary and servers_status both derive from build_snapshot(), so the
+		// summary and list_servers both derive from build_snapshot(), so the
 		// header counts must match the server-card list they summarize.
 		$this->seed_aggregator_topology(
 			[
@@ -365,7 +386,7 @@ class AggregatorCITest extends TestCase {
 		};
 
 		$reseed();
-		$servers_slice = \json_decode( VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'servers_status' ), true );
+		$servers_slice = \json_decode( VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'list_servers' ), true );
 		VerbHarness::reset();
 		$reseed();
 		$summary = \json_decode( VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'summary' ), true );
@@ -378,7 +399,7 @@ class AggregatorCITest extends TestCase {
 	// ---------------------------------------------------------------------
 	// schema-driven dispatch + Vault reach
 	//
-	// The `summary` / `servers_status` slice handlers derive from build_snapshot(),
+	// The `summary` / `list_servers` slice handlers derive from build_snapshot(),
 	// which reads the substrate `Newspack_Nodes\Vault` singleton directly (no
 	// injected registry); the seeded-Vault test proves the dispatched handler
 	// actually read the option store, not a fresh/empty view.
@@ -390,31 +411,31 @@ class AggregatorCITest extends TestCase {
 			$verbs[ $verb['name'] ] = $verb;
 		}
 
-		foreach ( [ 'summary', 'servers_status' ] as $name ) {
+		foreach ( [ 'summary', 'list_servers' ] as $name ) {
 			$this->assertArrayHasKey( $name, $verbs, "node_schema must list the '{$name}' verb" );
 			$this->assertIsCallable( $verbs[ $name ]['handler'] );
 		}
 		// The raw `status` / legacy `servers` / `health` verbs were removed — the
-		// de-god slices `summary` + `servers_status` are the only live surface.
+		// de-god slices `summary` + `list_servers` are the only live surface.
 		foreach ( [ 'status', 'health', 'servers' ] as $removed ) {
 			$this->assertArrayNotHasKey( $removed, $verbs, "removed verb '{$removed}' must not be listed" );
 		}
 	}
 
 	public function test_all_verbs_declare_no_args(): void {
-		// summary/servers_status read no $payload/$args — neither handler even
+		// summary/list_servers read no $payload/$args — neither handler even
 		// declares a $payload param, so each stays args => [].
 		$verbs = [];
 		foreach ( Aggregator_CI_Node::node_schema()['commands'] as $verb ) {
 			$verbs[ $verb['name'] ] = $verb;
 		}
 
-		foreach ( [ 'summary', 'servers_status' ] as $name ) {
+		foreach ( [ 'summary', 'list_servers' ] as $name ) {
 			$this->assertSame( [], $verbs[ $name ]['args'], "'{$name}' must declare no args" );
 		}
 	}
 
-	public function test_servers_status_reads_the_vault(): void {
+	public function test_list_servers_reads_the_vault(): void {
 		// A server seeded into the substrate Vault must surface in the response,
 		// proving the dispatched handler reads the Vault singleton rather than a
 		// fresh/empty view.
@@ -422,7 +443,7 @@ class AggregatorCITest extends TestCase {
 		$this->seed_vault( 'sentinel', [ 'url' => 'https://sentinel.example/', 'enabled' => true ] );
 
 		$decoded = \json_decode(
-			VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'servers_status' ),
+			VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'list_servers' ),
 			true
 		);
 
@@ -442,7 +463,7 @@ class AggregatorCITest extends TestCase {
 		$this->seed_vault( 'sentinel', [ 'url' => 'https://s.example/', 'enabled' => true ] );
 
 		$decoded = \json_decode(
-			VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'servers_status' ),
+			VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'list_servers' ),
 			true
 		);
 
@@ -453,11 +474,11 @@ class AggregatorCITest extends TestCase {
 	 * Catalog-visibility guard (carried over from the ELN ServiceCiHandlerGuardTest
 	 * when this CI moved here): a future edit dropping node_schema's `category` to
 	 * ''/'Hidden' would silently hide Aggregator_CI from the Inspector/palette while
-	 * every other test stayed green. Fire the substrate `classes list` and assert
+	 * every other test stayed green. Fire the substrate `classes dump` and assert
 	 * the CI surfaces under 'Service'.
 	 */
 	public function test_appears_in_class_catalog_as_service(): void {
-		$result = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'list' );
+		$result = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
 
 		$this->assertArrayHasKey( 'classes', $result );
 		// A stale classmap (no composer dump-autoload -o) yields zero classes and

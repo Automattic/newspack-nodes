@@ -1,7 +1,7 @@
 /**
  * The palette catalog for the graph running in the BROWSER.
  *
- * The HTTP `classes list` verb answers with the PHP substrate's catalog — the
+ * The HTTP `classes dump` verb answers with the PHP substrate's catalog — the
  * classes a WORKER can build. That is the right catalog for editing a topology
  * and for driving a worker over SSE, and `useClassCatalog` serves it. It is the
  * wrong one for the local browser graph and the debug overlay, where
@@ -54,7 +54,7 @@ const derivedFrom = ( base, cls ) =>
  * canvas's own `?? true`. `arguments` is what the ADD modal renders constructor
  * fields from.
  *
- * Membership and order mirror `Classes_CI::cmd_list()`: a class is offered only
+ * Membership and order mirror `Classes_CI::cmd_dump()`: a class is offered only
  * when its schema declares a category that is neither empty nor `Hidden` and
  * raises no `hidden` flag, sorted by `[category, shell_name]`.
  *

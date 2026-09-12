@@ -1,7 +1,7 @@
 <?php
 /**
  * RawLogsCITest: unit tests for the substrate Raw_Logs_CI, which owns the
- * `list_logs` (catalog) + `log_status` (per-partition metadata)
+ * `list_logs` (catalog) + `dump_log` (per-partition metadata)
  * verbs the Raw Logs admin dashboard subscribes to.
  *
  * Replaces the verbs' previous home on the application's Performance_CI;
@@ -57,7 +57,7 @@ class RawLogsCITest extends TestCase {
 		$schema = Raw_Logs_CI_Node::node_schema();
 		$names  = \array_map( static fn ( array $v ): string => $v['name'], $schema['commands'] );
 		\sort( $names );
-		$this->assertSame( [ 'list_logs', 'log_status', 'read_message' ], $names );
+		$this->assertSame( [ 'dump_log', 'list_logs', 'read_message' ], $names );
 		$this->assertNotEmpty( $schema['description'] );
 	}
 
@@ -97,10 +97,30 @@ class RawLogsCITest extends TestCase {
 	}
 
 	// -------------------------------------------------------------------------
-	// log_status verb — per-partition segment metadata.
+	// dump_log verb — per-partition segment metadata.
 	// -------------------------------------------------------------------------
 
-	public function test_log_status_verb_returns_single_dir_summary(): void {
+	public function test_dump_log_answers_the_segment_summary(): void {
+		\mkdir( $this->tmp . '/logs/renamed.p3', 0755, true );
+
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'dump_log', 'renamed.p3' );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'renamed.p3', $result['log_id'] );
+		$this->assertArrayHasKey( 'segments', $result );
+	}
+
+	/** The verb is `dump_log`; the noun-first name is refused, not aliased. */
+	public function test_log_status_is_refused_as_an_unknown_command(): void {
+		\mkdir( $this->tmp . '/logs/renamed.p3', 0755, true );
+
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'log_status', 'renamed.p3' );
+
+		$this->assertIsString( $result );
+		$this->assertStringContainsString( 'unknown command: log_status', $result );
+	}
+
+	public function test_dump_log_verb_returns_single_dir_summary(): void {
 		// `log` is now a CONCRETE partition dir name; the verb stats THAT one
 		// dir's segments (no num_partitions loop, no nested `/p{N}`).
 		\mkdir( $this->tmp . '/logs/firehose.p0', 0755, true );
@@ -108,7 +128,7 @@ class RawLogsCITest extends TestCase {
 		$result = VerbHarness::fire(
 			new Raw_Logs_CI_Node(),
 			'raw-logs',
-			'log_status',
+			'dump_log',
 			'firehose.p0'
 		);
 
@@ -119,7 +139,7 @@ class RawLogsCITest extends TestCase {
 		$this->assertArrayHasKey( 'total_size', $result );
 	}
 
-	public function test_log_status_verb_falls_back_on_unknown_log(): void {
+	public function test_dump_log_verb_falls_back_on_unknown_log(): void {
 		// Bogus key falls through to the firehose-ish concrete key when present
 		// (str_starts_with 'firehose'), else the first discovered concrete dir.
 		\mkdir( $this->tmp . '/logs/firehose.p0', 0755, true );
@@ -127,7 +147,7 @@ class RawLogsCITest extends TestCase {
 		$result = VerbHarness::fire(
 			new Raw_Logs_CI_Node(),
 			'raw-logs',
-			'log_status',
+			'dump_log',
 			'bogus-log-name'
 		);
 
@@ -135,14 +155,14 @@ class RawLogsCITest extends TestCase {
 		$this->assertSame( 'firehose.p0', $result['log_id'] );
 	}
 
-	public function test_log_status_default_resolves_first_discovered_without_firehose(): void {
+	public function test_dump_log_default_resolves_first_discovered_without_firehose(): void {
 		// De-coupled default guard: concrete dirs present but none firehose-ish,
-		// so a no-arg log_status resolves to the first-discovered key (sorted:
+		// so a no-arg dump_log resolves to the first-discovered key (sorted:
 		// `jobs.p0`), proving the default isn't hardwired to firehose.
 		\mkdir( $this->tmp . '/logs/jobs.p0',     0755, true );
 		\mkdir( $this->tmp . '/logs/requests.p0', 0755, true );
 
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'log_status' );
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'dump_log' );
 
 		$this->assertIsArray( $result );
 		$this->assertSame( 'jobs.p0', $result['log_id'] );
@@ -174,7 +194,7 @@ class RawLogsCITest extends TestCase {
 		);
 	}
 
-	public function test_log_status_reads_a_deadletter_dir_by_grouped_key(): void {
+	public function test_dump_log_reads_a_deadletter_dir_by_grouped_key(): void {
 		$seg_dir = $this->tmp . '/deadletter/job-worker.jobs.p0';
 		\mkdir( $seg_dir, 0755, true );
 		\file_put_contents( "{$seg_dir}/7.log", \str_repeat( 'q', 977 ) );
@@ -182,7 +202,7 @@ class RawLogsCITest extends TestCase {
 		$result = VerbHarness::fire(
 			new Raw_Logs_CI_Node(),
 			'raw-logs',
-			'log_status',
+			'dump_log',
 			'deadletter/job-worker.jobs.p0'
 		);
 
@@ -334,7 +354,7 @@ class RawLogsCITest extends TestCase {
 		$this->assertSame( "read_message: no record at firehose.p0 0:0\n", $result );
 	}
 
-	public function test_log_status_verb_reflects_seeded_segments(): void {
+	public function test_dump_log_verb_reflects_seeded_segments(): void {
 		// Seed a 128-byte segment in the flat concrete dir so the verb reports
 		// non-zero size for that single dir.
 		$seg_dir = $this->tmp . '/logs/firehose.p0';
@@ -344,7 +364,7 @@ class RawLogsCITest extends TestCase {
 		$result = VerbHarness::fire(
 			new Raw_Logs_CI_Node(),
 			'raw-logs',
-			'log_status',
+			'dump_log',
 			'firehose.p0'
 		);
 
@@ -354,12 +374,12 @@ class RawLogsCITest extends TestCase {
 		$this->assertSame( 128, $result['segments'][0]['size'] );
 	}
 
-	public function test_log_status_verb_rejects_unauthorized(): void {
+	public function test_dump_log_verb_rejects_unauthorized(): void {
 		$GLOBALS['_wp_test_current_user_can'] = [];
 		$result = VerbHarness::fire(
 			new Raw_Logs_CI_Node(),
 			'raw-logs',
-			'log_status',
+			'dump_log',
 			'firehose.p0'
 		);
 
@@ -373,7 +393,7 @@ class RawLogsCITest extends TestCase {
 	// sunk into the `_command_interpreter` while it's alive.
 	// -------------------------------------------------------------------------
 
-	public function test_log_status_probe_partition_is_named_patron_set_and_sunk(): void {
+	public function test_dump_log_probe_partition_is_named_patron_set_and_sunk(): void {
 		\mkdir( $this->tmp . '/logs/firehose.p0', 0755, true );
 
 		$seen = [];
@@ -385,7 +405,7 @@ class RawLogsCITest extends TestCase {
 			];
 		};
 
-		VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'log_status', 'firehose.p0' );
+		VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'dump_log', 'firehose.p0' );
 
 		$this->assertCount( 1, $seen, 'one probe for the single concrete dir' );
 		$ci    = Core::node( Node_Names::COMMAND_INTERPRETER );
@@ -395,7 +415,7 @@ class RawLogsCITest extends TestCase {
 		$this->assertSame( $ci, $seen[0]['sink'], 'sunk into the _command_interpreter' );
 	}
 
-	public function test_log_status_probe_partition_is_removed_after_use(): void {
+	public function test_dump_log_probe_partition_is_removed_after_use(): void {
 		\mkdir( $this->tmp . '/logs/firehose.p0', 0755, true );
 
 		// Confirm the probe is registered in Core WHILE inspecting (alive), so
@@ -405,7 +425,7 @@ class RawLogsCITest extends TestCase {
 			$alive_during = Core::node( $probe->name() );
 		};
 
-		VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'log_status', 'firehose.p0' );
+		VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'dump_log', 'firehose.p0' );
 
 		$this->assertInstanceOf( Partition_Node::class, $alive_during, 'probe registered during inspection' );
 		// Transient probe: registered while inspecting, unregistered before the

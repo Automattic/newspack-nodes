@@ -32,18 +32,33 @@ jest.mock( '@newspack-nodes/shared/components/LogBrowser', () => ( {
 } ) );
 
 // Own suite exercises this hook; mock it — 1 call/render = a render probe.
-// The rail's `log_status` resolver is the substrate's and has its own suite;
+// The rail's `dump_log` resolver is the substrate's and has its own suite;
 // here it is a fixture, so these tests stay about what the viewer WIRES.
 const mockRefreshSegments = jest.fn();
 let mockRail = [];
 let mockRailSub;
-jest.mock( '@newspack-nodes/shared/hooks/useLogPositions', () => ( {
-	...jest.requireActual( '@newspack-nodes/shared/hooks/useLogPositions' ),
-	useLogStatusSegments: ( { sub } ) => {
-		mockRailSub = sub;
-		return { source: { segments: mockRail }, refresh: mockRefreshSegments };
-	},
-} ) );
+let mockRailScope;
+let mockRailName;
+jest.mock( '@newspack-nodes/shared/hooks/useLogPositions', () => {
+	const actual = jest.requireActual(
+		'@newspack-nodes/shared/hooks/useLogPositions'
+	);
+	return {
+		...actual,
+		useLogStatusSegments: ( { sub, scope } ) => {
+			mockRailSub = sub;
+			mockRailScope = scope;
+			return {
+				source: { segments: mockRail },
+				refresh: mockRefreshSegments,
+			};
+		},
+		useSegmentBrowse: ( o ) => {
+			mockRailName = o.railName;
+			return actual.useSegmentBrowse( o );
+		},
+	};
+} );
 
 jest.mock( '../hooks/useLogReaderGraph', () => ( {
 	usePartitionViewerGraph: jest.fn(),
@@ -106,7 +121,7 @@ describe( 'PartitionViewer', () => {
 	let step;
 	let clearGraph;
 
-	// Wrap render in act so the async log_status fetch effect settles inside it.
+	// Wrap render in act so the async dump_log fetch effect settles inside it.
 	const mounted = [];
 
 	async function renderViewer( props = {} ) {
@@ -322,6 +337,9 @@ describe( 'PartitionViewer', () => {
 		await renderViewer();
 		// The rail is resolved for the SELECTED dir, not some other one.
 		expect( mockRailSub ).toBe( 'firehose' );
+		// The read and its refresh tick are each a `<subject>:<role>`.
+		expect( mockRailScope ).toBe( 'partition-segments' );
+		expect( mockRailName ).toBe( 'partition-rail:timer' );
 		await act( async () =>
 			answerStatus( 'firehose', {
 				segments: [
@@ -713,9 +731,9 @@ describe( 'PartitionViewer', () => {
 		);
 	} );
 
-	// A refused log_status publishes no result for the log, so the rail stays
+	// A refused dump_log publishes no result for the log, so the rail stays
 	// empty rather than showing another partition's segments.
-	it( 'falls back to no segments when the log_status is refused', async () => {
+	it( 'falls back to no segments when the dump_log is refused', async () => {
 		registerViewFixture( {
 			logs: [ { key: 'firehose', label: 'Firehose' } ],
 			selected: 'firehose',

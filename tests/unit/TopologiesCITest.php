@@ -53,7 +53,7 @@ class TopologiesCITest extends TestCase {
 
 		// Per-test stock + user dirs registered with Topology_Registry. The
 		// interpreter reads through the registry; tests drop .tsl files into these
-		// dirs to drive list/get/delete fixtures.
+		// dirs to drive dump/get/delete fixtures.
 		$this->stock = $this->make_temp_dir( 'topologies-ci-stock-' );
 		$this->user  = $this->make_temp_dir( 'topologies-ci-user-' );
 		Topology_Registry::reset();
@@ -97,7 +97,7 @@ class TopologiesCITest extends TestCase {
 		$names  = \array_map( static fn ( array $v ): string => $v['name'], $schema['commands'] );
 		\sort( $names );
 		$this->assertSame(
-			[ 'activate', 'connect_worker_input', 'deactivate', 'delete', 'expand', 'get', 'list', 'save' ],
+			[ 'activate', 'connect_worker_input', 'deactivate', 'delete', 'dump', 'expand', 'get', 'save' ],
 			$names
 		);
 		$this->assertNotEmpty( $schema['description'] );
@@ -131,20 +131,44 @@ class TopologiesCITest extends TestCase {
 		);
 	}
 
-	// ── list verb ────────────────────────────────────────────────────────────
+	// ── dump verb ────────────────────────────────────────────────────────────
 
-	public function test_list_returns_empty_when_no_topologies(): void {
+	public function test_dump_returns_every_topology_with_its_nested_structure(): void {
+		\file_put_contents( "{$this->user}/dumped-alpha.tsl", "include stockbase\nmake_node Echo alpha\n" );
+		\file_put_contents( "{$this->stock}/stockbase.tsl", "make_node Echo base\n" );
+
+		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'dump' );
+
+		$this->assertIsArray( $result );
+		$this->assertArrayHasKey( 'user_dir', $result );
+		$names = \array_column( $result['topologies'], 'name' );
+		$this->assertContains( 'dumped-alpha', $names );
+		$row = $result['topologies'][ \array_search( 'dumped-alpha', $names, true ) ];
+		$this->assertSame( 'user', $row['source'] );
+		$this->assertIsArray( $row['frontmatter'] );
+		$this->assertSame( [ 'stockbase' ], $row['includes'], 'each row nests its include list' );
+	}
+
+	/** The verb is `dump`; nothing answers to the old name, per docs/stability.md. */
+	public function test_list_is_refused_as_an_unknown_command(): void {
 		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'list' );
+
+		$this->assertIsString( $result );
+		$this->assertStringContainsString( 'unknown command: list', $result );
+	}
+
+	public function test_dump_returns_empty_when_no_topologies(): void {
+		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'dump' );
 
 		$this->assertIsArray( $result );
 		$this->assertSame( [], $result['topologies'] );
 		$this->assertSame( $this->user, $result['user_dir'] );
 	}
 
-	public function test_list_returns_stock_topology_with_source_stock(): void {
+	public function test_dump_returns_stock_topology_with_source_stock(): void {
 		\file_put_contents( "{$this->stock}/alpha.tsl", "make_node Echo a\n" );
 
-		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'list' );
+		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'dump' );
 
 		$this->assertCount( 1, $result['topologies'] );
 		$entry = $result['topologies'][0];
@@ -154,46 +178,46 @@ class TopologiesCITest extends TestCase {
 		$this->assertIsArray( $entry['frontmatter'] );
 	}
 
-	public function test_list_returns_user_topology_with_source_user(): void {
+	public function test_dump_returns_user_topology_with_source_user(): void {
 		\file_put_contents( "{$this->user}/beta.tsl", "make_node Echo b\n" );
 
-		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'list' );
+		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'dump' );
 
 		$this->assertCount( 1, $result['topologies'] );
 		$this->assertSame( 'user', $result['topologies'][0]['source'] );
 	}
 
-	public function test_list_returns_both_when_user_shadows_stock(): void {
+	public function test_dump_returns_both_when_user_shadows_stock(): void {
 		\file_put_contents( "{$this->stock}/dual.tsl", "make_node Echo s\n" );
 		\file_put_contents( "{$this->user}/dual.tsl",  "make_node Echo u\n" );
 
-		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'list' );
+		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'dump' );
 
 		$this->assertSame( 'both', $result['topologies'][0]['source'] );
 	}
 
-	public function test_list_sorts_alphabetically(): void {
+	public function test_dump_sorts_alphabetically(): void {
 		\file_put_contents( "{$this->stock}/zeta.tsl",  "" );
 		\file_put_contents( "{$this->stock}/alpha.tsl", "" );
 		\file_put_contents( "{$this->stock}/middle.tsl", "" );
 
-		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'list' );
+		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'dump' );
 		$names  = \array_column( $result['topologies'], 'name' );
 
 		$this->assertSame( [ 'alpha', 'middle', 'zeta' ], $names );
 	}
 
-	public function test_list_is_denied_to_a_caller_holding_nothing(): void {
+	public function test_dump_is_denied_to_a_caller_holding_nothing(): void {
 		$GLOBALS['_wp_test_current_user_can'] = [];
 		\file_put_contents( "{$this->stock}/alpha.tsl", "make_node Echo a\n" );
 
-		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'list' );
+		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'dump' );
 
-		// `list` reads; the role it names in the refusal is its declared one.
+		// `dump` reads; the role it names in the refusal is its declared one.
 		$this->assertSame( "permission denied: read capability required\n", $result );
 	}
 
-	public function test_list_marks_active_via_topologies_filter(): void {
+	public function test_dump_marks_active_via_topologies_filter(): void {
 		\file_put_contents( "{$this->stock}/active-one.tsl", "" );
 		\file_put_contents( "{$this->stock}/inactive.tsl",   "" );
 		\add_filter(
@@ -212,7 +236,7 @@ class TopologiesCITest extends TestCase {
 		Config::reset();
 
 		try {
-			$result  = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'list' );
+			$result  = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'dump' );
 			$by_name = \array_column( $result['topologies'], null, 'name' );
 
 			$this->assertTrue( $by_name['active-one']['active'] );
@@ -223,13 +247,13 @@ class TopologiesCITest extends TestCase {
 		}
 	}
 
-	public function test_list_includes_frontmatter_from_tsl(): void {
+	public function test_dump_includes_frontmatter_from_tsl(): void {
 		\file_put_contents(
 			"{$this->stock}/with-vars.tsl",
 			"var num_partitions = 4\nvar stale_timeout = 120\nmake_node Echo e\n"
 		);
 
-		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'list' );
+		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'dump' );
 		$entry  = $result['topologies'][0];
 
 		$this->assertSame( 'with-vars', $entry['name'] );
@@ -237,13 +261,13 @@ class TopologiesCITest extends TestCase {
 		$this->assertSame( '120', $entry['frontmatter']['stale_timeout'] );
 	}
 
-	public function test_list_includes_num_partitions_derived_from_frontmatter(): void {
+	public function test_dump_includes_num_partitions_derived_from_frontmatter(): void {
 		\file_put_contents(
 			"{$this->stock}/with-vars.tsl",
 			"var num_partitions = 4\nmake_node Echo e\n"
 		);
 
-		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'list' );
+		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'dump' );
 		$entry  = $result['topologies'][0];
 
 		// The Path menu needs a numeric partition count; the raw frontmatter
@@ -251,7 +275,7 @@ class TopologiesCITest extends TestCase {
 		$this->assertSame( 4, $entry['num_partitions'] );
 	}
 
-	public function test_list_num_partitions_prefers_catalog_count(): void {
+	public function test_dump_num_partitions_prefers_catalog_count(): void {
 		\file_put_contents( "{$this->stock}/cat.tsl", '' );
 		\add_filter(
 			'newspack_nodes/topologies',
@@ -265,7 +289,7 @@ class TopologiesCITest extends TestCase {
 			}
 		);
 
-		$result  = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'list' );
+		$result  = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'dump' );
 		$by_name = \array_column( $result['topologies'], null, 'name' );
 
 		$this->assertSame( 3, $by_name['cat']['num_partitions'] );
@@ -1247,11 +1271,11 @@ class TopologiesCITest extends TestCase {
 		$this->assertSame( [ 'wombat-top' => [ 'wombat-base' => [] ] ], $out['tree'] );
 	}
 
-	public function test_list_reports_each_topology_direct_includes(): void {
+	public function test_dump_reports_each_topology_direct_includes(): void {
 		\file_put_contents( "{$this->stock}/wombat-base.tsl", "make_node Tee shared-tee\n" );
 		\file_put_contents( "{$this->stock}/wombat-top.tsl", "include wombat-base\nmake_node Echo top-echo\n" );
 
-		$out    = Topologies_CI_Node::cmd_list();
+		$out    = Topologies_CI_Node::cmd_dump();
 		$byName = [];
 		foreach ( $out['topologies'] as $entry ) {
 			$byName[ $entry['name'] ] = $entry;

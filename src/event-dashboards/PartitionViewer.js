@@ -6,7 +6,7 @@
  * `usePartitionViewerGraph`): `partition:link` holds the SSE connection and
  * `partition:view` holds the ring + view model. The chrome (toolbar dropdown,
  * filter, counts, pause, clear, banner, body split) is the shared
- * `LogStreamViewer`; browsing the selected log's segments (`log_status`) is the
+ * `LogStreamViewer`; browsing the selected log's segments (`dump_log`) is the
  * shared `useSegmentBrowse`, which also renders the rail. Rows are packed
  * partition envelopes, one cell per message field the Cols picker has enabled.
  */
@@ -272,14 +272,14 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 
 	const { source, refresh } = useLogStatusSegments( {
 		sub: selectedLog,
-		scope: 'partition:status',
+		scope: 'partition-segments',
 	} );
 
 	const { jump, sidebar } = useSegmentBrowse( {
 		sub: selectedLog,
 		source,
 		refresh,
-		railName: 'partition:refresh',
+		railName: 'partition-rail:timer',
 		mode: displayMode,
 		lastReceivedSegment,
 		seek,

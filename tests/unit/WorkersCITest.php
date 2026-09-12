@@ -192,7 +192,7 @@ class WorkersCITest extends TestCase {
 		$names  = \array_map( static fn ( array $v ): string => $v['name'], $schema['commands'] );
 		\sort( $names );
 		$this->assertSame(
-			[ 'cleanup_status', 'dump_graph', 'heartbeat', 'list', 'restart' ],
+			[ 'dump_cleanup', 'dump_graph', 'heartbeat', 'list', 'restart' ],
 			$names
 		);
 		$this->assertNotEmpty( $schema['description'] );
@@ -643,9 +643,9 @@ class WorkersCITest extends TestCase {
 		\Newspack_Nodes\Core::$memd = null;
 	}
 
-	// ── cleanup_status verb ─────────────────────────────────────────────────
+	// ── dump_cleanup verb ─────────────────────────────────────────────────
 
-	public function test_cleanup_status_returns_diagnostic_envelope_with_orphans(): void {
+	public function test_dump_cleanup_returns_diagnostic_envelope_with_orphans(): void {
 		// Verb mirrors the Log_Cleaner sweep: it globs the flat `{base}/logs/*` dirs
 		// (GLOB_ONLYDIR, layout-agnostic — no `.p{N}` regex) and diffs against the
 		// resolved declared set, so the diagnostic matches what the GC actually deletes
@@ -675,7 +675,7 @@ class WorkersCITest extends TestCase {
 
 		$interpreter      = new Workers_CI_Node();
 		$interpreter->cli = $this->stub_cli();
-		$result = VerbHarness::fire( $interpreter, 'workers', 'cleanup_status' );
+		$result = VerbHarness::fire( $interpreter, 'workers', 'dump_cleanup' );
 
 		$this->assertSame( $logs, $result['logs_dir'] );
 		$this->assertSame( [ '0-req', '1-req', 'ghost' ], $result['on_disk_basenames'] );
@@ -688,7 +688,7 @@ class WorkersCITest extends TestCase {
 		\Newspack_Nodes\Topology_Registry::reset();
 	}
 
-	public function test_cleanup_status_handles_empty_layout(): void {
+	public function test_dump_cleanup_handles_empty_layout(): void {
 		// Defensive: no flat log dirs on disk and no declared topologies →
 		// every list is empty, no orphans.
 		$base = $this->arrange_base_dir();
@@ -697,11 +697,38 @@ class WorkersCITest extends TestCase {
 
 		$interpreter      = new Workers_CI_Node();
 		$interpreter->cli = $this->stub_cli();
-		$result = VerbHarness::fire( $interpreter, 'workers', 'cleanup_status' );
+		$result = VerbHarness::fire( $interpreter, 'workers', 'dump_cleanup' );
 
 		$this->assertSame( [], $result['on_disk_basenames'] );
 		$this->assertSame( [], $result['expected_basenames'] );
 		$this->assertSame( [], $result['orphans'] );
+	}
+
+	// ── verb grammar: verb first ────────────────────────────────────────────
+
+	public function test_dump_cleanup_answers_the_orphan_diagnostic(): void {
+		$base = $this->arrange_base_dir();
+		\mkdir( "{$base}/logs/stray-renamed-7d3a", 0755, true );
+		\Newspack_Nodes\Topology_Registry::reset();
+
+		$interpreter      = new Workers_CI_Node();
+		$interpreter->cli = $this->stub_cli();
+		$result = VerbHarness::fire( $interpreter, 'workers', 'dump_cleanup' );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( [ 'stray-renamed-7d3a' ], $result['orphans'] );
+	}
+
+	/** The verb is `dump_cleanup`; the noun-first name is refused, not aliased. */
+	public function test_cleanup_status_is_refused_as_an_unknown_command(): void {
+		$this->arrange_base_dir();
+		$interpreter      = new Workers_CI_Node();
+		$interpreter->cli = $this->stub_cli();
+
+		$result = VerbHarness::fire( $interpreter, 'workers', 'cleanup_status' );
+
+		$this->assertIsString( $result );
+		$this->assertStringContainsString( 'unknown command: cleanup_status', $result );
 	}
 
 	private function stub_cli(): object {

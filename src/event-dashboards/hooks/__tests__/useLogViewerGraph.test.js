@@ -55,9 +55,9 @@ beforeEach( () => {
 
 import { useLogViewerGraph } from '../useLogReaderGraph';
 
-const LINK = 'logviewer:link';
-const TEE = 'logviewer:stream';
-const VIEW = 'logviewer:view';
+const LINK = 'log-viewer:link';
+const TEE = 'log-viewer:stream';
+const VIEW = 'log-viewer:view';
 const HTTP = names.HTTP;
 
 // The seam is the WIRE: the graph packs, POSTs and unpacks for real, so
@@ -107,6 +107,23 @@ describe( 'useLogViewerGraph', () => {
 			Core.node( '_command_interpreter' )
 		);
 		expect( Core.node( HTTP ).client ).toBeTruthy();
+		// The catalog and the stepped read are subjects of their own.
+		for ( const name of [
+			'log-viewer-catalog:fetch',
+			'log-viewer-catalog:in',
+			'log-viewer-catalog:view',
+			'log-viewer-step:result',
+		] ) {
+			expect( Core.node( name ) ).toBeTruthy();
+		}
+		for ( const name of [
+			'logviewer:view',
+			'logviewer:list:view',
+			'log-viewer:list:view',
+			'log-viewer:read:result',
+		] ) {
+			expect( Core.node( name ) ).toBeNull();
+		}
 	} );
 
 	test( 'catalogs via the taillog-sources interpreter builtin (empty TO)', async () => {

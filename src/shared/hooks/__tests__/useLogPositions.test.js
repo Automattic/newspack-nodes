@@ -2,11 +2,11 @@
  * useLogPositions tests — the browse-model → SSE `positions` mapping shared by
  * the Partition Viewer (segments) and Log Viewer (sources). Live tails (null
  * positions → server 'end'); Browse opens a segment at offset 0; Replay seeks
- * 'start'; paging back walks to the previous existing segment id from log_status.
+ * 'start'; paging back walks to the previous existing segment id from dump_log.
  */
 
 import { renderHook, act, waitFor } from '@testing-library/react';
-import { Core, TO, VALUE } from '@newspack-nodes/runtime';
+import { Core, mountExospine, TO, VALUE } from '@newspack-nodes/runtime';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import useLogPositions, {
 	segmentPositions,
@@ -203,7 +203,7 @@ describe( 'useSegmentBrowse', () => {
 		const props = {
 			sub: SUB,
 			source: SOURCE,
-			railName: 'quartz:refresh',
+			railName: 'quartz-rail:timer',
 			mode: 'replay',
 			lastReceivedSegment: null,
 			...calls,
@@ -307,6 +307,18 @@ describe( 'useSegmentBrowse', () => {
 		expect( refresh ).toHaveBeenCalledTimes( 1 );
 	} );
 
+	// A caller naming no rail still owns a `<subject>:<role>` Timer.
+	it( 'names the refresh Timer log-rail:timer when no railName is given', () => {
+		let host;
+		act( () => {
+			host = mountExospine( () => {} );
+		} );
+		browse( { railName: undefined } );
+		expect( Core.node( 'log-rail:timer' ) ).toBeTruthy();
+		expect( Core.node( 'lograil:unused' ) ).toBeNull();
+		host.teardown();
+	} );
+
 	it( 'a record from a listed segment leaves the rail alone', () => {
 		const { refresh } = browse( { lastReceivedSegment: 41 } );
 		expect( refresh ).not.toHaveBeenCalled();
@@ -324,10 +336,10 @@ describe( 'useLogStatusSegments', () => {
 
 	it( 'resolves the rail for the selected dir', async () => {
 		const wire = installFakeCommandWire( ( m ) =>
-			'log_status' === m[ VALUE ]?.name ? { segments: RAIL } : null
+			'dump_log' === m[ VALUE ]?.name ? { segments: RAIL } : null
 		);
 		const { result } = renderHook( ( p ) => useLogStatusSegments( p ), {
-			initialProps: { sub: DIR, scope: 'quartz:status' },
+			initialProps: { sub: DIR, scope: 'quartz-segments' },
 		} );
 		await waitFor( () =>
 			expect( result.current.source.segments ).toEqual( RAIL )
@@ -335,7 +347,7 @@ describe( 'useLogStatusSegments', () => {
 		// Addressed to the CI that owns the verb, and about the dir it names.
 		const asked = wire.batches
 			.flat()
-			.find( ( m ) => 'log_status' === m[ VALUE ]?.name );
+			.find( ( m ) => 'dump_log' === m[ VALUE ]?.name );
 		expect( asked[ TO ] ).toBe( 'raw-logs' );
 		expect( asked[ VALUE ].arguments ).toEqual( [ DIR ] );
 	} );
@@ -343,18 +355,18 @@ describe( 'useLogStatusSegments', () => {
 	it( 'asks about the dir it is on, and nothing while none is selected', async () => {
 		const asked = [];
 		installFakeCommandWire( ( m ) => {
-			if ( 'log_status' === m[ VALUE ]?.name ) {
+			if ( 'dump_log' === m[ VALUE ]?.name ) {
 				asked.push( m[ VALUE ].arguments );
 			}
 			return { segments: RAIL };
 		} );
 		const { rerender } = renderHook( ( p ) => useLogStatusSegments( p ), {
-			initialProps: { sub: '', scope: 'quartz:status' },
+			initialProps: { sub: '', scope: 'quartz-segments' },
 		} );
 		await act( async () => {} );
 		expect( asked ).toEqual( [] );
 		await act( async () =>
-			rerender( { sub: DIR, scope: 'quartz:status' } )
+			rerender( { sub: DIR, scope: 'quartz-segments' } )
 		);
 		await waitFor( () => expect( asked ).toEqual( [ [ DIR ] ] ) );
 	} );
@@ -365,14 +377,14 @@ describe( 'useLogStatusSegments', () => {
 		installFakeCommandWire( () => ( { segments: RAIL } ) );
 		const { result, rerender } = renderHook(
 			( p ) => useLogStatusSegments( p ),
-			{ initialProps: { sub: DIR, scope: 'quartz:status' } }
+			{ initialProps: { sub: DIR, scope: 'quartz-segments' } }
 		);
 		await waitFor( () =>
 			expect( result.current.source.segments ).toEqual( RAIL )
 		);
 		const first = result.current.source;
 		await act( async () =>
-			rerender( { sub: DIR, scope: 'quartz:status' } )
+			rerender( { sub: DIR, scope: 'quartz-segments' } )
 		);
 		expect( result.current.source ).toBe( first );
 	} );
@@ -382,21 +394,21 @@ describe( 'useLogStatusSegments', () => {
 	it( 'a refused answer leaves the rail empty', async () => {
 		let refuse = false;
 		installFakeCommandWire( ( m ) => {
-			if ( 'log_status' !== m[ VALUE ]?.name ) {
+			if ( 'dump_log' !== m[ VALUE ]?.name ) {
 				return null;
 			}
 			return refuse ? new Error( 'nope' ) : { segments: RAIL };
 		} );
 		const { result, rerender } = renderHook(
 			( p ) => useLogStatusSegments( p ),
-			{ initialProps: { sub: DIR, scope: 'quartz:status' } }
+			{ initialProps: { sub: DIR, scope: 'quartz-segments' } }
 		);
 		await waitFor( () =>
 			expect( result.current.source.segments ).toEqual( RAIL )
 		);
 		refuse = true;
 		await act( async () =>
-			rerender( { sub: 'quartz.p8', scope: 'quartz:status' } )
+			rerender( { sub: 'quartz.p8', scope: 'quartz-segments' } )
 		);
 		await act( async () => result.current.refresh() );
 		expect( result.current.source.segments ).toEqual( [] );
@@ -406,13 +418,13 @@ describe( 'useLogStatusSegments', () => {
 		installFakeCommandWire( () => ( { segments: RAIL } ) );
 		const { result, rerender } = renderHook(
 			( p ) => useLogStatusSegments( p ),
-			{ initialProps: { sub: DIR, scope: 'quartz:status' } }
+			{ initialProps: { sub: DIR, scope: 'quartz-segments' } }
 		);
 		await waitFor( () =>
 			expect( result.current.source.segments ).toEqual( RAIL )
 		);
 		await act( async () =>
-			rerender( { sub: '', scope: 'quartz:status' } )
+			rerender( { sub: '', scope: 'quartz-segments' } )
 		);
 		expect( result.current.source.segments ).toEqual( [] );
 	} );

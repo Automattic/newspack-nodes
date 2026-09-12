@@ -16,7 +16,7 @@ import {
 } from '../../../runtime/message';
 import ProfilerView from '../ProfilerView';
 
-const POLLER = 'profiler:poller';
+const POLLER = 'profiler:fetch';
 
 beforeEach( () => {
 	Core.reset();

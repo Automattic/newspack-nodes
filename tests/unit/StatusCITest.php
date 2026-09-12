@@ -164,11 +164,11 @@ class StatusCITest extends TestCase {
 	 * Catalog-visibility guard (carried over from the ELN ServiceCiHandlerGuardTest
 	 * when this CI moved here): a future edit dropping node_schema's `category` to
 	 * ''/'Hidden' would silently hide Status_CI from the Inspector/palette while
-	 * every other test stayed green. Fire the substrate `classes list` and assert
+	 * every other test stayed green. Fire the substrate `classes dump` and assert
 	 * the CI surfaces under 'Service'.
 	 */
 	public function test_appears_in_class_catalog_as_service(): void {
-		$result = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'list' );
+		$result = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
 
 		$this->assertArrayHasKey( 'classes', $result );
 		// A stale classmap (no composer dump-autoload -o) yields zero classes and

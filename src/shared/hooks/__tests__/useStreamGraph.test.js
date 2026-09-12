@@ -352,7 +352,8 @@ describe( 'useSteppedRead', () => {
 
 	test( 'names its nodes from the graph it steps', () => {
 		mountStepped();
-		expect( Core.node( `${ PREFIX }:read:result` ) ).toBeTruthy();
+		expect( Core.node( `${ PREFIX }-step:result` ) ).toBeTruthy();
+		expect( Core.node( `${ PREFIX }:read:result` ) ).toBeNull();
 	} );
 
 	test( 'steps from the seek recorded in the same tick as the pause', async () => {

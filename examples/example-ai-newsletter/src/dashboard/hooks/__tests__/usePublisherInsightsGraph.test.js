@@ -2,12 +2,12 @@
  * usePublisherInsightsGraph tests — the Publisher Insights dashboard as a GENUINE
  * node graph, not a god object. The graph is:
  *
- *   insights:timer (Timer) ─> insights:tee (Tee) ─> fetch-counts (Fetcher) ─┐
- *                                                 ├> fetch-top    (Fetcher) ─┤  target = _shell/_http/insights-demo
- *                                                 └> fetch-acc    (Fetcher) ─┘
- *   countsIn (Tee) ─> source-counts:view ─> <SourceCounts/>
- *   topIn    (Tee) ─> top-table:view     ─> <TopTable/>
- *   accIn    (Tee) ─> accumulated:view   ─> <AccumulatedCard/>
+ *   insights:timer (Timer) ─> insights:tee (Tee) ─┬> source-counts:fetch (Fetcher) ─┐
+ *                                                 ├> top-table:fetch     (Fetcher) ─┤  target = _shell/_http/insights-demo
+ *                                                 └> accumulated:fetch   (Fetcher) ─┘
+ *   source-counts:in (Tee) ─> source-counts:view ─> <SourceCounts/>
+ *   top-table:in     (Tee) ─> top-table:view     ─> <TopTable/>
+ *   accumulated:in   (Tee) ─> accumulated:view   ─> <AccumulatedCard/>
  *
  * The Timer hitchhikes the router tick; the router brackets each tick with
  * `_http` lock/flush, so all three fetcher commands batch into ONE HttpOut POST.
@@ -73,12 +73,12 @@ describe( 'usePublisherInsightsGraph — graph wiring', () => {
 			SHELL,
 			'insights:timer',
 			'insights:tee',
-			'fetch-counts',
-			'fetch-top',
-			'fetch-acc',
-			'countsIn',
-			'topIn',
-			'accIn',
+			'source-counts:fetch',
+			'top-table:fetch',
+			'accumulated:fetch',
+			'source-counts:in',
+			'top-table:in',
+			'accumulated:in',
 			'source-counts:view',
 			'top-table:view',
 			'accumulated:view',
@@ -87,6 +87,10 @@ describe( 'usePublisherInsightsGraph — graph wiring', () => {
 			const node = Core.node( name );
 			expect( node ).toBeTruthy();
 			expect( node.sink ).toBe( interpreter );
+		}
+		// Every name is `<subject>:<role>`; the verb-first spellings are gone.
+		for ( const name of [ 'fetch-counts', 'countsIn', 'fetch-acc' ] ) {
+			expect( Core.node( name ) ).toBeNull();
 		}
 	} );
 
@@ -103,13 +107,15 @@ describe( 'usePublisherInsightsGraph — graph wiring', () => {
 		renderHook( () => usePublisherInsightsGraph() );
 		await act( async () => {} );
 		const path = `${ SHELL }/${ HTTP }/insights-demo`;
-		expect( Core.node( 'fetch-counts' ).receiver ).toBe( 'countsIn' );
-		expect( Core.node( 'fetch-counts' ).verb ).toBe( 'counts' );
-		expect( Core.node( 'fetch-counts' ).target ).toBe( path );
-		expect( Core.node( 'fetch-top' ).verb ).toBe( 'top' );
-		expect( Core.node( 'fetch-top' ).target ).toBe( path );
-		expect( Core.node( 'fetch-acc' ).verb ).toBe( 'accumulated' );
-		expect( Core.node( 'fetch-acc' ).target ).toBe( path );
+		expect( Core.node( 'source-counts:fetch' ).receiver ).toBe(
+			'source-counts:in'
+		);
+		expect( Core.node( 'source-counts:fetch' ).verb ).toBe( 'counts' );
+		expect( Core.node( 'source-counts:fetch' ).target ).toBe( path );
+		expect( Core.node( 'top-table:fetch' ).verb ).toBe( 'top' );
+		expect( Core.node( 'top-table:fetch' ).target ).toBe( path );
+		expect( Core.node( 'accumulated:fetch' ).verb ).toBe( 'accumulated' );
+		expect( Core.node( 'accumulated:fetch' ).target ).toBe( path );
 	} );
 } );
 
@@ -144,9 +150,9 @@ describe( 'usePublisherInsightsGraph — batched poll', () => {
 		] );
 		// HttpOut strips `_shell/_http/`, so the posted TO is the bare server node.
 		expect( byVerb.counts[ TO ] ).toBe( 'insights-demo' );
-		expect( byVerb.counts[ FROM ] ).toBe( 'countsIn' );
-		expect( byVerb.top[ FROM ] ).toBe( 'topIn' );
-		expect( byVerb.accumulated[ FROM ] ).toBe( 'accIn' );
+		expect( byVerb.counts[ FROM ] ).toBe( 'source-counts:in' );
+		expect( byVerb.top[ FROM ] ).toBe( 'top-table:in' );
+		expect( byVerb.accumulated[ FROM ] ).toBe( 'accumulated:in' );
 	} );
 
 	test( 'while the tab is HIDDEN no router tick posts; becoming visible resumes polling', async () => {

@@ -46,10 +46,10 @@
  *
  * @param {Object}           interpreter         The mounted CommandInterpreter node.
  * @param {Object}           slice
- * @param {string}           slice.fetcher       Fetcher node name (e.g. `fetch-counts`).
- * @param {string}           slice.receiver      Receiver Tee name; the reply routes back here (Fetcher FROM).
+ * @param {string}           slice.fetcher       Fetcher node name (`<subject>:fetch`).
+ * @param {string}           slice.receiver      Receiver Tee name (`<subject>:in`); the reply routes back here (Fetcher FROM).
  * @param {string}           slice.command       The verb the Fetcher sends.
- * @param {string}           slice.view          View node name.
+ * @param {string}           slice.view          View node name (`<subject>:view`).
  * @param {string|NodeClass} slice.viewClass     The view node's class, or its registered name. Hand the CLASS when you have it: the name map is a per-bundle static, so a hub tab building its graph through another bundle's interpreter cannot resolve a name its own bundle registered (ADR-16).
  * @param {TeeNode|Node}     slice.tee           The node the tick fans out from. A Tee for a slice hanging off a shared poll; a Timer for one that owns its own cadence, as the URL-detail modal does. All this needs is `connectNode`, which both carry — declaring the Tee alone refuses the second shape the toolkit was built for.
  * @param {string}           slice.target        Egress path the Fetcher targets (`_shell/_http/<ci>`).

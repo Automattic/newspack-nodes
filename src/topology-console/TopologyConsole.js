@@ -525,7 +525,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	// Shell cwd mirrored into React; shell.path is the source of truth.
 	const [ cwd, setCwd ] = useState( '' );
 
-	// Live topology catalog (counts + active set) from topologies.list.
+	// Live topology catalog (counts + active set) from topologies.dump.
 	const {
 		partitions: topologyWorkers,
 		active: activeTopologies,
@@ -748,7 +748,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	 *
 	 * Both entry points — the flip into edit mode and the OPEN dialog — name
 	 * what they want here rather than awaiting a `topologies get` of their own
-	 * beside their own `classes list`. The ask rides the batched tick, and the
+	 * beside their own `classes dump`. The ask rides the batched tick, and the
 	 * effect below is the one place that turns a topology into a draft.
 	 */
 	const [ opening, setOpening ] = useState( null );

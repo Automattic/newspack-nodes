@@ -1,5 +1,5 @@
 /**
- * LogViewer UI-surface tests — the thin DOM view over the logviewer node graph.
+ * LogViewer UI-surface tests — the thin DOM view over the log-viewer node graph.
  * The list (LogRowList) and segment sidebar (LogBrowser) have their own suites;
  * here they are mocked to markers capturing the props LogViewer wires in, so
  * these tests cover the toolbar source dropdown, the segment sidebar, Live /
@@ -67,7 +67,7 @@ const SOURCES = [
 	},
 ];
 
-// Stand-in logviewer:view node: model in setStateCache.view, ring on the node.
+// Stand-in log-viewer:view node: model in setStateCache.view, ring on the node.
 function registerViewFixture( {
 	selected = '',
 	paused = false,
@@ -109,7 +109,7 @@ function registerViewFixture( {
 		mode,
 		lastReceivedSegment,
 	} );
-	Core.nodes.set( 'logviewer:view', node );
+	Core.nodes.set( 'log-viewer:view', node );
 	return node;
 }
 
@@ -129,7 +129,7 @@ describe( 'LogViewer', () => {
 			step,
 			clear: clearGraph,
 			setFilter: ( term ) => {
-				const view = Core.nodes.get( 'logviewer:view' );
+				const view = Core.nodes.get( 'log-viewer:view' );
 				if ( view ) {
 					view.filter = String( term ).toLowerCase();
 				}

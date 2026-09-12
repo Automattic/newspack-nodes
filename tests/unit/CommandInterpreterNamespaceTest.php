@@ -132,9 +132,9 @@ class CommandInterpreterNamespaceTest extends TestCase {
 	}
 
 	public function test_classes_ci_list_includes_registered_substrate_nodes(): void {
-		// `list` is gated by the Service_CI base; grant the cap to exercise it.
+		// `dump` is gated by the Service_CI base; grant the cap to exercise it.
 		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
-		$result = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'list' );
+		$result = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
 
 		$this->assertIsArray( $result );
 		$shell_names = \array_column( $result['classes'], 'shell_name' );

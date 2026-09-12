@@ -11,8 +11,8 @@ import { SliceViewNode } from '@newspack-nodes/shared/nodes/slice-view-node';
  * only the empty shape.
  *
  * The slice gets a node of its own because the reply is addressed rather than
- * correlated (ADR-7): the `fetch-counts` Fetcher stamps `FROM = countsIn`, the
- * CI answers `TO = FROM`, and the `countsIn` Tee fans that reply to this view
+ * correlated (ADR-7): the `source-counts:fetch` Fetcher stamps `FROM = source-counts:in`, the
+ * CI answers `TO = FROM`, and the `source-counts:in` Tee fans that reply to this view
  * and back to the Fetcher, which settles the ask — never to a sibling slice.
  * One node holding counts, top and accumulated would have to tell three replies
  * apart, and a `top` failure would put its error where the counts bars are.

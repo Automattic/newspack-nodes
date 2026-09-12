@@ -7,10 +7,10 @@
  *
  * Graph, clipped onto the rule-#2 backbone `useBatchedPoll` owns:
  *
- *   topologymanager:timer (Timer) ─> topologymanager:tee (Tee) ─> fetch-workers   ─┐ target = _shell/_http/workers
- *                                                              └> fetch-topologies ┤ target = _shell/_http/topologies
- *   workerstatus:in    (Tee) ─> workerstatus:transform ─> workerstatus:view ─> React
- *   topologymanager:in (Tee) ─> topologymanager:view                        ─> React
+ *   topology-manager:timer (Timer) ─> topology-manager:tee (Tee) ─> worker-status:fetch    ─┐ target = _shell/_http/workers
+ *                                                                 └> topology-manager:fetch ┤ target = _shell/_http/topologies
+ *   worker-status:in    (Tee) ─> worker-status:transform ─> worker-status:view ─> React
+ *   topology-manager:in (Tee) ─> topology-manager:view                        ─> React
  *
  * `useBatchedPoll` owns every piece of the poll boilerplate: the `_shell` Tap
  * and the `_http` HttpOut egress, the fan-out Tee and the router-hitchhike
@@ -19,13 +19,13 @@
  * slices, through `addSliceFetcher`:
  *  - the worker slice fires `dump_graph` and fills the `transform` slot, so
  *    the `WorkerStatusTransform` enrich-join lands on the graph EDGE between
- *    `workerstatus:in` and the view rather than inside the view;
- *  - the topology slice fires `topologies list` straight into its view.
+ *    `worker-status:in` and the view rather than inside the view;
+ *  - the topology slice fires `topologies dump` straight into its view.
  *
  * `dump_graph` stays ONE verb rather than splitting into per-section slices.
  * `reconstructWorkers` joins its four sections — workers, consumers, logs and
  * graph — and that join is sound only over a single atomic snapshot, which
- * independently-timed slices cannot give it. `topologies list` shares nothing
+ * independently-timed slices cannot give it. `topologies dump` shares nothing
  * with that snapshot, so it earns a slice of its own. Both verbs already exist;
  * neither needs a server change.
  *
@@ -38,7 +38,7 @@
  * reject.
  *
  * The merge indexes the worker-status model's per-topology sections by name —
- * its `graph` keys ARE topology names — and hands every `topologies list` row
+ * its `graph` keys ARE topology names — and hands every `topologies dump` row
  * `status = byName[ row.name ] ?? null`.
  */
 
@@ -69,15 +69,15 @@ const STALE_POLL_INTERVALS = 3;
 const BEHIND_ETA_S = 60;
 
 /** The view node publishing the enriched worker-status model. */
-const WORKER_VIEW = 'workerstatus:view';
+const WORKER_VIEW = 'worker-status:view';
 
 /** The view node publishing the topology list. */
-const TOPOLOGY_VIEW = 'topologymanager:view';
+const TOPOLOGY_VIEW = 'topology-manager:view';
 
 /** The server CI owning `dump_graph` and `restart`. */
 const WORKERS_CI = 'workers';
 
-/** The server CI owning `list`, `activate` and `deactivate`. */
+/** The server CI owning `dump`, `activate` and `deactivate`. */
 const TOPOLOGIES_CI = 'topologies';
 
 /**
@@ -87,21 +87,21 @@ const TOPOLOGIES_CI = 'topologies';
  */
 const SLICES = [
 	{
-		fetcher: 'fetch-workers',
-		receiver: 'workerstatus:in',
+		fetcher: 'worker-status:fetch',
+		receiver: 'worker-status:in',
 		command: 'dump_graph',
 		view: WORKER_VIEW,
 		viewClass: views.WorkerStatusView,
 		target: egressPath( WORKERS_CI ),
 		transform: {
-			name: 'workerstatus:transform',
+			name: 'worker-status:transform',
 			nodeClass: views.WorkerStatusTransform,
 		},
 	},
 	{
-		fetcher: 'fetch-topologies',
-		receiver: 'topologymanager:in',
-		command: 'list',
+		fetcher: 'topology-manager:fetch',
+		receiver: 'topology-manager:in',
+		command: 'dump',
 		view: TOPOLOGY_VIEW,
 		viewClass: views.TopologyManagerView,
 		target: egressPath( TOPOLOGIES_CI ),
@@ -287,8 +287,8 @@ export function useTopologyManager( opts = {} ) {
 				addSliceFetcher( interpreter, { ...slice, tee } )
 			);
 		},
-		timerName: 'topologymanager:timer',
-		teeName: 'topologymanager:tee',
+		timerName: 'topology-manager:timer',
+		teeName: 'topology-manager:tee',
 		paused,
 		// One cadence for the poll and the freshness re-check below.
 		intervalMs: refreshMs,
@@ -361,7 +361,7 @@ export function useTopologyManager( opts = {} ) {
 	const [ , bumpFreshness ] = useState( 0 );
 	const bump = useCallback( () => bumpFreshness( ( n ) => n + 1 ), [] );
 	useRouterTick( {
-		name: 'topologymanager:freshness',
+		name: 'freshness:timer',
 		onTick: bump,
 		intervalMs: refreshMs,
 	} );

@@ -19,9 +19,9 @@
  * `Core::as_string()` and writes nothing rather than the useless word `Array`.
  * Put a Dumper in front to turn a struct into a line.
  *
- * The stream and the single `fwrite` on it are all this file owns for both
- * terminal writers: `TTY_Out_Node` extends it with readline and ANSI redraw
- * and inherits the coercion unchanged.
+ * The stream and the whole-string write on it are all this file owns for
+ * both terminal writers: `TTY_Out_Node` extends it with readline and ANSI
+ * redraw and inherits the coercion and the write loop unchanged.
  *
  * @package Newspack_Nodes
  */
@@ -37,13 +37,19 @@ namespace Newspack_Nodes;
 class Stdout_Node extends Node {
 
 	/**
-	 * The stream every write lands on, owned for the node's lifetime.
-	 * Protected rather than private because `TTY_Out_Node` writes its prompts
-	 * straight to it, outside the `write()` seam.
+	 * Microseconds one refused write waits for the terminal to drain before it
+	 * is retried. The wait is a ceiling: writability ends it early.
+	 */
+	private const WRITE_WAIT_US = 100000;
+
+	/**
+	 * The stream every write lands on, owned for the node's lifetime. Private
+	 * because `write_all()` is the only way onto it: `TTY_Out_Node` composes
+	 * its redraw and hands the bytes here.
 	 *
 	 * @var resource
 	 */
-	protected $stdout;
+	private $stdout;
 
 	/**
 	 * Whether the owned stream is a real terminal, settled once at construction
@@ -93,7 +99,7 @@ class Stdout_Node extends Node {
 	}
 
 	/**
-	 * Write seam: the one `fwrite` on the data path, the one place a control
+	 * Write seam: the one write on the data path, the one place a control
 	 * character in a payload is rendered visible, and the only call a subclass
 	 * has to intercept. `TTY_Out_Node` overrides it to wipe and redraw around a
 	 * live prompt, which is why the coercion and the counter sit in `fill()` —
@@ -102,8 +108,7 @@ class Stdout_Node extends Node {
 	 * @param string $text Bytes to write, control characters not yet rendered.
 	 */
 	protected function write( string $text ): void {
-		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
-		\fwrite( $this->stdout, Core::terminal_safe( $text, $this->stdout_is_tty ) );
+		$this->write_all( Core::terminal_safe( $text, $this->stdout_is_tty ) );
 	}
 
 	/**
@@ -119,8 +124,50 @@ class Stdout_Node extends Node {
 	 * @param string $text Trusted bytes, written exactly as given.
 	 */
 	public function write_raw( string $text ): void {
-		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
-		\fwrite( $this->stdout, $text );
+		$this->write_all( $text );
+	}
+
+	/**
+	 * Put every byte of $bytes on the owned stream, waiting out a full
+	 * terminal buffer rather than dropping what it refused.
+	 *
+	 * On a pty, fd 0 and fd 1 share one open file description, so the
+	 * O_NONBLOCK that `Stdin_Node` sets on STDIN lands on STDOUT too, and one
+	 * `fwrite` there returns the short count the pty buffer took — 12KB of a
+	 * long reply, the rest silently gone. A refused write here waits for the
+	 * stream to become writable, then offers the remainder again. It gives up
+	 * only when the write itself fails, because a terminal refuses a write
+	 * while its reader catches up, not because it is full for good; a closed
+	 * handle throws at `fwrite` before this loop sees it, as it always has.
+	 * The wait's own result is not read: `stream_select()`
+	 * returns false on EINTR as readily as on a bad descriptor, and
+	 * `Event_Framework` installs signal handlers, so a false there means
+	 * retry, and the descriptor going bad surfaces on the next `fwrite`.
+	 *
+	 * `File_Writer::write_all()` is the segment writer's loop, not this one:
+	 * it spends a five-refusal budget with no wait, then reports a short count
+	 * for `Partition_Node` to quarantine, which is right for a full disk and
+	 * wrong for a terminal, where there is nothing to quarantine and the
+	 * refusal clears on its own.
+	 *
+	 * @param string $bytes Bytes to write, already rendered where they should be.
+	 */
+	protected function write_all( string $bytes ): void {
+		$read   = [];
+		$except = [];
+		while ( '' !== $bytes ) {
+			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
+			$written = \fwrite( $this->stdout, $bytes );
+			if ( false === $written ) {
+				return;
+			}
+			if ( 0 === $written ) {
+				$write = [ $this->stdout ];
+				@\stream_select( $read, $write, $except, 0, self::WRITE_WAIT_US );
+				continue;
+			}
+			$bytes = \substr( $bytes, $written );
+		}
 	}
 
 	/**

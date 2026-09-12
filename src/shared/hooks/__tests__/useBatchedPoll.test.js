@@ -54,22 +54,22 @@ function setVisibility( state ) {
 // The three Publisher-Insights slices, as the example will pass them.
 const SLICES = [
 	{
-		fetcher: 'fetch-counts',
-		receiver: 'countsIn',
+		fetcher: 'counts:fetch',
+		receiver: 'counts:in',
 		command: 'counts',
 		view: 'source-counts:view',
 		viewClass: 'SourceCountsView',
 	},
 	{
-		fetcher: 'fetch-top',
-		receiver: 'topIn',
+		fetcher: 'top:fetch',
+		receiver: 'top:in',
 		command: 'top',
 		view: 'top-table:view',
 		viewClass: 'TopTableView',
 	},
 	{
-		fetcher: 'fetch-acc',
-		receiver: 'accIn',
+		fetcher: 'accumulated:fetch',
+		receiver: 'accumulated:in',
 		command: 'accumulated',
 		view: 'accumulated:view',
 		viewClass: 'AccumulatedView',
@@ -175,16 +175,20 @@ describe( 'useBatchedPoll — backbone + boilerplate it owns', () => {
 		renderPoll( {} );
 		await act( async () => {} );
 		// build wired the three fetchers through addSliceFetcher.
-		for ( const name of [ 'fetch-counts', 'fetch-top', 'fetch-acc' ] ) {
+		for ( const name of [
+			'counts:fetch',
+			'top:fetch',
+			'accumulated:fetch',
+		] ) {
 			expect( Core.node( name ) ).toBeTruthy();
 			expect( Core.node( name ).target ).toBe( TARGET );
 		}
 		// All three are fanned from the owned Tee.
 		expect( Core.node( 'insights:tee' ).target ).toEqual(
 			expect.arrayContaining( [
-				'fetch-counts',
-				'fetch-top',
-				'fetch-acc',
+				'counts:fetch',
+				'top:fetch',
+				'accumulated:fetch',
 			] )
 		);
 	} );

@@ -42,7 +42,7 @@ const NO_SCHEMAS = Object.freeze( {} );
  * @param {ReadonlyArray<Object>}     [props.classes]        Class list — the palette's tiles and the inspector's verb schemas.
  * @param {ReadonlyArray<string>}     [props.formatters]     Registered formatter names, offered in the argument editors.
  * @param {ReadonlyArray<Object>}     [props.vaults]         Vault catalog, behind the `vault_id` argument dropdown.
- * @param {ReadonlyArray<Object>}     [props.topologies]     `topologies list` entries, the palette's topology tiles.
+ * @param {ReadonlyArray<Object>}     [props.topologies]     `topologies dump` entries, the palette's topology tiles.
  * @param {string[]}                  [props.composeTargets] The Compose modal's "To" list. A mount that supplies none leaves it undefined, so the inspector falls back to the ids of the graph on screen.
  * @param {import('react').ReactNode} props.children         Consumers.
  * @return {import('react').ReactElement} The provider.

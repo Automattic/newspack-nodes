@@ -1,7 +1,7 @@
 /**
  * Log Viewer Component — DOM-rendered live tail of registry log sources.
  *
- * A THIN view over the `logviewer:*` graph (mounted by `useLogViewerGraph`),
+ * A THIN view over the `log-viewer:*` graph (mounted by `useLogViewerGraph`),
  * which opens the substrate's `GET /log/stream` and catalogs sources via
  * `taillog sources`. The chrome (toolbar dropdown, filter, counts, pause,
  * clear, banner, body split) is the shared `LogStreamViewer`; browsing the
@@ -11,7 +11,7 @@
  *
  * `taillog sources` already carries each source's segment list and is polled,
  * so the rail is handed the catalog row it needs and no refresh timer of its
- * own — unlike the Partition Viewer, which asks `log_status` per partition.
+ * own — unlike the Partition Viewer, which asks `dump_log` per partition.
  */
 
 import { useCallback, useMemo } from '@wordpress/element';
@@ -38,7 +38,7 @@ const ROW_HEIGHT = 33;
  * holds the ring and publishes the low-frequency `view` model; the component
  * addresses it by name because `LogRowList` pulls rows straight off the node.
  */
-const VIEW_NODE = 'logviewer:view';
+const VIEW_NODE = 'log-viewer:view';
 
 /**
  * The model rendered until the view node publishes its first `view` state — a

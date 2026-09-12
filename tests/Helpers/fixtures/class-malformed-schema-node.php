@@ -2,7 +2,7 @@
 /**
  * Malformed_Schema_Node: a discoverable fixture whose node_schema()'s
  * commands[] mixes a non-array entry (a bare string) with a well-formed verb.
- * Used by ClassesCITest to prove the catalog `list` strip tolerates a
+ * Used by ClassesCITest to prove the catalog `dump` strip tolerates a
  * malformed verb (skips it) instead of fatal-ing the whole palette with a
  * TypeError.
  *

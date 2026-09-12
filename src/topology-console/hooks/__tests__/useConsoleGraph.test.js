@@ -468,7 +468,7 @@ describe( 'useConsoleGraph — visibility-gated streaming', () => {
 
 	it( 'stops the router tick when hidden, so every poller stops with it', async () => {
 		// Pollers hitchhike the tick — dump_metadata (1s), uptime (5s), dmesg
-		// (10s), topologies list (10s). Only the SSE was gated, so a hidden
+		// (10s), topologies dump (10s). Only the SSE was gated, so a hidden
 		// console kept POSTing all of them. (The heartbeat was already silent:
 		// closing the stream calls clearSlot, which stopTimers on the last
 		// lease.) Gating the tick they share stops them coherently.

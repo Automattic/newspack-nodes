@@ -1,6 +1,6 @@
 /**
- * workerstatus:view tests — the render-state node React reads via
- * useNodeState('workerstatus:view','view').
+ * worker-status:view tests — the render-state node React reads via
+ * useNodeState('worker-status:view','view').
  *
  * Post-migration to substrate `_http`, the view follows the canonical
  * serversView pattern:
@@ -35,7 +35,7 @@ function makeView( name ) {
 	return node;
 }
 
-// A model envelope from workerstatus:transform.
+// A model envelope from worker-status:transform.
 function modelMsg( model ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_STRUCT;
@@ -74,9 +74,9 @@ const baseModel = ( overrides = {} ) => ( {
 	...overrides,
 } );
 
-describe( 'workerstatus:view — model publish', () => {
+describe( 'worker-status:view — model publish', () => {
 	test( 'a model message publishes setState("view", model)', () => {
-		const v = makeView( 'workerstatus:view' );
+		const v = makeView( 'worker-status:view' );
 		const model = baseModel( {
 			workers: [ { type: 'firehose-workers' } ],
 		} );
@@ -85,16 +85,16 @@ describe( 'workerstatus:view — model publish', () => {
 	} );
 
 	test( 'a later model replaces the published view', () => {
-		const v = makeView( 'workerstatus:view' );
+		const v = makeView( 'worker-status:view' );
 		v.fill( modelMsg( baseModel( { currentTime: 1 } ) ) );
 		v.fill( modelMsg( baseModel( { currentTime: 2 } ) ) );
 		expect( v.setStateCache.view.currentTime ).toBe( 2 );
 	} );
 } );
 
-describe( 'workerstatus:view — pre-poll model', () => {
+describe( 'worker-status:view — pre-poll model', () => {
 	test( 'publishes the empty model, so a render before the first poll is valid', () => {
-		const v = makeView( 'workerstatus:view' );
+		const v = makeView( 'worker-status:view' );
 		expect( v.setStateCache.view ).toMatchObject( {
 			workers: [],
 			logs: [],
@@ -104,9 +104,9 @@ describe( 'workerstatus:view — pre-poll model', () => {
 	} );
 } );
 
-describe( 'workerstatus:view — un-correlated TM_ERROR (global error)', () => {
+describe( 'worker-status:view — un-correlated TM_ERROR (global error)', () => {
 	test( 'an un-correlated TM_ERROR (no matching pending) surfaces into view.error', () => {
-		const v = makeView( 'workerstatus:view' );
+		const v = makeView( 'worker-status:view' );
 		v.fill( modelMsg( baseModel() ) );
 		// Nothing correlates a restart here, so it takes the global error path.
 		v.fill( restartErrorReply( 'never-stashed', 'broadcast failure' ) );
@@ -115,7 +115,7 @@ describe( 'workerstatus:view — un-correlated TM_ERROR (global error)', () => {
 	} );
 
 	test( 'a TM_ERROR carrying a bare STRING VALUE still surfaces', () => {
-		const v = makeView( 'workerstatus:view' );
+		const v = makeView( 'worker-status:view' );
 		const m = newMessage();
 		m[ TYPE ] = TM_COMMAND | TM_RESPONSE | TM_ERROR;
 		m[ VALUE ] = 'NOT_AVAILABLE\n';
@@ -126,11 +126,11 @@ describe( 'workerstatus:view — un-correlated TM_ERROR (global error)', () => {
 	} );
 } );
 
-describe( 'workerstatus:view — removing-segment animation', () => {
+describe( 'worker-status:view — removing-segment animation', () => {
 	test( 'the slide-out clear arrives as a message, so the overlay counts it', () => {
 		jest.useFakeTimers();
 		try {
-			const v = makeView( 'workerstatus:view' );
+			const v = makeView( 'worker-status:view' );
 			v.fill(
 				modelMsg(
 					baseModel( {
@@ -148,7 +148,7 @@ describe( 'workerstatus:view — removing-segment animation', () => {
 	test( 'a model with removingSegments schedules a 400ms clear that blanks them', () => {
 		jest.useFakeTimers();
 		try {
-			const v = makeView( 'workerstatus:view' );
+			const v = makeView( 'worker-status:view' );
 			v.fill(
 				modelMsg(
 					baseModel( {
@@ -169,7 +169,7 @@ describe( 'workerstatus:view — removing-segment animation', () => {
 	} );
 
 	test( 'a clear-removing control blanks removingSegments and republishes', () => {
-		const v = makeView( 'workerstatus:view' );
+		const v = makeView( 'worker-status:view' );
 		v.fill(
 			modelMsg(
 				baseModel( {
@@ -184,7 +184,7 @@ describe( 'workerstatus:view — removing-segment animation', () => {
 	test( 'a model with no removals schedules no clear timer', () => {
 		jest.useFakeTimers();
 		try {
-			const v = makeView( 'workerstatus:view' );
+			const v = makeView( 'worker-status:view' );
 			const spy = jest.spyOn( v, 'setState' );
 			v.fill( modelMsg( baseModel() ) );
 			spy.mockClear();
@@ -196,11 +196,11 @@ describe( 'workerstatus:view — removing-segment animation', () => {
 	} );
 } );
 
-describe( 'workerstatus:view — teardown', () => {
+describe( 'worker-status:view — teardown', () => {
 	test( 'removeNode() clears a pending removing-clear timer (no later setState)', () => {
 		jest.useFakeTimers();
 		try {
-			const v = makeView( 'workerstatus:view' );
+			const v = makeView( 'worker-status:view' );
 			v.fill(
 				modelMsg(
 					baseModel( {
@@ -220,19 +220,19 @@ describe( 'workerstatus:view — teardown', () => {
 	} );
 
 	test( 'removeNode() is safe when no timer is pending', () => {
-		const v = makeView( 'workerstatus:view' );
+		const v = makeView( 'worker-status:view' );
 		expect( () => v.removeNode() ).not.toThrow();
 	} );
 } );
 
-describe( 'workerstatus:view — node wiring', () => {
+describe( 'worker-status:view — node wiring', () => {
 	test( 'names the node', () => {
-		const v = makeView( 'workerstatus:view' );
-		expect( v.name ).toBe( 'workerstatus:view' );
+		const v = makeView( 'worker-status:view' );
+		expect( v.name ).toBe( 'worker-status:view' );
 	} );
 
 	test( 'fill increments the node counter so the overlay shows throughput', () => {
-		const v = makeView( 'workerstatus:view' );
+		const v = makeView( 'worker-status:view' );
 		expect( v.counter ).toBe( 0 );
 		v.fill( modelMsg( {} ) );
 		v.fill( modelMsg( {} ) );

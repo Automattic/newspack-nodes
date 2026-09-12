@@ -10,8 +10,8 @@ import { SliceViewNode } from '@newspack-nodes/shared/nodes/slice-view-node';
  * after each draft and climbs again.
  *
  * The slice is the reply to `Insights_CI_Demo_Node`'s `accumulated` verb: the
- * `fetch-acc` Fetcher mints the command with FROM = `accIn`, the server answers
- * TO = FROM, and the `accIn` Tee fans that reply here. One slice per view is
+ * `accumulated:fetch` Fetcher mints the command with FROM = `accumulated:in`, the server answers
+ * TO = FROM, and the `accumulated:in` Tee fans that reply here. One slice per view is
  * what keeps a failed read off the sibling cards — a single view holding
  * `{ counts, top, accumulated }` would publish one slice's error to all three.
  *

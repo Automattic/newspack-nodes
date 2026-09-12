@@ -388,7 +388,7 @@ export function useConsoleGraph( {
 	}, [ streamEnabled, isPageVisible, topology, partition, enabled ] );
 
 	// @longform Pollers hitchhike the router tick — dump_metadata, uptime,
-	// dmesg, topologies list. Gating each arm site is one site away from a
+	// dmesg, topologies dump. Gating each arm site is one site away from a
 	// leak; gating the tick they share stops them together and resumes them in
 	// step. NOT gated on `enabled`: that is false in edit mode, where the
 	// catalog poller deliberately stays mounted, so honouring it would leave

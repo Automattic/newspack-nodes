@@ -21,23 +21,23 @@ import {
 
 test( 'arguments parses receiver + command with no command args', () => {
 	const f = new FetcherNode();
-	f.arguments = [ 'countsIn', 'counts' ];
-	expect( f.receiver ).toBe( 'countsIn' );
+	f.arguments = [ 'counts:in', 'counts' ];
+	expect( f.receiver ).toBe( 'counts:in' );
 	expect( f.verb ).toBe( 'counts' );
 	expect( f.command_args ).toEqual( [] );
 } );
 
 test( 'arguments parses receiver + command + variadic command args', () => {
 	const f = new FetcherNode();
-	f.arguments = [ 'topIn', 'rank', '--limit', '10' ];
-	expect( f.receiver ).toBe( 'topIn' );
+	f.arguments = [ 'top:in', 'rank', '--limit', '10' ];
+	expect( f.receiver ).toBe( 'top:in' );
 	expect( f.verb ).toBe( 'rank' );
 	expect( f.command_args ).toEqual( [ '--limit', '10' ] );
 } );
 
 test( 'fill emits ONE TM_COMMAND with FROM=receiver and the configured command VALUE', () => {
 	const f = new FetcherNode();
-	f.arguments = [ 'topIn', 'rank', '--limit', '10' ];
+	f.arguments = [ 'top:in', 'rank', '--limit', '10' ];
 	f.target = '_http/ci';
 	const sent = [];
 	f.sink = { fill: ( m ) => sent.push( m ) };
@@ -50,7 +50,7 @@ test( 'fill emits ONE TM_COMMAND with FROM=receiver and the configured command V
 	expect( sent ).toHaveLength( 1 );
 	const m = sent[ 0 ];
 	expect( m[ TYPE ] & TM_COMMAND ).toBe( TM_COMMAND );
-	expect( m[ FROM ] ).toBe( 'topIn' );
+	expect( m[ FROM ] ).toBe( 'top:in' );
 	expect( m[ VALUE ] ).toMatchObject( {
 		name: 'rank',
 		arguments: [ '--limit', '10' ],
@@ -60,7 +60,7 @@ test( 'fill emits ONE TM_COMMAND with FROM=receiver and the configured command V
 
 test( 'fill ignores the trigger payload — a struct trigger carrying its own command changes nothing', () => {
 	const f = new FetcherNode();
-	f.arguments = [ 'countsIn', 'counts' ];
+	f.arguments = [ 'counts:in', 'counts' ];
 	f.target = '_shell';
 	const sent = [];
 	f.sink = { fill: ( m ) => sent.push( m ) };
@@ -73,14 +73,14 @@ test( 'fill ignores the trigger payload — a struct trigger carrying its own co
 
 	expect( sent ).toHaveLength( 1 );
 	const m = sent[ 0 ];
-	expect( m[ FROM ] ).toBe( 'countsIn' );
+	expect( m[ FROM ] ).toBe( 'counts:in' );
 	expect( m[ VALUE ] ).toMatchObject( { name: 'counts', arguments: [] } );
 	expect( m[ TO ] ).toBe( '_shell' );
 } );
 
 test( 'fill on an empty trigger still emits the configured command', () => {
 	const f = new FetcherNode();
-	f.arguments = [ 'countsIn', 'counts' ];
+	f.arguments = [ 'counts:in', 'counts' ];
 	f.target = '_shell';
 	const sent = [];
 	f.sink = { fill: ( m ) => sent.push( m ) };
@@ -136,7 +136,7 @@ test( 'a function command_args returning a non-array coerces to empty args', () 
 
 test( 'static string command_args still works byte-identically (no getter)', () => {
 	const f = new FetcherNode();
-	f.arguments = [ 'topIn', 'rank', '--limit', '10' ];
+	f.arguments = [ 'top:in', 'rank', '--limit', '10' ];
 	const sent = [];
 	f.sink = { fill: ( m ) => sent.push( m ) };
 	f.fill( newMessage() );
@@ -148,7 +148,7 @@ test( 'static string command_args still works byte-identically (no getter)', () 
 
 test( 'counter bumps per ask', () => {
 	const f = new FetcherNode();
-	f.arguments = [ 'countsIn', 'counts' ];
+	f.arguments = [ 'counts:in', 'counts' ];
 	f.sink = { fill: () => {} };
 	f.fill( newMessage() );
 	// A trigger arriving on an outstanding ask sends nothing, so counts nothing.
@@ -160,11 +160,11 @@ test( "makeNode('Fetcher', name) resolves the registered class", () => {
 	const ci = new CommandInterpreterNode();
 	ci.name = '_ci_fetcher_test';
 	const node = ci.makeNode( 'Fetcher', 'myFetcher', [
-		'countsIn',
+		'counts:in',
 		'counts',
 	] );
 	expect( node ).toBeInstanceOf( FetcherNode );
-	expect( node.receiver ).toBe( 'countsIn' );
+	expect( node.receiver ).toBe( 'counts:in' );
 	expect( node.verb ).toBe( 'counts' );
 } );
 
@@ -188,7 +188,7 @@ test( 'a poll tick with no session re-authenticates', async () => {
 	} );
 
 	const f = new FetcherNode();
-	f.arguments = [ 'topIn', 'rank' ];
+	f.arguments = [ 'top:in', 'rank' ];
 	f.sink = { fill: () => {} };
 
 	const trigger = newMessage();
@@ -325,7 +325,7 @@ const replyNaming = ( path = '', value = {} ) => {
 describe( 'FetcherNode — the outbox', () => {
 	const mount = ( verb = 'counts' ) => {
 		const f = new FetcherNode();
-		f.arguments = [ 'countsIn', verb ];
+		f.arguments = [ 'counts:in', verb ];
 		f.target = '_http/ci';
 		const sent = [];
 		f.sink = { fill: ( m ) => sent.push( m ) };

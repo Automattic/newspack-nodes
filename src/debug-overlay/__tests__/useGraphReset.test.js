@@ -135,13 +135,13 @@ describe( 'useGraphReset', () => {
 	} );
 
 	// Machinery the graph mints for itself — none of it is a user edit.
-	// `topologymanager:freshness` is a useRouterTick Timer, minted outside any
+	// `freshness:timer` is a useRouterTick Timer, minted outside any
 	// build, and resetGraph's rebuild brings it straight back.
 	it.each( [
 		names.ROUTER,
-		'workerstatus:view',
+		'worker-status:view',
 		'combined.p0',
-		'topologymanager:freshness',
+		'freshness:timer',
 	] )( 'the machinery node %s does not light the chip', ( id ) => {
 		const { result } = renderHook( () =>
 			useGraphReset( opts( makeShell(), { nodes: [ { id } ] } ) )

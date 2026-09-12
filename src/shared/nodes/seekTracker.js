@@ -68,7 +68,7 @@ export function browseControl( { segments = [], bytes = 0 } ) {
 
 /**
  * The live boundary a replay must reach to be "caught up": the newest segment's
- * id and its byte size, from a segment list (`log_status.segments` or `taillog
+ * id and its byte size, from a segment list (`dump_log.segments` or `taillog
  * sources[].segments` — the same shape). Null when no segment carries a numeric
  * id, which is the file-mode case `browseControl()` answers with a byte
  * boundary.

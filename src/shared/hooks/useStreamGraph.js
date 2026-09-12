@@ -366,7 +366,7 @@ export function useStreamGraph( {
  * @param {string}    [o.ci]        The service CI the read verb lives on; an
  *                                  interpreter builtin has none.
  * @param {string}    o.command     The read verb.
- * @param {string}    [o.scope]     Names this read's own nodes; `<prefix>:read`
+ * @param {string}    [o.scope]     Names this read's own nodes; `<prefix>-step`
  *                                  by default.
  * @param {ArgsFor}   [o.argsFor]   The plain `<sub> <position>` read by
  *                                  default.
@@ -389,7 +389,7 @@ export function useSteppedRead( {
 	const { run } = useCommandOnce( {
 		ci,
 		command,
-		scope: scope ?? `${ graph.prefix }:read`,
+		scope: scope ?? `${ graph.prefix }-step`,
 		subjectOf,
 		// The reply names the dir it read; the pending target may have moved.
 		onDone: ( { result, subject } ) => {
@@ -431,7 +431,7 @@ export function useSteppedRead( {
  *
  * @param {Object}          o          Options.
  * @param {string}          o.prefix   Names the slice's nodes,
- *                                     `<prefix>:list:*`.
+ *                                     `<prefix>-catalog:*`.
  * @param {string}          o.command  The catalog verb.
  * @param {string}          o.target   Where to send it (`egressPath( ci )`).
  * @param {() => ?string[]} [o.argsFn] The verb's arguments, read at fire time;
@@ -450,24 +450,24 @@ export function useLogCatalog( { prefix, command, target, argsFn, keep } ) {
 	useBatchedPoll( {
 		build: ( { interpreter, tee } ) =>
 			addSliceFetcher( interpreter, {
-				fetcher: `${ prefix }:list:fetch`,
-				receiver: `${ prefix }:list:in`,
+				fetcher: `${ prefix }-catalog:fetch`,
+				receiver: `${ prefix }-catalog:in`,
 				command: declRef.current.command,
 				argsFn: declRef.current.argsFn,
-				view: `${ prefix }:list:view`,
+				view: `${ prefix }-catalog:view`,
 				viewClass: CatalogListViewNode,
 				tee,
 				target: declRef.current.target,
 			} ),
-		timerName: `${ prefix }:list:timer`,
-		teeName: `${ prefix }:list:tee`,
+		timerName: `${ prefix }-catalog:timer`,
+		teeName: `${ prefix }-catalog:tee`,
 		intervalMs: CATALOG_POLL_MS,
 		// Part of a page, not its graph: the stream mount owns Reset Graph.
 		passenger: true,
 	} );
 
 	const rows =
-		useNodeState( `${ prefix }:list:view`, 'view' )?.items ?? NO_ROWS;
+		useNodeState( `${ prefix }-catalog:view`, 'view' )?.items ?? NO_ROWS;
 	return useMemo(
 		() => ( keep ? rows.filter( keep ) : rows ),
 		[ rows, keep ]

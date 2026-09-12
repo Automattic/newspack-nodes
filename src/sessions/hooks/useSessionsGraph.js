@@ -59,7 +59,7 @@ const LIST_INTERVAL_MS = 5000;
  */
 export function useSessionsGraph( { onAnswer } = {} ) {
 	const list = useCatalogSlice( {
-		scope: 'sessions:list',
+		scope: 'sessions',
 		ci: SESSIONS_CI,
 		viewClass: views.SessionListView,
 		key: 'sessions',

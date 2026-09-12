@@ -5,7 +5,7 @@
  * A graph node rather than a hook holding a client of its own, because that is
  * what puts the poll inside the console's existing request. Emitting through
  * `_http` during the Router's TIMER notify lands inside that tick's lock, so
- * `topologies list` leaves in the same POST as `dump_metadata`, `uptime` and
+ * `topologies dump` leaves in the same POST as `dump_metadata`, `uptime` and
  * `dmesg`; a standalone `fetch` would add a request per tick for one row list.
  * Batching costs nothing in routing: a batch carries whatever TO each line
  * holds, and the server routes the lines independently.
@@ -26,7 +26,7 @@ import { PollerNode } from '../../runtime/poller-node';
  * Registry name the hook mounts this node under, and the address every
  * `useNodeState` subscriber reads the catalog through.
  */
-export const CATALOG_NODE = 'topologies:catalog';
+export const CATALOG_NODE = 'topology-catalog:fetch';
 
 /**
  * The keys `Admin::register_topology_console_tab_bundle()` localizes that this
@@ -48,7 +48,7 @@ export const CATALOG_NODE = 'topologies:catalog';
  */
 
 /**
- * One row of a `topologies list` reply, as `Topologies_CI_Node::cmd_list()`
+ * One row of a `topologies dump` reply, as `Topologies_CI_Node::cmd_dump()`
  * builds it.
  *
  * @typedef {Object} TopologyListEntry
@@ -94,7 +94,7 @@ export function seedFromGlobal() {
 }
 
 /**
- * Reduce a `topologies list` reply to the catalog the Path menu reads.
+ * Reduce a `topologies dump` reply to the catalog the Path menu reads.
  *
  * A row's own `num_partitions` wins, because the server resolved it through
  * `Bootstrap::num_partitions_for()` — which already applied that topology's
@@ -138,19 +138,19 @@ function defaultPartitionCount() {
 }
 
 /**
- * The Path menu's catalog as a graph node: it polls `topologies list` on the
+ * The Path menu's catalog as a graph node: it polls `topologies dump` on the
  * Router TIMER and publishes the parsed result on its `catalog` registration,
  * seeded from the page-load localize payload so the menu is populated before
  * the first reply lands.
  */
 export class TopologyCatalogNode extends PollerNode {
 	/**
-	 * Ask `list`, and publish the localized seed immediately so a subscriber
+	 * Ask `dump`, and publish the localized seed immediately so a subscriber
 	 * mounting before the first reply still renders a catalog.
 	 */
 	constructor() {
 		super();
-		this.verb = 'list';
+		this.verb = 'dump';
 		/**
 		 * Signature of the last published catalog. An identical reply is
 		 * dropped rather than republished, because `setState` notifies every
@@ -164,7 +164,7 @@ export class TopologyCatalogNode extends PollerNode {
 	}
 
 	/**
-	 * Parse a `topologies list` reply and publish it on the `catalog`
+	 * Parse a `topologies dump` reply and publish it on the `catalog`
 	 * registration, skipping a reply identical to the last one. A malformed
 	 * body keeps the last-good catalog — a transient error must not blank the
 	 * Path menu, which is the whole reason this polls rather than loads.
@@ -201,7 +201,7 @@ export class TopologyCatalogNode extends PollerNode {
 		return {
 			...PollerNode.nodeSchema(),
 			description:
-				'Polls `topologies list` and publishes the Path menu catalog.',
+				'Polls `topologies dump` and publishes the Path menu catalog.',
 			registrations: [ 'catalog' ],
 		};
 	}

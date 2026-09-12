@@ -3,10 +3,10 @@
  * independently polled slices and one on-demand probe, built on the substrate's
  * batched-poll toolkit (`useBatchedPoll` + `addSliceFetcher`).
  *
- *   <tee> → fetch-summary (Fetcher, FROM=summaryIn) → _shell/_http/aggregator
- *           summaryIn (Tee) → summary:view (AggregatorSummaryView)
- *   <tee> → fetch-servers (Fetcher, FROM=serversIn) → _shell/_http/aggregator
- *           serversIn (Tee) → servers:view (AggregatorServersView)
+ *   <tee> → summary:fetch (Fetcher, FROM=summary:in) → _shell/_http/aggregator
+ *           summary:in (Tee) → summary:view (AggregatorSummaryView)
+ *   <tee> → servers:fetch (Fetcher, FROM=servers:in) → _shell/_http/aggregator
+ *           servers:in (Tee) → servers:view (AggregatorServersView)
  *
  * `useBatchedPoll` owns everything that is not a slice: the Timer, the fan-out
  * Tee, the `_shell`/`_http` egress, the lock-flush batching that puts both
@@ -20,7 +20,7 @@
  * feeding one view node, which makes the server compute the whole model to
  * answer any part of it and re-renders every card on every field.
  *
- * Both slice verbs (`summary`, `servers_status`) are READ and cheap, so they
+ * Both slice verbs (`summary`, `list_servers`) are READ and cheap, so they
  * poll unconditionally on the user-chosen interval. `probe` blocks on a request
  * to the spoke and demands MANAGE, so it goes out only on a click.
  *
@@ -48,7 +48,7 @@ import { formatCommandArgs } from '../../runtime/command-args';
 import { views } from '../nodes/register';
 import { egressPath } from '@newspack-nodes/shared/helpers/egressPath';
 
-/** The server CI mount owning `summary`, `servers_status` and `probe`. */
+/** The server CI mount owning `summary`, `list_servers` and `probe`. */
 const SERVER = 'aggregator';
 
 /**
@@ -91,16 +91,16 @@ const REFRESH_KEY = 'aggregator-status-refresh';
  */
 const SLICES = [
 	{
-		fetcher: 'fetch-summary',
-		receiver: 'summaryIn',
+		fetcher: 'summary:fetch',
+		receiver: 'summary:in',
 		command: 'summary',
 		view: 'summary:view',
 		viewClass: views.AggregatorSummaryView,
 	},
 	{
-		fetcher: 'fetch-servers',
-		receiver: 'serversIn',
-		command: 'servers_status',
+		fetcher: 'servers:fetch',
+		receiver: 'servers:in',
+		command: 'list_servers',
 		view: 'servers:view',
 		viewClass: views.AggregatorServersView,
 	},

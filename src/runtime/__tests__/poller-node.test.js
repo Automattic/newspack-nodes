@@ -88,7 +88,7 @@ describe( 'PollerNode', () => {
 
 	it( 'publishes a structured reply verbatim as `reply`', () => {
 		const node = new PollerNode();
-		node.name = 'runtime:timers';
+		node.name = 'timers:fetch';
 		node.fill(
 			msg( TM_COMMAND | TM_RESPONSE, {
 				payload: [ { name: 'tick0', fires: 7 } ],
@@ -103,7 +103,7 @@ describe( 'PollerNode', () => {
 	// would blank the grid the same node's row list feeds.
 	it( 'drops a text reply rather than replacing the row list', () => {
 		const node = new PollerNode();
-		node.name = 'runtime:timers';
+		node.name = 'timers:fetch';
 		node.fill( msg( TM_COMMAND | TM_RESPONSE, { payload: [ 'rows' ] } ) );
 		node.fill(
 			msg( TM_COMMAND | TM_RESPONSE, { payload: 'profiling on' } )

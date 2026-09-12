@@ -576,7 +576,7 @@ class Admin {
 	 * hub page ships its `host: 'hub'` Console tab only once someone opens it.
 	 *
 	 * Carries the partition snapshot the React dropdown reads, derived exactly the
-	 * way the `topologies.list` verb derives it. Two derivations would let the
+	 * way the `topologies.dump` verb derives it. Two derivations would let the
 	 * page-load snapshot and the live refetch disagree, and the console would
 	 * redraw its dropdown for no reason a reader could see.
 	 *

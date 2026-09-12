@@ -233,7 +233,7 @@ export function useDraftInterpreter() {
 	 * Hand the interpreter its class catalog: which classes fan out, and which
 	 * verb arguments are node references.
 	 *
-	 * @param {?Array} classes Class records, as `classes list` returns them.
+	 * @param {?Array} classes Class records, as `classes dump` returns them.
 	 */
 	const setCatalog = useCallback( ( classes ) => {
 		ref.current.catalog = classes || [];

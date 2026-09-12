@@ -39,17 +39,17 @@ class VerbRoleDeclarationsTest extends TestCase {
 		$manage = Capabilities::MANAGE;
 		return [
 			'status'      => [ Status_CI_Node::class, [ 'get' => $read ] ],
-			'classes'     => [ Classes_CI_Node::class, [ 'list' => $read ] ],
+			'classes'     => [ Classes_CI_Node::class, [ 'dump' => $read ] ],
 			'raw-logs'    => [
 				Raw_Logs_CI_Node::class,
-				[ 'list_logs' => $read, 'log_status' => $read, 'read_message' => $read ],
+				[ 'list_logs' => $read, 'dump_log' => $read, 'read_message' => $read ],
 			],
 			'settings'    => [ Settings_CI_Node::class, [ 'get' => $read, 'set' => $tune ] ],
 			'layouts'     => [ Layouts_CI_Node::class, [ 'get' => $read, 'save' => $tune ] ],
 			'topologies'  => [
 				Topologies_CI_Node::class,
 				[
-					'list'                  => $read,
+					'dump'                  => $read,
 					'get'                   => $read,
 					'expand'                => $read,
 					'save'                  => $manage,
@@ -64,7 +64,7 @@ class VerbRoleDeclarationsTest extends TestCase {
 				[
 					'list'           => $read,
 					'dump_graph'     => $read,
-					'cleanup_status' => $read,
+					'dump_cleanup' => $read,
 					'restart'        => $manage,
 					// The SSE slot keepalive. Manage here would expire every
 					// read-only stream — including the aggregator's — after one
@@ -74,7 +74,7 @@ class VerbRoleDeclarationsTest extends TestCase {
 			],
 			'aggregator'  => [
 				Aggregator_CI_Node::class,
-				[ 'summary' => $read, 'servers_status' => $read, 'probe' => $manage ],
+				[ 'summary' => $read, 'list_servers' => $read, 'probe' => $manage ],
 			],
 			'vault'       => [
 				Vault_CI_Node::class,

@@ -404,7 +404,7 @@ describe( 'the command transport — a refusal answers the minter', () => {
 		m[ TYPE ] = TM_COMMAND;
 		m[ FROM ] = from;
 		m[ TO ] = 'topologies';
-		m[ VALUE ] = { name: 'list', arguments: args };
+		m[ VALUE ] = { name: 'dump', arguments: args };
 		return m;
 	};
 
@@ -477,7 +477,7 @@ describe( 'the command transport — a refusal answers the minter', () => {
 		refused[ TYPE ] = TM_COMMAND | TM_ERROR;
 		refused[ TO ] = 'topologies:list';
 		refused[ VALUE ] = {
-			name: 'list',
+			name: 'dump',
 			payload: 'command signature invalid',
 		};
 		const served = newMessage();

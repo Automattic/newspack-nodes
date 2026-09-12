@@ -560,7 +560,7 @@ describe( 'HttpOut — an undelivered command', () => {
 			routed( {
 				to: 'topologies',
 				from: 'topologies:list',
-				value: { name: 'list', arguments: [] },
+				value: { name: 'dump', arguments: [] },
 			} )
 		);
 		await new Promise( ( r ) => setTimeout( r, 0 ) );
@@ -584,7 +584,7 @@ describe( 'HttpOut — an undelivered command', () => {
 		node.sink = { fill: ( m ) => sent.push( m ) };
 
 		node.fill(
-			routed( { to: 'topologies', from: '', value: { name: 'list' } } )
+			routed( { to: 'topologies', from: '', value: { name: 'dump' } } )
 		);
 		await new Promise( ( r ) => setTimeout( r, 0 ) );
 

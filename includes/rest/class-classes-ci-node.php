@@ -2,7 +2,7 @@
 /**
  * Classes_CI: the node-class catalog behind the topology console's palette.
  *
- * The `list` verb scans the composer classmap for concrete `*_Node` classes
+ * The `dump` verb scans the composer classmap for concrete `*_Node` classes
  * under a registered namespace prefix, inlines the serializable half of each
  * `node_schema()`, drops the classes the palette must not offer, sorts by
  * `[category, shell_name]`, and ships the formatter registry beside them so an
@@ -35,11 +35,11 @@ use Newspack_Nodes\Tee_Node;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * Service interpreter for the `classes` scope: one read-only verb, `list`.
+ * Service interpreter for the `classes` scope: one read-only verb, `dump`.
  */
 class Classes_CI_Node extends Service_CI_Node {
 	/**
-	 * `list` verb: every concrete Node class this process can build, each
+	 * `dump` verb: every concrete Node class this process can build, each
 	 * carrying the serializable half of its `node_schema()`, plus the names the
 	 * formatter registry holds.
 	 *
@@ -57,7 +57,7 @@ class Classes_CI_Node extends Service_CI_Node {
 	 *
 	 * @return array<string,mixed> `classes`, sorted by `[category, shell_name]`, and the sorted `formatters` names.
 	 */
-	public static function cmd_list(): array {
+	public static function cmd_dump(): array {
 		$prefixes = Command_Interpreter_Node::registered_namespaces();
 		$seen     = [];
 		$classes  = [];
@@ -141,7 +141,7 @@ class Classes_CI_Node extends Service_CI_Node {
 	 *
 	 * Fail-soft: a malformed command (non-array entry, or one with no/empty name)
 	 * is skipped rather than throwing — a single bad class must not fatal the
-	 * whole catalog `list`, which scans every registered class. Returns a
+	 * whole catalog `dump`, which scans every registered class. Returns a
 	 * sequential list (JSON array) so the editor palette consumes it as-is.
 	 *
 	 * @param array<int|string,mixed> $commands Raw commands[] from a node_schema.
@@ -186,7 +186,7 @@ class Classes_CI_Node extends Service_CI_Node {
 	 * builds the dispatch table from `commands[]` and gates each handler at the
 	 * capability its entry names.
 	 *
-	 * `list` is READ because it exposes class metadata and nothing else — no
+	 * `dump` is READ because it exposes class metadata and nothing else — no
 	 * fleet state, no credentials — so a dashboard-only role can fill a palette.
 	 *
 	 * @return array<string,mixed>
@@ -198,11 +198,11 @@ class Classes_CI_Node extends Service_CI_Node {
 			'arguments'   => [],
 			'commands'    => [
 				[
-					'name'        => 'list',
+					'name'        => 'dump',
 					'capability'  => Capabilities::READ,
-					'description' => 'List registered classes (with schemas) and formatters.',
+					'description' => 'Dump every registered class with its schema, plus the formatters.',
 					'args'        => [],
-					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): array => self::cmd_list(),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): array => self::cmd_dump(),
 				],
 			],
 		] );

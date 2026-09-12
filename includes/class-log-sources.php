@@ -375,13 +375,13 @@ class Log_Sources {
 	/**
 	 * The on-disk `{path}.{seg}` segments of a segmented entry as a `{id, size}`
 	 * list sorted by id — the shape the Log Viewer's segment browser renders,
-	 * matching `log_status.segments`.
+	 * matching `dump_log.segments`.
 	 *
 	 * Asked of the WRITER: an ephemeral `Log_Node` on the same path already
 	 * exposes exactly this list through `Partition_Node::get_segments()`, using
 	 * its own `segment_pattern()` seam — so the naming rule is declared once, by
 	 * the class that writes the files, and a companion `.idx` can never read as
-	 * a data segment. (The sibling `Raw_Logs_CI_Node::cmd_log_status` builds an
+	 * a data segment. (The sibling `Raw_Logs_CI_Node::cmd_dump_log` builds an
 	 * ephemeral Partition for the same reason.) File mode has no segments: [].
 	 *
 	 * Every listing caller walks the WHOLE registry, so one entry that cannot be

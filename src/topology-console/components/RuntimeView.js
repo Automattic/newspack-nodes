@@ -32,10 +32,10 @@ import { Grid, useSortState } from './SortableGrid';
 import './inspector-views.scss';
 
 /** Registered name of the `list_timers` poller the timers grid reads. */
-const TIMER_POLLER = 'runtime:timers';
+const TIMER_POLLER = 'timers:fetch';
 
 /** Registered name of the `list_handles` poller the handles grid reads. */
-const HANDLE_POLLER = 'runtime:handles';
+const HANDLE_POLLER = 'handles:fetch';
 
 /**
  * Timer grid columns, in `list_timers`' own order. A `numeric` column sorts by

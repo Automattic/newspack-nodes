@@ -23,7 +23,7 @@ import { useChrome } from '../ChromeContext';
  * declared in TSL, so a tile for one would drop a node no topology can build.
  * Those entries still belong in the catalog, because the inspector reads the
  * same list for a selected node's verbs and arguments — which is why the
- * refusal sits here rather than in the `classes list` verb.
+ * refusal sits here rather than in the `classes dump` verb.
  */
 const NON_DRAGGABLE_CATEGORIES = new Set( [ 'Service', 'Remote' ] );
 
@@ -55,7 +55,7 @@ function groupByCategory( classes ) {
  * Every topology `name` includes, directly or through another include.
  *
  * The palette asks this to refuse a drag that would form a cycle, so it walks
- * the whole `topologies list` DAG rather than the filtered tiles. `seen`
+ * the whole `topologies dump` DAG rather than the filtered tiles. `seen`
  * doubles as the visited set: an include chain that loops back terminates
  * instead of recursing forever.
  *

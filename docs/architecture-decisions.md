@@ -499,7 +499,7 @@ rule that sibling and third-party plugins can extend without a central registry.
 (`Tee_Node` → `Tee`). No `register_class` / `class_map`: plugins call
 `Command_Interpreter_Node::register_namespace( 'My_Prefix\\' )` once, and `make_node($type)`
 constructs the first `{$prefix}{$type}_Node` that is a concrete Node subclass (abstract →
-`null`, not fatal). The palette catalog (`Classes_CI` `list`) scans the composer classmap for
+`null`, not fatal). The palette catalog (`Classes_CI` `dump`) scans the composer classmap for
 concrete `*_Node` subclasses, refusing three shapes: a `Hidden` category, an empty one, and a
 `node_schema()` carrying `'hidden' => true`. After adding or renaming a class, run `composer
 dump-autoload -o`. Test infra stays PascalCase; the one exception is the `Capture_Sink_Node`

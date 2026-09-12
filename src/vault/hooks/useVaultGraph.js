@@ -73,7 +73,7 @@ const LIST_INTERVAL_MS = 30000;
  */
 export function useVaultGraph( { onAnswer } = {} ) {
 	const list = useCatalogSlice( {
-		scope: 'vault:list',
+		scope: 'vault',
 		ci: VAULT_CI,
 		// The CLASS, not the name: `includeNodes` is per-bundle (ADR-16).
 		viewClass: views.VaultListView,

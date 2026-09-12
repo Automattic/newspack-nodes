@@ -1,5 +1,5 @@
 /**
- * `sessions:list` — the issued-session table slice. A `list` reply carries a
+ * `sessions:view` — the issued-session table slice. A `list` reply carries a
  * live `{ sessions:[], ttl_max, scopes:[] }` struct, already decoded; the view
  * flattens it into the render model the table reads. A TM_ERROR paints the
  * banner and keeps whatever rows are on screen.
@@ -19,7 +19,7 @@ import { views } from '../register';
 
 beforeEach( () => Core.reset() );
 
-function makeView( name = 'sessions:list' ) {
+function makeView( name = 'sessions:view' ) {
 	const node = new views.SessionListView();
 	node.name = name;
 	return node;

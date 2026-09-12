@@ -1,5 +1,5 @@
 /**
- * workerstatus:transform tests — the stateful transform that turns a raw
+ * worker-status:transform tests — the stateful transform that turns a raw
  * `dump_graph` reply (VALUE=`{ name, payload }`, payload=the snapshot) into
  * an enriched `{ action:'model', model }`.
  *
@@ -166,10 +166,10 @@ const logEntry = ( name, partition, segments ) => ( {
 	segment_size: 16 * 1024 * 1024,
 } );
 
-describe( 'workerstatus:transform — reconstructs the rich workers[]', () => {
+describe( 'worker-status:transform — reconstructs the rich workers[]', () => {
 	test( 'a single-stage consumer (feeds a Log) gets handler = its own node name', () => {
 		const sink = capture();
-		const t = makeTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'worker-status:transform' );
 		t.sink = sink.node;
 		withClock( () =>
 			t.fill(
@@ -186,7 +186,7 @@ describe( 'workerstatus:transform — reconstructs the rich workers[]', () => {
 			)
 		);
 		// The emitted model message identifies its source node via FROM.
-		expect( sink.got[ 0 ][ FROM ] ).toBe( 'workerstatus:transform' );
+		expect( sink.got[ 0 ][ FROM ] ).toBe( 'worker-status:transform' );
 		const { model } = sink.got[ 0 ][ VALUE ];
 		expect( model.workers ).toHaveLength( 1 );
 		const wkr = model.workers[ 0 ];
@@ -200,7 +200,7 @@ describe( 'workerstatus:transform — reconstructs the rich workers[]', () => {
 
 	test( 'a consumer feeding a logic node gets handler = that logic node', () => {
 		const sink = capture();
-		const t = makeTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'worker-status:transform' );
 		t.sink = sink.node;
 		withClock( () =>
 			t.fill(
@@ -220,7 +220,7 @@ describe( 'workerstatus:transform — reconstructs the rich workers[]', () => {
 
 	test( 'a tee between consumer and logic node is contracted out', () => {
 		const sink = capture();
-		const t = makeTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'worker-status:transform' );
 		t.sink = sink.node;
 		withClock( () =>
 			t.fill(
@@ -240,7 +240,7 @@ describe( 'workerstatus:transform — reconstructs the rich workers[]', () => {
 
 	test( 'joins probe cursor/distance onto the rich worker (cursor_offset carried through, distance→behind)', () => {
 		const sink = capture();
-		const t = makeTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'worker-status:transform' );
 		t.sink = sink.node;
 		withClock( () =>
 			t.fill(
@@ -268,7 +268,7 @@ describe( 'workerstatus:transform — reconstructs the rich workers[]', () => {
 
 	test( 'joins liveness status onto the rich worker', () => {
 		const sink = capture();
-		const t = makeTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'worker-status:transform' );
 		t.sink = sink.node;
 		withClock( () =>
 			t.fill(
@@ -300,7 +300,7 @@ describe( 'workerstatus:transform — reconstructs the rich workers[]', () => {
 
 	test( 'a consumer row with no liveness row defaults status to dead', () => {
 		const sink = capture();
-		const t = makeTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'worker-status:transform' );
 		t.sink = sink.node;
 		withClock( () =>
 			t.fill(
@@ -320,7 +320,7 @@ describe( 'workerstatus:transform — reconstructs the rich workers[]', () => {
 
 	test( 'a liveness row with no consumer row still emits a worker (so the tree shows it)', () => {
 		const sink = capture();
-		const t = makeTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'worker-status:transform' );
 		t.sink = sink.node;
 		withClock( () =>
 			t.fill(
@@ -339,7 +339,7 @@ describe( 'workerstatus:transform — reconstructs the rich workers[]', () => {
 
 	test( 'expands all partitions present across the inputs', () => {
 		const sink = capture();
-		const t = makeTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'worker-status:transform' );
 		t.sink = sink.node;
 		withClock( () =>
 			t.fill(
@@ -398,7 +398,7 @@ describe( 'workerstatus:transform — reconstructs the rich workers[]', () => {
 			},
 		};
 		const sink = capture();
-		const t = makeTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'worker-status:transform' );
 		t.sink = sink.node;
 		withClock( () =>
 			t.fill(
@@ -433,10 +433,10 @@ describe( 'workerstatus:transform — reconstructs the rich workers[]', () => {
 	} );
 } );
 
-describe( 'workerstatus:transform — inputs_status carries full live segments + recorded end', () => {
+describe( 'worker-status:transform — inputs_status carries full live segments + recorded end', () => {
 	test( 'keeps the full live segments and carries the consumer end_segment/end_size', () => {
 		const sink = capture();
-		const t = makeTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'worker-status:transform' );
 		t.sink = sink.node;
 		withClock( () =>
 			t.fill(
@@ -480,7 +480,7 @@ describe( 'workerstatus:transform — inputs_status carries full live segments +
 	} );
 } );
 
-describe( 'workerstatus:transform — byte rates from cross-poll deltas', () => {
+describe( 'worker-status:transform — byte rates from cross-poll deltas', () => {
 	// Read rate = Δ(cursor byte pos)/Δts; write rate = Δ(end pos)/Δts.
 	const snapshot = (
 		ts,
@@ -512,7 +512,7 @@ describe( 'workerstatus:transform — byte rates from cross-poll deltas', () => 
 
 	test( 'first snapshot reports a zero read_rate and write_rate', () => {
 		const sink = capture();
-		const t = makeTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'worker-status:transform' );
 		t.sink = sink.node;
 		withClock( () =>
 			t.fill( metadataMsg( snapshot( 1000, 0, 0, [ 100 ], 0, 100 ) ) )
@@ -524,7 +524,7 @@ describe( 'workerstatus:transform — byte rates from cross-poll deltas', () => 
 
 	test( 'read_rate = Δ(absolute cursor position)/Δts across two polls', () => {
 		const sink = capture();
-		const t = makeTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'worker-status:transform' );
 		t.sink = sink.node;
 		withClock( () => {
 			// Poll 1: cursor at seg 0 offset 0 → abs pos 0.
@@ -540,7 +540,7 @@ describe( 'workerstatus:transform — byte rates from cross-poll deltas', () => 
 
 	test( 'write_rate = Δ(partition total live bytes)/Δts across two polls', () => {
 		const sink = capture();
-		const t = makeTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'worker-status:transform' );
 		t.sink = sink.node;
 		withClock( () => {
 			// Poll 1: total live = 100.
@@ -556,7 +556,7 @@ describe( 'workerstatus:transform — byte rates from cross-poll deltas', () => 
 
 	test( 'a cursor that goes backwards (worker restart) yields read_rate 0, never negative', () => {
 		const sink = capture();
-		const t = makeTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'worker-status:transform' );
 		t.sink = sink.node;
 		withClock( () => {
 			// Poll 1: cursor well advanced.
@@ -574,7 +574,7 @@ describe( 'workerstatus:transform — byte rates from cross-poll deltas', () => 
 
 	test( 'a zero time delta yields rate 0 (no divide-by-zero)', () => {
 		const sink = capture();
-		const t = makeTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'worker-status:transform' );
 		t.sink = sink.node;
 		withClock( () => {
 			t.fill( metadataMsg( snapshot( 1000, 0, 0, [ 100 ], 0, 100 ) ) );
@@ -589,7 +589,7 @@ describe( 'workerstatus:transform — byte rates from cross-poll deltas', () => 
 
 	test( 'a long gap between snapshots (hidden tab) rebaselines rate to 0, not a one-frame spike', () => {
 		const sink = capture();
-		const t = makeTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'worker-status:transform' );
 		t.sink = sink.node;
 		withClock( () => {
 			// Poll 1 establishes a baseline at ts 1000.
@@ -606,7 +606,7 @@ describe( 'workerstatus:transform — byte rates from cross-poll deltas', () => 
 
 	test( 'after a gap rebaseline, the NEXT normal-cadence poll computes a real rate', () => {
 		const sink = capture();
-		const t = makeTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'worker-status:transform' );
 		t.sink = sink.node;
 		withClock( () => {
 			t.fill( metadataMsg( snapshot( 1000, 0, 0, [ 100 ], 0, 100 ) ) );
@@ -625,7 +625,7 @@ describe( 'workerstatus:transform — byte rates from cross-poll deltas', () => 
 
 	test( 'a normal-cadence gap (within bound) still computes a real rate', () => {
 		const sink = capture();
-		const t = makeTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'worker-status:transform' );
 		t.sink = sink.node;
 		withClock( () => {
 			// Two polls 2s apart: within gap bound, cross-poll delta applies.
@@ -639,7 +639,7 @@ describe( 'workerstatus:transform — byte rates from cross-poll deltas', () => 
 	} );
 } );
 
-describe( 'workerstatus:transform — model envelope', () => {
+describe( 'worker-status:transform — model envelope', () => {
 	const snap = () => ( {
 		graph: firehoseGraph(),
 		workers: [ liveness( 'firehose-workers', 0 ) ],
@@ -649,19 +649,19 @@ describe( 'workerstatus:transform — model envelope', () => {
 
 	test( 'emits a TM_STRUCT { action:"model", model } stamped TO=target', () => {
 		const sink = capture();
-		const t = makeTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'worker-status:transform' );
 		t.sink = sink.node;
-		t.target = 'workerstatus:view';
+		t.target = 'worker-status:view';
 		withClock( () => t.fill( metadataMsg( snap() ) ) );
 		expect( sink.got ).toHaveLength( 1 );
 		expect( sink.got[ 0 ][ TYPE ] ).toBe( TM_STRUCT );
-		expect( sink.got[ 0 ][ TO ] ).toBe( 'workerstatus:view' );
+		expect( sink.got[ 0 ][ TO ] ).toBe( 'worker-status:view' );
 		expect( sink.got[ 0 ][ VALUE ].action ).toBe( 'model' );
 	} );
 
 	test( 'the model carries the canonical shape', () => {
 		const sink = capture();
-		const t = makeTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'worker-status:transform' );
 		t.sink = sink.node;
 		withClock( () => t.fill( metadataMsg( snap() ) ) );
 		const { model } = sink.got[ 0 ][ VALUE ];
@@ -686,7 +686,7 @@ describe( 'workerstatus:transform — model envelope', () => {
 
 	test( 'threads the graph field straight through into the model', () => {
 		const sink = capture();
-		const t = makeTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'worker-status:transform' );
 		t.sink = sink.node;
 		const s = snap();
 		withClock( () => t.fill( metadataMsg( s ) ) );
@@ -696,7 +696,7 @@ describe( 'workerstatus:transform — model envelope', () => {
 
 	test( 'defaults graph to an empty object when the payload omits it', () => {
 		const sink = capture();
-		const t = makeTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'worker-status:transform' );
 		t.sink = sink.node;
 		withClock( () =>
 			t.fill( metadataMsg( { workers: [], consumers: [], logs: [] } ) )
@@ -707,7 +707,7 @@ describe( 'workerstatus:transform — model envelope', () => {
 
 	test( 'forwards logs when the reader is at the live end', () => {
 		const sink = capture();
-		const t = makeTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'worker-status:transform' );
 		t.sink = sink.node;
 		const s = snap();
 		// Reader caught up to the live end → trim is a no-op, logs unchanged.
@@ -721,7 +721,7 @@ describe( 'workerstatus:transform — model envelope', () => {
 
 	test( 'passes heartbeat_interval_s through and retains it on a later omitting poll', () => {
 		const sink = capture();
-		const t = makeTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'worker-status:transform' );
 		t.sink = sink.node;
 		const s = snap();
 		s.heartbeat_interval_s = 10;
@@ -735,7 +735,7 @@ describe( 'workerstatus:transform — model envelope', () => {
 
 	test( 'passes segment_size and timestamp through and retains them on a later omitting poll', () => {
 		const sink = capture();
-		const t = makeTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'worker-status:transform' );
 		t.sink = sink.node;
 		const s = snap();
 		s.segment_size = 1048576;
@@ -752,7 +752,7 @@ describe( 'workerstatus:transform — model envelope', () => {
 
 	test( 'threads log_partitions into the model and retains it on a later omitting poll', () => {
 		const sink = capture();
-		const t = makeTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'worker-status:transform' );
 		t.sink = sink.node;
 		const s = snap();
 		s.log_partitions = 11;
@@ -766,7 +766,7 @@ describe( 'workerstatus:transform — model envelope', () => {
 
 	test( 'first snapshot reports loading=false and a null error', () => {
 		const sink = capture();
-		const t = makeTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'worker-status:transform' );
 		t.sink = sink.node;
 		withClock( () => t.fill( metadataMsg( snap() ) ) );
 		const { model } = sink.got[ 0 ][ VALUE ];
@@ -775,7 +775,7 @@ describe( 'workerstatus:transform — model envelope', () => {
 	} );
 } );
 
-describe( 'workerstatus:transform — segment tracking from the TRIMMED inputs_status', () => {
+describe( 'worker-status:transform — segment tracking from the TRIMMED inputs_status', () => {
 	const grow = ( segments, endSegment, endSize ) => ( {
 		graph: firehoseGraph(),
 		timestamp: 1000,
@@ -791,7 +791,7 @@ describe( 'workerstatus:transform — segment tracking from the TRIMMED inputs_s
 
 	test( 'a removed segment shows up in removingSegments on the next snapshot', () => {
 		const sink = capture();
-		const t = makeTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'worker-status:transform' );
 		t.sink = sink.node;
 		withClock( () => {
 			t.fill(
@@ -816,7 +816,7 @@ describe( 'workerstatus:transform — segment tracking from the TRIMMED inputs_s
 
 	test( 'prevSegments reflects the PRIOR snapshot ids so new segments animate in', () => {
 		const sink = capture();
-		const t = makeTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'worker-status:transform' );
 		t.sink = sink.node;
 		withClock( () => {
 			t.fill( metadataMsg( grow( [ { id: 1, size: 100 } ], 1, 100 ) ) );
@@ -841,7 +841,7 @@ describe( 'workerstatus:transform — segment tracking from the TRIMMED inputs_s
 
 	test( 'no removals → removingSegments is empty', () => {
 		const sink = capture();
-		const t = makeTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'worker-status:transform' );
 		t.sink = sink.node;
 		withClock( () => {
 			t.fill( metadataMsg( grow( [ { id: 1, size: 100 } ], 1, 100 ) ) );
@@ -852,12 +852,12 @@ describe( 'workerstatus:transform — segment tracking from the TRIMMED inputs_s
 	} );
 } );
 
-describe( 'workerstatus:transform — non-metadata replies', () => {
+describe( 'worker-status:transform — non-metadata replies', () => {
 	test( 'ignores a reply for a verb other than dump_graph', () => {
 		const sink = capture();
-		const t = makeTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'worker-status:transform' );
 		t.sink = sink.node;
-		t.target = 'workerstatus:view';
+		t.target = 'worker-status:view';
 		const reply = newMessage();
 		reply[ TYPE ] = TM_COMMAND | TM_RESPONSE;
 		reply[ VALUE ] = { name: 'something_else', payload: {} };
@@ -868,19 +868,19 @@ describe( 'workerstatus:transform — non-metadata replies', () => {
 
 	test( 'forwards a TM_ERROR reply to the view (un-correlated poll failure)', () => {
 		const sink = capture();
-		const t = makeTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'worker-status:transform' );
 		t.sink = sink.node;
-		t.target = 'workerstatus:view';
+		t.target = 'worker-status:view';
 		const err = newMessage();
 		err[ TYPE ] = TM_COMMAND | TM_RESPONSE | TM_ERROR;
 		err[ VALUE ] = { name: 'dump_graph', payload: 'Server disconnected' };
 		t.fill( err );
 		expect( sink.got ).toHaveLength( 1 );
-		expect( sink.got[ 0 ][ TO ] ).toBe( 'workerstatus:view' );
+		expect( sink.got[ 0 ][ TO ] ).toBe( 'worker-status:view' );
 	} );
 } );
 
-describe( 'workerstatus:transform — node wiring', () => {
+describe( 'worker-status:transform — node wiring', () => {
 	const snap = () => ( {
 		graph: firehoseGraph(),
 		workers: [ liveness( 'firehose-workers', 0 ) ],
@@ -889,22 +889,22 @@ describe( 'workerstatus:transform — node wiring', () => {
 	} );
 
 	test( 'names the node', () => {
-		const t = makeTransform( 'workerstatus:transform' );
-		expect( t.name ).toBe( 'workerstatus:transform' );
+		const t = makeTransform( 'worker-status:transform' );
+		expect( t.name ).toBe( 'worker-status:transform' );
 	} );
 
 	test( 'does nothing without a sink', () => {
-		const t = makeTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'worker-status:transform' );
 		expect( () =>
 			withClock( () => t.fill( metadataMsg( snap() ) ) )
 		).not.toThrow();
 	} );
 
 	test( 'fill increments the node counter so the overlay shows throughput', () => {
-		const t = makeTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'worker-status:transform' );
 		const sink = capture();
 		t.sink = sink.node;
-		t.target = 'workerstatus:view';
+		t.target = 'worker-status:view';
 		expect( t.counter ).toBe( 0 );
 		withClock( () => t.fill( metadataMsg( snap() ) ) );
 		expect( t.counter ).toBe( 1 );
