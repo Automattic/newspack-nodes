@@ -2,22 +2,35 @@
  * Grid geometry for the topology canvas: the automatic layout, and the snap
  * every drag lands on.
  *
- * `autoLayout` turns a parsed `{nodes, edges}` graph into left-to-right layered
- * positions; `snapToGrid`, `snapPosition` and `snapClusterDelta` quantise a
- * pointer gesture; `placeBelow` finds a slot for a node that appears after the
- * layout ran. All of them measure from the four step-and-pad constants below,
- * which `SchematicCanvas` also draws its background grid from, so a dragged
- * card and a laid-out card cannot land on different grids. The snap helpers
- * quantise to HALF a step, because `autoLayout` puts a fan-out producer on a
- * half row and a full-step lattice could not reproduce its own output.
+ * `autoLayout` turns a parsed `{nodes, edges}` graph into positions;
+ * `snapToGrid`, `snapPosition` and `snapClusterDelta` quantise a pointer
+ * gesture; `placeBelow` finds a slot for a node that appears after the layout
+ * ran. All of them measure from the four step-and-pad constants below, which
+ * `SchematicCanvas` also draws its background grid from, so a dragged card and
+ * a laid-out card cannot land on different grids. The snap helpers quantise to
+ * HALF a step, because `autoLayout` puts a fan-out producer on a half row and a
+ * full-step lattice could not reproduce its own output.
  *
- * Columns come from a Coffman-Graham-flavored layering: a true source pins to
- * column 0, a true sink to the rightmost column, and an interior node takes the
+ * The layout runs one of two regimes, chosen by whether the graph has HUBS:
+ * nodes whose degree clears both `HUB_MIN_DEGREE` and `HUB_MEDIAN_FACTOR`
+ * times the graph's median degree.
+ *
+ * With no hub the graph is laid out whole, as one layered component. Columns
+ * come from a Coffman-Graham-flavored layering: a true source pins to column 0,
+ * a true sink to the rightmost column, and an interior node takes the
  * barycenter of its neighbours' columns clamped into the band its edges allow
  * (longest path from a source on the left, longest path to a sink on the
  * right), so a "processor tier" aligns in one column instead of spreading by
  * raw longest-path. Rows come from barycenter crossing-reduction in index
  * space, a median settle, and a symmetric spread of same-column overlaps.
+ *
+ * With hubs that single layering is wrong: the hubs make the graph deep, every
+ * sink pins to its far end, and a two-node slice is stretched across the whole
+ * width while one slice's members scatter over unrelated rows. So the backbone
+ * — the hubs, plus any bridge whose every neighbour is a hub — comes out, each
+ * weakly-connected component of what is left is laid out on its own by the
+ * same layering and the bands stack alphabetically, and the backbone takes
+ * the columns to their right, layered by its own longest path.
  */
 
 /** Horizontal distance between layout columns, in canvas pixels. */
@@ -206,110 +219,244 @@ const stableSort = ( arr, key ) =>
 		.map( ( x ) => x[ 0 ] );
 
 /**
- * Lay a parsed graph out on the grid, using the layering described at the top.
+ * Alphabetical id order.
  *
- * `parsed` is `{ nodes: [ { id } ], edges: [ { from, to } ] }`; null, or either
- * key missing, reads as empty. An edge whose endpoints are not both in `nodes`
- * is skipped, so a graph carrying a dangling edge lays out rather than throwing.
- * A graph with no edges at all becomes an alphabetical, roughly square grid; a
- * node with no edges inside a graph that has them stacks below one end column.
+ * Every tie in the layout breaks here, so one graph lays out one way however
+ * its nodes reached the canvas.
  *
- * @param {?{nodes?: Array<{id: string}>, edges?: Array<{from: string, to: string}>}} parsed The graph to lay out.
- * @return {{nodes: Array<{id: string, position: {x: number, y: number}}>, edges: Array<Object>}}
- * Every input node copied with a `position` added, and `edges` passed straight
- * through. Neither input array nor any input node is mutated.
+ * @param {string} a One id.
+ * @param {string} b The other.
+ * @return {number} The comparator's verdict.
  */
-export function autoLayout( parsed ) {
-	const nodes = parsed?.nodes ?? [];
-	const edges = parsed?.edges ?? [];
+const byId = ( a, b ) => String( a ).localeCompare( String( b ) );
 
-	// Edgeless nodes would all stack in column 0; grid them instead.
-	if ( edges.length === 0 && nodes.length > 0 ) {
-		const sorted = [ ...nodes ].sort( ( a, b ) =>
-			a.id.localeCompare( b.id )
-		);
-		const rowCount = Math.max( 1, Math.ceil( Math.sqrt( sorted.length ) ) );
-		const positioned = sorted.map( ( n, i ) => ( {
-			...n,
-			position: {
-				x: X_PAD + Math.floor( i / rowCount ) * X_STEP,
-				y: Y_PAD + ( i % rowCount ) * Y_STEP,
-			},
-		} ) );
-		return { nodes: positioned, edges };
+/** A hub's floor degree; below it a node is ordinary however sparse the graph. */
+const HUB_MIN_DEGREE = 6;
+
+/** How far above the median a hub must sit, so a dense graph declares none. */
+const HUB_MEDIAN_FACTOR = 3;
+
+/**
+ * Longest path to every node, walking `next` from the nodes nothing enters.
+ *
+ * Kahn's algorithm over `next`, so a node's value counts the edges on the
+ * longest chain reaching it. Swapping the two arguments walks the graph the
+ * other way, which is how the layering gets both its depth from the sources and
+ * its height to the sinks out of one implementation. A cycle's nodes never
+ * reach in-degree zero and keep the seed 0, which is what breaks a loop into a
+ * layerable graph instead of hanging.
+ *
+ * @param {Array<string>}                ids  Nodes to walk, in seed order.
+ * @param {Object<string,Array<string>>} next Edges to follow.
+ * @param {Object<string,Array<string>>} prev The reverse of `next`, read for in-degree.
+ * @return {Object<string,number>} Node id to longest-path length.
+ */
+const longestPath = ( ids, next, prev ) => {
+	/** @type {Object<string,number>} */
+	const dist = {};
+	/** @type {Object<string,number>} */
+	const indeg = {};
+	for ( const id of ids ) {
+		dist[ id ] = 0;
+		indeg[ id ] = prev[ id ].length;
 	}
+	const queue = ids.filter( ( id ) => indeg[ id ] === 0 );
+	while ( queue.length ) {
+		const u = queue.shift();
+		for ( const v of next[ u ] ) {
+			if ( dist[ v ] < dist[ u ] + 1 ) {
+				dist[ v ] = dist[ u ] + 1;
+			}
+			if ( --indeg[ v ] === 0 ) {
+				queue.push( v );
+			}
+		}
+	}
+	return dist;
+};
 
-	// Coffman-Graham columns + spring rows; alpha-canonical so live == .tsl.
-	const ids = [ ...nodes ]
-		.map( ( n ) => n.id )
-		.sort( ( a, b ) => String( a ).localeCompare( String( b ) ) );
-	const declIdx = {};
-	const succ = {};
-	const pred = {};
-	ids.forEach( ( id, i ) => {
-		declIdx[ id ] = i;
-		succ[ id ] = [];
-		pred[ id ] = [];
-	} );
-	const nodeSet = new Set( ids );
-	for ( const e of edges ) {
-		// Skip dangling edges (adjacency would throw on a missing endpoint).
-		if ( ! nodeSet.has( e.from ) || ! nodeSet.has( e.to ) ) {
+/**
+ * Narrow an adjacency map to the edges staying inside one id set.
+ *
+ * A band is laid out on its own, so an edge leaving it — into a hub, or into
+ * another band — must not reach the layering, or the band would be sized and
+ * ordered by nodes it does not contain.
+ *
+ * @param {Array<string>}                ids       The id set.
+ * @param {Object<string,Array<string>>} adjacency The whole graph's neighbours.
+ * @return {Object<string,Array<string>>} Neighbours inside `ids` only.
+ */
+const restrictAdjacency = ( ids, adjacency ) => {
+	const inside = new Set( ids );
+	/** @type {Object<string,Array<string>>} */
+	const out = {};
+	for ( const id of ids ) {
+		out[ id ] = adjacency[ id ].filter( ( n ) => inside.has( n ) );
+	}
+	return out;
+};
+
+/**
+ * Shift every row so the topmost sits at 0.
+ *
+ * A spread block averages its members' desired rows, so it can settle above the
+ * first row; the canvas draws from the origin.
+ *
+ * @param {Array<string>}         ids Nodes to shift.
+ * @param {Object<string,number>} row Rows, mutated in place.
+ */
+const normalizeRows = ( ids, row ) => {
+	let minRow = Infinity;
+	for ( const id of ids ) {
+		if ( row[ id ] < minRow ) {
+			minRow = row[ id ];
+		}
+	}
+	if ( minRow === Infinity || minRow === 0 ) {
+		return;
+	}
+	for ( const id of ids ) {
+		row[ id ] -= minRow;
+	}
+};
+
+/**
+ * Spread one column's overlapping rows apart, symmetrically.
+ *
+ * Pool-adjacent-violators: merge a card into the block above it while their
+ * one-row-apart layouts would overlap, and re-centre the merged block on the
+ * mean of its members' desired rows. Centring is what makes a fan-out straddle
+ * its targets instead of shunting the whole stack downward.
+ *
+ * @param {Array<string>}         members Ids sharing the column.
+ * @param {Object<string,number>} row     Desired rows, mutated in place.
+ * @param {Object<string,number>} order   Tie-break rank for equal rows.
+ */
+const spreadColumn = ( members, row, order ) => {
+	const sorted = [ ...members ].sort(
+		( a, b ) => row[ a ] - row[ b ] || order[ a ] - order[ b ]
+	);
+	const blocks = [];
+	for ( const id of sorted ) {
+		let block = { ids: [ id ], first: row[ id ] };
+		// Merge into the previous block while 1-row-spaced layouts overlap.
+		while ( blocks.length ) {
+			const prev = blocks[ blocks.length - 1 ];
+			if ( block.first >= prev.first + prev.ids.length - 1e-9 ) {
+				break;
+			}
+			const merged = prev.ids.concat( block.ids );
+			let sum = 0;
+			merged.forEach( ( m, k ) => ( sum += row[ m ] - k ) );
+			block = { ids: merged, first: sum / merged.length };
+			blocks.pop();
+		}
+		blocks.push( block );
+	}
+	for ( const b of blocks ) {
+		const first = snapHalf( b.first );
+		b.ids.forEach( ( m, k ) => ( row[ m ] = first + k ) );
+	}
+};
+
+/**
+ * The nodes every slice is wired into: the backbone a single layering would
+ * stretch the whole graph around.
+ *
+ * Degree is in plus out over the non-dangling edges. The floor keeps a sparse
+ * graph's busiest node ordinary, and the median multiple keeps a uniformly
+ * dense graph from declaring most of itself a hub — a backbone is only a
+ * backbone when it stands well clear of what it serves.
+ *
+ * @param {Array<string>}                ids  Every node.
+ * @param {Object<string,Array<string>>} succ Successors.
+ * @param {Object<string,Array<string>>} pred Predecessors.
+ * @return {Set<string>} The hub ids, empty when the graph has no backbone.
+ */
+const hubIds = ( ids, succ, pred ) => {
+	/** @type {Object<string,number>} */
+	const degree = {};
+	for ( const id of ids ) {
+		degree[ id ] = succ[ id ].length + pred[ id ].length;
+	}
+	const cut = Math.max(
+		HUB_MIN_DEGREE,
+		HUB_MEDIAN_FACTOR * median( ids.map( ( id ) => degree[ id ] ) )
+	);
+	return new Set( ids.filter( ( id ) => degree[ id ] >= cut ) );
+};
+
+/**
+ * Weakly-connected components of an id set, each sorted.
+ *
+ * `ids` arrives alphabetical and is walked in that order, so the first unvisited
+ * node of a component IS that component's lowest-sorting id and the components
+ * come out alphabetically — which is what puts one subject's slices together on
+ * the canvas. A node whose every edge leaves the set is a component of one.
+ *
+ * @param {Array<string>}                ids  The id set to partition.
+ * @param {Object<string,Array<string>>} succ Successors.
+ * @param {Object<string,Array<string>>} pred Predecessors.
+ * @return {Array<Array<string>>} Each component's sorted members.
+ */
+const componentsOf = ( ids, succ, pred ) => {
+	const inside = new Set( ids );
+	const seen = new Set();
+	const out = [];
+	for ( const start of ids ) {
+		if ( seen.has( start ) ) {
 			continue;
 		}
-		succ[ e.from ].push( e.to );
-		pred[ e.to ].push( e.from );
+		const members = [];
+		const stack = [ start ];
+		seen.add( start );
+		while ( stack.length ) {
+			const id = stack.pop();
+			members.push( id );
+			for ( const n of [ ...succ[ id ], ...pred[ id ] ] ) {
+				if ( inside.has( n ) && ! seen.has( n ) ) {
+					seen.add( n );
+					stack.push( n );
+				}
+			}
+		}
+		out.push( members.sort( byId ) );
 	}
+	return out;
+};
+
+/**
+ * Lay ONE component out in grid units, using the layering described at the top.
+ *
+ * The driver calls this on the whole graph when it finds no hub, and on each
+ * band when it does, so a band is sized by its own depth rather than the
+ * graph's. `succ` and `pred` must already be narrowed to `ids`.
+ *
+ * @param {Array<string>}                ids  The component's nodes, alphabetical.
+ * @param {Object<string,Array<string>>} succ Successors inside the component.
+ * @param {Object<string,Array<string>>} pred Predecessors inside the component.
+ * @return {{col: Object<string,number>, row: Object<string,number>}} Grid units,
+ * rows normalised so the topmost is 0.
+ */
+const layoutComponent = ( ids, succ, pred ) => {
+	/** @type {Object<string,number>} */
+	const declIdx = {};
+	ids.forEach( ( id, i ) => ( declIdx[ id ] = i ) );
 
 	const isSource = ( id ) => pred[ id ].length === 0;
 	const isSink = ( id ) => succ[ id ].length === 0;
 	const isIsolated = ( id ) => isSource( id ) && isSink( id );
 
-	// Longest-path depth from sources (Kahn).
-	const depth = {};
-	const indeg = {};
-	for ( const id of ids ) {
-		depth[ id ] = 0;
-		indeg[ id ] = pred[ id ].length;
-	}
-	const dq = ids.filter( ( id ) => indeg[ id ] === 0 );
-	while ( dq.length ) {
-		const u = dq.shift();
-		for ( const v of succ[ u ] ) {
-			if ( depth[ v ] < depth[ u ] + 1 ) {
-				depth[ v ] = depth[ u ] + 1;
-			}
-			if ( --indeg[ v ] === 0 ) {
-				dq.push( v );
-			}
-		}
-	}
+	// Longest path from the sources, and to the sinks — the feasibility band.
+	const depth = longestPath( ids, succ, pred );
+	const height = longestPath( ids, pred, succ );
 	let maxDepth = 0;
 	for ( const id of ids ) {
 		maxDepth = Math.max( maxDepth, depth[ id ] );
 	}
 
-	// Longest-path height to sinks (reverse Kahn) — feasibility upper bound.
-	const height = {};
-	const outdeg = {};
-	for ( const id of ids ) {
-		height[ id ] = 0;
-		outdeg[ id ] = succ[ id ].length;
-	}
-	const hq = ids.filter( ( id ) => outdeg[ id ] === 0 );
-	while ( hq.length ) {
-		const u = hq.shift();
-		for ( const p of pred[ u ] ) {
-			if ( height[ p ] < height[ u ] + 1 ) {
-				height[ p ] = height[ u ] + 1;
-			}
-			if ( --outdeg[ p ] === 0 ) {
-				hq.push( p );
-			}
-		}
-	}
-
 	// Coffman-Graham: pin sources/sinks, relax interior to barycenter in-band.
+	/** @type {Object<string,number>} */
 	const col = {};
 	for ( const id of ids ) {
 		if ( isIsolated( id ) ) {
@@ -378,6 +525,7 @@ export function autoLayout( parsed ) {
 	const sinkSide = anchor > maxDepth / 2;
 
 	// Barycenter crossing-reduction in index space (alternating sweeps).
+	/** @type {Object<string,number>} */
 	const pos = {};
 	const reindex = () =>
 		columns.forEach( ( a ) => a.forEach( ( id, i ) => ( pos[ id ] = i ) ) );
@@ -405,6 +553,7 @@ export function autoLayout( parsed ) {
 
 	// Integer-stack the anchor; spring others to neighbour-row midpoint.
 	const assignRows = () => {
+		/** @type {Object<string,number>} */
 		const r = {};
 		columns[ anchor ].forEach( ( id, i ) => ( r[ id ] = i ) );
 		for ( let c = anchor + 1; c <= maxDepth; c++ ) {
@@ -496,32 +645,7 @@ export function autoLayout( parsed ) {
 	}
 
 	// Spread same-column overlaps symmetrically (PAV) so fan-out straddles.
-	columns.forEach( ( arr ) => {
-		const sorted = [ ...arr ].sort(
-			( a, b ) => row[ a ] - row[ b ] || declIdx[ a ] - declIdx[ b ]
-		);
-		const blocks = [];
-		for ( const id of sorted ) {
-			let block = { ids: [ id ], first: row[ id ] };
-			// Merge into the previous block while 1-row-spaced layouts overlap.
-			while ( blocks.length ) {
-				const prev = blocks[ blocks.length - 1 ];
-				if ( block.first >= prev.first + prev.ids.length - 1e-9 ) {
-					break;
-				}
-				const merged = prev.ids.concat( block.ids );
-				let sum = 0;
-				merged.forEach( ( m, k ) => ( sum += row[ m ] - k ) );
-				block = { ids: merged, first: sum / merged.length };
-				blocks.pop();
-			}
-			blocks.push( block );
-		}
-		for ( const b of blocks ) {
-			const first = snapHalf( b.first );
-			b.ids.forEach( ( m, k ) => ( row[ m ] = first + k ) );
-		}
-	} );
+	columns.forEach( ( arr ) => spreadColumn( arr, row, declIdx ) );
 
 	// Isolated nodes stack below the deepest node of the column they joined.
 	let maxRow = -Infinity;
@@ -536,18 +660,208 @@ export function autoLayout( parsed ) {
 		row[ id ] = maxRow + 1 + i;
 	} );
 
-	// Normalize rows so the topmost is 0 (spread can push clusters negative).
-	let minRow = Infinity;
+	normalizeRows( ids, row );
+	return { col, row };
+};
+
+/**
+ * The backbone: the hubs plus every BRIDGE, a node whose every neighbour is a
+ * hub. A bridge stacked as a loner would put `_http`, which only joins
+ * `_shell` to `_output`, in the band column with both its edges running back
+ * across the canvas; placed with the hubs it takes its place in their chain.
+ *
+ * @param {Set<string>}                  hubs The hub ids.
+ * @param {Array<string>}                ids  Every node, alphabetical.
+ * @param {Object<string,Array<string>>} succ Successors.
+ * @param {Object<string,Array<string>>} pred Predecessors.
+ * @return {Array<string>} The backbone ids, alphabetical.
+ */
+const backboneOf = ( hubs, ids, succ, pred ) =>
+	ids.filter( ( id ) => {
+		if ( hubs.has( id ) ) {
+			return true;
+		}
+		const nb = [ ...succ[ id ], ...pred[ id ] ];
+		return nb.length > 0 && nb.every( ( n ) => hubs.has( n ) );
+	} );
+
+/**
+ * Column and row for the backbone, appended to the maps the bands filled.
+ * Columns come from the longest path among the backbone's own nodes, offset by
+ * `baseCol`, so `settings:consumer → settings-sync → spoke → null` reads left
+ * to right past the bands. A row is the midpoint of the band rows the node
+ * serves; a node serving no band centres on the backbone neighbours already
+ * placed, which is why band-serving nodes are placed first. Same-column
+ * collisions spread as a band column's do.
+ *
+ * @param {Array<string>}                backbone Backbone ids, alphabetical.
+ * @param {Object<string,Array<string>>} succ     Whole-graph successors.
+ * @param {Object<string,Array<string>>} pred     Whole-graph predecessors.
+ * @param {number}                       baseCol  The column depth 0 takes.
+ * @param {Object<string,number>}        col      Column map, extended in place.
+ * @param {Object<string,number>}        row      Row map, extended in place.
+ */
+const placeBackbone = ( backbone, succ, pred, baseCol, col, row ) => {
+	const inside = new Set( backbone );
+	const depth = longestPath(
+		backbone,
+		restrictAdjacency( backbone, succ ),
+		restrictAdjacency( backbone, pred )
+	);
+	/** @type {Object<string,number>} */
+	const order = {};
+	backbone.forEach( ( id, i ) => ( order[ id ] = i ) );
+	const rowsOf = ( list ) =>
+		list.map( ( n ) => row[ n ] ).filter( ( v ) => v !== undefined );
+
+	// One partition pass: band-serving nodes first, then the bridges.
+	const serving = [];
+	const bridges = [];
+	for ( const id of backbone ) {
+		const neighbours = [ ...pred[ id ], ...succ[ id ] ];
+		( neighbours.some( ( n ) => ! inside.has( n ) )
+			? serving
+			: bridges
+		).push( id );
+	}
+	for ( const id of [ ...serving, ...bridges ] ) {
+		col[ id ] = baseCol + depth[ id ];
+		const neighbours = [ ...pred[ id ], ...succ[ id ] ];
+		const served = rowsOf(
+			neighbours.filter( ( n ) => ! inside.has( n ) )
+		);
+		const rows = served.length ? served : rowsOf( neighbours );
+		row[ id ] = rows.length ? snapHalf( midMinMax( rows ) ) : 0;
+	}
+
+	/** @type {Object<string,Array<string>>} */
+	const byCol = {};
+	for ( const id of backbone ) {
+		( byCol[ col[ id ] ] ??= [] ).push( id );
+	}
+	for ( const members of Object.values( byCol ) ) {
+		spreadColumn( members, row, order );
+	}
+};
+
+/**
+ * Lay a hub-bearing graph out as stacked bands with the backbone to their
+ * right.
+ *
+ * Each band is one weakly-connected component of the graph minus its backbone,
+ * laid out on its own so its width is its own depth, and offset one row below
+ * the band above it — the row step IS the gap, since a card is shorter than
+ * `Y_STEP`. A component of one carries no shape worth a band of its own, so
+ * those stack together under the bands, as an edgeless node does today.
+ *
+ * @param {Array<string>}                ids  Every node, alphabetical.
+ * @param {Object<string,Array<string>>} succ Successors.
+ * @param {Object<string,Array<string>>} pred Predecessors.
+ * @param {Set<string>}                  hubs The hub ids.
+ * @return {{col: Object<string,number>, row: Object<string,number>}} Grid units,
+ * rows normalised so the topmost is 0.
+ */
+const layoutBands = ( ids, succ, pred, hubs ) => {
+	/** @type {Object<string,number>} */
+	const col = {};
+	/** @type {Object<string,number>} */
+	const row = {};
+	const backbone = backboneOf( hubs, ids, succ, pred );
+	const inside = new Set( backbone );
+	const banded = ids.filter( ( id ) => ! inside.has( id ) );
+	const loners = [];
+	let maxCol = -1;
+	let nextRow = 0;
+	for ( const members of componentsOf( banded, succ, pred ) ) {
+		if ( members.length === 1 ) {
+			loners.push( members[ 0 ] );
+			continue;
+		}
+		const band = layoutComponent(
+			members,
+			restrictAdjacency( members, succ ),
+			restrictAdjacency( members, pred )
+		);
+		let height = 0;
+		for ( const id of members ) {
+			col[ id ] = band.col[ id ];
+			row[ id ] = band.row[ id ] + nextRow;
+			maxCol = Math.max( maxCol, col[ id ] );
+			height = Math.max( height, band.row[ id ] );
+		}
+		nextRow += height + 1;
+	}
+	for ( const id of loners ) {
+		col[ id ] = 0;
+		row[ id ] = nextRow++;
+		maxCol = Math.max( maxCol, 0 );
+	}
+
+	placeBackbone( backbone, succ, pred, maxCol + 1, col, row );
+
+	normalizeRows( ids, row );
+	return { col, row };
+};
+
+/**
+ * Lay a parsed graph out on the grid, in whichever of the two regimes described
+ * at the top its hubs select.
+ *
+ * `parsed` is `{ nodes: [ { id } ], edges: [ { from, to } ] }`; null, or either
+ * key missing, reads as empty. An edge whose endpoints are not both in `nodes`
+ * is skipped, so a graph carrying a dangling edge lays out rather than throwing.
+ * A graph with no edges at all becomes an alphabetical, roughly square grid.
+ *
+ * @param {?{nodes?: Array<{id: string}>, edges?: Array<{from: string, to: string}>}} parsed The graph to lay out.
+ * @return {{nodes: Array<{id: string, position: {x: number, y: number}}>, edges: Array<Object>}}
+ * Every input node copied with a `position` added, and `edges` passed straight
+ * through. Neither input array nor any input node is mutated.
+ */
+export function autoLayout( parsed ) {
+	const nodes = parsed?.nodes ?? [];
+	const edges = parsed?.edges ?? [];
+
+	// Edgeless nodes would all stack in column 0; grid them instead.
+	if ( edges.length === 0 && nodes.length > 0 ) {
+		const sorted = [ ...nodes ].sort( ( a, b ) =>
+			a.id.localeCompare( b.id )
+		);
+		const rowCount = Math.max( 1, Math.ceil( Math.sqrt( sorted.length ) ) );
+		const positioned = sorted.map( ( n, i ) => ( {
+			...n,
+			position: {
+				x: X_PAD + Math.floor( i / rowCount ) * X_STEP,
+				y: Y_PAD + ( i % rowCount ) * Y_STEP,
+			},
+		} ) );
+		return { nodes: positioned, edges };
+	}
+
+	// Alpha-canonical ids, so the live graph lays out like its .tsl.
+	const ids = [ ...nodes ].map( ( n ) => n.id ).sort( byId );
+	/** @type {Object<string,Array<string>>} */
+	const succ = {};
+	/** @type {Object<string,Array<string>>} */
+	const pred = {};
 	for ( const id of ids ) {
-		if ( row[ id ] < minRow ) {
-			minRow = row[ id ];
-		}
+		succ[ id ] = [];
+		pred[ id ] = [];
 	}
-	if ( minRow !== Infinity && minRow !== 0 ) {
-		for ( const id of ids ) {
-			row[ id ] -= minRow;
+	const nodeSet = new Set( ids );
+	for ( const e of edges ) {
+		// Skip dangling edges (adjacency would throw on a missing endpoint).
+		if ( ! nodeSet.has( e.from ) || ! nodeSet.has( e.to ) ) {
+			continue;
 		}
+		succ[ e.from ].push( e.to );
+		pred[ e.to ].push( e.from );
 	}
+
+	const hubs = hubIds( ids, succ, pred );
+	const { col, row } =
+		hubs.size === 0
+			? layoutComponent( ids, succ, pred )
+			: layoutBands( ids, succ, pred, hubs );
 
 	const positioned = nodes.map( ( n ) => ( {
 		...n,

@@ -909,6 +909,25 @@ describe( 'autoLayout — disconnected components', () => {
 		],
 	};
 
+	it( 'keeps a fan-out backbone in flow order past the bands', () => {
+		// Every spoke touches only hubs, so the whole fan is backbone, and the
+		// backbone lays out by its own longest path: consumer, then the two
+		// feeders, then the spokes, then null, reading left to right.
+		const at = {};
+		for ( const n of autoLayout( graph ).nodes ) {
+			at[ n.id ] = n.position;
+		}
+		const spokeX = SPOKES.map( ( id ) => at[ id ].x );
+		expect( at[ 'settings-sync' ].x ).toBeLessThan( Math.min( ...spokeX ) );
+		expect( at[ 'discovery-collector' ].x ).toBeLessThan(
+			Math.min( ...spokeX )
+		);
+		expect( at.null.x ).toBeGreaterThan( Math.max( ...spokeX ) );
+		expect( at[ 'settings:consumer' ].x ).toBeLessThan(
+			at[ 'settings-sync' ].x
+		);
+	} );
+
 	it( 'gives every node a finite position', () => {
 		const laid = autoLayout( graph );
 		const broken = laid.nodes
@@ -919,5 +938,155 @@ describe( 'autoLayout — disconnected components', () => {
 			)
 			.map( ( n ) => `${ n.id } (${ n.position.x }, ${ n.position.y })` );
 		expect( broken ).toEqual( [] );
+	} );
+} );
+
+describe( 'autoLayout — hub bands', () => {
+	// A browser-realm-shaped graph: five polled slices, five receiver slices,
+	// and the four backbone nodes every slice is wired into.
+	//
+	// Degrees over the non-dangling edges, which is what hub detection reads:
+	//   X:timer 1, X:tee 2, X:fetch 4, X:result 2, X:in 2, X:view 1,
+	//   _metadata 1, _heartbeat 0,
+	//   _shell 6 (5 fetches in, _http out), _http 2 (_shell in, _output out),
+	//   _output 6 (5 results and _http in), _cwd 6 (5 fetches and _metadata in).
+	// Over 36 nodes the median degree is 2, so the cut is max( 6, 3 * 2 ) = 6
+	// and exactly _shell, _output and _cwd clear it; a fetch at 4 does not,
+	// and _http and _metadata are bridges: every neighbour they have is a hub.
+	const POLL_SLICES = [ 'a', 'b', 'd', 'e', 'f' ];
+	const VIEW_SLICES = [ 'c', 'g', 'h', 'i', 'j' ];
+
+	const hubGraph = () => {
+		const edges = [];
+		for ( const s of POLL_SLICES ) {
+			edges.push(
+				{ from: `${ s }:timer`, to: `${ s }:tee` },
+				{ from: `${ s }:tee`, to: `${ s }:fetch` },
+				{ from: `${ s }:fetch`, to: `${ s }:result` },
+				{ from: `${ s }:fetch`, to: '_shell' },
+				{ from: `${ s }:fetch`, to: '_cwd' },
+				{ from: `${ s }:result`, to: '_output' }
+			);
+		}
+		for ( const s of VIEW_SLICES ) {
+			edges.push( { from: `${ s }:in`, to: `${ s }:view` } );
+		}
+		edges.push(
+			{ from: '_shell', to: '_http' },
+			{ from: '_http', to: '_output' },
+			{ from: '_metadata', to: '_cwd' }
+		);
+		const ids = new Set( [ '_heartbeat' ] );
+		for ( const e of edges ) {
+			ids.add( e.from );
+			ids.add( e.to );
+		}
+		return { nodes: [ ...ids ].map( ( id ) => ( { id } ) ), edges };
+	};
+
+	const positionsOf = ( graph ) => {
+		const out = {};
+		for ( const n of autoLayout( graph ).nodes ) {
+			out[ n.id ] = n.position;
+		}
+		return out;
+	};
+
+	it( 'keeps each slice on one row, unstretched, with the hubs to the right', () => {
+		const at = positionsOf( hubGraph() );
+
+		// A four-node slice runs straight across one row.
+		const sliceA = [ 'a:timer', 'a:tee', 'a:fetch', 'a:result' ];
+		expect( new Set( sliceA.map( ( id ) => at[ id ].y ) ).size ).toBe( 1 );
+
+		// Each slice gets its own band.
+		const bandY = [ ...POLL_SLICES, ...VIEW_SLICES ].map(
+			( s ) =>
+				at[ `${ s }:${ POLL_SLICES.includes( s ) ? 'tee' : 'in' }` ].y
+		);
+		expect( new Set( bandY ).size ).toBe( bandY.length );
+
+		// A two-node slice spans two columns, not the whole graph's depth.
+		expect( at[ 'c:view' ].x ).toBe( at[ 'c:in' ].x + X_STEP );
+
+		// Every fed hub sits right of every band, and so does a bridge — a
+		// node whose every neighbour is a hub — rather than stacking as a loner.
+		const backbone = [ '_shell', '_http', '_output', '_cwd', '_metadata' ];
+		const fetchX = POLL_SLICES.map( ( s ) => at[ `${ s }:fetch` ].x );
+		for ( const id of backbone ) {
+			expect( at[ id ].x ).toBeGreaterThan( Math.max( ...fetchX ) );
+		}
+		expect( at._cwd.x ).toBeGreaterThan( at._metadata.x );
+
+		// The hub chain _shell -> _http -> _output takes three columns.
+		expect( at._output.x ).toBeGreaterThan( at._http.x );
+		expect( at._http.x ).toBeGreaterThan( at._shell.x );
+
+		// An edgeless node stacks below every band.
+		expect( at._heartbeat.y ).toBeGreaterThan( Math.max( ...bandY ) );
+	} );
+
+	it( 'lays the same graph out identically whatever order the nodes arrive in', () => {
+		const graph = hubGraph();
+		const shuffled = {
+			nodes: [ ...graph.nodes ].reverse(),
+			edges: graph.edges,
+		};
+		expect( positionsOf( shuffled ) ).toEqual( positionsOf( graph ) );
+	} );
+
+	// One node short of the cut, the graph is one layered component and a
+	// two-node slice stretches to the global depth; one edge later it bands.
+	const starGraph = ( spokes ) => {
+		const edges = [
+			{ from: 'c1', to: 'c2' },
+			{ from: 'c2', to: 'c3' },
+			{ from: 'x', to: 'y' },
+		];
+		for ( let i = 0; i < spokes; i++ ) {
+			edges.push( { from: `s${ i }`, to: 'hub' } );
+		}
+		const ids = new Set();
+		for ( const e of edges ) {
+			ids.add( e.from );
+			ids.add( e.to );
+		}
+		return { nodes: [ ...ids ].map( ( id ) => ( { id } ) ), edges };
+	};
+
+	it( 'leaves a degree-5 node ordinary, so the graph lays out as one component', () => {
+		const at = positionsOf( starGraph( 5 ) );
+		expect( at.y.x - at.x.x ).toBe( 2 * X_STEP );
+	} );
+
+	it( 'treats a degree-6 node as a hub, so each component gets its own band', () => {
+		const at = positionsOf( starGraph( 6 ) );
+		expect( at.y.x - at.x.x ).toBe( X_STEP );
+	} );
+
+	it( 'holds a high-degree node to three times the median, so a dense graph stays one component', () => {
+		// 6 sources x 6 sinks fully connected: every one of the twelve has
+		// degree 6, the median is 6, and the cut is 18 — no hub. Plus a
+		// two-node component so a banded layout would be visible.
+		const sources = [ 'p0', 'p1', 'p2', 'p3', 'p4', 'p5' ];
+		const sinks = [ 'q0', 'q1', 'q2', 'q3', 'q4', 'q5' ];
+		const edges = [ { from: 'x', to: 'y' } ];
+		for ( const from of sources ) {
+			for ( const to of sinks ) {
+				edges.push( { from, to } );
+			}
+		}
+		const at = positionsOf( {
+			nodes: [ ...sources, ...sinks, 'x', 'y' ].map( ( id ) => ( {
+				id,
+			} ) ),
+			edges,
+		} );
+		for ( const id of [ ...sources, 'x' ] ) {
+			expect( at[ id ].x ).toBe( X_PAD );
+		}
+		for ( const id of [ ...sinks, 'y' ] ) {
+			expect( at[ id ].x ).toBe( X_PAD + X_STEP );
+		}
 	} );
 } );
