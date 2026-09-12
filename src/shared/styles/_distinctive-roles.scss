@@ -24,12 +24,12 @@
 		}
 	}
 
-	.nodes-devtools__tabbar {
+	.nodes-tab-host__tabbar {
 		background: var(--paper-2, var(--np-surface-subtle));
 		border-bottom: 1px solid var(--paper-shadow, var(--np-border-strong));
 	}
 
-	.nodes-devtools__tab {
+	.nodes-tab-host__tab {
 		appearance: none;
 		background: transparent;
 		border: 0;
@@ -39,7 +39,7 @@
 		box-shadow: none;
 		color: color-mix(
 			in srgb,
-			var(--nodes-devtools-fg, var(--ink, var(--np-text))) 60%,
+			var(--nodes-tab-host-fg, var(--ink, var(--np-text))) 60%,
 			transparent
 		);
 		cursor: pointer;
@@ -53,19 +53,19 @@
 		&:hover {
 			color: color-mix(
 				in srgb,
-				var(--nodes-devtools-fg, var(--ink, var(--np-text))) 88%,
+				var(--nodes-tab-host-fg, var(--ink, var(--np-text))) 88%,
 				transparent
 			);
 		}
 
 		&.is-active {
 			border-bottom-color: var(--cyan, var(--np-primary));
-			color: var(--nodes-devtools-fg, var(--ink, var(--np-text)));
+			color: var(--nodes-tab-host-fg, var(--ink, var(--np-text)));
 			font-weight: 600;
 		}
 	}
 
-	.nodes-devtools__tab-content {
+	.nodes-tab-host__tab-content {
 		background: var(--paper-3, var(--np-surface-muted));
 	}
 
@@ -202,7 +202,7 @@
 	}
 
 	.nodes-debug__panel {
-		--nodes-devtools-fg: var(--ink, var(--np-text));
+		--nodes-tab-host-fg: var(--ink, var(--np-text));
 		background: var(--paper-3, var(--np-surface-muted));
 		border: 1px solid var(--paper-shadow, var(--np-border-strong));
 		border-radius: 10px;

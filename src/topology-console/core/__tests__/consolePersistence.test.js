@@ -37,11 +37,11 @@ describe( 'consolePersistence [87]', () => {
 		);
 	} );
 
-	it( 'round-trips the hub-console transcript under its OWN key, independent of the overlay transcript', () => {
+	it( 'round-trips the station-console transcript under its OWN key, independent of the overlay transcript', () => {
 		expect( loadHubTranscript() ).toEqual( [] ); // empty default
 		saveHubTranscript( [ { kind: 'recv', text: 'worker line' } ] );
 		saveTranscript( [ { kind: 'sent', text: 'overlay line' } ] );
-		// Separate keys so the hub console and debug overlay don't clobber.
+		// Separate keys so the station console and debug overlay don't clobber.
 		expect( loadHubTranscript() ).toEqual( [
 			{ kind: 'recv', text: 'worker line' },
 		] );
@@ -50,7 +50,7 @@ describe( 'consolePersistence [87]', () => {
 		] );
 	} );
 
-	it( 'caps the hub transcript to the most-recent N like the overlay transcript', () => {
+	it( 'caps the station transcript to the most-recent N like the overlay transcript', () => {
 		const entries = Array.from(
 			{ length: MAX_PERSISTED_TRANSCRIPT + 50 },
 			( _, i ) => ( { kind: 'recv', text: `line ${ i }` } )

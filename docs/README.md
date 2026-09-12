@@ -23,7 +23,7 @@ Tutorials, each run after every step. The first three stop at "works on my page"
 - **[writing-a-plugin.md](writing-a-plugin.md)**: read when you want to build your own: the AI-newsletter digest from an empty directory, one node at a time. [writing-and-running-a-plugin.md](writing-and-running-a-plugin.md) covers the same ground in one sitting; read it first.
 - **[writing-a-dashboard.md](writing-a-dashboard.md)**: read when the headless pipeline works and you want a React admin dashboard that reads its live state. [browser-runtime.md](browser-runtime.md) explains the model this page is built on; read it first.
 - **[writing-a-real-plugin.md](writing-a-real-plugin.md)**: read when you're taking the toy pipeline to real sources: durable ingest partition, credentials in the Vault, terminal-`DONE` auto-compose.
-- **[writing-a-real-dashboard.md](writing-a-real-dashboard.md)**: read when your dashboard has to survive the Topology Console, the DevTools overlay, and `release:archive`: the shared-surface contracts you didn't sign up for.
+- **[writing-a-real-dashboard.md](writing-a-real-dashboard.md)**: read when your dashboard has to survive the Topology Console, the debug overlay, and `release:archive`: the shared-surface contracts you didn't sign up for.
 - **[writing-a-view-node.md](writing-a-view-node.md)**: read when you need the one-page contract for a dashboard slice's terminal view node: a poll's reply or a stream's records in, one render model out. [browser-runtime.md](browser-runtime.md) gives the one-node-per-widget rule it enforces.
 
 ## Reference

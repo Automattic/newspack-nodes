@@ -6,11 +6,8 @@ import * as sass from 'sass';
 // eslint-disable-next-line import/no-extraneous-dependencies
 import postcss from 'postcss';
 import { fireEvent, render } from '@testing-library/react';
-import DevtoolsTabHost from '../../shared/devtools/DevtoolsTabHost';
-import {
-	registerDevtoolsTab,
-	resetDevtoolsTabs,
-} from '../../shared/devtools/tabRegistry';
+import TabHost from '../../shared/tabs/TabHost';
+import { registerTab, resetTabs } from '../../shared/tabs/tabRegistry';
 import LogBrowser from '../../shared/components/LogBrowser';
 import LogStreamViewer from '../../shared/components/LogStreamViewer';
 import DebugOverlay from '../../debug-overlay/DebugOverlay';
@@ -272,7 +269,7 @@ const topologyRow = ( source = 'stock', health = 'ok' ) => (
 
 describe( 'distinctive canonical roles', () => {
 	beforeEach( () => {
-		resetDevtoolsTabs();
+		resetTabs();
 		window.localStorage.clear();
 	} );
 
@@ -898,27 +895,25 @@ describe( 'distinctive canonical roles', () => {
 		} );
 	} );
 
-	it( 'renders DevTools navigation as underline tabs instead of generic buttons', () => {
-		registerDevtoolsTab( {
+	it( 'renders station navigation as underline tabs instead of generic buttons', () => {
+		registerTab( {
 			id: 'first',
 			label: 'First',
-			host: 'hub',
+			host: 'station',
 			order: 0,
 			component: () => <div>First panel</div>,
 		} );
-		registerDevtoolsTab( {
+		registerTab( {
 			id: 'second',
 			label: 'Second',
-			host: 'hub',
+			host: 'station',
 			order: 1,
 			component: () => <div>Second panel</div>,
 		} );
-		const { getByRole } = render(
-			provider( <DevtoolsTabHost host="hub" /> )
-		);
+		const { getByRole } = render( provider( <TabHost host="station" /> ) );
 		const activeTab = getByRole( 'tab', { name: 'First' } );
 
-		expect( activeTab.classList.contains( 'nodes-devtools__tab' ) ).toBe(
+		expect( activeTab.classList.contains( 'nodes-tab-host__tab' ) ).toBe(
 			true
 		);
 		expect( activeTab.classList.contains( 'button' ) ).toBe( false );
@@ -1319,7 +1314,7 @@ describe( 'distinctive canonical roles', () => {
 	} );
 
 	it( 'renders the debug launcher and panel through their existing canonical classes', () => {
-		registerDevtoolsTab( {
+		registerTab( {
 			id: 'probe',
 			label: 'Probe',
 			host: 'overlay',

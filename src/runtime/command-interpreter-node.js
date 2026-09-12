@@ -362,7 +362,7 @@ export class CommandInterpreterNode extends Node {
 	 *                                  HOLDS the class hands it over: the name map
 	 *                                  is a static per bundle, so a name registered
 	 *                                  in one bundle does not resolve in another,
-	 *                                  and a hub tab builds its graph through
+	 *                                  and a station tab builds its graph through
 	 *                                  whichever interpreter it was handed.
 	 * @param {string}           name   Name to register the node under.
 	 * @param {string[]}         [args] Constructor argument tokens.

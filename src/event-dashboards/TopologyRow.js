@@ -1,5 +1,5 @@
 /**
- * TopologyRow — one topology's row on the hub's Overview board, folded or not.
+ * TopologyRow — one topology's row on the station's Overview board, folded or not.
  *
  * The heading is the same in both states: the reorder grip, the fold chevron,
  * the name (a live Console link while the topology runs), one pill per
@@ -32,7 +32,7 @@ import {
 import './styles/topology-row.scss';
 
 /**
- * Build a deep-link into the hub's Console tab.
+ * Build a deep-link into the station's Console tab.
  *
  * @param {string}  name            Topology to open; omit it for a blank draft.
  * @param {Object}  [options]       Which Console mode the link opens.
@@ -42,7 +42,7 @@ import './styles/topology-row.scss';
  */
 export const consoleHref = ( name, { edit = false, isNew = false } = {} ) => {
 	const params = new URLSearchParams( {
-		page: 'newspack-nodes-hub',
+		page: 'newspack-nodes-station',
 		tab: 'console',
 	} );
 	if ( name ) {

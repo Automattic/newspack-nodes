@@ -4,9 +4,9 @@ import { mountExospine } from '../../runtime/exospine';
 import { Node } from '../../runtime/node';
 import InspectorTab from '../tabs/InspectorTab';
 import {
-	registerDevtoolsTab,
-	resetDevtoolsTabs,
-} from '@newspack-nodes/shared/devtools/tabRegistry';
+	registerTab,
+	resetTabs,
+} from '@newspack-nodes/shared/tabs/tabRegistry';
 import DebugOverlay from '../DebugOverlay';
 
 // Type a line into the overlay's real ReplFooter and submit it on Enter.
@@ -23,8 +23,8 @@ describe( 'DebugOverlay', () => {
 		Core.reset();
 		window.localStorage.clear();
 		// Re-register explicitly; the import registration is module-cached.
-		resetDevtoolsTabs();
-		registerDevtoolsTab( {
+		resetTabs();
+		registerTab( {
 			id: 'inspector',
 			label: 'Inspector',
 			host: 'overlay',
@@ -731,7 +731,7 @@ describe( 'DebugOverlay', () => {
 	} );
 
 	it( 'shows a tab bar and switches the mounted tab when >1 overlay tab is registered', () => {
-		registerDevtoolsTab( {
+		registerTab( {
 			id: 'fake',
 			label: 'Fake',
 			host: 'overlay',

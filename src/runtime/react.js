@@ -3,7 +3,7 @@
  * publishes, and how it hands one a message.
  *
  * Every hook here addresses a node by NAME and re-resolves it, because the
- * graph is rebuilt underneath the React tree — a devtools tab swap, the
+ * graph is rebuilt underneath the React tree — a station tab swap, the
  * overlay's Reset Graph — and a component holding an instance would go on
  * reading a removed node. A node publishes with `setState`, which caches the
  * payload and notifies its registrations; `register()` replays that cache, so a
@@ -31,7 +31,7 @@ import { Core } from './core';
  * The event is auto-declared, and that is load-bearing rather than lenient:
  * `removeNode()` empties `registrations`, so a node torn down between this
  * component's render and its effect makes `register()` throw. Switching
- * devtools tabs does exactly that — one graph comes down while the next goes
+ * station tabs does exactly that — one graph comes down while the next goes
  * up — and the crash lands in the incoming tab.
  *
  * The listener id carries the event as well as the React id, so one component

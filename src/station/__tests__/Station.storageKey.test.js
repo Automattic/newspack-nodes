@@ -1,16 +1,16 @@
 /**
- * DevToolsHub — the floating debug overlay's node-layout storageKey is scoped
- * per active hub tab, so switching tabs loads that tab's own canvas layout
+ * Station — the floating debug overlay's node-layout storageKey is scoped
+ * per active station tab, so switching tabs loads that tab's own canvas layout
  * instead of sharing one garbage layout across every tab.
  */
 import { render, fireEvent } from '@testing-library/react';
-import DevToolsHub from '../DevToolsHub';
+import Station from '../Station';
 import {
-	registerDevtoolsTab,
-	resetDevtoolsTabs,
-} from '@newspack-nodes/shared/devtools/tabRegistry';
+	registerTab,
+	resetTabs,
+} from '@newspack-nodes/shared/tabs/tabRegistry';
 
-// Capture the storageKey prop the hub hands the mocked overlay (no FAB/graph).
+// Capture the storageKey prop the station hands the mocked overlay (no FAB/graph).
 const overlayStorageKeys = [];
 jest.mock( '../../debug-overlay/DebugOverlay', () => ( props ) => {
 	overlayStorageKeys.push( props.storageKey );
@@ -19,33 +19,33 @@ jest.mock( '../../debug-overlay/DebugOverlay', () => ( props ) => {
 	);
 } );
 
-describe( 'DevToolsHub — per-tab overlay storageKey', () => {
+describe( 'Station — per-tab overlay storageKey', () => {
 	beforeEach( () => {
-		resetDevtoolsTabs();
+		resetTabs();
 		window.localStorage.clear();
 		window.history.replaceState( {}, '', '/' );
 		overlayStorageKeys.length = 0;
 	} );
 
 	const registerConsoleAndTwoTools = () => {
-		registerDevtoolsTab( {
+		registerTab( {
 			id: 'topology-console',
 			label: 'Console',
-			host: 'hub',
+			host: 'station',
 			order: 0,
 			component: () => <div data-testid="console" />,
 		} );
-		registerDevtoolsTab( {
+		registerTab( {
 			id: 'topology-manager',
 			label: 'Topologies',
-			host: 'hub',
+			host: 'station',
 			order: 10,
 			component: () => <div data-testid="manager" />,
 		} );
-		registerDevtoolsTab( {
+		registerTab( {
 			id: 'performance',
 			label: 'Performance',
-			host: 'hub',
+			host: 'station',
 			order: 20,
 			component: () => <div data-testid="performance" />,
 		} );
@@ -53,24 +53,24 @@ describe( 'DevToolsHub — per-tab overlay storageKey', () => {
 
 	it( 'qualifies the overlay storageKey with the active tab id', () => {
 		registerConsoleAndTwoTools();
-		const { getByRole, getByTestId } = render( <DevToolsHub /> );
+		const { getByRole, getByTestId } = render( <Station /> );
 		// Console is selected first → no overlay. Switch to a non-console tab.
 		fireEvent.click( getByRole( 'tab', { name: 'Topologies' } ) );
 		expect( getByTestId( 'overlay-mock' ).dataset.storageKey ).toBe(
-			'newspack-nodes:debug:hub:topology-manager'
+			'newspack-nodes:debug:station:topology-manager'
 		);
 	} );
 
 	it( 'gives a different storageKey to each tab so layouts do not collide', () => {
 		registerConsoleAndTwoTools();
-		const { getByRole } = render( <DevToolsHub /> );
+		const { getByRole } = render( <Station /> );
 		fireEvent.click( getByRole( 'tab', { name: 'Topologies' } ) );
 		fireEvent.click( getByRole( 'tab', { name: 'Performance' } ) );
 		const seen = new Set( overlayStorageKeys );
-		expect( seen.has( 'newspack-nodes:debug:hub:topology-manager' ) ).toBe(
-			true
-		);
-		expect( seen.has( 'newspack-nodes:debug:hub:performance' ) ).toBe(
+		expect(
+			seen.has( 'newspack-nodes:debug:station:topology-manager' )
+		).toBe( true );
+		expect( seen.has( 'newspack-nodes:debug:station:performance' ) ).toBe(
 			true
 		);
 	} );

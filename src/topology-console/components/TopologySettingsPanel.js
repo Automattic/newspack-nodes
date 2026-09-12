@@ -106,7 +106,7 @@ function sanitizeValue( v ) {
 }
 
 /**
- * Where the panel mounts: the devtools hub's root, else the document body.
+ * Where the panel mounts: the station's root, else the document body.
  *
  * Rendered in place it would stack inside the canvas frame's context, which no
  * z-index lifts over the header and tab bar the panel drops from. The body
@@ -119,7 +119,7 @@ function getPortalTarget() {
 	if ( typeof document === 'undefined' ) {
 		return null;
 	}
-	return document.querySelector( '.nodes-devtools-hub' ) || document.body;
+	return document.querySelector( '.nodes-station' ) || document.body;
 }
 
 /**
@@ -288,7 +288,7 @@ export default function TopologySettingsPanel( {
 	const target = getPortalTarget();
 	/**
 	 * Whether the panel landed on the body, outside the console's theme
-	 * provider: there it carries the skin classes itself, and inside the hub it
+	 * provider: there it carries the skin classes itself, and inside the station it
 	 * must not repeat what an ancestor already applies.
 	 */
 	const isBodyPortal =

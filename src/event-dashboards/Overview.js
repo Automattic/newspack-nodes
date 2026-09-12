@@ -1,5 +1,5 @@
 /**
- * Overview — the hub's at-a-glance fleet-health board and its default first
+ * Overview — the station's at-a-glance fleet-health board and its default first
  * paint (tab order 0). It answers "is anything wrong right now?" without
  * scrolling the dense per-topology detail tree.
  *
@@ -94,10 +94,10 @@ function activeRowRects() {
 }
 
 /**
- * Overview hub tab.
+ * Overview station tab.
  *
  * @param {Object}   props                      Component props.
- * @param {?Element} [props.headerControlsSlot] Hub shared-header slot to portal the "+ New Topology" control into; null means the hub's slot is still pending and renders none, undefined renders it inline.
+ * @param {?Element} [props.headerControlsSlot] Station shared-header slot to portal the "+ New Topology" control into; null means the station's slot is still pending and renders none, undefined renders it inline.
  * @return {import('react').ReactElement} Rendered component.
  */
 export default function Overview( { headerControlsSlot } ) {
@@ -307,7 +307,7 @@ export default function Overview( { headerControlsSlot } ) {
 		[ consumers ]
 	);
 
-	// "+ New Topology" portals into the hub header slot; undefined = inline.
+	// "+ New Topology" portals into the station header; undefined = inline.
 	const newTopologyControl = (
 		<a
 			className="nodes-cards__new button"

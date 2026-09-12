@@ -3,7 +3,7 @@
  * Inspector's Runtime modal. It mounts one `Dmesg` poller per verb
  * (`list_timers -s` and `list_handles -s`, both targeting `_cwd`) and renders
  * each reply as a click-to-sort grid; a drain spinner (next_ms <= 0 with fires
- * climbing) is flagged. Ported from the retired Runtime devtools tab.
+ * climbing) is flagged. Ported from the retired Runtime station tab.
  */
 
 import { render, fireEvent, act } from '@testing-library/react';

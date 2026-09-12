@@ -5,8 +5,8 @@
  * extracts into the stylesheet.
  *
  * The source sits under `topology-console/` because the console owns those
- * rules, but the console ships as a lazy DevTools tab the hub fetches on first
- * activation, while the hub shell and the debug overlay draw canvases at page
+ * rules, but the console ships as a lazy tab the station fetches on first
+ * activation, while the station shell and the debug overlay draw canvases at page
  * load. Binding the rules to the console bundle leaves those surfaces unstyled
  * until someone opens the tab, and importing the SCSS into each bundle instead
  * ships the same rules once per bundle. One entry owns the import; a host opts

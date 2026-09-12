@@ -1,5 +1,5 @@
 /**
- * Jobs — the hub's per-handler job-outcome board over the durable `jobstats.p0`
+ * Jobs — the station's per-handler job-outcome board over the durable `jobstats.p0`
  * log. The batteries-included answer to "are my background jobs running, and are
  * they failing?".
  *
@@ -66,7 +66,7 @@ function formatMs( ms ) {
 }
 
 /**
- * Jobs hub tab.
+ * Jobs station tab.
  *
  * @return {import('react').ReactElement} Rendered component.
  */

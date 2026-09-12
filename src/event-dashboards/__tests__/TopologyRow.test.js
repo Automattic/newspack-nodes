@@ -105,7 +105,7 @@ beforeEach( () => {
 describe( 'consoleHref', () => {
 	it( 'builds a plain live-mode deep-link for a topology', () => {
 		expect( consoleHref( 'alpha' ) ).toBe(
-			'admin.php?page=newspack-nodes-hub&tab=console&topology=alpha'
+			'admin.php?page=newspack-nodes-station&tab=console&topology=alpha'
 		);
 	} );
 	it( 'adds edit=1 in edit mode', () => {

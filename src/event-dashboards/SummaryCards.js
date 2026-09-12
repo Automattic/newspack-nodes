@@ -1,5 +1,5 @@
 /**
- * The fleet-vitals card row across the top of the Overview hub tab: topology and
+ * The fleet-vitals card row across the top of the Overview station tab: topology and
  * active counts, worker liveness, on-disk partitions, worst health, global read
  * and write rates, current message rate and backlog, the 24h produced totals,
  * and offsetlog cache size.

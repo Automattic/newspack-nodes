@@ -1,7 +1,7 @@
 /**
- * vault/index — registers the Vault hub DevTools tab (side-effect import of
+ * vault/index — registers the Vault station tab (side-effect import of
  * `./tabs`) and mounts no standalone React tree. The former ELN createRoot
- * settings-page mount is gone — Vault is a hub tab now, so the entry must never
+ * settings-page mount is gone — Vault is a station tab now, so the entry must never
  * call createRoot regardless of stray DOM nodes.
  */
 
@@ -28,12 +28,10 @@ describe( 'vault/index', () => {
 		expect( createRootMock ).not.toHaveBeenCalled();
 	} );
 
-	it( 'registers the vault hub tab as a side effect of importing', () => {
+	it( 'registers the vault station tab as a side effect of importing', () => {
 		require( '../index' );
-		const {
-			getDevtoolsTabs,
-		} = require( '../../shared/devtools/tabRegistry' );
-		const tab = getDevtoolsTabs( 'hub' ).find( ( t ) => t.id === 'vault' );
+		const { getTabs } = require( '../../shared/tabs/tabRegistry' );
+		const tab = getTabs( 'station' ).find( ( t ) => t.id === 'vault' );
 		expect( tab ).toBeTruthy();
 	} );
 } );

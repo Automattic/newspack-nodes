@@ -1138,7 +1138,7 @@ describe( 'canonical UI appearance', () => {
 			'font-size': '13px',
 			'line-height': '1.45',
 			color: 'var(--ink,var(--np-text))',
-			'--nodes-devtools-fg': 'var(--ink,var(--np-text))',
+			'--nodes-tab-host-fg': 'var(--ink,var(--np-text))',
 		};
 		const roots = [
 			`${ CUSTOM_UI_ROOT }.topology-app`,

@@ -81,13 +81,13 @@ describe( 'TopologySettingsPanel', () => {
 		expect( dialog.classList.contains( 'topology-app' ) ).toBe( false );
 	} );
 
-	it( 'does not repeat provider classes when portaled into the themed hub', () => {
+	it( 'does not repeat provider classes when portaled into the themed station', () => {
 		const provider = document.createElement( 'div' );
 		provider.className =
 			'newspack-nodes-skin-root newspack-nodes-theme newspack-nodes-ui';
-		const hub = document.createElement( 'div' );
-		hub.className = 'nodes-devtools-hub';
-		provider.appendChild( hub );
+		const station = document.createElement( 'div' );
+		station.className = 'nodes-station';
+		provider.appendChild( station );
 		document.body.appendChild( provider );
 
 		try {
@@ -95,7 +95,7 @@ describe( 'TopologySettingsPanel', () => {
 			const dialog = screen.getByRole( 'dialog', {
 				name: /topology settings/i,
 			} );
-			expect( dialog.parentElement ).toBe( hub );
+			expect( dialog.parentElement ).toBe( station );
 			expect( dialog.className ).toBe(
 				'newspack-nodes-card newspack-nodes-card--elevated topology-settings-panel'
 			);

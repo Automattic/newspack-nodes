@@ -415,11 +415,11 @@ function paletteKeyFor( mode ) {
 }
 
 /**
- * Topology Console hub tab — the live graph canvas and its REPL in view mode,
+ * Topology Console station tab — the live graph canvas and its REPL in view mode,
  * the draft topology editor in edit mode.
  *
  * @param {Object}   props                      Props.
- * @param {?Element} [props.headerControlsSlot] Hub shared-header slot to portal the controls into; null renders none, undefined renders them inline.
+ * @param {?Element} [props.headerControlsSlot] Station shared-header slot to portal the controls into; null renders none, undefined renders them inline.
  * @return {import('react').ReactElement} Rendered component.
  */
 export default function TopologyConsole( { headerControlsSlot } ) {
@@ -1890,7 +1890,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 									: ''
 							}` }
 						>
-							{ /* Console controls — portaled into the hub header slot. */ }
+							{ /* Console controls — portaled into the station header slot. */ }
 							{ renderedHeaderControls }
 							<ConsoleShell
 								ready={ layoutReady }
@@ -1921,7 +1921,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 								} }
 								buildingClassName="topology-canvas-building"
 								showRepl={ mode !== 'edit' }
-								// Hub owns the header.
+								// Station owns the header.
 								showHeader={ false }
 								canvasProps={ {
 									inspectorCollapsed,

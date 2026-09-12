@@ -11,7 +11,7 @@ import { registerSliceViews } from '@newspack-nodes/shared/nodes/slice-view-node
 
 /**
  * The view classes. `useVaultGraph` hands `makeNode` the class itself rather
- * than its name, because the devtools hub mounts this tab against an
+ * than its name, because the station mounts this tab against an
  * interpreter from another bundle and `includeNodes` is a per-bundle static
  * ([ADR-16](../../../docs/architecture-decisions.md)). Registering the names
  * still serves TSL and the console palette.

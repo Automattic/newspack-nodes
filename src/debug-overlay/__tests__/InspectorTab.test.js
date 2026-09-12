@@ -2,10 +2,7 @@ import { render, act } from '@testing-library/react';
 import { Core } from '../../runtime/core';
 import { Node } from '../../runtime/node';
 import { mountExospine } from '../../runtime/exospine';
-import {
-	getDevtoolsTabs,
-	resetDevtoolsTabs,
-} from '@newspack-nodes/shared/devtools/tabRegistry';
+import { getTabs, resetTabs } from '@newspack-nodes/shared/tabs/tabRegistry';
 import { TYPE, TM_RESPONSE, TM_ERROR } from '../../runtime/message';
 import { replMaxHeight, measureTabBarHeight } from '../tabs/InspectorTab';
 
@@ -72,7 +69,7 @@ describe( 'measureTabBarHeight', () => {
 	it( 'returns 0 when no tab bar precedes the inspector content', () => {
 		const panel = document.createElement( 'div' );
 		const content = document.createElement( 'div' );
-		content.className = 'nodes-devtools__tab-content';
+		content.className = 'nodes-tab-host__tab-content';
 		const root = document.createElement( 'div' );
 		content.appendChild( root );
 		panel.appendChild( content );
@@ -82,10 +79,10 @@ describe( 'measureTabBarHeight', () => {
 	it( 'returns the tab bar offsetHeight when one precedes the content', () => {
 		const panel = document.createElement( 'div' );
 		const bar = document.createElement( 'div' );
-		bar.className = 'nodes-devtools__tabbar';
+		bar.className = 'nodes-tab-host__tabbar';
 		Object.defineProperty( bar, 'offsetHeight', { value: 37 } );
 		const content = document.createElement( 'div' );
-		content.className = 'nodes-devtools__tab-content';
+		content.className = 'nodes-tab-host__tab-content';
 		const root = document.createElement( 'div' );
 		content.appendChild( root );
 		panel.appendChild( bar );
@@ -98,12 +95,12 @@ describe( 'InspectorTab registration + render', () => {
 	beforeEach( () => {
 		Core.reset();
 		window.localStorage.clear();
-		resetDevtoolsTabs();
+		resetTabs();
 	} );
 
 	it( 'registers itself as the Console overlay tab', () => {
 		require( '../tabs' );
-		const consoleTab = getDevtoolsTabs( 'overlay' ).find(
+		const consoleTab = getTabs( 'overlay' ).find(
 			( t ) => t.id === 'console'
 		);
 		expect( consoleTab ).toBeTruthy();
@@ -163,7 +160,7 @@ describe( 'InspectorTab interactions', () => {
 	beforeEach( () => {
 		Core.reset();
 		window.localStorage.clear();
-		resetDevtoolsTabs();
+		resetTabs();
 		mockCaptured.consoleShell = null;
 		mockCaptured.modal = null;
 	} );
@@ -210,9 +207,9 @@ describe( 'InspectorTab interactions', () => {
 		};
 		// Effect wires a ResizeObserver when a tabbar precedes content.
 		const tabbar = document.createElement( 'div' );
-		tabbar.className = 'nodes-devtools__tabbar';
+		tabbar.className = 'nodes-tab-host__tabbar';
 		const content = document.createElement( 'div' );
-		content.className = 'nodes-devtools__tab-content';
+		content.className = 'nodes-tab-host__tab-content';
 		document.body.appendChild( tabbar );
 		document.body.appendChild( content );
 

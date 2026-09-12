@@ -65,9 +65,9 @@ const alias = esbuildAlias( path.resolve( ROOT, 'src' ) );
  *
  * `theme`, `ui` and `graph` import nothing but SCSS: they exist to emit the
  * three stylesheets `Admin::register_built_style()` registers, and their JS
- * bundle is empty. `event-dashboards` and `devtools-hub` load with the Nodes
- * hub page; `topology-console`, `vault`, `sessions` and `event-aggregator` are
- * DevTools tabs the hub shell fetches on first activation; `admin-field-reset`
+ * bundle is empty. `event-dashboards` and `station` load with the Nodes
+ * station page; `topology-console`, `vault`, `sessions` and `event-aggregator` are
+ * tabs the station shell fetches on first activation; `admin-field-reset`
  * is the settings-page module `Field_Reset_Assets` enqueues.
  */
 const ENTRIES = [
@@ -96,8 +96,8 @@ const ENTRIES = [
 		outDir: path.resolve( ROOT, 'build/admin-field-reset' ),
 	},
 	{
-		entry: 'src/devtools-hub/index.js',
-		outDir: path.resolve( ROOT, 'build/devtools-hub' ),
+		entry: 'src/station/index.js',
+		outDir: path.resolve( ROOT, 'build/station' ),
 	},
 	{
 		entry: 'src/vault/index.js',

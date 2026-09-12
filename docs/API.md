@@ -806,7 +806,7 @@ layout per topology name. It seeds `useCanvasLayout`'s position map from
 `layouts get` on load, for an edit-mode canvas or a worker scope whose label
 matches the topology, and writes back only when a person clicks Save Layout —
 dragging autosaves nothing. Every other canvas in the substrate, the debug
-overlay's Inspector and each DevTools Hub graph included, persists positions to
+overlay's Inspector and each station tab graph included, persists positions to
 `localStorage` through the same hook and never reaches the server, so a
 dashboard wanting layout to survive a change of browser wires these two verbs up
 itself.
@@ -1412,8 +1412,8 @@ log_level 2 or above, and `debug` is what keeps it out of the paging path.
 | `newspack_nodes/segment_size_overrides` | `array<string,int> $overrides` — basename => bytes | `Workers_CI_Node`. Declare the geometry of a Partition built in PHP rather than by a `make_node` line, which has no literal size to read. The union keeps the left side, so the filter fills gaps and never restates. |
 | `newspack_nodes/settings_sync/value` | `mixed $value, string $option` | `Settings_Sync_Node`. Resolve the value a hub pushes to its spokes — a requirement for any option that can be absent, not an optional refinement. `push()` reads `\get_option( $local )` with NO default and never goes through `Config::value()`, `register_setting()` defaults apply only inside `is_admin()` requests and a worker is never one, and `Reset_Gate` DELETES the row on reset-to-default. An unsaved or freshly-reset option therefore resolves to `false`, `Core::as_string()` makes that `''`, and the spoke's typed receiver refuses it with `invalid value for setting: …`. A hub syncing the substrate's own `remote_*` geometry needs a resolver mapping absent to the owning config's default; the filter runs on every push, the periodic sweep included. The substrate registers no handler of its own. |
 | `newspack_nodes/settings_audit_values_allowlist` | `array $options` | `Settings_Event_Writer`, over the `Settings_Schema` option names. Options whose old and new values may ride in a settings-audit record; everything else is logged by NAME only. The encrypted vault option is refused BEFORE the filter runs, so no filter can opt the credential store back in. |
-| `newspack_nodes/devtools_tab_bundles` | `array $bundles` | `Admin`. Register a DevTools Hub tab bundle: `handle`, `dir` and `url` are required, `localize` and `lazy` optional. A malformed entry is dropped whole, so one bad contribution cannot break the others. Leave `lazy` off: it skips the enqueue and puts the load recipe on the hub handle, but the fetch is driven by placeholders `lazyTabs.js` registers for the four substrate handles it names, so a bundle contributed under any other handle would simply never load. |
-| `newspack_nodes/devtools_overlay_pages` | `array $pages` | `Admin::devtools_overlay_pages()`. Admin page slugs the debug overlay should mount on; non-strings are filtered out. |
+| `newspack_nodes/station_tab_bundles` | `array $bundles` | `Admin`. Register a station tab bundle: `handle`, `dir` and `url` are required, `localize` and `lazy` optional. A malformed entry is dropped whole, so one bad contribution cannot break the others. Leave `lazy` off: it skips the enqueue and puts the load recipe on the station handle, but the fetch is driven by placeholders `lazyTabs.js` registers for the four substrate handles it names, so a bundle contributed under any other handle would simply never load. |
+| `newspack_nodes/overlay_pages` | `array $pages` | `Admin::overlay_pages()`. Admin page slugs the debug overlay should mount on; non-strings are filtered out. |
 
 **A `capability_map` callback REPLACES the map.** `cap_for()` reads
 `$map[ $role ]` and throws `InvalidArgumentException( "unknown capability role:

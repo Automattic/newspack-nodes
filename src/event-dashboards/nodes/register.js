@@ -39,7 +39,7 @@ CommandInterpreterNode.registerNodeClasses( OWN_CLASSES );
  * A name serves the text path — TSL, the console palette, `make_node` typed
  * into the REPL. A hook builds its graph by handing `makeNode` the CLASS out of
  * this map instead, because the name table is a per-bundle static and the
- * devtools hub mounts these tabs against whichever bundle's interpreter it was
+ * station mounts these tabs against whichever bundle's interpreter it was
  * handed ([ADR-16](../../../docs/architecture-decisions.md)).
  *
  * The widening below is load-bearing rather than a restatement of inference.

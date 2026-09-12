@@ -1227,54 +1227,54 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$admin = new Admin();
 		$admin->register_topology_admin_page();
 
-		$this->assertArrayHasKey( Admin::HUB_MENU_SLUG, $GLOBALS['_admin_menu_pages'] );
-		$entry = $GLOBALS['_admin_menu_pages'][ Admin::HUB_MENU_SLUG ];
+		$this->assertArrayHasKey( Admin::STATION_MENU_SLUG, $GLOBALS['_admin_menu_pages'] );
+		$entry = $GLOBALS['_admin_menu_pages'][ Admin::STATION_MENU_SLUG ];
 		$this->assertSame( 'manage_options', $entry['capability'] );
 		$this->assertSame( 'dashicons-networking', $entry['icon'] );
 		$this->assertSame( 81, $entry['position'] );
-		// Callback must point at render_hub_page — the top-level "Nodes" entry is
-		// the DevTools hub now (Console + Topologies tabs), not the bare console.
+		// Callback must point at render_station_page — the top-level "Nodes" entry is
+		// the station now (Console + Topologies tabs), not the bare console.
 		$this->assertIsArray( $entry['callback'] );
 		$this->assertInstanceOf( Admin::class, $entry['callback'][0] );
-		$this->assertSame( 'render_hub_page', $entry['callback'][1] );
+		$this->assertSame( 'render_station_page', $entry['callback'][1] );
 	}
 
 	public function test_register_topology_admin_page_skips_unauthorized_user(): void {
 		$GLOBALS['_wp_test_current_user_can']['manage_options'] = false;
 		$admin                                                  = new Admin();
 		$admin->register_topology_admin_page();
-		$this->assertArrayNotHasKey( Admin::HUB_MENU_SLUG, $GLOBALS['_admin_menu_pages'] );
+		$this->assertArrayNotHasKey( Admin::STATION_MENU_SLUG, $GLOBALS['_admin_menu_pages'] );
 	}
 
-	// ---- render_hub_page --------------------------------------------------
+	// ---- render_station_page --------------------------------------------------
 
-	public function test_render_hub_page_outputs_hub_mount_element(): void {
+	public function test_render_station_page_outputs_hub_mount_element(): void {
 		$admin = new Admin();
 
 		\ob_start();
-		$admin->render_hub_page();
+		$admin->render_station_page();
 		$html = \ob_get_clean();
 
-		// The top-level "Nodes" page is the DevTools hub now — its React tree
-		// mounts on the hub id and carries the Console + Topologies tabs.
-		$this->assertStringContainsString( 'id="newspack-nodes-hub"', $html );
-		$this->assertStringContainsString( 'class="newspack-nodes-hub-page"', $html );
-		// The standalone console mount is gone — the console loads as a hub tab.
+		// The top-level "Nodes" page is the station now — its React tree
+		// mounts on the station id and carries the Console + Topologies tabs.
+		$this->assertStringContainsString( 'id="newspack-nodes-station"', $html );
+		$this->assertStringContainsString( 'class="newspack-nodes-station-page"', $html );
+		// The standalone console mount is gone — the console loads as a station tab.
 		$this->assertStringNotContainsString( 'id="newspack-nodes-topology-console"', $html );
 	}
 
-	public function test_render_hub_page_blocks_unauthorized_user(): void {
+	public function test_render_station_page_blocks_unauthorized_user(): void {
 		$GLOBALS['_wp_test_current_user_can']['manage_options'] = false;
 		$admin                                                  = new Admin();
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'You do not have permission' );
-		$admin->render_hub_page();
+		$admin->render_station_page();
 	}
 
 	// ---- register_topology_console_tab_bundle ----------------------------
 
 	public function test_register_topology_console_tab_bundle_appends_console_bundle_with_localize(): void {
-		// The console now loads as a contributor tab bundle on the hub page; the
+		// The console now loads as a contributor tab bundle on the station page; the
 		// bundle entry carries the partition snapshot the React dropdown reads.
 		$tmp = $this->make_temp_dir( 'tsl-console-bundle-' );
 		\file_put_contents( "{$tmp}/synthetic.tsl", "var num_partitions = 3\n" );
@@ -1320,11 +1320,11 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertCount( 2, $bundles );
 	}
 
-	public function test_topology_console_bundle_registered_on_devtools_tab_bundles_filter(): void {
-		// Without this hook the Console tab never loads on the hub — the whole
-		// point of moving the console into the hub.
+	public function test_topology_console_bundle_registered_on_station_tab_bundles_filter(): void {
+		// Without this hook the Console tab never loads on the station — the whole
+		// point of moving the console into the station.
 		new Admin();
-		$bundles = \apply_filters( 'newspack_nodes/devtools_tab_bundles', [] );
+		$bundles = \apply_filters( 'newspack_nodes/station_tab_bundles', [] );
 
 		$handles = \array_map(
 			static fn ( $b ) => \is_array( $b ) ? ( $b['handle'] ?? '' ) : '',
@@ -1512,7 +1512,7 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 	// ---- register_event_dashboard_pages ----------------------------------
 
 	public function test_register_event_dashboard_pages_registers_no_standalone_submenu(): void {
-		// Raw Logs was folded into the DevTools hub as a `host:'hub'` tab (like
+		// Raw Logs was folded into the station as a `host:'station'` tab (like
 		// the Worker Status and Topology Manager dashboards before it), so
 		// register_event_dashboard_pages now registers no standalone submenu.
 		$admin = new Admin();
@@ -1522,7 +1522,7 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 	}
 
 	public function test_register_event_dashboard_pages_does_not_register_workers_submenu(): void {
-		// The standalone Worker Status dashboard is gone — the hub tab is the
+		// The standalone Worker Status dashboard is gone — the station tab is the
 		// sole worker-status home now.
 		$admin = new Admin();
 		$admin->register_event_dashboard_pages();
@@ -1531,12 +1531,12 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 	}
 
 	public function test_register_event_dashboard_pages_does_not_register_separate_hub_submenu(): void {
-		// The hub is the top-level "Nodes" page now (render_hub_page), so there
-		// is no standalone Hub submenu under HUB_MENU_SLUG anymore.
+		// The station is the top-level "Nodes" page now (render_station_page), so there
+		// is no standalone Station submenu under STATION_MENU_SLUG anymore.
 		$admin = new Admin();
 		$admin->register_event_dashboard_pages();
 
-		$this->assertArrayNotHasKey( 'newspack-nodes-hub', $GLOBALS['_admin_submenu_pages'] );
+		$this->assertArrayNotHasKey( 'newspack-nodes-station', $GLOBALS['_admin_submenu_pages'] );
 	}
 
 	// ---- enqueue_event_dashboards_assets ----------------------------------
@@ -1549,13 +1549,13 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 	}
 
 	public function test_enqueue_event_dashboards_assets_enqueues_for_hub_page(): void {
-		// Raw Logs is a hub tab now, so the event-dashboards bundle (which
+		// Raw Logs is a station tab now, so the event-dashboards bundle (which
 		// registers the Raw Logs + Topology Manager tabs) loads on the top-level
-		// "Nodes" hub page — not a standalone Raw Logs page.
+		// "Nodes" station page — not a standalone Raw Logs page.
 		$asset_path = \NEWSPACK_NODES_DIR . 'build/event-dashboards/index.js';
 		$this->assertFileExists( $asset_path, 'event-dashboards build asset missing — run `npm run build` before tests' );
 
-		$_GET = [ 'page' => Admin::HUB_MENU_SLUG ];
+		$_GET = [ 'page' => Admin::STATION_MENU_SLUG ];
 
 		$admin = new Admin();
 		$admin->enqueue_event_dashboards_assets();
@@ -1592,28 +1592,28 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertEmpty( $GLOBALS['_enqueued_scripts'] );
 	}
 
-	// ---- enqueue_devtools_hub_assets --------------------------------------
+	// ---- enqueue_station_assets --------------------------------------
 
-	public function test_enqueue_devtools_hub_assets_enqueues_for_top_level_hub_page(): void {
-		$asset_path = \NEWSPACK_NODES_DIR . 'build/devtools-hub/index.js';
-		$this->assertFileExists( $asset_path, 'devtools-hub build asset missing — run `npm run build` before tests' );
+	public function test_enqueue_station_assets_enqueues_for_top_level_hub_page(): void {
+		$asset_path = \NEWSPACK_NODES_DIR . 'build/station/index.js';
+		$this->assertFileExists( $asset_path, 'station build asset missing — run `npm run build` before tests' );
 
-		// The hub bundle loads on the top-level "Nodes" page now.
-		$_GET = [ 'page' => Admin::HUB_MENU_SLUG ];
+		// The station bundle loads on the top-level "Nodes" page now.
+		$_GET = [ 'page' => Admin::STATION_MENU_SLUG ];
 
-		( new Admin() )->enqueue_devtools_hub_assets();
+		( new Admin() )->enqueue_station_assets();
 
-		$handle = 'newspack-nodes-devtools-hub';
+		$handle = 'newspack-nodes-station';
 		$this->assertArrayHasKey( $handle, $GLOBALS['_enqueued_scripts'] );
 		$enq = $GLOBALS['_enqueued_scripts'][ $handle ];
-		$this->assertStringEndsWith( 'build/devtools-hub/index.js', (string) $enq['src'] );
+		$this->assertStringEndsWith( 'build/station/index.js', (string) $enq['src'] );
 		$this->assertSame(
 			[ 'wp-components', 'newspack-nodes-graph' ],
 			$GLOBALS['_enqueued_styles'][ $handle ]['deps'] ?? null
 		);
 
 		$this->assertArrayHasKey( $handle, $GLOBALS['_localized_scripts'] );
-		$this->assertSame( 'devtools-hub', $GLOBALS['_localized_scripts'][ $handle ]['data']['tree'] );
+		$this->assertSame( 'station', $GLOBALS['_localized_scripts'][ $handle ]['data']['tree'] );
 	}
 
 	// ---- register_event_dashboards_tab_bundle -----------------------------
@@ -1643,11 +1643,11 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertCount( 2, $bundles );
 	}
 
-	public function test_event_dashboards_bundle_registered_on_devtools_tab_bundles_filter(): void {
+	public function test_event_dashboards_bundle_registered_on_station_tab_bundles_filter(): void {
 		// The constructor must hook register_event_dashboards_tab_bundle onto the
-		// filter so the Hub page enqueues event-dashboards (→ the manager tab).
+		// filter so the Station page enqueues event-dashboards (→ the manager tab).
 		new Admin();
-		$bundles = \apply_filters( 'newspack_nodes/devtools_tab_bundles', [] );
+		$bundles = \apply_filters( 'newspack_nodes/station_tab_bundles', [] );
 
 		$handles = \array_map(
 			static fn ( $b ) => \is_array( $b ) ? ( $b['handle'] ?? '' ) : '',

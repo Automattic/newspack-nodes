@@ -79,7 +79,7 @@ class AdminAlertNoticeTest extends TestCase {
 	public function test_renders_error_notice_with_worst_severity_on_nodes_page(): void {
 		$base           = $this->arrange( 'stale-workers' );
 		$this->seed_heartbeat( $base, 'stale-workers', 120 ); // critical.
-		$_GET['page']   = Admin::HUB_MENU_SLUG;
+		$_GET['page']   = Admin::STATION_MENU_SLUG;
 
 		$html = $this->render();
 
@@ -103,7 +103,7 @@ class AdminAlertNoticeTest extends TestCase {
 	public function test_no_notice_when_fleet_is_clean(): void {
 		$base         = $this->arrange( 'live-workers' );
 		$this->seed_heartbeat( $base, 'live-workers', 0 );
-		$_GET['page'] = Admin::HUB_MENU_SLUG;
+		$_GET['page'] = Admin::STATION_MENU_SLUG;
 
 		$this->assertSame( '', $this->render() );
 	}
@@ -119,7 +119,7 @@ class AdminAlertNoticeTest extends TestCase {
 	public function test_no_notice_without_manage_options(): void {
 		$base                                 = $this->arrange( 'stale-workers' );
 		$this->seed_heartbeat( $base, 'stale-workers', 120 );
-		$_GET['page']                         = Admin::HUB_MENU_SLUG;
+		$_GET['page']                         = Admin::STATION_MENU_SLUG;
 		$GLOBALS['_wp_test_current_user_can'] = [];
 
 		$this->assertSame( '', $this->render() );
