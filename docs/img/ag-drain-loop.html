@@ -1,0 +1,98 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.tier { position: relative; }
+.tier > .panel { position: relative; }
+.tier + .tier { margin-top: 34px; }
+.tier .down { position: absolute; left: 50%; bottom: -34px; width: 2px; height: 34px; background: #003DA5; }
+.tier .down::after { content: ""; position: absolute; left: -5px; bottom: 0; border: 6px solid transparent; border-top: 8px solid #003DA5; border-bottom: 0; }
+.tier .downcap { position: absolute; left: calc(50% + 12px); bottom: -24px; font-size: 12px; color: #50575E; white-space: nowrap; }
+.steps { display: flex; gap: 8px; align-items: stretch; }
+.st { flex: 1; background: #F0F4FB; border: 1px solid #C3D3EC; border-radius: 7px; padding: 9px 11px 9px 36px; position: relative; font-size: 12.5px; line-height: 1.45; color: #101517; }
+.st .n { position: absolute; left: 9px; top: 9px; width: 20px; height: 20px; border-radius: 50%; background: #003DA5; color: #fff; font-size: 11.5px; font-weight: 700; text-align: center; line-height: 20px; }
+.st.wait { background: #fff; }
+.st .sub2 { display: block; color: #50575E; font-size: 11.5px; margin-top: 3px; }
+.dec { display: flex; gap: 8px; margin-top: 12px; align-items: stretch; }
+.dec .q { flex: 0 0 200px; background: #101517; color: #fff; border-radius: 7px; padding: 10px 12px; font-size: 12.5px; line-height: 1.45; }
+.dec .q b { color: #8FB6F0; }
+.dec .arm { flex: 1; border-radius: 7px; padding: 9px 11px; font-size: 12.5px; line-height: 1.45; }
+.dec .arm.drop { background: #FBEAEA; border: 1px solid #E6A3A3; color: #5C2223; }
+.dec .arm.go { background: #EDF7ED; border: 1px solid #9EC89E; color: #2B5F2B; }
+.dec .arm b { display: block; font-size: 12px; margin-bottom: 2px; }
+.chores { display: flex; gap: 8px; margin-top: 12px; }
+.chores .chip { flex: 1; margin: 0; }
+.graph { position: relative; height: 206px; }
+.graph svg { position: absolute; left: 0; top: 0; }
+.graph .nd { position: absolute; width: 118px; padding: 8px 10px; border: 1px solid #C3C4C7; border-radius: 7px; background: #fff; font-size: 12px; line-height: 1.4; text-align: center; }
+.graph .nd b { display: block; font-size: 13px; }
+.graph .nd.term { border-style: dashed; color: #50575E; }
+.graph .lbl { position: absolute; font-size: 11.5px; color: #50575E; }
+</style>
+<div class="sheet">
+<h1>One tick moves every message: the drain loop wakes, the Router ticks, and each hop is one fill()</h1>
+<p class="sub">Three tiers, one process. The Event_Framework decides when to wake; the Router decides where a message goes and carries the per-second chores; the node graph is nothing but fill() calls handing an array along.</p>
+
+<div class="tier"><div class="panel">
+  <header>Event_Framework — <span class="mono">drain()</span>, the per-process loop</header>
+  <div class="body">
+    <div class="steps">
+      <div class="st"><span class="n">0</span><span class="mono">should_continue()</span> at the top; false or <span class="mono">Core::$shutting_down</span> ends the loop.</div>
+      <div class="st"><span class="n">1</span>Timeout = the soonest timer's deadline.<span class="sub2">no timers: 100 ms idle; one overdue: 0, no wait</span></div>
+      <div class="st wait"><span class="n">2</span>Sleep once: <span class="mono">curl_multi_select</span> while any cURL easy handle is registered, else <span class="mono">usleep</span>.<span class="sub2">then drain the multi: completions route to the owner's <span class="mono">on_curl_message()</span></span></div>
+      <div class="st"><span class="n">3</span><span class="mono">pcntl_signal_dispatch()</span>.<span class="sub2">SIGTERM / SIGINT set <span class="mono">Core::$shutting_down</span> where handlers are installed</span></div>
+      <div class="st"><span class="n">4</span>Refresh <span class="mono">Core::$now</span>, the clock every node reads this tick.</div>
+      <div class="st"><span class="n">5</span>Fire every timer whose <span class="mono">next_fire</span> has passed.<span class="sub2">oneshot unregisters; recurring re-schedules from <span class="mono">Core::$now</span></span></div>
+    </div>
+  </div></div>
+  <div class="down"></div><div class="downcap">step 5 fires <span class="mono">_router</span>'s 1000 ms timer</div>
+</div>
+
+<div class="tier"><div class="panel">
+  <header>Router — <span class="mono">fill()</span> dispatches by path; <span class="mono">fire_cb()</span> is the shared per-second tick</header>
+  <div class="body">
+    <div class="dec">
+      <div class="q"><b>fill( $message )</b><br>TO empty?</div>
+      <div class="arm drop"><b>drop</b><span class="mono">drop_message( 'message not addressed' )</span>, one audit line, rate-limited.</div>
+      <div class="q"><b>FROM</b> longer than <span class="mono">MAX_FROM_SIZE</span> 1024?</div>
+      <div class="arm drop"><b>drop</b>FROM is measured, never trusted: a wire message was stamped where the guard never ran.</div>
+    </div>
+    <div class="dec">
+      <div class="q"><b>[ head, rest ] = explode( '/', TO, 2 )</b><br>head in <span class="mono">Core::$nodes_by_name</span>?</div>
+      <div class="arm drop"><b>no: NOT_AVAILABLE</b><span class="mono">set_state( 'NOT_AVAILABLE' )</span>, then a TM_ERROR back to FROM through this same Router, unless the message is already an error or FROM is empty. Counter +2 per miss.</div>
+      <div class="arm go"><b>yes: TO = rest; target->fill( $message )</b>One segment peeled per hop, so <span class="mono">a/b/c</span> reaches <span class="mono">a</span> carrying <span class="mono">b/c</span>. With <span class="mono">profile on</span> a stack frame brackets the call.</div>
+    </div>
+    <div class="chores">
+      <div class="chip"><b>notify_timer()</b> — a direct <span class="mono">fire_cb()</span> on every name registered on the TIMER channel; no message, no fill. A dead name is warned and dropped; a non-Timer is skipped.</div>
+      <div class="chip"><b>Partition_Node::flush_pending_wakes()</b> — one on-demand wake flush per process per tick, off the write path.</div>
+      <div class="chip"><b>Core::prune_logs()</b> — re-window the rate limiter so a recurring warning prints again.</div>
+      <div class="chip"><b>trim_profiles()</b> — drop entries idle past <span class="mono">PROFILE_TTL_S</span> 900, only while profiling is on.</div>
+    </div>
+    <div class="callout" style="margin-top:12px"><p>No <span class="mono">try</span> guards any of it in PHP. A hitchhiker's <span class="mono">fire()</span> that throws takes the rest of the walk and all three chores with it, and the throw ends the worker. Only <span class="mono">Worker_Should_Stop</span> may escape a hitchhiking <span class="mono">fire()</span>.</p></div>
+  </div></div>
+  <div class="down"></div><div class="downcap"><span class="mono">$target->fill( $message )</span></div>
+</div>
+
+<div class="tier"><div class="panel">
+  <header>Node graph — every node has one entry point, <span class="mono">fill( array $message ): void</span></header>
+  <div class="body">
+    <div class="graph">
+      <svg width="1052" height="206"><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs>
+        <g stroke="#003DA5" stroke-width="1.8" fill="none" marker-end="url(#a)">
+          <path d="M128 40 H176"/><path d="M304 40 H352"/><path d="M480 40 H528"/>
+          <path d="M656 40 H704"/><path d="M656 44 C682 44 682 128 704 128"/>
+          <path d="M832 40 H880"/>
+          <path d="M832 128 H880"/>
+        </g>
+        
+      </svg>
+      <div class="nd" style="left:10px;top:20px"><b>A</b>a source stamps FROM</div>
+      <div class="nd" style="left:186px;top:20px"><b>B</b>default fill(): TO ← target when TO is empty, counter++, <span style="white-space:nowrap">sink-&gt;fill()</span></div>
+      <div class="nd" style="left:362px;top:20px"><b>C</b>a transform forwards through <span class="mono">parent::fill</span></div>
+      <div class="nd" style="left:538px;top:20px"><b>Tee</b>one copy per target, TO = target or target/TO</div>
+      <div class="nd" style="left:714px;top:20px;height:136px"><b>_router</b>peels one segment and delivers each copy to exactly one node</div>
+      <div class="nd term" style="left:890px;top:20px"><b>X</b>a terminal counts and stops</div>
+      <div class="nd term" style="left:890px;top:108px"><b>Y</b>Null, Stdout, Stderr never need a sink</div>
+      <div class="lbl" style="left:10px;top:160px;width:840px">FROM is stamped at sources and I/O boundaries only. Tee, Hook and application relays pass FROM through, so a message A hands through the Tee to X arrives carrying <span class="mono">FROM=A</span>. The Tee makes the copies; the Router never fans out.</div>
+    </div>
+  </div>
+</div></div>
+</div>

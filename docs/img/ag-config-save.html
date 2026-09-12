@@ -1,0 +1,74 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.layers { display:flex; align-items:stretch; gap:0; }
+.layers .l { flex:1; background:#fff; border:1px solid #C3C4C7; border-radius:8px; padding:9px 11px; font-size:12px; line-height:1.45; color:#50575E; }
+.layers .l b { display:block; color:#101517; font-size:12.5px; }
+.layers .l.top { border:2px solid #003DA5; }
+.layers .ar { flex:0 0 22px; align-self:center; text-align:center; color:#003DA5; font-weight:700; }
+.doors { display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px; margin-top:14px; }
+.doors > div { border-radius:8px; padding:10px 12px; font-size:12px; line-height:1.45; }
+.doors h4 { margin:0 0 4px; font-size:13px; }
+.d1 { background:#F0F4FB; border:1px solid #C3D3EC; }
+.d2 { background:#FBEAEA; border:1px solid #E6A3A3; color:#5C2223; }
+.d2 h4 { color:#B32D2E; }
+.d3 { background:#fff; border:1px dashed #B0B3B8; color:#50575E; }
+.seq { display:grid; grid-template-columns: repeat(5, 1fr); gap:8px; margin-top:6px; }
+.seq .st { position:relative; background:#fff; border:1px solid #C3D3EC; border-radius:8px; padding:9px 11px 9px 36px; font-size:12px; line-height:1.45; color:#50575E; }
+.seq .st b { display:block; color:#101517; }
+.seq .st .n { position:absolute; left:9px; top:9px; width:20px; height:20px; border-radius:50%; background:#003DA5; color:#fff; font-size:11.5px; font-weight:700; text-align:center; line-height:20px; }
+.cls { display:grid; grid-template-columns: repeat(3,1fr); gap:8px; margin-top:10px; }
+.cls .chip { margin:0; font-size:12px; line-height:1.45; }
+.cls .chip b { display:block; }
+.two { display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-top:14px; }
+.two p { font-size:12.5px; }
+.mono { overflow-wrap:anywhere; }
+.seq .mono { overflow-wrap:normal; }
+</style>
+<div class="sheet">
+<h1>A setting reaches running workers through a save door, a cache reset and a reload watermark</h1>
+<p class="sub">Settings_Schema declares every key once — its default, bounds and restart class — and Config and Admin both derive from it. A running worker froze its config at boot, so a save has to tell it, and only two doors know how.</p>
+
+<div class="card">
+  <h3>Four layers resolve one key, weakest first; the option wins by PRESENCE</h3>
+  <div class="layers">
+    <div class="l"><b><span class="mono">Settings_Schema</span> default</b>in code (ADR-20); every config file is an override surface</div><div class="ar">→</div>
+    <div class="l"><b><span class="mono">newspack-nodes-config.php</span></b>ships an empty array; an undeclared key is REPORTED as <span class="mono">config-keys</span>, never thrown</div><div class="ar">→</div>
+    <div class="l"><b><span class="mono">LOCAL_NEWSPACK_NODES_CONF</span></b>a file for CLI and testing; the path must resolve to <span class="mono">.php</span> after <span class="mono">realpath()</span></div><div class="ar">→</div>
+    <div class="l top"><b><span class="mono">newspack_nodes_&lt;key&gt;</span> option</b>a stored <span class="mono">''</span>, <span class="mono">[]</span> or <span class="mono">false</span> beats both files</div>
+  </div>
+  <p style="font-size:12.5px;margin-top:10px"><span class="mono">Config::load_config_defaults()</span> folds the first three and memoizes them; <span class="mono">Options_Overlay::apply()</span> lays the option over the result. A file's keys layer ONE level deep, <span class="mono">[ ...$config, ...$parsed ]</span>: naming an array key replaces the whole array, so a local file naming one memcache server drops every server the shipped file declared. That bites <span class="mono">memcache_servers</span>, <span class="mono">topologies</span>, <span class="mono">log_sources</span> and <span class="mono">allowed_users</span>.</p>
+</div>
+
+<div class="doors">
+  <div class="d1"><h4>Door 1 · the settings page</h4><span class="mono">Field::sanitize_callback()</span> CLAMPS a bounded int silently: 900 typed into Num Partitions stores 16 with no notice. Every rendered numeric setting declares an inclusive min and max, and the bounds bind at the two doors alone, never on read.</div>
+  <div class="d2"><h4>Door 2 · the <span class="mono">settings</span> verb</h4><span class="mono">Settings_CI_Node::cmd_set()</span> REFUSES with <span class="mono">invalid value for setting: &lt;key&gt;</span>, because a programmatic caller must be told rather than handed another number. A <span class="mono">set</span> to the value already stored is a no-op, so Settings_Sync's sweep never recycles the fleet.</div>
+  <div class="d3"><h4>No door · a file or a direct option write</h4>Taken as written, and nothing clamps it: <span class="mono">Partition_Node</span> throws only below a <span class="mono">segment_size</span> of 1, so a config file naming 5 gives five-byte segments. <span class="mono">SSE_Slot_Pool</span> is the one family that re-clamps on read.</div>
+</div>
+
+<div class="card" style="margin-top:14px">
+  <h3>What a save does, in order</h3>
+  <div class="seq">
+    <div class="st"><span class="n">1</span><b>the option row changes</b><span class="mono">updated_<wbr>option</span> AND <span class="mono">added_<wbr>option</span>, since WordPress fires the second on a field's very first save</div>
+    <div class="st"><span class="n">2</span><b><span class="mono">Admin::<wbr>maybe_<wbr>request_<wbr>worker_<wbr>restart()</span></b>for any option under <span class="mono">newspack_<wbr>nodes_</span>; door 2 repeats steps 3 and 4 itself</div>
+    <div class="st"><span class="n">3</span><b><span class="mono">Config::<wbr>reset()</span></b>drops the per-request cache and fires <span class="mono">RESET_ACTION</span>: <span class="mono">Log_Discovery::<wbr>reset</span>, <span class="mono">Topology_Registry::<wbr>reset_<wbr>basename_<wbr>cache</span>, <span class="mono">Vault::<wbr>reset</span></div>
+    <div class="st"><span class="n">4</span><b><span class="mono">Restart_Planner::<wbr>plan( restart_<wbr>for( $key ) )</span></b>raise the restart flag on the workers the class names, then write a reload watermark into every active topology's lock dirs; a throw is logged, never fatal</div>
+    <div class="st"><span class="n">5</span><b>each live worker's <span class="mono">_fleet</span></b>within 15 s takes the watermark, runs <span class="mono">invalidate_<wbr>config_<wbr>cache()</span> and notifies RELOAD; the next generation boots on the new config regardless</div>
+  </div>
+  <div class="cls">
+    <div class="chip"><b><span class="mono">'all'</span> — <span class="mono">base_directory</span>, <span class="mono">memcache_servers</span></b>every active topology recycles: workers resolve every path off the base and hold the one Memcached handle</div>
+    <div class="chip"><b><span class="mono">[ 'Partition', 'Topic', 'Log' ]</span> — the six retention keys</b><span class="mono">segment_size</span>, <span class="mono">min_segments</span>, <span class="mono">num_segments</span>, <span class="mono">max_segments</span>, <span class="mono">min_lifetime</span>, <span class="mono">lifetime</span>: the topologies declaring those types</div>
+    <div class="chip"><b><span class="mono">[]</span> — everything else</b><span class="mono">num_partitions</span> included: the fleet scan re-expands every pass, and alert thresholds and <span class="mono">log_sources</span> resolve live</div>
+  </div>
+</div>
+
+<div class="two">
+  <div class="callout">
+    <h4>A write outside wp-admin signals nobody</h4>
+    <p><span class="mono">newspack-nodes.php</span> constructs <span class="mono">Admin</span> only inside <span class="mono">is_admin()</span>, so a <span class="mono">newspack_nodes_*</span> option written from WP-CLI, from a worker or by a consumer plugin resets no cache and signals no worker: the change lands when the next generation boots. That is why <span class="mono">cmd_set()</span> repeats the recipe by hand.</p>
+  </div>
+  <div class="card">
+    <h3>Purge before reset</h3>
+    <p><span class="mono">Config::invalidate_options_cache()</span> purges <span class="mono">alloptions</span>, <span class="mono">notoptions</span> and each schema key's own <span class="mono">options</span> entry, since WordPress caches an option under its own key too. Where a <span class="mono">Config::reset()</span> follows, the purge runs FIRST: reset only re-arms the next <span class="mono">load_config()</span>, whose option layer reads through <span class="mono">get_option()</span>, and a purge afterwards leaves any read in between memoized on the stale snapshot.</p>
+  </div>
+</div>
+</div>

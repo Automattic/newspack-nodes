@@ -1,0 +1,89 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.wires { display:grid; grid-template-columns: 390px 1fr 390px; row-gap:12px; align-items:stretch; }
+.colh { font-size:12px; font-weight:700; letter-spacing:.03em; text-transform:uppercase; color:#50575E; padding:0 2px 2px; }
+.nd { background:#fff; border:1px solid #C3C4C7; border-radius:8px; padding:9px 12px; font-size:12px; line-height:1.45; color:#50575E; }
+.nd b { display:block; color:#101517; font-size:12.5px; margin-bottom:2px; }
+.nd.hub { border-color:#C3D3EC; background:#F0F4FB; }
+.nd.dim { border-style:dashed; }
+.w { position:relative; }
+.w svg { position:absolute; left:0; top:0; width:100%; height:100%; overflow:visible; }
+.w .lb { position:absolute; left:8px; right:8px; font-size:11.5px; line-height:1.35; color:#50575E; text-align:center; }
+.mono { overflow-wrap:anywhere; }
+.grid3 { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-top:16px; }
+.grid3 .card p, .grid3 .callout p, .grid3 .ok p { font-size:12px; }
+.valve svg text { font-family:Inter,-apple-system,Helvetica,Arial,sans-serif; font-size:11px; fill:#50575E; }
+.flow { display:flex; gap:0; align-items:stretch; margin-top:8px; }
+.flow .s { flex:1; background:#F0F4FB; border:1px solid #C3D3EC; border-radius:7px; padding:8px 10px; font-size:11.8px; line-height:1.42; }
+.flow .s b { display:block; font-size:12px; }
+.flow .ar { flex:0 0 18px; align-self:center; text-align:center; color:#003DA5; font-weight:700; }
+</style>
+<div class="sheet">
+<h1>A hub pulls a spoke's partition over SSE and pushes commands over HTTP, and one link owns both wires</h1>
+<p class="sub">Remote_Link_Node patrons three hidden siblings; Remote_Source_Node extends it and adds Durable_Reader's cursor to the pull. The url and credentials come from the Vault entry the link's &lt;vault-id&gt; names, never from a caller, and every command it signs verifies at that one spoke.</p>
+
+<div class="wires">
+  <div class="colh">Hub worker — <span class="mono" style="text-transform:none">make_node Remote_Source &lt;name&gt; &lt;vault-id&gt; firehose.p0 …</span></div><div></div><div class="colh">Spoke site</div>
+
+  <div class="nd hub"><b><span class="mono">&lt;name&gt;:sse-in</span> — SSE_In_Node</b>One cURL easy handle on the Event_Framework's shared multi, a <span class="mono">{segment, offset}</span> resume position, and the SSE parser. It hands each raw <span class="mono">data:</span> payload to the patron's <span class="mono">on_message</span> seam, which Remote_Source replaces with its pump buffer.</div>
+  <div class="w"><svg><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs><line x1="96%" y1="58%" x2="4%" y2="58%" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/></svg><div class="lb" style="top:6px">SSE <span class="mono">msg</span> frames, one packed record each; <span class="mono">multi_writer=1</span> rides the connect when the verb is set</div></div>
+  <div class="nd"><b><span class="mono">GET /newspack-nodes/v1/messages/stream</span></b><span class="mono">SSE_Out_Node</span> opens a Consumer on the spoke's own <span class="mono">&lt;topic&gt;.p&lt;N&gt;</span>. The read happens HERE, so the seal grace a shared log needs is taken by this far-side reader; changing the flag drops the stream so the next connect carries it.</div>
+
+  <div class="nd hub"><b><span class="mono">&lt;name&gt;:http-out</span> — HTTP_Out_Node</b>Sessions live in a per-process map keyed by VAULT ENTRY ID, never by url: <span class="mono">ensure_session()</span> async, <span class="mono">establish_session()</span> blocking for <span class="mono">probe_command()</span>. A 401, process exit or a Vault change drops one.</div>
+  <div class="w"><svg><line x1="4%" y1="58%" x2="96%" y2="58%" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/></svg><div class="lb" style="top:6px"><span class="mono">POST /auth</span> once per process per vault id, so a spoke logs one per worker lifetime</div></div>
+  <div class="nd"><b><span class="mono">POST /newspack-nodes/v1/auth</span></b>Returns <span class="mono">{ handle, key, scope, expires_in, now }</span>, the scope clamped to the user's highest role. The aggregator's user wears <span class="mono">newspack_nodes_hub</span>: read and tune, so its password can never restart the fleet or read the vault.</div>
+
+  <div class="nd hub"><b>the same <span class="mono">:http-out</span>, pushing</b>A <span class="mono">Timer_Node</span> buffering TM_COMMAND envelopes into one JSONL POST per drain tick over the cURL multi. <span class="mono">vault_require_ssl</span> drops a batch whose url is not https; <span class="mono">vault_verify_ssl</span> sets peer verification.</div>
+  <div class="w"><svg><line x1="4%" y1="34%" x2="96%" y2="34%" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/><line x1="96%" y1="80%" x2="4%" y2="80%" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/></svg><div class="lb" style="top:0">signed with <span class="mono">sign_for( vault id )</span></div><div class="lb" style="top:50%">reply <span class="mono">TO _output/&lt;minter&gt;</span></div></div>
+  <div class="nd"><b><span class="mono">POST /newspack-nodes/v1/command</span></b><span class="mono">HTTP_In</span> verifies, stamps <span class="mono">_output</span> onto the command's FROM and routes it to a request-scope interpreter — <span class="mono">settings</span> (Settings_CI) for a pushed <span class="mono">set</span>. The interpreter answers <span class="mono">TO = FROM</span>, so the reply's head is <span class="mono">_output</span>, a node the hub does not have.</div>
+
+  <div class="nd hub dim"><b><span class="mono">&lt;name&gt;:null</span> — Null_Node, HTTP_Out's target</b><span class="mono">on_curl_message()</span> strips one leading <span class="mono">_output/</span> and <span class="mono">accept_inbound()</span> stamps the transport's name onto FROM: one mutation per field, and TO=FROM resolves on the hub. A message counts as a reply only with a non-empty TO AND a type carrying <span class="mono">TM_RESPONSE | TM_ERROR</span>; anything else gets the target, and the Null swallows it and counts it.</div>
+  <div class="w"></div>
+  <div class="nd dim"><b>What the spoke cannot make the hub do</b>Without that target neither arm engages and a spoke could name any node in the hub's graph. With it, a Table <span class="mono">GET</span> HIT, which carries no <span class="mono">TM_RESPONSE</span> bit, is judged against the target and dropped, while a MISS (<span class="mono">TM_ERROR</span>) gets home.</div>
+</div>
+
+<div class="grid3">
+  <div class="card valve">
+    <h3>The pump valve: the one queue in the runtime</h3>
+    <svg width="316" height="118" viewBox="0 0 316 118">
+      <line x1="30" y1="10" x2="30" y2="100" stroke="#C3C4C7"/><line x1="30" y1="100" x2="310" y2="100" stroke="#C3C4C7"/>
+      <line x1="30" y1="28" x2="310" y2="28" stroke="#B32D2E" stroke-dasharray="4 3"/><text x="226" y="22" fill="#B32D2E">disarm 512 KB</text>
+      <line x1="30" y1="64" x2="310" y2="64" stroke="#1E5B1E" stroke-dasharray="4 3"/><text x="238" y="78" fill="#1E5B1E">arm 256 KB</text>
+      <polyline points="30,98 70,70 100,40 118,28 150,40 180,56 196,64 226,46 250,28 280,44 306,62" fill="none" stroke="#003DA5" stroke-width="2"/>
+      <rect x="118" y="104" width="78" height="8" fill="#FBEAEA" stroke="#E6A3A3"/><rect x="250" y="104" width="56" height="8" fill="#FBEAEA" stroke="#E6A3A3"/>
+      <text x="0" y="16">bytes</text><text x="122" y="118" font-size="10">handle out</text>
+    </svg>
+    <p><span class="mono">SSE_In</span> appends inside the drain loop and the 100 ms tick drains, so the buffer grows between ticks. Past <span class="mono">PUMP_DISARM_BYTES</span> 512 KB, <span class="mono">pump_maybe_disarm()</span> (from <span class="mono">on_message</span>) pulls the easy handle out of the multi: libcurl stops reading, the kernel buffer fills, and the TCP window closes on the spoke. <span class="mono">pump_maybe_arm()</span> (from <span class="mono">get_batch()</span>) re-attaches under <span class="mono">PUMP_ARM_BYTES</span> 256 KB. One threshold would stop-start the spoke on every line.</p>
+  </div>
+  <div class="card">
+    <h3>The channel ticks ten times a second</h3>
+    <p><span class="mono">TICK_INTERVAL_MS</span> 100 is below the Router's cadence, so the link holds its own Event_Framework slot and <span class="mono">list_timers</span> shows <span class="mono">event_framework</span> — expected, not a spinner. <span class="mono">fire()</span> latches its housekeeping on the integer wall-second: the patrons, staleness, the queued reconnect, the heartbeat mint every <span class="mono">HEARTBEAT_INTERVAL</span> 15 s, the status publish. The other nine ticks are Remote_Source's pump.</p>
+    <p>Connects queue on <span class="mono">_connect_timer</span> (<span class="mono">Connect_Queue_Timer_Node</span>), one per <span class="mono">INTERVAL_MS</span> 500, so a hub reconnecting to many spokes opens them in single file instead of colliding on a spoke's SSE slot pool; the timer removes itself when the queue runs dry.</p>
+  </div>
+  <div class="callout">
+    <h4>What the pull records, and what it cannot report</h4>
+    <p>Durably: <span class="mono">&lt;name&gt;:&lt;remote_partition&gt;:offsetlog</span> and <span class="mono">:deadletter</span>, the same contract Consumer has. The offsetlog dir must carry <span class="mono">&lt;topology&gt;</span>, because a cursor belongs to a FLEET and two hubs pulling one spoke must not share it. Records leave through <span class="mono">Durable_Reader::forward_line()</span>, stamped like a Consumer's; only the plain channel stamps <span class="mono">FROM=&lt;link&gt;:sse-in/&lt;remote trail&gt;</span>.</p>
+    <p>A pull is not a read: STEP is inert, PAUSE disconnects, a seek forwards a sentinel to the spoke. And <span class="mono">Remote_Source_Node</span> has no <span class="mono">probe_stats()</span>, so it mints no Probe_Record: no row in <span class="mono">wp nodes status</span>, the Workers dashboard or the <span class="mono">consumer-lag</span> alert. An empty consumer table on a hub is not a caught-up aggregation.</p>
+  </div>
+</div>
+
+<div class="grid3" style="grid-template-columns:1fr 1fr">
+  <div class="callout">
+    <h4><span class="mono">fill()</span> relays outward, and the schema does not say so</h4>
+    <p>A link consumes <span class="mono">TM_COMMAND|TM_RESPONSE</span> and <span class="mono">TM_COMMAND|TM_ERROR</span> as its heartbeat reply and hands everything else to <span class="mono">send()</span>, off to the spoke's <span class="mono">/command</span>. <span class="mono">Remote_Link_Node</span> declares <span class="mono">accepts_fill =&gt; false</span> and <span class="mono">Remote_Source_Node</span> inherits it, overriding neither <span class="mono">fill()</span> nor <span class="mono">send()</span>, so a <span class="mono">connect_node</span> into either ships local traffic off-site with no port drawn and no warning.</p>
+  </div>
+  <div class="ok"><h4>A rotated credential reconnects without a recycle</h4><p>A Vault write fires <span class="mono">newspack_nodes/vault/changed</span>: the session is forgotten, and a reload watermark lands in the lock dirs of every topology whose graph declares a Remote_Link or Remote_Source. The next <span class="mono">_fleet</span> scan fires RELOAD, <span class="mono">subscribe_reload()</span> drops the patrons, and the link reconnects under the new password without a process recycle.</p></div>
+</div>
+
+<div class="card" style="margin-top:12px">
+    <h3>The push the other way: Settings_Sync keeps each spoke's options current</h3>
+    <div class="flow">
+      <div class="s"><b>an option change</b>a name starting <span class="mono">newspack_</span>; add, update, and delete (a reset deletes)</div><div class="ar">→</div>
+      <div class="s"><b><span class="mono">settings.p0</span></b><span class="mono">Settings_Event_Writer</span> appends the name, excerpts only if allowlisted</div><div class="ar">→</div>
+      <div class="s"><b>Settings_Sync_Node</b>on each record and every <span class="mono">interval_seconds</span> 300, reads the CURRENT value after dropping <span class="mono">alloptions</span></div><div class="ar">→</div>
+      <div class="s"><b><span class="mono">set</span> at <span class="mono">&lt;target&gt;/&lt;to&gt;</span></b>one command per spoke, signed under that spoke's key; an array goes as JSON</div><div class="ar">→</div>
+      <div class="s"><b>spoke <span class="mono">settings</span> CI</b>a value already in place is a no-op; a change recycles by its restart class</div>
+    </div>
+    
+  </div>
+</div>

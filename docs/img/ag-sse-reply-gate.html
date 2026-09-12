@@ -1,0 +1,84 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.seq { position: relative; width: 1052px; }
+.seq svg.wire { position: absolute; left: 0; top: 0; }
+.seq .lane { position: absolute; top: 0; width: 196px; min-height: 118px; }
+.seq .lane h3 { font-size: 14.5px; }
+.seq .lane p { font-size: 12px; margin: 0; }
+.seq .hop { position: absolute; background: #fff; border: 1px solid #C3D3EC; border-radius: 7px; padding: 9px 12px 9px 40px; font-size: 12.5px; line-height: 1.5; color: #101517; }
+.seq .hop.gate { border: 2px solid #003DA5; }
+.seq .n { position: absolute; left: 10px; top: 9px; width: 22px; height: 22px; border-radius: 50%; background: #003DA5; color: #fff; font-size: 12px; font-weight: 700; text-align: center; line-height: 22px; }
+.seq .cap { position: absolute; font-size: 12px; color: #50575E; text-align: center; background: #FBFBFC; padding: 0 6px; white-space: nowrap; }
+.mono { overflow-wrap: anywhere; }
+.addr { display:block; font-family:ui-monospace,Menlo,monospace; font-size:12px; color:#003DA5; margin-top:4px; }
+.two { display:flex; gap:14px; margin-top:16px; align-items:stretch; }
+.two > div { flex:1; }
+.two p { font-size:12.5px; }
+</style>
+<div class="sheet">
+<h1>A browser's command to a worker rides one POST, and its reply comes home through a pid-bound gate on the stream</h1>
+<p class="sub">Every tab attached to one worker consumes that worker's output Partition, so without a gate each would receive every other tab's replies. One SSE stream process serves one session, its pid names the session, and HTTP_Filter_Node is the _output boundary of that process. Watch FROM grow on the way out and TO shrink on the way back.</p>
+
+<div class="seq" id="seq">
+<svg class="wire" id="wire"><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs></svg>
+
+<div class="lane card" data-lane="0"><h3>Browser tab</h3><p>The console at cwd <span class="mono">job-worker.p0</span>: a <span class="mono">RemoteIpcNode</span> per worker, one open stream per session.</p></div>
+<div class="lane card" data-lane="1"><h3><span class="mono">/command</span></h3><p><span class="mono">HTTP_In_Node</span>, named <span class="mono">_output</span> in the request-scope graph.</p></div>
+<div class="lane card" data-lane="2"><h3>Worker</h3><p><span class="mono">job-worker.p0</span>: IPC-input Consumer, interpreter, <span class="mono">_router</span>, the <span class="mono">_repl</span> output Partition.</p></div>
+<div class="lane card" data-lane="3"><h3>Stream process</h3><p><span class="mono">GET /messages/stream</span>: <span class="mono">SSE_Out_Node</span> as <span class="mono">_sse</span>, a Consumer per subscription, and <span class="mono">HTTP_Filter_Node</span> as <span class="mono">_output</span>, built with <span class="mono">getmypid()</span>.</p></div>
+<div class="lane card" data-lane="4"><h3>Browser tab</h3><p>The same tab's SSE receive path and its own Router.</p></div>
+
+<div class="hop" data-span="0,2"><span class="n">1</span><span class="mono">RemoteIpcNode</span> rewrites the command's FROM to the private reply address and signs it under the tab's session key. A leading <span class="mono">connect_worker_input job-worker.p0</span> rides in the SAME POST, claimed once per batch under <span class="mono">mount:{reader}</span>, because the request-scope graph is stateless and must mount the worker's input Partition before the command can route to it.<span class="addr">FROM _sse:4242/_output &nbsp;·&nbsp; TO job-worker.p0</span></div>
+
+<div class="hop" data-arrow="0,1" data-cap="signed JSONL batch, HTTPS" data-span="1,3"><span class="n">2</span>The door verifies (the minter signed; the door never does) and stamps <span class="mono">_output</span> onto FROM. <span class="mono">connect_worker_input</span> is a <span class="mono">Topologies_CI</span> verb at the MANAGE default — that role, not the gate below, is what keeps an ordinary user out of another operator's console. The command routes into the mounted Partition, which packs it into the worker's IPC input log, and the batch answers <span class="blue">202</span>: the reply is due on the stream.<span class="addr">FROM _output/_sse:4242/_output &nbsp;·&nbsp; TO job-worker.p0 → peeled to ''</span></div>
+
+<div class="hop" data-arrow="1,2" data-cap="ipc/job-worker.p0/input/" data-span="2,4"><span class="n">3</span>The worker's anonymous IPC-input Consumer stamps <span class="mono">_repl</span>; the interpreter runs the verb (the verifier CI accepts the session signature) and replies <span class="mono">TO = FROM</span>.<span class="addr">reply TO _repl/_output/_sse:4242/_output</span></div>
+
+<div class="hop" data-arrow="2,2" data-cap="" data-span="2,4"><span class="n">4</span>The worker's <span class="mono">_router</span> peels <span class="mono">_repl</span> and fills the <span class="mono">_repl</span> output Partition, which packs the envelope to disk under <span class="mono">void_warranty()</span>, so a <span class="mono">dump_metadata</span> reply over 4 KB survives.<span class="addr">TO _output/_sse:4242/_output</span></div>
+
+<div class="hop gate" data-arrow="2,3" data-cap="ipc/job-worker.p0/output/, tailed by this session's Consumer" data-span="2,4"><span class="n">5</span>The subscription Consumer replays the record into <span class="mono">_default_route</span>, whose <span class="mono">_sse</span> target stamps only an empty TO, and on through the interpreter into <span class="mono">_router</span>, which peels <span class="mono">_output</span> and fills <span class="mono">HTTP_Filter_Node</span>. The gate bumps its counter, splits TO at the first <span class="mono">/</span>, and compares the WHOLE head against its own <span class="mono">_sse:&lt;pid&gt;</span> — the colon keeps the pid inside one segment, where <span class="mono">_sse/&lt;pid&gt;/…</span> would leave a bare <span class="mono">_sse</span> head and drop every reply. A match strips the head and forwards; anything else is dropped silently, an unaddressed broadcast as much as another session's reply.<span class="addr">TO _sse:4242/_output → _output</span></div>
+
+<div class="hop" data-arrow="3,4" data-cap="SSE frame: one packed message" data-span="3,4"><span class="n">6</span>The tab's own Router dispatches on <span class="mono">_output</span> and the transcript renders it. A polling node's reply lands the same way — <span class="mono">_sse:4242/_metadata</span> — which is why <span class="mono">canonicalReverseCwd()</span> rewrites that last segment to <span class="mono">_output</span> before the Inspector compares a <span class="mono">_header.pwd</span> against a shell <span class="mono">connect_node</span>.</div>
+</div>
+
+<div class="two">
+  <div class="callout">
+    <h4>The gate closes the READ direction alone</h4>
+    <p>A process admits only replies bearing its own <span class="mono">getmypid()</span>, so no client can make its filter accept another session's traffic. But the head is client-composed — <span class="mono">Command_Auth::canonical()</span> signs semantics and never routing — so what stands between an ordinary user and another operator's console is the MANAGE default on <span class="mono">connect_worker_input</span>, not this filter. A climbing <span class="mono">ls -c</span> on <span class="mono">_output</span> in a stream process reports what the gate SAW, not what it passed.</p>
+  </div>
+  <div class="card">
+    <h3>Two corollaries of a whole-head compare</h3>
+    <p><span class="mono">Core</span>'s default stderr handler picks its sink <span class="mono">_repl ?? _sse ?? _output</span>. Inside a stream process both <span class="mono">_sse</span> and <span class="mono">_output</span> are mounted, so an empty-TO stderr line handed to <span class="mono">_output</span> is swallowed here and reaches the browser only through <span class="mono">error_log()</span>.</p>
+    <p>Only ONE stream is open per browser session: a send on a second worker's link closes whichever <span class="mono">RemoteIpcNode</span> holds the live one (<span class="mono">RemoteIpcNode.active</span>), because SSE slots are a finite host-wide pool. PHP has no <span class="mono">Remote_IPC</span> and steals nothing — each <span class="mono">Remote_Source</span> patrons its own <span class="mono">HTTP_Out</span>, so several links connect at once.</p>
+  </div>
+</div>
+</div>
+<script>
+(function () {
+  var L = [105, 315, 526, 736, 947], seq = document.getElementById('seq'), svg = document.getElementById('wire');
+  var NS = 'http://www.w3.org/2000/svg';
+  function el(t, a) { var e = document.createElementNS(NS, t); for (var k in a) e.setAttribute(k, a[k]); return e; }
+  var lanes = seq.querySelectorAll('.lane'), headBottom = 0;
+  lanes.forEach(function (c) { var i = +c.dataset.lane; c.style.left = (L[i] - 98) + 'px'; headBottom = Math.max(headBottom, c.offsetHeight); });
+  var y = headBottom + 18;
+  seq.querySelectorAll('[data-span]').forEach(function (b) {
+    var s = b.dataset.span.split(',').map(Number), x0 = L[s[0]] - 95, x1 = L[s[1]] - 10;
+    if (s[1] === 4) x1 = 1042;
+    if (b.dataset.arrow) {
+      var a = b.dataset.arrow.split(',').map(Number), ay = y + 22, dir = a[1] > a[0] ? 1 : -1;
+      if (a[0] !== a[1]) {
+        svg.appendChild(el('path', { d: 'M' + L[a[0]] + ' ' + ay + ' H' + (L[a[1]] - 6 * dir), stroke: '#003DA5', 'stroke-width': 1.8, fill: 'none', 'marker-end': 'url(#a)' }));
+        var cap = document.createElement('div'); cap.className = 'cap'; cap.textContent = b.dataset.cap;
+        cap.style.top = (ay - 20) + 'px'; seq.appendChild(cap);
+        cap.style.left = ((L[a[0]] + L[a[1]]) / 2 - cap.offsetWidth / 2) + 'px';
+        y = ay + 10;
+      }
+    }
+    b.style.left = x0 + 'px'; b.style.width = (x1 - x0) + 'px'; b.style.top = y + 'px';
+    y += b.offsetHeight + 12;
+  });
+  var boxes = seq.querySelectorAll('[data-span]'), lastTop = boxes[boxes.length - 1].offsetTop;
+  seq.style.height = y + 'px'; svg.setAttribute('width', 1052); svg.setAttribute('height', y);
+  L.forEach(function (x) { svg.insertBefore(el('path', { d: 'M' + x + ' ' + (headBottom + 4) + ' V' + (lastTop - 4), stroke: '#B0B3B8', 'stroke-dasharray': '4 5', 'stroke-width': 1.5 }), svg.firstChild.nextSibling); });
+})();
+</script>

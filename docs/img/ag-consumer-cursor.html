@@ -1,0 +1,72 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.steps { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
+.st { min-width:0; background:#F0F4FB; border:1px solid #C3D3EC; border-radius:7px; padding:8px 9px 8px 32px; position:relative; font-size:11.8px; line-height:1.42; }
+.st .n { position:absolute; left:8px; top:8px; width:19px; height:19px; border-radius:50%; background:#003DA5; color:#fff; font-size:11px; font-weight:700; text-align:center; line-height:19px; }
+.st b { display:block; }
+.st.arm { background:#fff; }
+.frame { display:grid; grid-template-columns:repeat(5,1fr); gap:5px; margin-top:8px; }
+.frame span { min-width:0; text-align:center; font-size:11px; line-height:1.3; padding:6px 3px; border-radius:5px; border:1px solid #C3C4C7; background:#fff; }
+.frame span b { display:block; font-family:ui-monospace,Menlo,monospace; font-size:11.5px; color:#003DA5; }
+.frame span.dim { color:#787C82; }
+.two { display:flex; gap:14px; margin-top:14px; align-items:stretch; }
+.two > div { flex:1; }
+.two p { font-size:12.5px; }
+.kf { display:flex; gap:4px; margin:8px 0 6px; }
+.kf span { flex:1; height:26px; border-radius:4px; border:1px solid #C3D3EC; background:#F0F4FB; font-size:10.5px; text-align:center; line-height:26px; color:#50575E; }
+.kf span.hot { background:#003DA5; color:#fff; border-color:#003DA5; }
+.paths { display:flex; gap:12px; margin-top:14px; align-items:stretch; }
+.paths > div { flex:1; border-radius:8px; padding:11px 13px; font-size:12px; line-height:1.45; }
+.paths h4 { font-size:13px; margin:0 0 6px; }
+.paths .throw { background:#FBEAEA; border:1px solid #E6A3A3; color:#5C2223; }
+.paths .throw h4 { color:#B32D2E; }
+.paths .coop { background:#FFF7E6; border:1px solid #F0D9A6; color:#5A4413; }
+.paths .coop h4 { color:#8A5A00; }
+.paths .crash { background:#fff; border:2px solid #B32D2E; color:#101517; }
+.paths .crash h4 { color:#B32D2E; }
+.paths .clean { background:#EDF7ED; border:1px solid #9EC89E; color:#2B5F2B; }
+.paths .clean h4 { color:#1E5B1E; }
+.paths p { margin:0 0 5px; }
+</style>
+<div class="sheet">
+<h1>A Consumer reads one block per tick, commits its cursor as keyframes, and pins a crash by crawling</h1>
+<p class="sub">Durable_Reader owns the cursor, the pump and the checkpoint. Every record advances the cursor past itself; the offsetlog remembers where to resume, how many times this position has been tried, and why the last process stopped.</p>
+
+<div class="panel">
+  <header>One tick of <span class="mono">poll()</span> — <span class="mono">Durable_Reader::fire()</span> on the reader's own Event_Framework slot</header>
+  <div class="body">
+    <div class="steps">
+      <div class="st"><span class="n">1</span><b>Refill</b>read at most <span class="mono">READ_BLOCK_BYTES</span> 64 KiB at the cursor: an absolute <span class="mono">fseek</span> then <span class="mono">fread</span>, never <span class="mono">ftell</span>. <span class="mono">clearstatcache</span> first.</div>
+      <div class="st"><span class="n">2</span><b>Split on <span class="mono">\n</span></b>complete lines drain; the trailing partial waits, discarded past <span class="mono">MAX_LINE_BUFFER_SIZE</span> 32 MiB.</div>
+      <div class="st"><span class="n">3</span><b>Unpack</b><span class="mono">Message::unpacked()</span> restores the producer's whole envelope. A line that will not unpack is dead-lettered <span class="mono">unparseable</span>, raw bytes kept, and the cursor still advances.</div>
+      <div class="st"><span class="n">4</span><b>Stamp</b>FROM ← this reader's name, or its <span class="mono">stamp_override</span> (<span class="mono">_repl</span> for the IPC input); ID ← <span class="mono">{seg}:{off}:{len}</span>, never KEY; TO ← <span class="mono">target</span> when one is set.</div>
+      <div class="st"><span class="n">5</span><b><span class="mono">sink->fill()</span></b>a throw is poison (right); <span class="mono">Worker_Should_Stop</span> escapes; only a successful forward counts.</div>
+      <div class="st"><span class="n">6</span><b>Advance</b><span class="mono">cursor_offset += length</span> from the record's own crumb, so the cursor always names the next UNREAD record and a resume never re-delivers the last one read.</div>
+      <div class="st arm"><span class="n">7</span><b>Re-arm</b><span class="mono">POLL_INTERVAL_BUSY_MS</span> 0 while the refill may have left more; <span class="mono">POLL_INTERVAL_EOF_MS</span> 100 at EOF, so a caught-up reader still ticks ten times a second.</div>
+    </div>
+    <p style="font-size:12px;color:#50575E;margin:10px 0 0">Stepping off a segment: a single-writer log advances the instant the next segment exists. Under <span class="mono">set_multi_writer( true )</span> the reader waits until the head segment's size has held steady for <span class="mono">SEAL_GRACE_SECONDS</span> 2.0, because a peer may append to N for up to <span class="mono">DRIFT_RESCAN_INTERVAL_SECONDS</span> 1.0 after N+1 appears; the grace is charged at the head alone, so a backlog replays at full speed.</p>
+  </div>
+</div>
+
+<div class="two">
+  <div class="card">
+    <h3>The checkpoint frame — a TM_STRUCT written through <span class="mono">Partition::fill</span> and flushed at once</h3>
+    <div class="frame">
+      <span><b>segment</b>cursor</span><span><b>offset</b>cursor</span><span><b>attempts</b>tries at this position</span><span><b>reason</b>last stop: throw, timeout, memory, crash, or ''</span><span><b>first_crash_ts</b>streak start</span><span class="dim"><b>name</b>the reader</span><span class="dim"><b>target · targets</b>its downstream processors, a Tee expanded</span><span class="dim"><b>worker_type</b>the type this process was spawned as</span><span class="dim"><b>source_log</b>the tailed log's basename</span><span><b>cache</b>snapshot nodes' co-committed state, by name</span>
+    </div>
+    <p style="margin-top:10px">Written every <span class="mono">CHECKPOINT_INTERVAL_S</span> 30 while the cursor has moved; gracefully at a clean stop with <span class="mono">attempts = 0</span>; after EVERY message in crawl. A healthy commit past the boot cursor resets the poison streak.</p>
+  </div>
+  <div class="card">
+    <h3>The offsetlog: one checkpoint, one segment, one keyframe</h3>
+    <div class="kf"><span>f-9</span><span>f-8</span><span>f-7</span><span>f-6</span><span>f-5</span><span>f-4</span><span>f-3</span><span>f-2</span><span>f-1</span><span class="hot">newest</span></div>
+    <p><span class="mono">OFFSETLOG_SEGMENT_SIZE</span> 1 byte makes every frame its own segment, which is what the time-travel debugger's <span class="mono">SEEK_FRAME</span> seeks by; <span class="mono">do_rotate()</span> adopts the still-empty newest segment on the first commit, so a 1-byte threshold spams no empty segments. Retention keeps 10 keyframes minimum, targets 30, holds anything younger than 300 s, prunes past 900 s, and hard-caps at 60. On boot <span class="mono">load_offsetlog()</span> reads the newest segment's last line. An empty <span class="mono">offsetlog_dir</span> disables it (the cli's <span class="mono">reply-in</span>).</p>
+  </div>
+</div>
+
+<div class="paths">
+  <div class="throw"><h4>The sink throws — poison, now</h4><p>The message is dead-lettered with reason <span class="mono">throw</span> to <span class="mono">:deadletter</span> and the stream keeps moving. No retry: a throw is deterministic per message, so the operator fixes the cause and replays with <span class="mono">wp nodes ingest</span>.</p><p>A Tail's <span class="mono">forward_line()</span> replaces this whole path: a throwing sink propagates out of the drain instead.</p></div>
+  <div class="coop"><h4>A timeout or memory stop — the fair-shot rule</h4><p>At the handoff <span class="mono">cooperative_stop()</span> strikes ONLY when the worker stopped mid-dispatch on the message it BOOTED on, still buffered. An advanced cursor or an empty buffer hands off clean (<span class="mono">attempts = 0</span>).</p><p>A strike writes the frame with its reason at the unchanged cursor; the successor resumes at <span class="mono">attempts + 1</span>. At <span class="mono">COOP_MAX_ATTEMPTS</span> 2 the message is quarantined and the cursor advances past it. A memory stop whose fresh baseline was already past 50% blames the process and strikes nothing.</p></div>
+  <div class="crash"><h4>The process died — no throw, no handoff</h4><p>The frame keeps its last <span class="mono">attempts</span> and an EMPTY <span class="mono">reason</span>; each boot resumes at <span class="mono">attempts + 1</span>. At <span class="mono">CRASH_MAX_ATTEMPTS</span> 5 with no reason recorded, <span class="mono">resume_attempts_from_frame()</span> enters <b>crawl</b> and arms a one-shot skip of the resumed head.</p><p>Crawl: the first drained line — the message in flight when the death struck — is dead-lettered with reason <span class="mono">crash</span>; then one line per tick with a checkpoint after each, so the next death pins its culprit. After <span class="mono">CHECKPOINT_INTERVAL_S</span> 30 crash-free seconds the reader leaves crawl. <span class="mono">assume_clean_shutdown</span> is ignored in crawl.</p></div>
+  <div class="clean"><h4>A clean or an operational stop</h4><p><span class="mono">shutdown_handoff()</span> sweeps every <span class="mono">Shutdown_Sweeper</span>, then checkpoints each durable reader gracefully. A plain <span class="mono">Worker_Should_Stop</span> leaves the cursor on the in-flight message, so the successor replays it: at-least-once.</p><p>With <span class="mono">assume_clean_shutdown</span> on, or when a snapshot node raises <span class="mono">Worker_Should_Stop_Clean</span>, the pump commits PAST it. On a FATAL the handoff is skipped, which is what lets a deterministic poison climb toward the crash threshold.</p></div>
+</div>
+</div>

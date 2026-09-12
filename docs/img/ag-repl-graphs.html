@@ -1,0 +1,106 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.g { position:relative; }
+.g svg { position:absolute; left:0; top:0; }
+.nd { position:absolute; width:150px; height:92px; border:1px solid #C3C4C7; border-radius:7px; background:#fff; font-size:11.5px; line-height:1.3; text-align:center; padding:7px 6px; overflow:hidden; }
+.nd b { display:block; font-family:ui-monospace,Menlo,monospace; font-size:11.5px; color:#003DA5; }
+.nd.anon { border-style:dashed; }
+.nd.disk { background:#F0F4FB; border-color:#C3D3EC; }
+.nd.disk b { color:#101517; }
+.nd.worker { background:#101517; color:#fff; border-color:#101517; }
+.nd.worker b { color:#8FB6F0; }
+.g svg text { font-family:Inter,-apple-system,Helvetica,Arial,sans-serif; font-size:11px; fill:#50575E; }
+.g svg text.m { font-family:ui-monospace,Menlo,monospace; fill:#003DA5; }
+.trail { display:flex; gap:0; align-items:stretch; margin-top:6px; }
+.trail .h { flex:1; background:#fff; border:1px solid #C3C4C7; border-radius:7px; padding:8px 10px; font-size:11.5px; line-height:1.4; position:relative; }
+.trail .h + .h { margin-left:18px; }
+.trail .h + .h::before { content:"→"; position:absolute; left:-15px; top:8px; color:#003DA5; font-weight:700; }
+.trail .h b { display:block; font-size:12px; }
+.trail .h .v { display:block; font-family:ui-monospace,Menlo,monospace; color:#003DA5; font-size:11.5px; margin:3px 0; }
+.two { display:flex; gap:14px; margin-top:14px; align-items:stretch; }
+.two > div { flex:1; }
+.two p { font-size:12.5px; }
+</style>
+<div class="sheet">
+<h1>The REPL is a graph: bare, it answers itself; attached, its Router writes into a worker's IPC log</h1>
+<p class="sub">CLI_Command::build_repl_graph() mounts the same local nodes either way. Attached mode adds a Partition named after the worker and a Consumer tailing the worker's output, and sets the Shell's cwd so every default command carries TO={worker-id}.</p>
+
+<div class="card">
+  <h3>Bare mode — <span class="mono">wp nodes cli</span></h3>
+  <div class="g" style="height:232px">
+    <svg width="1012" height="232"><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs>
+      <g stroke="#003DA5" stroke-width="1.8" fill="none" marker-end="url(#a)">
+        <path d="M150 50 H190"/><path d="M340 50 H380"/><path d="M530 50 H570"/>
+        <path d="M645 102 V116 H455 V130"/>
+        <path d="M380 176 H340"/>
+      </g>
+      <text x="155" y="44">sink</text><text x="345" y="44">sink</text><text x="535" y="44">sink</text>
+      <text x="655" y="122">a reply: TO = _output/$pid, the head peeled, filled into _output</text>
+      <text x="343" y="168">target</text>
+    </svg>
+    <div class="nd anon" style="left:0;top:10px"><b>Shell</b>anonymous; mints, signs, stamps FROM = <span class="mono">_output/$pid</span></div>
+    <div class="nd" style="left:190px;top:10px"><b>_shell</b>a Tap: the console tap a session can watch</div>
+    <div class="nd" style="left:380px;top:10px"><b>_command_interpreter</b>runs the verb when TO is empty, forwards otherwise</div>
+    <div class="nd" style="left:570px;top:10px"><b>_router</b>peels one head per hop</div>
+    <div class="nd" style="left:380px;top:130px"><b>_output</b>a Dumper: sink <span class="mono">_command_interpreter</span>, target <span class="mono">_stdout</span></div>
+    <div class="nd" style="left:190px;top:130px"><b>_stdout</b>TTY_Out, the prompt-aware writer</div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:14px">
+  <h3>Attached mode — <span class="mono">wp nodes cli job-worker.p0</span>: the same nodes, plus the IPC pair and a cd</h3>
+  <div class="g" style="height:352px">
+    <svg width="1012" height="352"><defs><marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs>
+      <g stroke="#003DA5" stroke-width="1.8" fill="none" marker-end="url(#b)">
+        <path d="M150 50 H190"/><path d="M340 50 H380"/><path d="M530 50 H570"/><path d="M720 50 H760"/>
+        <path d="M835 102 V130"/>
+        <path d="M835 222 V250"/>
+        <path d="M760 296 H720"/>
+        <path d="M645 250 V102"/>
+        <path d="M600 102 V176 H455 V250"/>
+        <path d="M380 296 H340"/>
+      </g>
+      <text x="155" y="44">sink</text><text x="345" y="44">sink</text><text x="535" y="44">sink</text><text x="725" y="44">fill</text>
+      <text x="842" y="121" class="m">ipc/job-worker.p0/input/</text>
+      <text x="842" y="241" class="m">ipc/job-worker.p0/output/</text>
+      <text x="726" y="290">fill</text>
+      <text x="652" y="232">sink → _router</text>
+      <text x="310" y="170">reply TO _output/$pid, peeled into _output</text>
+      <text x="343" y="290">target</text>
+    </svg>
+    <div class="nd anon" style="left:0;top:10px"><b>Shell</b>cwd = <span class="mono">job-worker.p0</span>, so a default command carries that TO</div>
+    <div class="nd" style="left:190px;top:10px"><b>_shell</b>Tap</div>
+    <div class="nd" style="left:380px;top:10px"><b>_command_interpreter</b>TO is not empty: forward to the Router</div>
+    <div class="nd" style="left:570px;top:10px"><b>_router</b>TO = <span class="mono">job-worker.p0</span> names the Partition below</div>
+    <div class="nd disk" style="left:760px;top:10px;width:206px"><b>job-worker.p0</b>a Partition built by <span class="mono">new</span>, geometry from <span class="mono">ipc_partition_args()</span>, sink <span class="mono">_command_interpreter</span></div>
+    <div class="nd worker" style="left:760px;top:130px"><b>the worker</b>input Consumer stamps <span class="mono">_repl</span>; the reply lands in its <span class="mono">_repl</span> Partition</div>
+    <div class="nd disk" style="left:760px;top:250px"><b>reply-in</b>unnamed Consumer, <span class="mono">next_offset( 'end' )</span>, stamps the worker id</div>
+    <div class="nd anon" style="left:570px;top:250px"><b>relay</b>a bare Node: target <span class="mono">_output</span>, sink <span class="mono">_router</span></div>
+    <div class="nd" style="left:380px;top:250px"><b>_output</b>Dumper: renders iff TO is its pid, <span class="mono">_output/$pid</span>, or empty</div>
+    <div class="nd" style="left:190px;top:250px"><b>_stdout</b>TTY_Out</div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:14px">
+  <h3>One reply's addresses, hop by hop — the trail IS the correlation; there is no id table</h3>
+  <div class="trail">
+    <div class="h"><b>cli Shell mints</b><span class="v">FROM _output/4242</span><span class="v">TO job-worker.p0</span>signed inline with <span class="mono">Command_Auth::sign()</span>, so the worker's verifier admits it; LOCAL set, then stripped by <span class="mono">packed()</span></div>
+    <div class="h"><b>worker input Consumer</b><span class="v">FROM _repl/_output/4242</span><span class="v">TO ''</span>the head <span class="mono">job-worker.p0</span> was peeled by the cli's Router; the Consumer stamps <span class="mono">_repl</span></div>
+    <div class="h"><b>worker interpreter replies</b><span class="v">TO _repl/_output/4242</span><span class="v">FROM _command_interpreter</span><span class="mono">TM_COMMAND | TM_RESPONSE</span>, VALUE <span class="mono">{ name, arguments, payload }</span>, ID and KEY copied</div>
+    <div class="h"><b>worker _router</b><span class="v">TO _output/4242</span>peels <span class="mono">_repl</span>, fills the <span class="mono">_repl</span> output Partition, which packs the envelope to disk</div>
+    <div class="h"><b>cli _router</b><span class="v">TO 4242</span>reply-in replays the line, already addressed; the relay's <span class="mono">_output</span> target stamps only an empty TO, and the Router peels <span class="mono">_output</span> and fills the Dumper</div>
+    <div class="h"><b>Dumper</b>renders iff TO is <span class="mono">4242</span>, <span class="mono">_output/4242</span> or empty: every session reads the whole output log and filters by its own pid. No lock, no EBUSY.</div>
+  </div>
+</div>
+
+<div class="two">
+  <div class="card">
+    <h3>IPC on disk: always single-partition, one dir per reader</h3>
+    <p><span class="mono">{base}/ipc/{reader}/input/{seg}.log</span> — shell → worker. <span class="mono">{base}/ipc/{reader}/output/{seg}.log</span> — worker → shell. A reader id is <span class="mono">{type}.p{N}</span>: dot-and-<span class="mono">p</span> keeps it ONE path segment, where <span class="mono">job-worker/3</span> would route as "find <span class="mono">job-worker</span>, pass <span class="mono">3</span>". The type match is greedy, so <span class="mono">foo.bar.p3</span> is partition 3 of <span class="mono">foo.bar</span>. Filesystem permissions gate the directory, which is why the cli refuses root; the commands inside are still signed and verified.</p>
+  </div>
+  <div class="card">
+    <h3>Drain on stdin close: a TM_EOF round trip</h3>
+    <p>The cli emits TM_EOF with FROM <span class="mono">_output/$pid</span>; the interpreter it lands on bounces it TO = FROM; the Dumper sees the echo and flips the exit flag, so every reply written before it has been drained off the output log. A 5-second deadline keeps a dead worker from hanging the cli. TM_EOF, TM_ERROR and TM_REQUEST all ride the Partition because a Partition packs every TYPE.</p>
+  </div>
+</div>
+</div>

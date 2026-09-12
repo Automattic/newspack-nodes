@@ -1,0 +1,83 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.top { display:flex; gap:14px; align-items:stretch; }
+.files { flex:0 0 330px; }
+.f { display:flex; gap:10px; align-items:flex-start; margin:6px 0; font-size:12px; line-height:1.4; }
+.f .nm { flex:0 0 92px; font-family:ui-monospace,Menlo,monospace; font-size:12px; color:#003DA5; font-weight:700; }
+.f .nm.dir { color:#101517; }
+.f.sig .nm { color:#8A5A00; }
+.stage { flex:1; position:relative; height:640px; }
+.stage svg { position:absolute; left:0; top:0; }
+.stage .bx { position:absolute; border-radius:8px; padding:8px 10px; font-size:11.5px; line-height:1.38; overflow:hidden; background:#fff; border:1px solid #C3C4C7; }
+.stage .bx b { display:block; font-size:12.5px; }
+.stage .bx.q { background:#101517; color:#fff; border-color:#101517; }
+.stage .bx.q b { color:#8FB6F0; }
+.stage .bx.ok { background:#EDF7ED; border-color:#9EC89E; }
+.stage .bx.warn { background:#FFF7E6; border-color:#F0D9A6; }
+.stage .bx.no { background:#FBEAEA; border-color:#E6A3A3; }
+.stage svg text { font-family:Inter,-apple-system,Helvetica,Arial,sans-serif; font-size:11.5px; fill:#50575E; }
+.row3 { display:flex; gap:12px; margin-top:14px; align-items:stretch; }
+.row3 > div { flex:1; }
+.row3 p { font-size:12.5px; }
+.row3 .card p { margin-bottom:6px; }
+</style>
+<div class="sheet">
+<h1>A lock is a directory: mkdir claims it, a heartbeat file keeps it, and a stale one is stolen</h1>
+<p class="sub">Lock_Node is mkdir-based advisory locking with a PID-stamped heartbeat, atomic on NFS, tmpfs and ext4 with no flock, no daemon and no DB row. Workers hold one per slot; Partition::allow_large_writes() holds one per partition.</p>
+
+<div class="top">
+  <div class="card files">
+    <h3><span class="mono">{base}/locks/job-worker.p0.lock.d/</span></h3>
+    <div class="f"><span class="nm">heartbeat</span><span>the holder's PID; its mtime is the liveness clock, touched every <span class="mono">HEARTBEAT_INTERVAL_S</span> 10 from <span class="mono">should_continue()</span></span></div>
+    <div class="f"><span class="nm">started</span><span><span class="mono">acquire()</span> timestamp; <span class="mono">wp nodes status</span> reads uptime off it</span></div>
+    <div class="f sig"><span class="nm">restart</span><span>a sentinel: PRESENCE says exit, then refill the slot. There is no <span class="mono">clear_restart()</span>: the next <span class="mono">acquire()</span> unlinks it in <span class="mono">write_acquire_files()</span>, <span class="mono">release()</span> takes it, and a steal discards it with the dir</span></div>
+    <div class="f sig"><span class="nm">stop</span><span>a sentinel checked FIRST: exit and leave the slot empty; the persisted deploy hold is what keeps it empty afterwards</span></div>
+    <div class="f sig"><span class="nm">reload</span><span>a watermark compared by CONTENT — <span class="mono">time().'.'.bin2hex( random_bytes( 6 ) )</span>, rewritten on every call, never unlinked by its consumer: mtime resolves to a second and one save writes several options</span></div>
+    <p style="margin-top:10px"><span class="mono">force_release_at()</span> unlinks all five before the <span class="mono">rmdir</span>, because <span class="mono">rmdir()</span> takes only an empty directory and one survivor turns a clean release into an orphan peers steal.</p>
+  </div>
+  <div class="card stage">
+    <svg width="660" height="610"><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs>
+      <g stroke="#003DA5" stroke-width="1.8" fill="none" marker-end="url(#a)">
+        <path d="M210 40 H460"/>
+        <path d="M110 70 V120"/>
+        <path d="M110 200 V250"/>
+        <path d="M110 360 V400"/>
+        <path d="M210 160 H250"/>
+        <path d="M210 280 H250"/>
+        <path d="M420 180 H460"/>
+        <path d="M420 280 H460"/>
+        <path d="M550 380 V400 H340 V420"/>
+        <path d="M430 495 H460"/><path d="M555 170 V152"/>
+      </g>
+      <text x="230" y="34">mkdir succeeded</text>
+      <text x="118" y="100">exists: <tspan font-family="ui-monospace,Menlo,monospace">try_steal_orphan_or_stale()</tspan></text><text x="562" y="165">stealer holds</text><text x="344" y="394">the old holder notices</text><text x="118" y="230">heartbeat present</text><text x="118" y="385">held, fresh</text>
+      <text x="214" y="152">none</text><text x="216" y="272">stale</text>
+    </svg>
+    <div class="bx q" style="left:10px;top:10px;width:200px;height:60px"><b>acquire( $max_wait_ms )</b>atomic <span class="mono">mkdir</span></div>
+    <div class="bx q" style="left:10px;top:120px;width:200px;height:80px"><b>orphan?</b>a dir with no <span class="mono">heartbeat</span> file: the holder may be mid-acquire</div>
+    <div class="bx q" style="left:10px;top:250px;width:200px;height:110px"><b>stale?</b><span class="mono">heartbeat</span> mtime older than <span class="mono">stale_timeout</span> (<span class="mono">STALE_TIMEOUT</span> 60; job-worker declares 600)</div>
+    <div class="bx no" style="left:10px;top:400px;width:200px;height:150px"><b>back off</b>retry every 100 ms until <span class="mono">$max_wait_ms</span>, then false. <span class="mono">acquire_failure()</span> says <span class="mono">lock_held</span>; anything else is an I/O diagnosis and gets logged.</div>
+    <div class="bx warn" style="left:250px;top:120px;width:170px;height:80px"><b>honour ORPHAN_GRACE_S 1</b>then steal if still empty</div>
+    <div class="bx warn" style="left:250px;top:250px;width:170px;height:60px"><b>steal now</b><span class="mono">steal_atomically()</span></div>
+    <div class="bx ok" style="left:460px;top:10px;width:190px;height:140px"><b>held</b><span class="mono">write_acquire_files()</span> writes <span class="mono">heartbeat</span> (PID) and <span class="mono">started</span> and unlinks an inherited <span class="mono">restart</span>. A symlink planted at either file is refused.</div>
+    <div class="bx" style="left:460px;top:170px;width:190px;height:210px"><b>the steal</b><span class="mono">rename()</span> the dir aside as <span class="mono">*.lock.d.stealing.*</span>, then <span class="mono">mkdir</span> the canonical path. Of two racers one rename wins; the single holder still rests on that last <span class="mono">mkdir</span>. A third process racing that brief absence reaches the same <span class="mono">mkdir</span>, and one of them loses.</div>
+    <div class="bx no" style="left:250px;top:420px;width:180px;height:150px"><b>the displaced holder</b>its next <span class="mono">heartbeat()</span> runs <span class="mono">verify_ownership()</span>: the on-disk PID is not <span class="mono">getmypid()</span>, so <span class="mono">is_held</span> flips false and it exits with <span class="mono">lock stolen by pid N</span></div>
+    <div class="bx" style="left:460px;top:420px;width:190px;height:150px"><b>release()</b>re-reads the PID rather than trusting <span class="mono">is_held</span>, and fails CLOSED: an evicted holder must never <span class="mono">force_release_at()</span> its successor's dir.</div>
+  </div>
+</div>
+
+<div class="row3">
+  <div class="card">
+    <h3><span class="mono">restart_reason()</span>: three answers on every drain tick</h3>
+    <p><span class="mono">restart requested</span> — the <span class="mono">restart</span> sentinel is present. <span class="mono">lock heartbeat gone</span> — the file vanished. <span class="mono">lock stolen by pid N</span> — PID-content theft. Every stat clears the cache first, or a long-running worker never sees a flag another process wrote. The worker exits cleanly on any non-empty answer; <span class="mono">stop_requested()</span> is checked before it.</p>
+  </div>
+  <div class="card">
+    <h3>Signalling into a stranger's dir</h3>
+    <p><span class="mono">request_restart_at()</span>, <span class="mono">request_stop_at()</span> and <span class="mono">request_reload_at()</span> need no instance. All three funnel through <span class="mono">write_flag_at()</span>, which refuses before touching disk when the dir does not exist — the lock dir IS the channel, with no queue behind it, so a slot reading <span class="mono">down</span> or <span class="mono">idle</span> takes nothing and <span class="mono">Requested restart for N worker(s)</span> can name fewer than the fleet — and when <span class="mono">Config::write_denied()</span>: as root the file would land unwritable by the workers.</p>
+  </div>
+  <div class="callout">
+    <h4>Why the reload watermark is different</h4>
+    <p><span class="mono">restart</span> and <span class="mono">stop</span> signal by presence; <span class="mono">reload</span> signals by content. <span class="mono">Fleet_Node::take_reload_watermark()</span> acts whenever the content differs from what it last acted on and never unlinks: consuming by unlink would lose a request landing mid-reload, and comparing survives a steal. Losing the file on release costs nothing — the successor boots on fresh config.</p>
+  </div>
+</div>
+</div>

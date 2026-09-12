@@ -1,0 +1,86 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.tl svg text { font-family:Inter,-apple-system,Helvetica,Arial,sans-serif; font-size:11.5px; fill:#50575E; paint-order:stroke; stroke:#fff; stroke-width:4px; stroke-linejoin:round; }
+.tl svg text.h { font-weight:700; fill:#101517; }
+.two { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:14px; }
+.two p, .three p { font-size:12.5px; }
+.three { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-top:14px; }
+.br { display:flex; align-items:stretch; gap:0; margin:8px 0 4px; }
+.br .s { flex:1; background:#F0F4FB; border:1px solid #C3D3EC; border-radius:7px; padding:8px 10px; font-size:12px; line-height:1.42; }
+.br .s b { display:block; }
+.br .s.fin { background:#EDF7ED; border-color:#9EC89E; }
+.br .ar { flex:0 0 20px; align-self:center; text-align:center; color:#003DA5; font-weight:700; }
+.nodes { display:grid; grid-template-columns:repeat(2,1fr); gap:6px; margin-top:8px; }
+.nodes .mono { overflow-wrap:normal; }
+.nodes .chip { margin:0; font-size:12px; line-height:1.42; padding:6px 10px; }
+.nodes .chip b { margin-right:6px; }
+.mono { overflow-wrap:anywhere; }
+</style>
+<div class="sheet">
+<h1>The browser runs one graph per page, and each Router tick leaves as one POST</h1>
+<p class="sub">Every consumer bundle inlines its own copy of the runtime, so the one Core parks on window.__newspackNodesCore and every bundle's nodes share its name table. The Router starts its own 1000 ms slot and brackets each tick between HttpOut's lock and flush, so every poll due that tick batches into one /command POST.</p>
+
+<div class="card tl">
+  <h3>Twenty seconds of a console with 1,000 nodes on screen</h3>
+  <svg width="1012" height="238" viewBox="0 0 1012 238">
+    <g stroke="#E6E7E9"><line x1="170" y1="14" x2="170" y2="214"/><line x1="370" y1="14" x2="370" y2="214"/><line x1="570" y1="14" x2="570" y2="214"/><line x1="770" y1="14" x2="770" y2="214"/><line x1="970" y1="14" x2="970" y2="214"/></g>
+    <g text-anchor="middle"><text x="170" y="230">0 s</text><text x="370" y="230">5 s</text><text x="570" y="230">10 s</text><text x="770" y="230">15 s</text><text x="970" y="230">20 s</text></g>
+    <text class="h" x="0" y="30">_router tick</text><text x="0" y="45">ROUTER_TICK_MS 1000</text>
+    <g fill="#003DA5"><circle cx="210" cy="30" r="3.5"/><circle cx="250" cy="30" r="3.5"/><circle cx="290" cy="30" r="3.5"/><circle cx="330" cy="30" r="3.5"/><circle cx="370" cy="30" r="3.5"/><circle cx="410" cy="30" r="3.5"/><circle cx="450" cy="30" r="3.5"/><circle cx="490" cy="30" r="3.5"/><circle cx="530" cy="30" r="3.5"/><circle cx="570" cy="30" r="3.5"/><circle cx="610" cy="30" r="3.5"/><circle cx="650" cy="30" r="3.5"/><circle cx="690" cy="30" r="3.5"/><circle cx="730" cy="30" r="3.5"/><circle cx="770" cy="30" r="3.5"/><circle cx="810" cy="30" r="3.5"/><circle cx="850" cy="30" r="3.5"/><circle cx="890" cy="30" r="3.5"/><circle cx="930" cy="30" r="3.5"/><circle cx="970" cy="30" r="3.5"/></g>
+    <text class="h" x="0" y="74">_uptime</text><text x="0" y="89">uptime every 5 s</text>
+    <g fill="#003DA5"><circle cx="370" cy="74" r="6"/><circle cx="570" cy="74" r="6"/><circle cx="770" cy="74" r="6"/><circle cx="970" cy="74" r="6"/></g>
+    <text class="h" x="0" y="118">_metadata</text><text x="0" y="133">1,000 × 10 ms → 10 s</text>
+    <g fill="#003DA5"><circle cx="570" cy="118" r="6"/><circle cx="970" cy="118" r="6"/></g>
+    <text class="h" x="0" y="162">_dmesg</text><text x="0" y="177">PollerNode default 10 s</text>
+    <g fill="#003DA5"><circle cx="570" cy="162" r="6"/><circle cx="970" cy="162" r="6"/></g>
+    <text class="h" x="0" y="204">POST /command</text>
+    <g fill="#B32D2E"><rect x="364" y="194" width="12" height="14" rx="2"/><rect x="564" y="194" width="12" height="14" rx="2"/><rect x="764" y="194" width="12" height="14" rx="2"/><rect x="964" y="194" width="12" height="14" rx="2"/></g>
+    <text x="582" y="206">three verbs, one POST</text><text x="382" y="206">one verb</text>
+    <text x="190" y="206">nothing due: flush sends nothing</text>
+  </svg>
+  <p style="font-size:12.5px"><span class="mono">computePollIntervalMs()</span> rounds <span class="mono">nodes × 10 ms</span> to the nearest five seconds and floors it at five, so every metadata cadence is a multiple of the uptime one. Every poller rides the Router's TIMER channel on the one shared wall-clock grid (ADR-17), which is why harmonic cadences meet on the same tick and leave in the same request. The <span class="mono">_dmesg</span> poll is aimed at <span class="mono">_cwd</span>, so it tallies the stderr tail of the process being VIEWED.</p>
+</div>
+
+<div class="two">
+  <div class="panel">
+    <header><span class="mono">RouterNode.fireCb()</span> — the bracket that makes batching a property of having a graph</header>
+    <div class="body">
+      <div class="br">
+        <div class="s"><b><span class="mono">http.lock()</span></b>the Router looks <span class="mono">_http</span> up itself</div><div class="ar">→</div>
+        <div class="s"><b><span class="mono">notifyTimer()</span></b>each TIMER subscriber mints its verb into the locked buffer</div><div class="ar">→</div>
+        <div class="s fin"><b><span class="mono">finally</span>: <span class="mono">http.flush()</span>, <span class="mono">trimProfiles()</span></b>one JSONL POST; an empty buffer costs no request</div>
+      </div>
+      <p>The JS Router has no drain loop, so its constructor self-starts the slot with <span class="mono">setTimer( ROUTER_TICK_MS )</span>; a test that wants it quiet calls <span class="mono">stopTimer()</span>. Only <span class="mono">mountExospine</span> mounts <span class="mono">_http</span>, as an <span class="mono">HttpOut</span>, so a dashboard that never heard of the bracket still batches. The PHP Router wraps nothing in a <span class="mono">finally</span>: there, a throwing hitchhiker ends the worker.</p>
+    </div>
+  </div>
+  <div class="card">
+    <h3>What one page mounts</h3>
+    <div class="nodes">
+      <div class="chip"><b><span class="mono">_router</span></b>no sink: the setter throws on anything non-null</div>
+      <div class="chip"><b><span class="mono">_http</span></b><span class="mono">mountExospine</span>: the batched <span class="mono">/command</span> egress</div>
+      <div class="chip"><b><span class="mono">_heartbeat</span></b><span class="mono">mountExospine</span>: pokes <span class="mono">_http/workers</span> to keep SSE slot leases</div>
+      <div class="chip"><b><span class="mono">_output</span></b>the transcript; SSE replies land here</div>
+      <div class="chip"><b><span class="mono">_metadata</span></b>debug overlay's REPL hook; publishes the parsed graph</div>
+      <div class="chip"><b><span class="mono">_uptime</span>, <span class="mono">_dmesg</span></b>the topology console's graph hook</div>
+      <div class="chip"><b><span class="mono">_completion</span>, <span class="mono">_cwd</span></b>the debug overlay's REPL hook</div>
+      <div class="chip"><b><span class="mono">RemoteIpcNode</span></b>one per worker cwd; one live stream per session</div>
+    </div>
+    <p style="margin-top:8px">The browser SSE receive path delivers <span class="mono">TM_RESPONSE</span>s to <span class="mono">_output</span>, <span class="mono">_metadata</span> and <span class="mono">_uptime</span>. Parking Core on <span class="mono">window</span> is what lets the debug overlay mount its <span class="mono">_output</span> and <span class="mono">_metadata</span> into the registry a dashboard already built.</p>
+  </div>
+</div>
+
+<div class="three">
+  <div class="callout">
+    <h4>A stale WordPress nonce</h4>
+    <p>A REST error coded <span class="mono">rest_cookie_invalid_nonce</span> makes <span class="mono">commandTransport</span> call <span class="mono">renewNonce</span> (<span class="mono">refreshNodesNonce</span>), which refreshes the <span class="mono">X-WP-Nonce</span> WordPress checks before <span class="mono">HTTP_In</span> sees the body. It then invalidates the command-signing session the old nonce derived and retries the same POST exactly once. A second failure is reported, not retried.</p>
+  </div>
+  <div class="callout">
+    <h4>A refused signature: HTTP 401</h4>
+    <p><span class="mono">renewSession()</span> drops the local signing session and opens a doubling backoff window, <span class="mono">BACKOFF_START_MS</span> 1000 up to <span class="mono">BACKOFF_MAX_MS</span> 30 s, before the next command may mint. Without it a session the server keeps refusing spins at the poll cadence.</p>
+  </div>
+  <div class="card">
+    <h3>The browser signs synchronously</h3>
+    <p>With <span class="mono">@noble/hashes</span> rather than <span class="mono">crypto.subtle</span>: awaiting a promise would make the Shell's dispatch async and move every graph mutation a microtask later. <span class="mono">useNodeFill( name )</span> resolves its node at CALL time and discards the message while no node holds the name, since a UI handler can fire before its graph exists.</p>
+  </div>
+</div>
+</div>

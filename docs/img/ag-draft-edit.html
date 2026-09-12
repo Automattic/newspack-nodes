@@ -1,0 +1,69 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.pipe { display:grid; grid-template-columns: repeat(4, 1fr); gap:10px; }
+.pipe .st { position:relative; background:#fff; border:1px solid #C3D3EC; border-radius:8px; padding:10px 12px 10px 40px; font-size:12px; line-height:1.45; color:#50575E; }
+.pipe .st b { display:block; color:#101517; font-size:12.5px; margin-bottom:2px; }
+.pipe .st .n { position:absolute; left:10px; top:10px; width:22px; height:22px; border-radius:50%; background:#003DA5; color:#fff; font-size:12px; font-weight:700; text-align:center; line-height:22px; }
+.pipe .st.srv { background:#F0F4FB; }
+.pipe .st.w { background:#FBEAEA; border-color:#E6A3A3; color:#5C2223; }
+.pipe .st.w .n { background:#B32D2E; }
+.lbl { font-size:11.5px; font-weight:700; letter-spacing:.03em; text-transform:uppercase; color:#50575E; margin:14px 0 6px; }
+.doc { display:flex; gap:6px; align-items:stretch; margin-top:6px; }
+.doc > div { flex:1; border-radius:6px; padding:7px 9px; font-size:11.5px; line-height:1.4; background:#F0F4FB; border:1px solid #C3D3EC; }
+.doc > div b { display:block; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:11.5px; color:#003DA5; }
+.doc > div.last { background:#101517; color:#fff; border-color:#101517; }
+.doc > div.last b { color:#8FB6F0; }
+.doc > div.dis { background:#FFF7E6; border-color:#F0D9A6; }
+.three { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-top:14px; }
+.three p { font-size:12px; }
+.mono { overflow-wrap:anywhere; }
+</style>
+<div class="sheet">
+<h1>Edit mode is the live console over a draft registry: load in two steps, edit by the same commands, write one ordered file</h1>
+<p class="sub">What changes between view and edit is which interpreter receives a line, and that is a cwd. A DraftInterpreterNode keeps its nodes in a NodeRegistry of its own, so a draft firehose neither collides with nor sees the live one; the clock, the rate-limited stderr and the rest of Core stay shared.</p>
+
+<div class="lbl">Load — only the server can resolve an include, so the borrowed half comes first</div>
+<div class="pipe">
+  <div class="st"><span class="n">1</span><b><span class="mono" style="overflow-wrap:normal">DraftInterpreterNode.<wbr>includesOf( tsl )</span></b>A static read of which topologies the file includes, without running it.</div>
+  <div class="st srv"><span class="n">2</span><b><span class="mono">topologies expand</span></b>Composes the include set into <span class="mono">{ nodes, edges, tree, hulls }</span>. Cached at module scope under the joined include list, order included; <span class="mono">topologies get</span> primes it, and saving or deleting ANY topology clears it all. A refusal — a cycle, a conflicting <span class="mono">make_node</span>, an unknown name — is an error with the expansion empty, never a valid empty graph.</div>
+  <div class="st"><span class="n">3</span><b><span class="mono">load( tsl, baseline, resolvedConfigEdges )</span></b>Seeds the borrowed half from the baseline — each node carrying <span class="mono">origin</span> and <span class="mono">via</span>, drawn locked, its form read-only — then runs the file's own statements. Every seeded node is a <span class="mono">StubNode</span>, whatever its class. Called with no baseline, it treats the file as including nothing, silently.</div>
+  <div class="st"><span class="n">4</span><b>A class outside the bundle's <span class="mono">includeNodes</span> becomes a <span class="mono">StubNode</span></b><span class="mono">resolveClass()</span> knows only the classes the browser bundle registers, so <span class="mono">Partition</span>, <span class="mono">Topic</span>, <span class="mono">Consumer</span>, <span class="mono">Job_Worker</span> and every other server-side class stub. A stub keeps the declared class, which <span class="mono">dump_config</span> and <span class="mono">dump_metadata</span> emit in place of <span class="mono">Stub</span>, the tokens verbatim and the catalog's <span class="mono">fans_out</span> flag; its <span class="mono">fill()</span> counts and drops.</div>
+</div>
+
+<div class="lbl">Edit — <span class="mono">DraftContext</span> is the only way in; <span class="mono">graph</span> is a read, never mutated</div>
+<div class="pipe">
+  <div class="st"><span class="n">5</span><b><span class="mono">run( line )</span></b>The command face, identical to live mode. Re-declaring a borrowed name CLAIMS it: the borrowed node goes, the replacement inherits its outgoing edges, and a failed build restores both. <span class="mono">move_node</span> rewrites every reference: seeded edges, other nodes' <span class="mono">target</span>, and <span class="mono">node_name</span>-typed verb arguments.</div>
+  <div class="st"><span class="n">6</span><b>Whole-map edits one line cannot spell</b><span class="mono">replaceVerbs</span> (a <span class="mono">command_node</span> only appends), <span class="mono">replaceFrontmatter</span>, <span class="mono">clearSecure</span> (<span class="mono">insecure</span> declares a third state), <span class="mono">reseed( from, to )</span>, <span class="mono">assertResolved()</span> for a <span class="mono">&lt;ns:key&gt;</span> target, <span class="mono">revertIncludes( lastGood )</span> after an expand error, <span class="mono">setCatalog</span>.</div>
+  <div class="st"><span class="n">7</span><b><span class="mono">draftToGraph()</span> after every change</b>Walks the draft registry into <span class="mono">{ nodes, edges, includes, frontmatter, secureLevel, configOverrides, resolvedConfigEdges }</span>. <span class="mono">x</span> and <span class="mono">y</span> are zero and <span class="mono">_repl</span> is never synthesized; a <span class="mono">set_*target</span> on a borrowed node becomes a <span class="mono">configOverrides</span> entry.</div>
+  <div class="st"><span class="n">8</span><b><span class="mono">augmentWithVirtualEdges()</span></b>A node reached only through a <span class="mono">node_name</span> verb argument — <span class="mono">set_errors_target errors:partition</span> — gets a dimmed <span class="mono">virtual: true</span> edge, so <span class="mono">autoLayout</span> places it downstream; click-to-delete is refused, since a <span class="mono">disconnect_node</span> would not remove the verb line.</div>
+</div>
+
+<div class="card" style="margin-top:14px">
+  <h3><span class="mono">dumpDocument()</span> writes the file in the one order a topology requires</h3>
+  <div class="doc">
+    <div><b>var …</b>frontmatter; an empty value is quoted, since bare <span class="mono">var x =</span> deletes</div>
+    <div><b>include …</b>the file's own includes</div>
+    <div><b>make_node</b>per node, skipped for a borrowed one</div>
+    <div><b>set_sink</b>only a sink the document stated</div>
+    <div><b>command_node</b>the node's declared invocations</div>
+    <div class="dis"><b>disconnect_node</b>a baseline routing edge the document dropped: a Tee's <span class="mono">connect_node</span> appends, so absence cannot remove</div>
+    <div><b>connect_node</b>edges the baseline lacked</div>
+    <div class="last"><b>secure</b>LAST, because it disables <span class="mono">make_node</span> for every line after it</div>
+  </div>
+</div>
+
+<div class="three">
+  <div class="card">
+    <h3>Dirty is a comparison, and save is the one write</h3>
+    <p>Dirty means the graph's serialization differs from a baseline the document carries. <span class="mono">load()</span> records what it loaded; an upload records <span class="mono">null</span> and is dirty from its first render. <span class="mono">markSaved()</span> stamps what was SENT, because a save takes seconds while the canvas stays live. <span class="mono">topologies save</span> writes the user <span class="mono">.tsl</span> and restarts every fleet running it, so it goes exactly once; the console then re-baselines on what was WRITTEN and offers to activate a new topology, which a save leaves inactive.</p>
+  </div>
+  <div class="card">
+    <h3>Four verbs belong to the FILE</h3>
+    <p><span class="mono">var</span>, <span class="mono">include</span>, <span class="mono">remove_include</span> and <span class="mono">secure</span> touch no node table, and here <span class="mono">secure</span> edits a line in both directions where live it is the one-way ratchet. The Palette offers every catalog topology as a tile and disables three: the one being edited, one already included, and one whose include closure reaches it — a client mirror of <span class="mono">Topology_Analyzer</span>'s cycle guard that has to move with it.</p>
+  </div>
+  <div class="callout">
+    <h4>Arguments are SPANS, and quoting changes meaning</h4>
+    <p><span class="mono">serializeDraftArg()</span> emits a span that already tokenizes to itself verbatim, because double quotes interpolate <span class="mono">&lt;name&gt;</span> where single quotes and backticks defer. It quotes only an unbalanced quote and a bare <span class="mono">#</span> or <span class="mono">;</span>. <span class="mono">utils/tslArgs.js</span> writes each blank positional's schema default and trims only trailing empties: PHP counts an empty <span class="mono">string</span> or <span class="mono">bool</span> token as supplied, and dropping an interior blank would shift every later argument.</p>
+  </div>
+</div>
+</div>

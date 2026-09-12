@@ -1,0 +1,92 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.seq { position: relative; width: 1052px; }
+.seq svg.wire { position: absolute; left: 0; top: 0; }
+.seq .lane { position: absolute; top: 0; width: 196px; min-height: 118px; }
+.seq .lane h3 { font-size: 14.5px; }
+.seq .lane p { font-size: 12px; margin: 0; }
+.seq .hop { position: absolute; background: #fff; border: 1px solid #C3D3EC; border-radius: 7px; padding: 9px 12px 9px 40px; font-size: 12.5px; line-height: 1.5; color: #101517; }
+.seq .hop.bad { border-color: #E6A3A3; background: #FBEAEA; color: #5C2223; }
+.seq .hop.bad .n { background: #B32D2E; }
+.seq .n { position: absolute; left: 10px; top: 9px; width: 22px; height: 22px; border-radius: 50%; background: #003DA5; color: #fff; font-size: 12px; font-weight: 700; text-align: center; line-height: 22px; }
+.seq .panel { position: absolute; }
+.seq .panel header { position: relative; padding-left: 44px; font-size: 14px; }
+.seq .panel header .n { background: #fff; color: #003DA5; left: 12px; top: 8px; }
+.seq .panel .body { padding: 12px 14px 6px; }
+.seq .panel .chip { font-size: 12px; line-height: 1.45; padding: 6px 10px; }
+.seq .cap { position: absolute; font-size: 12px; color: #50575E; text-align: center; background: #FBFBFC; padding: 0 6px; white-space: nowrap; }
+.mono { overflow-wrap: anywhere; }
+.trig { display:flex; flex-wrap:wrap; gap:6px; }
+.trig .chip { flex:1 1 30%; margin:0; }
+</style>
+<div class="sheet">
+<h1>A worker is an HTTP request that outlives its caller</h1>
+<p class="sub">Seven hops from the spawn POST into the drain loop. The endpoint is the one gate every spawner crosses, the lock directory is the slot, and should_continue() is the only thing that beats the lock. The handoff that follows is its own diagram.</p>
+
+<div class="seq" id="seq">
+<svg class="wire" id="wire"><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs></svg>
+
+<div class="lane card" data-lane="0"><h3>Spawner</h3><p>A predecessor's <span class="mono">self_respawn()</span>, a peer's <span class="mono">_fleet</span> scan, the cron pass, an activate, or a wake.</p></div>
+<div class="lane card" data-lane="1"><h3>Spawn endpoint</h3><p><span class="mono">POST /newspack-nodes/<wbr>v1/workers/<wbr>spawn</span>, <span class="mono">Spawn_Controller</span>.</p></div>
+<div class="lane card" data-lane="2"><h3>Worker_Base</h3><p><span class="mono">execute( $topology, $spawn_url, $token )</span> inside that same request.</p></div>
+<div class="lane card" data-lane="3"><h3>Lock dir</h3><p><span class="mono">{base}/locks/<wbr>{type}.p{N}.lock.d/</span> — the slot.</p></div>
+
+<div class="hop" data-arrow="0,1" data-cap="fire-and-forget POST, 250 ms budget" data-span="0,2"><span class="n">1</span><span class="mono">Core::fire_and_forget_post()</span> hangs up after <span class="mono">SPAWN_POST_TIMEOUT_MS</span> 250. Auth is an HMAC token over a 10-second window (current or previous accepted), purpose <span class="mono">spawn</span>; or a MANAGE user with a WP nonce, behind <span class="mono">RATE_LIMIT_S</span> 2 per user.</div>
+
+<div class="hop" data-span="1,3"><span class="n">2</span>Three refusals in order: a partition outside the type's range → <span class="red">400</span>; a deploy hold (<span class="mono">newspack_nodes_hold</span> option) → <span class="red">409</span>; spawned less than <span class="mono">MIN_SPAWN_INTERVAL_S</span> 15 ago for this <span class="mono">{type}|{partition}</span> → <span class="red">429</span>. The accepted spawn is recorded here, shared through <span class="mono">Cache_Backend::shared_first()</span>, so N scanners are as safe as one. Then <span class="mono">ignore_user_abort( true )</span> and <span class="mono">set_time_limit( 0 )</span>: the caller is gone, the process stays.</div>
+
+<div class="hop" data-arrow="1,2" data-cap="run inline" data-span="2,3"><span class="n">3</span><span class="mono">Worker_Base::execute()</span> runs inside this request for the worker's whole life and writes its <span class="mono">WP_REST_Response</span> only once the graph is torn down. Nothing detaches from FPM or the process group: the process holding the spawn connection IS the worker. <span class="mono">fastcgi_finish_request()</span> is deliberately absent (ADR-8), since no caller waits for the reply.</div>
+
+<div class="hop" data-arrow="2,3" data-cap="mkdir, heartbeat, started" data-span="2,3"><span class="n">4</span><span class="mono">acquire()</span> the lock; on refusal return <span class="mono">skipped</span> with <span class="mono">acquire_failure()</span>. Register the shutdown handler, then <span class="mono">usleep( LOCK_CHECK_GRACE_S )</span> 250 ms, so a spawn racing this one reads the lock as held.</div>
+
+<div class="hop" data-span="2,3"><span class="n">5</span><span class="mono">build_scaffolding()</span> mounts <span class="mono">_router</span> (ticking at 1000 ms), <span class="mono">_command_interpreter</span>, <span class="mono">_fleet</span>, the <span class="mono">_repl</span> output Partition under <span class="mono">void_warranty()</span>, and the anonymous IPC-input Consumer stamping <span class="mono">_repl</span>.</div>
+
+<div class="hop bad" data-span="2,3"><span class="n">6</span><span class="mono">run_topology()</span> evaluates the <span class="mono">.tsl</span>. A file that throws — an include cycle, input pending at EOF — logs, releases, returns <span class="mono">load_failed</span> and does NOT respawn. A bad single line is caught per statement and the worker still reports <span class="mono">ok</span>.</div>
+
+<div class="panel" data-span="2,3">
+  <header><span class="n">7</span><span class="mono">drain( should_continue, cooperative_stop: true )</span> — for about 595 seconds</header>
+  <div class="body">
+    <div class="chip"><span class="mono">baseline_memory = memory_get_usage( true )</span>, then <span class="mono">install_signal_handlers()</span>: only <span class="mono">Worker_Base::execute()</span> and ELN's <span class="mono">Reqgrep_Command::follow_mode()</span> ever install them.</div>
+    <div class="chip">The predicate runs on every tick and from <span class="mono">pump()</span> at most once a second, in this order, and it is the only thing that beats the lock:</div>
+    <div class="trig">
+      <div class="chip">1 · the lock is no longer ours, or its dir is gone</div>
+      <div class="chip">2 · <span class="mono">stop_requested()</span> — category <span class="mono">stop</span>, before restart, because a stop leaves the slot EMPTY</div>
+      <div class="chip">3 · <span class="mono">restart_reason()</span> non-empty: the flag, a gone heartbeat, a stolen lock</div>
+      <div class="chip">4 · <span class="mono">DEFAULT_MAX_RUNTIME</span> 595 s reached — <span class="mono">timeout</span></div>
+      <div class="chip">5 · memory ≥ <span class="mono">MEMORY_WATERMARK_PCT</span> 0.80 of <span class="mono">memory_limit</span> — <span class="mono">memory</span>; PHP's fatal-on-OOM would bypass <span class="mono">finally</span></div>
+      <div class="chip">6 · the DB probe failed <span class="mono">DB_CHECK_MAX_FAILURES</span> 3 times running</div>
+      <div class="chip">7 · every <span class="mono">Idle_Reporter</span> idle for the whole on-demand window — <span class="mono">idle</span>; skipped under <span class="mono">$mid_work</span></div>
+    </div>
+    <div class="chip" style="margin-top:6px">Three branches are throttled inside it: the heartbeat touch every <span class="mono">HEARTBEAT_INTERVAL_S</span> 10, the DB probe every <span class="mono">DB_CHECK_INTERVAL_S</span> 30, the idle scan every <span class="mono">IDLE_CHECK_INTERVAL_S</span> 1, because it lists segments and stats the newest, and per-tick disk I/O would cost more than the residency it gives back. A process that asks whether to keep running also proves it is alive.</div>
+  </div>
+</div>
+
+</div>
+</div>
+<script>
+(function () {
+  var L = [100, 330, 560, 790], seq = document.getElementById('seq'), svg = document.getElementById('wire');
+  var NS = 'http://www.w3.org/2000/svg';
+  function el(t, a) { var e = document.createElementNS(NS, t); for (var k in a) e.setAttribute(k, a[k]); return e; }
+  var lanes = seq.querySelectorAll('.lane'), headBottom = 0;
+  lanes.forEach(function (c) { var i = +c.dataset.lane; c.style.left = (L[i] - 98) + 'px'; headBottom = Math.max(headBottom, c.offsetHeight); });
+  var y = headBottom + 18;
+  seq.querySelectorAll('[data-span]').forEach(function (b) {
+    var s = b.dataset.span.split(',').map(Number), x0 = L[s[0]] - 95, x1 = L[s[1]] - 10;
+    if (s[1] === 3) x1 = 1042;
+    if (b.dataset.arrow) {
+      var a = b.dataset.arrow.split(',').map(Number), ay = y + 22, dir = a[1] > a[0] ? 1 : -1;
+      svg.appendChild(el('path', { d: 'M' + L[a[0]] + ' ' + ay + ' H' + (L[a[1]] - 6 * dir), stroke: '#003DA5', 'stroke-width': 1.8, fill: 'none', 'marker-end': 'url(#a)' }));
+      var cap = document.createElement('div'); cap.className = 'cap'; cap.textContent = b.dataset.cap;
+      cap.style.top = (ay - 20) + 'px'; seq.appendChild(cap);
+      cap.style.left = ((L[a[0]] + L[a[1]]) / 2 - cap.offsetWidth / 2) + 'px';
+      y = ay + 10;
+    }
+    b.style.left = x0 + 'px'; b.style.width = (x1 - x0) + 'px'; b.style.top = y + 'px';
+    y += b.offsetHeight + 12;
+  });
+  var boxes = seq.querySelectorAll('[data-span]'), lastTop = boxes[boxes.length - 1].offsetTop;
+  seq.style.height = y + 'px'; svg.setAttribute('width', 1052); svg.setAttribute('height', y);
+  L.forEach(function (x) { svg.insertBefore(el('path', { d: 'M' + x + ' ' + (headBottom + 4) + ' V' + (lastTop - 4), stroke: '#B0B3B8', 'stroke-dasharray': '4 5', 'stroke-width': 1.5 }), svg.firstChild.nextSibling); });
+})();
+</script>

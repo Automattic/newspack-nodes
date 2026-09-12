@@ -1,0 +1,89 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.dec { display:flex; gap:10px; align-items:stretch; }
+.dec .q { flex:0 0 250px; background:#101517; color:#fff; border-radius:7px; padding:10px 12px; font-size:12.5px; line-height:1.45; }
+.dec .q b { color:#8FB6F0; display:block; margin-bottom:3px; }
+.dec .arm { flex:1; border-radius:7px; padding:9px 12px; font-size:12.5px; line-height:1.45; background:#F0F4FB; border:1px solid #C3D3EC; }
+.dec .arm b { display:block; margin-bottom:2px; }
+.tl { margin-top:14px; }
+.tl svg text { font-family: Inter, -apple-system, Helvetica, Arial, sans-serif; font-size: 12px; }
+.two { display:flex; gap:16px; margin-top:16px; align-items:stretch; }
+.two > div { flex:1; }
+.two p { font-size:12.5px; }
+.seam { display:flex; gap:10px; margin-top:10px; }
+.seam .chip { flex:1; margin:0; font-size:12px; }
+.seam .chip b { display:block; }
+.tl svg text { paint-order: stroke; stroke: #fff; stroke-width: 5px; stroke-linejoin: round; }
+</style>
+<div class="sheet">
+<h1>A timer takes one of two clocks, and a long job has to ask for the stop it cannot hear</h1>
+<p class="sub">Timer_Node::set_timer() picks the mode: a named node at or above the Router's cadence rides the Router's one-second tick; everything else holds its own Event_Framework slot. Inside a job that starves the loop, pump() runs the worker's continue-predicate by hand.</p>
+
+<div class="panel">
+  <header><span class="mono">set_timer( $ms, $oneshot )</span> — the mode decision, made once per arm</header>
+  <div class="body">
+    <div class="dec">
+      <div class="q"><b>named node, not the Router, and $ms is null or ≥ _router's live cadence?</b>the threshold is <span class="mono">Router_Node::interval_ms</span>, or <span class="mono">DEFAULT_TICK_MS</span> 1000 where no Router is mounted</div>
+      <div class="arm"><b>yes → Router hitchhike (MODE <span class="mono">router</span>)</b>registers the NAME on <span class="mono">_router</span>'s TIMER channel; <span class="mono">notify_timer()</span> calls <span class="mono">fire_cb()</span> directly each tick and the node throttles itself to <span class="mono">interval_ms</span>. No own slot, no message. Requires <span class="mono">_router</span> or throws. <span class="mono">list_timers</span> shows NEXT as <span class="mono">-</span>.</div>
+      <div class="arm"><b>no → own slot (MODE <span class="mono">event_framework</span>)</b>an unnamed node, the Router itself, or an interval shorter than the cadence. Needs a concrete interval or throws. <span class="mono">Event_Framework::set_timer()</span> seeds <span class="mono">next_fire = Core::$now + interval</span>. A Consumer at 0 / 100 ms and a Remote_Link at 100 ms sit here.</div>
+    </div>
+  </div>
+</div>
+
+<div class="card tl">
+  <h3>The two modes disagree about the FIRST fire</h3>
+  <svg width="1012" height="250" viewBox="0 0 1012 250">
+    <g stroke="#E6E7E9"><line x1="230" y1="20" x2="230" y2="210"/><line x1="430" y1="20" x2="430" y2="210"/><line x1="630" y1="20" x2="630" y2="210"/><line x1="830" y1="20" x2="830" y2="210"/></g>
+    <g fill="#787C82" text-anchor="middle" font-size="11.5"><text x="230" y="228">boot, 0 s</text><text x="430" y="228">1 s</text><text x="630" y="228">2 s</text><text x="830" y="228">3 s</text></g>
+    <text x="0" y="40" font-weight="700">_router tick</text>
+    <text x="0" y="56" fill="#50575E" font-size="11.5">1000 ms own slot</text>
+    <g fill="#003DA5"><circle cx="430" cy="36" r="6"/><circle cx="630" cy="36" r="6"/><circle cx="830" cy="36" r="6"/></g>
+    <text x="240" y="62" fill="#50575E" font-size="11.5">armed by build_scaffolding(): the grid every hitchhiker shares</text>
+
+    <text x="0" y="104" font-weight="700">hitchhiker</text>
+    <text x="0" y="120" fill="#50575E" font-size="11.5">15 s probe, armed at 0.3 s</text>
+    <line x1="290" y1="94" x2="290" y2="106" stroke="#B32D2E" stroke-width="2"/>
+    <text x="296" y="90" fill="#B32D2E" font-size="11.5">set_timer( 15000 ): last_fire_time = 0.0</text>
+    <g fill="#003DA5"><circle cx="430" cy="100" r="6"/></g>
+    <g fill="none" stroke="#B0B3B8" stroke-dasharray="3 3"><circle cx="630" cy="100" r="6"/><circle cx="830" cy="100" r="6"/></g>
+    <text x="240" y="128" fill="#50575E" font-size="11.5">fires on the first Router tick after arming, about a second after boot, then throttles to 15 s: the dashed ticks pass it by</text>
+
+    <text x="0" y="172" font-weight="700">own slot</text>
+    <text x="0" y="188" fill="#50575E" font-size="11.5">1500 ms timer, armed at 0.3 s</text>
+    <line x1="290" y1="162" x2="290" y2="174" stroke="#B32D2E" stroke-width="2"/>
+    <text x="296" y="158" fill="#B32D2E" font-size="11.5">set_timer( 1500 ): next_fire = now + 1.5</text>
+    <g fill="#003DA5"><circle cx="590" cy="168" r="6"/><circle cx="890" cy="168" r="6"/></g>
+    <text x="240" y="196" fill="#50575E" font-size="11.5">first fire one whole period away, at 1.8 s, then 3.3 s</text>
+  </svg>
+  <p>A boot-time burst comes from the first row: a 300-second collector and a 15-second probe both fire on the tick after arming. A oneshot in either mode fires once; <span class="mono">fire_cb()</span> calls <span class="mono">stop_timer()</span> BEFORE the sink check, which zeroes <span class="mono">interval_ms</span>, so a sinkless oneshot is disarmed without ever dispatching and a node re-arming a oneshot at the bottom of its own <span class="mono">fire()</span> leaves the loop on its first early return. A self-pacing node keeps a RECURRING timer and calls <span class="mono">set_timer( $next_ms )</span> only when the cadence changes.</p>
+</div>
+
+<div class="two">
+  <div class="panel">
+    <header><span class="mono">pump()</span> and <span class="mono">stop_check()</span> — the cooperative-stop seam inside a blocking job</header>
+    <div class="body">
+      <div class="seam">
+        <div class="chip"><b>who calls it</b>Partition, on every record it writes, so a long <span class="mono">fill()</span> that starves the drain loop still hears its stop.</div>
+        <div class="chip"><b>throttle</b>once per <span class="mono">PUMP_INTERVAL_S</span> 1.0 against the live clock; going through <span class="mono">right_now()</span> also un-freezes <span class="mono">Core::$now</span> at pump cadence.</div>
+        <div class="chip"><b>what it runs</b>the parked continue-predicate <span class="mono">should_continue( mid_work: true )</span>; on false it raises <span class="mono">Worker_Should_Stop</span>, which unwinds the whole <span class="mono">fill()</span> stack.</div>
+      </div>
+      <div class="seam">
+        <div class="chip"><b>only under Worker_Base</b>it no-ops unless <span class="mono">drain( …, cooperative_stop: true )</span> is active, so a cli or SSE drain can never be thrown out of.</div>
+        <div class="chip"><b>stop_check()</b>the same decision, unthrottled — for a caller that needs the answer NOW, such as a subprocess render that may have outlived the lease.</div>
+        <div class="chip"><b>never from stderr</b>both return early while <span class="mono">Core::in_stderr()</span>: a stderr write is not a stop boundary, and logging the stop would self-throw.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="two">
+  <div class="card">
+    <h3><span class="mono">Deferred_Clean_Stop</span> — the write side of that protocol</h3>
+    <p>A snapshot node forwarding into a Partition mid-<span class="mono">fill()</span> still owes the message its own bookkeeping. <span class="mono">guarded( $forward )</span> catches the <span class="mono">Worker_Should_Stop</span> and holds it (first one wins; a non-stop throwable propagates to the Consumer's dead-letter path); <span class="mono">raise_pending_stop()</span> re-raises it at exit as a FRESH <span class="mono">Worker_Should_Stop_Clean</span>, which <span class="mono">Durable_Reader::drain_buffer()</span> reads as permission to commit PAST the record. Call <span class="mono">clear_pending_stop()</span> at entry and <span class="mono">raise_pending_stop()</span> at every exit.</p>
+  </div>
+  <div class="card">
+    <h3>cURL handles ride the same wait</h3>
+    <p>Each node registers its own EASY handle with <span class="mono">register_curl_easy( $node, $easy )</span>; all attach to one lazily-created multi. While any is registered the tick sleeps in <span class="mono">curl_multi_select</span> instead of <span class="mono">usleep</span>, and a completion is routed by the handle's <span class="mono">spl_object_id</span> to its owner's <span class="mono">on_curl_message()</span>; a node without that method is skipped. <span class="mono">Event_Framework::$curl_poll</span> is the test seam standing in for <span class="mono">curl_multi_exec</span> + <span class="mono">curl_multi_info_read</span>. There is no FD registration path: file polling is timers.</p>
+  </div>
+</div>
+</div>
