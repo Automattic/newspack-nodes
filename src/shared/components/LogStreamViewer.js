@@ -133,8 +133,8 @@ const debugHeader = ( hasKeyColumn ) => (
  * @param {Object}                    props                      Props.
  * @param {string}                    props.className            Root class; the body wrapper is `${className}__body`.
  * @param {string}                    props.ariaLabel            The region's accessible name.
- * @param {string}                    [props.title]              Inline page heading, for an adopter with no hub header.
- * @param {?Element}                  [props.headerControlsSlot] Hub shared-header slot to portal the controls into; null renders none, undefined renders them inline.
+ * @param {string}                    [props.title]              Inline page heading, for an adopter with no station header.
+ * @param {?Element}                  [props.headerControlsSlot] Station shared-header slot to portal the controls into; null renders none, undefined renders them inline.
  * @param {?Array<Object>}            [props.pickerOptions]      `{ key, label, disabled? }` rows for the source dropdown; empty or absent renders no picker.
  * @param {string}                    [props.selectedKey]        The picked option's key; required only with a picker.
  * @param {Function}                  [props.onPick]             `(key) => void` — switch the source; required only with a picker.

@@ -319,7 +319,7 @@ describe( 'PartitionViewer', () => {
 		expect( row.textContent ).toContain( 'GET /x 200' );
 	} );
 
-	it( 'portals the controls into the hub header slot when given one', async () => {
+	it( 'portals the controls into the station header slot when given one', async () => {
 		registerViewFixture( { logs: [] } );
 		const slot = document.createElement( 'div' );
 		document.body.appendChild( slot );

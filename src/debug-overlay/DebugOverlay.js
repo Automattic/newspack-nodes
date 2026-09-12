@@ -39,7 +39,7 @@ import './debug-overlay.scss';
 export default function DebugOverlay( {
 	search,
 	storageKey = 'newspack-nodes:debug',
-	// false on hub Console tab — its graph+REPL would collide with Console's.
+	// false on the station's Console tab: its graph and REPL would collide.
 	buildRepl = true,
 } ) {
 	const enabled = isDebugEnabled( search );

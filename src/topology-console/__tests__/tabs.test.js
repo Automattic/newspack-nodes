@@ -14,8 +14,8 @@ test( 'importing tabs registers the topology-console tab on the station host at 
 	const { getTabs, resetTabs } = require( '../../shared/tabs/tabRegistry' );
 	resetTabs();
 	require( '../tabs' );
-	const hubTabs = getTabs( 'station' );
-	const tab = hubTabs.find( ( t ) => t.id === 'topology-console' );
+	const stationTabs = getTabs( 'station' );
+	const tab = stationTabs.find( ( t ) => t.id === 'topology-console' );
 	expect( tab ).toBeTruthy();
 	expect( tab.host ).toBe( 'station' );
 	expect( tab.order ).toBe( 15 );

@@ -42,7 +42,7 @@
  * module-local Map gives the station page one registry per bundle: the host reads
  * its own empty copy and shows no tabs while three bundles register into theirs.
  */
-const GLOBAL_KEY = '__newspackNodesTabDescriptors';
+const GLOBAL_KEY = '__newspackNodesTabs';
 
 /**
  * Read the shared registry, creating it on first touch.

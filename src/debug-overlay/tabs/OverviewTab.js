@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
-// Reuse the hub's d3 rate panel (pulls d3 in) — cheaper than reimplementing it.
+// Reuse the station's d3 rate panel (pulls in d3) over a reimplementation.
 import { TopicsChart } from '../../event-dashboards/TopicsChart';
 import {
 	formatBytes,
@@ -12,10 +12,10 @@ import {
 import { useOverviewStats } from '../useOverviewStats';
 import { IoTelemetry } from '../../runtime/io-telemetry';
 import { Core } from '../../runtime/core';
-// Ship the hub's card/overview layout styles so the overlay is self-contained.
+// Ship the station's card and overview styles so the overlay stands alone.
 import '../../event-dashboards/styles/summary-cards.scss';
 import '../../event-dashboards/styles/overview.scss';
-// Overlay-only additions, panel-scoped so they can't bleed into the hub.
+// Overlay-only additions, panel-scoped so they can't bleed into the station.
 import './overview-tab.scss';
 
 /**
@@ -34,9 +34,9 @@ const MSG_LEVELS = [
 ];
 
 /**
- * One metric card, on the hub SummaryCards markup: `newspack-nodes-card` for
+ * One metric card, on the station SummaryCards markup: `newspack-nodes-card` for
  * the canonical surface role and `nodes-card` for the value/label layout, so
- * the overlay inherits the hub's card look instead of restating it.
+ * the overlay inherits the station's card look instead of restating it.
  *
  * @param {Object}                    props
  * @param {string}                    props.id    Card id; names both the `nodes-card--<id>` modifier and the test id.
@@ -85,14 +85,14 @@ function inOut( inbound, outbound ) {
  * The Overview tab — the debug overlay's at-a-glance I/O board. The cards carry
  * the live in/out byte and message rates, the cumulative in/out byte and message
  * totals, the warning, error and debug counts, and the client and SSE uptimes.
- * Under them sit the same two Tachikoma-style rate panels the hub Overview shows
+ * Under them sit the same two Tachikoma-style rate panels the station Overview shows
  * (Message Rate, Byte Rate) with In/Out series in place of per-topic, a button
  * that zeroes the telemetry, and the lines this browser classified, newest
  * first, behind err/warn/dbg chips. Those lines are the overlay's own, never the
  * server's, which is what the "Messages (this browser)" heading says out loud.
  *
  * Header-less: the panel owns the one shared header above the tab bar, so this
- * tab renders only the scrolling body, on the hub's card, panel and chart
+ * tab renders only the scrolling body, on the station's card, panel and chart
  * classes plus the panel-scoped additions in `overview-tab.scss`. It publishes
  * nothing to that header, because the Overview has no graph cwd to navigate.
  * Data comes from `useOverviewStats`, fed by the always-on IoTelemetry sampler.

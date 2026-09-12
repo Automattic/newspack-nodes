@@ -481,10 +481,10 @@ function ServerCard( { server, now, answer, probing, onProbe } ) {
 
 /**
  * The Aggregator Status dashboard: mount the graph, place the refresh strip in
- * the hub's header, and list one card per spoke.
+ * the station's header, and list one card per spoke.
  *
  * @param {Object}   props                      Component props.
- * @param {?Element} [props.headerControlsSlot] Hub shared-header slot to portal
+ * @param {?Element} [props.headerControlsSlot] Station shared-header slot to portal
  *                                              the refresh strip into; null
  *                                              renders none, undefined renders
  *                                              it inline.

@@ -14,7 +14,7 @@
  * a probe stream.
  *
  * The view arrives as a CLASS from `register.js` rather than as the name
- * `TopicProbeView`: the hub mounts these tabs against whichever bundle's
+ * `TopicProbeView`: the station mounts these tabs against whichever bundle's
  * interpreter it was handed, and that name table is a per-bundle static
  * (ADR-16).
  *

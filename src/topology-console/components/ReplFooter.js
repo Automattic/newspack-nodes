@@ -72,7 +72,7 @@ const RESIZE_STEP_PX = 20;
 
 /**
  * Chrome the transcript can never occupy, in pixels: 32 for the WordPress
- * admin bar, 64 for the hub header, 40 for the tab bar and 38 for the prompt
+ * admin bar, 64 for the station header, 40 for the tab bar and 38 for the prompt
  * bar. It is the pre-layout fallback alone — a consumer that has measured its
  * own panel passes `maxHeightPx`, which wins wherever it is given.
  */

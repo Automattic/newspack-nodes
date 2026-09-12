@@ -1355,7 +1355,7 @@
 
 // Read-only Time Travel panel (SLICE 2a): a keyframe ruler over a time axis,
 // the snapshot state blob, and the live cursor. Reuses the inspector tokens so
-// it themes with the hub; no new color literals.
+// it themes with the station; no new color literals.
 // One marker per keyframe, laid out left→right by frame index; the row
 // reserves height for the floating markers.
 .topology-tt__ruler {
@@ -2478,7 +2478,7 @@
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	// 97px of header (32px admin bar + 65px hub) + the bottom's 24px gap.
+	// 97px of header (32px admin bar + 65px station header) + the bottom's 24px gap.
 	padding: 121px 16px 24px;
 	// Above the overlay panel (z-index:999998): ModalShell portals to <body>, so the
 	// fixed full-viewport backdrop dims the whole page and sits over the panel.

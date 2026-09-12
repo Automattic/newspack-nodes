@@ -125,7 +125,7 @@ describe( 'useTopologyManager', () => {
 	it( 'throttles the batched poll to refreshMs instead of every router tick', async () => {
 		// refreshMs was only ever wired to the freshness bump; useBatchedPoll
 		// got no intervalMs at all, and omitted means "fire every router tick"
-		// — so the hub Overview polled the server at 1Hz while the staleness
+		// — so the station Overview polled the server at 1Hz while the staleness
 		// calculation judged it against a multi-second cadence.
 		buildClient();
 		renderHook( () => useTopologyManager( {} ) );

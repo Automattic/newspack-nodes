@@ -11,8 +11,8 @@ jest.mock( '../VaultAdmin', () => () => null );
 test( 'importing tabs registers the vault tab on the station host at order 30', () => {
 	const { getTabs } = require( '../../shared/tabs/tabRegistry' );
 	require( '../tabs' );
-	const hubTabs = getTabs( 'station' );
-	const tab = hubTabs.find( ( t ) => t.id === 'vault' );
+	const stationTabs = getTabs( 'station' );
+	const tab = stationTabs.find( ( t ) => t.id === 'vault' );
 	expect( tab ).toBeTruthy();
 	expect( tab.host ).toBe( 'station' );
 	expect( tab.order ).toBe( 30 );

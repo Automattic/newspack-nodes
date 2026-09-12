@@ -10,8 +10,9 @@
  * `includes/class-message.php` decides the layout. Every index, flag and label
  * here mirrors it, and `__tests__/message.test.js` pins them, so a drift
  * between the two ports fails a suite rather than a production decode. The
- * ports part company on malformed input alone: PHP throws where `unpack()`
- * hands back a fresh message.
+ * ports part company on a frame that is not exactly seven fields: PHP throws,
+ * where `unpack()` hands back a fresh message for bad JSON or a short list and
+ * keeps the first seven fields of a longer one.
  */
 
 /**

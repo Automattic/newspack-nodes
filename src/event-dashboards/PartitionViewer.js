@@ -224,7 +224,7 @@ const makeHeader = ( visibleColumns ) => (
  * Partition Viewer Component.
  *
  * @param {Object}  props                      Props.
- * @param {Element} [props.headerControlsSlot] Hub shared-header slot to portal the controls into.
+ * @param {Element} [props.headerControlsSlot] Station shared-header slot to portal the controls into.
  * @return {import('react').ReactElement} Rendered component.
  */
 export default function PartitionViewer( { headerControlsSlot } ) {

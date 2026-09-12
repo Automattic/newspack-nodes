@@ -1,7 +1,7 @@
 /**
  * replCeilingFromAppHeight — derives the REPL transcript's max height from the
  * measured `.topology-app` grid height. The console grid is `1fr 38px` (canvas
- * / repl-bar): the console's header moved up to the shared hub header above the
+ * / repl-bar): the console's header moved up to the shared station header above the
  * tabs, so the grid no longer reserves a header row (the old collapsed 0-height
  * `header` track has been removed). The transcript fills the canvas row, so the
  * ceiling is appHeight − repl-bar (38) − resize-handle overhang (4). Subtracting
@@ -38,7 +38,7 @@ describe( 'console grid (graph-view.scss)', () => {
 		'utf8'
 	);
 
-	it( 'reserves no dead 0-height header row (the header moved to the hub)', () => {
+	it( 'reserves no dead 0-height header row (the header moved to the station)', () => {
 		// No grid-template-rows leads with a collapsed `0` header track,
 		expect( scss ).not.toMatch( /grid-template-rows:\s*0\s/ );
 		// no `header` grid-area survives in any grid-template-areas (2/3-col),

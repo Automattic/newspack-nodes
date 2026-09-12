@@ -1,5 +1,5 @@
 /**
- * ConfigAudit — the hub's config-audit timeline over the durable settings.p0 log.
+ * ConfigAudit — the station's config-audit timeline over the durable settings.p0 log.
  * useLogTailStream (the link) is stubbed; the view model is fed via useNodeState.
  */
 

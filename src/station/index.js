@@ -1,6 +1,6 @@
 /**
  * Browser entry for the top-level "Nodes" admin page: it mounts the station
- * station host into the one div `Admin::render_station_page()` prints.
+ * host into the one div `Admin::render_station_page()` prints.
  *
  * The entry carries no tool of its own. Every tool on the page registers as a
  * `host:'station'` tab from its own bundle — Overview, the Partition

@@ -1,6 +1,6 @@
 /* global globalThis, Element */
 /**
- * Overview — the merged hub board. Every active topology renders as a TopologyRow
+ * Overview — the merged station board. Every active topology renders as a TopologyRow
  * (folded compact ↔ unfolded detail), in the user's persisted drag order (NOT
  * health), with a de-emphasized stopped group. TopologyRow is stubbed here (its
  * own suite owns the heading/tree DOM); this suite asserts the tab wired the right

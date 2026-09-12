@@ -820,10 +820,12 @@ describe( 'useConsoleGraph — _cwd re-stamping routes every scope', () => {
 } );
 
 describe( 'useConsoleGraph — station transcript persistence [87]', () => {
-	const { saveHubTranscript } = require( '../../core/consolePersistence' );
+	const {
+		saveStationTranscript,
+	} = require( '../../core/consolePersistence' );
 
 	it( 'restores the persisted station transcript into the Dumper on mount', () => {
-		saveHubTranscript( [ { kind: 'recv', text: 'last session' } ] );
+		saveStationTranscript( [ { kind: 'recv', text: 'last session' } ] );
 		renderGraph();
 		expect( Core.node( names.OUTPUT ).setStateCache.transcript ).toEqual( [
 			expect.objectContaining( { kind: 'recv', text: 'last session' } ),

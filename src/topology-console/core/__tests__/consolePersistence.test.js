@@ -1,8 +1,8 @@
 import {
 	loadTranscript,
 	saveTranscript,
-	loadHubTranscript,
-	saveHubTranscript,
+	loadStationTranscript,
+	saveStationTranscript,
 	loadHistory,
 	saveHistory,
 	loadDebugLevel,
@@ -38,11 +38,11 @@ describe( 'consolePersistence [87]', () => {
 	} );
 
 	it( 'round-trips the station-console transcript under its OWN key, independent of the overlay transcript', () => {
-		expect( loadHubTranscript() ).toEqual( [] ); // empty default
-		saveHubTranscript( [ { kind: 'recv', text: 'worker line' } ] );
+		expect( loadStationTranscript() ).toEqual( [] ); // empty default
+		saveStationTranscript( [ { kind: 'recv', text: 'worker line' } ] );
 		saveTranscript( [ { kind: 'sent', text: 'overlay line' } ] );
 		// Separate keys so the station console and debug overlay don't clobber.
-		expect( loadHubTranscript() ).toEqual( [
+		expect( loadStationTranscript() ).toEqual( [
 			{ kind: 'recv', text: 'worker line' },
 		] );
 		expect( loadTranscript() ).toEqual( [
@@ -55,8 +55,8 @@ describe( 'consolePersistence [87]', () => {
 			{ length: MAX_PERSISTED_TRANSCRIPT + 50 },
 			( _, i ) => ( { kind: 'recv', text: `line ${ i }` } )
 		);
-		saveHubTranscript( entries );
-		const loaded = loadHubTranscript();
+		saveStationTranscript( entries );
+		const loaded = loadStationTranscript();
 		expect( loaded ).toHaveLength( MAX_PERSISTED_TRANSCRIPT );
 		expect( loaded[ loaded.length - 1 ].text ).toBe(
 			`line ${ MAX_PERSISTED_TRANSCRIPT + 49 }`
