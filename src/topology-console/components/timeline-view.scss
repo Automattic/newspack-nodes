@@ -53,9 +53,12 @@
 	&__head,
 	&__row {
 		display: grid;
-		grid-template-columns: 64px minmax(90px, 1fr) minmax(70px, 1fr) minmax(
+		// Node names run to `firehose:<spoke>:firehose.p0:offsetlog`; an event
+		// is one word. Every row is its own grid, so the tracks stay fixed
+		// ratios rather than max-content, or rows would not line up.
+		grid-template-columns: 64px minmax(200px, 3fr) minmax(70px, 1fr) minmax(
 				0,
-				2fr
+				3fr
 			);
 		gap: 0 8px;
 	}
