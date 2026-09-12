@@ -17,8 +17,8 @@ import {
 } from '../../../runtime/message';
 import RuntimeView from '../RuntimeView';
 
-const TIMER_POLLER = 'runtime:timers';
-const HANDLE_POLLER = 'runtime:handles';
+const TIMER_POLLER = 'timers:fetch';
+const HANDLE_POLLER = 'handles:fetch';
 
 beforeEach( () => Core.reset() );
 

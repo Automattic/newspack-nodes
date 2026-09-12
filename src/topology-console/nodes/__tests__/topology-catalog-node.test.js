@@ -12,7 +12,7 @@ import { TopologyCatalogNode } from '../topology-catalog-node';
 
 const reply = ( topologies ) => {
 	const m = newMessage();
-	m[ VALUE ] = { name: 'list', payload: { topologies } };
+	m[ VALUE ] = { name: 'dump', payload: { topologies } };
 	return m;
 };
 
@@ -34,7 +34,7 @@ describe( 'TopologyCatalogNode', () => {
 			configNumPartitions: 3,
 		};
 		node = new TopologyCatalogNode();
-		node.name = 'topologies:catalog';
+		node.name = 'topology-catalog:fetch';
 	} );
 
 	it( 'seeds from the page-load snapshot before any reply', () => {
@@ -82,7 +82,7 @@ describe( 'TopologyCatalogNode', () => {
 
 	// The batching contract: it emits into its SINK (interpreter → `_http`)
 	// during the tick, never through a standalone client of its own.
-	it( 'mints `list` into its sink rather than posting on its own', () => {
+	it( 'mints `dump` into its sink rather than posting on its own', () => {
 		const sent = [];
 		node.sink = { fill: ( m ) => sent.push( m ) };
 		node.target = '_http/topologies';
@@ -97,7 +97,7 @@ describe( 'TopologyCatalogNode', () => {
 		node.fire();
 
 		expect( sent ).toHaveLength( 1 );
-		expect( sent[ 0 ][ VALUE ].name ).toBe( 'list' );
+		expect( sent[ 0 ][ VALUE ].name ).toBe( 'dump' );
 		expect( sent[ 0 ][ TO ] ).toBe( '_http/topologies' );
 	} );
 
@@ -135,7 +135,7 @@ describe( 'TopologyCatalogNode', () => {
 
 		expect( buffered ).toHaveLength( 1 );
 		expect( posted ).toHaveLength( 0 );
-		expect( buffered[ 0 ][ VALUE ].name ).toBe( 'list' );
+		expect( buffered[ 0 ][ VALUE ].name ).toBe( 'dump' );
 	} );
 
 	it( 'does not emit without a sink', () => {

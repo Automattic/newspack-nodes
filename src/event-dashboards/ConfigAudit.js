@@ -2,7 +2,7 @@
  * Config Audit — the hub's change timeline over the durable settings.p0 log.
  *
  * A thin view over `useLogTailStream` in history mode plus the
- * `settingsaudit:view` model: a newest-first table of watched-option changes,
+ * `settings-audit:view` model: a newest-first table of watched-option changes,
  * each row giving when the change landed, the option NAME, and an Old → New
  * value pair. `Settings_Event_Writer` records the name for every change, but
  * value excerpts only for options on the substrate's explicit allowlist, so a
@@ -24,7 +24,7 @@ import './styles/config-audit.scss';
 import { views } from './nodes/register';
 
 /** The model node the stream publishes; `useStreamGraph` names it `<name>:view`. */
-const VIEW_NODE = 'settingsaudit:view';
+const VIEW_NODE = 'settings-audit:view';
 
 /** Stands in for what was never recorded: a missing instant, a missing value. */
 const EM_DASH = '—';
@@ -81,7 +81,7 @@ function valueCell( modifier, value ) {
 export default function ConfigAudit( { headerControlsSlot } ) {
 	// A TIMELINE: replay the whole retention, then follow.
 	useLogTailStream( {
-		name: 'settingsaudit',
+		name: 'settings-audit',
 		// Explicit .p0 hits the no-worker fallback (settings is 1-partition).
 		subscribe: 'settings.p0',
 		viewClass: views.SettingsAuditView,

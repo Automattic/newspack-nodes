@@ -4,7 +4,7 @@
  *
  * The dashboard asks three questions and gets one verb each: which partition
  * directories exist on disk (`list_logs`), how much one of them holds
- * (`log_status`), and what the record at a given position decodes to
+ * (`dump_log`), and what the record at a given position decodes to
  * (`read_message`). Every verb reads substrate state; none writes. Live
  * tailing belongs to `SSE_Out_Node`, not to this interpreter.
  *
@@ -53,8 +53,8 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 	private const PREFERRED_LOG_PREFIX = 'firehose';
 
 	/**
-	 * Observation seam over the `log_status` probe wiring. Production leaves it
-	 * null and nothing runs; a test assigns a closure, which `cmd_log_status`
+	 * Observation seam over the `dump_log` probe wiring. Production leaves it
+	 * null and nothing runs; a test assigns a closure, which `cmd_dump_log`
 	 * invokes with the inspection Partition after patron, name and sink are set
 	 * and before it reads segments or removes the node.
 	 *
@@ -69,7 +69,7 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 	public static ?\Closure $on_probe = null;
 
 	/**
-	 * `log_status` verb handler — segment count and total size for one concrete
+	 * `dump_log` verb handler — segment count and total size for one concrete
 	 * partition directory. Accepts a bare logs key (`firehose.p0`) or a
 	 * group-prefixed one (`offsets/…`, `deadletter/…`).
 	 *
@@ -79,14 +79,14 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 	 * would tear straight back down. The name follows, then a sink into
 	 * `_command_interpreter` so anything the probe emits has a destination. The
 	 * `finally` removes the node, because a throw that left the name registered
-	 * would collide with the next `log_status` call in the same process.
+	 * would collide with the next `dump_log` call in the same process.
 	 *
 	 * @param Command_Interpreter_Node $self The dispatching interpreter; names and patrons the probe.
 	 * @param list<string>             $args `[<log key>]`; absent or unknown resolves to the catalog default.
 	 *
 	 * @return array<string,mixed> The key inspected, its `{id,size}` segment list, the segment count and the total size.
 	 */
-	public static function cmd_log_status( Command_Interpreter_Node $self, array $args ): array {
+	public static function cmd_dump_log( Command_Interpreter_Node $self, array $args ): array {
 		$log_key = self::resolve_log_key( $args[0] ?? '' );
 
 		$ci        = Core::node( Node_Names::COMMAND_INTERPRETER );
@@ -251,11 +251,11 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): array => self::cmd_list_logs(),
 				],
 				[
-					'name'        => 'log_status',
+					'name'        => 'dump_log',
 					'capability'  => Capabilities::READ,
 					'description' => 'Segment counts and sizes for a single concrete partition dir (an absent or unknown log defaults to the first firehose key, else the first key discovered).',
 					'args'        => [ [ 'name' => 'log', 'type' => 'string', 'required' => false ] ],
-					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_log_status( $self, self::arg_strings( $args ) ),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_dump_log( $self, self::arg_strings( $args ) ),
 				],
 				[
 					'name'        => 'read_message',

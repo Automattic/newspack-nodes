@@ -13,7 +13,7 @@
  *                    server_now}` counted from `build_snapshot()`, so the
  *                    header renders the roll-up without re-deriving it from
  *                    the full partition payload.
- *   servers_status — the polled card slice: the same snapshot re-indexed as a
+ *   list_servers — the polled card slice: the same snapshot re-indexed as a
  *                    SEQUENTIAL ARRAY, which is what the React card list maps
  *                    over.
  *   probe          — the button-triggered deep probe of ONE spoke, and the
@@ -261,7 +261,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 					} ),
 				],
 				[
-					'name'        => 'servers_status',
+					'name'        => 'list_servers',
 					'capability'  => Capabilities::READ,
 					'description' => 'De-god server-cards slice: the status snapshot as a sequential array.',
 					'args'        => [],

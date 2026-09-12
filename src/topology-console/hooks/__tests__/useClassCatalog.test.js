@@ -108,7 +108,7 @@ describe( 'useClassCatalog', () => {
 		expect( replyFor ).not.toHaveBeenCalled();
 	} );
 
-	it( 'fetches classes.list when enabled flips true', async () => {
+	it( 'fetches classes.dump when enabled flips true', async () => {
 		const { result, rerender } = renderHook(
 			( { enabled } ) => useClassCatalog( { enabled } ),
 			{ initialProps: { enabled: false } }
@@ -117,7 +117,7 @@ describe( 'useClassCatalog', () => {
 		rerender( { enabled: true } );
 
 		await waitFor( () => expect( result.current.loading ).toBe( false ) );
-		expect( replyFor.mock.calls[ 0 ][ 0 ][ VALUE ].name ).toBe( 'list' );
+		expect( replyFor.mock.calls[ 0 ][ 0 ][ VALUE ].name ).toBe( 'dump' );
 		expect( result.current.classes ).toEqual( [ 'Echo', 'Tee' ] );
 		expect( result.current.formatters ).toEqual( [ 'Plain' ] );
 		expect( replyFor ).toHaveBeenCalledTimes( 1 );

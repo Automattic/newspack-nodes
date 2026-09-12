@@ -4,7 +4,7 @@
  *
  * Each owns one verb of the hub-side `aggregator` interpreter and publishes it
  * on its own `view` state for a React widget: `summary` feeds the header strip,
- * `servers_status` feeds the server cards. Two views rather than one give each
+ * `list_servers` feeds the server cards. Two views rather than one give each
  * slice its own reply path, so a card list that fails leaves the header counts
  * on screen. Both verbs answer a JSON string, which is what `json: true`
  * declares.

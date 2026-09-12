@@ -10,7 +10,7 @@
  *                    `{nodes, edges}` and a catalog entry for every `Log`
  *                    file-sink. The Worker Status dashboard polls it; it stats
  *                    the whole log tree, so it is the expensive verb here.
- *   cleanup_status — what sits on disk under `logs/`, the set `Log_Cleaner`
+ *   dump_cleanup — what sits on disk under `logs/`, the set `Log_Cleaner`
  *                    declares, and the orphans between them.
  *   restart        — request a graceful restart of matching worker types.
  *   heartbeat      — refresh the caller's own SSE slot lease.
@@ -684,7 +684,7 @@ class Workers_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * `cleanup_status` verb handler — the orphan-log diagnostic.
+	 * `dump_cleanup` verb handler — the orphan-log diagnostic.
 	 *
 	 * Reports the first-level dirs on disk under `logs/`, the set
 	 * `Log_Cleaner` declares, and the difference. Both halves come from the
@@ -695,7 +695,7 @@ class Workers_CI_Node extends Service_CI_Node {
 	 *
 	 * @return array<string,mixed>
 	 */
-	public static function cmd_cleanup_status(): array {
+	public static function cmd_dump_cleanup(): array {
 		// Diagnostic: what Log_Cleaner reads deciding which dirs to delete.
 		$base_dir = RuntimeConfig::get_base_directory();
 		$logs_dir = $base_dir . '/logs';
@@ -784,11 +784,11 @@ class Workers_CI_Node extends Service_CI_Node {
 					'handler'     => static fn ( Workers_CI_Node $self, array $args, array $envelope = [] ): array => self::cmd_dump_graph(),
 				],
 				[
-					'name'        => 'cleanup_status',
+					'name'        => 'dump_cleanup',
 					'capability'  => Capabilities::READ,
 					'description' => 'Report orphaned worker artifacts vs the expected fleet.',
 					'args'        => [],
-					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): array => self::cmd_cleanup_status(),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): array => self::cmd_dump_cleanup(),
 				],
 				[
 					'name'        => 'restart',

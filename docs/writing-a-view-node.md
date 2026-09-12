@@ -126,6 +126,37 @@ lingers. Changing either file means changing the other.
    while its widget renders data is not the node receiving it — look upstream
    for the god node that is.
 
+## Naming the slice's nodes
+
+Every node a dashboard builds in the browser is named **`<subject>:<role>`**.
+
+- **The subject is what the slice SHOWS** — the dashboard or slice noun,
+  lowercase, hyphenated when compound: `worker-status`, `topology-manager`,
+  `hook-catalog`, `url-detail`, `error-log`; a single word stays a single word
+  (`sessions`, `vault`, `partition`). It is never the verb the slice sends:
+  the verb lives on the Fetcher's command argument, so the sessions table is
+  `sessions:fetch → sessions:in → sessions:view` and not `sessions:list:*`.
+- **The roles are a fixed set.** `:timer` is the tick source, `:tee` the
+  fan-out, `:fetch` the Fetcher or Poller, `:in` the receiver Tee, `:transform`
+  the one node between receiver and view, `:view` the view node, `:result`
+  where `useCommandOnce` publishes an answer, and `:link` and `:stream` the
+  two nodes `useStreamGraph` puts ahead of a stream's `:view`. A node playing
+  none of them is a second slice and takes a subject of its own: the Topology
+  Manager's freshness re-check is `freshness:timer` beside
+  `topology-manager:timer`, and a partition's segment rail is
+  `partition-segments:result` with its refresh on `partition-rail:timer`.
+- **A one-shot verb is the one exception.** `useCommandOnce` defaults its
+  scope to `<ci>:<command>`, so `vault add` mints `vault:add:fetch`,
+  `vault:add:in` and `vault:add:result`; a hook that passes a scope of its own,
+  because two hooks on one page send the same verb, names a subject —
+  `editor-topology`, `url-lookup` — never a third spelling of the verb.
+
+The shared hooks derive every name from the subject you hand them: `scope` in
+`useCatalogSlice` and `useCommandOnce`, `prefix` in `useStreamGraph`, whose
+catalog and stepped read are `<prefix>-catalog:*` and `<prefix>-step:*`. The
+localStorage keys under `newspack-nodes:` are not node names and follow none of
+this.
+
 ## `setState( 'view', model )`
 
 Publish the model under the **`view`** key — the key

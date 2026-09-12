@@ -48,8 +48,8 @@ afterEach( () => {
 describe( 'addSliceFetcher — wiring', () => {
 	test( 'creates the Fetcher with `<receiver> <command>`, targeting the egress path, sinking into the interpreter', () => {
 		addSliceFetcher( interpreter, {
-			fetcher: 'fetch-counts',
-			receiver: 'countsIn',
+			fetcher: 'counts:fetch',
+			receiver: 'counts:in',
 			command: 'counts',
 			view: 'counts:view',
 			viewClass: 'FakeView',
@@ -57,9 +57,9 @@ describe( 'addSliceFetcher — wiring', () => {
 			target: TARGET,
 		} );
 
-		const f = Core.node( 'fetch-counts' );
+		const f = Core.node( 'counts:fetch' );
 		expect( f ).toBeTruthy();
-		expect( f.receiver ).toBe( 'countsIn' );
+		expect( f.receiver ).toBe( 'counts:in' );
 		expect( f.verb ).toBe( 'counts' );
 		expect( f.target ).toBe( TARGET );
 		expect( f.sink ).toBe( interpreter );
@@ -67,21 +67,21 @@ describe( 'addSliceFetcher — wiring', () => {
 
 	test( 'fans the tick from the supplied Tee to the Fetcher', () => {
 		addSliceFetcher( interpreter, {
-			fetcher: 'fetch-counts',
-			receiver: 'countsIn',
+			fetcher: 'counts:fetch',
+			receiver: 'counts:in',
 			command: 'counts',
 			view: 'counts:view',
 			viewClass: 'FakeView',
 			tee,
 			target: TARGET,
 		} );
-		expect( tee.target ).toContain( 'fetch-counts' );
+		expect( tee.target ).toContain( 'counts:fetch' );
 	} );
 
 	test( 'creates the receiver Tee connected to the view node, and the view node', () => {
 		addSliceFetcher( interpreter, {
-			fetcher: 'fetch-counts',
-			receiver: 'countsIn',
+			fetcher: 'counts:fetch',
+			receiver: 'counts:in',
 			command: 'counts',
 			view: 'counts:view',
 			viewClass: 'FakeView',
@@ -89,11 +89,11 @@ describe( 'addSliceFetcher — wiring', () => {
 			target: TARGET,
 		} );
 
-		const recv = Core.node( 'countsIn' );
+		const recv = Core.node( 'counts:in' );
 		expect( recv ).toBeTruthy();
 		expect( recv.target ).toContain( 'counts:view' );
 		// …and back to the Fetcher, which settles the ask the reply answers.
-		expect( recv.target ).toContain( 'fetch-counts' );
+		expect( recv.target ).toContain( 'counts:fetch' );
 
 		const view = Core.node( 'counts:view' );
 		expect( view ).toBeTruthy();
@@ -103,15 +103,15 @@ describe( 'addSliceFetcher — wiring', () => {
 
 	test( 'returns the receiver name', () => {
 		const receiver = addSliceFetcher( interpreter, {
-			fetcher: 'fetch-counts',
-			receiver: 'countsIn',
+			fetcher: 'counts:fetch',
+			receiver: 'counts:in',
 			command: 'counts',
 			view: 'counts:view',
 			viewClass: 'FakeView',
 			tee,
 			target: TARGET,
 		} );
-		expect( receiver ).toBe( 'countsIn' );
+		expect( receiver ).toBe( 'counts:in' );
 	} );
 } );
 
@@ -133,23 +133,23 @@ describe( 'addSliceFetcher — optional argsFn (fire-time getter)', () => {
 
 	test( 'without argsFn, command_args stays the static (empty) token array', () => {
 		addSliceFetcher( interpreter, {
-			fetcher: 'fetch-counts',
-			receiver: 'countsIn',
+			fetcher: 'counts:fetch',
+			receiver: 'counts:in',
 			command: 'counts',
 			view: 'counts:view',
 			viewClass: 'FakeView',
 			tee,
 			target: TARGET,
 		} );
-		expect( Core.node( 'fetch-counts' ).command_args ).toEqual( [] );
+		expect( Core.node( 'counts:fetch' ).command_args ).toEqual( [] );
 	} );
 } );
 
 describe( 'addSliceFetcher — optional transform', () => {
 	test( 'with no transform, the receiver Tee connects directly to the view', () => {
 		addSliceFetcher( interpreter, {
-			fetcher: 'fetch-counts',
-			receiver: 'countsIn',
+			fetcher: 'counts:fetch',
+			receiver: 'counts:in',
 			command: 'counts',
 			view: 'counts:view',
 			viewClass: 'FakeView',
@@ -159,9 +159,9 @@ describe( 'addSliceFetcher — optional transform', () => {
 		// ORDER matters, so `toEqual` and not `arrayContaining`: the Fetcher
 		// settles the ask, and a consumer acting once per ANSWER reads
 		// `isAsking()` as the view renders — which only works while it is last.
-		expect( Core.node( 'countsIn' ).target ).toEqual( [
+		expect( Core.node( 'counts:in' ).target ).toEqual( [
 			'counts:view',
-			'fetch-counts',
+			'counts:fetch',
 		] );
 	} );
 
@@ -223,8 +223,8 @@ describe( 'addSliceFetcher — optional transform', () => {
 describe( 'addSliceFetcher — controlFrom', () => {
 	test( 'leaves controlFrom alone on a view that declares no control origin', () => {
 		addSliceFetcher( interpreter, {
-			fetcher: 'fetch-counts',
-			receiver: 'countsIn',
+			fetcher: 'counts:fetch',
+			receiver: 'counts:in',
 			command: 'counts',
 			view: 'counts:view',
 			viewClass: 'FakeView',
@@ -258,8 +258,8 @@ describe( 'addSliceFetcher — controlFrom', () => {
 
 	test( 'sets the declared control origin, which need not be the view', () => {
 		addSliceFetcher( interpreter, {
-			fetcher: 'fetch-counts',
-			receiver: 'countsIn',
+			fetcher: 'counts:fetch',
+			receiver: 'counts:in',
 			command: 'counts',
 			view: 'counts:view',
 			viewClass: 'FakeView',

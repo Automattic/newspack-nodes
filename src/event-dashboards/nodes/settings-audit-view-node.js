@@ -20,7 +20,7 @@ const MAX_ENTRIES = 5000;
 const PUBLISH_THROTTLE_MS = 500;
 
 /**
- * `settingsaudit:view` — the Config Audit timeline model over settings.p0.
+ * `settings-audit:view` — the Config Audit timeline model over settings.p0.
  *
  * Each inbound frame is one settings-change event (`Settings_Event_Writer` writes
  * VALUE = `{ option }` plus, for allowlisted options, `old`/`new` value excerpts;

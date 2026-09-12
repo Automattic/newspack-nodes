@@ -33,10 +33,10 @@ const emptyModel = () => ( {
 } );
 
 /**
- * `workerstatus:view` — owns the Worker Status view model, the one surface
- * React reads through `useNodeState( 'workerstatus:view', 'view' )`.
+ * `worker-status:view` — owns the Worker Status view model, the one surface
+ * React reads through `useNodeState( 'worker-status:view', 'view' )`.
  *
- * A `SliceViewNode` whose slice arrives already parsed: `workerstatus:transform`
+ * A `SliceViewNode` whose slice arrives already parsed: `worker-status:transform`
  * sits on the receiver-Tee edge ahead of it and mints a TM_STRUCT carrying the
  * enriched model, so there is no JSON payload for the base `_parse()` to
  * decode. `fill()` therefore dispatches the struct actions itself and defers

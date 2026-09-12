@@ -30,11 +30,11 @@ import { reconstructWorkers } from './reconstructWorkers';
 const GAP_INTERVALS = 6;
 
 /**
- * `workerstatus:transform` — turns a `dump_graph` reply into the enriched
+ * `worker-status:transform` — turns a `dump_graph` reply into the enriched
  * render model the Worker Status view publishes.
  *
  * `addSliceFetcher` mounts it in the worker slice's `transform` slot, so the
- * join sits on the `workerstatus:in` → `workerstatus:view` edge rather than
+ * join sits on the `worker-status:in` → `worker-status:view` edge rather than
  * inside the view: the Fetcher mints `dump_graph` under the receiver Tee's
  * name, the server replies TO=FROM, and the Tee fans that reply here. `target`
  * is the view. A reply arrives as VALUE = `{ name, payload }`, and only a

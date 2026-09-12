@@ -38,7 +38,7 @@ test( 'the Runtime view mounts its list_timers poller inside a wide modal', () =
 	expect(
 		document.body.querySelector( '[data-testid="runtime-view"]' )
 	).toBeTruthy();
-	const poller = Core.node( 'runtime:timers' );
+	const poller = Core.node( 'timers:fetch' );
 	expect( poller.verb ).toBe( 'list_timers' );
 	expect( poller.target ).toBe( '_cwd' );
 } );
@@ -51,7 +51,7 @@ test( 'the Profiler view mounts its list_profiles poller inside a wide modal', (
 	expect(
 		document.body.querySelector( '[data-testid="profiler-view"]' )
 	).toBeTruthy();
-	const poller = Core.node( 'profiler:poller' );
+	const poller = Core.node( 'profiler:fetch' );
 	expect( poller.verb ).toBe( 'list_profiles' );
 	expect( poller.target ).toBe( '_cwd' );
 } );

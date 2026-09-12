@@ -21,10 +21,10 @@ A dashboard's data flow is a node graph, so here is the whole graph — server s
 ```
    browser (React admin page)
    ──────────────────────────────────────────────────────────────────────────
-   insights:timer (Timer) ─> insights:tee (Tee) ─> fetch-counts (Fetcher) ─┐
-                                                 ├> fetch-top    (Fetcher) ─┤  target = _shell/_http/insights-demo
-                                                 └> fetch-acc    (Fetcher) ─┘
-                                                                            │
+   insights:timer (Timer) ─> insights:tee (Tee) ─> source-counts:fetch (Fetcher) ─┐
+                                                 ├> top-table:fetch     (Fetcher) ─┤  target = _shell/_http/insights-demo
+                                                 └> accumulated:fetch   (Fetcher) ─┘
+                                                                                   │
                               _shell (Tap — watch every send) ─> _http (HttpOut)
                                               POST one batch    │ ▲  three replies batch back
                                                                 ▼ │
@@ -35,9 +35,9 @@ A dashboard's data flow is a node graph, so here is the whole graph — server s
                                                                 ▲ │
                                   each reply routes TO = the fetcher's receiver Tee
                                                                 │ ▼
-       countsIn (Tee) ─> source-counts:view ─> <SourceCounts/>      …and back to
-       topIn    (Tee) ─> top-table:view     ─> <TopTable/>          its own Fetcher,
-       accIn    (Tee) ─> accumulated:view   ─> <AccumulatedCard/>   settling the ask
+       source-counts:in (Tee) ─> source-counts:view ─> <SourceCounts/>      …and back to
+       top-table:in     (Tee) ─> top-table:view     ─> <TopTable/>          its own Fetcher,
+       accumulated:in   (Tee) ─> accumulated:view   ─> <AccumulatedCard/>   settling the ask
 ```
 
 Read that top to bottom. **One `Timer`** ticks; **one `Tee`** fans the tick to **three `Fetcher`s**; each Fetcher emits *its own* configured command through `_shell/_http/insights-demo`; the service CI answers each with a *small slice*; each reply routes back to *its own* receiver `Tee`, which fans to *its own* thin view node, which feeds *its own* React widget. **There is no place in this graph where the whole model lives.** Counts flow on the counts edges and never touch the top-table view; the top-table reply never touches the accumulated card.
@@ -402,7 +402,7 @@ fill( message ) {
 }
 ```
 
-Read `fill()` carefully — apart from a reply, it **ignores its trigger message entirely**. Its type, VALUE and addressing go unread: any message that is not a reply is only the *trigger* to emit *the Fetcher's own configured command*. The command is configured on the node at `make_node` time (`fetch-counts`'s command is `counts`, fixed), **never read from the triggering message**.
+Read `fill()` carefully — apart from a reply, it **ignores its trigger message entirely**. Its type, VALUE and addressing go unread: any message that is not a reply is only the *trigger* to emit *the Fetcher's own configured command*. The command is configured on the node at `make_node` time (`source-counts:fetch`'s command is `counts`, fixed), **never read from the triggering message**.
 
 Two fields are what a caller reaches for. `outbox` holds the asks in flight, so a table can read which rows are still waiting; `command_args` holds either a static token array or a **fire-time getter** the trigger calls, which is how a filter, a sort or a page value tracks React state without re-wiring the graph. Build those tokens with **`formatCommandArgs( positional, options )`** (`@newspack-nodes/runtime`) rather than spelling `--key=value` by hand: it is the browser half of the one argument grammar, mirroring PHP `Newspack_Nodes\Command_Args`, so what a dashboard mints is what the verb parses. Required values ride positionally in the order the verb declares, `true` renders as a bare `--key`, `false` as an explicit `--key=false` (the bare form already means true, and omitting the option leaves a default-on setting standing), and an array as its comma-joined members — `formatCommandArgs( [ id ], { limit: 50, categories: true } )`. Nothing quotes anything: token boundaries are the array's, so a value carrying spaces — a `.tsl` body, a JSON blob — stays whole inside its own element. `send( args, path, supersede )` is the other way in, for a caller with an answer to wait on: it parks arguments the next trigger puts on the wire, and parks the **subject** the ask is about, which rides on FROM so the answer comes back naming it. That is how one Fetcher serves many rows with nothing correlated. `useCommandOnce` is that path packaged — reach for it rather than driving `send()` by hand.
 
@@ -419,7 +419,7 @@ Both names are reserved, so spell the path through **`egressPath( ci )`** (`@new
 
 ### c. The receiver reply path — why a `counts` reply only touches the counts view
 
-Each Fetcher stamps **`FROM = its receiver Tee`** (`fetch-counts` → `FROM=countsIn`). The service CI replies **`TO = FROM`**, so the `counts` reply routes back to `countsIn`, which fans it to `source-counts:view`, which feeds `<SourceCounts/>`. The `top` reply lands on `topIn → top-table:view`; the `accumulated` reply on `accIn → accumulated:view`. **Three independent reply paths.** Nothing crosses; there is no shared model node to clobber.
+Each Fetcher stamps **`FROM = its receiver Tee`** (`source-counts:fetch` → `FROM=source-counts:in`). The service CI replies **`TO = FROM`**, so the `counts` reply routes back to `source-counts:in`, which fans it to `source-counts:view`, which feeds `<SourceCounts/>`. The `top` reply lands on `top-table:in → top-table:view`; the `accumulated` reply on `accumulated:in → accumulated:view`. **Three independent reply paths.** Nothing crosses; there is no shared model node to clobber.
 
 Each receiver `Tee` fans the reply **back to its own Fetcher** as well, which is what takes the ask off that Fetcher's outbox. `addSliceFetcher` connects the Fetcher **last**, after the view, because a Tee fans out in connect order and the ask must still stand while the reply renders. Until the ask settles, the Fetcher is quiet: a one-second refresh on a four-second verb asks once and waits, instead of stacking four identical commands the server is still working through. An answer that never arrives stops holding the outbox open after `retry_after_s` (15 seconds by default; 0 disables the re-ask, which is what a write wants), and an ask that stands for 120 seconds is retired outright — so a lost reply costs one slow refresh rather than a dead widget.
 
@@ -555,9 +555,9 @@ const DEFAULT_INTERVAL_MS = 30000;
 
 // { fetcher node, receiver Tee, verb, view node, view CLASS } — one per slice.
 const SLICES = [
-	{ fetcher: 'fetch-counts', receiver: 'countsIn', command: 'counts',      view: 'source-counts:view', viewClass: SourceCountsViewNode },
-	{ fetcher: 'fetch-top',    receiver: 'topIn',    command: 'top',         view: 'top-table:view',     viewClass: TopTableViewNode },
-	{ fetcher: 'fetch-acc',    receiver: 'accIn',    command: 'accumulated', view: 'accumulated:view',   viewClass: AccumulatedViewNode },
+	{ fetcher: 'source-counts:fetch', receiver: 'source-counts:in', command: 'counts',      view: 'source-counts:view', viewClass: SourceCountsViewNode },
+	{ fetcher: 'top-table:fetch',     receiver: 'top-table:in',     command: 'top',         view: 'top-table:view',     viewClass: TopTableViewNode },
+	{ fetcher: 'accumulated:fetch',   receiver: 'accumulated:in',   command: 'accumulated', view: 'accumulated:view',   viewClass: AccumulatedViewNode },
 ];
 
 export function usePublisherInsightsGraph( opts = {} ) {
@@ -592,9 +592,9 @@ Two ideas carry the whole hook, and the toolkit owns both:
 
 > **← a substrate refinement.** The `_shell`-Tap wiring, the Timer/Tee fan-out and the page-visibility plumbing used to be **hand-wired here** — roughly 50 lines of `useEffect` plus `mountExospine`, copy-pasted across this example, the topology console's poll dashboards, and the performance hook. It became **`useBatchedPoll( … )`** (the mount, `_shell`/`_http`, the Timer and Tee, the visibility gate, the first-load and unsigned-tick retries) and **`addSliceFetcher()`** (the per-slice Fetcher → receiver-Tee → view block, with its optional transform slot). The hook collapsed to its slices. That's the dogfooding rule this guide runs on: the moment a third caller copied the wiring, it moved into the substrate — so §4 is one call, exactly like §6 and §7.
 
-> **A catalog is one call further.** `useCatalogSlice( { scope, ci, viewClass, key } )` polls one CI's `list` verb as a slice and hands back the published model plus `loading`, `error` and `refresh()`. The tick *is* the retry, so a refusal recovers with no latch and no memoised promise. Its default cadence is 30 seconds, on the reasoning that a catalog changes when someone edits it.
+> **A catalog is one call further.** `useCatalogSlice( { scope, ci, viewClass, key, command } )` polls one CI's catalog verb as a slice — `list` by default, `dump` for a CI whose rows each carry a nested structure — and hands back the published model plus `loading`, `error` and `refresh()`. The tick *is* the retry, so a refusal recovers with no latch and no memoised promise. Its default cadence is 30 seconds, on the reasoning that a catalog changes when someone edits it.
 
-The reply routing is worth reading once, because it's the whole graph in miniature. A Fetcher emits `TO=_shell/_http/insights-demo` (peeled hop by hop to the egress) and `FROM=countsIn`. The service CI's `counts` verb replies `TO=FROM=countsIn`, the router delivers it to the `countsIn` Tee, and the Tee fans it to `source-counts:view`. Same TO/FROM mechanics as the PHP side; the browser adds two hops the server's request graph has no need of, `_shell` the observe Tap and `_http` the egress that carries the command across the wire. `Bootstrap::mount_request_graph()` raises `_router` and `_command_interpreter` and stops there.
+The reply routing is worth reading once, because it's the whole graph in miniature. A Fetcher emits `TO=_shell/_http/insights-demo` (peeled hop by hop to the egress) and `FROM=source-counts:in`. The service CI's `counts` verb replies `TO=FROM=source-counts:in`, the router delivers it to the `source-counts:in` Tee, and the Tee fans it to `source-counts:view`. Same TO/FROM mechanics as the PHP side; the browser adds two hops the server's request graph has no need of, `_shell` the observe Tap and `_http` the egress that carries the command across the wire. `Bootstrap::mount_request_graph()` raises `_router` and `_command_interpreter` and stops there.
 
 ---
 
@@ -999,10 +999,10 @@ Each `TICK` flows `source → summarizer → scorer → scored:partition`; the C
 
 ```
 > connect _shell    # watch EVERY command the Fetchers send, live
-> ls                # insights:timer, insights:tee, fetch-* — all at non-zero counters
+> ls                # insights:timer, insights:tee, *:fetch — all at non-zero counters
 ```
 
-Drop a `Tee` onto any edge to fork a copy of the traffic, and watch the three counters — `fetch-counts`, `fetch-top`, `fetch-acc` — move independently. A god view-node at counter 0 gives you none of that — there's nothing flowing to observe. *That* is why you built the dashboard on Nodes instead of stapling a fetch loop to a React component.
+Drop a `Tee` onto any edge to fork a copy of the traffic, and watch the three counters — `source-counts:fetch`, `top-table:fetch`, `accumulated:fetch` — move independently. A god view-node at counter 0 gives you none of that — there's nothing flowing to observe. *That* is why you built the dashboard on Nodes instead of stapling a fetch loop to a React component.
 
 You drove a server-side worker and a browser React app with the same protocol — a `TICK` runtime request to the sources, then a batched poll of three slice verbs — because both ends speak it.
 
@@ -1024,7 +1024,7 @@ That's the entire wiring — `PublisherInsightsPage` already does exactly this (
 
 - **It's self-gated by `isDebugEnabled`.** The overlay renders `null` unless debug is on — `?nodes-debug=1` in the URL turns it on and sticks it in `localStorage` (so it survives navigation), `?nodes-debug=0` turns it off. Absent the param, the sticky flag decides. So a shipped dashboard carries the overlay dormant: invisible to normal visitors, one query param away for you. (It's a pure dev affordance — no capability/PHP gate — so the FAB only ever appears for someone who deliberately flipped the flag.)
 - **`storageKey` is per-dashboard.** It scopes the **canvas** layout — where each node sits on the graph — so name it `newspack-nodes:debug:<dashboard>`: `newspack-nodes:debug:example-insights` here, `newspack-nodes:debug:hub:<tab>` on the DevTools hub, where each tab builds a graph of its own. Reusing one key across pages would make two different graphs fight over one set of node positions. The panel's own frame geometry is global and ignores it. (A third prop, `buildRepl: false`, tells the Console tab to point at the page's existing console instead of building a second graph and REPL — the hub passes it on its Console tab, where the two would collide on `_output`.)
-- **It reads the live graph, not a snapshot.** Because the overlay subscribes to the same `Core.nodes` your `useBatchedPoll` hook built, opening it (`` Ctrl+` `` toggles the panel) shows the real thing live: `insights:timer`, `insights:tee`, the three `fetch-*` Fetchers, the receiver Tees, the view nodes — each at its real counter, climbing on every tick. Drop a `Tee` onto an edge or `invoke` a verb right from the panel. A god view-node at counter 0 would give the overlay nothing to draw; *this* graph is the payoff, and the overlay is how you see it.
+- **It reads the live graph, not a snapshot.** Because the overlay subscribes to the same `Core.nodes` your `useBatchedPoll` hook built, opening it (`` Ctrl+` `` toggles the panel) shows the real thing live: `insights:timer`, `insights:tee`, the three `*:fetch` Fetchers, the `*:in` receiver Tees, the `*:view` nodes — each at its real counter, climbing on every tick. Drop a `Tee` onto an edge or `invoke` a verb right from the panel. A god view-node at counter 0 would give the overlay nothing to draw; *this* graph is the payoff, and the overlay is how you see it.
 
 One mount, and every dashboard you build the right way becomes self-documenting — the node graph you composed is visible, live, on its own page.
 

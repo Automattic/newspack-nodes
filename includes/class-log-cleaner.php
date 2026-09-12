@@ -25,7 +25,7 @@ namespace Newspack_Nodes;
  * Builds the declared set, then deletes the first-level data dirs missing from
  * it. `Bootstrap::reconcile_fleet()` sweeps on the minute WP-Cron pass and
  * `wp nodes gc` sweeps on demand, while `Workers_CI_Node` builds both the
- * dashboard log catalog and its `cleanup_status` diagnostic from the same
+ * dashboard log catalog and its `dump_cleanup` diagnostic from the same
  * declared set — so what the dashboard lists and what the GC spares cannot
  * drift.
  *
@@ -140,7 +140,7 @@ class Log_Cleaner {
 	 * (`Bootstrap::num_partitions_for`), unioned with each PHP-registered producer
 	 * template (`newspack_nodes/registered_log_producers`) expanded the same way
 	 * over the global config num_partitions, plus the settings log. The
-	 * `cleanup_status` diagnostic diffs it against what is on disk to name the
+	 * `dump_cleanup` diagnostic diffs it against what is on disk to name the
 	 * orphans, and a degraded declared set yields `[]` — nothing declared rather
 	 * than a partial truth.
 	 *

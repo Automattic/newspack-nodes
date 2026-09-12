@@ -73,7 +73,7 @@ describe( 'useLogViewerGraph — recovery from a refused catalog', () => {
 
 		expect( result.current.sources ).toEqual( sourcesReply() );
 		// The half the picker cannot supply: a selection and an open stream.
-		expect( Core.node( 'logviewer:view' ).selected ).toBe( 'access' );
+		expect( Core.node( 'log-viewer:view' ).selected ).toBe( 'access' );
 		expect( FakeEventSource.last?.url ).toContain( 'subscribe=access' );
 	} );
 
@@ -90,7 +90,7 @@ describe( 'useLogViewerGraph — recovery from a refused catalog', () => {
 		} );
 		await act( async () => {} );
 
-		expect( Core.node( 'logviewer:view' ).selected ).toBe( 'debug' );
+		expect( Core.node( 'log-viewer:view' ).selected ).toBe( 'debug' );
 		expect( FakeEventSource.last.url ).toContain( 'subscribe=debug' );
 	} );
 } );

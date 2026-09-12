@@ -3,7 +3,7 @@
  * saved topologies and the vault_id dropdown's vaults — plus the on-demand
  * reader for one topology's body.
  *
- * Each catalog is the same slice on the batched poll: one `list` verb per tick,
+ * Each catalog is the same slice on the batched poll: one catalog verb per tick,
  * published as state. The tick IS the retry, so a session that turns over
  * recovers on its own and a save owes the OPEN dialog no reload; a bad tick
  * keeps whatever is already on screen, since an empty palette is the worse
@@ -35,7 +35,7 @@ import { views as vaultViews } from '../../vault/nodes/register';
  * @param {Object}  [o]         Options.
  * @param {boolean} [o.enabled] False, the default, costs no request at all.
  * @return {{classes: Object[], formatters: string[], loading: boolean, error: ?string, refresh: () => void}}
- *   `classes` are the `classes list` entries — one per Node class the palette
+ *   `classes` are the `classes dump` entries — one per Node class the palette
  *   may offer, the serializable half of its `node_schema()` inlined, sorted by
  *   category then shell name; `formatters` are the registry's names. Both stay
  *   empty until the first reply lands, which is what `loading` reads.
@@ -44,6 +44,7 @@ export function useClassCatalog( { enabled = false } = {} ) {
 	const model = useCatalogSlice( {
 		scope: 'classes',
 		ci: 'classes',
+		command: 'dump',
 		viewClass: views.ClassCatalogView,
 		key: 'classes',
 		enabled,
@@ -64,14 +65,15 @@ export function useClassCatalog( { enabled = false } = {} ) {
  * @param {boolean} [o.enabled] False, the default, costs no request at all —
  *                              the dialog polls only while it is open.
  * @return {{topologies: Object[], userDir: string, loading: boolean, error: ?string, refresh: () => void}}
- *   `topologies` are the `topologies list` entries (`name`, `source`, `active`,
+ *   `topologies` are the `topologies dump` entries (`name`, `source`, `active`,
  *   `num_partitions`, `frontmatter`, `includes`), sorted by name; `userDir` is
  *   the writable topology directory, empty when none is configured.
  */
 export function useTopologyList( { enabled = false } = {} ) {
 	const model = useCatalogSlice( {
-		scope: 'topologies:list',
+		scope: 'topologies',
 		ci: 'topologies',
+		command: 'dump',
 		viewClass: views.TopologyListView,
 		key: 'topologies',
 		enabled,
@@ -95,7 +97,7 @@ export function useTopologyList( { enabled = false } = {} ) {
  */
 export function useVaults( { enabled = false } = {} ) {
 	const model = useCatalogSlice( {
-		scope: 'vault:list',
+		scope: 'vault',
 		ci: 'vault',
 		viewClass: vaultViews.VaultListView,
 		key: 'servers',
@@ -125,9 +127,10 @@ export function useVaults( { enabled = false } = {} ) {
  * that does not exist costs one command rather than one every five seconds.
  *
  * @param {Object}  o           Options.
- * @param {string}  o.scope     Names this reader's own slice. Two readers
- *                              wanting two different topologies are two slices,
- *                              never one node demultiplexing — see ADR-7.
+ * @param {string}  o.scope     Names this reader's own slice, `<scope>-topology`.
+ *                              Two readers wanting two different topologies are
+ *                              two slices, never one node demultiplexing — see
+ *                              ADR-7.
  * @param {boolean} [o.enabled] Defaults to true; false makes `open()` a no-op.
  * @return {{open: (name: string) => void, topology: ?Object, loading: boolean, error: ?string}}
  *   `open()` requests a topology by name; `topology` is the answer to the most
@@ -138,7 +141,7 @@ export function useTopology( { scope, enabled = true } ) {
 	const { run, result, error, pending } = useCommandOnce( {
 		ci: 'topologies',
 		command: 'get',
-		scope: `topologies:get:${ scope }`,
+		scope: `${ scope }-topology`,
 		retry: true,
 	} );
 

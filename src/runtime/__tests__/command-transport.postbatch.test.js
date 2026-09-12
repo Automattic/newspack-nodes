@@ -48,6 +48,6 @@ test( 'postBatch posts JSONL — one packed Message per line — to /command', a
 /**
  * send() builds its own command, so it is a mint — and it is already async, so
  * unlike a poll tick it can simply WAIT for the session rather than skip. Boot
- * loads (`topologies list`, `classes list`) go through here; before this they
+ * loads (`topologies dump`, `classes dump`) go through here; before this they
  * minted during the /auth round trip and were refused.
  */

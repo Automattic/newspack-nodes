@@ -37,7 +37,7 @@ it( 'tails settings.p0 in history mode, into the audit view', () => {
 	render( <ConfigAudit /> );
 	// The CLASS, not its name: the map is a per-bundle static (ADR-16).
 	expect( useLogTailStream ).toHaveBeenCalledWith( {
-		name: 'settingsaudit',
+		name: 'settings-audit',
 		subscribe: 'settings.p0',
 		viewClass: views.SettingsAuditView,
 		mode: 'history',

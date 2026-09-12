@@ -9,7 +9,7 @@
  * one; this interpreter writes and deletes only inside the user dir.
  *
  * Verbs:
- *   list   — no args. Returns `{topologies: [{name, source, active,
+ *   dump   — no args. Returns `{topologies: [{name, source, active,
  *            num_partitions, frontmatter, includes}], user_dir}`. `source` is
  *            'user'|'stock'|'both'; `active` is the catalog narrowed by the
  *            `topologies` config key, which is what a spawn would start;
@@ -53,7 +53,7 @@
  *                addressed TO the worker later in the same POST batch resolves
  *                instead of bouncing NOT_AVAILABLE.
  *
- * Each verb names its role in `node_schema()` — READ for `list`, `get` and
+ * Each verb names its role in `node_schema()` — READ for `dump`, `get` and
  * `expand`, the MANAGE default for the rest — and `Service_CI_Node::commands()`
  * wraps every handler in that check; the name and body helpers come from the
  * same base. A refusal throws RuntimeException, which
@@ -91,7 +91,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 	private const MAX_BODY_BYTES = 1048576;
 
 	/**
-	 * `list` verb handler — every registered topology, its source and its active
+	 * `dump` verb handler — every registered topology, its source and its active
 	 * state.
 	 *
 	 * Each row carries the topology's direct includes, so the console draws the
@@ -100,7 +100,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 	 *
 	 * @return array<int|string,mixed> `{topologies, user_dir}`.
 	 */
-	public static function cmd_list(): array {
+	public static function cmd_dump(): array {
 		// Active = what the fleet would spawn (catalog + overlay).
 		$resolved = Bootstrap::get_topologies();
 		$active   = [];
@@ -188,7 +188,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 
 	/**
 	 * Reduce a Topology_Registry::describe() entry to its 'user'|'stock'|'both'
-	 * label (shared by list+get so the source flag stays consistent).
+	 * label (shared by dump+get so the source flag stays consistent).
 	 *
 	 * @param array{user:?string,stock:array<int,string>} $sources describe() entry.
 	 *
@@ -582,15 +582,15 @@ class Topologies_CI_Node extends Service_CI_Node {
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
 			'category'    => 'Service',
-			'description' => 'Topology (.tsl) management: list / get / save / delete user topology files, activate / deactivate topologies (immediate spawn / drain), and mount a worker input partition.',
+			'description' => 'Topology (.tsl) management: dump / get / save / delete user topology files, activate / deactivate topologies (immediate spawn / drain), and mount a worker input partition.',
 			'arguments'   => [],
 			'commands'    => [
 				[
-					'name'        => 'list',
+					'name'        => 'dump',
 					'capability'  => Capabilities::READ,
-					'description' => 'List topologies with source (user/stock/both) and active state.',
+					'description' => 'Dump every topology with its frontmatter, includes, source (user/stock/both) and active state.',
 					'args'        => [],
-					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): array => self::cmd_list(),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): array => self::cmd_dump(),
 				],
 				[
 					'name'        => 'get',

@@ -17,7 +17,7 @@
  * - Replay sends `{ [sub]: 'start' }`, the token the server resolves to the
  *   earliest retained record.
  *
- * The rail rides the catalog verb each dashboard already calls — `log_status`
+ * The rail rides the catalog verb each dashboard already calls — `dump_log`
  * for the Partition Viewer, `taillog sources` for the Log Viewer — so browsing
  * costs no server verb of its own.
  *
@@ -172,7 +172,7 @@ export default function useLogPositions( sub ) {
 }
 
 /**
- * One partition's segment rail, resolved from `log_status` and re-resolvable on
+ * One partition's segment rail, resolved from `dump_log` and re-resolvable on
  * demand — the `source` half of `useSegmentBrowse` for every dashboard that has
  * to ASK for its segments. A dashboard whose catalog already carries them (the
  * Log Viewer's `taillog sources` rows) passes its own `source` and skips this.
@@ -194,7 +194,7 @@ export function useLogStatusSegments( { sub, scope } ) {
 
 	const { run } = useCommandOnce( {
 		ci: RAW_LOGS_CI,
-		command: 'log_status',
+		command: 'dump_log',
 		scope,
 		retry: true,
 		onDone: ( { result, subject } ) => {
@@ -228,7 +228,7 @@ export function useLogStatusSegments( { sub, scope } ) {
  * renders the rail. Both log-stream dashboards drive exactly this, so they get
  * it from here instead of writing all three out again — they differ in where
  * the source row COMES FROM (the Log Viewer reads it out of the catalog it
- * already holds; the Partition Viewer fetches `log_status` per partition), not
+ * already holds; the Partition Viewer fetches `dump_log` per partition), not
  * in what browsing one means.
  *
  * Every seek that STATES positions carries the source row, because
@@ -267,7 +267,7 @@ export function useSegmentBrowse( {
 	const { segmentId, follow, browseSegment, replay } = useLogPositions( sub );
 
 	useRouterTick( {
-		name: railName ?? 'lograil:unused',
+		name: railName ?? 'log-rail:timer',
 		onTick: refresh ?? NOOP,
 		intervalMs: SEGMENTS_REFRESH_MS,
 		enabled: Boolean( sub ) && Boolean( refresh ),

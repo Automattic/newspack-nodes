@@ -133,9 +133,9 @@ class M3CommandDispatchE2ETest extends TestCase {
 	 */
 	public static function verb_provider(): array {
 		return [
-			'classes.list'    => [ 'classes',    'list', null ],
+			'classes.dump'    => [ 'classes',    'dump', null ],
 			'layouts.get'     => [ 'layouts',    'get',  null, [ 'fresh' ] ],
-			'topologies.list' => [ 'topologies', 'list', null ],
+			'topologies.dump' => [ 'topologies', 'dump', null ],
 		];
 	}
 }

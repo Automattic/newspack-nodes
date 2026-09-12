@@ -48,7 +48,7 @@ const LOG_STREAM_ENDPOINT = 'newspack-nodes/v1/log/stream';
  */
 const SOURCES_ARGS = () => [ 'sources' ];
 
-/** The service CI carrying `list_logs`, `log_status` and `read_message`. */
+/** The service CI carrying `list_logs`, `dump_log` and `read_message`. */
 const RAW_LOGS_CI = 'raw-logs';
 
 /**
@@ -81,8 +81,8 @@ const PARTITION_STEP_READ = { ci: RAW_LOGS_CI, command: 'read_message' };
  * @param {Object} opts            Everything the two dashboards differ in.
  * @param {string} opts.prefix     Names every node this graph owns:
  *                                 `<prefix>:link`, `:stream`, `:view`, the
- *                                 `<prefix>:list:*` catalog slice and the
- *                                 `<prefix>:read:*` stepped read.
+ *                                 `<prefix>-catalog:*` catalog slice and the
+ *                                 `<prefix>-step:*` stepped read.
  * @param {any}    opts.viewClass  The view-model node's class, handed over
  *                                 rather than named (ADR-16).
  * @param {string} [opts.endpoint] SSE endpoint override; omit for
@@ -167,7 +167,7 @@ export function useLogViewerGraph() {
 		setFilter,
 		clear,
 	} = useLogReaderGraph( {
-		prefix: 'logviewer',
+		prefix: 'log-viewer',
 		viewClass: views.LogViewerView,
 		endpoint: LOG_STREAM_ENDPOINT,
 		catalog: {

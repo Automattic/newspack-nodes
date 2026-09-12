@@ -13,7 +13,7 @@ This is the companion that picks up where the toy stops: the **production realit
 The toy dashboard is a closed loop: your page, your bundle, your one verb. A real dashboard leaks into shared substrate surfaces:
 
 ```
-   your Service CI  ──appears in──>  the class catalog (Classes_CI `list`)
+   your Service CI  ──appears in──>  the class catalog (Classes_CI `dump`)
                                        │
                           ┌────────────┴────────────┐
                           ▼                          ▼
@@ -33,7 +33,7 @@ The catalog feeds two surfaces. The overlay nests your console inside a tab bar.
 
 The toy's `Insights_CI` declares `'category' => 'Service'` and you move on. Here is what that one string does.
 
-`Classes_CI_Node::cmd_list` builds the catalog every worker-facing surface reads. It scans every registered composer classmap for concrete `*_Node` classes under a registered namespace, inlines the serializable half of each `node_schema()`, and — the line that matters — **drops a class on any of three conditions** (`includes/rest/class-classes-ci-node.php`):
+`Classes_CI_Node::cmd_dump` builds the catalog every worker-facing surface reads. It scans every registered composer classmap for concrete `*_Node` classes under a registered namespace, inlines the serializable half of each `node_schema()`, and — the line that matters — **drops a class on any of three conditions** (`includes/rest/class-classes-ci-node.php`):
 
 ```php
 $cat    = $schema['category'] ?? '';
@@ -110,7 +110,7 @@ The class-level gate is coarse. Inside a class that made the catalog, `strip_com
 | `multiple` | the topology editor | the verb may be invoked more than once, one row per invocation |
 | `action` | the topology editor | the verb is an action, not configuration, so the editor omits it |
 
-A malformed entry — a non-array, or one with no name — is skipped rather than allowed to throw, because one bad class must not fatal a catalog `list` that scans every registered class.
+A malformed entry — a non-array, or one with no name — is skipped rather than allowed to throw, because one bad class must not fatal a catalog `dump` that scans every registered class.
 
 Ticking a verb in the editor writes a `command_node` line into the `.tsl`, so that verb runs on every worker boot, forever — which is the whole reason `action` withholds one: a persisted `purge` would discard every in-flight request on each restart. `hidden` is the stronger of the two, since it withholds the verb from every surface rather than from the persisted set alone. Where the line addresses is `verbUsesConfig`'s decision (`src/topology-console/utils/editorLines.js`), and the file wins: a form the `.tsl` already recorded stands, because the operator wrote it, so editing an existing invocation never flips a bare address to `:config` or back. Only a verb the Inspector has just added falls to the class rule — an interpreter takes its verbs bare, every other class through its auto-wired `:config` sibling, the same split §2's dispatch table draws for a live send.
 

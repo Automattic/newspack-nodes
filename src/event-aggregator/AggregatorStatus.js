@@ -518,7 +518,7 @@ export default function AggregatorStatus( { headerControlsSlot } ) {
 
 	// Tick every second to update relative timestamps (pure display — no poll).
 	const bumpClock = useCallback( () => setTick( ( t ) => t + 1 ), [] );
-	useRouterTick( { name: 'aggregator:clock', onTick: bumpClock } );
+	useRouterTick( { name: 'aggregator-clock:timer', onTick: bumpClock } );
 
 	// Refresh strip: a slot portals, null withholds, undefined inlines.
 	const controls = (

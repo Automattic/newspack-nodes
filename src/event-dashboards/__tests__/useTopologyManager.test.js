@@ -2,7 +2,7 @@
  * useTopologyManager hook tests — the REAL topology-manager graph driving the
  * hook's data contract, with only the `_http` I/O boundary faked.
  *
- * A recording transport double answers `topologies list` (two topologies:
+ * A recording transport double answers `topologies dump` (two topologies:
  * `a` active with a worker-status section, `b` inactive) and `dump_graph` (a
  * snapshot whose graph carries the active topology). We assert:
  *  (a) `topologies` has both rows, active `a` carrying a non-null `status` and
@@ -83,7 +83,7 @@ const DUMP_GRAPH = {
 	},
 };
 
-// A topologies-list reply: `a` active (in the dump_graph), `b` inactive.
+// A topologies-dump reply: `a` active (in the dump_graph), `b` inactive.
 const TOPOLOGIES_LIST = {
 	topologies: [
 		{ name: 'a', source: 'stock', active: true, num_partitions: 1 },
@@ -95,7 +95,7 @@ const TOPOLOGIES_LIST = {
 function buildClient() {
 	return installRecordingWire( {
 		dump_graph: DUMP_GRAPH,
-		list: TOPOLOGIES_LIST,
+		dump: TOPOLOGIES_LIST,
 		activate: { name: 'b', active: true, spawned: 2 },
 		deactivate: { name: 'a', active: false },
 		restart: { restarted: true },
@@ -106,7 +106,7 @@ function buildClient() {
 function installWedgingWire() {
 	const base = {
 		dump_graph: DUMP_GRAPH,
-		list: TOPOLOGIES_LIST,
+		dump: TOPOLOGIES_LIST,
 	};
 	// batches already holds THIS POST, so >1 means a later tick.
 	const wire = installFakeCommandWire( ( m ) =>
@@ -131,7 +131,9 @@ describe( 'useTopologyManager', () => {
 		renderHook( () => useTopologyManager( {} ) );
 		await act( async () => {} );
 
-		expect( Core.node( 'topologymanager:timer' ).interval_ms ).toBe( 5000 );
+		expect( Core.node( 'topology-manager:timer' ).interval_ms ).toBe(
+			5000
+		);
 	} );
 
 	it( 'surfaces every topology (active + inactive) with provenance + active flag', async () => {
@@ -291,7 +293,7 @@ describe( 'useTopologyManager', () => {
 		installRecordingWire(
 			{
 				dump_graph: DUMP_GRAPH,
-				list: TOPOLOGIES_LIST,
+				dump: TOPOLOGIES_LIST,
 				activate: { message: 'topology not found' },
 			},
 			new Set( [ 'activate' ] )
@@ -315,13 +317,13 @@ describe( 'useTopologyManager', () => {
 		);
 	}, 15000 );
 
-	it( 'each poll fires both dump_graph and topologies list', async () => {
+	it( 'each poll fires both dump_graph and topologies dump', async () => {
 		const { sent } = buildClient();
 		renderHook( () => useTopologyManager( {} ) );
 		await act( async () => {} );
 
 		expect( sent.some( ( s ) => 'dump_graph' === s.verb ) ).toBe( true );
-		expect( sent.some( ( s ) => 'list' === s.verb ) ).toBe( true );
+		expect( sent.some( ( s ) => 'dump' === s.verb ) ).toBe( true );
 	} );
 
 	it( 'is a genuine node graph: toolkit boundary + a Fetcher per slice fanned from the owned Tee', async () => {
@@ -333,18 +335,34 @@ describe( 'useTopologyManager', () => {
 		for ( const name of [
 			'_http',
 			'_shell',
-			'topologymanager:timer',
-			'topologymanager:tee',
+			'topology-manager:timer',
+			'topology-manager:tee',
+			'freshness:timer',
 		] ) {
 			expect( Core.node( name ) ).toBeTruthy();
 		}
 		// One Fetcher per slice, each fanned from the owned Tee.
-		for ( const fetcher of [ 'fetch-workers', 'fetch-topologies' ] ) {
+		for ( const fetcher of [
+			'worker-status:fetch',
+			'topology-manager:fetch',
+		] ) {
 			expect( Core.node( fetcher ) ).toBeTruthy();
 		}
-		expect( Core.node( 'topologymanager:tee' ).target ).toEqual(
-			expect.arrayContaining( [ 'fetch-workers', 'fetch-topologies' ] )
+		expect( Core.node( 'topology-manager:tee' ).target ).toEqual(
+			expect.arrayContaining( [
+				'worker-status:fetch',
+				'topology-manager:fetch',
+			] )
 		);
+		// The verb-first and run-together spellings are gone.
+		for ( const name of [
+			'fetch-workers',
+			'fetch-topologies',
+			'topologymanager:tee',
+			'topologymanager:freshness',
+		] ) {
+			expect( Core.node( name ) ).toBeNull();
+		}
 	} );
 
 	it( 'puts WorkerStatusTransform on a graph edge: the receiver Tee fans to the transform, the transform targets the worker view', async () => {
@@ -353,12 +371,12 @@ describe( 'useTopologyManager', () => {
 		await act( async () => {} );
 
 		// Transform rides the receiver-Tee to view edge, NOT inside the view.
-		const transform = Core.node( 'workerstatus:transform' );
+		const transform = Core.node( 'worker-status:transform' );
 		expect( transform ).toBeTruthy();
-		expect( transform.target ).toBe( 'workerstatus:view' );
+		expect( transform.target ).toBe( 'worker-status:view' );
 		// The worker-status receiver Tee fans its reply into the transform.
-		expect( Core.node( 'workerstatus:in' ).target ).toEqual(
-			expect.arrayContaining( [ 'workerstatus:transform' ] )
+		expect( Core.node( 'worker-status:in' ).target ).toEqual(
+			expect.arrayContaining( [ 'worker-status:transform' ] )
 		);
 	} );
 
@@ -382,7 +400,7 @@ describe( 'useTopologyManager', () => {
 
 		expect( wire.batches.length ).toBe( 1 );
 		const verbs = wire.batches[ 0 ].map( ( m ) => m[ VALUE ].name ).sort();
-		expect( verbs ).toEqual( [ 'dump_graph', 'list' ] );
+		expect( verbs ).toEqual( [ 'dump', 'dump_graph' ] );
 	} );
 
 	it( 'exposes connected state', async () => {
@@ -445,9 +463,9 @@ describe( 'useTopologyManager', () => {
 		installRecordingWire(
 			{
 				dump_graph: DUMP_GRAPH,
-				list: { message: 'topologies unavailable' },
+				dump: { message: 'topologies unavailable' },
 			},
-			new Set( [ 'list' ] )
+			new Set( [ 'dump' ] )
 		);
 		const { result } = renderHook( () => useTopologyManager( {} ) );
 		await act( async () => {} );
@@ -539,7 +557,7 @@ const TOPOLOGY_A_LIST = {
 function healthClient( opts ) {
 	return installRecordingWire( {
 		dump_graph: healthDump( opts ),
-		list: TOPOLOGY_A_LIST,
+		dump: TOPOLOGY_A_LIST,
 	} );
 }
 
@@ -577,7 +595,7 @@ async function pollHealth( opts ) {
 async function pollHealthAtTenBytesPerSecond( workers ) {
 	const payloads = {
 		dump_graph: healthDump( { workers, currentTime: 1000 } ),
-		list: TOPOLOGY_A_LIST,
+		dump: TOPOLOGY_A_LIST,
 	};
 	installRecordingWire( payloads );
 	const { result } = renderHook( () => useTopologyManager( {} ) );

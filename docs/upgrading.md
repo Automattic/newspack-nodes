@@ -6,6 +6,46 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **`classes list` and `topologies list` are RENAMED to `classes dump` and
+  `topologies dump`.** The runtime's own vocabulary is the rule: `list_nodes`
+  prints one row per node and `dump_node` prints a node's whole structure. Each
+  class in the `classes` reply carries its schema, arguments, commands and
+  requests, and each topology in the `topologies` reply carries its frontmatter
+  and includes, so both are dumps. The old name is refused as
+  `unknown command: list`, with no alias. `useCatalogSlice` takes a `command`
+  option (`list` by default) — pass `command: 'dump'` for these two CIs, as
+  `useClassCatalog` and `useTopologyList` now do — and a `Poller` or Fetcher
+  aimed at either CI changes its verb from `'list'` to `'dump'`. `workers list`,
+  `vault list` and `sessions list` keep their names, because each row there is
+  flat.
+
+- **Three service verbs are RENAMED verb first: `workers cleanup_status` is
+  `workers dump_cleanup`, `aggregator servers_status` is `aggregator
+  list_servers`, and `raw-logs log_status` is `raw-logs dump_log`.** The
+  runtime's own builtins set the grammar (`list_nodes`, `dump_node`,
+  `make_node`, `set_sink`), and a query with no verb is a plain noun (`stats`,
+  `uptime`); a name with the noun first, or two nouns and no verb, reads as
+  neither. Each old name is refused as `unknown command: <name>`, with no alias.
+  A Fetcher, `Poller` or `useCommandOnce` aimed at one of the three changes its
+  `command` to the new spelling; `useLogPositions`, `useSegmentBrowse` and
+  `useAggregatorStatusGraph` already send it, so a dashboard built on those
+  shared hooks changes nothing. The event logger's `performance` CI renames
+  five of its own in the same pass; its `docs/upgrading.md` lists them.
+
+- **The node names the shared stream hooks derive are RENAMED.**
+  `useLogCatalog` and `useLogReaderGraph` name the catalog slice
+  `<prefix>-catalog:fetch`, `:in`, `:view`, `:timer` and `:tee` instead of
+  `<prefix>:list:*`, `useSteppedRead` defaults its scope to `<prefix>-step`
+  instead of `<prefix>:read`, and `useSegmentBrowse` names the refresh Timer
+  it arms with no `railName` `log-rail:timer` instead of `lograil:unused`. A
+  dashboard reading one of those nodes by name — `useNodeState(
+  `${ prefix }:list:view`, 'view' )`, a `connect <prefix>:list:in` typed into
+  the console — changes the spelling; one reading the hook's return value
+  changes nothing. Every name a dashboard builds is now `<subject>:<role>`,
+  the subject naming what the slice shows and never the verb it sends;
+  `docs/writing-a-view-node.md` states the rule, and the CHANGELOG lists the
+  substrate's own renames, none of which a consumer addresses.
+
 - **The `vault` config key is REMOVED.** `Vault::get_all()` reads the
   `newspack_nodes_vault` option alone; an entry declared under `vault` in
   `newspack-nodes-config.php` or a `LOCAL_NEWSPACK_NODES_CONF` file is ignored,

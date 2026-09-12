@@ -58,7 +58,7 @@ test( 'Node.command() — the canonical minter', () => {
 test( 'FetcherNode — one command per slice, per tick', () => {
 	const sent = [];
 	const fetcher = new FetcherNode();
-	fetcher.name = 'fetch-counts';
+	fetcher.name = 'counts:fetch';
 	fetcher.receiver = 'recv-counts';
 	fetcher.verb = 'counts';
 	fetcher.sink = { fill: ( m ) => sent.push( m ) };

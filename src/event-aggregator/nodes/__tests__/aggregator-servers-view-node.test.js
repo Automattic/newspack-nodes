@@ -1,7 +1,7 @@
 /**
  * aggregator servers:view tests — the de-god SERVER-CARDS slice. Owns ONLY the
  * per-server partition snapshot the server cards render. Fed by its own
- * `servers_status` slice verb (FROM=servers:view), it parses the JSON-string
+ * `list_servers` slice verb (FROM=servers:view), it parses the JSON-string
  * payload (a sequential array of server snapshots) into `{ servers }` and
  * publishes via setState('view', …) for the <AggregatorServers> widget. No
  * counts, no snapshot clock — that's the summary slice's job.
@@ -31,7 +31,7 @@ function reply( serversArray ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_COMMAND | TM_RESPONSE;
 	m[ VALUE ] = {
-		name: 'servers_status',
+		name: 'list_servers',
 		payload: JSON.stringify( serversArray ),
 	};
 	return m;
@@ -40,7 +40,7 @@ function reply( serversArray ) {
 function errorReply( errorString ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_COMMAND | TM_RESPONSE | TM_ERROR;
-	m[ VALUE ] = { name: 'servers_status', payload: errorString };
+	m[ VALUE ] = { name: 'list_servers', payload: errorString };
 	return m;
 }
 
@@ -63,7 +63,7 @@ describe( 'AggregatorServersViewNode', () => {
 		} );
 	} );
 
-	test( 'parses a servers_status reply into the servers array and clears loading', () => {
+	test( 'parses a list_servers reply into the servers array and clears loading', () => {
 		const v = makeView();
 		v.fill( reply( SAMPLE ) );
 		const model = v.setStateCache.view;
@@ -109,7 +109,7 @@ test( 'an undecodable payload keeps the slice it already published', () => {
 
 	const broken = newMessage();
 	broken[ TYPE ] = TM_COMMAND | TM_RESPONSE;
-	broken[ VALUE ] = { name: 'servers_status', payload: '{not json' };
+	broken[ VALUE ] = { name: 'list_servers', payload: '{not json' };
 	v.fill( broken );
 
 	expect( v.model.servers ).toEqual( [ { id: 'a' } ] );

@@ -1,5 +1,5 @@
 /**
- * useTopologyCatalog — a read over the `topologies:catalog` node.
+ * useTopologyCatalog — a read over the `topology-catalog:fetch` node.
  *
  * The ordering this pins: TopologyConsole calls useTopologyCatalog BEFORE
  * useConsoleGraph, so on first render the node does not exist yet. The hook has
@@ -46,7 +46,7 @@ describe( 'useTopologyCatalog', () => {
 		rerender();
 
 		const reply = newMessage();
-		reply[ VALUE ] = { name: 'list', payload: { topologies: LIVE } };
+		reply[ VALUE ] = { name: 'dump', payload: { topologies: LIVE } };
 		act( () => {
 			node.fill( reply );
 		} );
@@ -98,6 +98,9 @@ describe( 'useTopologyCatalog', () => {
 
 			const node = Core.node( CATALOG_NODE );
 			expect( node ).toBeInstanceOf( TopologyCatalogNode );
+			// A Poller is the fetch of its slice, and named as one.
+			expect( CATALOG_NODE ).toBe( 'topology-catalog:fetch' );
+			expect( Core.node( 'topologies:catalog' ) ).toBeNull();
 			// Sink is the interpreter, so `fire()` emits through _http's lock.
 			expect( node.sink ).toBe( Core.node( names.COMMAND_INTERPRETER ) );
 			// Router peels `_http`; the reply comes back TO=FROM to this node.

@@ -2,7 +2,7 @@
  * useVaultGraph tests — the Vault server-credential admin graph.
  *
  *   _http (HttpOut)
- *   vault:list:fetch → :in → :view (VaultListView)    — the credential table,
+ *   vault:fetch → :in → :view (VaultListView)         — the credential table,
  *                                                       polled as a slice
  *   vault:{add,update,delete,test}:in → :result       — one one-shot per verb
  *
@@ -28,8 +28,8 @@ const INTERPRETER = '_command_interpreter';
 const ROUTER = '_router';
 const HTTP = '_http';
 const CONSOLE_TAP = '_shell';
-const LIST_RECV = 'vault:list:in';
-const LIST_VIEW = 'vault:list:view';
+const LIST_RECV = 'vault:in';
+const LIST_VIEW = 'vault:view';
 const ADD = 'vault:add:in';
 const UPDATE = 'vault:update:in';
 const DELETE = 'vault:delete:in';
@@ -99,16 +99,18 @@ describe( 'useVaultGraph — exospine + per-concern view wiring', () => {
 		// …and back to the Fetcher, which settles the ask the reply answers.
 		expect( Core.node( LIST_RECV ).target ).toEqual( [
 			LIST_VIEW,
-			'vault:list:fetch',
+			'vault:fetch',
 		] );
 	} );
 
-	test( 'does NOT mount the old god vault:view or the REPL-only nodes', async () => {
+	test( 'does NOT mount the verb-named list slice or the REPL-only nodes', async () => {
 		installWire();
 		renderHook( () => useVaultGraph() );
 		await act( async () => {} );
 		for ( const name of [
-			'vault:view',
+			'vault:list:fetch',
+			'vault:list:in',
+			'vault:list:view',
 			'vault:testIn',
 			'_output',
 			'_completion',
@@ -152,7 +154,7 @@ describe( 'useVaultGraph — exospine + per-concern view wiring', () => {
 } );
 
 describe( 'useVaultGraph — list lands in the list view', () => {
-	test( 'an immediate list reply routes _http → interpreter → router → listIn → vault:list', async () => {
+	test( 'an immediate list reply routes _http → interpreter → router → vault:in → vault:view', async () => {
 		const servers = {
 			'spoke-01': { id: 'spoke-01', url: 'https://a' },
 			'spoke-02': { id: 'spoke-02', url: 'https://b' },

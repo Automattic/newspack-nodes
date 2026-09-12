@@ -122,8 +122,7 @@ class TTY_Out_Node extends Stdout_Node {
 	 * @param string $prompt Prompt text, control characters not yet rendered.
 	 */
 	public function write_prompt( string $prompt ): void {
-		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
-		\fwrite( $this->stdout, Core::terminal_safe( $prompt, false ) );
+		$this->write_all( Core::terminal_safe( $prompt, false ) );
 		$this->prompt_displayed = true;
 	}
 
@@ -164,26 +163,19 @@ class TTY_Out_Node extends Stdout_Node {
 		}
 		$text = Core::terminal_safe( $text, true );
 
-		// The cli owns this terminal stream, not a WP-Filesystem path.
-		// phpcs:disable WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
 		if ( $this->readline_mode ) {
 			// Reprint the prompt rather than calling readline_redisplay().
-			\fwrite(
-				$this->stdout,
-				self::ANSI_CR_CLEAR_LINE . $text . $prompt
-			);
+			$this->write_all( self::ANSI_CR_CLEAR_LINE . $text . $prompt );
 			return;
 		}
 
-		\fwrite(
-			$this->stdout,
+		$this->write_all(
 			self::ANSI_SAVE_CURSOR
 				. self::ANSI_CR_CLEAR_LINE
 				. $text
 				. $prompt
 				. self::ANSI_RESTORE_CURSOR
 		);
-		// phpcs:enable
 	}
 
 	/**

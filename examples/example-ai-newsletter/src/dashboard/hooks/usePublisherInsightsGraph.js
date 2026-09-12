@@ -3,12 +3,12 @@
  * Timer, one fan-out Tee, and one Fetcher per card, each card's reply
  * travelling its own path back to its own view node.
  *
- *   insights:timer (Timer) ─> insights:tee (Tee) ─┬> fetch-counts (Fetcher) ─┐
- *                                                 ├> fetch-top    (Fetcher) ─┤  target = _shell/_http/insights-demo
- *                                                 └> fetch-acc    (Fetcher) ─┘
- *   countsIn (Tee) ─> source-counts:view ─> <SourceCounts/>
- *   topIn    (Tee) ─> top-table:view     ─> <TopTable/>
- *   accIn    (Tee) ─> accumulated:view   ─> <AccumulatedCard/>
+ *   insights:timer (Timer) ─> insights:tee (Tee) ─┬> source-counts:fetch (Fetcher) ─┐
+ *                                                 ├> top-table:fetch     (Fetcher) ─┤  target = _shell/_http/insights-demo
+ *                                                 └> accumulated:fetch   (Fetcher) ─┘
+ *   source-counts:in (Tee) ─> source-counts:view ─> <SourceCounts/>
+ *   top-table:in     (Tee) ─> top-table:view     ─> <TopTable/>
+ *   accumulated:in   (Tee) ─> accumulated:view   ─> <AccumulatedCard/>
  *
  * One view node behind a single omnibus verb would be the god object: every
  * card re-renders on every field, and the server computes the whole model to
@@ -77,22 +77,22 @@ const TARGET = `_shell/_http/${ SERVER }`;
  */
 const SLICES = [
 	{
-		fetcher: 'fetch-counts',
-		receiver: 'countsIn',
+		fetcher: 'source-counts:fetch',
+		receiver: 'source-counts:in',
 		command: 'counts',
 		view: 'source-counts:view',
 		viewClass: SourceCountsViewNode,
 	},
 	{
-		fetcher: 'fetch-top',
-		receiver: 'topIn',
+		fetcher: 'top-table:fetch',
+		receiver: 'top-table:in',
 		command: 'top',
 		view: 'top-table:view',
 		viewClass: TopTableViewNode,
 	},
 	{
-		fetcher: 'fetch-acc',
-		receiver: 'accIn',
+		fetcher: 'accumulated:fetch',
+		receiver: 'accumulated:in',
 		command: 'accumulated',
 		view: 'accumulated:view',
 		viewClass: AccumulatedViewNode,

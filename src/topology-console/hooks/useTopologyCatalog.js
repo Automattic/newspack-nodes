@@ -44,7 +44,7 @@ const POLL_INTERVAL_MS = 10000;
  *
  * @return {{partitions: Object<string,number>, active: string[], entries: Object[], reload: () => void}}
  *   `partitions` maps each topology name to its partition count; `active` lists
- *   the topologies the fleet spawns; `entries` are the raw `topologies list`
+ *   the topologies the fleet spawns; `entries` are the raw `topologies dump`
  *   entries the palette and the include hulls read `includes` from; `reload`
  *   polls immediately rather than waiting out the cadence, which is what save,
  *   delete and activate each call.

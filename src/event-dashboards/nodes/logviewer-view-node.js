@@ -1,7 +1,7 @@
 import { PartitionViewerViewNode } from './partition-viewer-view-node';
 
 /**
- * `logviewer:view` — the Log Viewer's raw-line ring.
+ * `log-viewer:view` — the Log Viewer's raw-line ring.
  *
  * Extends the Partition Viewer's view for the two things `LogStreamViewNode`
  * alone would not give it: `shapeRow()`, which turns an SSE envelope into a

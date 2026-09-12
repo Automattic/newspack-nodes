@@ -44,7 +44,7 @@ function unsignedCommandLine( name, from = 'caller' ) {
 test( 'records each POST as a batch of UNPACKED messages', async () => {
 	const wire = makeFakeCommandWire( () => null );
 	await wire( '/command', {
-		body: [ commandLine( 'list_logs' ), commandLine( 'log_status' ) ].join(
+		body: [ commandLine( 'list_logs' ), commandLine( 'dump_log' ) ].join(
 			'\n'
 		),
 	} );
@@ -53,7 +53,7 @@ test( 'records each POST as a batch of UNPACKED messages', async () => {
 	expect( wire.batches ).toHaveLength( 2 );
 	expect( wire.batches[ 0 ].map( ( m ) => m[ VALUE ].name ) ).toEqual( [
 		'list_logs',
-		'log_status',
+		'dump_log',
 	] );
 	expect( wire.batches[ 1 ].map( ( m ) => m[ VALUE ].name ) ).toEqual( [
 		'taillog',

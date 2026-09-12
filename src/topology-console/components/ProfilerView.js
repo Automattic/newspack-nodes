@@ -30,7 +30,7 @@ import './inspector-views.scss';
  * every dashboard on the page shares, so the name is prefixed to keep it clear
  * of the other views' pollers.
  */
-const POLLER = 'profiler:poller';
+const POLLER = 'profiler:fetch';
 
 /**
  * `list_profiles`' own columns, in its own order. Everything but WHAT sorts

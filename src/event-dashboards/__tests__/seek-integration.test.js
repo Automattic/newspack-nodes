@@ -133,7 +133,7 @@ describe( 'Partition Viewer', () => {
 		boot( {
 			list_logs: [ { key: 'firehose.p0', label: 'firehose.p0' } ],
 			// Newest segment id 98 @ 500 bytes is the live boundary; 97 is older.
-			log_status: {
+			dump_log: {
 				log_id: 'firehose.p0',
 				segments: [
 					{ id: 97, size: 1000 },
@@ -147,7 +147,7 @@ describe( 'Partition Viewer', () => {
 		await act( async () => {
 			render( <PartitionViewer /> );
 		} );
-		// list_logs + log_status both ride the router tick; the rail is a wait
+		// list_logs + dump_log both ride the router tick; the rail is a wait
 		// away, not a flush.
 		await waitFor(
 			() =>

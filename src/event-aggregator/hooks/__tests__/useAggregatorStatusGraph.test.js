@@ -4,10 +4,10 @@
  * single god `status` poll feeding one `aggregator:view` is gone; in its place
  * two independent slice paths:
  *
- *   <tee> → fetch-summary  (Fetcher, FROM=summary:view) → _shell/_http/aggregator
- *           summaryIn (Tee) → summary:view (AggregatorSummaryView)
- *   <tee> → fetch-servers  (Fetcher, FROM=servers:view) → _shell/_http/aggregator
- *           serversIn (Tee) → servers:view (AggregatorServersView)
+ *   <tee> → summary:fetch (Fetcher, FROM=summary:in) → _shell/_http/aggregator
+ *           summary:in (Tee) → summary:view (AggregatorSummaryView)
+ *   <tee> → servers:fetch (Fetcher, FROM=servers:in) → _shell/_http/aggregator
+ *           servers:in (Tee) → servers:view (AggregatorServersView)
  *
  * Each slice has its OWN inspectable reply path (its own command + receiver Tee);
  * a reply to `summary` never touches `servers:view` and vice-versa. useBatchedPoll
@@ -86,26 +86,35 @@ describe( 'useAggregatorStatusGraph — batched-poll backbone + slice wiring', (
 	test( 'mounts a Fetcher + receiver Tee per slice (own reply path each)', () => {
 		renderHook( () => useAggregatorStatusGraph( {} ) );
 		for ( const name of [
+			'summary:fetch',
+			'servers:fetch',
+			'summary:in',
+			'servers:in',
+		] ) {
+			expect( Core.node( name ) ).toBeTruthy();
+		}
+		// The verb-first spellings are gone: a name is `<subject>:<role>`.
+		for ( const name of [
 			'fetch-summary',
 			'fetch-servers',
 			'summaryIn',
 			'serversIn',
 		] ) {
-			expect( Core.node( name ) ).toBeTruthy();
+			expect( Core.node( name ) ).toBeNull();
 		}
 	} );
 
-	test( 'fires both slice commands on mount (summary + servers_status), batched into one POST', async () => {
+	test( 'fires both slice commands on mount (summary + list_servers), batched into one POST', async () => {
 		const wire = installWire();
 		renderHook( () => useAggregatorStatusGraph( {} ) );
 		// The first load is a coalesced tick, so it runs after the commit.
 		await act( async () => {} );
 		expect( wire.batches.length ).toBeGreaterThanOrEqual( 1 );
 		const verbs = wire.batches[ 0 ].map( ( m ) => m[ VALUE ].name ).sort();
-		expect( verbs ).toEqual( [ 'servers_status', 'summary' ] );
+		expect( verbs ).toEqual( [ 'list_servers', 'summary' ] );
 		// Each command's FROM is its own receiver Tee, the reply target.
 		const froms = wire.batches[ 0 ].map( ( m ) => m[ FROM ] ).sort();
-		expect( froms ).toEqual( [ 'serversIn', 'summaryIn' ] );
+		expect( froms ).toEqual( [ 'servers:in', 'summary:in' ] );
 	} );
 
 	test( 'returns the current refresh interval (defaults to 2000)', () => {

@@ -1,11 +1,11 @@
 /**
- * vault:list tests — the credential-LIST view node (de-god split). It owns ONLY
+ * vault:view tests — the credential-LIST view node (de-god split). It owns ONLY
  * the server table slice (`servers` / `loading` / `error`). The TEST-result
  * concern lives in a SEPARATE view node (`vault:test`) — this node knows
  * nothing about test probes.
  *
  * `fill()` receives the raw reply Messages HttpOutNode feeds back from POST
- * /command: the router peels the reply's TO (= `vault:list`) and delivers them
+ * /command: the router peels the reply's TO (= `vault:view`) and delivers them
  * here. VALUE is the `{ name, payload }` envelope.
  *
  * On a `list` reply the node turns the raw `{ vault_id:{} }` map into the
@@ -29,7 +29,7 @@ import { views } from '../register';
 
 beforeEach( () => Core.reset() );
 
-function makeView( name = 'vault:list' ) {
+function makeView( name = 'vault:view' ) {
 	const node = new views.VaultListView();
 	node.name = name;
 	return node;
@@ -53,7 +53,7 @@ function replyMsg( {
 	return m;
 }
 
-describe( 'vault:list — initial model', () => {
+describe( 'vault:view — initial model', () => {
 	test( 'publishes an initial loading model on construction', () => {
 		expect( makeView().setStateCache.view ).toEqual( {
 			servers: null,
@@ -63,7 +63,7 @@ describe( 'vault:list — initial model', () => {
 	} );
 } );
 
-describe( 'vault:list — list reply updates the render model', () => {
+describe( 'vault:view — list reply updates the render model', () => {
 	test( 'converts the server map to an array of servers', () => {
 		const v = makeView();
 		v.fill( replyMsg( { name: 'list', payload: SAMPLE } ) );
@@ -104,7 +104,7 @@ describe( 'vault:list — list reply updates the render model', () => {
 	} );
 } );
 
-describe( 'vault:list — error surfacing', () => {
+describe( 'vault:view — error surfacing', () => {
 	test( 'an un-correlated TM_ERROR sets the table banner and keeps prior servers', () => {
 		const v = makeView();
 		v.fill( replyMsg( { name: 'list', payload: SAMPLE } ) );
@@ -132,7 +132,7 @@ describe( 'vault:list — error surfacing', () => {
 	} );
 } );
 
-describe( 'vault:list — nodeSchema', () => {
+describe( 'vault:view — nodeSchema', () => {
 	test( 'is a Hidden, terminal (no output port) node', () => {
 		const schema = views.VaultListView.nodeSchema();
 		expect( schema.has_target ).toBe( false );

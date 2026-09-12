@@ -312,7 +312,7 @@ jest.mock( '../hooks/useTopologyCatalog', () => ( {
 				? override.partitions
 				: data.topologyWorkers || {},
 			active: override ? override.active : data.activeTopologies || [],
-			// Raw `topologies list` entries (each carries `includes`).
+			// Raw `topologies dump` entries (each carries `includes`).
 			entries: override ? override.entries || [] : [],
 			reload: globalThis.__hooks.reloadCatalog,
 		};
@@ -4742,7 +4742,7 @@ describe( 'TopologyConsole boot', () => {
 			// Hulls were derived from draft.includes, which survives leaving edit
 			// mode — so an include dragged into one topology painted a hull over a
 			// DIFFERENT topology's live graph. Live must read the viewed topology's
-			// own includes (topologies list carries them) and its expand baseline.
+			// own includes (topologies dump carries them) and its expand baseline.
 			hooks.catalog = {
 				partitions: { demo: 1 },
 				active: [ 'demo' ],

@@ -318,7 +318,7 @@ export function useBatchedPoll( opts ) {
 }
 
 /**
- * useCatalogSlice — poll one CI's `list` verb as a slice and read what it
+ * useCatalogSlice — poll one CI's catalog verb as a slice and read what it
  * published: the whole of a catalog hook that is not its own field names.
  *
  * Every catalog wants this — the palette's classes, the OPEN dialog's saved
@@ -331,7 +331,9 @@ export function useBatchedPoll( opts ) {
  *
  * @param {Object}           o              Options.
  * @param {string}           o.scope        Names this catalog's own nodes.
- * @param {string}           o.ci           The server CI mount owning `list`.
+ * @param {string}           o.ci           The server CI mount owning the verb.
+ * @param {string}           [o.command]    The catalog verb; `list` by default, and `dump` for a
+ *                                          CI whose rows each carry a nested structure.
  * @param {string|NodeClass} o.viewClass    The view class publishing the slice, or its registered name (ADR-16).
  * @param {string}           o.key          The model field holding the list — empty until the
  *                                          first reply lands, which is what `loading` reads.
@@ -349,6 +351,7 @@ export function useCatalogSlice( {
 	ci,
 	viewClass,
 	key,
+	command = 'list',
 	enabled = true,
 	intervalMs = CATALOG_MS,
 } ) {
@@ -357,7 +360,7 @@ export function useCatalogSlice( {
 			addSliceFetcher( interpreter, {
 				fetcher: `${ scope }:fetch`,
 				receiver: `${ scope }:in`,
-				command: 'list',
+				command,
 				view: `${ scope }:view`,
 				viewClass,
 				tee,

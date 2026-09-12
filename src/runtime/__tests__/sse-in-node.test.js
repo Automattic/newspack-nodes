@@ -1038,7 +1038,7 @@ test( 'a command reply keeps its own TO; only records are re-homed', () => {
 	const reply = newMessage();
 	reply[ TYPE ] = TM_COMMAND | TM_RESPONSE;
 	reply[ TO ] = 'status-receiver';
-	reply[ VALUE ] = { name: 'log_status', payload: {} };
+	reply[ VALUE ] = { name: 'dump_log', payload: {} };
 
 	FakeEventSource.last.dispatch( 'msg', JSON.stringify( record ) );
 	FakeEventSource.last.dispatch( 'msg', JSON.stringify( reply ) );

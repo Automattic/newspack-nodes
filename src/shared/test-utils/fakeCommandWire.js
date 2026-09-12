@@ -8,7 +8,7 @@
  * the routing the hooks under test rely on (ADR-7).
  *
  *   installFakeCommandWire( ( m ) =>
- *       'list' === m[ VALUE ].name ? { topologies: [] } : null
+ *       'dump' === m[ VALUE ].name ? { topologies: [] } : null
  *   );
  *
  * `replyFor` returns the reply payload, an `Error` to answer TM_ERROR, or

@@ -1,7 +1,7 @@
 /**
  * useSessionsGraph — the issued-session TABLE.
  *
- *   sessions:list:in (Tee) → sessions:list:view (SessionListView)
+ *   sessions:in (Tee) → sessions:view (SessionListView)
  *
  * ONE node per verb serves every row: the subject rides in the reply PATH, so
  * an answer names the handle it was about. The hook owns the poll — which is
@@ -39,6 +39,11 @@ it( 'lists on the first tick and publishes the table', async () => {
 	expect(
 		wire.batches.flat().some( ( m ) => 'list' === m[ VALUE ]?.name )
 	).toBe( true );
+	// The slice is named for what it SHOWS; the verb lives on the Fetcher.
+	for ( const role of [ 'fetch', 'in', 'view', 'timer', 'tee' ] ) {
+		expect( Core.node( `sessions:${ role }` ) ).toBeTruthy();
+		expect( Core.node( `sessions:list:${ role }` ) ).toBeNull();
+	}
 }, 20000 );
 
 // @longform ONE node per verb serves every row: a revoke of `h-4471` is minted

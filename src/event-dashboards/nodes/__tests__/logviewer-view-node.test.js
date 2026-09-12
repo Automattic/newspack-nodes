@@ -18,7 +18,7 @@ beforeEach( () => Core.reset() );
 
 it( 'shapes a raw log line into a partition-0 ring row', () => {
 	const node = new LogViewerViewNode();
-	node.name = 'logviewer:view';
+	node.name = 'log-viewer:view';
 	const m = newMessage();
 	m[ TYPE ] = TM_BYTESTREAM;
 	m[ FROM ] = 'php';
