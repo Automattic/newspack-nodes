@@ -1,0 +1,123 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+  .seq { position: relative; margin-top: 8px; }
+  .lf { position: absolute; top: 78px; bottom: 0; border-left: 1.5px dashed #C3C4C7; }
+  .heads { position: relative; height: 78px; }
+  .head {
+    position: absolute; top: 0; background: #fff; border: 1px solid #C3C4C7; border-radius: 9px;
+    padding: 8px 10px; text-align: center; font-size: 12.5px; line-height: 1.35;
+  }
+  .head b { display: block; font-size: 13px; }
+  .head.hub { border-color: #003DA5; }
+  .sub .mono { white-space: nowrap; }
+  .head .mono { font-size: 11.5px; color: #003DA5; }
+  .phase { position: relative; height: 30px; margin: 4px 0 0; }
+  .phase span {
+    position: absolute; left: 0; top: 4px; background: #FBFBFC; padding: 2px 10px 2px 0;
+    font-size: 12.5px; font-weight: 700; color: #101517;
+  }
+  .phase span em { font-style: normal; font-weight: 400; color: #50575E; }
+  .msg { position: relative; padding: 6px 0 4px; }
+  .lab { position: relative; font-size: 12px; line-height: 1.4; color: #50575E; text-align: center; background: #FBFBFC; padding: 0 4px 3px; }
+  .lab .mono { color: #101517; }
+  .arrow { position: relative; height: 16px; }
+  .arrow svg { position: absolute; left: 0; top: 0; overflow: visible; }
+  .n {
+    display: inline-block; min-width: 18px; height: 18px; line-height: 18px; border-radius: 9px;
+    background: #003DA5; color: #fff; font-size: 11.5px; font-weight: 700; text-align: center; padding: 0 5px; margin-right: 4px;
+  }
+  .box {
+    position: relative; background: #F0F4FB; border: 1px solid #C3D3EC; border-radius: 7px;
+    padding: 8px 11px; font-size: 12px; line-height: 1.45; color: #101517;
+  }
+  .box.warn { background: #FBEAEA; border-color: #E6A3A3; color: #5C2223; }
+</style>
+<div class="sheet">
+  <h1>One spoke and the hub: the life of one connection</h1>
+  <p class="sub">The hub is the HTTPS client in both directions. Its Remote_Source for the spoke <span class="mono">bend</span> owns two hidden nodes: <span class="mono">:sse-in</span> holds the long stream open, and <span class="mono">:http-out</span> posts one signed batch per tick. The hops are numbered in order.</p>
+
+  <svg width="0" height="0" style="position:absolute"><defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#B32D2E"/></marker>
+  </defs></svg>
+
+  <div class="seq">
+    <div class="heads">
+      <div class="head hub" style="left:22px;width:136px"><b>Vault</b>the hub's store of spokes</div>
+      <div class="head hub" style="left:198px;width:184px"><b>Remote_Source</b><span class="mono">firehose:bend</span></div>
+      <div class="head hub" style="left:388px;width:188px"><b>HTTP_Out, hidden</b><span class="mono">firehose:bend:http-out</span></div>
+      <div class="head hub" style="left:586px;width:174px"><b>SSE_In, hidden</b><span class="mono">firehose:bend:sse-in</span></div>
+      <div class="head" style="left:806px;width:228px"><b>Spoke <span class="mono" style="color:#101517;font-size:13px">bend</span></b>WordPress + newspack-nodes + event logger, writing <span class="mono" style="color:#101517">firehose.p0</span></div>
+    </div>
+    <div class="lf" style="left:90px"></div>
+    <div class="lf" style="left:290px"></div>
+    <div class="lf" style="left:490px"></div>
+    <div class="lf" style="left:670px"></div>
+    <div class="lf" style="left:920px"></div>
+
+    <div class="phase"><span>Connect <em>· the 24 sources start one every half second, so no spoke answers a burst with refusals</em></span></div>
+
+    <div class="msg">
+      <div class="box" style="margin-left:150px;width:280px">First tick: builds and owns <span class="mono">:sse-in</span>, <span class="mono">:http-out</span> and <span class="mono">:null</span>, named after itself.</div>
+    </div>
+
+    <div class="msg">
+      <div class="lab" style="margin-left:0;width:400px"><span class="n">1</span>reads the entry keyed <span class="mono">bend</span>, the short id the source names as its first argument: an HTTPS URL, a username and a password. The password is sealed with libsodium under the site's auth salt and opened only here, on the way out.</div>
+      <div class="arrow"><svg width="1052" height="16"><path d="M290 8 L96 8" stroke="#003DA5" stroke-width="1.8" marker-end="url(#ar)"/></svg></div>
+    </div>
+
+    <div class="msg">
+      <div class="lab" style="margin-left:470px;width:560px"><span class="n">2</span><span class="mono">GET /messages/stream</span>, with HTTP Basic auth: the hub user's WordPress application password, on this and every request.</div>
+      <div class="arrow"><svg width="1052" height="16"><path d="M670 8 L914 8" stroke="#003DA5" stroke-width="1.8" marker-end="url(#ar)"/></svg></div>
+    </div>
+
+    <div class="msg">
+      <div class="lab" style="margin-left:470px;width:560px"><span class="n">3</span>the handshake event names the slot leased to this stream, one of a limited set.</div>
+      <div class="arrow"><svg width="1052" height="16"><path d="M920 8 L676 8" stroke="#003DA5" stroke-width="1.8" marker-end="url(#ar)"/></svg></div>
+    </div>
+
+    <div class="phase"><span>Stream <em>· one long HTTP response, one server-sent event per record</em></span></div>
+
+    <div class="msg">
+      <div style="display:flex;align-items:flex-end">
+        <div class="lab" style="margin-left:270px;width:400px">and on to the source. Each record's ID is its segment, byte offset and length in the spoke's own log.</div>
+        <div class="lab" style="margin-left:16px;width:250px"><span class="n">4</span>one record per event.</div>
+      </div>
+      <div class="arrow"><svg width="1052" height="16"><path d="M920 8 L676 8" stroke="#003DA5" stroke-width="1.8" marker-end="url(#ar)"/><path d="M670 8 L296 8" stroke="#003DA5" stroke-width="1.8" marker-end="url(#ar)"/></svg></div>
+      <div class="box" style="margin-left:130px;width:360px;margin-top:6px">Checkpoints that ID to its offsetlog and resumes from it on every reconnect. A record that will not parse is quarantined at that position, in the dead-letter partition.</div>
+    </div>
+
+    <div class="msg">
+      <div class="lab" style="margin-left:480px;width:460px"><span class="n">5</span><span class="mono">POST /auth</span>, once, before the first batch of commands.</div>
+      <div class="arrow"><svg width="1052" height="16"><path d="M490 8 L914 8" stroke="#003DA5" stroke-width="1.8" marker-end="url(#ar)"/></svg></div>
+    </div>
+
+    <div class="msg">
+      <div class="lab" style="margin-left:480px;width:460px"><span class="n">6</span>a command session: a handle and a key. The hub holds both under the spoke's Vault id, and the node that mints a command signs it under the key of the spoke it is bound for.</div>
+      <div class="arrow"><svg width="1052" height="16"><path d="M920 8 L496 8" stroke="#003DA5" stroke-width="1.8" marker-end="url(#ar)"/></svg></div>
+    </div>
+
+    <div class="msg">
+      <div class="lab" style="margin-left:480px;width:460px"><span class="n">7</span><span class="mono">POST /command</span>, one per tick. A heartbeat signed under this key every 15 s keeps the slot lease; <span class="mono">set</span> and <span class="mono">get</span> commands ride the same batch. Commands queued before the session exists are held.</div>
+      <div class="arrow"><svg width="1052" height="16"><path d="M490 8 L914 8" stroke="#003DA5" stroke-width="1.8" marker-end="url(#ar)"/></svg></div>
+    </div>
+
+    <div class="msg">
+      <div class="lab" style="margin-left:480px;width:460px"><span class="n">8</span>the reply, in the same response. The spoke writes every field of it, TO included. A 401 makes the hub forget the session.</div>
+      <div class="arrow"><svg width="1052" height="16"><path d="M920 8 L496 8" stroke="#003DA5" stroke-width="1.8" marker-end="url(#ar)"/><path d="M490 8 L296 8" stroke="#B32D2E" stroke-width="1.8" stroke-dasharray="5 4" marker-end="url(#arr)"/></svg></div>
+      <div class="box warn" style="margin-left:110px;width:580px;margin-top:6px"><b>Reply gate, <span class="mono">allow_replies_to</span>.</b> The router delivers whatever TO names, so every outbound node carries an allowlist. A TO on the list, matched as a whole path, is delivered: this source lists its own name, so heartbeat replies reach it. Any other TO is dropped. An empty TO goes to <span class="mono">:null</span>.</div>
+    </div>
+
+    <div class="phase"><span>Pressure and loss</span></div>
+
+    <div class="msg">
+      <div class="box warn" style="margin-left:300px;width:420px"><b>More than 512 KB buffered on the hub:</b> <span class="mono">:sse-in</span> stops reading the socket, and the spoke blocks on write. Reading resumes under 256 KB.</div>
+      <svg width="1052" height="16" style="position:absolute;left:0;top:36px;overflow:visible"><path d="M722 8 L914 8" stroke="#B32D2E" stroke-width="1.8" stroke-dasharray="5 4" marker-end="url(#arr)"/></svg>
+    </div>
+
+    <div class="msg">
+      <div class="lab" style="margin-left:470px;width:560px"><span class="n">9</span>45 s of silence is a dead stream. <span class="mono">:sse-in</span> reconnects after a delay that doubles from 1 s to 30 s, and hop 4 resumes from the offsetlog.</div>
+      <div class="arrow"><svg width="1052" height="16"><path d="M670 8 L914 8" stroke="#003DA5" stroke-width="1.8" stroke-dasharray="5 4" marker-end="url(#ar)"/></svg></div>
+    </div>
+  </div>
+</div>

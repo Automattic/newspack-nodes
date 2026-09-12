@@ -1,0 +1,53 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<div class="sheet">
+  <h1>A message, the path it takes, and how its reply finds the way back</h1>
+  <p class="sub">Seven fields. Two of them are addresses. Nothing keeps a table of requests awaiting answers.</p>
+
+  <div class="row" style="gap:8px;align-items:stretch">
+    <div class="chip" style="flex:1 1 0;text-align:center;margin:0"><span class="mono">type</span></div>
+    <div class="chip" style="flex:1 1 0;text-align:center;margin:0"><span class="mono">timestamp</span></div>
+    <div class="chip" style="flex:1.4 1 0;text-align:center;margin:0;border-color:#003DA5;background:#E8EEF9"><span class="mono blue"><strong>FROM</strong></span><br><span class="grey" style="font-size:11.5px">where it came from</span></div>
+    <div class="chip" style="flex:1.4 1 0;text-align:center;margin:0;border-color:#003DA5;background:#E8EEF9"><span class="mono blue"><strong>TO</strong></span><br><span class="grey" style="font-size:11.5px">where it is going</span></div>
+    <div class="chip" style="flex:1 1 0;text-align:center;margin:0"><span class="mono">id</span></div>
+    <div class="chip" style="flex:1 1 0;text-align:center;margin:0"><span class="mono">key</span></div>
+    <div class="chip" style="flex:1 1 0;text-align:center;margin:0"><span class="mono">value</span></div>
+  </div>
+
+  <div class="row" style="gap:0;align-items:stretch;margin-top:22px">
+    <div class="card" style="flex:1 1 0">
+      <h3>The request leaves <span class="mono">probe</span></h3>
+      <p class="mono" style="margin:0 0 4px">FROM = probe</p>
+      <p class="mono" style="margin:0 0 8px">TO &nbsp; = vault/spoke-01</p>
+      <p style="margin:0">A node that mints a message writes its own name into <span class="mono">FROM</span>.</p>
+    </div>
+    <div class="conn" style="flex:0 0 60px;justify-content:center">
+      <svg width="60" height="26" viewBox="0 0 60 26"><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs><path d="M4 13 L48 13" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/></svg>
+    </div>
+    <div class="panel" style="flex:1 1 0">
+      <header>The router</header>
+      <div class="body">
+        <p style="font-size:13px;color:#50575E;margin:0 0 8px;line-height:1.5">Takes the first segment of <span class="mono">TO</span>, looks that name up in the process's table of nodes, and hands the rest of the path to that node.</p>
+        <p class="mono" style="margin:0;font-size:12.5px">vault / spoke-01 &nbsp;→&nbsp; vault.fill( TO = spoke-01 )</p>
+      </div>
+    </div>
+    <div class="conn" style="flex:0 0 60px;justify-content:center">
+      <svg width="60" height="26" viewBox="0 0 60 26"><path d="M4 13 L48 13" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/></svg>
+    </div>
+    <div class="card" style="flex:1 1 0">
+      <h3>The reply leaves <span class="mono">vault</span></h3>
+      <p class="mono" style="margin:0 0 4px">TO = probe &nbsp;<span class="grey">(the request's FROM)</span></p>
+      <p style="margin:8px 0 0">The answer is addressed by copying the request's <span class="mono">FROM</span> into its <span class="mono">TO</span>. That copy is the whole correlation.</p>
+    </div>
+  </div>
+
+  <div class="row" style="gap:14px;margin-top:18px;align-items:stretch">
+    <div class="card" style="flex:1 1 0">
+      <h3>Each hop prepends a name</h3>
+      <p>A node a message passes through puts its own name in front of <span class="mono">FROM</span>, so a reply can walk the whole path back: <span class="mono">probe</span> becomes <span class="mono">http-out/probe</span>, then <span class="mono">_output/http-out/probe</span> on the wire.</p>
+    </div>
+    <div class="callout" style="flex:1 1 0">
+      <h4>Why this is the security boundary</h4>
+      <p>Whatever <span class="mono">TO</span> names, the router will reach. A reply written by a remote site names its own <span class="mono">TO</span> (Part 1). A message that loops grows <span class="mono">FROM</span> without bound, so a path past 1,024 bytes is refused, and the door it came in by is what refuses it (Part 2b).</p>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,151 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+  .fields { display: flex; gap: 6px; }
+  .f { flex: 1 1 0; background: #fff; border: 1px solid #C3D3EC; border-radius: 8px; overflow: hidden; min-width: 0; }
+  .f > .top { background: #F0F4FB; border-bottom: 1px solid #C3D3EC; padding: 7px 9px; }
+  .f .idx { font-size: 11.5px; color: #787C82; }
+  .f .nm { font-size: 14px; font-weight: 700; color: #003DA5; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .f > .mid { padding: 8px 9px; font-size: 11.5px; line-height: 1.45; color: #101517; }
+  .f .val { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; color: #101517;
+            background: #F6F7F7; border: 1px solid #DCDCDE; border-radius: 4px; padding: 4px 6px; margin-bottom: 7px;
+            overflow-wrap: anywhere; }
+  /* Hand-broken JSON: no automatic wrap may strand a token or a comma on its own line. */
+  .f .val.json { white-space: pre; overflow-wrap: normal; }
+  .f .who { font-size: 11.5px; line-height: 1.4; color: #50575E; margin-top: 6px; }
+  .f .who b { color: #101517; font-weight: 600; }
+  .rule { background: #fff; border: 1px solid #C3C4C7; border-radius: 9px; padding: 13px 15px; }
+  .rule h3 { font-size: 14px; margin: 0 0 6px; }
+  .rule p { font-size: 12.5px; color: #50575E; margin: 0 0 5px; line-height: 1.5; }
+  .rule p:last-child { margin-bottom: 0; }
+  .step { display: inline-block; width: 19px; height: 19px; border-radius: 50%; background: #003DA5; color: #fff;
+          font-size: 11.5px; font-weight: 700; text-align: center; line-height: 19px; margin-right: 6px; vertical-align: 1px; }
+  .box { border: 1.6px solid #003DA5; border-radius: 7px; background: #fff; padding: 7px 9px; font-size: 12px; text-align: center; line-height: 1.35; }
+  .box b { display: block; font-size: 12.5px; }
+</style>
+<div class="sheet">
+<h1>A message is seven fields. A node is one <span class="mono">fill()</span>.</h1>
+<p class="sub">Every node takes the same argument and answers to the same method, so any node composes with any other. The envelope carries the addressing; the node reads the payload and does one thing with it.</p>
+
+<div class="panel">
+  <header>One message: a seven-field array, indexed by constant, packed to the wire as JSON of that array</header>
+  <div class="body">
+    <div class="fields">
+      <div class="f">
+        <div class="top"><div class="idx">0</div><div class="nm">TYPE</div></div>
+        <div class="mid">
+          <div class="val">TM_BYTESTREAM</div>
+          Which plane the message is on: data, command, reply or error.
+          <div class="who"><b>Written</b> by the node that mints it.<br><b>Read</b> by every node that filters on a plane.</div>
+        </div>
+      </div>
+      <div class="f">
+        <div class="top"><div class="idx">1</div><div class="nm">TIMESTAMP</div></div>
+        <div class="mid">
+          <div class="val">1757548800.412</div>
+          When it is minted, to the microsecond.
+          <div class="who"><b>Written</b> once, at mint.<br><b>Read</b> by the dashboards that order events.</div>
+        </div>
+      </div>
+      <div class="f">
+        <div class="top"><div class="idx">2</div><div class="nm">FROM</div></div>
+        <div class="mid">
+          <div class="val">firehose:tee</div>
+          The origin path.
+          <div class="who"><b>Written</b> by the sender.<br><b>Read</b> by a replier: a reply addresses TO = FROM.</div>
+        </div>
+      </div>
+      <div class="f">
+        <div class="top"><div class="idx">3</div><div class="nm">TO</div></div>
+        <div class="mid">
+          <div class="val">request-builder</div>
+          The destination path.
+          <div class="who"><b>Written</b> by the sender, or stamped from the node's target when empty.<br><b>Read</b> by the router.</div>
+        </div>
+      </div>
+      <div class="f">
+        <div class="top"><div class="idx">4</div><div class="nm">ID</div></div>
+        <div class="mid">
+          <div class="val">3:48120:512</div>
+          The producer's own identifier. A reader stamps the segment, the offset and the length it read.
+          <div class="who"><b>Written</b> by the producer.<br><b>Read</b> by whatever resumes from a position.</div>
+        </div>
+      </div>
+      <div class="f">
+        <div class="top"><div class="idx">5</div><div class="nm">KEY</div></div>
+        <div class="mid">
+          <div class="val">req-7a1c9</div>
+          The grouping key. A forwarder carries it and never overwrites it.
+          <div class="who"><b>Written</b> by the producer.<br><b>Read</b> by the Topic, which hashes it to one partition.</div>
+        </div>
+      </div>
+      <div class="f">
+        <div class="top"><div class="idx">6</div><div class="nm">VALUE</div></div>
+        <div class="mid">
+          <div class="val json">{"url":"/news",
+ "ms":41}</div>
+          The payload: one string, or a structure.
+          <div class="who"><b>Written</b> by the producer.<br><b>Read</b> by the node doing the work, which sees this field alone.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row" style="gap:16px;align-items:stretch;margin-top:20px">
+  <div class="rule" style="flex:1 1 0">
+    <h3><span class="step">1</span>A node fills its sink</h3>
+    <p><span class="mono">fill()</span> takes the message, does one thing with it, and returns nothing. Then the node hands the message to its <b>sink</b>, the physical next hop.</p>
+    <div class="row" style="gap:0;align-items:center;margin-top:10px">
+      <div class="box" style="flex:1 1 0"><b>Node</b><span class="mono">fill()</span></div>
+      <div class="conn" style="flex:0 0 56px">
+        <svg width="56" height="24" viewBox="0 0 56 24"><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs><path d="M2 12 L44 12" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/></svg>
+        <div class="cap grey">sink</div>
+      </div>
+      <div class="box" style="flex:1 1 0"><b>Next node</b><span class="mono">fill()</span></div>
+    </div>
+  </div>
+  <div class="rule" style="flex:1 1 0">
+    <h3><span class="step">2</span>A target stamps an empty TO</h3>
+    <p>A node may carry a <b>target</b>, a path. Any message it forwards with no destination yet gets that path stamped into TO. Steering the graph is setting targets, never rewiring sinks.</p>
+    <div class="row" style="gap:0;align-items:center;margin-top:10px">
+      <div class="box" style="flex:1 1 0"><b>TO is empty</b><span class="mono">TO = ""</span></div>
+      <div class="conn" style="flex:0 0 56px">
+        <svg width="56" height="24" viewBox="0 0 56 24"><path d="M2 12 L44 12" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/></svg>
+        <div class="cap grey">target</div>
+      </div>
+      <div class="box" style="flex:1 1 0"><b>TO is stamped</b><span class="mono">TO = "stats:log"</span></div>
+    </div>
+  </div>
+  <div class="rule" style="flex:1 1 0">
+    <h3><span class="step">3</span>The router reads TO</h3>
+    <p>The router splits TO on slashes, looks the first name up in the process's table of nodes, and hands that node the message and the rest of the path.</p>
+    <div class="row" style="gap:0;align-items:center;margin-top:10px">
+      <div class="box mono" style="flex:1 1 0;overflow-wrap:anywhere">stats:log/&hellip;</div>
+      <div class="conn" style="flex:0 0 56px">
+        <svg width="56" height="24" viewBox="0 0 56 24"><path d="M2 12 L44 12" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/></svg>
+        <div class="cap grey">_router</div>
+      </div>
+      <div class="box" style="flex:1 1 0"><b>stats:log</b><span class="mono">fill()</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="row" style="gap:16px;align-items:stretch;margin-top:20px">
+  <div class="card" style="flex:1 1 0">
+    <h3>Fan-out is a Tee</h3>
+    <p>Every live target gets its own copy, addressed so the router carries that copy down whatever path remains. Delivery follows connect order.</p>
+  </div>
+  <div class="card" style="flex:1 1 0">
+    <h3>A transform is a Hook</h3>
+    <p>A Hook fires one WordPress hook per message. An action observes the payload; a filter replaces it. Another plugin reaches the stream through <span class="mono">add_action</span> and <span class="mono">add_filter</span>, shipping no node at all.</p>
+  </div>
+  <div class="card" style="flex:1 1 0">
+    <h3>A new behavior is a new <span class="mono">fill()</span> body</h3>
+    <p>Write it, filter it, copy it, or hand it to a WordPress hook. That is the whole extension surface.</p>
+  </div>
+  <div class="note" style="flex:1 1 0;margin-top:0">
+    <h4>Nodes never call each other's methods</h4>
+    <p>They pass messages. That is what makes a test three lines long: build a message, fill the node, assert on what came out.</p>
+  </div>
+</div>
+</div>

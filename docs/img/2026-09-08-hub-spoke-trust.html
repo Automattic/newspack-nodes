@@ -1,0 +1,55 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<div class="sheet">
+  <h1>Deployment shape, and where the trust boundary actually is</h1>
+  <p class="sub">Each spoke is a different publication. The live hub carries 24 of them as 241 named nodes in one worker process, in one flat registry.</p>
+  <div class="row">
+    <div style="flex:0 0 300px" class="stack">
+      <div class="card">
+        <h3>Spoke — thecoast</h3>
+        <p>WordPress + newspack-nodes + event logger</p>
+        <p class="mono blue" style="margin:0">firehose.p0</p>
+      </div>
+      <div class="card">
+        <h3>Spoke — clevescene</h3>
+        <p>WordPress + newspack-nodes + event logger</p>
+        <p class="mono blue" style="margin:0">firehose.p0</p>
+      </div>
+      <p class="sub" style="margin:10px 0 0;font-size:12.5px">… 24 in total: austinchronicle, bend, charlotte, chronogram, metrotimes, orlando, sevendaysvt, tucsonweekly …</p>
+    </div>
+
+    <div class="conn" style="flex:0 0 214px;padding-top:56px">
+      <svg width="214" height="80" viewBox="0 0 214 80">
+        <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs>
+        <path d="M4 14 C 90 14, 120 40, 200 40" stroke="#003DA5" stroke-width="1.8" fill="none" marker-end="url(#a)"/>
+        <path d="M4 74 C 90 74, 120 44, 200 44" stroke="#003DA5" stroke-width="1.8" fill="none" marker-end="url(#a)"/>
+      </svg>
+      <div class="cap"><strong class="blue">HTTPS · per-spoke signed session</strong><br><span class="grey">The hub is the CLIENT here: the spoke mints the session and the hub holds the key.</span></div>
+    </div>
+
+    <div class="panel" style="flex:1 1 auto">
+      <header>Aggregator hub — one WordPress, one worker process</header>
+      <div class="body">
+        <p style="font-size:12.5px;color:#50575E;margin:0 0 10px">One flat registry, keyed by node name (<span class="mono">Core::$nodes_by_name</span>):</p>
+        <div class="row" style="gap:14px;align-items:stretch">
+          <div style="flex:0 0 210px">
+            <div class="chip mono blue" style="font-size:12px">firehose:thecoast</div>
+            <div class="chip mono blue" style="font-size:12px">firehose:thecoast:http-out</div>
+            <div class="chip mono danger" style="font-size:12px">firehose:clevescene:<br>&nbsp;&nbsp;firehose.p0:offsetlog</div>
+            <div class="chip mono blue" style="font-size:12px">settings:clevescene</div>
+            <div class="chip mono blue" style="font-size:12px">_router &nbsp; _fleet &nbsp; _repl</div>
+            <p class="grey" style="font-size:11.5px;margin:6px 0 0">7 nodes per spoke + 2 per settings egress + 25 shared = 241</p>
+          </div>
+          <div class="callout" style="flex:1 1 auto">
+            <h4>The cross-tenant edge</h4>
+            <p>A reply accepted from one publication's egress is delivered <em>by name</em> — and another publication's offsetlog is a name.</p>
+            <p>Its last frame seeds that publication's durable consumer cursor (<span class="mono" style="font-size:11.5px">Remote_Source::restore_position()</span>). There are 24 of them.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="note">
+    <h4>Isolation between customers is naming discipline, not a boundary the runtime enforces.</h4>
+    <p>Nothing in the registry records which spoke a node belongs to. <span class="mono">firehose:clevescene:firehose.p0:offsetlog</span> is reachable from anywhere in the graph that can put a name in TO.</p>
+  </div>
+</div>

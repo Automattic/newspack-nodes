@@ -1,0 +1,79 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.tree { display: grid; grid-template-columns: 400px 1fr; column-gap: 22px; }
+.tree > div { padding: 10px 0; border-top: 1px solid #E3E4E6; }
+.tree > div:nth-child(-n+2) { border-top: none; padding-top: 2px; }
+.path { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; line-height: 1.5; color: #101517; overflow-wrap: anywhere; }
+.path .t { color: #B0B3B8; }
+.path .dim { color: #787C82; }
+.ann { font-size: 12.5px; line-height: 1.5; color: #50575E; }
+.ann strong { color: #101517; }
+.wire { display: grid; grid-template-columns: 1fr 60px 1fr; align-items: stretch; }
+.wire .conn { justify-content: center; }
+.bytes {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px;
+  line-height: 1.7; background: #F6F7F7; border: 1px solid #DCDCDE; border-radius: 6px;
+  padding: 10px 12px; overflow-wrap: anywhere;
+}
+.bytes .f { background: #E8EEF9; border-radius: 3px; padding: 1px 4px; color: #003DA5; }
+.bytes .v { background: #EDF7ED; border-radius: 3px; padding: 1px 4px; color: #1E5B1E; }
+.drop { display: flex; gap: 8px; margin-top: 10px; }
+.drop .chip { flex: 1 1 0; margin-bottom: 0; text-align: center; }
+.mono { overflow-wrap: anywhere; }
+</style>
+<div class="sheet">
+<h1>One tree, one host</h1>
+<p class="sub">Every path the runtime writes hangs off a single base directory. Nothing in it crosses a machine boundary, and nothing in it is shared with another install.</p>
+
+<div class="panel">
+  <header>The runtime base directory &nbsp;&middot;&nbsp; <span class="mono">/tmp/newspack-nodes</span> by default, set on the Nodes Runtime settings page, and printed resolved by <span class="mono">wp nodes doctor</span></header>
+  <div class="body">
+    <div class="tree">
+      <div class="path"><span class="t">&#9500;&#9472;</span> logs/</div>
+      <div class="ann">Every Partition, as a flat directory per partition. A Topic with N partitions leaves N of them side by side.</div>
+
+      <div class="path"><span class="t">&#9474;&nbsp; &#9500;&#9472;</span> firehose.p0/ &nbsp;<span class="dim">0.log 1.log 2.log</span></div>
+      <div class="ann">The event logger's firehose, partition 0. The numbered segments are the log; appends land in the highest.</div>
+
+      <div class="path"><span class="t">&#9474;&nbsp; &#9492;&#9472;</span> digest.md.0 &nbsp;<span class="dim">digest.md.1</span></div>
+      <div class="ann">A <strong>Log</strong>: a Partition that writes the message's VALUE verbatim, with no envelope and no added newline, so a pager opens the file. Its segments sit beside the named file and the bare name is never written. A <strong>Tail</strong> reads a Log back as raw lines.</div>
+
+      <div class="path"><span class="t">&#9500;&#9472;</span> offsets/</div>
+      <div class="ann">Every offsetlog, named for the topology, the log and the partition, as <span class="mono">&lt;topology&gt;.firehose.p0</span>. Two topologies tailing one log keep separate cursors.</div>
+
+      <div class="path"><span class="t">&#9500;&#9472;</span> deadletter/</div>
+      <div class="ann">Every quarantine. A write-side one is named for its source directory with the slashes turned to dots.</div>
+
+      <div class="path"><span class="t">&#9500;&#9472;</span> locks/ &nbsp;&nbsp;<span class="t">&#9500;&#9472;</span> ipc/ &nbsp;&nbsp;<span class="t">&#9492;&#9472;</span> topologies/</div>
+      <div class="ann">Worker locks, the console's input and output logs, and the topology files. Part 4 opens these three.</div>
+    </div>
+  </div>
+</div>
+
+<div class="wire" style="margin-top:24px">
+  <div class="card">
+    <h3>A Partition writes a record</h3>
+    <div class="bytes"><span class="f">TYPE</span> <span class="f">TIMESTAMP</span> <span class="f">FROM</span> <span class="f">TO</span> <span class="f">ID</span> <span class="f">KEY</span> <span class="v">VALUE</span>&#8629;</div>
+    <p style="margin-top:10px">All seven fields, packed into one line and terminated. A Consumer unpacks the line back into a message, so the envelope survives the disk.</p>
+  </div>
+  <div class="conn" style="justify-content:center">
+    <div class="cap grey">same class,<br>one override</div>
+    <svg width="60" height="26" viewBox="0 0 60 26"><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs><path d="M4 13 L48 13" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/></svg>
+  </div>
+  <div class="card">
+    <h3>A Log writes the bytes</h3>
+    <div class="bytes"><span class="v">VALUE</span></div>
+    <p style="margin-top:10px">The payload and nothing else. The reader of a Log is a person or another program, so it drops the three control types, which carry no payload worth a line.</p>
+    <div class="drop">
+      <div class="chip danger">error</div>
+      <div class="chip danger">end-of-file</div>
+      <div class="chip danger">request</div>
+    </div>
+  </div>
+</div>
+
+<div class="note">
+  <h4>The whole tree is one host's private state</h4>
+  <p>No record in it is replicated, and no reader on another machine opens it. That is what buys the lockless append, and it is the boundary part 7 crosses with a pull rather than a shared mount.</p>
+</div>
+</div>

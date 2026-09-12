@@ -1,0 +1,89 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.stage { position: relative; width: 1052px; height: 650px; }
+.stage .card, .stage .callout { position: absolute; }
+.stage svg.wires { position: absolute; left: 0; top: 0; width: 1052px; height: 650px; overflow: visible; }
+.wires path { fill: none; stroke: #003DA5; stroke-width: 1.8; }
+.wires marker path { fill: #003DA5; stroke: none; }
+.wires marker#r path { fill: #B32D2E; }
+.wires text { font-family: Inter, -apple-system, Helvetica, Arial, sans-serif; font-size: 12.5px; fill: #101517; }
+.wires .red > path { stroke: #B32D2E; }
+.state { display: inline-block; font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 3px 8px; border-radius: 4px; margin-left: 8px; vertical-align: 2px; }
+.state.ok { background: #EDF7ED; color: #1E5B1E; border: 1px solid #9EC89E; padding: 3px 8px; }
+.state.warn { background: #FBEAEA; color: #B32D2E; border: 1px solid #E6A3A3; }
+.mono { overflow-wrap: anywhere; }
+</style>
+<div class="sheet">
+<h1>A reader's four states</h1>
+<p class="sub">A Consumer reads one Partition and keeps its place in a second. A message that fails moves it to the right; a process that dies moves it down. Both roads lead back to reading.</p>
+
+<div class="stage">
+  <svg class="wires" viewBox="0 0 1052 650">
+    <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker>
+    <marker id="r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#B32D2E"/></marker></defs>
+    <!-- Reading -> Quarantine -->
+    <path d="M392 100 L658 100" marker-end="url(#a)"/>
+    <text x="525" y="90" text-anchor="middle">the sink throws, or the line will not unpack</text>
+    <!-- Quarantine -> Reading -->
+    <path d="M660 200 L394 200" marker-end="url(#a)"/>
+    <text x="525" y="222" text-anchor="middle">the cursor advances past the record</text>
+    <!-- Reading -> Boot -->
+    <g class="red">
+      <path d="M100 312 L100 448" marker-end="url(#r)"/>
+      <text x="112" y="350" style="fill:#B32D2E">the process dies:</text>
+      <text x="112" y="367" style="fill:#B32D2E">no throw, no clean shutdown</text>
+      <!-- Boot -> Crawl -->
+      <path d="M392 550 L658 550" marker-end="url(#r)"/>
+      <text x="525" y="540" text-anchor="middle" style="fill:#B32D2E">the fifth boot with no stop reason recorded</text>
+    </g>
+    <!-- Boot -> Reading (normal restart) -->
+    <path d="M300 448 L300 312" marker-end="url(#a)"/>
+    <text x="312" y="412">resumes at the stored count plus one</text>
+    <!-- Crawl -> Reading -->
+    <path d="M857 448 L857 340 L370 340 L370 312" marker-end="url(#a)"/>
+    <text x="614" y="360" text-anchor="middle">thirty crash-free seconds</text>
+  </svg>
+
+  <div class="card" style="left:0;top:40px;width:390px;height:272px">
+    <h3>Reading <span class="state ok">clean</span></h3>
+    <p>The Consumer is a timer node reading one Partition. Each tick reads at most one 64 KB block from the cursor, unpacks each line into a message, stamps its own name into FROM and its target into TO, and fills its sink.</p>
+    <p>The cursor, a segment and a byte offset such as <span class="mono">2:48120</span>, names the next unread record. Caught up, it wakes ten times a second.</p>
+    <p>Every thirty seconds, and at a clean shutdown, it checkpoints the cursor to the offsetlog. A clean shutdown stamps the attempt count to zero.</p>
+  </div>
+
+  <div class="card" style="left:662px;top:40px;width:390px;height:272px">
+    <h3>Quarantine <span class="state warn">poison</span></h3>
+    <p>The message goes to the dead-letter Partition and the stream keeps moving. A line that will not unpack goes the same way with its raw bytes kept.</p>
+    <p>There is no automatic retry, because a throw is deterministic per message. Dropping it would lose data; retrying it forever would wedge the stream. The operator fixes the cause and replays.</p>
+  </div>
+
+  <div class="card" style="left:0;top:448px;width:390px;height:202px">
+    <h3>Boot <span class="state warn">crash</span></h3>
+    <p>A crash leaves no throw, so the attempt count carries the evidence. A restart reads the newest offsetlog entry and resumes at the stored count plus one, so a crash costs at most thirty seconds of re-delivery and never a gap.</p>
+    <p>Only a stuck cursor climbs: four boots that each die on the same record leave a count of four and no reason.</p>
+  </div>
+
+  <div class="card" style="left:662px;top:448px;width:390px;height:202px">
+    <h3>Crawl <span class="state warn">crawl</span></h3>
+    <p>The reader quarantines the message it resumes on with the reason <span class="mono">crash</span>, then checkpoints after every message, so the next crash pins the culprit.</p>
+    <p>Thirty crash-free seconds end the crawl and the reader returns to a checkpoint every thirty seconds.</p>
+  </div>
+</div>
+
+<div class="row" style="margin-top:22px;gap:18px;align-items:stretch">
+  <div class="card" style="flex:1">
+    <h3><span class="mono">offsets/&lt;topology&gt;.firehose.p0/</span></h3>
+    <p>The offsetlog: a second Partition, named by the Consumer's second argument. Each entry holds the segment, the offset, the attempt count and the last stop reason.</p>
+    <p class="grey">It rotates at one byte and keeps ten to sixty segments, so every checkpoint is its own segment and the dashboard's time-travel debugger can seek to any of them.</p>
+  </div>
+  <div class="card" style="flex:1">
+    <h3><span class="mono">deadletter/&hellip;</span></h3>
+    <p>The dead-letter queue: a third Partition, named by the Consumer's third argument. It keeps sixteen segments by count and never by age; a record that sits all weekend is the one an operator comes back for. <span class="mono">wp nodes ingest</span> replays it.</p>
+    <p class="grey">The write side quarantines here too: a short write or a failed segment open sends the unwritten records, replayable but not requeued.</p>
+  </div>
+  <div class="callout" style="flex:1">
+    <h4>A shared log: step off a segment slowly</h4>
+    <p>A peer may still be appending to segment N for a second after N+1 appears. A reader told the log is shared, as the event logger's firehose is, steps off N only after N's size has held steady for two seconds.</p>
+  </div>
+</div>
+</div>

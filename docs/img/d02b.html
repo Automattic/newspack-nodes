@@ -1,0 +1,102 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+  .listing { display:grid; grid-template-columns: 30px 470px 1fr; column-gap:16px; row-gap:0; }
+  .listing > div { padding:11px 0; border-top:1px solid #E3E4E6; }
+  .listing > div:nth-child(-n+3) { border-top:none; padding-top:2px; }
+  .ln { width:22px; height:22px; border-radius:50%; background:#003DA5; color:#fff; font-size:12px; font-weight:700; display:flex; align-items:center; justify-content:center; margin-top:1px; }
+  .code { font-size:12.5px; line-height:1.55; overflow-wrap:anywhere; color:#101517; }
+  .code .tok { color:#787C82; }
+  .code .verb { color:#003DA5; font-weight:700; }
+  .ann { font-size:12.5px; line-height:1.5; color:#50575E; }
+  .ann strong { color:#101517; }
+  .verbs { display:flex; gap:10px; align-items:stretch; }
+  .verb-card { flex:1 1 0; background:#F0F4FB; border:1px solid #C3D3EC; border-radius:5px; padding:8px 11px; font-size:12px; line-height:1.45; color:#50575E; }
+  .verb-card .mono { color:#101517; font-weight:700; }
+  .verb-card.wide { flex:1.9 1 0; }
+  .tag { display:inline-block; font-size:11.5px; font-weight:600; letter-spacing:.02em; text-transform:uppercase; color:#003DA5; margin:0 0 4px; }
+  .tag.off { color:#787C82; }
+  .tag.bad { color:#B32D2E; }
+  .chip.off { background:#F6F7F7; border-color:#DCDCDE; color:#787C82; }
+  .chip.on { border-color:#003DA5; background:#E8EEF9; }
+  .walk .card p, .walk .panel .body p { font-size:12.5px; }
+  .walk .chip { font-size:12px; line-height:1.4; }
+</style>
+<div class="sheet">
+  <h1>Four lines of TSL build a worker, and one record walks the graph they leave behind</h1>
+  <p class="sub">A topology is a script of the same verbs the console accepts. At boot a shell, the node that turns each line of text into a command, feeds the file into the worker's command interpreter. The graph those commands leave behind is the worker.</p>
+
+  <div class="panel">
+    <header><span class="mono">topologies/topic-probe.tsl</span> <span style="font-weight:400;opacity:.85">&middot; the smallest shipped topology, the whole file</span></header>
+    <div class="body">
+      <div class="listing">
+        <div><div class="ln">1</div></div>
+        <div class="code mono"><span class="verb">make_node</span> Topic_Probe topicprobe 15</div>
+        <div class="ann">Builds a <strong>Topic_Probe</strong> named <span class="mono">topicprobe</span> with the argument 15: a timed node that every fifteen seconds records the progress of each reader in this worker. Its <strong>sink</strong>, the node object it hands every message to, is set to <span class="mono">_command_interpreter</span>. No line says so; every node a topology builds gets that same physical next hop.</div>
+
+        <div><div class="ln">2</div></div>
+        <div class="code mono"><span class="verb">make_node</span> Partition topicprobe:log <span class="tok">&lt;config:logs_dir&gt;</span>/topicprobe.p0 1048576 2 8 0 86400 86400</div>
+        <div class="ann">Builds a <strong>Partition</strong> named <span class="mono">topicprobe:log</span>, which appends each message it receives to a segmented log on disk. The shell fills the <span class="mono">&lt;config:logs_dir&gt;</span> token in from the settings; the numbers size and retire the segments.</div>
+
+        <div><div class="ln">3</div></div>
+        <div class="code mono"><span class="verb">connect_node</span> topicprobe topicprobe:log</div>
+        <div class="ann">Sets the probe's <strong>target</strong> to the path <span class="mono">topicprobe:log</span>. It hands nothing to the partition. The target goes into TO when TO is empty, and delivery happens two hops later, below.</div>
+
+        <div><div class="ln">4</div></div>
+        <div class="code mono"><span class="verb">secure</span></div>
+        <div class="ann">Freezes the graph: no later command can build or remove a node. It comes last.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="verbs" style="margin-top:16px">
+    <div class="verb-card"><span class="mono">make_node</span><br>builds a node by class name, names it, and hands it its arguments</div>
+    <div class="verb-card"><span class="mono">connect_node</span><br>sets a node's target</div>
+    <div class="verb-card wide"><span class="mono">cmd</span><br>sends a command to a named node. Every node with settings gets a sibling interpreter named <span class="mono">&lt;name&gt;:config</span>, so <span class="mono">job-worker.tsl</span> switches a reader setting on with one line: <span class="mono">cmd jobs:consumer:config set_line_mode true</span></div>
+    <div class="verb-card"><span class="mono">include</span><br>pulls in another topology by name. It comes before any line using what it builds</div>
+    <div class="verb-card"><span class="mono">secure</span><br>freezes the graph. It comes last</div>
+  </div>
+
+  <div class="row walk" style="gap:0;margin-top:24px">
+    <div class="card" style="flex:0.9 1 0">
+      <h3>Topic_Probe <span class="mono">topicprobe</span></h3>
+      <p>Every 15 seconds it mints a record and calls <span class="mono">fill()</span>, the one entry point of every node. It takes a message and returns nothing.</p>
+      <div class="chip on">TO is empty, so the target goes in: <span class="mono">TO = topicprobe:log</span></div>
+      <div class="chip on">Counts the message</div>
+      <div class="chip on" style="margin-bottom:0">Hands it to the sink</div>
+    </div>
+    <div class="conn" style="flex:0 0 54px;margin-top:66px">
+      <svg width="54" height="26" viewBox="0 0 54 26"><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs><path d="M3 13 L44 13" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/></svg>
+      <div class="cap grey">sink</div>
+    </div>
+    <div class="panel" style="flex:1.45 1 0">
+      <header><span class="mono">_command_interpreter</span></header>
+      <div class="body">
+        <p style="color:#50575E;margin:0 0 8px;line-height:1.5">A node holding a table of verbs, mounted under this reserved name in every worker, the long-lived PHP process running one graph of nodes.</p>
+        <div class="chip off"><span class="tag off">other branch</span><br>TM_COMMAND with TO empty: the command is for this process. It runs the verb and mints a reply with TO set to the request's FROM.</div>
+        <div class="chip on" style="margin-bottom:0"><span class="tag">taken</span><br>TO carries a path: the message is in transit. It forwards it to its own sink, the router.</div>
+      </div>
+    </div>
+    <div class="conn" style="flex:0 0 54px;margin-top:66px">
+      <svg width="54" height="26" viewBox="0 0 54 26"><path d="M3 13 L44 13" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/></svg>
+      <div class="cap grey">sink</div>
+    </div>
+    <div class="panel" style="flex:1.3 1 0">
+      <header><span class="mono">_router</span></header>
+      <div class="body">
+        <p style="color:#50575E;margin:0 0 8px;line-height:1.5">Splits TO at the first slash and looks the first segment up in the process's table of nodes.</p>
+        <div class="chip on"><span class="tag">taken</span><br>Found <span class="mono">topicprobe:log</span>: writes the remainder, here empty, back into TO and calls that node's <span class="mono">fill()</span>.</div>
+        <div class="chip danger" style="margin-bottom:0"><span class="tag bad">a miss</span><br>Nothing answers to the name: a TM_ERROR reading NOT_AVAILABLE goes back along FROM.</div>
+      </div>
+    </div>
+    <div class="conn" style="flex:0 0 54px;margin-top:66px">
+      <svg width="54" height="26" viewBox="0 0 54 26"><path d="M3 13 L44 13" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/></svg>
+      <div class="cap grey">fill()</div>
+    </div>
+    <div class="card" style="flex:0.95 1 0">
+      <h3>Partition <span class="mono">topicprobe:log</span></h3>
+      <p>Packs the seven slots as one line of JSON and appends it to the log on disk.</p>
+      <p class="mono" style="margin:0 0 8px;color:#101517">&lt;logs_dir&gt;/topicprobe.p0</p>
+      <p style="margin:0">The record crosses two hops the topology never names.</p>
+    </div>
+  </div>
+</div>

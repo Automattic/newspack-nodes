@@ -1,0 +1,88 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.strip { display:flex; gap:14px; margin-bottom:18px; }
+.strip .chip { flex:1; margin:0; font-size:12.5px; line-height:1.45; }
+.lanes { position:relative; width:1052px; height:570px; border:1px solid #C3C4C7; border-radius:9px; overflow:hidden; background:#fff; }
+.lane { position:absolute; left:0; width:1052px; border-top:1px solid #DCDCDE; }
+.lane:first-child { border-top:0; }
+.lane.alt { background:#F4F6FA; }
+.lbl { position:absolute; left:14px; width:128px; font-size:13px; font-weight:700; line-height:1.35; }
+.lbl small { display:block; font-weight:400; font-size:11.5px; color:#50575E; margin-top:4px; line-height:1.4; }
+.hop { position:absolute; display:flex; align-items:center; background:#fff; border:1px solid #C3D3EC; border-radius:7px;
+  padding:8px 10px; font-size:12.5px; line-height:1.42; color:#101517; overflow-wrap:anywhere; }
+.alt .hop { background:#fff; }
+.hop .mono { font-size:12px; }
+.num { display:inline-block; min-width:18px; height:18px; border-radius:9px; background:#003DA5; color:#fff;
+  font-size:11.5px; font-weight:700; line-height:18px; text-align:center; margin-right:5px; vertical-align:1px; }
+.arrows { position:absolute; left:0; top:0; pointer-events:none; }
+.side { position:absolute; font-size:11.5px; line-height:1.4; color:#003DA5; }
+.foot { display:flex; gap:16px; margin-top:20px; }
+</style>
+<div class="sheet">
+<h1>One tick of a dashboard, in twelve hops</h1>
+<p class="sub">The page runs the same graph a worker does, in JavaScript, with the PHP runtime's vocabulary: fill, sink and target. Commands leave in one POST per tick; a reply comes back addressed TO = FROM, in the POST body or over the record stream.</p>
+
+<div class="strip">
+  <div class="chip"><span class="mono">@newspack-nodes/runtime</span>: every page mounts the same two backbone nodes and wires its own onto them.</div>
+  <div class="chip"><span class="mono">_router</span> forwards each message by the first segment of its TO and owns the page's one heartbeat, the tick every periodic node rides.</div>
+  <div class="chip"><span class="mono">_command_interpreter</span> turns each console line into an action on the node table, sinks into <span class="mono">_router</span> like every other node, and answers with TO set to the request's FROM.</div>
+</div>
+
+<div class="lanes">
+  <div class="lane" style="top:0;height:120px">
+    <div class="lbl" style="top:15px">Browser, sending<small>the page's graph</small></div>
+    <div class="hop" style="left:160px;top:15px;width:150px;height:90px"><div><span class="num">1</span>A Timer ticks on the router's heartbeat.</div></div>
+    <div class="hop" style="left:337.5px;top:15px;width:150px;height:90px"><div><span class="num">2</span>A Tee fans the tick to one Fetcher per verb.</div></div>
+    <div class="hop" style="left:515px;top:15px;width:150px;height:90px"><div><span class="num">3</span>Each Fetcher sends its fixed verb, FROM = its receiver Tee.</div></div>
+    <div class="hop" style="left:692.5px;top:15px;width:150px;height:90px"><div><span class="num">4</span><span class="mono">_shell</span>, a Tap, forwards it unchanged; <span class="mono">connect _shell</span> shows each one.</div></div>
+    <div class="hop" style="left:870px;top:15px;width:150px;height:90px"><div><span class="num">5</span><span class="mono">_http</span> buffers while the router holds it locked, then one POST carries the whole tick.</div></div>
+  </div>
+  <div class="lane alt" style="top:120px;height:120px">
+    <div class="lbl" style="top:15px">Command request<small>the outbound boundary</small></div>
+    <div class="hop" style="left:515px;top:15px;width:505px;height:90px"><div><span class="num">6</span><span class="mono">POST /newspack-nodes/v1/command</span>. A service node answers the verb inside the request, and the reply rides the POST body with TO set from the browser's FROM. A command bound for a worker is routed onward, and the POST answers a bare 202.</div></div>
+  </div>
+  <div class="lane" style="top:240px;height:90px">
+    <div class="lbl" style="top:15px">Worker<small>the second channel</small></div>
+    <div class="hop" style="left:515px;top:15px;width:355px;height:60px"><div><span class="num">7</span>The worker handles the command and writes its reply to a partition.</div></div>
+    <div class="side" style="left:884px;top:14px;width:112px">reply in the POST body, routed by TO = FROM</div>
+  </div>
+  <div class="lane alt" style="top:330px;height:120px">
+    <div class="lbl" style="top:15px">Stream request<small>one php-fpm child, one graph</small></div>
+    <div class="hop" style="left:160px;top:15px;width:710px;height:90px"><div><span class="num">8</span><span class="mono">GET /newspack-nodes/v1/messages/stream</span>, whose <span class="mono">subscribe</span> argument names the partition. A Consumer tails that partition into <span class="mono">_sse</span>, the stream's controller, and every message routed there leaves as a <span class="mono">msg</span> event. The route gates on the read capability with no nonce, so a hub pulls a spoke the same way.</div></div>
+  </div>
+  <div class="lane" style="top:450px;height:120px">
+    <div class="lbl" style="top:15px">Browser, receiving<small>the same graph</small></div>
+    <div class="hop" style="left:692.5px;top:15px;width:327.5px;height:90px"><div><span class="num">9</span>Both channels land here. A receive-only node fills each frame into the graph, the POST body's reply is filled the same way, and <span class="mono">_router</span> forwards each by its TO.</div></div>
+    <div class="hop" style="left:515px;top:15px;width:150px;height:90px"><div><span class="num">10</span>The receiver Tee named in FROM takes the reply.</div></div>
+    <div class="hop" style="left:337.5px;top:15px;width:150px;height:90px"><div><span class="num">11</span>A view node parses it into a render model, publishes it, forwards nothing.</div></div>
+    <div class="hop" style="left:160px;top:15px;width:150px;height:90px"><div><span class="num">12</span>One widget draws that one node.</div></div>
+  </div>
+  <svg class="arrows" width="1052" height="570" viewBox="0 0 1052 570">
+    <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs>
+    <g stroke="#003DA5" stroke-width="1.8" fill="none" marker-end="url(#a)">
+      <path d="M312 60 L335 60"/><path d="M489.5 60 L513 60"/><path d="M667 60 L690.5 60"/><path d="M844.5 60 L868 60"/>
+      <path d="M945 106 L945 133"/>
+      <path d="M692 226 L692 253"/>
+      <path d="M692 316 L692 343"/>
+      <path d="M780 436 L780 463"/>
+      <path d="M1008 226 L1008 463"/>
+      <path d="M690.5 510 L667 510"/><path d="M513 510 L489.5 510"/><path d="M335 510 L312 510"/>
+    </g>
+  </svg>
+</div>
+
+<div class="foot">
+  <div class="card" style="width:340px">
+    <h3>The pages that mount it</h3>
+    <p>The Nodes hub is one wp-admin page with nine tabs, four of which load only when first opened: Console, Vault, Sessions and Aggregator. The Event Logger adds five dashboards, overview, error log, gyroscope, settings and requests, plus the current-request overlay tab.</p>
+  </div>
+  <div class="note" style="margin-top:0;width:340px">
+    <h4>Inspecting the live graph</h4>
+    <p>Any dashboard can mount the debug overlay. It reads the page's own node table and draws every live node, edge and counter, with a REPL for <span class="mono">connect</span> and <span class="mono">remove</span>. It renders nothing until <span class="mono">?nodes-debug=1</span> turns it on.</p>
+  </div>
+  <div class="callout" style="width:340px">
+    <h4>Why no node holds the whole model</h4>
+    <p>One node that fetches everything has counters that never move and edges a debugger cannot read, so the overlay has nothing to draw. One verb per Fetcher, one reply per view node, one node per widget.</p>
+  </div>
+</div>
+</div>

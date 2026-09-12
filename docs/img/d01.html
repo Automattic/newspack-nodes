@@ -1,0 +1,135 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+  /* Six lanes, fixed widths, so every lifeline and arrow sits on a known x. */
+  .lanes { position: relative; width: 1052px; }
+  .heads { display: flex; }
+  .heads .card { padding: 11px 12px 12px; margin: 0 5px; flex: 0 0 auto; }
+  .heads h3 { font-size: 13.5px; margin: 0 0 5px; line-height: 1.3; }
+  .heads p { font-size: 12px; margin: 0 0 3px; line-height: 1.45; }
+  .heads .what { font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; color: #003DA5; margin: 0 0 4px; font-weight: 600; }
+  .flow { position: relative; }
+  .life { position: absolute; top: 0; bottom: 0; border-left: 2px dashed #C3C4C7; }
+  .hop { position: relative; }
+  .lbl { position: absolute; font-size: 12.5px; line-height: 1.45; color: #101517; background: #FBFBFC; padding: 2px 6px; border-radius: 4px; }
+  .lbl .grey { font-size: 12px; }
+  .n { display: inline-block; width: 19px; height: 19px; border-radius: 50%; background: #003DA5; color: #fff; font-size: 11.5px; font-weight: 700; text-align: center; line-height: 19px; margin-right: 5px; vertical-align: 1px; }
+  .arw { position: absolute; left: 0; }
+  .band { position: absolute; border: 2px solid #003DA5; border-radius: 10px; background: #F0F4FB; }
+  .band > .tag { position: absolute; top: -12px; left: 12px; background: #003DA5; color: #fff; font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 5px; }
+  .end { position: absolute; width: 14px; height: 14px; border-radius: 50%; background: #101517; }
+  .slots { display: flex; gap: 5px; margin: 8px 0 6px; }
+  .slot { flex: 1; height: 30px; border-radius: 5px; background: #003DA5; color: #fff; font-size: 11.5px; font-weight: 600; display: flex; align-items: center; justify-content: center; }
+  .slot.http { background: #FBEAEA; color: #B32D2E; border: 1px dashed #E6A3A3; flex: 0 0 132px; }
+</style>
+<div class="sheet">
+<h1>A worker is a PHP request that outlives its caller</h1>
+<p class="sub">Managed hosting gives a plugin four things and no process that stays up: PHP requests that end, WP-Cron, a shared memcache tier and the REST API. The runtime makes a resident worker out of those parts. Lanes are the parts; numbered hops are one worker's life, from the spawn POST to the POST that starts its successor.</p>
+
+<div class="lanes">
+  <div class="heads">
+    <div class="card" style="width:160px">
+      <p class="what">The host gives</p>
+      <h3>Peer worker or WP-Cron</h3>
+      <p>WP-Cron fires on traffic and drifts on quiet sites. Its pass once a minute spawns what is due, reaps stray locks and prunes retention: the cold-start tier.</p>
+    </div>
+    <div class="card" style="width:140px">
+      <p class="what">The host gives</p>
+      <h3>REST API</h3>
+      <p><span class="mono">POST /workers/spawn</span></p>
+      <p><span class="mono">POST /auth</span> issues a session.</p>
+      <p><span class="mono">POST /command</span> carries every dashboard verb.</p>
+      <p>Two SSE streams tail logs to the browser.</p>
+    </div>
+    <div class="card" style="width:220px;border-color:#003DA5">
+      <p class="what">The runtime builds</p>
+      <h3>Worker <span class="mono">job-worker.p0</span></h3>
+      <p>One request, made to end late. It runs one topology: a graph of nodes a <span class="mono">.tsl</span> file declares in shell verbs such as <span class="mono">make_node</span> and <span class="mono">connect_node</span>.</p>
+    </div>
+    <div class="card" style="width:190px">
+      <p class="what">The runtime owns</p>
+      <h3>Runtime file tree</h3>
+      <p><span class="mono">logs/</span> partitions in numbered segments</p>
+      <p><span class="mono">offsets/</span> each reader's cursor</p>
+      <p><span class="mono">locks/</span> one <span class="mono">mkdir</span> per worker</p>
+      <p><span class="mono">deadletter/</span> quarantined records</p>
+    </div>
+    <div class="card" style="width:140px">
+      <p class="what">The host gives</p>
+      <h3>Memcache</h3>
+      <p>The shared tier: Memcached, or APCu on a single host.</p>
+    </div>
+    <div class="card" style="width:142px">
+      <p class="what">WordPress gives</p>
+      <h3>Options table</h3>
+      <p>Option rows and no table: the settings and the active topology set. Liveness and reader position live on disk instead.</p>
+    </div>
+  </div>
+
+  <div class="flow" style="height:816px">
+    <div class="life" style="left:84px"></div>
+    <div class="life" style="left:244px"></div>
+    <div class="life" style="left:434px"></div>
+    <div class="life" style="left:649px"></div>
+    <div class="life" style="left:824px"></div>
+    <div class="life" style="left:975px"></div>
+
+    <div class="band" style="left:328px;top:352px;width:214px;height:240px">
+      <div class="tag"><span class="n" style="background:#fff;color:#003DA5;margin-right:4px">5</span>Drain, about 595 seconds</div>
+    </div>
+
+    <svg class="arw" width="1052" height="816" viewBox="0 0 1052 816" style="top:0">
+      <defs>
+        <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker>
+      </defs>
+      <path d="M85 94 L238 94" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/>
+      <path d="M245 198 L428 198" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/>
+      <path d="M435 246 L969 246" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/>
+      <path d="M435 330 L643 330" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/>
+      <path d="M542 447 L643 447" stroke="#003DA5" stroke-width="1.8" marker-start="url(#a)" marker-end="url(#a)"/>
+      <path d="M542 498 L818 498" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/>
+      <path d="M542 566 L643 566" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/>
+      <path d="M328 566 L251 566" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/>
+      <path d="M435 664 L643 664" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/>
+      <path d="M435 694 L251 694" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/>
+      <path d="M435 730 L435 784" stroke="#003DA5" stroke-width="1.8"/>
+    </svg>
+
+    <div class="lbl" style="left:30px;top:8px;width:360px"><span class="n">1</span><span class="mono">POST /workers/spawn</span> with a 250 ms timeout. The caller hangs up and never reads the reply.<br><span class="grey">A peer worker on its 15-second scan, or the WP-Cron pass once a minute.</span></div>
+
+    <div class="lbl" style="left:180px;top:112px;width:400px"><span class="n">2</span>The handler ignores the hangup, lifts the time limit and runs the worker inline, in this request.<br><span class="grey">Its budget is about 595 seconds, inside the 15-minute request cap on WordPress.com Atomic.</span></div>
+
+    <div class="lbl" style="left:450px;top:216px;width:470px"><span class="n">3</span>Read the settings and the active topology set.</div>
+
+    <div class="lbl" style="left:450px;top:264px;width:440px"><span class="n">4</span><span class="mono">mkdir locks/job-worker.p0&hellip;</span>, atomic on every filesystem we ship on, with a heartbeat file inside. Then build the graph the <span class="mono">.tsl</span> declares.</div>
+
+    <div class="lbl" style="left:20px;top:372px;width:300px;background:#fff;border:1px solid #C3D3EC"><b>The drain loop.</b> Sleep until the soonest timer is due, fire it, sleep again. It is one thread: a slow <span class="mono">fill()</span> holds every other node until it returns. That is the backpressure.</div>
+
+    <div class="lbl" style="left:560px;top:366px;width:480px">Consumers tail <span class="mono">logs/</span>, nodes append to it, each cursor checkpoints to <span class="mono">offsets/</span>, and a record that makes its reader throw lands in <span class="mono">deadletter/</span>.</div>
+
+    <div class="lbl" style="left:560px;top:450px;width:480px">Command sessions, the leases on SSE stream slots, and the keyed Table store any process can read.</div>
+
+    <div class="lbl" style="left:560px;top:518px;width:480px">Every 15 seconds: read the peers' heartbeats, and POST a spawn for any peer whose heartbeat is stale. No supervisor does this; every worker does.</div>
+
+    <div class="lbl" style="left:560px;top:614px;width:480px"><span class="n">6</span>At 595 seconds: release the lock, then <span class="mono">POST /workers/spawn</span> for the successor, and end.</div>
+
+    <div class="end" style="left:428px;top:784px"></div>
+    <div class="lbl" style="left:560px;top:726px;width:480px"><span class="n">7</span>The other exit, on a topology with <span class="mono">on_demand_idle</span> set: every reader has reached the end of its log and stayed there for the idle window, so the worker exits and leaves no lock. The next write respawns it. Every deployment config under <span class="mono">services/</span> sets the window to 30 seconds.</div>
+  </div>
+</div>
+
+<div class="row" style="gap:18px;align-items:stretch;margin-top:10px">
+  <div class="note" style="flex:0 0 380px;margin-top:0">
+    <h4>No supervisor</h4>
+    <p>Every worker scans its peers every 15 seconds and respawns one whose heartbeat is stale. A fleet with nothing left running is revived by the WP-Cron pass, once a minute.</p>
+  </div>
+  <div class="callout" style="flex:1">
+    <h4>The budget: count the slots, not the topologies</h4>
+    <p>On Atomic a "CPU" is a PHP worker slot, and a resident worker holds one for its whole life, busy or idle. Ten resident workers against a ten-worker allocation:</p>
+    <div class="slots">
+      <div class="slot">W</div><div class="slot">W</div><div class="slot">W</div><div class="slot">W</div><div class="slot">W</div><div class="slot">W</div><div class="slot">W</div><div class="slot">W</div><div class="slot">W</div><div class="slot">W</div>
+      <div class="slot http">page requests: 429</div>
+    </div>
+    <p>Page requests backlog and the site answers 429. Resident workers stay under the contracted allocation, with headroom for HTTP; hop 7 is the lever, a topology that scales to zero.</p>
+  </div>
+</div>
+</div>

@@ -1,0 +1,127 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+  .wire { display:flex; align-items:flex-end; gap:0; font-size:17px; line-height:1.2; padding:14px 18px 16px; }
+  .wire .br { color:#787C82; padding:0 2px; align-self:flex-end; }
+  .slot { display:flex; flex-direction:column; align-items:center; gap:6px; }
+  .slot .idx { width:22px; height:22px; border-radius:50%; background:#003DA5; color:#fff; font-size:12px; font-weight:700; display:flex; align-items:center; justify-content:center; font-family:Inter, sans-serif; }
+  .slot .nm { color:#101517; }
+  .slot.hi .nm { color:#003DA5; font-weight:700; }
+  .anat { width:100%; border-collapse:separate; border-spacing:0; font-size:12.5px; line-height:1.45; }
+  .anat th { text-align:left; font-size:11.5px; font-weight:600; color:#50575E; letter-spacing:.02em; text-transform:uppercase; padding:0 12px 8px; }
+  .anat td { background:#fff; border:1px solid #C3C4C7; border-left:none; padding:9px 12px; vertical-align:top; color:#50575E; }
+  .anat td:first-child { border-left:1px solid #C3C4C7; border-radius:9px 0 0 9px; color:#101517; white-space:nowrap; }
+  .anat td:last-child { border-radius:0 9px 9px 0; }
+  .anat tr + tr td { margin-top:6px; }
+  .anat tbody tr { }
+  .anat tbody td { border-bottom:none; }
+  .anat tbody tr:last-child td { border-bottom:1px solid #C3C4C7; }
+  .anat tbody tr:first-child td { border-top:1px solid #C3C4C7; }
+  .anat tbody tr:not(:last-child) td { border-radius:0; }
+  .anat tbody tr:first-child td:first-child { border-radius:9px 0 0 0; }
+  .anat tbody tr:first-child td:last-child { border-radius:0 9px 0 0; }
+  .anat tbody tr:last-child td:first-child { border-radius:0 0 0 9px; }
+  .anat tbody tr:last-child td:last-child { border-radius:0 0 9px 0; }
+  .anat tbody tr:not(:first-child) td { border-top:1px solid #E3E4E6; }
+  .anat .idx { display:inline-flex; width:20px; height:20px; border-radius:50%; background:#003DA5; color:#fff; font-size:11.5px; font-weight:700; align-items:center; justify-content:center; margin-right:8px; vertical-align:middle; }
+  .flags { display:flex; flex-wrap:wrap; gap:8px; }
+  .flag { flex:1 1 150px; background:#F0F4FB; border:1px solid #C3D3EC; border-radius:5px; padding:7px 10px; font-size:12px; line-height:1.4; margin:0; }
+  .flag .bit { color:#787C82; float:right; }
+  .flag.dim { background:#F6F7F7; border-color:#DCDCDE; color:#787C82; }
+  .flag.on { border-color:#003DA5; background:#E8EEF9; }
+  .flag .d { display:block; color:#50575E; font-size:11.5px; margin-top:2px; }
+</style>
+<div class="sheet">
+  <h1>Anatomy of a message</h1>
+  <p class="sub">One PHP array with seven numbered slots. It crosses a process boundary as a JSON list of seven, and the receiver accepts a seven-element list and nothing else.</p>
+
+  <div class="panel">
+    <header>The wire form: one JSON array, read through <span class="mono">Message::TYPE</span> &hellip; <span class="mono">Message::VALUE</span>, never a bare number or a string key</header>
+    <div class="wire mono">
+      <span class="br">[</span>
+      <span class="slot" style="flex:1"><span class="idx">0</span><span class="nm">type</span></span><span class="br">,</span>
+      <span class="slot" style="flex:1.3"><span class="idx">1</span><span class="nm">timestamp</span></span><span class="br">,</span>
+      <span class="slot hi" style="flex:1"><span class="idx">2</span><span class="nm">FROM</span></span><span class="br">,</span>
+      <span class="slot hi" style="flex:1"><span class="idx">3</span><span class="nm">TO</span></span><span class="br">,</span>
+      <span class="slot" style="flex:0.8"><span class="idx">4</span><span class="nm">id</span></span><span class="br">,</span>
+      <span class="slot" style="flex:0.8"><span class="idx">5</span><span class="nm">key</span></span><span class="br">,</span>
+      <span class="slot" style="flex:1"><span class="idx">6</span><span class="nm">value</span></span>
+      <span class="br">]</span>
+    </div>
+  </div>
+
+  <table class="anat" style="margin-top:20px">
+    <thead><tr><th>Slot</th><th>What it holds</th><th>Who writes it</th><th>Who reads it</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><span class="idx">0</span><span class="mono">Message::TYPE</span></td>
+        <td>A bitmask of the eleven flags below. Flags combine: a reply to a command carries TM_COMMAND and TM_RESPONSE together.</td>
+        <td>The minter.</td>
+        <td>Any node that branches on it. The command interpreter tests for TM_COMMAND.</td>
+      </tr>
+      <tr>
+        <td><span class="idx">1</span><span class="mono">Message::TIMESTAMP</span></td>
+        <td>The moment of minting.</td>
+        <td>The minter.</td>
+        <td>The signature check on a command, which bounds how old it may be.</td>
+      </tr>
+      <tr>
+        <td><span class="idx">2</span><span class="mono blue"><strong>Message::FROM</strong></span></td>
+        <td>A slash-separated path of names: the trail behind the message.</td>
+        <td>The minter writes its own name. Each process boundary crossed puts one more name in front; forwarding inside one process adds nothing.</td>
+        <td>A node that answers copies it into the reply's TO. The router drops one longer than 1,024 bytes.</td>
+      </tr>
+      <tr>
+        <td><span class="idx">3</span><span class="mono blue"><strong>Message::TO</strong></span></td>
+        <td>A slash-separated path of names: the path ahead.</td>
+        <td>Empty at minting. The node's target fills it when it is empty; a reply carries the request's FROM.</td>
+        <td>The router splits it at the first slash and peels one segment per hop. An empty TO at the interpreter means the command is for this process.</td>
+      </tr>
+      <tr>
+        <td><span class="idx">4</span><span class="mono">Message::ID</span></td>
+        <td>An identifier the producer owns.</td>
+        <td>The producer.</td>
+        <td>Copied unchanged into the reply.</td>
+      </tr>
+      <tr>
+        <td><span class="idx">5</span><span class="mono">Message::KEY</span></td>
+        <td>What the producer groups on.</td>
+        <td>The producer.</td>
+        <td>Copied unchanged into the reply.</td>
+      </tr>
+      <tr>
+        <td><span class="idx">6</span><span class="mono">Message::VALUE</span></td>
+        <td>The data. For a command, the verb's name and its arguments.</td>
+        <td>The producer.</td>
+        <td>The node the message finally reaches.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="card" style="margin-top:20px">
+    <h3>The type slot: eleven flags, one bit each</h3>
+    <div class="flags">
+      <div class="flag on"><span class="bit">1</span><span class="mono">TM_BYTESTREAM</span><span class="d">a raw line of text</span></div>
+      <div class="flag dim"><span class="bit">2</span><span class="mono">TM_EOF</span></div>
+      <div class="flag dim"><span class="bit">4</span><span class="mono">TM_PING</span></div>
+      <div class="flag on"><span class="bit">8</span><span class="mono">TM_COMMAND</span><span class="d">an instruction</span></div>
+      <div class="flag on"><span class="bit">16</span><span class="mono">TM_STRUCT</span><span class="d">a structured array</span></div>
+      <div class="flag on"><span class="bit">32</span><span class="mono">TM_ERROR</span><span class="d">a failure</span></div>
+      <div class="flag dim"><span class="bit">64</span><span class="mono">TM_INFO</span></div>
+      <div class="flag dim"><span class="bit">128</span><span class="mono">TM_REQUEST</span></div>
+      <div class="flag on"><span class="bit">256</span><span class="mono">TM_RESPONSE</span><span class="d">an answer</span></div>
+      <div class="flag dim"><span class="bit">512</span><span class="mono">TM_NOREPLY</span></div>
+      <div class="flag dim"><span class="bit">1024</span><span class="mono">TM_UNTYPED</span></div>
+    </div>
+  </div>
+
+  <div class="row" style="gap:18px;margin-top:18px;align-items:stretch">
+    <div class="callout" style="flex:1">
+      <h4>An equality check misses every combination</h4>
+      <p>A reply to a command has type <span class="mono">TM_COMMAND | TM_RESPONSE</span>, which is 8 + 256 = 264. <span class="mono">264 === TM_RESPONSE</span> is false, and the reply is never recognised as an answer.</p>
+    </div>
+    <div class="ok" style="flex:1">
+      <h4>A bitwise AND finds the flag</h4>
+      <p><span class="mono">264 &amp; TM_RESPONSE</span> is 256, which is true. Every node tests a flag this way, so a message carrying several flags satisfies every test it should.</p>
+    </div>
+  </div>
+</div>

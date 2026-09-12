@@ -1,0 +1,207 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+  h2 { font-size: 16px; margin: 24px 0 10px; }
+  svg text { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 12.5px; fill: #101517; }
+  svg text.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  svg text.sub { font-size: 11.5px; fill: #50575E; }
+  svg text.lane { font-weight: 700; font-size: 12px; fill: #50575E; letter-spacing: .04em; }
+  svg text.st { font-weight: 700; font-size: 13px; }
+  svg text.white { fill: #fff; }
+  .verbs { display: grid; grid-template-columns: 152px 1fr; gap: 6px 12px; font-size: 12.5px; line-height: 1.45; color: #50575E; }
+  .verbs .v { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: #003DA5; overflow-wrap: anywhere; }
+  .rung { display: grid; grid-template-columns: 30px 1fr; gap: 12px; align-items: start; }
+  .rung + .rung { margin-top: 9px; }
+  .rung .n { width: 26px; height: 26px; border-radius: 50%; background: #003DA5; color: #fff; font-size: 13px; font-weight: 700; text-align: center; line-height: 26px; }
+  .rung p { font-size: 12.5px; color: #50575E; line-height: 1.5; margin: 0; }
+  .rung p b { color: #101517; }
+  .code { background: #101517; color: #E8EAED; border-radius: 7px; padding: 10px 12px; font-size: 12px; line-height: 1.65; white-space: pre; margin: 8px 0 0; overflow-wrap: anywhere; }
+  .code .k { color: #7FB0FF; }
+</style>
+<div class="sheet">
+<h1>The operator's loop, and the ladder a release climbs</h1>
+<p class="sub">A deploy is four commands in one order, and the order is what keeps a live worker from reading half-replaced files. A release adds one rule on top: tag the substrate before any plugin that pins it.</p>
+
+<h2 style="margin-top:0">One deploy, across three lanes</h2>
+<svg width="1052" height="272" viewBox="0 0 1052 272">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker>
+    <marker id="r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#B32D2E"/></marker>
+  </defs>
+
+  <!-- operator lane -->
+  <text class="lane" x="0" y="14">OPERATOR</text>
+  <g>
+    <rect x="0" y="24" width="196" height="44" rx="7" fill="#101517"/>
+    <text class="mono white" x="12" y="42"><tspan fill="#7FB0FF">npm run</tspan> release:archive</text>
+    <text class="sub" x="12" y="60" fill="#B9BDC2">builds the zip a deploy installs</text>
+    <rect x="212" y="24" width="196" height="44" rx="7" fill="#101517"/>
+    <text class="mono white" x="224" y="42"><tspan fill="#7FB0FF">wp nodes stop</tspan></text>
+    <text class="sub" x="224" y="60" fill="#B9BDC2">blocks until every lock is gone</text>
+    <rect x="424" y="24" width="268" height="44" rx="7" fill="#101517"/>
+    <text class="mono white" x="436" y="42"><tspan fill="#7FB0FF">wp plugin install</tspan> …zip --force</text>
+    <text class="sub" x="436" y="60" fill="#B9BDC2">the files change while nothing runs</text>
+    <rect x="708" y="24" width="172" height="44" rx="7" fill="#101517"/>
+    <text class="mono white" x="720" y="42"><tspan fill="#7FB0FF">wp nodes start</tspan></text>
+    <text class="sub" x="720" y="60" fill="#B9BDC2">lifts the hold, spawns</text>
+    <rect x="896" y="24" width="156" height="44" rx="7" fill="#101517"/>
+    <text class="mono white" x="908" y="42"><tspan fill="#7FB0FF">wp nodes</tspan></text>
+    <text class="mono white" x="908" y="60"><tspan fill="#7FB0FF">status</tspan> / <tspan fill="#7FB0FF">doctor</tspan></text>
+  </g>
+
+  <!-- fleet lane -->
+  <text class="lane" x="0" y="106">FLEET</text>
+  <g>
+    <rect x="0" y="116" width="196" height="40" rx="7" fill="#EDF7ED" stroke="#9EC89E"/>
+    <text class="st" x="98" y="134" text-anchor="middle" fill="#1E5B1E">live</text>
+    <text class="sub" x="98" y="149" text-anchor="middle" fill="#2B5F2B">old class, old code</text>
+    <rect x="212" y="116" width="196" height="40" rx="7" fill="#FFF4E5" stroke="#D9A44A"/>
+    <text class="st" x="310" y="134" text-anchor="middle" fill="#8A5A00">draining</text>
+    <text class="sub" x="310" y="149" text-anchor="middle" fill="#8A5A00">each worker flagged to exit</text>
+    <rect x="424" y="116" width="268" height="40" rx="7" fill="#F0F4FB" stroke="#C3D3EC"/>
+    <text class="st" x="558" y="134" text-anchor="middle" fill="#003DA5">held</text>
+    <text class="sub" x="558" y="149" text-anchor="middle" fill="#003DA5">a persisted hold every spawn path checks</text>
+    <rect x="708" y="116" width="344" height="40" rx="7" fill="#EDF7ED" stroke="#9EC89E"/>
+    <text class="st" x="880" y="134" text-anchor="middle" fill="#1E5B1E">live again</text>
+    <text class="sub" x="880" y="149" text-anchor="middle" fill="#2B5F2B">new class, new code, fresh 595-second lifetime</text>
+  </g>
+  <g stroke="#003DA5" stroke-width="1.8">
+    <line x1="198" y1="136" x2="206" y2="136" marker-end="url(#a)"/>
+    <line x1="410" y1="136" x2="418" y2="136" marker-end="url(#a)"/>
+    <line x1="694" y1="136" x2="702" y2="136" marker-end="url(#a)"/>
+  </g>
+
+  <!-- disk lane -->
+  <text class="lane" x="0" y="194">PLUGIN FILES</text>
+  <g>
+    <rect x="0" y="204" width="408" height="34" rx="7" fill="#fff" stroke="#C3C4C7"/>
+    <text class="mono" x="204" y="226" text-anchor="middle">the version the workers booted</text>
+    <rect x="424" y="204" width="628" height="34" rx="7" fill="#fff" stroke="#C3C4C7"/>
+    <text class="mono" x="738" y="226" text-anchor="middle">release/&lt;plugin&gt;.zip, unpacked</text>
+  </g>
+
+  <line x1="416" y1="240" x2="416" y2="264" stroke="#B32D2E" stroke-width="1.8" marker-end="url(#r)"/>
+  <text class="sub" x="430" y="261" fill="#B32D2E">the swap the hold protects</text>
+</svg>
+
+<div class="callout" style="margin-top:10px">
+  <h4>Install without the hold, and the fleet reads half-replaced files.</h4>
+  <p>A live worker's autoloader breaks mid-record, and the Consumer quarantines the record in flight as poison. <span class="mono">wp nodes stop</span> exits non-zero when its wait expires, which is how a scripted deploy learns the drain failed instead of installing over live workers. When the files are already in place, <span class="mono">wp nodes restart all</span> is enough and still necessary: a worker holds the old class for the rest of its 595-second lifetime. Skip the build and the deploy installs a stale zip, which PHPUnit, running from the source tree, cannot notice.</p>
+</div>
+
+<h2>What a slot reads, and what moves it</h2>
+<div class="row" style="gap:16px; align-items:flex-start">
+  <div class="card" style="flex:1.35 1 0; min-width:0; padding-bottom:10px">
+    <h3 style="margin-bottom:10px"><span class="mono">wp nodes status</span>: one row per partition</h3>
+    <svg width="600" height="272" viewBox="0 0 600 272">
+      <defs>
+        <marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#787C82"/></marker>
+      </defs>
+      <!-- holds a lock group -->
+      <rect x="2" y="24" width="292" height="108" rx="9" fill="#F7F9FC" stroke="#C3D3EC" stroke-dasharray="5 4"/>
+      <text class="lane" x="14" y="18" fill="#003DA5">SLOT HOLDS A LOCK</text>
+      <rect x="22" y="42" width="118" height="36" rx="7" fill="#EDF7ED" stroke="#9EC89E"/>
+      <text class="st mono" x="81" y="65" text-anchor="middle" fill="#1E5B1E">live</text>
+      <rect x="176" y="42" width="118" height="36" rx="7" fill="#FFF4E5" stroke="#D9A44A"/>
+      <text class="st mono" x="235" y="65" text-anchor="middle" fill="#8A5A00">stale</text>
+      <line x1="142" y1="60" x2="170" y2="60" stroke="#787C82" stroke-width="1.6" marker-end="url(#b)"/>
+      <text class="sub" x="12" y="100">The heartbeat ages past the topology's</text>
+      <text class="sub mono" x="12" y="116">stale_timeout, and the row turns.</text>
+
+      <!-- no lock group -->
+      <rect x="306" y="24" width="292" height="108" rx="9" fill="#F7F9FC" stroke="#C3D3EC" stroke-dasharray="5 4"/>
+      <text class="lane" x="318" y="18" fill="#003DA5">SLOT HOLDS NO LOCK</text>
+      <rect x="326" y="42" width="118" height="36" rx="7" fill="#FBEAEA" stroke="#E6A3A3"/>
+      <text class="st mono" x="385" y="65" text-anchor="middle" fill="#B32D2E">down</text>
+      <rect x="480" y="42" width="118" height="36" rx="7" fill="#fff" stroke="#C3C4C7"/>
+      <text class="st mono" x="539" y="65" text-anchor="middle" fill="#50575E">idle</text>
+      <text class="sub" x="316" y="100">A resident topology that should be</text>
+      <text class="sub" x="316" y="116">running, against an on-demand one at rest.</text>
+
+      <!-- held and inactive -->
+      <rect x="2" y="152" width="292" height="104" rx="9" fill="#F0F4FB" stroke="#C3D3EC"/>
+      <text class="st mono" x="16" y="178" fill="#003DA5">held</text>
+      <text class="sub" x="16" y="200">A deploy hold stands, so nothing spawns.</text>
+      <text class="sub" x="16" y="218">Every row reads this until</text>
+      <text class="sub mono" x="16" y="236">wp nodes start lifts it.</text>
+
+      <rect x="306" y="152" width="292" height="104" rx="9" fill="#fff" stroke="#C3C4C7"/>
+      <text class="st mono" x="320" y="178" fill="#50575E">inactive</text>
+      <text class="sub" x="320" y="200">A catalog entry outside the active set.</text>
+      <text class="sub mono" x="320" y="218">wp nodes activate &lt;topology&gt;</text>
+      <text class="sub" x="320" y="236">is what moves it into the fleet.</text>
+    </svg>
+  </div>
+  <div style="flex:1 1 0; min-width:0" class="stack">
+    <div class="panel">
+      <header><span class="mono" style="font-size:14px">wp nodes doctor</span>: eight health rows</header>
+      <div class="body" style="padding:12px 14px">
+        <div class="chip" style="margin-bottom:0">cache backend &middot; filesystem &middot; ownership &middot; housekeeping &middot; config keys &middot; worker liveness &middot; consumer lag &middot; dead letters, plus <span class="mono">fleet-hold</span> while a hold stands. Warnings warn; a critical row exits non-zero.</div>
+      </div>
+    </div>
+    <div class="card">
+      <h3><span class="mono">wp nodes run &lt;type&gt;</span></h3>
+      <p>Runs one worker in the foreground and prints its exit reason, for a worker that spawns and exits at once.</p>
+    </div>
+    <div class="callout">
+      <h4><span class="mono">wp nodes memcache flush</span> restarts the fleet</h4>
+      <p>It rotates the install's cache salt, orphaning every Newspack plugin key at once and no co-tenant's. The restart follows because a live worker keeps writing under the old prefix until it respawns.</p>
+    </div>
+  </div>
+</div>
+
+<h2>Inside a live worker: <span class="mono">wp nodes cli &lt;type&gt;.p0</span></h2>
+<div class="row" style="gap:16px; align-items:stretch">
+  <div class="card" style="flex:1.6 1 0; min-width:0">
+    <h3>The REPL pivots into the running process</h3>
+    <div class="verbs" style="margin-top:8px">
+      <div class="v">ls -c</div><div>Lists the worker's nodes with their counters.</div>
+      <div class="v">dump_node</div><div>Prints one node's state.</div>
+      <div class="v">stats</div><div>Reads throughput.</div>
+      <div class="v">list_timers</div><div>Finds a spinner: a row whose next fire is at or below zero while its fire count climbs.</div>
+      <div class="v">profile on<br>list_profiles</div><div>Ranks nodes by their own time.</div>
+      <div class="v">dmesg</div><div>Shows the last hundred stderr lines.</div>
+      <div class="v">taillog</div><div>Tails a registered log source.</div>
+    </div>
+    <p style="margin-top:10px">What the REPL finds goes back to the top: fix the code, build the zip again.</p>
+  </div>
+  <div class="callout" style="flex:1 1 0; min-width:0">
+    <h4>Attach as the web user. Root is refused.</h4>
+    <p>A root session would seed the worker's IPC directory with files the worker itself cannot write, and the worker stays locked out after the session ends.</p>
+  </div>
+</div>
+
+<h2>Releasing: the substrate before its consumers</h2>
+<div class="row" style="gap:16px; align-items:stretch">
+  <div class="panel" style="flex:1.5 1 0; min-width:0">
+    <header>Three rungs, in this order</header>
+    <div class="body">
+      <div class="rung">
+        <div class="n">1</div>
+        <p><b>Tag the substrate and push the tag.</b> <span class="mono">scripts/bump-version.sh</span> rewrites the version in every file that carries it. Promote the <span class="mono">[Unreleased]</span> section of <span class="mono">CHANGELOG.md</span>, commit, and push a strict <span class="mono">v&lt;major&gt;.&lt;minor&gt;.&lt;patch&gt;</span> tag; a <span class="mono">-beta</span> suffix is a silent no-op. The workflow builds the zip, takes that changelog section as the notes, and publishes.</p>
+      </div>
+      <div class="rung">
+        <div class="n">2</div>
+        <p><b>Bump each consumer.</b> Its bump script rewrites the <span class="mono">ref:</span> pin in <span class="mono">release.yml</span> to the substrate version in the working tree, and refuses when that version carries no local tag. A consumer tagged by hand never runs the script, which is why rung 3 exists.</p>
+      </div>
+      <div class="rung">
+        <div class="n">3</div>
+        <p><b>Verify the published asset.</b> Identical bytes mean the pin is right.</p>
+      </div>
+      <pre class="code"><span class="k">gh release download</span> v&lt;version&gt; -R &lt;owner&gt;/&lt;repo&gt; -p '*.zip'
+<span class="k">unzip</span> -q &lt;plugin&gt;.zip
+<span class="k">diff</span> -rq &lt;plugin&gt;/build &lt;local-checkout&gt;/build</pre>
+    </div>
+  </div>
+  <div style="flex:1 1 0; min-width:0" class="stack">
+    <div class="callout">
+      <h4>A green workflow proves nothing about which substrate the zip carries</h4>
+      <p>The event logger and intelligence bundle substrate code through the <span class="mono">@newspack-nodes/*</span> alias. A local build resolves it to the sibling working tree; CI resolves it to the <span class="mono">ref:</span> pin. When the two disagree the build still succeeds, because the shared code is only older.</p>
+    </div>
+    <div class="card">
+      <h3>The pin is not the floor</h3>
+      <p><span class="mono">ref:</span> decides which substrate source CI bundles.</p>
+      <p><span class="mono">version_at_least()</span> in the plugin's loader decides which installed substrate the plugin runs against, going dormant behind an admin notice below it.</p>
+    </div>
+  </div>
+</div>
+</div>

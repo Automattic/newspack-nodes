@@ -1,0 +1,91 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.stations { display: flex; gap: 14px; }
+.stations > .card { flex: 1 1 0; }
+.stations .card h3 { font-size: 14.5px; margin: 0 0 7px; }
+.stations .card p { font-size: 12.5px; margin: 0 0 7px; }
+.stations .card p:last-child { margin-bottom: 0; }
+.ruler { display: flex; align-items: stretch; gap: 0; margin-top: 6px; }
+.ruler .stop { flex: 1 1 0; border: 1px solid #C3D3EC; background: #F0F4FB; padding: 10px 13px; font-size: 12.5px; line-height: 1.45; }
+.ruler .stop:first-child { border-radius: 8px 0 0 8px; }
+.ruler .stop:last-child { border-radius: 0 8px 8px 0; }
+.ruler .stop b { display: block; font-size: 13.5px; margin-bottom: 3px; }
+.ruler .stop.dflt { background: #003DA5; border-color: #003DA5; color: #fff; }
+.kv { font-size: 12.5px; line-height: 1.5; color: #50575E; margin: 0 0 6px; }
+.kv:last-child { margin-bottom: 0; }
+.kv b { color: #101517; }
+.mono { overflow-wrap: anywhere; }
+.mcp .chip { font-size: 12.5px; line-height: 1.45; }
+.lbl { font-size: 12px; color: #50575E; }
+</style>
+<div class="sheet">
+<h1>The life of a session key</h1>
+<p class="sub">A session is a random handle and a random key, minted server-side because caller entropy is unverifiable. The key is disclosed once, in the mint response, and the cache holds it recoverable so verification can recompute an HMAC from it. That is the argument for a short lifetime.</p>
+
+<svg width="1052" height="58" viewBox="0 0 1052 58" style="display:block">
+  <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs>
+  <path d="M20 44 H1030" stroke="#003DA5" stroke-width="2" marker-end="url(#a)"/>
+  <g fill="#003DA5">
+    <circle cx="126" cy="44" r="7"/><circle cx="393" cy="44" r="7"/><circle cx="659" cy="44" r="7"/><circle cx="926" cy="44" r="7"/>
+  </g>
+  <path d="M357 44 a36 22 0 1 1 72 0" fill="none" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/>
+  <g font-family="Inter, sans-serif" font-size="12.5" fill="#50575E" text-anchor="middle">
+    <text x="126" y="30">t = 0</text><text x="393" y="14">every signed command</text>
+    <text x="659" y="30">any time</text><text x="926" y="30">t = expires_in</text>
+  </g>
+</svg>
+
+<div class="stations">
+  <div class="card">
+    <h3>1. Mint</h3>
+    <p><span class="mono">POST /newspack-nodes/v1/auth</span>, or the <span class="mono">sessions create</span> verb.</p>
+    <p>The response carries <span class="mono">handle</span>, <span class="mono">key</span>, the clamped <span class="mono">scope</span>, <span class="mono">expires_in</span> and <span class="mono">now</span>, the server clock the client aligns its signed TIMESTAMP to.</p>
+  </div>
+  <div class="card">
+    <h3>2. Sign, then verify</h3>
+    <p>The minter signs <span class="mono">[ TIMESTAMP, name, arguments, nonce ]</span> under the key and sends the <span class="mono">handle</span> beside the signature, outside the signed string.</p>
+    <p>The verifier resolves the key from the cache by that handle and recomputes the hash. Repointing an envelope at another handle only stops the signature matching.</p>
+  </div>
+  <div class="card">
+    <h3>3. Revoke</h3>
+    <p>The cache entry goes first, the directory entry second, so the key stops verifying at once rather than after the listing catches up.</p>
+    <p>A revoked handle fails the next command it signs.</p>
+  </div>
+  <div class="card">
+    <h3>4. Expire</h3>
+    <p>The lifetime never slides on use, so a leaked handle expires on schedule no matter how busy it is.</p>
+    <p>The cache drops the key at that moment, and the session stops verifying with it.</p>
+  </div>
+</div>
+
+<div class="row" style="gap:20px; margin-top:24px; align-items:stretch">
+  <div style="flex:1.25 1 0" class="stack">
+    <div>
+      <p class="lbl" style="margin:0 0 6px">Lifetime, requested as <span class="mono">ttl</span> and clamped to this range</p>
+      <div class="ruler">
+        <div class="stop"><b>60 s</b>Floor. A shorter request clamps up to it.</div>
+        <div class="stop dflt"><b>3600 s</b>The default when the caller names no <span class="mono">ttl</span>.</div>
+        <div class="stop"><b>86400 s</b>Ceiling. A longer request clamps down to it.</div>
+      </div>
+    </div>
+    <div class="card">
+      <h3 style="font-size:14.5px;margin:0 0 8px">Where a session lives, in two places</h3>
+      <p class="kv"><b>A WordPress option</b> holds the directory of issued sessions: the label, the scope, the minting user and the expiry. A label is sanitized and cut to 64 characters, because a listing is a listing and not storage.</p>
+      <p class="kv"><b>The cache</b> holds the key, and so decides whether a handle still resolves. Mint throws when it cannot store the key, rather than handing back a session nothing can verify.</p>
+      <p class="kv">The session records its minting user, so a credential presented outside a browser acts as that user under the scope as its ceiling.</p>
+    </div>
+  </div>
+
+  <div style="flex:1 1 0" class="panel mcp">
+    <header>The same verbs, over JSON-RPC to an agent</header>
+    <div class="body">
+      <div class="chip"><span class="mono">POST /newspack-event-logger-nodes/v1/mcp</span></div>
+      <div class="chip">Each tool names a service interpreter, a verb and the role that verb declares.</div>
+      <div class="chip">The bearer credential is <span class="mono">handle.key</span>. It names a live session, and the request runs as that session's minting user under its scope.</div>
+      <div class="chip">The server filters the tool list to that scope, so an agent is offered only what it can run.</div>
+      <div class="chip">Named arguments become the verb's token list, and replies come back verbatim.</div>
+      <div class="chip danger">One handle gets 20 calls per 10 seconds.</div>
+    </div>
+  </div>
+</div>
+</div>

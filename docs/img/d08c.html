@@ -1,0 +1,92 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+h2 { font-size:15px; margin:0 0 10px; }
+.listing { display:flex; gap:0; }
+.code { width:566px; background:#101517; border-radius:9px 0 0 9px; padding:16px 14px 16px 16px;
+  white-space:pre-wrap; overflow-wrap:anywhere;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:12px; line-height:2.05; color:#E4E6E8; }
+.pin { display:inline-block; width:17px; height:17px; border-radius:9px; background:#4C8DE0; color:#081019;
+  font-family:Inter, sans-serif; font-size:11.5px; font-weight:700; line-height:17px; text-align:center; margin-left:8px; }
+.code .c { color:#8C9196; }
+.code .k { color:#7FB1F0; }
+.code .s { color:#9FD39F; }
+.marks { width:446px; background:#fff; border:1px solid #C3C4C7; border-left:0; border-radius:0 9px 9px 0; padding:14px 16px; }
+.mk { display:flex; gap:9px; font-size:12px; line-height:1.45; color:#50575E; margin-bottom:10px; }
+.mk:last-child { margin-bottom:0; }
+.mk b { color:#101517; font-weight:700; }
+.num { flex:0 0 auto; width:19px; height:19px; border-radius:10px; background:#003DA5; color:#fff;
+  font-size:11.5px; font-weight:700; line-height:19px; text-align:center; }
+.tag { display:inline-block; background:#003DA5; color:#fff; font-size:11.5px; font-weight:700;
+  border-radius:4px; padding:1px 6px; margin-right:7px; vertical-align:1px; }
+.emits { display:flex; gap:12px; margin-top:20px; }
+.emits .card { flex:1; padding:12px 14px; }
+.emits .card h3 { font-size:13px; margin:0 0 6px; overflow-wrap:anywhere; }
+.emits .card p { font-size:12px; margin:0; }
+.fan { display:flex; gap:12px; margin-top:20px; }
+.fan .card { flex:1; padding:12px 14px; }
+.fan .card h3 { font-size:13px; margin:0 0 6px; overflow-wrap:anywhere; }
+.fan .card p { font-size:12px; margin:0; }
+.two { display:flex; gap:20px; margin-top:20px; }
+.two > * { flex:1; }
+</style>
+<div class="sheet">
+<h1>Every dashboard bundle comes off one build kit</h1>
+<p class="sub">A consumer's <span class="mono">scripts/build.mjs</span> declares what to bundle and injects its tools. The substrate owns everything else: alias resolution, the WordPress externals and the manifest.</p>
+
+<div class="listing">
+  <div class="code"><span class="c">// newspack-event-logger-nodes/scripts/build.mjs</span>
+<span class="k">const</span> substrateSrc = process.env.<span class="s">NEWSPACK_NODES_SRC</span><span class="pin">1</span>
+  || path.resolve( ROOT, <span class="s">'../newspack-nodes/src'</span> );
+<span class="k">const</span> { buildDashboards } = <span class="k">await import</span>( kit( substrateSrc ) );<span class="pin">2</span>
+<span class="k">const</span> { esbuildAlias, assertNoRetiredOverrides } = aliasMap;<span class="pin">3</span>
+assertNoRetiredOverrides( process.env );<span class="pin">4</span>
+<span class="k">const</span> alias = esbuildAlias( substrateSrc );<span class="pin">5</span>
+<span class="k">const</span> ENTRIES = [<span class="pin">6</span>
+  { entry: <span class="s">'src/overview/index.js'</span>,  outDir: <span class="s">'build/overview'</span> },
+  { entry: <span class="s">'src/error-log/index.js'</span>, outDir: <span class="s">'build/error-log'</span> },
+  <span class="c">// gyroscope, settings, requests, current-request</span>
+];
+buildDashboards( { esbuild, sass, rtlcss, root, ENTRIES, alias } );<span class="pin">7</span></div>
+  <div class="marks">
+    <div class="mk"><span class="num">1</span><span>One base directory names the substrate's <b>src</b>: a sibling checkout, or this variable wherever the substrate sits elsewhere.</span></div>
+    <div class="mk"><span class="num">2</span><span>The kit, <b>src/build-kit/index.mjs</b>, is reached by joining a path onto that same base, so it carries no alias of its own.</span></div>
+    <div class="mk"><span class="num">3</span><span><b>src/build-kit/alias-map.cjs</b> is the one resolver esbuild and jest share. The <span class="mono">.cjs</span> is load-bearing: jest requires it while the build imports it.</span></div>
+    <div class="mk"><span class="num">4</span><span>The four retired per-alias overrides are <b>refused, never ignored</b>. One left beside a correct base would build green against the wrong checkout.</span></div>
+    <div class="mk"><span class="num">5</span><span>Three aliases fall out of the base: <span class="mono">runtime</span>, <span class="mono">shared</span> and <span class="mono">debug-overlay</span>, each under <span class="mono">@newspack-nodes/</span>.</span></div>
+    <div class="mk"><span class="num">6</span><span>The consumer names its entries, one per screen, and injects esbuild, Sass and rtlcss from its own tree.</span></div>
+    <div class="mk"><span class="num">7</span><span>The kit takes no bare dependency on those three, so it builds against a substrate checkout carrying no <span class="mono">node_modules</span>.</span></div>
+  </div>
+</div>
+
+<h2 style="margin-top:22px">What one entry emits, and who reads it</h2>
+<div class="emits">
+  <div class="card"><h3 class="mono">&lt;name&gt;.js</h3><p>The minified bundle. A banner stamps the substrate version into it, so a deployed bundle names what it was built against.</p></div>
+  <div class="card"><h3 class="mono">&lt;name&gt;.css</h3><p>The extracted stylesheet, emitted whenever the entry imports styles.</p></div>
+  <div class="card"><h3 class="mono">&lt;name&gt;-rtl.css</h3><p>The rtlcss companion of that stylesheet.</p></div>
+  <div class="card"><h3 class="mono">&lt;name&gt;.asset.php</h3><p>The manifest PHP reads: the script handles the bundle reached for, and the version to enqueue at.</p></div>
+</div>
+
+<h2 style="margin-top:22px">Four consumers, one kit</h2>
+<div class="fan">
+  <div class="card"><h3>newspack-nodes</h3><p><span class="tag">10</span>Ten entries cover theme, ui and graph styles, the hub page's two bundles, the four lazy tabs and the settings-page reset module.</p></div>
+  <div class="card"><h3>example-ai-newsletter</h3><p><span class="tag">1</span>The walkthrough sits inside the substrate repo, finds <span class="mono">src</span> at a fixed depth, and reads no environment variable.</p></div>
+  <div class="card"><h3>newspack-event-logger-nodes</h3><p><span class="tag">6</span>Six entries cover overview, error log, gyroscope, settings, requests and the current-request overlay tab.</p></div>
+  <div class="card"><h3>newspack-intelligence</h3><p><span class="tag">1</span>It stands alone beside the substrate and resolves it exactly as the Event Logger does.</p></div>
+</div>
+
+<div class="two">
+  <div class="callout">
+    <h4>Shared code is inlined, so every consumer rebuilds</h4>
+    <p>Each bundle above carries its own copy of the shared hooks, the view-node base and the debug overlay. Editing one changes nothing on a page until that consumer rebuilds. The release workflow checks the substrate out at a pinned tag, so a stale pin builds green with older shared code inside.</p>
+  </div>
+  <div class="ok">
+    <h4>Every <span class="mono">@wordpress/*</span> import reads a global WordPress already serves</h4>
+    <p>The kit rewrites each one to its <span class="mono">window.wp.*</span> global and records the handle in the manifest, because a second React breaks hooks. Icons is the exception: WordPress registers no handle for it, so a consumer bundles the icons it imports.</p>
+  </div>
+</div>
+
+<div class="note">
+  <h4>The pin moves only when WordPress does</h4>
+  <p>Every runtime <span class="mono">@wordpress/*</span> package is declared exactly at its <span class="mono">wp-7.0</span> dist-tag version, no caret, and <span class="mono">scripts/lint-wp-pin.mjs</span> fails the push on a range or a drifted lock. A bump ships no new code, because the build externalizes the package: it moves the API the build compiles against ahead of the one the browser runs, and a component changed between majors then breaks at runtime with every gate green.</p>
+</div>
+</div>

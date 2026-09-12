@@ -1,0 +1,50 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<div class="sheet">
+  <h1>A reply the hub accepts is a reply the hub delivers</h1>
+  <p class="sub">ADR-7: correlation <em>is</em> the address, so <span class="mono">HTTP_Out_Node</span> keeps no record of what it sent. Every field it reads was written by the spoke.</p>
+
+  <div class="row" style="align-items:center;gap:12px">
+    <div class="card" style="flex:0 0 190px">
+      <h3 style="margin:0 0 4px">Spoke</h3>
+      <p style="margin:0">HTTP 200, JSONL body</p>
+    </div>
+    <svg width="70" height="24" viewBox="0 0 70 24"><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs><path d="M2 12 L58 12" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/></svg>
+    <div class="card" style="flex:0 0 250px">
+      <h3 style="margin:0 0 4px;font-size:14px">on_curl_message()</h3>
+      <p class="mono" style="margin:0;font-size:12px">strip the "_output/" prefix</p>
+    </div>
+    <svg width="70" height="24" viewBox="0 0 70 24"><path d="M2 12 L58 12" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/></svg>
+    <div style="flex:1 1 auto;background:#003DA5;color:#fff;border-radius:9px;padding:14px 18px">
+      <div style="font-size:15px;font-weight:700">accept_inbound() — THE GATE</div>
+      <div class="mono" style="font-size:12px;color:#D6E2F5;margin-top:4px">class-http-out-node.php:467</div>
+    </div>
+  </div>
+
+  <div class="row" style="gap:20px;margin-top:20px;align-items:stretch">
+    <div class="card" style="flex:1 1 0">
+      <h3 style="font-size:13.5px;color:#003DA5;margin:0 0 6px">TO is empty</h3>
+      <p style="margin:0">Stamp our own <span class="mono">target</span>. Unaddressed output goes to the link's Null sink.</p>
+    </div>
+    <div class="card" style="flex:1 1 0;border-color:#003DA5">
+      <h3 style="font-size:13.5px;color:#003DA5;margin:0 0 6px">TO is set → is it in <span class="mono">allow_replies_to</span>?</h3>
+      <p style="margin:0">Matched on the <strong>whole path</strong>, exactly. An empty list admits nothing — fail closed. No match, dropped.</p>
+    </div>
+  </div>
+
+  <div class="row" style="gap:14px;margin-top:20px;align-items:center">
+    <div class="card" style="flex:0 0 330px">
+      <p class="mono" style="margin:0 0 4px;font-size:12.5px;color:#101517">_command_interpreter → _router</p>
+      <p style="margin:0">Peel the head of TO, deliver by name (ADR-7).</p>
+    </div>
+    <svg width="70" height="24" viewBox="0 0 70 24"><defs><marker id="r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#B32D2E"/></marker></defs><path d="M2 12 L58 12" stroke="#B32D2E" stroke-width="2" marker-end="url(#r)"/></svg>
+    <div class="callout" style="flex:1 1 auto">
+      <h4 style="margin:0 0 5px">…any node the registry holds</h4>
+      <p style="margin:0"><span class="mono">spoke-b:offsetlog</span> · <span class="mono">_fleet</span> · <span class="mono">_command_interpreter</span> · every other node the topology mounted</p>
+    </div>
+  </div>
+
+  <div class="ok" style="margin-top:22px">
+    <h4>Command EXECUTION stays blocked, by two independent mechanisms.</h4>
+    <p>The spoke is the SERVER in the handshake — it mints the session and the hub holds the key — so a spoke possesses nothing that verifies at the hub. Independently, <span class="mono">Message::LOCAL</span> is index 7: <span class="mono">packed()</span> slices the canonical seven and <span class="mono">unpacked()</span> refuses any frame that is not exactly seven, so a wire command can never carry it.</p>
+  </div>
+</div>

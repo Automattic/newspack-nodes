@@ -1,0 +1,141 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+  .listing { display: grid; grid-template-columns: 430px 1fr; gap: 8px 16px; align-items: stretch; }
+  .listing .ln { display: flex; align-items: center; gap: 10px; background: #101517; color: #E8EAED; border-radius: 6px; padding: 9px 12px; font-size: 13px; overflow-wrap: anywhere; }
+  .listing .ln .n { color: #8C9096; font-size: 11.5px; flex: 0 0 14px; }
+  .listing .ln .k { color: #7FB0FF; }
+  .listing .why { font-size: 13px; color: #50575E; line-height: 1.5; display: flex; align-items: center; }
+  .listing .why b { color: #101517; font-weight: 600; }
+  .map { display: grid; grid-template-columns: 1fr 64px 1fr; gap: 10px 0; align-items: stretch; }
+  .map .lane { font-size: 12.5px; font-weight: 700; color: #50575E; letter-spacing: .04em; text-transform: uppercase; padding: 0 4px 2px; }
+  .map .card { padding: 12px 14px; min-width: 0; overflow-wrap: anywhere; }
+  .map .card h3 { font-size: 14px; margin: 0 0 5px; }
+  .map .card p { font-size: 12.5px; margin: 0 0 4px; }
+  .map .arrow { display: flex; align-items: center; justify-content: center; }
+  .chain { display: flex; align-items: center; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  .chain .chip { margin: 0; padding: 4px 8px; font-size: 12px; }
+  .chain .to { color: #003DA5; font-size: 13px; }
+  .ladder { display: flex; align-items: stretch; margin-top: 12px; }
+  .ladder .step { flex: 1 1 0; min-width: 0; overflow-wrap: anywhere; }
+  .ladder .step:nth-child(1), .ladder .step:nth-child(9) { flex: .9 1 0; }
+  .ladder .step:nth-child(5) { flex: 1.3 1 0; }
+  .ladder .step h3 { font-size: 14px; }
+  .ladder .step p { font-size: 12.5px; }
+  .ladder .gate { border-color: #E6A3A3; }
+  .ladder .gate h3 { color: #B32D2E; }
+  .ladder .conn { justify-content: center; padding-top: 30px; }
+  .ladder .conn .cap { font-size: 11.5px; color: #50575E; }
+  .num { display: inline-block; width: 20px; height: 20px; border-radius: 50%; background: #003DA5; color: #fff; font-size: 12px; font-weight: 700; text-align: center; line-height: 20px; margin-right: 6px; vertical-align: 1px; }
+  h2 { font-size: 16px; margin: 26px 0 10px; }
+</style>
+<div class="sheet">
+<h1>A plugin on disk: what the scaffold writes, and who reads each file</h1>
+<p class="sub">A Nodes plugin is an ordinary WordPress plugin plus two additions: a Composer classmap, so <span class="mono">make_node</span> can find its classes, and one registration call. The scaffold writes both, one working node, a topology wiring it into a stock Log, and a README, and never overwrites a file.</p>
+
+<h2 style="margin-top:0">Four commands, run from <span class="mono">wp-content/plugins</span></h2>
+<div class="listing">
+  <div class="ln"><span class="n">1</span><span class="mono"><span class="k">wp nodes scaffold plugin</span> my-pipeline</span></div>
+  <div class="why"><span><b>Writes the plugin.</b> A bootstrap, a classmap <span class="mono">composer.json</span>, one working node, a topology and a README. The fleet can run it before you write a line.</span></div>
+  <div class="ln"><span class="n">2</span><span class="mono">cd my-pipeline &amp;&amp; <span class="k">composer dump-autoload -o</span></span></div>
+  <div class="why"><span><b>Builds the classmap</b> <span class="mono">make_node</span> resolves through. Run it again after every new or renamed node.</span></div>
+  <div class="ln"><span class="n">3</span><span class="mono"><span class="k">wp plugin activate</span> my-pipeline</span></div>
+  <div class="why"><span><b>Lets the bootstrap run.</b> <span class="mono">register_plugin()</span> enters the namespace prefix and every <span class="mono">.tsl</span> in the directory into the catalog.</span></div>
+  <div class="ln"><span class="n">4</span><span class="mono"><span class="k">wp nodes activate</span> my-pipeline</span></div>
+  <div class="why"><span><b>Adds the topology to the active set</b> and spawns its workers. Nothing spawns until you say so.</span></div>
+</div>
+
+<h2>Six files, and the part of the substrate that reads each</h2>
+<div class="map">
+  <div class="lane">my-pipeline/</div><div></div><div class="lane">read by</div>
+
+  <div class="card">
+    <h3><span class="mono">my-pipeline.php</span> <span class="grey" style="font-weight:400">plugin file</span></h3>
+    <p>Waits for <span class="mono">plugins_loaded</span>, checks the substrate is present, requires the classmap, then calls <span class="mono">Topology_Registry::register_plugin()</span> with a namespace prefix and a directory.</p>
+    <p class="red">WordPress loads plugins alphabetically. A slug sorting before <span class="mono">newspack-nodes</span> would otherwise load before the substrate's classes exist.</p>
+  </div>
+  <div class="arrow"><svg width="64" height="26" viewBox="0 0 64 26"><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs><path d="M6 13 L52 13" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/></svg></div>
+  <div class="card">
+    <h3>The command interpreter's namespace table</h3>
+    <p><span class="mono">make_node Foo</span> becomes <span class="mono">My_Pipeline\Foo_Node</span>.</p>
+  </div>
+
+  <div class="card">
+    <h3><span class="mono">composer.json</span> <span class="grey" style="font-weight:400">classmap</span></h3>
+    <p>A classmap over the plugin's classes, compiled by <span class="mono">composer dump-autoload -o</span>.</p>
+  </div>
+  <div class="arrow"><svg width="64" height="26" viewBox="0 0 64 26"><path d="M6 13 L52 13" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/></svg></div>
+  <div class="card">
+    <h3>Composer's autoloader</h3>
+    <p><span class="mono">make_node</span> loads the class through it once the namespace table has named it.</p>
+  </div>
+
+  <div class="card">
+    <h3><span class="mono">includes/&lt;Type&gt;_Node.php</span> <span class="grey" style="font-weight:400">three of them</span></h3>
+    <p>A class named <span class="mono">&lt;Type&gt;_Node</span> under the prefix, extending <span class="mono">Node</span>: one entry point, <span class="mono">fill()</span>, and a <span class="mono">node_schema()</span> naming category, description, positional arguments, requests and commands.</p>
+  </div>
+  <div class="arrow"><svg width="64" height="26" viewBox="0 0 64 26"><path d="M6 13 L52 13" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/></svg></div>
+  <div class="card">
+    <h3>The console palette, the Inspector, the REPL's <span class="mono">help</span></h3>
+    <p>All three render <span class="mono">node_schema()</span>. The graph itself calls <span class="mono">fill()</span> and nothing else.</p>
+  </div>
+
+  <div class="card">
+    <h3><span class="mono">topologies/my-pipeline.tsl</span></h3>
+    <p><span class="mono">var</span> frontmatter, <span class="mono">make_node</span>, <span class="mono">connect_node</span>, a closing <span class="mono">secure</span>: the lines the REPL accepts.</p>
+  </div>
+  <div class="arrow"><svg width="64" height="26" viewBox="0 0 64 26"><path d="M6 13 L52 13" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/></svg></div>
+  <div class="card">
+    <h3>The one topology catalog</h3>
+    <p>Fed by every registered directory. The active set is what spawns, and <span class="mono">wp nodes activate</span> adds a name to it.</p>
+  </div>
+
+  <div class="card">
+    <h3><span class="mono">includes/Service_CI_Node.php</span> <span class="grey" style="font-weight:400">service interpreter</span></h3>
+    <p>Answers the dashboard's verbs. Its verb table is its own <span class="mono">node_schema()</span>: each entry brings dispatch, authorization and help, and names which of Part 5's three roles (read, tune or manage) may call it. Naming none requires manage.</p>
+  </div>
+  <div class="arrow"><svg width="64" height="26" viewBox="0 0 64 26"><path d="M6 13 L52 13" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/></svg></div>
+  <div class="card">
+    <h3>Every request graph</h3>
+    <p>Mounted on <span class="mono">newspack_nodes/request_graph_ready</span> through the base interpreter's <span class="mono">make_node()</span>, which constructs, names and sinks it in one step. The sink is the reply's way out:</p>
+    <div class="chain"><span class="chip mono">reply</span><span class="to">&rarr;</span><span class="chip mono">TO = sender</span><span class="to">&rarr;</span><span class="chip mono">_router</span><span class="to">&rarr;</span><span class="chip mono">_output</span><span class="grey" style="font-size:12px">writes the HTTP response</span></div>
+  </div>
+
+  <div class="card">
+    <h3><span class="mono">src/dashboard/</span> <span class="grey" style="font-weight:400">React page</span></h3>
+    <p>Built against <span class="mono">@newspack-nodes/shared</span>, on its own top-level admin menu.</p>
+  </div>
+  <div class="arrow"><svg width="64" height="26" viewBox="0 0 64 26"><path d="M6 13 L52 13" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/></svg></div>
+  <div class="card">
+    <h3><span class="mono">Admin::enqueue_react_page()</span></h3>
+    <p>Enqueues the bundle and localizes the REST URL and the nonce the page sends with every command.</p>
+  </div>
+</div>
+
+<h2>The ladder <span class="mono">make_node Releases_Source releases</span> climbs</h2>
+<div class="ladder">
+  <div class="card step">
+    <h3><span class="num">1</span>Bootstrap ran</h3>
+    <p><span class="mono">plugins_loaded</span> has fired and the substrate's classes exist.</p>
+  </div>
+  <div class="conn"><svg width="44" height="26" viewBox="0 0 44 26"><path d="M4 13 L34 13" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/></svg></div>
+  <div class="card step gate">
+    <h3><span class="num" style="background:#B32D2E">2</span>Plugin active?</h3>
+    <p>Inactive, and <span class="mono">register_plugin()</span> never ran: the answer is <span class="mono red">unknown class</span>.</p>
+  </div>
+  <div class="conn"><svg width="44" height="26" viewBox="0 0 44 26"><path d="M4 13 L34 13" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/></svg></div>
+  <div class="card step">
+    <h3><span class="num">3</span>Namespace table</h3>
+    <p><span class="mono">Releases_Source</span> becomes <span class="mono">My_Pipeline\<wbr>Releases_Source_Node</span>.</p>
+  </div>
+  <div class="conn"><svg width="44" height="26" viewBox="0 0 44 26"><path d="M4 13 L34 13" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/></svg></div>
+  <div class="card step gate">
+    <h3><span class="num" style="background:#B32D2E">4</span>Classmap knows it?</h3>
+    <p>A stale classmap gives the same <span class="mono red">unknown class</span>. Check activation first, then <span class="mono">composer dump-autoload -o</span>.</p>
+  </div>
+  <div class="conn"><svg width="44" height="26" viewBox="0 0 44 26"><path d="M4 13 L34 13" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/></svg></div>
+  <div class="card step">
+    <h3><span class="num">5</span>Node stands</h3>
+    <p>Constructed and named <span class="mono">releases</span>; <span class="mono">connect_node</span> can now give it a sink.</p>
+  </div>
+</div>
+</div>

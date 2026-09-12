@@ -1,0 +1,116 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.lanes { display: grid; grid-template-columns: 1fr 56px 1fr 56px 1fr; grid-template-rows: auto auto auto; column-gap: 0; row-gap: 14px; }
+.lane { grid-row: 1 / 4; background: #F1F3F6; border-radius: 10px; }
+.lane-h { font-size: 13px; font-weight: 700; color: #50575E; text-transform: uppercase; letter-spacing: 0.04em; padding: 10px 14px 0; }
+.hop { margin: 0 12px; }
+.ok.hop h4 { font-size: 15px; } .ok.hop p { font-size: 13px; }
+.hop h3 .n { display: inline-block; width: 22px; height: 22px; border-radius: 50%; background: #003DA5; color: #fff; font-size: 12.5px; text-align: center; line-height: 22px; margin-right: 8px; }
+.arrow { display: flex; align-items: center; justify-content: center; }
+.gate { display: flex; align-items: stretch; gap: 0; }
+.gate .step { flex: 1 1 0; }
+.gate .conn { justify-content: center; }
+.seg { flex: 1; }
+.seg h3 { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.ruler text { font-family: Inter, -apple-system, Helvetica, Arial, sans-serif; font-size: 12.5px; fill: #50575E; }
+.ruler .lab { font-weight: 700; fill: #101517; }
+.mono, .chip .mono { overflow-wrap: anywhere; }
+</style>
+<div class="sheet">
+<h1>From fill() to the segment</h1>
+<p class="sub">Three nodes stand between a producer and the bytes on disk. The Topic chooses the partition, the Partition batches and flushes, and no writer ever takes a lock on the segment it appends to.</p>
+
+<div class="lanes">
+  <div class="lane" style="grid-column:1"><div class="lane-h">Producer</div></div>
+  <div class="lane" style="grid-column:3"><div class="lane-h">Topic <span class="mono" style="text-transform:none">firehose</span>, N = 3</div></div>
+  <div class="lane" style="grid-column:5"><div class="lane-h">Partition <span class="mono" style="text-transform:none">firehose.p1</span></div></div>
+
+  <div class="card hop" style="grid-column:1;grid-row:2;margin-top:40px">
+    <h3><span class="n">1</span>fill(message)</h3>
+    <p>Any node fills it, in any process. A page request builds a Partition or a Topic as readily as a worker does, because the constructor touches nothing on disk. The file handle opens on the first fill().</p>
+    <p class="grey">The producer never learns how many partitions there are.</p>
+  </div>
+  <div class="arrow" style="grid-column:2;grid-row:2;margin-top:40px"><svg width="56" height="26" viewBox="0 0 56 26"><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs><path d="M2 13 L46 13" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/></svg></div>
+  <div class="card hop" style="grid-column:3;grid-row:2;margin-top:40px">
+    <h3><span class="n">2</span>Pick one partition</h3>
+    <div class="chip">TO already names <span class="mono">p{N}</span>: that partition. A replay keeps its pin.</div>
+    <div class="chip">KEY set: <span class="mono">crc32(key) &amp; 0x7FFFFFFF</span>, modulo N. One function for every producer, so one key always lands in one partition.</div>
+    <div class="chip" style="margin-bottom:0">No KEY: round-robin.</div>
+  </div>
+  <div class="arrow" style="grid-column:4;grid-row:2;margin-top:40px"><svg width="56" height="26" viewBox="0 0 56 26"><path d="M2 13 L46 13" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/></svg></div>
+  <div class="card hop" style="grid-column:5;grid-row:2;margin-top:40px">
+    <h3><span class="n">3</span>Pack and batch</h3>
+    <p>The seven fields become one line, a record, appended to the batch. The Topic batches nothing; the record follows the chosen Partition's flush rules.</p>
+    <p>A record over the cap is dropped with a rate-limited warning and never truncated, because half a record desyncs every reader after it.</p>
+  </div>
+
+  <div class="card hop" style="grid-column:1;grid-row:3;margin-bottom:14px">
+    <h3>Fit the line at the producer</h3>
+    <p><span class="mono">Line_Fitter</span> trims named fields until the line fits under the cap. The cap stays; the record shrinks.</p>
+  </div>
+  <div class="ok hop" style="grid-column:3;grid-row:3;margin-bottom:14px">
+    <h4>The hash is the concurrency control</h4>
+    <p>One partition has one reader. Every message with one KEY lands in one partition, so one process reads that key's messages serially, in append order, and no per-key lock ever needs to exist.</p>
+  </div>
+  <div class="card hop" style="grid-column:5;grid-row:3;margin-bottom:14px">
+    <h3><span class="n">4</span>Flush before 4096 bytes</h3>
+    <p>The batch is written whole before its next record would carry it past PIPE_BUF, 4096 bytes on our hosts. POSIX lands an append of that size intact, so many processes append to one segment and none takes a lock.</p>
+  </div>
+</div>
+
+<div class="row" style="margin-top:18px;gap:18px;align-items:stretch">
+  <div class="callout" style="flex:1">
+    <h4>Two opt-ins lift the cap to 32 MiB</h4>
+    <p>Both claim exclusivity. A lock in the partition directory enforces one writer. <span class="mono">void_warranty()</span> takes no lock and trusts the caller: safe for a log inside one process, silent corruption anywhere else.</p>
+  </div>
+  <div class="callout" style="flex:1">
+    <h4>One host's local filesystem only</h4>
+    <p>The PIPE_BUF promise is the kernel's, for its own filesystem. A network mount voids it, and the lockless append with it.</p>
+  </div>
+</div>
+
+<div class="panel" style="margin-top:22px">
+  <header><span class="mono">logs/firehose.p1/</span> &nbsp;&middot;&nbsp; a segment closes at 64 MiB by default; a new one starts under a lock, an atomic mkdir, so two writers never open the same segment</header>
+  <div class="body">
+    <div class="row" style="gap:14px;align-items:stretch">
+      <div class="card seg">
+        <h3 class="grey">0.log</h3>
+        <p class="grey">Oldest. Five segments stand above the count target of four, so this one is deleted next.</p>
+        <div class="chip danger" style="margin-bottom:0">retiring</div>
+      </div>
+      <div class="card seg">
+        <h3>1.log</h3>
+        <p>Full, at 64 MiB.</p>
+      </div>
+      <div class="card seg">
+        <h3>2.log</h3>
+        <p>Full. A peer may still be appending here for a second after 3.log appears.</p>
+      </div>
+      <div class="card seg">
+        <h3>3.log</h3>
+        <p>Full.</p>
+      </div>
+      <div class="card seg" style="border-color:#003DA5">
+        <h3 class="blue">4.log</h3>
+        <p class="blue">Newest. Every flush lands here, at most 4096 bytes each, with no lock.</p>
+        <div class="chip" style="margin-bottom:0">appending</div>
+      </div>
+    </div>
+
+    <svg class="ruler" width="1012" height="104" viewBox="0 0 1012 104" style="margin-top:18px;display:block">
+      <text x="0" y="14" class="lab">Retention, counted from the oldest end</text>
+      <line x1="60" y1="52" x2="900" y2="52" stroke="#787C82" stroke-width="1.5"/>
+      <text x="912" y="56">segments</text>
+      <line x1="60" y1="46" x2="60" y2="58" stroke="#787C82"/><text x="60" y="76" text-anchor="middle">0</text>
+      <line x1="240" y1="40" x2="240" y2="64" stroke="#1E5B1E" stroke-width="2"/><text x="240" y="76" text-anchor="middle">2</text>
+      <text x="240" y="98" text-anchor="middle" class="lab" style="fill:#1E5B1E">floor: no rule prunes below two</text>
+      <line x1="420" y1="40" x2="420" y2="64" stroke="#003DA5" stroke-width="2"/><text x="420" y="76" text-anchor="middle">4</text>
+      <text x="420" y="34" text-anchor="middle" class="lab" style="fill:#003DA5">count rule: above four, delete the oldest</text>
+      <line x1="780" y1="40" x2="780" y2="64" stroke="#B32D2E" stroke-width="2"/><text x="780" y="76" text-anchor="middle">8</text>
+      <text x="780" y="34" text-anchor="middle" class="lab" style="fill:#B32D2E">hard cap: above eight, unconditionally</text>
+    </svg>
+    <p style="font-size:12.5px;color:#50575E;margin:8px 0 0;line-height:1.5">A third rule, the age rule, deletes a segment older than a lifetime and is off by default. The floor holds against all three, so a quiet partition keeps its last two segments for days.</p>
+  </div>
+</div>
+
+</div>
