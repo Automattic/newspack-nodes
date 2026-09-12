@@ -483,8 +483,8 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   Both bounds and the TTL are config keys (`sse_max_streams`, `sse_max_slots`,
   `sse_slot_ttl`). Read [sse-host-budget.md](sse-host-budget.md) before raising any
   of them — an SSE stream holds a php-fpm child for its whole life, and exhausting
-  the pool puts the EDGE into auto-defensive mode for 60 seconds for every visitor
-  to the site. Two bounds are enforced rather than documented: `sse_slot_ttl` is
+  the pool has the host refuse readers' requests with 429 while it stays
+  exhausted. Two bounds are enforced rather than documented: `sse_slot_ttl` is
   raised to the 45-second re-auth window when configured below it, and
   `sse_max_slots` is capped at `sse_max_streams`.
 

@@ -16,30 +16,39 @@ not per route.
 
 ## What the platform does when you run out
 
-Atomic replies **599** with an `a8c-internal-php-defensive-mode` header once a
-site has too many PHP requests backlogged. The edge host that received that
-response then turns on — or extends — **auto-defensive mode for 60 seconds**,
-locally, for that site. Every visitor routed through that edge host gets the
-challenge page, not just the traffic that caused the backlog.
+Every Atomic site has a PHP worker allocation, ten by default. Past it, the
+host holds each further PHP request in a queue for a worker, and a request no
+worker frees for in time is refused with a **429**. A request the queue does
+serve arrives slow; one it refuses arrives as an error page. So for as long as
+the workers stay busy, readers get pages and refusals by turns, request by
+request, and the stream that holds the worker sees neither.
+
+The platform may also put the site into defensive mode on its own: the edge
+location that saw the refusals answers every visitor through it with a
+browser challenge for a minute at a time, extended while the overload lasts.
+That mode was turned off for Newspack sites in February 2025, during its
+tuning, and nothing in this repository can confirm it still is, so treat it as
+a reprieve that can be withdrawn rather than as an exemption.
 
 Two consequences drive the defaults:
 
-- **The blast radius is the whole site, not the offending connection.** There is
-  no per-client shedding to hide behind. Saturating the workers degrades
-  everyone, which is why the cap must bind before the platform's does.
+- **The blast radius is the site's readers, not the offending connection.** A
+  stream holds its worker to the end, and the request that pays is the next
+  reader's. There is no per-client shedding to hide behind, which is why the
+  cap must bind before the platform's does.
 - **Burst capacity cannot be spent on something sustained.** Bursting above the
   configured allocation is explicitly not guaranteed, and sites that lean on it
   are expected to be resized rather than to keep leaning. A stream that holds a
   child for minutes is the exact shape of load that must fit inside the
   allocation.
 
-Source: [Clarification on Auto-Defensive
+Sources: [Clarification on Auto-Defensive
 Mode](https://edgeopsp2.wordpress.com/2025/02/27/clarification-on-auto-defensive-mode/)
-(edgeopsp2, 2025-02-27) — mechanism in Mark George's comment, the burst-capacity
-expectation and the 60-second window in Barry's. That post records the mode
-disabled for Newspack during tuning, and nothing in this repository can confirm
-it still is, so treat it as a reprieve that can be withdrawn rather than as an
-exemption.
+(edgeopsp2, 2025-02-27), the defensive-mode trigger in Mark George's comment,
+the burst-capacity expectation and the Newspack opt-out in Barry's; [429 & 599
+Errors](https://dotcomuniversity.wordpress.com/wow/site-performance/429-599-errors/)
+(dotcomuniversity) for the ten-worker default and the 429 a visitor sees past
+it.
 
 ## The arithmetic
 

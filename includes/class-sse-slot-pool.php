@@ -87,8 +87,8 @@ class SSE_Slot_Pool {
 	 *
 	 * This is the cap that protects the site; the per-identity one only divides
 	 * it fairly. An SSE stream occupies a php-fpm child for its entire life, and
-	 * Atomic replies 599 once PHP requests backlog, which puts the EDGE into
-	 * auto-defensive mode for 60s for every visitor. The shipped 6 leaves room
+	 * past the site's worker allocation Atomic queues each request for a worker
+	 * and refuses it with 429 when none frees in time. The shipped 6 leaves room
 	 * in a ~10-worker allocation for page requests and the node worker itself.
 	 * See docs/sse-host-budget.md.
 	 *
