@@ -8,10 +8,10 @@
  * settings admin offering per-field reset — nodes, event-logger-nodes,
  * pyrobase — enqueues that one bundle by URL through `Field_Reset_Assets`.
  *
- * Arming the toggle snapshots the controls, clears them, highlights the wrapper
- * and injects the hidden marker. Disarming restores the snapshot and drops both
- * the highlight and the marker. Editing a marked control drops the mark and
- * keeps the edit, because an operator typing a value is setting it rather than
+ * Arming the toggle snapshots the controls, clears them, marks the toggle and
+ * injects the hidden marker. Disarming restores the snapshot and drops both
+ * the mark and the marker. Editing a marked control drops the mark and keeps
+ * the edit, because an operator typing a value is setting it rather than
  * resetting it.
  *
  * The browser decides nothing. The marker's PRESENCE in the POST is what tells
@@ -24,12 +24,14 @@
  */
 
 /**
- * Wrapper class marking a field whose option Save will delete.
+ * Button role a marked toggle takes: its option row goes on Save.
  *
- * `Field_Reset_Assets::highlight_style()` paints the toggle red under this
- * class, so the name is a contract with that PHP string, not a local detail.
+ * `_buttons.scss` paints `.button.is-danger` through the shared danger role,
+ * the same red as a delete button, so the name is a contract with that sheet.
+ * The state itself rides `aria-pressed`, which is what assistive technology
+ * reads; the role is only its paint.
  */
-const MARKED = 'is-marked';
+const DANGER_ROLE = 'is-danger';
 
 /**
  * One submittable control inside a resettable field.
@@ -153,12 +155,13 @@ function wire( wrapper ) {
 		return;
 	}
 	wrapper.__nnResetWired = true;
+	toggle.setAttribute( 'aria-pressed', 'false' );
 
 	const controls = controlsOf( wrapper );
 	let snaps = null; // non-null exactly while marked
 
 	/**
-	 * Arm the reset: snapshot, clear, highlight, inject the marker.
+	 * Arm the reset: snapshot, clear, paint the toggle, inject the marker.
 	 *
 	 * The marker carries `data-nn-reset-marker` so `unmark()` can find its own
 	 * input again without disturbing a hidden input the field already had.
@@ -166,7 +169,8 @@ function wire( wrapper ) {
 	const mark = () => {
 		snaps = controls.map( snapshot );
 		controls.forEach( clear );
-		wrapper.classList.add( MARKED );
+		toggle.classList.add( DANGER_ROLE );
+		toggle.setAttribute( 'aria-pressed', 'true' );
 		const hidden = document.createElement( 'input' );
 		hidden.type = 'hidden';
 		hidden.name = markerName;
@@ -190,7 +194,8 @@ function wire( wrapper ) {
 			);
 		}
 		snaps = null;
-		wrapper.classList.remove( MARKED );
+		toggle.classList.remove( DANGER_ROLE );
+		toggle.setAttribute( 'aria-pressed', 'false' );
 		wrapper.querySelector( '[data-nn-reset-marker]' )?.remove();
 	};
 

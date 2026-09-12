@@ -4,6 +4,22 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 **Maintenance rule:** a release that changes any consumer-facing contract adds its entry here in the same commit as its CHANGELOG entry. No entry means nothing to do.
 
+## Unreleased
+
+- **`Field_Reset_Assets::highlight_style()` is gone, and a marked reset toggle
+  takes the `is-danger` button role.** The inline style it returned painted the
+  mark at a specificity the UI sheet's secondary role beat, so on any page
+  loading that sheet the toggle never turned red. The paint is now the sheet's
+  own danger role, and
+  [`Field_Reset_Assets::enqueue()`](../includes/config-system/class-field-reset-assets.php)
+  enqueues the `newspack-nodes-ui` sheet by handle beside the module. A
+  settings admin that echoed the style deletes that line, calls `enqueue()`
+  from its `admin_enqueue_scripts` handler rather than the page body, after
+  priority 2 where the handle is registered, and wraps the form in
+  `.newspack-nodes-ui`, which is what scopes the sheet. A consumer
+  still echoing it against this substrate fatals on its settings page, so
+  consumers ship with the substrate.
+
 ## 2.57.0
 
 - **The `/auth` and `sessions create` reply names the signing key `secret`, not

@@ -130,13 +130,14 @@ reason. Catch it, or let the surrounding controller's catch own it.
    - [`Options_Overlay`](../includes/config-system/class-options-overlay.php) — `apply()`, `stored_value()` and the `ABSENT`
      sentinel that reports a missing option row.
    - [`Reset_Gate`](../includes/config-system/class-reset-gate.php) — `register()`, `resolve()` and `mark_name()`.
-   - [`Field_Reset_Assets`](../includes/config-system/class-field-reset-assets.php) — `enqueue()` and `highlight_style()`, and with them
-     the DOM vocabulary both key off: the `data-nn-reset` wrapper naming the
+   - [`Field_Reset_Assets`](../includes/config-system/class-field-reset-assets.php) — `enqueue()`, and with it the DOM
+     vocabulary the module keys off: the `data-nn-reset` wrapper naming the
      mark, its `data-nn-reset-toggle` button, the `data-nn-reset-default` a
      control declares, the `data-nn-reset-marker` the toggle plants and the
-     `is-marked` class the style paints. Pyrobase writes that markup by hand
-     rather than calling `Settings_Renderer`, so a rename in the JS leaves it a
-     dead toggle or an unstyled mark and nothing raises.
+     `is-danger` button role the UI stylesheet paints on a marked toggle.
+     Pyrobase writes that markup by hand rather than calling
+     `Settings_Renderer`, so a rename in the JS leaves it a dead toggle or an
+     unpainted mark and nothing raises.
    - [`Settings_Renderer`](../includes/config-system/class-settings-renderer.php) — `render_effective_config_section()` and
      `effective_config_rows()` behind the Effective Configuration panel, the
      five controls `number()`, `directory()`, `textarea()`, `checkbox()` and

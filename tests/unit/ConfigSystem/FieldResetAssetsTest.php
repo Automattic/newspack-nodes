@@ -16,20 +16,13 @@ class FieldResetAssetsTest extends TestCase {
 		$this->assertArrayHasKey( 'newspack-nodes-field-reset', $GLOBALS['_enqueued_scripts'] );
 	}
 
-	public function test_highlight_style_targets_the_marked_toggle(): void {
-		$this->assertStringContainsString( '.is-marked [data-nn-reset-toggle]', Field_Reset_Assets::highlight_style() );
-	}
+	public function test_enqueue_brings_the_ui_sheet_that_paints_the_marked_toggle(): void {
+		$GLOBALS['_enqueued_styles'] = [];
 
-	public function test_highlight_style_reasserts_red_on_focus(): void {
-		// WP core's `.wp-core-ui .button:focus` (specificity 0,3,0) otherwise
-		// overrides the marked-state background, hiding the red the instant the
-		// button is clicked. A focus rule at matching specificity must re-assert
-		// the red so the state stays visible under the focus ring.
-		$style = Field_Reset_Assets::highlight_style();
-		$this->assertStringContainsString( '[data-nn-reset-toggle]:focus', $style );
-		$this->assertMatchesRegularExpression(
-			'/\[data-nn-reset-toggle\]:focus[^{]*\{[^}]*background:#[0-9a-fA-F]{6}/',
-			$style
-		);
+		Field_Reset_Assets::enqueue();
+
+		// The sheet's `.button.is-danger` role is the mark's only paint, so the
+		// enqueue that brings the toggle brings the sheet by handle too.
+		$this->assertArrayHasKey( 'newspack-nodes-ui', $GLOBALS['_enqueued_styles'] );
 	}
 }

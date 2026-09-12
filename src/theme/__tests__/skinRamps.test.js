@@ -1417,6 +1417,19 @@ describe( 'theme skin ramps', () => {
 		).toEqual( EXPECTED_SEMANTIC_TEXT_OVERRIDES );
 	} );
 
+	it( 'keeps the secondary role off every role class by selector rather than source order', () => {
+		// Every role paints at (0,4,0), and a marked reset toggle carries
+		// `button-secondary` AND `is-danger`, so only the exclusion decides.
+		const secondary = productionRule(
+			( selector ) =>
+				selector.includes( '.button:not(' ) &&
+				! selector.includes( ':hover' )
+		);
+		for ( const role of [ '.is-danger', '.is-active', '.is-paused' ] ) {
+			expect( secondary.selector ).toContain( role );
+		}
+	} );
+
 	it( 'binds every canonical action and semantic status to its real foreground token', () => {
 		const primary = productionRule(
 			( selector ) =>

@@ -102,7 +102,7 @@ class Admin {
 		\add_action( 'admin_enqueue_scripts', [ $this, 'register_theme_style' ], 1 );
 		\add_action( 'admin_enqueue_scripts', [ $this, 'register_ui_style' ], 2 );
 		\add_action( 'admin_enqueue_scripts', [ $this, 'register_graph_style' ], 3 );
-		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_settings_style' ], 4 );
+		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_settings_assets' ], 4 );
 		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_event_dashboards_assets' ] );
 		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_station_assets' ] );
 		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_station_tab_bundles' ] );
@@ -1063,8 +1063,6 @@ class Admin {
 			<?php
 			// Extension plugins inject sections below the form.
 			\do_action( 'newspack_nodes/settings_after_form' );
-			Field_Reset_Assets::enqueue();
-			echo Field_Reset_Assets::highlight_style(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- static CSS literal.
 			?>
 		</div>
 		<?php
@@ -1151,20 +1149,21 @@ class Admin {
 	}
 
 	/**
-	 * Enqueue the appearance stylesheet on the server-rendered settings page. The
-	 * React hosts get it through their own bundles' style dependencies; this page
-	 * has no bundle, so it opts in here.
+	 * Enqueue the per-field reset toggle on the server-rendered settings page,
+	 * at head time. The toggle brings the appearance stylesheet with it; the
+	 * React hosts get that sheet through their own bundles' style dependencies,
+	 * and this page has no bundle, so it opts in here.
 	 *
 	 * @param string $hook `admin_enqueue_scripts` hook suffix, ignored; see
 	 *                     enqueue_event_dashboards_assets().
 	 */
-	public function enqueue_settings_style( string $hook = '' ): void {
+	public function enqueue_settings_assets( string $hook = '' ): void {
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
 		$page = isset( $_GET['page'] ) && \is_string( $_GET['page'] ) ? \sanitize_text_field( \wp_unslash( $_GET['page'] ) ) : '';
 		if ( self::MENU_SLUG !== $page ) {
 			return;
 		}
-		\wp_enqueue_style( 'newspack-nodes-ui' );
+		Field_Reset_Assets::enqueue();
 	}
 
 	/**
