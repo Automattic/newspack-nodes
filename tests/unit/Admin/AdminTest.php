@@ -1335,20 +1335,6 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 
 	// ---- per-field reset toggle wiring -----------------------------------
 
-	public function test_settings_page_enqueues_field_reset_toggle_and_highlight(): void {
-		$GLOBALS['_enqueued_scripts'] = [];
-		$admin                        = new Admin();
-
-		\ob_start();
-		$admin->render_settings_page();
-		$html = \ob_get_clean();
-
-		// The built DOM-only toggle module is enqueued (replaces the old inline
-		// script), and the marked-state highlight style is present.
-		$this->assertArrayHasKey( 'newspack-nodes-field-reset', $GLOBALS['_enqueued_scripts'] );
-		$this->assertStringContainsString( '.is-marked [data-nn-reset-toggle]', $html );
-	}
-
 	// ---- canonical stylesheet registration -------------------------------
 
 	public function test_registers_theme_ui_and_graph_styles_with_own_versions_and_rtl(): void {
@@ -1460,7 +1446,7 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 				'register_theme_style'  => 1,
 				'register_ui_style'     => 2,
 				'register_graph_style'  => 3,
-				'enqueue_settings_style' => 4,
+				'enqueue_settings_assets' => 4,
 			],
 			\array_intersect_key(
 				$priorities,
@@ -1469,42 +1455,46 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 						'register_theme_style',
 						'register_ui_style',
 						'register_graph_style',
-						'enqueue_settings_style',
+						'enqueue_settings_assets',
 					]
 				)
 			)
 		);
 	}
 
-	public function test_enqueue_settings_style_enqueues_ui_on_nodes_page(): void {
+	public function test_enqueue_settings_assets_enqueues_ui_on_nodes_page(): void {
 		$this->assertTrue(
-			\method_exists( Admin::class, 'enqueue_settings_style' ),
-			'Admin::enqueue_settings_style() must exist'
+			\method_exists( Admin::class, 'enqueue_settings_assets' ),
+			'Admin::enqueue_settings_assets() must exist'
 		);
-		if ( ! \method_exists( Admin::class, 'enqueue_settings_style' ) ) {
+		if ( ! \method_exists( Admin::class, 'enqueue_settings_assets' ) ) {
 			return;
 		}
 
-		$_GET = [ 'page' => Admin::MENU_SLUG ];
-		( new Admin() )->enqueue_settings_style();
+		$GLOBALS['_enqueued_scripts'] = [];
+		$_GET                         = [ 'page' => Admin::MENU_SLUG ];
+		( new Admin() )->enqueue_settings_assets();
 
+		// The reset toggle rides the same head-time hook as the sheet, so the
+		// sheet prints in <head> rather than as a late style after the form.
 		$this->assertSame(
 			[ 'newspack-nodes-ui' ],
 			\array_keys( $GLOBALS['_enqueued_styles'] )
 		);
+		$this->assertArrayHasKey( 'newspack-nodes-field-reset', $GLOBALS['_enqueued_scripts'] );
 	}
 
-	public function test_enqueue_settings_style_skips_other_pages(): void {
+	public function test_enqueue_settings_assets_skips_other_pages(): void {
 		$this->assertTrue(
-			\method_exists( Admin::class, 'enqueue_settings_style' ),
-			'Admin::enqueue_settings_style() must exist'
+			\method_exists( Admin::class, 'enqueue_settings_assets' ),
+			'Admin::enqueue_settings_assets() must exist'
 		);
-		if ( ! \method_exists( Admin::class, 'enqueue_settings_style' ) ) {
+		if ( ! \method_exists( Admin::class, 'enqueue_settings_assets' ) ) {
 			return;
 		}
 
 		$_GET = [ 'page' => 'not-newspack-nodes' ];
-		( new Admin() )->enqueue_settings_style();
+		( new Admin() )->enqueue_settings_assets();
 
 		$this->assertEmpty( $GLOBALS['_enqueued_styles'] );
 	}

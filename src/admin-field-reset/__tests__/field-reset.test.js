@@ -19,17 +19,27 @@ function valueFixture(
 	};
 }
 
-test( 'mark clears the input, highlights, and injects the hidden marker', () => {
+test( 'mark clears the input, paints the toggle as danger, and injects the hidden marker', () => {
 	const { wrapper, input, toggle, marker } = valueFixture();
 
 	toggle.click();
 
 	expect( input.value ).toBe( '' );
-	expect( wrapper.classList.contains( 'is-marked' ) ).toBe( true );
+	expect( toggle.classList.contains( 'is-danger' ) ).toBe( true );
 	const hidden = wrapper.querySelector( 'input[type=hidden]' );
 	expect( hidden ).not.toBeNull();
 	expect( hidden.name ).toBe( marker );
 	expect( hidden.value ).toBe( '1' );
+} );
+
+test( 'the toggle reports its marked state to assistive technology', () => {
+	const { toggle } = valueFixture();
+
+	expect( toggle.getAttribute( 'aria-pressed' ) ).toBe( 'false' );
+	toggle.click();
+	expect( toggle.getAttribute( 'aria-pressed' ) ).toBe( 'true' );
+	toggle.click();
+	expect( toggle.getAttribute( 'aria-pressed' ) ).toBe( 'false' );
 } );
 
 test( 'toggling off restores the original value and removes the marker', () => {
@@ -39,7 +49,7 @@ test( 'toggling off restores the original value and removes the marker', () => {
 	toggle.click(); // unmark
 
 	expect( input.value ).toBe( '/old/path' );
-	expect( wrapper.classList.contains( 'is-marked' ) ).toBe( false );
+	expect( toggle.classList.contains( 'is-danger' ) ).toBe( false );
 	expect( wrapper.querySelector( 'input[type=hidden]' ) ).toBeNull();
 } );
 
@@ -51,7 +61,7 @@ test( 'editing a marked field clears the mark but keeps the edited value', () =>
 	input.dispatchEvent( new Event( 'input', { bubbles: true } ) );
 
 	expect( input.value ).toBe( '/new/typed' );
-	expect( wrapper.classList.contains( 'is-marked' ) ).toBe( false );
+	expect( toggle.classList.contains( 'is-danger' ) ).toBe( false );
 	expect( wrapper.querySelector( 'input[type=hidden]' ) ).toBeNull();
 } );
 

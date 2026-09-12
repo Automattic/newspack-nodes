@@ -50,7 +50,9 @@
 		text-transform: uppercase;
 	}
 
-	.button:not(.button-primary, .button-link-delete) {
+	// A button carrying a role is not secondary; excluding each role by name
+	// keeps that off source order, since every role paints at (0,4,0).
+	.button:not(.button-primary, .button-link-delete, .is-danger, .is-active, .is-paused) {
 		@include role.secondary;
 	}
 
