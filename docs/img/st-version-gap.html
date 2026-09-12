@@ -16,12 +16,12 @@ h2 { font-size:15px; margin:0 0 10px; }
   <h2>One parameter's life across the window: <span class="mono">Partition_Node::locate_by( $extract, $wanted )</span></h2>
   <svg width="1012" height="346" viewBox="0 0 1012 346" font-family="Inter, -apple-system, Helvetica, Arial, sans-serif" font-size="11.5">
     <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs>
-    <!-- columns: 2.41.0 x=300, 2.55.0 x=560, 2.56.0 x=800; timeline starts x=150 -->
+    <!-- columns: 2.41.0 x=300, 2.55.0 x=560, 2.57.0 x=800; timeline starts x=150 -->
     <g stroke="#DCDCDE" stroke-width="1">
       <line x1="300" y1="14" x2="300" y2="262"/><line x1="560" y1="14" x2="560" y2="262"/><line x1="800" y1="14" x2="800" y2="262"/>
     </g>
     <g fill="#101517" font-weight="700" text-anchor="middle" font-size="12.5">
-      <text x="300" y="284">2.41.0</text><text x="560" y="284">2.55.0</text><text x="800" y="284">2.56.0</text>
+      <text x="300" y="284">2.41.0</text><text x="560" y="284">2.55.0</text><text x="800" y="284">2.57.0</text>
     </g>
     <g fill="#50575E" text-anchor="middle" font-size="10.5">
       <text x="300" y="298"><tspan font-family="ui-monospace, Menlo, monospace">$wanted</tspan> added, defaulting to []</text>
@@ -48,7 +48,7 @@ h2 { font-size:15px; margin:0 0 10px; }
     <rect x="150" y="108" width="650" height="18" rx="3" fill="#F6F7F7" stroke="#B0B3B8" stroke-dasharray="4 3"/>
     <text x="475" y="121" fill="#50575E" text-anchor="middle" font-size="10.5">the pin lags: it records the substrate at ELN's last bump, until bump-substrate-pin.sh moves it</text>
     <rect x="800" y="108" width="212" height="18" rx="3" fill="#D6EAD6" stroke="#9EC89E"/>
-    <text x="906" y="121" fill="#1E5B1E" text-anchor="middle" font-size="10.5">version_at_least( '2.56.0', … )</text>
+    <text x="906" y="121" fill="#1E5B1E" text-anchor="middle" font-size="10.5">version_at_least( '2.57.0', … )</text>
     <!-- stale-call row -->
     <rect x="300" y="192" width="260" height="18" rx="3" fill="#D6EAD6" stroke="#9EC89E"/>
     <text x="430" y="205" fill="#1E5B1E" text-anchor="middle" font-size="10.5">empty result, no fatal</text>
@@ -88,7 +88,7 @@ h2 { font-size:15px; margin:0 0 10px; }
         <p>The bridge comes out. With each caller's floor past the release that added the parameter, an optional parameter left standing only hides a forgotten argument.</p>
       </div>
     </div>
-    <p style="margin-top:10px">The arithmetic that retires this bridge: event-logger-nodes, the only caller, floors at 2.56.0, past the 2.41.0 that added <span class="mono">$wanted</span>.</p>
+    <p style="margin-top:10px">The arithmetic that retires this bridge: event-logger-nodes, the only caller, floors at 2.57.0, past the 2.41.0 that added <span class="mono">$wanted</span>.</p>
   </div>
 </div>
 </div>

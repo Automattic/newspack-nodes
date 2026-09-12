@@ -244,7 +244,7 @@ substrate.
 
 ## The version gap
 
-![A timeline in three rows across substrate releases 2.41.0, 2.55.0 and 2.56.0. The substrate row shows locate_by's signature gaining an optional $wanted, the key set that bounds its index walk, defaulting to an empty array at 2.41.0, a bridge that reads nothing, and losing the default at 2.55.0. The consumer row shows event-logger-nodes' pin lagging until its next bump, then declaring version_at_least 2.56.0. The stale-call row shows a one-argument caller getting an empty result inside the window and an ArgumentCountError past it, with an arrow from the consumer's floor back to the retirement: the family's only caller has its floor past 2.41.0, so no build can reach the one-argument form and the bridge is out; inside the window lookup_multi() invoked the backing bare, so a throw there was a 500. Two cards below cover the floor mechanism, its method_exists guard and check-substrate-floor.sh as a lower bound, and the degrade-then-retire rule for a new parameter.](img/st-version-gap.png)
+![A timeline in three rows across substrate releases 2.41.0, 2.55.0 and 2.57.0. The substrate row shows locate_by's signature gaining an optional $wanted, the key set that bounds its index walk, defaulting to an empty array at 2.41.0, a bridge that reads nothing, and losing the default at 2.55.0. The consumer row shows event-logger-nodes' pin lagging until its next bump, then declaring version_at_least 2.56.0. The stale-call row shows a one-argument caller getting an empty result inside the window and an ArgumentCountError past it, with an arrow from the consumer's floor back to the retirement: the family's only caller has its floor past 2.41.0, so no build can reach the one-argument form and the bridge is out; inside the window lookup_multi() invoked the backing bare, so a throw there was a 500. Two cards below cover the floor mechanism, its method_exists guard and check-substrate-floor.sh as a lower bound, and the degrade-then-retire rule for a new parameter.](img/st-version-gap.png)
 
 The substrate ships before its consumers, by necessity: a consumer pins a
 substrate tag, so the tag has to exist first. The window where a host runs the
@@ -267,7 +267,7 @@ that default comes out once every consumer's floor is past the release that
 added it. [`Partition_Node::locate_by( \Closure $extract, array $wanted )`](../includes/class-partition-node.php)
 is the worked case above: `$wanted`, the key set that bounds the index walk,
 is required because event-logger-nodes is its only caller in the family and
-floors at 2.56.0, past the 2.41.0 that added it.
+floors at 2.57.0, past the 2.41.0 that added it.
 
 ## How a frozen name changes
 
