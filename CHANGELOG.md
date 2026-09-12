@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The docs no longer say a full worker pool makes readers see 429 for sixty seconds.** Past the site's PHP worker allocation, Atomic queues each request for a worker and refuses it with 429 when none frees in time, so readers get pages and refusals by turns for as long as the pool stays full; the sixty seconds belong to the platform's optional edge challenge, which is a separate layer. `docs/sse-host-budget.md`, the two chapters and two diagrams that carried the claim, the `SSE_Slot_Pool::max_streams()` docblock and the 2.29.0 upgrading entry say so.
+
 - **A long reply printed by `wp nodes cli` was cut off on an interactive terminal and complete when the cli was piped.** `Stdin_Node` sets STDIN non-blocking so the REPL can poll it, and on a pty fd 0 and fd 1 share one open file description, so that O_NONBLOCK landed on STDOUT too; a single `fwrite` there then wrote what the pty buffer took (12,288 bytes in a probe) and returned the short count, which `Stdout_Node::write()`, `write_raw()`, and `TTY_Out_Node`'s redraw and `write_prompt()` each ignored. On a pipe the descriptions differ, so the write was complete. Every terminal write now goes through `Stdout_Node::write_all()`, which offers the remainder again after each short write and waits on `stream_select()` for writability when the stream refuses outright, giving up only on a closed stream or a failed write. `File_Writer::write_all()` stays the segment writer's loop, because its five-refusal budget and short-count report are the quarantine contract a full disk needs and a draining terminal does not.
 
 ### Removed

@@ -21,7 +21,7 @@ h2 { font-size:15px; margin:0 0 10px; }
 </style>
 <div class="sheet">
 <h1>The slot pool meters the stream</h1>
-<p class="sub">A stream holds one php-fpm child, one of the site's fixed pool of PHP processes, for its whole life. When PHP requests back up, the platform challenges every visitor for sixty seconds, so the pool caps streams before the platform steps in.</p>
+<p class="sub">A stream holds one php-fpm child, one of the site's fixed pool of PHP processes, for its whole life. Past the pool the platform queues each request for a worker and refuses it with 429 when none frees in time, so the pool caps streams before the platform steps in.</p>
 
 <h2>Six slots per host, three per identity, one lease each</h2>
 <div class="slots">
