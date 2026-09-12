@@ -148,7 +148,7 @@ describe( 'useLogViewerGraph', () => {
 		forgetSession();
 		__setAuthFetch( async () => ( {
 			handle: 'a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7',
-			key: 'key-logviewer-late-auth',
+			secret: 'key-logviewer-late-auth',
 			expires_in: 3600,
 			now: 1771000000,
 		} ) );

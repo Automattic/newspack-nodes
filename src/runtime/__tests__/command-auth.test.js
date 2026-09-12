@@ -45,7 +45,7 @@ describe( 'browser command signing', () => {
 			calls++;
 			return {
 				handle: HANDLE,
-				key: KEY,
+				secret: KEY,
 				expires_in: 3600,
 				now: 1771000000,
 			};
@@ -112,7 +112,7 @@ describe( 'browser command signing', () => {
 				json: () =>
 					Promise.resolve( {
 						handle: 'ffff9999ffff9999ffff9999ffff9999',
-						key: 'session-after-renewal-5512',
+						secret: 'session-after-renewal-5512',
 						expires_in: 3600,
 					} ),
 			} );
@@ -121,7 +121,7 @@ describe( 'browser command signing', () => {
 			const issued = await ensureSession();
 
 			// The session must come from the RETRY, not the first response.
-			expect( issued?.key ).toBe( 'session-after-renewal-5512' );
+			expect( issued?.secret ).toBe( 'session-after-renewal-5512' );
 			expect( global.fetch ).toHaveBeenCalledTimes( 3 );
 			expect( global.fetch.mock.calls[ 2 ][ 1 ].headers ).toEqual(
 				expect.objectContaining( {
@@ -144,7 +144,7 @@ describe( 'browser command signing', () => {
 		__setBackoffClock( () => clockMs );
 		__setAuthFetch( async () => ( {
 			handle: HANDLE,
-			key: KEY,
+			secret: KEY,
 			expires_in: 900,
 		} ) );
 
@@ -166,7 +166,11 @@ describe( 'browser command signing', () => {
 		__setBackoffClock( () => clockMs );
 		__setAuthFetch( async () => {
 			issued++;
-			return { handle: HANDLE, key: `key-${ issued }`, expires_in: 900 };
+			return {
+				handle: HANDLE,
+				secret: `key-${ issued }`,
+				expires_in: 900,
+			};
 		} );
 
 		await ensureSession();
@@ -174,7 +178,7 @@ describe( 'browser command signing', () => {
 		const second = await ensureSession();
 
 		expect( issued ).toBe( 2 );
-		expect( second?.key ).toBe( 'key-2' );
+		expect( second?.secret ).toBe( 'key-2' );
 
 		__setBackoffClock( null );
 	} );
@@ -186,7 +190,7 @@ describe( 'browser command signing', () => {
 		__setBackoffClock( () => clockMs );
 		__setAuthFetch( async () => ( {
 			handle: HANDLE,
-			key: KEY,
+			secret: KEY,
 			expires_in: 900,
 		} ) );
 
@@ -291,7 +295,7 @@ describe( 'clock alignment', () => {
 		forgetSession();
 		__setAuthFetch( async () => ( {
 			handle: HANDLE,
-			key: KEY,
+			secret: KEY,
 			expires_in: 3600,
 			now: SERVER_NOW,
 		} ) );
@@ -344,7 +348,7 @@ describe( 'authentication gates minting, and recovers', () => {
 		const asked = jest.spyOn( router, 'requestTick' );
 		__setAuthFetch( async () => ( {
 			handle: HANDLE,
-			key: KEY,
+			secret: KEY,
 			expires_in: 3600,
 			now: 1771000000,
 		} ) );
@@ -377,7 +381,7 @@ describe( 'authentication gates minting, and recovers', () => {
 	it( 'reports a session once established', async () => {
 		__setAuthFetch( async () => ( {
 			handle: HANDLE,
-			key: KEY,
+			secret: KEY,
 			expires_in: 3600,
 			now: 1771000000,
 		} ) );
@@ -394,7 +398,7 @@ describe( 'authentication gates minting, and recovers', () => {
 			issued++;
 			return {
 				handle: `${ issued }`.repeat( 32 ).slice( 0, 32 ),
-				key: `key-${ issued }`,
+				secret: `key-${ issued }`,
 				expires_in: 3600,
 				now: 1771000000,
 			};
@@ -474,7 +478,7 @@ describe( 'renewal backs off', () => {
 			attempts++;
 			return {
 				handle: HANDLE,
-				key: KEY,
+				secret: KEY,
 				expires_in: 3600,
 				now: 1771000000,
 			};
@@ -497,7 +501,7 @@ describe( 'renewal backs off', () => {
 			}
 			return {
 				handle: HANDLE,
-				key: KEY,
+				secret: KEY,
 				expires_in: 3600,
 				now: 1771000000,
 			};
@@ -538,7 +542,7 @@ describe( 'postAuth transport', () => {
 			ok: true,
 			json: async () => ( {
 				handle: HANDLE,
-				key: KEY,
+				secret: KEY,
 				expires_in: 3600,
 				now: 1771000000,
 			} ),

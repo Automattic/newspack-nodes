@@ -623,11 +623,8 @@ class Remote_Link_Node extends Timer_Node {
 	}
 
 	/**
-	 * Unpack one raw `msg` payload and forward it straight downstream.
-	 *
-	 * An empty `target` leaves TO alone, because an attached worker reply carries
-	 * its own TO — the TO=FROM breadcrumb — and overwriting it strands the reply.
-	 * An unparseable frame, or one whose FROM stamp would pass MAX_FROM_SIZE, is
+	 * Unpack one raw `msg` payload, route it through `admit_inbound()` and
+	 * forward it straight downstream. An unparseable frame, or one whose FROM stamp would pass MAX_FROM_SIZE, is
 	 * dropped rather than forwarded. `Remote_Source_Node` replaces the
 	 * `on_message` seam with a buffering closure of its own, so this is the
 	 * channel path only.
@@ -641,8 +638,8 @@ class Remote_Link_Node extends Timer_Node {
 			$this->print_less_often( 'dropping unparseable SSE frame' );
 			return;
 		}
-		if ( \is_string( $this->target ) && '' !== $this->target ) {
-			$message[ Message::TO ] = $this->target;
+		if ( ! $this->admit_inbound( $message ) ) {
+			return;
 		}
 		// Stamp SSE_In sibling's name, not link's, to keep reply breadcrumb.
 		$stamp = null !== $this->sse_in ? $this->sse_in->name() : $this->name;
@@ -652,6 +649,43 @@ class Remote_Link_Node extends Timer_Node {
 		}
 		++$this->counter;
 		$this->sink?->fill( $message );
+	}
+
+	/**
+	 * Route one inbound message by what THIS side declared, following Tachikoma
+	 * Socket.pm:852-862: with a target set, an unaddressed message takes it and
+	 * an ADDRESSED one is dropped, because the remote naming a destination past
+	 * the owner is the attempt an operator should see; with none, an unaddressed
+	 * message goes on as it stands and an addressed one is `admit_addressed()`'s
+	 * to admit or drop. A refused message is CONSUMED, not quarantined.
+	 *
+	 * @param array<int,mixed> $message The 7-field positional message array, TO rewritten in place.
+	 * @return bool True when the message may go on to the sink.
+	 */
+	protected function admit_inbound( array &$message ): bool {
+		$addressed = '' !== Core::as_string( $message[ Message::TO ] );
+		if ( \is_string( $this->target ) && '' !== $this->target ) {
+			if ( $addressed ) {
+				// Constant: drop_message keys its throttle on the reason.
+				$this->drop_message( $message, 'addressed while target is set' );
+				return false;
+			}
+			$message[ Message::TO ] = $this->target;
+			return true;
+		}
+		return ! $addressed || $this->admit_addressed( $message );
+	}
+
+	/**
+	 * Whether an addressed message may pass with no target set. The stream leg
+	 * asks the `:http-out` patron's `allow_replies_to` list, so a channel holds
+	 * one declaration for both of its legs.
+	 *
+	 * @param array<int,mixed> $message The 7-field positional message array, TO non-empty.
+	 * @return bool True when the message may go on to the sink.
+	 */
+	protected function admit_addressed( array $message ): bool {
+		return null !== $this->http_out && $this->http_out->admit_addressed( $message );
 	}
 
 	/** Drop every pending connect. Teardown only; a live graph purges per link. */

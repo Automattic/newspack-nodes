@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The minted session's signing key is disclosed as `secret`, not `key`.** Redaction is by field NAME through the one rule `Core::is_secret_property()` owns, which `Node::redact_secrets()` applies to a dropped message's payload and the browser's `redactSecrets()` applies to every transcript line before it reaches `localStorage`; `key` matched none of its patterns, so a `sessions create` reply rendered into the console transcript persisted a live HMAC command-signing key in cleartext. `POST /newspack-nodes/v1/auth` and the `sessions create` verb both answer `secret`; `HTTP_Out_Node::session_from_body()`, `ensureSession()` and the Sessions tab read it there, and the Bearer credential is unchanged in bytes as `<handle>.<secret>`. No alias: `docs/upgrading.md` names the call sites a consumer changes.
+
+### Fixed
+
+- **`LRU_Cache::evict_bucket()` detaches the bucket before its callbacks fire, and runs them as a fan-out.** A callback that threw mid-loop left the bucket in place for `get_state()` to checkpoint, so the respawned worker restored the poisoned entry and threw again on every rotation. The bucket now comes out first, every entry is offered to the callback, and the one throwable `Worker_Should_Stop::outranks()` keeps is raised after the last (ADR-14) — the rule Tee and Tap already apply, moved onto `Worker_Should_Stop` so a non-Node can ask it. `rotate_if_due()` advances its wall-clock grid before the roll, so a throw mid-roll cannot make the retry roll the same window twice and evict the next bucket a window early.
+
+### Security
+
+- **The two sibling relays passed a REMOTE-CHOSEN `TO` into the local graph, where only `HTTP_Out`'s reply leg was gated.** An inbound leg's rule — an addressed message passes only to a destination this side DECLARED, nothing declared means nothing addressed passes — now covers all three legs of a channel. `HTTP_Out_Node::admit_addressed()` owns the test and the drop for the reply leg. `Remote_Link_Node::admit_inbound()` routes the stream leg by Tachikoma's owner rule: with a target set an unaddressed message takes it and an addressed one is dropped, and with none an addressed message goes to the `:http-out` patron's `allow_replies_to` list through the link's own `admit_addressed()`, so a channel carries one declaration for both of its legs, and `address_null_sink()` declares the link's own name, so the heartbeat needs no operator action. `Remote_Source_Node` overrides `admit_addressed()` for the firehose relay and consults no list, because that own-name declaration must not admit a spoke addressing the link: the `connect_node` line that sets its target is its whole declaration, and every addressed line is refused rather than letting a spoke name a Partition, a Log, `Graphite`'s UDP egress or `_fleet` in the hub worker's graph. A legitimate firehose record carries no `TO` — `Log_Manager::message()` sets TYPE, TIMESTAMP, KEY and VALUE and leaves it empty — so a correctly wired spoke loses nothing. The refusal CONSUMES the line: the cursor advances by the record's own crumb exactly as a forward does, so a refused line is neither poison nor a dead letter and no spoke can wedge a relay with one addressed record. The drop goes through the throttled `Node::drop_message()`, keyed on one constant reason.
+
 ## [2.56.0] - 2026-09-11
 
 ### Changed

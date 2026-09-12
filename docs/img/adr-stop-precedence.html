@@ -61,7 +61,7 @@ r.appendChild(s);
 
 <div class="carve">
   <div class="card">
-    <h3>Carve-out 1: fan-out (Tee and Tap, via <span class="mono">Fanout_Targets</span>)</h3>
+    <h3>Carve-out 1: fan-out (Tee and Tap via <span class="mono">Fanout_Targets</span>, and <span class="mono">LRU_Cache::evict_bucket()</span> over its callbacks)</h3>
     <p>A target throwing says nothing about its siblings, so a fan-out attempts EVERY target and defers the throwable: a skipped healthy target is a permanent loss once the poison path dead-letters the message and advances the cursor. Completing the fan-out preserves at-least-once; duplicates on replay are its accepted cost, and they arise with any fan-out regardless of when it throws.</p>
     <p>Tap always performs its passthrough before re-throwing — the passthrough IS the pipeline, and a <span class="mono">Worker_Should_Stop_Clean</span> commits PAST the message, so aborting early would drop it from the main path. Tap claims no exemption as observability: a snapshot node raising the clean stop from a tap participates in cursor semantics, so Tap defers an ordinary target error exactly as Tee does rather than swallowing it.</p>
   </div>
@@ -78,7 +78,7 @@ r.appendChild(s);
 </div>
 
 <div class="card prec">
-  <h3>What a fan-out keeps in its deferred slot: <span class="mono">Fanout_Targets::outranks( $candidate, $deferred )</span></h3>
+  <h3>What a fan-out keeps in its deferred slot: <span class="mono">Worker_Should_Stop::outranks( $candidate, $deferred )</span></h3>
   <table>
     <thead><tr><th style="width:26%">A target throws…</th><th>…while a plain <span class="mono">Worker_Should_Stop</span> is deferred</th><th>…while a <span class="mono">Worker_Should_Stop_Clean</span> is deferred</th><th>…while a poison is deferred</th></tr></thead>
     <tbody>

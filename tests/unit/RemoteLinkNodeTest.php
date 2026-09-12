@@ -1124,9 +1124,13 @@ class RemoteLinkNodeTest extends TestCase {
 		$this->assertSame( 'link-austin:sse-in/_output/5', $sink->captured[0][ Message::FROM ], 'FROM is prepended with the SSE_In sibling name' );
 	}
 
-	public function test_delivery_seam_preserves_message_to_when_no_target(): void {
-		// An attached worker reply carries its own TO (the TO=FROM breadcrumb); with no link target
-		// deliver_downstream must route by that, not overwrite it.
+	/**
+	 * Build a target-less link and push one frame the remote addressed, so the
+	 * two declaration cases below differ in the declaration alone.
+	 *
+	 * @return array{0:Remote_Link_Node,1:Capture_Sink_Node}
+	 */
+	private function deliver_addressed( string $to, bool $declare ): array {
 		$this->seed_vault();
 		$this->stub_sse_connect();
 		$node = new Remote_Link_Node();
@@ -1136,13 +1140,30 @@ class RemoteLinkNodeTest extends TestCase {
 		$node->sink( $sink );
 		$node->arguments( [ 'austin', 'firehose.p0' ] ); // no target.
 		$node->fire();
-		$sse = Core::node( 'link-austin:sse-in' );
+		if ( $declare ) {
+			Core::node( 'link-austin:http-out' )->allow_replies_to( $to );
+		}
 
 		$m                   = Message::new_message();
 		$m[ Message::TYPE ]  = Message::TM_STRUCT;
-		$m[ Message::TO ]    = '_metadata';
+		$m[ Message::TO ]    = $to;
 		$m[ Message::VALUE ] = [ 'x' => 1 ];
-		$sse->process_sse_chunk( "event: msg\ndata: " . Message::packed( $m ) . "\n\n" );
+		Core::node( 'link-austin:sse-in' )->process_sse_chunk( "event: msg\ndata: " . Message::packed( $m ) . "\n\n" );
+		return [ $node, $sink ];
+	}
+
+	public function test_delivery_seam_refuses_an_addressed_frame_the_patron_never_declared(): void {
+		// The stream leg consults the same declaration its HTTP_Out patron holds.
+		// Undeclared, the remote would pick a node in a graph it does not own.
+		[ , $sink ] = $this->deliver_addressed( '_metadata', false );
+
+		$this->assertCount( 0, $sink->captured );
+	}
+
+	public function test_delivery_seam_passes_an_addressed_frame_the_patron_declares(): void {
+		// Declared, the breadcrumb argument holds: an attached worker's reply
+		// carries its own TO=FROM, and deliver_downstream routes by it untouched.
+		[ , $sink ] = $this->deliver_addressed( '_metadata', true );
 
 		$this->assertCount( 1, $sink->captured );
 		$this->assertSame( '_metadata', $sink->captured[0][ Message::TO ] );

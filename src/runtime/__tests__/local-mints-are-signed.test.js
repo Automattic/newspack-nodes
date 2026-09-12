@@ -24,7 +24,7 @@ describe( 'local mints carry a signature', () => {
 		forgetSession();
 		__setAuthFetch( async () => ( {
 			handle: 'aaaa1111bbbb2222cccc3333dddd4444',
-			key: 'mint-session-key-4242',
+			secret: 'mint-session-key-4242',
 			expires_in: 3600,
 			now: 1771000000,
 		} ) );
@@ -66,7 +66,7 @@ describe( 'Remote_IPC bundles a signed connect', () => {
 		forgetSession();
 		__setAuthFetch( async () => ( {
 			handle: 'aaaa1111bbbb2222cccc3333dddd4444',
-			key: 'ipc-session-key-4242',
+			secret: 'ipc-session-key-4242',
 			expires_in: 3600,
 			now: 1771000000,
 		} ) );
@@ -121,7 +121,7 @@ describe( 'polls hold until authenticated', () => {
 		forgetSession();
 		__setAuthFetch( async () => ( {
 			handle: 'aaaa1111bbbb2222cccc3333dddd4444',
-			key: 'poll-session-key-4242',
+			secret: 'poll-session-key-4242',
 			expires_in: 3600,
 			now: 1771000000,
 		} ) );

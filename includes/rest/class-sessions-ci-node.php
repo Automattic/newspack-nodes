@@ -81,7 +81,7 @@ class Sessions_CI_Node extends Service_CI_Node {
 	 * an operator issued on purpose.
 	 *
 	 * @param list<string> $args Verb arguments.
-	 * @return array<string,mixed> The mint — handle, key, scope, expires_in, now — plus the label.
+	 * @return array<string,mixed> The mint — handle, secret, scope, expires_in, now — plus the label.
 	 * @throws \RuntimeException On a scope off the ladder, a malformed `--ttl`, or a user holding none of the three roles.
 	 */
 	public static function cmd_create( array $args ): array {

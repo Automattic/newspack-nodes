@@ -204,17 +204,22 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * partition's own crumb, which is what the Aggregator reads a record's origin from.
 	 * drain_line() has already pinned the cursor from that crumb.
 	 *
-	 * Four dispositions. A null sink FAILS LOUD, because a relay with nowhere to relay is a
-	 * topology error. An unparseable line carries no crumb, so it is quarantined where the
-	 * cursor stands — the next unread position, the one place it can be put — and moves the
-	 * cursor by nothing. A downstream throw dead-letters the message ON SIGHT and marks the
-	 * record disposed, so the drain loop advances past it with no head-block and no fair-shot
-	 * climb; that climb is reserved for the hard-crash lineage and its crawl. A
-	 * Worker_Should_Stop is control flow rather than poison: a clean one, or a plain one under
-	 * assume_clean_shutdown, re-raises as clean on a crumb-carrying record outside crawl so the
-	 * drain commits PAST it, while a record with no crumb cannot be placed and crawl's pin
-	 * exists to isolate a crash suspect, so both replay — and a plain stop records the
-	 * mid-dispatch strike on its way out.
+	 * `admit_inbound()` routes the line, and `admit_addressed()` here consults no allowlist: a
+	 * firehose record carries no TO, so an addressed line is refused with or without a target.
+	 * A refused line was still READ, so the cursor advances past it as a forward does, and one
+	 * bad record wedges nothing.
+	 *
+	 * Five dispositions, that refusal the first. A null sink FAILS LOUD, because a relay with
+	 * nowhere to relay is a topology error. An unparseable line carries no crumb, so it is
+	 * quarantined where the cursor stands — the next unread position, the one place it can be
+	 * put — and moves the cursor by nothing. A downstream throw dead-letters the message ON
+	 * SIGHT and marks the record disposed, so the drain loop advances past it with no
+	 * head-block and no fair-shot climb; that climb is reserved for the hard-crash lineage and
+	 * its crawl. A Worker_Should_Stop is control flow rather than poison: a clean one, or a
+	 * plain one under assume_clean_shutdown, re-raises as clean on a crumb-carrying record
+	 * outside crawl so the drain commits PAST it, while a record with no crumb cannot be
+	 * placed and crawl's pin exists to isolate a crash suspect, so both replay — and a plain
+	 * stop records the mid-dispatch strike on its way out.
 	 *
 	 * @param string $line       One complete line off the pump buffer.
 	 * @param int    $abs_offset Local drain offset, carried for the trait's signature; a push
@@ -234,8 +239,8 @@ class Remote_Source_Node extends Remote_Link_Node {
 			$this->disposed_record = true;
 			return;
 		}
-		if ( \is_string( $this->target ) && '' !== $this->target ) {
-			$message[ Message::TO ] = $this->target;
+		if ( ! $this->admit_inbound( $message ) ) {
+			return;
 		}
 		if ( $this->crawl ) {
 			// Pre-dispatch pin: commit start before fill (crash resumes here).
@@ -598,6 +603,20 @@ class Remote_Source_Node extends Remote_Link_Node {
 			$this->sse_in?->arm();
 			$this->pump_armed = true;
 		}
+	}
+
+	/**
+	 * A firehose relay declares its destination with its target alone: a record the spoke
+	 * ADDRESSED names a node in this graph, and the patron's `allow_replies_to` list — which
+	 * carries the link's own name for the heartbeat — must not admit it.
+	 *
+	 * @param array<int,mixed> $message The 7-field positional message array, TO non-empty.
+	 * @return bool Always false: the line is dropped.
+	 */
+	protected function admit_addressed( array $message ): bool {
+		// Constant: drop_message keys its throttle on the reason.
+		$this->drop_message( $message, 'addressed with no target' );
+		return false;
 	}
 
 	/**

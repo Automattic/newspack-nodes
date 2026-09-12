@@ -186,7 +186,7 @@ describe( 'DmesgNode', () => {
 		// not the next five-second boundary.
 		__setAuthFetch( async () => ( {
 			handle: 'aaaa4471aaaa4471aaaa4471aaaa4471',
-			key: 'poller-cadence-key',
+			secret: 'poller-cadence-key',
 			expires_in: 3600,
 			now: 1771000000,
 		} ) );

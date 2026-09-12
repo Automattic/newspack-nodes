@@ -4,6 +4,7 @@ namespace Newspack_Nodes\Tests\Unit;
 use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Tests\Helpers\InMemoryMemcached;
+use Newspack_Nodes\Capabilities;
 use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\Cache_Backend;
 use Newspack_Nodes\Core;
@@ -86,7 +87,7 @@ class CommandAuthSessionTest extends TestCase {
 		$session = Command_Auth::mint_session();
 
 		$this->assertSame(
-			$session['key'],
+			$session['secret'],
 			( Command_Auth::load_session_record( $session['handle'] )['key'] ?? null ),
 			'the returned key must be the one that was persisted'
 		);
@@ -99,9 +100,9 @@ class CommandAuthSessionTest extends TestCase {
 		$second = Command_Auth::mint_session();
 
 		$this->assertNotSame( $first['handle'], $second['handle'] );
-		$this->assertNotSame( $first['key'], $second['key'] );
+		$this->assertNotSame( $first['secret'], $second['secret'] );
 		$this->assertMatchesRegularExpression( '/^[0-9a-f]{32}$/', $first['handle'] );
-		$this->assertMatchesRegularExpression( '/^[0-9a-f]{64}$/', $first['key'] );
+		$this->assertMatchesRegularExpression( '/^[0-9a-f]{64}$/', $first['secret'] );
 	}
 
 	public function test_mint_session_throws_rather_than_hand_back_an_unstored_key(): void {
@@ -110,6 +111,40 @@ class CommandAuthSessionTest extends TestCase {
 
 		$this->expectException( \RuntimeException::class );
 		Command_Auth::mint_session();
+	}
+
+	/**
+	 * The reply's credential field is named so the system's one redaction rule
+	 * masks it. `Node::redact_secrets()` matches by field NAME through
+	 * `Core::is_secret_property()`, and a browser persists a rendered reply to
+	 * localStorage through that same rule, so a credential the rule does not
+	 * recognise is written out in cleartext. `drop_message()` is the public
+	 * surface that applies it to a message VALUE.
+	 */
+	public function test_a_minted_session_reply_is_redacted_by_the_one_secret_rule(): void {
+		$session = Command_Auth::mint_session( Capabilities::TUNE, self::TTL );
+		$secrets = \array_filter(
+			\array_keys( $session ),
+			static fn ( string $field ): bool => Core::is_secret_property( $field )
+		);
+		$this->assertCount( 1, $secrets, 'exactly one reply field names the credential' );
+
+		$credential = $session[ (string) \reset( $secrets ) ];
+		$buf        = '';
+		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );
+		$node = new \Newspack_Nodes\Tests\Capture_Sink_Node();
+		$node->name( 'alice' );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$message[ Message::VALUE ] = $session;
+
+		$node->drop_message( $message, 'no sink' );
+
+		$this->assertStringNotContainsString( $credential, $buf, 'the signing key must never reach a log or a transcript' );
+		$this->assertStringContainsString( $session['handle'], $buf, 'the handle names the session and is not a credential' );
+		$this->assertStringContainsString( Capabilities::TUNE, $buf, 'the scope states the authority granted' );
+		$this->assertStringContainsString( (string) self::TTL, $buf, 'the lifetime survives' );
+		$this->assertStringContainsString( (string) $session['now'], $buf, 'the server clock survives' );
 	}
 
 	/**
@@ -187,7 +222,7 @@ class CommandAuthSessionTest extends TestCase {
 
 	public function test_sign_for_round_trips_under_the_remembered_session(): void {
 		$session = Command_Auth::mint_session();
-		Command_Auth::remember_session( 'spoke-a', $session['handle'], $session['key'] );
+		Command_Auth::remember_session( 'spoke-a', $session['handle'], $session['secret'] );
 
 		$m = $this->command();
 		Command_Auth::sign_for( 'spoke-a', $m );
@@ -205,8 +240,8 @@ class CommandAuthSessionTest extends TestCase {
 	public function test_a_signature_for_one_spoke_does_not_verify_under_another(): void {
 		$a = Command_Auth::mint_session();
 		$b = Command_Auth::mint_session();
-		Command_Auth::remember_session( 'spoke-a', $a['handle'], $a['key'] );
-		Command_Auth::remember_session( 'spoke-b', $b['handle'], $b['key'] );
+		Command_Auth::remember_session( 'spoke-a', $a['handle'], $a['secret'] );
+		Command_Auth::remember_session( 'spoke-b', $b['handle'], $b['secret'] );
 
 		$m = $this->command();
 		Command_Auth::sign_for( 'spoke-a', $m );
@@ -234,7 +269,7 @@ class CommandAuthSessionTest extends TestCase {
 	 */
 	public function test_stripping_the_handle_does_not_downgrade_to_the_site_secret(): void {
 		$session = Command_Auth::mint_session();
-		Command_Auth::remember_session( 'spoke-a', $session['handle'], $session['key'] );
+		Command_Auth::remember_session( 'spoke-a', $session['handle'], $session['secret'] );
 
 		$m = $this->command();
 		Command_Auth::sign_for( 'spoke-a', $m );
@@ -307,7 +342,7 @@ class CommandAuthSessionTest extends TestCase {
 	 */
 	public function test_the_signed_canonical_string_matches_what_json_stringify_produces(): void {
 		$session = Command_Auth::mint_session();
-		Command_Auth::remember_session( 'spoke-a', $session['handle'], $session['key'] );
+		Command_Auth::remember_session( 'spoke-a', $session['handle'], $session['secret'] );
 
 		$m                   = $this->command();
 		$m[ Message::VALUE ] = [
@@ -329,7 +364,7 @@ class CommandAuthSessionTest extends TestCase {
 		);
 
 		$this->assertSame(
-			\hash_hmac( 'sha256', (string) $js_canonical, $session['key'] ),
+			\hash_hmac( 'sha256', (string) $js_canonical, $session['secret'] ),
 			$auth['sig'],
 			'PHP and the browser must canonicalize identically'
 		);
@@ -342,7 +377,7 @@ class CommandAuthSessionTest extends TestCase {
 	 */
 	public function test_signing_never_touches_the_originators_id(): void {
 		$session = Command_Auth::mint_session();
-		Command_Auth::remember_session( 'spoke-a', $session['handle'], $session['key'] );
+		Command_Auth::remember_session( 'spoke-a', $session['handle'], $session['secret'] );
 
 		$m                 = $this->command();
 		$m[ Message::ID ]  = 'continuation-7';

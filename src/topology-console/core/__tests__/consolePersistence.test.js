@@ -10,7 +10,13 @@ import {
 	loadDebugState,
 	saveDebugState,
 } from '../consolePersistence';
+import fs from 'node:fs';
+import path from 'node:path';
+
 import { TRANSCRIPT_MAX } from '../../../runtime/dumper-node';
+import { Core } from '../../../runtime/core';
+
+const INCLUDES = path.resolve( __dirname, '../../../../includes' );
 
 // The transcript cap IS the Dumper's, so a restored transcript agrees with it.
 const MAX_PERSISTED_TRANSCRIPT = TRANSCRIPT_MAX;
@@ -266,5 +272,78 @@ describe( 'history redaction', () => {
 		saveHistory( [ 'ls firehose.p0' ] );
 
 		expect( loadHistory() ).toEqual( [ 'ls firehose.p0' ] );
+	} );
+} );
+
+/**
+ * A `sessions create` reply carries a live HMAC command-signing key, and the
+ * REPL renders it into the transcript the way `DumperNode` renders any command
+ * payload. Redaction is by field NAME through `Core.isSecretProperty()`, so the
+ * credential's name is the whole defence: name it something the rule does not
+ * recognise and the key lands in localStorage in cleartext.
+ *
+ * The shape is read out of `Command_Auth::mint_session()` rather than spelled
+ * here, so renaming that field on the PHP side turns this test red instead of
+ * leaving the browser storing what the rule does not mask.
+ */
+describe( 'session-reply redaction', () => {
+	beforeEach( () => window.localStorage.clear() );
+
+	const HANDLE = 'c0ffee11c0ffee22c0ffee33c0ffee44';
+	const CREDENTIAL =
+		'9e3f71a2bd48c05613fa27de8901bc3477a5e0d6218f4b9cae63027d5f1a8b40';
+	const SEEDED = { scope: 'tune', expires_in: 4242, now: 1735689600 };
+
+	/** The field names `mint_session()` actually returns, in source order. */
+	function mintFields() {
+		const source = fs.readFileSync(
+			path.join( INCLUDES, 'class-command-auth.php' ),
+			'utf8'
+		);
+		const body = source.match(
+			/function mint_session\([^)]*\)[^{]*\{[\s\S]*?return \[([\s\S]*?)\];/
+		);
+		expect( body ).not.toBeNull();
+		return Array.from(
+			body[ 1 ].matchAll( /'(\w+)'\s*=>/g ),
+			( m ) => m[ 1 ]
+		);
+	}
+
+	it( 'names exactly one reply field so the shared secret rule masks it', () => {
+		const secrets = mintFields().filter( ( name ) =>
+			Core.isSecretProperty( name )
+		);
+
+		expect( secrets ).toHaveLength( 1 );
+	} );
+
+	it( 'masks the minted credential but keeps the rest of the reply readable', () => {
+		const fields = mintFields();
+		const credential = fields.find( ( name ) =>
+			Core.isSecretProperty( name )
+		);
+		const reply = Object.fromEntries(
+			fields.map( ( name ) => [
+				name,
+				name === credential ? CREDENTIAL : SEEDED[ name ] ?? HANDLE,
+			] )
+		);
+
+		saveTranscript( [
+			{ kind: 'recv', text: JSON.stringify( reply, null, 2 ) },
+		] );
+
+		const stored =
+			window.localStorage.getItem(
+				'newspack-nodes:console:transcript'
+			) ?? '';
+		expect( stored ).not.toContain( CREDENTIAL );
+		expect( stored ).toContain( HANDLE );
+		expect( stored ).toContain( 'tune' );
+		expect( stored ).toContain( '4242' );
+		expect( loadTranscript()[ 0 ].text ).toContain(
+			`"${ credential }": "<redacted>"`
+		);
 	} );
 } );

@@ -249,6 +249,99 @@ class RemoteSourceNodeTest extends TestCase {
 	}
 
 	// ---------------------------------------------------------------------
+	// Inbound addressing — the spoke does not pick a node in the hub's graph.
+	// ---------------------------------------------------------------------
+
+	/**
+	 * Build a Remote_Source with a capture sink and NO target — the shape a
+	 * hand-wired relay takes when the operator omits the `connect_node` line.
+	 *
+	 * @return array{0:Remote_Source_Node,1:Capture_Sink_Node}
+	 */
+	private function make_target_less_remote( string $name = 'remote-austin' ): array {
+		$node = new Remote_Source_Node();
+		$node->name( $name );
+		$sink = new Capture_Sink_Node();
+		$sink->name( 'downstream' );
+		$node->sink( $sink );
+		$node->arguments( $this->remote_args( $name ) );
+		return [ $node, $sink ];
+	}
+
+	/** A TM_STRUCT stream message the spoke addressed to a node in OUR graph. */
+	private function addressed_message( string $id, string $to ): array {
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_STRUCT;
+		$m[ Message::ID ]    = $id;
+		$m[ Message::TO ]    = $to;
+		$m[ Message::VALUE ] = [ 'p' => 1 ];
+		return $m;
+	}
+
+	public function test_a_target_less_relay_refuses_a_line_the_spoke_addressed(): void {
+		// Every node sinks into _command_interpreter and then _router, so a TO
+		// the SPOKE wrote names any node in the hub worker's graph. A relay with
+		// no target declares no destination, so nothing addressed passes.
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ $node, $sink ] = $this->make_target_less_remote();
+		$node->fire();
+		$sse = Core::node( 'remote-austin:sse-in' );
+
+		$this->deliver_built( $sse, $this->addressed_message( '7:100:60', '_fleet' ) );
+
+		$this->assertCount( 0, $sink->captured, 'an addressed line reaches no local node' );
+	}
+
+	public function test_a_target_less_relay_refuses_a_line_addressed_to_its_own_name(): void {
+		// A firehose record carries no TO, so the relay consults no allowlist:
+		// its patron declares its own name for the heartbeat reply, and that
+		// declaration must not let a spoke address the link itself.
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ $node, $sink ] = $this->make_target_less_remote();
+		$node->fire();
+		$sse = Core::node( 'remote-austin:sse-in' );
+
+		$this->deliver_built( $sse, $this->addressed_message( '7:100:60', 'remote-austin' ) );
+
+		$this->assertCount( 0, $sink->captured, 'a line addressed to the link itself reaches no node' );
+	}
+
+	public function test_a_refused_line_is_consumed_like_a_forwarded_one(): void {
+		// Refusal is not poison: the line is read, so the cursor moves past it by
+		// its own crumb length. Left pinned, the relay re-reads it every resume.
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ $node, $sink ] = $this->make_target_less_remote();
+		$node->fire();
+		$sse = Core::node( 'remote-austin:sse-in' );
+
+		$this->deliver_built( $sse, $this->addressed_message( '7:100:60', '_fleet' ) );
+		$this->assertSame(
+			[ 7, 160 ],
+			[ $this->read_private( $node, 'cursor_segment' ), $this->read_private( $node, 'cursor_offset' ) ],
+			'the cursor sits PAST the refused record (100 + 60)'
+		);
+
+		// The next, unaddressed line still relays: one bad record wedges nothing.
+		$this->deliver( $sse, '7:160:40' );
+		$this->assertCount( 1, $sink->captured, 'an unaddressed line still reaches the sink' );
+		$this->assertSame( '', $sink->captured[0][ Message::TO ], 'with no target its TO is left empty' );
+	}
+
+	public function test_a_set_target_refuses_a_line_the_spoke_addressed(): void {
+		// Tachikoma's owner rule: a message addressed past a set target is the
+		// remote's attempt to route inside this graph, dropped rather than
+		// silently re-homed, so an operator sees it in the throttled audit line.
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ $node, $sink ] = $this->make_remote( 'remote-austin' );
+		$node->fire();
+		$sse = Core::node( 'remote-austin:sse-in' );
+
+		$this->deliver_built( $sse, $this->addressed_message( '7:100:60', '_fleet' ) );
+
+		$this->assertCount( 0, $sink->captured, 'an addressed line is dropped even with a target set' );
+	}
+
+	// ---------------------------------------------------------------------
 	// Multi-writer seal-grace — Consumer's verb, asserted over the wire.
 	// ---------------------------------------------------------------------
 

@@ -352,7 +352,7 @@ describe( 'useBatchedPoll — initial poll on mount', () => {
 	test( 'keeps a paused first poll eligible until deferred authentication can sign it', async () => {
 		const session = {
 			handle: 'd3f3aa11d3f3bb22d3f3cc33d3f3dd44',
-			key: 'deferred-first-poll-key-8391',
+			secret: 'deferred-first-poll-key-8391',
 			expires_in: 7319,
 			now: 2123456789,
 		};

@@ -42,7 +42,7 @@ trait Deferred_Clean_Stop {
 	 * arrival order is enough because the instance is a flag rather than the
 	 * throwable that escapes: raise_pending_stop() always raises a fresh
 	 * Worker_Should_Stop_Clean. A fan-out ranks by subtype instead
-	 * (`Fanout_Targets::outranks()`) because it re-throws the deferred throwable
+	 * (`Worker_Should_Stop::outranks()`) because it re-throws the deferred throwable
 	 * itself. A non-stop throwable propagates, reaching the Consumer's dead-letter
 	 * path.
 	 *

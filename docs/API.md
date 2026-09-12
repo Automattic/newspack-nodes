@@ -283,10 +283,10 @@ Only the minter's own signature counts.
 POST  /wp-json/newspack-nodes/v1/auth
 ```
 
-Issues a session: a random key under a random handle
+Issues a session: a random signing key under a random handle
 ([`Command_Auth::mint_session()`](../includes/class-command-auth.php)). Gated by the fleet gate then the READ role — a
 scope is a ceiling, so a read-only user minting a `manage` session still gets a
-read-only one. The handle and key are both generated server-side; caller
+read-only one. The handle and the key are both generated server-side; caller
 entropy is unverifiable, and a caller-chosen handle could collide with or
 fixate a live session.
 
@@ -307,12 +307,18 @@ above.
 ```json
 {
   "handle": "5f2b...(32 hex chars)",
-  "key": "9ac4...(64 hex chars)",
+  "secret": "9ac4...(64 hex chars)",
   "scope": "read",
   "expires_in": 3600,
   "now": 1735689600
 }
 ```
+
+The signing key is disclosed as `secret` because that is the field name
+[`Core::is_secret_property()`](../includes/class-core.php) recognises. Every
+redactor on both sides of the wire asks that one rule, so a reply rendered into
+a drop-audit line or persisted to a browser's transcript is masked by its name
+alone.
 
 The key cannot be recovered from the Sessions listing. The session also
 records the minting user; without it, a credential presented outside a browser

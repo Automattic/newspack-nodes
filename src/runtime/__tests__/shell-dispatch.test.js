@@ -72,7 +72,7 @@ describe( 'ShellNode command signing', () => {
 		forgetSession();
 		__setAuthFetch( async () => ( {
 			handle: HANDLE,
-			key: 'shell-session-key-4242',
+			secret: 'shell-session-key-4242',
 			expires_in: 3600,
 			now: 1771000000,
 		} ) );

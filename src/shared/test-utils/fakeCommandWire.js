@@ -210,7 +210,7 @@ export function makeFakeCommandWire( replyFor, options = {} ) {
 export function installFakeCommandWire( replyFor, options = {} ) {
 	__setAuthFetch( async () => ( {
 		handle: 'test-handle',
-		key: 'test-key',
+		secret: 'test-secret',
 		expires_in: 3600,
 	} ) );
 	// Kicked off here, not awaited: an unsigned mint comes back refused.

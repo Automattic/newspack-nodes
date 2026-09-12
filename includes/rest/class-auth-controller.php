@@ -72,7 +72,7 @@ class Auth_Controller {
 	 * caller to gate first.
 	 *
 	 * @param \WP_REST_Request $req Request carrying the optional `scope`, `ttl` and `label`.
-	 * @return array{handle:string,key:string,scope:string,expires_in:int,now:int}|\WP_Error
+	 * @return array{handle:string,secret:string,scope:string,expires_in:int,now:int}|\WP_Error
 	 * @throws \RuntimeException When no cache backend can hold the session, or the handle is taken.
 	 */
 	public function issue( \WP_REST_Request $req ) {

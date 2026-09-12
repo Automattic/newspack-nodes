@@ -101,34 +101,6 @@ trait Fanout_Targets {
 	}
 
 	/**
-	 * Whether a newly-caught throwable should displace the one already deferred.
-	 *
-	 * A fan-out attempts every target and re-throws afterwards, so several may
-	 * fail in one pass and only one can escape. The winner is the one whose
-	 * handling is safest, because that choice moves the consumer cursor. A plain
-	 * `Worker_Should_Stop` replays the message and the cursor stays put;
-	 * `Worker_Should_Stop_Clean` commits past it; anything else is poison, which
-	 * dead-letters and advances too.
-	 *
-	 * Advancing past a message that needed a replay loses it; replaying a clean
-	 * one is a duplicate, which at-least-once tolerates. So a plain stop outranks
-	 * both, in either arrival order, and `tests/unit/TeeStopPrecedenceTest.php`
-	 * pins that (ADR-14).
-	 *
-	 * @param \Throwable      $candidate The throwable this target just raised.
-	 * @param \Throwable|null $deferred  What the loop already holds; null until the first failure.
-	 * @return bool True when `$candidate` should take the deferred slot.
-	 */
-	protected function outranks( \Throwable $candidate, ?\Throwable $deferred ): bool {
-		if ( null === $deferred ) {
-			return true;
-		}
-		return $candidate instanceof Worker_Should_Stop
-			&& ( ! ( $deferred instanceof Worker_Should_Stop )
-				|| $deferred instanceof Worker_Should_Stop_Clean );
-	}
-
-	/**
 	 * The targets that still resolve, pruned in place. A target is alive when the
 	 * HEAD segment of its path names a live node — Router peels the rest, so
 	 * `spoke/settings` survives as long as `spoke` does.

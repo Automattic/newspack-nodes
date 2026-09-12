@@ -70,7 +70,7 @@ class CommandAuthScopeTest extends TestCase {
 
 		$this->assertSame( Capabilities::TUNE, $session['scope'] );
 		$this->assertSame( Capabilities::TUNE, ( Command_Auth::load_session_record( $session['handle'] )['scope'] ?? null ) );
-		$this->assertSame( $session['key'], Command_Auth::load_session_record( $session['handle'] )['key'] );
+		$this->assertSame( $session['secret'], Command_Auth::load_session_record( $session['handle'] )['key'] );
 	}
 
 	public function test_a_session_minted_without_a_scope_is_unrestricted(): void {
@@ -86,7 +86,7 @@ class CommandAuthScopeTest extends TestCase {
 
 	public function test_verifying_a_scoped_command_lowers_the_ceiling(): void {
 		$session = Command_Auth::mint_session( Capabilities::READ );
-		Command_Auth::remember_session( 'agent', $session['handle'], $session['key'] );
+		Command_Auth::remember_session( 'agent', $session['handle'], $session['secret'] );
 
 		$m = $this->command();
 		Command_Auth::sign_for( 'agent', $m );
@@ -111,7 +111,7 @@ class CommandAuthScopeTest extends TestCase {
 	public function test_a_bad_signature_closes_the_ceiling_completely(): void {
 		Capabilities::$session_scope = Capabilities::MANAGE;
 		$session = Command_Auth::mint_session( Capabilities::TUNE );
-		Command_Auth::remember_session( 'agent', $session['handle'], $session['key'] );
+		Command_Auth::remember_session( 'agent', $session['handle'], $session['secret'] );
 
 		$m = $this->command();
 		Command_Auth::sign_for( 'agent', $m );
@@ -143,7 +143,7 @@ class CommandAuthScopeTest extends TestCase {
 
 	public function test_a_revoked_session_stops_verifying(): void {
 		$session = Command_Auth::mint_session( Capabilities::TUNE );
-		Command_Auth::remember_session( 'agent', $session['handle'], $session['key'] );
+		Command_Auth::remember_session( 'agent', $session['handle'], $session['secret'] );
 
 		$m = $this->command();
 		Command_Auth::sign_for( 'agent', $m );

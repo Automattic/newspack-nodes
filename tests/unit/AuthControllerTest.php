@@ -57,7 +57,7 @@ class AuthControllerTest extends TestCase {
 		$body = ( new Auth_Controller() )->issue( new \WP_REST_Request() );
 
 		$this->assertSame(
-			$body['key'],
+			$body['secret'],
 			( Command_Auth::load_session_record( $body['handle'] )['key'] ?? null ),
 			'the issued key must be the one the verifier will resolve'
 		);
@@ -68,7 +68,7 @@ class AuthControllerTest extends TestCase {
 	public function test_the_response_carries_only_the_session_fields(): void {
 		$body = ( new Auth_Controller() )->issue( new \WP_REST_Request() );
 
-		$this->assertSame( [ 'expires_in', 'handle', 'key', 'now', 'scope' ], $this->sorted_keys( $body ) );
+		$this->assertSame( [ 'expires_in', 'handle', 'now', 'scope', 'secret' ], $this->sorted_keys( $body ) );
 	}
 
 	public function test_a_main_site_manage_options_user_is_permitted(): void {

@@ -60,14 +60,14 @@ class SessionsCINodeTest extends TestCase {
 		$this->assertIsArray( $created, \is_string( $created ) ? $created : '' );
 		$this->assertSame( Capabilities::TUNE, $created['scope'] );
 		$this->assertSame( 900, $created['expires_in'] );
-		$this->assertSame( $created['key'], ( Command_Auth::load_session_record( $created['handle'] )['key'] ?? null ) );
+		$this->assertSame( $created['secret'], ( Command_Auth::load_session_record( $created['handle'] )['key'] ?? null ) );
 
 		$listed = $this->fire( 'list' )['sessions'];
 		$this->assertCount( 1, $listed );
 		$this->assertSame( 'reporting bot', $listed[0]['label'] );
 		$this->assertSame( Capabilities::TUNE, $listed[0]['scope'] );
 		$this->assertTrue( $listed[0]['live'] );
-		$this->assertArrayNotHasKey( 'key', $listed[0], 'the listing must never carry the key' );
+		$this->assertArrayNotHasKey( 'secret', $listed[0], 'the listing must never carry the credential' );
 	}
 
 	/**

@@ -73,8 +73,8 @@ class SettingsSyncFanoutTest extends TestCase {
 		$this->egress( 'settings:tw1', 'tw1' );
 		$a = Command_Auth::mint_session();
 		$b = Command_Auth::mint_session();
-		Command_Auth::remember_session( 'tw0', $a['handle'], $a['key'] );
-		Command_Auth::remember_session( 'tw1', $b['handle'], $b['key'] );
+		Command_Auth::remember_session( 'tw0', $a['handle'], $a['secret'] );
+		Command_Auth::remember_session( 'tw1', $b['handle'], $b['secret'] );
 
 		$sink = new Capture_Sink_Node();
 		$node = $this->minter( $sink );
@@ -124,7 +124,7 @@ class SettingsSyncFanoutTest extends TestCase {
 		$this->egress( 'settings:tw0', 'tw0' );
 		$this->egress( 'settings:tw1', 'tw1' );
 		$a = Command_Auth::mint_session();
-		Command_Auth::remember_session( 'tw0', $a['handle'], $a['key'] );
+		Command_Auth::remember_session( 'tw0', $a['handle'], $a['secret'] );
 
 		$sink = new Capture_Sink_Node();
 		$node = $this->minter( $sink );
@@ -145,8 +145,8 @@ class SettingsSyncFanoutTest extends TestCase {
 		$doomed = $this->egress( 'settings:tw1', 'tw1' );
 		$a      = Command_Auth::mint_session();
 		$b      = Command_Auth::mint_session();
-		Command_Auth::remember_session( 'tw0', $a['handle'], $a['key'] );
-		Command_Auth::remember_session( 'tw1', $b['handle'], $b['key'] );
+		Command_Auth::remember_session( 'tw0', $a['handle'], $a['secret'] );
+		Command_Auth::remember_session( 'tw1', $b['handle'], $b['secret'] );
 
 		$sink = new Capture_Sink_Node();
 		$node = $this->minter( $sink );
