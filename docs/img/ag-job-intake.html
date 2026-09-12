@@ -1,0 +1,35 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.logs { display:flex; gap:12px; }
+.log { flex:1; background:#F0F4FB; border:1px solid #C3D3EC; border-radius:8px; padding:11px 13px; font-size:12.5px; line-height:1.45; }
+.log b { display:block; font-family:ui-monospace,Menlo,monospace; color:#003DA5; font-size:13px; margin-bottom:4px; }
+.log .k { color:#50575E; }
+.row3 { display:flex; gap:12px; margin-top:16px; align-items:stretch; }
+.row3 > div { flex:1; }
+.row3 p { font-size:12.5px; margin-bottom:6px; }
+</style>
+<div class="sheet">
+<h1>Job_Intake is three logs and a set of refusals, and the delayed ones circulate</h1>
+<p class="sub">Every producer of async work — an importer, a cron pass, a web request — writes through one class. Which log an entry lands in decides its size cap, its lock and its scheduling. Four refusals return false rather than throw, so the caller has to look; misuse throws.</p>
+<div class="logs">
+  <div class="log"><b>jobintake.p&lt;N&gt;</b><span class="k">queue() / write_job()</span> — LOCKED: the intake holds the partition's write lock from its first write to close(), admits an entry up to <span class="mono">MAX_JOB_SIZE</span> 32 MiB, and a Consumer drains it into <span class="mono">jobs</span> (<span class="mono">job-intake.tsl</span> on a substrate-only install, ELN's <span class="mono">job-router.tsl</span> otherwise). All options live here: <span class="mono">not_before</span> / <span class="mono">delay</span>, <span class="mono">retries</span>, <span class="mono">batch</span>, <span class="mono">unique</span> + <span class="mono">unique_ttl</span>.</div>
+  <div class="log"><b>jobfeed.p&lt;N&gt;</b><span class="k">feed() / write_feed()</span> — unlocked, PIPE_BUF-bounded, rotating at <span class="mono">FEED_SEGMENT_SIZE</span> 1 MiB, so a job router tails jobs alone instead of the whole firehose. No options at all.</div>
+  <div class="log"><b>jobdelay.p0</b><span class="k">the parking lot</span> — an entry whose <span class="mono">not_before</span> is still ahead lands here instead of the intake, single partition, hardwired; <span class="mono">Job_Delay</span> circulates it on the minute pass. No <span class="mono">.tsl</span> declares any of the three dirs: <span class="mono">Bootstrap::register_log_producers()</span> states each layout on <span class="mono">newspack_nodes/registered_log_producers</span>, so <span class="mono">Log_Cleaner</span> leaves queued jobs alone.</div>
+</div>
+<div class="row3">
+  <div class="card">
+    <h3><span class="mono">Job_Delay</span>: a circulating buffer on the minute pass</h3>
+    <p><span class="mono">sweep_action()</span> rides <span class="mono">newspack_nodes/periodic</span> and reports a failure rather than propagating it, so a throw costs no other periodic subscriber its turn. Each pass drains <span class="mono">jobdelay.p0</span> with a durable-cursor Consumer, delivers the due entries into the live intake with their delay fields stripped and their key re-hashed, re-appends the rest to the tail, THEN checkpoints — an abort replays the sweep and duplicates rather than drops. Late is correct: <span class="mono">not_before</span> means not before.</p>
+    <p>Two failures, neither the dead-letter path: a <span class="mono">write_job()</span> returning false is one stderr line and the cursor moves on, the job gone; a <span class="mono">RuntimeException</span> (the intake write lock timing out) is held and recirculates once a minute with no attempt count. <span class="mono">ts</span> is restamped on every hop, so <span class="mono">QUEUE_MS</span> measures from delivery.</p>
+  </div>
+  <div class="card">
+    <h3>Four things make a write return <span class="mono">false</span>, never throw</h3>
+    <p>A handler name failing <span class="mono">HANDLER_NAME_PATTERN</span> — a letter, then letters, digits, <span class="mono">_</span> and <span class="mono">-</span>, 64 at most, and this one writes no log line; an <span class="mono">id</span> over <span class="mono">MAX_JOB_ID_LEN</span> 128 bytes; a payload that will not <span class="mono">wp_json_encode</span> or exceeds <span class="mono">MAX_JOB_SIZE</span>; a <span class="mono">feed()</span> record over <span class="mono">Partition_Node::MAX_LINE_SIZE</span>. A caller that fires and forgets loses those jobs silently.</p>
+    <p>An intake INSTANCE holds the locked partition's write lock from its first write until <span class="mono">close()</span>; the static <span class="mono">queue()</span> and <span class="mono">feed()</span> close in a <span class="mono">finally</span>, <span class="mono">queue_many()</span> does not, and every other writer to that partition waits 15 s and gets a <span class="mono">RuntimeException</span> meanwhile.</p>
+  </div>
+  <div class="callout">
+    <h4>Dedup and batches live in the cache, fail closed</h4>
+    <p><span class="mono">unique</span> + <span class="mono">unique_ttl</span> claim <span class="mono">job-uniq:{handler}:{token}</span> with an atomic <span class="mono">add()</span> on <span class="mono">Cache_Backend::shared_first()</span>, EARLY, before the size check — a refused entry holds the slot for the whole window — and a false <span class="mono">add()</span> drops the enqueue whether it was a duplicate or a sick backend. <span class="mono">unique</span> without a positive ttl throws <span class="mono">InvalidArgumentException</span>, and with no backend <span class="mono">LogicException</span>.</p>
+    <p><span class="mono">queue_many( $jobs, $key, $batch )</span> opens a batch by seeding <span class="mono">job-batch:{id}</span> (the outstanding count) and <span class="mono">job-batch-err:{id}</span> at <span class="mono">BATCH_TTL_S</span> seven days; <span class="mono">settle_batch()</span> deletes both at zero. A batch that never settles holds both keys, and its id, for the full seven days, and reusing that id throws <span class="mono">RuntimeException</span>. Compare the return against your job count.</p>
+  </div>
+</div>

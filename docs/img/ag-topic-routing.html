@@ -1,0 +1,72 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.flow { position:relative; height:345px; }
+.flow svg { position:absolute; left:0; top:0; }
+.flow .bx { position:absolute; border-radius:8px; padding:10px 12px; font-size:12.5px; line-height:1.45; }
+.flow .q { background:#101517; color:#fff; width:250px; }
+.flow .q b { color:#8FB6F0; display:block; }
+.flow .q small { color:#C3C4C7; font-size:11.5px; }
+.flow .o { background:#F0F4FB; border:1px solid #C3D3EC; width:230px; }
+.flow .o b { display:block; }
+.flow .p { background:#fff; border:1px solid #C3C4C7; width:180px; text-align:center; }
+.flow .p b { display:block; font-size:13px; }
+.flow .ready { position:absolute; right:0; top:0; }
+.flow svg text { font-family:Inter,-apple-system,Helvetica,Arial,sans-serif; font-size:11.5px; fill:#50575E; }
+.cmd { background:#101517; color:#fff; border-radius:7px; padding:9px 12px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:11.5px; white-space:nowrap; line-height:1.55; margin:6px 0 8px; }
+.cmd .c1 { color:#8FB6F0; } .cmd .c2 { color:#A7D6A7; }
+.three { display:flex; gap:12px; margin-top:16px; align-items:stretch; }
+.three > div { flex:1; }
+.three p { font-size:12.5px; }
+</style>
+<div class="sheet">
+<h1>A Topic picks one partition per message by three precedences, then gets out of the way</h1>
+<p class="sub">Topic_Node::fill() is the only ingress and does no batching of its own: it chooses an index and hands the message to that Partition, whose own batch and flush rules take over. Widening a log is a topology argument, num_partitions.</p>
+
+<div class="card">
+  <h3><span class="mono">fill( $message )</span> — the routing decision</h3>
+  <div class="flow">
+    <svg width="1012" height="330"><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs>
+      <g stroke="#003DA5" stroke-width="1.8" fill="none" marker-end="url(#a)">
+        <path d="M250 40 H300"/>
+        <path d="M125 82 V108"/>
+        <path d="M250 146 H300"/>
+        <path d="M125 188 V214"/>
+        <path d="M250 252 H300"/>
+        <path d="M530 40 C590 40 590 150 640 150"/>
+        <path d="M530 146 H640"/>
+        <path d="M530 252 C590 252 590 150 640 150"/>
+      </g>
+      <text x="262" y="34">yes</text><text x="132" y="100">no</text>
+      <text x="262" y="140">yes</text><text x="132" y="206">no</text>
+      <text x="262" y="246">always</text>
+      
+    </svg>
+    <div class="bx q" style="left:0;top:8px"><b>1 · TO already carries p&lt;N&gt;?</b>the caller pre-pinned it<small><br>a leading p\d+ in range</small></div>
+    <div class="bx o" style="left:300px;top:8px"><b>route there directly</b>the pin stays in TO. Replay tools and <span class="mono">wp nodes ingest</span> use it.</div>
+    <div class="bx q" style="left:0;top:114px"><b>2 · KEY is non-empty?</b>a request id, a handler name</div>
+    <div class="bx o" style="left:300px;top:114px"><b><span class="mono">hash_to_partition( KEY, N )</span></b>the key's messages stay serial behind one consumer</div>
+    <div class="bx q" style="left:0;top:220px"><b>3 · no KEY</b>round-robin</div>
+    <div class="bx o" style="left:300px;top:220px"><b><span class="mono">self::$rr_counter++ % N</span></b>a <span class="mono">protected static</span>: one cursor for every Topic in the process, never reset by <span class="mono">remove_node()</span>, so two same-width Topics in one request advance in lockstep</div>
+    <div class="bx p" style="left:640px;top:96px;width:170px"><b><span class="mono">{name}:p{idx}</span></b>one Partition per index, materialized when the Topic's <span class="mono">sink()</span> is wired; then <span class="mono">$partition( $idx )-&gt;fill()</span>; its own 4 KB batch and 0 ms flush apply</div>
+    <div class="bx o ready" style="width:176px"><b><span class="mono">READY</span></b>fired by <span class="mono">set_state</span> from <span class="mono">sink()</span>, so a late registrant gets it at once. There is no <span class="mono">RESET</span>: local directories do not move.</div>
+  </div>
+</div>
+
+<div class="three">
+  <div class="card">
+    <h3><span class="mono">hash_to_partition</span> is canonical</h3>
+    <div class="cmd"><span class="c1">[ $stripped ]</span> = explode( '?', $key, 2 );<br>return ( crc32( $stripped )<br>&nbsp;&nbsp;&nbsp;&nbsp;&amp; 0x7FFFFFFF ) % $num_partitions;</div>
+    <p>The query string is stripped, then a 31-bit mask. Every partition router MUST call this one function: a diverging hash family routes the same key to different partitions and breaks ordering (ADR-6).</p>
+  </div>
+  <div class="card">
+    <h3>Modes propagate to partitions built later</h3>
+    <p><span class="mono">allow_large_writes()</span>, <span class="mono">void_warranty()</span> and <span class="mono">with_index_named( $formatter )</span> record the mode on the Topic, apply it to every materialized Partition, and <span class="mono">partition()</span> applies it again to each one it creates. Each is a <span class="mono">{name}:config</span> verb and <span class="mono">dump_config()</span> re-emits it, so the round trip keeps the mode.</p>
+    <p>The two <span class="mono">allow_large_writes()</span> disagree about their first parameter: Partition's is <span class="mono">$max_wait_ms</span>, Topic's is <span class="mono">$debounce_ms</span>, so <span class="mono">$t->allow_large_writes( 0 )</span> is hold mode, not a try-lock.</p>
+  </div>
+  <div class="callout">
+    <h4>Two counters aggregate; two double-count</h4>
+    <p><span class="mono">bytes_written()</span> sums and <span class="mono">largest_msg_sent()</span> maxes over every materialized partition, which is what gives the Topic a meaningful canvas row: <span class="mono">dump_metadata</span> skips the patron-linked <span class="mono">p{N}</span> children.</p>
+    <p><span class="mono">stats</span> and <span class="mono">ls -a</span> walk the whole registry and list the Topic beside its children, so WRITTEN double-counts there, and so does COUNT: <span class="mono">fill()</span> increments the Topic's counter before the partition increments its own.</p>
+  </div>
+</div>
+</div>

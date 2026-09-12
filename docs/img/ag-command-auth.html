@@ -1,0 +1,86 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.tiers { display:flex; gap:14px; align-items:stretch; }
+.tiers > div { flex:1; }
+.tiers .panel .body p { font-size:12.5px; color:#50575E; margin:0 0 8px; line-height:1.5; }
+.chk { display:flex; gap:8px; align-items:flex-start; margin:0 0 6px; font-size:12px; line-height:1.42; }
+.chk .n { flex:0 0 auto; width:18px; height:18px; border-radius:9px; background:#003DA5; color:#fff; font-size:11px; font-weight:700; text-align:center; line-height:18px; margin-top:1px; }
+.chk .t b { color:#101517; }
+.chk .t { color:#50575E; }
+.verdict { display:flex; gap:10px; margin-top:8px; }
+.verdict > div { flex:1; border-radius:7px; padding:8px 10px; font-size:12px; line-height:1.4; }
+.verdict .no { background:#FBEAEA; border:1px solid #E6A3A3; color:#5C2223; }
+.verdict .ok { background:#EDF7ED; border:1px solid #9EC89E; color:#2B5F2B; padding:8px 10px; }
+.verdict b { display:block; }
+.gate2 { margin-top:14px; }
+.roles { display:flex; gap:10px; margin:8px 0; }
+.role { flex:1; border-radius:7px; padding:9px 11px; font-size:12px; line-height:1.4; background:#F0F4FB; border:1px solid #C3D3EC; }
+.role b { display:block; color:#003DA5; font-size:13px; }
+.role.m { border-color:#003DA5; }
+.keys { display:flex; gap:14px; margin-top:14px; align-items:stretch; }
+.keys > div { flex:1; }
+.keys p { font-size:12.5px; margin-bottom:6px; }
+.cmd { background:#101517; color:#fff; border-radius:7px; padding:8px 11px; font-family:ui-monospace,Menlo,monospace; font-size:11.5px; line-height:1.55; margin:6px 0 8px; overflow-wrap:anywhere; }
+.cmd .c1 { color:#8FB6F0; }
+</style>
+<div class="sheet">
+<h1>Every command passes two gates: the signature says who minted it, the capability map says whether they may</h1>
+<p class="sub">One Command_Interpreter_Node class runs in two trust roles, so the first gate is a per-instance authorize closure checked in interpret() for every command. The second is Capabilities::require() around every service verb. Authenticity and authority are two questions.</p>
+
+<div class="tiers">
+  <div class="panel">
+    <header>Client tier — the browser interpreter, the bare <span class="mono">wp nodes cli</span></header>
+    <div class="body">
+      <p>Commands are minted in-process by a <span class="mono">Shell_Node</span>, which sets <span class="mono">Message::LOCAL</span> at index 7. The default authorize is one test:</p>
+      <div class="cmd"><span class="c1">isset</span>( $message[ Message::LOCAL ] )</div>
+      <p><span class="mono">packed()</span> and <span class="mono">pack()</span> slice to <span class="mono">LAST_VALUE_INDEX + 1</span>, so LOCAL is dropped at every wire and IPC boundary — HTTP POST, SSE, the Partition IPC, the <span class="mono">HTTP_In</span> echo. An injected off-process command inherently lacks it.</p>
+    </div>
+  </div>
+  <div class="panel" style="flex:1.6">
+    <header>Server tier — worker CIs, the <span class="mono">/command</span> request-scope CI, the SSE-stream process CI: <span class="mono">Command_Auth::verifier()</span></header>
+    <div class="body">
+      <p>A LOCAL command passes at once. Anything else must carry a valid HMAC envelope in <span class="mono">VALUE['auth']</span> — inside VALUE, so it survives the IPC that strips LOCAL:</p>
+      <div class="chk"><div class="n">1</div><div class="t"><b>Is it a command?</b> Decided by the TYPE bit: <span class="mono">TM_COMMAND</span> set, neither <span class="mono">TM_RESPONSE</span> nor <span class="mono">TM_ERROR</span>, a numeric TIMESTAMP, an array VALUE. Never by sniffing a <span class="mono">name</span> key. TYPE gates signability and is not in the signature, so <span class="mono">TM_COMMAND | TM_NOREPLY</span> signs like any other.</div></div>
+      <div class="chk"><div class="n">2</div><div class="t"><b>Freshness:</b> at most <span class="mono">MAX_PAST_S</span> 20 s old, <span class="mono">MAX_FUTURE_S</span> 10 s ahead — an age check, distinct from the spawn token's discrete 10-second windows.</div></div>
+      <div class="chk"><div class="n">3</div><div class="t"><b>Resolve the key.</b> A <span class="mono">handle</span> in the envelope names a session: the key comes from <span class="mono">Cache_Backend::shared_first()</span>. No handle: the per-site secret, <span class="mono">hash_hmac( 'sha256', 'nodes-command-v1', wp_salt( 'nonce' ) )</span>.</div></div>
+      <div class="chk"><div class="n">4</div><div class="t"><b>Recompute the HMAC</b> over the canonical string <span class="mono">JSON.stringify([ ts, name, arguments, nonce ])</span> — semantics, never routing, because the Router peels TO and nodes stamp FROM in transit. PHP encodes with <span class="mono">JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE</span> to match JS byte for byte; <span class="mono">tests/fixtures/signatures.json</span> pins the parity.</div></div>
+      <div class="chk"><div class="n">5</div><div class="t"><b>Single use:</b> the nonce is claimed with an atomic <span class="mono">add()</span> through <span class="mono">Cache_Backend::local_first()</span> at <span class="mono">NONCE_TTL_S</span> 60. A replay, or an unavailable backend, is refused.</div></div>
+      <div class="verdict">
+        <div class="no"><b>Any failure</b><span class="mono">verify()</span> logs <span class="mono">verification failed: …</span> through the HANDLING interpreter's <span class="mono">drop_message</span>, installs scope <span class="mono">NONE</span>, and returns false. The reply is <span class="mono">unauthorized: &lt;verb&gt;</span>; <span class="mono">HTTP_In</span> latches it and the whole batch answers <span style="font-weight:700">401</span>.</div>
+        <div class="ok"><b>Pass</b>the session's scope becomes <span class="mono">Capabilities::$session_scope</span> for this one command; <span class="mono">interpret()</span> restores what stood before.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="panel gate2">
+  <header>Gate 2 — <span class="mono">Capabilities::require( $role )</span>, wrapped around every <span class="mono">Service_CI_Node</span> handler</header>
+  <div class="body">
+    <div class="roles">
+      <div class="role"><b>read</b>dashboards, the SSE streams, read-only introspection. Its live surface is the RAW log firehose and worker IPC output, not shaped dashboards alone.</div>
+      <div class="role"><b>tune</b>declared configuration and application data: settings, the ELN ruleset.</div>
+      <div class="role m"><b>manage</b>fleet control, the credential vault, issuing sessions. A verb naming NO role in <span class="mono">node_schema()</span> gets this one — the strictest, never the loosest.</div>
+    </div>
+    <div class="verdict">
+      <div style="background:#F0F4FB;border:1px solid #C3D3EC"><b>Resolution</b>each role → a WordPress capability through the <span class="mono">newspack_nodes/capability_map</span> filter, all three <span class="mono">manage_options</span> until <span class="mono">wp nodes caps install</span> migrates them onto <span class="mono">newspack_nodes_{read,tune,manage}</span>. The autoloaded <span class="mono">newspack_nodes_granular_caps</span> option is the switch.</div>
+      <div style="background:#F0F4FB;border:1px solid #C3D3EC"><b>The ceiling only subtracts</b><span class="mono">$session_scope</span> lowers the ceiling for one command and can never buy authority the authenticated user lacks. <span class="mono">Roles::install()</span> grants all three to every role holding <span class="mono">manage_options</span> and creates <span class="mono">newspack_nodes_hub</span> — read plus tune — for the aggregator's user.</div>
+      <div class="no"><b>Refusal</b><span class="mono">permission denied: &lt;role&gt; capability required</span>; the batch still answers 200, because the signature passed.</div>
+    </div>
+  </div>
+</div>
+
+<div class="keys">
+  <div class="card">
+    <h3>Two signing keys, and the choice is the destination binding</h3>
+    <p><span class="mono">Command_Auth::sign()</span> uses the per-site secret and stamps no handle: the attached cli's Shell signs this way inline, same host, over the IPC partition.</p>
+    <p><span class="mono">sign_for( $destination )</span> signs under the session key established with one remote and stamps its handle. A signature under one remote's key verifies only there, which pins a command to its destination without signing TO. No session means no signature: a minter waits rather than emitting something that will rot.</p>
+    <p>Sessions live in a private static map, per PROCESS and keyed by VAULT ENTRY ID, never by url: two entries on one host stay two sessions, and editing an entry's url keeps its session. <span class="mono">HTTP_Out_Node</span> establishes one — <span class="mono">ensure_session()</span> async, <span class="mono">establish_session()</span> blocking for <span class="mono">probe_command()</span> — landing in <span class="mono">remember_session()</span>. Three things drop one: a 401 from the spoke, process exit, a Vault change. A <span class="mono">POST /auth</span> in a spoke's log every ten minutes is a worker recycle, by design.</p>
+  </div>
+  <div class="card">
+    <h3><span class="mono">POST /newspack-nodes/v1/auth</span> mints the session — the minter signs, never the ingress</h3>
+    <p>Gated on the fleet site, then the READ role: a scope is a ceiling, so a read-only user's session can only do read-only things. Returns <span class="mono">{ handle, key, scope, expires_in, now }</span>: a random 16-byte handle, a random 32-byte key, stored with <span class="mono">add()</span> — never <span class="mono">set()</span>, so a colliding handle fails rather than displacing a live session. <span class="mono">scope</span> is clamped to the minting user's highest role; <span class="mono">ttl</span> to <span class="mono">SESSION_TTL_MIN_S</span> 60 … <span class="mono">SESSION_TTL_MAX_S</span> 86400, default <span class="mono">SESSION_TTL_S</span> 3600, and never slid on use, so a leaked handle expires on a bounded schedule. The response is the only place the key is ever disclosed; <span class="mono">now</span> lets the client align its TIMESTAMP.</p>
+    <p><span class="mono">Sessions</span> is the durable directory beside the cache: a non-autoloaded option, one row per LABELLED handle, never the key. The automatic dashboard mints, several per page load, stay unlisted, because at <span class="mono">MAX_ROWS</span> 50 they would evict the sessions an operator issued. The cache stays the authority on liveness, so a row whose lease is gone reads dead rather than vanishing.</p>
+    <p><span class="mono">HTTP_In</span> decodes, routes and verifies. Conferring authority at the ingress would make the boundary an oracle: anything that reached it would acquire authority, whatever put it there. Every tier is HMAC-SHA256; there is no asymmetric signing anywhere.</p>
+  </div>
+</div>
+</div>

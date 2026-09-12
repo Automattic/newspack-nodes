@@ -1,0 +1,95 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.tiers { display:flex; gap:12px; align-items:stretch; }
+.tier { flex:1; border:1px solid #C3C4C7; border-radius:9px; background:#fff; padding:12px 13px; position:relative; }
+.tier h3 { font-size:14px; margin:0 0 2px; }
+.tier .cad { font-size:11.5px; color:#787C82; margin-bottom:8px; }
+.tier .cad b { color:#003DA5; }
+.step { display:flex; gap:8px; align-items:flex-start; margin-bottom:6px; }
+.step .n { flex:0 0 auto; width:18px; height:18px; border-radius:9px; background:#003DA5; color:#fff; font-size:11px; font-weight:700; text-align:center; line-height:18px; margin-top:1px; }
+.step .t { font-size:12px; line-height:1.42; color:#50575E; }
+.step .t b { color:#101517; font-weight:600; }
+.step.j .n { background:#787C82; }
+.funnel { position:relative; height:54px; }
+.funnel svg { position:absolute; left:0; top:0; }
+.gate { display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; align-items:stretch; }
+.gate .chip { min-width:0; margin:0; font-size:11.8px; }
+.gate .chip .mono { overflow-wrap:normal; }
+.gate .chip b { display:block; }
+.gate .chip.danger b { color:#B32D2E; }
+.bottom { display:flex; gap:12px; margin-top:14px; align-items:stretch; }
+.bottom > div { flex:1; }
+.bottom p { font-size:12.5px; }
+.states { display:flex; gap:6px; margin:6px 0 8px; flex-wrap:wrap; }
+.states span { font-size:11.5px; font-weight:700; padding:3px 9px; border-radius:4px; border:1px solid #C3C4C7; }
+.states .live { background:#EDF7ED; border-color:#9EC89E; color:#1E5B1E; }
+.states .stale { background:#FFF7E6; border-color:#F0D9A6; color:#8A5A00; }
+.states .down { background:#FBEAEA; border-color:#E6A3A3; color:#B32D2E; }
+.states .idle { background:#F0F4FB; border-color:#C3D3EC; color:#003DA5; }
+.states .held { background:#F6F7F7; color:#50575E; }
+</style>
+<div class="sheet">
+<h1>There is no supervisor: three tiers revive the fleet, and every spawn crosses one gate</h1>
+<p class="sub">A worker respawns itself; every live worker's _fleet scan catches a peer whose lock is missing or stale; WP-Cron catches a fleet with nothing left running. Supervision survives the loss of any single process, and only total fleet death falls through to cron cadence.</p>
+
+<div class="tiers">
+  <div class="tier">
+    <h3>Tier 1 · self-respawn</h3>
+    <div class="cad">every <b>~595 s</b>, from the dying worker's <span class="mono">finally</span></div>
+    <div class="step"><div class="n">1</div><div class="t"><span class="mono">release()</span> the lock, THEN <span class="mono">self_respawn()</span>.</div></div>
+    <div class="step"><div class="n">2</div><div class="t">Refused for two stop categories: <span class="mono">idle</span> (respawning would undo the exit) and <span class="mono">stop</span> (the operator's <span class="mono">wp nodes stop</span>).</div></div>
+    <div class="step"><div class="n">3</div><div class="t">A current-window token from <span class="mono">$token_provider</span>; the boot token is ~595 s stale.</div></div>
+  </div>
+  <div class="tier" style="border-color:#003DA5">
+    <h3>Tier 2 · the peer scan, <span class="mono">_fleet</span></h3>
+    <div class="cad">every <b>15 s</b> (<span class="mono">SCAN_INTERVAL_MS</span>): <span class="mono">Fleet_Node</span>, a <span class="mono">Timer_Node</span> hitchhiking the Router in every worker</div>
+    <div class="step"><div class="n">1</div><div class="t"><b>Reload watermark</b> in THIS worker's lock dir? <span class="mono">Topology_Registry::invalidate_config_cache()</span> — the options cache, <span class="mono">Config::reset()</span>, the on-demand memo, the probe cadence — then notify <span class="mono">RELOAD</span>. Gated on the watermark because <span class="mono">Config::reset()</span> drops the parsed-TSL caches: run every pass, it would re-glob both topology directories and re-parse every <span class="mono">.tsl</span> to reach the value already held.</div></div>
+    <div class="step"><div class="n">2</div><div class="t"><b>Re-read the active fleet</b> from <span class="mono">Bootstrap::expand_workers()</span>; defer a newly-appeared type by <span class="mono">NEW_TYPE_SPAWN_DELAY_SCANS</span> 1 so a still-exiting predecessor can flush; a cold start skips the deferral. Drain every worker if the last topology was deactivated.</div></div>
+    <div class="step"><div class="n">3</div><div class="t"><b>For each worker, at most <span class="mono">MAX_SPAWNS_PER_TICK</span> 4 per pass:</b> due when <span class="mono">worker_needs_spawn()</span> — a stale heartbeat, or a missing lock dir on a topology that is not on-demand — and not deferred, and not spawned in the last 15 s (recorded in memory only here).</div></div>
+    <div class="step"><div class="n">4</div><div class="t"><span class="mono">Spawn_Coordinator::spawn_each()</span> reads the active set for a write conflict (two fleets on one partition) and suppresses the whole pass on one; then one fire-and-forget POST per due worker. <span class="mono">FIRE</span> is notified before every guard, so it ticks even when the scan does nothing.</div></div>
+  </div>
+  <div class="tier">
+    <h3>Tier 3 · WP-Cron</h3>
+    <div class="cad">every <b>60 s</b> (<span class="mono">newspack_nodes_minute</span>), <span class="mono">Bootstrap::reconcile_fleet()</span>, no lock, no loop</div>
+    <div class="step j"><div class="n">1</div><div class="t"><span class="mono">before</span> — <span class="mono">newspack_nodes/before_reconcile</span>, third-party code in its own guarded step</div></div>
+    <div class="step"><div class="n">2</div><div class="t"><b><span class="mono">spawn</span></b> — <span class="mono">spawn_due_workers()</span>, ahead of every janitorial step so none can preempt it by throwing</div></div>
+    <div class="step"><div class="n">3</div><div class="t"><b><span class="mono">backlog-wake</span></b> — <span class="mono">wake_readers_with_backlog()</span>: the only pass that notices an EXTERNAL producer's write</div></div>
+    <div class="step j"><div class="n">4</div><div class="t"><span class="mono">lock-dirs</span> — reap dirs outside the active fleet and <span class="mono">*.lock.d.stealing.*</span> scratch; a surplus partition gets the restart flag, not a kill</div></div>
+    <div class="step j"><div class="n">5</div><div class="t"><span class="mono">retention</span> — <span class="mono">Log_Cleaner::cleanup_orphan_partitions()</span></div></div>
+    <div class="step j"><div class="n">6</div><div class="t"><span class="mono">orphan-ipc</span> — <span class="mono">cleanup_orphan_ipc()</span></div></div>
+    <div class="step j"><div class="n">7</div><div class="t"><span class="mono">periodic</span> — <span class="mono">newspack_nodes/periodic</span>: alerts, the delayed-jobs sweep. Each step behind its own catch; <span class="mono">after_reconcile</span> in a <span class="mono">finally</span>.</div></div>
+  </div>
+</div>
+
+<div class="funnel"><svg width="1052" height="54"><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs>
+  <g stroke="#003DA5" stroke-width="1.8" fill="none" marker-end="url(#a)"><path d="M172 0 V20 H526 V48"/><path d="M526 0 V48"/><path d="M880 0 V20 H526 V48"/></g></svg></div>
+
+<div class="panel">
+  <header>The gate every path crosses: <span class="mono">POST /newspack-nodes/v1/workers/spawn</span></header>
+  <div class="body">
+    <div class="gate">
+      <div class="chip"><b>Auth</b><span class="mono">hash_hmac( 'sha256', "newspack_nodes_{$purpose}:{$window}", $salt )</span> with <span class="mono">$window = floor( now / Internal_Request_Token::WINDOW_S )</span>, 10 s; the current AND previous window are accepted. The purpose <span class="mono">spawn</span> is inside the hash, so a <span class="mono">health-cache</span> token never validates here. Or: a MANAGE user, a WP nonce, and <span class="mono">RATE_LIMIT_S</span> 2 per user. A bad token answers 403.</div>
+      <div class="chip danger"><b>400 · partition</b><span class="mono">validate_partition()</span> first: a type or partition outside the active fleet is refused before anything else is read.</div>
+      <div class="chip danger"><b>409 · deploy hold</b><span class="mono">Spawn_Coordinator::hold()</span> is the non-autoloaded <span class="mono">newspack_nodes_hold</span> option, not a file: a reinstall may wipe the base directory, and a hold that evaporates mid-deploy is worse than none. <span class="mono">wp nodes stop</span> sets it FIRST, flags every worker and polls up to <span class="mono">STOP_TIMEOUT_S</span> 90; <span class="mono">wp nodes start</span> clears it and spawns.</div>
+      <div class="chip danger"><b>429 · throttle</b><span class="mono">MIN_SPAWN_INTERVAL_S</span> 15 per <span class="mono">{type}|{partition}</span>, persisted through <span class="mono">Cache_Backend::shared_first()</span> (transient fallback) at twice the interval. Checked and recorded HERE, which is what makes N scanners as safe as one and stops a thundering herd when locks flap.</div>
+      <div class="chip"><b>Then the worker runs</b>inline in this request for its whole life: <span class="mono">ignore_user_abort( true )</span>, <span class="mono">set_time_limit( 0 )</span>, <span class="mono">Worker_Base::execute()</span>.</div>
+    </div>
+  </div>
+</div>
+
+<div class="bottom">
+  <div class="card">
+    <h3>What <span class="mono">wp nodes status</span> reads off a slot</h3>
+    <div class="states"><span class="live">live</span><span class="stale">stale</span><span class="down">down</span><span class="idle">idle</span><span class="held">held</span><span>inactive</span></div>
+    <p>A held lock reads <b>live</b> or <b>stale</b> from its heartbeat age against the type's <span class="mono">stale_timeout</span> (60 s default; job-worker declares 600). No lock reads <b>held</b> under a deploy hold, <b>idle</b> when the topology declares an <span class="mono">on_demand_idle</span> window, <b>down</b> otherwise. A catalog topology outside the active set reads <b>inactive</b>. A <b>stale</b> or <b>down</b> slot is due for a spawn, and so is a <b>held</b> one on a topology that is not on-demand: no spawner checks the hold, so the endpoint refuses it with 409.</p>
+  </div>
+  <div class="card">
+    <h3>On-demand: scale to zero, wake at the write boundary</h3>
+    <p><span class="mono">var on_demand_idle = &lt;seconds&gt;</span> rides the <span class="mono">stale_timeout</span> path into each worker descriptor. A cleanly MISSING lock dir then spawns nothing, <span class="mono">Alerts::evaluate()</span> raises nothing, and status renders <b>idle</b>; a STALE dir still spawns, because a stale lock is a crash. Every producer's <span class="mono">Partition_Node::fill()</span> marks its directory and the Router-tick flush wakes whoever tails it, through <span class="mono">Bootstrap::on_demand_wake_map()</span>, cached in APCu for 60 s. A partition nothing tails is absent from the map.</p>
+  </div>
+  <div class="callout">
+    <h4>Faster is not better</h4>
+    <p>A faster scan would only reach a MISSING lock dir sooner; the stale case is dominated by <span class="mono">stale_timeout</span> either way, and a crashed worker's queue is durable, so the lag costs nothing. The scan is revival and nothing else: housekeeping lives in the cron pass so it runs with the fleet down. On multisite only the main site runs the fleet.</p>
+  </div>
+</div>
+</div>

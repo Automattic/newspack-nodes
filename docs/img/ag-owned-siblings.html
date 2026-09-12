@@ -1,0 +1,78 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.fam { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.pat { min-width:0; background:#fff; border:1px solid #C3C4C7; border-radius:9px; padding:12px 13px; }
+.pat h3 { font-size:13.5px; margin:0 0 8px; }
+.pat h3 small { color:#787C82; font-weight:400; font-size:11.5px; }
+.sib { display:flex; align-items:center; gap:8px; margin:5px 0; font-size:12px; }
+.sib .k { flex:0 0 auto; background:#003DA5; color:#fff; border-radius:4px; padding:2px 7px; font-size:11px; }
+.sib .nm { color:#101517; }
+.sib .by { color:#787C82; font-size:11px; margin-left:auto; text-align:right; white-space:nowrap; }
+.sib.cfg .k { background:#787C82; }
+.cas { display:flex; gap:12px; margin-top:16px; }
+.cas .chip { flex:1; margin:0; font-size:12px; }
+.cas .chip b { display:block; margin-bottom:2px; }
+.rules { display:flex; gap:12px; margin-top:16px; align-items:stretch; }
+.rules > div { flex:1; }
+.rules p { font-size:12.5px; }
+.fillrow { display:flex; gap:12px; margin-top:16px; align-items:stretch; }
+.fillrow .card { flex:1; }
+.fillrow .card p { font-size:12.5px; }
+.cmd { background:#101517; color:#fff; border-radius:7px; padding:9px 12px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12px; line-height:1.55; margin:6px 0 8px; }
+.cmd .c1 { color:#8FB6F0; }
+</style>
+<div class="sheet">
+<h1>A node that owns siblings publishes them into slots, and four cascades read the slot map</h1>
+<p class="sub">Publishing is declaring. A sibling built in a constructor is enrolled the moment publish_sibling() runs, takes the name {patron}:{suffix} when the patron takes one, and follows the patron through every rename, sink change and teardown. Nothing else reads the map.</p>
+
+<div class="fam">
+  <div class="pat"><h3>Partition <small>class-partition-node.php</small></h3>
+    <div class="sib"><span class="k">lock</span><span class="nm mono">{name}:lock</span><span class="by">allow_large_writes()</span></div>
+    <div class="sib"><span class="k">heartbeat</span><span class="nm mono">{name}:heartbeat</span><span class="by">a Timer sinking into the Lock</span></div>
+    <div class="sib cfg"><span class="k">config</span><span class="nm mono">{name}:config</span><span class="by">Schema_Reflection</span></div>
+  </div>
+  <div class="pat"><h3>Topic</h3>
+    <div class="sib"><span class="k">p0 … p{N-1}</span><span class="nm mono">{name}:p3</span><span class="by">one Partition per index</span></div>
+    <div class="sib cfg"><span class="k">config</span><span class="nm mono">{name}:config</span><span class="by">Schema_Reflection</span></div>
+  </div>
+  <div class="pat"><h3>Consumer <small>Tail, File_Tail inherit</small></h3>
+    <div class="sib"><span class="k">source</span><span class="nm mono">{name}:source</span><span class="by">the Partition it tails</span></div>
+    <div class="sib"><span class="k">offsetlog</span><span class="nm mono">{name}:offsetlog</span><span class="by">Durable_Reader, via Sidecar</span></div>
+    <div class="sib"><span class="k">deadletter</span><span class="nm mono">{name}:deadletter</span><span class="by">Dead_Letter_Queue, via Sidecar</span></div>
+    <div class="sib cfg"><span class="k">config</span><span class="nm mono">{name}:config</span><span class="by">Schema_Reflection</span></div>
+  </div>
+  <div class="pat"><h3>Remote_Link <small>Remote_Source extends it</small></h3>
+    <div class="sib"><span class="k">sse-in</span><span class="nm mono">{name}:sse-in</span><span class="by">the pull</span></div>
+    <div class="sib"><span class="k">http-out</span><span class="nm mono">{name}:http-out</span><span class="by">the push and keepalive</span></div>
+    <div class="sib"><span class="k">null</span><span class="nm mono">{name}:null</span><span class="by">HTTP_Out's target</span></div>
+    <div class="sib"><span class="k">offsetlog</span><span class="nm mono">{name}:{remote}:offsetlog</span><span class="by">Remote_Source, sibling_suffix()</span></div>
+    <div class="sib"><span class="k">deadletter</span><span class="nm mono">{name}:{remote}:deadletter</span><span class="by">Remote_Source, sibling_suffix()</span></div>
+  </div>
+</div>
+
+<div class="cas">
+  <div class="chip"><b>1 · collision pre-check</b><span class="mono">check_name_availability()</span> tests every slot a rename will touch: each sibling first, the auto-wired <span class="mono">:config</span> LAST, then the node's own name. A collision throws before anything is unregistered. Sound only because <span class="mono">Core::$nodes_by_name</span> is a per-process array.</div>
+  <div class="chip"><b>2 · rename</b><span class="mono">set_sibling_names()</span> is the ONE namer, reached from the publish and from every <span class="mono">name()</span>, so key and name cannot drift. An override MUST call <span class="mono">parent::</span>; forgetting it stops naming every sibling with no symptom and no gate.</div>
+  <div class="chip"><b>3 · sink</b>a patron's <span class="mono">sink()</span> sets the same sink on every sibling in the map, so a Topic's partitions and a Consumer's sidecars forward where the patron forwards.</div>
+  <div class="chip"><b>4 · teardown</b><span class="mono">remove_node()</span> tears siblings down with the patron; <span class="mono">retract_sibling( $kind )</span> is the single-slot inverse, tearing down AND emptying the slot.</div>
+</div>
+
+<div class="rules">
+  <div class="callout"><h4>An occupied slot is refused</h4><p><span class="mono">publish_sibling()</span> throws <span class="mono">sibling slot occupied: {$kind}; retract_sibling() to replace it</span>, because a displaced sibling would stay registered and keep its handle where no cascade could reach it. Re-publishing on a second <span class="mono">arguments()</span> replay therefore throws; a builder that means to replace retracts first.</p></div>
+  <div class="callout"><h4>patron() before name()</h4><p>Setting the patron after the name is refused. The patron is both the interpreter's drop and the canvas-visibility flag: <span class="mono">dump_metadata</span> skips patron-linked nodes, so the <span class="mono">p{N}</span> children never appear on the canvas and a Topic's row aggregates their bytes instead.</p></div>
+  <div class="ok"><h4>Publishing is atomic on failure</h4><p>When <span class="mono">set_sibling_names()</span> refuses the composed name, the slot is emptied again before the exception propagates, so a caller's own guard rebuilds rather than serving a half-published sibling. Spell out all six geometry positions for a sidecar: an omitted one resolves to the operator's <span class="mono">&lt;config:*&gt;</span> default, not a sidecar-sized one.</p></div>
+</div>
+
+<div class="fillrow">
+  <div class="card">
+    <h3>Default <span class="mono">fill()</span>: stamp, count, forward</h3>
+    <div class="cmd"><span class="c1">$sink</span> = $this-&gt;require_sink();  // unwired: throws<br>if TO is '' and target is a non-empty string: TO = target<br>++$this-&gt;counter;  $sink-&gt;fill( $message );</div>
+    <p>Every subclass forwarding through <span class="mono">parent::fill</span> inherits the stamp: Hook, Grep, Echo, Log, Table, Age_Sieve, Value_Timeout, the JSON pair, Dumper's <span class="mono">emit()</span>, Tail's <span class="mono">forward_line()</span>. Shell, Callback and <span class="mono">Durable_Reader::forward_line()</span> address their own emits; Null, Stdout and Stderr emit nothing and never need a sink.</p>
+  </div>
+  <div class="card">
+    <h3><span class="mono">stamp_message( &amp;$message, $name )</span>: prepend to the trail</h3>
+    <div class="cmd">FROM = '' === FROM ? $name : $name . '/' . FROM</div>
+    <p>It returns <b>false</b>, and the caller must drop, in two cases: the new FROM would exceed <span class="mono">MAX_FROM_SIZE</span> 1024, which is what stops a cycle from growing the trail, and <span class="mono">$name</span> is empty (mid-construction, post-rename), which would compose a <span class="mono">/from</span> path the Router cannot resolve. Both log through <span class="mono">print_less_often</span>.</p>
+  </div>
+</div>
+</div>

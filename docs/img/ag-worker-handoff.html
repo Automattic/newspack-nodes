@@ -1,0 +1,75 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.seq { position: relative; width: 1052px; }
+.seq svg.wire { position: absolute; left: 0; top: 0; }
+.seq .lane { position: absolute; top: 0; width: 196px; min-height: 118px; }
+.seq .lane h3 { font-size: 14.5px; }
+.seq .lane p { font-size: 12px; margin: 0; }
+.seq .hop { position: absolute; background: #fff; border: 1px solid #C3D3EC; border-radius: 7px; padding: 9px 12px 9px 40px; font-size: 12.5px; line-height: 1.5; color: #101517; }
+.seq .hop.bad { border-color: #E6A3A3; background: #FBEAEA; color: #5C2223; }
+.seq .hop.bad .n { background: #B32D2E; }
+.seq .n { position: absolute; left: 10px; top: 9px; width: 22px; height: 22px; border-radius: 50%; background: #003DA5; color: #fff; font-size: 12px; font-weight: 700; text-align: center; line-height: 22px; }
+.seq .panel { position: absolute; }
+.seq .panel header { position: relative; padding-left: 44px; font-size: 14px; }
+.seq .panel header .n { background: #fff; color: #003DA5; left: 12px; top: 8px; }
+.seq .panel .body { padding: 12px 14px 6px; }
+.seq .panel .chip { font-size: 12px; line-height: 1.45; padding: 6px 10px; }
+.seq .cap { position: absolute; font-size: 12px; color: #50575E; text-align: center; background: #FBFBFC; padding: 0 6px; white-space: nowrap; }
+.mono { overflow-wrap: anywhere; }
+.trig { display:flex; flex-wrap:wrap; gap:6px; }
+.trig .chip { flex:1 1 30%; margin:0; }
+</style>
+<div class="sheet">
+<h1>A worker's last act is to start its successor, and release comes before the respawn</h1>
+<p class="sub">Five hops from the end of drain() to the successor's acquire(). The finally block runs the handoff, the teardown, the release and the spawn in that order, and the order is the mechanism: reversed, the successor hits a held lock and the slot idles until a peer's rescue.</p>
+
+<div class="seq" id="seq">
+<svg class="wire" id="wire"><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs></svg>
+
+<div class="lane card" data-lane="0"><h3>Spawner</h3><p>A predecessor's <span class="mono">self_respawn()</span>, a peer's <span class="mono">_fleet</span> scan, the cron pass, an activate, or a wake.</p></div>
+<div class="lane card" data-lane="1"><h3>Spawn endpoint</h3><p><span class="mono">POST /newspack-nodes/<wbr>v1/workers/<wbr>spawn</span>, <span class="mono">Spawn_Controller</span>.</p></div>
+<div class="lane card" data-lane="2"><h3>Worker_Base</h3><p><span class="mono">execute( $topology, $spawn_url, $token )</span> inside that same request.</p></div>
+<div class="lane card" data-lane="3"><h3>Lock dir</h3><p><span class="mono">{base}/locks/<wbr>{type}.p{N}.lock.d/</span> — the slot.</p></div>
+<div class="lane card" data-lane="4"><h3>Successor</h3><p>The next process in this slot.</p></div>
+
+<div class="hop" data-span="2,4"><span class="n">1</span><span class="mono">finally</span>, and a <span class="mono">register_shutdown_function</span> for an <span class="mono">exit()</span> that skips it — both check <span class="mono">shutdown_handled</span>, first one wins. <span class="mono">shutdown_handoff()</span>: sweep every named <span class="mono">Shutdown_Sweeper</span> synchronously, then checkpoint each durable reader — the fair-shot rule for <span class="mono">timeout</span> and <span class="mono">memory</span>, a graceful frame for everything else, nothing at all on a fatal.</div>
+
+<div class="hop" data-span="2,4"><span class="n">2</span><span class="mono">Core::cleanup_all_nodes()</span> tears the Partitions down so their write locks go before the next spawn.</div>
+
+<div class="hop" data-arrow="2,3" data-cap="PID verified, five files unlinked, rmdir" data-span="2,4"><span class="n">3</span><span class="mono">release()</span>: <span class="mono">Partition_Node::flush_pending_wakes()</span> FIRST, while the lock still reads held, then drop the lock. <span class="mono">Spawn_Coordinator::wake_on_demand()</span> judges a reader absent by its lock dir, so a wake flushed after the release, for a partition this worker tails (its own IPC input included), would find the slot free and spawn a duplicate.</div>
+
+<div class="hop" data-arrow="2,1;1,4" data-cap="POST /spawn, current-window token|runs the successor inline" data-span="0,4"><span class="n">4</span><span class="mono">should_self_respawn()</span> refuses two categories, <span class="mono">idle</span> and <span class="mono">stop</span>. Otherwise <span class="mono">self_respawn()</span> mints a fresh token through <span class="mono">Worker_Base::$token_provider</span>, because the boot token is ~595 s old and outside the 10-second windows; left unwired, every respawn is refused and succession degrades silently to the peer scan and cron. <span class="mono">Spawn_Controller</span> runs its checks and then the successor, inline in the request that POST opened.</div>
+
+<div class="hop" data-arrow="4,3" data-cap="acquire() finds the slot free" data-span="2,4"><span class="n">5</span>The successor reaches <span class="mono">acquire()</span> before this process has fully exited. No retry loop, no waiting. Reversing steps 3 and 4 would have the successor hit the still-held lock, skip, and idle the slot until a peer's rescue.</div>
+</div>
+</div>
+<script>
+(function () {
+  var L = [105, 315, 526, 736, 947], seq = document.getElementById('seq'), svg = document.getElementById('wire');
+  var NS = 'http://www.w3.org/2000/svg';
+  function el(t, a) { var e = document.createElementNS(NS, t); for (var k in a) e.setAttribute(k, a[k]); return e; }
+  var lanes = seq.querySelectorAll('.lane'), headBottom = 0;
+  lanes.forEach(function (c) { var i = +c.dataset.lane; c.style.left = (L[i] - 98) + 'px'; headBottom = Math.max(headBottom, c.offsetHeight); });
+  var y = headBottom + 18;
+  seq.querySelectorAll('[data-span]').forEach(function (b) {
+    var s = b.dataset.span.split(',').map(Number), x0 = L[s[0]] - 95, x1 = L[s[1]] - 10;
+    if (s[1] === 4) x1 = 1042;
+    if (b.dataset.arrow) {
+      var caps = b.dataset.cap.split('|');
+      b.dataset.arrow.split(';').forEach(function (pair, n) {
+        var a = pair.split(',').map(Number), ay = y + 22, dir = a[1] > a[0] ? 1 : -1;
+        svg.appendChild(el('path', { d: 'M' + L[a[0]] + ' ' + ay + ' H' + (L[a[1]] - 6 * dir), stroke: '#003DA5', 'stroke-width': 1.8, fill: 'none', 'marker-end': 'url(#a)' }));
+        var cap = document.createElement('div'); cap.className = 'cap'; cap.textContent = caps[n];
+        cap.style.top = (ay - 20) + 'px'; seq.appendChild(cap);
+        cap.style.left = ((L[a[0]] + L[a[1]]) / 2 - cap.offsetWidth / 2) + 'px';
+        y = ay + 10;
+      });
+    }
+    b.style.left = x0 + 'px'; b.style.width = (x1 - x0) + 'px'; b.style.top = y + 'px';
+    y += b.offsetHeight + 12;
+  });
+  var boxes = seq.querySelectorAll('[data-span]'), lastTop = boxes[boxes.length - 1].offsetTop;
+  seq.style.height = y + 'px'; svg.setAttribute('width', 1052); svg.setAttribute('height', y);
+  L.forEach(function (x) { svg.insertBefore(el('path', { d: 'M' + x + ' ' + (headBottom + 4) + ' V' + (lastTop - 4), stroke: '#B0B3B8', 'stroke-dasharray': '4 5', 'stroke-width': 1.5 }), svg.firstChild.nextSibling); });
+})();
+</script>

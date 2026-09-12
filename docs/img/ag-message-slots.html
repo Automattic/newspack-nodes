@@ -1,0 +1,85 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.wire { display:flex; align-items:stretch; gap:8px; padding:14px 16px 34px; }
+.slot { flex:1; border:1px solid #C3D3EC; border-radius:8px; background:#F0F4FB; padding:10px 10px 9px; font-size:12px; line-height:1.4; position:relative; }
+.slot .idx { display:inline-block; width:22px; height:22px; border-radius:50%; background:#003DA5; color:#fff; font-size:12px; font-weight:700; text-align:center; line-height:22px; margin-bottom:6px; }
+.slot .nm { display:block; font-weight:700; font-size:13px; margin-bottom:4px; }
+.slot .d { display:block; color:#50575E; font-family:Inter,-apple-system,Helvetica,Arial,sans-serif; font-size:11.5px; line-height:1.42; }
+.slot.local { border-style:dashed; background:#fff; border-color:#B0B3B8; }
+.slot.local .idx { background:#787C82; }
+.cut { flex:0 0 auto; width:0; border-left:2px dashed #B32D2E; position:relative; margin:0 2px; }
+.cut span { position:absolute; left:-60px; bottom:-24px; width:120px; font-size:11px; color:#B32D2E; text-align:center; font-family:Inter,sans-serif; }
+.ports { display:flex; gap:16px; margin-top:34px; }
+.ports .card { flex:1; }
+.ports p { font-size:12.5px; }
+.planes { display:flex; gap:16px; margin-top:16px; }
+.planes .card { flex:1; }
+.flags { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+.flag { flex:1 1 120px; background:#F0F4FB; border:1px solid #C3D3EC; border-radius:5px; padding:6px 9px; font-size:11.5px; line-height:1.35; }
+.flag .bit { display:block; color:#787C82; font-size:10.5px; margin-bottom:2px; }
+.flag.ctl { background:#FFF7E6; border-color:#F0D9A6; }
+.flag.err { background:#FBEAEA; border-color:#E6A3A3; }
+.flag.life { background:#EDF7ED; border-color:#9EC89E; }
+.flag.free { background:#F6F7F7; border-color:#DCDCDE; color:#787C82; }
+.legend { font-size:11.5px; color:#50575E; margin-top:8px; }
+</style>
+<div class="sheet">
+<h1>A message is one positional array, and the wire is the same array as JSON</h1>
+<p class="sub">Seven slots cross every boundary. An eighth, LOCAL, exists only inside the process that minted the message: packed() slices it off, which is what makes it a provenance taint rather than a field.</p>
+
+<div class="panel">
+  <header>The array, in index order — <span class="mono">Message::TYPE</span> … <span class="mono">Message::VALUE</span>, then the in-process <span class="mono">LOCAL</span></header>
+  <div class="wire mono">
+    <div class="slot"><span class="idx">0</span><span class="nm">TYPE</span><span class="d">a bitmask of the eleven flags below; mint default TM_UNTYPED</span></div>
+    <div class="slot"><span class="idx">1</span><span class="nm">TIMESTAMP</span><span class="d">unix SECONDS as a float, microsecond resolution; PHP stamps the cached per-tick Core::$now, JS Date.now() / 1000</span></div>
+    <div class="slot"><span class="idx">2</span><span class="nm">FROM</span><span class="d">the trail behind: one name per source or boundary, / separated, at most 1024 bytes</span></div>
+    <div class="slot"><span class="idx">3</span><span class="nm">TO</span><span class="d">the path ahead; the Router peels one head per hop; a reply carries the request's FROM</span></div>
+    <div class="slot"><span class="idx">4</span><span class="nm">ID</span><span class="d">a producer's identifier; a Consumer writes its {seg}:{off}:{len} crumb here, never in KEY</span></div>
+    <div class="slot"><span class="idx">5</span><span class="nm">KEY</span><span class="d">the routing / partition / grouping key a Topic hashes</span></div>
+    <div class="slot"><span class="idx">6</span><span class="nm">VALUE</span><span class="d">the data: a line, an array, a live command struct { name, arguments, auth }</span></div>
+    <div class="cut"><span>packed() stops here</span></div>
+    <div class="slot local"><span class="idx">7</span><span class="nm">LOCAL</span><span class="d">set by a Shell minting in-process; the client-tier authorize gate tests isset(). Never on the wire, never in IPC.</span></div>
+  </div>
+</div>
+
+<div class="ports">
+  <div class="card">
+    <h3><span class="mono">Message::packed()</span> → one JSON list</h3>
+    <p><span class="mono">json_encode</span> under <span class="mono">JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE</span>, falling back to <span class="mono">wp_json_encode</span>. A bad UTF-8 byte is substituted, so one latin1 column cannot void a record. It never returns <span class="mono">''</span>: a residual encode failure logs to stderr and substitutes a self-describing TM_ERROR frame.</p>
+    <p><span class="mono">packed_size()</span> measures that JSON alone; a writer sizing a record adds one for Partition's newline.</p>
+  </div>
+  <div class="card">
+    <h3>PHP <span class="mono">unpacked()</span> — strict</h3>
+    <p>Accepts <span class="mono">count() === 7 &amp;&amp; array_is_list()</span> and nothing else; anything else <b>throws</b> <span class="mono">InvalidArgumentException</span>.</p>
+    <p>Off-disk readers catch it: <span class="mono">Durable_Reader::forward_line</span> quarantines the line to <span class="mono">:deadletter</span> and advances; <span class="mono">Partition_Node::last_frame_of</span> logs it and hands back null, so the reader boots with no durable cursor.</p>
+  </div>
+  <div class="card">
+    <h3>JS <span class="mono">unpack()</span> — lenient</h3>
+    <p>Accepts <span class="mono">Array.isArray &amp;&amp; length &gt;= 7</span>, truncating to the canonical seven. Anything else, a JSON parse error included, yields a fresh <span class="mono">newMessage()</span> — never a throw.</p>
+    <p>It never returns a short array, so a caller indexes VALUE unconditionally, and a peer's trailing eighth field claiming LOCAL provenance is truncated away.</p>
+  </div>
+</div>
+
+<div class="card" style="margin-top:16px">
+  <h3>TYPE: eleven one-bit flags, four planes. Compose with <span class="mono">|</span>, test with <span class="mono">&amp;</span>, never <span class="mono">===</span></h3>
+  <div class="flags">
+    <div class="flag"><span class="bit">= 1</span>TM_BYTESTREAM — a raw line</div>
+    <div class="flag"><span class="bit">= 16</span>TM_STRUCT — an array VALUE</div>
+    <div class="flag ctl"><span class="bit">= 8</span>TM_COMMAND — build and administer: make_node, connect_node, config verbs, topology load</div>
+    <div class="flag ctl"><span class="bit">= 128</span>TM_REQUEST — drive or query a LIVE graph: GET_HEALTH, Table GET</div>
+    <div class="flag ctl"><span class="bit">= 256</span>TM_RESPONSE — an answer; a verb reply is TM_COMMAND | TM_RESPONSE</div>
+    <div class="flag ctl"><span class="bit">= 512</span>TM_NOREPLY — fire-and-forget; a Shell with want_reply(false) ORs it on and the interpreter replies only with an error to stderr</div>
+    <div class="flag ctl"><span class="bit">= 64</span>TM_INFO — a flat KEY VALUE string from set_state / notify</div>
+    <div class="flag life"><span class="bit">= 2</span>TM_EOF — the cli's drain marker; bounced TO=FROM</div>
+    <div class="flag life"><span class="bit">= 4</span>TM_PING — VALUE is the send time; the Dumper prints the round trip</div>
+    <div class="flag err"><span class="bit">= 32</span>TM_ERROR — replaces TM_RESPONSE on a throw; NOT_AVAILABLE rides here</div>
+    <div class="flag free"><span class="bit">= 1024</span>TM_UNTYPED — the mint default; matches no gate, so one reaching a sink is a bug the drop audit names</div>
+  </div>
+  <div class="legend">Planes: data (blue), control (amber), lifecycle (green), error (red). <span class="mono">TM_COMMAND | TM_RESPONSE</span> is 264, and <span class="mono">264 === TM_RESPONSE</span> is false: an equality test misses every combination.</div>
+</div>
+
+<div class="row" style="gap:16px;margin-top:16px;align-items:stretch">
+  <div class="callout" style="flex:1"><h4>Two control planes, two destinations</h4><p>A <b>command</b> runs once at build time and is dispatched by a <span class="mono">Command_Interpreter_Node</span> from the verb table <span class="mono">node_schema()['commands']</span> declares. A <b>request</b> fires against a running graph and is handled in the addressed node's own <span class="mono">fill()</span> — branch on <span class="mono">$type &amp; TM_REQUEST</span>, reply <span class="mono">TM_STRUCT | TM_RESPONSE</span> to <span class="mono">TO = FROM</span> — declared under <span class="mono">node_schema()['requests']</span>. A runtime trigger is never a <span class="mono">cmd_*</span> verb.</p></div>
+  <div class="ok" style="flex:1"><h4>One shape, everywhere</h4><p>PHP, JS (<span class="mono">src/runtime/message.js</span> exports the same indices and flags), memory and wire hold the same list. There is no <span class="mono">{ type, ts, from, to, id, key, value }</span> object anywhere; <span class="mono">$message['type']</span> silently appends an eighth element that <span class="mono">packed()</span> drops.</p></div>
+</div>
+</div>

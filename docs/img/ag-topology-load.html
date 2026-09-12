@@ -1,0 +1,83 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.lad { display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px; margin-top:6px; }
+.lad .step { position:relative; background:#F0F4FB; border:1px solid #C3D3EC; border-radius:8px; padding:10px 12px 10px 40px; font-size:12px; line-height:1.45; }
+.lad .step b { display:block; font-size:12.5px; }
+.lad .step .n { position:absolute; left:10px; top:10px; width:22px; height:22px; border-radius:50%; background:#003DA5; color:#fff; font-size:12px; font-weight:700; text-align:center; line-height:22px; }
+.lad .step.user { background:#FFF7E6; border-color:#F0D9A6; }
+.lad .step.user .n { background:#8A5A00; }
+.two { display:grid; grid-template-columns:1.15fr 1fr; gap:14px; margin-top:14px; }
+.two p { font-size:12.5px; }
+.fate { display:grid; grid-template-columns: 1fr 1fr; gap:8px; margin-top:6px; }
+.fate > div { border-radius:7px; padding:9px 11px; font-size:12px; line-height:1.45; }
+.fate h4 { font-size:12.5px; margin:0 0 4px; }
+.fate .bad { background:#FBEAEA; border:1px solid #E6A3A3; color:#5C2223; }
+.fate .bad h4 { color:#B32D2E; }
+.fate .soft { background:#FFF7E6; border:1px solid #F0D9A6; color:#5A4413; }
+.fate .soft h4 { color:#8A5A00; }
+table.c { width:100%; border-collapse:collapse; font-size:12px; line-height:1.4; margin-top:6px; }
+table.c th { text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.03em; color:#50575E; padding:0 8px 6px; }
+table.c td { border-top:1px solid #E3E4E6; padding:7px 8px; vertical-align:top; color:#50575E; }
+table.c td:first-child { color:#101517; white-space:nowrap; }
+table.c td.r { color:#B32D2E; font-weight:600; white-space:nowrap; }
+table.c td.g { color:#1E5B1E; font-weight:600; white-space:nowrap; }
+.three { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-top:14px; }
+.three p { font-size:12px; }
+.cmd { background:#101517; color:#fff; border-radius:7px; padding:9px 12px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:11.5px; line-height:1.6; margin:6px 0 8px; white-space:pre; }
+.cmd .c { color:#8FB6F0; }
+</style>
+<div class="sheet">
+<h1>A topology name resolves through three kinds of directory, runs as commands, and a broken file costs what its catcher decides</h1>
+<p class="sub">A .tsl is a script of the REPL's own verbs, evaluated once at boot against the worker's _command_interpreter; the graph it leaves in Core::$nodes_by_name is the worker. Topology_Registry answers where a name lives, Topology_Loader runs it, and Topology_Analyzer reads it without running it.</p>
+
+<div class="card">
+  <h3><span class="mono">Topology_Registry::resolve( $name )</span> — the first file that exists wins</h3>
+  <div class="lad">
+    <div class="step"><span class="n">1</span><b>Plugin stock dirs, newest registration first</b><span class="mono">register_plugin( $prefix, $dir )</span> registers the class namespace and <span class="mono">array_unshift</span>es the dir. A stock dir OWNS its names, so a consumer overrides a builtin by shipping a same-named <span class="mono">.tsl</span>, and a consumer's <span class="mono">topic-probe.tsl</span> decides the sweep cadence <span class="mono">stale_after_s()</span> reads.</div>
+    <div class="step"><span class="n">2</span><b>The substrate's bundled <span class="mono">topologies/</span>, appended last</b><span class="mono">newspack-nodes.php</span> calls <span class="mono">register_builtin()</span> at plugin LOAD time, not from <span class="mono">ensure_runtime_wired()</span>: a frontend page view never reaches the runtime tier, and a consumer's <span class="mono">include topic-probe</span> would fail to resolve on exactly those requests.</div>
+    <div class="step user"><span class="n">3</span><b>The writable user dir, <span class="mono">{base}/topologies</span></b>Registered by <span class="mono">ensure_runtime_wired()</span>, and it serves only names no stock dir provides: a writable directory that can shadow a stock topology is code execution. <span class="mono">topologies save</span> writes here.</div>
+  </div>
+</div>
+
+<div class="two">
+  <div class="panel">
+    <header><span class="mono">Topology_Loader::load( $name, $partition, $sink )</span></header>
+    <div class="body">
+      <p><span class="mono">&lt;partition&gt;</span> and <span class="mono">&lt;topology&gt;</span> go into <span class="mono">Core::$var</span> first; every <span class="mono">&lt;ns:key&gt;</span> token (<span class="mono">&lt;config:logs_dir&gt;</span>) resolves through the resolver its namespace registered at boot, so the loader installs no config of its own. <span class="mono">&lt;topology&gt;</span> names the FLEET, so two topologies can declare byte-identical Consumer lines — an <span class="mono">include</span> collapses them to one reader — while each standalone fleet keeps its own offsetlog. The Shell runs with <span class="mono">want_reply( false )</span>, so no boot reply routes to an <span class="mono">_output</span> no worker has.</p>
+      <div class="fate">
+        <div class="bad"><h4>Fatal: the worker returns <span class="mono">load_failed</span></h4><span class="mono">fatal_errors( true )</span> turns exactly two conditions into throws: an include cycle, and input still pending at end of file (an open quote or a backslash continuation). The worker logs, releases, and does not respawn.</div>
+        <div class="soft"><h4>Per statement: the worker still reports <span class="mono">ok</span></h4>A typo'd type, a <span class="mono">make_node</span> conflict, a <span class="mono">connect_node</span> to nothing, a verb the <span class="mono">secure</span> level refuses: <span class="mono">interpret()</span> catches it and stderr reads <span class="mono">error from TM_NOREPLY command: …</span>. The rest of the file runs, so a half-built graph is the normal outcome of one bad line.</div>
+      </div>
+      <p style="margin-top:8px"><span class="mono">include</span> takes a registered NAME only — a slash, a backslash or <span class="mono">..</span> is refused — with <span class="mono">#pragma once</span> per top-level script, and a <span class="mono">secure</span> / <span class="mono">insecure</span> line inside an included file is ignored. Every stock topology ends with <span class="mono">secure</span>.</p>
+    </div>
+  </div>
+  <div class="card">
+    <h3><span class="mono">Topology_Analyzer</span> reads without running, and its throw is deliberate</h3>
+    <p><span class="mono">statements()</span>, the flatten every reader goes through, raises <span class="mono">RuntimeException</span> on an unknown topology, an unknown or cyclic include, or a <span class="mono">make_node</span> two files declare differently, and <span class="mono">write_set()</span>, <span class="mono">find_conflicts()</span>, <span class="mono">resolved_resource_dirs()</span>, <span class="mono">resolved_node_dirs()</span>, <span class="mono">segment_size_overrides_for()</span>, <span class="mono">declares_node()</span> and <span class="mono">includes()</span> all let it out. An empty write set reads as "no conflict" to one gate and "every log is an orphan" to another, so the safety gates let the throw through and the display surfaces catch it.</p>
+    <table class="c">
+      <tr><th>Caller</th><th>On the throw</th><th></th></tr>
+      <tr><td><span class="mono">Topology_Registry::activate()</span></td><td>the activation is refused before it is persisted</td><td class="r">refuses</td></tr>
+      <tr><td><span class="mono">Spawn_Coordinator::spawn_each()</span></td><td>nothing spawns, for the whole set</td><td class="r">refuses</td></tr>
+      <tr><td><span class="mono">Log_Cleaner::declared_dirs()</span></td><td>catches and skips the sweep entirely</td><td class="r">fails closed</td></tr>
+      <tr><td><span class="mono">graph_for()</span></td><td>catches internally: an empty graph</td><td class="g">displays</td></tr>
+      <tr><td><span class="mono">Workers_CI</span> segment overrides</td><td>catches at the call site</td><td class="g">displays</td></tr>
+    </table>
+    <p style="margin-top:8px">An unknown NAME is the asymmetry: <span class="mono">graph_for()</span>, <span class="mono">write_set()</span>, <span class="mono">segment_size_overrides_for()</span> and <span class="mono">includes()</span> return empty for one, where <span class="mono">statements()</span> throws.</p>
+  </div>
+</div>
+
+<div class="three">
+  <div class="card">
+    <h3>Frontmatter is read statically</h3>
+    <p><span class="mono">var</span> lines <span class="mono">Topology_Analyzer::frontmatter()</span> parses without executing the file; <span class="mono">synthesize_entry()</span> folds three into the catalog: <span class="mono">num_partitions</span>, <span class="mono">stale_timeout</span>, <span class="mono">on_demand_idle</span>, each through the validated <span class="mono">Core::num_int</span>. Zero or negative takes the fleet default for the first two — zero partitions is no fleet, a zero timeout is respawn churn — while 0 is <span class="mono">on_demand_idle</span>'s meaningful "stay resident".</p>
+  </div>
+  <div class="card">
+    <h3>The write set decides co-activation</h3>
+    <p>Two topologies whose write sets overlap would put two processes on one file. A partition BOTH declare with the same <span class="mono">make_node</span> line is a shared multi-writer log and no conflict — appends at or under PIPE_BUF are atomic — unless either side lifts the write cap, which asserts a sole writer. Offsetlogs and dead-letter dirs stay sole-writer, so any overlap there conflicts.</p>
+  </div>
+  <div class="callout">
+    <h4>A <span class="mono">set_*target</span> line is a routing edge</h4>
+    <p>Both <span class="mono">expand()</span> and <span class="mono">graph_for()</span> read a <span class="mono">command_node &lt;node&gt;:config</span> whose verb matches <span class="mono">/^set_\w*target$/</span> as an edge; setting the slot again MOVES it, and an empty target clears it. ELN's <span class="mono">request-builder.tsl</span> routes four of five outputs this way, so a reader who trusts <span class="mono">connect_node</span> alone sees one output where there are five.</p>
+  </div>
+</div>
+</div>

@@ -1,0 +1,81 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.seq { position: relative; width: 1052px; }
+.seq svg.wire { position: absolute; left: 0; top: 0; }
+.seq .lane { position: absolute; top: 0; width: 196px; min-height: 118px; }
+.seq .lane h3 { font-size: 14.5px; }
+.seq .lane p { font-size: 12px; margin: 0; }
+.seq .hop { position: absolute; background: #fff; border: 1px solid #C3D3EC; border-radius: 7px; padding: 9px 12px 9px 40px; font-size: 12.5px; line-height: 1.5; color: #101517; }
+.seq .hop.bad { border-color: #E6A3A3; background: #FBEAEA; color: #5C2223; }
+.seq .hop.bad .n { background: #B32D2E; }
+.seq .hop.warn { border-color: #F0D9A6; background: #FFF7E6; }
+.seq .hop.warn .n { background: #8A5A00; }
+.seq .n { position: absolute; left: 10px; top: 9px; width: 22px; height: 22px; border-radius: 50%; background: #003DA5; color: #fff; font-size: 12px; font-weight: 700; text-align: center; line-height: 22px; }
+.seq .cap { position: absolute; font-size: 12px; color: #50575E; text-align: center; background: #FBFBFC; padding: 0 6px; white-space: nowrap; }
+.mono { overflow-wrap: anywhere; }
+.row3 { display:flex; gap:12px; margin-top:16px; align-items:stretch; }
+.row3 > div { flex:1; }
+.row3 p { font-size:12.5px; margin-bottom:6px; }
+</style>
+<div class="sheet">
+<h1>A job enters through one of three logs, runs once behind a filter, and leaves as stats, a retry or a dead letter</h1>
+<p class="sub">Ten hops from Job_Intake to the jobstats sweep. The before_job filter and the after_job action are the only place a job's context is managed, and the argument order ( $id, $parameters ) is a contract the handlers ship with.</p>
+
+<div class="seq" id="seq">
+<svg class="wire" id="wire"><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs></svg>
+
+<div class="lane card" data-lane="0"><h3>Job_Intake</h3><p>Import, cron and web processes write here; three logs, one class.</p></div>
+<div class="lane card" data-lane="1"><h3><span class="mono">jobs.p&lt;N&gt;</span></h3><p>The pool's Topic; a Consumer per partition feeds the worker.</p></div>
+<div class="lane card" data-lane="2"><h3>Job_Worker_Node</h3><p><span class="mono">fill()</span> dispatches by the entry's <span class="mono">k</span>.</p></div>
+<div class="lane card" data-lane="3"><h3>Handler</h3><p>A callable from <span class="mono">newspack_nodes/<wbr>job_handlers</span> or <span class="mono">…/remote_job_handlers</span>.</p></div>
+<div class="lane card" data-lane="4"><h3>Job_Delay · DLQ · stats</h3><p>Where a job goes when it does not simply finish.</p></div>
+
+<div class="hop" data-span="0,4"><span class="n">1</span><span class="mono">queue()</span> writes the LOCKED <span class="mono">jobintake.p&lt;N&gt;</span>, <span class="mono">feed()</span> the unlocked <span class="mono">jobfeed.p&lt;N&gt;</span>, and an entry whose <span class="mono">not_before</span> (or now + <span class="mono">delay</span>) is still ahead parks in <span class="mono">jobdelay.p0</span> instead; the Job_Intake diagram draws the three.</div>
+
+<div class="hop" data-arrow="0,1" data-cap="a Consumer drains the intake" data-span="1,4"><span class="n">2</span>KEY hashes the entry to one partition, so a keyed handler runs serially behind one Consumer. The entry is <span class="mono">k</span>, <span class="mono">handler</span>, an optional <span class="mono">id</span> (<span class="mono">write_job()</span> omits the key when it is null or empty), <span class="mono">parameters</span>, <span class="mono">ts</span>, plus <span class="mono">retries</span>, <span class="mono">attempt</span>, <span class="mono">batch</span> and <span class="mono">key</span> when set — the four <span class="mono">DISPATCH_FIELDS</span> a normalizer must overlay rather than rebuild.</div>
+
+<div class="hop" data-arrow="1,2" data-cap="fill" data-span="2,4"><span class="n">3</span><span class="mono">k = 'job'</span> selects <span class="mono">local_handlers</span>, which every host's worker runs; <span class="mono">k = 'remote_job'</span> selects <span class="mono">remote_handlers</span>, which only a hub's worker runs. Both maps load eagerly in the constructor from their filters, since <span class="mono">plugins_loaded</span> has fired by topology-evaluation time. An entry whose handler no map owns is dropped.</div>
+
+<div class="hop warn" data-span="2,4"><span class="n">4</span><span class="mono">apply_filters( 'newspack_nodes/job_worker/before_job', true, $handler, $id, $message )</span>: a filter, so a listener that will not set a context up for a job, one addressed to another host, can decline it. Only an explicit <span class="mono">false</span> DECLINES: the handler is skipped, nothing is counted, no batch settles. A listener that THROWS is not a decline — the handler is still skipped, but the batch's error counter, <span class="mono">jobs_executed</span> and the cache-flush counter all advance, because the job failed HERE and no other host will run it.</div>
+
+<div class="hop" data-arrow="2,3" data-cap="( string $id, array $parameters )" data-span="2,4"><span class="n">5</span><span class="mono">$id</span> FIRST, because the request context is named for it, and it may be <span class="mono">''</span>. The return value is the outcome: <span class="mono">classify_outcome()</span> reads <span class="mono">stats.success_count</span> (sentinel -1 when absent) and <span class="mono">stats.error_count</span> and nothing else. Errors beside an EXPLICIT 0 successes read <span class="mono">error</span>; every other case, a bare <span class="mono">return</span> included, reads <span class="mono">success</span>. There is no <span class="mono">partial</span>, so throwing is the only way to signal failure.</div>
+
+<div class="hop" data-arrow="3,2" data-cap="result, or a throw" data-span="2,4"><span class="n">6</span><span class="mono">do_action( '…/after_job', $handler, $id, $outcome )</span> fires in a <span class="mono">finally</span>, for a thrown, a declined and a completed job alike. A completed job's per-identity counters (<span class="mono">handler:id</span>, or the bare handler when the id is empty) advance here; a thrown one's advance inside the catch, hop 7. Then every job neither declined nor poisoned counts toward <span class="mono">jobs_executed</span> and runs <span class="mono">gc_collect_cycles()</span>, and every <span class="mono">cache_flush_interval</span> jobs — the node's one positional argument, <span class="mono">CACHE_FLUSH_INTERVAL</span> 50 by default, clamped to ≥ 1 — <span class="mono">wp_cache_flush()</span>. A declined job counts nothing, and a poisoned one propagates past all three. An entry carrying <span class="mono">batch</span> settles its fan-in counter unless it was retried, declined or poisoned; the decrement reaching zero fires <span class="mono">newspack_nodes/job_worker/batch_complete</span> and one <span class="mono">alerts.p0</span> row.</div>
+
+<div class="hop bad" data-span="2,4"><span class="n">7</span><b>The handler threw.</b> Stats are recorded first, inside the catch, so the run counts in both <span class="mono">RUNS_DELTA</span> and <span class="mono">ERRORS_DELTA</span>. <span class="mono">Worker_Should_Stop</span> is re-thrown at both the listener catch and the handler catch instead, recording no stats, scheduling no retry and settling no batch, so the successor replays the message.</div>
+
+<div class="hop warn" data-arrow="2,4" data-cap="retries set, attempts left" data-span="2,4"><span class="n">8</span><span class="mono">schedule_retry()</span> re-parks a FRESH entry in <span class="mono">jobdelay.p0</span> at <span class="mono">RETRY_BASE_S</span> 30 × 2^attempt seconds, capped at <span class="mono">RETRY_MAX_S</span> 3600, carrying <span class="mono">handler</span>, <span class="mono">id</span>, <span class="mono">parameters</span>, <span class="mono">key</span>, <span class="mono">retries</span>, <span class="mono">attempt + 1</span> and <span class="mono">batch</span>. It goes through <span class="mono">write_job()</span>, which hardcodes <span class="mono">'k' => 'job'</span>: a <span class="mono">remote_job</span> comes back local. A failed requeue write falls through to hop 9, because a job must never vanish into a swallowed error.</div>
+
+<div class="hop bad" data-arrow="2,1" data-cap="no retries: the throw propagates" data-span="1,4"><span class="n">9</span>Poison. The Consumer dead-letters the entry to its <span class="mono">:deadletter</span> sidecar and advances (ADR-12). A poisoned batch member deliberately does NOT settle — the crash lineage re-runs it, and double-settling would miscount.</div>
+
+<div class="hop" data-arrow="2,4" data-cap="Job_Probe, every 15 s" data-span="2,4"><span class="n">10</span>The counters are swept into <span class="mono">jobstats.p0</span> as one <span class="mono">Jobstats_Record</span> per identity: fields 2..7 are deltas over the record's own <span class="mono">ELAPSED_MS</span>, fields 8..11 last-run detail that survives the drain. At N partitions one identity yields N records per sweep, and a quiet identity keeps emitting zero rows for the worker's life.</div>
+</div>
+
+</div>
+<script>
+(function () {
+  var L = [105, 315, 526, 736, 947], seq = document.getElementById('seq'), svg = document.getElementById('wire');
+  var NS = 'http://www.w3.org/2000/svg';
+  function el(t, a) { var e = document.createElementNS(NS, t); for (var k in a) e.setAttribute(k, a[k]); return e; }
+  var lanes = seq.querySelectorAll('.lane'), headBottom = 0;
+  lanes.forEach(function (c) { var i = +c.dataset.lane; c.style.left = (L[i] - 98) + 'px'; headBottom = Math.max(headBottom, c.offsetHeight); });
+  var y = headBottom + 18;
+  seq.querySelectorAll('[data-span]').forEach(function (b) {
+    var s = b.dataset.span.split(',').map(Number), x0 = L[s[0]] - 95, x1 = L[s[1]] - 10;
+    if (s[1] === 4) x1 = 1042;
+    if (b.dataset.arrow) {
+      var a = b.dataset.arrow.split(',').map(Number), ay = y + 22, dir = a[1] > a[0] ? 1 : -1;
+      svg.appendChild(el('path', { d: 'M' + L[a[0]] + ' ' + ay + ' H' + (L[a[1]] - 6 * dir), stroke: '#003DA5', 'stroke-width': 1.8, fill: 'none', 'marker-end': 'url(#a)' }));
+      var cap = document.createElement('div'); cap.className = 'cap'; cap.textContent = b.dataset.cap;
+      cap.style.top = (ay - 20) + 'px'; seq.appendChild(cap);
+      cap.style.left = ((L[a[0]] + L[a[1]]) / 2 - cap.offsetWidth / 2) + 'px';
+      y = ay + 10;
+    }
+    b.style.left = x0 + 'px'; b.style.width = (x1 - x0) + 'px'; b.style.top = y + 'px';
+    y += b.offsetHeight + 12;
+  });
+  var boxes = seq.querySelectorAll('[data-span]'), lastTop = boxes[boxes.length - 1].offsetTop;
+  seq.style.height = y + 'px'; svg.setAttribute('width', 1052); svg.setAttribute('height', y);
+  L.forEach(function (x) { svg.insertBefore(el('path', { d: 'M' + x + ' ' + (headBottom + 4) + ' V' + (lastTop - 4), stroke: '#B0B3B8', 'stroke-dasharray': '4 5', 'stroke-width': 1.5 }), svg.firstChild.nextSibling); });
+})();
+</script>

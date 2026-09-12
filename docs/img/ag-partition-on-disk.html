@@ -1,0 +1,98 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.top { display:flex; gap:16px; align-items:stretch; }
+.tree { flex:0 0 470px; }
+.tree .t { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12.5px; line-height:1.7; background:#101517; color:#fff; border-radius:8px; padding:12px 14px; }
+.tree .t .d { color:#8FB6F0; }
+.tree .t .c { color:#9AA0A6; }
+.tree .t .o { color:#A7D6A7; }
+.tree .t .r { display:flex; gap:10px; align-items:baseline; }
+.tree .t .r > span:first-child { flex:0 0 auto; white-space:nowrap; }
+.tree .t .r .c { font-size:11px; line-height:1.35; font-family:Inter,sans-serif; }
+.pipe { flex:1; }
+.step { display:flex; gap:9px; align-items:flex-start; margin-bottom:8px; }
+.step .n { flex:0 0 auto; width:20px; height:20px; border-radius:10px; background:#003DA5; color:#fff; font-size:11.5px; font-weight:700; text-align:center; line-height:20px; margin-top:1px; }
+.step .t { font-size:12.5px; line-height:1.45; color:#50575E; }
+.step .t b { color:#101517; font-weight:600; }
+.step.bad .n { background:#B32D2E; }
+.rules { display:flex; gap:12px; margin-top:16px; align-items:stretch; }
+.rules .card { flex:1; }
+.rules .card p { font-size:12.5px; }
+.rule { background:#F0F4FB; border:1px solid #C3D3EC; border-radius:6px; padding:7px 10px; font-size:12px; line-height:1.4; margin-bottom:6px; }
+.rule b { display:block; }
+.rule.hard { background:#FBEAEA; border-color:#E6A3A3; color:#5C2223; }
+.modes { display:flex; gap:12px; margin-top:16px; align-items:stretch; }
+.modes > div { flex:1; }
+.modes p { font-size:12.5px; color:#50575E; line-height:1.5; margin:0 0 8px; }
+.seg { display:flex; gap:6px; margin:8px 0 4px; }
+.seg span { flex:1; text-align:center; font-size:11.5px; padding:6px 4px; border-radius:5px; border:1px solid #C3C4C7; background:#fff; }
+.seg span.gone { border-style:dashed; color:#B32D2E; border-color:#E6A3A3; }
+.seg span.floor { background:#EDF7ED; border-color:#9EC89E; }
+.seg span.hot { background:#E8EEF9; border-color:#003DA5; font-weight:700; }
+</style>
+<div class="sheet">
+<h1>A Partition is a directory of segments, and fill() is the only way bytes get in</h1>
+<p class="sub">Every producer in the runtime reaches disk through this class: Log extends it, Topic fans into N of them, a worker's IPC is one. The write path batches to PIPE_BUF, rotates at segment_size, and prunes by three rules over a floor of two segments.</p>
+
+<div class="top">
+  <div class="card tree">
+    <h3>On disk</h3>
+    <div class="t">
+      <div class="r"><span class="d">{base}/logs/firehose.p0/</span><span class="c">the partition_dir argument</span></div>
+      <div class="r"><span>&nbsp;&nbsp;0.log &nbsp;1.log &nbsp;<span class="o">2.log</span></span><span class="c">packed Message + "\n" per record; 2.log is being written</span></div>
+      <div class="r"><span>&nbsp;&nbsp;0.idx &nbsp;1.idx &nbsp;2.idx</span><span class="c">opt-in: one JSONL line per record, from with_index( $fmt )</span></div>
+      <div class="r"><span>&nbsp;&nbsp;write.lock.d/</span><span class="c">only under allow_large_writes(): a Lock dir</span></div>
+      <div class="r"><span>&nbsp;&nbsp;&nbsp;&nbsp;heartbeat &nbsp;started</span><span class="c">the holder's pid, the acquire time</span></div>
+      <div class="r" style="margin-top:8px"><span class="d">{base}/deadletter/logs.firehose.p0/</span><span class="c">write-stall quarantine: the dir under base, dotted</span></div>
+      <div class="r" style="margin-top:8px"><span class="d">out.log.0 &nbsp;out.log.1</span><span class="c">a Log lays segments as {file}.{seg}: raw VALUEs, no bare {file}</span></div>
+    </div>
+    <p style="margin-top:10px">Segments are ids sorted numerically (<span class="mono">SEGMENT_PATTERN /^(\d+)\.log$/</span>); rotation is monotonic. No <span class="mono">.idx</span> exists unless a formatter is installed, and there is no binary index format.</p>
+    <p><span class="mono">read_at( seg, off, len )</span> seeks into a <span class="mono">.log</span>; <span class="mono">scan_index()</span> walks the <span class="mono">.idx</span> lines; <span class="mono">index_mtimes()</span> stats each <span class="mono">.idx</span> fresh, the one clock a reader owns on a hub.</p>
+  </div>
+  <div class="card pipe">
+    <h3>The write path: <span class="mono">fill( $message )</span></h3>
+    <div class="step"><div class="n">1</div><div class="t"><b>Pack.</b> <span class="mono">Message::packed()</span> + <span class="mono">"\n"</span>. Every TYPE passes, TM_REQUEST, TM_ERROR and TM_EOF included: the IPC bus depends on it. <span class="mono">Event_Framework::pump()</span> runs here, so a long write loop still hears its stop.</div></div>
+    <div class="step"><div class="n">2</div><div class="t"><b>Size the FINAL bytes.</b> Over <span class="mono">MAX_LINE_SIZE</span> 4096 the record is dropped, unless the cap was lifted to <span class="mono">MAX_LARGE_LINE_SIZE</span> 32 MiB by one of the two opt-ins below. A record over 4 KB on a lifted partition bypasses the batch: PIPE_BUF cannot be preserved for it, and the held Lock serializes it against the small flushes.</div></div>
+    <div class="step"><div class="n">3</div><div class="t"><b>Batch in memory.</b> If <span class="mono">$batch</span> + the new record would exceed 4096, the batch flushes FIRST and the record starts a fresh one, so each <span class="mono">fwrite</span> stays one atomic PIPE_BUF unit. A 0 ms one-shot timer (<span class="mono">set_timer( 0, true )</span>) lands whatever is left when the loop iteration ends; <span class="mono">__destruct()</span> and <span class="mono">Topic::flush()</span> land it in request scope.</div></div>
+    <div class="step"><div class="n">4</div><div class="t"><b>Rotate when the segment passes <span class="mono">segment_size</span></b> (default 64 MiB), then run retention. <span class="mono">maybe_rescan_segments()</span> re-reads the directory at most once per <span class="mono">DRIFT_RESCAN_INTERVAL_SECONDS</span> 1.0 to follow a peer's rotation; readers see the list cached for <span class="mono">SEGMENT_CACHE_TTL</span> 0.25 s.</div></div>
+    <div class="step bad"><div class="n">!</div><div class="t"><b>A short write is quarantined, never swallowed.</b> <span class="mono">File_Writer::write_all()</span> returns the bytes landed and retries up to <span class="mono">MAX_WRITE_ATTEMPTS</span> 5 so a full disk cannot spin the loop; <span class="mono">recover_write_stall()</span> truncates the torn record off the segment, since it would desync every reader after it, and dead-letters every message that did not land whole, replayable with <span class="mono">wp nodes ingest</span>. Sidecars opt out via <span class="mono">without_write_deadletter()</span>: a quarantine that quarantines chains forever on a full disk.</div></div>
+  </div>
+</div>
+
+<div class="rules">
+  <div class="card">
+    <h3>Three retention rules over a floor of two, oldest first</h3>
+    <div class="seg"><span class="gone">0</span><span class="gone">1</span><span>2</span><span>3</span><span>4</span><span>5</span><span class="floor">6</span><span class="floor hot">7</span></div>
+    <p class="grey" style="font-size:11.5px">segments 0 and 1 pruned; 6 and 7 are the two the floor always keeps, 7 being written</p>
+    <div class="rule"><b>age</b>older than <span class="mono">lifetime</span>, keeping at least <span class="mono">min_segments</span></div>
+    <div class="rule"><b>count</b>more than <span class="mono">num_segments</span>, sparing anything younger than <span class="mono">min_lifetime</span></div>
+    <div class="rule hard"><b>hard cap</b>more than <span class="mono">max_segments</span>: UNCONDITIONAL, <span class="mono">min_lifetime</span> does not protect, only the floor of 2 does. <span class="mono">0</span> derives to 2 × <span class="mono">num_segments</span></div>
+    <p>A low-traffic partition keeps segments for days under the age and count floors. Documented, not a bug.</p>
+  </div>
+  <div class="card">
+    <h3>The declared geometry is normalized UPWARD before any rule runs</h3>
+    <div class="rule"><b>1 · min_segments</b>rises to <span class="mono">MIN_SEGMENTS_FLOOR</span> 2</div>
+    <div class="rule"><b>2 · num_segments</b>rises to <span class="mono">min_segments</span></div>
+    <div class="rule"><b>3 · max_segments</b><span class="mono">derive_max_segments()</span> raises an explicit value to <span class="mono">num_segments</span>; the <span class="mono">0</span> sentinel derives 2 × <span class="mono">num_segments</span></div>
+    <p>So <span class="mono">num_segments 1</span> runs as 2, and <span class="mono">min_segments 5 num_segments 3 max_segments 4</span> runs as 5 / 5 / 5. <span class="mono">derive_max_segments()</span> is public so the admin and CI ceilings agree with <span class="mono">cleanup_segments()</span>.</p>
+    <p>Positional order: <span class="mono">dir segment_size min_segments num_segments max_segments min_lifetime lifetime</span> — <span class="mono">max_segments</span> precedes the two lifetimes.</p>
+  </div>
+</div>
+
+<div class="modes">
+  <div class="panel">
+    <header><span class="mono">allow_large_writes( $max_wait_ms = 15000, $debounce_ms = 0 )</span> — lift the cap behind a Lock</header>
+    <div class="body">
+      <p>Takes a <span class="mono">Lock</span> at <span class="mono">{dir}/write.lock.d/</span>, blocking up to <span class="mono">DEFAULT_LOCK_WAIT_MS</span> 15 s: long enough for an external writer to ride out a burst, short enough that a web request never hangs. It does not outwait a crashed holder, whose dir becomes stealable only after <span class="mono">LOCK_STALE_TIMEOUT_SECONDS</span> 60; a worker passes 0 (try-lock) and retries next tick.</p>
+      <p><b>Hold mode</b> (<span class="mono">$debounce_ms = 0</span>): acquire up front, hold for the partition's life. <b>Debounced</b> (<span class="mono">&gt; 0</span>): <span class="mono">fill()</span> takes the lock at the start of a burst and <span class="mono">fire()</span> frees it after that much quiet. There is no <span class="mono">with_lock()</span> wrapper: in a drain loop the <span class="mono">{name}:heartbeat</span> Timer refreshes the Lock; in request scope <span class="mono">fill()</span> heartbeats inline at most once per <span class="mono">stale_timeout/3</span> s and throws if the lock was stolen.</p>
+    </div>
+  </div>
+  <div class="panel" style="border-color:#B32D2E">
+    <header style="background:#B32D2E"><span class="mono">void_warranty()</span> — lift the cap with NO lock</header>
+    <div class="body">
+      <p>The caller asserts it is the sole writer. Nothing enforces it: a second writer is the silent torn write ADR-4 warns about. The worker's <span class="mono">_repl</span> output Partition runs this way, which is what lets a <span class="mono">dump_metadata</span> reply reach an attached cli.</p>
+      <p>On a Topic both verbs record the mode and re-apply it to every partition materialized later; <span class="mono">Topic::allow_large_writes( $debounce_ms = 0 )</span> exposes no timeout and always passes 15 s down, so the FIRST message routed to an index can block and then throw straight out of <span class="mono">fill()</span>.</p>
+    </div>
+  </div>
+</div>
+</div>
