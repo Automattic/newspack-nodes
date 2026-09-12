@@ -39,5 +39,5 @@ The Event Logger hands the same verbs to an agent over [JSON-RPC](https://www.js
 - [`architecture-decisions.md`, ADR-15](architecture-decisions.md#adr-15-command-authorization-local-taint--the-minter-signs)
 - [`API.md`](API.md), the [Command Signing](API.md#command-signing) and [Command Dispatch](API.md#command-dispatch) sections
 - [`includes/class-capabilities.php`](../includes/class-capabilities.php), whose file docblock is the capability model on one page
-- [`newspack-event-logger-nodes/includes/app/class-mcp-controller.php`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.95.3/includes/app/class-mcp-controller.php)
+- [`newspack-event-logger-nodes/includes/app/class-mcp-controller.php`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.96.0/includes/app/class-mcp-controller.php)
 
