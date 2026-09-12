@@ -12,7 +12,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   class in the `classes` reply carries its schema, arguments, commands and
   requests, and each topology in the `topologies` reply carries its frontmatter
   and includes, so both are dumps. The old name is refused as
-  `unknown command: list`, with no alias. `useCatalogSlice` takes a `command`
+  `unknown command: list`, with no alias. [`useCatalogSlice`](../src/shared/hooks/useBatchedPoll.js) takes a `command`
   option (`list` by default) — pass `command: 'dump'` for these two CIs, as
   `useClassCatalog` and `useTopologyList` now do — and a `Poller` or Fetcher
   aimed at either CI changes its verb from `'list'` to `'dump'`. `workers list`,
@@ -30,10 +30,10 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   `command` to the new spelling; `useLogPositions`, `useSegmentBrowse` and
   `useAggregatorStatusGraph` already send it, so a dashboard built on those
   shared hooks changes nothing. The event logger's `performance` CI renames
-  five of its own in the same pass; its `docs/upgrading.md` lists them.
+  five of its own in the same pass; its [`docs/upgrading.md`](https://github.com/Automattic/newspack-event-logger-nodes/blob/main/docs/upgrading.md) lists them.
 
 - **The node names the shared stream hooks derive are RENAMED.**
-  `useLogCatalog` and `useLogReaderGraph` name the catalog slice
+  [`useLogCatalog`](../src/shared/hooks/useStreamGraph.js) and `useLogReaderGraph` name the catalog slice
   `<prefix>-catalog:fetch`, `:in`, `:view`, `:timer` and `:tee` instead of
   `<prefix>:list:*`, `useSteppedRead` defaults its scope to `<prefix>-step`
   instead of `<prefix>:read`, and `useSegmentBrowse` names the refresh Timer
@@ -43,10 +43,10 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   the console — changes the spelling; one reading the hook's return value
   changes nothing. Every name a dashboard builds is now `<subject>:<role>`,
   the subject naming what the slice shows and never the verb it sends;
-  `docs/writing-a-view-node.md` states the rule, and the CHANGELOG lists the
+  [`docs/writing-a-view-node.md`](writing-a-view-node.md#naming-the-slices-nodes) states the rule, and the [CHANGELOG](../CHANGELOG.md) lists the
   substrate's own renames, none of which a consumer addresses.
 
-- **The `vault` config key is REMOVED.** `Vault::get_all()` reads the
+- **The `vault` config key is REMOVED.** [`Vault::get_all()`](../includes/class-vault.php) reads the
   `newspack_nodes_vault` option alone; an entry declared under `vault` in
   `newspack-nodes-config.php` or a `LOCAL_NEWSPACK_NODES_CONF` file is ignored,
   and the key is reported as unrecognized. Nothing pins an entry any more, so
@@ -55,17 +55,17 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   `wp nodes cli` with `vault add <id> --url=<https url> [--user=<u>] [--password=<p>]`
   or through the Vault tab.
 
-- **`Partition_Node::locate_by()`'s key set is REQUIRED.** The signature is
+- **[`Partition_Node::locate_by()`](../includes/class-partition-node.php)'s key set is REQUIRED.** The signature is
   `locate_by( \Closure $extract, array $wanted )`; the `= []` default is gone.
   A call naming no key set raises `ArgumentCountError` where it used to return
   an empty table. Nothing in the family reached the one-argument form — the only
-  caller is event-logger-nodes' `Flame_Builder_Node`, whose floor of 2.53.0 is
+  caller is event-logger-nodes' [`Flame_Builder_Node`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.95.3/includes/class-flame-builder-node.php), whose floor of 2.53.0 is
   past the 2.51.0 that added the parameter — so the default's degrade window had
   already closed, and an optional key set is fail-silent the other way: a caller
   that forgets it resolves nothing and reports success over an empty result.
   Name your keys, as `locate_by( $extract, $urls )` already does.
 
-- **The gyrobase legacy-envelope branch is REMOVED from `Job_Worker_Node::fill()`.**
+- **The gyrobase legacy-envelope branch is REMOVED from [`Job_Worker_Node::fill()`](../includes/class-job-worker-node.php).**
   An entry with no top-level `id` naming the `evtemplate` handler, whose
   `parameters` held `queue`, `template` and a nested `parameters`, had its
   identity lifted from `parameters['template']` and its parameters replaced by
@@ -78,7 +78,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 - **`Admin\Admin::current_user_allowed()` is REMOVED.** Replace it with
   `\Newspack_Nodes\Capabilities::can( \Newspack_Nodes\Capabilities::MANAGE )`,
-  which is what it did — `Capabilities::can()` now applies the `allowed_users`
+  which is what it did — [`Capabilities::can()`](../includes/class-capabilities.php) now applies the `allowed_users`
   allowlist itself, so the wrapper was the same rule written twice. A consumer
   still calling the old name fatals with `Call to undefined method`; there is no
   alias and no deprecation shim.
