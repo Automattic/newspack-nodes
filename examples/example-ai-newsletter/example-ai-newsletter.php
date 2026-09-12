@@ -39,9 +39,9 @@ const INSIGHTS_MOUNT_ID = 'example-ai-newsletter-insights';
  * Register the Publisher Insights dashboard as its own top-level admin menu.
  *
  * A plugin's dashboard stands alone rather than nesting under the substrate's "Nodes"
- * menu, which is the DevTools hub itself: the Topology Console, the Overview and the rest
+ * menu, which is the station itself: the Topology Console, the Overview and the rest
  * arrive on it as tabs. A dashboard that genuinely is a Nodes-internal tool registers as a
- * `host: 'hub'` DevTools tab instead of a submenu there.
+ * `host: 'station'` tab instead of a submenu there.
  *
  * Visibility follows `Capabilities::can( MANAGE )` because the page reads pipeline
  * state: a bare `manage_options` check would show it to administrators the substrate's

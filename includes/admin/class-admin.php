@@ -1,7 +1,7 @@
 <?php
 /**
  * Admin: the substrate's whole wp-admin surface — the top-level "Nodes"
- * DevTools hub, the Settings → Nodes Runtime page, and the React-bundle
+ * station, the Settings → Nodes Runtime page, and the React-bundle
  * enqueues both hosts share.
  *
  * Owns no field list of its own. `Settings_Schema` declares every substrate
@@ -37,7 +37,7 @@ use Newspack_Nodes\Worker_Base;
  * Substrate admin surface: two hosts and the assets both need.
  *
  * The top-level "Nodes" page is a React mount div; every dashboard reaches it
- * as a DevTools tab bundle rather than its own submenu, so one hub renders
+ * as a station tab bundle rather than its own submenu, so one station renders
  * Overview, Jobs, Console, Partition Viewer, Log Viewer, Config Audit, Vault,
  * Sessions and Aggregator. The Settings → Nodes Runtime page is server-rendered
  * through the WP Settings API.
@@ -52,8 +52,8 @@ use Newspack_Nodes\Worker_Base;
  */
 class Admin {
 
-	/** Top-level menu slug for the DevTools hub — the "Nodes" landing page, whose tabs deep-link as `&tab=<slug>`. */
-	public const HUB_MENU_SLUG = 'newspack-nodes-hub';
+	/** Top-level menu slug for the station — the "Nodes" landing page, whose tabs deep-link as `&tab=<slug>`. */
+	public const STATION_MENU_SLUG = 'newspack-nodes-station';
 
 	/** Menu page slug for add_options_page() (the `?page=` fragment). */
 	public const MENU_SLUG = 'newspack-nodes';
@@ -104,15 +104,15 @@ class Admin {
 		\add_action( 'admin_enqueue_scripts', [ $this, 'register_graph_style' ], 3 );
 		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_settings_style' ], 4 );
 		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_event_dashboards_assets' ] );
-		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_devtools_hub_assets' ] );
-		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_devtools_tab_bundles' ] );
+		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_station_assets' ] );
+		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_station_tab_bundles' ] );
 
-		// Every hub tab arrives through this filter, eager or lazy.
-		\add_filter( 'newspack_nodes/devtools_tab_bundles', [ $this, 'register_event_dashboards_tab_bundle' ] );
-		\add_filter( 'newspack_nodes/devtools_tab_bundles', [ $this, 'register_vault_tab_bundle' ] );
-		\add_filter( 'newspack_nodes/devtools_tab_bundles', [ $this, 'register_sessions_tab_bundle' ] );
-		\add_filter( 'newspack_nodes/devtools_tab_bundles', [ $this, 'register_aggregator_tab_bundle' ] );
-		\add_filter( 'newspack_nodes/devtools_tab_bundles', [ $this, 'register_topology_console_tab_bundle' ] );
+		// Every station tab arrives through this filter, eager or lazy.
+		\add_filter( 'newspack_nodes/station_tab_bundles', [ $this, 'register_event_dashboards_tab_bundle' ] );
+		\add_filter( 'newspack_nodes/station_tab_bundles', [ $this, 'register_vault_tab_bundle' ] );
+		\add_filter( 'newspack_nodes/station_tab_bundles', [ $this, 'register_sessions_tab_bundle' ] );
+		\add_filter( 'newspack_nodes/station_tab_bundles', [ $this, 'register_aggregator_tab_bundle' ] );
+		\add_filter( 'newspack_nodes/station_tab_bundles', [ $this, 'register_topology_console_tab_bundle' ] );
 
 		// Both hooks so first + subsequent saves restart correctly.
 		\add_action( 'updated_option', [ $this, 'maybe_request_worker_restart' ], 10, 1 );
@@ -124,8 +124,8 @@ class Admin {
 	}
 
 	/**
-	 * Enqueue the event-dashboards bundle on the top-level "Nodes" hub page,
-	 * where its five `host:'hub'` tabs register: Overview, Jobs, Partition Viewer,
+	 * Enqueue the event-dashboards bundle on the top-level "Nodes" station page,
+	 * where its five `host:'station'` tabs register: Overview, Jobs, Partition Viewer,
 	 * Log Viewer and Config Audit.
 	 *
 	 * @param string $hook `admin_enqueue_scripts` hook suffix, ignored: the page
@@ -136,7 +136,7 @@ class Admin {
 		self::enqueue_react_page(
 			[
 				'handle'   => 'newspack-nodes-event-dashboards',
-				'page'     => self::HUB_MENU_SLUG,
+				'page'     => self::STATION_MENU_SLUG,
 				'dir'      => self::build_dir( 'event-dashboards' ),
 				'url'      => self::build_url( 'event-dashboards' ),
 				'localize' => [
@@ -148,26 +148,26 @@ class Admin {
 	}
 
 	/**
-	 * Enqueue the DevTools hub bundle on the top-level "Nodes" page — the shell
+	 * Enqueue the station bundle on the top-level "Nodes" page — the shell
 	 * that renders the tab strip and mounts whichever tab is selected.
 	 *
 	 * Its stylesheet depends on the graph sheet rather than the UI sheet, because
-	 * the hub draws topology canvases and the graph sheet already pulls the UI
+	 * the station draws topology canvases and the graph sheet already pulls the UI
 	 * sheet in behind it.
 	 *
 	 * @param string $hook `admin_enqueue_scripts` hook suffix, ignored; see
 	 *                     enqueue_event_dashboards_assets().
 	 */
-	public function enqueue_devtools_hub_assets( string $hook = '' ): void {
+	public function enqueue_station_assets( string $hook = '' ): void {
 		self::enqueue_react_page(
 			[
-				'handle'     => 'newspack-nodes-devtools-hub',
-				'page'       => self::HUB_MENU_SLUG,
-				'dir'        => self::build_dir( 'devtools-hub' ),
-				'url'        => self::build_url( 'devtools-hub' ),
+				'handle'     => 'newspack-nodes-station',
+				'page'       => self::STATION_MENU_SLUG,
+				'dir'        => self::build_dir( 'station' ),
+				'url'        => self::build_url( 'station' ),
 				'style_deps' => [ 'wp-components', 'newspack-nodes-graph' ],
 				'localize'   => [
-					'tree'    => 'devtools-hub',
+					'tree'    => 'station',
 					'version' => \NEWSPACK_NODES_VERSION,
 				],
 			]
@@ -175,14 +175,14 @@ class Admin {
 	}
 
 	/**
-	 * Enqueue every plugin-registered DevTools tab bundle on the hub page.
+	 * Enqueue every plugin-registered station tab bundle on the station page.
 	 *
 	 * A contributor returns `{ handle, dir, url[, localize][, lazy] }` through the
-	 * `newspack_nodes/devtools_tab_bundles` filter — the `enqueue_react_page`
-	 * shape without the `page` gate, which this method supplies as the hub slug.
-	 * A plain bundle is enqueued so its tabs register as the hub shell boots. A
+	 * `newspack_nodes/station_tab_bundles` filter — the `enqueue_react_page`
+	 * shape without the `page` gate, which this method supplies as the station slug.
+	 * A plain bundle is enqueued so its tabs register as the station shell boots. A
 	 * `lazy` bundle is not enqueued at all: its load recipe goes into the
-	 * `NewspackNodesLazyTabs` map on the hub handle, and the shell fetches it on
+	 * `NewspackNodesLazyTabs` map on the station handle, and the shell fetches it on
 	 * first tab activation. An entry missing `handle`, `dir` or `url`, or carrying
 	 * a non-scalar one, is skipped whole, so one malformed contribution cannot
 	 * break the others; the three that pass are cast to string. The
@@ -192,18 +192,18 @@ class Admin {
 	 * @param string $hook `admin_enqueue_scripts` hook suffix, ignored; see
 	 *                     enqueue_event_dashboards_assets().
 	 */
-	public function enqueue_devtools_tab_bundles( string $hook = '' ): void {
-		// Hub-only: each lazy recipe hashes and stats a build directory.
+	public function enqueue_station_tab_bundles( string $hook = '' ): void {
+		// Station-only: each lazy recipe hashes and stats a build directory.
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
 		$page = isset( $_GET['page'] ) && \is_string( $_GET['page'] ) ? \sanitize_text_field( \wp_unslash( $_GET['page'] ) ) : '';
-		if ( self::HUB_MENU_SLUG !== $page ) {
+		if ( self::STATION_MENU_SLUG !== $page ) {
 			return;
 		}
-		$bundles = \apply_filters( 'newspack_nodes/devtools_tab_bundles', [] );
+		$bundles = \apply_filters( 'newspack_nodes/station_tab_bundles', [] );
 		if ( ! \is_array( $bundles ) ) {
 			return;
 		}
-		$pages = [ self::HUB_MENU_SLUG ];
+		$pages = [ self::STATION_MENU_SLUG ];
 		$lazy  = [];
 		foreach ( $bundles as $bundle ) {
 			if ( ! \is_array( $bundle ) || ! isset( $bundle['handle'], $bundle['dir'], $bundle['url'] ) ) {
@@ -235,7 +235,7 @@ class Admin {
 		}
 
 		if ( [] !== $lazy ) {
-			\wp_localize_script( 'newspack-nodes-devtools-hub', 'NewspackNodesLazyTabs', $lazy );
+			\wp_localize_script( 'newspack-nodes-station', 'NewspackNodesLazyTabs', $lazy );
 		}
 	}
 
@@ -301,7 +301,7 @@ class Admin {
 	}
 
 	/**
-	 * Build the on-demand load recipe for one lazy DevTools tab bundle: the
+	 * Build the on-demand load recipe for one lazy station tab bundle: the
 	 * versioned script URL, the optional style URL, and the localize payload the
 	 * bundle reads (the same `NewspackNodesData` — restUrl and nonce under the
 	 * per-tab extras — it would receive if enqueued). Returns null when the bundle
@@ -315,7 +315,7 @@ class Admin {
 	 * @param string              $url      Public URL of the build subdirectory.
 	 * @param array<string,mixed> $localize Per-tab localize payload (string keys only).
 	 * @return array{src:string, data:array<string,mixed>, style?:string}|null Load
-	 *   recipe for the hub shell, or null when the bundle has no build.
+	 *   recipe for the station shell, or null when the bundle has no build.
 	 */
 	private static function lazy_tab_script( string $dir, string $url, array $localize ): ?array {
 		$dir = \rtrim( $dir, '/' );
@@ -521,10 +521,10 @@ class Admin {
 	}
 
 	/**
-	 * Advertise the event-dashboards bundle as a DevTools tab bundle so the hub
-	 * page enqueues it and its five `host: 'hub'` tabs — Overview, Jobs, Partition
+	 * Advertise the event-dashboards bundle as a station tab bundle so the station
+	 * page enqueues it and its five `host: 'station'` tabs — Overview, Jobs, Partition
 	 * Viewer, Log Viewer and Config Audit — register there. Eager rather than
-	 * lazy because Overview sits at order 0 and is therefore the hub's landing
+	 * lazy because Overview sits at order 0 and is therefore the station's landing
 	 * tab, so its bundle has to be there before anyone clicks anything.
 	 * `enqueue_event_dashboards_assets()` also enqueues this handle, and runs
 	 * first. WordPress deduplicates the SCRIPT by handle but concatenates the
@@ -539,8 +539,8 @@ class Admin {
 	}
 
 	/**
-	 * Advertise the vault bundle as a lazy DevTools tab bundle, so the hub page
-	 * ships its `host: 'hub'` Vault tab only once someone opens that tab.
+	 * Advertise the vault bundle as a lazy station tab bundle, so the station page
+	 * ships its `host: 'station'` Vault tab only once someone opens that tab.
 	 *
 	 * @param array<int,mixed> $bundles Existing tab bundles.
 	 * @return array<int,mixed> Bundles with the vault bundle appended.
@@ -550,8 +550,8 @@ class Admin {
 	}
 
 	/**
-	 * Advertise the sessions bundle as a lazy DevTools tab bundle, so the hub page
-	 * ships its `host: 'hub'` Sessions tab only once someone opens that tab.
+	 * Advertise the sessions bundle as a lazy station tab bundle, so the station page
+	 * ships its `host: 'station'` Sessions tab only once someone opens that tab.
 	 *
 	 * @param array<int,mixed> $bundles Existing tab bundles.
 	 * @return array<int,mixed> Bundles with the sessions bundle appended.
@@ -561,8 +561,8 @@ class Admin {
 	}
 
 	/**
-	 * Advertise the aggregator bundle as a lazy DevTools tab bundle, so the hub
-	 * page ships its `host: 'hub'` Aggregator tab only once someone opens it.
+	 * Advertise the aggregator bundle as a lazy station tab bundle, so the
+	 * station ships its `host: 'station'` Aggregator tab only once someone opens it.
 	 *
 	 * @param array<int,mixed> $bundles Existing tab bundles.
 	 * @return array<int,mixed> Bundles with the aggregator bundle appended.
@@ -572,8 +572,8 @@ class Admin {
 	}
 
 	/**
-	 * Advertise the topology-console bundle as a lazy DevTools tab bundle, so the
-	 * hub page ships its `host: 'hub'` Console tab only once someone opens it.
+	 * Advertise the topology-console bundle as a lazy station tab bundle, so the
+	 * station page ships its `host: 'station'` Console tab only once someone opens it.
 	 *
 	 * Carries the partition snapshot the React dropdown reads, derived exactly the
 	 * way the `topologies.dump` verb derives it. Two derivations would let the
@@ -627,7 +627,7 @@ class Admin {
 	}
 
 	/**
-	 * Append one DevTools tab bundle, in the shared `{handle, dir, url[, localize]
+	 * Append one station tab bundle, in the shared `{handle, dir, url[, localize]
 	 * [, lazy]}` shape, to the running list. Every `register_*_tab_bundle` filter
 	 * callback delegates its append here, so the shape is spelled once.
 	 *
@@ -636,7 +636,7 @@ class Admin {
 	 * @param string              $subdir   Build subdirectory under `build/`.
 	 * @param array<string,mixed> $localize Optional localize payload.
 	 * @param bool                $lazy     Ship the bundle on first activation of
-	 *                                      its tab rather than with the hub, so a
+	 *                                      its tab rather than with the station, so a
 	 *                                      tab nobody opens costs no download.
 	 * @return array<int,mixed> Bundles with this one appended.
 	 */
@@ -947,8 +947,8 @@ class Admin {
 	}
 
 	/**
-	 * Register the DevTools hub as the top-level "Nodes" admin menu. The page it
-	 * renders is the hub's React mount div; Overview, the Console and every other
+	 * Register the station as the top-level "Nodes" admin menu. The page it
+	 * renders is the station's React mount div; Overview, the Console and every other
 	 * tab arrive on it as tab bundles.
 	 */
 	public function register_topology_admin_page(): void {
@@ -959,11 +959,11 @@ class Admin {
 			return;
 		}
 		\add_menu_page(
-			\__( 'Newspack Nodes', 'newspack-nodes' ),
+			\__( 'Nodes Station', 'newspack-nodes' ),
 			\__( 'Nodes', 'newspack-nodes' ),
 			Capabilities::cap_for( Capabilities::MANAGE ),
-			self::HUB_MENU_SLUG,
-			[ $this, 'render_hub_page' ],
+			self::STATION_MENU_SLUG,
+			[ $this, 'render_station_page' ],
 			'dashicons-networking',
 			81
 		);
@@ -971,9 +971,9 @@ class Admin {
 
 	/**
 	 * Register the event-dashboard admin pages, of which there are none: every
-	 * event dashboard is a `host:'hub'` DevTools tab on the top-level "Nodes"
+	 * event dashboard is a `host:'station'` tab on the top-level "Nodes"
 	 * page. The body is the permission check and nothing after it, so this
-	 * `admin_menu` callback — priority 11, running once the hub menu exists —
+	 * `admin_menu` callback — priority 11, running once the station menu exists —
 	 * has no effect.
 	 */
 	public function register_event_dashboard_pages(): void {
@@ -983,15 +983,15 @@ class Admin {
 	}
 
 	/**
-	 * Render the DevTools hub mount element, the whole server-side output of the
+	 * Render the station mount element, the whole server-side output of the
 	 * top-level "Nodes" landing page. Every tab on it comes from a bundle the
-	 * `newspack_nodes/devtools_tab_bundles` filter contributed.
+	 * `newspack_nodes/station_tab_bundles` filter contributed.
 	 */
-	public function render_hub_page(): void {
+	public function render_station_page(): void {
 		if ( ! Capabilities::can( Capabilities::MANAGE ) ) {
 			\wp_die( \esc_html__( 'You do not have permission to access this page.', 'newspack-nodes' ) );
 		}
-		echo '<div id="newspack-nodes-hub" class="newspack-nodes-hub-page"></div>';
+		echo '<div id="newspack-nodes-station" class="newspack-nodes-station-page"></div>';
 	}
 
 	/**
@@ -1168,20 +1168,20 @@ class Admin {
 	}
 
 	/**
-	 * The admin page slugs, beyond the hub, that mount the debug overlay — collected
-	 * through the `newspack_nodes/devtools_overlay_pages` filter.
+	 * The admin page slugs, beyond the station, that mount the debug overlay — collected
+	 * through the `newspack_nodes/overlay_pages` filter.
 	 *
 	 * A bundle contributing an overlay tab enqueues that tab on every slug listed
 	 * here, so an overlay embedded by one plugin still shows another plugin's tab.
-	 * Without the shared list each bundle would only reach the hub and its own
+	 * Without the shared list each bundle would only reach the station and its own
 	 * pages, and the tab set would differ per page for no reason a user could see.
 	 *
 	 * @api Sibling plugins read this to place their overlay tabs.
 	 * @return string[] Deduplicated overlay-page slugs; non-strings are filtered out.
 	 */
-	public static function devtools_overlay_pages(): array {
+	public static function overlay_pages(): array {
 		return \array_values( \array_unique( \array_filter(
-			(array) \apply_filters( 'newspack_nodes/devtools_overlay_pages', [] ),
+			(array) \apply_filters( 'newspack_nodes/overlay_pages', [] ),
 			'\is_string'
 		) ) );
 	}

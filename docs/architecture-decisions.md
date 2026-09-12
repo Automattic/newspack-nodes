@@ -1004,7 +1004,7 @@ bundle then builds the consumer's class. Treat those builtin keys as reserved. T
 **per-bundle static**: two bundles loaded on the same page hold two copies. It works for TSL and the console palette, where the graph is
 authored as text and the interpreter reading it is the one whose bundle registered the class.
 
-It fails the moment a graph is built through *someone else's* interpreter. The devtools hub
+It fails the moment a graph is built through *someone else's* interpreter. The station
 mounts tabs from several bundles against one backbone, so a hook resolving `makeNode(
 'ClassCatalogView' )` asks an interpreter whose bundle never registered that name and gets
 `unknown class: ClassCatalogView` — at runtime, in the browser, with every test green,
@@ -1057,10 +1057,10 @@ one-line `console.warn`. The other six rules keep running rather than the whole 
 
 **Alternatives considered:**
 
-- **A window-global registry**, as `src/shared/devtools/tabRegistry.js` uses for tabs.
+- **A window-global registry**, as `src/shared/tabs/tabRegistry.js` uses for tabs.
   Rejected for classes: it makes every bundle's node classes globally visible and collides on
   name, which is exactly the ambiguity the per-bundle static avoids. The tab registry earns it
-  because a hub tab is *meant* to be reachable across bundles; a view class is not.
+  because a station tab is *meant* to be reachable across bundles; a view class is not.
 - **Requiring every bundle to register every class.** Rejected: it couples each plugin's build
   to the union of all of them, and the failure is still silent until the missing one is asked
   for.

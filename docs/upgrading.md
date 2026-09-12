@@ -6,6 +6,27 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **The DevTools hub is RENAMED the station, and the DevTools tab system the
+  tab system, with no alias for any old name.** A hub is the site that pulls
+  the spokes' logs; the wp-admin page under the "Nodes" menu is the station.
+  The page slug is `newspack-nodes-station` ([`Admin::STATION_MENU_SLUG`](../includes/admin/class-admin.php)),
+  so a bookmark or deep link reads `admin.php?page=newspack-nodes-station&tab=<slug>`.
+  A plugin contributing a tab bundle filters
+  [`newspack_nodes/station_tab_bundles`](API.md#filters), a plugin whose page
+  mounts the debug overlay filters `newspack_nodes/overlay_pages` and reads
+  [`Admin::overlay_pages()`](../includes/admin/class-admin.php), and a tab
+  descriptor declares `host: 'station'` where it declared `'hub'`. The registry
+  module is `@newspack-nodes/shared/tabs/tabRegistry`, exporting `registerTab`,
+  `getTabs`, `getTabsVersion`, `subscribeTabs` and `resetTabs`, and the host
+  component is `@newspack-nodes/shared/tabs/TabHost`; the window singleton is
+  `window.__newspackNodesTabs`. The tab bar's classes are
+  `nodes-tab-host__tabbar`, `nodes-tab-host__tab` and
+  `nodes-tab-host__tab-content`, the page wrapper is `nodes-station`, and the
+  tab-host foreground token is `--nodes-tab-host-fg`. The browser keys change
+  too: a tab's canvas layout lives under `newspack-nodes:debug:station:<tab>`
+  and the Console's transcript under `newspack-nodes:station-transcript`, so a
+  layout or transcript saved under the old keys is not read back.
+
 - **`classes list` and `topologies list` are RENAMED to `classes dump` and
   `topologies dump`.** The runtime's own vocabulary is the rule: `list_nodes`
   prints one row per node and `dump_node` prints a node's whole structure. Each

@@ -192,7 +192,7 @@ try {
 			'status'     => $status,
 		];
 	} else {
-		$bundles = \apply_filters( 'newspack_nodes/devtools_tab_bundles', [] );
+		$bundles = \apply_filters( 'newspack_nodes/station_tab_bundles', [] );
 		$console = null;
 		foreach ( $bundles as $bundle ) {
 			if ( \is_array( $bundle ) && 'newspack-nodes-topology-console' === ( $bundle['handle'] ?? '' ) ) {

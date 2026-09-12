@@ -196,7 +196,7 @@ reason. Catch it, or let the surrounding controller's catch own it.
     through, and returns null rather than enqueueing when the build is absent.
     `css_cache_version()` versions a stylesheet on its content hash, so a
     SCSS-only rebuild lands instead of serving from cache behind an unchanged
-    `?ver=`. `devtools_overlay_pages()` collects the page slugs a
+    `?ver=`. `overlay_pages()` collects the page slugs a
     bundle contributing an overlay tab must enqueue on, so an overlay embedded
     by one plugin still shows another's tab. The gate a consumer's own menu asks
     is `Capabilities::can( MANAGE )`, item 12 below. Nuclear-gyrobase calls

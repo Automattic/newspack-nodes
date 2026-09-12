@@ -1,11 +1,11 @@
 /**
- * Inject one DevTools tab bundle into the hub page on first activation.
+ * Inject one station tab bundle into the station page on first activation.
  *
- * A tab bundle the hub filter marks `lazy` is never enqueued. `Admin` puts its
- * script URL, stylesheet URL and localize payload on the hub handle as
+ * A tab bundle the station filter marks `lazy` is never enqueued. `Admin` puts its
+ * script URL, stylesheet URL and localize payload on the station handle as
  * `window.NewspackNodesLazyTabs`, and the placeholder `lazyTabs.js` registers
  * calls in here the first time a reader opens that tab, which keeps the heavy
- * tab bundles off every hub page load that never reaches them.
+ * tab bundles off every station page load that never reaches them.
  *
  * Setting `NewspackNodesData` before the script goes in mirrors the inline
  * localize `wp_enqueue_script` emits ahead of an enqueued bundle, so an
@@ -31,7 +31,7 @@
  * @typedef {Window & {
  *     NewspackNodesLazyTabs?: Object<string,LazyTabEntry>,
  *     NewspackNodesData?: Object<string,*>,
- * }} HubWindow
+ * }} StationWindow
  */
 
 /**
@@ -57,8 +57,8 @@ export function loadTabBundle( handle ) {
 	if ( injected.has( handle ) ) {
 		return;
 	}
-	const hub = /** @type {HubWindow} */ ( window );
-	const entry = ( hub.NewspackNodesLazyTabs || {} )[ handle ];
+	const station = /** @type {StationWindow} */ ( window );
+	const entry = ( station.NewspackNodesLazyTabs || {} )[ handle ];
 	if ( ! entry || ! entry.src ) {
 		return;
 	}
@@ -73,8 +73,8 @@ export function loadTabBundle( handle ) {
 
 	// Merge, never replace: sibling tabs' live reads keep their own keys.
 	if ( entry.data ) {
-		hub.NewspackNodesData = {
-			...( hub.NewspackNodesData || {} ),
+		station.NewspackNodesData = {
+			...( station.NewspackNodesData || {} ),
 			...entry.data,
 		};
 	}

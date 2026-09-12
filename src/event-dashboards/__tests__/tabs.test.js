@@ -1,9 +1,9 @@
 /**
- * tabs.js registers the hub DevTools tabs the event-dashboards bundle owns:
+ * tabs.js registers the station tabs the event-dashboards bundle owns:
  * the Overview landing (order 0 — the default first paint, now folding in the
  * old Topologies tab's per-topology detail tree) and Partition Viewer (order 20).
  * Importing the module (for its side effect) must put them in the shared
- * registry under host 'hub'.
+ * registry under host 'station'.
  */
 
 import { __ } from '@wordpress/i18n';
@@ -15,17 +15,14 @@ jest.mock( '../ConfigAudit', () => () => null );
 jest.mock( '../Overview', () => () => null );
 jest.mock( '../Jobs', () => () => null );
 
-test( 'importing tabs registers the overview tab first (order 0) on the hub host', () => {
-	const {
-		getDevtoolsTabs,
-		resetDevtoolsTabs,
-	} = require( '../../shared/devtools/tabRegistry' );
-	resetDevtoolsTabs();
+test( 'importing tabs registers the overview tab first (order 0) on the station host', () => {
+	const { getTabs, resetTabs } = require( '../../shared/tabs/tabRegistry' );
+	resetTabs();
 	require( '../tabs' );
-	const hubTabs = getDevtoolsTabs( 'hub' );
+	const hubTabs = getTabs( 'station' );
 	const tab = hubTabs.find( ( t ) => t.id === 'overview' );
 	expect( tab ).toBeTruthy();
-	expect( tab.host ).toBe( 'hub' );
+	expect( tab.host ).toBe( 'station' );
 	expect( tab.order ).toBe( 0 );
 	expect( tab.label ).toBe( __( 'Overview', 'newspack-nodes' ) );
 	expect( typeof tab.component ).toBe( 'function' );
@@ -34,27 +31,24 @@ test( 'importing tabs registers the overview tab first (order 0) on the hub host
 } );
 
 test( 'importing tabs no longer registers a separate topology-manager tab (merged into Overview)', () => {
-	const {
-		getDevtoolsTabs,
-		resetDevtoolsTabs,
-	} = require( '../../shared/devtools/tabRegistry' );
-	resetDevtoolsTabs();
+	const { getTabs, resetTabs } = require( '../../shared/tabs/tabRegistry' );
+	resetTabs();
 	require( '../tabs' );
-	const hubTabs = getDevtoolsTabs( 'hub' );
+	const hubTabs = getTabs( 'station' );
 	expect(
 		hubTabs.find( ( t ) => t.id === 'topology-manager' )
 	).toBeUndefined();
 } );
 
-test( 'importing tabs registers the Jobs tab on the hub host between Overview and Partition Viewer', () => {
+test( 'importing tabs registers the Jobs tab on the station host between Overview and Partition Viewer', () => {
 	// resetModules forces tabs.js to re-run its registration side effect.
 	jest.resetModules();
 	require( '../tabs' );
-	const { getDevtoolsTabs } = require( '../../shared/devtools/tabRegistry' );
-	const hubTabs = getDevtoolsTabs( 'hub' );
+	const { getTabs } = require( '../../shared/tabs/tabRegistry' );
+	const hubTabs = getTabs( 'station' );
 	const tab = hubTabs.find( ( t ) => t.id === 'jobs' );
 	expect( tab ).toBeTruthy();
-	expect( tab.host ).toBe( 'hub' );
+	expect( tab.host ).toBe( 'station' );
 	expect( tab.slug ).toBe( 'jobs' );
 	expect( tab.order ).toBeGreaterThan( 0 ); // after Overview
 	expect( tab.order ).toBeLessThan( 20 ); // before Partition Viewer
@@ -62,15 +56,15 @@ test( 'importing tabs registers the Jobs tab on the hub host between Overview an
 	expect( typeof tab.component ).toBe( 'function' );
 } );
 
-test( 'importing tabs registers the partition-viewer tab on the hub host at order 20, full-bleed', () => {
+test( 'importing tabs registers the partition-viewer tab on the station host at order 20, full-bleed', () => {
 	// tabs.js was already required by the first test; re-run its side effect.
 	jest.resetModules();
 	require( '../tabs' );
-	const { getDevtoolsTabs } = require( '../../shared/devtools/tabRegistry' );
-	const hubTabs = getDevtoolsTabs( 'hub' );
+	const { getTabs } = require( '../../shared/tabs/tabRegistry' );
+	const hubTabs = getTabs( 'station' );
 	const tab = hubTabs.find( ( t ) => t.id === 'partition-viewer' );
 	expect( tab ).toBeTruthy();
-	expect( tab.host ).toBe( 'hub' );
+	expect( tab.host ).toBe( 'station' );
 	expect( tab.order ).toBe( 20 );
 	expect( tab.fullBleed ).toBe( true );
 	expect( tab.label ).toBe( __( 'Partition Viewer', 'newspack-nodes' ) );
@@ -80,10 +74,10 @@ test( 'importing tabs registers the partition-viewer tab on the hub host at orde
 test( 'importing tabs registers the log-viewer tab (order 25, full-bleed, ?source=)', () => {
 	jest.resetModules();
 	require( '../tabs' );
-	const { getDevtoolsTabs } = require( '../../shared/devtools/tabRegistry' );
-	const tab = getDevtoolsTabs( 'hub' ).find( ( t ) => t.id === 'log-viewer' );
+	const { getTabs } = require( '../../shared/tabs/tabRegistry' );
+	const tab = getTabs( 'station' ).find( ( t ) => t.id === 'log-viewer' );
 	expect( tab ).toBeTruthy();
-	expect( tab.host ).toBe( 'hub' );
+	expect( tab.host ).toBe( 'station' );
 	expect( tab.slug ).toBe( 'log-viewer' );
 	expect( tab.param ).toBe( 'source' );
 	expect( tab.order ).toBe( 25 );
@@ -92,15 +86,13 @@ test( 'importing tabs registers the log-viewer tab (order 25, full-bleed, ?sourc
 	expect( typeof tab.component ).toBe( 'function' );
 } );
 
-test( 'importing tabs registers the config-audit tab on the hub host at order 30', () => {
+test( 'importing tabs registers the config-audit tab on the station host at order 30', () => {
 	jest.resetModules();
 	require( '../tabs' );
-	const { getDevtoolsTabs } = require( '../../shared/devtools/tabRegistry' );
-	const tab = getDevtoolsTabs( 'hub' ).find(
-		( t ) => t.id === 'config-audit'
-	);
+	const { getTabs } = require( '../../shared/tabs/tabRegistry' );
+	const tab = getTabs( 'station' ).find( ( t ) => t.id === 'config-audit' );
 	expect( tab ).toBeTruthy();
-	expect( tab.host ).toBe( 'hub' );
+	expect( tab.host ).toBe( 'station' );
 	expect( tab.slug ).toBe( 'config-audit' );
 	expect( tab.order ).toBe( 30 );
 	expect( tab.order ).toBeGreaterThan( 25 ); // after the Log Viewer

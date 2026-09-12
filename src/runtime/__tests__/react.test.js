@@ -136,7 +136,7 @@ describe( 'useNodeEvent', () => {
 	} );
 
 	// @longform `removeNode()` WIPES `registrations`, so a torn-down node has
-	// no declared events and `register()` throws on it. Switching devtools
+	// no declared events and `register()` throws on it. Switching station
 	// tabs tears one graph down while the next mounts, and a subscriber that
 	// still holds the old node crashes the incoming tab. `useNodeState` never
 	// hit this because it re-seeds the event first; so does this.

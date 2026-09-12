@@ -2,7 +2,7 @@
 
 [writing-a-dashboard.md](writing-a-dashboard.md) walks the happy path: a `Scorer` plus a durable snapshot, a `Service_CI_Node` verb that reads it, a JS view node, a `useBatchedPoll` + `addSliceFetcher` poll hook, a thin React view, the build, the enqueue, the run. By the end you have **Publisher Insights** rendering live in wp-admin. If you haven't done that walkthrough, do it first — this guide assumes its vocabulary (`fill`/`sink`/`target`, `useNodeState`, `node_schema`, the `_http` boundary) and never re-explains it.
 
-This is the companion that picks up where the toy stops: the **production realities** you hit shipping a dashboard *for real*. A standalone admin page is the easy case — the moment your nodes show up in the **Topology Console** and the **DevTools overlay**, the moment you `npm run release:archive`, the moment a designer asks for an icon, you're past the tutorial. Seven shared surfaces impose a contract each.
+This is the companion that picks up where the toy stops: the **production realities** you hit shipping a dashboard *for real*. A standalone admin page is the easy case — the moment your nodes show up in the **Topology Console** and the **debug overlay**, the moment you `npm run release:archive`, the moment a designer asks for an icon, you're past the tutorial. Seven shared surfaces impose a contract each.
 
 > **The one thing to hold onto:** the toy guide's lesson is "compose primitives, don't build a framework." The production lesson is its mirror image — **the substrate's shared surfaces have contracts you didn't sign up for.** Your Service CI lands in a palette you didn't write. Your floating REPL lives inside a tab bar you didn't measure. Your `@wordpress/*` import becomes a WP enqueue handle that has to exist. Honoring those contracts is most of the difference between "works on my page" and "works everywhere the substrate puts it."
 
@@ -20,7 +20,7 @@ The toy dashboard is a closed loop: your page, your bundle, your one verb. A rea
                     the Palette                 the Inspector
                   (drag to make_node)        (verb buttons per node)
                           │
-   your REPL view  ──lives inside──>  DevtoolsTabHost (overlay | hub)
+   your REPL view  ──lives inside──>  TabHost (overlay | station)
                                        │
    your bundle     ──externalizes──>  @wordpress/* → window globals → WP handles
 ```
@@ -218,7 +218,7 @@ That fallback `maxHeight()` is the trap. It's `window.innerHeight − FIXED_CHRO
 ```js
 /**
  * Chrome the transcript can never occupy, in pixels: 32 for the WordPress
- * admin bar, 64 for the hub header, 40 for the tab bar and 38 for the prompt
+ * admin bar, 64 for the station header, 40 for the tab bar and 38 for the prompt
  * bar. It is the pre-layout fallback alone — a consumer that has measured its
  * own panel passes `maxHeightPx`, which wins wherever it is given.
  */
@@ -261,17 +261,17 @@ export function replCeilingFromAppHeight( appHeight ) {
 }
 ```
 
-Note what it *doesn't* subtract: there's no header term. The console grid is `grid-template-rows: 1fr 38px` — canvas and REPL bar, nothing else. The brand header belongs to the hub, above the tabs, so the console frame reserves no header row of its own. The handle term is `0` because the handle straddles the transcript's top border on absolute positioning rather than stacking above it, so it costs the transcript nothing; the term stays named so the ceiling reads as the sum of the chrome it accounts for. Returning `null` before layout is deliberate — the footer keeps its own fallback until there is a real measurement to hand it.
+Note what it *doesn't* subtract: there's no header term. The console grid is `grid-template-rows: 1fr 38px` — canvas and REPL bar, nothing else. The brand header belongs to the station, above the tabs, so the console frame reserves no header row of its own. The handle term is `0` because the handle straddles the transcript's top border on absolute positioning rather than stacking above it, so it costs the transcript nothing; the term stays named so the ceiling reads as the sum of the chrome it accounts for. Returning `null` before layout is deliberate — the footer keeps its own fallback until there is a real measurement to hand it.
 
-That measurement is also what keeps the ceiling honest under a moving frame: the console renders as a `fullBleed` tab **inside the DevtoolsTabHost tab bar** (`src/topology-console/tabMeta.js`), and the `window.innerHeight − FIXED_CHROME_PX` fallback cannot see that bar. Measure the container and the drift can't happen.
+That measurement is also what keeps the ceiling honest under a moving frame: the console renders as a `fullBleed` tab **inside the TabHost tab bar** (`src/topology-console/tabMeta.js`), and the `window.innerHeight − FIXED_CHROME_PX` fallback cannot see that bar. Measure the container and the drift can't happen.
 
 **Host B — the debug overlay's Console tab (`InspectorTab`).** Same disease, different frame. It measures *its own* tab bar instead of hardcoding it, and answers `0` where the host renders no bar at all (`src/debug-overlay/tabs/InspectorTab.js`):
 
 ```js
 export function measureTabBarHeight( rootEl ) {
-	const content = rootEl?.closest?.( '.nodes-devtools__tab-content' );
+	const content = rootEl?.closest?.( '.nodes-tab-host__tab-content' );
 	const bar = content?.previousElementSibling;
-	if ( ! bar?.classList?.contains( 'nodes-devtools__tabbar' ) ) {
+	if ( ! bar?.classList?.contains( 'nodes-tab-host__tabbar' ) ) {
 		return 0;
 	}
 	return bar.offsetHeight;
@@ -335,11 +335,11 @@ The general rule for any package you're tempted to add to that map: **only exter
 
 ---
 
-## 5. The DevTools tab host, the hub, and the tab registry
+## 5. The tab host, the station, and the tab registry
 
-Sections 0 and 3 both name "the overlay" and "the hub." Here is the shared machinery; the files carry the detail.
+Sections 0 and 3 both name "the overlay" and "the station." Here is the shared machinery; the files carry the detail.
 
-The center of it is **`DevtoolsTabHost`** (`src/shared/devtools/DevtoolsTabHost.js`) — one component, two hosts. It reads the tab registry for a given `host`, renders a tab bar (hidden when ≤1 tab), and **lazily mounts only the selected tab**, keyed on the active id so each tab's build-before-render runs fresh on switch:
+The center of it is **`TabHost`** (`src/shared/tabs/TabHost.js`) — one component, two hosts. It reads the tab registry for a given `host`, renders a tab bar (hidden when ≤1 tab), and **lazily mounts only the selected tab**, keyed on the active id so each tab's build-before-render runs fresh on switch:
 
 ```jsx
 <Active key={ active.id } { ...tabProps } host={ host } />
@@ -347,76 +347,76 @@ The center of it is **`DevtoolsTabHost`** (`src/shared/devtools/DevtoolsTabHost.
 
 The routing `host` is applied *after* `tabProps` spreads, so a caller cannot hand a tab the wrong surface even by putting `host` in `tabProps`.
 
-A tab is a descriptor in the registry (`src/shared/devtools/tabRegistry.js`). `id`, `label`, `host` and `component` are required; `order`, `slug`, `param`, `gate`, `icon` and `fullBleed` are optional:
+A tab is a descriptor in the registry (`src/shared/tabs/tabRegistry.js`). `id`, `label`, `host` and `component` are required; `order`, `slug`, `param`, `gate`, `icon` and `fullBleed` are optional:
 
 | Field | Contract |
 |---|---|
-| `id` | The registry key. Registering it again **shadows** the holder rather than adding a second tab. The key space is not partitioned by host, so ids must be globally distinct — the overlay's Overview is deliberately `io-overview`, because reusing the hub's `overview` would replace that descriptor and leave the hub with no Overview at all. |
-| `host` | `overlay`, `hub` or `both`. A read asks for `overlay` or `hub` and gets the `both` tabs as well. |
+| `id` | The registry key. Registering it again **shadows** the holder rather than adding a second tab. The key space is not partitioned by host, so ids must be globally distinct — the overlay's Overview is deliberately `io-overview`, because reusing the station's `overview` would replace that descriptor and leave the station with no Overview at all. |
+| `host` | `overlay`, `station` or `both`. A read asks for `overlay` or `station` and gets the `both` tabs as well. |
 | `order` | Sort weight, ties broken alphabetically by label. |
 | `slug` | Deep-link slug (`?tab=<slug>`); defaults to the id. |
 | `param` | A query param the tab owns, such as `topology` or `log`; the host clears it while another tab is active. |
 | `gate` | A predicate that excludes the tab while it returns false, run per read rather than at registration, so a tab gated on live state appears and disappears without re-registering. |
 | `icon` | A node the tab bar renders ahead of the label. |
-| `fullBleed` | The tab owns a full-height canvas, so the host adds `.is-full-bleed` to the `.nodes-devtools__tab-content` pane, opting it out of that container's default vertical scroll. |
+| `fullBleed` | The tab owns a full-height canvas, so the host adds `.is-full-bleed` to the `.nodes-tab-host__tab-content` pane, opting it out of that container's default vertical scroll. |
 
-That `fullBleed` flag is exactly why §3's console-in-the-hub needs the measured ceiling: it fills the frame, and the default container would wrap its self-scrolling canvas in a second outer scrollbar.
+That `fullBleed` flag is exactly why §3's console-in-the-station needs the measured ceiling: it fills the frame, and the default container would wrap its self-scrolling canvas in a second outer scrollbar.
 
 The Console is the worked example of an owned `param`, and it reads three more the registry knows nothing about. `initialTopologyFromUrl()` seeds the picker from `?topology=`, falling back to the first registered topology when the URL names one this install has never registered rather than stranding the console on it, and rewrites the param as the open topology changes; `?partition=` picks that worker's partition, and anything but a non-negative integer opens p0. `?new=1` and `?edit=1` are one-shot deep links from the Topologies tab: a mount-only effect opens the editor, on a fresh draft or on the current topology, and then deletes both params through `replaceState`, so a reload lands in view mode instead of reopening the editor. A tab reading its own params owes the same cleanup — the host clears only the one the descriptor declares.
 
 The bar the host renders around those descriptors is the WAI-ARIA tabs pattern, so a tab you register inherits it: `role="tablist"` over `role="tab"` buttons pointing at one `role="tabpanel"`, a roving `tabIndex` that puts only the active button in the tab order, and arrow keys — wrapping at both ends, with Home and End for the edges — that move focus and select together. Every other key falls through, so Tab still leaves the bar.
 
-The registry lives on `window.__newspackNodesDevtoolsTabs`, not in module scope. Each tab-bearing bundle is its own IIFE and inlines the module, so a module-local Map would give the hub page one registry per bundle — the host would read its own empty copy while three bundles registered into theirs.
+The registry lives on `window.__newspackNodesTabDescriptors`, not in module scope. Each tab-bearing bundle is its own IIFE and inlines the module, so a module-local Map would give the station page one registry per bundle — the host would read its own empty copy while three bundles registered into theirs.
 
 The two hosts are thin wrappers around it:
 
 - **The floating overlay** mounts tabs with `host="overlay"` — the substrate registers Overview and the Console tab from §3 (`src/debug-overlay/tabs/index.js`), and a consumer adds its own: event-logger-nodes contributes `eln-current-request`, labelled Request.
-- **The full-page hub** (`src/devtools-hub/DevToolsHub.js`) mounts `host="hub"` inside a `position: fixed`, full-height admin container positioned against `useAdminMenuWidth()`, so a full-screen canvas tab gets usable height. It also passes `syncUrl`, which makes the host own the page's query string: the initial tab comes from `?tab=<slug>`, the resolved tab is mirrored back through `replaceState`, and each tab's declared `param` survives only while that tab is showing. And it gates the floating overlay's REPL off the Console tab — a second overlay REPL there would collide on the shared `_output` infra.
+- **The full-page station** (`src/station/Station.js`) mounts `host="station"` inside a `position: fixed`, full-height admin container positioned against `useAdminMenuWidth()`, so a full-screen canvas tab gets usable height. It also passes `syncUrl`, which makes the host own the page's query string: the initial tab comes from `?tab=<slug>`, the resolved tab is mirrored back through `replaceState`, and each tab's declared `param` survives only while that tab is showing. And it gates the floating overlay's REPL off the Console tab — a second overlay REPL there would collide on the shared `_output` infra.
 
 Two nuances of `syncUrl` decide whether a deep link works. The first click on any tab retires the initial `?tab=` slug for the rest of the page's life, so nothing can snap the reader back to where they arrived. Until that click, a slug naming a tab the registry does not hold yet is retried on every registry version bump, and the URL is left alone meanwhile — which is what lets a slow lazy bundle, or a consumer's tab registering after the host mounted, still be reached by link.
 
-Absent a `?tab=` slug, the landing tab is whichever tab sorts first *at the instant the host first renders*: `DevtoolsTabHost` resolves it once in a lazy state initializer, not again as later bundles register. Overview holds that slot only because `Admin` registers `enqueue_event_dashboards_assets()` ahead of `enqueue_devtools_hub_assets()` on the same hook, and WordPress runs same-priority callbacks in registration order, so the order-0 tab is in the registry before the hub bundle executes. Swap those two `add_action` calls, or add an eager bundle at an earlier priority, and the hub lands on whatever lowest-order tab happens to exist — no error, just the wrong tab.
+Absent a `?tab=` slug, the landing tab is whichever tab sorts first *at the instant the host first renders*: `TabHost` resolves it once in a lazy state initializer, not again as later bundles register. Overview holds that slot only because `Admin` registers `enqueue_event_dashboards_assets()` ahead of `enqueue_station_assets()` on the same hook, and WordPress runs same-priority callbacks in registration order, so the order-0 tab is in the registry before the station bundle executes. Swap those two `add_action` calls, or add an eager bundle at an earlier priority, and the station lands on whatever lowest-order tab happens to exist — no error, just the wrong tab.
 
-Whichever tab wins, the host reports the RESOLVED id — never the requested one — through `onActiveTabChange`, on mount and on every switch, and `undefined` while it has no tabs at all. `DevToolsHub` keys both halves of its floating overlay on that value: the per-tab canvas-layout `storageKey`, and the `buildRepl` flag it drops on the Console tab.
+Whichever tab wins, the host reports the RESOLVED id — never the requested one — through `onActiveTabChange`, on mount and on every switch, and `undefined` while it has no tabs at all. `Station` keys both halves of its floating overlay on that value: the per-tab canvas-layout `storageKey`, and the `buildRepl` flag it drops on the Console tab.
 
-The hub also renders **one shared header** and spreads its controls slot into every tab as `headerControlsSlot`. A tab with a toolbar of its own places it through `HeaderSlot` (`src/shared/components/HeaderSlot.js`) rather than rendering it directly, because that prop carries three states: an Element portals the controls into the header, `undefined` means no host offered a slot and the controls render inline — the standalone admin page — and `null` means the slot has not mounted yet, so the controls are withheld for that render. Render them inline on `null` and they land in the tab body, then jump to the header a frame later. `LogStreamViewer`, `SessionsAdmin`, `AggregatorStatus` and `VaultAdmin` all take the prop and hand it straight to `HeaderSlot`. Three screens — `TopologyConsole`, the Overview dashboard and `ConfigAudit` — write those three branches out by hand instead, so a grep for `createPortal` near `headerControlsSlot` finds copies rather than one authority. Follow the `HeaderSlot` import; don't copy one of the three.
+The station also renders **one shared header** and spreads its controls slot into every tab as `headerControlsSlot`. A tab with a toolbar of its own places it through `HeaderSlot` (`src/shared/components/HeaderSlot.js`) rather than rendering it directly, because that prop carries three states: an Element portals the controls into the header, `undefined` means no host offered a slot and the controls render inline — the standalone admin page — and `null` means the slot has not mounted yet, so the controls are withheld for that render. Render them inline on `null` and they land in the tab body, then jump to the header a frame later. `LogStreamViewer`, `SessionsAdmin`, `AggregatorStatus` and `VaultAdmin` all take the prop and hand it straight to `HeaderSlot`. Three screens — `TopologyConsole`, the Overview dashboard and `ConfigAudit` — write those three branches out by hand instead, so a grep for `createPortal` near `headerControlsSlot` finds copies rather than one authority. Follow the `HeaderSlot` import; don't copy one of the three.
 
 The floating overlay runs the same idea through a different wire, and an `overlay`-host tab has to know which. `DebugPanel` renders one `Header` (`src/topology-console/components/Header.js`) above the tab bar and hands every tab a `publishHeader` callback in `tabProps`; a tab with controls of its own calls it with the props `HeaderControls` accepts — the Console tab publishes its cwd cluster, `pathOptions`, `path` and `onPathChange` — and calls it with `null` on unmount to retract them. The panel spreads that object *after* its own `mode` and `onClose`, so a tab publishing either key takes over the panel's mode or its close button. `onClose` is itself the switch that collapses the console's NEW/OPEN/EDIT/LIVE row into a lone close X, which is why the overlay's header shows no mode buttons. Two more props ride along in `tabProps`: `storageKey`, the per-tab canvas-layout key, and `frame`, the panel's live `{ x, y, w, h }` geometry, which §3's ceiling is computed from. A tab needing neither ignores both, as event-logger-nodes' Request tab does.
 
 ### Registering a tab, and shipping it lazily
 
-You register a tab by filtering into **`newspack_nodes/devtools_tab_bundles`** (the PHP analogue of the toy's CI mount). The filter takes a list of bundle descriptors, each `{ handle, dir, url, localize?, lazy? }`; `Admin::enqueue_devtools_tab_bundles()` runs on the hub page alone and skips any entry missing `handle`, `dir` or `url`. Importing the bundle is what registers the tab, so PHP never names one.
+You register a tab by filtering into **`newspack_nodes/station_tab_bundles`** (the PHP analogue of the toy's CI mount). The filter takes a list of bundle descriptors, each `{ handle, dir, url, localize?, lazy? }`; `Admin::enqueue_station_tab_bundles()` runs on the station page alone and skips any entry missing `handle`, `dir` or `url`. Importing the bundle is what registers the tab, so PHP never names one.
 
-That filter covers the hub. An `overlay`-host tab needs the other half — **`newspack_nodes/devtools_overlay_pages`**, the slug list naming every admin page beyond the hub that mounts the floating overlay. `Admin::devtools_overlay_pages()` reads it, drops non-strings and dedupes, and each plugin contributing an overlay tab enqueues its bundle on every slug in the list, so an overlay embedded by one plugin still carries another plugin's tab. Your own dashboard page joins the list in one `add_filter` — `newspack-intelligence` declares its Publisher Insights slug that way, and `newspack-event-logger-nodes` unions the list with its own defaults to decide where the Request tab loads.
+That filter covers the station. An `overlay`-host tab needs the other half — **`newspack_nodes/overlay_pages`**, the slug list naming every admin page beyond the station that mounts the floating overlay. `Admin::overlay_pages()` reads it, drops non-strings and dedupes, and each plugin contributing an overlay tab enqueues its bundle on every slug in the list, so an overlay embedded by one plugin still carries another plugin's tab. Your own dashboard page joins the list in one `add_filter` — `newspack-intelligence` declares its Publisher Insights slug that way, and `newspack-event-logger-nodes` unions the list with its own defaults to decide where the Request tab loads.
 
-`lazy: true` is the knob that matters at production size. The substrate's four heaviest hub tabs — Console, Vault, Sessions and Aggregator, together roughly 600KB of minified JS — ship on tab click rather than page load. Each registers a **placeholder** carrying the same descriptor the real bundle spreads, kept in its own `tabMeta.js` so importing it pulls a label string and no component tree:
+`lazy: true` is the knob that matters at production size. The substrate's four heaviest station tabs — Console, Vault, Sessions and Aggregator, together roughly 600KB of minified JS — ship on tab click rather than page load. Each registers a **placeholder** carrying the same descriptor the real bundle spreads, kept in its own `tabMeta.js` so importing it pulls a label string and no component tree:
 
 ```js
 // src/vault/tabMeta.js — every field of the tab except the component.
 export default {
 	id: 'vault',
 	label: __( 'Vault', 'newspack-nodes' ),
-	host: 'hub',
+	host: 'station',
 	slug: 'vault',
 	order: 30,
 };
 ```
 
-`src/vault/tabs.js` spreads that same object with its component; `devtools-hub/lazyTabs.js` spreads it into the placeholder. Label, order, slug and `fullBleed` therefore resolve identically before anything loads, and on first activation the arriving bundle's own `registerDevtoolsTab` shadows the placeholder by id rather than adding a second tab beside it. Two spellings of the descriptor would rename, reorder or duplicate the tab the moment the bundle lands.
+`src/vault/tabs.js` spreads that same object with its component; `station/lazyTabs.js` spreads it into the placeholder. Label, order, slug and `fullBleed` therefore resolve identically before anything loads, and on first activation the arriving bundle's own `registerTab` shadows the placeholder by id rather than adding a second tab beside it. Two spellings of the descriptor would rename, reorder or duplicate the tab the moment the bundle lands.
 
-**`lazy` is substrate-internal, and a consumer that reaches for it gets silence.** The `LAZY_TABS` array in `lazyTabs.js` names those four handles by hand, with no filter to extend it, and `loadTabBundle()` sits beside it in `src/devtools-hub/` — a directory the `@newspack-nodes/shared` alias does not reach, since `alias-map.cjs` maps `runtime`, `debug-overlay` and `shared` and nothing else. Mark your own `newspack_nodes/devtools_tab_bundles` contribution `lazy` and PHP does its half correctly, writing a load recipe onto `window.NewspackNodesLazyTabs`; nothing then registers a placeholder for that id, so the tab never joins the tab bar and nothing logs a word about it. Event-logger-nodes' Request tab is the shape a consumer ships: an eager bundle, no `lazy` key.
+**`lazy` is substrate-internal, and a consumer that reaches for it gets silence.** The `LAZY_TABS` array in `lazyTabs.js` names those four handles by hand, with no filter to extend it, and `loadTabBundle()` sits beside it in `src/station/` — a directory the `@newspack-nodes/shared` alias does not reach, since `alias-map.cjs` maps `runtime`, `debug-overlay` and `shared` and nothing else. Mark your own `newspack_nodes/station_tab_bundles` contribution `lazy` and PHP does its half correctly, writing a load recipe onto `window.NewspackNodesLazyTabs`; nothing then registers a placeholder for that id, so the tab never joins the tab bar and nothing logs a word about it. Event-logger-nodes' Request tab is the shape a consumer ships: an eager bundle, no `lazy` key.
 
 Inside the substrate a lazy tab is three files that have to agree. `src/<name>/tabMeta.js` holds the descriptor; `src/<name>/index.js` is the bundle entry, a single `import './tabs'`, and needs its own line in `scripts/build.mjs`'s `ENTRIES` or nothing writes `build/<name>` and `Admin` omits the unbuilt handle from the recipe map; `LAZY_TABS` pairs that `tabMeta` with the enqueue handle PHP registered. That handle is the only join between the two halves, and it need not resemble the build directory — Aggregator ships from `event-aggregator` under `newspack-nodes-aggregator-tab` — so a rename on one side that misses the other leaves `loadTabBundle()` with no entry to act on, and the placeholder's "Loading…" never resolves.
 
-If your real dashboard genuinely *is* a Nodes-internal tool rather than a standalone page, this is where it belongs — a `host: 'hub'` tab, split into `tabMeta.js` + `tabs.js`, enqueued eagerly — instead of the toy guide's standalone `add_menu_page`.
+If your real dashboard genuinely *is* a Nodes-internal tool rather than a standalone page, this is where it belongs — a `host: 'station'` tab, split into `tabMeta.js` + `tabs.js`, enqueued eagerly — instead of the toy guide's standalone `add_menu_page`.
 
 ---
 
 ## 6. Where the API credentials go — the Vault, not a page you build
 
-The most production-real question — **where do the API credentials go?** — has an answer you *don't* write. The substrate already ships it: the **Vault**, a built-in DevTools-hub tab at `admin.php?page=newspack-nodes-hub&tab=vault`, not a WordPress Settings-API page and not a React tree you have to author.
+The most production-real question — **where do the API credentials go?** — has an answer you *don't* write. The substrate already ships it: the **Vault**, a built-in station-station tab at `admin.php?page=newspack-nodes-station&tab=vault`, not a WordPress Settings-API page and not a React tree you have to author.
 
-The Vault is a real hub tab (`src/vault/`, registered `host: 'hub'` / `slug: 'vault'` through the `newspack_nodes/devtools_tab_bundles` filter as a lazy bundle) — a thin `VaultAdmin` view over the `Vault_CI_Node` credential store (`includes/rest/class-vault-ci-node.php`). Secrets persist server-side in the `newspack_nodes_vault` option and are **never** returned to the browser: `list` and `get` both project through one `public_shape()` that hands back `{ id, url, auth_username, has_credentials }` and nothing else. The username rides along because it is half an address rather than a secret, and an edit form cannot offer to change what it cannot show — which is why leaving the password field blank means "keep the stored one". That disclosure holds only while every Vault verb is `manage`; declaring one `read` would widen it.
+The Vault is a real station tab (`src/vault/`, registered `host: 'station'` / `slug: 'vault'` through the `newspack_nodes/station_tab_bundles` filter as a lazy bundle) — a thin `VaultAdmin` view over the `Vault_CI_Node` credential store (`includes/rest/class-vault-ci-node.php`). Secrets persist server-side in the `newspack_nodes_vault` option and are **never** returned to the browser: `list` and `get` both project through one `public_shape()` that hands back `{ id, url, auth_username, has_credentials }` and nothing else. The username rides along because it is half an address rather than a secret, and an edit form cannot offer to change what it cannot show — which is why leaving the password field blank means "keep the stored one". That disclosure holds only while every Vault verb is `manage`; declaring one `read` would widen it.
 
 Your topology only *references* an entry. A source node carries a `set_vault_id` verb — its argument is `'type' => 'vault_id'`, which `CtorField` renders as a Vault dropdown — and resolves that id to the raw secret at `config()` time through the `Vault_Secret` trait (`newspack-intelligence/includes/class-github-source-node.php`: `cmd_set_vault_id` → `resolve_vault_secret`). Non-secret per-source config rides sibling verbs on the same node (`add_repo <owner/name>`, `add_url <feed>`), never the Vault, and each writes a round-trippable `config_line()` so the topology dumps back exactly as it was built.
 
@@ -497,8 +497,8 @@ The alias resolves to a directory with no index, so every import names a subpath
 | `components/LogRowList` | `LogRowList` (default), `DEBUG_MAX_ROWS` | §8's ring-aware virtualized row list, plus the cap on the un-virtualized debug regime. |
 | `components/LogStreamViewer` | `LogStreamViewer` (default), `debugValue` | The chrome every log-stream dashboard wears: toolbar, reconnect banner, browse rail and row list. |
 | `components/Modal` | `Modal` (default) | The plain-DOM dialog shell carrying the canonical `.newspack-nodes-modal` role, dismissed through `useDismissable`. Its `role="dialog"` is hardcoded, so a message the operator must acknowledge before carrying on builds its own shell around `role="alertdialog"` and reuses the class and the hook directly — `AlertModal`, the Overview board's mutation-refusal box, is the worked example. |
-| `devtools/DevtoolsTabHost` | `DevtoolsTabHost` (default) | §5's one tab host, behind both the floating overlay and the full-page hub. |
-| `devtools/tabRegistry` | `registerDevtoolsTab`, `getDevtoolsTabs`, `getDevtoolsTabsVersion`, `subscribeDevtoolsTabs`, `resetDevtoolsTabs` | §5's registry on `window`: a bundle registers at import time, the host reads and subscribes, and a test resets. |
+| `tabs/TabHost` | `TabHost` (default) | §5's one tab host, behind both the floating overlay and the full-page station. |
+| `tabs/tabRegistry` | `registerTab`, `getTabs`, `getTabsVersion`, `subscribeTabs`, `resetTabs` | §5's registry on `window`: a bundle registers at import time, the host reads and subscribes, and a test resets. |
 | `helpers/addSliceFetcher` | `addSliceFetcher` | One dashboard slice wired in one call, with the Fetcher connected last (§8). |
 | `helpers/controlMsg` | `controlMsg`, `isControl` | The one minter of a view node's control message, and the recognizer that admits what it mints. |
 | `helpers/egressPath` | `egressPath` | The TO path a browser-minted command travels: the observe-only `_shell` Tap, the `_http` egress, then the server CI. |
@@ -582,7 +582,7 @@ How an empty bucket reads belongs to the metric, and `fillModeForMetric` is the 
 
 ## 9. Recap — what you wrote vs. what the substrate gave you
 
-**You wrote:** a `category` string on your CI (`'Service'`, not `'Hidden'`), a `requests` entry or two for your runtime triggers, a `tabMeta`-plus-`tabs` pair if your tool belongs in the hub, one `add_filter` putting your page on the overlay-page list if it embeds the overlay, a `set_vault_id` reference to a Vault credential entry (not a settings form), and a build/deploy sequence that rebuilds before it deploys.
+**You wrote:** a `category` string on your CI (`'Service'`, not `'Hidden'`), a `requests` entry or two for your runtime triggers, a `tabMeta`-plus-`tabs` pair if your tool belongs in the station, one `add_filter` putting your page on the overlay-page list if it embeds the overlay, a `set_vault_id` reference to a Vault credential entry (not a settings form), and a build/deploy sequence that rebuilds before it deploys.
 
 **The substrate gave you — and these are the contracts, not conveniences:**
 
@@ -592,15 +592,15 @@ How an empty bucket reads belongs to the metric, and `fillModeForMetric` is the 
 | `node_schema['requests']` | `TM_REQUEST` triggers render as `kind="request"` buttons, addressed to the node; `commands` go to `<node>:config` unless the class is an interpreter |
 | `ReplFooter` `maxHeightPx` | each host MEASURES its own frame, and the overlay its tab bar besides; viewport math drifts |
 | `WP_EXTERNALS` | externalize ONLY packages WP registers as runtime scripts (icons, d3 and `@noble/hashes` are bundled) |
-| `DevtoolsTabHost` + the tab registry | one host, `host`-scoped tabs, globally distinct ids, lazy-keyed mount, `fullBleed` for canvas tabs, a toolbar placed through `headerControlsSlot` |
+| `TabHost` + the tab registry | one host, `host`-scoped tabs, globally distinct ids, lazy-keyed mount, `fullBleed` for canvas tabs, a toolbar placed through `headerControlsSlot` |
 | `tabMeta.js` + `lazy` bundles | one descriptor spelling for the placeholder and the bundle, so a lazy tab does not rename itself on arrival |
-| the Vault hub tab + `set_vault_id` | credentials live in the Vault; the topology only references an entry |
+| the Vault station tab + `set_vault_id` | credentials live in the Vault; the topology only references an entry |
 | `release:archive` / setup zip / `NEWSPACK_NODES_SRC` | rebuild before deploy; a shared edit rebuilds every consumer |
 | a standalone consumer's `alias` map | pin every non-`@wordpress/*` dependency to your own `node_modules`, or a dev build bundles the substrate's copy beside yours |
 | `useBatchedPoll` / `addSliceFetcher` | one tick is one POST; the cadence floor is 1000 ms and connect order is contractual |
 | `LogRowList` / `ProbeStreamViewNode` / `TopicsChart` | bound the work by the viewport and the pixel budget, never by the input rate |
 
-None of these is a bug in your code. Each is a contract in a surface the substrate owns, and honoring it is what carries a dashboard off your page and into the console, the overlay, the hub, and the next `release:archive`.
+None of these is a bug in your code. Each is a contract in a surface the substrate owns, and honoring it is what carries a dashboard off your page and into the console, the overlay, the station, and the next `release:archive`.
 
 ---
 

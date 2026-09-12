@@ -1,20 +1,17 @@
 import { render } from '@testing-library/react';
 import { registerLazyTabs } from '../lazyTabs';
-import {
-	getDevtoolsTabs,
-	resetDevtoolsTabs,
-} from '@newspack-nodes/shared/devtools/tabRegistry';
+import { getTabs, resetTabs } from '@newspack-nodes/shared/tabs/tabRegistry';
 
 describe( 'lazyTabs', () => {
 	beforeEach( () => {
-		resetDevtoolsTabs();
+		resetTabs();
 		document.head.innerHTML = '';
 		window.NewspackNodesLazyTabs = {};
 	} );
 
-	it( 'registers the heavy tabs as hub placeholders carrying full metadata', () => {
+	it( 'registers the heavy tabs as station placeholders carrying full metadata', () => {
 		registerLazyTabs();
-		const ids = getDevtoolsTabs( 'hub' ).map( ( t ) => t.id );
+		const ids = getTabs( 'station' ).map( ( t ) => t.id );
 		expect( ids ).toEqual(
 			expect.arrayContaining( [
 				'topology-console',
@@ -23,7 +20,7 @@ describe( 'lazyTabs', () => {
 			] )
 		);
 		// The placeholder must match the real tab's bar/URL identity pre-load.
-		const consoleTab = getDevtoolsTabs( 'hub' ).find(
+		const consoleTab = getTabs( 'station' ).find(
 			( t ) => t.id === 'topology-console'
 		);
 		expect( consoleTab.slug ).toBe( 'console' );
@@ -38,7 +35,7 @@ describe( 'lazyTabs', () => {
 			},
 		};
 		registerLazyTabs();
-		const Placeholder = getDevtoolsTabs( 'hub' ).find(
+		const Placeholder = getTabs( 'station' ).find(
 			( t ) => t.id === 'vault'
 		).component;
 		render( <Placeholder /> );

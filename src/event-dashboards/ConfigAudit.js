@@ -1,5 +1,5 @@
 /**
- * Config Audit — the hub's change timeline over the durable settings.p0 log.
+ * Config Audit — the station's change timeline over the durable settings.p0 log.
  *
  * A thin view over `useLogTailStream` in history mode plus the
  * `settings-audit:view` model: a newest-first table of watched-option changes,
@@ -11,7 +11,7 @@
  * text filter narrows by option name; the count line reports matched / total.
  *
  * The stream is seeded with the view CLASS, never its registered name: that map
- * is a per-bundle static, and a hub tab runs against whichever bundle's
+ * is a per-bundle static, and a station tab runs against whichever bundle's
  * interpreter it was handed (ADR-16).
  */
 
@@ -72,10 +72,10 @@ function valueCell( modifier, value ) {
 }
 
 /**
- * Config Audit hub tab.
+ * Config Audit station tab.
  *
  * @param {Object}   props                      Props.
- * @param {?Element} [props.headerControlsSlot] Hub shared-header slot to portal the toolbar into; null renders none, undefined renders it inline.
+ * @param {?Element} [props.headerControlsSlot] Station shared-header slot to portal the toolbar into; null renders none, undefined renders it inline.
  * @return {import('react').ReactElement} Rendered component.
  */
 export default function ConfigAudit( { headerControlsSlot } ) {

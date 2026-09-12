@@ -1,6 +1,6 @@
 /**
  * Top header — the brand, the subtitle, the cwd path selector and the mode
- * buttons — for the topology console, the devtools hub and the debug overlay.
+ * buttons — for the topology console, the station and the debug overlay.
  *
  * The brand and the controls are exported separately so ONE header can serve
  * every tab of a host: `HeaderControls` is the control cluster alone, which a
@@ -299,7 +299,7 @@ export function HeaderControls( {
 
 /**
  * Callback ref receiving the empty controls slot element, or null on unmount.
- * The hub hands it a `useState` setter so the active tab can portal into it.
+ * The station hands it a `useState` setter so the active tab can portal into it.
  *
  * @typedef {import('react').RefCallback<HTMLDivElement>} ControlsSlotRef
  */

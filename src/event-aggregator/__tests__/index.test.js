@@ -1,7 +1,7 @@
 /**
- * event-aggregator/index — registers the Aggregator hub DevTools tab
+ * event-aggregator/index — registers the Aggregator station tab
  * (side-effect import of `./tabs`) and mounts no standalone React tree. The
- * former ELN createRoot status-page mount is gone — Aggregator is a hub tab
+ * former ELN createRoot status-page mount is gone — Aggregator is a station tab
  * now, so the entry must never call createRoot regardless of stray DOM nodes.
  * Mirrors vault/__tests__/index.test.js.
  */
@@ -29,14 +29,10 @@ describe( 'event-aggregator/index', () => {
 		expect( createRootMock ).not.toHaveBeenCalled();
 	} );
 
-	it( 'registers the aggregator hub tab as a side effect of importing', () => {
+	it( 'registers the aggregator station tab as a side effect of importing', () => {
 		require( '../index' );
-		const {
-			getDevtoolsTabs,
-		} = require( '../../shared/devtools/tabRegistry' );
-		const tab = getDevtoolsTabs( 'hub' ).find(
-			( t ) => t.id === 'aggregator'
-		);
+		const { getTabs } = require( '../../shared/tabs/tabRegistry' );
+		const tab = getTabs( 'station' ).find( ( t ) => t.id === 'aggregator' );
 		expect( tab ).toBeTruthy();
 	} );
 } );

@@ -65,9 +65,9 @@ jest.mock( '../../topology-console/components/GraphView', () => ( props ) => (
 ) );
 
 import {
-	registerDevtoolsTab,
-	resetDevtoolsTabs,
-} from '@newspack-nodes/shared/devtools/tabRegistry';
+	registerTab,
+	resetTabs,
+} from '@newspack-nodes/shared/tabs/tabRegistry';
 import InspectorTab from '../tabs/InspectorTab';
 import DebugOverlay from '../DebugOverlay';
 
@@ -75,8 +75,8 @@ beforeEach( () => {
 	Core.reset();
 	window.localStorage.clear();
 	// Register ONLY the Inspector tab so the panel skips the Overview default.
-	resetDevtoolsTabs();
-	registerDevtoolsTab( {
+	resetTabs();
+	registerTab( {
 		id: 'inspector',
 		label: 'Inspector',
 		host: 'overlay',

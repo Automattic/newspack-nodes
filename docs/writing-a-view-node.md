@@ -55,7 +55,7 @@ both halves. A **name** serves TSL, `make_node` typed into the REPL and
 `help <Name>`, never the console palette — the palette offers only a class whose
 category is neither `Hidden` nor empty, and every slice view inherits `Hidden`.
 The **class** is what a hook hands `addSliceFetcher` as its `viewClass`, because
-`includeNodes` is a per-bundle static and a hub tab mounted
+`includeNodes` is a per-bundle static and a station tab mounted
 against another bundle's interpreter cannot resolve a name its own bundle
 registered ([ADR-16](architecture-decisions.md#adr-16-js-node-class-resolution--names-are-the-tsl-surface-classes-are-the-api)).
 

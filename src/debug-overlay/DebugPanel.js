@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useRef, useState } from '@wordpress/element';
-import DevtoolsTabHost from '@newspack-nodes/shared/devtools/DevtoolsTabHost';
+import TabHost from '@newspack-nodes/shared/tabs/TabHost';
 import Header from '../topology-console/components/Header';
 import { lockPageScroll, unlockPageScroll } from './pageScrollLock';
 import { useDebugFrame } from './useDebugFrame';
@@ -23,7 +23,7 @@ import { useDebugFrame } from './useDebugFrame';
  * @param {Object}   props
  * @param {string}   props.storageKey  Canvas-layout persistence key (per dashboard).
  * @param {Function} props.onClose     Close the panel (parent's setOpen(false)).
- * @param {boolean}  [props.buildRepl] False while the hub's own Console tab is active, where a second graph and REPL would collide on `_output`; the overlay's Console tab then builds neither.
+ * @param {boolean}  [props.buildRepl] False while the station's own Console tab is active, where a second graph and REPL would collide on `_output`; the overlay's Console tab then builds neither.
  * @return {import('react').ReactElement} The panel.
  */
 export default function DebugPanel( {
@@ -140,7 +140,7 @@ export default function DebugPanel( {
 						{ ...headerExtras }
 					/>
 				</div>
-				<DevtoolsTabHost
+				<TabHost
 					host="overlay"
 					tabProps={ {
 						storageKey,

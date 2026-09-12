@@ -87,7 +87,7 @@ const CANONICAL_BUTTON_CLASSES = new Set( [
 	'button-small',
 	'button-link',
 	'button-link-delete',
-	'nodes-devtools__tab',
+	'nodes-tab-host__tab',
 	'nodes-debug__fab',
 	'newspack-nodes-log-browser__mode',
 	'newspack-nodes-log-browser__mode--live',
@@ -124,8 +124,8 @@ const REQUIRED_ROLE_PAIRS = [
 	[ 'topology-settings-panel', 'newspack-nodes-card--elevated' ],
 	[ 'topology-open-item__badge', 'newspack-nodes-badge' ],
 	[ 'nodes-tm__alert', 'newspack-nodes-modal' ],
-	[ 'nodes-devtools__empty', 'newspack-nodes-empty-state' ],
-	[ 'nodes-devtools__lazy-loading', 'newspack-nodes-performance-loading' ],
+	[ 'nodes-station__empty', 'newspack-nodes-empty-state' ],
+	[ 'nodes-station__lazy-loading', 'newspack-nodes-performance-loading' ],
 	[ 'aggregator-status-loading', 'newspack-nodes-performance-loading' ],
 	[ 'aggregator-status-empty', 'newspack-nodes-empty-state' ],
 	[ 'nodes-jobs__empty', 'newspack-nodes-empty-state' ],
@@ -1203,7 +1203,7 @@ describe( 'canonical appearance ownership', () => {
 			'font-size',
 			'line-height',
 			'color',
-			'--nodes-devtools-fg',
+			'--nodes-tab-host-fg',
 		] ) {
 			expect( topologyApp?.[ property ] ).toBeUndefined();
 		}
@@ -1392,8 +1392,8 @@ describe( 'canonical appearance ownership', () => {
 	it( 'preserves compact empty-state geometry after canonical adoption', () => {
 		const cases = [
 			[
-				'devtools-hub/devtools-hub.scss',
-				'nodes-devtools__empty',
+				'station/station.scss',
+				'nodes-station__empty',
 				{ padding: '0' },
 			],
 			[
@@ -1478,13 +1478,13 @@ describe( 'canonical appearance ownership', () => {
 	} );
 
 	it( 'preserves compact loading and runtime-table geometry', () => {
-		const devtoolsStylesheet = compile(
-			path.join( NODES_SRC, 'devtools-hub/devtools-hub.scss' )
+		const tabHostStylesheet = compile(
+			path.join( NODES_SRC, 'station/station.scss' )
 		);
 		expect(
 			declarationsForSelector(
-				devtoolsStylesheet,
-				'.newspack-nodes-performance-loading.nodes-devtools__lazy-loading'
+				tabHostStylesheet,
+				'.newspack-nodes-performance-loading.nodes-station__lazy-loading'
 			)
 		).toEqual(
 			expect.objectContaining( {
@@ -1533,7 +1533,7 @@ describe( 'canonical appearance ownership', () => {
 			mergedDeclarationsForSelectors(
 				compile( UI_ENTRY ),
 				( selector ) =>
-					selectorHasClass( selector, 'nodes-devtools__tab' ) &&
+					selectorHasClass( selector, 'nodes-tab-host__tab' ) &&
 					! selector.includes( ':hover' ) &&
 					! selector.includes( '.is-active' )
 			)

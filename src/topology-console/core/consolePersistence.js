@@ -1,6 +1,6 @@
 /**
  * localStorage persistence for the console's session state [87]: the debug
- * overlay's transcript, the topology console's hub transcript, the REPL command
+ * overlay's transcript, the topology console's station transcript, the REPL command
  * history, `debug_level`, and the interpreter's `debug_state`.
  *
  * Every read and write goes through `readStorage` / `writeStorage`, so
@@ -10,7 +10,7 @@
  * has no expiry, and the server never hands a stored password back
  * (`Vault_CI_Node::public_shape` strips it).
  *
- * Both REPLs share this module — the topology console for the hub transcript
+ * Both REPLs share this module — the topology console for the station transcript
  * and ReplFooter's history, the debug overlay for the transcript, the debug
  * level and the debug state — so it lives in `topology-console/core`, where
  * each can import it.
@@ -28,10 +28,10 @@ const NS = 'newspack-nodes:console:';
 const TRANSCRIPT_KEY = `${ NS }transcript`;
 
 /**
- * Where the topology console's hub transcript is stored. Its own key, so the
+ * Where the topology console's station transcript is stored. Its own key, so the
  * worker-realm lines and the overlay's transcript never clobber each other.
  */
-const HUB_TRANSCRIPT_KEY = `${ NS }hub-transcript`;
+const STATION_TRANSCRIPT_KEY = `${ NS }station-transcript`;
 
 /** Where the REPL's command history is stored. */
 const HISTORY_KEY = `${ NS }history`;
@@ -178,24 +178,24 @@ export function saveTranscript( entries ) {
 }
 
 /**
- * Restore the topology console's hub transcript — the worker-realm lines, kept
+ * Restore the topology console's station transcript — the worker-realm lines, kept
  * under their own key so the overlay's transcript never clobbers them.
  *
  * @return {Object[]} Stamped transcript entries, oldest first; empty when
  *                    nothing is stored or the stored value is corrupt.
  */
 export function loadHubTranscript() {
-	return readArray( HUB_TRANSCRIPT_KEY );
+	return readArray( STATION_TRANSCRIPT_KEY );
 }
 
 /**
- * Persist the topology console's hub transcript under its own key, capped and
+ * Persist the topology console's station transcript under its own key, capped and
  * redacted the same way the overlay transcript is.
  *
  * @param {Object[]} entries Stamped transcript entries, oldest first.
  */
 export function saveHubTranscript( entries ) {
-	saveTranscriptTo( HUB_TRANSCRIPT_KEY, entries );
+	saveTranscriptTo( STATION_TRANSCRIPT_KEY, entries );
 }
 
 /**

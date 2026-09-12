@@ -52,8 +52,8 @@
 	}
 
 	// The InspectorTab's root wrapper. It now sits between the panel and
-	// .topology-app — DevtoolsTabHost wraps the active tab in
-	// .nodes-devtools__tab-content.is-full-bleed (flex column, flex:1), so this
+	// .topology-app — TabHost wraps the active tab in
+	// .nodes-tab-host__tab-content.is-full-bleed (flex column, flex:1), so this
 	// wrapper must keep growing the chain: become a flex column that lets its
 	// single child (.topology-app) claim all the height. Without this, the
 	// wrapper's default display:block/height:auto collapses the cascade and
@@ -66,7 +66,7 @@
 		flex-direction: column;
 	}
 
-	// Overview-only notice (the hub Console tab — see InspectorTab buildRepl):
+	// Overview-only notice (the station Console tab — see InspectorTab buildRepl):
 	// the overlay's graph+REPL would duplicate the Console's, so the Inspector
 	// body points back at it instead.
 	.nodes-debug__inspector--repl-off {
@@ -137,7 +137,7 @@
 
 // display:contents so the drag wrapper is invisible to layout — the inner
 // .topology-header lays out directly in the overlay panel (the console header
-// moved to the shared hub/panel header, so it is no longer a `.topology-app`
+// moved to the shared station/panel header, so it is no longer a `.topology-app`
 // grid child) while the pointerdown handler still bubbles up.
 .nodes-debug__header-drag {
 	display: contents;

@@ -1,10 +1,10 @@
 /**
- * Lazy hub tabs — the placeholders that keep four heavy tab bundles off the
- * DevTools hub's initial page load. Console, Vault, Sessions and Aggregator
+ * Lazy station tabs — the placeholders that keep four heavy tab bundles off the
+ * station's initial page load. Console, Vault, Sessions and Aggregator
  * together weigh roughly 600KB of minified JS, and a reader opens one of them.
  *
- * Their `newspack_nodes/devtools_tab_bundles` contributions declare `lazy`, so
- * `Admin::enqueue_devtools_tab_bundles()` skips the enqueue and localizes a load
+ * Their `newspack_nodes/station_tab_bundles` contributions declare `lazy`, so
+ * `Admin::enqueue_station_tab_bundles()` skips the enqueue and localizes a load
  * recipe for each onto `window.NewspackNodesLazyTabs` instead.
  *
  * This module registers a placeholder per bundle carrying that tab's shared
@@ -14,14 +14,14 @@
  * tabs.
  *
  * On first activation the placeholder injects its bundle, whose
- * `registerDevtoolsTab` call shadows this descriptor with the live component
+ * `registerTab` call shadows this descriptor with the live component
  * under the same id — the registry's last-register-wins rule, not a lazy-tab
  * special case.
  */
 
 import { useEffect } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
-import { registerDevtoolsTab } from '@newspack-nodes/shared/devtools/tabRegistry';
+import { registerTab } from '@newspack-nodes/shared/tabs/tabRegistry';
 import consoleMeta from '../topology-console/tabMeta';
 import vaultMeta from '../vault/tabMeta';
 import sessionsMeta from '../sessions/tabMeta';
@@ -63,7 +63,7 @@ function LazyTabPlaceholder( { handle } ) {
 		loadTabBundle( handle );
 	}, [ handle ] );
 	return (
-		<div className="newspack-nodes-performance-loading nodes-devtools__lazy-loading">
+		<div className="newspack-nodes-performance-loading nodes-station__lazy-loading">
 			{ __( 'Loading…', 'newspack-nodes' ) }
 		</div>
 	);
@@ -77,7 +77,7 @@ function LazyTabPlaceholder( { handle } ) {
  */
 export function registerLazyTabs() {
 	for ( const { meta, handle } of LAZY_TABS ) {
-		registerDevtoolsTab( {
+		registerTab( {
 			...meta,
 			component: () => <LazyTabPlaceholder handle={ handle } />,
 		} );

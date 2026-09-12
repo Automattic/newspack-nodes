@@ -1,102 +1,102 @@
 import { render, fireEvent } from '@testing-library/react';
-import DevToolsHub from '../DevToolsHub';
+import Station from '../Station';
 import {
-	registerDevtoolsTab,
-	resetDevtoolsTabs,
-} from '@newspack-nodes/shared/devtools/tabRegistry';
+	registerTab,
+	resetTabs,
+} from '@newspack-nodes/shared/tabs/tabRegistry';
 
-describe( 'DevToolsHub', () => {
+describe( 'Station', () => {
 	beforeEach( () => {
-		resetDevtoolsTabs();
+		resetTabs();
 		window.localStorage.clear();
 		window.history.replaceState( {}, '', '/' );
 	} );
 
 	it( 'syncs the active tab into ?tab= (deep-linkable)', () => {
-		registerDevtoolsTab( {
+		registerTab( {
 			id: 'topology-console',
 			label: 'Console',
-			host: 'hub',
+			host: 'station',
 			slug: 'console',
 			order: 0,
 			component: () => <div data-testid="console" />,
 		} );
-		render( <DevToolsHub /> );
+		render( <Station /> );
 		expect(
 			new URLSearchParams( window.location.search ).get( 'tab' )
 		).toBe( 'console' );
 	} );
 
-	it( 'shows the empty state when no hub tabs are registered', () => {
-		const { getByText } = render( <DevToolsHub /> );
+	it( 'shows the empty state when no station tabs are registered', () => {
+		const { getByText } = render( <Station /> );
 		expect( getByText( /no tools registered/i ) ).not.toBeNull();
 	} );
 
-	it( 'renders a registered hub tab', () => {
-		registerDevtoolsTab( {
+	it( 'renders a registered station tab', () => {
+		registerTab( {
 			id: 'demo',
 			label: 'Demo',
-			host: 'hub',
+			host: 'station',
 			component: () => <div data-testid="demo" />,
 		} );
-		const { getByTestId } = render( <DevToolsHub /> );
+		const { getByTestId } = render( <Station /> );
 		expect( getByTestId( 'demo' ) ).not.toBeNull();
 	} );
 
 	it( 'wraps the tab host in a full-height fixed admin-page container', () => {
-		registerDevtoolsTab( {
+		registerTab( {
 			id: 'demo',
 			label: 'Demo',
-			host: 'hub',
+			host: 'station',
 			component: () => <div data-testid="demo" />,
 		} );
-		const { container } = render( <DevToolsHub /> );
-		// firstChild is the token host; .nodes-devtools-hub is the fixed box.
-		const page = container.querySelector( '.nodes-devtools-hub' );
+		const { container } = render( <Station /> );
+		// firstChild is the token host; .nodes-station is the fixed box.
+		const page = container.querySelector( '.nodes-station' );
 		expect( page.style.position ).toBe( 'fixed' );
 		expect( page.style.top ).toBe( '32px' );
 		expect( page.style.right ).toBe( '0px' );
 		expect( page.style.bottom ).toBe( '0px' );
 	} );
 
-	it( 'owns one non-graph skin provider without repeating provider classes on the hub', () => {
-		registerDevtoolsTab( {
+	it( 'owns one non-graph skin provider without repeating provider classes on the station', () => {
+		registerTab( {
 			id: 'demo',
 			label: 'Demo',
-			host: 'hub',
+			host: 'station',
 			component: () => <div data-testid="demo" />,
 		} );
-		const { container } = render( <DevToolsHub /> );
+		const { container } = render( <Station /> );
 		const provider = container.firstElementChild;
-		const hub = container.querySelector( '.nodes-devtools-hub' );
+		const station = container.querySelector( '.nodes-station' );
 
 		expect( provider.className ).toBe(
 			'newspack-nodes-skin-root newspack-nodes-theme newspack-nodes-ui'
 		);
-		expect( hub.className ).toBe( 'nodes-devtools-hub' );
-		expect( hub.closest( '.newspack-nodes-theme' ) ).toBe( provider );
-		expect( hub.querySelectorAll( '.newspack-nodes-theme' ) ).toHaveLength(
-			0
-		);
+		expect( station.className ).toBe( 'nodes-station' );
+		expect( station.closest( '.newspack-nodes-theme' ) ).toBe( provider );
+		expect(
+			station.querySelectorAll( '.newspack-nodes-theme' )
+		).toHaveLength( 0 );
 	} );
 
 	it( 'renders the console first and topologies second when both are registered', () => {
-		registerDevtoolsTab( {
+		registerTab( {
 			id: 'topology-manager',
 			label: 'Topologies',
-			host: 'hub',
+			host: 'station',
 			order: 10,
 			component: () => <div data-testid="manager" />,
 		} );
-		registerDevtoolsTab( {
+		registerTab( {
 			id: 'topology-console',
 			label: 'Console',
-			host: 'hub',
+			host: 'station',
 			order: 0,
 			component: () => <div data-testid="console" />,
 		} );
 		const { getAllByRole, getByTestId, queryByTestId } = render(
-			<DevToolsHub />
+			<Station />
 		);
 		const tabs = getAllByRole( 'tab' ).map( ( t ) => t.textContent );
 		expect( tabs ).toEqual( [ 'Console', 'Topologies' ] );
@@ -111,17 +111,17 @@ describe( 'DevToolsHub', () => {
 			window.localStorage.setItem( 'newspack-nodes:debug', '1' );
 
 		const registerConsoleAndManager = () => {
-			registerDevtoolsTab( {
+			registerTab( {
 				id: 'topology-console',
 				label: 'Console',
-				host: 'hub',
+				host: 'station',
 				order: 0,
 				component: () => <div data-testid="console" />,
 			} );
-			registerDevtoolsTab( {
+			registerTab( {
 				id: 'topology-manager',
 				label: 'Topologies',
-				host: 'hub',
+				host: 'station',
 				order: 10,
 				component: () => <div data-testid="manager" />,
 			} );
@@ -130,7 +130,7 @@ describe( 'DevToolsHub', () => {
 		it( 'shows the debug overlay FAB on the Console tab too (Overview-only there)', () => {
 			enableDebug();
 			registerConsoleAndManager();
-			const { getByRole } = render( <DevToolsHub /> );
+			const { getByRole } = render( <Station /> );
 			// Console selected first; overlay rides it, REPL Overview-only.
 			expect(
 				getByRole( 'button', { name: /node debugger/i } )
@@ -140,7 +140,7 @@ describe( 'DevToolsHub', () => {
 		it( 'keeps the debug overlay FAB mounted across tabs', () => {
 			enableDebug();
 			registerConsoleAndManager();
-			const { getByRole } = render( <DevToolsHub /> );
+			const { getByRole } = render( <Station /> );
 			expect(
 				getByRole( 'button', { name: /node debugger/i } )
 			).not.toBeNull();
@@ -153,7 +153,7 @@ describe( 'DevToolsHub', () => {
 		it( 'does not mount the overlay when debug is disabled, even on a non-console tab', () => {
 			// No enableDebug() — sticky flag absent, isDebugEnabled false.
 			registerConsoleAndManager();
-			const { getByRole, queryByRole } = render( <DevToolsHub /> );
+			const { getByRole, queryByRole } = render( <Station /> );
 			fireEvent.click( getByRole( 'tab', { name: 'Topologies' } ) );
 			expect(
 				queryByRole( 'button', { name: /node debugger/i } )

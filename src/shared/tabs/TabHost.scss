@@ -1,4 +1,4 @@
-.nodes-devtools__tabbar {
+.nodes-tab-host__tabbar {
 	display: flex;
 	gap: 4px;
 	padding: 6px 10px 0;
@@ -8,7 +8,7 @@
 // list tab stays usable inside a fixed-height host; a flex child so it claims
 // the space below the tab bar. `is-full-bleed` is for a tab that manages its
 // own scrolling/canvas (the console) — let it fill without an outer scrollbar.
-.nodes-devtools__tab-content {
+.nodes-tab-host__tab-content {
 	flex: 1 1 auto;
 	min-height: 0;
 	overflow-y: auto;

@@ -20,10 +20,7 @@ import {
 } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import { useContainerRefit } from '../../shared/hooks/useContainerRefit';
-import {
-	subscribeDevtoolsTabs,
-	getDevtoolsTabsVersion,
-} from '../../shared/devtools/tabRegistry';
+import { subscribeTabs, getTabsVersion } from '../../shared/tabs/tabRegistry';
 import { Core } from '../../runtime/core';
 import CanvasFrame from '../../topology-console/components/CanvasFrame';
 import ConsoleShell from '../../topology-console/components/ConsoleShell';
@@ -47,9 +44,9 @@ import { LayoutProvider } from '../../topology-console/LayoutContext';
 import { ChromeProvider } from '../../topology-console/ChromeContext';
 
 /**
- * Measure the DevtoolsTabHost tab bar (`.nodes-devtools__tabbar`) that the host
+ * Measure the TabHost tab bar (`.nodes-tab-host__tabbar`) that the host
  * renders as the sibling BEFORE this tab's content wrapper. Measured (not a
- * hardcoded constant) so it can never drift from DevtoolsTabHost.scss, and
+ * hardcoded constant) so it can never drift from TabHost.scss, and
  * returns 0 when there's no bar (single-tab host) or before mount.
  *
  * @param {Element|null} rootEl The inspector body's root element.
@@ -57,11 +54,11 @@ import { ChromeProvider } from '../../topology-console/ChromeContext';
  * @testonly Exported for its own unit tests; InspectorTab is the caller.
  */
 export function measureTabBarHeight( rootEl ) {
-	const content = rootEl?.closest?.( '.nodes-devtools__tab-content' );
+	const content = rootEl?.closest?.( '.nodes-tab-host__tab-content' );
 	const bar = /** @type {HTMLElement|null|undefined} */ (
 		content?.previousElementSibling
 	);
-	if ( ! bar?.classList?.contains( 'nodes-devtools__tabbar' ) ) {
+	if ( ! bar?.classList?.contains( 'nodes-tab-host__tabbar' ) ) {
 		return 0;
 	}
 	return bar.offsetHeight;
@@ -72,7 +69,7 @@ export function measureTabBarHeight( rootEl ) {
  * own 64px header row (`.topology-header` in debug-overlay.scss), the 38px
  * always-visible prompt bar (`.topology-repl__bar` in graph-view.scss; the
  * transcript's `bottom: 38px` anchor sits at that bar's top), and the measured
- * tab bar DevtoolsTabHost renders above this body. The panel is content-box,
+ * tab bar TabHost renders above this body. The panel is content-box,
  * so frame.h excludes its border and needs no further reserve. Floored at 80px
  * so the transcript never collapses on a tiny panel.
  *
@@ -108,7 +105,7 @@ export function replMaxHeight( frameHeight, tabBarHeight = 0 ) {
  * @param {string}                 props.storageKey    Canvas-layout persistence key (per dashboard); the live cwd is appended, so each scope keeps its own node positions.
  * @param {{w: number, h: number}} props.frame         Panel geometry from the host. Only the height is read, to cap the transcript.
  * @param {Function}               props.publishHeader Publish this tab's header extras (the PATH selector) into the panel's shared Header; called with null on unmount to retract them.
- * @param {boolean}                [props.buildRepl]   False while the hub's own Console tab is showing, where a second graph and REPL would collide on `_output`; this body then builds neither and points back at that tab.
+ * @param {boolean}                [props.buildRepl]   False while the station's own Console tab is showing, where a second graph and REPL would collide on `_output`; this body then builds neither and points back at that tab.
  * @return {import('react').ReactElement} The Console tab body.
  */
 export default function InspectorTab( {
@@ -125,15 +122,15 @@ export default function InspectorTab( {
 	}, [] );
 	// Tabs register lazily, so a late one must re-resolve the bar.
 	const tabsVersion = useSyncExternalStore(
-		subscribeDevtoolsTabs,
-		getDevtoolsTabsVersion,
-		getDevtoolsTabsVersion
+		subscribeTabs,
+		getTabsVersion,
+		getTabsVersion
 	);
 	useEffect( measureTabBar, [ measureTabBar, tabsVersion ] );
 	useContainerRefit(
 		// The tab bar is the content pane's previous sibling, not a ref.
 		() =>
-			rootRef.current?.closest?.( '.nodes-devtools__tab-content' )
+			rootRef.current?.closest?.( '.nodes-tab-host__tab-content' )
 				?.previousElementSibling,
 		measureTabBar,
 		[ measureTabBar, tabsVersion ],
@@ -273,7 +270,7 @@ export default function InspectorTab( {
 
 	const replMaxHeightPx = replMaxHeight( frame.h, tabBarHeight );
 
-	// Hub Console tab: buildRepl=false made the hooks above inert.
+	// Station Console tab: buildRepl=false made the hooks above inert.
 	if ( ! buildRepl ) {
 		return (
 			<div

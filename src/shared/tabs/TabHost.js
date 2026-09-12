@@ -1,7 +1,7 @@
 /**
- * Shared DevTools tab host — the tab bar, the selected-tab state and the lazy
+ * Shared tab host — the tab bar, the selected-tab state and the lazy
  * mount behind BOTH surfaces, the floating debug overlay and the full-page
- * admin hub. One component owns tab selection, so the two cannot drift in how a
+ * admin station. One component owns tab selection, so the two cannot drift in how a
  * tab is chosen, mounted or deep-linked; each host supplies its scope (`host`),
  * the props its tabs need, and its own surrounding chrome.
  *
@@ -11,8 +11,8 @@
  * `host` it landed in and is spread the host's `tabProps`.
  *
  * The active tab mounts inside a per-tab scroll container
- * (`.nodes-devtools__tab-content`): it scrolls vertically by default, so a long
- * list tab (the Topology Manager) stays usable inside the hub's fixed wrapper. A
+ * (`.nodes-tab-host__tab-content`): it scrolls vertically by default, so a long
+ * list tab (the Topology Manager) stays usable inside the station's fixed wrapper. A
  * tab declaring `fullBleed: true` (the Topology Console, which owns its own
  * full-height canvas) opts out via `.is-full-bleed`.
  *
@@ -30,29 +30,25 @@ import {
 	useSyncExternalStore,
 } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
-import {
-	getDevtoolsTabs,
-	subscribeDevtoolsTabs,
-	getDevtoolsTabsVersion,
-} from './tabRegistry';
+import { getTabs, subscribeTabs, getTabsVersion } from './tabRegistry';
 import { getQueryParam, setQueryParam } from '../utils/queryParams';
-import './DevtoolsTabHost.scss';
+import './TabHost.scss';
 
 /**
- * Renders one DevTools surface: its tab bar, and the tab it has selected.
+ * Renders one station surface: its tab bar, and the tab it has selected.
  *
  * The routing `host` is applied after `tabProps` is spread, so a caller cannot
  * hand a tab the wrong surface even by putting `host` in `tabProps`.
  *
  * @param {Object}                props
- * @param {'overlay'|'hub'}       props.host                Which registry scope to render.
+ * @param {'overlay'|'station'}   props.host                Which registry scope to render.
  * @param {Object}                [props.tabProps]          Extra props spread into the mounted tab.
  * @param {*}                     [props.emptyState]        Rendered when no tab matches the host.
- * @param {(id?: string) => void} [props.onActiveTabChange] Called with the resolved active tab id on mount and on every switch, and with `undefined` while the host has no tabs — lets a host key sibling chrome (the hub's debug overlay) on which tab is showing. A switch reports from the click and again from the effect behind it, so the handler tolerates a repeated id.
+ * @param {(id?: string) => void} [props.onActiveTabChange] Called with the resolved active tab id on mount and on every switch, and with `undefined` while the host has no tabs — lets a host key sibling chrome (the station's debug overlay) on which tab is showing. A switch reports from the click and again from the effect behind it, so the handler tolerates a repeated id.
  * @param {boolean}               [props.syncUrl]           Mirror the active tab into `?tab=<slug>` via replaceState; the initial tab is read from `?tab=`. Default false (overlay + other consumers stay URL-free).
  * @return {*} The tab bar and the selected tab, or the empty state.
  */
-export default function DevtoolsTabHost( {
+export default function TabHost( {
 	host,
 	tabProps = {},
 	emptyState = null,
@@ -61,11 +57,11 @@ export default function DevtoolsTabHost( {
 } ) {
 	// Re-render on registry change so late-registered tabs still appear.
 	const registryVersion = useSyncExternalStore(
-		subscribeDevtoolsTabs,
-		getDevtoolsTabsVersion,
-		getDevtoolsTabsVersion
+		subscribeTabs,
+		getTabsVersion,
+		getTabsVersion
 	);
-	const tabs = getDevtoolsTabs( host );
+	const tabs = getTabs( host );
 	// Resolve initial tab now so a fullBleed tab mounts right on first render.
 	const [ activeId, setActiveId ] = useState( () => {
 		if ( syncUrl ) {
@@ -96,7 +92,7 @@ export default function DevtoolsTabHost( {
 		if ( ! syncUrl || pickedRef.current || ! initialSlugRef.current ) {
 			return;
 		}
-		const match = getDevtoolsTabs( host ).find(
+		const match = getTabs( host ).find(
 			( t ) => t.slug === initialSlugRef.current
 		);
 		if ( match && match.id !== activeId ) {
@@ -113,7 +109,7 @@ export default function DevtoolsTabHost( {
 		}
 		setQueryParam( 'tab', resolvedSlug );
 		// Drop the other tabs' params: the URL carries the active tab's alone.
-		for ( const t of getDevtoolsTabs( host ) ) {
+		for ( const t of getTabs( host ) ) {
 			if ( t.param && t.slug !== resolvedSlug ) {
 				setQueryParam( t.param, null );
 			}
@@ -133,21 +129,21 @@ export default function DevtoolsTabHost( {
 	/**
 	 * DOM id of one tab button, which its panel points back at.
 	 *
-	 * The id carries the host because the hub renders the floating overlay
+	 * The id carries the host because the station renders the floating overlay
 	 * beside its own tabs, putting both surfaces on one page.
 	 *
-	 * @param {import('./tabRegistry').DevtoolsTab} t The tab descriptor.
+	 * @param {import('./tabRegistry').TabDescriptor} t The tab descriptor.
 	 * @return {string} The button's DOM id.
 	 */
-	const tabDomId = ( t ) => `nodes-devtools-tab-${ host }-${ t.id }`;
-	const panelDomId = `nodes-devtools-panel-${ host }`;
+	const tabDomId = ( t ) => `nodes-tab-host-tab-${ host }-${ t.id }`;
+	const panelDomId = `nodes-tab-host-panel-${ host }`;
 	const hasBar = tabs.length > 1;
 
 	/**
 	 * Select a tab, and retire the deep link so it never overrides the choice.
 	 *
 	 * The host hears about the switch from here as well as from the effect
-	 * above, because chrome keyed on the active tab — the hub's overlay, whose
+	 * above, because chrome keyed on the active tab — the station's overlay, whose
 	 * storage key and REPL flag are both per-tab — has to re-render in the same
 	 * commit the new tab mounts, not one commit later.
 	 *
@@ -189,7 +185,7 @@ export default function DevtoolsTabHost( {
 		<>
 			{ hasBar && (
 				<div
-					className="nodes-devtools__tabbar"
+					className="nodes-tab-host__tabbar"
 					role="tablist"
 					aria-label={ __( 'Developer tools', 'newspack-nodes' ) }
 				>
@@ -202,7 +198,7 @@ export default function DevtoolsTabHost( {
 							aria-selected={ t.id === active.id }
 							aria-controls={ panelDomId }
 							tabIndex={ t.id === active.id ? 0 : -1 }
-							className={ `nodes-devtools__tab${
+							className={ `nodes-tab-host__tab${
 								t.id === active.id ? ' is-active' : ''
 							}` }
 							onClick={ () => pick( t.id ) }
@@ -218,7 +214,7 @@ export default function DevtoolsTabHost( {
 				id={ panelDomId }
 				role={ hasBar ? 'tabpanel' : undefined }
 				aria-labelledby={ hasBar ? tabDomId( active ) : undefined }
-				className={ `nodes-devtools__tab-content${
+				className={ `nodes-tab-host__tab-content${
 					active.fullBleed ? ' is-full-bleed' : ''
 				}` }
 			>

@@ -159,13 +159,13 @@ const RULES = [
 		id: 'name-lookup-in-option',
 		test: /\b(?:viewClass|viewType|nodeClass)\s*:\s*'([A-Z]\w*)'/,
 		skip: ( match ) => ! BUILTIN?.size || BUILTIN.has( match[ 1 ] ),
-		why: "naming a bundle-registered node class in a hook option: the class map is a per-bundle static, so a hub tab building its graph through another bundle's interpreter cannot resolve it — pass the class",
+		why: "naming a bundle-registered node class in a hook option: the class map is a per-bundle static, so a station tab building its graph through another bundle's interpreter cannot resolve it — pass the class",
 	},
 	{
 		id: 'name-lookup-in-hook',
 		test: /makeNode\(\s*'([A-Z]\w*)'/,
 		skip: ( match ) => ! BUILTIN?.size || BUILTIN.has( match[ 1 ] ),
-		why: "resolving a bundle-registered node class by NAME: the class map is a per-bundle static, so a hub tab building its graph through another bundle's interpreter cannot resolve it — hand makeNode the class",
+		why: "resolving a bundle-registered node class by NAME: the class map is a per-bundle static, so a station tab building its graph through another bundle's interpreter cannot resolve it — hand makeNode the class",
 	},
 ];
 

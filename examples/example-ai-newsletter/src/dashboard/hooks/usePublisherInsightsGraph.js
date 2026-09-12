@@ -71,7 +71,7 @@ const TARGET = `_shell/_http/${ SERVER }`;
  *
  * `viewClass` carries the CLASS, never its registered name. The name table is a
  * per-bundle static (ADR-16), so a name resolves only through an interpreter
- * this bundle mounted, and a hub tab building the graph through another
+ * this bundle mounted, and a station tab building the graph through another
  * bundle's interpreter would find nothing. `../nodes/register` still runs, for
  * the TSL and console-palette lookups that have no class to hand.
  */

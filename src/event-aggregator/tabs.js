@@ -1,11 +1,11 @@
 /**
- * Register the Aggregator hub DevTools tab (order 40) and this bundle's two
+ * Register the Aggregator station tab (order 40) and this bundle's two
  * slice-view node classes. The bundle entry imports this module for both side
  * effects.
  *
- * The descriptor is the shared `./tabMeta`, which the hub's lazy placeholder
+ * The descriptor is the shared `./tabMeta`, which the station's lazy placeholder
  * carries as well, so the tab-bar identity holds before the bundle loads. The
- * hub renders the page chrome and the DebugOverlay around whichever tab is
+ * station renders the page chrome and the DebugOverlay around whichever tab is
  * active, so the component registered here is AggregatorStatus itself rather
  * than a page wrapper.
  *
@@ -16,9 +16,9 @@
  * `makeNode` the exported class itself (ADR-16).
  */
 
-import { registerDevtoolsTab } from '@newspack-nodes/shared/devtools/tabRegistry';
+import { registerTab } from '@newspack-nodes/shared/tabs/tabRegistry';
 import tabMeta from './tabMeta';
 import AggregatorStatus from './AggregatorStatus';
 import './nodes/register';
 
-registerDevtoolsTab( { ...tabMeta, component: AggregatorStatus } );
+registerTab( { ...tabMeta, component: AggregatorStatus } );

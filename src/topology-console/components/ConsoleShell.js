@@ -37,7 +37,7 @@ import ReplFooter from './ReplFooter';
  * @param {Object}                      [props.replProps]         Props forwarded to ReplFooter.
  * @param {boolean}                     [props.showRepl]          Render the ReplFooter (default true). The console omits it in edit mode, where the draft is not a running graph and the grid drops the REPL row.
  * @param {string}                      [props.buildingClassName] Class for the not-ready placeholder. Each host names its own, because that class is what parks the div in the host's `canvas` grid area.
- * @param {boolean}                     [props.showHeader]        Render the Header (default true). Both hosts pass false: the devtools hub and the overlay panel each own one shared header above the tab bar, and the active tab portals its controls into it.
+ * @param {boolean}                     [props.showHeader]        Render the Header (default true). Both hosts pass false: the station and the overlay panel each own one shared header above the tab bar, and the active tab portals its controls into it.
  * @param {HeaderWrapper}               [props.wrapHeader]        Wraps the rendered Header. Identity by default.
  * @return {import('react').ReactElement} The shared canvas surface as a Fragment.
  */

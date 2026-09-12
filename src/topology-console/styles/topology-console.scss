@@ -8,18 +8,18 @@
  */
 
 // Hide WP admin gunk so we own the viewport — but ONLY when the console is
-// actually mounted in the HUB. The page slug `newspack-nodes-hub` is the
-// DevTools HUB page, where the console is just one tab among several (the
+// actually mounted in the STATION. The page slug `newspack-nodes-station` is the
+// station STATION page, where the console is just one tab among several (the
 // Topology Manager is a long scrollable list). Gating on the body class alone
 // leaked these page-level rules (notably `#wpfooter { display: none }` +
-// `#wpbody-content { padding-bottom: 0 }`) onto the hub page whenever the
+// `#wpbody-content { padding-bottom: 0 }`) onto the station page whenever the
 // console bundle was enqueued, breaking page scroll on the manager tab. The
 // floating debug OVERLAY also renders a `.topology-app` (its Inspector), so a
 // bare `body:has(.topology-app)` would trigger these rules on any dashboard
-// page the moment the overlay opens. Scope to `.nodes-devtools-hub` (the hub
-// wrapper) so they apply ONLY while the Console tab is active inside the hub,
+// page the moment the overlay opens. Scope to `.nodes-station` (the station
+// wrapper) so they apply ONLY while the Console tab is active inside the station,
 // never for the overlay.
-body:has(.nodes-devtools-hub .topology-app) {
+body:has(.nodes-station .topology-app) {
 	#wpcontent {
 		padding-left: 0;
 	}
@@ -138,7 +138,7 @@ body:has(.nodes-devtools-hub .topology-app) {
 	position: fixed;
 	top: 80px;
 	right: 95px;
-	// High z so it floats above the hub chrome it now overlaps as a fixed
+	// High z so it floats above the station chrome it now overlaps as a fixed
 	// dropdown (header, tab bar, canvas controls); still below the plain-DOM
 	// modal backdrop (z 100000).
 	z-index: 1000;

@@ -1,104 +1,104 @@
 import {
-	registerDevtoolsTab,
-	getDevtoolsTabs,
-	resetDevtoolsTabs,
-	subscribeDevtoolsTabs,
-	getDevtoolsTabsVersion,
+	registerTab,
+	getTabs,
+	resetTabs,
+	subscribeTabs,
+	getTabsVersion,
 } from '../tabRegistry';
 
-describe( 'devtools tab registry', () => {
-	beforeEach( resetDevtoolsTabs );
+describe( 'tab registry', () => {
+	beforeEach( resetTabs );
 
 	const Comp = () => null;
 
 	describe( 'subscription (so a host re-renders when a late bundle registers)', () => {
 		it( 'notifies subscribers on register, and stops after unsubscribe', () => {
 			const listener = jest.fn();
-			const unsubscribe = subscribeDevtoolsTabs( listener );
-			registerDevtoolsTab( {
+			const unsubscribe = subscribeTabs( listener );
+			registerTab( {
 				id: 'x',
 				label: 'X',
-				host: 'hub',
+				host: 'station',
 				component: Comp,
 			} );
 			expect( listener ).toHaveBeenCalledTimes( 1 );
 			unsubscribe();
-			registerDevtoolsTab( {
+			registerTab( {
 				id: 'y',
 				label: 'Y',
-				host: 'hub',
+				host: 'station',
 				component: Comp,
 			} );
 			expect( listener ).toHaveBeenCalledTimes( 1 );
 		} );
 
 		it( 'changes the version snapshot on register and reset', () => {
-			const v0 = getDevtoolsTabsVersion();
-			registerDevtoolsTab( {
+			const v0 = getTabsVersion();
+			registerTab( {
 				id: 'x',
 				label: 'X',
-				host: 'hub',
+				host: 'station',
 				component: Comp,
 			} );
-			const v1 = getDevtoolsTabsVersion();
+			const v1 = getTabsVersion();
 			expect( v1 ).not.toBe( v0 );
-			resetDevtoolsTabs();
-			expect( getDevtoolsTabsVersion() ).not.toBe( v1 );
+			resetTabs();
+			expect( getTabsVersion() ).not.toBe( v1 );
 		} );
 	} );
 
 	it( 'returns tabs whose host matches, plus both', () => {
-		registerDevtoolsTab( {
+		registerTab( {
 			id: 'a',
 			label: 'A',
 			host: 'overlay',
 			component: Comp,
 		} );
-		registerDevtoolsTab( {
+		registerTab( {
 			id: 'b',
 			label: 'B',
-			host: 'hub',
+			host: 'station',
 			component: Comp,
 		} );
-		registerDevtoolsTab( {
+		registerTab( {
 			id: 'c',
 			label: 'C',
 			host: 'both',
 			component: Comp,
 		} );
-		expect( getDevtoolsTabs( 'overlay' ).map( ( t ) => t.id ) ).toEqual( [
+		expect( getTabs( 'overlay' ).map( ( t ) => t.id ) ).toEqual( [
 			'a',
 			'c',
 		] );
-		expect( getDevtoolsTabs( 'hub' ).map( ( t ) => t.id ) ).toEqual( [
+		expect( getTabs( 'station' ).map( ( t ) => t.id ) ).toEqual( [
 			'b',
 			'c',
 		] );
 	} );
 
 	it( 'sorts by order then label', () => {
-		registerDevtoolsTab( {
+		registerTab( {
 			id: 'z',
 			label: 'Zed',
-			host: 'hub',
+			host: 'station',
 			order: 1,
 			component: Comp,
 		} );
-		registerDevtoolsTab( {
+		registerTab( {
 			id: 'm',
 			label: 'Mid',
-			host: 'hub',
+			host: 'station',
 			order: 1,
 			component: Comp,
 		} );
-		registerDevtoolsTab( {
+		registerTab( {
 			id: 'a',
 			label: 'Ack',
-			host: 'hub',
+			host: 'station',
 			order: 0,
 			component: Comp,
 		} );
-		expect( getDevtoolsTabs( 'hub' ).map( ( t ) => t.id ) ).toEqual( [
+		expect( getTabs( 'station' ).map( ( t ) => t.id ) ).toEqual( [
 			'a',
 			'm',
 			'z',
@@ -106,89 +106,87 @@ describe( 'devtools tab registry', () => {
 	} );
 
 	it( 're-registering an id shadows the prior descriptor', () => {
-		registerDevtoolsTab( {
+		registerTab( {
 			id: 'a',
 			label: 'Old',
-			host: 'hub',
+			host: 'station',
 			component: Comp,
 		} );
-		registerDevtoolsTab( {
+		registerTab( {
 			id: 'a',
 			label: 'New',
-			host: 'hub',
+			host: 'station',
 			component: Comp,
 		} );
-		const list = getDevtoolsTabs( 'hub' );
+		const list = getTabs( 'station' );
 		expect( list ).toHaveLength( 1 );
 		expect( list[ 0 ].label ).toBe( 'New' );
 	} );
 
 	it( 'excludes a tab whose gate returns false', () => {
-		registerDevtoolsTab( {
+		registerTab( {
 			id: 'a',
 			label: 'A',
-			host: 'hub',
+			host: 'station',
 			component: Comp,
 			gate: () => false,
 		} );
-		registerDevtoolsTab( {
+		registerTab( {
 			id: 'b',
 			label: 'B',
-			host: 'hub',
+			host: 'station',
 			component: Comp,
 			gate: () => true,
 		} );
-		expect( getDevtoolsTabs( 'hub' ).map( ( t ) => t.id ) ).toEqual( [
-			'b',
-		] );
+		expect( getTabs( 'station' ).map( ( t ) => t.id ) ).toEqual( [ 'b' ] );
 	} );
 
 	it( 'normalizes a non-finite order to 0', () => {
 		// Non-finite order must coerce to 0 and sort 'z' before 'a' (order 1).
-		registerDevtoolsTab( {
+		registerTab( {
 			id: 'z',
 			label: 'Zzz',
-			host: 'hub',
+			host: 'station',
 			order: 'high',
 			component: Comp,
 		} );
-		registerDevtoolsTab( {
+		registerTab( {
 			id: 'a',
 			label: 'Aaa',
-			host: 'hub',
+			host: 'station',
 			order: 1,
 			component: Comp,
 		} );
-		expect( getDevtoolsTabs( 'hub' ).map( ( t ) => t.id ) ).toEqual( [
+		expect( getTabs( 'station' ).map( ( t ) => t.id ) ).toEqual( [
 			'z',
 			'a',
 		] );
 	} );
 
 	it( 'defaults slug to the tab id when none is given', () => {
-		registerDevtoolsTab( {
+		registerTab( {
 			id: 'topology-console',
 			label: 'Console',
-			host: 'hub',
+			host: 'station',
 			component: Comp,
 		} );
-		expect( getDevtoolsTabs( 'hub' )[ 0 ].slug ).toBe( 'topology-console' );
+		expect( getTabs( 'station' )[ 0 ].slug ).toBe( 'topology-console' );
 	} );
 
 	it( 'preserves an explicit slug', () => {
-		registerDevtoolsTab( {
+		registerTab( {
 			id: 'topology-console',
 			label: 'Console',
-			host: 'hub',
+			host: 'station',
 			slug: 'console',
 			component: Comp,
 		} );
-		expect( getDevtoolsTabs( 'hub' )[ 0 ].slug ).toBe( 'console' );
+		expect( getTabs( 'station' )[ 0 ].slug ).toBe( 'console' );
 	} );
 
 	it( 'throws on a bad host', () => {
 		expect( () =>
-			registerDevtoolsTab( {
+			registerTab( {
 				id: 'a',
 				label: 'A',
 				host: 'nope',
@@ -199,21 +197,21 @@ describe( 'devtools tab registry', () => {
 
 	it( 'throws when a required field is missing', () => {
 		expect( () =>
-			registerDevtoolsTab( { id: 'a', host: 'hub', component: Comp } )
+			registerTab( { id: 'a', host: 'station', component: Comp } )
 		).toThrow();
 	} );
 
 	it( 'shares the registry across separately-loaded module instances', () => {
 		// resetModules() simulates a second inlined copy; the store is global.
-		registerDevtoolsTab( {
+		registerTab( {
 			id: 'cross',
 			label: 'Cross',
-			host: 'hub',
+			host: 'station',
 			component: Comp,
 		} );
 		jest.resetModules();
 		const fresh = require( '../tabRegistry' );
-		expect( fresh.getDevtoolsTabs( 'hub' ).map( ( t ) => t.id ) ).toEqual( [
+		expect( fresh.getTabs( 'station' ).map( ( t ) => t.id ) ).toEqual( [
 			'cross',
 		] );
 	} );

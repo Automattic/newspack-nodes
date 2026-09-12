@@ -18,9 +18,9 @@ jest.mock( '../useDebugRepl', () => ( {
 } ) );
 
 import {
-	registerDevtoolsTab,
-	resetDevtoolsTabs,
-} from '@newspack-nodes/shared/devtools/tabRegistry';
+	registerTab,
+	resetTabs,
+} from '@newspack-nodes/shared/tabs/tabRegistry';
 import InspectorTab from '../tabs/InspectorTab';
 import DebugOverlay from '../DebugOverlay';
 
@@ -30,8 +30,8 @@ describe( 'DebugOverlay composite readiness', () => {
 		window.localStorage.clear();
 		mockReplReady = true;
 		// Register ONLY the Inspector tab so the panel skips Overview.
-		resetDevtoolsTabs();
-		registerDevtoolsTab( {
+		resetTabs();
+		registerTab( {
 			id: 'inspector',
 			label: 'Inspector',
 			host: 'overlay',

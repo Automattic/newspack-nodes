@@ -1,9 +1,9 @@
 import { render, fireEvent } from '@testing-library/react';
 import { Core } from '../../runtime/core';
 import {
-	registerDevtoolsTab,
-	resetDevtoolsTabs,
-} from '@newspack-nodes/shared/devtools/tabRegistry';
+	registerTab,
+	resetTabs,
+} from '@newspack-nodes/shared/tabs/tabRegistry';
 import DebugPanel from '../DebugPanel';
 
 // A trivial overlay tab so the panel has something to mount.
@@ -12,8 +12,8 @@ const StubTab = () => <div data-testid="stub-tab" />;
 beforeEach( () => {
 	Core.reset();
 	window.localStorage.clear();
-	resetDevtoolsTabs();
-	registerDevtoolsTab( {
+	resetTabs();
+	registerTab( {
 		id: 'stub',
 		label: 'Stub',
 		host: 'overlay',
@@ -30,7 +30,7 @@ test( 'renders ONE shared header above the tab content, with the close button', 
 	const headers = container.querySelectorAll( '.topology-header' );
 	expect( headers ).toHaveLength( 1 );
 	const header = getByTestId( 'overlay-header' );
-	const content = container.querySelector( '.nodes-devtools__tab-content' );
+	const content = container.querySelector( '.nodes-tab-host__tab-content' );
 	expect(
 		header.compareDocumentPosition( content ) &
 			window.Node.DOCUMENT_POSITION_FOLLOWING

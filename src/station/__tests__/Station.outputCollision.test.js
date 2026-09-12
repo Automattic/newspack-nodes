@@ -5,7 +5,7 @@
  *
  * The overlay registers `_output` (DumperNode) during render (useDebugRepl's
  * build-before-render); the Console-style tab registers `_output` in a mount
- * useEffect. The hub gates the overlay off the Console tab via `activeTabId`,
+ * useEffect. The station gates the overlay off the Console tab via `activeTabId`,
  * but that id was set from a useEffect — one commit LATE. So on switch the
  * Console mounts (and tries to register `_output`) while the overlay is still
  * rendered (still holds `_output`) → collision → white screen.
@@ -22,18 +22,18 @@
  */
 import { useEffect } from '@wordpress/element';
 import { render, fireEvent } from '@testing-library/react';
-import DevToolsHub from '../DevToolsHub';
+import Station from '../Station';
 import { Core } from '../../runtime/core';
 import { DumperNode } from '../../runtime/dumper-node';
 import names from '../../runtime/reserved-node-names.json';
 import InspectorTab from '../../debug-overlay/tabs/InspectorTab';
 import { useClassCatalog } from '../../topology-console/hooks/useCatalogs';
 import {
-	registerDevtoolsTab,
-	resetDevtoolsTabs,
-} from '@newspack-nodes/shared/devtools/tabRegistry';
+	registerTab,
+	resetTabs,
+} from '@newspack-nodes/shared/tabs/tabRegistry';
 
-// The hub Console's own class catalog, under the names the palette uses.
+// The station Console's own class catalog, under the names the palette uses.
 function CatalogTab() {
 	useClassCatalog( { enabled: true } );
 	return <div data-testid="catalog" />;
@@ -49,16 +49,16 @@ function ConsoleishTab() {
 	return <div data-testid="consoleish" />;
 }
 
-describe( 'DevToolsHub _output collision on switch-to-Console', () => {
+describe( 'Station _output collision on switch-to-Console', () => {
 	beforeEach( () => {
-		resetDevtoolsTabs();
+		resetTabs();
 		Core.reset();
 		window.localStorage.clear();
 		window.history.replaceState( {}, '', '/' );
 		// Sticky flag → isDebugEnabled true → the overlay mounts.
 		window.localStorage.setItem( 'newspack-nodes:debug', '1' );
 		// Re-register the Inspector tab (reset wiped it) → real `_output`.
-		registerDevtoolsTab( {
+		registerTab( {
 			id: 'inspector',
 			label: 'Inspector',
 			host: 'overlay',
@@ -70,44 +70,44 @@ describe( 'DevToolsHub _output collision on switch-to-Console', () => {
 
 	const registerTabs = () => {
 		// Non-console first tab (overlay is allowed here).
-		registerDevtoolsTab( {
+		registerTab( {
 			id: 'topology-manager',
 			label: 'Topologies',
-			host: 'hub',
+			host: 'station',
 			order: 0,
 			component: () => <div data-testid="manager" />,
 		} );
 		// Console tab: overlay gated OFF; registers `_output` on mount.
-		registerDevtoolsTab( {
+		registerTab( {
 			id: 'topology-console',
 			label: 'Console',
-			host: 'hub',
+			host: 'station',
 			order: 10,
 			component: ConsoleishTab,
 		} );
 	};
 
-	// @longform The same collision from the other side: the hub's Console tab
+	// @longform The same collision from the other side: the station's Console tab
 	// holds the class catalog, and opening the OVERLAY's Console tab on top of
 	// it mounts a second copy of the same graph. Its catalog is disabled there
 	// — the page's own Console owns the graph and REPL — and a disabled slice
 	// that still builds its nodes claims names the enabled one is using.
-	it( 'does not throw when the overlay Console opens over the hub Console', () => {
-		registerDevtoolsTab( {
+	it( 'does not throw when the overlay Console opens over the station Console', () => {
+		registerTab( {
 			id: 'topology-manager',
 			label: 'Topologies',
-			host: 'hub',
+			host: 'station',
 			order: 0,
 			component: () => <div data-testid="manager" />,
 		} );
-		registerDevtoolsTab( {
+		registerTab( {
 			id: 'topology-console',
 			label: 'Console',
-			host: 'hub',
+			host: 'station',
 			order: 10,
 			component: CatalogTab,
 		} );
-		registerDevtoolsTab( {
+		registerTab( {
 			id: 'console',
 			label: 'Console',
 			host: 'overlay',
@@ -115,7 +115,7 @@ describe( 'DevToolsHub _output collision on switch-to-Console', () => {
 			fullBleed: true,
 			component: InspectorTab,
 		} );
-		const { getByRole, getAllByRole } = render( <DevToolsHub /> );
+		const { getByRole, getAllByRole } = render( <Station /> );
 
 		fireEvent.click( getAllByRole( 'tab', { name: 'Console' } )[ 0 ] );
 		fireEvent.click( getByRole( 'button', { name: /node debugger/i } ) );
@@ -126,7 +126,7 @@ describe( 'DevToolsHub _output collision on switch-to-Console', () => {
 
 	it( 'does not throw a node-name collision when switching to Console with the overlay open', () => {
 		registerTabs();
-		const { getByRole } = render( <DevToolsHub /> );
+		const { getByRole } = render( <Station /> );
 
 		// Open overlay on the non-console tab → useDebugRepl regs `_output`.
 		fireEvent.click( getByRole( 'button', { name: /node debugger/i } ) );

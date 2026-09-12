@@ -1,7 +1,7 @@
 <?php
 /**
- * DevtoolsOverlayPagesTest: the `devtools_overlay_pages` registry collects admin
- * page slugs (besides the hub) that mount the debug overlay, so overlay-tab
+ * OverlayPagesTest: the `overlay_pages` registry collects admin
+ * page slugs (besides the station) that mount the debug overlay, so overlay-tab
  * bundles can enqueue their tab on any plugin's overlay page.
  */
 
@@ -16,9 +16,9 @@ namespace Newspack_Nodes\Tests\Unit\Admin {
 	use PHPUnit\Framework\Attributes\CoversClass;
 
 	#[CoversClass( Admin::class )]
-	class DevtoolsOverlayPagesTest extends TestCase {
+	class OverlayPagesTest extends TestCase {
 
-		private const HOOK = 'newspack_nodes/devtools_overlay_pages';
+		private const HOOK = 'newspack_nodes/overlay_pages';
 
 		protected function tearDown(): void {
 			unset( $GLOBALS['_wp_actions'][ self::HOOK ] );
@@ -30,11 +30,11 @@ namespace Newspack_Nodes\Tests\Unit\Admin {
 				self::HOOK,
 				static fn ( array $pages ): array => \array_merge( $pages, [ 'my-overlay-page' ] )
 			);
-			$this->assertSame( [ 'my-overlay-page' ], Admin::devtools_overlay_pages() );
+			$this->assertSame( [ 'my-overlay-page' ], Admin::overlay_pages() );
 		}
 
 		public function test_returns_empty_with_no_registrants(): void {
-			$this->assertSame( [], Admin::devtools_overlay_pages() );
+			$this->assertSame( [], Admin::overlay_pages() );
 		}
 
 		public function test_filters_out_non_strings(): void {
@@ -42,7 +42,7 @@ namespace Newspack_Nodes\Tests\Unit\Admin {
 				self::HOOK,
 				static fn ( array $pages ): array => \array_merge( $pages, [ 'ok-page', 42, [ 'arr' ], null ] )
 			);
-			$this->assertSame( [ 'ok-page' ], Admin::devtools_overlay_pages() );
+			$this->assertSame( [ 'ok-page' ], Admin::overlay_pages() );
 		}
 
 		public function test_collapses_duplicate_slugs(): void {
@@ -54,7 +54,7 @@ namespace Newspack_Nodes\Tests\Unit\Admin {
 				self::HOOK,
 				static fn ( array $pages ): array => \array_merge( $pages, [ 'dup' ] )
 			);
-			$this->assertSame( [ 'dup' ], Admin::devtools_overlay_pages() );
+			$this->assertSame( [ 'dup' ], Admin::overlay_pages() );
 		}
 	}
 }

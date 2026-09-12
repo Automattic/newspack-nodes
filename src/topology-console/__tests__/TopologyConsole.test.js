@@ -5437,7 +5437,7 @@ describe( 'initialTopologyFromUrl (deep-link validation)', () => {
 		window.history.replaceState( {}, '', '/' );
 	} );
 
-	it( 'honors a deep link from the module-load SEED even when a sibling hub bundle later clobbers window.NewspackNodesData', () => {
+	it( 'honors a deep link from the module-load SEED even when a sibling station bundle later clobbers window.NewspackNodesData', () => {
 		jest.isolateModules( () => {
 			// Seed BEFORE import so SEED_WORKERS captures it (as in prod).
 			window.NewspackNodesData = {

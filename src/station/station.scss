@@ -1,14 +1,14 @@
 /**
- * Full-page DevTools hub layout. The container is a fixed, full-height flex
+ * Full-page station layout. The container is a fixed, full-height flex
  * column (the ONE shared brand header on top, then the tab bar, then
- * `.nodes-devtools__tab-content` filling the rest — scrollable for list tabs,
+ * `.nodes-tab-host__tab-content` filling the rest — scrollable for list tabs,
  * full-bleed for the console). A full-screen tab — the Topology Console's
  * `.topology-app` — hardcodes `height: calc(100vh - 32px)` for its standalone
- * mount; inside the hub the header + tab bar sit above it, so we override it to
+ * mount; inside the station the header + tab bar sit above it, so we override it to
  * fill the remaining flex space instead of overflowing.
  */
 
-.nodes-devtools-hub {
+.nodes-station {
 	// The ONE shared brand header on top — give it the console's row height so it
 	// breathes, with the same soft theme-token divider as the tab bar below it.
 	.topology-header {
@@ -22,7 +22,7 @@
 	}
 }
 
-.newspack-nodes-empty-state.nodes-devtools__empty {
+.newspack-nodes-empty-state.nodes-station__empty {
 	padding: 0;
 
 	&::before {
@@ -30,7 +30,7 @@
 	}
 }
 
-.newspack-nodes-performance-loading.nodes-devtools__lazy-loading {
+.newspack-nodes-performance-loading.nodes-station__lazy-loading {
 	display: block;
 	min-height: 0;
 	padding: 24px;
