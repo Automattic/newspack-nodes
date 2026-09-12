@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.56.0] - 2026-09-11
+
 ### Changed
 
 - **The DevTools hub is the station, and the DevTools tab system is the tab system.** A hub is the site that pulls the spokes' logs, so the wp-admin page under the "Nodes" menu could not share the word, and "devtools" named the browser's own panel. The page is `src/station/` and its slug `newspack-nodes-station`; the registry and host are `@newspack-nodes/shared/tabs/tabRegistry` (`registerTab`, `getTabs`, `getTabsVersion`, `subscribeTabs`, `resetTabs`) and `@newspack-nodes/shared/tabs/TabHost`; a descriptor's host is `overlay`, `station` or `both`; the filters are `newspack_nodes/station_tab_bundles` and `newspack_nodes/overlay_pages`; the window singleton is `window.__newspackNodesTabs`; the classes are `nodes-station` and `nodes-tab-host__*`; the browser keys are `newspack-nodes:debug:station:<tab>` and `newspack-nodes:station-transcript`. No old name is aliased; `docs/upgrading.md` lists each.
