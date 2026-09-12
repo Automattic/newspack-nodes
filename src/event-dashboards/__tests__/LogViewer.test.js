@@ -390,7 +390,7 @@ describe( 'LogViewer', () => {
 		expect( selectSource ).not.toHaveBeenCalled();
 	} );
 
-	it( 'portals the controls into the hub header slot when given one', () => {
+	it( 'portals the controls into the station header slot when given one', () => {
 		registerViewFixture( { selected: 'php' } );
 		const slot = document.createElement( 'div' );
 		document.body.appendChild( slot );

@@ -64,8 +64,8 @@ import { scopeFromCwd } from '../utils/scope';
 import { makeSkinHost } from '../core/skinCommands';
 import { THEMES, getStoredTheme, applySkin } from '../themes';
 import {
-	loadHubTranscript,
-	saveHubTranscript,
+	loadStationTranscript,
+	saveStationTranscript,
 } from '../core/consolePersistence';
 import usePageVisibility from '@newspack-nodes/shared/hooks/usePageVisibility';
 import names from '../../runtime/reserved-node-names.json';
@@ -174,10 +174,10 @@ export function useConsoleGraph( {
 		// Persist on every change; restore what the last session left.
 		const transcriptListenerId = 'useConsoleGraph/transcript';
 		dumper.register( 'transcript', transcriptListenerId, ( next ) => {
-			saveHubTranscript( next || EMPTY_TRANSCRIPT );
+			saveStationTranscript( next || EMPTY_TRANSCRIPT );
 			return true;
 		} );
-		dumper.restore( loadHubTranscript() );
+		dumper.restore( loadStationTranscript() );
 		// Builtin output bypasses `_output`; `_stdout` makes it lines.
 		const stdout = new StdoutNode( {
 			write: ( text ) => dumper.appendText( text ),

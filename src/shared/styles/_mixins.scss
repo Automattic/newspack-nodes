@@ -89,7 +89,7 @@
 
 /**
  * Re-skin the color properties of a WP-core `.widefat .striped` table so it
- * follows the hub's decorative themes. WP-core hardcodes a light surface that
+ * follows the station's decorative themes. WP-core hardcodes a light surface that
  * ignores the universal --paper/--ink tokens; each fallback is the exact
  * WP-core light value it shadows so the STANDALONE dashboard (tokens undefined)
  * stays byte-identical — body `td` text is #50575e, header `th` text #2c3338.

@@ -417,7 +417,7 @@ function IssuedKeyPanel( { session, onClose } ) {
  * under the subject it was sent as, and a create's subject is its label.
  *
  * @param {Object}  props
- * @param {Element} [props.headerControlsSlot] Hub header slot to portal the controls into.
+ * @param {Element} [props.headerControlsSlot] Station header slot to portal the controls into.
  * @return {import('react').ReactElement} The rendered admin app.
  */
 export default function SessionsAdmin( { headerControlsSlot } ) {

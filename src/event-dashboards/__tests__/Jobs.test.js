@@ -1,6 +1,6 @@
 /* global globalThis */
 /**
- * Jobs — the hub's per-handler job-outcome board over the durable jobstats.p0 log.
+ * Jobs — the station's per-handler job-outcome board over the durable jobstats.p0 log.
  * useJobstatsStream (link) is stubbed; the view model is fed via useNodeState.
  * TopicsChart (d3) is stubbed to capture the rate panels each metric is fed.
  */

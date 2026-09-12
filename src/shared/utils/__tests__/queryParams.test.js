@@ -24,7 +24,7 @@ describe( 'queryParams', () => {
 			window.history.replaceState(
 				{},
 				'',
-				'/?page=hub&tab=raw-logs&log=firehose'
+				'/?page=station&tab=raw-logs&log=firehose'
 			);
 			expect( getQueryParam( 'log' ) ).toBe( 'firehose' );
 		} );
@@ -32,9 +32,9 @@ describe( 'queryParams', () => {
 
 	describe( 'setQueryParam', () => {
 		it( 'sets a new param without touching the rest', () => {
-			window.history.replaceState( {}, '', '/?page=hub' );
+			window.history.replaceState( {}, '', '/?page=station' );
 			setQueryParam( 'tab', 'console' );
-			expect( getQueryParam( 'page' ) ).toBe( 'hub' );
+			expect( getQueryParam( 'page' ) ).toBe( 'station' );
 			expect( getQueryParam( 'tab' ) ).toBe( 'console' );
 		} );
 
@@ -61,7 +61,7 @@ describe( 'queryParams', () => {
 		it( 'uses history.replaceState (not pushState)', () => {
 			const replaceSpy = jest.spyOn( window.history, 'replaceState' );
 			const pushSpy = jest.spyOn( window.history, 'pushState' );
-			window.history.replaceState( {}, '', '/?page=hub' );
+			window.history.replaceState( {}, '', '/?page=station' );
 			replaceSpy.mockClear();
 			setQueryParam( 'tab', 'console' );
 			expect( replaceSpy ).toHaveBeenCalled();

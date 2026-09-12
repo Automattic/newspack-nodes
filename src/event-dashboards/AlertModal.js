@@ -14,9 +14,9 @@
  * message the operator has to read before carrying on.
  *
  * Paint belongs to the canonical `.newspack-nodes-modal` role, so this dialog
- * matches every other modal in the hub and the `nodes-tm__alert*` classes carry
+ * matches every other modal in the station and the `nodes-tm__alert*` classes carry
  * geometry alone. It renders in place instead of portaling to `document.body`,
- * because that role is scoped under the hub root's `.newspack-nodes-ui` and
+ * because that role is scoped under the station root's `.newspack-nodes-ui` and
  * draws its tokens from the `.newspack-nodes-theme` provider there; the fixed
  * backdrop covers the viewport from inside that tree. Repeating the theme class
  * here would declare a second provider.

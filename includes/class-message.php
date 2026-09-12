@@ -196,7 +196,8 @@ class Message {
 	 * bounded excerpt, because the two want different fixes.
 	 *
 	 * Throwing is the deliberate divergence from the JS port, which returns a
-	 * fresh message instead. Callers reading off disk catch it and quarantine
+	 * fresh message for bad JSON or a short list and keeps the first seven
+	 * fields of a longer one. Callers reading off disk catch it and quarantine
 	 * the line to the `:deadletter` sibling rather than abandoning the read.
 	 *
 	 * @param string $data One packed frame, without its trailing newline.

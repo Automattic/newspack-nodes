@@ -88,7 +88,7 @@ const renderRawRow = ( row ) => (
  * becomes React state.
  *
  * @param {Object}  props                      Props.
- * @param {Element} [props.headerControlsSlot] Hub shared-header slot to portal the controls into.
+ * @param {Element} [props.headerControlsSlot] Station shared-header slot to portal the controls into.
  * @return {import('react').ReactElement} Rendered component.
  */
 export default function LogViewer( { headerControlsSlot } ) {

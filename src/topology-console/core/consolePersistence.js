@@ -184,7 +184,7 @@ export function saveTranscript( entries ) {
  * @return {Object[]} Stamped transcript entries, oldest first; empty when
  *                    nothing is stored or the stored value is corrupt.
  */
-export function loadHubTranscript() {
+export function loadStationTranscript() {
 	return readArray( STATION_TRANSCRIPT_KEY );
 }
 
@@ -194,7 +194,7 @@ export function loadHubTranscript() {
  *
  * @param {Object[]} entries Stamped transcript entries, oldest first.
  */
-export function saveHubTranscript( entries ) {
+export function saveStationTranscript( entries ) {
 	saveTranscriptTo( STATION_TRANSCRIPT_KEY, entries );
 }
 

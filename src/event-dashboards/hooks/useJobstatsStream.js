@@ -21,7 +21,7 @@ import { views } from '../nodes/register';
  * connection itself opens only while the tab is visible.
  *
  * The view arrives as a CLASS from `register.js` rather than as the name
- * `JobstatsView`: the hub mounts this tab against whichever bundle's
+ * `JobstatsView`: the station mounts this tab against whichever bundle's
  * interpreter it was handed, and that name table is a per-bundle static
  * (ADR-16).
  *

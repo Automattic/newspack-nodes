@@ -19,24 +19,24 @@ test( 'importing tabs registers the overview tab first (order 0) on the station 
 	const { getTabs, resetTabs } = require( '../../shared/tabs/tabRegistry' );
 	resetTabs();
 	require( '../tabs' );
-	const hubTabs = getTabs( 'station' );
-	const tab = hubTabs.find( ( t ) => t.id === 'overview' );
+	const stationTabs = getTabs( 'station' );
+	const tab = stationTabs.find( ( t ) => t.id === 'overview' );
 	expect( tab ).toBeTruthy();
 	expect( tab.host ).toBe( 'station' );
 	expect( tab.order ).toBe( 0 );
 	expect( tab.label ).toBe( __( 'Overview', 'newspack-nodes' ) );
 	expect( typeof tab.component ).toBe( 'function' );
 	// Order 0 → it sorts ahead of the other event-dashboards tabs.
-	expect( hubTabs[ 0 ].id ).toBe( 'overview' );
+	expect( stationTabs[ 0 ].id ).toBe( 'overview' );
 } );
 
 test( 'importing tabs no longer registers a separate topology-manager tab (merged into Overview)', () => {
 	const { getTabs, resetTabs } = require( '../../shared/tabs/tabRegistry' );
 	resetTabs();
 	require( '../tabs' );
-	const hubTabs = getTabs( 'station' );
+	const stationTabs = getTabs( 'station' );
 	expect(
-		hubTabs.find( ( t ) => t.id === 'topology-manager' )
+		stationTabs.find( ( t ) => t.id === 'topology-manager' )
 	).toBeUndefined();
 } );
 
@@ -45,8 +45,8 @@ test( 'importing tabs registers the Jobs tab on the station host between Overvie
 	jest.resetModules();
 	require( '../tabs' );
 	const { getTabs } = require( '../../shared/tabs/tabRegistry' );
-	const hubTabs = getTabs( 'station' );
-	const tab = hubTabs.find( ( t ) => t.id === 'jobs' );
+	const stationTabs = getTabs( 'station' );
+	const tab = stationTabs.find( ( t ) => t.id === 'jobs' );
 	expect( tab ).toBeTruthy();
 	expect( tab.host ).toBe( 'station' );
 	expect( tab.slug ).toBe( 'jobs' );
@@ -61,8 +61,8 @@ test( 'importing tabs registers the partition-viewer tab on the station host at 
 	jest.resetModules();
 	require( '../tabs' );
 	const { getTabs } = require( '../../shared/tabs/tabRegistry' );
-	const hubTabs = getTabs( 'station' );
-	const tab = hubTabs.find( ( t ) => t.id === 'partition-viewer' );
+	const stationTabs = getTabs( 'station' );
+	const tab = stationTabs.find( ( t ) => t.id === 'partition-viewer' );
 	expect( tab ).toBeTruthy();
 	expect( tab.host ).toBe( 'station' );
 	expect( tab.order ).toBe( 20 );

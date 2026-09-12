@@ -165,7 +165,7 @@ describe( 'ModalShell', () => {
 	} );
 
 	it( 'ignores an overlay panel the dialog does not render inside', () => {
-		// The hub mounts the floating overlay beside every tab, so a Console
+		// The station mounts the floating overlay beside every tab, so a Console
 		// tab dialog must not follow a panel that merely happens to be open.
 		overlayPanel( { width: 900, height: 620 } );
 		renderShell();

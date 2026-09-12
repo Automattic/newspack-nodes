@@ -465,7 +465,7 @@ function ServerModal( { server, onSave, answer, busy, onClose } ) {
  * answer. Everything else comes from `useVaultGraph`.
  *
  * @param {Object}   props                      Component props.
- * @param {?Element} [props.headerControlsSlot] Hub shared-header slot to portal the Add control into; null withholds it while the host's slot mounts, undefined renders it inline.
+ * @param {?Element} [props.headerControlsSlot] Station shared-header slot to portal the Add control into; null withholds it while the host's slot mounts, undefined renders it inline.
  * @return {import('react').ReactElement} The rendered admin app.
  */
 export default function VaultAdmin( { headerControlsSlot } ) {
@@ -513,7 +513,7 @@ export default function VaultAdmin( { headerControlsSlot } ) {
 		updateServer( editing.id, fields );
 	};
 
-	// The Add trigger, which the hub header takes when it offers a slot.
+	// The Add trigger, which the station header takes when it offers a slot.
 	const controls = (
 		<button
 			type="button"

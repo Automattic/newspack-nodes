@@ -9,7 +9,7 @@
 
 // Hide WP admin gunk so we own the viewport — but ONLY when the console is
 // actually mounted in the STATION. The page slug `newspack-nodes-station` is the
-// station STATION page, where the console is just one tab among several (the
+// station page, where the console is just one tab among several (the
 // Topology Manager is a long scrollable list). Gating on the body class alone
 // leaked these page-level rules (notably `#wpfooter { display: none }` +
 // `#wpbody-content { padding-bottom: 0 }`) onto the station page whenever the
