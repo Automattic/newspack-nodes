@@ -1,0 +1,75 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+h2 { font-size:15px; margin:0 0 8px; }
+.flow { display:grid; grid-template-columns: 28px 1fr 1.15fr; gap:7px 10px; align-items:stretch; }
+.flow .n { width:24px; height:24px; border-radius:12px; background:#003DA5; color:#fff; font-size:12px; font-weight:700; text-align:center; line-height:24px; margin-top:7px; }
+.flow .st { background:#fff; border:1px solid #C3D3EC; border-radius:7px; padding:8px 12px; font-size:12.5px; line-height:1.5; }
+.flow .st b { color:#003DA5; }
+.flow .out { display:flex; flex-direction:column; gap:5px; }
+.o { border-radius:6px; padding:6px 10px; font-size:12px; line-height:1.45; border:1px solid #C3D3EC; background:#F0F4FB; }
+.o.drop { background:#FBEAEA; border-color:#E6A3A3; color:#5C2223; }
+.o.hold { background:#FFF7E5; border-color:#E8C77A; color:#5B4300; }
+.o.ok { background:#EDF7ED; border-color:#9EC89E; color:#1E5B1E; }
+.o.silent { background:#F6F7F7; border:1px dashed #B0B3B8; color:#50575E; }
+.o b { font-weight:700; margin-right:4px; }
+.hd { font-size:11px; font-weight:600; color:#50575E; text-transform:uppercase; letter-spacing:.02em; }
+.two { display:flex; gap:16px; margin-top:18px; align-items:stretch; }
+.two > * { flex:1; }
+.two .card p, .two .callout p { font-size:12.5px; }
+.nums { display:flex; gap:6px; margin:8px 0 10px; }
+.nums div { flex:1; background:#F0F4FB; border:1px solid #C3D3EC; border-radius:6px; padding:7px 9px; font-size:11.5px; line-height:1.35; text-align:center; }
+.nums div b { display:block; font-size:15px; color:#003DA5; }
+.nums .mono { overflow-wrap:normal; }
+.mono { overflow-wrap:anywhere; }
+</style>
+<div class="sheet">
+<h1>The hub as client: one batch per tick, one session per spoke, no retry</h1>
+<p class="sub"><span class="mono">HTTP_Out_Node</span> is the push side of <span class="mono">HTTP_In</span>. Minters fill it; the next drain tick POSTs everything buffered as one JSONL body to the spoke's <span class="mono">/command</span> on the <span class="mono">Event_Framework</span>'s shared cURL multi, so nothing blocks. What happens to a batch is decided in this order.</p>
+
+<div class="flow">
+  <div></div><div class="hd">Step</div><div class="hd">Outcome</div>
+
+  <div class="n">1</div>
+  <div class="st"><b><span class="mono">fill()</span></b> buffers the envelope verbatim and arms a one-shot timer, one of the two one-shots the runtime arms. A minter signing per destination first reads the egress's <span class="mono">vault_id()</span> to pick the key <span class="mono">Command_Auth::sign_for()</span> signs under.</div>
+  <div class="out"><div class="o"><b>Buffered.</b> Every minter refuses to <span class="mono">fill()</span> unsigned, so a minter with no session calls <span class="mono">ensure_session()</span> rather than skip: skipping alone deadlocks both sides, since <span class="mono">HTTP_Out</span> handshakes only inside <span class="mono">fire()</span> and only <span class="mono">fill()</span> arms that tick. Calling it every tick is safe: an in-flight flag on <span class="mono">request_session()</span> makes N minters one <span class="mono">/auth</span> POST. <span class="mono">Remote_Link_Node::maybe_send_heartbeat()</span>, <span class="mono">Settings_Sync_Node::send_set()</span> and event-logger-nodes' <span class="mono">Discovery_Collector_Node::fire()</span> are the three in-tree minters.</div></div>
+
+  <div class="n">2</div>
+  <div class="st"><b><span class="mono">fire()</span></b> empties the buffer into a local and resolves the spoke through the Vault. Only the session-less hold below puts the batch back; once it is composed, nothing requeues.</div>
+  <div class="out">
+    <div class="o drop"><b>Dropped before the wire:</b> no Vault entry or no url, or a plaintext url while <span class="mono">vault_require_ssl</span> stands. One rate-limited <span class="mono">print_less_often()</span> line naming the reason and the message count.</div>
+    <div class="o hold"><b>Held, not dropped:</b> no session with this spoke yet. The batch goes back in front of whatever arrived since, and <span class="mono">/auth</span> is POSTed, one handshake at a time; the reply re-arms this flush.</div>
+  </div>
+
+  <div class="n">3</div>
+  <div class="st"><b>POST</b> the batch as JSONL to <span class="mono" style="white-space:nowrap">&lt;url&gt;/wp-json/newspack-nodes/v1/command</span> (<span class="mono">COMMAND_PATH</span>), <span class="mono">CURLOPT_TIMEOUT</span> 15 s, the reply body capped at 8 MiB because the write callback buffers it into the PHP heap.</div>
+  <div class="out"><div class="o silent"><b>In flight.</b> The buffer is already empty: a batch lost from here has no retry and no dead letter, fire-and-forget by design.</div></div>
+
+  <div class="n">4</div>
+  <div class="st"><b><span class="mono">on_curl_message()</span></b> branches on the spoke's answer.</div>
+  <div class="out">
+    <div class="o drop"><b>transport error &lt;n&gt;</b> one rate-limited line; the batch is gone.</div>
+    <div class="o drop"><b>401</b> <span class="mono">Command_Auth::forget_session()</span>, so the next tick re-runs <span class="mono">/auth</span> and an expired session or a restarted spoke self-heals behind one log line. Because <span class="mono">HTTP_In</span> latches its refusal across the WHOLE batch, one badly-signed envelope costs the hub its live session for every other message in that POST.</div>
+    <div class="o silent"><b>202</b> the spoke's ack that the batch routed onward with its replies due on the SSE stream: deliberately not reported.</div>
+    <div class="o drop"><b>any other non-200</b> <span class="mono">HTTP &lt;code&gt;</span>, rate-limited, nothing forwarded.</div>
+    <div class="o ok"><b>200</b> the body is unpacked line by line into the sink; a line <span class="mono">Message::unpacked()</span> rejects is skipped so the rest still lands, and the <span class="mono">_output/</span> prefix <span class="mono">HTTP_In</span> stamped onto the reply's TO is stripped.</div>
+  </div>
+</div>
+
+<div class="two">
+  <div class="card">
+    <h2>The blocking path: <span class="mono">probe_command()</span></h2>
+    <p>Behind <span class="mono">vault test</span> and <span class="mono">aggregator probe</span>, where an operator is waiting on the verdict, so it bounds itself tighter and reads its reply off the response body instead of routing it: FROM is stamped as the <span class="mono">_http</span> boundary rather than a live node, signed at the mint site with <span class="mono">sign_for()</span>.</p>
+    <div class="nums">
+      <div><b>5 s</b>timeout</div>
+      <div><b>0</b>redirects followed</div>
+      <div><b>1 MiB</b><span class="mono">limit_response_size</span></div>
+    </div>
+    <p style="margin:0">It returns the reply envelope's <span class="mono">payload</span> array and nothing else, throwing <span class="mono">RuntimeException</span> on every other outcome: a plaintext url under <span class="mono">vault_require_ssl</span>, a spoke that will not issue a session, a <span class="mono">WP_Error</span>, a non-200, a body carrying no struct-VALUE envelope, a <span class="mono">TM_ERROR</span> reply, and a missing or non-array payload. The payload is a remote's JSON, so the caller allowlists the keys it renders, as <span class="mono">Vault_CI_Node::probe_remote()</span> does.</p>
+  </div>
+  <div class="callout">
+    <h4>What an operator reads off a flapping spoke</h4>
+    <p>Each loss leaves exactly one rate-limited line and nothing else: <span class="mono">transport error &lt;n&gt;</span>, <span class="mono">HTTP &lt;code&gt;</span>, or the drop reason with the message count. A hub that keeps re-authenticating is one whose batches keep answering 401; look for the one envelope whose signature fails, since it takes the session down for the rest of the POST.</p>
+    <p>The session is established at the spoke's <span class="mono">/auth</span> (<span class="mono">AUTH_PATH</span>, <span class="mono" style="white-space:nowrap">/wp-json/newspack-nodes/v1/auth</span>) under the Vault credential <span class="mono">Vault::credential_header()</span> resolves, Basic over Bearer, the one place that rule lives for all three transports that reach a spoke.</p>
+  </div>
+</div>
+</div>

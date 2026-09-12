@@ -1,0 +1,110 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.g { position: relative; width: 1052px; height: 505px; }
+.g svg.wire { position: absolute; left: 0; top: 0; }
+.nd { position: absolute; background: #fff; border: 1px solid #C3D3EC; border-radius: 7px; padding: 7px 10px; font-size: 12px; line-height: 1.35; }
+.nd .t { display: block; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: #003DA5; font-weight: 700; font-size: 12.5px; }
+.nd .t i { font-style: normal; color: #787C82; font-weight: 600; }
+.nd .k { display: block; color: #50575E; font-size: 11px; }
+.nd.view { border-color: #003DA5; border-width: 2px; }
+.nd.react { border-style: dashed; border-color: #B0B3B8; background: #FBFBFC; }
+.nd.react .t { color: #101517; font-weight: 600; }
+.nd.server { background: #F6F7F7; border-style: dashed; border-color: #787C82; }
+.nd.server .t { color: #101517; }
+.band { position: absolute; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: #787C82; }
+.cap { position: absolute; font-size: 11.5px; color: #50575E; background: #FBFBFC; padding: 0 5px; white-space: nowrap; line-height: 1.3; text-align: center; }
+.mono { overflow-wrap: anywhere; }
+.rowc { display: flex; gap: 16px; margin-top: 14px; align-items: stretch; }
+.rowc > * { flex: 1; }
+.card h3 { font-size: 14px; }
+.card .chip { font-size: 12px; line-height: 1.45; }
+.card .chip:last-child { margin-bottom: 0; }
+.step { display: flex; gap: 9px; align-items: flex-start; margin-bottom: 7px; }
+.step .n { flex: 0 0 auto; width: 19px; height: 19px; border-radius: 10px; background: #003DA5; color: #fff; font-size: 11.5px; font-weight: 700; text-align: center; line-height: 19px; margin-top: 1px; }
+.step .t { font-size: 12.5px; line-height: 1.45; color: #50575E; }
+.step .t b { color: #101517; font-weight: 600; }
+</style>
+<div class="sheet">
+<h1>A view is the last node of a slice, and every node on the slice is named <span class="mono">&lt;subject&gt;:&lt;role&gt;</span></h1>
+<p class="sub">The subject is what the slice shows; the roles are a fixed set. The shared hooks derive every name from the subject you hand them, and the reply finds the view by address alone: the Fetcher stamps <span class="mono">FROM = &lt;subject&gt;:in</span>, the server answers <span class="mono">TO = FROM</span>, and nothing correlates.</p>
+
+<div class="g" id="g">
+<svg class="wire" id="wire" width="1052" height="505"><defs>
+<marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker>
+<marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#787C82"/></marker>
+</defs></svg>
+
+<div class="band" style="left:0;top:0">a polled slice · addSliceFetcher on a useBatchedPoll backbone</div>
+<div class="nd" id="timer" style="left:0;top:24px;width:130px"><span class="t"><i>&lt;subject&gt;</i>:timer</span><span class="k">Timer · the tick</span></div>
+<div class="nd" id="tee" style="left:150px;top:24px;width:120px"><span class="t"><i>&lt;subject&gt;</i>:tee</span><span class="k">Tee · the fan-out</span></div>
+<div class="nd" id="fetch" style="left:290px;top:24px;width:200px"><span class="t"><i>&lt;subject&gt;</i>:fetch</span><span class="k">Fetcher · sends the verb, <span class="mono">FROM = &lt;subject&gt;:in</span>, <span class="mono">TO = _shell/_http/&lt;ci&gt;</span></span></div>
+<div class="nd server" id="ci" style="left:530px;top:24px;width:130px"><span class="t">&lt;ci&gt; · the verb</span><span class="k">server side; replies <span class="mono">TO = FROM</span></span></div>
+<div class="nd" id="in" style="left:0;top:150px;width:150px"><span class="t"><i>&lt;subject&gt;</i>:in</span><span class="k">Tee · the receiver; fans to the view, then back to the Fetcher, which settles the ask</span></div>
+<div class="nd" id="tr" style="left:170px;top:150px;width:170px"><span class="t"><i>&lt;subject&gt;</i>:transform</span><span class="k">optional · the one node between receiver and view: a merge or a dedup on a graph edge</span></div>
+<div class="nd view" id="view" style="left:360px;top:150px;width:200px"><span class="t"><i>&lt;subject&gt;</i>:view</span><span class="k">the view · terminal, <span class="mono">has_target: false</span>; parses, publishes, forwards nothing</span></div>
+<div class="nd react" id="react" style="left:640px;top:150px;width:230px"><span class="t">useNodeState( '&lt;subject&gt;:view', 'view' )</span><span class="k">the React widget</span></div>
+
+<div class="band" style="left:0;top:250px">a one-shot · useCommandOnce, scope <span class="mono" style="text-transform:none">&lt;ci&gt;:&lt;command&gt;</span> by default</div>
+<div class="nd" id="ofetch" style="left:0;top:274px;width:180px"><span class="t"><i>vault:add</i>:fetch</span><span class="k">Fetcher · one send per call</span></div>
+<div class="nd" id="oin" style="left:220px;top:274px;width:150px"><span class="t"><i>vault:add</i>:in</span><span class="k">Tee · the receiver</span></div>
+<div class="nd view" id="ores" style="left:410px;top:274px;width:250px"><span class="t"><i>vault:add</i>:result</span><span class="k">CommandResultNode · every reply on <span class="mono">result</span>, refusals included</span></div>
+
+<div class="band" style="left:0;top:346px">a stream · useStreamGraph, prefix <span class="mono" style="text-transform:none">&lt;prefix&gt;</span></div>
+<div class="nd" id="link" style="left:0;top:370px;width:180px"><span class="t"><i>&lt;prefix&gt;</i>:link</span><span class="k">RemoteLink · opens the SSE connection</span></div>
+<div class="nd" id="stream" style="left:220px;top:370px;width:150px"><span class="t"><i>&lt;prefix&gt;</i>:stream</span><span class="k">Tee · fans each record in</span></div>
+<div class="nd view" id="sview" style="left:410px;top:370px;width:250px"><span class="t"><i>&lt;prefix&gt;</i>:view</span><span class="k">LogStreamViewNode · the ring, pause and step, seek</span></div>
+<div class="nd" id="side" style="left:0;top:440px;width:660px"><span class="t"><i>&lt;prefix&gt;</i>-catalog:* · <i>&lt;prefix&gt;</i>-step:*</span><span class="k">the polled subscription catalog and the one-record stepped read: two more slices, each with a subject of its own</span></div>
+
+<div class="nd" id="rule" style="left:700px;top:250px;width:352px;background:#F0F4FB"><span class="t" style="color:#101517;font-family:Inter,sans-serif">The subject is the noun, never the verb</span><span class="k">lowercase, hyphenated when compound: <span class="mono">worker-status</span>, <span class="mono">topology-manager</span>, <span class="mono">url-detail</span>; a single word stays one word (<span class="mono">sessions</span>, <span class="mono">vault</span>). The verb lives on the Fetcher's command argument, so the sessions table is <span class="mono">sessions:fetch → sessions:in → sessions:view</span>, not <span class="mono">sessions:list:*</span>. A one-shot is the one exception; a hook passing its own scope, because two hooks on one page send the same verb, names a subject — <span class="mono">editor-topology</span>, <span class="mono">url-lookup</span> — never a third spelling of the verb.</span></div>
+</div>
+
+<div class="rowc">
+  <div class="card">
+    <h3>Three routing facts</h3>
+    <div class="step"><div class="n">1</div><div class="t"><b>A view is a terminal</b>: no <span class="mono">target</span>, no <span class="mono">sink</span>. Forwarding out of a view makes it a Tee or a transform; a per-slice merge belongs on the receiver-Tee → view edge, which is what <span class="mono">addSliceFetcher</span>'s <span class="mono">transform</span> slot drops it onto. <span class="mono">WorkerStatusTransform</span> is the shipped example.</div></div>
+    <div class="step"><div class="n">2</div><div class="t"><b>A view never fetches its own data.</b> Upstream sends the verb with <span class="mono">FROM = your receiver</span>; the server replies <span class="mono">TO = FROM</span>; the receiver Tee fans it to you. A stream view sends nothing either.</div></div>
+    <div class="step" style="margin-bottom:0"><div class="n">3</div><div class="t"><b>One slice per view; replies never cross.</b> A verb somebody awaits is minted from its own node and answered there (ADR-7), so nothing reaching a view needs telling apart. A view sitting at counter 0 in the console while its widget renders data is not the node receiving it: look upstream for the god node that is.</div></div>
+  </div>
+  <div class="card">
+    <h3>A node playing none of the roles is a second slice</h3>
+    <div class="chip">The Topology Manager's freshness re-check is <span class="mono">freshness:timer</span> beside <span class="mono">topology-manager:timer</span>; a partition's segment rail is <span class="mono">partition-segments:result</span> with its refresh on <span class="mono">partition-rail:timer</span>. It takes a subject of its own rather than a new role.</div>
+    <div class="chip">The roles: <span class="mono">:timer</span> the tick, <span class="mono">:tee</span> the fan-out, <span class="mono">:fetch</span> the Fetcher or Poller, <span class="mono">:in</span> the receiver, <span class="mono">:transform</span> the one node before the view, <span class="mono">:view</span> the view, <span class="mono">:result</span> where a one-shot publishes, <span class="mono">:link</span> and <span class="mono">:stream</span> the two ahead of a stream's view.</div>
+    <div class="chip">The <span class="mono">localStorage</span> keys under <span class="mono">newspack-nodes:</span> are not node names and follow none of this.</div>
+  </div>
+</div>
+</div>
+<script>
+(function () {
+  var g = document.getElementById('g'), svg = document.getElementById('wire'), NS = 'http://www.w3.org/2000/svg';
+  function el(t, a) { var e = document.createElementNS(NS, t); for (var k in a) e.setAttribute(k, a[k]); return e; }
+  function box(id) { var n = document.getElementById(id); return { x: n.offsetLeft, y: n.offsetTop, w: n.offsetWidth, h: n.offsetHeight }; }
+  function pt(b, s, f) { f = f === undefined ? 0.5 : f;
+    if (s === 'r') return [b.x + b.w, b.y + b.h * f]; if (s === 'l') return [b.x, b.y + b.h * f];
+    if (s === 't') return [b.x + b.w * f, b.y]; return [b.x + b.w * f, b.y + b.h]; }
+  function edge(e) {
+    var a = pt(box(e.from), e.fs, e.f0), b = pt(box(e.to), e.ts, e.f1), d, hz = 'lr'.indexOf(e.fs) >= 0, hz2 = 'lr'.indexOf(e.ts) >= 0;
+    if (e.pts) { d = 'M' + a[0] + ' ' + a[1]; e.pts.forEach(function (q) { d += ' L' + q[0] + ' ' + q[1]; }); d += ' L' + b[0] + ' ' + b[1]; }
+    else if (hz && hz2) { var dx = (b[0] - a[0]) / 2; d = 'M' + a[0] + ' ' + a[1] + ' C' + (a[0] + dx) + ' ' + a[1] + ' ' + (b[0] - dx) + ' ' + b[1] + ' ' + b[0] + ' ' + b[1]; }
+    else if (!hz && !hz2) { var dy = (b[1] - a[1]) / 2; d = 'M' + a[0] + ' ' + a[1] + ' C' + a[0] + ' ' + (a[1] + dy) + ' ' + b[0] + ' ' + (b[1] - dy) + ' ' + b[0] + ' ' + b[1]; }
+    else if (hz) { d = 'M' + a[0] + ' ' + a[1] + ' H' + b[0] + ' V' + b[1]; }
+    else { d = 'M' + a[0] + ' ' + a[1] + ' V' + b[1] + ' H' + b[0]; }
+    svg.appendChild(el('path', { d: d, stroke: e.grey ? '#787C82' : '#003DA5', 'stroke-width': 1.7, fill: 'none', 'marker-end': e.grey ? 'url(#ag)' : 'url(#a)', 'stroke-dasharray': e.dash ? '4 4' : 'none' }));
+    if (e.label) { var c = document.createElement('div'); c.className = 'cap'; c.innerHTML = e.label; g.appendChild(c);
+      var mx = e.ax !== undefined ? e.ax : (a[0] + b[0]) / 2 + (e.lx || 0), my = e.ay !== undefined ? e.ay : (a[1] + b[1]) / 2 + (e.ly || 0);
+      c.style.left = (mx - c.offsetWidth / 2) + 'px'; c.style.top = (my - c.offsetHeight / 2) + 'px'; }
+  }
+  [
+    { from: 'timer', fs: 'r', to: 'tee', ts: 'l' },
+    { from: 'tee', fs: 'r', to: 'fetch', ts: 'l' },
+    { from: 'fetch', fs: 'r', to: 'ci', ts: 'l', dash: true, grey: true, label: 'one POST per tick', ax: 510, ay: 8 },
+    { from: 'ci', fs: 'b', to: 'in', ts: 't', f0: 0.5, f1: 0.5, dash: true, grey: true, pts: [[595, 128], [75, 128]], label: 'reply, TO = FROM = &lt;subject&gt;:in', ax: 330, ay: 116 },
+    { from: 'in', fs: 'r', to: 'tr', ts: 'l' },
+    { from: 'tr', fs: 'r', to: 'view', ts: 'l' },
+    { from: 'view', fs: 'r', to: 'react', ts: 'l', label: 'setState', ax: 600, ay: 172 },
+    { from: 'ofetch', fs: 'r', to: 'oin', ts: 'l', dash: true, grey: true },
+    { from: 'oin', fs: 'r', to: 'ores', ts: 'l' },
+    { from: 'link', fs: 'r', to: 'stream', ts: 'l' },
+    { from: 'stream', fs: 'r', to: 'sview', ts: 'l' }
+  ].forEach(edge);
+})();
+</script>

@@ -1,0 +1,61 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.cols { display:flex; gap:18px; align-items:flex-start; }
+.seq { flex:1.15; }
+.side { flex:1; }
+.st { position:relative; background:#fff; border:1px solid #C3D3EC; border-radius:8px; padding:10px 14px 10px 44px; margin-bottom:10px; font-size:12.5px; line-height:1.5; color:#101517; }
+.st .n { position:absolute; left:12px; top:10px; width:22px; height:22px; border-radius:50%; background:#003DA5; color:#fff; font-size:12px; font-weight:700; text-align:center; line-height:22px; }
+.st b.t { display:block; font-family:ui-monospace, Menlo, monospace; font-size:13px; margin-bottom:2px; }
+.st .d { color:#50575E; }
+.st.gate { border-color:#B32D2E; background:#FFF8F8; }
+.st.gate .n { background:#B32D2E; }
+.st .out { display:flex; gap:8px; margin-top:6px; }
+.st .out > span { flex:1; border-radius:5px; padding:5px 8px; font-size:11.5px; line-height:1.4; }
+.st .out .y { background:#EDF7ED; border:1px solid #9EC89E; color:#1E5B1E; }
+.st .out .x { background:#FBEAEA; border:1px solid #E6A3A3; color:#B32D2E; }
+.unwind { border:1px dashed #B32D2E; border-radius:8px; padding:9px 14px; font-size:12px; color:#5C2223; background:#FFF8F8; }
+.side .card { margin-bottom:14px; }
+.side .card p { font-size:12.5px; }
+.tok { display:inline-block; background:#F0F4FB; border:1px solid #C3D3EC; border-radius:4px; padding:1px 6px; font-family:ui-monospace, Menlo, monospace; font-size:12px; }
+.mono { overflow-wrap:anywhere; }
+</style>
+<div class="sheet">
+<h1>make_node builds a node in a fixed order, and the order is what makes a dump replay</h1>
+<p class="sub">No-arg constructor, then <span class="mono">name()</span>, then <span class="mono">arguments()</span> with a flat token array, then <span class="mono">sink()</span>. Tokens ride verbatim; the one place they re-join into a line is <span class="mono">Node::serialize_args()</span>, so <span class="mono">dump_config()</span> emits <span class="mono">make_node</span> lines that rebuild the same graph.</p>
+
+<div class="cols">
+  <div class="seq">
+    <div class="st"><span class="n">1</span><b class="t">make_node &lt;type&gt; &lt;name&gt; &lt;args…&gt;</b><span class="d">The type resolves to the first concrete <span class="mono">{prefix}{type}_Node</span> across the registered namespaces (ADR-10). Positional args are filtered to scalars (<span class="mono">array_filter( $ctor_args, '\is_scalar' )</span>), re-indexed and cast to strings: an object cannot round-trip, so it is filtered with a rate-limited note and assigned later as a public property.</span></div>
+    <div class="st gate"><span class="n">2</span><b class="t">is the name taken?</b>
+      <div class="out"><span class="y">Identical class AND identical tokens: return the existing node. Replaying a dump or including a topology twice is idempotent.</span><span class="x">Anything else throws <span class="mono">make_node conflict: '&lt;name&gt;' already declared as …</span></span></div></div>
+    <div class="st"><span class="n">3</span><b class="t">new $fqcn()</b><span class="d">No arguments, no event-loop or filesystem work (ADR-5).</span></div>
+    <div class="st"><span class="n">4</span><b class="t">name( $name )</b><span class="d">Registers the node. From here a throw leaves an orphan in the registry, which is why step 7 exists.</span></div>
+    <div class="st"><span class="n">5</span><b class="t">arguments( $tokens )</b><span class="d">The base stores the token array and parses nothing. A node wanting declared positionals assigned to properties <span class="mono">use</span>s <span class="mono">Schema_Reflection</span> and calls <span class="mono">parse_schema_args( $args )</span>: it records the tokens for <span class="mono">dump_config()</span> and is the one source of defaults — a missing token takes the schema <span class="mono">default</span>, a missing <span class="mono">required</span> one throws <span class="mono">Missing required argument: partition_dir</span>. Derived state (Partition's <span class="mono">partition_dir</span>) computes after it returns.</span></div>
+    <div class="st"><span class="n">6</span><b class="t">sink( $this )</b><span class="d">The interpreter that built it is its physical next hop, so every node sinks into <span class="mono">_command_interpreter</span> (ADR-7).</span></div>
+    <div class="unwind"><b>7 · unwind.</b> A throw from steps 4–6 runs <span class="mono">remove_node()</span> on the half-built node, then rethrows: nothing is left half-built in the registry. Tachikoma CI:2701.</div>
+  </div>
+
+  <div class="side">
+    <div class="card">
+      <h3>The round trip: <span class="mono">dump_config()</span> → <span class="mono">serialize_args()</span> → replay</h3>
+      <p>Each token goes out through <span class="mono">serialize_arg()</span>, which single-quotes an empty token or one bearing whitespace, a quote, a backtick, a backslash, <span class="mono">#</span>, <span class="mono">;</span> or <span class="mono">&lt;</span>, and escapes <span class="mono">\</span> and <span class="mono">'</span>, so the trip is lossless for any token.</p>
+      <p><span class="mono">&lt;</span> is on the list for a reason that is not tokenizing: <span class="mono">interpolate()</span> runs before <span class="mono">tokenize()</span>, so quoting is what keeps a stored <span class="tok">&lt;config:logs_dir&gt;</span> unexpanded on the next load.</p>
+      <p>A constructor sets <span class="mono">$this-&gt;arguments</span>, or the round trip silently produces a different node. State a VERB set needs an override that calls <span class="mono">parent::dump_config()</span> and appends its own <span class="mono">config_line()</span>s: Partition, Topic, Consumer, Remote_Source and Settings_Sync each do.</p>
+    </div>
+    <div class="card">
+      <h3>Skipping a positional: the empty-token placeholder</h3>
+      <p><span class="tok">make_node Partition p /dir '' '' 7</span> sets <span class="mono">num_segments</span> while <span class="mono">segment_size</span> and <span class="mono">min_segments</span> keep their <span class="tok">&lt;config:segment_size&gt;</span> and <span class="tok">&lt;config:min_segments&gt;</span> defaults.</p>
+      <p>The placeholder works for <span class="mono">int</span> and <span class="mono">float</span> alone: a blank <span class="mono">bool</span> coerces to false and a blank <span class="mono">string</span> is the literal empty string. That asymmetry is why the topology console writes each declared default into an empty slot (<span class="mono">applyDefaults()</span> in <span class="mono">src/topology-console/utils/tslArgs.js</span>) and ends the line at the last argument the author set (<span class="mono">trimTrailingEmpties()</span>) before <span class="mono">editorLines.js</span> builds the <span class="mono">make_node</span> or <span class="mono">set_arguments</span> line. That copy of the rule, the runtime's <span class="mono">parseSchemaArgs()</span> and the PHP original are three separate copies; a change to one reaches neither of the others.</p>
+    </div>
+    <div class="callout">
+      <h4>Three trait users hand-roll the check</h4>
+      <p><span class="mono">Newspack_Log_Node</span>, <span class="mono">Graphite_Node</span> and <span class="mono">Table_Node</span> <span class="mono">use Schema_Reflection</span> for the schema the palette and <span class="mono">help</span> read, never call <span class="mono">parse_schema_args()</span>, and read token 0 through <span class="mono">Core::as_string()</span> to throw a message of their own — <span class="mono">Table requires a namespace argument</span>. Nothing holds them to the schema's <span class="mono">required</span> flag. They are the standing exceptions; a new node conforms rather than joining them.</p>
+    </div>
+  </div>
+</div>
+
+<div class="note">
+  <h4>Amendment: a required positional yields to a point-of-use refusal</h4>
+  <p>A dashboard whose subscription is chosen from a catalog must build its <span class="mono">RemoteLink</span> before anything names one. So a required positional is enforced at construction UNLESS the node refuses the same invariant at the point of use; where both exist the point-of-use refusal is the contract and the positional is optional. <span class="mono">RemoteLink</span> declares <span class="mono">subscribe</span> optional and <span class="mono">_assertConfigured()</span> throws on any verb that would open a stream. A verb handed the missing value configures the node with it — <span class="mono">setSubscribe()</span> and <span class="mono">reconnect( subscribe )</span> assign through <span class="mono">arguments</span>, so the getter reports what is streaming rather than what the constructor was given, and past this class's own setter, so <span class="mono">RemoteIpc</span>'s different positional (<span class="mono">reader</span>) is not overwritten. The accepted cost: a graph dumped while a node is still unconfigured emits a <span class="mono">make_node</span> line that refuses on replay, which beats a placeholder that replays cleanly into the wrong log.</p>
+</div>
+</div>

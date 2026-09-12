@@ -1,0 +1,108 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.seq { position: relative; width: 1052px; }
+.seq svg.wire { position: absolute; left: 0; top: 0; }
+.seq .lane { position: absolute; top: 0; width: 196px; min-height: 104px; }
+.seq .lane h3 { font-size: 14.5px; }
+.seq .lane p { font-size: 12px; margin: 0; }
+.seq .hop { position: absolute; background: #fff; border: 1px solid #C3D3EC; border-radius: 7px;
+  padding: 9px 12px 9px 40px; font-size: 12.5px; line-height: 1.5; color: #101517; }
+.seq .hop.deny { border-color: #E6A3A3; background: #FBEAEA; color: #5C2223; }
+.seq .hop.deny .n { background: #B32D2E; }
+.seq .hop.run { border-color: #9EC89E; background: #EDF7ED; color: #1E5B1E; }
+.seq .hop.run .n { background: #1E5B1E; }
+.seq .n { position: absolute; left: 10px; top: 9px; width: 22px; height: 22px; border-radius: 50%;
+  background: #003DA5; color: #fff; font-size: 12px; font-weight: 700; text-align: center; line-height: 22px; }
+.seq .cap { position: absolute; font-size: 12px; color: #50575E; text-align: center; background: #FBFBFC; padding: 0 6px; white-space: nowrap; }
+.mono { overflow-wrap: anywhere; }
+.tok { display:flex; gap:16px; margin-top:22px; align-items:stretch; }
+.tok > * { flex:1; }
+.tok .card { flex:1.35; }
+.tok .card p { font-size:12.5px; }
+.formula { background:#101517; color:#fff; border-radius:8px; padding:11px 14px; font-size:11px; line-height:1.65; margin:8px 0 10px; white-space:pre; }
+.sub .mono, .lane .mono { overflow-wrap:normal; }
+.formula .c { color:#9BB7E6; }
+.formula .k { color:#A7D6A7; }
+.tok .callout { flex:1.05; }
+.tok .callout p:last-child { margin-bottom:0; }
+</style>
+<div class="sheet">
+<h1>One POST spawns a worker, and answers only when the worker dies</h1>
+<p class="sub">Every spawner crosses this one gate: a worker's own self-respawn, each worker's <span class="mono">_fleet</span> peer scan, the WP-Cron cold-start pass, and an external caller holding manage who presents a WordPress nonce for <span class="mono">newspack_nodes_spawn_worker</span>. The refusals come in a fixed order, and the accepted request holds the PHP process for the worker's whole life.</p>
+
+<div class="seq" id="seq">
+<svg class="wire" id="wire"><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs></svg>
+
+<div class="lane card" data-lane="0"><h3>Spawner</h3><p>Fire-and-forget POST with a sub-second timeout; it is long gone before the answer is written.</p></div>
+<div class="lane card" data-lane="1"><h3>WordPress</h3><p>The route's declared <span class="mono">args</span>, then the permission callback.</p></div>
+<div class="lane card" data-lane="2"><h3><span class="mono">check_permission</span></h3><p>Fleet gate, then one <span class="mono">nonce</span> field read by two validators.</p></div>
+<div class="lane card" data-lane="3"><h3><span class="mono">spawn()</span></h3><p>Three refusals, then four steps in order.</p></div>
+<div class="lane card" data-lane="4"><h3>Worker</h3><p>Built by whatever answers <span class="mono">newspack_nodes/<wbr>spawn_worker</span>.</p></div>
+
+<div class="hop" data-arrow="0,1" data-cap="POST /workers/spawn  { type, partition, nonce }" data-span="1,3"><span class="n">1</span>Form-encoded (<span class="mono">application/x-www-form-urlencoded</span>) or JSON (<span class="mono">application/json</span>). All three fields are required, so a missing one answers <span class="red">400 rest_missing_callback_param</span> before any callback; a <span class="mono">type</span> no ACTIVE topology declares fails the route's <span class="mono">validate_callback</span> the same early way.</div>
+
+<div class="hop deny" data-arrow="1,2" data-cap="permission" data-span="2,4"><span class="n">2</span>Fleet gate first: a multisite subsite gets <span class="mono">403 newspack_nodes_not_fleet_site</span>. An EMPTY <span class="mono">nonce</span> answers <span class="mono">403 invalid_token</span> with <span class="mono">Missing spawn token</span>.</div>
+
+<div class="hop" data-span="2,4"><span class="n">3</span><b>Validator A, internal.</b> <span class="mono">Spawn_Coordinator::validate_spawn_token()</span> against the current or previous 10 s window. No capability check and no rate limit: the peer scan, the cron pass and self-respawn take this door.</div>
+
+<div class="hop" data-span="2,4"><span class="n">4</span><b>Validator B, a person.</b> <span class="mono">Capabilities::can( MANAGE )</span>, then <span class="mono">wp_verify_nonce( $nonce, 'newspack_nodes_spawn_worker' )</span>, then a 2 s per-user limit backed by a transient. Capability comes before the limit so an unauthenticated burst cannot fill the transient table. Neither validator: <span class="red">403 invalid_token</span>; inside 2 s: <span class="red">429 rate_limited</span>.</div>
+
+<div class="hop deny" data-arrow="2,3" data-cap="authorized" data-span="2,4"><span class="n">5</span>In order: <span class="mono">400 invalid_partition</span> (negative, at or above <span class="mono">MAX_PARTITIONS</span> = 16, or past the type's active count); <span class="mono">409 fleet_held</span> while a deploy hold stands in <span class="mono">Spawn_Coordinator::HOLD_OPTION</span>; <span class="mono">429 spawn_throttled</span> while <span class="mono">{type}|{partition}</span> sits inside the shared 15 s window.</div>
+
+<div class="hop run" data-span="2,4"><span class="n">6</span>Accepted. Record the spawn against the 15 s throttle, in memory and in the shared cache at twice the window; <span class="mono">ignore_user_abort( true )</span> and <span class="mono">set_time_limit( 0 )</span>; write <span class="mono">$_SERVER['NEWSPACK_NODES_WORKER_TYPE']</span> and <span class="mono">…_PARTITION</span>; fire <span class="mono">newspack_nodes/spawn_worker( $type, $partition )</span>.</div>
+
+<div class="hop run" data-arrow="3,4" data-cap="do_action" data-span="3,4"><span class="n">7</span><span class="mono">Topology_Registry::spawn_worker</span> builds the worker and calls <span class="mono">execute()</span>. It runs INLINE, 595 s by default.</div>
+
+<div class="hop" data-arrow="3,0" data-cap="200 { spawned, type, partition }, written when the worker ends" data-span="0,3"><span class="n">8</span>The body is written once the worker exits. Nobody is listening for it.</div>
+</div>
+
+<div class="tok">
+  <div class="card">
+    <h3>The internal token, one purpose per endpoint</h3>
+    <div class="formula mono"><span class="c"># window changes every 10 s; the previous one validates too,</span>
+<span class="c"># so a token that crosses a boundary in flight is not refused</span>
+$window = floor( time() / 10 )
+<span class="c"># spawn: a purpose-bound key, never the raw salt</span>
+$key   = hash_hmac( 'sha256', 'newspack_nodes_spawn_key',
+                    wp_salt( 'nonce' ) )
+$token = hash_hmac( 'sha256', <span class="k">"newspack_nodes_spawn:{$window}"</span>, $key )
+<span class="c"># health-cache: the same shape under wp_salt( 'nonce' ) itself</span>
+$token = hash_hmac( 'sha256', <span class="k">"newspack_nodes_health-cache:{$window}"</span>,
+                    wp_salt( 'nonce' ) )</div>
+    <p>The purpose sits INSIDE the hashed message, so a spawn token never validates at <span class="mono">/health/cache</span> and a health-cache token never spawns. The derived spawn key is what makes it safe to hand to a process outside PHP: the raw nonce salt forges every nonce on the site. A token names neither type nor partition; until its window passes it authorizes any spawn the endpoint would otherwise accept.</p>
+  </div>
+  <div class="callout">
+    <h4>A cross-language wire contract</h4>
+    <p>Nuclear-gyrobase exports the spawn key to the Perl engine, and <span class="mono">Gyrobase::Log::_spawn_token()</span> re-implements the construction with its own <span class="mono">$SPAWN_WINDOW_S = 10</span> mirroring <span class="mono">Internal_Request_Token::WINDOW_S</span> and the message string <span class="mono">newspack_nodes_spawn:{window}</span> copied by hand, pinned on the Perl side by <span class="mono">t/spawn-token.t</span> in a separate repository.</p>
+    <p>Change either constant here and the break fails CLOSED and silently: the doorbell POST is refused 403, the worker is never woken, and the only symptom is job latency indistinguishable from the WP-Cron backlog sweep working normally.</p>
+  </div>
+</div>
+</div>
+<script>
+(function () {
+  var L = [105, 315, 526, 736, 947], seq = document.getElementById('seq'), svg = document.getElementById('wire');
+  var NS = 'http://www.w3.org/2000/svg';
+  function el(t, a) { var e = document.createElementNS(NS, t); for (var k in a) e.setAttribute(k, a[k]); return e; }
+  var lanes = seq.querySelectorAll('.lane'), headBottom = 0;
+  lanes.forEach(function (c) { var i = +c.dataset.lane; c.style.left = (L[i] - 98) + 'px'; headBottom = Math.max(headBottom, c.offsetHeight); });
+  var y = headBottom + 18;
+  seq.querySelectorAll('[data-span]').forEach(function (b) {
+    var s = b.dataset.span.split(',').map(Number), x0 = L[s[0]] - 95, x1 = L[s[1]] - 10;
+    if (s[1] === 4) x1 = 1042;
+    if (s[0] === s[1]) x0 = L[s[0]] - 95;
+    if (b.dataset.arrow) {
+      var a = b.dataset.arrow.split(',').map(Number), ay = y + 22, dir = a[1] > a[0] ? 1 : -1;
+      svg.appendChild(el('path', { d: 'M' + L[a[0]] + ' ' + ay + ' H' + (L[a[1]] - 6 * dir), stroke: '#003DA5', 'stroke-width': 1.8, fill: 'none', 'marker-end': 'url(#a)' }));
+      var cap = document.createElement('div'); cap.className = 'cap'; cap.textContent = b.dataset.cap;
+      cap.style.top = (ay - 20) + 'px'; seq.appendChild(cap);
+      cap.style.left = ((L[a[0]] + L[a[1]]) / 2 - cap.offsetWidth / 2) + 'px';
+      y = ay + 10;
+    }
+    b.style.left = x0 + 'px'; b.style.width = (x1 - x0) + 'px'; b.style.top = y + 'px';
+    y += b.offsetHeight + 12;
+  });
+  var boxes = seq.querySelectorAll('[data-span]'), lastTop = boxes[boxes.length - 1].offsetTop;
+  seq.style.height = y + 'px'; svg.setAttribute('width', 1052); svg.setAttribute('height', y);
+  L.forEach(function (x) { svg.insertBefore(el('path', { d: 'M' + x + ' ' + (headBottom + 4) + ' V' + (lastTop - 4), stroke: '#B0B3B8', 'stroke-dasharray': '4 5', 'stroke-width': 1.5 }), svg.firstChild.nextSibling); });
+})();
+</script>

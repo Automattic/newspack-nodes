@@ -1,0 +1,106 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+  .loop { position: relative; width: 1052px; height: 545px; }
+  .loop svg { position: absolute; left: 0; top: 0; }
+  .step { position: absolute; width: 336px; background: #fff; border: 1px solid #C3C4C7; border-radius: 9px; padding: 12px 14px 12px 46px; }
+  .step .n { position: absolute; left: 11px; top: 11px; width: 24px; height: 24px; border-radius: 50%; background: #003DA5; color: #fff; font-size: 12.5px; font-weight: 700; text-align: center; line-height: 24px; }
+  .step h3 { font-size: 14px; margin: 2px 0 6px; }
+  .step p { font-size: 12px; color: #50575E; margin: 0 0 6px; line-height: 1.45; }
+  .step p:last-child { margin-bottom: 0; }
+  .cmd { background: #101517; color: #E8EAED; border-radius: 6px; padding: 7px 10px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 10px; line-height: 1.6; white-space: pre; overflow-wrap: normal; margin: 0 0 7px; }
+  .cmd .c { color: #8C9096; }
+  .cmd .g { color: #9FD89F; }
+  .cmd .b { color: #7FB0FF; }
+  .loop svg text { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 12px; fill: #003DA5; }
+  .loop svg path { fill: none; stroke: #003DA5; stroke-width: 2; }
+  .diag { display: flex; gap: 14px; margin-top: 20px; align-items: stretch; }
+  .diag > * { flex: 1 1 0; min-width: 0; }
+  .diag h4 .mono { font-weight: 600; }
+  .diag p { font-size: 12.5px; }
+  .diag .ok p { font-size: 12.5px; }
+</style>
+<div class="sheet">
+<h1>The operator's loop: edit, regenerate, restart, drive, watch</h1>
+<p class="sub">Every change to a node class or a topology line goes round once. The classmap is what <span class="mono">make_node</span> and the console palette read; the restart is what puts the new class in a running worker. Four messages tell you which step you skipped.</p>
+
+<div class="loop">
+  <svg width="1052" height="545" viewBox="0 0 1052 545">
+    <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs>
+    <path d="M338 90 H 354" marker-end="url(#a)"/>
+    <path d="M696 90 H 712" marker-end="url(#a)"/>
+    <path d="M884 262 V 284" marker-end="url(#a)"/>
+    <path d="M714 346 H 698" marker-end="url(#a)"/>
+    <path d="M356 346 H 340" marker-end="url(#a)"/>
+    <path d="M168 284 V 202" marker-end="url(#a)"/>
+    <text x="181" y="248">and round again</text>
+  </svg>
+
+  <div class="step" style="left:0;top:10px">
+    <span class="n">1</span>
+    <h3>Edit</h3>
+    <p>A node class under <span class="mono">includes/</span>, or a line in <span class="mono">topologies/*.tsl</span>: a new <span class="mono">make_node</span>, a new <span class="mono">connect_node</span>.</p>
+    <p>A second source, as §6 shows, is one class and two topology lines: its <span class="mono">make_node</span> and a <span class="mono">connect_node</span> pointing it at the summarizer.</p>
+  </div>
+
+  <div class="step" style="left:358px;top:10px">
+    <span class="n">2</span>
+    <h3>Regenerate the classmap</h3>
+    <div class="cmd">composer dump-autoload -o</div>
+    <p>Whenever a node is added or renamed. <span class="mono">make_node Foo</span> resolves <span class="mono">Newspack_AI_Newsletter\Foo_Node</span> through this map, and the palette reads the same map for its tiles.</p>
+  </div>
+
+  <div class="step" style="left:716px;top:10px">
+    <span class="n">3</span>
+    <h3>Activate, or restart</h3>
+    <div class="cmd"><span class="c"># first time: activate and spawn</span>
+wp nodes activate example-ai-newsletter
+<span class="c"># after that: reload the topology</span>
+wp nodes restart example-ai-newsletter</div>
+    <p>The shipped active set is empty, so nothing spawns until you say so. A running worker keeps the old class for the rest of its life; the restart is what replaces it.</p>
+  </div>
+
+  <div class="step" style="left:716px;top:290px">
+    <span class="n">4</span>
+    <h3>Confirm the worker is up</h3>
+    <div class="cmd">wp nodes status
+<span class="c"># example-ai-newsletter.p0 </span><span class="g">live</span><span class="c"> 3s ago 12s</span></div>
+    <p>One row per partition. <span class="mono">live</span> means a lock held under a fresh heartbeat.</p>
+  </div>
+
+  <div class="step" style="left:358px;top:290px">
+    <span class="n">5</span>
+    <h3>Attach, and drive it</h3>
+    <div class="cmd">wp nodes cli example-ai-newsletter.p0
+<span class="c"># then, at the worker's prompt:</span>
+<span class="b">&gt;</span> request_node releases TICK
+<span class="b">&gt;</span> request_node digest FLUSH</div>
+    <p>Or open the Console tab of the Nodes admin page and click <span class="mono">TICK</span> and <span class="mono">FLUSH</span> in the Inspector: those buttons come straight from each node's <span class="mono">requests</span>.</p>
+  </div>
+
+  <div class="step" style="left:0;top:290px">
+    <span class="n">6</span>
+    <h3>Watch</h3>
+    <p>The counts climb along <span class="mono">releases</span>, <span class="mono">summarizer</span> and <span class="mono">digest</span> while the edges animate, and every FLUSH lands a new <span class="mono">digest.md.N</span> segment.</p>
+    <p>None of this observability is yours to build: every node speaks <span class="mono">fill()</span> and announces itself through <span class="mono">node_schema()</span>, so the console renders and drives a graph it has never seen.</p>
+  </div>
+</div>
+
+<div class="diag">
+  <div class="callout">
+    <h4><span class="mono">unknown class: Releases_Source</span></h4>
+    <p>The plugin is not active, or the classmap is stale. Activation first: <span class="mono">register_plugin()</span> runs on <span class="mono">plugins_loaded</span>, which fires only for activated plugins, so an inactive plugin registers no namespace. Regenerate second.</p>
+  </div>
+  <div class="callout">
+    <h4><span class="mono">message not addressed</span></h4>
+    <p>On stderr, once. An emitted item reached <span class="mono">_router</span> with an empty TO: nothing is wired downstream yet. <span class="mono">connect_node</span> sets the target that fills it.</p>
+  </div>
+  <div class="callout">
+    <h4><span class="mono">storage path … is outside the runtime base directory</span></h4>
+    <p>Every node that writes segments asserts its directory lies inside the base directory. Spell it with <span class="mono">&lt;config:logs_dir&gt;</span>, which the Shell resolves to <span class="mono">{base_directory}/logs</span> before <span class="mono">make_node</span> sees the line; <span class="mono">wp nodes doctor</span> prints the resolved base.</p>
+  </div>
+  <div class="ok">
+    <h4><span class="mono">WARNING: no secure level declared</span></h4>
+    <p>About once a minute on the Router tick, for a worker still at level 0. The walkthrough leaves <span class="mono">secure</span> out so you can keep typing <span class="mono">make_node</span> in the attached REPL; a production file closes with it, and level 1 refuses <span class="mono">make_node</span>, <span class="mono">move_node</span> and <span class="mono">remove_node</span>. <span class="mono">request_node</span> runs at every level.</p>
+  </div>
+</div>
+</div>

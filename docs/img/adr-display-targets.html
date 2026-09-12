@@ -1,0 +1,60 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.kinds { display:flex; gap:14px; align-items:stretch; }
+.kind { flex:1; border-radius:10px; overflow:hidden; background:#fff; border:2px solid #C3C4C7; }
+.kind > header { padding:9px 14px; font-size:13.5px; font-weight:700; color:#fff; background:#50575E; }
+.kind.t > header { background:#003DA5; } .kind.t { border-color:#003DA5; }
+.kind.x > header { background:#787C82; } .kind.x { border-style:dashed; }
+.kind .body { padding:10px 14px 12px; font-size:12.5px; line-height:1.5; color:#50575E; }
+.kind .body b { color:#101517; }
+.union { margin-top:16px; }
+.slots { display:flex; gap:6px; align-items:center; margin:8px 0; }
+.slots .s { border-radius:6px; padding:8px 10px; font-size:12px; font-family:ui-monospace, Menlo, monospace; }
+.slots .s.r { background:#E8EEF9; border:1px solid #003DA5; }
+.slots .s.e { background:#F6F7F7; border:1px dashed #B0B3B8; color:#50575E; }
+.slots .i { font-size:11px; color:#787C82; font-family:Inter, sans-serif; margin-right:6px; }
+.slots .lbl { flex:0 0 200px; font-size:12px; color:#50575E; }
+.two { display:flex; gap:16px; margin-top:16px; align-items:stretch; }
+.two > div { flex:1; }
+.two p { font-size:12.5px; }
+.mono { overflow-wrap:anywhere; }
+</style>
+<div class="sheet">
+<h1>A node may declare a destination it writes to without routing through it</h1>
+<p class="sub">ADR-7 names two destination kinds. A third exists in practice: a Partition a node fills directly at flush, or a TO stamped per message from a conditional route. Neither appears in <span class="mono">target()</span>, so without a declaration the console draws those destinations with no inbound edge while they fill.</p>
+
+<div class="kinds">
+  <div class="kind">
+    <header><span class="mono">sink</span> — physical</header>
+    <div class="body"><b>What <span class="mono">fill()</span> forwards to.</b> A node reference. Drawn from the graph; never part of this decision.</div>
+  </div>
+  <div class="kind t">
+    <header><span class="mono">target</span> — the routing contract</header>
+    <div class="body"><b><span class="mono">Node::target()</span>, verbatim.</b> Scalar unless the node fans out. <span class="mono">fill()</span> reads it alone; <span class="mono">dump_config()</span> round-trips it as <span class="mono">connect_node</span> lines; a console mutation reads and patches it. This is the <span class="mono">target</span> key of <span class="mono">dump_metadata</span>.</div>
+  </div>
+  <div class="kind x">
+    <header><span class="mono">extra_targets()</span> — a declaration</header>
+    <div class="body"><b>The destinations a node writes WITHOUT going through <span class="mono">target</span>.</b> <span class="mono">Flame_Builder_Node</span> resolves its stats-mirror Partition by name through <span class="mono">Core::node()</span> and fills it at flush; <span class="mono">Request_Builder_Node</span> stamps TO per message from one of four routes. Returns <span class="mono">list&lt;string&gt;</span>; nothing routes through it, and it must never acquire a caller in <span class="mono">fill()</span>. Prose the class keeps honest: nothing detects drift between it and the actual writes.</div>
+  </div>
+</div>
+
+<div class="card union">
+  <h3><span class="mono">display_targets()</span>: the union, consumed by presentation only</h3>
+  <p><span class="mono">target_list( target() )</span> first, then the extras, de-duplicated, empties dropped. It feeds <span class="mono">ls</span>'s TARGET column and <span class="mono">dump_metadata</span>'s <span class="mono">targets</span> key, always a list, which is what edges are drawn from. Two keys because a flattened list cannot express fan-out, and the connect/disconnect verbs need the distinction.</p>
+  <div class="slots"><span class="lbl">Routing target set, one extra:</span><span class="s r"><span class="i">0</span>firehose:partition</span><span class="s e"><span class="i">1</span>stats-mirror:partition</span></div>
+  <div class="slots"><span class="lbl">Tee with two, one extra:</span><span class="s r"><span class="i">0</span>request-builder</span><span class="s r"><span class="i">1</span>error-log</span><span class="s e"><span class="i">2</span>stats-mirror:partition</span></div>
+  <div class="slots"><span class="lbl">Empty target, one extra:</span><span class="s e"><span class="i">0</span>stats-mirror:partition</span><span style="font-size:12px;color:#B32D2E">← index 0 is presentation-only here</span></div>
+  <p>The union is POSITIONAL, so index 0 is the routing target only when one is SET. A consumer slicing <span class="mono">[0]</span> as "the target" presents a display-only destination as the routing contract. One needing the routing value reads <span class="mono">target</span>; one that must split the union splits by the routing COUNT, never at a fixed index.</p>
+</div>
+
+<div class="two">
+  <div class="callout">
+    <h4>Rejected</h4>
+    <p>Widening <span class="mono">target</span> to hold the extras: a display-only entry would replay as a route that does not exist. Inferring edges from node class in the console: one plugin's write topology inside the substrate's renderer, the boundary ADR-18 draws for <span class="mono">locate_by()</span>. Letting each dashboard synthesize the missing edges: three consumers, three shapes, and only the node knows where it writes.</p>
+  </div>
+  <div class="ok">
+    <h4>This does not license a second physical output</h4>
+    <p>ADR-7's reopen condition stands: a true second physical output means reintroducing <span class="mono">edge</span> deliberately, and <span class="mono">Flame_Builder_Node</span>'s direct partition write is the case that would trigger it. Declaring makes an existing write VISIBLE; it does not make it a supported way to build new ones. Revisit if anything routes on <span class="mono">display_targets()</span>, or if <span class="mono">edge</span> arrives and absorbs the physical-write case.</p>
+  </div>
+</div>
+</div>

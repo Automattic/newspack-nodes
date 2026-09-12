@@ -1,0 +1,72 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.grid { display:grid; grid-template-columns: 176px repeat(6, 1fr); gap:6px; }
+.grid > div { font-size:11.5px; line-height:1.4; padding:8px 9px; border-radius:6px; }
+.grid .hd { background:#003DA5; color:#fff; font-weight:700; text-align:center; font-size:12px; }
+.grid .hd .m { display:block; font-weight:400; font-size:10.5px; opacity:.85; margin-top:2px; }
+.grid .rh { background:#EDEFF2; font-weight:700; font-size:12px; }
+.grid .rh .n { display:inline-block; width:18px; height:18px; border-radius:9px; background:#003DA5; color:#fff; text-align:center; line-height:18px; font-size:11px; margin-right:6px; }
+.grid .rh .d { display:block; font-weight:400; color:#50575E; font-size:11px; margin-top:4px; }
+.grid .cell { background:#F0F4FB; border:1px solid #C3D3EC; }
+.grid .cell.none { background:#F6F7F7; border:1px dashed #C3C4C7; color:#787C82; }
+.grid .cell.run { background:#EDF7ED; border:1px solid #9EC89E; color:#1E5B1E; }
+.grid .cell b { color:#B32D2E; font-weight:600; }
+.grid .cell i { font-style:normal; color:#1E5B1E; font-weight:600; }
+.mono { overflow-wrap:anywhere; }
+.two { display:flex; gap:18px; margin-top:20px; align-items:stretch; }
+.two > * { flex:1; }
+.two .card p, .two .note p { font-size:12.5px; }
+.two .note { margin-top:0; }
+</style>
+<div class="sheet">
+<h1>Six routes, one namespace, and the gates a request crosses in order</h1>
+<p class="sub">Every route lives under <span class="mono">newspack-nodes/v1</span>. WordPress checks a route's declared arguments before any permission callback runs, the fleet gate opens every permission callback, and only then does the route's own check decide. Read each column top to bottom.</p>
+
+<div class="grid">
+  <div></div>
+  <div class="hd"><span class="mono">/workers/spawn</span><span class="m">POST</span></div>
+  <div class="hd"><span class="mono">/auth</span><span class="m">POST</span></div>
+  <div class="hd"><span class="mono">/command</span><span class="m">POST</span></div>
+  <div class="hd"><span class="mono">/messages/stream</span><span class="m">GET</span></div>
+  <div class="hd"><span class="mono">/log/stream</span><span class="m">GET</span></div>
+  <div class="hd"><span class="mono">/health/cache</span><span class="m">POST</span></div>
+
+  <div class="rh"><span class="n">1</span>Declared args<span class="d">WordPress, before any callback. A missing required argument answers <span class="mono">400 rest_<wbr>missing_<wbr>callback_<wbr>param</span>.</span></div>
+  <div class="cell"><span class="mono">type</span>, <span class="mono">partition</span>, <span class="mono">nonce</span>, all required. <span class="mono">type</span> also runs a <span class="mono">validate_<wbr>callback</span>: a type no ACTIVE topology declares is refused here.</div>
+  <div class="cell none">No args declared. <span class="mono">scope</span>, <span class="mono">label</span> and <span class="mono">ttl</span> are all optional and bounded by the handler.</div>
+  <div class="cell none">No args declared. The body is JSONL the handler parses itself.</div>
+  <div class="cell"><span class="mono">subscribe</span> required; <span class="mono">positions</span> and <span class="mono">multi_writer</span> optional.</div>
+  <div class="cell">The same three, inherited unchanged.</div>
+  <div class="cell"><span class="mono">token</span> required.</div>
+
+  <div class="rh"><span class="n">2</span>Fleet gate<span class="d"><span class="mono">Bootstrap::fleet_gate()</span> opens every permission callback.</span></div>
+  <div class="cell" style="grid-column: 2 / span 6">The fleet is network-global, so a multisite subsite answers <b>403 newspack_nodes_not_fleet_site</b> on all six routes, whatever else it presents.</div>
+
+  <div class="rh"><span class="n">3</span>Route permission<span class="d">The route's own <span class="mono">permission_callback</span>.</span></div>
+  <div class="cell">One <span class="mono">nonce</span> field, two validators: the internal HMAC token for the current or previous 10 s window, else <span class="blue">manage</span> + a WordPress nonce + a 2 s per-user limit. Empty: <b>403 invalid_token</b>, <span class="mono">Missing spawn token</span>; neither: <b>403 invalid_token</b>; burst: <b>429 rate_limited</b>.</div>
+  <div class="cell"><span class="blue">read</span>. A scope is a ceiling, so a read-only user minting a manage session gets a read one. Without read WordPress answers <b>401 rest_forbidden</b> anonymously, <b>403</b> logged in.</div>
+  <div class="cell"><span class="blue">read</span> as the FLOOR, then 30 POSTs per user per second. Without read WordPress refuses before the body is read: <b>401 rest_forbidden</b> anonymously, <b>403</b> logged in; over budget <b>429 rate_limited</b>.</div>
+  <div class="cell"><span class="blue">read</span>. No nonce: a nonce would break the cross-server pull the aggregator lives on.</div>
+  <div class="cell"><span class="blue">read</span>, inherited from <span class="mono">SSE_Out_Node</span>, no nonce.</div>
+  <div class="cell">A 64-char lowercase hex token for the <span class="mono">health-cache</span> purpose, current or previous window. Anything else: <b>403 invalid_health_token</b>, one code for every refusal.</div>
+
+  <div class="rh"><span class="n">4</span>Handler<span class="d">What the route refuses on its own, then does.</span></div>
+  <div class="cell run"><b>400 invalid_partition</b>, <b>409 fleet_held</b>, <b>429 spawn_throttled</b>, then the worker runs INLINE for its whole 595 s life and <i>200</i> is written when it ends.</div>
+  <div class="cell run"><b>400 invalid_scope</b> for an unknown scope; else <i>200</i> with the handle and the key. A <b>403 invalid_scope</b> for no role only backs up the gate.</div>
+  <div class="cell run">Per command, the signature and the capability decide. <i>200</i> a reply is on the wire, <i>202</i> the batch routed on, <b>401</b> a signature failed, <b>500</b> the graph is missing.</div>
+  <div class="cell run">A slot is acquired before any header, so <b>429 too_many_connections</b> is still sayable; then the stream runs until it ends.</div>
+  <div class="cell run">Identical on the wire; a subscription resolves to a registry NAME, never a path.</div>
+  <div class="cell run">Always <i>200</i>: the probe's <span class="mono">good</span> or <span class="mono">critical</span> is payload state, never a transport failure.</div>
+</div>
+
+<div class="two">
+  <div class="card">
+    <h3>Registration order is load-bearing</h3>
+    <p><span class="mono">Bootstrap::register_rest_routes()</span> runs on <span class="mono">rest_api_init</span>. <span class="mono">/health/cache</span> registers first, so REST init completes even when the runtime base directory is refused; the other five register only once that base is available and <span class="mono">ensure_runtime_wired()</span> has run. The slot-pool seams are wired in the same place, because reading them earlier would load the stream controller on admin and cron requests that never stream.</p>
+  </div>
+  <div class="note">
+    <h4>Two entry points outside the namespace</h4>
+    <p>The settings page posts to WordPress's <span class="mono">admin-post.php</span> under <span class="mono">newspack_nodes_reset_settings</span> and <span class="mono">newspack_nodes_flush_cache</span>. Each is gated by its own nonce and by <span class="mono">Capabilities::can( MANAGE )</span>, the <span class="blue">manage</span> role, which the <span class="mono">allowed_users</span> config list narrows for every surface, and each answers with a redirect back to the settings page.</p>
+  </div>
+</div>
+</div>

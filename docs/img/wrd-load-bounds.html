@@ -1,0 +1,86 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.pipe { display: flex; gap: 0; align-items: stretch; }
+.stage { flex: 1 1 0; background: #fff; border: 1px solid #C3C4C7; border-radius: 9px; padding: 12px 12px 12px; display: flex; flex-direction: column; }
+.stage h3 { font-size: 13px; margin: 0 0 2px; }
+.stage .who { font-size: 11px; color: #787C82; margin: 0 0 10px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.b { border: 1px solid #C3D3EC; background: #F0F4FB; border-radius: 6px; padding: 6px 8px; margin-bottom: 6px; font-size: 11px; line-height: 1.38; color: #50575E; }
+.b .n { display: block; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; font-weight: 700; color: #003DA5; line-height: 1.2; margin-bottom: 2px; }
+.b .n small { font-size: 10.5px; font-weight: 600; color: #50575E; }
+.b.red { background: #FBEAEA; border-color: #E6A3A3; } .b.red .n { color: #B32D2E; }
+.b.last { margin-bottom: 0; }
+.arrow { flex: 0 0 22px; display: flex; align-items: center; justify-content: center; }
+.gates { display: flex; gap: 10px; margin: 0 0 16px; }
+.gate { flex: 1; background: #fff; border: 1px solid #C3C4C7; border-radius: 7px; padding: 8px 10px; font-size: 11.5px; line-height: 1.4; color: #50575E; }
+.gate b { display: block; color: #101517; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; margin-bottom: 2px; }
+.gate.red { background: #FBEAEA; border-color: #E6A3A3; } .gate.red b { color: #B32D2E; }
+.band { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: #787C82; margin: 0 0 8px; }
+.rowc { display: flex; gap: 16px; margin-top: 16px; align-items: stretch; }
+.rowc > * { flex: 1; }
+.card h3 { font-size: 14px; }
+.card .chip { font-size: 12px; line-height: 1.45; }
+.card .chip:last-child { margin-bottom: 0; }
+.mono { overflow-wrap: anywhere; }
+</style>
+<div class="sheet">
+<h1>Every bound sits on the data path before the work it prevents</h1>
+<p class="sub">A record is gated before any request, bounded at the view node before it is published, windowed at the row list before it is drawn, and downsampled at the chart before d3 sees it. Each number is a primitive you inherit by reaching for the shared hook, not a knob to tune afterwards.</p>
+
+<div class="band">before any request leaves the page</div>
+<div class="gates">
+  <div class="gate red"><b>intervalMs &lt; 1000 → TypeError</b>the floor is the Router hitchhike; a sub-second timer takes its own slot outside the batch bracket, one POST per slice per tick</div>
+  <div class="gate"><b>usePageVisibility</b>a hidden tab stops the hitchhike; <span class="mono">useStreamGraph</span> closes the SSE stream too, returning its php-fpm slot, and a paused stream stays closed through hide and show</div>
+  <div class="gate"><b>paused · enabled: false</b>an open surface suspended, its first load still owed; a surface nobody opened owns nothing at all — the three catalog hooks default to <span class="mono">enabled: false</span></div>
+  <div class="gate"><b>CATALOG_MS = 30000</b><span class="mono">useCatalogSlice</span>: the tick is the retry, so a refusal needs no latch and no memoized promise, and a bad tick keeps what is on screen</div>
+  <div class="gate"><b>useLogTailStream mode</b><span class="mono">'history'</span> replays the whole retention, <span class="mono">'follow'</span> tail-seeks, anything else throws; the seek governs the first open alone, so a hidden gap fills exactly once</div>
+</div>
+
+<div class="band">then along the path of one record</div>
+<div class="pipe">
+  <div class="stage">
+    <h3>At the view node, before publish</h3>
+    <p class="who">ProbeStreamViewNode · LogStreamViewNode</p>
+    <div class="b"><span class="n">500 ms <small>PUBLISH_THROTTLE_MS</small></span><span class="mono">setState('view')</span> leading and trailing, so a 24-hour replay burst cannot thrash React. <span class="mono">SettingsAuditViewNode</span> uses the same 500 over a 5,000-entry ring.</div>
+    <div class="b"><span class="n">5,761 samples <small>MAX_SAMPLES</small></span>one 15-second slot per sample over <span class="mono">RETENTION_S</span> = 86,400: a hard ring cap per key, and a record older than retention is dropped on arrival.</div>
+    <div class="b"><span class="n">300,000 ms <small>ENTRY_TTL_MS</small></span>the key set, measured by arrival: a key that stops reporting is evicted; a fill arriving more than one TTL after the last shifts every lease instead, because that gap is a hidden tab.</div>
+    <div class="b"><span class="n">6 intervals <small>GAP_INTERVALS</small></span><span class="mono">WorkerStatusTransform</span> drops its rate baselines and segment history across a gap that long, so the first poll back reads zero rates and animates nothing.</div>
+    <div class="b"><span class="n">100,000 rows <small>MAX_LINES</small></span><span class="mono">matchesFilter()</span> runs at ingest, so the ring holds only what is shown; a rejected row still moves the seek breadcrumb, and moving it publishes only on a segment change or a replay boundary.</div>
+    <div class="b last"><span class="n">1,000 · 262,144 <small>chars</small></span><span class="mono">PartitionViewerViewNode</span> clips <span class="mono">content</span> and <span class="mono">value</span>, then <span class="mono">raw</span>.</div>
+  </div>
+  <div class="arrow"><svg width="16" height="20" viewBox="0 0 16 20"><path d="M1 10 H12" stroke="#003DA5" stroke-width="1.8"/><path d="M8 4 L14 10 L8 16" fill="none" stroke="#003DA5" stroke-width="1.8"/></svg></div>
+  <div class="stage">
+    <h3>At the row list, per animation frame</h3>
+    <p class="who">LogRowList</p>
+    <div class="b"><span class="n">O(rows on screen)</span><span class="mono">linesCount</span> and <span class="mono">lineAt( i )</span> are O(1), newest first; each frame pulls only the on-screen window from scroll geometry read live inside the frame, and the rows never become React state.</div>
+    <div class="b"><span class="n">1 → 2 rows <small>RESUME_GLIDE_ROWS · STOP_GLIDE_ROWS</small></span>new rows glide in behind a decaying <span class="mono">translate3d</span>; two thresholds, because one flips a reader hovering at the boundary every frame.</div>
+    <div class="b"><span class="n">300 rows <small>MAX_DEBT_ROWS</small></span>past the glide budget the excess appears instantly: the data always shows, only the animation drops.</div>
+    <div class="b"><span class="n">250 ms <small>STATS_INTERVAL_MS</small></span>stats publishes coalesce, keeping toolbar re-renders off the frame rate.</div>
+    <div class="b last"><span class="n">one rAF, one setOrder</span>Overview's reorder drag caches every row's rect on pointer-down, coalesces each move to one frame that writes <span class="mono">translateY</span> straight to <span class="mono">el.style.transform</span>, and commits the order once on pointer-up through the same <span class="mono">dragReorder</span> arithmetic.</div>
+  </div>
+  <div class="arrow"><svg width="16" height="20" viewBox="0 0 16 20"><path d="M1 10 H12" stroke="#003DA5" stroke-width="1.8"/><path d="M8 4 L14 10 L8 16" fill="none" stroke="#003DA5" stroke-width="1.8"/></svg></div>
+  <div class="stage">
+    <h3>At the chart, before d3 draws</h3>
+    <p class="who">TopicsChart · topicProbeSeries · useContainerRefit</p>
+    <div class="b"><span class="n">1,000 points <small>MAX_POINTS</small></span>a panel is about 1,800 px wide, so a denser axis is sub-pixel: the bucket starts at the 15-second cadence and widens only enough to hold the axis under the cap.</div>
+    <div class="b"><span class="n">floor( ts / bucket ) · busiest first</span><span class="mono">buildAlignedSeries</span> aligns every worker's independent 15-second phase, else each topic gaps at every other topic's instant and a level gauge reads as a sawtooth; the rank order indexes the palette and legend, so never re-sort downstream.</div>
+    <div class="b"><span class="n">hold + last · zero + rate</span><span class="mono">fillModeForMetric</span>: <span class="mono">backlog</span> and <span class="mono">cacheSize</span> are gauges, everything else a rate re-divided by Σweight; the weight is <span class="mono">elapsed</span>, or <span class="mono">runsDelta</span> for <span class="mono">queueLatencyMs</span>.</div>
+    <div class="b"><span class="n">memo · useDeferredValue · 12 rows</span>a panel whose props did not move skips the draw; a heavy fold lags a frame instead of landing on INP; the tooltip keeps the twelve largest non-zero topics.</div>
+    <div class="b"><span class="n">re-skin: both moves</span><span class="mono">resolveChartPalette</span> reads <span class="mono">--chart-1</span>…<span class="mono">8</span> off the themed element on every pass, one blank token forfeiting all eight; <span class="mono">useThemeToken()</span> subscribes to <span class="mono">SKIN_EVENT</span> only to re-identify the redraw callback.</div>
+    <div class="b last"><span class="n">150 ms <small>useContainerRefit debounce</small></span>ignores the observation for the box it just drew, so a self-resizing callback settles instead of looping; 0 for a measurement.</div>
+  </div>
+</div>
+
+<div class="rowc">
+  <div class="card">
+    <h3>Reading the probe model: who owns the metric decides the arithmetic</h3>
+    <div class="chip"><b>The source owns it → dedup across co-readers.</b> Two topologies tailing <span class="mono">firehose.p0</span> describe one stream twice: <span class="mono">globalMsgRate</span> takes the largest rate per source, <span class="mono">probe24hTotals</span> integrates over the union of the readers' windows, oldest end first.</div>
+    <div class="chip"><b>The reader owns it → sum every reader.</b> Backlog and offsetlog cache size are each reader's own debt and cache.</div>
+    <div class="chip"><b>Shown as current → judge by the sample's own timestamp</b>, as <span class="mono">backlogTotal</span> does over a 300-second window, because <span class="mono">ENTRY_TTL_MS</span> is measured by arrival and a 24-hour replay re-admits a reader that died hours ago as freshly seen.</div>
+  </div>
+  <div class="card">
+    <h3>Two orders that are contracts</h3>
+    <div class="chip"><b>The Fetcher connects last.</b> <span class="mono">addSliceFetcher</span> wires the receiver Tee to the view first and the Fetcher second: a consumer acting once per answer asks <span class="mono">isAsking()</span> as the reply renders, and a settled ask is gone by then. A Tee fans out in connect order.</div>
+    <div class="chip"><b>The one 50 ms interval</b> is the overlay's Overview cards: <span class="mono">useOverviewStats</span> samples the page-global <span class="mono">IoTelemetry</span> accumulator on a bare <span class="mono">setInterval</span>, registered with no Router and invisible to <span class="mono">list_timers</span>, because a Router-borne timer would be torn down with the very graph it measures.</div>
+  </div>
+</div>
+</div>

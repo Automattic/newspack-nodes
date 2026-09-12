@@ -1,0 +1,157 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+  h2 { font-size: 15px; margin: 22px 0 8px; }
+  svg text { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 12px; fill: #101517; }
+  svg text.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  svg text.idx { font-size: 11px; font-weight: 700; fill: #fff; }
+  svg text.side { font-size: 12.5px; font-weight: 700; }
+  svg text.sub { font-size: 11px; fill: #50575E; }
+  svg text.lbl { font-size: 11px; fill: #003DA5; }
+  svg text.bitn { font-size: 9px; letter-spacing: -0.3px; }
+  svg .slot { fill: #fff; stroke: #C3C4C7; stroke-width: 1.2; }
+  svg .slot.hi { fill: #E8EEF9; stroke: #003DA5; }
+  svg .slot.gone { fill: #F6F7F7; stroke: #DCDCDE; stroke-dasharray: 4 3; }
+  svg .bubble { fill: #787C82; }
+  svg .bubble.hi { fill: #003DA5; }
+  svg .mv { fill: none; stroke: #003DA5; stroke-width: 1.6; }
+  svg .bit { fill: #fff; stroke: #C3C4C7; }
+  svg .bit.diff { fill: #E8EEF9; stroke: #003DA5; }
+  svg .bit.absent { fill: #F6F7F7; stroke: #DCDCDE; stroke-dasharray: 4 3; }
+  .wires { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .wire { background: #fff; border: 1px solid #C3C4C7; border-radius: 9px; padding: 12px 14px; }
+  .wire h3 { font-size: 13.5px; margin: 0 0 6px; }
+  .wire .frame { display: flex; gap: 4px; margin: 6px 0 8px; }
+  .wire .f { flex: 1 1 0; min-width: 0; border-radius: 5px; padding: 6px 4px; text-align: center; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; line-height: 1.3; background: #F0F4FB; border: 1px solid #C3D3EC; overflow-wrap: anywhere; }
+  .wire .f small { display: block; font-family: Inter, sans-serif; font-size: 10px; color: #50575E; overflow-wrap: normal; }
+  .wire .f.bin { background: #F6F7F7; border-color: #DCDCDE; }
+  .wire p { font-size: 12px; color: #50575E; margin: 0 0 5px; line-height: 1.45; }
+  .why { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; margin-top: 16px; }
+  .why p { font-size: 12.5px; }
+</style>
+<div class="sheet">
+<h1>Seven slots, two renamed and one moved; a different bit set; JSON instead of pack</h1>
+<p class="sub">Tachikoma's <span class="mono">Message.pm</span> beside ours, slot for slot and bit for bit. Renaming STREAM and PAYLOAD and moving TIMESTAMP is the whole divergence budget for the layout; anything further has to be justified on its own.</p>
+
+<h2 style="margin-top:0">The slots</h2>
+<svg width="1052" height="212" viewBox="0 0 1052 212">
+  <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs>
+  <text class="side" x="0" y="42">Tachikoma</text>
+  <text class="sub" x="0" y="57">Message.pm</text>
+  <text class="side" x="0" y="150">Newspack Nodes</text>
+  <text class="sub" x="0" y="165">Message::*</text>
+  <!-- upstream row: x from 130, 8 slots of 110 -->
+  <g>
+    <rect class="slot" x="130" y="22" width="106" height="44" rx="7"/><circle class="bubble" cx="146" cy="34" r="9"/><text class="idx" x="146" y="38" text-anchor="middle">0</text><text class="mono" x="183" y="54" text-anchor="middle">TYPE</text>
+    <rect class="slot" x="244" y="22" width="106" height="44" rx="7"/><circle class="bubble" cx="260" cy="34" r="9"/><text class="idx" x="260" y="38" text-anchor="middle">1</text><text class="mono" x="297" y="54" text-anchor="middle">FROM</text>
+    <rect class="slot" x="358" y="22" width="106" height="44" rx="7"/><circle class="bubble" cx="374" cy="34" r="9"/><text class="idx" x="374" y="38" text-anchor="middle">2</text><text class="mono" x="411" y="54" text-anchor="middle">TO</text>
+    <rect class="slot" x="472" y="22" width="106" height="44" rx="7"/><circle class="bubble" cx="488" cy="34" r="9"/><text class="idx" x="488" y="38" text-anchor="middle">3</text><text class="mono" x="525" y="54" text-anchor="middle">ID</text>
+    <rect class="slot hi" x="586" y="22" width="106" height="44" rx="7"/><circle class="bubble hi" cx="602" cy="34" r="9"/><text class="idx" x="602" y="38" text-anchor="middle">4</text><text class="mono" x="639" y="54" text-anchor="middle">STREAM</text>
+    <rect class="slot hi" x="700" y="22" width="106" height="44" rx="7"/><circle class="bubble hi" cx="716" cy="34" r="9"/><text class="idx" x="716" y="38" text-anchor="middle">5</text><text class="mono" x="753" y="54" text-anchor="middle">TIMESTAMP</text>
+    <rect class="slot hi" x="814" y="22" width="106" height="44" rx="7"/><circle class="bubble hi" cx="830" cy="34" r="9"/><text class="idx" x="830" y="38" text-anchor="middle">6</text><text class="mono" x="867" y="54" text-anchor="middle">PAYLOAD</text>
+    <rect class="slot gone" x="928" y="22" width="120" height="44" rx="7"/><circle class="bubble" cx="944" cy="34" r="9"/><text class="idx" x="944" y="38" text-anchor="middle">7</text><text class="mono" x="988" y="54" text-anchor="middle" style="fill:#50575E">IS_UNTHAWED</text>
+  </g>
+  <!-- ours -->
+  <g>
+    <rect class="slot" x="130" y="130" width="106" height="44" rx="7"/><circle class="bubble" cx="146" cy="142" r="9"/><text class="idx" x="146" y="146" text-anchor="middle">0</text><text class="mono" x="183" y="162" text-anchor="middle">TYPE</text>
+    <rect class="slot hi" x="244" y="130" width="106" height="44" rx="7"/><circle class="bubble hi" cx="260" cy="142" r="9"/><text class="idx" x="260" y="146" text-anchor="middle">1</text><text class="mono" x="297" y="162" text-anchor="middle">TIMESTAMP</text>
+    <rect class="slot" x="358" y="130" width="106" height="44" rx="7"/><circle class="bubble" cx="374" cy="142" r="9"/><text class="idx" x="374" y="146" text-anchor="middle">2</text><text class="mono" x="411" y="162" text-anchor="middle">FROM</text>
+    <rect class="slot" x="472" y="130" width="106" height="44" rx="7"/><circle class="bubble" cx="488" cy="142" r="9"/><text class="idx" x="488" y="146" text-anchor="middle">3</text><text class="mono" x="525" y="162" text-anchor="middle">TO</text>
+    <rect class="slot" x="586" y="130" width="106" height="44" rx="7"/><circle class="bubble" cx="602" cy="142" r="9"/><text class="idx" x="602" y="146" text-anchor="middle">4</text><text class="mono" x="639" y="162" text-anchor="middle">ID</text>
+    <rect class="slot hi" x="700" y="130" width="106" height="44" rx="7"/><circle class="bubble hi" cx="716" cy="142" r="9"/><text class="idx" x="716" y="146" text-anchor="middle">5</text><text class="mono" x="753" y="162" text-anchor="middle">KEY</text>
+    <rect class="slot hi" x="814" y="130" width="106" height="44" rx="7"/><circle class="bubble hi" cx="830" cy="142" r="9"/><text class="idx" x="830" y="146" text-anchor="middle">6</text><text class="mono" x="867" y="162" text-anchor="middle">VALUE</text>
+    <rect class="slot gone" x="928" y="130" width="120" height="44" rx="7"/><circle class="bubble" cx="944" cy="142" r="9"/><text class="idx" x="944" y="146" text-anchor="middle">7</text><text class="mono" x="988" y="162" text-anchor="middle" style="fill:#50575E">LOCAL</text>
+  </g>
+  <!-- moves -->
+  <path class="mv" d="M753 66 C 753 100, 297 96, 297 128" marker-end="url(#a)"/>
+  
+  <path class="mv" d="M639 66 C 639 100, 753 96, 753 128" marker-end="url(#a)"/>
+  <text class="lbl" x="660" y="118" text-anchor="middle">renamed</text>
+  <path class="mv" d="M867 66 V 128" marker-end="url(#a)"/>
+  <text class="lbl" x="882" y="100">renamed</text>
+  <text class="sub" x="1048" y="206" text-anchor="end">Slot 7: a thaw flag upstream, a provenance taint here, and never on the wire.</text>
+  <text class="sub" x="130" y="190">TIMESTAMP moves from 5 to 1, so WHAT and WHEN sit together at the front. FROM and TO keep their meaning: the trail behind, the path ahead.</text>
+</svg>
+
+<h2>The type flags: six agree in name and value, five bit values differ, six flags are absent, two are ours</h2>
+<svg width="1052" height="100" viewBox="0 0 1052 100">
+  <text class="sub" x="0" y="34">upstream</text>
+  <text class="sub" x="0" y="86">here</text>
+  <g font-size="9" letter-spacing="-0.2">
+    <!-- 15 bits, 64px each from x=70 -->
+    <rect class="bit" x="70" y="20" width="62" height="22" rx="4"/><text x="101" y="35" text-anchor="middle" class="mono bitn">BYTESTREAM</text>
+    <rect class="bit" x="70" y="72" width="62" height="22" rx="4"/><text x="101" y="87" text-anchor="middle" class="mono bitn">BYTESTREAM</text>
+    <rect class="bit" x="135" y="20" width="62" height="22" rx="4"/><text x="166" y="35" text-anchor="middle" class="mono bitn">EOF</text>
+    <rect class="bit" x="135" y="72" width="62" height="22" rx="4"/><text x="166" y="87" text-anchor="middle" class="mono bitn">EOF</text>
+    <rect class="bit" x="200" y="20" width="62" height="22" rx="4"/><text x="231" y="35" text-anchor="middle" class="mono bitn">PING</text>
+    <rect class="bit" x="200" y="72" width="62" height="22" rx="4"/><text x="231" y="87" text-anchor="middle" class="mono bitn">PING</text>
+    <rect class="bit" x="265" y="20" width="62" height="22" rx="4"/><text x="296" y="35" text-anchor="middle" class="mono bitn">COMMAND</text>
+    <rect class="bit" x="265" y="72" width="62" height="22" rx="4"/><text x="296" y="87" text-anchor="middle" class="mono bitn">COMMAND</text>
+    <rect class="bit diff" x="330" y="20" width="62" height="22" rx="4"/><text x="361" y="35" text-anchor="middle" class="mono bitn">RESPONSE</text>
+    <rect class="bit diff" x="330" y="72" width="62" height="22" rx="4"/><text x="361" y="87" text-anchor="middle" class="mono bitn">STRUCT</text>
+    <rect class="bit" x="395" y="20" width="62" height="22" rx="4"/><text x="426" y="35" text-anchor="middle" class="mono bitn">ERROR</text>
+    <rect class="bit" x="395" y="72" width="62" height="22" rx="4"/><text x="426" y="87" text-anchor="middle" class="mono bitn">ERROR</text>
+    <rect class="bit" x="460" y="20" width="62" height="22" rx="4"/><text x="491" y="35" text-anchor="middle" class="mono bitn">INFO</text>
+    <rect class="bit" x="460" y="72" width="62" height="22" rx="4"/><text x="491" y="87" text-anchor="middle" class="mono bitn">INFO</text>
+    <rect class="bit diff" x="525" y="20" width="62" height="22" rx="4"/><text x="556" y="35" text-anchor="middle" class="mono bitn">PERSIST</text>
+    <rect class="bit diff" x="525" y="72" width="62" height="22" rx="4"/><text x="556" y="87" text-anchor="middle" class="mono bitn">REQUEST</text>
+    <rect class="bit diff" x="590" y="20" width="62" height="22" rx="4"/><text x="621" y="35" text-anchor="middle" class="mono bitn">STORABLE</text>
+    <rect class="bit diff" x="590" y="72" width="62" height="22" rx="4"/><text x="621" y="87" text-anchor="middle" class="mono bitn">RESPONSE</text>
+    <rect class="bit diff" x="655" y="20" width="62" height="22" rx="4"/><text x="686" y="35" text-anchor="middle" class="mono bitn">COMPLETION</text>
+    <rect class="bit diff" x="655" y="72" width="62" height="22" rx="4"/><text x="686" y="87" text-anchor="middle" class="mono bitn">NOREPLY</text>
+    <rect class="bit diff" x="720" y="20" width="62" height="22" rx="4"/><text x="751" y="35" text-anchor="middle" class="mono bitn">BATCH</text>
+    <rect class="bit diff" x="720" y="72" width="62" height="22" rx="4"/><text x="751" y="87" text-anchor="middle" class="mono bitn">UNTYPED</text>
+    <rect class="bit" x="785" y="20" width="62" height="22" rx="4"/><text x="816" y="35" text-anchor="middle" class="mono bitn">KILLME</text>
+    <rect class="bit absent" x="785" y="72" width="62" height="22" rx="4"/><text x="816" y="87" text-anchor="middle" style="fill:#787C82">—</text>
+    <rect class="bit" x="850" y="20" width="62" height="22" rx="4"/><text x="881" y="35" text-anchor="middle" class="mono bitn">NOREPLY</text>
+    <rect class="bit absent" x="850" y="72" width="62" height="22" rx="4"/><text x="881" y="87" text-anchor="middle" style="fill:#787C82">—</text>
+    <rect class="bit" x="915" y="20" width="62" height="22" rx="4"/><text x="946" y="35" text-anchor="middle" class="mono bitn">HEARTBEAT</text>
+    <rect class="bit absent" x="915" y="72" width="62" height="22" rx="4"/><text x="946" y="87" text-anchor="middle" style="fill:#787C82">—</text>
+    <rect class="bit" x="980" y="20" width="62" height="22" rx="4"/><text x="1011" y="35" text-anchor="middle" class="mono bitn">REQUEST</text>
+    <rect class="bit absent" x="980" y="72" width="62" height="22" rx="4"/><text x="1011" y="87" text-anchor="middle" style="fill:#787C82">—</text>
+  </g>
+  <g class="sub" font-size="10.5" fill="#50575E" text-anchor="middle">
+    <text x="101" y="58">1</text><text x="166" y="58">2</text><text x="231" y="58">4</text><text x="296" y="58">8</text><text x="361" y="58">16</text><text x="426" y="58">32</text><text x="491" y="58">64</text><text x="556" y="58">128</text><text x="621" y="58">256</text><text x="686" y="58">512</text><text x="751" y="58">1024</text><text x="816" y="58">2048</text><text x="881" y="58">4096</text><text x="946" y="58">8192</text><text x="1011" y="58">16384</text>
+  </g>
+</svg>
+<p style="font-size:12px;color:#50575E;margin:0 0 4px;line-height:1.45">PERSIST, STORABLE, COMPLETION, BATCH, KILLME and HEARTBEAT are absent here; STRUCT and UNTYPED are ours. Packing what remains into the low bits keeps a composite readable, and nothing is lost by it: the wire below was never interchangeable between the two runtimes, so a shared numbering would buy nothing.</p>
+
+<h2>The wire</h2>
+<div class="wires">
+  <div class="wire">
+    <h3>Tachikoma: <span class="mono">pack 'xxxx N n/a* n/a* n/a* n/a* N a*'</span></h3>
+    <div class="frame">
+      <div class="f bin">N<small>length</small></div>
+      <div class="f bin">N<small>TYPE, 32-bit</small></div>
+      <div class="f">n/a*<small>FROM</small></div>
+      <div class="f">n/a*<small>TO</small></div>
+      <div class="f">n/a*<small>ID</small></div>
+      <div class="f">n/a*<small>STREAM</small></div>
+      <div class="f bin" style="flex:1.4">N<small>TIMESTAMP</small></div>
+      <div class="f" style="flex:1.4">a*<small>PAYLOAD</small></div>
+    </div>
+    <p>Binary, length-prefixed strings. A <span class="mono">TM_STORABLE</span> payload is <span class="mono">nfreeze</span>d on the way out and thawed on first read, and <span class="mono">IS_UNTHAWED</span> tracks which state it is in.</p>
+  </div>
+  <div class="wire">
+    <h3>Here: <span class="mono">Message::packed()</span>, a JSON list of exactly seven</h3>
+    <div class="frame">
+      <div class="f">type</div><div class="f" style="flex:1.5">timestamp</div><div class="f">from</div><div class="f">to</div><div class="f">id</div><div class="f">key</div><div class="f">value</div>
+    </div>
+    <p>The wire shape is the memory shape in two languages. <span class="mono">TM_STRUCT</span> marks an array VALUE and needs no thaw, because JSON decoding already produced one. <span class="mono">LOCAL</span> is never emitted and <span class="mono">unpacked()</span> rejects an eight-element line, which is what makes its presence worth trusting. The ports part company on malformed input: PHP throws, while JS hands back a fresh message for bad JSON and keeps the first seven fields of a longer list, so a reader off disk can quarantine the line.</p>
+  </div>
+</div>
+
+<div class="why">
+  <div class="card">
+    <h3>Why KEY and VALUE</h3>
+    <p>The vocabulary a reader already has from Kafka's <span class="mono">ProducerRecord&lt;K,V&gt;</span>, SQS message attributes and Redis Streams' <span class="mono">XADD key value</span>, and KEY is what <span class="mono">hash_to_partition()</span> routes on, which STREAM does not describe. <span class="mono">Timer_Node</span> follows the rename: it stamps KEY where <span class="mono">Nodes/Timer.pm</span> stamps STREAM.</p>
+  </div>
+  <div class="card">
+    <h3>Why the eighth slot changed kind</h3>
+    <p><span class="mono">LOCAL</span> is a provenance taint a Shell sets on a command it minted in-process; every interpreter admits a command carrying it and otherwise verifies or refuses. It cannot cross a process boundary, and that is the whole point. Upstream's <span class="mono">IS_UNTHAWED</span> exists for a Storable that has no JavaScript peer.</p>
+  </div>
+  <div class="card">
+    <h3>Why <span class="mono">TM_UNTYPED</span></h3>
+    <p>No upstream counterpart. It is the mint default and a free high bit, so it matches no type gate: an untyped message is inert rather than every type at once, and one that reaches a sink still carrying it is a bug the drop audit names. <span class="mono">Message.pm</span>'s <span class="mono">new</span> starts TYPE at 0 instead.</p>
+  </div>
+</div>
+</div>

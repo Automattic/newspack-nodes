@@ -1,0 +1,83 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.g { position: relative; width: 1052px; height: 600px; }
+.g svg.wire { position: absolute; left: 0; top: 0; }
+.nd { position: absolute; background: #fff; border: 1px solid #C3D3EC; border-radius: 7px; padding: 8px 11px; font-size: 12px; line-height: 1.4; }
+.nd .t { display: block; font-weight: 700; font-size: 13px; color: #101517; }
+.nd .k { display: block; color: #50575E; font-size: 11.5px; }
+.nd.you { border-color: #003DA5; border-width: 2px; }
+.nd.you .t { color: #003DA5; }
+.nd.sf .t { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
+.nd .sec { position: absolute; right: -1px; top: -1px; background: #003DA5; color: #fff; font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: 0 7px 0 6px; }
+.band { position: absolute; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: #787C82; }
+.cap { position: absolute; font-size: 11.5px; color: #50575E; background: #FBFBFC; padding: 0 5px; white-space: nowrap; line-height: 1.3; text-align: center; }
+.mono { overflow-wrap: anywhere; }
+</style>
+<div class="sheet">
+<h1>A real dashboard leaks into seven surfaces the substrate owns</h1>
+<p class="sub">The toy is a closed loop: your page, your bundle, your verbs. Ship it for real and four things you wrote land in surfaces you did not write, each with a contract. The section numbers say where each contract is spelled out.</p>
+
+<div class="g" id="g">
+<svg class="wire" id="wire" width="1052" height="600"><defs>
+<marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker>
+</defs></svg>
+
+<div class="band" style="left:0;top:0">what you ship</div>
+<div class="nd you" id="ci" style="left:0;top:26px;width:230px"><span class="t">Your Service CI</span><span class="k">a <span class="mono">node_schema()</span> with a <span class="mono">category</span>, <span class="mono">commands</span> and <span class="mono">requests</span>, mounted on <span class="mono">request_graph_ready</span></span></div>
+<div class="nd you" id="repl" style="left:0;top:186px;width:230px"><span class="t">Your console surface</span><span class="k">a graph canvas with a floating REPL transcript, or a tab of your own</span></div>
+<div class="nd you" id="bundle" style="left:0;top:346px;width:230px"><span class="t">Your bundle</span><span class="k">JSX importing <span class="mono">@wordpress/*</span> and <span class="mono">@newspack-nodes/*</span>, built by <span class="mono">scripts/build.mjs</span></span></div>
+<div class="nd you" id="creds" style="left:0;top:486px;width:230px"><span class="t">Your API credentials</span><span class="k">what a source node needs to fetch</span></div>
+
+<div class="band" style="left:300px;top:0">the surfaces they land in</div>
+<div class="nd sf" id="catalog" style="left:300px;top:26px;width:250px"><span class="sec">§1</span><span class="t">the class catalog</span><span class="k"><span class="mono">Classes_CI</span> <span class="mono">dump</span>: every concrete <span class="mono">*_Node</span> under a registered namespace, minus <span class="mono">Hidden</span>, empty and <span class="mono">hidden</span>. The browser keeps a second one from <span class="mono">includeNodes</span>.</span></div>
+<div class="nd sf" id="palette" style="left:640px;top:0;width:412px"><span class="sec">§1</span><span class="t">the Palette</span><span class="k">draggable tiles; <span class="mono">Service</span> and <span class="mono">Remote</span> are kept off it</span></div>
+<div class="nd sf" id="inspector" style="left:640px;top:70px;width:412px"><span class="sec">§1 §2</span><span class="t">the Inspector</span><span class="k"><span class="mono">commands</span> as command buttons, <span class="mono">requests</span> as request buttons</span></div>
+
+<div class="nd sf" id="tabhost" style="left:300px;top:186px;width:250px"><span class="sec">§5</span><span class="t">TabHost + the tab registry</span><span class="k">one host component, one registry on <span class="mono">window</span>; a tab declares <span class="mono">host: 'overlay' | 'station' | 'both'</span></span></div>
+<div class="nd sf" id="overlay" style="left:640px;top:170px;width:190px"><span class="sec">§3 §5</span><span class="t">the debug overlay</span><span class="k">a floating panel the operator drags and resizes; its Console tab measures its own tab bar</span></div>
+<div class="nd sf" id="station" style="left:640px;top:250px;width:190px"><span class="sec">§3 §5</span><span class="t">the station</span><span class="k">the page under the Nodes menu; the Console fills its frame as a <span class="mono">fullBleed</span> tab</span></div>
+<div class="nd sf" id="footer" style="left:862px;top:206px;width:190px"><span class="sec">§3</span><span class="t">ReplFooter</span><span class="k">takes <span class="mono">maxHeightPx</span>; each host measures its own frame and hands the ceiling in</span></div>
+
+<div class="nd sf" id="externals" style="left:300px;top:346px;width:250px"><span class="sec">§4</span><span class="t">WP_EXTERNALS</span><span class="k">ten specifiers rewritten to <span class="mono">window.wp.*</span> globals; <span class="mono">@wordpress/icons</span>, <span class="mono">d3</span> and <span class="mono">@noble/hashes</span> are bundled</span></div>
+<div class="nd sf" id="handles" style="left:640px;top:346px;width:190px"><span class="sec">§4</span><span class="t">WP enqueue handles</span><span class="k"><span class="mono">index.asset.php</span> names one per global; a handle WordPress never registers is reported as not registered, and the import reads <span class="mono">undefined</span></span></div>
+<div class="nd sf" id="release" style="left:862px;top:346px;width:190px"><span class="sec">§7</span><span class="t">release:archive</span><span class="k">ships <span class="mono">build/</span>, not <span class="mono">src/</span>; every consumer rebuilds when shared source moves</span></div>
+
+<div class="nd sf" id="vault" style="left:300px;top:486px;width:250px"><span class="sec">§6</span><span class="t">the Vault station tab</span><span class="k">the operator enters the secret there; the topology only references its id through <span class="mono">set_vault_id</span></span></div>
+<div class="nd sf" id="load" style="left:640px;top:486px;width:412px"><span class="sec">§8</span><span class="t">the shipped dashboards under load</span><span class="k">the poll floor, the visibility gates, the rings, the publish throttles and the pixel budget you inherit by reaching for the shared hooks</span></div>
+</div>
+</div>
+<script>
+(function () {
+  var g = document.getElementById('g'), svg = document.getElementById('wire'), NS = 'http://www.w3.org/2000/svg';
+  function el(t, a) { var e = document.createElementNS(NS, t); for (var k in a) e.setAttribute(k, a[k]); return e; }
+  function box(id) { var n = document.getElementById(id); return { x: n.offsetLeft, y: n.offsetTop, w: n.offsetWidth, h: n.offsetHeight }; }
+  function pt(b, s, f) { f = f === undefined ? 0.5 : f;
+    if (s === 'r') return [b.x + b.w, b.y + b.h * f]; if (s === 'l') return [b.x, b.y + b.h * f];
+    if (s === 't') return [b.x + b.w * f, b.y]; return [b.x + b.w * f, b.y + b.h]; }
+  function edge(e) {
+    var a = pt(box(e.from), e.fs, e.f0), b = pt(box(e.to), e.ts, e.f1), d, hz = 'lr'.indexOf(e.fs) >= 0, hz2 = 'lr'.indexOf(e.ts) >= 0;
+    if (hz && hz2) { var dx = (b[0] - a[0]) / 2; d = 'M' + a[0] + ' ' + a[1] + ' C' + (a[0] + dx) + ' ' + a[1] + ' ' + (b[0] - dx) + ' ' + b[1] + ' ' + b[0] + ' ' + b[1]; }
+    else if (!hz && !hz2) { var dy = (b[1] - a[1]) / 2; d = 'M' + a[0] + ' ' + a[1] + ' C' + a[0] + ' ' + (a[1] + dy) + ' ' + b[0] + ' ' + (b[1] - dy) + ' ' + b[0] + ' ' + b[1]; }
+    else if (hz) { d = 'M' + a[0] + ' ' + a[1] + ' H' + b[0] + ' V' + b[1]; }
+    else { d = 'M' + a[0] + ' ' + a[1] + ' V' + b[1] + ' H' + b[0]; }
+    svg.appendChild(el('path', { d: d, stroke: '#003DA5', 'stroke-width': 1.7, fill: 'none', 'marker-end': 'url(#a)', 'stroke-dasharray': e.dash ? '4 4' : 'none' }));
+    if (e.label) { var c = document.createElement('div'); c.className = 'cap'; c.innerHTML = e.label; g.appendChild(c);
+      var mx = e.ax !== undefined ? e.ax : (a[0] + b[0]) / 2 + (e.lx || 0), my = e.ay !== undefined ? e.ay : (a[1] + b[1]) / 2 + (e.ly || 0);
+      c.style.left = (mx - c.offsetWidth / 2) + 'px'; c.style.top = (my - c.offsetHeight / 2) + 'px'; }
+  }
+  [
+    { from: 'ci', fs: 'r', to: 'catalog', ts: 'l', label: 'appears in', ly: -14 },
+    { from: 'catalog', fs: 'r', to: 'palette', ts: 'l', f0: 0.28 },
+    { from: 'catalog', fs: 'r', to: 'inspector', ts: 'l', f0: 0.62, label: 'one array', ax: 596, ay: 72 },
+    { from: 'repl', fs: 'r', to: 'tabhost', ts: 'l', label: 'lives inside', ly: -14 },
+    { from: 'tabhost', fs: 'r', to: 'overlay', ts: 'l', f0: 0.35 },
+    { from: 'tabhost', fs: 'r', to: 'station', ts: 'l', f0: 0.65 },
+    { from: 'overlay', fs: 'r', to: 'footer', ts: 'l', f1: 0.3 },
+    { from: 'station', fs: 'r', to: 'footer', ts: 'l', f1: 0.7 },
+    { from: 'bundle', fs: 'r', to: 'externals', ts: 'l', label: 'externalizes through', ax: 265, ay: 336 },
+    { from: 'externals', fs: 'r', to: 'handles', ts: 'l' },
+    { from: 'handles', fs: 'r', to: 'release', ts: 'l' },
+    { from: 'creds', fs: 'r', to: 'vault', ts: 'l', label: 'go in', ly: -14 }
+  ].forEach(edge);
+})();
+</script>

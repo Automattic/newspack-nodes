@@ -1,0 +1,74 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.two { display:grid; grid-template-columns:1fr 1fr; gap:22px; }
+.lane { display:flex; align-items:center; gap:0; margin:6px 0 4px; }
+.box { background:#F0F4FB; border:1px solid #C3D3EC; border-radius:7px; padding:8px 10px; font-size:12px; line-height:1.4; text-align:center; min-width:0; }
+.box b { display:block; font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:12.5px; color:#003DA5; }
+.box.grey { background:#F6F7F7; border-color:#C3C4C7; }
+.box.grey b { color:#50575E; }
+.box.red { background:#FBEAEA; border-color:#E6A3A3; }
+.box.red b { color:#B32D2E; }
+.arr { flex:0 0 34px; text-align:center; font-size:16px; color:#003DA5; }
+.arr.red { color:#B32D2E; }
+.back { font-size:11.5px; color:#B32D2E; margin:4px 0 0; text-align:center; }
+.back.blue { color:#003DA5; }
+.stack2 > * + * { margin-top:10px; }
+.panel.rej { border-color:#B32D2E; }
+.panel.rej > header { background:#B32D2E; }
+.panel .body p { font-size:12.5px; color:#50575E; line-height:1.5; margin:8px 0 0; }
+.three { display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; margin-top:22px; }
+.stackv { display:flex; flex-direction:column; align-items:stretch; gap:0; }
+.down { text-align:center; color:#003DA5; font-size:15px; line-height:1; margin:3px 0; }
+</style>
+<div class="sheet">
+<h1>No ack: the synchronous drain is the backpressure, and the reader's cursor owns "safe to resume"</h1>
+<p class="sub">Tachikoma's <span class="mono">TM_PERSIST</span>, <span class="mono">answer()</span> / <span class="mono">cancel()</span> and <span class="mono">max_unanswered</span> earn their keep where a queue that can fill sits between producer and consumer. Here every boundary is synchronous and the whole graph drains on one CPU, so an ack would have nothing to signal.</p>
+
+<div class="two">
+  <div class="panel rej">
+    <header>Rejected: the persist / ack handshake (Tachikoma)</header>
+    <div class="body">
+      <div class="lane">
+        <div class="box grey" style="flex:1"><b>producer</b>sends TM_PERSIST</div>
+        <div class="arr red">→</div>
+        <div class="box red" style="flex:1.2"><b>Buffer</b>a queue; <span class="mono">max_unanswered</span> caps what is in flight</div>
+        <div class="arr red">→</div>
+        <div class="box grey" style="flex:1"><b>consumer</b>later, on its own schedule</div>
+      </div>
+      <p class="back">← <span class="mono">answer()</span> or <span class="mono">cancel()</span>: a <span class="mono">TM_PERSIST | TM_RESPONSE</span> sent TO=FROM, carrying the message's ID</p>
+      <p>Consumption is asynchronous from delivery, so the queue cannot know on its own when a message is safe to discard. The ack IS the tier's advance-or-discard signal: the reply decides what the Buffer keeps — a <span class="mono">cancel</span> deletes the entry from its store — and the unanswered count is the flow control.</p>
+      <p>Kept here, it would have no queue to guard: the synchronous single-threaded drain already slows every producer upstream of a slow node, and nothing between them can overflow.</p>
+    </div>
+  </div>
+  <div class="panel">
+    <header>Chosen: fire-and-forget over a synchronous drain</header>
+    <div class="body">
+      <div class="stackv">
+        <div class="box"><b>Consumer::poll()</b>reads the next record off the partition</div>
+        <div class="down">↓ <span style="font-size:11.5px">fill(), one call stack</span></div>
+        <div class="box"><b>fill() → fill() → … → the last sink returns</b>a slow node here slows this whole stack</div>
+        <div class="down">↓</div>
+        <div class="box"><b>the cursor advances</b>Consumer chops past the record; Remote_Source commits on arrival, at each message's start</div>
+      </div>
+      <p class="back blue">↺ the next <span class="mono">poll()</span> waits for all of it: a slow handler stalls its worker's drain, which is the flow control, not a defect</p>
+      <p>"Delivered" and "safe to advance" coincide because both happen in the drain that dispatched the message. The reader owns its cursor entirely, so resuming is always local knowledge. Durability comes from the log and offsetlog tier; the message layer promises no at-least-once.</p>
+    </div>
+  </div>
+</div>
+
+<div class="three">
+  <div class="card">
+    <h3>The one reply-control flag: <span class="mono">TM_NOREPLY</span></h3>
+    <p>A Shell with <span class="mono">want_reply( false )</span> — topology load and script mode — ORs it onto every command it mints, and the interpreter suppresses the reply, still surfacing a failure on stderr as <span class="mono">error from TM_NOREPLY command:</span>.</p>
+    <p>Without it a worker's boot-topology replies route to <span class="mono">_output/&lt;pid&gt;</span>, which no worker has, and bounce a dropped <span class="mono">NOT_AVAILABLE</span> every startup.</p>
+  </div>
+  <div class="card">
+    <h3>Where flow control belongs</h3>
+    <p>Slot-based flow control belongs at the producer that needs it, never graph-wide. TM_PERSIST is not a rival to the durable tier: in Tachikoma the ack is that tier's advance signal, needed only because consumption there is asynchronous from delivery.</p>
+  </div>
+  <div class="ok">
+    <h4>Revisit if any one holds</h4>
+    <p>A producer needs genuinely decoupled queueing; the drain stops being single-threaded; or offset advance is decoupled from delivery — async handlers, in-flight windows. Each breaks the "delivered = safe to advance" coincidence the removal rests on.</p>
+  </div>
+</div>
+</div>

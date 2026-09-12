@@ -1,0 +1,100 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.three { display:grid; grid-template-columns:minmax(0,1.15fr) minmax(0,0.85fr); gap:14px; align-items:start; }
+.three .card h3 { font-size:14px; }
+.three .card h3 .mono { color:#003DA5; }
+.tbl { width:100%; border-collapse:collapse; font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:11px; margin:6px 0 10px; }
+.tbl th { text-align:right; color:#787C82; font-weight:600; padding:3px 6px; border-bottom:1px solid #C3C4C7; }
+.tbl th:last-child, .tbl td:last-child { text-align:left; }
+.tbl td { text-align:right; padding:4px 5px; border-bottom:1px solid #EEF0F1; color:#101517; white-space:nowrap; }
+.tbl td:last-child { white-space:normal; }
+.card { min-width:0; overflow:hidden; }
+.tbl tr.spin td { background:#FBEAEA; color:#B32D2E; font-weight:700; }
+.tbl tr.hitch td { background:#F0F4FB; }
+.tbl tr.ghost td { color:#B0B3B8; font-style:italic; border-bottom:1px dashed #C3C4C7; }
+.reads { display:flex; gap:14px; margin-top:4px; }
+.reads > p { flex:1; }
+.reads > p:last-child { flex:1.7; }
+.top { margin-bottom:14px; }
+.read { font-size:11.5px; line-height:1.45; color:#50575E; margin:0 0 7px; }
+.read b { color:#101517; font-weight:600; }
+.read .mono { color:#101517; }
+.tag { display:inline-block; font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; padding:2px 6px; border-radius:4px; margin-right:5px; vertical-align:1px; }
+.tag.bad { background:#FBEAEA; color:#B32D2E; }
+.tag.ok { background:#EDF7ED; color:#1E5B1E; }
+.tag.blue { background:#F0F4FB; color:#003DA5; }
+.bottom { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:14px; margin-top:16px; }
+.split { display:flex; gap:10px; margin-top:8px; }
+.split > div { flex:1; border-radius:7px; padding:9px 11px; font-size:11.5px; line-height:1.45; }
+.split .dup { background:#FBEAEA; border:1px solid #E6A3A3; color:#5C2223; }
+.split .loss { background:#FFF4E5; border:1px solid #E6C79B; color:#5C3A12; }
+.split h4 { margin:0 0 4px; font-size:12px; }
+.split .dup h4 { color:#B32D2E; }
+.split .loss h4 { color:#8A5A0B; }
+.mono { overflow-wrap:anywhere; }
+</style>
+<div class="sheet">
+<h1>A worker at 100% CPU is a timer or a handle that never rests; read the two tables, not the load</h1>
+<p class="sub">Pivot in with <span class="mono">wp nodes cli &lt;type&gt;.p&lt;N&gt;</span>. Both verbs measure live state. Each has one blind spot, named below the table.</p>
+
+<div class="card top">
+    <h3><span class="mono">list_timers</span> — a spinner is a row that re-arms every tick</h3>
+    <table class="tbl">
+      <thead><tr><th>ID</th><th>ACTIVE</th><th>INTERVAL</th><th>MODE</th><th>NEXT</th><th>ONESHOT</th><th>FIRES</th><th>TYPE</th><th>NAME</th></tr></thead>
+      <tbody>
+        <tr class="spin"><td>412</td><td>yes</td><td>0</td><td>event_framework</td><td>-2</td><td>no</td><td>91833</td><td>Timer_Node</td><td>my-poll</td></tr>
+        <tr class="hitch"><td>388</td><td>yes</td><td>15000</td><td>router</td><td>-</td><td>no</td><td>1204</td><td>Topic_Probe_Node</td><td>topicprobe</td></tr>
+        <tr><td>390</td><td>yes</td><td>100</td><td>event_framework</td><td>61</td><td>no</td><td>18211</td><td>Consumer_Node</td><td>jobs:consumer</td></tr>
+        <tr class="ghost"><td>—</td><td></td><td></td><td></td><td></td><td></td><td></td><td>Timer_Node</td><td>(never named: no row)</td></tr>
+      </tbody>
+    </table>
+    <div class="reads">
+    <p class="read"><span class="tag bad">spinner</span><b><span class="mono">NEXT</span> at or below zero while <span class="mono">FIRES</span> climbs on every re-run.</b> Some node re-arms its timer every tick.</p>
+    <p class="read"><span class="tag blue">hitchhiker</span><span class="mono">MODE router</span>, <span class="mono">NEXT -</span>: it rides the Router tick and has no next fire of its own. Not a spinner.</p>
+    <p class="read"><span class="tag bad">blind spot</span><span class="mono">timer_rows()</span> walks <span class="mono">Core::$nodes_by_name</span>, so a timer that never took a name gets NO row — and unnamed is the mode that can free-spin, because <span class="mono">Timer_Node::set_timer()</span> sends an unnamed node to its own Event_Framework slot instead of the name-keyed Router hitchhike. A clean table on a pegged worker means a Timer built programmatically and never named; a sibling published from an unnamed patron is unnamed too, since <span class="mono">set_sibling_names()</span> is a no-op until the patron has a name.</p>
+    </div>
+  </div>
+
+<div class="three">
+  <div class="card">
+    <h3><span class="mono">list_handles</span> — a stuck handle is a row that never moves</h3>
+    <table class="tbl">
+      <thead><tr><th>ID</th><th>COUNT</th><th>TYPE</th><th>NAME</th></tr></thead>
+      <tbody>
+        <tr class="spin"><td>77</td><td>0</td><td>HTTP_Out_Node</td><td>spoke-03:http-out</td></tr>
+        <tr class="hitch"><td>81</td><td>0</td><td>SSE_In_Node</td><td>spoke-01:sse-in</td></tr>
+        <tr><td>84</td><td>5310</td><td>SSE_In_Node</td><td>spoke-02:sse-in</td></tr>
+      </tbody>
+    </table>
+    <p class="read"><span class="tag bad">stuck</span><b>A row that PERSISTS across runs with a <span class="mono">COUNT</span> that never advances.</b> A cURL-multi handle that never completes, on an SSE or HTTP egress node.</p>
+    <p class="read"><span class="tag ok">routine</span><span class="mono">COUNT</span> is per-registration, not cumulative: <span class="mono">unregister_curl_easy()</span> drops the tally when no registration points at the node, <span class="mono">register_curl_easy()</span> re-seeds it at zero, and a node holding no handle has no row. A zero or an absent row reads as "recently re-registered" or "valve closed".</p>
+    <p class="read"><span class="tag blue">valve</span><span class="mono">SSE_In_Node::disarm()</span> is Remote_Source's backpressure valve, edge-triggered at a <b>512 KB</b> high and <b>256 KB</b> low water mark; it unregisters the live handle, so a hub under sustained backpressure flaps in and out of the table, as does any node reconnecting.</p>
+    <p class="read"><span class="mono">list_handles</span> reads the Event_Framework's registered cURL handles and <span class="mono">list_timers</span> the node registry, which is why a hitchhiker gets a row at all; both measure live state rather than a cached snapshot.</p>
+  </div>
+
+  <div class="card">
+    <h3>Slow rather than pegged: <span class="mono">profile</span></h3>
+    <p class="read"><b>1.</b> <span class="mono">profile on</span> turns on <span class="mono">_router</span>'s per-node self-time accounting.</p>
+    <p class="read"><b>2.</b> <span class="mono">list_profiles</span> prints the table slowest average first. Times are parent-subtracted, so a node's row is its own work, not its subtree's.</p>
+    <p class="read"><b>3.</b> <span class="mono">profile off</span>.</p>
+    <p class="read">The Inspector's Profiler modal, in the topology console and the debug overlay's Console tab alike, runs the same sequence in one window: its toolbar button sets profiling in whatever scope the console is <span class="mono">cd</span>'d into, and its grid renders that scope's <span class="mono">list_profiles</span> rows live.</p>
+    <p class="read"><b>Uptime resets every ~595 s.</b> That is <span class="mono">DEFAULT_MAX_RUNTIME</span>, by design: a worker is an HTTP request that outlives its response and releases its lock before self-respawning.</p>
+  </div>
+</div>
+
+<div class="bottom">
+  <div class="card">
+    <h3>Across a recycle, the exception subtype alone decides the in-flight message</h3>
+    <p class="read">The cooperative stop lands on whatever message is in flight. <span class="mono">Worker_Base::execute()</span> prints the same <span class="mono">stopped mid-job (pump)</span> line for both outcomes, so the log settles neither.</p>
+    <div class="split">
+      <div class="dup"><h4>Arrives twice: plain <span class="mono">Worker_Should_Stop</span></h4>The cursor stands where it was and the successor replays. A duplicate means the node that finished the message never raised the clean subtype — it carries no <span class="mono">Deferred_Clean_Stop</span> bracket, or the chain writes durably with no snapshot node to speak for it and wants <span class="mono">cmd &lt;reader&gt;:config assume_clean_shutdown 1</span>.</div>
+      <div class="loss"><h4>Vanishes: <span class="mono">Worker_Should_Stop_Clean</span></h4>Commits the cursor past the message. A loss is the opposite error: the clean subtype was raised for a record nothing had forced to disk.</div>
+    </div>
+  </div>
+  <div class="card">
+    <h3>A long job runs twice and its worker's uptime resets underneath it</h3>
+    <p class="read">A peer stole the lock. A handler heartbeats only where it reaches <span class="mono">should_continue()</span> — <span class="mono">Event_Framework::pump()</span> at a fetch point, or the drain loop between messages — and one that reaches neither for a whole <span class="mono">stale_timeout</span> looks dead.</p>
+    <p class="read"><span class="mono">topologies/job-worker.tsl</span> carries <span class="mono">var stale_timeout = 600</span> for exactly that, against the <span class="mono">Lock_Node::STALE_TIMEOUT</span> default of <b>60</b>. A topology whose handlers block longer than its own <span class="mono">stale_timeout</span> needs a larger one, or a <span class="mono">pump()</span> call inside the handler.</p>
+  </div>
+</div>
+</div>

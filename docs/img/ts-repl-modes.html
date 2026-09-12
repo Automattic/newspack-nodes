@@ -1,0 +1,91 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.seq { position: relative; width: 1052px; }
+.seq svg.wire { position: absolute; left: 0; top: 0; }
+.seq .lane { position: absolute; top: 0; width: 244px; min-height: 112px; }
+.seq .lane h3 { font-size: 14.5px; }
+.seq .lane p { font-size: 12px; margin: 0; }
+.seq .hop { position: absolute; background: #fff; border: 1px solid #C3D3EC; border-radius: 7px;
+  padding: 9px 12px 9px 40px; font-size: 12.5px; line-height: 1.5; color: #101517; }
+.seq .hop.warn { border-color: #E6A3A3; }
+.seq .n { position: absolute; left: 10px; top: 9px; width: 22px; height: 22px; border-radius: 50%;
+  background: #003DA5; color: #fff; font-size: 12px; font-weight: 700; text-align: center; line-height: 22px; }
+.seq .panel { position: absolute; }
+.seq .panel header { position: relative; padding-left: 44px; font-size: 14px; }
+.seq .panel header .n { background: #fff; color: #003DA5; left: 12px; top: 8px; }
+.seq .panel .body { padding: 12px 14px 6px; }
+.seq .panel .chip { font-size: 12.5px; line-height: 1.45; padding: 7px 10px; }
+.seq .cap { position: absolute; font-size: 12px; color: #50575E; text-align: center; background: #FBFBFC; padding: 0 6px; white-space: nowrap; }
+.hop .k { color: #B32D2E; font-weight: 600; }
+.mono { overflow-wrap: anywhere; }
+.bare { display:flex; gap:14px; margin-top:16px; }
+.bare .card { flex:1; }
+.bare .card p { font-size:12.5px; }
+</style>
+<div class="sheet">
+<h1>A pivoted REPL is two partitions on disk, and a reply finds its way back by address alone</h1>
+<p class="sub">Attached to a worker, a line you type becomes a signed command appended to the worker's <span class="mono">input/</span> directory; the reply comes back through <span class="mono">output/</span> addressed to this session's pid. Nothing correlates the two but the FROM trail.</p>
+
+<div class="seq" id="seq">
+<svg class="wire" id="wire"><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs></svg>
+
+<div class="lane card" data-lane="0"><h3>Terminal</h3><p><span class="mono">TTY_In</span> reads the keyboard, or <span class="mono">fgets</span> a pipe; <span class="mono">_stdout</span> writes the reply.</p></div>
+<div class="lane card" data-lane="1"><h3>The cli's own graph</h3><p>An anonymous Shell, the <span class="mono">_shell</span> tap, <span class="mono">_command_interpreter</span>, <span class="mono">_router</span>, <span class="mono">_output</span> (a Dumper) and <span class="mono">_stdout</span>, in the wp-cli process.</p></div>
+<div class="lane card" data-lane="2"><h3><span class="mono">{base}/ipc/{type}.p{N}/</span></h3><p>Two Partitions: <span class="mono">input/</span>, which every attached session appends to, and <span class="mono">output/</span>, which the worker alone writes.</p></div>
+<div class="lane card" data-lane="3"><h3>The live worker</h3><p>Its anonymous input Consumer, its interpreter, and the <span class="mono">_repl</span> Partition.</p></div>
+
+<div class="panel" data-span="1,3">
+  <header><span class="n">0</span>Attaching resolves the worker in two steps, and a bad id is refused before either</header>
+  <div class="body">
+    <div class="chip"><span class="mono">{type}.p{N}</span> must parse, greedily, so a dotted topology name keeps its dots. Otherwise <span class="mono">invalid reader id: &lt;id&gt; (expected {type}.p{N})</span>.</div>
+    <div class="chip">Then <span class="mono">{base}/locks/{type}.p{N}.lock.d/</span> must exist, or failing that <span class="mono">Spawn_Coordinator::wake_sleeping_worker()</span> must answer, since an on-demand worker sleeps holding no lock. Otherwise <span class="mono">no worker '&lt;id&gt;' (run `wp nodes status` to list active workers)</span>.</div>
+    <div class="chip">Neither refusal creates a ghost IPC partition. Staleness is not blocked: a stale worker is mid-restart, and the cli works once a peer respawns it.</div>
+  </div>
+</div>
+
+<div class="hop" data-span="0,2"><span class="n">1</span>A line arrives as <span class="mono">TM_BYTESTREAM</span>. The Shell parses it, mints a <span class="mono">TM_COMMAND</span> stamped <span class="mono">FROM=_output/&lt;pid&gt;</span> and <span class="mono">TO={type}.p{N}</span> (the cwd), signs it under the per-site secret and marks it <span class="mono">LOCAL</span>. <span class="mono">posix_isatty( STDIN )</span>, resolved once per session, chooses readline over <span class="mono">fgets</span> and suppresses the prompt and trailing newline on a pipe; a build without ext/readline gives a terminal prompts through <span class="mono">show_prompt_fallback()</span> and no history or completion.</div>
+
+<div class="hop warn" data-arrow="1,2" data-cap="append ≤ 4096 B, no lock" data-span="1,4"><span class="n">2</span><span class="mono">_router</span> peels <span class="mono">{type}.p{N}</span> and the Partition named for the worker appends the packed record to <span class="mono">input/{seg}.log</span>. <span class="mono">build_repl_graph()</span> calls neither <span class="mono">allow_large_writes()</span> nor <span class="mono">void_warranty()</span> here, because several sessions append to one directory at once and an append under PIPE_BUF is atomic without a lock. <span class="k">Over <span class="mono">MAX_LINE_SIZE</span> (4096 bytes) — a large <span class="mono">send_node</span> or <span class="mono">send_struct</span> — the record is dropped with a rate-limited <span class="mono">WARNING: oversize:</span> on stderr, no error comes back, and the session looks unanswered.</span> Feed bulk in through a job or <span class="mono">wp nodes ingest</span>.</div>
+
+<div class="hop" data-arrow="2,3" data-cap="tail" data-span="2,4"><span class="n">3</span>The worker's input Consumer tails <span class="mono">input/</span> with a durable cursor in <span class="mono">input.offsets/</span> (a first spawn seeks to the end, a respawn resumes, so a command queued across a recycle still gets its reply), prepends <span class="mono">_repl</span> to FROM and hands the command to the interpreter, which verifies the signature and runs the verb in the worker's own event loop. <span class="mono">dump_node</span>, <span class="mono">connect_node</span> and <span class="mono">disconnect_node</span> act on the running graph with no restart.</div>
+
+<div class="hop" data-arrow="3,2" data-cap="TO = FROM" data-span="2,4"><span class="n">4</span>The reply is addressed <span class="mono">TO=_repl/_output/&lt;pid&gt;</span>. <span class="mono">_router</span> peels <span class="mono">_repl</span> and that Partition writes <span class="mono">output/</span> under <span class="mono">void_warranty()</span>: the worker is its only writer, so a whole <span class="mono">dump_metadata</span> fits. A verb that throws comes back the same way as <span class="mono">TM_COMMAND|TM_ERROR</span>.</div>
+
+<div class="hop" data-arrow="2,1" data-cap="tail, from the end" data-span="0,3"><span class="n">5</span>The cli's ephemeral Consumer (no offsetlog) tails <span class="mono">output/</span>, stamps <span class="mono">{type}.p{N}</span> on FROM and relays toward <span class="mono">_output</span>. The Dumper's TO filter matches <span class="mono">(?:_output/)?&lt;pid&gt;</span>, so every other session's reply falls through silently and an empty TO renders as an unaddressed broadcast. It carries the rendered line to <span class="mono">_stdout</span> by <span class="mono">target</span>, never down a sink chain (ADR-7); STDOUT on a pty is non-blocking because it shares STDIN's open file description, so <span class="mono">Stdout_Node::write_all()</span> waits for the buffer to drain rather than dropping. An error renders on stdout like any reply, so <span class="mono">wp nodes cli … | grep</span> sees it.</div>
+
+<div class="hop" data-arrow="1,0" data-cap="exit" data-span="0,4"><span class="n">6</span>On stdin EOF the cli mints a <span class="mono">TM_EOF</span> through the Shell; the receiving interpreter bounces it TO=FROM, the Dumper sees the echo and flips the exit flag. Pivoted, that round trip rides both partitions, so every earlier reply has been read off disk before the cli exits, with no <span class="mono">sleep</span> slack. A 5-second deadline is the fallback for a dead worker; the cli exits anyway once it passes.</div>
+</div>
+
+<div class="bare">
+  <div class="card"><h3>Bare: <span class="mono">wp nodes cli</span> with no worker</h3><p>The first two lanes alone: the same local nodes, no IPC pair, and every command runs in the wp-cli process at secure level 0. Use it to exercise interpreter verbs without touching a worker.</p></div>
+  <div class="card"><h3>Both refuse root</h3><p>Workers run as the web user and own their lock and IPC directories. A root cli would seed <span class="mono">{base}/ipc/{type}.p{N}/input/</span> as root, leaving the workers unable to append to their own IPC. Recover with <span class="mono">chown -R &lt;web-user&gt;:&lt;web-user&gt; {base}</span>.</p></div>
+  <div class="card"><h3>Many sessions, one worker</h3><p>Fine: each session's outbound Partition appends to the same <span class="mono">input/</span> atomically, and the pid filter in step 5 keeps each session's replies to itself.</p></div>
+</div>
+</div>
+<script>
+(function () {
+  var L = [131, 394, 657, 920], seq = document.getElementById('seq'), svg = document.getElementById('wire');
+  var NS = 'http://www.w3.org/2000/svg';
+  function el(t, a) { var e = document.createElementNS(NS, t); for (var k in a) e.setAttribute(k, a[k]); return e; }
+  var lanes = seq.querySelectorAll('.lane'), headBottom = 0;
+  lanes.forEach(function (c) { var i = +c.dataset.lane; c.style.left = (L[i] - 122) + 'px'; headBottom = Math.max(headBottom, c.offsetHeight); });
+  var y = headBottom + 18;
+  seq.querySelectorAll('[data-span]').forEach(function (b) {
+    var s = b.dataset.span.split(',').map(Number), x0 = L[s[0]] - 122, x1 = L[s[1]] - 10;
+    if (s[1] === 4) x1 = 1042;
+    if (b.dataset.arrow) {
+      var a = b.dataset.arrow.split(',').map(Number), ay = y + 22, dir = a[1] > a[0] ? 1 : -1;
+      svg.appendChild(el('path', { d: 'M' + L[a[0]] + ' ' + ay + ' H' + (L[a[1]] - 6 * dir), stroke: '#003DA5', 'stroke-width': 1.8, fill: 'none', 'marker-end': 'url(#a)' }));
+      var cap = document.createElement('div'); cap.className = 'cap'; cap.textContent = b.dataset.cap;
+      cap.style.top = (ay - 20) + 'px'; seq.appendChild(cap);
+      cap.style.left = ((L[a[0]] + L[a[1]]) / 2 - cap.offsetWidth / 2) + 'px';
+      y = ay + 10;
+    }
+    b.style.left = x0 + 'px'; b.style.width = (x1 - x0) + 'px'; b.style.top = y + 'px';
+    y += b.offsetHeight + 12;
+  });
+  var boxes = seq.querySelectorAll('[data-span]'), lastTop = boxes[boxes.length - 1].offsetTop;
+  seq.style.height = y + 'px'; svg.setAttribute('width', 1052); svg.setAttribute('height', y);
+  L.forEach(function (x) { svg.insertBefore(el('path', { d: 'M' + x + ' ' + (headBottom + 4) + ' V' + (lastTop - 4), stroke: '#B0B3B8', 'stroke-dasharray': '4 5', 'stroke-width': 1.5 }), svg.firstChild.nextSibling); });
+})();
+</script>

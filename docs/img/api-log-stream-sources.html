@@ -1,0 +1,71 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+h2 { font-size:15px; margin:0 0 8px; }
+.fam { display:flex; gap:10px; align-items:stretch; }
+.fam .f { flex:1; background:#fff; border:1px solid #C3D3EC; border-radius:7px; padding:9px 11px; font-size:12px; line-height:1.45; position:relative; padding-left:40px; }
+.fam .f .n { position:absolute; left:10px; top:9px; width:22px; height:22px; border-radius:11px; background:#003DA5; color:#fff; font-size:12px; font-weight:700; text-align:center; line-height:22px; }
+.fam .f b { display:block; color:#003DA5; font-size:12.5px; margin-bottom:2px; }
+.fam .f .mode { display:inline-block; margin-top:5px; font-size:11px; padding:2px 7px; border-radius:4px; background:#F0F4FB; border:1px solid #C3D3EC; color:#003DA5; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.arrowrow { text-align:center; color:#003DA5; font-size:12.5px; margin:8px 0; }
+.arrowrow b { color:#101517; }
+.entry { display:flex; gap:6px; }
+.entry div { flex:1; background:#F0F4FB; border:1px solid #C3D3EC; border-radius:6px; padding:7px 9px; font-size:11.5px; line-height:1.4; }
+.entry div b { display:block; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color:#003DA5; font-size:12.5px; margin-bottom:2px; }
+.modes { display:flex; gap:12px; margin-top:8px; }
+.modes > div { flex:1; border-radius:7px; padding:9px 11px; font-size:12px; line-height:1.45; border:1px solid #C3C4C7; background:#fff; }
+.modes > div b { display:block; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color:#003DA5; margin-bottom:3px; }
+.two { display:flex; gap:16px; margin-top:18px; align-items:stretch; }
+.two > * { flex:1; }
+.two .card p { font-size:12.5px; }
+.struct { background:#101517; color:#fff; border-radius:8px; padding:10px 13px; font-size:12px; line-height:1.6; margin:8px 0 10px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.struct .k { color:#A7D6A7; } .struct .c { color:#9BB7E6; }
+.errs div { background:#FBEAEA; border:1px solid #E6A3A3; border-radius:6px; padding:6px 9px; font-size:11.5px; line-height:1.4; color:#5C2223; margin-bottom:5px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.mono { overflow-wrap:anywhere; }
+.entry .mono { overflow-wrap:normal; white-space:nowrap; }
+</style>
+<div class="sheet">
+<h1>A log source is a registry name, never a path</h1>
+<p class="sub"><span class="mono">GET /log/stream</span> and the REPL's <span class="mono">taillog</span> verb read the same <span class="mono">Log_Sources</span> registry, so a caller has no traversal surface. Three families merge in priority order, each entry carries one of two tail modes, and one read model answers both single-step readers.</p>
+
+<h2>The registry: first name wins, then a realpath dedupe keeps the first</h2>
+<div class="fam">
+  <div class="f"><span class="n">1</span><b>Built-ins</b><span class="mono">php</span>, the ini <span class="mono">error_log</span>, only when it resolves to a real file; and <span class="mono">debug</span>, <span class="mono">WP_CONTENT_DIR/debug.log</span>. When <span class="mono">error_log</span> IS <span class="mono">debug.log</span>, the dedupe keeps <span class="mono">php</span>.<br><span class="mode">file</span> with <span class="mono">tail -F</span> logrotate semantics</div>
+  <div class="f"><span class="n">2</span><b>Config</b>Every <span class="mono">log_sources</span> entry, <span class="mono">name=/absolute/path</span>, one per line on the substrate settings page.<br><span class="mode">file</span></div>
+  <div class="f"><span class="n">3</span><b>Active topologies</b>Every <span class="mono">Log</span> node in an active topology's graph, its path template resolved per partition through <span class="mono">Core::resolve_partition_template</span>. Named by lowercased writes-basename, plus <span class="mono">.p{N}</span> when the template is per-partition and the basename carries no partition token. A broken topology is skipped, never a 500.<br><span class="mode">segmented</span>, <span class="mono">{file}.{seg}</span></div>
+</div>
+
+<div class="arrowrow">▼ &nbsp; <b><span class="mono">taillog sources</span></b> returns the merged catalog, one row per entry, for GUI pickers &nbsp; ▼</div>
+<div class="entry">
+  <div><b>name</b>the registry key a caller subscribes by</div>
+  <div><b>path</b>where it reads</div>
+  <div style="flex:1.7"><b>mode</b><span class="mono">file</span> or <span class="mono">segmented</span> (<span class="mono">Tail_Node::MODE_FILE</span>, <span class="mono">MODE_SEGMENTED</span>), exactly two strings, and the whole of what a client branches on</div>
+  <div><b>available</b>readable now; readability is this field's question alone</div>
+  <div style="flex:2"><b>bytes</b>what a tail would read: the newest segment, or the file. <span class="mono">null</span> when there is nothing to SIZE: no <span class="mono">{path}.{seg}</span> yet, not a file, or a failed <span class="mono">filesize()</span>. Never a synonym for <span class="mono">available === false</span>: a present but unreadable file still reports its size</div>
+  <div><b>segments</b>sorted <span class="mono">{ id, size }</span>; <span class="mono">[]</span> in file mode</div>
+</div>
+
+<h2 style="margin-top:18px"><span class="mono">Log_Sources::open_tail()</span>, the one place the mode token becomes a class</h2>
+<div class="modes">
+  <div><b>file → File_Tail_Node</b>Follows one filename with <span class="mono">tail -F</span> semantics. The file's INODE occupies the cursor's <span class="mono">segment</span> slot, so <span class="mono">&lt;inode&gt;:&lt;offset&gt;:&lt;length&gt;</span> rides the existing offsetlog frame; a mismatch re-seeks to 0 rather than read a rotated-away generation. <span class="mono">recent</span> folds to the start, since one file has no previous segment.</div>
+  <div><b>segmented → Tail_Node</b>Reads <span class="mono">{file}.{seg}</span> as a segment series. This is why <span class="mono">Tail_Node::node_schema()</span> declares no <span class="mono">mode</span> argument an operator could set: the registry entry decides.</div>
+</div>
+
+<div class="two">
+  <div class="card">
+    <h2>One read model, two verbs</h2>
+    <p><span class="mono">taillog read &lt;source&gt; &lt;position&gt;</span> and <span class="mono">raw-logs read_message &lt;log&gt; &lt;position&gt;</span> both run <span class="mono">Log_Sources::read_at()</span> and answer the same struct:</p>
+    <div class="struct">{ <span class="k">source</span>, <span class="k">message</span>, <span class="k">cursor</span>: { <span class="k">segment</span>, <span class="k">offset</span> }, <span class="k">at_eof</span> }<br><span class="c">// message: the packed 7-field Message</span><br><span class="c">// cursor: the POST-step position, where the next step resumes</span></div>
+    <p>A position is <span class="mono">&lt;segment&gt;:&lt;offset&gt;</span> with an optional <span class="mono">:&lt;length&gt;</span> that is tolerated and IGNORED, the reader knowing the record's real length, or one of <span class="mono">start</span>, <span class="mono">recent</span> and <span class="mono">end</span> (<span class="mono">Log_Sources::MAGIC_POSITIONS</span>, aliasing <span class="mono">Consumer_Node::SEEK_*</span>). The reader arrives already armed, so <span class="mono">read_at()</span> sinks its own <span class="mono">Callback_Node</span> and removes it in a <span class="mono">finally</span> on every exit; a reader left armed with no sink fires forever inside the worker's drain loop.</p>
+  </div>
+  <div class="card">
+    <h2>Failures come back as a STRING, not a throw</h2>
+    <div class="errs">
+      <div>&lt;verb&gt;: invalid position (want &lt;segment&gt;:&lt;offset&gt;[:&lt;length&gt;], start, recent or end)</div>
+      <div>&lt;verb&gt;: no record at &lt;source&gt; &lt;position&gt;</div>
+      <div>unknown log source … &nbsp;<span style="font-family:Inter,sans-serif">— <span class="mono">taillog read</span> only; <span class="mono">read_message</span> resolves an unknown key to a catalog key instead</span></div>
+    </div>
+    <p>Every caller handles string-or-array: the teaching error is the verb's successful TM_RESPONSE value, one of the deliberate exceptions to the rule that a refusal throws. The stream route needs none of this: an unknown <span class="mono">subscribe</span> name throws the same <span class="mono">unknown log source</span> error listing the names that exist, no globs are accepted because registry sources are fixed for the life of a stream, and Tail's missing-file grace covers a source that appears, rotates or truncates mid-stream.</p>
+    <p style="margin:0"><span class="mono">multi_writer</span> is accepted and inert here: the route registration is inherited unchanged, but a subscription resolves to a Tail, and the seal grace belongs to a Consumer.</p>
+  </div>
+</div>
+</div>

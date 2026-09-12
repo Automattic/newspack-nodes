@@ -1,0 +1,97 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.hosts { display: flex; gap: 16px; align-items: stretch; }
+.host { flex: 1; background: #fff; border: 1px solid #C3C4C7; border-radius: 9px; padding: 14px 16px 16px; display: flex; flex-direction: column; }
+.host h3 { font-size: 14px; margin: 0 0 3px; }
+.host .cap { font-size: 12px; color: #50575E; line-height: 1.45; margin: 0 0 12px; }
+.stack { border: 2px solid #003DA5; border-radius: 8px; overflow: hidden; }
+.stack > * + * { margin-top: 0; }
+.slot { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; font-size: 12px; line-height: 1.3; border-top: 1px solid #C3D3EC; }
+.slot:first-child { border-top: none; }
+.slot .px { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight: 700; color: #101517; margin-left: 10px; white-space: nowrap; }
+.slot.chrome { background: #F0F4FB; color: #50575E; }
+.slot.measured { background: #FFF6E5; color: #5C3D00; }
+.slot.measured .px { color: #8A5A00; }
+.slot.free { background: #EDF7ED; color: #1E5B1E; min-height: 88px; align-items: flex-start; flex-direction: column; justify-content: center; }
+.slot.free .px { margin: 4px 0 0; color: #1E5B1E; }
+.slot.handle { background: #FBEAEA; color: #5C2223; }
+.slot.handle .px { color: #B32D2E; }
+.formula { margin-top: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; line-height: 1.5; color: #101517; background: #F6F7F7; border: 1px solid #DCDCDE; border-radius: 6px; padding: 7px 10px; overflow-wrap: anywhere; }
+.host .note-p { font-size: 12px; color: #50575E; line-height: 1.45; margin: 10px 0 0; }
+.host .note-p:last-child { margin-bottom: 0; }
+.legend { display: flex; gap: 14px; margin: 0 0 14px; font-size: 11.5px; color: #50575E; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { display: inline-block; width: 14px; height: 12px; border-radius: 3px; border: 1px solid #C3C4C7; }
+.rowc { display: flex; gap: 16px; margin-top: 16px; align-items: stretch; }
+.rowc > * { flex: 1; }
+.card h3 { font-size: 14px; }
+.card .chip { font-size: 12px; line-height: 1.45; }
+.card .chip:last-child { margin-bottom: 0; }
+.mono { overflow-wrap: anywhere; }
+</style>
+<div class="sheet">
+<h1>A floating transcript's ceiling comes from a measured box, never from the viewport</h1>
+<p class="sub"><span class="mono">ReplFooter</span> accepts <span class="mono">maxHeightPx</span> and prefers it everywhere the ceiling is read: the drag, the keyboard nudge, double-click to maximize and the re-clamp on resize. Its viewport fallback is right only on a full-page console with exactly this chrome above it, so both hosts measure their own frame and hand the number in.</p>
+
+<div class="legend"><span><i style="background:#F0F4FB"></i> hard-coded chrome</span><span><i style="background:#FFF6E5"></i> measured</span><span><i style="background:#EDF7ED"></i> what the transcript may occupy</span><span><i style="background:#FBEAEA"></i> reserved for the resize handle</span></div>
+
+<div class="hosts">
+  <div class="host">
+    <h3>The fallback: <span class="mono">maxHeight()</span></h3>
+    <p class="cap">What the footer computes when no host hands it a ceiling.</p>
+    <div class="stack">
+      <div class="slot measured"><span><span class="mono">window.innerHeight</span></span><span class="px">viewport</span></div>
+      <div class="slot chrome"><span>WordPress admin bar</span><span class="px">32</span></div>
+      <div class="slot chrome"><span>station header</span><span class="px">64</span></div>
+      <div class="slot chrome"><span>tab bar</span><span class="px">40</span></div>
+      <div class="slot handle"><span>handle overhang, <span class="mono">RESIZE_HANDLE_OVERHANG_PX</span></span><span class="px">6</span></div>
+      <div class="slot free"><span>transcript ceiling</span><span class="px">innerHeight − 174 − 6, never under 80</span></div>
+      <div class="slot chrome"><span>prompt bar</span><span class="px">38</span></div>
+    </div>
+    <div class="formula">FIXED_CHROME_PX = 32 + 64 + 40 + 38 = 174</div>
+    <p class="note-p">Cannot see the TabHost bar the console really sits under, so it drifts the moment the frame moves.</p>
+  </div>
+
+  <div class="host">
+    <h3>Host A: the Topology Console, a station tab</h3>
+    <p class="cap"><span class="mono">replCeilingFromAppHeight( appHeight )</span> in <span class="mono">TopologyConsole.js</span>.</p>
+    <div class="stack">
+      <div class="slot measured"><span><span class="mono">.topology-app</span> <span class="mono">offsetHeight</span>, from a <span class="mono">ResizeObserver</span> through <span class="mono">useContainerRefit( appRef, measureApp, [ measureApp ], 0 )</span></span><span class="px">appHeight</span></div>
+      <div class="slot free"><span>grid row <span class="mono">1fr</span>: canvas, and the transcript over it</span><span class="px">appHeight − 38 − 0, never under 80</span></div>
+      <div class="slot handle"><span>handle: straddles the transcript's top border, costs nothing</span><span class="px">0</span></div>
+      <div class="slot chrome"><span>grid row <span class="mono">38px</span>: the REPL bar</span><span class="px">38</span></div>
+    </div>
+    <div class="formula">grid-template-rows: 1fr 38px<br>ceiling = max( 80, appHeight − CONSOLE_REPL_BAR_PX − CONSOLE_RESIZE_HANDLE_PX )</div>
+    <p class="note-p">No header term: the brand header belongs to the station, above the tabs. A <span class="mono">debounceMs</span> of 0 measures in the observation itself, after layout and before paint. Before layout it returns null and the footer keeps its own fallback.</p>
+  </div>
+
+  <div class="host">
+    <h3>Host B: the overlay's Console tab</h3>
+    <p class="cap"><span class="mono">replMaxHeight( frame.h, tabBarHeight )</span> in <span class="mono">InspectorTab.js</span>.</p>
+    <div class="stack">
+      <div class="slot measured"><span><span class="mono">frame.h</span>, the panel's live height from <span class="mono">useDebugFrame</span>: dragged by its header, resized from eight handles</span><span class="px">frame.h</span></div>
+      <div class="slot chrome"><span>panel header</span><span class="px">64</span></div>
+      <div class="slot measured"><span>tab bar: <span class="mono">measureTabBarHeight()</span> reads the <span class="mono">.nodes-tab-host__tabbar</span> sibling's <span class="mono">offsetHeight</span>, 0 when the host renders none</span><span class="px">measured</span></div>
+      <div class="slot handle"><span>resize handle, so full height does not clip it</span><span class="px">4</span></div>
+      <div class="slot free"><span>transcript ceiling</span><span class="px">frame.h − 64 − 38 − tabBar − 4, never under 80</span></div>
+      <div class="slot chrome"><span>prompt bar: the transcript's CSS anchor is <span class="mono">bottom: 38px</span>, the bar's rendered height, not a round 40</span><span class="px">38</span></div>
+    </div>
+    <div class="formula">Math.max( 80, frameHeight − 64 − 38 − tabBarHeight − 4 )</div>
+    <p class="note-p">Measures the one thing that can wrap to two rows. Both helpers take their input as an argument, so each is assertable without mounting the tab.</p>
+  </div>
+</div>
+
+<div class="rowc">
+  <div class="card">
+    <h3>The transcript reports back the other way</h3>
+    <div class="chip"><span class="mono">ReplFooter</span> calls <span class="mono">onOverlayHeightChange( px )</span> with the pixels its open transcript covers of the canvas, 0 while collapsed → both hosts feed it into <span class="mono">useGraphSurface</span>'s <span class="mono">transcriptOverlayPx</span> → the canvas reads it as <span class="mono">ChromeProvider</span>'s <span class="mono">bottomObstructionPx</span> → autofit fits the graph above the transcript.</div>
+    <div class="chip danger">A host that measures a ceiling and skips the callback ships a transcript covering nodes autofit still believes are clear. That is why <span class="mono">useChrome()</span> throws outside a <span class="mono">ChromeProvider</span> instead of defaulting the obstruction to zero.</div>
+  </div>
+  <div class="card">
+    <h3>What is shared across the two hosts</h3>
+    <div class="chip"><b>The dragged height</b> persists under one key, <span class="mono">newspack-nodes:topology-console:repl-height</span>: a resize on the console changes the height the overlay's Console tab opens at, and the reverse. One operator, one REPL habit.</div>
+    <div class="chip"><b>The camera</b> persists as a delta from autofit, <span class="mono">{ dcx, dcy, zoom }</span>, never an absolute viewBox: <span class="mono">{ 0, 0, 1 }</span> is autofit at any size, and a box without positive width and height or an unreadable zoom returns null rather than an infinite or mirrored view.</div>
+    <div class="chip"><b>Everything but the ceiling</b>: <span class="mono">ConsoleShell</span> owns the Header, canvas, footer order; <span class="mono">useGraphSurface</span> composes the collapse flags, overlay height and REPL state; <span class="mono">useCompletion</span> serves both prompts. Command history is free through <span class="mono">consolePersistence</span>; each host names its own transcript key.</div>
+  </div>
+</div>
+</div>

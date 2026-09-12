@@ -1,0 +1,112 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.g { position: relative; width: 1052px; height: 460px; }
+.g svg.wire { position: absolute; left: 0; top: 0; }
+.nd { position: absolute; background: #fff; border: 1px solid #C3D3EC; border-radius: 7px; padding: 7px 10px; font-size: 12px; line-height: 1.35; }
+.nd .t { display: block; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: #003DA5; font-weight: 700; font-size: 12.5px; }
+.nd .k { display: block; color: #50575E; font-size: 11.5px; }
+.nd.disk { border-style: dashed; border-color: #787C82; background: #F6F7F7; }
+.nd.disk .t { color: #101517; }
+.band { position: absolute; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: #787C82; }
+.frame { position: absolute; background: #fff; border: 2px solid #003DA5; border-radius: 9px; overflow: hidden; }
+.frame header { background: #003DA5; color: #fff; font-size: 12.5px; font-weight: 700; padding: 7px 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.frame .keys { padding: 9px 12px 10px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; line-height: 1.55; color: #50575E; }
+.frame .keys b { color: #101517; font-weight: 600; }
+.frame .keys .hi { background: #E8EEF9; border: 1px solid #003DA5; border-radius: 5px; padding: 4px 8px; display: block; margin-top: 5px; color: #003DA5; }
+.cap { position: absolute; font-size: 11.5px; color: #50575E; background: #FBFBFC; padding: 0 5px; white-space: nowrap; line-height: 1.3; text-align: center; }
+.mono { overflow-wrap: anywhere; }
+.cols { display: flex; gap: 16px; margin-top: 16px; align-items: stretch; }
+.cols > * { flex: 1; }
+.card h3 { font-size: 14px; }
+.step { display: flex; gap: 9px; align-items: flex-start; margin-bottom: 7px; }
+.step .n { flex: 0 0 auto; width: 19px; height: 19px; border-radius: 10px; background: #003DA5; color: #fff; font-size: 11.5px; font-weight: 700; text-align: center; line-height: 19px; margin-top: 1px; }
+.step .n.no { background: #B32D2E; }
+.step .t { font-size: 12.5px; line-height: 1.45; color: #50575E; }
+.step .t b { color: #101517; font-weight: 600; }
+</style>
+<div class="sheet">
+<h1>The worker writes a snapshot the web request reads</h1>
+<p class="sub">Four topology lines make an in-memory accumulator readable from another process: a Partition writes the log, a Consumer tails it back, and each checkpoint co-commits the digest's <span class="mono">save_state()</span> beside the read cursor. What a dashboard shows is the last frame, not the worker's memory.</p>
+
+<div class="g" id="g">
+<svg class="wire" id="wire" width="1052" height="460"><defs>
+<marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker>
+<marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#787C82"/></marker>
+</defs></svg>
+
+<div class="band" style="left:0;top:0">worker · example-ai-newsletter.p0</div>
+<div class="nd" id="scorer" style="left:0;top:26px;width:110px"><span class="t">scorer</span><span class="k">adds <span class="mono">score</span>, forwards</span></div>
+<div class="nd" id="part" style="left:150px;top:26px;width:186px"><span class="t">scored:partition</span><span class="k">Partition · <span class="mono">void_warranty</span> lifts the 4,096-byte record cap</span></div>
+<div class="nd disk" id="log" style="left:376px;top:26px;width:184px"><span class="t">logs/<wbr><span style="white-space:nowrap">example-scored.p0</span></span><span class="k">the durable log: packed records, segmented</span></div>
+<div class="nd" id="cons" style="left:600px;top:26px;width:186px"><span class="t">scored:consumer</span><span class="k">Consumer · tails the log, <span class="mono">fill()</span>s each record onward</span></div>
+<div class="nd" id="digest" style="left:826px;top:26px;width:226px"><span class="t">digest</span><span class="k">accumulates <span class="mono">$items</span>; <span class="mono">save_state()</span> returns <span class="mono">{ items }</span>, <span class="mono">restore_state()</span> takes it back</span></div>
+
+<div class="frame" id="frame" style="left:600px;top:172px;width:452px">
+  <header>offsets/example-scored.p0 · one checkpoint frame</header>
+  <div class="keys">
+    <b>segment</b>, <b>offset</b> — the read cursor<br>
+    attempts, reason, first_crash_ts — poison accounting<br>
+    name, target, targets, worker_type, source_log<br>
+    <span class="hi"><b>cache</b>: { <b>digest</b>: save_state() → { items: [ … ] } }</span>
+  </div>
+</div>
+
+<div class="band" style="left:0;top:172px">web request · any process</div>
+<div class="nd" id="ci" style="left:0;top:198px;width:250px"><span class="t">insights-demo · items()</span><span class="k">memoized once per request, shared by the three slice verbs</span></div>
+<div class="nd" id="read" style="left:290px;top:198px;width:270px"><span class="t">Partition_Node::<br>read_latest_snapshot_cache</span><span class="k">( offsets_dir, 'example-scored.p*', 'digest' ) globs the <span class="mono">p*</span> dirs, takes each newest frame, returns <span class="mono">cache['digest']['items']</span> flattened</span></div>
+
+<div class="band" style="left:0;top:322px">when a frame is written, and when it is not</div>
+<div class="nd" id="due" style="left:600px;top:348px;width:226px"><span class="t">every fire(): poll, then checkpoint()</span><span class="k">only once <span class="mono">CHECKPOINT_INTERVAL_S</span> = 30 s has passed since the last commit, and only if the cursor moved since it</span></div>
+<div class="nd" id="flush" style="left:0;top:348px;width:290px"><span class="t">request_node digest FLUSH</span><span class="k">empties <span class="mono">$items</span> in memory and moves no cursor, so no frame: the cards keep the pre-flush list until a new scored record advances the cursor</span></div>
+<div class="nd" id="grace" style="left:846px;top:348px;width:206px"><span class="t">clean shutdown</span><span class="k"><span class="mono">checkpoint( true )</span> writes whatever the cursor says, skipping the advance guard</span></div>
+<div class="nd" id="fresh" style="left:310px;top:348px;width:250px"><span class="t">freshness</span><span class="k">a consumed record waits up to one interval before any frame carries it</span></div>
+</div>
+
+<div class="cols">
+  <div class="card">
+    <h3>On respawn: cursor and state in lockstep</h3>
+    <div class="step"><div class="n">1</div><div class="t"><b><span class="mono">init_position()</span></b> reads the last frame, seeds the cursor, and calls <span class="mono">restore_state()</span> on every node <span class="mono">add_snapshot_node</span> named. The items and the cursor come from one record, so they cannot disagree.</div></div>
+    <div class="step"><div class="n no">!</div><div class="t"><b>A name that cannot restore degrades, never loses.</b> A node absent by the first poll, declaring no <span class="mono">restore_state()</span>, or with no blob in the frame logs a rate-limited <span class="mono">WARNING: snapshot node '&lt;name&gt;' missing, stateless, or absent from the frame; skipping its restore</span>. The blob is carried into every frame this reader writes from then on, until a live <span class="mono">save_state()</span> replaces it or a boot where the node exists restores it. A typo in the name reads as never restored, never lost, and that warning is its only symptom.</div></div>
+  </div>
+  <div class="card">
+    <h3>Keep the snapshot bounded</h3>
+    <div class="step"><div class="n">1</div><div class="t"><b>Every frame carries the whole <span class="mono">save_state()</span> payload</b> — no diff, no cap. The demo stays cheap because <span class="mono">FLUSH</span> empties <span class="mono">$items</span>; an accumulator that never drains makes every frame larger than the last. Drain it, cap it, or snapshot a summary.</div></div>
+    <div class="step"><div class="n">2</div><div class="t"><b><span class="mono">add_snapshot_node</span> lifts the offsetlog's own 4,096-byte cap</b> — the worker holding the topology lock is its sole writer — so an oversized frame is written rather than dropped. The cost is size, not loss.</div></div>
+    <div class="step"><div class="n">3</div><div class="t"><b>Both <span class="mono">void_warranty</span> lines lift the cap on a data log:</b> a scored batch on the partition, a composed draft on <span class="mono">digest:log</span>. Without them an oversize record is dropped whole, never truncated, and a flush reports <span class="mono">{ flushed: N }</span> while <span class="mono">digest.md.0</span> stays empty (ADR-4).</div></div>
+  </div>
+</div>
+</div>
+<script>
+(function () {
+  var g = document.getElementById('g'), svg = document.getElementById('wire'), NS = 'http://www.w3.org/2000/svg';
+  function el(t, a) { var e = document.createElementNS(NS, t); for (var k in a) e.setAttribute(k, a[k]); return e; }
+  function box(id) { var n = document.getElementById(id); return { x: n.offsetLeft, y: n.offsetTop, w: n.offsetWidth, h: n.offsetHeight }; }
+  function pt(b, s, f) { f = f === undefined ? 0.5 : f;
+    if (s === 'r') return [b.x + b.w, b.y + b.h * f]; if (s === 'l') return [b.x, b.y + b.h * f];
+    if (s === 't') return [b.x + b.w * f, b.y]; return [b.x + b.w * f, b.y + b.h]; }
+  function edge(e) {
+    var a = pt(box(e.from), e.fs, e.f0), b = pt(box(e.to), e.ts, e.f1), d, hz = 'lr'.indexOf(e.fs) >= 0, hz2 = 'lr'.indexOf(e.ts) >= 0;
+    if (hz && hz2) { var dx = (b[0] - a[0]) / 2; d = 'M' + a[0] + ' ' + a[1] + ' C' + (a[0] + dx) + ' ' + a[1] + ' ' + (b[0] - dx) + ' ' + b[1] + ' ' + b[0] + ' ' + b[1]; }
+    else if (!hz && !hz2) { var dy = (b[1] - a[1]) / 2; d = 'M' + a[0] + ' ' + a[1] + ' C' + a[0] + ' ' + (a[1] + dy) + ' ' + b[0] + ' ' + (b[1] - dy) + ' ' + b[0] + ' ' + b[1]; }
+    else if (hz) { d = 'M' + a[0] + ' ' + a[1] + ' H' + b[0] + ' V' + b[1]; }
+    else { d = 'M' + a[0] + ' ' + a[1] + ' V' + b[1] + ' H' + b[0]; }
+    svg.appendChild(el('path', { d: d, stroke: e.grey ? '#787C82' : '#003DA5', 'stroke-width': 1.7, fill: 'none', 'marker-end': e.grey ? 'url(#ag)' : 'url(#a)', 'stroke-dasharray': e.dash ? '4 4' : 'none' }));
+    if (e.label) { var c = document.createElement('div'); c.className = 'cap'; c.innerHTML = e.label; g.appendChild(c);
+      var mx = e.ax !== undefined ? e.ax : (a[0] + b[0]) / 2 + (e.lx || 0), my = e.ay !== undefined ? e.ay : (a[1] + b[1]) / 2 + (e.ly || 0);
+      c.style.left = (mx - c.offsetWidth / 2) + 'px'; c.style.top = (my - c.offsetHeight / 2) + 'px'; }
+  }
+  [
+    { from: 'scorer', fs: 'r', to: 'part', ts: 'l' },
+    { from: 'part', fs: 'r', to: 'log', ts: 'l', label: 'append', ly: -16 },
+    { from: 'log', fs: 'r', to: 'cons', ts: 'l', label: 'tail', ly: -16 },
+    { from: 'cons', fs: 'r', to: 'digest', ts: 'l', label: 'fill', ly: -16 },
+    { from: 'cons', fs: 'b', to: 'frame', ts: 't', f0: 0.3, f1: 0.12, label: 'checkpoint(): cursor', ax: 588, ay: 148 },
+    { from: 'digest', fs: 'b', to: 'frame', ts: 't', f0: 0.1, f1: 0.551, grey: true, dash: true, label: 'save_state() each frame', ax: 772, ay: 138 },
+    { from: 'frame', fs: 't', to: 'digest', ts: 'b', f0: 0.97, f1: 0.95, grey: true, dash: true, label: 'restore_state() on boot', ax: 944, ay: 150 },
+    { from: 'frame', fs: 'l', to: 'read', ts: 'r', f0: 0.45 },
+    { from: 'read', fs: 'l', to: 'ci', ts: 'r', label: 'items', ly: -14 },
+    { from: 'due', fs: 't', to: 'frame', ts: 'b', f0: 0.5, f1: 0.25, label: 'one frame', lx: 34 },
+    { from: 'grace', fs: 't', to: 'frame', ts: 'b', f0: 0.5, f1: 0.78, label: 'one frame', lx: 34 }
+  ].forEach(edge);
+})();
+</script>

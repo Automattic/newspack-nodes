@@ -1,0 +1,88 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.track { margin-bottom:16px; }
+.track h2 { font-size:14.5px; margin:0 0 6px; }
+.track h2 .w { font-weight:400; color:#50575E; font-size:12.5px; }
+.rail { display:flex; flex-wrap:wrap; align-items:stretch; row-gap:10px; }
+.rail .br { flex-basis:100%; height:0; }
+.st { flex:1 1 0; min-width:0; background:#fff; border:1px solid #C3C4C7; border-radius:7px; padding:7px 9px; font-size:11.5px; line-height:1.4; position:relative; }
+.st.hk { background:#F0F4FB; border-color:#003DA5; }
+.st.fl { background:#fff; border:1.5px dashed #003DA5; }
+.st .h { display:block; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:11px; color:#003DA5; font-weight:700; margin-bottom:2px; }
+.st .k { display:block; font-size:10.5px; color:#787C82; margin-bottom:2px; text-transform:uppercase; letter-spacing:.02em; }
+.st .a { color:#50575E; }
+.gap { flex:0 0 14px; display:flex; align-items:center; justify-content:center; color:#003DA5; font-size:13px; }
+.legend { display:flex; gap:18px; font-size:12px; color:#50575E; margin:0 0 14px; align-items:center; }
+.legend span { display:inline-flex; align-items:center; gap:6px; }
+.sw { width:14px; height:14px; border-radius:3px; border:1px solid #C3C4C7; background:#fff; }
+.sw.hk { background:#F0F4FB; border-color:#003DA5; }
+.sw.fl { border:1.5px dashed #003DA5; }
+.nw { white-space:nowrap; }
+.else { display:flex; gap:10px; }
+.else > div { flex:1; background:#F6F7F7; border:1px solid #DCDCDE; border-radius:7px; padding:8px 10px; font-size:11.5px; line-height:1.4; }
+.else b { display:block; font-size:12px; color:#101517; margin-bottom:3px; }
+.else .h { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color:#003DA5; font-weight:700; }
+</style>
+<div class="sheet">
+<h1>Where each hook fires: four timelines and the order along each</h1>
+<p class="sub">Every <span class="mono">newspack_nodes/*</span> action and filter, placed on the request, the cron pass, the spawn and the job it rides. Read each rail left to right, a wrapped rail continuing on its second row; a station is a step of the substrate's own, a solid blue one an action, a dashed one a filter.</p>
+<div class="legend"><span><span class="sw"></span>substrate step</span><span><span class="sw hk"></span>action</span><span><span class="sw fl"></span>filter</span></div>
+
+<div class="track">
+  <h2>A command request <span class="w">— <span class="mono">POST /command</span>, or any other command door, such as event-logger-nodes' MCP route</span></h2>
+  <div class="rail">
+    <div class="st"><span class="k">WordPress</span><span class="h" style="color:#101517">rest_api_init</span><span class="a"><span class="mono">register_rest_routes()</span>: <span class="mono">/health/cache</span> first, then the five</span></div><div class="gap">›</div>
+    <div class="st hk"><span class="k">first Config read, inside rest_api_init at the latest; again on any miss</span><span class="h">declare_config_keys</span><span class="a"><span class="mono">ensure_diagnostics_wired()</span> reads <span class="mono">spawn_verify_ssl</span>; a callback calls <span class="mono">Config::register_keys()</span> and nothing else</span></div><div class="gap">›</div>
+    <div class="st fl"><span class="k">permission</span><span class="h">capability_map</span><span class="a"><span class="mono">Capabilities::can( READ )</span> resolves the role through it; a partial map throws here and nothing catches it: a 500</span></div><div class="gap">›</div>
+    <div class="st fl"><span class="k">permission</span><span class="h">command_rate_limit</span><span class="a">the per-user burst, clamped to at least 1</span></div><div class="gap">›</div>
+    <div class="br"></div>
+    <div class="st hk"><span class="k">mount_request_graph()</span><span class="h">request_graph_ready</span><span class="a"><span class="mono">$base_interpreter</span>; mount service CIs with its <span class="mono">make_node()</span></span></div><div class="gap">›</div>
+    <div class="st fl"><span class="k">per command, in require()</span><span class="h">capability_map</span><span class="a">again, for the verb's declared role; here <span class="mono">interpret()</span> catches the throw as TM_ERROR</span></div><div class="gap">›</div>
+    <div class="st"><span class="k">the handler</span><span class="h" style="color:#101517">the verb runs</span><span class="a">and fires its own; see below</span></div><div class="gap">›</div>
+    <div class="st hk"><span class="k">any Core::stderr()</span><span class="h">stderr</span><span class="a">beside the handler, under the same re-entry guard</span></div><div class="gap"></div>
+  </div>
+  <p style="font-size:11.5px;color:#50575E;margin:6px 0 0">Fired by verbs: <span class="mono">vault/changed</span> on any credential write; <span class="mono">restart_fleet</span> once per AFFECTED fleet on a topology save or delete; the <span class="mono">topologies</span> filter under the <span class="mono">topologies</span> CI and <span class="mono">segment_size_overrides</span> wherever <span class="mono">collect_dump_metadata()</span> runs, under <span class="mono">workers dump_graph</span> and in <span class="mono">Alerts::evaluate()</span> on the periodic tick; <span class="mono">config_reset</span> when <span class="mono">settings set</span> changes a value.</p>
+</div>
+
+<div class="track">
+  <h2>The reconcile pass <span class="w">— WP-Cron, every 60 s on <span class="mono">newspack_nodes_minute</span>; each step behind its own catch, so one bad provider cannot cost the others their window</span></h2>
+  <div class="rail">
+    <div class="st hk"><span class="k">the cron event itself</span><span class="h">reconcile</span><span class="a"><span class="mono">Bootstrap::<wbr>reconcile_fleet()</span> is its handler; a subsite, a refused base or a disabled fleet returns before anything below</span></div><div class="gap">›</div>
+    <div class="st hk"><span class="k">step: before</span><span class="h">before_reconcile</span></div><div class="gap">›</div>
+    <div class="st fl"><span class="k">step: spawn, then backlog-wake</span><span class="h">topologies</span><span class="a"><span class="mono">expand_workers()</span> asks it what to spawn; an empty result on a pass after one that saw workers retires the WHOLE fleet</span></div><div class="gap">›</div>
+    <div class="st"><span class="k">step: lock-dirs</span><span class="h" style="color:#101517">reconcile_lock_dirs()</span></div><div class="gap">›</div>
+    <div class="br"></div>
+    <div class="st fl"><span class="k">step: retention</span><span class="h">registered_log_producers</span><span class="a">a template resolving to no dir anywhere in the range skips the whole sweep, <span class="mono">offsets/</span> included</span></div><div class="gap">›</div>
+    <div class="st"><span class="k">step: orphan-ipc</span><span class="h" style="color:#101517">cleanup_orphan_ipc()</span></div><div class="gap">›</div>
+    <div class="st hk"><span class="k">step: periodic</span><span class="h">periodic</span><span class="a">ONE step for every subscriber: a throwing one takes every later subscriber's window. <span class="mono">Alerts::emit()</span> and <span class="mono">Job_Delay::<wbr>sweep_action()</span> ride it</span></div><div class="gap">›</div>
+    <div class="st hk"><span class="k">finally</span><span class="h">after_reconcile</span></div><div class="gap"></div>
+  </div>
+</div>
+
+<div class="track">
+  <h2>A spawn <span class="w">— <span class="mono">POST /workers/spawn</span></span></h2>
+  <div class="rail">
+    <div class="st fl"><span class="k">route validate_callback, then validate_partition()</span><span class="h">topologies</span><span class="a"><span class="mono">expand_workers()</span> decides which types and partitions exist</span></div><div class="gap">›</div>
+    <div class="st"><span class="k">spawn()</span><span class="h" style="color:#101517">three refusals</span><span class="a">400 · 409 · 429, then the throttle record and the <span class="mono">$_SERVER</span> tags</span></div><div class="gap">›</div>
+    <div class="st hk"><span class="k">( string $type, int $partition )</span><span class="h">spawn_worker</span><span class="a">build the worker and <span class="mono">execute()</span> it; <span class="mono">Topology_Registry::<wbr>spawn_worker</span> already answers for every active topology</span></div><div class="gap">›</div>
+    <div class="st"><span class="k">595 s later</span><span class="h" style="color:#101517">200</span></div>
+  </div>
+</div>
+
+<div class="track">
+  <h2>A job <span class="w">— inside a <span class="mono">Job_Worker_Node</span></span></h2>
+  <div class="rail">
+    <div class="st fl"><span class="k">constructor</span><span class="h">job_handlers · remote_job_handlers</span><span class="a">the entry's <span class="mono">k</span> picks the map; a bad name or a non-callable is skipped, never refused</span></div><div class="gap">›</div>
+    <div class="st fl"><span class="k">( bool $run, $handler, $id, $message )</span><span class="h">job_worker/before_job</span><span class="a">only an explicit <span class="mono">false</span> declines; a listener's throw is logged, the handler skipped and the batch still settled</span></div><div class="gap">›</div>
+    <div class="st"><span class="k">( string $id, array $parameters )</span><span class="h" style="color:#101517">the handler</span><span class="a">a throw is poison, or a re-park when the entry opted into retries</span></div><div class="gap">›</div>
+    <div class="st hk"><span class="k">finally: ( $handler, $id, <span class="nw">?array $outcome</span> )</span><span class="h">job_worker/after_job</span><span class="a">after a success, a throw or a decline; a listener's throw cannot mask the job's</span></div><div class="gap">›</div>
+    <div class="st hk"><span class="k">when the batch counter reaches 0</span><span class="h">job_worker/batch_complete</span><span class="a"><span class="mono">( string $batch )</span>; a poisoned, retry-scheduled or declined job leaves its batch open</span></div>
+  </div>
+</div>
+
+<div class="else">
+  <div><b>Settings</b><span class="h">settings_sync/value</span> on every push a hub makes, <span class="mono">( $value, $option )</span>, a requirement for any option that can be absent; <span class="h">settings_audit_values_allowlist</span> when a watched option is written, the vault option refused before it runs; <span class="h">config_reset</span> from <span class="mono">Config::reset()</span>.</div>
+  <div><b>Admin</b><span class="h">station_tab_bundles</span> when the station renders; <span class="h">overlay_pages</span> when the debug overlay asks where to mount; <span class="h">settings_after_form</span> below the settings form.</div>
+  <div><b>From a topology</b><span class="h">Hook_Node</span> fires whatever name its <span class="mono">hook_name</span> carries, VALUE alone as the one argument, so a topology adds names to this list at runtime; <span class="h">Newspack_Log_Node</span> fires Newspack Manager's <span class="mono">newspack_log</span>.</div>
+</div>
+</div>

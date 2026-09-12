@@ -1,0 +1,66 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.steps { display:flex; gap:0; align-items:stretch; }
+.steps .st { flex:1; }
+.steps .st h3 { font-size:14.5px; }
+.steps .st p { font-size:12.3px; }
+.cmd { font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:12px; background:#101517; color:#fff; border-radius:6px; padding:8px 10px; line-height:1.5; margin:0 0 10px; overflow-wrap:anywhere; }
+.cmd .c1 { color:#8FB6F0; } .cmd .c2 { color:#A7D6A7; } .cmd .c3 { color:#F5C77E; }
+.arrow { flex:0 0 46px; display:flex; align-items:center; justify-content:center; }
+.map { width:100%; border-collapse:collapse; font-size:12px; margin:6px 0 10px; }
+.map td { padding:4px 8px; border-bottom:1px solid #E3E4E6; color:#50575E; }
+.map td:first-child { font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color:#101517; }
+.map th { text-align:left; font-weight:600; font-size:11px; color:#787C82; padding:2px 8px 4px; border-bottom:1px solid #C3C4C7; }
+.map td.gate { font-size:11.5px; line-height:1.35; }
+.map td.new { color:#1E5B1E; font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.halves { display:flex; gap:10px; margin-top:8px; }
+.halves > div { flex:1; border-radius:6px; padding:8px 10px; font-size:11.8px; line-height:1.45; }
+.halves .yes { background:#EDF7ED; border:1px solid #9EC89E; color:#2B5F2B; }
+.halves .no { background:#FBEAEA; border:1px solid #E6A3A3; color:#5C2223; }
+.halves b { display:block; font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:12px; margin-bottom:3px; }
+.two { display:flex; gap:18px; margin-top:20px; align-items:stretch; }
+.two > * { flex:1; }
+.two p { font-size:12.3px; }
+</style>
+<div class="sheet">
+<h1>The capability swap, the hub user, and what uninstalling takes down</h1>
+<p class="sub">Three roles resolve to <span class="mono">manage_options</span> until <span class="mono">caps install</span> moves them onto real capabilities. Only then can <span class="mono">hub-user</span> mint a credential narrower than everything, and <span class="mono">caps uninstall</span> later revokes every such credential at once.</p>
+
+<div class="steps">
+  <div class="st card">
+    <h3>1. <span class="mono">wp nodes caps install</span></h3>
+    <table class="map">
+      <tr><th>role</th><th>gates</th><th>manage_options →</th></tr>
+      <tr><td>read</td><td class="gate">dashboards, SSE streams, read-only introspection</td><td class="new">newspack_nodes_read</td></tr>
+      <tr><td>tune</td><td class="gate">settings and application data</td><td class="new">newspack_nodes_tune</td></tr>
+      <tr><td>manage</td><td class="gate">fleet control, the credential vault, command sessions</td><td class="new">newspack_nodes_manage</td></tr>
+    </table>
+    <p>Grants all three to every role holding <span class="mono">manage_options</span> at that moment, and creates the <span class="mono">newspack_nodes_hub</span> role carrying read and tune alone. Every action ends by printing the map under two lines a host can answer differently:</p>
+    <div class="halves">
+      <div class="yes"><b>granular: yes</b>The capability grants stand on every host.</div>
+      <div class="no"><b>hub role: absent</b>A managed host reverts a role it did not sanction. <span class="mono">install</span> warns and names the direct grants step 2 makes instead. A supported deployment, not a broken install.</div>
+    </div>
+    <p style="margin-top:8px">It reads the roles table once, when it runs: re-run it after adding a role that holds <span class="mono">manage_options</span>, or that role holds none of the three and every gated surface refuses it. A re-run is idempotent, adding the missing grants and changing nothing else. The one thing a re-run cannot repair is a hand-edited hub role: off VIP <span class="mono">add_role()</span> returns null on an existing slug, so only <span class="mono">uninstall</span> then <span class="mono">install</span> rebuilds it.</p>
+  </div>
+  <div class="arrow"><svg width="30" height="20"><path d="M0 10 H24" stroke="#003DA5" stroke-width="2"/><path d="M18 3 L28 10 L18 17" fill="none" stroke="#003DA5" stroke-width="2"/></svg></div>
+  <div class="st card">
+    <h3>2. <span class="mono">wp nodes hub-user &lt;login&gt;</span></h3>
+    <div class="cmd"><span class="c1">wp nodes hub-user</span> newspack-nodes-hub<br><span class="c3">Warning:</span> Shown once. Store it in the hub Vault entry for this spoke.</div>
+    <p>Refused until step 1 has run: before the swap the hub role still resolves to <span class="mono">manage_options</span> and the credential would hold everything.</p>
+    <p>It creates, or converts, the least-privilege user an aggregator authenticates as, and grants <span class="mono">newspack_nodes_read</span> and <span class="mono">newspack_nodes_tune</span> to the USER directly, and that grant is the credential's authority: a user capability lives in the user's own meta and never consults <span class="mono">WP_Roles</span>, which is what <span class="mono">Capabilities::can()</span> reads. The role goes on top only where the host carries it, removing the account's every other role, since <span class="mono">set_role()</span> replaces the whole map and the grants follow it.</p>
+    <p>The role carries no WordPress <span class="mono">read</span>, so the account is REST-only: no wp-admin, no profile screen, and its credential can be issued only here. Every run mints a new password, shown once and kept nowhere readable: it never looks for one under the same label and never revokes one, so a second run against a lost password leaves two live credentials on a user whose credential is permanent by design. Retire the old one with <span class="mono">wp user application-password delete</span>, or pass <span class="mono" style="white-space:nowrap">--no-password</span>, which creates or re-roles the user without minting one. <span class="mono" style="white-space:nowrap">--email</span> sets a new user's address (default <span class="mono">&lt;login&gt;@&lt;site host&gt;</span>); <span class="mono" style="white-space:nowrap">--name</span> labels the password (default <span class="mono">newspack-nodes hub</span>).</p>
+  </div>
+</div>
+
+<div class="two">
+  <div class="callout">
+    <h4><span class="mono">wp nodes caps uninstall</span> reaches every hub credential in the fleet</h4>
+    <p>It deletes the switch option FIRST, so the map is back on <span class="mono">manage_options</span> before the capabilities it named disappear; then it strips <span class="mono">newspack_nodes_{read,tune,manage}</span> from every role in the table, hand-made grants included, and removes the <span class="mono">newspack_nodes_hub</span> role outright.</p>
+    <p>Each aggregator user keeps its two direct capabilities and the role name in its meta, and both resolve to nothing on the <span class="mono">manage_options</span> map: every hub application password stops authorizing and each spoke starts answering 403. Nothing warns and nothing enumerates those users first. <span class="mono">uninstall.php</span> makes the same call, so deleting the plugin takes the hub credentials with it.</p>
+  </div>
+  <div class="ok">
+    <h4>Recovery, and the safe order</h4>
+    <p><span class="mono">wp nodes caps install</span> swings the map back and revives the hub users off the capabilities they still hold. Short of that, give each hub user a real role before uninstalling. Where the hub role does not exist, an account bound to it alone would hold nothing: <span class="mono">WP_User::get_role_caps()</span> filters the role straight back out, and the credential is refused at <span class="mono">can( READ )</span> — a 401 that reads as a bad credential. The direct grants are what keep it working.</p>
+  </div>
+</div>
+</div>

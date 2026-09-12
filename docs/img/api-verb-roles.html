@@ -1,0 +1,94 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.mx { display:grid; grid-template-columns: 200px 1fr; gap:6px 10px; align-items:start; }
+.mx .ci { font-size:12.5px; padding:7px 10px; background:#EDEFF2; border-radius:6px; line-height:1.35; }
+.mx .ci .cls { display:block; font-size:10.5px; color:#787C82; }
+.mx .vs { display:flex; flex-wrap:wrap; gap:5px; align-items:center; }
+.v { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:11.5px; padding:4px 8px; border-radius:5px; border:1px solid #C3D3EC; background:#F0F4FB; color:#003DA5; }
+.v.tune { background:#fff; border:1.5px solid #003DA5; color:#003DA5; font-weight:700; }
+.v.manage { background:#003DA5; border-color:#003DA5; color:#fff; }
+.v.help { background:#003DA5; border-color:#003DA5; color:#fff; opacity:.55; }
+.v.note { font-family:Inter, sans-serif; color:#50575E; background:transparent; border:none; padding:0 2px; font-size:11.5px; }
+.legend { display:flex; gap:16px; align-items:center; font-size:12px; color:#50575E; margin:0 0 14px; flex-wrap:wrap; }
+.legend .v { cursor:default; }
+.two { display:flex; gap:16px; margin-top:18px; align-items:stretch; }
+.two > * { flex:1; }
+.two .card p { font-size:12.5px; }
+.lad { display:flex; gap:6px; align-items:flex-end; margin:8px 0 10px; }
+.lad .s { flex:1; background:#F0F4FB; border:1px solid #C3D3EC; border-radius:6px; padding:8px 10px; font-size:12px; line-height:1.4; }
+.lad .s b { display:block; color:#003DA5; margin-bottom:2px; }
+.lad .s:nth-child(1) { min-height:74px; } .lad .s:nth-child(2) { min-height:96px; } .lad .s:nth-child(3) { min-height:118px; }
+.mono { overflow-wrap:anywhere; }
+.lad .mono { overflow-wrap:normal; white-space:nowrap; }
+.two .card.ladder { flex:1.25; }
+</style>
+<div class="sheet">
+<h1>Who may call what: every service verb and the role it declares</h1>
+<p class="sub">Passing the door proves <span class="blue">read</span>, the floor. Authority is then decided per verb: each service CI declares a role in its <span class="mono">node_schema()</span>, and <span class="mono">Service_CI_Node</span> wraps the handler in <span class="mono">Capabilities::require()</span> at INSTALL. A verb that declares nothing demands <span class="blue">manage</span>, the strictest role, not the loosest.</p>
+
+<div class="legend">
+  <span class="v">read</span> declared read
+  <span class="v tune">tune</span> declared tune
+  <span class="v manage">manage</span> declared manage, or declared nothing
+  <span class="v help">help</span> seeded by the base at manage
+</div>
+<p style="font-size:12px;color:#50575E;margin:-6px 0 14px">Every CI answers <span class="mono">help</span>, which <span class="mono">Service_CI_Node::commands()</span> seeds gated at manage before the parent can inject an ungated one; it returns that interpreter's own verb names, sorted. No substrate CI declares it in its schema, so a caller holding read alone, the log aggregator's hub user among them, is refused <span class="mono">help</span> on every service CI while the base interpreter answers it at read.</p>
+
+<div class="mx">
+  <div class="ci">classes<span class="cls">Classes_CI_Node</span></div>
+  <div class="vs"><span class="v">dump</span><span class="v help">help</span></div>
+
+  <div class="ci">layouts<span class="cls">Layouts_CI_Node</span></div>
+  <div class="vs"><span class="v">get</span><span class="v tune">save</span><span class="v help">help</span></div>
+
+  <div class="ci">topologies<span class="cls">Topologies_CI_Node</span></div>
+  <div class="vs"><span class="v">dump</span><span class="v">get</span><span class="v">expand</span><span class="v manage">save</span><span class="v manage">delete</span><span class="v manage">activate</span><span class="v manage">deactivate</span><span class="v manage">connect_worker_input</span><span class="v help">help</span></div>
+
+  <div class="ci">raw-logs<span class="cls">Raw_Logs_CI_Node</span></div>
+  <div class="vs"><span class="v">list_logs</span><span class="v">dump_log</span><span class="v">read_message</span><span class="v help">help</span><span class="v note">read reaches the raw firehose record by record</span></div>
+
+  <div class="ci">vault<span class="cls">Vault_CI_Node</span></div>
+  <div class="vs"><span class="v manage">list</span><span class="v manage">get</span><span class="v manage">add</span><span class="v manage">update</span><span class="v manage">delete</span><span class="v manage">test</span><span class="v help">help</span></div>
+
+  <div class="ci">aggregator<span class="cls">Aggregator_CI_Node</span></div>
+  <div class="vs"><span class="v">summary</span><span class="v">list_servers</span><span class="v manage">probe</span><span class="v help">help</span><span class="v note">probe is an on-demand per-spoke deep roll-up</span></div>
+
+  <div class="ci">settings<span class="cls">Settings_CI_Node</span></div>
+  <div class="vs"><span class="v">get</span><span class="v tune">set</span><span class="v help">help</span></div>
+
+  <div class="ci">status<span class="cls">Status_CI_Node</span></div>
+  <div class="vs"><span class="v">get</span><span class="v help">help</span></div>
+
+  <div class="ci">sessions<span class="cls">Sessions_CI_Node</span></div>
+  <div class="vs"><span class="v manage">list</span><span class="v manage">create</span><span class="v manage">revoke</span><span class="v help">help</span><span class="v note">issuing one hands out access</span></div>
+
+  <div class="ci">workers<span class="cls">Workers_CI_Node</span></div>
+  <div class="vs"><span class="v">list</span><span class="v">dump_graph</span><span class="v">dump_cleanup</span><span class="v">heartbeat</span><span class="v manage">restart</span><span class="v help">help</span><span class="v note">heartbeat at read keeps read-only streams alive</span></div>
+
+  <div class="ci" style="background:#E8EEF9">the root, empty TO<span class="cls">Command_Interpreter_Node</span></div>
+  <div class="vs"><span class="v">pwd</span><span class="v">list_nodes</span><span class="v">ls</span><span class="v">list_timers</span><span class="v">list_handles</span><span class="v">list_profiles</span><span class="v">dmesg</span><span class="v">taillog</span><span class="v">dump_node</span><span class="v">dump</span><span class="v">dump_config</span><span class="v">dump_metadata</span><span class="v">stats</span><span class="v">uptime</span><span class="v">help</span>
+  <span class="v manage">secure</span><span class="v manage">insecure</span><span class="v manage">make_node · make</span><span class="v manage">set_sink</span><span class="v manage">connect_node · connect</span><span class="v manage">disconnect_node · disconnect</span><span class="v manage">register</span><span class="v manage">unregister</span><span class="v manage">move_node · move · mv</span><span class="v manage">remove_node · remove · rm</span><span class="v manage">profile</span><span class="v manage">log</span><span class="v manage">trace</span><span class="v manage">reply_to</span></div>
+</div>
+<p style="font-size:12px;color:#50575E;margin:8px 0 0">The root table is pinned at <span class="blue">manage</span> by <span class="mono">ensure_request_graph()</span>, with the fifteen read-only builtins every dashboard drives excepted, because the strictest verb must not set the privilege level of every caller: the log aggregator would otherwise hold an administrator's application password to pull a read-only stream. <span class="mono">help &lt;NodeType&gt;</span> resolves the same class table as <span class="mono">make_node</span>. Application plugins mount further CIs on the same endpoint; TO alone distinguishes them, with no substrate-versus-application namespacing.</p>
+
+<div class="two">
+  <div class="card">
+    <h3>Gated at install, never at dispatch</h3>
+    <p><span class="mono">commands( $table )</span> wraps every entry of every table handed to it for the role the concrete class's schema declares under that verb NAME, and manage for a name the schema does not declare, so a table replaced after construction is still gated at the declaration's role. Called with no argument it is a read and re-wraps nothing, so a second check never stacks.</p>
+    <p style="margin:0">A refusal THROWS <span class="mono">permission denied: &lt;role&gt; capability required</span>, and <span class="mono">interpret()</span> wraps it as <span class="mono">TM_COMMAND|TM_ERROR</span>. A scoped session lowers the ceiling for one command and can only subtract.</p>
+  </div>
+  <div class="card">
+    <h3>Shell builtins mint nothing, or address elsewhere</h3>
+    <p><span class="mono">Shell_Node</span> intercepts its own before any of the above: <span class="mono">cd</span> (<span class="mono">chdir</span>), <span class="mono">include</span>, <span class="mono">var</span>, <span class="mono">print</span>, <span class="mono">clear</span>, <span class="mono">debug_level</span>, <span class="mono">status</span> and <span class="mono">show_parse</span> change REPL state and mint no command; <span class="mono">command_node</span>, <span class="mono">request_node</span>, <span class="mono">ping</span>, <span class="mono">tell_node</span>, <span class="mono">send_node</span>, <span class="mono">send_struct</span> and <span class="mono">send_eof</span> mint a message addressed elsewhere rather than dispatching under their own name.</p>
+  </div>
+  <div class="card ladder">
+    <h3>The <span class="mono">secure</span> ladder climbs and never descends</h3>
+    <div class="lad">
+      <div class="s"><b>level 1</b>disables the <span class="mono">make_node</span> class: make, move and remove, with their aliases</div>
+      <div class="s"><b>level 2</b>adds the <span class="mono">command_node</span> class: <span class="mono">reply_to</span></div>
+      <div class="s"><b>level 3</b>adds the <span class="mono">connect_node</span> class: connect, disconnect, <span class="mono">set_sink</span>, <span class="mono">register</span>, <span class="mono">unregister</span></div>
+    </div>
+    <p style="margin:0">It freezes definitions and never disables the machine: reads still read and wired flow still flows. A node classifies its own verbs through <span class="mono">node_schema()['verb_classes']</span>, so a consumer plugin joins a class without editing the substrate.</p>
+  </div>
+</div>
+</div>

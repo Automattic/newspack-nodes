@@ -1,0 +1,93 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.sig { display:flex; align-items:stretch; gap:8px; }
+.sig .br { font-family:ui-monospace, Menlo, monospace; font-size:26px; color:#787C82; align-self:center; }
+.sig .s { flex:1; border-radius:8px; padding:9px 10px; font-size:12px; line-height:1.4; text-align:center; }
+.sig .s b { display:block; font-family:ui-monospace, Menlo, monospace; font-size:13px; margin-bottom:3px; }
+.sig .in { background:#E8EEF9; border:1px solid #003DA5; color:#101517; }
+.sig .out { background:#F6F7F7; border:1px dashed #B0B3B8; color:#787C82; }
+.tiers { display:flex; gap:16px; margin-top:16px; align-items:stretch; }
+.tier { flex:1; border-radius:10px; overflow:hidden; background:#fff; border:2px solid #003DA5; }
+.tier > header { background:#003DA5; color:#fff; padding:9px 16px; font-size:14px; font-weight:700; }
+.tier > header .mono { font-weight:400; opacity:.9; }
+.tier .body { padding:12px 16px; }
+.tier p { font-size:12.5px; color:#50575E; margin:0 0 7px; line-height:1.5; }
+.tier p:last-child { margin-bottom:0; }
+.chk { display:flex; flex-wrap:wrap; gap:6px; margin:6px 0 8px; }
+.chk > span { background:#F0F4FB; border:1px solid #C3D3EC; border-radius:5px; padding:5px 8px; font-size:11.5px; line-height:1.35; flex:1 1 45%; }
+.keys { display:flex; gap:16px; margin-top:16px; align-items:stretch; }
+.keys > div { flex:1; }
+.keys .card h3 { font-size:14px; }
+.keys .card p { font-size:12px; }
+.rej { margin-top:16px; display:flex; flex-wrap:wrap; gap:10px; }
+.rej .callout { flex:1 1 30%; padding:10px 12px; }
+.rej .callout h4 { font-size:12.5px; margin-bottom:4px; }
+.rej .callout p { font-size:11.5px; }
+.mono { overflow-wrap:anywhere; }
+</style>
+<div class="sheet">
+<h1>The minter signs, the ingress only verifies, and which key signs is the destination</h1>
+<p class="sub">In-process, a command carries a taint no wire can forge. Across a boundary it carries an HMAC envelope inside VALUE. Both are checked by one <span class="mono">authorize</span> closure at every <span class="mono">Command_Interpreter_Node</span>, and a refusal replies <span class="mono">unauthorized: &lt;verb&gt;</span>.</p>
+
+<div class="card" style="padding-bottom:12px">
+  <h3>The canonical signing string: <span class="mono">JSON.stringify([ ts, name, arguments, nonce ])</span>, semantics only</h3>
+  <div class="sig">
+    <span class="br">[</span>
+    <div class="s in"><b>ts</b>TIMESTAMP, aligned to the verifier's clock by the <span class="mono">now</span> in the auth reply</div>
+    <div class="s in"><b>name</b>the verb</div>
+    <div class="s in"><b>arguments</b>the flat token list, verbatim</div>
+    <div class="s in"><b>nonce</b>16 random bytes, claimed once</div>
+    <span class="br">]</span>
+    <div class="s out"><b>TYPE</b>envelope; left out so a mint can sign at build time before flags are OR'd in</div>
+    <div class="s out"><b>TO, FROM</b>Router peels TO and nodes stamp FROM in transit; a signature over them breaks in flight</div>
+  </div>
+  <p style="font-size:12px;margin:10px 0 0">PHP encodes with <span class="mono">JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE</span> to match <span class="mono">JSON.stringify</span> byte for byte; <span class="mono">tests/fixtures/signatures.json</span> pins that parity from both languages. Tachikoma's <span class="mono">Command.pm::sign</span> covers <span class="mono">id:timestamp:name:arguments:payload</span> for the same reason. HMAC-SHA256 at every tier; no asymmetric signing anywhere.</p>
+</div>
+
+<div class="tiers">
+  <div class="tier">
+    <header>Client tier: <span class="mono">Message::LOCAL</span>, index 7</header>
+    <div class="body">
+      <p>Two sites stamp it: a <span class="mono">Shell_Node</span> on the command it mints from a console line, and <span class="mono">cmd_reply_to()</span> on the sub-command it re-addresses — safe because the outer <span class="mono">reply_to</span> already cleared the same gate, and a nested <span class="mono">reply_to</span> is refused outright, since FROM is set raw there and the recursion would be unbounded. The default policy is <span class="mono">isset( $message[ Message::LOCAL ] )</span>.</p>
+      <p>Both ports slice <span class="mono">packed()</span> / <span class="mono">pack()</span> to <span class="mono">LAST_VALUE_INDEX + 1</span>, and PHP's <span class="mono">unpacked()</span> rejects any line that is not exactly seven fields, so LOCAL cannot cross a boundary. That is what makes its presence mean something, and why nothing else may be appended on that basis.</p>
+    </div>
+  </div>
+  <div class="tier">
+    <header>Server tier: <span class="mono">Command_Auth::verifier()</span></header>
+    <div class="body">
+      <p>Installed by verifier processes: a worker reading IPC, the <span class="mono">/command</span> request-scope CI, a dashboard's event stream. Accepts LOCAL, or a valid envelope at <span class="mono">VALUE['auth']</span>, which rides inside VALUE and so survives IPC.</p>
+      <div class="chk">
+        <span><b>age</b> at most <span class="mono">MAX_PAST_S</span> 20 s old, <span class="mono">MAX_FUTURE_S</span> 10 s ahead</span>
+        <span><b>sig</b> matches the HMAC recomputed under the resolved key</span>
+        <span><b>nonce</b> claimed by an atomic <span class="mono">add()</span> at <span class="mono">NONCE_TTL_S</span> 60, via <span class="mono">local_first()</span>: unique to the verifying process, so APCu is the faster answer</span>
+        <span><b>handle</b> rides outside the signed string; <span class="mono">Command_Auth::check()</span> installs the session's scope as <span class="mono">Capabilities::$session_scope</span>, the ceiling for this one command, which <span class="mono">verify()</span> slams to NONE on refusal and <span class="mono">interpret()</span> restores</span>
+      </div>
+      <p>Most refusals name themselves through the handling interpreter's <span class="mono">drop_message</span>: wrong type, bad envelope, stale or skewed timestamp, unencodable arguments (logged as invalid signature), signature mismatch; an unknown or expired handle and a replayed nonce log nothing; a missing cache backend logs through <span class="mono">print_less_often()</span>, an environment fault rather than a verdict. <span class="mono">HTTP_In</span> latches any refusal, so a batch with one answers <b>401</b>.</p>
+    </div>
+  </div>
+</div>
+
+<div class="keys">
+  <div class="card">
+    <h3>Key 1: the per-site secret, no handle</h3>
+    <p><span class="mono">Command_Auth::sign()</span> under <span class="mono">hash_hmac( 'sha256', 'nodes-command-v1', wp_salt('nonce') )</span>. The attached cli's Shell, same host, over a filesystem-gated IPC partition. Carries no ceiling: it is the site's own authority. The secret survives only where the signer is already inside the trust boundary.</p>
+  </div>
+  <div class="card">
+    <h3>Key 2: a session key, established first</h3>
+    <p><span class="mono">POST /newspack-nodes/v1/auth</span> returns <span class="mono">{ handle, key, scope, expires_in, now }</span>: a random 16-byte handle and 32-byte key, stored under a site-namespaced address with <span class="mono">add()</span> never <span class="mono">set()</span>, so a colliding handle fails instead of displacing a live session; the response is the only place the key is ever disclosed. TTL <span class="mono">SESSION_TTL_S</span> 3600 by default; a request may ask for its own, clamped to 60..86400, and it is never slid on use. Stored through <span class="mono">shared_first()</span>, because a session minted in a web request must resolve in a worker. The route sits behind <span class="mono">fleet_gate()</span> and READ: <span class="mono">issue()</span> clamps the scope to the highest role the minting user holds.</p>
+  </div>
+  <div class="card" style="border-color:#003DA5">
+    <h3><span class="mono">sign_for( $destination )</span> IS the destination binding</h3>
+    <p>A signature under one remote's session verifies only there, which pins a command to its destination without signing TO. No session means no signature: the minter waits rather than emit something refused. Waiting alone deadlocks, because every minter refuses to queue unsigned and nothing else asks for the handshake, so the skip branch kicks it: resolve the target's head through <span class="mono">Core::node()</span>, type-test for <span class="mono">HTTP_Out_Node</span>, call <span class="mono">ensure_session()</span>. <span class="mono">Settings_Sync_Node::send_set()</span> is the worked example; on the JS side <span class="mono">Node.command()</span> returns null when <span class="mono">readyToMint()</span> finds no session, and the caller re-arms for a later tick.</p>
+  </div>
+</div>
+
+<div class="rej">
+  <div class="callout"><h4>Sign at the ingress</h4><p>Makes the boundary an ORACLE: anything reaching it acquires authority however it got there, so a wire-arrived frame routed into the egress would go back out signed.</p></div>
+  <div class="callout"><h4>LOCAL alone, everywhere</h4><p>Cannot cross a process boundary, which is what makes it trustworthy in-process and useless for a worker that legitimately reads commands off IPC.</p></div>
+  <div class="callout"><h4>One shared site secret for every client</h4><p>Anything shipped to wp-admin is readable by whoever sits there. A session key is a capability scoped to one session with a bounded life.</p></div>
+  <div class="callout"><h4>Asymmetric signing (Ed25519)</h4><p>Rejected even for hub → spoke authority through <span class="mono">sign_for()</span>: both ends of a session are one trust domain, since the site that minted the key verifies it. Public-key signing buys non-repudiation and third-party verification; no consumer needs either, and it costs a key-distribution problem.</p></div>
+  <div class="callout"><h4><span class="mono">crypto.subtle</span> in the browser</h4><p>Returns promises; awaiting one makes the Shell's dispatch async and moves every graph mutation a microtask later. Synchronous <span class="mono">@noble/hashes</span> instead.</p></div>
+  <div class="callout"><h4>Filesystem permissions alone for IPC</h4><p>They gate the directory, not the message. Still the first gate; the signature is what makes a command believable however it reached the partition.</p></div>
+</div>
+</div>

@@ -1,0 +1,63 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.arr { display:flex; align-items:flex-end; gap:6px; margin:6px 0 10px; }
+.arr .s { flex:1; border-radius:7px; padding:8px 6px; text-align:center; font-size:11.5px; line-height:1.3; background:#F0F4FB; border:1px solid #C3D3EC; }
+.arr .s b { display:block; font-family:ui-monospace, Menlo, monospace; font-size:12.5px; color:#003DA5; }
+.arr .s .i { display:block; font-size:10.5px; color:#787C82; }
+.arr .s.local { background:#FFF4E5; border-color:#E8B86D; } .arr .s.local b { color:#8A5A00; }
+.arr .s.str { background:#FBEAEA; border-color:#E6A3A3; } .arr .s.str b { color:#B32D2E; }
+.arr .s.gone { background:#F6F7F7; border:1px dashed #B0B3B8; color:#787C82; } .arr .s.gone b { color:#787C82; }
+.arr .br { font-family:ui-monospace, Menlo, monospace; font-size:22px; color:#787C82; padding-bottom:6px; }
+.arr .cut { flex:0 0 auto; border-left:2px dashed #B32D2E; height:64px; margin:0 4px; position:relative; }
+.arr .cut span { position:absolute; top:-18px; left:-40px; width:80px; text-align:center; font-size:10.5px; color:#B32D2E; white-space:nowrap; }
+.rows { display:flex; flex-direction:column; gap:12px; }
+.row2 { display:flex; gap:16px; align-items:center; }
+.row2 .lbl { flex:0 0 250px; font-size:12.5px; line-height:1.45; color:#50575E; }
+.row2 .lbl b { display:block; color:#101517; font-size:13px; }
+.row2 .arr { flex:1; margin:0; }
+.mono { overflow-wrap:anywhere; }
+</style>
+<div class="sheet">
+<h1>Seven slots on the wire, one taint that never reaches it, and a string key that vanishes</h1>
+<p class="sub">The wire shape IS the memory shape: <span class="mono">packed()</span> is JSON of the array, sliced to <span class="mono">LAST_VALUE_INDEX + 1</span>, and <span class="mono">unpacked()</span> accepts a seven-element list and nothing else. Whatever a caller appends past index 6 is dropped before the wire, which is a feature for one field and a silent-corruption footgun for a typo.</p>
+
+<div class="card rows" style="padding:16px 18px 18px">
+  <div class="row2">
+    <div class="lbl"><b>In memory, minted by <span class="mono">new_message()</span></b>TYPE at <span class="mono">TM_UNTYPED</span> (1024), a free high bit matching no type gate, so a message its minter forgot to type is inert rather than every type at once, and the drop audit names it.</div>
+    <div class="arr"><span class="br">[</span>
+      <div class="s"><b>TYPE</b><span class="i">0</span></div><div class="s"><b>TIMESTAMP</b><span class="i">1</span></div><div class="s"><b>FROM</b><span class="i">2</span></div><div class="s"><b>TO</b><span class="i">3</span></div><div class="s"><b>ID</b><span class="i">4</span></div><div class="s"><b>KEY</b><span class="i">5</span></div><div class="s"><b>VALUE</b><span class="i">6</span></div>
+      <span class="br">]</span></div>
+  </div>
+  <div class="row2">
+    <div class="lbl"><b>A Shell's command, in process</b><span class="mono">Message::LOCAL</span> at index 7, appended AFTER the seven. Its absence past a boundary is what makes its presence an authorization signal (ADR-15). Nothing else may be appended on that basis.</div>
+    <div class="arr"><span class="br">[</span>
+      <div class="s"><b>TYPE</b></div><div class="s"><b>TIMESTAMP</b></div><div class="s"><b>FROM</b></div><div class="s"><b>TO</b></div><div class="s"><b>ID</b></div><div class="s"><b>KEY</b></div><div class="s"><b>VALUE</b></div>
+      <div class="cut"><span>packed() slices here</span></div>
+      <div class="s local"><b>LOCAL</b><span class="i">7, never on the wire</span></div>
+      <span class="br">]</span></div>
+  </div>
+  <div class="row2">
+    <div class="lbl"><b>The footgun: <span class="mono">$message['type'] = TM_STRUCT</span></b>PHP casts only a NUMERIC string key to an int, so this appends an EIGHTH element under the string key rather than setting TYPE. <span class="mono">packed()</span> slices it away without a word: the write vanishes on the wire while TYPE keeps whatever it held.</div>
+    <div class="arr"><span class="br">[</span>
+      <div class="s"><b>TYPE</b><span class="i">unchanged</span></div><div class="s"><b>TIMESTAMP</b></div><div class="s"><b>FROM</b></div><div class="s"><b>TO</b></div><div class="s"><b>ID</b></div><div class="s"><b>KEY</b></div><div class="s"><b>VALUE</b></div>
+      <div class="cut"><span>sliced away</span></div>
+      <div class="s str"><b>'type'</b><span class="i">the lost write</span></div>
+      <span class="br">]</span></div>
+  </div>
+</div>
+
+<div class="row" style="gap:16px;margin-top:16px;align-items:stretch">
+  <div class="callout" style="flex:1">
+    <h4>Rejected: an associative array or a value object</h4>
+    <p>Hash lookups (<span class="mono">$message['type']</span>) are measurably slower than indexed access in the drain loop, and an object form reintroduces a translation layer at every PHP / JS / wire / memory boundary. If you see an object form it is a bug to delete.</p>
+  </div>
+  <div class="card" style="flex:1">
+    <h3>The divergence budget against Tachikoma</h3>
+    <p>KEY not STREAM, VALUE not PAYLOAD, TIMESTAMP at index 1. <span class="mono">TM_BYTESTREAM</span> (string VALUE) and <span class="mono">TM_STRUCT</span> (array VALUE) are mutually exclusive; array-VALUE consumers gate on <span class="mono">TM_STRUCT</span>. Anything further must be justified separately.</p>
+  </div>
+  <div class="ok" style="flex:1">
+    <h4>Revisit only if both hold</h4>
+    <p>Profiling shows associative arrays are no longer slower in the drain hot path, AND a typed value object can eliminate the string-key footgun without a wire/memory translation layer.</p>
+  </div>
+</div>
+</div>

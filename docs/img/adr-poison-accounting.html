@@ -1,0 +1,87 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.frame { display:flex; gap:6px; align-items:stretch; margin:6px 0 10px; }
+.fs { flex:1; border:1px solid #C3C4C7; border-radius:7px; background:#fff; padding:8px 10px; font-size:11.5px; line-height:1.4; color:#50575E; }
+.fs b { display:block; font-family:ui-monospace, Menlo, monospace; color:#101517; font-size:12.5px; margin-bottom:3px; }
+.fs.acc { border-color:#003DA5; background:#F7F9FD; }
+.fs.cache { border-style:dashed; }
+.paths { display:flex; gap:14px; align-items:stretch; margin-top:14px; }
+.path { flex:1; border-radius:10px; overflow:hidden; border:2px solid #C3C4C7; background:#fff; }
+.path > header { padding:9px 14px; font-weight:700; font-size:13.5px; color:#fff; background:#50575E; }
+.path.a > header { background:#003DA5; } .path.a { border-color:#003DA5; }
+.path.c > header { background:#B32D2E; } .path.c { border-color:#B32D2E; }
+.path .body { padding:10px 14px 12px; }
+.hop { display:flex; gap:8px; margin-bottom:7px; font-size:12px; line-height:1.45; color:#50575E; }
+.hop .n { flex:0 0 auto; width:18px; height:18px; border-radius:9px; background:#003DA5; color:#fff; font-size:11px; font-weight:700; text-align:center; line-height:18px; margin-top:1px; }
+.path.c .hop .n { background:#B32D2E; }
+.path .k { display:inline-block; background:#F0F4FB; border:1px solid #C3D3EC; border-radius:4px; padding:0 5px; font-family:ui-monospace, Menlo, monospace; font-size:11.5px; }
+.path .out { border-radius:6px; padding:7px 10px; font-size:11.5px; line-height:1.4; margin-top:6px; }
+.out.q { background:#FBEAEA; border:1px solid #E6A3A3; color:#5C2223; }
+.out.g { background:#EDF7ED; border:1px solid #9EC89E; color:#1E5B1E; }
+.three { display:flex; gap:14px; margin-top:14px; align-items:stretch; }
+.three > div { flex:1; }
+.three .card p { font-size:12px; }
+.mono { overflow-wrap:anywhere; }
+</style>
+<div class="sheet">
+<h1>The offsetlog frame carries the evidence a crash cannot leave</h1>
+<p class="sub">A caught throw is quarantined on sight. A death with no throw only shows as an attempt count that climbs, so the count is what the reader boots from, and a graceful stop is what keeps an innocent cursor from climbing. Shared by <span class="mono">Consumer_Node</span> and <span class="mono">Remote_Source_Node</span> through <span class="mono">Dead_Letter_Queue</span> and <span class="mono">Durable_Reader</span>.</p>
+
+<div class="card" style="padding-bottom:12px">
+  <h3>One checkpoint frame, committed every <span class="mono">CHECKPOINT_INTERVAL_S</span> (30 s), at a clean stop, and after every message in crawl</h3>
+  <div class="frame">
+    <div class="fs"><b>segment</b>the cursor's segment</div>
+    <div class="fs"><b>offset</b>byte offset in it; together the next UNREAD position</div>
+    <div class="fs acc"><b>attempts</b>every boot resumes at <span class="mono">+1</span>; a graceful stop stamps 0; a fatal skips the stamp</div>
+    <div class="fs acc"><b>reason</b>the last poison reason, or <span class="mono">''</span> on a graceful stop</div>
+    <div class="fs acc"><b>first_crash_ts</b>when the streak began; null on a graceful stop, so the window never accrues across clean recycles</div>
+    <div class="fs cache"><b>cache</b>Consumer only: its snapshot nodes' state, co-committed beside the cursor</div>
+  </div>
+  <p style="font-size:12.5px;margin:0">The cursor names the next unread position identically in both readers, and a disposed record is committed past. Without the graceful <span class="mono">attempts=0</span> a clean ~10-minute recycle is indistinguishable from a crash, and an idle cursor would cross the crash threshold and quarantine an innocent message. The handoff is skipped on a fatal (<span class="mono">is_fatal_shutdown()</span>) on purpose: a climbing count is how a deterministic fatal reaches crawl. Each record's crumb stamps <span class="mono">segment:offset:length</span>; the length is what a pull source advances by, and a two-part crumb moves the cursor by nothing.</p>
+</div>
+
+<div class="paths">
+  <div class="path a">
+    <header>Caught throw: quarantined on sight</header>
+    <div class="body">
+      <div class="hop"><span class="n">1</span><span>The sink's <span class="mono">fill()</span> raises inside <span class="mono">Durable_Reader::forward_line</span>, the shared emit seam (Remote_Source overrides it for its crumb-derived cursor).</span></div>
+      <div class="hop"><span class="n">2</span><span><span class="mono">dead_letter()</span> writes the message to the <span class="k">:deadletter</span> sibling, replayable with <span class="mono">wp nodes ingest</span>. An unparseable line goes the same way with its raw bytes kept.</span></div>
+      <div class="hop"><span class="n">3</span><span>The cursor advances past it and the disposal commits gracefully, so it is never re-delivered and never re-quarantined. No retry, no head block: a throw is deterministic per message, and the transient failures a retry would target are upstream.</span></div>
+      <div class="out q"><span class="mono">Tail_Node</span> and <span class="mono">File_Tail_Node</span> are the third override of that seam and wrap nothing: a throw from a Tail's sink escapes the drain loop, the cursor never advances, and a Tail reaches its <span class="mono">:deadletter</span> only through the crawl-entry sacrifice.</div>
+    </div>
+  </div>
+  <div class="path">
+    <header>Cooperative stop: the fair shot</header>
+    <div class="body">
+      <div class="hop"><span class="n">1</span><span><span class="mono">cooperative_stop()</span> strikes the in-flight message only when the worker stopped ON the message it booted on: cursor never advanced, <span class="mono">Worker_Should_Stop</span> escaped its <span class="mono">fill()</span>.</span></div>
+      <div class="hop"><span class="n">2</span><span>At <span class="k">COOP_MAX_ATTEMPTS = 2</span> strikes it is quarantined, and the shutdown frame lands PAST the head, at the virgin baseline, so the successor boots straight onto the next record.</span></div>
+      <div class="out g">A memory stop whose fresh baseline was already near the watermark is a leak, and an alert, rather than poison.</div>
+      <div class="out g" style="margin-top:8px">A plain <span class="mono">Worker_Should_Stop</span> leaves the cursor for a replay; <span class="mono">Worker_Should_Stop_Clean</span> commits past, because the downstream already finished the message (ADR-14).</div>
+    </div>
+  </div>
+  <div class="path c">
+    <header>Uncatchable death: crawl</header>
+    <div class="body">
+      <div class="hop"><span class="n">1</span><span>OOM, fatal, SIGKILL: no catch point. The next boot sees <span class="mono">attempts</span> climb with no <span class="mono">reason</span>. Below <span class="k">CRASH_MAX_ATTEMPTS = 5</span>, the first successful forward clears the streak.</span></div>
+      <div class="hop"><span class="n">2</span><span>At the threshold, crawl: the boot-pinned suspect is sacrificed to the DLQ with reason <span class="mono">'crash'</span> and committed past, which closes the sacrifice-to-checkpoint crash window — Consumer takes the first buffered line at the boot cursor, Remote_Source matches the crumb start against the boot pin (a suspect the stream resumed past disarms without sacrificing).</span></div>
+      <div class="hop"><span class="n">3</span><span>Checkpoint after EVERY message so a re-crash pins the culprit, attempts pinned at the threshold. Crawl will not exit while the sacrifice is still armed.</span></div>
+      <div class="out g"><span class="k">CHECKPOINT_INTERVAL_S = 30</span> crash-free seconds exit to the healthy baseline. One accepted false positive: the entry-transition head, when the crash was deeper in the window.</div>
+    </div>
+  </div>
+</div>
+
+<div class="three">
+  <div class="callout">
+    <h4>State that survives a quarter-hour of crashing is the suspect</h4>
+    <p>When the boot frame's <span class="mono">first_crash_ts</span> is older than <span class="mono">Consumer_Node::STATE_WIPE_AFTER_S</span> (900 s), the co-committed <span class="mono">cache</span> is discarded rather than restored: the snapshot nodes come up empty and the cursor resumes alone. The only symptom is a rate-limited <span class="mono">WARNING:</span> naming the discard. Read it before taking a Request_Builder or Digest_Builder that came back empty for lost data.</p>
+  </div>
+  <div class="card">
+    <h3>Triage lives on the reader's own interpreter</h3>
+    <p><span class="mono">Dead_Letter_Queue</span> merges <span class="mono">dl_list</span>, <span class="mono">dl_show</span>, <span class="mono">dl_requeue</span> and <span class="mono">dl_purge</span> into the using node's <span class="mono">node_schema()['commands']</span>, so both readers expose them on <span class="mono">{name}:config</span> with no CI edit. All four are hidden, because <span class="mono">dl_show</span> and <span class="mono">dl_requeue</span> need a sidecar locator only the listing supplies. Every give-up emits a rate-limited alert and, when configured, a replayable entry.</p>
+  </div>
+  <div class="card">
+    <h3>A third user with no cursor at all</h3>
+    <p><span class="mono">Partition_Node</span> uses the same trait for a short write or a failed segment open: it quarantines the messages that never landed and refuses <span class="mono">dl_requeue</span> there, because redelivering a record that was never written is a different operation from retrying the write. The rejected shapes: drop on first failure (loses data), unbounded retry (wedges the stream), one shared read loop (the buffer/line and SSE-push models differ; only the accounting is shared), automatic retry for caught throws.</p>
+  </div>
+</div>
+</div>

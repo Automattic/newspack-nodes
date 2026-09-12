@@ -1,0 +1,89 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+  .cols { display: flex; gap: 18px; align-items: flex-start; }
+  .flow { flex: 0 0 580px; }
+  .side { flex: 1 1 0; min-width: 0; }
+  .side > * + * { margin-top: 12px; }
+  .side .card h3 { font-size: 14px; }
+  .side p { font-size: 12.5px; }
+  .hop { position: relative; background: #fff; border: 1px solid #C3D3EC; border-radius: 9px; padding: 11px 14px 11px 46px; margin-bottom: 24px; }
+  .hop:not(.last)::after { content: ""; position: absolute; left: 20px; bottom: -24px; height: 24px; border-left: 2px solid #003DA5; }
+  .hop:not(.last)::before { content: ""; position: absolute; left: 16px; bottom: -24px; border: 5px solid transparent; border-top: 8px solid #003DA5; z-index: 1; }
+  .hop .n { position: absolute; left: 11px; top: 10px; width: 24px; height: 24px; border-radius: 50%; background: #003DA5; color: #fff; font-size: 12.5px; font-weight: 700; text-align: center; line-height: 24px; }
+  .hop h3 { font-size: 14px; margin: 2px 0 6px; }
+  .hop h3 .where { font-weight: 400; color: #50575E; font-size: 12px; margin-left: 6px; }
+  .hop p { font-size: 12.5px; color: #50575E; margin: 0 0 6px; line-height: 1.5; }
+  .hop p:last-child { margin-bottom: 0; }
+  .rec { display: grid; grid-template-columns: 118px 1fr; gap: 2px 10px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.5; background: #F0F4FB; border: 1px solid #C3D3EC; border-radius: 6px; padding: 7px 10px; margin: 6px 0 8px; }
+  .rec .k { color: #50575E; }
+  .rec b { color: #003DA5; font-weight: 600; }
+  .rec .sec { background: #FBEAEA; border: 1px solid #E6A3A3; border-radius: 4px; padding: 0 5px; color: #B32D2E; }
+  .code { background: #101517; color: #E8EAED; border-radius: 6px; padding: 7px 10px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0 8px; }
+  .code .c { color: #8C9096; } .code .k { color: #7FB0FF; } .code .v { color: #9FD89F; }
+  .hop.server { border-color: #B32D2E; }
+  .hop.server .n { background: #B32D2E; }
+</style>
+<div class="sheet">
+<h1>The topology carries a pointer; the secret never leaves the server</h1>
+<p class="sub">An operator enters a token once, in the Vault tab. The <span class="mono">.tsl</span> names the entry's id, the node opens it at <span class="mono">config()</span> time, and the dashboard that manages the store never sees the password. Nothing goes on a Settings page.</p>
+
+<div class="cols">
+  <div class="flow">
+    <div class="hop server">
+      <span class="n">1</span>
+      <h3>The operator adds an entry <span class="where">Vault tab, <span class="mono">Vault_CI_Node</span></span></h3>
+      <div class="rec">
+        <span class="k">id</span><span><b>github</b>, 1 to 64 of <span class="mono">[a-zA-Z0-9_-]</span></span>
+        <span class="k">url</span><span>https://api.github.com, the API root the token belongs to: HTTPS is required even for an entry that exists only to carry a token</span>
+        <span class="k">auth_username</span><span>through <span class="mono">sanitize_text_field()</span>, then capped at 256 bytes</span>
+        <span class="k">auth_password</span><span><span class="sec">the token</span>, control characters stripped, capped at 256 bytes, sealed as <span class="mono">$enc$…</span> under a key derived from <span class="mono">wp_salt( 'auth' )</span></span>
+      </div>
+      <p>The cap is silent: <span class="mono">add()</span> and <span class="mono">update()</span> still return true and seal the truncated value, and the only symptom of a longer token is a 401 from the far side. <span class="mono">MAX_SERVERS</span> is 100. Rotating <span class="mono">AUTH_KEY</span> or <span class="mono">AUTH_SALT</span> leaves every stored password unopenable.</p>
+    </div>
+    <div class="hop server">
+      <span class="n">2</span>
+      <h3>It lands in one option <span class="where"><span class="mono">newspack_nodes_vault</span>, not autoloaded</span></h3>
+      <p>The one source: the Vault tab and the <span class="mono">vault</span> CI verbs write it, the config file declares no entry, nothing pins one. A stored value without the <span class="mono">$enc$</span> prefix was planted by database write and reads as no password.</p>
+    </div>
+    <div class="hop">
+      <span class="n">3</span>
+      <h3>The topology names the id <span class="where"><span class="mono">newspack-intelligence-ingest.tsl</span></span></h3>
+      <div class="code">make_node Github_Source github
+cmd github:config <span class="k">set_vault_id</span> <span class="v">github</span>
+cmd github:config add_repo Automattic/newspack-plugin</div>
+      <p>The verb stashes the id on the node, last write wins, and <span class="mono">dump_config()</span> writes it back out, so the console can serialize a live graph to a <span class="mono">.tsl</span> that re-applies it. Its schema arg is typed <span class="mono">vault_id</span>, which the console renders as a dropdown of existing entries, or a text input while there are none.</p>
+    </div>
+    <div class="hop">
+      <span class="n">4</span>
+      <h3>The node opens it at fetch time <span class="where"><span class="mono">config()</span>, the <span class="mono">Vault_Secret</span> trait</span></h3>
+      <div class="code">'token' =&gt; $this-&gt;resolve_vault_secret( $this-&gt;vault_id )
+<span class="c">// '' when the id is blank, unknown, or the Vault class is not loaded</span>
+Vault::get_instance()-&gt;get( $vault_id )['auth_password']</div>
+    </div>
+    <div class="hop last">
+      <span class="n">5</span>
+      <h3>It rides one header, or none</h3>
+      <p>GitHub: <span class="mono">Authorization: Bearer &lt;token&gt;</span>, added only when the token is non-empty, beside the <span class="mono">User-Agent</span> GitHub requires. Linear: the raw token, verbatim, never <span class="mono">Bearer</span>. Feed: no credential at all.</p>
+    </div>
+  </div>
+
+  <div class="side">
+    <div class="ok">
+      <h4>What a reader ever gets back</h4>
+      <p>The <span class="mono">list</span> and <span class="mono">get</span> verbs return <span class="mono" style="white-space:nowrap">Vault_CI_Node::public_shape()</span> alone: <span class="mono">{ id, url, auth_username, has_credentials }</span>. The password is computed away into that flag. The username does leave, because it is half an address rather than a secret and the Edit form cannot offer to change what it cannot show. That holds only while every Vault verb gates at <span class="mono">manage</span>; declaring one <span class="mono">read</span> would put the username in front of a role that cannot otherwise open the store.</p>
+    </div>
+    <div class="card">
+      <h3>The soft failure is what makes an unconfigured source harmless</h3>
+      <p>An empty token throws nowhere. <span class="mono">Linear_Source_Node::fetch()</span> returns <span class="mono">[]</span> before it builds a request, so its TICK is a silent no-op; <span class="mono">Github_Source_Node::request_args()</span> omits the header and fetches unauthenticated. Activation is safe before an operator has visited the Vault.</p>
+    </div>
+    <div class="card">
+      <h3>One read per process, and two ways to drop it</h3>
+      <p><span class="mono">get_all()</span> memoizes the decrypted registry for the life of the process, so a resident worker reads the option once. <span class="mono">Config::RESET_ACTION</span>, the config-reload signal <span class="mono">Vault::reset()</span> is wired to at boot, is how a rotated credential reaches a worker that would otherwise serve the old one until it recycles. <span class="mono">Vault::fresh()</span> is the same singleton with its memo dropped, for a request-scope reader that writes an entry and reads it back inside one request; code that does both in one pass must call it or it reads its own stale answer.</p>
+    </div>
+    <div class="card">
+      <h3>Everything non-secret is a verb too</h3>
+      <p><span class="mono">add_repo</span> (<span class="mono">multiple: true</span>), <span class="mono">add_url</span>, <span class="mono">set_api_url</span>, <span class="mono">set_model</span>, <span class="mono">set_feature</span>, <span class="mono">add_profile</span>: ordered, round-trippable, no options table. There is no <span class="mono">github_repos</span> or <span class="mono">linear_token</span> option anywhere. The one Settings submenu the plugin registers, <span class="mono">Clients_Settings</span>, takes a CSV upload of the publisher master: application data an administrator uploads, not runtime configuration.</p>
+    </div>
+  </div>
+</div>
+</div>

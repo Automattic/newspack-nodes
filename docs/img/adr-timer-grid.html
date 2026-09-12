@@ -1,0 +1,67 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.chart svg text { font-family:Inter, -apple-system, Helvetica, Arial, sans-serif; }
+.two { display:flex; gap:16px; margin-top:16px; align-items:stretch; }
+.two > div { flex:1; }
+.two .card p { font-size:12.5px; }
+.mono { overflow-wrap:anywhere; }
+</style>
+<div class="sheet">
+<h1>Timers fire on one wall-clock grid, so harmonic cadences meet and share a POST</h1>
+<p class="sub">Every browser poll rides the <span class="mono">_router</span> tick, and <span class="mono">HTTP_Out</span> batches whatever was minted in one tick into a single POST. A timer pacing itself from its own last fire keeps the second it was armed in forever; a timer snapping to a grid computed from the clock converges with nothing shared.</p>
+
+<div class="card chart" id="c1" style="padding-bottom:10px"></div>
+
+<div class="two">
+  <div class="callout">
+    <h4>Rejected: pacing from the timer's own last fire</h4>
+    <p>When a surface opens decides which second it polls in: a 5 s catalog opened at :02 and another at :04 never share a tick again, and each pays its own POST forever. A page with four cadences pays four requests where one would do, and no test sees it, because every poll works. Also rejected: a per-interval phase (slides each cadence a few hundred milliseconds off the others and destroys the alignment), a shared scheduler node (state where arithmetic suffices; the Router already is the heartbeat), and snapping to the first tick after arming (makes the phase depend on when the surface opened).</p>
+  </div>
+  <div class="card">
+    <h3><span class="mono">nextBoundary( after, intervalMs )</span> lives in <span class="mono">TimerNode</span> and nowhere else</h3>
+    <p><span class="mono">( floor( ( after − phase ) / interval ) + 1 ) × interval + phase</span>, with ONE phase for every cadence, <span class="mono">GRID_PHASE_MS</span> = 360. The offset only keeps the grid off :00, where every other periodic job on the box already is. A subclass picks a harmonic interval and never computes a boundary; <span class="mono">scripts/lint-contract.mjs</span>'s <span class="mono">grid-math</span> rule keeps it so, which is why <span class="mono">MetadataNode</span> extends <span class="mono">PollerNode</span> rather than pacing itself.</p>
+    <p>The throttle applies to a node registered on the <span class="mono">_router</span> tick with an interval above 1000 ms. A node holding its own <span class="mono">setInterval</span> slot — a sub-second cadence, an unnamed node, the Router itself — already fires at <span class="mono">interval_ms</span> and skips the boundary test.</p>
+    <p>Two methods refresh outside the cadence without leaving the grid: <span class="mono">markDue()</span> clears <span class="mono">lastFireTime</span> so the very next tick fires, as a dashboard answering a filter change or a <span class="mono">cd</span> needs; <span class="mono">markFired()</span> counts from the NEXT boundary, so the following fire owes a full interval — deliberately not <span class="mono">lastFireTime = now</span>, which lands anywhere inside the period and can fire again one tick later.</p>
+  </div>
+</div>
+
+<div class="note">
+  <h4>The one cost, paid once</h4>
+  <p>The first period after arming is the short remainder of the period the timer opened in, so a poll can fire twice in quick succession at mount. A test asserting "no second fire within N seconds" pins the clock FORWARD to just past a boundary; moving it back reads to every watchdog as a stream gone silent. The PHP side has a second grid on purpose: <span class="mono">LRU_Cache::next_boundary()</span> carries no phase, because no cadence inside the cache aligns with another, and snaps to an epoch grid rather than localtime components so no boundary lands in a DST discontinuity. Revisit if the runtime gains sub-second cadences, where a 360 ms phase is a large fraction of a period.</p>
+</div>
+</div>
+<script>
+(function () {
+  var W = 1012, L = 150, R = 1000, T0 = 0, T1 = 32, px = function (t) { return L + (R - L) * (t - T0) / (T1 - T0); };
+  var rows = [];
+  function fires(interval, phase, start) { var out = [], t = start; while (t <= T1) { out.push(t); t += interval; } return out; }
+  function grid(interval, start) { var ph = 0.36, out = [], t = (Math.floor((start - ph) / interval) + 1) * interval + ph; while (t <= T1) { out.push(t); t += interval; } return out; }
+  var self1 = fires(5, 0, 2), self2 = fires(5, 0, 4);
+  var g5 = grid(5, 2), g5b = grid(5, 4), g10 = grid(10, 3), g15 = grid(15, 1), g30 = grid(30, 0.5);
+  var s = '<h3>Two self-paced 5-second polls opened at :02 and :04, then five cadences on the grid, over 32 seconds</h3>';
+  s += '<svg width="' + W + '" height="330" viewBox="0 0 ' + W + ' 330" font-size="11.5">';
+  // axis
+  for (var t = 0; t <= 30; t += 5) { s += '<line x1="' + px(t) + '" y1="20" x2="' + px(t) + '" y2="300" stroke="#E3E4E6"/><text x="' + px(t) + '" y="316" text-anchor="middle" fill="#787C82">' + t + ' s</text>'; }
+  function row(y, label, sub, pts, color, r) {
+    s += '<text x="0" y="' + (y + 4) + '" font-weight="700" fill="#101517">' + label + '</text>';
+    if (sub) s += '<text x="0" y="' + (y + 18) + '" fill="#50575E" font-size="10.5">' + sub + '</text>';
+    s += '<line x1="' + L + '" y1="' + y + '" x2="' + R + '" y2="' + y + '" stroke="#C3C4C7"/>';
+    pts.forEach(function (t) { s += '<circle cx="' + px(t) + '" cy="' + y + '" r="' + r + '" fill="' + color + '"/>'; });
+  }
+  s += '<text x="' + L + '" y="14" fill="#B32D2E" font-weight="700">Self-paced: two POSTs every 5 s, forever</text>';
+  row(40, 'A, 5 s', 'armed at :02', self1, '#B32D2E', 5);
+  row(70, 'B, 5 s', 'armed at :04', self2, '#B32D2E', 5);
+  s += '<line x1="' + L + '" y1="92" x2="' + R + '" y2="92" stroke="#B0B3B8" stroke-dasharray="4 4"/>';
+  s += '<text x="' + L + '" y="112" fill="#003DA5" font-weight="700">On the grid: both converge on the same boundaries after one short first period, one POST per tick</text>';
+  row(138, 'A, 5 s', 'armed at :02', g5, '#003DA5', 5);
+  row(168, 'B, 5 s', 'armed at :04', g5b, '#003DA5', 5);
+  row(204, 'C, 10 s', 'armed at :03', g10, '#003DA5', 5);
+  row(234, 'D, 15 s', 'armed at :01', g15, '#003DA5', 5);
+  row(264, 'E, 30 s', 'armed at :00.5', g30, '#003DA5', 5);
+  // highlight the 30.36 column
+  s += '<rect x="' + (px(30.36) - 9) + '" y="124" width="18" height="152" rx="4" fill="none" stroke="#003DA5" stroke-dasharray="3 3"/>';
+  s += '<text x="' + (px(30.36) - 12) + '" y="292" text-anchor="end" fill="#003DA5" font-size="10.5">every cadence meets at 30.36 s: the 10 s boundary is every second 5 s one, the 30 s every sixth</text>';
+  s += '</svg>';
+  document.getElementById('c1').innerHTML = s;
+})();
+</script>

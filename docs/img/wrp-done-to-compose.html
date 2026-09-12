@@ -1,0 +1,93 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.seq { position: relative; width: 1052px; }
+.seq svg.wire { position: absolute; left: 0; top: 0; }
+.seq .lane { position: absolute; top: 0; width: 196px; min-height: 104px; padding: 12px 14px; }
+.seq .lane h3 { font-size: 13.5px; margin: 0 0 4px; }
+.seq .lane p { font-size: 11.5px; margin: 0; }
+.seq .hop { position: absolute; background: #fff; border: 1px solid #C3D3EC; border-radius: 7px; padding: 9px 12px 9px 40px; font-size: 12.5px; line-height: 1.5; color: #101517; }
+.seq .hop.done { border-color: #E0C36B; background: #FFFCF3; }
+.seq .n { position: absolute; left: 10px; top: 9px; width: 22px; height: 22px; border-radius: 50%; background: #003DA5; color: #fff; font-size: 12px; font-weight: 700; text-align: center; line-height: 22px; }
+.seq .hop.done .n { background: #8A6D1E; }
+.seq .cap { position: absolute; font-size: 12px; color: #50575E; text-align: center; background: #FBFBFC; padding: 0 6px; white-space: nowrap; }
+.seq .hop .from { display: inline-block; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; background: #F0F4FB; border: 1px solid #C3D3EC; border-radius: 4px; padding: 1px 6px; color: #003DA5; }
+.mono { overflow-wrap: anywhere; }
+.cards { display: flex; gap: 14px; margin-top: 18px; align-items: stretch; }
+.cards > * { flex: 1 1 0; min-width: 0; }
+.cards p { font-size: 12.5px; }
+.cards .cmd { background: #101517; color: #E8EAED; border-radius: 6px; padding: 7px 10px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0 8px; }
+.cards .cmd .c { color: #8C9096; }
+</style>
+<div class="sheet">
+<h1>DONE rides behind the items, and the third one composes the draft</h1>
+<p class="sub">One Collect is a RESET and a TICK per source. Each source's DONE follows its items through both durable logs, gathering a consumer's name onto FROM at each hop, and the digest composes once it has counted three distinct senders.</p>
+
+<div class="seq" id="seq">
+<svg class="wire" id="wire"><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs></svg>
+
+<div class="lane card" data-lane="0"><h3>Collect</h3><p>The dashboard's button, or four lines typed into <span class="mono">wp nodes cli</span>. Nothing schedules it.</p></div>
+<div class="lane card" data-lane="1"><h3>Sources</h3><p><span class="mono">github</span>, <span class="mono">linear</span>, <span class="mono">feed</span>: each TICK is a fetch, a dedup, an emit per item, then DONE.</p></div>
+<div class="lane card" data-lane="2"><h3>ingest log + consumer</h3><p><span class="mono">ingest:partition</span> on disk; <span class="mono">ingest:consumer</span> tails it in line mode.</p></div>
+<div class="lane card" data-lane="3"><h3>Enrich + scored log</h3><p><span class="mono">summarizer</span>, <span class="mono">scorer</span>, then <span class="mono">scored:partition</span>; <span class="mono">scored:consumer</span> tails it.</p></div>
+<div class="lane card" data-lane="4"><h3>Digest</h3><p><span class="mono">Digest_Builder</span>, snapshotted into the scored consumer's offsetlog.</p></div>
+
+<div class="hop" data-arrow="0,4" data-cap="request_node digest RESET" data-span="0,4"><span class="n">1</span>Empties <span class="mono">items</span>, <span class="mono">seen</span> and <span class="mono">reported</span>, then appends one throwaway <span class="mono">TM_INFO 'RESET'</span> to <span class="mono">scored:partition</span>, the node its first <span class="mono">make_node</span> argument names; TO is set explicitly, since the target is the draft sink, and an empty argument disables the nudge. That advances <span class="mono">scored:consumer</span>, so its next checkpoint co-commits the emptied snapshot; without it the offsetlog would keep the stale item list and a restart would reload it.</div>
+
+<div class="hop" data-arrow="0,1" data-cap="request_node github TICK, then linear, then feed" data-span="1,3"><span class="n">2</span>Each source appends its new items to <span class="mono">ingest:partition</span> and a DONE after them, <span class="mono">FROM = github</span>. An unconfigured source appends DONE alone: <span class="mono">linear</span> returns <span class="mono">[]</span> before it builds a request, <span class="mono">github</span> fetches without an <span class="mono">Authorization</span> header, <span class="mono">feed</span> never wanted a credential.</div>
+
+<div class="hop" data-arrow="1,2" data-cap="TM_STRUCT ×n, then TM_INFO DONE" data-span="2,4"><span class="n">3</span><span class="mono">set_line_mode true</span>: the drain forwards at most one record per event cycle and skips its buffer top-up on any cycle that forwarded one, so a slow LLM call holds up the next item rather than a whole 64 KB block. The consumer prepends its name: <span class="from">ingest:consumer/github</span>.</div>
+
+<div class="hop" data-arrow="2,3" data-cap="one record per event cycle" data-span="2,4"><span class="n">4</span><span class="mono">Summarizer_Node::fill()</span> and <span class="mono">Scorer_Node::fill()</span> each branch on <span class="mono">TM_INFO</span> before their <span class="mono">TM_STRUCT</span> work and forward it untouched, so DONE stays behind the items it followed. A transform that dropped what it did not recognize would strand the compose. Every scored item lands in <span class="mono">scored:partition</span>.</div>
+
+<div class="hop" data-arrow="3,4" data-cap="scored:consumer, line mode, add_snapshot_node digest" data-span="2,4"><span class="n">5</span>The second consumer prepends its name too. What the digest reads is <span class="from">scored:consumer/ingest:consumer/github</span>: still one distinct key per source, but not a name you can compare against.</div>
+
+<div class="hop done" data-span="2,4"><span class="n">6</span>A <span class="mono">TM_STRUCT</span> is accumulated, deduped on <span class="mono">id</span>. A <span class="mono">"DONE\n"</span> sets <span class="mono">reported[ FROM ] = true</span>; when <span class="mono">count( reported ) &gt;= total</span>, with <span class="mono">total</span> the literal <span class="mono">3</span> on the <span class="mono">make_node Digest_Builder digest scored:partition 3</span> line, <span class="mono">compose_draft()</span> writes the draft through <span class="mono">digest:tee</span> to <span class="mono">digest:log</span>. Counting distinct FROM paths rather than raw signals keeps the tally idempotent across re-ticks and replays, so a stale DONE cannot overshoot.</div>
+</div>
+
+<div class="cards">
+  <div class="card">
+    <h3>Driving it by hand</h3>
+    <div class="cmd">&gt; request_node digest RESET
+&gt; request_node github TICK
+&gt; request_node linear TICK
+&gt; request_node feed   TICK
+<span class="c"># the third DONE composes and writes digest:log</span></div>
+    <p>Collecting on a cadence would take a <span class="mono">Timer_Node</span> subclass whose <span class="mono">fire()</span> mints the same four requests.</p>
+  </div>
+  <div class="callout">
+    <h4>Nothing computes the 3</h4>
+    <p>The <span class="mono">.tsl</span> literal has to match the sources the topology TICKs, which <span class="mono">Insights_CI_Node</span> keeps in one private <span class="mono">SOURCE_NODES</span> list, <span class="mono">github</span>, <span class="mono">linear</span>, <span class="mono">feed</span>, that its Collect verb both counts and iterates. Add a fourth connector and both the list and the literal move.</p>
+  </div>
+  <div class="card">
+    <h3>Two more verbs, and an empty cycle</h3>
+    <p><span class="mono">REGENERATE</span> recomposes a draft from the items already collected, with no re-fetch; it is the only manual compose. A source that fetches nothing still reports DONE, so a cycle where every source comes back empty composes an empty draft rather than hanging: the <span class="mono">finally</span> in the base guarantees it.</p>
+  </div>
+</div>
+</div>
+<script>
+(function () {
+  var L = [105, 315, 526, 736, 947], seq = document.getElementById('seq'), svg = document.getElementById('wire');
+  var NS = 'http://www.w3.org/2000/svg';
+  function el(t, a) { var e = document.createElementNS(NS, t); for (var k in a) e.setAttribute(k, a[k]); return e; }
+  var lanes = seq.querySelectorAll('.lane'), headBottom = 0;
+  lanes.forEach(function (c) { var i = +c.dataset.lane; c.style.left = (L[i] - 98) + 'px'; headBottom = Math.max(headBottom, c.offsetHeight); });
+  var y = headBottom + 18;
+  seq.querySelectorAll('[data-span]').forEach(function (b) {
+    var s = b.dataset.span.split(',').map(Number), x0 = L[s[0]] - 95, x1 = L[s[1]] - 10;
+    if (s[1] === 4) x1 = 1042;
+    if (b.dataset.arrow) {
+      var a = b.dataset.arrow.split(',').map(Number), ay = y + 22, dir = a[1] > a[0] ? 1 : -1;
+      svg.appendChild(el('path', { d: 'M' + L[a[0]] + ' ' + ay + ' H' + (L[a[1]] - 6 * dir), stroke: '#003DA5', 'stroke-width': 1.8, fill: 'none', 'marker-end': 'url(#a)' }));
+      var cap = document.createElement('div'); cap.className = 'cap'; cap.textContent = b.dataset.cap;
+      cap.style.top = (ay - 20) + 'px'; seq.appendChild(cap);
+      cap.style.left = ((L[a[0]] + L[a[1]]) / 2 - cap.offsetWidth / 2) + 'px';
+      y = ay + 10;
+    }
+    b.style.left = x0 + 'px'; b.style.width = (x1 - x0) + 'px'; b.style.top = y + 'px';
+    y += b.offsetHeight + 12;
+  });
+  var boxes = seq.querySelectorAll('[data-span]'), lastTop = boxes[boxes.length - 1].offsetTop;
+  seq.style.height = y + 'px'; svg.setAttribute('width', 1052); svg.setAttribute('height', y);
+  L.forEach(function (x) { svg.insertBefore(el('path', { d: 'M' + x + ' ' + (headBottom + 4) + ' V' + (lastTop - 4), stroke: '#B0B3B8', 'stroke-dasharray': '4 5', 'stroke-width': 1.5 }), svg.firstChild.nextSibling); });
+})();
+</script>

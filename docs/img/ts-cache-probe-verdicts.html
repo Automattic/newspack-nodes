@@ -1,0 +1,63 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.req { background:#003DA5; color:#fff; border-radius:9px; padding:13px 16px; font-size:13px; line-height:1.5; }
+.req .mono { opacity:.95; }
+.req b { font-size:14px; }
+.split { display:grid; grid-template-columns:1.15fr 1fr; gap:20px; margin-top:18px; }
+.tbl { width:100%; border-collapse:collapse; font-size:12px; }
+.tbl td { border-top:1px solid #DCDCDE; padding:8px 8px; vertical-align:top; line-height:1.45; color:#50575E; }
+.tbl tr:first-child td { border-top:0; }
+.tbl td.k { width:92px; font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight:700; color:#101517; white-space:nowrap; }
+.tbl td.m { color:#101517; }
+.tbl tr.bad td { background:#FBEAEA; }
+.tbl tr.bad td.k { color:#B32D2E; }
+.tbl tr.bad td.m { color:#5C2223; }
+.flag { display:inline-block; background:#B32D2E; color:#fff; font-size:10.5px; font-weight:700; border-radius:4px; padding:1px 6px; margin-left:4px; white-space:nowrap; }
+.fix { display:block; margin-top:3px; color:#1E5B1E; }
+.lower { display:grid; grid-template-columns:1.3fr 1fr; gap:20px; margin-top:20px; }
+.q { font-size:12px; color:#787C82; margin:0 0 6px; }
+</style>
+<div class="sheet">
+<h1>"Could not verify…" names its cause by the message it picked, and two of the messages mean nothing spawns</h1>
+<p class="sub"><span class="mono">wp nodes doctor</span> asks the web runtime for its cache posture, because a CLI process picks a different backend than the one serving requests. <span class="mono">Health_Probe_Client</span> never quotes the reply: it classifies it, and each classification names a different fix.</p>
+
+<div class="req"><b>The probe:</b> a loopback <span class="mono">POST newspack-nodes/v1/health/cache</span>, bounded at 5 seconds, following no redirect, reading at most 2,048 bytes of reply, and carrying an <span class="mono">Internal_Request_Token</span> minted for the <span class="mono">health-cache</span> purpose alone, valid for the current or previous 10-second window.</div>
+
+<div class="split">
+  <div class="panel">
+    <header>The loopback answered with a status</header>
+    <div class="body">
+      <table class="tbl">
+        <tr><td class="k">301–399</td><td class="m">An unsafe redirect the probe declines to follow.</td></tr>
+        <tr class="bad"><td class="k">401</td><td class="m">HTTP authentication, such as a staging password, fronts the site.<span class="flag">spawn impaired</span></td></tr>
+        <tr><td class="k">403</td><td class="m">The route refused the purpose-specific token.<span class="fix">The CLI and web sides disagree on <span class="mono">wp_salt( 'nonce' )</span>, or the clock has drifted past the token's ten-second window.</span></td></tr>
+        <tr><td class="k">404</td><td class="m">The health route is absent.<span class="fix">The CLI and web installs run different plugin versions.</span></td></tr>
+        <tr><td class="k">other</td><td class="m">Any other non-200 reports its bare number and nothing more.</td></tr>
+        <tr><td class="k">200</td><td class="m">A body, JSON or result that is not the exact shape <span class="mono">Health_Checks</span> produces reports it malformed, and none of it reaches the terminal. A status line that will not parse reports a malformed HTTP response.</td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="panel">
+    <header>The transport failed, classified in this order</header>
+    <div class="body">
+      <table class="tbl">
+        <tr><td class="k">timeout</td><td class="m">cURL error 28, or any "timed out". Classified first, and silent about respawn: a slow answer is no evidence the loopback is broken.</td></tr>
+        <tr class="bad"><td class="k">DNS / TCP / TLS</td><td class="m">cURL errors 6, 7, 35, 51, 58, 60 and 77, or "could not resolve host", "failed to connect", "ssl certificate".<span class="flag">spawn impaired</span></td></tr>
+        <tr><td class="k">anything else</td><td class="m">"the loopback request failed", unclassified.</td></tr>
+      </table>
+      <p class="q" style="margin-top:12px">The cURL text can carry a remote hostname or certificate subject, so the message is chosen from the class and never quotes the error.</p>
+    </div>
+  </div>
+</div>
+
+<div class="lower">
+  <div class="callout">
+    <h4>Why the two red rows are the serious pair</h4>
+    <p><span class="mono">Spawn_Coordinator</span> POSTs to the spawn endpoint across that same loopback through <span class="mono">Core::fire_and_forget_post()</span>, which reads no HTTP status at all and counts a 401 as success once the body is on the wire. Behind HTTP auth or a staging password nothing spawns, nothing logs a refusal, and this row is the only place it shows.</p>
+  </div>
+  <div class="note" style="margin-top:0">
+    <h4>A monitor keyed on the exit code misses every one</h4>
+    <p>Each of these results is <span class="mono">recommended</span>, so <span class="mono">doctor</span> still exits 0. Only a proven missing or failed backend reports <span class="mono">FAIL</span>; an unverifiable one reports <span class="mono">WARN</span>, since cache health is then unknown.</p>
+  </div>
+</div>
+</div>

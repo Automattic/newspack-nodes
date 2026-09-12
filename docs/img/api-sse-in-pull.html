@@ -1,0 +1,136 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+h2 { font-size:15px; margin:0 0 8px; }
+.two { display:flex; gap:16px; align-items:stretch; }
+.two > * { flex:1; }
+.two .card p, .two .panel p { font-size:12.5px; }
+.nums { display:flex; gap:6px; margin:8px 0 10px; flex-wrap:wrap; }
+.nums div { flex:1 1 140px; background:#F0F4FB; border:1px solid #C3D3EC; border-radius:6px; padding:7px 9px; font-size:11.5px; line-height:1.35; text-align:center; }
+.nums div b { display:block; font-size:15px; color:#003DA5; }
+.nums .mono { overflow-wrap:normal; }
+.prec { display:flex; gap:6px; align-items:stretch; margin:8px 0 10px; }
+.prec div { flex:1; background:#fff; border:1px solid #C3D3EC; border-radius:6px; padding:7px 9px; font-size:11.5px; line-height:1.4; }
+.prec div b { display:block; color:#003DA5; font-size:12px; margin-bottom:2px; }
+.prec .ar { flex:0 0 auto; align-self:center; border:none; background:transparent; color:#003DA5; font-size:16px; padding:0 2px; }
+.keys { display:flex; flex-wrap:wrap; gap:5px; margin:6px 0 8px; }
+.keys span { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:11.5px; padding:3px 8px; border-radius:5px; border:1px solid #C3D3EC; background:#F0F4FB; color:#003DA5; }
+.mono { overflow-wrap:anywhere; }
+</style>
+<div class="sheet">
+<h1>The spoke's stream, pulled: six states and a 45-second watchdog</h1>
+<p class="sub"><span class="mono">SSE_In_Node</span> owns one cURL easy handle, one <span class="mono">{segment, offset}</span> cursor and one connection's parser state; its patron drives <span class="mono">maybe_connect()</span> and <span class="mono">check_stale()</span>, and every <span class="mono">data:</span> payload reaches that patron raw through the <span class="mono">on_message</span> seam. The browser mirror opens the same endpoint with numbers of its own.</p>
+
+<div class="card">
+  <h2>One connection's states, PHP side</h2>
+  <svg width="1052" height="464" viewBox="0 0 1052 464" font-family="Inter, -apple-system, Helvetica, Arial, sans-serif" font-size="12">
+    <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs>
+    <path d="M42 200 L42 18 L1010 18 L1010 198" stroke="#003DA5" stroke-width="1.6" fill="none" marker-end="url(#a)"/>
+    <g fill="#003DA5" font-size="11">
+      <text x="72" y="36">a cURL error (a connect timeout among them) or a non-200,</text>
+      <text x="72" y="49">such as <tspan font-family="ui-monospace, Menlo, monospace">429 too_many_connections</tspan></text>
+    </g>
+    <g transform="translate(0,40)">
+    <rect x="30" y="160" width="170" height="58" rx="8" fill="#F0F4FB" stroke="#9FB6DD"/>
+    <text x="115" y="184" text-anchor="middle" font-weight="700" fill="#003DA5">CONNECTING</text>
+    <text x="115" y="201" text-anchor="middle" fill="#50575E" font-size="11">handle open, no handshake yet</text>
+    <rect x="300" y="160" width="170" height="58" rx="8" fill="#EDF7ED" stroke="#9EC89E"/>
+    <text x="385" y="184" text-anchor="middle" font-weight="700" fill="#1E5B1E">CONNECTED</text>
+    <text x="385" y="201" text-anchor="middle" fill="#2B5F2B" font-size="11">the lease: slot, owner, pid</text>
+    <rect x="590" y="160" width="170" height="58" rx="8" fill="#F6F7F7" stroke="#B0B3B8" stroke-dasharray="4 3"/>
+    <text x="675" y="184" text-anchor="middle" font-weight="700" fill="#50575E">DISCONNECTING</text>
+    <text x="675" y="201" text-anchor="middle" fill="#50575E" font-size="11">lease retired, reason kept</text>
+    <rect x="860" y="160" width="170" height="58" rx="8" fill="#FBEAEA" stroke="#E6A3A3"/>
+    <text x="945" y="184" text-anchor="middle" font-weight="700" fill="#B32D2E">DISCONNECTED</text>
+    <text x="945" y="201" text-anchor="middle" fill="#5C2223" font-size="11">no handle; backoff doubled</text>
+    <rect x="435" y="14" width="190" height="58" rx="8" fill="#FBEAEA" stroke="#B32D2E"/>
+    <text x="530" y="38" text-anchor="middle" font-weight="700" fill="#B32D2E">ERROR</text>
+    <text x="530" y="55" text-anchor="middle" fill="#5C2223" font-size="11">lease retired; returns 0 to cURL</text>
+    <rect x="300" y="318" width="170" height="58" rx="8" fill="#FFF7E5" stroke="#E8C77A"/>
+    <text x="385" y="342" text-anchor="middle" font-weight="700" fill="#5B4300">RECONNECTING</text>
+    <text x="385" y="359" text-anchor="middle" fill="#5B4300" font-size="11">no handle; waiting out the delay</text>
+    <g stroke="#003DA5" stroke-width="1.6" fill="none" marker-end="url(#a)">
+      <path d="M200 189 L298 189"/>
+      <path d="M470 189 L588 189"/>
+      <path d="M760 189 L858 189"/>
+      <path d="M115 160 C115 90, 300 43, 433 43"/>
+      <path d="M400 160 L472 74"/>
+      <path d="M625 43 C790 43, 945 90, 945 158"/>
+      <path d="M430 218 C520 262, 850 262, 930 220"/>
+      <path d="M385 218 L385 316"/>
+      <path d="M1030 189 L1044 189 L1044 410 L60 410 L60 220"/>
+    </g>
+    <path d="M385 376 L385 410" stroke="#003DA5" stroke-width="1.6" fill="none"/>
+    <circle cx="385" cy="410" r="3" fill="#003DA5"/>
+    <g fill="#003DA5" font-size="11">
+      <text x="249" y="168" text-anchor="middle">connected</text>
+      <text x="249" y="181" text-anchor="middle">parses</text>
+      <text x="529" y="168" text-anchor="middle">disconnect</text>
+      <text x="529" y="181" text-anchor="middle">frame</text>
+      <text x="809" y="168" text-anchor="middle">the transfer</text>
+      <text x="809" y="181" text-anchor="middle">ends</text>
+      <text x="235" y="98" text-anchor="middle">a malformed</text>
+      <text x="235" y="111" text-anchor="middle">connected envelope, or a</text>
+      <text x="235" y="124" text-anchor="middle">32 MiB overflow</text>
+      <text x="452" y="112">a 32 MiB overflow, or a</text>
+      <text x="452" y="125">malformed disconnect frame</text>
+      <text x="700" y="22">the transfer aborts;</text>
+      <text x="700" y="35"><tspan font-family="ui-monospace, Menlo, monospace">last_error</tspan> is kept</text>
+      <text x="790" y="262" text-anchor="middle">a cURL error, or a clean EOF</text>
+      <text x="790" y="275" text-anchor="middle">with no reopen delay advertised</text>
+      <text x="395" y="256">check_stale(): 45 s silent on an</text>
+      <text x="395" y="269">open handle, before or after the</text>
+      <text x="395" y="282">handshake; or a clean 200 close</text>
+      <text x="395" y="295">after an advertised reopen delay</text>
+      <text x="68" y="330">maybe_connect():</text>
+      <text x="68" y="343">no handle, and the</text>
+      <text x="68" y="356">backoff has passed</text>
+      <text x="700" y="403" text-anchor="middle">the patron's next maybe_connect() opens a new handle once current_backoff has passed</text>
+    </g>
+    </g>
+  </svg>
+  <p style="margin:4px 0 0">Every received event resets the backoff to the floor and refreshes liveness, so a talking stream never ages into <span class="mono">check_stale()</span>; a stale close doubles the backoff like any failure. A refused open, a non-HTTPS url under <span class="mono">require_ssl</span> or a failed <span class="mono">curl_init()</span>, goes to DISCONNECTED without ever holding a handle. A clean 200 close on a stream that advertised a reopen delay, the <span class="mono">retry</span> event or a plain server's <span class="mono">retry:</span> field, holds that delay from THIS moment, clamped into the same 1 … 30 s range, and sets <span class="mono">scheduled_reconnect_at</span>; it leaves the failure state untouched: no error, no doubling, nothing a dashboard reads as a dead link.</p>
+</div>
+
+<div class="two" style="margin-top:16px">
+  <div class="card">
+    <h2>Bounds</h2>
+    <div class="nums">
+      <div><b>5 s</b><span class="mono">CONNECT_TIMEOUT</span>; the transfer itself is untimed (<span class="mono">CURLOPT_TIMEOUT</span> 0), which is what <span class="mono">check_stale()</span> covers</div>
+      <div><b>45 s</b><span class="mono">HEARTBEAT_TIMEOUT</span>: the server heartbeats every 2 s, so only a broken link reaches it</div>
+      <div><b>1 → 30 s</b><span class="mono">INITIAL_BACKOFF</span> doubling to <span class="mono">MAX_BACKOFF</span></div>
+      <div><b>32 MiB</b><span class="mono">MAX_BUFFER_SIZE</span>, bytes holding no newline, and <span class="mono">MAX_EVENT_SIZE</span>, one event's <span class="mono">data:</span>. A peer that sent that much with no record boundary is broken, not slow</div>
+    </div>
+    <h2>What it sends</h2>
+    <p><span class="mono">positions</span> on every connect, <span class="mono">-1</span> when it holds no cursor, so a resumed <span class="mono">0:0</span> replays its backlog instead of being tail-seeked past it; and <span class="mono">X-Newspack-Nodes-Pull: 1</span>, which lets it claim the reserved TAIL of the pool, the <span class="mono">sse_reserved_slots</span> a browser stops short of. A fairness hint, not a boundary: the endpoint already requires <span class="blue">read</span>, and any holder of it could send the header.</p>
+    <h2>Which cursor wins</h2>
+    <div class="prec">
+      <div><b>1. a pending seek</b><span class="mono">seek( SEEK_* )</span> parks a sentinel sent on every connect until <span class="mono">restore_position()</span> replaces it: a pull source holds no segments, so <span class="mono">end</span> and <span class="mono">recent</span> travel to the spoke that owns the log</div>
+      <div class="ar">›</div>
+      <div><b>2. a restored pair</b>an explicit <span class="mono">{segment, offset}</span> written through <span class="mono">restore_position()</span></div>
+      <div class="ar">›</div>
+      <div><b>3. nothing</b><span class="mono">-1</span>, a live tail</div>
+    </div>
+    <p style="margin:0">A patron re-seeding the cursor each tick gates that handoff on <span class="mono">has_pending_seek()</span>, or its own write answers the seek with the position it was asked to leave. <span class="mono">Remote_Source_Node::fire()</span> carries the gate and <span class="mono">next_offset()</span> shows both branches, each after a <span class="mono">disconnect()</span>, because the sentinel is read at connect time only.</p>
+  </div>
+  <div style="flex:1" class="stack">
+    <div class="card">
+      <h2><span class="mono">connection()</span>: the patron's whole status contract</h2>
+      <div class="keys"><span>connected</span><span>connecting</span><span>last_http_code</span><span>last_error</span><span>current_backoff</span><span>last_sse_heartbeat</span><span>last_attempt</span><span>scheduled_reconnect_at</span></div>
+      <p style="margin:0"><span class="mono">connected</span> is the LEASE, true only past the handshake and never merely because the socket opened; <span class="mono">connecting</span> is that open-but-unhandshaked window, neither up nor a failure; <span class="mono">scheduled_reconnect_at</span> is the explicit "closed on purpose, back at T" reading, because a null <span class="mono">last_error</span> also means "never attempted". <span class="mono">Remote_Source_Node</span> republishes these into the <span class="mono">remote:&lt;node&gt;:&lt;partition&gt;</span> memcache snapshot, so a dashboard counting <span class="mono">connected / total</span> under-reports a healthy fleet and files a mid-handshake stream as down.</p>
+    </div>
+    <div class="panel" style="padding-bottom:0">
+      <header>The browser mirror, <span class="mono">src/runtime/sse-in-node.js</span></header>
+      <div class="body">
+        <div class="nums" style="margin-top:0">
+          <div><b>2 s</b>watchdog tick</div>
+          <div><b>10 s</b>of silence forces a fresh stream: three heartbeats plus 4 s of grace</div>
+          <div><b>60 s</b>wedged in CONNECTING</div>
+          <div><b>2 → 30 s</b>backoff, cleared by a live <span class="mono">connected</span>; only the ceiling matches PHP, since a throttled tab needs slack a worker does not</div>
+        </div>
+        <p style="margin:0 0 8px">Five states through <span class="mono">setState</span>, read back with <span class="mono">register()</span> / <span class="mono">useNodeState</span> on the link's <span class="mono">:sse-in</span> child: CONNECTING on open, CONNECTED once the handshake parses, DISCONNECTED on a close by either side, RECONNECTING while backing off or waiting out the server's advertised retry, ERROR for a malformed handshake or frame and for a <span class="mono">msg</span> carrying TM_ERROR.</p>
+        <p style="margin:0 0 6px">It exports <span class="mono">SEEK_START</span> (0) and <span class="mono">SEEK_END</span> (-1) only; the wire accepts <span class="mono">-2</span> but no browser caller asks for it, so a feature wanting <span class="mono">recent</span> adds the constant and threads it through <span class="mono">seekMap()</span>. There, a position actually reached outranks the seed: a subscription that read one record resumes past it whatever started it, one that read nothing keeps its seed, a named one holding neither tails from <span class="mono">SEEK_END</span>, and a GLOB is the one seek a client cannot state, since the server keys positions by the dirs it expands to.</p>
+      </div>
+    </div>
+  </div>
+</div>
+</div>

@@ -1,0 +1,108 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.stage { position:relative; }
+.stage svg.wires { position:absolute; left:0; top:0; pointer-events:none; overflow:visible; }
+.wires path { fill:none; stroke:#003DA5; stroke-width:1.6; }
+.wires path.red { stroke:#B32D2E; }
+.wires text { font-family:Inter, -apple-system, Helvetica, Arial, sans-serif; font-size:11px; fill:#50575E; }
+.tree { display:flex; gap:34px; align-items:stretch; position:relative; }
+.col { display:flex; flex-direction:column; gap:9px; justify-content:center; }
+.q { background:#003DA5; color:#fff; border-radius:9px; padding:12px 14px; font-size:13px; line-height:1.4; font-weight:700; }
+.q .mono { font-weight:400; opacity:.92; }
+.st { background:#fff; border:1px solid #C3D3EC; border-radius:7px; padding:8px 11px; font-size:12px; line-height:1.4; }
+.st b { font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight:700; color:#003DA5; }
+.st.warn b { color:#B32D2E; }
+.st.warn { border-color:#E6A3A3; background:#FFF8F8; }
+.st.ok { border-color:#9EC89E; background:#F6FBF6; }
+.st.ok b { color:#1E5B1E; }
+.leaf { background:#fff; border:1px solid #C3C4C7; border-radius:7px; padding:8px 11px; font-size:11.5px; line-height:1.42; color:#50575E; }
+.leaf b { color:#101517; font-weight:600; }
+.leaf .mono { color:#101517; }
+.leaf.red { border-color:#E6A3A3; background:#FBEAEA; color:#5C2223; }
+.leaf.red b { color:#B32D2E; }
+h2 { font-size:15px; margin:26px 0 10px; }
+.silent { display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; }
+.silent .leaf { padding:10px 12px; }
+.silent .leaf h4 { font-size:12.5px; margin:0 0 5px; color:#101517; }
+.mono { overflow-wrap:anywhere; }
+</style>
+<div class="sheet">
+<h1>A worker that should be running: read the evidence, not the guess</h1>
+<p class="sub">Every state <span class="mono">wp nodes status</span> prints comes from a file the fleet wrote, and every reason <span class="mono">wp nodes run</span> prints comes from the worker itself. Six faults hide behind those rows; the bottom row names the line that gives each one away.</p>
+
+<div class="stage" id="stage">
+<svg class="wires" id="wires"><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker><marker id="r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#B32D2E"/></marker></defs></svg>
+<div class="tree">
+  <div class="col" style="width:190px">
+    <div class="q" data-id="status">1. <span class="mono">wp nodes status</span><br>one row per {topology, partition}, read from <span class="mono">{base}/locks/</span><br><span class="mono" style="white-space:nowrap">{type}.p{N}.lock.d/</span></div>
+  </div>
+  <div class="col" style="width:250px">
+    <div class="st ok" data-id="live" data-from="status"><b>live</b> — <span class="mono">heartbeat</span> younger than the topology's <span class="mono">stale_timeout</span>, 60 s by default</div>
+    <div class="st warn" data-id="stale" data-from="status"><b>stale</b> — the heartbeat has aged past it</div>
+    <div class="st warn" data-id="down" data-from="status"><b>down</b> — a resident topology holds no lock at all</div>
+    <div class="st" data-id="idle" data-from="status"><b>idle</b> — an on-demand topology (<span class="mono">on_demand_idle &gt; 0</span>) scaled to zero</div>
+    <div class="st warn" data-id="held" data-from="status"><b>held</b> — a deploy hold stands</div>
+    <div class="st" data-id="inactive" data-from="status"><b>inactive</b> — in the catalog, not in the <span class="mono">topologies</span> key</div>
+    <div class="st" data-id="winding" data-from="status"><b>live (inactive)</b> / <b>stale (inactive)</b> — deactivated, its worker still holds the lock</div>
+  </div>
+  <div class="col" style="width:486px">
+    <div class="leaf" data-from="live">Healthy. Uptime is the lock dir's <span class="mono">started</span> file; the ~595 s recycle resets it by design. A worker that dies moments after: step 2.</div>
+    <div class="leaf" data-from="stale">A peer's <span class="mono">_fleet</span> scan steals the lock and respawns; with no peer left, the minute cron does. Mid-restart, not dead.</div>
+    <div class="leaf" data-from="down">The rescue case: the same two tiers spawn it. If nothing does, one of the six silent faults below is stopping the spawn.</div>
+    <div class="leaf" data-from="idle">Not a fault. A producer inside the substrate wakes it on flush; one outside is noticed only by the minute pass's <span class="mono">wake_readers_with_backlog()</span>.</div>
+    <div class="leaf red" data-from="held"><b><span class="mono">newspack_nodes_hold</span> option set by <span class="mono">wp nodes stop</span></b>, never cleared. <span class="mono">doctor</span> reports <span class="mono">fleet-hold</span> with its age; <span class="mono">wp nodes start</span> lifts it.</div>
+    <div class="leaf" data-from="inactive"><span class="mono">wp nodes activate &lt;topology&gt;</span> opts it in and spawns now. A fresh install activates nothing — the <span class="mono">topologies</span> key defaults to empty — and <span class="mono">wp nodes types</span> says so.</div>
+    <div class="leaf" data-from="winding">Winding down. <span class="mono">run</span> and <span class="mono">restart</span> no longer take its type.</div>
+  </div>
+</div>
+
+<div class="tree" style="margin-top:26px">
+  <div class="col" style="width:190px">
+    <div class="q" data-id="run">2. <span class="mono">wp nodes run &lt;type&gt;</span> <span class="mono" style="white-space:nowrap">--partition=&lt;N&gt;</span><br>stderr on your terminal, then <span class="mono">Worker exited with status:</span></div>
+  </div>
+  <div class="col" style="width:250px">
+    <div class="st ok" data-id="ok" data-from="run"><b>ok</b> — a cooperative stop, named on stderr first</div>
+    <div class="st" data-id="skipped" data-from="run"><b>skipped (lock_held)</b> — another process holds the slot</div>
+    <div class="st warn" data-id="skipio" data-from="run"><b>skipped (mkdir failed at &lt;path&gt;)</b><br><b>skipped (lock dir unwritable at &lt;path&gt;)</b></div>
+    <div class="st warn" data-id="load" data-from="run"><b>load_failed (&lt;message&gt;)</b> — the topology load threw</div>
+  </div>
+  <div class="col" style="width:486px">
+    <div class="leaf" data-from="ok"><b>Named stops:</b> <span class="mono">lock lost</span>, <span class="mono">lock dir gone</span>, <span class="mono">stop requested</span>, <span class="mono">restart requested</span>, <span class="mono">lock heartbeat gone</span>, <span class="mono">lock stolen by pid &lt;n&gt;</span>, <span class="mono">memory watermark (&lt;used&gt;MB / &lt;limit&gt;MB, &lt;pct&gt;%)</span>, <span class="mono">db check failed 3 times</span>. <b>Silent by design:</b> the <span class="mono">max_runtime</span> recycle and the on-demand idle exit.</div>
+    <div class="leaf" data-from="skipped">Idempotent and harmless: two spawners raced and one lost.</div>
+    <div class="leaf red" data-from="skipio">A real I/O fault, and the one the worker also logs. Fix the path; <span class="mono">doctor</span>'s <span class="mono">filesystem</span> and <span class="mono">ownership</span> rows are the same check.</div>
+    <div class="leaf red" data-from="load"><b>Exactly three causes:</b> a top-level topology name no registry answers to, an <span class="mono">include</span> cycle, and input ending inside an open quote or a backslash continuation. No self-respawn on any of them, because respawning would hot-loop the same bad file.</div>
+  </div>
+</div>
+</div>
+
+<h2>Six faults whose cause no <span class="mono">status</span> row names</h2>
+<div class="silent">
+  <div class="leaf"><h4>Nothing spawns: HTTP 409 <span class="mono">fleet_held</span></h4>The spawn endpoint refuses while the hold stands. <span class="mono">status</span> reads <span class="mono">held</span> and <span class="mono">doctor</span>'s <span class="mono">fleet-hold</span> row gives the hold's age; <span class="mono">wp nodes start</span> releases it.</div>
+  <div class="leaf"><h4>Nothing spawns on a multisite subsite: HTTP 403 <span class="mono">newspack_nodes_not_fleet_site</span></h4>Locks, IPC and logs carry no blog namespace, so the fleet runs on the main site alone: <span class="mono">Bootstrap::reconcile_fleet()</span> returns at once off it and <span class="mono">wp nodes restart</span> flags nothing. The <span class="mono">housekeeping</span> row asks only whether the reconcile event is scheduled, which <span class="mono">admin_init</span> does on any site carrying an active topology. Judge the fleet from the main site.</div>
+  <div class="leaf"><h4>stderr repeats <span class="mono">refusing to spawn — topology write-conflict</span></h4>Two active topologies claim one write path; <span class="mono">spawn_each()</span> refuses the whole set, naming both as <span class="mono">a ↔ b (&lt;kind&gt;:&lt;path&gt;)</span>. A byte-identical <span class="mono">make_node</span> line is shared writing, not a conflict, unless either side lifts the cap with <span class="mono">void_warranty</span> or <span class="mono">allow_large_writes</span>, which assume a sole writer. <span class="mono">wp nodes deactivate</span> one.</div>
+  <div class="leaf"><h4>Retention, alerts and cold-start revival all stopped</h4>The <span class="mono">newspack_nodes/reconcile</span> cron event is gone. Here <span class="mono">doctor</span> is NOT green: its <span class="mono">housekeeping</span> row fails and prints the fix, <span class="mono">wp cron event schedule newspack_nodes/reconcile now newspack_nodes_minute</span>. Grep the error log for <span class="mono">reconcile cron vetoed:</span> first, or the event vanishes again.</div>
+  <div class="leaf"><h4>Boots <span class="mono">ok</span>, graph holds only <span class="mono">_router</span>, <span class="mono">_command_interpreter</span>, <span class="mono">_fleet</span>, <span class="mono">_repl</span></h4>The <span class="mono">.tsl</span> exists but cannot be read — a root-owned 0600 file. <span class="mono">Topology_Registry::resolve()</span> tests <span class="mono">is_file()</span> alone and passes it, <span class="mono">Topology_Loader::load()</span> casts the failed <span class="mono">file_get_contents()</span> to <span class="mono">''</span>, and the worker self-respawns forever. <span class="mono">doctor</span> stays green: <span class="mono">ownership</span> stats the directory, not the file. Pivot in and run <span class="mono">ls</span>: only underscore names means never read; a partial list is a refused statement, whose rate-limited line is in the PHP error log.</div>
+  <div class="leaf"><h4>Peers stop reviving each other</h4><span class="mono">Fleet_Node::fire()</span> re-throws <span class="mono">Worker_Should_Stop</span> and swallows every other <span class="mono">\Throwable</span> as a rate-limited <span class="mono">fleet scan failed: &lt;message&gt;</span>. The worker drains normally and revives nobody; revival degrades to the minute cron. Causes: a <span class="mono">newspack_nodes/topologies</span> provider that throws, since the scan fires that filter on every pass, or a base directory <span class="mono">Config::get_base_directory()</span> refuses.</div>
+</div>
+</div>
+<script>
+(function () {
+  var stage = document.getElementById('stage'), svg = document.getElementById('wires');
+  var NS = 'http://www.w3.org/2000/svg', r0 = stage.getBoundingClientRect();
+  svg.setAttribute('width', stage.offsetWidth); svg.setAttribute('height', stage.offsetHeight);
+  function el(t, a) { var e = document.createElementNS(NS, t); for (var k in a) e.setAttribute(k, a[k]); return e; }
+  stage.querySelectorAll('[data-from]').forEach(function (t) {
+    var f = stage.querySelector('[data-id="' + t.dataset.from + '"]');
+    var a = f.getBoundingClientRect(), b = t.getBoundingClientRect();
+    var x1 = a.right - r0.left, y1 = a.top + a.height / 2 - r0.top;
+    var x2 = b.left - r0.left, y2 = b.top + b.height / 2 - r0.top;
+    var red = t.classList.contains('red') || t.classList.contains('warn');
+    var xm = x1 + (x2 - x1) * 0.5;
+    var d = (b.top - r0.top > a.bottom - r0.top + 4 && x2 < x1) // upward/leftward: route around
+      ? 'M' + (a.left + a.width / 2 - r0.left) + ' ' + (a.bottom - r0.top) + ' V' + (y2) + ' H' + (x2 - 3)
+      : 'M' + x1 + ' ' + y1 + ' H' + xm + ' V' + y2 + ' H' + (x2 - 3);
+    svg.appendChild(el('path', { d: d, 'marker-end': red ? 'url(#r)' : 'url(#a)', 'class': red ? 'red' : '' }));
+    if (t.dataset.cap) { var tx = el('text', { x: x2 - 6, y: y2 - 6, 'text-anchor': 'end' }); tx.textContent = t.dataset.cap; svg.appendChild(tx); }
+  });
+})();
+</script>

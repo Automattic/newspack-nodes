@@ -1,0 +1,58 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.dirs { display:flex; gap:16px; align-items:stretch; }
+.dir { flex:1; border-radius:10px; overflow:hidden; background:#fff; border:2px solid #003DA5; }
+.dir > header { background:#003DA5; color:#fff; padding:9px 16px; font-size:14px; font-weight:700; }
+.dir .body { padding:12px 16px 14px; }
+.dir p { font-size:12.5px; color:#50575E; margin:0 0 7px; line-height:1.5; }
+.dir p:last-child { margin-bottom:0; }
+.pic { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin:4px 0 10px; font-size:12px; }
+.pic .b { border-radius:6px; padding:6px 9px; font-family:ui-monospace, Menlo, monospace; font-size:11.5px; line-height:1.35; background:#F0F4FB; border:1px solid #C3D3EC; flex:0 1 auto; }
+.pic .b.copy { background:#EDF7ED; border-color:#9EC89E; color:#1E5B1E; }
+.pic .b.x { background:#FBEAEA; border-color:#E6A3A3; color:#B32D2E; }
+.pic .a { color:#787C82; white-space:nowrap; }
+.three { display:flex; gap:14px; margin-top:16px; align-items:stretch; }
+.three > div { flex:1; }
+.three .card p { font-size:12px; }
+.mono { overflow-wrap:anywhere; }
+</style>
+<div class="sheet">
+<h1>One entry point, and an ownership boundary in both directions</h1>
+<p class="sub">Every node is reached through <span class="mono">fill( array $message ): void</span> and nothing else. The message is handed over BY VALUE, so the caller keeps nothing; and <span class="mono">fill()</span> returns nothing, so the caller learns nothing. Nodes compose because no node can reach back through a <span class="mono">fill()</span> call.</p>
+
+<div class="dirs">
+  <div class="dir">
+    <header>Forward: by value, never <span class="mono">fill( array &amp;$message )</span></header>
+    <div class="body">
+      <div class="pic"><span class="b">Tee::fill( $m )</span><span class="a">hands a copy to each of N →</span><span class="b copy">target 1 edits its copy</span><span class="b copy">target 2 sees the original</span></div>
+      <div class="pic"><span class="b x">by reference</span><span class="a">the same array to all N →</span><span class="b x">target 1's edits leak into target 2; the caller's FROM and ID are clobbered before it reads them for the reply</span></div>
+      <p>PHP copy-on-write makes the copy free until someone writes. A message handed to your <span class="mono">fill()</span> is yours: mutate freely, the caller never sees it. A message you forwarded belongs to the downstream: hold no reference, expect nothing preserved.</p>
+      <p>The JS runtime keeps the discipline without the language behind it. <span class="mono">Node.fill()</span> hands its sink the SAME array; <span class="mono">TeeNode</span> and <span class="mono">TapNode</span> <span class="mono">slice()</span> once per branch at fan-out, the case the rule exists for. That copy is SHALLOW: a <span class="mono">TM_STRUCT</span> VALUE is one object shared by every branch, so a struct is immutable past a Tee or a Tap and a downstream that must edit one clones it first. <span class="mono">CallbackNode</span> is terminal and hands the closure the caller's own array, so a closure that writes into the message edits what the sender still holds.</p>
+    </div>
+  </div>
+  <div class="dir">
+    <header>Return: <span class="mono">void</span>, never a disposition (ADR-13)</header>
+    <div class="body">
+      <div class="pic"><span class="b">node</span><span class="a">fill() →</span><span class="b">sink</span><span class="a">outcome comes back as a MESSAGE →</span><span class="b copy">TO=FROM reply, TM_ERROR, or a send to a target</span></div>
+      <div class="pic"><span class="b x">$result = $sink-&gt;fill( $m )</span><span class="a">→</span><span class="b x">the caller depends on the downstream's disposition: delivered, dropped, queued, transformed</span></div>
+      <p>If a node could read what its <span class="mono">fill()</span> returned it would couple to the downstream, and swapping that downstream would change the caller: the callee-coupling the uniform contract removes. A Tee filling N targets has no single disposition to hand back, and flow control is the single-threaded drain (ADR-3), not a return code.</p>
+      <p>This covers ANY value: a parse, a validation, a lookup the node computed before its sink was touched is still a return, and still couples the caller to this node's internals. PHP enforces <span class="mono">: void</span>; JS keeps it by convention, a bare <span class="mono">return;</span> for early exit only. Perl Tachikoma's <span class="mono">fill</span> returns values only because Perl has no <span class="mono">void</span>; nothing downstream reads them.</p>
+    </div>
+  </div>
+</div>
+
+<div class="three">
+  <div class="callout">
+    <h4>Rejected: per-node typed methods</h4>
+    <p><span class="mono">enqueue()</span>, <span class="mono">publish()</span>, <span class="mono">handle()</span>, or <span class="mono">write()</span> beside <span class="mono">process()</span>: callers special-case, and a node can no longer be swapped without touching them. Testing any node is "construct a message, call <span class="mono">fill()</span>, inspect the sink."</p>
+  </div>
+  <div class="callout">
+    <h4>Rejected, and it arrives disguised as cleanup: exposing <span class="mono">fill()</span>'s stages</h4>
+    <p>A <span class="mono">parse()</span> that returns the parsed result and a <span class="mono">dispatch()</span> that sends it is the same parallel API with the pieces renamed, and worse than one <span class="mono">process()</span>: the caller now knows this node has two stages and their order. It drags ADR-13 down with it, since the stage a caller reaches for hands its result back as a return value. Helpers are fine as <span class="mono">fill()</span>'s own internals; nothing outside calls them to get a message in.</p>
+  </div>
+  <div class="ok">
+    <h4>The wrap rule</h4>
+    <p>A node whose natural input is not a Message — a typed REPL line, a raw wire frame, a file chunk — does not widen its signature. The producer wraps: a line arrives as a <span class="mono">TM_BYTESTREAM</span> whose VALUE is the line, and <span class="mono">Shell_Node::fill()</span> reads the statement out of the VALUE. Richer control surfaces are message types and verbs through an interpreter, never new methods. Neither decision has met a case it could not absorb.</p>
+  </div>
+</div>
+</div>
