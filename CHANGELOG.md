@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.57.0] - 2026-09-12
+
 ### Changed
 
 - **`autoLayout` lays a hub-bearing graph out as stacked bands instead of one layering.** A graph carrying HUBS — nodes whose degree clears both 6 and three times the median — is deep, and one layering pinned every sink to its far end: a two-node slice was stretched across five columns and one slice's members landed on unrelated rows. The hubs now come out, each weakly-connected component of what remains is laid out on its own by the same layering, and those bands stack alphabetically by their lowest id, so one subject's slices sit together and a two-node slice spans two columns. The hubs, and any bridge whose every neighbour is a hub, form a backbone that takes the columns to the right of every band, layered by its own longest path and centred on the rows of the nodes it serves. A graph with no hub — the worker topologies, and any dense graph where the median guard bites — lays out byte-identically to before.tsl` fixture lays out in 26ms against 47ms for the single layering.
