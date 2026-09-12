@@ -6,7 +6,7 @@ Twenty-four docs in three groups, in reading order. New here? Read **Understand 
 
 Eight chapters, each explaining one mechanism at the depth the reference assumes, with diagrams. Read them in order; each builds on the last.
 
-- **[why-a-message-runtime.md](why-a-message-runtime.md)**: read when you want the case for the runtime in one sitting: the problem, a worker's life, the file tree, the hub that pulls and the worker-slot budget. It expands the top-level README's "Why", so read it before the architecture guide's Overview.
+- **[why-a-message-runtime.md](why-a-message-runtime.md)**: read when you want the case for a runtime in one sitting: why a plugin cannot run a service on managed hosting, a worker's life, the file tree, the hub that pulls and the worker-slot budget. It expands the top-level README's "Why", so read it before the architecture guide's Overview.
 - **[vocabulary.md](vocabulary.md)**: read when you meet message, node, sink, target, router or topology for the first time: each defined once, then the reply's walk back along FROM. Read it before the guide's Message Format through Topologies sections, which give the same facts field by field.
 - **[logs-on-disk.md](logs-on-disk.md)**: read when you want to know what a Partition writes, why a record stays under 4 KB, how a Consumer resumes after a crash and where the runtime directory keeps it all. Read it before the guide's Storage and Consumer sections.
 - **[workers-and-the-fleet.md](workers-and-the-fleet.md)**: read when you want to know what a worker is, how a slot is held and handed on, and who revives a dead fleet. Read it before cli.md and troubleshooting.md, which assume its five slot states.
