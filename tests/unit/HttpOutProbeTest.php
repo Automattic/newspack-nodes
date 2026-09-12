@@ -62,7 +62,7 @@ class HttpOutProbeTest extends TestCase {
 
 	/** The `/auth` body a spoke answers a session request with. */
 	private function issued_session(): string {
-		return (string) \wp_json_encode( [ 'handle' => 'h-1', 'key' => 'k-1' ] );
+		return (string) \wp_json_encode( [ 'handle' => 'h-1', 'secret' => 'k-1' ] );
 	}
 
 	/** One packed reply line, as `/command` returns it (JSONL). */

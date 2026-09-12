@@ -227,7 +227,7 @@ it( 'discloses the issued key once, in place of the form', () => {
 		subject: 'laptop mcp',
 		result: {
 			handle: 'h-9001',
-			key: 'k-secret',
+			secret: 'k-secret',
 			scope: 'read',
 			expires_in: 3600,
 		},

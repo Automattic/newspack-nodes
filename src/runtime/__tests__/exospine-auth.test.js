@@ -23,7 +23,7 @@ describe( 'mountExospine session establishment', () => {
 			asked++;
 			return {
 				handle: 'aaaa1111bbbb2222cccc3333dddd4444',
-				key: 'mount-session-key-4242',
+				secret: 'mount-session-key-4242',
 				expires_in: 3600,
 			};
 		} );

@@ -357,16 +357,17 @@ function CreateSessionForm( {
 }
 
 /**
- * The one-time key disclosure, rendered in place of the form once a session is
- * issued. Closing is final: the listing never carries the key and no verb
- * hands it back, so a lost key is re-issued rather than recovered.
+ * The one-time credential disclosure, rendered in place of the form once a
+ * session is issued. Closing is final: the listing never carries the secret and
+ * no verb hands it back, so a lost credential is re-issued rather than
+ * recovered.
  *
- * Handle and key are shown joined by a dot, so one copy carries both. The wire
- * keeps them apart — the handle names the session in the `auth` envelope, the
- * key signs it.
+ * Handle and secret are shown joined by a dot, so one copy carries both. The
+ * wire keeps them apart — the handle names the session in the `auth` envelope,
+ * the secret signs it.
  *
  * @param {Object}     props
- * @param {Object}     props.session The mint: handle, key, scope and `expires_in`.
+ * @param {Object}     props.session The mint: handle, secret, scope and `expires_in`.
  * @param {() => void} props.onClose Dismisses the modal.
  * @return {import('react').ReactElement} The panel.
  */
@@ -381,7 +382,7 @@ function IssuedKeyPanel( { session, onClose } ) {
 			</p>
 			<p>
 				<code className="nodes-sessions__key">
-					{ session.handle }.{ session.key }
+					{ session.handle }.{ session.secret }
 				</code>
 			</p>
 			<p className="description">

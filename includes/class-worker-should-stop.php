@@ -31,4 +31,54 @@ namespace Newspack_Nodes;
  * finished and the cursor may commit past it. A shared `Control_Flow` base would buy
  * nothing while the family is those two — catching this parent first covers both.
  */
-class Worker_Should_Stop extends \RuntimeException {}
+class Worker_Should_Stop extends \RuntimeException {
+
+	/**
+	 * The fan-out loop itself: offer `$fn` every item, catching what each throws
+	 * and keeping the one throwable `outranks()` ranks safest. It RETURNS that
+	 * throwable rather than raising it, so a caller with work of its own to
+	 * finish first — Tap's passthrough — raises it when it is ready.
+	 *
+	 * @param iterable<mixed,mixed> $items What to offer, in order.
+	 * @param callable              $fn    Called with (value, key) for each item.
+	 * @return \Throwable|null The failure to raise after the loop, or null when every item passed.
+	 */
+	public static function attempt_each( iterable $items, callable $fn ): ?\Throwable {
+		$deferred = null;
+		foreach ( $items as $key => $value ) {
+			try {
+				$fn( $value, $key );
+			} catch ( \Throwable $e ) {
+				if ( self::outranks( $e, $deferred ) ) {
+					$deferred = $e;
+				}
+			}
+		}
+		return $deferred;
+	}
+
+	/**
+	 * Whether a newly-caught throwable should displace the one a fan-out has
+	 * already deferred.
+	 *
+	 * A fan-out attempts every target and re-throws afterwards, so several may
+	 * fail in one pass and only one can escape. The winner is the one whose
+	 * handling is safest, because that choice moves the consumer cursor. A plain
+	 * stop replays the message and the cursor stays put; the clean subtype
+	 * commits past it; anything else is poison, which dead-letters and advances
+	 * too. Advancing past a message that needed a replay loses it; replaying a
+	 * clean one is a duplicate, which at-least-once tolerates. So a plain stop
+	 * outranks both, in either arrival order (ADR-14).
+	 *
+	 * @param \Throwable      $candidate The throwable this target just raised.
+	 * @param \Throwable|null $deferred  What the loop already holds; null until the first failure.
+	 * @return bool True when `$candidate` should take the deferred slot.
+	 */
+	public static function outranks( \Throwable $candidate, ?\Throwable $deferred ): bool {
+		if ( null === $deferred ) {
+			return true;
+		}
+		return $candidate instanceof self
+			&& ( ! ( $deferred instanceof self ) || $deferred instanceof Worker_Should_Stop_Clean );
+	}
+}

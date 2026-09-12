@@ -12,7 +12,7 @@
  * its own traffic.
  *
  * Failure handling is Tee's: it attempts every target, defers the throwable
- * `outranks()` selects, and re-throws after the passthrough. Completing the
+ * `Worker_Should_Stop::outranks()` selects, and re-throws after the passthrough. Completing the
  * fan-out is what keeps at-least-once: a target skipped by an early throw never
  * receives the message once the poison path dead-letters it and advances the
  * cursor. Duplicates on replay are the accepted cost of that, and they arise
@@ -42,7 +42,7 @@ class Tap_Node extends Tee_Node {
 	 *
 	 * @param array<int,mixed> $message The 7-field positional message array.
 	 * @throws \RuntimeException When no sink is wired.
-	 * @throws \Throwable Whichever target failure `outranks()` kept, raised after the passthrough.
+	 * @throws \Throwable Whichever target failure `Worker_Should_Stop::outranks()` kept, raised after the passthrough.
 	 */
 	public function fill( array $message ): void {
 		$sink = $this->require_sink();
@@ -52,17 +52,13 @@ class Tap_Node extends Tee_Node {
 		$to    = Core::as_string( $message[ Message::TO ] );
 
 		// Defer: the passthrough below IS the pipeline, and Clean commits past.
-		$deferred = null;
-		foreach ( $alive as $t ) {
-			$message[ Message::TO ] = $t; // hard target: no remainder to route on
-			try {
+		$deferred = Worker_Should_Stop::attempt_each(
+			$alive,
+			static function ( string $t ) use ( $sink, $message ): void {
+				$message[ Message::TO ] = $t; // hard target: no remainder to route on
 				$sink->fill( $message );
-			} catch ( \Throwable $e ) {
-				if ( $this->outranks( $e, $deferred ) ) {
-					$deferred = $e;
-				}
 			}
-		}
+		);
 		$message[ Message::TO ] = $to;
 		$sink->fill( $message );
 		if ( null !== $deferred ) {

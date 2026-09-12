@@ -45,7 +45,7 @@ async function signVector( vector ) {
 	forgetSession();
 	__setAuthFetch( async () => ( {
 		handle: HANDLE,
-		key: vector.key,
+		secret: vector.key,
 		expires_in: 3600,
 	} ) );
 	await ensureSession();

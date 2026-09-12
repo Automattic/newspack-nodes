@@ -4,6 +4,55 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 **Maintenance rule:** a release that changes any consumer-facing contract adds its entry here in the same commit as its CHANGELOG entry. No entry means nothing to do.
 
+## Unreleased
+
+- **The `/auth` and `sessions create` reply names the signing key `secret`, not
+  `key`.** The field name IS the redaction: `Core::is_secret_property()` is the
+  one rule `Node::redact_secrets()` and the browser's `redactSecrets()` ask, and
+  `secret` is a name it masks. A PHP caller of
+  [`Command_Auth::mint_session()`](../includes/class-command-auth.php) reads
+  `$session['secret']`; a client reading `POST /newspack-nodes/v1/auth` or the
+  `sessions create` reply reads `secret` there too, and assembles the Bearer
+  credential as `<handle>.<secret>`, unchanged in bytes. The browser session
+  object [`CommandSession`](../src/runtime/command-auth.js) carries `secret`, so
+  a test double answering `/auth` issues `{ handle, secret, expires_in }`. There
+  is no alias: a reader asking for `key` gets null. The internal names stay
+  `key`: `Command_Auth::store_session()`, `remember_session()` and the record
+  `load_session_record()` returns.
+
+  A hub and its spokes upgrade together: `HTTP_Out_Node` reads the spoke's
+  `/auth` reply, so a hub past this release paired with a spoke before it treats
+  every session as malformed and refuses to probe.
+
+  Transcripts already stored need no migration. A session key outlives its
+  transcript entry by at most `Command_Auth::SESSION_TTL_MAX_S`, and the REPL's
+  `clear` builtin empties and re-persists the transcript.
+
+- **A relay or link refuses a message the remote addressed.** The rule for
+  every inbound leg of a channel is one: with a target set an addressed message
+  is dropped, logging `addressed while target is set`, and with none it passes
+  only to a destination this side declared. An unaddressed message takes the
+  target, or goes on as it stands. A legitimate firehose record carries no
+  `TO`, and a reply self-routes on the `TO` the remote echoed off this side's
+  own `FROM`, so a correctly wired channel sees no drops.
+
+  **A `Remote_Source`** drops any addressed line, with a target (`addressed
+  while target is set`) or without (`addressed with no target`); the relay
+  consults no allowlist. The stock shape declares its destination with
+  `connect_node spoke-<id> remote-job-rewrite`; a relay that sees no drops has
+  nothing to change.
+
+  **A hand-wired `Remote_Link` with no target** asks the `allow_replies_to`
+  list its `<name>:http-out` sibling holds, and drops an addressed frame naming
+  nothing declared with the same reason. Declare each destination the remote
+  legitimately answers on: `cmd <name>:http-out:config allow_replies_to <path>`.
+  The link's own name is declared by `address_null_sink()`, so the heartbeat
+  needs no action.
+
+  The refusal consumes the line rather than quarantining it: a `Remote_Source`
+  cursor advances past a refused record by its own crumb, so nothing replays and
+  no offsetlog or dead-letter migration is needed.
+
 ## 2.56.0
 
 - **The DevTools hub is RENAMED the station, and the DevTools tab system the

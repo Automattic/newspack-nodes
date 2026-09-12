@@ -599,14 +599,15 @@ the drain path catches it — and if that catch treats it as an error, the stop 
 
 **Decision:** A broad catch on the message/drain path re-throws `Worker_Should_Stop` before
 handling anything else — `catch (Worker_Should_Stop $e) { throw $e; }` — with three deliberate
-carve-outs, documented at each site. Fan-out through `Fanout_Targets` (Tee and Tap) attempts
-every target and defers the throwable, keeping whichever `Fanout_Targets::outranks()` ranks
-safest: a plain `Worker_Should_Stop` over a `Worker_Should_Stop_Clean` over a poison.
+carve-outs, documented at each site. Fan-out through `Fanout_Targets` (Tee and Tap), and
+`LRU_Cache::evict_bucket()` over its callbacks, attempts every target and defers the throwable,
+keeping whichever `Worker_Should_Stop::outranks()` ranks safest: a plain `Worker_Should_Stop`
+over a `Worker_Should_Stop_Clean` over a poison.
 `Job_Worker_Node`'s `after_job` `finally` swallows everything, because it fires whether the
 handler returned or threw. Event-logger-nodes' `Log_Manager::finish()` writes the terminal and
 then re-raises, because terminal-last is a wire contract.
 
-![The rule as a decision: inside a broad catch on the drain path, a Worker_Should_Stop is re-thrown as control flow and anything else is handled as a real error; the failure prevented is a worker draining on past max_runtime or the memory watermark. Three carve-outs: fan-out through Fanout_Targets attempts every target and defers the throwable, Tap always performing its passthrough first; Job_Worker_Node's after_job finally swallows everything while before_job follows the rule; Log_Manager::finish in event-logger-nodes writes the terminal then re-raises. A precedence table for Fanout_Targets::outranks shows a plain Worker_Should_Stop replacing a deferred clean stop or poison, a clean stop replacing a poison, and a poison never displacing either.](img/adr-stop-precedence.png)
+![The rule as a decision: inside a broad catch on the drain path, a Worker_Should_Stop is re-thrown as control flow and anything else is handled as a real error; the failure prevented is a worker draining on past max_runtime or the memory watermark. Three carve-outs: fan-out through Fanout_Targets, and LRU_Cache::evict_bucket() over its callbacks, attempts every target and defers the throwable, Tap always performing its passthrough first; Job_Worker_Node's after_job finally swallows everything while before_job follows the rule; Log_Manager::finish in event-logger-nodes writes the terminal then re-raises. A precedence table for Worker_Should_Stop::outranks shows a plain Worker_Should_Stop replacing a deferred clean stop or poison, a clean stop replacing a poison, and a poison never displacing either.](img/adr-stop-precedence.png)
 
 **Alternatives considered:** A marker interface / `Control_Flow` exception base caught separately
 — premature: the control-flow family today is `Worker_Should_Stop` plus its subclass
@@ -659,9 +660,11 @@ the attached cli's Shell, same host, over a filesystem-gated IPC partition.
 `sign_for( $destination )` signs under the session established with one remote and stamps its
 handle, and a signature under one remote's key verifies only there, which pins a command to
 its destination without signing TO. A client establishes that session first:
-[`POST /newspack-nodes/v1/auth`](API.md#establishing-a-session) returns `{ handle, key, scope, expires_in, now }`, a random
+[`POST /newspack-nodes/v1/auth`](API.md#establishing-a-session) returns `{ handle, secret, scope, expires_in, now }`, a random
 16-byte handle and 32-byte key stored under a site-namespaced address with `add()`, never
-`set()`, so a colliding handle fails instead of displacing a live session. The TTL is
+`set()`, so a colliding handle fails instead of displacing a live session. The key is
+disclosed as `secret` because that is the field name `Core::is_secret_property()` recognises,
+and every redactor on both sides of the wire asks that one rule. The TTL is
 `SESSION_TTL_S` (3600) unless the request asks for its own, clamped to 60..86400. Freshness is
 an age check (`MAX_PAST_S` 20, `MAX_FUTURE_S` 10). The nonce is claimed once with an atomic
 `add()` at `NONCE_TTL_S` 60 through `Cache_Backend::local_first()`, because a claim only has

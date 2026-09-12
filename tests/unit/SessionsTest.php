@@ -45,7 +45,7 @@ class SessionsTest extends TestCase {
 		$this->assertSame( Capabilities::TUNE, $row['scope'] );
 		$this->assertGreaterThan( $row['created'], $row['expires'] );
 		$this->assertStringNotContainsString(
-			$session['key'],
+			$session['secret'],
 			(string) \wp_json_encode( $rows ),
 			'the directory must never carry the signing key'
 		);

@@ -27,7 +27,7 @@ namespace Newspack_Nodes;
  *
  * A plain Worker_Should_Stop keeps at-least-once semantics: the cursor stays put and
  * the successor replays the message (ADR-8). For that same reason a plain stop
- * OUTRANKS this subtype in a fan-out's deferred slot (`Fanout_Targets::outranks()`) —
+ * OUTRANKS this subtype in a fan-out's deferred slot (`Worker_Should_Stop::outranks()`) —
  * advancing past a message that needed a replay loses it, while replaying a clean one
  * is a duplicate the contract tolerates. Being a subclass, it is also caught by every
  * broad `catch ( Worker_Should_Stop )` on the drain path (ADR-14).

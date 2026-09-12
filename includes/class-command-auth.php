@@ -182,10 +182,13 @@ class Command_Auth {
 	 * minting user is read off the runtime rather than passed, so a caller
 	 * cannot mint a session as somebody else.
 	 *
+	 * The reply discloses the key as `secret`, the name `Core::is_secret_property()`
+	 * masks, so no redactor on either side of the wire prints it.
+	 *
 	 * @param string $scope One of Capabilities::READ|TUNE|MANAGE.
 	 * @param int    $ttl   Lifetime in seconds, taken as given; a caller reading
 	 *                      it off the wire clamps through bounded_ttl() first.
-	 * @return array{handle:string,key:string,scope:string,expires_in:int,now:int}
+	 * @return array{handle:string,secret:string,scope:string,expires_in:int,now:int}
 	 * @throws \InvalidArgumentException On a scope outside the ladder.
 	 * @throws \RuntimeException When the session could not be persisted.
 	 */
@@ -201,7 +204,7 @@ class Command_Auth {
 		}
 		return [
 			'handle'     => $handle,
-			'key'        => $key,
+			'secret'     => $key,
 			'scope'      => $scope,
 			'expires_in' => $ttl,
 			// The minter signs TIMESTAMP; the client aligns to this clock.

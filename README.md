@@ -12,16 +12,16 @@ The runtime is independent of any *application* — but not of WordPress. It own
 
 This is the Lego-bricks architecture in PHP and WordPress, on a platform with no resident daemon: a worker is an HTTP request that outlives its caller and hands its slot to a successor at ~595 seconds, under WordPress.com Atomic's 15-minute request cap.
 
-## The parts nothing else ships
+## What a job queue does not give you
 
-Job queues exist. These don't, anywhere else in WordPress:
+A job queue runs work. This runtime also lets you watch it, steer it and replay it while it runs:
 
 - **A live topology console.** A graph editor over the running fleet: see every node and edge with live message counts, rewire a graph, save it as a `.tsl` — from the browser. The stock files stay immutable, so an edit saves under a new name that `include`s the stock one.
-- **An attached REPL.** [`wp nodes cli <worker>.p0`](docs/cli.md) pivots into a live worker over IPC: inspect with `dump_node`, `trace`, and `stats`, rewire sinks, send test messages — no restart, no redeploy.
+- **A REPL attached to a running worker.** [`wp nodes cli <worker>.p0`](docs/cli.md) pivots into a live worker over IPC, where `wp shell` starts a fresh process: inspect with `dump_node`, `trace`, and `stats`, rewire sinks, send test messages — no restart, no redeploy.
 - **Time-travel debugging.** Readers checkpoint durable cursors, so a Consumer can pause, single-step, and seek back through the log's history while you watch downstream react.
 - **A Jobs dashboard.** Runs and errors per handler, duration and queue latency per job identity, and the jobs Topic's backlog — replayed 24 hours deep from the durable jobstats log the workers already write.
-- **Errors as docs.** A refusal names the argument or the call that satisfies it — `Consumer source partition not initialized; call arguments() first` — and `help <NodeType>` in the REPL renders any node's schema, arguments, and verbs from the class itself.
-- **An infra-free test suite.** 8,600+ tests across PHP and JavaScript, with no containers, no database, no memcached server and no WordPress install.
+- **Refusals that name the fix.** A refusal names the argument or the call that satisfies it — `Consumer source partition not initialized; call arguments() first` — and `help <NodeType>` in the REPL renders any node's schema, arguments, and verbs from the class itself.
+- **A test suite that needs no infrastructure.** 9,200+ tests across PHP and JavaScript, with no containers, no database, no memcached server and no WordPress install.
 - **Written-down architecture.** Twenty ADRs, each carrying the alternatives it rejected and the condition that would reopen it ([architecture-decisions.md](docs/architecture-decisions.md)).
 
 ## When NOT to use Nodes
@@ -38,7 +38,7 @@ incumbent when it already fits:
 - **Request-scope glue** — actions and filters compose fine at request scale; that's
   what they're for.
 
-Nodes earns its keep when the shape of the problem is a **pipeline**: durable ordered
+Nodes earns its keep when the shape of the problem is a **pipeline or a stream**: durable ordered
 logs you can replay, long-lived workers that hold state between messages, graphs you
 rewire in a topology file instead of code, and a REPL/dashboard view into all of it.
 The event logger — a firehose that fans out into routing and aggregation — is the

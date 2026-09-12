@@ -110,8 +110,9 @@ function newNonce() {
  * @typedef {Object} CommandSession
  * @property {string} handle     Addresses the session server-side, stamped
  *                               into every envelope beside the signature.
- * @property {string} key        The HMAC key. The /auth response is the only
- *                               place it is ever disclosed.
+ * @property {string} secret     The HMAC key, named so every redactor masks
+ *                               it. The /auth response is the only place it
+ *                               is ever disclosed.
  * @property {number} expires_in Issued lifetime, in seconds.
  * @property {number} [now]      The server's clock, in Unix seconds. Both
  *                               numbers are read defensively: the /auth body
@@ -408,7 +409,7 @@ export async function ensureSession() {
 			.then( ( issued ) => {
 				// "Expected" only once a server actually answered.
 				attempted = null !== issued;
-				session = issued?.handle && issued?.key ? issued : null;
+				session = issued?.handle && issued?.secret ? issued : null;
 				if ( session ) {
 					const ttl = Number( issued.expires_in );
 					expiresAt =
@@ -494,7 +495,7 @@ export function signCommand( message ) {
 	);
 	value.auth = {
 		nonce,
-		sig: hmacHex( string, live.key ),
+		sig: hmacHex( string, live.secret ),
 		handle: live.handle,
 	};
 }

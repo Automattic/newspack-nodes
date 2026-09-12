@@ -334,6 +334,88 @@ class LruCacheTest extends TestCase {
 		$this->assertContains( 'stalled', $evicted );
 	}
 
+	/** One bucket on a 500 s window, whose evict callback records keys and throws on `poison`. */
+	private function poison_cache( array &$fired ): LRU_Cache {
+		return ( new LRU_Cache( 100, 1 ) )->with_timed_rotation(
+			500.0,
+			function ( string $key ) use ( &$fired ): void {
+				$fired[] = $key;
+				if ( 'poison' === $key ) {
+					throw new \RuntimeException( 'evict callback blew up' );
+				}
+			}
+		);
+	}
+
+	/** Roll the window and assert the poison callback's throw escapes `rotate_if_due()`. */
+	private function rotate_expecting_blowup( LRU_Cache $cache ): void {
+		try {
+			$cache->rotate_if_due();
+			$this->fail( 'the callback throw must propagate out of rotate_if_due()' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertSame( 'evict callback blew up', $e->getMessage() );
+		}
+	}
+
+	public function test_a_throw_mid_roll_still_advances_the_window(): void {
+		// The grid moves before the roll, so a retry after a throw does not
+		// roll the same window twice and evict the next bucket a window early.
+		Core::$now = 6000000.0;
+		$fired     = [];
+		$cache     = $this->poison_cache( $fired );
+		$cache->set( 'poison', 'envelope' );
+
+		Core::$now = 6000500.0;
+		$this->rotate_expecting_blowup( $cache );
+
+		$cache->set( 'omega', 'z' );
+		Core::$now = 6000600.0;
+		$cache->rotate_if_due();
+		$this->assertSame( [ 'poison' ], $fired, 'the window the throw interrupted is not rolled again' );
+		$this->assertSame( 'z', $cache->get( 'omega' ) );
+	}
+
+	public function test_a_throwing_evict_callback_does_not_stop_the_rest_of_the_bucket(): void {
+		// A fan-out attempts every target and re-throws afterwards (ADR-14):
+		// one poisoned entry must not cost its bucket-mates their eviction.
+		Core::$now = 5000000.0;
+		$fired     = [];
+		$cache     = $this->poison_cache( $fired );
+		$cache->set( 'alpha', 'a' );
+		$cache->set( 'poison', 'envelope' );
+		$cache->set( 'omega', 'z' );
+
+		Core::$now = 5000500.0;
+		$this->rotate_expecting_blowup( $cache );
+
+		$this->assertSame( [ 'alpha', 'poison', 'omega' ], $fired, 'every entry is offered to the callback before the throw escapes' );
+	}
+
+	/**
+	 * A callback that throws mid-loop must not leave the bucket behind for
+	 * `get_state()` to checkpoint: a poisoned entry would be restored by the
+	 * respawned worker and throw again, a crash loop no restart clears.
+	 */
+	public function test_a_throwing_evict_callback_leaves_the_bucket_gone(): void {
+		Core::$now = 4000000.0;
+		$fired     = [];
+		$cache     = $this->poison_cache( $fired );
+		$cache->set( 'poison', 'envelope' );
+
+		Core::$now = 4000500.0;
+		$this->rotate_expecting_blowup( $cache );
+
+		$held = [];
+		foreach ( $cache->get_state()['buckets'] as $bucket ) {
+			$held = \array_merge( $held, \array_keys( $bucket ) );
+		}
+		$this->assertNotContains( 'poison', $held, 'the throwing bucket is detached before the callback runs' );
+
+		Core::$now = 4001000.0;
+		$cache->rotate_if_due();
+		$this->assertSame( [ 'poison' ], $fired, 'a detached entry cannot be evicted a second time' );
+	}
+
 	/**
 	 * The reported failure. `on_demand_idle` is 30, so the worker recycles long
 	 * before a 200s window elapses; with the clock anchored at construction and

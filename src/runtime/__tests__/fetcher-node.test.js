@@ -181,7 +181,7 @@ test( 'a poll tick with no session re-authenticates', async () => {
 		issued++;
 		return {
 			handle: 'bbbb2222bbbb2222bbbb2222bbbb2222',
-			key: 'key-after-eviction',
+			secret: 'key-after-eviction',
 			expires_in: 3600,
 			now: 1771000000,
 		};
@@ -208,7 +208,7 @@ test( 'keeps the inherited command() minting helper', async () => {
 	forgetSession();
 	__setAuthFetch( async () => ( {
 		handle: 'cccc3333cccc3333cccc3333cccc3333',
-		key: 'key-for-mint-helper',
+		secret: 'key-for-mint-helper',
 		expires_in: 3600,
 		now: 1771000000,
 	} ) );
@@ -289,7 +289,7 @@ test( 'an unauthenticated tick does not consume the pending arguments', () => {
 
 	__setAuthFetch( async () => ( {
 		handle: 'aaaa1111aaaa1111aaaa1111aaaa1111',
-		key: 'fetcher-auth-key',
+		secret: 'fetcher-auth-key',
 		expires_in: 3600,
 		now: Math.floor( Date.now() / 1000 ),
 	} ) );

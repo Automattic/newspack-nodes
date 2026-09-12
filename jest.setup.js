@@ -142,7 +142,7 @@ if ( 'undefined' !== typeof window ) {
 		auth.forgetSession();
 		auth.__setAuthFetch( async () => ( {
 			handle: 'e2e11111e2e22222e2e33333e2e44444',
-			key: 'jest-harness-session-key',
+			secret: 'jest-harness-session-secret',
 			expires_in: 3600,
 			now: Math.floor( Date.now() / 1000 ),
 		} ) );

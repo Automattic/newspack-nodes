@@ -98,7 +98,7 @@ class HTTP_Out_Node extends Timer_Node {
 	protected string $vault_id = '';
 
 	/**
-	 * Path HEADS a reply from the remote may address, as a set.
+	 * Whole paths a message from the remote may address, as a set.
 	 *
 	 * A reply self-routes on the TO the remote echoed off our own FROM
 	 * breadcrumb — but the remote sets the type bit that makes it a reply, so
@@ -471,12 +471,7 @@ class HTTP_Out_Node extends Timer_Node {
 			return false;
 		}
 		if ( '' !== $to ) {
-			if ( ! $this->reply_allowed( $to ) ) {
-				// Constant: drop_message keys its throttle on the reason.
-				$this->drop_message( $reply, 'addressed outside allow_replies_to' );
-				return false;
-			}
-			return true;
+			return $this->admit_addressed( $reply );
 		}
 		// Single-valued, like Tachikoma's owner; the array form is Tee's.
 		$target = $this->target();
@@ -692,7 +687,7 @@ class HTTP_Out_Node extends Timer_Node {
 	}
 
 	/**
-	 * The `[ handle, key ]` a `/auth` body issued, both '' when it issued none.
+	 * The `[ handle, secret ]` a `/auth` body issued, both '' when it issued none.
 	 * One reading for both transports — the async half logs and holds its batch,
 	 * the blocking half throws, and only that disposition differs.
 	 *
@@ -704,7 +699,7 @@ class HTTP_Out_Node extends Timer_Node {
 		if ( ! \is_array( $issued ) ) {
 			return [ '', '' ];
 		}
-		return [ Core::as_string( $issued['handle'] ?? '' ), Core::as_string( $issued['key'] ?? '' ) ];
+		return [ Core::as_string( $issued['handle'] ?? '' ), Core::as_string( $issued['secret'] ?? '' ) ];
 	}
 
 	/**
@@ -788,9 +783,22 @@ class HTTP_Out_Node extends Timer_Node {
 		return Vault::credential_header_for( $server );
 	}
 
-	/** Whether a reply's TO is a declared destination, in full. */
-	private function reply_allowed( string $to ): bool {
-		return isset( $this->reply_allowlist[ $to ] );
+	/**
+	 * Admit an ADDRESSED inbound message only to a destination `allow_replies_to`
+	 * declares, in full; anything else is dropped with one throttled audit line.
+	 *
+	 * @api The stream leg asks too, through `Remote_Link_Node::admit_inbound()`,
+	 *      so one declaration bounds every inbound leg of a channel.
+	 * @param array<int,mixed> $message The 7-field positional message array, TO non-empty.
+	 * @return bool True when the message may go on.
+	 */
+	public function admit_addressed( array $message ): bool {
+		if ( isset( $this->reply_allowlist[ Core::as_string( $message[ Message::TO ] ) ] ) ) {
+			return true;
+		}
+		// Constant: drop_message keys its throttle on the reason.
+		$this->drop_message( $message, 'addressed outside allow_replies_to' );
+		return false;
 	}
 
 	/**
