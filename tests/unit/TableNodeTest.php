@@ -399,6 +399,92 @@ class TableNodeTest extends TestCase {
 		$this->assertEqualsWithDelta( \time() + 5, $expiry, 2, 'stored under the entry\'s own remaining life, not the table\'s 600' );
 	}
 
+	// --- backed_by: an absence the backing answered is remembered ----------
+
+	public function test_an_absent_key_is_remembered_for_the_lifetime_the_caller_states(): void {
+		// A key the record does not hold costs the backing its whole walk to
+		// say so, and nothing lands to spare the next reader. The caller says
+		// how long an absence holds; a bucket that closed never gains a frame.
+		$table = Table_Node::table( 'prices', 600 );
+		$calls = [];
+		$table->backed_by(
+			static function ( array $keys ) use ( &$calls ): array {
+				$calls[] = $keys;
+				return [ 'sku-2' => [ 'value' => [ 'usd' => 200 ] ] ];
+			},
+			static fn ( string $key ): int => 'sku-5' === $key ? 45 : 0
+		);
+
+		$this->assertSame( [ 'sku-2' => [ 'usd' => 200 ] ], $table->lookup_multi( [ 'sku-2', 'sku-5', 'sku-6' ] ) );
+		$this->assertNull( $table->lookup( 'sku-5' ), 'still absent' );
+		$this->assertSame( [ 'sku-2' => [ 'usd' => 200 ] ], $table->lookup_multi( [ 'sku-2', 'sku-5', 'sku-6' ] ) );
+		// sku-5's absence was stated for 45s and is not asked again; sku-6's
+		// lifetime is 0, so it is asked every time.
+		$this->assertSame( [ [ 'sku-2', 'sku-5', 'sku-6' ], [ 'sku-6' ] ], $calls );
+		$expiry = $this->memd->expiries()[ Table_Node::entry_key( 'prices', 'sku-5' ) ] ?? 0;
+		$this->assertEqualsWithDelta( \time() + 45, $expiry, 2, 'the absence holds for the stated lifetime, not the table\'s' );
+	}
+
+	public function test_a_backing_that_did_not_answer_records_no_absence(): void {
+		// A backing that could not look — out of budget, its record not yet
+		// there — says so with null. An absence is a walk that found nothing;
+		// a read that never walked must leave the next reader free to.
+		$table = Table_Node::table( 'prices', 600 );
+		$answered = false;
+		$table->backed_by(
+			static function ( array $keys ) use ( &$answered ): ?array {
+				return $answered ? [ 'sku-3' => [ 'value' => [ 'usd' => 300 ] ] ] : null;
+			},
+			static fn ( string $key ): int => 300
+		);
+
+		$this->assertNull( $table->lookup( 'sku-3' ), 'unanswered reads as a miss' );
+		$this->assertArrayNotHasKey( Table_Node::entry_key( 'prices', 'sku-3' ), $this->memd->expiries(), 'and nothing is held against the key' );
+		$answered = true;
+		$this->assertSame( [ 'usd' => 300 ], $table->lookup( 'sku-3' ), 'the next read asks again' );
+	}
+
+	public function test_only_a_table_that_holds_absences_honours_one(): void {
+		// The worker's store reads through the same key with no absence
+		// closure of its own; a reader's marker must not be its miss, or an
+		// evicted open bucket merges from nothing instead of the held tier.
+		$reader = Table_Node::table( 'prices', 600 );
+		$reader->backed_by( static fn ( array $keys ): array => [], static fn ( string $key ): int => 300 );
+		$this->assertNull( $reader->lookup( 'sku-4' ) );
+
+		$writer = Table_Node::table( 'prices', 600 );
+		$writer->backed_by( static fn ( array $keys ): array => [ 'sku-4' => [ 'value' => [ 'usd' => 400 ] ] ] );
+		$this->assertSame( [ 'usd' => 400 ], $writer->lookup( 'sku-4' ), 'the marker is a miss to a table that never asked for one' );
+		$this->assertSame( [ 'sku-4' => [ 'usd' => 400 ] ], $writer->lookup_multi( [ 'sku-4' ] ) );
+	}
+
+	public function test_an_absence_claims_the_key_and_never_displaces_a_value(): void {
+		// The walk that answers an absence takes a second on a real mirror,
+		// and a writer's value can land inside it. The marker is added, not
+		// set, so whatever landed first stands.
+		$table = Table_Node::table( 'prices', 600 );
+		$table->backed_by(
+			function ( array $keys ) use ( $table ): array {
+				$table->store( 'sku-6', [ 'usd' => 600 ] ); // lands mid-walk
+				return [];
+			},
+			static fn ( string $key ): int => 300
+		);
+
+		$this->assertNull( $table->lookup( 'sku-6' ), 'this read walked and found nothing' );
+		$this->assertSame( [ 'usd' => 600 ], $table->lookup( 'sku-6' ), 'the value that landed mid-walk stands' );
+	}
+
+	public function test_a_remembered_absence_yields_to_a_store(): void {
+		$table = Table_Node::table( 'prices', 600 );
+		$table->backed_by( static fn ( array $keys ): array => [], static fn ( string $key ): int => 300 );
+		$this->assertNull( $table->lookup( 'sku-8' ) );
+		$this->assertArrayHasKey( Table_Node::entry_key( 'prices', 'sku-8' ), $this->memd->expiries(), 'the absence is held in the table' );
+
+		$table->store( 'sku-8', [ 'usd' => 800 ] );
+		$this->assertSame( [ 'usd' => 800 ], $table->lookup( 'sku-8' ), 'a write replaces the absence' );
+	}
+
 	public function test_the_record_is_still_served_when_the_backend_went_away(): void {
 		// Warming the table is best-effort. A store that cannot land must not
 		// turn a successful read of the system of record into a miss.
