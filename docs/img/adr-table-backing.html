@@ -23,10 +23,10 @@
 
 <div class="lane card" data-lane="0"><h3>Caller</h3><p>A dashboard request: <span class="mono" style="white-space:nowrap">lookup( $key )</span> or <span class="mono" style="white-space:nowrap">lookup_multi( $keys )</span>.</p></div>
 <div class="lane card" data-lane="1"><h3><span class="mono">Table_Node</span></h3><p>The keyed store over the shared cache tier, one TTL fixed at construction.</p></div>
-<div class="lane card" data-lane="2"><h3>The backing closure</h3><p>Installed by <span class="mono">backed_by( \Closure )</span>. The application's: it knows the line format.</p></div>
+<div class="lane card" data-lane="2"><h3>The backing closure</h3><p>Installed by <span class="mono">backed_by( \Closure, ?\Closure )</span>. The application's: it knows the line format.</p></div>
 <div class="lane card" data-lane="3"><h3><span class="mono">Partition_Node</span></h3><p>Treats index lines and keys as opaque strings. Owns the walk.</p></div>
 
-<div class="hop" data-arrow="0,1" data-cap="lookup" data-span="1,2"><span class="n">1</span>A hit is served from the cache. A miss, an expiry and a backend read error all take the same branch: through the backing when one is installed, and back as null when none is. A miss is never remembered as a miss.</div>
+<div class="hop" data-arrow="0,1" data-cap="lookup" data-span="1,2"><span class="n">1</span>A hit is served from the cache. A miss, an expiry and a backend read error all take the same branch: through the backing when one is installed, and back as null when none is. A miss is remembered as one only on the caller's word, through backed_by()'s second closure.</div>
 
 <div class="hop app" data-arrow="1,2" data-cap="every miss, asked ONCE" data-span="2,3"><span class="n">2</span><span class="mono">lookup_multi()</span> asks once for all of its misses. The closure receives the key list and returns <span class="mono">key => { value, ttl? }</span>.</div>
 
@@ -54,7 +54,7 @@
   </div>
   <div class="ok">
     <h4>Why the remaining-TTL rule and the newest-record rule are one rule</h4>
-    <p>The lifetime is read off whichever record the key lands on, so resolving to an older write makes a live entry read as expired and vanish silently rather than loudly. A <span class="mono">PartitionTest</span> case pins it. Revisit if a consumer needs a miss to stay a miss, or a backing so slow that the fill belongs on a queue rather than in <span class="mono">lookup()</span>.</p>
+    <p>The lifetime is read off whichever record the key lands on, so resolving to an older write makes a live entry read as expired and vanish silently rather than loudly. A <span class="mono">PartitionTest</span> case pins it. A miss stays a miss only on the caller's word, through backed_by()'s second closure, and even then only a walk that found nothing counts. Revisit if a backing is so slow that the fill belongs on a queue rather than in <span class="mono">lookup()</span>.</p>
   </div>
 </div>
 </div>

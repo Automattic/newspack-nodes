@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A backed Table can remember an absence.** `Table_Node::backed_by()` takes a second closure naming, per key, how many seconds an absence the backing answered holds; the table stores a marker for that long and treats it as a miss without asking the backing again. A backing that has to walk to say a key is absent — a partition index, which can stop at a frame it finds and must run to the end to say there is none — was paying that walk on every read of the same absent key, and a reader polling a window with such keys spent its whole budget on them. A store to the key replaces the marker, the marker is added rather than set so a value that lands during the backing's walk stands, only a table that installed the closure honours a marker, and a backing that answers null — it could not look — records nothing. Omitting the closure, or answering 0, keeps every miss reaching the backing.
+
 ### Fixed
 
 - **The console's autolayout keeps a slice together when several slices share one egress.** A hub was a node of degree six or more, so a page whose five polled slices all target `_shell` laid out as one layering, and there the ordering sweep that runs against the flow keys every feeder of `_shell` alike: each slice's `in` landed rows above its `timer`, the lag growing down the canvas, with its fetcher somewhere between. A hub is now a node with a fan-in of four or more, three times the median fan-in of the fed nodes at least, so those five slices band one per row pair with `_shell` to their right. Fan-in rather than degree because only a fan-in scatters: a node fanning OUT orders its consumers with the flow, and the firehose worker's `request-builder`, feeding four partitions, stays in its flow.

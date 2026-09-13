@@ -886,10 +886,10 @@ reaches past its own store to write, through
 check. Reaching under your own abstraction to write is the tell that it stops one parameter
 short.
 
-**Decision:** [`Table_Node::backed_by( \Closure $backing )`](../includes/class-table-node.php) on the read path, and
+**Decision:** [`Table_Node::backed_by( \Closure $backing, ?\Closure $absence = null )`](../includes/class-table-node.php) on the read path, and
 [`Partition_Node::locate_by( \Closure $extract, array $wanted )`](../includes/class-partition-node.php) + `read_many()` underneath.
 
-![Eight hops across four lanes: the caller, Table_Node, the backing closure and Partition_Node. A miss, an expiry and a backend read error all fall through the backing; lookup_multi asks once for every miss; the app calls locate_by with its line parser and the wanted keys, bounding the walk, and reads by key never by position; Partition walks the .idx sidecars newest-first so the first hit is the last write, skipping a segment whose index is unreadable; a class-level memo keyed by directory records what was found and what was searched and is discarded on a new extent or past MAX_LOCATOR_MEMO_KEYS 100,000; read_many reads one handle per segment; a spent ttl is served and not warmed while live entries are warmed grouped by lifetime, best-effort; the caller cannot tell a backed miss from absent everywhere. Cards give the one wrong answer, the rejected shapes and why the remaining-TTL and newest-record rules are one rule.](img/adr-table-backing.png)
+![Eight hops across four lanes: the caller, Table_Node, the backing closure and Partition_Node. A miss, an expiry and a backend read error all fall through the backing; lookup_multi asks once for every miss; the app calls locate_by with its line parser and the wanted keys, bounding the walk, and reads by key never by position; Partition walks the .idx sidecars newest-first so the first hit is the last write, skipping a segment whose index is unreadable; a class-level memo keyed by directory records what was found and what was searched and is discarded on a new extent or past MAX_LOCATOR_MEMO_KEYS 100,000; read_many reads one handle per segment; a spent ttl is served and not warmed while live entries are warmed grouped by lifetime, best-effort; a miss is remembered as one only on the caller's word, through backed_by's second closure; the caller cannot tell a backed miss from absent everywhere. Cards give the one wrong answer, the rejected shapes and why the remaining-TTL and newest-record rules are one rule.](img/adr-table-backing.png)
 
 That does not reopen "one table, one lifetime", which governs what a CALLER stores: a
 backing is re-materializing an entry that already had a life, and handing it a fresh full
@@ -904,9 +904,26 @@ failure becomes a data failure.
 Finding WHICH durable record answers a key is the app's business, not the table's.
 `Partition_Node` treats index lines as opaque strings because the formatter that wrote them
 belongs to the caller (`with_index`), and a key is as opaque to Partition as a line is. The
-memo's negative caching is not the kind the reopen condition means: it is per process and
-caches "this index did not answer for this key", never "this record does not exist"; a reader
-that must distinguish those asks the record.
+memo caches "this index did not answer for this key" per process and never "this record does
+not exist"; PHP statics end with the request, so it spares repeats inside one read and nothing
+across reads.
+
+A miss CAN stay a miss, on the caller's word. The second closure of `backed_by()` says, per
+key, how many seconds an absence the backing answered holds, and the table stores a marker
+for that long and reads it as a miss without asking again. It came from the stats mirror: an
+absent key is the one a newest-first index walk cannot stop early on, a full pass of every
+segment where a present key costs the segment that holds it, and a sparse reporting server
+has such keys in every window, so a polling dashboard spent its whole read budget re-learning
+the same absences on every poll and its per-server series never filled in. Four rules keep
+the marker honest, each pinned in `tests/unit/TableNodeTest.php`. The hold is the caller's
+statement, since only it knows that a closed bucket never gains a frame and an open one may.
+Only a table that installed the closure honours a marker; to any other it is an ordinary
+miss, so a writer reading through the same key is never told by a reader that it holds
+nothing, which would have merged an evicted open bucket from zero instead of from the
+held-frame tier. The marker is added, never set: the walk that answers an absence takes time,
+a writer's value can land inside it, and whatever landed first stands. And a backing that
+could not look answers null — a spent budget, a partition not yet resolved — and nothing is
+remembered of that read; only a walk that found nothing is an absence.
 
 `locate_by()` resolves a key to its NEWEST record in one newest-first pass, because the
 remaining-`ttl` rule reads the lifetime off whichever record the key lands on: an older write
@@ -923,12 +940,13 @@ table's TTL, which is exactly what a restore must not do.
 
 **Consequences:** A table with a backing cannot report a miss the caller can
 distinguish from "absent everywhere" — that is the point. The backing is invoked on the read
-path, so a slow system of record becomes read latency; `lookup_multi()` batching and
-`locate_by()`'s memo are what keep that to one walk per reader rather than one per key.
+path, so a slow system of record becomes read latency; `lookup_multi()` batching keeps that to
+one walk per read rather than one per key, and a remembered absence keeps a walk that found
+nothing from being repeated on the next read. A marker occupies a cache slot for its hold, one
+per absent key the caller chose to remember.
 
-**Revisit if:** a consumer needs a miss to stay a miss (a negative cache), or a backing whose
-cost makes synchronous read-through wrong — at which point the fill belongs on a queue rather
-than in `lookup()`.
+**Revisit if:** a backing whose cost makes synchronous read-through wrong even with absences
+remembered — at which point the fill belongs on a queue rather than in `lookup()`.
 
 ---
 

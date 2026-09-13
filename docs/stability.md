@@ -268,7 +268,7 @@ that default comes out once every consumer's floor is past the release that
 added it. [`Partition_Node::locate_by( \Closure $extract, array $wanted )`](../includes/class-partition-node.php)
 is the worked case above: `$wanted`, the key set that bounds the index walk,
 is required because event-logger-nodes is its only caller in the family and
-floors at 2.57.0, past the 2.41.0 that added it.
+floors at 2.58.0, past the 2.41.0 that added it.
 
 ## How a frozen name changes
 
