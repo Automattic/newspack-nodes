@@ -12,8 +12,15 @@
  * full-step lattice could not reproduce its own output.
  *
  * The layout runs one of two regimes, chosen by whether the graph has HUBS:
- * nodes whose degree clears both `HUB_MIN_DEGREE` and `HUB_MEDIAN_FACTOR`
- * times the graph's median degree.
+ * nodes whose FAN-IN clears both `HUB_MIN_FAN_IN` and `HUB_MEDIAN_FACTOR`
+ * times the median fan-in of the nodes anything feeds. Fan-in, not degree: a
+ * node many separate slices feed is what a single layering scatters, because
+ * the ordering sweep that runs against the flow hands every feeder of that
+ * node one key and the feeders' own slices come apart around it. A node that
+ * fans OUT orders its consumers with the flow and scatters nothing, so a Tee
+ * feeding four partitions is a wire, not a backbone. The backbone sits to the
+ * right of every band, so a hub that also feeds a band draws that edge
+ * leftward; the realms' hubs are sinks or feed only a bridge.
  *
  * With no hub the graph is laid out whole, as one layered component. Columns
  * come from a Coffman-Graham-flavored layering: a true source pins to column 0,
@@ -230,10 +237,10 @@ const stableSort = ( arr, key ) =>
  */
 const byId = ( a, b ) => String( a ).localeCompare( String( b ) );
 
-/** A hub's floor degree; below it a node is ordinary however sparse the graph. */
-const HUB_MIN_DEGREE = 6;
+/** A hub's floor fan-in; below it a node is ordinary however sparse the graph. */
+const HUB_MIN_FAN_IN = 4;
 
-/** How far above the median a hub must sit, so a dense graph declares none. */
+/** How far above the median fan-in a hub must sit, so a dense graph declares none. */
 const HUB_MEDIAN_FACTOR = 3;
 
 /**
@@ -363,27 +370,24 @@ const spreadColumn = ( members, row, order ) => {
  * The nodes every slice is wired into: the backbone a single layering would
  * stretch the whole graph around.
  *
- * Degree is in plus out over the non-dangling edges. The floor keeps a sparse
- * graph's busiest node ordinary, and the median multiple keeps a uniformly
- * dense graph from declaring most of itself a hub — a backbone is only a
- * backbone when it stands well clear of what it serves.
+ * Fan-in is the predecessor count over the non-dangling edges. The floor
+ * keeps a sparse graph's busiest node ordinary, and the median multiple keeps
+ * a uniformly dense graph from declaring most of itself a hub — a backbone is
+ * only a backbone when it stands well clear of what it serves. The median is
+ * taken over the nodes anything feeds, since every source's zero would
+ * otherwise drag it to nothing.
  *
  * @param {Array<string>}                ids  Every node.
- * @param {Object<string,Array<string>>} succ Successors.
  * @param {Object<string,Array<string>>} pred Predecessors.
  * @return {Set<string>} The hub ids, empty when the graph has no backbone.
  */
-const hubIds = ( ids, succ, pred ) => {
-	/** @type {Object<string,number>} */
-	const degree = {};
-	for ( const id of ids ) {
-		degree[ id ] = succ[ id ].length + pred[ id ].length;
-	}
+const hubIds = ( ids, pred ) => {
+	const fed = ids.filter( ( id ) => pred[ id ].length > 0 );
 	const cut = Math.max(
-		HUB_MIN_DEGREE,
-		HUB_MEDIAN_FACTOR * median( ids.map( ( id ) => degree[ id ] ) )
+		HUB_MIN_FAN_IN,
+		HUB_MEDIAN_FACTOR * median( fed.map( ( id ) => pred[ id ].length ) )
 	);
-	return new Set( ids.filter( ( id ) => degree[ id ] >= cut ) );
+	return new Set( fed.filter( ( id ) => pred[ id ].length >= cut ) );
 };
 
 /**
@@ -857,7 +861,7 @@ export function autoLayout( parsed ) {
 		pred[ e.to ].push( e.from );
 	}
 
-	const hubs = hubIds( ids, succ, pred );
+	const hubs = hubIds( ids, pred );
 	const { col, row } =
 		hubs.size === 0
 			? layoutComponent( ids, succ, pred )
