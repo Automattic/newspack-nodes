@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.57.1] - 2026-09-12
+
 ### Fixed
 
 - **A marked reset toggle turns red on every settings page, not only Pyrobase's.** `Field_Reset_Assets::highlight_style()` painted the mark at specificity 0,2,0, and the UI stylesheet's secondary-button role paints every non-primary button at 0,4,0, so on the Nodes and Event Logger pages — the two that load that sheet — the toggle went red for no one. The field still cleared and the marker still posted, and a checkbox at its default previews as its default, so the button read as dead. The module now gives a marked toggle the `is-danger` button role that sheet already paints, `Field_Reset_Assets::enqueue()` enqueues the sheet by handle beside the script so the paint is a dependency of the call rather than of each page remembering it, and the inline style is gone. A settings page carrying the toggle wraps in `.newspack-nodes-ui`, which is what scopes the sheet.
