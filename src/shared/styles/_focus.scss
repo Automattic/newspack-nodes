@@ -44,6 +44,11 @@
 		@include focus.no-ring;
 	}
 
+	// The canvas wrapper clips; an outset ring would draw wholly outside it.
+	.topology-canvas-svg:focus-visible {
+		outline-offset: -2px;
+	}
+
 	// Segmented row: without this the next sibling paints over the ring.
 	.topology-mode__btn:focus {
 		position: relative;

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The console's wheel zoom moves in proportion to the wheel, so a touchpad no longer races.** Every wheel event applied a whole 12% step whatever its `deltaY`; a mouse notch is one such event, a touchpad swipe is dozens, so the same gesture that was right on a mouse flew past the graph on a touchpad. A notch is now 100 pixels or three lines of travel, each event moves the view by its share of a step, no single event moves it more than one, and a swipe with no vertical travel moves nothing. A touchpad pinch, which the browser delivers as a ctrl+wheel with a few pixels per step, counts ten times over so it no longer crawls. `=` and `-` (with `+` and `_`) zoom in and out about the canvas centre. The canvas takes focus on a click, and the arrow and zoom keys act while it is hovered or focused, so they keep working after the pointer drifts onto a panel and are still left to a host page the canvas was never clicked in.
+
 ## [2.57.1] - 2026-09-12
 
 ### Fixed
