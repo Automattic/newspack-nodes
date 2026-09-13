@@ -17,6 +17,7 @@ import {
 	useRef,
 	useState,
 } from '@wordpress/element';
+import { __ } from '@wordpress/i18n';
 
 import {
 	X_PAD,
@@ -318,9 +319,59 @@ function tightViewBoxFor( nodes, canvasSize = null, bottomInsetPx = 0 ) {
 }
 
 /**
- * Multiplicative zoom per wheel notch, applied around the cursor.
+ * Multiplicative zoom per wheel notch, applied around the cursor, and per
+ * press of the zoom keys, applied around the canvas centre.
  */
 const ZOOM_STEP = 1.12;
+
+/**
+ * Pixels of wheel travel that count as one notch. A mouse notch arrives as
+ * one event of a whole notch; a touchpad swipe as dozens of small ones, each
+ * moving the view by its own share.
+ */
+const WHEEL_NOTCH_PX = 100;
+
+/**
+ * Lines of wheel travel that count as one notch, for a wheel the browser
+ * reports in lines.
+ */
+const WHEEL_NOTCH_LINES = 3;
+
+/**
+ * What a pinch's deltas are scaled by. A browser delivers a touchpad pinch as
+ * a wheel event with `ctrlKey` set and a few pixels of delta per step, so at
+ * face value a pinch would crawl; d3-zoom applies the same factor.
+ */
+const PINCH_GAIN = 10;
+
+/**
+ * Zoom keys and the factor each applies; `+` and `_` are the shifted spellings
+ * of `=` and `-` on the keyboards where they share a key.
+ */
+const ZOOM_KEYS = {
+	'=': 1 / ZOOM_STEP,
+	'+': 1 / ZOOM_STEP,
+	'-': ZOOM_STEP,
+	_: ZOOM_STEP,
+};
+
+/**
+ * How many notches a wheel event travelled, capped at one either way.
+ *
+ * @param {WheelEvent} e The wheel event.
+ * @return {number} Notches in -1..1; positive scrolls down.
+ */
+const wheelNotches = ( e ) => {
+	if ( window.WheelEvent.DOM_DELTA_PAGE === e.deltaMode ) {
+		return Math.sign( e.deltaY );
+	}
+	const unit =
+		window.WheelEvent.DOM_DELTA_LINE === e.deltaMode
+			? WHEEL_NOTCH_LINES
+			: WHEEL_NOTCH_PX;
+	const gain = e.ctrlKey ? PINCH_GAIN : 1;
+	return Math.max( -1, Math.min( 1, ( gain * e.deltaY ) / unit ) );
+};
 
 /**
  * How far past the whole-graph fit the wheel zooms OUT, as a fraction of the
@@ -591,9 +642,10 @@ function formatNodeRate( rate ) {
 /**
  * The drafting-room canvas: one raw `<svg>` holding the grid, the include
  * hulls, the edges, and a card per node. It owns every canvas gesture — pan,
- * cursor-anchored wheel zoom, arrow-key pan, node drag, hull drag, and the
- * port-to-port wire drag — plus viewport autofit, viewport culling, and the
- * level-of-detail drop to bare rects when cards zoom below readable size.
+ * cursor-anchored wheel zoom, `=`/`-` zoom about the centre, arrow-key pan,
+ * node drag, hull drag, and the port-to-port wire drag — plus viewport
+ * autofit, viewport culling, and the level-of-detail drop to bare rects when
+ * cards zoom below readable size.
  * Layout (positions, viewport) comes from LayoutContext, not from props.
  *
  * @param {Object}                                  props
@@ -729,7 +781,7 @@ export default function SchematicCanvas( {
 	);
 	// Active pan drag on the empty canvas (stable start origin per move).
 	const panRef = useRef( null );
-	// Pointer-over gate: only steal arrow keys while the canvas is hovered.
+	// Hover gate: with focus, what lets the keys act without stealing them.
 	const canvasHoverRef = useRef( false );
 
 	// One press per pointerdown/mousedown pair, for cards and for ports.
@@ -981,18 +1033,15 @@ export default function SchematicCanvas( {
 		}
 	};
 
-	// Cursor-anchored wheel zoom; preventDefault stops page scroll.
-	const handleWheel = ( e ) => {
-		e.preventDefault();
-		const svg = e.currentTarget;
-		const world = screenToSvg( svg, e.clientX, e.clientY );
+	// Zoom by `factor` (>1 zooms out) around the screen point given.
+	const zoomAt = ( svg, factor, clientX, clientY ) => {
+		const world = screenToSvg( svg, clientX, clientY );
 		const current = viewport || parseViewBox( defaultViewBox );
 		// Unmeasured: fall back to the viewBox size (keeps aspect + factor).
 		const cs =
 			canvasPx.w && canvasPx.h
 				? canvasPx
 				: { w: current.w, h: current.h };
-		const factor = e.deltaY > 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
 		// Work in scale-space (px/world) so zoom limits are ABSOLUTE.
 		const baseVb = parseViewBox( defaultViewBox );
 		const fitScale = Math.min( cs.w / baseVb.w, cs.h / baseVb.h );
@@ -1008,10 +1057,8 @@ export default function SchematicCanvas( {
 		const nextH = cs.h / nextScale;
 		// Anchor on cursor SCREEN fraction, not world (diverges on letterbox).
 		const rect = svg.getBoundingClientRect();
-		const fracX = rect.width ? ( e.clientX - rect.left ) / rect.width : 0.5;
-		const fracY = rect.height
-			? ( e.clientY - rect.top ) / rect.height
-			: 0.5;
+		const fracX = rect.width ? ( clientX - rect.left ) / rect.width : 0.5;
+		const fracY = rect.height ? ( clientY - rect.top ) / rect.height : 0.5;
 		setViewport( {
 			x: world.x - fracX * nextW,
 			y: world.y - fracY * nextH,
@@ -1019,31 +1066,50 @@ export default function SchematicCanvas( {
 			h: nextH,
 		} );
 	};
+	const zoomAtRef = useRef( zoomAt );
+	zoomAtRef.current = zoomAt;
 
-	// Attach wheel NON-PASSIVELY so preventDefault() stops the page scroll.
-	const handleWheelRef = useRef( handleWheel );
-	handleWheelRef.current = handleWheel;
+	// Cursor-anchored wheel zoom; non-passive so preventDefault() holds.
 	useEffect( () => {
 		const el = svgRef.current;
 		if ( ! el ) {
 			return undefined;
 		}
-		const onWheel = ( e ) => handleWheelRef.current( e );
+		const onWheel = ( e ) => {
+			e.preventDefault();
+			const notches = wheelNotches( e );
+			if ( 0 === notches ) {
+				return;
+			}
+			zoomAtRef.current(
+				el,
+				Math.pow( ZOOM_STEP, notches ),
+				e.clientX,
+				e.clientY
+			);
+		};
 		el.addEventListener( 'wheel', onWheel, { passive: false } );
 		return () => el.removeEventListener( 'wheel', onWheel );
 	}, [] );
 
-	// Arrow keys pan the viewport (document-level, skipped while typing).
+	// Arrow keys pan, zoom keys zoom: hovered or focused canvas, not typing.
 	const panStateRef = useRef( { viewport, defaultViewBox } );
 	panStateRef.current = { viewport, defaultViewBox };
 	useEffect( () => {
 		const onKey = ( e ) => {
 			const dir = ARROW_PAN[ e.key ];
-			if ( ! dir ) {
+			const zoom = ZOOM_KEYS[ e.key ];
+			if ( ! dir && ! zoom ) {
 				return;
 			}
-			// Only pan (and swallow the arrow) while the canvas is hovered.
-			if ( ! canvasHoverRef.current ) {
+			if ( e.ctrlKey || e.metaKey || e.altKey ) {
+				return;
+			}
+			const svg = svgRef.current;
+			if (
+				! canvasHoverRef.current &&
+				svg?.ownerDocument.activeElement !== svg
+			) {
 				return;
 			}
 			const tag = e.target && e.target.tagName;
@@ -1056,6 +1122,16 @@ export default function SchematicCanvas( {
 				return;
 			}
 			e.preventDefault();
+			if ( zoom ) {
+				const rect = svg.getBoundingClientRect();
+				zoomAtRef.current(
+					svg,
+					zoom,
+					rect.left + rect.width / 2,
+					rect.top + rect.height / 2
+				);
+				return;
+			}
 			const cur =
 				panStateRef.current.viewport ||
 				parseViewBox( panStateRef.current.defaultViewBox );
@@ -1496,7 +1572,13 @@ export default function SchematicCanvas( {
 			className="topology-canvas-svg"
 			viewBox={ viewBox }
 			preserveAspectRatio="xMidYMid meet"
-			onPointerDown={ handleBgPointerDown }
+			tabIndex={ 0 }
+			role="application"
+			aria-label={ __( 'Topology canvas', 'newspack-nodes' ) }
+			onPointerDown={ ( e ) => {
+				e.currentTarget.focus( { preventScroll: true } );
+				handleBgPointerDown( e );
+			} }
 			onPointerMove={ handleBgPointerMove }
 			onPointerUp={ handleBgPointerUp }
 			onPointerCancel={ handleBgPointerUp }

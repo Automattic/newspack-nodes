@@ -383,7 +383,7 @@ describe( 'SchematicCanvas', () => {
 		);
 	} );
 
-	// Arrow-pan fires only while the canvas is hovered; hover the SVG first.
+	// The keys act on a hovered or focused canvas; hover the SVG first.
 	const hoverCanvas = ( container ) =>
 		fireEvent.pointerEnter(
 			container.querySelector( '.topology-canvas-svg' )
@@ -1411,6 +1411,190 @@ describe( 'SchematicCanvas', () => {
 		expect( onViewportChange ).toHaveBeenCalled();
 		const [ vp ] = onViewportChange.mock.calls.at( -1 );
 		expect( vp.w ).toBeLessThan( 1000 );
+	} );
+
+	it( 'wheel: zooms in proportion to the delta, one full step per notch at most', () => {
+		// A touchpad swipe arrives as dozens of small deltas; a mouse notch as
+		// one of 100. Each must move the view by its own share of a step.
+		const onViewportChange = jest.fn();
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...baseProps } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+				viewport: { x: 0, y: 0, w: 1000, h: 800 },
+				onViewportChange,
+			}
+		);
+		const svg = container.querySelector( 'svg' );
+		fireEvent.wheel( svg, { deltaY: 10, clientX: 500, clientY: 400 } );
+		const [ tenth ] = onViewportChange.mock.calls.at( -1 );
+		expect( tenth.w ).toBeCloseTo( 1000 * Math.pow( 1.12, 0.1 ), 3 );
+		fireEvent.wheel( svg, { deltaY: 1000, clientX: 500, clientY: 400 } );
+		const [ capped ] = onViewportChange.mock.calls.at( -1 );
+		expect( capped.w ).toBeCloseTo( 1000 * 1.12, 3 );
+	} );
+
+	it( 'wheel: a swipe with no vertical travel changes nothing', () => {
+		// A horizontal two-finger swipe is dozens of zero-deltaY events; each
+		// used to re-derive and commit the same box.
+		const onViewportChange = jest.fn();
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...baseProps } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+				viewport: { x: 0, y: 0, w: 1000, h: 800 },
+				onViewportChange,
+			}
+		);
+		const svg = container.querySelector( 'svg' );
+		fireEvent.wheel( svg, {
+			deltaY: 0,
+			deltaX: 40,
+			clientX: 500,
+			clientY: 400,
+		} );
+		expect( onViewportChange ).not.toHaveBeenCalled();
+	} );
+
+	it( 'wheel: a pinch, which arrives as ctrl+wheel with small deltas, counts ten times over', () => {
+		const onViewportChange = jest.fn();
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...baseProps } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+				viewport: { x: 0, y: 0, w: 1000, h: 800 },
+				onViewportChange,
+			}
+		);
+		const svg = container.querySelector( 'svg' );
+		fireEvent.wheel( svg, {
+			deltaY: -5,
+			ctrlKey: true,
+			clientX: 500,
+			clientY: 400,
+		} );
+		const [ vp ] = onViewportChange.mock.calls.at( -1 );
+		expect( vp.w ).toBeCloseTo( 1000 / Math.pow( 1.12, 0.5 ), 3 );
+	} );
+
+	it( 'wheel: a line-mode delta counts three lines as one notch', () => {
+		const onViewportChange = jest.fn();
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...baseProps } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+				viewport: { x: 0, y: 0, w: 1000, h: 800 },
+				onViewportChange,
+			}
+		);
+		const svg = container.querySelector( 'svg' );
+		fireEvent.wheel( svg, {
+			deltaY: -1,
+			deltaMode: 1,
+			clientX: 500,
+			clientY: 400,
+		} );
+		const [ vp ] = onViewportChange.mock.calls.at( -1 );
+		expect( vp.w ).toBeCloseTo( 1000 / Math.pow( 1.12, 1 / 3 ), 3 );
+	} );
+
+	it( 'the = and - keys zoom around the canvas centre while the canvas has focus', () => {
+		const onViewportChange = jest.fn();
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...baseProps } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+				viewport: { x: 0, y: 0, w: 1000, h: 800 },
+				onViewportChange,
+			}
+		);
+		const svg = container.querySelector( 'svg' );
+		svg.getBoundingClientRect = () => ( {
+			x: 0,
+			y: 0,
+			left: 0,
+			top: 0,
+			width: 1000,
+			height: 800,
+			right: 1000,
+			bottom: 800,
+		} );
+		svg.focus();
+		fireEvent.keyDown( document, { key: '=' } );
+		const [ zoomedIn ] = onViewportChange.mock.calls.at( -1 );
+		expect( zoomedIn.w ).toBeCloseTo( 1000 / 1.12, 3 );
+		// Identity CTM: the world point under the screen centre stays put.
+		expect( zoomedIn.x + zoomedIn.w / 2 ).toBeCloseTo( 500, 3 );
+		expect( zoomedIn.y + zoomedIn.h / 2 ).toBeCloseTo( 400, 3 );
+		fireEvent.keyDown( document, { key: '-' } );
+		const [ zoomedOut ] = onViewportChange.mock.calls.at( -1 );
+		expect( zoomedOut.w ).toBeCloseTo( 1000 * 1.12, 3 );
+	} );
+
+	it( 'arrow keys pan while the canvas has focus, wherever the pointer rests', () => {
+		// A click on the canvas gives it focus, so the keys keep working after
+		// the pointer drifts onto a panel; nothing is stolen from a host page
+		// the canvas was never clicked in.
+		const onViewportChange = jest.fn();
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...baseProps } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+				viewport: { x: 0, y: 0, w: 1000, h: 700 },
+				onViewportChange,
+			}
+		);
+		const svg = container.querySelector( 'svg' );
+		fireEvent.pointerDown( svg, { button: 0, clientX: 500, clientY: 350 } );
+		fireEvent.pointerUp( svg, { button: 0, clientX: 500, clientY: 350 } );
+		onViewportChange.mockClear();
+		fireEvent.pointerLeave( svg );
+		expect( document.activeElement ).toBe( svg );
+		fireEvent.keyDown( document, { key: 'ArrowRight' } );
+		const [ vp ] = onViewportChange.mock.calls.at( -1 );
+		expect( vp.x ).toBeCloseTo( 80, 3 );
 	} );
 
 	it( 'wheel: zoom clamps to ZOOM_MIN / ZOOM_MAX', () => {
