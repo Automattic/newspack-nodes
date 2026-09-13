@@ -909,10 +909,10 @@ describe( 'autoLayout — disconnected components', () => {
 		],
 	};
 
-	it( 'keeps a fan-out backbone in flow order past the bands', () => {
-		// Every spoke touches only hubs, so the whole fan is backbone, and the
-		// backbone lays out by its own longest path: consumer, then the two
-		// feeders, then the spokes, then null, reading left to right.
+	it( 'keeps the fan in flow order with the sink it feeds to the right', () => {
+		// Only `null` is a hub: twelve spokes feed it. The two feeders fan OUT
+		// and stay in the fan's band with their spokes, consumer first, and
+		// the hub takes the column past the band.
 		const at = {};
 		for ( const n of autoLayout( graph ).nodes ) {
 			at[ n.id ] = n.position;
@@ -945,13 +945,12 @@ describe( 'autoLayout — hub bands', () => {
 	// A browser-realm-shaped graph: five polled slices, five receiver slices,
 	// and the four backbone nodes every slice is wired into.
 	//
-	// Degrees over the non-dangling edges, which is what hub detection reads:
-	//   X:timer 1, X:tee 2, X:fetch 4, X:result 2, X:in 2, X:view 1,
-	//   _metadata 1, _heartbeat 0,
-	//   _shell 6 (5 fetches in, _http out), _http 2 (_shell in, _output out),
-	//   _output 6 (5 results and _http in), _cwd 6 (5 fetches and _metadata in).
-	// Over 36 nodes the median degree is 2, so the cut is max( 6, 3 * 2 ) = 6
-	// and exactly _shell, _output and _cwd clear it; a fetch at 4 does not,
+	// Fan-in over the non-dangling edges, which is what hub detection reads:
+	//   X:tee 1, X:fetch 1, X:result 1, X:view 1, _http 1,
+	//   _shell 5 (the fetches), _output 6 (5 results and _http),
+	//   _cwd 6 (5 fetches and _metadata).
+	// The median fan-in of the fed nodes is 1, so the cut is max( 4, 3 ) = 4
+	// and exactly _shell, _output and _cwd clear it; a fetch at 1 does not,
 	// and _http and _metadata are bridges: every neighbour they have is a hub.
 	const POLL_SLICES = [ 'a', 'b', 'd', 'e', 'f' ];
 	const VIEW_SLICES = [ 'c', 'g', 'h', 'i', 'j' ];
@@ -1035,16 +1034,21 @@ describe( 'autoLayout — hub bands', () => {
 		expect( positionsOf( shuffled ) ).toEqual( positionsOf( graph ) );
 	} );
 
-	// One node short of the cut, the graph is one layered component and a
+	// One feeder short of the cut, the graph is one layered component and a
 	// two-node slice stretches to the global depth; one edge later it bands.
-	const starGraph = ( spokes ) => {
+	// A fan OUT of the same size is a wire: its consumers order with the flow.
+	const starGraph = ( spokes, fanOut = false ) => {
 		const edges = [
 			{ from: 'c1', to: 'c2' },
 			{ from: 'c2', to: 'c3' },
 			{ from: 'x', to: 'y' },
 		];
 		for ( let i = 0; i < spokes; i++ ) {
-			edges.push( { from: `s${ i }`, to: 'hub' } );
+			edges.push(
+				fanOut
+					? { from: 'hub', to: `s${ i }` }
+					: { from: `s${ i }`, to: 'hub' }
+			);
 		}
 		const ids = new Set();
 		for ( const e of edges ) {
@@ -1054,20 +1058,86 @@ describe( 'autoLayout — hub bands', () => {
 		return { nodes: [ ...ids ].map( ( id ) => ( { id } ) ), edges };
 	};
 
-	it( 'leaves a degree-5 node ordinary, so the graph lays out as one component', () => {
-		const at = positionsOf( starGraph( 5 ) );
+	it( 'leaves a node three feed ordinary, so the graph lays out as one component', () => {
+		const at = positionsOf( starGraph( 3 ) );
 		expect( at.y.x - at.x.x ).toBe( 2 * X_STEP );
 	} );
 
-	it( 'treats a degree-6 node as a hub, so each component gets its own band', () => {
-		const at = positionsOf( starGraph( 6 ) );
+	it( 'treats a node four feed as a hub, so each component gets its own band', () => {
+		const at = positionsOf( starGraph( 4 ) );
 		expect( at.y.x - at.x.x ).toBe( X_STEP );
 	} );
 
-	it( 'holds a high-degree node to three times the median, so a dense graph stays one component', () => {
-		// 6 sources x 6 sinks fully connected: every one of the twelve has
-		// degree 6, the median is 6, and the cut is 18 — no hub. Plus a
-		// two-node component so a banded layout would be visible.
+	it( 'leaves a node fanning out to seven ordinary: only fan-in makes a hub', () => {
+		const at = positionsOf( starGraph( 7, true ) );
+		expect( at.y.x - at.x.x ).toBe( 2 * X_STEP );
+	} );
+
+	// The station's own realm as the debug sheet draws it: five polled slices
+	// whose fetchers all target `_shell`, which feeds nothing back. One
+	// layering cannot hold a slice together here: the sweep against the flow
+	// keys every feeder of `_shell` alike, so a slice's `in` and `timer`
+	// come apart. Nothing in it reaches a fan-in of six.
+	const debugRealm = () => {
+		const edges = [];
+		const slices = [
+			'workers:restart',
+			'topology-manager',
+			'topologies:deactivate',
+			'topologies:activate',
+			'worker-status',
+		];
+		for ( const s of slices ) {
+			edges.push(
+				{ from: `${ s }:timer`, to: `${ s }:tee` },
+				{ from: `${ s }:tee`, to: `${ s }:fetch` },
+				{ from: `${ s }:fetch`, to: '_shell' },
+				{ from: `${ s }:in`, to: `${ s }:fetch` },
+				{ from: `${ s }:in`, to: `${ s }:result` }
+			);
+		}
+		edges.push(
+			{ from: 'topicprobe:link', to: 'topicprobe:stream' },
+			{ from: 'topicprobe:stream', to: 'topicprobe:view' },
+			{ from: '_metadata', to: '_cwd' },
+			{ from: '_heartbeat', to: '_http' },
+			{ from: '_http', to: '_output' }
+		);
+		const ids = new Set( [ '_completion', '_stdout', 'freshness:timer' ] );
+		for ( const e of edges ) {
+			ids.add( e.from );
+			ids.add( e.to );
+		}
+		return { slices, nodes: [ ...ids ].map( ( id ) => ( { id } ) ), edges };
+	};
+
+	it( 'keeps each of five slices sharing one egress together, in its own band', () => {
+		const { slices, ...graph } = debugRealm();
+		const at = positionsOf( graph );
+		const spans = slices.map( ( s ) => {
+			const ys = [ 'timer', 'tee', 'fetch', 'in', 'result' ].map(
+				( part ) => at[ `${ s }:${ part }` ].y
+			);
+			return [ Math.min( ...ys ), Math.max( ...ys ) ];
+		} );
+		// A slice spans two rows at most, and no slice starts inside another.
+		for ( const [ lo, hi ] of spans ) {
+			expect( hi - lo ).toBeLessThanOrEqual( 1.5 * Y_STEP );
+		}
+		const sorted = [ ...spans ].sort( ( a, b ) => a[ 0 ] - b[ 0 ] );
+		for ( let i = 1; i < sorted.length; i++ ) {
+			expect( sorted[ i ][ 0 ] ).toBeGreaterThan( sorted[ i - 1 ][ 1 ] );
+		}
+		// The egress sits right of every slice.
+		for ( const s of slices ) {
+			expect( at._shell.x ).toBeGreaterThan( at[ `${ s }:fetch` ].x );
+		}
+	} );
+
+	it( 'holds a much-fed node to three times the median, so a dense graph stays one component', () => {
+		// 6 sources x 6 sinks fully connected: every sink has a fan-in of 6,
+		// the median over the fed nodes is 6, and the cut is 18 — no hub.
+		// Plus a two-node component so a banded layout would be visible.
 		const sources = [ 'p0', 'p1', 'p2', 'p3', 'p4', 'p5' ];
 		const sinks = [ 'q0', 'q1', 'q2', 'q3', 'q4', 'q5' ];
 		const edges = [ { from: 'x', to: 'y' } ];
