@@ -1,6 +1,6 @@
 /**
- * One Topics panel: a d3 chart overlaying each topic's area on a shared time
- * axis, ranked by peak, with X/Y axes, a hover tooltip and a color legend.
+ * One Topics panel: the shared `AreaTimeChart` over each topic's aligned
+ * series, ranked by peak and coloured by rank.
  *
  * Nothing here knows which metric it draws, so one component serves the
  * Overview dashboard's four panels (message rate, byte rate, backlog, cache
@@ -10,31 +10,17 @@
  * its samples and what an empty one holds. `topicChartSeries` builds the series
  * on the dashboards, `overviewChartSeries` in the overlay.
  *
- * The frame, grid, colours and tooltip belong to the shared
- * `@newspack-nodes/shared/hooks/useTimeChart` every dashboard chart draws
- * through, and the legend beside the plot is the shared `ChartLegend` over
- * `useLegend`, which leaves this file the panel-specific half: the aligned
- * model and the areas. A picked topic is drawn alone, in the colour its rank
- * gave it, and that colour is the skin's own `--chart-*` token (`chartColor`),
- * so the panel re-skins with the page through CSS alone.
- *
  * `buildAlignedSeries` snaps every topic onto ONE epoch-aligned bucket grid
  * first, because each worker runs its own `Topic_Probe` on an independent 15s
  * phase and the raw union of their sample instants leaves each topic gapped at
- * every other topic's instant.
+ * every other topic's instant. The rank order that comes back indexes the
+ * colours and the legend, and each rank's colour is the skin's own `--chart-*`
+ * token (`chartColor`), so the panel re-skins with the page through CSS alone.
  */
 
 import { memo, useCallback, useMemo } from '@wordpress/element';
-import * as d3 from 'd3';
-import {
-	chartColor,
-	drawAxes,
-	openFrame,
-	setupTooltip,
-	useTimeChart,
-} from '@newspack-nodes/shared/hooks/useTimeChart';
-import ChartLegend from '@newspack-nodes/shared/components/ChartLegend';
-import { useLegend } from '@newspack-nodes/shared/hooks/useSeriesSelection';
+import { chartColor } from '@newspack-nodes/shared/hooks/useTimeChart';
+import AreaTimeChart from '@newspack-nodes/shared/components/AreaTimeChart';
 import { buildAlignedSeries } from './buildAlignedSeries';
 
 /** @typedef {import('@newspack-nodes/shared/utils/axis-ticks').AxisFormatter} AxisFormatter */
@@ -61,7 +47,7 @@ const rankColor = ( _label, index ) => chartColor( index );
 
 export const TopicsChart = memo(
 	/**
-	 * One Topics panel: ranked overlaid areas over a shared aligned time axis.
+	 * One Topics panel: ranked areas over a shared aligned time axis.
 	 *
 	 * The JSDoc rides this inner function because `memo()` on the const infers
 	 * the props as `{}`. The `memo` keeps the redraw off unrelated renders: a
@@ -83,120 +69,17 @@ export const TopicsChart = memo(
 			() => buildAlignedSeries( series, MAX_POINTS, fillMode ),
 			[ series, fillMode ]
 		);
-		const { legendItems, drawn, selected, onSelect } = useLegend(
-			chartState.series,
-			rankColor
-		);
-
-		/**
-		 * Redraw the panel from scratch. `openFrame` wipes the container, then
-		 * the scales, areas, axes and tooltip are rebuilt over the aligned
-		 * model; d3 holds no update join, so there is nothing to diff against.
-		 *
-		 * @param {Object} refs The container, tooltip and mouse refs `useTimeChart` owns.
-		 */
-		const renderFn = useCallback(
-			( refs ) => {
-				if ( ! refs.containerRef.current ) {
-					return;
-				}
-				// Empty series: wipe the render so a reset clears the panel.
-				if ( chartState.series.length === 0 ) {
-					d3.select( refs.containerRef.current )
-						.selectAll( '*' )
-						.remove();
-					return;
-				}
-				const { dates } = chartState;
-
-				const { g, innerW, innerH } = openFrame(
-					refs.containerRef.current,
-					HEIGHT
-				);
-
-				const x = d3
-					.scaleTime()
-					.domain( d3.extent( dates ) )
-					.range( [ 0, innerW ] );
-				const maxVal =
-					d3.max( drawn, ( s ) =>
-						d3.max( s.values, ( v ) => v.value )
-					) || 1;
-				const y = d3
-					.scaleLinear()
-					.domain( [ 0, maxVal * 1.1 ] )
-					.range( [ innerH, 0 ] );
-
-				drawAxes( g, {
-					x,
-					y,
-					innerH,
-					tickCount: dates.length,
-					yFormat: formatValue,
-				} );
-
-				const area = d3
-					.area()
-					.x( ( d ) => x( d.date ) )
-					.y0( innerH )
-					.y1( ( d ) => y( d.value ) )
-					.curve( d3.curveMonotoneX );
-
-				drawn.forEach( ( s ) => {
-					g.append( 'path' )
-						.datum( s.values )
-						.style( 'fill', s.color )
-						.style( 'stroke', s.color )
-						.attr( 'fill-opacity', 0.4 )
-						.attr( 'stroke-width', 1 )
-						.attr( 'd', area );
-				} );
-
-				setupTooltip( g, {
-					innerW,
-					innerH,
-					dates,
-					x,
-					formatEntry: ( idx ) =>
-						drawn
-							.map( ( s ) => ( {
-								label: s.label,
-								value: formatValue(
-									s.values[ idx ]?.value || 0
-								),
-								raw: s.values[ idx ]?.value || 0,
-							} ) )
-							.filter( ( e ) => e.raw > 0 )
-							.sort( ( a, b ) => b.raw - a.raw )
-							.slice( 0, 12 ),
-					tooltipRef: refs.tooltipRef,
-					lastMouseXRef: refs.lastMouseXRef,
-					containerRef: refs.containerRef,
-				} );
-			},
-			[ chartState, formatValue, drawn ]
-		);
-
-		const { containerRef, tooltipRef } = useTimeChart( renderFn );
+		// One unit for the whole panel, whatever the peak.
+		const yFormatFor = useCallback( () => formatValue, [ formatValue ] );
 
 		return (
 			<div className="newspack-nodes-card nodes-topics">
-				<div className="nodes-topics__title">{ title }</div>
-				<div className="newspack-nodes-chart">
-					<div
-						ref={ containerRef }
-						className="nodes-topics__chart newspack-nodes-chart__plot"
-					/>
-					<ChartLegend
-						items={ legendItems }
-						selected={ selected }
-						onSelect={ onSelect }
-						height={ HEIGHT }
-					/>
-				</div>
-				<div
-					ref={ tooltipRef }
-					className="newspack-nodes-card newspack-nodes-card--elevated nodes-topics__tooltip"
+				<AreaTimeChart
+					series={ chartState.series }
+					yFormatFor={ yFormatFor }
+					colorAt={ rankColor }
+					title={ title }
+					height={ HEIGHT }
 				/>
 			</div>
 		);

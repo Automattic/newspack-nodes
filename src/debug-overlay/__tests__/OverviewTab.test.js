@@ -30,7 +30,7 @@ test( 'renders the metric cards and both rate-chart panels', () => {
 		expect( getByTestId( `overview-card-${ id }` ) ).toBeTruthy();
 	}
 	const titles = [
-		...container.querySelectorAll( '.nodes-topics__title' ),
+		...container.querySelectorAll( '.newspack-nodes-chart__title' ),
 	].map( ( el ) => el.textContent );
 	expect( titles ).toEqual( [ 'Message Rate', 'Byte Rate' ] );
 	// Cards keep their layout hook and consume the canonical surface role.
