@@ -1569,6 +1569,35 @@ class BootstrapTest extends TestCase {
 		}
 	}
 
+	/**
+	 * A page view holds the handle, so a server that never answers must cost
+	 * one bounded connect and then fail fast until a retry, never
+	 * libmemcached's four-second connect on every operation. It must stay in
+	 * the pool: auto-eject with the default dead timeout marks it dead for the
+	 * handle's life, and a worker would outlive a memcached restart blind.
+	 */
+	public function test_init_memcached_bounds_each_wait_and_keeps_the_server(): void {
+		$GLOBALS['_wp_options']['newspack_nodes_memcache_servers'] = [ 'cachehost:11299' ];
+		\Newspack_Nodes\Config::reset();
+		$saved_memd = Core::$memd;
+		Core::$memd = null;
+
+		try {
+			Bootstrap::init_memcached();
+
+			$memd = Core::$memd;
+			$this->assertInstanceOf( \Memcached::class, $memd );
+			$this->assertSame( 500, $memd->getOption( \Memcached::OPT_CONNECT_TIMEOUT ) );
+			$this->assertSame( 500, $memd->getOption( \Memcached::OPT_POLL_TIMEOUT ) );
+			$this->assertSame( 30, $memd->getOption( \Memcached::OPT_RETRY_TIMEOUT ) );
+			$this->assertSame( 0, $memd->getOption( \Memcached::OPT_REMOVE_FAILED_SERVERS ), 'never ejected' );
+		} finally {
+			Core::$memd = $saved_memd;
+			unset( $GLOBALS['_wp_options']['newspack_nodes_memcache_servers'] );
+			\Newspack_Nodes\Config::reset();
+		}
+	}
+
 	public function test_init_memcached_nulls_handle_on_empty_servers(): void {
 		// Empty servers must NULL the handle, not build a fallback — null is what
 		// command-auth's `instanceof` check keys on to log + fail closed. A

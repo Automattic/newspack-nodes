@@ -838,9 +838,14 @@ class Bootstrap {
 	 * on APCu; only when neither answers do the consumers reach their own fail
 	 * paths, command-auth refusing an unverifiable single-use nonce and the SSE
 	 * pool refusing a slot. A non-null but unreachable handle is worse than none:
-	 * `shared_first()` prefers memcached, so every operation would fail against a
-	 * dead server rather than fall through to APCu. No-op when the PECL
-	 * `\Memcached` class is absent.
+	 * `shared_first()` prefers memcached, so every operation fails against a
+	 * dead server rather than falling through to APCu. The options bound that
+	 * cost: a server that never answers takes one 500ms connect, then fails
+	 * every operation at once for 30s, then takes one probe — libmemcached's
+	 * own four-second connect timeout would be paid on every operation. The
+	 * server is never ejected: with `OPT_DEAD_TIMEOUT` at its default, auto-eject
+	 * marks it dead for the handle's life, and a worker would outlive a
+	 * memcached restart blind. No-op when the PECL `\Memcached` class is absent.
 	 */
 	public static function init_memcached(): void {
 		if ( ! \class_exists( '\Memcached' ) ) {
@@ -853,6 +858,15 @@ class Bootstrap {
 		}
 		$factory = self::$memcached_factory ?? static fn (): \Memcached => new \Memcached();
 		$memd    = $factory();
+		// ms, ms, s. A local: a constant naming \Memcached fatals without it.
+		$options = [
+			\Memcached::OPT_CONNECT_TIMEOUT => 500,
+			\Memcached::OPT_POLL_TIMEOUT    => 500,
+			\Memcached::OPT_RETRY_TIMEOUT   => 30,
+		];
+		if ( ! $memd->setOptions( $options ) ) {
+			Core::print_less_often( 'ERROR: memcached rejected an option; the handle keeps libmemcached defaults' );
+		}
 		/** @var int|float|string|bool|null $server */
 		foreach ( $servers as $server ) {
 			$parts = \explode( ':', (string) $server );
