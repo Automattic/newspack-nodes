@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A black-holed memcached server costs a bounded wait.** `Bootstrap::init_memcached()` built the shared handle on libmemcached's defaults, so an operation hashing to a server that resolves but never answers waited the four-second connect timeout, on every operation, for the life of the process — and a page view holds that handle now. The handle now takes a 500 ms connect and poll timeout and a thirty-second retry: measured against a black-holed address, the first read costs 500 ms, every read for the next thirty seconds fails at once, and one probe follows. The server is never ejected, because auto-eject with libmemcached's default dead timeout would mark it dead for the handle's life and a worker would outlive a memcached restart blind.
+
 ## [2.58.1] - 2026-09-13
 
 ### Changed
