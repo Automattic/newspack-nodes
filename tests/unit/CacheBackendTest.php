@@ -577,23 +577,24 @@ class CacheBackendTest extends TestCase {
 		$this->assertSame( $scope, Cache_Backend::site_key( 'table:prices:sku-9' ) );
 	}
 
-	public function test_the_salt_is_read_from_the_option_row_not_get_option(): void {
-		// bin/pyrate runs under SHORTINIT, where get_option() is stubbed to
-		// return the default — so a salt read that way is invisible to the CLI
-		// while the web sees it, and the two write to split caches. Reading the
-		// row through $wpdb is what keeps one rotation coherent across both.
+	public function test_the_salt_is_read_through_the_option_api(): void {
+		// Every boot that reaches here has option.php: a request, WP-CLI, and
+		// bin/pyrate, whose SHORTINIT bail comes after functions.php loads it.
+		\update_option( Cache_Backend::SALT_OPTION, 'opt-4471' );
 		$GLOBALS['wpdb']->rows[ Cache_Backend::SALT_OPTION ] = 'row-7719';
 		Cache_Backend::$salt = null;
 		Cache_Backend::$site = '';
 
-		$this->assertSame( 'row-7719', Cache_Backend::salt() );
+		$this->assertSame( 'opt-4471', Cache_Backend::salt() );
 
+		\delete_option( Cache_Backend::SALT_OPTION );
 		unset( $GLOBALS['wpdb']->rows[ Cache_Backend::SALT_OPTION ] );
 		Cache_Backend::$salt = null;
 		Cache_Backend::$site = '';
 
-		$this->assertSame( '', Cache_Backend::salt(), 'no row means unflushed, not a salt' );
+		$this->assertSame( '', Cache_Backend::salt(), 'no option means unflushed, not a salt' );
 	}
+
 	public function test_write_multi_stores_every_item_under_one_ttl(): void {
 		Core::$memd = new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
 		$backend    = Cache_Backend::shared_first();

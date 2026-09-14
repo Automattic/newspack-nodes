@@ -358,7 +358,7 @@ class Config {
 	 *
 	 * A miss re-fires DECLARE_ACTION before it answers false: a consumer plugin
 	 * that loads AFTER the first read (this plugin's own file scope reads
-	 * spawn_verify_ssl on an admin request) hooks the action too late for that
+	 * spawn_verify_ssl on every request) hooks the action too late for that
 	 * pull, and a one-shot derive would deny its keys for the rest of the
 	 * request. Only the action re-fires — the substrate's own keys are already
 	 * registered (declarations are monotone) — and only on a miss, which
@@ -393,8 +393,8 @@ class Config {
 	 * read it at all.
 	 *
 	 * Declaration is PULLED, not pushed, because a push has no safe moment.
-	 * Bootstrap wiring runs on diagnostic and storage-backed entry points only,
-	 * never a frontend page view, and a consumer sorting before newspack-nodes
+	 * This plugin's own file scope reads config at load, before any consumer
+	 * sorting after it has loaded, and a consumer sorting before newspack-nodes
 	 * cannot touch this class at its own file scope; either route therefore
 	 * declares AFTER the first read — the firehose reads num_partitions at
 	 * `plugins_loaded:-10001` — and the fail-loud value() gate refuses a real

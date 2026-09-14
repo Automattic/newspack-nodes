@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`Cache_Backend::salt()` reads through `get_option()`.** It read the option row through `$wpdb` on the premise that `bin/pyrate`'s SHORTINIT boot had no option API; `functions.php` loads `option.php` ahead of that bail, so every boot that reaches the cache backend has the real `get_option()`, and the direct query bought nothing.
+
+### Fixed
+
+- **A page view holds the shared memcached handle.** `Bootstrap::ensure_diagnostics_wired()` ran at load on admin and WP-CLI requests only, so a frontend render found `Core::$memd` null: `Cache_Backend::shared_first()` answered with APCu, or nothing, beside workers on memcached, and every consumer reading the handle from a page view — event-logger-nodes' rule-hook table, pyrobase's `Runtime\Memcached` — ran without the shared tier. The plugin file now wires that storage-free tier on every request; the storage-backed `ensure_runtime_wired()` stays lazy, and a page view still never reaches it.
+
 ## [2.58.0] - 2026-09-13
 
 ### Added

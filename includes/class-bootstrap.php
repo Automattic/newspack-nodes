@@ -31,9 +31,10 @@ use Newspack_Nodes\Rest\Spawn_Controller;
  * an activation hook, a cron action, filters — with nowhere to hold an
  * instance.
  *
- * Wiring comes in two lazy, idempotent tiers. `ensure_diagnostics_wired()`
- * touches no runtime storage, so Site Health and the cache probe still answer
- * on a misconfigured base directory; `ensure_runtime_wired()` resolves that
+ * Wiring comes in two idempotent tiers. `ensure_diagnostics_wired()` runs at
+ * load on every request and touches no runtime storage, so Site Health and
+ * the cache probe still answer on a misconfigured base directory;
+ * `ensure_runtime_wired()` is lazy and resolves that
  * base and throws when it is unusable. Cron, REST and admin entry points
  * report that refusal once and return rather than let it escape.
  *
@@ -768,10 +769,9 @@ class Bootstrap {
 	 * `newspack_nodes/periodic` and `newspack_nodes/vault/changed` subscribers,
 	 * and the self-respawn token provider.
 	 *
-	 * Idempotent and lazy — diagnostic entry points wire only their non-storage
-	 * dependencies, while node-graph/storage entry points call this method and
-	 * still fail loudly on an unusable base. A plain frontend page view touches
-	 * neither tier.
+	 * Idempotent and lazy — every request wires the non-storage tier at load,
+	 * while node-graph/storage entry points call this method and still fail
+	 * loudly on an unusable base. A plain frontend page view never reaches it.
 	 *
 	 * The flag is set LAST, as in ensure_diagnostics_wired(): base_dir() throws
 	 * on an unusable base and Fleet_Node swallows that, so flagging first would
@@ -810,7 +810,8 @@ class Bootstrap {
 	 * Register diagnostics that must remain available when runtime storage is
 	 * misconfigured: the spawn TLS flag, the shared `\Memcached` handle the cache
 	 * probe reports on, and the Site Health test. This path may read non-storage
-	 * config, but must not resolve the base directory.
+	 * config, but must not resolve the base directory. The plugin file calls it
+	 * at load on every request, so a page view holds the handle a worker does.
 	 */
 	public static function ensure_diagnostics_wired(): void {
 		if ( self::$diagnostics_wired ) {

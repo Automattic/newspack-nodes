@@ -69,6 +69,17 @@ class DiagnosticEntrypointTest extends TestCase {
 		$this->assertFalse( $result['sslverify'] );
 	}
 
+	/**
+	 * The shared cache tier is a cross-process source of truth, so a page view
+	 * holds the same handle a worker does; a request writing to APCu beside
+	 * workers on memcached would straddle tiers.
+	 */
+	public function test_a_page_view_holds_the_configured_memcached_handle(): void {
+		$result = $this->run_entrypoint( 'frontend' );
+
+		$this->assertSame( '127.0.0.1:11943', $result['server'] );
+	}
+
 	public function test_health_cache_route_completes_rest_init_and_responds_with_invalid_base(): void {
 		$result = $this->run_entrypoint( 'health-rest' );
 
