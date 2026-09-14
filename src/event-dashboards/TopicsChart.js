@@ -10,10 +10,13 @@
  * its samples and what an empty one holds. `topicChartSeries` builds the series
  * on the dashboards, `overviewChartSeries` in the overlay.
  *
- * The frame, grid, palette, legend and tooltip belong to the shared
+ * The frame, grid, colours and tooltip belong to the shared
  * `@newspack-nodes/shared/hooks/useTimeChart` every dashboard chart draws
- * through, which leaves this file the panel-specific half: the aligned model,
- * the areas and the themed colors.
+ * through, and the legend beside the plot is the shared `ChartLegend` over
+ * `useLegend`, which leaves this file the panel-specific half: the aligned
+ * model and the areas. A picked topic is drawn alone, in the colour its rank
+ * gave it, and that colour is the skin's own `--chart-*` token (`chartColor`),
+ * so the panel re-skins with the page through CSS alone.
  *
  * `buildAlignedSeries` snaps every topic onto ONE epoch-aligned bucket grid
  * first, because each worker runs its own `Topic_Probe` on an independent 15s
@@ -21,19 +24,18 @@
  * every other topic's instant.
  */
 
-import { memo, useCallback, useMemo, useRef } from '@wordpress/element';
+import { memo, useCallback, useMemo } from '@wordpress/element';
 import * as d3 from 'd3';
 import {
-	PALETTE,
+	chartColor,
 	drawAxes,
-	drawLegend,
 	openFrame,
 	setupTooltip,
 	useTimeChart,
 } from '@newspack-nodes/shared/hooks/useTimeChart';
+import ChartLegend from '@newspack-nodes/shared/components/ChartLegend';
+import { useLegend } from '@newspack-nodes/shared/hooks/useSeriesSelection';
 import { buildAlignedSeries } from './buildAlignedSeries';
-import { resolveChartPalette } from './resolveChartPalette';
-import { useThemeToken } from './useThemeToken';
 
 /** @typedef {import('@newspack-nodes/shared/utils/axis-ticks').AxisFormatter} AxisFormatter */
 
@@ -47,6 +49,15 @@ const HEIGHT = 200;
  * buy nothing but d3 redraw time.
  */
 const MAX_POINTS = 1000;
+
+/**
+ * The colour a topic takes from its rank in the full list.
+ *
+ * @param {string} _label The topic; the rank alone decides.
+ * @param {number} index  Its place in the ranking.
+ * @return {string} A CSS colour value.
+ */
+const rankColor = ( _label, index ) => chartColor( index );
 
 export const TopicsChart = memo(
 	/**
@@ -72,17 +83,15 @@ export const TopicsChart = memo(
 			() => buildAlignedSeries( series, MAX_POINTS, fillMode ),
 			[ series, fillMode ]
 		);
-
-		// Anchor in the themed cascade so series colors re-skin with the theme.
-		const themeRef = useRef( null );
-		const theme = useThemeToken();
+		const { legendItems, drawn, selected, onSelect } = useLegend(
+			chartState.series,
+			rankColor
+		);
 
 		/**
 		 * Redraw the panel from scratch. `openFrame` wipes the container, then
-		 * the scales, areas, axes, tooltip and legend are rebuilt over the
-		 * aligned model; d3 holds no update join, so there is nothing to diff
-		 * against. The theme's `--chart-*` tokens are resolved per pass rather
-		 * than captured, which is why re-running this is all a skin needs.
+		 * the scales, areas, axes and tooltip are rebuilt over the aligned
+		 * model; d3 holds no update join, so there is nothing to diff against.
 		 *
 		 * @param {Object} refs The container, tooltip and mouse refs `useTimeChart` owns.
 		 */
@@ -91,14 +100,6 @@ export const TopicsChart = memo(
 				if ( ! refs.containerRef.current ) {
 					return;
 				}
-				const el = themeRef.current;
-				const palette = el
-					? resolveChartPalette( ( name ) =>
-							window
-								.getComputedStyle( el )
-								.getPropertyValue( name )
-					  )
-					: PALETTE;
 				// Empty series: wipe the render so a reset clears the panel.
 				if ( chartState.series.length === 0 ) {
 					d3.select( refs.containerRef.current )
@@ -106,9 +107,9 @@ export const TopicsChart = memo(
 						.remove();
 					return;
 				}
-				const { series: aligned, dates } = chartState;
+				const { dates } = chartState;
 
-				const { svg, g, width, innerW, innerH } = openFrame(
+				const { g, innerW, innerH } = openFrame(
 					refs.containerRef.current,
 					HEIGHT
 				);
@@ -118,7 +119,7 @@ export const TopicsChart = memo(
 					.domain( d3.extent( dates ) )
 					.range( [ 0, innerW ] );
 				const maxVal =
-					d3.max( aligned, ( s ) =>
+					d3.max( drawn, ( s ) =>
 						d3.max( s.values, ( v ) => v.value )
 					) || 1;
 				const y = d3
@@ -141,13 +142,12 @@ export const TopicsChart = memo(
 					.y1( ( d ) => y( d.value ) )
 					.curve( d3.curveMonotoneX );
 
-				aligned.forEach( ( s, i ) => {
-					const color = palette[ i % palette.length ];
+				drawn.forEach( ( s ) => {
 					g.append( 'path' )
 						.datum( s.values )
-						.attr( 'fill', color )
+						.style( 'fill', s.color )
+						.style( 'stroke', s.color )
 						.attr( 'fill-opacity', 0.4 )
-						.attr( 'stroke', color )
 						.attr( 'stroke-width', 1 )
 						.attr( 'd', area );
 				} );
@@ -158,7 +158,7 @@ export const TopicsChart = memo(
 					dates,
 					x,
 					formatEntry: ( idx ) =>
-						aligned
+						drawn
 							.map( ( s ) => ( {
 								label: s.label,
 								value: formatValue(
@@ -173,27 +173,27 @@ export const TopicsChart = memo(
 					lastMouseXRef: refs.lastMouseXRef,
 					containerRef: refs.containerRef,
 				} );
-
-				drawLegend(
-					svg,
-					aligned.map( ( s, i ) => ( {
-						color: palette[ i % palette.length ],
-						label: s.label,
-					} ) ),
-					width
-				);
 			},
-			// Unused below: `theme` re-identifies renderFn on a skin change.
-			// eslint-disable-next-line react-hooks/exhaustive-deps
-			[ chartState, formatValue, theme ]
+			[ chartState, formatValue, drawn ]
 		);
 
 		const { containerRef, tooltipRef } = useTimeChart( renderFn );
 
 		return (
-			<div ref={ themeRef } className="newspack-nodes-card nodes-topics">
+			<div className="newspack-nodes-card nodes-topics">
 				<div className="nodes-topics__title">{ title }</div>
-				<div ref={ containerRef } className="nodes-topics__chart" />
+				<div className="newspack-nodes-chart">
+					<div
+						ref={ containerRef }
+						className="nodes-topics__chart newspack-nodes-chart__plot"
+					/>
+					<ChartLegend
+						items={ legendItems }
+						selected={ selected }
+						onSelect={ onSelect }
+						height={ HEIGHT }
+					/>
+				</div>
 				<div
 					ref={ tooltipRef }
 					className="newspack-nodes-card newspack-nodes-card--elevated nodes-topics__tooltip"

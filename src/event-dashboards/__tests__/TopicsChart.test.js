@@ -86,7 +86,6 @@ jest.mock( '@newspack-nodes/shared/hooks/useTimeChart', () => {
 		__esModule: true,
 		...actual,
 		setupTooltip: jest.fn(),
-		drawLegend: jest.fn(),
 		// Mirror the hook: run renderFn after commit so refs are populated.
 		useTimeChart: ( renderFn ) => {
 			mockTimeChart.lastRenderFn = renderFn;
@@ -110,14 +109,32 @@ jest.mock( '@newspack-nodes/shared/hooks/useTimeChart', () => {
 
 import { readFileSync } from 'fs';
 import { resolve as resolvePath } from 'path';
-import { render } from '@testing-library/react';
+import { render, fireEvent } from '@testing-library/react';
 import * as d3 from 'd3';
 import { TopicsChart } from '../TopicsChart';
 import {
-	PALETTE,
-	drawLegend,
+	chartColor,
 	setupTooltip,
 } from '@newspack-nodes/shared/hooks/useTimeChart';
+
+/**
+ * The legend rows as drawn, in order.
+ *
+ * @param {Element} container The rendered panel.
+ * @return {Array<Element>} Its legend rows.
+ */
+const legendRows = ( container ) => [
+	...container.querySelectorAll( '.newspack-nodes-chart-legend li' ),
+];
+const legendLabels = ( container ) =>
+	legendRows( container ).map( ( r ) => r.textContent );
+const legendColors = ( container ) =>
+	legendRows( container ).map(
+		( r ) => r.querySelector( 'span[style]' ).style.background
+	);
+/** The areas the last draw appended. */
+const areasDrawn = () =>
+	d3.__chain.append.mock.calls.filter( ( c ) => 'path' === c[ 0 ] ).length;
 
 const fmt = ( v ) => `${ v }`;
 const series = {
@@ -141,8 +158,8 @@ const series = {
 
 describe( 'TopicsChart', () => {
 	beforeEach( () => {
-		drawLegend.mockClear();
 		setupTooltip.mockClear();
+		d3.__chain.append.mockClear();
 		mockTimeChart.lastRenderFn = null;
 	} );
 
@@ -177,23 +194,50 @@ describe( 'TopicsChart', () => {
 	} );
 
 	it( 'draws a legend ranked by max desc (busiest topic first) + a hover tooltip', () => {
-		render(
+		const { container } = render(
 			<TopicsChart title="Rate" series={ series } formatValue={ fmt } />
 		);
-		expect( drawLegend ).toHaveBeenCalled();
 		expect( setupTooltip ).toHaveBeenCalled();
-		const items = drawLegend.mock.calls[ 0 ][ 1 ];
-		expect( items.map( ( i ) => i.label ) ).toEqual( [
-			'high.p0',
+		expect( legendLabels( container ) ).toEqual( [ 'high.p0', 'low.p0' ] );
+		// Beside the plot, in the shared chart row, not inside the SVG.
+		expect(
+			container.querySelector(
+				'.newspack-nodes-chart > .nodes-topics__chart + .newspack-nodes-chart-legend'
+			)
+		).not.toBeNull();
+	} );
+
+	it( 'a picked topic is drawn alone, in the colour its rank gave it', () => {
+		const { container } = render(
+			<TopicsChart title="Rate" series={ series } formatValue={ fmt } />
+		);
+		expect( areasDrawn() ).toBe( 2 );
+
+		d3.__chain.append.mockClear();
+		fireEvent.click(
+			legendRows( container )[ 1 ].querySelector( 'button' )
+		);
+		expect( areasDrawn() ).toBe( 1 );
+		// low.p0 keeps rank 1's colour: the colour follows the rank, not the draw.
+		const fills = d3.__chain.style.mock.calls
+			.filter( ( c ) => 'fill' === c[ 0 ] )
+			.map( ( c ) => c[ 1 ] );
+		expect( fills[ fills.length - 1 ] ).toBe( chartColor( 1 ) );
+		expect( legendColors( container )[ 1 ] ).toBe( chartColor( 1 ) );
+
+		// The tooltip lists the drawn topic alone.
+		const formatEntry = setupTooltip.mock.calls.at( -1 )[ 1 ].formatEntry;
+		expect( formatEntry( 0 ).map( ( e ) => e.label ) ).toEqual( [
 			'low.p0',
 		] );
 	} );
 
 	it( 'does not draw when there is no data', () => {
-		render(
+		const { container } = render(
 			<TopicsChart title="Rate" series={ {} } formatValue={ fmt } />
 		);
-		expect( drawLegend ).not.toHaveBeenCalled();
+		expect( areasDrawn() ).toBe( 0 );
+		expect( legendRows( container ) ).toEqual( [] );
 	} );
 
 	it( 'wipes the canvas when the series goes empty (so a reset clears old lines)', () => {
@@ -203,79 +247,44 @@ describe( 'TopicsChart', () => {
 		);
 		// Empty series still clears any prior render instead of bailing first.
 		expect( d3.remove ).toHaveBeenCalled();
-		expect( drawLegend ).not.toHaveBeenCalled();
+		expect( areasDrawn() ).toBe( 0 );
 	} );
 
-	it( 'colors series from the active theme --chart-* tokens when present', () => {
-		const tokens = {
-			'--chart-1': '#aa1111',
-			'--chart-2': '#bb2222',
-			'--chart-3': '#cc3333',
-			'--chart-4': '#dd4444',
-			'--chart-5': '#ee5555',
-			'--chart-6': '#ff6666',
-			'--chart-7': '#117777',
-			'--chart-8': '#228888',
-		};
-		const original = window.getComputedStyle;
-		window.getComputedStyle = () => ( {
-			getPropertyValue: ( n ) => tokens[ n ] ?? '',
-		} );
-		try {
-			render(
-				<TopicsChart
-					title="Rate"
-					series={ series }
-					formatValue={ fmt }
-				/>
-			);
-		} finally {
-			window.getComputedStyle = original;
-		}
+	it( 'paints each rank through its skin token, so the browser re-skins it', () => {
+		// No computed-style read: a JS read would be stale on a skin change
+		// and would cost a second draw on mount to catch up.
+		const read = jest.spyOn( window, 'getComputedStyle' );
+		d3.__chain.style.mockClear();
+		const { container } = render(
+			<TopicsChart title="Rate" series={ series } formatValue={ fmt } />
+		);
+		expect( read ).not.toHaveBeenCalled();
+		read.mockRestore();
+		expect( areasDrawn() ).toBe( 2 );
 		// Legend is ranked busiest-first: high.p0 (idx 0) then low.p0 (idx 1).
-		const items = drawLegend.mock.calls[ 0 ][ 1 ];
-		expect( items.map( ( i ) => i.color ) ).toEqual( [
-			'#aa1111',
-			'#bb2222',
+		expect( legendColors( container ) ).toEqual( [
+			chartColor( 0 ),
+			chartColor( 1 ),
 		] );
-	} );
-
-	it( 'falls back to the shared PALETTE colors when the theme tokens are absent', () => {
-		const original = window.getComputedStyle;
-		window.getComputedStyle = () => ( {
-			getPropertyValue: () => '',
-		} );
-		try {
-			render(
-				<TopicsChart
-					title="Rate"
-					series={ series }
-					formatValue={ fmt }
-				/>
-			);
-		} finally {
-			window.getComputedStyle = original;
-		}
-		const items = drawLegend.mock.calls[ 0 ][ 1 ];
-		expect( items.map( ( i ) => i.color ) ).toEqual( [
-			PALETTE[ 0 ],
-			PALETTE[ 1 ],
-		] );
+		const fills = d3.__chain.style.mock.calls
+			.filter( ( c ) => 'fill' === c[ 0 ] )
+			.map( ( c ) => c[ 1 ] );
+		expect( fills ).toEqual( [ chartColor( 0 ), chartColor( 1 ) ] );
 	} );
 
 	it( 'bails out when the chart container ref is not yet mounted', () => {
 		render(
 			<TopicsChart title="Rate" series={ series } formatValue={ fmt } />
 		);
-		drawLegend.mockClear();
 		setupTooltip.mockClear();
+		d3.__chain.append.mockClear();
 		// Re-invoke renderFn with a null container: must return before drawing.
 		mockTimeChart.lastRenderFn( {
 			containerRef: { current: null },
 			tooltipRef: { current: { style: {} } },
 			lastMouseXRef: { current: null },
 		} );
-		expect( drawLegend ).not.toHaveBeenCalled();
+		expect( areasDrawn() ).toBe( 0 );
 		expect( setupTooltip ).not.toHaveBeenCalled();
 	} );
 

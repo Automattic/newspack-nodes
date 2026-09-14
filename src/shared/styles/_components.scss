@@ -465,6 +465,75 @@
 		}
 	}
 
+	// A chart beside its legend. The tooltip measures against this row but
+	// is positioned by the wrapper around it, so a flip clears the title.
+	.newspack-nodes-chart {
+		display: flex;
+		align-items: flex-start;
+		gap: 8px;
+
+		&__plot {
+			flex: 1 1 auto;
+			min-width: 0;
+		}
+	}
+
+	// The legend rows are native buttons without stock WordPress button
+	// paint, as the sortable header cells are: `aria-pressed` carries the
+	// pick, the role paints it, and a list taller than the chart scrolls.
+	.newspack-nodes-chart-legend {
+		flex: 0 0 160px;
+		margin: 0;
+		padding: 0;
+		list-style: none;
+		overflow-y: auto;
+		font-size: 11px;
+
+		li {
+			margin: 0;
+		}
+
+		&__item {
+			display: flex;
+			align-items: center;
+			gap: 8px;
+			width: 100%;
+			padding: 2px 4px;
+			background: transparent;
+			border: 0;
+			font: inherit;
+			text-align: left;
+			cursor: pointer;
+			color: var(--ink-3, var(--np-text-secondary));
+
+			&:hover {
+				color: var(--ink, var(--np-text));
+			}
+
+			&[aria-pressed="true"] {
+				color: var(--ink, var(--np-text));
+				font-weight: 600;
+			}
+
+			&.is-dimmed {
+				opacity: 0.45;
+			}
+		}
+
+		&__swatch {
+			flex: 0 0 10px;
+			width: 10px;
+			height: 10px;
+			border-radius: 2px;
+		}
+
+		&__label {
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+		}
+	}
+
 	// Geometry-neutral selectable rows. Consumers own their layout; this role
 	// owns only the shared surface and interaction feedback.
 	.newspack-nodes-interactive-row {

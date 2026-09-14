@@ -93,6 +93,7 @@ const CANONICAL_BUTTON_CLASSES = new Set( [
 	'newspack-nodes-log-browser__mode--live',
 	'newspack-nodes-log-browser__mode--replay',
 	'newspack-nodes-log-browser__item',
+	'newspack-nodes-chart-legend__item',
 	'newspack-nodes-modal__close',
 	'newspack-nodes-disclosure',
 	'newspack-nodes-rail-toggle',
