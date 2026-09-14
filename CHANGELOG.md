@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The Jobs panels no longer squeeze each other as their data loads.** The panel grid's `1fr` columns could never be narrower than their content, and a drawn chart's SVG carries the width it measured, so the first panel of a row to draw pinned its column at that width, the other redrew to fit what was left, and every poll ratcheted the imbalance until the left column could give no more. The columns are `minmax(0, 1fr)` now: an even split whatever is drawn, with the chart refitting to its track rather than the track to the chart.
+
 ## [2.59.0] - 2026-09-14
 
 ### Added

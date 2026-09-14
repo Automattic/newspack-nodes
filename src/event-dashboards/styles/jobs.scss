@@ -12,7 +12,8 @@
 
 .nodes-jobs__panels {
 	display: grid;
-	grid-template-columns: 1fr 1fr;
+	// minmax(0, …): a drawn SVG's own width must not pin its column.
+	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 	gap: 12px;
 	margin-bottom: 16px;
 }
