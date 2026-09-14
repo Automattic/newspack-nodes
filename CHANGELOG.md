@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`AreaTimeChart` is the shared chart, and every chart stacks on a toggle.** The area chart event-logger-nodes drew its Aggregate and Category series on is the substrate's now — `@newspack-nodes/shared/components/AreaTimeChart` — and the Topics panels draw on it too, so one component owns the axes, the stacked and overlaid bands, the legend beside the plot and the tooltip. It carries a stack toggle in each chart's corner: a click stacks the bands into a total, another overlays them again, per chart, starting from the caller's default and returning to it when that default moves; a caller whose bands must not be summed declines the toggle with `stackable={ false }`; the tooltip's total row prints only while the bands are stacked. The chart's roles — `.newspack-nodes-chart__title`, `__row`, `__plot`, `__stack`, `__tooltip` — paint from the `ui` sheet, and the tooltip is the elevated card. `TopicsChart` is the aligned-series model handed to it and nothing more.
+
 ## [2.59.1] - 2026-09-14
 
 ### Fixed

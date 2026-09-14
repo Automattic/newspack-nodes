@@ -465,16 +465,71 @@
 		}
 	}
 
-	// A chart beside its legend. The tooltip measures against this row but
-	// is positioned by the wrapper around it, so a flip clears the title.
+	// A dashboard time chart: the title, the stack toggle in the corner, the
+	// plot beside its legend, and the tooltip. The tooltip measures against
+	// the row but is positioned by the chart, so a flip clears the title.
 	.newspack-nodes-chart {
-		display: flex;
-		align-items: flex-start;
-		gap: 8px;
+		&__title {
+			margin: 0 0 4px;
+			font-size: 12px;
+			font-weight: 600;
+			color: var(--ink, var(--np-text));
+			text-align: center;
+		}
+
+		&__row {
+			display: flex;
+			align-items: flex-start;
+			gap: 8px;
+		}
 
 		&__plot {
 			flex: 1 1 auto;
 			min-width: 0;
+
+			// d3 axis ink and type size on the panel.
+			.tick text {
+				fill: var(--ink-3, var(--np-text-secondary));
+				font-size: 10px;
+			}
+
+			.tick line,
+			.domain {
+				stroke: var(--paper-shadow, var(--np-border-strong));
+			}
+		}
+
+		// The stack toggle: a bare icon button in the corner, lit while the
+		// bands stack. `aria-pressed` carries the state; the role paints it.
+		&__stack {
+			position: absolute;
+			top: 0;
+			right: 0;
+			padding: 2px;
+			background: transparent;
+			border: 0;
+			line-height: 0;
+			cursor: pointer;
+			color: var(--ink-3, var(--np-text-secondary));
+			fill: currentcolor;
+
+			&:hover {
+				color: var(--ink, var(--np-text));
+			}
+
+			&[aria-pressed="true"] {
+				color: var(--cyan-text, var(--np-text));
+			}
+		}
+
+		&__tooltip {
+			display: none;
+			position: absolute;
+			padding: 7px 11px;
+			font-size: 11px;
+			pointer-events: none;
+			white-space: nowrap;
+			z-index: 10;
 		}
 	}
 

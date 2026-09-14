@@ -118,6 +118,7 @@ That choice is the fork a new stream dashboard starts from, and the substrate's 
 | Primitive | Subpath | What it owns |
 |---|---|---|
 | `useTimeChart`, `openFrame`, `drawAxes`, `setupTooltip` | `hooks/useTimeChart` | The one d3 frame every time chart is drawn on: one set of margins, one tick style, one hover behaviour. A caller owns its marks and nothing else. |
+| `AreaTimeChart` | `components/AreaTimeChart` | The area chart itself: series on one slot list in, axes, bands, legend, tooltip and the per-chart stack toggle out. Draw a time chart through it rather than on `useTimeChart` directly; `TopicsChart` is the thin caller to copy. |
 | `ChartLegend`, `useLegend`, `useSeriesSelection` | `components/ChartLegend`, `hooks/useSeriesSelection` | The legend beside every chart and the pick it drives: click shows one series alone, ctrl- or cmd-click adds to the pick, and a chart draws only the picked series in the colours the full list gave them. `useLegend( series, colorAt )` hands back the rows and the `drawn` series together; colour by rank with `chartColor( index )` so the areas re-skin through CSS. |
 | `useVirtualization` | `hooks/useVirtualization` | The row window for a long list, plus the spacer heights that keep the scrollbar honest, measured against whichever element actually scrolls. |
 | `useColumnPicker`, `gridTemplate`, `ColumnPicker` | `hooks/useColumnPicker`, `components/ColumnPicker` | A table's visible column set, its persisted selection, and the CSS grid track list that lays it out. |

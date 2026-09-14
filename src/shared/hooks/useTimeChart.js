@@ -60,8 +60,8 @@ export const NUM_BUCKETS = Math.ceil(
  * Plot-box insets in pixels, each side sized by what it has to clear:
  * `bottom` the time labels `drawAxes` rotates 45 degrees, `left` the value
  * labels plus the rotated axis title, and `right` the last time label's
- * overhang. The legend is not in the SVG: `ChartLegend` sits beside it in a
- * `.newspack-nodes-chart` row. Marks scale to the inner box, so a chart never
+ * overhang. The legend is not in the SVG: `ChartLegend` sits beside it in the
+ * `.newspack-nodes-chart__row`. Marks scale to the inner box, so a chart never
  * draws over them.
  */
 export const MARGIN = { top: 20, right: 20, bottom: 65, left: 60 };

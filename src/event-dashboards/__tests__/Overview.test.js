@@ -41,7 +41,7 @@ jest.mock( '../TopicsChart', () => {
 				{ className: 'nodes-topics' },
 				el.createElement(
 					'div',
-					{ className: 'nodes-topics__title' },
+					{ className: 'newspack-nodes-chart__title' },
 					props.title
 				)
 			);
@@ -288,7 +288,7 @@ describe( 'Overview fleet board', () => {
 		);
 		const { container } = render( <Overview /> );
 		const titles = [
-			...container.querySelectorAll( '.nodes-topics__title' ),
+			...container.querySelectorAll( '.newspack-nodes-chart__title' ),
 		].map( ( n ) => n.textContent );
 		expect( titles ).toEqual( [
 			'Topics Message Rate',
