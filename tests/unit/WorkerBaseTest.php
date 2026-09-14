@@ -83,14 +83,37 @@ class WorkerBaseTest extends TestCase {
 	public function test_should_continue_returns_false_after_max_runtime(): void {
 		$w = new TestableWorker( $this->tmp, 'test-worker', 0, max_runtime: 1 );
 		$w->acquire();
-		$w->set_start_time_for_test( microtime( true ) - 2.0 );
+		$w->set_start_time_for_test( \hrtime( true ) / 1e9 - 2.0 );
 		$this->assertFalse( $w->should_continue() );
+	}
+
+	/**
+	 * The budget is measured on the monotonic clock, so a wall-clock step —
+	 * NTP, a VM resume, a laptop waking — neither stretches nor ends a worker's
+	 * lifetime. Pinned 594.5s after a start of 1000 the budget holds, though
+	 * the wall clock is a billion seconds past it; at 595s it is spent.
+	 */
+	public function test_max_runtime_reads_the_monotonic_clock_not_the_wall(): void {
+		$saved = Worker_Base::$monotonic;
+		$w     = new TestableWorker( $this->tmp, 'test-worker', 0, max_runtime: 595 );
+		$w->acquire();
+		$w->set_start_time_for_test( 1000.0 );
+		try {
+			Worker_Base::$monotonic = static fn (): float => 1594.5;
+			$this->assertTrue( $w->should_continue(), 'budget not yet spent on the monotonic clock' );
+
+			Worker_Base::$monotonic = static fn (): float => 1595.0;
+			$this->assertFalse( $w->should_continue(), 'budget spent' );
+			$this->assertSame( 'timeout', $this->read_private( $w, 'stop_reason' ) );
+		} finally {
+			Worker_Base::$monotonic = $saved;
+		}
 	}
 
 	public function test_should_continue_does_not_log_normal_shutdown(): void {
 		$w = new TestableWorker( $this->tmp, 'test-worker', 0, max_runtime: 1 );
 		$w->acquire();
-		$w->set_start_time_for_test( \microtime( true ) - 2.0 );
+		$w->set_start_time_for_test( \hrtime( true ) / 1e9 - 2.0 );
 		$buf = '';
 		\Newspack_Nodes\Core::set_stderr_handler(
 			static function ( $m ) use ( &$buf ) {
@@ -140,7 +163,7 @@ class WorkerBaseTest extends TestCase {
 		// cooperative-stop fair-shot rule (dead-letter [42]), not a blanket graceful handoff.
 		$w = new TestableWorker( $this->tmp, 'test-worker', 0, max_runtime: 1 );
 		$w->acquire();
-		$w->set_start_time_for_test( \microtime( true ) - 2.0 );
+		$w->set_start_time_for_test( \hrtime( true ) / 1e9 - 2.0 );
 		$this->assertFalse( $w->should_continue() );
 		$this->assertSame( 'timeout', $this->read_private( $w, 'stop_reason' ) );
 	}

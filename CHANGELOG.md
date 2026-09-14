@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A worker's runtime budget is measured on the monotonic clock.** `max_runtime` compared the wall clock against the start, so a step — NTP, a VM resume, a laptop waking from sleep — stretched every worker's lifetime by the step or ended every worker at once, which is what a whole fleet recycling after a sleep was. The start and the comparison are `hrtime()` now, behind the `Cooperative_Stop::$monotonic` test seam; the lock's `started` file, which peers and `wp nodes status` read as uptime, stays wall clock, because a monotonic reading means nothing to another process. Timers keep pacing from the wall clock on purpose: the grid in ADR-17 is a wall-clock phase.
+
 ## [2.58.2] - 2026-09-13
 
 ### Fixed

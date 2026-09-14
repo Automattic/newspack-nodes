@@ -75,8 +75,23 @@ trait Cooperative_Stop {
 	/** Seconds this process may run before yielding to its successor. */
 	protected int $max_runtime = self::DEFAULT_MAX_RUNTIME;
 
-	/** When this process started (epoch seconds). */
+	/**
+	 * When this process started, in MONOTONIC seconds (`hrtime()`), so a
+	 * wall-clock step — NTP, a VM resume, a laptop waking — neither stretches
+	 * nor ends the budget. The lock's `started` file is the wall-clock uptime
+	 * peers and `wp nodes status` read; this is only ever compared with
+	 * `monotonic_now()`.
+	 */
 	protected float $start_time = 0.0;
+
+	/**
+	 * Monotonic-clock seam behind the runtime budget. Tests pin it; a wall
+	 * clock cannot be stepped from a test, a monotonic reading can be pinned.
+	 * Signature: `function (): float` — seconds, arbitrary origin.
+	 *
+	 * @var (\Closure(): float)|null
+	 */
+	public static ?\Closure $monotonic = null;
 
 	/**
 	 * Why this process is stopping, as a category. `stop()` sets it; the shutdown
@@ -93,6 +108,16 @@ trait Cooperative_Stop {
 
 	/** How this process names itself in a stop message. */
 	abstract protected function stop_label(): string;
+
+	/**
+	 * The monotonic clock, in seconds.
+	 *
+	 * @return float Seconds since an arbitrary origin; never steps.
+	 */
+	protected static function monotonic_now(): float {
+		$read = self::$monotonic ?? static fn (): float => \hrtime( true ) / 1e9;
+		return $read();
+	}
 
 	/**
 	 * Touch the lock and stamp the beat.
@@ -139,7 +164,7 @@ trait Cooperative_Stop {
 			return $this->stop( $restart_reason );
 		}
 
-		if ( ( $now - $this->start_time ) >= $this->max_runtime ) {
+		if ( ( self::monotonic_now() - $this->start_time ) >= $this->max_runtime ) {
 			return $this->stop( '', 'timeout' );
 		}
 
