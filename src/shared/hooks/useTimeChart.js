@@ -3,11 +3,13 @@
  * The one d3 frame every dashboard time chart is drawn on.
  *
  * A caller owns its marks and nothing else: `openFrame` wipes the container
- * and hands back the plot box, `drawAxes` and `drawLegend` dress it,
- * `setupTooltip` binds the hover column, and `useTimeChart` re-runs the draw
- * whenever the picture would change. Panels across the substrate and its
- * consumers therefore share one set of margins, one tick style and one hover
- * behaviour, and a fix to any of them lands in all of them at once.
+ * and hands back the plot box, `drawAxes` dresses it, `setupTooltip` binds
+ * the hover column, and `useTimeChart` re-runs the draw whenever the picture
+ * would change; the legend is the `ChartLegend` component beside the SVG,
+ * picking series through `useSeriesSelection`. Panels across the substrate
+ * and its consumers therefore share one set of margins, one tick style, one
+ * hover behaviour and one legend, and a fix to any of them lands in all of
+ * them at once.
  *
  * Nothing here reads a host global. The retention window, the series and the
  * formatters all arrive as arguments, and a parameter a caller may not pass
@@ -55,12 +57,14 @@ export const NUM_BUCKETS = Math.ceil(
 );
 
 /**
- * Plot-box insets in pixels, each side sized by what it has to clear: `right`
- * reserves the legend column, `bottom` the time labels `drawAxes` rotates 45
- * degrees, and `left` the value labels plus the rotated axis title. Marks
- * scale to the inner box, so a chart never draws over them.
+ * Plot-box insets in pixels, each side sized by what it has to clear:
+ * `bottom` the time labels `drawAxes` rotates 45 degrees, `left` the value
+ * labels plus the rotated axis title, and `right` the last time label's
+ * overhang. The legend is not in the SVG: `ChartLegend` sits beside it in a
+ * `.newspack-nodes-chart` row. Marks scale to the inner box, so a chart never
+ * draws over them.
  */
-export const MARGIN = { top: 20, right: 160, bottom: 65, left: 60 };
+export const MARGIN = { top: 20, right: 20, bottom: 65, left: 60 };
 
 /**
  * Value-axis ticks asked of d3, which reads the count as a hint. Five is what
@@ -73,7 +77,7 @@ const Y_TICKS = 5;
  * colors repeats rather than running out. The first ten are Tableau 10, which
  * stay apart on a dense overlay; the rest extend the run for the long topic
  * and category lists. Each hue has to read on a light and a dark panel, since
- * a chart with no theme tokens falls back to these (`resolveChartPalette`).
+ * a chart outside a skinned subtree falls back to these (`chartColor`).
  */
 export const PALETTE = [
 	'#4e79a7',
@@ -97,6 +101,29 @@ export const PALETTE = [
 	'#17becf',
 	'#aec7e8',
 ];
+
+/** How many `--chart-*` tokens a skin declares. */
+const SKIN_COLORS = 8;
+
+/**
+ * The colour a series takes from its rank: the skin's `--chart-N` token, with
+ * the `PALETTE` entry behind it for a chart outside any skinned subtree.
+ *
+ * A CSS value rather than a resolved colour, so a d3 fill or a legend swatch
+ * painted with it re-skins with the page on its own, the way every other
+ * surface does when `applySkin()` swaps the class on `<html>`. Reading the
+ * token's computed value instead would hand the chart a colour it keeps until
+ * something else happens to redraw it, and cost a second draw on mount to
+ * read it at all. Set it through `.style( 'fill', … )`: a presentation
+ * attribute does not resolve `var()`.
+ *
+ * @param {number} index The series' place in the full list, from 0.
+ * @return {string} A CSS colour value.
+ */
+export const chartColor = ( index ) =>
+	`var(--chart-${ ( index % SKIN_COLORS ) + 1 }, ${
+		PALETTE[ index % PALETTE.length ]
+	})`;
 
 /**
  * Build the five-minute slots a chart's time axis is drawn over.
@@ -242,51 +269,6 @@ export const drawAxes = (
 };
 
 /**
- * Draw the series legend down the right margin, one row per item.
- *
- * The column is `MARGIN.right` wide and neither wraps nor scrolls, so a label
- * over 20 characters is cut to 18 and an ellipsis instead of running under the
- * next panel. Rows come out 16px apart in the order given, which leaves the
- * ranking to the caller.
- *
- * @param {Object}                             svg   D3 SVG selection.
- * @param {Array<{color:string,label:string}>} items One row per series, in draw order.
- * @param {number}                             width Chart total width; the column hangs off its right edge.
- */
-export const drawLegend = ( svg, items, width ) => {
-	const legend = svg
-		.append( 'g' )
-		.attr(
-			'transform',
-			`translate(${ width - MARGIN.right + 10 }, ${ MARGIN.top })`
-		);
-
-	items.forEach( ( item, i ) => {
-		const ly = i * 16;
-		const label =
-			item.label.length > 20
-				? item.label.slice( 0, 18 ) + '...'
-				: item.label;
-
-		legend
-			.append( 'rect' )
-			.attr( 'x', 0 )
-			.attr( 'y', ly )
-			.attr( 'width', 10 )
-			.attr( 'height', 10 )
-			.attr( 'fill', item.color );
-		// 8px clear of the 10px swatch; at 4 the two read as one glyph.
-		legend
-			.append( 'text' )
-			.attr( 'x', 18 )
-			.attr( 'y', ly + 9 )
-			.text( label )
-			.style( 'font-size', '11px' )
-			.style( 'fill', '#888' );
-	} );
-};
-
-/**
  * The rows a tooltip lists for the hovered bucket, in display order. Values
  * arrive already formatted, because only the caller knows the unit.
  *
@@ -303,9 +285,11 @@ export const drawLegend = ( svg, items, width ) => {
  * far more often than the display refreshes, and each pass rebuilds the
  * tooltip's children and re-measures the viewport.
  *
- * The tooltip anchors below the chart and flips above or left when that would
- * carry it past a viewport edge, which is what keeps the last panel on a long
- * dashboard from opening its tooltip off-screen.
+ * The tooltip anchors below the chart row — the container's parent, inside
+ * the positioned wrapper the tooltip is a child of — and flips above or left
+ * when that would carry it past a viewport edge, which is what keeps the last
+ * panel on a long dashboard from opening its tooltip off-screen. Flipped, it
+ * clears the row's title too, since the wrapper is what it measures against.
  *
  * @param {Object}         g                    D3 group selection (inner chart area).
  * @param {Object}         params               Configuration.
@@ -372,17 +356,16 @@ export const setupTooltip = (
 		} );
 		tooltip.style.display = 'block';
 
-		tooltip.style.left = `${ MARGIN.left + xPos }px`;
-		const ttParent = containerRef.current.parentElement;
-		tooltip.style.top = `${ ttParent.clientHeight }px`;
+		const row = containerRef.current.parentElement;
+		const left = row.offsetLeft + MARGIN.left + xPos;
+		tooltip.style.left = `${ left }px`;
+		tooltip.style.top = `${ row.offsetTop + row.offsetHeight }px`;
 		const tooltipRect = tooltip.getBoundingClientRect();
 		if ( tooltipRect.bottom > window.innerHeight ) {
 			tooltip.style.top = `-${ tooltip.offsetHeight + 4 }px`;
 		}
 		if ( tooltipRect.right > window.innerWidth ) {
-			tooltip.style.left = `${
-				MARGIN.left + xPos - tooltip.offsetWidth
-			}px`;
+			tooltip.style.left = `${ left - tooltip.offsetWidth }px`;
 		}
 		if ( tooltip.getBoundingClientRect().left < 0 ) {
 			tooltip.style.left = '0px';

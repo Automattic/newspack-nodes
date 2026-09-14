@@ -41,6 +41,9 @@ describe( 'openFrame', () => {
 		expect( width ).toBe( WIDTH );
 		expect( innerW ).toBe( WIDTH - MARGIN.left - MARGIN.right );
 		expect( innerH ).toBe( HEIGHT - MARGIN.top - MARGIN.bottom );
+		// The legend lives beside the SVG, so the right inset is only the
+		// last tick label's overhang, not a column.
+		expect( MARGIN.right ).toBeLessThan( 40 );
 	} );
 
 	it( 'hands back selections of the emitted svg and group', () => {

@@ -23,8 +23,8 @@ import {
 	DEFAULT_RETENTION_SECONDS,
 	MARGIN,
 	PALETTE,
+	chartColor,
 	buildTimeSlots,
-	drawLegend,
 	formatXTick,
 	setupTooltip,
 	useTimeChart,
@@ -93,7 +93,7 @@ describe( 'useTimeChart constants', () => {
 	it( 'MARGIN has the four expected sides', () => {
 		expect( MARGIN ).toEqual( {
 			top: 20,
-			right: 160,
+			right: 20,
 			bottom: 65,
 			left: 60,
 		} );
@@ -102,6 +102,26 @@ describe( 'useTimeChart constants', () => {
 	it( 'PALETTE exposes at least the first 10 distinct colors', () => {
 		expect( PALETTE.length ).toBeGreaterThanOrEqual( 10 );
 		expect( new Set( PALETTE ).size ).toBe( PALETTE.length );
+	} );
+
+	it( 'chartColor cycles through exactly the tokens the skin declares', () => {
+		const root = resolvePath( __dirname, '../../../theme/_skins.scss' );
+		const declared = new Set(
+			readFileSync( root, 'utf8' ).match( /--chart-\d+(?=:)/g )
+		);
+		const count = declared.size;
+		expect( count ).toBeGreaterThan( 0 );
+		// The last token, then back to the first: neither a gap nor a
+		// token no skin declares, which would drop that rank to PALETTE.
+		expect( chartColor( count - 1 ) ).toMatch( `var(--chart-${ count },` );
+		expect( chartColor( count ) ).toMatch( 'var(--chart-1,' );
+	} );
+
+	it( 'chartColor names the skin token for a rank, falling back to PALETTE', () => {
+		expect( chartColor( 0 ) ).toBe( 'var(--chart-1, #4e79a7)' );
+		// The eight tokens cycle; the twenty fallbacks cycle on their own.
+		expect( chartColor( 8 ) ).toBe( `var(--chart-1, ${ PALETTE[ 8 ] })` );
+		expect( chartColor( 21 ) ).toBe( `var(--chart-6, ${ PALETTE[ 1 ] })` );
 	} );
 } );
 
@@ -141,51 +161,6 @@ describe( 'formatXTick', () => {
 	} );
 } );
 
-describe( 'drawLegend', () => {
-	it( 'appends a group then one rect + one text per item', () => {
-		const svg = makeFluent();
-		drawLegend(
-			svg,
-			[
-				{ label: 'a', color: '#f00' },
-				{ label: 'a-very-long-label-that-gets-clipped', color: '#0f0' },
-			],
-			800
-		);
-		expect( svg.append ).toHaveBeenCalledWith( 'g' );
-		// 1 group + 2 per item (rect + text) = 5 appends on the reused mock.
-		expect( svg.append.mock.calls.length ).toBeGreaterThanOrEqual( 5 );
-	} );
-
-	it( 'clears the swatch before the label text', () => {
-		const svg = makeFluent();
-		drawLegend( svg, [ { label: 'a', color: '#f00' } ], 800 );
-
-		// The swatch is 10 wide at x=0; the text must start clear of it.
-		const xs = svg.attr.mock.calls
-			.filter( ( c ) => 'x' === c[ 0 ] )
-			.map( ( c ) => c[ 1 ] );
-		expect( xs ).toContain( 18 );
-	} );
-
-	it( 'truncates labels longer than 20 chars', () => {
-		const svg = makeFluent();
-		drawLegend(
-			svg,
-			[
-				{
-					label: 'this label is definitely over twenty chars',
-					color: '#f00',
-				},
-			],
-			800
-		);
-		const textCall = svg.text.mock.calls[ 0 ][ 0 ];
-		expect( textCall.length ).toBe( 21 ); // 18 + '...'.
-		expect( textCall.endsWith( '...' ) ).toBe( true );
-	} );
-} );
-
 describe( 'setupTooltip', () => {
 	const refs = ( rect = null ) => {
 		const tooltipEl = document.createElement( 'div' );
@@ -204,9 +179,18 @@ describe( 'setupTooltip', () => {
 				top: 0,
 				bottom: 20,
 			};
+		// The chart row sits 30px down its positioned wrapper, under a title.
 		const container = document.createElement( 'div' );
 		const parent = document.createElement( 'div' );
-		Object.defineProperty( parent, 'clientHeight', {
+		Object.defineProperty( parent, 'offsetTop', {
+			configurable: true,
+			get: () => 30,
+		} );
+		Object.defineProperty( parent, 'offsetLeft', {
+			configurable: true,
+			get: () => 0,
+		} );
+		Object.defineProperty( parent, 'offsetHeight', {
 			configurable: true,
 			get: () => 200,
 		} );
@@ -265,6 +249,8 @@ describe( 'setupTooltip', () => {
 				expect( tooltipRef.current.style.display ).toBe( 'block' );
 				expect( tooltipRef.current.textContent ).toMatch( /val/ );
 				expect( tooltipRef.current.textContent ).toMatch( /99/ );
+				// Under the chart row, within the wrapper that positions it.
+				expect( tooltipRef.current.style.top ).toBe( '230px' );
 				resolve();
 			} )
 		);
