@@ -1372,6 +1372,44 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 		).toBeLessThanOrEqual( 0.5 );
 	} );
 
+	it( 'clears a stack of chains outward from the hub, not past each other', () => {
+		// Twelve chains whose head feeds the hub directly. Cleared top-down
+		// with "below first", a chain under the hub found the next chain in
+		// its way and leapt past every chain beneath it; the block doubled.
+		const edges = [];
+		const n = 12;
+		for ( let i = 0; i < n; i++ ) {
+			const p = `p${ String( i ).padStart( 2, '0' ) }`;
+			edges.push(
+				{ from: `${ p }:router`, to: `${ p }:balancer` },
+				{ from: `${ p }:balancer`, to: `${ p }:template` },
+				{ from: `${ p }:template`, to: 'hub' },
+				{ from: `${ p }:router`, to: 'hub' }
+			);
+		}
+		const ids = new Set();
+		for ( const e of edges ) {
+			ids.add( e.from );
+			ids.add( e.to );
+		}
+		const g = gridOf( {
+			nodes: [ ...ids ].map( ( id ) => ( { id } ) ),
+			edges,
+		} );
+		for ( let i = 0; i < n; i++ ) {
+			const p = `p${ String( i ).padStart( 2, '0' ) }`;
+			expect(
+				Math.abs(
+					g[ `${ p }:balancer` ].row - g[ `${ p }:router` ].row
+				)
+			).toBeLessThanOrEqual( 1 );
+		}
+		const rows = Object.values( g ).map( ( c ) => c.row );
+		expect( Math.max( ...rows ) - Math.min( ...rows ) ).toBeLessThan(
+			n + 2
+		);
+	} );
+
 	it( 'leaves a small graph in one stack', () => {
 		const g = gridOf( pubs( 2 ) );
 		// Every block starts at column 0: nothing was packed to the right.
