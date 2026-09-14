@@ -561,9 +561,9 @@ class Worker_Base {
 		if ( ! $this->lock->acquire() ) {
 			return false;
 		}
-		$this->start_time     = Core::right_now();
-		$this->last_heartbeat = $this->start_time;
-		$this->last_db_check  = $this->start_time;
+		$this->start_time     = self::monotonic_now();
+		$this->last_heartbeat = Core::right_now();
+		$this->last_db_check  = $this->last_heartbeat;
 		return true;
 	}
 
