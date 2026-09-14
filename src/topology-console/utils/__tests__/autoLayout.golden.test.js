@@ -3,11 +3,11 @@
  *
  * The firehose-workers-and-jobs graph (+ job-workers, requests/flame branches,
  * and the isolated _repl) has one ideal layout: the main component layered,
- * with the tee that `request-builder` feeds two columns short of the
- * partitions sitting clear of the wires that run past it, the two side chains
- * banded below it at their own depth rather than reaching the partition
- * column, and _repl under everything. A layout is accepted
- * iff its (col, row) grid matches the golden grid AFTER:
+ * with the tee between `request-builder` and the partitions sitting clear of
+ * the wires that run past it, the two side chains banded below it at their
+ * own depth rather than reaching the partition column, and _repl under
+ * everything. A layout is accepted iff its (col, row) grid matches the golden
+ * grid AFTER:
  *   - normalizing global offset (min col / min row → 0), and
  *   - up to one vertical FLIP (row → maxRow − row), and/or
  *   - SWAPPING the `jobs:consumer → job-worker` row with the
