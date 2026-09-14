@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The topology console packs a large graph instead of stacking it.** `autoLayout` stacked every band in one column — `test.tsl`'s 1,400 bands ran 3,000 rows tall and seven wide, and every hub sat on a far edge with a wire from each band. Bands now gather into blocks, a hub with the bands that feed it, the hub in the column right after them on their middle row and the bands the hub feeds continuing to its right (a band wired to several hubs goes with the one serving the fewest, a publication's own over the fleet's); the blocks pack into side-by-side stacks toward a canvas about as wide as it is tall, widest first. A small graph still fills one stack. The grid is painted under the whole graph rather than an 8,000-unit square at the origin, and cards keep their shape down to a fifth of a pixel per unit before the level of detail drops, from a third.
+
+### Fixed
+
+- **A band's wires no longer run through its own cards.** `autoLayout` drew a wire spanning two or more columns straight across whatever sat in the columns between — event-logger-nodes' `request-builder → errors:partition` ran through `completed:tee`, and a publication's `runTemplate:router → runTemplate:timeout` ran along its own chain through two cards. A through wire now stands in for itself as a placeholder in every column between, so the crossing-reduction sweeps put a card on one side of it, and two last sweeps nudge a band's cards, and the hubs, off the spans of the wires as laid — a card whose own neighbour's nudge put it back on a wire can remain. A hub's fan-in from other bands still crosses whatever lies between; that is a routing problem, not a row one. The firehose worker layout keeps its shape with the tee's pair on the other side of `request-builder`.
+
 ## [2.60.0] - 2026-09-14
 
 ### Added

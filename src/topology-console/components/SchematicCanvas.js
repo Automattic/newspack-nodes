@@ -400,15 +400,22 @@ const NODE_OVERSCAN = 0.5;
 
 /**
  * Scale (px per world unit) below which cards drop to bare rects, handed to
- * `viewportCull` as its `showDetail` threshold.
+ * `viewportCull` as its `showDetail` threshold. At 0.2 a card is 39px wide:
+ * its label is gone but its shape, colour and wires still read, which is the
+ * overview a large topology is zoomed out for. The cost is the DOM: at 0.2 a
+ * 1080p canvas with its overscan spans 19,200 × 10,800 units, more than a
+ * 3,000-card topology packs into, so every card renders in full there.
  */
-const LOD_DETAIL_SCALE = 0.35;
+const LOD_DETAIL_SCALE = 0.2;
 
 /**
  * The scale autofit refuses to reserve transcript room below — a hair above the
  * LOD threshold, so rounding cannot tip a fit-all view into bare rects.
  */
 const LOD_FLOOR_SCALE = LOD_DETAIL_SCALE * 1.2;
+
+/** World units of grid painted past the graph's box on every side. */
+const GRID_MARGIN = 4000;
 
 /**
  * Bottom obstruction, as a fraction of canvas height, at which the transcript
@@ -924,6 +931,20 @@ export default function SchematicCanvas( {
 		? `${ viewport.x } ${ viewport.y } ${ viewport.w } ${ viewport.h }`
 		: defaultViewBox;
 	const vb = viewport || parseViewBox( defaultViewBox );
+
+	// The grid under everything: the graph's box with a margin each side.
+	const gridBox = useMemo( () => {
+		const box = nodesBBox( displayNodes );
+		const margin = GRID_MARGIN;
+		return box
+			? {
+					x: box.minX - margin,
+					y: box.minY - margin,
+					w: box.w + 2 * margin,
+					h: box.h + 2 * margin,
+			  }
+			: { x: -margin, y: -margin, w: 2 * margin, h: 2 * margin };
+	}, [ displayNodes ] );
 
 	// Cull to the viewport so a huge graph doesn't put every card in the DOM.
 	const { visibleIds, showDetail, scale, region, visibleRegion } = useMemo(
@@ -1688,12 +1709,12 @@ export default function SchematicCanvas( {
 				</filter>
 			</defs>
 
-			{ /* Large origin-centered fill so pan/zoom needs no re-render. */ }
+			{ /* The graph's box plus a margin, so a pan needs no re-render. */ }
 			<rect
-				x="-4000"
-				y="-4000"
-				width="8000"
-				height="8000"
+				x={ gridBox.x }
+				y={ gridBox.y }
+				width={ gridBox.w }
+				height={ gridBox.h }
 				fill="url(#topology-grid)"
 				pointerEvents="none"
 			/>

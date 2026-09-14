@@ -3,8 +3,10 @@
  *
  * The firehose-workers-and-jobs graph (+ job-workers, requests/flame branches,
  * and the isolated _repl) has one ideal layout: the main component layered,
- * the two side chains banded below it at their own depth rather than reaching
- * the partition column, and _repl under everything. A layout is accepted
+ * with the tee that `request-builder` feeds two columns short of the
+ * partitions sitting clear of the wires that run past it, the two side chains
+ * banded below it at their own depth rather than reaching the partition
+ * column, and _repl under everything. A layout is accepted
  * iff its (col, row) grid matches the golden grid AFTER:
  *   - normalizing global offset (min col / min row → 0), and
  *   - up to one vertical FLIP (row → maxRow − row), and/or
@@ -19,23 +21,23 @@ import { autoLayout, X_STEP, Y_STEP } from '../autoLayout';
 
 // Ideal layout (top-left positions) from the hand-verified live console.
 const GOLDEN = {
-	'requests:partition': [ 1020, 300 ],
-	'errors:partition': [ 1020, 190 ],
-	'completed:tee': [ 780, 25 ],
-	'completed:partition': [ 1020, -30 ],
-	'gyroscope:partition': [ 1020, 80 ],
-	'request-builder': [ 540, 190 ],
-	'jobs:partition': [ 1020, 410 ],
-	'job-router': [ 540, 410 ],
-	'firehose:consumer': [ 60, 300 ],
-	'firehose:tee': [ 300, 300 ],
-	'jobintake:consumer': [ 60, 410 ],
+	'requests:partition': [ 1020, 520 ],
+	'errors:partition': [ 1020, 410 ],
+	'completed:tee': [ 780, 245 ],
+	'completed:partition': [ 1020, 190 ],
+	'gyroscope:partition': [ 1020, 300 ],
+	'request-builder': [ 540, 410 ],
+	'jobs:partition': [ 1020, 80 ],
+	'job-router': [ 540, 80 ],
+	'firehose:consumer': [ 60, 245 ],
+	'firehose:tee': [ 300, 245 ],
+	'jobintake:consumer': [ 60, 80 ],
 	'flames:partition': [ 540, 630 ],
 	'flame-builder': [ 300, 630 ],
 	'requests:consumer': [ 60, 630 ],
-	'job-worker': [ 300, 520 ],
-	'jobs:consumer': [ 60, 520 ],
-	_repl: [ 60, 740 ],
+	'job-worker': [ 300, 740 ],
+	'jobs:consumer': [ 60, 740 ],
+	_repl: [ 60, 850 ],
 };
 
 const EDGES = [
