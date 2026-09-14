@@ -471,30 +471,13 @@ final class Cache_Backend {
 	/**
 	 * The install's cache salt. Empty until something rotates it.
 	 *
-	 * Read from the option ROW through `$wpdb`, never `get_option()`: a
-	 * SHORTINIT boot has `$wpdb` connected before WordPress defines the option
-	 * API at all, and pyrobase's CLI shim then stubs `get_option()` to hand back
-	 * the default. `rotate_salt()` guards `update_option()` for the same reason.
-	 *
-	 * @return string The stored salt, or '' when no row holds one and when no
-	 *                `\wpdb` is available to read it.
+	 * @return string The stored salt, or '' when no option holds one.
 	 */
 	public static function salt(): string {
 		if ( null !== self::$salt ) {
 			return self::$salt;
 		}
-		$wpdb = $GLOBALS['wpdb'] ?? null;
-		if ( ! $wpdb instanceof \wpdb ) {
-			return self::$salt = '';
-		}
-		// %i keeps the query a literal string with the table as an identifier.
-		$sql = $wpdb->prepare(
-			'SELECT option_value FROM %i WHERE option_name = %s LIMIT 1',
-			$wpdb->options,
-			self::SALT_OPTION
-		);
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared
-		return self::$salt = Core::as_string( $wpdb->get_var( $sql ), '' );
+		return self::$salt = Core::as_string( \get_option( self::SALT_OPTION, '' ), '' );
 	}
 
 	/**

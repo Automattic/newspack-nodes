@@ -16,14 +16,16 @@
  * WordPress. No logic lives here — each hook names a handler elsewhere, and the
  * one function defined below mounts the substrate's service CIs.
  *
- * Runtime wiring deliberately does not happen at load. Admin and WP-CLI
- * requests wire `Bootstrap::ensure_diagnostics_wired()` only, which resolves no
- * base directory, so Site Health and `wp nodes doctor` keep reporting on a
- * misconfigured runtime. The storage-backed tier — the namespaces `make_node`
- * resolves against, the `<config:key>` TSL tokens, the user topology directory,
- * the `newspack_nodes/periodic` subscribers — waits for
+ * Every request wires `Bootstrap::ensure_diagnostics_wired()` at load: it
+ * resolves no base directory, so Site Health and `wp nodes doctor` keep
+ * reporting on a misconfigured runtime, and it connects the shared `\Memcached`
+ * handle, which a page view needs as much as a worker does — the cache tier is
+ * a cross-process source of truth, and a request on APCu beside workers on
+ * memcached would straddle tiers. The storage-backed tier — the namespaces
+ * `make_node` resolves against, the `<config:key>` TSL tokens, the user
+ * topology directory, the `newspack_nodes/periodic` subscribers — waits for
  * `Bootstrap::ensure_runtime_wired()`, which each command, REST route and admin
- * screen calls when it needs it. A frontend page view reaches neither tier.
+ * screen calls when it needs it. A frontend page view never reaches it.
  *
  * @package Newspack_Nodes
  */
@@ -49,13 +51,13 @@ require_once NEWSPACK_NODES_DIR . 'vendor/autoload.php';
 // Load-time, like consumers': TSL includes resolve without runtime wiring.
 \Newspack_Nodes\Topology_Registry::register_builtin();
 
+\Newspack_Nodes\Bootstrap::ensure_diagnostics_wired();
+
 if ( \function_exists( 'is_admin' ) && \is_admin() ) {
-	\Newspack_Nodes\Bootstrap::ensure_diagnostics_wired();
 	new \Newspack_Nodes\Admin\Admin();
 }
 
 if ( \defined( 'WP_CLI' ) && \WP_CLI ) {
-	\Newspack_Nodes\Bootstrap::ensure_diagnostics_wired();
 	// Instances: the verb methods are not static (wp-cli#5472).
 	$nodes_worker_cli   = new \Newspack_Nodes\Worker_CLI_Command();
 	$nodes_ingest_cli   = new \Newspack_Nodes\Ingest_CLI_Command();

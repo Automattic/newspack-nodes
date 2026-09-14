@@ -6,7 +6,7 @@
  */
 
 $surface = $argv[1] ?? '';
-if ( ! \in_array( $surface, [ 'site-health', 'doctor', 'health-rest', 'topology-console' ], true ) ) {
+if ( ! \in_array( $surface, [ 'site-health', 'doctor', 'health-rest', 'topology-console', 'frontend' ], true ) ) {
 	throw new \InvalidArgumentException( 'Unknown diagnostic surface.' );
 }
 
@@ -42,7 +42,7 @@ $config_values = [
 	'base_directory'  => $runtime_base,
 	'spawn_verify_ssl' => false,
 ];
-if ( 'site-health' === $surface ) {
+if ( \in_array( $surface, [ 'site-health', 'frontend' ], true ) ) {
 	$config_values['memcache_servers'] = [ '127.0.0.1:11943' ];
 }
 if ( $topology_fixture ) {
@@ -157,6 +157,13 @@ try {
 			'logs'       => \WP_CLI::$logs,
 			'errors'     => \WP_CLI::$errors,
 			'sslverify'  => \is_array( $probe_args ) ? ( $probe_args['sslverify'] ?? null ) : null,
+		];
+	} elseif ( 'frontend' === $surface ) {
+		// A page view: no admin, no WP-CLI, no REST, no hook fired yet.
+		$memd    = \Newspack_Nodes\Core::$memd;
+		$servers = $memd instanceof \Memcached ? $memd->getServerList() : [];
+		$result  = [
+			'server' => isset( $servers[0] ) ? $servers[0]['host'] . ':' . $servers[0]['port'] : null,
 		];
 	} elseif ( 'health-rest' === $surface ) {
 		\do_action( 'rest_api_init' );
