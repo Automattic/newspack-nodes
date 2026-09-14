@@ -4432,8 +4432,8 @@ describe( 'TopologyConsole boot', () => {
 		expect( payload.positions ).not.toHaveProperty( 'ghost' );
 	} );
 
-	it( 'local scope, empty storage: one autoLayout over the COMPLETE graph (isolated node on the right)', async () => {
-		// s→t connected, iso isolated; autoLayout: s col0, t+iso rightmost.
+	it( 'local scope, empty storage: one autoLayout over the COMPLETE graph (isolated node below)', async () => {
+		// s→t connected, iso isolated; autoLayout: s col0, t col1, iso under them.
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
 		act( () => {
@@ -4458,9 +4458,10 @@ describe( 'TopologyConsole boot', () => {
 		const stored = JSON.parse(
 			window.localStorage.getItem( 'newspack-nodes:topology:local' )
 		);
-		expect( stored.positions.iso.x ).toBe( stored.positions.t.x );
-		expect( stored.positions.iso.x ).toBeGreaterThan(
-			stored.positions.s.x
+		expect( stored.positions.t.x ).toBeGreaterThan( stored.positions.s.x );
+		expect( stored.positions.iso.x ).toBe( stored.positions.s.x );
+		expect( stored.positions.iso.y ).toBeGreaterThan(
+			Math.max( stored.positions.s.y, stored.positions.t.y )
 		);
 		expect( stored.modified ).toBe( false );
 	} );

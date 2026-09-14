@@ -168,7 +168,7 @@ describe( 'useCanvasLayout', () => {
 		expect( result.current.positions ).toEqual( {
 			a: { x: 60, y: 80 },
 			b: { x: 300, y: 80 },
-			c: { x: 300, y: 190 },
+			c: { x: 60, y: 190 }, // edgeless: below the band, at its first column
 		} );
 		expect( result.current.canReset ).toBe( false );
 		expect(

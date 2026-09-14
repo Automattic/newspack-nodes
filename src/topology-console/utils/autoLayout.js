@@ -11,33 +11,31 @@
  * HALF a step, because `autoLayout` puts a fan-out producer on a half row and a
  * full-step lattice could not reproduce its own output.
  *
- * The layout runs one of two regimes, chosen by whether the graph has HUBS:
- * nodes whose FAN-IN clears both `HUB_MIN_FAN_IN` and `HUB_MEDIAN_FACTOR`
- * times the median fan-in of the nodes anything feeds. Fan-in, not degree: a
- * node many separate slices feed is what a single layering scatters, because
- * the ordering sweep that runs against the flow hands every feeder of that
- * node one key and the feeders' own slices come apart around it. A node that
- * fans OUT orders its consumers with the flow and scatters nothing, so a Tee
- * feeding four partitions is a wire, not a backbone. The backbone sits to the
- * right of every band, so a hub that also feeds a band draws that edge
- * leftward; the realms' hubs are sinks or feed only a bridge.
+ * The graph lays out as BANDS: each weakly-connected component is layered on
+ * its own and the bands stack alphabetically, so a two-node slice spans two
+ * columns whatever depth its neighbours reach, and one slice's members never
+ * share rows with another's. An edgeless node stacks below every band.
  *
- * With no hub the graph is laid out whole, as one layered component. Columns
- * come from a Coffman-Graham-flavored layering: a true source pins to column 0,
- * a true sink to the rightmost column, and an interior node takes the
- * barycenter of its neighbours' columns clamped into the band its edges allow
- * (longest path from a source on the left, longest path to a sink on the
- * right), so a "processor tier" aligns in one column instead of spreading by
- * raw longest-path. Rows come from barycenter crossing-reduction in index
- * space, a median settle, and a symmetric spread of same-column overlaps.
+ * Within a band, columns come from a Coffman-Graham-flavored layering: a true
+ * source pins to column 0, a true sink to the band's rightmost column, and an
+ * interior node takes the barycenter of its neighbours' columns clamped into
+ * the range its edges allow (longest path from a source on the left, longest
+ * path to a sink on the right), so a "processor tier" aligns in one column
+ * instead of spreading by raw longest-path. Rows come from barycenter
+ * crossing-reduction in index space, a median settle, and a symmetric spread
+ * of same-column overlaps.
  *
- * With hubs that single layering is wrong: the hubs make the graph deep, every
- * sink pins to its far end, and a two-node slice is stretched across the whole
- * width while one slice's members scatter over unrelated rows. So the backbone
- * — the hubs, plus any bridge whose every neighbour is a hub — comes out, each
- * weakly-connected component of what is left is laid out on its own by the
- * same layering and the bands stack alphabetically, and the backbone takes
- * the columns to their right, layered by its own longest path.
+ * HUBS leave their band for a backbone to the right of every band: nodes
+ * whose FAN-IN clears both `HUB_MIN_FAN_IN` and `HUB_MEDIAN_FACTOR` times the
+ * median fan-in of the nodes anything feeds, plus any bridge whose every
+ * neighbour is a hub. A node many separate slices feed would otherwise weld
+ * those slices into one component, and the ordering sweep that runs against
+ * the flow hands every feeder of that node one key, so the feeders' own slices
+ * come apart around it. Fan-in, not degree: a node that fans OUT orders its
+ * consumers with the flow and scatters nothing, so a Tee feeding four
+ * partitions is a wire, not a backbone. The backbone layers by its own
+ * longest path; a hub that also feeds a band draws that edge leftward, and
+ * the realms' hubs are sinks or feed only a bridge.
  */
 
 /** Horizontal distance between layout columns, in canvas pixels. */
@@ -432,9 +430,10 @@ const componentsOf = ( ids, succ, pred ) => {
 /**
  * Lay ONE component out in grid units, using the layering described at the top.
  *
- * The driver calls this on the whole graph when it finds no hub, and on each
- * band when it does, so a band is sized by its own depth rather than the
- * graph's. `succ` and `pred` must already be narrowed to `ids`.
+ * `layoutBands` calls this on each band, so a band is sized by its own depth
+ * rather than the graph's. `succ` and `pred` must already be narrowed to
+ * `ids`, and every id has an edge inside the band: a lone node never gets
+ * here.
  *
  * @param {Array<string>}                ids  The component's nodes, alphabetical.
  * @param {Object<string,Array<string>>} succ Successors inside the component.
@@ -449,7 +448,6 @@ const layoutComponent = ( ids, succ, pred ) => {
 
 	const isSource = ( id ) => pred[ id ].length === 0;
 	const isSink = ( id ) => succ[ id ].length === 0;
-	const isIsolated = ( id ) => isSource( id ) && isSink( id );
 
 	// Longest path from the sources, and to the sinks — the feasibility band.
 	const depth = longestPath( ids, succ, pred );
@@ -463,9 +461,7 @@ const layoutComponent = ( ids, succ, pred ) => {
 	/** @type {Object<string,number>} */
 	const col = {};
 	for ( const id of ids ) {
-		if ( isIsolated( id ) ) {
-			col[ id ] = null;
-		} else if ( isSource( id ) ) {
+		if ( isSource( id ) ) {
 			col[ id ] = 0;
 		} else if ( isSink( id ) ) {
 			col[ id ] = maxDepth;
@@ -484,9 +480,9 @@ const layoutComponent = ( ids, succ, pred ) => {
 				col[ id ] = lo;
 				continue;
 			}
-			const nb = [ ...pred[ id ], ...succ[ id ] ]
-				.map( ( n ) => col[ n ] )
-				.filter( ( v ) => v !== null );
+			const nb = [ ...pred[ id ], ...succ[ id ] ].map(
+				( n ) => col[ n ]
+			);
 			if ( ! nb.length ) {
 				col[ id ] = lo;
 				continue;
@@ -496,28 +492,13 @@ const layoutComponent = ( ids, succ, pred ) => {
 		}
 	}
 
-	// Isolated cards go left only when the graph is deep and source-heavy.
-	const sourceCount = ids.filter(
-		( id ) => isSource( id ) && ! isIsolated( id )
-	).length;
-	const isolatedToLeft = maxDepth >= 3 && sourceCount >= maxDepth;
-	const isolatedCol = isolatedToLeft ? 0 : maxDepth;
-	for ( const id of ids ) {
-		if ( isIsolated( id ) ) {
-			col[ id ] = isolatedCol;
-		}
-	}
-
 	const columns = [];
 	for ( let c = 0; c <= maxDepth; c++ ) {
 		columns[ c ] = [];
 	}
 	for ( const id of ids ) {
-		if ( ! isIsolated( id ) ) {
-			columns[ col[ id ] ].push( id );
-		}
+		columns[ col[ id ] ].push( id );
 	}
-	const isolated = ids.filter( isIsolated );
 
 	// Anchor = the widest connected column; rows propagate outward from it.
 	let anchor = 0;
@@ -651,19 +632,6 @@ const layoutComponent = ( ids, succ, pred ) => {
 	// Spread same-column overlaps symmetrically (PAV) so fan-out straddles.
 	columns.forEach( ( arr ) => spreadColumn( arr, row, declIdx ) );
 
-	// Isolated nodes stack below the deepest node of the column they joined.
-	let maxRow = -Infinity;
-	columns[ isolatedCol ].forEach(
-		( id ) => ( maxRow = Math.max( maxRow, row[ id ] ) )
-	);
-	if ( maxRow === -Infinity ) {
-		maxRow = -1;
-	}
-	isolated.forEach( ( id, i ) => {
-		col[ id ] = isolatedCol;
-		row[ id ] = maxRow + 1 + i;
-	} );
-
 	normalizeRows( ids, row );
 	return { col, row };
 };
@@ -749,14 +717,14 @@ const placeBackbone = ( backbone, succ, pred, baseCol, col, row ) => {
 };
 
 /**
- * Lay a hub-bearing graph out as stacked bands with the backbone to their
- * right.
+ * Lay a graph out as stacked bands, with the backbone — empty when the graph
+ * has no hub — to their right.
  *
  * Each band is one weakly-connected component of the graph minus its backbone,
  * laid out on its own so its width is its own depth, and offset one row below
  * the band above it — the row step IS the gap, since a card is shorter than
  * `Y_STEP`. A component of one carries no shape worth a band of its own, so
- * those stack together under the bands, as an edgeless node does today.
+ * those — the edgeless nodes — stack together under the bands.
  *
  * @param {Array<string>}                ids  Every node, alphabetical.
  * @param {Object<string,Array<string>>} succ Successors.
@@ -808,8 +776,7 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 };
 
 /**
- * Lay a parsed graph out on the grid, in whichever of the two regimes described
- * at the top its hubs select.
+ * Lay a parsed graph out on the grid, as the bands described at the top.
  *
  * `parsed` is `{ nodes: [ { id } ], edges: [ { from, to } ] }`; null, or either
  * key missing, reads as empty. An edge whose endpoints are not both in `nodes`
@@ -861,11 +828,7 @@ export function autoLayout( parsed ) {
 		pred[ e.to ].push( e.from );
 	}
 
-	const hubs = hubIds( ids, pred );
-	const { col, row } =
-		hubs.size === 0
-			? layoutComponent( ids, succ, pred )
-			: layoutBands( ids, succ, pred, hubs );
+	const { col, row } = layoutBands( ids, succ, pred, hubIds( ids, pred ) );
 
 	const positioned = nodes.map( ( n ) => ( {
 		...n,
