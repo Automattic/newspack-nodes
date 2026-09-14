@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`autoLayout` bands every component, hub or no hub.** The band layout ran only for a graph carrying a hub — a node with a fan-in of four or more — and a sheet without one, the log-viewer realm's debug sheet among them, fell to the single layering it was written to replace: every true sink pinned to the far column, so `link → stream → view` and `_heartbeat → _http → _output` stretched across the whole sheet and the ten-node slice between them shared their rows. Every weakly-connected component now lays out on its own and the bands stack, whatever the fan-in; a hub still leaves its band for the backbone to the right. An edgeless node stacks below the bands at the first column on every sheet, where before a hubless sheet put it in the far column; in the firehose worker graph the `jobs:consumer → job-worker` and `requests:consumer → flame-builder → flames:partition` chains sit at their own depth below the main component rather than reaching the partition column.
+
 ## [2.58.3] - 2026-09-14
 
 ### Fixed

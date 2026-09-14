@@ -208,10 +208,11 @@ describe( 'autoLayout — real graphs (normalized; relative positions only)', ()
 			{ from: 'tee3', to: '_output' },
 		],
 	};
+	// The two edgeless nodes stack below the band, at its first column.
 	const graphAExpected1 = {
-		_completion: { x: 540, y: 520 },
+		_completion: { x: 60, y: 520 },
 		_cwd: { x: 540, y: 410 },
-		_http: { x: 540, y: 630 },
+		_http: { x: 60, y: 630 },
 		_metadata: { x: 60, y: 410 },
 		_output: { x: 540, y: 245 },
 		echo1: { x: 60, y: 190 },
@@ -223,9 +224,9 @@ describe( 'autoLayout — real graphs (normalized; relative positions only)', ()
 		tee3: { x: 300, y: 245 },
 	};
 	const graphAExpected2 = {
-		_completion: { x: 540, y: 685 },
+		_completion: { x: 60, y: 685 },
 		_cwd: { x: 540, y: 575 },
-		_http: { x: 540, y: 795 },
+		_http: { x: 60, y: 795 },
 		_metadata: { x: 60, y: 410 },
 		_output: { x: 540, y: 245 },
 		echo1: { x: 60, y: 190 },
@@ -268,7 +269,7 @@ describe( 'autoLayout — real graphs (normalized; relative positions only)', ()
 		],
 	};
 	const graphBExpected1 = {
-		_repl: { x: 1020, y: 630 },
+		_repl: { x: 60, y: 630 },
 		'completed:partition': { x: 1020, y: 80 },
 		'completed:tee': { x: 780, y: 135 },
 		'errors:partition': { x: 1020, y: 300 },
@@ -612,8 +613,9 @@ describe( 'autoLayout', () => {
 		);
 	} );
 
-	it( 'pushes every sink (no outgoing) AND every isolated node (no edges) to the max-depth column', () => {
-		// Sinks at mixed depths + an isolated _repl all cluster rightmost.
+	it( 'pushes every sink (no outgoing) to the max-depth column, and an isolated node below the band', () => {
+		// Sinks at mixed depths cluster rightmost; the edgeless _repl is no
+		// part of the band and stacks under it at column 0.
 		const out = autoLayout( {
 			nodes: [
 				{ id: 'consumer' },
@@ -637,14 +639,23 @@ describe( 'autoLayout', () => {
 		const colOf = ( id ) =>
 			( out.nodes.find( ( n ) => n.id === id ).position.x - X_PAD ) /
 			X_STEP;
-		// All sinks and the isolated _repl land in the rightmost column.
+		// Every sink lands in the rightmost column; _repl goes below.
 		const maxCol = Math.max(
 			...out.nodes.map( ( n ) => ( n.position.x - X_PAD ) / X_STEP )
 		);
 		expect( colOf( 'errors' ) ).toBe( maxCol );
 		expect( colOf( 'completed' ) ).toBe( maxCol );
 		expect( colOf( 'gyroscope' ) ).toBe( maxCol );
-		expect( colOf( '_repl' ) ).toBe( maxCol );
+		expect( colOf( '_repl' ) ).toBe( 0 );
+		const rowOf = ( id ) =>
+			out.nodes.find( ( n ) => n.id === id ).position.y;
+		expect( rowOf( '_repl' ) ).toBeGreaterThan(
+			Math.max(
+				...out.nodes
+					.filter( ( n ) => '_repl' !== n.id )
+					.map( ( n ) => n.position.y )
+			)
+		);
 		// Internal nodes stay at their topological depth.
 		expect( colOf( 'consumer' ) ).toBe( 0 );
 		expect( colOf( 'tee' ) ).toBe( 1 );
@@ -1034,9 +1045,10 @@ describe( 'autoLayout — hub bands', () => {
 		expect( positionsOf( shuffled ) ).toEqual( positionsOf( graph ) );
 	} );
 
-	// One feeder short of the cut, the graph is one layered component and a
-	// two-node slice stretches to the global depth; one edge later it bands.
-	// A fan OUT of the same size is a wire: its consumers order with the flow.
+	// A star of `spokes` feeders into `hub`, beside a chain and a pair. One
+	// feeder short of the cut the hub stays in its star's band; one edge
+	// later it leaves for the backbone. A fan OUT of the same size is a
+	// wire: its consumers order with the flow.
 	const starGraph = ( spokes, fanOut = false ) => {
 		const edges = [
 			{ from: 'c1', to: 'c2' },
@@ -1058,19 +1070,76 @@ describe( 'autoLayout — hub bands', () => {
 		return { nodes: [ ...ids ].map( ( id ) => ( { id } ) ), edges };
 	};
 
-	it( 'leaves a node three feed ordinary, so the graph lays out as one component', () => {
+	// Every component bands, hub or no hub: a two-node slice never stretches
+	// to another component's depth. A hub leaves its component for the
+	// backbone, right of every band; an ordinary node stays in its band.
+	it( 'bands every component, and leaves a node three feed in its band', () => {
 		const at = positionsOf( starGraph( 3 ) );
-		expect( at.y.x - at.x.x ).toBe( 2 * X_STEP );
+		expect( at.y.x - at.x.x ).toBe( X_STEP );
+		expect( at.hub.x ).toBe( at.s0.x + X_STEP );
 	} );
 
-	it( 'treats a node four feed as a hub, so each component gets its own band', () => {
+	it( 'treats a node four feed as a hub, right of every band', () => {
 		const at = positionsOf( starGraph( 4 ) );
 		expect( at.y.x - at.x.x ).toBe( X_STEP );
+		const others = Object.keys( at ).filter( ( id ) => 'hub' !== id );
+		expect( at.hub.x ).toBeGreaterThan(
+			Math.max( ...others.map( ( id ) => at[ id ].x ) )
+		);
 	} );
 
-	it( 'leaves a node fanning out to seven ordinary: only fan-in makes a hub', () => {
+	it( 'leaves a node fanning out to seven in its band: only fan-in makes a hub', () => {
 		const at = positionsOf( starGraph( 7, true ) );
-		expect( at.y.x - at.x.x ).toBe( 2 * X_STEP );
+		expect( at.y.x - at.x.x ).toBe( X_STEP );
+		expect( at.hub.x ).toBe( at.s0.x - X_STEP );
+	} );
+
+	// The debug sheet as a log-viewer realm draws it: two polled slices, so
+	// the widest fan-in is two and nothing is a hub. The three-node chains
+	// still take three columns each, on rows of their own.
+	it( 'bands a hubless sheet: no chain stretches to the far column', () => {
+		const edges = [
+			{ from: 'log-viewer:link', to: 'log-viewer:stream' },
+			{ from: 'log-viewer:stream', to: 'log-viewer:view' },
+			{ from: '_heartbeat', to: '_http' },
+			{ from: '_http', to: '_output' },
+			{ from: '_metadata', to: '_cwd' },
+		];
+		for ( const s of [ 'log-viewer-step', 'log-viewer-catalog' ] ) {
+			edges.push(
+				{ from: `${ s }:timer`, to: `${ s }:tee` },
+				{ from: `${ s }:tee`, to: `${ s }:fetch` },
+				{ from: `${ s }:in`, to: `${ s }:fetch` },
+				{ from: `${ s }:in`, to: `${ s }:result` },
+				{ from: `${ s }:fetch`, to: '_shell' },
+				{ from: `${ s }:fetch`, to: '_cwd' }
+			);
+		}
+		const ids = new Set( [ '_completion', '_stdout', 'log-rail:timer' ] );
+		for ( const e of edges ) {
+			ids.add( e.from );
+			ids.add( e.to );
+		}
+		const at = positionsOf( {
+			nodes: [ ...ids ].map( ( id ) => ( { id } ) ),
+			edges,
+		} );
+
+		expect( at[ 'log-viewer:view' ].x ).toBe(
+			at[ 'log-viewer:link' ].x + 2 * X_STEP
+		);
+		expect( at._output.x ).toBe( at._heartbeat.x + 2 * X_STEP );
+		// Each chain runs across one row, and the two share none with the slices.
+		expect( at[ 'log-viewer:view' ].y ).toBe( at[ 'log-viewer:link' ].y );
+		expect( at._output.y ).toBe( at._heartbeat.y );
+		const sliceYs = [ 'step', 'catalog' ].flatMap( ( s ) =>
+			[ 'timer', 'tee', 'fetch', 'in', 'result' ].map(
+				( p ) => at[ `log-viewer-${ s }:${ p }` ].y
+			)
+		);
+		for ( const y of [ at[ 'log-viewer:link' ].y, at._heartbeat.y ] ) {
+			expect( sliceYs ).not.toContain( y );
+		}
 	} );
 
 	// The station's own realm as the debug sheet draws it: five polled slices

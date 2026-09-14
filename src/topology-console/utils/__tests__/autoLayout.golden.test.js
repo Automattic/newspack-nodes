@@ -2,7 +2,9 @@
  * Golden-fixture bake-off test for autoLayout.
  *
  * The firehose-workers-and-jobs graph (+ job-workers, requests/flame branches,
- * and the isolated _repl) has one ideal layered layout. A layout is accepted
+ * and the isolated _repl) has one ideal layout: the main component layered,
+ * the two side chains banded below it at their own depth rather than reaching
+ * the partition column, and _repl under everything. A layout is accepted
  * iff its (col, row) grid matches the golden grid AFTER:
  *   - normalizing global offset (min col / min row → 0), and
  *   - up to one vertical FLIP (row → maxRow − row), and/or
@@ -28,10 +30,10 @@ const GOLDEN = {
 	'firehose:consumer': [ 60, 300 ],
 	'firehose:tee': [ 300, 300 ],
 	'jobintake:consumer': [ 60, 410 ],
-	'flames:partition': [ 1020, 630 ],
-	'flame-builder': [ 540, 630 ],
+	'flames:partition': [ 540, 630 ],
+	'flame-builder': [ 300, 630 ],
 	'requests:consumer': [ 60, 630 ],
-	'job-worker': [ 1020, 520 ],
+	'job-worker': [ 300, 520 ],
 	'jobs:consumer': [ 60, 520 ],
 	_repl: [ 60, 740 ],
 };
