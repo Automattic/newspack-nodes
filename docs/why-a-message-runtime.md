@@ -30,5 +30,3 @@ The budget governs the design. On Atomic a "CPU" is a PHP worker slot, and a res
 
 - [`README.md`](../README.md)
 - [`architecture-guide.md`](architecture-guide.md)
-- `docs/notes/atomic-php-workers-are-the-cpu-budget.md`, the note the worker-slot budget draws on; it lives in the dndocker tree and has no public home
-
