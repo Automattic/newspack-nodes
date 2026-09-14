@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.60.1] - 2026-09-14
+
 ### Changed
 
 - **The topology console packs a large graph instead of stacking it.** `autoLayout` stacked every band in one column — `test.tsl`'s 1,400 bands ran 3,000 rows tall and seven wide, and every hub sat on a far edge with a wire from each band. Bands now gather into blocks, a hub with the bands that feed it, the hub in the column right after them on their middle row and the bands the hub feeds continuing to its right (a band wired to several hubs goes with the one serving the fewest, a publication's own over the fleet's); the blocks pack into side-by-side stacks toward a canvas about as wide as it is tall, widest first. A small graph still fills one stack. The grid is painted under the whole graph rather than an 8,000-unit square at the origin, and cards keep their shape down to a fifth of a pixel per unit before the level of detail drops, from a third.
