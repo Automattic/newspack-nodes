@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.59.0] - 2026-09-14
+
 ### Added
 
 - **Chart legends scroll, and pick the series they name.** Every dashboard chart's legend was an SVG group in a fixed 160px column: labels cut at eighteen characters, no scrolling past the chart's height, no pointer handling — a breakdown with forty user agents legended eleven of them. The legend is the shared `ChartLegend` beside the plot now, one native button per series with the whole label as its title, scrolling inside the chart's height. A click draws that series alone, with the axis rescaled to it; a ctrl- or cmd-click adds to or removes from the pick; clicking the only picked series shows everything again. Colours follow a series' place in the full list, so hiding a neighbour recolours nothing, and a series a poll or a breakdown switch retires drops out of the pick on its own. `useSeriesSelection` owns the pick; `drawLegend` and the SVG legend column are gone, and `MARGIN.right` is the last tick label's overhang. `useLegend( series, colorAt )` is the legend and the drawn series together for a chart drawing one series per label. The Topics panels take it here; event-logger-nodes' Aggregate, Category and Response Time charts take it with their next build.
