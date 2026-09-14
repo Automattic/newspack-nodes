@@ -1143,7 +1143,8 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 		for ( const id of Object.keys( bc ) ) {
 			for ( const to of succ[ id ] ) {
 				if (
-					hubSet.has( to ) &&
+					( hubSet.has( to ) || hubSet.has( id ) ) &&
+					bc[ to ] !== undefined &&
 					Math.abs( bc[ to ] - bc[ id ] ) >= 2
 				) {
 					hubWires.push( [ id, to ] );
