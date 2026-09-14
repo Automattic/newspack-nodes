@@ -1151,7 +1151,16 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 			}
 		}
 		const all = Object.keys( bc );
-		for ( const members of b.bands ) {
+		// Farthest from the hubs first, so each half cascades outward.
+		const hubMid = b.hubs.length
+			? midMinMax( b.hubs.map( ( h ) => br[ h ] ) )
+			: 0;
+		const farFirst = stableSort(
+			b.bands,
+			( m ) =>
+				-Math.abs( midMinMax( m.map( ( id ) => br[ id ] ) ) - hubMid )
+		);
+		for ( const members of farFirst ) {
 			const own = new Set( members );
 			clearWires(
 				members,
