@@ -1,6 +1,6 @@
 {
 	"name": "newspack-nodes",
-	"version": "2.58.2",
+	"version": "2.58.3",
 	"private": true,
 	"description": "Node-graph runtime for composable PHP services.",
 	"author": "Automattic",
