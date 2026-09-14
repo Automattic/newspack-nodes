@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.58.1] - 2026-09-13
+
 ### Changed
 
 - **`Cache_Backend::salt()` reads through `get_option()`.** It read the option row through `$wpdb` on the premise that `bin/pyrate`'s SHORTINIT boot had no option API; `functions.php` loads `option.php` ahead of that bail, so every boot that reaches the cache backend has the real `get_option()`, and the direct query bought nothing.
