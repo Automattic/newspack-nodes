@@ -1410,6 +1410,39 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 		);
 	} );
 
+	it( 'keeps a wire from a hub into a consumer chain off the chain', () => {
+		// The hub feeds the chain's tail directly as well as its head: the
+		// direct wire skips the head and the middle, and was drawn through
+		// both, since only wires INTO a hub were cleared.
+		const edges = [];
+		for ( const f of [ 'a', 'b', 'c', 'd' ] ) {
+			edges.push(
+				{ from: `${ f }:in`, to: `${ f }:mid` },
+				{ from: `${ f }:mid`, to: 'hub' }
+			);
+		}
+		edges.push(
+			{ from: 'hub', to: 'c:a' },
+			{ from: 'c:a', to: 'c:b' },
+			{ from: 'c:b', to: 'c:c' },
+			{ from: 'hub', to: 'c:c' }
+		);
+		const ids = new Set();
+		for ( const e of edges ) {
+			ids.add( e.from );
+			ids.add( e.to );
+		}
+		const { nodes } = autoLayout( {
+			nodes: [ ...ids ].map( ( id ) => ( { id } ) ),
+			edges,
+		} );
+		expect(
+			wiresThroughCards( nodes, edges ).filter( ( hit ) =>
+				/over c:/.test( hit )
+			)
+		).toEqual( [] );
+	} );
+
 	it( 'leaves a small graph in one stack', () => {
 		const g = gridOf( pubs( 2 ) );
 		// Every block starts at column 0: nothing was packed to the right.
