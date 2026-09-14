@@ -64,7 +64,7 @@ Both choices are open; see [Tradeoffs](#tradeoffs).
 
 ## The shared-memcache salt
 
-**Code:** [`includes/class-cache-backend.php`](../includes/class-cache-backend.php): `site()` ([181](../includes/class-cache-backend.php#L181), [196](../includes/class-cache-backend.php#L196)), [`salt()`](../includes/class-cache-backend.php#L482), [`ensure_salt()`](../includes/class-cache-backend.php#L445), the keyspace-split warning ([160-179](../includes/class-cache-backend.php#L160-L179)); [`includes/class-command-auth.php`](../includes/class-command-auth.php): [`session_address()`](../includes/class-command-auth.php#L537).
+**Code:** [`includes/class-cache-backend.php`](../includes/class-cache-backend.php): `site()` ([181](../includes/class-cache-backend.php#L181), [196](../includes/class-cache-backend.php#L196)), [`salt()`](../includes/class-cache-backend.php#L476), [`ensure_salt()`](../includes/class-cache-backend.php#L445), the keyspace-split warning ([160-179](../includes/class-cache-backend.php#L160-L179)); [`includes/class-command-auth.php`](../includes/class-command-auth.php): [`session_address()`](../includes/class-command-auth.php#L537).
 
 ![One memcached pool, many sites](img/2026-09-10-shared-cache-pool.png)
 

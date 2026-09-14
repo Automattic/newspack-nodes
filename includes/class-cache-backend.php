@@ -78,7 +78,7 @@ final class Cache_Backend {
 	public static string $site = '';
 
 	/**
-	 * Memoized install salt; null until `salt()` reads the option row. Null
+	 * Memoized install salt; null until `salt()` reads the option. Null
 	 * rather than '' as the unset marker, because an install with no salt
 	 * stored legitimately holds the empty string. `Core::reset()` clears it.
 	 */
