@@ -49,26 +49,26 @@ describe( 'placeBelow — new-node tuck', () => {
 	} );
 } );
 
-describe( 'autoLayout — no overlapping nodes', () => {
-	// Smallest vertical gap between same-column nodes; < NODE_H means overlap.
-	function minColumnGap( nodes ) {
-		const byCol = {};
-		for ( const n of nodes ) {
-			if ( ! byCol[ n.position.x ] ) {
-				byCol[ n.position.x ] = [];
-			}
-			byCol[ n.position.x ].push( n.position.y );
+// Smallest vertical gap between same-column nodes; < NODE_H means overlap.
+function minColumnGap( nodes ) {
+	const byCol = {};
+	for ( const n of nodes ) {
+		if ( ! byCol[ n.position.x ] ) {
+			byCol[ n.position.x ] = [];
 		}
-		let min = Infinity;
-		for ( const ys of Object.values( byCol ) ) {
-			ys.sort( ( p, q ) => p - q );
-			for ( let i = 1; i < ys.length; i++ ) {
-				min = Math.min( min, ys[ i ] - ys[ i - 1 ] );
-			}
-		}
-		return min;
+		byCol[ n.position.x ].push( n.position.y );
 	}
+	let min = Infinity;
+	for ( const ys of Object.values( byCol ) ) {
+		ys.sort( ( p, q ) => p - q );
+		for ( let i = 1; i < ys.length; i++ ) {
+			min = Math.min( min, ys[ i ] - ys[ i - 1 ] );
+		}
+	}
+	return min;
+}
 
+describe( 'autoLayout — no overlapping nodes', () => {
 	it( 'spreads same-column producers that share a target so they do not overlap', () => {
 		// a→t1+t2 snaps to 0.5; b→t2 is row 1; 0.5 vs 1.0 is a 55px overlap.
 		const { nodes } = autoLayout( {
@@ -94,6 +94,166 @@ describe( 'autoLayout — no overlapping nodes', () => {
 		expect( minColumnGap( nodes ) ).toBeGreaterThanOrEqual( NODE_H );
 		const a = nodes.find( ( n ) => n.id === 'a' );
 		expect( a.position.y ).toBe( Y_PAD + 0.5 * Y_STEP );
+	} );
+} );
+
+/**
+ * The cards a wire sweeps through. A wire spanning two or more columns
+ * crosses every column between as a cubic that, over a card's width,
+ * runs nearly the whole way from its source row to its sink row, so a
+ * card in a between column whose centre lies inside that span, within
+ * half a card of it, is drawn over. The margin is a card's half height.
+ *
+ * @param {Array<Object>} nodes Positioned nodes.
+ * @param {Array<Object>} edges The wires.
+ * @return {Array<string>} `from→to over id` for every card a wire crosses.
+ */
+function wiresThroughCards( nodes, edges ) {
+	const by = Object.fromEntries( nodes.map( ( n ) => [ n.id, n ] ) );
+	const hits = [];
+	for ( const { from, to } of edges ) {
+		const a = by[ from ].position;
+		const b = by[ to ].position;
+		const lo = Math.min( a.y, b.y );
+		const hi = Math.max( a.y, b.y );
+		for ( const n of nodes ) {
+			const between = ( n.position.x - a.x ) * ( n.position.x - b.x ) < 0;
+			if ( ! between ) {
+				continue;
+			}
+			if (
+				n.position.y > lo - NODE_H / 2 &&
+				n.position.y < hi + NODE_H / 2
+			) {
+				hits.push( `${ from }→${ to } over ${ n.id }` );
+			}
+		}
+	}
+	return hits;
+}
+
+describe( 'autoLayout — no wire through a card', () => {
+	it( 'routes a fan-out past a tee in the column between', () => {
+		// The event logger's complete topology: request-builder feeds four
+		// partitions two columns on AND the tee between, which feeds two
+		// of its own. The tee has to leave the rows those four wires span.
+		const edges = [
+			[ 'firehose:consumer', 'request-builder' ],
+			[ 'request-builder', 'alerts:partition' ],
+			[ 'request-builder', 'errors:partition' ],
+			[ 'request-builder', 'requests:partition' ],
+			[ 'request-builder', 'gyroscope:partition' ],
+			[ 'request-builder', 'completed:tee' ],
+			[ 'completed:tee', 'completed:partition' ],
+			[ 'completed:tee', 'gyroscope:partition' ],
+		].map( ( [ from, to ] ) => ( { from, to } ) );
+		const ids = [
+			...new Set( edges.flatMap( ( e ) => [ e.from, e.to ] ) ),
+		];
+		const { nodes } = autoLayout( {
+			nodes: ids.map( ( id ) => ( { id } ) ),
+			edges,
+		} );
+		expect( wiresThroughCards( nodes, edges ) ).toEqual( [] );
+		expect( minColumnGap( nodes ) ).toBeGreaterThanOrEqual( NODE_H );
+	} );
+
+	it( 'links a wire three columns long through every column between', () => {
+		// S feeds a three-step chain AND its far end directly. With the
+		// placeholders chained only backwards, the sweeps saw no successor
+		// for the interior ones and parked the source under its own chain.
+		const edges = [
+			[ 's', 'x1' ],
+			[ 'x1', 'x2' ],
+			[ 'x2', 'x3' ],
+			[ 'x3', 'p1' ],
+			[ 'x3', 'p2' ],
+			[ 'x3', 'p3' ],
+			[ 's', 'p1' ],
+		].map( ( [ from, to ] ) => ( { from, to } ) );
+		const ids = [
+			...new Set( edges.flatMap( ( e ) => [ e.from, e.to ] ) ),
+		];
+		const { nodes } = autoLayout( {
+			nodes: ids.map( ( id ) => ( { id } ) ),
+			edges,
+		} );
+		expect( wiresThroughCards( nodes, edges ) ).toEqual( [] );
+		const y = Object.fromEntries(
+			nodes.map( ( n ) => [ n.id, n.position.y ] )
+		);
+		// The source sits between its chain and the wire, not below both.
+		expect( y.s ).toBeLessThan( y.x1 );
+		expect( y.x1 ).toBe( y.x2 );
+		expect( y.x2 ).toBe( y.x3 );
+	} );
+
+	it( 'weighs a wire declared twice once', () => {
+		const once = [
+			[ 'a', 'b' ],
+			[ 'b', 'c' ],
+			[ 'a', 'c' ],
+			[ 'a', 'd' ],
+		].map( ( [ from, to ] ) => ( { from, to } ) );
+		const twice = [ ...once, { from: 'a', to: 'c' } ];
+		const nodes = [ 'a', 'b', 'c', 'd' ].map( ( id ) => ( { id } ) );
+		expect( autoLayout( { nodes, edges: twice } ).nodes ).toEqual(
+			autoLayout( { nodes, edges: once } ).nodes
+		);
+	} );
+
+	it( 'never chases two columns down the canvas', () => {
+		// S fans out to L0..L3, each L feeds its own R and the next one's,
+		// every R feeds T, and L1 → m → R1 parks L1 between the fan and its
+		// targets. Nudging L1 moves its wires across the R column, nudging
+		// an R moves its wires back across the L column: an unbounded pass
+		// walked both columns down the canvas. A bounded one stays compact.
+		const n = 4;
+		const edges = [];
+		for ( let i = 0; i < n; i++ ) {
+			edges.push( { from: 's', to: `l${ i }` } );
+			edges.push( { from: `l${ i }`, to: `r${ i }` } );
+			if ( i + 1 < n ) {
+				edges.push( { from: `l${ i + 1 }`, to: `r${ i }` } );
+			}
+			edges.push( { from: `r${ i }`, to: 't' } );
+		}
+		edges.push( { from: 'l1', to: 'm' }, { from: 'm', to: 'r1' } );
+		const ids = [
+			...new Set( edges.flatMap( ( e ) => [ e.from, e.to ] ) ),
+		];
+		const { nodes } = autoLayout( {
+			nodes: ids.map( ( id ) => ( { id } ) ),
+			edges,
+		} );
+		const rows = nodes.map( ( n2 ) => ( n2.position.y - Y_PAD ) / Y_STEP );
+		expect( Math.max( ...rows ) - Math.min( ...rows ) ).toBeLessThan(
+			ids.length
+		);
+	} );
+
+	it( 'holds for the firehose worker graph too', () => {
+		const edges = [
+			[ 'completed:tee', 'completed:partition' ],
+			[ 'completed:tee', 'gyroscope:partition' ],
+			[ 'firehose:consumer', 'firehose:tee' ],
+			[ 'firehose:tee', 'request-builder' ],
+			[ 'firehose:tee', 'job-router' ],
+			[ 'job-router', 'jobs:partition' ],
+			[ 'jobintake:consumer', 'job-router' ],
+			[ 'request-builder', 'requests:partition' ],
+			[ 'request-builder', 'errors:partition' ],
+			[ 'request-builder', 'completed:tee' ],
+			[ 'request-builder', 'gyroscope:partition' ],
+		].map( ( [ from, to ] ) => ( { from, to } ) );
+		const ids = [
+			...new Set( edges.flatMap( ( e ) => [ e.from, e.to ] ) ),
+		];
+		const { nodes } = autoLayout( {
+			nodes: ids.map( ( id ) => ( { id } ) ),
+			edges,
+		} );
+		expect( wiresThroughCards( nodes, edges ) ).toEqual( [] );
 	} );
 } );
 
@@ -268,31 +428,23 @@ describe( 'autoLayout — real graphs (normalized; relative positions only)', ()
 			{ from: 'jobintake:consumer', to: 'job-router' },
 		],
 	};
-	const graphBExpected1 = {
+	const graphBExpected = {
 		_repl: { x: 60, y: 630 },
-		'completed:partition': { x: 1020, y: 80 },
-		'completed:tee': { x: 780, y: 135 },
-		'errors:partition': { x: 1020, y: 300 },
-		'firehose:consumer': { x: 60, y: 410 },
-		'firehose:tee': { x: 300, y: 410 },
-		'gyroscope:partition': { x: 1020, y: 190 },
-		'job-router': { x: 540, y: 520 },
-		'jobintake:consumer': { x: 60, y: 520 },
-		'jobs:partition': { x: 1020, y: 520 },
-		'request-builder': { x: 540, y: 245 },
-		'requests:partition': { x: 1020, y: 410 },
+		'completed:partition': { x: 1020, y: 190 },
+		'completed:tee': { x: 780, y: 245 },
+		'errors:partition': { x: 1020, y: 410 },
+		'firehose:consumer': { x: 60, y: 245 },
+		'firehose:tee': { x: 300, y: 245 },
+		'gyroscope:partition': { x: 1020, y: 300 },
+		'job-router': { x: 540, y: 80 },
+		'jobintake:consumer': { x: 60, y: 80 },
+		'jobs:partition': { x: 1020, y: 80 },
+		'request-builder': { x: 540, y: 410 },
+		'requests:partition': { x: 1020, y: 520 },
 	};
-	const graphBExpected2 = {
-		...graphBExpected1,
-		'request-builder': { x: 540, y: 300 },
-	};
-
 	it( 'lays out the firehose worker graph (graph B) — already satisfied', () => {
 		const got = normalize( posMapOf( autoLayout( graphB ).nodes ) );
-		expect( [
-			normalize( graphBExpected1 ),
-			normalize( graphBExpected2 ),
-		] ).toContainEqual( got );
+		expect( got ).toEqual( normalize( graphBExpected ) );
 	} );
 
 	it( 'lays out the performance dashboard graph (graph A)', () => {
@@ -389,10 +541,7 @@ describe( 'autoLayout — real graphs (normalized; relative positions only)', ()
 			const got = normalize(
 				posMapOf( autoLayout( reorder( graphB, order ) ).nodes )
 			);
-			expect( [
-				normalize( graphBExpected1 ),
-				normalize( graphBExpected2 ),
-			] ).toContainEqual( got );
+			expect( got ).toEqual( normalize( graphBExpected ) );
 		}
 	} );
 } );
@@ -952,6 +1101,287 @@ describe( 'autoLayout — disconnected components', () => {
 	} );
 } );
 
+describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
+	const positionsOf = ( graph ) =>
+		Object.fromEntries(
+			autoLayout( graph ).nodes.map( ( n ) => [ n.id, n.position ] )
+		);
+	const gridOf = ( graph ) => {
+		const at = positionsOf( graph );
+		return Object.fromEntries(
+			Object.entries( at ).map( ( [ id, p ] ) => [
+				id,
+				{
+					col: ( p.x - X_PAD ) / X_STEP,
+					row: ( p.y - Y_PAD ) / Y_STEP,
+				},
+			] )
+		);
+	};
+
+	const PUBS = [
+		'aan',
+		'bend',
+		'cltampa',
+		'dal',
+		'elpaso',
+		'flagstaff',
+		'gotham',
+		'hou',
+	];
+	const JOBS = [ 'import', 'patch', 'template', 'purge' ];
+
+	// Publications, each with four two-node slices feeding its own hub, plus
+	// one fleet hub every slice feeds and one hub-less pair.
+	const pubs = ( count ) => {
+		const edges = [];
+		for ( const pub of PUBS.slice( 0, count ) ) {
+			for ( const job of JOBS ) {
+				edges.push(
+					{
+						from: `${ pub }:${ job }`,
+						to: `${ pub }:${ job }:buffer`,
+					},
+					{ from: `${ pub }:${ job }:buffer`, to: `${ pub }:hub` },
+					{ from: `${ pub }:${ job }:buffer`, to: 'fleet:cache' }
+				);
+			}
+		}
+		edges.push( { from: 'lone:in', to: 'lone:out' } );
+		const ids = new Set();
+		for ( const e of edges ) {
+			ids.add( e.from );
+			ids.add( e.to );
+		}
+		return { nodes: [ ...ids ].map( ( id ) => ( { id } ) ), edges };
+	};
+
+	it( 'puts each hub in the column right after the slices that feed it, on their middle row', () => {
+		// Eight publications pack into several stacks, so a hub on a far
+		// edge would sit columns away from most of its feeders.
+		const g = gridOf( pubs( 8 ) );
+		const stackStarts = new Set();
+		for ( const pub of PUBS ) {
+			const rows = JOBS.map(
+				( job ) => g[ `${ pub }:${ job }:buffer` ].row
+			);
+			const cols = JOBS.map(
+				( job ) => g[ `${ pub }:${ job }:buffer` ].col
+			);
+			expect( g[ `${ pub }:hub` ].col ).toBe( Math.max( ...cols ) + 1 );
+			// On the middle row, or half a row off it where the fleet hub
+			// shares the column and the two spread around the middle.
+			const mid = ( Math.min( ...rows ) + Math.max( ...rows ) ) / 2;
+			expect(
+				Math.abs( g[ `${ pub }:hub` ].row - mid )
+			).toBeLessThanOrEqual( 0.5 );
+			stackStarts.add( Math.min( ...cols ) );
+		}
+		expect( stackStarts.size ).toBeGreaterThan( 1 );
+	} );
+
+	it( 'attaches a hub fed from several groups beside the group holding most of its feeders', () => {
+		// fleet:cache is fed by every slice; each slice's own hub has fewer
+		// feeders, so the slices group by publication and fleet:cache lands
+		// beside one of them rather than on a far edge past everything.
+		const g = gridOf( pubs( 8 ) );
+		const pubCols = PUBS.map( ( pub ) => g[ `${ pub }:hub` ].col );
+		expect( pubCols ).toContain( g[ 'fleet:cache' ].col );
+	} );
+
+	it( 'packs the blocks side by side toward a square canvas instead of one tall stack', () => {
+		// Forty hub-less pairs: one stack would be 40 rows by 2 columns.
+		const edges = [];
+		for ( let i = 0; i < 40; i++ ) {
+			edges.push( { from: `p${ i }:in`, to: `p${ i }:out` } );
+		}
+		const ids = new Set();
+		for ( const e of edges ) {
+			ids.add( e.from );
+			ids.add( e.to );
+		}
+		const { nodes } = autoLayout( {
+			nodes: [ ...ids ].map( ( id ) => ( { id } ) ),
+			edges,
+		} );
+		const xs = nodes.map( ( n ) => n.position.x );
+		const ys = nodes.map( ( n ) => n.position.y );
+		const width = Math.max( ...xs ) - Math.min( ...xs ) + X_STEP;
+		const height = Math.max( ...ys ) - Math.min( ...ys ) + Y_STEP;
+		expect( width / height ).toBeGreaterThan( 0.5 );
+		expect( width / height ).toBeLessThan( 2 );
+		expect( minColumnGap( nodes ) ).toBeGreaterThanOrEqual( NODE_H );
+		expect( wiresThroughCards( nodes, edges ) ).toEqual( [] );
+	} );
+
+	it( "keeps a wire from a band straight to its hub off the band's own chain", () => {
+		// chronogram's router feeds a two-step chain to the hub AND the hub
+		// directly; the direct wire ran along the chain's row, through both
+		// of its cards, because a wire to a hub is not a wire inside the band.
+		const edges = [];
+		for ( const job of JOBS ) {
+			edges.push(
+				{ from: `pub:${ job }`, to: `pub:${ job }:buffer` },
+				{ from: `pub:${ job }:buffer`, to: 'pub:hub' }
+			);
+		}
+		edges.push(
+			{ from: 'pub:router', to: 'pub:balancer' },
+			{ from: 'pub:balancer', to: 'korell:template' },
+			{ from: 'korell:template', to: 'pub:hub' },
+			{ from: 'pub:router', to: 'pub:hub' }
+		);
+		const ids = new Set();
+		for ( const e of edges ) {
+			ids.add( e.from );
+			ids.add( e.to );
+		}
+		const { nodes } = autoLayout( {
+			nodes: [ ...ids ].map( ( id ) => ( { id } ) ),
+			edges,
+		} );
+		// The hub's fan-in still crosses the bands between it and the
+		// router's; what must not happen is the wire through its own chain.
+		expect(
+			wiresThroughCards( nodes, edges ).filter( ( hit ) =>
+				/over (pub:balancer|korell:template)$/.test( hit )
+			)
+		).toEqual( [] );
+		expect( minColumnGap( nodes ) ).toBeGreaterThanOrEqual( NODE_H );
+	} );
+
+	it( 'packs equal-width blocks alphabetically', () => {
+		// A hub block keyed by its hub, which sorts after the hub-less band
+		// keyed by its first node; blocks arrive hub first, but the packer
+		// takes them by key. Both are three wide, so width decides nothing.
+		const edges = [
+			{ from: 'm:in', to: 'm:mid' },
+			{ from: 'm:mid', to: 'm:out' },
+		];
+		for ( const f of [ 'a0', 'a1', 'a2', 'a3' ] ) {
+			edges.push(
+				{ from: `${ f }:in`, to: `${ f }:mid` },
+				{ from: `${ f }:mid`, to: 'zzz-hub' }
+			);
+		}
+		const ids = new Set();
+		for ( const e of edges ) {
+			ids.add( e.from );
+			ids.add( e.to );
+		}
+		const g = gridOf( {
+			nodes: [ ...ids ].map( ( id ) => ( { id } ) ),
+			edges,
+		} );
+		expect( g[ 'm:in' ].row ).toBeLessThan( g[ 'a0:in' ].row );
+	} );
+
+	it( "keeps a card nudged off its hub wire clear of the next band's cards", () => {
+		// s1 is a three-step chain whose head also feeds the hub; s0 is a
+		// pair. Nudging s1's middle card must not land it half a row from
+		// s0's, though s0 is another band.
+		const edges = [
+			{ from: 's0:a', to: 's0:b' },
+			{ from: 's0:b', to: 'hub' },
+			{ from: 's1:a', to: 's1:b' },
+			{ from: 's1:b', to: 's1:c' },
+			{ from: 's1:a', to: 'hub' },
+			{ from: 's2:a', to: 'hub' },
+			{ from: 's3:a', to: 'hub' },
+		];
+		const ids = new Set();
+		for ( const e of edges ) {
+			ids.add( e.from );
+			ids.add( e.to );
+		}
+		const { nodes } = autoLayout( {
+			nodes: [ ...ids ].map( ( id ) => ( { id } ) ),
+			edges,
+		} );
+		expect( minColumnGap( nodes ) ).toBeGreaterThanOrEqual( NODE_H );
+	} );
+
+	it( 'keeps a hub fed only by hubs beside them', () => {
+		// Each feeder runs through a mid, so the fed nodes' median fan-in is
+		// 1 and the four h's and a-top are hubs; a-top sorts before every h.
+		const edges = [];
+		for ( const h of [ 'h1', 'h2', 'h3', 'h4' ] ) {
+			for ( const f of [ 'p', 'q', 'r', 's' ] ) {
+				edges.push(
+					{ from: `${ h }:${ f }`, to: `${ h }:${ f }:mid` },
+					{ from: `${ h }:${ f }:mid`, to: h }
+				);
+			}
+			edges.push( { from: h, to: 'a-top' } );
+		}
+		const ids = new Set();
+		for ( const e of edges ) {
+			ids.add( e.from );
+			ids.add( e.to );
+		}
+		const g = gridOf( {
+			nodes: [ ...ids ].map( ( id ) => ( { id } ) ),
+			edges,
+		} );
+		expect( g[ 'a-top' ].col ).toBe( g.h1.col + 1 );
+	} );
+
+	it( 'continues a chain past its hub: a band the hub feeds sits to the right of it', () => {
+		// chronogram's job tees and its timeout feed the set_stream hub,
+		// which feeds the router, whose chain runs on to the template
+		// worker. The hub is not the end of that chain, so the router's
+		// band goes right of it rather than wrapping a wire back to the left.
+		const edges = [];
+		for ( const job of JOBS ) {
+			edges.push(
+				{ from: `pub:${ job }`, to: `pub:${ job }:buffer` },
+				{ from: `pub:${ job }:buffer`, to: 'pub:set_stream' }
+			);
+		}
+		edges.push(
+			{ from: 'pub:timeout', to: 'pub:set_stream' },
+			{ from: 'pub:set_stream', to: 'pub:router' },
+			{ from: 'pub:router', to: 'pub:balancer' },
+			{ from: 'pub:balancer', to: 'korell:template' }
+		);
+		const ids = new Set();
+		for ( const e of edges ) {
+			ids.add( e.from );
+			ids.add( e.to );
+		}
+		const graph = { nodes: [ ...ids ].map( ( id ) => ( { id } ) ), edges };
+		const g = gridOf( graph );
+		// The buffers' wires to the hub cross the bridge's column: it is
+		// seated off their path, not on the hub's row in front of it.
+		expect( wiresThroughCards( autoLayout( graph ).nodes, edges ) ).toEqual(
+			[]
+		);
+		const buffers = JOBS.map( ( job ) => g[ `pub:${ job }:buffer` ].col );
+		// The timeout's every neighbour is the hub, so it is a bridge: it
+		// leads the hub chain, right after the buffers.
+		expect( g[ 'pub:timeout' ].col ).toBe( Math.max( ...buffers ) + 1 );
+		expect( g[ 'pub:set_stream' ].col ).toBe( g[ 'pub:timeout' ].col + 1 );
+		expect( g[ 'pub:router' ].col ).toBe( g[ 'pub:set_stream' ].col + 1 );
+		expect( g[ 'pub:balancer' ].col ).toBe( g[ 'pub:router' ].col + 1 );
+		expect( g[ 'korell:template' ].col ).toBe(
+			g[ 'pub:balancer' ].col + 1
+		);
+		// The chain hangs level with the hub, not off the block's top row.
+		expect(
+			Math.abs( g[ 'pub:router' ].row - g[ 'pub:set_stream' ].row )
+		).toBeLessThanOrEqual( 0.5 );
+	} );
+
+	it( 'leaves a small graph in one stack', () => {
+		const g = gridOf( pubs( 2 ) );
+		// Every block starts at column 0: nothing was packed to the right.
+		const starts = [ 'aan:import', 'bend:import', 'lone:in' ].map(
+			( id ) => g[ id ].col
+		);
+		expect( starts ).toEqual( [ 0, 0, 0 ] );
+	} );
+} );
+
 describe( 'autoLayout — hub bands', () => {
 	// A browser-realm-shaped graph: five polled slices, five receiver slices,
 	// and the four backbone nodes every slice is wired into.
@@ -1005,9 +1435,14 @@ describe( 'autoLayout — hub bands', () => {
 	it( 'keeps each slice on one row, unstretched, with the hubs to the right', () => {
 		const at = positionsOf( hubGraph() );
 
-		// A four-node slice runs straight across one row.
-		const sliceA = [ 'a:timer', 'a:tee', 'a:fetch', 'a:result' ];
+		// A slice runs straight across one row up to its fetch; the result
+		// steps half a row off it, since the fetch's wire to the hubs runs
+		// on past the result's column and would be drawn through it.
+		const sliceA = [ 'a:timer', 'a:tee', 'a:fetch' ];
 		expect( new Set( sliceA.map( ( id ) => at[ id ].y ) ).size ).toBe( 1 );
+		expect( Math.abs( at[ 'a:result' ].y - at[ 'a:fetch' ].y ) ).toBe(
+			Y_STEP / 2
+		);
 
 		// Each slice gets its own band.
 		const bandY = [ ...POLL_SLICES, ...VIEW_SLICES ].map(
@@ -1032,8 +1467,16 @@ describe( 'autoLayout — hub bands', () => {
 		expect( at._output.x ).toBeGreaterThan( at._http.x );
 		expect( at._http.x ).toBeGreaterThan( at._shell.x );
 
-		// An edgeless node stacks below every band.
-		expect( at._heartbeat.y ).toBeGreaterThan( Math.max( ...bandY ) );
+		// An edgeless node is the narrowest block: it packs after every
+		// band, below them in the same stack or at the head of the next.
+		const bandX = [ ...POLL_SLICES, ...VIEW_SLICES ].map(
+			( s ) =>
+				at[ `${ s }:${ POLL_SLICES.includes( s ) ? 'tee' : 'in' }` ].x
+		);
+		expect(
+			at._heartbeat.y > Math.max( ...bandY ) ||
+				at._heartbeat.x > Math.max( ...bandX )
+		).toBe( true );
 	} );
 
 	it( 'lays the same graph out identically whatever order the nodes arrive in', () => {
@@ -1071,20 +1514,24 @@ describe( 'autoLayout — hub bands', () => {
 	};
 
 	// Every component bands, hub or no hub: a two-node slice never stretches
-	// to another component's depth. A hub leaves its component for the
-	// backbone, right of every band; an ordinary node stays in its band.
+	// to another component's depth. A hub leaves its component for the column
+	// right after its feeders, on their middle row; an ordinary node stays.
 	it( 'bands every component, and leaves a node three feed in its band', () => {
 		const at = positionsOf( starGraph( 3 ) );
 		expect( at.y.x - at.x.x ).toBe( X_STEP );
 		expect( at.hub.x ).toBe( at.s0.x + X_STEP );
 	} );
 
-	it( 'treats a node four feed as a hub, right of every band', () => {
+	it( 'treats a node four feed as a hub, beside its feeders on their middle row', () => {
 		const at = positionsOf( starGraph( 4 ) );
 		expect( at.y.x - at.x.x ).toBe( X_STEP );
-		const others = Object.keys( at ).filter( ( id ) => 'hub' !== id );
-		expect( at.hub.x ).toBeGreaterThan(
-			Math.max( ...others.map( ( id ) => at[ id ].x ) )
+		const feeders = [ 's0', 's1', 's2', 's3' ].map( ( id ) => at[ id ] );
+		expect( at.hub.x ).toBe(
+			Math.max( ...feeders.map( ( p ) => p.x ) ) + X_STEP
+		);
+		const ys = feeders.map( ( p ) => p.y );
+		expect( at.hub.y ).toBe(
+			( Math.min( ...ys ) + Math.max( ...ys ) ) / 2
 		);
 	} );
 

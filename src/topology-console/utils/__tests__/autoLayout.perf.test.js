@@ -17,6 +17,35 @@ const fixture = () =>
 		)
 	);
 
+describe( 'topology-console layout — through-wire perf', () => {
+	it( 'clears a thousand wires past a three-column chain under budget', () => {
+		// test.tsl's long wires all run to the backbone, which the bands never
+		// see; this fan-out is the placeholder and clearing path at scale.
+		const edges = [
+			{ from: 'source', to: 'x1' },
+			{ from: 'x1', to: 'x2' },
+			{ from: 'x2', to: 'x3' },
+		];
+		const nodes = [ 'source', 'x1', 'x2', 'x3' ].map( ( id ) => ( {
+			id,
+		} ) );
+		for ( let i = 0; i < 1000; i++ ) {
+			nodes.push( { id: `sink-${ i }` } );
+			edges.push( { from: 'x3', to: `sink-${ i }` } );
+			edges.push( { from: 'source', to: `sink-${ i }` } );
+		}
+		const start = Date.now();
+		const out = autoLayout( { nodes, edges } );
+		const elapsed = Date.now() - start;
+		// eslint-disable-next-line no-console
+		console.log(
+			`[autoLayout] fan-out ${ nodes.length } nodes ${ elapsed }ms`
+		);
+		expect( out.nodes ).toHaveLength( nodes.length );
+		expect( elapsed ).toBeLessThan( BUDGET_MS );
+	}, 120000 );
+} );
+
 describe( 'topology-console layout — large topology perf (test.tsl)', () => {
 	it( 'autoLayout (no-overrides path) lays out 3145 nodes well under budget', () => {
 		const parsed = fixture();

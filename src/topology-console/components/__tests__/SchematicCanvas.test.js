@@ -2851,10 +2851,11 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 		classCatalog: {},
 	};
 
-	it( 'drops the edge layer below the detail (text) scale, with the text', () => {
+	it( 'keeps the cards and the edges at a fifth of a pixel per unit', () => {
+		// 0.2 px/unit: a card is 39px wide — its shape and colour still read,
+		// so the detail scale sits below this and nothing LODs away yet.
 		stubW = 1000;
 		stubH = 1000;
-		// 0.2 px/unit: below 0.35 detail scale, so edges LOD away with labels.
 		const { container } = renderWithCatalog(
 			<SchematicCanvas { ...lodProps } />,
 			{
@@ -2868,6 +2869,30 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 				onViewportChange: lodProps.onViewportChange,
 				bottomObstructionPx: lodProps.bottomObstructionPx,
 				viewport: { x: 0, y: 0, w: 5000, h: 5000 },
+			}
+		);
+		expect(
+			container.querySelectorAll( '.topology-node.is-static' )
+		).toHaveLength( 0 );
+	} );
+
+	it( 'drops the edge layer below the detail (text) scale, with the text', () => {
+		stubW = 1000;
+		stubH = 1000;
+		// 0.1 px/unit: below the detail scale, so edges LOD away with labels.
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...lodProps } />,
+			{
+				classes: lodProps.catalog,
+				formatters: lodProps.formatters,
+				vaults: lodProps.vaults,
+				composeTargets: lodProps.composeTargets,
+				classCatalog: lodProps.classCatalog,
+				positionOverrides: lodProps.positionOverrides,
+				onPositionChange: lodProps.onPositionChange,
+				onViewportChange: lodProps.onViewportChange,
+				bottomObstructionPx: lodProps.bottomObstructionPx,
+				viewport: { x: 0, y: 0, w: 10000, h: 10000 },
 			}
 		);
 		expect(
@@ -3068,6 +3093,40 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 		expect( groups[ 0 ].querySelectorAll( '.topology-node' ) ).toHaveLength(
 			2
 		);
+	} );
+
+	it( 'paints the grid under the whole graph, however far it reaches', () => {
+		stubW = 1000;
+		stubH = 1000;
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...lodProps } />,
+			{
+				classes: lodProps.catalog,
+				formatters: lodProps.formatters,
+				vaults: lodProps.vaults,
+				composeTargets: lodProps.composeTargets,
+				classCatalog: lodProps.classCatalog,
+				positionOverrides: {
+					...lodProps.positionOverrides,
+					b: { x: 30000, y: 20000 },
+				},
+				onPositionChange: lodProps.onPositionChange,
+				onViewportChange: lodProps.onViewportChange,
+				bottomObstructionPx: lodProps.bottomObstructionPx,
+				viewport: { x: 0, y: 0, w: 1000, h: 800 },
+			}
+		);
+		const grid = container.querySelector(
+			'rect[fill="url(#topology-grid)"]'
+		);
+		const x = Number( grid.getAttribute( 'x' ) );
+		const w = Number( grid.getAttribute( 'width' ) );
+		const y = Number( grid.getAttribute( 'y' ) );
+		const h = Number( grid.getAttribute( 'height' ) );
+		expect( x + w ).toBeGreaterThan( 30000 );
+		expect( y + h ).toBeGreaterThan( 20000 );
+		expect( x ).toBeLessThan( 0 );
+		expect( y ).toBeLessThan( 0 );
 	} );
 
 	it( 'drops the bloom class from the nodes group when zoomed out (LOD)', () => {

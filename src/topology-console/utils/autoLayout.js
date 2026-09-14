@@ -12,9 +12,12 @@
  * full-step lattice could not reproduce its own output.
  *
  * The graph lays out as BANDS: each weakly-connected component is layered on
- * its own and the bands stack alphabetically, so a two-node slice spans two
- * columns whatever depth its neighbours reach, and one slice's members never
- * share rows with another's. An edgeless node stacks below every band.
+ * its own, so a two-node slice spans two columns whatever depth its neighbours
+ * reach, and one slice's members never share rows with another's. The bands
+ * gather into BLOCKS — a hub with the bands that feed it, or a band feeding no
+ * hub on its own — and the blocks pack into side-by-side stacks toward a
+ * canvas about as wide as it is tall, widest blocks first; a small graph fills
+ * one stack. An edgeless node is a block of one.
  *
  * Within a band, columns come from a Coffman-Graham-flavored layering: a true
  * source pins to column 0, a true sink to the band's rightmost column, and an
@@ -23,19 +26,26 @@
  * path to a sink on the right), so a "processor tier" aligns in one column
  * instead of spreading by raw longest-path. Rows come from barycenter
  * crossing-reduction in index space, a median settle, and a symmetric spread
- * of same-column overlaps.
+ * of same-column overlaps — with a wire that spans two or more columns standing
+ * in for itself as a placeholder in every column between, so the sweeps put a
+ * card on the right side of it, and a last pass (`clearWires`) nudging any
+ * card off the span such a wire is drawn across.
  *
- * HUBS leave their band for a backbone to the right of every band: nodes
- * whose FAN-IN clears both `HUB_MIN_FAN_IN` and `HUB_MEDIAN_FACTOR` times the
- * median fan-in of the nodes anything feeds, plus any bridge whose every
- * neighbour is a hub. A node many separate slices feed would otherwise weld
- * those slices into one component, and the ordering sweep that runs against
- * the flow hands every feeder of that node one key, so the feeders' own slices
- * come apart around it. Fan-in, not degree: a node that fans OUT orders its
- * consumers with the flow and scatters nothing, so a Tee feeding four
- * partitions is a wire, not a backbone. The backbone layers by its own
- * longest path; a hub that also feeds a band draws that edge leftward, and
- * the realms' hubs are sinks or feed only a bridge.
+ * HUBS leave their band for the column right after the bands that feed them,
+ * on those bands' middle row, with the bands they feed continuing to their
+ * right, level with them — a hub is not always the end of its chain. A hub
+ * is a node whose FAN-IN clears both `HUB_MIN_FAN_IN` and `HUB_MEDIAN_FACTOR`
+ * times the median fan-in of the nodes anything feeds; the backbone is the
+ * hubs plus any bridge whose every neighbour is a hub. A node many separate slices
+ * feed would otherwise weld those slices into one component, and the ordering
+ * sweep that runs against the flow hands every feeder of that node one key, so
+ * the feeders' own slices come apart around it. Fan-in, not degree: a node
+ * that fans OUT orders its consumers with the flow and scatters nothing, so a
+ * Tee feeding four partitions is a wire, not a hub. A band wired to several
+ * hubs goes with the one serving the fewest bands — a publication's own over
+ * the fleet's — and a hub every band left for a closer one sits beside the
+ * block holding most of its feeders. A block's hubs layer by their own
+ * longest path; a hub that also feeds a band draws that edge leftward.
  */
 
 /** Horizontal distance between layout columns, in canvas pixels. */
@@ -328,31 +338,48 @@ const normalizeRows = ( ids, row ) => {
 /**
  * Spread one column's overlapping rows apart, symmetrically.
  *
- * Pool-adjacent-violators: merge a card into the block above it while their
- * one-row-apart layouts would overlap, and re-centre the merged block on the
- * mean of its members' desired rows. Centring is what makes a fan-out straddle
- * its targets instead of shunting the whole stack downward.
+ * Pool-adjacent-violators: merge a member into the block above it while
+ * their layouts would overlap, and re-centre the merged block on the mean of
+ * its members' desired rows. Centring is what makes a fan-out straddle its
+ * targets instead of shunting the whole stack downward. A card takes a row; a
+ * through wire's placeholder none, since `clearWires` keeps the cards off the
+ * wire's whole span.
  *
- * @param {Array<string>}         members Ids sharing the column.
- * @param {Object<string,number>} row     Desired rows, mutated in place.
- * @param {Object<string,number>} order   Tie-break rank for equal rows.
+ * @param {Array<string>}            members Ids sharing the column.
+ * @param {Object<string,number>}    row     Desired rows, mutated in place.
+ * @param {Object<string,number>}    order   Tie-break rank for equal rows.
+ * @param {( id: string ) => number} size    Rows a member occupies.
  */
-const spreadColumn = ( members, row, order ) => {
+const spreadColumn = ( members, row, order, size = () => 1 ) => {
 	const sorted = [ ...members ].sort(
 		( a, b ) => row[ a ] - row[ b ] || order[ a ] - order[ b ]
 	);
 	const blocks = [];
+	// Where a member sits inside its block, and how tall the block is.
+	const offsets = ( ids ) => {
+		const at = [];
+		let sum = 0;
+		for ( const m of ids ) {
+			at.push( sum );
+			sum += size( m );
+		}
+		return { at, height: sum };
+	};
 	for ( const id of sorted ) {
 		let block = { ids: [ id ], first: row[ id ] };
-		// Merge into the previous block while 1-row-spaced layouts overlap.
+		// Merge into the previous block while their layouts overlap.
 		while ( blocks.length ) {
 			const prev = blocks[ blocks.length - 1 ];
-			if ( block.first >= prev.first + prev.ids.length - 1e-9 ) {
+			if (
+				block.first >=
+				prev.first + offsets( prev.ids ).height - 1e-9
+			) {
 				break;
 			}
 			const merged = prev.ids.concat( block.ids );
+			const { at } = offsets( merged );
 			let sum = 0;
-			merged.forEach( ( m, k ) => ( sum += row[ m ] - k ) );
+			merged.forEach( ( m, k ) => ( sum += row[ m ] - at[ k ] ) );
 			block = { ids: merged, first: sum / merged.length };
 			blocks.pop();
 		}
@@ -360,7 +387,97 @@ const spreadColumn = ( members, row, order ) => {
 	}
 	for ( const b of blocks ) {
 		const first = snapHalf( b.first );
-		b.ids.forEach( ( m, k ) => ( row[ m ] = first + k ) );
+		const { at } = offsets( b.ids );
+		b.ids.forEach( ( m, k ) => ( row[ m ] = first + at[ k ] ) );
+	}
+};
+
+/** Rows a card keeps between its centre and a wire: half its own height. */
+const WIRE_CLEARANCE = 0.5;
+
+/**
+ * Move every card off the wires that cross its column.
+ *
+ * A wire spanning two or more columns is drawn as one cubic from its source
+ * to its sink, and over a card's width in a column between it runs nearly
+ * the whole way from the one row to the other — so a card whose centre lies
+ * inside that span, or within half a card of it, is drawn over. The
+ * placeholders put such a card on the right SIDE of its wires; this pass
+ * puts it the right DISTANCE from them, nudging it to the nearest half row
+ * outside every span crossing its column and clear of every card sharing it.
+ *
+ * Each sweep reads the spans once, from the rows as they stand, and moves
+ * every card off them. A nudged card ends wires of its own, whose spans move
+ * with it, so a second sweep catches most of what the first uncovered; an
+ * unbounded repeat would not converge, since two columns' wires can push
+ * each other's cards down the canvas without end, so two is the budget. What
+ * it leaves is a card the nudge of its own neighbour put back on a wire.
+ *
+ * @param {Array<string>}           ids      The cards to move.
+ * @param {Array<[string, string]>} wires    The through wires, as `[from, to]`.
+ * @param {Object<string,number>}   col      Columns.
+ * @param {Object<string,number>}   row      Rows, mutated in place.
+ * @param {Array<string>}           [others] Cards a nudge must also keep clear of; the movers by default.
+ */
+const clearWires = ( ids, wires, col, row, others = ids ) => {
+	if ( ! wires.length ) {
+		return;
+	}
+	/** @type {Object<number,Array<string>>} */
+	const byCol = {};
+	for ( const id of new Set( [ ...ids, ...others ] ) ) {
+		( byCol[ col[ id ] ] ??= [] ).push( id );
+	}
+	const inside = ( r, list ) =>
+		list.some( ( [ lo, hi ] ) => r > lo + 1e-9 && r < hi - 1e-9 );
+	for ( let sweep = 0; sweep < 2; sweep++ ) {
+		/** @type {Object<number,Array<[number, number]>>} */
+		const spans = {};
+		for ( const c of Object.keys( byCol ).map( Number ) ) {
+			spans[ c ] = wires
+				.filter(
+					( [ a, b ] ) =>
+						Math.min( col[ a ], col[ b ] ) < c &&
+						c < Math.max( col[ a ], col[ b ] )
+				)
+				.map( ( [ a, b ] ) => [
+					Math.min( row[ a ], row[ b ] ) - WIRE_CLEARANCE,
+					Math.max( row[ a ], row[ b ] ) + WIRE_CLEARANCE,
+				] );
+		}
+		let moved = false;
+		for ( const id of ids ) {
+			const c = col[ id ];
+			const list = spans[ c ];
+			if ( ! list.length || ! inside( row[ id ], list ) ) {
+				continue;
+			}
+			// Past the spans' extent plus the column's cards, a row is clear.
+			const reach =
+				2 *
+				( Math.max( ...list.map( ( [ , hi ] ) => hi ) ) -
+					Math.min( ...list.map( ( [ lo ] ) => lo ) ) +
+					byCol[ c ].length +
+					1 );
+			const clearOfCards = ( r ) =>
+				byCol[ c ].every(
+					( o ) => o === id || Math.abs( row[ o ] - r ) >= 1 - 1e-9
+				);
+			// The nearest clear half row, below before above on a tie.
+			for ( let k = 1; k <= reach; k++ ) {
+				const found = [ row[ id ] + k / 2, row[ id ] - k / 2 ].find(
+					( r ) => ! inside( r, list ) && clearOfCards( r )
+				);
+				if ( found !== undefined ) {
+					row[ id ] = found;
+					moved = true;
+					break;
+				}
+			}
+		}
+		if ( ! moved ) {
+			return;
+		}
 	}
 };
 
@@ -492,18 +609,64 @@ const layoutComponent = ( ids, succ, pred ) => {
 		}
 	}
 
+	// @longform Sugiyama's virtual nodes: a wire spanning two or more columns
+	// takes a placeholder in every column between, so the ordering sweeps
+	// count the crossings it makes with real cards there and the row spread
+	// keeps those cards off the rows it runs through. The wire is still drawn
+	// straight from source to sink; the placeholders only shape the rows.
+	const laid = [ ...ids ];
+	/** @type {Array<[string, string]>} */
+	const wires = [];
+	succ = { ...succ };
+	pred = { ...pred };
+	for ( const id of ids ) {
+		succ[ id ] = [ ...succ[ id ] ];
+		pred[ id ] = [ ...pred[ id ] ];
+	}
+	for ( const from of ids ) {
+		for ( const to of [ ...succ[ from ] ] ) {
+			if ( col[ to ] - col[ from ] < 2 ) {
+				continue;
+			}
+			wires.push( [ from, to ] );
+			let tail = from;
+			for ( let c = col[ from ] + 1; c < col[ to ]; c++ ) {
+				const v = `\0${ from }\u2192${ to }@${ c }`;
+				laid.push( v );
+				declIdx[ v ] = laid.length - 1;
+				col[ v ] = c;
+				succ[ v ] = [ to ];
+				pred[ v ] = [ tail ];
+				succ[ tail ] = succ[ tail ].map( ( x ) =>
+					x === to ? v : x
+				);
+				tail = v;
+			}
+			pred[ to ] = pred[ to ].map( ( x ) => ( x === from ? tail : x ) );
+		}
+	}
+
+	// @longform The placeholders lead each column: the sweeps below start
+	// from a through wire hugging the top and a card falling clear of it, and
+	// the barycenter heuristic settles where it starts when two orders tie.
 	const columns = [];
 	for ( let c = 0; c <= maxDepth; c++ ) {
 		columns[ c ] = [];
 	}
-	for ( const id of ids ) {
+	for ( const id of laid.slice( ids.length ).concat( ids ) ) {
 		columns[ col[ id ] ].push( id );
 	}
 
-	// Anchor = the widest connected column; rows propagate outward from it.
+	// A card takes a row, a placeholder none: `clearWires` clears the span.
+	const real = new Set( ids );
+	const footprint = ( id ) => ( real.has( id ) ? 1 : 0 );
+	const cards = ( c ) =>
+		columns[ c ].filter( ( id ) => real.has( id ) ).length;
+
+	// Anchor = the column of most cards; rows propagate outward from it.
 	let anchor = 0;
 	for ( let c = 0; c <= maxDepth; c++ ) {
-		if ( columns[ c ].length > columns[ anchor ].length ) {
+		if ( cards( c ) > cards( anchor ) ) {
 			anchor = c;
 		}
 	}
@@ -536,11 +699,15 @@ const layoutComponent = ( ids, succ, pred ) => {
 		}
 	}
 
-	// Integer-stack the anchor; spring others to neighbour-row midpoint.
+	// Stack the anchor by footprint; spring others to neighbour-row midpoint.
 	const assignRows = () => {
 		/** @type {Object<string,number>} */
 		const r = {};
-		columns[ anchor ].forEach( ( id, i ) => ( r[ id ] = i ) );
+		let stacked = 0;
+		for ( const id of columns[ anchor ] ) {
+			r[ id ] = stacked;
+			stacked += footprint( id );
+		}
 		for ( let c = anchor + 1; c <= maxDepth; c++ ) {
 			for ( const id of columns[ c ] ) {
 				const nb = pred[ id ].filter( ( p ) => r[ p ] !== undefined );
@@ -630,8 +797,16 @@ const layoutComponent = ( ids, succ, pred ) => {
 	}
 
 	// Spread same-column overlaps symmetrically (PAV) so fan-out straddles.
-	columns.forEach( ( arr ) => spreadColumn( arr, row, declIdx ) );
+	columns.forEach( ( arr ) => spreadColumn( arr, row, declIdx, footprint ) );
 
+	// The placeholders have done their work; only the cards leave here.
+	for ( const id of laid ) {
+		if ( ! real.has( id ) ) {
+			delete col[ id ];
+			delete row[ id ];
+		}
+	}
+	clearWires( ids, wires, col, row );
 	normalizeRows( ids, row );
 	return { col, row };
 };
@@ -696,13 +871,23 @@ const placeBackbone = ( backbone, succ, pred, baseCol, col, row ) => {
 			: bridges
 		).push( id );
 	}
+	// A node whose served rows lie in another block waits for the rest.
+	const later = [];
 	for ( const id of [ ...serving, ...bridges ] ) {
 		col[ id ] = baseCol + depth[ id ];
-		const neighbours = [ ...pred[ id ], ...succ[ id ] ];
 		const served = rowsOf(
-			neighbours.filter( ( n ) => ! inside.has( n ) )
+			[ ...pred[ id ], ...succ[ id ] ].filter(
+				( n ) => ! inside.has( n )
+			)
 		);
-		const rows = served.length ? served : rowsOf( neighbours );
+		if ( served.length ) {
+			row[ id ] = snapHalf( midMinMax( served ) );
+		} else {
+			later.push( id );
+		}
+	}
+	for ( const id of later ) {
+		const rows = rowsOf( [ ...pred[ id ], ...succ[ id ] ] );
 		row[ id ] = rows.length ? snapHalf( midMinMax( rows ) ) : 0;
 	}
 
@@ -717,14 +902,149 @@ const placeBackbone = ( backbone, succ, pred, baseCol, col, row ) => {
 };
 
 /**
- * Lay a graph out as stacked bands, with the backbone — empty when the graph
- * has no hub — to their right.
+ * The blocks a graph lays out as: one per hub group, one per hub-less band.
  *
- * Each band is one weakly-connected component of the graph minus its backbone,
- * laid out on its own so its width is its own depth, and offset one row below
- * the band above it — the row step IS the gap, since a card is shorter than
- * `Y_STEP`. A component of one carries no shape worth a band of its own, so
- * those — the edgeless nodes — stack together under the bands.
+ * A band is one weakly-connected component of the graph minus its backbone.
+ * Each band picks the hub it is wired to that has the fewest feeder bands —
+ * the publication's own hub over the fleet-wide one — and the bands that
+ * picked one hub form its group, with the hub beside them. A hub no band
+ * picked, because every band wired to it had a closer hub, attaches to the
+ * group holding most of its feeders; a bridge, whose every neighbour is a
+ * hub, follows the first of them. A band wired to no hub is a block of its own.
+ *
+ * @param {Array<string>}                ids  Every node, alphabetical.
+ * @param {Object<string,Array<string>>} succ Successors.
+ * @param {Object<string,Array<string>>} pred Predecessors.
+ * @param {Set<string>}                  hubs The hub ids.
+ * @return {Array<{key: string, bands: Array<Array<string>>, hubs: Array<string>}>}
+ * The blocks, each with its bands in alphabetical order and its backbone ids.
+ */
+const blocksOf = ( ids, succ, pred, hubs ) => {
+	const backbone = backboneOf( hubs, ids, succ, pred );
+	const inside = new Set( backbone );
+	const bands = componentsOf(
+		ids.filter( ( id ) => ! inside.has( id ) ),
+		succ,
+		pred
+	);
+
+	// The hubs each band is wired to, and how many bands each hub serves.
+	const wired = bands.map( ( band ) => {
+		const set = new Set();
+		for ( const id of band ) {
+			for ( const n of [ ...succ[ id ], ...pred[ id ] ] ) {
+				if ( hubs.has( n ) ) {
+					set.add( n );
+				}
+			}
+		}
+		return [ ...set ].sort( byId );
+	} );
+	/** @type {Object<string,number>} */
+	const feeders = {};
+	for ( const set of wired ) {
+		for ( const h of set ) {
+			feeders[ h ] = ( feeders[ h ] ?? 0 ) + 1;
+		}
+	}
+
+	/** @type {Object<string,{key: string, bands: Array<Array<string>>, hubs: Array<string>}>} */
+	const blocks = {};
+	const block = ( key ) => ( blocks[ key ] ??= { key, bands: [], hubs: [] } );
+	/** @type {Object<string,string>} */
+	const groupOfHub = {};
+	bands.forEach( ( band, i ) => {
+		const set = wired[ i ];
+		if ( ! set.length ) {
+			block( band[ 0 ] ).bands.push( band );
+			return;
+		}
+		const home = stableSort( set, ( h ) => feeders[ h ] )[ 0 ];
+		block( home ).bands.push( band );
+		groupOfHub[ home ] = home;
+	} );
+	// A hub nobody picked goes where most of its feeder bands went.
+	for ( const h of backbone ) {
+		if ( groupOfHub[ h ] || ! hubs.has( h ) ) {
+			continue;
+		}
+		/** @type {Object<string,number>} */
+		const votes = {};
+		bands.forEach( ( band, i ) => {
+			if ( wired[ i ].includes( h ) ) {
+				const home = stableSort(
+					wired[ i ],
+					( x ) => feeders[ x ]
+				)[ 0 ];
+				votes[ home ] = ( votes[ home ] ?? 0 ) + 1;
+			}
+		} );
+		const homes = stableSort(
+			Object.keys( votes ).sort( byId ),
+			( k ) => -votes[ k ]
+		);
+		if ( homes.length ) {
+			groupOfHub[ h ] = homes[ 0 ];
+		}
+	}
+	// A bridge or a hub fed only by hubs follows its first settled neighbour.
+	for ( let settled = true; settled;  ) {
+		settled = false;
+		const before = { ...groupOfHub };
+		for ( const id of backbone ) {
+			if ( before[ id ] ) {
+				continue;
+			}
+			const near = [ ...pred[ id ], ...succ[ id ] ]
+				.filter( ( n ) => inside.has( n ) && before[ n ] )
+				.sort( byId );
+			if ( near.length ) {
+				groupOfHub[ id ] = before[ near[ 0 ] ];
+				settled = true;
+			}
+		}
+	}
+	// Each connected run wired to nothing settled is a block, keyed by hub.
+	const left = backbone.filter( ( id ) => ! groupOfHub[ id ] );
+	for ( const run of componentsOf( left, succ, pred ) ) {
+		const key = run.find( ( id ) => hubs.has( id ) ) ?? run[ 0 ];
+		for ( const id of run ) {
+			groupOfHub[ id ] = key;
+		}
+	}
+	for ( const id of backbone ) {
+		block( groupOfHub[ id ] ).hubs.push( id );
+	}
+	return Object.values( blocks );
+};
+
+/**
+ * Rows a stack fills before the next opens: the height of a square holding
+ * every block, each with its gap column.
+ *
+ * @param {Array<{width: number, height: number}>} blocks The blocks, in grid units.
+ * @return {number} Rows.
+ */
+const stackRows = ( blocks ) => {
+	let area = 0;
+	for ( const b of blocks ) {
+		area += ( b.width + 1 ) * b.height;
+	}
+	return Math.ceil( Math.sqrt( ( area * X_STEP ) / Y_STEP ) );
+};
+
+/**
+ * Lay a graph out as packed blocks: each hub group's bands stacked with the
+ * hub in the column right after them, and the blocks filling side-by-side
+ * stacks toward a canvas about as wide as it is tall.
+ *
+ * Each band is laid out on its own, so its width is its own depth, and offset
+ * one row below the band above it — the row step IS the gap, since a card is
+ * shorter than `Y_STEP`. The blocks pack widest first, so a narrow block never
+ * sits under empty columns, and alphabetically among equals; a stack takes
+ * blocks until it reaches the square's height, then the next opens one gap
+ * column to the right. A small graph fills one stack, which is the old
+ * single column of bands.
  *
  * @param {Array<string>}                ids  Every node, alphabetical.
  * @param {Object<string,Array<string>>} succ Successors.
@@ -738,38 +1058,149 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 	const col = {};
 	/** @type {Object<string,number>} */
 	const row = {};
-	const backbone = backboneOf( hubs, ids, succ, pred );
-	const inside = new Set( backbone );
-	const banded = ids.filter( ( id ) => ! inside.has( id ) );
-	const loners = [];
-	let maxCol = -1;
-	let nextRow = 0;
-	for ( const members of componentsOf( banded, succ, pred ) ) {
-		if ( members.length === 1 ) {
-			loners.push( members[ 0 ] );
-			continue;
-		}
-		const band = layoutComponent(
-			members,
-			restrictAdjacency( members, succ ),
-			restrictAdjacency( members, pred )
-		);
-		let height = 0;
-		for ( const id of members ) {
-			col[ id ] = band.col[ id ];
-			row[ id ] = band.row[ id ] + nextRow;
-			maxCol = Math.max( maxCol, col[ id ] );
-			height = Math.max( height, band.row[ id ] );
-		}
-		nextRow += height + 1;
-	}
-	for ( const id of loners ) {
-		col[ id ] = 0;
-		row[ id ] = nextRow++;
-		maxCol = Math.max( maxCol, 0 );
-	}
 
-	placeBackbone( backbone, succ, pred, maxCol + 1, col, row );
+	const blocks = blocksOf( ids, succ, pred, hubs ).map( ( b ) => {
+		/** @type {Object<string,number>} */
+		const bc = {};
+		/** @type {Object<string,number>} */
+		const br = {};
+		const hubSet = new Set( b.hubs );
+		// @longform A band a hub feeds continues the chain past it, so it
+		// goes right of the hubs; every other band feeds them from the left.
+		const fed = ( members ) =>
+			members.some( ( id ) =>
+				pred[ id ].some( ( n ) => hubSet.has( n ) )
+			);
+		const feeders = b.bands.filter( ( m ) => ! fed( m ) );
+		const consumers = b.bands.filter( fed );
+
+		// Stack bands from `atCol`; returns the stack's width and height.
+		const stack = ( bands, atCol ) => {
+			let next = 0;
+			let width = 0;
+			for ( const members of bands ) {
+				const band =
+					members.length === 1
+						? {
+								col: { [ members[ 0 ] ]: 0 },
+								row: { [ members[ 0 ] ]: 0 },
+						  }
+						: layoutComponent(
+								members,
+								restrictAdjacency( members, succ ),
+								restrictAdjacency( members, pred )
+						  );
+				let height = 0;
+				for ( const id of members ) {
+					bc[ id ] = atCol + band.col[ id ];
+					br[ id ] = band.row[ id ] + next;
+					width = Math.max( width, band.col[ id ] + 1 );
+					height = Math.max( height, band.row[ id ] );
+				}
+				next += height + 1;
+			}
+			return { width, height: next };
+		};
+
+		const left = stack( feeders, 0 );
+		placeBackbone( b.hubs, succ, pred, left.width, bc, br );
+		let hubRight = left.width;
+		for ( const h of b.hubs ) {
+			hubRight = Math.max( hubRight, bc[ h ] + 1 );
+		}
+		// The consumers hang level with the hubs that feed them.
+		const right = stack( consumers, hubRight );
+		if ( consumers.length ) {
+			const hubRows = [];
+			for ( const members of consumers ) {
+				for ( const id of members ) {
+					for ( const n of pred[ id ] ) {
+						if ( hubSet.has( n ) ) {
+							hubRows.push( br[ n ] );
+						}
+					}
+				}
+			}
+			const shift = snapHalf(
+				midMinMax( hubRows ) - ( right.height - 1 ) / 2
+			);
+			for ( const members of consumers ) {
+				for ( const id of members ) {
+					br[ id ] += shift;
+				}
+			}
+		}
+		// @longform A wire to a hub is no wire inside a band, so the band's
+		// own pass never saw it: a chain's head feeding the hub directly ran
+		// its wire along the chain's row, through the chain. Each band clears
+		// its cards off its own hub wires here. Only its own: a hub's fan-in
+		// crosses every band between, and clearing those would scatter each
+		// band's sinks away from their sources for wires that are not theirs.
+		// The backbone clears off every hub wire: a bridge seated on its
+		// hub's row sits in the path of everything feeding that hub.
+		/** @type {Array<[string, string]>} */
+		const hubWires = [];
+		for ( const id of Object.keys( bc ) ) {
+			for ( const to of succ[ id ] ) {
+				if (
+					hubSet.has( to ) &&
+					Math.abs( bc[ to ] - bc[ id ] ) >= 2
+				) {
+					hubWires.push( [ id, to ] );
+				}
+			}
+		}
+		const all = Object.keys( bc );
+		for ( const members of b.bands ) {
+			const own = new Set( members );
+			clearWires(
+				members,
+				hubWires.filter(
+					( [ from, to ] ) => own.has( from ) || own.has( to )
+				),
+				bc,
+				br,
+				all
+			);
+		}
+		clearWires( b.hubs, hubWires, bc, br, all );
+		normalizeRows( Object.keys( br ), br );
+		let widest = 0;
+		let bottom = 0;
+		for ( const id of Object.keys( bc ) ) {
+			widest = Math.max( widest, bc[ id ] );
+			bottom = Math.max( bottom, br[ id ] );
+		}
+		return {
+			...b,
+			col: bc,
+			row: br,
+			width: widest + 1,
+			height: bottom + 1,
+		};
+	} );
+
+	const order = stableSort(
+		[ ...blocks ].sort( ( a, b ) => byId( a.key, b.key ) ),
+		( b ) => -b.width
+	);
+	const limit = stackRows( blocks );
+	let stackCol = 0;
+	let stackWidth = 0;
+	let stackRow = 0;
+	for ( const b of order ) {
+		if ( stackRow > 0 && stackRow + b.height > limit ) {
+			stackCol += stackWidth + 1;
+			stackWidth = 0;
+			stackRow = 0;
+		}
+		for ( const id of Object.keys( b.col ) ) {
+			col[ id ] = stackCol + b.col[ id ];
+			row[ id ] = stackRow + b.row[ id ];
+		}
+		stackWidth = Math.max( stackWidth, b.width );
+		stackRow += b.height;
+	}
 
 	normalizeRows( ids, row );
 	return { col, row };
@@ -819,11 +1250,18 @@ export function autoLayout( parsed ) {
 		pred[ id ] = [];
 	}
 	const nodeSet = new Set( ids );
+	const seen = new Set();
 	for ( const e of edges ) {
-		// Skip dangling edges (adjacency would throw on a missing endpoint).
-		if ( ! nodeSet.has( e.from ) || ! nodeSet.has( e.to ) ) {
+		// Skip a dangling edge, and a wire declared twice (it weighs twice).
+		const key = `${ e.from }\u2192${ e.to }`;
+		if (
+			! nodeSet.has( e.from ) ||
+			! nodeSet.has( e.to ) ||
+			seen.has( key )
+		) {
 			continue;
 		}
+		seen.add( key );
 		succ[ e.from ].push( e.to );
 		pred[ e.to ].push( e.from );
 	}
