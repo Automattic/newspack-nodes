@@ -49,7 +49,7 @@ class Spawn_Coordinator {
 	/** Upper bound on partitions per topology; expand_workers clamps the spawn count to it. */
 	public const MAX_PARTITIONS = 16;
 
-	/** Min interval between spawning the same worker; updated after every attempt (success or fail). */
+	/** Min interval between spawns of one worker. */
 	public const MIN_SPAWN_INTERVAL_S = 15;
 
 	/** Logical name for the spawn-throttle window; Cache_Backend scopes it. */
@@ -60,7 +60,8 @@ class Spawn_Coordinator {
 	 * swap `includes/` with no worker running against the half-old directory.
 	 * `Spawn_Controller::spawn()` is where the refusal lands, because it is the
 	 * one gate every spawn crosses — a worker's own respawn included, and that
-	 * one never consults this class.
+	 * one never consults this class. `spawn_each()` refuses before posting as
+	 * well.
 	 *
 	 * An OPTION, not a file under base_dir: the point of the hold is to survive
 	 * deactivate/remove/reinstall, and base_dir is operator storage a reinstall
@@ -535,9 +536,9 @@ class Spawn_Coordinator {
 
 	/**
 	 * The ONE spawn loop: drop what the shared throttle suppresses, refuse a
-	 * write-conflicting active set, resolve the endpoint and mint one token for
-	 * the pass, then POST each survivor, report under `$label`, and record the
-	 * POST locally.
+	 * subsite, a held fleet and a write-conflicting active set, resolve the
+	 * endpoint and mint one token for the pass, then POST each survivor,
+	 * report under `$label`, and record the POST locally.
 	 *
 	 * Every entry point differs only in the worker list it computes, which is its
 	 * actual job. A hand-copied second loop drops the local record and re-posts
@@ -574,6 +575,10 @@ class Spawn_Coordinator {
 		}
 		if ( [] === $due ) {
 			return 0; // Nothing to POST: don't pay for the conflict walk.
+		}
+		// The endpoint records neither refusal, so no throttle stops these.
+		if ( ! Bootstrap::fleet_site() || self::hold() > 0 ) {
+			return 0;
 		}
 		// Configured names, not the catalog — asking it re-globs every .tsl.
 		$names    = \array_filter( Core::arr( Config::value( 'topologies' ) ), static fn ( mixed $n ): bool => \is_string( $n ) );
@@ -650,6 +655,11 @@ class Spawn_Coordinator {
 	public static function conflict_description( array $types ): string {
 		$conflicts = Topology_Analyzer::find_conflicts( $types );
 		return empty( $conflicts ) ? '' : Topology_Analyzer::describe_conflicts( $conflicts );
+	}
+
+	/** Unix time the deploy hold was placed, or 0 when the fleet is free to spawn. */
+	public static function hold(): int {
+		return \function_exists( 'get_option' ) ? Core::as_int( \get_option( self::HOLD_OPTION, 0 ) ) : 0;
 	}
 
 	/**
@@ -749,11 +759,6 @@ class Spawn_Coordinator {
 	 */
 	public static function spawn_key(): string {
 		return \hash_hmac( 'sha256', 'newspack_nodes_spawn_key', \wp_salt( 'nonce' ) );
-	}
-
-	/** Unix time the deploy hold was placed, or 0 when the fleet is free to spawn. */
-	public static function hold(): int {
-		return \function_exists( 'get_option' ) ? Core::as_int( \get_option( self::HOLD_OPTION, 0 ) ) : 0;
 	}
 
 	/**

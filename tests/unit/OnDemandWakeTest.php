@@ -76,7 +76,8 @@ class OnDemandWakeTest extends TestCase {
 		Topology_Registry::reset();
 		Partition_Node::forget_pending_wakes();
 		Bootstrap::forget_on_demand_readers();
-		unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
+		Spawn_Coordinator::clear_hold();
+		unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'], $GLOBALS['_wp_test_is_multisite'], $GLOBALS['_wp_test_is_main_site'] );
 		$this->rmdir_recursive( $this->stock );
 		$this->rmdir_recursive( $this->tmp );
 		parent::tearDown();
@@ -350,6 +351,49 @@ class OnDemandWakeTest extends TestCase {
 		Partition_Node::flush_pending_wakes();
 
 		$this->assertSame( [ 'marmot-ondemand.p1' ], $this->woken() );
+	}
+
+	/** A held fleet posts nothing, and leaves no record to delay the wake once the hold lifts. */
+	public function test_a_held_fleet_is_not_woken_until_the_hold_lifts(): void {
+		$this->activate( 'marmot-ondemand', 23, 'quokka' );
+		Spawn_Coordinator::set_hold( 1754500000 );
+
+		$this->write_partition( 'quokka.p1' );
+		Partition_Node::flush_pending_wakes();
+		$this->assertSame( [], $this->woken(), 'a held fleet posts no spawn' );
+
+		Spawn_Coordinator::clear_hold();
+		$this->write_partition( 'quokka.p1' );
+		Partition_Node::flush_pending_wakes();
+		$this->assertSame( [ 'marmot-ondemand.p1' ], $this->woken(), 'the lifted hold wakes it' );
+	}
+
+	/** The endpoint refuses a subsite unrecorded too — for good, not for one deploy. */
+	public function test_a_subsite_write_wakes_nothing(): void {
+		$this->activate( 'marmot-ondemand', 23, 'quokka' );
+		$GLOBALS['_wp_test_is_multisite'] = true;
+		$GLOBALS['_wp_test_is_main_site'] = false;
+
+		$this->write_partition( 'quokka.p1' );
+		Partition_Node::flush_pending_wakes();
+
+		$this->assertSame( [], $this->woken(), 'only the main site runs the fleet' );
+	}
+
+	/**
+	 * A wake the hold refused leaves no trace, so `start` has to find the
+	 * readers that fell behind their saved cursors while it stood, or they
+	 * sleep until the next write.
+	 */
+	public function test_start_wakes_a_reader_that_fell_behind_during_the_hold(): void {
+		$this->activate( 'marmot-ondemand', 23 );
+		Spawn_Coordinator::set_hold( 1754500000 );
+		$this->seed_partition( 'jobintake.p1', 512 );
+		$this->seed_offsetlog( 'jobintake.p1', 0, 200 );
+
+		( new \Newspack_Nodes\Worker_CLI_Command() )->start( [], [] );
+
+		$this->assertContains( 'marmot-ondemand.p1', $this->woken() );
 	}
 
 	/** Deferred by design: a web request must not pay the wake on its way out. */

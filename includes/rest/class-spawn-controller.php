@@ -4,9 +4,11 @@
  *
  * `POST /newspack-nodes/v1/workers/spawn` takes `{type, partition, nonce}`. A
  * worker's own self-respawn, each worker's `_fleet` peer scan and the WP-Cron
- * cold-start pass all POST here, which is why the deploy hold and the
- * 15-second per-worker throttle are enforced at the endpoint rather than at
- * each spawner.
+ * cold-start pass all POST here, which is why the endpoint enforces the
+ * deploy hold and the 15-second per-worker throttle for every spawner.
+ * `Spawn_Coordinator::spawn_each()` checks both, and the multisite subsite
+ * refusal, before posting too, and must: the endpoint records no refused
+ * spawn, so nothing else throttles one.
  *
  * Two ways in, both carrying `nonce`: the internal HMAC token minted for the
  * current 10-second window, or an external caller holding the `manage` role
