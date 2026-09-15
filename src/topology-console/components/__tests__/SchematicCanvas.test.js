@@ -3,7 +3,7 @@
  * createSVGPoint / getScreenCTM with identity-transform math.
  */
 
-import { fireEvent } from '@testing-library/react';
+import { act, fireEvent } from '@testing-library/react';
 import SchematicCanvas from '../SchematicCanvas';
 import { renderWithCatalog } from '../../__tests__/catalogTestUtils';
 
@@ -1436,14 +1436,14 @@ describe( 'SchematicCanvas', () => {
 		fireEvent.wheel( svg, { deltaY: 10, clientX: 500, clientY: 400 } );
 		const [ tenth ] = onViewportChange.mock.calls.at( -1 );
 		expect( tenth.w ).toBeCloseTo( 1000 * Math.pow( 1.12, 0.1 ), 3 );
+		// Each event builds on the view the last one left.
 		fireEvent.wheel( svg, { deltaY: 1000, clientX: 500, clientY: 400 } );
 		const [ capped ] = onViewportChange.mock.calls.at( -1 );
-		expect( capped.w ).toBeCloseTo( 1000 * 1.12, 3 );
+		expect( capped.w ).toBeCloseTo( tenth.w * 1.12, 3 );
 	} );
 
-	it( 'wheel: a swipe with no vertical travel changes nothing', () => {
-		// A horizontal two-finger swipe is dozens of zero-deltaY events; each
-		// used to re-derive and commit the same box.
+	// A canvas at 1000x800 with no measured size, so a pixel is one unit.
+	const gestureCanvas = () => {
 		const onViewportChange = jest.fn();
 		const { container } = renderWithCatalog(
 			<SchematicCanvas { ...baseProps } />,
@@ -1460,14 +1460,125 @@ describe( 'SchematicCanvas', () => {
 				onViewportChange,
 			}
 		);
-		const svg = container.querySelector( 'svg' );
-		fireEvent.wheel( svg, {
-			deltaY: 0,
-			deltaX: 40,
+		return { svg: container.querySelector( 'svg' ), onViewportChange };
+	};
+	// A wheel event carrying the fields no init dict sets: the legacy
+	// `wheelDeltaY` a trackpad leaves its signature in, and a timestamp.
+	const wheel = ( svg, init, extra = {} ) => {
+		const e = new window.WheelEvent( 'wheel', {
+			bubbles: true,
+			cancelable: true,
 			clientX: 500,
 			clientY: 400,
+			...init,
 		} );
-		expect( onViewportChange ).not.toHaveBeenCalled();
+		for ( const [ key, value ] of Object.entries( extra ) ) {
+			Object.defineProperty( e, key, { value } );
+		}
+		fireEvent( svg, e );
+	};
+
+	it( 'wheel: a sideways two-finger swipe pans', () => {
+		const { svg, onViewportChange } = gestureCanvas();
+		wheel( svg, { deltaX: 40, deltaY: 0 } );
+		expect( onViewportChange.mock.calls.at( -1 )[ 0 ] ).toEqual( {
+			x: 40,
+			y: 0,
+			w: 1000,
+			h: 800,
+		} );
+	} );
+
+	it( 'wheel: a vertical trackpad swipe pans', () => {
+		// Chrome and Safari report a trackpad as wheelDeltaY === -3 * deltaY.
+		const { svg, onViewportChange } = gestureCanvas();
+		wheel( svg, { deltaY: 30 }, { wheelDeltaY: -90 } );
+		expect( onViewportChange.mock.calls.at( -1 )[ 0 ] ).toEqual( {
+			x: 0,
+			y: 30,
+			w: 1000,
+			h: 800,
+		} );
+	} );
+
+	it( 'wheel: a mouse notch still zooms', () => {
+		const { svg, onViewportChange } = gestureCanvas();
+		wheel( svg, { deltaY: 100 }, { wheelDeltaY: -120 } );
+		const [ vp ] = onViewportChange.mock.calls.at( -1 );
+		expect( vp.w ).toBeCloseTo( 1000 * 1.12, 3 );
+	} );
+
+	it( 'wheel: holding the command key zooms whatever the wheel looks like', () => {
+		// The way to zoom with a mouse the heuristic takes for a trackpad.
+		const { svg, onViewportChange } = gestureCanvas();
+		wheel( svg, { deltaX: 40, deltaY: 100, metaKey: true } );
+		const [ vp ] = onViewportChange.mock.calls.at( -1 );
+		expect( vp.w ).toBeCloseTo( 1000 * 1.12, 3 );
+	} );
+
+	it( "wheel: a swipe's momentum stays a swipe, and a new stream starts over", () => {
+		const { svg, onViewportChange } = gestureCanvas();
+		wheel( svg, { deltaX: 20, deltaY: 5 }, { timeStamp: 1000 } );
+		// Alone this reads as a wheel; inside the swipe's stream it pans.
+		wheel( svg, { deltaY: 50 }, { timeStamp: 1010 } );
+		expect( onViewportChange.mock.calls.at( -1 )[ 0 ].w ).toBe( 1000 );
+		// Past the stream's gap the same event is a wheel again.
+		wheel( svg, { deltaY: 50 }, { timeStamp: 1300 } );
+		expect( onViewportChange.mock.calls.at( -1 )[ 0 ].w ).not.toBe( 1000 );
+	} );
+
+	it( 'wheel: a swipe that follows a pinch at once still pans', () => {
+		// The pinch's stream must not swallow a swipe begun inside its gap.
+		const { svg, onViewportChange } = gestureCanvas();
+		wheel( svg, { deltaY: -5, ctrlKey: true }, { timeStamp: 1000 } );
+		const pinched = onViewportChange.mock.calls.at( -1 )[ 0 ];
+		wheel( svg, { deltaX: 30, deltaY: 0 }, { timeStamp: 1050 } );
+		const panned = onViewportChange.mock.calls.at( -1 )[ 0 ];
+		expect( panned.w ).toBe( pinched.w );
+		expect( panned.x ).not.toBe( pinched.x );
+	} );
+
+	it( 'wheel: two swipes landing before a render both count', () => {
+		// Each gesture chains on the box the last one committed, not on the
+		// viewport as of the last render.
+		const { svg, onViewportChange } = gestureCanvas();
+		const swipe = ( deltaX ) =>
+			new window.WheelEvent( 'wheel', {
+				bubbles: true,
+				cancelable: true,
+				clientX: 500,
+				clientY: 400,
+				deltaX,
+			} );
+		act( () => {
+			svg.dispatchEvent( swipe( 10 ) );
+			svg.dispatchEvent( swipe( 15 ) );
+		} );
+		expect( onViewportChange.mock.calls.at( -1 )[ 0 ].x ).toBe( 25 );
+	} );
+
+	it( "safari: a pinch's gesturechange zooms about the gesture", () => {
+		const { svg, onViewportChange } = gestureCanvas();
+		const gesture = ( type, scale ) => {
+			const e = new window.Event( type, {
+				bubbles: true,
+				cancelable: true,
+			} );
+			for ( const [ key, value ] of Object.entries( {
+				scale,
+				clientX: 500,
+				clientY: 400,
+			} ) ) {
+				Object.defineProperty( e, key, { value } );
+			}
+			fireEvent( svg, e );
+			return e;
+		};
+		// Unprevented, Safari zooms the whole page instead.
+		expect( gesture( 'gesturestart', 1 ).defaultPrevented ).toBe( true );
+		expect( gesture( 'gesturechange', 1.5 ).defaultPrevented ).toBe( true );
+		const [ vp ] = onViewportChange.mock.calls.at( -1 );
+		expect( vp.w ).toBeCloseTo( 1000 / 1.5, 3 );
 	} );
 
 	it( 'wheel: a pinch, which arrives as ctrl+wheel with small deltas, counts ten times over', () => {
@@ -1561,9 +1672,10 @@ describe( 'SchematicCanvas', () => {
 		// Identity CTM: the world point under the screen centre stays put.
 		expect( zoomedIn.x + zoomedIn.w / 2 ).toBeCloseTo( 500, 3 );
 		expect( zoomedIn.y + zoomedIn.h / 2 ).toBeCloseTo( 400, 3 );
+		// Each press builds on the view the last one left.
 		fireEvent.keyDown( document, { key: '-' } );
 		const [ zoomedOut ] = onViewportChange.mock.calls.at( -1 );
-		expect( zoomedOut.w ).toBeCloseTo( 1000 * 1.12, 3 );
+		expect( zoomedOut.w ).toBeCloseTo( zoomedIn.w * 1.12, 3 );
 	} );
 
 	it( 'arrow keys pan while the canvas has focus, wherever the pointer rests', () => {
