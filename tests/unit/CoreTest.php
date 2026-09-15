@@ -602,7 +602,7 @@ class CoreTest extends TestCase {
 	// ── fire_and_forget_post (shared raw-curl spawn POST helper) ───────────────
 
 	public function test_fire_and_forget_post_rejects_empty_url(): void {
-		$this->assertSame( 'empty url', Core::fire_and_forget_post( '', [ 'type' => 'x' ] ) );
+		$this->assertSame( 'empty url', Core::fire_and_forget_post( '', [ 'type' => 'x', 'partition' => 0 ], 'coordinator' ) );
 	}
 
 	public function test_fire_and_forget_post_invokes_curl_exec_seam_with_url_and_body(): void {
@@ -615,7 +615,7 @@ class CoreTest extends TestCase {
 			return false; // fire-and-forget: no response expected.
 		};
 
-		$err = Core::fire_and_forget_post( 'http://example.test/spawn', [ 'type' => 'firehose', 'partition' => 2 ] );
+		$err = Core::fire_and_forget_post( 'http://example.test/spawn', [ 'type' => 'firehose', 'partition' => 2 ], 'coordinator' );
 
 		// errno is 0 (the seam never raised one) → treated as success.
 		$this->assertNull( $err );
@@ -628,7 +628,7 @@ class CoreTest extends TestCase {
 		// Use the real libcurl call (null seam) against an unsupported protocol so
 		// a deterministic, non-timeout errno exercises the error-classification branch.
 		Core::$curl_exec = null;
-		$err = Core::fire_and_forget_post( 'gopher-bogus://nowhere', [ 'type' => 'x' ] );
+		$err = Core::fire_and_forget_post( 'gopher-bogus://nowhere', [ 'type' => 'x', 'partition' => 0 ], 'coordinator' );
 		$this->assertNotNull( $err );
 		$this->assertNotSame( '', $err );
 	}
@@ -641,7 +641,7 @@ class CoreTest extends TestCase {
 	 */
 	public function test_the_spawn_post_verifies_tls_by_default(): void {
 		$opts = ( new \ReflectionMethod( Core::class, 'post_curl_options' ) )
-			->invoke( null, 'https://example.test/spawn', 'a=b' );
+			->invoke( null, 'https://example.test/spawn', 'a=b', 'coordinator; x.p0' );
 
 		$this->assertSame( 2, $opts[ \CURLOPT_SSL_VERIFYHOST ] );
 		$this->assertTrue( $opts[ \CURLOPT_SSL_VERIFYPEER ] );
@@ -704,7 +704,7 @@ class CoreTest extends TestCase {
 	 */
 	public function test_the_spawn_post_budget_survives_a_tls_handshake(): void {
 		$opts = ( new \ReflectionMethod( Core::class, 'post_curl_options' ) )
-			->invoke( null, 'https://example.test/spawn', 'a=b' );
+			->invoke( null, 'https://example.test/spawn', 'a=b', 'coordinator; x.p0' );
 
 		// A measured handshake finished at ~17ms; the budget must clear it with
 		// headroom, while staying far below the ~500ms round trip it must NOT
@@ -718,13 +718,29 @@ class CoreTest extends TestCase {
 		Core::$verify_spawn_tls = false;
 		try {
 			$opts = ( new \ReflectionMethod( Core::class, 'post_curl_options' ) )
-				->invoke( null, 'https://example.test/spawn', 'a=b' );
+				->invoke( null, 'https://example.test/spawn', 'a=b', 'coordinator; x.p0' );
 		} finally {
 			Core::$verify_spawn_tls = true;
 		}
 
 		$this->assertSame( 0, $opts[ \CURLOPT_SSL_VERIFYHOST ] );
 		$this->assertFalse( $opts[ \CURLOPT_SSL_VERIFYPEER ] );
+	}
+
+	/**
+	 * libcurl sends no User-Agent unless told to, so without one every spawn
+	 * POST reaches the host's access log anonymous: a site leading the spawn
+	 * charts reads the same as a stranger probing the endpoint. The agent names
+	 * the release, who is posting, and the slot it is posting for.
+	 */
+	public function test_the_spawn_post_names_its_sender_in_the_user_agent(): void {
+		$opts = ( new \ReflectionMethod( Core::class, 'post_curl_options' ) )
+			->invoke( null, 'https://example.test/spawn', 'a=b', 'zebra; quokka.p7' );
+
+		$this->assertSame(
+			'newspack-nodes/' . \NEWSPACK_NODES_VERSION . ' (zebra; quokka.p7)',
+			$opts[ \CURLOPT_USERAGENT ]
+		);
 	}
 
 	/**

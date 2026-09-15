@@ -94,8 +94,8 @@ require_once __DIR__ . '/Helpers/TopologyDurability.php';
 // Worker_Base self-respawn) without actually hitting libcurl. `Core::$curl_exec`
 // is a narrow seam — the rest of `Core::fire_and_forget_post` (curl_init,
 // curl_setopt_array, errno classification) still runs so the tests exercise it.
-// URL comes off the handle via curl_getinfo; body comes in as the 2nd arg
-// because PHP curl doesn't expose POSTFIELDS through getinfo. Honors the same
+// URL and User-Agent come off the curl options (3rd arg); the body comes in
+// as the 2nd, because POSTFIELDS holds it query-encoded. Honors the same
 // `$_wp_test_remote_post_response` override the wp_remote_post mock above
 // honors so test side-effects (e.g. "drop a restart flag when this spawn
 // fires") fire in both transports.
@@ -111,14 +111,15 @@ require_once __DIR__ . '/Helpers/TopologyDurability.php';
 // real TTY); no-op it for the test process.
 \Newspack_Nodes\TTY_In_Node::$readline_completion_register = static function ( callable $cb ): void {};
 
-\Newspack_Nodes\Core::$curl_exec = static function ( $ch, array $body ) {
-	$url  = (string) \curl_getinfo( $ch, \CURLINFO_EFFECTIVE_URL );
+\Newspack_Nodes\Core::$curl_exec = static function ( $ch, array $body, array $options ) {
+	$url  = $options[ \CURLOPT_URL ];
 	$args = [
-		'method'    => 'POST',
-		'timeout'   => 0.01,
-		'blocking'  => false,
-		'sslverify' => false,
-		'body'      => $body,
+		'method'     => 'POST',
+		'timeout'    => 0.01,
+		'blocking'   => false,
+		'sslverify'  => false,
+		'user-agent' => $options[ \CURLOPT_USERAGENT ],
+		'body'       => $body,
 	];
 	$GLOBALS['_test_outbound_posts'][] = [ 'url' => $url, 'args' => $args ];
 	if ( isset( $GLOBALS['_wp_test_remote_post_response'] ) ) {

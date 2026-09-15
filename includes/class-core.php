@@ -112,15 +112,15 @@ class Core {
 
 	/**
 	 * libcurl-call seam. Lazily-defaulted at the call site to a closure wrapping
-	 * the real libcurl call. Tests reassign it in bootstrap to capture POST
-	 * bodies while the curl_init, curl_setopt_array and errno-classification
-	 * path around it keeps running as production code. `Spawn_Coordinator`
-	 * (spawn fan-out) and `Worker_Base` (self-respawn) reach it through the one
-	 * `fire_and_forget_post()`.
+	 * the real libcurl call. Tests reassign it in bootstrap to capture each
+	 * POST's body and curl options while the curl_init, curl_setopt_array and
+	 * errno-classification path around it keeps running as production code.
+	 * `Spawn_Coordinator` (spawn fan-out) and `Worker_Base` (self-respawn)
+	 * reach it through the one `fire_and_forget_post()`.
 	 *
-	 * Signature: `function (\CurlHandle $ch, array $body): mixed`.
+	 * Signature: `function (\CurlHandle $ch, array $body, array $options): mixed`.
 	 *
-	 * @var \Closure(\CurlHandle, array<string,mixed>): mixed|null
+	 * @var \Closure(\CurlHandle, array<string,mixed>, array<int,mixed>): mixed|null
 	 */
 	public static ?\Closure $curl_exec = null;
 
@@ -502,11 +502,13 @@ class Core {
 	 * CURLOPT_NOSIGNAL + a sub-second TIMEOUT_MS means CURLE_OPERATION_TIMEDOUT is expected, and
 	 * `classify_post_result()` counts it as success once the whole body is on the wire.
 	 *
-	 * @param string              $url  Target URL.
-	 * @param array<string,mixed> $body POST body.
+	 * @param string              $url    Target URL.
+	 * @param array<string,mixed> $body   POST body.
+	 * @param string              $role   Who is posting, `coordinator` or `self-respawn`; the
+	 *                                    User-Agent names it beside the body's slot, `firehose.p3`.
 	 * @return string|null Error string on failure, null on success.
 	 */
-	public static function fire_and_forget_post( string $url, array $body ): ?string {
+	public static function fire_and_forget_post( string $url, array $body, string $role ): ?string {
 		if ( '' === $url ) {
 			return 'empty url';
 		}
@@ -518,11 +520,13 @@ class Core {
 		if ( false === $ch ) {
 			return 'curl_init failed';
 		}
-		$fields = \http_build_query( $body );
-		\curl_setopt_array( $ch, self::post_curl_options( $url, $fields ) );
-		// Default ignores $body (in POSTFIELDS); arg only matters to mocks.
-		$exec = self::$curl_exec ?? static fn ( \CurlHandle $h, array $b ) => \curl_exec( $h );
-		$exec( $ch, $body );
+		$fields  = \http_build_query( $body );
+		$slot    = self::as_string( $body['type'] ) . '.p' . self::as_int( $body['partition'] );
+		$options = self::post_curl_options( $url, $fields, "{$role}; {$slot}" );
+		\curl_setopt_array( $ch, $options );
+		// The default ignores $b and $o, already on $ch; mocks read them.
+		$exec = self::$curl_exec ?? static fn ( \CurlHandle $h, array $b, array $o ) => \curl_exec( $h );
+		$exec( $ch, $body, $options );
 		$err = self::classify_post_result(
 			\curl_errno( $ch ),
 			\curl_getinfo( $ch, \CURLINFO_SIZE_UPLOAD_T ),
@@ -569,11 +573,13 @@ class Core {
 	 *
 	 * @param string $url    Target URL.
 	 * @param string $fields Already query-encoded body.
+	 * @param string $sender `<role>; <type>.p<N>`, as fire_and_forget_post() builds it.
 	 * @return array<int,mixed>
 	 */
-	private static function post_curl_options( string $url, string $fields ): array {
+	private static function post_curl_options( string $url, string $fields, string $sender ): array {
 		return [
 			\CURLOPT_URL               => $url,
+			\CURLOPT_USERAGENT         => 'newspack-nodes/' . \NEWSPACK_NODES_VERSION . " ({$sender})",
 			\CURLOPT_POST              => true,
 			\CURLOPT_POSTFIELDS        => $fields,
 			\CURLOPT_NOSIGNAL          => true,
@@ -584,6 +590,26 @@ class Core {
 			\CURLOPT_SSL_VERIFYHOST    => self::$verify_spawn_tls ? 2 : 0,
 			\CURLOPT_SSL_VERIFYPEER    => self::$verify_spawn_tls,
 		];
+	}
+
+	/**
+	 * Canonical scalar→int read of a mixed field; a non-scalar (array, object,
+	 * null) takes $default, 0 unless the caller says otherwise.
+	 *
+	 * @api Consumed by sibling plugins.
+	 */
+	public static function as_int( mixed $value, int $default = 0 ): int {
+		return \is_scalar( $value ) ? (int) $value : $default;
+	}
+
+	/**
+	 * Canonical scalar→string read of a mixed Message field; a non-scalar
+	 * (array, object, null) takes $default, '' unless the caller says otherwise.
+	 *
+	 * @api Consumed by sibling plugins.
+	 */
+	public static function as_string( mixed $value, string $default = '' ): string {
+		return \is_scalar( $value ) ? (string) $value : $default;
 	}
 
 	/**
@@ -699,26 +725,6 @@ class Core {
 	 */
 	public static function has_value( ?string $s ): bool {
 		return null !== $s && '' !== $s;
-	}
-
-	/**
-	 * Canonical scalar→string read of a mixed Message field; a non-scalar
-	 * (array, object, null) takes $default, '' unless the caller says otherwise.
-	 *
-	 * @api Consumed by sibling plugins.
-	 */
-	public static function as_string( mixed $value, string $default = '' ): string {
-		return \is_scalar( $value ) ? (string) $value : $default;
-	}
-
-	/**
-	 * Canonical scalar→int read of a mixed field; a non-scalar (array, object,
-	 * null) takes $default, 0 unless the caller says otherwise.
-	 *
-	 * @api Consumed by sibling plugins.
-	 */
-	public static function as_int( mixed $value, int $default = 0 ): int {
-		return \is_scalar( $value ) ? (int) $value : $default;
 	}
 
 	/**

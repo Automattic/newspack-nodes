@@ -625,7 +625,7 @@ class Spawn_Coordinator {
 			'type'      => $type,
 			'partition' => $partition,
 			'nonce'     => $token,
-		] );
+		], 'coordinator' );
 	}
 
 	/**
