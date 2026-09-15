@@ -31,7 +31,7 @@ const GOLDEN = {
 	'job-router': [ 540, 80 ],
 	'firehose:consumer': [ 60, 245 ],
 	'firehose:tee': [ 300, 245 ],
-	'jobintake:consumer': [ 60, 80 ],
+	'jobintake:consumer': [ 300, 80 ],
 	'flames:partition': [ 540, 630 ],
 	'flame-builder': [ 300, 630 ],
 	'requests:consumer': [ 60, 630 ],
