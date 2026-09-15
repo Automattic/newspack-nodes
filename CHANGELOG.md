@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.60.3] - 2026-09-15
+
 ### Changed
 
 - **The console canvas pans on a two-finger swipe and zooms on a pinch.** Every wheel event zoomed, so a trackpad could only zoom and a sideways swipe did nothing. A swipe now moves the view with the fingers, while a pinch — `ctrl`+wheel in Chrome, Firefox and Edge, gesture events in Safari — and a mouse wheel zoom about the cursor. No browser names the device behind a wheel event, so the canvas reads a trackpad's signs: sideways travel, or, on macOS, Chrome's and Safari's `wheelDeltaY` at exactly -3 times `deltaY`; elsewhere a perfectly vertical swipe still zooms. A stream keeps its first reading until it pauses for 150ms or a modifier changes, so a swipe's momentum stays a pan, and each event builds on the view the last one left, however many arrive between renders. Holding the command key or `ctrl` always zooms, for a smooth-scrolling mouse the heuristic takes for a trackpad.
