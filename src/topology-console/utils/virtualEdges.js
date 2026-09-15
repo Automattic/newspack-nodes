@@ -20,7 +20,7 @@
  * union live mode draws from
  * ([ADR-19](../../../docs/architecture-decisions.md)). Underived, the
  * verb-targeted node has no inbound edge at all, so `autoLayout` reads it as a
- * source and pins it to column 0 instead of placing it downstream of its
+ * source, seated by what it feeds, instead of placing it downstream of its
  * producer.
  *
  * Each verb argument whose class-schema `type` is `node_name` yields one edge,

@@ -11,6 +11,7 @@ import {
 	Y_PAD,
 	Y_STEP,
 } from '../autoLayout';
+import SEEDS from './fixtures/autoLayout-seeds.json';
 
 // The node card autoLayout centres its snap grid on; asserted via snapToGrid.
 const NODE_W = 196;
@@ -437,7 +438,7 @@ describe( 'autoLayout — real graphs (normalized; relative positions only)', ()
 		'firehose:tee': { x: 300, y: 245 },
 		'gyroscope:partition': { x: 1020, y: 300 },
 		'job-router': { x: 540, y: 80 },
-		'jobintake:consumer': { x: 60, y: 80 },
+		'jobintake:consumer': { x: 300, y: 80 },
 		'jobs:partition': { x: 1020, y: 80 },
 		'request-builder': { x: 540, y: 410 },
 		'requests:partition': { x: 1020, y: 520 },
@@ -812,8 +813,10 @@ describe( 'autoLayout', () => {
 		expect( colOf( 'completed_tee' ) ).toBeLessThan( maxCol );
 	} );
 
-	it( 'source-only nodes (no incoming edges) stay anchored at column 0 (left edge)', () => {
-		// Source-only nodes ignore the forward-pull and stay on the left edge.
+	it( 'seats a source one column before the nearest node it feeds', () => {
+		// jobintake_consumer feeds only job_router, two columns in; on column
+		// 0 its wire would span the column between. The longest chain's head
+		// still takes column 0, since its successor cannot move left.
 		const out = autoLayout( {
 			nodes: [
 				{ id: 'jobintake_consumer' },
@@ -834,7 +837,9 @@ describe( 'autoLayout', () => {
 		const colOf = ( id ) =>
 			( out.nodes.find( ( n ) => n.id === id ).position.x - X_PAD ) /
 			X_STEP;
-		expect( colOf( 'jobintake_consumer' ) ).toBe( 0 );
+		expect( colOf( 'jobintake_consumer' ) ).toBe(
+			colOf( 'job_router' ) - 1
+		);
 		expect( colOf( 'longer_source' ) ).toBe( 0 );
 	} );
 
@@ -1451,6 +1456,324 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 		);
 		expect( starts ).toEqual( [ 0, 0, 0 ] );
 	} );
+
+	// The hub-control topology: two producers fanning into one HTTP_Out per
+	// spoke, every one of those feeding a Null, beside a topic probe pair and
+	// the edgeless REPL partition.
+	const SPOKES = Array.from(
+		{ length: 24 },
+		( _, i ) => `settings:s${ String( i ).padStart( 2, '0' ) }`
+	);
+	const hubControl = () => {
+		const edges = [
+			{ from: 'topicprobe', to: 'topicprobe:log' },
+			{ from: 'settings:consumer', to: 'settings-sync' },
+		];
+		for ( const spoke of SPOKES ) {
+			edges.push(
+				{ from: 'settings-sync', to: spoke },
+				{ from: 'discovery-collector', to: spoke },
+				{ from: spoke, to: 'null' }
+			);
+		}
+		const ids = new Set( [ '_repl' ] );
+		for ( const e of edges ) {
+			ids.add( e.from );
+			ids.add( e.to );
+		}
+		return { nodes: [ ...ids ].map( ( id ) => ( { id } ) ), edges };
+	};
+
+	it( 'keeps a fan-out source beside its fan, not across the chain it shares', () => {
+		// discovery-collector feeds only the spokes; on column 0 its 24
+		// wires spanned column 1, and settings-sync was pushed past them all.
+		const graph = hubControl();
+		const g = gridOf( graph );
+		const spokeRows = SPOKES.map( ( id ) => g[ id ].row );
+		expect( g[ 'discovery-collector' ].col ).toBe(
+			g[ SPOKES[ 0 ] ].col - 1
+		);
+		expect( g[ 'settings-sync' ].row ).toBe( g[ 'settings:consumer' ].row );
+		expect( g[ 'settings-sync' ].row ).toBeLessThan(
+			Math.max( ...spokeRows )
+		);
+		const { nodes } = autoLayout( graph );
+		expect( wiresThroughCards( nodes, graph.edges ) ).toEqual( [] );
+	} );
+
+	it( "packs a small block into the room beside a tall block's feeders", () => {
+		// The spoke column outgrows the square, so a second stack opened past
+		// the hub for the probe pair and the REPL, far from everything else.
+		const graph = hubControl();
+		const g = gridOf( graph );
+		const spokeRows = SPOKES.map( ( id ) => g[ id ].row );
+		for ( const id of [ 'topicprobe', 'topicprobe:log', '_repl' ] ) {
+			expect( g[ id ].col ).toBeLessThan( g.null.col );
+			expect( g[ id ].row ).toBeGreaterThan( Math.min( ...spokeRows ) );
+			expect( g[ id ].row ).toBeLessThan( Math.max( ...spokeRows ) );
+		}
+		const { nodes } = autoLayout( graph );
+		expect( minColumnGap( nodes ) ).toBeGreaterThanOrEqual( NODE_H );
+		expect( wiresThroughCards( nodes, graph.edges ) ).toEqual( [] );
+	} );
+
+	// Seeded random graphs whose packing once stacked a block onto one that
+	// had taken room in the canvas, and ran a wire between blocks over it.
+	const seedGraph = ( seed ) => ( {
+		nodes: SEEDS[ seed ].nodes.map( ( id ) => ( { id } ) ),
+		edges: SEEDS[ seed ].edges.map( ( [ from, to ] ) => ( { from, to } ) ),
+	} );
+
+	it.each( Object.keys( SEEDS ) )(
+		'stacks no block onto one packed into room (seed %s)',
+		( seed ) => {
+			const { nodes } = autoLayout( seedGraph( seed ) );
+			expect( minColumnGap( nodes ) ).toBeGreaterThanOrEqual( NODE_H );
+		}
+	);
+
+	it( 'packs an edgeless card clear of the wires between blocks', () => {
+		const graph = seedGraph( '134623' );
+		const { nodes } = autoLayout( graph );
+		expect(
+			wiresThroughCards( nodes, graph.edges ).filter( ( hit ) =>
+				/ over lone\d+$/.test( hit )
+			)
+		).toEqual( [] );
+	} );
+
+	it.each( [
+		[ '29924', 'k1src', 'k1l2n0' ],
+		[ '82291', 'k2src', 'k2l4n0' ],
+	] )(
+		'keeps a source near the one node it feeds, its wire clear (seed %s)',
+		( seed, source, fed ) => {
+			// A hub wire or a crowded column once stranded each four or five
+			// rows off; where no seat within a row keeps the wire off every
+			// card, the cheapest clear one is still close.
+			const graph = seedGraph( seed );
+			const g = gridOf( graph );
+			expect(
+				Math.abs( g[ source ].row - g[ fed ].row )
+			).toBeLessThanOrEqual( 3 );
+			const { nodes } = autoLayout( graph );
+			expect(
+				wiresThroughCards( nodes, graph.edges ).filter( ( hit ) =>
+					hit.startsWith( `${ source }→` )
+				)
+			).toEqual( [] );
+		}
+	);
+
+	it( 'reseats a source clear of the long wires inside its own band', () => {
+		// The hub-wire reseat saw only hub wires, and put k1src on the wire
+		// from k1l0n0 to k1l1n2 in its own band.
+		const graph = seedGraph( '52367' );
+		const { nodes } = autoLayout( graph );
+		expect(
+			wiresThroughCards( nodes, graph.edges ).filter( ( hit ) =>
+				/ over k1src$/.test( hit )
+			)
+		).toEqual( [] );
+	} );
+
+	it( 'reseats a source after the hub wires have moved what it feeds', () => {
+		// Reseated before the hub pass moved k2l4n0 down, k2src was left a
+		// four-column wire through four cards away from it.
+		const graph = seedGraph( '14962' );
+		const { nodes } = autoLayout( graph );
+		expect(
+			wiresThroughCards( nodes, graph.edges ).filter( ( hit ) =>
+				hit.startsWith( 'k2src→' )
+			)
+		).toEqual( [] );
+	} );
+
+	it( "runs a consumer band's source wire back to its hub clear of the band", () => {
+		// k4src feeds hub0 and a node in the band hub0 feeds. Seated before
+		// that node, it ran its wire back to hub0 across the band's cards.
+		const graph = seedGraph( 'c71271' );
+		const { nodes } = autoLayout( graph );
+		expect(
+			wiresThroughCards( nodes, graph.edges ).filter( ( hit ) =>
+				hit.startsWith( 'k4src→' )
+			)
+		).toEqual( [] );
+	} );
+
+	it( 'keeps the cards off the long wires of a node only a hub feeds', () => {
+		// a is fed by the hub alone, so inside its band it had no feeder:
+		// taken for a source, its wire to c took no placeholder and ran
+		// through b.
+		const edges = [ 0, 1, 2, 3, 4 ].map( ( i ) => ( {
+			from: `f${ i }`,
+			to: 'hub',
+		} ) );
+		edges.push(
+			{ from: 'hub', to: 'a' },
+			{ from: 'a', to: 'b' },
+			{ from: 'b', to: 'c' },
+			{ from: 'a', to: 'c' }
+		);
+		const ids = new Set();
+		for ( const e of edges ) {
+			ids.add( e.from );
+			ids.add( e.to );
+		}
+		const { nodes } = autoLayout( {
+			nodes: [ ...ids ].map( ( id ) => ( { id } ) ),
+			edges,
+		} );
+		expect( wiresThroughCards( nodes, edges ) ).toEqual( [] );
+	} );
+
+	it( 'keeps a source wired out of its block in the column its band gave it', () => {
+		// k6src sits right of its hub, in a band that hub feeds; sent to the
+		// block's first column, its wires crossed the hub and the feeders.
+		const graph = seedGraph( 'c134623' );
+		const { nodes } = autoLayout( graph );
+		expect(
+			wiresThroughCards( nodes, graph.edges ).filter( ( hit ) =>
+				hit.startsWith( 'k6src→' )
+			)
+		).toEqual( [] );
+	} );
+
+	it( 'keeps a source wired out of its block from crossing the blocks between', () => {
+		// hub0 sits in another block, out of the seat pass's sight; seated
+		// by its in-block fan, k3l0n0 moved right and its wire back to hub0
+		// crossed seventeen cards of the blocks between.
+		const graph = seedGraph( '703214' );
+		const { nodes } = autoLayout( graph );
+		expect(
+			wiresThroughCards( nodes, graph.edges ).filter( ( hit ) =>
+				hit.startsWith( 'k3l0n0→hub0' )
+			)
+		).toEqual( [] );
+	} );
+
+	const chain = ( pairs ) => {
+		const edges = pairs.map( ( [ from, to ] ) => ( { from, to } ) );
+		const ids = new Set( pairs.flat() );
+		return { nodes: [ ...ids ].map( ( id ) => ( { id } ) ), edges };
+	};
+
+	it( 'keeps the placeholders of a source that feeds more than one column', () => {
+		// k2l0n0 feeds columns 2 and 4. Seated last, its wires lost their
+		// placeholders, and those to column 4 ran over two of its own
+		// successors in column 2.
+		const graph = seedGraph( '82291' );
+		const { nodes } = autoLayout( graph );
+		expect(
+			wiresThroughCards( nodes, graph.edges ).filter( ( hit ) =>
+				hit.startsWith( 'k2l0n0→' )
+			)
+		).toEqual( [] );
+	} );
+
+	it( 'seats a source left of every node it feeds', () => {
+		// s feeds a1 and a3; seated by cost alone it took column 2, above
+		// a2, and drew its wire to a1 backward.
+		const g = gridOf(
+			chain( [
+				[ 's', 'a1' ],
+				[ 'a1', 'a2' ],
+				[ 'a2', 'a3' ],
+				[ 's', 'a3' ],
+			] )
+		);
+		expect( g.s.col ).toBeLessThan( g.a1.col );
+	} );
+
+	it( 'keeps a chain off the wire of a source that skips down it', () => {
+		// s sits beside a1 and also feeds a4: no seat keeps s→a4 off the
+		// chain, so the chain has to step aside, as it does for any wire.
+		const graph = chain( [
+			[ 's', 'a1' ],
+			[ 'a1', 'a2' ],
+			[ 'a2', 'a3' ],
+			[ 'a3', 'a4' ],
+			[ 's', 'a4' ],
+			[ 's', 'b1' ],
+			[ 'b1', 'b2' ],
+		] );
+		const { nodes } = autoLayout( graph );
+		expect( wiresThroughCards( nodes, graph.edges ) ).toEqual( [] );
+	} );
+
+	it( 'keeps a source in a band its hub feeds right of that hub', () => {
+		// k6src feeds hub0 and its own band, which hub0 feeds; the fallback
+		// sent it left of hub0, and its band wire crossed the hub's column.
+		const g = gridOf( seedGraph( 'c190056' ) );
+		expect( g.k6src.col ).toBeGreaterThan( g.hub0.col );
+	} );
+
+	it( 'keeps a sink fed only by a source level with it', () => {
+		// zz has no feeder but x, so no sweep could seat it from x while x
+		// had no row, and it dropped to the bottom of its column.
+		const edges = [];
+		for ( let i = 0; i < 6; i++ ) {
+			edges.push( { from: 's', to: `m${ i }` } );
+			edges.push( { from: `m${ i }`, to: i < 3 ? 'n0' : 'n5' } );
+		}
+		for ( let i = 0; i < 3; i++ ) {
+			edges.push(
+				{ from: `m${ i + 3 }`, to: `p${ i }` },
+				{ from: `p${ i }`, to: `q${ i }` }
+			);
+		}
+		edges.push(
+			{ from: 'n0', to: 'w0' },
+			{ from: 'n5', to: 'z5' },
+			{ from: 'x', to: 'w0' },
+			{ from: 'x', to: 'zz' }
+		);
+		const ids = new Set();
+		for ( const e of edges ) {
+			ids.add( e.from );
+			ids.add( e.to );
+		}
+		const g = gridOf( {
+			nodes: [ ...ids ].map( ( id ) => ( { id } ) ),
+			edges,
+		} );
+		expect( Math.abs( g.zz.row - g.x.row ) ).toBeLessThanOrEqual( 1 );
+	} );
+
+	it( 'seats a source right of the widest column beside what it feeds', () => {
+		// x feeds only w0, so it takes column 2, right of the six-card column
+		// the rows spring from, and no sweep seeds it: stacked under its
+		// column's p cards it sat rows from w0, and a re-spread to seat it
+		// moved n0 after w0 had centred on it.
+		const edges = [];
+		for ( let i = 0; i < 6; i++ ) {
+			edges.push( { from: 's', to: `m${ i }` } );
+			edges.push( { from: `m${ i }`, to: i < 3 ? 'n0' : 'n5' } );
+		}
+		for ( let i = 0; i < 3; i++ ) {
+			edges.push(
+				{ from: `m${ i + 3 }`, to: `p${ i }` },
+				{ from: `p${ i }`, to: `q${ i }` }
+			);
+		}
+		edges.push(
+			{ from: 'n0', to: 'w0' },
+			{ from: 'n5', to: 'z5' },
+			{ from: 'x', to: 'w0' }
+		);
+		const ids = new Set();
+		for ( const e of edges ) {
+			ids.add( e.from );
+			ids.add( e.to );
+		}
+		const g = gridOf( {
+			nodes: [ ...ids ].map( ( id ) => ( { id } ) ),
+			edges,
+		} );
+		expect( g.x.col ).toBe( g.w0.col - 1 );
+		expect( Math.abs( g.x.row - g.w0.row ) ).toBeLessThanOrEqual( 1 );
+		expect( g.n0.row ).toBe( g.w0.row );
+	} );
 } );
 
 describe( 'autoLayout — hub bands', () => {
@@ -1538,16 +1861,21 @@ describe( 'autoLayout — hub bands', () => {
 		expect( at._output.x ).toBeGreaterThan( at._http.x );
 		expect( at._http.x ).toBeGreaterThan( at._shell.x );
 
-		// An edgeless node is the narrowest block: it packs after every
-		// band, below them in the same stack or at the head of the next.
-		const bandX = [ ...POLL_SLICES, ...VIEW_SLICES ].map(
-			( s ) =>
-				at[ `${ s }:${ POLL_SLICES.includes( s ) ? 'tee' : 'in' }` ].x
+		// An edgeless node is the narrowest block, so it packs last: into
+		// room the canvas already has, clear of every card, before any new
+		// stack opens past the hubs.
+		const others = Object.entries( at )
+			.filter( ( [ id ] ) => '_heartbeat' !== id )
+			.map( ( [ , p ] ) => p );
+		expect( at._heartbeat.x ).toBeLessThanOrEqual(
+			Math.max( ...others.map( ( p ) => p.x ) )
+		);
+		expect( at._heartbeat.y ).toBeLessThanOrEqual(
+			Math.max( ...others.map( ( p ) => p.y ) )
 		);
 		expect(
-			at._heartbeat.y > Math.max( ...bandY ) ||
-				at._heartbeat.x > Math.max( ...bandX )
-		).toBe( true );
+			minColumnGap( autoLayout( hubGraph() ).nodes )
+		).toBeGreaterThanOrEqual( NODE_H );
 	} );
 
 	it( 'lays the same graph out identically whatever order the nodes arrive in', () => {

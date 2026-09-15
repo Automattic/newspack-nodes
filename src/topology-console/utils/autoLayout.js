@@ -17,19 +17,26 @@
  * gather into BLOCKS — a hub with the bands that feed it, or a band feeding no
  * hub on its own — and the blocks pack into side-by-side stacks toward a
  * canvas about as wide as it is tall, widest blocks first; a small graph fills
- * one stack. An edgeless node is a block of one.
+ * one stack. A block wired to no other that would open a new stack waits for
+ * every other block instead, then takes any room above or below the cards in
+ * the columns it would cover, clear of every wire already drawn, so a tall
+ * block's short neighbours sit beside its feeders rather than past its hub.
+ * An edgeless node is a block of one.
  *
  * Within a band, columns come from a Coffman-Graham-flavored layering: a true
- * source pins to column 0, a true sink to the band's rightmost column, and an
- * interior node takes the barycenter of its neighbours' columns clamped into
- * the range its edges allow (longest path from a source on the left, longest
- * path to a sink on the right), so a "processor tier" aligns in one column
- * instead of spreading by raw longest-path. Rows come from barycenter
+ * source starts in column 0, a true sink pins to the band's rightmost column,
+ * and an interior node takes the barycenter of its neighbours' columns clamped
+ * into the range its edges allow (longest path from a source on the left,
+ * longest path to a sink on the right), so a "processor tier" aligns in one
+ * column instead of spreading by raw longest-path. Rows come from barycenter
  * crossing-reduction in index space, a median settle, and a symmetric spread
- * of same-column overlaps — with a wire that spans two or more columns standing
- * in for itself as a placeholder in every column between, so the sweeps put a
- * card on the right side of it, and a last pass (`clearWires`) nudging any
- * card off the span such a wire is drawn across.
+ * of same-column overlaps — with a wire that spans two or more columns
+ * standing in for itself as a placeholder in every column between, so the
+ * sweeps put a card on the right side of it, and a last pass (`clearWires`)
+ * nudging any card off the span such a wire is drawn across. A source whose
+ * successors all sit in one column, two or more columns on, has a column to
+ * choose, so its wires take no placeholder and push no card: `seatSources`
+ * seats it last, once its block is laid out.
  *
  * HUBS leave their band for the column right after the bands that feed them,
  * on those bands' middle row, with the bands they feed continuing to their
@@ -392,6 +399,25 @@ const spreadColumn = ( members, row, order, size = () => 1 ) => {
 	}
 };
 
+/**
+ * The nearest half row to `from` that `ok` accepts: `from` itself, then half a
+ * row below and above it, a row below and above, and on out, below first.
+ *
+ * @param {number}                   from    The row to search out from.
+ * @param {( r: number ) => boolean} ok      Whether a row will do.
+ * @param {number}                   [limit] Half-row steps to try each way.
+ * @return {number|undefined} The row, or undefined when none within the limit does.
+ */
+const nearestRow = ( from, ok, limit = Infinity ) => {
+	for ( let k = 0; k <= limit; k++ ) {
+		const found = [ from + k / 2, from - k / 2 ].find( ok );
+		if ( found !== undefined ) {
+			return found;
+		}
+	}
+	return undefined;
+};
+
 /** Rows a card keeps between its centre and a wire: half its own height. */
 const WIRE_CLEARANCE = 0.5;
 
@@ -464,19 +490,157 @@ const clearWires = ( ids, wires, col, row, others = ids ) => {
 					( o ) => o === id || Math.abs( row[ o ] - r ) >= 1 - 1e-9
 				);
 			// The nearest clear half row, below before above on a tie.
-			for ( let k = 1; k <= reach; k++ ) {
-				const found = [ row[ id ] + k / 2, row[ id ] - k / 2 ].find(
-					( r ) => ! inside( r, list ) && clearOfCards( r )
-				);
-				if ( found !== undefined ) {
-					row[ id ] = found;
-					moved = true;
-					break;
-				}
+			const found = nearestRow(
+				row[ id ],
+				( r ) => ! inside( r, list ) && clearOfCards( r ),
+				reach
+			);
+			if ( found !== undefined ) {
+				row[ id ] = found;
+				moved = true;
 			}
 		}
 		if ( ! moved ) {
 			return;
+		}
+	}
+};
+
+/**
+ * Seat each source whose column is a choice last, once every card and wire
+ * around it is placed.
+ *
+ * Only a source whose successors all sit in one column, two or more columns
+ * on, has a column to choose; it is laid out without its wires and seated
+ * here. Any other is laid out with its band: beside its first successor it has
+ * nowhere to go, and a wire to a further column crosses the ones between
+ * wherever it sits, so its wires keep their placeholders. Its seat stays left of every node
+ * it feeds that is no hub, and right of any hub it feeds from further left, so
+ * no wire of its runs backward but one into a hub. The candidates are its
+ * current seat and each column in that range, at rows within three of the
+ * midpoint of what it feeds. A seat is clear when no card sits within a row of
+ * it in its column, no other wire's span covers it, and each of its own wires
+ * passes no card in the columns between. A seat costs the rows it sits off
+ * that midpoint plus a quarter per column of wire beyond the shortest, and the
+ * cheapest clear one wins, the largest fans choosing first. With none clear, a
+ * source takes the rightmost column in its range, at the nearest row where its
+ * wires pass no card, or failing that the nearest row no card or wire holds. A
+ * source wired to a node outside its block keeps the column its band gave it
+ * and chooses only its row: nothing here can see where that wire lands.
+ *
+ * @param {Array<string>}                sources The sources to seat.
+ * @param {Object<string,Array<string>>} next    Each source's real successors.
+ * @param {Set<string>}                  hubs    The block's hubs.
+ * @param {Array<string>}                cards   Every card a seat must clear.
+ * @param {Array<[string, string]>}      wires   Long wires, extended in place by each seated source's own.
+ * @param {Object<string,number>}        col     Columns, mutated in place.
+ * @param {Object<string,number>}        row     Rows, mutated in place.
+ */
+const seatSources = ( sources, next, hubs, cards, wires, col, row ) => {
+	const rows = cards.map( ( id ) => row[ id ] );
+	// Half-row steps that walk a search past every card in the block.
+	const reach = 2 * ( Math.max( ...rows ) - Math.min( ...rows ) ) + 8;
+	/** @type {Object<number,Array<string>>} */
+	const byCol = {};
+	for ( const id of cards ) {
+		( byCol[ col[ id ] ] ??= [] ).push( id );
+	}
+	// Each column's long wires, so a seat reads only those that cross it.
+	/** @type {Object<number,Array<[string, string]>>} */
+	const across = {};
+	const lay = ( [ a, b ] ) => {
+		const far = Math.max( col[ a ], col[ b ] );
+		for ( let c = Math.min( col[ a ], col[ b ] ) + 1; c < far; c++ ) {
+			( across[ c ] ??= [] ).push( [ a, b ] );
+		}
+	};
+	wires.forEach( lay );
+	const onWire = ( [ a, b ], r ) =>
+		r > Math.min( row[ a ], row[ b ] ) - WIRE_CLEARANCE + 1e-9 &&
+		r < Math.max( row[ a ], row[ b ] ) + WIRE_CLEARANCE - 1e-9;
+	const near = ( id, c, lo, hi ) =>
+		( byCol[ c ] ?? [] ).some(
+			( o ) => o !== id && row[ o ] > lo + 1e-9 && row[ o ] < hi - 1e-9
+		);
+	const order = stableSort(
+		[ ...sources ].sort( byId ),
+		( id ) => -next[ id ].length
+	);
+	for ( const id of order ) {
+		const fed = next[ id ].filter( ( k ) => row[ k ] !== undefined );
+		if ( ! fed.length ) {
+			continue;
+		}
+		const want = snapHalf( midMinMax( fed.map( ( k ) => row[ k ] ) ) );
+		const free = ( c, r ) =>
+			! near( id, c, r - 1, r + 1 ) &&
+			! ( across[ c ] ?? [] ).some( ( w ) => onWire( w, r ) );
+		// A card in a column between the seat and a successor, on that wire.
+		const crossed = ( c, r ) =>
+			fed.some( ( k ) => {
+				const lo = Math.min( r, row[ k ] ) - WIRE_CLEARANCE;
+				const hi = Math.max( r, row[ k ] ) + WIRE_CLEARANCE;
+				const far = Math.max( c, col[ k ] );
+				for ( let x = Math.min( c, col[ k ] ) + 1; x < far; x++ ) {
+					if ( near( id, x, lo, hi ) ) {
+						return true;
+					}
+				}
+				return false;
+			} );
+		const cost = ( c, r ) =>
+			Math.abs( r - want ) +
+			fed.reduce( ( sum, k ) => sum + Math.abs( col[ k ] - c ) - 1, 0 ) /
+				4;
+		// Left of all it feeds but a hub, right of a hub it feeds from behind.
+		const ahead = fed.filter( ( k ) => ! hubs.has( k ) );
+		const last =
+			Math.min(
+				...( ahead.length ? ahead : fed ).map( ( k ) => col[ k ] )
+			) - 1;
+		const behind = fed
+			.map( ( k ) => col[ k ] )
+			.filter( ( c ) => c <= last );
+		const first = behind.length ? Math.max( ...behind ) + 1 : 0;
+		const stay = fed.length < next[ id ].length || first > last;
+		const columns = [];
+		for (
+			let c = stay ? col[ id ] : first;
+			c <= ( stay ? col[ id ] : last );
+			c++
+		) {
+			columns.push( c );
+		}
+		const candidates = columns.includes( col[ id ] )
+			? [ [ col[ id ], row[ id ] ] ]
+			: [];
+		for ( const c of columns ) {
+			for ( let d = -3; d <= 3; d += 0.5 ) {
+				candidates.push( [ c, want + d ] );
+			}
+		}
+		let seat = stableSort( candidates, ( [ c, r ] ) => cost( c, r ) ).find(
+			( [ c, r ] ) => free( c, r ) && ! crossed( c, r )
+		);
+		if ( ! seat ) {
+			const c = columns[ columns.length - 1 ];
+			seat = [
+				c,
+				nearestRow(
+					want,
+					( at ) => free( c, at ) && ! crossed( c, at ),
+					reach
+				) ?? nearestRow( want, ( at ) => free( c, at ) ),
+			];
+		}
+		byCol[ col[ id ] ] = byCol[ col[ id ] ].filter( ( o ) => o !== id );
+		[ col[ id ], row[ id ] ] = seat;
+		( byCol[ col[ id ] ] ??= [] ).push( id );
+		for ( const k of fed ) {
+			if ( Math.abs( col[ k ] - col[ id ] ) >= 2 ) {
+				wires.push( [ id, k ] );
+				lay( [ id, k ] );
+			}
 		}
 	}
 };
@@ -552,13 +716,15 @@ const componentsOf = ( ids, succ, pred ) => {
  * `ids`, and every id has an edge inside the band: a lone node never gets
  * here.
  *
- * @param {Array<string>}                ids  The component's nodes, alphabetical.
- * @param {Object<string,Array<string>>} succ Successors inside the component.
- * @param {Object<string,Array<string>>} pred Predecessors inside the component.
- * @return {{col: Object<string,number>, row: Object<string,number>}} Grid units,
- * rows normalised so the topmost is 0.
+ * @param {Array<string>}                ids   The component's nodes, alphabetical.
+ * @param {Object<string,Array<string>>} succ  Successors inside the component.
+ * @param {Object<string,Array<string>>} pred  Predecessors inside the component.
+ * @param {( id: string ) => boolean}    unfed Whether nothing in the whole graph feeds a node.
+ * @return {{col: Object<string,number>, row: Object<string,number>, wires: Array<[string, string]>, deferred: Array<string>}}
+ * Grid units, rows normalised so the topmost is 0, the wires spanning two or
+ * more columns, and the sources `seatSources` seats last.
  */
-const layoutComponent = ( ids, succ, pred ) => {
+const layoutComponent = ( ids, succ, pred, unfed ) => {
 	/** @type {Object<string,number>} */
 	const declIdx = {};
 	ids.forEach( ( id, i ) => ( declIdx[ id ] = i ) );
@@ -588,7 +754,7 @@ const layoutComponent = ( ids, succ, pred ) => {
 	}
 	for ( let pass = 0; pass < 20; pass++ ) {
 		for ( const id of ids ) {
-			if ( col[ id ] === null || isSource( id ) || isSink( id ) ) {
+			if ( isSource( id ) || isSink( id ) ) {
 				continue;
 			}
 			const lo = depth[ id ];
@@ -609,11 +775,24 @@ const layoutComponent = ( ids, succ, pred ) => {
 		}
 	}
 
+	// Seated last: a source feeding one column, two or more columns on.
+	const later = new Set(
+		ids.filter(
+			( id ) =>
+				unfed( id ) &&
+				new Set( succ[ id ].map( ( n ) => col[ n ] ) ).size === 1 &&
+				Math.min( ...succ[ id ].map( ( n ) => col[ n ] ) ) -
+					col[ id ] >=
+					2
+		)
+	);
+
 	// @longform Sugiyama's virtual nodes: a wire spanning two or more columns
 	// takes a placeholder in every column between, so the ordering sweeps
 	// count the crossings it makes with real cards there and the row spread
 	// keeps those cards off the rows it runs through. The wire is still drawn
-	// straight from source to sink; the placeholders only shape the rows.
+	// straight from source to sink; the placeholders only shape the rows. The
+	// wires of a source seated last take none; `seatSources` places it.
 	const laid = [ ...ids ];
 	/** @type {Array<[string, string]>} */
 	const wires = [];
@@ -625,7 +804,7 @@ const layoutComponent = ( ids, succ, pred ) => {
 	}
 	for ( const from of ids ) {
 		for ( const to of [ ...succ[ from ] ] ) {
-			if ( col[ to ] - col[ from ] < 2 ) {
+			if ( col[ to ] - col[ from ] < 2 || later.has( from ) ) {
 				continue;
 			}
 			wires.push( [ from, to ] );
@@ -657,9 +836,11 @@ const layoutComponent = ( ids, succ, pred ) => {
 		columns[ col[ id ] ].push( id );
 	}
 
-	// A card takes a row, a placeholder none: `clearWires` clears the span.
+	// @longform A card takes a row, a placeholder none: `clearWires` clears
+	// the span. A source seated last takes none either, or a column spread
+	// would push its neighbours off rows it is about to leave.
 	const real = new Set( ids );
-	const footprint = ( id ) => ( real.has( id ) ? 1 : 0 );
+	const footprint = ( id ) => ( real.has( id ) && ! later.has( id ) ? 1 : 0 );
 	const cards = ( c ) =>
 		columns[ c ].filter( ( id ) => real.has( id ) ).length;
 
@@ -699,8 +880,17 @@ const layoutComponent = ( ids, succ, pred ) => {
 		}
 	}
 
-	// Stack the anchor by footprint; spring others to neighbour-row midpoint.
-	const assignRows = () => {
+	// Spread what a sweep seated; a card with no row yet has none to spread.
+	const spreadSet = ( members, r ) =>
+		spreadColumn(
+			members.filter( ( id ) => r[ id ] !== undefined ),
+			r,
+			declIdx,
+			footprint
+		);
+
+	// Stack the anchor; spring the rest to neighbour midpoints.
+	const assignRows = ( spread = false ) => {
 		/** @type {Object<string,number>} */
 		const r = {};
 		let stacked = 0;
@@ -715,6 +905,9 @@ const layoutComponent = ( ids, succ, pred ) => {
 					r[ id ] = midMinMax( nb.map( ( p ) => r[ p ] ) );
 				}
 			}
+			if ( spread ) {
+				spreadSet( columns[ c ], r );
+			}
 		}
 		for ( let c = anchor - 1; c >= 0; c-- ) {
 			for ( const id of columns[ c ] ) {
@@ -723,11 +916,34 @@ const layoutComponent = ( ids, succ, pred ) => {
 					r[ id ] = midMinMax( nb.map( ( k ) => r[ k ] ) );
 				}
 			}
+			if ( spread ) {
+				spreadSet( columns[ c ], r );
+			}
+		}
+		// @longform A card fed only from left of the anchor had no feeder row
+		// when the forward sweep reached it; it seats from them now, on the
+		// nearest row its column leaves free, moving no card already placed.
+		for ( let c = anchor + 1; c <= maxDepth; c++ ) {
+			for ( const id of columns[ c ] ) {
+				const nb = pred[ id ].filter( ( p ) => r[ p ] !== undefined );
+				if ( r[ id ] !== undefined || ! nb.length ) {
+					continue;
+				}
+				const want = snapHalf( midMinMax( nb.map( ( p ) => r[ p ] ) ) );
+				const free = ( at ) =>
+					columns[ c ].every(
+						( o ) =>
+							o === id ||
+							! footprint( o ) ||
+							r[ o ] === undefined ||
+							Math.abs( r[ o ] - at ) >= 1 - 1e-9
+					);
+				r[ id ] = nearestRow( want, free );
+			}
 		}
 		// @longform A component that never reaches the anchor column is
-		// seeded by neither sweep, and the spread pass below turns an
-		// unset row into NaN — the card then renders off-graph, silently.
-		// Stack the leftovers under their own column instead.
+		// seeded by neither sweep, and a card left without a row renders
+		// off-graph, silently. Stack the leftovers under their own column.
 		for ( let c = 0; c <= maxDepth; c++ ) {
 			let next = null;
 			for ( const id of columns[ c ] ) {
@@ -773,8 +989,12 @@ const layoutComponent = ( ids, succ, pred ) => {
 	columns[ anchor ] = chosen;
 	row = assignRows();
 
-	// Settle remaining columns by neighbour-row median (a few passes).
-	for ( let it = 0; it < 6; it++ ) {
+	// @longform Settle the other columns by neighbour-row median. The last
+	// pass spreads same-column overlaps symmetrically (PAV) so a fan-out
+	// straddles, each column before the next one out reads it: a chain
+	// centred on a card the spread then moved would bend half a row.
+	const passes = 6;
+	for ( let it = 0; it < passes; it++ ) {
 		for ( let c = anchor + 1; c <= maxDepth; c++ ) {
 			columns[ c ] = stableSort( columns[ c ], ( id ) =>
 				median(
@@ -793,11 +1013,8 @@ const layoutComponent = ( ids, succ, pred ) => {
 				)
 			);
 		}
-		row = assignRows();
+		row = assignRows( it === passes - 1 );
 	}
-
-	// Spread same-column overlaps symmetrically (PAV) so fan-out straddles.
-	columns.forEach( ( arr ) => spreadColumn( arr, row, declIdx, footprint ) );
 
 	// The placeholders have done their work; only the cards leave here.
 	for ( const id of laid ) {
@@ -806,9 +1023,10 @@ const layoutComponent = ( ids, succ, pred ) => {
 			delete row[ id ];
 		}
 	}
-	clearWires( ids, wires, col, row );
+	const stays = ids.filter( ( id ) => ! later.has( id ) );
+	clearWires( stays, wires, col, row );
 	normalizeRows( ids, row );
-	return { col, row };
+	return { col, row, wires, deferred: [ ...later ] };
 };
 
 /**
@@ -1019,6 +1237,37 @@ const blocksOf = ( ids, succ, pred, hubs ) => {
 };
 
 /**
+ * Widen one column's row interval to take in another.
+ *
+ * @param {Object<number,[number, number]>} spans Column to its top and bottom rows, mutated.
+ * @param {number}                          c     The column.
+ * @param {number}                          lo    Top row to take in.
+ * @param {number}                          hi    Bottom row to take in.
+ */
+const widen = ( spans, c, lo, hi ) => {
+	const was = spans[ c ];
+	spans[ c ] = was
+		? [ Math.min( was[ 0 ], lo ), Math.max( was[ 1 ], hi ) ]
+		: [ lo, hi ];
+};
+
+/**
+ * Widen every column strictly between a wire's two ends to take in the rows
+ * the wire spans.
+ *
+ * @param {Object<number,[number, number]>} spans Column to its top and bottom rows, mutated.
+ * @param {number}                          c1    One end's column.
+ * @param {number}                          r1    That end's row.
+ * @param {number}                          c2    The other end's column.
+ * @param {number}                          r2    That end's row.
+ */
+const coverWire = ( spans, c1, r1, c2, r2 ) => {
+	for ( let c = Math.min( c1, c2 ) + 1; c < Math.max( c1, c2 ); c++ ) {
+		widen( spans, c, Math.min( r1, r2 ), Math.max( r1, r2 ) );
+	}
+};
+
+/**
  * Rows a stack fills before the next opens: the height of a square holding
  * every block, each with its gap column.
  *
@@ -1043,8 +1292,10 @@ const stackRows = ( blocks ) => {
  * shorter than `Y_STEP`. The blocks pack widest first, so a narrow block never
  * sits under empty columns, and alphabetically among equals; a stack takes
  * blocks until it reaches the square's height, then the next opens one gap
- * column to the right. A small graph fills one stack, which is the old
- * single column of bands.
+ * column to the right. A block past the height that is wired to no other
+ * waits until every other block is down, then looks for room above or below
+ * what the columns it would cover hold, and stacks only when none fits. A
+ * small graph fills one stack, which is the old single column of bands.
  *
  * @param {Array<string>}                ids  Every node, alphabetical.
  * @param {Object<string,Array<string>>} succ Successors.
@@ -1059,6 +1310,7 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 	/** @type {Object<string,number>} */
 	const row = {};
 
+	const unfed = ( id ) => ! pred[ id ].length;
 	const blocks = blocksOf( ids, succ, pred, hubs ).map( ( b ) => {
 		/** @type {Object<string,number>} */
 		const bc = {};
@@ -1074,6 +1326,10 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 		const feeders = b.bands.filter( ( m ) => ! fed( m ) );
 		const consumers = b.bands.filter( fed );
 
+		/** @type {Array<[string, string]>} */
+		const bandWires = [];
+		/** @type {Array<string>} */
+		const deferred = [];
 		// Stack bands from `atCol`; returns the stack's width and height.
 		const stack = ( bands, atCol ) => {
 			let next = 0;
@@ -1084,11 +1340,14 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 						? {
 								col: { [ members[ 0 ] ]: 0 },
 								row: { [ members[ 0 ] ]: 0 },
+								wires: [],
+								deferred: unfed( members[ 0 ] ) ? members : [],
 						  }
 						: layoutComponent(
 								members,
 								restrictAdjacency( members, succ ),
-								restrictAdjacency( members, pred )
+								restrictAdjacency( members, pred ),
+								unfed
 						  );
 				let height = 0;
 				for ( const id of members ) {
@@ -1097,6 +1356,8 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 					width = Math.max( width, band.col[ id ] + 1 );
 					height = Math.max( height, band.row[ id ] );
 				}
+				bandWires.push( ...band.wires );
+				deferred.push( ...band.deferred );
 				next += height + 1;
 			}
 			return { width, height: next };
@@ -1137,12 +1398,15 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 		// crosses every band between, and clearing those would scatter each
 		// band's sinks away from their sources for wires that are not theirs.
 		// The backbone clears off every hub wire: a bridge seated on its
-		// hub's row sits in the path of everything feeding that hub.
+		// hub's row sits in the path of everything feeding that hub. A
+		// source seated last leaves its hub wire out, placed clear of all.
+		const seatedLast = new Set( deferred );
 		/** @type {Array<[string, string]>} */
 		const hubWires = [];
 		for ( const id of Object.keys( bc ) ) {
 			for ( const to of succ[ id ] ) {
 				if (
+					! seatedLast.has( id ) &&
 					( hubSet.has( to ) || hubSet.has( id ) ) &&
 					bc[ to ] !== undefined &&
 					Math.abs( bc[ to ] - bc[ id ] ) >= 2
@@ -1174,6 +1438,16 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 			);
 		}
 		clearWires( b.hubs, hubWires, bc, br, all );
+		// Last, once every card and wire a seat must clear is placed.
+		seatSources(
+			deferred,
+			succ,
+			hubSet,
+			all,
+			[ ...bandWires, ...hubWires ],
+			bc,
+			br
+		);
 		normalizeRows( Object.keys( br ), br );
 		let widest = 0;
 		let bottom = 0;
@@ -1181,10 +1455,21 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 			widest = Math.max( widest, bc[ id ] );
 			bottom = Math.max( bottom, br[ id ] );
 		}
+		/** @type {Object<number,[number, number]>} */
+		const hull = {};
+		for ( const id of Object.keys( bc ) ) {
+			widen( hull, bc[ id ], br[ id ], br[ id ] );
+			for ( const to of succ[ id ] ) {
+				if ( bc[ to ] !== undefined ) {
+					coverWire( hull, bc[ id ], br[ id ], bc[ to ], br[ to ] );
+				}
+			}
+		}
 		return {
 			...b,
 			col: bc,
 			row: br,
+			hull,
 			width: widest + 1,
 			height: bottom + 1,
 		};
@@ -1195,21 +1480,112 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 		( b ) => -b.width
 	);
 	const limit = stackRows( blocks );
+	// Each canvas column's rows, top to bottom, that cards and wires take.
+	/** @type {Object<number,[number, number]>} */
+	const taken = {};
+	const filled = new Set();
+	let rows = 0;
+	const place = ( b, atCol, atRow ) => {
+		for ( const id of Object.keys( b.col ) ) {
+			col[ id ] = atCol + b.col[ id ];
+			row[ id ] = atRow + b.row[ id ];
+			filled.add( col[ id ] );
+		}
+		for ( const [ c, [ lo, hi ] ] of Object.entries( b.hull ) ) {
+			widen( taken, atCol + Number( c ), lo + atRow, hi + atRow );
+		}
+		// A wire to a block already down crosses the columns between.
+		for ( const id of Object.keys( b.col ) ) {
+			for ( const n of [ ...succ[ id ], ...pred[ id ] ] ) {
+				if ( b.col[ n ] !== undefined || col[ n ] === undefined ) {
+					continue;
+				}
+				coverWire( taken, col[ id ], row[ id ], col[ n ], row[ n ] );
+			}
+		}
+		rows = Math.max( rows, atRow + b.height );
+	};
+	// The first row clear below what a block's columns hold at `atCol`.
+	const clearBelow = ( b, atCol ) =>
+		Math.max(
+			-Infinity,
+			...Object.entries( b.hull )
+				.filter( ( [ c ] ) => taken[ atCol + Number( c ) ] )
+				.map(
+					( [ c, h ] ) =>
+						taken[ atCol + Number( c ) ][ 1 ] + 1 - h[ 0 ]
+				)
+		);
+	// @longform Room for a block inside the canvas drawn so far: a row one
+	// clear of what each column it covers holds, above it or below, in the
+	// leftmost columns that fit, nearest the canvas's middle row. Only
+	// columns already holding cards qualify, so a block never lands in the
+	// gap column between two stacks.
+	const roomFor = ( b, width ) => {
+		const mid = ( rows - 1 ) / 2;
+		for ( let at = 0; at + b.width <= width; at++ ) {
+			const pairs = Object.entries( b.hull ).map( ( [ c, h ] ) => [
+				filled.has( at + Number( c ) ) && taken[ at + Number( c ) ],
+				h,
+			] );
+			if ( pairs.some( ( [ t ] ) => ! t ) ) {
+				continue;
+			}
+			const above = Math.min(
+				...pairs.map( ( [ t, h ] ) => t[ 0 ] - 1 - h[ 1 ] )
+			);
+			const below = Math.max(
+				...pairs.map( ( [ t, h ] ) => t[ 1 ] + 1 - h[ 0 ] )
+			);
+			const fits = [ above, below ].filter(
+				( r ) => r >= 0 && r + b.height <= rows
+			);
+			if ( fits.length ) {
+				const off = ( r ) => Math.abs( r + ( b.height - 1 ) / 2 - mid );
+				return { col: at, row: stableSort( fits, off )[ 0 ] };
+			}
+		}
+		return null;
+	};
 	let stackCol = 0;
 	let stackWidth = 0;
 	let stackRow = 0;
-	for ( const b of order ) {
-		if ( stackRow > 0 && stackRow + b.height > limit ) {
+	const stackOn = ( b ) => {
+		let at = Math.max( stackRow, clearBelow( b, stackCol ) );
+		if ( stackRow > 0 && at + b.height > limit ) {
 			stackCol += stackWidth + 1;
 			stackWidth = 0;
-			stackRow = 0;
+			at = 0;
 		}
-		for ( const id of Object.keys( b.col ) ) {
-			col[ id ] = stackCol + b.col[ id ];
-			row[ id ] = stackRow + b.row[ id ];
-		}
+		place( b, stackCol, at );
 		stackWidth = Math.max( stackWidth, b.width );
-		stackRow += b.height;
+		stackRow = at + b.height;
+	};
+	const selfContained = ( b ) =>
+		Object.keys( b.col ).every( ( id ) =>
+			[ ...succ[ id ], ...pred[ id ] ].every(
+				( n ) => b.col[ n ] !== undefined
+			)
+		);
+	const later = [];
+	for ( const b of order ) {
+		if (
+			stackRow > 0 &&
+			stackRow + b.height > limit &&
+			selfContained( b )
+		) {
+			later.push( b );
+			continue;
+		}
+		stackOn( b );
+	}
+	for ( const b of later ) {
+		const room = roomFor( b, stackCol + stackWidth );
+		if ( room ) {
+			place( b, room.col, room.row );
+		} else {
+			stackOn( b );
+		}
 	}
 
 	normalizeRows( ids, row );
