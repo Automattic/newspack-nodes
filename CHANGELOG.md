@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.60.4] - 2026-09-15
+
 ### Changed
 
 - **A spawn POST names its sender in its User-Agent.** libcurl sends no User-Agent unless asked, so every spawn request reached the host's access log anonymous, and a site leading the spawn charts looked no different from a stranger probing the endpoint. The POST now carries `newspack-nodes/<version> (<sender>; <type>.p<partition>)`, where the sender is `coordinator` for a coordinator pass — cron, fleet revival or a wake — and `self-respawn` for a worker handing its slot to its successor.
