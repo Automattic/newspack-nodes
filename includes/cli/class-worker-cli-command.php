@@ -176,7 +176,9 @@ class Worker_CLI_Command {
 	 * Release the deploy hold and spawn the fleet.
 	 *
 	 * The hold lifts before anything is spawned, because the spawn endpoint
-	 * refuses every POST while it stands.
+	 * refuses every POST while it stands. Every wake the hold refused left no
+	 * trace, so the backlog sweep finds the on-demand readers that fell behind
+	 * their saved cursors meanwhile, as the minute reconcile pass would.
 	 *
 	 * ## EXAMPLES
 	 *
@@ -195,7 +197,9 @@ class Worker_CLI_Command {
 			Lock_Node::clear_stop_at( $dir );
 		}
 		// Counts ATTEMPTS: a fire-and-forget POST reports no outcome.
-		$requested = Bootstrap::spawn_coordinator()->spawn_due_workers( Core::right_now() );
+		$coordinator = Bootstrap::spawn_coordinator();
+		$now         = Core::right_now();
+		$requested   = $coordinator->spawn_due_workers( $now ) + $coordinator->wake_readers_with_backlog( $now );
 		\WP_CLI::success(
 			"Hold released; requested {$requested} worker spawn(s). "
 			. 'Run `wp nodes status` to confirm the fleet came back.'

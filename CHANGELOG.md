@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A deploy hold no longer turns a busy site's traffic into spawn requests.** The spawn endpoint refuses a held fleet without recording the spawn, so the 15-second throttle never engaged: while `wp nodes stop` held the fleet, every request that wrote to a partition an on-demand worker tails posted a spawn the endpoint refused. One busy site sent about 190 in 13 seconds during a deploy, enough for its host to rate-limit it. The spawn loop now refuses a held fleet before it posts, as it already refuses a write-conflicting one, and `wp nodes start`, once it lifts the hold, also wakes every on-demand reader that fell behind its saved cursor while the hold stood, rather than leaving it asleep until the next write. A multisite subsite, which the endpoint refuses the same way and for good, posts none either.
+
 ## [2.60.4] - 2026-09-15
 
 ### Changed
