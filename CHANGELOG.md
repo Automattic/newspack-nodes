@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.60.2] - 2026-09-15
+
 ### Fixed
 
 - **The console's automatic layout seats a source beside what it feeds, and packs a tall block's neighbours beside it.** A source took column 0 even when everything it fed sat two columns on, so its wires spanned the column between, and the pass keeping wires off cards pushed that column's card past the whole fan: the hub-control topology's `settings-sync` landed under its 24 spokes, a canvas away from the consumer feeding it. A source whose successors all sit in one column, two or more columns on, no longer pushes cards with its wires: it is seated last, once its block is laid out, left of everything it feeds but a hub, at the cheapest seat whose wires pass no card where one exists, as near the middle of what it feeds and as few columns back as it can. A block past the square's height opened a new stack beyond the hub for every block after it, so the topic probe pair and the REPL partition sat at the canvas's far corner; a block wired to no other now waits for the rest, then takes room above or below the cards in the columns it would cover, clear of every wire already drawn. Rows also settle column by column outward from the widest column, so `settings:consumer` sits level with the `settings-sync` it feeds rather than half a row off it.
