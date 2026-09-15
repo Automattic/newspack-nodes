@@ -374,6 +374,46 @@ const wheelNotches = ( e ) => {
 };
 
 /**
+ * Milliseconds without a wheel event that end a stream. A swipe keeps
+ * sending events for its momentum long after the fingers lift, and those
+ * trailing ones carry none of the signs that marked it a swipe.
+ */
+const STREAM_GAP_MS = 150;
+
+/**
+ * Whether a wheel event is a two-finger trackpad swipe, which pans, rather
+ * than a wheel notch, which zooms.
+ *
+ * No browser says which device sent a wheel event, so this reads the signs a
+ * trackpad leaves: any sideways travel, or the legacy `wheelDeltaY` Chrome and
+ * Safari report on macOS as exactly -3 times `deltaY` for a trackpad and as
+ * whole notches of 120 for a wheel. Elsewhere a swipe with no sideways travel
+ * reads as a wheel and zooms. A line- or page-mode delta is a wheel. A held
+ * Ctrl (a pinch) or command key zooms whatever the event looks like, which is
+ * how a smooth-scrolling mouse the heuristic mistakes for a trackpad zooms.
+ *
+ * @param {WheelEvent} e The wheel event.
+ * @return {boolean} True for a swipe.
+ */
+const isSwipe = ( e ) => {
+	if ( e.ctrlKey || e.metaKey ) {
+		return false;
+	}
+	if ( window.WheelEvent.DOM_DELTA_PIXEL !== e.deltaMode ) {
+		return false;
+	}
+	if ( 0 !== e.deltaX ) {
+		return true;
+	}
+	// Non-standard, so the DOM types do not declare it.
+	const legacy = /** @type {WheelEvent & {wheelDeltaY?: number}} */ ( e )
+		.wheelDeltaY;
+	return (
+		'number' === typeof legacy && 0 !== e.deltaY && legacy === -3 * e.deltaY
+	);
+};
+
+/**
  * How far past the whole-graph fit the wheel zooms OUT, as a fraction of the
  * fit scale.
  */
@@ -648,8 +688,9 @@ function formatNodeRate( rate ) {
 
 /**
  * The drafting-room canvas: one raw `<svg>` holding the grid, the include
- * hulls, the edges, and a card per node. It owns every canvas gesture — pan,
- * cursor-anchored wheel zoom, `=`/`-` zoom about the centre, arrow-key pan,
+ * hulls, the edges, and a card per node. It owns every canvas gesture — pan
+ * by drag or two-finger swipe, cursor-anchored pinch and wheel zoom, `=`/`-`
+ * zoom about the centre, arrow-key pan,
  * node drag, hull drag, and the port-to-port wire drag — plus viewport
  * autofit, viewport culling, and the level-of-detail drop to bare rects when
  * cards zoom below readable size.
@@ -786,6 +827,9 @@ export default function SchematicCanvas( {
 		},
 		[ onViewportChange ]
 	);
+	// The box the last gesture committed, so a burst between renders chains.
+	const liveViewportRef = useRef( viewport );
+	liveViewportRef.current = viewport;
 	// Active pan drag on the empty canvas (stable start origin per move).
 	const panRef = useRef( null );
 	// Hover gate: with focus, what lets the keys act without stealing them.
@@ -1057,7 +1101,8 @@ export default function SchematicCanvas( {
 	// Zoom by `factor` (>1 zooms out) around the screen point given.
 	const zoomAt = ( svg, factor, clientX, clientY ) => {
 		const world = screenToSvg( svg, clientX, clientY );
-		const current = viewport || parseViewBox( defaultViewBox );
+		const current =
+			liveViewportRef.current || parseViewBox( defaultViewBox );
 		// Unmeasured: fall back to the viewBox size (keeps aspect + factor).
 		const cs =
 			canvasPx.w && canvasPx.h
@@ -1080,24 +1125,61 @@ export default function SchematicCanvas( {
 		const rect = svg.getBoundingClientRect();
 		const fracX = rect.width ? ( clientX - rect.left ) / rect.width : 0.5;
 		const fracY = rect.height ? ( clientY - rect.top ) / rect.height : 0.5;
-		setViewport( {
+		liveViewportRef.current = {
 			x: world.x - fracX * nextW,
 			y: world.y - fracY * nextH,
 			w: nextW,
 			h: nextH,
-		} );
+		};
+		setViewport( liveViewportRef.current );
 	};
 	const zoomAtRef = useRef( zoomAt );
 	zoomAtRef.current = zoomAt;
 
-	// Cursor-anchored wheel zoom; non-passive so preventDefault() holds.
+	// A swipe moves the view by its travel, screen pixels to canvas units.
+	const panBy = ( dx, dy ) => {
+		const current =
+			liveViewportRef.current || parseViewBox( defaultViewBox );
+		const cs =
+			canvasPx.w && canvasPx.h
+				? canvasPx
+				: { w: current.w, h: current.h };
+		const unit = Math.max( current.w / cs.w, current.h / cs.h );
+		liveViewportRef.current = {
+			x: current.x + dx * unit,
+			y: current.y + dy * unit,
+			w: current.w,
+			h: current.h,
+		};
+		setViewport( liveViewportRef.current );
+	};
+	const panByRef = useRef( panBy );
+	panByRef.current = panBy;
+
+	// Swipe pans, wheel and pinch zoom; non-passive so preventDefault() holds.
 	useEffect( () => {
 		const el = svgRef.current;
 		if ( ! el ) {
 			return undefined;
 		}
+		// @longform The first event of a stream decides it, so momentum cannot
+		// flip it; a pause or a changed modifier starts a new one.
+		const stream = { swipe: false, zooming: false, at: -Infinity };
 		const onWheel = ( e ) => {
 			e.preventDefault();
+			const zooming = e.ctrlKey || e.metaKey;
+			if (
+				zooming !== stream.zooming ||
+				e.timeStamp - stream.at > STREAM_GAP_MS
+			) {
+				stream.swipe = isSwipe( e );
+				stream.zooming = zooming;
+			}
+			stream.at = e.timeStamp;
+			if ( stream.swipe ) {
+				panByRef.current( e.deltaX, e.deltaY );
+				return;
+			}
 			const notches = wheelNotches( e );
 			if ( 0 === notches ) {
 				return;
@@ -1109,8 +1191,29 @@ export default function SchematicCanvas( {
 				e.clientY
 			);
 		};
+		// Safari sends a pinch as gesture events carrying the running scale.
+		let pinched = 1;
+		const onGestureStart = ( e ) => {
+			e.preventDefault();
+			pinched = 1;
+		};
+		const onGestureChange = ( e ) => {
+			e.preventDefault();
+			zoomAtRef.current( el, pinched / e.scale, e.clientX, e.clientY );
+			pinched = e.scale;
+		};
 		el.addEventListener( 'wheel', onWheel, { passive: false } );
-		return () => el.removeEventListener( 'wheel', onWheel );
+		el.addEventListener( 'gesturestart', onGestureStart, {
+			passive: false,
+		} );
+		el.addEventListener( 'gesturechange', onGestureChange, {
+			passive: false,
+		} );
+		return () => {
+			el.removeEventListener( 'wheel', onWheel );
+			el.removeEventListener( 'gesturestart', onGestureStart );
+			el.removeEventListener( 'gesturechange', onGestureChange );
+		};
 	}, [] );
 
 	// Arrow keys pan, zoom keys zoom: hovered or focused canvas, not typing.
