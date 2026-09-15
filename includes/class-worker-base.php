@@ -372,7 +372,7 @@ class Worker_Base {
 			'type'      => $this->worker_type,
 			'partition' => $this->partition,
 			'nonce'     => $token,
-		] );
+		], 'self-respawn' );
 		if ( null !== $err ) {
 			Core::stderr( "{$this->worker_type}.p{$this->partition}: self_respawn failed: {$err}" );
 		}

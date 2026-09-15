@@ -33,15 +33,17 @@ class WorkerBaseTest extends TestCase {
 
 	/**
 	 * Capture self-respawn / spawn POSTs through the real Core::$curl_exec seam
-	 * (the shared raw-curl path): URL off the handle, body as the 2nd seam arg.
+	 * (the shared raw-curl path): URL off the handle, body and User-Agent off
+	 * the 2nd and 3rd seam args.
 	 *
-	 * @param array<int,array{url:string,body:array<string,mixed>}> $posts Capture sink, by reference.
+	 * @param array<int,array{url:string,body:array<string,mixed>,agent:string}> $posts Capture sink, by reference.
 	 */
 	private function capture_spawn_posts( array &$posts ): void {
-		Core::$curl_exec = static function ( \CurlHandle $ch, array $body ) use ( &$posts ) {
+		Core::$curl_exec = static function ( \CurlHandle $ch, array $body, array $options ) use ( &$posts ) {
 			$posts[] = [
-				'url'  => (string) \curl_getinfo( $ch, \CURLINFO_EFFECTIVE_URL ),
-				'body' => $body,
+				'url'   => (string) \curl_getinfo( $ch, \CURLINFO_EFFECTIVE_URL ),
+				'body'  => $body,
+				'agent' => $options[ \CURLOPT_USERAGENT ],
 			];
 			return false;
 		};
@@ -358,6 +360,10 @@ class WorkerBaseTest extends TestCase {
 		$this->assertSame( 'firehose-workers', $posts[0]['body']['type'] );
 		$this->assertSame( 3, $posts[0]['body']['partition'] );
 		$this->assertSame( 'token-123', $posts[0]['body']['nonce'] );
+		$this->assertSame(
+			'newspack-nodes/' . \NEWSPACK_NODES_VERSION . ' (self-respawn; firehose-workers.p3)',
+			$posts[0]['agent']
+		);
 	}
 
 	public function test_memory_limit_bytes_parses_units(): void {

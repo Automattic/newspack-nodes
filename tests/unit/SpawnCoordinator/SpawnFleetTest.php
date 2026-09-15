@@ -72,6 +72,21 @@ class SpawnFleetTest extends TestCase {
 		);
 	}
 
+	public function test_spawn_fleet_names_the_coordinator_and_slot_in_the_user_agent(): void {
+		$this->with_topology( [
+			'firehose-workers' => [ 'num_partitions' => 2, 'topology' => '/x.php' ],
+			'job-workers'      => [ 'num_partitions' => 1, 'topology' => '/y.php' ],
+		] );
+
+		( new Spawn_Coordinator( $this->tmp, 'NONCE_SALT_FOR_TEST' ) )->spawn_fleet( 'firehose-workers' );
+
+		$release = 'newspack-nodes/' . \NEWSPACK_NODES_VERSION;
+		$this->assertEqualsCanonicalizing(
+			[ "{$release} (coordinator; firehose-workers.p0)", "{$release} (coordinator; firehose-workers.p1)" ],
+			array_map( fn ( $p ) => $p['args']['user-agent'], $GLOBALS['_test_outbound_posts'] )
+		);
+	}
+
 	/**
 	 * The count is spawn POSTs REQUESTED, not partitions started. Skipping the
 	 * shared throttle told the operator N came up while the endpoint 429'd every
