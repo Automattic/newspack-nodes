@@ -24,8 +24,9 @@
  * An edgeless node is a block of one.
  *
  * Within a band, columns come from a Coffman-Graham-flavored layering: a true
- * source starts in column 0, a true sink pins to the band's rightmost column,
- * and an interior node takes the barycenter of its neighbours' columns clamped
+ * source starts in column 0, a true sink seats one column past its own depth
+ * and rises to the furthest consumer it shares a feeder with, and an interior
+ * node takes the barycenter of its neighbours' columns clamped
  * into the range its edges allow (longest path from a source on the left,
  * longest path to a sink on the right), so a "processor tier" aligns in one
  * column instead of spreading by raw longest-path. Rows come from barycenter
@@ -740,14 +741,54 @@ const layoutComponent = ( ids, succ, pred, unfed ) => {
 		maxDepth = Math.max( maxDepth, depth[ id ] );
 	}
 
-	// Coffman-Graham: pin sources/sinks, relax interior to barycenter in-band.
+	// @longform Coffman-Graham: sources pinned, interior relaxed, and a sink
+	// seated within reach of what feeds it — pinned to the band's far column
+	// instead, a shallow sink drags its wire across every card between. The
+	// stretch is taste, one column of slack to read as terminal; the rise to a
+	// sibling consumer is not, since it keeps a source's successors in one
+	// column, which is the seat `seatSources` needs to hold the two level. It
+	// aligns on where a sibling SEATS: an interior sibling the relaxation
+	// below moves right leaves the sink a column shy of it.
+	const SINK_STRETCH = 1;
+	const seat = ( id ) =>
+		isSink( id )
+			? Math.min( maxDepth, depth[ id ] + SINK_STRETCH )
+			: depth[ id ];
+	// @longform The two furthest seats among each feeder's successors, so a
+	// sink reads one number per feeder rather than re-walking every sibling:
+	// one feeder of k sinks costs O(k), not O(k²), and no argument list grows
+	// with the fan-out. The runner-up covers the sink that IS the furthest.
+	/** @type {Object<string,{first: number, firstId: ?string, second: number}>} */
+	const furthest = {};
+	for ( const p of ids ) {
+		let first = -Infinity;
+		let firstId = null;
+		let second = -Infinity;
+		for ( const s of succ[ p ] ) {
+			const at = seat( s );
+			if ( at > first ) {
+				second = first;
+				first = at;
+				firstId = s;
+			} else if ( at > second ) {
+				second = at;
+			}
+		}
+		furthest[ p ] = { first, firstId, second };
+	}
 	/** @type {Object<string,number>} */
 	const col = {};
 	for ( const id of ids ) {
 		if ( isSource( id ) ) {
 			col[ id ] = 0;
 		} else if ( isSink( id ) ) {
-			col[ id ] = maxDepth;
+			// Seats read off `depth`, so no column depends on the id order.
+			let peer = -Infinity;
+			for ( const p of pred[ id ] ) {
+				const f = furthest[ p ];
+				peer = Math.max( peer, f.firstId === id ? f.second : f.first );
+			}
+			col[ id ] = Math.min( maxDepth, Math.max( seat( id ), peer ) );
 		} else {
 			col[ id ] = depth[ id ];
 		}
