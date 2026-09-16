@@ -2156,6 +2156,54 @@ describe( 'autoLayout — hub bands', () => {
 		}
 	);
 
+	// @longform An egress drained by two slices and one stray two-node chain:
+	// the stray part is under SLICE_MIN, and refusing the whole promotion for
+	// it stranded `hub0` and `k0l1n0` in a column of their own, eight wide.
+	// A part too small is nobody else's business; one too big, or one another
+	// hub already serves, still refuses.
+	it( 'promotes an egress its qualifying slices drain, past one stray feeder', () => {
+		const edges = [
+			[ 'k0l0n0', 'k0l1n0' ],
+			[ 'k0l0n0', 'k0l1n1' ],
+			[ 'k0l0n0', 'k0l1n2' ],
+			[ 'k0src', 'k0l1n0' ],
+			[ 'k0l1n2', 'hub0' ],
+			[ 'k1l0n0', 'k1l1n0' ],
+			[ 'k1l0n0', 'k1l1n1' ],
+			[ 'k1l0n0', 'k1l1n2' ],
+			[ 'k1l0n0', 'k1l2n0' ],
+			[ 'k1l1n0', 'k1l2n1' ],
+			[ 'k1l1n2', 'hub0' ],
+			[ 'k2l0n1', 'k2l1n0' ],
+			[ 'k2l0n0', 'k2l1n0' ],
+			[ 'k2l0n0', 'k2l1n1' ],
+			[ 'k2l0n1', 'k2l1n2' ],
+			[ 'k2l0n2', 'k2l1n3' ],
+			[ 'k2l1n2', 'k2l2n0' ],
+			[ 'k2l2n0', 'k2l3n0' ],
+			[ 'k2l2n0', 'k2l3n1' ],
+			[ 'k2src', 'k2l3n0' ],
+			[ 'k2l1n3', 'hub0' ],
+		].map( ( [ from, to ] ) => ( { from, to } ) );
+		const ids = new Set( [ 'lone0', 'lone1' ] );
+		for ( const e of edges ) {
+			ids.add( e.from );
+			ids.add( e.to );
+		}
+		const at = positionsOf( {
+			nodes: [ ...ids ].map( ( id ) => ( { id } ) ),
+			edges,
+		} );
+		const columns = Object.values( at ).map( ( p ) => p.x );
+		const wide =
+			( Math.max( ...columns ) - Math.min( ...columns ) ) / X_STEP + 1;
+
+		// Parts of five and six nodes qualify and the two-node one abstains,
+		// so the egress leaves its band and the sheet stays four columns —
+		// refusing on the stray part ran it to eight.
+		expect( wide ).toBeLessThanOrEqual( 4 );
+	} );
+
 	// The same shape at three slices, as the debug overlay's Sessions page
 	// draws it. Three feeders sit under the hub cut, so without this nothing
 	// subtracts `_shell` and one band holds all three: the sweep against the

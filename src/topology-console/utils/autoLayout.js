@@ -259,7 +259,7 @@ const HUB_MIN_FAN_IN = 4;
 /** How far above the median fan-in a hub must sit, so a dense graph declares none. */
 const HUB_MEDIAN_FACTOR = 3;
 
-/** A slice's own nodes: a poll's timer, tee and fetcher, plus its in and view. */
+/** Fewer nodes than a poll's timer, tee and fetcher is no slice to band. */
 const SLICE_MIN = 3;
 
 /** Past this a part is a sheet of its own, not one slice sharing an egress. */
@@ -1773,7 +1773,7 @@ export function autoLayout( parsed ) {
 					continue;
 				}
 				if ( part.size >= SLICE_MAX ) {
-					return null;
+					return null; // A sheet of its own, not a slice.
 				}
 				part.add( n );
 				queue.push( n );
@@ -1785,20 +1785,31 @@ export function autoLayout( parsed ) {
 		if ( succ[ id ].length || pred[ id ].length < 2 || hubs.has( id ) ) {
 			continue;
 		}
-		/** @type {Array<Set<string>>} */
-		const parts = [];
+		// @longform A part another hub serves, or one too big to be a slice,
+		// disqualifies the sink outright — promoting it anyway packs that part
+		// into the other block and bends its wire backward. A part too SMALL
+		// is nobody else's business: one lone node wired to the egress would
+		// otherwise collapse every slice on the page back into one band.
+		const claimed = new Set();
+		let slices = 0;
+		let refused = false;
 		for ( const p of pred[ id ] ) {
-			if ( parts.some( ( part ) => part.has( p ) ) ) {
+			if ( claimed.has( p ) ) {
 				continue;
 			}
 			const part = partFrom( p, id );
-			if ( ! part || part.size < SLICE_MIN ) {
-				parts.length = 0;
+			if ( ! part ) {
+				refused = true;
 				break;
 			}
-			parts.push( part );
+			for ( const n of part ) {
+				claimed.add( n );
+			}
+			if ( part.size >= SLICE_MIN ) {
+				slices++;
+			}
 		}
-		if ( parts.length >= 2 ) {
+		if ( ! refused && slices >= 2 ) {
 			hubs.add( id );
 		}
 	}
