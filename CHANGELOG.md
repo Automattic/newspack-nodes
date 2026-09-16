@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.60.7] - 2026-09-15
+
 ### Fixed
 
 - **A wire between two blocks means they are one block.** A band wired to two hubs picked one home and kept its wires to the other, whose block the packer then placed on its own — and nothing held the direction of a wire crossing between them, so 55 of 140 such wires ran right to left across the layout corpus. Blocks a wire joins are now merged, and blocks no wire joins still spread across stacks as before.
