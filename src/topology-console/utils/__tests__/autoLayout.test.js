@@ -369,7 +369,12 @@ describe( 'autoLayout — real graphs (normalized; relative positions only)', ()
 			{ from: 'tee3', to: '_output' },
 		],
 	};
-	// The two edgeless nodes stack below the band, at its first column.
+	// @longform The three tees share `_output`, which every one of them drains
+	// and nothing else touches, so it reads as their egress and sits with the
+	// other sinks rather than a column past them: `_cwd` and
+	// `performance:view` keep it company in the tees' next column, and the
+	// sheet closes up from 660 tall to 550. The two edgeless nodes still stack
+	// below the band, at its first column.
 	const graphAExpected1 = {
 		_completion: { x: 60, y: 520 },
 		_cwd: { x: 540, y: 410 },
@@ -397,6 +402,25 @@ describe( 'autoLayout — real graphs (normalized; relative positions only)', ()
 		tee1: { x: 300, y: 80 },
 		tee2: { x: 300, y: 410 },
 		tee3: { x: 300, y: 245 },
+	};
+	// @longform `tee1` and `tee3` both drain `_output`, and `tee2` drains it as
+	// well as `_cwd`, so the three tees and both sinks are one block rather
+	// than two the packer placed apart. The tees order by their own feeders —
+	// `_metadata` on top, then the echo pair, then `performance:command` — and
+	// the edgeless cards stack below the band at its first column.
+	const graphAExpected3 = {
+		_completion: { x: 60, y: 630 },
+		_cwd: { x: 540, y: 80 },
+		_http: { x: 60, y: 740 },
+		_metadata: { x: 60, y: 135 },
+		_output: { x: 780, y: 300 },
+		echo1: { x: 60, y: 245 },
+		echo2: { x: 60, y: 355 },
+		'performance:command': { x: 60, y: 465 },
+		'performance:view': { x: 540, y: 520 },
+		tee1: { x: 300, y: 465 },
+		tee2: { x: 300, y: 135 },
+		tee3: { x: 300, y: 300 },
 	};
 
 	// ── Graph B: firehose-workers-and-jobs topology ──
@@ -453,6 +477,7 @@ describe( 'autoLayout — real graphs (normalized; relative positions only)', ()
 		expect( [
 			normalize( graphAExpected1 ),
 			normalize( graphAExpected2 ),
+			normalize( graphAExpected3 ),
 		] ).toContainEqual( got );
 	} );
 
@@ -494,6 +519,7 @@ describe( 'autoLayout — real graphs (normalized; relative positions only)', ()
 			expect( [
 				normalize( graphAExpected1 ),
 				normalize( graphAExpected2 ),
+				normalize( graphAExpected3 ),
 			] ).toContainEqual( got );
 		}
 	} );
@@ -1227,10 +1253,10 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 	};
 
 	it( 'puts each hub in the column right after the slices that feed it, on their middle row', () => {
-		// Eight publications pack into several stacks, so a hub on a far
-		// edge would sit columns away from most of its feeders.
+		// Every publication feeds `fleet:cache`, so the sheet is ONE block and
+		// packs as one stack; a hub on a far edge would still sit columns away
+		// from most of its feeders, which is what this pins.
 		const g = gridOf( pubs( 8 ) );
-		const stackStarts = new Set();
 		for ( const pub of PUBS ) {
 			const rows = JOBS.map(
 				( job ) => g[ `${ pub }:${ job }:buffer` ].row
@@ -1245,8 +1271,43 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 			expect(
 				Math.abs( g[ `${ pub }:hub` ].row - mid )
 			).toBeLessThanOrEqual( 0.5 );
-			stackStarts.add( Math.min( ...cols ) );
 		}
+	} );
+
+	it( 'packs blocks no wire joins into stacks of their own', () => {
+		// The same eight publications with nothing shared between them: eight
+		// blocks, which the packer spreads across stacks rather than running
+		// one column the height of the sheet.
+		const edges = [];
+		for ( const pub of PUBS ) {
+			for ( const job of JOBS ) {
+				edges.push(
+					{
+						from: `${ pub }:${ job }`,
+						to: `${ pub }:${ job }:buffer`,
+					},
+					{ from: `${ pub }:${ job }:buffer`, to: `${ pub }:hub` }
+				);
+			}
+		}
+		const ids = new Set();
+		for ( const e of edges ) {
+			ids.add( e.from );
+			ids.add( e.to );
+		}
+		const g = gridOf( {
+			nodes: [ ...ids ].map( ( id ) => ( { id } ) ),
+			edges,
+		} );
+		const stackStarts = new Set(
+			PUBS.map( ( pub ) =>
+				Math.min(
+					...JOBS.map(
+						( job ) => g[ `${ pub }:${ job }:buffer` ].col
+					)
+				)
+			)
+		);
 		expect( stackStarts.size ).toBeGreaterThan( 1 );
 	} );
 
@@ -2100,6 +2161,75 @@ describe( 'autoLayout — hub bands', () => {
 			);
 			return [ Math.min( ...ys ), Math.max( ...ys ) ];
 		} );
+		// A slice spans two rows at most, and no slice starts inside another.
+		for ( const [ lo, hi ] of spans ) {
+			expect( hi - lo ).toBeLessThanOrEqual( 1.5 * Y_STEP );
+		}
+		const sorted = [ ...spans ].sort( ( a, b ) => a[ 0 ] - b[ 0 ] );
+		for ( let i = 1; i < sorted.length; i++ ) {
+			expect( sorted[ i ][ 0 ] ).toBeGreaterThan( sorted[ i - 1 ][ 1 ] );
+		}
+		// The egress sits right of every slice.
+		for ( const s of slices ) {
+			expect( at._shell.x ).toBeGreaterThan( at[ `${ s }:fetch` ].x );
+		}
+	} );
+
+	// @longform A band wired to two hubs picks one home and keeps its wires to
+	// the other, whose block the packer places on its own — so the wire had
+	// nothing holding its direction and ran right to left. A wire between two
+	// blocks means they are one block, and these three seeds each drew such a
+	// wire backward before that held.
+	it.each( [ '29924', '703214', 'c134623' ] )(
+		'draws no wire backward across what were two blocks (seed %s)',
+		( seed ) => {
+			const g = {
+				nodes: SEEDS[ seed ].nodes.map( ( id ) => ( { id } ) ),
+				edges: SEEDS[ seed ].edges.map( ( [ from, to ] ) => ( {
+					from,
+					to,
+				} ) ),
+			};
+			const at = positionsOf( g );
+			const backward = g.edges.filter(
+				( e ) => at[ e.to ].x < at[ e.from ].x
+			);
+			expect( backward ).toEqual( [] );
+		}
+	);
+
+	// The same shape at three slices, as the debug overlay's Sessions page
+	// draws it. Three feeders sit under the hub cut, so without this nothing
+	// subtracts `_shell` and one band holds all three: the sweep against the
+	// flow keys every feeder of it alike and pulls the slices' rows together.
+	it( 'keeps each of three slices sharing one egress in its own band', () => {
+		const slices = [ 'sessions', 'sessions:create', 'sessions:revoke' ];
+		const edges = [];
+		for ( const s of slices ) {
+			edges.push(
+				{ from: `${ s }:timer`, to: `${ s }:tee` },
+				{ from: `${ s }:tee`, to: `${ s }:fetch` },
+				{ from: `${ s }:fetch`, to: '_shell' },
+				{ from: `${ s }:in`, to: `${ s }:fetch` },
+				{ from: `${ s }:in`, to: `${ s }:result` }
+			);
+		}
+		const ids = new Set();
+		for ( const e of edges ) {
+			ids.add( e.from );
+			ids.add( e.to );
+		}
+		const at = positionsOf( {
+			nodes: [ ...ids ].map( ( id ) => ( { id } ) ),
+			edges,
+		} );
+		const spans = slices.map( ( s ) => {
+			const ys = [ 'timer', 'tee', 'fetch', 'in', 'result' ].map(
+				( part ) => at[ `${ s }:${ part }` ].y
+			);
+			return [ Math.min( ...ys ), Math.max( ...ys ) ];
+		} );
+
 		// A slice spans two rows at most, and no slice starts inside another.
 		for ( const [ lo, hi ] of spans ) {
 			expect( hi - lo ).toBeLessThanOrEqual( 1.5 * Y_STEP );
