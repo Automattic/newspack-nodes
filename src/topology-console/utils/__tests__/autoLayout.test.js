@@ -763,6 +763,71 @@ describe( 'autoLayout', () => {
 		);
 	} );
 
+	it( 'seats a sink beside the consumers it shares a feeder with', () => {
+		// A slice's view answers the same tee its fetcher does, so it belongs
+		// in the fetcher's column. Pinned to the band's far column instead, its
+		// wire crosses every card between — which is what dragged the debug
+		// overlay's session views a column past the fetchers feeding them.
+		const out = autoLayout( {
+			nodes: [
+				{ id: 'quokka:timer' },
+				{ id: 'quokka:tee' },
+				{ id: 'quokka:fetch' },
+				{ id: 'quokka:in' },
+				{ id: 'quokka:view' },
+				{ id: '_shell' },
+			],
+			edges: [
+				{ from: 'quokka:timer', to: 'quokka:tee' },
+				{ from: 'quokka:tee', to: 'quokka:fetch' },
+				{ from: 'quokka:in', to: 'quokka:fetch' },
+				{ from: 'quokka:in', to: 'quokka:view' },
+				{ from: 'quokka:fetch', to: '_shell' },
+			],
+		} );
+		const colOf = ( id ) =>
+			( out.nodes.find( ( n ) => n.id === id ).position.x - X_PAD ) /
+			X_STEP;
+
+		// The view shares `quokka:in` with the fetcher, so it shares its column.
+		expect( colOf( 'quokka:view' ) ).toBe( colOf( 'quokka:fetch' ) );
+		// `_shell` shares its feeder with nobody: one column past that feeder.
+		expect( colOf( '_shell' ) ).toBe( colOf( 'quokka:fetch' ) + 1 );
+	} );
+
+	it( 'raises a sink to the furthest consumer sharing its feeder', () => {
+		// `zz` is one column deep and `w0` five, both fed by `x`. Seating `zz`
+		// by its own depth alone would split `x`'s successors across columns,
+		// and a source whose successors span columns is no pair to seat level
+		// with them — which is how `x` drifted three rows off its own sink.
+		const out = autoLayout( {
+			nodes: [
+				{ id: 'chain0' },
+				{ id: 'chain1' },
+				{ id: 'chain2' },
+				{ id: 'chain3' },
+				{ id: 'x' },
+				{ id: 'w0' },
+				{ id: 'zz' },
+			],
+			edges: [
+				{ from: 'chain0', to: 'chain1' },
+				{ from: 'chain1', to: 'chain2' },
+				{ from: 'chain2', to: 'chain3' },
+				{ from: 'chain3', to: 'w0' },
+				{ from: 'x', to: 'w0' },
+				{ from: 'x', to: 'zz' },
+			],
+		} );
+		const colOf = ( id ) =>
+			( out.nodes.find( ( n ) => n.id === id ).position.x - X_PAD ) /
+			X_STEP;
+
+		// Both of x's successors in one column, though zz's own depth is 1.
+		expect( colOf( 'zz' ) ).toBe( colOf( 'w0' ) );
+		expect( colOf( 'zz' ) ).toBeGreaterThan( 2 );
+	} );
+
 	it( 'pushes every sink (no outgoing) to the max-depth column, and an isolated node below the band', () => {
 		// Sinks at mixed depths cluster rightmost; the edgeless _repl is no
 		// part of the band and stacks under it at column 0.
