@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A wire between two blocks means they are one block.** A band wired to two hubs picked one home and kept its wires to the other, whose block the packer then placed on its own — and nothing held the direction of a wire crossing between them, so 55 of 140 such wires ran right to left across the layout corpus. Blocks a wire joins are now merged, and blocks no wire joins still spread across stacks as before.
+- **Slices sharing an egress each keep their own rows.** A node several slices drain only left its band when its fan-in cleared the hub cut, so a page of five slices banded while one of three did not: a single band held all three and the ordering sweep, keying every feeder of that egress alike, pulled their rows together. A pure sink now joins the hub set when removing it parts its feeders into two or more slice-sized pieces no other hub touches. This TRADES corpus wires for page legibility: dropping it measures better on the corpus (30,452 against 31,334 wires through cards), and it is kept because it is what makes a slice read as a slice on every console page.
+
 ## [2.60.6] - 2026-09-15
 
 ### Fixed
