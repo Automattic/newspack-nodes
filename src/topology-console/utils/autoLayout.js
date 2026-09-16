@@ -259,6 +259,12 @@ const HUB_MIN_FAN_IN = 4;
 /** How far above the median fan-in a hub must sit, so a dense graph declares none. */
 const HUB_MEDIAN_FACTOR = 3;
 
+/** A slice's own nodes: a poll's timer, tee and fetcher, plus its in and view. */
+const SLICE_MIN = 3;
+
+/** Past this a part is a sheet of its own, not one slice sharing an egress. */
+const SLICE_MAX = 8;
+
 /**
  * Longest path to every node, walking `next` from the nodes nothing enters.
  *
@@ -1170,6 +1176,8 @@ const placeBackbone = ( backbone, succ, pred, baseCol, col, row ) => {
  * picked, because every band wired to it had a closer hub, attaches to the
  * group holding most of its feeders; a bridge, whose every neighbour is a
  * hub, follows the first of them. A band wired to no hub is a block of its own.
+ * Blocks a wire joins are then one block: each is packed on its own, so a wire
+ * crossing between two of them has nothing holding its direction.
  *
  * @param {Array<string>}                ids  Every node, alphabetical.
  * @param {Object<string,Array<string>>} succ Successors.
@@ -1274,7 +1282,62 @@ const blocksOf = ( ids, succ, pred, hubs ) => {
 	for ( const id of backbone ) {
 		block( groupOfHub[ id ] ).hubs.push( id );
 	}
-	return Object.values( blocks );
+	// @longform A band wired to two hubs picks one home and keeps its wires to
+	// the other, whose block the packer then places on its own — and a wire
+	// between two blocks has nothing holding its direction, so it ran right to
+	// left. A wire between two blocks means they are ONE block.
+	/** @type {Object<string,string>} */
+	const keyOf = {};
+	for ( const b of Object.values( blocks ) ) {
+		for ( const band of b.bands ) {
+			for ( const id of band ) {
+				keyOf[ id ] = b.key;
+			}
+		}
+		for ( const id of b.hubs ) {
+			keyOf[ id ] = b.key;
+		}
+	}
+	/** @type {Object<string,string>} */
+	const root = {};
+	for ( const k of Object.keys( blocks ) ) {
+		root[ k ] = k;
+	}
+	const find = ( k ) => {
+		while ( root[ k ] !== k ) {
+			k = root[ k ];
+		}
+		return k;
+	};
+	for ( const id of ids ) {
+		for ( const n of succ[ id ] ) {
+			const from = keyOf[ id ];
+			const to = keyOf[ n ];
+			if ( ! from || ! to || from === to ) {
+				continue;
+			}
+			const a = find( from );
+			const c = find( to );
+			if ( a !== c ) {
+				root[ a ] = c;
+			}
+		}
+	}
+	/** @type {Object<string,{key: string, bands: Array<Array<string>>, hubs: Array<string>}>} */
+	const merged = {};
+	for ( const b of Object.values( blocks ) ) {
+		const home = ( merged[ find( b.key ) ] ??= {
+			key: find( b.key ),
+			bands: [],
+			hubs: [],
+		} );
+		home.bands.push( ...b.bands );
+		home.hubs.push( ...b.hubs );
+	}
+	for ( const b of Object.values( merged ) ) {
+		b.hubs.sort( byId );
+	}
+	return Object.values( merged );
 };
 
 /**
@@ -1693,7 +1756,42 @@ export function autoLayout( parsed ) {
 		pred[ e.to ].push( e.from );
 	}
 
-	const { col, row } = layoutBands( ids, succ, pred, hubIds( ids, pred ) );
+	const hubs = hubIds( ids, pred );
+	// @longform A pure sink several SLICES drain is the egress a wide fan-in
+	// makes, and the fan-in count alone misses it: three slices sit under the
+	// cut, so nothing subtracted the sink and one band held all three, its
+	// sweep against the flow keying every feeder alike. Take the sink out and
+	// its feeders part; each part is a slice's worth of nodes, and no other hub
+	// touches one — a part another hub serves is packed into that hub's block,
+	// and the wire back to this sink would run backward.
+	for ( const id of ids ) {
+		if ( succ[ id ].length || pred[ id ].length < 2 || hubs.has( id ) ) {
+			continue;
+		}
+		const rest = ids.filter( ( n ) => n !== id && ! hubs.has( n ) );
+		const parts = componentsOf( rest, succ, pred );
+		const at = pred[ id ].map( ( p ) =>
+			parts.findIndex( ( c ) => c.includes( p ) )
+		);
+		if ( at.some( ( i ) => i < 0 ) ) {
+			continue;
+		}
+		const drains = new Set( at );
+		const slices = [ ...drains ].every(
+			( i ) =>
+				parts[ i ].length >= SLICE_MIN &&
+				parts[ i ].length <= SLICE_MAX &&
+				parts[ i ].every( ( n ) =>
+					[ ...succ[ n ], ...pred[ n ] ].every(
+						( m ) => m === id || ! hubs.has( m )
+					)
+				)
+		);
+		if ( drains.size >= 2 && slices ) {
+			hubs.add( id );
+		}
+	}
+	const { col, row } = layoutBands( ids, succ, pred, hubs );
 
 	const positioned = nodes.map( ( n ) => ( {
 		...n,
