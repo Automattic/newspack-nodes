@@ -1674,15 +1674,18 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 	} );
 
 	it( "runs a consumer band's source wire back to its hub clear of the band", () => {
-		// k4src feeds hub0 and a node in the band hub0 feeds. Seated before
-		// that node, it ran its wire back to hub0 across the band's cards.
+		// k4src feeds hub0 and a node in the band hub0 feeds, so its wire runs
+		// back across that band. Its legal columns are 5 to 8, and the fewest
+		// cards a free row there crosses are 4, 5, 6 and 1, so one card is the
+		// optimum and no seat clears every card. Pin which one: a count alone
+		// passes just as well when the wire goes missing, or crosses another.
 		const graph = seedGraph( 'c71271' );
 		const { nodes } = autoLayout( graph );
 		expect(
 			wiresThroughCards( nodes, graph.edges ).filter( ( hit ) =>
 				hit.startsWith( 'k4src→' )
 			)
-		).toEqual( [] );
+		).toEqual( [ 'k4src→hub0 over k5l0n0' ] );
 	} );
 
 	it( 'keeps the cards off the long wires of a node only a hub feeds', () => {
@@ -2274,5 +2277,71 @@ describe( 'autoLayout — hub bands', () => {
 		for ( const id of [ ...sinks, 'y' ] ) {
 			expect( at[ id ].x ).toBe( X_PAD + X_STEP );
 		}
+	} );
+
+	// @longform The station's fleet board: ONE batched poll whose tee feeds the
+	// fetchers of TWO slices, so both land in a single band. Keyed on the mean
+	// of its feeders, `worker-status:fetch` followed that shared tee and sorted
+	// above `topology-manager:view`, splitting each slice across the other's
+	// rows. Its other feeder serves only its own slice, and that is the one to
+	// key on.
+	const fleetBoard = () => {
+		const edges = [];
+		const slice = ( s ) =>
+			edges.push(
+				{ from: `${ s }:timer`, to: `${ s }:tee` },
+				{ from: `${ s }:tee`, to: `${ s }:fetch` },
+				{ from: `${ s }:in`, to: `${ s }:result` },
+				{ from: `${ s }:in`, to: `${ s }:fetch` },
+				{ from: `${ s }:fetch`, to: '_shell' }
+			);
+		slice( 'topologies:activate' );
+		slice( 'topologies:deactivate' );
+		slice( 'workers:restart' );
+		edges.push(
+			{ from: 'topology-manager:timer', to: 'topology-manager:tee' },
+			{ from: 'topology-manager:tee', to: 'worker-status:fetch' },
+			{ from: 'topology-manager:tee', to: 'topology-manager:fetch' },
+			{ from: 'worker-status:fetch', to: '_shell' },
+			{ from: 'topology-manager:fetch', to: '_shell' },
+			{ from: 'worker-status:in', to: 'worker-status:transform' },
+			{ from: 'worker-status:in', to: 'worker-status:fetch' },
+			{ from: 'worker-status:transform', to: 'worker-status:view' },
+			{ from: 'topology-manager:in', to: 'topology-manager:view' },
+			{ from: 'topology-manager:in', to: 'topology-manager:fetch' },
+			{ from: '_heartbeat', to: '_http' },
+			{ from: '_http', to: '_output' },
+			{ from: '_metadata', to: '_cwd' },
+			{ from: 'topicprobe:link', to: 'topicprobe:stream' },
+			{ from: 'topicprobe:stream', to: 'topicprobe:view' }
+		);
+		const ids = new Set( [ '_completion', '_stdout', 'freshness:timer' ] );
+		for ( const e of edges ) {
+			ids.add( e.from );
+			ids.add( e.to );
+		}
+		return { nodes: [ ...ids ].map( ( id ) => ( { id } ) ), edges };
+	};
+
+	it( 'seats a view beside its own fetcher where one tee feeds two slices', () => {
+		const at = positionsOf( fleetBoard() );
+		const span = ( ids ) => {
+			const ys = ids.map( ( id ) => at[ id ].y );
+			return [ Math.min( ...ys ), Math.max( ...ys ) ];
+		};
+
+		// Each view sits within a row of the fetcher answering into it.
+		for ( const s of [ 'topology-manager', 'worker-status' ] ) {
+			expect(
+				Math.abs( at[ `${ s }:view` ].y - at[ `${ s }:fetch` ].y )
+			).toBeLessThanOrEqual( Y_STEP );
+		}
+
+		// And neither slice's rows straddle the other's.
+		const spans = [
+			span( [ 'topology-manager:fetch', 'topology-manager:view' ] ),
+			span( [ 'worker-status:fetch', 'worker-status:view' ] ),
+		].sort( ( a, b ) => a[ 0 ] - b[ 0 ] );
+		expect( spans[ 1 ][ 0 ] ).toBeGreaterThan( spans[ 0 ][ 1 ] );
 	} );
 } );

@@ -231,14 +231,17 @@ const median = ( arr ) => {
  * Columns start in alphabetical id order, so a tie resolves the same way on
  * every run and one topology always lays out identically.
  *
+ * Each key is taken ONCE, before the sort: a comparator reads its operands
+ * O(n log n) times, and every key here walks a node's neighbours.
+ *
  * @param {Array<*>}            arr Items to sort.
  * @param {function(*): number} key The sort key for one item.
  * @return {Array<*>} A new sorted array; `arr` is left alone.
  */
 const stableSort = ( arr, key ) =>
 	arr
-		.map( ( v, i ) => [ v, i ] )
-		.sort( ( a, b ) => key( a[ 0 ] ) - key( b[ 0 ] ) || a[ 1 ] - b[ 1 ] )
+		.map( ( v, i ) => [ v, i, key( v ) ] )
+		.sort( ( a, b ) => a[ 2 ] - b[ 2 ] || a[ 1 ] - b[ 1 ] )
 		.map( ( x ) => x[ 0 ] );
 
 /**
@@ -407,8 +410,26 @@ const spreadColumn = ( members, row, order, size = () => 1 ) => {
 };
 
 /**
- * The nearest half row to `from` that `ok` accepts: `from` itself, then half a
- * row below and above it, a row below and above, and on out, below first.
+ * Every half row outward from `from`: `from` itself, then half a row below and
+ * above it, a row below and above, and on out, below first.
+ *
+ * The one search order every row hunt shares, so a caller taking the first row
+ * that will do and one taking the best of them break a tie the same way.
+ *
+ * @param {number} from    The row to search out from.
+ * @param {number} [limit] Half-row steps to try each way.
+ * @yield {number} Each row in turn.
+ */
+function* rowsOutward( from, limit = Infinity ) {
+	yield from;
+	for ( let k = 1; k <= limit; k++ ) {
+		yield from + k / 2;
+		yield from - k / 2;
+	}
+}
+
+/**
+ * The nearest half row to `from` that `ok` accepts.
  *
  * @param {number}                   from    The row to search out from.
  * @param {( r: number ) => boolean} ok      Whether a row will do.
@@ -416,13 +437,39 @@ const spreadColumn = ( members, row, order, size = () => 1 ) => {
  * @return {number|undefined} The row, or undefined when none within the limit does.
  */
 const nearestRow = ( from, ok, limit = Infinity ) => {
-	for ( let k = 0; k <= limit; k++ ) {
-		const found = [ from + k / 2, from - k / 2 ].find( ok );
-		if ( found !== undefined ) {
-			return found;
+	for ( const r of rowsOutward( from, limit ) ) {
+		if ( ok( r ) ) {
+			return r;
 		}
 	}
 	return undefined;
+};
+
+/**
+ * How many of `ids` sit within a row of the interval `lo`..`hi`, `skip` aside.
+ *
+ * The ONE "a card holds this row" rule: a card whose centre falls inside the
+ * interval is drawn over it, and a caller wanting a yes-or-no reads the count
+ * as one. A card with no row yet holds nothing.
+ *
+ * @param {Array<string>}             ids    Ids sharing one column.
+ * @param {Object<string,number>}     row    Rows.
+ * @param {number}                    lo     Low edge, exclusive.
+ * @param {number}                    hi     High edge, exclusive.
+ * @param {( id: string ) => boolean} [skip] Ids to leave out, the asker first.
+ * @return {number} How many hold the interval.
+ */
+const cardsWithin = ( ids, row, lo, hi, skip ) => {
+	let k = 0;
+	for ( const o of ids ) {
+		if ( row[ o ] === undefined || skip?.( o ) ) {
+			continue;
+		}
+		if ( row[ o ] > lo + 1e-9 && row[ o ] < hi - 1e-9 ) {
+			k++;
+		}
+	}
+	return k;
 };
 
 /** Rows a card keeps between its centre and a wire: half its own height. */
@@ -492,14 +539,13 @@ const clearWires = ( ids, wires, col, row, others = ids ) => {
 					Math.min( ...list.map( ( [ lo ] ) => lo ) ) +
 					byCol[ c ].length +
 					1 );
-			const clearOfCards = ( r ) =>
-				byCol[ c ].every(
-					( o ) => o === id || Math.abs( row[ o ] - r ) >= 1 - 1e-9
-				);
+			const mine = ( o ) => o === id;
 			// The nearest clear half row, below before above on a tie.
 			const found = nearestRow(
 				row[ id ],
-				( r ) => ! inside( r, list ) && clearOfCards( r ),
+				( r ) =>
+					! inside( r, list ) &&
+					! cardsWithin( byCol[ c ], row, r - 1, r + 1, mine ),
 				reach
 			);
 			if ( found !== undefined ) {
@@ -530,10 +576,10 @@ const clearWires = ( ids, wires, col, row, others = ids ) => {
  * passes no card in the columns between. A seat costs the rows it sits off
  * that midpoint plus a quarter per column of wire beyond the shortest, and the
  * cheapest clear one wins, the largest fans choosing first. With none clear, a
- * source takes the rightmost column in its range, at the nearest row where its
- * wires pass no card, or failing that the nearest row no card or wire holds. A
- * source wired to a node outside its block keeps the column its band gave it
- * and chooses only its row: nothing here can see where that wire lands.
+ * source takes the rightmost column in its range, at the free row its wires
+ * cross fewest cards from, or failing that the nearest row no card or wire
+ * holds. A source wired to a node outside its block keeps the column its band
+ * gave it and chooses only its row: nothing here can see where that wire lands.
  *
  * @param {Array<string>}                sources The sources to seat.
  * @param {Object<string,Array<string>>} next    Each source's real successors.
@@ -566,9 +612,7 @@ const seatSources = ( sources, next, hubs, cards, wires, col, row ) => {
 		r > Math.min( row[ a ], row[ b ] ) - WIRE_CLEARANCE + 1e-9 &&
 		r < Math.max( row[ a ], row[ b ] ) + WIRE_CLEARANCE - 1e-9;
 	const near = ( id, c, lo, hi ) =>
-		( byCol[ c ] ?? [] ).some(
-			( o ) => o !== id && row[ o ] > lo + 1e-9 && row[ o ] < hi - 1e-9
-		);
+		cardsWithin( byCol[ c ] ?? [], row, lo, hi, ( o ) => o === id );
 	const order = stableSort(
 		[ ...sources ].sort( byId ),
 		( id ) => -next[ id ].length
@@ -582,19 +626,17 @@ const seatSources = ( sources, next, hubs, cards, wires, col, row ) => {
 		const free = ( c, r ) =>
 			! near( id, c, r - 1, r + 1 ) &&
 			! ( across[ c ] ?? [] ).some( ( w ) => onWire( w, r ) );
-		// A card in a column between the seat and a successor, on that wire.
-		const crossed = ( c, r ) =>
-			fed.some( ( k ) => {
+		// Cards between the seat and a successor, on that wire.
+		const crossings = ( c, r ) =>
+			fed.reduce( ( sum, k ) => {
 				const lo = Math.min( r, row[ k ] ) - WIRE_CLEARANCE;
 				const hi = Math.max( r, row[ k ] ) + WIRE_CLEARANCE;
 				const far = Math.max( c, col[ k ] );
 				for ( let x = Math.min( c, col[ k ] ) + 1; x < far; x++ ) {
-					if ( near( id, x, lo, hi ) ) {
-						return true;
-					}
+					sum += near( id, x, lo, hi );
 				}
-				return false;
-			} );
+				return sum;
+			}, 0 );
 		const cost = ( c, r ) =>
 			Math.abs( r - want ) +
 			fed.reduce( ( sum, k ) => sum + Math.abs( col[ k ] - c ) - 1, 0 ) /
@@ -627,18 +669,29 @@ const seatSources = ( sources, next, hubs, cards, wires, col, row ) => {
 			}
 		}
 		let seat = stableSort( candidates, ( [ c, r ] ) => cost( c, r ) ).find(
-			( [ c, r ] ) => free( c, r ) && ! crossed( c, r )
+			( [ c, r ] ) => free( c, r ) && ! crossings( c, r )
 		);
 		if ( ! seat ) {
 			const c = columns[ columns.length - 1 ];
-			seat = [
-				c,
-				nearestRow(
-					want,
-					( at ) => free( c, at ) && ! crossed( c, at ),
-					reach
-				) ?? nearestRow( want, ( at ) => free( c, at ) ),
-			];
+			// @longform Nothing in range is clear, so take the least-crossed
+			// free row rather than the nearest: dropping the count altogether
+			// ran a source's wire over three cards it could have missed.
+			let best;
+			let fewest = Infinity;
+			for ( const at of rowsOutward( want, reach ) ) {
+				if ( ! free( c, at ) ) {
+					continue;
+				}
+				const hit = crossings( c, at );
+				if ( hit < fewest ) {
+					fewest = hit;
+					best = at;
+				}
+				if ( ! fewest ) {
+					break;
+				}
+			}
+			seat = [ c, best ?? nearestRow( want, ( at ) => free( c, at ) ) ];
 		}
 		byCol[ col[ id ] ] = byCol[ col[ id ] ].filter( ( o ) => o !== id );
 		[ col[ id ], row[ id ] ] = seat;
@@ -912,16 +965,59 @@ const layoutComponent = ( ids, succ, pred, unfed ) => {
 			? a.reduce( ( s, x ) => s + pos[ x ], 0 ) / a.length
 			: pos[ id ];
 	};
+
+	// Columns are fixed by now, so a node's spread over them is counted once.
+	const spreadOver = ( adj ) => {
+		/** @type {Object<string,Object<number,number>>} */
+		const over = {};
+		for ( const id of laid ) {
+			/** @type {Object<number,number>} */
+			const k = {};
+			for ( const n of adj[ id ] ) {
+				k[ col[ n ] ] = ( k[ col[ n ] ] ?? 0 ) + 1;
+			}
+			over[ id ] = k;
+		}
+		return over;
+	};
+	const succOver = spreadOver( succ );
+	const predOver = spreadOver( pred );
+
+	// @longform A neighbour serving several of one column keys every one of
+	// them alike, so two slices sharing a tee interleave. The neighbour serving
+	// fewest of the column is the one that tells them apart, and an all-round
+	// tie keys on the whole set, as an unshared graph always did. A through
+	// wire's placeholder serves one card by construction, so this prefers a
+	// long feed of a node's own over a short one it shares — the sweeps read
+	// index space, and the row-median passes below need none of it, keying on
+	// rows these sweeps have already pulled apart.
+	const leastShared = ( nb, over, c ) => {
+		const served = ( n ) => over[ n ][ c ] ?? 0;
+		const min = Math.min( ...nb.map( served ) );
+		return nb.filter( ( n ) => served( n ) === min );
+	};
+
+	// A node is sorted only in its own column, so its key never varies.
+	const keyedBy = ( adj, over ) => {
+		/** @type {Object<string,Array<string>>} */
+		const keyed = {};
+		for ( const id of laid ) {
+			keyed[ id ] = leastShared( adj[ id ], over, col[ id ] );
+		}
+		return keyed;
+	};
+	const predKeyed = keyedBy( pred, succOver );
+	const succKeyed = keyedBy( succ, predOver );
 	for ( let s = 0; s < 12; s++ ) {
 		for ( let c = 1; c <= maxDepth; c++ ) {
 			columns[ c ] = stableSort( columns[ c ], ( id ) =>
-				baryIndex( id, pred[ id ] )
+				baryIndex( id, predKeyed[ id ] )
 			);
 			reindex();
 		}
 		for ( let c = maxDepth - 1; c >= 0; c-- ) {
 			columns[ c ] = stableSort( columns[ c ], ( id ) =>
-				baryIndex( id, succ[ id ] )
+				baryIndex( id, succKeyed[ id ] )
 			);
 			reindex();
 		}
@@ -977,15 +1073,12 @@ const layoutComponent = ( ids, succ, pred, unfed ) => {
 					continue;
 				}
 				const want = snapHalf( midMinMax( nb.map( ( p ) => r[ p ] ) ) );
-				const free = ( at ) =>
-					columns[ c ].every(
-						( o ) =>
-							o === id ||
-							! footprint( o ) ||
-							r[ o ] === undefined ||
-							Math.abs( r[ o ] - at ) >= 1 - 1e-9
-					);
-				r[ id ] = nearestRow( want, free );
+				const skip = ( o ) => o === id || ! footprint( o );
+				r[ id ] = nearestRow(
+					want,
+					( at ) =>
+						! cardsWithin( columns[ c ], r, at - 1, at + 1, skip )
+				);
 			}
 		}
 		// @longform A component that never reaches the anchor column is
