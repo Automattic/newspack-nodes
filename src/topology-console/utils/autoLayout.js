@@ -15,13 +15,13 @@
  * its own, so a two-node slice spans two columns whatever depth its neighbours
  * reach, and one slice's members never share rows with another's. The bands
  * gather into BLOCKS — a hub with the bands that feed it, or a band feeding no
- * hub on its own — and the blocks pack into side-by-side stacks toward a
- * canvas about as wide as it is tall, widest blocks first; a small graph fills
- * one stack. A block wired to no other that would open a new stack waits for
- * every other block instead, then takes any room above or below the cards in
- * the columns it would cover, clear of every wire already drawn, so a tall
- * block's short neighbours sit beside its feeders rather than past its hub.
- * An edgeless node is a block of one.
+ * hub on its own, merged with every block a wire joins it to — and the blocks
+ * pack into side-by-side stacks toward a canvas about as wide as it is tall,
+ * widest blocks first; a small graph fills one stack. A block that would open
+ * a new stack waits for every other block instead, then takes any room above
+ * or below the cards in the columns it would cover, clear of every wire
+ * already drawn, so a tall block's short neighbours sit beside its feeders
+ * rather than past its hub. An edgeless node is a block of one.
  *
  * Within a band, columns come from a Coffman-Graham-flavored layering: a true
  * source starts in column 0, a true sink seats one column past its own depth
@@ -1392,10 +1392,11 @@ const stackRows = ( blocks ) => {
  * shorter than `Y_STEP`. The blocks pack widest first, so a narrow block never
  * sits under empty columns, and alphabetically among equals; a stack takes
  * blocks until it reaches the square's height, then the next opens one gap
- * column to the right. A block past the height that is wired to no other
- * waits until every other block is down, then looks for room above or below
- * what the columns it would cover hold, and stacks only when none fits. A
- * small graph fills one stack, which is the old single column of bands.
+ * column to the right. A block past the height waits until every other block
+ * is down, then looks for room above or below what the columns it would cover
+ * hold, and stacks only when none fits — every wire of its own lands inside
+ * it, so the room it takes crosses nothing. A small graph fills one stack,
+ * which is the old single column of bands.
  *
  * @param {Array<string>}                ids  Every node, alphabetical.
  * @param {Object<string,Array<string>>} succ Successors.
@@ -1661,19 +1662,10 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 		stackWidth = Math.max( stackWidth, b.width );
 		stackRow = at + b.height;
 	};
-	const selfContained = ( b ) =>
-		Object.keys( b.col ).every( ( id ) =>
-			[ ...succ[ id ], ...pred[ id ] ].every(
-				( n ) => b.col[ n ] !== undefined
-			)
-		);
+	// A block's every wire lands inside it, so size alone decides who waits.
 	const later = [];
 	for ( const b of order ) {
-		if (
-			stackRow > 0 &&
-			stackRow + b.height > limit &&
-			selfContained( b )
-		) {
+		if ( stackRow > 0 && stackRow + b.height > limit ) {
 			later.push( b );
 			continue;
 		}
