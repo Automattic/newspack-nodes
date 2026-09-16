@@ -369,40 +369,6 @@ describe( 'autoLayout — real graphs (normalized; relative positions only)', ()
 			{ from: 'tee3', to: '_output' },
 		],
 	};
-	// @longform The three tees share `_output`, which every one of them drains
-	// and nothing else touches, so it reads as their egress and sits with the
-	// other sinks rather than a column past them: `_cwd` and
-	// `performance:view` keep it company in the tees' next column, and the
-	// sheet closes up from 660 tall to 550. The two edgeless nodes still stack
-	// below the band, at its first column.
-	const graphAExpected1 = {
-		_completion: { x: 60, y: 520 },
-		_cwd: { x: 540, y: 410 },
-		_http: { x: 60, y: 630 },
-		_metadata: { x: 60, y: 410 },
-		_output: { x: 540, y: 245 },
-		echo1: { x: 60, y: 190 },
-		echo2: { x: 60, y: 300 },
-		'performance:command': { x: 60, y: 80 },
-		'performance:view': { x: 540, y: 80 },
-		tee1: { x: 300, y: 80 },
-		tee2: { x: 300, y: 410 },
-		tee3: { x: 300, y: 245 },
-	};
-	const graphAExpected2 = {
-		_completion: { x: 60, y: 685 },
-		_cwd: { x: 540, y: 575 },
-		_http: { x: 60, y: 795 },
-		_metadata: { x: 60, y: 410 },
-		_output: { x: 540, y: 245 },
-		echo1: { x: 60, y: 190 },
-		echo2: { x: 60, y: 300 },
-		'performance:command': { x: 60, y: 80 },
-		'performance:view': { x: 540, y: -85 },
-		tee1: { x: 300, y: 80 },
-		tee2: { x: 300, y: 410 },
-		tee3: { x: 300, y: 245 },
-	};
 	// @longform `tee1` and `tee3` both drain `_output`, and `tee2` drains it as
 	// well as `_cwd`, so the three tees and both sinks are one block rather
 	// than two the packer placed apart. The tees order by their own feeders —
@@ -474,11 +440,7 @@ describe( 'autoLayout — real graphs (normalized; relative positions only)', ()
 
 	it( 'lays out the performance dashboard graph (graph A)', () => {
 		const got = normalize( posMapOf( autoLayout( graphA ).nodes ) );
-		expect( [
-			normalize( graphAExpected1 ),
-			normalize( graphAExpected2 ),
-			normalize( graphAExpected3 ),
-		] ).toContainEqual( got );
+		expect( got ).toEqual( normalize( graphAExpected3 ) );
 	} );
 
 	// Layout must be identical regardless of node registration order.
@@ -516,11 +478,7 @@ describe( 'autoLayout — real graphs (normalized; relative positions only)', ()
 			const got = normalize(
 				posMapOf( autoLayout( reorder( graphA, order ) ).nodes )
 			);
-			expect( [
-				normalize( graphAExpected1 ),
-				normalize( graphAExpected2 ),
-				normalize( graphAExpected3 ),
-			] ).toContainEqual( got );
+			expect( got ).toEqual( normalize( graphAExpected3 ) );
 		}
 	} );
 

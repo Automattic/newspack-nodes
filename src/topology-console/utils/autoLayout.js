@@ -1282,10 +1282,7 @@ const blocksOf = ( ids, succ, pred, hubs ) => {
 	for ( const id of backbone ) {
 		block( groupOfHub[ id ] ).hubs.push( id );
 	}
-	// @longform A band wired to two hubs picks one home and keeps its wires to
-	// the other, whose block the packer then places on its own — and a wire
-	// between two blocks has nothing holding its direction, so it ran right to
-	// left. A wire between two blocks means they are ONE block.
+	// One block, then: the grouping above only orders the bands it stacks.
 	/** @type {Object<string,string>} */
 	const keyOf = {};
 	for ( const b of Object.values( blocks ) ) {
@@ -1298,41 +1295,40 @@ const blocksOf = ( ids, succ, pred, hubs ) => {
 			keyOf[ id ] = b.key;
 		}
 	}
-	/** @type {Object<string,string>} */
-	const root = {};
+	/** @type {Object<string,Array<string>>} */
+	const joined = {};
 	for ( const k of Object.keys( blocks ) ) {
-		root[ k ] = k;
+		joined[ k ] = [];
 	}
-	const find = ( k ) => {
-		while ( root[ k ] !== k ) {
-			k = root[ k ];
-		}
-		return k;
-	};
 	for ( const id of ids ) {
 		for ( const n of succ[ id ] ) {
-			const from = keyOf[ id ];
-			const to = keyOf[ n ];
-			if ( ! from || ! to || from === to ) {
-				continue;
+			if ( keyOf[ id ] && keyOf[ n ] && keyOf[ id ] !== keyOf[ n ] ) {
+				joined[ keyOf[ id ] ].push( keyOf[ n ] );
+				joined[ keyOf[ n ] ].push( keyOf[ id ] );
 			}
-			const a = find( from );
-			const c = find( to );
-			if ( a !== c ) {
-				root[ a ] = c;
-			}
+		}
+	}
+	/** @type {Object<string,string>} */
+	const home = {};
+	for ( const run of componentsOf(
+		Object.keys( blocks ).sort( byId ),
+		joined,
+		joined
+	) ) {
+		for ( const k of run ) {
+			home[ k ] = run[ 0 ];
 		}
 	}
 	/** @type {Object<string,{key: string, bands: Array<Array<string>>, hubs: Array<string>}>} */
 	const merged = {};
 	for ( const b of Object.values( blocks ) ) {
-		const home = ( merged[ find( b.key ) ] ??= {
-			key: find( b.key ),
+		const into = ( merged[ home[ b.key ] ] ??= {
+			key: home[ b.key ],
 			bands: [],
 			hubs: [],
 		} );
-		home.bands.push( ...b.bands );
-		home.hubs.push( ...b.hubs );
+		into.bands.push( ...b.bands );
+		into.hubs.push( ...b.hubs );
 	}
 	for ( const b of Object.values( merged ) ) {
 		b.hubs.sort( byId );
@@ -1758,36 +1754,51 @@ export function autoLayout( parsed ) {
 
 	const hubs = hubIds( ids, pred );
 	// @longform A pure sink several SLICES drain is the egress a wide fan-in
-	// makes, and the fan-in count alone misses it: three slices sit under the
-	// cut, so nothing subtracted the sink and one band held all three, its
-	// sweep against the flow keying every feeder alike. Take the sink out and
-	// its feeders part; each part is a slice's worth of nodes, and no other hub
-	// touches one — a part another hub serves is packed into that hub's block,
-	// and the wire back to this sink would run backward.
+	// makes, and the count alone misses it: three slices sit under the cut, so
+	// one band held all three and the sweep against the flow keyed every feeder
+	// alike. It costs the corpus wires — 30,452 to 31,273 through cards — and
+	// buys a slice reading as a slice on every console page. Walk out from each
+	// feeder rather than parting the whole graph: a part over SLICE_MAX is
+	// disqualified anyway, so the walk abandons there.
+	const partFrom = ( from, sink ) => {
+		const part = new Set( [ from ] );
+		const queue = [ from ];
+		while ( queue.length ) {
+			const at = queue.pop();
+			if ( hubs.has( at ) ) {
+				return null; // Another hub packs this part into its own block.
+			}
+			for ( const n of [ ...succ[ at ], ...pred[ at ] ] ) {
+				if ( n === sink || part.has( n ) ) {
+					continue;
+				}
+				if ( part.size >= SLICE_MAX ) {
+					return null;
+				}
+				part.add( n );
+				queue.push( n );
+			}
+		}
+		return part;
+	};
 	for ( const id of ids ) {
 		if ( succ[ id ].length || pred[ id ].length < 2 || hubs.has( id ) ) {
 			continue;
 		}
-		const rest = ids.filter( ( n ) => n !== id && ! hubs.has( n ) );
-		const parts = componentsOf( rest, succ, pred );
-		const at = pred[ id ].map( ( p ) =>
-			parts.findIndex( ( c ) => c.includes( p ) )
-		);
-		if ( at.some( ( i ) => i < 0 ) ) {
-			continue;
+		/** @type {Array<Set<string>>} */
+		const parts = [];
+		for ( const p of pred[ id ] ) {
+			if ( parts.some( ( part ) => part.has( p ) ) ) {
+				continue;
+			}
+			const part = partFrom( p, id );
+			if ( ! part || part.size < SLICE_MIN ) {
+				parts.length = 0;
+				break;
+			}
+			parts.push( part );
 		}
-		const drains = new Set( at );
-		const slices = [ ...drains ].every(
-			( i ) =>
-				parts[ i ].length >= SLICE_MIN &&
-				parts[ i ].length <= SLICE_MAX &&
-				parts[ i ].every( ( n ) =>
-					[ ...succ[ n ], ...pred[ n ] ].every(
-						( m ) => m === id || ! hubs.has( m )
-					)
-				)
-		);
-		if ( drains.size >= 2 && slices ) {
+		if ( parts.length >= 2 ) {
 			hubs.add( id );
 		}
 	}
