@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.60.6] - 2026-09-15
+
 ### Fixed
 
 - **A sink sits within reach of what feeds it.** Every node with no outgoing wire was pinned to the last column of its band, so a shallow one — a slice's view, a command's result — sat a column or more past the fetcher it answers beside, and its wire crossed every card in between. A sink now seats one column past its own depth and rises to the furthest consumer it shares a feeder with, which keeps a fleet's partitions lined up on the right while a view lands beside its fetcher. Over the 3,000-graph layout corpus this draws 22% fewer wires through cards (40,765 to 31,749), and 19% fewer on the consumer corpus (32,035 to 26,069), with no new overlaps and no backward edges.
