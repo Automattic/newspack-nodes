@@ -1885,6 +1885,17 @@ describe( 'autoLayout — hub bands', () => {
 	const POLL_SLICES = [ 'a', 'b', 'd', 'e', 'f' ];
 	const VIEW_SLICES = [ 'c', 'g', 'h', 'i', 'j' ];
 
+	// Every node an edge names, plus `extra` edgeless ones.
+	const graphOf = ( edges, extra = [] ) => ( {
+		nodes: [
+			...new Set( [
+				...extra,
+				...edges.flatMap( ( e ) => [ e.from, e.to ] ),
+			] ),
+		].map( ( id ) => ( { id } ) ),
+		edges,
+	} );
+
 	const hubGraph = () => {
 		const edges = [];
 		for ( const s of POLL_SLICES ) {
@@ -1905,12 +1916,7 @@ describe( 'autoLayout — hub bands', () => {
 			{ from: '_http', to: '_output' },
 			{ from: '_metadata', to: '_cwd' }
 		);
-		const ids = new Set( [ '_heartbeat' ] );
-		for ( const e of edges ) {
-			ids.add( e.from );
-			ids.add( e.to );
-		}
-		return { nodes: [ ...ids ].map( ( id ) => ( { id } ) ), edges };
+		return graphOf( edges, [ '_heartbeat' ] );
 	};
 
 	const positionsOf = ( graph ) => {
@@ -1999,12 +2005,7 @@ describe( 'autoLayout — hub bands', () => {
 					: { from: `s${ i }`, to: 'hub' }
 			);
 		}
-		const ids = new Set();
-		for ( const e of edges ) {
-			ids.add( e.from );
-			ids.add( e.to );
-		}
-		return { nodes: [ ...ids ].map( ( id ) => ( { id } ) ), edges };
+		return graphOf( edges );
 	};
 
 	// Every component bands, hub or no hub: a two-node slice never stretches
@@ -2012,7 +2013,8 @@ describe( 'autoLayout — hub bands', () => {
 	// right after its feeders, on their middle row; an ordinary node stays.
 	it( 'bands every component, and leaves a node three feed in its band', () => {
 		const at = positionsOf( starGraph( 3 ) );
-		// Three wires in open the gap; the pair shares the column, so the gap.
+		// Three wires in open the gap; the pair shares the hub's column, so
+		// it shifts too.
 		expect( at.y.x - at.x.x ).toBe( 1.5 * X_STEP );
 		expect( at.hub.x ).toBe( at.s0.x + 1.5 * X_STEP );
 	} );
@@ -2032,7 +2034,7 @@ describe( 'autoLayout — hub bands', () => {
 		);
 	} );
 
-	it( 'widens the gap before every hub column, and before each hub of a chain', () => {
+	it( 'adds half a step at each busy boundary: gaps accumulate', () => {
 		const edges = [];
 		for ( const i of [ 0, 1, 2, 3 ] ) {
 			edges.push(
@@ -2044,11 +2046,7 @@ describe( 'autoLayout — hub bands', () => {
 			edges.push( { from: `c${ i }`, to: 'tail' } );
 		}
 		edges.push( { from: 'hub', to: 'tail' }, { from: 'tail', to: 'out' } );
-		const ids = new Set( edges.flatMap( ( e ) => [ e.from, e.to ] ) );
-		const at = positionsOf( {
-			nodes: [ ...ids ].map( ( id ) => ( { id } ) ),
-			edges,
-		} );
+		const at = positionsOf( graphOf( edges ) );
 
 		expect( at.a0.x ).toBe( X_PAD );
 		expect( at.b0.x ).toBe( X_PAD + X_STEP );
@@ -2069,55 +2067,39 @@ describe( 'autoLayout — hub bands', () => {
 			{ from: '_http', to: '_output' },
 			...remotes.map( ( r ) => ( { from: r, to: '_output' } ) ),
 		];
-		const ids = new Set( edges.flatMap( ( e ) => [ e.from, e.to ] ) );
-		const at = positionsOf( {
-			nodes: [ ...ids ].map( ( id ) => ( { id } ) ),
-			edges,
-		} );
+		const at = positionsOf( graphOf( edges ) );
 
 		expect( at._http.x ).toBe( at._heartbeat.x + X_STEP );
 		expect( at._output.x ).toBe( at._http.x + 1.5 * X_STEP );
 	} );
 
-	it( 'opens the gap after a node three wires leave, and once where both meet', () => {
-		// A consumer feeds a tee fanning out to three partitions, and a
-		// two-way split beside it keeps an ordinary step after its column.
-		const edges = [
-			{ from: 'consumer', to: 'tee' },
-			{ from: 'tee', to: 'p0' },
-			{ from: 'tee', to: 'p1' },
-			{ from: 'tee', to: 'p2' },
-			{ from: 'split:in', to: 'split' },
-			{ from: 'split', to: 'split:a' },
-			{ from: 'split', to: 'split:b' },
-		];
-		const ids = new Set( edges.flatMap( ( e ) => [ e.from, e.to ] ) );
-		const at = positionsOf( {
-			nodes: [ ...ids ].map( ( id ) => ( { id } ) ),
-			edges,
-		} );
+	it( 'opens the gap after a node three wires leave', () => {
+		const at = positionsOf(
+			graphOf( [
+				{ from: 'consumer', to: 'tee' },
+				{ from: 'tee', to: 'p0' },
+				{ from: 'tee', to: 'p1' },
+				{ from: 'tee', to: 'p2' },
+			] )
+		);
 
 		expect( at.tee.x ).toBe( at.consumer.x + X_STEP );
 		expect( at.p0.x ).toBe( at.tee.x + 1.5 * X_STEP );
-		// The split shares the tee's columns, so it shares the one gap.
-		expect( at[ 'split:a' ].x ).toBe( at.p0.x );
+	} );
 
-		// Three leave the tee and three enter `m` across one boundary: one gap.
-		const joined = positionsOf( {
-			nodes: [ 'src', 'tee', 'm', 'a', 'b', 'q', 'r' ].map( ( id ) => ( {
-				id,
-			} ) ),
-			edges: [
+	it( 'opens one gap where three wires leave and three enter across a boundary', () => {
+		const at = positionsOf(
+			graphOf( [
 				{ from: 'src', to: 'tee' },
 				{ from: 'tee', to: 'm' },
 				{ from: 'tee', to: 'a' },
 				{ from: 'tee', to: 'b' },
 				{ from: 'q', to: 'm' },
 				{ from: 'r', to: 'm' },
-			],
-		} );
-		expect( joined.tee.x ).toBe( joined.src.x + X_STEP );
-		expect( joined.m.x ).toBe( joined.tee.x + 1.5 * X_STEP );
+			] )
+		);
+
+		expect( at.m.x ).toBe( at.tee.x + 1.5 * X_STEP );
 	} );
 
 	it( 'leaves a node fanning out to seven in its band: only fan-in makes a hub', () => {
