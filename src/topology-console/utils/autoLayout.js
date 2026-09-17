@@ -57,10 +57,8 @@
  *
  * Half a step opens before every column holding a node three or more wires
  * enter, and after every column holding one three or more leave — a hub, a
- * Tee, or neither — so converging and diverging wires have room to fan. A
- * boundary both claim opens once. The shift is per column rather than per
- * block, because stacks share columns: a card keeps its column order, so
- * nothing overlaps, and every half step stays on the snap lattice.
+ * Tee, or neither — so converging and diverging wires have room to fan. The
+ * shift is per column, not per block, because stacks share columns.
  */
 
 /** Horizontal distance between layout columns, in canvas pixels. */
@@ -1909,7 +1907,6 @@ export function autoLayout( parsed ) {
 		}
 	}
 	const { col, row } = layoutBands( ids, succ, pred, hubs );
-	// Gap before the column wires converge on, and after the one they leave.
 	const opened = new Set();
 	for ( const id of ids ) {
 		if ( pred[ id ].length >= GAP_MIN_WIRES ) {
