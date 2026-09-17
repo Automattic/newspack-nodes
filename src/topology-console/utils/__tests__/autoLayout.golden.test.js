@@ -19,15 +19,16 @@
 
 import { autoLayout, X_STEP, Y_STEP } from '../autoLayout';
 
-// Ideal layout (top-left positions) from the hand-verified live console.
+// Ideal layout (top-left positions) from the hand-verified live console, with
+// the half step `request-builder`'s four outbound wires open after its column.
 const GOLDEN = {
-	'requests:partition': [ 1020, 520 ],
-	'errors:partition': [ 1020, 410 ],
-	'completed:tee': [ 780, 245 ],
-	'completed:partition': [ 1020, 190 ],
-	'gyroscope:partition': [ 1020, 300 ],
+	'requests:partition': [ 1140, 520 ],
+	'errors:partition': [ 1140, 410 ],
+	'completed:tee': [ 900, 245 ],
+	'completed:partition': [ 1140, 190 ],
+	'gyroscope:partition': [ 1140, 300 ],
 	'request-builder': [ 540, 410 ],
-	'jobs:partition': [ 1020, 80 ],
+	'jobs:partition': [ 1140, 80 ],
 	'job-router': [ 540, 80 ],
 	'firehose:consumer': [ 60, 245 ],
 	'firehose:tee': [ 300, 245 ],

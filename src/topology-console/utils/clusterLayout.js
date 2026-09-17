@@ -19,8 +19,8 @@ import { autoLayout } from './autoLayout';
  * Lay out the nodes one include contributed, landing them on the drop point.
  *
  * Nothing snaps here. The caller hands in a drop point already on the grid,
- * and every offset added to it is a multiple of `X_STEP` in x and of half a
- * `Y_STEP` in y — the lattice `snapPosition` quantises to — so the whole
+ * and every offset added to it is a multiple of half an `X_STEP` in x and of
+ * half a `Y_STEP` in y — the lattice `snapPosition` quantises to — so the whole
  * cluster lands on that lattice with the drop point as its top-left corner.
  *
  * @param {Array<{name: string, class: string, origin?: string[]}>} nodes        Every expanded node; `origin` lists the includes that contributed it.

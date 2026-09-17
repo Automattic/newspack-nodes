@@ -373,13 +373,14 @@ describe( 'autoLayout — real graphs (normalized; relative positions only)', ()
 	// well as `_cwd`, so the three tees and both sinks are one block rather
 	// than two the packer placed apart. The tees order by their own feeders —
 	// `_metadata` on top, then the echo pair, then `performance:command` — and
-	// the edgeless cards stack below the band at its first column.
+	// the edgeless cards stack below the band at its first column. `_output` is
+	// the hub, so its column sits half a step clear of the tees.
 	const graphAExpected3 = {
 		_completion: { x: 60, y: 630 },
 		_cwd: { x: 540, y: 80 },
 		_http: { x: 60, y: 740 },
 		_metadata: { x: 60, y: 135 },
-		_output: { x: 780, y: 300 },
+		_output: { x: 900, y: 300 },
 		echo1: { x: 60, y: 245 },
 		echo2: { x: 60, y: 355 },
 		'performance:command': { x: 60, y: 465 },
@@ -419,19 +420,20 @@ describe( 'autoLayout — real graphs (normalized; relative positions only)', ()
 			{ from: 'jobintake:consumer', to: 'job-router' },
 		],
 	};
+	// `request-builder` fans out four wires, so half a step opens after it.
 	const graphBExpected = {
 		_repl: { x: 60, y: 630 },
-		'completed:partition': { x: 1020, y: 190 },
-		'completed:tee': { x: 780, y: 245 },
-		'errors:partition': { x: 1020, y: 410 },
+		'completed:partition': { x: 1140, y: 190 },
+		'completed:tee': { x: 900, y: 245 },
+		'errors:partition': { x: 1140, y: 410 },
 		'firehose:consumer': { x: 60, y: 245 },
 		'firehose:tee': { x: 300, y: 245 },
-		'gyroscope:partition': { x: 1020, y: 300 },
+		'gyroscope:partition': { x: 1140, y: 300 },
 		'job-router': { x: 540, y: 80 },
 		'jobintake:consumer': { x: 300, y: 80 },
-		'jobs:partition': { x: 1020, y: 80 },
+		'jobs:partition': { x: 1140, y: 80 },
 		'request-builder': { x: 540, y: 410 },
-		'requests:partition': { x: 1020, y: 520 },
+		'requests:partition': { x: 1140, y: 520 },
 	};
 	it( 'lays out the firehose worker graph (graph B) — already satisfied', () => {
 		const got = normalize( posMapOf( autoLayout( graphB ).nodes ) );
@@ -1222,7 +1224,8 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 			const cols = JOBS.map(
 				( job ) => g[ `${ pub }:${ job }:buffer` ].col
 			);
-			expect( g[ `${ pub }:hub` ].col ).toBe( Math.max( ...cols ) + 1 );
+			// Half a step clear: a hub's column carries the fan-in gap.
+			expect( g[ `${ pub }:hub` ].col ).toBe( Math.max( ...cols ) + 1.5 );
 			// On the middle row, or half a row off it where the fleet hub
 			// shares the column and the two spread around the middle.
 			const mid = ( Math.min( ...rows ) + Math.max( ...rows ) ) / 2;
@@ -1412,7 +1415,8 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 			nodes: [ ...ids ].map( ( id ) => ( { id } ) ),
 			edges,
 		} );
-		expect( g[ 'a-top' ].col ).toBe( g.h1.col + 1 );
+		// a-top is a hub too, so its column opens half a step clear.
+		expect( g[ 'a-top' ].col ).toBe( g.h1.col + 1.5 );
 	} );
 
 	it( 'continues a chain past its hub: a band the hub feeds sits to the right of it', () => {
@@ -1449,7 +1453,10 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 		// The timeout's every neighbour is the hub, so it is a bridge: it
 		// leads the hub chain, right after the buffers.
 		expect( g[ 'pub:timeout' ].col ).toBe( Math.max( ...buffers ) + 1 );
-		expect( g[ 'pub:set_stream' ].col ).toBe( g[ 'pub:timeout' ].col + 1 );
+		// The hub's column opens half a step clear; the chain past it does not.
+		expect( g[ 'pub:set_stream' ].col ).toBe(
+			g[ 'pub:timeout' ].col + 1.5
+		);
 		expect( g[ 'pub:router' ].col ).toBe( g[ 'pub:set_stream' ].col + 1 );
 		expect( g[ 'pub:balancer' ].col ).toBe( g[ 'pub:router' ].col + 1 );
 		expect( g[ 'korell:template' ].col ).toBe(
@@ -1574,8 +1581,9 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 		const graph = hubControl();
 		const g = gridOf( graph );
 		const spokeRows = SPOKES.map( ( id ) => g[ id ].row );
+		// Its wires fan out to every spoke, so half a step opens between.
 		expect( g[ 'discovery-collector' ].col ).toBe(
-			g[ SPOKES[ 0 ] ].col - 1
+			g[ SPOKES[ 0 ] ].col - 1.5
 		);
 		expect( g[ 'settings-sync' ].row ).toBe( g[ 'settings:consumer' ].row );
 		expect( g[ 'settings-sync' ].row ).toBeLessThan(
@@ -2004,16 +2012,19 @@ describe( 'autoLayout — hub bands', () => {
 	// right after its feeders, on their middle row; an ordinary node stays.
 	it( 'bands every component, and leaves a node three feed in its band', () => {
 		const at = positionsOf( starGraph( 3 ) );
-		expect( at.y.x - at.x.x ).toBe( X_STEP );
-		expect( at.hub.x ).toBe( at.s0.x + X_STEP );
+		// Three wires in open the gap; the pair shares the column, so the gap.
+		expect( at.y.x - at.x.x ).toBe( 1.5 * X_STEP );
+		expect( at.hub.x ).toBe( at.s0.x + 1.5 * X_STEP );
 	} );
 
-	it( 'treats a node four feed as a hub, beside its feeders on their middle row', () => {
+	it( 'treats a node four feed as a hub, half a column clear of its feeders on their middle row', () => {
 		const at = positionsOf( starGraph( 4 ) );
-		expect( at.y.x - at.x.x ).toBe( X_STEP );
+		// The pair stacks in the hub's columns, so it shares the hub's gap.
+		expect( at.y.x - at.x.x ).toBe( 1.5 * X_STEP );
 		const feeders = [ 's0', 's1', 's2', 's3' ].map( ( id ) => at[ id ] );
+		// Half a step more, so the converging wires have room to fan in.
 		expect( at.hub.x ).toBe(
-			Math.max( ...feeders.map( ( p ) => p.x ) ) + X_STEP
+			Math.max( ...feeders.map( ( p ) => p.x ) ) + 1.5 * X_STEP
 		);
 		const ys = feeders.map( ( p ) => p.y );
 		expect( at.hub.y ).toBe(
@@ -2021,10 +2032,99 @@ describe( 'autoLayout — hub bands', () => {
 		);
 	} );
 
+	it( 'widens the gap before every hub column, and before each hub of a chain', () => {
+		const edges = [];
+		for ( const i of [ 0, 1, 2, 3 ] ) {
+			edges.push(
+				{ from: `a${ i }`, to: `b${ i }` },
+				{ from: `b${ i }`, to: 'hub' }
+			);
+		}
+		for ( const i of [ 0, 1, 2 ] ) {
+			edges.push( { from: `c${ i }`, to: 'tail' } );
+		}
+		edges.push( { from: 'hub', to: 'tail' }, { from: 'tail', to: 'out' } );
+		const ids = new Set( edges.flatMap( ( e ) => [ e.from, e.to ] ) );
+		const at = positionsOf( {
+			nodes: [ ...ids ].map( ( id ) => ( { id } ) ),
+			edges,
+		} );
+
+		expect( at.a0.x ).toBe( X_PAD );
+		expect( at.b0.x ).toBe( X_PAD + X_STEP );
+		expect( at.hub.x ).toBe( at.b0.x + 1.5 * X_STEP );
+		expect( at.tail.x ).toBe( at.hub.x + 1.5 * X_STEP );
+		// No hub in the last column: an ordinary step.
+		expect( at.out.x ).toBe( at.tail.x + X_STEP );
+	} );
+
+	it( 'opens the gap before any node three wires enter, hub or not', () => {
+		// The debug station's egress: six remotes and `_http` drain `_output`,
+		// which is no hub, since `_http` alone besides it is fed. `_http` takes
+		// two wires, so its column keeps an ordinary step.
+		const remotes = [ 'agg.p0', 'c.p0', 'c.p1', 'c.p2', 'c.p3', 'ni.p0' ];
+		const edges = [
+			{ from: '_heartbeat', to: '_http' },
+			{ from: 'catalog:fetch', to: '_http' },
+			{ from: '_http', to: '_output' },
+			...remotes.map( ( r ) => ( { from: r, to: '_output' } ) ),
+		];
+		const ids = new Set( edges.flatMap( ( e ) => [ e.from, e.to ] ) );
+		const at = positionsOf( {
+			nodes: [ ...ids ].map( ( id ) => ( { id } ) ),
+			edges,
+		} );
+
+		expect( at._http.x ).toBe( at._heartbeat.x + X_STEP );
+		expect( at._output.x ).toBe( at._http.x + 1.5 * X_STEP );
+	} );
+
+	it( 'opens the gap after a node three wires leave, and once where both meet', () => {
+		// A consumer feeds a tee fanning out to three partitions, and a
+		// two-way split beside it keeps an ordinary step after its column.
+		const edges = [
+			{ from: 'consumer', to: 'tee' },
+			{ from: 'tee', to: 'p0' },
+			{ from: 'tee', to: 'p1' },
+			{ from: 'tee', to: 'p2' },
+			{ from: 'split:in', to: 'split' },
+			{ from: 'split', to: 'split:a' },
+			{ from: 'split', to: 'split:b' },
+		];
+		const ids = new Set( edges.flatMap( ( e ) => [ e.from, e.to ] ) );
+		const at = positionsOf( {
+			nodes: [ ...ids ].map( ( id ) => ( { id } ) ),
+			edges,
+		} );
+
+		expect( at.tee.x ).toBe( at.consumer.x + X_STEP );
+		expect( at.p0.x ).toBe( at.tee.x + 1.5 * X_STEP );
+		// The split shares the tee's columns, so it shares the one gap.
+		expect( at[ 'split:a' ].x ).toBe( at.p0.x );
+
+		// Three leave the tee and three enter `m` across one boundary: one gap.
+		const joined = positionsOf( {
+			nodes: [ 'src', 'tee', 'm', 'a', 'b', 'q', 'r' ].map( ( id ) => ( {
+				id,
+			} ) ),
+			edges: [
+				{ from: 'src', to: 'tee' },
+				{ from: 'tee', to: 'm' },
+				{ from: 'tee', to: 'a' },
+				{ from: 'tee', to: 'b' },
+				{ from: 'q', to: 'm' },
+				{ from: 'r', to: 'm' },
+			],
+		} );
+		expect( joined.tee.x ).toBe( joined.src.x + X_STEP );
+		expect( joined.m.x ).toBe( joined.tee.x + 1.5 * X_STEP );
+	} );
+
 	it( 'leaves a node fanning out to seven in its band: only fan-in makes a hub', () => {
 		const at = positionsOf( starGraph( 7, true ) );
 		expect( at.y.x - at.x.x ).toBe( X_STEP );
-		expect( at.hub.x ).toBe( at.s0.x - X_STEP );
+		// Seven wires leave the hub, so half a step opens after its column.
+		expect( at.hub.x ).toBe( at.s0.x - 1.5 * X_STEP );
 	} );
 
 	// The debug sheet as a log-viewer realm draws it: two polled slices, so
@@ -2202,9 +2302,10 @@ describe( 'autoLayout — hub bands', () => {
 			( Math.max( ...columns ) - Math.min( ...columns ) ) / X_STEP + 1;
 
 		// Parts of five and six nodes qualify and the two-node one abstains,
-		// so the egress leaves its band and the sheet stays four columns —
-		// refusing on the stray part ran it to eight.
-		expect( wide ).toBeLessThanOrEqual( 4 );
+		// so the egress leaves its band and the sheet stays four columns, plus
+		// two half steps where three wires meet — refusing on the stray part
+		// ran it to eight.
+		expect( wide ).toBeLessThanOrEqual( 5 );
 	} );
 
 	// The same shape at three slices, as the debug overlay's Sessions page
@@ -2274,8 +2375,9 @@ describe( 'autoLayout — hub bands', () => {
 		for ( const id of [ ...sources, 'x' ] ) {
 			expect( at[ id ].x ).toBe( X_PAD );
 		}
+		// Six wires enter each sink, so their column opens half a step clear.
 		for ( const id of [ ...sinks, 'y' ] ) {
-			expect( at[ id ].x ).toBe( X_PAD + X_STEP );
+			expect( at[ id ].x ).toBe( X_PAD + 1.5 * X_STEP );
 		}
 	} );
 
