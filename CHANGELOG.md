@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Busy wires get half a column to fan.** Every column sat one full step from the next, so seven wires converging on the station's `_output` bent into one point a card's width past their cards. The layout now opens half a step before any column holding a node three or more wires enter, and after any column holding a node three or more wires leave, such as a Tee; a boundary both claim opens once. Columns shift rather than blocks, because stacks share columns: every card keeps its column order and row, nothing overlaps, and every position stays on the half-step snap lattice. An unrelated card sharing a busy column moves with it. The golden firehose layout moves by that half step after `request-builder`'s four outbound wires; its columns and rows are unchanged.
+
 ## [2.60.7] - 2026-09-15
 
 ### Fixed
