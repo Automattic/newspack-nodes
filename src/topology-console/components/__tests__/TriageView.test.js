@@ -504,3 +504,17 @@ test( 'no envelope header is rendered for either kind', () => {
 	reply( 'dl_show', showJson() );
 	expect( view.queryByTestId( 'triage-record-meta' ) ).toBeNull();
 } );
+
+test( 'scrolls only the records, keeping the count and the actions in view', () => {
+	// An opened record runs long; the count above it and Refresh / Purge
+	// below it must not scroll away with it.
+	const { getByTestId, getByText } = render(
+		<TriageView node={ node } onAction={ jest.fn() } />
+	);
+	reply( 'dl_list', listJson() );
+	const records = getByTestId( 'triage-records' );
+
+	expect( records.contains( getByTestId( 'triage-grid' ) ) ).toBe( true );
+	expect( records.contains( getByText( 'Refresh' ) ) ).toBe( false );
+	expect( records.contains( getByText( '1 quarantined' ) ) ).toBe( false );
+} );

@@ -8,7 +8,6 @@
 	flex-direction: column;
 	flex: 1;
 	min-height: 0;
-	overflow-y: auto;
 	gap: 10px;
 	font: 400 12px/1.4 var(--font-mono);
 	color: var(--ink);
@@ -45,6 +44,21 @@
 
 	&__empty {
 		padding: 12px 0;
+	}
+
+	// The one scroller: the count above and the actions below stay put when
+	// an opened record runs long, and the column heads ride along on top.
+	&__records {
+		flex: 1 1 auto;
+		min-height: 0;
+		overflow-y: auto;
+
+		thead th {
+			position: sticky;
+			top: 0;
+			z-index: 1;
+			background: var(--paper-2, var(--np-surface-subtle));
+		}
 	}
 
 	&__footer {

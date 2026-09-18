@@ -2645,3 +2645,15 @@
 	height: min(70vh, 560px);
 	padding: 12px 14px;
 }
+
+// Triage grows with what it holds — an opened record runs long — from the
+// other views' height up to 80% of the viewport, then its records scroll.
+.topology-modal.topology-modal--triage {
+	max-height: min(80vh, var(--nodes-modal-max-h, 80vh));
+
+	.topology-inspview {
+		flex: 1 1 auto;
+		height: auto;
+		min-height: min(70vh, 560px);
+	}
+}
