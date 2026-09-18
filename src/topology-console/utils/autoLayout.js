@@ -1012,15 +1012,20 @@ const layoutComponent = ( ids, succ, pred, unfed ) => {
 
 	// @longform A node is sorted only in its own column, so its key never
 	// varies. An index compares only within one column, so a sweep keys on the
-	// column it just ordered; a key from further off, a late source's, breaks
-	// only a tie no neighbour there can, as for graph B's job-router.
+	// column it just ordered, reaching further only for a node with no
+	// neighbour there.
 	const keyedBy = ( adj, over, step ) => {
 		/** @type {Object<string,Array<string>>} */
 		const keyed = {};
 		for ( const id of laid ) {
-			const key = leastShared( adj[ id ], over, col[ id ] );
-			const near = key.filter( ( n ) => col[ n ] === col[ id ] + step );
-			keyed[ id ] = near.length ? near : key;
+			const near = adj[ id ].filter(
+				( n ) => col[ n ] === col[ id ] + step
+			);
+			keyed[ id ] = leastShared(
+				near.length ? near : adj[ id ],
+				over,
+				col[ id ]
+			);
 		}
 		return keyed;
 	};

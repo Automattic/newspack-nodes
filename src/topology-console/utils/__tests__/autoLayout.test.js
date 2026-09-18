@@ -420,21 +420,22 @@ describe( 'autoLayout — real graphs (normalized; relative positions only)', ()
 			{ from: 'jobintake:consumer', to: 'job-router' },
 		],
 	};
-	// Only `completed:tee` sits in the column after `request-builder`, so its
-	// four wires open no half step.
+	// @longform Only `completed:tee` sits in the column after `request-builder`,
+	// so its four wires open no half step. The request fan leads, the tee at
+	// `completed:partition`'s shoulder, and the job chain runs along the foot.
 	const graphBExpected = {
 		_repl: { x: 60, y: 630 },
-		'completed:partition': { x: 1020, y: 190 },
-		'completed:tee': { x: 780, y: 245 },
-		'errors:partition': { x: 1020, y: 410 },
-		'firehose:consumer': { x: 60, y: 245 },
-		'firehose:tee': { x: 300, y: 245 },
-		'gyroscope:partition': { x: 1020, y: 300 },
-		'job-router': { x: 540, y: 80 },
-		'jobintake:consumer': { x: 300, y: 80 },
-		'jobs:partition': { x: 1020, y: 80 },
-		'request-builder': { x: 540, y: 410 },
-		'requests:partition': { x: 1020, y: 520 },
+		'completed:partition': { x: 1020, y: 80 },
+		'completed:tee': { x: 780, y: 135 },
+		'errors:partition': { x: 1020, y: 300 },
+		'firehose:consumer': { x: 60, y: 410 },
+		'firehose:tee': { x: 300, y: 410 },
+		'gyroscope:partition': { x: 1020, y: 190 },
+		'job-router': { x: 540, y: 520 },
+		'jobintake:consumer': { x: 300, y: 520 },
+		'jobs:partition': { x: 1020, y: 520 },
+		'request-builder': { x: 540, y: 300 },
+		'requests:partition': { x: 1020, y: 410 },
 	};
 	it( 'lays out the firehose worker graph (graph B) — already satisfied', () => {
 		const got = normalize( posMapOf( autoLayout( graphB ).nodes ) );
@@ -2137,6 +2138,32 @@ describe( 'autoLayout — hub bands', () => {
 			{ from: 'tick', to: 'jobs' },
 		];
 		const at = positionsOf( graphOf( edges ) );
+
+		expect( at.tee.y ).toBeLessThan( at.sieve.y );
+		expect( at.done.y ).toBeLessThan( at.jobs.y );
+	} );
+
+	it( 'orders a sink by its own column even when its feeder is shared', () => {
+		// sieve serves two in the last column, so tick alone told jobs apart:
+		// its column-0 seat, not sieve's, set jobs above done.
+		const at = positionsOf(
+			graphOf( [
+				{ from: 'hose', to: 'rb' },
+				{ from: 'hose', to: 'router' },
+				{ from: 'rb', to: 'req' },
+				{ from: 'rb', to: 'alerts' },
+				{ from: 'rb', to: 'err' },
+				{ from: 'rb', to: 'gyro' },
+				{ from: 'rb', to: 'tee' },
+				{ from: 'tee', to: 'gyro' },
+				{ from: 'tee', to: 'done' },
+				{ from: 'intake', to: 'router' },
+				{ from: 'router', to: 'sieve' },
+				{ from: 'sieve', to: 'jobs' },
+				{ from: 'sieve', to: 'dlq' },
+				{ from: 'tick', to: 'jobs' },
+			] )
+		);
 
 		expect( at.tee.y ).toBeLessThan( at.sieve.y );
 		expect( at.done.y ).toBeLessThan( at.jobs.y );
