@@ -19,10 +19,9 @@ import InspectorViewModal from './InspectorViewModal';
 import { CtorField } from './CtorField';
 import { tokenize } from '../../runtime/shell-node';
 import { targetsOf } from '../../runtime/node';
-import IncludeTree from './IncludeTree';
 import HullPanel from './HullPanel';
 import TimeTravelPanel from './TimeTravelPanel';
-import { FieldRow, Section } from './InspectorFields';
+import { FieldRow, NodeLinks, Section } from './InspectorFields';
 import {
 	SparklineRow,
 	ProcessStatsView,
@@ -84,63 +83,6 @@ function isReserved( node ) {
  */
 function isBorrowed( node ) {
 	return Array.isArray( node?.origin ) && node.origin.length > 0;
-}
-
-/**
- * A comma-separated run of node names, each selecting its node when clicked.
- *
- * A name outside `nodeIds` renders as dim text instead: it points at something
- * the graph on screen does not hold, and a button that selects nothing reads
- * as broken.
- *
- * @param {Object}      props
- * @param {string[]}    [props.names]    Names in display order; empty renders an em dash.
- * @param {Set<string>} [props.nodeIds]  Ids present in the graph; anything else is not a link.
- * @param {Function}    [props.onSelect] (name) — selects the clicked node.
- * @param {Function}    [props.onHover]  (name|null) — highlights it on the canvas, null on leave.
- * @return {import('react').ReactElement} The name list.
- */
-function NodeLinks( { names, nodeIds, onSelect, onHover } ) {
-	if ( ! names || ! names.length ) {
-		return (
-			<span className="topology-field-row__val topology-field-row__val--dim">
-				—
-			</span>
-		);
-	}
-	return (
-		<span className="topology-field-row__val">
-			{ names.map( ( name, i ) => {
-				const known = nodeIds && nodeIds.has( name );
-				const sep = i < names.length - 1 ? ', ' : '';
-				if ( ! known ) {
-					return (
-						<span
-							key={ name }
-							className="topology-field-row__val--dim"
-						>
-							{ name }
-							{ sep }
-						</span>
-					);
-				}
-				return (
-					<span key={ name }>
-						<button
-							type="button"
-							className="button button-small topology-field-row__nav"
-							onClick={ () => onSelect && onSelect( name ) }
-							onMouseEnter={ () => onHover && onHover( name ) }
-							onMouseLeave={ () => onHover && onHover( null ) }
-						>
-							{ name }
-						</button>
-						{ sep }
-					</span>
-				);
-			} ) }
-		</span>
-	);
 }
 
 /**
@@ -1884,33 +1826,35 @@ function ComposeModal( { nodeNames, onConfirm, onCancel } ) {
  * schema-driven config form — locked when the node is borrowed through an
  * include, since its configuration belongs to the topology that defines it.
  *
- * @param {Object}                 props
- * @param {?string}                props.selectedId        Selected node id; null falls through to the hull or process view.
- * @param {?string}                [props.selectedHull]    Selected include, shown only while no node is selected.
- * @param {Array}                  [props.hulls]           Every hull, `{ include, nodeIds }[]`.
- * @param {Function}               [props.onOpenTopology]  (name) — drill into a hull's own topology.
- * @param {Object}                 props.parsed            The graph — `{ nodes, edges, pwd, profiling }`.
- * @param {?string}                props.streamStatus      SSE state; absent or 'open' reads as live.
- * @param {?Object}                props.rateInfo          Selected node's rate history and last-changed timestamp.
- * @param {Object}                 props.rateSeries        `{ in, out, read, write }` sample rings for the whole graph.
- * @param {Object}                 props.hullRateSeries    The same rings, scoped to the selected hull.
- * @param {boolean}                [props.local]           Browser graph: read IoTelemetry rather than rolling up dump_metadata.
- * @param {number}                 [props.debugLevel]      Live `debug_level`; lights the debug and verbose toggles.
- * @param {Function}               [props.onAction]        (action, nodeId, value, flags) — every command this pane sends.
- * @param {Function}               [props.onSelect]        (name) — follow a node link.
- * @param {Function}               [props.onHover]         (name|null) — highlight a link's target on the canvas.
- * @param {Set<string>}            [props.nodeIds]         Ids that exist; a name outside it renders as dim text, not a link.
- * @param {boolean}                [props.editMode]        Draft graph: the node view becomes the config form.
- * @param {Function}               [props.onUpdateArgs]    (nodeId, args) — writes constructor args back to the draft.
- * @param {Function}               [props.onUpdateVerbs]   (nodeId, invocations) — writes verb calls back to the draft.
- * @param {Function}               [props.onRemoveNode]    (nodeId) — delete the node from the draft.
- * @param {Function}               [props.onRenameNode]    (oldId, newId) — returns false when the name is already taken.
- * @param {Function}               [props.onRemoveEdge]    (from, to) — drop a physical edge.
- * @param {Function}               [props.onConnect]       (from, to) — add a target; a non-fan-out node replaces its own.
- * @param {Object}                 [props.tree]            Nested include tree, for the no-selection Includes list.
- * @param {string[]}               [props.includes]        Directly-declared includes — only those have a line to remove.
- * @param {(name: string) => void} [props.onRemoveInclude] Removes a declared include line.
- * @param {Function}               [props.onRemoveHull]    (name) — remove the include a hull stands for.
+ * @param {Object}                  props
+ * @param {?string}                 props.selectedId        Selected node id; null falls through to the hull or process view.
+ * @param {?string}                 [props.selectedHull]    Selected include, shown only while no node is selected.
+ * @param {Array}                   [props.hulls]           Every hull, `{ include, nodeIds }[]`.
+ * @param {Function}                [props.onOpenTopology]  (name) — drill into a hull's own topology.
+ * @param {Object}                  props.parsed            The graph — `{ nodes, edges, pwd, profiling }`.
+ * @param {?string}                 props.streamStatus      SSE state; absent or 'open' reads as live.
+ * @param {?Object}                 props.rateInfo          Selected node's rate history and last-changed timestamp.
+ * @param {Object}                  props.rateSeries        `{ in, out, read, write }` sample rings for the whole graph.
+ * @param {Object}                  props.hullRateSeries    The same rings, scoped to the selected hull.
+ * @param {boolean}                 [props.local]           Browser graph: read IoTelemetry rather than rolling up dump_metadata.
+ * @param {number}                  [props.debugLevel]      Live `debug_level`; lights the debug and verbose toggles.
+ * @param {Function}                [props.onAction]        (action, nodeId, value, flags) — every command this pane sends.
+ * @param {(name: string) => void}  [props.onSelect]        Follows a node link.
+ * @param {(name: ?string) => void} [props.onHover]         Highlights a link's target on the canvas, null on leave.
+ * @param {Set<string>}             [props.nodeIds]         Ids that exist; a name outside it renders as dim text, not a link.
+ * @param {boolean}                 [props.editMode]        Draft graph: the node view becomes the config form.
+ * @param {Function}                [props.onUpdateArgs]    (nodeId, args) — writes constructor args back to the draft.
+ * @param {Function}                [props.onUpdateVerbs]   (nodeId, invocations) — writes verb calls back to the draft.
+ * @param {Function}                [props.onRemoveNode]    (nodeId) — delete the node from the draft.
+ * @param {Function}                [props.onRenameNode]    (oldId, newId) — returns false when the name is already taken.
+ * @param {Function}                [props.onRemoveEdge]    (from, to) — drop a physical edge.
+ * @param {Function}                [props.onConnect]       (from, to) — add a target; a non-fan-out node replaces its own.
+ * @param {Object}                  [props.tree]            Nested include tree, for the no-selection Includes list.
+ * @param {string[]}                [props.includes]        Directly-declared includes — only those have a line to remove.
+ * @param {(name: string) => void}  [props.onRemoveInclude] Removes a declared include line.
+ * @param {Function}                [props.onRemoveHull]    (name) — remove the include a hull stands for.
+ * @param {(name: string) => void}  [props.onSelectHull]    Selects an include's hull by its name in a list.
+ * @param {string}                  [props.currentTopology] The topology being edited; titles the edit-mode panel shown with nothing selected.
  * @return {import('react').ReactElement} The inspector pane.
  */
 export default function Inspector( {
@@ -1940,6 +1884,8 @@ export default function Inspector( {
 	includes = [],
 	onRemoveInclude,
 	onRemoveHull,
+	onSelectHull,
+	currentTopology = '',
 } ) {
 	const {
 		classes: catalog,
@@ -1987,27 +1933,32 @@ export default function Inspector( {
 				includes={ includes }
 				onOpenTopology={ onOpenTopology }
 				onRemoveHull={ onRemoveHull }
+				onSelectHull={ onSelectHull }
+				onSelectNode={ onSelect }
+				onHoverNode={ onHover }
+				nodeIds={ nodeIds }
 			/>
 		);
 	}
 
 	if ( ! selectedId ) {
-		// Edit mode has no live interpreter; hint until a node is selected.
+		// Edit mode has no live interpreter; it shows the edited file instead.
 		if ( editMode ) {
 			return (
-				<aside className="topology-inspector">
-					<div className="newspack-nodes-empty-state topology-insp__empty">
-						{ __(
-							'Select a node to edit it, or drop one from the palette.',
-							'newspack-nodes'
-						) }
-					</div>
-					<IncludeTree
-						tree={ tree }
-						includes={ includes }
-						onRemove={ onRemoveInclude }
-					/>
-				</aside>
+				<HullPanel
+					whole
+					include={ currentTopology }
+					hulls={ hulls }
+					parsed={ parsed }
+					editMode
+					includeTree={ tree }
+					includes={ includes }
+					onRemoveInclude={ onRemoveInclude }
+					onSelectHull={ onSelectHull }
+					onSelectNode={ onSelect }
+					onHoverNode={ onHover }
+					nodeIds={ nodeIds }
+				/>
 			);
 		}
 		// The button toggles EVERY node; any traced node reads as tracing.

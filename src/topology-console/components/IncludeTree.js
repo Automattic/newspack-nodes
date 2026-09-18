@@ -11,8 +11,9 @@
  * have NOT selected comes out. A selected hull is unambiguous already: its own
  * panel and the Delete key remove that one.
  *
- * The Inspector renders the edited file's includes with the remove control;
- * HullPanel reuses the same list read-only for a selected hull's own subtree.
+ * HullPanel renders it twice over: for the edited file, whose declared includes
+ * carry the remove control, and read-only for a selected hull's own subtree.
+ * Every name selects that include's hull when `onSelect` is supplied.
  */
 
 import { __ } from '@wordpress/i18n';
@@ -30,14 +31,27 @@ import { __ } from '@wordpress/i18n';
  * @param {Object}                        [props.subtree]  What `name` includes, `{ name: subtree }` recursively; empty renders a leaf.
  * @param {number}                        props.depth      0 for a declared include, deeper for one inherited through it.
  * @param {((name: string) => void)|null} [props.onRemove] Removes the declared include this row names. Null renders the row read-only.
+ * @param {((name: string) => void)}      [props.onSelect] Selects the include this row names; absent renders the name as text.
  * @return {import('react').ReactElement} One list item, nesting a child list when the include has children.
  */
-function Branch( { name, subtree, depth, onRemove } ) {
+function Branch( { name, subtree, depth, onRemove, onSelect } ) {
 	const kids = Object.keys( subtree || {} );
 	return (
 		<li className="topology-include-tree__item">
 			<div className="topology-include-tree__row">
-				<span className="topology-include-tree__name">{ name }</span>
+				<span className="topology-include-tree__name">
+					{ onSelect ? (
+						<button
+							type="button"
+							className="button-link"
+							onClick={ () => onSelect( name ) }
+						>
+							{ name }
+						</button>
+					) : (
+						name
+					) }
+				</span>
 				{ 0 === depth && onRemove && (
 					<button
 						type="button"
@@ -59,6 +73,7 @@ function Branch( { name, subtree, depth, onRemove } ) {
 							subtree={ subtree[ k ] }
 							depth={ depth + 1 }
 							onRemove={ null }
+							onSelect={ onSelect }
 						/>
 					) ) }
 				</ul>
@@ -79,9 +94,15 @@ function Branch( { name, subtree, depth, onRemove } ) {
  * @param {Object}                        [props.tree]     Nested include tree from `topologies expand`: `{ name: subtree }`, recursively. Default {}.
  * @param {string[]}                      [props.includes] The file's directly-declared includes, in declaration order; selects and orders the root rows. Default [].
  * @param {((name: string) => void)|null} [props.onRemove] Removes a declared include. Null or absent renders the tree read-only.
+ * @param {((name: string) => void)}      [props.onSelect] Selects an include by its name, at any depth.
  * @return {import('react').ReactElement} The Includes section.
  */
-export default function IncludeTree( { tree = {}, includes = [], onRemove } ) {
+export default function IncludeTree( {
+	tree = {},
+	includes = [],
+	onRemove,
+	onSelect,
+} ) {
 	const roots = includes.filter( ( n ) =>
 		Object.prototype.hasOwnProperty.call( tree, n )
 	);
@@ -99,6 +120,7 @@ export default function IncludeTree( { tree = {}, includes = [], onRemove } ) {
 						subtree={ tree[ name ] }
 						depth={ 0 }
 						onRemove={ onRemove }
+						onSelect={ onSelect }
 					/>
 				) ) }
 			</ul>

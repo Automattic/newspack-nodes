@@ -2789,6 +2789,144 @@ describe( 'SchematicCanvas', () => {
 		expect( order ).toEqual( [ 'job-router', 'job-intake' ] );
 	} );
 
+	describe( 'a selected hull passes presses through within its bounds', () => {
+		// job-intake nests inside job-router and paints above it, covering it.
+		const nested = (
+			selectedHull,
+			onSelectHull,
+			onPositionChange = baseProps.onPositionChange
+		) =>
+			renderWithCatalog(
+				<SchematicCanvas
+					{ ...baseProps }
+					parsed={ {
+						nodes: [
+							{ id: 'jobintake:consumer', class: 'Consumer' },
+							{ id: 'jobs:partition', class: 'Partition' },
+							{ id: 'job-router', class: 'Job_Router' },
+						],
+						edges: [],
+					} }
+					hulls={ [
+						{
+							include: 'job-intake',
+							depth: 1,
+							nodeIds: [ 'jobintake:consumer', 'jobs:partition' ],
+						},
+						{
+							include: 'job-router',
+							depth: 0,
+							nodeIds: [
+								'jobintake:consumer',
+								'jobs:partition',
+								'job-router',
+							],
+						},
+					] }
+					selectedHull={ selectedHull }
+					onSelectHull={ onSelectHull }
+					editMode
+				/>,
+				{
+					classes: baseProps.catalog,
+					formatters: baseProps.formatters,
+					vaults: baseProps.vaults,
+					composeTargets: baseProps.composeTargets,
+					classCatalog: baseProps.classCatalog,
+					onPositionChange,
+					viewport: baseProps.viewport,
+					onViewportChange: baseProps.onViewportChange,
+					bottomObstructionPx: baseProps.bottomObstructionPx,
+					positionOverrides: {
+						'jobintake:consumer': { x: 100, y: 100 },
+						'jobs:partition': { x: 900, y: 100 },
+						'job-router': { x: 500, y: 100 },
+					},
+				}
+			);
+		// Inside both hulls: between the cards, on the row they share.
+		const inBoth = { clientX: 350, clientY: 140, pointerId: 1 };
+		const press = ( el ) => {
+			fireEvent.pointerDown( el, inBoth );
+			fireEvent.pointerUp( el, inBoth );
+		};
+
+		it( 'a press on the selected top hull selects the one beneath', () => {
+			const onSelectHull = jest.fn();
+			const { container } = nested( 'job-intake', onSelectHull );
+			press( container.querySelector( '[data-include="job-intake"]' ) );
+			expect( onSelectHull ).toHaveBeenCalledWith( 'job-router' );
+		} );
+
+		it( 'a buried selection with nothing beneath takes the press itself', () => {
+			const onSelectHull = jest.fn();
+			const { container } = nested( 'job-router', onSelectHull );
+			press( container.querySelector( '[data-include="job-intake"]' ) );
+			expect( onSelectHull ).toHaveBeenCalledWith( 'job-router' );
+		} );
+
+		it( 'a drag on the selected hull moves it, not the hull beneath', () => {
+			const onSelectHull = jest.fn();
+			const onPositionChange = jest.fn();
+			const { container } = nested(
+				'job-intake',
+				onSelectHull,
+				onPositionChange
+			);
+			const top = container.querySelector(
+				'[data-include="job-intake"]'
+			);
+			fireEvent.pointerDown( top, inBoth );
+			fireEvent.pointerMove( top, { ...inBoth, clientX: 550 } );
+			fireEvent.pointerUp( top, { ...inBoth, clientX: 550 } );
+
+			const moved = onPositionChange.mock.calls.map( ( [ id ] ) => id );
+			expect( moved.sort() ).toEqual( [
+				'jobintake:consumer',
+				'jobs:partition',
+			] );
+			expect( onSelectHull ).not.toHaveBeenCalled();
+		} );
+
+		it( 'a cancelled press selects nothing', () => {
+			const onSelectHull = jest.fn();
+			const { container } = nested( null, onSelectHull );
+			const top = container.querySelector(
+				'[data-include="job-intake"]'
+			);
+			fireEvent.pointerDown( top, inBoth );
+			fireEvent.pointerCancel( top, inBoth );
+			expect( onSelectHull ).not.toHaveBeenCalled();
+		} );
+
+		it( 'hover stays on the hull being dragged', () => {
+			const { container } = nested( 'job-intake', jest.fn() );
+			const top = container.querySelector(
+				'[data-include="job-intake"]'
+			);
+			fireEvent.pointerDown( top, inBoth );
+			fireEvent.mouseMove( top, inBoth );
+			expect(
+				container
+					.querySelector( '[data-include="job-router"]' )
+					.getAttribute( 'class' )
+			).not.toContain( 'is-hovered' );
+		} );
+
+		it( 'hover lights the hull a press would take', () => {
+			const { container } = nested( 'job-intake', jest.fn() );
+			fireEvent.mouseMove(
+				container.querySelector( '[data-include="job-intake"]' ),
+				inBoth
+			);
+			expect(
+				container
+					.querySelector( '[data-include="job-router"]' )
+					.getAttribute( 'class' )
+			).toContain( 'is-hovered' );
+		} );
+	} );
+
 	it( 'paints equal-depth sibling hulls biggest-first so the smaller stays clickable', () => {
 		const { container } = renderWithCatalog(
 			<SchematicCanvas
@@ -3692,7 +3830,10 @@ describe( 'SchematicCanvas — hull interaction', () => {
 			}
 		);
 
-		fireEvent.mouseDown( container.querySelector( '.topology-hull' ) );
+		// A click is a press released in place; the release selects.
+		const hull = container.querySelector( '.topology-hull' );
+		fireEvent.pointerDown( hull, { pointerId: 1 } );
+		fireEvent.pointerUp( hull, { pointerId: 1 } );
 
 		expect( onSelectHull ).toHaveBeenCalledWith( 'performance' );
 	} );

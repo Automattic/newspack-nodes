@@ -29,6 +29,19 @@ describe( 'IncludeTree', () => {
 		expect( onRemove ).toHaveBeenCalledWith( 'performance' );
 	} );
 
+	it( 'selects an include by its name, at any depth', () => {
+		const onSelect = jest.fn();
+		render(
+			<IncludeTree
+				tree={ tree }
+				includes={ [ 'performance', 'job-router' ] }
+				onSelect={ onSelect }
+			/>
+		);
+		fireEvent.click( screen.getByRole( 'button', { name: 'job-intake' } ) );
+		expect( onSelect ).toHaveBeenCalledWith( 'job-intake' );
+	} );
+
 	it( 'offers no remove control on a grandchild include', () => {
 		render(
 			<IncludeTree
