@@ -4,7 +4,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 **Maintenance rule:** a release that changes any consumer-facing contract adds its entry here in the same commit as its CHANGELOG entry. No entry means nothing to do.
 
-## Unreleased
+## 2.60.11
 
 - **The time-travel verbs are lowercase: `pause`, `play`, `step` and
   `seek_frame`.** They were the only upper-case command verbs on the
@@ -34,6 +34,8 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   [`requeue_deadletter()`](../includes/trait-dead-letter-queue.php),
   `show_deadletter()`, `purge_deadletter()`, `seek_frame()` or `add_setting()`
   catches `\RuntimeException`.
+
+## 2.57.1
 
 - **`Field_Reset_Assets::highlight_style()` is gone, and a marked reset toggle
   takes the `is-danger` button role.** The inline style it returned painted the
