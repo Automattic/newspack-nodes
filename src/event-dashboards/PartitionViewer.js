@@ -107,7 +107,7 @@ const COLUMNS = {
 	},
 	id: {
 		label: __( 'ID', 'newspack-nodes' ),
-		tooltip: __( 'Segment:offset:line', 'newspack-nodes' ),
+		tooltip: __( 'Segment:offset:length', 'newspack-nodes' ),
 		className: 'newspack-nodes-log-row__id',
 	},
 	key: {

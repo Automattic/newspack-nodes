@@ -439,6 +439,26 @@ class ConsumerTimeTravelTest extends TestCase {
 		$this->assertSame( 'b', $cap->captured[1][ Message::VALUE ] );
 	}
 
+	public function test_step_consumes_one_record_even_when_it_forwards_nothing(): void {
+		$source = new Partition_Node();
+		$source->arguments( [ "{$this->tmp}/data/p0", (string) ( 64 * 1024 ), "4", "86400" ] );
+		$this->produce_line( $source, 'before-313' );
+		\file_put_contents( "{$this->tmp}/data/p0/0.log", "not a packed record\n", \FILE_APPEND );
+		$this->produce_line( $source, 'after-414' );
+
+		$c = new Consumer_Node();
+		$c->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
+		$c->name( 'firehose:consumer' );
+		$cap = new Capture_Sink_Node();
+		$c->sink( $cap );
+
+		$c->step();
+		$c->step();
+		$this->assertSame( [ 'before-313' ], \array_column( $cap->captured, Message::VALUE ), 'the unparseable record is the second step' );
+		$c->step();
+		$this->assertSame( [ 'before-313', 'after-414' ], \array_column( $cap->captured, Message::VALUE ) );
+	}
+
 	public function test_step_forces_line_mode_for_the_step(): void {
 		$source = new Partition_Node();
 		$source->arguments( [ "{$this->tmp}/data/p0", (string) ( 64 * 1024 ), "4", "86400" ] );

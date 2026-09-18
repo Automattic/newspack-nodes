@@ -288,6 +288,36 @@ class SseInTest extends TestCase {
 		$this->assertTrue( $node->connection()['connected'] );
 	}
 
+	public function test_connected_handshake_reports_its_own_dirs_cursor(): void {
+		[ $node ] = $this->configured_node();
+		$seen               = [];
+		$node->on_connected = static function ( int $segment, int $offset ) use ( &$seen ): void {
+			$seen[] = [ $segment, $offset ];
+		};
+
+		$node->process_sse_chunk( $this->connected_frame( 'PID 9007 SLOT 7 OWNER 42424243 CURSORS other.p3=1:2,firehose.p0=12:345' ) );
+
+		$this->assertSame( [ [ 12, 345 ] ], $seen );
+		$this->assertTrue( $node->connection()['connected'] );
+	}
+
+	public function test_connected_handshake_without_a_usable_cursor_reports_none(): void {
+		foreach ( [ ' CURSORS other.p3=12:345', '', ' CURSORS firehose.p0=x:345', ' CURSORS firehose.p0=12' ] as $extra ) {
+			[ $node, $sink ] = $this->configured_node();
+			$seen               = [];
+			$node->on_connected = static function ( int $segment, int $offset ) use ( &$seen ): void {
+				$seen[] = [ $segment, $offset ];
+			};
+
+			$node->process_sse_chunk( $this->connected_frame( "PID 9007 SLOT 7 OWNER 42424243{$extra}" ) );
+
+			$this->assertSame( [], $seen, "no cursor from '{$extra}'" );
+			$this->assertTrue( $node->connection()['connected'], 'an older spoke sends no CURSORS' );
+			$node->remove_node();
+			$sink->remove_node();
+		}
+	}
+
 	public function test_connected_handshake_without_pid_is_error_not_connected(): void {
 		[ $node, $sink ] = $this->configured_node();
 
@@ -484,6 +514,30 @@ class SseInTest extends TestCase {
 		$positions = \json_decode( $query['positions'], true );
 		$this->assertSame( 5, $positions['firehose.p0']['segment'] );
 		$this->assertSame( 10, $positions['firehose.p0']['offset'] );
+	}
+
+	public function test_the_patron_is_told_before_a_request_takes_its_position(): void {
+		[ $node ] = $this->configured_node();
+		$node->restore_position( 5, 10 );
+		$calls              = 0;
+		$node->on_connecting = static function () use ( $node, &$calls ): void {
+			++$calls;
+			$node->restore_position( 6, 606 );
+		};
+		$captured = [];
+		SSE_In_Node::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
+			$captured[] = $opts;
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+			return \curl_init();
+		};
+
+		$this->assertTrue( $node->maybe_connect() );
+		$this->assertFalse( $node->maybe_connect(), 'a handle is already open' );
+
+		\parse_str( (string) \parse_url( $captured[0][ \CURLOPT_URL ], PHP_URL_QUERY ), $query );
+		$positions = \json_decode( $query['positions'], true );
+		$this->assertSame( [ 'segment' => 6, 'offset' => 606 ], $positions['firehose.p0'] );
+		$this->assertSame( 1, $calls, 'told once, for the one request made' );
 	}
 
 	public function test_connect_states_the_tail_seek_instead_of_omitting_it(): void {

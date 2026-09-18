@@ -4,6 +4,17 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 **Maintenance rule:** a release that changes any consumer-facing contract adds its entry here in the same commit as its CHANGELOG entry. No entry means nothing to do.
 
+## Unreleased
+
+- **`Durable_Reader::poll()` returns the records it consumed.** It and the
+  phases it dispatches to (`poll_init()`, `poll_active()`, `poll_crawl()`)
+  returned nothing; they now return an `int`, counting a forwarded,
+  dead-lettered or refused record alike. A reader overriding any of them
+  declares `: int` and returns the parent's count. `advance_one_message()` is
+  no longer abstract: the trait's own consumes exactly one record per `step`,
+  so a reader that implemented it deletes its copy, and one that must react to
+  what a step consumed overrides `after_step( int $consumed )` instead.
+
 ## 2.60.11
 
 - **The time-travel verbs are lowercase: `pause`, `play`, `step` and

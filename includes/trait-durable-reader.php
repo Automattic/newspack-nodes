@@ -24,11 +24,12 @@ namespace Newspack_Nodes;
  *
  * The class must be a `Timer_Node`: the pump is timer-driven, and `fire()` here is the
  * tick that drains and re-arms the busy/EOF cadence (Remote_Source overrides it to
- * service its channel on the same rule). It must fill seven seams: where the
+ * service its channel on the same rule). It must fill six seams: where the
  * bytes come from (`get_batch`), where a fresh reader starts (`init_position`), how
  * one frame reaches disk (`write_checkpoint_frame`) and what that frame carries
  * beyond the shared base (`checkpoint_frame_extra`), and how the debugger moves the
- * cursor (`next_offset`, `advance_one_message`, `time_travel_resume`). In return it
+ * cursor (`next_offset`, `time_travel_resume`); `after_step` and
+ * `time_travel_on_pause` are optional. In return it
  * gets the durable cursor, the drain loop, the poison lifecycle and the debugger
  * verbs.
  *
@@ -249,6 +250,8 @@ trait Durable_Reader {
 	 * that does not. The first poll loads the durable cursor and restores the snapshot —
 	 * by which time the whole topology is built — then swaps to poll_active. Keeps
 	 * construction free of I/O and of forward-reference order.
+	 *
+	 * @var (\Closure(): int)|null
 	 */
 	protected ?\Closure $poll_cb = null;
 
@@ -330,9 +333,14 @@ trait Durable_Reader {
 		}
 	}
 
-	/** One tick. Dispatches through poll_cb: poll_init on the first call, poll_active after. */
-	public function poll(): void {
-		( $this->poll_cb ?? ( $this->poll_cb = $this->poll_init( ... ) ) )();
+	/**
+	 * One tick. Dispatches through poll_cb: poll_init on the first call, poll_active after.
+	 *
+	 * @phpstan-impure
+	 * @return int Records the tick consumed — forwarded, dead-lettered or refused alike.
+	 */
+	public function poll(): int {
+		return ( $this->poll_cb ?? ( $this->poll_cb = $this->poll_init( ... ) ) )();
 	}
 
 	/**
@@ -341,8 +349,10 @@ trait Durable_Reader {
 	 * loop, after the whole topology is built — so a snapshot node the seam restores
 	 * exists no matter what order the topology declared it. Then freeze the boot cursor,
 	 * become the steady-state poller, and fall through to it so this tick still does work.
+	 *
+	 * @return int Records the fall-through tick consumed.
 	 */
-	protected function poll_init(): void {
+	protected function poll_init(): int {
 		$this->init_position();
 		// Freeze the boot cursor so cursor_advanced_since_boot() stays honest.
 		$this->boot_cursor_segment = $this->cursor_segment;
@@ -351,7 +361,7 @@ trait Durable_Reader {
 		$this->set_state( 'READY', $this->name );
 		// crawl set once at boot (hard-crash lineage), never re-entered.
 		$this->poll_cb = $this->crawl ? $this->poll_crawl( ... ) : $this->poll_active( ... );
-		( $this->poll_cb )();
+		return ( $this->poll_cb )();
 	}
 
 	/**
@@ -359,17 +369,23 @@ trait Durable_Reader {
 	 * every tick — this tick's read drains next tick), so it stays at full throughput and
 	 * reaches EOF promptly. Line mode reads only once the buffer is dry of complete lines, so
 	 * it never reads ahead and the one-line-per-tick pacing holds.
+	 *
+	 * @return int Records drained.
 	 */
-	protected function poll_active(): void {
-		$this->refill( $this->drain_buffer() );
+	protected function poll_active(): int {
+		$drained = $this->drain_buffer();
+		$this->refill( $drained );
+		return $drained;
 	}
 
 	/**
 	 * One CRAWL-phase tick (hard-crash lineage): drain one line, checkpoint per message so an
 	 * uncatchable crash pins the exact in-flight offset, then refill. On surviving a full
 	 * interval crash-free, exit crawl and swap dispatch back to poll_active for the next tick.
+	 *
+	 * @return int Records drained.
 	 */
-	protected function poll_crawl(): void {
+	protected function poll_crawl(): int {
 		$drained = $this->drain_buffer();
 		// Exit crawl only once head sacrificed; else crash loop re-arms.
 		if ( ! $this->crawl_skip_head && $this->crawl_interval_elapsed() ) {
@@ -382,6 +398,7 @@ trait Durable_Reader {
 			$this->checkpoint();
 		}
 		$this->refill( $drained );
+		return $drained;
 	}
 
 	/**
@@ -1060,12 +1077,28 @@ trait Durable_Reader {
 	abstract public function next_offset( $position ): void;
 
 	/**
-	 * `step`'s single-tick advance: emit at most one message and return the resulting
-	 * cursor + EOF flag.
+	 * `step`'s advance: consume exactly one record, whatever becomes of it —
+	 * forwarded, dead-lettered or refused. A poll that starts dry only loads the
+	 * buffer, so it keeps polling until one record is consumed or the reader is at
+	 * EOF with nothing buffered. after_step() then learns what the step consumed.
 	 *
 	 * @return array{segment:int, offset:int, at_eof:bool}
 	 */
-	abstract protected function advance_one_message(): array;
+	protected function advance_one_message(): array {
+		do {
+			$consumed = $this->poll();
+		} while ( 0 === $consumed && ( ! $this->at_eof || $this->buffer_has_line() ) );
+		$this->after_step( $consumed );
+		return [ 'segment' => $this->cursor_segment, 'offset' => $this->cursor_offset, 'at_eof' => $this->at_eof ];
+	}
+
+	/**
+	 * What a step consumed, one record or none. Base no-op; a push source owes
+	 * a starved step to its pull.
+	 *
+	 * @param int $consumed Records the step consumed.
+	 */
+	protected function after_step( int $consumed ): void {}
 
 	/** Re-arm the node's own poll/tick timer on `play`. */
 	abstract protected function time_travel_resume(): void;
@@ -1191,7 +1224,7 @@ trait Durable_Reader {
 			[
 				// `step` mutates: auth-gated command path, not TM_REQUEST.
 				'name'        => 'step',
-				'description' => 'Time-travel: emit at most one message (forces line granularity, implies pause) and reply with the {segment, offset, at_eof} cursor.',
+				'description' => 'Time-travel: consume exactly one record, forwarded or not (forces line granularity, implies pause), and reply with the {segment, offset, at_eof} cursor.',
 				'hidden'      => true,
 				'args'        => [],
 				'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): array => self::cmd_step( $interpreter ),

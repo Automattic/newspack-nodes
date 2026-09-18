@@ -857,22 +857,6 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	}
 
 	/**
-	 * `step`'s advance: drive ticks until exactly one message is emitted or EOF is
-	 * reached. poll_init's first tick only loads the buffer (emits nothing in line
-	 * mode), so always tick at least once, then keep going until one message lands
-	 * or a poll leaves the reader genuinely at EOF with nothing buffered.
-	 *
-	 * @return array{segment:int, offset:int, at_eof:bool}
-	 */
-	protected function advance_one_message(): array {
-		$before = $this->counter;
-		do {
-			$this->poll();
-		} while ( $this->counter === $before && ! $this->at_eof );
-		return [ 'segment' => $this->cursor_segment, 'offset' => $this->cursor_offset, 'at_eof' => $this->at_eof ];
-	}
-
-	/**
 	 * Synchronous read-to-EOF — the messaging interface a one-shot caller drives
 	 * instead of hand-rolling `read_at()` and its own decode. Polls the source
 	 * until it is genuinely at EOF with no buffered complete line, filling each

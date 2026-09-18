@@ -73,6 +73,9 @@ class Remote_Source_Node extends Remote_Link_Node {
 	/** Mirror of the SSE_In valve state: true while armed. Only the buffer's size flips it. */
 	private bool $pump_armed = true;
 
+	/** `step` clicks still waiting on the reconnected pull, one record each. */
+	private int $steps_owed = 0;
+
 	/**
 	 * The breadcrumb crumb_for_line() last read off the wire, null when that line
 	 * carried none — the distinction the placeholder crumb erases, and what
@@ -120,7 +123,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 *
 	 * The method has a single exit on purpose. A patron dropped by reload() skips the drain,
 	 * and returning early there would leave a 0ms cadence armed over a buffer nothing is
-	 * draining — spinning the loop flat until housekeeping, latched to the wall-second,
+	 * draining — spinning the loop flat until housekeeping, which runs once per new wall-second,
 	 * rebuilds the patron.
 	 *
 	 * @api Dynamic entrypoint (Timer_Node::fire_cb).
@@ -129,21 +132,29 @@ class Remote_Source_Node extends Remote_Link_Node {
 		parent::fire();
 		// No patron, no drain, no reason to hold the busy cadence.
 		$next_ms = self::TICK_INTERVAL_MS;
+		// Paused, a tick only pays owed steps; a stray one does nothing.
+		$paused = 'PAUSED' === $this->get_state( 'POLLING' );
 		if ( $this->should_connect() && null !== $this->sse_in ) {
-			$this->poll();
+			if ( ! $paused ) {
+				$this->poll();
+			} elseif ( $this->steps_owed > 0 ) {
+				$this->steps_owed -= $this->poll();
+			}
 			// One position, not two — unless an unresolved seek outranks it.
 			$sse = $this->sse_in;
 			if ( null !== $sse && ! $sse->has_pending_seek() ) {
 				$sse->restore_position( $this->cursor_segment, $this->cursor_offset );
 			}
-			// poll() moves the cursor; checkpoint() makes it durable.
-			if ( null !== $this->offsetlog && $this->checkpoint_due() ) {
+			// checkpoint() makes the cursor durable; a step never does.
+			if ( ! $paused && null !== $this->offsetlog && $this->checkpoint_due() ) {
 				$this->checkpoint();
 				$this->last_checkpoint = Core::$now;
 			}
 			$next_ms = $this->buffer_has_line() ? self::POLL_INTERVAL_BUSY_MS : self::TICK_INTERVAL_MS;
 		}
-		if ( $this->interval_ms !== $next_ms ) {
+		if ( $paused && $this->steps_owed <= 0 ) {
+			$this->pause();
+		} elseif ( $this->interval_ms !== $next_ms ) {
 			$this->set_timer( $next_ms );
 		}
 	}
@@ -190,6 +201,10 @@ class Remote_Source_Node extends Remote_Link_Node {
 		if ( null !== $crumb ) {
 			$this->cursor_segment = $crumb['segment'];
 			$this->cursor_offset  = $crumb['offset'];
+			// The first record past a bare seek says where the stream began.
+			if ( $this->sse_in?->has_pending_seek() ) {
+				$this->sse_in->restore_position( $crumb['segment'], $crumb['offset'] );
+			}
 		}
 		if ( $this->crawl_skip_head && null !== $crumb && $this->sacrifice_boot_head( $line, $crumb ) ) {
 			return; // Sacrificed — not forwarded.
@@ -300,36 +315,6 @@ class Remote_Source_Node extends Remote_Link_Node {
 	}
 
 	/**
-	 * Parse a raw line's breadcrumb into `{segment, offset, length}`, or null when the line won't
-	 * unpack or its ID isn't a well-formed crumb. offset is the record's on-disk start; length is
-	 * the crumb's own `segment:offset:length` third field — the spoke's authoritative byte size,
-	 * and what the drain loop advances past the record by. A two-field crumb carries no length,
-	 * so it places the record and moves the cursor by nothing rather than by a local size
-	 * measured in the wrong byte space.
-	 *
-	 * @return array{segment:int, offset:int, length:int}|null
-	 */
-	private function crumb_from_line( string $line ): ?array {
-		try {
-			$message = Message::unpacked( $line );
-		} catch ( \InvalidArgumentException $e ) {
-			return null;
-		}
-		$id    = Core::as_string( $message[ Message::ID ] ?? '' );
-		$parts = \explode( ':', $id );
-		$count = \count( $parts );
-		if ( ( 2 !== $count && 3 !== $count ) || ! \ctype_digit( $parts[0] ) || ! \ctype_digit( $parts[1] ) ) {
-			return null;
-		}
-		if ( 3 === $count && ! \ctype_digit( $parts[2] ) ) {
-			return null;
-		}
-		// No length on the wire: a local one is the wrong byte space.
-		$length = ( 3 === $count ) ? (int) $parts[2] : 0;
-		return [ 'segment' => (int) $parts[0], 'offset' => (int) $parts[1], 'length' => $length ];
-	}
-
-	/**
 	 * Read the latest committed frame, seed the node cursor and the boot pin, resume the shared
 	 * poison and crash accounting (attempts+1, and a hard-crash lineage enters crawl), then arm
 	 * the boot head-skip. Idempotent: ensure_patrons() calls it to seed SSE_In's connect
@@ -411,29 +396,21 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * @param string|int|array<array-key,mixed> $position Explicit {segment,offset} from seek_frame(), or a seek sentinel / alias word.
 	 */
 	public function next_offset( $position ): void {
-		if ( ! \is_array( $position ) ) {
-			$sse = $this->ensure_patrons();
-			if ( null === $sse ) {
-				return;
-			}
-			$sse->disconnect();
-			$sse->seek( Consumer_Node::seek_sentinel( $position ) );
-			$this->offset_set = true;
-			$this->buffer     = '';
-			return;
-		}
-		$segment = \is_numeric( $position['segment'] ?? null ) ? (int) $position['segment'] : 0;
-		$offset  = \is_numeric( $position['offset'] ?? null ) ? (int) $position['offset'] : 0;
-		$sse     = $this->ensure_patrons();
+		$this->steps_owed = 0;
+		$sse              = $this->ensure_patrons();
 		if ( null === $sse ) {
 			return;
 		}
 		$sse->disconnect();
-		$sse->restore_position( $segment, $offset );
-		$this->cursor_segment = $segment;
-		$this->cursor_offset  = $offset;
-		$this->offset_set     = true;
-		$this->buffer         = '';
+		if ( \is_array( $position ) ) {
+			$this->cursor_segment = \is_numeric( $position['segment'] ?? null ) ? (int) $position['segment'] : 0;
+			$this->cursor_offset  = \is_numeric( $position['offset'] ?? null ) ? (int) $position['offset'] : 0;
+			$sse->restore_position( $this->cursor_segment, $this->cursor_offset );
+		} else {
+			$sse->seek( Consumer_Node::seek_sentinel( $position ) );
+		}
+		$this->offset_set = true;
+		$this->buffer     = '';
 	}
 
 	/**
@@ -456,6 +433,12 @@ class Remote_Source_Node extends Remote_Link_Node {
 		$sse = parent::ensure_patrons();
 		if ( null !== $sse ) {
 			$sse->set_multi_writer( $this->multi_writer );
+			$sse->on_connected = function ( int $segment, int $offset ): void {
+				$this->adopt_stream_start( $segment, $offset );
+			};
+			$sse->on_connecting = function (): void {
+				$this->resume_past_buffer();
+			};
 			$sse->on_message = function ( string $raw ): void {
 				$this->buffer .= $raw . "\n";
 				$this->pump_maybe_disarm();
@@ -594,7 +577,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 			return;
 		}
 		$this->pump_maybe_arm();
-		$this->at_eof = '' === $this->buffer;
+		$this->at_eof = ! $this->buffer_has_line();
 	}
 
 	/** Re-open the valve once the buffer has drained back below the low-water mark (from get_batch). */
@@ -603,6 +586,114 @@ class Remote_Source_Node extends Remote_Link_Node {
 			$this->sse_in?->arm();
 			$this->pump_armed = true;
 		}
+	}
+
+	/**
+	 * Ask the spoke to read this partition with the multi-writer seal-grace
+	 * (`Consumer_Node::SEAL_GRACE_SECONDS`): a peer there can keep appending to
+	 * segment N for `Partition_Node::DRIFT_RESCAN_INTERVAL_SECONDS` after N+1
+	 * appears, and a reader that advances on sight orphans that straggler —
+	 * for the firehose, typically a request's terminal `process (complete)`,
+	 * which then never finalizes here.
+	 *
+	 * The grace rides a connect-time query parameter, so a CHANGE drops the live
+	 * stream through drop_stream(), and the tick reconnects past what is buffered.
+	 *
+	 * @param bool $flag Whether the spoke should apply the seal-grace.
+	 */
+	public function set_multi_writer( bool $flag ): void {
+		$changed            = $flag !== $this->multi_writer;
+		$this->multi_writer = $flag;
+		if ( null === $this->sse_in || ! $changed ) {
+			return;
+		}
+		$this->sse_in->set_multi_writer( $flag );
+		$this->drop_stream();
+	}
+
+	/** `pause` also stops the pull, and with it any step still waiting on it. */
+	protected function time_travel_on_pause(): void {
+		$this->steps_owed = 0;
+		$this->drop_stream();
+	}
+
+	/** Drop the live stream; what it left buffered still drains. */
+	private function drop_stream(): void {
+		$this->sse_in?->disconnect();
+	}
+
+	/**
+	 * Aim the request about to go out past everything already held: the end of
+	 * the last buffered record carrying a breadcrumb, or the cursor when none
+	 * does. A partial trailing line goes, since the spoke re-sends it whole. A
+	 * pending seek with nothing buffered stays the spoke's to resolve. A new
+	 * stream opens with its valve armed, and the next arrival closes it again
+	 * while the buffer stays over the high-water mark.
+	 */
+	private function resume_past_buffer(): void {
+		$sse = $this->sse_in;
+		if ( null === $sse ) {
+			return;
+		}
+		$this->pump_armed = true;
+		$end              = \strrpos( $this->buffer, "\n" );
+		$this->buffer     = false === $end ? '' : \substr( $this->buffer, 0, $end + 1 );
+		// Walk back line by line to the last crumb; usually the final line.
+		for ( $stop = \strlen( $this->buffer ) - 1; $stop > 0; $stop = $start - 1 ) {
+			$prev  = \strrpos( $this->buffer, "\n", $stop - \strlen( $this->buffer ) - 1 );
+			$start = false === $prev ? 0 : $prev + 1;
+			$crumb = $this->crumb_from_line( \substr( $this->buffer, $start, $stop - $start ) );
+			if ( null !== $crumb ) {
+				$sse->restore_position( $crumb['segment'], $crumb['offset'] + $crumb['length'] );
+				return;
+			}
+		}
+		if ( ! $sse->has_pending_seek() ) {
+			$sse->restore_position( $this->cursor_segment, $this->cursor_offset );
+		}
+	}
+
+	/**
+	 * Parse a raw line's breadcrumb, `segment:offset:length`, or null when the line won't unpack
+	 * or its ID is anything else. offset is the record's on-disk start; length is the spoke's
+	 * authoritative byte size, what the drain loop advances past the record by, never a local
+	 * size measured in the wrong byte space.
+	 *
+	 * @return array{segment:int, offset:int, length:int}|null
+	 */
+	private function crumb_from_line( string $line ): ?array {
+		try {
+			$message = Message::unpacked( $line );
+		} catch ( \InvalidArgumentException $e ) {
+			return null;
+		}
+		$parts = \explode( ':', Core::as_string( $message[ Message::ID ] ?? '' ) );
+		if ( 3 !== \count( $parts ) || \in_array( false, \array_map( 'ctype_digit', $parts ), true ) ) {
+			return null;
+		}
+		return [ 'segment' => (int) $parts[0], 'offset' => (int) $parts[1], 'length' => (int) $parts[2] ];
+	}
+
+	/**
+	 * Resolve a pending seek to the position the spoke's handshake says the stream
+	 * begins at. Without one the handshake only names the position the connect
+	 * asked for, which ticks may since have drained past, so it is not adopted.
+	 *
+	 * @param int $segment Spoke segment the stream starts in.
+	 * @param int $offset  Byte offset within it.
+	 */
+	private function adopt_stream_start( int $segment, int $offset ): void {
+		if ( ! $this->sse_in?->has_pending_seek() ) {
+			return;
+		}
+		$this->cursor_segment = $segment;
+		$this->cursor_offset  = $offset;
+		$this->sse_in->restore_position( $segment, $offset );
+	}
+
+	/** Paused, the pull runs only while a step is owed a record. */
+	protected function should_connect(): bool {
+		return 'PAUSED' !== $this->get_state( 'POLLING' ) || $this->steps_owed > 0;
 	}
 
 	/**
@@ -617,41 +708,6 @@ class Remote_Source_Node extends Remote_Link_Node {
 		// Constant: drop_message keys its throttle on the reason.
 		$this->drop_message( $message, 'addressed with no target' );
 		return false;
-	}
-
-	/**
-	 * Ask the spoke to read this partition with the multi-writer seal-grace
-	 * (`Consumer_Node::SEAL_GRACE_SECONDS`): a peer there can keep appending to
-	 * segment N for `Partition_Node::DRIFT_RESCAN_INTERVAL_SECONDS` after N+1
-	 * appears, and a reader that advances on sight orphans that straggler —
-	 * for the firehose, typically a request's terminal `process (complete)`,
-	 * which then never finalizes here.
-	 *
-	 * The grace rides a connect-time query parameter, so a CHANGE drops the live
-	 * stream and the tick reconnects from the committed cursor. The undrained
-	 * buffer usually goes with it, as in next_offset(): SSE_In's resume position
-	 * only advances on a successful forward, so whatever is still buffered sits
-	 * ahead of it and the spoke re-sends it. The exception is a resume position
-	 * still at {0,0}. Nothing has been forwarded there, so the reconnect can
-	 * resolve to the spoke's tail and replay nothing, which leaves the buffer the
-	 * only copy of those records: keeping it costs a duplicate, clearing it loses
-	 * them outright.
-	 *
-	 * @param bool $flag Whether the spoke should apply the seal-grace.
-	 */
-	public function set_multi_writer( bool $flag ): void {
-		$changed            = $flag !== $this->multi_writer;
-		$this->multi_writer = $flag;
-		if ( null === $this->sse_in || ! $changed ) {
-			return;
-		}
-		$this->sse_in->set_multi_writer( $flag );
-		$position = $this->sse_in->position();
-		$this->sse_in->disconnect();
-		// Only when the reconnect will replay it; see the docblock on {0,0}.
-		if ( $position['segment'] > 0 || $position['offset'] > 0 ) {
-			$this->buffer = '';
-		}
 	}
 
 	/** Close the valve once the buffer has accumulated past the high-water mark (from on_message). */
@@ -709,23 +765,24 @@ class Remote_Source_Node extends Remote_Link_Node {
 	}
 
 	/**
-	 * `step` is a no-op for a push-driven source: SSE_In is fed by the event loop, not pulled one
-	 * message at a time, so there is nothing to single-step. Report the current position.
+	 * Owe a starved step one record, and arm the tick step() stopped: it pays
+	 * what is owed, and once nothing is, pause() drops the stream a live source
+	 * was stepped with.
 	 *
-	 * @return array{segment:int, offset:int, at_eof:bool}
+	 * @param int $consumed Records the step consumed.
 	 */
-	protected function advance_one_message(): array {
-		return [ 'segment' => $this->cursor_segment, 'offset' => $this->cursor_offset, 'at_eof' => true ];
+	protected function after_step( int $consumed ): void {
+		if ( 0 === $consumed ) {
+			++$this->steps_owed;
+		}
+		// Always one tick: it pays what is owed, or settles the pause.
+		$this->set_timer( self::TICK_INTERVAL_MS );
 	}
 
 	/** `play` re-arm: resume the recurring tick, which reconnects from the current position. */
 	protected function time_travel_resume(): void {
+		$this->steps_owed = 0;
 		$this->set_timer( self::TICK_INTERVAL_MS );
-	}
-
-	/** `pause` also stops the pull: drop the live SSE stream so no data flows while paused. */
-	protected function time_travel_on_pause(): void {
-		$this->sse_in?->disconnect();
 	}
 
 	/**
