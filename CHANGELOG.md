@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.60.11] - 2026-09-17
+
 ### Added
 
 - **`debug_ui` shows what the console's buttons send.** Triage, the Time Travel transport and the Profiler's toggle each run REPL verbs, but no two treated the transcript alike: Triage echoed its commands and hid its replies, the transport echoed and printed both, and the Profiler showed neither. They now share one path: a button's command names the backbone's new `_ui` relay in its FROM, and the reply passes through it on the way to the button's own receiver, or ends there when the button reads no reply. While the Shell's `debug_ui` builtin is on, `_output` gets the echo and a copy of each reply; off, which is the default, it gets neither. An error still prints when it reaches a button that reads no reply, such as a `seek_frame` refused for want of a frame, because nothing else would show it. `debug_ui` with no argument toggles, `on` and `off` set it, and the debug overlay remembers the choice across reloads as it does `debug_level`. The Inspector's Verbs section and the other buttons that exist to drive the REPL still echo and print regardless.
@@ -21,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **The Profiler's toggle no longer blanks its own table.** Its `profile on` reply was addressed to the poller that holds the `list_profiles` rows, so for a tick the rows were replaced by the `ok:` line. The reply now goes to `_ui`.
+- **`lint:php` runs the locked coding standard.** It and `fix:php` called bare `phpcs` and `phpcbf`, which npm resolved to whatever global install sat on the PATH, so the push gate judged the tree against an older VIPCS than `composer.lock` pins while the commit gate used the pinned one. Both now call `./vendor/bin`, and the shared pre-commit refuses any npm script naming `phpcs`, `phpcbf`, `phpstan` or `phpunit` bare.
 
 ## [2.60.10] - 2026-09-17
 
