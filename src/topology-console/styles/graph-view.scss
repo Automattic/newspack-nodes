@@ -2630,12 +2630,24 @@
 	border-top: 1px solid var(--paper-shadow);
 }
 
-// The Inspector no-node strip modal (Runtime grids / Timeline). The rail is too
-// narrow for grids, so this dialog runs wide; its body is a bounded flex column
-// so the inner grid / timeline body owns the only scrollbar, not the dialog.
+// The Inspector view modal (Runtime and Stats grids, Timeline, Triage). The rail
+// is too narrow for grids, so this dialog runs wide — at least 1000px, and as
+// wide as its content up to the viewport, so a grid scrolls sideways only when
+// the screen itself is too narrow. `max-content`, not `fit-content`: anchored
+// on an overlay panel's centre, a shrink-to-fit width only gets the room from
+// there to the viewport's edge. `ModalShell` records the widest border box it
+// has been as --nodes-modal-grown, so live content grows it but never shrinks
+// it. Its body is a bounded flex column so the inner grid / timeline body owns
+// the only scrollbar, not the dialog.
 .topology-modal.topology-modal--large {
-	width: min(92vw, 1000px, var(--nodes-modal-max-w, 100vw));
-	max-width: min(92vw, 1000px, var(--nodes-modal-max-w, 100vw));
+	box-sizing: border-box;
+	width: max-content;
+	min-width: min(
+		max(min(92vw, 1000px), var(--nodes-modal-grown, 0px)),
+		96vw,
+		var(--nodes-modal-max-w, 100vw)
+	);
+	max-width: min(96vw, var(--nodes-modal-max-w, 100vw));
 }
 
 .topology-modal__body.topology-inspview {

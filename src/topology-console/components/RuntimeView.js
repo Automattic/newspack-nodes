@@ -1,8 +1,9 @@
 /**
  * RuntimeView — a live view of the current scope's Event_Framework: its
  * registered timers and its cURL/EventSource handles, each as a click-to-sort
- * grid. A timer due every tick (NEXT <= 0) whose FIRES keep climbing is a
- * drain spinner; those rows take the alert tint and a ⚠.
+ * grid; the handles grid shows only when there are handles. A timer due every
+ * tick (NEXT <= 0) whose FIRES keep climbing is a drain spinner; those rows
+ * take the alert tint and a ⚠ in the flag column.
  *
  * Shown inside the Inspector's Runtime modal. It mounts TWO `Poller` nodes
  * (router-TIMER-hitchhiking TimerNodes publishing their reply as `reply`) on
@@ -186,18 +187,20 @@ export default function RuntimeView() {
 					rowClass={ timerRowClass }
 				/>
 			</div>
-			<div className="nodes-runtime__section">
-				<h3 className="nodes-runtime__title">
-					{ __( 'Handles', 'newspack-nodes' ) }
-				</h3>
-				<Grid
-					testid="runtime-handles"
-					cols={ HANDLE_COLS }
-					rows={ handles }
-					sort={ handleSort }
-					onSort={ onHandleSort }
-				/>
-			</div>
+			{ handles.length > 0 && (
+				<div className="nodes-runtime__section">
+					<h3 className="nodes-runtime__title">
+						{ __( 'Handles', 'newspack-nodes' ) }
+					</h3>
+					<Grid
+						testid="runtime-handles"
+						cols={ HANDLE_COLS }
+						rows={ handles }
+						sort={ handleSort }
+						onSort={ onHandleSort }
+					/>
+				</div>
+			) }
 		</div>
 	);
 }

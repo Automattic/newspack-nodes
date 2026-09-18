@@ -134,7 +134,13 @@ test( 'flags a spinner: next_ms <= 0 AND fires climbing across polls', () => {
 	expect( rowOf( 'spinner0' ).className ).toContain(
 		'nodes-runtime__row--spinner'
 	);
-	expect( rowOf( 'spinner0' ).textContent ).toContain( '⚠' );
+	// The flag has a column of its own; the ID cell holds the ID alone.
+	const cells = rowOf( 'spinner0' ).querySelectorAll( 'td' );
+	expect( cells[ 0 ].textContent ).toBe( '⚠' );
+	expect( cells[ 1 ].textContent ).toBe( '7' );
+	expect( rowOf( 'calm0' ).querySelectorAll( 'td' )[ 0 ].textContent ).toBe(
+		''
+	);
 	// next_ms > 0 is never a spinner, however fast it fires.
 	expect( rowOf( 'calm0' ).className ).not.toContain( 'spinner' );
 } );
@@ -147,4 +153,17 @@ test( 'does NOT flag a spinner when next_ms <= 0 but fires are not climbing', ()
 		'tbody tr[data-name="stuck0"]'
 	);
 	expect( row.className ).not.toContain( 'spinner' );
+} );
+
+test( 'shows the handles section only when there are handles', () => {
+	const { queryByTestId, queryByText } = render( <RuntimeView /> );
+	publish( [ timer( {} ) ], [] );
+	expect( queryByTestId( 'runtime-handles' ) ).toBeNull();
+	expect( queryByText( 'Handles' ) ).toBeNull();
+
+	publish(
+		[ timer( {} ) ],
+		[ { id: 3, count: 0, type: 'SSE_In_Node', name: 'sse-in' } ]
+	);
+	expect( queryByTestId( 'runtime-handles' ) ).not.toBeNull();
 } );

@@ -46,6 +46,12 @@
 		white-space: nowrap;
 	}
 
+	// The spinner flag's own column: as narrow as the glyph.
+	&__flag {
+		width: 1ch;
+		white-space: nowrap;
+	}
+
 	&__row--spinner {
 		color: var(--oxide-text);
 		background: color-mix(in srgb, var(--oxide) 12%, transparent);
@@ -74,6 +80,10 @@
 	.nodes-runtime__th,
 	.nodes-runtime__td {
 		padding: 3px 8px;
+	}
+
+	.nodes-runtime__flag {
+		padding: 3px 0 3px 8px;
 	}
 }
 

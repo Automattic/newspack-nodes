@@ -375,6 +375,24 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertStringContainsString( 'COUNT', $out, 'has a COUNT (messages processed) column' );
 	}
 
+	public function test_list_handles_counts_the_messages_a_handle_holder_filled(): void {
+		// COUNT is msgs, as the help and the browser twin say: a stream is one
+		// transfer that never completes while it lives, so a completion tally
+		// reads 0 for as long as the row is there to show it.
+		Event_Framework::reset();
+		$node = new Echo_Node();
+		$node->name( 'sse0' );
+		$node->sink( new Capture_Sink_Node() );
+		Event_Framework::instance()->register_curl_easy( $node, \curl_init() );
+		for ( $i = 0; $i < 3; $i++ ) {
+			$node->fill( Message::new_message() );
+		}
+
+		$rows = ( new Command_Interpreter_Node() )->dispatch( 'list_handles', [ '-s' ] );
+
+		$this->assertSame( 3, $rows[0]['count'] );
+	}
+
 	public function test_list_timers_and_list_handles_dash_s_return_keyed_rows(): void {
 		Event_Framework::reset();
 		$router = new \Newspack_Nodes\Router_Node(); // real _router declares the TIMER event

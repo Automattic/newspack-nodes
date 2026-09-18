@@ -1388,17 +1388,16 @@ class Command_Interpreter_Node extends Node {
 	 * Structured rows for every node holding a cURL handle — the one loop the
 	 * list_handles table and its `-s` form both build from. `curl_handles()`
 	 * collapses a node's handles to one row, so `id` is the NODE's object id and
-	 * `count` its completion counter.
+	 * `count` the messages it has filled, as the browser twin reports it.
 	 *
 	 * @return list<array{id:int,count:int,type:string,name:string}>
 	 */
 	private static function handle_rows(): array {
 		$rows = [];
-		foreach ( Event_Framework::instance()->curl_handles() as $id => $entry ) {
-			$node   = $entry['node'];
+		foreach ( Event_Framework::instance()->curl_handles() as $id => $node ) {
 			$rows[] = [
 				'id'    => $id,
-				'count' => $entry['counter'],
+				'count' => $node->counter(),
 				'type'  => ( new \ReflectionClass( $node ) )->getShortName(),
 				'name'  => Core::as_string( $node->name() ),
 			];
