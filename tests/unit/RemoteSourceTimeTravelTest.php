@@ -19,7 +19,7 @@ use Newspack_Nodes\Tests\TestCase;
  * Time-travel transport on Remote_Source_Node: the same Time_Travel surface the
  * Consumer carries (frames + cursor in dump_metadata, `pause`/`play`/`seek_frame` verbs),
  * mapped onto the push-driven SSE pull — seek reconnects SSE_In from the frame's
- * committed {seg,off}; `step` is a documented no-op (a push source can't single-step).
+ * committed {seg,off}; `step` forwards one record, from the buffer or a reconnected pull.
  */
 #[CoversClass( Remote_Source_Node::class )]
 class RemoteSourceTimeTravelTest extends TestCase {
@@ -247,19 +247,254 @@ class RemoteSourceTimeTravelTest extends TestCase {
 	}
 
 	// =========================================================================
-	// `step`: a documented no-op for a push-driven source (returns the position).
+	// `step`: forward exactly one record, from the buffer or the reconnected pull.
 	// =========================================================================
 
-	public function test_step_is_a_noop_returning_the_current_position(): void {
+	/** Deliver one spoke record, breadcrumb `$seg:$off:$len`, through SSE_In. */
+	private function deliver( SSE_In_Node $sse, string $crumb, string $value ): void {
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$m[ Message::ID ]    = $crumb;
+		$m[ Message::VALUE ] = $value;
+		$sse->process_sse_chunk( "event: msg\ndata: " . Message::packed( $m ) . "\n\n" );
+	}
+
+	/** The spoke's `connected` handshake, naming the stream's first position. */
+	private function handshake( SSE_In_Node $sse, string $cursors ): void {
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_INFO;
+		$m[ Message::KEY ]   = 'connected';
+		$m[ Message::VALUE ] = "PID 9007 SLOT 7 OWNER 42424243 CURSORS {$cursors}";
+		$sse->process_sse_chunk( "event: connected\ndata: " . Message::packed( $m ) . "\n\n" );
+	}
+
+	/** Values the downstream sink has received, in order. */
+	private function forwarded(): array {
+		return \array_column( Core::node( 'downstream' )->captured, Message::VALUE );
+	}
+
+	public function test_a_step_taken_from_the_buffer_keeps_the_tick_paying_the_one_owed(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
 		$node = $this->make_remote( 'remote-austin' );
 		Core::$now = 1000.0;
 		$node->fire();
-		$node->next_offset( [ 'segment' => 5, 'offset' => 55 ] );
+		$sse = Core::node( 'remote-austin:sse-in' );
+		$node->next_offset( [ 'segment' => 7, 'offset' => 1 ] );
+		$node->pause();
+		$node->step(); // nothing buffered: owed one
+		Core::$now = 1001.0;
+		$node->fire();
+		$this->drain_connect_queue();
+		$this->deliver( $sse, '7:1:20', 'first-707' );
+		$this->deliver( $sse, '7:21:20', 'second-808' );
 
-		$result = $node->step();
-		$this->assertSame( [ 'segment' => 5, 'offset' => 55, 'at_eof' => true ], $result, '`step` reports the current position without advancing' );
+		$node->step(); // a record is buffered: taken at once
+		$this->assertSame( [ 'first-707' ], $this->forwarded() );
+		$this->assertNotSame( 'inactive', $this->read_private( $node, 'mode' ), 'the owed step still has a tick to land on' );
+
+		$node->fire();
+		$this->assertSame( [ 'first-707', 'second-808' ], $this->forwarded(), 'two clicks, two records' );
+		$this->assertSame( 'inactive', $this->read_private( $node, 'mode' ) );
+		$this->assertSame( 'PAUSED', $node->dump_metadata()['polling'] );
+	}
+
+	public function test_step_with_nothing_buffered_pulls_exactly_one_record_then_holds(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		$node = $this->make_remote( 'remote-austin' );
+		Core::$now = 1000.0;
+		$node->fire();
+		$sse = Core::node( 'remote-austin:sse-in' );
+		$node->next_offset( [ 'segment' => 7, 'offset' => 1 ] );
+		$node->pause();
+
+		$node->step();
+		$this->assertSame( [], $this->forwarded(), 'nothing to forward until the pull answers' );
+		$this->assertNotSame( 'inactive', $this->read_private( $node, 'mode' ), 'the tick runs to reconnect' );
+
+		Core::$now = 1001.0;
+		$node->fire();
+		$this->drain_connect_queue();
+		$this->assertInstanceOf( \CurlHandle::class, $sse->test_get_handle(), 'the pull reconnects' );
+		$this->deliver( $sse, '7:1:20', 'pulled-909' );
+		$this->deliver( $sse, '7:21:20', 'held-1010' );
+		$node->fire();
+
+		$this->assertSame( [ 'pulled-909' ], $this->forwarded(), 'exactly one record per step' );
+		$this->assertNull( $sse->test_get_handle(), 'the pull drops again once the step lands' );
+		$this->assertSame( 'inactive', $this->read_private( $node, 'mode' ), 'and the tick stops' );
+		$this->assertSame( 'PAUSED', $node->dump_metadata()['polling'] );
+	}
+
+	public function test_two_steps_before_the_pull_answers_forward_two_records(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		$node = $this->make_remote( 'remote-austin' );
+		Core::$now = 1000.0;
+		$node->fire();
+		$sse = Core::node( 'remote-austin:sse-in' );
+		$node->next_offset( [ 'segment' => 7, 'offset' => 1 ] );
+		$node->pause();
+		$node->step();
+		$node->step();
+
+		Core::$now = 1001.0;
+		$node->fire();
+		$this->drain_connect_queue();
+		$this->deliver( $sse, '7:1:20', 'one-515' );
+		$this->deliver( $sse, '7:21:20', 'two-616' );
+		$this->deliver( $sse, '7:41:20', 'three-717' );
+		$node->fire();
+		$node->fire();
+		$node->fire();
+
+		$this->assertSame( [ 'one-515', 'two-616' ], $this->forwarded(), 'one record per click, and no more' );
+		$this->assertSame( 'inactive', $this->read_private( $node, 'mode' ) );
+	}
+
+	public function test_play_after_pause_forwards_each_record_once(): void {
+		$captured = [];
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect( $captured );
+		$node = $this->make_remote( 'remote-austin' );
+		Core::$now = 1000.0;
+		$node->fire();
+		$sse = Core::node( 'remote-austin:sse-in' );
+		$node->next_offset( [ 'segment' => 7, 'offset' => 1 ] );
+		$this->deliver( $sse, '7:1:20', 'a-111' );
+		$this->deliver( $sse, '7:21:20', 'b-222' );
+		$node->pause();
+
+		$node->play();
+		Core::$now = 1001.0;
+		$node->fire();
+		$this->drain_connect_queue();
+
+		$this->assertSame(
+			[ 'segment' => 7, 'offset' => 41 ],
+			$this->positions_from_opts( \end( $captured ) )['firehose.p0'] ?? null,
+			'the reconnect asks past everything already held'
+		);
+		$this->deliver( $sse, '7:41:20', 'c-333' );
+		$node->poll();
+
+		$this->assertSame( [ 'a-111', 'b-222', 'c-333' ], $this->forwarded() );
+	}
+
+	public function test_a_step_from_the_buffer_still_ends_with_the_stream_dropped(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		$node = $this->make_remote( 'remote-austin' );
+		Core::$now = 1000.0;
+		$node->fire();
+		$this->drain_connect_queue();
+		$sse = Core::node( 'remote-austin:sse-in' );
+		$this->deliver( $sse, '7:1:20', 'live-626' );
+		$this->deliver( $sse, '7:21:20', 'live-727' );
+
+		$node->step(); // a live source, stepped: one record from the buffer
+		$this->assertSame( [ 'live-626' ], $this->forwarded() );
+		$this->assertNotSame( 'inactive', $this->read_private( $node, 'mode' ), 'one tick left to settle the pause' );
+
+		$node->fire();
+		$this->assertNull( $sse->test_get_handle(), 'the stream drops, lease and all' );
+		$this->assertSame( 'inactive', $this->read_private( $node, 'mode' ) );
+	}
+
+	public function test_a_reconnect_reopens_the_valve_the_last_stream_closed(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		$node = $this->make_remote( 'remote-austin' );
+		Core::$now = 1000.0;
+		$node->fire();
+		$this->drain_connect_queue();
+		$sse = Core::node( 'remote-austin:sse-in' );
+		$node->set_line_mode( true );
+		$payload = \str_repeat( 'x', 2048 );
+		for ( $i = 0; $i < 300; $i++ ) {
+			$this->deliver( $sse, '7:' . ( 1 + 2100 * $i ) . ':2100', $payload );
+		}
+		$this->assertFalse( $this->read_private( $node, 'pump_armed' ), 'precondition: the valve closed' );
+		$node->pause();
+
+		$node->play();
+		Core::$now = 1001.0;
+		$node->fire();
+		$this->drain_connect_queue();
+
+		$this->assertTrue( $this->read_private( $node, 'pump_armed' ), 'the new stream opens armed' );
+		$this->deliver( $sse, '7:630001:2100', $payload );
+		$this->assertFalse( $this->read_private( $node, 'pump_armed' ), 'and closes again over the mark' );
+	}
+
+	public function test_a_seek_without_a_patron_still_forgives_a_step(): void {
+		// No Vault entry, so no patron: nothing to pull, and nothing may stay owed.
+		$node = $this->make_remote( 'remote-austin' );
+		Core::$now = 1000.0;
+		$node->pause();
+		$node->step();
+
+		$node->next_offset( [ 'segment' => 3, 'offset' => 33 ] );
+		Core::$now = 1001.0;
+		$node->fire();
+
+		$this->assertSame( 'inactive', $this->read_private( $node, 'mode' ) );
+	}
+
+	public function test_a_seek_forgives_a_step_still_owed(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		$node = $this->make_remote( 'remote-austin' );
+		Core::$now = 1000.0;
+		$node->fire();
+		$node->next_offset( [ 'segment' => 7, 'offset' => 1 ] );
+		$node->pause();
+		$node->step(); // owed one
+
+		$node->next_offset( [ 'segment' => 3, 'offset' => 33 ] );
+		Core::$now = 1001.0;
+		$node->fire();
+
+		$this->assertSame( 'inactive', $this->read_private( $node, 'mode' ), 'the seek leaves nothing owed' );
+	}
+
+	public function test_a_paused_tick_writes_no_frame(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		$node = $this->make_remote( 'remote-austin' );
+		Core::$now = 1000.0;
+		$node->fire();
+		$sse = Core::node( 'remote-austin:sse-in' );
+		$node->next_offset( [ 'segment' => 7, 'offset' => 1 ] );
+		$node->checkpoint_shutdown();
+		$node->pause();
+		$node->step(); // owed one
+		Core::$now = 5000.0; // well past the checkpoint interval
+		$node->fire();
+		$this->drain_connect_queue();
+		$this->deliver( $sse, '7:1:20', 'stepped-828' );
+		Core::$now = 9000.0; // the landing tick is due a checkpoint too
+		$node->fire();
+
+		$this->assertSame( [ 'stepped-828' ], $this->forwarded() );
+		$this->assertSame( 1, $this->read_private( $node, 'checkpoint_offset' ), 'a step commits no cursor' );
+	}
+
+	public function test_pause_cancels_a_pending_step(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		$node = $this->make_remote( 'remote-austin' );
+		Core::$now = 1000.0;
+		$node->fire();
+		$node->next_offset( [ 'segment' => 7, 'offset' => 1 ] );
+		$node->pause();
+		$node->step();
+
+		$node->pause();
+
+		$this->assertSame( 'inactive', $this->read_private( $node, 'mode' ) );
+		$this->assertNull( Core::node( 'remote-austin:sse-in' )->test_get_handle() );
 	}
 
 	// =========================================================================

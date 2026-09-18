@@ -33,9 +33,6 @@ class Offsetlog_Cursor_Double extends Node {
 		return [];
 	}
 	public function next_offset( $position ): void {}
-	protected function advance_one_message(): array {
-		return [];
-	}
 	protected function time_travel_resume(): void {}
 
 	public function build( string $dir ): ?Partition_Node {

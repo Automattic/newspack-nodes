@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`step` advances a Remote_Source.** It forwarded nothing and replied with the cursor it started at, while still forcing line mode on for the session, so the Time Travel panel's Step button looked live and did nothing. It now consumes exactly one record per click: straight from the pump buffer when one is waiting, or, with none, by reconnecting from the cursor and taking the next record the spoke sends before dropping the stream again. The reply comes before the record lands in that case, so the panel shows the move on its next metadata poll. Clicks made before the pull answers are each owed a record.
+- **A `step` consumes one record, forwarded or not.** Consumer's step polled until a record went downstream, so a dead-lettered or refused record was skipped inside the same step and the operator never stopped on it. Both readers now share one step in `Durable_Reader`: a step consumes exactly one record, whatever becomes of it, and `poll()` returns how many records a tick consumed.
+- **A paused Remote_Source stays paused.** A tick that ran after `pause` — a timer disarmed mid-scan still fires once, and a replayed `arguments()` re-arms one — drained the buffer and re-armed the tick, and a connect queued just before `pause` reopened the stream, so the source kept pulling while the panel read PAUSED. A paused source now neither ticks nor reconnects except to pay a step it owes, and a step commits no offsetlog frame, as Consumer's never did.
+- **A Remote_Source's bare seek resolves.** The spoke's `connected` handshake names, in CURSORS, where each stream begins; the browser read it and PHP's `SSE_In` threw it away. So a bare `end`, `recent` or `start` seek never resolved, and every later reconnect tail-sought again and skipped whatever arrived in between. `SSE_In` now reports that cursor through an `on_connected` seam, and Remote_Source resolves the seek from it, or, from a spoke that sends none, from the first record the stream delivers.
+- **The Partition Viewer names the ID's third field right.** Its tooltip read `Segment:offset:line`; the field is the record's length in bytes.
+- **A Remote_Source reconnect asks past what it already holds.** A reconnect asked for the cursor, which lags whatever still sits buffered, so the spoke re-sent those records and they went downstream twice; a buffer kept at {0,0}, on the theory that the reconnect would land at the spoke's tail, was re-sent the same way. The request now asks for the end of the last buffered record, through a new `on_connecting` seam on `SSE_In`, so the buffered copies drain once and the spoke sends only what follows.
+
+### Changed
+
+- **A Remote_Source reads only a three-field breadcrumb.** It also accepted `segment:offset`, for a shortened wire crumb that never shipped; every producer stamps `segment:offset:length`, and the drain and the reconnect both read the length. A two-field ID now places nothing, like any other ID that is not a crumb. The viewers' `segment:offset` address is unaffected: it is a seek position, not a breadcrumb.
+
 ## [2.60.11] - 2026-09-17
 
 ### Added

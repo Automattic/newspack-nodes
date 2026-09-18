@@ -3189,12 +3189,13 @@ class ConsumerTest extends TestCase {
 		// poll() flips at_eof back to false after the parent drain — simulating
 		// a producer that's still ahead of us.
 		$busy_consumer = new class() extends Consumer_Node {
-			public function poll(): void {
-				parent::poll();
+			public function poll(): int {
+				$consumed = parent::poll();
 				// Pretend the writer is still ahead; force the busy branch.
 				$ref = new \ReflectionClass( Consumer_Node::class );
 				$p   = $ref->getProperty( 'at_eof' );
 				$p->setValue( $this, false );
+				return $consumed;
 			}
 		};
 		$busy_consumer->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
@@ -3234,10 +3235,11 @@ class ConsumerTest extends TestCase {
 		// reader in the process; only a cadence CHANGE may touch it.
 		$busy_consumer = new class() extends Consumer_Node {
 			public int $arms = 0;
-			public function poll(): void {
-				parent::poll();
-				$p = ( new \ReflectionClass( Consumer_Node::class ) )->getProperty( 'at_eof' );
+			public function poll(): int {
+				$consumed = parent::poll();
+				$p        = ( new \ReflectionClass( Consumer_Node::class ) )->getProperty( 'at_eof' );
 				$p->setValue( $this, false );
+				return $consumed;
 			}
 			public function set_timer( ?int $ms = null, bool $oneshot = false ): void {
 				++$this->arms;

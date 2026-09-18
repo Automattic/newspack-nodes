@@ -85,6 +85,29 @@ class SSE_In_Node extends Node {
 	 */
 	public ?\Closure $on_message        = null;
 
+	/**
+	 * Handshake seam, set by the patron. The spoke's `connected` envelope names, in
+	 * CURSORS, where this stream actually begins, which is how a tail or sentinel
+	 * seek resolves; this hands that position for `$subscribe` to the patron, which
+	 * owns the cursor. An envelope naming none (an older spoke) calls nothing.
+	 *
+	 * Signature: `function ( int $segment, int $offset ): void`.
+	 *
+	 * @var \Closure|null
+	 */
+	public ?\Closure $on_connected      = null;
+
+	/**
+	 * Request seam, set by the patron. Called when a connect is about to go out,
+	 * before the request reads the position, so the patron can name one past
+	 * everything it already holds.
+	 *
+	 * Signature: `function (): void`.
+	 *
+	 * @var \Closure|null
+	 */
+	public ?\Closure $on_connecting     = null;
+
 	/** Application-Password secret, paired with `$auth_username` for Basic auth. */
 	protected string $auth_password     = '';
 
@@ -227,6 +250,9 @@ class SSE_In_Node extends Node {
 			return false;
 		}
 
+		if ( null !== $this->on_connecting ) {
+			( $this->on_connecting )();
+		}
 		$endpoint = $this->url . '/wp-json/newspack-nodes/v1/messages/stream';
 		$params   = [
 			'subscribe' => $this->subscribe,
@@ -648,7 +674,32 @@ class SSE_In_Node extends Node {
 		$this->connected_at = Core::$now ?: Core::right_now();
 		// OWNER is a fencing token; omit it from debug/state payloads and logs.
 		$this->set_state( 'CONNECTED', "PID {$pid} SLOT {$slot}" );
+		$cursor = $this->handshake_cursor( Core::as_string( $info['CURSORS'] ?? '' ) );
+		if ( null !== $cursor && null !== $this->on_connected ) {
+			( $this->on_connected )( $cursor[0], $cursor[1] );
+		}
 		return true;
+	}
+
+	/**
+	 * This subscription's entry in a handshake's CURSORS token,
+	 * `dir=segment:offset` pairs joined by commas.
+	 *
+	 * @param string $cursors The token, empty when the spoke sent none.
+	 * @return array{0:int,1:int}|null The segment and offset, or null when absent or malformed.
+	 */
+	private function handshake_cursor( string $cursors ): ?array {
+		foreach ( \explode( ',', $cursors ) as $pair ) {
+			[ $dir, $position ] = \array_pad( \explode( '=', $pair, 2 ), 2, '' );
+			if ( $dir !== $this->subscribe ) {
+				continue;
+			}
+			[ $segment, $offset ] = \array_pad( \explode( ':', $position, 2 ), 2, null );
+			$segment              = Core::canonical_decimal( $segment );
+			$offset               = Core::canonical_decimal( $offset );
+			return null === $segment || null === $offset ? null : [ $segment, $offset ];
+		}
+		return null;
 	}
 
 	/**

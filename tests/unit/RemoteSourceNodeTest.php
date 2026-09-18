@@ -101,8 +101,9 @@ class RemoteSourceNodeTest extends TestCase {
 		$node = new class() extends Remote_Source_Node {
 			public int $polls = 0;
 			public int $housekeeping_runs = 0;
-			public function poll(): void {
+			public function poll(): int {
 				++$this->polls;
+				return 0;
 			}
 			protected function publish_status(): void {
 				++$this->housekeeping_runs;
@@ -455,36 +456,147 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( 1, $sse->disconnects, 'the stream is re-established to carry the new parameter' );
 	}
 
-	public function test_dropping_the_stream_discards_the_undrained_buffer(): void {
-		// SSE_In's resume position only advances after a successful forward, so
-		// anything still buffered sits AHEAD of it and the spoke re-sends it on
-		// reconnect. Keeping the buffer would forward those lines twice.
-		[ $node ] = $this->make_remote();
-		$sse      = $this->seal_grace_spy();
-		$sse->restore_position( 0, 512 ); // forwarded this far; the spoke replays from here
-		( new \ReflectionProperty( \Newspack_Nodes\Remote_Link_Node::class, 'sse_in' ) )
-			->setValue( $node, $sse );
-		$buffer = new \ReflectionProperty( Remote_Source_Node::class, 'buffer' );
-		$buffer->setValue( $node, "an undrained line\n" );
-
-		$node->set_multi_writer( true );
-
-		$this->assertSame( '', $buffer->getValue( $node ) );
+	/** A spoke's `connected` handshake naming where the stream begins. */
+	private function handshake( SSE_In_Node $sse, string $cursors ): void {
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_INFO;
+		$m[ Message::KEY ]   = 'connected';
+		$m[ Message::VALUE ] = "PID 9007 SLOT 7 OWNER 42424243 CURSORS {$cursors}";
+		$sse->process_sse_chunk( "event: connected\ndata: " . Message::packed( $m ) . "\n\n" );
 	}
 
-	public function test_a_stream_that_never_forwarded_keeps_its_buffer(): void {
-		// A {0,0} cursor sends no `positions` at all, so the spoke tail-seeks to
-		// `end` and replays NOTHING — the buffer is then the only copy of those
-		// records, and dropping it loses them outright rather than duplicating.
-		[ $node ] = $this->make_remote();
-		( new \ReflectionProperty( \Newspack_Nodes\Remote_Link_Node::class, 'sse_in' ) )
-			->setValue( $node, $this->seal_grace_spy() );
+	public function test_the_handshake_cursor_resolves_a_pending_seek(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$node->fire();
+		$sse = Core::node( 'remote-austin:sse-in' );
+		$node->next_offset( Consumer_Node::SEEK_END );
+
+		$this->handshake( $sse, 'firehose.p0=9:4096' );
+
+		$this->assertFalse( $sse->has_pending_seek(), 'the spoke answered the seek' );
+		$this->assertSame( [ 'segment' => 9, 'offset' => 4096 ], $sse->position() );
+		$this->assertSame( [ 'segment' => 9, 'offset' => 4096 ], $node->dump_metadata()['cursor'] );
+	}
+
+	public function test_a_handshake_with_no_pending_seek_leaves_the_cursor_alone(): void {
+		// The handshake names the position the connect asked for, and ticks keep
+		// draining until it lands, so adopting it would rewind past forwarded records.
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$node->fire();
+		$sse = Core::node( 'remote-austin:sse-in' );
+		$node->next_offset( [ 'segment' => 7, 'offset' => 41 ] );
+
+		$this->handshake( $sse, 'firehose.p0=7:1' );
+
+		$this->assertSame( [ 'segment' => 7, 'offset' => 41 ], $node->dump_metadata()['cursor'] );
+		$this->assertSame( [ 'segment' => 7, 'offset' => 41 ], $sse->position() );
+	}
+
+	public function test_a_reconnect_the_spoke_forced_asks_past_what_is_buffered(): void {
+		// The spoke closed the stream with records still buffered here. The new
+		// request asks for the end of the buffer, so the buffered copies drain once.
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$captured = [];
+		SSE_In_Node::$curl_dispatch = static function ( array $opts ) use ( &$captured ): \CurlHandle {
+			$captured[] = $opts;
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+			return \curl_init();
+		};
+		[ $node, $sink ] = $this->make_remote( 'remote-austin' );
+		Core::$now = 1000.0;
+		$node->fire();
+		$this->drain_connect_queue();
+		$sse = Core::node( 'remote-austin:sse-in' );
+		$node->set_line_mode( true );
+		foreach ( [ '5:0:30' => 'r1-121', '5:30:30' => 'r2-232', '5:60:30' => 'r3-343' ] as $crumb => $value ) {
+			$m                   = Message::new_message();
+			$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+			$m[ Message::ID ]    = $crumb;
+			$m[ Message::VALUE ] = $value;
+			$sse->process_sse_chunk( "event: msg\ndata: " . Message::packed( $m ) . "\n\n" );
+		}
+		$node->poll(); // r1 forwarded; r2 and r3 still buffered
+		$sse->disconnect(); // the spoke's idle close
+
+		Core::$now = 1010.0;
+		$node->fire(); // r2 forwarded, the reconnect queued
+		$this->drain_connect_queue();
+		\parse_str( (string) \parse_url( \end( $captured )[ \CURLOPT_URL ], PHP_URL_QUERY ), $query );
+		$asked = \json_decode( $query['positions'], true )['firehose.p0'];
+		foreach ( [ '5:90:30' => 'r4-454' ] as $crumb => $value ) {
+			$m                   = Message::new_message();
+			$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+			$m[ Message::ID ]    = $crumb;
+			$m[ Message::VALUE ] = $value;
+			$sse->process_sse_chunk( "event: msg\ndata: " . Message::packed( $m ) . "\n\n" );
+		}
+		for ( $i = 0; $i < 4; $i++ ) {
+			$node->poll();
+		}
+
+		$this->assertSame( [ 'segment' => 5, 'offset' => 90 ], $asked, 'the request asks for the record after the buffer' );
+		$this->assertSame( [ 'r1-121', 'r2-232', 'r3-343', 'r4-454' ], \array_column( $sink->captured, Message::VALUE ) );
+	}
+
+	public function test_a_reconnect_asks_past_the_last_buffered_record_with_a_crumb(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$captured = [];
+		SSE_In_Node::$curl_dispatch = static function ( array $opts ) use ( &$captured ): \CurlHandle {
+			$captured[] = $opts;
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+			return \curl_init();
+		};
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		Core::$now = 1000.0;
+		$node->fire();
+		$this->drain_connect_queue();
+		$sse    = Core::node( 'remote-austin:sse-in' );
 		$buffer = new \ReflectionProperty( Remote_Source_Node::class, 'buffer' );
-		$buffer->setValue( $node, "the only copy\n" );
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$m[ Message::ID ]    = '8:640:64';
+		$m[ Message::VALUE ] = 'crumbed-929';
+		$buffer->setValue( $node, Message::packed( $m ) . "\nno crumb here\npartial" );
+		$sse->disconnect();
 
-		$node->set_multi_writer( true );
+		Core::$now = 1010.0;
+		$sse->maybe_connect(); // before any tick can drain the buffer
 
-		$this->assertSame( "the only copy\n", $buffer->getValue( $node ) );
+		\parse_str( (string) \parse_url( \end( $captured )[ \CURLOPT_URL ], PHP_URL_QUERY ), $query );
+		$this->assertSame( [ 'segment' => 8, 'offset' => 704 ], \json_decode( $query['positions'], true )['firehose.p0'] );
+		$this->assertStringEndsWith( "no crumb here\n", $buffer->getValue( $node ), 'the partial line goes' );
+	}
+
+	public function test_a_bare_seek_resolves_on_the_first_record_even_without_cursors(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$node->fire();
+		$sse = Core::node( 'remote-austin:sse-in' );
+		$node->next_offset( Consumer_Node::SEEK_END );
+
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$m[ Message::ID ]    = '9:4096:40';
+		$m[ Message::VALUE ] = 'first-after-seek-525';
+		$sse->process_sse_chunk( "event: msg\ndata: " . Message::packed( $m ) . "\n\n" );
+		$node->poll();
+
+		$this->assertFalse( $sse->has_pending_seek(), 'the record says where the stream began' );
+	}
+
+	public function test_a_connect_queued_before_pause_does_not_reopen_the_stream(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$node->fire();
+		$sse = Core::node( 'remote-austin:sse-in' );
+
+		$node->pause();
+		$this->drain_connect_queue();
+
+		$this->assertNull( $sse->test_get_handle(), 'a paused source holds no spoke slot' );
 	}
 
 	public function test_reasserting_the_same_seal_grace_leaves_the_stream_up(): void {
@@ -1378,23 +1490,24 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertCount( 1, $spy->captured, 'the reconnect itself re-forwards nothing' );
 	}
 
-	public function test_crumb_from_line_accepts_a_two_part_crumb(): void {
-		// Wire-compat: after the crumb shrinks from seg:off:len to seg:off, the reader must still
-		// pin the cursor from a two-part crumb (nothing reads the retired length anymore).
+	public function test_a_two_part_id_is_no_crumb(): void {
+		// Every producer stamps seg:off:len; seg:off is only a viewer's lookup address.
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
 		[ $node, $spy ] = $this->make_remote_spy( 'remote-austin' );
 		$node->fire();
 		$sse = Core::node( 'remote-austin:sse-in' );
+		$node->next_offset( [ 'segment' => 3, 'offset' => 333 ] );
 
-		$this->deliver( $sse, '7:200', '' ); // two-part crumb, no length.
+		$this->deliver( $sse, '7:200', '' );
+		$this->deliver( $sse, '7::20', '' );
 
-		$this->assertCount( 1, $spy->captured, 'a two-part crumb still forwards' );
-		$this->assertSame( 7, $this->read_private( $node, 'cursor_segment' ) );
-		$this->assertSame( 200, $this->read_private( $node, 'cursor_offset' ), 'a length-less crumb pins its start and advances by nothing' );
+		$this->assertCount( 2, $spy->captured, 'the records still forward' );
+		$this->assertSame( 3, $this->read_private( $node, 'cursor_segment' ) );
+		$this->assertSame( 333, $this->read_private( $node, 'cursor_offset' ), 'but places nothing' );
 	}
 
-public function test_relay_with_null_sink_fails_loud(): void {
+	public function test_relay_with_null_sink_fails_loud(): void {
 		// Bug D: a null/unwired downstream must FAIL LOUD — never silently no-op while the
 		// stream is consumed (which would advance the cursor past undelivered messages). The
 		// stream now arrives via the SSE_In buffer; forward_line throws on the null sink at drain.

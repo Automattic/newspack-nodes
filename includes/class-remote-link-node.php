@@ -18,10 +18,10 @@
  * Mirrors the JS RemoteLinkNode. The seams are shaped for two subclasses because
  * the JS side has two (`src/runtime/remote-ipc-node.js` is the second); PHP has
  * only `Remote_Source_Node`, which adds the durable aggregation offsetlog and the
- * dashboard status snapshot. So `should_connect()` has one implementation
- * returning a constant, and the status seams (`publish_status`,
- * `record_heartbeat_sent`, `record_heartbeat_reply`, `record_heartbeat_failure`)
- * are no-ops here that only `Remote_Source_Node` fills.
+ * dashboard status snapshot. It overrides `should_connect()` to hold a paused
+ * pull closed, and fills the status seams (`publish_status`,
+ * `record_heartbeat_sent`, `record_heartbeat_reply`, `record_heartbeat_failure`),
+ * which are no-ops here.
  *
  * No topology instantiates `Remote_Link` itself; it reaches the graph as that
  * subclass, or through its `@api` dynamic entrypoints (`connect`, `close`).
@@ -342,7 +342,10 @@ class Remote_Link_Node extends Timer_Node {
 		self::push_connect_queue(
 			function () use ( $sse ): void {
 				$this->connect_queued = false;
-				$sse->maybe_connect();
+				// Its turn can come after the link stopped wanting the stream.
+				if ( $this->should_connect() ) {
+					$sse->maybe_connect();
+				}
 			},
 			$this
 		);
