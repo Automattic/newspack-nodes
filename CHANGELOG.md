@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.60.9] - 2026-09-17
+
 ### Fixed
 
 - **Triage keeps its count and its actions in view.** The whole view scrolled as one, so opening a long dead-letter record pushed Refresh and Purge below the fold, and scrolling down to reach them took the quarantine count and the column heads with it. Only the records scroll now, under a column header that stays on top, and the Triage modal grows with what it holds from the other views' height up to 80% of the viewport.
