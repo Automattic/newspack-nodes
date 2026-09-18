@@ -13,8 +13,7 @@
             "=",
             "1"
         ],
-        "raw": "var num_partitions = 1",
-        "line": 19
+        "raw": "var num_partitions = 1"
     },
     {
         "verb": "include",
@@ -26,8 +25,7 @@
             "include",
             "topic-probe"
         ],
-        "raw": "include topic-probe",
-        "line": 21
+        "raw": "include topic-probe"
     },
     {
         "verb": "make_node",
@@ -47,8 +45,7 @@
             "<config:offsets_dir>/<topology>.settings.p0",
             "<config:deadletter_dir>/<topology>.settings.p0"
         ],
-        "raw": "make_node Consumer settings:consumer <config:logs_dir>/settings.p0 <config:offsets_dir>/<topology>.settings.p0 <config:deadletter_dir>/<topology>.settings.p0",
-        "line": 23
+        "raw": "make_node Consumer settings:consumer <config:logs_dir>/settings.p0 <config:offsets_dir>/<topology>.settings.p0 <config:deadletter_dir>/<topology>.settings.p0"
     },
     {
         "verb": "make_node",
@@ -64,29 +61,7 @@
             "settings-sync",
             "300"
         ],
-        "raw": "make_node Settings_Sync settings-sync 300",
-        "line": 24
-    },
-    {
-        "verb": "command_node",
-        "values": [
-            "command_node",
-            "settings-sync:config",
-            "add_setting",
-            "newspack_nodes_num_partitions",
-            "settings",
-            "newspack_nodes_num_partitions"
-        ],
-        "spans": [
-            "command_node",
-            "settings-sync:config",
-            "add_setting",
-            "newspack_nodes_num_partitions",
-            "settings",
-            "newspack_nodes_num_partitions"
-        ],
-        "raw": "command_node settings-sync:config add_setting newspack_nodes_num_partitions settings newspack_nodes_num_partitions",
-        "line": 26
+        "raw": "make_node Settings_Sync settings-sync 300"
     },
     {
         "verb": "command_node",
@@ -106,8 +81,7 @@
             "settings",
             "newspack_nodes_segment_size"
         ],
-        "raw": "command_node settings-sync:config add_setting newspack_nodes_remote_segment_size settings newspack_nodes_segment_size",
-        "line": 27
+        "raw": "command_node settings-sync:config add_setting newspack_nodes_remote_segment_size settings newspack_nodes_segment_size"
     },
     {
         "verb": "command_node",
@@ -127,8 +101,7 @@
             "settings",
             "newspack_nodes_min_segments"
         ],
-        "raw": "command_node settings-sync:config add_setting newspack_nodes_remote_min_segments settings newspack_nodes_min_segments",
-        "line": 28
+        "raw": "command_node settings-sync:config add_setting newspack_nodes_remote_min_segments settings newspack_nodes_min_segments"
     },
     {
         "verb": "command_node",
@@ -148,8 +121,7 @@
             "settings",
             "newspack_nodes_num_segments"
         ],
-        "raw": "command_node settings-sync:config add_setting newspack_nodes_remote_num_segments settings newspack_nodes_num_segments",
-        "line": 29
+        "raw": "command_node settings-sync:config add_setting newspack_nodes_remote_num_segments settings newspack_nodes_num_segments"
     },
     {
         "verb": "command_node",
@@ -169,8 +141,7 @@
             "settings",
             "newspack_nodes_max_segments"
         ],
-        "raw": "command_node settings-sync:config add_setting newspack_nodes_remote_max_segments settings newspack_nodes_max_segments",
-        "line": 30
+        "raw": "command_node settings-sync:config add_setting newspack_nodes_remote_max_segments settings newspack_nodes_max_segments"
     },
     {
         "verb": "command_node",
@@ -190,8 +161,7 @@
             "settings",
             "newspack_nodes_min_lifetime"
         ],
-        "raw": "command_node settings-sync:config add_setting newspack_nodes_remote_min_lifetime settings newspack_nodes_min_lifetime",
-        "line": 31
+        "raw": "command_node settings-sync:config add_setting newspack_nodes_remote_min_lifetime settings newspack_nodes_min_lifetime"
     },
     {
         "verb": "command_node",
@@ -211,8 +181,7 @@
             "settings",
             "newspack_nodes_lifetime"
         ],
-        "raw": "command_node settings-sync:config add_setting newspack_nodes_remote_lifetime settings newspack_nodes_lifetime",
-        "line": 32
+        "raw": "command_node settings-sync:config add_setting newspack_nodes_remote_lifetime settings newspack_nodes_lifetime"
     },
     {
         "verb": "command_node",
@@ -232,8 +201,7 @@
             "settings",
             "newspack_nodes_remote_segment_size"
         ],
-        "raw": "command_node settings-sync:config add_setting newspack_nodes_remote_segment_size settings newspack_nodes_remote_segment_size",
-        "line": 34
+        "raw": "command_node settings-sync:config add_setting newspack_nodes_remote_segment_size settings newspack_nodes_remote_segment_size"
     },
     {
         "verb": "command_node",
@@ -253,8 +221,7 @@
             "settings",
             "newspack_nodes_remote_min_segments"
         ],
-        "raw": "command_node settings-sync:config add_setting newspack_nodes_remote_min_segments settings newspack_nodes_remote_min_segments",
-        "line": 35
+        "raw": "command_node settings-sync:config add_setting newspack_nodes_remote_min_segments settings newspack_nodes_remote_min_segments"
     },
     {
         "verb": "command_node",
@@ -274,8 +241,7 @@
             "settings",
             "newspack_nodes_remote_num_segments"
         ],
-        "raw": "command_node settings-sync:config add_setting newspack_nodes_remote_num_segments settings newspack_nodes_remote_num_segments",
-        "line": 36
+        "raw": "command_node settings-sync:config add_setting newspack_nodes_remote_num_segments settings newspack_nodes_remote_num_segments"
     },
     {
         "verb": "command_node",
@@ -295,8 +261,7 @@
             "settings",
             "newspack_nodes_remote_max_segments"
         ],
-        "raw": "command_node settings-sync:config add_setting newspack_nodes_remote_max_segments settings newspack_nodes_remote_max_segments",
-        "line": 37
+        "raw": "command_node settings-sync:config add_setting newspack_nodes_remote_max_segments settings newspack_nodes_remote_max_segments"
     },
     {
         "verb": "command_node",
@@ -316,8 +281,7 @@
             "settings",
             "newspack_nodes_remote_min_lifetime"
         ],
-        "raw": "command_node settings-sync:config add_setting newspack_nodes_remote_min_lifetime settings newspack_nodes_remote_min_lifetime",
-        "line": 38
+        "raw": "command_node settings-sync:config add_setting newspack_nodes_remote_min_lifetime settings newspack_nodes_remote_min_lifetime"
     },
     {
         "verb": "command_node",
@@ -337,8 +301,7 @@
             "settings",
             "newspack_nodes_remote_lifetime"
         ],
-        "raw": "command_node settings-sync:config add_setting newspack_nodes_remote_lifetime settings newspack_nodes_remote_lifetime",
-        "line": 39
+        "raw": "command_node settings-sync:config add_setting newspack_nodes_remote_lifetime settings newspack_nodes_remote_lifetime"
     },
     {
         "verb": "connect_node",
@@ -352,8 +315,7 @@
             "settings:consumer",
             "settings-sync"
         ],
-        "raw": "connect_node settings:consumer settings-sync",
-        "line": 41
+        "raw": "connect_node settings:consumer settings-sync"
     },
     {
         "verb": "secure",
@@ -363,7 +325,6 @@
         "spans": [
             "secure"
         ],
-        "raw": "secure",
-        "line": 42
+        "raw": "secure"
     }
 ]

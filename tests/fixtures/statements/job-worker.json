@@ -13,8 +13,7 @@
             "=",
             "600"
         ],
-        "raw": "var stale_timeout = 600",
-        "line": 12
+        "raw": "var stale_timeout = 600"
     },
     {
         "verb": "include",
@@ -26,8 +25,7 @@
             "include",
             "topic-probe"
         ],
-        "raw": "include topic-probe",
-        "line": 14
+        "raw": "include topic-probe"
     },
     {
         "verb": "make_node",
@@ -47,8 +45,7 @@
             "<config:offsets_dir>/<topology>.jobs.p<partition>",
             "<config:deadletter_dir>/<topology>.jobs.p<partition>"
         ],
-        "raw": "make_node Consumer jobs:consumer <config:logs_dir>/jobs.p<partition> <config:offsets_dir>/<topology>.jobs.p<partition> <config:deadletter_dir>/<topology>.jobs.p<partition>",
-        "line": 18
+        "raw": "make_node Consumer jobs:consumer <config:logs_dir>/jobs.p<partition> <config:offsets_dir>/<topology>.jobs.p<partition> <config:deadletter_dir>/<topology>.jobs.p<partition>"
     },
     {
         "verb": "command_node",
@@ -64,8 +61,7 @@
             "set_line_mode",
             "true"
         ],
-        "raw": "command_node jobs:consumer:config set_line_mode true",
-        "line": 19
+        "raw": "command_node jobs:consumer:config set_line_mode true"
     },
     {
         "verb": "make_node",
@@ -79,8 +75,7 @@
             "Job_Worker",
             "job-worker"
         ],
-        "raw": "make_node Job_Worker job-worker",
-        "line": 20
+        "raw": "make_node Job_Worker job-worker"
     },
     {
         "verb": "connect_node",
@@ -94,8 +89,7 @@
             "jobs:consumer",
             "job-worker"
         ],
-        "raw": "connect_node jobs:consumer job-worker",
-        "line": 21
+        "raw": "connect_node jobs:consumer job-worker"
     },
     {
         "verb": "make_node",
@@ -123,8 +117,7 @@
             "86400",
             "86400"
         ],
-        "raw": "make_node Partition jobstats:log <config:logs_dir>/jobstats.p0 1048576 2 8 0 86400 86400",
-        "line": 26
+        "raw": "make_node Partition jobstats:log <config:logs_dir>/jobstats.p0 1048576 2 8 0 86400 86400"
     },
     {
         "verb": "make_node",
@@ -140,8 +133,7 @@
             "jobstats",
             "15"
         ],
-        "raw": "make_node Job_Probe jobstats 15",
-        "line": 27
+        "raw": "make_node Job_Probe jobstats 15"
     },
     {
         "verb": "connect_node",
@@ -155,8 +147,7 @@
             "jobstats",
             "jobstats:log"
         ],
-        "raw": "connect_node jobstats jobstats:log",
-        "line": 28
+        "raw": "connect_node jobstats jobstats:log"
     },
     {
         "verb": "secure",
@@ -166,7 +157,6 @@
         "spans": [
             "secure"
         ],
-        "raw": "secure",
-        "line": 29
+        "raw": "secure"
     }
 ]
