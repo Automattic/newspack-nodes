@@ -220,8 +220,14 @@ class TableNodeTest extends TestCase {
 		$ci = new \Newspack_Nodes\Command_Interpreter_Node();
 		$ci->name( 'stray:config' );
 		$verbs = array_column( \Newspack_Nodes\Table_Node::node_schema()['commands'], 'handler', 'name' );
-		$this->assertSame( "error: no table patron\n", $verbs['get']( $ci, [ 'x' ] ) );
-		$this->assertSame( "error: no table patron\n", $verbs['rm']( $ci, [ 'x' ] ) );
+		foreach ( [ 'get', 'rm' ] as $verb ) {
+			try {
+				$verbs[ $verb ]( $ci, [ 'x' ] );
+				$this->fail( "{$verb} answered a foreign patron" );
+			} catch ( \RuntimeException $e ) {
+				$this->assertSame( 'no table patron', $e->getMessage() );
+			}
+		}
 	}
 
 	public function test_arguments_read_back(): void {

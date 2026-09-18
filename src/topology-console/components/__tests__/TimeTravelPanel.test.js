@@ -124,13 +124,13 @@ describe( 'TimeTravelPanel — pause gating', () => {
 		expect( view.getByLabelText( /fast.?forward/i ).disabled ).toBe( true );
 	} );
 
-	it( 'pause sends bare PAUSE and play sends bare PLAY, flipping the gate', () => {
+	it( 'pause sends bare pause and play sends bare play, flipping the gate', () => {
 		const onTransport = jest.fn();
 		const view = renderPanel( { onTransport } );
 		pause( view );
-		expect( onTransport ).toHaveBeenLastCalledWith( 'PAUSE', '' );
+		expect( onTransport ).toHaveBeenLastCalledWith( 'pause', '' );
 		fireEvent.click( view.getByLabelText( /^play/i ) );
-		expect( onTransport ).toHaveBeenLastCalledWith( 'PLAY', '' );
+		expect( onTransport ).toHaveBeenLastCalledWith( 'play', '' );
 		// Back to live: only pause enabled again.
 		expect( view.getByLabelText( /pause/i ).disabled ).toBe( false );
 		expect( view.getByLabelText( /step/i ).disabled ).toBe( true );
@@ -148,12 +148,12 @@ describe( 'TimeTravelPanel — pause gating', () => {
 } );
 
 describe( 'TimeTravelPanel — step', () => {
-	it( 'step sends bare STEP and keeps the panel paused', () => {
+	it( 'step sends bare step and keeps the panel paused', () => {
 		const onTransport = jest.fn();
 		const view = renderPanel( { onTransport } );
 		pause( view );
 		fireEvent.click( view.getByLabelText( /step/i ) );
-		expect( onTransport ).toHaveBeenLastCalledWith( 'STEP', '' );
+		expect( onTransport ).toHaveBeenLastCalledWith( 'step', '' );
 		// Still paused — step does not resume.
 		expect( view.getByLabelText( /pause/i ).disabled ).toBe( true );
 		expect( view.getByLabelText( /step/i ).disabled ).toBe( false );
@@ -170,21 +170,21 @@ describe( 'TimeTravelPanel — snap-to-keyframe rewind/fast-forward', () => {
 			fireEvent.click( view.getByLabelText( /rewind/i ) );
 
 		rewind(); // read-ahead → snap onto the current keyframe 10
-		expect( onTransport ).toHaveBeenLastCalledWith( 'SEEK_FRAME', '10' );
+		expect( onTransport ).toHaveBeenLastCalledWith( 'seek_frame', '10' );
 		expect( current( view.container ) ).toBe( '10' );
 
 		rewind(); // on 10 → previous keyframe
-		expect( onTransport ).toHaveBeenLastCalledWith( 'SEEK_FRAME', '9' );
+		expect( onTransport ).toHaveBeenLastCalledWith( 'seek_frame', '9' );
 		expect( current( view.container ) ).toBe( '9' );
 
 		fireEvent.click( view.getByLabelText( /step/i ) ); // off 9
 
 		rewind(); // off-frame → snap BACK to 9, not 8
-		expect( onTransport ).toHaveBeenLastCalledWith( 'SEEK_FRAME', '9' );
+		expect( onTransport ).toHaveBeenLastCalledWith( 'seek_frame', '9' );
 		expect( current( view.container ) ).toBe( '9' );
 
 		rewind(); // on 9 → previous keyframe
-		expect( onTransport ).toHaveBeenLastCalledWith( 'SEEK_FRAME', '8' );
+		expect( onTransport ).toHaveBeenLastCalledWith( 'seek_frame', '8' );
 		expect( current( view.container ) ).toBe( '8' );
 	} );
 
@@ -193,7 +193,7 @@ describe( 'TimeTravelPanel — snap-to-keyframe rewind/fast-forward', () => {
 		const view = renderPanel( { onTransport } );
 		pause( view );
 		fireEvent.click( view.getByLabelText( /rewind/i ) );
-		expect( onTransport ).toHaveBeenLastCalledWith( 'SEEK_FRAME', '10' );
+		expect( onTransport ).toHaveBeenLastCalledWith( 'seek_frame', '10' );
 		expect( current( view.container ) ).toBe( '10' );
 	} );
 
@@ -203,7 +203,7 @@ describe( 'TimeTravelPanel — snap-to-keyframe rewind/fast-forward', () => {
 		const view = renderPanel( { onTransport, onFrameSignal: true } );
 		pause( view );
 		fireEvent.click( view.getByLabelText( /rewind/i ) );
-		expect( onTransport ).toHaveBeenLastCalledWith( 'SEEK_FRAME', '9' );
+		expect( onTransport ).toHaveBeenLastCalledWith( 'seek_frame', '9' );
 		expect( current( view.container ) ).toBe( '9' );
 	} );
 
@@ -215,7 +215,7 @@ describe( 'TimeTravelPanel — snap-to-keyframe rewind/fast-forward', () => {
 		fireEvent.click( view.getByLabelText( /rewind/i ) ); // → 9
 		fireEvent.click( view.getByLabelText( /rewind/i ) ); // → 8 (oldest)
 		fireEvent.click( view.getByLabelText( /fast.?forward/i ) ); // → 9
-		expect( onTransport ).toHaveBeenLastCalledWith( 'SEEK_FRAME', '9' );
+		expect( onTransport ).toHaveBeenLastCalledWith( 'seek_frame', '9' );
 		expect( current( view.container ) ).toBe( '9' );
 	} );
 
@@ -227,7 +227,7 @@ describe( 'TimeTravelPanel — snap-to-keyframe rewind/fast-forward', () => {
 		fireEvent.click( view.getByLabelText( /rewind/i ) ); // → 9
 		fireEvent.click( view.getByLabelText( /step/i ) ); // off 9
 		fireEvent.click( view.getByLabelText( /fast.?forward/i ) ); // → 10
-		expect( onTransport ).toHaveBeenLastCalledWith( 'SEEK_FRAME', '10' );
+		expect( onTransport ).toHaveBeenLastCalledWith( 'seek_frame', '10' );
 		expect( current( view.container ) ).toBe( '10' );
 	} );
 
@@ -253,7 +253,7 @@ describe( 'TimeTravelPanel — snap-to-keyframe rewind/fast-forward', () => {
 		fireEvent.click( view.getByLabelText( /step/i ) ); // off 8
 		expect( view.getByLabelText( /rewind/i ).disabled ).toBe( false );
 		fireEvent.click( view.getByLabelText( /rewind/i ) ); // snap back to 8
-		expect( onTransport ).toHaveBeenLastCalledWith( 'SEEK_FRAME', '8' );
+		expect( onTransport ).toHaveBeenLastCalledWith( 'seek_frame', '8' );
 	} );
 
 	it( 'disables fast-forward when atFrame is the newest', () => {
@@ -273,7 +273,7 @@ describe( 'TimeTravelPanel — snap-to-keyframe rewind/fast-forward', () => {
 } );
 
 describe( 'TimeTravelPanel — play resumes following the head', () => {
-	it( 'play fires PLAY and the next live signal follows the head', () => {
+	it( 'play fires play and the next live signal follows the head', () => {
 		const onTransport = jest.fn();
 		const view = renderPanel( { onTransport } );
 		pause( view );
@@ -281,7 +281,7 @@ describe( 'TimeTravelPanel — play resumes following the head', () => {
 		fireEvent.click( view.getByLabelText( /rewind/i ) ); // → 9
 		expect( current( view.container ) ).toBe( '9' );
 		fireEvent.click( view.getByLabelText( /^play/i ) ); // go live
-		expect( onTransport ).toHaveBeenLastCalledWith( 'PLAY', '' );
+		expect( onTransport ).toHaveBeenLastCalledWith( 'play', '' );
 		// A new checkpoint appends; the next live poll follows the head.
 		view.rerender(
 			<TimeTravelPanel
@@ -325,12 +325,12 @@ describe( 'TimeTravelPanel — paused signal sync', () => {
 		expect( view.getByLabelText( /step/i ).disabled ).toBe( true );
 	} );
 
-	it( 'an optimistic PAUSE click enables the rest instantly, then a changed signal reconciles', () => {
+	it( 'an optimistic pause click enables the rest instantly, then a changed signal reconciles', () => {
 		const onTransport = jest.fn();
 		const view = renderPanel( { onTransport, paused: false } );
 		// Click pauses instantly (optimistic), before the signal catches up.
 		pause( view );
-		expect( onTransport ).toHaveBeenLastCalledWith( 'PAUSE', '' );
+		expect( onTransport ).toHaveBeenLastCalledWith( 'pause', '' );
 		expect( view.getByLabelText( /step/i ).disabled ).toBe( false );
 		// The signal arrives true: still paused, override deferred to it.
 		view.rerender(
@@ -449,7 +449,7 @@ describe( 'TimeTravelPanel — position survives remount via signals', () => {
 			paused: true,
 		} );
 		fireEvent.click( view.getByLabelText( /rewind/i ) ); // on 9 → 8
-		expect( onTransport ).toHaveBeenLastCalledWith( 'SEEK_FRAME', '8' );
+		expect( onTransport ).toHaveBeenLastCalledWith( 'seek_frame', '8' );
 		expect( current( view.container ) ).toBe( '8' );
 	} );
 } );

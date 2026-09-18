@@ -7,7 +7,7 @@
  * a consumer-reported signal (dump_metadata) so the panel reflects the real
  * consumer and survives a remount — transport clicks drive it optimistically for
  * instant feedback, and the next poll's signal reconciles. Three pieces of state:
- *   - `paused`   — PAUSE gates the whole transport. While !paused the only live
+ *   - `paused`   — pause gates the whole transport. While !paused the only live
  *                  button is ⏸ Pause; the consumer is following the head and you can
  *                  only stop it. The metadata `paused` signal is the source of truth;
  *                  an `optimistic` override (null = defer to the signal) gives the
@@ -31,8 +31,8 @@
  * read position, nothing more.
  *
  * The transport bar drives the consumer's `:config` verbs through the inspector's
- * invoke path via onTransport( verb, positional ): PAUSE / PLAY / STEP send the
- * bare verb; rewind / fast-forward send SEEK_FRAME <segment> for the snapped
+ * invoke path via onTransport( verb, positional ): pause / play / step send the
+ * bare verb; rewind / fast-forward send seek_frame <segment> for the snapped
  * keyframe (a paused keyframe scrub among the retained frames — there is no
  * fast-forward into the unknown).
  */
@@ -229,7 +229,7 @@ export default function TimeTravelPanel( {
 	const onOldest = currentIdx <= 0;
 	const onNewest = null === nextId;
 
-	// Enable/disable: PAUSE gates everything. While !paused only Pause is live.
+	// Enable/disable: pause gates everything. While !paused only Pause is live.
 	const canPause = ! paused;
 	const canPlay = paused;
 	const canStep = paused;
@@ -242,7 +242,7 @@ export default function TimeTravelPanel( {
 		setAtFrame( id );
 		setOnFrame( true );
 		if ( onTransport ) {
-			onTransport( 'SEEK_FRAME', String( id ) );
+			onTransport( 'seek_frame', String( id ) );
 		}
 	};
 
@@ -270,7 +270,7 @@ export default function TimeTravelPanel( {
 		}
 		setOnFrame( false ); // optimistic: the cursor advances off the frame
 		if ( onTransport ) {
-			onTransport( 'STEP', '' );
+			onTransport( 'step', '' );
 		}
 	};
 
@@ -280,7 +280,7 @@ export default function TimeTravelPanel( {
 		}
 		setOptimistic( true ); // instant feedback; leave the position untouched
 		if ( onTransport ) {
-			onTransport( 'PAUSE', '' );
+			onTransport( 'pause', '' );
 		}
 	};
 
@@ -290,7 +290,7 @@ export default function TimeTravelPanel( {
 		}
 		setOptimistic( false ); // resume following head; next signal reconciles
 		if ( onTransport ) {
-			onTransport( 'PLAY', '' );
+			onTransport( 'play', '' );
 		}
 	};
 

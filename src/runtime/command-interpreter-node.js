@@ -153,6 +153,8 @@ const HELP = {
 	// Shell builtins — Shell intercepts these; listed so `help` is complete.
 	cd: 'cd [ <path> ]\n    alias: chdir\n',
 	debug_level: 'debug_level [0|1|2]\n',
+	debug_ui:
+		'debug_ui [on|off]\n    note: shows UI-button commands and replies; no arg toggles.\n',
 	tell_node: 'tell_node <path> <info>\n    alias: tell\n',
 	send_node: 'send_node <path> <bytes>\n    alias: send\n',
 	send_struct: 'send_struct <path> <json>\n',

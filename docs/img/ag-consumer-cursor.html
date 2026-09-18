@@ -59,7 +59,7 @@
   <div class="card">
     <h3>The offsetlog: one checkpoint, one segment, one keyframe</h3>
     <div class="kf"><span>f-9</span><span>f-8</span><span>f-7</span><span>f-6</span><span>f-5</span><span>f-4</span><span>f-3</span><span>f-2</span><span>f-1</span><span class="hot">newest</span></div>
-    <p><span class="mono">OFFSETLOG_SEGMENT_SIZE</span> 1 byte makes every frame its own segment, which is what the time-travel debugger's <span class="mono">SEEK_FRAME</span> seeks by; <span class="mono">do_rotate()</span> adopts the still-empty newest segment on the first commit, so a 1-byte threshold spams no empty segments. Retention keeps 10 keyframes minimum, targets 30, holds anything younger than 300 s, prunes past 900 s, and hard-caps at 60. On boot <span class="mono">load_offsetlog()</span> reads the newest segment's last line. An empty <span class="mono">offsetlog_dir</span> disables it (the cli's <span class="mono">reply-in</span>).</p>
+    <p><span class="mono">OFFSETLOG_SEGMENT_SIZE</span> 1 byte makes every frame its own segment, which is what the time-travel debugger's <span class="mono">seek_frame</span> seeks by; <span class="mono">do_rotate()</span> adopts the still-empty newest segment on the first commit, so a 1-byte threshold spams no empty segments. Retention keeps 10 keyframes minimum, targets 30, holds anything younger than 300 s, prunes past 900 s, and hard-caps at 60. On boot <span class="mono">load_offsetlog()</span> reads the newest segment's last line. An empty <span class="mono">offsetlog_dir</span> disables it (the cli's <span class="mono">reply-in</span>).</p>
   </div>
 </div>
 

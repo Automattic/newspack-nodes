@@ -6,6 +6,35 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **The time-travel verbs are lowercase: `pause`, `play`, `step` and
+  `seek_frame`.** They were the only upper-case command verbs on the
+  substrate, beside `dl_list`, `add_snapshot_node` and every other
+  lower-case one. A script or topology sending `PAUSE`, `PLAY`, `STEP` or
+  `SEEK_FRAME` to a `{name}:config` interpreter sends the lower-case name
+  instead; there is no alias, so the old spelling is an unknown verb.
+- **`dl_list`, `dl_show` and `step` reply with structure, not a JSON
+  string.** Each handler encoded its result into the reply's `payload` as
+  text, so the wire carried JSON inside JSON. `payload` is now the page
+  `{ rows, total, unindexed_segments }`, the record `{ type, type_flags,
+  timestamp, from, to, id, key, value, size }` and the cursor `{ segment,
+  offset, at_eof }` themselves. A caller that decoded the payload drops the
+  decode: in PHP,
+  [`Durable_Reader::cmd_step()`](../includes/trait-durable-reader.php),
+  [`Dead_Letter_Queue::cmd_dl_list()`](../includes/trait-dead-letter-queue.php),
+  `cmd_dl_show()` and `show_deadletter()` return arrays, and a browser reply
+  handler reads `payload` as an object.
+- **A refusing verb replies TM_ERROR, never an `error:` line.** `dl_list`,
+  `dl_show`, `dl_requeue`, `dl_purge`, `seek_frame`, the Table's `get` and `rm`
+  and Settings_Sync's `add_setting` each answered a refusal as an ordinary reply
+  starting `error:`, which every reader that tests TM_ERROR took for success.
+  They now throw, as every other verb does, and the interpreter replies TM_ERROR
+  with the bare message: `no dead-letter queue configured`, `no frame at segment
+  5344`, `usage: add_setting <local_option> <TO> <remote_option>`. A caller that
+  matched the `error:` prefix tests the TM_ERROR bit instead; a PHP caller of
+  [`requeue_deadletter()`](../includes/trait-dead-letter-queue.php),
+  `show_deadletter()`, `purge_deadletter()`, `seek_frame()` or `add_setting()`
+  catches `\RuntimeException`.
+
 - **`Field_Reset_Assets::highlight_style()` is gone, and a marked reset toggle
   takes the `is-danger` button role.** The inline style it returned painted the
   mark at a specificity the UI sheet's secondary role beat, so on any page

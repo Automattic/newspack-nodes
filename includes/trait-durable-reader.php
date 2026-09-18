@@ -748,21 +748,21 @@ trait Durable_Reader {
 	 * Drain one line per tick instead of the whole buffer. GRANULARITY, not a rate limit:
 	 * a sink doing heavy per-message work would otherwise process a whole read block (Consumer's
 	 * 64 KB) inside one fire(), freezing the worker's heartbeat through the burst. The stock
-	 * job-worker topology runs its Consumer on it, so this is a production setting — STEP
-	 * forces it on for a debugger session and PLAY restores whatever the topology chose.
+	 * job-worker topology runs its Consumer on it, so this is a production setting — `step`
+	 * forces it on for a debugger session and `play` restores whatever the topology chose.
 	 */
 	private bool $line_mode = false;
 
 	/**
-	 * Time-travel STEP captures the production line_mode here on the first step of
-	 * a session; PLAY restores it (line_mode is a legitimate production setting —
+	 * Time-travel `step` captures the production line_mode here on the first step of
+	 * a session; `play` restores it (line_mode is a legitimate production setting —
 	 * some topologies run it on) and clears this back to null.
 	 */
 	private ?bool $saved_line_mode = null;
 
 	/**
 	 * Offsetlog segment id the reader was last rewound to by seek_frame() while
-	 * paused, or null when it hasn't been rewound. PLAY reads this to truncate the
+	 * paused, or null when it hasn't been rewound. `play` reads this to truncate the
 	 * offsetlog after the rewind point before re-arming (commit-to-this-branch), so
 	 * the re-written forward timeline stays monotonic; it then clears this back to
 	 * null. A second seek overwrites it with the newer branch point.
@@ -770,7 +770,7 @@ trait Durable_Reader {
 	private ?int $rewound_to = null;
 
 	/**
-	 * True once STEP has advanced the cursor past the frame seek_frame() put it at;
+	 * True once `step` has advanced the cursor past the frame seek_frame() put it at;
 	 * seek_frame() (a fresh park) and play() (going live) clear it. Feeds the seeked
 	 * case of dump_metadata()'s `on_frame` signal (`! stepped_since_seek`), so the
 	 * debugger panel's "off the keyframe" position survives a remount.
@@ -785,18 +785,17 @@ trait Durable_Reader {
 	 * record's SOURCE {segment,offset}. Does NOT resume the timer — a paused reader stays
 	 * paused after seeking.
 	 *
-	 * @api Consumed over the wire by the debugger UI (SEEK_FRAME command).
+	 * @api Consumed over the wire by the debugger UI (`seek_frame` command).
 	 * @param int $segment Offsetlog segment id, from dump_metadata's frames[].id.
-	 * @return string `"ok\n"`, or an error string when the offsetlog or the segment is absent.
+	 * @return string `"ok\n"`.
+	 * @throws \RuntimeException When there is no offsetlog, or no frame at the segment.
 	 */
 	public function seek_frame( int $segment ): string {
 		if ( null === $this->offsetlog ) {
-			return 'error: no offsetlog to seek';
+			throw new \RuntimeException( 'no offsetlog to seek' );
 		}
-		$entry = $this->read_frame_record( $segment );
-		if ( null === $entry ) {
-			return "error: no frame at segment {$segment}";
-		}
+		$entry = $this->read_frame_record( $segment )
+			?? throw new \RuntimeException( "no frame at segment {$segment}" );
 		$cache = \is_array( $entry['cache'] ?? null ) ? $entry['cache'] : [];
 		foreach ( $this->snapshot_nodes as $snapshot_name ) {
 			$node  = Core::node( $snapshot_name );
@@ -806,7 +805,7 @@ trait Durable_Reader {
 			}
 		}
 		$this->next_offset( [ 'segment' => $entry['segment'], 'offset' => $entry['offset'] ] );
-		// Record the rewind point: PLAY truncates after it to stay monotonic.
+		// Record the rewind point: `play` truncates after it to stay monotonic.
 		$this->rewound_to         = $segment;
 		$this->stepped_since_seek = false; // A fresh seek sits ON the keyframe.
 		return "ok\n";
@@ -865,10 +864,10 @@ trait Durable_Reader {
 
 	/**
 	 * Single-step one message. Forces one-message granularity (capturing the
-	 * production line_mode on the first step of a session so PLAY can restore it),
+	 * production line_mode on the first step of a session so `play` can restore it),
 	 * then advances exactly one message via the node's advance_one_message() hook.
 	 *
-	 * @api Consumed over the wire by the debugger UI (auth-gated STEP command).
+	 * @api Consumed over the wire by the debugger UI (auth-gated `step` command).
 	 * @return array{segment:int, offset:int, at_eof:bool} The resulting cursor + EOF flag.
 	 */
 	public function step(): array {
@@ -917,8 +916,8 @@ trait Durable_Reader {
 	 * (without it, a console-serialized topology loses its snapshot node and the
 	 * downstream stateful node's save_state() stops co-committing). Only the durable
 	 * settings round-trip: `snapshot_nodes` and `line_mode` (the production value —
-	 * `saved_line_mode` holds it while a transient STEP session forces line_mode on).
-	 * The imperative verbs (SEEK_FRAME/PAUSE/PLAY/STEP) are runtime, not config.
+	 * `saved_line_mode` holds it while a transient `step` session forces line_mode on).
+	 * The imperative verbs (seek_frame/pause/play/step) are runtime, not config.
 	 *
 	 * @return string Zero or more trailing-newline-terminated `command_node` lines.
 	 */
@@ -964,7 +963,7 @@ trait Durable_Reader {
 		];
 	}
 
-	/** Hold the cursor and emit nothing until STEP / PLAY. */
+	/** Hold the cursor and emit nothing until `step` / `play`. */
 	public function pause(): void {
 		$this->stop_timer();
 		$this->time_travel_on_pause();
@@ -974,7 +973,7 @@ trait Durable_Reader {
 	/**
 	 * Resume normal polling: if rewound while paused, drop the now-stale forward
 	 * keyframes (commit-to-this-branch, so the re-written timeline stays monotonic),
-	 * restore the line_mode STEP captured, then re-arm the node's own poll/tick timer.
+	 * restore the line_mode `step` captured, then re-arm the node's own poll/tick timer.
 	 */
 	public function play(): void {
 		if ( null !== $this->rewound_to ) {
@@ -1061,17 +1060,17 @@ trait Durable_Reader {
 	abstract public function next_offset( $position ): void;
 
 	/**
-	 * STEP's single-tick advance: emit at most one message and return the resulting
+	 * `step`'s single-tick advance: emit at most one message and return the resulting
 	 * cursor + EOF flag.
 	 *
 	 * @return array{segment:int, offset:int, at_eof:bool}
 	 */
 	abstract protected function advance_one_message(): array;
 
-	/** Re-arm the node's own poll/tick timer on PLAY. */
+	/** Re-arm the node's own poll/tick timer on `play`. */
 	abstract protected function time_travel_resume(): void;
 
-	/** Extra halt on PAUSE beyond stopping the timer. Base no-op; override to also stop the pull. */
+	/** Extra halt on `pause` beyond stopping the timer. Base no-op; override to also stop the pull. */
 	protected function time_travel_on_pause(): void {}
 
 	/**
@@ -1089,11 +1088,11 @@ trait Durable_Reader {
 	}
 
 	/**
-	 * `SEEK_FRAME` verb handler — seek the patron reader to a frame.
+	 * `seek_frame` verb handler — seek the patron reader to a frame.
 	 *
 	 * @param Command_Interpreter_Node $interpreter Owning interpreter; its patron is the reader.
 	 * @param array<array-key,mixed>   $args        Positional args; [0] is the offsetlog segment id.
-	 * @return string seek_frame()'s reply — `"ok\n"`, or an error string.
+	 * @return string seek_frame()'s `"ok\n"`; a refusal throws.
 	 */
 	public static function cmd_seek_frame( Command_Interpreter_Node $interpreter, array $args ): string {
 		/** @var self $patron */
@@ -1102,7 +1101,7 @@ trait Durable_Reader {
 	}
 
 	/**
-	 * `PAUSE` verb handler — pause the patron reader.
+	 * `pause` verb handler — pause the patron reader.
 	 *
 	 * @param Command_Interpreter_Node $interpreter Owning interpreter; its patron is the reader.
 	 * @return string `"ok\n"`.
@@ -1115,7 +1114,7 @@ trait Durable_Reader {
 	}
 
 	/**
-	 * `PLAY` verb handler — resume the patron reader.
+	 * `play` verb handler — resume the patron reader.
 	 *
 	 * @param Command_Interpreter_Node $interpreter Owning interpreter; its patron is the reader.
 	 * @return string `"ok\n"`.
@@ -1128,15 +1127,15 @@ trait Durable_Reader {
 	}
 
 	/**
-	 * `STEP` verb handler — single-step the patron reader.
+	 * `step` verb handler — single-step the patron reader.
 	 *
 	 * @param Command_Interpreter_Node $interpreter Owning interpreter; its patron is the reader.
-	 * @return string The resulting {segment, offset, at_eof} cursor as JSON.
+	 * @return array<string,mixed> The resulting {segment, offset, at_eof} cursor.
 	 */
-	public static function cmd_step( Command_Interpreter_Node $interpreter ): string {
+	public static function cmd_step( Command_Interpreter_Node $interpreter ): array {
 		/** @var self $patron */
 		$patron = $interpreter->patron();
-		return (string) \wp_json_encode( $patron->step() );
+		return $patron->step();
 	}
 
 	/**
@@ -1162,11 +1161,11 @@ trait Durable_Reader {
 					[ 'name' => 'enabled', 'type' => 'bool', 'required' => false ],
 				],
 				'toggle'      => 'line_mode',
-				// dump_time_travel_config owns the dump (PAUSE parks it).
+				// dump_time_travel_config owns the dump (`pause` parks it).
 				'dump'        => false,
 			],
 			[
-				'name'        => 'SEEK_FRAME',
+				'name'        => 'seek_frame',
 				'description' => 'Time-travel: jump to the offsetlog keyframe with segment id <segment> (from dump_metadata frames[].id), restoring its co-committed snapshot state. Stays paused.',
 				// Driven by the Inspector transport bar; hide the verb button.
 				'hidden'      => true,
@@ -1176,26 +1175,26 @@ trait Durable_Reader {
 				'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_seek_frame( $interpreter, $args ),
 			],
 			[
-				'name'        => 'PAUSE',
-				'description' => 'Time-travel: stop the poll timer; the reader holds its cursor until STEP / PLAY.',
+				'name'        => 'pause',
+				'description' => 'Time-travel: stop the poll timer; the reader holds its cursor until step / play.',
 				'hidden'      => true,
 				'args'        => [],
 				'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_pause( $interpreter ),
 			],
 			[
-				'name'        => 'PLAY',
-				'description' => 'Time-travel: restore the pre-STEP line_mode and resume the poll loop.',
+				'name'        => 'play',
+				'description' => 'Time-travel: restore the pre-step line_mode and resume the poll loop.',
 				'hidden'      => true,
 				'args'        => [],
 				'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_play( $interpreter ),
 			],
 			[
-				// STEP mutates: auth-gated command path, not TM_REQUEST.
-				'name'        => 'STEP',
-				'description' => 'Time-travel: emit at most one message (forces line granularity, implies PAUSE) and reply with the {seg,off,at_eof} cursor as JSON.',
+				// `step` mutates: auth-gated command path, not TM_REQUEST.
+				'name'        => 'step',
+				'description' => 'Time-travel: emit at most one message (forces line granularity, implies pause) and reply with the {segment, offset, at_eof} cursor.',
 				'hidden'      => true,
 				'args'        => [],
-				'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_step( $interpreter ),
+				'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): array => self::cmd_step( $interpreter ),
 			],
 		];
 	}

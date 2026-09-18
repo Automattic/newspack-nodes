@@ -9,6 +9,8 @@ import {
 	saveDebugLevel,
 	loadDebugState,
 	saveDebugState,
+	loadDebugUi,
+	saveDebugUi,
 } from '../consolePersistence';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -90,6 +92,14 @@ describe( 'consolePersistence [87]', () => {
 		saveDebugState( 1 );
 		expect( loadDebugLevel() ).toBe( 2 );
 		expect( loadDebugState() ).toBe( 1 );
+	} );
+
+	it( 'round-trips debug_ui as a boolean, off by default', () => {
+		expect( loadDebugUi() ).toBe( false );
+		saveDebugUi( true );
+		expect( loadDebugUi() ).toBe( true );
+		saveDebugUi( false );
+		expect( loadDebugUi() ).toBe( false );
 	} );
 
 	it( 'returns safe defaults for corrupt / non-array stored values', () => {

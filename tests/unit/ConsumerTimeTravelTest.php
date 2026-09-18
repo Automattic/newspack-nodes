@@ -12,7 +12,7 @@ use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 
 /**
- * Time-travel transport verbs on Consumer_Node: SEEK_FRAME, PAUSE, STEP, PLAY.
+ * Time-travel transport verbs on Consumer_Node: `seek_frame`, `pause`, `step`, `play`.
  * These back a debugger UI that pauses a consumer, seeks it to an offsetlog
  * checkpoint (restoring the co-committed snapshot), and single-steps it
  * message-by-message. The READ surface (frame list + cursor) moved off bespoke
@@ -102,7 +102,7 @@ class ConsumerTimeTravelTest extends TestCase {
 		$this->assertSame( $older, $meta['at_frame'], 'a seek puts the cursor at the seeked offsetlog segment id' );
 		$this->assertTrue( $meta['on_frame'], 'a fresh seek sits ON the keyframe' );
 
-		// A STEP past the seeked frame: at_frame unchanged, on_frame flips false.
+		// A `step` past the seeked frame: at_frame unchanged, on_frame flips false.
 		$c->step();
 		$meta = $c->dump_metadata();
 		$this->assertSame( $older, $meta['at_frame'], 'at_frame survives a step' );
@@ -114,20 +114,20 @@ class ConsumerTimeTravelTest extends TestCase {
 		$this->assertSame( $newer, $meta['at_frame'], 'a re-seek puts the cursor at the new segment id' );
 		$this->assertTrue( $meta['on_frame'], 'a re-seek sits ON the new keyframe' );
 
-		// PLAY (go live): at_frame back to the newest, on_frame per the cursor.
+		// `play` (go live): at_frame back to the newest, on_frame per the cursor.
 		// seek_frame($newer) put the cursor on the newest keyframe's committed source
 		// position, which equals the last checkpoint — so the live cursor reads as ON.
 		$c->play();
 		$meta = $c->dump_metadata();
-		$this->assertSame( $newer, $meta['at_frame'], 'PLAY reports the newest frame (live)' );
+		$this->assertSame( $newer, $meta['at_frame'], '`play` reports the newest frame (live)' );
 		$this->assertTrue( $meta['on_frame'], 'cursor sits on the newest checkpoint after seek(newest)+play' );
 
-		// Live read-ahead after PLAY: advance the cursor past the checkpoint; on_frame
+		// Live read-ahead after `play`: advance the cursor past the checkpoint; on_frame
 		// flips false, mirroring the live read-ahead case above.
 		$c->next_offset( [ 'segment' => 1, 'offset' => 7 ] );
 		$meta = $c->dump_metadata();
 		$this->assertSame( $newer, $meta['at_frame'], 'still the newest frame while live' );
-		$this->assertFalse( $meta['on_frame'], 'a live consumer reading ahead after PLAY is off the frame' );
+		$this->assertFalse( $meta['on_frame'], 'a live consumer reading ahead after `play` is off the frame' );
 	}
 
 	public function test_dump_metadata_at_frame_is_null_when_no_frames(): void {
@@ -321,12 +321,12 @@ class ConsumerTimeTravelTest extends TestCase {
 	}
 
 	// ============================================================================
-	// SEEK_FRAME (now keyed by offsetlog segment id, from dump_metadata frames[].id)
+	// `seek_frame` (now keyed by offsetlog segment id, from dump_metadata frames[].id)
 	// ============================================================================
 
 	public function test_seek_frame_restores_state_and_moves_cursor(): void {
 		// Commit a frame carrying a snapshot cache, advance the cursor + mutate the
-		// node, then SEEK_FRAME to that offsetlog segment id: restore_state must get
+		// node, then `seek_frame` to that offsetlog segment id: restore_state must get
 		// the frame's cache and the cursor must move to the record's source {seg,off}.
 		Core::$now = 3000.0;
 		$node      = new TimeTravel_Snapshot_Probe();
@@ -372,7 +372,7 @@ class ConsumerTimeTravelTest extends TestCase {
 		$this->assertFalse( $this->timer_armed( $c ), 'seek must not re-arm the poll timer' );
 	}
 
-	public function test_seek_frame_returns_error_when_segment_absent(): void {
+	public function test_seek_frame_refuses_when_segment_absent(): void {
 		Core::$now = 3200.0;
 		$c = new Consumer_Node();
 		$c->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
@@ -380,20 +380,22 @@ class ConsumerTimeTravelTest extends TestCase {
 		$c->sink( new Capture_Sink_Node() );
 		$this->checkpoint_at( $c, 0, 10 );
 
-		$result = $c->seek_frame( 9999 );
-		$this->assertStringContainsString( 'no frame', $result );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'no frame at segment 9999' );
+		$c->seek_frame( 9999 );
 	}
 
-	public function test_seek_frame_returns_error_when_no_offsetlog(): void {
+	public function test_seek_frame_refuses_when_no_offsetlog(): void {
 		$c = new Consumer_Node();
 		$c->arguments( [ "{$this->tmp}/data/p0" ] );
 		$c->sink( new Capture_Sink_Node() );
-		$result = $c->seek_frame( 0 );
-		$this->assertStringContainsString( 'offsetlog', $result );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'no offsetlog to seek' );
+		$c->seek_frame( 0 );
 	}
 
 	// ============================================================================
-	// PAUSE
+	// `pause`
 	// ============================================================================
 
 	public function test_pause_stops_the_timer(): void {
@@ -410,7 +412,7 @@ class ConsumerTimeTravelTest extends TestCase {
 	}
 
 	// ============================================================================
-	// STEP
+	// `step`
 	// ============================================================================
 
 	public function test_step_emits_exactly_one_message_and_advances_cursor(): void {
@@ -427,9 +429,9 @@ class ConsumerTimeTravelTest extends TestCase {
 		$c->sink( $cap );
 
 		// poll_init loads the buffer on the first tick but emits nothing in line
-		// mode; STEP must keep stepping until it has emitted one message.
+		// mode; `step` must keep stepping until it has emitted one message.
 		$c->step();
-		$this->assertCount( 1, $cap->captured, 'STEP emits exactly one message' );
+		$this->assertCount( 1, $cap->captured, '`step` emits exactly one message' );
 		$this->assertSame( 'a', $cap->captured[0][ Message::VALUE ] );
 
 		$c->step();
@@ -451,12 +453,12 @@ class ConsumerTimeTravelTest extends TestCase {
 		$c->sink( $cap );
 
 		$c->step();
-		$this->assertCount( 1, $cap->captured, 'STEP forces one-line granularity even when line_mode is off' );
-		$this->assertTrue( $this->read_private( $c, 'line_mode' ), 'STEP turns line_mode on for the session' );
+		$this->assertCount( 1, $cap->captured, '`step` forces one-line granularity even when line_mode is off' );
+		$this->assertTrue( $this->read_private( $c, 'line_mode' ), '`step` turns line_mode on for the session' );
 	}
 
 	public function test_step_implies_pause(): void {
-		// STEP must stop the poll timer so the self-rearming fire() loop can't
+		// `step` must stop the poll timer so the self-rearming fire() loop can't
 		// interleave full-batch polls between steps (which would leap the cursor
 		// past messages) or leave an abandoned session stuck in line_mode.
 		Core::$now = 4500.0;
@@ -468,15 +470,15 @@ class ConsumerTimeTravelTest extends TestCase {
 		$c->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->sink( new Capture_Sink_Node() );
-		// arguments() armed an EOF timer; STEP must stop it.
+		// arguments() armed an EOF timer; `step` must stop it.
 		$this->assertTrue( $this->timer_armed( $c ), 'precondition: timer armed by arguments()' );
 
 		$c->step();
-		$this->assertFalse( $this->timer_armed( $c ), 'STEP leaves the consumer paused' );
+		$this->assertFalse( $this->timer_armed( $c ), '`step` leaves the consumer paused' );
 	}
 
 	public function test_step_sets_the_polling_signal_to_paused(): void {
-		// STEP stops the timer (it IS paused), so its dump_metadata polling signal
+		// `step` stops the timer (it IS paused), so its dump_metadata polling signal
 		// must read PAUSED — consistent with pause() — not stay stale at ACTIVE.
 		$source = new Partition_Node();
 		$source->arguments( [ "{$this->tmp}/data/p0", (string) ( 64 * 1024 ), "4", "86400" ] );
@@ -486,15 +488,15 @@ class ConsumerTimeTravelTest extends TestCase {
 		$c->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
 		$c->name( 'firehose:consumer' );
 		$c->sink( new Capture_Sink_Node() );
-		// arguments() set the signal ACTIVE; STEP must flip it to PAUSED.
+		// arguments() set the signal ACTIVE; `step` must flip it to PAUSED.
 		$this->assertSame( 'ACTIVE', $c->dump_metadata()['polling'], 'precondition: arguments() set ACTIVE' );
 
 		$c->step();
-		$this->assertSame( 'PAUSED', $c->dump_metadata()['polling'], 'STEP leaves the polling signal PAUSED' );
+		$this->assertSame( 'PAUSED', $c->dump_metadata()['polling'], '`step` leaves the polling signal PAUSED' );
 	}
 
 	public function test_step_command_returns_cursor_and_eof_json(): void {
-		// STEP is a COMMAND (it mutates: emits + advances the durable cursor), so
+		// `step` is a COMMAND (it mutates: emits + advances the durable cursor), so
 		// it dispatches through the auth-gated {name}:config interpreter. Its reply
 		// is the {seg,off,at_eof} array as a JSON string for the UI to parse.
 		$source = new Partition_Node();
@@ -507,19 +509,20 @@ class ConsumerTimeTravelTest extends TestCase {
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
-		$reply = $this->dispatch_command( $c, 'STEP' );
-		$data  = \json_decode( $reply, true );
+		// The cursor arrives as structure, not JSON text inside the reply.
+		$data = $this->dispatch_command( $c, 'step' );
+		$this->assertIsArray( $data );
 		$this->assertSame( 0, $data['segment'] );
 		$this->assertGreaterThan( 0, $data['offset'], 'cursor advanced past the emitted line' );
 		$this->assertFalse( $data['at_eof'] );
 		// The stepped data line was emitted to the same sink.
 		$values = \array_map( static fn ( $m ) => $m[ Message::VALUE ], $cap->captured );
-		$this->assertContains( 'only', $values, 'STEP emitted exactly the one data line' );
+		$this->assertContains( 'only', $values, '`step` emitted exactly the one data line' );
 	}
 
 	public function test_unauthorized_step_command_is_refused_and_does_not_emit_or_advance(): void {
-		// The property that was untestable while STEP was a TM_REQUEST (which
-		// bypasses interpret()'s auth gate): an unsigned, non-LOCAL STEP command is
+		// The property that was untestable while `step` was a TM_REQUEST (which
+		// bypasses interpret()'s auth gate): an unsigned, non-LOCAL `step` command is
 		// refused, emits no data message, and does NOT advance the cursor.
 		$source = new Partition_Node();
 		$source->arguments( [ "{$this->tmp}/data/p0", (string) ( 64 * 1024 ), "4", "86400" ] );
@@ -541,7 +544,7 @@ class ConsumerTimeTravelTest extends TestCase {
 		$cmd[ Message::TYPE ]  = Message::TM_COMMAND;
 		$cmd[ Message::FROM ]  = 'attacker';
 		$cmd[ Message::TO ]    = '';
-		$cmd[ Message::VALUE ] = [ 'name' => 'STEP', 'arguments' => '' ];
+		$cmd[ Message::VALUE ] = [ 'name' => 'step', 'arguments' => '' ];
 		// NOTE: no Message::LOCAL taint and no HMAC — the default authorize gate
 		// must refuse it.
 		$interpreter->fill( $cmd );
@@ -553,12 +556,12 @@ class ConsumerTimeTravelTest extends TestCase {
 			'unauthorized command must reply TM_COMMAND|TM_ERROR'
 		);
 		$this->assertStringContainsString( 'unauthorized', $reply[ Message::VALUE ]['payload'] );
-		$this->assertCount( 0, $data_cap->captured, 'refused STEP must emit no data message' );
-		$this->assertSame( $cursor_before, $this->read_private( $c, 'cursor_offset' ), 'refused STEP must not advance the cursor' );
+		$this->assertCount( 0, $data_cap->captured, 'refused `step` must emit no data message' );
+		$this->assertSame( $cursor_before, $this->read_private( $c, 'cursor_offset' ), 'refused `step` must not advance the cursor' );
 	}
 
 	public function test_step_at_eof_is_a_noop(): void {
-		// Empty source: STEP emits nothing and surfaces at_eof.
+		// Empty source: `step` emits nothing and surfaces at_eof.
 		$c = new Consumer_Node();
 		$c->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
 		$c->name( 'firehose:consumer' );
@@ -571,11 +574,11 @@ class ConsumerTimeTravelTest extends TestCase {
 	}
 
 	// ============================================================================
-	// PLAY
+	// `play`
 	// ============================================================================
 
 	public function test_play_restores_prior_line_mode_true_and_rearms_timer(): void {
-		// Consumer legitimately runs line_mode=true; STEP→PLAY must leave it true.
+		// Consumer legitimately runs line_mode=true; `step`→`play` must leave it true.
 		$source = new Partition_Node();
 		$source->arguments( [ "{$this->tmp}/data/p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'a' );
@@ -591,12 +594,12 @@ class ConsumerTimeTravelTest extends TestCase {
 		$c->step();
 		$c->play();
 
-		$this->assertTrue( $this->read_private( $c, 'line_mode' ), 'PLAY restores the prior line_mode=true' );
-		$this->assertTrue( $this->timer_armed( $c ), 'PLAY re-arms the poll timer' );
+		$this->assertTrue( $this->read_private( $c, 'line_mode' ), '`play` restores the prior line_mode=true' );
+		$this->assertTrue( $this->timer_armed( $c ), '`play` re-arms the poll timer' );
 	}
 
 	public function test_play_restores_prior_line_mode_false(): void {
-		// Consumer runs line_mode=false; STEP forces it true, PLAY restores false.
+		// Consumer runs line_mode=false; `step` forces it true, `play` restores false.
 		$source = new Partition_Node();
 		$source->arguments( [ "{$this->tmp}/data/p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'a' );
@@ -609,10 +612,10 @@ class ConsumerTimeTravelTest extends TestCase {
 		Core::$now = 5100.0;
 		$c->pause();
 		$c->step();
-		$this->assertTrue( $this->read_private( $c, 'line_mode' ), 'STEP forced line_mode true' );
+		$this->assertTrue( $this->read_private( $c, 'line_mode' ), '`step` forced line_mode true' );
 		$c->play();
 
-		$this->assertFalse( $this->read_private( $c, 'line_mode' ), 'PLAY restores the prior line_mode=false' );
+		$this->assertFalse( $this->read_private( $c, 'line_mode' ), '`play` restores the prior line_mode=false' );
 	}
 
 	public function test_play_rearms_with_busy_interval(): void {
@@ -630,13 +633,13 @@ class ConsumerTimeTravelTest extends TestCase {
 		$this->assertSame( Consumer_Node::POLL_INTERVAL_BUSY_MS, $timers[ $id ]->interval_ms );
 		$this->assertFalse(
 			$timers[ $id ]->oneshot,
-			'PLAY arms a RECURRING busy timer; fire() backs it off to EOF once caught up. A oneshot here would give a resumed reader exactly one tick.'
+			'`play` arms a RECURRING busy timer; fire() backs it off to EOF once caught up. A oneshot here would give a resumed reader exactly one tick.'
 		);
 	}
 
 	// ============================================================================
-	// PLAY truncate-on-resume: a rewound consumer truncates the offsetlog after the
-	// rewind point on PLAY (the "commit to this branch" moment), so the re-written
+	// `play` truncate-on-resume: a rewound consumer truncates the offsetlog after the
+	// rewind point on `play` (the "commit to this branch" moment), so the re-written
 	// forward timeline stays monotonic. Paused seeking stays non-destructive.
 	// ============================================================================
 
@@ -678,9 +681,9 @@ class ConsumerTimeTravelTest extends TestCase {
 		$c->play();
 
 		$ids = \array_column( $offsetlog->get_segments( true ), 'id' );
-		$this->assertSame( [ $rewind ], $ids, 'PLAY truncates the offsetlog frames after the rewind point' );
-		$this->assertNull( $this->read_private( $c, 'rewound_to' ), 'PLAY clears the rewind point' );
-		$this->assertTrue( $this->timer_armed( $c ), 'PLAY re-arms the poll timer' );
+		$this->assertSame( [ $rewind ], $ids, '`play` truncates the offsetlog frames after the rewind point' );
+		$this->assertNull( $this->read_private( $c, 'rewound_to' ), '`play` clears the rewind point' );
+		$this->assertTrue( $this->timer_armed( $c ), '`play` re-arms the poll timer' );
 	}
 
 	public function test_play_without_prior_seek_does_not_truncate(): void {
@@ -722,17 +725,17 @@ class ConsumerTimeTravelTest extends TestCase {
 		$c->seek_frame( $rewind );
 		$c->play();
 
-		// A fresh checkpoint after PLAY: cursor advanced from the rewind point.
+		// A fresh checkpoint after `play`: cursor advanced from the rewind point.
 		$this->checkpoint_at( $c, 8, 44 );
 
 		$offsetlog = $this->read_private( $c, 'offsetlog' );
 		$ids       = \array_column( $offsetlog->get_segments( true ), 'id' );
 		$this->assertSame( [ $rewind, $rewind + 1 ], $ids, 'new checkpoint appends right after the rewind point; the old future frames are gone' );
 
-		// The newest frame is the post-PLAY checkpoint, not a stale future frame.
+		// The newest frame is the post-`play` checkpoint, not a stale future frame.
 		$record = $this->read_newest_offset_record( $offsetlog );
-		$this->assertSame( 8, $record['segment'], 'newest frame is the post-PLAY checkpoint source seg' );
-		$this->assertSame( 44, $record['offset'], 'newest frame is the post-PLAY checkpoint source off' );
+		$this->assertSame( 8, $record['segment'], 'newest frame is the post-`play` checkpoint source seg' );
+		$this->assertSame( 44, $record['offset'], 'newest frame is the post-`play` checkpoint source off' );
 	}
 
 	/** Read the newest offsetlog segment's record VALUE ({seg,off,...}). */
@@ -757,17 +760,17 @@ class ConsumerTimeTravelTest extends TestCase {
 		$this->checkpoint_at( $c, 3, 77 );
 		$segment_id = $this->newest_segment_id( $c );
 
-		// PAUSE via the config interpreter.
-		$this->assertSame( "ok\n", $this->dispatch_command( $c, 'PAUSE' ) );
+		// `pause` via the config interpreter.
+		$this->assertSame( "ok\n", $this->dispatch_command( $c, 'pause' ) );
 		$this->assertFalse( $this->timer_armed( $c ) );
 
-		// SEEK_FRAME <segment-id> — arg parsing casts the one int.
-		$this->assertSame( "ok\n", $this->dispatch_command( $c, 'SEEK_FRAME', (string) $segment_id ) );
+		// `seek_frame` <segment-id> — arg parsing casts the one int.
+		$this->assertSame( "ok\n", $this->dispatch_command( $c, 'seek_frame', (string) $segment_id ) );
 		$this->assertSame( 3, $this->read_private( $c, 'cursor_segment' ), 'cursor restored to the record source seg' );
 		$this->assertSame( 77, $this->read_private( $c, 'cursor_offset' ), 'cursor restored to the record source off' );
 
-		// PLAY re-arms.
-		$this->assertSame( "ok\n", $this->dispatch_command( $c, 'PLAY' ) );
+		// `play` re-arms.
+		$this->assertSame( "ok\n", $this->dispatch_command( $c, 'play' ) );
 		$this->assertTrue( $this->timer_armed( $c ) );
 	}
 
@@ -803,8 +806,8 @@ class ConsumerTimeTravelTest extends TestCase {
 
 		// The time-travel transport stays where it was: commands, not requests.
 		$commands = \array_column( $schema['commands'], 'name' );
-		$this->assertContains( 'SEEK_FRAME', $commands );
-		$this->assertContains( 'STEP', $commands );
+		$this->assertContains( 'seek_frame', $commands );
+		$this->assertContains( 'step', $commands );
 	}
 
 	// ============================================================================
@@ -816,7 +819,7 @@ class ConsumerTimeTravelTest extends TestCase {
 		return 'inactive' !== $this->read_private( $c, 'mode' );
 	}
 
-	/** Newest offsetlog segment id (the keyframe SEEK_FRAME addresses). */
+	/** Newest offsetlog segment id (the keyframe `seek_frame` addresses). */
 	private function newest_segment_id( Consumer_Node $c ): int {
 		$segments = $this->read_private( $c, 'offsetlog' )->get_segments( true );
 		return \end( $segments )['id'];

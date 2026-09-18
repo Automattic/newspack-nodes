@@ -20,7 +20,7 @@ const EMPTY_GRAPH = { nodes: [], edges: [], pwd: '' };
 
 /**
  * Scaffolding a graph carries before any topology is built: the exospine
- * backbone the browser mounts (`_shell`, `_http`, `_heartbeat`) and the
+ * backbone the browser mounts (`_shell`, `_ui`, `_http`, `_heartbeat`) and the
  * worker's auto-mounted `_repl` Partition. None of it counts as "the graph has
  * content", because laying the scaffolding out alone fixes the layout, and
  * every real node arriving on the next `dump_metadata` is then stacked below
@@ -28,6 +28,7 @@ const EMPTY_GRAPH = { nodes: [], edges: [], pwd: '' };
  */
 const BACKBONE_FIXTURES = new Set( [
 	names.CONSOLE_TAP,
+	names.UI,
 	names.HTTP,
 	names.HEARTBEAT,
 	names.REPL,

@@ -501,15 +501,18 @@ class DeadLetterQueueTest extends TestCase {
 		$d = new Dead_Letter_Queue_Double();
 		$d->build_dlq( "{$this->tmp}/dlq.p0" );
 		// No sink → nowhere to deliver, refused before any read.
-		$result = $d->requeue_deadletter( '0:0:10' );
-		$this->assertStringContainsString( 'unavailable', $result );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'unavailable' );
+		$d->requeue_deadletter( '0:0:10' );
 	}
 
 	public function test_requeue_rejects_a_malformed_locator(): void {
 		$d = new Dead_Letter_Queue_Double();
 		$d->sink( new Capture_Sink_Node() );
 		$d->build_dlq( "{$this->tmp}/dlq.p0" );
-		$this->assertStringContainsString( 'malformed', $d->requeue_deadletter( 'not-a-locator' ) );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'malformed' );
+		$d->requeue_deadletter( 'not-a-locator' );
 	}
 
 	public function test_requeue_rejects_a_locator_with_a_non_digit_part(): void {
@@ -518,26 +521,32 @@ class DeadLetterQueueTest extends TestCase {
 		$d = new Dead_Letter_Queue_Double();
 		$d->sink( new Capture_Sink_Node() );
 		$d->build_dlq( "{$this->tmp}/dlq.p0" );
-		$this->assertStringContainsString( 'malformed', $d->requeue_deadletter( '0:abc:10' ) );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'malformed' );
+		$d->requeue_deadletter( '0:abc:10' );
 	}
 
 	public function test_requeue_errors_without_a_configured_queue(): void {
 		$d      = new Dead_Letter_Queue_Double();
-		$result = $d->requeue_deadletter( '0:0:10' );
-		$this->assertStringContainsString( 'no dead-letter queue', $result );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'no dead-letter queue' );
+		$d->requeue_deadletter( '0:0:10' );
 	}
 
 	public function test_requeue_reports_a_missing_record(): void {
 		$d = new Dead_Letter_Queue_Double();
 		$d->sink( new Capture_Sink_Node() );
 		$d->build_dlq( "{$this->tmp}/dlq.p0" );
-		$this->assertStringContainsString( 'no dead-letter record', $d->requeue_deadletter( '9:0:10' ) );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'no dead-letter record' );
+		$d->requeue_deadletter( '9:0:10' );
 	}
 
 	public function test_purge_errors_without_a_configured_queue(): void {
 		$d      = new Dead_Letter_Queue_Double();
-		$result = $d->purge_deadletter();
-		$this->assertStringContainsString( 'no dead-letter queue', $result );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'no dead-letter queue' );
+		$d->purge_deadletter();
 	}
 
 	public function test_purge_removes_all_dead_letter_segments_and_indexes(): void {
@@ -591,7 +600,9 @@ class DeadLetterQueueTest extends TestCase {
 		$d->quarantine( $m, 'unparseable' );
 
 		$locator = $d->list_deadletter( 1 )['rows'][0]['locator'];
-		$shown   = \json_decode( $d->show_deadletter( $locator ), true );
+		$shown   = $d->show_deadletter( $locator );
+
+		$this->assertIsArray( $shown );
 
 		$this->assertSame( Message::TM_STRUCT, $shown['type'] );
 		$this->assertSame( 'TM_STRUCT', $shown['type_flags'] );
@@ -607,18 +618,24 @@ class DeadLetterQueueTest extends TestCase {
 	public function test_show_rejects_a_malformed_locator(): void {
 		$d = new Dead_Letter_Queue_Double();
 		$d->build_dlq( "{$this->tmp}/dlq.p0" );
-		$this->assertStringContainsString( 'malformed', $d->show_deadletter( 'not-a-locator' ) );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'malformed' );
+		$d->show_deadletter( 'not-a-locator' );
 	}
 
 	public function test_show_reports_a_missing_record(): void {
 		$d = new Dead_Letter_Queue_Double();
 		$d->build_dlq( "{$this->tmp}/dlq.p0" );
-		$this->assertStringContainsString( 'no dead-letter record', $d->show_deadletter( '9:0:10' ) );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'no dead-letter record' );
+		$d->show_deadletter( '9:0:10' );
 	}
 
 	public function test_show_errors_without_a_configured_queue(): void {
 		$d = new Dead_Letter_Queue_Double();
-		$this->assertStringContainsString( 'no dead-letter queue', $d->show_deadletter( '0:0:10' ) );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'no dead-letter queue' );
+		$d->show_deadletter( '0:0:10' );
 	}
 
 	public function test_dl_show_is_in_the_shared_verb_table(): void {
@@ -631,29 +648,31 @@ class DeadLetterQueueTest extends TestCase {
 	public function test_cmd_dl_list_errors_when_no_patron_is_set(): void {
 		$interpreter = new Command_Interpreter_Node();
 
-		$result = Dead_Letter_Queue_Double::cmd_dl_list( $interpreter, [] );
-
-		$this->assertSame( "error: not a dead-letter node\n", $result );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'not a dead-letter node' );
+		Dead_Letter_Queue_Double::cmd_dl_list( $interpreter, [] );
 	}
 
 	public function test_cmd_dl_list_errors_when_patron_is_a_foreign_node(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->patron( new Node() );
 
-		$result = Dead_Letter_Queue_Double::cmd_dl_list( $interpreter, [] );
-
-		$this->assertSame( "error: not a dead-letter node\n", $result );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'not a dead-letter node' );
+		Dead_Letter_Queue_Double::cmd_dl_list( $interpreter, [] );
 	}
 
-	public function test_cmd_dl_list_returns_the_triage_page_as_json(): void {
+	public function test_cmd_dl_list_returns_the_triage_page_as_structure(): void {
 		$d = new Dead_Letter_Queue_Double();
 		$d->build_dlq( "{$this->tmp}/dlq.p0" );
 		$d->quarantine( $this->dl_message( 'via-cmd', '1:0:10' ), 'throw' );
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->patron( $d );
 
-		$page = \json_decode( Dead_Letter_Queue_Double::cmd_dl_list( $interpreter, [] ), true );
+		// Structure, so the reply is one JSON document rather than a string of one.
+		$page = Dead_Letter_Queue_Double::cmd_dl_list( $interpreter, [] );
 
+		$this->assertIsArray( $page );
 		$this->assertSame( 1, $page['total'] );
 		$this->assertSame( '1:0:10', $page['rows'][0]['source'] );
 	}
@@ -666,7 +685,8 @@ class DeadLetterQueueTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->patron( $d );
 
-		$page = \json_decode( Dead_Letter_Queue_Double::cmd_dl_list( $interpreter, [ '1' ] ), true );
+		$page = Dead_Letter_Queue_Double::cmd_dl_list( $interpreter, [ '1' ] );
+		$this->assertIsArray( $page );
 
 		$this->assertCount( 1, $page['rows'] );
 		$this->assertSame( 2, $page['total'] );
@@ -675,9 +695,9 @@ class DeadLetterQueueTest extends TestCase {
 	public function test_cmd_dl_show_errors_when_no_patron_is_set(): void {
 		$interpreter = new Command_Interpreter_Node();
 
-		$result = Dead_Letter_Queue_Double::cmd_dl_show( $interpreter, [ '0:0:10' ] );
-
-		$this->assertSame( "error: not a dead-letter node\n", $result );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'not a dead-letter node' );
+		Dead_Letter_Queue_Double::cmd_dl_show( $interpreter, [ '0:0:10' ] );
 	}
 
 	public function test_cmd_dl_show_returns_the_decoded_record(): void {
@@ -688,17 +708,18 @@ class DeadLetterQueueTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->patron( $d );
 
-		$shown = \json_decode( Dead_Letter_Queue_Double::cmd_dl_show( $interpreter, [ $loc ] ), true );
+		$shown = Dead_Letter_Queue_Double::cmd_dl_show( $interpreter, [ $loc ] );
 
+		$this->assertIsArray( $shown );
 		$this->assertSame( 'shown-via-cmd', $shown['value'] );
 	}
 
 	public function test_cmd_dl_requeue_errors_when_no_patron_is_set(): void {
 		$interpreter = new Command_Interpreter_Node();
 
-		$result = Dead_Letter_Queue_Double::cmd_dl_requeue( $interpreter, [ '0:0:10' ] );
-
-		$this->assertSame( "error: not a dead-letter node\n", $result );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'not a dead-letter node' );
+		Dead_Letter_Queue_Double::cmd_dl_requeue( $interpreter, [ '0:0:10' ] );
 	}
 
 	public function test_cmd_dl_requeue_delivers_to_the_sink(): void {
@@ -720,9 +741,9 @@ class DeadLetterQueueTest extends TestCase {
 	public function test_cmd_dl_purge_errors_when_no_patron_is_set(): void {
 		$interpreter = new Command_Interpreter_Node();
 
-		$result = Dead_Letter_Queue_Double::cmd_dl_purge( $interpreter );
-
-		$this->assertSame( "error: not a dead-letter node\n", $result );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'not a dead-letter node' );
+		Dead_Letter_Queue_Double::cmd_dl_purge( $interpreter );
 	}
 
 	public function test_cmd_dl_purge_removes_segments(): void {

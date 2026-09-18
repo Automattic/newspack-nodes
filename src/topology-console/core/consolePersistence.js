@@ -39,6 +39,9 @@ const HISTORY_KEY = `${ NS }history`;
 /** Where the transcript's rendering verbosity is stored. */
 const DEBUG_LEVEL_KEY = `${ NS }debug-level`;
 
+/** Where the `debug_ui` choice is stored. */
+const DEBUG_UI_KEY = `${ NS }debug-ui`;
+
 /** Where the interpreter's `debug_state` is stored. */
 const DEBUG_STATE_KEY = `${ NS }debug-state`;
 
@@ -243,6 +246,24 @@ export function loadDebugLevel() {
  */
 export function saveDebugLevel( level ) {
 	writeStorage( DEBUG_LEVEL_KEY, String( Number( level ) || 0 ) );
+}
+
+/**
+ * Restore whether UI-button traffic shows in the transcript.
+ *
+ * @return {boolean} The stored choice, false when unset.
+ */
+export function loadDebugUi() {
+	return '1' === readStorage( DEBUG_UI_KEY );
+}
+
+/**
+ * Persist whether UI-button traffic shows in the transcript.
+ *
+ * @param {boolean} on The `debug_ui` choice.
+ */
+export function saveDebugUi( on ) {
+	writeStorage( DEBUG_UI_KEY, on ? '1' : '0' );
 }
 
 /**

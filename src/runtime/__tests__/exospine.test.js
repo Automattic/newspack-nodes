@@ -4,6 +4,18 @@ import { RouterNode } from '../router-node';
 import { CommandInterpreterNode } from '../command-interpreter-node';
 import { Node } from '../node';
 import names from '../reserved-node-names.json';
+import { DumperNode } from '../dumper-node';
+import { CallbackNode } from '../callback-node';
+import {
+	newMessage,
+	TYPE,
+	FROM,
+	TO,
+	VALUE,
+	TM_COMMAND,
+	TM_RESPONSE,
+	TM_ERROR,
+} from '../message';
 
 beforeEach( () => Core.reset() );
 
@@ -450,5 +462,101 @@ describe( 'mountExospine — a passenger-only page', () => {
 		owner.teardown();
 		expect( Core.node( names.COMMAND_INTERPRETER ) ).toBeNull();
 		expect( Core.node( names.ROUTER ) ).not.toBeNull();
+	} );
+} );
+
+describe( 'the _ui relay', () => {
+	// A reply as a worker sends it: TO the invoke's FROM, through the router.
+	const replyTo = ( to, payload = 'ok: 42' ) => {
+		const m = newMessage();
+		m[ TYPE ] = TM_COMMAND | TM_RESPONSE;
+		m[ FROM ] = 'worker-7';
+		m[ TO ] = to;
+		m[ VALUE ] = { name: 'dl_list', payload };
+		return m;
+	};
+	const mountWith = ( debugUi ) => {
+		const spine = mountExospine();
+		const output = new DumperNode();
+		output.name = names.OUTPUT;
+		output.setDebugUi( debugUi );
+		const got = [];
+		const receiver = new CallbackNode( ( m ) => got.push( m ) );
+		receiver.name = '_triage:dl_list';
+		const stderr = jest.spyOn( Core, 'stderr' ).mockImplementation();
+		return { spine, output, got, stderr };
+	};
+	afterEach( () => jest.restoreAllMocks() );
+
+	test( 'is a backbone node that sinks into the interpreter', () => {
+		const { interpreter } = mountExospine();
+		expect( Core.node( names.UI )?.sink ).toBe( interpreter );
+	} );
+
+	test( 'teardown removes it', () => {
+		const { teardown } = mountExospine();
+		teardown();
+		expect( Core.node( names.UI ) ).toBeNull();
+	} );
+
+	test( 'delivers the TO remainder, and prints nothing while debug_ui is off', () => {
+		const { spine, output, got } = mountWith( false );
+		spine.router.fill( replyTo( `${ names.UI }/_triage:dl_list` ) );
+		expect( got ).toHaveLength( 1 );
+		expect( got[ 0 ][ VALUE ].payload ).toBe( 'ok: 42' );
+		expect( output.setStateCache.transcript ?? [] ).toEqual( [] );
+	} );
+
+	test( 'copies the reply to _output as well while debug_ui is on', () => {
+		const { spine, output, got } = mountWith( true );
+		spine.router.fill( replyTo( `${ names.UI }/_triage:dl_list` ) );
+		expect( got ).toHaveLength( 1 );
+		expect(
+			output.setStateCache.transcript.map( ( e ) => e.text ).join( '' )
+		).toContain( 'ok: 42' );
+	} );
+
+	test( 'a reply to bare _ui ends there, unaddressed and unwarned', () => {
+		const { spine, output, stderr } = mountWith( false );
+		spine.router.fill( replyTo( names.UI ) );
+		expect( stderr ).not.toHaveBeenCalled();
+		expect( output.setStateCache.transcript ?? [] ).toEqual( [] );
+	} );
+} );
+
+describe( 'the _ui relay with no receiver behind it', () => {
+	afterEach( () => jest.restoreAllMocks() );
+	const endAtBareUi = ( type, payload ) => {
+		const spine = mountExospine();
+		const output = new DumperNode();
+		output.name = names.OUTPUT;
+		jest.spyOn( Core, 'stderr' ).mockImplementation();
+		const m = newMessage();
+		m[ TYPE ] = type;
+		m[ FROM ] = 'worker-7';
+		m[ TO ] = names.UI;
+		m[ VALUE ] = { name: 'seek_frame', payload };
+		spine.router.fill( m );
+		return ( output.setStateCache.transcript ?? [] )
+			.map( ( e ) => e.text )
+			.join( '' );
+	};
+
+	test( 'prints a TM_ERROR reply even while debug_ui is off', () => {
+		expect(
+			endAtBareUi( TM_COMMAND | TM_ERROR, 'unauthorized: step\n' )
+		).toContain( 'unauthorized: step' );
+	} );
+
+	test( 'hides a plain reply while debug_ui is off, whatever its text', () => {
+		expect(
+			endAtBareUi( TM_COMMAND | TM_RESPONSE, 'error: not an error\n' )
+		).toBe( '' );
+	} );
+
+	test( 'still hides an `ok:` reply while debug_ui is off', () => {
+		expect( endAtBareUi( TM_COMMAND | TM_RESPONSE, 'ok: paused\n' ) ).toBe(
+			''
+		);
 	} );
 } );

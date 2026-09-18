@@ -2046,13 +2046,13 @@ describe( 'Inspector (view mode)', () => {
 			{
 				shell_name: 'Echo',
 				commands: [
-					{ name: 'PAUSE', hidden: true },
+					{ name: 'pause', hidden: true },
 					{ name: 'set_line_mode' },
 				],
 			},
 		];
 		const { queryByText } = renderNode( { catalog } );
-		expect( queryByText( 'PAUSE' ) ).toBeNull();
+		expect( queryByText( 'pause' ) ).toBeNull();
 		expect( queryByText( 'set_line_mode' ) ).not.toBeNull();
 	} );
 
@@ -2148,7 +2148,7 @@ describe( 'Inspector (view mode)', () => {
 		expect( queryByText( 'Time Travel' ) ).toBeNull();
 	} );
 
-	it( 'routes transport buttons through onAction("invoke") as :config commands', () => {
+	it( 'routes transport buttons through onAction("invoke") as UI-bound :config commands', () => {
 		const onAction = jest.fn();
 		const { getByLabelText } = renderWithCatalog(
 			<Inspector
@@ -2159,12 +2159,18 @@ describe( 'Inspector (view mode)', () => {
 				onAction={ onAction }
 			/>
 		);
-		// PAUSE gates the transport; it wires through with no positional.
+		// pause gates the transport; it wires through with no positional.
 		fireEvent.click( getByLabelText( /pause/i ) );
 		expect( onAction ).toHaveBeenLastCalledWith(
 			'invoke',
 			'firehose-consumer',
-			{ verb: 'PAUSE', kind: 'command', positional: '', byName: {} }
+			{
+				verb: 'pause',
+				kind: 'command',
+				positional: '',
+				byName: {},
+				replyTo: names.UI,
+			}
 		);
 		// First rewind lands on the NEWEST keyframe 5344; positional→segment.
 		fireEvent.click( getByLabelText( /rewind/i ) );
@@ -2172,10 +2178,11 @@ describe( 'Inspector (view mode)', () => {
 			'invoke',
 			'firehose-consumer',
 			{
-				verb: 'SEEK_FRAME',
+				verb: 'seek_frame',
 				kind: 'command',
 				positional: '5344',
 				byName: { segment: '5344' },
+				replyTo: names.UI,
 			}
 		);
 		// Rewind again steps to the previous keyframe (5343)…
@@ -2184,10 +2191,11 @@ describe( 'Inspector (view mode)', () => {
 			'invoke',
 			'firehose-consumer',
 			{
-				verb: 'SEEK_FRAME',
+				verb: 'seek_frame',
 				kind: 'command',
 				positional: '5343',
 				byName: { segment: '5343' },
+				replyTo: names.UI,
 			}
 		);
 		// …and fast-forward walks back to the next keyframe (5344).
@@ -2196,10 +2204,11 @@ describe( 'Inspector (view mode)', () => {
 			'invoke',
 			'firehose-consumer',
 			{
-				verb: 'SEEK_FRAME',
+				verb: 'seek_frame',
 				kind: 'command',
 				positional: '5344',
 				byName: { segment: '5344' },
+				replyTo: names.UI,
 			}
 		);
 	} );

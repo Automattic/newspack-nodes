@@ -321,6 +321,32 @@ describe( 'Shell node — local builtins', () => {
 		expect( out.debugLevelRef.current ).toBe( 1 );
 	} );
 
+	it( 'debug_ui with no arg toggles the Dumper flag and reports it', () => {
+		const { shell, out, filled } = makeShell();
+		send( shell, 'debug_ui' );
+		expect( out.debugUi ).toBe( true );
+		expect( printedText() ).toContain( 'debug_ui: on' );
+		send( shell, 'debug_ui' );
+		expect( out.debugUi ).toBe( false );
+		expect( filled ).toHaveLength( 0 );
+	} );
+
+	it( 'debug_ui on / off set the flag whatever it was', () => {
+		const { shell, out } = makeShell();
+		send( shell, 'debug_ui on' );
+		send( shell, 'debug_ui on' );
+		expect( out.debugUi ).toBe( true );
+		send( shell, 'debug_ui off' );
+		expect( out.debugUi ).toBe( false );
+	} );
+
+	it( 'debug_ui with any other argument prints usage and changes nothing', () => {
+		const { shell, out } = makeShell();
+		send( shell, 'debug_ui yes' );
+		expect( printedText() ).toContain( 'usage: debug_ui [on|off]' );
+		expect( out.debugUi ).toBe( false );
+	} );
+
 	it( 'debug_level with a numeric arg sets the Dumper to it', () => {
 		const { shell, out } = makeShell();
 		send( shell, 'debug_level 2' );

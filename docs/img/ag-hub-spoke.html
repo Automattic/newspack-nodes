@@ -63,7 +63,7 @@
   <div class="callout">
     <h4>What the pull records, and what it cannot report</h4>
     <p>Durably: <span class="mono">&lt;name&gt;:&lt;remote_partition&gt;:offsetlog</span> and <span class="mono">:deadletter</span>, the same contract Consumer has. The offsetlog dir must carry <span class="mono">&lt;topology&gt;</span>, because a cursor belongs to a FLEET and two hubs pulling one spoke must not share it. Records leave through <span class="mono">Durable_Reader::forward_line()</span>, stamped like a Consumer's; only the plain channel stamps <span class="mono">FROM=&lt;link&gt;:sse-in/&lt;remote trail&gt;</span>.</p>
-    <p>A pull is not a read: STEP is inert, PAUSE disconnects, a seek forwards a sentinel to the spoke. And <span class="mono">Remote_Source_Node</span> has no <span class="mono">probe_stats()</span>, so it mints no Probe_Record: no row in <span class="mono">wp nodes status</span>, the Workers dashboard or the <span class="mono">consumer-lag</span> alert. An empty consumer table on a hub is not a caught-up aggregation.</p>
+    <p>A pull is not a read: step is inert, pause disconnects, a seek forwards a sentinel to the spoke. And <span class="mono">Remote_Source_Node</span> has no <span class="mono">probe_stats()</span>, so it mints no Probe_Record: no row in <span class="mono">wp nodes status</span>, the Workers dashboard or the <span class="mono">consumer-lag</span> alert. An empty consumer table on a hub is not a caught-up aggregation.</p>
   </div>
 </div>
 

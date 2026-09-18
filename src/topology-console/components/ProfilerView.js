@@ -20,7 +20,7 @@ import { __ } from '@wordpress/i18n';
 import { Core } from '../../runtime/core';
 import { mountExospine } from '../../runtime/exospine';
 import { useNodeState } from '../../runtime/react';
-import { TO } from '../../runtime/message';
+import { FROM, TO } from '../../runtime/message';
 import names from '../../runtime/reserved-node-names.json';
 import { Grid, useSortState } from './SortableGrid';
 import './inspector-views.scss';
@@ -151,11 +151,11 @@ export default function ProfilerView() {
 	 * Sends the explicit `profile on` / `profile off` rather than the bare
 	 * toggle, because a toggle carries the reading it was clicked against — a
 	 * stale one turns profiling off in the scope the operator meant to
-	 * measure. The poller MINTS the command, stamping FROM with its own name
-	 * and signing it, and TO is written afterwards: the signature covers the
-	 * semantics alone, so the destination stays the caller's to choose
-	 * (ADR-15). Firing the poller straight after puts the confirming reply on
-	 * this tick instead of the next interval.
+	 * measure. The poller MINTS and signs the command; FROM and TO are written
+	 * afterwards, since the signature covers the semantics alone (ADR-15).
+	 * FROM is bare `_ui`: the button reads its answer off the next poll, and a
+	 * reply landing on the poller would stand in for the rows. Firing the
+	 * poller straight after puts that poll on this tick, not the next interval.
 	 *
 	 * @param {boolean} enable Whether profiling should run in that scope.
 	 */
@@ -166,14 +166,17 @@ export default function ProfilerView() {
 		if ( ! interpreter ) {
 			return;
 		}
-		// The poller mints (FROM=its name, LOCAL, signed); TO after.
-		const m = Core.node( POLLER )?.command( 'profile', [
-			enable ? 'on' : 'off',
-		] );
+		const verb = enable ? 'on' : 'off';
+		const m = Core.node( POLLER )?.command( 'profile', [ verb ] );
 		if ( ! m ) {
 			return; // unauthenticated; re-auth is under way
 		}
+		m[ FROM ] = names.UI;
 		m[ TO ] = names.CWD;
+		Core.node( names.OUTPUT )?.appendUi( {
+			kind: 'sent',
+			text: `command_node ${ names.CWD } profile ${ verb }`,
+		} );
 		interpreter.fill( m );
 		pollerRef.current?.fire();
 	};

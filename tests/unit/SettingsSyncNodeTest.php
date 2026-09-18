@@ -55,13 +55,16 @@ class SettingsSyncNodeTest extends TestCase {
 		);
 	}
 
-	public function test_add_setting_wrong_arity_returns_error_and_leaves_registry_unchanged(): void {
+	public function test_add_setting_wrong_arity_refuses_and_leaves_registry_unchanged(): void {
 		$node = new Settings_Sync_Node();
 		$node->name( 'settings-sync' );
 
-		$result = $node->add_setting( [ 'only', 'two' ] );
-
-		$this->assertStringStartsWith( 'error:', $result );
+		try {
+			$node->add_setting( [ 'only', 'two' ] );
+			$this->fail( 'add_setting accepted two tokens' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertStringStartsWith( 'usage: add_setting', $e->getMessage() );
+		}
 
 		$ref = new \ReflectionProperty( $node, 'registry' );
 		$this->assertSame( [], $ref->getValue( $node ) );

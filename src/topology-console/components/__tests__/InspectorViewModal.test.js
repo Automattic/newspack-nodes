@@ -201,3 +201,20 @@ test( 'a backdrop click dismisses the modal', () => {
 	fireEvent.mouseDown( backdrop );
 	expect( onDismiss ).toHaveBeenCalledTimes( 1 );
 } );
+
+test.each( [ 'runtime', 'stats', 'timeline', 'triage' ] )(
+	'the %s view takes the shared 80%% height cap',
+	( view ) => {
+		render(
+			<InspectorViewModal
+				view={ view }
+				node={ { id: 'n' } }
+				onDismiss={ () => {} }
+			/>
+		);
+		const modal = document.body.querySelector( '.topology-modal' );
+		expect( modal.classList.contains( 'topology-modal--inspview' ) ).toBe(
+			true
+		);
+	}
+);

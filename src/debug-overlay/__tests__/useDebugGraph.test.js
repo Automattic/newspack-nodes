@@ -78,7 +78,7 @@ describe( 'useDebugGraph', () => {
 		// Backbone fixtures excluded from readiness; pwd is _output.
 		expect(
 			result.current.graph.nodes.map( ( n ) => n.id ).sort()
-		).toEqual( [ '_heartbeat', '_http', '_shell' ] );
+		).toEqual( [ '_heartbeat', '_http', '_shell', '_ui' ] );
 		// The backbone's two permanent edges: the heartbeat's poke, and
 		// _http's target for unaddressed reply-leg output.
 		expect( result.current.graph.edges ).toEqual( [

@@ -44,6 +44,8 @@ import {
 	saveTranscript,
 	loadDebugLevel,
 	saveDebugLevel,
+	loadDebugUi,
+	saveDebugUi,
 	loadDebugState,
 	saveDebugState,
 } from '../topology-console/core/consolePersistence';
@@ -158,6 +160,7 @@ function buildInfra( shell, debugLevelRef, onSetSkin, fieldsRef ) {
 	dumper.sink = interpreter;
 	// Publish the restored level so the Verbose toggle reads it like any slice.
 	dumper.setDebugLevel( debugLevelRef.current );
+	dumper.setDebugUi( loadDebugUi() );
 	// These listeners only persist; React reads through useNodeState below.
 	const listenerId = 'useDebugRepl/transcript';
 	dumper.register( 'transcript', listenerId, ( next ) => {
@@ -166,6 +169,10 @@ function buildInfra( shell, debugLevelRef, onSetSkin, fieldsRef ) {
 	} );
 	dumper.register( 'debug_level', listenerId, ( next ) => {
 		saveDebugLevel( next );
+		return true;
+	} );
+	dumper.register( 'debug_ui', listenerId, ( next ) => {
+		saveDebugUi( next );
 		return true;
 	} );
 	// Seed the transcript and interpreter debug_state from storage [87].
@@ -194,6 +201,7 @@ function buildInfra( shell, debugLevelRef, onSetSkin, fieldsRef ) {
 	const teardown = () => {
 		dumper.unregister( 'transcript', listenerId );
 		dumper.unregister( 'debug_level', listenerId );
+		dumper.unregister( 'debug_ui', listenerId );
 		stdout.removeNode();
 		// metadata.removeNode() stops its timer, unregistering it from _router.
 		dumper.removeNode();

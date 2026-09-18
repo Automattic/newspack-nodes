@@ -17,9 +17,9 @@ use Newspack_Nodes\Tests\TestCase;
 
 /**
  * Time-travel transport on Remote_Source_Node: the same Time_Travel surface the
- * Consumer carries (frames + cursor in dump_metadata, PAUSE/PLAY/SEEK_FRAME verbs),
+ * Consumer carries (frames + cursor in dump_metadata, `pause`/`play`/`seek_frame` verbs),
  * mapped onto the push-driven SSE pull — seek reconnects SSE_In from the frame's
- * committed {seg,off}; STEP is a documented no-op (a push source can't single-step).
+ * committed {seg,off}; `step` is a documented no-op (a push source can't single-step).
  */
 #[CoversClass( Remote_Source_Node::class )]
 class RemoteSourceTimeTravelTest extends TestCase {
@@ -93,7 +93,7 @@ class RemoteSourceTimeTravelTest extends TestCase {
 	public function test_node_schema_registers_the_time_travel_verbs(): void {
 		$schema = Remote_Source_Node::node_schema();
 		$verbs  = \array_column( $schema['commands'], 'name' );
-		foreach ( [ 'add_snapshot_node', 'set_line_mode', 'SEEK_FRAME', 'PAUSE', 'PLAY', 'STEP' ] as $verb ) {
+		foreach ( [ 'add_snapshot_node', 'set_line_mode', 'seek_frame', 'pause', 'play', 'step' ] as $verb ) {
 			$this->assertContains( $verb, $verbs, "Remote_Source must register the {$verb} verb" );
 		}
 	}
@@ -141,7 +141,7 @@ class RemoteSourceTimeTravelTest extends TestCase {
 	}
 
 	// =========================================================================
-	// SEEK_FRAME: reconnect SSE_In from a committed frame's {seg,off}.
+	// `seek_frame`: reconnect SSE_In from a committed frame's {seg,off}.
 	// =========================================================================
 
 	public function test_seek_frame_reseeds_sse_position_from_the_committed_frame(): void {
@@ -197,18 +197,20 @@ class RemoteSourceTimeTravelTest extends TestCase {
 		);
 	}
 
-	public function test_seek_frame_errors_when_segment_absent(): void {
+	public function test_seek_frame_refuses_when_segment_absent(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
 		$node = $this->make_remote( 'remote-austin' );
 		Core::$now = 1000.0;
 		$node->fire();
 
-		$this->assertStringContainsString( 'no frame', $node->seek_frame( 9999 ) );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'no frame at segment 9999' );
+		$node->seek_frame( 9999 );
 	}
 
 	// =========================================================================
-	// PAUSE / PLAY: stop and resume the pull.
+	// `pause` / `play`: stop and resume the pull.
 	// =========================================================================
 
 	public function test_pause_disconnects_the_pull_and_flags_paused(): void {
@@ -240,12 +242,12 @@ class RemoteSourceTimeTravelTest extends TestCase {
 
 		$node->play();
 		// 100ms tick = own framework slot (<1000ms never router-hitchhikes).
-		$this->assertSame( 'event_framework', $this->read_private( $node, 'mode' ), 'PLAY re-arms the recurring tick' );
-		$this->assertSame( 'ACTIVE', $node->dump_metadata()['polling'], 'PLAY flags the polling signal ACTIVE' );
+		$this->assertSame( 'event_framework', $this->read_private( $node, 'mode' ), '`play` re-arms the recurring tick' );
+		$this->assertSame( 'ACTIVE', $node->dump_metadata()['polling'], '`play` flags the polling signal ACTIVE' );
 	}
 
 	// =========================================================================
-	// STEP: a documented no-op for a push-driven source (returns the position).
+	// `step`: a documented no-op for a push-driven source (returns the position).
 	// =========================================================================
 
 	public function test_step_is_a_noop_returning_the_current_position(): void {
@@ -257,7 +259,7 @@ class RemoteSourceTimeTravelTest extends TestCase {
 		$node->next_offset( [ 'segment' => 5, 'offset' => 55 ] );
 
 		$result = $node->step();
-		$this->assertSame( [ 'segment' => 5, 'offset' => 55, 'at_eof' => true ], $result, 'STEP reports the current position without advancing' );
+		$this->assertSame( [ 'segment' => 5, 'offset' => 55, 'at_eof' => true ], $result, '`step` reports the current position without advancing' );
 	}
 
 	// =========================================================================
@@ -281,10 +283,10 @@ class RemoteSourceTimeTravelTest extends TestCase {
 		$cmd[ Message::FROM ]  = 'asker';
 		$cmd[ Message::TO ]    = '';
 		$cmd[ Message::LOCAL ] = true;
-		$cmd[ Message::VALUE ] = [ 'name' => 'PAUSE', 'arguments' => '' ];
+		$cmd[ Message::VALUE ] = [ 'name' => 'pause', 'arguments' => '' ];
 		$interpreter->fill( $cmd );
 
 		$this->assertSame( "ok\n", $cap->captured[0][ Message::VALUE ]['payload'] );
-		$this->assertSame( 'inactive', $this->read_private( $node, 'mode' ), 'PAUSE via the interpreter stops the tick' );
+		$this->assertSame( 'inactive', $this->read_private( $node, 'mode' ), '`pause` via the interpreter stops the tick' );
 	}
 }

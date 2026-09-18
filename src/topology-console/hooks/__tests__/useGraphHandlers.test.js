@@ -592,6 +592,54 @@ describe( 'useGraphHandlers', () => {
 		expect( shell.sink.fills ).toHaveLength( 1 );
 	} );
 
+	describe( 'a UI-bound invoke (one naming a replyTo)', () => {
+		const invokeFor = ( replyTo, debugUi = false ) => {
+			const shell = makeShell();
+			const { result, append } = renderHandlers( {
+				shell,
+				graph: { nodes: [ { id: 'n1', class: 'Node' } ], edges: [] },
+				catalogClasses: [
+					{ shell_name: 'Node', is_interpreter: false },
+				],
+			} );
+			Core.node( names.OUTPUT ).setDebugUi( debugUi );
+			result.current.onInspectorAction( 'invoke', 'n1', {
+				verb: 'dl_list',
+				kind: 'command',
+				positional: '',
+				replyTo,
+			} );
+			return { m: shell.sink.fills[ 0 ], append };
+		};
+
+		it( 'answers through _ui, which hands the reply on to replyTo', () => {
+			const { m } = invokeFor( '_triage:dl_list' );
+			expect( m[ FROM ] ).toBe( `${ names.UI }/_triage:dl_list` );
+		} );
+
+		it( 'names bare _ui when the caller wants no reply of its own', () => {
+			const { m } = invokeFor( names.UI );
+			expect( m[ FROM ] ).toBe( names.UI );
+		} );
+
+		const echoed = () =>
+			( Core.node( names.OUTPUT ).setStateCache.transcript ?? [] ).map(
+				( e ) => e.text
+			);
+
+		it( 'echoes nothing into the transcript while debug_ui is off', () => {
+			const { m, append } = invokeFor( '_triage:dl_list' );
+			expect( m ).toBeDefined();
+			expect( append ).not.toHaveBeenCalled();
+			expect( echoed() ).toEqual( [] );
+		} );
+
+		it( 'echoes the command like any other while debug_ui is on', () => {
+			invokeFor( '_triage:dl_list', true );
+			expect( echoed() ).toContain( 'command_node n1:config dl_list' );
+		} );
+	} );
+
 	it( 'invoke is a no-op when there is no shell', () => {
 		const dispatch = jest.fn();
 		const append = jest.fn();
