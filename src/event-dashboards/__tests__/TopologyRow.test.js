@@ -103,6 +103,12 @@ beforeEach( () => {
 } );
 
 describe( 'consoleHref', () => {
+	it( 'opens one worker of the topology when given its partition', () => {
+		const href = consoleHref( 'alpha', { partition: 3 } );
+		expect( href ).toContain( 'topology=alpha' );
+		expect( href ).toContain( 'partition=3' );
+	} );
+
 	it( 'builds a plain live-mode deep-link for a topology', () => {
 		expect( consoleHref( 'alpha' ) ).toBe(
 			'admin.php?page=newspack-nodes-station&tab=console&topology=alpha'
@@ -547,5 +553,18 @@ describe( 'TopologyRow', () => {
 		expect(
 			heading.querySelector( '.connector-heartbeat.stale' )
 		).toBeTruthy();
+	} );
+} );
+
+describe( 'TopologyRow partition badges', () => {
+	it( 'link each worker of an active topology to its console', () => {
+		const { container } = render( <TopologyRow { ...rowProps() } /> );
+		const badge = container.querySelector(
+			'.nodes-tm__parts .worker-status-badge'
+		);
+		expect( badge.textContent ).toBe( 'P0' );
+		expect( badge.tagName ).toBe( 'A' );
+		expect( badge.getAttribute( 'href' ) ).toContain( 'topology=alpha' );
+		expect( badge.getAttribute( 'href' ) ).toContain( 'partition=0' );
 	} );
 } );

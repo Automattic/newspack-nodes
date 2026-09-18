@@ -70,6 +70,16 @@
 		.topology-partition {
 			min-width: 116px;
 		}
+
+		// A live topology's badge opens that worker's console.
+		a.worker-status-badge {
+			text-decoration: none;
+
+			&:hover,
+			&:focus-visible {
+				text-decoration: underline;
+			}
+		}
 	}
 
 	// The whole partition group is a fixed-width column (sized for two partitions)
