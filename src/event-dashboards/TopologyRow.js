@@ -34,13 +34,17 @@ import './styles/topology-row.scss';
 /**
  * Build a deep-link into the station's Console tab.
  *
- * @param {string}  name            Topology to open; omit it for a blank draft.
- * @param {Object}  [options]       Which Console mode the link opens.
- * @param {boolean} [options.edit]  Open this topology in the TSL editor.
- * @param {boolean} [options.isNew] Open the editor on a new, unnamed topology.
+ * @param {string}  name                Topology to open; omit it for a blank draft.
+ * @param {Object}  [options]           Which Console mode the link opens.
+ * @param {boolean} [options.edit]      Open this topology in the TSL editor.
+ * @param {boolean} [options.isNew]     Open the editor on a new, unnamed topology.
+ * @param {number}  [options.partition] Open that worker of the topology.
  * @return {string} A wp-admin-relative `admin.php?…` href.
  */
-export const consoleHref = ( name, { edit = false, isNew = false } = {} ) => {
+export const consoleHref = (
+	name,
+	{ edit = false, isNew = false, partition } = {}
+) => {
 	const params = new URLSearchParams( {
 		page: 'newspack-nodes-station',
 		tab: 'console',
@@ -53,6 +57,9 @@ export const consoleHref = ( name, { edit = false, isNew = false } = {} ) => {
 	}
 	if ( isNew ) {
 		params.set( 'new', '1' );
+	}
+	if ( undefined !== partition ) {
+		params.set( 'partition', String( partition ) );
 	}
 	return `admin.php?${ params.toString() }`;
 };
@@ -268,11 +275,15 @@ const TopologyRow = memo( function TopologyRow( {
 							key={ p.partition }
 							className="topology-partition"
 						>
-							<span
+							<a
 								className={ `newspack-nodes-status-badge worker-status-badge compact ${ p.status }` }
+								href={ consoleHref( name, {
+									partition: p.partition,
+								} ) }
+								draggable={ false }
 							>
 								P{ p.partition }
-							</span>
+							</a>
 							<span className="process-age">
 								{ p.started_at && p.status === 'running'
 									? formatAge( p.started_at, currentTime )

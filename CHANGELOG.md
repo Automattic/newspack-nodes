@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A Workers page partition badge opens that worker.** On an active topology, P0, P1 and the rest link to the console on that partition, as the topology's name links to it on p0.
+
 - **The edit-mode Inspector shows the topology being edited.** With nothing selected it read "Select a node to edit it" above the include list. It now shows the panel a selected include gets, for the whole file: every node it provides, the nodes two of its declared includes both provide, the wiring between its own nodes and its includes, and the include tree with its remove controls.
 - **Names in the Inspector's lists are links.** An include's name selects its hull, at any depth of the tree; a node's name, in Provides, Shared or either end of an Interface edge, selects the node and lights it on the canvas.
 - **A selected hull lets clicks through.** Within a selected hull's bounds, a click passes through it and every hull painted above it to the next hull beneath, and the selection keeps the click only when none lies there; the hover highlight shows which hull a click would take. A drag still moves the selected hull, so selection waits for the release. A parent buried under its children's outlines, `job-hub` under `job-router` under `job-intake`, is reachable one click at a time.
