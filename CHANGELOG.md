@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.60.12] - 2026-09-17
+
 ### Fixed
 
 - **`step` advances a Remote_Source.** It forwarded nothing and replied with the cursor it started at, while still forcing line mode on for the session, so the Time Travel panel's Step button looked live and did nothing. It now consumes exactly one record per click: straight from the pump buffer when one is waiting, or, with none, by reconnecting from the cursor and taking the next record the spoke sends before dropping the stream again. The reply comes before the record lands in that case, so the panel shows the move on its next metadata poll. Clicks made before the pull answers are each owed a record.
