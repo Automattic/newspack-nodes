@@ -8,6 +8,7 @@ import {
 	LOCAL,
 	TM_COMMAND,
 	TM_REQUEST,
+	TM_ERROR,
 } from '../../../runtime/message';
 import names from '../../../runtime/reserved-node-names.json';
 import { Core } from '../../../runtime/core';
@@ -576,6 +577,31 @@ describe( 'useGraphHandlers', () => {
 		expect( append ).toHaveBeenCalledWith(
 			expect.objectContaining( { kind: 'error' } )
 		);
+	} );
+
+	it( 'a refused UI-bound invoke answers the button, not the transcript', () => {
+		const shell = makeShell();
+		const { result, append } = renderHandlers( {
+			shell,
+			graph: { nodes: [ { id: 'n1', class: 'Partition' } ], edges: [] },
+			catalogClasses: [
+				{ shell_name: 'Partition', is_interpreter: false },
+			],
+			sseGuard: () => false,
+		} );
+		result.current.onInspectorAction( 'invoke', 'n1', {
+			verb: 'dl_list',
+			kind: 'command',
+			positional: '',
+			replyTo: '_triage:dl_list',
+		} );
+		expect( append ).not.toHaveBeenCalled();
+		expect( shell.sink.fills ).toHaveLength( 1 );
+		const refusal = shell.sink.fills[ 0 ];
+		expect( refusal[ TYPE ] ).toBe( TM_COMMAND | TM_ERROR );
+		expect( refusal[ TO ] ).toBe( `${ names.UI }/_triage:dl_list` );
+		expect( refusal[ VALUE ] ).toMatchObject( { name: 'dl_list' } );
+		expect( refusal[ VALUE ].payload ).toMatch( /no sse_pid yet/ );
 	} );
 
 	it( 'invoke defaults sseGuard to always-allow (overlay parity)', () => {

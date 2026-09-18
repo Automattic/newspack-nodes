@@ -1181,7 +1181,7 @@ trait Durable_Reader {
 		return [
 			[
 				'name'        => 'add_snapshot_node',
-				'description' => 'Co-commit a named node\'s save_state() into the offsetlog alongside the cursor (keyed by name; repeatable), so each resumes its in-flight state on respawn (Tachikoma snapshot cache). Lifts the offsetlog PIPE_BUF cap (single-writer).',
+				'description' => 'Co-commit a named node\'s save_state() into the offsetlog alongside the cursor (keyed by name; repeatable), so each resumes its in-flight state on respawn (Tachikoma snapshot cache).',
 				'args'        => [
 					[ 'name' => 'node', 'type' => 'node_name', 'required' => true ],
 				],

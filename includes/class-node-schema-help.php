@@ -52,7 +52,7 @@ class Node_Schema_Help {
 		$category = isset( $schema['category'] ) ? ' — ' . Core::as_string( $schema['category'] ) : '';
 		$out      = [ "### {$type}{$category} ###" ];
 		if ( isset( $schema['description'] ) ) {
-			$out[] = Core::as_string( $schema['description'] );
+			$out[] = Core::as_string( $schema['description'] ) . "\n";
 		}
 
 		$flags = [];
@@ -62,7 +62,7 @@ class Node_Schema_Help {
 			}
 		}
 		if ( ! empty( $flags ) ) {
-			$out[] = \implode( '  ', $flags );
+			$out[] = \implode( '  ', $flags ) . "\n";
 		}
 
 		$arg_rows = [];

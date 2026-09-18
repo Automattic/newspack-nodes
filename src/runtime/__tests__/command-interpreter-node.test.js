@@ -1365,15 +1365,20 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 					[
 						'### SchemaProbe — Diagnostics ###',
 						'Inspects non-default widgets.',
+						'',
 						'accepts_fill=false  has_target=true',
+						'',
 						'ARGUMENTS',
 						'source_endpoint string required Distinct source.',
 						'retry_budget    int    =37      Distinct retry budget.',
 						'labels          array  =[]      Labels.',
+						'',
 						'COMMANDS',
 						'probe Inspect state.',
+						'',
 						'REQUESTS',
 						'snapshot Read snapshot.',
+						'',
 						'REGISTRATIONS: non_default_event, other_event',
 					].join( '\n' )
 				);
@@ -1389,7 +1394,9 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 				[
 					'### CommandInterpreter — Hidden ###',
 					'Command dispatch — placed implicitly as sibling of patron nodes; not draggable.',
+					'',
 					'accepts_fill=false  has_target=false',
+					'',
 				].join( '\n' )
 			);
 		} );
@@ -1785,7 +1792,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 					[ 'ONLY' ],
 					[ [ 'value', 'extra' ] ]
 				)
-			).toBe( 'ONLY\nvalue' );
+			).toBe( 'ONLY\nvalue\n' );
 		} );
 
 		it( 'dump_node skips function-valued node fields', () => {

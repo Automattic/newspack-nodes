@@ -1325,7 +1325,7 @@ export class CommandInterpreterNode extends Node {
 		const out = [ `### ${ type }${ category } ###` ];
 		if ( null !== schema.description && undefined !== schema.description ) {
 			out.push(
-				CommandInterpreterNode._schemaText( schema.description )
+				CommandInterpreterNode._schemaText( schema.description ) + '\n'
 			);
 		}
 
@@ -1338,7 +1338,7 @@ export class CommandInterpreterNode extends Node {
 			}
 		}
 		if ( flags.length > 0 ) {
-			out.push( flags.join( '  ' ) );
+			out.push( flags.join( '  ' ) + '\n' );
 		}
 
 		const argRows = [];
@@ -1529,7 +1529,7 @@ export class CommandInterpreterNode extends Node {
 		for ( const row of rows ) {
 			out += formatRow( row ) + '\n';
 		}
-		return out.replace( /\n+$/, '' );
+		return out;
 	}
 
 	/**

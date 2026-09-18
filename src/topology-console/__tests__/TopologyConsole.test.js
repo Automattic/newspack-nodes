@@ -3117,6 +3117,35 @@ describe( 'TopologyConsole boot', () => {
 		);
 	} );
 
+	it( 'handleInspectorAction opens the transcript for a REPL-bound invoke only', async () => {
+		globalThis.__httpPosts = [];
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByTestId, getByText } = render( <TopologyConsole /> );
+		await publishMeta();
+		await act( async () => {
+			fireEvent.click( getByText( 'select-n1' ) );
+		} );
+		await act( async () => {
+			lastInspectorProps.onAction( 'invoke', 'request-builder', {
+				verb: 'dl_list',
+				kind: 'command',
+				positional: '',
+				byName: {},
+				replyTo: '_ui',
+			} );
+		} );
+		expect( getByTestId( 'repl' ).dataset.expanded ).toBe( '0' );
+		await act( async () => {
+			lastInspectorProps.onAction( 'invoke', 'request-builder', {
+				verb: 'GET_HEALTH',
+				kind: 'command',
+				positional: '',
+				byName: {},
+			} );
+		} );
+		expect( getByTestId( 'repl' ).dataset.expanded ).toBe( '1' );
+	} );
+
 	it( 'handleInspectorAction invoke (command) routes a TM_COMMAND to the {node}:config sibling interpreter', async () => {
 		// Verbs live on the `{name}:config` sibling, not the bare node.
 		globalThis.__httpPosts = [];
