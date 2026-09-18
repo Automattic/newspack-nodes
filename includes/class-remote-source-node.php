@@ -401,8 +401,8 @@ class Remote_Source_Node extends Remote_Link_Node {
 	}
 
 	/**
-	 * SEEK_FRAME landing: reseed SSE_In from the frame's {segment,offset} and drop the current
-	 * stream. Seeking only ever happens while paused, so the reconnect is deferred to PLAY's tick.
+	 * `seek_frame` landing: reseed SSE_In from the frame's {segment,offset} and drop the current
+	 * stream. Seeking only ever happens while paused, so the reconnect is deferred to `play`'s tick.
 	 *
 	 * A bare SEEK sentinel is FORWARDED rather than resolved: this node holds no segments, so
 	 * `end` and `recent` mean nothing locally — the spoke owns the log and answers them. Either
@@ -709,7 +709,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 	}
 
 	/**
-	 * STEP is a no-op for a push-driven source: SSE_In is fed by the event loop, not pulled one
+	 * `step` is a no-op for a push-driven source: SSE_In is fed by the event loop, not pulled one
 	 * message at a time, so there is nothing to single-step. Report the current position.
 	 *
 	 * @return array{segment:int, offset:int, at_eof:bool}
@@ -718,12 +718,12 @@ class Remote_Source_Node extends Remote_Link_Node {
 		return [ 'segment' => $this->cursor_segment, 'offset' => $this->cursor_offset, 'at_eof' => true ];
 	}
 
-	/** PLAY re-arm: resume the recurring tick, which reconnects from the current position. */
+	/** `play` re-arm: resume the recurring tick, which reconnects from the current position. */
 	protected function time_travel_resume(): void {
 		$this->set_timer( self::TICK_INTERVAL_MS );
 	}
 
-	/** PAUSE also stops the pull: drop the live SSE stream so no data flows while paused. */
+	/** `pause` also stops the pull: drop the live SSE stream so no data flows while paused. */
 	protected function time_travel_on_pause(): void {
 		$this->sse_in?->disconnect();
 	}

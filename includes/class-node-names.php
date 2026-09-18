@@ -74,6 +74,9 @@ final class Node_Names {
 	/** The terminal writer the cli's `_output` Dumper targets. */
 	public const STDOUT              = '_stdout';
 
+	/** The browser relay a UI button's reply returns through, shown only under `debug_ui`. */
+	public const UI                  = '_ui';
+
 	/** Browser-side node publishing the elapsed run the console header's LIVE button shows. */
 	public const UPTIME              = '_uptime';
 

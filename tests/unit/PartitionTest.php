@@ -271,7 +271,9 @@ class PartitionTest extends TestCase {
 		$p->arguments( [ "{$this->tmp}/logs/stalled.p0", '1048576', '2', '4', '0', '0', '0' ] );
 		$p->sink( new \Newspack_Nodes\Tests\Capture_Sink_Node() );
 
-		$this->assertStringContainsString( 'unavailable', $p->requeue_deadletter( '0:0:10' ) );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'unavailable' );
+		$p->requeue_deadletter( '0:0:10' );
 	}
 
 	public function test_sidecar_partitions_do_not_derive_a_write_deadletter(): void {
@@ -3682,7 +3684,7 @@ class PartitionTest extends TestCase {
 	}
 
 	// ============================================================================
-	// truncate_after(): the Consumer time-travel PLAY truncate-on-resume primitive.
+	// truncate_after(): the Consumer time-travel `play` truncate-on-resume primitive.
 	// Deletes every segment id > segment_id and resets the write state so the log
 	// continues coherently FROM segment_id (next checkpoint rotates to id+1).
 	// ============================================================================

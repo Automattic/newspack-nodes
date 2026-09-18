@@ -2,7 +2,7 @@
  * TriageView tests — the selected consumer/tail/remote-source node's dead-letter
  * queue as a table with requeue + purge actions. It arms a one-shot reply capture
  * on the `_output` Dumper, then dispatches the `dl_*` :config verbs via onAction;
- * the JSON `dl_list` reply is parsed defensively into the table.
+ * the `dl_list` page is read defensively into the table.
  */
 
 import { render, fireEvent, act } from '@testing-library/react';
@@ -39,22 +39,21 @@ function reply( name, payload, kind = TM_RESPONSE ) {
 	act( () => Core.node( `_triage:${ name }` )?.fill( m ) );
 }
 
-const listJson = ( over = {} ) =>
-	JSON.stringify( {
-		rows: [
-			{
-				reason: 'timeout',
-				attempts: 3,
-				first_crash_ts: 1_777_000_000,
-				ts: 1_777_000_123,
-				source: '4:88:512',
-				locator: '2:40:96',
-			},
-		],
-		total: 1,
-		unindexed_segments: 0,
-		...over,
-	} );
+const listPage = ( over = {} ) => ( {
+	rows: [
+		{
+			reason: 'timeout',
+			attempts: 3,
+			first_crash_ts: 1_777_000_000,
+			ts: 1_777_000_123,
+			source: '4:88:512',
+			locator: '2:40:96',
+		},
+	],
+	total: 1,
+	unindexed_segments: 0,
+	...over,
+} );
 
 test( 'dispatches dl_list at the node on mount and renders the returned records', () => {
 	const onAction = jest.fn();
@@ -68,7 +67,7 @@ test( 'dispatches dl_list at the node on mount and renders the returned records'
 		byName: {},
 		replyTo: expect.any( String ),
 	} );
-	reply( 'dl_list', listJson() );
+	reply( 'dl_list', listPage() );
 	const grid = getByTestId( 'triage-grid' );
 	// Local `YYYY-MM-DD HH:MM:SS TZ` from ts (DLQ records can be days old),
 	// plus reason / attempts / source / locator.
@@ -91,7 +90,7 @@ test( 'renders the empty state when there are no quarantined records', () => {
 	const { queryByTestId, getByText } = render(
 		<TriageView node={ node } onAction={ jest.fn() } />
 	);
-	reply( 'dl_list', listJson( { rows: [], total: 0 } ) );
+	reply( 'dl_list', listPage( { rows: [], total: 0 } ) );
 	expect( queryByTestId( 'triage-grid' ) ).toBeNull();
 	expect( getByText( 'No quarantined records.' ) ).not.toBeNull();
 } );
@@ -100,15 +99,15 @@ test( 'notes older records that predate indexing when unindexed_segments > 0', (
 	const { getByText } = render(
 		<TriageView node={ node } onAction={ jest.fn() } />
 	);
-	reply( 'dl_list', listJson( { unindexed_segments: 4 } ) );
+	reply( 'dl_list', listPage( { unindexed_segments: 4 } ) );
 	expect( getByText( /4 older records predate indexing/ ) ).not.toBeNull();
 } );
 
-test( 'renders an error status when the dl_list reply is not valid JSON', () => {
+test( 'renders an error status when the dl_list reply is a string, even a JSON one', () => {
 	const { queryByTestId, getByText } = render(
 		<TriageView node={ node } onAction={ jest.fn() } />
 	);
-	reply( 'dl_list', 'not-json{' );
+	reply( 'dl_list', JSON.stringify( listPage() ) );
 	expect( queryByTestId( 'triage-grid' ) ).toBeNull();
 	expect(
 		getByText( /Could not read the dead-letter queue/ )
@@ -128,7 +127,7 @@ test( 'Requeue dispatches dl_requeue with the row locator, then refetches', () =
 	const { getByText } = render(
 		<TriageView node={ node } onAction={ onAction } />
 	);
-	reply( 'dl_list', listJson() );
+	reply( 'dl_list', listPage() );
 	onAction.mockClear();
 	fireEvent.click( getByText( 'Requeue' ) );
 	expect( onAction ).toHaveBeenCalledWith( 'invoke', 'firehose-consumer', {
@@ -150,25 +149,24 @@ test( 'Requeue dispatches dl_requeue with the row locator, then refetches', () =
 	);
 } );
 
-const showJson = () =>
-	JSON.stringify( {
-		type: 16,
-		type_flags: 'TM_STRUCT',
-		timestamp: 1_777_000_000.5,
-		from: 'origin-node',
-		to: '',
-		id: '4:88:512',
-		key: 'poison-key-909',
-		value: { k: 'job', payload: 'blob-909' },
-		size: 133,
-	} );
+const showRecord = () => ( {
+	type: 16,
+	type_flags: 'TM_STRUCT',
+	timestamp: 1_777_000_000.5,
+	from: 'origin-node',
+	to: '',
+	id: '4:88:512',
+	key: 'poison-key-909',
+	value: { k: 'job', payload: 'blob-909' },
+	size: 133,
+} );
 
 test( 'View dispatches dl_show with the row locator and renders the record', () => {
 	const onAction = jest.fn();
 	const { getByText, getByTestId } = render(
 		<TriageView node={ node } onAction={ onAction } />
 	);
-	reply( 'dl_list', listJson() );
+	reply( 'dl_list', listPage() );
 	onAction.mockClear();
 	fireEvent.click( getByText( 'View' ) );
 	expect( onAction ).toHaveBeenCalledWith( 'invoke', 'firehose-consumer', {
@@ -178,7 +176,7 @@ test( 'View dispatches dl_show with the row locator and renders the record', () 
 		byName: { locator: '2:40:96' },
 		replyTo: expect.any( String ),
 	} );
-	reply( 'dl_show', showJson() );
+	reply( 'dl_show', showRecord() );
 	const detail = getByTestId( 'triage-record' );
 	expect( detail.textContent ).toContain( '"k": "job"' );
 	expect( detail.textContent ).toContain( 'blob-909' );
@@ -189,9 +187,9 @@ test( 'View toggles to Hide and closes the open record without a dispatch', () =
 	const { getByText, queryByTestId } = render(
 		<TriageView node={ node } onAction={ onAction } />
 	);
-	reply( 'dl_list', listJson() );
+	reply( 'dl_list', listPage() );
 	fireEvent.click( getByText( 'View' ) );
-	reply( 'dl_show', showJson() );
+	reply( 'dl_show', showRecord() );
 	expect( queryByTestId( 'triage-record' ) ).not.toBeNull();
 	onAction.mockClear();
 	fireEvent.click( getByText( 'Hide' ) );
@@ -203,22 +201,22 @@ test( 'a dl_show error lands in the status line, not the record panel', () => {
 	const { getByText, queryByTestId } = render(
 		<TriageView node={ node } onAction={ jest.fn() } />
 	);
-	reply( 'dl_list', listJson() );
+	reply( 'dl_list', listPage() );
 	fireEvent.click( getByText( 'View' ) );
 	reply( 'dl_show', 'error: no dead-letter record at 2:40:96', TM_ERROR );
 	expect( queryByTestId( 'triage-record' ) ).toBeNull();
 	expect( getByText( /no dead-letter record/ ) ).not.toBeNull();
 } );
 
-test( 'an unparseable dl_show reply is surfaced as an error, not rendered', () => {
+test( 'a string dl_show reply, even a JSON one, is surfaced as an error', () => {
 	const { getByText, queryByTestId } = render(
 		<TriageView node={ node } onAction={ jest.fn() } />
 	);
-	reply( 'dl_list', listJson() );
+	reply( 'dl_list', listPage() );
 	fireEvent.click( getByText( 'View' ) );
-	reply( 'dl_show', 'not-json{' );
+	reply( 'dl_show', JSON.stringify( showRecord() ) );
 	expect( queryByTestId( 'triage-record' ) ).toBeNull();
-	expect( getByText( /Could not decode the record/ ) ).not.toBeNull();
+	expect( getByText( /unexpected shape/ ) ).not.toBeNull();
 } );
 
 test( 'View buttons disable while a dl_show is in flight (single reply slot)', () => {
@@ -229,7 +227,7 @@ test( 'View buttons disable while a dl_show is in flight (single reply slot)', (
 	);
 	reply(
 		'dl_list',
-		listJson( {
+		listPage( {
 			rows: [
 				{
 					reason: 'timeout',
@@ -252,7 +250,7 @@ test( 'View buttons disable while a dl_show is in flight (single reply slot)', (
 	getAllByText( 'View' ).forEach( ( b ) =>
 		expect( b.disabled ).toBe( true )
 	);
-	reply( 'dl_show', showJson() );
+	reply( 'dl_show', showRecord() );
 	// Reply landed: the panel is open and the OTHER row's View re-enables.
 	expect( getByText( 'View' ).disabled ).toBe( false );
 	expect( getByText( 'Hide' ) ).not.toBeNull();
@@ -263,7 +261,7 @@ test( 'Purge is a two-click confirm before it dispatches dl_purge', () => {
 	const { getByText } = render(
 		<TriageView node={ node } onAction={ onAction } />
 	);
-	reply( 'dl_list', listJson( { rows: [], total: 0 } ) );
+	reply( 'dl_list', listPage( { rows: [], total: 0 } ) );
 	onAction.mockClear();
 	// First click arms the confirm; no verb fires yet.
 	fireEvent.click( getByText( 'Purge' ) );
@@ -294,7 +292,7 @@ test( 'renders a dash for a record whose ts is not a finite number', () => {
 	);
 	reply(
 		'dl_list',
-		listJson( {
+		listPage( {
 			rows: [
 				{
 					reason: 'crash',
@@ -309,11 +307,11 @@ test( 'renders a dash for a record whose ts is not a finite number', () => {
 	expect( getByTestId( 'triage-grid' ).textContent ).toContain( '—' );
 } );
 
-test( 'treats a valid-JSON reply without a rows array as unreadable', () => {
+test( 'treats a page without a rows array as unreadable', () => {
 	const { getByText } = render(
 		<TriageView node={ node } onAction={ jest.fn() } />
 	);
-	reply( 'dl_list', JSON.stringify( { total: 9 } ) );
+	reply( 'dl_list', { total: 9 } );
 	expect(
 		getByText( /Could not read the dead-letter queue/ )
 	).not.toBeNull();
@@ -338,7 +336,7 @@ test( 'a verb reply that lands after unmount fires no stray refetch', () => {
 	const { getByText, unmount } = render(
 		<TriageView node={ node } onAction={ onAction } />
 	);
-	reply( 'dl_list', listJson() );
+	reply( 'dl_list', listPage() );
 	fireEvent.click( getByText( 'Requeue' ) );
 	onAction.mockClear();
 	unmount();
@@ -352,7 +350,7 @@ test( 'clicking Requeue disarms an armed Confirm purge', () => {
 	const { getByText, queryByText } = render(
 		<TriageView node={ node } onAction={ jest.fn() } />
 	);
-	reply( 'dl_list', listJson() );
+	reply( 'dl_list', listPage() );
 	fireEvent.click( getByText( 'Purge' ) );
 	expect( getByText( 'Confirm purge' ) ).not.toBeNull();
 	fireEvent.click( getByText( 'Requeue' ) );
@@ -364,7 +362,7 @@ test( 'clicking Refresh disarms an armed Confirm purge', () => {
 	const { getByText, queryByText } = render(
 		<TriageView node={ node } onAction={ jest.fn() } />
 	);
-	reply( 'dl_list', listJson( { rows: [], total: 0 } ) );
+	reply( 'dl_list', listPage( { rows: [], total: 0 } ) );
 	fireEvent.click( getByText( 'Purge' ) );
 	expect( getByText( 'Confirm purge' ) ).not.toBeNull();
 	fireEvent.click( getByText( 'Refresh' ) );
@@ -377,7 +375,7 @@ test( 'shows a loading state until the first dl_list reply lands', () => {
 	);
 	expect( getByText( 'Loading…' ) ).not.toBeNull();
 	expect( queryByText( '0 quarantined' ) ).toBeNull();
-	reply( 'dl_list', listJson( { rows: [], total: 0 } ) );
+	reply( 'dl_list', listPage( { rows: [], total: 0 } ) );
 	expect( getByText( '0 quarantined' ) ).not.toBeNull();
 } );
 
@@ -386,7 +384,7 @@ test( 'Refresh re-dispatches dl_list', () => {
 	const { getByText } = render(
 		<TriageView node={ node } onAction={ onAction } />
 	);
-	reply( 'dl_list', listJson() );
+	reply( 'dl_list', listPage() );
 	onAction.mockClear();
 	fireEvent.click( getByText( 'Refresh' ) );
 	expect( onAction ).toHaveBeenCalledWith( 'invoke', 'firehose-consumer', {
@@ -419,7 +417,7 @@ describe( 'TriageView reply addressing', () => {
 
 		// Deliver the list so the table renders a row with a View button.
 		act( () =>
-			Core.node( listReplyTo ).fill( commandReply( listJson() ) )
+			Core.node( listReplyTo ).fill( commandReply( listPage() ) )
 		);
 
 		const view = Array.from( container.querySelectorAll( 'button' ) ).find(
@@ -445,18 +443,17 @@ function commandReply( payload, kind = TM_RESPONSE ) {
 	return m;
 }
 
-const showJsonWithStringValue = ( value ) =>
-	JSON.stringify( {
-		type: 1,
-		type_flags: 'TM_BYTESTREAM',
-		timestamp: 1_786_480_953.325_673,
-		from: '',
-		to: '',
-		id: '13:458292:315',
-		key: '',
-		value,
-		size: 413,
-	} );
+const showRecordWithStringValue = ( value ) => ( {
+	type: 1,
+	type_flags: 'TM_BYTESTREAM',
+	timestamp: 1_786_480_953.325_673,
+	from: '',
+	to: '',
+	id: '13:458292:315',
+	key: '',
+	value,
+	size: 413,
+} );
 
 const row = () => ( {
 	reason: 'timeout',
@@ -473,18 +470,18 @@ test( 'an unparseable record shows its VALUE alone — that IS the whole message
 	const view = render( <TriageView node={ node } onAction={ jest.fn() } /> );
 	reply(
 		'dl_list',
-		listJson( { rows: [ { ...row(), reason: 'unparseable' } ] } )
+		listPage( { rows: [ { ...row(), reason: 'unparseable' } ] } )
 	);
 	fireEvent.click( view.getByText( 'View' ) );
-	reply( 'dl_show', showJsonWithStringValue( raw ) );
+	reply( 'dl_show', showRecordWithStringValue( raw ) );
 	expect( view.getByTestId( 'triage-record' ).textContent ).toBe( raw );
 } );
 
 test( "any other reason renders the Dumper's Message block, as the REPL does", () => {
 	const view = render( <TriageView node={ node } onAction={ jest.fn() } /> );
-	reply( 'dl_list', listJson( { rows: [ { ...row(), reason: 'throw' } ] } ) );
+	reply( 'dl_list', listPage( { rows: [ { ...row(), reason: 'throw' } ] } ) );
 	fireEvent.click( view.getByText( 'View' ) );
-	reply( 'dl_show', showJson() );
+	reply( 'dl_show', showRecord() );
 	const body = view.getByTestId( 'triage-record' ).textContent;
 	expect( body ).toMatch( /^Message \{\n/ );
 	expect( body ).toContain( '    type:      TM_STRUCT' );
@@ -499,9 +496,9 @@ test( "any other reason renders the Dumper's Message block, as the REPL does", (
 
 test( 'no envelope header is rendered for either kind', () => {
 	const view = render( <TriageView node={ node } onAction={ jest.fn() } /> );
-	reply( 'dl_list', listJson() );
+	reply( 'dl_list', listPage() );
 	fireEvent.click( view.getByText( 'View' ) );
-	reply( 'dl_show', showJson() );
+	reply( 'dl_show', showRecord() );
 	expect( view.queryByTestId( 'triage-record-meta' ) ).toBeNull();
 } );
 
@@ -511,7 +508,7 @@ test( 'scrolls only the records, keeping the count and the actions in view', () 
 	const { getByTestId, getByText } = render(
 		<TriageView node={ node } onAction={ jest.fn() } />
 	);
-	reply( 'dl_list', listJson() );
+	reply( 'dl_list', listPage() );
 	const records = getByTestId( 'triage-records' );
 
 	expect( records.contains( getByTestId( 'triage-grid' ) ) ).toBe( true );
@@ -525,11 +522,29 @@ test( 'paints the queue verbs as the rows paint theirs', () => {
 	const { getByText } = render(
 		<TriageView node={ node } onAction={ jest.fn() } />
 	);
-	reply( 'dl_list', listJson() );
+	reply( 'dl_list', listPage() );
 
 	for ( const label of [ 'Refresh', 'Purge', 'Requeue' ] ) {
 		expect( getByText( label ).classList.contains( 'is-compact' ) ).toBe(
 			true
 		);
 	}
+} );
+
+test( 'a dl_list refusal shows as itself, not as unreadable', () => {
+	const { getByText } = render(
+		<TriageView node={ node } onAction={ jest.fn() } />
+	);
+	reply( 'dl_list', 'not a dead-letter node\n', TM_ERROR );
+	expect( getByText( /not a dead-letter node/ ) ).not.toBeNull();
+} );
+
+test( 'a dl_show refusal shows as itself, not as undecodable', () => {
+	const { getByText } = render(
+		<TriageView node={ node } onAction={ jest.fn() } />
+	);
+	reply( 'dl_list', listPage() );
+	fireEvent.click( getByText( 'View' ) );
+	reply( 'dl_show', 'no dead-letter record at 2:40:96\n', TM_ERROR );
+	expect( getByText( /no dead-letter record at 2:40:96/ ) ).not.toBeNull();
 } );

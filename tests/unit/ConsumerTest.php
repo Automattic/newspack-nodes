@@ -3658,9 +3658,9 @@ class ConsumerTest extends TestCase {
 		$this->assertIsArray( $schema['commands'] );
 		// Set equality, NOT order: verb ordering is presentation, free to change.
 		$this->assertEqualsCanonicalizing(
-			[ 'add_snapshot_node', 'set_line_mode', 'SEEK_FRAME', 'PAUSE', 'PLAY', 'STEP', 'assume_clean_shutdown', 'dl_list', 'dl_show', 'dl_requeue', 'dl_purge', 'set_multi_writer' ],
+			[ 'add_snapshot_node', 'set_line_mode', 'seek_frame', 'pause', 'play', 'step', 'assume_clean_shutdown', 'dl_list', 'dl_show', 'dl_requeue', 'dl_purge', 'set_multi_writer' ],
 			\array_column( $schema['commands'], 'name' ),
-			'Consumer exposes the snapshot-cache + line-mode config verbs, the time-travel transport (STEP is a mutating command, not a request), the dead-letter triage verbs, and set_multi_writer (seal-grace)'
+			'Consumer exposes the snapshot-cache + line-mode config verbs, the time-travel transport (`step` is a mutating command, not a request), the dead-letter triage verbs, and set_multi_writer (seal-grace)'
 		);
 
 		// Three ctor params: source_dir (required), offsetlog_dir + deadletter_dir (default '').
@@ -4114,7 +4114,7 @@ class ConsumerTest extends TestCase {
 	}
 
 	/**
-	 * The time-travel transport verbs (SEEK_FRAME/PAUSE/PLAY/STEP) are driven by
+	 * The time-travel transport verbs (`seek_frame`/`pause`/`play`/`step`) are driven by
 	 * the Inspector's Time Travel bar, so they carry hidden:true to keep them out
 	 * of the generic per-command verb-button list. Non-transport config verbs
 	 * (add_snapshot_node, set_line_mode) stay visible.
@@ -4125,7 +4125,7 @@ class ConsumerTest extends TestCase {
 			$commands[ $command['name'] ] = $command;
 		}
 
-		foreach ( [ 'SEEK_FRAME', 'PAUSE', 'PLAY', 'STEP' ] as $verb ) {
+		foreach ( [ 'seek_frame', 'pause', 'play', 'step' ] as $verb ) {
 			$this->assertArrayHasKey( $verb, $commands, "{$verb} must be a Consumer command" );
 			$this->assertTrue( $commands[ $verb ]['hidden'] ?? false, "{$verb} must be hidden from the generic verb list" );
 		}
@@ -4218,7 +4218,7 @@ class ConsumerTest extends TestCase {
 	}
 
 	public function test_dump_config_serializes_production_line_mode_not_transient_step_value(): void {
-		// A STEP session forces line_mode=true transiently while saving the real
+		// A `step` session forces line_mode=true transiently while saving the real
 		// production value (false here) in saved_line_mode. dump_config must serialize
 		// the production value, not the debug-transient one — guards the
 		// `saved_line_mode ?? line_mode` branch against a "simplify to line_mode" regression.

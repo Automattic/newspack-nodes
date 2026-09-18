@@ -557,7 +557,7 @@ class Table_Node extends Node {
 					'handler'     => static function ( Command_Interpreter_Node $interpreter, array $args ): string {
 						$patron = $interpreter->patron();
 						if ( ! $patron instanceof self ) {
-							return "error: no table patron\n";
+							throw new \RuntimeException( 'no table patron' );
 						}
 						return (string) \wp_json_encode( $patron->lookup( Core::as_string( $args[0] ?? '', '' ) ) );
 					},
@@ -569,7 +569,7 @@ class Table_Node extends Node {
 					'args'        => [ [ 'name' => 'key', 'type' => 'string', 'required' => true ] ],
 					'handler'     => static function ( Command_Interpreter_Node $interpreter, array $args ): string {
 						$patron = $interpreter->patron();
-						return $patron instanceof self ? $patron->rm( Core::as_string( $args[0] ?? '', '' ) ) : "error: no table patron\n";
+						return $patron instanceof self ? $patron->rm( Core::as_string( $args[0] ?? '', '' ) ) : throw new \RuntimeException( 'no table patron' );
 					},
 				],
 			],

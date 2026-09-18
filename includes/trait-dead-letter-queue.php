@@ -357,25 +357,15 @@ trait Dead_Letter_Queue {
 	 * Delivering also spares the log's other tailers a record only this node failed.
 	 *
 	 * @param string $locator `segment:offset:length` in the sidecar, from dl_list.
-	 * @return string The `ok:` or `error:` line the verb replies.
+	 * @return string The `ok:` line the verb replies.
+	 * @throws \RuntimeException When there is no queue, no sink or no such record.
 	 */
 	public function requeue_deadletter( string $locator ): string {
-		$deadletter = $this->ensure_deadletter();
-		if ( null === $deadletter ) {
-			return "error: no dead-letter queue configured\n";
-		}
+		$this->require_deadletter();
 		if ( null === $this->sink ) {
-			return "error: requeue unavailable — this node has no sink to deliver into\n";
+			throw new \RuntimeException( 'requeue unavailable — this node has no sink to deliver into' );
 		}
-		$loc = $this->parse_deadletter_locator( $locator );
-		if ( null === $loc ) {
-			return "error: malformed locator '{$locator}' — want segment:offset:length from dl_list\n";
-		}
-		[ $segment, $offset, $length ] = $loc;
-		$message = $deadletter->read_message_at( $segment, $offset, $length );
-		if ( null === $message ) {
-			return "error: no dead-letter record at {$locator}\n";
-		}
+		$message = $this->deadletter_record( $locator );
 		// Address it as forward_line does; Router, not the sink, delivers.
 		if ( \is_string( $this->target ) && '' !== $this->target ) {
 			$message[ Message::TO ] = $this->target;
@@ -388,29 +378,18 @@ trait Dead_Letter_Queue {
 
 	/**
 	 * Decode the dead-letter record at $locator into named envelope fields for the
-	 * triage UI and the REPL — JSON `{ type, type_flags, timestamp, from, to, id, key,
+	 * triage UI and the REPL — `{ type, type_flags, timestamp, from, to, id, key,
 	 * value, size }`. Read-only sibling of requeue_deadletter: same locator grammar,
 	 * same sidecar read, no side effects.
 	 *
 	 * @param string $locator `segment:offset:length` in the sidecar, from dl_list.
-	 * @return string The JSON object, or an `error:` line.
+	 * @return array{type: int, type_flags: string, timestamp: mixed, from: string, to: string, id: string, key: string, value: mixed, size: int} The record.
+	 * @throws \RuntimeException When there is no queue or no such record.
 	 */
-	public function show_deadletter( string $locator ): string {
-		$deadletter = $this->ensure_deadletter();
-		if ( null === $deadletter ) {
-			return "error: no dead-letter queue configured\n";
-		}
-		$loc = $this->parse_deadletter_locator( $locator );
-		if ( null === $loc ) {
-			return "error: malformed locator '{$locator}' — want segment:offset:length from dl_list\n";
-		}
-		[ $segment, $offset, $length ] = $loc;
-		$message = $deadletter->read_message_at( $segment, $offset, $length );
-		if ( null === $message ) {
-			return "error: no dead-letter record at {$locator}\n";
-		}
+	public function show_deadletter( string $locator ): array {
+		$message = $this->deadletter_record( $locator );
 		$type = Core::as_int( $message[ Message::TYPE ] ?? 0 );
-		return (string) \wp_json_encode( [
+		return [
 			'type'       => $type,
 			'type_flags' => Dumper_Node::format_type_flags( $type ),
 			'timestamp'  => $message[ Message::TIMESTAMP ] ?? 0,
@@ -420,7 +399,7 @@ trait Dead_Letter_Queue {
 			'key'        => Core::as_string( $message[ Message::KEY ] ?? '' ),
 			'value'      => $message[ Message::VALUE ] ?? null,
 			'size'       => Message::packed_size( $message ),
-		] );
+		];
 	}
 
 	/**
@@ -429,13 +408,11 @@ trait Dead_Letter_Queue {
 	 * (DEADLETTER_NUM_SEGMENTS), so quarantine cannot grow unbounded and a purge is
 	 * never required for correctness.
 	 *
-	 * @return string The `ok:` count line, or an `error:` line when no DLQ is configured.
+	 * @return string The `ok:` count line.
+	 * @throws \RuntimeException When no dead-letter queue is configured.
 	 */
 	public function purge_deadletter(): string {
-		$deadletter = $this->ensure_deadletter();
-		if ( null === $deadletter ) {
-			return "error: no dead-letter queue configured\n";
-		}
+		$deadletter = $this->require_deadletter();
 		$removed  = 0;
 		$segments = $deadletter->get_segments( true );
 		foreach ( $segments as $s ) {
@@ -452,6 +429,32 @@ trait Dead_Letter_Queue {
 		$deadletter->get_segments( true ); // Re-scan so the warm cache reflects the purge.
 		// "X of Y" surfaces a failed unlink instead of hiding it.
 		return \sprintf( "ok: purged %d of %d dead-letter segment(s)\n", $removed, \count( $segments ) );
+	}
+
+	/**
+	 * The dead-letter sidecar, for a verb that cannot answer without one.
+	 *
+	 * @return Partition_Node The sidecar.
+	 * @throws \RuntimeException When no dead-letter directory is configured.
+	 */
+	private function require_deadletter(): Partition_Node {
+		return $this->ensure_deadletter() ?? throw new \RuntimeException( 'no dead-letter queue configured' );
+	}
+
+	/**
+	 * Read the quarantined message a `dl_list` locator names.
+	 *
+	 * @param string $locator `segment:offset:length` in the sidecar.
+	 * @return array<int,mixed> The message, positional.
+	 * @throws \RuntimeException When there is no queue, the locator is malformed, or no record sits there.
+	 */
+	private function deadletter_record( string $locator ): array {
+		$deadletter = $this->require_deadletter();
+		$loc        = $this->parse_deadletter_locator( $locator )
+			?? throw new \RuntimeException( "malformed locator '{$locator}' — want segment:offset:length from dl_list" );
+		[ $segment, $offset, $length ] = $loc;
+		return $deadletter->read_message_at( $segment, $offset, $length )
+			?? throw new \RuntimeException( "no dead-letter record at {$locator}" );
 	}
 
 	/**
@@ -573,9 +576,8 @@ trait Dead_Letter_Queue {
 	 * dl_show and dl_requeue need a sidecar locator only its listing supplies, so a
 	 * generic verb button would offer an operator a field they cannot fill.
 	 *
-	 * The handlers RETURN their `error:` lines instead of throwing. A refusal throws
-	 * everywhere else in the substrate; these are values the modal renders beside the
-	 * row that produced them, not failed commands.
+	 * A handler refuses by throwing, like every verb, so the reply is a TM_ERROR the
+	 * modal shows in its status line.
 	 *
 	 * @return array<int,array<string,mixed>>
 	 */
@@ -588,7 +590,7 @@ trait Dead_Letter_Queue {
 				'args'        => [
 					[ 'name' => 'limit', 'type' => 'int', 'required' => false ],
 				],
-				'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_dl_list( $interpreter, $args ),
+				'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): array => self::cmd_dl_list( $interpreter, $args ),
 			],
 			[
 				'name'        => 'dl_show',
@@ -597,7 +599,7 @@ trait Dead_Letter_Queue {
 				'args'        => [
 					[ 'name' => 'locator', 'type' => 'string', 'required' => true ],
 				],
-				'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_dl_show( $interpreter, $args ),
+				'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): array => self::cmd_dl_show( $interpreter, $args ),
 			],
 			[
 				'name'        => 'dl_requeue',
@@ -619,65 +621,56 @@ trait Dead_Letter_Queue {
 	}
 
 	/**
-	 * The node behind a `{name}:config` interpreter, when it is one using this trait.
-	 * The verbs run on a node's own interpreter, so a foreign patron is a wiring bug;
-	 * null lets each handler answer with an error line rather than fatal on a method
-	 * the patron does not have.
+	 * The node behind a `{name}:config` interpreter, which must be one using this
+	 * trait. The verbs run on a node's own interpreter, so a foreign patron is a
+	 * wiring bug, refused rather than fatal on a method the patron lacks.
 	 *
 	 * @param Command_Interpreter_Node $interpreter The interpreter dispatching the verb.
-	 * @return self|null The using node, or null when the patron is something else.
+	 * @return self The using node.
+	 * @throws \RuntimeException When the patron is something else.
 	 */
-	private static function deadletter_patron( Command_Interpreter_Node $interpreter ): ?self {
+	private static function deadletter_patron( Command_Interpreter_Node $interpreter ): self {
 		$patron = $interpreter->patron();
-		return $patron instanceof self ? $patron : null;
+		return $patron instanceof self ? $patron : throw new \RuntimeException( 'not a dead-letter node' );
 	}
 
 	/**
-	 * `dl_list` verb handler — reply the triage page as JSON.
+	 * `dl_list` verb handler — reply the triage page.
 	 *
 	 * @param Command_Interpreter_Node $interpreter The `{name}:config` interpreter.
 	 * @param array<array-key,mixed>   $args        Optional limit token; absent takes
 	 *                                              DEADLETTER_LIST_DEFAULT_LIMIT and a
 	 *                                              non-positive one clamps to 1.
-	 * @return string The JSON page, or an `error:` line.
+	 * @return array{rows: array<int,mixed>, total: int, unindexed_segments: int} The page.
 	 */
-	public static function cmd_dl_list( Command_Interpreter_Node $interpreter, array $args ): string {
+	public static function cmd_dl_list( Command_Interpreter_Node $interpreter, array $args ): array {
 		$patron = self::deadletter_patron( $interpreter );
-		if ( null === $patron ) {
-			return "error: not a dead-letter node\n";
-		}
 		$raw   = Core::as_string( $args[0] ?? '' );
 		$limit = '' === $raw ? self::DEADLETTER_LIST_DEFAULT_LIMIT : \max( 1, Core::as_int( $raw ) );
-		return (string) \wp_json_encode( $patron->list_deadletter( $limit ) );
+		return $patron->list_deadletter( $limit );
 	}
 
 	/**
-	 * `dl_show` verb handler — decode one record; reply JSON or an error line.
+	 * `dl_show` verb handler — decode one record and reply with it.
 	 *
 	 * @param Command_Interpreter_Node $interpreter The `{name}:config` interpreter.
 	 * @param array<array-key,mixed>   $args        The sidecar locator from dl_list.
-	 * @return string The decoded record as JSON, or an `error:` line.
+	 * @return array{type: int, type_flags: string, timestamp: mixed, from: string, to: string, id: string, key: string, value: mixed, size: int} The record.
 	 */
-	public static function cmd_dl_show( Command_Interpreter_Node $interpreter, array $args ): string {
+	public static function cmd_dl_show( Command_Interpreter_Node $interpreter, array $args ): array {
 		$patron = self::deadletter_patron( $interpreter );
-		if ( null === $patron ) {
-			return "error: not a dead-letter node\n";
-		}
 		return $patron->show_deadletter( Core::as_string( $args[0] ?? '' ) );
 	}
 
 	/**
-	 * `dl_requeue` verb handler — redeliver one record; reply the ok/error line.
+	 * `dl_requeue` verb handler — redeliver one record; reply the `ok:` line.
 	 *
 	 * @param Command_Interpreter_Node $interpreter The `{name}:config` interpreter.
 	 * @param array<array-key,mixed>   $args        The sidecar locator from dl_list.
-	 * @return string The `ok:` or `error:` line.
+	 * @return string The `ok:` line.
 	 */
 	public static function cmd_dl_requeue( Command_Interpreter_Node $interpreter, array $args ): string {
 		$patron = self::deadletter_patron( $interpreter );
-		if ( null === $patron ) {
-			return "error: not a dead-letter node\n";
-		}
 		return $patron->requeue_deadletter( Core::as_string( $args[0] ?? '' ) );
 	}
 
@@ -685,13 +678,10 @@ trait Dead_Letter_Queue {
 	 * `dl_purge` verb handler — delete all dead-letter segments; reply the count.
 	 *
 	 * @param Command_Interpreter_Node $interpreter The `{name}:config` interpreter.
-	 * @return string The `ok:` count line, or an `error:` line.
+	 * @return string The `ok:` count line.
 	 */
 	public static function cmd_dl_purge( Command_Interpreter_Node $interpreter ): string {
 		$patron = self::deadletter_patron( $interpreter );
-		if ( null === $patron ) {
-			return "error: not a dead-letter node\n";
-		}
 		return $patron->purge_deadletter();
 	}
 }

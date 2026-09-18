@@ -2641,19 +2641,12 @@
 .topology-modal__body.topology-inspview {
 	display: flex;
 	flex-direction: column;
-	min-height: 0;
-	height: min(70vh, 560px);
+	flex: 1 1 auto;
 	padding: 12px 14px;
 }
 
-// Triage grows with what it holds — an opened record runs long — from the
-// other views' height up to 80% of the viewport, then its records scroll.
-.topology-modal.topology-modal--triage {
-	max-height: min(80vh, var(--nodes-modal-max-h, 80vh));
-
-	.topology-inspview {
-		flex: 1 1 auto;
-		height: auto;
-		min-height: min(70vh, 560px);
-	}
+// Grows with its content up to 80vh, then scrolls inside.
+.topology-modal.topology-modal--inspview {
+	min-height: min(100%, 70vh, 620px);
+	max-height: min(100%, 80vh, var(--nodes-modal-max-h, 100%));
 }

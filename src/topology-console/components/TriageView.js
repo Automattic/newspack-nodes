@@ -11,9 +11,9 @@
  * flight would overwrite the callback waiting for the list.
  *
  * Every reply is read defensively, because it crosses the wire from a worker: a
- * refusal arrives as a TM_ERROR line, and a success body can still be malformed
- * JSON. Both belong in the status line rather than thrown out of the dispatch
- * that delivered them.
+ * refusal arrives as a TM_ERROR, and a success body can still lack the shape
+ * it promises. Both belong in the status line rather than
+ * thrown out of the dispatch that delivered them.
  */
 
 import {
@@ -61,32 +61,26 @@ function recordBody( record, reason ) {
 }
 
 /**
- * Decode a `dl_list` reply into the model the table renders.
+ * Read a `dl_list` reply into the model the table renders.
  *
- * A body that is not JSON, or JSON carrying no `rows` array, sets `parseError`
+ * A payload that is not a page carrying a `rows` array sets `malformed`
  * instead of throwing, so a worker answering something unexpected costs the
  * operator a status line rather than the modal. `total` counts every indexed
  * record the node holds, not the rows in this page, which is what makes it the
  * badge number.
  *
- * @param {*} payload The reply payload, a JSON string when the verb succeeded.
- * @return {{rows:Array<Object>,total:number,unindexed:number,parseError:boolean}} The page, empty when the reply could not be read.
+ * @param {*} payload The reply payload, the page object when the verb succeeded.
+ * @return {{rows:Array<Object>,total:number,unindexed:number,malformed:boolean}} The page, empty when the reply could not be read.
  */
-function parseList( payload ) {
-	let data = null;
-	try {
-		data = JSON.parse( String( payload ?? '' ) );
-	} catch ( e ) {
-		return { rows: [], total: 0, unindexed: 0, parseError: true };
-	}
-	if ( ! data || ! Array.isArray( data.rows ) ) {
-		return { rows: [], total: 0, unindexed: 0, parseError: true };
+function readList( payload ) {
+	if ( ! Array.isArray( payload?.rows ) ) {
+		return { rows: [], total: 0, unindexed: 0, malformed: true };
 	}
 	return {
-		rows: data.rows,
-		total: Number( data.total ) || 0,
-		unindexed: Number( data.unindexed_segments ) || 0,
-		parseError: false,
+		rows: payload.rows,
+		total: Number( payload.total ) || 0,
+		unindexed: Number( payload.unindexed_segments ) || 0,
+		malformed: false,
 	};
 }
 
@@ -152,9 +146,10 @@ export default function TriageView( { node, onAction } ) {
 				if ( ! handler || ! mountedRef.current ) {
 					return;
 				}
-				const value = message[ VALUE ];
-				const payload = payloadOf( value );
-				handler( payload, !! ( message[ TYPE ] & TM_ERROR ) );
+				handler(
+					payloadOf( message[ VALUE ] ),
+					!! ( message[ TYPE ] & TM_ERROR )
+				);
 			} );
 			receiver.name = name;
 			receiversRef.current[ verb ] = { node: receiver, onReply: null };
@@ -215,7 +210,7 @@ export default function TriageView( { node, onAction } ) {
 				setStatus( { text: String( payload ?? '' ), isError: true } );
 				return;
 			}
-			setData( parseList( payload ) );
+			setData( readList( payload ) );
 		} );
 	}, [ runVerb ] );
 
@@ -245,32 +240,29 @@ export default function TriageView( { node, onAction } ) {
 				setStatus( { text: String( payload ?? '' ), isError: true } );
 				return;
 			}
-			let record = null;
-			try {
-				record = JSON.parse( String( payload ?? '' ) );
-			} catch ( e ) {
-				record = null;
-			}
-			if ( ! record || 'object' !== typeof record ) {
+			if ( ! payload || 'object' !== typeof payload ) {
 				setStatus( {
 					text: __(
-						'Could not decode the record.',
+						'The record came back in an unexpected shape.',
 						'newspack-nodes'
 					),
 					isError: true,
 				} );
 				return;
 			}
-			setShown( { locator, record, body: recordBody( record, reason ) } );
+			setShown( {
+				locator,
+				record: payload,
+				body: recordBody( payload, reason ),
+			} );
 		} );
 	};
 
 	/**
 	 * Redeliver one record to the node's sink, then refetch.
 	 *
-	 * `dl_requeue` answers an `ok:` or `error:` line instead of throwing, so the
-	 * status line takes the reply either way. The quarantined copy stays put,
-	 * which is why the refetched page still lists the row.
+	 * The status line takes the `ok:` line or the refusal alike. The quarantined
+	 * copy stays put, which is why the refetched page still lists the row.
 	 *
 	 * @param {string} locator The record's `segment:offset:length` in the sidecar.
 	 */
@@ -303,7 +295,7 @@ export default function TriageView( { node, onAction } ) {
 	const rows = data?.rows ?? [];
 	const total = data?.total ?? 0;
 	const unindexed = data?.unindexed ?? 0;
-	const parseError = !! data?.parseError;
+	const malformed = !! data?.malformed;
 	const loading = null === data;
 
 	return (
@@ -333,7 +325,7 @@ export default function TriageView( { node, onAction } ) {
 				) }
 			</div>
 
-			{ parseError && (
+			{ malformed && (
 				<div className="newspack-nodes-status triage-view__status is-error">
 					{ __(
 						'Could not read the dead-letter queue.',
@@ -352,7 +344,7 @@ export default function TriageView( { node, onAction } ) {
 				</div>
 			) }
 
-			{ ! loading && ! parseError && 0 === rows.length && (
+			{ ! loading && ! malformed && 0 === rows.length && (
 				<div className="newspack-nodes-empty-state triage-view__empty">
 					{ __( 'No quarantined records.', 'newspack-nodes' ) }
 				</div>

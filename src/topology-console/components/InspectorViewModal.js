@@ -172,7 +172,7 @@ export default function InspectorViewModal( {
 			title={ title }
 			onDismiss={ onDismiss }
 			wide
-			className={ 'triage' === view ? 'topology-modal--triage' : '' }
+			className="topology-modal--inspview"
 		>
 			<div className="topology-modal__body topology-inspview">
 				<ViewBody view={ view } node={ node } onAction={ onAction } />

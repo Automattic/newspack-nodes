@@ -330,6 +330,24 @@ describe( 'Dumper node — debug levels', () => {
 		expect( dumper.setStateCache.debug_level ).toBe( 2 );
 	} );
 
+	it( 'debug_ui starts off, and setDebugUi() publishes it as node state', () => {
+		const dumper = new DumperNode();
+		expect( dumper.debugUi ).toBe( false );
+		dumper.setDebugUi( true );
+		expect( dumper.debugUi ).toBe( true );
+		expect( dumper.setStateCache.debug_ui ).toBe( true );
+	} );
+
+	it( 'appendUi() appends only while debug_ui is on', () => {
+		const dumper = new DumperNode();
+		dumper.appendUi( { kind: 'sent', text: 'hidden-707' } );
+		dumper.setDebugUi( true );
+		dumper.appendUi( { kind: 'sent', text: 'shown-808' } );
+		expect(
+			dumper.setStateCache.transcript.map( ( e ) => e.text )
+		).toEqual( [ 'shown-808' ] );
+	} );
+
 	it( 'level 1 still surfaces a TM_EOF arrival as a header even though the curated render drops it', () => {
 		const { dumper } = makeDumper( 1 );
 		dumper.fill( msg( TM_EOF, '' ) );

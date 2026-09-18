@@ -231,12 +231,13 @@ class Settings_Sync_Node extends Timer_Node {
 	 * does not double the fan-out.
 	 *
 	 * @param array<array-key,mixed> $args Tokens `<local_option> <TO> <remote_option>`.
-	 * @return string "ok\n", or an `error: …` line when the arity is wrong.
+	 * @return string "ok\n".
+	 * @throws \RuntimeException When the arity is wrong.
 	 */
 	public function add_setting( array $args ): string {
 		$parts = \array_values( \array_map( static fn ( $v ): string => Core::as_string( $v ), $args ) );
 		if ( 3 !== \count( $parts ) ) {
-			return "error: add_setting requires <local_option> <TO> <remote_option>\n";
+			throw new \RuntimeException( 'usage: add_setting <local_option> <TO> <remote_option>' );
 		}
 		$spec = [
 			'to'     => $parts[1],

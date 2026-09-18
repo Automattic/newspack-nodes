@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`debug_ui` shows what the console's buttons send.** Triage, the Time Travel transport and the Profiler's toggle each run REPL verbs, but no two treated the transcript alike: Triage echoed its commands and hid its replies, the transport echoed and printed both, and the Profiler showed neither. They now share one path: a button's command names the backbone's new `_ui` relay in its FROM, and the reply passes through it on the way to the button's own receiver, or ends there when the button reads no reply. While the Shell's `debug_ui` builtin is on, `_output` gets the echo and a copy of each reply; off, which is the default, it gets neither. An error still prints when it reaches a button that reads no reply, such as a `seek_frame` refused for want of a frame, because nothing else would show it. `debug_ui` with no argument toggles, `on` and `off` set it, and the debug overlay remembers the choice across reloads as it does `debug_level`. The Inspector's Verbs section and the other buttons that exist to drive the REPL still echo and print regardless.
+
+### Changed
+
+- **The time-travel verbs are lowercase — `pause`, `play`, `step` and `seek_frame` — with no alias.** They were the substrate's only upper-case command verbs; the old spelling is now an unknown verb. `docs/upgrading.md` lists them.
+- **`dl_list`, `dl_show` and `step` reply with structure.** Each encoded its result as a JSON string inside the reply's `payload`, so the REPL printed a quoted blob and every caller decoded it by hand. The payload is now the page, the record and the cursor themselves; Triage reads them directly.
+- **A refusing verb replies TM_ERROR, never an `error:` line.** `dl_list`, `dl_show`, `dl_requeue`, `dl_purge`, `seek_frame`, the Table's `get` and `rm` and Settings_Sync's `add_setting` answered a refusal as an ordinary reply starting `error:`, so every reader testing the TM_ERROR bit — the Dumper's rendering, `useCommandOnce`, the slice views — took it for success, and Triage reported a refused `dl_show` as an undecodable record. They now throw, as every other verb does, and the interpreter replies TM_ERROR with the bare message. `docs/upgrading.md` lists each.
+- **Every Inspector modal caps at 80% of the viewport.** Runtime, Profiler and Event Timeline sat at a fixed height; they now grow with what they hold up to the same cap Triage has, then scroll inside.
+
+### Fixed
+
+- **The Profiler's toggle no longer blanks its own table.** Its `profile on` reply was addressed to the poller that holds the `list_profiles` rows, so for a tick the rows were replaced by the `ok:` line. The reply now goes to `_ui`.
+
 ## [2.60.10] - 2026-09-17
 
 ### Fixed

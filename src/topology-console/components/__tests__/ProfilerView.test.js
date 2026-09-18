@@ -7,9 +7,12 @@
 import { render, fireEvent, act } from '@testing-library/react';
 import { Core } from '../../../runtime/core';
 import { RouterNode } from '../../../runtime/router-node';
+import { DumperNode } from '../../../runtime/dumper-node';
+import names from '../../../runtime/reserved-node-names.json';
 import {
 	newMessage,
 	TYPE,
+	FROM,
 	VALUE,
 	TM_COMMAND,
 	TM_RESPONSE,
@@ -125,6 +128,39 @@ test( 'the toolbar turns profiling on in the viewed scope', () => {
 	expect( sent.some( ( m ) => 'list_profiles' === m[ VALUE ].name ) ).toBe(
 		true
 	);
+} );
+
+describe( 'the profile button is UI-bound', () => {
+	const click = ( debugUi ) => {
+		const output = new DumperNode();
+		output.name = names.OUTPUT;
+		output.setDebugUi( debugUi );
+		const sent = [];
+		const { getByText } = render( <ProfilerView /> );
+		publish( [ { ...TOTAL, count: 0 } ] );
+		Core.node( '_command_interpreter' ).fill = ( m ) => sent.push( m );
+		fireEvent.click( getByText( 'profile' ) );
+		const texts = ( output.setStateCache.transcript ?? [] ).map(
+			( e ) => e.text
+		);
+		return { sent, texts };
+	};
+
+	test( 'its reply returns through bare _ui, never onto the poller', () => {
+		const { sent } = click( false );
+		const profile = sent.find( ( m ) => 'profile' === m[ VALUE ].name );
+		expect( profile[ FROM ] ).toBe( names.UI );
+	} );
+
+	test( 'it echoes nothing while debug_ui is off', () => {
+		expect( click( false ).texts ).toEqual( [] );
+	} );
+
+	test( 'it echoes the command while debug_ui is on', () => {
+		expect( click( true ).texts ).toContain(
+			`command_node ${ names.CWD } profile on`
+		);
+	} );
 } );
 
 test( 'a reply carrying real rows flips the control to stop profiling', () => {

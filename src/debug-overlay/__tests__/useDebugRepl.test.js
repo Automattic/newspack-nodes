@@ -59,6 +59,20 @@ describe( 'useDebugRepl', () => {
 		teardown();
 	} );
 
+	it( 'restores debug_ui from localStorage and persists each toggle', () => {
+		window.localStorage.setItem( 'newspack-nodes:console:debug-ui', '1' );
+		const { teardown } = mountExospine();
+		const shell = makeShell();
+		const { result } = renderHook( () => useDebugRepl( true, shell ) );
+
+		expect( Core.node( names.OUTPUT ).debugUi ).toBe( true );
+		act( () => result.current.sendLine( 'debug_ui' ) );
+		expect(
+			window.localStorage.getItem( 'newspack-nodes:console:debug-ui' )
+		).toBe( '0' );
+		teardown();
+	} );
+
 	it( 'exposes a reactive debugLevel that tracks debug_level dispatch (the Verbose toggle reads it)', () => {
 		const { teardown } = mountExospine();
 		const shell = makeShell();

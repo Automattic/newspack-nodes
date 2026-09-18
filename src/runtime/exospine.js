@@ -14,9 +14,11 @@ import { Core } from './core';
 import { RouterNode } from './router-node';
 import { CommandInterpreterNode } from './command-interpreter-node';
 import { TapNode } from './tap-node';
+import { CallbackNode } from './callback-node';
 import { HttpOutNode } from './http-out-node';
 import { HeartbeatNode } from './heartbeat-node';
 import names from './reserved-node-names.json';
+import { TO, TYPE, TM_ERROR } from './message';
 
 /**
  * What a mount hands back: the five backbone nodes it points at, plus the two
@@ -39,6 +41,31 @@ import names from './reserved-node-names.json';
  *
  * @typedef {( spine: Exospine ) => ( () => void )|void} ExospineBuild
  */
+
+/**
+ * Relay one reply a UI button asked for.
+ *
+ * A button's command names `_ui/<receiver>` as its FROM, so the Router hands
+ * the reply here with TO peeled to `<receiver>`. `_output` gets a copy only
+ * while `debug_ui` is on, which is what keeps button traffic out of the
+ * transcript by default. The reply then goes on down the remainder; a bare
+ * `_ui`, the address of a button that reads no reply, ends it here. An error
+ * ending here prints whatever `debug_ui` says, since no receiver can show it.
+ *
+ * @param {CallbackNode} ui      The `_ui` node, whose sink is the interpreter.
+ * @param {Array}        message The reply, TO already peeled by the Router.
+ */
+function uiRelay( ui, message ) {
+	const unanswered = '' === message[ TO ] && message[ TYPE ] & TM_ERROR;
+	if ( unanswered || Core.node( names.OUTPUT )?.debugUi ) {
+		const copy = message.slice();
+		copy[ TO ] = names.OUTPUT;
+		ui.sink.fill( copy );
+	}
+	if ( '' !== message[ TO ] ) {
+		ui.sink.fill( message );
+	}
+}
 
 /**
  * Construct and register the backbone, then run `build` against it.
@@ -181,6 +208,11 @@ export function mountExospine( build, { passenger = false } = {} ) {
 		shell.name = names.CONSOLE_TAP;
 		shell.sink = interpreter;
 
+		// `_ui` — UI buttons' replies return through it; see `uiRelay`.
+		const ui = new CallbackNode( ( message ) => uiRelay( ui, message ) );
+		ui.name = names.UI;
+		ui.sink = interpreter;
+
 		// `_http` + `_heartbeat` — shared backbone singletons, reused widely.
 		const http = new HttpOutNode();
 		http.name = names.HTTP;
@@ -256,6 +288,7 @@ export function mountExospine( build, { passenger = false } = {} ) {
 	 */
 	const teardownBackbone = () => {
 		Core.node( names.CONSOLE_TAP )?.removeNode();
+		Core.node( names.UI )?.removeNode();
 		Core.node( names.HTTP )?.removeNode();
 		Core.node( names.HEARTBEAT )?.removeNode();
 		interpreter.removeNode();

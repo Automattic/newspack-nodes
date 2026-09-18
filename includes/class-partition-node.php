@@ -600,8 +600,8 @@ class Partition_Node extends Timer_Node {
 	 * the next rotate lands at $segment + 1, monotonic, no gap, no survivor
 	 * overwritten. No-op when $segment is the newest, past the newest, or absent.
 	 *
-	 * Backs the Consumer time-travel PLAY truncate-on-resume: after a rewind seek,
-	 * PLAY drops the now-stale forward frames before re-arming so the re-written
+	 * Backs the Consumer time-travel `play` truncate-on-resume: after a rewind seek,
+	 * `play` drops the now-stale forward frames before re-arming so the re-written
 	 * timeline stays monotonic. The OFFSETLOG only — never the source log.
 	 *
 	 * @api Consumed by Consumer_Node::play() (time-travel replay), not in-substrate.
@@ -1879,11 +1879,11 @@ class Partition_Node extends Timer_Node {
 	 * write is a different operation, and nothing asks for it.
 	 *
 	 * @param string $locator Record the trait would redeliver; ignored.
-	 * @return string The refusal, as the verb's reply text.
+	 * @throws \RuntimeException Always.
 	 */
-	public function requeue_deadletter( string $locator ): string {
+	public function requeue_deadletter( string $locator ): never {
 		unset( $locator );
-		return "error: requeue unavailable — this is a write-stall quarantine, not a reader's\n";
+		throw new \RuntimeException( "requeue unavailable — this is a write-stall quarantine, not a reader's" );
 	}
 
 	/**

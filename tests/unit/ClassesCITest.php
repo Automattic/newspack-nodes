@@ -260,7 +260,7 @@ class ClassesCITest extends TestCase {
 	}
 
 	public function test_list_carries_the_hidden_flag_on_a_hidden_verb(): void {
-		// A `hidden: true` verb (Consumer's time-travel PAUSE, driven by the
+		// A `hidden: true` verb (Consumer's time-travel `pause`, driven by the
 		// Inspector's transport bar) must carry that flag through the catalog strip
 		// so the inspector can omit its generic verb button. A non-hidden verb
 		// (add_snapshot_node) must NOT carry it (default-omit keeps payloads lean).
@@ -279,10 +279,10 @@ class ClassesCITest extends TestCase {
 			$by_name[ $verb['name'] ] = $verb;
 		}
 
-		$this->assertArrayHasKey( 'PAUSE', $by_name, 'PAUSE verb must be in the catalog' );
+		$this->assertArrayHasKey( 'pause', $by_name, 'pause verb must be in the catalog' );
 		$this->assertTrue(
-			$by_name['PAUSE']['hidden'] ?? false,
-			'PAUSE must carry hidden:true through the catalog strip'
+			$by_name['pause']['hidden'] ?? false,
+			'`pause` must carry hidden:true through the catalog strip'
 		);
 
 		$this->assertArrayHasKey( 'add_snapshot_node', $by_name, 'add_snapshot_node verb must be in the catalog' );

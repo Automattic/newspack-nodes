@@ -245,6 +245,8 @@ export class DumperNode extends Node {
 		super();
 		// Safe default: a fresh ref reading `verbosity 0`; callers assign one.
 		this.debugLevelRef = { current: 0 };
+		// Whether UI-button traffic (the `_ui` relay's) reaches the transcript.
+		this.debugUi = false;
 		// Bounded ring: newest TRANSCRIPT_MAX entries; O(1) overwrite write.
 		this._ring = [];
 		this._head = 0;
@@ -263,6 +265,7 @@ export class DumperNode extends Node {
 		// React subscribes to these via useNodeState( '_output', <event> ).
 		this.registrations.transcript = {};
 		this.registrations.debug_level = {};
+		this.registrations.debug_ui = {};
 	}
 
 	/**
@@ -322,21 +325,6 @@ export class DumperNode extends Node {
 	}
 
 	/**
-	 * Append a locally-produced entry — the REPL's echo of a typed statement, or
-	 * a local info/error line — and publish at once. These are user-driven and
-	 * low-frequency, so they never need the frame coalescing `fill()` uses.
-	 *
-	 * @param {Object} entry Transcript entry: `text`, a `kind` selecting the
-	 *                       line's style ('sent', 'recv', 'info', 'error'), and
-	 *                       an optional `prompt` an echo renders ahead of its
-	 *                       text.
-	 */
-	append( entry ) {
-		this._write( entry );
-		this._flushNow();
-	}
-
-	/**
 	 * Append a written text chunk as one `recv` entry per line — what the
 	 * browser's `_stdout` stream hands over. A terminal takes bytes; the
 	 * transcript takes lines, so this is where the two meet.
@@ -355,6 +343,85 @@ export class DumperNode extends Node {
 		lines.forEach( ( line ) =>
 			this._write( { kind: 'recv', text: line } )
 		);
+		this._flushNow();
+	}
+
+	/**
+	 * Seed the transcript from a persisted snapshot — the console and the debug
+	 * overlay both restore last session's lines this way. Entries are taken
+	 * as-is (already stamped) and the oldest beyond TRANSCRIPT_MAX are dropped.
+	 *
+	 * @param {Object[]} entries Stamped transcript entries, oldest first;
+	 *                           anything else restores an empty transcript.
+	 */
+	restore( entries ) {
+		const list = Array.isArray( entries ) ? entries : [];
+		this._resetRing();
+		const start = Math.max( 0, list.length - TRANSCRIPT_MAX );
+		for ( let i = start; i < list.length; i++ ) {
+			this._writeRing( list[ i ] );
+		}
+		this._cancelPendingFlush();
+		this._transcript = this._materialize();
+		this._publish();
+	}
+
+	/**
+	 * Empty the transcript — the REPL's `clear` builtin. Publishes a fresh empty
+	 * array, which also clears the persisted snapshot through the subscriber.
+	 */
+	clear() {
+		this._resetRing();
+		this._droppedPending = 0;
+		this._cancelPendingFlush();
+		this._transcript = [];
+		this._publish();
+	}
+
+	/**
+	 * Drop every buffered entry and the flood accounting that goes with it.
+	 * Leaves the drop-notice rate limit alone — that paces notices, not lines.
+	 */
+	_resetRing() {
+		this._ring = [];
+		this._head = 0;
+		this._count = 0;
+		this._sinceFlush = 0;
+	}
+
+	/**
+	 * A node owns its teardown: cancel any queued flush before unregistering, so
+	 * no frame callback fires against a node that has left the registry.
+	 */
+	removeNode() {
+		this._cancelPendingFlush();
+		super.removeNode();
+	}
+
+	/**
+	 * Append a UI button's echo, but only while `debug_ui` is on — the one gate
+	 * every button sending a command through `_ui` echoes through.
+	 *
+	 * @param {Object} entry Transcript entry, in the Dumper's own shape.
+	 */
+	appendUi( entry ) {
+		if ( this.debugUi ) {
+			this.append( entry );
+		}
+	}
+
+	/**
+	 * Append a locally-produced entry — the REPL's echo of a typed statement, or
+	 * a local info/error line — and publish at once. These are user-driven and
+	 * low-frequency, so they never need the frame coalescing `fill()` uses.
+	 *
+	 * @param {Object} entry Transcript entry: `text`, a `kind` selecting the
+	 *                       line's style ('sent', 'recv', 'info', 'error'), and
+	 *                       an optional `prompt` an echo renders ahead of its
+	 *                       text.
+	 */
+	append( entry ) {
+		this._write( entry );
 		this._flushNow();
 	}
 
@@ -421,26 +488,6 @@ export class DumperNode extends Node {
 	}
 
 	/**
-	 * Seed the transcript from a persisted snapshot — the console and the debug
-	 * overlay both restore last session's lines this way. Entries are taken
-	 * as-is (already stamped) and the oldest beyond TRANSCRIPT_MAX are dropped.
-	 *
-	 * @param {Object[]} entries Stamped transcript entries, oldest first;
-	 *                           anything else restores an empty transcript.
-	 */
-	restore( entries ) {
-		const list = Array.isArray( entries ) ? entries : [];
-		this._resetRing();
-		const start = Math.max( 0, list.length - TRANSCRIPT_MAX );
-		for ( let i = start; i < list.length; i++ ) {
-			this._writeRing( list[ i ] );
-		}
-		this._cancelPendingFlush();
-		this._transcript = this._materialize();
-		this._publish();
-	}
-
-	/**
 	 * Write into the ring at the head, overwriting the oldest entry once full.
 	 * O(1) — no shifting, which is what keeps per-message work constant.
 	 *
@@ -469,43 +516,11 @@ export class DumperNode extends Node {
 	}
 
 	/**
-	 * Empty the transcript — the REPL's `clear` builtin. Publishes a fresh empty
-	 * array, which also clears the persisted snapshot through the subscriber.
-	 */
-	clear() {
-		this._resetRing();
-		this._droppedPending = 0;
-		this._cancelPendingFlush();
-		this._transcript = [];
-		this._publish();
-	}
-
-	/**
 	 * Emit the transcript to the `transcript` subscribers — the React render and
 	 * the localStorage persist both hang off this one `setState`.
 	 */
 	_publish() {
 		this.setState( 'transcript', this._transcript );
-	}
-
-	/**
-	 * Drop every buffered entry and the flood accounting that goes with it.
-	 * Leaves the drop-notice rate limit alone — that paces notices, not lines.
-	 */
-	_resetRing() {
-		this._ring = [];
-		this._head = 0;
-		this._count = 0;
-		this._sinceFlush = 0;
-	}
-
-	/**
-	 * A node owns its teardown: cancel any queued flush before unregistering, so
-	 * no frame callback fires against a node that has left the registry.
-	 */
-	removeNode() {
-		this._cancelPendingFlush();
-		super.removeNode();
 	}
 
 	/**
@@ -535,6 +550,19 @@ export class DumperNode extends Node {
 			Math.min( MAX_DEBUG_LEVEL, level )
 		);
 		this.setState( 'debug_level', this.debugLevelRef.current );
+	}
+
+	/**
+	 * Show or hide UI-button traffic, and publish the choice. The `_ui` relay
+	 * copies a button's reply here, and `appendUi` echoes its command, only
+	 * while this is on; the Shell's `debug_ui` builtin and a host's restore of a
+	 * persisted choice are the callers.
+	 *
+	 * @param {boolean} on True to show button commands and replies.
+	 */
+	setDebugUi( on ) {
+		this.debugUi = !! on;
+		this.setState( 'debug_ui', this.debugUi );
 	}
 
 	/**

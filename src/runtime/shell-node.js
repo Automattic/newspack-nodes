@@ -755,6 +755,22 @@ export class ShellNode extends Node {
 			return null;
 		}
 
+		if ( 'debug_ui' === verb ) {
+			const arg = args[ 0 ] ?? '';
+			if ( '' !== arg && 'on' !== arg && 'off' !== arg ) {
+				this.stdout( 'usage: debug_ui [on|off]\n' );
+				return null;
+			}
+			const dumper = Core.node( names.OUTPUT );
+			if ( ! dumper?.setDebugUi ) {
+				this.stdout( `debug_ui: unknown node: ${ names.OUTPUT }\n` );
+				return null;
+			}
+			dumper.setDebugUi( '' === arg ? ! dumper.debugUi : 'on' === arg );
+			this.stdout( `debug_ui: ${ dumper.debugUi ? 'on' : 'off' }\n` );
+			return null;
+		}
+
 		// Skins are the host's: it owns the stylesheet, the shell does not.
 		if ( 'list_skins' === verb ) {
 			this.host.listSkins?.();

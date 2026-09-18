@@ -2556,11 +2556,13 @@ export default function Inspector( {
 								verb,
 								kind: 'command',
 								positional,
-								// SEEK_FRAME takes `segment`; others none.
+								// seek_frame takes `segment`; others none.
 								byName:
-									'SEEK_FRAME' === verb
+									'seek_frame' === verb
 										? { segment: positional }
 										: {},
+								// A button: state arrives by poll, not reply.
+								replyTo: reservedNames.UI,
 							} )
 						}
 					/>

@@ -57,6 +57,19 @@ import { canonicalReverseCwd } from '../../runtime/metadata-node';
  */
 
 /**
+ * The reply path an invoke stamps as FROM.
+ *
+ * @param {string} [replyTo] The caller's reply node; `_ui` alone for none.
+ * @return {string} `_output` for a REPL-bound invoke, else a path via `_ui`.
+ */
+function uiReplyPath( replyTo ) {
+	if ( ! replyTo ) {
+		return names.OUTPUT;
+	}
+	return names.UI === replyTo ? names.UI : `${ names.UI }/${ replyTo }`;
+}
+
+/**
  * One handler set for the canvas and Inspector gestures, shared by the debug
  * overlay and the topology console: connect, disconnect, remove, palette drop,
  * the Inspector's dump / command / tail / send / trace verbs, and invoke.
@@ -78,6 +91,13 @@ import { canonicalReverseCwd } from '../../runtime/metadata-node';
  * reply is addressed rather than correlated: the server answers TO the FROM
  * `replyFrom` stamped (ADR-7), which is why a caller owning its own reply node
  * passes `replyTo` instead of an operation id.
+ *
+ * Naming a `replyTo` also marks the invoke UI-bound: a button working through
+ * the REPL's verbs, not a command the operator asked to watch. Its reply comes
+ * back through the `_ui` relay — FROM `_ui/<replyTo>`, or bare `_ui` for a
+ * button that reads no reply — and neither the echo nor the reply reaches the
+ * transcript unless `debug_ui` is on. An invoke without one is REPL-bound and
+ * always shows.
  *
  * Every mutation also patches `_metadata`'s raw map, so the canvas repaints
  * before the next poll. The patch mirrors the server rather than guessing:
@@ -332,12 +352,17 @@ export function useGraphHandlers( {
 					}
 					m[ TO ] = to;
 					// A caller owning a reply node names it (ADR-7).
-					m[ FROM ] = replyFrom( replyTo || names.OUTPUT );
-					append( {
+					m[ FROM ] = replyFrom( uiReplyPath( replyTo ) );
+					const sent = {
 						kind: 'sent',
 						text: echo,
 						prompt: `/${ shell.path }`,
-					} );
+					};
+					if ( replyTo ) {
+						Core.node( names.OUTPUT )?.appendUi( sent );
+					} else {
+						append( sent );
+					}
 					shell.sink?.fill( m );
 				}
 			},

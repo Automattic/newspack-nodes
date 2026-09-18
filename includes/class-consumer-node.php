@@ -857,7 +857,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	}
 
 	/**
-	 * STEP's advance: drive ticks until exactly one message is emitted or EOF is
+	 * `step`'s advance: drive ticks until exactly one message is emitted or EOF is
 	 * reached. poll_init's first tick only loads the buffer (emits nothing in line
 	 * mode), so always tick at least once, then keep going until one message lands
 	 * or a poll leaves the reader genuinely at EOF with nothing buffered.
@@ -921,7 +921,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 		return $out;
 	}
 
-	/** PLAY re-arm: the busy cadence; fire() backs it off to EOF once caught up. */
+	/** `play` re-arm: the busy cadence; fire() backs it off to EOF once caught up. */
 	protected function time_travel_resume(): void {
 		$this->set_timer( self::POLL_INTERVAL_BUSY_MS );
 	}
