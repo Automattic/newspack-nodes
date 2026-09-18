@@ -1167,6 +1167,18 @@ const layoutComponent = ( ids, succ, pred, unfed ) => {
 	}
 	columns[ anchor ] = chosen;
 	row = assignRows();
+	// @longform Rows derive from the anchor's order and that order from the
+	// rows, so the pass above sorted on rows the sweep order laid. Refine until
+	// it holds. The rows now carry the chosen orientation, so a refinement
+	// sorts ascending: sorting descending again would flip the column back.
+	for ( let i = 0; i < 6; i++ ) {
+		const ord = buildOrder( 1 );
+		if ( ord.every( ( id, k ) => id === columns[ anchor ][ k ] ) ) {
+			break;
+		}
+		columns[ anchor ] = ord;
+		row = assignRows();
+	}
 
 	// @longform Settle the other columns by neighbour-row median. The last
 	// pass spreads same-column overlaps symmetrically (PAV) so a fan-out

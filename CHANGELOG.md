@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The Runtime modal grows to fit its grids.** The Inspector view modal is at least 1000px and as wide as its content up to 96% of the viewport, so a grid scrolls sideways only when the screen is too narrow for it, where it used to stop at 1000px and scroll a timers grid that needed a little more. It grows with live content but never shrinks while open, so a poll never slides its edges under the pointer.
+- **The spinner flag has a column of its own.** A flagged timer's ⚠ sits in a narrow leading column instead of prefixing its ID. The flag cell takes the grid's compact padding, so a flagged row is no taller than the rest.
+- **The Runtime modal shows Handles only when there are some.**
+- **The widest column settles on the rows its own order lays.** Rows derive from that column's order and its order from the rows, and one pass sorted it on rows the sweep order had laid — so the aggregator status graph grouped its two fetchers above its two views instead of meeting in the middle with each view beside its own tee. The pass now repeats until the order holds, keeping the orientation it chose first.
+
+### Fixed
+
+- **`list_handles` COUNT counts messages.** In a worker it counted completed cURL transfers, and dropped the tally the moment a node's last handle went — an SSE stream completes only when it ends, so every live row read 0. It now reports the messages the node has filled, as its help and the browser's `list_handles` already said.
+
 ## [2.60.15] - 2026-09-18
 
 ### Changed

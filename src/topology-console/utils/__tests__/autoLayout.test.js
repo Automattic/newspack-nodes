@@ -2169,6 +2169,32 @@ describe( 'autoLayout — hub bands', () => {
 		expect( at.done.y ).toBeLessThan( at.jobs.y );
 	} );
 
+	it( 'settles the anchor on rows its own order laid, not the sweep order', () => {
+		// The aggregator status graph: a shared tee feeds both fetchers, and
+		// each slice's receiver tee feeds its fetcher and its view. The fetchers
+		// meet in the middle; each view sits outside, beside its own tee.
+		const at = positionsOf(
+			graphOf( [
+				{ from: 'aggregator:timer', to: 'aggregator:tee' },
+				{ from: 'aggregator:tee', to: 'summary:fetch' },
+				{ from: 'aggregator:tee', to: 'servers:fetch' },
+				{ from: 'summary:in', to: 'summary:fetch' },
+				{ from: 'summary:in', to: 'summary:view' },
+				{ from: 'servers:in', to: 'servers:fetch' },
+				{ from: 'servers:in', to: 'servers:view' },
+			] )
+		);
+		const column = [
+			'servers:view',
+			'servers:fetch',
+			'summary:fetch',
+			'summary:view',
+		];
+
+		const byRow = [ ...column ].sort( ( a, b ) => at[ a ].y - at[ b ].y );
+		expect( [ column, [ ...column ].reverse() ] ).toContainEqual( byRow );
+	} );
+
 	it( 'straddles a late source and a card fanning to the same spokes', () => {
 		// The hub's shape: `sync` and `discover` each feed all three spokes.
 		const spokes = [ 'bdn', 'dp1', 'dp2' ];

@@ -221,6 +221,43 @@ describe( 'ModalShell', () => {
 		delete window.ResizeObserver;
 	} );
 
+	it( 'lets a wide dialog grow while open but never shrink', () => {
+		// It sizes to live content; a poll that narrows it would slide its
+		// centred edges under the pointer.
+		const observers = [];
+		window.ResizeObserver = class {
+			constructor( cb ) {
+				this.cb = cb;
+			}
+			observe( el, options ) {
+				observers.push( { el, cb: this.cb, options } );
+			}
+			disconnect() {}
+		};
+		const { baseElement } = render(
+			<ModalShell title="Runtime" onDismiss={ () => {} } wide>
+				<div>grid</div>
+			</ModalShell>
+		);
+		const modal = baseElement.querySelector( '.topology-modal' );
+		const own = observers.find( ( o ) => o.el === modal );
+		// The border box, which the dialog's border-box sizing makes the same
+		// box its min-width sets: a content box would grow by the border.
+		const measure = ( width ) =>
+			act( () =>
+				own.cb( [ { borderBoxSize: [ { inlineSize: width } ] } ] )
+			);
+
+		measure( 1100 );
+		measure( 1040 );
+
+		expect( own.options ).toEqual( { box: 'border-box' } );
+		expect( modal.style.getPropertyValue( '--nodes-modal-grown' ) ).toBe(
+			'1100px'
+		);
+		delete window.ResizeObserver;
+	} );
+
 	it( 'disconnects the panel observer on unmount (no leak)', () => {
 		const disconnect = jest.fn();
 		window.ResizeObserver = class {

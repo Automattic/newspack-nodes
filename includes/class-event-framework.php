@@ -78,9 +78,6 @@ class Event_Framework {
 	/** @var array<int,Node> Owning node, keyed by `spl_object_id` of its easy handle. */
 	private array $curl_owners = [];
 
-	/** @var array<int,int> Completions per node, keyed by the node's `spl_object_id`, for `list_handles`. */
-	private array $curl_counts = [];
-
 	/** True while inside `drain()`; how a node asks whether an event loop exists here (false in request scope). */
 	private bool $draining = false;
 
@@ -216,7 +213,7 @@ class Event_Framework {
 	}
 
 	/**
-	 * Route one completion to the node owning its easy handle, and tally it.
+	 * Route one completion to the node owning its easy handle.
 	 *
 	 * Ownership is keyed by the handle's `spl_object_id`, so a node never has to
 	 * recognize its own transfer and a handle unregistered mid-tick simply finds
@@ -237,7 +234,6 @@ class Event_Framework {
 		if ( null === $node || ! \method_exists( $node, 'on_curl_message' ) ) {
 			return;
 		}
-		++$this->curl_counts[ \spl_object_id( $node ) ]; // on_curl_message may unregister the handle after
 		$node->on_curl_message( $info );
 	}
 
@@ -267,9 +263,6 @@ class Event_Framework {
 	 * Attach an easy handle to the shared multi and record its owner. The next
 	 * tick services it and routes its completion to `$node->on_curl_message()`.
 	 *
-	 * Registering also seeds the node's completion counter at zero, so the first
-	 * completion increments an existing key instead of warning on a missing one.
-	 *
 	 * @param Node        $node The node completions belong to.
 	 * @param \CurlHandle $easy The easy handle it owns.
 	 *
@@ -279,7 +272,6 @@ class Event_Framework {
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_multi_add_handle
 		\curl_multi_add_handle( $this->ensure_curl_multi(), $easy );
 		$this->curl_owners[ \spl_object_id( $easy ) ] = $node;
-		$this->curl_counts[ \spl_object_id( $node ) ] ??= 0;
 	}
 
 	/**
@@ -429,11 +421,8 @@ class Event_Framework {
 	}
 
 	/**
-	 * Detach an easy handle from the shared multi and drop its owner. Idempotent.
-	 *
-	 * The per-node completion counter goes once that node's last handle does, so
-	 * `list_handles` lists live handles only and a reconnecting node starts a
-	 * fresh tally.
+	 * Detach an easy handle from the shared multi and drop its owner, so
+	 * `list_handles` lists live handles only. Idempotent.
 	 *
 	 * @param \CurlHandle $easy The handle to release.
 	 *
@@ -450,24 +439,20 @@ class Event_Framework {
 			\curl_multi_remove_handle( $this->curl_multi, $easy );
 		}
 		unset( $this->curl_owners[ $id ] );
-		if ( ! \in_array( $node, $this->curl_owners, true ) ) {
-			unset( $this->curl_counts[ \spl_object_id( $node ) ] );
-		}
 	}
 
 	/**
-	 * Per-node cURL rows for the `list_handles` verb: one row per node holding a
-	 * registered easy handle, carrying that node's completion counter.
+	 * The nodes holding a registered easy handle, for the `list_handles` verb:
+	 * one entry per node, however many handles it holds.
 	 *
-	 * @return array<int,array{node: Node,counter: int}> Keyed by the node's `spl_object_id`.
+	 * @return array<int,Node> Keyed by the node's `spl_object_id`.
 	 */
 	public function curl_handles(): array {
-		$rows = [];
+		$nodes = [];
 		foreach ( $this->curl_owners as $node ) {
-			$nid = \spl_object_id( $node );
-			$rows[ $nid ] ??= [ 'node' => $node, 'counter' => $this->curl_counts[ $nid ] ?? 0 ];
+			$nodes[ \spl_object_id( $node ) ] = $node;
 		}
-		return $rows;
+		return $nodes;
 	}
 
 	/**

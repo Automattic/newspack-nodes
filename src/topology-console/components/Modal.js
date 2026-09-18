@@ -124,6 +124,28 @@ export function ModalShell( {
 		return () => observer.disconnect();
 	}, [] );
 
+	// @longform A wide dialog sizes to live content, and a poll that narrowed
+	// it would slide its centred edges under the pointer, so it keeps the
+	// widest it has been as the floor the stylesheet's min-width reads. It
+	// reads the border box, which the dialog's border-box sizing makes the box
+	// min-width sets; a content box would grow it by its border every frame.
+	useLayoutEffect( () => {
+		const el = ref.current;
+		if ( ! wide || ! el || typeof window.ResizeObserver === 'undefined' ) {
+			return undefined;
+		}
+		let widest = 0;
+		const observer = new window.ResizeObserver( ( [ entry ] ) => {
+			const width = entry.borderBoxSize[ 0 ].inlineSize;
+			if ( width > widest ) {
+				widest = width;
+				el.style.setProperty( '--nodes-modal-grown', `${ width }px` );
+			}
+		} );
+		observer.observe( el, { box: 'border-box' } );
+		return () => observer.disconnect();
+	}, [ wide ] );
+
 	if ( typeof document === 'undefined' ) {
 		return null;
 	}

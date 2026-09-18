@@ -109,9 +109,10 @@ export function useSortState( key, dir = 'asc' ) {
 /**
  * A click-to-sort grid. Headers call `onSort`, and the ordering itself happens
  * here on a memoized copy, so a view hands rows over in whatever order they
- * arrived. A non-empty `rowClass( row )` both classes the row and prefixes its
- * first cell with ⚠, which is how RuntimeView flags a spinning timer without
- * the grid learning what a spinner is. `footer` renders in a `<tfoot>` outside
+ * arrived. A grid given `rowClass` leads with a flag column, and a non-empty
+ * `rowClass( row )` both classes the row and puts ⚠ in that column, which is
+ * how RuntimeView flags a spinning timer without the grid learning what a
+ * spinner is. `footer` renders in a `<tfoot>` outside
  * the sorted body, so an aggregate row — ProfilerView's `--total--` — stays at
  * the bottom under every sort.
  *
@@ -148,6 +149,7 @@ export function Grid( { testid, cols, rows, sort, onSort, rowClass, footer } ) {
 		>
 			<thead>
 				<tr>
+					{ rowClass && <th className="nodes-runtime__flag" /> }
 					{ cols.map( ( c ) => (
 						<th
 							key={ c.key }
@@ -172,9 +174,13 @@ export function Grid( { testid, cols, rows, sort, onSort, rowClass, footer } ) {
 							data-name={ r.name }
 							className={ `nodes-runtime__row${ extra }` }
 						>
-							{ cols.map( ( c, ci ) => (
+							{ rowClass && (
+								<td className="nodes-runtime__flag">
+									{ extra ? '⚠' : '' }
+								</td>
+							) }
+							{ cols.map( ( c ) => (
 								<td key={ c.key } className="nodes-runtime__td">
-									{ 0 === ci && extra ? '⚠ ' : '' }
 									{ formatCell( r[ c.key ] ) }
 								</td>
 							) ) }
@@ -185,6 +191,7 @@ export function Grid( { testid, cols, rows, sort, onSort, rowClass, footer } ) {
 			{ footer && (
 				<tfoot>
 					<tr className="nodes-runtime__foot">
+						{ rowClass && <td className="nodes-runtime__flag" /> }
 						{ cols.map( ( c ) => (
 							<td key={ c.key } className="nodes-runtime__td">
 								{ formatCell( footer[ c.key ] ) }
