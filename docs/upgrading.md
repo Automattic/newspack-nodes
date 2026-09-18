@@ -4,7 +4,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 **Maintenance rule:** a release that changes any consumer-facing contract adds its entry here in the same commit as its CHANGELOG entry. No entry means nothing to do.
 
-## Unreleased
+## 2.60.12
 
 - **`Durable_Reader::poll()` returns the records it consumed.** It and the
   phases it dispatches to (`poll_init()`, `poll_active()`, `poll_crawl()`)
