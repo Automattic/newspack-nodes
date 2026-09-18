@@ -373,14 +373,14 @@ describe( 'autoLayout — real graphs (normalized; relative positions only)', ()
 	// well as `_cwd`, so the three tees and both sinks are one block rather
 	// than two the packer placed apart. The tees order by their own feeders —
 	// `_metadata` on top, then the echo pair, then `performance:command` — and
-	// the edgeless cards stack below the band at its first column. `_output` is
-	// the hub, so its column sits half a step clear of the tees.
+	// the edgeless cards stack below the band at its first column. The tees'
+	// wires to `_output` skip a column, so no half step opens before it.
 	const graphAExpected3 = {
 		_completion: { x: 60, y: 630 },
 		_cwd: { x: 540, y: 80 },
 		_http: { x: 60, y: 740 },
 		_metadata: { x: 60, y: 135 },
-		_output: { x: 900, y: 300 },
+		_output: { x: 780, y: 300 },
 		echo1: { x: 60, y: 245 },
 		echo2: { x: 60, y: 355 },
 		'performance:command': { x: 60, y: 465 },
@@ -420,20 +420,21 @@ describe( 'autoLayout — real graphs (normalized; relative positions only)', ()
 			{ from: 'jobintake:consumer', to: 'job-router' },
 		],
 	};
-	// `request-builder` fans out four wires, so half a step opens after it.
+	// Only `completed:tee` sits in the column after `request-builder`, so its
+	// four wires open no half step.
 	const graphBExpected = {
 		_repl: { x: 60, y: 630 },
-		'completed:partition': { x: 1140, y: 190 },
-		'completed:tee': { x: 900, y: 245 },
-		'errors:partition': { x: 1140, y: 410 },
+		'completed:partition': { x: 1020, y: 190 },
+		'completed:tee': { x: 780, y: 245 },
+		'errors:partition': { x: 1020, y: 410 },
 		'firehose:consumer': { x: 60, y: 245 },
 		'firehose:tee': { x: 300, y: 245 },
-		'gyroscope:partition': { x: 1140, y: 300 },
+		'gyroscope:partition': { x: 1020, y: 300 },
 		'job-router': { x: 540, y: 80 },
 		'jobintake:consumer': { x: 300, y: 80 },
-		'jobs:partition': { x: 1140, y: 80 },
+		'jobs:partition': { x: 1020, y: 80 },
 		'request-builder': { x: 540, y: 410 },
-		'requests:partition': { x: 1140, y: 520 },
+		'requests:partition': { x: 1020, y: 520 },
 	};
 	it( 'lays out the firehose worker graph (graph B) — already satisfied', () => {
 		const got = normalize( posMapOf( autoLayout( graphB ).nodes ) );
@@ -1453,10 +1454,8 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 		// The timeout's every neighbour is the hub, so it is a bridge: it
 		// leads the hub chain, right after the buffers.
 		expect( g[ 'pub:timeout' ].col ).toBe( Math.max( ...buffers ) + 1 );
-		// The hub's column opens half a step clear; the chain past it does not.
-		expect( g[ 'pub:set_stream' ].col ).toBe(
-			g[ 'pub:timeout' ].col + 1.5
-		);
+		// The buffers' wires skip the timeout's column, so no half step opens.
+		expect( g[ 'pub:set_stream' ].col ).toBe( g[ 'pub:timeout' ].col + 1 );
 		expect( g[ 'pub:router' ].col ).toBe( g[ 'pub:set_stream' ].col + 1 );
 		expect( g[ 'pub:balancer' ].col ).toBe( g[ 'pub:router' ].col + 1 );
 		expect( g[ 'korell:template' ].col ).toBe(
@@ -1624,6 +1623,19 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 		}
 	);
 
+	it( 'keeps a late source in the seat the spread opened beside it', () => {
+		// A wire nudge that ignored k2src's seat crowded it, and it was
+		// reseated three columns back, its wire running over the band.
+		const { nodes } = autoLayout( seedGraph( 'c134623' ) );
+		const at = Object.fromEntries(
+			nodes.map( ( n ) => [ n.id, n.position ] )
+		);
+		expect( at.k2src.x ).toBe( at.k2l3n0.x - X_STEP );
+		expect( Math.abs( at.k2src.y - at.k2l3n0.y ) ).toBeLessThanOrEqual(
+			Y_STEP
+		);
+	} );
+
 	it( 'packs an edgeless card clear of the wires between blocks', () => {
 		const graph = seedGraph( '134623' );
 		const { nodes } = autoLayout( graph );
@@ -1693,7 +1705,7 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 			wiresThroughCards( nodes, graph.edges ).filter( ( hit ) =>
 				hit.startsWith( 'k4src→' )
 			)
-		).toEqual( [ 'k4src→hub0 over k5l0n0' ] );
+		).toEqual( [ 'k4src→hub0 over k5l1n0' ] );
 	} );
 
 	it( 'keeps the cards off the long wires of a node only a hub feeds', () => {
@@ -2085,6 +2097,99 @@ describe( 'autoLayout — hub bands', () => {
 
 		expect( at.tee.x ).toBe( at.consumer.x + X_STEP );
 		expect( at.p0.x ).toBe( at.tee.x + 1.5 * X_STEP );
+	} );
+
+	it( 'opens no gap where the busy wires skip the next column', () => {
+		// request-builder's shape: four wires leave, one to the next column, and
+		// three run on to the column after it, where the tee also lands.
+		const at = positionsOf(
+			graphOf( [
+				{ from: 'src', to: 'rb' },
+				{ from: 'rb', to: 'tee' },
+				{ from: 'tee', to: 'g' },
+				{ from: 'rb', to: 'g' },
+				{ from: 'rb', to: 'p0' },
+				{ from: 'rb', to: 'p1' },
+			] )
+		);
+
+		expect( at.tee.x ).toBe( at.rb.x + X_STEP );
+		expect( at.g.x ).toBe( at.tee.x + X_STEP );
+		expect( at.p0.x ).toBe( at.g.x );
+	} );
+
+	it( "orders a sink by its own feeders, not a late source's provisional seat", () => {
+		// The live firehose shape: `tick` is seated last beside `sieve`, so
+		// its column-0 seat during the sweeps must not pull `jobs` above `done`.
+		const edges = [
+			{ from: 'hose', to: 'rb' },
+			{ from: 'hose', to: 'router' },
+			{ from: 'rb', to: 'req' },
+			{ from: 'rb', to: 'alerts' },
+			{ from: 'rb', to: 'err' },
+			{ from: 'rb', to: 'gyro' },
+			{ from: 'rb', to: 'tee' },
+			{ from: 'tee', to: 'gyro' },
+			{ from: 'tee', to: 'done' },
+			{ from: 'intake', to: 'router' },
+			{ from: 'router', to: 'sieve' },
+			{ from: 'sieve', to: 'jobs' },
+			{ from: 'tick', to: 'jobs' },
+		];
+		const at = positionsOf( graphOf( edges ) );
+
+		expect( at.tee.y ).toBeLessThan( at.sieve.y );
+		expect( at.done.y ).toBeLessThan( at.jobs.y );
+	} );
+
+	it( 'straddles a late source and a card fanning to the same spokes', () => {
+		// The hub's shape: `sync` and `discover` each feed all three spokes.
+		const spokes = [ 'bdn', 'dp1', 'dp2' ];
+		const at = positionsOf(
+			graphOf( [
+				{ from: 'consumer', to: 'sync' },
+				...spokes.flatMap( ( s ) => [
+					{ from: 'sync', to: s },
+					{ from: 'discover', to: s },
+					{ from: s, to: 'null' },
+				] ),
+			] )
+		);
+
+		expect( at.discover.x ).toBe( at.sync.x );
+		expect(
+			[ at.discover.y, at.sync.y ].sort( ( a, b ) => a - b )
+		).toEqual( [ at.dp1.y - Y_STEP / 2, at.dp1.y + Y_STEP / 2 ] );
+		expect( at.consumer.y ).toBe( at.sync.y );
+	} );
+
+	it( 'keeps a chain level where a late source lands right of the anchor', () => {
+		// @longform A five-card column of tees anchors the layout, left of the
+		// pair. Rows seat rightward from the anchor, so a straddle there would
+		// re-spread sync's column after the spokes centred on it: sync holds.
+		const spokes = [ 'bdn', 'dp1', 'dp2' ];
+		const at = positionsOf(
+			graphOf( [
+				...[ 0, 1, 2, 3, 4 ].map( ( i ) => ( {
+					from: 'root',
+					to: `t${ i }`,
+				} ) ),
+				{ from: 't0', to: 'consumer' },
+				{ from: 't1', to: 'consumer' },
+				{ from: 't2', to: 'sync' },
+				{ from: 't3', to: 'sync' },
+				{ from: 't4', to: 'leaf' },
+				{ from: 'consumer', to: 'sync' },
+				...spokes.flatMap( ( s ) => [
+					{ from: 'sync', to: s },
+					{ from: 'discover', to: s },
+				] ),
+			] )
+		);
+
+		expect( at.discover.x ).toBe( at.sync.x );
+		expect( at.sync.y ).toBe( at.dp1.y );
+		expect( Math.abs( at.discover.y - at.sync.y ) ).toBe( Y_STEP );
 	} );
 
 	it( 'opens one gap where three wires leave and three enter across a boundary', () => {
