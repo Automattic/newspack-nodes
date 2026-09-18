@@ -12,6 +12,21 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd || exit 1)"
 
 "$SCRIPT_DIR/sync-shared-scripts.sh"
 
+# A bare tool resolves via PATH to a global composer.lock never chose.
+node -e '
+const scripts = require( process.cwd() + "/package.json" ).scripts || {};
+const bare = Object.entries( scripts ).filter( ( [ , cmd ] ) =>
+	/(^|[\s;&|(])(phpcs|phpcbf|phpstan|phpunit)(\s|$)/.test( cmd )
+);
+for ( const [ name, cmd ] of bare ) {
+	console.error( `package.json "${ name }" runs a bare PHP tool: ${ cmd }` );
+}
+if ( bare.length ) {
+	console.error( "Spell it ./vendor/bin/<tool>." );
+	process.exit( 1 );
+}
+'
+
 [ -x ./node_modules/.bin/lint-staged ] || exit 0
 
 exec ./node_modules/.bin/lint-staged
