@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.60.13] - 2026-09-18
+
 ### Fixed
 
 - **A UI button no longer opens the transcript.** The console and the debug overlay opened the transcript and took focus to the prompt on every Inspector action, so opening Triage, which fetches its queue on mount, or clicking a Time Travel control popped the transcript over nothing, since that traffic shows only under `debug_ui`. Only an action that drives the REPL opens it now; `isUiBound()` in `useGraphHandlers` is the one test both hosts ask. A UI button refused for want of an SSE session hears the refusal where its reply would have landed, since the transcript it used to land in stays closed.
