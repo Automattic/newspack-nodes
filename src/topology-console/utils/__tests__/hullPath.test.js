@@ -53,10 +53,8 @@ describe( 'hullAt', () => {
 		expect( hullAt( stack, at( 150, 150 ), 'mid-515' ) ).toBe( 'base-414' );
 	} );
 
-	it( 'lets the selected hull take the press when nothing lies below it', () => {
-		expect( hullAt( stack, at( 150, 150 ), 'base-414' ) ).toBe(
-			'base-414'
-		);
+	it( 'wraps to the topmost hull when nothing lies below the selection', () => {
+		expect( hullAt( stack, at( 150, 150 ), 'base-414' ) ).toBe( 'top-616' );
 	} );
 
 	it( 'leaves hulls outside the selection alone', () => {
