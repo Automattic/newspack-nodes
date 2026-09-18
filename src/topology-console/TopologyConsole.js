@@ -49,7 +49,7 @@ import { useCanonicalNodes, driftNodeIds } from './hooks/useCanonicalNodes';
 import { useGraphSource } from './hooks/useGraphSource';
 import { buildComposeTargets } from './utils/composeTargets';
 import { useCompletion } from './hooks/useCompletion';
-import { useGraphHandlers } from './hooks/useGraphHandlers';
+import { isUiBound, useGraphHandlers } from './hooks/useGraphHandlers';
 import { useGraphSurface } from './hooks/useGraphSurface';
 import { useCanvasLayout } from './hooks/useCanvasLayout';
 import { useGraphReset } from '../debug-overlay/useGraphReset';
@@ -1214,10 +1214,13 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		sseGuard: ( to ) => ! ( toNeedsSseSession( to ) && ! ssePid ),
 	} );
 
-	// Route Inspector actions through the shared handler; focus the prompt.
+	// Route Inspector actions through the shared handler; a REPL one opens it.
 	const handleInspectorAction = useCallback(
 		( action, nodeId, payload, fields ) => {
 			liveHandlers.onInspectorAction( action, nodeId, payload, fields );
+			if ( isUiBound( action, payload ) ) {
+				return;
+			}
 			setReplExpanded( true );
 			window.requestAnimationFrame( () => replInputRef.current?.focus() );
 		},

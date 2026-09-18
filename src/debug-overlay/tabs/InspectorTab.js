@@ -42,6 +42,7 @@ import { useGraphReset } from '../useGraphReset';
 import { CatalogProvider } from '../../topology-console/CatalogContext';
 import { LayoutProvider } from '../../topology-console/LayoutContext';
 import { ChromeProvider } from '../../topology-console/ChromeContext';
+import { isUiBound } from '../../topology-console/hooks/useGraphHandlers';
 
 /**
  * Measure the TabHost tab bar (`.nodes-tab-host__tabbar`) that the host
@@ -368,8 +369,10 @@ export default function InspectorTab( {
 										payload,
 										flags
 									) => {
-										// Pop the transcript footer.
-										setReplExpanded( true );
+										// Only a REPL action pops the footer.
+										if ( ! isUiBound( action, payload ) ) {
+											setReplExpanded( true );
+										}
 										// A whole REPL line; send it as typed.
 										if ( 'command' === action ) {
 											sendLine( payload );

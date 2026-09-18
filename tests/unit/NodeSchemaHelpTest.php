@@ -39,6 +39,24 @@ class NodeSchemaHelpTest extends TestCase {
 		];
 	}
 
+	public function test_render_sets_each_section_apart(): void {
+		$out = Node_Schema_Help::render(
+			'Gadget',
+			[
+				'category'     => 'Storage',
+				'description'  => 'A gadget node.',
+				'accepts_fill' => true,
+				'has_target'   => false,
+				'commands'     => [ [ 'name' => 'spin', 'description' => 'spin it' ] ],
+			]
+		);
+
+		$this->assertSame(
+			"### Gadget — Storage ###\nA gadget node.\n\naccepts_fill=true  has_target=false\n\nCOMMANDS\nspin spin it\n\n",
+			$out
+		);
+	}
+
 	public function test_render_lays_out_every_schema_section(): void {
 		$out = Node_Schema_Help::render( 'Widget', $this->full_schema() );
 
@@ -67,6 +85,6 @@ class NodeSchemaHelpTest extends TestCase {
 		// the header + description — no empty section labels.
 		$out = Node_Schema_Help::render( 'Bare', [ 'description' => 'nothing else' ] );
 
-		$this->assertSame( "### Bare ###\nnothing else\n", $out );
+		$this->assertSame( "### Bare ###\nnothing else\n\n", $out );
 	}
 }

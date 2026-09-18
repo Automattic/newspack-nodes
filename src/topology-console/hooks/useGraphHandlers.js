@@ -7,6 +7,8 @@ import {
 	FROM,
 	TO,
 	VALUE,
+	TM_COMMAND,
+	TM_ERROR,
 	TM_REQUEST,
 } from '../../runtime/message';
 import { generateNodeName } from '../utils/consoleGraph';
@@ -55,6 +57,19 @@ import { canonicalReverseCwd } from '../../runtime/metadata-node';
  * @property {(drop: { shellName: string, x: number, y: number }) => void} onDropNode        Stage a palette drop for NewNodeModal.
  * @property {InspectorAction}                                             onInspectorAction Run one Inspector verb against a node.
  */
+
+/**
+ * Whether an Inspector action belongs to a UI button rather than the REPL: an
+ * invoke naming its own `replyTo`. Its traffic shows only under `debug_ui`, so
+ * a host leaves the transcript alone for it.
+ *
+ * @param {string} action  The Inspector action.
+ * @param {*}      payload Its payload; an invoke's carries `replyTo`.
+ * @return {boolean} True for a UI-bound invoke.
+ */
+export function isUiBound( action, payload ) {
+	return 'invoke' === action && !! payload?.replyTo;
+}
 
 /**
  * The reply path an invoke stamps as FROM.
@@ -114,7 +129,7 @@ function uiReplyPath( replyTo ) {
  * @param {(drop: DropStage) => void}        args.onDropStage    Stages a palette drop; the consumer's commit dispatches the `make_node`.
  * @param {(to: string) => string}           [args.prefix]       Wraps the invoke TO, defaulting to identity.
  * @param {(node: string) => string}         [args.replyFrom]    Wraps the invoke FROM, defaulting to identity.
- * @param {(to: string) => boolean}          [args.sseGuard]     Returns false to refuse an invoke and append an error, defaulting to always-allow. Only an attached-worker reply rides the stream, so the overlay keeps the default.
+ * @param {(to: string) => boolean}          [args.sseGuard]     Returns false to refuse an invoke, defaulting to always-allow; the refusal goes to the transcript, or for a UI-bound invoke to its `replyTo` as a TM_ERROR. Only an attached-worker reply rides the stream, so the overlay keeps the default.
  * @return {GraphHandlers} The gesture handlers.
  */
 export function useGraphHandlers( {
@@ -314,14 +329,25 @@ export function useGraphHandlers( {
 							: `${ nodeId }:config`;
 					const to = prefix( commandTarget );
 					// Only an attached worker's reply needs the SSE session.
+					const uiBound = isUiBound( action, payload );
 					if ( ! sseGuard( to ) ) {
-						append( {
-							kind: 'error',
-							text: __(
-								'[no sse_pid yet] retry once CONNECTED',
-								'newspack-nodes'
-							),
-						} );
+						const refusal = __(
+							'[no sse_pid yet] retry once CONNECTED',
+							'newspack-nodes'
+						);
+						if ( ! uiBound ) {
+							append( { kind: 'error', text: refusal } );
+							return;
+						}
+						// A button hears the refusal where its reply lands.
+						const err = newMessage();
+						err[ TYPE ] = TM_COMMAND | TM_ERROR;
+						err[ TO ] = uiReplyPath( replyTo );
+						err[ VALUE ] = {
+							name: verb,
+							payload: `${ refusal }\n`,
+						};
+						shell.sink?.fill( err );
 						return;
 					}
 					let m;
@@ -358,7 +384,7 @@ export function useGraphHandlers( {
 						text: echo,
 						prompt: `/${ shell.path }`,
 					};
-					if ( replyTo ) {
+					if ( uiBound ) {
 						Core.node( names.OUTPUT )?.appendUi( sent );
 					} else {
 						append( sent );

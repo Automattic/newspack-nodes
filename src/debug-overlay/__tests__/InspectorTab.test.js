@@ -310,6 +310,31 @@ describe( 'InspectorTab interactions', () => {
 		expect( output._transcript.length ).toBeGreaterThan( before );
 	} );
 
+	it( 'a UI-bound invoke leaves the transcript closed; a REPL one opens it', () => {
+		renderInspector();
+		act( () =>
+			mockCaptured.consoleShell.canvasProps.onInspectorAction(
+				'invoke',
+				'_router',
+				{
+					verb: 'dl_list',
+					kind: 'command',
+					positional: '',
+					replyTo: '_ui',
+				}
+			)
+		);
+		expect( mockCaptured.consoleShell.replProps.expanded ).toBe( false );
+		act( () =>
+			mockCaptured.consoleShell.canvasProps.onInspectorAction(
+				'invoke',
+				'_router',
+				{ verb: 'dump_node', kind: 'command', positional: '' }
+			)
+		);
+		expect( mockCaptured.consoleShell.replProps.expanded ).toBe( true );
+	} );
+
 	it( 'a structured inspector action delegates to the graph handler', () => {
 		renderInspector();
 		const output = Core.node( '_output' );
