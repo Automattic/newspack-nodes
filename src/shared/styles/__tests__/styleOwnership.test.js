@@ -1256,10 +1256,11 @@ describe( 'canonical appearance ownership', () => {
 			).toEqual( inlineGeometry );
 		}
 
+		// Every Triage verb — a row's or the footer's — reads inline.
 		expect(
 			declarationsForSelector(
 				triageViewStylesheet,
-				':is(.topology-app, .topology-modal) .triage-view__grid .button.is-compact'
+				':is(.topology-app, .topology-modal) .triage-view .button.is-compact'
 			)
 		).toEqual( inlineGeometry );
 		expect(

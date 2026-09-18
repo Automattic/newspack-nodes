@@ -467,12 +467,18 @@ export default function TriageView( { node, onAction } ) {
 			) }
 
 			<div className="triage-view__footer">
-				<button type="button" className="button" onClick={ refresh }>
+				<button
+					type="button"
+					className="button is-compact"
+					onClick={ refresh }
+				>
 					{ __( 'Refresh', 'newspack-nodes' ) }
 				</button>
 				<button
 					type="button"
-					className={ `button${ confirmPurge ? ' is-danger' : '' }` }
+					className={ `button is-compact${
+						confirmPurge ? ' is-danger' : ''
+					}` }
 					onClick={ purge }
 				>
 					{ confirmPurge

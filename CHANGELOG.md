@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Triage's queue verbs match its record verbs.** Hide and Requeue carry the compact verb role, which the shared button styles paint mono, bold and uppercase like every rail control; Refresh and Purge in the footer were bare buttons and rendered sentence case beside them. All four now take the same role, and the footer pair stays inline rather than stretching to the rail's full-width cells.
+
 ## [2.60.9] - 2026-09-17
 
 ### Fixed
