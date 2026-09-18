@@ -9,8 +9,7 @@
             "include",
             "topic-probe"
         ],
-        "raw": "include topic-probe",
-        "line": 8
+        "raw": "include topic-probe"
     },
     {
         "verb": "make_node",
@@ -30,8 +29,7 @@
             "<config:offsets_dir>/<topology>.jobintake.p<partition>",
             "<config:deadletter_dir>/<topology>.jobintake.p<partition>"
         ],
-        "raw": "make_node Consumer jobintake:consumer <config:logs_dir>/jobintake.p<partition> <config:offsets_dir>/<topology>.jobintake.p<partition> <config:deadletter_dir>/<topology>.jobintake.p<partition>",
-        "line": 10
+        "raw": "make_node Consumer jobintake:consumer <config:logs_dir>/jobintake.p<partition> <config:offsets_dir>/<topology>.jobintake.p<partition> <config:deadletter_dir>/<topology>.jobintake.p<partition>"
     },
     {
         "verb": "make_node",
@@ -39,16 +37,17 @@
             "make_node",
             "Partition",
             "jobs:partition",
-            "<config:logs_dir>/jobs.p<partition>"
+            "<config:logs_dir>/jobs.p<partition>",
+            "67108864"
         ],
         "spans": [
             "make_node",
             "Partition",
             "jobs:partition",
-            "<config:logs_dir>/jobs.p<partition>"
+            "<config:logs_dir>/jobs.p<partition>",
+            "67108864"
         ],
-        "raw": "make_node Partition jobs:partition <config:logs_dir>/jobs.p<partition>",
-        "line": 11
+        "raw": "make_node Partition jobs:partition <config:logs_dir>/jobs.p<partition> 67108864"
     },
     {
         "verb": "command_node",
@@ -62,8 +61,7 @@
             "jobs:partition:config",
             "void_warranty"
         ],
-        "raw": "command_node jobs:partition:config void_warranty",
-        "line": 12
+        "raw": "command_node jobs:partition:config void_warranty"
     },
     {
         "verb": "connect_node",
@@ -77,8 +75,7 @@
             "jobintake:consumer",
             "jobs:partition"
         ],
-        "raw": "connect_node jobintake:consumer jobs:partition",
-        "line": 13
+        "raw": "connect_node jobintake:consumer jobs:partition"
     },
     {
         "verb": "secure",
@@ -88,7 +85,6 @@
         "spans": [
             "secure"
         ],
-        "raw": "secure",
-        "line": 14
+        "raw": "secure"
     }
 ]

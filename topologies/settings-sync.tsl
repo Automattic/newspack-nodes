@@ -11,7 +11,7 @@
 #   make_node Null null
 #   make_node HTTP_Out settings:austin <vault-id>
 #   connect_node settings:austin null
-#   cmd settings:austin:config allow_replies_to settings-sync
+#   command_node settings:austin:config allow_replies_to settings-sync
 #   connect_node settings-sync settings:austin
 #
 # `connect_node <egress> null` gives the egress a target, so a spoke's
@@ -30,27 +30,27 @@
 # per registered option; on its periodic tick (300s) it re-pushes every
 # registered option.
 
-var num_partitions = 1;
+var num_partitions = 1
 
 include topic-probe
 
 make_node Consumer settings:consumer <config:logs_dir>/settings.p0 <config:offsets_dir>/<topology>.settings.p0 <config:deadletter_dir>/<topology>.settings.p0
 make_node Settings_Sync settings-sync 300
 
-cmd settings-sync:config add_setting newspack_nodes_num_partitions settings newspack_nodes_num_partitions
-cmd settings-sync:config add_setting newspack_nodes_remote_segment_size settings newspack_nodes_segment_size
-cmd settings-sync:config add_setting newspack_nodes_remote_min_segments settings newspack_nodes_min_segments
-cmd settings-sync:config add_setting newspack_nodes_remote_num_segments settings newspack_nodes_num_segments
-cmd settings-sync:config add_setting newspack_nodes_remote_max_segments settings newspack_nodes_max_segments
-cmd settings-sync:config add_setting newspack_nodes_remote_min_lifetime settings newspack_nodes_min_lifetime
-cmd settings-sync:config add_setting newspack_nodes_remote_lifetime settings newspack_nodes_lifetime
+# command_node settings-sync:config add_setting newspack_nodes_num_partitions settings newspack_nodes_num_partitions
+command_node settings-sync:config add_setting newspack_nodes_remote_segment_size settings newspack_nodes_segment_size
+command_node settings-sync:config add_setting newspack_nodes_remote_min_segments settings newspack_nodes_min_segments
+command_node settings-sync:config add_setting newspack_nodes_remote_num_segments settings newspack_nodes_num_segments
+command_node settings-sync:config add_setting newspack_nodes_remote_max_segments settings newspack_nodes_max_segments
+command_node settings-sync:config add_setting newspack_nodes_remote_min_lifetime settings newspack_nodes_min_lifetime
+command_node settings-sync:config add_setting newspack_nodes_remote_lifetime settings newspack_nodes_lifetime
 # Also seed each spoke's OWN remote_* copy so it propagates onward to ITS spokes.
-cmd settings-sync:config add_setting newspack_nodes_remote_segment_size settings newspack_nodes_remote_segment_size
-cmd settings-sync:config add_setting newspack_nodes_remote_min_segments settings newspack_nodes_remote_min_segments
-cmd settings-sync:config add_setting newspack_nodes_remote_num_segments settings newspack_nodes_remote_num_segments
-cmd settings-sync:config add_setting newspack_nodes_remote_max_segments settings newspack_nodes_remote_max_segments
-cmd settings-sync:config add_setting newspack_nodes_remote_min_lifetime settings newspack_nodes_remote_min_lifetime
-cmd settings-sync:config add_setting newspack_nodes_remote_lifetime settings newspack_nodes_remote_lifetime
+command_node settings-sync:config add_setting newspack_nodes_remote_segment_size settings newspack_nodes_remote_segment_size
+command_node settings-sync:config add_setting newspack_nodes_remote_min_segments settings newspack_nodes_remote_min_segments
+command_node settings-sync:config add_setting newspack_nodes_remote_num_segments settings newspack_nodes_remote_num_segments
+command_node settings-sync:config add_setting newspack_nodes_remote_max_segments settings newspack_nodes_remote_max_segments
+command_node settings-sync:config add_setting newspack_nodes_remote_min_lifetime settings newspack_nodes_remote_min_lifetime
+command_node settings-sync:config add_setting newspack_nodes_remote_lifetime settings newspack_nodes_remote_lifetime
 
 connect_node settings:consumer settings-sync
 secure

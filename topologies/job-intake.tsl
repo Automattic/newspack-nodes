@@ -8,7 +8,7 @@
 include topic-probe
 
 make_node Consumer jobintake:consumer <config:logs_dir>/jobintake.p<partition> <config:offsets_dir>/<topology>.jobintake.p<partition> <config:deadletter_dir>/<topology>.jobintake.p<partition>
-make_node Partition jobs:partition <config:logs_dir>/jobs.p<partition>
-cmd jobs:partition:config void_warranty
+make_node Partition jobs:partition <config:logs_dir>/jobs.p<partition> 67108864
+command_node jobs:partition:config void_warranty
 connect_node jobintake:consumer jobs:partition
 secure
