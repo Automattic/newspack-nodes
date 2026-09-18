@@ -11,9 +11,9 @@
  *
  * Convex over-approximates, so a non-member card standing between two members
  * falls inside the outline. Nothing reads the geometry as a membership test —
- * `SchematicCanvas` hovers, selects and drags a hull by its `nodeIds` — and
- * the path doubles as the hit region, which is what the padding leaves
- * grabbable between cards.
+ * `SchematicCanvas` hovers, selects and drags a hull by its `nodeIds` — but
+ * the polygon is the hit region, which is what the padding leaves grabbable
+ * between cards, and `hullAt` resolves a press against it.
  */
 
 /**
@@ -116,13 +116,14 @@ function polygonArea( poly ) {
  * @param {Rect[]} rects Member node boxes.
  * @param {number} pad   Padding added around each rect before hulling; the
  *                       canvas takes the default.
- * @return {{d:string,area:number}} The SVG path data and the hull's area.
- *                                  `d` is empty when fewer than three points
- *                                  survive, and the canvas drops those hulls.
+ * @return {{d:string,area:number,poly:Array<[number,number]>}} The SVG path
+ *   data, the hull's area, and the polygon `hullAt` tests a press against.
+ *   `d` is empty when fewer than three points survive, and the canvas drops
+ *   those hulls.
  */
 export function hullGeometry( rects, pad = 24 ) {
 	if ( ! rects || ! rects.length ) {
-		return { d: '', area: 0 };
+		return { d: '', area: 0, poly: [] };
 	}
 	/** @type {Array<[number,number]>} */
 	const points = [];
@@ -136,9 +137,56 @@ export function hullGeometry( rects, pad = 24 ) {
 	}
 	const poly = hull( points );
 	if ( poly.length < 3 ) {
-		return { d: '', area: 0 };
+		return { d: '', area: 0, poly: [] };
 	}
-	return { d: roundedPath( poly ), area: polygonArea( poly ) };
+	return { d: roundedPath( poly ), area: polygonArea( poly ), poly };
+}
+
+/**
+ * Whether a point lies inside a convex polygon, edges included: it sits on the
+ * same side of every edge, whichever way the polygon winds.
+ *
+ * @param {Array<[number,number]>} poly  Convex vertices in order, unclosed.
+ * @param {{x:number,y:number}}    point The point to test.
+ * @return {boolean} True when the polygon contains the point.
+ */
+export function hullContains( poly, point ) {
+	let sign = 0;
+	for ( let i = 0; i < poly.length; i++ ) {
+		const [ x1, y1 ] = poly[ i ];
+		const [ x2, y2 ] = poly[ ( i + 1 ) % poly.length ];
+		const side = Math.sign(
+			( x2 - x1 ) * ( point.y - y1 ) - ( y2 - y1 ) * ( point.x - x1 )
+		);
+		if ( 0 !== side && 0 !== sign && side !== sign ) {
+			return false;
+		}
+		sign = sign || side;
+	}
+	return true;
+}
+
+/**
+ * The hull a press at `point` belongs to.
+ *
+ * Normally that is the topmost hull containing the point. Within a selected
+ * hull's bounds, the selection and every hull painted above it are transparent,
+ * so the press reaches the topmost hull painted below the selection; with none
+ * there, the selection takes it. That is how a buried hull stays reachable.
+ *
+ * @param {Array<{include:string,poly:Array<[number,number]>}>} hulls    In paint
+ *                                                                       order, bottom first.
+ * @param {{x:number,y:number}}                                 point    The press, in canvas units.
+ * @param {?string}                                             selected Include name of the selected hull.
+ * @return {?string} The include the press selects, or null where no hull reaches.
+ */
+export function hullAt( hulls, point, selected ) {
+	const under = hulls.filter( ( h ) => hullContains( h.poly, point ) );
+	const at = under.findIndex( ( h ) => h.include === selected );
+	if ( -1 === at ) {
+		return under.length ? under[ under.length - 1 ].include : null;
+	}
+	return at > 0 ? under[ at - 1 ].include : selected;
 }
 
 /**

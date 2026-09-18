@@ -149,6 +149,67 @@ describe( 'Inspector — selected hull', () => {
 		expect( tree ).toContain( 'flame-builder' );
 	} );
 
+	it( 'selects a child include by its name', () => {
+		const onSelectHull = jest.fn();
+		renderWithCatalog(
+			<Inspector { ...props } onSelectHull={ onSelectHull } />,
+			{
+				classes: props.catalog,
+				formatters: props.formatters,
+				vaults: props.vaults,
+				composeTargets: props.composeTargets,
+				classCatalog: props.classCatalog,
+			}
+		);
+		fireEvent.click(
+			screen.getByRole( 'button', { name: 'flame-builder' } )
+		);
+		expect( onSelectHull ).toHaveBeenCalledWith( 'flame-builder' );
+	} );
+
+	it( 'selects an include by its name from the no-selection view', () => {
+		const onSelectHull = jest.fn();
+		renderWithCatalog(
+			<Inspector
+				{ ...props }
+				selectedHull={ null }
+				includes={ [ 'performance' ] }
+				onSelectHull={ onSelectHull }
+			/>,
+			{
+				classes: props.catalog,
+				formatters: props.formatters,
+				vaults: props.vaults,
+				composeTargets: props.composeTargets,
+				classCatalog: props.classCatalog,
+			}
+		);
+		fireEvent.click(
+			screen.getByRole( 'button', { name: 'performance' } )
+		);
+		expect( onSelectHull ).toHaveBeenCalledWith( 'performance' );
+	} );
+
+	it( 'lists what a nested include includes', () => {
+		renderWithCatalog(
+			<Inspector
+				{ ...props }
+				selectedHull="job-router"
+				tree={ { 'job-hub': { 'job-router': { 'job-intake': {} } } } }
+			/>,
+			{
+				classes: props.catalog,
+				formatters: props.formatters,
+				vaults: props.vaults,
+				composeTargets: props.composeTargets,
+				classCatalog: props.classCatalog,
+			}
+		);
+		expect( screen.getByTestId( 'hull-includes' ).textContent ).toContain(
+			'job-intake'
+		);
+	} );
+
 	it( 'omits the includes section entirely when it includes nothing', () => {
 		renderWithCatalog(
 			<Inspector { ...props } tree={ { performance: {} } } />,
@@ -337,5 +398,134 @@ describe( 'HullPanel — shared vs contained', () => {
 		} );
 
 		expect( screen.queryByTestId( 'hull-shared' ) ).toBeNull();
+	} );
+} );
+
+describe( 'Inspector — the edited topology, nothing selected', () => {
+	const whole = {
+		selectedId: null,
+		selectedHull: null,
+		editMode: true,
+		currentTopology: 'complete-808',
+		parsed: {
+			nodes: [
+				{ id: 'request-builder', class: 'Request_Builder' },
+				{ id: 'shared-tee', class: 'Tee' },
+				{ id: 'own-echo', class: 'Echo' },
+			],
+			edges: [
+				{ from: 'own-echo', to: 'request-builder' },
+				{ from: 'shared-tee', to: 'own-echo' },
+			],
+		},
+		tree: { performance: { 'request-builder': {} }, 'job-router': {} },
+		includes: [ 'performance', 'job-router' ],
+		hulls: [
+			{
+				include: 'performance',
+				nodeIds: [ 'request-builder', 'shared-tee' ],
+			},
+			{ include: 'request-builder', nodeIds: [ 'request-builder' ] },
+			{ include: 'job-router', nodeIds: [ 'shared-tee' ] },
+		],
+		catalog: [],
+	};
+	const show = ( extra = {} ) =>
+		renderWithCatalog( <Inspector { ...whole } { ...extra } />, {
+			classes: whole.catalog,
+		} );
+
+	it( 'titles the panel with the topology and provides every node', () => {
+		show();
+		expect(
+			screen.getByRole( 'heading', { name: 'complete-808' } )
+		).not.toBeNull();
+		const provides = screen.getByTestId( 'hull-provides' ).textContent;
+		for ( const id of [ 'request-builder', 'shared-tee', 'own-echo' ] ) {
+			expect( provides ).toContain( id );
+		}
+		expect( screen.queryByTestId( 'hull-remove' ) ).toBeNull();
+		expect( screen.queryByTestId( 'hull-open' ) ).toBeNull();
+	} );
+
+	it( 'shares a node two of its declared includes both provide', () => {
+		show();
+		const rows = [
+			...screen.getByTestId( 'hull-shared' ).querySelectorAll( 'li' ),
+		].map( ( li ) => li.textContent );
+		expect( rows ).toEqual( [ 'shared-teeperformance, job-router' ] );
+	} );
+
+	it( 'shows the wiring between its own nodes and its includes as the interface', () => {
+		show();
+		const lines = screen.getByTestId( 'hull-interface' ).textContent;
+		expect( lines ).toContain( 'shared-tee' );
+		expect( lines ).toContain( 'request-builder' );
+		expect( lines ).toContain( 'own-echo' );
+	} );
+
+	it( 'lists the includes with their remove controls', () => {
+		const onRemoveInclude = jest.fn();
+		show( { onRemoveInclude } );
+		fireEvent.click( screen.getByTestId( 'include-remove-job-router' ) );
+		expect( onRemoveInclude ).toHaveBeenCalledWith( 'job-router' );
+	} );
+
+	it( 'a node link drops its canvas hover when it is clicked away', () => {
+		const onHover = jest.fn();
+		show( { onSelect: jest.fn(), onHover } );
+		fireEvent.click(
+			screen.getByTestId( 'hull-provides' ).querySelector( 'button' )
+		);
+		expect( onHover ).toHaveBeenLastCalledWith( null );
+	} );
+
+	it( 'selects a node by its name in any list', () => {
+		const onSelect = jest.fn();
+		show( { onSelect } );
+		fireEvent.click(
+			screen.getByTestId( 'hull-provides' ).querySelector( 'button' )
+		);
+		expect( onSelect ).toHaveBeenCalledWith( 'request-builder' );
+		fireEvent.click(
+			screen.getByTestId( 'hull-interface' ).querySelector( 'button' )
+		);
+		expect( onSelect ).toHaveBeenCalledTimes( 2 );
+	} );
+
+	it( 'leaves an edge to a target that is no node out of the interface', () => {
+		show( {
+			parsed: {
+				nodes: [ { id: 'lone-echo', class: 'Echo' } ],
+				edges: [ { from: 'lone-echo', to: '_router' } ],
+			},
+			tree: {},
+			includes: [],
+			hulls: [],
+		} );
+		expect( screen.queryByTestId( 'hull-interface' ) ).toBeNull();
+	} );
+
+	it( 'does not share a node a declared include gets from another it contains', () => {
+		show( {
+			parsed: {
+				nodes: [ { id: 'router-node', class: 'Job_Router' } ],
+				edges: [],
+			},
+			tree: { 'job-hub': { 'job-router': {} }, 'job-router': {} },
+			includes: [ 'job-hub', 'job-router' ],
+			hulls: [
+				{ include: 'job-hub', nodeIds: [ 'router-node' ] },
+				{ include: 'job-router', nodeIds: [ 'router-node' ] },
+			],
+		} );
+		expect( screen.queryByTestId( 'hull-shared' ) ).toBeNull();
+	} );
+
+	it( 'titles an unnamed draft', () => {
+		show( { currentTopology: '' } );
+		expect(
+			screen.getByRole( 'heading', { name: 'Untitled topology' } )
+		).not.toBeNull();
 	} );
 } );

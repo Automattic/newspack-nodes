@@ -37,7 +37,7 @@ import { maxInsetBeforeLOD } from '../utils/viewportResize';
 import { useLayoutContext } from '../LayoutContext';
 import { useChrome } from '../ChromeContext';
 import { deltaFromAutofit, viewportFromDelta } from '../utils/autofitDelta';
-import { hullGeometry } from '../utils/hullPath';
+import { hullAt, hullContains, hullGeometry } from '../utils/hullPath';
 import { RATE_HISTORY_MAX } from '../hooks/useGraphRates';
 import { edgeHasConnectRole } from '../utils/consoleGraph';
 import { useCatalog } from '../CatalogContext';
@@ -759,6 +759,7 @@ export default function SchematicCanvas( {
 						depth: h.depth ?? 0,
 						d: geo.d,
 						area: geo.area,
+						poly: geo.poly,
 					};
 				} )
 				.filter( ( h ) => h.d )
@@ -1422,19 +1423,39 @@ export default function SchematicCanvas( {
 		return hull ? new Set( hull.nodeIds ) : null;
 	}, [ hulls, hoveredHull, selectedHull ] );
 
+	/**
+	 * What a press on the path of hull `fallback` means. `pick` is the hull a
+	 * click selects, under the pass-through rule `hullAt` applies to a
+	 * selection; `grab` is the hull a drag moves, which is the selection itself
+	 * whenever the press lands inside it. The path's own include stands in when
+	 * the point falls in the stroke's outer edge, past the polygon.
+	 *
+	 * @param {Object} ev       The pointer or mouse event.
+	 * @param {string} fallback Include of the path the event landed on.
+	 * @return {{pick: string, grab: string}} The hull to select and the hull to drag.
+	 */
+	const hullPress = ( ev, fallback ) => {
+		const point = screenToSvg(
+			ev.currentTarget.ownerSVGElement,
+			ev.clientX,
+			ev.clientY
+		);
+		const pick = hullAt( hullPaths, point, selectedHull ) ?? fallback;
+		const held = hullPaths.find( ( h ) => h.include === selectedHull );
+		const grab =
+			held && hullContains( held.poly, point ) ? selectedHull : pick;
+		return { pick, grab };
+	};
+	const canDragHull = !! onPositionChange && interactive;
+
 	// Snapped so the outline lands exactly where the drag drew it.
 	const hullDragDelta = ( d ) =>
 		snapClusterDelta( d.origin, d.dx || 0, d.dy || 0 );
 
 	// A hull drag moves EVERY member by one delta; the cluster keeps shape.
-	const beginHullDrag = ( ev, include ) => {
+	const beginHullDrag = ( ev, include, pick ) => {
 		const hull = hulls.find( ( h ) => h.include === include );
-		if (
-			! hull ||
-			! onPositionChange ||
-			! interactive ||
-			ev.button !== 0
-		) {
+		if ( ! hull || ! canDragHull || ev.button !== 0 ) {
 			return;
 		}
 		ev.stopPropagation();
@@ -1448,6 +1469,7 @@ export default function SchematicCanvas( {
 		}
 		setHullDrag( {
 			include,
+			pick,
 			start,
 			origin: Object.fromEntries(
 				hull.nodeIds
@@ -1477,17 +1499,24 @@ export default function SchematicCanvas( {
 		if ( ! hullDrag ) {
 			return;
 		}
-		const { origin } = hullDrag;
+		const { origin, pick } = hullDrag;
 		const dragged = hullDraggedRef.current;
 		hullDraggedRef.current = false;
 		setHullDrag( null );
 		if ( ! dragged ) {
+			onSelectHull?.( pick );
 			return;
 		}
 		const { dx, dy } = hullDragDelta( hullDrag );
 		for ( const [ id, pos ] of Object.entries( origin ) ) {
 			onPositionChange( id, { x: pos.x + dx, y: pos.y + dy } );
 		}
+	};
+
+	// A cancelled press (a touch turned scroll) neither selects nor moves.
+	const cancelHullDrag = () => {
+		hullDraggedRef.current = false;
+		setHullDrag( null );
 	};
 
 	/**
@@ -1847,16 +1876,29 @@ export default function SchematicCanvas( {
 							d={ h.d }
 							transform={ offset }
 							onMouseEnter={ () => setHoveredHull( h.include ) }
+							onMouseMove={ ( ev ) =>
+								! hullDrag &&
+								setHoveredHull(
+									hullPress( ev, h.include ).pick
+								)
+							}
 							onMouseLeave={ () => setHoveredHull( null ) }
-							onMouseDown={ () =>
-								onSelectHull && onSelectHull( h.include )
+							onMouseDown={ ( ev ) =>
+								! canDragHull &&
+								onSelectHull?.(
+									hullPress( ev, h.include ).pick
+								)
 							}
-							onPointerDown={ ( ev ) =>
-								beginHullDrag( ev, h.include )
-							}
+							onPointerDown={ ( ev ) => {
+								const { pick, grab } = hullPress(
+									ev,
+									h.include
+								);
+								beginHullDrag( ev, grab, pick );
+							} }
 							onPointerMove={ updateHullDrag }
 							onPointerUp={ endHullDrag }
-							onPointerCancel={ endHullDrag }
+							onPointerCancel={ cancelHullDrag }
 						/>
 					);
 				} ) }

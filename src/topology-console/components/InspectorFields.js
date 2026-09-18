@@ -54,3 +54,64 @@ export function Section( { title, meta, children } ) {
 		</div>
 	);
 }
+
+/**
+ * A comma-separated run of node names, each selecting its node when clicked.
+ *
+ * A name outside `nodeIds` renders as dim text instead: it points at something
+ * the graph on screen does not hold, and a button that selects nothing reads
+ * as broken.
+ *
+ * @param {Object}      props
+ * @param {string[]}    [props.names]    Names in display order; empty renders an em dash.
+ * @param {Set<string>} [props.nodeIds]  Ids present in the graph; anything else is not a link.
+ * @param {Function}    [props.onSelect] (name) — selects the clicked node.
+ * @param {Function}    [props.onHover]  (name|null) — highlights it on the canvas, null on leave.
+ * @return {import('react').ReactElement} The name list.
+ */
+export function NodeLinks( { names, nodeIds, onSelect, onHover } ) {
+	if ( ! names || ! names.length ) {
+		return (
+			<span className="topology-field-row__val topology-field-row__val--dim">
+				—
+			</span>
+		);
+	}
+	return (
+		<span className="topology-field-row__val">
+			{ names.map( ( name, i ) => {
+				const known = nodeIds && nodeIds.has( name );
+				const sep = i < names.length - 1 ? ', ' : '';
+				if ( ! known ) {
+					return (
+						<span
+							key={ name }
+							className="topology-field-row__val--dim"
+						>
+							{ name }
+							{ sep }
+						</span>
+					);
+				}
+				return (
+					<span key={ name }>
+						<button
+							type="button"
+							className="button button-small topology-field-row__nav"
+							onClick={ () => {
+								// Unmounting may skip mouseleave.
+								onHover?.( null );
+								onSelect?.( name );
+							} }
+							onMouseEnter={ () => onHover && onHover( name ) }
+							onMouseLeave={ () => onHover && onHover( null ) }
+						>
+							{ name }
+						</button>
+						{ sep }
+					</span>
+				);
+			} ) }
+		</span>
+	);
+}

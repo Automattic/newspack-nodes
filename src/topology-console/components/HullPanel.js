@@ -1,5 +1,6 @@
 /**
- * HullPanel — the inspector for a selected hull.
+ * HullPanel — the inspector for a selected hull, and, in `whole` mode, for the
+ * topology being edited.
  *
  * A hull is a COMPOSITION BOUNDARY, not a node, so this panel deliberately shows
  * what the canvas cannot: the recursion we flattened out of the drawing, the
@@ -10,6 +11,7 @@
 
 import { __, sprintf, _n } from '@wordpress/i18n';
 import IncludeTree from './IncludeTree';
+import { NodeLinks } from './InspectorFields';
 import {
 	ProcessStatsView,
 	activityFromSeries,
@@ -42,6 +44,24 @@ function relatives( tree, include ) {
 	};
 	walk( tree, [] );
 	return out;
+}
+
+/**
+ * The subtree an include brings in, wherever the tree nests it. A shared
+ * include is one file, so every place it appears carries the same subtree.
+ *
+ * @param {Object} tree Nested include tree, `{ name: subtree }`.
+ * @param {string} name The include to find.
+ * @return {?Object} Its subtree, or null when the tree does not hold it.
+ */
+function subtreeOf( tree, name ) {
+	for ( const [ key, sub ] of Object.entries( tree || {} ) ) {
+		const found = key === name ? sub || {} : subtreeOf( sub, name );
+		if ( found ) {
+			return found;
+		}
+	}
+	return null;
 }
 
 /**
@@ -123,22 +143,34 @@ function HullStats( { nodes, graphSize, rateSeries } ) {
 
 /**
  * The panel for a selected hull: what its include provides, which of those nodes
- * an unrelated include also provides, and the edges crossing the boundary.
+ * an unrelated include also provides, and the edges crossing the boundary. In
+ * `whole` mode the same sections describe the edited file itself.
  *
- * @param {Object}   props
- * @param {string}   props.include          Topology the hull stands for; titles the panel.
- * @param {Array}    [props.hulls]          Every hull, `{ include, nodeIds }[]` — scopes this one's members and finds the diamonds.
- * @param {Object}   [props.parsed]         The WHOLE graph, `{ nodes, edges }`; the hull's members are a subset of it.
- * @param {Object}   props.rateSeries       `{ in, out, read, write }` sample rings, already scoped to the hull.
- * @param {boolean}  [props.editMode]       Draft graph: counters don't exist yet, so stats hide and the remove button appears.
- * @param {Object}   [props.includeTree]    Nested include tree from `topologies expand`; tells containment apart from sharing.
- * @param {string[]} [props.includes]       Directly-declared includes — only one of those has a line to remove.
- * @param {Function} [props.onOpenTopology] (name) — drill into the hull's own topology.
- * @param {Function} [props.onRemoveHull]   (name) — remove the include that brings the hull.
+ * @param {Object}                  props
+ * @param {string}                  props.include           Topology the hull stands for; titles the panel.
+ * @param {Array}                   [props.hulls]           Every hull, `{ include, nodeIds }[]` — scopes this one's members and finds the diamonds.
+ * @param {Object}                  [props.parsed]          The WHOLE graph, `{ nodes, edges }`; the hull's members are a subset of it.
+ * @param {Object}                  [props.rateSeries]      `{ in, out, read, write }` sample rings, already scoped to the hull; edit mode shows no stats and reads none.
+ * @param {boolean}                 [props.editMode]        Draft graph: counters don't exist yet, so stats hide and the remove button appears.
+ * @param {Object}                  [props.includeTree]     Nested include tree from `topologies expand`; tells containment apart from sharing.
+ * @param {string[]}                [props.includes]        Directly-declared includes — only one of those has a line to remove.
+ * @param {Function}                [props.onOpenTopology]  (name) — drill into the hull's own topology.
+ * @param {Function}                [props.onRemoveHull]    (name) — remove the include that brings the hull.
+ * @param {(name: string) => void}  [props.onSelectHull]    Selects a child include's hull by its name.
+ * @param {(name: string) => void}  [props.onSelectNode]    Selects a node by its name in any list.
+ * @param {boolean}                 [props.whole]           `include` names the edited topology itself: every node is a member, Shared is a node two declared includes both provide, and Interface is the wiring between its own nodes and its includes.
+ * @param {(name: string) => void}  [props.onRemoveInclude] With `whole`, removes a declared include from its row.
+ * @param {(name: ?string) => void} [props.onHoverNode]     Lights a named node on the canvas, null on leave.
+ * @param {Set<string>}             [props.nodeIds]         Ids in the graph; a name outside it is not a link.
  * @return {import('react').ReactElement} The hull inspector.
  */
 export default function HullPanel( {
 	include,
+	whole = false,
+	onSelectNode,
+	onHoverNode,
+	nodeIds,
+	onRemoveInclude,
 	hulls = [],
 	parsed = { nodes: [], edges: [] },
 	rateSeries,
@@ -147,8 +179,11 @@ export default function HullPanel( {
 	includes = [],
 	onOpenTopology,
 	onRemoveHull,
+	onSelectHull,
 } ) {
-	const nodes = hullNodes( parsed.nodes, hulls, include );
+	const nodes = whole
+		? parsed.nodes || []
+		: hullNodes( parsed.nodes, hulls, include );
 	const members = new Set( nodes.map( ( n ) => n.id ) );
 
 	/**
@@ -157,29 +192,71 @@ export default function HullPanel( {
 	 * containment, not sharing; naming it would be noise.
 	 */
 	const kin = relatives( includeTree, include );
+	// @longform Whole: a declared include, unless another declared include
+	// already contains it (containment, as below). Hull: any unrelated include.
+	const nested = new Set(
+		includes.filter( ( d ) =>
+			includes.some(
+				( o ) =>
+					o !== d &&
+					descendants( subtreeOf( includeTree, o ) ).includes( d )
+			)
+		)
+	);
+	const counts = ( h ) =>
+		whole
+			? includes.includes( h.include ) && ! nested.has( h.include )
+			: h.include !== include && ! kin.has( h.include );
 	const shared = nodes
 		.map( ( n ) => ( {
 			id: n.id,
 			also: hulls
-				.filter(
-					( h ) =>
-						h.include !== include &&
-						! kin.has( h.include ) &&
-						h.nodeIds.includes( n.id )
-				)
+				.filter( ( h ) => counts( h ) && h.nodeIds.includes( n.id ) )
 				.map( ( h ) => h.include ),
 		} ) )
-		.filter( ( n ) => n.also.length > 0 );
+		.filter( ( n ) => n.also.length > ( whole ? 1 : 0 ) );
 
-	const { inbound, outbound } = boundaryEdges( parsed.edges, members );
+	// A whole file's boundary runs between its own nodes and its includes'.
+	const known =
+		nodeIds ?? new Set( ( parsed.nodes || [] ).map( ( n ) => n.id ) );
+	const hulled = new Set( hulls.flatMap( ( h ) => h.nodeIds ) );
+	const own = whole
+		? new Set(
+				nodes
+					.map( ( n ) => n.id )
+					.filter( ( id ) => ! hulled.has( id ) )
+		  )
+		: members;
+	const wiring = whole
+		? ( parsed.edges || [] ).filter(
+				( e ) => known.has( e.from ) && known.has( e.to )
+		  )
+		: parsed.edges;
+	const { inbound, outbound } = boundaryEdges( wiring, own );
+	const crossings = inbound.length + outbound.length;
 
 	// What THIS topology includes — its own name would just restate the title.
-	const subtree = includeTree[ include ] || {};
-	const children = Object.keys( subtree );
+	const subtree = whole
+		? includeTree
+		: subtreeOf( includeTree, include ) || {};
+	const children = whole
+		? includes.filter( ( n ) =>
+				Object.prototype.hasOwnProperty.call( includeTree, n )
+		  )
+		: Object.keys( subtree );
+	const title = include || __( 'Untitled topology', 'newspack-nodes' );
+	const link = ( id ) => (
+		<NodeLinks
+			names={ [ id ] }
+			nodeIds={ known }
+			onSelect={ onSelectNode }
+			onHover={ onHoverNode }
+		/>
+	);
 
 	return (
 		<aside className="topology-inspector topology-hull-panel">
-			<h3 className="topology-insp__title">{ include }</h3>
+			<h3 className="topology-insp__title">{ title }</h3>
 			<div className="topology-insp__subtitle">
 				{ sprintf(
 					/* translators: %d: number of nodes the include provides. */
@@ -189,7 +266,7 @@ export default function HullPanel( {
 			</div>
 
 			<div className="topology-hull-panel__actions">
-				{ onOpenTopology && (
+				{ ! whole && onOpenTopology && (
 					<button
 						type="button"
 						data-testid="hull-open"
@@ -205,16 +282,19 @@ export default function HullPanel( {
 				) }
 
 				{ /* Only a DIRECTLY-declared include has a line to remove. */ }
-				{ editMode && onRemoveHull && includes.includes( include ) && (
-					<button
-						type="button"
-						data-testid="hull-remove"
-						className="button button-small button-link-delete topology-hull-panel__remove"
-						onClick={ () => onRemoveHull( include ) }
-					>
-						{ __( 'Remove include', 'newspack-nodes' ) }
-					</button>
-				) }
+				{ ! whole &&
+					editMode &&
+					onRemoveHull &&
+					includes.includes( include ) && (
+						<button
+							type="button"
+							data-testid="hull-remove"
+							className="button button-small button-link-delete topology-hull-panel__remove"
+							onClick={ () => onRemoveHull( include ) }
+						>
+							{ __( 'Remove include', 'newspack-nodes' ) }
+						</button>
+					) }
 			</div>
 
 			{ /* A draft graph has no counters, so edit mode hides stats. */ }
@@ -236,7 +316,7 @@ export default function HullPanel( {
 				{ nodes.map( ( n ) => (
 					<li key={ n.id }>
 						<span className="topology-hull-panel__node">
-							{ n.id }
+							{ link( n.id ) }
 						</span>
 						<span className="topology-hull-panel__class">
 							{ n.class }
@@ -257,7 +337,7 @@ export default function HullPanel( {
 						{ shared.map( ( n ) => (
 							<li key={ n.id }>
 								<span className="topology-hull-panel__node">
-									{ n.id }
+									{ link( n.id ) }
 								</span>
 								<span className="topology-hull-panel__also">
 									{ n.also.join( ', ' ) }
@@ -268,33 +348,39 @@ export default function HullPanel( {
 				</>
 			) }
 
-			<h4 className="topology-insp__section-title">
-				{ __( 'Interface', 'newspack-nodes' ) }
-			</h4>
-			<ul
-				className="topology-hull-panel__list"
-				data-testid="hull-interface"
-			>
-				{ inbound.map( ( e ) => (
-					<li key={ `in-${ e.from }-${ e.to }` }>
-						<span className="topology-hull-panel__dir">→</span>
-						{ `${ e.from } → ${ e.to }` }
-					</li>
-				) ) }
-				{ outbound.map( ( e ) => (
-					<li key={ `out-${ e.from }-${ e.to }` }>
-						<span className="topology-hull-panel__dir">←</span>
-						{ `${ e.from } → ${ e.to }` }
-					</li>
-				) ) }
-			</ul>
+			{ ( ! whole || crossings > 0 ) && (
+				<>
+					<h4 className="topology-insp__section-title">
+						{ __( 'Interface', 'newspack-nodes' ) }
+					</h4>
+					<ul
+						className="topology-hull-panel__list"
+						data-testid="hull-interface"
+					>
+						{ [
+							...inbound.map( ( e ) => [ '→', e ] ),
+							...outbound.map( ( e ) => [ '←', e ] ),
+						].map( ( [ dir, e ] ) => (
+							<li key={ `${ dir }-${ e.from }-${ e.to }` }>
+								<span className="topology-hull-panel__dir">
+									{ dir }
+								</span>
+								{ link( e.from ) }
+								{ ' → ' }
+								{ link( e.to ) }
+							</li>
+						) ) }
+					</ul>
+				</>
+			) }
 
 			{ children.length > 0 && (
 				<div data-testid="hull-includes">
 					<IncludeTree
 						tree={ subtree }
 						includes={ children }
-						onRemove={ null }
+						onRemove={ whole ? onRemoveInclude : null }
+						onSelect={ onSelectHull }
 					/>
 				</div>
 			) }

@@ -167,6 +167,17 @@ export default function GraphView( {
 		[ onSelectionChange ]
 	);
 
+	// Select an include's hull, from the canvas or a list; clears the rest.
+	const selectHull = useCallback(
+		( include ) => {
+			setSelectedId( null );
+			setSelectedEdge( null );
+			setSelectedHull( include );
+			onSelectionChange?.( null );
+		},
+		[ onSelectionChange ]
+	);
+
 	const handleRemoveNode = useCallback(
 		( id ) => {
 			onRemoveNode?.( id );
@@ -272,12 +283,7 @@ export default function GraphView( {
 					selectedId={ selectedId }
 					onSelect={ handleSelectNode }
 					selectedHull={ selectedHull }
-					onSelectHull={ ( include ) => {
-						setSelectedId( null );
-						setSelectedEdge( null );
-						setSelectedHull( include );
-						onSelectionChange?.( null );
-					} }
+					onSelectHull={ selectHull }
 					onDeselect={ () => {
 						setSelectedId( null );
 						setSelectedEdge( null );
@@ -346,6 +352,8 @@ export default function GraphView( {
 							onOpenTopology={ onOpenTopology }
 							onRemoveInclude={ onRemoveInclude }
 							onRemoveHull={ handleRemoveHull }
+							onSelectHull={ selectHull }
+							currentTopology={ currentTopology }
 						/>
 					) }
 				</div>

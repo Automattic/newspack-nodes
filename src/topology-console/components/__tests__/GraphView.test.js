@@ -556,6 +556,25 @@ describe( 'GraphView — hull selection', () => {
 		expect( global.__inspectorProps.selectedHull ).toBeNull();
 	} );
 
+	it( 'selecting an include in the Inspector selects its hull on the canvas too', () => {
+		const hulls = [ { include: 'performance', nodeIds: [ 'n1' ] } ];
+		renderWithCatalog(
+			<GraphView
+				graph={ graph }
+				frame={ Frame }
+				resetKey="k"
+				hulls={ hulls }
+			/>
+		);
+
+		act( () => {
+			global.__inspectorProps.onSelectHull( 'performance' );
+		} );
+
+		expect( global.__inspectorProps.selectedHull ).toBe( 'performance' );
+		expect( global.__canvasProps.selectedHull ).toBe( 'performance' );
+	} );
+
 	// useGraphRates only records a sample once a full second has elapsed, so a
 	// poll has to advance the clock the way a real one does.
 	const hullNodesGraph = ( a, b ) => ( {

@@ -66,9 +66,9 @@ describe( 'Inspector (view mode)', () => {
 		).toBeNull();
 	} );
 
-	it( 'no-node panel in EDIT mode shows an edit hint, not the live command palette', () => {
-		// Offline draft: no live command palette — edit mode shows a hint.
-		const { container, queryByText } = renderWithCatalog(
+	it( 'no-node panel in EDIT mode shows the topology, not the live command palette', () => {
+		// Offline draft: no live command palette — the edited topology instead.
+		const { container, getByTestId } = renderWithCatalog(
 			<Inspector { ...baseProps } editMode={ true } />,
 			{
 				classes: baseProps.catalog,
@@ -81,8 +81,7 @@ describe( 'Inspector (view mode)', () => {
 		expect(
 			container.querySelector( '.topology-insp__commands' )
 		).toBeNull();
-		expect( queryByText( '_command_interpreter' ) ).toBeNull();
-		expect( queryByText( /select a node/i ) ).not.toBeNull();
+		expect( getByTestId( 'hull-provides' ) ).not.toBeNull();
 	} );
 
 	it( 'shows process stats (msgs in/out) at the top of the no-node inspector', () => {
