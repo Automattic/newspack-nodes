@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.60.16] - 2026-09-18
+
 ### Changed
 
 - **The Runtime modal grows to fit its grids.** The Inspector view modal is at least 1000px and as wide as its content up to 96% of the viewport, so a grid scrolls sideways only when the screen is too narrow for it, where it used to stop at 1000px and scroll a timers grid that needed a little more. It grows with live content but never shrinks while open, so a poll never slides its edges under the pointer.
