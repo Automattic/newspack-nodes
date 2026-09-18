@@ -172,7 +172,9 @@ export function hullContains( poly, point ) {
  * Normally that is the topmost hull containing the point. Within a selected
  * hull's bounds, the selection and every hull painted above it are transparent,
  * so the press reaches the topmost hull painted below the selection; with none
- * there, the selection takes it. That is how a buried hull stays reachable.
+ * there, it wraps to the topmost again. Repeated presses at one point cycle
+ * through every hull stacked there, which is how a buried hull stays
+ * reachable.
  *
  * @param {Array<{include:string,poly:Array<[number,number]>}>} hulls    In paint
  *                                                                       order, bottom first.
@@ -182,11 +184,11 @@ export function hullContains( poly, point ) {
  */
 export function hullAt( hulls, point, selected ) {
 	const under = hulls.filter( ( h ) => hullContains( h.poly, point ) );
-	const at = under.findIndex( ( h ) => h.include === selected );
-	if ( -1 === at ) {
-		return under.length ? under[ under.length - 1 ].include : null;
+	if ( ! under.length ) {
+		return null;
 	}
-	return at > 0 ? under[ at - 1 ].include : selected;
+	const at = under.findIndex( ( h ) => h.include === selected );
+	return ( at > 0 ? under[ at - 1 ] : under[ under.length - 1 ] ).include;
 }
 
 /**

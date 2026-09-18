@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **A press on the bottom hull wraps to the top.** Within a selected hull, a press reaches the hull painted just below it; at the bottom of the stack it used to re-select the selection, and now selects the topmost hull there again, so repeated presses at one point cycle through every hull stacked under it.
+
 ## [2.60.14] - 2026-09-18
 
 ### Added

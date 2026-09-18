@@ -2858,11 +2858,11 @@ describe( 'SchematicCanvas', () => {
 			expect( onSelectHull ).toHaveBeenCalledWith( 'job-router' );
 		} );
 
-		it( 'a buried selection with nothing beneath takes the press itself', () => {
+		it( 'a buried selection with nothing beneath wraps to the top hull', () => {
 			const onSelectHull = jest.fn();
 			const { container } = nested( 'job-router', onSelectHull );
 			press( container.querySelector( '[data-include="job-intake"]' ) );
-			expect( onSelectHull ).toHaveBeenCalledWith( 'job-router' );
+			expect( onSelectHull ).toHaveBeenCalledWith( 'job-intake' );
 		} );
 
 		it( 'a drag on the selected hull moves it, not the hull beneath', () => {
