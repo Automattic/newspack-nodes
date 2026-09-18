@@ -359,103 +359,111 @@ export default function TriageView( { node, onAction } ) {
 			) }
 
 			{ rows.length > 0 && (
-				<table
-					className="newspack-nodes-table nodes-runtime__grid triage-view__grid"
-					data-testid="triage-grid"
+				<div
+					className="triage-view__records"
+					data-testid="triage-records"
 				>
-					<thead>
-						<tr>
-							<th className="nodes-runtime__th">
-								{ __( 'TIME', 'newspack-nodes' ) }
-							</th>
-							<th className="nodes-runtime__th">
-								{ __( 'REASON', 'newspack-nodes' ) }
-							</th>
-							<th className="nodes-runtime__th">
-								{ __( 'ATTEMPTS', 'newspack-nodes' ) }
-							</th>
-							<th className="nodes-runtime__th">
-								{ __( 'SOURCE', 'newspack-nodes' ) }
-							</th>
-							<th className="nodes-runtime__th">
-								{ __( 'LOCATOR', 'newspack-nodes' ) }
-							</th>
-							<th className="nodes-runtime__th" />
-						</tr>
-					</thead>
-					<tbody>
-						{ rows.map( ( r, i ) => (
-							<Fragment key={ r.locator ?? i }>
-								<tr className="nodes-runtime__row">
-									<td className="nodes-runtime__td">
-										{ formatLocalDateTime( r.ts ) }
-									</td>
-									<td className="nodes-runtime__td">
-										{ r.reason }
-									</td>
-									<td className="nodes-runtime__td">
-										{ r.attempts }
-									</td>
-									<td className="nodes-runtime__td">
-										{ r.source }
-									</td>
-									<td className="nodes-runtime__td">
-										<code>{ r.locator }</code>
-									</td>
-									<td className="nodes-runtime__td">
-										<button
-											type="button"
-											className="button is-compact"
-											disabled={ viewPending }
-											onClick={ () =>
-												shown?.locator === r.locator
-													? setShown( null )
-													: view(
-															r.locator,
-															r.reason
-													  )
-											}
-										>
-											{ shown?.locator === r.locator
-												? __( 'Hide', 'newspack-nodes' )
-												: __(
-														'View',
-														'newspack-nodes'
-												  ) }
-										</button>
-										<button
-											type="button"
-											className="button is-compact"
-											onClick={ () =>
-												requeue( r.locator )
-											}
-										>
-											{ __(
-												'Requeue',
-												'newspack-nodes'
-											) }
-										</button>
-									</td>
-								</tr>
-								{ shown?.locator === r.locator && (
-									<tr className="nodes-runtime__row triage-view__record-row">
-										<td
-											className="nodes-runtime__td"
-											colSpan={ 6 }
-										>
-											<pre
-												className="triage-view__record"
-												data-testid="triage-record"
+					<table
+						className="newspack-nodes-table nodes-runtime__grid triage-view__grid"
+						data-testid="triage-grid"
+					>
+						<thead>
+							<tr>
+								<th className="nodes-runtime__th">
+									{ __( 'TIME', 'newspack-nodes' ) }
+								</th>
+								<th className="nodes-runtime__th">
+									{ __( 'REASON', 'newspack-nodes' ) }
+								</th>
+								<th className="nodes-runtime__th">
+									{ __( 'ATTEMPTS', 'newspack-nodes' ) }
+								</th>
+								<th className="nodes-runtime__th">
+									{ __( 'SOURCE', 'newspack-nodes' ) }
+								</th>
+								<th className="nodes-runtime__th">
+									{ __( 'LOCATOR', 'newspack-nodes' ) }
+								</th>
+								<th className="nodes-runtime__th" />
+							</tr>
+						</thead>
+						<tbody>
+							{ rows.map( ( r, i ) => (
+								<Fragment key={ r.locator ?? i }>
+									<tr className="nodes-runtime__row">
+										<td className="nodes-runtime__td">
+											{ formatLocalDateTime( r.ts ) }
+										</td>
+										<td className="nodes-runtime__td">
+											{ r.reason }
+										</td>
+										<td className="nodes-runtime__td">
+											{ r.attempts }
+										</td>
+										<td className="nodes-runtime__td">
+											{ r.source }
+										</td>
+										<td className="nodes-runtime__td">
+											<code>{ r.locator }</code>
+										</td>
+										<td className="nodes-runtime__td">
+											<button
+												type="button"
+												className="button is-compact"
+												disabled={ viewPending }
+												onClick={ () =>
+													shown?.locator === r.locator
+														? setShown( null )
+														: view(
+																r.locator,
+																r.reason
+														  )
+												}
 											>
-												{ shown.body }
-											</pre>
+												{ shown?.locator === r.locator
+													? __(
+															'Hide',
+															'newspack-nodes'
+													  )
+													: __(
+															'View',
+															'newspack-nodes'
+													  ) }
+											</button>
+											<button
+												type="button"
+												className="button is-compact"
+												onClick={ () =>
+													requeue( r.locator )
+												}
+											>
+												{ __(
+													'Requeue',
+													'newspack-nodes'
+												) }
+											</button>
 										</td>
 									</tr>
-								) }
-							</Fragment>
-						) ) }
-					</tbody>
-				</table>
+									{ shown?.locator === r.locator && (
+										<tr className="nodes-runtime__row triage-view__record-row">
+											<td
+												className="nodes-runtime__td"
+												colSpan={ 6 }
+											>
+												<pre
+													className="triage-view__record"
+													data-testid="triage-record"
+												>
+													{ shown.body }
+												</pre>
+											</td>
+										</tr>
+									) }
+								</Fragment>
+							) ) }
+						</tbody>
+					</table>
+				</div>
 			) }
 
 			<div className="triage-view__footer">
