@@ -13,8 +13,7 @@
             "=",
             "1"
         ],
-        "raw": "var num_partitions = 1",
-        "line": 15
+        "raw": "var num_partitions = 1"
     },
     {
         "verb": "make_node",
@@ -28,8 +27,7 @@
             "Releases_Source_Demo",
             "releases"
         ],
-        "raw": "make_node Releases_Source_Demo releases",
-        "line": 17
+        "raw": "make_node Releases_Source_Demo releases"
     },
     {
         "verb": "make_node",
@@ -43,8 +41,7 @@
             "Community_Source_Demo",
             "community"
         ],
-        "raw": "make_node Community_Source_Demo community",
-        "line": 18
+        "raw": "make_node Community_Source_Demo community"
     },
     {
         "verb": "make_node",
@@ -58,8 +55,7 @@
             "Summarizer_Demo",
             "summarizer"
         ],
-        "raw": "make_node Summarizer_Demo summarizer",
-        "line": 19
+        "raw": "make_node Summarizer_Demo summarizer"
     },
     {
         "verb": "make_node",
@@ -73,8 +69,7 @@
             "Digest_Builder_Demo",
             "digest"
         ],
-        "raw": "make_node Digest_Builder_Demo digest",
-        "line": 20
+        "raw": "make_node Digest_Builder_Demo digest"
     },
     {
         "verb": "make_node",
@@ -88,8 +83,7 @@
             "Tee",
             "digest:tee"
         ],
-        "raw": "make_node Tee digest:tee",
-        "line": 21
+        "raw": "make_node Tee digest:tee"
     },
     {
         "verb": "make_node",
@@ -117,8 +111,7 @@
             "0",
             "0"
         ],
-        "raw": "make_node Log digest:log <config:logs_dir>/digest.md 1 2 7 0 0 0",
-        "line": 22
+        "raw": "make_node Log digest:log <config:logs_dir>/digest.md 1 2 7 0 0 0"
     },
     {
         "verb": "command_node",
@@ -132,8 +125,7 @@
             "digest:log:config",
             "void_warranty"
         ],
-        "raw": "command_node digest:log:config void_warranty",
-        "line": 23
+        "raw": "command_node digest:log:config void_warranty"
     },
     {
         "verb": "make_node",
@@ -161,8 +153,7 @@
             "<config:min_lifetime>",
             "<config:lifetime>"
         ],
-        "raw": "make_node Partition scored:partition <config:logs_dir>/example-scored.p<partition> <config:segment_size> <config:min_segments> <config:num_segments> <config:max_segments> <config:min_lifetime> <config:lifetime>",
-        "line": 26
+        "raw": "make_node Partition scored:partition <config:logs_dir>/example-scored.p<partition> <config:segment_size> <config:min_segments> <config:num_segments> <config:max_segments> <config:min_lifetime> <config:lifetime>"
     },
     {
         "verb": "command_node",
@@ -176,8 +167,7 @@
             "scored:partition:config",
             "void_warranty"
         ],
-        "raw": "command_node scored:partition:config void_warranty",
-        "line": 27
+        "raw": "command_node scored:partition:config void_warranty"
     },
     {
         "verb": "make_node",
@@ -197,8 +187,7 @@
             "<config:offsets_dir>/example-scored.p<partition>",
             "<config:deadletter_dir>/example-scored.p<partition>"
         ],
-        "raw": "make_node Consumer scored:consumer <config:logs_dir>/example-scored.p<partition> <config:offsets_dir>/example-scored.p<partition> <config:deadletter_dir>/example-scored.p<partition>",
-        "line": 28
+        "raw": "make_node Consumer scored:consumer <config:logs_dir>/example-scored.p<partition> <config:offsets_dir>/example-scored.p<partition> <config:deadletter_dir>/example-scored.p<partition>"
     },
     {
         "verb": "command_node",
@@ -214,8 +203,7 @@
             "add_snapshot_node",
             "digest"
         ],
-        "raw": "command_node scored:consumer:config add_snapshot_node digest",
-        "line": 29
+        "raw": "command_node scored:consumer:config add_snapshot_node digest"
     },
     {
         "verb": "make_node",
@@ -229,8 +217,7 @@
             "Scorer_Demo",
             "scorer"
         ],
-        "raw": "make_node Scorer_Demo scorer",
-        "line": 30
+        "raw": "make_node Scorer_Demo scorer"
     },
     {
         "verb": "connect_node",
@@ -244,8 +231,7 @@
             "releases",
             "summarizer"
         ],
-        "raw": "connect_node releases summarizer",
-        "line": 31
+        "raw": "connect_node releases summarizer"
     },
     {
         "verb": "connect_node",
@@ -259,8 +245,7 @@
             "community",
             "summarizer"
         ],
-        "raw": "connect_node community summarizer",
-        "line": 32
+        "raw": "connect_node community summarizer"
     },
     {
         "verb": "connect_node",
@@ -274,8 +259,7 @@
             "summarizer",
             "scorer"
         ],
-        "raw": "connect_node summarizer scorer",
-        "line": 33
+        "raw": "connect_node summarizer scorer"
     },
     {
         "verb": "connect_node",
@@ -289,8 +273,7 @@
             "scorer",
             "scored:partition"
         ],
-        "raw": "connect_node scorer scored:partition",
-        "line": 34
+        "raw": "connect_node scorer scored:partition"
     },
     {
         "verb": "connect_node",
@@ -304,8 +287,7 @@
             "scored:consumer",
             "digest"
         ],
-        "raw": "connect_node scored:consumer digest",
-        "line": 35
+        "raw": "connect_node scored:consumer digest"
     },
     {
         "verb": "connect_node",
@@ -319,8 +301,7 @@
             "digest",
             "digest:tee"
         ],
-        "raw": "connect_node digest digest:tee",
-        "line": 36
+        "raw": "connect_node digest digest:tee"
     },
     {
         "verb": "connect_node",
@@ -334,7 +315,6 @@
             "digest:tee",
             "digest:log"
         ],
-        "raw": "connect_node digest:tee digest:log",
-        "line": 37
+        "raw": "connect_node digest:tee digest:log"
     }
 ]

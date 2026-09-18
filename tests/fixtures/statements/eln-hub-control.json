@@ -13,8 +13,7 @@
             "=",
             "1"
         ],
-        "raw": "var num_partitions = 1",
-        "line": 10
+        "raw": "var num_partitions = 1"
     },
     {
         "verb": "include",
@@ -26,8 +25,7 @@
             "include",
             "settings-sync"
         ],
-        "raw": "include settings-sync",
-        "line": 12
+        "raw": "include settings-sync"
     },
     {
         "verb": "make_node",
@@ -43,8 +41,7 @@
             "discovery-collector",
             "300"
         ],
-        "raw": "make_node Discovery_Collector discovery-collector 300",
-        "line": 14
+        "raw": "make_node Discovery_Collector discovery-collector 300"
     },
     {
         "verb": "command_node",
@@ -64,8 +61,7 @@
             "performance",
             "newspack_event_logger_nodes_rules"
         ],
-        "raw": "command_node settings-sync:config add_setting newspack_event_logger_nodes_rules performance newspack_event_logger_nodes_rules",
-        "line": 18
+        "raw": "command_node settings-sync:config add_setting newspack_event_logger_nodes_rules performance newspack_event_logger_nodes_rules"
     },
     {
         "verb": "command_node",
@@ -85,8 +81,7 @@
             "performance",
             "newspack_event_logger_nodes_log_memory"
         ],
-        "raw": "command_node settings-sync:config add_setting newspack_event_logger_nodes_log_memory performance newspack_event_logger_nodes_log_memory",
-        "line": 19
+        "raw": "command_node settings-sync:config add_setting newspack_event_logger_nodes_log_memory performance newspack_event_logger_nodes_log_memory"
     },
     {
         "verb": "command_node",
@@ -106,8 +101,7 @@
             "performance",
             "newspack_event_logger_nodes_flush_every_line"
         ],
-        "raw": "command_node settings-sync:config add_setting newspack_event_logger_nodes_flush_every_line performance newspack_event_logger_nodes_flush_every_line",
-        "line": 20
+        "raw": "command_node settings-sync:config add_setting newspack_event_logger_nodes_flush_every_line performance newspack_event_logger_nodes_flush_every_line"
     },
     {
         "verb": "connect_node",
@@ -121,7 +115,6 @@
             "discovery-collector",
             "spokes:tee"
         ],
-        "raw": "connect_node discovery-collector spokes:tee",
-        "line": 22
+        "raw": "connect_node discovery-collector spokes:tee"
     }
 ]

@@ -9,8 +9,7 @@
             "include",
             "request-builder"
         ],
-        "raw": "include request-builder",
-        "line": 7
+        "raw": "include request-builder"
     },
     {
         "verb": "include",
@@ -22,8 +21,7 @@
             "include",
             "flame-builder"
         ],
-        "raw": "include flame-builder",
-        "line": 8
+        "raw": "include flame-builder"
     },
     {
         "verb": "include",
@@ -35,8 +33,7 @@
             "include",
             "job-router"
         ],
-        "raw": "include job-router",
-        "line": 9
+        "raw": "include job-router"
     },
     {
         "verb": "make_node",
@@ -50,8 +47,7 @@
             "Tee",
             "firehose:tee"
         ],
-        "raw": "make_node Tee firehose:tee",
-        "line": 10
+        "raw": "make_node Tee firehose:tee"
     },
     {
         "verb": "disconnect_node",
@@ -63,8 +59,7 @@
             "disconnect_node",
             "firehose:consumer"
         ],
-        "raw": "disconnect_node firehose:consumer",
-        "line": 11
+        "raw": "disconnect_node firehose:consumer"
     },
     {
         "verb": "connect_node",
@@ -78,8 +73,7 @@
             "firehose:consumer",
             "firehose:tee"
         ],
-        "raw": "connect_node firehose:consumer firehose:tee",
-        "line": 12
+        "raw": "connect_node firehose:consumer firehose:tee"
     },
     {
         "verb": "connect_node",
@@ -93,8 +87,7 @@
             "firehose:tee",
             "request-builder"
         ],
-        "raw": "connect_node firehose:tee request-builder",
-        "line": 13
+        "raw": "connect_node firehose:tee request-builder"
     },
     {
         "verb": "connect_node",
@@ -108,7 +101,6 @@
             "firehose:tee",
             "job-router"
         ],
-        "raw": "connect_node firehose:tee job-router",
-        "line": 14
+        "raw": "connect_node firehose:tee job-router"
     }
 ]

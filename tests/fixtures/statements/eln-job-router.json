@@ -9,8 +9,7 @@
             "include",
             "topic-probe"
         ],
-        "raw": "include topic-probe",
-        "line": 7
+        "raw": "include topic-probe"
     },
     {
         "verb": "include",
@@ -22,8 +21,7 @@
             "include",
             "job-intake"
         ],
-        "raw": "include job-intake",
-        "line": 8
+        "raw": "include job-intake"
     },
     {
         "verb": "make_node",
@@ -43,8 +41,7 @@
             "<config:offsets_dir>/<topology>.firehose.p<partition>",
             "<config:deadletter_dir>/<topology>.firehose.p<partition>"
         ],
-        "raw": "make_node Consumer firehose:consumer <config:logs_dir>/firehose.p<partition> <config:offsets_dir>/<topology>.firehose.p<partition> <config:deadletter_dir>/<topology>.firehose.p<partition>",
-        "line": 10
+        "raw": "make_node Consumer firehose:consumer <config:logs_dir>/firehose.p<partition> <config:offsets_dir>/<topology>.firehose.p<partition> <config:deadletter_dir>/<topology>.firehose.p<partition>"
     },
     {
         "verb": "make_node",
@@ -58,8 +55,7 @@
             "Job_Router",
             "job-router"
         ],
-        "raw": "make_node Job_Router job-router",
-        "line": 11
+        "raw": "make_node Job_Router job-router"
     },
     {
         "verb": "make_node",
@@ -77,8 +73,7 @@
             "60",
             "1"
         ],
-        "raw": "make_node Age_Sieve jobs:sieve 60 1",
-        "line": 12
+        "raw": "make_node Age_Sieve jobs:sieve 60 1"
     },
     {
         "verb": "command_node",
@@ -94,8 +89,7 @@
             "set_multi_writer",
             "true"
         ],
-        "raw": "command_node firehose:consumer:config set_multi_writer true",
-        "line": 13
+        "raw": "command_node firehose:consumer:config set_multi_writer true"
     },
     {
         "verb": "disconnect_node",
@@ -107,8 +101,7 @@
             "disconnect_node",
             "jobintake:consumer"
         ],
-        "raw": "disconnect_node jobintake:consumer",
-        "line": 14
+        "raw": "disconnect_node jobintake:consumer"
     },
     {
         "verb": "connect_node",
@@ -122,8 +115,7 @@
             "jobintake:consumer",
             "job-router"
         ],
-        "raw": "connect_node jobintake:consumer job-router",
-        "line": 15
+        "raw": "connect_node jobintake:consumer job-router"
     },
     {
         "verb": "connect_node",
@@ -137,8 +129,7 @@
             "firehose:consumer",
             "job-router"
         ],
-        "raw": "connect_node firehose:consumer job-router",
-        "line": 16
+        "raw": "connect_node firehose:consumer job-router"
     },
     {
         "verb": "connect_node",
@@ -152,8 +143,7 @@
             "job-router",
             "jobs:sieve"
         ],
-        "raw": "connect_node job-router jobs:sieve",
-        "line": 17
+        "raw": "connect_node job-router jobs:sieve"
     },
     {
         "verb": "connect_node",
@@ -167,7 +157,6 @@
             "jobs:sieve",
             "jobs:partition"
         ],
-        "raw": "connect_node jobs:sieve jobs:partition",
-        "line": 18
+        "raw": "connect_node jobs:sieve jobs:partition"
     }
 ]

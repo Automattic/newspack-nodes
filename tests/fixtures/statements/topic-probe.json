@@ -13,8 +13,7 @@
             "topicprobe",
             "15"
         ],
-        "raw": "make_node Topic_Probe topicprobe 15",
-        "line": 1
+        "raw": "make_node Topic_Probe topicprobe 15"
     },
     {
         "verb": "make_node",
@@ -42,8 +41,7 @@
             "86400",
             "86400"
         ],
-        "raw": "make_node Partition topicprobe:log <config:logs_dir>/topicprobe.p0 1048576 2 8 0 86400 86400",
-        "line": 2
+        "raw": "make_node Partition topicprobe:log <config:logs_dir>/topicprobe.p0 1048576 2 8 0 86400 86400"
     },
     {
         "verb": "connect_node",
@@ -57,8 +55,7 @@
             "topicprobe",
             "topicprobe:log"
         ],
-        "raw": "connect_node topicprobe topicprobe:log",
-        "line": 3
+        "raw": "connect_node topicprobe topicprobe:log"
     },
     {
         "verb": "secure",
@@ -68,7 +65,6 @@
         "spans": [
             "secure"
         ],
-        "raw": "secure",
-        "line": 4
+        "raw": "secure"
     }
 ]
