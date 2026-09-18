@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.60.14] - 2026-09-18
+
 ### Added
 
 - **A Workers page partition badge opens that worker.** On an active topology, P0, P1 and the rest link to the console on that partition, as the topology's name links to it on p0.
