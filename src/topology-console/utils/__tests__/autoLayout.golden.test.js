@@ -19,20 +19,20 @@
 
 import { autoLayout, X_STEP, Y_STEP } from '../autoLayout';
 
-// Ideal layout (top-left positions) from the hand-verified live console. Only
-// `completed:tee` sits in the column after `request-builder`, so no half step.
+// Ideal layout (top-left positions). Only `completed:tee` sits in the column
+// after `request-builder`, so no half step; the job chain runs below the fan.
 const GOLDEN = {
-	'requests:partition': [ 1020, 520 ],
-	'errors:partition': [ 1020, 410 ],
-	'completed:tee': [ 780, 245 ],
-	'completed:partition': [ 1020, 190 ],
-	'gyroscope:partition': [ 1020, 300 ],
-	'request-builder': [ 540, 410 ],
-	'jobs:partition': [ 1020, 80 ],
-	'job-router': [ 540, 80 ],
-	'firehose:consumer': [ 60, 245 ],
-	'firehose:tee': [ 300, 245 ],
-	'jobintake:consumer': [ 300, 80 ],
+	'requests:partition': [ 1020, 410 ],
+	'errors:partition': [ 1020, 300 ],
+	'completed:tee': [ 780, 135 ],
+	'completed:partition': [ 1020, 80 ],
+	'gyroscope:partition': [ 1020, 190 ],
+	'request-builder': [ 540, 300 ],
+	'jobs:partition': [ 1020, 520 ],
+	'job-router': [ 540, 520 ],
+	'firehose:consumer': [ 60, 410 ],
+	'firehose:tee': [ 300, 410 ],
+	'jobintake:consumer': [ 300, 520 ],
 	'flames:partition': [ 540, 630 ],
 	'flame-builder': [ 300, 630 ],
 	'requests:consumer': [ 60, 630 ],
