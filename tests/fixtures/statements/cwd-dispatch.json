@@ -11,8 +11,7 @@
             "Tee",
             "fanout"
         ],
-        "raw": "make_node Tee fanout",
-        "line": 8
+        "raw": "make_node Tee fanout"
     },
     {
         "verb": "var",
@@ -28,8 +27,7 @@
             "=",
             "4271"
         ],
-        "raw": "var retention_hint = 4271",
-        "line": 12
+        "raw": "var retention_hint = 4271"
     },
     {
         "verb": "print",
@@ -45,8 +43,7 @@
             "at",
             "depot"
         ],
-        "raw": "print holding at depot",
-        "line": 13
+        "raw": "print holding at depot"
     },
     {
         "verb": "status",
@@ -56,8 +53,7 @@
         "spans": [
             "status"
         ],
-        "raw": "status",
-        "line": 14
+        "raw": "status"
     },
     {
         "verb": "show_parse",
@@ -67,8 +63,7 @@
         "spans": [
             "show_parse"
         ],
-        "raw": "show_parse",
-        "line": 15
+        "raw": "show_parse"
     },
     {
         "verb": "debug_level",
@@ -80,8 +75,7 @@
             "debug_level",
             "2"
         ],
-        "raw": "debug_level 2",
-        "line": 16
+        "raw": "debug_level 2"
     },
     {
         "verb": "clear",
@@ -91,8 +85,7 @@
         "spans": [
             "clear"
         ],
-        "raw": "clear",
-        "line": 17
+        "raw": "clear"
     },
     {
         "verb": "include",
@@ -104,8 +97,7 @@
             "include",
             "topic-probe"
         ],
-        "raw": "include topic-probe",
-        "line": 18
+        "raw": "include topic-probe"
     },
     {
         "verb": "tell_node",
@@ -121,8 +113,7 @@
             "status",
             "ok"
         ],
-        "raw": "tell_node depot/beacon status ok",
-        "line": 21
+        "raw": "tell_node depot/beacon status ok"
     },
     {
         "verb": "tell",
@@ -138,8 +129,7 @@
             "short",
             "form"
         ],
-        "raw": "tell depot/beacon short form",
-        "line": 22
+        "raw": "tell depot/beacon short form"
     },
     {
         "verb": "ping",
@@ -151,8 +141,7 @@
             "ping",
             "depot/beacon"
         ],
-        "raw": "ping depot/beacon",
-        "line": 23
+        "raw": "ping depot/beacon"
     },
     {
         "verb": "send_node",
@@ -168,8 +157,7 @@
             "payload",
             "bytes"
         ],
-        "raw": "send_node depot/beacon payload bytes",
-        "line": 24
+        "raw": "send_node depot/beacon payload bytes"
     },
     {
         "verb": "send",
@@ -185,8 +173,7 @@
             "short",
             "bytes"
         ],
-        "raw": "send depot/beacon short bytes",
-        "line": 25
+        "raw": "send depot/beacon short bytes"
     },
     {
         "verb": "send_struct_node",
@@ -200,8 +187,7 @@
             "depot/beacon",
             "'{\"depth\":9}'"
         ],
-        "raw": "send_struct_node depot/beacon '{\"depth\":9}'",
-        "line": 26
+        "raw": "send_struct_node depot/beacon '{\"depth\":9}'"
     },
     {
         "verb": "request_node",
@@ -217,8 +203,7 @@
             "fetch",
             "7"
         ],
-        "raw": "request_node depot/beacon fetch 7",
-        "line": 27
+        "raw": "request_node depot/beacon fetch 7"
     },
     {
         "verb": "send_eof",
@@ -230,8 +215,7 @@
             "send_eof",
             "depot/beacon"
         ],
-        "raw": "send_eof depot/beacon",
-        "line": 28
+        "raw": "send_eof depot/beacon"
     },
     {
         "verb": "command_node",
@@ -245,8 +229,7 @@
             "depot/beacon",
             "ping"
         ],
-        "raw": "command_node depot/beacon ping",
-        "line": 31
+        "raw": "command_node depot/beacon ping"
     },
     {
         "verb": "command_node",
@@ -262,8 +245,7 @@
             "set_retention",
             "--segments=41"
         ],
-        "raw": "command_node depot/beacon set_retention --segments=41",
-        "line": 32
+        "raw": "command_node depot/beacon set_retention --segments=41"
     },
     {
         "verb": "command_node",
@@ -279,8 +261,7 @@
             "pwd",
             "depot"
         ],
-        "raw": "command_node depot pwd depot",
-        "line": 34
+        "raw": "command_node depot pwd depot"
     },
     {
         "verb": "command_node",
@@ -296,8 +277,7 @@
             "set_retention",
             "--segments=17"
         ],
-        "raw": "command_node depot set_retention --segments=17",
-        "line": 35
+        "raw": "command_node depot set_retention --segments=17"
     },
     {
         "verb": "status",
@@ -307,8 +287,7 @@
         "spans": [
             "status"
         ],
-        "raw": "status",
-        "line": 38
+        "raw": "status"
     },
     {
         "verb": "tell_node",
@@ -324,8 +303,7 @@
             "top",
             "level"
         ],
-        "raw": "tell_node beacon top level",
-        "line": 39
+        "raw": "tell_node beacon top level"
     },
     {
         "verb": "command_node",
@@ -339,8 +317,7 @@
             "_command_interpreter",
             "ping"
         ],
-        "raw": "command_node _command_interpreter ping",
-        "line": 40
+        "raw": "command_node _command_interpreter ping"
     },
     {
         "verb": "ping",
@@ -352,8 +329,7 @@
             "ping",
             "beacon"
         ],
-        "raw": "ping beacon",
-        "line": 41
+        "raw": "ping beacon"
     },
     {
         "verb": "pwd",
@@ -363,8 +339,7 @@
         "spans": [
             "pwd"
         ],
-        "raw": "pwd",
-        "line": 42
+        "raw": "pwd"
     },
     {
         "verb": "set_retention",
@@ -376,7 +351,6 @@
             "set_retention",
             "--segments=17"
         ],
-        "raw": "set_retention --segments=17",
-        "line": 43
+        "raw": "set_retention --segments=17"
     }
 ]

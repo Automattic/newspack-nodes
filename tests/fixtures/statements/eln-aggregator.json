@@ -9,8 +9,7 @@
             "include",
             "topic-probe"
         ],
-        "raw": "include topic-probe",
-        "line": 27
+        "raw": "include topic-probe"
     },
     {
         "verb": "make_node",
@@ -24,8 +23,7 @@
             "Remote_Job_Rewrite",
             "remote-job-rewrite"
         ],
-        "raw": "make_node Remote_Job_Rewrite remote-job-rewrite",
-        "line": 28
+        "raw": "make_node Remote_Job_Rewrite remote-job-rewrite"
     },
     {
         "verb": "make_node",
@@ -41,8 +39,7 @@
             "firehose:topic",
             "<config:logs_dir>/firehose.p{partition}"
         ],
-        "raw": "make_node Topic firehose:topic <config:logs_dir>/firehose.p{partition}",
-        "line": 29
+        "raw": "make_node Topic firehose:topic <config:logs_dir>/firehose.p{partition}"
     },
     {
         "verb": "connect_node",
@@ -56,7 +53,6 @@
             "remote-job-rewrite",
             "firehose:topic"
         ],
-        "raw": "connect_node remote-job-rewrite firehose:topic",
-        "line": 30
+        "raw": "connect_node remote-job-rewrite firehose:topic"
     }
 ]

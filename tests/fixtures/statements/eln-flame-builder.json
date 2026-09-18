@@ -9,8 +9,7 @@
             "include",
             "topic-probe"
         ],
-        "raw": "include topic-probe",
-        "line": 8
+        "raw": "include topic-probe"
     },
     {
         "verb": "make_node",
@@ -30,8 +29,7 @@
             "<config:offsets_dir>/<topology>.requests.p<partition>",
             "<config:deadletter_dir>/<topology>.requests.p<partition>"
         ],
-        "raw": "make_node Consumer requests:consumer <config:logs_dir>/requests.p<partition> <config:offsets_dir>/<topology>.requests.p<partition> <config:deadletter_dir>/<topology>.requests.p<partition>",
-        "line": 10
+        "raw": "make_node Consumer requests:consumer <config:logs_dir>/requests.p<partition> <config:offsets_dir>/<topology>.requests.p<partition> <config:deadletter_dir>/<topology>.requests.p<partition>"
     },
     {
         "verb": "make_node",
@@ -45,8 +43,7 @@
             "Flame_Builder",
             "flame-builder"
         ],
-        "raw": "make_node Flame_Builder flame-builder",
-        "line": 11
+        "raw": "make_node Flame_Builder flame-builder"
     },
     {
         "verb": "make_node",
@@ -62,8 +59,7 @@
             "flames:partition",
             "<config:logs_dir>/flames.p<partition>"
         ],
-        "raw": "make_node Partition flames:partition <config:logs_dir>/flames.p<partition>",
-        "line": 12
+        "raw": "make_node Partition flames:partition <config:logs_dir>/flames.p<partition>"
     },
     {
         "verb": "make_node",
@@ -79,8 +75,7 @@
             "flame-stats:partition",
             "<config:logs_dir>/flame-stats.p<partition>"
         ],
-        "raw": "make_node Partition flame-stats:partition <config:logs_dir>/flame-stats.p<partition>",
-        "line": 13
+        "raw": "make_node Partition flame-stats:partition <config:logs_dir>/flame-stats.p<partition>"
     },
     {
         "verb": "command_node",
@@ -96,8 +91,7 @@
             "add_snapshot_node",
             "flame-builder"
         ],
-        "raw": "command_node requests:consumer:config add_snapshot_node flame-builder",
-        "line": 14
+        "raw": "command_node requests:consumer:config add_snapshot_node flame-builder"
     },
     {
         "verb": "command_node",
@@ -113,8 +107,7 @@
             "configure_stats",
             "<partition>"
         ],
-        "raw": "command_node flame-builder:config configure_stats <partition>",
-        "line": 15
+        "raw": "command_node flame-builder:config configure_stats <partition>"
     },
     {
         "verb": "command_node",
@@ -130,8 +123,7 @@
             "set_stats_target",
             "<eln:stats_mirror_node>"
         ],
-        "raw": "command_node flame-builder:config set_stats_target <eln:stats_mirror_node>",
-        "line": 16
+        "raw": "command_node flame-builder:config set_stats_target <eln:stats_mirror_node>"
     },
     {
         "verb": "command_node",
@@ -147,8 +139,7 @@
             "set_is_hub",
             "<eln:is_hub>"
         ],
-        "raw": "command_node flame-builder:config set_is_hub <eln:is_hub>",
-        "line": 17
+        "raw": "command_node flame-builder:config set_is_hub <eln:is_hub>"
     },
     {
         "verb": "command_node",
@@ -162,8 +153,7 @@
             "flames:partition:config",
             "void_warranty"
         ],
-        "raw": "command_node flames:partition:config void_warranty",
-        "line": 18
+        "raw": "command_node flames:partition:config void_warranty"
     },
     {
         "verb": "command_node",
@@ -179,8 +169,7 @@
             "with_index",
             "flame-index"
         ],
-        "raw": "command_node flames:partition:config with_index flame-index",
-        "line": 19
+        "raw": "command_node flames:partition:config with_index flame-index"
     },
     {
         "verb": "command_node",
@@ -194,8 +183,7 @@
             "flame-stats:partition:config",
             "void_warranty"
         ],
-        "raw": "command_node flame-stats:partition:config void_warranty",
-        "line": 20
+        "raw": "command_node flame-stats:partition:config void_warranty"
     },
     {
         "verb": "connect_node",
@@ -209,8 +197,7 @@
             "requests:consumer",
             "flame-builder"
         ],
-        "raw": "connect_node requests:consumer flame-builder",
-        "line": 21
+        "raw": "connect_node requests:consumer flame-builder"
     },
     {
         "verb": "connect_node",
@@ -224,7 +211,6 @@
             "flame-builder",
             "flames:partition"
         ],
-        "raw": "connect_node flame-builder flames:partition",
-        "line": 22
+        "raw": "connect_node flame-builder flames:partition"
     }
 ]

@@ -9,8 +9,7 @@
             "include",
             "topic-probe"
         ],
-        "raw": "include topic-probe",
-        "line": 10
+        "raw": "include topic-probe"
     },
     {
         "verb": "make_node",
@@ -30,8 +29,7 @@
             "<config:offsets_dir>/<topology>.firehose.p<partition>",
             "<config:deadletter_dir>/<topology>.firehose.p<partition>"
         ],
-        "raw": "make_node Consumer firehose:consumer <config:logs_dir>/firehose.p<partition> <config:offsets_dir>/<topology>.firehose.p<partition> <config:deadletter_dir>/<topology>.firehose.p<partition>",
-        "line": 12
+        "raw": "make_node Consumer firehose:consumer <config:logs_dir>/firehose.p<partition> <config:offsets_dir>/<topology>.firehose.p<partition> <config:deadletter_dir>/<topology>.firehose.p<partition>"
     },
     {
         "verb": "make_node",
@@ -47,8 +45,7 @@
             "alerts:partition",
             "<config:logs_dir>/alerts.p0"
         ],
-        "raw": "make_node Partition alerts:partition <config:logs_dir>/alerts.p0",
-        "line": 13
+        "raw": "make_node Partition alerts:partition <config:logs_dir>/alerts.p0"
     },
     {
         "verb": "make_node",
@@ -64,8 +61,7 @@
             "errors:partition",
             "<config:logs_dir>/errors.p0"
         ],
-        "raw": "make_node Partition errors:partition <config:logs_dir>/errors.p0",
-        "line": 14
+        "raw": "make_node Partition errors:partition <config:logs_dir>/errors.p0"
     },
     {
         "verb": "make_node",
@@ -93,8 +89,7 @@
             "0",
             "0"
         ],
-        "raw": "make_node Partition gyroscope:partition <config:logs_dir>/gyroscope.p0 1048576 <config:min_segments> <config:num_segments> 0 0 0",
-        "line": 15
+        "raw": "make_node Partition gyroscope:partition <config:logs_dir>/gyroscope.p0 1048576 <config:min_segments> <config:num_segments> 0 0 0"
     },
     {
         "verb": "make_node",
@@ -122,8 +117,7 @@
             "0",
             "0"
         ],
-        "raw": "make_node Partition completed:partition <config:logs_dir>/completed.p0 1048576 <config:min_segments> <config:num_segments> 0 0 0",
-        "line": 16
+        "raw": "make_node Partition completed:partition <config:logs_dir>/completed.p0 1048576 <config:min_segments> <config:num_segments> 0 0 0"
     },
     {
         "verb": "make_node",
@@ -139,8 +133,7 @@
             "requests:partition",
             "<config:logs_dir>/requests.p<partition>"
         ],
-        "raw": "make_node Partition requests:partition <config:logs_dir>/requests.p<partition>",
-        "line": 17
+        "raw": "make_node Partition requests:partition <config:logs_dir>/requests.p<partition>"
     },
     {
         "verb": "make_node",
@@ -158,8 +151,7 @@
             "100",
             "3"
         ],
-        "raw": "make_node Request_Builder request-builder 100 3",
-        "line": 18
+        "raw": "make_node Request_Builder request-builder 100 3"
     },
     {
         "verb": "make_node",
@@ -173,8 +165,7 @@
             "Tee",
             "completed:tee"
         ],
-        "raw": "make_node Tee completed:tee",
-        "line": 19
+        "raw": "make_node Tee completed:tee"
     },
     {
         "verb": "command_node",
@@ -190,8 +181,7 @@
             "add_snapshot_node",
             "request-builder"
         ],
-        "raw": "command_node firehose:consumer:config add_snapshot_node request-builder",
-        "line": 20
+        "raw": "command_node firehose:consumer:config add_snapshot_node request-builder"
     },
     {
         "verb": "command_node",
@@ -207,8 +197,7 @@
             "set_multi_writer",
             "true"
         ],
-        "raw": "command_node firehose:consumer:config set_multi_writer true",
-        "line": 21
+        "raw": "command_node firehose:consumer:config set_multi_writer true"
     },
     {
         "verb": "command_node",
@@ -224,8 +213,7 @@
             "set_alerts_target",
             "alerts:partition"
         ],
-        "raw": "command_node request-builder:config set_alerts_target alerts:partition",
-        "line": 22
+        "raw": "command_node request-builder:config set_alerts_target alerts:partition"
     },
     {
         "verb": "command_node",
@@ -241,8 +229,7 @@
             "set_errors_target",
             "errors:partition"
         ],
-        "raw": "command_node request-builder:config set_errors_target errors:partition",
-        "line": 23
+        "raw": "command_node request-builder:config set_errors_target errors:partition"
     },
     {
         "verb": "command_node",
@@ -258,8 +245,7 @@
             "set_inflight_target",
             "gyroscope:partition"
         ],
-        "raw": "command_node request-builder:config set_inflight_target gyroscope:partition",
-        "line": 24
+        "raw": "command_node request-builder:config set_inflight_target gyroscope:partition"
     },
     {
         "verb": "command_node",
@@ -275,8 +261,7 @@
             "set_completed_target",
             "completed:tee"
         ],
-        "raw": "command_node request-builder:config set_completed_target completed:tee",
-        "line": 25
+        "raw": "command_node request-builder:config set_completed_target completed:tee"
     },
     {
         "verb": "command_node",
@@ -290,8 +275,7 @@
             "requests:partition:config",
             "void_warranty"
         ],
-        "raw": "command_node requests:partition:config void_warranty",
-        "line": 26
+        "raw": "command_node requests:partition:config void_warranty"
     },
     {
         "verb": "command_node",
@@ -307,8 +291,7 @@
             "with_index",
             "request-index"
         ],
-        "raw": "command_node requests:partition:config with_index request-index",
-        "line": 27
+        "raw": "command_node requests:partition:config with_index request-index"
     },
     {
         "verb": "connect_node",
@@ -322,8 +305,7 @@
             "completed:tee",
             "completed:partition"
         ],
-        "raw": "connect_node completed:tee completed:partition",
-        "line": 28
+        "raw": "connect_node completed:tee completed:partition"
     },
     {
         "verb": "connect_node",
@@ -337,8 +319,7 @@
             "completed:tee",
             "gyroscope:partition"
         ],
-        "raw": "connect_node completed:tee gyroscope:partition",
-        "line": 29
+        "raw": "connect_node completed:tee gyroscope:partition"
     },
     {
         "verb": "connect_node",
@@ -352,8 +333,7 @@
             "firehose:consumer",
             "request-builder"
         ],
-        "raw": "connect_node firehose:consumer request-builder",
-        "line": 30
+        "raw": "connect_node firehose:consumer request-builder"
     },
     {
         "verb": "connect_node",
@@ -367,7 +347,6 @@
             "request-builder",
             "requests:partition"
         ],
-        "raw": "connect_node request-builder requests:partition",
-        "line": 31
+        "raw": "connect_node request-builder requests:partition"
     }
 ]

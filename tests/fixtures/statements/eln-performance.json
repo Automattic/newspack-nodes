@@ -9,8 +9,7 @@
             "include",
             "request-builder"
         ],
-        "raw": "include request-builder",
-        "line": 4
+        "raw": "include request-builder"
     },
     {
         "verb": "include",
@@ -22,7 +21,6 @@
             "include",
             "flame-builder"
         ],
-        "raw": "include flame-builder",
-        "line": 5
+        "raw": "include flame-builder"
     }
 ]
