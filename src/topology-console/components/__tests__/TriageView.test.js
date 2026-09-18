@@ -518,3 +518,18 @@ test( 'scrolls only the records, keeping the count and the actions in view', () 
 	expect( records.contains( getByText( 'Refresh' ) ) ).toBe( false );
 	expect( records.contains( getByText( '1 quarantined' ) ) ).toBe( false );
 } );
+
+test( 'paints the queue verbs as the rows paint theirs', () => {
+	// Refresh and Purge act on the queue as Requeue acts on a record, so
+	// all three take the compact verb role rather than a dialog's.
+	const { getByText } = render(
+		<TriageView node={ node } onAction={ jest.fn() } />
+	);
+	reply( 'dl_list', listJson() );
+
+	for ( const label of [ 'Refresh', 'Purge', 'Requeue' ] ) {
+		expect( getByText( label ).classList.contains( 'is-compact' ) ).toBe(
+			true
+		);
+	}
+} );
