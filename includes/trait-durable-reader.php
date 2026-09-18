@@ -795,7 +795,7 @@ trait Durable_Reader {
 			throw new \RuntimeException( 'no offsetlog to seek' );
 		}
 		$entry = $this->read_frame_record( $segment )
-			?? throw new \RuntimeException( "no frame at segment {$segment}" );
+			?? throw new \RuntimeException( \esc_html( "no frame at segment {$segment}" ) );
 		$cache = \is_array( $entry['cache'] ?? null ) ? $entry['cache'] : [];
 		foreach ( $this->snapshot_nodes as $snapshot_name ) {
 			$node  = Core::node( $snapshot_name );

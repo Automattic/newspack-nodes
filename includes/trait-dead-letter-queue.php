@@ -451,10 +451,10 @@ trait Dead_Letter_Queue {
 	private function deadletter_record( string $locator ): array {
 		$deadletter = $this->require_deadletter();
 		$loc        = $this->parse_deadletter_locator( $locator )
-			?? throw new \RuntimeException( "malformed locator '{$locator}' — want segment:offset:length from dl_list" );
+			?? throw new \RuntimeException( \esc_html( "malformed locator '{$locator}' — want segment:offset:length from dl_list" ) );
 		[ $segment, $offset, $length ] = $loc;
 		return $deadletter->read_message_at( $segment, $offset, $length )
-			?? throw new \RuntimeException( "no dead-letter record at {$locator}" );
+			?? throw new \RuntimeException( \esc_html( "no dead-letter record at {$locator}" ) );
 	}
 
 	/**
