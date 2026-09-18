@@ -36,8 +36,10 @@
  * sweeps put a card on the right side of it, and a last pass (`clearWires`)
  * nudging any card off the span such a wire is drawn across. A source whose
  * successors all sit in one column, two or more columns on, has a column to
- * choose, so its wires take no placeholder and push no card: `seatSources`
- * seats it last, once its block is laid out.
+ * choose, so its wires take no placeholder: `seatSources` seats it last, once
+ * its block is laid out. Where that column lies left of the anchor, it waits
+ * there for the row spread, so it straddles a card fanning to the same
+ * column instead of taking the nearest row that card leaves free.
  *
  * HUBS leave their band for the column right after the bands that feed them,
  * on those bands' middle row, with the bands they feed continuing to their
@@ -55,10 +57,11 @@
  * block holding most of its feeders. A block's hubs layer by their own
  * longest path; a hub that also feeds a band draws that edge leftward.
  *
- * Half a step opens before every column holding a node three or more wires
- * enter, and after every column holding one three or more leave — a hub, a
- * Tee, or neither — so converging and diverging wires have room to fan. The
- * shift is per column, not per block, because stacks share columns.
+ * Half a step opens between two columns where three or more wires meet one
+ * node across that boundary — into a hub, out of a Tee, or neither — so
+ * converging and diverging wires have room to fan. A wire running on past
+ * the next column crowds no boundary. The shift is per column, not per block,
+ * because stacks share columns.
  */
 
 /** Horizontal distance between layout columns, in canvas pixels. */
@@ -261,7 +264,7 @@ const stableSort = ( arr, key ) =>
  */
 const byId = ( a, b ) => String( a ).localeCompare( String( b ) );
 
-/** Wires meeting at a node before a half step opens on that side of its column. */
+/** Wires to one adjacent column before a half step opens at that boundary. */
 const GAP_MIN_WIRES = 3;
 
 /** A hub's floor fan-in; below it a node is ordinary however sparse the graph. */
@@ -945,10 +948,12 @@ const layoutComponent = ( ids, succ, pred, unfed ) => {
 	}
 
 	// @longform A card takes a row, a placeholder none: `clearWires` clears
-	// the span. A source seated last takes none either, or a column spread
-	// would push its neighbours off rows it is about to leave.
+	// the span. A late source still in column 0 takes none either, or a
+	// spread would push its neighbours off rows it is about to leave.
 	const real = new Set( ids );
-	const footprint = ( id ) => ( real.has( id ) && ! later.has( id ) ? 1 : 0 );
+	const unseated = new Set( later );
+	const footprint = ( id ) =>
+		real.has( id ) && ! unseated.has( id ) ? 1 : 0;
 	const cards = ( c ) =>
 		columns[ c ].filter( ( id ) => real.has( id ) ).length;
 
@@ -1005,17 +1010,22 @@ const layoutComponent = ( ids, succ, pred, unfed ) => {
 		return nb.filter( ( n ) => served( n ) === min );
 	};
 
-	// A node is sorted only in its own column, so its key never varies.
-	const keyedBy = ( adj, over ) => {
+	// @longform A node is sorted only in its own column, so its key never
+	// varies. An index compares only within one column, so a sweep keys on the
+	// column it just ordered; a key from further off, a late source's, breaks
+	// only a tie no neighbour there can, as for graph B's job-router.
+	const keyedBy = ( adj, over, step ) => {
 		/** @type {Object<string,Array<string>>} */
 		const keyed = {};
 		for ( const id of laid ) {
-			keyed[ id ] = leastShared( adj[ id ], over, col[ id ] );
+			const key = leastShared( adj[ id ], over, col[ id ] );
+			const near = key.filter( ( n ) => col[ n ] === col[ id ] + step );
+			keyed[ id ] = near.length ? near : key;
 		}
 		return keyed;
 	};
-	const predKeyed = keyedBy( pred, succOver );
-	const succKeyed = keyedBy( succ, predOver );
+	const predKeyed = keyedBy( pred, succOver, -1 );
+	const succKeyed = keyedBy( succ, predOver, 1 );
 	for ( let s = 0; s < 12; s++ ) {
 		for ( let c = 1; c <= maxDepth; c++ ) {
 			columns[ c ] = stableSort( columns[ c ], ( id ) =>
@@ -1030,6 +1040,22 @@ const layoutComponent = ( ids, succ, pred, unfed ) => {
 			reindex();
 		}
 	}
+	// @longform A late source sweeps from column 0, then waits beside what it
+	// feeds, so the row spread straddles it with a card fanning to the same
+	// column. Only left of the anchor: right of it, rows seat from the left,
+	// and re-spreading a column once the next has centred on it bends chains.
+	for ( const id of later ) {
+		const at = col[ succ[ id ][ 0 ] ] - 1;
+		if ( at < anchor ) {
+			columns[ col[ id ] ] = columns[ col[ id ] ].filter(
+				( x ) => x !== id
+			);
+			col[ id ] = at;
+			columns[ at ].push( id );
+			unseated.delete( id );
+		}
+	}
+	reindex();
 
 	// Spread what a sweep seated; a card with no row yet has none to spread.
 	const spreadSet = ( members, r ) =>
@@ -1171,7 +1197,7 @@ const layoutComponent = ( ids, succ, pred, unfed ) => {
 			delete row[ id ];
 		}
 	}
-	const stays = ids.filter( ( id ) => ! later.has( id ) );
+	const stays = ids.filter( ( id ) => ! unseated.has( id ) );
 	clearWires( stays, wires, col, row );
 	normalizeRows( ids, row );
 	return { col, row, wires, deferred: [ ...later ] };
@@ -1907,13 +1933,15 @@ export function autoLayout( parsed ) {
 		}
 	}
 	const { col, row } = layoutBands( ids, succ, pred, hubs );
+	const wiresTo = ( nb, c ) => nb.filter( ( n ) => col[ n ] === c ).length;
 	const opened = new Set();
 	for ( const id of ids ) {
-		if ( pred[ id ].length >= GAP_MIN_WIRES ) {
-			opened.add( col[ id ] );
+		const c = col[ id ];
+		if ( wiresTo( pred[ id ], c - 1 ) >= GAP_MIN_WIRES ) {
+			opened.add( c );
 		}
-		if ( succ[ id ].length >= GAP_MIN_WIRES ) {
-			opened.add( col[ id ] + 1 );
+		if ( wiresTo( succ[ id ], c + 1 ) >= GAP_MIN_WIRES ) {
+			opened.add( c + 1 );
 		}
 	}
 	const gaps = [ ...opened ];
