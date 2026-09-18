@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.60.8] - 2026-09-17
+
 ### Changed
 
 - **Busy wires get half a column to fan.** Every column sat one full step from the next, so seven wires converging on the station's `_output` bent into one point. Half a step now opens before any column holding a node three or more wires enter, and after any column holding a node three or more leave, such as a Tee. The shift is per column, so an unrelated card sharing that column moves with it, and the golden firehose layout moves by that half step after `request-builder`'s four outbound wires; its columns and rows are unchanged.
