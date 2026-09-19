@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The topology console's include panel stacks "Open <name>.tsl" above "Remove include",** each at full width, and a topology name too long for the panel wraps. Side by side, a long name overflowed its half.
 - **The debug overlay's Overview message list fills the tab below the charts.** It was a 320px box scrolling inside the tab's own scroll, which left the rest of the tab empty and clipped its last line.
 
 ## [2.61.0] - 2026-09-19
