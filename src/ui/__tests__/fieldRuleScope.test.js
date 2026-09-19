@@ -7,8 +7,6 @@
 
 import path from 'path';
 import * as sass from 'sass';
-// postcss-scss declares PostCSS as a required peer; this parses compiled CSS.
-// eslint-disable-next-line import/no-extraneous-dependencies
 import postcss from 'postcss';
 
 const ROOT = path.resolve( __dirname, '../../..' );

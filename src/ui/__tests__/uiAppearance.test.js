@@ -3,9 +3,6 @@
 import fs from 'fs';
 import path from 'path';
 import * as sass from 'sass';
-// postcss-scss declares PostCSS as a required peer; this file parses
-// source-compiled CSS and source SCSS.
-// eslint-disable-next-line import/no-extraneous-dependencies
 import postcss from 'postcss';
 import scss from 'postcss-scss';
 

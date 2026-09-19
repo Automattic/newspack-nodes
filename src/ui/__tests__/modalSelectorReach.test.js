@@ -1,8 +1,5 @@
 import path from 'path';
 import * as sass from 'sass';
-// postcss-scss declares PostCSS as a required peer; this test probes selectors
-// from source-compiled canonical UI CSS against the real modal DOM.
-// eslint-disable-next-line import/no-extraneous-dependencies
 import postcss from 'postcss';
 import { render } from '@testing-library/react';
 import { ModalShell } from '../../topology-console/components/Modal';

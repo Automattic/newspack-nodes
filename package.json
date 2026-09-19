@@ -54,6 +54,7 @@
 		"jsdom": "^26.1.0",
 		"knip": "^6.31.0",
 		"lint-staged": "^15.5.2",
+		"postcss": "^8.5.26",
 		"postcss-scss": "^4.0.9",
 		"postcss-selector-parser": "^7.1.1",
 		"prettier": "npm:wp-prettier@^3.0.3",

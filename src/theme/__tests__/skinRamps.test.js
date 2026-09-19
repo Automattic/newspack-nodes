@@ -14,9 +14,6 @@ import { THEMES } from '../../shared/theme';
 // Babel/Jest already installs the parser used to discover real SVG text nodes.
 // eslint-disable-next-line import/no-extraneous-dependencies
 import { parse as parseJavaScript } from '@babel/parser';
-// postcss-scss declares PostCSS as a required peer; this file parses
-// source-compiled CSS.
-// eslint-disable-next-line import/no-extraneous-dependencies
 import postcss from 'postcss';
 
 const ROOT = path.resolve( __dirname, '../../..' );
