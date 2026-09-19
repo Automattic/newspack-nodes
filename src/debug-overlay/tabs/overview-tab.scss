@@ -8,7 +8,11 @@
 .nodes-debug__panel {
 	// The classified-message list, below the rate charts. Level is a left
 	// border tint (+ red text for errors); debug lines are dimmed.
+	// The list takes whatever height the charts leave, and scrolls in it.
 	.nodes-overview__messages {
+		flex: 1 0 320px;
+		display: flex;
+		flex-direction: column;
 		margin: 18px 0 4px;
 
 		// Match the stat-card labels: small uppercase muted heading rather
@@ -26,7 +30,8 @@
 			margin: 0;
 			padding: 0;
 			list-style: none;
-			max-height: 320px;
+			flex: 1 1 0;
+			min-height: 0;
 			overflow-y: auto;
 			font-family: monospace;
 			font-size: 12px;
@@ -55,6 +60,9 @@
 	}
 
 	.nodes-overview {
+		display: flex;
+		flex-direction: column;
+
 		.nodes-card--byte-rate,
 		.nodes-card--total-bytes,
 		.nodes-card--message-rate,
@@ -62,11 +70,16 @@
 			flex: 0 0 232px;
 		}
 
+		// Flex margins add where block margins collapse; keep the block gaps.
+		&__panels {
+			margin-top: 0;
+		}
+
 		// "Reset stats" button, right-aligned below the charts.
 		&__toolbar {
 			display: flex;
 			justify-content: flex-end;
-			margin-bottom: 8px;
+			margin: 0;
 		}
 	}
 

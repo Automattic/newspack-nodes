@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The debug overlay's Overview message list fills the tab below the charts.** It was a 320px box scrolling inside the tab's own scroll, which left the rest of the tab empty and clipped its last line.
+
 ## [2.61.0] - 2026-09-19
 
 ### Changed
