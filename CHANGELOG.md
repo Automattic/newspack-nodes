@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.61.1] - 2026-09-19
+
 ### Fixed
 
 - **Admin notices land above the station, not inside it.** WordPress moves every notice after `.wp-header-end`, or failing that after the first `.wrap` heading, which on this page is inside the React tree; the page now prints the anchor ahead of its React root.
