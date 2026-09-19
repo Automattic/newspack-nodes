@@ -13,21 +13,90 @@ import { Core, FROM, VALUE } from '@newspack-nodes/runtime';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { useCommandOnce } from '../useCommandOnce';
 
+const ROUTER = '_router';
+
+/** Where `clock` starts each test, in seconds. */
+const CLOCK_BASE = 1912345678;
+
 let replyFor;
 
-const renderSave = () =>
-	renderHook( () =>
-		useCommandOnce( {
-			ci: 'topologies',
-			command: 'save',
-		} )
-	);
+/**
+ * Substrate seconds, as `Core.now()` reads them. Frozen between ticks, so the
+ * retry window, the Timer grid and the re-auth backoff move only on a tick.
+ */
+let clock;
+
+/**
+ * Mount the hook, then stop the Router's own 1s slot: the heartbeat is the
+ * test's to drive, one `tick()` at a time, never the wall clock's.
+ *
+ * @param {Object} options useCommandOnce options.
+ * @return {Object} The renderHook handle.
+ */
+const mount = ( options ) => {
+	const hook = renderHook( () => useCommandOnce( options ) );
+	Core.node( ROUTER ).stopTimer();
+	return hook;
+};
+
+const renderSave = () => mount( { ci: 'topologies', command: 'save' } );
+
+const renderGet = ( extra ) =>
+	mount( { ci: 'topologies', command: 'get', retry: true, ...extra } );
+
+/** Let every POST in flight answer; the wire resolves over a few macrotasks. */
+const settle = () =>
+	act( async () => {
+		for ( let i = 0; i < 5; i++ ) {
+			await new Promise( ( r ) => setTimeout( r, 0 ) );
+		}
+	} );
+
+/**
+ * One Router heartbeat, `seconds` of substrate time after the last, and
+ * whatever it put on the wire answered.
+ *
+ * @param {number} [seconds] Substrate seconds the clock moves first.
+ */
+const tick = async ( seconds = 1 ) => {
+	clock += seconds;
+	await act( async () => {
+		Core.node( ROUTER ).fireCb();
+	} );
+	await settle();
+};
+
+/**
+ * Heartbeats a second apart, none of them crossing a retry window alone.
+ *
+ * @param {number} count How many.
+ */
+const ticks = async ( count ) => {
+	for ( let i = 0; i < count; i++ ) {
+		await tick();
+	}
+};
+
+/**
+ * Two ticks, then one a minute on: past a read's retry window and a write's
+ * own cadence, so anything left to send has had every chance to go.
+ */
+const later = async () => {
+	await ticks( 2 );
+	await tick( 60 );
+};
 
 beforeEach( () => {
 	Core.reset();
+	clock = CLOCK_BASE;
+	jest.spyOn( Core, 'now' ).mockImplementation( () => clock );
 	window.NewspackNodesData = { restUrl: '/wp-json/', nonce: 'NONCE' };
 	replyFor = jest.fn( () => ( { restarted_fleets: [ 'demo.p0' ] } ) );
 	installFakeCommandWire( ( m ) => replyFor( m ) );
+} );
+
+afterEach( () => {
+	Core.now.mockRestore();
 } );
 
 describe( 'useCommandOnce', () => {
@@ -35,9 +104,7 @@ describe( 'useCommandOnce', () => {
 	// template over `names`, a per-file TARGET const. The hook takes the CI
 	// mount and builds it, and names its own nodes after the verb.
 	it( 'builds its egress path and node names from the CI mount', async () => {
-		renderHook( () =>
-			useCommandOnce( { ci: 'topologies', command: 'save' } )
-		);
+		renderSave();
 		await act( async () => {} );
 		expect( Core.node( 'topologies:save:fetch' ).target ).toBe(
 			'_shell/_http/topologies'
@@ -63,7 +130,7 @@ describe( 'useCommandOnce', () => {
 
 	// `taillog` is an interpreter builtin: there is no CI after the egress.
 	it( 'targets the bare egress for a builtin verb', async () => {
-		renderHook( () => useCommandOnce( { command: 'taillog' } ) );
+		mount( { command: 'taillog' } );
 		await act( async () => {} );
 		expect( Core.node( 'taillog:fetch' ).target ).toBe( '_shell/_http' );
 	} );
@@ -81,7 +148,7 @@ describe( 'useCommandOnce', () => {
 
 	it( 'sends nothing until it is run', async () => {
 		renderSave();
-		await new Promise( ( r ) => setTimeout( r, 1200 ) );
+		await ticks( 2 );
 		expect( replyFor ).not.toHaveBeenCalled();
 	} );
 
@@ -91,9 +158,7 @@ describe( 'useCommandOnce', () => {
 			result.current.run( [ 'wombat-4471', 'make_node Echo e' ] );
 		} );
 
-		await waitFor( () => expect( result.current.result ).not.toBeNull(), {
-			timeout: 4000,
-		} );
+		await waitFor( () => expect( result.current.result ).not.toBeNull() );
 		expect( replyFor ).toHaveBeenCalledTimes( 1 );
 		expect( replyFor.mock.calls[ 0 ][ 0 ][ VALUE ] ).toMatchObject( {
 			name: 'save',
@@ -127,11 +192,9 @@ describe( 'useCommandOnce', () => {
 		act( () => {
 			result.current.run( [ 'wombat-4471', '' ] );
 		} );
-		await waitFor( () => expect( replyFor ).toHaveBeenCalledTimes( 1 ), {
-			timeout: 4000,
-		} );
+		await waitFor( () => expect( replyFor ).toHaveBeenCalledTimes( 1 ) );
 
-		await new Promise( ( r ) => setTimeout( r, 2200 ) );
+		await later();
 		expect( replyFor ).toHaveBeenCalledTimes( 1 );
 	} );
 
@@ -142,9 +205,7 @@ describe( 'useCommandOnce', () => {
 			result.current.run( [ 'wombat-4471', 'garbage' ] );
 		} );
 
-		await waitFor( () => expect( result.current.error ).not.toBeNull(), {
-			timeout: 4000,
-		} );
+		await waitFor( () => expect( result.current.error ).not.toBeNull() );
 		expect( result.current.error ).toContain( 'unparseable-8823' );
 		expect( result.current.result ).toBeNull();
 	} );
@@ -153,22 +214,20 @@ describe( 'useCommandOnce', () => {
 	// to register as an answer, or the caller's confirmation never fires.
 	it( 'reports a second run even when the answer is identical', async () => {
 		const onDone = jest.fn();
-		const { result } = renderHook( () =>
-			useCommandOnce( { ci: 'topologies', command: 'save', onDone } )
-		);
+		const { result } = mount( {
+			ci: 'topologies',
+			command: 'save',
+			onDone,
+		} );
 		act( () => {
 			result.current.run( [ 'wombat-4471', '' ] );
 		} );
-		await waitFor( () => expect( onDone ).toHaveBeenCalledTimes( 1 ), {
-			timeout: 4000,
-		} );
+		await waitFor( () => expect( onDone ).toHaveBeenCalledTimes( 1 ) );
 
 		act( () => {
 			result.current.run( [ 'wombat-4471', '' ] );
 		} );
-		await waitFor( () => expect( onDone ).toHaveBeenCalledTimes( 2 ), {
-			timeout: 4000,
-		} );
+		await waitFor( () => expect( onDone ).toHaveBeenCalledTimes( 2 ) );
 		expect( replyFor ).toHaveBeenCalledTimes( 2 );
 	} );
 
@@ -181,9 +240,7 @@ describe( 'useCommandOnce', () => {
 			result.current.run( [ 'wombat-4471', '' ] );
 		} );
 		expect( result.current.pending ).toBe( true );
-		await waitFor( () => expect( result.current.pending ).toBe( false ), {
-			timeout: 4000,
-		} );
+		await waitFor( () => expect( result.current.pending ).toBe( false ) );
 	} );
 
 	// The call sites are `try { await save() } catch`, and what follows the
@@ -192,20 +249,16 @@ describe( 'useCommandOnce', () => {
 	// that produced it — a save's confirmation names the topology it saved.
 	it( 'fires onDone once per reply, with the arguments that were sent', async () => {
 		const onDone = jest.fn();
-		const { result } = renderHook( () =>
-			useCommandOnce( {
-				ci: 'topologies',
-				command: 'save',
-				onDone,
-			} )
-		);
+		const { result } = mount( {
+			ci: 'topologies',
+			command: 'save',
+			onDone,
+		} );
 		act( () => {
 			result.current.run( [ 'wombat-4471', '' ] );
 		} );
 
-		await waitFor( () => expect( onDone ).toHaveBeenCalledTimes( 1 ), {
-			timeout: 4000,
-		} );
+		await waitFor( () => expect( onDone ).toHaveBeenCalledTimes( 1 ) );
 		expect( onDone ).toHaveBeenCalledWith( {
 			result: { restarted_fleets: [ 'demo.p0' ] },
 			// The subject rides in the reply's address, not in its payload.
@@ -215,27 +268,23 @@ describe( 'useCommandOnce', () => {
 			args: [ 'wombat-4471', '' ],
 		} );
 
-		await new Promise( ( r ) => setTimeout( r, 2200 ) );
+		await later();
 		expect( onDone ).toHaveBeenCalledTimes( 1 );
 	} );
 
 	it( 'fires onDone with the refusal when the verb refuses', async () => {
 		replyFor.mockImplementation( () => new Error( 'unparseable-6612' ) );
 		const onDone = jest.fn();
-		const { result } = renderHook( () =>
-			useCommandOnce( {
-				ci: 'topologies',
-				command: 'save',
-				onDone,
-			} )
-		);
+		const { result } = mount( {
+			ci: 'topologies',
+			command: 'save',
+			onDone,
+		} );
 		act( () => {
 			result.current.run( [ 'wombat-4471', '' ] );
 		} );
 
-		await waitFor( () => expect( onDone ).toHaveBeenCalledTimes( 1 ), {
-			timeout: 4000,
-		} );
+		await waitFor( () => expect( onDone ).toHaveBeenCalledTimes( 1 ) );
 		expect( onDone.mock.calls[ 0 ][ 0 ].result ).toBeNull();
 		expect( onDone.mock.calls[ 0 ][ 0 ].error ).toContain(
 			'unparseable-6612'
@@ -249,48 +298,38 @@ describe( 'useCommandOnce', () => {
 	// per second on the wire for a topology that simply does not exist.
 	it( 'retries an UNANSWERED read until a reply lands', async () => {
 		replyFor.mockImplementation( () => undefined );
-		const { result } = renderHook( () =>
-			useCommandOnce( {
-				ci: 'topologies',
-				command: 'get',
-				retry: true,
-			} )
-		);
+		const { result } = renderGet();
 		act( () => {
 			result.current.run( [ 'wombat-4471' ] );
 		} );
+		await waitFor( () => expect( replyFor ).toHaveBeenCalledTimes( 1 ) );
 		// Asked again once the retry window has passed — not every tick.
-		await waitFor(
-			() => expect( replyFor.mock.calls.length ).toBeGreaterThan( 1 ),
-			{ timeout: 12000 }
+		await tick();
+		expect( replyFor ).toHaveBeenCalledTimes( 1 );
+		await tick( 4 );
+		await waitFor( () =>
+			expect( replyFor.mock.calls.length ).toBeGreaterThan( 1 )
 		);
 
 		replyFor.mockImplementation( () => ( { name: 'wombat-4471' } ) );
-		await waitFor(
-			() =>
-				expect( result.current.result ).toEqual( {
-					name: 'wombat-4471',
-				} ),
-			{ timeout: 12000 }
+		await tick( 5 );
+		await waitFor( () =>
+			expect( result.current.result ).toEqual( {
+				name: 'wombat-4471',
+			} )
 		);
 
 		const answered = replyFor.mock.calls.length;
-		await new Promise( ( r ) => setTimeout( r, 2200 ) );
+		await later();
 		expect( replyFor ).toHaveBeenCalledTimes( answered );
-	}, 40000 );
+	} );
 
 	// A transport refusal is NOT the server's answer: a 401 on an evicted
 	// session, a 5xx, a network drop. The batch never reached the verb, so a
 	// read that gave up there is the overnight tab loaded halfway — which is
 	// the failure this retry exists for.
 	it( 'keeps asking when the request never reached the server', async () => {
-		const { result } = renderHook( () =>
-			useCommandOnce( {
-				ci: 'topologies',
-				command: 'get',
-				retry: true,
-			} )
-		);
+		const { result } = renderGet();
 		const posts = jest.fn();
 		global.fetch = /** @type {typeof fetch} */ (
 			async ( url ) => {
@@ -306,34 +345,24 @@ describe( 'useCommandOnce', () => {
 		act( () => {
 			result.current.run( [ 'wombat-4471' ] );
 		} );
-		await waitFor( () => expect( posts ).toHaveBeenCalledTimes( 1 ), {
-			timeout: 4000,
-		} );
+		await waitFor( () => expect( posts ).toHaveBeenCalledTimes( 1 ) );
 		// The refusal reached the hook; it must not read as an answer.
-		await waitFor(
-			() => expect( posts.mock.calls.length ).toBeGreaterThan( 1 ),
-			{ timeout: 12000 }
+		await ticks( 2 );
+		await waitFor( () =>
+			expect( posts.mock.calls.length ).toBeGreaterThan( 1 )
 		);
-	}, 40000 );
+	} );
 
 	it( 'stops a retried read on a refusal, which is an answer', async () => {
 		replyFor.mockImplementation( () => new Error( 'no-such-topology' ) );
-		const { result } = renderHook( () =>
-			useCommandOnce( {
-				ci: 'topologies',
-				command: 'get',
-				retry: true,
-			} )
-		);
+		const { result } = renderGet();
 		act( () => {
 			result.current.run( [ 'wombat-4471' ] );
 		} );
-		await waitFor( () => expect( result.current.error ).not.toBeNull(), {
-			timeout: 4000,
-		} );
+		await waitFor( () => expect( result.current.error ).not.toBeNull() );
 
 		const answered = replyFor.mock.calls.length;
-		await new Promise( ( r ) => setTimeout( r, 2200 ) );
+		await later();
 		expect( replyFor ).toHaveBeenCalledTimes( answered );
 	} );
 
@@ -344,9 +373,7 @@ describe( 'useCommandOnce', () => {
 	// reply naming just the verb left the send outstanding forever.
 	it( 'settles a WRITE the transport refused, and says so', async () => {
 		const onDone = jest.fn();
-		const { result } = renderHook( () =>
-			useCommandOnce( { ci: 'vault', command: 'remove', onDone } )
-		);
+		const { result } = mount( { ci: 'vault', command: 'remove', onDone } );
 		global.fetch = /** @type {typeof fetch} */ (
 			async () => ( {
 				ok: false,
@@ -359,14 +386,12 @@ describe( 'useCommandOnce', () => {
 			result.current.run( [ 'spoke-4471' ] );
 		} );
 
-		await waitFor( () => expect( onDone ).toHaveBeenCalledTimes( 1 ), {
-			timeout: 8000,
-		} );
+		await waitFor( () => expect( onDone ).toHaveBeenCalledTimes( 1 ) );
 		expect( onDone.mock.calls[ 0 ][ 0 ].args ).toEqual( [ 'spoke-4471' ] );
 		expect( onDone.mock.calls[ 0 ][ 0 ].error ).toMatch( /401/ );
 		expect( result.current.pending ).toBe( false );
 		expect( result.current.answeredArgs ).toEqual( [ 'spoke-4471' ] );
-	}, 30000 );
+	} );
 
 	// A write that got no reply may already have been applied; sending it
 	// again would write twice.
@@ -376,11 +401,9 @@ describe( 'useCommandOnce', () => {
 		act( () => {
 			result.current.run( [ 'wombat-4471', '' ] );
 		} );
-		await waitFor( () => expect( replyFor ).toHaveBeenCalledTimes( 1 ), {
-			timeout: 4000,
-		} );
+		await waitFor( () => expect( replyFor ).toHaveBeenCalledTimes( 1 ) );
 
-		await new Promise( ( r ) => setTimeout( r, 2200 ) );
+		await later();
 		expect( replyFor ).toHaveBeenCalledTimes( 1 );
 		// It is still outstanding, and says so: a send leaves the outbox only
 		// when a reply names it, so a verb answering nothing stays pending.
@@ -397,14 +420,12 @@ describe( 'useCommandOnce', () => {
 			result.current.run( [ 'quokka-8823', '' ] );
 		} );
 
-		await waitFor( () => expect( replyFor ).toHaveBeenCalledTimes( 2 ), {
-			timeout: 6000,
-		} );
+		await waitFor( () => expect( replyFor ).toHaveBeenCalledTimes( 2 ) );
 		const sent = replyFor.mock.calls.map(
 			( [ m ] ) => m[ VALUE ].arguments[ 0 ]
 		);
 		expect( sent ).toEqual( [ 'wombat-4471', 'quokka-8823' ] );
-	}, 15000 );
+	} );
 
 	// A reply slower than the retry window means BOTH asks are answered. The
 	// second answer is about an ask already settled; firing `onDone` again
@@ -416,53 +437,40 @@ describe( 'useCommandOnce', () => {
 			() => new Promise( ( r ) => ( answerFirst = r ) )
 		);
 		replyFor.mockImplementation( () => ( { name: 'wombat-4471' } ) );
-		const { result } = renderHook( () =>
-			useCommandOnce( {
-				ci: 'topologies',
-				command: 'get',
-				retry: true,
-				onDone,
-			} )
-		);
+		const { result } = renderGet( { onDone } );
 		act( () => {
 			result.current.run( [ 'wombat-4471' ] );
 		} );
+		await waitFor( () => expect( replyFor ).toHaveBeenCalledTimes( 1 ) );
 		// The retry window passes, so the read asks a second time.
-		await waitFor( () => expect( replyFor ).toHaveBeenCalledTimes( 2 ), {
-			timeout: 12000,
-		} );
-		await waitFor( () => expect( onDone ).toHaveBeenCalledTimes( 1 ), {
-			timeout: 4000,
-		} );
+		await tick( 5 );
+		await waitFor( () => expect( replyFor ).toHaveBeenCalledTimes( 2 ) );
+		await waitFor( () => expect( onDone ).toHaveBeenCalledTimes( 1 ) );
 
 		// Now the FIRST ask answers too — an answer to a settled question.
 		await act( async () => {
 			answerFirst( { name: 'wombat-4471' } );
 		} );
-		await new Promise( ( r ) => setTimeout( r, 1200 ) );
+		await tick();
 		expect( onDone ).toHaveBeenCalledTimes( 1 );
-	}, 40000 );
+	} );
 
 	// A reply says which command it answers: both interpreters echo the verb
 	// and its arguments. That is what lets a caller sending about several
 	// subjects say which one it is looking at — no table, no id.
 	it( 'names the subject its reply answered', async () => {
 		replyFor.mockImplementation( () => new Error( 'vault sealed' ) );
-		const { result } = renderHook( () =>
-			useCommandOnce( { ci: 'vault', command: 'test' } )
-		);
+		const { result } = mount( { ci: 'vault', command: 'test' } );
 		act( () => {
 			result.current.run( [ 'wombat-4471' ] );
 		} );
 		expect( result.current.answeredArgs ).toBeNull();
 		expect( result.current.pending ).toBe( true );
 
-		await waitFor( () => expect( result.current.pending ).toBe( false ), {
-			timeout: 6000,
-		} );
+		await waitFor( () => expect( result.current.pending ).toBe( false ) );
 		expect( result.current.answeredArgs ).toEqual( [ 'wombat-4471' ] );
 		expect( result.current.error ).toContain( 'vault sealed' );
-	}, 20000 );
+	} );
 
 	// A row's spinner has to last until the ANSWER, not until the send. The
 	// outbox used to drop a write the moment it went on the wire, so a screen
@@ -473,27 +481,21 @@ describe( 'useCommandOnce', () => {
 		replyFor.mockImplementation(
 			() => new Promise( ( resolve ) => held.push( () => resolve( {} ) ) )
 		);
-		const { result } = renderHook( () =>
-			useCommandOnce( { ci: 'vault', command: 'test' } )
-		);
+		const { result } = mount( { ci: 'vault', command: 'test' } );
 		act( () => {
 			result.current.run( [ 'wombat-4471' ] );
 		} );
 		// Wait until it is demonstrably ON THE WIRE and still unanswered.
-		await waitFor( () => expect( held.length ).toBe( 1 ), {
-			timeout: 6000,
-		} );
+		await waitFor( () => expect( held.length ).toBe( 1 ) );
 		expect( result.current.pending ).toBe( true );
 		expect( result.current.answeredArgs ).toBeNull();
 
 		await act( async () => {
 			held.forEach( ( release ) => release() );
 		} );
-		await waitFor( () => expect( result.current.pending ).toBe( false ), {
-			timeout: 6000,
-		} );
+		await waitFor( () => expect( result.current.pending ).toBe( false ) );
 		expect( result.current.answeredArgs ).toEqual( [ 'wombat-4471' ] );
-	}, 30000 );
+	} );
 
 	// @longform The subject rides in the ADDRESS: FROM is `<receiver>/<id>`,
 	// the server echoes TO = FROM, the Router peels the receiver off and the
@@ -508,20 +510,16 @@ describe( 'useCommandOnce', () => {
 					held.push( () => resolve( { asked: m[ FROM ] } ) )
 				)
 		);
-		const { result } = renderHook( () =>
-			useCommandOnce( {
-				ci: 'vault',
-				command: 'test',
-				onDone: ( { subject } ) => seen.push( subject ),
-			} )
-		);
+		const { result } = mount( {
+			ci: 'vault',
+			command: 'test',
+			onDone: ( { subject } ) => seen.push( subject ),
+		} );
 		act( () => {
 			result.current.run( [ 'wombat-4471' ] );
 			result.current.run( [ 'quokka-8823' ] );
 		} );
-		await waitFor( () => expect( held.length ).toBe( 2 ), {
-			timeout: 8000,
-		} );
+		await waitFor( () => expect( held.length ).toBe( 2 ) );
 
 		// Each command carries its own reply path.
 		const from = replyFor.mock.calls.map( ( [ m ] ) => m[ FROM ] );
@@ -533,35 +531,29 @@ describe( 'useCommandOnce', () => {
 		await act( async () => {
 			held.forEach( ( release ) => release() );
 		} );
-		await waitFor( () => expect( seen.length ).toBe( 2 ), {
-			timeout: 8000,
-		} );
+		await waitFor( () => expect( seen.length ).toBe( 2 ) );
 		expect( seen.sort() ).toEqual( [ 'quokka-8823', 'wombat-4471' ] );
 		expect( result.current.pending ).toBe( false );
-	}, 30000 );
+	} );
 
 	// A subject is an ADDRESS segment, so it is escaped going out and read back
 	// as what the caller named — otherwise a label holding a slash would peel
 	// as two hops and the answer would arrive somewhere else entirely.
 	it( 'escapes a subject that would otherwise change the address', async () => {
 		const seen = [];
-		const { result } = renderHook( () =>
-			useCommandOnce( {
-				ci: 'sessions',
-				command: 'create',
-				onDone: ( { subject } ) => seen.push( subject ),
-			} )
-		);
+		const { result } = mount( {
+			ci: 'sessions',
+			command: 'create',
+			onDone: ( { subject } ) => seen.push( subject ),
+		} );
 		act( () => result.current.run( [ 'laptop mcp' ] ) );
 
-		await waitFor( () => expect( seen.length ).toBe( 1 ), {
-			timeout: 8000,
-		} );
+		await waitFor( () => expect( seen.length ).toBe( 1 ) );
 		expect( replyFor.mock.calls[ 0 ][ 0 ][ FROM ] ).toBe(
 			'sessions:create:in/laptop%20mcp'
 		);
 		expect( seen[ 0 ] ).toBe( 'laptop mcp' );
-	}, 30000 );
+	} );
 
 	// @longform A BODY is not a subject. Left to the default, a verb whose
 	// first token is a JSON document or a pasted URL would address its reply
@@ -571,9 +563,7 @@ describe( 'useCommandOnce', () => {
 	// forgot an option. The console says which command needs `subjectOf`.
 	it( 'sends without a subject when one is too long to address a reply', async () => {
 		expectConsoleWarn( 'ERROR: useCommandOnce' );
-		const { result } = renderHook( () =>
-			useCommandOnce( { ci: 'rules', command: 'upsert' } )
-		);
+		const { result } = mount( { ci: 'rules', command: 'upsert' } );
 		await act( async () => {} );
 		const document_ = JSON.stringify( { pattern: 'x'.repeat( 200 ) } );
 
@@ -581,20 +571,18 @@ describe( 'useCommandOnce', () => {
 			act( () => result.current.run( [ document_ ] ) )
 		).not.toThrow();
 
-		await waitFor(
-			() =>
-				expect(
-					replyFor.mock.calls.some(
-						( [ m ] ) => m[ VALUE ]?.name === 'upsert'
-					)
-				).toBe( true ),
-			{ timeout: 8000 }
+		await waitFor( () =>
+			expect(
+				replyFor.mock.calls.some(
+					( [ m ] ) => m[ VALUE ]?.name === 'upsert'
+				)
+			).toBe( true )
 		);
 		const sent = replyFor.mock.calls.find(
 			( [ m ] ) => m[ VALUE ]?.name === 'upsert'
 		)[ 0 ];
 		expect( sent[ FROM ] ).toBe( 'rules:upsert:in' );
-	}, 30000 );
+	} );
 
 	// Two rows acted on in the same second are two commands in flight. Neither
 	// waits for the other: the reply carries the arguments it answered, so the
@@ -610,14 +598,12 @@ describe( 'useCommandOnce', () => {
 				)
 		);
 		const seen = [];
-		const { result } = renderHook( () =>
-			useCommandOnce( {
-				ci: 'vault',
-				command: 'delete',
-				onDone: ( { args, result: r } ) =>
-					seen.push( [ args[ 0 ], r?.echoed ] ),
-			} )
-		);
+		const { result } = mount( {
+			ci: 'vault',
+			command: 'delete',
+			onDone: ( { args, result: r } ) =>
+				seen.push( [ args[ 0 ], r?.echoed ] ),
+		} );
 		await act( async () => {} );
 
 		act( () => {
@@ -625,21 +611,19 @@ describe( 'useCommandOnce', () => {
 			result.current.run( [ 'quokka-8823' ] );
 		} );
 		// BOTH are on the wire while neither has been answered.
-		await new Promise( ( r ) => setTimeout( r, 4000 ) );
+		await ticks( 4 );
 		expect( held.length ).toBe( 2 );
 
 		await act( async () => {
 			held.forEach( ( release ) => release() );
 		} );
-		await waitFor( () => expect( seen.length ).toBe( 2 ), {
-			timeout: 8000,
-		} );
+		await waitFor( () => expect( seen.length ).toBe( 2 ) );
 		// Each answer names the row it was about — nothing paired by order.
 		expect( seen.sort() ).toEqual( [
 			[ 'quokka-8823', 'quokka-8823' ],
 			[ 'wombat-4471', 'wombat-4471' ],
 		] );
-	}, 30000 );
+	} );
 
 	// @longform A caller that re-asks for the SUBJECT ALREADY OUTSTANDING is
 	// saying nothing new — the retry window already owns "ask again for this".
@@ -651,15 +635,11 @@ describe( 'useCommandOnce', () => {
 		replyFor.mockImplementation(
 			() => new Promise( ( resolve ) => ( held = resolve ) )
 		);
-		const { result } = renderHook( () =>
-			useCommandOnce( { ci: 'topologies', command: 'get', retry: true } )
-		);
+		const { result } = renderGet();
 		act( () => {
 			result.current.run( [ 'wombat-4471' ] );
 		} );
-		await waitFor( () => expect( replyFor ).toHaveBeenCalledTimes( 1 ), {
-			timeout: 6000,
-		} );
+		await waitFor( () => expect( replyFor ).toHaveBeenCalledTimes( 1 ) );
 
 		// Twenty re-asks for the same subject, as a churning dep would make.
 		act( () => {
@@ -667,14 +647,12 @@ describe( 'useCommandOnce', () => {
 				result.current.run( [ 'wombat-4471' ] );
 			}
 		} );
-		await new Promise( ( r ) => setTimeout( r, 2500 ) );
+		await ticks( 2 );
 		expect( replyFor ).toHaveBeenCalledTimes( 1 );
 
 		held?.( { ok: 1 } );
-		await waitFor( () => expect( result.current.pending ).toBe( false ), {
-			timeout: 6000,
-		} );
-	}, 30000 );
+		await waitFor( () => expect( result.current.pending ).toBe( false ) );
+	} );
 
 	// A read is the opposite: opening one topology and then another must not
 	// fetch the first, whose answer nobody wants any more.
@@ -692,9 +670,7 @@ describe( 'useCommandOnce', () => {
 					)
 				)
 		);
-		const { result } = renderHook( () =>
-			useCommandOnce( { ci: 'vault', command: 'test' } )
-		);
+		const { result } = mount( { ci: 'vault', command: 'test' } );
 		expect( result.current.isPending( 'wombat-4471' ) ).toBe( false );
 
 		// Separate ticks, so each rides its own POST and answers on its own —
@@ -702,9 +678,7 @@ describe( 'useCommandOnce', () => {
 		act( () => {
 			result.current.run( [ 'wombat-4471' ] );
 		} );
-		await waitFor( () => expect( held.length ).toBe( 1 ), {
-			timeout: 8000,
-		} );
+		await waitFor( () => expect( held.length ).toBe( 1 ) );
 		act( () => {
 			result.current.run( [ 'quokka-8823' ] );
 		} );
@@ -712,9 +686,7 @@ describe( 'useCommandOnce', () => {
 		expect( result.current.isPending( 'quokka-8823' ) ).toBe( true );
 		expect( result.current.isPending( 'never-asked' ) ).toBe( false );
 
-		await waitFor( () => expect( held.length ).toBe( 2 ), {
-			timeout: 8000,
-		} );
+		await waitFor( () => expect( held.length ).toBe( 2 ) );
 		await act( async () => {
 			held[ 0 ]();
 		} );
@@ -723,7 +695,7 @@ describe( 'useCommandOnce', () => {
 		);
 		// The other is still out; one answer does not clear the table.
 		expect( result.current.isPending( 'quokka-8823' ) ).toBe( true );
-	}, 30000 );
+	} );
 
 	// @longform A write has no cadence — only `run()` pokes it — so it arms at
 	// a minute rather than fanning out every second to find an empty outbox.
@@ -740,67 +712,51 @@ describe( 'useCommandOnce', () => {
 					)
 				)
 		);
-		const { result } = renderHook( () =>
-			useCommandOnce( { ci: 'vault', command: 'delete' } )
-		);
+		const { result } = mount( { ci: 'vault', command: 'delete' } );
 		act( () => {
 			result.current.run( [ 'wombat-4471' ] );
 			result.current.run( [ 'quokka-8823' ] );
 		} );
 
 		// Both on the wire inside a few router ticks — nowhere near a minute.
-		await waitFor( () => expect( held.length ).toBe( 2 ), {
-			timeout: 8000,
-		} );
-	}, 30000 );
+		await waitFor( () => expect( held.length ).toBe( 2 ) );
+	} );
 
 	it( 'supersedes a read rather than queueing it', async () => {
-		const { result } = renderHook( () =>
-			useCommandOnce( {
-				ci: 'topologies',
-				command: 'get',
-				retry: true,
-			} )
-		);
+		const { result } = renderGet();
 		act( () => {
 			result.current.run( [ 'wombat-4471' ] );
 			result.current.run( [ 'quokka-8823' ] );
 		} );
 
-		await waitFor( () => expect( replyFor ).toHaveBeenCalledTimes( 1 ), {
-			timeout: 4000,
-		} );
+		await waitFor( () => expect( replyFor ).toHaveBeenCalledTimes( 1 ) );
 		expect( replyFor.mock.calls[ 0 ][ 0 ][ VALUE ].arguments ).toEqual( [
 			'quokka-8823',
 		] );
 
-		await new Promise( ( r ) => setTimeout( r, 2200 ) );
+		await later();
 		expect( replyFor ).toHaveBeenCalledTimes( 1 );
-	}, 15000 );
+	} );
 
 	// Which answer is about which row: the reply carries the ARGUMENTS that
 	// produced it, taken in the order they were sent. Reading "the last thing
 	// sent" would name the second row while answering the first.
 	it( 'reports each answer with its OWN arguments, in order', async () => {
 		const seen = [];
-		const { result } = renderHook( () =>
-			useCommandOnce( {
-				ci: 'vault',
-				command: 'delete',
-				onDone: ( { args } ) => seen.push( args[ 0 ] ),
-			} )
-		);
+		const { result } = mount( {
+			ci: 'vault',
+			command: 'delete',
+			onDone: ( { args } ) => seen.push( args[ 0 ] ),
+		} );
 		act( () => {
 			result.current.run( [ 'wombat-4471' ] );
 			result.current.run( [ 'quokka-8823' ] );
 		} );
 
-		await waitFor( () => expect( seen ).toHaveLength( 2 ), {
-			timeout: 6000,
-		} );
+		await waitFor( () => expect( seen ).toHaveLength( 2 ) );
 		expect( seen ).toEqual( [ 'wombat-4471', 'quokka-8823' ] );
 		expect( result.current.answeredArgs ).toEqual( [ 'quokka-8823' ] );
-	}, 15000 );
+	} );
 
 	// A Reset Graph rebuilds the result node, whose `seq` starts again at 1
 	// while the hook's watermark survives in a ref. Reading the restart as
@@ -808,19 +764,15 @@ describe( 'useCommandOnce', () => {
 	// a promise nobody ever settles.
 	it( 'keeps answering after a rebuild restarts the reply count', async () => {
 		const onDone = jest.fn();
-		const { result } = renderHook( () =>
-			useCommandOnce( {
-				ci: 'topologies',
-				command: 'save',
-				onDone,
-			} )
-		);
+		const { result } = mount( {
+			ci: 'topologies',
+			command: 'save',
+			onDone,
+		} );
 		act( () => {
 			result.current.run( [ 'wombat-4471', '' ] );
 		} );
-		await waitFor( () => expect( onDone ).toHaveBeenCalledTimes( 1 ), {
-			timeout: 6000,
-		} );
+		await waitFor( () => expect( onDone ).toHaveBeenCalledTimes( 1 ) );
 
 		// Reset Graph: every built node is torn down and rebuilt.
 		await act( async () => {
@@ -830,14 +782,12 @@ describe( 'useCommandOnce', () => {
 		act( () => {
 			result.current.run( [ 'quokka-8823', '' ] );
 		} );
-		await waitFor( () => expect( onDone ).toHaveBeenCalledTimes( 2 ), {
-			timeout: 6000,
-		} );
+		await waitFor( () => expect( onDone ).toHaveBeenCalledTimes( 2 ) );
 		expect( onDone.mock.calls[ 1 ][ 0 ].args ).toEqual( [
 			'quokka-8823',
 			'',
 		] );
-	}, 20000 );
+	} );
 
 	// A read whose answer takes longer than the tick must not be re-sent every
 	// second: the verb behind one can be a log scan, and each duplicate reply
@@ -847,22 +797,14 @@ describe( 'useCommandOnce', () => {
 		replyFor.mockImplementation(
 			() => new Promise( ( resolve ) => ( answer = resolve ) )
 		);
-		const { result } = renderHook( () =>
-			useCommandOnce( {
-				ci: 'topologies',
-				command: 'get',
-				retry: true,
-			} )
-		);
+		const { result } = renderGet();
 		act( () => {
 			result.current.run( [ 'wombat-4471' ] );
 		} );
-		await waitFor( () => expect( replyFor ).toHaveBeenCalledTimes( 1 ), {
-			timeout: 4000,
-		} );
+		await waitFor( () => expect( replyFor ).toHaveBeenCalledTimes( 1 ) );
 
 		// Three ticks pass with the answer still outstanding.
-		await new Promise( ( r ) => setTimeout( r, 3200 ) );
+		await ticks( 3 );
 		expect( replyFor ).toHaveBeenCalledTimes( 1 );
 
 		await act( async () => {
@@ -873,5 +815,5 @@ describe( 'useCommandOnce', () => {
 				name: 'wombat-4471',
 			} )
 		);
-	}, 20000 );
+	} );
 } );

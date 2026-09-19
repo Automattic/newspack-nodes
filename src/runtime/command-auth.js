@@ -179,30 +179,13 @@ let backoffMs = BACKOFF_START_MS;
 let retryAfter = 0;
 
 /**
- * Clock seam standing in for the Date.now() every backoff and expiry decision
- * reads. Tests reassign it to step time forward rather than wait, which leaves
- * the memoisation, the widening and the expiry checks running as production
- * code. Signature: `function (): number`, milliseconds since the epoch.
- *
- * @type {(() => number)|null}
- */
-let now = null;
-
-/**
- * @testonly Exported for the backoff test; production reaches `now` directly.
- * @param {(() => number)|null} fn Replacement clock, or null for Date.now.
- */
-export function __setBackoffClock( fn ) {
-	now = fn;
-}
-
-/**
- * Read the current time through the seam.
+ * The substrate clock every expiry and backoff decision reads, so a test that
+ * steps `Core.now()` moves them with every timer and window in the graph.
  *
  * @return {number} Milliseconds since the epoch.
  */
 function clock() {
-	return ( now ?? Date.now )();
+	return Core.now() * 1000;
 }
 
 /**

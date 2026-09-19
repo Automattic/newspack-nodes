@@ -10,9 +10,9 @@
  *
  * One mock moves every decision taken against `Core.now()` together, and a poll
  * test crosses two of them: TimerNode's wall-clock grid gate (ADR-17) and
- * FetcherNode's `retry_after_s` window. Whatever reads the wall clock directly
- * keeps real time — SseInNode's reconnect watchdog and the command signer's
- * expiry are the two that matter.
+ * FetcherNode's `retry_after_s` window. The command session's expiry and its
+ * `/auth` backoff move with them. Whatever reads the wall clock directly keeps
+ * real time — SseInNode's reconnect watchdog is the one that matters.
  *
  * Call it from `beforeEach`, after `Core.reset()`. Each call rebases on the
  * real clock, so the accelerated offset restarts with every test rather than
