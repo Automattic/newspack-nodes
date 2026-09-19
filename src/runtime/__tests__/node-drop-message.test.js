@@ -155,6 +155,33 @@ describe( 'Node.dropMessage rate limiting', () => {
 		spy.mockRestore();
 	} );
 
+	/**
+	 * PHP `Node::print_less_often` tags head and tail together, keying on the
+	 * tagged head alone. A tag ends in a newline, so tagging the head before
+	 * the tail is joined prints the tail as a second line under its own prefix.
+	 */
+	it( "prints a named node's head and tail as one line", () => {
+		const spy = jest
+			.spyOn( console, 'warn' )
+			.mockImplementation( () => {} );
+		const n = new Node();
+		n.name = 'kilo-4471';
+		const m = newMessage();
+		m[ TYPE ] = TM_ERROR;
+		m[ FROM ] = 'lima';
+		m[ TO ] = 'mike';
+		m[ VALUE ] = 'NOT_AVAILABLE\n';
+		n.dropMessage( m, 'NOT_AVAILABLE' );
+		expect( Core.recentLog ).toHaveLength( 1 );
+		expect( Core.recentLog[ 0 ].replace( /\n$/, '' ) ).not.toContain(
+			'\n'
+		);
+		expect( Core.recentLog[ 0 ] ).toContain(
+			'kilo-4471: NOT_AVAILABLE - TM_ERROR from: lima to: mike'
+		);
+		spy.mockRestore();
+	} );
+
 	it( 'still separates two different drop categories', () => {
 		const spy = jest
 			.spyOn( console, 'warn' )

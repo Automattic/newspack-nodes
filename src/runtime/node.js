@@ -427,13 +427,17 @@ export class Node {
 
 	/**
 	 * Node-keyed rate-limited logging (per-node via log_midfix). Only `text`
-	 * keys the throttle — see `Core.printLessOften`.
+	 * keys the throttle, through `Core.firstInWindow`; head and tail are tagged
+	 * together, as PHP `Node::print_less_often` does, so they print as one line.
 	 *
 	 * @param {string}    text  Line to log; Core collapses the repeats.
 	 * @param {...string} extra Variable tail printed beside it, never keyed.
 	 */
 	printLessOften( text, ...extra ) {
-		Core.printLessOften( this.log_midfix( text ), ...extra );
+		const key = this.log_midfix( text );
+		if ( Core.firstInWindow( key ) ) {
+			Core.stderr( this.log_midfix( text + extra.join( '' ) ) );
+		}
 	}
 
 	/**

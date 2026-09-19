@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A browser node's rate-limited line prints as one line.** `Node.printLessOften()` tagged the head with the node's name before joining the tail, and the tag ends in a newline, so every drop line with a `from:`/`to:`/`payload:` tail printed as two lines, the second under its own timestamp — `_http: NOT_AVAILABLE - TM_ERROR`, then ` from: _router to: performance payload: NOT_AVAILABLE`. It now tags head and tail together and keys the throttle on the tagged head, as PHP's `Node::print_less_often()` does; the throttle itself is `Core.firstInWindow()`, shared by both.
+
 ## [2.60.17] - 2026-09-19
 
 ### Fixed
