@@ -8,7 +8,6 @@ import {
 	readyToMint,
 	authGeneration,
 	__setAuthFetch,
-	__setBackoffClock,
 } from '../command-auth';
 import { Core } from '../core';
 import { RouterNode } from '../router-node';
@@ -24,6 +23,20 @@ import {
 	TM_NOREPLY,
 	TM_BYTESTREAM,
 } from '../message';
+
+/**
+ * Step the substrate clock the session's expiry and backoff read.
+ *
+ * @param {() => number} ms Milliseconds since the epoch, read per call.
+ */
+function setClock( ms ) {
+	jest.spyOn( Core, 'now' ).mockImplementation( () => ms() / 1000 );
+}
+
+/** Hand `Core.now()` back to the wall clock. */
+function realClock() {
+	Core.now.mockRestore?.();
+}
 
 const HANDLE = 'aaaa1111bbbb2222cccc3333dddd4444';
 const KEY = 'browser-session-key-4242';
@@ -141,7 +154,7 @@ describe( 'browser command signing', () => {
 	// was lost. 900 is distinct from the 3600 default, so a hard-coded TTL fails.
 	it( 'treats a session past its issued lifetime as absent', async () => {
 		let clockMs = 1_000_000;
-		__setBackoffClock( () => clockMs );
+		setClock( () => clockMs );
 		__setAuthFetch( async () => ( {
 			handle: HANDLE,
 			secret: KEY,
@@ -157,13 +170,13 @@ describe( 'browser command signing', () => {
 		clockMs += 2 * 1000; // now past 900s
 		expect( hasSession() ).toBe( false );
 
-		__setBackoffClock( null );
+		realClock();
 	} );
 
 	it( 're-auths once a session has aged out', async () => {
 		let clockMs = 5_000_000;
 		let issued = 0;
-		__setBackoffClock( () => clockMs );
+		setClock( () => clockMs );
 		__setAuthFetch( async () => {
 			issued++;
 			return {
@@ -180,14 +193,14 @@ describe( 'browser command signing', () => {
 		expect( issued ).toBe( 2 );
 		expect( second?.secret ).toBe( 'key-2' );
 
-		__setBackoffClock( null );
+		realClock();
 	} );
 
 	// Emitters gate on readyToMint(), so it must see the expiry hasSession()
 	// does — otherwise every tick mints a command the server will refuse.
 	it( 'refuses to mint on an expired session', async () => {
 		let clockMs = 9_000_000;
-		__setBackoffClock( () => clockMs );
+		setClock( () => clockMs );
 		__setAuthFetch( async () => ( {
 			handle: HANDLE,
 			secret: KEY,
@@ -200,7 +213,7 @@ describe( 'browser command signing', () => {
 		clockMs += 901 * 1000;
 		expect( readyToMint() ).toBe( false );
 
-		__setBackoffClock( null );
+		realClock();
 	} );
 
 	it( 'stamps a handle, nonce and signature onto a command', async () => {
@@ -333,7 +346,7 @@ describe( 'authentication gates minting, and recovers', () => {
 	afterEach( () => {
 		forgetSession();
 		__setAuthFetch( null );
-		__setBackoffClock( null );
+		realClock();
 	} );
 
 	// @longform Every poller that ticked while /auth was in flight sent
@@ -410,9 +423,9 @@ describe( 'authentication gates minting, and recovers', () => {
 		renewSession();
 		expect( hasSession() ).toBe( false );
 		// Renewal arms a cooldown; recovery lands on the first tick past it.
-		__setBackoffClock( () => Date.now() + 60_000 );
+		setClock( () => Date.now() + 60_000 );
 		await ensureSession();
-		__setBackoffClock( null );
+		realClock();
 
 		expect( first ).toBe( true );
 		expect( issued ).toBe( 2 );
@@ -429,13 +442,13 @@ describe( 'authentication gates minting, and recovers', () => {
 describe( 'renewal backs off', () => {
 	beforeEach( () => {
 		forgetSession();
-		__setBackoffClock( null );
+		realClock();
 	} );
 
 	afterEach( () => {
 		forgetSession();
 		__setAuthFetch( null );
-		__setBackoffClock( null ); // else the next test's "advance" is a no-op
+		realClock(); // else the next test's "advance" is a no-op
 	} );
 
 	it( 'does not re-POST /auth while backing off from a failure', async () => {
@@ -461,7 +474,7 @@ describe( 'renewal backs off', () => {
 		} );
 
 		await ensureSession();
-		__setBackoffClock( () => Date.now() + 60_000 );
+		setClock( () => Date.now() + 60_000 );
 		await ensureSession();
 
 		expect( attempts ).toBe( 2 );
@@ -508,9 +521,9 @@ describe( 'renewal backs off', () => {
 		} );
 
 		await ensureSession();
-		__setBackoffClock( () => Date.now() + 60_000 );
+		setClock( () => Date.now() + 60_000 );
 		await ensureSession();
-		__setBackoffClock( null );
+		realClock();
 
 		expect( hasSession() ).toBe( true );
 	} );
@@ -587,13 +600,13 @@ describe( 'postAuth transport', () => {
 describe( 'an answered but unusable /auth', () => {
 	beforeEach( () => {
 		forgetSession();
-		__setBackoffClock( null );
+		realClock();
 	} );
 
 	afterEach( () => {
 		forgetSession();
 		__setAuthFetch( null );
-		__setBackoffClock( null );
+		realClock();
 	} );
 
 	it( 'arms the backoff when the payload carries no handle or key', async () => {
