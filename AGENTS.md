@@ -70,11 +70,13 @@ This plugin is the AUTHORITATIVE copy of the shared tooling. Every sibling vendo
 # bootstrap with `DispatchingEmitter::exportsObjects()`. Always pass
 # `--enforce-time-limit` so a test blocking on stdin (readline without a TTY) or an
 # infinite drain loop aborts at the per-test budget instead of hanging the suite;
-# class-level `#[Medium]` raises that budget from 1s to 10s for seven classes.
+# class-level `#[Medium]` raises that budget from 1s to 10s for four classes.
 # `LockTest` sleeps a whole second proving a planted symlink's mtime never moves,
-# the three SSE classes drain a real stream loop, and the two naming guards read
-# every file in eight trees. `WorkerBaseTest` states no reason for its mark; each
-# of its 39 tests builds and removes a fresh lock tree.
+# and the two naming guards read every file in eight trees. `WorkerBaseTest`
+# states no reason for its mark; each of its 40 tests builds and removes a fresh
+# lock tree. A test draining a stream loop needs no mark: `use_loop_time()` in
+# `tests/Helpers/TestCase.php` makes every drain wait advance the clock instead
+# of blocking, so an idle window or a heartbeat gap costs no wall time.
 # `tests/run.sh` forwards its arguments to the same binary; `tests/run-coverage.sh`
 # runs the same configuration under `XDEBUG_MODE=coverage` and writes the clover the
 # coverage gate reads.

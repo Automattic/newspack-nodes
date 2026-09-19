@@ -4,7 +4,6 @@ declare(strict_types=1);
 namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
-use PHPUnit\Framework\Attributes\Medium;
 use Newspack_Nodes\Rest\SSE_Out_Node;
 use Newspack_Nodes\Tests\TestCase;
 
@@ -22,7 +21,6 @@ use Newspack_Nodes\Tests\TestCase;
  * `connected`, check, and release paths.
  */
 #[CoversClass( SSE_Out_Node::class )]
-#[Medium]
 class MessagesStreamSlotPoolTest extends TestCase {
 
 	protected function setUp(): void {
@@ -31,6 +29,7 @@ class MessagesStreamSlotPoolTest extends TestCase {
 		// prior tests don't bleed into this one's drain loop and eat
 		// iteration budget before the Consumer's first fire().
 		\Newspack_Nodes\Event_Framework::reset();
+		$this->use_loop_time();
 	}
 
 	protected function tearDown(): void {

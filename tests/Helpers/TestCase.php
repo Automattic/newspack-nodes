@@ -193,6 +193,13 @@ abstract class TestCase extends PHPUnitTestCase {
 			// only in the orders where it happens to run first.
 			\Newspack_Nodes\CLI::$uid_provider = null;
 		}
+		// A leaked fake clock would freeze every later test on loop time.
+		if ( \class_exists( '\Newspack_Nodes\Core', false ) ) {
+			Core::$clock = null;
+		}
+		if ( \class_exists( '\Newspack_Nodes\Event_Framework', false ) ) {
+			\Newspack_Nodes\Event_Framework::$sleep = null;
+		}
 		$this->reset_health_test_state();
 		\Newspack_Nodes\Remote_Link_Node::reset_connect_queue();
 		parent::tearDown();
@@ -320,6 +327,23 @@ abstract class TestCase extends PHPUnitTestCase {
 
 	protected function boundedTicks( int $n ): callable {
 		return \Newspack_Nodes\Tests\BoundedTicks::callable( $n );
+	}
+
+	/**
+	 * Run every drain in this test on loop time: a wait advances
+	 * `Core::$clock` instead of blocking, so an idle window, a heartbeat gap or
+	 * a timer interval costs no wall time. The clock is the wall plus what the
+	 * loop has slept, so it never runs behind a file mtime. tearDown() restores
+	 * both seams.
+	 */
+	protected function use_loop_time(): void {
+		$slept                                 = 0.0;
+		Core::$clock                           = static function () use ( &$slept ): float {
+			return \microtime( true ) + $slept;
+		};
+		\Newspack_Nodes\Event_Framework::$sleep = static function ( int $microseconds ) use ( &$slept ): void {
+			$slept += $microseconds / 1_000_000;
+		};
 	}
 
 	/**
