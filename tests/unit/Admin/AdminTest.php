@@ -1263,6 +1263,16 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertStringNotContainsString( 'id="newspack-nodes-topology-console"', $html );
 	}
 
+	public function test_render_station_page_anchors_notices_above_the_app(): void {
+		// Without `.wp-header-end`, WordPress moves notices after the first
+		// `.wrap h1` or `h2`, which on this page is inside the React tree.
+		\ob_start();
+		( new Admin() )->render_station_page();
+		$html = (string) \ob_get_clean();
+
+		$this->assertStringStartsWith( '<hr class="wp-header-end">', $html );
+	}
+
 	public function test_render_station_page_blocks_unauthorized_user(): void {
 		$GLOBALS['_wp_test_current_user_can']['manage_options'] = false;
 		$admin                                                  = new Admin();

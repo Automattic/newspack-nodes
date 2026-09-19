@@ -984,14 +984,16 @@ class Admin {
 
 	/**
 	 * Render the station mount element, the whole server-side output of the
-	 * top-level "Nodes" landing page. Every tab on it comes from a bundle the
-	 * `newspack_nodes/station_tab_bundles` filter contributed.
+	 * top-level "Nodes" landing page, after the anchor admin notices land on.
+	 * Every tab on it comes from a bundle the `newspack_nodes/station_tab_bundles`
+	 * filter contributed.
 	 */
 	public function render_station_page(): void {
 		if ( ! Capabilities::can( Capabilities::MANAGE ) ) {
 			\wp_die( \esc_html__( 'You do not have permission to access this page.', 'newspack-nodes' ) );
 		}
-		echo '<div id="newspack-nodes-station" class="newspack-nodes-station-page"></div>';
+		// Notices go after `.wp-header-end`; without one, inside the app.
+		echo '<hr class="wp-header-end"><div id="newspack-nodes-station" class="newspack-nodes-station-page"></div>';
 	}
 
 	/**

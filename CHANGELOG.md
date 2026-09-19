@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Admin notices land above the station, not inside it.** WordPress moves every notice after `.wp-header-end`, or failing that after the first `.wrap` heading, which on this page is inside the React tree; the page now prints the anchor ahead of its React root.
 - **The topology console's include panel stacks "Open <name>.tsl" above "Remove include",** each at full width, and a topology name too long for the panel wraps. Side by side, a long name overflowed its half.
 - **The debug overlay's Overview message list fills the tab below the charts.** It was a 320px box scrolling inside the tab's own scroll, which left the rest of the tab empty and clipped its last line.
 
