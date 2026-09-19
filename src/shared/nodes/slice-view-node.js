@@ -1,6 +1,7 @@
 import {
 	CommandInterpreterNode,
 	Node,
+	ReactBridge,
 	TYPE,
 	VALUE,
 	TM_ERROR,
@@ -12,10 +13,10 @@ import { isControl } from '../helpers/controlMsg';
 /**
  * SliceViewNode — the thin per-widget view-node base a dashboard's slice views
  * extend. Each subclass owns ONE slice of a model and nothing else: its
- * `fill()` parses its own command reply into that slice and publishes it with
- * `setState( 'view', … )` for a small React widget (`useNodeState`). `setState`
- * caches its payload, so a widget mounting after the reply landed reads the
- * current slice instead of waiting out a poll interval for the next one.
+ * `fill()` parses its own command reply into that slice and publishes it on
+ * the `view` field with `setField()` for a small React widget
+ * (`useNodeField`). The field IS the current slice, so a widget mounting
+ * after the reply landed reads it instead of waiting out a poll interval.
  *
  * A slice reply lands on its own view and never touches a sibling slice — that
  * decomposition is the whole point. Neither failure mode blanks the widget: a
@@ -39,15 +40,18 @@ import { isControl } from '../helpers/controlMsg';
  * is a DECLARATION: see `sliceView()` below. Subclass only for a view that owns
  * more than its slice — its own `fill()`, a timer, a teardown.
  */
-export class SliceViewNode extends Node {
+export class SliceViewNode extends ReactBridge( Node ) {
+	/** The slice on screen: a verb's whole reply, bulk that buries the state. */
+	static dumpOmits = [ 'view' ];
+
 	/**
-	 * Publishes `emptySlice()` immediately, so a widget rendering before the
+	 * Holds `emptySlice()` from the start, so a widget rendering before the
 	 * first reply arrives reads a shaped model rather than nothing.
 	 */
 	constructor() {
 		super();
-		/** The slice on screen — what every `setState( 'view', … )` sends. */
-		this.model = this.emptySlice();
+		/** The slice on screen; each change assigns a new object. */
+		this.view = this.emptySlice();
 		/**
 		 * The status fields THIS shape declares, at their settled values. A
 		 * parsed reply rebuilds the model from these plus the slice, so the
@@ -55,10 +59,10 @@ export class SliceViewNode extends Node {
 		 * Which fields exist is fixed per class, so read them once.
 		 */
 		this.settled = {};
-		if ( 'loading' in this.model ) {
+		if ( 'loading' in this.view ) {
 			this.settled.loading = false;
 		}
-		if ( 'error' in this.model ) {
+		if ( 'error' in this.view ) {
 			this.settled.error = null;
 		}
 		/**
@@ -67,13 +71,12 @@ export class SliceViewNode extends Node {
 		 * that drives its own slice assigns it after `makeNode`.
 		 */
 		this.controlFrom = '';
-		this.setState( 'view', this.model );
 	}
 
 	/**
 	 * Route one arriving message: a control from `controlFrom` runs through
 	 * `_control()`, a TM_ERROR becomes a slice error, and anything else is
-	 * this slice's own command reply, parsed and published on `view`.
+	 * this slice's own command reply, parsed into `view` and announced.
 	 *
 	 * The origin decides the first branch, the TYPE flag the second. A control
 	 * is recognised by WHO SENT IT — ADR-7 addressing, applied to controls —
@@ -97,18 +100,16 @@ export class SliceViewNode extends Node {
 		// ORIGIN first: only the declared driver can send a control.
 		if ( isControl( this, message ) ) {
 			this._control( value );
-			this.setState( 'view', this.model );
 			return;
 		}
 		// TM_ERROR FIRST: may arrive as a bare STRING VALUE, not an object.
 		if ( 0 !== ( ( message[ TYPE ] || 0 ) & TM_ERROR ) ) {
 			const payload = payloadOf( value );
-			this.model = {
-				...this.model,
+			this.setField( 'view', {
+				...this.view,
 				error: errorMessage( payload ),
 				loading: false,
-			};
-			this.setState( 'view', this.model );
+			} );
 			return;
 		}
 		// Non-error: only an object VALUE carries a parseable slice.
@@ -117,15 +118,15 @@ export class SliceViewNode extends Node {
 		}
 		const slice = this._parse( value.payload );
 		if ( null !== slice ) {
-			this.model = { ...this.settled, ...slice };
-			this.setState( 'view', this.model );
+			this.setField( 'view', { ...this.settled, ...slice } );
 		}
 	}
 
 	/**
 	 * Apply one control verb: `loading` flips the spinner and clears the error
 	 * while keeping the data on screen, `clear` resets to the empty slice, and
-	 * `error` surfaces a caller-side failure without blanking the data.
+	 * `error` surfaces a caller-side failure without blanking the data. Each
+	 * publishes the new model; an unrecognised verb publishes nothing.
 	 *
 	 * Subclasses handle their own verbs first and defer the rest here with
 	 * `super._control( value )`.
@@ -135,15 +136,19 @@ export class SliceViewNode extends Node {
 	_control( value ) {
 		const action = value?.action;
 		if ( 'loading' === action ) {
-			this.model = { ...this.model, loading: true, error: null };
+			this.setField( 'view', {
+				...this.view,
+				loading: true,
+				error: null,
+			} );
 		} else if ( 'clear' === action ) {
-			this.model = this.emptySlice();
+			this.setField( 'view', this.emptySlice() );
 		} else if ( 'error' === action ) {
-			this.model = {
-				...this.model,
+			this.setField( 'view', {
+				...this.view,
 				loading: false,
 				error: value.error || errorMessage( null ),
-			};
+			} );
 		}
 	}
 

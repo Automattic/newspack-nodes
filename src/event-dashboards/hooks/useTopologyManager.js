@@ -49,7 +49,7 @@ import {
 	useRef,
 	useState,
 } from '@wordpress/element';
-import { useNodeState } from '../../runtime/react';
+import { useNodeField } from '../../runtime/react';
 import { formatCommandArgs } from '../../runtime/command-args';
 import { useBatchedPoll } from '@newspack-nodes/shared/hooks/useBatchedPoll';
 import useRouterTick from '@newspack-nodes/shared/hooks/useRouterTick';
@@ -321,8 +321,8 @@ export function useTopologyManager( opts = {} ) {
 		onDone: onMutationDone,
 	} );
 
-	const workerModel = useNodeState( WORKER_VIEW, 'view' );
-	const topologyModel = useNodeState( TOPOLOGY_VIEW, 'view' );
+	const workerModel = useNodeField( WORKER_VIEW, 'view' );
+	const topologyModel = useNodeField( TOPOLOGY_VIEW, 'view' );
 
 	// Memoized so the topologies array keeps STABLE identity across renders.
 	const topologies = useMemo( () => {

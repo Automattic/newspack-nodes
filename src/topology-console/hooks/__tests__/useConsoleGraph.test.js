@@ -563,7 +563,7 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 		m[ VALUE ] = 'hello from worker';
 		act( () => FakeEventSource.last.dispatch( 'msg', pack( m ) ) );
 		await flushFrame();
-		expect( Core.node( names.OUTPUT ).setStateCache.transcript ).toEqual( [
+		expect( Core.node( names.OUTPUT ).transcript ).toEqual( [
 			expect.objectContaining( {
 				kind: 'recv',
 				text: 'hello from worker',
@@ -588,7 +588,7 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 		m[ VALUE ] = 'broadcast from worker';
 		act( () => FakeEventSource.last.dispatch( 'msg', pack( m ) ) );
 		await flushFrame();
-		expect( Core.node( names.OUTPUT ).setStateCache.transcript ).toEqual( [
+		expect( Core.node( names.OUTPUT ).transcript ).toEqual( [
 			expect.objectContaining( {
 				kind: 'recv',
 				text: 'broadcast from worker',
@@ -611,12 +611,8 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 		m[ TO ] = names.METADATA;
 		m[ VALUE ] = { n1: { class: 'Echo', counter: 1, target: '' } };
 		act( () => FakeEventSource.last.dispatch( 'msg', pack( m ) ) );
-		expect(
-			Core.node( names.METADATA ).setStateCache.metadata.nodes
-		).toHaveLength( 1 );
-		expect(
-			Core.node( names.OUTPUT ).setStateCache.transcript ?? []
-		).toHaveLength( 0 );
+		expect( Core.node( names.METADATA ).metadata.nodes ).toHaveLength( 1 );
+		expect( Core.node( names.OUTPUT ).transcript ?? [] ).toHaveLength( 0 );
 	} );
 
 	it( 'seeds the Metadata node with the topology TSL on mount (instant structure before dump_metadata)', async () => {
@@ -640,7 +636,7 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 			} )
 		);
 		// The .tsl's own nodes seed the canvas before dump_metadata lands.
-		const seeded = Core.node( names.METADATA ).setStateCache.metadata;
+		const seeded = Core.node( names.METADATA ).metadata;
 		expect( seeded.nodes.map( ( n ) => n.id ) ).toContain( 'greeter' );
 	} );
 
@@ -664,8 +660,7 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 		// At the local root the poll answers itself in-browser and publishes
 		// the BROWSER's own graph, so the slot is not empty — what must be
 		// absent is the topology's own node.
-		const published =
-			Core.node( names.METADATA ).setStateCache?.metadata?.nodes ?? [];
+		const published = Core.node( names.METADATA ).metadata?.nodes ?? [];
 		expect( published.map( ( n ) => n.id ) ).not.toContain( 'greeter' );
 	} );
 
@@ -687,12 +682,11 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 		m[ KEY ] = 'completion';
 		m[ VALUE ] = { name: 'help', payload: 'connect\nconnect_node' };
 		act( () => FakeEventSource.last.dispatch( 'msg', pack( m ) ) );
-		expect(
-			Core.node( names.COMPLETION ).setStateCache.candidates.candidates
-		).toEqual( [ 'connect', 'connect_node' ] );
-		expect(
-			Core.node( names.OUTPUT ).setStateCache.transcript ?? []
-		).toHaveLength( 0 );
+		expect( Core.node( names.COMPLETION ).candidates.candidates ).toEqual( [
+			'connect',
+			'connect_node',
+		] );
+		expect( Core.node( names.OUTPUT ).transcript ?? [] ).toHaveLength( 0 );
 	} );
 
 	it( 'a typed Shell command flows Shell → interpreter → Router → RemoteIpc → POST', async () => {
@@ -721,7 +715,7 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 		const { result } = renderGraph();
 		act( () => typeLine( result.current.shell, 'cd /' ) ); // empty cwd → local
 		act( () => typeLine( result.current.shell, 'ls -a' ) );
-		const transcript = Core.node( names.OUTPUT ).setStateCache.transcript;
+		const transcript = Core.node( names.OUTPUT ).transcript;
 		const recv = transcript.find( ( e ) => e.kind === 'recv' );
 		expect( recv ).toBeTruthy();
 		expect( recv.text ).toContain( names.COMMAND_INTERPRETER );
@@ -733,7 +727,7 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 		const { result } = renderGraph();
 		act( () => typeLine( result.current.shell, 'cd /' ) );
 		act( () => typeLine( result.current.shell, 'ls -c' ) );
-		const transcript = Core.node( names.OUTPUT ).setStateCache.transcript;
+		const transcript = Core.node( names.OUTPUT ).transcript;
 		const recv = transcript.find( ( e ) => e.kind === 'recv' );
 		expect( recv ).toBeTruthy();
 		expect( recv.text ).toContain( 'COUNT' );
@@ -744,7 +738,7 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 		const { result } = renderGraph();
 		act( () => typeLine( result.current.shell, 'cd /' ) );
 		act( () => typeLine( result.current.shell, 'ls' ) );
-		const transcript = Core.node( names.OUTPUT ).setStateCache.transcript;
+		const transcript = Core.node( names.OUTPUT ).transcript;
 		const recv = transcript.find( ( e ) => e.kind === 'recv' );
 		expect( recv ).toBeTruthy();
 		expect( recv.text ).toContain( names.METADATA );
@@ -813,9 +807,7 @@ describe( 'useConsoleGraph — _cwd re-stamping routes every scope', () => {
 			Core.node( names.COMMAND_INTERPRETER ).fill( cwdPoll() );
 		} );
 		expect( postBatch ).not.toHaveBeenCalled();
-		expect(
-			Core.node( names.METADATA ).setStateCache.metadata
-		).toBeDefined();
+		expect( Core.node( names.METADATA ).metadata ).toBeDefined();
 	} );
 } );
 
@@ -827,7 +819,7 @@ describe( 'useConsoleGraph — station transcript persistence [87]', () => {
 	it( 'restores the persisted station transcript into the Dumper on mount', () => {
 		saveStationTranscript( [ { kind: 'recv', text: 'last session' } ] );
 		renderGraph();
-		expect( Core.node( names.OUTPUT ).setStateCache.transcript ).toEqual( [
+		expect( Core.node( names.OUTPUT ).transcript ).toEqual( [
 			expect.objectContaining( { kind: 'recv', text: 'last session' } ),
 		] );
 	} );
@@ -849,7 +841,7 @@ describe( 'useConsoleGraph — station transcript persistence [87]', () => {
 				debugLevelRef: { current: 0 },
 			} )
 		);
-		expect( Core.node( names.OUTPUT ).setStateCache.transcript ).toEqual( [
+		expect( Core.node( names.OUTPUT ).transcript ).toEqual( [
 			expect.objectContaining( { text: 'survive the switch' } ),
 		] );
 	} );
@@ -1010,7 +1002,7 @@ describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 		await tickRouter();
 
 		await waitFor( () => {
-			const seeded = Core.node( names.METADATA )?.setStateCache?.metadata;
+			const seeded = Core.node( names.METADATA )?.metadata;
 			const source = seeded?.nodes.find(
 				( node ) => 'cobalt-borrowed-source-619' === node.id
 			);
@@ -1050,9 +1042,7 @@ describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 				'Missing resolved_config_edges in topologies get response.'
 			);
 		} );
-		expect(
-			Core.node( names.METADATA )?.setStateCache?.metadata
-		).toBeUndefined();
+		expect( Core.node( names.METADATA )?.metadata ).toBeNull();
 	} );
 
 	it( 'resolves a flat topology own-node config target without making the node borrowed', async () => {
@@ -1104,7 +1094,7 @@ describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 		await tickRouter();
 
 		await waitFor( () => {
-			const seeded = Core.node( names.METADATA )?.setStateCache?.metadata;
+			const seeded = Core.node( names.METADATA )?.metadata;
 			const source = seeded?.nodes.find(
 				( node ) => 'cerulean-flame-builder-619' === node.id
 			);
@@ -1150,9 +1140,7 @@ describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 		await act( async () => {
 			await Promise.resolve();
 		} );
-		expect(
-			Core.node( names.METADATA )?.setStateCache?.metadata
-		).toBeUndefined();
+		expect( Core.node( names.METADATA )?.metadata ).toBeNull();
 
 		await act( async () => {
 			rerender( {
@@ -1172,7 +1160,7 @@ describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 		} );
 
 		await waitFor( () => {
-			const seeded = Core.node( names.METADATA )?.setStateCache?.metadata;
+			const seeded = Core.node( names.METADATA )?.metadata;
 			expect(
 				seeded.edges.filter( ( edge ) => edge.from === 'zebra-fanout' )
 			).toHaveLength( 2 );
@@ -1209,9 +1197,7 @@ describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 			await Promise.resolve();
 		} );
 
-		expect(
-			Core.node( names.METADATA )?.setStateCache?.metadata
-		).toBeUndefined();
+		expect( Core.node( names.METADATA )?.metadata ).toBeNull();
 	} );
 
 	it( 'seeds the EXPANDED graph, so an include-only topology paints in one shot', async () => {
@@ -1270,8 +1256,7 @@ describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 		// The include expansion is a second ask, so a second tick away.
 		await waitFor(
 			() => {
-				const seeded = Core.node( names.METADATA )?.setStateCache
-					?.metadata;
+				const seeded = Core.node( names.METADATA )?.metadata;
 				const ids = ( seeded?.nodes || [] ).map( ( n ) => n.id );
 				expect( ids ).toContain( 'wombat:tee' );
 				expect( ids ).toContain( 'zebra:consumer' );
@@ -1314,7 +1299,7 @@ describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 		await tickRouter();
 
 		await waitFor( () => {
-			const seeded = Core.node( names.METADATA )?.setStateCache?.metadata;
+			const seeded = Core.node( names.METADATA )?.metadata;
 			expect( ( seeded?.nodes || [] ).map( ( n ) => n.id ) ).toContain(
 				'zebra:consumer'
 			);

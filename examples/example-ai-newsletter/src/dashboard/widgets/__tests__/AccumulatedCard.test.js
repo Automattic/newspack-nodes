@@ -1,7 +1,7 @@
 /* eslint-env jest */
 /**
  * AccumulatedCard widget — reads ONLY the `accumulated:view` node's slice via
- * useNodeState and renders the accumulated-items KPI.
+ * useNodeField and renders the accumulated-items KPI.
  */
 
 import { render, screen } from '@testing-library/react';
@@ -16,7 +16,7 @@ function mountView( slice ) {
 	const node = new AccumulatedViewNode();
 	node.name = 'accumulated:view';
 	if ( slice ) {
-		node.setState( 'view', slice );
+		node.setField( 'view', slice );
 	}
 	return node;
 }
@@ -34,7 +34,9 @@ describe( 'AccumulatedCard', () => {
 	it( 're-renders when its view node publishes a new slice', () => {
 		const node = mountView( { accumulated: 0 } );
 		const { container } = render( <AccumulatedCard /> );
-		act( () => node.setState( 'view', { accumulated: 9 } ) );
+		act( () => {
+			node.setField( 'view', { accumulated: 9 } );
+		} );
 		expect(
 			container.querySelector( '.eai-insights__stat-num' ).textContent
 		).toBe( '9' );

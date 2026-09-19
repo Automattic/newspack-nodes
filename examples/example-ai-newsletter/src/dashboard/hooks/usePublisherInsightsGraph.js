@@ -104,7 +104,7 @@ const SLICES = [
  *
  * @param {Object} [opts]            Caller overrides.
  * @param {number} [opts.intervalMs] Poll cadence in ms; 1000 or greater.
- * @return {void} Each widget reads its own slice through `useNodeState`.
+ * @return {void} Each widget reads its own slice through `useNodeField`.
  * @throws {TypeError} When `opts.intervalMs` is below the 1000ms floor.
  */
 export function usePublisherInsightsGraph( opts = {} ) {

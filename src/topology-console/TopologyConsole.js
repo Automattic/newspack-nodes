@@ -53,7 +53,7 @@ import { isUiBound, useGraphHandlers } from './hooks/useGraphHandlers';
 import { useGraphSurface } from './hooks/useGraphSurface';
 import { useCanvasLayout } from './hooks/useCanvasLayout';
 import { useGraphReset } from '../debug-overlay/useGraphReset';
-import { useNodeState, useNodeFill } from '../runtime/react';
+import { useNodeField, useNodeState, useNodeFill } from '../runtime/react';
 import {
 	useExpandedIncludes,
 	expansionMatchesIncludes,
@@ -570,9 +570,9 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	} );
 	const uptime = useNodeState( names.UPTIME, 'uptime' ) ?? null;
 	// Tab-completion candidates from `_completion` ( { candidates, seq } ).
-	const completion = useNodeState( names.COMPLETION, 'candidates' ) ?? null;
+	const completion = useNodeField( names.COMPLETION, 'candidates' ) ?? null;
 	const transcript =
-		useNodeState( names.OUTPUT, 'transcript' ) ?? EMPTY_TRANSCRIPT;
+		useNodeField( names.OUTPUT, 'transcript' ) ?? EMPTY_TRANSCRIPT;
 	// Same slot for the verbosity dial the `debug_level` builtin moves.
 	const debugLevel = useNodeState( names.OUTPUT, 'debug_level' ) ?? 0;
 
@@ -1097,9 +1097,9 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		setSelectedId( null );
 	}, [ topology, partition ] );
 
-	// Clear METADATA cache on scope change so stale nodes don't autofit-lock.
+	// Clear METADATA's graph on scope change so stale nodes don't autofit-lock.
 	useEffect( () => {
-		Core.node( names.METADATA )?.setState( 'metadata', null );
+		Core.node( names.METADATA )?.setField( 'metadata', null );
 	}, [ scope.key ] );
 
 	// The gate is a node, so the console configures it by reference.

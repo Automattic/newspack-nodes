@@ -34,7 +34,7 @@ import { Core } from '../../../runtime/core';
 import { SEEK_END } from '../../../runtime/sse-in-node';
 import { mountExospine } from '../../../runtime/exospine';
 import { Node } from '../../../runtime/node';
-import { useNodeState } from '../../../runtime/react';
+import { useNodeField } from '../../../runtime/react';
 import names from '../../../runtime/reserved-node-names.json';
 
 // Minimal FakeEventSource — same shape as the substrate's sse-in-node.test.
@@ -239,8 +239,8 @@ describe( 'usePartitionViewerGraph — exospine + RemoteLink wiring', () => {
 		expect( listMsg[ TO ] ).toBe( 'raw-logs' );
 		// View got the logs list and defaulted the selection to logs[0].key.
 		const view = Core.node( VIEW );
-		expect( view.setStateCache.view.logs ).toHaveLength( 2 );
-		expect( view.setStateCache.view.selected ).toBe( 'firehose.p0' );
+		expect( view.view.logs ).toHaveLength( 2 );
+		expect( view.view.selected ).toBe( 'firehose.p0' );
 	} );
 
 	test( 'opens an EventSource against /messages/stream?subscribe={selected-log}', async () => {
@@ -379,9 +379,7 @@ describe( 'usePartitionViewerGraph — control callbacks', () => {
 		expect( FakeEventSource.last ).not.toBe( before );
 		expect( FakeEventSource.last.url ).toContain( 'subscribe=errors.p0' );
 		// View reflects the selection.
-		expect( Core.node( VIEW ).setStateCache.view.selected ).toBe(
-			'errors.p0'
-		);
+		expect( Core.node( VIEW ).view.selected ).toBe( 'errors.p0' );
 	} );
 
 	test( 'setPaused toggles the view paused flag', async () => {
@@ -389,7 +387,7 @@ describe( 'usePartitionViewerGraph — control callbacks', () => {
 		const { result } = mountGraph();
 		await act( async () => {} );
 		act( () => result.current.setPaused( true ) );
-		expect( Core.node( VIEW ).setStateCache.view.paused ).toBe( true );
+		expect( Core.node( VIEW ).view.paused ).toBe( true );
 	} );
 
 	test( 'clear() empties the ring through the view control, resetting the counter', async () => {
@@ -459,12 +457,12 @@ describe( 'usePartitionViewerGraph — control callbacks', () => {
 		expect( Core.node( INTERPRETER ) ).toBe( backbone );
 	} );
 
-	test( 'a graphGeneration bump re-renders the consumer so useNodeState re-subscribes to the fresh view', async () => {
+	test( 'a graphGeneration bump re-renders the consumer so useNodeField re-subscribes to the fresh view', async () => {
 		mountExospine();
 		installWire( { list_logs: oneLogReply() } );
 		const { result } = renderHook( () => {
 			const graph = usePartitionViewerGraph();
-			const view = useNodeState( VIEW, 'view' );
+			const view = useNodeField( VIEW, 'view' );
 			return { graph, view };
 		} );
 		await act( async () => {} );
@@ -478,7 +476,7 @@ describe( 'usePartitionViewerGraph — control callbacks', () => {
 
 		// Fresh view publishes; the consumer must observe it (proving rebind).
 		await act( async () => {
-			freshView.setState( 'view', { selected: 'sentinel' } );
+			freshView.setField( 'view', { selected: 'sentinel' } );
 		} );
 		expect( result.current.view ).toEqual( { selected: 'sentinel' } );
 	} );
@@ -589,7 +587,7 @@ describe( 'usePartitionViewerGraph — pause disconnects / play resumes', () => 
 		act( () => result.current.setPaused( true ) );
 		expect( open.closed ).toBe( true );
 		// The view flag is still published for the button + empty-state label.
-		expect( Core.node( VIEW ).setStateCache.view.paused ).toBe( true );
+		expect( Core.node( VIEW ).view.paused ).toBe( true );
 	} );
 
 	test( 'setPaused(false) resumes at the paused offset (reopen carries &positions=), not a blind tail', async () => {
@@ -727,7 +725,7 @@ describe( 'usePartitionViewerGraph — pause disconnects / play resumes', () => 
 			Core.bumpGraphGeneration();
 		} );
 		// The rebuilt view defaults paused:false; the hook re-applies the pause.
-		expect( Core.node( VIEW ).setStateCache.view.paused ).toBe( true );
+		expect( Core.node( VIEW ).view.paused ).toBe( true );
 		// And no fresh EventSource opened for the rebuilt-while-paused graph.
 		expect( FakeEventSource.instances.length ).toBe( afterPause );
 	} );
@@ -749,9 +747,7 @@ describe( 'usePartitionViewerGraph — pause disconnects / play resumes', () => 
 		expect( FakeEventSource.instances.length ).toBe( count );
 		expect( closed.closed ).toBe( true );
 		// But the new selection is recorded for Play.
-		expect( Core.node( VIEW ).setStateCache.view.selected ).toBe(
-			'errors.p0'
-		);
+		expect( Core.node( VIEW ).view.selected ).toBe( 'errors.p0' );
 	} );
 
 	test( 'Play after a paused selectLog opens the NEW selection (tail, no stale offset)', async () => {

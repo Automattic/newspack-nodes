@@ -52,11 +52,14 @@ function countLevels( text ) {
 /**
  * The `_dmesg` node: poll `dmesg` and publish the tail's level counts, which
  * the inspector's process-stats header reads as
- * `useNodeState( '_dmesg', 'dmesg' )`. The console points the poll at `_cwd`,
+ * `useNodeField( '_dmesg', 'dmesg' )`. The console points the poll at `_cwd`,
  * so the counts describe the process being VIEWED — a worker's PHP stderr tail
  * when cwd is a worker — rather than the browser's own telemetry.
  */
 export class DmesgNode extends PollerNode {
+	/** The level tally, derived from a tail the `dmesg` verb prints whole. */
+	static dumpOmits = [ 'dmesg' ];
+
 	/**
 	 * Poll `dmesg`, keeping PollerNode's slow cadence: every reply carries the
 	 * whole 100-line tail rather than a delta, so asking often buys nothing.
@@ -64,6 +67,12 @@ export class DmesgNode extends PollerNode {
 	constructor() {
 		super();
 		this.verb = 'dmesg';
+		/**
+		 * The last tail's per-level line counts, null before the first.
+		 *
+		 * @type {?{errors: number, warnings: number, debug: number}}
+		 */
+		this.dmesg = null;
 	}
 
 	/**
@@ -80,15 +89,15 @@ export class DmesgNode extends PollerNode {
 			super.publish( payload );
 			return;
 		}
-		this.setState(
+		this.setField(
 			'dmesg',
 			countLevels( typeof payload === 'string' ? payload : '' )
 		);
 	}
 
 	/**
-	 * Console palette entry — PollerNode's schema, with both state names this
-	 * node publishes under.
+	 * Console palette entry — PollerNode's schema, with both fields this node
+	 * publishes.
 	 *
 	 * @return {Object} The node schema.
 	 */

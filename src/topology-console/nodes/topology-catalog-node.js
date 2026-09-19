@@ -24,7 +24,7 @@ import { PollerNode } from '../../runtime/poller-node';
 
 /**
  * Registry name the hook mounts this node under, and the address every
- * `useNodeState` subscriber reads the catalog through.
+ * `useNodeField` subscriber reads the catalog through.
  */
 export const CATALOG_NODE = 'topology-catalog:fetch';
 
@@ -61,7 +61,7 @@ export const CATALOG_NODE = 'topology-catalog:fetch';
  */
 
 /**
- * What this node publishes on its `catalog` registration.
+ * What this node publishes on its `catalog` field.
  *
  * @typedef {Object} TopologyCatalog
  * @property {Object<string,number>} partitions Partition count per topology name.
@@ -139,33 +139,34 @@ function defaultPartitionCount() {
 
 /**
  * The Path menu's catalog as a graph node: it polls `topologies dump` on the
- * Router TIMER and publishes the parsed result on its `catalog` registration,
+ * Router TIMER and publishes the parsed result on its `catalog` field,
  * seeded from the page-load localize payload so the menu is populated before
  * the first reply lands.
  */
 export class TopologyCatalogNode extends PollerNode {
+	/** The catalog: every topology row, includes and all. */
+	static dumpOmits = [ 'catalog' ];
+
 	/**
-	 * Ask `dump`, and publish the localized seed immediately so a subscriber
+	 * Ask `dump`, and hold the localized seed from the start so a subscriber
 	 * mounting before the first reply still renders a catalog.
 	 */
 	constructor() {
 		super();
 		this.verb = 'dump';
 		/**
-		 * Signature of the last published catalog. An identical reply is
-		 * dropped rather than republished, because `setState` notifies every
-		 * subscriber: a fresh object identity each poll would re-render the
-		 * console and rebuild its path options for no change.
+		 * The catalog the Path menu reads; a new object on each change.
 		 *
-		 * @type {?string}
+		 * @type {TopologyCatalog}
 		 */
-		this.lastSig = null;
-		this.setState( 'catalog', seedFromGlobal() );
+		this.catalog = seedFromGlobal();
 	}
 
 	/**
 	 * Parse a `topologies dump` reply and publish it on the `catalog`
-	 * registration, skipping a reply identical to the last one. A malformed
+	 * field, skipping a reply identical to the catalog already held — the
+	 * seed included. A fresh identity each poll would re-render the console
+	 * and rebuild its path options for no change. A malformed
 	 * body keeps the last-good catalog — a transient error must not blank the
 	 * Path menu, which is the whole reason this polls rather than loads.
 	 *
@@ -182,12 +183,10 @@ export class TopologyCatalogNode extends PollerNode {
 			body.topologies,
 			defaultPartitionCount()
 		);
-		const sig = JSON.stringify( next );
-		if ( sig === this.lastSig ) {
+		if ( JSON.stringify( next ) === JSON.stringify( this.catalog ) ) {
 			return;
 		}
-		this.lastSig = sig;
-		this.setState( 'catalog', next );
+		this.setField( 'catalog', next );
 	}
 
 	/**

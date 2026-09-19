@@ -68,7 +68,7 @@ describe( 'Completion node', () => {
 				payload: 'connect\nconnect_node\ndump_node',
 			} )
 		);
-		const state = node.setStateCache.candidates;
+		const state = node.candidates;
 		expect( state.candidates ).toEqual( [
 			'connect',
 			'connect_node',
@@ -79,37 +79,57 @@ describe( 'Completion node', () => {
 	it( 'accepts a bare string VALUE (no envelope)', () => {
 		const node = new CompletionNode();
 		node.fill( msg( TM_BYTESTREAM, 'echo\nping' ) );
-		expect( node.setStateCache.candidates.candidates ).toEqual( [
-			'echo',
-			'ping',
-		] );
+		expect( node.candidates.candidates ).toEqual( [ 'echo', 'ping' ] );
 	} );
 
 	it( 'trims blank lines out of the candidate list', () => {
 		const node = new CompletionNode();
 		node.fill( msg( TM_BYTESTREAM, 'a\n\n  \nb\n' ) );
-		expect( node.setStateCache.candidates.candidates ).toEqual( [
-			'a',
-			'b',
-		] );
+		expect( node.candidates.candidates ).toEqual( [ 'a', 'b' ] );
 	} );
 
 	it( 'increments seq so an identical candidate list still notifies', () => {
 		const node = new CompletionNode();
 		node.fill( msg( TM_BYTESTREAM, 'a\nb' ) );
-		const first = node.setStateCache.candidates.seq;
+		const first = node.candidates.seq;
 		node.fill( msg( TM_BYTESTREAM, 'a\nb' ) );
-		const second = node.setStateCache.candidates.seq;
+		const second = node.candidates.seq;
 		expect( second ).toBeGreaterThan( first );
 	} );
 
 	it( 'publishes an empty candidates array for an empty payload', () => {
 		const node = new CompletionNode();
 		node.fill( msg( TM_BYTESTREAM, '' ) );
-		expect( node.setStateCache.candidates.candidates ).toEqual( [] );
+		expect( node.candidates.candidates ).toEqual( [] );
 	} );
 
-	it( 'pre-declares the `candidates` event so useNodeState can subscribe', () => {
+	it( 'holds null candidates until the first reply', () => {
+		expect( new CompletionNode().candidates ).toBeNull();
+	} );
+
+	it( 'notifies `candidates` with a new object per reply', () => {
+		const node = new CompletionNode();
+		const seen = [];
+		node.register( 'candidates', 'probe-4804', () =>
+			seen.push( node.candidates )
+		);
+		node.fill( msg( TM_BYTESTREAM, 'c4804' ) );
+		node.fill( msg( TM_BYTESTREAM, 'c4804' ) );
+		expect( seen ).toHaveLength( 2 );
+		expect( seen[ 1 ] ).not.toBe( seen[ 0 ] );
+		expect( node.setStateCache.candidates ).toBeUndefined();
+	} );
+
+	it( 'dumpNode omits the candidates, keeps the bridge', () => {
+		const node = new CompletionNode();
+		node.fill( msg( TM_BYTESTREAM, 'c4804' ) );
+		const dump = node.dumpNode();
+		expect( dump ).not.toHaveProperty( 'candidates' );
+		expect( dump ).toHaveProperty( 'registrations' );
+		expect( dump ).toHaveProperty( 'setStateCache' );
+	} );
+
+	it( 'pre-declares the `candidates` event so useNodeField can subscribe', () => {
 		const node = new CompletionNode();
 		expect( node.registrations.candidates ).toBeDefined();
 	} );
@@ -119,10 +139,7 @@ describe( 'Completion node', () => {
 		const router = new Node();
 		router.sink = node;
 		router.fill( msg( TM_BYTESTREAM, 'one\ntwo' ) );
-		expect( node.setStateCache.candidates.candidates ).toEqual( [
-			'one',
-			'two',
-		] );
+		expect( node.candidates.candidates ).toEqual( [ 'one', 'two' ] );
 	} );
 
 	it( 'increments the base Node counter on each fill', () => {

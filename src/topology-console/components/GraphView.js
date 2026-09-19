@@ -4,7 +4,7 @@ import SchematicCanvas from './SchematicCanvas';
 import Inspector from './Inspector';
 import Palette from './Palette';
 import { useGraphRates } from '../hooks/useGraphRates';
-import { useNodeState } from '../../runtime/react';
+import { useNodeField } from '../../runtime/react';
 import names from '../../runtime/reserved-node-names.json';
 import { hullNodes } from '../utils/hullNodes';
 import { aggregateSeries } from '../utils/aggregateSeries';
@@ -124,7 +124,7 @@ export default function GraphView( {
 	// rebuilds it — so sampling per rebuild files an empty point for every
 	// rebuild in between, which reads as a spike at the poll and shrinks the
 	// ring's window to a fraction of what its label claims.
-	const snapshot = useNodeState( names.METADATA, 'metadata' );
+	const snapshot = useNodeField( names.METADATA, 'metadata' );
 	const { rateRef, rateVersion } = useGraphRates(
 		snapshot ?? graph,
 		resetKey

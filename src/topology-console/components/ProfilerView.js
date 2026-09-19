@@ -19,7 +19,7 @@ import { useEffect, useMemo, useRef, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import { Core } from '../../runtime/core';
 import { mountExospine } from '../../runtime/exospine';
-import { useNodeState } from '../../runtime/react';
+import { useNodeField } from '../../runtime/react';
 import { FROM, TO } from '../../runtime/message';
 import names from '../../runtime/reserved-node-names.json';
 import { Grid, useSortState } from './SortableGrid';
@@ -91,7 +91,7 @@ const shape = ( r ) => ( {
  */
 export default function ProfilerView() {
 	const [ sort, onSort ] = useSortState( 'avg', 'desc' );
-	// Bumped after mount so useNodeState rebinds to the freshly-created poller.
+	// Bumped after mount so useNodeField rebinds to the freshly-created poller.
 	const [ , bumpBuild ] = useState( 0 );
 	const pollerRef = useRef( null );
 	const interpreterRef = useRef( null );
@@ -120,7 +120,7 @@ export default function ProfilerView() {
 		return teardown;
 	}, [] );
 
-	const reply = useNodeState( POLLER, 'reply' );
+	const reply = useNodeField( POLLER, 'reply' );
 	const all = Array.isArray( reply ) ? reply : null;
 	// Profiling off answers with the --total-- row alone (count 0).
 	const profilingOn = null !== all && all.length > 1;

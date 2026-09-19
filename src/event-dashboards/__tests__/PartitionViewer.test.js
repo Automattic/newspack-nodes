@@ -66,7 +66,7 @@ jest.mock( '../hooks/useLogReaderGraph', () => ( {
 
 const { usePartitionViewerGraph } = require( '../hooks/useLogReaderGraph' );
 
-// Stand-in partition:view node: model in setStateCache.view, ring on the node.
+// Stand-in partition:view node: model in its `view` field, ring on the node.
 function registerViewFixture( {
 	logs = [],
 	selected = '',
@@ -78,7 +78,6 @@ function registerViewFixture( {
 } = {} ) {
 	const node = {
 		registrations: { view: {} },
-		setStateCache: {},
 		lines,
 		get linesCount() {
 			return this.lines.length;
@@ -88,21 +87,18 @@ function registerViewFixture( {
 		},
 		register( event, listener, cb ) {
 			this.registrations[ event ][ listener ] = cb;
-			if ( event in this.setStateCache ) {
-				cb( this.setStateCache[ event ] );
-			}
 		},
 		unregister( event, listener ) {
 			delete this.registrations[ event ]?.[ listener ];
 		},
-		setState( event, payload ) {
-			this.setStateCache[ event ] = payload;
-			Object.values( this.registrations[ event ] || {} ).forEach(
-				( cb ) => cb( payload )
+		setField( field, value ) {
+			this[ field ] = value;
+			Object.values( this.registrations[ field ] || {} ).forEach(
+				( cb ) => cb()
 			);
 		},
 	};
-	node.setState( 'view', {
+	node.setField( 'view', {
 		logs,
 		selected,
 		paused,
@@ -229,8 +225,8 @@ describe( 'PartitionViewer', () => {
 		expect( setPaused ).toHaveBeenCalledWith( true );
 
 		act( () => {
-			node.setState( 'view', {
-				...node.setStateCache.view,
+			node.setField( 'view', {
+				...node.view,
 				paused: true,
 			} );
 		} );
@@ -420,15 +416,15 @@ describe( 'PartitionViewer', () => {
 		expect( mockRefreshSegments ).not.toHaveBeenCalled();
 		// A rotation: the stream reports a segment the rail doesn't know.
 		await act( async () => {
-			node.setState( 'view', {
-				...node.setStateCache.view,
+			node.setField( 'view', {
+				...node.view,
 				lastReceivedSegment: 1,
 			} );
 		} );
 		expect( mockRefreshSegments ).toHaveBeenCalledTimes( 1 );
 		// The SAME unknown segment must not refetch again (no loop).
 		await act( async () => {
-			node.setState( 'view', { ...node.setStateCache.view } );
+			node.setField( 'view', { ...node.view } );
 		} );
 		expect( mockRefreshSegments ).toHaveBeenCalledTimes( 1 );
 	} );
@@ -773,7 +769,7 @@ describe( 'PartitionViewer', () => {
 
 			// 'errors' arrives later — it must NOT override the selection.
 			await act( async () =>
-				node.setState( 'view', {
+				node.setField( 'view', {
 					logs: [
 						{ key: 'firehose', label: 'Firehose' },
 						{ key: 'errors', label: 'Errors' },

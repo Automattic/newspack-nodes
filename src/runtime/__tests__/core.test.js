@@ -110,8 +110,8 @@ test( 'stderr forwards a prefixed line to console.warn', () => {
 	spy.mockRestore();
 } );
 
-test( 'log_prefix prepends a timestamp + identity to every line, with a trailing newline', () => {
-	const out = Core.log_prefix( 'a\nb' );
+test( 'logPrefix prepends a timestamp + identity to every line, with a trailing newline', () => {
+	const out = Core.logPrefix( 'a\nb' );
 	const lines = out.replace( /\n$/, '' ).split( '\n' );
 	expect( lines[ 0 ] ).toMatch(
 		/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d \S+ browser: a$/
@@ -126,7 +126,7 @@ test( 'log_prefix prepends a timestamp + identity to every line, with a trailing
 // reader's own clock, not UTC. The expectations come from Date's local
 // getters, a different path from the Intl formatter the prefix is built with,
 // so a revert to toISOString() fails anywhere but a UTC host.
-describe( 'log_prefix stamps local time with the zone abbreviation', () => {
+describe( 'logPrefix stamps local time with the zone abbreviation', () => {
 	const pad = ( n ) => String( n ).padStart( 2, '0' );
 	const localOf = ( seconds ) => {
 		const d = new Date( seconds * 1000 );
@@ -142,25 +142,25 @@ describe( 'log_prefix stamps local time with the zone abbreviation', () => {
 	const SUMMER = 1782000000;
 
 	test( 'an explicit instant stamps that moment, not now', () => {
-		expect( Core.log_prefix( 'winter', WINTER ) ).toBe(
+		expect( Core.logPrefix( 'winter', WINTER ) ).toBe(
 			`${ localOf( WINTER ) } ${ zoneAt( WINTER ) } browser: winter\n`
 		);
 	} );
 
 	test( 'the same holds across the daylight boundary', () => {
-		expect( Core.log_prefix( 'summer', SUMMER ) ).toBe(
+		expect( Core.logPrefix( 'summer', SUMMER ) ).toBe(
 			`${ localOf( SUMMER ) } ${ zoneAt( SUMMER ) } browser: summer\n`
 		);
 	} );
 
-	test( 'log_prefixed leaves a line that already carries one alone', () => {
+	test( 'logPrefixed leaves a line that already carries one alone', () => {
 		expect(
-			Core.log_prefixed( '2026-01-02 03:04:05 UTC host proc[7]: already' )
+			Core.logPrefixed( '2026-01-02 03:04:05 UTC host proc[7]: already' )
 		).toBe( '2026-01-02 03:04:05 UTC host proc[7]: already\n' );
 	} );
 
-	test( 'log_prefixed stamps a bare line at the instant given', () => {
-		expect( Core.log_prefixed( 'bare', WINTER ) ).toBe(
+	test( 'logPrefixed stamps a bare line at the instant given', () => {
+		expect( Core.logPrefixed( 'bare', WINTER ) ).toBe(
 			`${ localOf( WINTER ) } ${ zoneAt( WINTER ) } browser: bare\n`
 		);
 	} );

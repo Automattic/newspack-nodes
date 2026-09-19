@@ -4813,7 +4813,7 @@ describe( 'TopologyConsole boot', () => {
 			const { Core: RtCore } = require( '../../runtime/core' );
 			const reservedNames = require( '../../runtime/reserved-node-names.json' );
 			await act( async () => {
-				RtCore.node( reservedNames.METADATA ).setState( 'metadata', {
+				RtCore.node( reservedNames.METADATA ).setField( 'metadata', {
 					nodes: [ { id: 'zebra:partition', class: 'Partition' } ],
 					edges: [],
 					pwd: '',

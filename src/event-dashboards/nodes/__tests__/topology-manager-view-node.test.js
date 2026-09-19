@@ -34,7 +34,7 @@ function listReply( payload ) {
 
 test( 'publishes the pre-reply model, so a first render reads loading', () => {
 	const v = makeView( 'topology-manager:view' );
-	expect( v.setStateCache.view ).toEqual( {
+	expect( v.view ).toEqual( {
 		topologies: [],
 		userDir: null,
 		error: null,
@@ -45,9 +45,9 @@ test( 'publishes the pre-reply model, so a first render reads loading', () => {
 test( 'stores the list reply payload as the published model', () => {
 	const v = makeView( 'topology-manager:view' );
 	v.fill( listReply( { topologies: [ { name: 'a' } ], user_dir: '/u' } ) );
-	expect( v.model.topologies ).toEqual( [ { name: 'a' } ] );
-	expect( v.model.userDir ).toBe( '/u' );
-	expect( v.model.loading ).toBe( false );
+	expect( v.view.topologies ).toEqual( [ { name: 'a' } ] );
+	expect( v.view.userDir ).toBe( '/u' );
+	expect( v.view.loading ).toBe( false );
 } );
 
 test( 'fill increments the node counter so the overlay shows throughput', () => {
@@ -65,8 +65,8 @@ test( 'uncorrelated errors publish the global model error', () => {
 
 	v.fill( m );
 
-	expect( v.model.error ).toContain( 'write conflict' );
-	expect( v.model.loading ).toBe( false );
+	expect( v.view.error ).toContain( 'write conflict' );
+	expect( v.view.loading ).toBe( false );
 } );
 
 test( 'declares has_target:false (terminal receiver — no out-port)', () => {
@@ -81,6 +81,6 @@ test( 'an unparseable reply keeps the slice it already published', () => {
 
 	v.fill( listReply( 'not-an-object' ) );
 
-	expect( v.model.topologies ).toEqual( [ { name: 'a' } ] );
-	expect( v.model.userDir ).toBe( '/u' );
+	expect( v.view.topologies ).toEqual( [ { name: 'a' } ] );
+	expect( v.view.userDir ).toBe( '/u' );
 } );

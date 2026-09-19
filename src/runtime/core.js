@@ -185,7 +185,7 @@ class CoreImpl {
 		if ( '' === text || null === text || undefined === text ) {
 			return;
 		}
-		const line = this.log_prefixed( text );
+		const line = this.logPrefixed( text );
 		this.recentLog.push( line );
 		while ( this.recentLog.length > RECENT_LOG_MAX ) {
 			this.recentLog.shift();
@@ -256,10 +256,10 @@ class CoreImpl {
 	 * @param {?number} [at] Seconds to stamp; defaults to now.
 	 * @return {string} The line, newline-terminated.
 	 */
-	log_prefixed( text, at = null ) {
+	logPrefixed( text, at = null ) {
 		return PREFIXED.test( text )
 			? text.replace( /\n+$/, '' ) + '\n'
-			: this.log_prefix( text, at );
+			: this.logPrefix( text, at );
 	}
 
 	/**
@@ -275,7 +275,7 @@ class CoreImpl {
 	 *                       time.
 	 * @return {string} The prefixed text, newline-terminated.
 	 */
-	log_prefix( msg = null, at = null ) {
+	logPrefix( msg = null, at = null ) {
 		const seconds = null === at || undefined === at ? this.now() : at;
 		const prefix = `${ localStamp( seconds ) } ${ this.argv0() }: `;
 		if ( null === msg || undefined === msg ) {

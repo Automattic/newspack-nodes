@@ -40,7 +40,7 @@
   <div class="stage">
     <h3>At the view node, before publish</h3>
     <p class="who">ProbeStreamViewNode · LogStreamViewNode</p>
-    <div class="b"><span class="n">500 ms <small>PUBLISH_THROTTLE_MS</small></span><span class="mono">setState('view')</span> leading and trailing, so a 24-hour replay burst cannot thrash React. <span class="mono">SettingsAuditViewNode</span> uses the same 500 over a 5,000-entry ring.</div>
+    <div class="b"><span class="n">500 ms <small>PUBLISH_THROTTLE_MS</small></span><span class="mono">setField('view')</span> leading and trailing, so a 24-hour replay burst cannot thrash React. <span class="mono">SettingsAuditViewNode</span> uses the same 500 over a 5,000-entry ring.</div>
     <div class="b"><span class="n">5,761 samples <small>MAX_SAMPLES</small></span>one 15-second slot per sample over <span class="mono">RETENTION_S</span> = 86,400: a hard ring cap per key, and a record older than retention is dropped on arrival.</div>
     <div class="b"><span class="n">300,000 ms <small>ENTRY_TTL_MS</small></span>the key set, measured by arrival: a key that stops reporting is evicted; a fill arriving more than one TTL after the last shifts every lease instead, because that gap is a hidden tab.</div>
     <div class="b"><span class="n">6 intervals <small>GAP_INTERVALS</small></span><span class="mono">WorkerStatusTransform</span> drops its rate baselines and segment history across a gap that long, so the first poll back reads zero rates and animates nothing.</div>

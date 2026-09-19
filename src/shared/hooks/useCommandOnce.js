@@ -198,13 +198,7 @@ export function useCommandOnce( {
 
 	const [ model, setModel ] = useState( null );
 
-	// Registering re-delivers the cached reply; this outlives a remount.
-	const seenRef = useRef( null );
 	useNodeEvent( view, 'result', ( reply ) => {
-		if ( seenRef.current === reply ) {
-			return;
-		}
-		seenRef.current = reply;
 		// A transport refusal is no answer: a read keeps asking.
 		if ( retry && reply.undelivered ) {
 			return;

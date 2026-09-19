@@ -10,8 +10,9 @@
  * and the path it polls at.
  *
  * The graph stays the source of truth. React keeps no second copy of the
- * transcript or the verbosity dial — both are Dumper state slots read back
- * through `useNodeState`, the way the console reads every other slice — while
+ * transcript or the verbosity dial — the transcript is a Dumper field read
+ * through `useNodeField`, the dial a state slot read through `useNodeState` —
+ * while
  * localStorage carries the transcript, the debug level and the interpreter's
  * `debug_state` across a reload.
  */
@@ -29,7 +30,11 @@ import { makeSkinHost } from '../topology-console/core/skinCommands';
 import { DumperNode } from '../runtime/dumper-node';
 import { StdoutNode } from '../runtime/stdout-node';
 import { OutgoingGateNode } from '../topology-console/core/outgoingGate';
-import { useGraphGeneration, useNodeState } from '../runtime/react';
+import {
+	useGraphGeneration,
+	useNodeField,
+	useNodeState,
+} from '../runtime/react';
 import {
 	newMessage,
 	TYPE,
@@ -161,10 +166,10 @@ function buildInfra( shell, debugLevelRef, onSetSkin, fieldsRef ) {
 	// Publish the restored level so the Verbose toggle reads it like any slice.
 	dumper.setDebugLevel( debugLevelRef.current );
 	dumper.setDebugUi( loadDebugUi() );
-	// These listeners only persist; React reads through useNodeState below.
+	// These listeners only persist; React reads the Dumper through the hooks.
 	const listenerId = 'useDebugRepl/transcript';
-	dumper.register( 'transcript', listenerId, ( next ) => {
-		saveTranscript( next || EMPTY_TRANSCRIPT );
+	dumper.register( 'transcript', listenerId, () => {
+		saveTranscript( dumper.transcript );
 		return true;
 	} );
 	dumper.register( 'debug_level', listenerId, ( next ) => {
@@ -251,13 +256,13 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 	const fieldsRef = useRef( null );
 	// The Dumper owns the transcript; read it where every other slice is read.
 	const transcript =
-		useNodeState( names.OUTPUT, 'transcript' ) ?? EMPTY_TRANSCRIPT;
+		useNodeField( names.OUTPUT, 'transcript' ) ?? EMPTY_TRANSCRIPT;
 	// Same for the verbosity dial the `debug_level` builtin moves.
 	const debugLevel =
 		useNodeState( names.OUTPUT, 'debug_level' ) ?? debugLevelRef.current;
 	// cwd mirrors shell.path, so the Header and `_cwd` follow a REPL `cd`.
 	const [ cwd, setCwd ] = useState( '' );
-	// One extra render, so useNodeState resolves the just-mounted Dumper.
+	// One extra render, so the node hooks resolve the just-mounted Dumper.
 	const [ , bumpRemount ] = useState( 0 );
 	// True once infra nodes (_output/_completion/_metadata/_cwd) are mounted.
 	const [ ready, setReady ] = useState( false );
@@ -291,7 +296,7 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 
 	useEffect( () => {
 		if ( ! active ) {
-			// No clear needed: the Dumper goes, so useNodeState reads empty.
+			// No clear needed: the Dumper goes, so the node hooks read empty.
 			setReady( false );
 			return undefined;
 		}

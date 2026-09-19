@@ -1,6 +1,6 @@
 /**
  * ConfigAudit — the station's config-audit timeline over the durable settings.p0 log.
- * useLogTailStream (the link) is stubbed; the view model is fed via useNodeState.
+ * useLogTailStream (the link) is stubbed; the view model is fed via useNodeField.
  */
 
 import { render, fireEvent } from '@testing-library/react';
@@ -11,10 +11,10 @@ jest.mock( '../hooks/useLogTailStream', () => ( {
 } ) );
 jest.mock( '../../runtime/react', () => ( {
 	...jest.requireActual( '../../runtime/react' ),
-	useNodeState: jest.fn(),
+	useNodeField: jest.fn(),
 } ) );
 
-import { useNodeState } from '../../runtime/react';
+import { useNodeField } from '../../runtime/react';
 
 // 1700000042 → 2023-11-14T22:14:02Z (a fixed, not-today UTC instant).
 const FIXED_TS = 1700000042;
@@ -46,7 +46,7 @@ it( 'tails settings.p0 in history mode, into the audit view', () => {
 
 describe( 'ConfigAudit', () => {
 	it( 'renders a row per change with the option name, newest-first', () => {
-		useNodeState.mockReturnValue( model() );
+		useNodeField.mockReturnValue( model() );
 		const { getByText, container } = render( <ConfigAudit /> );
 		expect( getByText( 'newspack_theme_mods' ) ).toBeTruthy();
 		expect( getByText( 'newspack_flame_colors' ) ).toBeTruthy();
@@ -60,7 +60,7 @@ describe( 'ConfigAudit', () => {
 	} );
 
 	it( 'formats every row as local date + time + timezone', () => {
-		useNodeState.mockReturnValue( model() );
+		useNodeField.mockReturnValue( model() );
 		const { container } = render( <ConfigAudit /> );
 		const times = [
 			...container.querySelectorAll( '.nodes-config-audit__time' ),
@@ -81,7 +81,7 @@ describe( 'ConfigAudit', () => {
 	} );
 
 	it( 'renders an em dash for an entry with no timestamp', () => {
-		useNodeState.mockReturnValue( {
+		useNodeField.mockReturnValue( {
 			entries: [ { id: 1, ts: 0, option: 'newspack_untimed' } ],
 		} );
 		const { container } = render( <ConfigAudit /> );
@@ -91,7 +91,7 @@ describe( 'ConfigAudit', () => {
 	} );
 
 	it( 'states that values are recorded only for allowlisted options', () => {
-		useNodeState.mockReturnValue( model() );
+		useNodeField.mockReturnValue( model() );
 		const { getByText } = render( <ConfigAudit /> );
 		expect(
 			getByText(
@@ -101,7 +101,7 @@ describe( 'ConfigAudit', () => {
 	} );
 
 	it( 'uses the canonical themed table class, not wp-list-table', () => {
-		useNodeState.mockReturnValue( model() );
+		useNodeField.mockReturnValue( model() );
 		const { container } = render( <ConfigAudit /> );
 		const table = container.querySelector( 'table' );
 		expect( table.classList.contains( 'newspack-nodes-table' ) ).toBe(
@@ -111,7 +111,7 @@ describe( 'ConfigAudit', () => {
 	} );
 
 	it( 'renders Old and New value cells, an em dash when a side is absent', () => {
-		useNodeState.mockReturnValue( {
+		useNodeField.mockReturnValue( {
 			entries: [
 				{
 					id: 2,
@@ -136,7 +136,7 @@ describe( 'ConfigAudit', () => {
 	} );
 
 	it( 'exposes the full excerpt as a title on a value cell (none when absent)', () => {
-		useNodeState.mockReturnValue( {
+		useNodeField.mockReturnValue( {
 			entries: [
 				{ id: 1, ts: TODAY_TS, option: 'newspack_x', new: 'defval' },
 			],
@@ -155,7 +155,7 @@ describe( 'ConfigAudit', () => {
 	} );
 
 	it( 'filters by option name and shows a matched / total count', () => {
-		useNodeState.mockReturnValue( model() );
+		useNodeField.mockReturnValue( model() );
 		const { container, getByText, queryByText } = render( <ConfigAudit /> );
 		fireEvent.change(
 			container.querySelector( '.newspack-nodes-search-input' ),
@@ -169,13 +169,13 @@ describe( 'ConfigAudit', () => {
 	} );
 
 	it( 'shows the total count when no filter is active', () => {
-		useNodeState.mockReturnValue( model() );
+		useNodeField.mockReturnValue( model() );
 		const { getByText } = render( <ConfigAudit /> );
 		expect( getByText( /2 changes/ ) ).toBeTruthy();
 	} );
 
 	it( 'shows a no-match message when the filter excludes everything', () => {
-		useNodeState.mockReturnValue( model() );
+		useNodeField.mockReturnValue( model() );
 		const { container, getByText } = render( <ConfigAudit /> );
 		fireEvent.change(
 			container.querySelector( '.newspack-nodes-search-input' ),
@@ -187,7 +187,7 @@ describe( 'ConfigAudit', () => {
 	} );
 
 	it( 'portals the filter toolbar into a provided header slot (none inline)', () => {
-		useNodeState.mockReturnValue( model() );
+		useNodeField.mockReturnValue( model() );
 		const slot = document.createElement( 'div' );
 		document.body.appendChild( slot );
 		const { container, getByText, queryByText } = render(
@@ -213,7 +213,7 @@ describe( 'ConfigAudit', () => {
 	} );
 
 	it( 'renders nothing in a null slot (shared header exists but not mounted)', () => {
-		useNodeState.mockReturnValue( model() );
+		useNodeField.mockReturnValue( model() );
 		const { container } = render(
 			<ConfigAudit headerControlsSlot={ null } />
 		);
@@ -223,7 +223,7 @@ describe( 'ConfigAudit', () => {
 	} );
 
 	it( 'shows an empty state when nothing has been recorded', () => {
-		useNodeState.mockReturnValue( { entries: [] } );
+		useNodeField.mockReturnValue( { entries: [] } );
 		const { getByText, queryByRole } = render( <ConfigAudit /> );
 		expect( queryByRole( 'table' ) ).toBeNull();
 		expect(
@@ -232,7 +232,7 @@ describe( 'ConfigAudit', () => {
 	} );
 
 	it( 'tolerates an unready view model (no crash, empty state)', () => {
-		useNodeState.mockReturnValue( undefined );
+		useNodeField.mockReturnValue( undefined );
 		const { getByText } = render( <ConfigAudit /> );
 		expect(
 			getByText( 'No configuration changes recorded yet.' )

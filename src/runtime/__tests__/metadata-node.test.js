@@ -1,7 +1,7 @@
 /**
  * Metadata node tests — the `_metadata` node. `_router` delivers the
  * dump_metadata poll reply (a POSITIONAL Message); the node parses the graph
- * and publishes it for the canvas ( useNodeState( '_metadata', 'metadata' ) ).
+ * and publishes it for the canvas ( useNodeField( '_metadata', 'metadata' ) ).
  * Never touches the transcript.
  */
 
@@ -50,7 +50,7 @@ describe( 'Metadata node', () => {
 				n2: { class: 'Echo', counter: 3, target: '' },
 			} )
 		);
-		const meta = node.setStateCache.metadata;
+		const meta = node.metadata;
 		expect( meta.nodes ).toHaveLength( 2 );
 		expect( meta.edges ).toEqual( [ { from: 'n1', to: 'n2' } ] );
 	} );
@@ -63,17 +63,41 @@ describe( 'Metadata node', () => {
 				payload: { n1: { class: 'Echo', counter: 7, target: '' } },
 			} )
 		);
-		expect( node.setStateCache.metadata.nodes ).toHaveLength( 1 );
+		expect( node.metadata.nodes ).toHaveLength( 1 );
 	} );
 
 	it( 'ignores an empty / null payload (no canvas churn)', () => {
 		const node = new MetadataNode();
 		node.fill( msg( TM_STRUCT, '' ) );
 		node.fill( msg( TM_STRUCT, null ) );
+		expect( node.metadata ).toBeNull();
+	} );
+
+	it( 'assigns a new graph and notifies `metadata` on each reply', () => {
+		const node = new MetadataNode();
+		const seen = [];
+		node.register( 'metadata', 'probe-5150', () =>
+			seen.push( node.metadata )
+		);
+		node.fill( msg( TM_STRUCT, { n5150: { class: 'Echo', target: '' } } ) );
+		node.optimisticPatch( 'n5151', { class: 'Tee', target: '' } );
+		expect( seen ).toHaveLength( 2 );
+		expect( seen[ 1 ] ).not.toBe( seen[ 0 ] );
 		expect( node.setStateCache.metadata ).toBeUndefined();
 	} );
 
-	it( 'pre-declares the `metadata` event so useNodeState can subscribe', () => {
+	it( 'dumpNode omits the graph, the raw map and the reply', () => {
+		const node = new MetadataNode();
+		node.fill( msg( TM_STRUCT, { n5150: { class: 'Echo', target: '' } } ) );
+		const dump = node.dumpNode();
+		expect( dump ).not.toHaveProperty( 'metadata' );
+		expect( dump ).not.toHaveProperty( 'rawMap' );
+		expect( dump ).not.toHaveProperty( 'reply' );
+		expect( dump ).toHaveProperty( 'registrations' );
+		expect( dump ).toHaveProperty( 'setStateCache' );
+	} );
+
+	it( 'pre-declares the `metadata` event so useNodeField can subscribe', () => {
 		const node = new MetadataNode();
 		expect( node.registrations.metadata ).toBeDefined();
 	} );
@@ -85,7 +109,7 @@ describe( 'Metadata node', () => {
 		router.fill(
 			msg( TM_STRUCT, { n1: { class: 'Echo', counter: 1, target: '' } } )
 		);
-		expect( node.setStateCache.metadata.nodes ).toHaveLength( 1 );
+		expect( node.metadata.nodes ).toHaveLength( 1 );
 	} );
 
 	it( 'increments the base Node counter on each fill', () => {
@@ -104,11 +128,7 @@ describe( 'Metadata node', () => {
 				beta: { class: 'Tee_Node', debug_state: 0 },
 			};
 			let publishes = 0;
-			const origSetState = node.setState.bind( node );
-			node.setState = ( key, value ) => {
-				publishes++;
-				return origSetState( key, value );
-			};
+			node.register( 'metadata', 'probe-count', () => publishes++ );
 			node.optimisticPatchAll( { debug_state: 3 } );
 			expect( publishes ).toBe( 1 );
 			expect( node.rawMap.alpha.debug_state ).toBe( 3 );
@@ -346,7 +366,7 @@ describe( 'Metadata node', () => {
 			const node = new MetadataNode();
 			seed( node, { a: { class: 'Echo', target: '' } } );
 			node.optimisticPatch( 'c', { class: 'Tee', target: '' } );
-			const meta = node.setStateCache.metadata;
+			const meta = node.metadata;
 			expect( meta.nodes.map( ( n ) => n.id ).sort() ).toEqual( [
 				'a',
 				'c',
@@ -363,7 +383,7 @@ describe( 'Metadata node', () => {
 				b: { class: 'Echo', target: '' },
 			} );
 			node.optimisticPatch( 'a', { target: 'b' } );
-			const meta = node.setStateCache.metadata;
+			const meta = node.metadata;
 			expect( meta.edges ).toContainEqual( { from: 'a', to: 'b' } );
 			// Shallow-merge keeps the rest of the node's metadata (counter).
 			expect( meta.nodes.find( ( n ) => n.id === 'a' ).count ).toBe( 7 );
@@ -373,7 +393,7 @@ describe( 'Metadata node', () => {
 			const node = new MetadataNode();
 			seed( node, { a: { class: 'Echo', target: 'b' } } );
 			node.optimisticPatch( 'a', { target: '' } );
-			expect( node.setStateCache.metadata.edges ).toHaveLength( 0 );
+			expect( node.metadata.edges ).toHaveLength( 0 );
 		} );
 
 		it( 'removes a node when patched with null', () => {
@@ -383,9 +403,9 @@ describe( 'Metadata node', () => {
 				b: { class: 'Echo', target: '' },
 			} );
 			node.optimisticPatch( 'b', null );
-			expect(
-				node.setStateCache.metadata.nodes.map( ( n ) => n.id )
-			).toEqual( [ 'a' ] );
+			expect( node.metadata.nodes.map( ( n ) => n.id ) ).toEqual( [
+				'a',
+			] );
 		} );
 
 		it( 'does not rescale the poll interval', () => {
@@ -400,9 +420,9 @@ describe( 'Metadata node', () => {
 			const node = new MetadataNode();
 			seed( node, { a: { class: 'Echo', target: '' } } );
 			node.optimisticPatch( '', { target: 'b' } );
-			expect(
-				node.setStateCache.metadata.nodes.map( ( n ) => n.id )
-			).toEqual( [ 'a' ] );
+			expect( node.metadata.nodes.map( ( n ) => n.id ) ).toEqual( [
+				'a',
+			] );
 		} );
 	} );
 

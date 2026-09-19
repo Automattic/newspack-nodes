@@ -67,7 +67,7 @@ const SOURCES = [
 	},
 ];
 
-// Stand-in log-viewer:view node: model in setStateCache.view, ring on the node.
+// Stand-in log-viewer:view node: model in its `view` field, ring on the node.
 function registerViewFixture( {
 	selected = '',
 	paused = false,
@@ -77,7 +77,6 @@ function registerViewFixture( {
 } = {} ) {
 	const node = {
 		registrations: { view: {} },
-		setStateCache: {},
 		lines,
 		get linesCount() {
 			return this.lines.length;
@@ -87,21 +86,18 @@ function registerViewFixture( {
 		},
 		register( event, listener, cb ) {
 			this.registrations[ event ][ listener ] = cb;
-			if ( event in this.setStateCache ) {
-				cb( this.setStateCache[ event ] );
-			}
 		},
 		unregister( event, listener ) {
 			delete this.registrations[ event ]?.[ listener ];
 		},
-		setState( event, payload ) {
-			this.setStateCache[ event ] = payload;
-			Object.values( this.registrations[ event ] || {} ).forEach(
-				( cb ) => cb( payload )
+		setField( field, value ) {
+			this[ field ] = value;
+			Object.values( this.registrations[ field ] || {} ).forEach(
+				( cb ) => cb()
 			);
 		},
 	};
-	node.setState( 'view', {
+	node.setField( 'view', {
 		logs: [],
 		selected,
 		paused,

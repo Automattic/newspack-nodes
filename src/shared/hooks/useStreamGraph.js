@@ -49,7 +49,7 @@ import {
 import {
 	CommandInterpreterNode,
 	mountExospine,
-	useNodeState,
+	useNodeField,
 } from '@newspack-nodes/runtime';
 import usePageVisibility from './usePageVisibility';
 import { useCommandOnce } from './useCommandOnce';
@@ -467,7 +467,7 @@ export function useLogCatalog( { prefix, command, target, argsFn, keep } ) {
 	} );
 
 	const rows =
-		useNodeState( `${ prefix }-catalog:view`, 'view' )?.items ?? NO_ROWS;
+		useNodeField( `${ prefix }-catalog:view`, 'view' )?.items ?? NO_ROWS;
 	return useMemo(
 		() => ( keep ? rows.filter( keep ) : rows ),
 		[ rows, keep ]

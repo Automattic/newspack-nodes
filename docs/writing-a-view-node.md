@@ -83,7 +83,7 @@ export class AccumulatedViewNode extends SliceViewNode {
 Register it — `CommandInterpreterNode.registerNodeClasses( { AccumulatedView:
 AccumulatedViewNode } )`, importing `CommandInterpreterNode` from
 `@newspack-nodes/runtime` — and React reads it with
-`useNodeState( 'accumulated:view', 'view' )`.
+`useNodeField( 'accumulated:view', 'view' )`.
 
 `examples/example-ai-newsletter`'s three views subclass for that shape alone;
 each would read as a declaration carrying `json: true`. A view that earns a
@@ -100,7 +100,7 @@ lingers. Changing either file means changing the other.
 
 ## 3 routing facts
 
-![A slice drawn three ways, every node named <subject>:<role>. A polled slice runs <subject>:timer, :tee and :fetch, which sends the verb to the server CI with FROM = <subject>:in; the reply comes back TO = FROM to the :in receiver Tee, through an optional :transform, to the :view, whose setState reaches the React widget through useNodeState. A one-shot, useCommandOnce under the default scope <ci>:<command>, runs vault:add:fetch, vault:add:in and vault:add:result, a CommandResultNode. A stream, useStreamGraph under a prefix, runs <prefix>:link (a RemoteLink opening the SSE connection), <prefix>:stream and <prefix>:view, a LogStreamViewNode, beside the <prefix>-catalog:* and <prefix>-step:* slices. Beneath: the subject is the noun and never the verb, the three routing facts, and the rule that a node playing none of the fixed roles is a second slice with a subject of its own.](img/wvn-slice-path.png)
+![A slice drawn three ways, every node named <subject>:<role>. A polled slice runs <subject>:timer, :tee and :fetch, which sends the verb to the server CI with FROM = <subject>:in; the reply comes back TO = FROM to the :in receiver Tee, through an optional :transform, to the :view, which publishes its view field with setField( 'view', … ) for the React widget's useNodeField. A one-shot, useCommandOnce under the default scope <ci>:<command>, runs vault:add:fetch, vault:add:in and vault:add:result, a CommandResultNode. A stream, useStreamGraph under a prefix, runs <prefix>:link (a RemoteLink opening the SSE connection), <prefix>:stream and <prefix>:view, a LogStreamViewNode, beside the <prefix>-catalog:* and <prefix>-step:* slices. Beneath: the subject is the noun and never the verb, the three routing facts, and the rule that a node playing none of the fixed roles is a second slice with a subject of its own.](img/wvn-slice-path.png)
 
 1. **A view is a terminal — no `target`, no `sink`** (`has_target: false`). A
    per-slice merge or dedup rides the receiver-Tee → view edge, in
@@ -130,23 +130,51 @@ exception. `hook-catalog`, `error-log` and `partition` are subjects under the
 same rule. The shared hooks derive every name from the subject you hand them:
 `scope` in `useCatalogSlice` and `useCommandOnce`, `prefix` in `useStreamGraph`.
 
-## `setState( 'view', model )`
+## The `view` field
 
-![The base SliceViewNode.fill() as a decision chain. Every message first bumps this.counter. A message whose FROM is controlFrom goes to _control(), where loading raises the spinner and clears the error, clear resets to emptySlice(), error stops the spinner with value.error or 'Operation failed', and an unknown verb changes nothing. Otherwise a TM_ERROR becomes { ...model, error, loading: false }, keeping the slice on screen. Otherwise an object VALUE goes to _parse( value.payload ), which JSON-decodes a string in a try/catch and runs a declared parse; a slice becomes model = { ...settled, ...slice }, rebuilt rather than merged, while null or a non-object VALUE returns and keeps the prior slice. Every publishing branch ends in setState( 'view', model ), which caches the payload for a widget that mounts late. Beneath: preserve origin-then-TYPE order in an override, garbage keeps the prior slice, recovery needs no reload, and CommandResultNode, the one-shot mirror, publishes every reply on result with the same seven fields.](img/wvn-fill-branches.png)
+![The base SliceViewNode.fill() as a decision chain. Every message first bumps this.counter. A message whose FROM is controlFrom goes to _control(), where loading raises the spinner and clears the error, clear resets to emptySlice(), error stops the spinner with value.error or 'Operation failed', and an unknown verb changes nothing. Otherwise a TM_ERROR becomes { ...view, error, loading: false }, keeping the slice on screen. Otherwise an object VALUE goes to _parse( value.payload ), which JSON-decodes a string in a try/catch and runs a declared parse; a slice becomes view = { ...settled, ...slice }, rebuilt rather than merged, while null or a non-object VALUE returns and keeps the prior slice. Every publishing branch hands a new object to setField( 'view', … ); the field is the current model, so a widget that mounts late reads it off the node. Beneath: preserve origin-then-TYPE order in an override, garbage keeps the prior slice, recovery needs no reload, and CommandResultNode, the one-shot mirror, notifies every reply on result with the same seven fields.](img/wvn-fill-branches.png)
 
-Publish the model under the **`view`** key — the key
-`useNodeState( '<subject>:view', 'view' )` reads:
+The model lives in the node's **`view`** field, the field
+`useNodeField( '<subject>:view', 'view' )` reads. A node publishes a field
+through **`ReactBridge`**, the mixin `@newspack-nodes/runtime` exports:
+`SliceViewNode` extends `ReactBridge( Node )`, so every view inherits its
+`setField()`, which assigns the field and notifies the event of the same name
+with no payload. Every change hands it a new object:
 
 ```js
-this.setState( 'view', this.model );
+this.setField( 'view', { ...this.settled, ...slice } );
 ```
 
-Seed it in the constructor from `emptySlice()`, as the base does: a shaped
-`{ loading: true }` beats `undefined`. Use `setState`, not `notify`, so a widget
-mounting after the reply still gets the current model. Declare `loading` and
-`error` in `empty` when the widget renders them; a view declaring neither still
-gets `error` and `loading: false` on a TM_ERROR, and the next good reply drops
-both.
+`Node` itself carries no `setField()`, because neither PHP's `Node` nor
+Tachikoma's holds output for a UI. A node publishing a field outside the view
+bases mixes the bridge in once, at the highest class that needs it —
+`class MyView extends ReactBridge( Node )` — and its subclasses inherit it.
+
+The new object is what makes the re-read a re-render: mutating the field in
+place leaves React holding the same reference, and the widget never updates.
+Seed the field in the constructor from `emptySlice()`, as the base does: a
+shaped `{ loading: true }` beats `undefined`. The field IS the current model,
+so a widget mounting after the reply reads it off the node, with no cache in
+between.
+
+`setState()` is for lifecycle state alone. It takes a string or a number, as
+PHP's `set_state( string, string )` does, and throws on anything else, so a
+view model handed to it fails loud at the first publication. `useNodeState`
+reads that scalar state — `SseInNode`'s `CONNECTED`, `UptimeNode`'s `uptime`,
+the Dumper's `debug_level` — and never a view.
+
+Declare `loading` and `error` in `empty` when the widget renders them; a view
+declaring neither still gets `error` and `loading: false` on a TM_ERROR, and
+the next good reply drops both.
+
+`dump_node` leaves the field out. `Node`'s snapshot prints every own field,
+`registrations` and `setStateCache` included, with any function at any depth
+as `(closure)`. `ReactBridge` adds `static dumpOmits`, the bulk fields a class
+leaves out: `SliceViewNode` declares `[ 'view' ]`, because the slice is bulk
+data a dashboard renders rather than state an operator reads. A view holding a
+field of its own that size declares its own list naming that field alone; the
+lists merge down the class chain, and the omitted fields are skipped unread, so
+a ring is never copied. `dump_node <name> view` still prints the field whole.
 
 ## Controls: a view its own dashboard drives
 
@@ -175,7 +203,7 @@ verbs of its own, so a stream view's Pause button rides this channel too.
 `fill()` runs synchronously in the drain, and the Router dispatches it with
 `target.fill( message )` — **no per-message try/catch** — so a throw aborts the
 whole message turn that delivered the reply. The base `SliceViewNode.fill()` is
-total, branch by branch as the sheet under `setState` traces; preserve its order
+total, branch by branch as the sheet under the `view` field traces; preserve its order
 if you override: origin, then TYPE, then shape. A `TM_ERROR` VALUE is a bare
 string, which `errorMessage()` coerces to readable text, and the example's three
 cards test `slice.error` first and render the notice alone. `_parse` receives
@@ -208,7 +236,7 @@ static nodeSchema() {
 **Hidden** because a dashboard wires its slice views itself rather than an
 operator dropping one from the palette, and **`has_target: false`** because a
 view settles its reply and forwards nothing. `registrations` names the state
-keys a direct `register()` call may use; `useNodeState` subscribes through
+keys a direct `register()` call may use; `useNodeField` subscribes through
 `useNodeEvent`, which seeds a key it does not find, so a view that only React
 reads needs none — the stream views declare no `registrations` at all.
 
@@ -224,9 +252,9 @@ registers is an import and nothing more: no TSL line can name it.
 
 | Class | Registers as | Where | Base, and what it owns |
 |---|---|---|---|
-| `SliceViewNode` | — | [`src/shared/nodes/slice-view-node.js`](../src/shared/nodes/slice-view-node.js) | `Node`; the contract above, plus `sliceView()` and `registerSliceViews()` |
+| `SliceViewNode` | — | [`src/shared/nodes/slice-view-node.js`](../src/shared/nodes/slice-view-node.js) | `ReactBridge( Node )`; the contract above, plus `sliceView()` and `registerSliceViews()` |
 | `CatalogListViewNode` | `CatalogListView` | [`src/shared/nodes/catalog-list-view-node.js`](../src/shared/nodes/catalog-list-view-node.js) | A `sliceView()` declaration; a picker's rows, published under `items` for `useLogCatalog` |
-| `LogStreamViewNode` | — | [`src/shared/nodes/log-stream-view-node.js`](../src/shared/nodes/log-stream-view-node.js) | `Node`; the log-stream base — a newest-first ring capped at `maxLines` (100,000 by default), pause and step, decaying lines/s, seek breadcrumbs, and the `pause` / `step` / `connection` / `browse` / `follow` / `clear` / `filter` / `select` controls. Subclasses implement `shapeRow()` and extend `_control()`, `viewModel()` and `matchesFilter()` |
+| `LogStreamViewNode` | — | [`src/shared/nodes/log-stream-view-node.js`](../src/shared/nodes/log-stream-view-node.js) | `ReactBridge( Node )`; the log-stream base — a newest-first ring capped at `maxLines` (100,000 by default), pause and step, decaying lines/s, seek breadcrumbs, and the `pause` / `step` / `connection` / `browse` / `follow` / `clear` / `filter` / `select` controls. Subclasses implement `shapeRow()` and extend `_control()`, `viewModel()` and `matchesFilter()` |
 | — | `ClassCatalogView`, `TopologyListView` | [`src/topology-console/nodes/register.js`](../src/topology-console/nodes/register.js) | `sliceView()` declarations; the palette's classes and formatters, and the OPEN dialog's topologies |
 | — | `AggregatorSummaryView`, `AggregatorServersView` | [`src/event-aggregator/nodes/register.js`](../src/event-aggregator/nodes/register.js) | `sliceView()` declarations, both `json: true`; the header strip and the server cards |
 | — | `SessionListView` | [`src/sessions/nodes/register.js`](../src/sessions/nodes/register.js) | A `sliceView()` declaration; the issued sessions, the TTL ceiling and the scope ladder in one slice |
@@ -234,9 +262,9 @@ registers is an import and nothing more: no TSL line can name it.
 | — | `TopologyManagerView` | [`src/event-dashboards/nodes/register.js`](../src/event-dashboards/nodes/register.js) | A `sliceView()` declaration, the only one overriding `description`; the Topology Manager list |
 | `WorkerStatusViewNode` | `WorkerStatusView` | [`src/event-dashboards/nodes/worker-status-view-node.js`](../src/event-dashboards/nodes/worker-status-view-node.js) | `SliceViewNode`; its slice arrives already parsed, as a TM_STRUCT from `WorkerStatusTransform`, so it dispatches the struct actions itself and defers TM_ERROR to the base. `TreeEntity`'s `LogRows` draws what it publishes, one `SegmentBar` per segment |
 | `PartitionViewerViewNode`, `LogViewerViewNode` | `PartitionViewerView`, `LogViewerView` | [`src/event-dashboards/nodes/`](../src/event-dashboards/nodes/) | `LogStreamViewNode`; `shapeRow()` shapes an SSE envelope into a row carrying all seven positional fields ([ADR-2](architecture-decisions.md#adr-2-one-message-format-the-7-field-positional-array)) plus `msgId`, `key`, `struct`, `raw` and a computed `partition` column, clipping `content` and `value` at 1,000 characters and `raw` at 262,144, and returning null on an empty VALUE so the base drops the record without moving the seek breadcrumb. Two controls ride on the base's eight: `select` records the chosen log, resets the seek tracker and empties the ring, and `logs` publishes the catalog, adopting its first entry only while nothing is selected — a later catalog never yanks a live pick. That `select` REPLACES the base's rather than deferring to it, taking a `log` instead of a `dir`, so the base's dir-driven breadcrumb arming never runs and seek tracking stays on for the life of the node. `LogViewerViewNode` inherits all of it and overrides the description alone |
-| `ProbeStreamViewNode` | — | [`src/event-dashboards/nodes/probe-stream-view-node.js`](../src/event-dashboards/nodes/probe-stream-view-node.js) | `Node`; per-key entries, a ring, a publish throttle, TTL eviction and a 24h prune. Subclasses declare `identitySlot`, `modelKey`, `_fold()` and `_entryView()` |
+| `ProbeStreamViewNode` | — | [`src/event-dashboards/nodes/probe-stream-view-node.js`](../src/event-dashboards/nodes/probe-stream-view-node.js) | `ReactBridge( Node )`; per-key entries, a ring, a publish throttle, TTL eviction and a 24h prune. Subclasses declare `identitySlot`, `modelKey`, `_fold()` and `_entryView()` |
 | `TopicProbeViewNode`, `JobstatsViewNode` | `TopicProbeView`, `JobstatsView` | [`src/event-dashboards/nodes/`](../src/event-dashboards/nodes/) | `ProbeStreamViewNode`; the consumer series under `consumers`, the job-handler series under `handlers` |
-| `SettingsAuditViewNode` | `SettingsAuditView` | [`src/event-dashboards/nodes/settings-audit-view-node.js`](../src/event-dashboards/nodes/settings-audit-view-node.js) | `Node`; a throttled newest-first ring of settings-change events |
+| `SettingsAuditViewNode` | `SettingsAuditView` | [`src/event-dashboards/nodes/settings-audit-view-node.js`](../src/event-dashboards/nodes/settings-audit-view-node.js) | `ReactBridge( Node )`; a throttled newest-first ring of settings-change events |
 | `SourceCountsViewNode`, `TopTableViewNode`, `AccumulatedViewNode` | `SourceCountsView`, `TopTableView`, `AccumulatedView` | [`examples/example-ai-newsletter/src/dashboard/nodes/`](../examples/example-ai-newsletter/src/dashboard/nodes/) | `SliceViewNode`; one `emptySlice()` each, for the walkthrough's three slices |
 
 `WorkerStatusTransformNode`, registered as `WorkerStatusTransform`, sits beside
@@ -262,7 +290,8 @@ records. A command with a caller waiting on its answer — a save, a delete, a
 test — lands on
 [`CommandResultNode`](../src/shared/nodes/command-result-node.js) instead, which
 [`useCommandOnce`](../src/shared/hooks/useCommandOnce.js) builds. The two are
-deliberate opposites, as the sheet under `setState` draws: a one-shot publishes
-every reply on `result`, refusals included, and anything acting once per answer
-registers a listener rather than reading `useNodeState`, because two replies
-inside one React batch cost one re-render.
+deliberate opposites, as the sheet under the `view` field draws: a one-shot
+notifies each reply on `result`, refusals included, and holds none of them:
+`result` is an event, not a field. Anything acting once per answer registers a
+listener through `useNodeEvent`, because two replies inside one React batch
+would cost one re-render, and a late listener hears only the replies after it.

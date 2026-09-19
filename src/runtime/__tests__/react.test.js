@@ -1,11 +1,13 @@
 import { renderHook, act } from '@testing-library/react';
 import {
 	useNodeState,
+	useNodeField,
 	useNodeEvent,
 	useNodeFill,
 	useGraphGeneration,
 } from '../react';
 import { Node } from '../node';
+import { ReactBridge } from '../react-bridge';
 import { Core } from '../core';
 import { newMessage, VALUE } from '../message';
 
@@ -91,6 +93,73 @@ test( 'useNodeState resets to undefined when the replacement node has no cached 
 	} );
 	// The fresh node has no cached value; don't show the old one.
 	expect( result.current ).toBeUndefined();
+} );
+
+/**
+ * Structured data lives in a node field, published through `ReactBridge`'s
+ * `setField()`; the hook reads the field, so a late mount needs no cache.
+ */
+describe( 'useNodeField', () => {
+	const FieldNode = ReactBridge( Node );
+
+	it( 'reads the field a node already holds', () => {
+		const n = new FieldNode();
+		n.name = 'victor-3317';
+		n.view = { rows: [ 'whiskey' ] };
+
+		const { result } = renderHook( () =>
+			useNodeField( 'victor-3317', 'view' )
+		);
+		expect( result.current ).toEqual( { rows: [ 'whiskey' ] } );
+	} );
+
+	it( 'rereads the field on each notify', () => {
+		const n = new FieldNode();
+		n.name = 'victor-3317';
+		n.view = { rows: [] };
+
+		const { result } = renderHook( () =>
+			useNodeField( 'victor-3317', 'view' )
+		);
+		act( () => {
+			n.setField( 'view', { rows: [ 'xray' ] } );
+		} );
+		expect( result.current ).toEqual( { rows: [ 'xray' ] } );
+	} );
+
+	it( 'caches nothing: the state cache stays empty', () => {
+		const n = new FieldNode();
+		n.name = 'victor-3317';
+		renderHook( () => useNodeField( 'victor-3317', 'view' ) );
+		act( () => {
+			n.setField( 'view', { rows: [ 'yankee' ] } );
+		} );
+		expect( n.setStateCache ).toEqual( {} );
+	} );
+
+	it( 'rereads when the node under the name is replaced', () => {
+		const a = new FieldNode();
+		a.name = 'victor-3317';
+		a.view = { from: 'a' };
+		const { result, rerender } = renderHook( () =>
+			useNodeField( 'victor-3317', 'view' )
+		);
+		act( () => {
+			a.removeNode();
+			const b = new FieldNode();
+			b.name = 'victor-3317';
+			b.view = { from: 'b' };
+		} );
+		rerender();
+		expect( result.current ).toEqual( { from: 'b' } );
+	} );
+
+	it( 'is undefined while no node holds the name', () => {
+		const { result } = renderHook( () =>
+			useNodeField( 'zulu-0000', 'view' )
+		);
+		expect( result.current ).toBeUndefined();
+	} );
 } );
 
 test( 'useNodeFill returns a fill function for the named node', () => {

@@ -199,7 +199,7 @@ export class FetcherNode extends Node {
 			if ( null !== ask.args ) {
 				return true;
 			}
-			this.setState( 'settled', ask );
+			this.notify( 'settled', ask );
 			return false;
 		} );
 		// An ask already stands: asking the same question again says nothing.
@@ -347,8 +347,7 @@ export class FetcherNode extends Node {
 			return;
 		}
 		const [ ask ] = this.outbox.splice( at, 1 );
-		// setState so a late subscriber still hears it.
-		this.setState( 'settled', ask );
+		this.notify( 'settled', ask );
 	}
 
 	/**
@@ -371,7 +370,6 @@ export class FetcherNode extends Node {
 			category: 'Control',
 			description:
 				'Turns any trigger into one configured command send (FROM=receiver, TO from target).',
-			registrations: [ 'settled' ],
 			arguments: [
 				{ name: 'receiver', type: 'string', required: true },
 				{ name: 'command', type: 'string', required: true },

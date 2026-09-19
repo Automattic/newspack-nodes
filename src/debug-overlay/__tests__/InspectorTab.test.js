@@ -298,7 +298,7 @@ describe( 'InspectorTab interactions', () => {
 	it( 'a "command" inspector action expands the REPL and dispatches the raw line', () => {
 		renderInspector();
 		const output = Core.node( '_output' );
-		const before = output._transcript.length;
+		const before = output.transcript.length;
 		act( () =>
 			mockCaptured.consoleShell.canvasProps.onInspectorAction(
 				'command',
@@ -307,7 +307,7 @@ describe( 'InspectorTab interactions', () => {
 			)
 		);
 		// The Shell echoed the typed line into the transcript.
-		expect( output._transcript.length ).toBeGreaterThan( before );
+		expect( output.transcript.length ).toBeGreaterThan( before );
 	} );
 
 	it( 'a UI-bound invoke leaves the transcript closed; a REPL one opens it', () => {
@@ -338,7 +338,7 @@ describe( 'InspectorTab interactions', () => {
 	it( 'a structured inspector action delegates to the graph handler', () => {
 		renderInspector();
 		const output = Core.node( '_output' );
-		const before = output._transcript.length;
+		const before = output.transcript.length;
 		act( () =>
 			mockCaptured.consoleShell.canvasProps.onInspectorAction(
 				'dump',
@@ -347,7 +347,7 @@ describe( 'InspectorTab interactions', () => {
 			)
 		);
 		// dump_node echoes a `sent` line into the transcript via the handler.
-		expect( output._transcript.length ).toBeGreaterThan( before );
+		expect( output.transcript.length ).toBeGreaterThan( before );
 	} );
 
 	it( 'a structured inspector action with Compose reply-flags ORs TM_RESPONSE / TM_ERROR onto the dispatched TYPE', () => {

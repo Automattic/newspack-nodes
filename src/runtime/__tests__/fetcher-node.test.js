@@ -562,6 +562,7 @@ describe( 'FetcherNode — queued asks', () => {
 	it( 'notifies `settled` with the ask the reply answered', () => {
 		const { f } = mount();
 		const settled = [];
+		f.registrations.settled ??= {};
 		f.register( 'settled', 'spy', ( ask ) => {
 			settled.push( ask.path );
 			return true;
@@ -571,4 +572,31 @@ describe( 'FetcherNode — queued asks', () => {
 		f.fill( replyNaming( 'wombat-4471' ) );
 		expect( settled ).toEqual( [ 'wombat-4471' ] );
 	} );
+
+	it( '`settled` is an event: no field holds it, and a late listener hears nothing', () => {
+		const { f } = mount();
+		f.send( [ 'quokka-3390' ], 'quokka-3390' );
+		f.fill( newMessage() );
+		f.fill( replyNaming( 'quokka-3390' ) );
+		const late = [];
+		f.registrations.settled ??= {};
+		f.register( 'settled', 'late', ( ask ) => {
+			late.push( ask );
+			return true;
+		} );
+		expect( late ).toEqual( [] );
+		expect( f ).not.toHaveProperty( 'settled' );
+		expect( f.setStateCache.settled ).toBeUndefined();
+	} );
+} );
+
+/**
+ * TM_INFO carries a scalar, and `settled` carries the ask object, so it is an
+ * event for closures alone (`useNodeEvent` declares it), never a node-name
+ * registration a `register` verb could reach.
+ */
+test( 'settled is not a declared node-name registration', () => {
+	expect( FetcherNode.nodeSchema().registrations ?? [] ).not.toContain(
+		'settled'
+	);
 } );

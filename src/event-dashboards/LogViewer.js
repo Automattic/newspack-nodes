@@ -18,7 +18,7 @@ import { useCallback, useMemo } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 
 import { Core } from '../runtime/core';
-import { useNodeState } from '../runtime/react';
+import { useNodeField } from '../runtime/react';
 import { useLogViewerGraph } from './hooks/useLogReaderGraph';
 import LogStreamViewer from '@newspack-nodes/shared/components/LogStreamViewer';
 import useDeepLinkedSelection from '@newspack-nodes/shared/hooks/useDeepLinkedSelection';
@@ -95,7 +95,7 @@ export default function LogViewer( { headerControlsSlot } ) {
 	const { selectSource, setPaused, seek, sources, step, clear, setFilter } =
 		useLogViewerGraph();
 
-	const view = useNodeState( VIEW_NODE, 'view' ) ?? EMPTY_VIEW;
+	const view = useNodeField( VIEW_NODE, 'view' ) ?? EMPTY_VIEW;
 	const {
 		selected: currentSource,
 		paused: isPaused,

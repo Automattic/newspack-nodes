@@ -79,7 +79,7 @@ describe( 'TimelineView', () => {
 	} );
 
 	/**
-	 * The reader's own clock, matching the prefix `Core.log_prefix` stamps
+	 * The reader's own clock, matching the prefix `Core.logPrefix` stamps
 	 * onto the very lines these rows are parsed FROM. A UTC cell beside a
 	 * local-stamped line is two clocks describing one event.
 	 */

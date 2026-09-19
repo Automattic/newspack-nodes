@@ -21,7 +21,7 @@ import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCo
 import { TO, FROM, VALUE } from '../../../runtime/message';
 import { Core } from '../../../runtime/core';
 import { mountExospine } from '../../../runtime/exospine';
-import { useNodeState } from '../../../runtime/react';
+import { useNodeField } from '../../../runtime/react';
 import { useVaultGraph } from '../useVaultGraph';
 
 const INTERPRETER = '_command_interpreter';
@@ -164,12 +164,13 @@ describe( 'useVaultGraph — list lands in the list view', () => {
 		await act( async () => {} );
 
 		const view = Core.node( LIST_VIEW );
-		expect( view.setStateCache.view.servers ).toHaveLength( 2 );
-		expect( view.setStateCache.view.servers.map( ( s ) => s.id ) ).toEqual(
-			[ 'spoke-01', 'spoke-02' ]
-		);
-		expect( view.setStateCache.view.loading ).toBe( false );
-		expect( view.setStateCache.view.error ).toBeNull();
+		expect( view.view.servers ).toHaveLength( 2 );
+		expect( view.view.servers.map( ( s ) => s.id ) ).toEqual( [
+			'spoke-01',
+			'spoke-02',
+		] );
+		expect( view.view.loading ).toBe( false );
+		expect( view.view.error ).toBeNull();
 	} );
 } );
 
@@ -380,12 +381,12 @@ describe( 'useVaultGraph — graphGeneration Reset Graph', () => {
 		expect( Core.node( INTERPRETER ) ).toBe( backbone );
 	} );
 
-	test( 'a graphGeneration bump re-renders the consumer so useNodeState re-subscribes to the fresh list view', async () => {
+	test( 'a graphGeneration bump re-renders the consumer so useNodeField re-subscribes to the fresh list view', async () => {
 		mountExospine();
 		installWire();
 		const { result } = renderHook( () => {
 			useVaultGraph();
-			return useNodeState( LIST_VIEW, 'view' );
+			return useNodeField( LIST_VIEW, 'view' );
 		} );
 		await act( async () => {} );
 		const firstView = Core.node( LIST_VIEW );
@@ -397,7 +398,7 @@ describe( 'useVaultGraph — graphGeneration Reset Graph', () => {
 		expect( freshView ).not.toBe( firstView );
 
 		act( () => {
-			freshView.setState( 'view', { servers: [ 'sentinel' ] } );
+			freshView.setField( 'view', { servers: [ 'sentinel' ] } );
 		} );
 		expect( result.current ).toEqual( { servers: [ 'sentinel' ] } );
 	} );

@@ -44,7 +44,7 @@ function reply( payload, type = TM_COMMAND | TM_RESPONSE ) {
 
 test( 'the empty slice loads with no rows', () => {
 	const view = makeView();
-	expect( view.model ).toEqual( {
+	expect( view.view ).toEqual( {
 		sessions: null,
 		scopes: [],
 		ttlMax: 0,
@@ -57,12 +57,12 @@ test( 'a list reply publishes the rows, the scopes and the ttl ceiling', () => {
 	const view = makeView();
 	view.fill( reply( SAMPLE ) );
 
-	expect( view.model.sessions ).toHaveLength( 2 );
-	expect( view.model.sessions[ 0 ].label ).toBe( 'laptop mcp' );
-	expect( view.model.scopes ).toEqual( [ 'read', 'tune', 'manage' ] );
-	expect( view.model.ttlMax ).toBe( 86400 );
-	expect( view.model.loading ).toBe( false );
-	expect( view.model.error ).toBeNull();
+	expect( view.view.sessions ).toHaveLength( 2 );
+	expect( view.view.sessions[ 0 ].label ).toBe( 'laptop mcp' );
+	expect( view.view.scopes ).toEqual( [ 'read', 'tune', 'manage' ] );
+	expect( view.view.ttlMax ).toBe( 86400 );
+	expect( view.view.loading ).toBe( false );
+	expect( view.view.error ).toBeNull();
 } );
 
 test( 'an error keeps the rows already on screen', () => {
@@ -75,8 +75,8 @@ test( 'an error keeps the rows already on screen', () => {
 		)
 	);
 
-	expect( view.model.sessions ).toHaveLength( 2 );
-	expect( view.model.error ).toMatch( /permission denied/ );
+	expect( view.view.sessions ).toHaveLength( 2 );
+	expect( view.view.error ).toMatch( /permission denied/ );
 } );
 
 test( 'a garbage payload keeps the prior slice', () => {
@@ -84,5 +84,5 @@ test( 'a garbage payload keeps the prior slice', () => {
 	view.fill( reply( SAMPLE ) );
 	view.fill( reply( 'not a struct' ) );
 
-	expect( view.model.sessions ).toHaveLength( 2 );
+	expect( view.view.sessions ).toHaveLength( 2 );
 } );

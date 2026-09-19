@@ -44,7 +44,7 @@ function errorReply( errorString ) {
 describe( 'AggregatorSummaryViewNode', () => {
 	test( 'starts loading with zero counts before the first reply', () => {
 		const v = makeView();
-		expect( v.setStateCache.view ).toMatchObject( {
+		expect( v.view ).toMatchObject( {
 			connected: 0,
 			total: 0,
 			serverNow: null,
@@ -56,7 +56,7 @@ describe( 'AggregatorSummaryViewNode', () => {
 	test( 'parses a summary reply into connected/total/serverNow and clears loading', () => {
 		const v = makeView();
 		v.fill( reply( { connected: 1, total: 3, server_now: 1748960000 } ) );
-		expect( v.setStateCache.view ).toMatchObject( {
+		expect( v.view ).toMatchObject( {
 			connected: 1,
 			total: 3,
 			serverNow: 1748960000,
@@ -69,7 +69,7 @@ describe( 'AggregatorSummaryViewNode', () => {
 		const v = makeView();
 		const before = Date.now();
 		v.fill( reply( { connected: 0, total: 0, server_now: 1 } ) );
-		const { lastRefresh } = v.setStateCache.view;
+		const { lastRefresh } = v.view;
 		expect( typeof lastRefresh ).toBe( 'number' );
 		expect( lastRefresh ).toBeGreaterThanOrEqual( before );
 	} );
@@ -77,8 +77,8 @@ describe( 'AggregatorSummaryViewNode', () => {
 	test( 'a TM_ERROR reply surfaces the error string and clears loading', () => {
 		const v = makeView();
 		v.fill( errorReply( 'aggregator down' ) );
-		expect( v.setStateCache.view.error ).toBe( 'aggregator down' );
-		expect( v.setStateCache.view.loading ).toBe( false );
+		expect( v.view.error ).toBe( 'aggregator down' );
+		expect( v.view.loading ).toBe( false );
 	} );
 
 	test( 'is a Hidden, terminal (no output port) node', () => {
@@ -98,6 +98,6 @@ test( 'an undecodable payload keeps the slice it already published', () => {
 	broken[ VALUE ] = { name: 'summary', payload: '{not json' };
 	v.fill( broken );
 
-	expect( v.model.connected ).toBe( 3 );
-	expect( v.model.total ).toBe( 4 );
+	expect( v.view.connected ).toBe( 3 );
+	expect( v.view.total ).toBe( 4 );
 } );

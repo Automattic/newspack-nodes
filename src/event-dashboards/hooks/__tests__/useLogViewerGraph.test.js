@@ -178,9 +178,7 @@ describe( 'useLogViewerGraph', () => {
 			'newspack-nodes/v1/log/stream'
 		);
 		expect( FakeEventSource.last.url ).toContain( 'subscribe=access' );
-		expect( Core.node( VIEW ).setStateCache.view.selected ).toBe(
-			'access'
-		);
+		expect( Core.node( VIEW ).view.selected ).toBe( 'access' );
 	} );
 
 	test( 'returns the source catalog for the picker', async () => {
@@ -205,7 +203,7 @@ describe( 'useLogViewerGraph', () => {
 		await act( async () => result.current.selectSource( 'debug' ) );
 		expect( before.closed ).toBe( true );
 		expect( FakeEventSource.last.url ).toContain( 'subscribe=debug' );
-		expect( Core.node( VIEW ).setStateCache.view.selected ).toBe( 'debug' );
+		expect( Core.node( VIEW ).view.selected ).toBe( 'debug' );
 	} );
 
 	test( 'seek repositions the current source with a positions seed', async () => {
@@ -495,7 +493,7 @@ describe( 'useLogViewerGraph', () => {
 		const { result } = mountGraph();
 		await act( async () => {} );
 		act( () => result.current.setPaused( true ) );
-		expect( Core.node( VIEW ).setStateCache.view.paused ).toBe( true );
+		expect( Core.node( VIEW ).view.paused ).toBe( true );
 	} );
 
 	test( 'unmount tears down the link, view, and closes the EventSource', async () => {
@@ -555,7 +553,7 @@ describe( 'useLogViewerGraph', () => {
 			expect( open.closed ).toBe( false );
 			act( () => result.current.setPaused( true ) );
 			expect( open.closed ).toBe( true );
-			expect( Core.node( VIEW ).setStateCache.view.paused ).toBe( true );
+			expect( Core.node( VIEW ).view.paused ).toBe( true );
 		} );
 
 		test( 'setPaused(false) resumes at the paused offset (reopen carries &positions=)', async () => {
@@ -631,7 +629,7 @@ describe( 'useLogViewerGraph', () => {
 			await act( async () => {
 				Core.bumpGraphGeneration();
 			} );
-			expect( Core.node( VIEW ).setStateCache.view.paused ).toBe( true );
+			expect( Core.node( VIEW ).view.paused ).toBe( true );
 			expect( FakeEventSource.instances.length ).toBe( afterPause );
 		} );
 
@@ -645,9 +643,7 @@ describe( 'useLogViewerGraph', () => {
 			await act( async () => result.current.selectSource( 'debug' ) );
 			expect( FakeEventSource.instances.length ).toBe( count );
 			expect( closed.closed ).toBe( true );
-			expect( Core.node( VIEW ).setStateCache.view.selected ).toBe(
-				'debug'
-			);
+			expect( Core.node( VIEW ).view.selected ).toBe( 'debug' );
 		} );
 
 		test( 'Play after a paused selectSource opens the NEW source (tail)', async () => {

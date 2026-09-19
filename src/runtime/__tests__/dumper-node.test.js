@@ -52,7 +52,7 @@ function makeDumper( debugLevel = 0 ) {
 function transcriptFor( message, debugLevel = 0 ) {
 	const { dumper } = makeDumper( debugLevel );
 	dumper.fill( message );
-	return dumper.setStateCache.transcript ?? [];
+	return dumper.transcript ?? [];
 }
 
 // The single rendered entry, or null when the message rendered nothing.
@@ -228,7 +228,7 @@ describe( 'Dumper node — transcript', () => {
 	it( 'renders a TM_BYTESTREAM into the transcript as recv', () => {
 		const { dumper } = makeDumper();
 		dumper.fill( msg( TM_BYTESTREAM, 'hello' ) );
-		expect( dumper.setStateCache.transcript ).toEqual( [
+		expect( dumper.transcript ).toEqual( [
 			expect.objectContaining( { kind: 'recv', text: 'hello' } ),
 		] );
 	} );
@@ -239,7 +239,7 @@ describe( 'Dumper node — transcript', () => {
 		dumper.fill(
 			msg( t, { name: 'dump_node', payload: { sink: 'x', counter: 3 } } )
 		);
-		const entry = dumper.setStateCache.transcript[ 0 ];
+		const entry = dumper.transcript[ 0 ];
 		expect( entry.text ).toMatch( /"counter": 3/ );
 		expect( entry.text ).not.toContain( '[object Object]' );
 	} );
@@ -247,13 +247,13 @@ describe( 'Dumper node — transcript', () => {
 	it( 'drops TM_EOF silently', () => {
 		const { dumper } = makeDumper();
 		dumper.fill( msg( TM_EOF, '' ) );
-		expect( dumper.setStateCache.transcript ?? [] ).toHaveLength( 0 );
+		expect( dumper.transcript ?? [] ).toHaveLength( 0 );
 	} );
 
 	it( 'routes TM_ERROR to an error transcript entry', () => {
 		const { dumper } = makeDumper();
 		dumper.fill( msg( TM_ERROR, 'boom' ) );
-		expect( dumper.setStateCache.transcript ).toEqual( [
+		expect( dumper.transcript ).toEqual( [
 			expect.objectContaining( { kind: 'error', text: 'boom' } ),
 		] );
 	} );
@@ -261,15 +261,15 @@ describe( 'Dumper node — transcript', () => {
 	it( 'strips trailing newlines from rendered transcript text', () => {
 		const { dumper } = makeDumper();
 		dumper.fill( msg( TM_BYTESTREAM, 'line\n\n' ) );
-		expect( dumper.setStateCache.transcript[ 0 ].text ).toBe( 'line' );
+		expect( dumper.transcript[ 0 ].text ).toBe( 'line' );
 	} );
 
-	it( 'each transcript update emits a fresh array (so useNodeState re-renders)', () => {
+	it( 'each transcript update emits a fresh array (so useNodeField re-renders)', () => {
 		const { dumper } = makeDumper();
 		dumper.fill( msg( TM_BYTESTREAM, 'a' ) );
-		const first = dumper.setStateCache.transcript;
+		const first = dumper.transcript;
 		dumper.fill( msg( TM_BYTESTREAM, 'b' ) );
-		const second = dumper.setStateCache.transcript;
+		const second = dumper.transcript;
 		expect( second ).not.toBe( first );
 		expect( second.map( ( e ) => e.text ) ).toEqual( [ 'a', 'b' ] );
 	} );
@@ -279,7 +279,7 @@ describe( 'Dumper node — transcript', () => {
 		for ( let i = 0; i < TRANSCRIPT_MAX + 50; i++ ) {
 			dumper.fill( msg( TM_BYTESTREAM, `msg-${ i }` ) );
 		}
-		const t = dumper.setStateCache.transcript;
+		const t = dumper.transcript;
 		expect( t ).toHaveLength( TRANSCRIPT_MAX );
 		expect( t[ 0 ].text ).toBe( 'msg-50' );
 		expect( t[ TRANSCRIPT_MAX - 1 ].text ).toBe(
@@ -287,12 +287,35 @@ describe( 'Dumper node — transcript', () => {
 		);
 	} );
 
+	it( 'announces `transcript` with no payload; the field holds the array', () => {
+		const { dumper } = makeDumper();
+		const heard = [];
+		dumper.register( 'transcript', 'probe-9931', ( payload ) =>
+			heard.push( [ payload, dumper.transcript ] )
+		);
+		dumper.fill( msg( TM_BYTESTREAM, 't-9931' ) );
+		expect( heard ).toHaveLength( 1 );
+		expect( heard[ 0 ][ 0 ] ).toBe( '' );
+		expect( heard[ 0 ][ 1 ][ 0 ].text ).toBe( 't-9931' );
+		expect( dumper.setStateCache.transcript ).toBeUndefined();
+	} );
+
+	it( 'dumpNode omits the transcript and its ring, keeps the bridge', () => {
+		const { dumper } = makeDumper();
+		dumper.fill( msg( TM_BYTESTREAM, 't-9931' ) );
+		const dump = dumper.dumpNode();
+		expect( dump ).not.toHaveProperty( 'transcript' );
+		expect( dump ).not.toHaveProperty( '_ring' );
+		expect( dump ).toHaveProperty( 'registrations' );
+		expect( dump ).toHaveProperty( 'setStateCache' );
+	} );
+
 	it( 'works as a real sink target (router → dumper.fill)', () => {
 		const { dumper } = makeDumper();
 		const router = new Node();
 		router.sink = dumper;
 		router.fill( msg( TM_BYTESTREAM, 'via-sink' ) );
-		expect( dumper.setStateCache.transcript[ 0 ].text ).toBe( 'via-sink' );
+		expect( dumper.transcript[ 0 ].text ).toBe( 'via-sink' );
 	} );
 } );
 
@@ -300,7 +323,7 @@ describe( 'Dumper node — debug levels', () => {
 	it( 'level 1 injects a header line before the curated render', () => {
 		const { dumper } = makeDumper( 1 );
 		dumper.fill( msg( TM_BYTESTREAM, 'hi' ) );
-		const t = dumper.setStateCache.transcript;
+		const t = dumper.transcript;
 		expect( t[ 0 ] ).toEqual(
 			expect.objectContaining( {
 				kind: 'info',
@@ -315,7 +338,7 @@ describe( 'Dumper node — debug levels', () => {
 	it( 'level 2 replaces the render with a full envelope dump', () => {
 		const { dumper } = makeDumper( 2 );
 		dumper.fill( msg( TM_BYTESTREAM, 'hi' ) );
-		const t = dumper.setStateCache.transcript;
+		const t = dumper.transcript;
 		expect( t ).toHaveLength( 1 );
 		expect( t[ 0 ].kind ).toBe( 'info' );
 		expect( t[ 0 ].text ).toMatch( /^Message \{/ );
@@ -335,7 +358,9 @@ describe( 'Dumper node — debug levels', () => {
 		expect( dumper.debugUi ).toBe( false );
 		dumper.setDebugUi( true );
 		expect( dumper.debugUi ).toBe( true );
-		expect( dumper.setStateCache.debug_ui ).toBe( true );
+		expect( dumper.setStateCache.debug_ui ).toBe( 1 );
+		dumper.setDebugUi( false );
+		expect( dumper.setStateCache.debug_ui ).toBe( 0 );
 	} );
 
 	it( 'appendUi() appends only while debug_ui is on', () => {
@@ -343,15 +368,15 @@ describe( 'Dumper node — debug levels', () => {
 		dumper.appendUi( { kind: 'sent', text: 'hidden-707' } );
 		dumper.setDebugUi( true );
 		dumper.appendUi( { kind: 'sent', text: 'shown-808' } );
-		expect(
-			dumper.setStateCache.transcript.map( ( e ) => e.text )
-		).toEqual( [ 'shown-808' ] );
+		expect( dumper.transcript.map( ( e ) => e.text ) ).toEqual( [
+			'shown-808',
+		] );
 	} );
 
 	it( 'level 1 still surfaces a TM_EOF arrival as a header even though the curated render drops it', () => {
 		const { dumper } = makeDumper( 1 );
 		dumper.fill( msg( TM_EOF, '' ) );
-		const t = dumper.setStateCache.transcript;
+		const t = dumper.transcript;
 		expect( t ).toHaveLength( 1 );
 		expect( t[ 0 ].text ).toBe( 'TM_EOF from worker:' );
 	} );
@@ -362,16 +387,17 @@ describe( 'Dumper node — append / clear', () => {
 		const { dumper } = makeDumper();
 		dumper.fill( msg( TM_BYTESTREAM, 'recv-line' ) );
 		dumper.append( { kind: 'sent', text: 'ls' } );
-		expect(
-			dumper.setStateCache.transcript.map( ( e ) => e.kind )
-		).toEqual( [ 'recv', 'sent' ] );
+		expect( dumper.transcript.map( ( e ) => e.kind ) ).toEqual( [
+			'recv',
+			'sent',
+		] );
 	} );
 
 	it( 'append() entries each carry a unique key', () => {
 		const { dumper } = makeDumper();
 		dumper.append( { kind: 'sent', text: 'a' } );
 		dumper.append( { kind: 'sent', text: 'b' } );
-		const [ a, b ] = dumper.setStateCache.transcript;
+		const [ a, b ] = dumper.transcript;
 		expect( a.key ).toBeTruthy();
 		expect( b.key ).toBeTruthy();
 		expect( a.key ).not.toBe( b.key );
@@ -384,7 +410,7 @@ describe( 'Dumper node — append / clear', () => {
 			const { dumper } = makeDumper();
 			dumper.fill( msg( TM_BYTESTREAM, 'traced' ) );
 			dumper.append( { kind: 'sent', text: 'ls' } );
-			const [ recv, sent ] = dumper.setStateCache.transcript;
+			const [ recv, sent ] = dumper.transcript;
 			expect( recv.ts ).toBe( nowMs / 1000 );
 			expect( sent.ts ).toBe( nowMs / 1000 );
 		} finally {
@@ -395,7 +421,7 @@ describe( 'Dumper node — append / clear', () => {
 	it( 'appendText() turns a written chunk into one recv entry per line', () => {
 		const { dumper } = makeDumper();
 		dumper.appendText( 'alpha\nbravo\n' );
-		expect( dumper.setStateCache.transcript ).toEqual( [
+		expect( dumper.transcript ).toEqual( [
 			expect.objectContaining( { kind: 'recv', text: 'alpha' } ),
 			expect.objectContaining( { kind: 'recv', text: 'bravo' } ),
 		] );
@@ -404,22 +430,22 @@ describe( 'Dumper node — append / clear', () => {
 	it( 'appendText() keeps a chunk with no trailing newline', () => {
 		const { dumper } = makeDumper();
 		dumper.appendText( 'no-newline' );
-		expect(
-			dumper.setStateCache.transcript.map( ( e ) => e.text )
-		).toEqual( [ 'no-newline' ] );
+		expect( dumper.transcript.map( ( e ) => e.text ) ).toEqual( [
+			'no-newline',
+		] );
 	} );
 
 	it( 'appendText() ignores an empty write', () => {
 		const { dumper } = makeDumper();
 		dumper.appendText( '' );
-		expect( dumper.setStateCache.transcript ?? [] ).toEqual( [] );
+		expect( dumper.transcript ?? [] ).toEqual( [] );
 	} );
 
 	it( 'clear() empties the transcript and emits a fresh empty array', () => {
 		const { dumper } = makeDumper();
 		dumper.append( { kind: 'sent', text: 'a' } );
 		dumper.clear();
-		expect( dumper.setStateCache.transcript ).toEqual( [] );
+		expect( dumper.transcript ).toEqual( [] );
 	} );
 
 	it( 'restore() seeds a persisted transcript, notifies, and appends build on it [87]', () => {
@@ -428,13 +454,15 @@ describe( 'Dumper node — append / clear', () => {
 			{ kind: 'sent', text: 'a' },
 			{ kind: 'recv', text: 'b' },
 		] );
-		expect( dumper.setStateCache.transcript ).toHaveLength( 2 );
-		expect( dumper.setStateCache.transcript[ 1 ].text ).toBe( 'b' );
+		expect( dumper.transcript ).toHaveLength( 2 );
+		expect( dumper.transcript[ 1 ].text ).toBe( 'b' );
 		// A later append builds on the restored transcript, not a fresh one.
 		dumper.append( { kind: 'sent', text: 'c' } );
-		expect(
-			dumper.setStateCache.transcript.map( ( e ) => e.text )
-		).toEqual( [ 'a', 'b', 'c' ] );
+		expect( dumper.transcript.map( ( e ) => e.text ) ).toEqual( [
+			'a',
+			'b',
+			'c',
+		] );
 	} );
 
 	it( 'restore() caps a too-long persisted transcript to TRANSCRIPT_MAX [87]', () => {
@@ -447,12 +475,10 @@ describe( 'Dumper node — append / clear', () => {
 			} )
 		);
 		dumper.restore( huge );
-		expect( dumper.setStateCache.transcript ).toHaveLength(
-			TRANSCRIPT_MAX
+		expect( dumper.transcript ).toHaveLength( TRANSCRIPT_MAX );
+		expect( dumper.transcript[ TRANSCRIPT_MAX - 1 ].text ).toBe(
+			`n${ TRANSCRIPT_MAX + 24 }`
 		);
-		expect(
-			dumper.setStateCache.transcript[ TRANSCRIPT_MAX - 1 ].text
-		).toBe( `n${ TRANSCRIPT_MAX + 24 }` );
 	} );
 } );
 
@@ -503,7 +529,7 @@ describe( 'Dumper — flood coalescing (connected-to-firehose crash fix)', () =>
 			dumper.fill( msg( TM_BYTESTREAM, `line-${ i }` ) );
 		}
 		flush();
-		expect( dumper.setStateCache.transcript.length ).toBeLessThanOrEqual(
+		expect( dumper.transcript.length ).toBeLessThanOrEqual(
 			TRANSCRIPT_MAX + 1
 		);
 	} );
@@ -515,7 +541,7 @@ describe( 'Dumper — flood coalescing (connected-to-firehose crash fix)', () =>
 			dumper.fill( msg( TM_BYTESTREAM, `line-${ i }` ) );
 		}
 		flush();
-		const t = dumper.setStateCache.transcript;
+		const t = dumper.transcript;
 		const notice = t[ t.length - 1 ];
 		expect( notice.kind ).toBe( 'info' );
 		expect( notice.text ).toMatch(
@@ -537,7 +563,7 @@ describe( 'Dumper — flood coalescing (connected-to-firehose crash fix)', () =>
 			requestAnimationFrame( () => resolve() )
 		);
 		expect( renders ).toBe( 1 );
-		expect( dumper.setStateCache.transcript[ 0 ].text ).toBe( 'frame' );
+		expect( dumper.transcript[ 0 ].text ).toBe( 'frame' );
 	} );
 
 	it( 'cancels a pending publish on removeNode (no post-teardown flush)', () => {
@@ -572,7 +598,7 @@ describe( 'Dumper — no-arg ctor + public-property dep', () => {
 		dumper.debugLevelRef = debugLevelRef;
 		// Level 2 replaces the curated render with the full envelope dump.
 		dumper.fill( msg( TM_BYTESTREAM, 'hi' ) );
-		const t = dumper.setStateCache.transcript;
+		const t = dumper.transcript;
 		expect( t ).toHaveLength( 1 );
 		expect( t[ 0 ].text ).toMatch( /^Message \{/ );
 	} );
@@ -581,7 +607,7 @@ describe( 'Dumper — no-arg ctor + public-property dep', () => {
 		const dumper = new DumperNode();
 		dumper._schedule = ( cb ) => cb();
 		dumper.fill( msg( TM_BYTESTREAM, 'hello' ) );
-		expect( dumper.setStateCache.transcript[ 0 ] ).toEqual(
+		expect( dumper.transcript[ 0 ] ).toEqual(
 			expect.objectContaining( { kind: 'recv', text: 'hello' } )
 		);
 	} );

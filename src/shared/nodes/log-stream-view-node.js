@@ -1,4 +1,5 @@
 import { Node } from '../../runtime/node';
+import { ReactBridge } from '../../runtime/react-bridge';
 import { VALUE, ID } from '../../runtime/message';
 import { SeekTracker } from './seekTracker';
 import { RateSmoother } from '../rateSmoother';
@@ -36,7 +37,10 @@ const MAX_LINES = 100000;
  * trio (`msgId`, `key`, `raw`) plus `content` so debug rendering and the
  * default filter work everywhere.
  */
-export class LogStreamViewNode extends Node {
+export class LogStreamViewNode extends ReactBridge( Node ) {
+	/** The view model and its ring: up to 100 000 rows of log. */
+	static dumpOmits = [ 'view', '_ring' ];
+
 	/**
 	 * Build the empty view: an empty ring, a live seek tracker, and no
 	 * controller — the graph assigns `controlFrom` before a control arrives.
@@ -73,6 +77,13 @@ export class LogStreamViewNode extends Node {
 		this.seekActive = true;
 		// Seek/live feedback (rail highlight + replay→live flip).
 		this.seek = new SeekTracker();
+		/**
+		 * The low-frequency render model React reads, rebuilt on each control
+		 * and seek change, and null until the first.
+		 *
+		 * @type {?Object}
+		 */
+		this.view = null;
 	}
 
 	/**
@@ -94,7 +105,7 @@ export class LogStreamViewNode extends Node {
 		if ( isControl( this, message ) ) {
 			// Low-frequency control path; publish to re-render.
 			this._control( message[ VALUE ] );
-			this._publish();
+			this.setField( 'view', this.viewModel() );
 			return;
 		}
 
@@ -185,7 +196,7 @@ export class LogStreamViewNode extends Node {
 	 */
 	_trackPosition( message ) {
 		if ( this.seekTracking() && this.seek.track( message[ ID ] ) ) {
-			this._publish();
+			this.setField( 'view', this.viewModel() );
 		}
 	}
 
@@ -198,14 +209,6 @@ export class LogStreamViewNode extends Node {
 	 */
 	seekTracking() {
 		return this.seekActive;
-	}
-
-	/**
-	 * Publish the low-frequency model on the `view` state event, which is what
-	 * re-renders the React tree.
-	 */
-	_publish() {
-		this.setState( 'view', this.viewModel() );
 	}
 
 	/**
@@ -394,6 +397,7 @@ export class LogStreamViewNode extends Node {
 		return {
 			category: 'Hidden',
 			description: 'Log-stream render-model sink (the React view node).',
+			registrations: [ 'view' ],
 			has_target: false,
 			arguments: [],
 			commands: [],

@@ -1,4 +1,5 @@
 import { Node } from '../../runtime/node';
+import { ReactBridge } from '../../runtime/react-bridge';
 import { TIMESTAMP, VALUE } from '../../runtime/message';
 
 // Fixed 24h live window, in seconds; an older record is dropped or pruned.
@@ -40,7 +41,7 @@ const ENTRY_TTL_MS = 300000; // 5 min
  * A subclass supplies `identitySlot`, `modelKey`, `_fold(entry, value, ts)` and
  * `_entryView(entry)`. Folding a record costs one push and a sweep of the live
  * keys, never a walk of a series; every walk — the prune, the snapshot's
- * per-key copies — waits for a publish, and `setState('view', …)` is
+ * per-key copies — waits for a publish, and the `view` publish is
  * time-throttled so a 24h replay burst does not thrash React. The series is
  * bounded two ways: a hard ring cap at `maxSamples`, and the live 24h window (a
  * record older than RETENTION_S is dropped on arrival, and a sample is pruned
@@ -49,7 +50,10 @@ const ENTRY_TTL_MS = 300000; // 5 min
  * @param {number} [maxSamples] Per-key ring cap (defaults to MAX_SAMPLES).
  * @param {number} [ttlMs]      Per-key liveness TTL (defaults to ENTRY_TTL_MS).
  */
-export class ProbeStreamViewNode extends Node {
+export class ProbeStreamViewNode extends ReactBridge( Node ) {
+	/** The model and its per-key 24h series: thousands of samples a key. */
+	static dumpOmits = [ 'view', 'entries' ];
+
 	/**
 	 * What `nodeSchema()` reports to the console palette and to `help`. Every
 	 * concrete subclass overrides it.
@@ -75,6 +79,13 @@ export class ProbeStreamViewNode extends Node {
 		this._lastPublish = 0;
 		this._flushTimer = null;
 		this._lastFill = 0;
+		/**
+		 * The published model React reads, keyed by `modelKey`; null until
+		 * the first publish.
+		 *
+		 * @type {?Object}
+		 */
+		this.view = null;
 	}
 
 	/**
@@ -178,7 +189,7 @@ export class ProbeStreamViewNode extends Node {
 
 	/**
 	 * Cancel any pending flush, prune the aged-out tail, and push the snapshot
-	 * under `modelKey` as the `view` state. The one place that calls setState.
+	 * under `modelKey` into the `view` field. The one place that publishes.
 	 *
 	 * @this {ProbeStreamSubclass}
 	 * @return {void}
@@ -191,7 +202,7 @@ export class ProbeStreamViewNode extends Node {
 		const now = Date.now();
 		this._lastPublish = now;
 		this._pruneExpired( now );
-		this.setState( 'view', { [ this.modelKey ]: this.snapshot() } );
+		this.setField( 'view', { [ this.modelKey ]: this.snapshot() } );
 	}
 
 	/**
@@ -243,7 +254,7 @@ export class ProbeStreamViewNode extends Node {
 	}
 
 	/**
-	 * Cancel a pending trailing flush before teardown, so no setState fires
+	 * Cancel a pending trailing flush before teardown, so no publish fires
 	 * into an unmounted tree, then hand off to the base.
 	 *
 	 * @return {void}
@@ -267,6 +278,7 @@ export class ProbeStreamViewNode extends Node {
 		return {
 			category: 'Hidden',
 			description: this.description,
+			registrations: [ 'view' ],
 			has_target: false,
 			arguments: [],
 			commands: [],

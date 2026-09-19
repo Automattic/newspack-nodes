@@ -103,7 +103,7 @@ describe( 'ProbeStreamViewNode (the entry-lifecycle contract)', () => {
 	it( "publishes the model under the subclass's modelKey", () => {
 		const v = new WidgetProbeView();
 		const published = [];
-		v.setState = ( key, value ) => published.push( [ key, value ] );
+		v.notify = ( key ) => published.push( [ key, v.view ] );
 		v.fill( widgetMsg( { weight: 19 } ) );
 		expect( published[ 0 ][ 0 ] ).toBe( 'view' );
 		expect( published[ 0 ][ 1 ].widgets[ 'zeta-7' ].label ).toBe( 'zeta' );
@@ -113,6 +113,7 @@ describe( 'ProbeStreamViewNode (the entry-lifecycle contract)', () => {
 		expect( WidgetProbeView.nodeSchema() ).toEqual( {
 			category: 'Hidden',
 			description: 'Widget probe stream sink (the base-contract double).',
+			registrations: [ 'view' ],
 			has_target: false,
 			arguments: [],
 			commands: [],
@@ -306,7 +307,7 @@ describe( 'TopicProbeViewNode', () => {
 		try {
 			const v = new TopicProbeViewNode();
 			const published = [];
-			v.setState = ( key, value ) => published.push( value );
+			v.notify = () => published.push( v.view );
 			v.fill( probeMsg( { distance: 100, ts: 100 } ) ); // publishes now
 			expect( published.length ).toBe( 1 );
 			v.fill( probeMsg( { distance: 999, ts: 101 } ) ); // deferred
@@ -388,12 +389,12 @@ describe( 'TopicProbeViewNode', () => {
 		}
 	} );
 
-	it( 'removeNode clears any pending trailing-publish timer (no setState after teardown)', () => {
+	it( 'removeNode clears any pending trailing-publish timer (no publish after teardown)', () => {
 		jest.useFakeTimers();
 		try {
 			const v = new TopicProbeViewNode();
 			const published = [];
-			v.setState = ( key, value ) => published.push( value );
+			v.notify = () => published.push( v.view );
 			v.fill( probeMsg( { ts: 100 } ) ); // leading publish
 			v.fill( probeMsg( { ts: 101 } ) ); // schedules a trailing flush
 			v.removeNode();
@@ -404,10 +405,10 @@ describe( 'TopicProbeViewNode', () => {
 		}
 	} );
 
-	it( 'publishes a throttled view model via setState("view")', () => {
+	it( 'publishes a throttled view model on the view field', () => {
 		const v = new TopicProbeViewNode();
 		const published = [];
-		v.setState = ( key, value ) => published.push( [ key, value ] );
+		v.notify = ( key ) => published.push( [ key, v.view ] );
 		v.fill( probeMsg( { ts: 100 } ) );
 		expect( published.length ).toBeGreaterThanOrEqual( 1 );
 		expect( published[ 0 ][ 0 ] ).toBe( 'view' );
@@ -625,10 +626,10 @@ describe( 'JobstatsViewNode', () => {
 		expect( v.snapshot() ).toEqual( {} );
 	} );
 
-	it( "publishes the view model under a 'handlers' key via setState('view')", () => {
+	it( "publishes the view model under a 'handlers' key on the view field", () => {
 		const v = new JobstatsViewNode();
 		const published = [];
-		v.setState = ( key, value ) => published.push( [ key, value ] );
+		v.notify = ( key ) => published.push( [ key, v.view ] );
 		v.fill( jobstatsMsg( { ts: 100 } ) );
 		expect( published.length ).toBeGreaterThanOrEqual( 1 );
 		expect( published[ 0 ][ 0 ] ).toBe( 'view' );
@@ -642,5 +643,20 @@ describe( 'JobstatsViewNode', () => {
 		const b = v.snapshot().evtemplate.series;
 		expect( a ).not.toBe( b );
 		expect( a ).toEqual( b );
+	} );
+} );
+
+describe( 'ProbeStreamViewNode dump', () => {
+	it( 'dumpNode omits the view and the entries, keeps the bridge', () => {
+		const v = new WidgetProbeView();
+		v.fill( widgetMsg( { id: 'dump-8812', label: 'dump', weight: 8812 } ) );
+		const dump = v.dumpNode();
+
+		expect( v.view.widgets[ 'dump-8812' ].label ).toBe( 'dump' );
+		expect( dump ).not.toHaveProperty( 'view' );
+		expect( dump ).not.toHaveProperty( 'entries' );
+		expect( dump ).toHaveProperty( 'registrations' );
+		expect( dump ).toHaveProperty( 'setStateCache' );
+		v.removeNode();
 	} );
 } );

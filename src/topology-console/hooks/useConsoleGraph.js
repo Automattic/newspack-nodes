@@ -71,9 +71,6 @@ import usePageVisibility from '@newspack-nodes/shared/hooks/usePageVisibility';
 import names from '../../runtime/reserved-node-names.json';
 import { ROUTER_TICK_MS } from '../../runtime/router-node';
 
-/** Stands in for a cleared transcript, so persistence stores `[]`, not null. */
-const EMPTY_TRANSCRIPT = [];
-
 /**
  * Mount the console's node graph for one session and keep it standing while
  * `enabled`.
@@ -173,8 +170,8 @@ export function useConsoleGraph( {
 		dumper.sink = interpreter;
 		// Persist on every change; restore what the last session left.
 		const transcriptListenerId = 'useConsoleGraph/transcript';
-		dumper.register( 'transcript', transcriptListenerId, ( next ) => {
-			saveStationTranscript( next || EMPTY_TRANSCRIPT );
+		dumper.register( 'transcript', transcriptListenerId, () => {
+			saveStationTranscript( dumper.transcript );
 			return true;
 		} );
 		dumper.restore( loadStationTranscript() );
@@ -349,7 +346,7 @@ export function useConsoleGraph( {
 				Core.node( names.CWD )?.target ?? ''
 			).isWorker;
 			if ( node && seeded.nodes.length && ! live && onWorker ) {
-				node.setState( 'metadata', seeded );
+				node.setField( 'metadata', seeded );
 			}
 		};
 

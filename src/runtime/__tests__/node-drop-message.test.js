@@ -83,6 +83,34 @@ describe( 'Node.dropMessage', () => {
 		);
 	} );
 
+	it( 'renders a function in the VALUE as (closure)', () => {
+		const n = new Node();
+		const spy = jest
+			.spyOn( n, 'printLessOften' )
+			.mockImplementation( () => {} );
+		const m = newMessage();
+		m[ TYPE ] = TM_INFO;
+		m[ VALUE ] = { label: 'uniform-88', onDone: () => 'victor-12' };
+		n.dropMessage( m, 'X' );
+		expect( spy.mock.calls[ 0 ].join( '' ) ).toContain(
+			'payload: {"label":"uniform-88","onDone":"(closure)"}'
+		);
+	} );
+
+	it( 'renders a function VALUE as (closure), not its source', () => {
+		const n = new Node();
+		const spy = jest
+			.spyOn( n, 'printLessOften' )
+			.mockImplementation( () => {} );
+		const m = newMessage();
+		m[ TYPE ] = TM_INFO;
+		m[ VALUE ] = () => 'whiskey-301';
+		n.dropMessage( m, 'X' );
+		const line = spy.mock.calls[ 0 ].join( '' );
+		expect( line ).toContain( 'payload: (closure)' );
+		expect( line ).not.toContain( 'whiskey-301' );
+	} );
+
 	it( 'omits payload for a pure control type (TM_BYTESTREAM)', () => {
 		const n = new Node();
 		const spy = jest

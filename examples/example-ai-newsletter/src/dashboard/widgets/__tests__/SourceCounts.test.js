@@ -1,7 +1,7 @@
 /* eslint-env jest */
 /**
  * SourceCounts widget — reads ONLY the `source-counts:view` node's slice via
- * useNodeState and renders the per-source proportion bars. It is mounted onto a
+ * useNodeField and renders the per-source proportion bars. It is mounted onto a
  * live graph node so the render reflects the published slice.
  */
 
@@ -18,7 +18,7 @@ function mountView( slice ) {
 	const node = new SourceCountsViewNode();
 	node.name = 'source-counts:view';
 	if ( slice ) {
-		node.setState( 'view', slice );
+		node.setField( 'view', slice );
 	}
 	return node;
 }
@@ -45,7 +45,9 @@ describe( 'SourceCounts', () => {
 	it( 're-renders when its view node publishes a new slice', () => {
 		const node = mountView( { sources: {} } );
 		render( <SourceCounts /> );
-		act( () => node.setState( 'view', { sources: { releases: 5 } } ) );
+		act( () => {
+			node.setField( 'view', { sources: { releases: 5 } } );
+		} );
 		expect( screen.getByText( 'releases' ) ).toBeInTheDocument();
 	} );
 

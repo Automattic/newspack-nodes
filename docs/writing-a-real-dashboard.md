@@ -1,6 +1,6 @@
 # Writing a *Real* Nodes Dashboard
 
-[writing-a-dashboard.md](writing-a-dashboard.md) walks the happy path: a `Scorer` plus a durable snapshot, a `Service_CI_Node` verb that reads it, a JS view node, a `useBatchedPoll` + `addSliceFetcher` poll hook, a thin React view, the build, the enqueue, the run. By the end you have **Publisher Insights** rendering live in wp-admin. If you haven't done that walkthrough, do it first — this guide assumes its vocabulary (`fill`/`sink`/`target`, `useNodeState`, `node_schema`, the `_http` boundary) and never re-explains it.
+[writing-a-dashboard.md](writing-a-dashboard.md) walks the happy path: a `Scorer` plus a durable snapshot, a `Service_CI_Node` verb that reads it, a JS view node, a `useBatchedPoll` + `addSliceFetcher` poll hook, a thin React view, the build, the enqueue, the run. By the end you have **Publisher Insights** rendering live in wp-admin. If you haven't done that walkthrough, do it first — this guide assumes its vocabulary (`fill`/`sink`/`target`, `useNodeField`, `node_schema`, the `_http` boundary) and never re-explains it.
 
 This is the companion that picks up where the toy stops: the **production realities** you hit shipping a dashboard *for real*. A standalone admin page is the easy case — the moment your nodes show up in the **Topology Console** and the **debug overlay**, the moment you `npm run release:archive`, the moment a designer asks for an icon, you're past the tutorial. Seven shared surfaces impose a contract each.
 

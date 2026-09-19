@@ -35,7 +35,7 @@
  * `fetch` (`installFakeCommandWire`), so packing, the egress, the Router and the
  * interpreter all run for real.
  *
- * React reads each polled slice through its own `useNodeState( '<slice>:view',
+ * React reads each polled slice through its own `useNodeField( '<slice>:view',
  * 'view' )`; only the refresh control and the probe come back from this hook.
  */
 

@@ -28,7 +28,8 @@
  */
 
 import { Core } from './core';
-import { Node, parseSchemaArgs } from './node';
+import { Node } from './node';
+import { SchemaReflection } from './schema-reflection';
 import { SseInNode } from './sse-in-node';
 import { defaultTransport } from './command-transport';
 import names from './reserved-node-names.json';
@@ -62,7 +63,7 @@ import names from './reserved-node-names.json';
  * link's own `sink` and `target`, so a consumer wires a RemoteLink exactly as
  * it wires any other source node.
  */
-export class RemoteLinkNode extends Node {
+export class RemoteLinkNode extends SchemaReflection( Node ) {
 	/**
 	 * Start unconfigured and childless: `ensureChildren()` builds the stream on
 	 * the first call that needs one, and `_assertConfigured()` refuses every
@@ -126,16 +127,15 @@ export class RemoteLinkNode extends Node {
 	}
 
 	/**
-	 * Take the positional tokens and run the Schema_Reflection walk, which
-	 * assigns the one declared argument, `subscribe`. The reset first means a
+	 * Clear the subscription, then let `SchemaReflection` walk the tokens onto
+	 * the one declared argument, `subscribe`. The reset first means a
 	 * re-assignment cannot inherit the previous subscription.
 	 *
 	 * @param {string[]} value Positional tokens; the first is the comma-separated subscription list.
 	 */
 	set arguments( value ) {
-		super.arguments = value;
 		this.subscribe = '';
-		parseSchemaArgs( this, value );
+		super.arguments = value;
 	}
 
 	/**

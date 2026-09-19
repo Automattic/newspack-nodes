@@ -81,21 +81,21 @@ describe( 'worker-status:view — model publish', () => {
 			workers: [ { type: 'firehose-workers' } ],
 		} );
 		v.fill( modelMsg( model ) );
-		expect( v.setStateCache.view ).toEqual( model );
+		expect( v.view ).toEqual( model );
 	} );
 
 	test( 'a later model replaces the published view', () => {
 		const v = makeView( 'worker-status:view' );
 		v.fill( modelMsg( baseModel( { currentTime: 1 } ) ) );
 		v.fill( modelMsg( baseModel( { currentTime: 2 } ) ) );
-		expect( v.setStateCache.view.currentTime ).toBe( 2 );
+		expect( v.view.currentTime ).toBe( 2 );
 	} );
 } );
 
 describe( 'worker-status:view — pre-poll model', () => {
 	test( 'publishes the empty model, so a render before the first poll is valid', () => {
 		const v = makeView( 'worker-status:view' );
-		expect( v.setStateCache.view ).toMatchObject( {
+		expect( v.view ).toMatchObject( {
 			workers: [],
 			logs: [],
 			segmentSize: 64 * 1024 * 1024,
@@ -110,8 +110,8 @@ describe( 'worker-status:view — un-correlated TM_ERROR (global error)', () => 
 		v.fill( modelMsg( baseModel() ) );
 		// Nothing correlates a restart here, so it takes the global error path.
 		v.fill( restartErrorReply( 'never-stashed', 'broadcast failure' ) );
-		expect( v.setStateCache.view.error ).toBe( 'broadcast failure' );
-		expect( v.setStateCache.view.loading ).toBe( false );
+		expect( v.view.error ).toBe( 'broadcast failure' );
+		expect( v.view.loading ).toBe( false );
 	} );
 
 	test( 'a TM_ERROR carrying a bare STRING VALUE still surfaces', () => {
@@ -122,7 +122,7 @@ describe( 'worker-status:view — un-correlated TM_ERROR (global error)', () => 
 
 		v.fill( m );
 
-		expect( v.setStateCache.view.error ).toContain( 'NOT_AVAILABLE' );
+		expect( v.view.error ).toContain( 'NOT_AVAILABLE' );
 	} );
 } );
 
@@ -158,11 +158,11 @@ describe( 'worker-status:view — removing-segment animation', () => {
 					} )
 				)
 			);
-			expect( v.setStateCache.view.removingSegments ).toEqual( {
+			expect( v.view.removingSegments ).toEqual( {
 				'firehose.p0': [ { id: 1, size: 9 } ],
 			} );
 			jest.advanceTimersByTime( 400 );
-			expect( v.setStateCache.view.removingSegments ).toEqual( {} );
+			expect( v.view.removingSegments ).toEqual( {} );
 		} finally {
 			jest.useRealTimers();
 		}
@@ -178,7 +178,7 @@ describe( 'worker-status:view — removing-segment animation', () => {
 			)
 		);
 		v.fill( controlMsg( { action: 'clear-removing' } ) );
-		expect( v.setStateCache.view.removingSegments ).toEqual( {} );
+		expect( v.view.removingSegments ).toEqual( {} );
 	} );
 
 	test( 'a model with no removals schedules no clear timer', () => {

@@ -260,7 +260,7 @@ export function loadDebugUi() {
 /**
  * Persist whether UI-button traffic shows in the transcript.
  *
- * @param {boolean} on The `debug_ui` choice.
+ * @param {number} on The `debug_ui` state the Dumper publishes, 1 or 0.
  */
 export function saveDebugUi( on ) {
 	writeStorage( DEBUG_UI_KEY, on ? '1' : '0' );

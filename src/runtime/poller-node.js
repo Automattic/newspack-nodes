@@ -2,7 +2,7 @@
  * Poller — the self-timed verb poller every console readout is built on.
  *
  * One mechanism: ride the `_router` TIMER, mint the configured verb as a
- * command to `target`, and publish the reply as node state. `command()` stamps
+ * command to `target`, and publish the reply into a node field. `command()` stamps
  * FROM=name, so the reply comes back TO=FROM to this node's `fill()` (ADR-7) —
  * the addressing IS the correlation, and nothing here correlates anything.
  *
@@ -13,6 +13,7 @@
  * Runtime and Profiler grids read.
  */
 
+import { ReactBridge } from './react-bridge';
 import { TimerNode } from './timer-node';
 import { VALUE, payloadOf } from './message';
 
@@ -33,7 +34,10 @@ const POLL_INTERVAL_MS = 10000;
  * meet on the same tick and leave in a single batched POST, where a
  * `setInterval` of each poller's own would drift into a request apiece.
  */
-export class PollerNode extends TimerNode {
+export class PollerNode extends ReactBridge( TimerNode ) {
+	/** The last reply: a whole timer, handle or profile table, too long to print. */
+	static dumpOmits = [ 'reply' ];
+
 	/**
 	 * Start with no verb, no arguments and the default cadence. The mounting
 	 * view sets the verb it asks, the arguments it passes and the target it
@@ -45,6 +49,12 @@ export class PollerNode extends TimerNode {
 		/** @type {string[]} */
 		this.pollArgs = [];
 		this.pollIntervalMs = POLL_INTERVAL_MS;
+		/**
+		 * The last structured reply, null before the first.
+		 *
+		 * @type {?Object|?Array}
+		 */
+		this.reply = null;
 	}
 
 	/**
@@ -102,7 +112,7 @@ export class PollerNode extends TimerNode {
 		if ( ! payload || typeof payload !== 'object' ) {
 			return;
 		}
-		this.setState( 'reply', payload );
+		this.setField( 'reply', payload );
 	}
 
 	/**

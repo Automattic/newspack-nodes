@@ -98,7 +98,7 @@ export class TimerNode extends Node {
 		super();
 		// The setInterval handle of an own slot; null whenever none is armed.
 		this._handle = null;
-		// An own property, so parseSchemaArgs() can assign the declared arg.
+		// An own property, so SchemaReflection can assign the declared arg.
 		this.interval_ms = 0;
 		// 'inactive' | 'event_framework' (own slot) | 'router' (hitchhike).
 		this.mode = 'inactive';

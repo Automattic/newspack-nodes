@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Structured node output lives in node fields, not in `setState()`.** `setState()` holds lifecycle state only, a string or a number as PHP's `set_state()` does, and throws on anything else. A node React reads extends the new `ReactBridge( Base )` mixin and publishes with `setField( field, value )`, which assigns the field and notifies its event with no payload. View models, the transcript, the metadata tree, completion candidates, poll replies, the dmesg tally and the topology catalog each live in such a field — `view`, `transcript`, `metadata`, `candidates`, `reply`, `dmesg`, `catalog` — and React reads them through the new `useNodeField( nodeName, field )`; `useNodeState` remains for string and number state. `Node` itself, the Tachikoma port, carries neither `setField()` nor `dumpOmits`. `SliceViewNode.model` is renamed `view`, `DumperNode._transcript` is `transcript`, and `debug_ui` publishes 1 or 0. `docs/upgrading.md` lists each change with its fix.
+- **`CommandResultNode`'s `result` and `FetcherNode`'s `settled` are events.** Each notifies its payload to the closures registered at that moment and holds nothing, so a late listener hears only what follows.
+- **`Node.notify()` delivers `''` when given no payload,** as PHP's `Node::notify()` does, where it delivered `null`.
+- **`dump_node` shows `registrations` and `setStateCache`, and a function at any depth as `(closure)`.** A top-level function field prints rather than vanishing, and the interpreter's `authorize` prints as any function does. A `ReactBridge` node leaves its bulk out by declaration: `static dumpOmits` lists a class's own fields, the lists merge down the class chain, and the omitted fields are skipped unread, so `_output` omits its transcript, `_metadata` its tree and each view node its `view`. `dump_node <name> <key>` still returns an omitted field whole.
+- **The JS positional-argument walk is the `SchemaReflection( Base )` mixin,** the counterpart of PHP's `Schema_Reflection` trait, replacing the exported `parseSchemaArgs()`. `SseInNode` and `RemoteLinkNode` extend it; `truthy()` moved with it and stays exported from `@newspack-nodes/runtime`.
+- **`_router` publishes NOT_AVAILABLE as PHP's flat string,** `NODE … TYPE … FROM … TO … ID … KEY …`.
+- **The JS `log_midfix`, `log_prefix` and `log_prefixed` are `logMidfix`, `logPrefix` and `logPrefixed`,** the one JS names off the camelCase convention.
+
 ### Fixed
 
 - **A browser node's rate-limited line prints as one line.** `Node.printLessOften()` tagged the head with the node's name before joining the tail, and the tag ends in a newline, so every drop line with a `from:`/`to:`/`payload:` tail printed as two lines, the second under its own timestamp — `_http: NOT_AVAILABLE - TM_ERROR`, then ` from: _router to: performance payload: NOT_AVAILABLE`. It now tags head and tail together and keys the throttle on the tagged head, as PHP's `Node::print_less_often()` does; the throttle itself is `Core.firstInWindow()`, shared by both.

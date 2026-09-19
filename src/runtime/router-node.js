@@ -17,6 +17,7 @@ import {
 	TO,
 	TYPE,
 	ID,
+	KEY,
 	VALUE,
 	TIMESTAMP,
 	TM_ERROR,
@@ -157,10 +158,24 @@ export class RouterNode extends TimerNode {
 
 		const target = Core.node( head );
 		if ( null === target ) {
-			this.setState( 'NOT_AVAILABLE', {
-				node: head,
-				from: message[ FROM ],
-			} );
+			// PHP send_error()'s flat KEY VALUE form; TO as it arrived.
+			this.setState(
+				'NOT_AVAILABLE',
+				[
+					'NODE',
+					head,
+					'TYPE',
+					message[ TYPE ],
+					'FROM',
+					message[ FROM ],
+					'TO',
+					to,
+					'ID',
+					message[ ID ],
+					'KEY',
+					message[ KEY ],
+				].join( ' ' )
+			);
 			if ( message[ TYPE ] & TM_ERROR ) {
 				return;
 			}

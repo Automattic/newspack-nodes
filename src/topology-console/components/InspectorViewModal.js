@@ -21,7 +21,7 @@ import RuntimeView from './RuntimeView';
 import ProfilerView from './ProfilerView';
 import TimelineView from './TimelineView';
 import TriageView from './TriageView';
-import { useNodeState } from '../../runtime/react';
+import { useNodeField } from '../../runtime/react';
 import names from '../../runtime/reserved-node-names.json';
 
 /**
@@ -65,8 +65,8 @@ const VIEW_TITLES = {
  */
 function TimelineHost( { onAction } ) {
 	const transcript =
-		useNodeState( names.OUTPUT, 'transcript' ) ?? EMPTY_TRANSCRIPT;
-	const metadata = useNodeState( names.METADATA, 'metadata' );
+		useNodeField( names.OUTPUT, 'transcript' ) ?? EMPTY_TRANSCRIPT;
+	const metadata = useNodeField( names.METADATA, 'metadata' );
 	const serverTraceOn = ( metadata?.nodes ?? [] ).some(
 		( n ) => n.debugState > 0
 	);

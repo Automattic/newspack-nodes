@@ -167,7 +167,7 @@ trait Schema_Reflection {
 	 * THE bool parse for schema args and toggle verbs: `1`, `true`, `yes` and
 	 * `on` read as true in any case, everything else as false. A verb spelling
 	 * that list again locally is how it ends up accepting half of it. The JS
-	 * mirror is `truthy` in `src/runtime/node.js`.
+	 * mirror is `truthy` in `src/runtime/schema-reflection.js`.
 	 *
 	 * @param string $token Raw argument token.
 	 * @return bool Whether the token reads as true.

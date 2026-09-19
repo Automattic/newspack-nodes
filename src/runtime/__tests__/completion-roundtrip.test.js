@@ -22,8 +22,8 @@ test( 'completion round-trip: a KEY=completion command publishes candidates on _
 	completion.sink = interpreter;
 
 	let published = null;
-	completion.register( 'candidates', 'test', ( payload ) => {
-		published = payload;
+	completion.register( 'candidates', 'test', () => {
+		published = completion.candidates;
 		return true;
 	} );
 

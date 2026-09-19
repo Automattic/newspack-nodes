@@ -650,7 +650,7 @@ describe( 'GraphView — hull selection', () => {
 			metadata.name = names.METADATA;
 			const snapshot = ( a, b ) => hullNodesGraph( a, b );
 			let published = snapshot( 10, 100 );
-			act( () => metadata.setState( 'metadata', published ) );
+			act( () => metadata.setField( 'metadata', published ) );
 
 			const { rerender } = renderWithCatalog( hullView( published ) );
 			// Three canvas rebuilds, seconds apart, one unchanged snapshot.
@@ -663,7 +663,7 @@ describe( 'GraphView — hull selection', () => {
 			// A real poll lands: ONE point, over the whole elapsed interval.
 			tick();
 			published = snapshot( 40, 500 );
-			act( () => metadata.setState( 'metadata', published ) );
+			act( () => metadata.setField( 'metadata', published ) );
 			rerender( hullView( published ) );
 
 			expect( global.__inspectorProps.rateSeries.in ).toEqual( [

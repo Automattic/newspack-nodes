@@ -5,7 +5,7 @@ import { SliceViewNode } from '@newspack-nodes/shared/nodes/slice-view-node';
  * nothing else. `usePublisherInsightsGraph` gives it its own Fetcher and
  * receiver Tee for the `insights-demo` CI's `top` verb, so that reply lands
  * here and never touches the counts or accumulated slices, and `<TopTable/>`
- * reads the published model through `useNodeState( 'top-table:view', 'view' )`.
+ * reads the published model through `useNodeField( 'top-table:view', 'view' )`.
  *
  * The verb answers `{ top: [ { source, title, score } ] }` as JSON — at most
  * ten items, highest score first — and that IS the slice, so the base class's
@@ -19,8 +19,8 @@ import { SliceViewNode } from '@newspack-nodes/shared/nodes/slice-view-node';
  */
 export class TopTableViewNode extends SliceViewNode {
 	/**
-	 * The shaped-but-empty slice, which the base publishes from the constructor
-	 * so a render arriving before the first reply is valid — `<TopTable/>` reads
+	 * The shaped-but-empty slice, which the base constructor holds so a render
+	 * arriving before the first reply is valid — `<TopTable/>` reads
 	 * its empty state off `top.length`.
 	 *
 	 * It declares no `loading` or `error` field: the card shows its "No scored

@@ -357,7 +357,7 @@ describe( 'DebugOverlay', () => {
 		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
 		// GraphView (hosts the palette) renders only once metadata arrives.
 		act( () => {
-			Core.node( '_metadata' ).setState( 'metadata', {
+			Core.node( '_metadata' ).setField( 'metadata', {
 				nodes: [ { id: 'a', class: 'Echo', target: '' } ],
 				edges: [],
 			} );
@@ -405,7 +405,7 @@ describe( 'DebugOverlay', () => {
 		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
 		// GraphView (hosts the palette) renders only once metadata arrives.
 		act( () => {
-			Core.node( '_metadata' ).setState( 'metadata', {
+			Core.node( '_metadata' ).setField( 'metadata', {
 				nodes: [ { id: 'a', class: 'Echo', target: '' } ],
 				edges: [],
 			} );
@@ -542,7 +542,7 @@ describe( 'DebugOverlay', () => {
 
 		// Remote-scope poll: published metadata has NONE of the local nodes.
 		act( () => {
-			Core.node( '_metadata' ).setState( 'metadata', {
+			Core.node( '_metadata' ).setField( 'metadata', {
 				nodes: [ { id: 'remoteThing', class: 'Echo', target: '' } ],
 				edges: [],
 			} );
@@ -570,7 +570,7 @@ describe( 'DebugOverlay', () => {
 		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
 		// GraphView renders once metadata arrives (reads the published graph).
 		act( () => {
-			Core.node( '_metadata' ).setState( 'metadata', {
+			Core.node( '_metadata' ).setField( 'metadata', {
 				nodes: [ { id: 'a', class: 'Echo', target: '' } ],
 				edges: [],
 			} );
@@ -649,7 +649,7 @@ describe( 'DebugOverlay', () => {
 		act( () => fireEvent.keyDown( input, { key: 'Tab' } ) ); // 1st: bell
 		act( () => fireEvent.keyDown( input, { key: 'Tab' } ) ); // 2nd: list
 		// Candidates land in the `_output` transcript; assert data, not text.
-		const listed = Core.node( '_output' )._transcript.some(
+		const listed = Core.node( '_output' ).transcript.some(
 			( e ) =>
 				e.kind === 'recv' &&
 				e.text.includes( 'dump_metadata' ) &&

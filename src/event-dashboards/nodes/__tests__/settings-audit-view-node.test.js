@@ -146,10 +146,10 @@ describe( 'SettingsAuditViewNode', () => {
 		expect( v.snapshot() ).toEqual( v.snapshot() );
 	} );
 
-	it( 'publishes a throttled view model via setState("view")', () => {
+	it( 'publishes a throttled view model on the view field', () => {
 		const v = new SettingsAuditViewNode();
 		const published = [];
-		v.setState = ( key, value ) => published.push( [ key, value ] );
+		v.notify = ( key ) => published.push( [ key, v.view ] );
 		v.fill( settingsMsg( { option: 'newspack_zeta' } ) );
 		expect( published ).toHaveLength( 1 );
 		expect( published[ 0 ][ 0 ] ).toBe( 'view' );
@@ -163,7 +163,7 @@ describe( 'SettingsAuditViewNode', () => {
 		try {
 			const v = new SettingsAuditViewNode();
 			const published = [];
-			v.setState = ( key, value ) => published.push( value );
+			v.notify = () => published.push( v.view );
 			v.fill( settingsMsg( { option: 'newspack_first' } ) ); // leading
 			expect( published ).toHaveLength( 1 );
 			v.fill( settingsMsg( { option: 'newspack_last' } ) ); // deferred
@@ -178,12 +178,12 @@ describe( 'SettingsAuditViewNode', () => {
 		}
 	} );
 
-	it( 'removeNode clears a pending trailing-publish timer (no setState after teardown)', () => {
+	it( 'removeNode clears a pending trailing-publish timer (no publish after teardown)', () => {
 		jest.useFakeTimers();
 		try {
 			const v = new SettingsAuditViewNode();
 			const published = [];
-			v.setState = ( key, value ) => published.push( value );
+			v.notify = () => published.push( v.view );
 			v.fill( settingsMsg( { option: 'newspack_a' } ) ); // leading publish
 			v.fill( settingsMsg( { option: 'newspack_b' } ) ); // schedules trailing
 			v.removeNode();
@@ -200,5 +200,20 @@ describe( 'SettingsAuditViewNode', () => {
 		expect( schema.has_target ).toBe( false );
 		expect( schema.arguments ).toEqual( [] );
 		expect( schema.commands ).toEqual( [] );
+	} );
+} );
+
+describe( 'SettingsAuditViewNode dump', () => {
+	it( 'dumpNode omits the view and the ring, keeps the bridge', () => {
+		const v = new SettingsAuditViewNode();
+		v.fill( settingsMsg( { ts: 1700004411, option: 'newspack_dump' } ) );
+		const dump = v.dumpNode();
+
+		expect( v.view.entries[ 0 ].option ).toBe( 'newspack_dump' );
+		expect( dump ).not.toHaveProperty( 'view' );
+		expect( dump ).not.toHaveProperty( '_entries' );
+		expect( dump ).toHaveProperty( 'registrations' );
+		expect( dump ).toHaveProperty( 'setStateCache' );
+		v.removeNode();
 	} );
 } );

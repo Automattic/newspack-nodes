@@ -195,13 +195,13 @@ describe( 'usePublisherInsightsGraph — batched poll', () => {
 			Core.node( ROUTER ).fireCb();
 		} );
 
-		expect( Core.node( 'source-counts:view' ).setStateCache.view ).toEqual(
-			{ sources: { releases: 2 } }
-		);
-		expect( Core.node( 'top-table:view' ).setStateCache.view ).toEqual( {
+		expect( Core.node( 'source-counts:view' ).view ).toEqual( {
+			sources: { releases: 2 },
+		} );
+		expect( Core.node( 'top-table:view' ).view ).toEqual( {
 			top: [ { source: 'releases', title: 'X', score: 5 } ],
 		} );
-		expect( Core.node( 'accumulated:view' ).setStateCache.view ).toEqual( {
+		expect( Core.node( 'accumulated:view' ).view ).toEqual( {
 			accumulated: 7,
 		} );
 	} );

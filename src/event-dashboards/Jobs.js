@@ -22,7 +22,7 @@ import { useMemo, useDeferredValue } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import { useJobstatsStream } from './hooks/useJobstatsStream';
 import { useTopicProbeStream } from './hooks/useTopicProbeStream';
-import { useNodeState } from '../runtime/react';
+import { useNodeField } from '../runtime/react';
 import { topicChartSeries, fillModeForMetric } from './topicProbeSeries';
 import { TopicsChart } from './TopicsChart';
 import {
@@ -73,12 +73,12 @@ function formatMs( ms ) {
 export default function Jobs() {
 	// Replay jobstats.p0 (24h) into jobstats:view.
 	useJobstatsStream( { mode: 'history' } );
-	const view = useNodeState( 'jobstats:view', 'view' );
+	const view = useNodeField( 'jobstats:view', 'view' );
 	const handlers = view?.handlers ?? {};
 
 	// The jobs Consumer's lag rides the topicprobe stream the Overview replays.
 	useTopicProbeStream( { mode: 'history' } );
-	const probeView = useNodeState( 'topicprobe:view', 'view' );
+	const probeView = useNodeField( 'topicprobe:view', 'view' );
 
 	// Per-handler rate rollups, deferred so redraws stay off INP.
 	const deferred = useDeferredValue( handlers );

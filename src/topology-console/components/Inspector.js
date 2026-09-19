@@ -37,7 +37,7 @@ import {
 import { processStats } from '../utils/processStats';
 import { isConfigurableVerb } from '../utils/editorLines';
 import { IoTelemetry } from '../../runtime/io-telemetry';
-import { useNodeState } from '../../runtime/react';
+import { useNodeField } from '../../runtime/react';
 import reservedNames from '../../runtime/reserved-node-names.json';
 import { edgeHasConnectRole } from '../utils/consoleGraph';
 import { primaryButtonClass } from '@newspack-nodes/shared/utils/buttonClass';
@@ -146,7 +146,7 @@ function argDisplayValue( token ) {
 function GraphProcessStats( { nodes, rateSeries } ) {
 	const { messagesIn, messagesOut, bytesRead, bytesWritten } =
 		processStats( nodes );
-	const levels = useNodeState( reservedNames.DMESG, 'dmesg' ) || {
+	const levels = useNodeField( reservedNames.DMESG, 'dmesg' ) || {
 		errors: 0,
 		warnings: 0,
 		debug: 0,

@@ -140,9 +140,7 @@ describe( 'the profile button is UI-bound', () => {
 		publish( [ { ...TOTAL, count: 0 } ] );
 		Core.node( '_command_interpreter' ).fill = ( m ) => sent.push( m );
 		fireEvent.click( getByText( 'profile' ) );
-		const texts = ( output.setStateCache.transcript ?? [] ).map(
-			( e ) => e.text
-		);
+		const texts = ( output.transcript ?? [] ).map( ( e ) => e.text );
 		return { sent, texts };
 	};
 

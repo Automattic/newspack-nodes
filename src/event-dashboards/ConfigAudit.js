@@ -18,7 +18,7 @@
 import { createPortal, useState } from '@wordpress/element';
 import { __, _n, sprintf } from '@wordpress/i18n';
 import { useLogTailStream } from './hooks/useLogTailStream';
-import { useNodeState } from '../runtime/react';
+import { useNodeField } from '../runtime/react';
 import { formatLocalDateTime } from '@newspack-nodes/shared/utils/formatUtils';
 import './styles/config-audit.scss';
 import { views } from './nodes/register';
@@ -87,7 +87,7 @@ export default function ConfigAudit( { headerControlsSlot } ) {
 		viewClass: views.SettingsAuditView,
 		mode: 'history',
 	} );
-	const view = useNodeState( VIEW_NODE, 'view' );
+	const view = useNodeField( VIEW_NODE, 'view' );
 	const entries = view?.entries ?? [];
 
 	const [ filter, setFilter ] = useState( '' );

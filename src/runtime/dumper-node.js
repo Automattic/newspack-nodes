@@ -8,13 +8,14 @@
  * Flood-safe: a console connected to a firehose Tee can receive thousands of
  * frames/sec (a full-speed segment replay). Per-message work is O(1) — write
  * into a bounded ring and queue one flush — and the expensive publish (React
- * render + localStorage persist, both hung off `setState('transcript')`) is
+ * render + localStorage persist, both hung off the `transcript` field) is
  * COALESCED to a single frame-scheduled flush. Writes past the ring cap between
  * flushes are overwritten and announced as one rate-limited count, a MemorySieve
  * degrade in place of an OOM tab.
  */
 
 import { Node } from './node';
+import { ReactBridge } from './react-bridge';
 
 /**
  * Highest debug-render level. The Shell's `debug_level` builtin refuses
@@ -231,11 +232,14 @@ function renderMessage( message ) {
 }
 
 /**
- * The `_output` node: owns the `transcript` state slot React subscribes to, the
+ * The `_output` node: owns the `transcript` field React subscribes to, the
  * bounded ring that backs it, and the coalesced publish that holds a flood of
  * frames to one render per animation frame.
  */
-export class DumperNode extends Node {
+export class DumperNode extends ReactBridge( Node ) {
+	/** The transcript and its ring: 200 rendered lines apiece, too bulky to print. */
+	static dumpOmits = [ 'transcript', '_ring' ];
+
 	/**
 	 * Tachikoma-parity: no-arg ctor. The `debugLevelRef` is a programmatic
 	 * dependency (a React useRef object) — callers assign it as a public
@@ -251,8 +255,13 @@ export class DumperNode extends Node {
 		this._ring = [];
 		this._head = 0;
 		this._count = 0;
-		// Last published array (fresh each flush for React identity).
-		this._transcript = [];
+		/**
+		 * The published transcript, oldest first: a fresh array each flush,
+		 * because React re-renders on a new identity.
+		 *
+		 * @type {Object[]}
+		 */
+		this.transcript = [];
 		// Flood accounting: writes since the last flush, and un-noticed drops.
 		this._sinceFlush = 0;
 		this._droppedPending = 0;
@@ -262,7 +271,7 @@ export class DumperNode extends Node {
 		this._flushHandle = null;
 		this._schedule = scheduleFrame;
 		this._cancelSchedule = cancelFrame;
-		// React subscribes to these via useNodeState( '_output', <event> ).
+		// React reads `transcript` as a field, the two dials as state.
 		this.registrations.transcript = {};
 		this.registrations.debug_level = {};
 		this.registrations.debug_ui = {};
@@ -362,8 +371,7 @@ export class DumperNode extends Node {
 			this._writeRing( list[ i ] );
 		}
 		this._cancelPendingFlush();
-		this._transcript = this._materialize();
-		this._publish();
+		this.setField( 'transcript', this._materialize() );
 	}
 
 	/**
@@ -374,8 +382,7 @@ export class DumperNode extends Node {
 		this._resetRing();
 		this._droppedPending = 0;
 		this._cancelPendingFlush();
-		this._transcript = [];
-		this._publish();
+		this.setField( 'transcript', [] );
 	}
 
 	/**
@@ -466,8 +473,7 @@ export class DumperNode extends Node {
 				this._lastDropNoticeAt = now;
 			}
 		}
-		this._transcript = this._materialize();
-		this._publish();
+		this.setField( 'transcript', this._materialize() );
 	}
 
 	/**
@@ -516,14 +522,6 @@ export class DumperNode extends Node {
 	}
 
 	/**
-	 * Emit the transcript to the `transcript` subscribers — the React render and
-	 * the localStorage persist both hang off this one `setState`.
-	 */
-	_publish() {
-		this.setState( 'transcript', this._transcript );
-	}
-
-	/**
 	 * Drop a queued frame flush. Teardown, `clear`, `restore`, and every
 	 * synchronous publish supersede it.
 	 */
@@ -562,7 +560,7 @@ export class DumperNode extends Node {
 	 */
 	setDebugUi( on ) {
 		this.debugUi = !! on;
-		this.setState( 'debug_ui', this.debugUi );
+		this.setState( 'debug_ui', this.debugUi ? 1 : 0 );
 	}
 
 	/**
