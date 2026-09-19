@@ -504,23 +504,23 @@ describe( 'the _ui relay', () => {
 		spine.router.fill( replyTo( `${ names.UI }/_triage:dl_list` ) );
 		expect( got ).toHaveLength( 1 );
 		expect( got[ 0 ][ VALUE ].payload ).toBe( 'ok: 42' );
-		expect( output.setStateCache.transcript ?? [] ).toEqual( [] );
+		expect( output.transcript ?? [] ).toEqual( [] );
 	} );
 
 	test( 'copies the reply to _output as well while debug_ui is on', () => {
 		const { spine, output, got } = mountWith( true );
 		spine.router.fill( replyTo( `${ names.UI }/_triage:dl_list` ) );
 		expect( got ).toHaveLength( 1 );
-		expect(
-			output.setStateCache.transcript.map( ( e ) => e.text ).join( '' )
-		).toContain( 'ok: 42' );
+		expect( output.transcript.map( ( e ) => e.text ).join( '' ) ).toContain(
+			'ok: 42'
+		);
 	} );
 
 	test( 'a reply to bare _ui ends there, unaddressed and unwarned', () => {
 		const { spine, output, stderr } = mountWith( false );
 		spine.router.fill( replyTo( names.UI ) );
 		expect( stderr ).not.toHaveBeenCalled();
-		expect( output.setStateCache.transcript ?? [] ).toEqual( [] );
+		expect( output.transcript ?? [] ).toEqual( [] );
 	} );
 } );
 
@@ -537,9 +537,7 @@ describe( 'the _ui relay with no receiver behind it', () => {
 		m[ TO ] = names.UI;
 		m[ VALUE ] = { name: 'seek_frame', payload };
 		spine.router.fill( m );
-		return ( output.setStateCache.transcript ?? [] )
-			.map( ( e ) => e.text )
-			.join( '' );
+		return ( output.transcript ?? [] ).map( ( e ) => e.text ).join( '' );
 	};
 
 	test( 'prints a TM_ERROR reply even while debug_ui is off', () => {

@@ -227,7 +227,7 @@ describe( 'Inspector (view mode)', () => {
 		// _dmesg node publishes classified stderr counts; header reads it.
 		const dmesg = new Node();
 		dmesg.name = names.DMESG;
-		dmesg.setStateCache = { dmesg: { errors: 2, warnings: 1, debug: 3 } };
+		dmesg.dmesg = { errors: 2, warnings: 1, debug: 3 };
 		const { getByTestId } = renderWithCatalog(
 			<Inspector { ...baseProps } />,
 			{

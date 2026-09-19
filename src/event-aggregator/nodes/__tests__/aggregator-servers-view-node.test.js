@@ -56,7 +56,7 @@ const SAMPLE = [
 describe( 'AggregatorServersViewNode', () => {
 	test( 'starts loading with null servers before the first reply', () => {
 		const v = makeView();
-		expect( v.setStateCache.view ).toMatchObject( {
+		expect( v.view ).toMatchObject( {
 			servers: null,
 			loading: true,
 			error: null,
@@ -66,7 +66,7 @@ describe( 'AggregatorServersViewNode', () => {
 	test( 'parses a list_servers reply into the servers array and clears loading', () => {
 		const v = makeView();
 		v.fill( reply( SAMPLE ) );
-		const model = v.setStateCache.view;
+		const model = v.view;
 		expect( Array.isArray( model.servers ) ).toBe( true );
 		expect( model.servers.map( ( s ) => s.id ) ).toEqual( [
 			'server1',
@@ -79,14 +79,14 @@ describe( 'AggregatorServersViewNode', () => {
 	test( 'an empty payload yields an empty servers array', () => {
 		const v = makeView();
 		v.fill( reply( [] ) );
-		expect( v.setStateCache.view.servers ).toEqual( [] );
+		expect( v.view.servers ).toEqual( [] );
 	} );
 
 	test( 'a TM_ERROR reply surfaces the error and clears loading, KEEPING prior servers', () => {
 		const v = makeView();
 		v.fill( reply( SAMPLE ) );
 		v.fill( errorReply( 'aggregator down' ) );
-		const model = v.setStateCache.view;
+		const model = v.view;
 		expect( model.error ).toBe( 'aggregator down' );
 		expect( model.loading ).toBe( false );
 		// Prior servers kept on transient error (parity with old view).
@@ -112,6 +112,6 @@ test( 'an undecodable payload keeps the slice it already published', () => {
 	broken[ VALUE ] = { name: 'list_servers', payload: '{not json' };
 	v.fill( broken );
 
-	expect( v.model.servers ).toEqual( [ { id: 'a' } ] );
-	expect( v.model.loading ).toBe( false );
+	expect( v.view.servers ).toEqual( [ { id: 'a' } ] );
+	expect( v.view.loading ).toBe( false );
 } );

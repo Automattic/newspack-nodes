@@ -55,7 +55,7 @@ function replyMsg( {
 
 describe( 'vault:view — initial model', () => {
 	test( 'publishes an initial loading model on construction', () => {
-		expect( makeView().setStateCache.view ).toEqual( {
+		expect( makeView().view ).toEqual( {
 			servers: null,
 			loading: true,
 			error: null,
@@ -67,7 +67,7 @@ describe( 'vault:view — list reply updates the render model', () => {
 	test( 'converts the server map to an array of servers', () => {
 		const v = makeView();
 		v.fill( replyMsg( { name: 'list', payload: SAMPLE } ) );
-		const model = v.setStateCache.view;
+		const model = v.view;
 		expect( Array.isArray( model.servers ) ).toBe( true );
 		expect( model.servers.map( ( s ) => s.id ) ).toEqual( [
 			'spoke-01',
@@ -80,14 +80,14 @@ describe( 'vault:view — list reply updates the render model', () => {
 	test( 'an empty list payload yields an empty servers array', () => {
 		const v = makeView();
 		v.fill( replyMsg( { name: 'list', payload: {} } ) );
-		expect( v.setStateCache.view.servers ).toEqual( [] );
-		expect( v.setStateCache.view.loading ).toBe( false );
+		expect( v.view.servers ).toEqual( [] );
+		expect( v.view.loading ).toBe( false );
 	} );
 
 	test( 'a null list payload yields an empty servers array', () => {
 		const v = makeView();
 		v.fill( replyMsg( { name: 'list', payload: null } ) );
-		expect( v.setStateCache.view.servers ).toEqual( [] );
+		expect( v.view.servers ).toEqual( [] );
 	} );
 
 	test( 'a payload that is not a map keeps the servers already on screen', () => {
@@ -97,7 +97,7 @@ describe( 'vault:view — list reply updates the render model', () => {
 		// Object.values( 'abc' ) would paint three fabricated rows.
 		v.fill( replyMsg( { name: 'list', payload: 'abc' } ) );
 
-		expect( v.setStateCache.view.servers.map( ( s ) => s.id ) ).toEqual( [
+		expect( v.view.servers.map( ( s ) => s.id ) ).toEqual( [
 			'spoke-01',
 			'spoke-02',
 		] );
@@ -115,7 +115,7 @@ describe( 'vault:view — error surfacing', () => {
 				type: TM_COMMAND | TM_ERROR,
 			} )
 		);
-		const model = v.setStateCache.view;
+		const model = v.view;
 		expect( model.error ).toBe( 'registry down' );
 		expect( model.loading ).toBe( false );
 		expect( model.servers ).toHaveLength( 2 );
@@ -127,8 +127,8 @@ describe( 'vault:view — error surfacing', () => {
 		const v = makeView();
 		v.fill( replyMsg( { name: 'list', payload: SAMPLE } ) );
 
-		expect( v.setStateCache.view.error ).toBeNull();
-		expect( v.setStateCache.view.servers ).toHaveLength( 2 );
+		expect( v.view.error ).toBeNull();
+		expect( v.view.servers ).toHaveLength( 2 );
 	} );
 } );
 

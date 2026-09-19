@@ -23,7 +23,7 @@ import './styles/insights.scss';
  * `usePublisherInsightsGraph` runs for its effect alone. It builds the whole
  * poll graph — a Timer fanning through a Tee to one Fetcher per slice, batched
  * into a single POST per tick — and this page hands the widgets nothing,
- * because each one subscribes to its own view node through `useNodeState`.
+ * because each one subscribes to its own view node through `useNodeField`.
  * That is the one-slice-per-view rule from `docs/writing-a-view-node.md`: a
  * single view node holding `{ counts, top, accumulated }` would put one slice's
  * error notice on all three cards.

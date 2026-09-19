@@ -18,7 +18,9 @@
  */
 export * from './message';
 export { Core } from './core';
-export { Node, truthy } from './node';
+export { Node } from './node';
+export { SchemaReflection, truthy } from './schema-reflection';
+export { ReactBridge } from './react-bridge';
 export { RouterNode } from './router-node';
 export { TeeNode } from './tee-node';
 export { HookNode } from './hook-node';
@@ -46,6 +48,7 @@ export { commandTransport, defaultTransport } from './command-transport';
 export { formatCommandArgs, parseCommandArgs } from './command-args';
 export {
 	useNodeState,
+	useNodeField,
 	useNodeEvent,
 	useNodeFill,
 	useGraphGeneration,

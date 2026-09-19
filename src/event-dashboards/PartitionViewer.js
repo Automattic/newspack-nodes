@@ -15,7 +15,7 @@ import { useState, useCallback } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 
 import { Core } from '../runtime/core';
-import { useNodeState } from '../runtime/react';
+import { useNodeField } from '../runtime/react';
 import { usePartitionViewerGraph } from './hooks/useLogReaderGraph';
 import LogStreamViewer, {
 	debugValue,
@@ -43,7 +43,7 @@ import './styles/partition-viewer.scss';
 const ROW_HEIGHT = 33;
 
 /**
- * The view node `usePartitionViewerGraph` mounts. `useNodeState` reads state
+ * The view node `usePartitionViewerGraph` mounts. `useNodeField` reads it
  * by NAME, so this and the hook's `partition` prefix move together.
  *
  * @type {string}
@@ -251,7 +251,7 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 		usePartitionViewerGraph();
 
 	// Low-frequency view model (dropdown + pause button + selected value).
-	const view = useNodeState( VIEW_NODE, 'view' ) ?? EMPTY_VIEW;
+	const view = useNodeField( VIEW_NODE, 'view' ) ?? EMPTY_VIEW;
 	const {
 		logs: availableLogs,
 		selected: selectedLog,

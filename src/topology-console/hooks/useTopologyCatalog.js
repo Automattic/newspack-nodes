@@ -7,7 +7,7 @@
  * `pathOptions`, which builds the `workers` list, whose join is the console
  * graph effect's `workersKey` dependency. A catalog node mounted by that effect
  * would therefore be torn down by the very publish it had just made, rebuilt
- * carrying the frozen page-load seed its constructor publishes, and the console
+ * carrying the frozen page-load seed its constructor holds, and the console
  * would swing between seed and live at the poll cadence, reconnecting SSE each
  * time.
  *
@@ -20,7 +20,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from '@wordpress/element';
 import { Core } from '../../runtime/core';
-import { useNodeState } from '../../runtime/react';
+import { useNodeField } from '../../runtime/react';
 import names from '../../runtime/reserved-node-names.json';
 import {
 	CATALOG_NODE,
@@ -82,7 +82,7 @@ export function useTopologyCatalog() {
 	// it; read at first render, not at import — the localizer writes the global
 	// before the bundle runs, but a module-scope read cannot be tested.
 	const seed = useMemo( seedFromGlobal, [] );
-	const catalog = useNodeState( CATALOG_NODE, 'catalog' ) ?? seed;
+	const catalog = useNodeField( CATALOG_NODE, 'catalog' ) ?? seed;
 	const reload = useCallback( () => Core.node( CATALOG_NODE )?.fire(), [] );
 
 	return {

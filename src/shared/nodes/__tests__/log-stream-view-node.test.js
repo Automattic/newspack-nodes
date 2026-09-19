@@ -55,10 +55,6 @@ const controlMsg = ( value ) => {
 function makeView( maxLines ) {
 	const v = new TestViewNode( maxLines );
 	v.controlFrom = CONTROLLER;
-	v.setStateCache = {};
-	v.setState = function ( event, payload ) {
-		this.setStateCache[ event ] = payload;
-	};
 	return v;
 }
 
@@ -142,8 +138,8 @@ test( 'lps decays to zero when the stream goes quiet', () => {
 test( 'seek breadcrumbs publish mode + lastReceivedSegment', () => {
 	const v = makeView();
 	v.fill( rowMsg( 'x', '3:120:44' ) );
-	expect( v.setStateCache.view.lastReceivedSegment ).toBe( 3 );
-	expect( v.setStateCache.view.mode ).toBe( 'live' );
+	expect( v.view.lastReceivedSegment ).toBe( 3 );
+	expect( v.view.mode ).toBe( 'live' );
 } );
 
 test( 'the partition subclass shapes a bare VALUE column beside the key', () => {
@@ -274,7 +270,7 @@ describe( 'select', () => {
 		expect( v.linesCount ).toBe( 0 );
 		expect( v.lastReceivedSegment ).toBe( null );
 		v.fill( rowMsg( 'fresh', '6:80:12' ) );
-		expect( v.setStateCache.view.lastReceivedSegment ).toBe( 6 );
+		expect( v.view.lastReceivedSegment ).toBe( 6 );
 	} );
 
 	it( 'disarms tracking for the multi-dir glob', () => {
@@ -283,5 +279,34 @@ describe( 'select', () => {
 		expect( v.seekTracking() ).toBe( false );
 		v.fill( rowMsg( 'globbed', '5:16:8' ) );
 		expect( v.lastReceivedSegment ).toBe( null );
+	} );
+} );
+
+describe( 'field bridge', () => {
+	test( 'a control assigns a new view and notifies `view`', () => {
+		const v = makeView();
+		const seen = [];
+		v.register( 'view', 'probe-6203', () => seen.push( v.view ) );
+		v.fill( controlMsg( { action: 'pause', paused: true } ) );
+		const first = v.view;
+		v.fill( controlMsg( { action: 'pause', paused: false } ) );
+
+		expect( seen ).toHaveLength( 2 );
+		expect( v.view ).not.toBe( first );
+		expect( v.view.paused ).toBe( false );
+		expect( v.setStateCache.view ).toBeUndefined();
+	} );
+
+	test( 'dumpNode omits the view and the ring, keeps the bridge', () => {
+		const v = makeView();
+		v.fill( rowMsg( 'row-6203' ) );
+		v.fill( controlMsg( { action: 'pause', paused: true } ) );
+		const dump = v.dumpNode();
+
+		expect( dump ).not.toHaveProperty( 'view' );
+		expect( dump ).not.toHaveProperty( '_ring' );
+		expect( dump ).not.toHaveProperty( 'ring' );
+		expect( dump ).toHaveProperty( 'registrations' );
+		expect( dump ).toHaveProperty( 'setStateCache' );
 	} );
 } );

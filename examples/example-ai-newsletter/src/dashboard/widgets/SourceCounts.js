@@ -9,7 +9,7 @@
  */
 
 import { __ } from '@wordpress/i18n';
-import { useNodeState } from '@newspack-nodes/runtime';
+import { useNodeField } from '@newspack-nodes/runtime';
 
 /**
  * Render the per-source breakdown: one labeled proportion bar per source, each
@@ -17,7 +17,7 @@ import { useNodeState } from '@newspack-nodes/runtime';
  * them. A bar labeled `?` is that verb's bucket for items whose `source` is
  * missing or not a string.
  *
- * `useNodeState` returns undefined until `source-counts:view` is registered,
+ * `useNodeField` returns undefined until `source-counts:view` is registered,
  * because `usePublisherInsightsGraph` builds the graph in an effect and the
  * first render precedes the node. The empty-slice default covers that render,
  * and the `?? {}` covers a reply that parsed without a `sources` field.
@@ -35,7 +35,7 @@ import { useNodeState } from '@newspack-nodes/runtime';
  * @return {import('react').ReactElement} Rendered component.
  */
 export function SourceCounts() {
-	const slice = useNodeState( 'source-counts:view', 'view' ) || {
+	const slice = useNodeField( 'source-counts:view', 'view' ) || {
 		sources: {},
 	};
 	const sources = Object.entries( slice.sources ?? {} );

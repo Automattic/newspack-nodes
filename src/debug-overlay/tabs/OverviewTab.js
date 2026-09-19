@@ -171,7 +171,7 @@ export default function OverviewTab( { publishHeader } ) {
 								className={ `nodes-overview__msg nodes-overview__msg--${ m.level }` }
 							>
 								<span className="nodes-overview__msg-text">
-									{ Core.log_prefixed( m.text, m.ts ).replace(
+									{ Core.logPrefixed( m.text, m.ts ).replace(
 										/\n$/,
 										''
 									) }

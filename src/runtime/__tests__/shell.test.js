@@ -311,7 +311,7 @@ describe( 'Shell node — local builtins', () => {
 		const { shell, filled, out } = makeShell();
 		out.append( { kind: 'sent', text: 'ls' } );
 		send( shell, 'clear' );
-		expect( out.setStateCache.transcript ).toEqual( [] );
+		expect( out.transcript ).toEqual( [] );
 		expect( filled ).toHaveLength( 0 );
 	} );
 
@@ -402,7 +402,7 @@ describe( 'Shell node — fill() reply path + TO', () => {
 		const { shell, filled, out } = makeShell();
 		out.append( { kind: 'sent', text: 'ls' } );
 		send( shell, 'clear' );
-		expect( out.setStateCache.transcript ).toEqual( [] );
+		expect( out.transcript ).toEqual( [] );
 		expect( filled ).toHaveLength( 0 );
 	} );
 

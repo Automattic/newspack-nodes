@@ -1,12 +1,11 @@
 /**
  * `Node` — the base class every browser-side node extends, and the module-level
  * rules that belong beside it: the credential mask the drop audit and
- * `dump_node` share, the TSL quoting `dumpConfig()` round-trips through, and
- * the positional argument walk a subclass opts into.
+ * `dump_node` share, and the TSL quoting `dumpConfig()` round-trips through.
  *
  * Counterpart of PHP `Newspack_Nodes\Node`. Both runtimes drive the same graph,
- * and a rule spelled twice drifts, so `MAX_FROM_SIZE`, the redaction rule, the
- * argument coercions and the argument quoting each name their PHP twin.
+ * and a rule spelled twice drifts, so `MAX_FROM_SIZE`, the redaction rule and
+ * the argument quoting each name their PHP twin.
  */
 
 import { markLocal, readyToMint } from './command-auth';
@@ -88,16 +87,23 @@ export function targetsOf( node ) {
 /** What a redacted credential renders as (PHP Node::REDACTED). */
 export const REDACTED = '<redacted>';
 
+/** What a function renders as; PHP prints a closure `(Closure)`. */
+const CLOSURE = '(closure)';
+
 /**
  * Mask credentials in a value, mirroring PHP `Node::redact_secrets()` by the
  * one rule `Core.isSecretProperty()` owns. Two shapes carry them: a
  * secret-named key, and a `--password=…` argument token, which is how the
- * Vault admin UI sends them. The name survives; only the value goes.
+ * Vault admin UI sends them. The name survives; only the value goes. A
+ * function has no printable form, so it renders as `(closure)` at any depth.
  *
  * @param {*} value Any VALUE, at any depth.
  * @return {*} The same shape with credential values masked.
  */
 function redactSecrets( value ) {
+	if ( 'function' === typeof value ) {
+		return CLOSURE;
+	}
 	if ( Array.isArray( value ) ) {
 		return value.map( redactSecrets );
 	}
@@ -174,7 +180,7 @@ export class Node {
 		this.registrations = {};
 		/** Last payload per event, so a late `register()` gets current state. */
 		this.setStateCache = {};
-		/** Non-zero traces every scalar `setState()` to stderr. */
+		/** Non-zero traces every `setState()` to stderr. */
 		this.debugState = 0;
 		/** The node this one is plumbing for; set hides it from the canvas. */
 		this.patron = null;
@@ -187,8 +193,8 @@ export class Node {
 	/**
 	 * Get/set the node's argument token list — the trivial Tachikoma getter/setter.
 	 * It stores the token array and does NOT parse it. A node that wants positional
-	 * config calls parseSchemaArgs() from its own `set arguments` override (the
-	 * Schema_Reflection mirror), so a bare `make_node Foo` assigns nothing.
+	 * config mixes in `SchemaReflection`, whose setter walks the tokens onto the
+	 * properties its `nodeSchema()` declares.
 	 *
 	 * @return {string[]} Last-set argument tokens.
 	 */
@@ -274,20 +280,29 @@ export class Node {
 	 * Notify `event` and cache the payload, so a listener registering later
 	 * receives the current state instead of waiting for the next change.
 	 *
-	 * A scalar payload is a lifecycle state — the only shape PHP's
-	 * `set_state( string, string )` can hold — and `debug_state` traces it. A
-	 * structured payload is this runtime's React bridge instead, and stays
-	 * untraced: `_output` publishes its transcript that way, so a trace line
-	 * would land in the transcript and publish itself again.
+	 * State is a string or a number — what PHP's `set_state( string, string )`
+	 * and Tachikoma's hold — and `debug_state` traces every transition.
+	 * Structured data is not state: it lives in a node field, published with
+	 * `ReactBridge`'s `setField()` and read through `useNodeField()`, so
+	 * `dump_node` finds it where it lives rather than in a cache.
 	 *
-	 * @param {string} event   Pre-declared event name on this node.
-	 * @param {*}      payload Current state; rides as the TM_INFO VALUE.
+	 * @param {string}        event   Pre-declared event name on this node.
+	 * @param {string|number} payload Current state; rides as the TM_INFO VALUE.
+	 * @throws {Error} When `payload` is neither a string nor a number.
 	 */
-	setState( event, payload = null ) {
+	setState( event, payload = '' ) {
+		if ( 'string' !== typeof payload && 'number' !== typeof payload ) {
+			throw new Error(
+				`${
+					this.name
+				} setState( ${ event } ): state is a string or a number, got ${
+					null === payload ? 'null' : typeof payload
+				}`
+			);
+		}
 		this.setStateCache[ event ] = payload;
-		const scalar = null === payload || 'object' !== typeof payload;
-		if ( scalar && ( this.debugState ?? 0 ) > 0 ) {
-			const detail = null === payload ? '' : String( payload );
+		if ( ( this.debugState ?? 0 ) > 0 ) {
+			const detail = String( payload );
 			this.stderr(
 				`DEBUG: ${ event }${ '' !== detail ? ` ${ detail }` : '' }`
 			);
@@ -300,9 +315,10 @@ export class Node {
 	 * false is dropped — that is how a stale registration retires itself.
 	 *
 	 * @param {string} event   Event name; an unseeded event notifies nobody.
-	 * @param {*}      payload Closure argument, or the TM_INFO VALUE.
+	 * @param {*}      payload Closure argument, or the TM_INFO VALUE; empty
+	 *                         by default, as PHP's `Node::notify` defaults it.
 	 */
-	notify( event, payload = null ) {
+	notify( event, payload = '' ) {
 		const listeners = this.registrations[ event ];
 		if ( ! listeners ) {
 			return;
@@ -422,11 +438,11 @@ export class Node {
 		if ( '' === text || null === text || undefined === text ) {
 			return;
 		}
-		Core.stderr( this.log_midfix( text ) );
+		Core.stderr( this.logMidfix( text ) );
 	}
 
 	/**
-	 * Node-keyed rate-limited logging (per-node via log_midfix). Only `text`
+	 * Node-keyed rate-limited logging (per-node via logMidfix). Only `text`
 	 * keys the throttle, through `Core.firstInWindow`; head and tail are tagged
 	 * together, as PHP `Node::print_less_often` does, so they print as one line.
 	 *
@@ -434,14 +450,14 @@ export class Node {
 	 * @param {...string} extra Variable tail printed beside it, never keyed.
 	 */
 	printLessOften( text, ...extra ) {
-		const key = this.log_midfix( text );
+		const key = this.logMidfix( text );
 		if ( Core.firstInWindow( key ) ) {
-			Core.stderr( this.log_midfix( text + extra.join( '' ) ) );
+			Core.stderr( this.logMidfix( text + extra.join( '' ) ) );
 		}
 	}
 
 	/**
-	 * Per-node mid-line tag (Node::log_midfix): `{name}: ` on each line.
+	 * Per-node mid-line tag (PHP Node::log_midfix): `{name}: ` on each line.
 	 *
 	 * The tag is dropped when the process is already named after this node,
 	 * which would otherwise say the name twice on every line.
@@ -449,7 +465,7 @@ export class Node {
 	 * @param {?string} msg Message to tag; nullish returns the bare midfix.
 	 * @return {string} Every line of `msg` tagged, or the midfix alone.
 	 */
-	log_midfix( msg = null ) {
+	logMidfix( msg = null ) {
 		let midfix = '';
 		if (
 			'' !== this.name &&
@@ -733,35 +749,40 @@ export class Node {
 	 * Serializable state snapshot for the `dump_node` verb: every own field,
 	 * plus the subclass name under `class`. A node reference renders as
 	 * '{...}' instead of recursing into a second node's whole state, and every
-	 * value passes through `maskForDump()`, since an operator reads this.
+	 * value passes through `maskForDump()`, since an operator reads this —
+	 * which is also where a function, at any depth, becomes '(closure)', as
+	 * PHP renders one `(Closure)`.
 	 *
+	 * @param {Object}      [options]      Snapshot options.
+	 * @param {Set<string>} [options.skip] Fields to leave out, unread.
 	 * @return {Object} Field names to their displayable values.
 	 */
-	dumpNode() {
-		const snapshot = { class: this.constructor?.name ?? 'Node' };
+	dumpNode( { skip = new Set() } = {} ) {
+		const ctor = /** @type {typeof Node} */ ( this.constructor );
+		const snapshot = { class: ctor?.name ?? 'Node' };
 		for ( const key of Object.keys( this ) ) {
+			// Skipped before the mask: it copies the whole value it is handed.
+			if ( skip.has( key ) ) {
+				continue;
+			}
 			const val = this[ key ];
 			if ( 'sink' === key ) {
 				snapshot.sink = val && val.name ? val.name : '';
 				continue;
 			}
 			// `_foo` field with a public `foo` accessor: snapshot the public.
-			if ( '_' === key[ 0 ] && key.slice( 1 ) in this ) {
-				const pub = key.slice( 1 );
+			const pub = key.slice( 1 );
+			if (
+				'_' === key[ 0 ] &&
+				pub in this &&
+				'function' !== typeof this[ pub ]
+			) {
 				snapshot[ pub ] = maskForDump( pub, this[ pub ] );
 				continue;
 			}
 			// Any reference to another node (patron, interpreter, sub-nodes).
 			if ( val instanceof Node ) {
 				snapshot[ key ] = '{...}';
-				continue;
-			}
-			// Internal structures — not nodes, not display state.
-			if ( 'registrations' === key || 'setStateCache' === key ) {
-				snapshot[ key ] = '{...}';
-				continue;
-			}
-			if ( 'function' === typeof val ) {
 				continue;
 			}
 			snapshot[ key ] = maskForDump( key, val );
@@ -832,121 +853,4 @@ function serializeArgs( tokens ) {
  */
 function commandLine( ...tokens ) {
 	return serializeArgs( tokens ) + '\n';
-}
-
-/**
- * THE bool parse for schema args and toggle verbs — the mirror of PHP
- * `Schema_Reflection::truthy()`. Exported because the PHP side names it as the
- * JS counterpart, and because a second spelling of this list elsewhere is how
- * a toggle verb such as `set_is_hub` ends up taking `true`/`1` and refusing
- * `yes`/`on`.
- *
- * @param {string} token A raw argument token.
- * @return {boolean} Whether the token reads as true.
- */
-export function truthy( token ) {
-	return [ '1', 'true', 'yes', 'on' ].includes(
-		String( token ).toLowerCase()
-	);
-}
-
-/**
- * Coerce a raw token to its declared schema type; unknown types pass through.
- *
- * The numeric types REFUSE rather than cast, mirroring PHP
- * `Schema_Reflection::coerce_argument()`: `parseInt( 'abc', 10 )` is NaN, which
- * poisons every later comparison silently, and `parseInt( '9.9', 10 )` is 9 —
- * neither is what the operator typed. `int` takes a canonical non-negative
- * decimal, which is what every declared int argument (a size, a count, a
- * duration) wants; `float` takes any finite number.
- *
- * @param {string} token A raw argument token.
- * @param {string} type  Declared schema type.
- * @param {string} name  Argument name, for the refusal.
- * @return {*} The coerced value.
- * @throws {Error} When an `int` or `float` token is not the number it declares.
- */
-function coerceArgument( token, type, name ) {
-	switch ( type ) {
-		case 'int':
-			if ( ! /^(?:0|[1-9][0-9]*)$/.test( token ) ) {
-				throw new Error(
-					`Bad argument ${ name }: wants a whole number, got '${ token }'`
-				);
-			}
-			return parseInt( token, 10 );
-		case 'float':
-			if ( '' === token.trim() || ! Number.isFinite( Number( token ) ) ) {
-				throw new Error(
-					`Bad argument ${ name }: wants a number, got '${ token }'`
-				);
-			}
-			return Number( token );
-		case 'bool':
-			return truthy( token );
-		default:
-			return token;
-	}
-}
-
-/**
- * The Schema_Reflection positional walk (PHP trait `parse_schema_args`): assign
- * each token of `args` to the property its declared `nodeSchema().arguments`
- * entry names, coerced to the declared type. Opt-in — the base `set arguments`
- * never calls it, and a node declaring no arguments is a no-op.
- *
- * Excess tokens are ignored. A blank token at an `int` or `float` position
- * reads as "not supplied", so a line can fill a later position without
- * inventing a number for an earlier one. An unfilled position takes its schema
- * default only once some token arrived, which leaves a node built with no
- * arguments at all on the defaults its constructor set. A required position
- * throws even when the input is empty.
- *
- * @param {Node}     node A node whose ctor exposes a static nodeSchema().
- * @param {string[]} args Positional argument tokens (pre-split, quote-resolved).
- * @throws {Error} When a spec carries no name, names a property the node does
- *                 not own, or leaves a required position unfilled.
- */
-export function parseSchemaArgs( node, args ) {
-	const ctor = /** @type {NodeClass} */ ( node.constructor );
-	const declared = ctor.nodeSchema?.().arguments || [];
-	if ( declared.length === 0 ) {
-		return;
-	}
-	const tokens = Array.isArray( args ) ? args : [];
-	for ( let i = 0; i < declared.length; i++ ) {
-		const spec = declared[ i ];
-		if (
-			null === spec ||
-			'object' !== typeof spec ||
-			Array.isArray( spec )
-		) {
-			continue;
-		}
-		const name =
-			null === spec.name || undefined === spec.name
-				? ''
-				: String( spec.name );
-		const type = spec.type ?? 'string';
-		if ( '' === name ) {
-			throw new Error(
-				`Invalid argument specification: missing name at position ${ i }`
-			);
-		}
-		if ( ! Object.prototype.hasOwnProperty.call( node, name ) ) {
-			throw new Error( `Invalid argument specification: ${ name }` );
-		}
-		const token = i < tokens.length ? String( tokens[ i ] ) : null;
-		// A blank numeric positional is a placeholder for "not supplied".
-		const supplied =
-			null !== token &&
-			! ( '' === token && ( 'int' === type || 'float' === type ) );
-		if ( supplied ) {
-			node[ name ] = coerceArgument( token, type, name );
-		} else if ( tokens.length > 0 && 'default' in spec ) {
-			node[ name ] = spec.default;
-		} else if ( spec.required ) {
-			throw new Error( `Missing required argument: ${ name }` );
-		}
-	}
 }

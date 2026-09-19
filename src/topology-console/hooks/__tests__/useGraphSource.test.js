@@ -56,7 +56,7 @@ describe( 'useGraphSource', () => {
 		metadata.name = names.METADATA;
 		const { result } = renderHook( () => useGraphSource() );
 		act( () => {
-			metadata.setState( 'metadata', {
+			metadata.setField( 'metadata', {
 				nodes: [ { id: 'fromMeta' } ],
 				edges: [],
 			} );
@@ -96,7 +96,7 @@ describe( 'useGraphSource', () => {
 			useGraphSource( { coreFallback: false } )
 		);
 		act( () => {
-			metadata.setState( 'metadata', {
+			metadata.setField( 'metadata', {
 				nodes: [ { id: 'fromMeta' } ],
 				edges: [],
 			} );
@@ -116,7 +116,7 @@ describe( 'useGraphSource', () => {
 		metadata.name = names.METADATA;
 		const { result } = renderHook( () => useGraphSource() );
 		act( () => {
-			metadata.setState( 'metadata', { nodes: [], edges: [] } );
+			metadata.setField( 'metadata', { nodes: [], edges: [] } );
 		} );
 		expect( result.current.hasNodes ).toBe( true );
 		expect( result.current.graph.nodes.map( ( n ) => n.id ) ).toContain(
@@ -138,7 +138,7 @@ describe( 'useGraphSource', () => {
 			useGraphSource( { coreFallback: false } )
 		);
 		act( () => {
-			metadata.setState( 'metadata', {
+			metadata.setField( 'metadata', {
 				nodes: [
 					{ id: '_shell' },
 					{ id: '_http' },

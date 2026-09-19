@@ -22,13 +22,13 @@ jest.mock( '../overviewPrefs', () => ( {
 	readCollapsed: jest.fn( () => new Set() ),
 	writeCollapsed: jest.fn(),
 } ) );
-// Probe stream is its own suite; link no-op, view model fed via useNodeState.
+// Probe stream is its own suite; link no-op, view model fed via useNodeField.
 jest.mock( '../hooks/useTopicProbeStream', () => ( {
 	useTopicProbeStream: jest.fn(),
 } ) );
 jest.mock( '../../runtime/react', () => ( {
 	...jest.requireActual( '../../runtime/react' ),
-	useNodeState: jest.fn(),
+	useNodeField: jest.fn(),
 } ) );
 // TopicsChart (d3, own suite) stubbed to capture the props each panel is fed.
 jest.mock( '../TopicsChart', () => {
@@ -84,7 +84,7 @@ jest.mock( '../TopologyRow', () => {
 } );
 
 const { useTopologyManager } = require( '../hooks/useTopologyManager' );
-const { useNodeState } = require( '../../runtime/react' );
+const { useNodeField } = require( '../../runtime/react' );
 const overviewPrefs = require( '../overviewPrefs' );
 
 // Find the captured TopologyControls props for a topology by name.
@@ -131,7 +131,7 @@ function hookValue( overrides = {} ) {
 }
 
 beforeEach( () => {
-	useNodeState.mockReturnValue( undefined );
+	useNodeField.mockReturnValue( undefined );
 	overviewPrefs.readOrder.mockReturnValue( [] );
 	overviewPrefs.readExpanded.mockReturnValue( new Set() );
 	overviewPrefs.writeOrder.mockClear();
@@ -143,7 +143,7 @@ beforeEach( () => {
 } );
 afterEach( () => {
 	useTopologyManager.mockReset();
-	useNodeState.mockReset();
+	useNodeField.mockReset();
 } );
 
 // Active rows are TopologyRow stubs; DOM order = display order.
@@ -299,7 +299,7 @@ describe( 'Overview fleet board', () => {
 	} );
 
 	it( 'feeds each panel its per-topic 24h series rolled up from the probe view', () => {
-		useNodeState.mockReturnValue( {
+		useNodeField.mockReturnValue( {
 			consumers: {
 				'firehose.p0': {
 					source: 'firehose.p0',

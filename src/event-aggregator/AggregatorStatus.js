@@ -10,7 +10,7 @@
  *   servers:view — one card per wired `Remote_Source`, each holding a grid of
  *                  that spoke's partitions.
  *
- * This component reads each slice through its own `useNodeState` and renders
+ * This component reads each slice through its own `useNodeField` and renders
  * it. The split belongs to the graph rather than to the layout: a reply is
  * addressed to its own view node, so a slice that errors leaves the other one
  * on screen ([ADR-7](../../docs/architecture-decisions.md)). Both slices still
@@ -26,7 +26,7 @@
 import { useState, useCallback } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 
-import { useNodeState } from '@newspack-nodes/runtime';
+import { useNodeField } from '@newspack-nodes/runtime';
 import {
 	useAggregatorStatusGraph,
 	REFRESH_OPTIONS,
@@ -40,7 +40,7 @@ import { HeaderSlot } from '@newspack-nodes/shared/components/HeaderSlot';
 /**
  * The header slice a first render reads, before the graph exists.
  *
- * `useNodeState` answers undefined until `summary:view` is mounted, and the
+ * `useNodeField` answers undefined until `summary:view` is mounted, and the
  * effect that builds the graph runs after that first render. The shape mirrors
  * the view node's own `empty` declaration in `nodes/register.js`: this screen
  * reads the counts, the clock and `lastRefresh`, and carries the rest so the
@@ -506,9 +506,9 @@ export default function AggregatorStatus( { headerControlsSlot } ) {
 		} );
 
 	// Two independent read surfaces — one per slice the graph publishes.
-	const summary = useNodeState( 'summary:view', 'view' ) ?? EMPTY_SUMMARY;
+	const summary = useNodeField( 'summary:view', 'view' ) ?? EMPTY_SUMMARY;
 	const serversSlice =
-		useNodeState( 'servers:view', 'view' ) ?? EMPTY_SERVERS;
+		useNodeField( 'servers:view', 'view' ) ?? EMPTY_SERVERS;
 	// Header strip reads the summary slice (counts + clock + refresh marker).
 	const { connected, idle, total, serverNow, lastRefresh } = summary;
 	// Server cards read the servers slice (data + its own loading/error gate).

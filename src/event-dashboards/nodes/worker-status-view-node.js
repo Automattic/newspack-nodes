@@ -34,7 +34,7 @@ const emptyModel = () => ( {
 
 /**
  * `worker-status:view` — owns the Worker Status view model, the one surface
- * React reads through `useNodeState( 'worker-status:view', 'view' )`.
+ * React reads through `useNodeField( 'worker-status:view', 'view' )`.
  *
  * A `SliceViewNode` whose slice arrives already parsed: `worker-status:transform`
  * sits on the receiver-Tee edge ahead of it and mints a TM_STRUCT carrying the
@@ -113,8 +113,7 @@ export class WorkerStatusViewNode extends SliceViewNode {
 
 		// Slide-out animation clear (self-fill from _setModel's setTimeout).
 		if ( 'clear-removing' === value.action ) {
-			this.model = { ...this.model, removingSegments: {} };
-			this._publish();
+			this.setField( 'view', { ...this.view, removingSegments: {} } );
 		}
 	}
 
@@ -131,8 +130,7 @@ export class WorkerStatusViewNode extends SliceViewNode {
 	 * @return {void}
 	 */
 	_setModel( model ) {
-		this.model = model;
-		this._publish();
+		this.setField( 'view', model );
 		// Schedule the slide-out clear only when something is animating out.
 		if ( Object.keys( model.removingSegments || {} ).length > 0 ) {
 			if ( this._clearTimer ) {
@@ -149,19 +147,8 @@ export class WorkerStatusViewNode extends SliceViewNode {
 	}
 
 	/**
-	 * Push the current model out under the `view` event — the one surface React
-	 * reads through useNodeState. `setState` caches it, so a widget mounting
-	 * after the poll still reads the current model.
-	 *
-	 * @return {void}
-	 */
-	_publish() {
-		this.setState( 'view', this.model );
-	}
-
-	/**
 	 * The shaped-but-empty model a render before the first poll reads. The base
-	 * constructor publishes it, so `view` is never undefined.
+	 * constructor holds it, so `view` is never undefined.
 	 *
 	 * @return {Object} Empty render model.
 	 */
@@ -170,7 +157,7 @@ export class WorkerStatusViewNode extends SliceViewNode {
 	}
 
 	/**
-	 * Cancel the slide-out timer, so a pending clear can't setState into a view
+	 * Cancel the slide-out timer, so a pending clear can't publish into a view
 	 * nobody is reading, then hand off to the base.
 	 *
 	 * `mountExospine` removes every node its build registered, on unmount and

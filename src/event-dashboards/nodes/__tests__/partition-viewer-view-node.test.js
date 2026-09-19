@@ -247,7 +247,7 @@ test( 'pause stops appends; the model reflects paused', () => {
 	v.fill( controlMsg( { action: 'pause', paused: true } ) );
 	v.fill( envelopeMsg( { value: 'ignored' } ) );
 	expect( v.lines ).toHaveLength( 0 );
-	expect( v.setStateCache.view.paused ).toBe( true );
+	expect( v.view.paused ).toBe( true );
 } );
 
 test( 'select sets the log and clears the buffer', () => {
@@ -255,7 +255,7 @@ test( 'select sets the log and clears the buffer', () => {
 	v.fill( envelopeMsg( { value: 'old' } ) );
 	v.fill( controlMsg( { action: 'select', log: 'errors.p0' } ) );
 	expect( v.lines ).toHaveLength( 0 );
-	expect( v.setStateCache.view.selected ).toBe( 'errors.p0' );
+	expect( v.view.selected ).toBe( 'errors.p0' );
 } );
 
 test( 'browse clears the buffer: a rewind starts from a clean slate', () => {
@@ -295,7 +295,7 @@ test( 'the published model carries only { connectionError, logs, selected, pause
 			logs: [ { key: 'firehose.p0', label: 'firehose.p0' } ],
 		} )
 	);
-	expect( Object.keys( v.setStateCache.view ).sort() ).toEqual( [
+	expect( Object.keys( v.view ).sort() ).toEqual( [
 		'connectionError',
 		'lastReceivedSegment',
 		'logs',
@@ -313,8 +313,8 @@ test( 'logs action populates availableLogs and defaults the selection', () => {
 			logs: [ { key: 'firehose.p0', label: 'firehose.p0' } ],
 		} )
 	);
-	expect( v.setStateCache.view.logs ).toHaveLength( 1 );
-	expect( v.setStateCache.view.selected ).toBe( 'firehose.p0' );
+	expect( v.view.logs ).toHaveLength( 1 );
+	expect( v.view.selected ).toBe( 'firehose.p0' );
 } );
 
 test( 'logs action does NOT override an already-selected log', () => {
@@ -326,7 +326,7 @@ test( 'logs action does NOT override an already-selected log', () => {
 			logs: [ { key: 'firehose.p0', label: 'firehose.p0' } ],
 		} )
 	);
-	expect( v.setStateCache.view.selected ).toBe( 'errors.p0' );
+	expect( v.view.selected ).toBe( 'errors.p0' );
 } );
 
 test( 'resume after pause lets rows through again', () => {
@@ -335,7 +335,7 @@ test( 'resume after pause lets rows through again', () => {
 	v.fill( envelopeMsg( { value: 'dropped' } ) );
 	v.fill( controlMsg( { action: 'pause', paused: false } ) );
 	v.fill( envelopeMsg( { value: 'kept' } ) );
-	expect( v.setStateCache.view.paused ).toBe( false );
+	expect( v.view.paused ).toBe( false );
 	expect( v.lines ).toHaveLength( 1 );
 	expect( v.lines[ 0 ].content ).toBe( 'kept' );
 } );
@@ -430,17 +430,17 @@ test( 'LPS tracking aggregates per second, not one entry per line (bounded windo
 test( 'defaults connectionError to false in the published model', () => {
 	const v = makeView( 'partition:view' );
 	v.fill( controlMsg( { action: 'pause', paused: false } ) );
-	expect( v.setStateCache.view.connectionError ).toBe( false );
+	expect( v.view.connectionError ).toBe( false );
 } );
 
 test( 'a connection control sets connectionError true then false', () => {
 	const v = makeView( 'partition:view' );
 	v.fill( controlMsg( { action: 'connection', connectionError: true } ) );
 	expect( v.connectionError ).toBe( true );
-	expect( v.setStateCache.view.connectionError ).toBe( true );
+	expect( v.view.connectionError ).toBe( true );
 	v.fill( controlMsg( { action: 'connection', connectionError: false } ) );
 	expect( v.connectionError ).toBe( false );
-	expect( v.setStateCache.view.connectionError ).toBe( false );
+	expect( v.view.connectionError ).toBe( false );
 } );
 
 test( 'an unrelated control does not change connectionError', () => {
@@ -449,7 +449,7 @@ test( 'an unrelated control does not change connectionError', () => {
 	v.fill( controlMsg( { action: 'pause', paused: true } ) );
 	v.fill( envelopeMsg( { value: 'ignored while paused' } ) );
 	expect( v.connectionError ).toBe( true );
-	expect( v.setStateCache.view.connectionError ).toBe( true );
+	expect( v.view.connectionError ).toBe( true );
 } );
 
 test( 'names the node', () => {
@@ -482,7 +482,7 @@ test( 'tracks the last-received segment from the ID breadcrumb and publishes it'
 	const v = makeView( 'partition:view' );
 	v.fill( envelopeWithId( '7:120:40' ) );
 	expect( v.lastReceivedSegment ).toBe( 7 );
-	expect( v.setStateCache.view.lastReceivedSegment ).toBe( 7 );
+	expect( v.view.lastReceivedSegment ).toBe( 7 );
 } );
 
 test( 'does not re-publish while the received segment is unchanged (no per-record storm)', () => {
@@ -498,7 +498,7 @@ test( 'a browse control puts the view into replay mode', () => {
 	const v = makeView( 'partition:view' );
 	v.fill( controlMsg( { action: 'browse', endSegment: 9, endOffset: 500 } ) );
 	expect( v.mode ).toBe( 'replay' );
-	expect( v.setStateCache.view.mode ).toBe( 'replay' );
+	expect( v.view.mode ).toBe( 'replay' );
 } );
 
 test( 'flips to live when a replayed record reaches the captured end position', () => {
@@ -508,7 +508,7 @@ test( 'flips to live when a replayed record reaches the captured end position', 
 	expect( v.mode ).toBe( 'replay' );
 	v.fill( envelopeWithId( '9:460:40' ) ); // 460 + 40 = 500 >= 500 → caught up
 	expect( v.mode ).toBe( 'live' );
-	expect( v.setStateCache.view.mode ).toBe( 'live' );
+	expect( v.view.mode ).toBe( 'live' );
 } );
 
 test( 'stays in replay until the end position is reached', () => {
@@ -532,5 +532,5 @@ test( 'select resets mode to live and clears the last-received segment', () => {
 	v.fill( controlMsg( { action: 'select', log: 'errors.p0' } ) );
 	expect( v.mode ).toBe( 'live' );
 	expect( v.lastReceivedSegment ).toBe( null );
-	expect( v.setStateCache.view.lastReceivedSegment ).toBe( null );
+	expect( v.view.lastReceivedSegment ).toBe( null );
 } );

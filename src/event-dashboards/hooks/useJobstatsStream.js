@@ -10,7 +10,7 @@
  * detail. What this file adds is the two strings and the class that make that
  * backbone a jobstats stream.
  *
- * React reads the model with `useNodeState( 'jobstats:view', 'view' )`.
+ * React reads the model with `useNodeField( 'jobstats:view', 'view' )`.
  */
 
 import { useLogTailStream } from './useLogTailStream';

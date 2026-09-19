@@ -18,10 +18,10 @@ import { errorMessage } from '../errorMessage';
  * reply publishes, refusals included, or the caller waits forever for news that
  * already arrived.
  *
- * Every reply NOTIFIES `result`, so a listener registered on this node runs
- * once per reply. Two replies landing in one batch are two notifications; a
- * consumer that instead renders the published state sees only the last, which
- * is why anything acting on each reply registers rather than re-renders.
+ * Every reply NOTIFIES `result` with the reply model, so a listener
+ * registered on this node runs once per reply. `result` is an event, not
+ * state: nothing holds the reply, and a listener registering later hears only
+ * the replies after it.
  */
 export class CommandResultNode extends Node {
 	/**
@@ -47,7 +47,7 @@ export class CommandResultNode extends Node {
 		// subjects and none of them is filed under anything (ADR-7).
 		const subject = message[ TO ] || null;
 		if ( 0 !== ( ( message[ TYPE ] || 0 ) & TM_ERROR ) ) {
-			this.setState( 'result', {
+			this.notify( 'result', {
 				ok: false,
 				args,
 				subject,
@@ -61,7 +61,7 @@ export class CommandResultNode extends Node {
 			} );
 			return;
 		}
-		this.setState( 'result', {
+		this.notify( 'result', {
 			ok: true,
 			args,
 			subject,
@@ -83,7 +83,6 @@ export class CommandResultNode extends Node {
 		return {
 			category: 'Hidden',
 			description: "Receives a one-shot command's reply; publishes it.",
-			registrations: [ 'result' ],
 			arguments: [],
 			commands: [],
 			has_target: false,

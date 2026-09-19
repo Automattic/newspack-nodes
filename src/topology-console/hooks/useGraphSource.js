@@ -8,7 +8,7 @@
  * paints: the overlay adds `replReady`, the console `serverFetchResolved`.
  */
 
-import { useNodeState } from '../../runtime/react';
+import { useNodeField } from '../../runtime/react';
 import { coreToGraph } from '../utils/coreToGraph';
 import names from '../../runtime/reserved-node-names.json';
 
@@ -46,7 +46,7 @@ const BACKBONE_FIXTURES = new Set( [
  * @param {boolean} [opts.active]       Accepted and ignored. The overlay forwards its own
  *                                      active flag, and the subscription costs nothing
  *                                      while no `_metadata` node holds the name:
- *                                      `useNodeState` registers no listener and yields
+ *                                      `useNodeField` registers no listener and yields
  *                                      undefined.
  * @param {boolean} [opts.coreFallback] Paint the in-process graph through `coreToGraph()`
  *                                      until a metadata graph carries a node. The overlay
@@ -63,7 +63,7 @@ export function useGraphSource( {
 	active: _active = true,
 	coreFallback = true,
 } = {} ) {
-	const metadataGraph = useNodeState( names.METADATA, 'metadata' );
+	const metadataGraph = useNodeField( names.METADATA, 'metadata' );
 	const hasMetadata = !! (
 		metadataGraph &&
 		Array.isArray( metadataGraph.nodes ) &&

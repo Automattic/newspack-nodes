@@ -8,7 +8,7 @@
  *
  * The graph is owned by useAggregatorStatusGraph (tested separately); here we mock
  * it to hand back spy control callbacks, and we register fixture slice nodes in
- * Core so each widget can read its model via useNodeState.
+ * Core so each widget can read its model via useNodeField.
  */
 
 jest.mock( '../hooks/useAggregatorStatusGraph', () => {
@@ -150,28 +150,24 @@ const CONNECTED_AND_BROKEN = [
 	},
 ];
 
-// A stand-in slice-view node: model in setStateCache.view; setState notifies.
+// A stand-in slice-view node: model in its `view` field; setField announces it.
 function fixtureNode( name, model ) {
 	const node = {
 		registrations: { view: {} },
-		setStateCache: {},
 		register( event, listener, cb ) {
 			this.registrations[ event ][ listener ] = cb;
-			if ( event in this.setStateCache ) {
-				cb( this.setStateCache[ event ] );
-			}
 		},
 		unregister( event, listener ) {
 			delete this.registrations[ event ]?.[ listener ];
 		},
-		setState( event, payload ) {
-			this.setStateCache[ event ] = payload;
-			Object.values( this.registrations[ event ] || {} ).forEach(
-				( cb ) => cb( payload )
+		setField( field, value ) {
+			this[ field ] = value;
+			Object.values( this.registrations[ field ] || {} ).forEach(
+				( cb ) => cb()
 			);
 		},
 	};
-	node.setState( 'view', model );
+	node.setField( 'view', model );
 	Core.nodes.set( name, node );
 	return node;
 }
@@ -804,7 +800,7 @@ describe( 'AggregatorStatus', () => {
 	} );
 
 	it( 'falls back to a loading model when the slice nodes are absent', () => {
-		// No fixture → useNodeState undefined; must still render loading.
+		// No fixture → useNodeField undefined; must still render loading.
 		const { container } = mount();
 		expect( container.textContent ).toContain( 'Loading server status' );
 	} );

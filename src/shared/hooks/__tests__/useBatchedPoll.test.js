@@ -14,6 +14,7 @@ import { useEffect } from '@wordpress/element';
 import {
 	Core,
 	Node,
+	ReactBridge,
 	VALUE,
 	TIMESTAMP,
 	CommandInterpreterNode,
@@ -29,10 +30,10 @@ const HTTP = '_http';
 const SHELL = '_shell';
 
 // Lightweight view classes so makeNode builds slice views; fill() consumes.
-class FakeViewNode extends Node {
+class FakeViewNode extends ReactBridge( Node ) {
 	fill( message ) {
 		this.counter += 1;
-		this.setState( 'view', message[ VALUE ] );
+		this.setField( 'view', message[ VALUE ] );
 	}
 }
 CommandInterpreterNode.registerNodeClasses( {

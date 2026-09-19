@@ -4,6 +4,76 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 **Maintenance rule:** a release that changes any consumer-facing contract adds its entry here in the same commit as its CHANGELOG entry. No entry means nothing to do.
 
+## Unreleased
+
+- **`Node.setState()` throws unless its payload is a string or a number.** State
+  is lifecycle state, as PHP's `set_state( string, string )` holds it, and an
+  object, array or null now throws `<node> setState( <event> ): state is a
+  string or a number`. A browser node that published structured data through
+  `setState` mixes in `ReactBridge` from `@newspack-nodes/runtime` — `class
+  MyView extends ReactBridge( Node )` — and publishes the data as a field named
+  after the event: `this.setField( 'view', model );` replaces
+  `this.setState( 'view', model );`. `setField()` assigns the field and
+  notifies the event with no payload, so a listener reads the field off the
+  node. Mix `ReactBridge` in once, at the highest class that publishes; the
+  substrate's `SliceViewNode`, `LogStreamViewNode` and `PollerNode` already
+  carry it, so a subclass of one of them calls `setField()` as it stands. A
+  test that published a stand-in reply calls `node.setField( field, value )`
+  on a bridged node.
+- **React reads structured data through `useNodeField`.** `useNodeField(
+  nodeName, field )`, exported from `@newspack-nodes/runtime`, reads the field
+  and re-reads it on each notify of that field. `useNodeState` now reads
+  scalar state alone, so a widget calling `useNodeState( '<subject>:view',
+  'view' )` gets undefined forever and renders its empty state. Replace it with
+  `useNodeField( '<subject>:view', 'view' )`. The substrate's own nodes moved
+  the same way, so a consumer reading one of them by name switches hooks:
+  `reply` on `PollerNode`, `dmesg` on `DmesgNode`, `metadata` on
+  `MetadataNode`, `candidates` on `CompletionNode`, `transcript` on
+  `DumperNode` and `catalog` on `TopologyCatalogNode`. `debug_level` and
+  `debug_ui` stay state, and `debug_ui` now publishes `1` or `0` rather than a
+  boolean.
+- **`result` on `CommandResultNode` and `settled` on `FetcherNode` are events,
+  not state.** Each notifies its payload — the reply model, the settled ask —
+  to the closures registered at that moment, and nothing holds it: a listener
+  registering later hears only what follows. Register for them with
+  `useNodeEvent()` or `register()`; `useNodeState()` and `useNodeField()` read
+  nothing for either.
+- **`Node.notify( event )` delivers `''` when given no payload,** as PHP's
+  `Node::notify()` does, where it delivered `null`. A closure listener testing
+  for `null` tests for `''`, and a node-name listener receives an empty VALUE.
+- **`SliceViewNode.model` is `view`.** The field holding a slice view's model,
+  and the one `LogStreamViewNode` and the event-dashboards views publish, is
+  `view`, the name of the event it announces. A subclass reading or assigning
+  `this.model` renames it to `this.view`. `DumperNode._transcript` is likewise
+  `transcript`. `LogStreamViewNode._publish()` is gone: a subclass publishes
+  with `this.setField( 'view', this.viewModel() )`, and a constructor seeds
+  its model with `this.view = this.viewModel()`.
+- **`dump_node` prints every field, a function as `(closure)` at any depth.**
+  It prints `registrations` and `setStateCache`, and a function anywhere in a
+  field renders as `(closure)`: a top-level function field it used to skip now
+  prints, and `CommandInterpreterNode`'s `authorize` prints `(closure)` or
+  `null` rather than `{...}`. A `ReactBridge` node holding bulk data declares
+  `static dumpOmits = [ … ]`, naming only its own fields; the lists merge down
+  the class chain, so a subclass drops its `[ ...Parent.dumpOmits, … ]`
+  spread. `dump_node <name> <key>` still returns an omitted field whole.
+- **`parseSchemaArgs()` is the `SchemaReflection` mixin.** A browser node that
+  walked its positional tokens by calling `parseSchemaArgs( this, value )`
+  from its own `set arguments` extends `SchemaReflection( <its base> )`
+  instead, exported from `@newspack-nodes/runtime`, and deletes the override;
+  one that does more around the walk keeps the override and calls
+  `super.arguments = value` for the walk. `truthy()` moved with it and is
+  still exported from `@newspack-nodes/runtime`.
+- **`_router` publishes NOT_AVAILABLE as a flat string.** A browser listener
+  on `_router`'s `NOT_AVAILABLE` received a `{ node, from }` object; it now
+  receives `NODE <n> TYPE <t> FROM <f> TO <to> ID <id> KEY <k>`, as PHP
+  publishes it. A listener reading `payload.node` splits the string instead.
+- **The JS logging helpers are camelCase.** `Node.log_midfix()` is
+  `logMidfix()`, and `Core.log_prefix()` and `Core.log_prefixed()` are
+  `logPrefix()` and `logPrefixed()`. There is no alias, so the old name is
+  undefined. `Node.printLessOften()` now prints head and tail as one line,
+  keyed on the tagged head through the new `Core.firstInWindow()`, as PHP's
+  `Node::print_less_often()` does.
+
 ## 2.60.12
 
 - **`Durable_Reader::poll()` returns the records it consumed.** It and the

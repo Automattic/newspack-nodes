@@ -30,7 +30,7 @@ const DEBUG_TRACE = /(\S+):\s+DEBUG:\s+(\S+)(?:\s+(.*))?$/;
 /**
  * Format an entry's timestamp as a local `HH:MM:SS` cell. The transcript
  * stamps `ts` browser-side, so the viewer's zone is the one that instant
- * belongs to — the zone `Core.log_prefix` puts on the lines beside it. A UTC
+ * belongs to — the zone `Core.logPrefix` puts on the lines beside it. A UTC
  * cell there would be two clocks describing one event.
  *
  * @param {number} ts Epoch seconds.

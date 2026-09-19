@@ -649,7 +649,7 @@ describe( 'useGraphHandlers', () => {
 		} );
 
 		const echoed = () =>
-			( Core.node( names.OUTPUT ).setStateCache.transcript ?? [] ).map(
+			( Core.node( names.OUTPUT ).transcript ?? [] ).map(
 				( e ) => e.text
 			);
 

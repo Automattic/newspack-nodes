@@ -128,7 +128,7 @@ test( 'labels the panel "Messages (this browser)" so it is not mistaken for serv
 } );
 
 /**
- * A log line, not a relative age: `log_prefix` is what the console, the dmesg
+ * A log line, not a relative age: `logPrefix` is what the console, the dmesg
  * tail and the server's own logs stamp, so a line here can be lined up against
  * one from anywhere else. It is applied HERE rather than at record time
  * because the ring is structured — level, text, ts — and the prefix is the

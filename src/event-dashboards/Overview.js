@@ -46,7 +46,7 @@ import TopologyControls from './TopologyControls';
 import AlertModal from './AlertModal';
 import { useTopologyManager } from './hooks/useTopologyManager';
 import { useTopicProbeStream } from './hooks/useTopicProbeStream';
-import { useNodeState } from '../runtime/react';
+import { useNodeField } from '../runtime/react';
 import { topicChartSeries, fillModeForMetric } from './topicProbeSeries';
 import { TopicsChart } from './TopicsChart';
 import { consoleHref, TopologyRow } from './TopologyRow';
@@ -149,7 +149,7 @@ export default function Overview( { headerControlsSlot } ) {
 
 	// Replay topicprobe.p0 (24h) into topicprobe:view; frozen during a drag.
 	useTopicProbeStream( { mode: 'history' } );
-	const probeLive = useNodeState( 'topicprobe:view', 'view' );
+	const probeLive = useNodeField( 'topicprobe:view', 'view' );
 	const frozenProbeRef = useRef( probeLive );
 	if ( ! dragging ) {
 		frozenProbeRef.current = probeLive;

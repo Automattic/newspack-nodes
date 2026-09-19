@@ -28,17 +28,17 @@ test( 'rename moves the registry slot', () => {
 	expect( Core.node( 'bob' ) ).toBe( n );
 } );
 
-test( 'log_midfix tags each line with the node name', () => {
+test( 'logMidfix tags each line with the node name', () => {
 	const n = new Node();
 	n.name = 'mynode';
-	expect( n.log_midfix() ).toBe( 'mynode: ' );
-	expect( n.log_midfix( 'a\nb' ) ).toBe( 'mynode: a\nmynode: b\n' );
+	expect( n.logMidfix() ).toBe( 'mynode: ' );
+	expect( n.logMidfix( 'a\nb' ) ).toBe( 'mynode: a\nmynode: b\n' );
 } );
 
-test( 'log_midfix is the empty tag for an unnamed node', () => {
+test( 'logMidfix is the empty tag for an unnamed node', () => {
 	const n = new Node();
-	expect( n.log_midfix() ).toBe( '' );
-	expect( n.log_midfix( 'x\n\n' ) ).toBe( 'x\n' );
+	expect( n.logMidfix() ).toBe( '' );
+	expect( n.logMidfix( 'x\n\n' ) ).toBe( 'x\n' );
 } );
 
 test( 'stderr emits a prefixed, node-tagged line to recentLog', () => {
@@ -288,19 +288,35 @@ test( 'setState traces the transition once debugState is raised', () => {
 	stderr.mockRestore();
 } );
 
-test( 'setState leaves a structured payload untraced: it is a render bridge', () => {
-	const stderr = jest.spyOn( Core, 'stderr' ).mockImplementation();
+/**
+ * State is a string or a number, as PHP's `set_state( string, string )` and
+ * Tachikoma's hold it. Structured data lives in a node field and announces
+ * itself through `notify()`, so `dump_node` shows it where it lives.
+ */
+test.each( [
+	[ 'an object', { lines: [ 'one' ] } ],
+	[ 'an array', [ 'line one' ] ],
+	[ 'a boolean', true ],
+	[ 'null', null ],
+] )( 'setState refuses %s', ( _label, payload ) => {
 	const n = new Node();
 	n.name = 'indigo-731';
-	n.debugState = 1;
+	expect( () => n.setState( 'transcript', payload ) ).toThrow(
+		/indigo-731.*transcript.*string or a number/
+	);
+	expect( 'transcript' in n.setStateCache ).toBe( false );
+} );
 
-	n.setState( 'transcript', [ 'line one', 'line two' ] );
-	expect( stderr ).not.toHaveBeenCalled();
+test( 'setState caches a bare event as the empty string, as PHP does', () => {
+	const n = new Node();
+	n.setState( 'SEALED' );
+	expect( n.setStateCache.SEALED ).toBe( '' );
+} );
 
-	// The scalar states around it still trace.
-	n.setState( 'LEASED', 'slot 7' );
-	expect( stderr ).toHaveBeenCalledTimes( 1 );
-	stderr.mockRestore();
+test( 'setState accepts a number', () => {
+	const n = new Node();
+	n.setState( 'depth', 7351 );
+	expect( n.setStateCache.depth ).toBe( 7351 );
 } );
 
 test( 'unregister stops further notifications', () => {
@@ -468,7 +484,7 @@ test( 'disconnectNode with an explicit target still clears the base node target'
 	expect( n.target ).toBe( '' );
 } );
 
-test( 'dumpNode snapshots scalar state, renders the sink as a name, and masks internals', () => {
+test( 'dumpNode snapshots scalar state and renders the sink as a name', () => {
 	const n = new Node();
 	n.name = 'd';
 	n.arguments = [ 'a', 'b' ];
@@ -484,11 +500,113 @@ test( 'dumpNode snapshots scalar state, renders the sink as a name, and masks in
 	expect( snap.arguments ).toEqual( [ 'a', 'b' ] );
 	expect( snap.counter ).toBe( 5 );
 	expect( snap.sink ).toBe( 'downstream' ); // live ref → sink's name
-	expect( snap.registrations ).toBe( '{...}' ); // internal structure masked
-	expect( snap.setStateCache ).toBe( '{...}' );
+	expect( snap.registrations ).toEqual( {} );
+	expect( snap.setStateCache ).toEqual( {} );
 	// Private backing fields don't leak — the public surface is name/arguments.
 	expect( snap._name ).toBeUndefined();
 	expect( snap._arguments ).toBeUndefined();
+} );
+
+/**
+ * PHP's `dump_node()` and Tachikoma's print both tables whole; a closure has
+ * no printable form, so it renders as a placeholder, as PHP's `(Closure)`.
+ */
+test( 'dumpNode shows registrations and setStateCache, a closure as (closure)', () => {
+	const n = new Node();
+	n.name = 'oscar-5528';
+	n.registrations.TIMER = {};
+	n.registrations.NOT_AVAILABLE = {};
+	n.register( 'TIMER', 'papa-poller' );
+	n.register( 'NOT_AVAILABLE', 'react/quebec', () => true );
+	n.setState( 'CONNECTED', 'PID 4410 SLOT 2' );
+
+	const snap = n.dumpNode();
+
+	expect( snap.registrations ).toEqual( {
+		TIMER: { 'papa-poller': null },
+		NOT_AVAILABLE: { 'react/quebec': '(closure)' },
+	} );
+	expect( snap.setStateCache ).toEqual( { CONNECTED: 'PID 4410 SLOT 2' } );
+} );
+
+/**
+ * `Node` is the Tachikoma port, and neither PHP's `Node` nor Tachikoma's leaves
+ * a field out of its dump: a `dumpOmits` a subclass declares means nothing to
+ * the base, which prints every field.
+ */
+test( 'the base dumpNode prints every field, dumpOmits or not', () => {
+	class Bulky extends Node {
+		static dumpOmits = [ 'transcript' ];
+
+		constructor() {
+			super();
+			this.transcript = [ 'foxtrot-2291' ];
+		}
+	}
+
+	const snap = new Bulky().dumpNode();
+
+	expect( snap.transcript ).toEqual( [ 'foxtrot-2291' ] );
+} );
+
+test( 'dumpNode leaves out the fields its skip set names', () => {
+	const n = new Node();
+	n.transcript = [ 'hotel-6023' ];
+	n.depth = 3;
+
+	const snap = n.dumpNode( { skip: new Set( [ 'transcript' ] ) } );
+
+	expect( snap ).not.toHaveProperty( 'transcript' );
+	expect( snap.depth ).toBe( 3 );
+} );
+
+/**
+ * A function has no printable form at any depth, so one rule renders it as
+ * `(closure)`: a registration listener, a nested callback, a top-level field.
+ */
+test( 'dumpNode renders a function as (closure) at any depth', () => {
+	const n = new Node();
+	n.onDone = () => 'juliet-4417';
+	n.hooks = { before: [ () => 'kilo-5530' ], label: 'lima-19' };
+
+	const snap = n.dumpNode();
+
+	expect( snap.onDone ).toBe( '(closure)' );
+	expect( snap.hooks ).toEqual( {
+		before: [ '(closure)' ],
+		label: 'lima-19',
+	} );
+} );
+
+test( 'notify defaults its payload to the empty string, as PHP does', () => {
+	const n = new Node();
+	n.registrations.PULSE = {};
+	const seen = [];
+	n.register( 'PULSE', 'l1', ( p ) => {
+		seen.push( p );
+		return true;
+	} );
+
+	n.notify( 'PULSE' );
+
+	expect( seen ).toEqual( [ '' ] );
+} );
+
+test( 'printLessOften keys on the tagged head and prints head and tail', () => {
+	const n = new Node();
+	n.name = 'romeo-640';
+	const stderr = jest.spyOn( Core, 'stderr' ).mockImplementation();
+
+	n.printLessOften( 'sierra ', 'tango' );
+	n.printLessOften( 'sierra ', 'yankee' );
+
+	expect( stderr ).toHaveBeenCalledTimes( 1 );
+	expect( stderr ).toHaveBeenCalledWith( 'romeo-640: sierra tango\n' );
+	stderr.mockRestore();
+} );
+
+test( 'Node carries no setField: publishing a field is the React bridge', () => {
+	expect( new Node().setField ).toBeUndefined();
 } );
 
 test( 'dumpNode filters out ANY reference to another node, generically', () => {

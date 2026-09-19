@@ -427,15 +427,15 @@ export class CommandInterpreterNode extends Node {
 	}
 
 	/**
-	 * State snapshot for `dump_node`, with the verb table and the authorize
-	 * closure masked — both are internal machinery, not state worth printing.
+	 * State snapshot for `dump_node`, with the verb table masked: it is a table
+	 * of every built-in closure, machinery rather than state worth printing.
 	 *
+	 * @param {Object} [options] Passed through to `Node.dumpNode()`.
 	 * @return {Object} The snapshot.
 	 */
-	dumpNode() {
-		const snapshot = super.dumpNode();
+	dumpNode( options = {} ) {
+		const snapshot = super.dumpNode( options );
 		snapshot._commands = '{...}';
-		snapshot.authorize = '{...}';
 		return snapshot;
 	}
 
@@ -1034,8 +1034,9 @@ export class CommandInterpreterNode extends Node {
 	/**
 	 * `dump_node <name> [<keys>]` — the class as a header line, then the node's
 	 * state as pretty JSON. Keys are sorted so the output stays stable across
-	 * nodes with different ancestries; naming keys narrows the body to those.
-	 * An unknown node and an unknown key each throw.
+	 * nodes with different ancestries; naming keys narrows the body to those,
+	 * and returns a field the class omits from the whole dump. An unknown node
+	 * and an unknown key each throw.
 	 *
 	 * @param {string[]} args     Verb tokens: node name, then the keys to keep.
 	 * @param {Object}   registry Name table the node lives in.
@@ -1052,7 +1053,7 @@ export class CommandInterpreterNode extends Node {
 			throw new Error( `can't find node "${ name }"` );
 		}
 		let wanted = parts.slice( 1 );
-		const snapshot = node.dumpNode();
+		const snapshot = node.dumpNode( { keys: wanted } );
 
 		// The class heads the dump (first line); pull it out of the body keys.
 		const klass = snapshot.class ?? '';

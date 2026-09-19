@@ -5,10 +5,11 @@
  * Every hook here addresses a node by NAME and re-resolves it, because the
  * graph is rebuilt underneath the React tree — a station tab swap, the
  * overlay's Reset Graph — and a component holding an instance would go on
- * reading a removed node. A node publishes with `setState`, which caches the
- * payload and notifies its registrations; `register()` replays that cache, so a
- * component mounting mid-stream renders current state rather than waiting for
- * the next publication.
+ * reading a removed node. A node publishes a string or number with
+ * `setState`, which caches it and notifies; `register()` replays that cache.
+ * Structured data lives in a node field published with `setField()`, and the
+ * field is its own current value. Either way a component mounting mid-stream
+ * renders current state rather than waiting for the next publication.
  */
 
 import {
@@ -86,13 +87,50 @@ export function useNodeEvent( nodeName, event, onNotify ) {
  * @return {*} Current cached payload, or undefined.
  */
 export function useNodeState( nodeName, event ) {
-	const [ value, setValue ] = useState(
-		() => Core.node( nodeName )?.setStateCache?.[ event ]
+	return useNodeRead(
+		nodeName,
+		event,
+		( node ) => node?.setStateCache?.[ event ]
 	);
-	const node = useNodeEvent( nodeName, event, setValue );
+}
+
+/**
+ * Read a node FIELD — structured data a node publishes with `setField()` —
+ * and re-read it on each announcement.
+ *
+ * The counterpart of `useNodeState` for everything that is not a string or
+ * number: a transcript, the metadata tree, a view model. Nothing is cached,
+ * because the field IS the current value, so a component mounting late reads
+ * it straight off the node. The node assigns a new object on each change,
+ * which is what makes the re-read a re-render.
+ *
+ * @param {string} nodeName Registered node name.
+ * @param {string} field    The field, and the event its changes notify.
+ * @return {*} The field's current value, or undefined while no node holds the
+ *             name.
+ */
+export function useNodeField( nodeName, field ) {
+	return useNodeRead( nodeName, field, ( node ) => node?.[ field ] );
+}
+
+/**
+ * The one body behind `useNodeState` and `useNodeField`: seed from the node,
+ * re-read on each notify of `event`, and re-seed when a rebuild swaps the node
+ * under the name, so a name change cannot strand the old value.
+ *
+ * @param {string}                 nodeName Registered node name.
+ * @param {string}                 event    Event whose notify triggers a re-read.
+ * @param {( node: ?Object ) => *} read     What to read off the node, or off null.
+ * @return {*} The latest read.
+ */
+function useNodeRead( nodeName, event, read ) {
+	const [ value, setValue ] = useState( () => read( Core.node( nodeName ) ) );
+	const node = useNodeEvent( nodeName, event, () =>
+		setValue( read( Core.node( nodeName ) ) )
+	);
 	useEffect( () => {
-		// A swap re-seeds, so a name change cannot strand the old state.
-		setValue( node ? node.setStateCache?.[ event ] : undefined );
+		setValue( read( node ) );
+		// eslint-disable-next-line react-hooks/exhaustive-deps -- read keys on event.
 	}, [ node, event ] );
 	return value;
 }

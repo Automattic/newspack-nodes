@@ -236,7 +236,7 @@ export function useLogViewerGraph() {
  *
  * @return {{ selectLog: (log: string) => void, setPaused: (paused: boolean) => void, seek: Function, step: () => void, clear: () => void, setFilter: (term: string) => void }}
  *   Control callbacks for the thin React view (the view's own state is read via
- *   useNodeState): `selectLog( log )` re-points the stream at a partition,
+ *   useNodeField): `selectLog( log )` re-points the stream at a partition,
  *   `setPaused( paused )` gates it, `seek( log, positions, source )` switches
  *   between follow and browse, `step()` delivers one record while paused, and
  *   `clear()` empties the ring. Reset Graph is driven by a

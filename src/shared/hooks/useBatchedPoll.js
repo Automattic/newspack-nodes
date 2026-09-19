@@ -34,7 +34,7 @@
  *   } );
  *
  * It returns the live interpreter and a `pollNow()`, and re-renders after every
- * build so that each widget's `useNodeState` re-subscribes to the freshly
+ * build so that each widget's `useNodeField` re-subscribes to the freshly
  * mounted view nodes.
  */
 
@@ -43,7 +43,7 @@ import {
 	Core,
 	mountExospine,
 	hasSession,
-	useNodeState,
+	useNodeField,
 } from '@newspack-nodes/runtime';
 import { addSliceFetcher } from '../helpers/addSliceFetcher';
 import { egressPath } from '../helpers/egressPath';
@@ -169,7 +169,7 @@ export function useBatchedPoll( opts ) {
 	const optsRef = useRef( opts );
 	optsRef.current = opts;
 
-	// Bumped after (re)build so widgets' useNodeState rebinds to new views.
+	// Bumped after (re)build so widgets' useNodeField rebinds to new views.
 	const [ , bumpBuild ] = useState( 0 );
 
 	// Interpreter and Timer, captured in build so the sync effect reaches them.
@@ -255,7 +255,7 @@ export function useBatchedPoll( opts ) {
 				fireTick();
 			}
 
-			// Re-render so each widget's useNodeState rebinds to the new view.
+			// Re-render so each widget's useNodeField rebinds to the new view.
 			bumpBuild( ( n ) => n + 1 );
 
 			// Undo the non-node hooks before the nodes are removed on teardown.
@@ -372,7 +372,7 @@ export function useCatalogSlice( {
 		intervalMs,
 	} );
 
-	const model = useNodeState( `${ scope }:view`, 'view' ) ?? {};
+	const model = useNodeField( `${ scope }:view`, 'view' ) ?? {};
 
 	return {
 		...model,

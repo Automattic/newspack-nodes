@@ -38,7 +38,7 @@ describe( 'TopologyCatalogNode', () => {
 	} );
 
 	it( 'seeds from the page-load snapshot before any reply', () => {
-		expect( node.setStateCache.catalog ).toEqual( {
+		expect( node.catalog ).toEqual( {
 			partitions: { seeded: 2 },
 			active: [ 'seeded' ],
 			entries: [],
@@ -47,7 +47,7 @@ describe( 'TopologyCatalogNode', () => {
 
 	it( 'publishes partitions, active and raw entries from a reply', () => {
 		node.fill( reply( LIST ) );
-		expect( node.setStateCache.catalog ).toEqual( {
+		expect( node.catalog ).toEqual( {
 			partitions: { firehose: 4, combined: 7 },
 			active: [ 'firehose' ],
 			entries: LIST,
@@ -56,28 +56,63 @@ describe( 'TopologyCatalogNode', () => {
 
 	it( 'falls back to configNumPartitions when an entry omits num_partitions', () => {
 		node.fill( reply( [ { name: 'bare', active: false } ] ) );
-		expect( node.setStateCache.catalog.partitions ).toEqual( { bare: 3 } );
+		expect( node.catalog.partitions ).toEqual( { bare: 3 } );
 	} );
 
 	it( 'keeps the last-good catalog when a reply is malformed', () => {
 		node.fill( reply( LIST ) );
-		const good = node.setStateCache.catalog;
+		const good = node.catalog;
 		node.fill( reply( undefined ) );
-		expect( node.setStateCache.catalog ).toBe( good );
+		expect( node.catalog ).toBe( good );
 	} );
 
 	it( 'applies a genuinely empty list, collapsing the menu', () => {
 		node.fill( reply( LIST ) );
 		node.fill( reply( [] ) );
-		expect( node.setStateCache.catalog.entries ).toEqual( [] );
-		expect( node.setStateCache.catalog.active ).toEqual( [] );
+		expect( node.catalog.entries ).toEqual( [] );
+		expect( node.catalog.active ).toEqual( [] );
 	} );
 
 	it( 'keeps a stable reference when a poll returns identical data', () => {
 		node.fill( reply( LIST ) );
-		const first = node.setStateCache.catalog;
+		const first = node.catalog;
 		node.fill( reply( LIST ) );
-		expect( node.setStateCache.catalog ).toBe( first );
+		expect( node.catalog ).toBe( first );
+	} );
+
+	it( 'notifies `catalog` once per changed reply', () => {
+		let heard = 0;
+		node.register( 'catalog', 'probe-6612', () => heard++ );
+		node.fill( reply( LIST ) );
+		node.fill( reply( LIST ) );
+		expect( heard ).toBe( 1 );
+		expect( node.setStateCache.catalog ).toBeUndefined();
+	} );
+
+	// The seed IS the last publication, so a first poll answering exactly
+	// what the page localized changes nothing and announces nothing.
+	it( 'publishes nothing when the first poll matches the seed', () => {
+		window.NewspackNodesData = {
+			topologyWorkers: {},
+			activeTopologies: [],
+			configNumPartitions: 3,
+		};
+		const seeded = new TopologyCatalogNode();
+		seeded.name = 'topology-catalog:seeded';
+		const seed = seeded.catalog;
+		let heard = 0;
+		seeded.register( 'catalog', 'probe-7043', () => heard++ );
+		seeded.fill( reply( [] ) );
+		expect( heard ).toBe( 0 );
+		expect( seeded.catalog ).toBe( seed );
+	} );
+
+	it( 'dumpNode omits the catalog, keeps the bridge', () => {
+		node.fill( reply( LIST ) );
+		const dump = node.dumpNode();
+		expect( dump ).not.toHaveProperty( 'catalog' );
+		expect( dump ).toHaveProperty( 'registrations' );
+		expect( dump ).toHaveProperty( 'setStateCache' );
 	} );
 
 	// The batching contract: it emits into its SINK (interpreter → `_http`)

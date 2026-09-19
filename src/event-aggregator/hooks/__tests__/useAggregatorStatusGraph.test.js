@@ -21,7 +21,7 @@ import {
 	FROM,
 	VALUE,
 	Core,
-	useNodeState,
+	useNodeField,
 	mountExospine,
 } from '@newspack-nodes/runtime';
 import { useAggregatorStatusGraph } from '../useAggregatorStatusGraph';
@@ -135,7 +135,7 @@ describe( 'useAggregatorStatusGraph — end-to-end routing into each slice view'
 		renderHook( () => useAggregatorStatusGraph( {} ) );
 		await act( async () => {} );
 
-		const summary = Core.node( SUMMARY_VIEW ).setStateCache.view;
+		const summary = Core.node( SUMMARY_VIEW ).view;
 		expect( summary.connected ).toBe( 1 );
 		expect( summary.total ).toBe( 2 );
 		expect( summary.serverNow ).toBe( 1748960000 );
@@ -143,7 +143,7 @@ describe( 'useAggregatorStatusGraph — end-to-end routing into each slice view'
 		// summary slice carries NO servers array.
 		expect( summary.servers ).toBeUndefined();
 
-		const servers = Core.node( SERVERS_VIEW ).setStateCache.view;
+		const servers = Core.node( SERVERS_VIEW ).view;
 		expect( servers.servers.map( ( s ) => s.id ) ).toEqual( [
 			'server1',
 			'server2',
@@ -204,14 +204,14 @@ describe( 'useAggregatorStatusGraph — teardown', () => {
 } );
 
 describe( 'useAggregatorStatusGraph — graphGeneration Reset Graph', () => {
-	test( 'a graphGeneration bump re-renders the consumer so useNodeState re-subscribes to the fresh views', async () => {
+	test( 'a graphGeneration bump re-renders the consumer so useNodeField re-subscribes to the fresh views', async () => {
 		// Overlay owns the backbone; this dashboard is a reused mount whose
 		// spine.reinit is subscribed to graphGeneration (the real Reset trigger).
 		mountExospine();
 		installWire();
 		const { result } = renderHook( () => {
 			useAggregatorStatusGraph( {} );
-			return useNodeState( SUMMARY_VIEW, 'view' );
+			return useNodeField( SUMMARY_VIEW, 'view' );
 		} );
 		await act( async () => {} );
 		const firstView = Core.node( SUMMARY_VIEW );
@@ -223,7 +223,7 @@ describe( 'useAggregatorStatusGraph — graphGeneration Reset Graph', () => {
 		expect( freshView ).not.toBe( firstView );
 
 		act( () => {
-			freshView.setState( 'view', { total: 7 } );
+			freshView.setField( 'view', { total: 7 } );
 		} );
 		expect( result.current ).toEqual( { total: 7 } );
 	} );

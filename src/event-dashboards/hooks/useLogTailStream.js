@@ -19,7 +19,7 @@
  * position and keeps the seed it opened with, which is what lets a history tab
  * refused its SSE slot still replay on its next open.
  *
- * React reads the model via `useNodeState( '<name>:view', 'view' )`.
+ * React reads the model via `useNodeField( '<name>:view', 'view' )`.
  */
 
 import { useStreamGraph } from '@newspack-nodes/shared/hooks/useStreamGraph';

@@ -25,6 +25,16 @@ const replyWith = ( node, payload, isError = false ) => {
 	node.fill( m );
 };
 
+const heardOn = ( node ) => {
+	const heard = [];
+	node.registrations.result ??= {};
+	node.register( 'result', 'ear-5210', ( model ) => {
+		heard.push( model );
+		return true;
+	} );
+	return heard;
+};
+
 const replyWithArgs = ( node, args ) => {
 	const m = newMessage();
 	m[ TYPE ] = TM_COMMAND;
@@ -35,13 +45,25 @@ const replyWithArgs = ( node, args ) => {
 describe( 'CommandResultNode', () => {
 	it( 'publishes nothing until a reply lands', () => {
 		const node = new CommandResultNode();
-		expect( node.setStateCache.result ).toBeUndefined();
+		const heard = heardOn( node );
+		expect( heard ).toEqual( [] );
+	} );
+
+	// `result` is an event: the reply goes to the listeners and nowhere else,
+	// so no field holds it and a listener registering later hears nothing.
+	it( 'holds no reply, so a late listener hears nothing', () => {
+		const node = new CommandResultNode();
+		replyWith( node, { restarted_fleets: [ 'zebra-3318' ] } );
+		const late = heardOn( node );
+		expect( late ).toEqual( [] );
+		expect( node ).not.toHaveProperty( 'result' );
 	} );
 
 	it( 'publishes the payload', () => {
 		const node = new CommandResultNode();
+		const heard = heardOn( node );
 		replyWith( node, { restarted_fleets: [ 'wombat-4471' ] } );
-		expect( node.setStateCache.result ).toEqual( {
+		expect( heard[ 0 ] ).toEqual( {
 			ok: true,
 			subject: null,
 			args: [],
@@ -56,8 +78,9 @@ describe( 'CommandResultNode', () => {
 	// caller, not be swallowed to keep a widget looking healthy.
 	it( 'publishes a refusal as an error', () => {
 		const node = new CommandResultNode();
+		const heard = heardOn( node );
 		replyWith( node, 'unparseable tsl: line 3', true );
-		expect( node.setStateCache.result ).toMatchObject( {
+		expect( heard[ 0 ] ).toMatchObject( {
 			ok: false,
 			error: 'unparseable tsl: line 3',
 		} );
@@ -69,6 +92,7 @@ describe( 'CommandResultNode', () => {
 	// second, so the difference has to survive as far as the model.
 	it( 'marks a reply the transport minted as undelivered', () => {
 		const node = new CommandResultNode();
+		const heard = heardOn( node );
 		const m = newMessage();
 		m[ TYPE ] = TM_COMMAND | TM_ERROR;
 		m[ VALUE ] = {
@@ -77,7 +101,7 @@ describe( 'CommandResultNode', () => {
 			undelivered: true,
 		};
 		node.fill( m );
-		expect( node.setStateCache.result ).toMatchObject( {
+		expect( heard[ 0 ] ).toMatchObject( {
 			ok: false,
 			undelivered: true,
 		} );
@@ -85,14 +109,16 @@ describe( 'CommandResultNode', () => {
 
 	it( 'leaves a refusal the SERVER minted delivered', () => {
 		const node = new CommandResultNode();
+		const heard = heardOn( node );
 		replyWith( node, 'no such topology: wombat-4471', true );
-		expect( node.setStateCache.result.undelivered ).toBe( false );
+		expect( heard[ 0 ].undelivered ).toBe( false );
 	} );
 
 	// The reply names the command it answers, so a node that sent several can
 	// tell them apart without keeping a queue.
 	it( 'publishes the arguments the reply echoed back', () => {
 		const node = new CommandResultNode();
+		const heard = heardOn( node );
 		const m = newMessage();
 		m[ TYPE ] = TM_COMMAND;
 		m[ VALUE ] = {
@@ -101,7 +127,7 @@ describe( 'CommandResultNode', () => {
 			payload: { ok: 1 },
 		};
 		node.fill( m );
-		expect( node.setStateCache.result.args ).toEqual( [ 'wombat-4471' ] );
+		expect( heard[ 0 ].args ).toEqual( [ 'wombat-4471' ] );
 	} );
 
 	// Two replies in one batch are two notifications. A consumer comparing
@@ -110,6 +136,7 @@ describe( 'CommandResultNode', () => {
 	it( 'notifies once per reply, even when the answers are identical', () => {
 		const node = new CommandResultNode();
 		const heard = [];
+		node.registrations.result ??= {};
 		node.register( 'result', 'test', ( model ) => {
 			heard.push( model.args[ 0 ] );
 			return true;
@@ -124,12 +151,13 @@ describe( 'CommandResultNode', () => {
 	// away, and the console's "(line %d)" hint could never fire.
 	it( 'keeps the refusal payload beside its text', () => {
 		const node = new CommandResultNode();
+		const heard = heardOn( node );
 		replyWith(
 			node,
 			{ message: 'unparseable tsl', line_number: 17 },
 			true
 		);
-		expect( node.setStateCache.result ).toMatchObject( {
+		expect( heard[ 0 ] ).toMatchObject( {
 			error: 'unparseable tsl',
 			errorData: { message: 'unparseable tsl', line_number: 17 },
 		} );
@@ -137,8 +165,9 @@ describe( 'CommandResultNode', () => {
 
 	it( 'has no errorData when the refusal is bare text', () => {
 		const node = new CommandResultNode();
+		const heard = heardOn( node );
 		replyWith( node, 'no such topology', true );
-		expect( node.setStateCache.result.errorData ).toBeNull();
+		expect( heard[ 0 ].errorData ).toBeNull();
 	} );
 } );
 
@@ -149,18 +178,31 @@ describe( 'CommandResultNode', () => {
 describe( 'the subject rides in the address', () => {
 	it( 'publishes the remaining TO as the subject', () => {
 		const node = new CommandResultNode();
+		const heard = heardOn( node );
 		const m = newMessage();
 		m[ TYPE ] = TM_COMMAND;
 		m[ TO ] = 'tw0';
 		m[ VALUE ] = { name: 'test', arguments: [ 'tw0' ], payload: { ok: 1 } };
 		node.fill( m );
 
-		expect( node.setStateCache.result.subject ).toBe( 'tw0' );
+		expect( heard[ 0 ].subject ).toBe( 'tw0' );
 	} );
 
 	it( 'publishes a null subject for a reply addressed to the node itself', () => {
 		const node = new CommandResultNode();
+		const heard = heardOn( node );
 		replyWith( node, { rows: [] } );
-		expect( node.setStateCache.result.subject ).toBeNull();
+		expect( heard[ 0 ].subject ).toBeNull();
 	} );
+} );
+
+/**
+ * TM_INFO carries a scalar, and `result` carries the reply object, so it is an
+ * event for closures alone (`useNodeEvent` declares it), never a node-name
+ * registration a `register` verb could reach.
+ */
+test( 'result is not a declared node-name registration', () => {
+	expect( CommandResultNode.nodeSchema().registrations ?? [] ).not.toContain(
+		'result'
+	);
 } );

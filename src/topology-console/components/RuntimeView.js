@@ -27,7 +27,7 @@ import { useEffect, useRef, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import { Core } from '../../runtime/core';
 import { mountExospine } from '../../runtime/exospine';
-import { useNodeState } from '../../runtime/react';
+import { useNodeField } from '../../runtime/react';
 import names from '../../runtime/reserved-node-names.json';
 import { Grid, useSortState } from './SortableGrid';
 import './inspector-views.scss';
@@ -75,7 +75,7 @@ export default function RuntimeView() {
 	const [ timerSort, onTimerSort ] = useSortState( 'name' );
 	const [ handleSort, onHandleSort ] = useSortState( 'name' );
 	/**
-	 * Bumped once the pollers exist. `useNodeState` resolves its node during
+	 * Bumped once the pollers exist. `useNodeField` resolves its node during
 	 * render, and on the first render neither poller has been created yet, so
 	 * without a re-render both grids would stay bound to nothing.
 	 */
@@ -117,10 +117,10 @@ export default function RuntimeView() {
 		return teardown;
 	}, [] );
 
-	// Undefined until the first reply lands; the grids render empty.
-	const data = useNodeState( TIMER_POLLER, 'reply' );
+	// Null until the first reply lands; the grids render empty.
+	const data = useNodeField( TIMER_POLLER, 'reply' );
 	const timers = Array.isArray( data ) ? data : [];
-	const handleData = useNodeState( HANDLE_POLLER, 'reply' );
+	const handleData = useNodeField( HANDLE_POLLER, 'reply' );
 	const handles = Array.isArray( handleData ) ? handleData : [];
 
 	/**

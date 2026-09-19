@@ -401,26 +401,26 @@ That receiver belongs to its Fetcher alone. Mint a send straight from a receiver
 
 ### d. The thin view node
 
-> **One-pager:** [writing-a-view-node.md](writing-a-view-node.md) distills this section into the view-node contract — the 3 routing facts, `setState('view')`, and why `fill()` must never throw.
+> **One-pager:** [writing-a-view-node.md](writing-a-view-node.md) distills this section into the view-node contract — the 3 routing facts, the `view` field, and why `fill()` must never throw.
 
 Each view node is a `SliceViewNode` subclass that parses *its own* slice reply and publishes it. The base ships in the substrate — [`@newspack-nodes/shared/nodes/slice-view-node`](../src/shared/nodes/slice-view-node.js), shown here so you know the contract:
 
 ```js
-import { Node, TYPE, VALUE, TM_ERROR, payloadOf } from '@newspack-nodes/runtime';
+import { Node, ReactBridge, TYPE, VALUE, TM_ERROR, payloadOf } from '@newspack-nodes/runtime';
 import { errorMessage } from '@newspack-nodes/shared/errorMessage';
 import { isControl } from '@newspack-nodes/shared/helpers/controlMsg';
 
-export class SliceViewNode extends Node {
+// ReactBridge adds setField(): assign the field, then notify its event.
+export class SliceViewNode extends ReactBridge( Node ) {
 	constructor() {
 		super();
-		// `registrations: [ 'view' ]` in nodeSchema() names the key a direct
-		// register() may use; useNodeEvent seeds the key React subscribes on.
-		this.model = this.emptySlice();
+		// The field IS the slice on screen; a render before the first reply
+		// reads this shaped-but-empty model. Each change assigns a new object.
+		this.view = this.emptySlice();
 		this.settled = {};   // the status fields THIS shape declares, at rest
-		if ( 'loading' in this.model ) { this.settled.loading = false; }
-		if ( 'error'   in this.model ) { this.settled.error   = null; }
-		this.controlFrom = '';                // who, if anyone, drives this view
-		this.setState( 'view', this.model );  // a render before the first reply is valid
+		if ( 'loading' in this.view ) { this.settled.loading = false; }
+		if ( 'error'   in this.view ) { this.settled.error   = null; }
+		this.controlFrom = '';   // who, if anyone, drives this view
 	}
 
 	emptySlice() { return {}; }   // subclass supplies the shaped-but-empty slice
@@ -430,14 +430,12 @@ export class SliceViewNode extends Node {
 		const value = message[ VALUE ];
 		// ORIGIN first: only the declared driver can send a control.
 		if ( isControl( this, message ) ) {
-			this._control( value );
-			this.setState( 'view', this.model );
+			this._control( value );   // publishes the new model itself
 			return;
 		}
 		// TM_ERROR next: a transport refusal arrives as a bare STRING VALUE.
 		if ( 0 !== ( ( message[ TYPE ] || 0 ) & TM_ERROR ) ) {
-			this.model = { ...this.model, error: errorMessage( payloadOf( value ) ), loading: false };
-			this.setState( 'view', this.model );
+			this.setField( 'view', { ...this.view, error: errorMessage( payloadOf( value ) ), loading: false } );
 			return;
 		}
 		if ( ! value || 'object' !== typeof value ) {
@@ -445,15 +443,15 @@ export class SliceViewNode extends Node {
 		}
 		const slice = this._parse( value.payload );   // VALUE.payload is the slice's JSON string
 		if ( null !== slice ) {
-			this.model = { ...this.settled, ...slice };  // retires last tick's spinner and error
-			this.setState( 'view', this.model );         // publish → React re-renders
+			// Retires last tick's spinner and error; useNodeField re-reads.
+			this.setField( 'view', { ...this.settled, ...slice } );
 		}
 	}
 	// _parse(): JSON.parse with a try/catch, returns null on garbage.
 }
 ```
 
-Three branches, three failure rules, and none of them blanks the widget. A **control** is recognised by who sent it (`controlFrom`), never by what its payload looks like — [ADR-7](architecture-decisions.md#adr-7-sink-vs-target-and-tofrom-replies) addressing applied to controls, so a reply carrying an `action` field is still a reply. The base takes three: `loading` spins while keeping the data on screen, `clear` resets to the empty slice, and `error` surfaces a caller-side failure without blanking the data. A dashboard that drives its own view names that origin through `addSliceFetcher`'s `controlFrom`; most views omit it, and a view with no origin can take no control at all. A **TM_ERROR** keeps the slice already in the model and adds `error` while clearing `loading`, so the data survives the failure and nothing is left spinning — what reaches the screen is then the widget's call, and §5's three all choose to render the notice in place of the data. An **unparseable payload** keeps the prior slice untouched. `_parse()` reports what it cannot use by returning null, never by throwing: `fill()` runs synchronously in the drain with no per-message try/catch, so a throw aborts the whole turn.
+Three branches, three failure rules, and none of them blanks the widget. A **control** is recognised by who sent it (`controlFrom`), never by what its payload looks like — [ADR-7](architecture-decisions.md#adr-7-sink-vs-target-and-tofrom-replies) addressing applied to controls, so a reply carrying an `action` field is still a reply. The base takes three: `loading` spins while keeping the data on screen, `clear` resets to the empty slice, and `error` surfaces a caller-side failure without blanking the data. A dashboard that drives its own view names that origin through `addSliceFetcher`'s `controlFrom`; most views omit it, and a view with no origin can take no control at all. A **TM_ERROR** keeps the slice already in `view` and adds `error` while clearing `loading`, so the data survives the failure and nothing is left spinning — what reaches the screen is then the widget's call, and §5's three all choose to render the notice in place of the data. An **unparseable payload** keeps the prior slice untouched. `_parse()` reports what it cannot use by returning null, never by throwing: `fill()` runs synchronously in the drain with no per-message try/catch, so a throw aborts the whole turn.
 
 > **Three more message helpers.** `@newspack-nodes/runtime` re-exports `payloadOf` alongside the field constants, and three of its siblings measure or label a message rather than parse one. `typeLabels( type )` returns one label per flag set in a TYPE bitmask, and an empty array when no known flag matches — the Dumper renders that case as `TM_UNKNOWN(0x…)` itself. `byteLength( str )` measures a string in UTF-8 bytes the way PHP's `strlen()` does, through `Blob` rather than the `TextEncoder` jsdom lacks; the command transport and `HttpOut` weigh their wire traffic with it. `valueSize( m )` measures a message's VALUE through it — UTF-8 bytes for a string, and the character length of the JSON encoding, an estimate rather than a wire-exact count, for a struct or a command object.
 
@@ -568,7 +566,7 @@ The reply routing is the same TO/FROM mechanics as the PHP side; the browser add
 
 ## 5. The view — three thin widgets, each reading its own node
 
-There is no "the React component" here — there are **three** thin widgets, one per slice, each subscribing to *its own* view node via [`useNodeState`](../src/runtime/react.js). That's the composition made visible in the UI: each widget owns its data, its empty state, and its error state. No widget reads a god model; none can blank another.
+There is no "the React component" here — there are **three** thin widgets, one per slice, each reading the `view` field of *its own* view node via [`useNodeField`](../src/runtime/react.js). That's the composition made visible in the UI: each widget owns its data, its empty state, and its error state. No widget reads a god model; none can blank another.
 
 The page lays the three out, `src/dashboard/PublisherInsightsPage.js`:
 
@@ -605,10 +603,10 @@ Each widget reads exactly one node. `AccumulatedCard` is the simplest — it sub
 
 ```js
 import { __ } from '@wordpress/i18n';
-import { useNodeState } from '@newspack-nodes/runtime';
+import { useNodeField } from '@newspack-nodes/runtime';
 
 export function AccumulatedCard() {
-	const slice = useNodeState( 'accumulated:view', 'view' ) || { accumulated: 0 };
+	const slice = useNodeField( 'accumulated:view', 'view' ) || { accumulated: 0 };
 
 	if ( slice.error ) {
 		return <div className="eai-insights__notice eai-insights__notice--error" role="alert">{ slice.error }</div>;
@@ -622,9 +620,9 @@ export function AccumulatedCard() {
 }
 ```
 
-`SourceCounts` reads `source-counts:view` and renders one proportion bar per source — with its **own** error notice and its **own** "No sources yet" empty hint. `TopTable` reads `top-table:view` and renders the score-ranked table, with its own error/empty branches — that per-widget ownership of empty and error state *is* the composition: each card degrades independently. The `|| { … }` fallback in each covers the one render before the hook's effect mounts the node, where `useNodeState` has no node to read and returns undefined. From construction onward the view node publishes its own shaped-but-empty slice, so every later render is valid without it.
+`SourceCounts` reads `source-counts:view` and renders one proportion bar per source — with its **own** error notice and its **own** "No sources yet" empty hint. `TopTable` reads `top-table:view` and renders the score-ranked table, with its own error/empty branches — that per-widget ownership of empty and error state *is* the composition: each card degrades independently. The `|| { … }` fallback in each covers the one render before the hook's effect mounts the node, where `useNodeField` has no node to read and returns undefined. From construction onward the view node holds its own shaped-but-empty slice in `view`, so every later render is valid without it.
 
-**A slice error replaces the data rather than sitting beside it,** and that is a widget decision, not the base class's. §3d's `SliceViewNode` keeps the prior slice in the model on a TM_ERROR; each of these three then tests `slice.error` **first** and returns the notice alone, because a stale count or a stale proportion bar next to a failure notice reads as current. Testing it first also settles precedence: `SourceCounts` shows "No sources yet" for an empty map only while the slice carries no error. A fourth widget picks one of the two shapes deliberately, and they differ only in the frame. A card with a heading — `SourceCounts`, `TopTable` — keeps its `<section>` and `<h2>` and swaps the body beneath it. A bare KPI tile like `AccumulatedCard` has no heading to keep, and `eai-insights__notice` carries its own surface, so it returns the notice with no `eai-insights__stat` wrapper and the "Total items" label goes with the count.
+**A slice error replaces the data rather than sitting beside it,** and that is a widget decision, not the base class's. §3d's `SliceViewNode` keeps the prior slice in `view` on a TM_ERROR; each of these three then tests `slice.error` **first** and returns the notice alone, because a stale count or a stale proportion bar next to a failure notice reads as current. Testing it first also settles precedence: `SourceCounts` shows "No sources yet" for an empty map only while the slice carries no error. A fourth widget picks one of the two shapes deliberately, and they differ only in the frame. A card with a heading — `SourceCounts`, `TopTable` — keeps its `<section>` and `<h2>` and swaps the body beneath it. A bare KPI tile like `AccumulatedCard` has no heading to keep, and `eai-insights__notice` carries its own surface, so it returns the notice with no `eai-insights__stat` wrapper and the "Total items" label goes with the count.
 
 Two attributes carry the WCAG AA commitment the Newspack in-product design system makes, and both are conventions a fourth widget inherits. Every error notice is `role="alert"`, the one in the listing above included, because a failure arrives on a poll tick with no focus change and nothing else would surface it to a screen reader. `SourceCounts`'s proportion bar is `aria-hidden="true"`, because the source name and count printed above it already announce the number and the fill would announce nothing. Note its width guard while you are there — `total ? ( count / total ) * 100 : 0` — since counts summing to zero would otherwise size every fill `NaN%`.
 
@@ -992,7 +990,7 @@ One mount, and every dashboard you build the right way becomes self-documenting 
 
 **You wrote:** a `Scorer` node (one `fill`, one `score()` seam), two snapshot methods on the digest, the four durable-snapshot topology lines, an `Insights_CI` with **three small slice verbs** sharing one memoized read, **three thin `SliceViewNode` subclasses** (each only an `emptySlice()`), a `useBatchedPoll` hook whose `build` is one `addSliceFetcher` per slice, **three thin widgets** each reading its own node, the two client-side document builders and their shared label normalizer, and the thin build/jest/enqueue glue — a `scripts/build.mjs`, a `jest.config.js`, and the menu registration beside the enqueue.
 
-**The substrate gave you:** the durable log + snapshotting Consumer, the command protocol and routing, the `_http`/`_shell` boundary, the JS node runtime and `mountExospine`, `useNodeState`, the **`Fetcher`** composition primitive, and — the through-line of this guide — primitives that each own boilerplate this example would otherwise carry:
+**The substrate gave you:** the durable log + snapshotting Consumer, the command protocol and routing, the `_http`/`_shell` boundary, the JS node runtime and `mountExospine`, `useNodeField`, the **`Fetcher`** composition primitive, and — the through-line of this guide — primitives that each own boilerplate this example would otherwise carry:
 
 | You call | Instead of writing |
 |---|---|

@@ -1,4 +1,5 @@
 import { Node } from '../../runtime/node';
+import { ReactBridge } from '../../runtime/react-bridge';
 import { TIMESTAMP, VALUE } from '../../runtime/message';
 
 /**
@@ -12,7 +13,7 @@ import { TIMESTAMP, VALUE } from '../../runtime/message';
 const MAX_ENTRIES = 5000;
 
 /**
- * Shortest gap between two `setState` calls, in milliseconds.
+ * Shortest gap between two publishes, in milliseconds.
  *
  * Leading edge plus one trailing flush, so a replay burst publishes at its
  * start and again when it settles rather than re-rendering React per frame.
@@ -26,7 +27,7 @@ const PUBLISH_THROTTLE_MS = 500;
  * VALUE = `{ option }` plus, for allowlisted options, `old`/`new` value excerpts;
  * the instant is the Message TIMESTAMP). The view appends `{ id, ts, option, old?,
  * new? }` to a bounded ring (the oldest ARRIVAL dropped past `maxEntries`) and
- * publishes a throttled newest-first snapshot via `setState('view', { entries })`.
+ * publishes a throttled newest-first snapshot as the `view` field, `{ entries }`.
  * Nothing is deduped — every change is its own event, so two edits to one option
  * are two rows.
  *
@@ -37,7 +38,10 @@ const PUBLISH_THROTTLE_MS = 500;
  *
  * @param {number} [maxEntries] Ring cap (defaults to MAX_ENTRIES; injectable for tests).
  */
-export class SettingsAuditViewNode extends Node {
+export class SettingsAuditViewNode extends ReactBridge( Node ) {
+	/** The timeline and its ring: up to 5000 settings events apiece. */
+	static dumpOmits = [ 'view', '_entries' ];
+
 	/**
 	 * Sizes the ring and zeroes the throttle state.
 	 *
@@ -52,6 +56,12 @@ export class SettingsAuditViewNode extends Node {
 		this._seq = 0;
 		this._lastPublish = 0;
 		this._flushTimer = null;
+		/**
+		 * The published timeline React reads, null until the first publish.
+		 *
+		 * @type {?{entries: Array<Object>}}
+		 */
+		this.view = null;
 	}
 
 	/**
@@ -109,7 +119,7 @@ export class SettingsAuditViewNode extends Node {
 	 *
 	 * Leading-edge throttle plus a single trailing timer, so a full-replay burst
 	 * publishes once at its start and once more when it settles — the newest entry
-	 * always lands without a setState per frame.
+	 * always lands without a publish per frame.
 	 *
 	 * @return {void}
 	 */
@@ -142,7 +152,7 @@ export class SettingsAuditViewNode extends Node {
 			this._flushTimer = null;
 		}
 		this._lastPublish = Date.now();
-		this.setState( 'view', { entries: this.snapshot() } );
+		this.setField( 'view', { entries: this.snapshot() } );
 	}
 
 	/**
@@ -163,7 +173,7 @@ export class SettingsAuditViewNode extends Node {
 	/**
 	 * Tear down, cancelling any armed trailing flush.
 	 *
-	 * Without the cancel, a pending timer would fire `setState` on a node the graph
+	 * Without the cancel, a pending timer would publish on a node the graph
 	 * has already dropped.
 	 *
 	 * @return {void}
@@ -187,6 +197,7 @@ export class SettingsAuditViewNode extends Node {
 			category: 'Hidden',
 			description:
 				'Config Audit render-model sink (option-name timeline).',
+			registrations: [ 'view' ],
 			// Terminal receiver: no target → no out-port.
 			has_target: false,
 			arguments: [],

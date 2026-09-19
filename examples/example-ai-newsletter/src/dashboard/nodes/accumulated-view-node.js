@@ -3,7 +3,7 @@ import { SliceViewNode } from '@newspack-nodes/shared/nodes/slice-view-node';
 /**
  * `accumulated:view` — the terminal node owning the digest's item-count slice,
  * `{ accumulated: N }`, which `<AccumulatedCard/>` reads through
- * `useNodeState( 'accumulated:view', 'view' )`.
+ * `useNodeField( 'accumulated:view', 'view' )`.
  *
  * N is the digest's current item count, not a lifetime total: every FLUSH
  * empties `Digest_Builder_Demo_Node`'s item list, so the tile drops to zero
@@ -25,8 +25,8 @@ import { SliceViewNode } from '@newspack-nodes/shared/nodes/slice-view-node';
  */
 export class AccumulatedViewNode extends SliceViewNode {
 	/**
-	 * The shaped-but-empty slice the constructor publishes, so the card renders
-	 * a zero tile before the first reply rather than nothing.
+	 * The shaped-but-empty slice the constructor holds, so the card renders a
+	 * zero tile before the first reply rather than nothing.
 	 *
 	 * It declares no `loading` or `error` field: a TM_ERROR reply adds `error`
 	 * itself, which the card renders in place of the tile, and the next parsed

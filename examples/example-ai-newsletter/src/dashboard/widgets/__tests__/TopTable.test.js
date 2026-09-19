@@ -1,6 +1,6 @@
 /* eslint-env jest */
 /**
- * TopTable widget — reads ONLY the `top-table:view` node's slice via useNodeState
+ * TopTable widget — reads ONLY the `top-table:view` node's slice via useNodeField
  * and renders the score-ranked table (with inline score bars) plus the
  * client-side newsletter actions: draft preview, copy-markdown, create-draft-post.
  * The draft actions operate on the `top` items, so they live in THIS widget.
@@ -26,7 +26,7 @@ function mountView( slice ) {
 	const node = new TopTableViewNode();
 	node.name = 'top-table:view';
 	if ( slice ) {
-		node.setState( 'view', slice );
+		node.setField( 'view', slice );
 	}
 	return node;
 }
@@ -48,7 +48,9 @@ describe( 'TopTable', () => {
 	it( 're-renders when its view node publishes a new slice', () => {
 		const node = mountView( { top: [] } );
 		render( <TopTable /> );
-		act( () => node.setState( 'view', { top } ) );
+		act( () => {
+			node.setField( 'view', { top } );
+		} );
 		expect( screen.getByText( 'Big release' ) ).toBeInTheDocument();
 	} );
 

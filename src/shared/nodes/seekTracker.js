@@ -12,7 +12,7 @@
  * `SeekTracker` is deliberately not a React hook. It is plain node-side state,
  * and the view node keeps ownership of publishing: `track()` reports whether
  * anything the view publishes changed, so the view publishes on change instead
- * of calling setState once per record.
+ * of once per record.
  */
 
 /**

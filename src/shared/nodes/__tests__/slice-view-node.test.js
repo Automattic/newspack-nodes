@@ -53,13 +53,13 @@ function reply( payload ) {
 
 describe( 'SliceViewNode', () => {
 	test( 'starts with the subclass empty slice', () => {
-		expect( makeView().setStateCache.view ).toEqual( { sources: {} } );
+		expect( makeView().view ).toEqual( { sources: {} } );
 	} );
 
 	test( 'parses a 200 reply into the slice and publishes it', () => {
 		const v = makeView();
 		v.fill( reply( JSON.stringify( { sources: { releases: 2 } } ) ) );
-		expect( v.setStateCache.view ).toEqual( { sources: { releases: 2 } } );
+		expect( v.view ).toEqual( { sources: { releases: 2 } } );
 	} );
 
 	test( 'surfaces a TM_ERROR with a STRING payload as a slice error', () => {
@@ -67,7 +67,7 @@ describe( 'SliceViewNode', () => {
 		const m = reply( 'counts read failed' );
 		m[ TYPE ] = TM_COMMAND | TM_RESPONSE | TM_ERROR;
 		v.fill( m );
-		expect( v.setStateCache.view.error ).toMatch( /counts read failed/ );
+		expect( v.view.error ).toMatch( /counts read failed/ );
 	} );
 
 	test( 'a TM_ERROR keeps the slice already on screen and stops loading', () => {
@@ -79,8 +79,8 @@ describe( 'SliceViewNode', () => {
 
 		v.fill( m );
 
-		expect( v.setStateCache.view.sources ).toEqual( { releases: 7 } );
-		expect( v.setStateCache.view.loading ).toBe( false );
+		expect( v.view.sources ).toEqual( { releases: 7 } );
+		expect( v.view.loading ).toBe( false );
 	} );
 
 	test( 'counts every message it absorbs, errors included', () => {
@@ -99,7 +99,7 @@ describe( 'SliceViewNode', () => {
 		m[ TYPE ] = TM_ERROR;
 		m[ VALUE ] = { payload: { message: 'NOT_AVAILABLE' } };
 		v.fill( m );
-		expect( v.setStateCache.view.error ).toMatch( /NOT_AVAILABLE/ );
+		expect( v.view.error ).toMatch( /NOT_AVAILABLE/ );
 	} );
 
 	test( 'declares `view` in the schema, so help and the palette list it', () => {
@@ -109,21 +109,21 @@ describe( 'SliceViewNode', () => {
 
 	test( 'the base emptySlice is an empty object', () => {
 		// Exercised through base directly (no subclass emptySlice override).
-		expect( new SliceViewNode().setStateCache.view ).toEqual( {} );
+		expect( new SliceViewNode().view ).toEqual( {} );
 	} );
 
 	test( 'an object reply whose payload is not a string keeps the prior slice', () => {
 		const v = makeView();
 		v.fill( reply( JSON.stringify( { sources: { a: 1 } } ) ) );
 		v.fill( reply( 12345 ) );
-		expect( v.setStateCache.view ).toEqual( { sources: { a: 1 } } );
+		expect( v.view ).toEqual( { sources: { a: 1 } } );
 	} );
 
 	test( 'an object reply whose payload is invalid JSON keeps the prior slice', () => {
 		const v = makeView();
 		v.fill( reply( JSON.stringify( { sources: { a: 1 } } ) ) );
 		v.fill( reply( '{not valid json' ) );
-		expect( v.setStateCache.view ).toEqual( { sources: { a: 1 } } );
+		expect( v.view ).toEqual( { sources: { a: 1 } } );
 	} );
 
 	test( 'a non-error unparseable string reply keeps the prior slice', () => {
@@ -133,7 +133,7 @@ describe( 'SliceViewNode', () => {
 		garbage[ TYPE ] = TM_COMMAND | TM_RESPONSE;
 		garbage[ VALUE ] = 'not a json object';
 		v.fill( garbage );
-		expect( v.setStateCache.view ).toEqual( { sources: { a: 1 } } );
+		expect( v.view ).toEqual( { sources: { a: 1 } } );
 	} );
 } );
 
@@ -155,7 +155,7 @@ describe( 'sliceView', () => {
 	} );
 
 	test( 'publishes the declared empty model before any reply', () => {
-		expect( new VaultCatalogView().setStateCache.view ).toEqual( {
+		expect( new VaultCatalogView().view ).toEqual( {
 			vaults: null,
 			loading: true,
 			error: null,
@@ -164,15 +164,15 @@ describe( 'sliceView', () => {
 
 	test( 'hands each view its OWN empty model, not one shared object', () => {
 		const first = new VaultCatalogView();
-		first.model.vaults = [ { id: 'mutated-4471' } ];
-		expect( new VaultCatalogView().setStateCache.view.vaults ).toBeNull();
+		first.view.vaults = [ { id: 'mutated-4471' } ];
+		expect( new VaultCatalogView().view.vaults ).toBeNull();
 	} );
 
 	test( 'maps a reply through the declared parse', () => {
 		const v = new VaultCatalogView();
 		v.name = 'vaults:view';
 		v.fill( reply( { a: { id: 'wombat-4471' } } ) );
-		expect( v.setStateCache.view ).toEqual( {
+		expect( v.view ).toEqual( {
 			vaults: [ { id: 'wombat-4471' } ],
 			loading: false,
 			error: null,
@@ -184,9 +184,7 @@ describe( 'sliceView', () => {
 		v.name = 'vaults:view';
 		v.fill( reply( { a: { id: 'wombat-4471' } } ) );
 		v.fill( reply( 'not an object' ) );
-		expect( v.setStateCache.view.vaults ).toEqual( [
-			{ id: 'wombat-4471' },
-		] );
+		expect( v.view.vaults ).toEqual( [ { id: 'wombat-4471' } ] );
 	} );
 
 	// Some verbs answer a JSON string, some a live object; `json` is which.
@@ -199,7 +197,7 @@ describe( 'sliceView', () => {
 		const v = new SummaryView();
 		v.name = 'summary:view';
 		v.fill( reply( JSON.stringify( { connected: 7 } ) ) );
-		expect( v.setStateCache.view.connected ).toBe( 7 );
+		expect( v.view.connected ).toBe( 7 );
 	} );
 
 	test( 'a json view keeps the prior model on an undecodable payload', () => {
@@ -212,7 +210,7 @@ describe( 'sliceView', () => {
 		v.name = 'summary:view';
 		v.fill( reply( JSON.stringify( { connected: 7 } ) ) );
 		v.fill( reply( '{not valid json' ) );
-		expect( v.setStateCache.view.connected ).toBe( 7 );
+		expect( v.view.connected ).toBe( 7 );
 	} );
 
 	test( 'carries a declared description into the node schema', () => {
@@ -256,7 +254,7 @@ describe( 'SliceViewNode control seam', () => {
 		v.fill( reply( JSON.stringify( { sources: { releases: 7331 } } ) ) );
 		v.fill( control( 'counts:driver', { action: 'loading' } ) );
 
-		expect( v.setStateCache.view ).toEqual( {
+		expect( v.view ).toEqual( {
 			sources: { releases: 7331 },
 			loading: true,
 			error: null,
@@ -268,7 +266,7 @@ describe( 'SliceViewNode control seam', () => {
 		v.fill( reply( JSON.stringify( { sources: { releases: 7331 } } ) ) );
 		v.fill( control( 'counts:driver', { action: 'clear' } ) );
 
-		expect( v.setStateCache.view ).toEqual( {
+		expect( v.view ).toEqual( {
 			sources: {},
 			loading: false,
 			error: null,
@@ -285,7 +283,7 @@ describe( 'SliceViewNode control seam', () => {
 			} )
 		);
 
-		expect( v.setStateCache.view ).toEqual( {
+		expect( v.view ).toEqual( {
 			sources: { releases: 7331 },
 			loading: false,
 			error: 'bad rid 4219',
@@ -297,7 +295,7 @@ describe( 'SliceViewNode control seam', () => {
 		const v = controlled();
 		v.fill( control( 'somebody:else', { action: 'clear' } ) );
 
-		expect( v.setStateCache.view ).toEqual( {
+		expect( v.view ).toEqual( {
 			sources: {},
 			loading: false,
 			error: null,
@@ -310,7 +308,7 @@ describe( 'SliceViewNode control seam', () => {
 		v.fill( reply( JSON.stringify( { sources: { releases: 7331 } } ) ) );
 		v.fill( control( '', { action: 'clear' } ) );
 
-		expect( v.setStateCache.view.sources ).toEqual( { releases: 7331 } );
+		expect( v.view.sources ).toEqual( { releases: 7331 } );
 	} );
 
 	test( 'a parsed slice is loaded and clean unless it says otherwise', () => {
@@ -319,7 +317,7 @@ describe( 'SliceViewNode control seam', () => {
 		v.fill( control( 'counts:driver', { action: 'loading' } ) );
 		v.fill( reply( JSON.stringify( { sources: { releases: 4219 } } ) ) );
 
-		expect( v.setStateCache.view ).toEqual( {
+		expect( v.view ).toEqual( {
 			sources: { releases: 4219 },
 			loading: false,
 			error: null,
@@ -336,7 +334,7 @@ describe( 'SliceViewNode control seam', () => {
 		v.name = 'paged:view';
 		v.fill( reply( JSON.stringify( { rows: [ 'a' ] } ) ) );
 
-		expect( v.setStateCache.view ).toEqual( {
+		expect( v.view ).toEqual( {
 			rows: [ 'a' ],
 			loading: true,
 			error: null,
@@ -351,7 +349,7 @@ describe( 'sliceView without a parse', () => {
 		v.name = 'counts:view';
 		v.fill( reply( JSON.stringify( { sources: { releases: 8264 } } ) ) );
 
-		expect( v.setStateCache.view ).toEqual( {
+		expect( v.view ).toEqual( {
 			sources: { releases: 8264 },
 		} );
 	} );
@@ -363,6 +361,30 @@ describe( 'sliceView without a parse', () => {
 		v.fill( reply( JSON.stringify( { sources: { releases: 8264 } } ) ) );
 		v.fill( reply( 'not json' ) );
 
-		expect( v.setStateCache.view.sources ).toEqual( { releases: 8264 } );
+		expect( v.view.sources ).toEqual( { releases: 8264 } );
+	} );
+} );
+
+describe( 'SliceViewNode field bridge', () => {
+	test( 'each publish assigns a new view and notifies `view`', () => {
+		const v = makeView();
+		const seen = [];
+		v.register( 'view', 'probe-3917', () => seen.push( v.view ) );
+		const before = v.view;
+		v.fill( reply( JSON.stringify( { sources: { releases: 3917 } } ) ) );
+
+		expect( v.view ).not.toBe( before );
+		expect( seen ).toEqual( [ { sources: { releases: 3917 } } ] );
+		expect( v.setStateCache.view ).toBeUndefined();
+	} );
+
+	test( 'dumpNode omits the view but keeps the bridge tables', () => {
+		const v = makeView();
+		v.fill( reply( JSON.stringify( { sources: { releases: 5521 } } ) ) );
+		const dump = v.dumpNode();
+
+		expect( dump ).not.toHaveProperty( 'view' );
+		expect( dump ).toHaveProperty( 'registrations' );
+		expect( dump ).toHaveProperty( 'setStateCache' );
 	} );
 } );

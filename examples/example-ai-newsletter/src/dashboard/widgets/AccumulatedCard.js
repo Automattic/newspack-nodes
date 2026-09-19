@@ -9,12 +9,12 @@
  */
 
 import { __ } from '@wordpress/i18n';
-import { useNodeState } from '@newspack-nodes/runtime';
+import { useNodeField } from '@newspack-nodes/runtime';
 
 /**
  * Render the total-items KPI: the count and its label.
  *
- * `useNodeState` returns undefined until `accumulated:view` is registered,
+ * `useNodeField` returns undefined until `accumulated:view` is registered,
  * because `usePublisherInsightsGraph` builds the graph in an effect and the
  * first render precedes the node. The empty-slice default covers that render,
  * and the `?? 0` covers a reply that parsed without an `accumulated` field.
@@ -28,7 +28,7 @@ import { useNodeState } from '@newspack-nodes/runtime';
  * @return {import('react').ReactElement} Rendered component.
  */
 export function AccumulatedCard() {
-	const slice = useNodeState( 'accumulated:view', 'view' ) || {
+	const slice = useNodeField( 'accumulated:view', 'view' ) || {
 		accumulated: 0,
 	};
 

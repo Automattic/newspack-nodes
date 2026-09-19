@@ -287,12 +287,15 @@ export function computePollIntervalMs( nodeCount ) {
 /**
  * Metadata — `_metadata`. A Poller on `dump_metadata`: it rides the `_router`
  * TIMER, mints the verb at the live cwd, and publishes the parsed graph for the
- * canvas ( useNodeState( '_metadata', 'metadata' ) ). It holds no throttle of
+ * canvas ( useNodeField( '_metadata', 'metadata' ) ). It holds no throttle of
  * its own — the base times it on the shared grid (ADR-17), so this poll leaves
  * in the same POST as everything else due that tick — and a cwd change repaints
  * at once because the console `markDue()`s it where it repoints `_cwd`.
  */
 export class MetadataNode extends PollerNode {
+	/** The parsed graph and its raw map: the whole worker graph, twice. */
+	static dumpOmits = [ 'metadata', 'rawMap' ];
+
 	/**
 	 * Seed the `metadata` publish slot. The cadence starts at one tick and
 	 * `publish()` rescales it to the graph it receives.
@@ -302,6 +305,19 @@ export class MetadataNode extends PollerNode {
 		this.registrations.metadata = {};
 		this.verb = 'dump_metadata';
 		this.pollIntervalMs = 1000;
+		/**
+		 * The parsed graph the canvas draws, null until a reply or a seed.
+		 *
+		 * @type {?{nodes: Array, edges: Array}}
+		 */
+		this.metadata = null;
+		/**
+		 * The last raw `dump_metadata` name→meta map, which the optimistic
+		 * patchers rewrite; null until the first reply.
+		 *
+		 * @type {?Object}
+		 */
+		this.rawMap = null;
 	}
 
 	/**
@@ -352,7 +368,7 @@ export class MetadataNode extends PollerNode {
 		) {
 			this.setTimer( this.pollIntervalMs );
 		}
-		this.setState( 'metadata', parsed );
+		this.setField( 'metadata', parsed );
 	}
 
 	/**
@@ -374,7 +390,7 @@ export class MetadataNode extends PollerNode {
 			map[ name ] = { ...( map[ name ] || {} ), ...patch };
 		}
 		this.rawMap = map;
-		this.setState( 'metadata', parseMetadata( map ) );
+		this.setField( 'metadata', parseMetadata( map ) );
 	}
 
 	/**
@@ -392,7 +408,7 @@ export class MetadataNode extends PollerNode {
 			}
 		}
 		this.rawMap = map;
-		this.setState( 'metadata', parseMetadata( map ) );
+		this.setField( 'metadata', parseMetadata( map ) );
 	}
 
 	/**

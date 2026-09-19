@@ -82,7 +82,7 @@ function seedMetadata( nodes ) {
 		meta = new MetadataNode();
 		meta.name = names.METADATA;
 	}
-	act( () => meta.setState( 'metadata', { nodes, edges: [], pwd: '' } ) );
+	act( () => meta.setField( 'metadata', { nodes, edges: [], pwd: '' } ) );
 }
 
 test( 'the Timeline view carries the all-nodes Trace toggle; Runtime does not', () => {

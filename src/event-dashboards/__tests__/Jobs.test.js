@@ -1,7 +1,7 @@
 /* global globalThis */
 /**
  * Jobs — the station's per-handler job-outcome board over the durable jobstats.p0 log.
- * useJobstatsStream (link) is stubbed; the view model is fed via useNodeState.
+ * useJobstatsStream (link) is stubbed; the view model is fed via useNodeField.
  * TopicsChart (d3) is stubbed to capture the rate panels each metric is fed.
  */
 
@@ -18,7 +18,7 @@ jest.mock( '../hooks/useTopicProbeStream', () => ( {
 } ) );
 jest.mock( '../../runtime/react', () => ( {
 	...jest.requireActual( '../../runtime/react' ),
-	useNodeState: jest.fn(),
+	useNodeField: jest.fn(),
 } ) );
 jest.mock( '../TopicsChart', () => {
 	const el = require( '@wordpress/element' );
@@ -34,7 +34,7 @@ jest.mock( '../TopicsChart', () => {
 	};
 } );
 
-import { useNodeState } from '../../runtime/react';
+import { useNodeField } from '../../runtime/react';
 
 function model() {
 	return {
@@ -123,7 +123,7 @@ beforeEach( () => {
 
 describe( 'Jobs', () => {
 	it( 'renders backlog + queue-latency panels; backlog holds jobs sources only', () => {
-		useNodeState.mockImplementation( ( node ) =>
+		useNodeField.mockImplementation( ( node ) =>
 			'topicprobe:view' === node
 				? {
 						consumers: {
@@ -153,7 +153,7 @@ describe( 'Jobs', () => {
 	} );
 
 	it( 'renders a row per job identity with runs, failures, status and message', () => {
-		useNodeState.mockReturnValue( model() );
+		useNodeField.mockReturnValue( model() );
 		const { getByText, getAllByText } = render( <Jobs /> );
 
 		expect( getByText( 'cron:films' ) ).toBeTruthy();
@@ -173,7 +173,7 @@ describe( 'Jobs', () => {
 	} );
 
 	it( 'renders WINDOWED runs/failures totals, not the latest cumulative record', () => {
-		useNodeState.mockReturnValue( model() );
+		useNodeField.mockReturnValue( model() );
 		const { getByText, container } = render( <Jobs /> );
 		// cron:films: windowed runs = 12 (latest cumulative is 4).
 		expect( getByText( '12' ) ).toBeTruthy();
@@ -185,7 +185,7 @@ describe( 'Jobs', () => {
 	} );
 
 	it( 'uses the canonical themed table class, not wp-list-table', () => {
-		useNodeState.mockReturnValue( model() );
+		useNodeField.mockReturnValue( model() );
 		const { container } = render( <Jobs /> );
 		const table = container.querySelector( 'table' );
 		expect( table.classList.contains( 'newspack-nodes-table' ) ).toBe(
@@ -195,20 +195,20 @@ describe( 'Jobs', () => {
 	} );
 
 	it( 'shows an empty state when no jobs have run', () => {
-		useNodeState.mockReturnValue( { handlers: {} } );
+		useNodeField.mockReturnValue( { handlers: {} } );
 		const { container, queryByRole } = render( <Jobs /> );
 		expect( queryByRole( 'table' ) ).toBeNull();
 		expect( container.querySelector( '.nodes-jobs__empty' ) ).toBeTruthy();
 	} );
 
 	it( 'tolerates an unready view model (no crash, empty state)', () => {
-		useNodeState.mockReturnValue( undefined );
+		useNodeField.mockReturnValue( undefined );
 		const { container } = render( <Jobs /> );
 		expect( container.querySelector( '.nodes-jobs__empty' ) ).toBeTruthy();
 	} );
 
 	it( 'feeds runs, errors, backlog and latency panels to TopicsChart', () => {
-		useNodeState.mockReturnValue( model() );
+		useNodeField.mockReturnValue( model() );
 		render( <Jobs /> );
 		const titles = globalThis.__jobsPanels.map( ( p ) => p.title );
 		expect( titles.length ).toBe( 4 );

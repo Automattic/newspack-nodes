@@ -1,7 +1,8 @@
 /**
  * accumulated:view tests — the thin view node that owns ONLY the accumulated
- * count slice. It parses an `accumulated` reply ({"accumulated":N}) and setStates
- * it for <AccumulatedCard/>; it never touches the counts or top slices.
+ * count slice. It parses an `accumulated` reply ({"accumulated":N}) and holds it in
+ * the `view` field for <AccumulatedCard/>; it never touches the counts or top
+ * slices.
  */
 
 import {
@@ -33,20 +34,20 @@ function accReply( payload ) {
 describe( 'accumulated:view', () => {
 	test( 'starts with a zero accumulated slice', () => {
 		const v = makeView();
-		expect( v.setStateCache.view ).toEqual( { accumulated: 0 } );
+		expect( v.view ).toEqual( { accumulated: 0 } );
 	} );
 
 	test( 'parses an accumulated reply into the slice and publishes it', () => {
 		const v = makeView();
 		v.fill( accReply( JSON.stringify( { accumulated: 12 } ) ) );
-		expect( v.setStateCache.view ).toEqual( { accumulated: 12 } );
+		expect( v.view ).toEqual( { accumulated: 12 } );
 	} );
 
 	test( 'a later reply replaces the published slice', () => {
 		const v = makeView();
 		v.fill( accReply( JSON.stringify( { accumulated: 3 } ) ) );
 		v.fill( accReply( JSON.stringify( { accumulated: 8 } ) ) );
-		expect( v.setStateCache.view ).toEqual( { accumulated: 8 } );
+		expect( v.view ).toEqual( { accumulated: 8 } );
 	} );
 
 	test( 'surfaces a TM_ERROR reply as an error in the slice', () => {
@@ -54,13 +55,13 @@ describe( 'accumulated:view', () => {
 		const m = accReply( 'acc read failed' );
 		m[ TYPE ] = TM_COMMAND | TM_RESPONSE | TM_ERROR;
 		v.fill( m );
-		expect( v.setStateCache.view.error ).toMatch( /acc read failed/ );
+		expect( v.view.error ).toMatch( /acc read failed/ );
 	} );
 
 	test( 'ignores an unparseable payload (keeps the prior slice)', () => {
 		const v = makeView();
 		v.fill( accReply( JSON.stringify( { accumulated: 5 } ) ) );
 		v.fill( accReply( 'not json' ) );
-		expect( v.setStateCache.view ).toEqual( { accumulated: 5 } );
+		expect( v.view ).toEqual( { accumulated: 5 } );
 	} );
 } );

@@ -29,7 +29,7 @@ function mountOutput() {
 
 // The `sent` echo entries the transcript should carry (the command lines).
 function sentLines( dumper ) {
-	return dumper._transcript
+	return dumper.transcript
 		.filter( ( e ) => 'sent' === e.kind )
 		.map( ( e ) => e.text );
 }
@@ -99,7 +99,7 @@ describe( 'useDebugGraph', () => {
 		metadata.name = names.METADATA;
 		const { result } = renderHook( () => useDebugGraph() );
 		act( () => {
-			metadata.setState( 'metadata', {
+			metadata.setField( 'metadata', {
 				nodes: [ { id: 'fromMeta' } ],
 				edges: [],
 			} );
@@ -112,14 +112,14 @@ describe( 'useDebugGraph', () => {
 	} );
 
 	it( 'consumes _metadata.setState(metadata) when published', () => {
-		// With Metadata mounted, the hook reads it from useNodeState.
+		// With Metadata mounted, the hook reads it from useNodeField.
 		const { teardown } = mountExospine();
 		const { MetadataNode } = require( '../../runtime/metadata-node' );
 		const metadata = new MetadataNode();
 		metadata.name = names.METADATA;
 		const { result } = renderHook( () => useDebugGraph() );
 		act( () => {
-			metadata.setState( 'metadata', {
+			metadata.setField( 'metadata', {
 				nodes: [ { id: 'fromMeta', count: 1 } ],
 				edges: [],
 			} );
@@ -138,7 +138,7 @@ describe( 'useDebugGraph', () => {
 		metadata.name = names.METADATA;
 		const { result } = renderHook( () => useDebugGraph() );
 		act( () => {
-			metadata.setState( 'metadata', { nodes: [], edges: [] } );
+			metadata.setField( 'metadata', { nodes: [], edges: [] } );
 		} );
 		expect( result.current.ready ).toBe( true );
 		expect( result.current.graph.nodes.map( ( n ) => n.id ) ).toContain(
@@ -310,7 +310,7 @@ describe( 'useDebugGraph', () => {
 		const { result } = renderHook( withRepl( shell, classes ) );
 		// Publish my-interpreter so invoke resolves its class.
 		act( () => {
-			metadata.setState( 'metadata', {
+			metadata.setField( 'metadata', {
 				nodes: [ { id: 'my-interpreter', class: 'Node' } ],
 				edges: [],
 			} );

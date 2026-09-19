@@ -8,11 +8,12 @@
  * keys off KEY. `KEY='completion'` belongs to the REQUEST instead: it is what
  * makes `help` and `ls` answer with a bare newline-separated candidate list
  * rather than their tabulated human output. `fill()` splits that payload and
- * publishes `{ candidates, seq }` on the `candidates` slot, which the input
- * reads through `useNodeState( '_completion', 'candidates' )`.
+ * publishes `{ candidates, seq }` on the `candidates` field, which the input
+ * reads through `useNodeField( '_completion', 'candidates' )`.
  */
 
 import { Node } from './node';
+import { ReactBridge } from './react-bridge';
 import { VALUE, payloadOf } from './message';
 
 /**
@@ -66,16 +67,19 @@ export function tabulateCandidates( candidates ) {
 }
 
 /**
- * Owns the `candidates` state slot the REPL input subscribes to, and the `seq`
+ * Owns the `candidates` field the REPL input subscribes to, and the `seq`
  * stamped on every publication.
  *
  * `ReplFooter` records the `seq` it applied and acts only on a newer one, so a
  * second Tab on the same token completes again even though the candidate list
  * is identical, while a re-render over the reply it already applied does not.
  */
-export class CompletionNode extends Node {
+export class CompletionNode extends ReactBridge( Node ) {
+	/** The last reply's candidates: every verb or node name that matched. */
+	static dumpOmits = [ 'candidates' ];
+
 	/**
-	 * Opens the `candidates` registration slot and starts the sequence at zero.
+	 * Opens the `candidates` registration slot.
 	 * `nodeSchema()` declares no `registrations`, so `seedRegistrations()` opens
 	 * nothing, and `register()` refuses an event nobody seeded: seeding here is
 	 * what lets a `register` verb subscribe to the channel. The React hook needs
@@ -84,7 +88,13 @@ export class CompletionNode extends Node {
 	constructor() {
 		super();
 		this.registrations.candidates = {};
-		this._seq = 0;
+		/**
+		 * The last reply's candidates and its sequence number, null before
+		 * the first.
+		 *
+		 * @type {?{candidates: string[], seq: number}}
+		 */
+		this.candidates = null;
 	}
 
 	/**
@@ -107,8 +117,10 @@ export class CompletionNode extends Node {
 			.split( '\n' )
 			.map( ( line ) => line.trim() )
 			.filter( ( line ) => '' !== line );
-		this._seq++;
-		this.setState( 'candidates', { candidates, seq: this._seq } );
+		this.setField( 'candidates', {
+			candidates,
+			seq: ( this.candidates?.seq ?? 0 ) + 1,
+		} );
 	}
 
 	/**
@@ -121,7 +133,7 @@ export class CompletionNode extends Node {
 		return {
 			category: 'Hidden',
 			description: 'Receives tab-completion reply; publishes candidates.',
-			// A terminal: candidates leave through setState, not a sink.
+			// A terminal: candidates leave through a field, not a sink.
 			has_target: false,
 			arguments: [],
 			commands: [],

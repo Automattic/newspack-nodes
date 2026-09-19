@@ -42,7 +42,7 @@
 <div class="nd" id="in" style="left:0;top:150px;width:150px"><span class="t"><i>&lt;subject&gt;</i>:in</span><span class="k">Tee · the receiver; fans to the view, then back to the Fetcher, which settles the ask</span></div>
 <div class="nd" id="tr" style="left:170px;top:150px;width:170px"><span class="t"><i>&lt;subject&gt;</i>:transform</span><span class="k">optional · the one node between receiver and view: a merge or a dedup on a graph edge</span></div>
 <div class="nd view" id="view" style="left:360px;top:150px;width:200px"><span class="t"><i>&lt;subject&gt;</i>:view</span><span class="k">the view · terminal, <span class="mono">has_target: false</span>; parses, publishes, forwards nothing</span></div>
-<div class="nd react" id="react" style="left:640px;top:150px;width:230px"><span class="t">useNodeState( '&lt;subject&gt;:view', 'view' )</span><span class="k">the React widget</span></div>
+<div class="nd react" id="react" style="left:640px;top:150px;width:230px"><span class="t">useNodeField( '&lt;subject&gt;:view', 'view' )</span><span class="k">the React widget</span></div>
 
 <div class="band" style="left:0;top:250px">a one-shot · useCommandOnce, scope <span class="mono" style="text-transform:none">&lt;ci&gt;:&lt;command&gt;</span> by default</div>
 <div class="nd" id="ofetch" style="left:0;top:274px;width:180px"><span class="t"><i>vault:add</i>:fetch</span><span class="k">Fetcher · one send per call</span></div>
@@ -100,7 +100,7 @@
     { from: 'ci', fs: 'b', to: 'in', ts: 't', f0: 0.5, f1: 0.5, dash: true, grey: true, pts: [[595, 128], [75, 128]], label: 'reply, TO = FROM = &lt;subject&gt;:in', ax: 330, ay: 116 },
     { from: 'in', fs: 'r', to: 'tr', ts: 'l' },
     { from: 'tr', fs: 'r', to: 'view', ts: 'l' },
-    { from: 'view', fs: 'r', to: 'react', ts: 'l', label: 'setState', ax: 600, ay: 172 },
+    { from: 'view', fs: 'r', to: 'react', ts: 'l', label: 'setField', ax: 600, ay: 172 },
     { from: 'ofetch', fs: 'r', to: 'oin', ts: 'l', dash: true, grey: true },
     { from: 'oin', fs: 'r', to: 'ores', ts: 'l' },
     { from: 'link', fs: 'r', to: 'stream', ts: 'l' },

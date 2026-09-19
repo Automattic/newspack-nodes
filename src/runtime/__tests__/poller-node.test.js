@@ -38,7 +38,7 @@ function msg( type, value ) {
 function tally( payload ) {
 	const node = new DmesgNode();
 	node.fill( msg( TM_COMMAND | TM_RESPONSE, { payload } ) );
-	return node.setStateCache.dmesg;
+	return node.dmesg;
 }
 
 describe( 'dmesg level classification', () => {
@@ -94,9 +94,7 @@ describe( 'PollerNode', () => {
 				payload: [ { name: 'tick0', fires: 7 } ],
 			} )
 		);
-		expect( node.setStateCache.reply ).toEqual( [
-			{ name: 'tick0', fires: 7 },
-		] );
+		expect( node.reply ).toEqual( [ { name: 'tick0', fires: 7 } ] );
 	} );
 
 	// A `profile on` ack lands on the poller that minted it; publishing it
@@ -108,7 +106,28 @@ describe( 'PollerNode', () => {
 		node.fill(
 			msg( TM_COMMAND | TM_RESPONSE, { payload: 'profiling on' } )
 		);
-		expect( node.setStateCache.reply ).toEqual( [ 'rows' ] );
+		expect( node.reply ).toEqual( [ 'rows' ] );
+	} );
+
+	it( 'notifies `reply` with a new object per reply', () => {
+		const node = new PollerNode();
+		node.name = 'timers:fetch';
+		const seen = [];
+		node.register( 'reply', 'probe-2240', () => seen.push( node.reply ) );
+		node.fill( msg( TM_COMMAND | TM_RESPONSE, { payload: [ 'r-2240' ] } ) );
+		node.fill( msg( TM_COMMAND | TM_RESPONSE, { payload: [ 'r-2241' ] } ) );
+		expect( seen ).toEqual( [ [ 'r-2240' ], [ 'r-2241' ] ] );
+		expect( node.setStateCache.reply ).toBeUndefined();
+	} );
+
+	it( 'dumpNode omits the reply, keeps the bridge', () => {
+		const node = new PollerNode();
+		node.name = 'timers:fetch';
+		node.fill( msg( TM_COMMAND | TM_RESPONSE, { payload: [ 'r-2240' ] } ) );
+		const dump = node.dumpNode();
+		expect( dump ).not.toHaveProperty( 'reply' );
+		expect( dump ).toHaveProperty( 'registrations' );
+		expect( dump ).toHaveProperty( 'setStateCache' );
 	} );
 } );
 
@@ -121,7 +140,7 @@ describe( 'DmesgNode', () => {
 				payload: 'ERROR: a\nWARNING: b\ndebug c',
 			} )
 		);
-		expect( node.setStateCache.dmesg ).toEqual( {
+		expect( node.dmesg ).toEqual( {
 			errors: 1,
 			warnings: 1,
 			debug: 1,
@@ -139,11 +158,23 @@ describe( 'DmesgNode', () => {
 				},
 			} )
 		);
-		expect( node.setStateCache.reply ).toEqual( {
+		expect( node.reply ).toEqual( {
 			timers: [ { name: 'tick0', fires: 7 } ],
 			handles: [],
 		} );
-		expect( node.setStateCache.dmesg ).toBeUndefined();
+		expect( node.dmesg ).toBeNull();
+	} );
+
+	it( 'dumpNode omits the level counts and the reply', () => {
+		const node = new DmesgNode();
+		node.name = '_dmesg';
+		node.fill( msg( TM_COMMAND | TM_RESPONSE, { payload: 'ERROR: x' } ) );
+		const dump = node.dumpNode();
+		expect( node.dmesg.errors ).toBe( 1 );
+		expect( dump ).not.toHaveProperty( 'dmesg' );
+		expect( dump ).not.toHaveProperty( 'reply' );
+		expect( dump ).toHaveProperty( 'registrations' );
+		expect( dump ).toHaveProperty( 'setStateCache' );
 	} );
 
 	it( 'fire() emits a dmesg poll command to its target', () => {

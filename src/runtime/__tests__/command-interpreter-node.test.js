@@ -1,5 +1,6 @@
 import { CommandInterpreterNode } from '../command-interpreter-node';
-import { Node, parseSchemaArgs } from '../node';
+import { Node } from '../node';
+import { SchemaReflection } from '../schema-reflection';
 import { Core } from '../core';
 import { RouterNode } from '../router-node';
 import { TimerNode } from '../timer-node';
@@ -601,6 +602,7 @@ test( 'TM_PING with non-empty TO is forwarded as in-transit (no bounce)', () => 
 import { TeeNode } from '../tee-node';
 import { MetadataNode } from '../metadata-node';
 import { RemoteIpcNode } from '../remote-ipc-node';
+import { DumperNode } from '../dumper-node';
 
 // Dispatch a built-in verb by name and return its raw result. Args are the
 // pre-split token array the interpreter hands verbs; a string convenience is
@@ -1131,14 +1133,37 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 				dispatch( interpreter, 'dump_node', 'nope' )
 			).toThrow( 'can\'t find node "nope"' );
 		} );
-		it( 'masks the interpreter verb table and auth closure (non-node internals)', () => {
-			// Interpreter masks its non-node internals (_commands, authorize).
+		it( 'masks the verb table; the authorize closure renders as any function', () => {
 			const interpreter = makeInterpreter();
 			interpreter.name = 'ci';
+			interpreter.authorize = () => true;
 			const out = dispatch( interpreter, 'dump_node', 'ci' );
 			const body = JSON.parse( out.slice( out.indexOf( '{' ) ) );
 			expect( body._commands ).toBe( '{...}' );
-			expect( body.authorize ).toBe( '{...}' );
+			expect( body ).not.toHaveProperty( 'commands' );
+			expect( body.authorize ).toBe( '(closure)' );
+		} );
+
+		it( 'returns an omitted field whole when the key names it', () => {
+			const interpreter = makeInterpreter();
+			const output = new DumperNode();
+			output._schedule = ( cb ) => cb();
+			output.name = '_output';
+			const line = newMessage();
+			line[ TYPE ] = TM_BYTESTREAM;
+			line[ VALUE ] = 'xray-7702';
+			output.fill( line );
+
+			const whole = dispatch( interpreter, 'dump_node', '_output' );
+			const keyed = dispatch(
+				interpreter,
+				'dump_node',
+				'_output transcript'
+			);
+
+			expect( whole ).not.toContain( 'xray-7702' );
+			const body = JSON.parse( keyed.slice( keyed.indexOf( '{' ) ) );
+			expect( body.transcript[ 0 ].text ).toBe( 'xray-7702' );
 		} );
 
 		it( 'key filter narrows the body, unknown key errors', () => {
@@ -1518,7 +1543,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 		} );
 
 		it( 'feeds trailing tokens to the arguments setter as a token array (no implicit walk)', () => {
-			// A node that skips parseSchemaArgs gets the raw tokens, no walk.
+			// A node without SchemaReflection gets the raw tokens, no walk.
 			const interpreter = makeInterpreter();
 			CommandInterpreterNode.includeNodes.ArgSpy = class extends Node {
 				constructor() {
@@ -1539,21 +1564,15 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			delete CommandInterpreterNode.includeNodes.ArgSpy;
 		} );
 
-		it( 'a node that opts into parseSchemaArgs gets its positional config walked', () => {
-			// Schema_Reflection path: opt-in setter assigns declared props.
+		it( 'a node mixing in SchemaReflection gets its positional config walked', () => {
 			const interpreter = makeInterpreter();
-			CommandInterpreterNode.includeNodes.ArgWalk = class extends Node {
+			CommandInterpreterNode.includeNodes.ArgWalk = class extends (
+				SchemaReflection( Node )
+			) {
 				constructor() {
 					super();
 					this.alpha_field = '';
 					this.beta_field = '';
-				}
-				get arguments() {
-					return super.arguments;
-				}
-				set arguments( value ) {
-					super.arguments = value;
-					parseSchemaArgs( this, value );
 				}
 				static nodeSchema() {
 					return {
@@ -1795,13 +1814,14 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			).toBe( 'ONLY\nvalue\n' );
 		} );
 
-		it( 'dump_node skips function-valued node fields', () => {
+		it( 'dump_node renders a function-valued node field as (closure)', () => {
 			const interpreter = makeInterpreter();
 			const n = new Node();
 			n.name = 'd';
-			n.helper = () => 'skip me';
+			n.helper = () => 'yankee-5146';
 			const out = dispatch( interpreter, 'dump_node', 'd' );
-			expect( out ).not.toContain( 'helper' );
+			expect( out ).toContain( '"helper": "(closure)"' );
+			expect( out ).not.toContain( 'yankee-5146' );
 		} );
 	} );
 } );

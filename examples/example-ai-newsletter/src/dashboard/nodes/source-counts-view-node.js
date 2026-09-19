@@ -3,7 +3,7 @@ import { SliceViewNode } from '@newspack-nodes/shared/nodes/slice-view-node';
 /**
  * The `source-counts:view` node, which owns the Publisher Insights dashboard's
  * per-source counts slice and nothing else. `<SourceCounts/>` reads what it
- * publishes through `useNodeState( 'source-counts:view', 'view' )`.
+ * publishes through `useNodeField( 'source-counts:view', 'view' )`.
  *
  * The `counts` verb on `Insights_CI_Demo_Node` answers
  * `{ sources: { <source>: <count> } }` as JSON, which is already the render

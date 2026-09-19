@@ -18,7 +18,7 @@
  * interpreter it was handed, and that name table is a per-bundle static
  * (ADR-16).
  *
- * React reads the model with `useNodeState( 'topicprobe:view', 'view' )`.
+ * React reads the model with `useNodeField( 'topicprobe:view', 'view' )`.
  */
 
 import { useLogTailStream } from './useLogTailStream';

@@ -12,9 +12,10 @@
  * `_sse:{pid}/{node}`.
  *
  * Tachikoma parity keeps the constructor argument-free. Positional config
- * arrives through `arguments=`, whose setter opts into the Schema_Reflection
- * walk (`parseSchemaArgs`) and then splits the comma-separated `subscribe`
- * token, because the walk assigns strings where the runtime wants an array.
+ * arrives through `arguments=`, whose `SchemaReflection` setter walks it onto
+ * the declared properties; this class then splits the comma-separated
+ * `subscribe` token, because the walk assigns strings where the runtime wants
+ * an array.
  *
  * Dashboards read the lifecycle through `setState`: CONNECTING on open,
  * CONNECTED on handshake, then DISCONNECTED or RECONNECTING, and ERROR for a
@@ -24,7 +25,7 @@
  * convention: the `connected` envelope is a flat `KEY VALUE` string, and the
  * pid lands in a plain field rather than in node state.
  */
-import { parseSchemaArgs } from './node';
+import { SchemaReflection } from './schema-reflection';
 import { TimerNode } from './timer-node';
 import { Core } from './core';
 import { nodesData, refreshNodesNonce } from './nodes-data';
@@ -140,7 +141,7 @@ const MAX_BACKOFF_MS = 30000;
  * `heartbeat` and `disconnect` are snooped for lifecycle, reopen cadence and
  * liveness rather than routed.
  */
-export class SseInNode extends TimerNode {
+export class SseInNode extends SchemaReflection( TimerNode ) {
 	/**
 	 * Start closed — no stream, no watchdog, no session. Every field is either
 	 * configuration a patron may overwrite before `start()`, or per-connection
@@ -207,16 +208,15 @@ export class SseInNode extends TimerNode {
 	}
 
 	/**
-	 * Run the Schema_Reflection walk over the positional tokens, then repair
-	 * the one field it cannot type: the walk assigns strings, so the
-	 * comma-separated `subscribe` token becomes the array the stream URL and
-	 * the CONNECTING payload both expect.
+	 * Let `SchemaReflection` walk the positional tokens, then repair the one
+	 * field it cannot type: the walk assigns strings, so the comma-separated
+	 * `subscribe` token becomes the array the stream URL and the CONNECTING
+	 * payload both expect.
 	 *
 	 * @param {string[]} value Positional tokens; the first is the comma-separated subscription list.
 	 */
 	set arguments( value ) {
 		super.arguments = value;
-		parseSchemaArgs( this, value );
 		// The walk assigns `subscribe` as a comma-separated token; split it.
 		if ( 'string' === typeof this.subscribe ) {
 			this.subscribe = /** @type {string} */ ( this.subscribe )

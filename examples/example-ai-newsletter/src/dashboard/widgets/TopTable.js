@@ -11,7 +11,7 @@
 import apiFetch from '@wordpress/api-fetch';
 import { useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
-import { useNodeState } from '@newspack-nodes/runtime';
+import { useNodeField } from '@newspack-nodes/runtime';
 import { draftNewsletter } from '../draftNewsletter';
 import { newsletterPost } from '../newsletterPost';
 import { itemLabel } from '../itemLabel';
@@ -41,9 +41,9 @@ const defaultCreateDraft = ( { title, content } ) =>
  * The "Top items" card.
  *
  * Reads ONLY the `top-table:view` node's slice (`{ top: […] }`) through
- * `useNodeState`, which is the one-slice-per-view rule of
+ * `useNodeField`, which is the one-slice-per-view rule of
  * `docs/writing-a-view-node.md`: a view holding every slice would put one
- * slice's error notice on all three cards. `useNodeState` returns undefined
+ * slice's error notice on all three cards. `useNodeField` returns undefined
  * until `top-table:view` is registered, because the hook builds the graph in
  * an effect and the first render precedes the node. The empty-slice default
  * covers that render, and the `?? []` covers a reply that parsed without a
@@ -79,7 +79,7 @@ const defaultCreateDraft = ( { title, content } ) =>
  * @return {import('react').ReactElement} Rendered component.
  */
 export function TopTable( { createDraft = defaultCreateDraft } = {} ) {
-	const slice = useNodeState( 'top-table:view', 'view' ) || { top: [] };
+	const slice = useNodeField( 'top-table:view', 'view' ) || { top: [] };
 	const top = slice.top ?? [];
 	const topScore = top.reduce(
 		( max, item ) => Math.max( max, item.score || 0 ),

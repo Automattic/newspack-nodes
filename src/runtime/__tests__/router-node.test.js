@@ -2,7 +2,17 @@ import { RouterNode } from '../router-node';
 import { TimerNode } from '../timer-node';
 import { Node } from '../node';
 import { Core } from '../core';
-import { TYPE, FROM, TO, ID, VALUE, TM_ERROR, newMessage } from '../message';
+import {
+	TYPE,
+	FROM,
+	TO,
+	ID,
+	KEY,
+	VALUE,
+	TM_ERROR,
+	TM_COMMAND,
+	newMessage,
+} from '../message';
 
 beforeEach( () => Core.reset() );
 
@@ -85,6 +95,30 @@ test( 'unknown TO head yields NOT_AVAILABLE error walked back to FROM', () => {
 	expect( got[ 0 ][ TYPE ] & TM_ERROR ).toBeTruthy();
 	expect( got[ 0 ][ ID ] ).toBe( 'cmd-42' );
 	expect( got[ 0 ][ VALUE ] ).toMatch( /NOT_AVAILABLE/ );
+} );
+
+/**
+ * PHP's `send_error()` publishes the miss as flat `KEY VALUE` pairs, the shape
+ * a TM_INFO listener reads; the unpeeled TO names the whole path asked for.
+ */
+test( "a miss publishes NOT_AVAILABLE as PHP's flat KEY VALUE string", () => {
+	const r = new RouterNode();
+	r.name = '_router';
+	const origin = new Node();
+	origin.name = 'romeo-8812';
+	origin.fill = () => {};
+
+	const m = newMessage();
+	m[ TYPE ] = TM_COMMAND;
+	m[ FROM ] = 'romeo-8812';
+	m[ TO ] = 'sierra/tango';
+	m[ ID ] = 'cmd-6604';
+	m[ KEY ] = 'uniform';
+	r.fill( m );
+
+	expect( r.setStateCache.NOT_AVAILABLE ).toBe(
+		`NODE sierra TYPE ${ TM_COMMAND } FROM romeo-8812 TO sierra/tango ID cmd-6604 KEY uniform`
+	);
 } );
 
 test( 'TM_ERROR on a missing TO is dropped (no error-on-error bounce)', () => {

@@ -28,7 +28,7 @@ import { NewNodeModal } from '../../topology-console/components/Modal';
 import { useJsCatalog } from '../../topology-console/hooks/useJsCatalog';
 import { useClassCatalog } from '../../topology-console/hooks/useCatalogs';
 import { ShellNode } from '../../runtime/shell-node';
-import { useNodeState } from '../../runtime/react';
+import { useNodeField } from '../../runtime/react';
 import { useCompletion } from '../../topology-console/hooks/useCompletion';
 import { useGraphSurface } from '../../topology-console/hooks/useGraphSurface';
 import names from '../../runtime/reserved-node-names.json';
@@ -243,7 +243,7 @@ export default function InspectorTab( {
 	useEffect( () => () => publishHeader?.( null ), [ publishHeader ] );
 
 	// Tab-completion: _completion publishes candidates; useCompletion asks.
-	const completion = useNodeState( names.COMPLETION, 'candidates' ) ?? null;
+	const completion = useNodeField( names.COMPLETION, 'candidates' ) ?? null;
 	const { requestCompletion, handleShowCandidates } = useCompletion( {
 		cwd,
 		fill: ( m ) => Core.node( names.COMMAND_INTERPRETER )?.fill( m ),
