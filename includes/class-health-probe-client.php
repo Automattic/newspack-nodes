@@ -89,7 +89,7 @@ final class Health_Probe_Client {
 			'redirection'         => 0,
 			'limit_response_size' => 2048,
 			// Both internal loopback calls share `spawn_verify_ssl`.
-			'sslverify'           => Core::$verify_spawn_tls,
+			'sslverify'           => Core::verify_spawn_tls(),
 			'body'                => [ 'token' => $token ],
 		];
 		if ( null === self::$http_call ) {

@@ -190,7 +190,7 @@ Readline is separate, and three things hold it. `CLI_Command::terminal()` enable
 
 ### 9d. Substrate-owned cache handles
 
-`Core::$memd` is the one shared `\Memcached` handle, built by `Bootstrap::init_memcached()` from the `memcache_servers` config. It is `null` on empty or invalid config **deliberately** — command auth refuses, SSE slots fail closed, stats fail soft. A diff installing a fallback handle instead of leaving `null` contradicts the design; don't add one.
+`Core::$memd` is the one shared `\Memcached` handle, built by `Bootstrap::init_memcached()` from the `memcache_servers` config; read it through `Core::memd()`, which connects it on first ask, because nothing connects it at plugin load on a page view. It is `null` on empty or invalid config **deliberately** — command auth refuses, SSE slots fail closed, stats fail soft. A diff installing a fallback handle instead of leaving `null` contradicts the design; don't add one.
 
 `Cache_Backend` is the tier resolver above it: `local_first()` (APCu, else memcached) for same-host hot surfaces, `shared_first()` (memcached, else APCu) for cross-process sources of truth. A claim must never straddle tiers — a nonce claimed locally and checked shared is no claim at all. Null means nothing is available and the caller keeps its fail-closed behavior.
 

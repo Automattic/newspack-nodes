@@ -106,7 +106,7 @@ class Core {
 	 * Bootstrap sets it from `spawn_verify_ssl`, which defaults to true and is
 	 * turned off only for a deployment fronted by a self-signed internal
 	 * certificate. Config is a layer above Core, so it is injected rather than
-	 * read.
+	 * read; read it through `verify_spawn_tls()`, which injects it on first ask.
 	 */
 	public static bool $verify_spawn_tls = true;
 
@@ -577,6 +577,7 @@ class Core {
 	 * @return array<int,mixed>
 	 */
 	private static function post_curl_options( string $url, string $fields, string $sender ): array {
+		$verify = self::verify_spawn_tls();
 		return [
 			\CURLOPT_URL               => $url,
 			\CURLOPT_USERAGENT         => 'newspack-nodes/' . \NEWSPACK_NODES_VERSION . " ({$sender})",
@@ -587,9 +588,21 @@ class Core {
 			\CURLOPT_CONNECTTIMEOUT_MS => self::SPAWN_POST_TIMEOUT_MS,
 			\CURLOPT_RETURNTRANSFER    => false,
 			\CURLOPT_HEADER            => false,
-			\CURLOPT_SSL_VERIFYHOST    => self::$verify_spawn_tls ? 2 : 0,
-			\CURLOPT_SSL_VERIFYPEER    => self::$verify_spawn_tls,
+			\CURLOPT_SSL_VERIFYHOST    => $verify ? 2 : 0,
+			\CURLOPT_SSL_VERIFYPEER    => $verify,
 		];
+	}
+
+	/**
+	 * Whether internal loopback requests verify TLS, wired on first ask from
+	 * `spawn_verify_ssl`, so a spawn POST that precedes every cache read on a
+	 * page view still honours it.
+	 *
+	 * @return bool True to verify the peer and hostname.
+	 */
+	public static function verify_spawn_tls(): bool {
+		Bootstrap::ensure_diagnostics_wired();
+		return self::$verify_spawn_tls;
 	}
 
 	/**
@@ -689,6 +702,19 @@ class Core {
 			return \ord( $match[1] );
 		}
 		return null;
+	}
+
+	/**
+	 * The shared `\Memcached` handle, connected on first ask. Loading the
+	 * plugin file wires nothing, so a request that never touches the cache
+	 * never loads the config system or connects; one that does gets the same
+	 * handle a worker holds.
+	 *
+	 * @return \Memcached|null The handle, or null when no server is configured.
+	 */
+	public static function memd(): ?\Memcached {
+		Bootstrap::ensure_diagnostics_wired();
+		return self::$memd;
 	}
 
 	/**
