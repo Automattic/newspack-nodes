@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.60.17] - 2026-09-19
+
 ### Fixed
 
 - **Loading the plugin wires nothing a page view may not need.** Since 2.60.x every request connected the shared memcached handle at plugin load, which loaded the whole config system with it: 18 classes and 22 files, 2.25ms on an Atomic site and about 8ms on a community one. The handle now connects on its first ask, through the new `Core::memd()`, which `Cache_Backend` reads, and the loopback TLS posture the same way, through `Core::verify_spawn_tls()`, so a spawn POST ahead of any cache read still honours `spawn_verify_ssl`. Admin and WP-CLI requests still wire both at load, and the Site Health test now registers on every request, wp-cron's weekly check included. A page view now loads 8 classes and 11 files at plugin load, and builds neither the config schema nor the memcached handle there. A request that touches the cache still pays for both, at the moment it first asks.
