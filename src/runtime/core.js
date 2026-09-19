@@ -165,13 +165,9 @@ class CoreImpl {
 	 * @return {void}
 	 */
 	printLessOften( text, ...extra ) {
-		const now = Date.now();
-		const last = this._lastPrint.get( text ) ?? 0;
-		if ( now - last < PRINT_LESS_OFTEN_WINDOW_MS ) {
-			return;
+		if ( this.firstInWindow( text ) ) {
+			this.stderr( text + extra.join( '' ) );
 		}
-		this._lastPrint.set( text, now );
-		this.stderr( text + extra.join( '' ) );
 	}
 
 	/**
@@ -310,6 +306,24 @@ class CoreImpl {
 	 */
 	now() {
 		return Date.now() / 1000;
+	}
+
+	/**
+	 * Whether `key` gets its one line in the current window, claiming it when
+	 * it does. The throttle `printLessOften` and `Node.printLessOften` share,
+	 * as PHP's two share `Core::$recent_log_timers`.
+	 *
+	 * @param {string} key The throttle key.
+	 * @return {boolean} True for the first sight of `key` in the window.
+	 */
+	firstInWindow( key ) {
+		const now = Date.now();
+		const last = this._lastPrint.get( key ) ?? 0;
+		if ( now - last < PRINT_LESS_OFTEN_WINDOW_MS ) {
+			return false;
+		}
+		this._lastPrint.set( key, now );
+		return true;
 	}
 
 	/**
