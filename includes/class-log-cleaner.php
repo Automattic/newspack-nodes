@@ -137,7 +137,7 @@ class Log_Cleaner {
 	 * The names the log sweep keeps, as a plain list: every ACTIVE topology's
 	 * resolved first-level log dirs (`Topology_Analyzer::resolved_resource_dirs`)
 	 * expanded over that topology's SPAWN-aligned partition count
-	 * (`Bootstrap::num_partitions_for`), unioned with each PHP-registered producer
+	 * (`Bootstrap::partitions_of`), unioned with each PHP-registered producer
 	 * template (`newspack_nodes/registered_log_producers`) expanded the same way
 	 * over the global config num_partitions, plus the settings log. The
 	 * `dump_cleanup` diagnostic diffs it against what is on disk to name the
@@ -218,9 +218,9 @@ class Log_Cleaner {
 			}
 		}
 
-		foreach ( \array_keys( $active ) as $name ) {
+		foreach ( $active as $name => $entry ) {
 			try {
-				$resolved = Topology_Analyzer::resolved_resource_dirs( $name, Bootstrap::num_partitions_for( $name ) );
+				$resolved = Topology_Analyzer::resolved_resource_dirs( $name, Bootstrap::partitions_of( Core::arr( $entry ) ) );
 			} catch ( \RuntimeException $e ) {
 				// Unreadable topology: partial sets read logs as orphans.
 				Core::print_less_often( 'Log_Cleaner: skipping sweep: topology unreadable: ', $name . ': ' . $e->getMessage() );

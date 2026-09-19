@@ -101,7 +101,9 @@ class Restart_Planner {
 	}
 
 	/**
-	 * Active topology names a save of a field with this classification restarts.
+	 * Active topologies a save of a field with this classification restarts,
+	 * keyed by name, each carrying the entry `Bootstrap::get_topologies()`
+	 * resolved so a caller counts its partitions without rebuilding the catalog.
 	 *
 	 * Three inputs: `[]` restarts nothing, `'all'` restarts every active
 	 * topology, and a list of node-type tokens restarts the active topologies
@@ -110,13 +112,13 @@ class Restart_Planner {
 	 * topology is never signalled.
 	 *
 	 * @param array<int,string>|string $restart [] | 'all' | node-type tokens.
-	 * @return array<int,string> Active topology names.
+	 * @return array<string,mixed> Active topology name => entry.
 	 */
 	public static function topologies_for( array|string $restart ): array {
 		if ( [] === $restart ) {
 			return [];
 		}
-		$active = \array_map( 'strval', \array_keys( Bootstrap::get_topologies() ) );
+		$active = Bootstrap::get_topologies();
 		if ( 'all' === $restart ) {
 			return $active;
 		}
@@ -127,8 +129,10 @@ class Restart_Planner {
 		if ( [] === $want ) {
 			return [];
 		}
-		return \array_values(
-			\array_filter( $active, static fn( string $name ): bool => self::topology_has_consumer( $name, $want ) )
+		return \array_filter(
+			$active,
+			static fn( string $name ): bool => self::topology_has_consumer( $name, $want ),
+			\ARRAY_FILTER_USE_KEY
 		);
 	}
 
@@ -191,7 +195,7 @@ class Restart_Planner {
 	 * Off the fleet site nothing is touched — the fleet is network-global, so a
 	 * subsite must never reach the main site's lock dirs.
 	 *
-	 * @param array<int,string>     $topologies Topology names.
+	 * @param array<string,mixed>   $topologies Active topology name => entry.
 	 * @param string                $locks_dir  Locks directory.
 	 * @param callable(string):bool $signal     Per-lock-dir signal.
 	 * @return array<int,string>
@@ -200,12 +204,12 @@ class Restart_Planner {
 		if ( ! Bootstrap::fleet_site() ) {
 			return [];
 		}
-		foreach ( $topologies as $name ) {
-			$count = Bootstrap::num_partitions_for( $name );
+		foreach ( $topologies as $name => $entry ) {
+			$count = Bootstrap::partitions_of( Core::arr( $entry ) );
 			for ( $p = 0; $p < $count; $p++ ) {
 				$signal( "{$locks_dir}/{$name}.p{$p}.lock.d" );
 			}
 		}
-		return $topologies;
+		return \array_map( 'strval', \array_keys( $topologies ) );
 	}
 }

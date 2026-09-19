@@ -315,8 +315,9 @@ class Bootstrap {
 	 */
 	public static function node_dirs( string $node ): array {
 		$dirs = [];
-		foreach ( \array_keys( self::get_topologies() ) as $name ) {
-			foreach ( Topology_Analyzer::resolved_node_dirs( $name, $node, self::num_partitions_for( $name ) ) as $p => $dir ) {
+		foreach ( self::get_topologies() as $name => $entry ) {
+			$count = self::partitions_of( Core::arr( $entry ) );
+			foreach ( Topology_Analyzer::resolved_node_dirs( $name, $node, $count ) as $p => $dir ) {
 				$dirs[ $p ] ??= $dir;
 			}
 		}
@@ -337,11 +338,12 @@ class Bootstrap {
 	 */
 	public static function node_partitions( string $node ): array {
 		$seen = [];
-		foreach ( \array_keys( self::get_topologies() ) as $name ) {
+		foreach ( self::get_topologies() as $name => $entry ) {
 			if ( ! Topology_Analyzer::declares_node( $name, $node ) ) {
 				continue;
 			}
-			for ( $p = 0; $p < self::num_partitions_for( $name ); $p++ ) {
+			$count = self::partitions_of( Core::arr( $entry ) );
+			for ( $p = 0; $p < $count; $p++ ) {
 				$seen[ $p ] = true;
 			}
 		}
@@ -408,8 +410,8 @@ class Bootstrap {
 		}
 		try {
 			$coordinator = self::spawn_coordinator();
-			foreach ( Restart_Planner::topologies_for( [ 'Remote_Link', 'Remote_Source' ] ) as $name ) {
-				$count = self::num_partitions_for( $name );
+			foreach ( Restart_Planner::topologies_for( [ 'Remote_Link', 'Remote_Source' ] ) as $name => $entry ) {
+				$count = self::partitions_of( Core::arr( $entry ) );
 				for ( $p = 0; $p < $count; $p++ ) {
 					Lock_Node::request_reload_at( $coordinator->lock_path( $name, $p ) );
 				}
@@ -420,40 +422,41 @@ class Bootstrap {
 	}
 
 	/**
-	 * Canonical partition count for a topology: the catalog entry's count, else
-	 * the TSL frontmatter (`var num_partitions`), else the global default. Runs
-	 * through the same `partitions_of()` derivation `expand_workers()` uses, so
-	 * the count the Path menu shows can never disagree with what the fleet
-	 * SPAWNS. Every reader comes here — the admin localizer, the
-	 * `topologies.dump` verb, the retention sweep, the restart planner.
+	 * Canonical partition count for a topology, as the fleet SPAWNS it: a name
+	 * the catalog carries takes `partitions_of()` of that entry, exactly as
+	 * `expand_workers()` does, and only a name the catalog lacks is synthesized
+	 * from its TSL frontmatter. It serves names that may be inactive, since the
+	 * admin localizer and the `topologies.dump` verb list every registered
+	 * topology; a caller holding an active entry reads `partitions_of()`.
 	 *
-	 * @param string $name Topology name.
+	 * A caller looping names passes the catalog in, built once for the loop.
+	 *
+	 * @param string                      $name    Topology name.
+	 * @param array<array-key,mixed>|null $catalog `get_topology_catalog()`, when the caller already built it.
 	 * @return int Partition count in [1, MAX_PARTITIONS].
 	 */
-	public static function num_partitions_for( string $name ): int {
-		$entry = self::get_topology_catalog()[ $name ] ?? null;
-		if ( ! \is_array( $entry ) || ! isset( $entry['num_partitions'] ) ) {
-			$entry = Topology_Registry::synthesize_entry(
-				$name,
-				self::global_num_partitions(),
-				Lock_Node::STALE_TIMEOUT,
-				self::config_on_demand_idle()
-			);
-		}
-		return self::partitions_of( \is_array( $entry ) ? $entry : [] );
+	public static function num_partitions_for( string $name, ?array $catalog = null ): int {
+		$catalog ??= self::get_topology_catalog();
+		$entry     = $catalog[ $name ] ?? Topology_Registry::synthesize_entry(
+			$name,
+			self::global_num_partitions(),
+			Lock_Node::STALE_TIMEOUT,
+			self::config_on_demand_idle()
+		);
+		return self::partitions_of( Core::arr( $entry ) );
 	}
 
 	/**
 	 * One topology entry's partition count: its own `num_partitions`, else the
 	 * global default. THE per-topology derivation — `expand_workers()` (what the
-	 * fleet spawns) and `num_partitions_for()` (what every reader asks) both
-	 * route through it, so a catalog entry that omits the key cannot spawn 1
-	 * while every reader sees N.
+	 * fleet spawns), `num_partitions_for()` (what every reader asks) and every
+	 * caller already holding an active entry route through it, so a catalog
+	 * entry that omits the key cannot spawn 1 while a reader sees N.
 	 *
 	 * @param array<array-key,mixed> $entry Topology catalog entry or worker descriptor.
 	 * @return int Partition count in [1, MAX_PARTITIONS].
 	 */
-	private static function partitions_of( array $entry ): int {
+	public static function partitions_of( array $entry ): int {
 		return self::clamp_partitions( $entry['num_partitions'] ?? null, self::global_num_partitions() );
 	}
 

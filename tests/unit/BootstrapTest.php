@@ -1863,6 +1863,39 @@ class BootstrapTest extends TestCase {
 	}
 
 	/**
+	 * A reader asks the catalog ONCE, however many active topologies declare
+	 * the node. Asking again per topology rebuilt the whole catalog — every
+	 * `.tsl` synthesized — for a count the active entry already carried, and
+	 * a dashboard poll pays that on every stats read.
+	 */
+	public function test_node_readers_build_the_catalog_once_per_call(): void {
+		$decl  = "make_node Flame_Builder flame-builder\n"
+			. "make_node Partition requests:partition <config:logs_dir>/requests.p<partition>\n";
+		$stock = $this->activate_topologies(
+			[ 'combined' => $decl, 'performance' => $decl, 'hub' => $decl ],
+			[ 'combined' => 3, 'performance' => 5, 'hub' => 2 ]
+		);
+		$builds = 0;
+		$count  = static function ( array $topologies ) use ( &$builds ): array {
+			++$builds;
+			return $topologies;
+		};
+		\add_filter( 'newspack_nodes/topologies', $count, 99 );
+
+		try {
+			$this->assertSame( [ 0, 1, 2, 3, 4 ], Bootstrap::node_partitions( 'flame-builder' ) );
+			$this->assertSame( 1, $builds, 'node_partitions must build the catalog once' );
+
+			$builds = 0;
+			$this->assertSame( [ 0, 1, 2, 3, 4 ], \array_keys( Bootstrap::node_dirs( 'requests:partition' ) ) );
+			$this->assertSame( 1, $builds, 'node_dirs must build the catalog once' );
+		} finally {
+			\Newspack_Nodes\Topology_Registry::reset();
+			$this->rmdir_recursive( $stock );
+		}
+	}
+
+	/**
 	 * Activation seeds the cache salt, so no install runs on a computable scope.
 	 *
 	 * `Cache_Backend::site()` folds the salt into the install scope, and an

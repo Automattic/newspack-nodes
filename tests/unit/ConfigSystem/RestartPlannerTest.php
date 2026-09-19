@@ -53,7 +53,7 @@ class RestartPlannerTest extends TestCase {
 	public function test_all_resolves_to_every_active_topology(): void {
 		$this->assertEqualsCanonicalizing(
 			[ 'combined', 'aggregator', 'job-worker', 'multipart' ],
-			Restart_Planner::topologies_for( 'all' )
+			\array_keys( Restart_Planner::topologies_for( 'all' ) )
 		);
 	}
 
@@ -61,12 +61,12 @@ class RestartPlannerTest extends TestCase {
 		// Partition lives in combined; Topic in aggregator → geometry restarts both, not job-worker.
 		$this->assertEqualsCanonicalizing(
 			[ 'combined', 'aggregator' ],
-			Restart_Planner::topologies_for( [ 'Partition', 'Topic', 'Log' ] )
+			\array_keys( Restart_Planner::topologies_for( [ 'Partition', 'Topic', 'Log' ] ) )
 		);
 		// Tee only in combined.
-		$this->assertSame( [ 'combined' ], Restart_Planner::topologies_for( [ 'Tee' ] ) );
+		$this->assertSame( [ 'combined' ], \array_keys( Restart_Planner::topologies_for( [ 'Tee' ] ) ) );
 		// Job_Worker only in job-worker.
-		$this->assertSame( [ 'job-worker' ], Restart_Planner::topologies_for( [ 'Job_Worker' ] ) );
+		$this->assertSame( [ 'job-worker' ], \array_keys( Restart_Planner::topologies_for( [ 'Job_Worker' ] ) ) );
 	}
 
 	public function test_unknown_node_type_resolves_to_nothing(): void {
@@ -174,6 +174,39 @@ class RestartPlannerTest extends TestCase {
 		} finally {
 			$this->rmdir_recursive( $base );
 		}
+	}
+
+	/**
+	 * Count catalog builds while $run executes.
+	 *
+	 * @param callable():mixed $run Code under measurement.
+	 */
+	private function catalog_builds( callable $run ): int {
+		$builds = 0;
+		\add_filter(
+			'newspack_nodes/topologies',
+			static function ( array $t ) use ( &$builds ): array {
+				++$builds;
+				return $t;
+			},
+			99
+		);
+		$run();
+		return $builds;
+	}
+
+	public function test_an_empty_restart_builds_no_catalog(): void {
+		// plan() hands every `[]`-classified save to request_restarts().
+		$locks = $this->make_temp_dir( 'locks-' );
+		$this->assertSame( 0, $this->catalog_builds( static fn () => Restart_Planner::request_restarts( [], $locks ) ) );
+		$this->rmdir_recursive( $locks );
+	}
+
+	public function test_a_reload_builds_the_catalog_once(): void {
+		// The counts ride on the active entries the name lookup already built.
+		$locks = $this->make_temp_dir( 'locks-' );
+		$this->assertSame( 1, $this->catalog_builds( static fn () => Restart_Planner::request_reloads( $locks ) ) );
+		$this->rmdir_recursive( $locks );
 	}
 
 	public function test_request_reloads_is_a_no_op_off_the_fleet_site(): void {

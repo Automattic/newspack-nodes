@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`Restart_Planner::topologies_for()` returns the active entries keyed by name,** not a list of names, and `Bootstrap::partitions_of()` is public, so a caller holding an active entry reads its partition count without rebuilding the catalog. `docs/upgrading.md` lists the change.
+
+### Fixed
+
+- **Every partition-count reader agrees with the fleet.** A catalog entry that declares no `num_partitions` spawns the global count, but `Bootstrap::num_partitions_for()` read its `.tsl` frontmatter instead, so the retention sweep, the restart and reload fan-outs, `wp nodes status`, the console's Path menu, the `topologies` dump and the Remote_Source cards could walk partitions no worker runs, or miss ones it does. A name the catalog carries now takes that entry's count, exactly as `expand_workers()` does, and only a name the catalog lacks falls back to its frontmatter. `Bootstrap::partitions_of()` is public, and every caller holding an active entry reads it there, so the restart and reload fan-outs and the Vault reload build no catalog beyond the active set they already resolved, and a restart classified `[]` builds none. `num_partitions_for()` takes an optional prebuilt catalog for the two listings that include inactive topologies, the console's Path menu and the `topologies` dump; `node_dirs()` and `node_partitions()` build the catalog once per call.
+
 ## [2.61.1] - 2026-09-19
 
 ### Fixed

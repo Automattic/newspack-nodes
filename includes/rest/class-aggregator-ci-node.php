@@ -157,10 +157,10 @@ class Aggregator_CI_Node extends Service_CI_Node {
 
 		$result = [];
 		// An operator wires spokes into ANY active topology.
-		foreach ( \array_keys( Bootstrap::get_topologies() ) as $topology ) {
+		foreach ( Bootstrap::get_topologies() as $topology => $entry ) {
 			$topology = Core::as_string( $topology );
 			// The remote_partition token fans across the partition count.
-			$num_partitions = Bootstrap::num_partitions_for( $topology );
+			$num_partitions = Bootstrap::partitions_of( Core::arr( $entry ) );
 			foreach ( Topology_Analyzer::graph_for( $topology )['nodes'] as $node ) {
 				if ( 'Remote_Source' !== ( $node['type'] ?? '' ) ) {
 					continue;

@@ -4,6 +4,16 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 **Maintenance rule:** a release that changes any consumer-facing contract adds its entry here in the same commit as its CHANGELOG entry. No entry means nothing to do.
 
+## Unreleased
+
+- **`Restart_Planner::topologies_for()` returns the active entries keyed by
+  name,** each the entry `Bootstrap::get_topologies()` resolved, where it
+  returned a list of names. A caller that wants the names reads
+  `array_keys( Restart_Planner::topologies_for( $restart ) )`; one that counts
+  partitions reads `Bootstrap::partitions_of( $entry )` off each entry rather
+  than rebuilding the catalog through `num_partitions_for()`.
+  `request_restarts()`, `request_reloads()` and `plan()` still return names.
+
 ## 2.61.0
 
 - **`Node.setState()` throws unless its payload is a string or a number.** State

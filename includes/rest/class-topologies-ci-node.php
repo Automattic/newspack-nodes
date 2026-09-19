@@ -110,13 +110,14 @@ class Topologies_CI_Node extends Service_CI_Node {
 			}
 		}
 
-		$out = [];
+		$catalog = Bootstrap::get_topology_catalog();
+		$out     = [];
 		foreach ( Topology_Registry::describe() as $name => $sources ) {
 			$out[] = [
 				'name'           => $name,
 				'source'         => self::source_of( $sources ),
 				'active'         => isset( $active[ $name ] ),
-				'num_partitions' => Bootstrap::num_partitions_for( $name ),
+				'num_partitions' => Bootstrap::num_partitions_for( $name, $catalog ),
 				'frontmatter'    => Topology_Analyzer::frontmatter( $name ),
 				'includes'       => self::direct_includes( $name ),
 			];
