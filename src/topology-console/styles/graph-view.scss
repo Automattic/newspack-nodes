@@ -681,7 +681,7 @@
 .topology-hull-panel {
 	&__actions {
 		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+		grid-template-columns: minmax(0, 1fr);
 		gap: 8px;
 		margin: 8px 0 12px;
 	}
@@ -1511,8 +1511,11 @@
 		padding: 8px 14px;
 	}
 
+	// A long topology name wraps inside the panel rather than overflowing it.
 	.button:where(.topology-hull-panel__open) {
 		padding: 5px 8px;
+		white-space: normal;
+		overflow-wrap: anywhere;
 	}
 
 	.button:where(.topology-field-row__nav, .topology-insp__listener-x) {

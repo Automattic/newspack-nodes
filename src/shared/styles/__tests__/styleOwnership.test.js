@@ -1901,9 +1901,10 @@ describe( 'canonical appearance ownership', () => {
 		);
 	} );
 
-	// auto-fit, so the lone Open button still fills the row when the panel
-	// offers no removal (view mode, or an include this file doesn't declare).
-	it( 'sizes the hull panel actions as one even row', () => {
+	// One column: side by side, a long "Open <name>.tsl" overflows its half.
+	// minmax(0, …) and a wrapping label, or a no-wrap label still pushes the
+	// column past the panel: WordPress's `.button` is `white-space: nowrap`.
+	it( 'stacks the hull panel actions in one full-width column', () => {
 		expect(
 			declarationsForSelector(
 				graphStylesheet,
@@ -1912,10 +1913,20 @@ describe( 'canonical appearance ownership', () => {
 		).toEqual(
 			expect.objectContaining( {
 				display: 'grid',
-				'grid-template-columns': 'repeat(auto-fit, minmax(0, 1fr))',
+				'grid-template-columns': 'minmax(0, 1fr)',
 				gap: '8px',
 			} )
 		);
+		const wraps = [];
+		graphStylesheet.walkRules( ( rule ) => {
+			if (
+				rule.selector.includes( '.topology-hull-panel__open' ) &&
+				rule.selector.includes( '.newspack-nodes-ui.newspack-nodes-ui' )
+			) {
+				rule.walkDecls( 'white-space', ( d ) => wraps.push( d.value ) );
+			}
+		} );
+		expect( wraps ).toEqual( [ 'normal' ] );
 		expect(
 			declarationsForSelector(
 				graphStylesheet,
