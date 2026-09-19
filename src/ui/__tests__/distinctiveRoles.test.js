@@ -1,9 +1,6 @@
 import fs from 'fs';
 import path from 'path';
 import * as sass from 'sass';
-// postcss-scss declares PostCSS as a required peer; this test matches freshly
-// compiled canonical CSS against the real component DOM.
-// eslint-disable-next-line import/no-extraneous-dependencies
 import postcss from 'postcss';
 import { fireEvent, render } from '@testing-library/react';
 import TabHost from '../../shared/tabs/TabHost';

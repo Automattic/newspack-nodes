@@ -3,9 +3,6 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-// postcss-scss declares PostCSS as a required peer; this integration parses
-// freshly emitted CSS artifacts.
-// eslint-disable-next-line import/no-extraneous-dependencies
 import postcss from 'postcss';
 
 const ROOT = path.resolve( __dirname, '../../..' );
