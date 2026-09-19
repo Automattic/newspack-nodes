@@ -173,7 +173,7 @@ class Settings_Renderer {
 		return \sprintf(
 			/* translators: %s: comma-separated topology names. */
 			\__( 'Restarts: %s', 'newspack-nodes' ),
-			\implode( ', ', $topologies )
+			\implode( ', ', \array_keys( $topologies ) )
 		);
 	}
 

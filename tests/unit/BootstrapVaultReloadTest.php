@@ -80,6 +80,23 @@ class BootstrapVaultReloadTest extends TestCase {
 		);
 	}
 
+	public function test_builds_the_catalog_once(): void {
+		$builds = 0;
+		\add_filter(
+			'newspack_nodes/topologies',
+			static function ( array $t ) use ( &$builds ): array {
+				++$builds;
+				return $t;
+			},
+			99
+		);
+
+		Bootstrap::reload_vault_consumers();
+
+		$this->assertSame( 1, $builds );
+		$this->assertFileExists( $this->flag( 'spoke-pull-lab', Lock_Node::RELOAD_FLAG ) );
+	}
+
 	public function test_a_topology_with_no_vault_consumer_gets_no_flag_at_all(): void {
 		Bootstrap::reload_vault_consumers();
 

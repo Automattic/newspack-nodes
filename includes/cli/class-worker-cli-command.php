@@ -313,9 +313,9 @@ class Worker_CLI_Command {
 		$active = Bootstrap::get_topologies();
 		$rows   = [];
 		foreach ( $active as $name => $config ) {
-			// The count the fleet spawns against; floors at 1.
-			$partitions     = Bootstrap::num_partitions_for( $name );
-			$on_demand_idle = Bootstrap::on_demand_idle_of( Core::arr( $config ) );
+			$config         = Core::arr( $config );
+			$partitions     = Bootstrap::partitions_of( $config );
+			$on_demand_idle = Bootstrap::on_demand_idle_of( $config );
 			for ( $p = 0; $p < $partitions; $p++ ) {
 				$rows[] = self::fleet_row( $name, $p, $locks[ "{$name}.p{$p}" ] ?? null, $now, $on_demand_idle );
 				unset( $locks[ "{$name}.p{$p}" ] );

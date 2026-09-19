@@ -653,7 +653,7 @@ class Topology_Analyzer {
 	 * seen is kept; nested layouts aren't represented per-partition here.
 	 *
 	 * @param string $name           Topology name.
-	 * @param int    $num_partitions Caller's worker count; pass Bootstrap::num_partitions_for($name).
+	 * @param int    $num_partitions Caller's worker count; pass Bootstrap::partitions_of( $entry ) for an active entry.
 	 * @return array{logs: array<string,int>, offsets: array<string,int>}
 	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
 	 */
@@ -727,7 +727,7 @@ class Topology_Analyzer {
 	 *
 	 * @param string $topology       Topology name.
 	 * @param string $node           Node name declared in that topology.
-	 * @param int    $num_partitions Caller's worker count; pass Bootstrap::num_partitions_for($topology).
+	 * @param int    $num_partitions Caller's worker count; pass Bootstrap::partitions_of( $entry ) for an active entry.
 	 * @return array<int,string> Partition index => concrete dir.
 	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
 	 */
@@ -927,7 +927,7 @@ class Topology_Analyzer {
 	 * is itself a token is omitted — the caller falls back to the global default.
 	 *
 	 * @param string $name           Topology name.
-	 * @param int    $num_partitions Caller's worker count; pass Bootstrap::num_partitions_for($name).
+	 * @param int    $num_partitions Caller's worker count; pass Bootstrap::partitions_of( $entry ) for an active entry.
 	 *
 	 * @return array<string,int> First-level dir => segment size in bytes.
 	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.

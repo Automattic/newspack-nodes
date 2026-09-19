@@ -592,11 +592,12 @@ class Admin {
 
 		// Per-topology partition counts for the React dropdown.
 		$topology_workers = [];
+		$catalog          = Bootstrap::get_topology_catalog();
 		foreach ( \Newspack_Nodes\Topology_Registry::list() as $name ) {
 			if ( '' === $name ) {
 				continue;
 			}
-			$topology_workers[ $name ] = Bootstrap::num_partitions_for( $name );
+			$topology_workers[ $name ] = Bootstrap::num_partitions_for( $name, $catalog );
 		}
 		\ksort( $topology_workers );
 

@@ -77,6 +77,42 @@ class NumPartitionsDerivationTest extends TestCase {
 		$this->assertSame( 5, Status_CI_Node::cmd_get()['num_partitions'], 'the health probe' );
 	}
 
+	/**
+	 * A catalog entry carrying no `num_partitions` spawns the GLOBAL count
+	 * through `expand_workers()`, so every reader must take that and never the
+	 * entry's `.tsl` frontmatter — or it walks stores no worker writes.
+	 */
+	public function test_a_catalog_entry_without_a_count_ignores_its_frontmatter(): void {
+		// 6 in the frontmatter, 2 globally: distinct from each other and from 1.
+		\file_put_contents( "{$this->stock}/marmot-bare.tsl", "var num_partitions = 6\nmake_node Flame_Builder flame-builder\n" );
+		// Assigned, not unioned: it replaces the entry the stock publisher synthesized.
+		\add_filter(
+			'newspack_nodes/topologies',
+			static fn ( array $t ): array => [ 'marmot-bare' => [ 'topology' => 'marmot-bare', 'stale_timeout' => 60 ] ] + $t
+		);
+		$this->with_global( 'marmot-bare', 2 );
+
+		$this->assertSame( 2, $this->spawn_count( 'marmot-bare' ), 'the fleet spawn count' );
+		$this->assertSame( 2, Bootstrap::num_partitions_for( 'marmot-bare' ), 'the canonical per-topology count' );
+		$this->assertSame( [ 0, 1 ], Bootstrap::node_partitions( 'flame-builder' ), 'the node reader' );
+	}
+
+	/** A caller looping names hands the catalog in once rather than per name. */
+	public function test_a_supplied_catalog_is_not_rebuilt(): void {
+		$catalog = [ 'marmot-held' => [ 'topology' => 'marmot-held', 'num_partitions' => 4 ] ];
+		$builds  = 0;
+		\add_filter(
+			'newspack_nodes/topologies',
+			static function ( array $t ) use ( &$builds ): array {
+				++$builds;
+				return $t;
+			}
+		);
+
+		$this->assertSame( 4, Bootstrap::num_partitions_for( 'marmot-held', $catalog ) );
+		$this->assertSame( 0, $builds );
+	}
+
 	/** A TSL frontmatter count still wins over the global default. */
 	public function test_frontmatter_count_wins_over_the_global_default(): void {
 		\file_put_contents( "{$this->stock}/marmot-tsl.tsl", "var num_partitions = 3\n" );
