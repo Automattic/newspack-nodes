@@ -212,7 +212,7 @@ class SiteHealthTest extends TestCase {
 		$this->assertStringContainsString( '&lt;img src=x onerror=health-7319&gt;', $result['description'] );
 	}
 
-	public function test_ensure_runtime_wired_registers_site_health_and_alert_hooks(): void {
+	public function test_ensure_runtime_wired_registers_alert_hooks(): void {
 		$runtime_ref     = new \ReflectionProperty( Bootstrap::class, 'runtime_wired' );
 		$diagnostics_ref = new \ReflectionProperty( Bootstrap::class, 'diagnostics_wired' );
 		$saved_runtime   = $runtime_ref->getValue();
@@ -224,9 +224,6 @@ class SiteHealthTest extends TestCase {
 			$runtime_ref->setValue( null, false );
 			$diagnostics_ref->setValue( null, false );
 			Bootstrap::ensure_runtime_wired();
-
-			$tests = \apply_filters( 'site_status_tests', [ 'direct' => [], 'async' => [] ] );
-			$this->assertArrayHasKey( Bootstrap::SITE_HEALTH_TEST, $tests['direct'] );
 
 			$this->assertContains(
 				[ Alerts::class, 'emit' ],

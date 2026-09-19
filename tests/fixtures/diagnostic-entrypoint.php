@@ -160,10 +160,27 @@ try {
 		];
 	} elseif ( 'frontend' === $surface ) {
 		// A page view: no admin, no WP-CLI, no REST, no hook fired yet.
-		$memd    = \Newspack_Nodes\Core::$memd;
-		$servers = $memd instanceof \Memcached ? $memd->getServerList() : [];
-		$result  = [
-			'server' => isset( $servers[0] ) ? $servers[0]['host'] . ':' . $servers[0]['port'] : null,
+		$config_at_load = \class_exists( \Newspack_Nodes\Settings_Schema::class, false );
+		$handle_at_load = null !== \Newspack_Nodes\Core::$memd;
+		// A page view's Job_Intake Partition resolves these strictly.
+		$min_segments   = \Newspack_Nodes\Core::resolve_config_token( 'config', 'min_segments', true );
+		// A spawn POST ahead of any cache read: its TLS posture must be wired.
+		$post_options                   = null;
+		\Newspack_Nodes\Core::$curl_exec = static function ( \CurlHandle $ch, array $body, array $options ) use ( &$post_options ) {
+			$post_options = $options;
+			return true;
+		};
+		\Newspack_Nodes\Core::fire_and_forget_post( 'https://127.0.0.1:1/spawn', [ 'type' => 'frontend', 'partition' => 3 ], 'coordinator' );
+		$site_health_hooked = ! empty( $GLOBALS['_wp_actions']['site_status_tests'] );
+		$memd           = \Newspack_Nodes\Core::memd();
+		$servers        = $memd instanceof \Memcached ? $memd->getServerList() : [];
+		$result         = [
+			'config_at_load' => $config_at_load,
+			'handle_at_load' => $handle_at_load,
+			'min_segments'   => $min_segments,
+			'spawn_verify'   => \is_array( $post_options ) ? $post_options[ \CURLOPT_SSL_VERIFYPEER ] : null,
+			'site_health'    => $site_health_hooked,
+			'server'         => isset( $servers[0] ) ? $servers[0]['host'] . ':' . $servers[0]['port'] : null,
 		];
 	} elseif ( 'health-rest' === $surface ) {
 		\do_action( 'rest_api_init' );

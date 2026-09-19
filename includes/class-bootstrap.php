@@ -31,10 +31,9 @@ use Newspack_Nodes\Rest\Spawn_Controller;
  * an activation hook, a cron action, filters — with nowhere to hold an
  * instance.
  *
- * Wiring comes in two idempotent tiers. `ensure_diagnostics_wired()` runs at
- * load on every request and touches no runtime storage, so Site Health and
- * the cache probe still answer on a misconfigured base directory;
- * `ensure_runtime_wired()` is lazy and resolves that
+ * Wiring comes in two lazy, idempotent tiers. `ensure_diagnostics_wired()`
+ * touches no runtime storage, so Site Health and the cache probe still answer
+ * on a misconfigured base directory; `ensure_runtime_wired()` resolves that
  * base and throws when it is unusable. Cron, REST and admin entry points
  * report that refusal once and return rather than let it escape.
  *
@@ -100,7 +99,7 @@ class Bootstrap {
 	/** Guards ensure_runtime_wired() so repeat entry-point calls in one request are no-ops. */
 	private static bool $runtime_wired = false;
 
-	/** Guards ensure_diagnostics_wired() so admin + runtime entry points cannot duplicate its filter. */
+	/** Guards ensure_diagnostics_wired() so repeat entry-point calls in one request are no-ops. */
 	private static bool $diagnostics_wired = false;
 
 	/** Tracks the event entering schedule_event so a late falsy veto still has context. */
@@ -769,7 +768,7 @@ class Bootstrap {
 	 * `newspack_nodes/periodic` and `newspack_nodes/vault/changed` subscribers,
 	 * and the self-respawn token provider.
 	 *
-	 * Idempotent and lazy — every request wires the non-storage tier at load,
+	 * Idempotent and lazy — the first `Core::memd()` wires the non-storage tier,
 	 * while node-graph/storage entry points call this method and still fail
 	 * loudly on an unusable base. A plain frontend page view never reaches it.
 	 *
@@ -807,11 +806,13 @@ class Bootstrap {
 	}
 
 	/**
-	 * Register diagnostics that must remain available when runtime storage is
-	 * misconfigured: the spawn TLS flag, the shared `\Memcached` handle the cache
-	 * probe reports on, and the Site Health test. This path may read non-storage
-	 * config, but must not resolve the base directory. The plugin file calls it
-	 * at load on every request, so a page view holds the handle a worker does.
+	 * Wire what must remain available when runtime storage is misconfigured:
+	 * the spawn TLS flag and the shared `\Memcached` handle the cache probe
+	 * reports on. This path may read non-storage config, but must not resolve
+	 * the base directory. The plugin file calls it on admin and WP-CLI
+	 * requests; anywhere else `Core::memd()` or `Core::verify_spawn_tls()`
+	 * calls it on first use, so a page view that needs either holds what a
+	 * worker does.
 	 */
 	public static function ensure_diagnostics_wired(): void {
 		if ( self::$diagnostics_wired ) {
@@ -822,7 +823,6 @@ class Bootstrap {
 		if ( \function_exists( 'get_option' ) ) {
 			self::init_memcached();
 		}
-		\add_filter( 'site_status_tests', [ self::class, 'register_site_health_tests' ] );
 		self::$diagnostics_wired = true;
 	}
 

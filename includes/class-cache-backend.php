@@ -240,7 +240,8 @@ final class Cache_Backend {
 		if ( self::apcu() ) {
 			return new self( null );
 		}
-		return null !== Core::$memd ? new self( Core::$memd ) : null;
+		$memd = Core::memd();
+		return null !== $memd ? new self( $memd ) : null;
 	}
 
 	/**
@@ -251,8 +252,9 @@ final class Cache_Backend {
 	 * @return self|null The selected tier, or null when neither is usable.
 	 */
 	public static function shared_first(): ?self {
-		if ( null !== Core::$memd ) {
-			return new self( Core::$memd );
+		$memd = Core::memd();
+		if ( null !== $memd ) {
+			return new self( $memd );
 		}
 		return self::apcu() ? new self( null ) : null;
 	}

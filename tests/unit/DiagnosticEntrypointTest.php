@@ -71,13 +71,56 @@ class DiagnosticEntrypointTest extends TestCase {
 
 	/**
 	 * The shared cache tier is a cross-process source of truth, so a page view
-	 * holds the same handle a worker does; a request writing to APCu beside
-	 * workers on memcached would straddle tiers.
+	 * that asks for the handle gets the same one a worker holds; a request
+	 * writing to APCu beside workers on memcached would straddle tiers.
 	 */
-	public function test_a_page_view_holds_the_configured_memcached_handle(): void {
+	public function test_a_page_view_asking_for_the_handle_gets_the_configured_one(): void {
 		$result = $this->run_entrypoint( 'frontend' );
 
 		$this->assertSame( '127.0.0.1:11943', $result['server'] );
+	}
+
+	/**
+	 * Loading the plugin file is on every request's critical path, before
+	 * anything knows whether it needs the cache: it must not load the config
+	 * system or connect memcached until something asks.
+	 */
+	public function test_loading_the_plugin_file_wires_nothing_a_page_view_may_not_need(): void {
+		$result = $this->run_entrypoint( 'frontend' );
+
+		$this->assertFalse( $result['config_at_load'], 'the config system loaded with the plugin file' );
+		$this->assertFalse( $result['handle_at_load'], 'memcached connected with the plugin file' );
+	}
+
+	/**
+	 * A page view's spawn POST can precede every cache read, so its TLS posture
+	 * cannot depend on something else having wired the diagnostics first.
+	 */
+	public function test_a_page_view_spawn_post_honours_spawn_verify_ssl(): void {
+		$result = $this->run_entrypoint( 'frontend' );
+
+		$this->assertFalse( $result['spawn_verify'] );
+	}
+
+	/**
+	 * WordPress's weekly Site Health check runs from wp-cron, neither admin
+	 * nor WP-CLI; the substrate's test must be registered there too.
+	 */
+	public function test_site_health_test_is_registered_on_a_non_admin_request(): void {
+		$result = $this->run_entrypoint( 'frontend' );
+
+		$this->assertTrue( $result['site_health'] );
+	}
+
+	/**
+	 * A page view builds Partitions — `Job_Intake::feed()` from a render, the
+	 * settings writer on an option change — whose schema defaults are strict
+	 * `<config:*>` tokens, so the namespace must be live without any wiring.
+	 */
+	public function test_a_page_view_resolves_config_tokens_without_wiring(): void {
+		$result = $this->run_entrypoint( 'frontend' );
+
+		$this->assertMatchesRegularExpression( '/^\d+$/', $result['min_segments'] );
 	}
 
 	public function test_health_cache_route_completes_rest_init_and_responds_with_invalid_base(): void {
