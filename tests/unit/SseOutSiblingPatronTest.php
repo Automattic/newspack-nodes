@@ -4,7 +4,6 @@ declare(strict_types=1);
 namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
-use PHPUnit\Framework\Attributes\Medium;
 use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\HTTP_Filter_Node;
@@ -27,7 +26,6 @@ use Newspack_Nodes\Tests\TestCase;
  * remove_node() now nulls patron — before the loop returns.
  */
 #[CoversClass( SSE_Out_Node::class )]
-#[Medium]
 class SseOutSiblingPatronTest extends TestCase {
 
 	protected function setUp(): void {

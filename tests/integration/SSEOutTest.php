@@ -16,7 +16,6 @@ declare(strict_types=1);
 namespace Newspack_Nodes\Tests\Integration;
 
 use PHPUnit\Framework\Attributes\CoversClass;
-use PHPUnit\Framework\Attributes\Medium;
 use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Consumer_Node;
@@ -30,8 +29,16 @@ use Newspack_Nodes\Tests\Helpers\InMemoryMemcached;
 use Newspack_Nodes\Tests\TestCase;
 
 #[CoversClass( SSE_Out_Node::class )]
-#[Medium]
 class SSEOutTest extends TestCase {
+
+	/**
+	 * Run every stream on loop time. The class keeps PHPUnit's one-second
+	 * limit, which a real idle window or heartbeat wait would blow.
+	 */
+	protected function setUp(): void {
+		parent::setUp();
+		$this->use_loop_time();
+	}
 
 	/** Restore the declared pool geometry; the reopen test narrows it to one slot. */
 	protected function tearDown(): void {
@@ -323,13 +330,13 @@ class SSEOutTest extends TestCase {
 		$capped                   = false;
 		SSE_Out_Node::$check_slot = $this->safety_cap( $capped );
 
-		$started = \microtime( true );
+		$started = Core::right_now();
 		\ob_start();
 		// Heartbeat cadence far beyond the idle window: nothing but the idle
 		// timeout itself can end this drain.
 		$ctrl->run_stream_loop( [ 'firehose.*' ], null, 60000 );
 		$out     = (string) \ob_get_clean();
-		$elapsed = \microtime( true ) - $started;
+		$elapsed = Core::right_now() - $started;
 
 		$this->assertFalse( $capped, 'the idle timeout, not the safety cap, must end the stream' );
 		$this->assertGreaterThanOrEqual( 1.0, $elapsed, 'the stream must survive the whole idle window' );
@@ -352,11 +359,11 @@ class SSEOutTest extends TestCase {
 		$capped                   = false;
 		SSE_Out_Node::$check_slot = $this->safety_cap( $capped );
 
-		$started = \microtime( true );
+		$started = Core::right_now();
 		\ob_start();
 		$ctrl->run_stream_loop( [ 'firehose.*' ], null, 60000 );
 		$out     = (string) \ob_get_clean();
-		$elapsed = \microtime( true ) - $started;
+		$elapsed = Core::right_now() - $started;
 
 		$this->assertFalse( $capped, 'the idle timeout, not the safety cap, must end the stream' );
 		$this->assertLessThan( 2.0, $elapsed, 'a source quiet far longer than the window must not hold the slot for another one' );
@@ -379,11 +386,11 @@ class SSEOutTest extends TestCase {
 		$capped                   = false;
 		SSE_Out_Node::$check_slot = $this->safety_cap( $capped );
 
-		$started = \microtime( true );
+		$started = Core::right_now();
 		\ob_start();
 		// 'start' rewinds the cursor to seg 0 / offset 0, so the line is owed.
 		$ctrl->run_stream_loop( [ 'firehose.*' ], [ 'firehose.p0' => 'start' ], 60000 );
-		$elapsed = \microtime( true ) - $started;
+		$elapsed = Core::right_now() - $started;
 		$out     = (string) \ob_get_clean();
 
 		$this->assertStringContainsString( 'event: msg', $out, 'the owed line must actually be delivered' );
@@ -409,10 +416,10 @@ class SSEOutTest extends TestCase {
 		$capped                   = false;
 		SSE_Out_Node::$check_slot = $this->safety_cap( $capped );
 
-		$started = \microtime( true );
+		$started = Core::right_now();
 		\ob_start();
 		$ctrl->run_stream_loop( [ 'combined.p0' ], null, 60000 );
-		$elapsed = \microtime( true ) - $started;
+		$elapsed = Core::right_now() - $started;
 		\ob_get_clean();
 
 		$this->assertFalse( $capped, 'the idle timeout, not the safety cap, must end the stream' );
@@ -482,7 +489,7 @@ class SSEOutTest extends TestCase {
 		$ctrl->set_base_dir( $base );
 
 		$ended_by_check = false;
-		$deadline       = \microtime( true ) + 2.0;
+		$deadline       = Core::right_now() + 2.0;
 		// Every tick delivers a record through the egress the Consumer feeds,
 		// so the stream is never at EOF for a whole idle window.
 		SSE_Out_Node::$check_slot = static function () use ( $ctrl, $deadline, &$ended_by_check ): bool {
@@ -490,7 +497,7 @@ class SSEOutTest extends TestCase {
 			$record[ Message::TYPE ]  = Message::TM_BYTESTREAM;
 			$record[ Message::VALUE ] = "busy\n";
 			$ctrl->fill( $record );
-			if ( \microtime( true ) < $deadline ) {
+			if ( Core::$now < $deadline ) {
 				return true;
 			}
 			$ended_by_check = true;
@@ -765,15 +772,16 @@ class SSEOutTest extends TestCase {
 	}
 
 	/**
-	 * A drain predicate that gives up after four seconds and says so, so a
-	 * stream that never closes fails on its assertion instead of on the clock.
+	 * A drain predicate that gives up after four seconds of loop time and says
+	 * so, so a stream that never closes fails on its assertion instead of on
+	 * the clock.
 	 *
 	 * @param bool $capped Set true when the cap, not the code under test, ended the drain.
 	 */
 	private function safety_cap( bool &$capped ): callable {
-		$deadline = \microtime( true ) + 4.0;
+		$deadline = Core::right_now() + 4.0;
 		return static function () use ( $deadline, &$capped ): bool {
-			if ( \microtime( true ) < $deadline ) {
+			if ( Core::$now < $deadline ) {
 				return true;
 			}
 			$capped = true;

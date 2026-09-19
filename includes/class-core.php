@@ -157,6 +157,18 @@ class Core {
 	/** @var float Microsecond-resolution timestamp; refreshed per tick through right_now(), pinned directly in tests. */
 	public static float $now = 0.0;
 
+	/**
+	 * Clock seam replacing the `microtime( true )` read in `right_now()`, the
+	 * one production writer of `$now`. Tests pair it with
+	 * `Event_Framework::$sleep` to run a drain on loop time, where a wait
+	 * advances the clock instead of blocking.
+	 *
+	 * Signature: `function (): float`, epoch seconds.
+	 *
+	 * @var \Closure(): float|null
+	 */
+	public static ?\Closure $clock = null;
+
 	/** @var array<string> The 100 most recent stderr lines; `dmesg` dumps them. */
 	public static array $recent_log = [];
 
@@ -471,7 +483,7 @@ class Core {
 	 * blocking job has frozen $now.
 	 */
 	public static function right_now(): float {
-		self::$now = \microtime( true );
+		self::$now = null !== self::$clock ? ( self::$clock )() : \microtime( true );
 		return self::$now;
 	}
 

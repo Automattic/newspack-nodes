@@ -92,8 +92,10 @@ Push runs the full gate for you (`scripts/pre-push`): the JS suite with coverage
 # --enforce-time-limit aborts a hung test (readline without a TTY, an infinite
 # drain loop) instead of stalling the whole suite. phpunit.xml sets no
 # defaultTimeLimit, so an unsized test gets PHPUnit's own one second; a
-# class-level #[Medium] raises that to ten for the seven classes that
-# legitimately need longer. Filter while iterating.
+# class-level #[Medium] raises that to ten for the four classes that
+# legitimately need longer. A test draining a stream loop calls
+# use_loop_time() instead, so its waits advance the clock rather than block.
+# Filter while iterating.
 # tests/run-coverage.sh runs the same configuration under XDEBUG_MODE=coverage
 # and writes the clover the per-class gate reads.
 cd tests && ../vendor/bin/phpunit --enforce-time-limit --filter FooNodeTest

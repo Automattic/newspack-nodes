@@ -65,6 +65,18 @@ class Event_Framework {
 	public static ?\Closure $curl_poll = null;
 
 	/**
+	 * Wait seam replacing the `usleep()` a tick with no cURL handle blocks on.
+	 * Tests reassign it to advance a fake `Core::$clock` by the same amount, so
+	 * the timer scan, the heartbeat and every idle window still run as
+	 * production code against the time the loop believes has passed.
+	 *
+	 * Signature: `function ( int $microseconds ): void`.
+	 *
+	 * @var \Closure(int): void|null
+	 */
+	public static ?\Closure $sleep = null;
+
+	/**
 	 * The active drain's continue-predicate, parked where `pump()` can re-run it
 	 * from inside a long job. Null unless a cooperative-stop drain is running,
 	 * which is what keeps `pump()` from throwing a web request, a cli or an SSE
@@ -154,7 +166,7 @@ class Event_Framework {
 				\curl_multi_select( $this->curl_multi, $timeout_us / 1_000_000.0 );
 				$this->drain_curl_multi();
 			} elseif ( $timeout_us > 0 ) {
-				\usleep( $timeout_us );
+				null === self::$sleep ? \usleep( $timeout_us ) : ( self::$sleep )( $timeout_us );
 			}
 
 			if ( $has_pcntl ) {
