@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.61.0] - 2026-09-19
+
 ### Changed
 
 - **Structured node output lives in node fields, not in `setState()`.** `setState()` holds lifecycle state only, a string or a number as PHP's `set_state()` does, and throws on anything else. A node React reads extends the new `ReactBridge( Base )` mixin and publishes with `setField( field, value )`, which assigns the field and notifies its event with no payload. View models, the transcript, the metadata tree, completion candidates, poll replies, the dmesg tally and the topology catalog each live in such a field — `view`, `transcript`, `metadata`, `candidates`, `reply`, `dmesg`, `catalog` — and React reads them through the new `useNodeField( nodeName, field )`; `useNodeState` remains for string and number state. `Node` itself, the Tachikoma port, carries neither `setField()` nor `dumpOmits`. `SliceViewNode.model` is renamed `view`, `DumperNode._transcript` is `transcript`, and `debug_ui` publishes 1 or 0. `docs/upgrading.md` lists each change with its fix.
