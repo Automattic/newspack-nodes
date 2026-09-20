@@ -1878,8 +1878,14 @@
 }
 
 .topology-header__controls {
-	margin-left: auto;
 	display: flex;
+	// @longform Spans the row and packs to the end rather than sizing to its
+	// content: content-sized, the cluster grew leftward whenever a count
+	// crossed a digit and shoved whatever a host had put to its left. The
+	// slack is now inside it, for a host to claim with `margin-right: auto`.
+	flex: 1 1 auto;
+	min-width: 0;
+	justify-content: flex-end;
 	align-items: center;
 	gap: 12px;
 }
