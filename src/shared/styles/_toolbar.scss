@@ -36,16 +36,15 @@
 		}
 	}
 
-	// Count over rate, side by side: every host puts its toolbar in the 64px
-	// shared header, where a stacked pair does not fit. The min-width holds the
-	// controls beside it still while a rate crosses a digit.
+	// Count beside rate: every host puts its toolbar in the 64px shared header,
+	// where a stacked pair does not fit. Nothing pads it to a fixed width —
+	// the header's controls hold their own edge, so this may size to its text.
 	.newspack-nodes-toolbar-stats {
 		display: flex;
 		flex-direction: row;
 		align-items: baseline;
 		gap: 8px 16px;
 		white-space: nowrap;
-		min-width: 100px;
 
 		&__count {
 			font-family: $mono-font;

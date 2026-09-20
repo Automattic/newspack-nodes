@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.63.1] - 2026-09-20
+
+### Fixed
+
+- **A widening readout in the header moves nothing beside it.** `.topology-header__controls` sized to its content and anchored right, so the cluster grew leftward whenever a count crossed a digit and shoved whatever a host had put to its left — the Gyroscope's category legend jumped on every sample. It spans the row and packs to the end now, which keeps that edge still and leaves the slack inside it for a host to claim with `margin-right: auto`. The `min-width` that had been padding `.newspack-nodes-toolbar-stats` against the same jitter goes with it: it never covered a readout wider than itself, and nothing needs it now.
+
+
 ## [2.63.0] - 2026-09-20
 
 ### Changed

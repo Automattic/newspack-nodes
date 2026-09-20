@@ -1795,6 +1795,26 @@ describe( 'canonical appearance ownership', () => {
 		} );
 	} );
 
+	it( 'lets the header controls span, so a widening readout moves nothing', () => {
+		// Content-sized and right-anchored, the cluster grew leftward whenever a
+		// count crossed a digit, shoving whatever a host had put to its left —
+		// the Gyroscope's category legend — along with it. Spanning the row and
+		// packing to the end keeps that edge still and leaves slack for a host to
+		// claim with `margin-right: auto`.
+		expect(
+			declarationsForSelector(
+				graphStylesheet,
+				'.topology-header__controls'
+			)
+		).toEqual(
+			expect.objectContaining( {
+				flex: '1 1 auto',
+				'min-width': '0',
+				'justify-content': 'flex-end',
+			} )
+		);
+	} );
+
 	it( 'gives the shared header ONE resting height, owned by the header', () => {
 		// Every host mounts the same header — station, console, debug overlay and
 		// a consumer's standalone dashboard — so the height is the header's, not
