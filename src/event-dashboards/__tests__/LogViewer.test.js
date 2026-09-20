@@ -146,6 +146,11 @@ describe( 'LogViewer', () => {
 		mockGraph();
 		window.history.replaceState( {}, '', '/' );
 		window.localStorage.clear();
+		// The rail is folded until a reader opens it; these cases read it.
+		window.localStorage.setItem(
+			'newspack-nodes-rail:newspack-nodes-log-viewer',
+			'open'
+		);
 	} );
 
 	it( 'renders the sources as a toolbar dropdown, unavailable ones disabled', () => {

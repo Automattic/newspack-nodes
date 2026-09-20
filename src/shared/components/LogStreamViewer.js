@@ -27,6 +27,7 @@ import LogRowList from './LogRowList';
 import LogListHeader from './LogListHeader';
 import ConnectionBanner from './ConnectionBanner';
 import { HeaderSlot } from './HeaderSlot';
+import { readStorage, writeStorage } from '../utils/storage';
 
 /** What the toolbar shows before the first frame, and after a Clear. */
 const EMPTY_STATS = { total: 0, visible: 0, lps: 0 };
@@ -194,23 +195,15 @@ export default function LogStreamViewer( {
 	hasKeyColumn = true,
 } ) {
 	const [ filter, setFilter ] = useState( '' );
-	// Browse-rail visibility, remembered per dashboard (className-keyed).
+	// Rail visibility, per dashboard (className-keyed); folded until asked for.
 	const railKey = `newspack-nodes-rail:${ className }`;
-	const [ railOpen, setRailOpen ] = useState( () => {
-		try {
-			return 'closed' !== window.localStorage.getItem( railKey );
-		} catch ( e ) {
-			return true;
-		}
-	} );
+	const [ railOpen, setRailOpen ] = useState(
+		() => 'open' === readStorage( railKey )
+	);
 	const toggleRail = () => {
 		const next = ! railOpen;
 		setRailOpen( next );
-		try {
-			window.localStorage.setItem( railKey, next ? 'open' : 'closed' );
-		} catch ( e ) {
-			// Preference-only; ignore storage failures.
-		}
+		writeStorage( railKey, next ? 'open' : 'closed' );
 	};
 	// Debug rows: ID · KEY · VALUE, pretty structs, natural heights.
 	const [ debug, setDebug ] = useState( false );

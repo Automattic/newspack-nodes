@@ -110,6 +110,15 @@ function boot( payloadByVerb ) {
 	window.NewspackNodesData = { restUrl: '/wp-json/', nonce: 'NONCE' };
 	mockFakeClient = makeFakeClient( payloadByVerb );
 	logBrowserProps = undefined;
+	// The rail is folded until a reader opens it; these cases read it.
+	window.localStorage.setItem(
+		'newspack-nodes-rail:newspack-nodes-partition-viewer',
+		'open'
+	);
+	window.localStorage.setItem(
+		'newspack-nodes-rail:newspack-nodes-log-viewer',
+		'open'
+	);
 }
 
 /* eslint-disable import/first */

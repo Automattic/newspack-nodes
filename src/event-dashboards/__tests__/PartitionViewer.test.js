@@ -149,6 +149,11 @@ describe( 'PartitionViewer', () => {
 		publishGraph();
 		window.history.replaceState( {}, '', '/' );
 		window.localStorage.clear();
+		// The rail is folded until a reader opens it; these cases read it.
+		window.localStorage.setItem(
+			'newspack-nodes-rail:newspack-nodes-partition-viewer',
+			'open'
+		);
 	} );
 
 	function publishGraph() {

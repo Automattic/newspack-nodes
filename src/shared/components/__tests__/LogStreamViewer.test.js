@@ -290,40 +290,57 @@ describe( 'rail toggle', () => {
 		window.localStorage.clear();
 	} );
 
-	it( 'collapses and reopens the sidebar, remembering the choice', () => {
+	it( 'starts collapsed when nothing is stored', () => {
 		const { container } = render(
 			<LogStreamViewer
 				{ ...BASE }
 				sidebar={ <div className="the-rail">rail</div> }
 			/>
 		);
-		expect( container.querySelector( '.the-rail' ) ).not.toBeNull();
-		const toggle = container.querySelector( '.newspack-nodes-rail-toggle' );
-		expect( toggle ).not.toBeNull();
-		expect( toggle.getAttribute( 'aria-label' ) ).toBe(
-			'Hide the browse rail'
+		expect( container.querySelector( '.the-rail' ) ).toBeNull();
+		expect(
+			container
+				.querySelector( '.newspack-nodes-rail-toggle' )
+				.getAttribute( 'aria-expanded' )
+		).toBe( 'false' );
+	} );
+
+	it( 'opens and recollapses the sidebar, remembering the choice', () => {
+		const { container } = render(
+			<LogStreamViewer
+				{ ...BASE }
+				sidebar={ <div className="the-rail">rail</div> }
+			/>
 		);
-		expect( toggle.getAttribute( 'aria-expanded' ) ).toBe( 'true' );
+		const toggle = container.querySelector( '.newspack-nodes-rail-toggle' );
+		expect( toggle.getAttribute( 'aria-label' ) ).toBe(
+			'Show the browse rail'
+		);
 
 		fireEvent.click( toggle );
+		expect( container.querySelector( '.the-rail' ) ).not.toBeNull();
+		expect(
+			window.localStorage.getItem( 'newspack-nodes-rail:test-viewer' )
+		).toBe( 'open' );
+
+		const reclose = container.querySelector(
+			'.newspack-nodes-rail-toggle'
+		);
+		expect( reclose.getAttribute( 'aria-label' ) ).toBe(
+			'Hide the browse rail'
+		);
+		expect( reclose.getAttribute( 'aria-expanded' ) ).toBe( 'true' );
+		fireEvent.click( reclose );
 		expect( container.querySelector( '.the-rail' ) ).toBeNull();
 		expect(
 			window.localStorage.getItem( 'newspack-nodes-rail:test-viewer' )
 		).toBe( 'closed' );
-
-		const reopen = container.querySelector( '.newspack-nodes-rail-toggle' );
-		expect( reopen.getAttribute( 'aria-label' ) ).toBe(
-			'Show the browse rail'
-		);
-		expect( reopen.getAttribute( 'aria-expanded' ) ).toBe( 'false' );
-		fireEvent.click( reopen );
-		expect( container.querySelector( '.the-rail' ) ).not.toBeNull();
 	} );
 
-	it( 'starts collapsed when the stored preference says closed', () => {
+	it( 'starts open when the stored preference says open', () => {
 		window.localStorage.setItem(
 			'newspack-nodes-rail:test-viewer',
-			'closed'
+			'open'
 		);
 		const { container } = render(
 			<LogStreamViewer
@@ -331,7 +348,7 @@ describe( 'rail toggle', () => {
 				sidebar={ <div className="the-rail">rail</div> }
 			/>
 		);
-		expect( container.querySelector( '.the-rail' ) ).toBeNull();
+		expect( container.querySelector( '.the-rail' ) ).not.toBeNull();
 	} );
 
 	it( 'renders no toggle when there is no sidebar', () => {
