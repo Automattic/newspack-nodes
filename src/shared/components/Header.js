@@ -1,6 +1,13 @@
 /**
  * Top header — the brand, the subtitle, the cwd path selector and the mode
- * buttons — for the topology console, the station and the debug overlay.
+ * buttons — for every surface the substrate and its consumers mount: the
+ * station, the topology console, the debug overlay and an application's own
+ * standalone dashboards.
+ *
+ * ONE wordmark, `NEWSPACK::NODES`, whatever the host: the subtitle names the
+ * SURFACE and the version stamps the plugin that owns it, so a reader learns
+ * which page they are on and which release put it there without a second brand
+ * competing with the first.
  *
  * The brand and the controls are exported separately so ONE header can serve
  * every tab of a host: `HeaderControls` is the control cluster alone, which a
@@ -315,12 +322,14 @@ export function HeaderControls( {
  * @param {Object}          props
  * @param {boolean}         [props.showBrand]       Render the brand + subtitle (default true).
  * @param {boolean}         [props.showControls]    Render the controls cluster inline (default true).
+ * @param {string}          [props.subtitle]        Names the SURFACE this header rides, not the tab open on it — a shared header outlives any one tab. There is no default: a shared component cannot name one host's surface for another, and a wrong name is worse than none.
  * @param {ControlsSlotRef} [props.controlsSlotRef] Callback ref for an EMPTY `.topology-header__controls` slot — when set, the active tab portals its controls in (the shared header), and the inline controls are not rendered.
  * @return {import('react').ReactElement} The header.
  */
 export default function Header( {
 	showBrand = true,
 	showControls = true,
+	subtitle = '',
 	controlsSlotRef,
 	...controlProps
 } ) {
@@ -334,7 +343,7 @@ export default function Header( {
 						NODES
 					</div>
 					<div className="topology-subtitle">
-						{ __( 'Topology Console', 'newspack-nodes' ) }
+						{ subtitle }
 						{ VERSION ? ` · v${ VERSION }` : '' }
 						{ ' · ' }
 						{ HOST }

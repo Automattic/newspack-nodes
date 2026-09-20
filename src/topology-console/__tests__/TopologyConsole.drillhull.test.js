@@ -155,7 +155,7 @@ jest.mock( '../components/ConsoleShell', () => ( props ) => (
 		</button>
 	</div>
 ) );
-jest.mock( '../components/Header', () => ( {
+jest.mock( '../../shared/components/Header', () => ( {
 	__esModule: true,
 	default: () => <header data-testid="brand-header" />,
 	HeaderControls: ( props ) => (

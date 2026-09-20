@@ -133,9 +133,8 @@ const debugHeader = ( hasKeyColumn ) => (
  * @param {Object}                    props                      Props.
  * @param {string}                    props.className            Root class; the body wrapper is `${className}__body`.
  * @param {string}                    props.ariaLabel            The region's accessible name.
- * @param {string}                    [props.title]              Inline page heading, for an adopter with no station header.
  * @param {?Element}                  [props.headerControlsSlot] Station shared-header slot to portal the controls into; null renders none, undefined renders them inline.
- * @param {?Array<Object>}            [props.pickerOptions]      `{ key, label, disabled? }` rows for the source dropdown; empty or absent renders no picker.
+ * @param {?Array<Object>}            [props.pickerOptions]      `{ key, label, disabled? }` rows for the source dropdown. Two or more render the picker; exactly one renders its label as static text, because one source is not a choice and a dropdown that cannot be changed reads as one that is broken; none renders `pickerEmptyLabel`.
  * @param {string}                    [props.selectedKey]        The picked option's key; required only with a picker.
  * @param {Function}                  [props.onPick]             `(key) => void` — switch the source; required only with a picker.
  * @param {string}                    [props.pickerEmptyLabel]   Status text for an empty catalog; omit to say nothing about one.
@@ -166,7 +165,6 @@ const debugHeader = ( hasKeyColumn ) => (
 export default function LogStreamViewer( {
 	className,
 	ariaLabel,
-	title,
 	headerControlsSlot,
 	pickerOptions,
 	selectedKey,
@@ -285,7 +283,12 @@ export default function LogStreamViewer( {
 				</span>
 			</span>
 
-			{ pickerOptions?.length ? (
+			{ 1 === pickerOptions?.length && (
+				<span className="newspack-nodes-toolbar-status">
+					{ pickerOptions[ 0 ].label }
+				</span>
+			) }
+			{ pickerOptions?.length > 1 ? (
 				<select
 					className="newspack-nodes-select"
 					value={ selectedKey }
@@ -303,6 +306,7 @@ export default function LogStreamViewer( {
 					) ) }
 				</select>
 			) : (
+				! pickerOptions?.length &&
 				pickerEmptyLabel && (
 					<span className="newspack-nodes-toolbar-status">
 						{ pickerEmptyLabel }
@@ -420,20 +424,7 @@ export default function LogStreamViewer( {
 
 	return (
 		<div className={ className } role="region" aria-label={ ariaLabel }>
-			{ title ? (
-				<div
-					className={ `newspack-nodes-request-stream-header ${ className }__header` }
-				>
-					<h1 className="newspack-dashboard-title">{ title }</h1>
-					<HeaderSlot slot={ headerControlsSlot }>
-						{ controls }
-					</HeaderSlot>
-				</div>
-			) : (
-				<HeaderSlot slot={ headerControlsSlot }>
-					{ controls }
-				</HeaderSlot>
-			) }
+			<HeaderSlot slot={ headerControlsSlot }>{ controls }</HeaderSlot>
 
 			<ConnectionBanner
 				connectionError={ connectionError }

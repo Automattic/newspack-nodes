@@ -160,8 +160,10 @@ export class RemoteLinkNode extends SchemaReflection( Node ) {
 	 * Send out through the ONE `_http` boundary — every browser graph has
 	 * exactly one, and that shared buffer is what lets a tick's commands batch
 	 * into a single POST regardless of which TO each of them carries. A graph
-	 * mid-rebuild has no `_http`, so the message is dropped as NOT_AVAILABLE
-	 * rather than vanishing.
+	 * mid-rebuild has no `_http`, so the message is dropped as `no sink`
+	 * rather than vanishing — Tachikoma's word for a node with nowhere to
+	 * forward to, where `NOT_AVAILABLE` is the Router's for an address that
+	 * resolves to nothing.
 	 *
 	 * @param {Array} message Positional Message to post.
 	 */
@@ -169,7 +171,7 @@ export class RemoteLinkNode extends SchemaReflection( Node ) {
 		this.ensureChildren();
 		const h = Core.node( names.HTTP );
 		if ( ! h ) {
-			this.dropMessage( message, 'NOT_AVAILABLE' );
+			this.dropMessage( message, 'no sink' );
 			return;
 		}
 		h.fill( message );

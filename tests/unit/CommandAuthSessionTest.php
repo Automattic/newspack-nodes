@@ -167,17 +167,17 @@ class CommandAuthSessionTest extends TestCase {
 		$logger = new class() extends \Newspack_Nodes\Command_Interpreter_Node {
 			/** @var string[] */
 			public array $dropped = [];
-			public function drop_message( array $message, string $error ): void {
+			public function drop_message( array $message, string $error, string $node = '' ): void {
 				$this->dropped[] = $error;
-				parent::drop_message( $message, $error );
+				parent::drop_message( $message, $error, $node );
 			}
 		};
 		$root = new class() extends \Newspack_Nodes\Command_Interpreter_Node {
 			/** @var string[] */
 			public array $dropped = [];
-			public function drop_message( array $message, string $error ): void {
+			public function drop_message( array $message, string $error, string $node = '' ): void {
 				$this->dropped[] = $error;
-				parent::drop_message( $message, $error );
+				parent::drop_message( $message, $error, $node );
 			}
 		};
 		$root->name( \Newspack_Nodes\Node_Names::COMMAND_INTERPRETER );

@@ -1,14 +1,9 @@
 import { render, fireEvent } from '@testing-library/react';
 import ConsoleShell from '../ConsoleShell';
 
-// Stub the three children so we assert wiring, not their internals.
-let lastHeaderProps = null;
+// Stub both children so we assert wiring, not their internals.
 let lastGraphProps = null;
 let lastReplProps = null;
-jest.mock( '../Header', () => ( props ) => {
-	lastHeaderProps = props;
-	return <header data-testid="header" data-mode={ props.mode } />;
-} );
 jest.mock( '../GraphView', () => ( props ) => {
 	lastGraphProps = props;
 	return (
@@ -36,20 +31,17 @@ const baseProps = {
 	graph: { nodes: [], edges: [] },
 	frame: () => null,
 	frameProps: {},
-	headerProps: { mode: 'view', path: '' },
 	replProps: { prompt: '/', transcript: [] },
 };
 
 describe( 'ConsoleShell', () => {
 	beforeEach( () => {
-		lastHeaderProps = null;
 		lastGraphProps = null;
 		lastReplProps = null;
 	} );
 
-	it( 'mounts Header, GraphView, and ReplFooter when ready', () => {
+	it( 'mounts GraphView and ReplFooter when ready', () => {
 		const { getByTestId } = render( <ConsoleShell { ...baseProps } /> );
-		expect( getByTestId( 'header' ) ).not.toBeNull();
 		expect( getByTestId( 'graph' ) ).not.toBeNull();
 		expect( getByTestId( 'repl' ) ).not.toBeNull();
 	} );
@@ -63,17 +55,6 @@ describe( 'ConsoleShell', () => {
 			/>
 		);
 		expect( lastGraphProps.bottomObstructionPx ).toBe( 120 );
-	} );
-
-	it( 'forwards headerProps to Header', () => {
-		render(
-			<ConsoleShell
-				{ ...baseProps }
-				headerProps={ { mode: 'edit', path: 'demo.p0' } }
-			/>
-		);
-		expect( lastHeaderProps.mode ).toBe( 'edit' );
-		expect( lastHeaderProps.path ).toBe( 'demo.p0' );
 	} );
 
 	it( 'forwards replProps to ReplFooter', () => {
@@ -151,19 +132,5 @@ describe( 'ConsoleShell', () => {
 			<ConsoleShell { ...baseProps } showRepl={ false } />
 		);
 		expect( queryByTestId( 'repl' ) ).toBeNull();
-	} );
-
-	it( 'wraps the Header via the wrapHeader render-prop', () => {
-		const { container, getByTestId } = render(
-			<ConsoleShell
-				{ ...baseProps }
-				wrapHeader={ ( header ) => (
-					<div className="my-header-wrap">{ header }</div>
-				) }
-			/>
-		);
-		const wrap = container.querySelector( '.my-header-wrap' );
-		expect( wrap ).not.toBeNull();
-		expect( wrap.contains( getByTestId( 'header' ) ) ).toBe( true );
 	} );
 } );

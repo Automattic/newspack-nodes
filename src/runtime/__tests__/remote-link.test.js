@@ -298,6 +298,9 @@ describe( 'RemoteLinkNode', () => {
 	} );
 
 	it( 'reconnect() resumes past the last record it read', () => {
+		// The fixture record addresses a consumer this graph never mounts, so
+		// the Router logs the miss; the cursor is what this pins.
+		expectConsoleWarn( '_router: NOT_AVAILABLE - TM_BYTESTREAM' );
 		const { link } = makeLink( 'errors' );
 		link.connect();
 		const m = newMessage();

@@ -84,3 +84,13 @@ test( 'pointer-down on the shared header starts a panel drag', () => {
 		fireEvent.pointerMove( window, { clientX: 10, clientY: 10 } )
 	).not.toThrow();
 } );
+
+test( 'names the surface it is, not the console it borrows its header from', () => {
+	const { container } = render(
+		<DebugPanel storageKey="k" onClose={ () => {} } />
+	);
+	const subtitle = container.querySelector( '.topology-subtitle' );
+
+	expect( subtitle.textContent ).toContain( 'Debug Overlay' );
+	expect( subtitle.textContent ).not.toContain( 'Topology Console' );
+} );

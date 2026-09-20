@@ -452,15 +452,24 @@ class Node {
 	 *
 	 * @param array<int,mixed> $message The 7-field positional message array.
 	 * @param string           $error   Reason; `NOT_AVAILABLE` prints unprefixed.
+	 * @param string           $node    The node the drop turned on, where that is
+	 *                                  not the whole TO: the Router passes the head
+	 *                                  that resolved to nothing, since `to:` carries
+	 *                                  the whole path asked for. Tachikoma reads that
+	 *                                  off the bounce's FROM instead, which our
+	 *                                  `HTTP_Out` needs for its loop guard.
 	 */
-	public function drop_message( array $message, string $error ): void {
+	public function drop_message( array $message, string $error, string $node = '' ): void {
 		$type_raw = $message[ Message::TYPE ];
 		$type     = Core::num_int( $type_raw );
 		$labels   = Message::type_labels( $type );
 		$type_str = empty( $labels ) ? 'TYPE_UNKNOWN' : \implode( '|', $labels );
 		$prefix   = 'NOT_AVAILABLE' === $error ? $error : "WARNING: $error";
 		$parts    = [ "$prefix -", $type_str ];
-		$from     = Core::as_string( $message[ Message::FROM ] );
+		if ( '' !== $node ) {
+			$parts[] = 'node: ' . $node;
+		}
+		$from = Core::as_string( $message[ Message::FROM ] );
 		if ( '' !== $from ) {
 			$parts[] = 'from: ' . $from;
 		}
@@ -470,14 +479,49 @@ class Node {
 		}
 		$value = $message[ Message::VALUE ];
 		if ( ( $type & self::PAYLOAD_TYPES ) && '' !== $value ) {
-			$redacted  = self::redact_secrets( $value );
-			$value_str = \is_array( $redacted )
-				? (string) \wp_json_encode( $redacted, \JSON_UNESCAPED_SLASHES | \JSON_INVALID_UTF8_SUBSTITUTE )
-				: Core::as_string( $redacted );
+			$redacted = self::redact_secrets( $value );
+			$shown    = ( $type & Message::TM_COMMAND )
+				? self::command_summary( $redacted )
+				: $redacted;
+			$value_str = \is_array( $shown )
+				? (string) \wp_json_encode( $shown, \JSON_UNESCAPED_SLASHES | \JSON_INVALID_UTF8_SUBSTITUTE )
+				: Core::as_string( $shown );
 			$parts[] = 'payload: ' . $value_str;
 		}
 		$head = \array_shift( $parts );
 		$this->print_less_often( $head, ' ' . \implode( ' ', $parts ) );
+	}
+
+	/**
+	 * A command as the audit line says it: the verb and its arguments, which is
+	 * `$command->name . q( ) . $command->arguments` in Tachikoma's
+	 * `drop_message`.
+	 *
+	 * The rest of a TM_COMMAND VALUE is the signing envelope — nonce,
+	 * signature, session handle — and none of it says what was lost. Encoding
+	 * the whole VALUE put all three on stderr, and on the REST command path
+	 * into the response body, where no `SECRET_NAME_PATTERNS` entry matches to
+	 * mask them. The command's own `payload` goes with them: Tachikoma prints
+	 * neither, and a credential reaches a verb through it as readily as through
+	 * an argument.
+	 *
+	 * Callers redact BEFORE summarizing, so a `--password=…` argument is masked
+	 * while it is still its own token rather than joined into one string.
+	 *
+	 * @param mixed $value The redacted message VALUE.
+	 * @return mixed `name arguments` for a command-shaped VALUE, else it unchanged.
+	 */
+	private static function command_summary( mixed $value ): mixed {
+		if ( ! \is_array( $value ) || ! \array_key_exists( 'name', $value ) ) {
+			return $value;
+		}
+		$arguments = $value['arguments'] ?? [];
+		$tokens    = \array_map(
+			static fn( $token ): string => Core::as_string( $token ),
+			\is_array( $arguments ) ? $arguments : []
+		);
+		\array_unshift( $tokens, Core::as_string( $value['name'] ) );
+		return \rtrim( \implode( ' ', $tokens ) );
 	}
 
 	/**

@@ -311,6 +311,9 @@ describe( 'InspectorTab interactions', () => {
 	} );
 
 	it( 'a UI-bound invoke leaves the transcript closed; a REPL one opens it', () => {
+		// The invoked verb has no node in this graph, so the Router logs the
+		// miss; where the reply lands is what this pins.
+		expectConsoleWarn( '_router: NOT_AVAILABLE - TM_COMMAND' );
 		renderInspector();
 		act( () =>
 			mockCaptured.consoleShell.canvasProps.onInspectorAction(

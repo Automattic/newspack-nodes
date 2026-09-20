@@ -4,6 +4,48 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 **Maintenance rule:** a release that changes any consumer-facing contract adds its entry here in the same commit as its CHANGELOG entry. No entry means nothing to do.
 
+## 2.63.0
+
+- **`Header` is shared surface, imported from
+  `@newspack-nodes/shared/components/Header`.** It was
+  `topology-console/components/Header`, which no consumer should have been
+  reaching across in the first place. `HeaderControls` moved with it. A
+  standalone dashboard can now mount the same header the station does.
+- **`Header`'s `subtitle` has no default.** It rendered `Topology Console` for
+  any host that passed none, which named the wrong surface everywhere but the
+  console. Pass the name of the surface the header rides — not the tab open on
+  it, since one header outlives every tab: `<Header subtitle={ __( 'Request
+  Log', 'my-plugin' ) } />`. Passing none renders the wordmark and the version
+  alone.
+- **`ConsoleShell` renders no header.** Its `showHeader`, `wrapHeader` and
+  `headerProps` props are removed, and passing one is ignored rather than
+  honoured. Both hosts already passed `showHeader={ false }`: each owns ONE
+  header above its tab bar and the active tab portals its controls into that
+  header's slot, which is the shape to follow — render `<Header
+  controlsSlotRef={ setSlot } />` beside the shell and hand the slot to the
+  body, which places its controls with `HeaderSlot` from
+  `@newspack-nodes/shared/components/HeaderSlot`.
+- **`LogStreamViewer` renders no source picker below two `pickerOptions`.** A
+  single-source log drew a dropdown that could not be changed. A consumer that
+  needs the source NAMED beside a lone option prints it itself.
+- **A Router bounce's `FROM` is the Router, in both engines.** PHP stamped the
+  address that was missing, which reads well and leaves `HTTP_Out`'s loop guard
+  — `Node_Names::ROUTER === FROM` — unable to fire, so a bounce it should have
+  refused crossed the wire. The address rides the audit line's `node:` instead.
+  A node that read the missing address off a bounce's FROM reads the `NODE`
+  field of the Router's `NOT_AVAILABLE` state, which has always carried it.
+- **`Node::drop_message()` takes a third argument.** `drop_message( $message,
+  $error, $node = '' )` names the node the drop turned on; it is optional, so
+  an existing call is unaffected. A SUBCLASS that overrides the method must
+  widen its signature to match, or PHP fatals on the incompatible override.
+- **`LogStreamViewer` no longer takes a `title`.** It rendered an inline
+  `<h1>` for an adopter with no header of its own; every host has the shared
+  header now, and a page that wants a heading prints one.
+- **The shared sheet no longer styles `.newspack-nodes-admin-wrap` or
+  `.newspack-nodes-admin-app`.** Their `max-width` and `margin-top` are gone,
+  and both class names are inert. A page that relied on either one declares the
+  geometry it wants on its own wrapper.
+
 ## 2.62.0
 
 - **`Restart_Planner::topologies_for()` returns the active entries keyed by

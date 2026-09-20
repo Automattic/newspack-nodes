@@ -139,7 +139,6 @@ class Router_Node extends Timer_Node {
 		if ( null !== self::$profiles ) {
 			$before = $this->push_profile( $node_name );
 			try {
-				// A throw must still pop, or later frames get the wrong parent.
 				$target->fill( $message );
 			} finally {
 				$this->pop_profile( $before );
@@ -164,12 +163,10 @@ class Router_Node extends Timer_Node {
 	 * eventually prints again, and `trim_profiles()` drops idle profile entries.
 	 */
 	public function fire_cb(): void {
-		// 0 is armed but undeclared; null is a graph with no command surface.
 		if ( 0 === Core::$secure_level ) {
 			$this->print_less_often( 'WARNING: no secure level declared' );
 		}
 		$this->notify_timer();
-		// One flush per tick for the whole process, off Partition's lock path.
 		Partition_Node::flush_pending_wakes();
 		Core::prune_logs();
 		if ( null !== self::$profiles ) {
@@ -186,7 +183,6 @@ class Router_Node extends Timer_Node {
 	 */
 	private function push_profile( string $name ): float {
 		self::$profile_stack[] = $name;
-		// Bare microtime, NOT right_now(): must not perturb Core::$now.
 		return null !== self::$clock ? ( self::$clock )() : \microtime( true );
 	}
 
@@ -207,7 +203,6 @@ class Router_Node extends Timer_Node {
 		if ( null === self::$profiles ) {
 			return;
 		}
-		// Bare microtime, NOT right_now() — see push_profile().
 		$after = null !== self::$clock ? ( self::$clock )() : \microtime( true );
 		$name  = \array_pop( self::$profile_stack );
 		if ( null === $name ) {
@@ -270,7 +265,6 @@ class Router_Node extends Timer_Node {
 			return;
 		}
 		$this->handling_error = true;
-		// TO is unpeeled here, so its head names the node that was missing.
 		[ $node_name ] = Message::split_first( Core::as_string( $message[ Message::TO ] ) );
 		$this->set_state(
 			'NOT_AVAILABLE',
@@ -292,12 +286,13 @@ class Router_Node extends Timer_Node {
 			$err                       = Message::new_message();
 			$err[ Message::TYPE ]      = Message::TM_ERROR;
 			$err[ Message::TIMESTAMP ] = Core::$now;
-			$err[ Message::FROM ]      = $message[ Message::TO ];
+			$err[ Message::FROM ]      = $this->name;
 			$err[ Message::TO ]        = $message[ Message::FROM ];
 			$err[ Message::ID ]        = $message[ Message::ID ];
 			$err[ Message::VALUE ]     = "{$error}\n";
 			$this->fill( $err );
 		}
+		$this->drop_message( $message, $error, $node_name );
 		$this->handling_error = false;
 	}
 

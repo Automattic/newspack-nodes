@@ -9,7 +9,7 @@ import LogBrowser from '../../shared/components/LogBrowser';
 import LogStreamViewer from '../../shared/components/LogStreamViewer';
 import DebugOverlay from '../../debug-overlay/DebugOverlay';
 import { TopologyRow } from '../../event-dashboards/TopologyRow';
-import Header from '../../topology-console/components/Header';
+import Header from '../../shared/components/Header';
 import ReplFooter from '../../topology-console/components/ReplFooter';
 import { ModalShell } from '../../topology-console/components/Modal';
 

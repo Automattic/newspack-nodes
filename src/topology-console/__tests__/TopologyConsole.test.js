@@ -565,7 +565,7 @@ jest.mock( '../components/Inspector', () => ( props ) => {
 	);
 } );
 // Console portals controls via the named HeaderControls export.
-jest.mock( '../components/Header', () => ( {
+jest.mock( '../../shared/components/Header', () => ( {
 	__esModule: true,
 	default: () => <header data-testid="brand-header" />,
 	HeaderControls: ( props ) => {

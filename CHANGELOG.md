@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.63.0] - 2026-09-20
+
+### Changed
+
+- **The header is shared surface: `@newspack-nodes/shared/components/Header`.** It moved out of `topology-console/components/`, where three hosts already imported it across a boundary that named only one of them, and a consumer's standalone dashboard can now mount the same header the station does. Its `subtitle` no longer defaults to `Topology Console`: a shared component cannot name one host's surface for another, so each host names its own — the station `Station`, and the debug overlay `Debug Overlay`, which until now had been calling itself the console. `docs/upgrading.md` lists the move.
+- **The header owns its resting height.** `min-height: 64px` sat in `station.scss` and `debug-overlay.scss` as two copies of one number, with the console arriving at it by way of its controls; it is now one declaration on `.topology-header`, so every host that mounts the header gets the same chrome.
+- **`.newspack-nodes-page-surface` paints the surface a dashboard mounts on.** A page shell is positioned rather than flowed, so the WP-admin page — an admin notice included, which WordPress relocates to just above the mount — keeps its place underneath and shows through a transparent one. The station painted that backdrop from an inline style and event-logger-nodes from a rule of its own; both now carry this class.
+- **A source picker below two options does not render.** `LogStreamViewer` withheld it only when the catalog was empty, so a log with one partition drew a dropdown that could not be changed, which reads as a broken control rather than an absent choice. The console's path selector has always hidden at one option; the viewer now matches it.
+- **The toolbar's count and rate readout holds a minimum width**, so a rate ticking between one and two digits stops shifting the controls beside it.
+
+### Fixed
+
+- **A route miss leaves an audit line again, in both engines.** Tachikoma's `send_error` ends with `drop_message( $message, $error )`, so the message that failed to route is always named on stderr; neither of our engines did it, and a message addressed to a node that does not exist vanished with nothing said. The Router logs it now, and because that call sits behind the `TM_ERROR` guard the bounce itself still never does.
+- **The browser Router stops answering a message that has nowhere to answer to.** With an empty FROM it minted a bounce anyway, gave it an empty TO, dropped the message it had just built and logged THAT — `message not addressed - TM_ERROR payload: NOT_AVAILABLE` — while the message that actually went missing was never named. PHP and Tachikoma both guard the mint on a non-empty FROM; the browser does now too.
+- **A drop audit can name the node the drop turned on.** `drop_message()` takes it as a third argument, and the Router passes the head that resolved to nothing: `to:` carries the whole path asked for, which says where a message was going, not what of it was missing. Tachikoma reads that off the bounce's FROM instead — we cannot, because `HTTP_Out`'s loop guard is what tells a self-minted bounce from a forwarded error, and it keys on the Router being the sender. The bounce therefore keeps the Router's own name in both engines, where PHP had been stamping the missing address and leaving that guard unable to fire.
+- **The browser Router's audit line names the address that missed.** It peeled the TO head before resolving it, so the line it logged carried what was left rather than what was asked for. The peel happens once the target resolves, as it does in PHP.
+- **Three browser nodes stop borrowing `NOT_AVAILABLE` for their own failures.** It is the Router's word for an address that resolves to nothing, and Tachikoma attaches it to nothing else. `HTTP_Out` refusing to put a bounce on the wire now says `refusing to send a bounce`, and the two mid-rebuild paths that cannot reach `_http` say `no sink`. One of them was dropping the Router's own bounce, so the reason and the payload were the same word: `NOT_AVAILABLE - TM_ERROR from: _router payload: NOT_AVAILABLE`.
+
+### Security
+
+- **The drop audit prints a command as `name arguments`, never its envelope.** It JSON-encoded the whole VALUE, which put the HMAC signature, the nonce and the session handle on stderr — and, on the REST command path, into the response body, where no `SECRET_NAME_PATTERNS` entry matches to mask them. Tachikoma formats a `TM_COMMAND` as `$command->name . q( ) . $command->arguments` for this reason. The command's own `payload` goes with the envelope, since a credential reaches a verb through it as readily as through an argument, and redaction runs BEFORE the summary so a `--password=…` argument is still masked while it is its own token.
+
+### Removed
+
+- **`ConsoleShell` renders no header, and its `showHeader`, `wrapHeader` and `headerProps` props are gone.** Both hosts passed `showHeader={ false }` — the station and the overlay panel each own one shared header above their tab bar, and the active tab portals its controls into it — so the branch had no production caller. `docs/upgrading.md` lists the removal.
+- **Three layout declarations the shared sheet no longer owns:** `.newspack-nodes-admin-wrap`'s `max-width`, `.newspack-nodes-admin-app`'s `margin-top` and, in event-logger-nodes, `.event-logger-admin-wrap`'s padding. One dashboard carried those class names and nothing else in the family did, so the rules, the class names and the assertions pinning them went together.
+
+
 ## [2.62.0] - 2026-09-19
 
 ### Changed

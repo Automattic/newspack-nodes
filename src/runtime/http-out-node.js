@@ -135,7 +135,9 @@ export class HttpOutNode extends Node {
 	 * Keyed on the Router as the SENDER, not on TM_ERROR alone: an operator
 	 * composing a message may set the error flag deliberately, and that is a
 	 * command like any other. A dropped bounce still reaches the operator as an
-	 * audit line, and inbound errors are untouched.
+	 * audit line, and inbound errors are untouched. That key is why
+	 * `RouterNode.fill()` stamps the bounce with the Router's own name rather
+	 * than the address that went missing, which rides the audit line's `node:`.
 	 *
 	 * @param {Array} message Positional Message; TO already routed.
 	 */
@@ -143,7 +145,7 @@ export class HttpOutNode extends Node {
 		this.counter++;
 		// A Router bounce must not cross the wire OUTWARD; see the docblock.
 		if ( message[ TYPE ] & TM_ERROR && names.ROUTER === message[ FROM ] ) {
-			this.dropMessage( message, 'NOT_AVAILABLE' );
+			this.dropMessage( message, 'refusing to send a bounce' );
 			return;
 		}
 		if ( this.locked ) {

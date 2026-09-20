@@ -77,6 +77,8 @@ test( 'a FROM trail over MAX_FROM_SIZE is dropped before routing (path-explosion
 } );
 
 test( 'unknown TO head yields NOT_AVAILABLE error walked back to FROM', () => {
+	// The miss also leaves its audit line; the bounce is what this pins.
+	expectConsoleWarn( '_router: NOT_AVAILABLE - TM_UNTYPED node: missing' );
 	const r = new RouterNode();
 	r.name = '_router';
 
@@ -102,6 +104,7 @@ test( 'unknown TO head yields NOT_AVAILABLE error walked back to FROM', () => {
  * a TM_INFO listener reads; the unpeeled TO names the whole path asked for.
  */
 test( "a miss publishes NOT_AVAILABLE as PHP's flat KEY VALUE string", () => {
+	expectConsoleWarn( '_router: NOT_AVAILABLE - TM_COMMAND node: sierra' );
 	const r = new RouterNode();
 	r.name = '_router';
 	const origin = new Node();
@@ -149,11 +152,35 @@ test( 'single-segment TO with no slash peels head and forwards with empty TO', (
 	expect( captured[ 0 ][ TO ] ).toBe( '' );
 } );
 
-test( 'NOT_AVAILABLE bounce with empty FROM is silently dropped (no throw, no loop)', () => {
-	expectConsoleWarn( '_router: WARNING: message not addressed - TM_ERROR' );
+/**
+ * Tachikoma's `send_error` ends with `drop_message( $message, $error )`, so the
+ * message that failed to route always leaves an audit line — and because that
+ * call sits inside `if ( not TYPE & TM_ERROR )`, the bounce never does. Without
+ * it a route miss vanishes with nothing on stderr.
+ */
+test( 'a route miss leaves an audit line naming what was lost', () => {
+	expectConsoleWarn( '_router: NOT_AVAILABLE - TM_COMMAND node: sprocket' );
 	const r = new RouterNode();
 	r.name = '_router';
-	// No FROM → NOT_AVAILABLE has empty TO → drops on the TM_ERROR branch.
+	const m = newMessage();
+	m[ TYPE ] = TM_COMMAND;
+	m[ TO ] = 'sprocket';
+	m[ FROM ] = '';
+	m[ VALUE ] = 'winding';
+	r.fill( m );
+	// The head that did not resolve, named outright: `to:` carries the whole
+	// path asked for, which says where it was going, not what of it was missing.
+	expect( Core.recentLog.join( ' ' ) ).toContain( 'node: sprocket' );
+} );
+
+test( 'a miss with no FROM mints no bounce — it has nowhere to go', () => {
+	// The audit line names the message that went missing, not a bounce the
+	// Router built for itself and then dropped as unaddressed.
+	expectConsoleWarn(
+		'_router: NOT_AVAILABLE - TM_UNTYPED node: missing to: missing/path'
+	);
+	const r = new RouterNode();
+	r.name = '_router';
 	const m = newMessage();
 	m[ TO ] = 'missing/path';
 	expect( () => r.fill( m ) ).not.toThrow();

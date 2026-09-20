@@ -73,6 +73,37 @@ export const MAX_FROM_SIZE = 1024;
 const DROP_PAYLOAD_TYPES = TM_INFO | TM_REQUEST | TM_ERROR | TM_COMMAND;
 
 /**
+ * A command as the audit line says it: the verb and its arguments, which is
+ * `$command->name . q( ) . $command->arguments` in Tachikoma's `drop_message`.
+ *
+ * The rest of a TM_COMMAND VALUE is the signing envelope — nonce, signature,
+ * session handle — and none of it says what was lost. Encoding the whole VALUE
+ * put all three on stderr, and on the REST command path into the response body,
+ * where no `SECRET_NAME_PATTERNS` entry matches to mask them. The command's own
+ * `payload` goes with them: Tachikoma prints neither, and a credential reaches
+ * a verb through it as readily as through an argument.
+ *
+ * Callers redact BEFORE summarizing, so a `--password=…` argument is masked
+ * while it is still its own token rather than joined into one string.
+ *
+ * @param {*} value The redacted message VALUE.
+ * @return {*} `name arguments` for a command-shaped VALUE, else it unchanged.
+ */
+function commandSummary( value ) {
+	if (
+		null === value ||
+		'object' !== typeof value ||
+		! ( 'name' in value )
+	) {
+		return value;
+	}
+	const args = Array.isArray( value.arguments ) ? value.arguments : [];
+	return [ String( value.name ), ...args.map( String ) ]
+		.join( ' ' )
+		.trimEnd();
+}
+
+/**
  * A node's outgoing targets as a list, whichever shape `target` is in —
  * `Node.target` is `string|string[]`, so every reader needs this and only one
  * should own it.
@@ -396,8 +427,14 @@ export class Node {
 	 *
 	 * @param {Array}  message The 7-field positional message being discarded.
 	 * @param {string} error   Reason; `NOT_AVAILABLE` prints without a WARNING.
+	 * @param {string} [node]  The node the drop turned on, where that is not the
+	 *                         whole TO: the Router passes the head that resolved
+	 *                         to nothing, since `to:` carries the whole path
+	 *                         asked for. Tachikoma reads that off the bounce's
+	 *                         FROM instead, which our HTTP_Out needs for its
+	 *                         loop guard.
 	 */
-	dropMessage( message, error ) {
+	dropMessage( message, error, node = '' ) {
 		const type = message[ TYPE ];
 		const labels = typeLabels( type );
 		const typeStr = labels.length ? labels.join( '|' ) : 'TYPE_UNKNOWN';
@@ -407,6 +444,9 @@ export class Node {
 				? `${ error } - `
 				: `WARNING: ${ error } - `;
 		const parts = [ `${ prefix }${ typeStr }` ];
+		if ( '' !== node ) {
+			parts.push( `node: ${ node }` );
+		}
 		if ( '' !== message[ FROM ] ) {
 			parts.push( `from: ${ message[ FROM ] }` );
 		}
@@ -416,10 +456,12 @@ export class Node {
 		const value = message[ VALUE ];
 		if ( type & DROP_PAYLOAD_TYPES && '' !== value ) {
 			const redacted = redactSecrets( value );
+			const shown =
+				type & TM_COMMAND ? commandSummary( redacted ) : redacted;
 			const valueStr =
-				null !== redacted && 'object' === typeof redacted
-					? JSON.stringify( redacted )
-					: String( redacted );
+				null !== shown && 'object' === typeof shown
+					? JSON.stringify( shown )
+					: String( shown );
 			parts.push( `payload: ${ valueStr }` );
 		}
 

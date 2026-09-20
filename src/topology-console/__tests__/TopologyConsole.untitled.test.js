@@ -134,7 +134,7 @@ jest.mock( '../components/SchematicCanvas', () => () => (
 jest.mock( '../components/Inspector', () => () => (
 	<div data-testid="inspector" />
 ) );
-jest.mock( '../components/Header', () => ( {
+jest.mock( '../../shared/components/Header', () => ( {
 	__esModule: true,
 	default: () => <header data-testid="brand-header" />,
 	HeaderControls: ( props ) => (

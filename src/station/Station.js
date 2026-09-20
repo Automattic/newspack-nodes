@@ -22,7 +22,7 @@ import { useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import TabHost from '@newspack-nodes/shared/tabs/TabHost';
 import useAdminMenuWidth from '@newspack-nodes/shared/hooks/useAdminMenuWidth';
-import Header from '../topology-console/components/Header';
+import Header from '@newspack-nodes/shared/components/Header';
 import DebugOverlay from '../debug-overlay/DebugOverlay';
 import { registerLazyTabs } from './lazyTabs';
 import './station.scss';
@@ -62,7 +62,7 @@ export default function Station() {
 			style={ { display: 'contents' } }
 		>
 			<div
-				className="nodes-station"
+				className="nodes-station newspack-nodes-page-surface"
 				style={
 					/** @type {import('react').CSSProperties} */ ( {
 						position: 'fixed',
@@ -71,8 +71,6 @@ export default function Station() {
 						right: '0',
 						bottom: '0',
 						zIndex: 99,
-						// Paint here: a boxless parent shows admin white.
-						background: 'var(--paper-3)',
 						'--nodes-tab-host-fg': 'var(--ink)',
 						transition: 'left 0.1s ease-in-out',
 						margin: 0,
@@ -85,7 +83,10 @@ export default function Station() {
 				}
 			>
 				{ /* ONE shared header — brand left, controls slot right. */ }
-				<Header controlsSlotRef={ setControlsSlot } />
+				<Header
+					subtitle={ __( 'Station', 'newspack-nodes' ) }
+					controlsSlotRef={ setControlsSlot }
+				/>
 				<TabHost
 					host="station"
 					syncUrl
