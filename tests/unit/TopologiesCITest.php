@@ -555,15 +555,15 @@ class TopologiesCITest extends TestCase {
 		$this->assertStringContainsString( 'too large', $result );
 	}
 
-	/**
-	 * @medium
-	 */
 	public function test_save_accepts_large_body_under_one_mib(): void {
 		// A real captured graph (hundreds of KiB of make_node lines) is well
 		// over the old 64 KiB guard but under the 1 MiB cap — it must save.
+		// The guard measures BYTES, so the padding rides in the node names:
+		// 200 declarations weigh more than 10,000 bare ones and parse in a
+		// fiftieth of the time, which keeps the case inside its budget.
 		$body = '';
-		for ( $i = 0; $i < 10000; $i++ ) {
-			$body .= "make_node Tee t$i\n";
+		for ( $i = 0; $i < 200; $i++ ) {
+			$body .= 'make_node Tee t' . $i . \str_repeat( 'x', 400 ) . "\n";
 		}
 		$this->assertGreaterThan( 65536, \strlen( $body ) );
 		$this->assertLessThan( 1048576, \strlen( $body ) );

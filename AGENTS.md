@@ -69,14 +69,20 @@ This plugin is the AUTHORITATIVE copy of the shared tooling. Every sibling vendo
 # `phpunit` a host puts on PATH — composer pins 10.5.x, and a newer major dies on our
 # bootstrap with `DispatchingEmitter::exportsObjects()`. Always pass
 # `--enforce-time-limit` so a test blocking on stdin (readline without a TTY) or an
-# infinite drain loop aborts at the per-test budget instead of hanging the suite;
-# class-level `#[Medium]` raises that budget from 1s to 10s for four classes.
-# `LockTest` sleeps a whole second proving a planted symlink's mtime never moves,
-# and the two naming guards read every file in eight trees. `WorkerBaseTest`
-# states no reason for its mark; each of its 40 tests builds and removes a fresh
-# lock tree. A test draining a stream loop needs no mark: `use_loop_time()` in
-# `tests/Helpers/TestCase.php` makes every drain wait advance the clock instead
-# of blocking, so an idle window or a heartbeat gap costs no wall time.
+# infinite drain loop aborts at the per-test budget instead of hanging the suite.
+# `phpunit.xml` sets `defaultTimeLimit="10"`, because `run-coverage.sh` runs the
+# same suite under Xdebug and the instrumentation alone pushes the heaviest
+# cases past PHPUnit's own one second. `failOnRisky="true"` beside
+# `failOnWarning="true"` makes a breach FAIL the run rather than an `OK, but
+# there were issues!` the push ignores — where the abort escapes the test, that
+# is; php-invoker throws it from a SIGALRM handler inside the running test, so
+# code under test that catches broadly can absorb it. No class buys more time with `#[Medium]` or `#[Large]`, because
+# a test must not wait in real time: it drives a seam instead.
+# `use_loop_time()` in `tests/Helpers/TestCase.php` binds both — `Core::$clock`
+# and `Event_Framework::$sleep` — so a drain wait advances the clock rather than
+# blocking, and an idle window or a heartbeat gap costs no wall time. Where the
+# subject is a file's AGE rather than a delay, age the file: `LockTest` proves a
+# planted symlink's mtime never moves by `touch`ing it 300 seconds into the past.
 # `tests/run.sh` forwards its arguments to the same binary; `tests/run-coverage.sh`
 # runs the same configuration under `XDEBUG_MODE=coverage` and writes the clover the
 # coverage gate reads.

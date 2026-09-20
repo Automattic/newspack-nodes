@@ -90,12 +90,16 @@ Push runs the full gate for you (`scripts/pre-push`): the JS suite with coverage
 # `phpunit` a host puts on PATH — composer's lock pins 10.5.64, and a newer
 # major dies on our bootstrap with DispatchingEmitter::exportsObjects().
 # --enforce-time-limit aborts a hung test (readline without a TTY, an infinite
-# drain loop) instead of stalling the whole suite. phpunit.xml sets no
-# defaultTimeLimit, so an unsized test gets PHPUnit's own one second; a
-# class-level #[Medium] raises that to ten for the four classes that
-# legitimately need longer. A test draining a stream loop calls
-# use_loop_time() instead, so its waits advance the clock rather than block.
-# Filter while iterating.
+# drain loop) instead of stalling the whole suite. phpunit.xml sets
+# defaultTimeLimit="10", because run-coverage.sh runs the same suite under
+# Xdebug and the instrumentation pushes the heaviest cases past PHPUnit's own
+# one second. failOnRisky="true" makes breaking it fail the run rather than
+# warn, where the abort escapes the test: php-invoker throws from a SIGALRM
+# handler inside it, so a broad catch in the code under test can absorb it. Buying
+# time with #[Medium] or #[Large] is not the way out, and no class declares
+# either: a test must not wait in real time. It calls use_loop_time() instead,
+# which binds Core::$clock and Event_Framework::$sleep so a drain wait advances
+# the clock rather than blocking. Filter while iterating.
 # tests/run-coverage.sh runs the same configuration under XDEBUG_MODE=coverage
 # and writes the clover the per-class gate reads.
 cd tests && ../vendor/bin/phpunit --enforce-time-limit --filter FooNodeTest

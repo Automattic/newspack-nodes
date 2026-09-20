@@ -6,6 +6,8 @@
          cacheDirectory="/tmp/phpunit-cache-newspack-nodes"
          executionOrder="depends,defects"
          failOnWarning="true"
+         failOnRisky="true"
+         defaultTimeLimit="10"
          beStrictAboutOutputDuringTests="false">
     <php>
         <env name="LOCAL_NEWSPACK_NODES_CONF" value="newspack-nodes-test-config.php"/>

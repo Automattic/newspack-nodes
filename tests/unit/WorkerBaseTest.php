@@ -7,7 +7,6 @@ use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Worker_Base;
 
 #[CoversClass( Worker_Base::class )]
-#[\PHPUnit\Framework\Attributes\Medium]
 class WorkerBaseTest extends TestCase {
 	private string $tmp;
 
