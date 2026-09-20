@@ -3,6 +3,8 @@
          xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/10.5/phpunit.xsd"
          bootstrap="bootstrap.php"
          colors="true"
+         failOnWarning="true"
+         failOnRisky="true"
          cacheDirectory="/tmp/phpunit-cache-ai-newsletter"
          beStrictAboutOutputDuringTests="false">
     <testsuites>

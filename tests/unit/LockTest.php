@@ -2,14 +2,12 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
-use PHPUnit\Framework\Attributes\Medium;
 use Newspack_Nodes\Lock_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 
 #[CoversClass( Lock_Node::class )]
-#[Medium]
 class LockTest extends TestCase {
 	public function test_release_spares_a_lock_dir_another_process_stole(): void {
 		// An evicted holder must not destroy its successor. A worker blocked in
@@ -558,7 +556,7 @@ class LockTest extends TestCase {
 
 		$lock  = new Lock_Node( $dir, 60 );
 		$start = \microtime( true );
-		// Short wait so the test stays well inside the Medium 10s budget.
+		// A quarter of the one-second budget: the wait IS what this measures.
 		$result  = $lock->acquire( 250 );
 		$elapsed = ( \microtime( true ) - $start ) * 1000;
 
@@ -684,9 +682,11 @@ class LockTest extends TestCase {
 		$this->assertTrue( $lock->acquire() );
 		@\unlink( "{$lock_dir}/heartbeat" );
 		@\symlink( $victim, "{$lock_dir}/heartbeat" );
+		// Aged, not slept through: a refresh would stamp it with now.
+		\touch( $victim, \time() - 300 );
 		\clearstatcache();
 		$before = \filemtime( $victim );
-		\sleep( 1 );
+		$this->assertLessThan( \time() - 100, $before, 'the aging must have taken, or a refresh would go unseen' );
 
 		$this->assertFalse( $lock->heartbeat(), 'a planted link must not be refreshed' );
 		\clearstatcache();
