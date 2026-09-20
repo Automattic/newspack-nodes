@@ -179,6 +179,37 @@ class NodeTest extends TestCase {
 	 * already owns the redaction rule — Core::is_secret_property(), applied by
 	 * dump_node() — it just was not applied here.
 	 */
+	/**
+	 * Tachikoma formats a TM_COMMAND as `$command->name . q( ) .
+	 * $command->arguments`, so the signing envelope never reaches the audit
+	 * line. Encoding the whole VALUE put the HMAC signature and the session
+	 * handle on stderr, and on the REST command path into the response body,
+	 * where no SECRET_NAME_PATTERNS entry matches to mask them.
+	 */
+	public function test_drop_message_prints_a_command_without_its_envelope(): void {
+		$buf = '';
+		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );
+		$n = new Capture_Sink_Node();
+		$n->name( 'envelope' );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND;
+		$message[ Message::FROM ]  = '_ui';
+		$message[ Message::VALUE ] = [
+			'name'      => 'dl_list',
+			'arguments' => [ '--limit=5' ],
+			'auth'      => [
+				'nonce'  => '45c64a629e222949',
+				'sig'    => '0260049d4fd4bd46',
+				'handle' => 'e2e11111e2e22222',
+			],
+		];
+		$n->drop_message( $message, 'NOT_AVAILABLE' );
+		$this->assertStringContainsString( 'payload: dl_list --limit=5', $buf );
+		$this->assertStringNotContainsString( '0260049d4fd4bd46', $buf );
+		$this->assertStringNotContainsString( 'e2e11111e2e22222', $buf );
+		$this->assertStringNotContainsString( 'nonce', $buf );
+	}
+
 	public function test_drop_message_redacts_secret_argument_tokens(): void {
 		$buf = '';
 		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );

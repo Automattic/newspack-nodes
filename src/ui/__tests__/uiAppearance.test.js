@@ -57,12 +57,7 @@ const COMPONENT_SELECTOR_MARKERS = [
 	'.newspack-nodes-stat',
 	'.newspack-nodes-interactive-row',
 	'.newspack-nodes-card-link',
-	'.newspack-nodes-admin-wrap',
-	'.newspack-nodes-admin-app',
 	'.newspack-nodes-error-banner',
-	'.newspack-nodes-inflight-header',
-	'.newspack-nodes-request-stream-header',
-	'.worker-status-full',
 	'.entry-',
 ];
 const UI_ALIAS_FALLBACKS = new Map( [

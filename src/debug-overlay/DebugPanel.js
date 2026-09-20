@@ -1,15 +1,16 @@
 import { useEffect, useCallback, useRef, useState } from '@wordpress/element';
+import { __ } from '@wordpress/i18n';
 import TabHost from '@newspack-nodes/shared/tabs/TabHost';
-import Header from '../topology-console/components/Header';
+import Header from '../shared/components/Header';
 import { lockPageScroll, unlockPageScroll } from './pageScrollLock';
 import { useDebugFrame } from './useDebugFrame';
 
 /**
  * The overlay's panel. It owns the floating-window concerns (draggable/resizable
  * frame via useDebugFrame, the wheel eater, the page-scroll lock, the eight
- * resize handles) AND the ONE shared header: the topology-console Header is
- * rendered here, once, above the tab bar — so every tab sits under the SAME
- * header (same height, same place) instead of each tab duplicating its own. The
+ * resize handles) AND the ONE shared header: the shared Header is rendered
+ * here, once, above the tab bar — so every tab sits under the SAME header
+ * (same height, same place) instead of each tab duplicating its own. The
  * active tab publishes any header extras it wants (the Console publishes its cwd
  * PATH selector) up via `publishHeader`; the body itself (Console graph+REPL, or
  * the I/O Overview) is header-less and lives in its tab component. The frame
@@ -135,6 +136,7 @@ export default function DebugPanel( {
 					} }
 				>
 					<Header
+						subtitle={ __( 'Debug Overlay', 'newspack-nodes' ) }
 						mode="view"
 						onClose={ onClose }
 						{ ...headerExtras }

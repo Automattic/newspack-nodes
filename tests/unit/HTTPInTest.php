@@ -551,9 +551,18 @@ class HTTPInTest extends TestCase {
 		$body = \ob_get_clean();
 
 		$this->assertSame( [ 200 ], $this->status_codes );
-		$message = Message::unpacked( $body );
+		// JSONL: the bounce first, then the Router's audit line for the message
+		// that failed to route, which reaches the operator down the stderr chain.
+		$lines = \array_values( \array_filter( \explode( "\n", $body ), 'strlen' ) );
+		$this->assertCount( 2, $lines );
+		$message = Message::unpacked( $lines[0] );
 		$this->assertTrue( (bool) ( $message[ Message::TYPE ] & Message::TM_ERROR ) );
 		$this->assertStringContainsString( 'NOT_AVAILABLE', (string) $message[ Message::VALUE ] );
+		$audit = Message::unpacked( $lines[1] );
+		$this->assertStringContainsString(
+			'_router: NOT_AVAILABLE - TM_COMMAND',
+			(string) $audit[ Message::VALUE ]
+		);
 	}
 
 	public function test_blank_from_defaults_to_underscore_http(): void {

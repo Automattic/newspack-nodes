@@ -42,6 +42,15 @@
 	}
 }
 
+// The surface a dashboard mounts on. A page shell is POSITIONED, not flowed,
+// so the WP-admin page keeps its place underneath it — an admin notice
+// included, which WordPress relocates to just above the mount. A transparent
+// shell shows it straight through, so the shell paints.
+:where(.newspack-nodes-ui).newspack-nodes-page-surface,
+:where(.newspack-nodes-ui) .newspack-nodes-page-surface {
+	background: var(--paper-3, var(--np-surface-muted));
+}
+
 :where(.newspack-nodes-ui) {
 	.newspack-nodes-card,
 	&.newspack-nodes-card {
@@ -686,15 +695,6 @@
 		}
 	}
 
-	// Admin wrapper
-	.newspack-nodes-admin-wrap {
-		max-width: 95vw;
-	}
-
-	.newspack-nodes-admin-app {
-		margin-top: 16px;
-	}
-
 	.newspack-nodes-error-banner {
 		background: var(--oxide, var(--np-error));
 		color: var(--on-oxide, var(--np-on-status));
@@ -723,27 +723,6 @@
 			background: var(--cyan-subtle, var(--np-primary-subtle));
 			color: var(--cyan-text, var(--np-text));
 			border-left: 3px solid var(--cyan, var(--np-primary));
-		}
-	}
-
-	// Shared dashboard section header.
-	.newspack-nodes-inflight-header,
-	.newspack-nodes-request-stream-header,
-	.worker-status-full .worker-status-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		min-height: 40px;
-		margin-bottom: 12px;
-		padding-bottom: 12px;
-		border-bottom: 1px solid var(--paper-shadow, var(--np-border-strong));
-
-		h2,
-		h3 {
-			margin: 0;
-			font-size: 14px;
-			font-weight: 600;
-			color: var(--ink, var(--np-text));
 		}
 	}
 

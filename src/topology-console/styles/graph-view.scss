@@ -1853,6 +1853,9 @@
 .topology-header {
 	display: flex;
 	align-items: stretch;
+	// One resting height for every host that mounts it — station, console,
+	// overlay, a consumer's dashboard — so its chrome breathes the same way.
+	min-height: 64px;
 	padding: 0 18px;
 	gap: 24px;
 	z-index: 3;

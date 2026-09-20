@@ -44,13 +44,6 @@
 	display: flex;
 	flex-direction: column;
 
-	// The one shared header (panel-owned, above the tab bar). It used to be a
-	// 64px grid row inside .topology-app; as a flex child it would collapse to
-	// content height, so restore the 64px so its chrome breathes like the console.
-	.topology-header {
-		min-height: 64px;
-	}
-
 	// The InspectorTab's root wrapper. It now sits between the panel and
 	// .topology-app — TabHost wraps the active tab in
 	// .nodes-tab-host__tab-content.is-full-bleed (flex column, flex:1), so this

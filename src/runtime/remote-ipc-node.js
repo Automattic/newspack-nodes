@@ -109,7 +109,7 @@ export class RemoteIpcNode extends RemoteLinkNode {
 		const h = Core.node( names.HTTP );
 		if ( ! h ) {
 			// Mid-rebuild: no reply is deliverable, but silence reads as a 202.
-			this.dropMessage( message, 'NOT_AVAILABLE' );
+			this.dropMessage( message, 'no sink' );
 			return;
 		}
 		const pre = h.locked;

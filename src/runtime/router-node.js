@@ -105,7 +105,6 @@ export class RouterNode extends TimerNode {
 	constructor() {
 		super();
 		this.isRouter = true;
-		// Whether a coalesced tick is already queued; see requestTick().
 		this._tickAsked = false;
 		this.setTimer( ROUTER_TICK_MS );
 	}
@@ -154,11 +153,9 @@ export class RouterNode extends TimerNode {
 		const slash = to.indexOf( '/' );
 		const head = -1 === slash ? to : to.slice( 0, slash );
 		const rest = -1 === slash ? '' : to.slice( slash + 1 );
-		message[ TO ] = rest;
 
 		const target = Core.node( head );
 		if ( null === target ) {
-			// PHP send_error()'s flat KEY VALUE form; TO as it arrived.
 			this.setState(
 				'NOT_AVAILABLE',
 				[
@@ -179,23 +176,24 @@ export class RouterNode extends TimerNode {
 			if ( message[ TYPE ] & TM_ERROR ) {
 				return;
 			}
-			const err = newMessage();
-			err[ TYPE ] = TM_ERROR;
-			// Restamped: newMessage() reads the wall clock, not Core.now().
-			err[ TIMESTAMP ] = Core.now();
-			err[ FROM ] = this.name;
-			err[ TO ] = message[ FROM ];
-			err[ ID ] = message[ ID ];
-			err[ VALUE ] = 'NOT_AVAILABLE\n';
-			// Re-fill so the error walks the FROM trail; drops if unrouted.
-			this.fill( err );
+			if ( '' !== message[ FROM ] ) {
+				const err = newMessage();
+				err[ TYPE ] = TM_ERROR;
+				err[ TIMESTAMP ] = Core.now();
+				err[ FROM ] = this.name;
+				err[ TO ] = message[ FROM ];
+				err[ ID ] = message[ ID ];
+				err[ VALUE ] = 'NOT_AVAILABLE\n';
+				this.fill( err );
+			}
+			this.dropMessage( message, 'NOT_AVAILABLE', head );
 			return;
 		}
+		message[ TO ] = rest;
 
 		if ( null !== RouterNode._profiles ) {
 			const before = this._pushProfile( head );
 			try {
-				// A throw must still pop, or the parent frame is wrong.
 				target.fill( message );
 			} finally {
 				this._popProfile( before );

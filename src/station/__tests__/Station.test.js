@@ -73,7 +73,12 @@ describe( 'Station', () => {
 		expect( provider.className ).toBe(
 			'newspack-nodes-skin-root newspack-nodes-theme newspack-nodes-ui'
 		);
-		expect( station.className ).toBe( 'nodes-station' );
+		// The surface class IS the station's paint, since the inline background
+		// went; dropping it would leave it transparent over WP-admin white.
+		expect( station.classList ).toContain( 'newspack-nodes-page-surface' );
+		expect( station.classList ).not.toContain( 'newspack-nodes-theme' );
+		expect( station.classList ).not.toContain( 'newspack-nodes-ui' );
+		expect( station.classList ).not.toContain( 'newspack-nodes-skin-root' );
 		expect( station.closest( '.newspack-nodes-theme' ) ).toBe( provider );
 		expect(
 			station.querySelectorAll( '.newspack-nodes-theme' )
@@ -159,5 +164,15 @@ describe( 'Station', () => {
 				queryByRole( 'button', { name: /node debugger/i } )
 			).toBeNull();
 		} );
+	} );
+
+	it( 'names the surface it is, not the tab that happens to be open', () => {
+		const { container } = render( <Station /> );
+
+		// The shared header rides every tab, so a subtitle naming one of them
+		// mislabels the other nine.
+		expect(
+			container.querySelector( '.topology-subtitle' ).textContent
+		).toContain( 'Station' );
 	} );
 } );

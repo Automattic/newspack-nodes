@@ -99,7 +99,7 @@ export function replMaxHeight( frameHeight, tabBarHeight = 0 ) {
  * typed the instant the panel opens cannot outrun the sink it dispatches into.
  *
  * The panel also owns the one shared header above the tab bar, so this body is
- * header-less: it renders ConsoleShell with `showHeader={ false }` and pushes
+ * header-less: ConsoleShell renders no header of its own, and this tab pushes
  * its cwd PATH selector up through `publishHeader`.
  *
  * @param {Object}                 props
@@ -328,7 +328,6 @@ export default function InspectorTab( {
 								ready={ ready }
 								graph={ graph }
 								// The panel owns the header.
-								showHeader={ false }
 								frame={ CanvasFrame }
 								frameProps={ {
 									// No .tsl backs the browser's graph.

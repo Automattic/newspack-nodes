@@ -160,6 +160,9 @@ class HTTP_Out_Node extends Timer_Node {
 	 * route with an error of its own, addressed back down the FROM trail, and
 	 * neither end stops. Keyed on the Router as SENDER, not on TM_ERROR alone:
 	 * an operator may set the error flag deliberately, and that is a command.
+	 * That key is why `Router_Node::send_error()` stamps the bounce with the
+	 * Router's own name rather than the address that went missing, which rides
+	 * the audit line's `node:` instead.
 	 *
 	 * @param array<int,mixed> $message The 7-field positional message array.
 	 */
@@ -168,7 +171,7 @@ class HTTP_Out_Node extends Timer_Node {
 		// A Router bounce must not cross the wire OUTWARD; see the docblock.
 		$type = Core::num_int( $message[ Message::TYPE ] ?? 0 );
 		if ( $type & Message::TM_ERROR && Node_Names::ROUTER === Core::as_string( $message[ Message::FROM ] ?? '' ) ) {
-			$this->drop_message( $message, 'NOT_AVAILABLE' );
+			$this->drop_message( $message, 'refusing to send a bounce' );
 			return;
 		}
 		$this->batch[] = $message;

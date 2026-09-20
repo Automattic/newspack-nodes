@@ -1795,6 +1795,26 @@ describe( 'canonical appearance ownership', () => {
 		} );
 	} );
 
+	it( 'gives the shared header ONE resting height, owned by the header', () => {
+		// Every host mounts the same header — station, console, debug overlay and
+		// a consumer's standalone dashboard — so the height is the header's, not
+		// a declaration each host repeats and one of them gets wrong.
+		expect(
+			declarationsForSelector( graphStylesheet, '.topology-header' )
+		).toEqual( expect.objectContaining( { 'min-height': '64px' } ) );
+
+		for ( const sheet of [
+			'station/station.scss',
+			'debug-overlay/debug-overlay.scss',
+		] ) {
+			const source = fs.readFileSync(
+				path.join( NODES_SRC, sheet ),
+				'utf8'
+			);
+			expect( source ).not.toMatch( /\.topology-header\s*\{/ );
+		}
+	} );
+
 	it( 'pins fixed control, row, and modal dimensions', () => {
 		const debugStylesheet = compile(
 			path.join( NODES_SRC, 'debug-overlay/debug-overlay.scss' )

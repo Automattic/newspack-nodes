@@ -9,12 +9,6 @@
  */
 
 .nodes-station {
-	// The ONE shared brand header on top — give it the console's row height so it
-	// breathes, with the same soft theme-token divider as the tab bar below it.
-	.topology-header {
-		min-height: 64px;
-	}
-
 	.topology-app {
 		flex: 1 1 auto;
 		height: auto;

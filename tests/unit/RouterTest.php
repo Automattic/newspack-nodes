@@ -57,6 +57,57 @@ class RouterTest extends TestCase {
 		$this->assertCount( 0, $dst->captured );
 	}
 
+	/**
+	 * Tachikoma's `send_error` ends with `$self->drop_message( $message, $error )`,
+	 * so the message that failed to route always leaves an audit line — and
+	 * because that call sits inside `if ( not TYPE & TM_ERROR )`, the bounce
+	 * itself never does. Without it a route miss vanishes with nothing on
+	 * stderr, which is the silent failure the substrate forbids.
+	 */
+	public function test_a_route_miss_leaves_an_audit_line(): void {
+		$buf = '';
+		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );
+		$router = new Router_Node();
+		$router->name( '_router' );
+
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_INFO;
+		$message[ Message::TO ]    = 'sprocket';
+		$message[ Message::FROM ]  = '';
+		$message[ Message::VALUE ] = 'winding';
+
+		$router->fill( $message );
+
+		$this->assertStringContainsString( 'NOT_AVAILABLE - TM_INFO', $buf );
+		// The head that did not resolve, named outright: `to:` carries the
+		// whole path asked for, which says where it was going, not what of it
+		// was missing.
+		$this->assertStringContainsString( 'node: sprocket', $buf );
+		$this->assertStringContainsString( 'payload: winding', $buf );
+	}
+
+	/**
+	 * The bounce is a TM_ERROR, and Tachikoma's guard skips the whole body for
+	 * one — no second bounce and no audit line. That guard is what keeps a
+	 * route miss from logging its own reason back as a payload.
+	 */
+	public function test_an_undeliverable_bounce_is_silent(): void {
+		$buf = '';
+		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );
+		$router = new Router_Node();
+		$router->name( '_router' );
+
+		$bounce                   = Message::new_message();
+		$bounce[ Message::TYPE ]  = Message::TM_ERROR;
+		$bounce[ Message::TO ]    = 'sprocket';
+		$bounce[ Message::FROM ]  = '_router';
+		$bounce[ Message::VALUE ] = "NOT_AVAILABLE\n";
+
+		$router->fill( $bounce );
+
+		$this->assertStringNotContainsString( 'payload: NOT_AVAILABLE', $buf );
+	}
+
 	public function test_unknown_target_sends_NOT_AVAILABLE_error(): void {
 		$router = new Router_Node();
 		$router->name( '_router' );
@@ -79,7 +130,11 @@ class RouterTest extends TestCase {
 		$this->assertSame( Message::TM_ERROR, $err[ Message::TYPE ] );
 		$this->assertSame( "NOT_AVAILABLE\n", $err[ Message::VALUE ] );
 		$this->assertSame( '', $err[ Message::TO ] );
-		$this->assertSame( 'nonexistent', $err[ Message::FROM ] );
+		// The Router names ITSELF as the sender. Stamping the missing address
+		// here instead would read well and disarm `HTTP_Out`'s loop guard,
+		// which is what tells a self-minted bounce from a forwarded error;
+		// the address rides the audit line's `node:` instead.
+		$this->assertSame( '_router', $err[ Message::FROM ] );
 	}
 
 	/**

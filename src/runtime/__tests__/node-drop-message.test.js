@@ -111,6 +111,38 @@ describe( 'Node.dropMessage', () => {
 		expect( line ).not.toContain( 'whiskey-301' );
 	} );
 
+	it( 'prints a command as name and arguments, never its envelope', () => {
+		// Tachikoma formats a TM_COMMAND as `$command->name . ' ' .
+		// $command->arguments`, so the signing envelope never reaches the audit
+		// line. Ours JSON-encoded the whole VALUE, which put the HMAC signature
+		// and the session handle on stderr — and, on the REST command path,
+		// into the response body.
+		const n = new Node();
+		const spy = jest
+			.spyOn( n, 'printLessOften' )
+			.mockImplementation( () => {} );
+		const m = [];
+		m[ TYPE ] = TM_COMMAND;
+		m[ FROM ] = '_ui';
+		m[ TO ] = '';
+		m[ VALUE ] = {
+			name: 'dl_list',
+			arguments: [ '--limit=5' ],
+			auth: {
+				nonce: '45c64a629e222949',
+				sig: '0260049d4fd4bd46',
+				handle: 'e2e11111e2e22222',
+			},
+		};
+		n.dropMessage( m, 'NOT_AVAILABLE' );
+		const line =
+			spy.mock.calls[ 0 ][ 0 ] + ( spy.mock.calls[ 0 ][ 1 ] ?? '' );
+		expect( line ).toContain( 'payload: dl_list --limit=5' );
+		expect( line ).not.toContain( '0260049d4fd4bd46' );
+		expect( line ).not.toContain( 'e2e11111e2e22222' );
+		expect( line ).not.toContain( 'nonce' );
+	} );
+
 	it( 'omits payload for a pure control type (TM_BYTESTREAM)', () => {
 		const n = new Node();
 		const spy = jest
@@ -259,9 +291,12 @@ describe( 'Node.dropMessage secret redaction', () => {
 		};
 		n.dropMessage( m, 'NOT_AVAILABLE' );
 		const line = spy.mock.calls[ 0 ].join( '' );
+		// A command prints its verb and arguments; its `payload` is not part
+		// of that, so a credential nested there never reaches the line at all.
 		expect( line ).not.toContain( 'zulu-swordfish' );
-		expect( line ).toContain( '"api_key":"<redacted>"' );
-		expect( line ).toContain( '"label":"spoke7"' );
+		expect( line ).not.toContain( 'api_key' );
+		expect( line ).not.toContain( 'spoke7' );
+		expect( line ).toContain( 'payload: save' );
 	} );
 } );
 

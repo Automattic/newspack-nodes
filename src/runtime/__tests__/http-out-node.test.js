@@ -661,7 +661,11 @@ describe( 'outbound errors', () => {
 	} );
 
 	it( 'never POSTs a Router bounce', async () => {
-		expectConsoleWarn( '_http: NOT_AVAILABLE' );
+		// NOT the Router's word: `NOT_AVAILABLE` means the addressed node does
+		// not exist, and Tachikoma attaches it only to the message that failed
+		// to route — never to the bounce, which its `send_error` guard skips.
+		// Reusing it here named the bounce's own payload back at the operator.
+		expectConsoleWarn( '_http: WARNING: refusing to send a bounce' );
 		const { node, postBatch } = makeNode();
 		const bounce = newMessage();
 		bounce[ TYPE ] = TM_ERROR;

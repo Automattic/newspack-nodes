@@ -23,7 +23,11 @@ jest.mock( '../LogRowList', () => ( {
 const BASE = {
 	className: 'test-viewer',
 	ariaLabel: 'Test viewer',
-	pickerOptions: [ { key: 'a', label: 'A' } ],
+	// Two: the picker renders only where there is a choice to make.
+	pickerOptions: [
+		{ key: 'a', label: 'A' },
+		{ key: 'b', label: 'B' },
+	],
 	selectedKey: 'a',
 	onPick: () => {},
 	pickerEmptyLabel: 'None',
@@ -88,17 +92,6 @@ it( 'renders the debug row with a KEY column, and drops it when keyless', () => 
 	expect(
 		keyless.querySelector( '.newspack-nodes-log-row__id' ).textContent
 	).toBe( '3:120:44' );
-} );
-
-it( 'renders a title heading when given one', () => {
-	const { container } = render(
-		<LogStreamViewer { ...BASE } title="Request Log" />
-	);
-	const header = container.querySelector( '.test-viewer__header' );
-	expect( container.querySelector( 'h1' ).textContent ).toBe( 'Request Log' );
-	expect(
-		header.classList.contains( 'newspack-nodes-request-stream-header' )
-	).toBe( true );
 } );
 
 it( 'renders toolbarExtras before Clear and belowToolbar after the banner', () => {
@@ -253,6 +246,35 @@ it( 'an empty catalog with no label renders neither picker nor status', () => {
 	expect(
 		container.querySelector( '.newspack-nodes-toolbar-status' )
 	).toBeNull();
+} );
+
+it( 'a lone source names itself instead of drawing a picker', () => {
+	const { container } = render(
+		<LogStreamViewer
+			{ ...BASE }
+			pickerOptions={ [ { key: 'only', label: 'only.p0' } ] }
+		/>
+	);
+	// No choice to make, but the page must still say which log is open — and
+	// never the empty label, which would deny the source it is streaming.
+	expect( container.querySelector( '.newspack-nodes-select' ) ).toBeNull();
+	expect( container.textContent ).toContain( 'only.p0' );
+	expect( container.textContent ).not.toContain( BASE.pickerEmptyLabel );
+} );
+
+it( 'two sources render the picker', () => {
+	const { container } = render(
+		<LogStreamViewer
+			{ ...BASE }
+			pickerOptions={ [
+				{ key: 'one', label: 'one.p0' },
+				{ key: 'two', label: 'two.p0' },
+			] }
+		/>
+	);
+	expect(
+		container.querySelector( '.newspack-nodes-select' )
+	).not.toBeNull();
 } );
 
 it( 'no rows renders no picker; the empty label is what speaks for them', () => {

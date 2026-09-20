@@ -27,7 +27,7 @@ import { useContainerRefit } from '../shared/hooks/useContainerRefit';
 import { formatCommandArgs } from '../runtime/command-args';
 import CanvasFrame from './components/CanvasFrame';
 import ConsoleShell from './components/ConsoleShell';
-import { HeaderControls } from './components/Header';
+import { HeaderControls } from '../shared/components/Header';
 import { ConfirmModal, PromptModal, NewNodeModal } from './components/Modal';
 
 import OpenTopologyModal from './components/OpenTopologyModal';
@@ -1925,7 +1925,6 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 								buildingClassName="topology-canvas-building"
 								showRepl={ mode !== 'edit' }
 								// Station owns the header.
-								showHeader={ false }
 								canvasProps={ {
 									inspectorCollapsed,
 									onInspectorToggle: toggleInspectorCollapsed,
