@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The browse rail starts folded.** `LogStreamViewer` opened its segment rail on a first visit, so the Log Viewer, the Partition Viewer, the Request Log and the Error Log each handed a third of the width to a list nobody had asked for yet. It starts collapsed and remembers the toggle as before — a stored `open` reopens it, and the rail's own fetches are unchanged, since the hook that runs them never depended on it being mounted.
+
 ## [2.63.1] - 2026-09-20
 
 ### Fixed
