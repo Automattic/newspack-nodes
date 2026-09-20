@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.62.0] - 2026-09-19
+
 ### Changed
 
 - **`Restart_Planner::topologies_for()` returns the active entries keyed by name,** not a list of names, and `Bootstrap::partitions_of()` is public, so a caller holding an active entry reads its partition count without rebuilding the catalog. `docs/upgrading.md` lists the change.

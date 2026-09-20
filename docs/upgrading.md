@@ -4,7 +4,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 **Maintenance rule:** a release that changes any consumer-facing contract adds its entry here in the same commit as its CHANGELOG entry. No entry means nothing to do.
 
-## Unreleased
+## 2.62.0
 
 - **`Restart_Planner::topologies_for()` returns the active entries keyed by
   name,** each the entry `Bootstrap::get_topologies()` resolved, where it
