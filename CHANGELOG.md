@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.64.0] - 2026-09-20
+
+### Added
+
+- **A page-sized ask target, `data-ask-page`.** `useAskPicker` exports the attribute and the shared stylesheet rings what carries it with a fixed overlay rather than an outline — measured in the browser, an outline on a page box is painted over by that box's own children, and on a scrolled page its edges sit off screen. The shell publishes its own geometry to the rule (top, left, and the measured scrollbar gutter), so the ring traces the dashboard rather than the viewport, which would claim the admin bar and the menu beside it.
+
+### Fixed
+
+- **The page ring closes on all four sides.** `.topology-header` is a flex item, and a flex item's `z-index` applies at `position: static`, so its 3 outranked an overlay left at `auto` and painted over the ring's top edge. The ring declares `$layer-page-ring`, a named layer above the chrome a shell paints inside itself and below the debug overlay, which floats above the page rather than in it.
+- **The `?` cursor no longer drops back to an arrow mid-pick.** The picker marked the BODY while its own docblock said the document. Chrome repaints the cursor from the ROOT whenever what sits under the pointer is replaced, and a root left at `auto` is an arrow. The mark and the cursor rule both key off `<html>` now.
+- **A dark skin's scrollbars are dark.** `color-scheme: dark` was declared on `select`, `input` and `textarea` alone, so every scroller in a dark dashboard — the page box, the tables, the log lists — was handed the UA's light one. It moves up to the skin root, where the fields inherit it and the scrollbars follow.
+
 ## [2.63.4] - 2026-09-20
 
 ### Fixed
