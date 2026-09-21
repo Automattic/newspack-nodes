@@ -2,6 +2,15 @@
 
 // Layout for the shared modal shell. Appearance (surface, border, radius,
 // shadow) is the canonical `.newspack-nodes-modal` role in styles/_modal.scss.
+// The backdrop carries its own border-box reset because it is portalled to the
+// body: a dashboard's `#root *` reset no longer reaches the dialog out there.
+.newspack-nodes-modal__backdrop,
+.newspack-nodes-modal__backdrop *,
+.newspack-nodes-modal__backdrop *::before,
+.newspack-nodes-modal__backdrop *::after {
+	box-sizing: border-box;
+}
+
 .newspack-nodes-modal__backdrop {
 	position: fixed;
 	inset: 0;
