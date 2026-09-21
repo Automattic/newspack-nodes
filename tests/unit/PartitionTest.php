@@ -4372,6 +4372,63 @@ class PartitionTest extends TestCase {
 	}
 
 	/**
+	 * A SHORTENED index is not growth. Nothing here truncates one — retention
+	 * unlinks both files and the only `ftruncate` cuts a torn data record that
+	 * was never indexed — so this guards an external rewrite or a file left
+	 * short by a crash, where the memo's offsets point past the end.
+	 */
+	public function test_a_shortened_index_discards_the_memo(): void {
+		$p     = $this->indexed_partition( 'shrunk', 3 );
+		$parse = static fn ( string $line ): ?array => self::unpack_index_line( $line );
+		$dir   = ( new \ReflectionMethod( Partition_Node::class, 'partition_dir' ) )->invoke( $p );
+
+		$this->assertArrayHasKey( 'k3', $p->locate_by( $parse, [ 'k3' ] ) );
+
+		// Same file, same inode, k3's line gone.
+		$fh = \fopen( "{$dir}/0.idx", 'r+b' );
+		$this->assertNotFalse( $fh );
+		\ftruncate( $fh, 40 );
+		\fclose( $fh );
+
+		$this->assertSame(
+			[],
+			$p->locate_by( $parse, [ 'k3' ] ),
+			'a shortened index is re-walked, not trusted'
+		);
+	}
+
+	/**
+	 * A delta segment that cannot be READ leaves the range pending. Discarding
+	 * the memo does not achieve that: the rebuilt extent already carries the
+	 * segment's advanced size, and the full walk `scan_index()` runs skips the
+	 * same unreadable file — so the bytes stay unread until the segment grows
+	 * again, at the price of a re-walk. The memo survives with its own boundary
+	 * held for that segment, so the next call retries exactly that range.
+	 */
+	public function test_an_unreadable_delta_segment_is_retried_not_written_off(): void {
+		$p     = $this->indexed_partition( 'unreadable', 1 );
+		$parse = static fn ( string $line ): ?array => self::unpack_index_line( $line );
+		$dir   = ( new \ReflectionMethod( Partition_Node::class, 'partition_dir' ) )->invoke( $p );
+		$idx   = "{$dir}/0.idx";
+
+		$p->locate_by( $parse, [ 'k1' ] );
+
+		$this->write_keyed( $p, 'k4', 'arrived while unreadable' );
+		$p->flush();
+		\chmod( $idx, 0o000 );
+		$this->assertFalse( @\fopen( $idx, 'rb' ), 'the segment must really be unreadable' );
+
+		$this->assertSame( [], $p->locate_by( $parse, [ 'k4' ] ), 'nothing can be read' );
+
+		\chmod( $idx, 0o600 );
+		$this->assertArrayHasKey(
+			'k4',
+			$p->locate_by( $parse, [ 'k4' ] ),
+			'the range unread last time is read now'
+		);
+	}
+
+	/**
 	 * A segment REPLACED at the same id is not growth. Comparing sizes alone
 	 * reads a wiped-and-refilled directory as an append, and every locator
 	 * into it then addresses whatever now occupies those bytes.
@@ -4386,7 +4443,7 @@ class PartitionTest extends TestCase {
 		$p     = $this->indexed_partition( 'replaced', 2 );
 		$parse = static fn ( string $line ): ?array => self::unpack_index_line( $line );
 
-		$first = $p->locate_by( $parse, [ 'k1' ] );
+		$first = $p->locate_by( $parse, [ 'k1', 'k2' ] );
 		$this->assertArrayHasKey( 'k1', $first );
 
 		// Same id, same size, different records underneath: k1's line now
@@ -4397,12 +4454,11 @@ class PartitionTest extends TestCase {
 		\file_put_contents( "{$idx}.new", \strtr( $old, [ 'k1' => 'q1', 'k2' => 'k1' ] ) );
 		\rename( "{$idx}.new", $idx );
 
+		// k1 now carries what was k2's locator, so naming it proves the re-walk
+		// read the replaced file rather than merely failing to answer.
 		$again = $p->locate_by( $parse, [ 'k1' ] );
-		$this->assertNotSame(
-			$first['k1'],
-			$again['k1'] ?? null,
-			'a replaced segment is not an append'
-		);
+		$this->assertNotSame( $first['k1'], $again['k1'] ?? null, 'a replaced segment is not an append' );
+		$this->assertSame( $first['k2'], $again['k1'] ?? null, 'and the re-walk read the replacement' );
 	}
 
 	/** A miss is re-answered after an append: the key may have arrived. */
