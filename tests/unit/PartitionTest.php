@@ -1835,13 +1835,22 @@ class PartitionTest extends TestCase {
 		\fclose( $fh );
 
 		$seen = [];
+		$base = \memory_get_usage( true );
+		\memory_reset_peak_usage();
 		$p->scan_index(
 			function ( string $line, int $segment ) use ( &$seen ) {
 				$seen[] = $line;
 			},
 			true
 		);
+		$peak = \memory_get_peak_usage( true );
 
+		// The branch that OOM'd: `locate_by()` always walks newest-first.
+		$this->assertLessThan(
+			4 * 1024 * 1024,
+			$peak - $base,
+			'the backward walk costs the chunk, not the file'
+		);
 		$this->assertCount( 2001, $seen, 'every line, once' );
 		$this->assertStringStartsWith( 'line-1999-', $seen[0], 'newest first' );
 		$this->assertStringStartsWith( 'line-1998-', $seen[1] );
@@ -4228,37 +4237,32 @@ class PartitionTest extends TestCase {
 	}
 
 	/**
-	 * An append does not cost a key already located its locator.
+	 * An append can carry a NEWER record for a key already located, and
+	 * `locate_by()` answers with the newest — which is why the walk is
+	 * newest-first. Memoizing a locator across a growth on the reasoning that
+	 * "a written line never moves" answers the position question and misses
+	 * this one: the old line is still there, and still wrong.
 	 *
-	 * The index is append-only, so a line already written never moves: what
-	 * was FOUND stays true across a growth. Discarding the whole memo on every
-	 * extent change made that a re-walk per append, and the writer of a
-	 * partition is exactly the process appending to it — the flame-builder
-	 * re-walked a million-line index for keys it had already resolved.
-	 *
-	 * What a growth DOES invalidate is a miss: a key absent before may have
-	 * arrived in the new lines, so `searched` is cleared and re-answered.
+	 * The mirror is where it costs: `Flame_Builder_Node` spills an OPEN bucket
+	 * early and later writes the frame that closes it, so a memo that survived
+	 * the append serves the partial frame for the rest of the worker's life.
 	 */
-	public function test_an_append_keeps_the_locators_it_already_found(): void {
-		$p     = $this->indexed_partition( 'warm', 2 );
-		$walks = 0;
-		$parse = static function ( string $line ) use ( &$walks ): ?array {
-			++$walks;
-			return self::unpack_index_line( $line );
-		};
+	public function test_an_append_supersedes_a_locator_it_already_found(): void {
+		$p     = $this->indexed_partition( 'supersede', 1 );
+		$parse = static fn ( string $line ): ?array => self::unpack_index_line( $line );
 
 		$first = $p->locate_by( $parse, [ 'k1' ] );
 		$this->assertArrayHasKey( 'k1', $first );
-		$this->assertGreaterThan( 0, $walks, 'the first resolve walks' );
 
-		$this->write_keyed( $p, 'k9', 'later' );
+		$this->write_keyed( $p, 'k1', 'newer' );
 		$p->flush();
 
-		$walks = 0;
 		$again = $p->locate_by( $parse, [ 'k1' ] );
-
-		$this->assertSame( $first['k1'], $again['k1'], 'the locator is unchanged' );
-		$this->assertSame( 0, $walks, 'a found key survives the append' );
+		$this->assertNotSame(
+			$first['k1'],
+			$again['k1'],
+			'the newer record supersedes the one the memo held'
+		);
 	}
 
 	/** A miss is re-answered after an append: the key may have arrived. */
