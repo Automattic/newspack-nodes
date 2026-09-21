@@ -4,6 +4,21 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 **Maintenance rule:** a release that changes any consumer-facing contract adds its entry here in the same commit as its CHANGELOG entry. No entry means nothing to do.
 
+## 2.65.4
+
+- **The Router publishes no `NOT_AVAILABLE` state.** `send_error()` fired
+  `set_state( 'NOT_AVAILABLE', … )` with a flat `NODE … TYPE … FROM … TO … ID …
+  KEY …` payload; both engines have dropped it, and `NOT_AVAILABLE` is gone from
+  each Router's declared `registrations`. Nothing in the tree registered for it.
+  A watcher that did reads the bounce instead: its FROM names the destination,
+  its TO walks back to the sender, and a miss with no FROM to answer leaves the
+  `drop_message` audit line, which it always did.
+- **`Node::drop_message()` takes two arguments again.** The third, `$node`,
+  added in [2.63.0](#2630) to name the unresolved head on the audit line, is
+  removed along with the `node: …` field it printed — the bounce's FROM carries
+  that address now. A SUBCLASS that widened its signature to match must narrow
+  it again, and a caller passing three arguments drops the third silently.
+
 ## 2.65.3
 
 - **A Router bounce crosses the wire again.** `HTTP_Out_Node::fill()` refused to
@@ -16,9 +31,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   reverses [2.63.0](#2630) and restores Tachikoma's `$response->[FROM] =
   $message->[TO]`. 2.63.0 stamped the Router's own name so `HTTP_Out`'s loop
   guard could tell a self-minted bounce from a forwarded one; with that guard
-  gone the stamp has no reader. A node that learned to read the missing address
-  off the `NOT_AVAILABLE` state's `NODE` field can keep doing so — that field is
-  unchanged — or read the bounce's FROM directly again.
+  gone the stamp has no reader.
 
 ## 2.63.0
 

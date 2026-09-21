@@ -7,7 +7,6 @@ import {
 	FROM,
 	TO,
 	ID,
-	KEY,
 	VALUE,
 	TM_ERROR,
 	TM_COMMAND,
@@ -78,7 +77,7 @@ test( 'a FROM trail over MAX_FROM_SIZE is dropped before routing (path-explosion
 
 test( 'unknown TO head yields NOT_AVAILABLE error walked back to FROM', () => {
 	// The miss also leaves its audit line; the bounce is what this pins.
-	expectConsoleWarn( '_router: NOT_AVAILABLE - TM_UNTYPED node: missing' );
+	expectConsoleWarn( '_router: NOT_AVAILABLE - TM_UNTYPED' );
 	const r = new RouterNode();
 	r.name = '_router';
 
@@ -97,31 +96,6 @@ test( 'unknown TO head yields NOT_AVAILABLE error walked back to FROM', () => {
 	expect( got[ 0 ][ TYPE ] & TM_ERROR ).toBeTruthy();
 	expect( got[ 0 ][ ID ] ).toBe( 'cmd-42' );
 	expect( got[ 0 ][ VALUE ] ).toMatch( /NOT_AVAILABLE/ );
-} );
-
-/**
- * PHP's `send_error()` publishes the miss as flat `KEY VALUE` pairs, the shape
- * a TM_INFO listener reads; the unpeeled TO names the whole path asked for.
- */
-test( "a miss publishes NOT_AVAILABLE as PHP's flat KEY VALUE string", () => {
-	expectConsoleWarn( '_router: NOT_AVAILABLE - TM_COMMAND node: sierra' );
-	const r = new RouterNode();
-	r.name = '_router';
-	const origin = new Node();
-	origin.name = 'romeo-8812';
-	origin.fill = () => {};
-
-	const m = newMessage();
-	m[ TYPE ] = TM_COMMAND;
-	m[ FROM ] = 'romeo-8812';
-	m[ TO ] = 'sierra/tango';
-	m[ ID ] = 'cmd-6604';
-	m[ KEY ] = 'uniform';
-	r.fill( m );
-
-	expect( r.setStateCache.NOT_AVAILABLE ).toBe(
-		`NODE sierra TYPE ${ TM_COMMAND } FROM romeo-8812 TO sierra/tango ID cmd-6604 KEY uniform`
-	);
 } );
 
 test( 'TM_ERROR on a missing TO is dropped (no error-on-error bounce)', () => {
@@ -159,7 +133,7 @@ test( 'single-segment TO with no slash peels head and forwards with empty TO', (
  * it a route miss vanishes with nothing on stderr.
  */
 test( 'a route miss leaves an audit line naming what was lost', () => {
-	expectConsoleWarn( '_router: NOT_AVAILABLE - TM_COMMAND node: sprocket' );
+	expectConsoleWarn( '_router: NOT_AVAILABLE - TM_COMMAND' );
 	const r = new RouterNode();
 	r.name = '_router';
 	const m = newMessage();
@@ -168,17 +142,15 @@ test( 'a route miss leaves an audit line naming what was lost', () => {
 	m[ FROM ] = '';
 	m[ VALUE ] = 'winding';
 	r.fill( m );
-	// The head that did not resolve, named outright: `to:` carries the whole
-	// path asked for, which says where it was going, not what of it was missing.
-	expect( Core.recentLog.join( ' ' ) ).toContain( 'node: sprocket' );
+	// `to:` carries the whole path asked for. The head that did not resolve
+	// rides the bounce's own FROM, which is where Tachikoma reads it.
+	expect( Core.recentLog.join( ' ' ) ).toContain( 'to: sprocket' );
 } );
 
 test( 'a miss with no FROM mints no bounce — it has nowhere to go', () => {
 	// The audit line names the message that went missing, not a bounce the
 	// Router built for itself and then dropped as unaddressed.
-	expectConsoleWarn(
-		'_router: NOT_AVAILABLE - TM_UNTYPED node: missing to: missing/path'
-	);
+	expectConsoleWarn( '_router: NOT_AVAILABLE - TM_UNTYPED to: missing/path' );
 	const r = new RouterNode();
 	r.name = '_router';
 	const m = newMessage();

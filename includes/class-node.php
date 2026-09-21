@@ -452,23 +452,14 @@ class Node {
 	 *
 	 * @param array<int,mixed> $message The 7-field positional message array.
 	 * @param string           $error   Reason; `NOT_AVAILABLE` prints unprefixed.
-	 * @param string           $node    The node the drop turned on, where that is
-	 *                                  not the whole TO: the Router passes the head
-	 *                                  that resolved to nothing, since `to:` carries
-	 *                                  the whole path asked for. Tachikoma reads that
-	 *                                  off the bounce's FROM instead, which our
-	 *                                  `HTTP_Out` needs for its loop guard.
 	 */
-	public function drop_message( array $message, string $error, string $node = '' ): void {
+	public function drop_message( array $message, string $error ): void {
 		$type_raw = $message[ Message::TYPE ];
 		$type     = Core::num_int( $type_raw );
 		$labels   = Message::type_labels( $type );
 		$type_str = empty( $labels ) ? 'TYPE_UNKNOWN' : \implode( '|', $labels );
 		$prefix   = 'NOT_AVAILABLE' === $error ? $error : "WARNING: $error";
 		$parts    = [ "$prefix -", $type_str ];
-		if ( '' !== $node ) {
-			$parts[] = 'node: ' . $node;
-		}
 		$from = Core::as_string( $message[ Message::FROM ] );
 		if ( '' !== $from ) {
 			$parts[] = 'from: ' . $from;

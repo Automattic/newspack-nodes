@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.65.4] - 2026-09-21
+
+### Removed
+
+- **The Router's `NOT_AVAILABLE` state.** `send_error()` published a flat
+  `NODE … TYPE … FROM … TO … ID … KEY …` string for a route-miss watcher, and
+  nothing in the tree ever registered for it; both engines drop it, and the name
+  is gone from each Router's declared `registrations`. The bounce reports the
+  miss — its FROM is the destination that went missing — and a miss with no FROM
+  to answer leaves the `drop_message` audit line it always did.
+- **`Node::drop_message()`'s third argument**, and the `node: …` field it
+  printed. Added in 2.63.0 to name the unresolved head, which the bounce's FROM
+  carries again.
+
 ## [2.65.3] - 2026-09-21
 
 ### Fixed
