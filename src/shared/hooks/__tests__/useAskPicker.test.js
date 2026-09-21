@@ -63,18 +63,24 @@ function startPicking( getByTestId ) {
 }
 
 afterEach( () => {
-	document.body.className = '';
+	document.documentElement.classList.remove( 'newspack-nodes-asking' );
 } );
 
+// The ROOT carries the mark, not the body: Chrome repaints the cursor from the
+// document when the node under the pointer is replaced, and a root left at
+// `auto` drops the `?` back to an arrow mid-pick.
 test( 'starting marks the document so the cursor changes', () => {
 	const { getByTestId } = setup();
 
+	expect(
+		document.documentElement.classList.contains( 'newspack-nodes-asking' )
+	).toBe( false );
+	startPicking( getByTestId );
+	expect(
+		document.documentElement.classList.contains( 'newspack-nodes-asking' )
+	).toBe( true );
 	expect( document.body.classList.contains( 'newspack-nodes-asking' ) ).toBe(
 		false
-	);
-	startPicking( getByTestId );
-	expect( document.body.classList.contains( 'newspack-nodes-asking' ) ).toBe(
-		true
 	);
 } );
 
@@ -127,9 +133,9 @@ test( 'a modified click adds to the selection, read on mousedown', () => {
 
 	expect( onPick.mock.calls[ 0 ][ 1 ].additive ).toBe( true );
 	// Still picking: an additive pick does not end the mode.
-	expect( document.body.classList.contains( 'newspack-nodes-asking' ) ).toBe(
-		true
-	);
+	expect(
+		document.documentElement.classList.contains( 'newspack-nodes-asking' )
+	).toBe( true );
 } );
 
 test( 'ctrl is honoured the same as meta, matching what already ships', () => {
@@ -153,9 +159,9 @@ test( 'a plain pick ends picker mode', () => {
 		fireEvent.click( getByTestId( 'cell' ) );
 	} );
 
-	expect( document.body.classList.contains( 'newspack-nodes-asking' ) ).toBe(
-		false
-	);
+	expect(
+		document.documentElement.classList.contains( 'newspack-nodes-asking' )
+	).toBe( false );
 } );
 
 test( 'clicking something unaskable never asks about the page', () => {
@@ -183,12 +189,12 @@ test( 'a missed click leaves the picker armed', () => {
 		fireEvent.click( getByTestId( 'outside' ) );
 	} );
 
-	expect( document.body.classList.contains( 'newspack-nodes-asking' ) ).toBe(
-		true
-	);
+	expect(
+		document.documentElement.classList.contains( 'newspack-nodes-asking' )
+	).toBe( true );
 } );
 
-// The cursor IS the picker's state. A re-render that dropped the body class
+// The cursor IS the picker's state. A re-render that dropped the root class
 // would take the `?` away while the picker was still armed.
 test( 'the cursor survives a re-render while armed', () => {
 	const { getByTestId, rerender, onPick } = setup();
@@ -196,9 +202,9 @@ test( 'the cursor survives a re-render while armed', () => {
 
 	rerender( <Harness onPick={ onPick } onRowClick={ jest.fn() } /> );
 
-	expect( document.body.classList.contains( 'newspack-nodes-asking' ) ).toBe(
-		true
-	);
+	expect(
+		document.documentElement.classList.contains( 'newspack-nodes-asking' )
+	).toBe( true );
 } );
 
 test( 'escape cancels', () => {
@@ -209,9 +215,9 @@ test( 'escape cancels', () => {
 		fireEvent.keyDown( document, { key: 'Escape' } );
 	} );
 
-	expect( document.body.classList.contains( 'newspack-nodes-asking' ) ).toBe(
-		false
-	);
+	expect(
+		document.documentElement.classList.contains( 'newspack-nodes-asking' )
+	).toBe( false );
 } );
 
 test( 'a second click on the trigger cancels', () => {
@@ -219,9 +225,9 @@ test( 'a second click on the trigger cancels', () => {
 	startPicking( getByTestId );
 	startPicking( getByTestId );
 
-	expect( document.body.classList.contains( 'newspack-nodes-asking' ) ).toBe(
-		false
-	);
+	expect(
+		document.documentElement.classList.contains( 'newspack-nodes-asking' )
+	).toBe( false );
 } );
 
 test( 'askable elements become focusable while picking, and revert after', () => {
@@ -261,9 +267,9 @@ test( 'unmounting while picking leaves nothing behind', () => {
 
 	unmount();
 
-	expect( document.body.classList.contains( 'newspack-nodes-asking' ) ).toBe(
-		false
-	);
+	expect(
+		document.documentElement.classList.contains( 'newspack-nodes-asking' )
+	).toBe( false );
 	act( () => {
 		fireEvent.keyDown( document, { key: 'Escape' } );
 	} );

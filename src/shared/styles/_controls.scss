@@ -170,15 +170,13 @@ $np-dark-skins: blueprint, crt, synthwave, nord, aurora, neotokyo, scada;
 			.topology-app,
 			.newspack-nodes-skin-root
 		).newspack-nodes-ui.newspack-nodes-ui {
+		// What the UA reads for a scrollbar as much as for a control. On the
+		// root every scroller and field inside inherits it.
+		color-scheme: dark;
+
 		select,
 		.components-select-control__input {
 			background-image: url("#{ $np-chevron-light }");
-		}
-
-		select,
-		input,
-		textarea {
-			color-scheme: dark;
 		}
 	}
 }

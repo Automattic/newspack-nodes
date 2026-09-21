@@ -59,3 +59,9 @@ $focus-shadow: 0 0 0 2px rgba(0, 61, 165, 0.25);
 $layer-modal: 100000;
 $layer-modal-tooltip: 100001;
 $layer-modal-over: 100002;
+
+// The `?` picker's page ring, drawn on the dashboard shell's own edges. The
+// shell is its own stacking context, so the ring only has to outrank the chrome
+// inside it — the header, a sticky table head, a console's rails — and stays
+// under the debug overlay, which floats above the page rather than in it.
+$layer-page-ring: 9999;

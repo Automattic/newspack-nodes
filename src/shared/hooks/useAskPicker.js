@@ -9,7 +9,7 @@
 
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 
-/** Marks the document while picking; the stylesheet turns the cursor into a `?`. */
+/** Marks the ROOT while picking; the stylesheet turns the cursor into a `?`. */
 export const ASKING_CLASS = 'newspack-nodes-asking';
 
 /**
@@ -25,6 +25,13 @@ const ASK_ATTR = 'data-ask';
  * it opened.
  */
 export const ASK_TRIGGER_ATTR = 'data-ask-trigger';
+
+/**
+ * Marks a target the size of the page. It rings the viewport rather than its
+ * own border, which on a scrolled page is off-screen — the stylesheet owns
+ * that, and names this attribute to do it.
+ */
+export const ASK_PAGE_ATTR = 'data-ask-page';
 
 /**
  * Collect every `[data-ask]` descriptor from `el` outward, innermost first and
@@ -59,9 +66,9 @@ function chainFrom( el ) {
  * decides everything.
  *
  * ONE picker, though, however many triggers open it. The mode is document-level
- * — it marks the body, makes every `[data-ask]` focusable and swallows the next
+ * — it marks the root, makes every `[data-ask]` focusable and swallows the next
  * click in the capture phase — so a second instance fights the first over that
- * one mode, and an unmounting one clears the body class mid-pick. Hold it once
+ * one mode, and an unmounting one clears the root class mid-pick. Hold it once
  * and render as many triggers as there are places worth asking from.
  *
  * While picking, the target's own handler is suppressed in the CAPTURE phase,
@@ -89,7 +96,10 @@ export function useAskPicker( { onPick, onAbandon } ) {
 	const setPicking = useCallback( ( on ) => {
 		activeRef.current = on;
 		setActive( on );
-		document.body.classList.toggle( ASKING_CLASS, on );
+		// @longform The ROOT, not the body: Chrome repaints the cursor from
+		// the document whenever the node under the pointer is replaced, and a
+		// root left at `auto` drops the `?` back to an arrow mid-pick.
+		document.documentElement.classList.toggle( ASKING_CLASS, on );
 		// Keyboard parity: a mouse-only picker locks out keyboard users.
 		for ( const el of document.querySelectorAll( `[${ ASK_ATTR }]` ) ) {
 			if ( on ) {

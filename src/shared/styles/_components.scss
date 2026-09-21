@@ -871,13 +871,38 @@
 }
 
 // Picker mode: `cursor: help` IS the `?` cursor natively, so the picker needs
-// no asset. `!important` because every askable row already sets its own cursor.
-:where(body).newspack-nodes-asking,
-:where(body).newspack-nodes-asking * {
+// no asset. `!important` because every askable row already sets its own cursor,
+// and the ROOT carries the mark as well as the elements under it: Chrome
+// repaints the cursor from the document when the node under the pointer is
+// replaced, and a root left at `auto` is what dropped the `?` to an arrow.
+:where(html).newspack-nodes-asking,
+:where(html).newspack-nodes-asking * {
 	cursor: help !important;
 }
 
-:where(body).newspack-nodes-asking [data-ask]:hover {
+:where(html).newspack-nodes-asking [data-ask]:not([data-ask-page]):hover {
 	outline: 2px solid var(--np-accent, #003da5);
 	outline-offset: -2px;
+}
+
+// @longform A page-sized target rings with an overlay rather than an outline:
+// an outline on that box is painted over by its own children, where a fixed
+// overlay draws. The two custom properties are the shell's own geometry, so
+// the ring traces the dashboard rather than the viewport, which would claim
+// the admin bar and menu beside it. It rings only while nothing inside it is
+// the target — hovering a row would otherwise ring the whole page behind it.
+:where(html).newspack-nodes-asking
+	[data-ask-page]:hover:not(:has([data-ask]:hover))::after {
+	content: "";
+	position: fixed;
+	top: var(--nodes-page-top, 0);
+	left: var(--nodes-page-left, 0);
+	// Inside the page's own scrollbar, or the line reads as a browser edge.
+	right: var(--nodes-page-gutter, 0);
+	bottom: 0;
+	outline: 2px solid var(--np-accent, #003da5);
+	outline-offset: -2px;
+	// The header is a flex item, where a static z-index still ranks.
+	z-index: $layer-page-ring;
+	pointer-events: none;
 }
