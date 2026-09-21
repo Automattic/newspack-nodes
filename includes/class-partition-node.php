@@ -195,7 +195,7 @@ class Partition_Node extends Timer_Node {
 	 * Per partition dir: extent, what was found, what was searched for.
 	 * Bounded by what callers ask for; see locate_by().
 	 *
-	 * @var array<string,array{extent: array<int,int>, found: array<string,array{0: int, 1: int, 2: int}>, searched: array<string,int>}>
+	 * @var array<string,array{extent: array<int,array{0: int, 1: int}>, found: array<string,array{0: int, 1: int, 2: int}>, searched: array<string,int>}>
 	 */
 	private static array $locator_cache = [];
 
@@ -1329,17 +1329,27 @@ class Partition_Node extends Timer_Node {
 	 * The result is a LOOKUP table addressed by key. Its order follows $wanted,
 	 * not the index — read it by key rather than by position.
 	 *
-	 * The memo is per directory, keyed on the segment extent, and holds what was
-	 * FOUND and what was SEARCHED FOR separately — so an absent key stays
-	 * answered and a miss-heavy reader does not re-walk the index per batch. It
-	 * is discarded WHOLE on any extent change, at MAX_LOCATOR_MEMO_KEYS, and at
-	 * MAX_LOCATOR_MEMO_DIRS, so a long-lived reader can pay a re-walk
-	 * mid-request; that costs time, never a wrong answer.
+	 * The memo is per directory, held against each segment index's SIZE AND
+	 * INODE, and keeps what was FOUND and what was SEARCHED FOR separately — so
+	 * an absent key stays answered and a miss-heavy reader does not re-walk per
+	 * batch. Size alone would read a segment replaced at the same id as growth.
 	 *
-	 * A growth is not exempt, though nothing already written moves: an append
-	 * can carry a NEWER record for a key the memo already located, and this
-	 * answers with the newest. Keeping a locator across one serves the
-	 * superseded record for as long as the memo lives.
+	 * A GROWTH is absorbed rather than discarded: `absorb_growth()` reads only
+	 * the appended bytes, which matters because the process appending to a
+	 * partition is the one reading it. Everything in that delta is newer than
+	 * everything the memo holds, and it is walked newest-first, so the first
+	 * sighting of a key is its newest record and the delta wins outright. That
+	 * is what keeps the answer newest-first across an append — a memo that
+	 * merely SURVIVED one would serve a superseded record, since nothing
+	 * already written moves but a newer line for the same key can arrive.
+	 *
+	 * Anything that is not pure growth discards the memo whole: retention
+	 * unlinking the oldest segments, a truncation, or a segment replaced at the
+	 * same id all move records a locator points at, and so does a delta segment
+	 * that cannot be opened, since the extent advances past bytes nobody read.
+	 * So does MAX_LOCATOR_MEMO_KEYS, and MAX_LOCATOR_MEMO_DIRS drops every slot.
+	 * A long-lived reader can therefore pay a re-walk mid-request; that costs
+	 * time, never a wrong answer.
 	 *
 	 * @api Readers resolving many keys to positions before reading any of them.
 	 * @param \Closure(string): ?array{key: string, offset: int, length: int} $extract Line parser.
@@ -1351,23 +1361,33 @@ class Partition_Node extends Timer_Node {
 		if ( [] === $wanted ) {
 			return [];
 		}
-		$extent = [];
-		foreach ( $this->get_segments() as $segment ) {
-			$extent[ $segment['id'] ] = $segment['size'];
-		}
-		$dir = $this->partition_dir();
+		$extent = $this->index_extent();
+		$dir    = $this->partition_dir();
 		// A slot per directory ever touched is not a bound; drop the lot.
 		if ( ! isset( self::$locator_cache[ $dir ] )
 			&& \count( self::$locator_cache ) >= self::MAX_LOCATOR_MEMO_DIRS ) {
 			self::$locator_cache = [];
 		}
-		// Discard whole: after one walk a key costs nothing to keep.
-		if ( ( self::$locator_cache[ $dir ]['extent'] ?? null ) !== $extent
-			|| \count( self::$locator_cache[ $dir ]['searched'] ) > self::MAX_LOCATOR_MEMO_KEYS ) {
+		// array_flip dedupes, which the stop relies on.
+		$keyset = \array_flip( $wanted );
+		$memo   = self::$locator_cache[ $dir ] ?? null;
+		$grew   = null !== $memo
+			&& \count( $memo['searched'] ) <= self::MAX_LOCATOR_MEMO_KEYS
+			&& self::grew_only( $memo['extent'], $extent );
+		$newer  = ! $grew || $memo['extent'] === $extent
+			? []
+			// Bounded like the walk: only keys this memo can answer.
+			: $this->absorb_growth( $extract, $memo, $extent, $keyset );
+		if ( ! $grew || null === $newer ) {
+			// Discard whole: after one walk a key costs nothing to keep.
 			self::$locator_cache[ $dir ] = [ 'extent' => $extent, 'found' => [], 'searched' => [] ];
+		} else {
+			// The delta is newer than the memo, so it wins outright.
+			self::$locator_cache[ $dir ]['extent']    = $extent;
+			self::$locator_cache[ $dir ]['found']     = $newer + $memo['found'];
+			self::$locator_cache[ $dir ]['searched'] += \array_fill_keys( \array_keys( $newer ), 1 );
 		}
-		// Unwalked keys only; array_flip dedupes, which the stop relies on.
-		$keyset  = \array_flip( $wanted );
+		// Unwalked keys only.
 		$seeking = \array_diff_key( $keyset, self::$locator_cache[ $dir ]['searched'] );
 		if ( [] !== $seeking ) {
 			// Fresh map: a by-ref memo separates wholly on the first write.
@@ -1487,10 +1507,130 @@ class Partition_Node extends Timer_Node {
 		if ( ! \is_array( $stat ) ) {
 			throw new \RuntimeException( 'index handle could not be stat-ed' );
 		}
-		$pos  = $stat['size'];
+		yield from self::index_lines_between( $fh, 0, $stat['size'] );
+	}
+
+	/**
+	 * Each segment's INDEX size, which is what a memo is held against: the
+	 * record positions it caches come off index lines, so the index is the file
+	 * whose growth decides whether they still stand.
+	 *
+	 * @return array<int,array{0: int, 1: int}> Segment id => [index size, inode].
+	 */
+	private function index_extent(): array {
+		$extent = [];
+		foreach ( $this->get_segments() as $segment ) {
+			$path = $this->get_index_path( $segment['id'] );
+			\clearstatcache( true, $path );
+			if ( ! \is_file( $path ) ) {
+				$extent[ $segment['id'] ] = [ 0, 0 ];
+				continue;
+			}
+			$size  = \filesize( $path );
+			$inode = \fileinode( $path );
+			$extent[ $segment['id'] ] = [
+				false === $size ? 0 : $size,
+				false === $inode ? 0 : $inode,
+			];
+		}
+		return $extent;
+	}
+
+	/**
+	 * Whether the partition only GREW: every segment the memo knew is still the
+	 * SAME FILE and its index no shorter. Retention unlinks the oldest segments,
+	 * a truncation shortens one and a replacement swaps the bytes under an id,
+	 * and each moves records a locator points at, so all three answer false and
+	 * the memo is discarded whole.
+	 *
+	 * @param array<int,array{0: int, 1: int}> $before [size, inode] by segment id when the memo was built.
+	 * @param array<int,array{0: int, 1: int}> $after  [size, inode] by segment id now.
+	 * @return bool True when nothing was removed, shortened or replaced.
+	 */
+	private static function grew_only( array $before, array $after ): bool {
+		foreach ( $before as $id => $was ) {
+			$now = $after[ $id ] ?? null;
+			// Inode first: same id, same size, different file is not growth.
+			if ( null === $now || $now[1] !== $was[1] || $now[0] < $was[0] ) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	/**
+	 * Resolve the keys named by the lines APPENDED since the memo was built.
+	 *
+	 * Only the new bytes are read, so a reader that is also the writer pays the
+	 * lines that arrived rather than the index. Newest segment first and
+	 * backwards within each, so the first sighting of a key is its newest
+	 * record — and every record here is newer than everything the memo holds,
+	 * which is what lets the result win outright.
+	 *
+	 * Bounded by `$answerable`, the keys this memo is entitled to speak for:
+	 * the ones it has already walked plus the ones this call was asked for.
+	 * Recording every key in the delta would grow the memo with the PARTITION
+	 * rather than with what anyone asked, which is the cost the cap bounds.
+	 *
+	 * @param \Closure(string): ?array{key: string, offset: int, length: int} $extract Line parser.
+	 * @param array{extent: array<int,array{0: int, 1: int}>, found: array<string,array{0: int, 1: int, 2: int}>, searched: array<string,int>} $memo Memo the delta is measured against.
+	 * @param array<int,array{0: int, 1: int}> $after Index extent now.
+	 * @param array<string,int> $answerable Keys the memo may record.
+	 * @return array<string,array{0: int, 1: int, 2: int}>|null key => [segment, offset, length], or null when a segment could not be read.
+	 */
+	private function absorb_growth( \Closure $extract, array $memo, array $after, array $answerable ): ?array {
+		$wanted = $memo['searched'] + $answerable;
+		$seen   = [];
+		$ids    = \array_keys( $after );
+		\rsort( $ids );
+		foreach ( $ids as $id ) {
+			$to   = $after[ $id ][0];
+			$from = $memo['extent'][ $id ][0] ?? 0;
+			if ( $to <= $from ) {
+				continue;
+			}
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fopen
+			$fh = @\fopen( $this->get_index_path( $id ), 'rb' );
+			// Unreadable: the extent advances past bytes nobody read.
+			if ( false === $fh ) {
+				return null;
+			}
+			try {
+				$start = self::line_start_at( $fh, $from );
+				foreach ( self::index_lines_between( $fh, $start, $to ) as $line ) {
+					if ( '' === $line ) {
+						continue;
+					}
+					$at = $extract( $line );
+					if ( null === $at || isset( $seen[ $at['key'] ] ) || ! isset( $wanted[ $at['key'] ] ) ) {
+						continue;
+					}
+					$seen[ $at['key'] ] = [ $id, $at['offset'], $at['length'] ];
+				}
+			} finally {
+				\fclose( $fh );
+			}
+		}
+		return $seen;
+	}
+
+	/**
+	 * The lines of one BYTE RANGE, newest first.
+	 *
+	 * `$from` must already be a line start; `absorb_growth()` walks a growth
+	 * from the boundary `line_start_at()` gives it. The whole-file walk passes 0.
+	 *
+	 * @param resource $fh   Open index handle.
+	 * @param int      $from First byte to read, a line start.
+	 * @param int      $to   One past the last byte to read.
+	 * @return \Generator<int,string> Lines, without their terminator.
+	 */
+	private static function index_lines_between( $fh, int $from, int $to ): \Generator {
+		$pos  = $to;
 		$tail = '';
-		while ( $pos > 0 ) {
-			$len  = \min( self::INDEX_READ_CHUNK, $pos );
+		while ( $pos > $from ) {
+			$span = $pos - $from;
+			$len  = $span > self::INDEX_READ_CHUNK ? self::INDEX_READ_CHUNK : \max( 1, $span );
 			$pos -= $len;
 			if ( -1 === \fseek( $fh, $pos ) ) {
 				throw new \RuntimeException( 'index seek failed at ' . $pos );
@@ -1511,6 +1651,36 @@ class Partition_Node extends Timer_Node {
 		if ( '' !== $tail ) {
 			yield $tail;
 		}
+	}
+
+	/**
+	 * The start of the line containing `$offset`.
+	 *
+	 * A size recorded while the writer was mid-flush can fall inside a line, so
+	 * a growth walk steps back to the newline before it rather than trusting
+	 * the boundary. Re-reading a line already seen is harmless: the delta is
+	 * walked newest-first and the first sighting of a key wins.
+	 *
+	 * @param resource $fh     Open index handle.
+	 * @param int      $offset Byte offset to resolve.
+	 * @return int The line start at or before `$offset`.
+	 */
+	private static function line_start_at( $fh, int $offset ): int {
+		if ( $offset <= 0 ) {
+			return 0;
+		}
+		$back = \min( self::INDEX_READ_CHUNK, $offset );
+		if ( -1 === \fseek( $fh, $offset - $back ) ) {
+			throw new \RuntimeException( 'index seek failed at ' . ( $offset - $back ) );
+		}
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fread
+		$buf = \fread( $fh, $back );
+		if ( false === $buf || \strlen( $buf ) !== $back ) {
+			throw new \RuntimeException( 'short index read at ' . ( $offset - $back ) );
+		}
+		$nl = \strrpos( $buf, "\n" );
+		// No terminator in a whole window: walk from the start.
+		return false === $nl ? 0 : $offset - $back + $nl + 1;
 	}
 
 	/**
