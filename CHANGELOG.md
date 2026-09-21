@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.63.4] - 2026-09-20
+
 ### Fixed
 
 - **One portal host, `ModalPortal`, for every dialog that leaves the tree.** The topology console's `ModalShell` had grown its own copy — same three skin classes, same `display: contents`, same document guard, same body target — and the shared `Modal` was about to make it two spellings of one contract. Both render through the export now; each keeps its own backdrop and geometry.
