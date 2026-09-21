@@ -16,6 +16,7 @@ import { CommandInterpreterNode } from './command-interpreter-node';
 import { TapNode } from './tap-node';
 import { CallbackNode } from './callback-node';
 import { HttpOutNode } from './http-out-node';
+import { NullNode } from './null-node';
 import { HeartbeatNode } from './heartbeat-node';
 import names from './reserved-node-names.json';
 import { TO, TYPE, TM_ERROR } from './message';
@@ -213,12 +214,18 @@ export function mountExospine( build, { passenger = false } = {} ) {
 		ui.name = names.UI;
 		ui.sink = interpreter;
 
+		// `_null` — the black hole `_http` aims at with no console open.
+		const nul = new NullNode();
+		nul.name = names.NULL;
+		// Rule #2: a terminal sinks too, even never reading it.
+		nul.sink = interpreter;
+
 		// `_http` + `_heartbeat` — shared backbone singletons, reused widely.
 		const http = new HttpOutNode();
 		http.name = names.HTTP;
 		http.sink = interpreter;
 		// Unaddressed reply-leg output (a server `log` line) lands here.
-		http.target = names.OUTPUT;
+		http.target = names.NULL;
 
 		const heartbeat = new HeartbeatNode();
 		heartbeat.name = names.HEARTBEAT;
@@ -290,6 +297,7 @@ export function mountExospine( build, { passenger = false } = {} ) {
 		Core.node( names.CONSOLE_TAP )?.removeNode();
 		Core.node( names.UI )?.removeNode();
 		Core.node( names.HTTP )?.removeNode();
+		Core.node( names.NULL )?.removeNode();
 		Core.node( names.HEARTBEAT )?.removeNode();
 		interpreter.removeNode();
 	};

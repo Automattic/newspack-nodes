@@ -8,6 +8,7 @@
 	"HEARTBEAT": "_heartbeat",
 	"HTTP": "_http",
 	"METADATA": "_metadata",
+	"NULL": "_null",
 	"OUTPUT": "_output",
 	"REPL": "_repl",
 	"ROUTER": "_router",

@@ -59,6 +59,25 @@ describe( 'useDebugRepl', () => {
 		teardown();
 	} );
 
+	/**
+	 * `_output` exists only while the console is open, so `_http` aims at the
+	 * black hole the rest of the time. Aiming at `_output` unconditionally
+	 * stamps an unaddressed server reply for a node that is not registered, and
+	 * the miss bounces NOT_AVAILABLE at a graph with nowhere to put it.
+	 */
+	it( 'aims _http at _output while open and back at _null on teardown', () => {
+		const { teardown } = mountExospine();
+		expect( Core.node( names.HTTP ).target ).toBe( names.NULL );
+
+		const shell = makeShell();
+		const { unmount } = renderHook( () => useDebugRepl( true, shell ) );
+		expect( Core.node( names.HTTP ).target ).toBe( names.OUTPUT );
+
+		unmount();
+		expect( Core.node( names.HTTP ).target ).toBe( names.NULL );
+		teardown();
+	} );
+
 	it( 'restores debug_ui from localStorage and persists each toggle', () => {
 		window.localStorage.setItem( 'newspack-nodes:console:debug-ui', '1' );
 		const { teardown } = mountExospine();

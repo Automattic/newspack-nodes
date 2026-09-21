@@ -4,6 +4,13 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 **Maintenance rule:** a release that changes any consumer-facing contract adds its entry here in the same commit as its CHANGELOG entry. No entry means nothing to do.
 
+## 2.65.6
+
+- **`_http`'s target is `_null`, not `_output`.** A browser graph that read
+  `Core.node( '_http' ).target` to find the console's output node reads
+  `_output` only while a console is open. `_null` is a new backbone singleton,
+  mounted by `mountExospine` and torn down with the rest of it.
+
 ## 2.65.5
 
 - **The Router publishes no `NOT_AVAILABLE` state.** `send_error()` fired

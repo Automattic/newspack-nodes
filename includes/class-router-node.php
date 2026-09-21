@@ -109,7 +109,9 @@ class Router_Node extends Timer_Node {
 		++$this->counter;
 
 		if ( '' === $message[ Message::TO ] ) {
-			$this->drop_message( $message, 'message not addressed' );
+			if ( ! ( Core::int( $message[ Message::TYPE ] ) & Message::TM_ERROR ) ) {
+				$this->drop_message( $message, 'message not addressed' );
+			}
 			return;
 		}
 

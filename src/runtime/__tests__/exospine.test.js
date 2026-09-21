@@ -419,14 +419,29 @@ test( 'co-mount does not rebuild the first graph (its build runs once across bot
 } );
 
 /**
- * `_http` targets `_output`: the wire-inbound clause stamps an unaddressed
- * non-response with it, which is how a server-side `log` broadcast — minted
- * with no TO and packed verbatim into the reply body — reaches the transcript
- * instead of dying at `_router` as "message not addressed".
+ * `_http` targets `_null` until a console mounts `_output`. The wire-inbound
+ * clause stamps an unaddressed non-response with that target, which is how a
+ * server-side `log` broadcast — minted with no TO and packed verbatim into the
+ * reply body — reaches somewhere real. `_output` exists only while a console
+ * is open, so aiming there unconditionally sends the stamped message to a node
+ * that is not registered, and the miss bounces NOT_AVAILABLE at a graph with
+ * nowhere to put it. The black hole is a node that is always there.
  */
-test( '_http targets _output', () => {
+test( '_http targets _null, and _null is mounted', () => {
 	mountExospine();
-	expect( Core.node( names.HTTP ).target ).toBe( names.OUTPUT );
+	expect( Core.node( names.NULL ) ).not.toBeNull();
+	expect( Core.node( names.HTTP ).target ).toBe( names.NULL );
+} );
+
+/** What lands on the black hole is counted, never forwarded. */
+test( '_null swallows what it is filled with', () => {
+	mountExospine();
+	const nul = Core.node( names.NULL );
+	const m = newMessage();
+	m[ TO ] = '';
+
+	expect( () => nul.fill( m ) ).not.toThrow();
+	expect( nul.counter ).toBe( 1 );
 } );
 
 // A page whose only graph is a passenger's — a lone Request node behind a

@@ -30,6 +30,7 @@ const BACKBONE_FIXTURES = new Set( [
 	names.CONSOLE_TAP,
 	names.UI,
 	names.HTTP,
+	names.NULL,
 	names.HEARTBEAT,
 	names.REPL,
 ] );
