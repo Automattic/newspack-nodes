@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.65.6] - 2026-09-21
+
+### Added
+
+- **`NullNode` and the `_null` backbone singleton in the browser**, mirroring
+  PHP's `Null_Node` and Tachikoma's `Nodes::Null`: `fill()` counts and returns.
+  It is in the palette as `Null`, under Control, and `Node_Names::NULL` carries
+  the reserved name on the PHP side.
+
+### Fixed
+
+- **`_http` aims at `_null` until a console mounts `_output`.** `_output`
+  exists only while a console is open, so aiming there unconditionally stamped
+  every unaddressed server reply — a `log` broadcast, say — for a node that is
+  not registered. The miss bounced NOT_AVAILABLE into a graph with nowhere to
+  put it, which surfaced as `_router: WARNING: message not addressed - TM_ERROR
+  from: _output/_output`. The console repoints `_http` at `_output` when it
+  mounts one and back at `_null` when it tears it down.
+- **An unaddressed TM_ERROR is dropped without an audit line**, in both
+  engines. An error trail that arrives with nowhere to go is not news, and
+  reporting it turned one unroutable reply into a line per occurrence.
+
 ## [2.65.5] - 2026-09-21
 
 ### Added

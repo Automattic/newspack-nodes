@@ -132,7 +132,9 @@ export class RouterNode extends TimerNode {
 		this.counter++;
 
 		if ( '' === message[ TO ] ) {
-			this.dropMessage( message, 'message not addressed' );
+			if ( ! ( message[ TYPE ] & TM_ERROR ) ) {
+				this.dropMessage( message, 'message not addressed' );
+			}
 			return;
 		}
 		if ( ( message[ FROM ]?.length ?? 0 ) > MAX_FROM_SIZE ) {

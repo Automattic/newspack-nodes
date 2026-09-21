@@ -112,6 +112,21 @@ function wireStdout( shell, dumper, onSetSkin ) {
 }
 
 /**
+ * Aim `_http`'s unaddressed-reply target. `_output` exists only while a console
+ * is open, so the black hole holds the target the rest of the time: a target
+ * naming an unregistered node turns every unaddressed server reply into a
+ * NOT_AVAILABLE bounce the graph has nowhere to put.
+ *
+ * @param {string} target Node name to stamp an unaddressed reply with.
+ */
+function aimHttp( target ) {
+	const http = Core.node( names.HTTP );
+	if ( http ) {
+		http.target = target;
+	}
+}
+
+/**
  * Mount the overlay's service nodes onto the backbone, bind the Shell's
  * outgoing sink, and hand back the Dumper plus the teardown that removes
  * exactly what was mounted.
@@ -148,9 +163,11 @@ function buildInfra( shell, debugLevelRef, onSetSkin, fieldsRef ) {
 	if ( existing ) {
 		shell.sink = makeGate( interpreter, fieldsRef );
 		wireStdout( shell, existing, onSetSkin );
+		aimHttp( names.OUTPUT );
 		return {
 			dumper: existing,
 			teardown: () => {
+				aimHttp( names.NULL );
 				existing.removeNode();
 				Core.node( names.STDOUT )?.removeNode();
 				Core.node( names.COMPLETION )?.removeNode();
@@ -203,7 +220,9 @@ function buildInfra( shell, debugLevelRef, onSetSkin, fieldsRef ) {
 	// Bind shell.sink here, so a line typed on open never finds it null.
 	shell.sink = makeGate( interpreter, fieldsRef );
 	const stdout = wireStdout( shell, dumper, onSetSkin );
+	aimHttp( names.OUTPUT );
 	const teardown = () => {
+		aimHttp( names.NULL );
 		dumper.unregister( 'transcript', listenerId );
 		dumper.unregister( 'debug_level', listenerId );
 		dumper.unregister( 'debug_ui', listenerId );

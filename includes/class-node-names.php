@@ -50,6 +50,9 @@ final class Node_Names {
 	/** Browser-side node publishing the `dump_metadata` graph the canvas paints. */
 	public const METADATA            = '_metadata';
 
+	/** The black hole: a destination for traffic that must go somewhere and do nothing. */
+	public const NULL                = '_null';
+
 	/** The reply boundary. A minter stamps `FROM = _output/<id>`, so the TO=FROM answer lands here. */
 	public const OUTPUT              = '_output';
 

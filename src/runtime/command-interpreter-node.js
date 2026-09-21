@@ -15,6 +15,7 @@ import { Node } from './node';
 import { TeeNode } from './tee-node';
 import { TapNode } from './tap-node';
 import { EchoNode } from './echo-node';
+import { NullNode } from './null-node';
 import { FetcherNode } from './fetcher-node';
 import { TimerNode } from './timer-node';
 import { Core } from './core';
@@ -1960,6 +1961,7 @@ CommandInterpreterNode.includeNodes = {
 	Heartbeat: HeartbeatNode,
 	HttpOut: HttpOutNode,
 	Metadata: MetadataNode,
+	Null: NullNode,
 	Poller: PollerNode,
 	RemoteIpc: RemoteIpcNode,
 	RemoteLink: RemoteLinkNode,
