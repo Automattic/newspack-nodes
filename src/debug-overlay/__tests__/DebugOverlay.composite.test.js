@@ -47,16 +47,14 @@ describe( 'DebugOverlay composite readiness', () => {
 		mountExospine();
 		const a = new Node();
 		a.name = 'a';
-		const { getByRole, container } = render(
+		const { getByRole, baseElement: body } = render(
 			<DebugOverlay search="?nodes-debug=1" />
 		);
 		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
 		expect(
-			container.querySelector( '.nodes-debug__canvas-building' )
+			body.querySelector( '.nodes-debug__canvas-building' )
 		).not.toBeNull();
-		expect( container.querySelectorAll( '.topology-node' ).length ).toBe(
-			0
-		);
+		expect( body.querySelectorAll( '.topology-node' ).length ).toBe( 0 );
 	} );
 
 	it( 'canvas becomes ready once replReady is true and the graph has nodes', async () => {
@@ -64,7 +62,7 @@ describe( 'DebugOverlay composite readiness', () => {
 		mountExospine();
 		const a = new Node();
 		a.name = 'a';
-		const { getByRole, container } = render(
+		const { getByRole, baseElement: body } = render(
 			<DebugOverlay search="?nodes-debug=1" />
 		);
 		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
@@ -73,10 +71,10 @@ describe( 'DebugOverlay composite readiness', () => {
 			await new Promise( ( r ) => setTimeout( r, 300 ) );
 		} );
 		expect(
-			container.querySelector( '.nodes-debug__canvas-building' )
+			body.querySelector( '.nodes-debug__canvas-building' )
 		).toBeNull();
 		expect(
-			container.querySelectorAll( '.topology-node' ).length
+			body.querySelectorAll( '.topology-node' ).length
 		).toBeGreaterThan( 0 );
 	} );
 } );
