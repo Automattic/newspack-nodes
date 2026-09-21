@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.65.8] - 2026-09-21
+
+### Fixed
+
+- **A memoized locator no longer survives an append.** 2.65.7 kept
+  `locate_by()`'s `found` across a growth, reasoning that a written line never
+  moves. It does not, and that answers the wrong question: an append can carry
+  a NEWER record for a key already located, and `locate_by()` answers with the
+  newest — which is why the walk is newest-first. The memo served the
+  superseded record until it was discarded for some other reason. It bit the
+  consumer the change was written for: `Flame_Builder_Node` spills an OPEN
+  bucket early and later writes the frame that closes it, so every rehydrate
+  after the spill read the partial frame for the rest of the worker's life. The
+  memo is discarded whole on any extent change again; the streaming half of
+  2.65.7 stands, so the re-walk it costs is bounded by the read chunk.
+- **The backward index reader fails loudly.** `(string) \fread()` turned a
+  failed read into `''` and a short one into a prefix, and the join then spliced
+  bytes that are not adjacent in the file into something the caller's parser
+  would read as a line; `\fstat()` returning false made a segment read as empty,
+  reporting every key in it absent. Both throw.
+
 ## [2.65.7] - 2026-09-21
 
 ### Fixed

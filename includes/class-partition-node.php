@@ -1329,21 +1329,17 @@ class Partition_Node extends Timer_Node {
 	 * The result is a LOOKUP table addressed by key. Its order follows $wanted,
 	 * not the index — read it by key rather than by position.
 	 *
-	 * The memo is per directory and holds what was FOUND and what was SEARCHED
-	 * FOR separately, so an absent key stays answered and a miss-heavy reader
-	 * does not re-walk the index per batch. An APPEND keeps what was found: the
-	 * index only ever grows, so a line already written never moves, and the
-	 * process appending to a partition is the one reading it — discarding on
-	 * every growth made the flame-builder re-walk a million lines for keys it
-	 * had already resolved. A miss is re-answered instead, since the key may
-	 * have arrived in what was added.
+	 * The memo is per directory, keyed on the segment extent, and holds what was
+	 * FOUND and what was SEARCHED FOR separately — so an absent key stays
+	 * answered and a miss-heavy reader does not re-walk the index per batch. It
+	 * is discarded WHOLE on any extent change, at MAX_LOCATOR_MEMO_KEYS, and at
+	 * MAX_LOCATOR_MEMO_DIRS, so a long-lived reader can pay a re-walk
+	 * mid-request; that costs time, never a wrong answer.
 	 *
-	 * Anything that is not pure growth discards the memo whole: retention
-	 * unlinking the oldest segments, or a truncation, moves records a locator
-	 * points at. So does MAX_LOCATOR_MEMO_KEYS, and MAX_LOCATOR_MEMO_DIRS drops
-	 * every slot. A long-lived reader can therefore pay a re-walk mid-request;
-	 * that costs time, never a wrong answer, because a discard is always
-	 * followed by a full walk.
+	 * A growth is not exempt, though nothing already written moves: an append
+	 * can carry a NEWER record for a key the memo already located, and this
+	 * answers with the newest. Keeping a locator across one serves the
+	 * superseded record for as long as the memo lives.
 	 *
 	 * @api Readers resolving many keys to positions before reading any of them.
 	 * @param \Closure(string): ?array{key: string, offset: int, length: int} $extract Line parser.
@@ -1365,20 +1361,10 @@ class Partition_Node extends Timer_Node {
 			&& \count( self::$locator_cache ) >= self::MAX_LOCATOR_MEMO_DIRS ) {
 			self::$locator_cache = [];
 		}
-		$memo = self::$locator_cache[ $dir ] ?? null;
-		$keep = null !== $memo
-			&& \count( $memo['searched'] ) <= self::MAX_LOCATOR_MEMO_KEYS
-			&& self::grew_only( $memo['extent'], $extent );
-		if ( ! $keep ) {
-			// Discard whole: after one walk a key costs nothing to keep.
+		// Discard whole: after one walk a key costs nothing to keep.
+		if ( ( self::$locator_cache[ $dir ]['extent'] ?? null ) !== $extent
+			|| \count( self::$locator_cache[ $dir ]['searched'] ) > self::MAX_LOCATOR_MEMO_KEYS ) {
 			self::$locator_cache[ $dir ] = [ 'extent' => $extent, 'found' => [], 'searched' => [] ];
-		} elseif ( $memo['extent'] !== $extent ) {
-			// Growth keeps what was FOUND; only a miss is looked for again.
-			self::$locator_cache[ $dir ]['extent']   = $extent;
-			self::$locator_cache[ $dir ]['searched'] = \array_fill_keys(
-				\array_keys( self::$locator_cache[ $dir ]['found'] ),
-				1
-			);
 		}
 		// Unwalked keys only; array_flip dedupes, which the stop relies on.
 		$keyset  = \array_flip( $wanted );
@@ -1498,16 +1484,23 @@ class Partition_Node extends Timer_Node {
 			return;
 		}
 		$stat = \fstat( $fh );
-		$pos  = \is_array( $stat ) ? $stat['size'] : 0;
+		if ( ! \is_array( $stat ) ) {
+			throw new \RuntimeException( 'index handle could not be stat-ed' );
+		}
+		$pos  = $stat['size'];
 		$tail = '';
 		while ( $pos > 0 ) {
 			$len  = \min( self::INDEX_READ_CHUNK, $pos );
 			$pos -= $len;
 			if ( -1 === \fseek( $fh, $pos ) ) {
-				return;
+				throw new \RuntimeException( 'index seek failed at ' . $pos );
 			}
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fread
-			$buf   = (string) \fread( $fh, $len );
+			$buf = \fread( $fh, $len );
+			// A short read would splice bytes that are not adjacent.
+			if ( false === $buf || \strlen( $buf ) !== $len ) {
+				throw new \RuntimeException( 'short index read at ' . $pos );
+			}
 			$lines = \explode( "\n", $buf . $tail );
 			// The head is a fragment an earlier chunk completes.
 			$tail  = \array_shift( $lines );
@@ -1518,25 +1511,6 @@ class Partition_Node extends Timer_Node {
 		if ( '' !== $tail ) {
 			yield $tail;
 		}
-	}
-
-	/**
-	 * Whether the partition only GREW: every segment the memo knew is still
-	 * there and no smaller. Retention unlinks the oldest segments and a
-	 * truncation shortens one, and either invalidates a locator that points
-	 * into them — so both answer false and the memo is discarded whole.
-	 *
-	 * @param array<int,int> $before Segment sizes by id when the memo was built.
-	 * @param array<int,int> $after  Segment sizes by id now.
-	 * @return bool True when nothing was removed or shortened.
-	 */
-	private static function grew_only( array $before, array $after ): bool {
-		foreach ( $before as $id => $size ) {
-			if ( ! isset( $after[ $id ] ) || $after[ $id ] < $size ) {
-				return false;
-			}
-		}
-		return true;
 	}
 
 	/**
