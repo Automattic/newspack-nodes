@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from '@wordpress/element';
+import { useEffect, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import { initSkin } from '@newspack-nodes/shared/theme';
+import { ModalPortal } from '@newspack-nodes/shared/components/Modal';
 import { isDebugEnabled } from './isDebugEnabled';
 import DebugPanel from './DebugPanel';
 import { startOverviewSampler, stopOverviewSampler } from './overviewSampler';
@@ -24,11 +25,12 @@ import './debug-overlay.scss';
  * subtree's first render: `shell.sink` is bound during the build, before any
  * typed line can dispatch, so nothing has to resolve a sink at dispatch time.
  *
- * The root div carries the skin provider classes only when no ancestor is
- * already a `.newspack-nodes-ui`. Standalone, the overlay supplies the skin
- * itself; inside a dashboard shell it inherits the host's, leaving one
- * provider root in the tree. Only the DOM answers that, so the state starts as
- * owner and steps down when the ref callback finds a provider above.
+ * It renders at BODY level, through the `ModalPortal` the dialogs take. A
+ * dashboard shell is `position: fixed; z-index: 99`, and a z-index inside one
+ * ranks only against its siblings there — so the overlay's own 999999 put it
+ * under any dialog portalled to the body at 100000, which is the one thing
+ * developer chrome must never be. The portal host wears the skin classes, so
+ * the overlay inherits a provider wherever it is mounted and supplies none.
  *
  * @param {Object}  props
  * @param {string}  [props.search]     `window.location.search` the gate reads; tests inject it.
@@ -44,15 +46,6 @@ export default function DebugOverlay( {
 } ) {
 	const enabled = isDebugEnabled( search );
 	const [ open, setOpen ] = useState( false );
-	const [ ownsProvider, setOwnsProvider ] = useState( true );
-	// Own the skin provider only when no ancestor already is one.
-	const setRootRef = useCallback( ( node ) => {
-		if ( node ) {
-			setOwnsProvider(
-				! node.parentElement?.closest( '.newspack-nodes-ui' )
-			);
-		}
-	}, [] );
 
 	// Apply the persisted <html> skin so this surface matches the console pick.
 	useEffect( () => {
@@ -90,34 +83,29 @@ export default function DebugOverlay( {
 	}
 
 	return (
-		<div
-			ref={ setRootRef }
-			className={ `nodes-debug${
-				ownsProvider
-					? ' newspack-nodes-skin-root newspack-nodes-theme newspack-nodes-ui'
-					: ''
-			}` }
-		>
-			{ ! open && (
-				<button
-					type="button"
-					className="nodes-debug__fab"
-					aria-label={ __(
-						'Toggle node debugger',
-						'newspack-nodes'
-					) }
-					onClick={ () => setOpen( ( v ) => ! v ) }
-				>
-					{ '◉' }
-				</button>
-			) }
-			{ open && (
-				<DebugPanel
-					storageKey={ storageKey }
-					buildRepl={ buildRepl }
-					onClose={ () => setOpen( false ) }
-				/>
-			) }
-		</div>
+		<ModalPortal>
+			<div className="nodes-debug">
+				{ ! open && (
+					<button
+						type="button"
+						className="nodes-debug__fab"
+						aria-label={ __(
+							'Toggle node debugger',
+							'newspack-nodes'
+						) }
+						onClick={ () => setOpen( ( v ) => ! v ) }
+					>
+						{ '◉' }
+					</button>
+				) }
+				{ open && (
+					<DebugPanel
+						storageKey={ storageKey }
+						buildRepl={ buildRepl }
+						onClose={ () => setOpen( false ) }
+					/>
+				) }
+			</div>
+		</ModalPortal>
 	);
 }
