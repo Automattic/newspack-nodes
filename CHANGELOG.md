@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Documentation shipped with 2.65.4. The architecture guide still listed
+  `NOT_AVAILABLE` among the Router's declared registrations, so an author
+  following it would call `register( 'NOT_AVAILABLE', … )` and get a thrown
+  `no such event`; claimed every miss leaves an audit line, where a miss on a
+  message already carrying TM_ERROR returns before it and leaves nothing; and
+  described the `print_less_often` key as the reason AND the type flags, which
+  is the JS behaviour — PHP keys on the reason alone, so one drop suppresses a
+  different-typed miss for the window. `upgrading.md` also had the
+  `drop_message()` subclass advice backwards: an override that kept the third
+  parameter keeps loading, because PHP allows extra optional parameters, and
+  fails silently with `$node` always `''` rather than fatally.
+
 ## [2.65.4] - 2026-09-21
 
 ### Removed
