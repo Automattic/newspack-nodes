@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.65.0] - 2026-09-21
+
 ### Changed
 
 - **The `?` picker's page ring is an element, mounted once.** It was a `::after` on the page box, drawn only while that box was `:hover`ed and nothing inside it was — so a viewport-sized box came into and went out of existence as the pointer crossed the rows inside it. `AskPageRing` renders through the existing `ModalPortal` instead, mounts for as long as the picker is armed, and measures the box it rings from that box's own `clientWidth`/`clientHeight`, which already exclude its scrollbar. The `:has()` rule, the three `--nodes-page-*` custom properties and the consumer-side gutter measurement go with it; the ring now stays visible for the whole armed session rather than hiding while a row is hovered.
