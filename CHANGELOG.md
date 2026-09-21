@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.63.3] - 2026-09-21
+
 ### Changed
 
 - **Segment Size accepts up to 4 GiB**, where it had stopped at 512 MiB and the browser refused a gibibyte outright. The ceiling was never a runtime limit — `Partition_Node` refuses only a size below 1, a TSL topology names any size it likes, and Tachikoma's own Partition caps nothing — so all it did was rule out an operator's real answer. It stays a ceiling, because an extra typed digit should not eat the disk. `remote_segment_size` is deliberately unchanged at 256 MiB: what a hub may impose on its spokes is a separate question.
