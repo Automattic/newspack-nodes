@@ -98,6 +98,28 @@ test( 'unknown TO head yields NOT_AVAILABLE error walked back to FROM', () => {
 	expect( got[ 0 ][ VALUE ] ).toMatch( /NOT_AVAILABLE/ );
 } );
 
+/**
+ * The latch Tachikoma spells `handling_error`: while a bounce is being built,
+ * a second miss is dropped as `breaking recursion` rather than minting another
+ * bounce. The TM_ERROR check catches the bounce's own route missing; this
+ * catches a miss reached any other way out of that re-fill.
+ */
+test( 'a miss while a bounce is in flight breaks recursion', () => {
+	expectConsoleWarn( '_router: WARNING: breaking recursion' );
+	const r = new RouterNode();
+	r.name = '_router';
+	r.handlingError = true;
+
+	const m = newMessage();
+	m[ TYPE ] = TM_COMMAND;
+	m[ TO ] = 'missing';
+	m[ FROM ] = 'origin';
+	r.fill( m );
+
+	expect( Core.recentLog.join( ' ' ) ).toContain( 'breaking recursion' );
+	expect( Core.recentLog.join( ' ' ) ).not.toContain( 'NOT_AVAILABLE' );
+} );
+
 test( 'TM_ERROR on a missing TO is dropped (no error-on-error bounce)', () => {
 	const r = new RouterNode();
 	r.name = '_router';

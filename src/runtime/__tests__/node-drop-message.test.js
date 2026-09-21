@@ -32,7 +32,7 @@ describe( 'Node.dropMessage', () => {
 		n.dropMessage( m, 'BAD_INPUT' );
 		expect( spy ).toHaveBeenCalledTimes( 1 );
 		expect( spy.mock.calls[ 0 ][ 0 ] ).toContain( 'WARNING: BAD_INPUT' );
-		expect( spy.mock.calls[ 0 ][ 0 ] ).toContain( 'TM_BYTESTREAM' );
+		expect( spy.mock.calls[ 0 ].join( '' ) ).toContain( 'TM_BYTESTREAM' );
 	} );
 
 	it( 'omits from:/to: when both are empty', () => {
@@ -46,7 +46,7 @@ describe( 'Node.dropMessage', () => {
 		m[ TO ] = '';
 		m[ VALUE ] = '';
 		n.dropMessage( m, 'TEST_ERROR' );
-		const line = spy.mock.calls[ 0 ][ 0 ];
+		const line = spy.mock.calls[ 0 ].join( '' );
 		expect( line ).not.toContain( 'from:' );
 		expect( line ).not.toContain( 'to:' );
 	} );
@@ -315,7 +315,7 @@ describe( 'TM_UNTYPED', () => {
 
 		n.dropMessage( newMessage(), 'message not addressed' );
 
-		expect( spy.mock.calls[ 0 ][ 0 ] ).toContain( 'TM_UNTYPED' );
+		expect( spy.mock.calls[ 0 ].join( '' ) ).toContain( 'TM_UNTYPED' );
 		expect( spy.mock.calls[ 0 ][ 0 ] ).not.toContain( 'TYPE_UNKNOWN' );
 	} );
 
@@ -331,7 +331,7 @@ describe( 'TM_UNTYPED', () => {
 
 		n.dropMessage( naked, 'message not addressed' );
 
-		expect( spy.mock.calls[ 0 ][ 0 ] ).toContain( 'TYPE_UNKNOWN' );
+		expect( spy.mock.calls[ 0 ].join( '' ) ).toContain( 'TYPE_UNKNOWN' );
 	} );
 
 	it( 'matches no type gate — an untyped message is inert, not every type', () => {

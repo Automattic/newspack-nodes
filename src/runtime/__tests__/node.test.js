@@ -1,6 +1,16 @@
 import { Node, targetsOf } from '../node';
 import { Core } from '../core';
-import { FROM, TO, KEY, VALUE, newMessage } from '../message';
+import {
+	FROM,
+	TO,
+	KEY,
+	TYPE,
+	VALUE,
+	TM_INFO,
+	TM_BYTESTREAM,
+	TM_PING,
+	newMessage,
+} from '../message';
 
 beforeEach( () => Core.reset() );
 
@@ -590,6 +600,31 @@ test( 'notify defaults its payload to the empty string, as PHP does', () => {
 	n.notify( 'PULSE' );
 
 	expect( seen ).toEqual( [ '' ] );
+} );
+
+/**
+ * The rate limiter keys on the REASON, never on anything the message says —
+ * Tachikoma's `drop_message` hands `print_less_often` the `"$error - "` head
+ * alone and everything else as unkeyed extra, and `Node::drop_message()` in
+ * PHP does the same. TYPE is a bitmask of eleven flags the SENDER picks, so
+ * keying on it is a way to defeat the throttle and to grow the timer map
+ * without bound: 2,048 keys from one drop site.
+ */
+test( 'dropMessage keys the throttle on the reason alone', () => {
+	const n = new Node();
+	n.name = 'alice';
+	const stderr = jest.spyOn( Core, 'stderr' ).mockImplementation();
+
+	for ( const type of [ TM_INFO, TM_BYTESTREAM, TM_PING ] ) {
+		const m = newMessage();
+		m[ TYPE ] = type;
+		m[ FROM ] = 'spoke';
+		n.dropMessage( m, 'SAME_REASON' );
+	}
+
+	expect( stderr ).toHaveBeenCalledTimes( 1 );
+	expect( stderr.mock.calls[ 0 ][ 0 ] ).toContain( 'TM_INFO' );
+	stderr.mockRestore();
 } );
 
 test( 'printLessOften keys on the tagged head and prints head and tail', () => {

@@ -105,6 +105,7 @@ export class RouterNode extends TimerNode {
 		super();
 		this.isRouter = true;
 		this._tickAsked = false;
+		this.handlingError = false;
 		this.setTimer( ROUTER_TICK_MS );
 	}
 
@@ -152,6 +153,10 @@ export class RouterNode extends TimerNode {
 			if ( message[ TYPE ] & TM_ERROR ) {
 				return;
 			}
+			if ( this.handlingError ) {
+				this.dropMessage( message, 'breaking recursion' );
+				return;
+			}
 			if ( '' !== message[ FROM ] ) {
 				const err = newMessage();
 				err[ TYPE ] = TM_ERROR;
@@ -160,7 +165,12 @@ export class RouterNode extends TimerNode {
 				err[ TO ] = message[ FROM ];
 				err[ ID ] = message[ ID ];
 				err[ VALUE ] = 'NOT_AVAILABLE\n';
-				this.fill( err );
+				this.handlingError = true;
+				try {
+					this.fill( err );
+				} finally {
+					this.handlingError = false;
+				}
 			}
 			this.dropMessage( message, 'NOT_AVAILABLE' );
 			return;
