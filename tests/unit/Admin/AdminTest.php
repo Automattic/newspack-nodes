@@ -771,7 +771,7 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertStringContainsString( 'type="number"', $html );
 		$this->assertStringContainsString( 'name="newspack_nodes_segment_size"', $html );
 		$this->assertStringContainsString( 'min="1048576"', $html );
-		$this->assertStringContainsString( 'max="536870912"', $html );
+		$this->assertStringContainsString( 'max="4294967296"', $html );
 		// max > 999 → regular-text branch.
 		$this->assertStringContainsString( 'class="regular-text"', $html );
 	}

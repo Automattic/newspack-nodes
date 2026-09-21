@@ -1085,7 +1085,7 @@ Every rendered numeric setting declares an inclusive min and max, bound at the t
 | Setting | Range |
 |---|---|
 | `num_partitions` | 1 – 16 |
-| `segment_size` | 1 MiB – 512 MiB |
+| `segment_size` | 1 MiB – 4 GiB |
 | `min_segments`, `num_segments` | 2 – 32 |
 | `max_segments` | 0 – 64 |
 | `min_lifetime`, `lifetime` | 0 – 604800 s |
@@ -1097,7 +1097,7 @@ Every rendered numeric setting declares an inclusive min and max, bound at the t
 | `alert_deadletter_threshold` | 0 – 4096 segments |
 | `alert_emit_interval` | 1 – 86400 s |
 
-The remote geometry a hub pushes caps lower than the local family it mirrors — 256 MiB against 512 MiB, 16 segments against 32 — so a hub running a 512 MiB `segment_size` cannot push that number through `remote_segment_size`. The six `sse_*` bounds live in [sse-host-budget.md](sse-host-budget.md).
+The remote geometry a hub pushes caps lower than the local family it mirrors — 256 MiB against 4 GiB, 16 segments against 32 — so a hub running a 1 GiB `segment_size` cannot push that number through `remote_segment_size`. A ceiling here guards against a typed extra digit and nothing more: `Partition_Node` refuses only a size below 1, and a TSL topology names whatever size it wants. The six `sse_*` bounds live in [sse-host-budget.md](sse-host-budget.md).
 
 **A default lives in CODE** ([ADR-20](architecture-decisions.md#adr-20-a-config-default-lives-in-code-every-config-file-is-an-override-surface)): `Settings_Schema` carries every default, and `newspack-nodes-config.php` ships an empty array as a pure override surface. A key the schema does not declare is REPORTED there — `Config::unrecognized_keys()` feeds the `config-keys` health check — never thrown, because the deploy copies the operator's own file over that path and a fatal at first read would take wp-admin down with it. Read a required key through the fail-loud `Config::value()`, never `$config['key'] ?? $default`. `Config::reset()` fires `Config::RESET_ACTION`, whose three subscribers drop the on-disk log inventory (`Log_Discovery::reset`), the parsed-TSL caches (`Topology_Registry::reset_basename_cache`) and the Vault credentials (`Vault::reset`).
 
