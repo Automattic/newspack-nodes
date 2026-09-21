@@ -143,9 +143,7 @@ export class HttpOutNode extends Node {
 	 */
 	fill( message ) {
 		this.counter++;
-		// A Router bounce must not cross the wire OUTWARD; see the docblock.
 		if ( message[ TYPE ] & TM_ERROR && names.ROUTER === message[ FROM ] ) {
-			this.dropMessage( message, 'refusing to send a bounce' );
 			return;
 		}
 		if ( this.locked ) {

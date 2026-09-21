@@ -168,10 +168,8 @@ class HTTP_Out_Node extends Timer_Node {
 	 */
 	public function fill( array $message ): void {
 		++$this->counter;
-		// A Router bounce must not cross the wire OUTWARD; see the docblock.
 		$type = Core::num_int( $message[ Message::TYPE ] ?? 0 );
 		if ( $type & Message::TM_ERROR && Node_Names::ROUTER === Core::as_string( $message[ Message::FROM ] ?? '' ) ) {
-			$this->drop_message( $message, 'refusing to send a bounce' );
 			return;
 		}
 		$this->batch[] = $message;
