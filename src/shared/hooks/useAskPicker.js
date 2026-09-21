@@ -9,7 +9,7 @@
 
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 
-/** Marks the ROOT while picking; the stylesheet turns the cursor into a `?`. */
+/** Marks the ROOT while picking; the stylesheet paints the armed state off it. */
 export const ASKING_CLASS = 'newspack-nodes-asking';
 
 /**
@@ -96,9 +96,6 @@ export function useAskPicker( { onPick, onAbandon } ) {
 	const setPicking = useCallback( ( on ) => {
 		activeRef.current = on;
 		setActive( on );
-		// @longform The ROOT, not the body: Chrome repaints the cursor from
-		// the document whenever the node under the pointer is replaced, and a
-		// root left at `auto` drops the `?` back to an arrow mid-pick.
 		document.documentElement.classList.toggle( ASKING_CLASS, on );
 		// Keyboard parity: a mouse-only picker locks out keyboard users.
 		for ( const el of document.querySelectorAll( `[${ ASK_ATTR }]` ) ) {

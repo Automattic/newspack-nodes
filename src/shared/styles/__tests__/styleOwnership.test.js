@@ -371,6 +371,17 @@ const numericConstant = ( file, name ) => {
 	return value;
 };
 
+// A layer token, read from the scale that declares it.
+const layerToken = ( name ) => {
+	const source = fs.readFileSync(
+		path.join( NODES_SRC, 'shared/styles/_tokens.scss' ),
+		'utf8'
+	);
+	return Number(
+		source.match( new RegExp( `\\$${ name }:\\s*(\\d+);` ) )[ 1 ]
+	);
+};
+
 // The dark skins, read from the stylesheet that declares them, so the list
 // cannot drift between the SCSS and the expectation pinning it.
 const darkSkins = () => {
@@ -2065,45 +2076,48 @@ describe( 'canonical appearance ownership', () => {
 		).toEqual( expect.objectContaining( { 'box-sizing': 'border-box' } ) );
 	} );
 
-	// @longform A page-sized target rings with an OVERLAY, not an outline:
-	// measured in the browser, an outline on the page box is painted over by
-	// its own children while a fixed overlay draws. The overlay is inset to
-	// the page box through the two custom properties the shell publishes, so
-	// it traces the dashboard rather than the viewport, which would claim the
-	// admin bar and menu beside it.
-	it( 'rings the page box with an overlay for a page-sized ask target', () => {
-		const ui = compile( UI_ENTRY );
+	// @longform The page ring is an ELEMENT mounted at body level while the
+	// picker is armed, not a pseudo-element toggled by `:hover`: an outline on
+	// the page box is painted over by its own children, and a viewport-sized
+	// box appearing and vanishing under the pointer is its own bug.
+	it( 'rings the page box with a mounted overlay', () => {
 		const ring = declarationsForSelector(
-			ui,
-			':where(html).newspack-nodes-asking [data-ask-page]:hover:not(:has([data-ask]:hover))::after'
+			compile( UI_ENTRY ),
+			'.newspack-nodes-ask-ring'
 		);
 
 		expect( ring.position ).toBe( 'fixed' );
-		expect( ring.top ).toBe( 'var(--nodes-page-top, 0)' );
-		expect( ring.left ).toBe( 'var(--nodes-page-left, 0)' );
-		// Inside the page's own scrollbar, not at the window's edge.
-		expect( ring.right ).toBe( 'var(--nodes-page-gutter, 0)' );
-		expect( ring.bottom ).toBe( '0' );
 		expect( ring[ 'pointer-events' ] ).toBe( 'none' );
 		expect( ring.outline ).toBe(
 			declarationsForSelector(
-				ui,
+				compile( UI_ENTRY ),
 				':where(html).newspack-nodes-asking [data-ask]:not([data-ask-page]):hover'
 			).outline
 		);
 	} );
 
-	// @longform The picker marks the ROOT, not the body. Chrome repaints the
-	// cursor from the document whenever the node under the pointer is replaced
-	// — which a polling dashboard does every refresh — and a root left at
-	// `auto` is what dropped the `?` back to an arrow mid-pick.
-	it( 'arms the ? cursor on the root, not on the body alone', () => {
+	// @longform Scoped to our own UI, which is all that is ever askable: the
+	// shell wears these classes and every portal carries them out to the body.
+	// Forcing a cursor onto the whole admin document reached WordPress's
+	// chrome too, which is never a target.
+	it( 'arms the ? cursor over our own UI, not the whole admin page', () => {
 		const ui = compile( UI_ENTRY );
 
 		expect(
-			declarationsForSelector( ui, ':where(html).newspack-nodes-asking' )
-				?.cursor
+			declarationsForSelector(
+				ui,
+				':where(html).newspack-nodes-asking :where(.newspack-nodes-ui)'
+			)?.cursor
 		).toBe( 'help' );
+		let universal = false;
+		ui.walkRules( ( rule ) => {
+			if (
+				rule.selectors.some( ( sel ) => sel.endsWith( 'asking *' ) )
+			) {
+				universal = true;
+			}
+		} );
+		expect( universal ).toBe( false );
 	} );
 
 	// @longform A dark dashboard gets a light scrollbar until the element says
@@ -2139,22 +2153,18 @@ describe( 'canonical appearance ownership', () => {
 		expect( [ ...declared ].sort() ).toEqual( darkSkins().sort() );
 	} );
 
-	// @longform The shell mounts the header as a FLEX ITEM, and a flex item's
-	// `z-index` applies at `position: static`, so its 3 outranks an overlay
-	// left at `auto` and paints over the ring's top edge — three sides drawn
-	// and a fourth missing, measured in the browser.
-	it( 'ranks the page ring above the header the shell mounts', () => {
+	// @longform The ring draws at body level, so its layer ranks against what
+	// else lives there rather than against the chrome inside a shell: above a
+	// shell's own 99, under the dialog stack a brief opens in.
+	it( 'ranks the page ring above a shell and below the dialogs', () => {
 		const ring = declarationsForSelector(
 			compile( UI_ENTRY ),
-			':where(html).newspack-nodes-asking [data-ask-page]:hover:not(:has([data-ask]:hover))::after'
-		);
-		const header = declarationsForSelector(
-			graphStylesheet,
-			'.topology-header'
+			'.newspack-nodes-ask-ring'
 		);
 
-		expect( Number( ring[ 'z-index' ] ) ).toBeGreaterThan(
-			Number( header[ 'z-index' ] )
+		expect( Number( ring[ 'z-index' ] ) ).toBeGreaterThan( 99 );
+		expect( Number( ring[ 'z-index' ] ) ).toBeLessThan(
+			layerToken( 'layer-modal' )
 		);
 	} );
 

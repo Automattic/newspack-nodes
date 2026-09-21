@@ -60,8 +60,8 @@ $layer-modal: 100000;
 $layer-modal-tooltip: 100001;
 $layer-modal-over: 100002;
 
-// The `?` picker's page ring, drawn on the dashboard shell's own edges. The
-// shell is its own stacking context, so the ring only has to outrank the chrome
-// inside it — the header, a sticky table head, a console's rails — and stays
-// under the debug overlay, which floats above the page rather than in it.
+// The `?` picker's page ring. It is drawn at body level, so this ranks it
+// against what else lives there: above a dashboard shell (99) and a console's
+// rails (9100), under the debug overlay (999998) and the dialog stack below.
 $layer-page-ring: 9999;
+
