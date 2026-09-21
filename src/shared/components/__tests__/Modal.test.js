@@ -4,7 +4,7 @@
  */
 
 import { render, screen, fireEvent } from '@testing-library/react';
-import Modal from '../Modal';
+import Modal, { ModalPortal } from '../Modal';
 
 test( 'it renders a labelled dialog carrying the canonical modal role', () => {
 	render(
@@ -60,6 +60,29 @@ test( 'the listener is removed on unmount', () => {
 	unmount();
 	fireEvent.keyDown( document, { key: 'Escape' } );
 	expect( onClose ).not.toHaveBeenCalled();
+} );
+
+// ModalShell in the topology console had grown its own copy of this: the same
+// three skin classes, the same `display: contents`, the same document guard and
+// the same body target. Two spellings of one contract drift; this is the one.
+test( 'ModalPortal is the shared host both dialogs render through', () => {
+	const { container } = render(
+		<div style={ { position: 'fixed', zIndex: 99 } }>
+			<ModalPortal>
+				<div className="console-shaped">geometry of its own</div>
+			</ModalPortal>
+		</div>
+	);
+
+	expect( container.querySelector( '.console-shaped' ) ).toBeNull();
+	const host = document.body
+		.querySelector( '.console-shaped' )
+		.closest( '.newspack-nodes-skin-root' );
+	expect( host.parentElement ).toBe( document.body );
+	expect( host.className ).toBe(
+		'newspack-nodes-skin-root newspack-nodes-theme newspack-nodes-ui'
+	);
+	expect( host.style.display ).toBe( 'contents' );
 } );
 
 // @longform A caller's own box is routinely a stacking context — a dashboard

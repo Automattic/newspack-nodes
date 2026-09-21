@@ -11,13 +11,13 @@
  */
 
 import {
-	createPortal,
 	useEffect,
 	useLayoutEffect,
 	useRef,
 	useState,
 } from '@wordpress/element';
 import { useDismissable } from '@newspack-nodes/shared/hooks/useDismissable';
+import { ModalPortal } from '@newspack-nodes/shared/components/Modal';
 import { __, sprintf } from '@wordpress/i18n';
 import { CtorField } from './CtorField';
 import { serializeCtorArgs } from '../utils/tslArgs';
@@ -52,12 +52,11 @@ const MIN_ANCHOR_H = MODAL_CHROME_H + 2 * PANEL_GUTTER;
  * ModalShell — the backdrop, panel, header and dismiss wiring every dialog in
  * the console and the debug overlay reuses.
  *
- * It renders through a portal on `document.body`, so no ancestor's overflow or
+ * It renders through the shared `ModalPortal`, so no ancestor's overflow or
  * stacking context can clip it and the fixed backdrop dims the whole page,
- * overlay panel included. That portal lands outside the app root, which is
- * where the skin selectors are scoped, so it re-establishes the skin, theme
- * and UI classes on a root of its own; `display: contents` keeps that root
- * from adding a box between `<body>` and the backdrop.
+ * overlay panel included. That host is what re-establishes the skin classes
+ * out at body level, and it is shared because two spellings of one contract
+ * drift.
  *
  * Rendered inside a debug-overlay panel big enough to hold it, the dialog
  * belongs to that panel rather than the viewport: it centers on the panel in
@@ -146,9 +145,6 @@ export function ModalShell( {
 		return () => observer.disconnect();
 	}, [ wide ] );
 
-	if ( typeof document === 'undefined' ) {
-		return null;
-	}
 	const modalStyle = panelRect
 		? /** @type {import('react').CSSProperties} */ ( {
 				position: 'absolute',
@@ -165,11 +161,8 @@ export function ModalShell( {
 				) }px`,
 		  } )
 		: undefined;
-	const portal = createPortal(
-		<div
-			className="newspack-nodes-skin-root newspack-nodes-theme newspack-nodes-ui"
-			style={ { display: 'contents' } }
-		>
+	const portal = (
+		<ModalPortal>
 			<div className="topology-modal-backdrop" role="presentation">
 				<div
 					className={ `topology-modal newspack-nodes-modal${
@@ -197,8 +190,7 @@ export function ModalShell( {
 					{ children }
 				</div>
 			</div>
-		</div>,
-		document.body
+		</ModalPortal>
 	);
 	return (
 		<>
