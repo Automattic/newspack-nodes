@@ -1345,9 +1345,8 @@ class Partition_Node extends Timer_Node {
 	 *
 	 * Anything that is not pure growth discards the memo whole: retention
 	 * unlinking the oldest segments, a truncation, or a segment replaced at the
-	 * same id all move records a locator points at, and so does a delta segment
-	 * that cannot be opened, since the extent advances past bytes nobody read.
-	 * So does MAX_LOCATOR_MEMO_KEYS, and MAX_LOCATOR_MEMO_DIRS drops every slot.
+	 * same id all move records a locator points at. So does
+	 * MAX_LOCATOR_MEMO_KEYS, and MAX_LOCATOR_MEMO_DIRS drops every slot.
 	 * A long-lived reader can therefore pay a re-walk mid-request; that costs
 	 * time, never a wrong answer.
 	 *
@@ -1374,11 +1373,11 @@ class Partition_Node extends Timer_Node {
 		$grew   = null !== $memo
 			&& \count( $memo['searched'] ) <= self::MAX_LOCATOR_MEMO_KEYS
 			&& self::grew_only( $memo['extent'], $extent );
+		// Bounded like the walk; may roll $extent back for an unread segment.
 		$newer  = ! $grew || $memo['extent'] === $extent
 			? []
-			// Bounded like the walk: only keys this memo can answer.
 			: $this->absorb_growth( $extract, $memo, $extent, $keyset );
-		if ( ! $grew || null === $newer ) {
+		if ( ! $grew ) {
 			// Discard whole: after one walk a key costs nothing to keep.
 			self::$locator_cache[ $dir ] = [ 'extent' => $extent, 'found' => [], 'searched' => [] ];
 		} else {
@@ -1572,13 +1571,18 @@ class Partition_Node extends Timer_Node {
 	 * Recording every key in the delta would grow the memo with the PARTITION
 	 * rather than with what anyone asked, which is the cost the cap bounds.
 	 *
+	 * A delta segment that cannot be OPENED leaves `$after` holding the memo's
+	 * own boundary for it, so the range stays pending and the next call retries
+	 * exactly it. Discarding the memo instead would not: the rebuilt extent
+	 * carries the advanced size, and the full walk skips the same file.
+	 *
 	 * @param \Closure(string): ?array{key: string, offset: int, length: int} $extract Line parser.
 	 * @param array{extent: array<int,array{0: int, 1: int}>, found: array<string,array{0: int, 1: int, 2: int}>, searched: array<string,int>} $memo Memo the delta is measured against.
-	 * @param array<int,array{0: int, 1: int}> $after Index extent now.
+	 * @param array<int,array{0: int, 1: int}> $after Index extent now; an unread segment's entry is rolled back.
 	 * @param array<string,int> $answerable Keys the memo may record.
-	 * @return array<string,array{0: int, 1: int, 2: int}>|null key => [segment, offset, length], or null when a segment could not be read.
+	 * @return array<string,array{0: int, 1: int, 2: int}> key => [segment, offset, length].
 	 */
-	private function absorb_growth( \Closure $extract, array $memo, array $after, array $answerable ): ?array {
+	private function absorb_growth( \Closure $extract, array $memo, array &$after, array $answerable ): array {
 		$wanted = $memo['searched'] + $answerable;
 		$seen   = [];
 		$ids    = \array_keys( $after );
@@ -1591,9 +1595,10 @@ class Partition_Node extends Timer_Node {
 			}
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fopen
 			$fh = @\fopen( $this->get_index_path( $id ), 'rb' );
-			// Unreadable: the extent advances past bytes nobody read.
 			if ( false === $fh ) {
-				return null;
+				// Hold the old boundary: retried next call, not written off.
+				$after[ $id ] = $memo['extent'][ $id ] ?? [ 0, $after[ $id ][1] ];
+				continue;
 			}
 			try {
 				$start = self::line_start_at( $fh, $from );

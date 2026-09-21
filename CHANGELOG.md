@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.65.10] - 2026-09-21
+
+### Fixed
+
+- **An unreadable delta segment is retried rather than written off.** 2.65.9
+  discarded the memo when `absorb_growth()` could not open a segment that had
+  grown, which reads as caution and buys nothing: the rebuilt extent already
+  carries that segment's advanced size, and the full walk it forces skips the
+  same file, so the answers match what a plain skip gives and the bytes stay
+  unread until the segment grows again — at the price of a million-line
+  re-walk each time. The memo now survives with its own boundary held for that
+  segment, so the next call retries exactly the range nobody read.
+
+### Changed
+
+- Two tests tightened. The replaced-segment case asserts the locator the
+  re-walk should find, where it previously accepted any answer other than the
+  stale one — including no answer at all. `grew_only()`'s shortened-index
+  branch is pinned for the first time.
+
 ## [2.65.9] - 2026-09-21
 
 ### Fixed
