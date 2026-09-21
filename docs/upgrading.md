@@ -16,8 +16,11 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 - **`Node::drop_message()` takes two arguments again.** The third, `$node`,
   added in [2.63.0](#2630) to name the unresolved head on the audit line, is
   removed along with the `node: …` field it printed — the bounce's FROM carries
-  that address now. A SUBCLASS that widened its signature to match must narrow
-  it again, and a caller passing three arguments drops the third silently.
+  that address now. A SUBCLASS that widened its signature to match keeps
+  loading — PHP allows a child to declare extra OPTIONAL parameters — so it
+  fails silently rather than fatally: its `$node` is now always `''`, and
+  anything keyed on it goes dead with no error. Narrow the override, and drop
+  the third argument from any `parent::` call, which is likewise ignored.
 
 ## 2.65.3
 
