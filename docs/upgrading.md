@@ -4,7 +4,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 **Maintenance rule:** a release that changes any consumer-facing contract adds its entry here in the same commit as its CHANGELOG entry. No entry means nothing to do.
 
-## 2.65.4
+## 2.65.5
 
 - **The Router publishes no `NOT_AVAILABLE` state.** `send_error()` fired
   `set_state( 'NOT_AVAILABLE', … )` with a flat `NODE … TYPE … FROM … TO … ID …
@@ -13,14 +13,17 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   A watcher that did reads the bounce instead: its FROM names the destination,
   its TO walks back to the sender, and a miss with no FROM to answer leaves the
   `drop_message` audit line, which it always did.
-- **`Node::drop_message()` takes two arguments again.** The third, `$node`,
-  added in [2.63.0](#2630) to name the unresolved head on the audit line, is
-  removed along with the `node: …` field it printed — the bounce's FROM carries
-  that address now. A SUBCLASS that widened its signature to match keeps
-  loading — PHP allows a child to declare extra OPTIONAL parameters — so it
-  fails silently rather than fatally: its `$node` is now always `''`, and
-  anything keyed on it goes dead with no error. Narrow the override, and drop
-  the third argument from any `parent::` call, which is likewise ignored.
+- **`Node::drop_message()` takes two arguments**, and the audit line carries no
+  `node: …` field. The unresolved head rides the bounce's FROM. An override or
+  a caller still carrying the third argument keeps loading — PHP ignores an
+  extra argument and permits a child to declare an extra optional one — so
+  nothing fatals and whatever reads that field reads `''`; narrow both.
+- **The browser Router drops a miss reached from inside a bounce** as
+  `breaking recursion`, matching PHP. A graph that relied on the second bounce
+  being minted sees one fewer TM_ERROR.
+- **The audit-line throttle keys on the reason alone in the browser**, as it
+  already did in PHP and as Tachikoma keys it. TYPE is a bitmask the sender
+  picks, so a peer could mint 2,048 keys from one drop site.
 
 ## 2.65.3
 

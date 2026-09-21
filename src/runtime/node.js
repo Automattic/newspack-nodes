@@ -434,10 +434,8 @@ export class Node {
 		const typeStr = labels.length ? labels.join( '|' ) : 'TYPE_UNKNOWN';
 
 		const prefix =
-			'NOT_AVAILABLE' === error
-				? `${ error } - `
-				: `WARNING: ${ error } - `;
-		const parts = [ `${ prefix }${ typeStr }` ];
+			'NOT_AVAILABLE' === error ? error : `WARNING: ${ error }`;
+		const parts = [ `${ prefix } -`, typeStr ];
 		if ( '' !== message[ FROM ] ) {
 			parts.push( `from: ${ message[ FROM ] }` );
 		}
@@ -456,7 +454,7 @@ export class Node {
 			parts.push( `payload: ${ valueStr }` );
 		}
 
-		// Key on parts[0] (stable category); the tail prints once, unkeyed.
+		// Key on the REASON alone: TYPE is a bitmask the SENDER picks.
 		const head = parts.shift();
 		const tail = parts.length ? ' ' + parts.join( ' ' ) : '';
 		this.printLessOften( head, tail );

@@ -7,8 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.65.5] - 2026-09-21
+
+### Added
+
+- **The browser Router carries the recursion latch**, `handlingError`, the
+  counterpart to PHP's `$handling_error` and Tachikoma's own: a miss reached
+  from inside a bounce is dropped as `breaking recursion` instead of minting a
+  second bounce.
+
 ### Fixed
 
+- **The browser's drop-line throttle keys on the reason alone**, as PHP's does
+  and as Tachikoma's `drop_message` does: it hands `print_less_often` the
+  `"$error - "` head and everything else as unkeyed extra. JS keyed on the
+  reason AND the type flags, and TYPE is a bitmask the SENDER picks — 2,048
+  keys from one drop site, which both defeats the throttle and grows the timer
+  map. The rendered line is unchanged.
 - Documentation shipped with 2.65.4. The architecture guide still listed
   `NOT_AVAILABLE` among the Router's declared registrations, so an author
   following it would call `register( 'NOT_AVAILABLE', … )` and get a thrown
