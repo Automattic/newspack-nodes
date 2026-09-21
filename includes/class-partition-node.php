@@ -138,6 +138,9 @@ class Partition_Node extends Timer_Node {
 	 */
 	public const MAX_LOCATOR_MEMO_KEYS = 100000;
 
+	/** Bytes one backward index read takes; the walk costs this, not the file. */
+	private const INDEX_READ_CHUNK = 262144;
+
 	/**
 	 * Directories the locator memo holds slots for before it is dropped whole.
 	 *
@@ -192,7 +195,7 @@ class Partition_Node extends Timer_Node {
 	 * Per partition dir: extent, what was found, what was searched for.
 	 * Bounded by what callers ask for; see locate_by().
 	 *
-	 * @var array<string,array{extent: string, found: array<string,array{0: int, 1: int, 2: int}>, searched: array<string,int>}>
+	 * @var array<string,array{extent: array<int,int>, found: array<string,array{0: int, 1: int, 2: int}>, searched: array<string,int>}>
 	 */
 	private static array $locator_cache = [];
 
@@ -1326,13 +1329,21 @@ class Partition_Node extends Timer_Node {
 	 * The result is a LOOKUP table addressed by key. Its order follows $wanted,
 	 * not the index — read it by key rather than by position.
 	 *
-	 * The memo is per directory, keyed on the segment extent, and holds what was
-	 * FOUND and what was SEARCHED FOR separately — so an absent key stays
-	 * answered and a miss-heavy reader does not re-walk the index per batch. It
-	 * is discarded WHOLE at MAX_LOCATOR_MEMO_KEYS as well as on an append, and
-	 * every slot is dropped at MAX_LOCATOR_MEMO_DIRS, so a long-lived reader
-	 * can pay a re-walk mid-request; that costs time, never a wrong answer,
-	 * because a discard is always followed by a full walk.
+	 * The memo is per directory and holds what was FOUND and what was SEARCHED
+	 * FOR separately, so an absent key stays answered and a miss-heavy reader
+	 * does not re-walk the index per batch. An APPEND keeps what was found: the
+	 * index only ever grows, so a line already written never moves, and the
+	 * process appending to a partition is the one reading it — discarding on
+	 * every growth made the flame-builder re-walk a million lines for keys it
+	 * had already resolved. A miss is re-answered instead, since the key may
+	 * have arrived in what was added.
+	 *
+	 * Anything that is not pure growth discards the memo whole: retention
+	 * unlinking the oldest segments, or a truncation, moves records a locator
+	 * points at. So does MAX_LOCATOR_MEMO_KEYS, and MAX_LOCATOR_MEMO_DIRS drops
+	 * every slot. A long-lived reader can therefore pay a re-walk mid-request;
+	 * that costs time, never a wrong answer, because a discard is always
+	 * followed by a full walk.
 	 *
 	 * @api Readers resolving many keys to positions before reading any of them.
 	 * @param \Closure(string): ?array{key: string, offset: int, length: int} $extract Line parser.
@@ -1344,9 +1355,9 @@ class Partition_Node extends Timer_Node {
 		if ( [] === $wanted ) {
 			return [];
 		}
-		$extent = '';
+		$extent = [];
 		foreach ( $this->get_segments() as $segment ) {
-			$extent .= $segment['id'] . ':' . $segment['size'] . ',';
+			$extent[ $segment['id'] ] = $segment['size'];
 		}
 		$dir = $this->partition_dir();
 		// A slot per directory ever touched is not a bound; drop the lot.
@@ -1354,10 +1365,20 @@ class Partition_Node extends Timer_Node {
 			&& \count( self::$locator_cache ) >= self::MAX_LOCATOR_MEMO_DIRS ) {
 			self::$locator_cache = [];
 		}
-		// Discard whole: after one walk a key costs nothing to keep.
-		if ( ( self::$locator_cache[ $dir ]['extent'] ?? null ) !== $extent
-			|| \count( self::$locator_cache[ $dir ]['searched'] ) > self::MAX_LOCATOR_MEMO_KEYS ) {
+		$memo = self::$locator_cache[ $dir ] ?? null;
+		$keep = null !== $memo
+			&& \count( $memo['searched'] ) <= self::MAX_LOCATOR_MEMO_KEYS
+			&& self::grew_only( $memo['extent'], $extent );
+		if ( ! $keep ) {
+			// Discard whole: after one walk a key costs nothing to keep.
 			self::$locator_cache[ $dir ] = [ 'extent' => $extent, 'found' => [], 'searched' => [] ];
+		} elseif ( $memo['extent'] !== $extent ) {
+			// Growth keeps what was FOUND; only a miss is looked for again.
+			self::$locator_cache[ $dir ]['extent']   = $extent;
+			self::$locator_cache[ $dir ]['searched'] = \array_fill_keys(
+				\array_keys( self::$locator_cache[ $dir ]['found'] ),
+				1
+			);
 		}
 		// Unwalked keys only; array_flip dedupes, which the stop relies on.
 		$keyset  = \array_flip( $wanted );
@@ -1431,29 +1452,91 @@ class Partition_Node extends Timer_Node {
 				continue;
 			}
 
-			// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
-			$idx = @\file_get_contents( $idx_path );
-			if ( false === $idx ) {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fopen
+			$fh = @\fopen( $idx_path, 'rb' );
+			if ( false === $fh ) {
 				continue;
 			}
-
-			$lines = \explode( "\n", \rtrim( $idx, "\n" ) );
-			// Free the raw copy; walking backwards avoids a reversed one.
-			unset( $idx );
-			$last = \count( $lines ) - 1;
-			for ( $i = 0; $i <= $last; $i++ ) {
-				$line = $lines[ $newest_first ? $last - $i : $i ];
-				if ( '' === $line ) {
-					continue;
+			try {
+				foreach ( self::index_lines( $fh, $newest_first ) as $line ) {
+					if ( '' === $line ) {
+						continue;
+					}
+					if ( false === $cb( $line, $s['id'] ) ) {
+						return;
+					}
 				}
-				$result = $cb( $line, $s['id'] );
-				if ( false === $result ) {
-					return;
-				}
+			} finally {
+				\fclose( $fh );
 			}
-			// Free before the next: else the peak is two segments.
-			unset( $lines );
 		}
+	}
+
+	/**
+	 * One index file's lines, oldest first or newest first, read a chunk at a
+	 * time so a walk costs the CHUNK rather than the file.
+	 *
+	 * Reading it whole cost about four times its size — the string and the
+	 * exploded array both live until the loop ends — and the callers' budgets
+	 * bound the callback loop, never the read, so a miss-heavy `locate_by()`
+	 * over a 38MB index exhausted a 512MB worker before the first callback ran.
+	 *
+	 * Backwards, a chunk boundary falls mid-line: the leading fragment belongs
+	 * to the chunk BEFORE it, so it is held as `$tail` and prepended to the
+	 * next read rather than yielded. `$tail` is the one unbounded term, and it
+	 * is bounded by the longest line.
+	 *
+	 * @param resource $fh           Open index handle.
+	 * @param bool     $newest_first Walk from the end when true.
+	 * @return \Generator<int,string> Lines, without their terminator.
+	 */
+	private static function index_lines( $fh, bool $newest_first ): \Generator {
+		if ( ! $newest_first ) {
+			while ( false !== ( $line = \fgets( $fh ) ) ) {
+				yield \rtrim( $line, "\n" );
+			}
+			return;
+		}
+		$stat = \fstat( $fh );
+		$pos  = \is_array( $stat ) ? $stat['size'] : 0;
+		$tail = '';
+		while ( $pos > 0 ) {
+			$len  = \min( self::INDEX_READ_CHUNK, $pos );
+			$pos -= $len;
+			if ( -1 === \fseek( $fh, $pos ) ) {
+				return;
+			}
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fread
+			$buf   = (string) \fread( $fh, $len );
+			$lines = \explode( "\n", $buf . $tail );
+			// The head is a fragment an earlier chunk completes.
+			$tail  = \array_shift( $lines );
+			for ( $i = \count( $lines ) - 1; $i >= 0; $i-- ) {
+				yield $lines[ $i ];
+			}
+		}
+		if ( '' !== $tail ) {
+			yield $tail;
+		}
+	}
+
+	/**
+	 * Whether the partition only GREW: every segment the memo knew is still
+	 * there and no smaller. Retention unlinks the oldest segments and a
+	 * truncation shortens one, and either invalidates a locator that points
+	 * into them — so both answer false and the memo is discarded whole.
+	 *
+	 * @param array<int,int> $before Segment sizes by id when the memo was built.
+	 * @param array<int,int> $after  Segment sizes by id now.
+	 * @return bool True when nothing was removed or shortened.
+	 */
+	private static function grew_only( array $before, array $after ): bool {
+		foreach ( $before as $id => $size ) {
+			if ( ! isset( $after[ $id ] ) || $after[ $id ] < $size ) {
+				return false;
+			}
+		}
+		return true;
 	}
 
 	/**

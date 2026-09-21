@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.65.7] - 2026-09-21
+
+### Fixed
+
+- **`Partition_Node::scan_index()` streams the index instead of reading it
+  whole.** It was `file_get_contents()` plus `explode()`, so the file and the
+  exploded lines were both live before the first callback ran — about 4.2x the
+  file, measured. A fixed-width stats index of 38MB is ~1M lines, and the PHP
+  string and array-slot overhead on those dwarfs the bytes. The callers' budgets
+  (`stats_mirror_read_budget_ms`, `MAX_INDEX_ENTRIES`) bound the callback loop
+  and never the read, so a `flame-stats` mirror walk exhausted a 512MB worker
+  before any of them applied. Forward reads go through `fgets`; newest-first
+  reads backwards over `INDEX_READ_CHUNK` (256KiB) windows, carrying the
+  fragment at each boundary into the next read, so a pass costs the chunk.
+- **An append no longer costs `locate_by()` the locators it already found.**
+  The memo was keyed on the partition's whole extent and discarded on any
+  change — and the process appending to a partition is the one reading it, so a
+  flame-builder re-walked a million-line index for keys it had already resolved.
+  An index only grows and a written line never moves, so pure growth now keeps
+  `found` and re-answers only the misses, whose key may have arrived in the new
+  lines. Retention unlinking a segment, or a truncation, still discards the memo
+  whole: both move records a locator points at.
+
 ## [2.65.6] - 2026-09-21
 
 ### Added

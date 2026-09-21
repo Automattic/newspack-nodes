@@ -1778,6 +1778,76 @@ class PartitionTest extends TestCase {
 		$this->assertSame( 2, $count );
 	}
 
+	/**
+	 * The index is STREAMED. A slurp held the whole file as a string and the
+	 * exploded lines beside it, so one pass cost about twice the file before
+	 * the first callback ran — and the callers' budgets bound the callback
+	 * loop, never the read. A miss-heavy `locate_by()` walk over a grown index
+	 * exhausted a 512MB worker that way.
+	 */
+	public function test_scan_index_streams_rather_than_holding_the_file(): void {
+		$p = new Partition_Node();
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 1024 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->void_warranty();
+		$p->with_index( fn ( array $message, array $pos ) => 'seed' );
+		$this->produce_into( $p, 'seed' );
+
+		// 8 MiB of index beside the real segment: a slurp shows plainly.
+		$fh = \fopen( "{$this->tmp}.p0/0.idx", 'ab' );
+		for ( $i = 0; $i < 131072; $i++ ) {
+			\fwrite( $fh, \str_repeat( 'x', 63 ) . "\n" );
+		}
+		\fclose( $fh );
+
+		$count = 0;
+		$base  = \memory_get_usage( true );
+		\memory_reset_peak_usage();
+		$p->scan_index( function ( string $line, int $segment ) use ( &$count ) {
+			++$count;
+		} );
+		$peak = \memory_get_peak_usage( true );
+
+		$this->assertSame( 131073, $count, 'every line reached the callback' );
+		$this->assertLessThan(
+			4 * 1024 * 1024,
+			$peak - $base,
+			'one pass must not cost the size of the index'
+		);
+	}
+
+	/**
+	 * Newest-first is the `locate_by()` contract: the first line a key appears
+	 * on is its LAST write. Reading backwards has to span the read boundary,
+	 * so a line straddling one must arrive whole and in order.
+	 */
+	public function test_scan_index_newest_first_spans_a_read_boundary(): void {
+		$p = new Partition_Node();
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 1024 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->void_warranty();
+		$p->with_index( fn ( array $message, array $pos ) => 'seed' );
+		$this->produce_into( $p, 'seed' );
+
+		// Wide enough that the lines cannot sit in one read.
+		$fh = \fopen( "{$this->tmp}.p0/0.idx", 'ab' );
+		for ( $i = 0; $i < 2000; $i++ ) {
+			\fwrite( $fh, 'line-' . $i . '-' . \str_repeat( 'p', 200 ) . "\n" );
+		}
+		\fclose( $fh );
+
+		$seen = [];
+		$p->scan_index(
+			function ( string $line, int $segment ) use ( &$seen ) {
+				$seen[] = $line;
+			},
+			true
+		);
+
+		$this->assertCount( 2001, $seen, 'every line, once' );
+		$this->assertStringStartsWith( 'line-1999-', $seen[0], 'newest first' );
+		$this->assertStringStartsWith( 'line-1998-', $seen[1] );
+		$this->assertSame( 'seed', $seen[2000], 'the oldest line arrives last, whole' );
+	}
+
 	// ============================================================================
 	// Hardening: partial-write loop.
 	// ============================================================================
@@ -4155,6 +4225,57 @@ class PartitionTest extends TestCase {
 
 		$after = $p->locate_by( $parse, [ 'k1', 'k2' ] );
 		$this->assertArrayHasKey( 'k2', $after, 'an append invalidates the table it would otherwise be blind to' );
+	}
+
+	/**
+	 * An append does not cost a key already located its locator.
+	 *
+	 * The index is append-only, so a line already written never moves: what
+	 * was FOUND stays true across a growth. Discarding the whole memo on every
+	 * extent change made that a re-walk per append, and the writer of a
+	 * partition is exactly the process appending to it — the flame-builder
+	 * re-walked a million-line index for keys it had already resolved.
+	 *
+	 * What a growth DOES invalidate is a miss: a key absent before may have
+	 * arrived in the new lines, so `searched` is cleared and re-answered.
+	 */
+	public function test_an_append_keeps_the_locators_it_already_found(): void {
+		$p     = $this->indexed_partition( 'warm', 2 );
+		$walks = 0;
+		$parse = static function ( string $line ) use ( &$walks ): ?array {
+			++$walks;
+			return self::unpack_index_line( $line );
+		};
+
+		$first = $p->locate_by( $parse, [ 'k1' ] );
+		$this->assertArrayHasKey( 'k1', $first );
+		$this->assertGreaterThan( 0, $walks, 'the first resolve walks' );
+
+		$this->write_keyed( $p, 'k9', 'later' );
+		$p->flush();
+
+		$walks = 0;
+		$again = $p->locate_by( $parse, [ 'k1' ] );
+
+		$this->assertSame( $first['k1'], $again['k1'], 'the locator is unchanged' );
+		$this->assertSame( 0, $walks, 'a found key survives the append' );
+	}
+
+	/** A miss is re-answered after an append: the key may have arrived. */
+	public function test_an_append_re_answers_a_key_that_was_absent(): void {
+		$p     = $this->indexed_partition( 'miss', 1 );
+		$parse = static fn ( string $line ): ?array => self::unpack_index_line( $line );
+
+		$this->assertSame( [], $p->locate_by( $parse, [ 'k7' ] ) );
+
+		$this->write_keyed( $p, 'k7', 'arrived' );
+		$p->flush();
+
+		$this->assertArrayHasKey(
+			'k7',
+			$p->locate_by( $parse, [ 'k7' ] ),
+			'an absent key is looked for again once the partition grows'
+		);
 	}
 
 	/**
