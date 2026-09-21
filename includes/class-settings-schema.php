@@ -82,7 +82,8 @@ class Settings_Schema {
 					key: 'segment_size',
 					type: 'int',
 					min: 1048576,
-					max: 536870912,
+					// A guard against a typo; Partition itself caps nothing.
+					max: 4294967296,
 					default: 67108864,
 					label: static fn(): string => \__( 'Segment Size', 'newspack-nodes' ),
 					section: $storage,

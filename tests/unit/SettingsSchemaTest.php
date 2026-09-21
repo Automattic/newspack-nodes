@@ -224,6 +224,33 @@ class SettingsSchemaTest extends TestCase {
 		);
 	}
 	/**
+	 * The storage geometry's ceiling is a guard against a typo, not a runtime
+	 * limit: Partition refuses only a size below 1, a TSL topology already
+	 * names any size it likes, and Tachikoma's own Partition caps nothing. A
+	 * 512 MiB ceiling was simply lower than an operator's real answer.
+	 */
+	public function test_segment_size_admits_the_sizes_an_operator_asks_for(): void {
+		$fields = [];
+		foreach ( Settings_Schema::get()->fields() as $field ) {
+			$fields[ $field->key ] = $field;
+		}
+		$clamp = $fields['segment_size']->sanitize_callback();
+
+		$this->assertSame( 1073741824, $clamp( 1073741824 ), 'a gibibyte' );
+		$this->assertSame( 4294967296, $clamp( 4294967296 ), 'the ceiling' );
+		$this->assertSame(
+			4294967296,
+			$clamp( 8589934592 ),
+			'past the ceiling still clamps — an extra digit must not eat the disk'
+		);
+		$this->assertSame(
+			1048576,
+			$clamp( 1024 ),
+			'the floor holds: a segment under a mebibyte rotates on every write'
+		);
+	}
+
+	/**
 	 * `register_args['type']` is what register_setting() tells WordPress the
 	 * option is. Six remote_* bounded ints declared `string` while three sibling
 	 * ints declared `integer` — same kind of field, two answers. Harmless while
