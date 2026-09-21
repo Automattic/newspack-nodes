@@ -813,6 +813,7 @@ class HTTPInTest extends TestCase {
 		$GLOBALS['_wp_test_current_user_id']  = 0;
 		$GLOBALS['_wp_actions']               = [];
 		HTTP_In_Node::$rate_limit_disabled    = false;
+		HTTP_In_Node::$clock_now_seam         = null;
 	}
 
 	public function test_check_permission_rejects_when_user_lacks_manage_options(): void {
@@ -872,6 +873,11 @@ class HTTPInTest extends TestCase {
 		$ctrl = new HTTP_In_Node();
 		$req  = new \WP_REST_Request( 'POST' );
 
+		// @longform The budget is per floor(second), so the burst must land in
+		// ONE bucket: left on the wall clock, 31 instrumented calls straddle a
+		// second under coverage and the 31st starts a fresh budget.
+		HTTP_In_Node::$clock_now_seam = 1700000000.25;
+
 		// Burn through the burst budget. Every one of these must pass.
 		for ( $i = 0; $i < HTTP_In_Node::RATE_LIMIT_BURST; $i++ ) {
 			$this->assertTrue(
@@ -886,6 +892,7 @@ class HTTPInTest extends TestCase {
 		$this->assertSame( 'rate_limited', $result->get_error_code() );
 		$data = $result->get_error_data();
 		$this->assertSame( 429, $data['status'] );
+		HTTP_In_Node::$clock_now_seam = null;
 	}
 
 	public function test_steady_one_request_per_second_never_trips_the_limit(): void {
