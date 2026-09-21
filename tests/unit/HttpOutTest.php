@@ -649,13 +649,14 @@ class HttpOutTest extends TestCase {
 	}
 
 	/**
-	 * A Router BOUNCE must not cross the wire outward. The far side answers an
-	 * error it cannot route with an error of its own, addressed back down the
-	 * FROM trail, and neither end stops — the two POST at each other forever.
-	 * The Router already refuses to bounce an error it cannot route; this is
-	 * that rule at the wire.
+	 * A Router BOUNCE crosses the wire like anything else, because a remote
+	 * sender learns its message never routed only by receiving one. The loop
+	 * this used to be guarded against cannot form: `Router_Node::send_error()`
+	 * returns on a message that is already TM_ERROR, so the far side answers a
+	 * bounce with nothing and it stops after one hop. That guard is the whole
+	 * defence, and it lives where the bounce is born rather than at the wire.
 	 */
-	public function test_fill_never_batches_a_router_bounce(): void {
+	public function test_fill_batches_a_router_bounce_like_any_message(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$node = $this->make_node( 'austin' );
 
@@ -666,7 +667,7 @@ class HttpOutTest extends TestCase {
 		$bounce[ Message::VALUE ] = "NOT_AVAILABLE\n";
 		$node->fill( $bounce );
 
-		$this->assertSame( [], $this->read_private( $node, 'batch' ) );
+		$this->assertSame( [ $bounce ], $this->read_private( $node, 'batch' ) );
 	}
 
 	/** An operator-composed error is a command like any other. */

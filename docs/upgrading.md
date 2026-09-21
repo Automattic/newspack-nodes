@@ -4,6 +4,22 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 **Maintenance rule:** a release that changes any consumer-facing contract adds its entry here in the same commit as its CHANGELOG entry. No entry means nothing to do.
 
+## 2.65.3
+
+- **A Router bounce crosses the wire again.** `HTTP_Out_Node::fill()` refused to
+  POST any message carrying `TM_ERROR` from the Router; it no longer inspects
+  anything. A remote sender that addressed an unroutable node now receives the
+  `NOT_AVAILABLE` bounce instead of silence. A spoke that treated the absence of
+  a reply as success will start seeing an error it never saw before — that error
+  was always true, only undelivered.
+- **A bounce's `FROM` is the address that was missing, in both engines.** This
+  reverses [2.63.0](#2630) and restores Tachikoma's `$response->[FROM] =
+  $message->[TO]`. 2.63.0 stamped the Router's own name so `HTTP_Out`'s loop
+  guard could tell a self-minted bounce from a forwarded one; with that guard
+  gone the stamp has no reader. A node that learned to read the missing address
+  off the `NOT_AVAILABLE` state's `NODE` field can keep doing so — that field is
+  unchanged — or read the bounce's FROM directly again.
+
 ## 2.63.0
 
 - **`Header` is shared surface, imported from
