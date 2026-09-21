@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.65.2] - 2026-09-21
+
+### Removed
+
+- **The `refusing to send a bounce` warning on `HTTP_Out_Node::fill()`.** It
+  named the bounce's own payload back at the operator: `NOT_AVAILABLE` means
+  the addressed node does not exist, and it belongs to the message that failed
+  to route, never to the bounce carrying it. The guard is unchanged — a Router
+  bounce still never crosses the wire outward — and both the PHP and JS halves
+  drop it the same way.
+
 ## [2.65.1] - 2026-09-21
 
 ### Fixed
