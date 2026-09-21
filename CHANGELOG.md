@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.65.1] - 2026-09-21
+
 ### Fixed
 
 - **The debug overlay draws over the dialogs again.** It mounts inside a dashboard shell, and that shell is `position: fixed; z-index: 99` — so the overlay's own 999999 ranked only against that box's children, leaving it under any dialog portalled to the body at 100000. It renders through `ModalPortal` now, the same escape the dialogs take. The portal host wears the skin classes, so the runtime provider-sniffing the overlay used to do — a ref callback reading its own parent chain into state — is deleted with it.
