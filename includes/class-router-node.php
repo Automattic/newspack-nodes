@@ -241,20 +241,8 @@ class Router_Node extends Timer_Node {
 	}
 
 	/**
-	 * Answer an unroutable message: publish NOT_AVAILABLE, then bounce a TM_ERROR
-	 * back down the FROM trail.
-	 *
-	 * `set_state()` fires first, so a NOT_AVAILABLE registrant sees the miss even
-	 * when there is no FROM to reply to. Its payload is the flat `KEY VALUE` form
-	 * a TM_INFO listener expects, naming the node that was missing and the fields
-	 * identifying the message. The bounce then reverses the addresses — FROM
-	 * becomes the destination that was missing, TO the sender — and re-enters
-	 * this Router, so the error walks back the way the message came.
-	 *
-	 * A message already carrying TM_ERROR gets the state change and nothing else:
-	 * answering an error trail with another error is how two dead paths loop.
-	 * `$handling_error` closes the same hole from the other side, because the
-	 * bounce's own route can miss too.
+	 * Answer an unroutable message: bounce a TM_ERROR back down the FROM trail,
+	 * whose own FROM names the address that went missing.
 	 *
 	 * @param array<int,mixed> $message Message that failed to route.
 	 * @param string           $error   Text carried as the TM_ERROR VALUE; callers pass `NOT_AVAILABLE`.
@@ -265,19 +253,7 @@ class Router_Node extends Timer_Node {
 			return;
 		}
 		$this->handling_error = true;
-		[ $node_name ] = Message::split_first( Core::as_string( $message[ Message::TO ] ) );
-		$this->set_state(
-			'NOT_AVAILABLE',
-			\implode( ' ', [
-				'NODE', $node_name,
-				'TYPE', Core::as_string( $message[ Message::TYPE ] ),
-				'FROM', Core::as_string( $message[ Message::FROM ] ),
-				'TO',   Core::as_string( $message[ Message::TO ] ),
-				'ID',   Core::as_string( $message[ Message::ID ] ),
-				'KEY',  Core::as_string( $message[ Message::KEY ] ),
-			] )
-		);
-		$type = $message[ Message::TYPE ];
+		$type                 = $message[ Message::TYPE ];
 		if ( Core::int( $type ) & Message::TM_ERROR ) {
 			$this->handling_error = false;
 			return;
@@ -292,7 +268,7 @@ class Router_Node extends Timer_Node {
 			$err[ Message::VALUE ]     = "{$error}\n";
 			$this->fill( $err );
 		}
-		$this->drop_message( $message, $error, $node_name );
+		$this->drop_message( $message, $error );
 		$this->handling_error = false;
 	}
 
@@ -364,9 +340,9 @@ class Router_Node extends Timer_Node {
 
 	/**
 	 * Console manifest. `Hidden` keeps `_router` out of the palette: a graph has
-	 * exactly one, placed by the scaffolding rather than dragged in. The three
-	 * declared events are FIRE for the tick, TIMER for the hitchhike channel
-	 * and NOT_AVAILABLE for a route miss.
+	 * exactly one, placed by the scaffolding rather than dragged in. The two
+	 * declared events are FIRE for the tick and TIMER for the hitchhike
+	 * channel. A route miss publishes nothing: the bounce carries it.
 	 *
 	 * @return array<string,mixed>
 	 */
@@ -376,7 +352,7 @@ class Router_Node extends Timer_Node {
 			'description'   => 'Path-based message routing — placed automatically as `_router`.',
 			'arguments'     => [],
 			'commands'      => [],
-			'registrations' => [ 'FIRE', 'TIMER', 'NOT_AVAILABLE' ],
+			'registrations' => [ 'FIRE', 'TIMER' ],
 		];
 	}
 }

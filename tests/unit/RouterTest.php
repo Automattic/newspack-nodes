@@ -79,10 +79,9 @@ class RouterTest extends TestCase {
 		$router->fill( $message );
 
 		$this->assertStringContainsString( 'NOT_AVAILABLE - TM_INFO', $buf );
-		// The head that did not resolve, named outright: `to:` carries the
-		// whole path asked for, which says where it was going, not what of it
-		// was missing.
-		$this->assertStringContainsString( 'node: sprocket', $buf );
+		// `to:` carries the whole path asked for. The head that did not
+		// resolve rides the bounce's own FROM, where Tachikoma reads it.
+		$this->assertStringContainsString( 'to: sprocket', $buf );
 		$this->assertStringContainsString( 'payload: winding', $buf );
 	}
 
@@ -237,50 +236,6 @@ class RouterTest extends TestCase {
 
 		$this->assertCount( 1, $origin->captured );
 		$this->assertSame( Message::TM_ERROR, $origin->captured[0][ Message::TYPE ] );
-	}
-
-	public function test_send_error_caches_unreachable_node_name_in_NOT_AVAILABLE_state(): void {
-		// send_error() caches a NOT_AVAILABLE state whose `node` field is the
-		// unreachable destination peeled off TO. The name lives in fill(); a
-		// regression once referenced an undefined $node_name in send_error(),
-		// emitting an "Undefined variable" warning and caching node => null.
-		$router = new Router_Node();
-		$router->name( '_router' );
-
-		$message                  = Message::new_message();
-		$message[ Message::TO ]   = 'nonexistent';
-		$message[ Message::FROM ] = 'producer';
-
-		$router->fill( $message );
-
-		$ref = new \ReflectionProperty( $router, 'set_state' );
-		$state = $ref->getValue( $router );
-		// The NOT_AVAILABLE payload is now a flat string; the unreachable node name leads it.
-		$this->assertIsString( $state['NOT_AVAILABLE'] );
-		$this->assertStringContainsString( 'nonexistent', $state['NOT_AVAILABLE'] );
-	}
-
-	public function test_send_error_NOT_AVAILABLE_state_is_flat_key_value_string(): void {
-		// Pins the exact flat "KEY VALUE ..." NOT_AVAILABLE state payload so the
-		// scalar->string rendering of every field stays byte-stable.
-		$router = new Router_Node();
-		$router->name( '_router' );
-
-		$message                  = Message::new_message();
-		$message[ Message::TYPE ] = Message::TM_INFO;
-		$message[ Message::TO ]   = 'ghost/sub';
-		$message[ Message::FROM ] = 'producer';
-		$message[ Message::ID ]   = 'req1';
-		$message[ Message::KEY ]  = 'ev';
-
-		$router->fill( $message );
-
-		$ref   = new \ReflectionProperty( $router, 'set_state' );
-		$state = $ref->getValue( $router );
-		$this->assertSame(
-			'NODE ghost TYPE 64 FROM producer TO ghost/sub ID req1 KEY ev',
-			$state['NOT_AVAILABLE']
-		);
 	}
 
 	public function test_unknown_target_drops_TM_ERROR_messages_silently(): void {

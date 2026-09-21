@@ -17,7 +17,6 @@ import {
 	TO,
 	TYPE,
 	ID,
-	KEY,
 	VALUE,
 	TIMESTAMP,
 	TM_ERROR,
@@ -126,12 +125,6 @@ export class RouterNode extends TimerNode {
 	 * only the path below itself and a deeper Router peels its own head in
 	 * turn.
 	 *
-	 * A head that resolves to nothing publishes NOT_AVAILABLE first, so a
-	 * registrant sees the miss even when there is no FROM to answer, and then
-	 * bounces a TM_ERROR back down the FROM trail. A message already carrying
-	 * TM_ERROR gets the state change and nothing else: answering an error trail
-	 * with another error is how two dead paths loop.
-	 *
 	 * @param {Array} message The 7-field positional message; TO is peeled in place.
 	 */
 	fill( message ) {
@@ -156,23 +149,6 @@ export class RouterNode extends TimerNode {
 
 		const target = Core.node( head );
 		if ( null === target ) {
-			this.setState(
-				'NOT_AVAILABLE',
-				[
-					'NODE',
-					head,
-					'TYPE',
-					message[ TYPE ],
-					'FROM',
-					message[ FROM ],
-					'TO',
-					to,
-					'ID',
-					message[ ID ],
-					'KEY',
-					message[ KEY ],
-				].join( ' ' )
-			);
 			if ( message[ TYPE ] & TM_ERROR ) {
 				return;
 			}
@@ -186,7 +162,7 @@ export class RouterNode extends TimerNode {
 				err[ VALUE ] = 'NOT_AVAILABLE\n';
 				this.fill( err );
 			}
-			this.dropMessage( message, 'NOT_AVAILABLE', head );
+			this.dropMessage( message, 'NOT_AVAILABLE' );
 			return;
 		}
 		message[ TO ] = rest;
@@ -413,11 +389,12 @@ export class RouterNode extends TimerNode {
 	}
 
 	/**
-	 * The three registration channels the base constructor seeds, and the only
+	 * The two registration channels the base constructor seeds, and the only
 	 * names `register()` accepts here: TIMER for the hitchhiking pollers this
-	 * node fires, NOT_AVAILABLE for route-miss watchers, and FIRE inherited
-	 * from `TimerNode`'s declaration — the Router's `fireCb()` runs
-	 * `notifyTimer()` in place of `fire()`, so nothing notifies FIRE here.
+	 * node fires, and FIRE inherited from `TimerNode`'s declaration — the
+	 * Router's `fireCb()` runs `notifyTimer()` in place of `fire()`, so
+	 * nothing notifies FIRE here. A route miss publishes no state at all; the
+	 * bounce back along FROM is what reports it.
 	 *
 	 * Nothing else is declared because nothing else reads it: the Router is
 	 * placed by `mountExospine` and never listed in `includeNodes`, so no
@@ -427,6 +404,6 @@ export class RouterNode extends TimerNode {
 	 * @return {{registrations: string[]}} The node schema.
 	 */
 	static nodeSchema() {
-		return { registrations: [ 'FIRE', 'TIMER', 'NOT_AVAILABLE' ] };
+		return { registrations: [ 'FIRE', 'TIMER' ] };
 	}
 }

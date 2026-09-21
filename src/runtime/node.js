@@ -427,14 +427,8 @@ export class Node {
 	 *
 	 * @param {Array}  message The 7-field positional message being discarded.
 	 * @param {string} error   Reason; `NOT_AVAILABLE` prints without a WARNING.
-	 * @param {string} [node]  The node the drop turned on, where that is not the
-	 *                         whole TO: the Router passes the head that resolved
-	 *                         to nothing, since `to:` carries the whole path
-	 *                         asked for. Tachikoma reads that off the bounce's
-	 *                         FROM instead, which our HTTP_Out needs for its
-	 *                         loop guard.
 	 */
-	dropMessage( message, error, node = '' ) {
+	dropMessage( message, error ) {
 		const type = message[ TYPE ];
 		const labels = typeLabels( type );
 		const typeStr = labels.length ? labels.join( '|' ) : 'TYPE_UNKNOWN';
@@ -444,9 +438,6 @@ export class Node {
 				? `${ error } - `
 				: `WARNING: ${ error } - `;
 		const parts = [ `${ prefix }${ typeStr }` ];
-		if ( '' !== node ) {
-			parts.push( `node: ${ node }` );
-		}
 		if ( '' !== message[ FROM ] ) {
 			parts.push( `from: ${ message[ FROM ] }` );
 		}
