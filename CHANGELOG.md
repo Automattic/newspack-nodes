@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.65.9] - 2026-09-21
+
+### Fixed
+
+- **`locate_by()` absorbs an append instead of discarding the memo.** 2.65.8
+  discarded whole on any extent change, which is correct and costs a re-walk of
+  a million-line index every flush — and the process appending to a partition is
+  the one reading it, so `Flame_Builder_Node` paid that on every rehydrate. Pure
+  growth is now walked from the memo's own boundary: only the appended bytes are
+  read, newest segment first and backwards within each, so the first sighting of
+  a key in the delta is its newest record and the delta wins outright over what
+  the memo holds. The newest-first answer 2.65.8 restored is preserved.
+  - The absorb is bounded by the keys the memo can ANSWER — those it has already
+    walked, plus the ones this call asked for. Recording every key the delta
+    names would grow the memo with the PARTITION rather than with the query,
+    which is the cost `MAX_LOCATOR_MEMO_KEYS` exists to bound; a segment first
+    seen after a rotation is absorbed from offset zero, so one call could
+    otherwise take in a whole segment.
+  - Growth is measured on each index's SIZE **and INODE**. Size alone reads a
+    segment replaced at the same id as an append and then serves a locator into
+    whatever now occupies those bytes. (A filesystem that recycles an inode on
+    an immediate unlink-and-recreate — ext4 and the container overlay both do —
+    defeats the check; it guards a file swapped out, not bytes moved under one.)
+  - A delta segment that cannot be opened discards the memo. Skipping it while
+    the extent advanced left the memo permanently stale for those bytes.
+
 ## [2.65.8] - 2026-09-21
 
 ### Fixed

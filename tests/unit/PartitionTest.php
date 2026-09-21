@@ -4265,6 +4265,146 @@ class PartitionTest extends TestCase {
 		);
 	}
 
+	/**
+	 * A growth is ABSORBED, not discarded: only the appended bytes are read.
+	 *
+	 * The process appending to a partition is the one reading it, so
+	 * discarding on every flush made the flame-builder re-walk a million-line
+	 * index for keys it had already resolved. Walking only what arrived keeps
+	 * the answer newest-first — the first time a key appears in the delta is
+	 * its newest record, and everything in the delta is newer than everything
+	 * before it — while costing the appended lines rather than the index.
+	 */
+	public function test_a_growth_reads_only_the_lines_it_added(): void {
+		$p     = $this->indexed_partition( 'delta', 6 );
+		$lines = 0;
+		$parse = static function ( string $line ) use ( &$lines ): ?array {
+			++$lines;
+			return self::unpack_index_line( $line );
+		};
+
+		$p->locate_by( $parse, [ 'k1' ] );
+		$this->assertGreaterThan( 1, $lines, 'the first resolve walks the index' );
+
+		$this->write_keyed( $p, 'k9', 'appended' );
+		$p->flush();
+
+		$lines = 0;
+		$found = $p->locate_by( $parse, [ 'k1', 'k9' ] );
+
+		$this->assertArrayHasKey( 'k1', $found, 'the older key is still answered' );
+		$this->assertArrayHasKey( 'k9', $found, 'and the appended one is found' );
+		$this->assertLessThanOrEqual( 2, $lines, 'only the appended lines are read' );
+	}
+
+	/** The memo's size, by key, straight off the static slot. */
+	private function memo_size( Partition_Node $p ): int {
+		$prop  = new \ReflectionProperty( Partition_Node::class, 'locator_cache' );
+		$cache = $prop->getValue();
+		$dir   = ( new \ReflectionMethod( Partition_Node::class, 'partition_dir' ) )->invoke( $p );
+		return \count( $cache[ $dir ]['found'] ?? [] );
+	}
+
+	/**
+	 * A growth is absorbed for the keys the memo can ANSWER, never for every
+	 * key the delta names. `$wanted` is required so the table grows with the
+	 * query rather than the partition — an absorb that ingested the delta
+	 * whole would put that back, and a segment first seen after a rotation is
+	 * absorbed from offset zero, so one call could take in a whole segment.
+	 */
+	public function test_a_growth_absorbs_only_keys_the_memo_answers(): void {
+		$p     = $this->indexed_partition( 'bounded', 1 );
+		$parse = static fn ( string $line ): ?array => self::unpack_index_line( $line );
+
+		$p->locate_by( $parse, [ 'k1' ] );
+		$this->assertSame( 1, $this->memo_size( $p ) );
+
+		for ( $i = 0; $i < 20; $i++ ) {
+			$this->write_keyed( $p, 'z' . $i, 'noise' );
+		}
+		$p->flush();
+		$p->locate_by( $parse, [ 'k1' ] );
+
+		$this->assertSame(
+			1,
+			$this->memo_size( $p ),
+			'twenty unrelated appends are not twenty locators'
+		);
+	}
+
+	/**
+	 * A delta spanning a ROTATION is still newest-first. `absorb_growth()`
+	 * walks segments in descending id, so a key rewritten into the new segment
+	 * must beat the copy the memo already holds from the old one — the case a
+	 * within-segment test cannot reach, because the ordering there is the
+	 * backward read rather than the segment order.
+	 */
+	public function test_a_growth_across_a_rotation_answers_from_the_newer_segment(): void {
+		$p = new Partition_Node();
+		// 200-byte segments: the second keyed write lands in a new segment.
+		$p->arguments( [ "{$this->tmp}.rotated", 200 ] );
+		$p->void_warranty();
+		$p->with_index(
+			static fn ( array $message, array $position ): string =>
+				\str_pad( Core::as_string( $message[ Message::KEY ], '' ), 8 )
+				. \str_pad( (string) $position['offset'], 10, '0', STR_PAD_LEFT )
+				. \str_pad( (string) $position['length'], 8, '0', STR_PAD_LEFT )
+		);
+		$parse = static fn ( string $line ): ?array => self::unpack_index_line( $line );
+
+		// The memo is built BEFORE either k1 exists, so both land in one delta.
+		$this->write_keyed( $p, 'seed', 'x' );
+		$p->flush();
+		$this->assertSame( [], $p->locate_by( $parse, [ 'k1' ] ) );
+
+		$this->write_keyed( $p, 'k1', \str_repeat( 'first ', 25 ) );
+		$p->flush();
+		$this->write_keyed( $p, 'k1', \str_repeat( 'second ', 25 ) );
+		$p->flush();
+		$found = $p->locate_by( $parse, [ 'k1' ] );
+
+		$this->assertGreaterThan( 0, $found['k1'][0] ?? -1, 'the delta spans a rotation' );
+		$this->assertSame(
+			\str_repeat( 'second ', 25 ),
+			$p->read_many( [ 'k1' => $found['k1'] ] )['k1'][ Message::VALUE ] ?? null,
+			'the newer segment wins the absorb'
+		);
+	}
+
+	/**
+	 * A segment REPLACED at the same id is not growth. Comparing sizes alone
+	 * reads a wiped-and-refilled directory as an append, and every locator
+	 * into it then addresses whatever now occupies those bytes.
+	 *
+	 * The replacement is renamed into place, which is both the realistic shape
+	 * and the one the identity check can see. An unlink followed immediately by
+	 * a create at the same path RECYCLES the inode on ext4 and on the container
+	 * overlay alike, so identity is a guard against a file swapped out, not a
+	 * proof that the bytes under an unchanged inode never moved.
+	 */
+	public function test_a_segment_replaced_at_the_same_id_discards_the_memo(): void {
+		$p     = $this->indexed_partition( 'replaced', 2 );
+		$parse = static fn ( string $line ): ?array => self::unpack_index_line( $line );
+
+		$first = $p->locate_by( $parse, [ 'k1' ] );
+		$this->assertArrayHasKey( 'k1', $first );
+
+		// Same id, same size, different records underneath: k1's line now
+		// carries the offset that used to be k2's.
+		$dir = ( new \ReflectionMethod( Partition_Node::class, 'partition_dir' ) )->invoke( $p );
+		$idx = "{$dir}/0.idx";
+		$old = (string) \file_get_contents( $idx );
+		\file_put_contents( "{$idx}.new", \strtr( $old, [ 'k1' => 'q1', 'k2' => 'k1' ] ) );
+		\rename( "{$idx}.new", $idx );
+
+		$again = $p->locate_by( $parse, [ 'k1' ] );
+		$this->assertNotSame(
+			$first['k1'],
+			$again['k1'] ?? null,
+			'a replaced segment is not an append'
+		);
+	}
+
 	/** A miss is re-answered after an append: the key may have arrived. */
 	public function test_an_append_re_answers_a_key_that_was_absent(): void {
 		$p     = $this->indexed_partition( 'miss', 1 );
