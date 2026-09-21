@@ -143,10 +143,12 @@ describe( 'VaultAdmin', () => {
 		}
 	} );
 
+	// The shared Modal portals to the body, so the dialog is outside RTL's own
+	// container: `baseElement` is what the returned queries already search.
 	function mount() {
 		const r = render( <VaultAdmin /> );
 		mounted.push( r );
-		return r;
+		return { ...r, container: r.baseElement };
 	}
 
 	// @longform The row shows the work while a verb about it is outstanding —
