@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **One portal host, `ModalPortal`, for every dialog that leaves the tree.** The topology console's `ModalShell` had grown its own copy — same three skin classes, same `display: contents`, same document guard, same body target — and the shared `Modal` was about to make it two spellings of one contract. Both render through the export now; each keeps its own backdrop and geometry.
 - **A shared modal escapes whatever stacking context its caller sits in.** `Modal` rendered in place, so its backdrop's z-index ranked only against its siblings — and a dashboard shell is `position: fixed; z-index: 99`. A dialog summoned over a `@wordpress/components` modal, which portals to the body at 100000, therefore could not cover it however high it raised itself: the Event Logger's assembled brief was painted under the request detail it was asked from, and looked like an ask that never answered. It portals to the body now, on a host wearing the skin classes — the tokens resolve at `<html>`, but the type and colour rules key off those names.
 
 ## [2.63.3] - 2026-09-21
