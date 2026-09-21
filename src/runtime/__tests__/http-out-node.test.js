@@ -642,13 +642,12 @@ describe( 'HttpOut — a per-batch claim', () => {
 } );
 
 /**
- * A transport must not carry an error OUTWARD. The far side answers an
- * unroutable error with an error of its own, addressed back down the FROM
- * trail — and neither end stops, so the two POST at each other forever.
+ * An error crosses the wire like anything else, a Router bounce included: a
+ * remote sender learns its message never routed only by receiving one.
  *
- * The Router already refuses to bounce an error it cannot route ("already an
- * error, which would loop"); this is the same rule at the wire. Reproduced
- * live: `_router` NOT_AVAILABLE bounces at ~20 POSTs/second.
+ * The loop this once guarded against is closed where the bounce is born —
+ * `RouterNode.fill()` returns on a message that is already an error rather
+ * than minting a second one, so the far side answers a bounce with nothing.
  */
 describe( 'outbound errors', () => {
 	beforeEach( () => {
@@ -660,7 +659,7 @@ describe( 'outbound errors', () => {
 		Core.reset();
 	} );
 
-	it( 'never POSTs a Router bounce', async () => {
+	it( 'POSTs a Router bounce like any message', async () => {
 		const { node, postBatch } = makeNode();
 		const bounce = newMessage();
 		bounce[ TYPE ] = TM_ERROR;
@@ -671,11 +670,11 @@ describe( 'outbound errors', () => {
 		node.fill( bounce );
 		await Promise.resolve();
 
-		expect( postBatch ).not.toHaveBeenCalled();
+		expect( postBatch ).toHaveBeenCalledTimes( 1 );
 	} );
 
 	// An operator can set the error flag deliberately from Compose; that is a
-	// command like any other, and only the Router's own bounce loops.
+	// command like any other, and so is a bounce.
 	it( 'still POSTs an operator-composed error', async () => {
 		const { node, postBatch } = makeNode();
 		const composed = newMessage();

@@ -286,7 +286,7 @@ class Router_Node extends Timer_Node {
 			$err                       = Message::new_message();
 			$err[ Message::TYPE ]      = Message::TM_ERROR;
 			$err[ Message::TIMESTAMP ] = Core::$now;
-			$err[ Message::FROM ]      = $this->name;
+			$err[ Message::FROM ]      = $message[ Message::TO ];
 			$err[ Message::TO ]        = $message[ Message::FROM ];
 			$err[ Message::ID ]        = $message[ Message::ID ];
 			$err[ Message::VALUE ]     = "{$error}\n";

@@ -130,11 +130,11 @@ class RouterTest extends TestCase {
 		$this->assertSame( Message::TM_ERROR, $err[ Message::TYPE ] );
 		$this->assertSame( "NOT_AVAILABLE\n", $err[ Message::VALUE ] );
 		$this->assertSame( '', $err[ Message::TO ] );
-		// The Router names ITSELF as the sender. Stamping the missing address
-		// here instead would read well and disarm `HTTP_Out`'s loop guard,
-		// which is what tells a self-minted bounce from a forwarded error;
-		// the address rides the audit line's `node:` instead.
-		$this->assertSame( '_router', $err[ Message::FROM ] );
+		// Tachikoma's own addressing: `$response->[FROM] = $message->[TO]`.
+		// Nothing keys on the Router as the sender any more — `HTTP_Out` used
+		// to, to tell a self-minted bounce from a forwarded error, and that
+		// guard is gone because `send_error()` already refuses to answer one.
+		$this->assertSame( 'nonexistent', $err[ Message::FROM ] );
 	}
 
 	/**

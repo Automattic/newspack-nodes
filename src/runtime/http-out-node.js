@@ -6,10 +6,10 @@
  * that Message verbatim, or buffers it while locked so one Router TIMER tick's
  * emissions ride out in ONE request.
  *
- * On the way out it inspects the message for one thing, a Router bounce that
- * must not cross the wire; everything else goes as handed. The worker-attach
- * `connect_worker_input` bundling lives in RemoteIpc, which decides what to
- * send and asks `onceInBatch()` whether the open batch already carries it.
+ * On the way out it inspects nothing: every message goes as handed. The
+ * worker-attach `connect_worker_input` bundling lives in RemoteIpc, which
+ * decides what to send and asks `onceInBatch()` whether the open batch
+ * already carries it.
  *
  * Intake: a synchronous reply to a request-scope-interpreted command comes back
  * as a packed Message in the POST body. It goes into `this.sink`, which routes
@@ -125,27 +125,16 @@ export class HttpOutNode extends Node {
 	 * POST the routed Message (or buffer it while locked); feed any synchronous
 	 * reply back into the sink.
 	 *
-	 * A Router BOUNCE is never POSTed. The far side answers an error it cannot
-	 * route with an error of its own, addressed back down the FROM trail, and
-	 * neither end stops — the two POST at each other until the tab closes. The
-	 * Router refuses to bounce an error it cannot route for exactly this
-	 * reason; this is that rule at the wire, where the loop crosses a network
-	 * instead of a call stack.
-	 *
-	 * Keyed on the Router as the SENDER, not on TM_ERROR alone: an operator
-	 * composing a message may set the error flag deliberately, and that is a
-	 * command like any other. A dropped bounce still reaches the operator as an
-	 * audit line, and inbound errors are untouched. That key is why
-	 * `RouterNode.fill()` stamps the bounce with the Router's own name rather
-	 * than the address that went missing, which rides the audit line's `node:`.
+	 * An error crosses the wire like anything else, a Router bounce included:
+	 * a remote sender learns its message never routed only by receiving one.
+	 * The loop this once guarded against is closed where the bounce is born —
+	 * `RouterNode.fill()` returns on a message that is already an error rather
+	 * than minting a second one, so the far side answers a bounce with nothing.
 	 *
 	 * @param {Array} message Positional Message; TO already routed.
 	 */
 	fill( message ) {
 		this.counter++;
-		if ( message[ TYPE ] & TM_ERROR && names.ROUTER === message[ FROM ] ) {
-			return;
-		}
 		if ( this.locked ) {
 			this.buffer.push( message );
 			return;

@@ -180,7 +180,7 @@ export class RouterNode extends TimerNode {
 				const err = newMessage();
 				err[ TYPE ] = TM_ERROR;
 				err[ TIMESTAMP ] = Core.now();
-				err[ FROM ] = this.name;
+				err[ FROM ] = message[ TO ];
 				err[ TO ] = message[ FROM ];
 				err[ ID ] = message[ ID ];
 				err[ VALUE ] = 'NOT_AVAILABLE\n';

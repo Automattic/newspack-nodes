@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.65.3] - 2026-09-21
+
+### Fixed
+
+- **A Router bounce reaches the sender again, including a remote one.**
+  `HTTP_Out_Node::fill()` refused to POST any message carrying `TM_ERROR` from
+  the Router, on the reading that the far side would answer it with an error of
+  its own and the two would loop. It will not: `Router_Node::send_error()`
+  returns on a message that is already `TM_ERROR`, so a bounce is answered with
+  nothing and stops after one hop — Tachikoma closes the loop the same way, in
+  `send_error` and nowhere else. The guard at the wire only denied a remote
+  sender the one signal that its message never routed. Both the PHP and JS
+  halves drop it, and the defensive `TYPE`/`FROM` coercions with it.
+
+### Changed
+
+- **A bounce now names the address that went missing as its `FROM`**, where it
+  named the Router itself. That stamp existed so `HTTP_Out_Node` could tell a
+  self-minted bounce from a forwarded error; with that guard gone, the sender
+  field goes back to Tachikoma's `$response->[FROM] = $message->[TO]`, which
+  the `send_error()` docblock already described. A recipient learns which
+  destination was missing from the bounce rather than only from the published
+  `NOT_AVAILABLE` state. Both halves now agree, so the PHP/JS divergence the
+  architecture guide recorded here is gone.
+
 ## [2.65.2] - 2026-09-21
 
 ### Removed
