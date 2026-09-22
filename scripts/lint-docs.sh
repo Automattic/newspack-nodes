@@ -62,5 +62,17 @@ if [ -n "$floor" ]; then
 	[ -n "$hits" ] && report "substrate floor in prose disagrees with the loader ($floor):"$'\n'"$hits"
 fi
 
+# 7. No per-rule diagnostic is on by default where a plugin declares rules:
+# event-logger-nodes' Rule declares every flag false, so prose saying otherwise
+# describes a default that no longer exists. A plugin without that class has
+# nothing to match and passes.
+if [ -f includes/class-rule.php ]; then
+	hits=$(grep -rniE '(on by default|absent means on|default on\b)' README.md AGENTS.md docs .claude/skills includes/class-rule.php \
+		--include='*.md' --include='*.php' 2>/dev/null | grep -v '^docs/upgrading.md:' || true)
+	[ -n "$hits" ] && report "a diagnostic described as on by default; Rule declares every one false:"$'\n'"$hits"
+	hits=$(grep -rnE '^\| .(log_queries|log_http|log_plugin_loads|trace_hooks). \| .true.' docs --include='*.md' 2>/dev/null || true)
+	[ -n "$hits" ] && report "a rule-field table gives a diagnostic a true default:"$'\n'"$hits"
+fi
+
 [ "$fail" -eq 0 ] && printf '\342\234\223 lint-docs: docs in sync with the runtime\n' >&2
 exit "$fail"
