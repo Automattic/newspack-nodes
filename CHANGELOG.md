@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.65.11] - 2026-09-22
+
 ### Fixed
 
 - **A late-seated source stays inside its own band.** The console laid a
