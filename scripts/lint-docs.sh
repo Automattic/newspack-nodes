@@ -78,10 +78,20 @@ fi
 # AGENTS.md's decision table; a plugin whose decisions are not numbered this
 # way has nothing to match and passes.
 if [ -f docs/architecture-decisions.md ] && [ -f AGENTS.md ]; then
-	missing=$( { grep -oE '^## Decision [0-9]+:' docs/architecture-decisions.md || true; } | grep -oE '[0-9]+' | while read -r n; do
+	missing=$( { grep -oE '^## Decision [0-9]+:' docs/architecture-decisions.md || true; } | { grep -oE '[0-9]+' || true; } | while read -r n; do
 		grep -qE "^\| $n \| " AGENTS.md || printf 'decision %s\n' "$n"
 	done)
 	[ -n "$missing" ] && report "decisions with no row in AGENTS.md's table:"$'\n'"$missing"
+fi
+
+# 9. Instrumentation's gate is started_instance(): has_instance() is the test
+# API, and prose saying instrumentation or a callback asks it — by name after
+# the verb, or as "this" beside it — names a gate the callbacks no longer ask.
+# A plugin without the logger has nothing to match and passes.
+if [ -f includes/class-log-manager.php ]; then
+	hits=$(grep -rn 'has_instance' README.md AGENTS.md docs .claude/skills includes \
+		--include='*.md' --include='*.php' 2>/dev/null | grep -iE '(instrumentation|callbacks?) asks? (this\b|[^.;]*has_instance)' || true)
+	[ -n "$hits" ] && report "instrumentation described as asking has_instance(); it asks started_instance():"$'\n'"$hits"
 fi
 
 [ "$fail" -eq 0 ] && printf '\342\234\223 lint-docs: docs in sync with the runtime\n' >&2
