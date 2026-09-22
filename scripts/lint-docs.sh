@@ -19,6 +19,14 @@
 #      always pairs them; the old 3-arg form did not).
 #   5. newspack_event_logger_nodes_rules_schema_version - deleted.
 #   6. A consumer's substrate version floor matches what its loader enforces.
+#   7. No per-rule diagnostic described as on by default where Rule declares
+#      every one false.
+#   8. Every numbered decision in docs/architecture-decisions.md has its row
+#      in AGENTS.md's decision table.
+#   9. No prose saying instrumentation or a callback asks has_instance(); the
+#      callbacks ask started_instance(), and has_instance() is the test API.
+#      Narrow by design: it matches the two phrasings that drifted, not a
+#      synonym for "asks" or a named callback as the subject.
 
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
@@ -85,12 +93,12 @@ if [ -f docs/architecture-decisions.md ] && [ -f AGENTS.md ]; then
 fi
 
 # 9. Instrumentation's gate is started_instance(): has_instance() is the test
-# API, and prose saying instrumentation or a callback asks it — by name after
-# the verb, or as "this" beside it — names a gate the callbacks no longer ask.
-# A plugin without the logger has nothing to match and passes.
+# API, and prose saying instrumentation or a callback asks it — the name right
+# after the verb, or "this" beside it — names a gate the callbacks no longer
+# ask. A plugin without the logger has nothing to match and passes.
 if [ -f includes/class-log-manager.php ]; then
 	hits=$(grep -rn 'has_instance' README.md AGENTS.md docs .claude/skills includes \
-		--include='*.md' --include='*.php' 2>/dev/null | grep -iE '(instrumentation|callbacks?) asks? (this\b|[^.;]*has_instance)' || true)
+		--include='*.md' --include='*.php' 2>/dev/null | grep -v '^docs/upgrading.md:' | grep -iE '(instrumentation|callbacks?) asks? (this\b|`?(Log_Manager::)?has_instance)' || true)
 	[ -n "$hits" ] && report "instrumentation described as asking has_instance(); it asks started_instance():"$'\n'"$hits"
 fi
 
