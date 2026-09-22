@@ -36,8 +36,9 @@
  * sweeps put a card on the right side of it, and a last pass (`clearWires`)
  * nudging any card off the span such a wire is drawn across. A source whose
  * successors all sit in one column, two or more columns on, has a column to
- * choose, so its wires take no placeholder: `seatSources` seats it last, once
- * its block is laid out. Where that column lies left of the anchor, it waits
+ * choose, so its wires take no placeholder: `seatSources` seats it inside its
+ * band, growing the band downward so its height covers the seat, then again
+ * once its block is laid out. Where that column lies left of the anchor, it waits
  * there for the row spread, so it straddles a card fanning to the same
  * column instead of taking the nearest row that card leaves free.
  *
@@ -599,8 +600,18 @@ const clearWires = ( ids, wires, col, row, others = ids ) => {
  * @param {Array<[string, string]>}      wires   Long wires, extended in place by each seated source's own.
  * @param {Object<string,number>}        col     Columns, mutated in place.
  * @param {Object<string,number>}        row     Rows, mutated in place.
+ * @param {number}                       [floor] Topmost row a seat may take; a band's own top is fixed by the stack.
  */
-const seatSources = ( sources, next, hubs, cards, wires, col, row ) => {
+const seatSources = (
+	sources,
+	next,
+	hubs,
+	cards,
+	wires,
+	col,
+	row,
+	floor = -Infinity
+) => {
 	const rows = cards.map( ( id ) => row[ id ] );
 	// Half-row steps that walk a search past every card in the block.
 	const reach = 2 * ( Math.max( ...rows ) - Math.min( ...rows ) ) + 8;
@@ -635,6 +646,7 @@ const seatSources = ( sources, next, hubs, cards, wires, col, row ) => {
 		}
 		const want = snapHalf( midMinMax( fed.map( ( k ) => row[ k ] ) ) );
 		const free = ( c, r ) =>
+			r >= floor - 1e-9 &&
 			! near( id, c, r - 1, r + 1 ) &&
 			! ( across[ c ] ?? [] ).some( ( w ) => onWire( w, r ) );
 		// Cards between the seat and a successor, on that wire.
@@ -1580,6 +1592,7 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 			let next = 0;
 			let width = 0;
 			for ( const members of bands ) {
+				const inBand = restrictAdjacency( members, succ );
 				const band =
 					members.length === 1
 						? {
@@ -1590,10 +1603,32 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 						  }
 						: layoutComponent(
 								members,
-								restrictAdjacency( members, succ ),
+								inBand,
 								restrictAdjacency( members, pred ),
 								unfed
 						  );
+				// @longform A late source seats inside its band before the
+				// band below stacks against it: laid out with no footprint,
+				// the row its band left it was the one row between two
+				// packed bands, and where a flat wire held that row the
+				// block-level seat walked past the next band. Seated here,
+				// the band's height covers it, and it grows downward only:
+				// the band's top is the row the stack gave it. The wires it
+				// lays stay out of the band's, which the block-level pass
+				// reads before it reseats the source against every wire the
+				// block holds, or the source's own wire would refuse it.
+				if ( band.deferred.length ) {
+					seatSources(
+						band.deferred,
+						inBand,
+						hubSet,
+						members,
+						[ ...band.wires ],
+						band.col,
+						band.row,
+						0
+					);
+				}
 				let height = 0;
 				for ( const id of members ) {
 					bc[ id ] = atCol + band.col[ id ];

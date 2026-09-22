@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A late-seated source stays inside its own band.** The console laid a
+  source that feeds one column two or more on with no footprint and seated
+  it once the block was packed, so with the next band stacked one row
+  beneath and a flat wire through the one row between, it was seated below
+  the next band. Each band now seats its late sources before its height is
+  read, growing downward only, and the block-level pass reseats them
+  against every wire the block holds.
+
 ## [2.65.10] - 2026-09-21
 
 ### Fixed
