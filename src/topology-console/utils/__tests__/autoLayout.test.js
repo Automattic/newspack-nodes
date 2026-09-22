@@ -1694,6 +1694,55 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 		).toEqual( [] );
 	} );
 
+	it( 'seats a late source inside its own band, above the band stacked beneath', () => {
+		// The overview station: url-detail's timer feeds only its fetcher, two
+		// columns on, so it is seated last. Its band packed one row above the
+		// url-lookup band, and the one row between them lay on the tee's flat
+		// wire to the fetcher, so the timer was seated below the NEXT band.
+		const edges = [];
+		for ( const s of [ 'a', 'b', 'url-lookup' ] ) {
+			edges.push(
+				{ from: `${ s }:timer`, to: `${ s }:tee` },
+				{ from: `${ s }:tee`, to: `${ s }:fetch` },
+				{ from: `${ s }:in`, to: `${ s }:result` },
+				{ from: `${ s }:in`, to: `${ s }:fetch` },
+				{ from: `${ s }:fetch`, to: '_shell' }
+			);
+		}
+		edges.push(
+			{ from: 'url-detail:in', to: 'url-detail:transform' },
+			{ from: 'url-detail:transform', to: 'url-detail:view' },
+			{ from: 'url-detail:in', to: 'url-detail:fetch' },
+			{ from: 'url-detail:timer', to: 'url-detail:fetch' },
+			{ from: 'url-detail:fetch', to: '_shell' }
+		);
+		const ids = [
+			...new Set( edges.flatMap( ( e ) => [ e.from, e.to ] ) ),
+		];
+		const g = gridOf( { nodes: ids.map( ( id ) => ( { id } ) ), edges } );
+
+		expect( g[ 'url-detail:timer' ].col ).toBe(
+			g[ 'url-detail:fetch' ].col - 1
+		);
+		expect( g[ 'url-detail:timer' ].row ).toBeGreaterThan(
+			g[ 'url-detail:transform' ].row
+		);
+		for ( const id of [
+			'url-lookup:timer',
+			'url-lookup:tee',
+			'url-lookup:in',
+		] ) {
+			expect( g[ 'url-detail:timer' ].row ).toBeLessThan( g[ id ].row );
+		}
+		// Downward only: the band's top is the row the stack gave it.
+		const top = Math.min(
+			...[ 'in', 'transform', 'view', 'fetch' ].map(
+				( k ) => g[ `url-detail:${ k }` ].row
+			)
+		);
+		expect( g[ 'url-detail:timer' ].row ).toBeGreaterThanOrEqual( top );
+	} );
+
 	it( "runs a consumer band's source wire back to its hub clear of the band", () => {
 		// k4src feeds hub0 and a node in the band hub0 feeds, so its wire runs
 		// back across that band. Its legal columns are 5 to 8, and the fewest
