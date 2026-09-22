@@ -68,10 +68,20 @@ fi
 # nothing to match and passes.
 if [ -f includes/class-rule.php ]; then
 	hits=$(grep -rniE '(on by default|absent means on|default on\b)' README.md AGENTS.md docs .claude/skills includes/class-rule.php \
-		--include='*.md' --include='*.php' 2>/dev/null | grep -v '^docs/upgrading.md:' || true)
+		--include='*.md' --include='*.php' --include='*.html' 2>/dev/null | grep -v '^docs/upgrading.md:' || true)
 	[ -n "$hits" ] && report "a diagnostic described as on by default; Rule declares every one false:"$'\n'"$hits"
 	hits=$(grep -rnE '^\| .(log_queries|log_http|log_plugin_loads|trace_hooks). \| .true.' docs --include='*.md' 2>/dev/null || true)
 	[ -n "$hits" ] && report "a rule-field table gives a diagnostic a true default:"$'\n'"$hits"
+fi
+
+# 8. Every numbered decision in docs/architecture-decisions.md has its row in
+# AGENTS.md's decision table; a plugin whose decisions are not numbered this
+# way has nothing to match and passes.
+if [ -f docs/architecture-decisions.md ] && [ -f AGENTS.md ]; then
+	missing=$( { grep -oE '^## Decision [0-9]+:' docs/architecture-decisions.md || true; } | grep -oE '[0-9]+' | while read -r n; do
+		grep -qE "^\| $n \| " AGENTS.md || printf 'decision %s\n' "$n"
+	done)
+	[ -n "$missing" ] && report "decisions with no row in AGENTS.md's table:"$'\n'"$missing"
 fi
 
 [ "$fail" -eq 0 ] && printf '\342\234\223 lint-docs: docs in sync with the runtime\n' >&2
