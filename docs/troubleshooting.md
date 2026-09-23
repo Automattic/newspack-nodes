@@ -213,7 +213,7 @@ That pass considers only readers whose descriptor carries a non-empty `offsetlog
 
 **`wp nodes cli` runs at 100% CPU.** Readline was installed in a non-TTY context. The `posix_isatty( STDIN )` gate makes that unreachable, so treat a recurrence as a regression in `CLI_Command::terminal()`, which resolves the stdin stream and the readline policy once for the whole session.
 
-**A command typed in the browser console answers `[no sse_pid yet] retry once CONNECTED`.** The statement addressed a worker-scoped TO while no SSE session was attached, so [`OutgoingGateNode`](../src/topology-console/core/outgoingGate.js)'s guard refused it in the browser and nothing left the page. The guard runs before the send stamps anything, which is why the identical statement can simply be resent once the stream reads CONNECTED — this is neither a network failure nor a refusal from the worker.
+**A command typed in the browser console answers `[no SSE session yet] retry once CONNECTED`.** The statement addressed a worker-scoped TO while no SSE session was attached, so [`OutgoingGateNode`](../src/topology-console/core/outgoingGate.js)'s guard refused it in the browser and nothing left the page. The guard runs before the send stamps anything, which is why the identical statement can simply be resent once the stream reads CONNECTED — this is neither a network failure nor a refusal from the worker.
 
 **A worker pegs 100% CPU with no traffic, or is slow, or recycles.**
 

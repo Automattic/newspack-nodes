@@ -74,8 +74,10 @@ function makeLink( subscribe = 'raw-logs' ) {
 
 // Deliberately exceeds Number.MAX_SAFE_INTEGER: lease owners stay strings.
 const LEASE_OWNER = '9007199254740995';
-const connectedRaw = ( { pid = 4242, slot = 3, owner = LEASE_OWNER } = {} ) =>
-	`PID ${ pid } SLOT ${ slot } OWNER ${ owner } ` +
+// The handle jest.setup.js issues every test's command session under.
+const HARNESS_SESSION = 'e2e11111e2e22222e2e33333e2e44444';
+const connectedRaw = ( { slot = 3, owner = LEASE_OWNER } = {} ) =>
+	`SESSION ${ HARNESS_SESSION } SLOT ${ slot } OWNER ${ owner } ` +
 	'SUBSCRIPTIONS raw-logs INTERVAL 2000';
 function dispatchConnected( link, opts ) {
 	const m = newMessage();
@@ -405,7 +407,6 @@ describe( 'RemoteLinkNode', () => {
 		const { link } = makeLink();
 		link.connect();
 		dispatchConnected( link, {
-			pid: 7,
 			slot: 3,
 			owner: LEASE_OWNER,
 		} );
@@ -423,7 +424,9 @@ describe( 'RemoteLinkNode', () => {
 		const m = newMessage();
 		m[ TYPE ] = TM_INFO;
 		m[ KEY ] = 'connected';
-		m[ VALUE ] = 'PID 7007 SLOT 7 SUBSCRIPTIONS raw-logs INTERVAL 2000';
+		m[
+			VALUE
+		] = `SESSION ${ HARNESS_SESSION } SLOT 7 SUBSCRIPTIONS raw-logs INTERVAL 2000`;
 
 		FakeEventSource.last.listeners.connected[ 0 ]( {
 			data: JSON.stringify( m ),
@@ -438,11 +441,12 @@ describe( 'RemoteLinkNode', () => {
 		warn.mockRestore();
 	} );
 
-	it( 'delegates pid() to its composed SseIn', () => {
+	it( 'delegates session() to its composed SseIn', () => {
 		const { link } = makeLink();
 		link.connect();
-		dispatchConnected( link, { pid: 4242, slot: 0 } );
-		expect( link.pid() ).toBe( 4242 );
+		dispatchConnected( link, { slot: 0 } );
+		expect( link.session() ).toBe( HARNESS_SESSION );
+		expect( link.pid ).toBeUndefined();
 	} );
 
 	it( 'routes send() out through the shared `_http` with the address intact', () => {
@@ -472,7 +476,7 @@ describe( 'RemoteLinkNode', () => {
 		const { link } = makeLink();
 		link.connect();
 		const hb = Core.node( names.HEARTBEAT );
-		dispatchConnected( link, { pid: 5005, slot: 5 } );
+		dispatchConnected( link, { slot: 5 } );
 		link.close();
 		expect( hb.slot ).toBe( null );
 		expect( FakeEventSource.last.closed ).toBe( true );
@@ -482,12 +486,12 @@ describe( 'RemoteLinkNode', () => {
 		const { link: first } = makeLink( 'completed.p11' );
 		first.name = 'inactive-link-349';
 		first.connect();
-		dispatchConnected( first, { pid: 349, slot: 13 } );
+		dispatchConnected( first, { slot: 13 } );
 
 		const { link: active } = makeLink( 'errors.p17' );
 		active.name = 'active-link-947';
 		active.connect();
-		dispatchConnected( active, { pid: 947, slot: 47 } );
+		dispatchConnected( active, { slot: 47 } );
 		const activeStream = FakeEventSource.last;
 
 		first.close();
@@ -500,13 +504,13 @@ describe( 'RemoteLinkNode', () => {
 		const { link: first } = makeLink( 'completed.p13' );
 		first.name = 'first-link-349';
 		first.connect();
-		dispatchConnected( first, { pid: 349, slot: 13 } );
+		dispatchConnected( first, { slot: 13 } );
 		const firstStream = FakeEventSource.last;
 
 		const { link: latest } = makeLink( 'errors.p47' );
 		latest.name = 'latest-link-947';
 		latest.connect();
-		dispatchConnected( latest, { pid: 947, slot: 47 } );
+		dispatchConnected( latest, { slot: 47 } );
 
 		latest.close();
 
@@ -514,9 +518,9 @@ describe( 'RemoteLinkNode', () => {
 		expect( firstStream.closed ).toBe( false );
 	} );
 
-	it( 'pid() is null before connect (no SseIn yet)', () => {
+	it( 'session() is null before connect (no SseIn yet)', () => {
 		const { link } = makeLink();
-		expect( link.pid() ).toBe( null );
+		expect( link.session() ).toBe( null );
 	} );
 
 	it( 'ensureChildren is idempotent — a second connect reuses the SseIn', () => {
@@ -561,9 +565,9 @@ describe( 'RemoteLinkNode', () => {
 		const seen = [];
 		link.onConnected = ( payload ) => seen.push( payload );
 		link.connect();
-		dispatchConnected( link, { pid: 4242, slot: 3 } );
+		dispatchConnected( link, { slot: 3 } );
 		// The CONNECTED payload, which carries no lease owner.
-		expect( seen ).toEqual( [ 'PID 4242 SLOT 3' ] );
+		expect( seen ).toEqual( [ 'SLOT 3' ] );
 	} );
 
 	it( 'defaults the shared `_http` client from the localized global when none is injected and args carry no baseUrl/nonce', () => {

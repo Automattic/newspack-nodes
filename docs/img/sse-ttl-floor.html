@@ -80,7 +80,7 @@ h2 { font-size:15px; margin:0 0 10px; }
 <div class="two">
   <div class="card">
     <h2>Whose poke it is</h2>
-    <p>The lease a client pokes arrives in the <span class="mono">connected</span> envelope, which carries <span class="mono">SLOT</span> and <span class="mono">OWNER</span> beside the stream's PID and cursors. A browser pokes <span class="mono">workers heartbeat &lt;slot&gt; &lt;owner&gt;</span> from its <span class="mono">_heartbeat</span> node every 15 s (<span class="mono">POKE_INTERVAL_MS</span>), one poke per live lease; a machine pull pokes it from <span class="mono">Remote_Link_Node</span> on the same cadence.</p>
+    <p>The lease a client pokes arrives in the <span class="mono">connected</span> envelope, which carries <span class="mono">SLOT</span> and <span class="mono">OWNER</span> beside the stream's session and cursors. A browser pokes <span class="mono">workers heartbeat &lt;slot&gt; &lt;owner&gt;</span> from its <span class="mono">_heartbeat</span> node every 15 s (<span class="mono">POKE_INTERVAL_MS</span>), one poke per live lease; a machine pull pokes it from <span class="mono">Remote_Link_Node</span> on the same cadence.</p>
     <p><span class="mono">_heartbeat</span> is one per page, not one per stream: each link registers its own lease under its own identity and drops it on close, so a page holding several streams spends several of its identity's slots and refreshes them all in one tick.</p>
     <p>Only an owner-matched poke refreshes; <span class="mono">check()</span> never does. A stream lives exactly as long as its client keeps saying so, however long the connection stays open.</p>
   </div>

@@ -126,10 +126,12 @@ describe( 'augmentWithVirtualEdges', () => {
 				{ id: 'errors', class: 'Partition', verbInvocations: [] },
 			],
 			edges: [],
-			pwd: '_repl/_output/_sse:9/_output',
+			pwd: '_repl/_output/_sse:c0ffee09c0ffee09c0ffee09c0ffee09/_output',
 		};
 		const out = augmentWithVirtualEdges( graph, CLASSES );
 		expect( out.edges.length ).toBe( 1 );
-		expect( out.pwd ).toBe( '_repl/_output/_sse:9/_output' );
+		expect( out.pwd ).toBe(
+			'_repl/_output/_sse:c0ffee09c0ffee09c0ffee09c0ffee09/_output'
+		);
 	} );
 } );

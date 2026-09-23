@@ -244,18 +244,18 @@ export function layoutStorageKey( { mode, editingName, scopeKey } ) {
  * Browser console `status` summary — the JS analogue of the PHP cli's
  * `status_lines`: the SSE session, the cwd, and the worker it mounts.
  *
- * @param {Object}           args
- * @param {?(number|string)} args.ssePid Session pid; null before the SSE handshake completes.
- * @param {string}           args.cwd    Mirrored shell cwd; '' is the local graph.
- * @param {?AttachedWorker}  args.worker Worker the cwd mounts, or null for the local graph.
+ * @param {Object}          args
+ * @param {?string}         args.sseSession Command session the stream carries; null before the SSE handshake completes.
+ * @param {string}          args.cwd        Mirrored shell cwd; '' is the local graph.
+ * @param {?AttachedWorker} args.worker     Worker the cwd mounts, or null for the local graph.
  * @return {string[]} One string per line of the summary.
  */
-export function statusLines( { ssePid, cwd, worker } ) {
-	if ( ! ssePid ) {
+export function statusLines( { sseSession, cwd, worker } ) {
+	if ( ! sseSession ) {
 		return [ 'Browser console — no SSE session (not connected).' ];
 	}
 	return [
-		`Browser console — SSE session ${ ssePid }`,
+		`Browser console — SSE session ${ sseSession }`,
 		`  cwd: ${ cwd || '/' }`,
 		worker
 			? `  attached worker: ${ worker.topology }.p${ worker.partition }`
@@ -303,7 +303,7 @@ export function workerPollPath( cwd, pathOptions ) {
 
 /**
  * Does this destination's reply come back over the stream? True only for an
- * attached-worker TO, whose reply is asynchronous and needs the SSE pid; a
+ * attached-worker TO, whose reply is asynchronous and needs a live stream; a
  * local send answers in-process and needs no session.
  *
  * @param {?string} to Message TO path, or the cwd a send would inherit.
@@ -540,16 +540,18 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	);
 
 	// SSE off in edit mode / off-worker cwd; same detection as poll gate.
-	const { status, ssePid, shell, seedError, outgoing } = useConsoleGraph( {
-		topology,
-		partition,
-		enabled: mode !== 'edit',
-		// One RemoteIpc per active worker, keyed by {topology}.p{N}.
-		workers: pathOptions.filter( ( o ) => parseWorker( o ) ),
-		streamEnabled: null !== workerPollPath( cwd, pathOptions ),
-		debugLevelRef,
-		catalog: phpCatalog,
-	} );
+	const { status, sseSession, shell, seedError, outgoing } = useConsoleGraph(
+		{
+			topology,
+			partition,
+			enabled: mode !== 'edit',
+			// One RemoteIpc per active worker, keyed by {topology}.p{N}.
+			workers: pathOptions.filter( ( o ) => parseWorker( o ) ),
+			streamEnabled: null !== workerPollPath( cwd, pathOptions ),
+			debugLevelRef,
+			catalog: phpCatalog,
+		}
+	);
 	useEffect( () => {
 		const error = seedError || phpCatalog.error || openError;
 		if ( ! error ) {
@@ -1108,18 +1110,19 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		if ( ! outgoing ) {
 			return;
 		}
-		outgoing.sseGuard = ( to ) => ! ( toNeedsSseSession( to ) && ! ssePid );
+		outgoing.sseGuard = ( to ) =>
+			! ( toNeedsSseSession( to ) && ! sseSession );
 		outgoing.beforeSend = ( m ) =>
 			applyComposeFields( m, fieldsRef.current );
 		outgoing.onRefused = () =>
 			appendTranscript( {
 				kind: 'error',
 				text: __(
-					'[no sse_pid yet] retry once CONNECTED',
+					'[no SSE session yet] retry once CONNECTED',
 					'newspack-nodes'
 				),
 			} );
-	}, [ outgoing, ssePid, appendTranscript ] );
+	}, [ outgoing, sseSession, appendTranscript ] );
 
 	const dispatchStatement = useCallback(
 		( statement, fields ) => {
@@ -1157,7 +1160,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	useEffect( () => {
 		const cwdNode = Core.node( names.CWD );
 		if ( cwdNode && cwdNode.target !== cwd ) {
-			// Track the cwd verbatim; a pidless worker cwd's POST no-ops.
+			// Track the cwd verbatim; a sessionless worker cwd's POST no-ops.
 			cwdNode.target = cwd;
 			// A new directory repaints now, not at the end of the cadence.
 			Core.node( names.METADATA )?.markDue();
@@ -1165,19 +1168,19 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		// Keep the Shell's status lines current with the session/cwd.
 		if ( shell ) {
 			shell.statusLines = statusLines( {
-				ssePid,
+				sseSession,
 				cwd,
 				worker: longestWorkerPrefix( cwd, pathOptions ),
 			} );
 		}
-	}, [ shell, mode, ssePid, cwd, pathOptions ] );
+	}, [ shell, mode, sseSession, cwd, pathOptions ] );
 
 	// Tab-completion query, shared with the debug overlay's Inspector.
 	const { requestCompletion, handleShowCandidates } = useCompletion( {
 		cwd,
 		fill: fillCommandInterpreter,
 		append: appendTranscript,
-		skip: () => toNeedsSseSession( cwd ) && ! ssePid,
+		skip: () => toNeedsSseSession( cwd ) && ! sseSession,
 	} );
 
 	// Unquoted ';' splits; a held continuation owns the whole next line.
@@ -1211,7 +1214,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		onDropStage: setPendingDrop,
 		prefix: ( target ) => shell?.prefix( target ),
 		replyFrom: ( node ) => shell?.replyFrom( node ),
-		sseGuard: ( to ) => ! ( toNeedsSseSession( to ) && ! ssePid ),
+		sseGuard: ( to ) => ! ( toNeedsSseSession( to ) && ! sseSession ),
 	} );
 
 	// Route Inspector actions through the shared handler; a REPL one opens it.

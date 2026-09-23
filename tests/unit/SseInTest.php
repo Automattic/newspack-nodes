@@ -148,7 +148,7 @@ class SseInTest extends TestCase {
 		// `msg` branch, so neither may inflate the message counter.
 		[ $node ] = $this->configured_node();
 		$node->process_sse_chunk( "event: heartbeat\ndata: {}\n\n" );
-		$node->process_sse_chunk( $this->connected_frame( 'PID 9007 SLOT 7 OWNER 42424243' ) );
+		$node->process_sse_chunk( $this->connected_frame( 'SLOT 7 OWNER 42424243' ) );
 		$this->assertSame( 0, $node->counter(), 'heartbeat/connected frames do not bump the message counter' );
 	}
 
@@ -257,12 +257,11 @@ class SseInTest extends TestCase {
 		};
 		$this->assertTrue( $node->maybe_connect() );
 
-		$node->process_sse_chunk( $this->connected_frame( 'PID 61781 SLOT 5 OWNER 90210007' ) );
+		$node->process_sse_chunk( $this->connected_frame( 'SLOT 5 OWNER 90210007' ) );
 
 		$this->assertTrue( $node->connection()['connected'] );
 		$this->assertFalse( $node->connection()['connecting'] );
 		$this->assertSame( 5, $node->slot() );
-		$this->assertSame( 61781, $node->pid() );
 	}
 
 	public function test_failed_open_reaches_disconnected_without_passing_through_connected(): void {
@@ -279,7 +278,7 @@ class SseInTest extends TestCase {
 	public function test_connected_handshake_consumed_and_captures_exact_lease(): void {
 		[ $node, $sink ] = $this->configured_node();
 
-		$node->process_sse_chunk( $this->connected_frame( 'PID 9007 SLOT 7 OWNER 42424243' ) );
+		$node->process_sse_chunk( $this->connected_frame( 'SLOT 7 OWNER 42424243' ) );
 
 		$this->assertCount( 0, $sink->captured );
 		$this->assertSame( 7, $node->slot() );
@@ -295,7 +294,7 @@ class SseInTest extends TestCase {
 			$seen[] = [ $segment, $offset ];
 		};
 
-		$node->process_sse_chunk( $this->connected_frame( 'PID 9007 SLOT 7 OWNER 42424243 CURSORS other.p3=1:2,firehose.p0=12:345' ) );
+		$node->process_sse_chunk( $this->connected_frame( 'SLOT 7 OWNER 42424243 CURSORS other.p3=1:2,firehose.p0=12:345' ) );
 
 		$this->assertSame( [ [ 12, 345 ] ], $seen );
 		$this->assertTrue( $node->connection()['connected'] );
@@ -309,7 +308,7 @@ class SseInTest extends TestCase {
 				$seen[] = [ $segment, $offset ];
 			};
 
-			$node->process_sse_chunk( $this->connected_frame( "PID 9007 SLOT 7 OWNER 42424243{$extra}" ) );
+			$node->process_sse_chunk( $this->connected_frame( "SLOT 7 OWNER 42424243{$extra}" ) );
 
 			$this->assertSame( [], $seen, "no cursor from '{$extra}'" );
 			$this->assertTrue( $node->connection()['connected'], 'an older spoke sends no CURSORS' );
@@ -318,19 +317,20 @@ class SseInTest extends TestCase {
 		}
 	}
 
-	public function test_connected_handshake_without_pid_is_error_not_connected(): void {
+	public function test_a_connected_handshake_needs_no_process_pid(): void {
 		[ $node, $sink ] = $this->configured_node();
 
 		$node->process_sse_chunk( $this->connected_frame( 'SLOT 7 OWNER 42424243' ) );
 
 		$this->assertCount( 0, $sink->captured );
-		$this->assertNull( $node->pid() );
-		$this->assertFalse( $node->connection()['connected'] );
+		$this->assertTrue( $node->connection()['connected'] );
+		$this->assertSame( 'SLOT 7', $this->read_private( $node, 'set_state' )['CONNECTED'] ?? null );
+		$this->assertFalse( \method_exists( $node, 'pid' ), 'the pid left the protocol' );
 	}
 
 	public function test_disconnect_frame_is_consumed_and_retains_machine_key_and_display_value(): void {
 		[ $node, $sink ] = $this->configured_node();
-		$node->process_sse_chunk( $this->connected_frame( 'PID 9007 SLOT 7 OWNER 42424243' ) );
+		$node->process_sse_chunk( $this->connected_frame( 'SLOT 7 OWNER 42424243' ) );
 
 		$this->assertTrue(
 			$node->process_sse_chunk(
@@ -355,13 +355,13 @@ class SseInTest extends TestCase {
 	 */
 	public static function malformed_connected_leases(): array {
 		return [
-			'missing owner'       => [ 'PID 9007 SLOT 7' ],
-			'non-decimal owner'   => [ 'PID 9007 SLOT 7 OWNER 42424243x' ],
-			'zero owner'          => [ 'PID 9007 SLOT 7 OWNER 0' ],
-			'negative owner'      => [ 'PID 9007 SLOT 7 OWNER -42424243' ],
-			'non-canonical owner' => [ 'PID 9007 SLOT 7 OWNER 042424243' ],
-			'owner out of range'  => [ 'PID 9007 SLOT 7 OWNER ' . \PHP_INT_MAX . '0' ],
-			'missing slot'        => [ 'PID 9007 OWNER 42424243' ],
+			'missing owner'       => [ 'SLOT 7' ],
+			'non-decimal owner'   => [ 'SLOT 7 OWNER 42424243x' ],
+			'zero owner'          => [ 'SLOT 7 OWNER 0' ],
+			'negative owner'      => [ 'SLOT 7 OWNER -42424243' ],
+			'non-canonical owner' => [ 'SLOT 7 OWNER 042424243' ],
+			'owner out of range'  => [ 'SLOT 7 OWNER ' . \PHP_INT_MAX . '0' ],
+			'missing slot'        => [ 'OWNER 42424243' ],
 		];
 	}
 
@@ -631,15 +631,6 @@ class SseInTest extends TestCase {
 		$this->assertFalse( $node->maybe_connect() );
 		$this->assertCount( 0, $captured );
 		$this->assertNull( $node->test_get_handle() );
-	}
-
-	public function test_connected_handshake_captures_session_pid(): void {
-		[ $node ] = $this->configured_node();
-		$this->assertNull( $node->pid() );
-
-		$node->process_sse_chunk( $this->connected_frame( 'PID 9007 SLOT 7 OWNER 42424243' ) );
-
-		$this->assertSame( 9007, $node->pid() );
 	}
 
 	public function test_node_schema_is_hidden_io(): void {

@@ -78,7 +78,7 @@ class RemoteLinkNodeTest extends TestCase {
 		$m                   = Message::new_message();
 		$m[ Message::TYPE ]  = Message::TM_STRUCT;
 		$m[ Message::KEY ]   = 'connected';
-		$m[ Message::VALUE ] = "PID 9007 SLOT {$slot} OWNER {$owner}";
+		$m[ Message::VALUE ] = "SLOT {$slot} OWNER {$owner}";
 		$sse->process_sse_chunk( "event: connected\ndata: " . Message::packed( $m ) . "\n\n" );
 	}
 

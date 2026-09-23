@@ -426,13 +426,13 @@ export class RemoteLinkNode extends SchemaReflection( Node ) {
 	}
 
 	/**
-	 * The remote session's process id, snooped from the SseIn's `connected`
-	 * handshake. RemoteIpc puts it in the `_sse:{pid}` reply address.
+	 * The command session the live stream carries replies for, confirmed by
+	 * the SseIn's `connected` handshake.
 	 *
-	 * @return {?number} Session pid, or null before the handshake lands.
+	 * @return {?string} Session handle, or null before the handshake lands.
 	 */
-	pid() {
-		return this.sseIn?.pid() ?? null;
+	session() {
+		return this.sseIn?.session() ?? null;
 	}
 
 	/**

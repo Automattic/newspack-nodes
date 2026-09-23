@@ -184,9 +184,6 @@ class SSE_In_Node extends Node {
 	/** Lease owner captured from the `connected` handshake. */
 	private ?int  $owner                = null;
 
-	/** Session pid snooped from the `connected` handshake; scopes a reply-FROM. */
-	private ?int  $session_pid          = null;
-
 	/** Slot index the remote's pool leased to this stream, from the handshake. */
 	private ?int  $slot                 = null;
 
@@ -337,7 +334,6 @@ class SSE_In_Node extends Node {
 		$this->last_attempt       = $now;
 		$this->connected_at       = null;
 		$this->owner              = null;
-		$this->session_pid        = null;
 		$this->slot               = null;
 		$this->terminal_disconnect_key    = null;
 		$this->terminal_disconnect_reason = null;
@@ -571,7 +567,7 @@ class SSE_In_Node extends Node {
 			return true;
 		}
 
-		// 'connected' handshake: unpack, capture slot/pid, don't forward.
+		// 'connected' handshake: unpack, capture slot/owner, don't forward.
 		if ( 'connected' === $type ) {
 			try {
 				$message = Message::unpacked( $raw_data );
@@ -633,7 +629,7 @@ class SSE_In_Node extends Node {
 
 	/**
 	 * Handle the substrate's bookkeeping `connected` handshake — its own SSE event
-	 * type (mirrors `heartbeat`). Capture slot, owner, and session pid from the flat
+	 * type (mirrors `heartbeat`). Capture slot and owner from the flat
 	 * `KEY VALUE` envelope, mark connected, and do NOT forward. Required numeric
 	 * values use canonical decimal form so the owner cannot be lossy-coerced.
 	 *
@@ -662,18 +658,12 @@ class SSE_In_Node extends Node {
 		if ( null === $owner ) {
 			return $this->reject_connected( 'connected envelope missing or invalid OWNER' );
 		}
-		$pid = Core::canonical_decimal( $info['PID'] ?? null, false );
-		if ( null === $pid ) {
-			return $this->reject_connected( 'connected envelope missing or invalid PID' );
-		}
-
 		$this->slot        = $slot;
 		$this->owner       = $owner;
-		$this->session_pid = $pid;
 		$this->connected   = true;
 		$this->connected_at = Core::$now ?: Core::right_now();
 		// OWNER is a fencing token; omit it from debug/state payloads and logs.
-		$this->set_state( 'CONNECTED', "PID {$pid} SLOT {$slot}" );
+		$this->set_state( 'CONNECTED', "SLOT {$slot}" );
 		$cursor = $this->handshake_cursor( Core::as_string( $info['CURSORS'] ?? '' ) );
 		if ( null !== $cursor && null !== $this->on_connected ) {
 			( $this->on_connected )( $cursor[0], $cursor[1] );
@@ -709,7 +699,6 @@ class SSE_In_Node extends Node {
 	 * @return bool Always false, so the caller aborts the transfer.
 	 */
 	private function reject_connected( string $reason ): bool {
-		$this->session_pid = null;
 		$this->connected_at = null;
 		$this->retire_lease();
 		$this->last_error  = $reason;
@@ -740,13 +729,12 @@ class SSE_In_Node extends Node {
 	 */
 	private function clean_eof_error(): string {
 		$error = 'HTTP 200 SSE stream ended without a server disconnect reason';
-		if ( null === $this->session_pid || null === $this->connected_at ) {
+		if ( null === $this->connected_at ) {
 			return $error;
 		}
 		$now      = Core::$now ?: Core::right_now();
 		$duration = \max( 0.0, $now - $this->connected_at );
-		return $error . ' (remote PID ' . $this->session_pid
-			. ', connected ' . \number_format( $duration, 2, '.', '' ) . 's)';
+		return $error . ' (connected ' . \number_format( $duration, 2, '.', '' ) . 's)';
 	}
 
 	/**
@@ -982,17 +970,6 @@ class SSE_In_Node extends Node {
 	 */
 	public function owner(): ?int {
 		return $this->owner;
-	}
-
-	/**
-	 * Session pid captured from the `connected` handshake. Null until connected.
-	 * A caller stamps it into the reply-FROM (`_sse:{pid}/{node}`).
-	 *
-	 * @api Dynamic entrypoint.
-	 * @return int|null The remote session pid, or null while unconnected.
-	 */
-	public function pid(): ?int {
-		return $this->session_pid;
 	}
 
 	/**

@@ -88,13 +88,9 @@ function installWire( payloadByVerb = {} ) {
 }
 
 // Build a connected envelope as a flat string (TM_INFO values are strings).
-function connectedEnvelope( {
-	pid = 4242,
-	slot = 3,
-	owner = LEASE_OWNER,
-} = {} ) {
+function connectedEnvelope( { slot = 3, owner = LEASE_OWNER } = {} ) {
 	const value =
-		`PID ${ pid } SLOT ${ slot } OWNER ${ owner } ` +
+		`SESSION e2e11111e2e22222e2e33333e2e44444 SLOT ${ slot } OWNER ${ owner } ` +
 		'SUBSCRIPTIONS firehose.p0 INTERVAL 2000';
 	const m = newMessage();
 	m[ TYPE ] = TM_INFO;
@@ -298,7 +294,7 @@ describe( 'usePartitionViewerGraph — heartbeat slot bridge', () => {
 		await act( async () => {} );
 		FakeEventSource.last.dispatch(
 			'connected',
-			pack( connectedEnvelope( { pid: 7, slot: 5 } ) )
+			pack( connectedEnvelope( { slot: 5 } ) )
 		);
 		expect( Core.node( HEARTBEAT ).slot ).toBe( 5 );
 	} );
@@ -312,7 +308,7 @@ describe( 'usePartitionViewerGraph — heartbeat slot bridge', () => {
 		);
 		FakeEventSource.last.dispatch(
 			'connected',
-			pack( connectedEnvelope( { pid: 7, slot: -1 } ) )
+			pack( connectedEnvelope( { slot: -1 } ) )
 		);
 		expect( Core.node( HEARTBEAT ).slot ).toBeNull();
 	} );
@@ -328,7 +324,7 @@ describe( 'usePartitionViewerGraph — heartbeat slot bridge', () => {
 			act( () => {
 				FakeEventSource.last.dispatch(
 					'connected',
-					pack( connectedEnvelope( { pid: 7, slot: 5 } ) )
+					pack( connectedEnvelope( { slot: 5 } ) )
 				);
 			} );
 			wire.batches.length = 0; // ignore the initial list_logs batch

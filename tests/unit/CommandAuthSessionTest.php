@@ -281,6 +281,21 @@ class CommandAuthSessionTest extends TestCase {
 		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );
 	}
 
+	public function test_a_session_record_reports_when_it_expires(): void {
+		$session = Command_Auth::mint_session( Capabilities::READ, self::TTL );
+
+		$record = Command_Auth::load_session_record( $session['handle'] );
+
+		$this->assertEqualsWithDelta( \time() + self::TTL, $record['expires'], 2 );
+	}
+
+	public function test_a_record_naming_no_expiry_reports_none(): void {
+		$handle = '5a1e5a1e5a1e5a1e5a1e5a1e5a1e5a1e';
+		Cache_Backend::shared_first()->add( $this->session_address( $handle ), [ 'k' => self::KEY, 's' => 'read', 'u' => 0 ], self::TTL );
+
+		$this->assertSame( 0, Command_Auth::load_session_record( $handle )['expires'] );
+	}
+
 	/** An unsigned command is refused downstream; that is the correct failure. */
 	public function test_sign_for_leaves_the_message_unsigned_when_no_session_is_known(): void {
 		$m = $this->command();

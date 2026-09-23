@@ -332,7 +332,7 @@ export function useGraphHandlers( {
 					const uiBound = isUiBound( action, payload );
 					if ( ! sseGuard( to ) ) {
 						const refusal = __(
-							'[no sse_pid yet] retry once CONNECTED',
+							'[no SSE session yet] retry once CONNECTED',
 							'newspack-nodes'
 						);
 						if ( ! uiBound ) {

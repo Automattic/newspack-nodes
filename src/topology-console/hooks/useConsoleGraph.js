@@ -92,8 +92,8 @@ import { ROUTER_TICK_MS } from '../../runtime/router-node';
  * @param {boolean}           [params.streamEnabled] Open the active worker's SSE stream (cwd is a worker). The graph stays mounted regardless; this only gates the EventSource, so cd-ing off a worker stops streaming without rebuilding. Default true.
  * @param {{current: number}} params.debugLevelRef   Ref holding the Dumper's verbosity dial.
  * @param {Object}            [params.catalog]       The PHP class catalog slice — `{ classes, loading, error }`. The seed waits on it: without a class's schema a custom fan-out seeds the wrong edges.
- * @return {{status: string, ssePid: ?number, shell: ?ShellNode, seedError: ?Object, outgoing: ?OutgoingGateNode}}
- *   `status` is `open`, `connecting` while no SSE pid has landed, or `closed`
+ * @return {{status: string, sseSession: ?string, shell: ?ShellNode, seedError: ?Object, outgoing: ?OutgoingGateNode}}
+ *   `status` is `open`, `connecting` while no SSE session has landed, or `closed`
  *   in edit mode. `shell` is the anonymous Shell a REPL fills and `outgoing`
  *   its gate. `seedError` is whatever the pre-metadata seed threw — unnarrowed,
  *   because its consumer folds it into a union with two REST error shapes.
@@ -107,7 +107,7 @@ export function useConsoleGraph( {
 	debugLevelRef,
 	catalog = NO_CATALOG,
 } ) {
-	const [ ssePid, setSsePid ] = useState( null );
+	const [ sseSession, setSseSession ] = useState( null );
 	const [ shell, setShell ] = useState( null );
 	// The unnamed outgoing gate; STATE, so a rebuild reaches its consumer.
 	const [ outgoing, setOutgoing ] = useState( null );
@@ -211,10 +211,10 @@ export function useConsoleGraph( {
 				interpreter.makeNode( 'RemoteIpc', wr, [ wr ] )
 			);
 			remote.target = names.OUTPUT;
-			// The active worker's connect handshake drives the pid display.
-			remote.onConnected = () => setSsePid( remote.pid() );
-			// Reset pid on a steal so a send won't wrap the stale pid.
-			remote.onClose = () => setSsePid( null );
+			// The active worker's connect handshake drives the session display.
+			remote.onConnected = () => setSseSession( remote.session() );
+			// Reset on a steal: the closed stream carries no replies now.
+			remote.onClose = () => setSseSession( null );
 			remotes.push( remote );
 		}
 
@@ -240,7 +240,7 @@ export function useConsoleGraph( {
 			print: ( text ) => dumper.appendText( text ),
 		} );
 
-		setSsePid( null );
+		setSseSession( null );
 
 		// The Router's grid drives all three; a shared tick is ONE POST.
 		metadata.sink = interpreter;
@@ -272,7 +272,7 @@ export function useConsoleGraph( {
 			cwdNode.removeNode();
 			// The backbone effect above owns the spine; this is a no-op.
 			teardownSpine();
-			setSsePid( null );
+			setSseSession( null );
 			setShell( null );
 			setOutgoing( null );
 		};
@@ -379,7 +379,7 @@ export function useConsoleGraph( {
 			Core.node( reader )?.connect();
 		} else {
 			RemoteIpcNode.active?.close();
-			setSsePid( null );
+			setSseSession( null );
 		}
 		return undefined;
 	}, [ streamEnabled, isPageVisible, topology, partition, enabled ] );
@@ -409,9 +409,9 @@ export function useConsoleGraph( {
 	let status = 'open';
 	if ( ! enabled ) {
 		status = 'closed';
-	} else if ( null === ssePid ) {
+	} else if ( null === sseSession ) {
 		status = 'connecting';
 	}
 
-	return { status, ssePid, shell, seedError, outgoing };
+	return { status, sseSession, shell, seedError, outgoing };
 }

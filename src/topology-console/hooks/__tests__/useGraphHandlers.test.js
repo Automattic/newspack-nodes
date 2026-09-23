@@ -140,7 +140,9 @@ describe( 'useGraphHandlers — optimistic metadata patch after a mutation', () 
 	it( 'onInspectorAction tail APPENDS the CANONICAL session pwd to the Tee fan-out', () => {
 		// Optimistic append canonicalizes pwd `_metadata` tail to `_output`.
 		Core.node( names.METADATA ).rawMap = {
-			_header: { pwd: '_repl/_output/_sse:9/_metadata' },
+			_header: {
+				pwd: '_repl/_output/_sse:c0ffee09c0ffee09c0ffee09c0ffee09/_metadata',
+			},
 			tee: { target: [ 'request-builder', 'job-router' ] },
 		};
 		const { result } = renderHandlers( {} );
@@ -152,7 +154,7 @@ describe( 'useGraphHandlers — optimistic metadata patch after a mutation', () 
 					target: [
 						'request-builder',
 						'job-router',
-						'_repl/_output/_sse:9/_output',
+						'_repl/_output/_sse:c0ffee09c0ffee09c0ffee09c0ffee09/_output',
 					],
 				},
 			],
@@ -162,9 +164,14 @@ describe( 'useGraphHandlers — optimistic metadata patch after a mutation', () 
 	it( 'onInspectorAction disconnect REMOVES only the CANONICAL session pwd from the Tee fan-out', () => {
 		// Optimistic remove must canonicalize pwd tail before filtering.
 		Core.node( names.METADATA ).rawMap = {
-			_header: { pwd: '_repl/_output/_sse:9/_metadata' },
+			_header: {
+				pwd: '_repl/_output/_sse:c0ffee09c0ffee09c0ffee09c0ffee09/_metadata',
+			},
 			tee: {
-				target: [ 'request-builder', '_repl/_output/_sse:9/_output' ],
+				target: [
+					'request-builder',
+					'_repl/_output/_sse:c0ffee09c0ffee09c0ffee09c0ffee09/_output',
+				],
 			},
 		};
 		const { result } = renderHandlers( {} );
@@ -601,7 +608,7 @@ describe( 'useGraphHandlers', () => {
 		expect( refusal[ TYPE ] ).toBe( TM_COMMAND | TM_ERROR );
 		expect( refusal[ TO ] ).toBe( `${ names.UI }/_triage:dl_list` );
 		expect( refusal[ VALUE ] ).toMatchObject( { name: 'dl_list' } );
-		expect( refusal[ VALUE ].payload ).toMatch( /no sse_pid yet/ );
+		expect( refusal[ VALUE ].payload ).toMatch( /no SSE session yet/ );
 	} );
 
 	it( 'invoke defaults sseGuard to always-allow (overlay parity)', () => {

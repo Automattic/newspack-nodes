@@ -85,11 +85,11 @@ jest.mock( '../../../runtime/sse-in-node', () => {
 			this.closed = true;
 			super.close();
 		}
-		emitConnected( pid ) {
+		emitConnected() {
 			// Complete lease envelope; _applyConnected fires CONNECTED.
 			this._applyConnected(
-				`PID ${ pid } SLOT 1 OWNER 9007199254740993 ` +
-					'SUBSCRIPTIONS x INTERVAL 2000'
+				`SESSION ${ this.presentedSession } SLOT 1 ` +
+					'OWNER 9007199254740993 SUBSCRIPTIONS x INTERVAL 2000'
 			);
 		}
 	}
@@ -97,6 +97,9 @@ jest.mock( '../../../runtime/sse-in-node', () => {
 } );
 
 import { useConsoleGraph } from '../useConsoleGraph';
+
+// The handle jest.setup.js issues every test's command session under.
+const HARNESS_SESSION = 'e2e11111e2e22222e2e33333e2e44444';
 import {
 	invalidateExpandedIncludes,
 	useExpandedIncludes,
@@ -360,7 +363,7 @@ describe( 'useConsoleGraph — TIMER batch lock/flush pairing', () => {
 		renderGraph();
 		// Let /auth land: a node with no session mints nothing.
 		await act( async () => {} );
-		act( () => lastConnector.emitConnected( 4242 ) );
+		act( () => lastConnector.emitConnected() );
 		const postBatch = jest.fn().mockResolvedValue( [] );
 		httpOf().client = { postBatch };
 		// Point the cwd at the active worker so polls route to its HttpOut.
@@ -385,34 +388,34 @@ describe( 'useConsoleGraph — TIMER batch lock/flush pairing', () => {
 } );
 
 describe( 'useConsoleGraph — connection state', () => {
-	it( 'starts in connecting status with a null pid', () => {
+	it( 'starts in connecting status with no session', () => {
 		const { result } = renderGraph();
 		expect( result.current.status ).toBe( 'connecting' );
-		expect( result.current.ssePid ).toBeNull();
+		expect( result.current.sseSession ).toBeNull();
 	} );
 
-	it( 'flips to open and exposes the pid once the connected envelope lands', () => {
+	it( 'flips to open and exposes the session once the connected envelope lands', () => {
 		const { result } = renderGraph();
-		act( () => lastConnector.emitConnected( 12345 ) );
+		act( () => lastConnector.emitConnected() );
 		expect( result.current.status ).toBe( 'open' );
-		expect( result.current.ssePid ).toBe( 12345 );
+		expect( result.current.sseSession ).toBe( HARNESS_SESSION );
 	} );
 
-	it( 'exposes the connected pid (the active RemoteIpc reads it from its SseIn)', () => {
+	it( 'exposes the connected session (the active RemoteIpc reads it from its SseIn)', () => {
 		const { result } = renderGraph();
-		act( () => lastConnector.emitConnected( 777 ) );
-		expect( result.current.ssePid ).toBe( 777 );
-		expect( Core.node( 'demo.p0' ).pid() ).toBe( 777 );
+		act( () => lastConnector.emitConnected() );
+		expect( result.current.sseSession ).toBe( HARNESS_SESSION );
+		expect( Core.node( 'demo.p0' ).session() ).toBe( HARNESS_SESSION );
 	} );
 
 	it( 'holds a Heartbeat slot on the active worker after the connected handshake (slot keepalive)', () => {
 		renderGraph();
 		// Connected envelope carries slot 1; Heartbeat keeps that slot alive.
-		act( () => lastConnector.emitConnected( 4242 ) );
+		act( () => lastConnector.emitConnected() );
 		expect( Core.node( 'demo.p0' ).heartbeat.slot ).toBe( 1 );
 	} );
 
-	it( 'resets the displayed pid when a steal closes the active worker (onClose)', async () => {
+	it( 'resets the displayed session when a steal closes the active worker (onClose)', async () => {
 		const { result } = renderGraph( {
 			topology: 'demo',
 			partition: 0,
@@ -420,13 +423,13 @@ describe( 'useConsoleGraph — connection state', () => {
 		} );
 		// Settle the mount's coalesced tick before driving the stream.
 		await act( async () => {} );
-		// Session worker connects → pid displayed.
+		// Session worker connects → session displayed.
 		act( () => Core.node( 'demo.p0' ).connect() );
-		act( () => Core.node( 'demo.p0' ).sseIn.emitConnected( 4242 ) );
-		expect( result.current.ssePid ).toBe( 4242 );
-		// Stealing to the other worker closes demo.p0; onClose clears the pid.
+		act( () => Core.node( 'demo.p0' ).sseIn.emitConnected() );
+		expect( result.current.sseSession ).toBe( HARNESS_SESSION );
+		// Stealing to the other worker closes demo.p0; onClose clears the session.
 		act( () => Core.node( 'other.p1' ).connect() );
-		expect( result.current.ssePid ).toBeNull();
+		expect( result.current.sseSession ).toBeNull();
 	} );
 } );
 
@@ -449,13 +452,13 @@ describe( 'useConsoleGraph — visibility-gated streaming', () => {
 		expect( lastConnector.started ).toBe( true );
 	} );
 
-	it( 'closes the stream and clears the pid when the tab is hidden', () => {
+	it( 'closes the stream and clears the session when the tab is hidden', () => {
 		const { result } = renderGraph( { streamEnabled: true } );
-		act( () => lastConnector.emitConnected( 42 ) );
-		expect( result.current.ssePid ).toBe( 42 );
+		act( () => lastConnector.emitConnected() );
+		expect( result.current.sseSession ).toBe( HARNESS_SESSION );
 		setVisibility( 'hidden' );
 		expect( lastConnector.closed ).toBe( true );
-		expect( result.current.ssePid ).toBeNull();
+		expect( result.current.sseSession ).toBeNull();
 	} );
 
 	it( 'reopens the stream when the tab becomes visible again', () => {
@@ -693,7 +696,7 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 		const { result } = renderGraph();
 		// Let /auth land: a node with no session mints nothing.
 		await act( async () => {} );
-		act( () => lastConnector.emitConnected( 4242 ) );
+		act( () => lastConnector.emitConnected() );
 		const postBatch = jest.fn().mockResolvedValue( [] );
 		httpOf().client = { postBatch };
 		act( () => {
@@ -708,7 +711,9 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 		expect( batch[ 1 ][ TO ] ).toBe( 'demo.p0' );
 		expect( batch[ 1 ][ VALUE ].name ).toBe( 'ls' );
 		// RemoteIpc wrapped the bare `_output` FROM into the reply address.
-		expect( batch[ 1 ][ FROM ] ).toBe( `${ names.SSE }:4242/_output` );
+		expect( batch[ 1 ][ FROM ] ).toBe(
+			`${ names.SSE }:${ HARNESS_SESSION }/_output`
+		);
 	} );
 
 	it( 'ls -a at the local root (cd /) lists EVERY in-browser node in the transcript', () => {
@@ -775,7 +780,7 @@ describe( 'useConsoleGraph — _cwd re-stamping routes every scope', () => {
 		renderGraph();
 		// Let /auth land: a node with no session mints nothing.
 		await act( async () => {} );
-		act( () => lastConnector.emitConnected( 4242 ) );
+		act( () => lastConnector.emitConnected() );
 		const postBatch = jest.fn().mockResolvedValue( [] );
 		httpOf().client = { postBatch };
 		// cd onto a worker: gating sets `_cwd.target` to the bare reader.
@@ -790,15 +795,15 @@ describe( 'useConsoleGraph — _cwd re-stamping routes every scope', () => {
 		);
 		expect( routed ).toBeTruthy();
 		expect( routed[ TO ] ).toBe( 'demo.p0' );
-		// FROM survived the `_cwd` hop; RemoteIpc wrapped it with live pid.
+		// FROM survived the `_cwd` hop; RemoteIpc wrapped it with the session.
 		expect( routed[ FROM ] ).toBe(
-			`${ names.SSE }:4242/${ names.METADATA }`
+			`${ names.SSE }:${ HARNESS_SESSION }/${ names.METADATA }`
 		);
 	} );
 
 	it( 'the local root (_cwd.target = "") interprets the poll in-browser (no POST)', () => {
 		renderGraph();
-		act( () => lastConnector.emitConnected( 4242 ) );
+		act( () => lastConnector.emitConnected() );
 		const postBatch = jest.fn().mockResolvedValue( [] );
 		httpOf().client = { postBatch };
 		// cd /: the gating effect leaves `_cwd.target` empty (local root).
@@ -854,7 +859,7 @@ describe( 'useConsoleGraph — lifecycle', () => {
 	it( 'short-circuits when enabled=false: no view nodes, status closed', () => {
 		const { result } = renderGraph( { enabled: false } );
 		expect( result.current.status ).toBe( 'closed' );
-		expect( result.current.ssePid ).toBeNull();
+		expect( result.current.sseSession ).toBeNull();
 		expect( result.current.shell ).toBeNull();
 		expect( Core.node( names.OUTPUT ) ).toBeNull();
 		expect( Core.node( names.METADATA ) ).toBeNull();
@@ -942,13 +947,13 @@ describe( 'useConsoleGraph — SSE stream gating (cwd is a worker)', () => {
 		expect( lastConnector.started ).toBe( true );
 	} );
 
-	it( 'closes the stream and resets the pid when streamEnabled flips false', () => {
+	it( 'closes the stream and resets the session when streamEnabled flips false', () => {
 		const { result, rerender } = renderGraph( { streamEnabled: true } );
-		act( () => lastConnector.emitConnected( 4242 ) );
-		expect( result.current.ssePid ).toBe( 4242 );
+		act( () => lastConnector.emitConnected() );
+		expect( result.current.sseSession ).toBe( HARNESS_SESSION );
 		act( () => rerender( rerenderProps( false ) ) );
 		expect( lastConnector.closed ).toBe( true );
-		expect( result.current.ssePid ).toBeNull();
+		expect( result.current.sseSession ).toBeNull();
 	} );
 } );
 

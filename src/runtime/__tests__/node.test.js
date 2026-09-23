@@ -528,7 +528,7 @@ test( 'dumpNode shows registrations and setStateCache, a closure as (closure)', 
 	n.registrations.NOT_AVAILABLE = {};
 	n.register( 'TIMER', 'papa-poller' );
 	n.register( 'NOT_AVAILABLE', 'react/quebec', () => true );
-	n.setState( 'CONNECTED', 'PID 4410 SLOT 2' );
+	n.setState( 'CONNECTED', 'SLOT 2' );
 
 	const snap = n.dumpNode();
 
@@ -536,7 +536,7 @@ test( 'dumpNode shows registrations and setStateCache, a closure as (closure)', 
 		TIMER: { 'papa-poller': null },
 		NOT_AVAILABLE: { 'react/quebec': '(closure)' },
 	} );
-	expect( snap.setStateCache ).toEqual( { CONNECTED: 'PID 4410 SLOT 2' } );
+	expect( snap.setStateCache ).toEqual( { CONNECTED: 'SLOT 2' } );
 } );
 
 /**

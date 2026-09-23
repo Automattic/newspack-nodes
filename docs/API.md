@@ -412,7 +412,7 @@ Per-slot semantics (named here for documentation only — the wire is positional
 |------|------|-------------|
 | `TYPE` (index 0) | int | Bitmask. `TM_COMMAND` (`8`) for a dispatch. |
 | `TIMESTAMP` (index 1) | float | Unix timestamp. The signature covers it truncated to whole seconds, and the freshness window is checked against it. |
-| `FROM` (index 2) | string | Reply path. `HTTP_In_Node` stamps `_output` onto it on the way in, so a bare reply path (`_output`, `_sse:{pid}/…`, or empty) walks back to this endpoint. The `_sse` form is minted by the browser's [`RemoteIpcNode`](../src/runtime/remote-ipc-node.js), which rewrites a non-empty reply-node FROM to `_sse:{pid}/{node}` before sending, taking the pid from its own SSE `connected` handshake — that is how the server's `HTTP_Filter_Node` demuxes an async reply back to this session's stream rather than another tab's. |
+| `FROM` (index 2) | string | Reply path. `HTTP_In_Node` stamps `_output` onto it on the way in, so a bare reply path (`_output`, `_sse:{session}/…`, or empty) walks back to this endpoint. The `_sse` form is minted by the browser's [`RemoteIpcNode`](../src/runtime/remote-ipc-node.js), which rewrites a non-empty reply-node FROM to `_sse:{session}/{node}` before sending, naming the handle of the page's command session — that is how the server's `HTTP_Filter_Node` passes an async reply to the stream this session holds, across reconnects, rather than to another tab's. |
 | `TO` (index 3) | string | CI node name (e.g. `topologies`, `workers`). Router peels the head off; subpaths flow through. Empty TO is dispatched by the base CI in-place. |
 | `ID` (index 4) | string | Caller-chosen correlation id. The CI's reply carries the same `ID`. |
 | `KEY` (index 5) | string | Routing and correlation metadata (e.g. `'completion'` triggers REPL completion-list mode on `help` and `ls`). |
@@ -796,13 +796,22 @@ out as an SSE `msg` event carrying the packed Message.
 **Permission**: the fleet gate, then the READ role. No nonce — that would break
 the cross-server SSE pull, which is the aggregator's whole job, and it is why
 `workers heartbeat` (the slot keepalive) is `read` too: MANAGE there would
-expire every read-only stream after one slot TTL.
+expire every read-only stream after one slot TTL. A `session` the stream
+presents is checked after that, before any slot is taken: it must name a live
+command session minted by the user the request authenticated as, or the stream
+answers:
+
+```json
+{ "code": "sse_session_refused", "message": "The command session is not live, or belongs to another user.", "data": { "status": 401 } }
+```
 
 ### Query parameters
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `subscribe` | string | yes | CSV of subscription names, described below. Blank entries between commas are dropped. |
+| `session` | string | no | The handle of the [command session](#establishing-a-session) the client signs with. Its attached commands head their FROM with `_sse:{session}`, and this stream passes only the replies headed with it; a stream presenting none passes none, which is what a server-to-server pull does. |
+| `stream` | string | no | The client's own id for this stream, 1-64 characters of `[A-Za-z0-9_.:-]`; the browser sends its `SseInNode`'s name. With `session` it keys the slot lease, so a reconnect takes its own live lease over instead of claiming a second slot, while two streams on one page keep two leases. A malformed id answers `400 sse_stream_invalid`. Because the session is resolved first, a request carrying a deliberately malformed id is a probe: it answers `401 sse_session_refused` for a dead session and `400` for a live one, and opens nothing. |
 | `positions` | string | no | Optional resume positions: a JSON object keyed by the STAMP each subscription resolves to. A value is either an exact `{segment, offset}` object or a **seek sentinel** — `0` start, `-1` end (live tail), `-2` recent — Tachikoma's vocabulary (`Consumer.pm`: *"valid offsets: start (0), recent (-2), end (-1)"*), mirrored as [`Consumer_Node::SEEK_START`](../includes/class-consumer-node.php) / `SEEK_END` / `SEEK_RECENT`. The words `start`, `recent` and `end` are accepted aliases. Stating the seek as a number is what makes `{segment: 0, offset: 0}` mean the START of the log rather than an absent value: `SSE_In_Node` always sends a position, using `-1` when it has none, so a source resuming a `0:0` checkpoint replays its backlog instead of being tail-seeked past it. `-1` / `end` seeks the newest segment's current size; `-2` / `recent` seeks byte 0 of the SECOND-newest segment, or of the only segment when there is just one, so it can replay up to a whole segment. Malformed JSON, or a value decoding to anything but an array, is treated as omitted. A per-key value is handled the opposite way: `SSE_Out_Node::position_arg()` keeps a word as a string, and `Consumer_Node::seek_sentinel()` resolves any word it does not recognise to `SEEK_START`, so ONE typo'd position word replays that subscription's whole log rather than tail-seeking it. Omitting the parameter tail-seeks every subscription, which is what a browser dashboard does on a first connect. |
 | `multi_writer` | boolean | no | Read the subscribed logs with the multi-writer seal-grace (`Consumer_Node::SEAL_GRACE_SECONDS`). Set it for a log every request process on this server appends to — the firehose — where a peer can keep writing to segment N for up to [`Partition_Node::DRIFT_RESCAN_INTERVAL_SECONDS`](../includes/class-partition-node.php) after N+1 appears; without it the reader advances off N on sight and orphans that straggler, typically a request's terminal `process (complete)`. The CLIENT asserts it, because nothing on disk records which logs are shared. It applies to log Consumers only — a worker IPC attach has one writer and never takes the grace. Default off: a single-writer log seals N the instant it creates N+1, so the grace would be pure added latency. [`Remote_Source_Node`](../includes/class-remote-source-node.php) sends it through its `set_multi_writer` config verb; browser dashboards leave it unset. |
 
@@ -826,7 +835,7 @@ apart:
 | `connected` | `KEY=connected`, VALUE the flat envelope below | The session handshake; see below. |
 | `msg` | the packed Message the egress received | One delivered record. Only these count as data, which is what defers the idle close. |
 | `heartbeat` | `KEY=heartbeat`, VALUE the tick timestamp | Liveness every `HEARTBEAT_MS = 2000`ms. Deliberately not data: a heartbeat never defers the idle close. |
-| `disconnect` | `KEY=slot_lease_lost`, VALUE `SSE slot lease lost` | The terminal frame for a stream whose lease was taken from under it. |
+| `disconnect` | `KEY=slot_lease_lost`, VALUE `SSE slot lease lost`; or `KEY=superseded`, VALUE `SSE stream superseded by its reconnect` | The terminal frame for a stream whose lease is gone. `slot_lease_lost` is a failure and writes a diagnostic line; `superseded` means the stream's own reconnect took the lease over, and writes nothing. |
 
 The stream **closes itself after `sse_idle_timeout` seconds** (default 5)
 with no `msg` event. That idle close is a bare EOF with no terminal event; a
@@ -836,10 +845,11 @@ implementation for consuming one.
 #### The `connected` envelope
 
 ```
-PID <pid> SLOT <slot> OWNER <owner> SUBSCRIPTIONS <csv> INTERVAL <ms> CURSORS <csv>
+SESSION <handle> SLOT <slot> OWNER <owner> SUBSCRIPTIONS <csv> INTERVAL <ms> CURSORS <csv>
 ```
 
-A flat space-separated `KEY VALUE` string rather than JSON, because a TM_INFO
+`SESSION` echoes the session the stream presented and is omitted when it
+presented none. A flat space-separated `KEY VALUE` string rather than JSON, because a TM_INFO
 VALUE is never an array; the slots, their validation by `SSE_In_Node` through
 [`Core::canonical_decimal()`](../includes/class-core.php), and the resume loop they seed are in the
 subscription diagram above.
@@ -852,9 +862,9 @@ The application controls concurrency through four optional Closure seams on
 
 | Seam | Signature | Called |
 |---|---|---|
-| `$acquire_slot` | `function ( int $partition ): array{slot:int,owner:positive-int}\|false` | Once per stream, before any header, so `false` can still answer `429 too_many_connections`. |
+| `$acquire_slot` | `function ( int $partition, ?array $session ): array{slot:int,owner:positive-int}\|false` | Once per stream, before any header, so `false` can still answer `429 too_many_connections`. `$session` is `{key, ttl}` — `<handle>:<stream>` and the seconds the session has left — or null. The shipped pool hands a live lease recorded under the key to the new stream and rotates the owner, so the old process's next check fails; it never takes a recorded slot past `max_streams` or inside a browser's reserved tail, and records the index for `ttl` seconds at most. |
 | `$check_slot` | `function ( array $lease, int $partition ): bool` | Every drain tick; false takes the `disconnect` close. It only READS — refreshing the TTL belongs to the client heartbeat, and refreshing it here would let a stream nobody is reading hold its slot forever. |
-| `$release_slot` | `function ( array $lease, int $partition ): void` | Once per stream, from the drain's `finally` or from a shutdown function, whichever runs first, so no close, throw, time-limit fatal or client abort leaves the slot held until its TTL expires. |
+| `$release_slot` | `function ( array $lease, int $partition, ?string $session ): void` | Once per stream, from the drain's `finally` or from a shutdown function, whichever runs first, so no close, throw, time-limit fatal or client abort leaves the slot held until its TTL expires. `$session` is the lease key the stream acquired under, whose takeover index the pool forgets with the lease. |
 | `$inspect_slot` | `function ( array $lease, int $partition ): array<string,int\|string>` | Only once a check has already failed, to name the backend and lease state in the diagnostic line. The healthy path never pays it. |
 
 Both stream routes draw on one host-wide pool, sized by `sse_max_streams`

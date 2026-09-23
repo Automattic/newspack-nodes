@@ -56,7 +56,7 @@ class SseInCoverageTest extends TestCase {
 	/** Connect AND complete the `connected` handshake: an established lease. */
 	private function establish( SSE_In_Node $node ): \CurlHandle {
 		$handle = $this->connect( $node );
-		$node->process_sse_chunk( $this->connected_frame( 'PID 61781 SLOT 5 OWNER 90210007' ) );
+		$node->process_sse_chunk( $this->connected_frame( 'SLOT 5 OWNER 90210007' ) );
 		return $handle;
 	}
 
@@ -318,12 +318,12 @@ class SseInCoverageTest extends TestCase {
 		$this->assertSame( 'HTTP 503', $node->connection()['last_error'] );
 	}
 
-	public function test_clean_http_200_eof_reports_pid_and_connected_duration(): void {
+	public function test_clean_http_200_eof_reports_the_connected_duration(): void {
 		[ $node ]  = $this->configured_node();
 		Core::$now = 1748960000.25;
 		$handle    = $this->connect( $node );
 		$node->process_sse_chunk(
-			$this->connected_frame( 'PID 9007 SLOT 7 OWNER 42424243' )
+			$this->connected_frame( 'SLOT 7 OWNER 42424243' )
 		);
 		$this->set_http_code( $node, 200 );
 		Core::$now = 1748960012.59;
@@ -331,7 +331,7 @@ class SseInCoverageTest extends TestCase {
 		$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_OK ] );
 
 		$this->assertSame(
-			'HTTP 200 SSE stream ended without a server disconnect reason (remote PID 9007, connected 12.34s)',
+			'HTTP 200 SSE stream ended without a server disconnect reason (connected 12.34s)',
 			$node->connection()['last_error']
 		);
 	}
@@ -347,7 +347,7 @@ class SseInCoverageTest extends TestCase {
 		Core::$now = 1748960000.0;
 		$handle    = $this->connect( $node );
 		$node->process_sse_chunk( "retry: 4500\n\n" );
-		$node->process_sse_chunk( $this->connected_frame( 'PID 9007 SLOT 7 OWNER 42424243' ) );
+		$node->process_sse_chunk( $this->connected_frame( 'SLOT 7 OWNER 42424243' ) );
 		$this->set_http_code( $node, 200 );
 		Core::$now = 1748960100.0;
 
@@ -458,7 +458,7 @@ class SseInCoverageTest extends TestCase {
 		Core::$now = 1748960000.25;
 		$this->connect( $node );
 		$node->process_sse_chunk(
-			$this->connected_frame( 'PID 9007 SLOT 7 OWNER 42424243' )
+			$this->connected_frame( 'SLOT 7 OWNER 42424243' )
 		);
 		$node->process_sse_chunk( "event: heartbeat\ndata: {}\n\n" );
 		$node->process_sse_chunk(
@@ -469,7 +469,6 @@ class SseInCoverageTest extends TestCase {
 
 		$this->assertTrue( $node->maybe_connect() );
 		$this->assertNull( $node->slot() );
-		$this->assertNull( $node->pid() );
 		$this->assertTrue( \method_exists( $node, 'owner' ), 'SSE_In must expose the parsed lease owner' );
 		$this->assertNull( $node->owner() );
 		$this->assertNull( $node->connection()['last_error'] );

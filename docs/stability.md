@@ -76,7 +76,7 @@ reason. Catch it, or let the surrounding controller's catch own it.
    [`Node_Names`](../includes/class-node-names.php) is the PHP half and [`src/runtime/reserved-node-names.json`](../src/runtime/reserved-node-names.json) the
    canonical map, which `src/runtime/index.js` exports as `reservedNames` for a
    consumer bundle to compile in. The two halves meet at runtime and not before:
-   a browser mints `FROM = _sse:<pid>/_output` from a bundle built against its
+   a browser mints `FROM = _sse:<session>/_output` from a bundle built against its
    own pinned substrate, while the worker gates on `Node_Names::SSE` and stamps
    `Node_Names::OUTPUT` out of the INSTALLED one. Rename a value and the failure
    is silent — the reply addresses a node that does not exist, and nothing

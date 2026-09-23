@@ -7,6 +7,7 @@ import {
 	forgetSession,
 	readyToMint,
 	authGeneration,
+	sessionHandle,
 	__setAuthFetch,
 } from '../command-auth';
 import { Core } from '../core';
@@ -169,6 +170,27 @@ describe( 'browser command signing', () => {
 
 		clockMs += 2 * 1000; // now past 900s
 		expect( hasSession() ).toBe( false );
+
+		realClock();
+	} );
+
+	// A stream presents this handle and a reply head names it, so it has to
+	// follow the session exactly: nothing before /auth, nothing once aged out.
+	it( 'names the live session by its handle, and none once it lapses', async () => {
+		let clockMs = 7_000_000;
+		setClock( () => clockMs );
+		__setAuthFetch( async () => ( {
+			handle: HANDLE,
+			secret: KEY,
+			expires_in: 900,
+		} ) );
+
+		expect( sessionHandle() ).toBeNull();
+		await ensureSession();
+		expect( sessionHandle() ).toBe( HANDLE );
+
+		clockMs += 901 * 1000;
+		expect( sessionHandle() ).toBeNull();
 
 		realClock();
 	} );

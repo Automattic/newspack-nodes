@@ -119,7 +119,7 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 				require( '../../runtime/react' ).useGraphGeneration();
 			if ( ! enabled ) {
 				teardown();
-				return { status: 'closed', ssePid: null, shell: null };
+				return { status: 'closed', sseSession: null, shell: null };
 			}
 			const reader = `${ topology }.p${ partition }`;
 			// Rebuild on reader OR generation change (reset-graph re-mount).
@@ -157,10 +157,11 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 						return globalThis.__answerBatch( entries );
 					},
 				};
-				// Boot stream + force connected pid 1234 (fake ES sends none).
+				// Boot stream + force the handshake (fake ES sends none).
 				remote.connect();
 				remote.sseIn._applyConnected(
-					'PID 1234 SLOT 1 OWNER 9007199254740993 ' +
+					`SESSION ${ remote.sseIn.presentedSession } ` +
+						'SLOT 1 OWNER 9007199254740993 ' +
 						'SUBSCRIPTIONS demo.p0 INTERVAL 2000'
 				);
 				const shell = new ShellNode();
@@ -193,17 +194,17 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 				globalThis.__reader = reader;
 				globalThis.__graphKey = key;
 			}
-			// `__connecting`: pre-connect window (enabled, no pid) guard.
+			// `__connecting`: pre-connect window (enabled, no session) guard.
 			return globalThis.__connecting
 				? {
 						status: 'connecting',
-						ssePid: null,
+						sseSession: null,
 						shell: globalThis.__shell,
 						outgoing: globalThis.__outgoing,
 				  }
 				: {
 						status: 'open',
-						ssePid: 1234,
+						sseSession: '5e55104cafe0f00d5e55104cafe0f00d',
 						shell: globalThis.__shell,
 						outgoing: globalThis.__outgoing,
 				  };
@@ -808,6 +809,9 @@ globalThis.__answerBatch = ( entries ) => answerBatch( entries, answerCommand );
 
 import TopologyConsole, { initialTopologyFromUrl } from '../TopologyConsole';
 
+// The handle jest.setup.js issues every test's command session under.
+const HARNESS_SESSION = 'e2e11111e2e22222e2e33333e2e44444';
+
 // Build a positional Message; default TO routes to the Dumper transcript.
 function posMsg( { type, value, from = 'worker', to = names.OUTPUT } ) {
 	const m = newMessage();
@@ -953,10 +957,10 @@ describe( 'TopologyConsole boot', () => {
 			expect( uptimes().length ).toBeGreaterThanOrEqual( 1 );
 			// RemoteIpc wrapped each poll's reply FROM into the reply address.
 			expect( fromOf( dumps()[ 0 ] ) ).toBe(
-				`${ names.SSE }:1234/${ names.METADATA }`
+				`${ names.SSE }:${ HARNESS_SESSION }/${ names.METADATA }`
 			);
 			expect( fromOf( uptimes()[ 0 ] ) ).toBe(
-				`${ names.SSE }:1234/${ names.UPTIME }`
+				`${ names.SSE }:${ HARNESS_SESSION }/${ names.UPTIME }`
 			);
 			// Router peeled _http before HttpOut, so TO is the bare reader.
 			expect( dumps()[ 0 ][ TO ] ).toBe( 'demo.p0' );
@@ -997,7 +1001,9 @@ describe( 'TopologyConsole boot', () => {
 		const m = completions[ 0 ];
 		expect( m[ VALUE ].name ).toBe( 'help' );
 		// RemoteIpc wrapped the bare _completion FROM into the reply address.
-		expect( m[ FROM ] ).toBe( `${ names.SSE }:1234/${ names.COMPLETION }` );
+		expect( m[ FROM ] ).toBe(
+			`${ names.SSE }:${ HARNESS_SESSION }/${ names.COMPLETION }`
+		);
 		expect( m[ TO ] ).toBe( 'demo.p0' );
 		// Minted in-process → LOCAL taint set (wire pack() strips it later).
 		expect( m[ LOCAL ] ).toBe( true );
@@ -3113,7 +3119,7 @@ describe( 'TopologyConsole boot', () => {
 		expect( posted[ TO ] ).toBe( 'demo.p0' );
 		// RemoteIpc wrapped the bare `_output` FROM into the reply address.
 		expect( posted[ FROM ] ).toBe(
-			`${ names.SSE }:1234/${ names.OUTPUT }`
+			`${ names.SSE }:${ HARNESS_SESSION }/${ names.OUTPUT }`
 		);
 	} );
 
@@ -3256,7 +3262,9 @@ describe( 'TopologyConsole boot', () => {
 			( m ) => m[ VALUE ] && m[ VALUE ].name === 'GET_HEALTH'
 		);
 		expect( posted ).not.toBeUndefined();
-		expect( posted[ FROM ] ).toBe( `${ names.SSE }:1234/_output/7734` );
+		expect( posted[ FROM ] ).toBe(
+			`${ names.SSE }:${ HARNESS_SESSION }/_output/7734`
+		);
 	} );
 
 	it( 'handleSave: PromptModal mounts in edit mode; confirm triggers saveTopology', async () => {

@@ -24,10 +24,14 @@ describe( 'parseMetadata', () => {
 
 	it( 'extracts the reply path from the _header section and excludes it from nodes', () => {
 		const { nodes, pwd } = parseMetadata( {
-			_header: { pwd: '_repl/_output/_sse:346/_output' },
+			_header: {
+				pwd: '_repl/_output/_sse:c0ffee46c0ffee46c0ffee46c0ffee46/_output',
+			},
 			alpha: { class: 'Echo', counter: 1, target: '' },
 		} );
-		expect( pwd ).toBe( '_repl/_output/_sse:346/_output' );
+		expect( pwd ).toBe(
+			'_repl/_output/_sse:c0ffee46c0ffee46c0ffee46c0ffee46/_output'
+		);
 		expect( nodes.map( ( n ) => n.id ) ).toEqual( [ 'alpha' ] );
 	} );
 
@@ -46,9 +50,11 @@ describe( 'parseMetadata', () => {
 		// Canonicalize the final pwd segment to _output so the toggle matches.
 		expect(
 			parseMetadata( {
-				_header: { pwd: '_repl/_output/_sse:346/_metadata' },
+				_header: {
+					pwd: '_repl/_output/_sse:c0ffee46c0ffee46c0ffee46c0ffee46/_metadata',
+				},
 			} ).pwd
-		).toBe( '_repl/_output/_sse:346/_output' );
+		).toBe( '_repl/_output/_sse:c0ffee46c0ffee46c0ffee46c0ffee46/_output' );
 	} );
 
 	it( 'leaves a bare (slash-less) pwd untouched — the in-browser _output case', () => {
@@ -102,7 +108,10 @@ describe( 'parseMetadata', () => {
 			tee: {
 				class: 'Tee',
 				counter: 10,
-				target: [ 'request-builder', '_repl/_output/_sse:123/_output' ],
+				target: [
+					'request-builder',
+					'_repl/_output/_sse:c0ffee23c0ffee23c0ffee23c0ffee23/_output',
+				],
 			},
 		} );
 		expect( edges ).toEqual( [
@@ -111,7 +120,7 @@ describe( 'parseMetadata', () => {
 		] );
 		expect( nodes[ 0 ].targets ).toEqual( [
 			'request-builder',
-			'_repl/_output/_sse:123/_output',
+			'_repl/_output/_sse:c0ffee23c0ffee23c0ffee23c0ffee23/_output',
 		] );
 	} );
 

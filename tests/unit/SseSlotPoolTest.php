@@ -839,10 +839,211 @@ class SseSlotPoolTest extends TestCase {
 		$this->assertInstanceOf( \Closure::class, SSE_Out_Node::$check_slot );
 		$this->assertTrue( \property_exists( SSE_Out_Node::class, 'inspect_slot' ), 'inspect seam is missing' );
 		$this->assertInstanceOf( \Closure::class, SSE_Out_Node::$inspect_slot );
-		$this->assertSame( 1, ( new \ReflectionFunction( SSE_Out_Node::$acquire_slot ) )->getNumberOfParameters() );
-		$this->assertSame( 2, ( new \ReflectionFunction( SSE_Out_Node::$release_slot ) )->getNumberOfParameters() );
+		$this->assertSame( 2, ( new \ReflectionFunction( SSE_Out_Node::$acquire_slot ) )->getNumberOfParameters() );
+		$this->assertSame( 3, ( new \ReflectionFunction( SSE_Out_Node::$release_slot ) )->getNumberOfParameters() );
 		$this->assertSame( 2, ( new \ReflectionFunction( SSE_Out_Node::$check_slot ) )->getNumberOfParameters() );
 		$this->assertSame( 2, ( new \ReflectionFunction( SSE_Out_Node::$inspect_slot ) )->getNumberOfParameters() );
+	}
+
+	/** Distinct from any identity `identity()` builds in this suite. */
+	private const IDENTITY = '4471:5e55104c';
+
+	/** A session lease key: a handle qualified by what its stream carries. */
+	private const SESSION = '5e55104cafe0f00d5e55104cafe0f00d:81d1cafe81d1cafe';
+
+	/** What the session has left to live; distinct from every pool TTL here. */
+	private const SESSION_TTL = 1777;
+
+	public function test_a_reconnect_under_a_live_session_takes_its_lease_over(): void {
+		$first  = SSE_Slot_Pool::acquire( 'ns-takeover', self::IDENTITY, 1, 1, 60, 0, self::SESSION, self::SESSION_TTL );
+		$second = SSE_Slot_Pool::acquire( 'ns-takeover', self::IDENTITY, 1, 1, 60, 0, self::SESSION, self::SESSION_TTL );
+
+		$this->assertIsArray( $first );
+		$this->assertIsArray( $second, 'a full pool must still hand the session its own slot' );
+		$this->assertSame( $first['slot'], $second['slot'] );
+		$this->assertNotSame( $first['owner'], $second['owner'], 'the owner rotates' );
+		$this->assertFalse(
+			SSE_Slot_Pool::check( 'ns-takeover', $first['slot'], $first['owner'] ),
+			'the old process\'s next check fails, so it closes slot_lease_lost'
+		);
+		$this->assertTrue( SSE_Slot_Pool::check( 'ns-takeover', $second['slot'], $second['owner'] ) );
+	}
+
+	public function test_a_takeover_fences_the_old_owner_for_good(): void {
+		$first  = SSE_Slot_Pool::acquire( 'ns-takeover', self::IDENTITY, 4, 4, 60, 0, self::SESSION, self::SESSION_TTL );
+		$second = SSE_Slot_Pool::acquire( 'ns-takeover', self::IDENTITY, 4, 4, 60, 0, self::SESSION, self::SESSION_TTL );
+
+		$this->assertSame(
+			'superseded',
+			SSE_Slot_Pool::inspect( 'ns-takeover', $second['slot'], $first['owner'] )['lease_state'],
+			'a takeover is a routine reconnect, not a lost lease'
+		);
+		$this->assertFalse( SSE_Slot_Pool::touch( 'ns-takeover', $first['slot'], $first['owner'], 60 ), 'the old heartbeat cannot revive it' );
+		$this->assertFalse( SSE_Slot_Pool::release( 'ns-takeover', $first['slot'], $first['owner'] ), 'a stale release cannot tombstone its successor' );
+		$this->assertTrue( SSE_Slot_Pool::check( 'ns-takeover', $second['slot'], $second['owner'] ) );
+		$third = SSE_Slot_Pool::acquire( 'ns-takeover', self::IDENTITY, 4, 4, 60 );
+		$this->assertNotSame( $second['slot'], $third['slot'], 'the taken-over slot is still held' );
+	}
+
+	public function test_another_session_takes_nothing_over(): void {
+		$this->assertIsArray( SSE_Slot_Pool::acquire( 'ns-takeover', self::IDENTITY, 1, 1, 60, 0, self::SESSION, self::SESSION_TTL ) );
+
+		$this->assertFalse(
+			SSE_Slot_Pool::acquire( 'ns-takeover', self::IDENTITY, 1, 5, 60, 0, '0ther0ther0ther0ther0ther0the:81d1cafe81d1cafe', self::SESSION_TTL )
+		);
+	}
+
+	public function test_a_released_session_lease_is_claimed_afresh(): void {
+		$first = SSE_Slot_Pool::acquire( 'ns-takeover', self::IDENTITY, 3, 3, 60, 0, self::SESSION, self::SESSION_TTL );
+		SSE_Slot_Pool::release( 'ns-takeover', $first['slot'], $first['owner'] );
+
+		$again = SSE_Slot_Pool::acquire( 'ns-takeover', self::IDENTITY, 3, 3, 60, 0, self::SESSION, self::SESSION_TTL );
+
+		$this->assertIsArray( $again );
+		$this->assertTrue( SSE_Slot_Pool::check( 'ns-takeover', $again['slot'], $again['owner'] ) );
+	}
+
+	public function test_a_session_never_takes_a_slot_a_rival_has_since_claimed(): void {
+		$first = SSE_Slot_Pool::acquire( 'ns-takeover', self::IDENTITY, 1, 1, 60, 0, self::SESSION, self::SESSION_TTL );
+		SSE_Slot_Pool::release( 'ns-takeover', $first['slot'], $first['owner'] );
+		$rival = SSE_Slot_Pool::acquire( 'ns-takeover', '9119:0badf00d', 1, 1, 60 );
+		$this->assertIsArray( $rival );
+
+		$this->assertFalse( SSE_Slot_Pool::acquire( 'ns-takeover', self::IDENTITY, 1, 1, 60, 0, self::SESSION, self::SESSION_TTL ) );
+		$this->assertTrue( SSE_Slot_Pool::check( 'ns-takeover', $rival['slot'], $rival['owner'] ) );
+	}
+
+	public function test_a_stream_with_no_session_acquires_a_slot_of_its_own_as_before(): void {
+		$first  = SSE_Slot_Pool::acquire( 'ns-takeover', self::IDENTITY, 4, 4, 60 );
+		$second = SSE_Slot_Pool::acquire( 'ns-takeover', self::IDENTITY, 4, 4, 60 );
+
+		$this->assertNotSame( $first['slot'], $second['slot'] );
+		$this->assertTrue( SSE_Slot_Pool::check( 'ns-takeover', $first['slot'], $first['owner'] ) );
+	}
+
+	public function test_the_wired_acquire_hands_the_session_to_the_pool(): void {
+		SSE_Slot_Pool::$max_streams = 1;
+		SSE_Slot_Pool::$max_slots   = 1;
+		SSE_Slot_Pool::wire();
+		$acquire = SSE_Out_Node::$acquire_slot;
+
+		$session = [ 'key' => self::SESSION, 'ttl' => self::SESSION_TTL ];
+		$first   = $acquire( -1, $session );
+		$second  = $acquire( -1, $session );
+
+		$this->assertIsArray( $second );
+		$this->assertSame( $first['slot'], $second['slot'] );
+		$this->assertFalse( ( SSE_Out_Node::$check_slot )( $first, -1 ) );
+	}
+
+	public function test_a_rival_claiming_a_lapsed_lease_is_still_a_lost_lease(): void {
+		$first = SSE_Slot_Pool::acquire( 'ns-takeover', self::IDENTITY, 1, 1, 60, 0, self::SESSION, self::SESSION_TTL );
+		SSE_Slot_Pool::release( 'ns-takeover', $first['slot'], $first['owner'] );
+		$rival = SSE_Slot_Pool::acquire( 'ns-takeover', '9119:0badf00d', 1, 1, 60 );
+
+		$this->assertSame(
+			'pointer_owner_mismatch',
+			SSE_Slot_Pool::inspect( 'ns-takeover', $rival['slot'], $first['owner'] )['lease_state']
+		);
+	}
+
+	public function test_a_session_lease_recorded_past_a_shrunk_pool_is_not_taken_over(): void {
+		$held = [];
+		for ( $i = 0; $i < 3; $i++ ) {
+			$held[] = SSE_Slot_Pool::acquire( 'ns-takeover', "id-{$i}:0", 4, 4, 60 );
+		}
+		$first = SSE_Slot_Pool::acquire( 'ns-takeover', self::IDENTITY, 4, 4, 60, 0, self::SESSION, self::SESSION_TTL );
+		$this->assertSame( 3, $first['slot'] );
+		foreach ( $held as $lease ) {
+			SSE_Slot_Pool::release( 'ns-takeover', $lease['slot'], $lease['owner'] );
+		}
+
+		$again = SSE_Slot_Pool::acquire( 'ns-takeover', self::IDENTITY, 2, 4, 60, 0, self::SESSION, self::SESSION_TTL );
+
+		$this->assertIsArray( $again );
+		$this->assertLessThan( 2, $again['slot'], 'a slot past max_streams is no longer the host\'s to hand out' );
+	}
+
+	public function test_a_browser_session_lease_in_the_reserved_tail_is_not_taken_over(): void {
+		$held = [];
+		for ( $i = 0; $i < 2; $i++ ) {
+			$held[] = SSE_Slot_Pool::acquire( 'ns-takeover', "id-{$i}:0", 3, 3, 60 );
+		}
+		$first = SSE_Slot_Pool::acquire( 'ns-takeover', self::IDENTITY, 3, 3, 60, 0, self::SESSION, self::SESSION_TTL );
+		$this->assertSame( 2, $first['slot'] );
+		foreach ( $held as $lease ) {
+			SSE_Slot_Pool::release( 'ns-takeover', $lease['slot'], $lease['owner'] );
+		}
+
+		$again = SSE_Slot_Pool::acquire( 'ns-takeover', self::IDENTITY, 3, 3, 60, 1, self::SESSION, self::SESSION_TTL );
+
+		$this->assertIsArray( $again );
+		$this->assertLessThan( 2, $again['slot'], 'the reserved tail is not a browser\'s, even its own old lease' );
+	}
+
+	public function test_a_takeover_whose_staged_liveness_is_evicted_falls_back_to_a_claim(): void {
+		$memd       = new class() extends InMemoryMemcached {
+			public bool $evict_next_staged = false;
+			private string $last_added     = '';
+			public function add( string $key, mixed $value, int $expiration = 0 ): bool {
+				$this->last_added = $key;
+				return parent::add( $key, $value, $expiration );
+			}
+			public function cas( string|int|float $cas_token, string $key, mixed $value, int $expiration = 0 ): bool {
+				$ok = parent::cas( $cas_token, $key, $value, $expiration );
+				if ( $ok && $this->evict_next_staged ) {
+					$this->evict_next_staged = false;
+					$this->delete( $this->last_added );
+				}
+				return $ok;
+			}
+		};
+		Core::$memd = $memd;
+		SSE_Slot_Pool::acquire( 'ns-takeover', self::IDENTITY, 2, 2, 60, 0, self::SESSION, self::SESSION_TTL );
+
+		$memd->evict_next_staged = true;
+		$again                   = SSE_Slot_Pool::acquire( 'ns-takeover', self::IDENTITY, 2, 2, 60, 0, self::SESSION, self::SESSION_TTL );
+
+		$this->assertIsArray( $again );
+		$this->assertTrue(
+			SSE_Slot_Pool::check( 'ns-takeover', $again['slot'], $again['owner'] ),
+			'a lease is handed back only once its liveness is confirmed'
+		);
+	}
+
+	public function test_the_session_index_lives_no_longer_than_the_session(): void {
+		SSE_Slot_Pool::acquire( 'ns-takeover', self::IDENTITY, 2, 2, 60, 0, self::SESSION, self::SESSION_TTL );
+
+		$index = \array_filter(
+			Core::$memd->expiries(),
+			static fn ( string $key ): bool => \str_contains( $key, 'sse-session:' ),
+			\ARRAY_FILTER_USE_KEY
+		);
+		$this->assertCount( 1, $index );
+		$this->assertEqualsWithDelta( \time() + self::SESSION_TTL, \reset( $index ), 2 );
+	}
+
+	public function test_a_session_with_no_life_left_records_no_index(): void {
+		SSE_Slot_Pool::acquire( 'ns-takeover', self::IDENTITY, 2, 2, 60, 0, self::SESSION, 0 );
+
+		$this->assertSame( [], \preg_grep( '/sse-session:/', \array_keys( Core::$memd->expiries() ) ) );
+	}
+
+	public function test_releasing_a_session_lease_forgets_its_index(): void {
+		$first = SSE_Slot_Pool::acquire( 'ns-takeover', self::IDENTITY, 2, 2, 60, 0, self::SESSION, self::SESSION_TTL );
+
+		SSE_Slot_Pool::release( 'ns-takeover', $first['slot'], $first['owner'], self::SESSION );
+
+		$this->assertSame( [], \preg_grep( '/sse-session:/', \array_keys( Core::$memd->expiries() ) ) );
+	}
+
+	public function test_the_wired_release_forgets_the_session_index(): void {
+		SSE_Slot_Pool::wire();
+		$lease = ( SSE_Out_Node::$acquire_slot )( -1, [ 'key' => self::SESSION, 'ttl' => self::SESSION_TTL ] );
+
+		( SSE_Out_Node::$release_slot )( $lease, -1, self::SESSION );
+
+		$this->assertSame( [], \preg_grep( '/sse-session:/', \array_keys( Core::$memd->expiries() ) ) );
 	}
 
 	public function test_wired_seams_reject_an_incomplete_lease(): void {

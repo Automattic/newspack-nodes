@@ -8,11 +8,13 @@
  * It EXTENDS RemoteLink — composing the same `<name>:sse-in` child over the
  * shared `_http` + `_heartbeat` backbone, and the same connected→slot bridge —
  * and adds the two halves of the worker-attach send path:
- *  - The outgoing reply-FROM wrap: a command minted by a reply node
- *    (`_output`/`_metadata`/…) gets FROM rewritten to the private reply address
- *    `_sse:{pid}/{node}` so the server's HTTP_Filter can demux its ASYNC reply
- *    back to THIS session's stream. The `_sse` head is the server's wire
- *    contract, spelled the same in PHP, not this node's name.
+ *  - The outgoing reply-FROM wrap: a message sent by a reply node
+ *    (`_output`/`_metadata`/…) gets FROM rewritten to the reply address
+ *    `_sse:{session}/{node}`, naming this page's command session, so the
+ *    server's HTTP_Filter passes its ASYNC reply to this session's stream —
+ *    whichever connection that stream is on when the reply lands. The `_sse`
+ *    head is the server's wire contract, spelled the same in PHP, not this
+ *    node's name.
  *  - The `connect_worker_input` bundling: each send rides a leading
  *    `connect_worker_input {reader}` so the stateless request-scope graph mounts
  *    the worker's input Partition before the command routes to it.
@@ -32,6 +34,7 @@
 import { Core } from './core';
 import { Node } from './node';
 import { RemoteLinkNode } from './remote-link-node';
+import { sessionHandle } from './command-auth';
 import { FROM, TO } from './message';
 import names from './reserved-node-names.json';
 
@@ -98,9 +101,17 @@ export class RemoteIpcNode extends RemoteLinkNode {
 		const remainder = message[ TO ];
 		const command = message.slice();
 		if ( '' !== command[ FROM ] ) {
-			command[ FROM ] = `${ names.SSE }:${ this.pid() }/${
-				command[ FROM ]
-			}`;
+			const session = sessionHandle();
+			if ( null === session ) {
+				this.dropMessage(
+					message,
+					'no command session to address its reply'
+				);
+				return;
+			}
+			command[
+				FROM
+			] = `${ names.SSE }:${ session }/${ command[ FROM ] }`;
 		}
 		command[ TO ] =
 			'' === remainder ? reader : `${ reader }/${ remainder }`;
@@ -145,14 +156,25 @@ export class RemoteIpcNode extends RemoteLinkNode {
 	 * it. One stream per session — the console performs this same swap when the
 	 * cwd moves to another worker.
 	 *
-	 * It drops the parent's `positions` seed and always tail-seeks: an attached
-	 * command channel carries replies to commands this session is about to
-	 * send, so there is no earlier position worth resuming from.
+	 * A fresh attach drops the parent's `positions` seed and tail-seeks: an
+	 * attached command channel carries replies to commands this session is
+	 * about to send, so there is no earlier position worth starting from.
+	 * Every reopen after that resumes where the stream read — the SseIn's own
+	 * reconnects, and the session change below.
+	 *
+	 * A live stream presenting some other session than the one that now signs
+	 * is reopened under it, resuming where it read: the server passes a stream
+	 * only its own session's replies, and the replies to what is sent next
+	 * will name the new one.
 	 */
 	connect() {
 		this._assertConfigured();
 		const current = RemoteIpcNode.active;
 		if ( current === this && this.sseIn?._es ) {
+			const session = sessionHandle();
+			if ( session && session !== this.sseIn.presentedSession ) {
+				this.sseIn.start();
+			}
 			return;
 		}
 		if ( current && current !== this ) {

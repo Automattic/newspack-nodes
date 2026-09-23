@@ -257,6 +257,17 @@ export function hasSession() {
 }
 
 /**
+ * The live session's handle, the name a stream presents and a reply head
+ * carries. Replies are addressed to the session that asked rather than to a
+ * connection, so they survive every reconnect it makes.
+ *
+ * @return {?string} The handle, or null while no session is live.
+ */
+export function sessionHandle() {
+	return hasSession() ? session.handle : null;
+}
+
+/**
  * The server has forgotten our session — evicted from the cache, or restarted.
  * Drop it so the next ensureSession() establishes a new one; the poll that hit
  * the refusal is lost, and its next tick works.

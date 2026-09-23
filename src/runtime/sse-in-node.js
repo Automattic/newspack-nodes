@@ -2,14 +2,16 @@
 /**
  * Bring a server's message stream into the browser node graph.
  *
- * `SseInNode` opens an EventSource, snoops the `connected` handshake for the
- * session pid, slot and lease owner, and fills every parsed `msg` frame into
- * the local graph. RemoteLink composes it as the per-link `<patron>:sse-in`.
+ * `SseInNode` opens an EventSource presenting the command session it signs
+ * with, snoops the `connected` handshake for that session, the slot and the
+ * lease owner, and fills every parsed `msg` frame into the local graph.
+ * RemoteLink composes it as the per-link `<patron>:sse-in`.
  *
  * The node is receive-only. Each inbound frame reaches the graph through an
  * EventSource listener that calls `super.fill`, the base Node's route-by-TO.
  * RemoteIpc, not this node, wraps an outgoing reply FROM as
- * `_sse:{pid}/{node}`.
+ * `_sse:{session}/{node}`, and the server passes a stream only the replies
+ * headed with the session it presented — across every reconnect.
  *
  * Tachikoma parity keeps the constructor argument-free. Positional config
  * arrives through `arguments=`, whose `SchemaReflection` setter walks it onto
@@ -23,12 +25,13 @@
  * `printLessOften`, which prints one line per key per window, so a flapping
  * endpoint cannot flood the console. Every payload is a STRING, the substrate
  * convention: the `connected` envelope is a flat `KEY VALUE` string, and the
- * pid lands in a plain field rather than in node state.
+ * session lands in a plain field rather than in node state.
  */
 import { SchemaReflection } from './schema-reflection';
 import { TimerNode } from './timer-node';
 import { Core } from './core';
 import { nodesData, refreshNodesNonce } from './nodes-data';
+import { ensureSession, renewSession, sessionHandle } from './command-auth';
 import { IoTelemetry, byteLength } from './io-telemetry';
 import {
 	TYPE,
@@ -125,6 +128,14 @@ const INITIAL_BACKOFF_MS = 2000;
 const MAX_BACKOFF_MS = 30000;
 
 /**
+ * A stream id the server refuses by shape. `SSE_Out_Node::stream()` resolves
+ * the session before it validates the id, so a probe carrying this answers
+ * `401 sse_session_refused` for a dead session and `400 sse_stream_invalid`
+ * for a live one — without opening a stream or taking a slot.
+ */
+const PROBE_STREAM_ID = '!';
+
+/**
  * The one field a patron sets on this node from the outside. RemoteLink is a
  * SUBSCRIPTION, so it sets `homeToTarget` and every received record is re-homed
  * to this node's target; RemoteIpc leaves it unset and lets each record keep
@@ -176,8 +187,10 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 		this._serverRetryMs = null;
 		this._reopenTimer = null;
 		this._mayRenewNonce = true;
+		// The session this stream presented; its replies are headed with it.
+		this.presentedSession = null;
 		// Session identity from `connected`; lease owner remains a string.
-		this.sessionPid = null;
+		this.sessionHandle = null;
 		this.sessionSlot = null;
 		this.sessionLeaseOwner = null;
 		// Last terminal server control event for this EventSource connection.
@@ -265,7 +278,8 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 
 	/**
 	 * Parse the flat `KEY VALUE` connected envelope into plain session fields.
-	 * PID, SLOT and OWNER must all arrive well-formed; anything else rejects
+	 * SLOT and OWNER must arrive well-formed, and SESSION must echo the one the
+	 * stream presented — none when it presented none; anything else rejects
 	 * the handshake rather than leaving a half-known session behind.
 	 *
 	 * @param {*} value The envelope's VALUE — space-separated `KEY VALUE` pairs.
@@ -279,9 +293,8 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 		for ( let i = 0; i + 1 < parts.length; i += 2 ) {
 			info[ parts[ i ] ] = parts[ i + 1 ];
 		}
-		const pid = Number( info.PID );
-		if ( ! Number.isFinite( pid ) ) {
-			this._rejectConnected( 'missing PID' );
+		if ( ( info.SESSION ?? null ) !== this.presentedSession ) {
+			this._rejectConnected( 'names another SESSION' );
 			return;
 		}
 		const slot = Number( info.SLOT );
@@ -298,12 +311,12 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 			return;
 		}
 		this.terminalDisconnect = null;
-		this.sessionPid = pid;
+		this.sessionHandle = this.presentedSession;
 		this.sessionSlot = slot;
 		this.sessionLeaseOwner = leaseOwner;
 		this._seedPositions( info.CURSORS );
 		// SSE_In_Node's payload: the raw envelope also carries the lease OWNER.
-		this.setState( 'CONNECTED', `PID ${ pid } SLOT ${ slot }` );
+		this.setState( 'CONNECTED', `SLOT ${ slot }` );
 		this._mayRenewNonce = true;
 		// Stamp the live-stream connect time for the Overview SSE Uptime card.
 		IoTelemetry.markSseConnected();
@@ -313,10 +326,10 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 	 * Abandon a malformed handshake: forget every session field, publish ERROR
 	 * and DISCONNECTED, and log at the rate limit.
 	 *
-	 * @param {string} reason What was wrong with the envelope, e.g. 'missing PID'.
+	 * @param {string} reason What was wrong with the envelope, e.g. 'missing or invalid SLOT'.
 	 */
 	_rejectConnected( reason ) {
-		this.sessionPid = null;
+		this.sessionHandle = null;
 		this.sessionSlot = null;
 		this.sessionLeaseOwner = null;
 		const message = `connected envelope ${ reason }`;
@@ -348,6 +361,55 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 		if ( ! stream ) {
 			return;
 		}
+		if ( this.presentedSession ) {
+			this._probeSession( stream );
+			return;
+		}
+		this._renewNonceAndRestart( stream );
+	}
+
+	/**
+	 * Ask the server whether the session this stream presented is why it was
+	 * refused. An EventSource never exposes the status of a failed open, so
+	 * the probe repeats the request with a stream id the server refuses by
+	 * shape: a dead session answers `sse_session_refused` first. Streams share
+	 * the page's one session, so only a refusal of the handle still current
+	 * renews it; a stream refused for a handle already dropped or replaced
+	 * just reopens under whatever session is live. Anything else goes the
+	 * ordinary nonce-and-reconnect way.
+	 *
+	 * @param {EventSource} stream The stream that was refused.
+	 */
+	_probeSession( stream ) {
+		const refused = this.presentedSession;
+		const probe = new URL( stream.url, window.location.href );
+		probe.searchParams.set( 'stream', PROBE_STREAM_ID );
+		fetch( probe.toString(), { credentials: 'include' } )
+			.then( ( r ) => r.json() )
+			.then( ( body ) => body?.code )
+			.catch( () => null )
+			.then( ( code ) => {
+				if ( this._es !== stream ) {
+					return;
+				}
+				if ( 'sse_session_refused' === code ) {
+					if ( sessionHandle() === refused ) {
+						renewSession();
+					}
+					this._reopenOnceSessionIs( stream );
+					return;
+				}
+				this._renewNonceAndRestart( stream );
+			} );
+	}
+
+	/**
+	 * The ordinary recovery: renew a stale global nonce and reopen, or, where
+	 * the nonce is explicit or renewal is barred, force a reconnect.
+	 *
+	 * @param {EventSource} stream The stream the browser gave up on.
+	 */
+	_renewNonceAndRestart( stream ) {
 		if ( this._nonce || ! this._mayRenewNonce ) {
 			this._forceReconnect();
 			return;
@@ -440,10 +502,18 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 			);
 		}
 		const seeks = this.seekMap();
+		this.presentedSession = sessionHandle();
 		let url =
 			`${ this.baseUrl }${ this.endpoint }` +
 			`?subscribe=${ encodeURIComponent( this.subscribe.join( ',' ) ) }` +
 			`&_wpnonce=${ this.nonce }`;
+		if ( this.presentedSession ) {
+			url += `&session=${ encodeURIComponent( this.presentedSession ) }`;
+			// Names this stream's lease, so its reconnect takes the lease over.
+			if ( this.name ) {
+				url += `&stream=${ encodeURIComponent( this.name ) }`;
+			}
+		}
 		if ( Object.keys( seeks ).length > 0 ) {
 			url += `&positions=${ encodeURIComponent(
 				JSON.stringify( seeks )
@@ -496,7 +566,7 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 			}
 			this.lastEventTime = Date.now();
 		} );
-		// `connected` is its own SSE event: snoop pid/slot, don't route.
+		// `connected` is its own SSE event: snoop session/slot, don't route.
 		es.addEventListener( 'connected', ( e ) => {
 			if ( stale() ) {
 				return;
@@ -667,7 +737,8 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 		// A later stream starts with no frame timestamp from this connection.
 		this.lastEventTime = null;
 		// Forget this connection's complete session lease and terminal event.
-		this.sessionPid = null;
+		this.presentedSession = null;
+		this.sessionHandle = null;
 		this.sessionSlot = null;
 		this.sessionLeaseOwner = null;
 		this.terminalDisconnect = null;
@@ -704,6 +775,28 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 					offset,
 				};
 			} );
+	}
+
+	/**
+	 * Reopen as soon as a command session is live again, waiting out the auth
+	 * backoff between attempts rather than opening a sessionless stream.
+	 *
+	 * @param {EventSource} stream The refused stream this reopen replaces.
+	 */
+	_reopenOnceSessionIs( stream ) {
+		ensureSession().then( ( session ) => {
+			if ( this._es !== stream ) {
+				return;
+			}
+			if ( session ) {
+				this._restart( 'session renewed' );
+				return;
+			}
+			this._reopenTimer = setTimeout( () => {
+				this._reopenTimer = null;
+				this._reopenOnceSessionIs( stream );
+			}, this._backoffMs );
+		} );
 	}
 
 	/**
@@ -808,10 +901,10 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 	}
 
 	/**
-	 * @return {?number} PID of the server process behind the live stream, or null before a handshake completes.
+	 * @return {?string} Command session whose replies the live stream carries, or null before a handshake completes or when it presented none.
 	 */
-	pid() {
-		return this.sessionPid ?? null;
+	session() {
+		return this.sessionHandle ?? null;
 	}
 
 	/**
