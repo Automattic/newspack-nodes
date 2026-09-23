@@ -791,6 +791,70 @@ class ConsumerTest extends TestCase {
 		);
 	}
 
+	public function test_drain_stops_where_its_caller_says_and_claims_no_eof(): void {
+		// A bounded one-shot read ends on the caller's word, not the log's.
+		$source = new Partition_Node();
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 1024 * 1024 ), "4", "86400" ] );
+		// More than one poll's block, so the first poll leaves the stream unread.
+		for ( $i = 0; $i < 3 * Consumer_Node::READ_BLOCK_BYTES / 1024; $i++ ) {
+			$this->produce_line( $source, \str_repeat( 'q', 1000 ) . $i );
+		}
+
+		$c = new Consumer_Node();
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
+		$capture = new Capture_Sink_Node();
+		$c->sink( $capture );
+		$asked = 0;
+
+		$reached = $c->drain( static function () use ( &$asked ): bool {
+			++$asked;
+			return true;
+		} );
+
+		$this->assertFalse( $reached );
+		$this->assertSame( 1, $asked );
+		foreach ( $capture->captured as $message ) {
+			$this->assertSame( 0, $message[ Message::TYPE ] & Message::TM_EOF, 'a stopped drain claims no end' );
+		}
+	}
+
+	public function test_a_drain_that_reaches_the_end_says_so_even_when_told_to_stop(): void {
+		// One poll both ends the stream and meets the stop: the end wins.
+		$source = new Partition_Node();
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
+		$this->produce_line( $source, 'only-5104' );
+
+		$c = new Consumer_Node();
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
+		$capture = new Capture_Sink_Node();
+		$c->sink( $capture );
+
+		// Go on once (the first poll only buffers), then stop: the poll that
+		// follows delivers the line and meets the end.
+		$asked = 0;
+		$this->assertTrue(
+			$c->drain(
+				static function () use ( &$asked ): bool {
+					return ++$asked > 1;
+				}
+			)
+		);
+		$last = \end( $capture->captured );
+		$this->assertNotSame( 0, $last[ Message::TYPE ] & Message::TM_EOF );
+	}
+
+	public function test_an_unbounded_drain_reports_that_it_reached_the_end(): void {
+		$source = new Partition_Node();
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
+		$this->produce_line( $source, 'only-2209' );
+
+		$c = new Consumer_Node();
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
+		$c->sink( new Capture_Sink_Node() );
+
+		$this->assertTrue( $c->drain() );
+	}
+
 	public function test_poll_does_not_re_emit_old_lines_on_second_call(): void {
 		$source = new Partition_Node();
 		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64*1024 ), "4", "86400" ] );
