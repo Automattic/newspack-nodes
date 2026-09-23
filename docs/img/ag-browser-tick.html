@@ -27,18 +27,18 @@
     <g text-anchor="middle"><text x="170" y="230">0 s</text><text x="370" y="230">5 s</text><text x="570" y="230">10 s</text><text x="770" y="230">15 s</text><text x="970" y="230">20 s</text></g>
     <text class="h" x="0" y="30">_router tick</text><text x="0" y="45">ROUTER_TICK_MS 1000</text>
     <g fill="#003DA5"><circle cx="210" cy="30" r="3.5"/><circle cx="250" cy="30" r="3.5"/><circle cx="290" cy="30" r="3.5"/><circle cx="330" cy="30" r="3.5"/><circle cx="370" cy="30" r="3.5"/><circle cx="410" cy="30" r="3.5"/><circle cx="450" cy="30" r="3.5"/><circle cx="490" cy="30" r="3.5"/><circle cx="530" cy="30" r="3.5"/><circle cx="570" cy="30" r="3.5"/><circle cx="610" cy="30" r="3.5"/><circle cx="650" cy="30" r="3.5"/><circle cx="690" cy="30" r="3.5"/><circle cx="730" cy="30" r="3.5"/><circle cx="770" cy="30" r="3.5"/><circle cx="810" cy="30" r="3.5"/><circle cx="850" cy="30" r="3.5"/><circle cx="890" cy="30" r="3.5"/><circle cx="930" cy="30" r="3.5"/><circle cx="970" cy="30" r="3.5"/></g>
-    <text class="h" x="0" y="74">_uptime</text><text x="0" y="89">uptime every 5 s</text>
-    <g fill="#003DA5"><circle cx="370" cy="74" r="6"/><circle cx="570" cy="74" r="6"/><circle cx="770" cy="74" r="6"/><circle cx="970" cy="74" r="6"/></g>
+    <text class="h" x="0" y="74">_uptime</text><text x="0" y="89">uptime every 2 s</text>
+    <g fill="#003DA5"><circle cx="250" cy="74" r="6"/><circle cx="330" cy="74" r="6"/><circle cx="410" cy="74" r="6"/><circle cx="490" cy="74" r="6"/><circle cx="570" cy="74" r="6"/><circle cx="650" cy="74" r="6"/><circle cx="730" cy="74" r="6"/><circle cx="810" cy="74" r="6"/><circle cx="890" cy="74" r="6"/><circle cx="970" cy="74" r="6"/></g>
     <text class="h" x="0" y="118">_metadata</text><text x="0" y="133">1,000 × 10 ms → 10 s</text>
     <g fill="#003DA5"><circle cx="570" cy="118" r="6"/><circle cx="970" cy="118" r="6"/></g>
     <text class="h" x="0" y="162">_dmesg</text><text x="0" y="177">PollerNode default 10 s</text>
     <g fill="#003DA5"><circle cx="570" cy="162" r="6"/><circle cx="970" cy="162" r="6"/></g>
     <text class="h" x="0" y="204">POST /command</text>
-    <g fill="#B32D2E"><rect x="364" y="194" width="12" height="14" rx="2"/><rect x="564" y="194" width="12" height="14" rx="2"/><rect x="764" y="194" width="12" height="14" rx="2"/><rect x="964" y="194" width="12" height="14" rx="2"/></g>
-    <text x="582" y="206">three verbs, one POST</text><text x="382" y="206">one verb</text>
-    <text x="190" y="206">nothing due: flush sends nothing</text>
+    <g fill="#B32D2E"><rect x="244" y="194" width="12" height="14" rx="2"/><rect x="324" y="194" width="12" height="14" rx="2"/><rect x="404" y="194" width="12" height="14" rx="2"/><rect x="484" y="194" width="12" height="14" rx="2"/><rect x="564" y="194" width="12" height="14" rx="2"/><rect x="644" y="194" width="12" height="14" rx="2"/><rect x="724" y="194" width="12" height="14" rx="2"/><rect x="804" y="194" width="12" height="14" rx="2"/><rect x="884" y="194" width="12" height="14" rx="2"/><rect x="964" y="194" width="12" height="14" rx="2"/></g>
+    <text x="0" y="219">odd ticks send nothing</text>
+    <text x="582" y="206">3 verbs</text><text x="982" y="206">3</text>
   </svg>
-  <p style="font-size:12.5px"><span class="mono">computePollIntervalMs()</span> rounds <span class="mono">nodes × 10 ms</span> to the nearest five seconds and floors it at five, so every metadata cadence is a multiple of the uptime one. Every poller rides the Router's TIMER channel on the one shared wall-clock grid (ADR-17), which is why harmonic cadences meet on the same tick and leave in the same request. The <span class="mono">_dmesg</span> poll is aimed at <span class="mono">_cwd</span>, so it tallies the stderr tail of the process being VIEWED.</p>
+  <p style="font-size:12.5px"><span class="mono">computePollIntervalMs()</span> polls a graph of up to 200 nodes every two seconds and rounds a larger one's <span class="mono">nodes × 10 ms</span> to the nearest five seconds, floored at five, so every metadata cadence meets the two-second uptime poll on the ten-second grid. Polling a small graph every two seconds also keeps the viewed worker's SSE stream from idling out between replies. Every poller rides the Router's TIMER channel on the one shared wall-clock grid (ADR-17), which is why harmonic cadences meet on the same tick and leave in the same request. The <span class="mono">_dmesg</span> poll is aimed at <span class="mono">_cwd</span>, so it tallies the stderr tail of the process being VIEWED.</p>
 </div>
 
 <div class="two">

@@ -178,15 +178,16 @@ describe( 'Metadata node', () => {
 	} );
 
 	describe( 'computePollIntervalMs (nodeCount * 10ms, rounded)', () => {
-		it( 'floors at 5s (anything up to ~5s of computed cadence)', () => {
-			expect( computePollIntervalMs( 0 ) ).toBe( 5000 );
-			expect( computePollIntervalMs( 30 ) ).toBe( 5000 ); // 0.3s -> floor 5s
-			expect( computePollIntervalMs( 100 ) ).toBe( 5000 ); // 1.0s -> floor 5s
-			expect( computePollIntervalMs( 250 ) ).toBe( 5000 ); // 2.5s -> floor 5s
-			expect( computePollIntervalMs( 500 ) ).toBe( 5000 ); // 5.0s
+		it( 'polls a graph of 200 nodes or fewer every 2s', () => {
+			expect( computePollIntervalMs( 0 ) ).toBe( 2000 );
+			expect( computePollIntervalMs( 30 ) ).toBe( 2000 ); // 0.3s
+			expect( computePollIntervalMs( 100 ) ).toBe( 2000 ); // 1.0s
+			expect( computePollIntervalMs( 200 ) ).toBe( 2000 ); // 2.0s
 		} );
 
-		it( 'rounds to the nearest 5 seconds once past 5s', () => {
+		it( 'rounds to the nearest 5 seconds past 2s, floored at 5s', () => {
+			expect( computePollIntervalMs( 250 ) ).toBe( 5000 ); // 2.5s -> 5s
+			expect( computePollIntervalMs( 500 ) ).toBe( 5000 ); // 5.0s
 			expect( computePollIntervalMs( 600 ) ).toBe( 5000 ); // 6s -> 5s
 			expect( computePollIntervalMs( 800 ) ).toBe( 10000 ); // 8s -> 10s
 			expect( computePollIntervalMs( 3000 ) ).toBe( 30000 ); // 30s

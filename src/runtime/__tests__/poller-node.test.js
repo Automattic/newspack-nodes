@@ -249,6 +249,10 @@ describe( 'DmesgNode', () => {
 } );
 
 describe( 'UptimeNode', () => {
+	it( 'polls every 2s, on the shared grid', () => {
+		expect( new UptimeNode().pollIntervalMs ).toBe( 2000 );
+	} );
+
 	it( 'keeps the right half of a bytestream uptime line', () => {
 		const node = new UptimeNode();
 		node.fill( msg( TM_BYTESTREAM, '09:44:52  up 0 days, 00:01:00\n' ) );
@@ -292,7 +296,7 @@ describe( 'UptimeNode', () => {
 		expect( node.counter ).toBe( 2 );
 	} );
 
-	describe( 'fire() poll emission (5s throttle)', () => {
+	describe( 'fire() poll emission (2s throttle)', () => {
 		afterEach( () => {
 			Core.reset();
 			jest.restoreAllMocks();
@@ -330,9 +334,9 @@ describe( 'UptimeNode', () => {
 		} );
 
 		// The cadence is a wall-clock GRID (see `nextBoundary`), so the
-		// guarantee is one emit per 5s period — not 5s between any two emits.
+		// guarantee is one emit per 2s period — not 2s between any two emits.
 		// The first period after arming is the short remainder of the one the
-		// timer opened in, which is what converges every 5s poll onto one tick.
+		// timer opened in, which is what converges every 2s poll onto one tick.
 		it( 'throttles: ticks inside one period emit once', () => {
 			const nowSpy = jest.spyOn( Core, 'now' );
 			const { node, sent } = build( { armed: true } );
@@ -341,7 +345,7 @@ describe( 'UptimeNode', () => {
 			nowSpy.mockReturnValue( 100 );
 			node.fireCb();
 			const emitted = sent.length;
-			for ( let t = 100.5; t < 105; t += 0.5 ) {
+			for ( let t = 100.5; t < 102; t += 0.5 ) {
 				nowSpy.mockReturnValue( t );
 				node.fireCb();
 			}
@@ -356,7 +360,7 @@ describe( 'UptimeNode', () => {
 			nowSpy.mockReturnValue( 100 );
 			node.fireCb();
 			sent.length = 0;
-			for ( let t = 101; t <= 120; t++ ) {
+			for ( let t = 101; t <= 108; t++ ) {
 				nowSpy.mockReturnValue( t );
 				node.fireCb();
 			}
