@@ -74,7 +74,7 @@ stream bound.
 | `sse_max_slots` | 3 | 1–64, and never above `sse_max_streams` | Streams one identity holds at once |
 | `sse_reserved_slots` | 0 | 0–63, and always leaving one slot claimable | Trailing slots browsers may not claim |
 | `sse_slot_ttl` | 60 | 45–3600, raised to 45 rather than honoured below it | Lease lifetime in seconds |
-| `sse_idle_timeout` | 15 | none declared | Seconds without data before a stream closes clean; 0 never closes |
+| `sse_idle_timeout` | 5 | none declared | Seconds without data before a stream closes clean; 0 never closes |
 | `sse_retry_ms` | 5000 | none declared | Milliseconds the client waits before reopening |
 
 None of the six appears on Settings → Nodes Runtime, because [`Settings_Schema`](../includes/class-settings-schema.php)

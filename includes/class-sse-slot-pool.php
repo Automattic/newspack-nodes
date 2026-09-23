@@ -48,9 +48,9 @@ class SSE_Slot_Pool {
 	 * more than the whole host, since a share that cannot bind is not a share.
 	 *
 	 * A per-identity cap bounds one reader and never the host; `max_streams()`
-	 * is what protects the site. The shipped 3 leaves room for an idle stream
-	 * reopening on the `sse_idle_timeout` plus `sse_retry_ms` cycle while its
-	 * dead lease still holds a slot.
+	 * is what protects the site. The shipped 3 leaves room for a lease a dead
+	 * process never released, standing for the whole TTL while the client's
+	 * real reconnect already wants a slot of its own.
 	 *
 	 * @return int Slots one identity may hold at once, at least 1.
 	 */

@@ -303,7 +303,7 @@ class Settings_Schema {
 				new Field(
 					key: 'sse_idle_timeout',
 					type: 'int',
-					default: 15,
+					default: 5,
 					ui: false,
 				),
 				new Field(

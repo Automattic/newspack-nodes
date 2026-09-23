@@ -154,7 +154,25 @@ class Core {
 	/** @var array<string,Node> Registered nodes keyed by name; every entry is a Node ($this from Node::name()). */
 	public static array $nodes_by_name = [];
 
-	/** @var float Microsecond-resolution timestamp; refreshed per tick through right_now(), pinned directly in tests. */
+	/**
+	 * The tick's clock, epoch seconds at microsecond resolution; readers date
+	 * from it rather than reading the wall themselves.
+	 *
+	 * Contract: `right_now()` writes it, so every caller re-pins it, in a
+	 * worker and in a request alike. Loading this class pins it first,
+	 * because the file ends in `reset()`, which stamps `$init_time` through
+	 * `right_now()`, so request scope has a tick before any verb runs. A
+	 * reader wanting one instant reads it once and passes it down. Tests pin
+	 * it directly.
+	 *
+	 * In request or CLI scope, where nothing drains the event loop, the tick
+	 * holds that class-load instant until some `right_now()` caller advances
+	 * it — nothing else re-pins it on that path. A reader there that
+	 * genuinely needs a fresh timestamp calls `right_now()` itself, per its
+	 * own docblock.
+	 *
+	 * @var float
+	 */
 	public static float $now = 0.0;
 
 	/**

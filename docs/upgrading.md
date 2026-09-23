@@ -4,6 +4,14 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 **Maintenance rule:** a release that changes any consumer-facing contract adds its entry here in the same commit as its CHANGELOG entry. No entry means nothing to do.
 
+## Unreleased
+
+- **An idle `/messages/stream` or `/log/stream` connection now closes after
+  five seconds of no `msg` event, not fifteen.** `sse_idle_timeout` defaults
+  to 5. A site that already sets the key in a config file or as a
+  `newspack_nodes_sse_idle_timeout` option keeps its own value; only the
+  code-level default changed.
+
 ## 2.65.6
 
 - **`_http`'s target is `_null`, not `_output`.** A browser graph that read

@@ -215,7 +215,7 @@ class SettingsSchemaTest extends TestCase {
 			$fields[ $field->key ] = $field;
 		}
 
-		$this->assertSame( 15, $fields['sse_idle_timeout']->default ?? null );
+		$this->assertSame( 5, $fields['sse_idle_timeout']->default ?? null );
 		$this->assertSame( 5000, $fields['sse_retry_ms']->default ?? null );
 		$this->assertSame(
 			0,
