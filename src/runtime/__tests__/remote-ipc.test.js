@@ -10,7 +10,7 @@
  * A send boots/steals the single live EventSource (closing whichever RemoteIpc
  * held it), then routes `[connect_worker_input → topologies, command → {bare
  * reader}]` through the shared `_http` as ONE POST. The reply-node FROM wrap
- * (`_sse:{pid}/{node}`) — the server's HTTP_Filter wire contract — lives here.
+ * (`_sse:{session}/{node}`) — the server's HTTP_Filter wire contract — lives here.
  */
 
 import { RemoteIpcNode } from '../remote-ipc-node';
@@ -21,20 +21,27 @@ import { HeartbeatNode } from '../heartbeat-node';
 import { CommandInterpreterNode } from '../command-interpreter-node';
 import { mountExospine } from '../exospine';
 import { Core } from '../core';
+import { Node } from '../node';
 import {
 	newMessage,
 	TYPE,
 	FROM,
 	TO,
+	ID,
 	KEY,
 	VALUE,
 	TM_COMMAND,
 	TM_INFO,
+	TM_REQUEST,
+	TM_BYTESTREAM,
 } from '../message';
 import names from '../reserved-node-names.json';
-import { forgetSession } from '../command-auth';
+import { __setAuthFetch, ensureSession, forgetSession } from '../command-auth';
 
 const LEASE_OWNER = '9007199254740993';
+
+// The handle jest.setup.js issues every test's command session under.
+const HARNESS_SESSION = 'e2e11111e2e22222e2e33333e2e44444';
 
 class FakeEventSource {
 	constructor( url ) {
@@ -88,12 +95,12 @@ function makeRemoteIpc( reader, interpreter ) {
 }
 
 // Drive a complete `connected` lease through the SseIn → CONNECTED bridge.
-function dispatchConnected( node, { pid, slot, owner = LEASE_OWNER } ) {
+function dispatchConnected( node, { slot, owner = LEASE_OWNER } ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_INFO;
 	m[ KEY ] = 'connected';
 	m[ VALUE ] =
-		`PID ${ pid } SLOT ${ slot } OWNER ${ owner } ` +
+		`SESSION ${ HARNESS_SESSION } SLOT ${ slot } OWNER ${ owner } ` +
 		'SUBSCRIPTIONS x INTERVAL 2000';
 	node.sseIn._es.dispatch( 'connected', JSON.stringify( m ) );
 }
@@ -206,7 +213,7 @@ describe( 'RemoteIpcNode', () => {
 		}
 		const reopened = Core.node( 'violet-ipc-947' );
 		Core.node( names.HTTP ).client = capturingClient();
-		dispatchConnected( reopened, { pid: 6262, slot: 13 } );
+		dispatchConnected( reopened, { slot: 13 } );
 		reopened.fill( command( { from: names.OUTPUT } ) );
 
 		expect( reopened.arguments ).toEqual( [ 'combined.p7' ] );
@@ -219,7 +226,7 @@ describe( 'RemoteIpcNode', () => {
 		} );
 		expect( posted[ 1 ][ TO ] ).toBe( 'combined.p7' );
 		expect( posted[ 1 ][ FROM ] ).toBe(
-			`${ names.SSE }:6262/${ names.OUTPUT }`
+			`${ names.SSE }:${ HARNESS_SESSION }/${ names.OUTPUT }`
 		);
 	} );
 
@@ -318,7 +325,7 @@ describe( 'RemoteIpcNode', () => {
 
 		http.lock(); // the Router's bracket: outlives an individual send
 		forgetSession();
-		node.fill( command( { from: '_metadata' } ) ); // mint refused
+		node.fill( command() ); // mint refused
 
 		expect( http.onceInBatch( 'mount:aggregator.p0' ) ).toBe( true );
 	} );
@@ -389,7 +396,7 @@ describe( 'RemoteIpcNode', () => {
 		inactive.fill( command() );
 		const active = makeRemoteIpc( 'active-reader.p47', interpreter );
 		active.fill( command() );
-		dispatchConnected( active, { pid: 947, slot: 47 } );
+		dispatchConnected( active, { slot: 47 } );
 		const activeStream = FakeEventSource.last;
 
 		inactive.disconnectNode( 'unused-view-349' );
@@ -422,28 +429,168 @@ describe( 'RemoteIpcNode', () => {
 		const { interpreter } = mountExospine();
 		const node = makeRemoteIpc( 'aggregator.p0', interpreter );
 		node.fill( command() );
-		dispatchConnected( node, { pid: 7, slot: 3 } );
+		dispatchConnected( node, { slot: 3 } );
 		expect( Core.node( names.HEARTBEAT ).slot ).toBe( 3 );
 	} );
 
-	it( 'wraps a reply-node FROM into the private _sse:{pid} address (pid from its SseIn)', () => {
+	it( 'wraps a reply-node FROM into the session reply address, before any handshake', () => {
 		const { interpreter } = mountExospine();
 		const node = makeRemoteIpc( 'aggregator.p0', interpreter );
-		node.fill( command() );
-		dispatchConnected( node, { pid: 4242, slot: 1 } );
-		posted.length = 0;
 		node.fill( command( { from: names.OUTPUT } ) );
 		expect( posted[ 1 ][ FROM ] ).toBe(
-			`${ names.SSE }:4242/${ names.OUTPUT }`
+			`${ names.SSE }:${ HARNESS_SESSION }/${ names.OUTPUT }`
+		);
+		expect( node.pid ).toBeUndefined();
+	} );
+
+	it( 'drops a command it cannot address while no session is live, naming why', () => {
+		expectConsoleWarn(
+			'aggregator.p0: WARNING: no command session to address its reply'
+		);
+		const { interpreter } = mountExospine();
+		const node = makeRemoteIpc( 'aggregator.p0', interpreter );
+		node.fill( command() ); // boot the link while authenticated
+		const sent = posted.length;
+		forgetSession();
+
+		node.fill( command( { from: names.OUTPUT } ) );
+
+		expect( posted ).toHaveLength( sent );
+	} );
+
+	it( 'heads an Inspector request with the session, and its reply reaches the console', () => {
+		const { interpreter } = mountExospine();
+		const replies = [];
+		const output = new Node();
+		output.name = names.OUTPUT;
+		output.fill = ( m ) => replies.push( m[ VALUE ] );
+		const node = makeRemoteIpc( 'aggregator.p0', interpreter );
+		const request = newMessage();
+		request[ TYPE ] = TM_REQUEST;
+		request[ FROM ] = names.OUTPUT;
+		request[ TO ] = 'request-builder';
+		request[ VALUE ] = 'GET_HEALTH';
+
+		node.fill( request );
+
+		const sent = posted.find( ( m ) => TM_REQUEST === m[ TYPE ] );
+		expect( sent[ FROM ] ).toBe(
+			`${ names.SSE }:${ HARNESS_SESSION }/${ names.OUTPUT }`
+		);
+		expect( sent[ TO ] ).toBe( 'aggregator.p0/request-builder' );
+		dispatchConnected( node, { slot: 2 } );
+		const reply = newMessage();
+		reply[ TYPE ] = TM_INFO;
+		reply[ FROM ] = 'aggregator.p0/request-builder';
+		reply[ TO ] = names.OUTPUT;
+		reply[ VALUE ] = 'health-reply-4471';
+		node.sseIn._es.dispatch( 'msg', JSON.stringify( reply ) );
+
+		expect( replies ).toContain( 'health-reply-4471' );
+	} );
+
+	it( 'heads an Inspector send with the session too', () => {
+		const { interpreter } = mountExospine();
+		const node = makeRemoteIpc( 'aggregator.p0', interpreter );
+		const send = newMessage();
+		send[ TYPE ] = TM_BYTESTREAM;
+		send[ FROM ] = names.OUTPUT;
+		send[ TO ] = 'n1';
+		send[ VALUE ] = 'payload-4471';
+
+		node.fill( send );
+
+		const sent = posted.find( ( m ) => TM_BYTESTREAM === m[ TYPE ] );
+		expect( sent[ FROM ] ).toBe(
+			`${ names.SSE }:${ HARNESS_SESSION }/${ names.OUTPUT }`
 		);
 	} );
 
-	it( 'delegates pid() to its composed SseIn', () => {
+	it( 'reopens a stream opened under no session once one exists, resuming where it read', async () => {
+		forgetSession();
+		__setAuthFetch( async () => null );
+		await ensureSession();
 		const { interpreter } = mountExospine();
 		const node = makeRemoteIpc( 'aggregator.p0', interpreter );
-		node.fill( command() );
-		dispatchConnected( node, { pid: 99, slot: 0 } );
-		expect( node.pid() ).toBe( 99 );
+		node.connect();
+		const sessionless = FakeEventSource.last;
+		expect(
+			new URL( sessionless.url, 'https://x.test' ).searchParams.has(
+				'session'
+			)
+		).toBe( false );
+		node.sseIn.lastPositions[ 'aggregator.p0' ] = {
+			segment: 3,
+			offset: 1717,
+		};
+
+		forgetSession(); // clears the backoff the refused /auth armed
+		__setAuthFetch( async () => ( {
+			handle: HARNESS_SESSION,
+			secret: 'reauth-secret-4471',
+			expires_in: 3600,
+		} ) );
+		await ensureSession();
+		node.fill( command( { from: names.OUTPUT } ) );
+
+		const reopened = new URL( FakeEventSource.last.url, 'https://x.test' );
+		expect( FakeEventSource.last ).not.toBe( sessionless );
+		expect( sessionless.closed ).toBe( true );
+		expect( reopened.searchParams.get( 'session' ) ).toBe(
+			HARNESS_SESSION
+		);
+		expect(
+			JSON.parse( reopened.searchParams.get( 'positions' ) )
+		).toEqual( {
+			'aggregator.p0': { segment: 3, offset: 1717 },
+		} );
+	} );
+
+	it( 'delivers the reply to a command sent before a reconnect', () => {
+		const { interpreter } = mountExospine();
+		const replies = [];
+		const output = new Node();
+		output.name = names.OUTPUT;
+		output.fill = ( m ) => replies.push( m[ VALUE ] );
+		const node = makeRemoteIpc( 'aggregator.p0', interpreter );
+		node.target = names.OUTPUT;
+		node.fill( command( { from: names.OUTPUT } ) );
+		const sentFrom = posted[ 1 ][ FROM ];
+		dispatchConnected( node, { slot: 2 } );
+		const record = newMessage();
+		record[ TYPE ] = TM_INFO;
+		record[ FROM ] = 'aggregator.p0';
+		record[ TO ] = names.OUTPUT;
+		record[ ID ] = '4:900:40';
+		record[ VALUE ] = 'before-the-drop';
+		FakeEventSource.last.dispatch( 'msg', JSON.stringify( record ) );
+		const dropped = FakeEventSource.last;
+
+		node.sseIn._restart( 'watchdog' );
+
+		const reopened = new URL( FakeEventSource.last.url, 'https://x.test' );
+		expect( FakeEventSource.last ).not.toBe( dropped );
+		expect( sentFrom ).toBe(
+			`${ names.SSE }:${ HARNESS_SESSION }/${ names.OUTPUT }`
+		);
+		expect( reopened.searchParams.get( 'session' ) ).toBe(
+			HARNESS_SESSION
+		);
+		expect(
+			JSON.parse( reopened.searchParams.get( 'positions' ) )
+		).toEqual( {
+			'aggregator.p0': { segment: 4, offset: 940 },
+		} );
+		dispatchConnected( node, { slot: 2 } );
+		const reply = newMessage();
+		reply[ TYPE ] = TM_INFO;
+		reply[ FROM ] = 'aggregator.p0';
+		reply[ TO ] = names.OUTPUT;
+		reply[ ID ] = '4:940:30';
+		reply[ VALUE ] = 'reply-after-reconnect-4471';
+		FakeEventSource.last.dispatch( 'msg', JSON.stringify( reply ) );
+
+		expect( replies ).toContain( 'reply-after-reconnect-4471' );
 	} );
 
 	it( 'appends a sub-node remainder to the command TO (bare reader/sub)', () => {
@@ -457,11 +604,11 @@ describe( 'RemoteIpcNode', () => {
 		const { interpreter } = mountExospine();
 		const node = makeRemoteIpc( 'aggregator.p0', interpreter );
 		node.fill( command() );
-		dispatchConnected( node, { pid: 4242, slot: 1 } );
+		dispatchConnected( node, { slot: 1 } );
 		posted.length = 0;
 		node.fill( command( { from: '_command_interpreter' } ) );
 		expect( posted[ 1 ][ FROM ] ).toBe(
-			`${ names.SSE }:4242/_command_interpreter`
+			`${ names.SSE }:${ HARNESS_SESSION }/_command_interpreter`
 		);
 	} );
 
@@ -502,7 +649,7 @@ describe( 'RemoteIpcNode', () => {
 		const b = makeRemoteIpc( 'combined.p0', interpreter );
 		a.fill( command() );
 		b.fill( command() ); // b steals active
-		dispatchConnected( b, { pid: 1, slot: 5 } );
+		dispatchConnected( b, { slot: 5 } );
 		// Removing the NON-active `a` must not clear b's live slot.
 		a.removeNode();
 		expect( Core.node( names.HEARTBEAT ).slot ).toBe( 5 );

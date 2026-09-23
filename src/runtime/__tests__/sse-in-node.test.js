@@ -1,7 +1,7 @@
 /**
  * SseInNode tests — the SSE receive-ingress node (formerly the SseConnector,
  * now merged in: SseInNode extends Node directly). It opens an EventSource,
- * snoops the `connected` handshake string for `pid()` + the complete slot
+ * snoops the `connected` handshake string for `session()` + the complete slot
  * lease, runs the heartbeat watchdog / reconnect logic, and forwards each
  * parsed positional Message into its sink. Composed by RemoteLink as its
  * patron-owned `<patron>:sse-in`;
@@ -10,11 +10,13 @@
  *
  * Lifecycle + errors surface via set_state STRING payloads (CONNECTING →
  * CONNECTED → DISCONNECTED / RECONNECTING / ERROR); every error path also
- * `printLessOften`s. The `connected` envelope is the flat `PID n SLOT n OWNER
- * n SUBSCRIPTIONS csv INTERVAL n` string (no partition).
+ * `printLessOften`s. The `connected` envelope is the flat `SESSION h SLOT n
+ * OWNER n SUBSCRIPTIONS csv INTERVAL n` string (no partition, no pid).
  */
 
 import { SseInNode, SEEK_START, SEEK_END } from '../sse-in-node';
+import * as commandAuth from '../command-auth';
+import { __setAuthFetch, ensureSession, forgetSession } from '../command-auth';
 import { IoTelemetry, byteLength } from '../io-telemetry';
 import { Core } from '../core';
 import { RouterNode } from '../router-node';
@@ -174,6 +176,7 @@ test( 'a terminal EventSource failure refreshes the REST nonce before reopening'
 	const warn = jest
 		.spyOn( Core, 'printLessOften' )
 		.mockImplementation( () => {} );
+	await withoutSession();
 	const sse = newSseIn();
 	sse.arguments = [ 'completed.p17' ];
 	try {
@@ -204,6 +207,219 @@ test( 'a terminal EventSource failure refreshes the REST nonce before reopening'
 	}
 } );
 
+test( 'a stream names itself so its reconnect takes its own lease over', () => {
+	new RouterNode().name = names.ROUTER;
+	const sse = newSseIn();
+	sse.name = 'console.p7:sse-in';
+	sse.arguments = [ 'combined.p7' ];
+	sse.start();
+	const url = new URL( FakeEventSource.last.url, 'https://example.test' );
+	expect( url.searchParams.get( 'stream' ) ).toBe( 'console.p7:sse-in' );
+} );
+
+test( 'a stream presenting no session names no stream', async () => {
+	await withoutSession();
+	new RouterNode().name = names.ROUTER;
+	const sse = newSseIn();
+	sse.name = 'console.p7:sse-in';
+	sse.arguments = [ 'combined.p7' ];
+	sse.start();
+	const url = new URL( FakeEventSource.last.url, 'https://example.test' );
+	expect( url.searchParams.has( 'stream' ) ).toBe( false );
+} );
+
+test( 'a stream refused for its session renews it once and reopens under the new handle', async () => {
+	const warn = jest
+		.spyOn( Core, 'printLessOften' )
+		.mockImplementation( () => {} );
+	const probes = [];
+	global.fetch = jest.fn( ( url ) => {
+		probes.push( url );
+		return Promise.resolve( {
+			ok: false,
+			status: 401,
+			json: () => Promise.resolve( { code: 'sse_session_refused' } ),
+		} );
+	} );
+	let issued = 0;
+	__setAuthFetch( async () => {
+		issued++;
+		return {
+			handle: 'f00df00df00df00df00df00df00df00d',
+			secret: 'renewed-secret-4471',
+			expires_in: 3600,
+		};
+	} );
+	jest.useFakeTimers();
+	try {
+		new RouterNode().name = names.ROUTER;
+		const sse = newSseIn();
+		sse.name = 'console.p7:sse-in';
+		sse.arguments = [ 'combined.p7' ];
+		sse.start();
+		const refused = FakeEventSource.last;
+
+		refused.dispatchError( FakeEventSource.CLOSED );
+		await jest.advanceTimersByTimeAsync( 5000 );
+
+		expect( probes ).toHaveLength( 1 );
+		expect(
+			new URL( probes[ 0 ], 'https://example.test' ).searchParams.get(
+				'session'
+			)
+		).toBe( HARNESS_SESSION );
+		expect( issued ).toBe( 1 );
+		expect( FakeEventSource.last ).not.toBe( refused );
+		expect(
+			new URL(
+				FakeEventSource.last.url,
+				'https://example.test'
+			).searchParams.get( 'session' )
+		).toBe( 'f00df00df00df00df00df00df00df00d' );
+	} finally {
+		jest.useRealTimers();
+		warn.mockRestore();
+	}
+} );
+
+/** Every probe answers that the presented session is dead. */
+function refuseEverySession() {
+	global.fetch = jest.fn( () =>
+		Promise.resolve( {
+			ok: false,
+			status: 401,
+			json: () => Promise.resolve( { code: 'sse_session_refused' } ),
+		} )
+	);
+}
+
+/**
+ * The session handle an EventSource URL presented.
+ *
+ * @param {string} url The stream URL.
+ * @return {?string} The `session` parameter, or null.
+ */
+const presented = ( url ) =>
+	new URL( url, 'https://example.test' ).searchParams.get( 'session' );
+
+test( 'two streams refused for one dead session renew it once and both reopen under the new handle', async () => {
+	const warn = jest
+		.spyOn( Core, 'printLessOften' )
+		.mockImplementation( () => {} );
+	const renew = jest.spyOn( commandAuth, 'renewSession' );
+	refuseEverySession();
+	__setAuthFetch( async () => ( {
+		handle: 'f00df00df00df00df00df00df00df00d',
+		secret: 'renewed-secret-4471',
+		expires_in: 3600,
+	} ) );
+	jest.useFakeTimers();
+	try {
+		new RouterNode().name = names.ROUTER;
+		const streams = [ 'console.p7:sse-in', 'overlay:sse-in' ].map(
+			( name ) => {
+				const sse = newSseIn();
+				sse.name = name;
+				sse.arguments = [ 'combined.p7' ];
+				sse.start();
+				return sse;
+			}
+		);
+		const refused = streams.map( ( sse ) => sse._es );
+
+		refused.forEach( ( es ) => es.dispatchError( FakeEventSource.CLOSED ) );
+		await jest.advanceTimersByTimeAsync( 5000 );
+
+		expect( renew ).toHaveBeenCalledTimes( 1 );
+		streams.forEach( ( sse, i ) => {
+			expect( sse._es ).not.toBe( refused[ i ] );
+			expect( presented( sse._es.url ) ).toBe(
+				'f00df00df00df00df00df00df00df00d'
+			);
+		} );
+	} finally {
+		jest.useRealTimers();
+		renew.mockRestore();
+		warn.mockRestore();
+	}
+} );
+
+test( 'a probe for a session already replaced renews nothing and reopens under the current one', async () => {
+	const warn = jest
+		.spyOn( Core, 'printLessOften' )
+		.mockImplementation( () => {} );
+	refuseEverySession();
+	jest.useFakeTimers();
+	try {
+		new RouterNode().name = names.ROUTER;
+		const sse = newSseIn();
+		sse.name = 'console.p7:sse-in';
+		sse.arguments = [ 'combined.p7' ];
+		sse.start();
+		const refused = sse._es;
+		expect( presented( refused.url ) ).toBe( HARNESS_SESSION );
+		forgetSession();
+		__setAuthFetch( async () => ( {
+			handle: 'b00cb00cb00cb00cb00cb00cb00cb00c',
+			secret: 'second-secret-4471',
+			expires_in: 3600,
+		} ) );
+		await ensureSession();
+		const renew = jest.spyOn( commandAuth, 'renewSession' );
+
+		refused.dispatchError( FakeEventSource.CLOSED );
+		await jest.advanceTimersByTimeAsync( 5000 );
+
+		expect( renew ).not.toHaveBeenCalled();
+		expect( commandAuth.sessionHandle() ).toBe(
+			'b00cb00cb00cb00cb00cb00cb00cb00c'
+		);
+		expect( sse._es ).not.toBe( refused );
+		expect( presented( sse._es.url ) ).toBe(
+			'b00cb00cb00cb00cb00cb00cb00cb00c'
+		);
+		renew.mockRestore();
+	} finally {
+		jest.useRealTimers();
+		warn.mockRestore();
+	}
+} );
+
+test( 'a stream whose session the probe finds live renews nothing', async () => {
+	const warn = jest
+		.spyOn( Core, 'printLessOften' )
+		.mockImplementation( () => {} );
+	global.fetch = jest.fn( () =>
+		Promise.resolve( {
+			ok: false,
+			status: 400,
+			json: () => Promise.resolve( { code: 'sse_stream_invalid' } ),
+			text: () => Promise.resolve( '' ),
+		} )
+	);
+	let issued = 0;
+	__setAuthFetch( async () => {
+		issued++;
+		return null;
+	} );
+	try {
+		new RouterNode().name = names.ROUTER;
+		const sse = newSseIn();
+		sse.name = 'console.p7:sse-in';
+		sse.arguments = [ 'combined.p7' ];
+		sse.nonce = 'EXPLICIT-4471';
+		sse.start();
+
+		FakeEventSource.last.dispatchError( FakeEventSource.CLOSED );
+		await new Promise( ( resolve ) => setTimeout( resolve, 0 ) );
+
+		expect( issued ).toBe( 0 );
+		sse.close();
+	} finally {
+		warn.mockRestore();
+	}
+} );
+
 test( 'a renewed stream gets no second nonce renewal until it connects', async () => {
 	const previousEndpoint = apiFetch.nonceEndpoint;
 	const previousMiddleware = apiFetch.nonceMiddleware;
@@ -221,6 +437,7 @@ test( 'a renewed stream gets no second nonce renewal until it connects', async (
 	const warn = jest
 		.spyOn( Core, 'printLessOften' )
 		.mockImplementation( () => {} );
+	await withoutSession();
 	const sse = newSseIn();
 	sse.arguments = [ 'completed.p29' ];
 
@@ -295,14 +512,25 @@ const DEFAULT_REOPEN_MS = 2000;
 const LEASE_OWNER = '9007199254740993';
 const SECOND_LEASE_OWNER = '9007199254740995';
 
-// SseIn splits the flat `connected` string into pid + the complete slot lease.
+// The handle jest.setup.js issues every test's command session under.
+const HARNESS_SESSION = 'e2e11111e2e22222e2e33333e2e44444';
+
+// A stream opened with no command session, for tests about something else.
+async function withoutSession() {
+	forgetSession();
+	__setAuthFetch( async () => null );
+	await ensureSession();
+}
+
+// SseIn splits the flat `connected` string into the session + the slot lease.
 const connectedRaw = ( {
-	pid = 7777,
+	session = HARNESS_SESSION,
 	slot = 3,
 	owner = LEASE_OWNER,
 	cursors = '',
 } = {} ) =>
-	`PID ${ pid } SLOT ${ slot } OWNER ${ owner } SUBSCRIPTIONS x INTERVAL 2000` +
+	( session ? `SESSION ${ session } ` : '' ) +
+	`SLOT ${ slot } OWNER ${ owner } SUBSCRIPTIONS x INTERVAL 2000` +
 	( cursors ? ` CURSORS ${ cursors }` : '' );
 function connectedFrame( opts ) {
 	const m = newMessage();
@@ -398,6 +626,7 @@ test( 'start opens an EventSource with the right URL', () => {
 	sse.start();
 	expect( sse._es.url ).toBe(
 		'https://example.test/wp-json/newspack-nodes/v1/messages/stream?subscribe=firehose%2Cerrors&_wpnonce=NONCE' +
+			`&session=${ HARNESS_SESSION }` +
 			`&positions=${ encodeURIComponent(
 				JSON.stringify( { firehose: SEEK_END, errors: SEEK_END } )
 			) }`
@@ -553,13 +782,17 @@ test( 'a connected handshake records the SSE connect time in IoTelemetry', () =>
 	expect( IoTelemetry.snapshot().sseConnectedAt ).not.toBeNull();
 } );
 
-test( 'an EventSource-closed disconnect clears the SSE connect time', () => {
+test( 'an EventSource-closed disconnect clears the SSE connect time', async () => {
+	await withoutSession();
 	const warn = jest
 		.spyOn( Core, 'printLessOften' )
 		.mockImplementation( () => {} );
 	const { sse } = makeSseIn();
 	sse.start();
-	FakeEventSource.last.dispatch( 'connected', connectedFrame() );
+	FakeEventSource.last.dispatch(
+		'connected',
+		connectedFrame( { session: null } )
+	);
 	expect( IoTelemetry.snapshot().sseConnectedAt ).not.toBeNull();
 	FakeEventSource.last.dispatchError( FakeEventSource.CLOSED );
 	expect( IoTelemetry.snapshot().sseConnectedAt ).toBeNull();
@@ -571,69 +804,100 @@ test( 'a connected envelope preserves a greater-than-2^53 lease owner byte-for-b
 	sse.start();
 	FakeEventSource.last.dispatch(
 		'connected',
-		connectedFrame( { pid: 7777, slot: 3, owner: LEASE_OWNER } )
+		connectedFrame( { slot: 3, owner: LEASE_OWNER } )
 	);
-	expect( sse.pid() ).toBe( 7777 );
+	expect( sse.session() ).toBe( HARNESS_SESSION );
 	expect( sse.slot() ).toBe( 3 );
 	expect( sse.leaseOwner() ).toBe( LEASE_OWNER );
 } );
 
 /**
- * `SSE_In_Node` publishes `PID <pid> SLOT <slot>` and nothing else. The raw
+ * `SSE_In_Node` publishes `SLOT <slot>` and nothing else. The raw
  * envelope also carries OWNER — the lease token the heartbeat authenticates
  * with — and a state payload is traced to stderr, cached, and pushed to every
  * subscriber, so publishing it verbatim writes that token into the transcript
  * and the overlay's message ring on every reconnect.
  */
-test( 'CONNECTED publishes the pid and slot only, never the lease owner', () => {
+test( 'CONNECTED publishes the slot only, never the lease owner', () => {
 	const { sse } = makeSseIn();
 	sse.start();
 	FakeEventSource.last.dispatch(
 		'connected',
-		connectedFrame( { pid: 7777, slot: 3, owner: LEASE_OWNER } )
+		connectedFrame( { slot: 3, owner: LEASE_OWNER } )
 	);
-	expect( sse.setStateCache.CONNECTED ).toBe( 'PID 7777 SLOT 3' );
+	expect( sse.setStateCache.CONNECTED ).toBe( 'SLOT 3' );
 	expect( sse.setStateCache.CONNECTED ).not.toContain( LEASE_OWNER );
 	// Still snooped from the envelope — published is not the same as parsed.
 	expect( sse.leaseOwner() ).toBe( LEASE_OWNER );
 } );
 
-test( 'a connected envelope with no PID sets ERROR state and warns', () => {
+test( 'a stream presents its command session and the pid is gone', () => {
+	const { sse } = makeSseIn();
+	sse.start();
+	const url = new URL( FakeEventSource.last.url, 'https://example.test' );
+	expect( url.searchParams.get( 'session' ) ).toBe( HARNESS_SESSION );
+	expect( sse.pid ).toBeUndefined();
+} );
+
+test( 'a stream opened with no session presents none and accepts a sessionless handshake', async () => {
+	forgetSession();
+	__setAuthFetch( async () => null );
+	await ensureSession();
+	const { sse } = makeSseIn();
+	sse.start();
+	const url = new URL( FakeEventSource.last.url, 'https://example.test' );
+	expect( url.searchParams.has( 'session' ) ).toBe( false );
+
+	FakeEventSource.last.dispatch(
+		'connected',
+		connectedFrame( { session: null, slot: 4 } )
+	);
+
+	expect( sse.session() ).toBeNull();
+	expect( sse.setStateCache.CONNECTED ).toBe( 'SLOT 4' );
+} );
+
+test( 'a handshake naming another session than the stream presented is rejected', () => {
 	const warn = jest
 		.spyOn( Core, 'printLessOften' )
 		.mockImplementation( () => {} );
 	const { sse } = makeSseIn();
 	sse.start();
-	const m = newMessage();
-	m[ TYPE ] = TM_INFO;
-	m[ KEY ] = 'connected';
-	m[ VALUE ] =
-		`SLOT 1 OWNER ${ LEASE_OWNER } ` + 'SUBSCRIPTIONS x INTERVAL 2000';
-	FakeEventSource.last.dispatch( 'connected', JSON.stringify( m ) );
-	expect( sse.pid() ).toBeNull();
-	expect( sse.setStateCache.ERROR ).toContain( 'missing PID' );
-	// A malformed handshake must NOT report CONNECTED (keep the ERROR).
+	FakeEventSource.last.dispatch(
+		'connected',
+		connectedFrame( { session: '0ther0ther0ther0ther0ther0the' } )
+	);
+	expect( sse.session() ).toBeNull();
+	expect( sse.setStateCache.ERROR ).toBe(
+		'connected envelope names another SESSION'
+	);
 	expect( sse.setStateCache.CONNECTED ).toBeUndefined();
 	expect( warn ).toHaveBeenCalledWith(
-		expect.stringContaining( 'connected envelope missing PID' )
+		'ERROR: SseInNode: connected envelope names another SESSION'
 	);
 	warn.mockRestore();
 } );
 
 test.each( [
-	[ 'missing', 'PID 7777 SLOT 7 SUBSCRIPTIONS x INTERVAL 2000' ],
-	[ 'zero', 'PID 7777 SLOT 7 OWNER 0 SUBSCRIPTIONS x INTERVAL 2000' ],
+	[
+		'missing',
+		`SESSION ${ HARNESS_SESSION } SLOT 7 SUBSCRIPTIONS x INTERVAL 2000`,
+	],
+	[
+		'zero',
+		`SESSION ${ HARNESS_SESSION } SLOT 7 OWNER 0 SUBSCRIPTIONS x INTERVAL 2000`,
+	],
 	[
 		'negative',
-		'PID 7777 SLOT 7 OWNER -42424243 SUBSCRIPTIONS x INTERVAL 2000',
+		`SESSION ${ HARNESS_SESSION } SLOT 7 OWNER -42424243 SUBSCRIPTIONS x INTERVAL 2000`,
 	],
 	[
 		'leading-zero',
-		'PID 7777 SLOT 7 OWNER 042424243 SUBSCRIPTIONS x INTERVAL 2000',
+		`SESSION ${ HARNESS_SESSION } SLOT 7 OWNER 042424243 SUBSCRIPTIONS x INTERVAL 2000`,
 	],
 	[
 		'non-decimal',
-		'PID 7777 SLOT 7 OWNER lease-42424243 SUBSCRIPTIONS x INTERVAL 2000',
+		`SESSION ${ HARNESS_SESSION } SLOT 7 OWNER lease-42424243 SUBSCRIPTIONS x INTERVAL 2000`,
 	],
 ] )( 'a %s lease owner rejects the connected handshake', ( _case, raw ) => {
 	const warn = jest
@@ -648,7 +912,7 @@ test.each( [
 
 	FakeEventSource.last.dispatch( 'connected', JSON.stringify( m ) );
 
-	expect( sse.pid() ).toBeNull();
+	expect( sse.session() ).toBeNull();
 	expect( sse.slot() ).toBeNull();
 	expect( sse.leaseOwner() ).toBeNull();
 	expect( sse.setStateCache.CONNECTED ).toBeUndefined();
@@ -738,7 +1002,6 @@ test( 'a valid in-place EventSource retry handshake clears the prior terminal re
 		reopened.dispatch(
 			'connected',
 			connectedFrame( {
-				pid: 8888,
 				slot: 5,
 				owner: SECOND_LEASE_OWNER,
 			} )
@@ -896,17 +1159,16 @@ test( 'close() forgets the complete session lease so a reopen cannot reuse it', 
 	FakeEventSource.last.dispatch(
 		'connected',
 		connectedFrame( {
-			pid: 4242,
 			slot: 1,
 			owner: LEASE_OWNER,
 		} )
 	);
-	expect( sse.pid() ).toBe( 4242 );
+	expect( sse.session() ).toBe( HARNESS_SESSION );
 	expect( sse.slot() ).toBe( 1 );
 	expect( sse.leaseOwner() ).toBe( LEASE_OWNER );
 	sse.close();
 	// After the stream closes, a reopen must NOT report the prior lease.
-	expect( sse.pid() ).toBeNull();
+	expect( sse.session() ).toBeNull();
 	expect( sse.slot() ).toBeNull();
 	expect( sse.leaseOwner() ).toBeNull();
 } );
@@ -1143,7 +1405,8 @@ test( 'a heartbeat during the grace window resets the clock — NO forced reconn
 	}
 } );
 
-test( 'onerror with readyState CLOSED reports DISCONNECTED, warns, and forces a reconnect', () => {
+test( 'onerror with readyState CLOSED reports DISCONNECTED, warns, and forces a reconnect', async () => {
+	await withoutSession();
 	jest.useFakeTimers();
 	const warn = jest
 		.spyOn( Core, 'printLessOften' )
@@ -1415,6 +1678,7 @@ describe( 'SseIn — no-arg ctor + schema-driven arguments', () => {
 		sse.start();
 		expect( sse._es.url ).toBe(
 			'https://example.test/wp-json/newspack-nodes/v1/messages/stream?subscribe=firehose%2Cerrors&_wpnonce=NONCE' +
+				`&session=${ HARNESS_SESSION }` +
 				`&positions=${ encodeURIComponent(
 					JSON.stringify( { firehose: SEEK_END, errors: SEEK_END } )
 				) }`

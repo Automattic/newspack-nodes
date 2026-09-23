@@ -113,12 +113,16 @@ class SSE_Out_Node extends Node {
 	 * never stream. Left null, `acquire` hands back the unmetered sentinel
 	 * lease and the other three do nothing.
 	 *
-	 * Acquire runs once per stream: `function ( int $partition ): array|false`,
-	 * taking the partition the subscriptions name, or -1 when none names one.
-	 * It is called before any header is sent, so `false` can still answer 429.
-	 * The shipped pool ignores the partition and pools slots host-wide.
+	 * Acquire runs once per stream:
+	 * `function ( int $partition, ?array $session ): array|false`, taking the
+	 * partition the subscriptions name (or -1 when none names one) and the
+	 * stream's session lease as `{key, ttl}` — the key and the seconds the
+	 * session has left — or null for a stream that named no session and
+	 * stream. It is called before any header is sent, so `false` can still
+	 * answer 429. The shipped pool ignores the partition and pools slots
+	 * host-wide, and hands a live lease under the same key to the reconnect.
 	 *
-	 * @var \Closure(int): (array{slot:int,owner:int}|false)|null
+	 * @var \Closure(int, array{key:string,ttl:int}|null): (array{slot:int,owner:int}|false)|null
 	 */
 	public static ?\Closure $acquire_slot = null;
 
@@ -135,9 +139,10 @@ class SSE_Out_Node extends Node {
 	/**
 	 * Called once per stream, from the drain's `finally` or from a shutdown
 	 * function, whichever runs first — so no close, throw, time-limit fatal
-	 * or client abort leaves the slot held until its TTL expires.
+	 * or client abort leaves the slot held until its TTL expires. The third
+	 * argument is the session lease key the stream acquired under, or null.
 	 *
-	 * @var \Closure(array{slot:int,owner:int}, int): void|null
+	 * @var \Closure(array{slot:int,owner:int}, int, ?string): void|null
 	 */
 	public static ?\Closure $release_slot = null;
 
@@ -185,6 +190,9 @@ class SSE_Out_Node extends Node {
 	 */
 	private ?array $held_lease = null;
 
+	/** The session lease key `release_held_slot()` hands back with the lease. */
+	private ?string $held_lease_key = null;
+
 	/** Test seam: overrides `Bootstrap::base_dir()`. */
 	private ?string $base_dir = null;
 
@@ -211,15 +219,15 @@ class SSE_Out_Node extends Node {
 	}
 
 	/**
-	 * The REST handler: read the query parameters, take a slot, then run the
-	 * stream to its end and exit.
+	 * The REST handler: read the query parameters, resolve the session, take a
+	 * slot, then run the stream to its end and exit.
 	 *
-	 * Acquisition happens BEFORE `init_sse_headers()` so a refused stream can
+	 * Both refusals happen BEFORE `init_sse_headers()` so a refused stream can
 	 * still answer with a JSON `WP_Error`. Once the event-stream headers are
-	 * out, 429 is no longer sayable.
+	 * out, neither 401 nor 429 is sayable.
 	 *
-	 * @param \WP_REST_Request $request Request carrying `subscribe`, `positions` and `multi_writer`.
-	 * @return \WP_Error|void WP_Error when no slot is free (429); otherwise streams and exits.
+	 * @param \WP_REST_Request $request Request carrying `subscribe`, `positions`, `multi_writer`, `session` and `stream`.
+	 * @return \WP_Error|void WP_Error when the session is refused (401), the stream id is malformed (400) or no slot is free (429); otherwise streams and exits.
 	 */
 	public function stream( \WP_REST_Request $request ) {
 		$subscribe     = $request->get_param( 'subscribe' );
@@ -232,9 +240,28 @@ class SSE_Out_Node extends Node {
 			\rest_sanitize_boolean( Core::as_string( $request->get_param( 'multi_writer' ) ) )
 		);
 
-		$partition = $this->subscription_partition( $subs );
-		$acquire   = self::$acquire_slot ?? static fn ( int $_partition ): array => self::UNMETERED_LEASE;
-		$lease     = $acquire( $partition );
+		$session = $this->resolve_session( Core::as_string( $request->get_param( 'session' ) ) );
+		if ( false === $session ) {
+			return new \WP_Error(
+				'sse_session_refused',
+				'The command session is not live, or belongs to another user.',
+				[ 'status' => 401 ]
+			);
+		}
+		$stream = Core::as_string( $request->get_param( 'stream' ) );
+		if ( '' !== $stream && ! \preg_match( '/^[A-Za-z0-9_.:-]{1,64}$/D', $stream ) ) {
+			return new \WP_Error(
+				'sse_stream_invalid',
+				'The stream id must be 1-64 characters of [A-Za-z0-9_.:-].',
+				[ 'status' => 400 ]
+			);
+		}
+		$lease_session = null === $session || '' === $stream
+			? null
+			: [ 'key' => $session['handle'] . ':' . $stream, 'ttl' => $session['ttl'] ];
+		$partition     = $this->subscription_partition( $subs );
+		$acquire       = self::$acquire_slot ?? static fn ( int $_partition, ?array $_session ): array => self::UNMETERED_LEASE;
+		$lease         = $acquire( $partition, $lease_session );
 		if ( false === $lease ) {
 			return new \WP_Error(
 				'too_many_connections',
@@ -242,8 +269,36 @@ class SSE_Out_Node extends Node {
 				[ 'status' => 429 ]
 			);
 		}
-		$this->run_acquired_stream( $subs, $positions, $interval, $lease, $partition, true );
+		$this->run_acquired_stream( $subs, $positions, $interval, $lease, $partition, $session['handle'] ?? null, $lease_session['key'] ?? null, true );
 		exit;
+	}
+
+	/**
+	 * The command session a stream presents, which its replies are addressed
+	 * to. It must be a handle `POST /auth` could have issued, still live, and
+	 * minted by the user this request authenticated as — so a leaked handle
+	 * alone cannot open another user's replies.
+	 *
+	 * @param string $handle The `session` query parameter, empty when absent.
+	 * @return array{handle:string,ttl:int}|false|null The handle and the
+	 *         seconds it has left, null when none was presented, or false to
+	 *         refuse the stream.
+	 */
+	private function resolve_session( string $handle ): array|false|null {
+		if ( '' === $handle ) {
+			return null;
+		}
+		if ( ! \preg_match( '/^[0-9a-f]{32}$/D', $handle ) ) {
+			return false;
+		}
+		$record = Command_Auth::load_session_record( $handle );
+		if ( null === $record || \get_current_user_id() !== $record['user'] ) {
+			return false;
+		}
+		return [
+			'handle' => $handle,
+			'ttl'    => \max( 0, $record['expires'] - \time() ),
+		];
 	}
 
 	/**
@@ -318,6 +373,8 @@ class SSE_Out_Node extends Node {
 	 * @param int                         $interval  Heartbeat cadence in milliseconds.
 	 * @param array{slot:int,owner:int}   $lease     The lease this stream holds.
 	 * @param int                         $partition The partition the lease was taken for.
+	 * @param string|null                 $session   Command session the stream presents, or null.
+	 * @param string|null                 $lease_key Session lease key the lease was taken under, or null.
 	 *
 	 * @api Direct loop runner for tests that must not send HTTP headers or exit.
 	 */
@@ -326,9 +383,11 @@ class SSE_Out_Node extends Node {
 		?array $positions,
 		int $interval,
 		array $lease = self::UNMETERED_LEASE,
-		int $partition = -1
+		int $partition = -1,
+		?string $session = null,
+		?string $lease_key = null
 	): void {
-		$this->run_acquired_stream( $subs, $positions, $interval, $lease, $partition, false );
+		$this->run_acquired_stream( $subs, $positions, $interval, $lease, $partition, $session, $lease_key, false );
 	}
 
 	/**
@@ -342,6 +401,8 @@ class SSE_Out_Node extends Node {
 	 * @param int                         $interval          Heartbeat cadence in milliseconds.
 	 * @param mixed                       $lease             Raw acquire result.
 	 * @param int                         $partition         The partition the lease was taken for.
+	 * @param string|null                 $session           Command session the stream presented, or null.
+	 * @param string|null                 $lease_key         Session lease key the lease was taken under, or null.
 	 * @param bool                        $initialize_stream Whether to send the response headers, which only the REST handler does.
 	 *
 	 * @throws \Throwable Whatever the stream raised, once the diagnostic line is written.
@@ -352,6 +413,8 @@ class SSE_Out_Node extends Node {
 		int $interval,
 		mixed $lease,
 		int $partition,
+		?string $session,
+		?string $lease_key,
 		bool $initialize_stream
 	): void {
 		$active_lease       = null;
@@ -360,7 +423,8 @@ class SSE_Out_Node extends Node {
 		try {
 			Core::right_now(); // seed Core::$now for the drain loop
 			$active_lease     = self::require_lease( $lease );
-			$this->held_lease = $active_lease;
+			$this->held_lease     = $active_lease;
+			$this->held_lease_key = $lease_key;
 			( self::$on_shutdown ?? static fn ( \Closure $f ) => \register_shutdown_function( $f ) )(
 				fn () => $this->release_held_slot( $partition )
 			);
@@ -385,7 +449,7 @@ class SSE_Out_Node extends Node {
 			$this->name( Node_Names::SSE );
 			$this->sink( $interpreter );
 
-			$http_filter = new HTTP_Filter_Node( (int) \getmypid() );
+			$http_filter = new HTTP_Filter_Node( $session );
 			// SSE egress plumbing — patron-linked so dump_metadata hides it.
 			$http_filter->patron( $this );
 			$http_filter->name( Node_Names::OUTPUT );
@@ -446,6 +510,7 @@ class SSE_Out_Node extends Node {
 			$this->send_sse_event(
 				'connected',
 				$this->build_connected_msg(
+					$session,
 					$active_lease,
 					$subs,
 					$interval,
@@ -464,10 +529,17 @@ class SSE_Out_Node extends Node {
 				function () use ( &$last_heartbeat, &$consumers, &$glob_owned, &$diagnostic_written, $glob_subs, $default_route, $heartbeat_interval, $idle_timeout, $active_lease, $partition, $subs ): bool {
 					$check = self::$check_slot;
 					if ( null !== $check && ! $check( $active_lease, $partition ) ) {
-						$this->send_sse_event( 'disconnect', $this->build_disconnect_msg() );
+						$inspection = $this->inspect_lost_lease( $active_lease, $partition );
+						// Its own reconnect took the lease: no error.
+						if ( 'superseded' === $inspection['lease_state'] ) {
+							$this->send_sse_event( 'disconnect', $this->build_disconnect_msg( 'superseded', 'SSE stream superseded by its reconnect' ) );
+							$this->flush_if_needed();
+							return false;
+						}
+						$this->send_sse_event( 'disconnect', $this->build_disconnect_msg( 'slot_lease_lost', 'SSE slot lease lost' ) );
 						$this->flush_if_needed();
 						$this->write_diagnostic(
-							$this->lease_loss_context( $active_lease, $partition, $subs )
+							$this->lease_loss_context( $active_lease, $partition, $subs, $inspection )
 						);
 						$diagnostic_written = true;
 						return false;
@@ -889,17 +961,18 @@ class SSE_Out_Node extends Node {
 
 	/**
 	 * Build the `connected` envelope, the first application frame after the
-	 * `retry` schedule: the session pid a browser stamps into the FROM of its
-	 * attached commands, the lease it holds, the subscriptions echoed back, the
+	 * `retry` schedule: the session whose replies this stream carries, when it
+	 * presented one, the lease it holds, the subscriptions echoed back, the
 	 * heartbeat cadence, and each subscription's starting cursor.
 	 *
+	 * @param string|null               $session  Command session the stream presented, or null.
 	 * @param array{slot:int,owner:int} $lease    The lease this stream holds.
 	 * @param array<int,string>         $subs     Subscription names, as asked for.
 	 * @param int                       $interval Heartbeat cadence in milliseconds.
 	 * @param string                    $cursors  CSV `stamp=segment:offset` pairs, omitted when empty.
 	 * @return array<int,mixed> The 7-field positional Message.
 	 */
-	private function build_connected_msg( array $lease, array $subs, int $interval, string $cursors = '' ): array {
+	private function build_connected_msg( ?string $session, array $lease, array $subs, int $interval, string $cursors = '' ): array {
 		$message                       = Message::new_message();
 		$message[ Message::TYPE ]      = Message::TM_INFO;
 		// connected fires before the drain seeds Core::$now; take a fresh read.
@@ -908,7 +981,7 @@ class SSE_Out_Node extends Node {
 		$message[ Message::KEY ]       = 'connected';
 		// TM_INFO values are STRINGS: flat KEY VALUE, space-free tokens.
 		$message[ Message::VALUE ]     = \implode( ' ', [
-			'PID',           (string) \getmypid(),
+			...( null === $session ? [] : [ 'SESSION', $session ] ),
 			'SLOT',          (string) $lease['slot'],
 			'OWNER',         (string) $lease['owner'],
 			'SUBSCRIPTIONS', \implode( ',', $subs ),
@@ -954,35 +1027,35 @@ class SSE_Out_Node extends Node {
 	}
 
 	/**
-	 * The terminal frame for a stream whose lease was taken from under it: a
-	 * machine KEY the client branches on, and a VALUE it can display. A clean
-	 * idle close sends no frame at all, so this one always means failure.
+	 * The terminal frame for a stream whose lease is gone: a machine KEY the
+	 * client branches on, and a VALUE it can display. `slot_lease_lost` means
+	 * failure; `superseded` means this stream's own reconnect took the lease
+	 * over. A clean idle close sends no frame at all.
 	 *
+	 * @param string $key   Machine reason: `slot_lease_lost` or `superseded`.
+	 * @param string $value Display text.
 	 * @return array<int,mixed> The 7-field positional Message.
 	 */
-	private function build_disconnect_msg(): array {
+	private function build_disconnect_msg( string $key, string $value ): array {
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_INFO;
 		$message[ Message::FROM ]  = '_stream';
-		$message[ Message::KEY ]   = 'slot_lease_lost';
-		$message[ Message::VALUE ] = 'SSE slot lease lost';
+		$message[ Message::KEY ]   = $key;
+		$message[ Message::VALUE ] = $value;
 		return $message;
 	}
 
 	/**
-	 * Add one lease inspection to the close context, taken only once the lease
-	 * is already lost. The backend and lease state are required; the memcached
-	 * and APCu fields are copied one allow-listed key at a time, and only when
-	 * they arrive with the declared type, so a backend cannot widen the line.
+	 * Inspect a lease whose check failed, and require the two strings every
+	 * inspection carries. Without an inspect seam the loss is unexplained.
 	 *
 	 * @param array{slot:int,owner:int} $lease     The lease that went missing.
 	 * @param int                       $partition The partition it was taken for.
-	 * @param array<int,string>         $subs      Subscription names.
-	 * @return array<string,mixed> The redacted diagnostic fields.
+	 * @return array<string,int|string> The inspection: `backend`, `lease_state` and the backend's facts.
 	 *
 	 * @throws \UnexpectedValueException When the inspection omits either required string.
 	 */
-	private function lease_loss_context( array $lease, int $partition, array $subs ): array {
+	private function inspect_lost_lease( array $lease, int $partition ): array {
 		$inspect    = self::$inspect_slot;
 		$inspection = null === $inspect
 			? [ 'backend' => 'unavailable', 'lease_state' => 'backend_read_error' ]
@@ -994,6 +1067,22 @@ class SSE_Out_Node extends Node {
 		) {
 			throw new \UnexpectedValueException( 'SSE lease inspection did not return backend and lease_state strings.' );
 		}
+		return $inspection;
+	}
+
+	/**
+	 * Add one lease inspection to the close context, taken only once the lease
+	 * is already lost. The backend and lease state are required; the memcached
+	 * and APCu fields are copied one allow-listed key at a time, and only when
+	 * they arrive with the declared type, so a backend cannot widen the line.
+	 *
+	 * @param array{slot:int,owner:int}                               $lease      The lease that went missing.
+	 * @param int                                                     $partition  The partition it was taken for.
+	 * @param array<int,string>                                       $subs       Subscription names.
+	 * @param array<string,int|string>                                $inspection What `inspect_lost_lease()` found.
+	 * @return array<string,mixed> The redacted diagnostic fields.
+	 */
+	private function lease_loss_context( array $lease, int $partition, array $subs, array $inspection ): array {
 
 		$context                = $this->stream_context( 'slot_lease_lost', $lease, $partition, $subs );
 		$context['backend']     = $inspection['backend'];
@@ -1046,11 +1135,13 @@ class SSE_Out_Node extends Node {
 	 * @param int $partition The partition the lease was acquired for.
 	 */
 	private function release_held_slot( int $partition ): void {
-		$held             = $this->held_lease;
-		$this->held_lease = null;
-		$release          = self::$release_slot;
+		$held                 = $this->held_lease;
+		$key                  = $this->held_lease_key;
+		$this->held_lease     = null;
+		$this->held_lease_key = null;
+		$release              = self::$release_slot;
 		if ( null !== $held && null !== $release ) {
-			$release( $held, $partition );
+			$release( $held, $partition, $key );
 		}
 	}
 
@@ -1177,6 +1268,8 @@ class SSE_Out_Node extends Node {
 					'subscribe'    => [ 'required' => true, 'type' => 'string' ],
 					'positions'    => [ 'required' => false, 'type' => 'string' ],
 					'multi_writer' => [ 'required' => false, 'type' => 'boolean' ],
+					'session'      => [ 'required' => false, 'type' => 'string' ],
+					'stream'       => [ 'required' => false, 'type' => 'string' ],
 				],
 			]
 		);

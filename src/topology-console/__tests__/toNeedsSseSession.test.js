@@ -1,12 +1,12 @@
 /**
- * toNeedsSseSession — the send gate's "needs a live SSE session (pid)" test.
+ * toNeedsSseSession — the send gate's "needs a live SSE session" test.
  * Only a command addressed to a worker partition (`{topology}.pN`) gets its reply
- * demuxed back ASYNC over the SSE stream (RemoteIpc wraps FROM with the pid for
+ * delivered ASYNC over the SSE stream (RemoteIpc wraps FROM with the session for
  * the server's HTTP_Filter), so only that form must wait on a connected session.
  * A local-root command (`''`) interprets in-browser; the direct `_http` boundary
  * form replies synchronously in the POST body — none of those need the stream.
- * Regression guard for #12: the three `!ssePid` gates used to block EVERY send
- * when the stream was closed, stranding `cd /` + `ls` with "[no sse_pid yet]".
+ * Regression guard for #12: the three `!sseSession` gates used to block EVERY send
+ * when the stream was closed, stranding `cd /` + `ls` with "[no SSE session yet]".
  */
 
 import { toNeedsSseSession } from '../TopologyConsole';

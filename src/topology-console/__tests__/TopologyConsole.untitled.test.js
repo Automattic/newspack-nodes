@@ -24,7 +24,11 @@ window.NewspackNodesData = {
 
 // Edit mode disables SSE so the graph hook never enables; a minimal mock.
 jest.mock( '../hooks/useConsoleGraph', () => ( {
-	useConsoleGraph: () => ( { status: 'closed', ssePid: null, shell: null } ),
+	useConsoleGraph: () => ( {
+		status: 'closed',
+		sseSession: null,
+		shell: null,
+	} ),
 } ) );
 globalThis.__untitledHooks = {
 	fetchTopology: jest.fn().mockResolvedValue( null ),

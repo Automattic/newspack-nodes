@@ -784,6 +784,46 @@ class HTTPInTest extends TestCase {
 		$this->assertSame( 'dump_metadata', $payload['name'] );
 	}
 
+	/**
+	 * The Inspector's `request_node` on an attached worker: a TM_REQUEST headed
+	 * with the tab's session, so the worker's reply reaches that tab's stream.
+	 * Nothing signs a non-command, and the door must route it anyway.
+	 */
+	public function test_a_request_headed_with_a_session_reaches_the_worker(): void {
+		$this->build_graph_sans_output();
+		$base      = $this->make_temp_dir( 'cmd-ctrl-request-' );
+		$input_dir = "{$base}/ipc/combined.p7/input";
+		\mkdir( $input_dir, 0755, true );
+		$worker = new Partition_Node();
+		$worker->arguments( [ $input_dir ] );
+		$worker->name( 'combined.p7' );
+
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_REQUEST;
+		$m[ Message::FROM ]  = '_sse:c0ffee77c0ffee77c0ffee77c0ffee77/_output';
+		$m[ Message::TO ]    = 'combined.p7/request-builder';
+		$m[ Message::VALUE ] = 'GET_HEALTH';
+		$req                 = new \WP_REST_Request();
+		$req->set_body( Message::packed( $m ) );
+		$ctrl = new HTTP_In_Node();
+		$ctrl->set_test_mode( true );
+		\ob_start();
+		$ctrl->dispatch( $req );
+		\ob_end_clean();
+
+		$worker->flush();
+		$consumer = new Consumer_Node();
+		$consumer->arguments( [ $input_dir ] );
+		$consumer->next_offset( 'start' );
+		$consumer->sink( $got = new Capture_Sink_Node() );
+		$this->pump_consumer( $consumer );
+		$this->rmdir_recursive( $base );
+
+		$this->assertCount( 1, $got->captured );
+		$this->assertSame( '_output/_sse:c0ffee77c0ffee77c0ffee77c0ffee77/_output', $got->captured[0][ Message::FROM ] );
+		$this->assertSame( 'GET_HEALTH', $got->captured[0][ Message::VALUE ] );
+	}
+
 	// ── register_routes ────────────────────────────────────────────────────
 
 	public function test_register_routes_registers_command_post_route(): void {

@@ -22,7 +22,7 @@ const baseProps = {
 	onSelect: () => {},
 	onHover: () => {},
 	nodeIds: new Set(),
-	ssePid: null,
+	sseSession: null,
 };
 
 describe( 'Inspector (view mode)', () => {
@@ -1756,7 +1756,7 @@ describe( 'Inspector (view mode)', () => {
 				selectedId="tee_a"
 				parsed={ { nodes: [ teeNode ], edges: [] } }
 				nodeIds={ new Set( [ 'tee_a' ] ) }
-				ssePid={ 9 }
+				sseSession="5e55104cafe0f00d5e55104cafe0f00d"
 			/>
 		);
 		expect( getByText( 'Connect' ) ).not.toBeNull();
@@ -1768,8 +1768,14 @@ describe( 'Inspector (view mode)', () => {
 			id: 'tee_a',
 			class: 'Tee',
 			count: 0,
-			target: [ 'request-builder', '_repl/_output/_sse:9/_output' ],
-			targets: [ 'request-builder', '_repl/_output/_sse:9/_output' ],
+			target: [
+				'request-builder',
+				'_repl/_output/_sse:c0ffee09c0ffee09c0ffee09c0ffee09/_output',
+			],
+			targets: [
+				'request-builder',
+				'_repl/_output/_sse:c0ffee09c0ffee09c0ffee09c0ffee09/_output',
+			],
 		};
 		const { getByText } = renderWithCatalog(
 			<Inspector
@@ -1781,7 +1787,7 @@ describe( 'Inspector (view mode)', () => {
 						{ from: 'tee_a', to: 'request-builder' },
 						{ from: 'tee_a', to: '_repl' },
 					],
-					pwd: '_repl/_output/_sse:9/_output',
+					pwd: '_repl/_output/_sse:c0ffee09c0ffee09c0ffee09c0ffee09/_output',
 				} }
 				nodeIds={ new Set( [ 'tee_a' ] ) }
 			/>
@@ -1820,7 +1826,9 @@ describe( 'Inspector (view mode)', () => {
 			class: 'Tee',
 			count: 0,
 			target: [],
-			targets: [ '_repl/_output/_sse:9/_output' ],
+			targets: [
+				'_repl/_output/_sse:c0ffee09c0ffee09c0ffee09c0ffee09/_output',
+			],
 		};
 		const { getByText } = renderWithCatalog(
 			<Inspector
@@ -1829,7 +1837,7 @@ describe( 'Inspector (view mode)', () => {
 				parsed={ {
 					nodes: [ teeNode ],
 					edges: [],
-					pwd: '_repl/_output/_sse:9/_output',
+					pwd: '_repl/_output/_sse:c0ffee09c0ffee09c0ffee09c0ffee09/_output',
 				} }
 				nodeIds={ new Set( [ 'tee_a' ] ) }
 			/>
@@ -1843,8 +1851,12 @@ describe( 'Inspector (view mode)', () => {
 			id: 'tee_a',
 			class: 'Tee',
 			count: 0,
-			target: [ '_repl/_output/_sse:777/_output' ],
-			targets: [ '_repl/_output/_sse:777/_output' ],
+			target: [
+				'_repl/_output/_sse:c0ffee77c0ffee77c0ffee77c0ffee77/_output',
+			],
+			targets: [
+				'_repl/_output/_sse:c0ffee77c0ffee77c0ffee77c0ffee77/_output',
+			],
 		};
 		const { getByText } = renderWithCatalog(
 			<Inspector
@@ -1853,7 +1865,7 @@ describe( 'Inspector (view mode)', () => {
 				parsed={ {
 					nodes: [ teeNode ],
 					edges: [ { from: 'tee_a', to: '_repl' } ],
-					pwd: '_repl/_output/_sse:9/_output',
+					pwd: '_repl/_output/_sse:c0ffee09c0ffee09c0ffee09c0ffee09/_output',
 				} }
 				nodeIds={ new Set( [ 'tee_a' ] ) }
 			/>

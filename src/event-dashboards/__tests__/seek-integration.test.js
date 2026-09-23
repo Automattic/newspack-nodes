@@ -98,7 +98,7 @@ function connectedEnvelope( subscription ) {
 	m[ TYPE ] = TM_INFO;
 	m[ KEY ] = 'connected';
 	m[ VALUE ] =
-		`PID 4242 SLOT 3 OWNER 9007199254740993 ` +
+		`SESSION e2e11111e2e22222e2e33333e2e44444 SLOT 3 OWNER 9007199254740993 ` +
 		`SUBSCRIPTIONS ${ subscription } INTERVAL 2000`;
 	return m;
 }

@@ -21,7 +21,11 @@ window.NewspackNodesData = {
 };
 
 jest.mock( '../hooks/useConsoleGraph', () => ( {
-	useConsoleGraph: () => ( { status: 'closed', ssePid: null, shell: null } ),
+	useConsoleGraph: () => ( {
+		status: 'closed',
+		sseSession: null,
+		shell: null,
+	} ),
 } ) );
 globalThis.__drillHooks = {
 	fetchTopology: jest

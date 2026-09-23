@@ -28,8 +28,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `memcached result <code>: <message>`, or `APCu` on that tier, through the
   new `Cache_Backend::last_failure()`. The rate limit still keys on each
   line's fixed prefix, so a changing message cannot defeat it.
+- **A browser's attached replies address its command session, not a
+  process.** `RemoteIpcNode` heads FROM with `_sse:<handle>`, the page's
+  command session, where it wrote `_sse:<pid>`, and drops with a reason a
+  message it cannot address while no session is live. A browser stream presents
+  `session=<handle>` and `stream=<its node name>` on `/messages/stream` and
+  `/log/stream`, and `HTTP_Filter_Node` passes the replies headed with that
+  session. The `connected` envelope carries `SESSION <handle>` in place of
+  `PID`, omitted for a stream that presented none. `SseInNode.pid()`,
+  `RemoteLinkNode.pid()` and the PHP `SSE_In_Node::pid()` are gone,
+  replaced in the browser by `session()`, and the topology console's
+  `ssePid` is `sseSession`. A page loaded before the deploy reconnects into
+  the new protocol on its next load. `wp nodes cli` keeps `_output/<pid>`.
+- **Upgrade a hub before, or together with, its spokes.** `SSE_In_Node` no
+  longer requires `PID` in the `connected` envelope, and a spoke no longer
+  sends it. A hub on the previous release still requires it, so it rejects
+  an upgraded spoke's handshake as `connected envelope missing or invalid
+  PID` and its aggregation pull retries without ever connecting. The pull
+  itself presents no session and acquires its slot as before.
+- **A stream presenting a session is refused unless it is the requester's.**
+  `/messages/stream` and `/log/stream` answer `401 sse_session_refused`
+  before taking a slot when the presented handle is malformed, dead, or
+  minted by another user, and `400 sse_stream_invalid` when the `stream` id
+  is not 1-64 characters of `[A-Za-z0-9_.:-]`. `SseInNode` answers a closed
+  stream that presented a session with a probe, the same request with an id
+  the server refuses by shape. Because the session is checked first, a dead
+  one answers 401 without opening a stream; the stream then renews the
+  session once and reopens under the new handle.
+- **The slot seams take the stream's session lease.** `$acquire_slot` is
+  `function ( int $partition, ?array $session )`, where `$session` is
+  `{key, ttl}`: the handle and stream id, and the seconds the session has
+  left. `$release_slot` takes the key as a third argument.
+  `SSE_Slot_Pool::acquire()` takes the key and TTL as its seventh and
+  eighth arguments, and `release()` takes the key as its fourth.
+- **`Command_Auth::load_session_record()` reports `expires`,** the Unix time
+  the session lapses, or 0 for a record that does not say. `store_session()`
+  records it.
 
 ### Fixed
+
+- **A reply to a command sent before a reconnect reaches the console.** The
+  reply was addressed to the pid of the stream process that was open when
+  the command left, and the reconnected stream, a new process, dropped it.
+  It is now addressed to the session, which every reconnect presents again.
+- **A reconnect no longer holds a second slot.** The lease is keyed by the
+  session and the stream's own id, so a reconnect takes its own live lease
+  over and rotates the owner. Two streams on one page keep two leases. The
+  old process's next check fails, it reads the lease as `superseded`, and it
+  closes quietly with a `superseded` disconnect frame and no error
+  diagnostic. A takeover confirms its new liveness as a claim does, never
+  takes a slot past `max_streams` or inside a browser's reserved tail, and
+  records its index for no longer than the session lives, forgetting it on
+  release.
 
 - **A worker console attach resumes where it stopped.** `SSE_Out_Node`
   opened every IPC attach (`{base}/ipc/{sub}/output`) at the tail and

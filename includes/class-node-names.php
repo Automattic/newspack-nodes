@@ -5,7 +5,7 @@
  * `src/runtime/reserved-node-names.json` is the canonical map and this class is
  * its PHP half; `tests/unit/NodeNamesTest.php` fails when the two diverge. The
  * names are part of the wire, not a local convention: a browser mints a command
- * stamped `FROM = _sse:<pid>/_output`, the worker answers TO=FROM (ADR-7), and
+ * stamped `FROM = _sse:<session>/_output`, the worker answers TO=FROM (ADR-7), and
  * every hop between resolves the head of that path against a node registered
  * under one of these strings. Spell one differently on either side and the
  * reply never reaches the node that minted the command.
@@ -68,7 +68,7 @@ final class Node_Names {
 	/** `Connect_Queue_Timer_Node`'s single instance, mounted only while the connect queue holds work. */
 	public const CONNECT_TIMER       = '_connect_timer';
 
-	/** The `SSE_Out_Node` egress. A browser command carries `_sse:<pid>` in FROM so the stream process can gate the reply to its own session. */
+	/** The `SSE_Out_Node` egress. A browser command carries `_sse:<session handle>` in FROM so a stream can gate the reply to the session that sent it. */
 	public const SSE                 = '_sse';
 
 	/** The FROM stamp `Stdin_Node` puts on the lines and the EOF marker it emits; no node is registered under it. */

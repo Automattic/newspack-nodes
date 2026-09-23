@@ -31,6 +31,12 @@ use Newspack_Nodes\Rest\SSE_Out_Node;
  */
 class SSE_Slot_Pool {
 
+	/**
+	 * What a superseded owner's liveness key holds once a reconnect took its
+	 * lease over. No identity can equal it: those are `{user id}:{ip hash}`.
+	 */
+	private const SUPERSEDED = 'superseded';
+
 	/** @api Tests override; production reads config through max_slots(). */
 	public static ?int $max_slots = null;
 
@@ -44,78 +50,33 @@ class SSE_Slot_Pool {
 	public static ?int $reserved_slots = null;
 
 	/**
-	 * One reader's share of the host total: the override, else config, never
-	 * more than the whole host, since a share that cannot bind is not a share.
-	 *
-	 * A per-identity cap bounds one reader and never the host; `max_streams()`
-	 * is what protects the site. The shipped 3 leaves room for a lease a dead
-	 * process never released, standing for the whole TTL while the client's
-	 * real reconnect already wants a slot of its own.
-	 *
-	 * @return int Slots one identity may hold at once, at least 1.
-	 */
-	public static function max_slots(): int {
-		return self::$max_slots
-			?? \min(
-				self::max_streams(),
-				\max( 1, self::budget( 'sse_max_slots' ) )
-			);
-	}
-
-	/**
-	 * Host slots browsers may not claim: the override, else config, never the
-	 * whole host, since reserving every slot locks out the readers the host
-	 * exists to serve.
-	 *
-	 * A reservation comes OUT of the host total, not on top of it: it raises
-	 * nobody's ceiling, it only decides who may reach the last slot. Meaningful
-	 * only where something machine-driven pulls from this host — a spoke sets 1
-	 * so the hub's aggregation pull always finds a slot.
-	 *
-	 * @return int Trailing slots held back from browsers, always leaving at least one claimable.
-	 */
-	public static function reserved_slots(): int {
-		return self::$reserved_slots
-			?? \min(
-				self::max_streams() - 1,
-				\max( 0, self::budget( 'sse_reserved_slots' ) )
-			);
-	}
-
-	/**
-	 * Whole-host concurrent-stream cap: the override, else config.
-	 *
-	 * This is the cap that protects the site; the per-identity one only divides
-	 * it fairly. An SSE stream occupies a php-fpm child for its entire life, and
-	 * past the site's worker allocation Atomic queues each request for a worker
-	 * and refuses it with 429 when none frees in time. The shipped 6 leaves room
-	 * in a ~10-worker allocation for page requests and the node worker itself.
-	 * See docs/sse-host-budget.md.
-	 *
-	 * @return int Concurrent streams this host allows, at least 1.
-	 */
-	public static function max_streams(): int {
-		return self::$max_streams
-			?? \max( 1, self::budget( 'sse_max_streams' ) );
-	}
-
-	/**
 	 * Install the four `SSE_Out_Node` slot-pool seams. Idempotent. Call from the
 	 * application bootstrap once the cache backends are initialized.
 	 *
 	 * The seams close over the production namespace and bounds, so the endpoint
 	 * carries no pool configuration of its own. They ignore the partition it
 	 * offers, because slots are pooled host-wide and a pool per partition would
-	 * multiply the host cap by the partition count.
+	 * multiply the host cap by the partition count. The session the endpoint
+	 * offers — its lease key and remaining life — is passed through, so a
+	 * reconnect takes its own lease over, and a release forgets the index.
 	 */
 	public static function wire(): void {
-		SSE_Out_Node::$acquire_slot = static function ( int $_partition = -1 ): array|false {
+		SSE_Out_Node::$acquire_slot = static function ( int $_partition = -1, ?array $session = null ): array|false {
 			$reserved = self::is_machine_pull() ? 0 : self::reserved_slots();
-			return self::acquire( self::namespace_key(), self::identity(), self::max_streams(), self::max_slots(), self::ttl(), $reserved );
+			return self::acquire(
+				self::namespace_key(),
+				self::identity(),
+				self::max_streams(),
+				self::max_slots(),
+				self::ttl(),
+				$reserved,
+				null === $session ? null : Core::as_string( $session['key'] ?? null ),
+				null === $session ? 0 : Core::num_int( $session['ttl'] ?? null )
+			);
 		};
-		SSE_Out_Node::$release_slot = static function ( array $lease, int $_partition = -1 ): void {
+		SSE_Out_Node::$release_slot = static function ( array $lease, int $_partition = -1, ?string $session = null ): void {
 			$lease = self::require_lease( $lease );
-			self::release( self::namespace_key(), $lease['slot'], $lease['owner'] );
+			self::release( self::namespace_key(), $lease['slot'], $lease['owner'], $session );
 		};
 		SSE_Out_Node::$check_slot = static function ( array $lease, int $_partition = -1 ): bool {
 			// Check-only, NEVER refresh TTL here (only client heartbeat does).
@@ -126,6 +87,210 @@ class SSE_Slot_Pool {
 			$lease = self::require_lease( $lease );
 			return self::inspect( self::namespace_key(), $lease['slot'], $lease['owner'] );
 		};
+	}
+
+	/**
+	 * Name why one lease check failed, with fresh, read-only cache operations.
+	 *
+	 * Deliberately separate from the hot-path check, which reports one bool for
+	 * seven distinct states: `backend_read_error`, `pointer_missing`,
+	 * `slot_released`, `superseded`, `pointer_owner_mismatch`,
+	 * `liveness_missing` and `recovered_during_inspection`. The last means the
+	 * lease came back between the failed check and this read, so a heartbeat
+	 * may simply retry.
+	 *
+	 * @param string $namespace Pool scope; production passes `namespace_key()`.
+	 * @param int    $slot      Slot the failed lease names.
+	 * @param int    $owner     Owner the failed lease names.
+	 * @return array<string,int|string> `backend` and `lease_state`, plus the backend's diagnostic facts on APCu or a read error.
+	 */
+	public static function inspect( string $namespace, int $slot, int $owner ): array {
+		$backend = Cache_Backend::shared_first();
+		if ( null === $backend ) {
+			return [
+				'backend'    => 'unavailable',
+				'lease_state' => 'backend_read_error',
+			];
+		}
+
+		$pointer_key = self::slot_key( $namespace, $slot );
+		$pointer     = $backend->read( $pointer_key );
+		if ( Cache_Backend::READ_ERROR === $pointer['status'] ) {
+			return self::inspection_result( $backend, 'backend_read_error' );
+		}
+		if ( Cache_Backend::READ_MISS === $pointer['status'] ) {
+			return self::inspection_result( $backend, 'pointer_missing' );
+		}
+		if ( $owner !== $pointer['value'] ) {
+			return self::inspection_result( $backend, self::mismatch_state( $backend, $pointer_key, $owner, $pointer['value'] ) );
+		}
+
+		$liveness = $backend->read( self::lease_key( $pointer_key, $owner ) );
+		if ( Cache_Backend::READ_ERROR === $liveness['status'] ) {
+			return self::inspection_result( $backend, 'backend_read_error' );
+		}
+		if ( Cache_Backend::READ_MISS === $liveness['status'] ) {
+			return self::inspection_result( $backend, 'liveness_missing' );
+		}
+
+		$pointer = $backend->read( $pointer_key );
+		if ( Cache_Backend::READ_ERROR === $pointer['status'] ) {
+			return self::inspection_result( $backend, 'backend_read_error' );
+		}
+		if ( Cache_Backend::READ_MISS === $pointer['status'] ) {
+			return self::inspection_result( $backend, 'pointer_missing' );
+		}
+		if ( $owner !== $pointer['value'] ) {
+			return self::inspection_result( $backend, self::mismatch_state( $backend, $pointer_key, $owner, $pointer['value'] ) );
+		}
+		return self::inspection_result( $backend, 'recovered_during_inspection' );
+	}
+
+	/**
+	 * Which kind of not-ours a pointer holding someone else's value is.
+	 *
+	 * The tombstone is routine. `release()` CAS's the pointer to 0, so an idle
+	 * stream ending its own slot leaves exactly this, and a client heartbeat
+	 * already in flight lands on it — constant when the idle timeout is
+	 * shorter than the heartbeat interval. So is a takeover: a session's
+	 * reconnect swapped the pointer to its new owner and left `SUPERSEDED` in
+	 * this owner's liveness key. Any other positive owner is the real thing:
+	 * our lease TTL expired and a rival claimed it.
+	 *
+	 * @param Cache_Backend $backend       Tier the inspection read through.
+	 * @param string        $pointer_key   Slot pointer key.
+	 * @param int           $owner         Owner the failed lease names.
+	 * @param mixed         $pointer_value The pointer's current value.
+	 * @return string `slot_released`, `superseded` or `pointer_owner_mismatch`.
+	 */
+	private static function mismatch_state( Cache_Backend $backend, string $pointer_key, int $owner, mixed $pointer_value ): string {
+		if ( 0 === $pointer_value ) {
+			return 'slot_released';
+		}
+		$liveness = $backend->read( self::lease_key( $pointer_key, $owner ) );
+		return Cache_Backend::READ_HIT === $liveness['status'] && self::SUPERSEDED === $liveness['value']
+			? 'superseded'
+			: 'pointer_owner_mismatch';
+	}
+
+	/**
+	 * One inspection verdict, plus the backend facts that explain it.
+	 *
+	 * Those facts ride along for APCu, whose expunge and free-memory numbers say
+	 * whether the segment is thrashing, and for any read error, whose memcached
+	 * result code names the failure. A healthy memcached read needs neither.
+	 *
+	 * @param Cache_Backend $backend     Tier the inspection read through.
+	 * @param string        $lease_state Verdict for the inspected lease.
+	 * @return array<string,int|string>
+	 */
+	private static function inspection_result( Cache_Backend $backend, string $lease_state ): array {
+		$result = [
+			'backend'    => $backend->backend_name(),
+			'lease_state' => $lease_state,
+		];
+		if ( 'apcu' === $result['backend'] || 'backend_read_error' === $lease_state ) {
+			$result = \array_merge( $result, $backend->diagnostic_metadata() );
+		}
+		return $result;
+	}
+
+	/**
+	 * Whether the exact lease is still held. Fail-CLOSED.
+	 *
+	 * Never refreshes the TTL. Only an owner-matched `workers heartbeat` does,
+	 * so a client that has stopped heartbeating loses its slot on schedule
+	 * however long its stream stays open. The pointer is read again after the
+	 * liveness read, because a rival can reclaim the slot between the two.
+	 *
+	 * @param string $namespace Pool scope.
+	 * @param int    $slot      Slot from the lease.
+	 * @param int    $owner     Owner from the lease.
+	 * @return bool True only when the pointer names this owner and its liveness key is present.
+	 */
+	public static function check( string $namespace, int $slot, int $owner ): bool {
+		if ( $owner <= 0 ) {
+			return false;
+		}
+		$backend = Cache_Backend::shared_first();
+		if ( null === $backend ) {
+			return false;
+		}
+		$pointer_key = self::slot_key( $namespace, $slot );
+		if ( ! self::pointer_matches( $backend, $pointer_key, $owner ) ) {
+			return false;
+		}
+		$liveness = $backend->read( self::lease_key( $pointer_key, $owner ) );
+		return Cache_Backend::READ_HIT === $liveness['status']
+			&& self::pointer_matches( $backend, $pointer_key, $owner );
+	}
+
+	/**
+	 * Tombstone this exact owner, then remove its liveness. Fail-OPEN without a
+	 * backend, since the lease expires on its own.
+	 *
+	 * The CAS is what makes a stale release harmless: an owner that already lost
+	 * the slot cannot tombstone its successor. The pointer goes to 0 rather than
+	 * being deleted, so the slot keeps a pointer for the next claimant to swap,
+	 * and 0 itself is refused as an owner — it is the tombstone, not a holder.
+	 *
+	 * A session's lease forgets its takeover index with it, so nothing names a
+	 * slot the session no longer holds.
+	 *
+	 * @param string      $namespace Pool scope.
+	 * @param int         $slot      Slot from the lease.
+	 * @param int         $owner     Owner from the lease.
+	 * @param string|null $session   The stream's session lease key, or null.
+	 * @return bool True when the tombstone landed or no backend answered; false on a non-positive owner or a pointer that no longer names this one.
+	 */
+	public static function release( string $namespace, int $slot, int $owner, ?string $session = null ): bool {
+		if ( $owner <= 0 ) {
+			return false;
+		}
+		$backend = Cache_Backend::shared_first();
+		if ( null === $backend ) {
+			return true;
+		}
+		$pointer_key = self::slot_key( $namespace, $slot );
+		if ( ! $backend->compare_and_swap( $pointer_key, $owner, 0 ) ) {
+			return false;
+		}
+		$backend->delete( self::lease_key( $pointer_key, $owner ) );
+		if ( null !== $session ) {
+			$backend->delete( self::session_key( $namespace, $session ) );
+		}
+		return true;
+	}
+
+	/**
+	 * Validate the lease again at the pool seam boundary.
+	 *
+	 * The endpoint carries one lease through its whole drain loop and hands it
+	 * back on every check and on release, so the shape is asserted here rather
+	 * than trusted: exactly the two keys `acquire()` returned, a non-negative
+	 * slot and a positive owner. A malformed lease that slipped through would
+	 * check or release whichever slot its numbers happen to name.
+	 *
+	 * @param array<array-key,mixed> $lease Candidate lease from the endpoint.
+	 * @return array{slot:int,owner:int}
+	 * @throws \UnexpectedValueException When the candidate is not exactly that shape.
+	 */
+	private static function require_lease( array $lease ): array {
+		if (
+			2 !== \count( $lease )
+			|| ! \array_key_exists( 'slot', $lease )
+			|| ! \array_key_exists( 'owner', $lease )
+			|| ! \is_int( $lease['slot'] )
+			|| 0 > $lease['slot']
+			|| ! \is_int( $lease['owner'] )
+			|| 0 >= $lease['owner']
+		) {
+			throw new \UnexpectedValueException( 'SSE slot seam did not receive a complete lease.' );
+		}
+		return [
+			'slot'  => $lease['slot'],
+			'owner' => $lease['owner'],
+		];
 	}
 
 	/**
@@ -150,19 +315,22 @@ class SSE_Slot_Pool {
 	}
 
 	/**
-	 * A budget knob, falling back to the value the SCHEMA declares (ADR-20).
+	 * One reader's share of the host total: the override, else config, never
+	 * more than the whole host, since a share that cannot bind is not a share.
 	 *
-	 * `Config_Utils::validate_config_values()` accepts null and `Core::num_int`
-	 * defaults to 0, so reading these unguarded lets an operator's blank entry
-	 * silently collapse the host cap to 1 rather than hold the platform budget
-	 * the knob documents.
+	 * A per-identity cap bounds one reader and never the host; `max_streams()`
+	 * is what protects the site. The shipped 3 leaves room for a lease a dead
+	 * process never released, standing for the whole TTL while the client's
+	 * real reconnect already wants a slot of its own.
 	 *
-	 * @param string $key One of the four sse_* budget keys this class reads.
-	 * @return int Configured value, else the default the schema declares.
+	 * @return int Slots one identity may hold at once, at least 1.
 	 */
-	private static function budget( string $key ): int {
-		$declared = Settings_Schema::get()->defaults()[ $key ];
-		return Core::num_int( Config::value( $key ), Core::num_int( $declared ) );
+	public static function max_slots(): int {
+		return self::$max_slots
+			?? \min(
+				self::max_streams(),
+				\max( 1, self::budget( 'sse_max_slots' ) )
+			);
 	}
 
 	/**
@@ -227,25 +395,58 @@ class SSE_Slot_Pool {
 	 * Every path that gives up deletes its own staged liveness first, rather
 	 * than leaving a key that makes a free slot look held for a whole TTL.
 	 *
-	 * @param string $namespace        Pool scope; production passes `namespace_key()`.
-	 * @param string $identity         Holder to record in the lease value, from `identity()`.
-	 * @param int    $max_streams      Whole-host pointer count: the cap that binds.
-	 * @param int    $max_per_identity Slots one identity may hold at once.
-	 * @param int    $ttl              Lease lifetime in seconds.
-	 * @param int    $reserved         Trailing slots this caller may not claim.
+	 * A stream presenting a session first tries to take over the lease that
+	 * session last held: its reconnect then costs no second slot while the old
+	 * process has yet to notice the drop, and the owner rotates so that
+	 * process's next check fails. A takeover adds no slot, so it is not
+	 * measured against the identity's share; failing it claims as usual. The
+	 * index recording the lease lives no longer than the session, and is not
+	 * written at all for a session with no life left.
+	 *
+	 * @param string      $namespace        Pool scope; production passes `namespace_key()`.
+	 * @param string      $identity         Holder to record in the lease value, from `identity()`.
+	 * @param int         $max_streams      Whole-host pointer count: the cap that binds.
+	 * @param int         $max_per_identity Slots one identity may hold at once.
+	 * @param int         $ttl              Lease lifetime in seconds.
+	 * @param int         $reserved         Trailing slots this caller may not claim.
+	 * @param string|null $session          The stream's session lease key, or null for none.
+	 * @param int         $session_ttl      Seconds the session has left; bounds the index.
 	 * @return array{slot:int,owner:int}|false Lease, or false when the identity is at its share, every claimable slot is live, or no store answered.
 	 */
-	public static function acquire( string $namespace, string $identity, int $max_streams, int $max_per_identity, int $ttl, int $reserved = 0 ): array|false {
+	public static function acquire( string $namespace, string $identity, int $max_streams, int $max_per_identity, int $ttl, int $reserved = 0, ?string $session = null, int $session_ttl = 0 ): array|false {
 		$backend = Cache_Backend::shared_first();
 		if ( null === $backend ) {
 			return false;
 		}
+		$claimable = self::claimable( $max_streams, $reserved );
+		$lease     = null === $session ? false : self::take_over( $backend, $namespace, $session, $identity, $ttl, $claimable );
+		if ( false === $lease ) {
+			$lease = self::claim( $backend, $namespace, $identity, $max_streams, $max_per_identity, $ttl, $claimable );
+		}
+		if ( false !== $lease && null !== $session && $session_ttl > 0 ) {
+			$backend->set( self::session_key( $namespace, $session ), $lease, $session_ttl );
+		}
+		return $lease;
+	}
+
+	/**
+	 * Claim a slot of this identity's own: the first free or dead one, within
+	 * its share of the host.
+	 *
+	 * @param Cache_Backend $backend          The caller's selected tier.
+	 * @param string        $namespace        Pool scope.
+	 * @param string        $identity         Holder to record in the lease value.
+	 * @param int           $max_streams      Whole-host pointer count.
+	 * @param int           $max_per_identity Slots one identity may hold at once.
+	 * @param int           $ttl              Lease lifetime in seconds.
+	 * @param int           $claimable        Leading slots this caller may hold.
+	 * @return array{slot:int,owner:int}|false Lease, or false when none is claimable.
+	 */
+	private static function claim( Cache_Backend $backend, string $namespace, string $identity, int $max_streams, int $max_per_identity, int $ttl, int $claimable ): array|false {
 		if ( self::held_by( $backend, $namespace, $identity, $max_streams ) >= $max_per_identity ) {
 			return false;
 		}
 
-		// Reserved slots are the TAIL, so a browser just stops short.
-		$claimable = \max( 1, $max_streams - \max( 0, $reserved ) );
 		for ( $slot = 0; $slot < $claimable; $slot++ ) {
 			$owner       = \random_int( 1, \PHP_INT_MAX );
 			$pointer_key = self::slot_key( $namespace, $slot );
@@ -348,6 +549,144 @@ class SSE_Slot_Pool {
 	}
 
 	/**
+	 * Hand a session's live lease to its reconnect. The CAS from the recorded
+	 * owner is the whole guard: a lease since released, expired and reclaimed,
+	 * or taken by a rival no longer names that owner, and the swap fails.
+	 *
+	 * A recorded slot this caller may no longer hold — past a shrunk
+	 * `max_streams`, or in the reserved tail a browser stops short of — is not
+	 * taken, and the caller claims as usual.
+	 *
+	 * The new liveness is staged before the swap and confirmed after it, as a
+	 * claim does, because the store can evict the fresh key. The old owner's
+	 * liveness is then overwritten with `SUPERSEDED` rather than deleted: a
+	 * stale heartbeat still cannot revive it, since the pointer no longer names
+	 * that owner, and its process's inspection reads a routine reconnect.
+	 *
+	 * @param Cache_Backend $backend   The caller's selected tier.
+	 * @param string        $namespace Pool scope.
+	 * @param string        $session   The stream's session lease key.
+	 * @param string        $identity  Holder to record in the new lease value.
+	 * @param int           $ttl       Lease lifetime in seconds.
+	 * @param int           $claimable Leading slots this caller may hold.
+	 * @return array{slot:int,owner:int}|false The rotated lease, or false when there is none to take.
+	 */
+	private static function take_over( Cache_Backend $backend, string $namespace, string $session, string $identity, int $ttl, int $claimable ): array|false {
+		$held = $backend->read( self::session_key( $namespace, $session ) );
+		$prev = Cache_Backend::READ_HIT === $held['status'] && \is_array( $held['value'] ) ? $held['value'] : [];
+		if ( ! isset( $prev['slot'], $prev['owner'] ) || ! \is_int( $prev['slot'] ) || ! \is_int( $prev['owner'] ) ) {
+			return false;
+		}
+		if ( $prev['slot'] < 0 || $prev['slot'] >= $claimable ) {
+			return false;
+		}
+		$owner       = \random_int( 1, \PHP_INT_MAX );
+		$pointer_key = self::slot_key( $namespace, $prev['slot'] );
+		$lease_key   = self::lease_key( $pointer_key, $owner );
+		if ( ! $backend->add( $lease_key, $identity, $ttl ) ) {
+			return false;
+		}
+		if (
+			! $backend->compare_and_swap( $pointer_key, $prev['owner'], $owner )
+			|| ! self::pointer_matches( $backend, $pointer_key, $owner )
+		) {
+			$backend->delete( $lease_key );
+			return false;
+		}
+		$staged_liveness = $backend->read( $lease_key );
+		if (
+			Cache_Backend::READ_HIT !== $staged_liveness['status']
+			|| ! self::pointer_matches( $backend, $pointer_key, $owner )
+		) {
+			$backend->delete( $lease_key );
+			return false;
+		}
+		$backend->set( self::lease_key( $pointer_key, $prev['owner'] ), self::SUPERSEDED, $ttl );
+		return [
+			'slot'  => $prev['slot'],
+			'owner' => $owner,
+		];
+	}
+
+	/**
+	 * Where the lease a session last held is recorded. It lives no longer than
+	 * the session, is forgotten on release, and is never trusted on its own:
+	 * the takeover's CAS decides whether the lease it names is still that one.
+	 *
+	 * @param string $namespace Pool scope, already `machine:site`.
+	 * @param string $session   The stream's session lease key.
+	 * @return string The composed index key.
+	 */
+	private static function session_key( string $namespace, string $session ): string {
+		return Cache_Backend::key( $namespace, "sse-session:{$session}" );
+	}
+
+	/**
+	 * How many leading slots this caller may hold. Reserved slots are the
+	 * TAIL, so a browser stops short of them; at least one stays claimable.
+	 *
+	 * @param int $max_streams Whole-host pointer count.
+	 * @param int $reserved    Trailing slots this caller may not claim.
+	 * @return int Slots `0 .. n-1` this caller may hold.
+	 */
+	private static function claimable( int $max_streams, int $reserved ): int {
+		return \max( 1, $max_streams - \max( 0, $reserved ) );
+	}
+
+	/**
+	 * Host slots browsers may not claim: the override, else config, never the
+	 * whole host, since reserving every slot locks out the readers the host
+	 * exists to serve.
+	 *
+	 * A reservation comes OUT of the host total, not on top of it: it raises
+	 * nobody's ceiling, it only decides who may reach the last slot. Meaningful
+	 * only where something machine-driven pulls from this host — a spoke sets 1
+	 * so the hub's aggregation pull always finds a slot.
+	 *
+	 * @return int Trailing slots held back from browsers, always leaving at least one claimable.
+	 */
+	public static function reserved_slots(): int {
+		return self::$reserved_slots
+			?? \min(
+				self::max_streams() - 1,
+				\max( 0, self::budget( 'sse_reserved_slots' ) )
+			);
+	}
+
+	/**
+	 * Whole-host concurrent-stream cap: the override, else config.
+	 *
+	 * This is the cap that protects the site; the per-identity one only divides
+	 * it fairly. An SSE stream occupies a php-fpm child for its entire life, and
+	 * past the site's worker allocation Atomic queues each request for a worker
+	 * and refuses it with 429 when none frees in time. The shipped 6 leaves room
+	 * in a ~10-worker allocation for page requests and the node worker itself.
+	 * See docs/sse-host-budget.md.
+	 *
+	 * @return int Concurrent streams this host allows, at least 1.
+	 */
+	public static function max_streams(): int {
+		return self::$max_streams
+			?? \max( 1, self::budget( 'sse_max_streams' ) );
+	}
+
+	/**
+	 * A budget knob, falling back to the value the SCHEMA declares (ADR-20).
+	 *
+	 * `Config_Utils::validate_config_values()` accepts null and `Core::num_int`
+	 * defaults to 0, so reading these unguarded lets an operator's blank entry
+	 * silently collapse the host cap to 1 rather than hold the platform budget
+	 * the knob documents.
+	 *
+	 * @param string $key One of the four sse_* budget keys this class reads.
+	 * @return int Configured value, else the default the schema declares.
+	 */
+	private static function budget( string $key ): int {
+		$declared = Settings_Schema::get()->defaults()[ $key ];
+		return Core::num_int( Config::value( $key ), Core::num_int( $declared ) );
+	}
+
+	/**
 	 * Whether this request is a machine pull rather than a browser.
 	 *
 	 * A fairness hint, NOT a security boundary: the endpoint already requires
@@ -362,191 +701,6 @@ class SSE_Slot_Pool {
 	public static function is_machine_pull(): bool {
 		// phpcs:ignore WordPressVIPMinimum.Variables.RestrictedVariables.cache_constraints___SERVER__HTTP_USER_AGENT__, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
 		return '' !== Core::as_string( $_SERVER['HTTP_X_NEWSPACK_NODES_PULL'] ?? '', '' );
-	}
-
-	/**
-	 * Name why one lease check failed, with fresh, read-only cache operations.
-	 *
-	 * Deliberately separate from the hot-path check, which reports one bool for
-	 * six distinct states: `backend_read_error`, `pointer_missing`,
-	 * `slot_released`, `pointer_owner_mismatch`, `liveness_missing` and
-	 * `recovered_during_inspection`. The last means the lease came back between
-	 * the failed check and this read, so a heartbeat may simply retry.
-	 *
-	 * @param string $namespace Pool scope; production passes `namespace_key()`.
-	 * @param int    $slot      Slot the failed lease names.
-	 * @param int    $owner     Owner the failed lease names.
-	 * @return array<string,int|string> `backend` and `lease_state`, plus the backend's diagnostic facts on APCu or a read error.
-	 */
-	public static function inspect( string $namespace, int $slot, int $owner ): array {
-		$backend = Cache_Backend::shared_first();
-		if ( null === $backend ) {
-			return [
-				'backend'    => 'unavailable',
-				'lease_state' => 'backend_read_error',
-			];
-		}
-
-		$pointer_key = self::slot_key( $namespace, $slot );
-		$pointer     = $backend->read( $pointer_key );
-		if ( Cache_Backend::READ_ERROR === $pointer['status'] ) {
-			return self::inspection_result( $backend, 'backend_read_error' );
-		}
-		if ( Cache_Backend::READ_MISS === $pointer['status'] ) {
-			return self::inspection_result( $backend, 'pointer_missing' );
-		}
-		if ( $owner !== $pointer['value'] ) {
-			return self::inspection_result( $backend, self::mismatch_state( $pointer['value'] ) );
-		}
-
-		$liveness = $backend->read( self::lease_key( $pointer_key, $owner ) );
-		if ( Cache_Backend::READ_ERROR === $liveness['status'] ) {
-			return self::inspection_result( $backend, 'backend_read_error' );
-		}
-		if ( Cache_Backend::READ_MISS === $liveness['status'] ) {
-			return self::inspection_result( $backend, 'liveness_missing' );
-		}
-
-		$pointer = $backend->read( $pointer_key );
-		if ( Cache_Backend::READ_ERROR === $pointer['status'] ) {
-			return self::inspection_result( $backend, 'backend_read_error' );
-		}
-		if ( Cache_Backend::READ_MISS === $pointer['status'] ) {
-			return self::inspection_result( $backend, 'pointer_missing' );
-		}
-		if ( $owner !== $pointer['value'] ) {
-			return self::inspection_result( $backend, self::mismatch_state( $pointer['value'] ) );
-		}
-		return self::inspection_result( $backend, 'recovered_during_inspection' );
-	}
-
-	/**
-	 * Which kind of not-ours a pointer holding someone else's value is.
-	 *
-	 * The tombstone is not a takeover. `release()` CAS's the pointer to 0, so
-	 * an idle stream ending its own slot leaves exactly this, and a client
-	 * heartbeat already in flight lands on it — routine, and constant when the
-	 * idle timeout is shorter than the heartbeat interval. A positive owner is
-	 * the real thing: our lease TTL expired and a rival claimed it.
-	 *
-	 * @param mixed $pointer_value The pointer's current value.
-	 * @return string Either `slot_released` or `pointer_owner_mismatch`.
-	 */
-	private static function mismatch_state( mixed $pointer_value ): string {
-		return 0 === $pointer_value ? 'slot_released' : 'pointer_owner_mismatch';
-	}
-
-	/**
-	 * One inspection verdict, plus the backend facts that explain it.
-	 *
-	 * Those facts ride along for APCu, whose expunge and free-memory numbers say
-	 * whether the segment is thrashing, and for any read error, whose memcached
-	 * result code names the failure. A healthy memcached read needs neither.
-	 *
-	 * @param Cache_Backend $backend     Tier the inspection read through.
-	 * @param string        $lease_state Verdict for the inspected lease.
-	 * @return array<string,int|string>
-	 */
-	private static function inspection_result( Cache_Backend $backend, string $lease_state ): array {
-		$result = [
-			'backend'    => $backend->backend_name(),
-			'lease_state' => $lease_state,
-		];
-		if ( 'apcu' === $result['backend'] || 'backend_read_error' === $lease_state ) {
-			$result = \array_merge( $result, $backend->diagnostic_metadata() );
-		}
-		return $result;
-	}
-
-	/**
-	 * Whether the exact lease is still held. Fail-CLOSED.
-	 *
-	 * Never refreshes the TTL. Only an owner-matched `workers heartbeat` does,
-	 * so a client that has stopped heartbeating loses its slot on schedule
-	 * however long its stream stays open. The pointer is read again after the
-	 * liveness read, because a rival can reclaim the slot between the two.
-	 *
-	 * @param string $namespace Pool scope.
-	 * @param int    $slot      Slot from the lease.
-	 * @param int    $owner     Owner from the lease.
-	 * @return bool True only when the pointer names this owner and its liveness key is present.
-	 */
-	public static function check( string $namespace, int $slot, int $owner ): bool {
-		if ( $owner <= 0 ) {
-			return false;
-		}
-		$backend = Cache_Backend::shared_first();
-		if ( null === $backend ) {
-			return false;
-		}
-		$pointer_key = self::slot_key( $namespace, $slot );
-		if ( ! self::pointer_matches( $backend, $pointer_key, $owner ) ) {
-			return false;
-		}
-		$liveness = $backend->read( self::lease_key( $pointer_key, $owner ) );
-		return Cache_Backend::READ_HIT === $liveness['status']
-			&& self::pointer_matches( $backend, $pointer_key, $owner );
-	}
-
-	/**
-	 * Tombstone this exact owner, then remove its liveness. Fail-OPEN without a
-	 * backend, since the lease expires on its own.
-	 *
-	 * The CAS is what makes a stale release harmless: an owner that already lost
-	 * the slot cannot tombstone its successor. The pointer goes to 0 rather than
-	 * being deleted, so the slot keeps a pointer for the next claimant to swap,
-	 * and 0 itself is refused as an owner — it is the tombstone, not a holder.
-	 *
-	 * @param string $namespace Pool scope.
-	 * @param int    $slot      Slot from the lease.
-	 * @param int    $owner     Owner from the lease.
-	 * @return bool True when the tombstone landed or no backend answered; false on a non-positive owner or a pointer that no longer names this one.
-	 */
-	public static function release( string $namespace, int $slot, int $owner ): bool {
-		if ( $owner <= 0 ) {
-			return false;
-		}
-		$backend = Cache_Backend::shared_first();
-		if ( null === $backend ) {
-			return true;
-		}
-		$pointer_key = self::slot_key( $namespace, $slot );
-		if ( ! $backend->compare_and_swap( $pointer_key, $owner, 0 ) ) {
-			return false;
-		}
-		$backend->delete( self::lease_key( $pointer_key, $owner ) );
-		return true;
-	}
-
-	/**
-	 * Validate the lease again at the pool seam boundary.
-	 *
-	 * The endpoint carries one lease through its whole drain loop and hands it
-	 * back on every check and on release, so the shape is asserted here rather
-	 * than trusted: exactly the two keys `acquire()` returned, a non-negative
-	 * slot and a positive owner. A malformed lease that slipped through would
-	 * check or release whichever slot its numbers happen to name.
-	 *
-	 * @param array<array-key,mixed> $lease Candidate lease from the endpoint.
-	 * @return array{slot:int,owner:int}
-	 * @throws \UnexpectedValueException When the candidate is not exactly that shape.
-	 */
-	private static function require_lease( array $lease ): array {
-		if (
-			2 !== \count( $lease )
-			|| ! \array_key_exists( 'slot', $lease )
-			|| ! \array_key_exists( 'owner', $lease )
-			|| ! \is_int( $lease['slot'] )
-			|| 0 > $lease['slot']
-			|| ! \is_int( $lease['owner'] )
-			|| 0 >= $lease['owner']
-		) {
-			throw new \UnexpectedValueException( 'SSE slot seam did not receive a complete lease.' );
-		}
-		return [
-			'slot'  => $lease['slot'],
-			'owner' => $lease['owner'],
-		];
 	}
 
 	/**

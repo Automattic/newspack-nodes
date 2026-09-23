@@ -23,7 +23,7 @@ const baseProps = {
 	onSelect: () => {},
 	onHover: () => {},
 	nodeIds: new Set(),
-	ssePid: null,
+	sseSession: null,
 	editMode: true,
 	catalog: [
 		{

@@ -15,10 +15,11 @@
  * local work from IPC, because a worker's input `Partition` Node IS the IPC hop.
  *
  * Each incoming message is stamped with the `_output` boundary name. A client
- * sends a bare reply path — `_output`, `_sse:{pid}/{node}`, or an empty FROM —
- * and never spells the boundary itself, so a plain reply comes straight back
- * down this response body while a session-scoped `_sse:{pid}` reply reaches the
- * right browser tab through `HTTP_Filter_Node` in the SSE stream process.
+ * sends a bare reply path — `_output`, `_sse:{session}/{node}`, or an empty
+ * FROM — and never spells the boundary itself, so a plain reply comes straight
+ * back down this response body while a session-scoped `_sse:{session}` reply
+ * reaches the right browser tab through `HTTP_Filter_Node` in the SSE stream
+ * process.
  *
  * The door verifies and never signs (ADR-15). Conferring authority on arrival
  * would make the boundary an oracle, since anything reaching it would acquire

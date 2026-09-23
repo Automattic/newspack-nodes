@@ -11,6 +11,28 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   to 5. A site that already sets the key in a config file or as a
   `newspack_nodes_sse_idle_timeout` option keeps its own value; only the
   code-level default changed.
+- **Upgrade a hub before, or together with, its spokes.** An upgraded spoke's
+  `connected` envelope no longer carries `PID`, and a hub on the previous
+  release rejects that handshake as `connected envelope missing or invalid
+  PID`, so its aggregation pull retries without ever connecting. An upgraded
+  hub pulls from a spoke on either release, since it no longer requires the
+  field.
+- **A browser's attached reply head names its command session.**
+  `RemoteIpcNode` writes `_sse:<session handle>/<node>` where it wrote the
+  stream's pid. `SseInNode.pid()` and `RemoteLinkNode.pid()` are `session()`, and the
+  `connected` envelope's `PID` is `SESSION`, absent without one. A
+  `connected` fixture a test dispatches must echo the session its stream
+  presented — `SESSION <handle> SLOT …` — or the handshake is rejected as
+  `connected envelope names another SESSION`. A test pinning a stream URL
+  now sees `&session=<handle>&stream=<node name>` when a session is live.
+  PHP's `SSE_In_Node::pid()` is gone; nothing in the tree called it.
+- **The slot seams carry the stream's session lease.** A test or application
+  that installs its own closures declares
+  `$acquire_slot = function ( int $partition, ?array $session )`, where
+  `$session` is `{key, ttl}` or null, and
+  `$release_slot = function ( array $lease, int $partition, ?string $session )`.
+  A closure declaring fewer parameters still loads, because PHP drops extra
+  arguments to a closure.
 
 ## 2.65.6
 

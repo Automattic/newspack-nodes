@@ -23,7 +23,7 @@ import names from '../../runtime/reserved-node-names.json';
  * envelope's addressing.
  *
  * `skip` gates the request. The console passes
- * `() => toNeedsSseSession( cwd ) && ! ssePid`, so a cwd addressing an
+ * `() => toNeedsSseSession( cwd ) && ! sseSession`, so a cwd addressing an
  * attached worker stays quiet until that worker's stream is live; the
  * overlay's graph is local and leaves the never-skip default.
  *

@@ -8,15 +8,19 @@ import { statusLines } from '../TopologyConsole';
 describe( 'statusLines', () => {
 	it( 'no SSE session → a single not-connected line', () => {
 		expect(
-			statusLines( { ssePid: null, cwd: '', worker: null } )
+			statusLines( { sseSession: null, cwd: '', worker: null } )
 		).toEqual( [ 'Browser console — no SSE session (not connected).' ] );
 	} );
 
 	it( 'connected at the local graph root → session + root cwd + no attached worker', () => {
 		expect(
-			statusLines( { ssePid: '1247', cwd: '', worker: null } )
+			statusLines( {
+				sseSession: '5e55104cafe0f00d5e55104cafe0f00d',
+				cwd: '',
+				worker: null,
+			} )
 		).toEqual( [
-			'Browser console — SSE session 1247',
+			'Browser console — SSE session 5e55104cafe0f00d5e55104cafe0f00d',
 			'  cwd: /',
 			'  no attached worker (local graph).',
 		] );
@@ -25,7 +29,7 @@ describe( 'statusLines', () => {
 	it( 'cd into a worker → attached worker line with topology.pN', () => {
 		expect(
 			statusLines( {
-				ssePid: '1247',
+				sseSession: '5e55104cafe0f00d5e55104cafe0f00d',
 				cwd: 'firehose-workers-and-jobs.p0',
 				worker: {
 					topology: 'firehose-workers-and-jobs',
@@ -33,7 +37,7 @@ describe( 'statusLines', () => {
 				},
 			} )
 		).toEqual( [
-			'Browser console — SSE session 1247',
+			'Browser console — SSE session 5e55104cafe0f00d5e55104cafe0f00d',
 			'  cwd: firehose-workers-and-jobs.p0',
 			'  attached worker: firehose-workers-and-jobs.p0',
 		] );

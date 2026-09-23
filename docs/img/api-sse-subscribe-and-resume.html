@@ -38,7 +38,7 @@ h2 { font-size:15px; margin:0 0 8px; }
 <div class="panel" style="margin-top:18px">
   <header>The <span class="mono">connected</span> envelope: a TM_INFO frame from <span class="mono">_stream</span>, VALUE a flat <span class="mono">KEY VALUE</span> string, never JSON</header>
   <div class="wire">
-    <span class="slot" style="flex:1"><span class="nm">PID &lt;pid&gt;</span><span class="d">a browser stamps it into the FROM of attached commands, <span class="mono">_sse:{pid}/{node}</span>, so the server's filter demuxes async replies to this tab; must be a positive canonical decimal</span></span>
+    <span class="slot opt" style="flex:1"><span class="nm">SESSION &lt;handle&gt;</span><span class="d">the command session the stream presented, echoed back; omitted for a stream that presented none. A browser heads its attached commands' FROM with it, <span class="mono">_sse:{session}/{node}</span>, so their replies reach this session's stream across reconnects</span></span>
     <span class="slot" style="flex:.8"><span class="nm">SLOT &lt;slot&gt;</span><span class="d">may be 0</span></span>
     <span class="slot" style="flex:1"><span class="nm">OWNER &lt;owner&gt;</span><span class="d">an opaque positive decimal fencing token; clients keep it as TEXT, never a precision-limited number. Out of the CONNECTED state payload and every stderr line</span></span>
     <span class="slot" style="flex:1"><span class="nm">SUBSCRIPTIONS &lt;csv&gt;</span><span class="d">as requested</span></span>
@@ -46,7 +46,7 @@ h2 { font-size:15px; margin:0 0 8px; }
     <span class="slot opt" style="flex:1.2"><span class="nm">CURSORS &lt;csv&gt;</span><span class="d">omitted when empty; else <span class="mono">stamp=segment:offset</span> pairs, the STARTING point of each live subscription. A stamp holding a space or comma is skipped rather than desync the pairing</span></span>
   </div>
   <div class="body" style="padding-top:0">
-    <p style="font-size:12.5px;color:#50575E;margin:0"><span class="mono">SSE_In_Node</span> validates rather than tolerates: a non-string VALUE, an odd token count, or a missing or non-canonical SLOT, OWNER or PID retires the lease, sets ERROR carrying <span class="mono">connected envelope missing or invalid &lt;FIELD&gt;</span>, and returns 0 from the write callback so the stream returns only after the backoff. Unknown extra pairs are ignored, so ADDING a field is safe; renaming one of those three, or spelling OWNER as anything but a positive decimal, kills every machine pull. The matching keepalive is <span class="mono">workers heartbeat [ slot, owner ]</span>, and the server owns the lease TTL.</p>
+    <p style="font-size:12.5px;color:#50575E;margin:0"><span class="mono">SSE_In_Node</span> validates rather than tolerates: a non-string VALUE, an odd token count, or a missing or non-canonical SLOT or OWNER retires the lease, sets ERROR carrying <span class="mono">connected envelope missing or invalid &lt;FIELD&gt;</span>, and returns 0 from the write callback so the stream returns only after the backoff. Unknown extra pairs are ignored, so ADDING a field is safe; renaming either, or spelling OWNER as anything but a positive decimal, kills every machine pull. The matching keepalive is <span class="mono">workers heartbeat [ slot, owner ]</span>, and the server owns the lease TTL.</p>
   </div>
 </div>
 

@@ -337,6 +337,20 @@ Tachikoma graphs) — omitted until a concrete need appears.
 deliberately, rather than overloading `target` or `sink`. Or if an alternative architecture is
 compelling and proven more efficient.
 
+**Amendment:** a browser's reply to an attached-worker command is addressed to the command
+SESSION, not to a process. [`RemoteIpcNode`](../src/runtime/remote-ipc-node.js) heads the FROM it sends with
+`_sse:<handle>`, the handle of the page's command session, and a stream presents
+`session=<handle>`, so [`HTTP_Filter_Node`](../includes/class-http-filter-node.php) passes the replies
+headed with it on whichever connection that session holds when they land. The head used to be
+the pid of the process serving the stream, which named one connection: every reconnect was a
+new process, and a reply to a command sent before the drop was addressed to a stream that no
+longer existed. The addressing is still the correlation — nothing new is minted, stored or
+matched — only the thing the head names moved from the connection to the session. A stream
+that presented no session, the server-to-server pull, passes no reply at all. A session
+re-minted on expiry changes the handle, so a reply in flight across a re-mint is lost, about
+once an hour per tab at most. `wp nodes cli` keeps `_output/<pid>`: it attaches to the IPC
+files directly and never reconnects, so its process is its session.
+
 ---
 
 ## ADR-8: Worker zombie pattern
@@ -752,6 +766,17 @@ signs under a key the far side has already forgotten.
 asymmetric signing buys, and it would earn its keep then — **or** a command must be
 authorized between two sites that share no secret, **or** session state needs to outlive the
 cache tier it lives in.
+
+**Amendment:** a browser's stream presents its command session, `session=<handle>`, and that
+handle is the head its attached replies carry ([ADR-7](#adr-7-sink-vs-target-and-tofrom-replies)). Verification is unchanged: the
+head rides in FROM, which is never signed. On the stream side
+[`SSE_Out_Node`](../includes/rest/class-sse-out-node.php) resolves the presented handle through
+`load_session_record()` and answers `401 sse_session_refused` unless the record is live and
+was minted by the user the request authenticated as. The slot lease is keyed by
+the session too, qualified by a stream id the client names: a reconnect takes its own live
+lease over and rotates the owner, while two streams on one page keep two leases. The old
+process's next check fails and reads the lease as `superseded`, so it closes quietly rather
+than holding a second slot until it notices the drop.
 
 ---
 

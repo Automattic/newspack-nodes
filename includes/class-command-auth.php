@@ -241,7 +241,7 @@ class Command_Auth {
 		$backend = Cache_Backend::shared_first();
 		return null !== $backend && $backend->add(
 			self::session_address( $handle ),
-			[ 'k' => $key, 's' => $scope, 'u' => $user ],
+			[ 'k' => $key, 's' => $scope, 'u' => $user, 'e' => \time() + $ttl ],
 			$ttl
 		);
 	}
@@ -493,15 +493,16 @@ class Command_Auth {
 	}
 
 	/**
-	 * Resolve a session record by handle: `{key, scope, user}`, or null on any
-	 * miss.
+	 * Resolve a session record by handle: `{key, scope, user, expires}`, or
+	 * null on any miss. `expires` is the Unix time the session lapses, and 0
+	 * for a record that does not say, which a caller reads as no life left.
 	 *
 	 * A record stored as a bare key string is scopeless and nobody's: it reads
 	 * back as MANAGE under user 0 rather than being discarded, because
 	 * discarding logs out every client still holding one.
 	 *
 	 * @param string $handle Session handle, as stamped into the envelope.
-	 * @return array{key:string,scope:string,user:int}|null
+	 * @return array{key:string,scope:string,user:int,expires:int}|null
 	 */
 	public static function load_session_record( string $handle ): ?array {
 		$backend = Cache_Backend::shared_first();
@@ -510,7 +511,7 @@ class Command_Auth {
 		}
 		$record = $backend->get( self::session_address( $handle ) );
 		if ( \is_string( $record ) ) {
-			return '' === $record ? null : [ 'key' => $record, 'scope' => Capabilities::MANAGE, 'user' => 0 ];
+			return '' === $record ? null : [ 'key' => $record, 'scope' => Capabilities::MANAGE, 'user' => 0, 'expires' => 0 ];
 		}
 		if ( ! \is_array( $record ) ) {
 			return null;
@@ -523,7 +524,12 @@ class Command_Auth {
 		}
 		return '' === $key
 			? null
-			: [ 'key' => $key, 'scope' => $scope, 'user' => Core::num_int( $record['u'] ?? 0 ) ];
+			: [
+				'key'     => $key,
+				'scope'   => $scope,
+				'user'    => Core::num_int( $record['u'] ?? 0 ),
+				'expires' => Core::num_int( $record['e'] ?? 0 ),
+			];
 	}
 
 	/**

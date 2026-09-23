@@ -5,20 +5,21 @@
  *
  * Every browser tab attached to the same worker consumes that worker's output
  * Partition, so without a gate each tab would receive every other tab's command
- * replies. One stream process serves exactly one session, so its pid names the
- * session.
+ * replies. A stream presents the command session it signs with, and that
+ * session's handle names it — across reconnects, where a process pid would
+ * name only the one connection that was open when the command left.
  *
- * A browser mints a command stamped FROM `_sse:<sse-pid>/<reply-node>`,
+ * A browser mints a command stamped FROM `_sse:<handle>/<reply-node>`,
  * `HTTP_In` adds the `_output` boundary, and the worker's IPC-input Consumer
  * adds `_repl`. The worker's TO=FROM reply (ADR-7) is therefore addressed
- * `_repl/_output/_sse:<sse-pid>/<reply-node>`, and the worker's Router peels
+ * `_repl/_output/_sse:<handle>/<reply-node>`, and the worker's Router peels
  * `_repl` on the way into the output Partition. A Consumer in the SSE process
  * reads that record and forwards it through the interpreter into `_router`,
  * which peels the leading `_output` and fills this Node — registered under
  * that name, sinking into the `SSE_Out` egress — with TO set to
- * `_sse:<sse-pid>/<reply-node>`. Matching that head against this process's own
- * `_sse:<pid>` and stripping it leaves the browser-side reply node, `_output`
- * for the console's Dumper, as the TO the client's own router dispatches on.
+ * `_sse:<handle>/<reply-node>`. Matching that head against this stream's own
+ * session and stripping it leaves the browser-side reply node, `_output` for
+ * the console's Dumper, as the TO the client's own router dispatches on.
  *
  * @package Newspack_Nodes
  */
@@ -28,25 +29,26 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * The `_output` boundary of one SSE stream process, bound to that process's
- * pid. `SSE_Out_Node` builds it with `getmypid()`, patrons it to itself so
- * `dump_metadata` and `dump_config` skip the plumbing, then names it `_output`
- * and sinks it into itself; nothing else constructs one.
+ * The `_output` boundary of one SSE stream, bound to the command session the
+ * stream presented. `SSE_Out_Node` builds it with that handle, patrons it to
+ * itself so `dump_metadata` and `dump_config` skip the plumbing, then names it
+ * `_output` and sinks it into itself; nothing else constructs one.
  */
 class HTTP_Filter_Node extends Node {
 
-	/** The stream process's pid; the reply head it accepts is `_sse:<pid>`. */
-	private int $own_pid;
+	/** The reply head this stream accepts, `_sse:<handle>`; null accepts none. */
+	private ?string $own_head;
 
 	/**
-	 * Bind the gate to one stream process.
+	 * Bind the gate to one command session.
 	 *
-	 * @param int $own_pid This process's pid, which the browser echoed back
-	 *                     into the command's FROM as `_sse:<pid>`.
+	 * @param string|null $session Handle of the session the stream presented, or
+	 *                             null for a stream that presented none, whose
+	 *                             gate passes no reply at all.
 	 */
-	public function __construct( int $own_pid ) {
+	public function __construct( ?string $session ) {
 		parent::__construct();
-		$this->own_pid = $own_pid;
+		$this->own_head = null === $session ? null : Node_Names::SSE . ':' . $session;
 	}
 
 	/**
@@ -65,7 +67,7 @@ class HTTP_Filter_Node extends Node {
 		$sink = $this->require_sink();
 		++$this->counter;
 		[ $head, $reply_node ] = Message::split_first( Core::as_string( $message[ Message::TO ] ) );
-		if ( Node_Names::SSE . ':' . $this->own_pid !== $head ) {
+		if ( null === $this->own_head || $this->own_head !== $head ) {
 			return;
 		}
 		$message[ Message::TO ] = $reply_node;
@@ -77,7 +79,7 @@ class HTTP_Filter_Node extends Node {
 	 *
 	 * `Hidden` is what keeps it out of the class palette. A TSL `make_node`
 	 * line cannot build it either: `make_node` constructs with `new $fqcn()`,
-	 * and this constructor requires a pid.
+	 * and this constructor requires a session.
 	 *
 	 * @return array<string,mixed>
 	 */

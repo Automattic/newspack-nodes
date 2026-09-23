@@ -129,7 +129,7 @@ describe( 'HttpOut', () => {
 		node.fill(
 			routed( {
 				to: 'workers',
-				from: '_http/_sse:9/_heartbeat',
+				from: '_http/_sse:c0ffee09c0ffee09c0ffee09c0ffee09/_heartbeat',
 				value: { name: 'heartbeat', arguments: '1 10 0' },
 			} )
 		);
