@@ -916,16 +916,17 @@ describe( 'TopologyConsole boot', () => {
 		] );
 	} );
 
-	// @longform The 5s cadence is a wall-clock GRID (`nextBoundary`), so which
+	// @longform The 2s cadence is a wall-clock GRID (`nextBoundary`), so which
 	// second a window opens in decides whether it contains a boundary. Pin the
 	// clock 10ms past one: without that this test reads the real clock's phase
 	// and passes or fails by the minute it is run in.
-	it( 'polls dump_metadata every tick and uptime on the 5s cadence (reply routes to _metadata/_uptime)', async () => {
+	it( 'polls dump_metadata every tick and uptime on the 2s cadence (reply routes to _metadata/_uptime)', async () => {
 		jest.useFakeTimers();
 		// Forward to 10ms past the next boundary — never backwards, which
 		// would read to every watchdog as a stream gone silent.
 		jest.setSystemTime(
-			( Math.floor( ( Date.now() - GRID_PHASE_MS ) / 5000 ) + 1 ) * 5000 +
+			( Math.floor( ( Date.now() - GRID_PHASE_MS ) / 10000 ) + 1 ) *
+				10000 +
 				GRID_PHASE_MS +
 				10
 		);
@@ -975,9 +976,9 @@ describe( 'TopologyConsole boot', () => {
 			} );
 			expect( dumps().length ).toBeGreaterThan( dumpBefore );
 			expect( uptimes().length ).toBe( uptimeBefore );
-			// Reaching the 5s cadence: uptime fires again.
+			// Reaching the 2s cadence: uptime fires again.
 			act( () => {
-				jest.advanceTimersByTime( 4000 );
+				jest.advanceTimersByTime( 1000 );
 			} );
 			expect( uptimes().length ).toBeGreaterThan( uptimeBefore );
 		} finally {
