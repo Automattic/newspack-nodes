@@ -865,12 +865,24 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	 * that same `poll()` one tick at a time from `fire()`, which never ends and so
 	 * emits no TM_EOF.
 	 *
+	 * `$until` bounds a read that must answer in time: asked after every tick
+	 * that leaves lines unread, a true ends the drain there, with NO TM_EOF,
+	 * because the stream did not end.
+	 * A tick reads a chunk, so the stop lands between chunks, not between lines.
+	 *
 	 * @api Driven by Job_Delay's due sweep here, and across plugins by event-logger-nodes' reqgrep CLI and Performance_CI_Node.
+	 * @param (\Closure(): bool)|null $until Stop early once this answers true.
+	 * @return bool True when the read reached EOF, false when `$until` ended it.
 	 */
-	public function drain(): void {
-		do {
+	public function drain( ?\Closure $until = null ): bool {
+		$this->poll();
+		while ( ! $this->at_eof || false !== \strpos( $this->buffer, "\n" ) ) {
+			// Asked only while unread lines remain: a drain at its end says so.
+			if ( null !== $until && $until() ) {
+				return false;
+			}
 			$this->poll();
-		} while ( ! $this->at_eof || false !== \strpos( $this->buffer, "\n" ) );
+		}
 		$eof                  = Message::new_message();
 		$eof[ Message::TYPE ] = Message::TM_EOF;
 		$stamp                = '' !== $this->stamp_override ? $this->stamp_override : $this->name;
@@ -881,6 +893,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 			$eof[ Message::TO ] = $this->target;
 		}
 		$this->sink?->fill( $eof );
+		return true;
 	}
 
 	/** Turn the multi-writer seal-grace on or off. Set it true only for a shared log (the firehose). */

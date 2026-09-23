@@ -360,7 +360,8 @@ $c = new Consumer_Node();                              // no-arg ctor; config is
 $c->arguments( [ $source_dir, $offsetlog_dir, $deadletter_dir ] );  // token array
 $c->next_offset( 'start' | 'recent' | 'end' | ['segment'=>, 'offset'=>] );  // seek
 $c->poll();                        // read new bytes, re-emit each line's Message, advance cursor
-$c->drain();                       // poll to exhaustion, then emit a terminal TM_EOF
+$c->drain( $until );               // poll to exhaustion, then a terminal TM_EOF; true when it got there,
+                                   // false with no TM_EOF when the optional $until closure stopped it
 $c->checkpoint( $graceful );       // append a {segment, offset, attempts, reason, first_crash_ts, ...} TM_STRUCT
 $c->cursor_position();             // "{segment}:{offset}"
 $c->has_checkpoint();              // a frame has been committed — false until the first poll
