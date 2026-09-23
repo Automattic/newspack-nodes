@@ -132,6 +132,8 @@ abstract class TestCase extends PHPUnitTestCase {
 
 	/** Remove every temp dir make_temp_dir() handed out — a temp dir is only temporary if someone deletes it. */
 	protected function tearDown(): void {
+		// An SSE stream sets a CPU limit that would bound the rest of the suite.
+		\set_time_limit( 0 );
 		foreach ( $this->temp_dirs as $dir ) {
 			$this->rmdir_recursive( $dir );
 		}
