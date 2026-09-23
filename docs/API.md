@@ -590,7 +590,7 @@ rather than an empty option. `set` reaches every `int` Field declaring a
 minimum: those seven plus the six `remote_*` spoke-geometry keys, the three
 `alert_*` thresholds and the four bounded `sse_*` limits, whether or not the
 settings page renders them. An int Field with no minimum (`sse_idle_timeout`,
-`sse_retry_ms`, `on_demand_idle`) and every Field of another type
+`sse_max_lifetime`, `sse_retry_ms`, `on_demand_idle`) and every Field of another type
 (`base_directory`, `memcache_servers`, `log_sources`, `vault`) is refused as
 `unknown setting: <name>`. The option name is accepted either way it is spelled,
 short key or full `newspack_nodes_` option name, which is how
@@ -791,7 +791,7 @@ log partitions and worker IPC partitions both surface as `Consumer_Node`
 instances drained in the same loop. Each Message reaching the `_sse` egress goes
 out as an SSE `msg` event carrying the packed Message.
 
-![A stream's life in order: the slot acquire before any header, the headers, the retry event, the graph build, the connected handshake with its 4096-byte padding flush, then the four checks of every drain tick, the finally that releases the slot, the four Closure seams and when each is called, the pool's four numbers, and the client heartbeat that alone keeps a lease alive.](img/api-sse-lifecycle.png)
+![A stream's life in order: the slot acquire before any header, the headers, the retry event, the graph build, the connected handshake with its 4096-byte padding flush, then the five checks of every drain tick, the finally that releases the slot, the four Closure seams and when each is called, the pool's four numbers, and the client heartbeat that alone keeps a lease alive.](img/api-sse-lifecycle.png)
 
 **Permission**: the fleet gate, then the READ role. No nonce — that would break
 the cross-server SSE pull, which is the aggregator's whole job, and it is why
@@ -838,8 +838,13 @@ apart:
 | `disconnect` | `KEY=slot_lease_lost`, VALUE `SSE slot lease lost`; or `KEY=superseded`, VALUE `SSE stream superseded by its reconnect` | The terminal frame for a stream whose lease is gone. `slot_lease_lost` is a failure and writes a diagnostic line; `superseded` means the stream's own reconnect took the lease over, and writes nothing. |
 
 The stream **closes itself after `sse_idle_timeout` seconds** (default 5)
-with no `msg` event. That idle close is a bare EOF with no terminal event; a
-`disconnect` frame always means failure, and `SSE_In_Node` is the reference
+with no `msg` event, and **after `sse_max_lifetime` seconds open** (default
+30) however busy it is. Either is disabled at 0. The lifetime runs on the wall
+clock, from `Core::$now` against the instant the stream opened, so a session
+never holds one PHP-FPM child for its whole life: the client reopens on the
+`retry` schedule, resumes from its positions and takes its own slot over. Both
+closes are a bare EOF with no terminal event; a `disconnect` frame always
+means failure, and `SSE_In_Node` is the reference
 implementation for consuming one.
 
 #### The `connected` envelope
@@ -864,7 +869,7 @@ The application controls concurrency through four optional Closure seams on
 |---|---|---|
 | `$acquire_slot` | `function ( int $partition, ?array $session ): array{slot:int,owner:positive-int}\|false` | Once per stream, before any header, so `false` can still answer `429 too_many_connections`. `$session` is `{key, ttl}` — `<handle>:<stream>` and the seconds the session has left — or null. The shipped pool hands a live lease recorded under the key to the new stream and rotates the owner, so the old process's next check fails; it never takes a recorded slot past `max_streams` or inside a browser's reserved tail, and records the index for `ttl` seconds at most. |
 | `$check_slot` | `function ( array $lease, int $partition ): bool` | Every drain tick; false takes the `disconnect` close. It only READS — refreshing the TTL belongs to the client heartbeat, and refreshing it here would let a stream nobody is reading hold its slot forever. |
-| `$release_slot` | `function ( array $lease, int $partition, ?string $session ): void` | Once per stream, from the drain's `finally` or from a shutdown function, whichever runs first, so no close, throw, time-limit fatal or client abort leaves the slot held until its TTL expires. `$session` is the lease key the stream acquired under, whose takeover index the pool forgets with the lease. |
+| `$release_slot` | `function ( array $lease, int $partition, ?string $session ): void` | Once per stream, from the drain's `finally` or from a shutdown function, whichever runs first, so no close, throw, fatal or client abort leaves the slot held until its TTL expires. `$session` is the lease key the stream acquired under, whose takeover index the pool forgets with the lease. |
 | `$inspect_slot` | `function ( array $lease, int $partition ): array<string,int\|string>` | Only once a check has already failed, to name the backend and lease state in the diagnostic line. The healthy path never pays it. |
 
 Both stream routes draw on one host-wide pool, sized by `sse_max_streams`

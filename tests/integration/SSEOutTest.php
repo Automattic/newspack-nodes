@@ -574,6 +574,91 @@ class SSEOutTest extends TestCase {
 		$this->rmdir_recursive( $base );
 	}
 
+	// ── sse_max_lifetime: a wall-clock bound on a busy stream ─────────────────
+
+	public function test_a_busy_stream_closes_clean_at_its_max_lifetime_and_frees_its_slot(): void {
+		SSE_Slot_Pool::$max_slots   = 1;
+		SSE_Slot_Pool::$max_streams = 1;
+		SSE_Slot_Pool::$ttl         = 41;
+		Core::$memd                 = new InMemoryMemcached();
+		SSE_Slot_Pool::wire();
+		$this->set_sse_config( 1, 4500 );
+		$this->set_sse_max_lifetime( 17 );
+
+		$base = $this->make_temp_dir( 'sse-lifetime-close-' );
+		\mkdir( "{$base}/logs/firehose.p0", 0755, true );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $base );
+
+		$acquire = SSE_Out_Node::$acquire_slot;
+		$lease   = $acquire( -1 );
+		$this->assertIsArray( $lease );
+
+		$capped   = false;
+		$check    = SSE_Out_Node::$check_slot;
+		$deadline = Core::right_now() + 40.0;
+		// Data every tick, so the idle close can never fire: only the
+		// lifetime bound can end this drain before the 40s cap.
+		SSE_Out_Node::$check_slot = static function ( array $held, int $partition ) use ( $ctrl, $check, $deadline, &$capped ): bool {
+			$record                   = Message::new_message();
+			$record[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+			$record[ Message::VALUE ] = "busy\n";
+			$ctrl->fill( $record );
+			if ( Core::$now >= $deadline ) {
+				$capped = true;
+				return false;
+			}
+			return $check( $held, $partition );
+		};
+
+		$started = Core::right_now();
+		\ob_start();
+		$ctrl->run_stream_loop( [ 'firehose.*' ], null, 60000, $lease, -1 );
+		$out     = (string) \ob_get_clean();
+		$elapsed = Core::right_now() - $started;
+
+		$this->assertFalse( $capped, 'the lifetime bound, not the safety cap, must end the stream' );
+		$this->assertGreaterThanOrEqual( 17.0, $elapsed, 'the stream must not close before its lifetime' );
+		$this->assertLessThan( 18.0, $elapsed, 'the stream must close once its lifetime elapses' );
+		$this->assertStringNotContainsString( 'event: disconnect', $out, 'a lifetime close is a clean EOF, not a failure' );
+		$reopened = $acquire( -1 );
+		$this->assertIsArray( $reopened, 'the reopen must find its own slot free' );
+		$this->assertSame( $lease['slot'], $reopened['slot'] );
+
+		$this->rmdir_recursive( $base );
+	}
+
+	public function test_a_zero_max_lifetime_leaves_a_busy_stream_open(): void {
+		$this->set_sse_config( 1, 4500 );
+		$this->set_sse_max_lifetime( 0 );
+		$base = $this->make_temp_dir( 'sse-lifetime-disabled-' );
+		\mkdir( "{$base}/logs/firehose.p0", 0755, true );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $base );
+
+		$ended_by_check = false;
+		$deadline       = Core::right_now() + 40.0;
+		SSE_Out_Node::$check_slot = static function () use ( $ctrl, $deadline, &$ended_by_check ): bool {
+			$record                   = Message::new_message();
+			$record[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+			$record[ Message::VALUE ] = "busy\n";
+			$ctrl->fill( $record );
+			if ( Core::$now < $deadline ) {
+				return true;
+			}
+			$ended_by_check = true;
+			return false;
+		};
+
+		\ob_start();
+		$ctrl->run_stream_loop( [ 'firehose.*' ], null, 60000 );
+		\ob_get_clean();
+
+		$this->assertTrue( $ended_by_check, 'a disabled lifetime must leave the stream open past the default 30s' );
+
+		$this->rmdir_recursive( $base );
+	}
+
 	// ── resume: `id:` + Last-Event-ID ────────────────────────────────────────
 
 	public function test_every_subscription_resumes_across_the_disconnected_window(): void {
@@ -788,6 +873,12 @@ class SSEOutTest extends TestCase {
 			$capped = true;
 			return false;
 		};
+	}
+
+	/** Seed the SSE wall-clock lifetime bound. */
+	private function set_sse_max_lifetime( int $seconds ): void {
+		$GLOBALS['_wp_options']['newspack_nodes_sse_max_lifetime'] = $seconds;
+		Config::reset();
 	}
 
 	/** Seed both SSE close-at-EOF knobs, distinct from every shipped default. */

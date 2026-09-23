@@ -40,6 +40,7 @@ class SettingsSchemaTest extends TestCase {
 		'alert_deadletter_threshold',
 		'alert_emit_interval',
 		'sse_idle_timeout',
+		'sse_max_lifetime',
 		'sse_max_slots',
 		'sse_max_streams',
 		'sse_reserved_slots',
@@ -217,6 +218,7 @@ class SettingsSchemaTest extends TestCase {
 
 		$this->assertSame( 5, $fields['sse_idle_timeout']->default ?? null );
 		$this->assertSame( 5000, $fields['sse_retry_ms']->default ?? null );
+		$this->assertSame( 30, $fields['sse_max_lifetime']->default ?? null );
 		$this->assertSame(
 			0,
 			$fields['on_demand_idle']->default ?? null,

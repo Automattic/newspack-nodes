@@ -93,6 +93,10 @@ return [
     // Seconds without DATA before an SSE stream closes clean; 0 = never.
     // 'sse_idle_timeout'           => 5,
 
+    // Wall-clock seconds an SSE stream stays open, busy or not, before it
+    // closes clean and the client reopens; 0 = no limit.
+    // 'sse_max_lifetime'           => 30,
+
     // Reopen delay, sent as a `retry` EVENT when the stream opens rather than
     // as the protocol `retry:` field, because the client owns reconnect.
     // 'sse_retry_ms'               => 5000,

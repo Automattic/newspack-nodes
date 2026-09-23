@@ -98,14 +98,27 @@ class MessagesStreamSlotPoolTest extends TestCase {
 		$this->assertSame( 3, $captured );
 	}
 
-	public function test_teardown_lifts_the_time_limit_a_stream_sets_on_the_process(): void {
+	public function test_a_rest_stream_leaves_the_process_time_limit_unbounded(): void {
+		// sse_max_lifetime bounds the stream; a CPU limit would kill it mid-write.
 		\set_time_limit( 37 );
-		$this->assertSame( '37', \ini_get( 'max_execution_time' ) );
+		SSE_Out_Node::$acquire_slot = static fn (): array => [ 'slot' => 2, 'owner' => 73737373 ];
+		SSE_Out_Node::$release_slot = static function (): void {};
+		SSE_Out_Node::$diagnostic_log = static function (): void {};
+		$ctrl = new class() extends SSE_Out_Node {
+			protected function init_sse_headers(): void {
+				throw new \RuntimeException( 'stop after the limit is set' );
+			}
+		};
+		$request = new \WP_REST_Request( 'GET' );
+		$request->set_param( 'subscribe', 'firehose-workers.p2' );
 
-		$this->tearDown();
-		$this->setUp();
+		try {
+			$ctrl->stream( $request );
+		} catch ( \RuntimeException ) {
+			// The stub ends the stream right after the limit call.
+		}
 
-		$this->assertSame( '0', \ini_get( 'max_execution_time' ), 'a stream\'s limit must not bound the rest of the suite' );
+		$this->assertSame( '0', \ini_get( 'max_execution_time' ) );
 	}
 
 	public function test_stream_setup_exception_is_diagnosed_released_once_and_rethrown(): void {

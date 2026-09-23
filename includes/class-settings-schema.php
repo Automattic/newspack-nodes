@@ -306,6 +306,13 @@ class Settings_Schema {
 					default: 5,
 					ui: false,
 				),
+				// Wall-clock seconds a stream stays open before a clean close.
+				new Field(
+					key: 'sse_max_lifetime',
+					type: 'int',
+					default: 30,
+					ui: false,
+				),
 				new Field(
 					key: 'sse_retry_ms',
 					type: 'int',
