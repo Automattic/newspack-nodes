@@ -61,6 +61,7 @@ test( 'polls list_profiles -s at the current scope (_cwd)', () => {
 	expect( poller.verb ).toBe( 'list_profiles' );
 	expect( poller.pollArgs ).toEqual( [ '-s' ] );
 	expect( poller.target ).toBe( '_cwd' );
+	expect( poller.interval_ms ).toBe( 2000 );
 } );
 
 test( 'tears the poller down on unmount (poll only while the modal is open)', () => {

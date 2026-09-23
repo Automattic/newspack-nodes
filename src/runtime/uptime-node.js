@@ -5,16 +5,7 @@
  * publish-the-reply mechanism it shares with DmesgNode.
  */
 
-import { PollerNode } from './poller-node';
-
-/**
- * Cadence in milliseconds. The reading is a running clock, so the base
- * poller's 10s leaves it visibly behind, and a poll this often also keeps the
- * viewed worker's SSE stream from idling out. 2s is a harmonic of the same
- * grid (ADR-17), so it still meets the slower polls on a tick and leaves in
- * their POST, where an off-harmonic cadence would buy a request of its own.
- */
-const UPTIME_INTERVAL_MS = 2000;
+import { LIVE_POLL_INTERVAL_MS, PollerNode } from './poller-node';
 
 /**
  * The `_uptime` node: poll `uptime` and publish the elapsed run
@@ -25,12 +16,12 @@ const UPTIME_INTERVAL_MS = 2000;
  */
 export class UptimeNode extends PollerNode {
 	/**
-	 * Poll `uptime`, on this node's own faster cadence.
+	 * Poll `uptime` at the live cadence: the reading is a running clock.
 	 */
 	constructor() {
 		super();
 		this.verb = 'uptime';
-		this.pollIntervalMs = UPTIME_INTERVAL_MS;
+		this.pollIntervalMs = LIVE_POLL_INTERVAL_MS;
 	}
 
 	/**

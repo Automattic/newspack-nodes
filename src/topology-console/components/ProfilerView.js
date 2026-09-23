@@ -19,6 +19,7 @@ import { useEffect, useMemo, useRef, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import { Core } from '../../runtime/core';
 import { mountExospine } from '../../runtime/exospine';
+import { LIVE_POLL_INTERVAL_MS } from '../../runtime/poller-node';
 import { useNodeField } from '../../runtime/react';
 import { FROM, TO } from '../../runtime/message';
 import names from '../../runtime/reserved-node-names.json';
@@ -107,6 +108,7 @@ export default function ProfilerView() {
 				interpreter.makeNode( 'Node', names.CWD );
 			}
 			poller.target = names.CWD;
+			poller.pollIntervalMs = LIVE_POLL_INTERVAL_MS;
 			poller.setTimer(); // hitchhike the _router TIMER (Poller throttles)
 			poller.fire(); // poll immediately
 			pollerRef.current = poller;

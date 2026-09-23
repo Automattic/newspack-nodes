@@ -25,6 +25,15 @@ import { VALUE, payloadOf } from './message';
 const POLL_INTERVAL_MS = 10000;
 
 /**
+ * The cadence of a readout someone is WATCHING — a console modal, the uptime
+ * clock, a small graph's metadata. A viewed worker's SSE stream idles out
+ * after `sse_idle_timeout` (5s), so anything slower lets it close between
+ * replies. A harmonic of the shared 10s grid (ADR-17), so these polls still
+ * meet the slower ones on a tick and leave in their POST.
+ */
+export const LIVE_POLL_INTERVAL_MS = 2000;
+
+/**
  * Self-timed verb poller. `verb`, `pollArgs`, `pollIntervalMs` and `target`
  * are all set by the mounting view, so one class serves `list_timers`,
  * `list_handles` and `list_profiles` with no subclass for any of them.
