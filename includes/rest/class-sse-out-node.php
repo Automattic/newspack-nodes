@@ -342,8 +342,7 @@ class SSE_Out_Node extends Node {
 			Core::right_now(); // seed Core::$now for the drain loop
 			$active_lease = self::require_lease( $lease );
 			if ( $initialize_stream ) {
-				\set_time_limit( 0 );
-				\ignore_user_abort( true );
+				\set_time_limit( 30 );
 				$this->init_sse_headers();
 			}
 
