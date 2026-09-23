@@ -191,19 +191,28 @@ class Table_Node extends Node {
 	 * a set of ids pays one `getMulti` rather than N reads. Whatever the cache
 	 * misses goes to the durable backing in one more call when one is installed.
 	 *
+	 * A cache read that fails reads as all-miss and still falls through, so
+	 * `$failed` is how a caller merging onto the result learns that a key
+	 * absent from it went unread rather than unstored.
+	 *
 	 * @api Batch readers (a dashboard resolving a page of ids).
-	 * @param list<string> $keys Keys within the table's namespace.
+	 * @param list<string> $keys   Keys within the table's namespace.
+	 * @param ?bool        $failed Set true when no cache backend answered the
+	 *                             batch, whatever the backing then returned.
+	 * @param-out bool     $failed
 	 * @return array<string,mixed> Values for the keys the cache or the backing
 	 *                             held; an absent key is absent from the result.
 	 */
-	public function lookup_multi( array $keys ): array {
+	public function lookup_multi( array $keys, ?bool &$failed = null ): array {
 		$entry_keys = [];
 		foreach ( $keys as $key ) {
 			$entry_keys[ self::entry_key( $this->namespace, $key ) ] = $key;
 		}
 		$found   = [];
 		$absent  = [];
-		$fetched = Cache_Backend::shared_first()?->read_multi( \array_keys( $entry_keys ) ) ?? [];
+		$backend = Cache_Backend::shared_first();
+		$failed  = null === $backend;
+		$fetched = $backend?->read_multi( \array_keys( $entry_keys ), $failed ) ?? [];
 		foreach ( $fetched as $entry_key => $value ) {
 			// A held absence spares the backing only for the table holding it.
 			if ( self::ABSENT === $value ) {

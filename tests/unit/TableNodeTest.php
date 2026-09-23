@@ -555,6 +555,60 @@ class TableNodeTest extends TestCase {
 		}
 	}
 
+	public function test_lookup_multi_reports_a_broken_batch_to_a_caller_that_asks(): void {
+		// The value is stored, but a batch that fails reads as all-miss; a
+		// caller merging onto it must learn the read never happened.
+		$table = Table_Node::table( 'prices', 60 );
+		$table->store( 'sku-6120', [ 'usd' => 6120 ] );
+		Core::$memd = new class() extends InMemoryMemcached {
+			public function getMulti( array $keys, int $get_flags = 0 ): array|false {
+				return false;
+			}
+		};
+
+		$failed = false;
+		$this->assertSame( [], $table->lookup_multi( [ 'sku-6120' ], $failed ) );
+		$this->assertTrue( $failed );
+	}
+
+	public function test_lookup_multi_reports_a_backing_rescue_as_a_failed_batch_still(): void {
+		// The backing answers for what it holds; a key it does not hold is
+		// unread rather than absent, so the batch still reports its failure.
+		$table = Table_Node::table( 'prices', 60 );
+		$table->backed_by( static fn ( array $keys ): array => [ 'sku-71' => [ 'value' => [ 'usd' => 71 ] ] ] );
+		Core::$memd = new class() extends InMemoryMemcached {
+			public function getMulti( array $keys, int $get_flags = 0 ): array|false {
+				return false;
+			}
+		};
+
+		$failed = false;
+		$this->assertSame( [ 'sku-71' => [ 'usd' => 71 ] ], $table->lookup_multi( [ 'sku-71', 'sku-72' ], $failed ) );
+		$this->assertTrue( $failed );
+	}
+
+	public function test_lookup_multi_reports_no_failure_for_a_read_that_answered(): void {
+		$table = Table_Node::table( 'prices', 60 );
+		$table->store( 'sku-5150', [ 'usd' => 5150 ] );
+
+		$failed = true;
+		$this->assertSame( [ 'sku-5150' => [ 'usd' => 5150 ] ], $table->lookup_multi( [ 'sku-5150', 'sku-absent' ], $failed ) );
+		$this->assertFalse( $failed );
+	}
+
+	public function test_lookup_multi_reports_a_lost_backend_as_a_failed_read(): void {
+		$table      = Table_Node::table( 'prices', 60 );
+		$prev       = Core::$memd;
+		Core::$memd = null;
+		try {
+			$failed = false;
+			$this->assertSame( [], $table->lookup_multi( [ 'sku-1' ], $failed ) );
+			$this->assertTrue( $failed, 'no backend answered, so nothing was read' );
+		} finally {
+			Core::$memd = $prev;
+		}
+	}
+
 	public function test_a_request_that_is_not_a_get_is_refused_not_answered(): void {
 		// The verb surface is GET alone; anything else is a caller bug, and
 		// replying to it would look like an empty table rather than a refusal.

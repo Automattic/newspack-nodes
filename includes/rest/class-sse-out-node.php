@@ -133,12 +133,24 @@ class SSE_Out_Node extends Node {
 	public static ?\Closure $check_slot   = null;
 
 	/**
-	 * Called from the drain's `finally`, so neither a clean close nor a throw
-	 * leaves the slot held until its TTL expires.
+	 * Called once per stream, from the drain's `finally` or from a shutdown
+	 * function, whichever runs first — so no close, throw, time-limit fatal
+	 * or client abort leaves the slot held until its TTL expires.
 	 *
 	 * @var \Closure(array{slot:int,owner:int}, int): void|null
 	 */
 	public static ?\Closure $release_slot = null;
+
+	/**
+	 * Shutdown-registration seam. Replaces `register_shutdown_function()`,
+	 * which a stream calls with its slot release: a time-limit fatal or an
+	 * unignored client abort ends the process without running `finally`, and
+	 * a shutdown function still runs. Tests capture or invoke the release.
+	 * Signature: `function ( \Closure $release ): void`.
+	 *
+	 * @var \Closure(\Closure): void|null
+	 */
+	public static ?\Closure $on_shutdown = null;
 
 	/**
 	 * Read only once a check has already failed, to name the cache backend and
@@ -165,6 +177,13 @@ class SSE_Out_Node extends Node {
 
 	/** Whether this stream attached to a worker's IPC channel (see `open_subscription`). */
 	private bool $is_interactive = false;
+
+	/**
+	 * The lease this stream holds until `release_held_slot()` gives it back.
+	 *
+	 * @var array{slot:int,owner:int}|null
+	 */
+	private ?array $held_lease = null;
 
 	/** Test seam: overrides `Bootstrap::base_dir()`. */
 	private ?string $base_dir = null;
@@ -340,7 +359,11 @@ class SSE_Out_Node extends Node {
 		$diagnostic_written = false;
 		try {
 			Core::right_now(); // seed Core::$now for the drain loop
-			$active_lease = self::require_lease( $lease );
+			$active_lease     = self::require_lease( $lease );
+			$this->held_lease = $active_lease;
+			( self::$on_shutdown ?? static fn ( \Closure $f ) => \register_shutdown_function( $f ) )(
+				fn () => $this->release_held_slot( $partition )
+			);
 			if ( $initialize_stream ) {
 				\set_time_limit( 30 );
 				$this->init_sse_headers();
@@ -449,9 +472,6 @@ class SSE_Out_Node extends Node {
 						$diagnostic_written = true;
 						return false;
 					}
-					if ( \connection_aborted() ) {
-						return false;
-					}
 					$now = Core::$now; // the enclosing drain refreshes this each tick
 					// Idle a window: close clean, the `retry` event reopens it.
 					if ( $idle_timeout > 0 && ( $now - $this->last_data ) >= $idle_timeout ) {
@@ -511,10 +531,7 @@ class SSE_Out_Node extends Node {
 			}
 			// Drop the _sse egress name mapping (controller instance persists).
 			Core::unregister_node( Node_Names::SSE );
-			$release = self::$release_slot;
-			if ( null !== $release && null !== $active_lease ) {
-				$release( $active_lease, $partition );
-			}
+			$this->release_held_slot( $partition );
 		}
 	}
 
@@ -1013,6 +1030,22 @@ class SSE_Out_Node extends Node {
 			'partition'     => $partition,
 			'subscriptions' => \array_values( $subs ),
 		];
+	}
+
+	/**
+	 * Give the held lease back to the pool, once: the drain's `finally` and
+	 * the shutdown function both call this, and whichever runs second finds
+	 * nothing held.
+	 *
+	 * @param int $partition The partition the lease was acquired for.
+	 */
+	private function release_held_slot( int $partition ): void {
+		$held             = $this->held_lease;
+		$this->held_lease = null;
+		$release          = self::$release_slot;
+		if ( null !== $held && null !== $release ) {
+			$release( $held, $partition );
+		}
 	}
 
 	/**
