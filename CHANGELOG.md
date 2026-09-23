@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.65.13] - 2026-09-23
+
 ### Changed
 
 - **`POST /auth` answers 503 when the cache cannot store a session.** It
