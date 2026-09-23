@@ -70,6 +70,7 @@ test( 'mounts a poller per verb on the backbone, targeting the current scope (_c
 		expect( poller.verb ).toBe( verb );
 		expect( poller.pollArgs ).toEqual( [ '-s' ] );
 		expect( poller.target ).toBe( '_cwd' );
+		expect( poller.interval_ms ).toBe( 2000 );
 	}
 } );
 

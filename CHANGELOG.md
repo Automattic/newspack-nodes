@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The Runtime and Profiler modals refresh every 2 seconds rather than 10.**
+  Their `list_timers`, `list_handles` and `list_profiles` polls join `_uptime`
+  and a small graph's `_metadata` on `PollerNode`'s `LIVE_POLL_INTERVAL_MS`,
+  the one cadence for a readout someone is watching.
+
 ## [2.65.15] - 2026-09-23
 
 ### Changed

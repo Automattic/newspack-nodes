@@ -27,6 +27,7 @@ import { useEffect, useRef, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import { Core } from '../../runtime/core';
 import { mountExospine } from '../../runtime/exospine';
+import { LIVE_POLL_INTERVAL_MS } from '../../runtime/poller-node';
 import { useNodeField } from '../../runtime/react';
 import names from '../../runtime/reserved-node-names.json';
 import { Grid, useSortState } from './SortableGrid';
@@ -102,6 +103,7 @@ export default function RuntimeView() {
 				poller.verb = verb;
 				poller.pollArgs = [ '-s' ];
 				poller.target = names.CWD;
+				poller.pollIntervalMs = LIVE_POLL_INTERVAL_MS;
 				poller.setTimer(); // ride the _router TIMER at pollIntervalMs
 				poller.fire(); // a first reading now, not a cadence away
 				return poller;
