@@ -413,7 +413,7 @@ final class Cache_Backend {
 		}
 		$found = null !== $this->memd ? $this->memd->getMulti( $keys ) : \apcu_fetch( $keys );
 		if ( ! \is_array( $found ) ) {
-			Core::print_less_often( 'Cache_Backend: batch read error from ', $this->backend_name() );
+			Core::print_less_often( 'Cache_Backend: batch read error from ', $this->last_failure() );
 			$failed = true;
 			return [];
 		}
@@ -426,12 +426,54 @@ final class Cache_Backend {
 	}
 
 	/**
-	 * Selected backend name, for failure diagnostics.
+	 * The last operation's failure, for a log line: memcached's own result
+	 * code and message, which name the cause — a timeout, a server marked
+	 * dead, a refused connection. APCu reports no cause, so it names itself.
 	 *
-	 * @return string Either 'memcached' or 'apcu'.
+	 * Read it straight after the failed call: the result is the handle's LAST,
+	 * and any operation in between replaces it. Pass it to `print_less_often()`
+	 * as an extra rather than in the key, so varying text shares one limit.
+	 *
+	 * @return string `memcached result <code>: <message>`, or `APCu`.
 	 */
-	public function backend_name(): string {
-		return null !== $this->memd ? 'memcached' : 'apcu';
+	public function last_failure(): string {
+		if ( null === $this->memd ) {
+			return 'APCu';
+		}
+		$meta = $this->diagnostic_metadata();
+		return "memcached result {$meta['memcached_result_code']}: {$meta['memcached_result_message']}";
+	}
+
+	/**
+	 * Aggregate facts about the selected backend, for a failed cache-backed
+	 * operation. Never a key name or a stored value, so a caller can log the
+	 * whole array or hand it to a dashboard.
+	 *
+	 * The memcached arm reports the last result code and message. The APCu arm
+	 * reports expunges and free shared memory, the two numbers that say
+	 * whether the segment is thrashing, and is empty when APCu declines both
+	 * info calls.
+	 *
+	 * @return array<string,int|string> Diagnostic facts, possibly empty.
+	 */
+	public function diagnostic_metadata(): array {
+		if ( null !== $this->memd ) {
+			return [
+				'memcached_result_code'    => $this->memd->getResultCode(),
+				'memcached_result_message' => $this->memd->getResultMessage(),
+			];
+		}
+
+		$metadata   = [];
+		$cache_info = ( self::$apcu_cache_info ?? static fn ( bool $limited ) => \apcu_cache_info( $limited ) )( true );
+		if ( \is_array( $cache_info ) && isset( $cache_info['expunges'] ) && \is_numeric( $cache_info['expunges'] ) ) {
+			$metadata['apcu_expunges'] = (int) $cache_info['expunges'];
+		}
+		$sma_info = ( self::$apcu_sma_info ?? static fn ( bool $limited ) => \apcu_sma_info( $limited ) )( true );
+		if ( \is_array( $sma_info ) && isset( $sma_info['avail_mem'] ) && \is_numeric( $sma_info['avail_mem'] ) ) {
+			$metadata['apcu_available_memory_bytes'] = (int) $sma_info['avail_mem'];
+		}
+		return $metadata;
 	}
 
 	/**
@@ -486,6 +528,15 @@ final class Cache_Backend {
 			return self::$salt;
 		}
 		return self::$salt = Core::as_string( \get_option( self::SALT_OPTION, '' ), '' );
+	}
+
+	/**
+	 * Selected backend name, for failure diagnostics.
+	 *
+	 * @return string Either 'memcached' or 'apcu'.
+	 */
+	public function backend_name(): string {
+		return null !== $this->memd ? 'memcached' : 'apcu';
 	}
 
 	/**
@@ -561,38 +612,6 @@ final class Cache_Backend {
 		return $hit
 			? [ 'status' => self::READ_HIT, 'value' => $value ]
 			: [ 'status' => self::READ_MISS, 'value' => null ];
-	}
-
-	/**
-	 * Aggregate facts about the selected backend, for a failed cache-backed
-	 * operation. Never a key name or a stored value, so a caller can log the
-	 * whole array or hand it to a dashboard.
-	 *
-	 * The memcached arm reports the last result code and message. The APCu arm
-	 * reports expunges and free shared memory, the two numbers that say
-	 * whether the segment is thrashing, and is empty when APCu declines both
-	 * info calls.
-	 *
-	 * @return array<string,int|string> Diagnostic facts, possibly empty.
-	 */
-	public function diagnostic_metadata(): array {
-		if ( null !== $this->memd ) {
-			return [
-				'memcached_result_code'    => $this->memd->getResultCode(),
-				'memcached_result_message' => $this->memd->getResultMessage(),
-			];
-		}
-
-		$metadata   = [];
-		$cache_info = ( self::$apcu_cache_info ?? static fn ( bool $limited ) => \apcu_cache_info( $limited ) )( true );
-		if ( \is_array( $cache_info ) && isset( $cache_info['expunges'] ) && \is_numeric( $cache_info['expunges'] ) ) {
-			$metadata['apcu_expunges'] = (int) $cache_info['expunges'];
-		}
-		$sma_info = ( self::$apcu_sma_info ?? static fn ( bool $limited ) => \apcu_sma_info( $limited ) )( true );
-		if ( \is_array( $sma_info ) && isset( $sma_info['avail_mem'] ) && \is_numeric( $sma_info['avail_mem'] ) ) {
-			$metadata['apcu_available_memory_bytes'] = (int) $sma_info['avail_mem'];
-		}
-		return $metadata;
 	}
 
 	/**

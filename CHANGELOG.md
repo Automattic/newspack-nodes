@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`POST /auth` answers 503 when the cache cannot store a session.** It
+  died with an uncaught `RuntimeException`, a fatal and an HTTP 500. It now
+  answers `session_store_unavailable` with status 503 and logs the cache's
+  own cause; nothing else it throws is caught.
+- **A hub names the spoke's error when `/auth` fails.** `HTTP_Out` logged
+  `auth refused by spoke: HTTP <status>`; it now logs
+  `auth failed at spoke: HTTP <status> <code>`, the code taken from the
+  spoke's WP_Error body (`HTTP 503 session_store_unavailable`), or the bare
+  status when the body names none. The batch is still held for the next try.
+- **`Command_Auth::mint_session()` throws `Session_Store_Unavailable`.** It
+  extends `\RuntimeException`, so an existing catch still holds, and its
+  message names the cause: `no cache backend`, or memcached's result code and
+  message. The `sessions create` verb reports that message as its refusal.
+- **Every cache failure line names memcached's result.** The
+  `Cache_Backend: batch read error from` and `Table: backend read error for`
+  lines, and `wp nodes memcache get`'s read error, append
+  `memcached result <code>: <message>`, or `APCu` on that tier, through the
+  new `Cache_Backend::last_failure()`. The rate limit still keys on each
+  line's fixed prefix, so a changing message cannot defeat it.
+
 ## [2.65.12] - 2026-09-23
 
 ### Added

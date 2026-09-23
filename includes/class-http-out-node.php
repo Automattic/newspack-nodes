@@ -417,7 +417,8 @@ class HTTP_Out_Node extends Timer_Node {
 	private function on_session_reply( int $code, string $body ): void {
 		$this->auth_in_flight = false;
 		if ( 200 !== $code ) {
-			$this->print_less_often( 'auth refused by spoke: HTTP ', (string) $code );
+			$error = self::error_code_from_body( $body );
+			$this->print_less_often( 'auth failed at spoke: HTTP ', (string) $code, '' === $error ? '' : " {$error}" );
 			return;
 		}
 		[ $handle, $key ] = self::session_from_body( $body );
@@ -430,6 +431,21 @@ class HTTP_Out_Node extends Timer_Node {
 			$this->set_timer( 0, true );
 			$this->batch_timer_armed = true;
 		}
+	}
+
+	/**
+	 * The `code` a spoke's WP_Error body names, so the hub's log says WHY
+	 * `/auth` failed — `session_store_unavailable` is the spoke's cache, not a
+	 * refused credential. '' when the body names none. The spoke writes this
+	 * text, so only a WP_Error-shaped code of 1-64 word characters is echoed.
+	 *
+	 * @param string $body Raw `/auth` response body.
+	 * @return string The error code, or ''.
+	 */
+	private static function error_code_from_body( string $body ): string {
+		$error = \json_decode( $body, true, 8 );
+		$code  = \is_array( $error ) ? Core::as_string( $error['code'] ?? '' ) : '';
+		return 1 === \preg_match( '/^\w{1,64}\z/', $code ) ? $code : '';
 	}
 
 	/**

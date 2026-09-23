@@ -52,6 +52,36 @@ class AuthControllerScopeTest extends TestCase {
 		$this->assertSame( Capabilities::MANAGE, ( Command_Auth::load_session_record( $body['handle'] )['scope'] ?? null ) );
 	}
 
+	/**
+	 * A cache outage is the server's trouble, not the caller's: 503 with a
+	 * code naming it, never an uncaught fatal. The cause is logged, not sent.
+	 */
+	public function test_a_session_the_cache_cannot_store_answers_503(): void {
+		$memd                 = new InMemoryMemcached();
+		$memd->result_message = 'SERVER MARKED DEAD 3907';
+		$memd->fail_add( \Memcached::RES_SERVER_TEMPORARILY_DISABLED );
+		Core::$memd           = $memd;
+		$captured             = [];
+		Core::set_stderr_handler(
+			static function ( string $message ) use ( &$captured ): void {
+				$captured[] = $message;
+			}
+		);
+
+		$result = ( new Auth_Controller() )->issue( $this->request( [ 'label' => 'outage-3907' ] ) );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'session_store_unavailable', $result->get_error_code() );
+		$this->assertSame( 503, $result->get_error_data()['status'] ?? null );
+		$this->assertStringContainsString( 'cache is unavailable', $result->get_error_message() );
+		$this->assertStringNotContainsString( '3907', $result->get_error_message(), 'the backend detail stays in the log' );
+		$this->assertSame( [], Sessions::all(), 'nothing unstored is listed' );
+		$this->assertNotEmpty(
+			\array_filter( $captured, static fn ( string $l ): bool => \str_contains( $l, 'SERVER MARKED DEAD 3907' ) ),
+			'the operator sees memcached result'
+		);
+	}
+
 	public function test_a_requested_scope_is_honoured(): void {
 		$body = ( new Auth_Controller() )->issue( $this->request( [ 'scope' => Capabilities::TUNE ] ) );
 

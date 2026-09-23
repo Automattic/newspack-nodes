@@ -186,6 +186,68 @@ class HttpOutSessionTest extends TestCase {
 	}
 
 	/**
+	 * A spoke whose cache is down answers `/auth` 503. The hub logs the status
+	 * and the spoke's error code, and holds the batch as for any refusal.
+	 */
+	public function test_a_503_handshake_is_logged_with_its_status_and_holds_the_batch(): void {
+		$this->seed_vault( self::SPOKE, [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$captured = [];
+		$this->capture( $captured );
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $easy ): array => [
+			'code' => 503,
+			'body' => '{"code":"session_store_unavailable","data":{"status":503}}',
+		];
+		$logged = [];
+		Core::set_stderr_handler(
+			static function ( string $message ) use ( &$logged ): void {
+				$logged[] = $message;
+			}
+		);
+
+		$node = $this->make_node( self::SPOKE );
+		$node->fill( $this->a_command() );
+		$node->fire();
+		foreach ( $this->read_private( $node, 'inflight' ) as $entry ) {
+			$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $entry['handle'], 'result' => \CURLE_OK ] );
+		}
+
+		$this->assertNotEmpty(
+			\array_filter(
+				$logged,
+				static fn ( string $l ): bool => \str_contains( $l, 'remote:austin: auth failed at spoke: HTTP 503 session_store_unavailable' )
+			),
+			\implode( '', $logged )
+		);
+		$this->assertFalse( Command_Auth::has_session( self::SPOKE ) );
+		$this->assertCount( 1, $captured, 'only the handshake left; the command waits' );
+	}
+
+	/** A refusal whose body names no code still logs its status, and no more. */
+	public function test_a_codeless_refusal_logs_the_bare_status(): void {
+		$this->seed_vault( self::SPOKE, [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$captured = [];
+		$this->capture( $captured );
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $easy ): array => [ 'code' => 502, 'body' => '<html>Bad Gateway 8813</html>' ];
+		$logged = [];
+		Core::set_stderr_handler(
+			static function ( string $message ) use ( &$logged ): void {
+				$logged[] = $message;
+			}
+		);
+
+		$node = $this->make_node( self::SPOKE );
+		$node->fill( $this->a_command() );
+		$node->fire();
+		foreach ( $this->read_private( $node, 'inflight' ) as $entry ) {
+			$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $entry['handle'], 'result' => \CURLE_OK ] );
+		}
+
+		$lines = \array_values( \array_filter( $logged, static fn ( string $l ): bool => \str_contains( $l, 'auth failed at spoke' ) ) );
+		$this->assertCount( 1, $lines, \implode( '', $logged ) );
+		$this->assertStringEndsWith( "auth failed at spoke: HTTP 502\n", $lines[0] );
+	}
+
+	/**
 	 * Pins the async half of the session-adopt rule against the blocking half's
 	 * `test_a_session_missing_its_key_is_malformed_not_usable`: a 200 carrying a
 	 * handle but no key is not a session on either transport.

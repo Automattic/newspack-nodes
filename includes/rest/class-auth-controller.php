@@ -21,6 +21,7 @@ use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Capabilities;
 use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\Core;
+use Newspack_Nodes\Session_Store_Unavailable;
 use Newspack_Nodes\Sessions;
 
 \defined( 'ABSPATH' ) || exit;
@@ -71,9 +72,12 @@ class Auth_Controller {
 	 * the clamp and the refusal in one decision rather than trusting every
 	 * caller to gate first.
 	 *
+	 * A session the cache cannot store answers 503 `session_store_unavailable`,
+	 * because the outage is the server's rather than the caller's. The backend's
+	 * own cause goes to the log, never into the response.
+	 *
 	 * @param \WP_REST_Request $req Request carrying the optional `scope`, `ttl` and `label`.
 	 * @return array{handle:string,secret:string,scope:string,expires_in:int,now:int}|\WP_Error
-	 * @throws \RuntimeException When no cache backend can hold the session, or the handle is taken.
 	 */
 	public function issue( \WP_REST_Request $req ) {
 		$requested = Core::as_string( $req->get_param( 'scope' ) ?? '', Capabilities::MANAGE );
@@ -89,8 +93,17 @@ class Auth_Controller {
 			return new \WP_Error( 'invalid_scope', 'No capability to mint a session with.', [ 'status' => 403 ] );
 		}
 
-		$ttl     = Command_Auth::bounded_ttl( Core::num_int( $req->get_param( 'ttl' ), Command_Auth::SESSION_TTL_S ) );
-		$session = Command_Auth::mint_session( $granted, $ttl );
+		$ttl = Command_Auth::bounded_ttl( Core::num_int( $req->get_param( 'ttl' ), Command_Auth::SESSION_TTL_S ) );
+		try {
+			$session = Command_Auth::mint_session( $granted, $ttl );
+		} catch ( Session_Store_Unavailable $e ) {
+			Core::print_less_often( 'Auth_Controller: 503, ', $e->getMessage() );
+			return new \WP_Error(
+				'session_store_unavailable',
+				'The session could not be stored because the cache is unavailable.',
+				[ 'status' => 503 ]
+			);
+		}
 		Sessions::record(
 			$session['handle'],
 			$granted,
