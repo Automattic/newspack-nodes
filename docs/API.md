@@ -819,7 +819,7 @@ apart:
 | `heartbeat` | `KEY=heartbeat`, VALUE the tick timestamp | Liveness every `HEARTBEAT_MS = 2000`ms. Deliberately not data: a heartbeat never defers the idle close. |
 | `disconnect` | `KEY=slot_lease_lost`, VALUE `SSE slot lease lost` | The terminal frame for a stream whose lease was taken from under it. |
 
-The stream **closes itself after `sse_idle_timeout` seconds** (default 15)
+The stream **closes itself after `sse_idle_timeout` seconds** (default 5)
 with no `msg` event. That idle close is a bare EOF with no terminal event; a
 `disconnect` frame always means failure, and `SSE_In_Node` is the reference
 implementation for consuming one.

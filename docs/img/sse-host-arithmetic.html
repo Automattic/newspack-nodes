@@ -98,7 +98,7 @@ h2 { font-size:15px; margin:0 0 10px; }
   <div class="card">
     <h2>One reader's share: three of the six</h2>
     <p><span class="mono">sse_max_slots</span> reserves nothing. Slots are pooled host-wide; the share only stops one reader with many tabs from taking the site down alone. An identity is <span class="mono">{user id}:{8-hex md5 of REMOTE_ADDR}</span>, so every tab one person opens draws on the same three.</p>
-    <p>Three, because an idle stream closes after <span class="mono">sse_idle_timeout</span> (15 s) and reopens <span class="mono">sse_retry_ms</span> later (5 s), and a stream whose process dies before the release leaves its lease standing for the whole TTL while the client is already asking for another.</p>
+    <p>Three, because a stream releases its slot in the drain's <span class="mono">finally</span> on every clean close or reconnect, holding nothing between one stream and the next — the headroom is for a process that dies before it gets there: its lease stands for the whole TTL while the client, not knowing that, is already asking for another slot.</p>
     <div class="ok" style="margin-top:10px">
       <h4>The share is approximate; the host cap is exact</h4>
       <p>Two connections from one identity can both read the count before either claims, and a lease read that fails counts as not-held, so either path lets one reader exceed its share. That direction is deliberate: an exact share would need a second compare-and-swapped counter, and a wrong value there leaks capacity permanently rather than for one TTL. The host cap needs no counter: a claim is a compare-and-swap on a fixed number of pointers.</p>

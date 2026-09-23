@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **An idle SSE stream closes after five seconds, not fifteen.**
+  `sse_idle_timeout` defaults to 5; a site that sets the key keeps its
+  own value.
+
 ## [2.65.11] - 2026-09-22
 
 ### Fixed

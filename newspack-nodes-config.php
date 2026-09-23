@@ -91,7 +91,7 @@ return [
     // 'alert_emit_interval'        => 300,
 
     // Seconds without DATA before an SSE stream closes clean; 0 = never.
-    // 'sse_idle_timeout'           => 15,
+    // 'sse_idle_timeout'           => 5,
 
     // Reopen delay, sent as a `retry` EVENT when the stream opens rather than
     // as the protocol `retry:` field, because the client owns reconnect.
@@ -107,8 +107,9 @@ return [
     // 'sse_reserved_slots'         => 0,
 
     // One reader's share of that host total; a reader is a user id paired with
-    // an IP hash. The shipped 3 leaves room for a stream reopening on the
-    // sse_idle_timeout plus sse_retry_ms cycle while its dead lease stands.
+    // an IP hash. The shipped 3 leaves room for a lease a dead process never
+    // released, standing for the whole TTL while the client's real reconnect
+    // already wants a slot of its own.
     // 'sse_max_slots'              => 3,
 
     // Seconds a slot lease survives without a client heartbeat; only the
