@@ -421,7 +421,8 @@ class SSE_Out_Node extends Node {
 		$consumers          = [];
 		$diagnostic_written = false;
 		try {
-			Core::right_now(); // seed Core::$now for the drain loop
+			// Seeds Core::$now; sse_max_lifetime counts from here.
+			$opened_at = Core::right_now();
 			$active_lease     = self::require_lease( $lease );
 			$this->held_lease     = $active_lease;
 			$this->held_lease_key = $lease_key;
@@ -429,7 +430,7 @@ class SSE_Out_Node extends Node {
 				fn () => $this->release_held_slot( $partition )
 			);
 			if ( $initialize_stream ) {
-				\set_time_limit( 30 );
+				\set_time_limit( 0 );
 				$this->init_sse_headers();
 			}
 
@@ -525,8 +526,9 @@ class SSE_Out_Node extends Node {
 			$last_heartbeat     = Core::right_now();
 			$this->last_data    = $idle_since ?? $last_heartbeat;
 			$idle_timeout       = Core::num_int( Config::value( 'sse_idle_timeout' ), 0 );
+			$max_lifetime       = Core::num_int( Config::value( 'sse_max_lifetime' ), 0 );
 			Event_Framework::instance()->drain(
-				function () use ( &$last_heartbeat, &$consumers, &$glob_owned, &$diagnostic_written, $glob_subs, $default_route, $heartbeat_interval, $idle_timeout, $active_lease, $partition, $subs ): bool {
+				function () use ( &$last_heartbeat, &$consumers, &$glob_owned, &$diagnostic_written, $glob_subs, $default_route, $heartbeat_interval, $idle_timeout, $max_lifetime, $opened_at, $active_lease, $partition, $subs ): bool {
 					$check = self::$check_slot;
 					if ( null !== $check && ! $check( $active_lease, $partition ) ) {
 						$inspection = $this->inspect_lost_lease( $active_lease, $partition );
@@ -547,6 +549,11 @@ class SSE_Out_Node extends Node {
 					$now = Core::$now; // the enclosing drain refreshes this each tick
 					// Idle a window: close clean, the `retry` event reopens it.
 					if ( $idle_timeout > 0 && ( $now - $this->last_data ) >= $idle_timeout ) {
+						$this->flush_if_needed();
+						return false;
+					}
+					// Open a lifetime: the same clean close, however busy.
+					if ( $max_lifetime > 0 && ( $now - $opened_at ) >= $max_lifetime ) {
 						$this->flush_if_needed();
 						return false;
 					}

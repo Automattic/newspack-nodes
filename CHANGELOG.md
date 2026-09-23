@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`sse_max_lifetime` bounds an SSE stream on the wall clock.** A stream
+  open this many seconds (default 30) closes clean however busy it is: a
+  bare EOF with no terminal event, like the idle close, so the client
+  reopens on the `retry` schedule, resumes from its positions and takes its
+  own slot over. 0 disables it. The key is overlay-only and not reachable
+  through `settings set`.
+
+### Changed
+
+- **An SSE stream sets no PHP time limit.** It ran under
+  `set_time_limit( 30 )`, which counts CPU seconds rather than wall time,
+  so it never bounded a stream waiting in its drain and could end a busy
+  one in a fatal mid-write. `sse_max_lifetime` bounds the stream instead,
+  and the stream releases its slot through the same clean close.
+
 ### Fixed
 
 - Tooling: `reorder-node-methods.php` no longer ends an arrow function at the

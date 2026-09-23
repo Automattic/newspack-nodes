@@ -75,25 +75,26 @@ stream bound.
 | `sse_reserved_slots` | 0 | 0–63, and always leaving one slot claimable | Trailing slots browsers may not claim |
 | `sse_slot_ttl` | 60 | 45–3600, raised to 45 rather than honoured below it | Lease lifetime in seconds |
 | `sse_idle_timeout` | 5 | none declared | Seconds without data before a stream closes clean; 0 never closes |
+| `sse_max_lifetime` | 30 | none declared | Wall-clock seconds a stream stays open, busy or not, before it closes clean; 0 never closes |
 | `sse_retry_ms` | 5000 | none declared | Milliseconds the client waits before reopening |
 
-None of the six appears on Settings → Nodes Runtime, because [`Settings_Schema`](../includes/class-settings-schema.php)
+None of the seven appears on Settings → Nodes Runtime, because [`Settings_Schema`](../includes/class-settings-schema.php)
 declares each of them `ui: false`. Set one in [`newspack-nodes-config.php`](../newspack-nodes-config.php), in
 the file `LOCAL_NEWSPACK_NODES_CONF` names, or as a `newspack_nodes_<key>`
 option. The `settings set` verb refuses a value outside the declared bounds; a
 value written straight into a config file or an option is taken as written, and
 only the pool's own clamps in `max_streams()`, `max_slots()`,
 `reserved_slots()` and `ttl()` bind it. That verb reaches only a Field
-declaring a minimum, so it refuses `sse_idle_timeout` and `sse_retry_ms` as
-unknown settings; a config file or an option is the only way to move either.
+declaring a minimum, so it refuses `sse_idle_timeout`, `sse_max_lifetime` and `sse_retry_ms`
+as unknown settings; a config file or an option is the only way to move them.
 
 The four budget keys read through [`SSE_Slot_Pool::budget()`](../includes/class-sse-slot-pool.php), which falls back
 to the default `Settings_Schema` declares
 ([ADR-20](architecture-decisions.md#adr-20-a-config-default-lives-in-code-every-config-file-is-an-override-surface))
 rather than to zero. Read unguarded, an operator's blank entry would collapse
-the host cap to 1. `SSE_Out_Node` reads the other two straight through
-[`Config::value()`](../includes/class-config.php) with a zero fallback, so a blank `sse_idle_timeout` stops the
-idle close outright and a blank `sse_retry_ms` sends a `retry` of 0 that the
+the host cap to 1. `SSE_Out_Node` reads the other three straight through
+[`Config::value()`](../includes/class-config.php) with a zero fallback, so a blank `sse_idle_timeout` or
+`sse_max_lifetime` stops that close outright and a blank `sse_retry_ms` sends a `retry` of 0 that the
 client discards in favour of its own backoff.
 
 [`Bootstrap::register_rest_routes()`](../includes/class-bootstrap.php) installs the pool's four seams on
@@ -209,7 +210,7 @@ install's rotatable cache salt.
 
 [`wp nodes memcache flush`](cli.md) rotates that salt, so the site half moves under
 running streams. `site()` and `salt()` both memoize per process and a stream
-holds its process for its whole life: a stream open at the rotation goes on
+holds its process for its whole life, at most `sse_max_lifetime`: a stream open at the rotation goes on
 checking and releasing the old scope's pointers while every new connection
 claims a fresh set, putting up to twice `sse_max_streams` on the host. It settles within one
 TTL — the client heartbeat lands in a new process on the new scope, finds no
