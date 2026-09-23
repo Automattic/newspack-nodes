@@ -674,6 +674,11 @@ class Remote_Source_Node extends Remote_Link_Node {
 		return [ 'segment' => (int) $parts[0], 'offset' => (int) $parts[1], 'length' => (int) $parts[2] ];
 	}
 
+	/** Paused, the pull runs only while a step is owed a record. */
+	protected function should_connect(): bool {
+		return 'PAUSED' !== $this->get_state( 'POLLING' ) || $this->steps_owed > 0;
+	}
+
 	/**
 	 * Resolve a pending seek to the position the spoke's handshake says the stream
 	 * begins at. Without one the handshake only names the position the connect
@@ -689,11 +694,6 @@ class Remote_Source_Node extends Remote_Link_Node {
 		$this->cursor_segment = $segment;
 		$this->cursor_offset  = $offset;
 		$this->sse_in->restore_position( $segment, $offset );
-	}
-
-	/** Paused, the pull runs only while a step is owed a record. */
-	protected function should_connect(): bool {
-		return 'PAUSED' !== $this->get_state( 'POLLING' ) || $this->steps_owed > 0;
 	}
 
 	/**

@@ -349,8 +349,10 @@ function callees_factory( array $toks, array $methods, array $names ): callable 
 		// @longform A closure body is a scope of its own: the call runs later,
 		// under whoever invokes the closure, so attributing it to the enclosing
 		// method invents an edge. Skip from `function`/`fn` to the end of its
-		// body. $depth counts braces once inside one; -1 means we are not.
+		// body. $depth counts open brackets of every kind once inside one, so a
+		// comma between parameters sits at depth 1; -1 means we are not inside.
 		$depth = -1;
+		$arrow = false;
 		for ( $k = 0; $k < $nt; $k++ ) {
 			$off = $toks[ $k ][2];
 			if ( $off < $start ) continue;
@@ -359,13 +361,21 @@ function callees_factory( array $toks, array $methods, array $names ): callable 
 			$own = ( $off === $start ); // own declaration, not a closure
 			if ( ! $own && $depth < 0 && ( T_FUNCTION === $id || T_FN === $id ) ) {
 				$depth = 0;
+				$arrow = ( T_FN === $id );
 				continue;
 			}
 			if ( $depth >= 0 ) {
 				$t = $toks[ $k ][1];
-				if ( '{' === $t ) $depth++;
-				elseif ( '}' === $t ) { $depth--; if ( 0 === $depth ) $depth = -1; }
-				elseif ( 0 === $depth && ( ';' === $t || ',' === $t ) ) $depth = -1; // arrow fn ends
+				if ( in_array( $t, [ '{', '(', '[', '${', '#[' ], true ) ) {
+					$depth++;
+				} elseif ( '}' === $t || ')' === $t || ']' === $t ) {
+					$depth--;
+					// An arrow fn also ends at the bracket enclosing it.
+					if ( 0 === $depth && '}' === $t && ! $arrow ) $depth = -1;
+					elseif ( $depth < 0 ) $depth = -1;
+				} elseif ( $arrow && 0 === $depth && ( ';' === $t || ',' === $t ) ) {
+					$depth = -1; // arrow fn ends at the enclosing list's comma
+				}
 				if ( ! $soft ) continue;
 			} elseif ( $soft ) {
 				continue; // soft pass wants ONLY what the closures call

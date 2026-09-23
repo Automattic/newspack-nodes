@@ -995,23 +995,6 @@ class SSE_Out_Node extends Node {
 	}
 
 	/**
-	 * Build the `heartbeat` envelope that proves an idle stream is still live.
-	 * It carries the tick's timestamp and nothing else, and it does not count
-	 * as data, so it never defers the idle close.
-	 *
-	 * @param float $now The current timestamp, as the drain read it.
-	 * @return array<int,mixed> The 7-field positional Message.
-	 */
-	private function build_heartbeat_msg( float $now ): array {
-		$message                   = Message::new_message();
-		$message[ Message::TYPE ]  = Message::TM_INFO;
-		$message[ Message::FROM ]  = '_stream';
-		$message[ Message::KEY ]   = 'heartbeat';
-		$message[ Message::VALUE ] = (string) $now;
-		return $message;
-	}
-
-	/**
 	 * The reopen schedule, as an EVENT rather than the protocol `retry:` field:
 	 * the client owns reconnect, so it needs the interval as data it can read.
 	 *
@@ -1024,50 +1007,6 @@ class SSE_Out_Node extends Node {
 		$message[ Message::KEY ]   = 'retry';
 		$message[ Message::VALUE ] = (string) Core::num_int( Config::value( 'sse_retry_ms' ), 0 );
 		return $message;
-	}
-
-	/**
-	 * The terminal frame for a stream whose lease is gone: a machine KEY the
-	 * client branches on, and a VALUE it can display. `slot_lease_lost` means
-	 * failure; `superseded` means this stream's own reconnect took the lease
-	 * over. A clean idle close sends no frame at all.
-	 *
-	 * @param string $key   Machine reason: `slot_lease_lost` or `superseded`.
-	 * @param string $value Display text.
-	 * @return array<int,mixed> The 7-field positional Message.
-	 */
-	private function build_disconnect_msg( string $key, string $value ): array {
-		$message                   = Message::new_message();
-		$message[ Message::TYPE ]  = Message::TM_INFO;
-		$message[ Message::FROM ]  = '_stream';
-		$message[ Message::KEY ]   = $key;
-		$message[ Message::VALUE ] = $value;
-		return $message;
-	}
-
-	/**
-	 * Inspect a lease whose check failed, and require the two strings every
-	 * inspection carries. Without an inspect seam the loss is unexplained.
-	 *
-	 * @param array{slot:int,owner:int} $lease     The lease that went missing.
-	 * @param int                       $partition The partition it was taken for.
-	 * @return array<string,int|string> The inspection: `backend`, `lease_state` and the backend's facts.
-	 *
-	 * @throws \UnexpectedValueException When the inspection omits either required string.
-	 */
-	private function inspect_lost_lease( array $lease, int $partition ): array {
-		$inspect    = self::$inspect_slot;
-		$inspection = null === $inspect
-			? [ 'backend' => 'unavailable', 'lease_state' => 'backend_read_error' ]
-			: $inspect( $lease, $partition );
-		if (
-			! isset( $inspection['backend'], $inspection['lease_state'] )
-			|| ! \is_string( $inspection['backend'] )
-			|| ! \is_string( $inspection['lease_state'] )
-		) {
-			throw new \UnexpectedValueException( 'SSE lease inspection did not return backend and lease_state strings.' );
-		}
-		return $inspection;
 	}
 
 	/**
@@ -1223,6 +1162,67 @@ class SSE_Out_Node extends Node {
 	 */
 	public function set_multi_writer( bool $flag ): void {
 		$this->multi_writer = $flag;
+	}
+
+	/**
+	 * Build the `heartbeat` envelope that proves an idle stream is still live.
+	 * It carries the tick's timestamp and nothing else, and it does not count
+	 * as data, so it never defers the idle close.
+	 *
+	 * @param float $now The current timestamp, as the drain read it.
+	 * @return array<int,mixed> The 7-field positional Message.
+	 */
+	private function build_heartbeat_msg( float $now ): array {
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_INFO;
+		$message[ Message::FROM ]  = '_stream';
+		$message[ Message::KEY ]   = 'heartbeat';
+		$message[ Message::VALUE ] = (string) $now;
+		return $message;
+	}
+
+	/**
+	 * The terminal frame for a stream whose lease is gone: a machine KEY the
+	 * client branches on, and a VALUE it can display. `slot_lease_lost` means
+	 * failure; `superseded` means this stream's own reconnect took the lease
+	 * over. A clean idle close sends no frame at all.
+	 *
+	 * @param string $key   Machine reason: `slot_lease_lost` or `superseded`.
+	 * @param string $value Display text.
+	 * @return array<int,mixed> The 7-field positional Message.
+	 */
+	private function build_disconnect_msg( string $key, string $value ): array {
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_INFO;
+		$message[ Message::FROM ]  = '_stream';
+		$message[ Message::KEY ]   = $key;
+		$message[ Message::VALUE ] = $value;
+		return $message;
+	}
+
+	/**
+	 * Inspect a lease whose check failed, and require the two strings every
+	 * inspection carries. Without an inspect seam the loss is unexplained.
+	 *
+	 * @param array{slot:int,owner:int} $lease     The lease that went missing.
+	 * @param int                       $partition The partition it was taken for.
+	 * @return array<string,int|string> The inspection: `backend`, `lease_state` and the backend's facts.
+	 *
+	 * @throws \UnexpectedValueException When the inspection omits either required string.
+	 */
+	private function inspect_lost_lease( array $lease, int $partition ): array {
+		$inspect    = self::$inspect_slot;
+		$inspection = null === $inspect
+			? [ 'backend' => 'unavailable', 'lease_state' => 'backend_read_error' ]
+			: $inspect( $lease, $partition );
+		if (
+			! isset( $inspection['backend'], $inspection['lease_state'] )
+			|| ! \is_string( $inspection['backend'] )
+			|| ! \is_string( $inspection['lease_state'] )
+		) {
+			throw new \UnexpectedValueException( 'SSE lease inspection did not return backend and lease_state strings.' );
+		}
+		return $inspection;
 	}
 
 	/**

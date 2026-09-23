@@ -592,22 +592,6 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	/**
-	 * Coerce a dispatch closure's raw `array $args` to the canonical argv shape —
-	 * a re-indexed list of strings. The verb dispatch closures are declared
-	 * `array $args` (an inline closure param can't carry a narrower phpdoc type),
-	 * so a handler wanting an argv list normalizes at entry; the few that only
-	 * test one token read `$args` directly. The tokens are already strings at
-	 * runtime — interpret() coerces the wire arguments before dispatch — so this
-	 * is a static-analysis pin, not a behavioral coercion.
-	 *
-	 * @param array<array-key,mixed> $args
-	 * @return list<string>
-	 */
-	protected static function arg_strings( array $args ): array {
-		return \array_values( \array_map( static fn ( $v ): string => Core::as_string( $v ), $args ) );
-	}
-
-	/**
 	 * Refuse a verb whose class is disabled at the current secure level, or
 	 * null to proceed. VERB_CLASSES answers first; a verb it does not name falls
 	 * through to the patron's `node_schema()['verb_classes']`.
@@ -635,6 +619,691 @@ class Command_Interpreter_Node extends Node {
 		$schema = null !== $patron ? $patron::node_schema() : static::node_schema();
 		$map    = \is_array( $schema['verb_classes'] ?? null ) ? $schema['verb_classes'] : [];
 		return Core::as_string( $map[ $verb ] ?? '' );
+	}
+
+	/**
+	 * `list_nodes` (alias `ls`): default=siblings, `-a [glob]`=all, `<name>`=that sink's children.
+	 *
+	 * Flags: `-c` count, `-s` sink, `-t` target, `-l` = -ct.
+	 *
+	 * @param list<string>            $args     Verb arguments.
+	 * @param array<array-key,mixed> $envelope The command Message.
+	 */
+	private static function cmd_list_nodes( Command_Interpreter_Node $self, array $args, array $envelope = [] ): string {
+		$is_completion = 'completion' === ( $envelope[ Message::KEY ] ?? '' );
+		$list_matches  = false;
+		$show_count    = false;
+		$show_sink     = false;
+		$show_target   = false;
+		$argv          = [];
+
+		foreach ( $args as $tok ) {
+			if ( '' === $tok ) {
+				continue;
+			}
+			if ( \preg_match( '/^-([aclst]+)$/D', $tok, $m ) ) {
+				$length = \strlen( $m[1] );
+				for ( $i = 0; $i < $length; ++$i ) {
+					$opt = $m[1][ $i ];
+					if ( 'a' === $opt ) { $list_matches = true; }
+					if ( 'c' === $opt ) { $show_count   = true; }
+					if ( 'l' === $opt ) { $show_count   = true; $show_target = true; }
+					if ( 's' === $opt ) { $show_sink    = true; }
+					if ( 't' === $opt ) { $show_target  = true; }
+				}
+				continue;
+			}
+			$argv[] = $tok;
+		}
+
+		// Completion: bare names, every node (like -a), for `cd <tab>`.
+		if ( $is_completion ) {
+			$show_count   = false;
+			$show_sink    = false;
+			$show_target  = false;
+			$list_matches = true;
+		}
+
+		$dirs   = [];
+		$header = [];
+		$any_extra = $show_count || $show_sink || $show_target;
+		if ( $show_count ) { $dirs[] = 'right'; $header[] = 'COUNT'; }
+		$dirs[]   = 'left';
+		$header[] = 'NAME';
+		if ( $show_sink )   { $dirs[] = 'left'; $header[] = 'SINK';   }
+		if ( $show_target ) { $dirs[] = 'left'; $header[] = 'TARGET'; }
+
+		$rows = [];
+
+		if ( ! $list_matches && ! empty( $argv ) ) {
+			foreach ( $argv as $name ) {
+				if ( Core::node( $name ) === null ) {
+					throw new \RuntimeException( \esc_html( "can't find node \"$name\"" ) );
+				}
+			}
+		}
+
+		$globs = empty( $argv ) ? [ null ] : $argv;
+
+		$all_names = \array_keys( Core::$nodes_by_name );
+		\sort( $all_names );
+
+		foreach ( $globs as $glob ) {
+			$matched = false;
+			foreach ( $all_names as $name ) {
+				/** @var \Newspack_Nodes\Node|null $node Node from the registry. */
+				$node = Core::node( $name );
+				if ( null === $node ) {
+					continue;
+				}
+				$sink_name  = $node->sink() ? $node->sink()->name() : '';
+				$target_str = \implode( ', ', $node->display_targets() );
+
+				if ( $list_matches ) {
+					if ( null !== $glob && ! @\preg_match( "/$glob/", $name ) ) {
+						continue;
+					}
+				} else {
+					if ( null === $glob ) {
+						// Default: siblings — sink IS this interpreter.
+						if ( $self->name() !== $sink_name ) {
+							continue;
+						}
+					} else {
+						if ( $glob !== $sink_name ) {
+							continue;
+						}
+					}
+				}
+
+				$matched = true;
+				$row     = [];
+				if ( $show_count ) { $row[] = (string) $node->counter(); }
+				$row[] = $name;
+				if ( $show_sink )   { $row[] = '' !== $sink_name ? "> $sink_name"    : '- '; }
+				if ( $show_target ) { $row[] = '' !== $target_str ? "-> $target_str" : '- '; }
+				$rows[] = $row;
+			}
+
+			if ( $list_matches && null !== $glob && ! $matched ) {
+				$rows[] = [ 'no matches' ];
+			}
+		}
+
+		// Render: with column flags, include header. Otherwise plain names.
+		if ( ! $any_extra ) {
+			$names = [];
+			foreach ( $rows as $r ) {
+				$names[] = $r[0];
+			}
+			return \implode( "\n", $names ) . "\n";
+		}
+		return self::tabulate( $dirs, $header, $rows );
+	}
+
+	/**
+	 * `dump_metadata [<node>]` — the per-node snapshot the GUI canvas renders.
+	 *
+	 * Naming a node returns that node alone, or an empty map once it is gone, so a
+	 * refresh after one mutation costs a one-node round-trip. With no argument the
+	 * whole map comes back, carrying a `_header` row. Patron sidecars and nodes
+	 * whose schema declares `hidden` are omitted either way: they are plumbing the
+	 * canvas must not draw.
+	 *
+	 * @param string $only Optional single node name to return.
+	 * @param string $pwd  Requesting session's reverse_cwd (inbound FROM); stamped into `_header` on a full snapshot.
+	 * @return array<string,array<string,mixed>>
+	 */
+	private static function cmd_dump_metadata( string $only = '', string $pwd = '' ): array {
+		$out = [];
+		/** @var \Newspack_Nodes\Node $node Each registered node. */
+		foreach ( Core::$nodes_by_name as $name => $node ) {
+			if ( '' !== $only && $name !== $only ) {
+				continue;
+			}
+			// Patron-linked nodes are plumbing; canvas shouldn't render them.
+			if ( null !== $node->patron() ) {
+				continue;
+			}
+			$schema = $node::node_schema();
+			// @longform A shared singleton has no owner to patron it — one
+			// connect-queue timer serves every Remote_Link — so a schema
+			// saying hidden is the only signal it can give. The palette
+			// already honours it; the canvas has to as well.
+			if ( true === ( $schema['hidden'] ?? false ) ) {
+				continue;
+			}
+			// SHELL name (GUI key), not class short-name (Echo_Node -> 'Echo').
+			$class = self::shell_name_for( $node );
+			$sink  = $node->sink();
+			$out[ $name ] = [
+				'class'         => $class,
+				'counter'       => $node->counter(),
+				'sink'          => $sink instanceof Node ? $sink->name() : '',
+				'target'        => $node->target(),
+				'targets'       => $node->display_targets(),
+				'debug_state'   => $node->debug_state(),
+				'arguments'     => $node->arguments(),
+				'lgst_msg'      => $node->largest_msg_sent(),
+				'bytes_read'    => $node->bytes_read(),
+				'bytes_written' => $node->bytes_written(),
+				'accepts_fill'  => $schema['accepts_fill'] ?? true,
+				'has_target'    => $schema['has_target'] ?? true,
+				// Has a `:config` sidecar; GUI must not synthesize it.
+				'has_config'    => isset( Core::$nodes_by_name[ "{$name}:config" ] ),
+			];
+			// Emit when non-empty, matching JS producer (PHP [] vs JS {}).
+			$registrations = $node->registered_listeners();
+			if ( [] !== $registrations ) {
+				$out[ $name ]['registrations'] = $registrations;
+			}
+			// `+=` so the hook can only add, never clobber a fixed key.
+			$extra = $node->dump_metadata();
+			if ( [] !== $extra ) {
+				$out[ $name ] += $extra;
+			}
+		}
+		// Full-snapshot header: Profiling-toggle truth + reverse_cwd for GUIs.
+		if ( '' === $only ) {
+			$out['_header'] = [ 'profiling' => null !== Router_Node::profiles() ];
+			if ( '' !== $pwd ) {
+				$out['_header']['pwd'] = $pwd;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Registered shell name for a node instance.
+	 *
+	 * `make_node`/topology lines use the shell name (e.g. `Log`, `Tee`), which
+	 * is the class short name minus the `_Node` suffix (`Tee_Node` → `Tee`,
+	 * `Flame_Builder_Node` → `Flame_Builder`). A short name without `_Node`
+	 * (ad-hoc test classes) is returned unchanged.
+	 */
+	public static function shell_name_for( object $node ): string {
+		$short = ( new \ReflectionClass( $node ) )->getShortName();
+		if ( \str_ends_with( $short, '_Node' ) ) {
+			return \substr( $short, 0, -\strlen( '_Node' ) );
+		}
+		return $short;
+	}
+
+	/**
+	 * `stats [-a] [<regex>]` — tabular per-node counters (NAME, COUNT, LGST_MSG, READ, WRITTEN).
+	 *
+	 * Scope matches `cmd_list_nodes`: default=siblings, `-a`=all, `<name>`=that sink's children.
+	 *
+	 * @param list<string> $args
+	 */
+	private static function cmd_stats( Command_Interpreter_Node $self, array $args ): string {
+		$list_matches = false;
+		$argv         = [];
+		foreach ( $args as $tok ) {
+			if ( '' === $tok ) {
+				continue;
+			}
+			if ( '-a' === $tok ) {
+				$list_matches = true;
+				continue;
+			}
+			$argv[] = $tok;
+		}
+		$glob      = $argv[0] ?? null;
+		$header    = [ 'NAME', 'COUNT', 'LGST_MSG', 'READ', 'WRITTEN' ];
+		$dirs      = [ 'left', 'right', 'right', 'right', 'right' ];
+		$rows      = [];
+		$all_names = \array_keys( Core::$nodes_by_name );
+		\sort( $all_names );
+		foreach ( $all_names as $name ) {
+			// $name from Core::$nodes_by_name keys; lookup always present.
+			/** @var \Newspack_Nodes\Node $node Node from the registry. */
+			$node      = Core::node( $name );
+			$sink_name = $node->sink() ? $node->sink()->name() : '';
+			if ( $list_matches ) {
+				if ( null !== $glob && ! @\preg_match( "/$glob/", $name ) ) {
+					continue;
+				}
+			} else {
+				$expected = $glob ?? $self->name();
+				if ( $expected !== $sink_name ) {
+					continue;
+				}
+			}
+			$rows[] = [
+				$name,
+				(string) $node->counter(),
+				(string) $node->largest_msg_sent(),
+				(string) $node->bytes_read(),
+				(string) $node->bytes_written(),
+			];
+		}
+		return self::tabulate( $dirs, $header, $rows );
+	}
+
+	/**
+	 * `list_timers` — tabulate the Event_Framework's registered timers. NEXT is ms
+	 * until the next fire (<=0 = due every tick, i.e. a spinner); INTERVAL is the
+	 * re-arm period; MODE is the scheduling mode ('event_framework' own slot vs
+	 * 'router' hitchhike). Modeled on Tachikoma CommandInterpreter's list_ids/list_timers.
+	 *
+	 * @param  bool $structured Return timer_rows() instead of the text table.
+	 * @return string|list<array{id:int,active:bool,interval_ms:int,mode:string,next_ms:int|null,oneshot:bool,fires:int,type:string,name:string}>
+	 */
+	private static function cmd_list_timers( bool $structured = false ): string|array {
+		if ( $structured ) {
+			return self::timer_rows();
+		}
+		$rows = [];
+		foreach ( self::timer_rows() as $r ) {
+			$rows[] = [
+				(string) $r['id'],
+				$r['active'] ? 'yes' : 'no',
+				(string) $r['interval_ms'],
+				$r['mode'],
+				null === $r['next_ms'] ? '-' : (string) $r['next_ms'], // inactive/hitchhike -> no own next_fire
+				$r['oneshot'] ? 'yes' : 'no',
+				(string) $r['fires'],
+				$r['type'],
+				$r['name'],
+			];
+		}
+		\usort( $rows, static fn ( array $a, array $b ): int => $a[8] <=> $b[8] );
+		return self::tabulate(
+			[ 'right', 'right', 'right', 'right', 'right', 'right', 'right', 'right', 'left' ],
+			[ 'ID', 'ACTIVE', 'INTERVAL', 'MODE', 'NEXT', 'ONESHOT', 'FIRES', 'TYPE', 'NAME' ],
+			$rows
+		);
+	}
+
+	/**
+	 * `list_handles` — tabulate the nodes holding a cURL easy handle in the
+	 * Event_Framework's shared multi, which is what the drain loop selects on:
+	 * `SSE_In_Node`'s inbound pull and `HTTP_Out_Node`'s outbound batch.
+	 * Analogous to Tachikoma CommandInterpreter's list_fds.
+	 *
+	 * @param  bool $structured Return handle_rows() instead of the text table.
+	 * @return string|list<array{id:int,count:int,type:string,name:string}>
+	 */
+	private static function cmd_list_handles( bool $structured = false ): string|array {
+		if ( $structured ) {
+			return self::handle_rows();
+		}
+		$rows = [];
+		foreach ( self::handle_rows() as $r ) {
+			$rows[] = [ (string) $r['id'], (string) $r['count'], $r['type'], $r['name'] ];
+		}
+		\usort( $rows, static fn ( array $a, array $b ): int => $a[3] <=> $b[3] );
+		return self::tabulate(
+			[ 'right', 'right', 'right', 'left' ],
+			[ 'ID', 'COUNT', 'TYPE', 'NAME' ],
+			$rows
+		);
+	}
+
+	/**
+	 * Structured rows for every registered Timer_Node — the one loop the
+	 * list_timers table and its `-s` form both build from. `next_ms` is ms until
+	 * the next fire, or null when there's no own next_fire (inactive/hitchhike).
+	 *
+	 * @return list<array{id:int,active:bool,interval_ms:int,mode:string,next_ms:int|null,oneshot:bool,fires:int,type:string,name:string}>
+	 */
+	private static function timer_rows(): array {
+		$rows = [];
+		foreach ( Core::$nodes_by_name as $name => $node ) {
+			if ( ! $node instanceof Timer_Node ) {
+				continue;
+			}
+			$active  = $node->timer_is_active();
+			$next_ms = ( $active && $node->next_fire > 0.0 )
+				? (int) \round( ( $node->next_fire - Core::$now ) * 1000 )
+				: null;
+			$rows[] = [
+				'id'          => \spl_object_id( $node ),
+				'active'      => $active,
+				'interval_ms' => $node->interval_ms,
+				'mode'        => $node->timer_mode(),
+				'next_ms'     => $next_ms,
+				'oneshot'     => $node->oneshot,
+				'fires'       => $node->get_fire_count(),
+				'type'        => ( new \ReflectionClass( $node ) )->getShortName(),
+				'name'        => $name,
+			];
+		}
+		return $rows;
+	}
+
+	/**
+	 * Structured rows for every node holding a cURL handle — the one loop the
+	 * list_handles table and its `-s` form both build from. `curl_handles()`
+	 * collapses a node's handles to one row, so `id` is the NODE's object id and
+	 * `count` the messages it has filled, as the browser twin reports it.
+	 *
+	 * @return list<array{id:int,count:int,type:string,name:string}>
+	 */
+	private static function handle_rows(): array {
+		$rows = [];
+		foreach ( Event_Framework::instance()->curl_handles() as $id => $node ) {
+			$rows[] = [
+				'id'    => $id,
+				'count' => $node->counter(),
+				'type'  => ( new \ReflectionClass( $node ) )->getShortName(),
+				'name'  => Core::as_string( $node->name() ),
+			];
+		}
+		return $rows;
+	}
+
+	/**
+	 * `list_profiles [glob]` — per-node self-time, slowest average first, with a
+	 * --total-- row (Tachikoma CommandInterpreter.pm list_profiles).
+	 *
+	 * @param  string $glob       Regex filter; `total` shows only --total--.
+	 * @param  bool   $structured Return the same rows instead of the text table.
+	 * @return string|list<array{avg:float,time:float,count:int,window:float,rate:float,age:int,what:string}>
+	 */
+	private static function cmd_list_profiles( string $glob, bool $structured = false ): string|array {
+		if ( null === Core::node( Node_Names::ROUTER ) ) {
+			throw new \RuntimeException( "can't find _router" );
+		}
+		$start    = Core::right_now();
+		$profiles = Router_Node::profiles() ?? [];
+		\uasort( $profiles, static fn ( array $a, array $b ): int => $b['avg'] <=> $a['avg'] );
+
+		$matched = [];
+		foreach ( $profiles as $key => $info ) {
+			if ( '' !== $glob && 'total' !== $glob && 1 !== @\preg_match( '{' . $glob . '}', $key ) ) {
+				continue;
+			}
+			$matched[ $key ] = $info;
+		}
+		$totals = self::profile_stats( self::profile_total( $matched ), $start );
+		$listed = 'total' === $glob ? [] : $matched;
+
+		if ( $structured ) {
+			$out = [];
+			foreach ( $listed as $key => $info ) {
+				$out[] = self::profile_stats( $info, $start ) + [ 'what' => $key ];
+			}
+			$out[] = $totals + [ 'what' => '--total--' ];
+			return $out;
+		}
+
+		$rows = [];
+		foreach ( $listed as $key => $info ) {
+			$rows[] = self::profile_row( self::profile_stats( $info, $start ), $key );
+		}
+		$rows[] = self::profile_row( $totals, '--total--' );
+
+		return self::tabulate(
+			[ 'right', 'right', 'right', 'right', 'right', 'right', 'left' ],
+			[ 'AVERAGE', 'TIME', 'COUNT', 'WINDOW', 'RATE', 'AGE', 'WHAT' ],
+			$rows
+		) . \sprintf( "\nreturned %d profiles in %.4f seconds\n", \count( $listed ), Core::right_now() - $start );
+	}
+
+	/**
+	 * The six facts list_profiles derives from one raw record. Both the text table
+	 * and `-s` render THIS derivation, so the two can never disagree.
+	 *
+	 * @param  array{avg:float,time:float,count:int,timestamp:float,oldest:float} $info Raw record.
+	 * @param  float                                                             $now  Read time, against which `age` is measured.
+	 * @return array{avg:float,time:float,count:int,window:float,rate:float,age:int}
+	 */
+	private static function profile_stats( array $info, float $now ): array {
+		$window = $info['timestamp'] - $info['oldest'];
+		return [
+			'avg'    => $info['avg'],
+			'time'   => $info['time'],
+			'count'  => $info['count'],
+			'window' => $window,
+			'rate'   => ( $window > 0.0 && $info['count'] > 1 ) ? $info['count'] / $window : 1.0,
+			'age'    => (int) ( $info['timestamp'] > 0.0 ? \max( 0.0, $now - $info['timestamp'] ) : 0 ),
+		];
+	}
+
+	/**
+	 * --total--: summed time/count, widest timestamp..oldest span.
+	 *
+	 * @param  array<string,array{avg:float,time:float,count:int,timestamp:float,oldest:float}> $infos Raw records.
+	 * @return array{avg:float,time:float,count:int,timestamp:float,oldest:float}
+	 */
+	private static function profile_total( array $infos ): array {
+		$time      = 0.0;
+		$count     = 0;
+		$timestamp = 0.0;
+		$oldest    = 0.0;
+		foreach ( $infos as $info ) {
+			$time      += $info['time'];
+			$count     += $info['count'];
+			$timestamp  = \max( $timestamp, $info['timestamp'] );
+			$oldest     = 0.0 === $oldest ? $info['oldest'] : \min( $oldest, $info['oldest'] );
+		}
+		return [
+			'avg'       => $count > 0 ? $time / $count : 0.0,
+			'time'      => $time,
+			'count'     => $count,
+			'timestamp' => $timestamp,
+			'oldest'    => $oldest,
+		];
+	}
+
+	/**
+	 * One list_profiles table row: the shared stats struct, formatted.
+	 *
+	 * @param  array{avg:float,time:float,count:int,window:float,rate:float,age:int} $r    Stats.
+	 * @param  string                                                                $what The WHAT column: a node name, or `--total--`.
+	 * @return list<string>
+	 */
+	private static function profile_row( array $r, string $what ): array {
+		return [
+			\sprintf( '%.6f', $r['avg'] ),
+			\sprintf( '%.2f', $r['time'] ),
+			(string) $r['count'],
+			\sprintf( '%.2f', $r['window'] ),
+			\sprintf( '%.2f', $r['rate'] ),
+			(string) $r['age'],
+			$what,
+		];
+	}
+
+	/**
+	 * `uptime` — UTC clock-time, plus elapsed-since-Core::reset() scaled by magnitude.
+	 */
+	private static function cmd_uptime(): string {
+		$uptime = (int) ( Core::$now - Core::$init_time );
+		// gmdate over date: one clock whatever a worker's timezone is.
+		$clock   = \gmdate( 'H:i:s', (int) Core::$now );
+		$elapsed = self::format_uptime( $uptime );
+		return "{$clock}  up {$elapsed}\n";
+	}
+
+	/**
+	 * Elapsed seconds at the coarsest scale that fits: `07s`, `3m 04s`, `2h 09m`,
+	 * and `4d 01:12:33` past a day. The trailing component zero-pads, so the
+	 * column holds one width for as long as a worker stays in a given scale.
+	 */
+	private static function format_uptime( int $seconds ): string {
+		if ( $seconds < 60 ) {
+			return \sprintf( '%02ds', $seconds );
+		}
+		if ( $seconds < 3600 ) {
+			$m = (int) ( $seconds / 60 );
+			$s = $seconds % 60;
+			return \sprintf( '%dm %02ds', $m, $s );
+		}
+		if ( $seconds < 86400 ) {
+			$h = (int) ( $seconds / 3600 );
+			$m = (int) ( ( $seconds % 3600 ) / 60 );
+			return \sprintf( '%dh %02dm', $h, $m );
+		}
+		$d   = (int) ( $seconds / 86400 );
+		$rem = $seconds - ( $d * 86400 );
+		return "{$d}d " . \gmdate( 'H:i:s', $rem );
+	}
+
+	/**
+	 * `help` — no args tabulates every help TOPIC; a topic returns its own text,
+	 * and a topic naming no verb falls through to that node type's schema help.
+	 *
+	 * @param list<string>            $args     Verb arguments.
+	 * @param array<array-key,mixed> $envelope The command Message.
+	 */
+	private static function cmd_help( array $args, array $envelope = [] ): string {
+		// Completion: sorted verb names, newline-separated, no help text.
+		if ( 'completion' === ( $envelope[ Message::KEY ] ?? '' ) ) {
+			// From dispatch table, not help-topic, so aliases offered too.
+			$names = \array_keys( self::$C ?? [] );
+			\sort( $names );
+			return \implode( "\n", $names ) . "\n";
+		}
+		$topic = ( $args[0] ?? '' );
+		if ( '' === $topic ) {
+			$names = \array_keys( self::$H ?? [] );
+			\sort( $names );
+			$rows = \array_chunk( $names, 4 );
+			return \implode( "\n", [
+				'### COMMANDS ###',
+				self::tabulate( [ 'left', 'left', 'left', 'left' ], null, $rows ),
+			] );
+		}
+		// Keep aliases in lockstep with $C entries and Shell builtin dispatch.
+		$alias_to_canonical = [
+			'ls'           => 'list_nodes',
+			'dump'         => 'dump_node',
+			'make'         => 'make_node',
+			'connect'      => 'connect_node',
+			'disconnect'   => 'disconnect_node',
+			'remove'       => 'remove_node',
+			'rm'           => 'remove_node',
+			'move'         => 'move_node',
+			'mv'           => 'move_node',
+			'chdir'        => 'cd',
+			'tell'         => 'tell_node',
+			'send'         => 'send_node',
+			'command'      => 'command_node',
+			'cmd'          => 'command_node',
+			'request'      => 'request_node',
+		];
+		$key = $alias_to_canonical[ $topic ] ?? $topic;
+		if ( isset( self::$H[ $key ] ) ) {
+			return self::$H[ $key ];
+		}
+		// Not a command — maybe a node TYPE: surface its node_schema().
+		$fqcn = self::resolve_class( $topic );
+		if ( null !== $fqcn ) {
+			return Node_Schema_Help::render( $topic, $fqcn::node_schema() );
+		}
+		throw new \RuntimeException( \esc_html( "no such topic: \"$topic\"" ) );
+	}
+
+	/**
+	 * Resolve a shell type token to the first registered concrete Node-subclass FQCN.
+	 *
+	 * Walks the registered namespace prefixes and returns the first
+	 * `{$prefix}{$type}_Node` (or the bare `{$prefix}Node` for the base type)
+	 * that exists, is a Node, and is NOT abstract. Abstract matches are skipped so
+	 * a concrete `{$type}_Node` under a later-scanned prefix still resolves —
+	 * otherwise `make_node` would see the abstract first and return null. Null when
+	 * no namespace yields a concrete match.
+	 *
+	 * @param string $type Shell name (e.g. `Tee`, `Tap`, or the bare `Node`).
+	 * @return class-string<Node>|null
+	 */
+	public static function resolve_class( string $type ): ?string {
+		// Cache hits only; a miss resolves after later register_namespace().
+		if ( isset( self::$resolve_cache[ $type ] ) ) {
+			return self::$resolve_cache[ $type ];
+		}
+		foreach ( self::registered_namespaces() as $prefix ) {
+			// Base Node lacks `_Node`; `make_node Node` resolves directly.
+			$fqcn = ( 'Node' === $type ) ? $prefix . 'Node' : $prefix . $type . '_Node';
+			if ( \class_exists( $fqcn ) && \is_a( $fqcn, Node::class, true ) && ! ( new \ReflectionClass( $fqcn ) )->isAbstract() ) {
+				return self::$resolve_cache[ $type ] = $fqcn;
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Read-only view of the registered namespace prefixes.
+	 *
+	 * @return array<int,string>
+	 */
+	public static function registered_namespaces(): array {
+		return \array_keys( self::$namespaces );
+	}
+
+	/**
+	 * Column-aligned table rendering; the last left-aligned column isn't padded.
+	 * Public so the substrate's other text-table consumers — Log_Sources' taillog
+	 * listing and Node_Schema_Help — share the ONE renderer rather than growing
+	 * copies. Tachikoma keeps tabulate in CI; so do we.
+	 *
+	 * @param array<int,string>            $dirs   One per column ('left' or 'right').
+	 * @param array<int,string>|null       $header Optional header row; null skips it.
+	 * @param array<int,array<int,string>> $rows   Pre-stringified cells; a short row pads with empties.
+	 */
+	public static function tabulate( array $dirs, ?array $header, array $rows ): string {
+		$ncols = \count( $dirs );
+		$max   = \array_fill( 0, $ncols, 0 );
+		if ( null !== $header ) {
+			foreach ( $header as $col => $val ) {
+				$max[ $col ] = \max( $max[ $col ], \strlen( $val ) );
+			}
+		}
+		foreach ( $rows as $row ) {
+			foreach ( $row as $col => $val ) {
+				if ( $col >= $ncols ) {
+					continue;
+				}
+				$max[ $col ] = \max( $max[ $col ], \strlen( $val ) );
+			}
+		}
+
+		$format_row = function ( array $row ) use ( $dirs, $max, $ncols ): string {
+			$parts = [];
+			for ( $col = 0; $col < $ncols; ++$col ) {
+				// Cells arrive pre-stringified; guard narrows before str_pad.
+				$cell = $row[ $col ] ?? '';
+				$val  = Core::as_string( $cell );
+				$dir  = $dirs[ $col ] ?? 'left';
+				$last = ( $col === $ncols - 1 );
+				if ( 'right' === $dir ) {
+					$parts[] = \str_pad( $val, $max[ $col ], ' ', \STR_PAD_LEFT );
+				} elseif ( $last ) {
+					$parts[] = $val;
+				} else {
+					$parts[] = \str_pad( $val, $max[ $col ], ' ', \STR_PAD_RIGHT );
+				}
+			}
+			return \implode( ' ', $parts );
+		};
+
+		$out = '';
+		if ( null !== $header ) {
+			$out .= $format_row( $header ) . "\n";
+		}
+		foreach ( $rows as $row ) {
+			$out .= $format_row( $row ) . "\n";
+		}
+		return $out;
+	}
+
+	/**
+	 * Coerce a dispatch closure's raw `array $args` to the canonical argv shape —
+	 * a re-indexed list of strings. The verb dispatch closures are declared
+	 * `array $args` (an inline closure param can't carry a narrower phpdoc type),
+	 * so a handler wanting an argv list normalizes at entry; the few that only
+	 * test one token read `$args` directly. The tokens are already strings at
+	 * runtime — interpret() coerces the wire arguments before dispatch — so this
+	 * is a static-analysis pin, not a behavioral coercion.
+	 *
+	 * @param array<array-key,mixed> $args
+	 * @return list<string>
+	 */
+	protected static function arg_strings( array $args ): array {
+		return \array_values( \array_map( static fn ( $v ): string => Core::as_string( $v ), $args ) );
 	}
 
 	/**
@@ -935,126 +1604,6 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	/**
-	 * `list_nodes` (alias `ls`): default=siblings, `-a [glob]`=all, `<name>`=that sink's children.
-	 *
-	 * Flags: `-c` count, `-s` sink, `-t` target, `-l` = -ct.
-	 *
-	 * @param list<string>            $args     Verb arguments.
-	 * @param array<array-key,mixed> $envelope The command Message.
-	 */
-	private static function cmd_list_nodes( Command_Interpreter_Node $self, array $args, array $envelope = [] ): string {
-		$is_completion = 'completion' === ( $envelope[ Message::KEY ] ?? '' );
-		$list_matches  = false;
-		$show_count    = false;
-		$show_sink     = false;
-		$show_target   = false;
-		$argv          = [];
-
-		foreach ( $args as $tok ) {
-			if ( '' === $tok ) {
-				continue;
-			}
-			if ( \preg_match( '/^-([aclst]+)$/D', $tok, $m ) ) {
-				$length = \strlen( $m[1] );
-				for ( $i = 0; $i < $length; ++$i ) {
-					$opt = $m[1][ $i ];
-					if ( 'a' === $opt ) { $list_matches = true; }
-					if ( 'c' === $opt ) { $show_count   = true; }
-					if ( 'l' === $opt ) { $show_count   = true; $show_target = true; }
-					if ( 's' === $opt ) { $show_sink    = true; }
-					if ( 't' === $opt ) { $show_target  = true; }
-				}
-				continue;
-			}
-			$argv[] = $tok;
-		}
-
-		// Completion: bare names, every node (like -a), for `cd <tab>`.
-		if ( $is_completion ) {
-			$show_count   = false;
-			$show_sink    = false;
-			$show_target  = false;
-			$list_matches = true;
-		}
-
-		$dirs   = [];
-		$header = [];
-		$any_extra = $show_count || $show_sink || $show_target;
-		if ( $show_count ) { $dirs[] = 'right'; $header[] = 'COUNT'; }
-		$dirs[]   = 'left';
-		$header[] = 'NAME';
-		if ( $show_sink )   { $dirs[] = 'left'; $header[] = 'SINK';   }
-		if ( $show_target ) { $dirs[] = 'left'; $header[] = 'TARGET'; }
-
-		$rows = [];
-
-		if ( ! $list_matches && ! empty( $argv ) ) {
-			foreach ( $argv as $name ) {
-				if ( Core::node( $name ) === null ) {
-					throw new \RuntimeException( \esc_html( "can't find node \"$name\"" ) );
-				}
-			}
-		}
-
-		$globs = empty( $argv ) ? [ null ] : $argv;
-
-		$all_names = \array_keys( Core::$nodes_by_name );
-		\sort( $all_names );
-
-		foreach ( $globs as $glob ) {
-			$matched = false;
-			foreach ( $all_names as $name ) {
-				/** @var \Newspack_Nodes\Node|null $node Node from the registry. */
-				$node = Core::node( $name );
-				if ( null === $node ) {
-					continue;
-				}
-				$sink_name  = $node->sink() ? $node->sink()->name() : '';
-				$target_str = \implode( ', ', $node->display_targets() );
-
-				if ( $list_matches ) {
-					if ( null !== $glob && ! @\preg_match( "/$glob/", $name ) ) {
-						continue;
-					}
-				} else {
-					if ( null === $glob ) {
-						// Default: siblings — sink IS this interpreter.
-						if ( $self->name() !== $sink_name ) {
-							continue;
-						}
-					} else {
-						if ( $glob !== $sink_name ) {
-							continue;
-						}
-					}
-				}
-
-				$matched = true;
-				$row     = [];
-				if ( $show_count ) { $row[] = (string) $node->counter(); }
-				$row[] = $name;
-				if ( $show_sink )   { $row[] = '' !== $sink_name ? "> $sink_name"    : '- '; }
-				if ( $show_target ) { $row[] = '' !== $target_str ? "-> $target_str" : '- '; }
-				$rows[] = $row;
-			}
-
-			if ( $list_matches && null !== $glob && ! $matched ) {
-				$rows[] = [ 'no matches' ];
-			}
-		}
-
-		// Render: with column flags, include header. Otherwise plain names.
-		if ( ! $any_extra ) {
-			$names = [];
-			foreach ( $rows as $r ) {
-				$names[] = $r[0];
-			}
-			return \implode( "\n", $names ) . "\n";
-		}
-		return self::tabulate( $dirs, $header, $rows );
-	}
-
-	/**
 	 * `log <message>` builtin — broadcast `$args` through this node's stderr chain.
 	 *
 	 * It returns nothing, so the text reaches the session out of band through the
@@ -1153,259 +1702,6 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	/**
-	 * `dump_metadata [<node>]` — the per-node snapshot the GUI canvas renders.
-	 *
-	 * Naming a node returns that node alone, or an empty map once it is gone, so a
-	 * refresh after one mutation costs a one-node round-trip. With no argument the
-	 * whole map comes back, carrying a `_header` row. Patron sidecars and nodes
-	 * whose schema declares `hidden` are omitted either way: they are plumbing the
-	 * canvas must not draw.
-	 *
-	 * @param string $only Optional single node name to return.
-	 * @param string $pwd  Requesting session's reverse_cwd (inbound FROM); stamped into `_header` on a full snapshot.
-	 * @return array<string,array<string,mixed>>
-	 */
-	private static function cmd_dump_metadata( string $only = '', string $pwd = '' ): array {
-		$out = [];
-		/** @var \Newspack_Nodes\Node $node Each registered node. */
-		foreach ( Core::$nodes_by_name as $name => $node ) {
-			if ( '' !== $only && $name !== $only ) {
-				continue;
-			}
-			// Patron-linked nodes are plumbing; canvas shouldn't render them.
-			if ( null !== $node->patron() ) {
-				continue;
-			}
-			$schema = $node::node_schema();
-			// @longform A shared singleton has no owner to patron it — one
-			// connect-queue timer serves every Remote_Link — so a schema
-			// saying hidden is the only signal it can give. The palette
-			// already honours it; the canvas has to as well.
-			if ( true === ( $schema['hidden'] ?? false ) ) {
-				continue;
-			}
-			// SHELL name (GUI key), not class short-name (Echo_Node -> 'Echo').
-			$class = self::shell_name_for( $node );
-			$sink  = $node->sink();
-			$out[ $name ] = [
-				'class'         => $class,
-				'counter'       => $node->counter(),
-				'sink'          => $sink instanceof Node ? $sink->name() : '',
-				'target'        => $node->target(),
-				'targets'       => $node->display_targets(),
-				'debug_state'   => $node->debug_state(),
-				'arguments'     => $node->arguments(),
-				'lgst_msg'      => $node->largest_msg_sent(),
-				'bytes_read'    => $node->bytes_read(),
-				'bytes_written' => $node->bytes_written(),
-				'accepts_fill'  => $schema['accepts_fill'] ?? true,
-				'has_target'    => $schema['has_target'] ?? true,
-				// Has a `:config` sidecar; GUI must not synthesize it.
-				'has_config'    => isset( Core::$nodes_by_name[ "{$name}:config" ] ),
-			];
-			// Emit when non-empty, matching JS producer (PHP [] vs JS {}).
-			$registrations = $node->registered_listeners();
-			if ( [] !== $registrations ) {
-				$out[ $name ]['registrations'] = $registrations;
-			}
-			// `+=` so the hook can only add, never clobber a fixed key.
-			$extra = $node->dump_metadata();
-			if ( [] !== $extra ) {
-				$out[ $name ] += $extra;
-			}
-		}
-		// Full-snapshot header: Profiling-toggle truth + reverse_cwd for GUIs.
-		if ( '' === $only ) {
-			$out['_header'] = [ 'profiling' => null !== Router_Node::profiles() ];
-			if ( '' !== $pwd ) {
-				$out['_header']['pwd'] = $pwd;
-			}
-		}
-		return $out;
-	}
-
-	/**
-	 * Registered shell name for a node instance.
-	 *
-	 * `make_node`/topology lines use the shell name (e.g. `Log`, `Tee`), which
-	 * is the class short name minus the `_Node` suffix (`Tee_Node` → `Tee`,
-	 * `Flame_Builder_Node` → `Flame_Builder`). A short name without `_Node`
-	 * (ad-hoc test classes) is returned unchanged.
-	 */
-	public static function shell_name_for( object $node ): string {
-		$short = ( new \ReflectionClass( $node ) )->getShortName();
-		if ( \str_ends_with( $short, '_Node' ) ) {
-			return \substr( $short, 0, -\strlen( '_Node' ) );
-		}
-		return $short;
-	}
-
-	/**
-	 * `stats [-a] [<regex>]` — tabular per-node counters (NAME, COUNT, LGST_MSG, READ, WRITTEN).
-	 *
-	 * Scope matches `cmd_list_nodes`: default=siblings, `-a`=all, `<name>`=that sink's children.
-	 *
-	 * @param list<string> $args
-	 */
-	private static function cmd_stats( Command_Interpreter_Node $self, array $args ): string {
-		$list_matches = false;
-		$argv         = [];
-		foreach ( $args as $tok ) {
-			if ( '' === $tok ) {
-				continue;
-			}
-			if ( '-a' === $tok ) {
-				$list_matches = true;
-				continue;
-			}
-			$argv[] = $tok;
-		}
-		$glob      = $argv[0] ?? null;
-		$header    = [ 'NAME', 'COUNT', 'LGST_MSG', 'READ', 'WRITTEN' ];
-		$dirs      = [ 'left', 'right', 'right', 'right', 'right' ];
-		$rows      = [];
-		$all_names = \array_keys( Core::$nodes_by_name );
-		\sort( $all_names );
-		foreach ( $all_names as $name ) {
-			// $name from Core::$nodes_by_name keys; lookup always present.
-			/** @var \Newspack_Nodes\Node $node Node from the registry. */
-			$node      = Core::node( $name );
-			$sink_name = $node->sink() ? $node->sink()->name() : '';
-			if ( $list_matches ) {
-				if ( null !== $glob && ! @\preg_match( "/$glob/", $name ) ) {
-					continue;
-				}
-			} else {
-				$expected = $glob ?? $self->name();
-				if ( $expected !== $sink_name ) {
-					continue;
-				}
-			}
-			$rows[] = [
-				$name,
-				(string) $node->counter(),
-				(string) $node->largest_msg_sent(),
-				(string) $node->bytes_read(),
-				(string) $node->bytes_written(),
-			];
-		}
-		return self::tabulate( $dirs, $header, $rows );
-	}
-
-	/**
-	 * `list_timers` — tabulate the Event_Framework's registered timers. NEXT is ms
-	 * until the next fire (<=0 = due every tick, i.e. a spinner); INTERVAL is the
-	 * re-arm period; MODE is the scheduling mode ('event_framework' own slot vs
-	 * 'router' hitchhike). Modeled on Tachikoma CommandInterpreter's list_ids/list_timers.
-	 *
-	 * @param  bool $structured Return timer_rows() instead of the text table.
-	 * @return string|list<array{id:int,active:bool,interval_ms:int,mode:string,next_ms:int|null,oneshot:bool,fires:int,type:string,name:string}>
-	 */
-	private static function cmd_list_timers( bool $structured = false ): string|array {
-		if ( $structured ) {
-			return self::timer_rows();
-		}
-		$rows = [];
-		foreach ( self::timer_rows() as $r ) {
-			$rows[] = [
-				(string) $r['id'],
-				$r['active'] ? 'yes' : 'no',
-				(string) $r['interval_ms'],
-				$r['mode'],
-				null === $r['next_ms'] ? '-' : (string) $r['next_ms'], // inactive/hitchhike -> no own next_fire
-				$r['oneshot'] ? 'yes' : 'no',
-				(string) $r['fires'],
-				$r['type'],
-				$r['name'],
-			];
-		}
-		\usort( $rows, static fn ( array $a, array $b ): int => $a[8] <=> $b[8] );
-		return self::tabulate(
-			[ 'right', 'right', 'right', 'right', 'right', 'right', 'right', 'right', 'left' ],
-			[ 'ID', 'ACTIVE', 'INTERVAL', 'MODE', 'NEXT', 'ONESHOT', 'FIRES', 'TYPE', 'NAME' ],
-			$rows
-		);
-	}
-
-	/**
-	 * `list_handles` — tabulate the nodes holding a cURL easy handle in the
-	 * Event_Framework's shared multi, which is what the drain loop selects on:
-	 * `SSE_In_Node`'s inbound pull and `HTTP_Out_Node`'s outbound batch.
-	 * Analogous to Tachikoma CommandInterpreter's list_fds.
-	 *
-	 * @param  bool $structured Return handle_rows() instead of the text table.
-	 * @return string|list<array{id:int,count:int,type:string,name:string}>
-	 */
-	private static function cmd_list_handles( bool $structured = false ): string|array {
-		if ( $structured ) {
-			return self::handle_rows();
-		}
-		$rows = [];
-		foreach ( self::handle_rows() as $r ) {
-			$rows[] = [ (string) $r['id'], (string) $r['count'], $r['type'], $r['name'] ];
-		}
-		\usort( $rows, static fn ( array $a, array $b ): int => $a[3] <=> $b[3] );
-		return self::tabulate(
-			[ 'right', 'right', 'right', 'left' ],
-			[ 'ID', 'COUNT', 'TYPE', 'NAME' ],
-			$rows
-		);
-	}
-
-	/**
-	 * Structured rows for every registered Timer_Node — the one loop the
-	 * list_timers table and its `-s` form both build from. `next_ms` is ms until
-	 * the next fire, or null when there's no own next_fire (inactive/hitchhike).
-	 *
-	 * @return list<array{id:int,active:bool,interval_ms:int,mode:string,next_ms:int|null,oneshot:bool,fires:int,type:string,name:string}>
-	 */
-	private static function timer_rows(): array {
-		$rows = [];
-		foreach ( Core::$nodes_by_name as $name => $node ) {
-			if ( ! $node instanceof Timer_Node ) {
-				continue;
-			}
-			$active  = $node->timer_is_active();
-			$next_ms = ( $active && $node->next_fire > 0.0 )
-				? (int) \round( ( $node->next_fire - Core::$now ) * 1000 )
-				: null;
-			$rows[] = [
-				'id'          => \spl_object_id( $node ),
-				'active'      => $active,
-				'interval_ms' => $node->interval_ms,
-				'mode'        => $node->timer_mode(),
-				'next_ms'     => $next_ms,
-				'oneshot'     => $node->oneshot,
-				'fires'       => $node->get_fire_count(),
-				'type'        => ( new \ReflectionClass( $node ) )->getShortName(),
-				'name'        => $name,
-			];
-		}
-		return $rows;
-	}
-
-	/**
-	 * Structured rows for every node holding a cURL handle — the one loop the
-	 * list_handles table and its `-s` form both build from. `curl_handles()`
-	 * collapses a node's handles to one row, so `id` is the NODE's object id and
-	 * `count` the messages it has filled, as the browser twin reports it.
-	 *
-	 * @return list<array{id:int,count:int,type:string,name:string}>
-	 */
-	private static function handle_rows(): array {
-		$rows = [];
-		foreach ( Event_Framework::instance()->curl_handles() as $id => $node ) {
-			$rows[] = [
-				'id'    => $id,
-				'count' => $node->counter(),
-				'type'  => ( new \ReflectionClass( $node ) )->getShortName(),
-				'name'  => Core::as_string( $node->name() ),
-			];
-		}
-		return $rows;
-	}
-
-	/**
 	 * `profile [on|off]` — toggle or set _router dispatch profiling.
 	 *
 	 * Bare `profile` toggles (Tachikoma's `debug_state`-precedent); explicit
@@ -1433,154 +1729,6 @@ class Command_Interpreter_Node extends Node {
 		}
 		Router_Node::profiles( $want ? [] : null );
 		return $want ? "profiling enabled\n" : "profiling disabled\n";
-	}
-
-	/**
-	 * `list_profiles [glob]` — per-node self-time, slowest average first, with a
-	 * --total-- row (Tachikoma CommandInterpreter.pm list_profiles).
-	 *
-	 * @param  string $glob       Regex filter; `total` shows only --total--.
-	 * @param  bool   $structured Return the same rows instead of the text table.
-	 * @return string|list<array{avg:float,time:float,count:int,window:float,rate:float,age:int,what:string}>
-	 */
-	private static function cmd_list_profiles( string $glob, bool $structured = false ): string|array {
-		if ( null === Core::node( Node_Names::ROUTER ) ) {
-			throw new \RuntimeException( "can't find _router" );
-		}
-		$start    = Core::right_now();
-		$profiles = Router_Node::profiles() ?? [];
-		\uasort( $profiles, static fn ( array $a, array $b ): int => $b['avg'] <=> $a['avg'] );
-
-		$matched = [];
-		foreach ( $profiles as $key => $info ) {
-			if ( '' !== $glob && 'total' !== $glob && 1 !== @\preg_match( '{' . $glob . '}', $key ) ) {
-				continue;
-			}
-			$matched[ $key ] = $info;
-		}
-		$totals = self::profile_stats( self::profile_total( $matched ), $start );
-		$listed = 'total' === $glob ? [] : $matched;
-
-		if ( $structured ) {
-			$out = [];
-			foreach ( $listed as $key => $info ) {
-				$out[] = self::profile_stats( $info, $start ) + [ 'what' => $key ];
-			}
-			$out[] = $totals + [ 'what' => '--total--' ];
-			return $out;
-		}
-
-		$rows = [];
-		foreach ( $listed as $key => $info ) {
-			$rows[] = self::profile_row( self::profile_stats( $info, $start ), $key );
-		}
-		$rows[] = self::profile_row( $totals, '--total--' );
-
-		return self::tabulate(
-			[ 'right', 'right', 'right', 'right', 'right', 'right', 'left' ],
-			[ 'AVERAGE', 'TIME', 'COUNT', 'WINDOW', 'RATE', 'AGE', 'WHAT' ],
-			$rows
-		) . \sprintf( "\nreturned %d profiles in %.4f seconds\n", \count( $listed ), Core::right_now() - $start );
-	}
-
-	/**
-	 * The six facts list_profiles derives from one raw record. Both the text table
-	 * and `-s` render THIS derivation, so the two can never disagree.
-	 *
-	 * @param  array{avg:float,time:float,count:int,timestamp:float,oldest:float} $info Raw record.
-	 * @param  float                                                             $now  Read time, against which `age` is measured.
-	 * @return array{avg:float,time:float,count:int,window:float,rate:float,age:int}
-	 */
-	private static function profile_stats( array $info, float $now ): array {
-		$window = $info['timestamp'] - $info['oldest'];
-		return [
-			'avg'    => $info['avg'],
-			'time'   => $info['time'],
-			'count'  => $info['count'],
-			'window' => $window,
-			'rate'   => ( $window > 0.0 && $info['count'] > 1 ) ? $info['count'] / $window : 1.0,
-			'age'    => (int) ( $info['timestamp'] > 0.0 ? \max( 0.0, $now - $info['timestamp'] ) : 0 ),
-		];
-	}
-
-	/**
-	 * --total--: summed time/count, widest timestamp..oldest span.
-	 *
-	 * @param  array<string,array{avg:float,time:float,count:int,timestamp:float,oldest:float}> $infos Raw records.
-	 * @return array{avg:float,time:float,count:int,timestamp:float,oldest:float}
-	 */
-	private static function profile_total( array $infos ): array {
-		$time      = 0.0;
-		$count     = 0;
-		$timestamp = 0.0;
-		$oldest    = 0.0;
-		foreach ( $infos as $info ) {
-			$time      += $info['time'];
-			$count     += $info['count'];
-			$timestamp  = \max( $timestamp, $info['timestamp'] );
-			$oldest     = 0.0 === $oldest ? $info['oldest'] : \min( $oldest, $info['oldest'] );
-		}
-		return [
-			'avg'       => $count > 0 ? $time / $count : 0.0,
-			'time'      => $time,
-			'count'     => $count,
-			'timestamp' => $timestamp,
-			'oldest'    => $oldest,
-		];
-	}
-
-	/**
-	 * One list_profiles table row: the shared stats struct, formatted.
-	 *
-	 * @param  array{avg:float,time:float,count:int,window:float,rate:float,age:int} $r    Stats.
-	 * @param  string                                                                $what The WHAT column: a node name, or `--total--`.
-	 * @return list<string>
-	 */
-	private static function profile_row( array $r, string $what ): array {
-		return [
-			\sprintf( '%.6f', $r['avg'] ),
-			\sprintf( '%.2f', $r['time'] ),
-			(string) $r['count'],
-			\sprintf( '%.2f', $r['window'] ),
-			\sprintf( '%.2f', $r['rate'] ),
-			(string) $r['age'],
-			$what,
-		];
-	}
-
-	/**
-	 * `uptime` — UTC clock-time, plus elapsed-since-Core::reset() scaled by magnitude.
-	 */
-	private static function cmd_uptime(): string {
-		$uptime = (int) ( Core::$now - Core::$init_time );
-		// gmdate over date: one clock whatever a worker's timezone is.
-		$clock   = \gmdate( 'H:i:s', (int) Core::$now );
-		$elapsed = self::format_uptime( $uptime );
-		return "{$clock}  up {$elapsed}\n";
-	}
-
-	/**
-	 * Elapsed seconds at the coarsest scale that fits: `07s`, `3m 04s`, `2h 09m`,
-	 * and `4d 01:12:33` past a day. The trailing component zero-pads, so the
-	 * column holds one width for as long as a worker stays in a given scale.
-	 */
-	private static function format_uptime( int $seconds ): string {
-		if ( $seconds < 60 ) {
-			return \sprintf( '%02ds', $seconds );
-		}
-		if ( $seconds < 3600 ) {
-			$m = (int) ( $seconds / 60 );
-			$s = $seconds % 60;
-			return \sprintf( '%dm %02ds', $m, $s );
-		}
-		if ( $seconds < 86400 ) {
-			$h = (int) ( $seconds / 3600 );
-			$m = (int) ( ( $seconds % 3600 ) / 60 );
-			return \sprintf( '%dh %02dm', $h, $m );
-		}
-		$d   = (int) ( $seconds / 86400 );
-		$rem = $seconds - ( $d * 86400 );
-		return "{$d}d " . \gmdate( 'H:i:s', $rem );
 	}
 
 	/**
@@ -1633,154 +1781,6 @@ class Command_Interpreter_Node extends Node {
 			: (int) $second;
 		$node->debug_state( $new );
 		return "$first debug_state: " . $node->debug_state() . "\n";
-	}
-
-	/**
-	 * `help` — no args tabulates every help TOPIC; a topic returns its own text,
-	 * and a topic naming no verb falls through to that node type's schema help.
-	 *
-	 * @param list<string>            $args     Verb arguments.
-	 * @param array<array-key,mixed> $envelope The command Message.
-	 */
-	private static function cmd_help( array $args, array $envelope = [] ): string {
-		// Completion: sorted verb names, newline-separated, no help text.
-		if ( 'completion' === ( $envelope[ Message::KEY ] ?? '' ) ) {
-			// From dispatch table, not help-topic, so aliases offered too.
-			$names = \array_keys( self::$C ?? [] );
-			\sort( $names );
-			return \implode( "\n", $names ) . "\n";
-		}
-		$topic = ( $args[0] ?? '' );
-		if ( '' === $topic ) {
-			$names = \array_keys( self::$H ?? [] );
-			\sort( $names );
-			$rows = \array_chunk( $names, 4 );
-			return \implode( "\n", [
-				'### COMMANDS ###',
-				self::tabulate( [ 'left', 'left', 'left', 'left' ], null, $rows ),
-			] );
-		}
-		// Keep aliases in lockstep with $C entries and Shell builtin dispatch.
-		$alias_to_canonical = [
-			'ls'           => 'list_nodes',
-			'dump'         => 'dump_node',
-			'make'         => 'make_node',
-			'connect'      => 'connect_node',
-			'disconnect'   => 'disconnect_node',
-			'remove'       => 'remove_node',
-			'rm'           => 'remove_node',
-			'move'         => 'move_node',
-			'mv'           => 'move_node',
-			'chdir'        => 'cd',
-			'tell'         => 'tell_node',
-			'send'         => 'send_node',
-			'command'      => 'command_node',
-			'cmd'          => 'command_node',
-			'request'      => 'request_node',
-		];
-		$key = $alias_to_canonical[ $topic ] ?? $topic;
-		if ( isset( self::$H[ $key ] ) ) {
-			return self::$H[ $key ];
-		}
-		// Not a command — maybe a node TYPE: surface its node_schema().
-		$fqcn = self::resolve_class( $topic );
-		if ( null !== $fqcn ) {
-			return Node_Schema_Help::render( $topic, $fqcn::node_schema() );
-		}
-		throw new \RuntimeException( \esc_html( "no such topic: \"$topic\"" ) );
-	}
-
-	/**
-	 * Resolve a shell type token to the first registered concrete Node-subclass FQCN.
-	 *
-	 * Walks the registered namespace prefixes and returns the first
-	 * `{$prefix}{$type}_Node` (or the bare `{$prefix}Node` for the base type)
-	 * that exists, is a Node, and is NOT abstract. Abstract matches are skipped so
-	 * a concrete `{$type}_Node` under a later-scanned prefix still resolves —
-	 * otherwise `make_node` would see the abstract first and return null. Null when
-	 * no namespace yields a concrete match.
-	 *
-	 * @param string $type Shell name (e.g. `Tee`, `Tap`, or the bare `Node`).
-	 * @return class-string<Node>|null
-	 */
-	public static function resolve_class( string $type ): ?string {
-		// Cache hits only; a miss resolves after later register_namespace().
-		if ( isset( self::$resolve_cache[ $type ] ) ) {
-			return self::$resolve_cache[ $type ];
-		}
-		foreach ( self::registered_namespaces() as $prefix ) {
-			// Base Node lacks `_Node`; `make_node Node` resolves directly.
-			$fqcn = ( 'Node' === $type ) ? $prefix . 'Node' : $prefix . $type . '_Node';
-			if ( \class_exists( $fqcn ) && \is_a( $fqcn, Node::class, true ) && ! ( new \ReflectionClass( $fqcn ) )->isAbstract() ) {
-				return self::$resolve_cache[ $type ] = $fqcn;
-			}
-		}
-		return null;
-	}
-
-	/**
-	 * Read-only view of the registered namespace prefixes.
-	 *
-	 * @return array<int,string>
-	 */
-	public static function registered_namespaces(): array {
-		return \array_keys( self::$namespaces );
-	}
-
-	/**
-	 * Column-aligned table rendering; the last left-aligned column isn't padded.
-	 * Public so the substrate's other text-table consumers — Log_Sources' taillog
-	 * listing and Node_Schema_Help — share the ONE renderer rather than growing
-	 * copies. Tachikoma keeps tabulate in CI; so do we.
-	 *
-	 * @param array<int,string>            $dirs   One per column ('left' or 'right').
-	 * @param array<int,string>|null       $header Optional header row; null skips it.
-	 * @param array<int,array<int,string>> $rows   Pre-stringified cells; a short row pads with empties.
-	 */
-	public static function tabulate( array $dirs, ?array $header, array $rows ): string {
-		$ncols = \count( $dirs );
-		$max   = \array_fill( 0, $ncols, 0 );
-		if ( null !== $header ) {
-			foreach ( $header as $col => $val ) {
-				$max[ $col ] = \max( $max[ $col ], \strlen( $val ) );
-			}
-		}
-		foreach ( $rows as $row ) {
-			foreach ( $row as $col => $val ) {
-				if ( $col >= $ncols ) {
-					continue;
-				}
-				$max[ $col ] = \max( $max[ $col ], \strlen( $val ) );
-			}
-		}
-
-		$format_row = function ( array $row ) use ( $dirs, $max, $ncols ): string {
-			$parts = [];
-			for ( $col = 0; $col < $ncols; ++$col ) {
-				// Cells arrive pre-stringified; guard narrows before str_pad.
-				$cell = $row[ $col ] ?? '';
-				$val  = Core::as_string( $cell );
-				$dir  = $dirs[ $col ] ?? 'left';
-				$last = ( $col === $ncols - 1 );
-				if ( 'right' === $dir ) {
-					$parts[] = \str_pad( $val, $max[ $col ], ' ', \STR_PAD_LEFT );
-				} elseif ( $last ) {
-					$parts[] = $val;
-				} else {
-					$parts[] = \str_pad( $val, $max[ $col ], ' ', \STR_PAD_RIGHT );
-				}
-			}
-			return \implode( ' ', $parts );
-		};
-
-		$out = '';
-		if ( null !== $header ) {
-			$out .= $format_row( $header ) . "\n";
-		}
-		foreach ( $rows as $row ) {
-			$out .= $format_row( $row ) . "\n";
-		}
-		return $out;
 	}
 
 	/**

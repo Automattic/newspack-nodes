@@ -272,6 +272,73 @@ JS
 js_ce="$( node reorder-node-methods.js "$tmp/closure-edge.js" 2>&1 )"
 assert_before "js closure-edge: decorate stays with emit, above zboot" "$js_ce" decorate zboot
 
+# ---- (D2) a multi-parameter closure or arrow function stays one scope ----
+# The comma between parameters is not the end of an arrow function. Misread,
+# the scan leaves the closure at `$a,` and counts every call in its body as an
+# edge of zwire(), pinning decorate below it and away from emit().
+cat > "$tmp/class-multiparam-edge.php" <<'PHP'
+<?php
+class Multiparam_Edge {
+	public function emit(): void {
+		self::decorate();
+	}
+
+	public function zwire(): void {
+		self::install( function ( int $a, int $b ): void {
+			self::decorate();
+		} );
+		self::install( fn( int $a, int $b ) => self::decorate() );
+	}
+
+	private static function install( callable $cb ): void {
+	}
+
+	private static function decorate(): void {
+	}
+}
+PHP
+php_mp="$( php reorder-node-methods.php "$tmp/class-multiparam-edge.php" 2>&1 )"
+assert_before "php multi-param closure: decorate stays with emit, above zwire" "$php_mp" decorate zwire
+
+# An arrow function passed as an argument ends at the call's closing paren,
+# so a self-call after it in the same method is still an edge.
+cat > "$tmp/class-arrow-arg-edge.php" <<'PHP'
+<?php
+class Arrow_Arg_Edge {
+	public static function after(): void {
+	}
+
+	public function zfirst( array $x ): void {
+		\usort( $x, fn( int $a, int $b ) => $a <=> $b ) || self::after();
+	}
+}
+PHP
+php_aa="$( php reorder-node-methods.php "$tmp/class-arrow-arg-edge.php" 2>&1 )"
+assert_before "php arrow-as-argument: after is zfirst's callee" "$php_aa" zfirst after
+
+cat > "$tmp/multiparam-edge.js" <<'JS'
+class MultiparamEdge {
+	emit() {
+		this.decorate();
+	}
+
+	zwire() {
+		this.install( function ( a, b ) {
+			this.decorate();
+		} );
+		this.install( ( a, b ) => this.decorate() );
+	}
+
+	install( cb ) {
+	}
+
+	decorate() {
+	}
+}
+JS
+js_mp="$( node reorder-node-methods.js "$tmp/multiparam-edge.js" 2>&1 )"
+assert_before "js multi-param closure: decorate stays with emit, above zwire" "$js_mp" decorate zwire
+
 # ---- (E) locality: an unrelated root must not wedge into a chain ----
 # loner has no callers, so it is available from the first wave. Emitting
 # chain_top frees chain_mid; the chain must continue rather than yield to

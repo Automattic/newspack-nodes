@@ -386,6 +386,23 @@ class Core {
 	}
 
 	/**
+	 * Per-line timestamp prefix: `Y-m-d H:i:s UTC `.
+	 *
+	 * With no text, returns the bare prefix. With text, chomps a
+	 * trailing newline, prepends the prefix to every line, and appends one
+	 * trailing newline.
+	 */
+	public static function log_prefix( ?string $text = null ): string {
+		$prefix = \gmdate( 'Y-m-d H:i:s' ) . ' UTC ';
+		if ( null === $text ) {
+			return $prefix;
+		}
+		$text = \rtrim( $text, "\n" );
+		$text = $prefix . \str_replace( "\n", "\n" . $prefix, $text );
+		return $text . "\n";
+	}
+
+	/**
 	 * Per-line process-identity midfix: `<site host> <argv0>[<pid>][<uptime>s]: `.
 	 *
 	 * With no text, returns the bare midfix. With text, chomps a
@@ -503,23 +520,6 @@ class Core {
 	public static function right_now(): float {
 		self::$now = null !== self::$clock ? ( self::$clock )() : \microtime( true );
 		return self::$now;
-	}
-
-	/**
-	 * Per-line timestamp prefix: `Y-m-d H:i:s UTC `.
-	 *
-	 * With no text, returns the bare prefix. With text, chomps a
-	 * trailing newline, prepends the prefix to every line, and appends one
-	 * trailing newline.
-	 */
-	public static function log_prefix( ?string $text = null ): string {
-		$prefix = \gmdate( 'Y-m-d H:i:s' ) . ' UTC ';
-		if ( null === $text ) {
-			return $prefix;
-		}
-		$text = \rtrim( $text, "\n" );
-		$text = $prefix . \str_replace( "\n", "\n" . $prefix, $text );
-		return $text . "\n";
 	}
 
 	/** Replace the sink `_stderr()` writes to; `$stderr_handler` carries the signature. */

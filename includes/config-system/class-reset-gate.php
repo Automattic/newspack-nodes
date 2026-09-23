@@ -34,25 +34,6 @@ namespace Newspack_Nodes\Config_System;
 class Reset_Gate {
 
 	/**
-	 * Register the gate on every resettable option's pre_update_option filter.
-	 *
-	 * One closure serves every option, because the filter hands `resolve()` the
-	 * option name as its third argument; per-option bindings would only multiply
-	 * the same decision.
-	 *
-	 * @param string            $mark_field        Hidden-input array name carrying the reset marks (see mark_name()).
-	 * @param array<int,string> $all_options       Every resettable option, prefixed (`Schema::setting_option_names()`).
-	 * @param array<int,string> $text_like_options Blank-deletable subset (`Schema::delete_on_blank_options()`).
-	 */
-	public static function register( string $mark_field, array $all_options, array $text_like_options ): void {
-		$gate = static fn ( mixed $value, mixed $old_value, string $option ): mixed =>
-			self::resolve( $value, $old_value, $option, $mark_field, $text_like_options );
-		foreach ( $all_options as $option ) {
-			\add_filter( "pre_update_option_{$option}", $gate, 10, 3 );
-		}
-	}
-
-	/**
 	 * Decide a single pre_update_option: delete the row, or pass the value through.
 	 *
 	 * Returning the OLD value after the delete is what stops WordPress writing the
@@ -88,6 +69,25 @@ class Reset_Gate {
 		// phpcs:ignore WordPress.Security.NonceVerification.Missing, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
 		$marks = $_POST[ $mark_field ] ?? null;
 		return \is_array( $marks ) && isset( $marks[ $option ] );
+	}
+
+	/**
+	 * Register the gate on every resettable option's pre_update_option filter.
+	 *
+	 * One closure serves every option, because the filter hands `resolve()` the
+	 * option name as its third argument; per-option bindings would only multiply
+	 * the same decision.
+	 *
+	 * @param string            $mark_field        Hidden-input array name carrying the reset marks (see mark_name()).
+	 * @param array<int,string> $all_options       Every resettable option, prefixed (`Schema::setting_option_names()`).
+	 * @param array<int,string> $text_like_options Blank-deletable subset (`Schema::delete_on_blank_options()`).
+	 */
+	public static function register( string $mark_field, array $all_options, array $text_like_options ): void {
+		$gate = static fn ( mixed $value, mixed $old_value, string $option ): mixed =>
+			self::resolve( $value, $old_value, $option, $mark_field, $text_like_options );
+		foreach ( $all_options as $option ) {
+			\add_filter( "pre_update_option_{$option}", $gate, 10, 3 );
+		}
 	}
 
 	/**
