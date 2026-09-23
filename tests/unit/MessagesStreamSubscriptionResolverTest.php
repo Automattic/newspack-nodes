@@ -423,6 +423,93 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		);
 	}
 
+	/**
+	 * Write `$values` as packed records into one IPC output segment.
+	 *
+	 * @param string        $dir     The output partition dir.
+	 * @param int           $segment Segment id.
+	 * @param array<string> $values  One record VALUE each.
+	 * @return array<int> Each record's byte length, in order.
+	 */
+	private function write_ipc_segment( string $dir, int $segment, array $values ): array {
+		$lengths = [];
+		$bytes   = '';
+		foreach ( $values as $value ) {
+			$message                   = Message::new_message();
+			$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+			$message[ Message::VALUE ] = $value;
+			$line                      = Message::packed( $message ) . "\n";
+			$lengths[]                 = \strlen( $line );
+			$bytes                    .= $line;
+		}
+		\file_put_contents( "{$dir}/{$segment}.log", $bytes );
+		return $lengths;
+	}
+
+	/**
+	 * Drain a Consumer into a capture sink and return the VALUEs it delivered.
+	 *
+	 * @param Consumer_Node $consumer The reader to drain.
+	 * @return array<int,mixed> Delivered record VALUEs, TM_EOF excluded.
+	 */
+	private function drained_values( Consumer_Node $consumer ): array {
+		$sink = new \Newspack_Nodes\Tests\Capture_Sink_Node();
+		$consumer->sink( $sink );
+		$consumer->drain();
+		$values = [];
+		foreach ( $sink->captured as $message ) {
+			if ( Message::TM_EOF !== $message[ Message::TYPE ] ) {
+				$values[] = $message[ Message::VALUE ];
+			}
+		}
+		return $values;
+	}
+
+	public function test_ipc_attach_resumes_from_the_supplied_position(): void {
+		$out     = "{$this->tmp}/ipc/demo-workers.p3/output";
+		\mkdir( $out, 0755, true );
+		$lengths = $this->write_ipc_segment( $out, 7, [ 'seen-before-gap', 'reply-in-gap', 'later-output' ] );
+		$ctrl    = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->tmp );
+
+		$consumers = $ctrl->open_subscription(
+			'demo-workers.p3',
+			[ 'demo-workers.p3' => [ 'segment' => 7, 'offset' => $lengths[0] ] ]
+		);
+
+		$this->assertSame( "7:{$lengths[0]}", $consumers[0]->cursor_position(), 'seeded, not tail-seeked' );
+		$this->assertSame( [ 'reply-in-gap', 'later-output' ], $this->drained_values( $consumers[0] ) );
+	}
+
+	public function test_ipc_attach_with_no_position_tail_seeks(): void {
+		$out     = "{$this->tmp}/ipc/demo-workers.p3/output";
+		\mkdir( $out, 0755, true );
+		$lengths = $this->write_ipc_segment( $out, 7, [ 'old-output', 'more-old-output' ] );
+		$ctrl    = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->tmp );
+
+		$consumers = $ctrl->open_subscription( 'demo-workers.p3', [ 'another-worker.p1' => [ 'segment' => 7, 'offset' => 0 ] ] );
+
+		$this->assertSame( '7:' . \array_sum( $lengths ), $consumers[0]->cursor_position() );
+		$this->assertSame( [], $this->drained_values( $consumers[0] ) );
+	}
+
+	public function test_ipc_attach_resuming_into_a_deleted_segment_replays_from_the_oldest(): void {
+		// Retention took segment 4; a partition feed rewinds to the oldest.
+		$out = "{$this->tmp}/ipc/demo-workers.p3/output";
+		\mkdir( $out, 0755, true );
+		$this->write_ipc_segment( $out, 7, [ 'oldest-surviving', 'newest' ] );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->tmp );
+
+		$consumers = $ctrl->open_subscription(
+			'demo-workers.p3',
+			[ 'demo-workers.p3' => [ 'segment' => 4, 'offset' => 91 ] ]
+		);
+
+		$this->assertSame( [ 'oldest-surviving', 'newest' ], $this->drained_values( $consumers[0] ) );
+	}
+
 	public function test_invalid_subscription_throws(): void {
 		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $this->tmp );

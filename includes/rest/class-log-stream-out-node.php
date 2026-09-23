@@ -61,9 +61,7 @@ class Log_Stream_Out_Node extends SSE_Out_Node {
 			throw new \InvalidArgumentException( \esc_html( \rtrim( Log_Sources::unknown_source( $registry, $sub ), "\n" ) ) );
 		}
 		$tail = Log_Sources::open_tail( $registry[ $sub ] );
-		$tail->next_offset(
-			isset( $positions[ $sub ] ) ? self::position_arg( $positions[ $sub ] ) : 'end'
-		);
+		$tail->next_offset( self::position_arg( $positions, $sub ) );
 		$tail->set_stamp_as( $sub );
 		return [ $tail ];
 	}
