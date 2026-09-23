@@ -128,7 +128,7 @@ class Memcache_CLI_Command {
 		$read = $backend->read( $key );
 		// A confirmed miss and a read error are different answers; say which.
 		if ( Cache_Backend::READ_ERROR === $read['status'] ) {
-			\WP_CLI::error( 'backend read error for ' . $key );
+			\WP_CLI::error( 'backend read error for ' . $key . ': ' . $backend->last_failure() );
 		}
 		if ( Cache_Backend::READ_MISS === $read['status'] ) {
 			\WP_CLI::error( 'not found: ' . $key );

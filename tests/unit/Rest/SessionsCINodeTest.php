@@ -100,6 +100,16 @@ class SessionsCINodeTest extends TestCase {
 		);
 	}
 
+	public function test_create_reports_a_cache_outage_as_a_refusal_naming_the_cause(): void {
+		$this->memd->result_message = 'SERVER MARKED DEAD 1264';
+		$this->memd->fail_add( \Memcached::RES_SERVER_TEMPORARILY_DISABLED );
+
+		$reply = (string) $this->fire( 'create', [ 'outage-1264' ] );
+
+		$this->assertStringContainsString( 'could not store the session', $reply );
+		$this->assertStringContainsString( 'SERVER MARKED DEAD 1264', $reply );
+	}
+
 	public function test_revoke_kills_the_key_and_delists_it(): void {
 		$created = $this->fire( 'create', [ 'doomed', '--scope=read' ] );
 

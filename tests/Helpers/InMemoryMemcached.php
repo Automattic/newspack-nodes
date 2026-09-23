@@ -54,6 +54,15 @@ class InMemoryMemcached extends \Memcached {
 	/** @var array<string,true> */
 	private array $set_failures = [];
 
+	/** Result code every add() refuses with, or null while add() works. */
+	private ?int $add_failure = null;
+
+	/**
+	 * What getResultMessage() answers, standing in for libmemcached's text
+	 * for the last result. Null defers to the parent's own.
+	 */
+	public ?string $result_message = null;
+
 	/** Force get() to return false with a non-NOTFOUND backend result. */
 	public function fail_get( string $key, int $result_code = \Memcached::RES_FAILURE ): void {
 		$this->get_failures[ $key ] = $result_code;
@@ -62,6 +71,11 @@ class InMemoryMemcached extends \Memcached {
 	/** Force set() to refuse the key — an item over the size limit, or a dead server. */
 	public function fail_set( string $key ): void {
 		$this->set_failures[ $key ] = true;
+	}
+
+	/** Force every add() to fail with this result, as a dead server does. */
+	public function fail_add( int $result_code ): void {
+		$this->add_failure = $result_code;
 	}
 
 	/** Force only the next get() to return a backend error. */
@@ -115,6 +129,10 @@ class InMemoryMemcached extends \Memcached {
 		return $this->result_code;
 	}
 
+	public function getResultMessage(): string {
+		return $this->result_message ?? parent::getResultMessage();
+	}
+
 	public function set( string $key, mixed $value, int $expiration = 0 ): bool {
 		if ( isset( $this->set_failures[ $key ] ) ) {
 			$this->result_code = \Memcached::RES_E2BIG;
@@ -141,6 +159,10 @@ class InMemoryMemcached extends \Memcached {
 	}
 
 	public function add( string $key, mixed $value, int $expiration = 0 ): bool {
+		if ( null !== $this->add_failure ) {
+			$this->result_code = $this->add_failure;
+			return false;
+		}
 		$this->get( $key );
 		if ( \Memcached::RES_SUCCESS === $this->result_code ) {
 			$this->result_code = \Memcached::RES_NOTSTORED;

@@ -108,6 +108,18 @@ class MemcacheCliCommandTest extends TestCase {
 		);
 	}
 
+	public function test_a_read_error_names_memcached_result(): void {
+		$memd                 = new InMemoryMemcached();
+		$memd->result_message = 'READ FAILURE 2294';
+		Core::$memd           = $memd;
+		$memd->fail_get( Cache_Backend::site_key( 'table:prices:sku-2294' ), \Memcached::RES_TIMEOUT );
+
+		$this->assertStringContainsString(
+			'memcached result ' . \Memcached::RES_TIMEOUT . ': READ FAILURE 2294',
+			$this->error_message( fn () => ( new Memcache_CLI_Command() )->get( [ 'table:prices:sku-2294' ], [] ) )
+		);
+	}
+
 	public function test_a_missing_logical_name_is_refused(): void {
 		Core::$memd = new InMemoryMemcached();
 

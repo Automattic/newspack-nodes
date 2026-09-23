@@ -298,9 +298,18 @@ fixate a live session.
 | `label` | How the session shows up in the Sessions tab. An empty label keeps it out of the listing. What is stored runs through [`sanitize_text_field()`](https://developer.wordpress.org/reference/functions/sanitize_text_field/) and is then truncated to [`Sessions::MAX_LABEL`](../includes/class-sessions.php) = 64 characters, so a listing can come back shorter than what was sent, or stripped of markup — the cap is there so a listing cannot be used as storage. `sessions create` echoes the label as SENT, so the two can disagree the moment the next `list` runs. |
 | `ttl` | Lifetime in seconds, clamped to `[ Command_Auth::SESSION_TTL_MIN_S, SESSION_TTL_MAX_S ]` = `[60, 86400]`. Defaults to `SESSION_TTL_S` = 3600. |
 
-Beyond the `RuntimeException` the diagram names, `Command_Auth::mint_session()`
-throws `InvalidArgumentException` on a scope off the READ/TUNE/MANAGE ladder, which [`issue()`](../includes/rest/class-auth-controller.php) refuses first with the 400
-above.
+A session the cache cannot store answers 503 `session_store_unavailable`:
+`Command_Auth::mint_session()` throws
+[`Session_Store_Unavailable`](../includes/class-session-store-unavailable.php)
+when no backend is usable or the one selected refused the write, and
+[`issue()`](../includes/rest/class-auth-controller.php) catches that type alone,
+logging memcached's result code and message and keeping them out of the
+response. `mint_session()` also throws `InvalidArgumentException` on a scope
+off the READ/TUNE/MANAGE ladder, which `issue()` refuses first with the 400
+above. A hub whose `HTTP_Out` handshake fails logs
+`auth failed at spoke: HTTP <status> <code>`, naming the `code` the spoke's
+body carries — `HTTP 503 session_store_unavailable` for this outage — or the
+bare status when it carries none, and holds its batch for the next attempt.
 
 #### Response
 

@@ -340,11 +340,16 @@ class Table_Node extends Node {
 	 */
 	public function lookup( string $key ): mixed {
 		$entry_key = self::entry_key( $this->namespace, $key );
+		$backend   = Cache_Backend::shared_first();
 		// read() reports hit, miss and error; a null value alone cannot.
-		$read = Cache_Backend::shared_first()?->read( $entry_key );
-		if ( Cache_Backend::READ_ERROR === ( $read['status'] ?? null ) ) {
+		$read = $backend?->read( $entry_key );
+		if ( null !== $backend && Cache_Backend::READ_ERROR === ( $read['status'] ?? null ) ) {
 			// Null reads as "empty table" downstream; say the backend broke.
-			Core::print_less_often( 'Table: backend read error for ', "{$this->namespace}:{$key}" );
+			Core::print_less_often(
+				'Table: backend read error for ',
+				"{$this->namespace}:{$key}: ",
+				$backend->last_failure()
+			);
 		}
 		if ( Cache_Backend::READ_HIT !== ( $read['status'] ?? null )
 			|| ( self::ABSENT === $read['value'] && null === $this->absence ) ) {

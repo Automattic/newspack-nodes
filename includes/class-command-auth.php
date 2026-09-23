@@ -190,7 +190,7 @@ class Command_Auth {
 	 *                      it off the wire clamps through bounded_ttl() first.
 	 * @return array{handle:string,secret:string,scope:string,expires_in:int,now:int}
 	 * @throws \InvalidArgumentException On a scope outside the ladder.
-	 * @throws \RuntimeException When the session could not be persisted.
+	 * @throws Session_Store_Unavailable When the session could not be stored.
 	 */
 	public static function mint_session( string $scope = Capabilities::MANAGE, int $ttl = self::SESSION_TTL_S ): array {
 		if ( ! Capabilities::scope_covers( $scope, Capabilities::READ ) ) {
@@ -200,7 +200,9 @@ class Command_Auth {
 		$handle = \bin2hex( \random_bytes( 16 ) );
 		$key    = \bin2hex( \random_bytes( 32 ) );
 		if ( ! self::store_session( $handle, $key, $ttl, $scope, self::current_user() ) ) {
-			throw new \RuntimeException( 'Command_Auth: could not persist the session (no cache backend, or handle taken)' );
+			$cause = Cache_Backend::shared_first()?->last_failure() ?? 'no cache backend';
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
+			throw new Session_Store_Unavailable( "could not store the session: the cache is unavailable ({$cause})" );
 		}
 		return [
 			'handle'     => $handle,

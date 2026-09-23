@@ -9,6 +9,7 @@ use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\Cache_Backend;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
+use Newspack_Nodes\Session_Store_Unavailable;
 
 #[CoversClass( Command_Auth::class )]
 class CommandAuthSessionTest extends TestCase {
@@ -110,6 +111,33 @@ class CommandAuthSessionTest extends TestCase {
 		Cache_Backend::$apcu_usable = static fn (): bool => false;
 
 		$this->expectException( \RuntimeException::class );
+		Command_Auth::mint_session();
+	}
+
+	public function test_a_refused_store_names_memcached_result_in_its_own_exception(): void {
+		$memd                 = new InMemoryMemcached();
+		$memd->result_message = 'SERVER MARKED DEAD 4816';
+		$memd->fail_add( \Memcached::RES_SERVER_TEMPORARILY_DISABLED );
+		Core::$memd           = $memd;
+
+		try {
+			Command_Auth::mint_session( Capabilities::TUNE, self::TTL );
+			$this->fail( 'an unstored session must not be handed back' );
+		} catch ( Session_Store_Unavailable $e ) {
+			$this->assertStringContainsString( 'could not store the session', $e->getMessage() );
+			$this->assertStringContainsString(
+				'memcached result ' . \Memcached::RES_SERVER_TEMPORARILY_DISABLED . ': SERVER MARKED DEAD 4816',
+				$e->getMessage()
+			);
+		}
+	}
+
+	public function test_no_backend_at_all_is_the_same_exception_saying_so(): void {
+		Core::$memd                 = null;
+		Cache_Backend::$apcu_usable = static fn (): bool => false;
+
+		$this->expectException( Session_Store_Unavailable::class );
+		$this->expectExceptionMessage( 'no cache backend' );
 		Command_Auth::mint_session();
 	}
 

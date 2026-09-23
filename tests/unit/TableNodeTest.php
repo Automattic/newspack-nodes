@@ -185,6 +185,28 @@ class TableNodeTest extends TestCase {
 		$this->assertNull( $table->lookup( 'absent' ) );
 	}
 
+	public function test_a_backend_read_error_logs_memcached_result(): void {
+		[ $table ]                  = $this->table();
+		$this->memd->result_message = 'CONNECTION FAILURE 6620';
+		$this->memd->fail_get( Table_Node::entry_key( 'prices', 'sku-6620' ), \Memcached::RES_CONNECTION_FAILURE );
+		$captured = [];
+		Core::set_stderr_handler(
+			static function ( string $message ) use ( &$captured ): void {
+				$captured[] = $message;
+			}
+		);
+
+		$this->assertNull( $table->lookup( 'sku-6620' ) );
+
+		$lines = \array_values( \array_filter( $captured, static fn ( string $l ): bool => \str_contains( $l, 'backend read error' ) ) );
+		$this->assertCount( 1, $lines );
+		$this->assertStringContainsString( 'prices:sku-6620', $lines[0] );
+		$this->assertStringContainsString(
+			'memcached result ' . \Memcached::RES_CONNECTION_FAILURE . ': CONNECTION FAILURE 6620',
+			$lines[0]
+		);
+	}
+
 	public function test_get_and_rm_verbs_operate_through_the_interpreter(): void {
 		[ $table ] = $this->table();
 		$table->fill( $this->keyed( 'sku-9', [ 'usd' => 1250 ] ) );

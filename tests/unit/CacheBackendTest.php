@@ -248,6 +248,62 @@ class CacheBackendTest extends TestCase {
 		);
 	}
 
+	public function test_last_failure_names_the_memcached_result_code_and_message(): void {
+		$memd                       = new InMemoryMemcached();
+		$memd->result_message       = 'A TIMEOUT OCCURRED 5309';
+		Core::$memd                 = $memd;
+		Cache_Backend::$apcu_usable = static fn (): bool => false;
+		$backend                    = Cache_Backend::shared_first();
+		$memd->fail_get( 'sku-5309', \Memcached::RES_TIMEOUT );
+
+		$backend->read( 'sku-5309' );
+
+		$this->assertSame(
+			'memcached result ' . \Memcached::RES_TIMEOUT . ': A TIMEOUT OCCURRED 5309',
+			$backend->last_failure()
+		);
+	}
+
+	public function test_last_failure_on_apcu_names_apcu_which_reports_no_cause(): void {
+		Core::$memd                 = null;
+		Cache_Backend::$apcu_usable = static fn (): bool => true;
+
+		$this->assertSame( 'APCu', Cache_Backend::shared_first()->last_failure() );
+	}
+
+	public function test_a_broken_batch_logs_memcached_result_once_whatever_the_text(): void {
+		$memd = new class() extends InMemoryMemcached {
+			public function getMulti( array $keys, int $get_flags = 0 ): array|false {
+				return false;
+			}
+
+			public function getResultCode(): int {
+				return \Memcached::RES_SERVER_TEMPORARILY_DISABLED;
+			}
+		};
+		Core::$memd                 = $memd;
+		Cache_Backend::$apcu_usable = static fn (): bool => false;
+		$backend                    = Cache_Backend::shared_first();
+		$captured                   = [];
+		Core::set_stderr_handler(
+			static function ( string $message ) use ( &$captured ): void {
+				$captured[] = $message;
+			}
+		);
+
+		$memd->result_message = 'SERVER DISABLED 7741';
+		$backend->read_multi( [ 'sku-7741' ] );
+		$memd->result_message = 'SERVER DISABLED 7742';
+		$backend->read_multi( [ 'sku-7742' ] );
+
+		$lines = \array_values( \array_filter( $captured, static fn ( string $l ): bool => \str_contains( $l, 'batch read error' ) ) );
+		$this->assertCount( 1, $lines, 'the rate limit keys on the stable prefix, not the result text' );
+		$this->assertStringContainsString(
+			'memcached result ' . \Memcached::RES_SERVER_TEMPORARILY_DISABLED . ': SERVER DISABLED 7741',
+			$lines[0]
+		);
+	}
+
 	public function test_read_multi_reports_a_broken_batch_to_a_caller_that_asks(): void {
 		// Empty is also what an all-miss returns; a writer merging deltas onto
 		// what it read must tell the two apart, or it overwrites stored values.
