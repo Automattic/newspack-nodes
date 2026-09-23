@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **An idle SSE stream closes after five seconds, not fifteen.**
   `sse_idle_timeout` defaults to 5; a site that sets the key keeps its
   own value.
+- **An SSE stream runs under a 30-second PHP time limit and no longer
+  ignores a client abort.** It set no limit and ignored aborts, so a
+  stream kept its PHP process after the client went away.
 
 ## [2.65.11] - 2026-09-22
 
