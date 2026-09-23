@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.65.17] - 2026-09-23
+
 ### Added
 
 - **`Consumer_Node::drain()` can stop early.** An optional `$until` closure, asked after every poll, ends the read there with no TM_EOF, and `drain()` returns whether it reached the end. A request-scope reader with a time budget, such as event-logger-nodes' `grep_requests`, can now stop reading once the budget is spent, rather than reading to EOF and discarding the rest.
