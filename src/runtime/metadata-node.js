@@ -271,17 +271,20 @@ export function parseMetadata( payload ) {
 
 /**
  * Self-managed poll cadence for `_metadata`, scaled to graph size: a big graph
- * is expensive to dump + re-render, so back off. `nodeCount * 10`ms, rounded to
- * the nearest 5 seconds and floored at 5s.
+ * is expensive to dump + re-render, so back off. `nodeCount * 10`ms: 2s up to
+ * two seconds of it, which keeps a quiet worker's SSE stream from idling out
+ * between polls; past that the nearest 5 seconds, floored at 5s. Both are
+ * harmonics of the shared 10s grid (ADR-17).
  *
  * @param {number} nodeCount Node count of the last parsed graph.
- * @return {number} Poll interval in milliseconds (>= 5000).
+ * @return {number} Poll interval in milliseconds (>= 2000).
  */
 export function computePollIntervalMs( nodeCount ) {
 	const seconds = ( nodeCount * 10 ) / 1000;
-	const rounded =
-		seconds > 5 ? Math.round( seconds / 5 ) * 5 : Math.round( seconds );
-	return Math.max( 5, rounded ) * 1000;
+	if ( seconds <= 2 ) {
+		return 2000;
+	}
+	return Math.max( 5, Math.round( seconds / 5 ) * 5 ) * 1000;
 }
 
 /**

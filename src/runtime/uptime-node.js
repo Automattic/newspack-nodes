@@ -9,12 +9,12 @@ import { PollerNode } from './poller-node';
 
 /**
  * Cadence in milliseconds. The reading is a running clock, so the base
- * poller's 10s leaves it visibly behind. 5s is a harmonic of the same grid
- * (ADR-17) — every second 5s boundary is a 10s one — so the faster poll still
- * meets the slower ones on a tick and leaves in their POST, where an
- * off-harmonic cadence would buy a request of its own.
+ * poller's 10s leaves it visibly behind, and a poll this often also keeps the
+ * viewed worker's SSE stream from idling out. 2s is a harmonic of the same
+ * grid (ADR-17), so it still meets the slower polls on a tick and leaves in
+ * their POST, where an off-harmonic cadence would buy a request of its own.
  */
-const UPTIME_INTERVAL_MS = 5000;
+const UPTIME_INTERVAL_MS = 2000;
 
 /**
  * The `_uptime` node: poll `uptime` and publish the elapsed run

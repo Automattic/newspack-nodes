@@ -2452,9 +2452,9 @@ describe( 'Inspector (view mode)', () => {
 
 // Activity window = 60 samples × poll interval (scales), not a fixed ~60s.
 describe( 'formatActivityWindow', () => {
-	it( 'reads ~5m for a small graph (poll cadence floored at 5s)', () => {
-		// 50 nodes -> floored 5s poll -> 60 * 5s = 300s = 5m.
-		expect( formatActivityWindow( 50 ) ).toBe( 'last ~5m' );
+	it( 'reads ~2m for a small graph (polled every 2s)', () => {
+		// 50 nodes -> 2s poll -> 60 * 2s = 120s = 2m.
+		expect( formatActivityWindow( 50 ) ).toBe( 'last ~2m' );
 	} );
 
 	it( 'scales to minutes for a large graph polled less often', () => {

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The console polls a small worker graph every 2 seconds rather than 5.**
+  `_metadata` polls a graph of up to 200 nodes every 2 seconds and scales
+  larger ones as before, and `_uptime` polls every 2 seconds. A viewed
+  worker's SSE stream idles out after `sse_idle_timeout` (5 seconds), so a
+  5-second poll let it close between replies; at 2 seconds a live view keeps
+  its stream open. Both cadences stay on the shared 10-second grid (ADR-17).
+
 ## [2.65.14] - 2026-09-23
 
 ### Added
