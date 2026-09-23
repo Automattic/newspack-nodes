@@ -98,6 +98,16 @@ class MessagesStreamSlotPoolTest extends TestCase {
 		$this->assertSame( 3, $captured );
 	}
 
+	public function test_teardown_lifts_the_time_limit_a_stream_sets_on_the_process(): void {
+		\set_time_limit( 37 );
+		$this->assertSame( '37', \ini_get( 'max_execution_time' ) );
+
+		$this->tearDown();
+		$this->setUp();
+
+		$this->assertSame( '0', \ini_get( 'max_execution_time' ), 'a stream\'s limit must not bound the rest of the suite' );
+	}
+
 	public function test_stream_setup_exception_is_diagnosed_released_once_and_rethrown(): void {
 		$lease              = [ 'slot' => 6, 'owner' => 62626263 ];
 		$partition          = 5;
