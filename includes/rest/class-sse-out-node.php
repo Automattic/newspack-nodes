@@ -633,7 +633,9 @@ class SSE_Out_Node extends Node {
 	 * that channel. Everything else globs `{base}/{group}/{rest}` and yields
 	 * one Consumer per matched dir — itself for an exact name, every partition
 	 * dir for `firehose.*` — each stamped and resume-keyed by the stamp
-	 * `stamp_for()` builds from its dir basename.
+	 * `stamp_for()` builds from its dir basename. The IPC reader resumes the
+	 * same way, keyed by `$sub`, so a reconnecting console keeps the replies
+	 * written while it was away.
 	 *
 	 * The remainder after the group prefix must lead with a name character and
 	 * contain neither `/` nor `..`, which leaves `*` as the only wildcard and
@@ -668,7 +670,7 @@ class SSE_Out_Node extends Node {
 				$this->is_interactive = true;
 				$consumer             = new Consumer_Node();
 				$consumer->arguments( [ $ipc_output ] );
-				$consumer->next_offset( 'end' );
+				$consumer->next_offset( self::position_arg( $positions, $sub ) );
 				$consumer->set_stamp_as( $sub );
 				return [ $consumer ];
 			}
@@ -798,9 +800,7 @@ class SSE_Out_Node extends Node {
 		$consumer = new Consumer_Node();
 		$consumer->arguments( [ $dir ] );
 		$consumer->set_multi_writer( $this->multi_writer );
-		$consumer->next_offset(
-			isset( $positions[ $name ] ) ? self::position_arg( $positions[ $name ] ) : 'end'
-		);
+		$consumer->next_offset( self::position_arg( $positions, $name ) );
 		$consumer->set_stamp_as( $name );
 		return $consumer;
 	}
@@ -815,8 +815,8 @@ class SSE_Out_Node extends Node {
 	 * child for the whole window per reconnect, which is the residency this is
 	 * meant to give back.
 	 *
-	 * A worker IPC attach never reports idle. That consumer tail-seeks, so it is
-	 * caught up the instant it opens, and a console attaching to a quiet worker
+	 * A worker IPC attach never reports idle. A first attach tail-seeks, so it
+	 * is caught up the instant it opens, and a console attaching to a quiet worker
 	 * would be hung up on before rendering a line — then wait out the whole
 	 * advertised `retry` gap for a stream it just asked for. The window
 	 * reclaims tails nobody is reading; an attached console is someone reading.
@@ -862,15 +862,21 @@ class SSE_Out_Node extends Node {
 	}
 
 	/**
-	 * Narrow a saved-position value to a shape `Consumer_Node::next_offset()` accepts:
-	 * an exact `{segment, offset}` pair, a numeric SEEK sentinel (`SEEK_START` 0 /
-	 * `SEEK_END` -1 / `SEEK_RECENT` -2), or one of the alias words. Anything else
-	 * falls back to 'start' (next_offset's default case).
+	 * Narrow one stamp's saved position to a shape `Consumer_Node::next_offset()`
+	 * accepts: an exact `{segment, offset}` pair, a numeric SEEK sentinel
+	 * (`SEEK_START` 0 / `SEEK_END` -1 / `SEEK_RECENT` -2), or one of the alias
+	 * words. A stamp with no entry tail-seeks; any other value falls back to
+	 * 'start' (next_offset's default case).
 	 *
-	 * @param mixed $position Raw per-subscription saved position.
+	 * @param array<array-key,mixed>|null $positions Saved positions, keyed by stamp.
+	 * @param string                      $stamp     The stamp the reader carries.
 	 * @return array<array-key,mixed>|string|int A value `next_offset()` accepts.
 	 */
-	protected static function position_arg( $position ) {
+	protected static function position_arg( ?array $positions, string $stamp ) {
+		if ( ! isset( $positions[ $stamp ] ) ) {
+			return 'end';
+		}
+		$position = $positions[ $stamp ];
 		if ( \is_array( $position ) ) {
 			return $position;
 		}

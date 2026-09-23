@@ -29,6 +29,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   new `Cache_Backend::last_failure()`. The rate limit still keys on each
   line's fixed prefix, so a changing message cannot defeat it.
 
+### Fixed
+
+- **A worker console attach resumes where it stopped.** `SSE_Out_Node`
+  opened every IPC attach (`{base}/ipc/{sub}/output`) at the tail and
+  ignored the `positions` entry the browser sends on each reopen, so a
+  reconnecting topology console lost the output written during the gap,
+  command replies included. The attach now seeds its Consumer from that
+  entry through the same `position_arg()` a partition feed uses, and a
+  position in a segment retention deleted replays from the oldest segment.
+  A first attach states `-1` and still tail-seeks.
+
 ## [2.65.12] - 2026-09-23
 
 ### Added
