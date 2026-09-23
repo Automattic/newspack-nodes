@@ -148,6 +148,10 @@ abstract class TestCase extends PHPUnitTestCase {
 		if ( \class_exists( '\Newspack_Nodes\Capabilities' ) ) {
 			\Newspack_Nodes\Capabilities::$session_scope = null;
 		}
+		// A remembered session outlives its test and signs the next one's probes.
+		if ( \class_exists( '\Newspack_Nodes\Command_Auth', false ) ) {
+			( new \ReflectionProperty( \Newspack_Nodes\Command_Auth::class, 'sessions' ) )->setValue( null, [] );
+		}
 		if ( isset( $GLOBALS['_wp_actions'] ) ) {
 			$GLOBALS['_wp_actions'] = $this->saved_wp_actions;
 		}
