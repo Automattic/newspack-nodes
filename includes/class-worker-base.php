@@ -220,137 +220,6 @@ class Worker_Base {
 	}
 
 	/**
-	 * Invoke the topology closure, which hangs this worker's own nodes off the
-	 * scaffolded interpreter.
-	 *
-	 * @param callable                 $topology    Called as `( $interpreter, $partition )`.
-	 * @param Command_Interpreter_Node $interpreter The scaffolded interpreter.
-	 */
-	public function run_topology( callable $topology, Command_Interpreter_Node $interpreter ): void {
-		$topology( $interpreter, $this->partition );
-	}
-
-	/**
-	 * Build the scaffolding every worker graph starts from: `_router`,
-	 * `_command_interpreter`, `_fleet`, the `_repl` output Partition and the
-	 * anonymous IPC-input Consumer.
-	 *
-	 * The interpreter sinks into the Router and everything else sinks into the
-	 * interpreter, so a topology steers flow with `target` alone and never needs a
-	 * sink chain of its own.
-	 *
-	 * @return Command_Interpreter_Node The interpreter topology closures build on.
-	 */
-	public function build_scaffolding(): Command_Interpreter_Node {
-		// A worker VERIFIES commands: set the process-wide authorize once.
-		Command_Interpreter_Node::$default_authorize = Command_Auth::verifier();
-
-		$ipc_dir = self::ipc_dir( $this->base_dir, $this->worker_type, $this->partition );
-
-		$router = new Router_Node();
-		$router->name( Node_Names::ROUTER );
-		// Active timer so the Router fires TIMER for the hitchhike pattern.
-		$router->set_timer( Router_Node::DEFAULT_TICK_MS );
-
-		$interpreter = new Command_Interpreter_Node();
-		$interpreter->name( Node_Names::COMMAND_INTERPRETER );
-		$interpreter->sink( $router );
-
-		// @longform Peer-spawn scan: every worker revives the fleet, so
-		// supervision outlives any one process; the throttle dedupes them.
-		$interpreter->make_node( 'Fleet', Node_Names::FLEET, $this->base_dir, $this->held_lock_path() );
-
-		// The _repl output Partition, which an attached `wp nodes cli` tails.
-		if ( ! \is_dir( "{$ipc_dir}/output" ) ) {
-			if ( ! Config::write_denied( 'ipc output dir' ) ) {
-				// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
-				@\mkdir( "{$ipc_dir}/output", 0755, true );
-			}
-		}
-		// make_node names it, applies the arguments, and sinks it into us.
-		$repl = $interpreter->make_node( 'Partition', Node_Names::REPL, ...self::ipc_partition_args( "{$ipc_dir}/output" ) );
-		// Dumps exceed PIPE_BUF, and this worker is its only writer: no lock.
-		if ( $repl instanceof Partition_Node ) {
-			$repl->void_warranty();
-		}
-
-		$repl_in = $this->build_ipc_input_consumer( $ipc_dir );
-		$repl_in->sink( $interpreter );
-
-		return $interpreter;
-	}
-
-	/**
-	 * Build this worker's IPC-input Consumer with a DURABLE offsetlog so a
-	 * respawned worker resumes from its last read offset — commands queued while
-	 * it was down (fleets recycle ~10 min) aren't dropped, so a live console
-	 * reconnecting through a restart keeps getting replies. First spawn (no
-	 * checkpoint) tail-seeks to end so it doesn't replay the input partition's
-	 * retained command history. Anonymous (a pure source — never a routed TO).
-	 *
-	 * It stamps FROM as `_repl`, which is the whole reply path: a command read out
-	 * of `input/` carries that FROM, the interpreter answers TO=FROM, and the
-	 * Router hands the answer to the `_repl` Partition writing `output/`, where
-	 * the cli is reading. Addressing IS the correlation (ADR-7) — nothing else
-	 * pairs a reply with its command.
-	 *
-	 * @param string $ipc_dir This worker's IPC dir (`{base}/ipc/{type}.p{N}`).
-	 * @return Consumer_Node The consumer, unsunk; the caller wires it.
-	 */
-	public function build_ipc_input_consumer( string $ipc_dir ): Consumer_Node {
-		$input_dir = "{$ipc_dir}/input";
-		if ( ! \is_dir( $input_dir ) ) {
-			if ( ! Config::write_denied( 'ipc input dir' ) ) {
-				// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
-				@\mkdir( $input_dir, 0755, true );
-			}
-		}
-		$consumer = new Consumer_Node();
-		$consumer->arguments( [ $input_dir, "{$ipc_dir}/input.offsets" ] );
-		// Tail-seek skips stale history; a respawn's checkpoint overrides it.
-		$consumer->next_offset( 'end' );
-		$consumer->set_stamp_as( Node_Names::REPL );
-		$this->ipc_input_consumer = $consumer;
-		$this->ipc_reporter       = $consumer;
-		return $consumer;
-	}
-
-	/**
-	 * Full seven-slot geometry for an IPC scratch partition: bounded by COUNT, never
-	 * age-pruned. Declaring all five retention axes is the point — an omitted one
-	 * inherits `<config:*>`, where a min_lifetime of an hour protects every segment
-	 * from the count rule and the scratch grows without bound.
-	 *
-	 * @param string $dir Segment directory.
-	 * @return list<string>
-	 */
-	public static function ipc_partition_args( string $dir ): array {
-		return \array_map( '\strval', [
-			$dir,
-			self::IPC_SEGMENT_SIZE,
-			self::IPC_MIN_SEGMENTS,
-			self::IPC_NUM_SEGMENTS,
-			self::IPC_MAX_SEGMENTS,
-			self::IPC_MIN_LIFETIME,
-			self::IPC_LIFETIME,
-		] );
-	}
-
-	/**
-	 * Where a worker's IPC tree lives: `{base}/ipc/{type}.p{N}`. One definition,
-	 * because the fleet's own scaffolding and anything asking about another worker
-	 * must agree — this layout is the SUBSTRATE's, unlike a TSL path template, so
-	 * constructing it here is not the layout assumption a `.p<N>` parse would be.
-	 *
-	 * @param string $base_dir  Runtime state root.
-	 * @param string $type      Worker type.
-	 * @param int    $partition Partition number.
-	 */
-	public static function ipc_dir( string $base_dir, string $type, int $partition ): string {
-		return \rtrim( $base_dir, '/' ) . "/ipc/{$type}.p{$partition}";
-	}
-
-	/**
 	 * Fire-and-forget spawn POST so another process takes over after we exit.
 	 *
 	 * Routes through Core::fire_and_forget_post — the same raw-curl path the
@@ -537,6 +406,137 @@ class Worker_Base {
 			return false;
 		}
 		return \in_array( $error['type'], [ \E_ERROR, \E_PARSE, \E_CORE_ERROR, \E_COMPILE_ERROR, \E_USER_ERROR ], true );
+	}
+
+	/**
+	 * Invoke the topology closure, which hangs this worker's own nodes off the
+	 * scaffolded interpreter.
+	 *
+	 * @param callable                 $topology    Called as `( $interpreter, $partition )`.
+	 * @param Command_Interpreter_Node $interpreter The scaffolded interpreter.
+	 */
+	public function run_topology( callable $topology, Command_Interpreter_Node $interpreter ): void {
+		$topology( $interpreter, $this->partition );
+	}
+
+	/**
+	 * Build the scaffolding every worker graph starts from: `_router`,
+	 * `_command_interpreter`, `_fleet`, the `_repl` output Partition and the
+	 * anonymous IPC-input Consumer.
+	 *
+	 * The interpreter sinks into the Router and everything else sinks into the
+	 * interpreter, so a topology steers flow with `target` alone and never needs a
+	 * sink chain of its own.
+	 *
+	 * @return Command_Interpreter_Node The interpreter topology closures build on.
+	 */
+	public function build_scaffolding(): Command_Interpreter_Node {
+		// A worker VERIFIES commands: set the process-wide authorize once.
+		Command_Interpreter_Node::$default_authorize = Command_Auth::verifier();
+
+		$ipc_dir = self::ipc_dir( $this->base_dir, $this->worker_type, $this->partition );
+
+		$router = new Router_Node();
+		$router->name( Node_Names::ROUTER );
+		// Active timer so the Router fires TIMER for the hitchhike pattern.
+		$router->set_timer( Router_Node::DEFAULT_TICK_MS );
+
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( Node_Names::COMMAND_INTERPRETER );
+		$interpreter->sink( $router );
+
+		// @longform Peer-spawn scan: every worker revives the fleet, so
+		// supervision outlives any one process; the throttle dedupes them.
+		$interpreter->make_node( 'Fleet', Node_Names::FLEET, $this->base_dir, $this->held_lock_path() );
+
+		// The _repl output Partition, which an attached `wp nodes cli` tails.
+		if ( ! \is_dir( "{$ipc_dir}/output" ) ) {
+			if ( ! Config::write_denied( 'ipc output dir' ) ) {
+				// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
+				@\mkdir( "{$ipc_dir}/output", 0755, true );
+			}
+		}
+		// make_node names it, applies the arguments, and sinks it into us.
+		$repl = $interpreter->make_node( 'Partition', Node_Names::REPL, ...self::ipc_partition_args( "{$ipc_dir}/output" ) );
+		// Dumps exceed PIPE_BUF, and this worker is its only writer: no lock.
+		if ( $repl instanceof Partition_Node ) {
+			$repl->void_warranty();
+		}
+
+		$repl_in = $this->build_ipc_input_consumer( $ipc_dir );
+		$repl_in->sink( $interpreter );
+
+		return $interpreter;
+	}
+
+	/**
+	 * Build this worker's IPC-input Consumer with a DURABLE offsetlog so a
+	 * respawned worker resumes from its last read offset — commands queued while
+	 * it was down (fleets recycle ~10 min) aren't dropped, so a live console
+	 * reconnecting through a restart keeps getting replies. First spawn (no
+	 * checkpoint) tail-seeks to end so it doesn't replay the input partition's
+	 * retained command history. Anonymous (a pure source — never a routed TO).
+	 *
+	 * It stamps FROM as `_repl`, which is the whole reply path: a command read out
+	 * of `input/` carries that FROM, the interpreter answers TO=FROM, and the
+	 * Router hands the answer to the `_repl` Partition writing `output/`, where
+	 * the cli is reading. Addressing IS the correlation (ADR-7) — nothing else
+	 * pairs a reply with its command.
+	 *
+	 * @param string $ipc_dir This worker's IPC dir (`{base}/ipc/{type}.p{N}`).
+	 * @return Consumer_Node The consumer, unsunk; the caller wires it.
+	 */
+	public function build_ipc_input_consumer( string $ipc_dir ): Consumer_Node {
+		$input_dir = "{$ipc_dir}/input";
+		if ( ! \is_dir( $input_dir ) ) {
+			if ( ! Config::write_denied( 'ipc input dir' ) ) {
+				// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
+				@\mkdir( $input_dir, 0755, true );
+			}
+		}
+		$consumer = new Consumer_Node();
+		$consumer->arguments( [ $input_dir, "{$ipc_dir}/input.offsets" ] );
+		// Tail-seek skips stale history; a respawn's checkpoint overrides it.
+		$consumer->next_offset( 'end' );
+		$consumer->set_stamp_as( Node_Names::REPL );
+		$this->ipc_input_consumer = $consumer;
+		$this->ipc_reporter       = $consumer;
+		return $consumer;
+	}
+
+	/**
+	 * Full seven-slot geometry for an IPC scratch partition: bounded by COUNT, never
+	 * age-pruned. Declaring all five retention axes is the point — an omitted one
+	 * inherits `<config:*>`, where a min_lifetime of an hour protects every segment
+	 * from the count rule and the scratch grows without bound.
+	 *
+	 * @param string $dir Segment directory.
+	 * @return list<string>
+	 */
+	public static function ipc_partition_args( string $dir ): array {
+		return \array_map( '\strval', [
+			$dir,
+			self::IPC_SEGMENT_SIZE,
+			self::IPC_MIN_SEGMENTS,
+			self::IPC_NUM_SEGMENTS,
+			self::IPC_MAX_SEGMENTS,
+			self::IPC_MIN_LIFETIME,
+			self::IPC_LIFETIME,
+		] );
+	}
+
+	/**
+	 * Where a worker's IPC tree lives: `{base}/ipc/{type}.p{N}`. One definition,
+	 * because the fleet's own scaffolding and anything asking about another worker
+	 * must agree — this layout is the SUBSTRATE's, unlike a TSL path template, so
+	 * constructing it here is not the layout assumption a `.p<N>` parse would be.
+	 *
+	 * @param string $base_dir  Runtime state root.
+	 * @param string $type      Worker type.
+	 * @param int    $partition Partition number.
+	 */
+	public static function ipc_dir( string $base_dir, string $type, int $partition ): string {
+		return \rtrim( $base_dir, '/' ) . "/ipc/{$type}.p{$partition}";
 	}
 
 	/**

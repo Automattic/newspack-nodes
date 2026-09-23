@@ -489,6 +489,47 @@ class Workers_CI_Node extends Service_CI_Node {
 	}
 
 	/**
+	 * One row per active Consumer, via the canonical per-Consumer enumeration
+	 * (`CLI::consumer_rows()`, sourced from the Topic_Probe log) — shared with
+	 * `wp nodes status`, so the dashboard and the cli read positions exactly
+	 * one way.
+	 *
+	 * @param string $base_dir Substrate base directory.
+	 * @return array<int,array<string,mixed>>
+	 */
+	private static function enumerate_offsetlog_rows( string $base_dir ): array {
+		return ( new CLI( $base_dir ) )->consumer_rows();
+	}
+
+	/**
+	 * Coerce a mixed value to int the way PHP's `(int)` cast does: null and an
+	 * empty array to 0, a scalar to its int form, an object or a non-empty
+	 * array to 1.
+	 *
+	 * Written out branch by branch because static analysis refuses a cast from
+	 * `mixed` at this level. The trailing 0 covers the one type no branch names,
+	 * a resource, for which no config value has a meaningful int.
+	 *
+	 * @param mixed $v Raw value.
+	 * @return int
+	 */
+	private static function to_int( $v ): int {
+		if ( null === $v ) {
+			return 0;
+		}
+		if ( \is_array( $v ) ) {
+			return empty( $v ) ? 0 : 1;
+		}
+		if ( \is_object( $v ) ) {
+			return 1;
+		}
+		if ( \is_scalar( $v ) ) {
+			return (int) $v;
+		}
+		return 0;
+	}
+
+	/**
 	 * Pick the per-log `segment_size`: a TSL literal override applies to a concrete
 	 * partition dir when the dir name starts with the override basename AND a word
 	 * boundary follows it (the override is keyed by basename; the concrete name
@@ -575,47 +616,6 @@ class Workers_CI_Node extends Service_CI_Node {
 			$entry['cursor_offset'] = $cursor_offset;
 		}
 		return $entry;
-	}
-
-	/**
-	 * One row per active Consumer, via the canonical per-Consumer enumeration
-	 * (`CLI::consumer_rows()`, sourced from the Topic_Probe log) — shared with
-	 * `wp nodes status`, so the dashboard and the cli read positions exactly
-	 * one way.
-	 *
-	 * @param string $base_dir Substrate base directory.
-	 * @return array<int,array<string,mixed>>
-	 */
-	private static function enumerate_offsetlog_rows( string $base_dir ): array {
-		return ( new CLI( $base_dir ) )->consumer_rows();
-	}
-
-	/**
-	 * Coerce a mixed value to int the way PHP's `(int)` cast does: null and an
-	 * empty array to 0, a scalar to its int form, an object or a non-empty
-	 * array to 1.
-	 *
-	 * Written out branch by branch because static analysis refuses a cast from
-	 * `mixed` at this level. The trailing 0 covers the one type no branch names,
-	 * a resource, for which no config value has a meaningful int.
-	 *
-	 * @param mixed $v Raw value.
-	 * @return int
-	 */
-	private static function to_int( $v ): int {
-		if ( null === $v ) {
-			return 0;
-		}
-		if ( \is_array( $v ) ) {
-			return empty( $v ) ? 0 : 1;
-		}
-		if ( \is_object( $v ) ) {
-			return 1;
-		}
-		if ( \is_scalar( $v ) ) {
-			return (int) $v;
-		}
-		return 0;
 	}
 
 	/**

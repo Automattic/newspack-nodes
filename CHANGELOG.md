@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Tooling: `reorder-node-methods.php` no longer ends an arrow function at the
+  comma between a closure's parameters. It counted braces alone, so a
+  two-parameter closure left the closure scope at `$a,` and credited every
+  call in its body to the enclosing method, sorting that method's callees
+  wrongly. The scan now counts parentheses and brackets too, ending an arrow
+  function at a comma or `;` in its own list or at the bracket enclosing it.
+  Eight classes in `includes/` move to the corrected order, a pure reorder.
+
 ## [2.65.13] - 2026-09-23
 
 ### Changed
