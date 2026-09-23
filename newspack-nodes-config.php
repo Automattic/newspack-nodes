@@ -1,28 +1,6 @@
 <?php
 /**
- * Newspack Nodes (substrate) configuration — deployment OVERRIDES.
- *
- * Every key ships commented out beside the default `Settings_Schema` declares
- * in code: the schema is the definition, this file only overrides what it names
- * (ADR-20), and uncommenting one line is the whole edit. `ConfigSchemaTest`
- * parses these entries back into an array and holds them to
- * `Settings_Schema::defaults()`, key for key and value for value, so a default
- * changed in one file alone fails the suite.
- *
- * Four layers, weakest first: the schema default, this file, the file named by
- * `LOCAL_NEWSPACK_NODES_CONF`, and a stored `newspack_nodes_<key>` option.
- * PRESENCE decides the option layer rather than truthiness, so a stored '', []
- * or false beats both files — for every declared key, including the
- * `topologies` one the settings page never renders.
- *
- * Pinning is not the same as leaving a key alone: a pinned value survives a
- * later change to the schema default.
- *
- * A key the schema does not declare is reported and ignored, never thrown. The
- * deploy copies the deployment's own copy of this file over the shipped path,
- * and throwing at `plugins_loaded:-10001` would take wp-admin down with every
- * other request. A misspelled key therefore leaves the real one on its default;
- * `wp nodes doctor` and Site Health name it under `config-keys`.
+ * Newspack Nodes (substrate) configuration.
  *
  * Substrate keys only. Application keys live in
  * newspack-event-logger-nodes-config.php.
