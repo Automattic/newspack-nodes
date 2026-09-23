@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.65.15] - 2026-09-23
+
 ### Changed
 
 - **The console polls a small worker graph every 2 seconds rather than 5.**
