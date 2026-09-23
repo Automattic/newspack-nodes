@@ -174,6 +174,7 @@ abstract class TestCase extends PHPUnitTestCase {
 			\Newspack_Nodes\Rest\SSE_Out_Node::$check_slot    = null;
 			\Newspack_Nodes\Rest\SSE_Out_Node::$inspect_slot  = null;
 			\Newspack_Nodes\Rest\SSE_Out_Node::$diagnostic_log = null;
+			\Newspack_Nodes\Rest\SSE_Out_Node::$on_shutdown    = null;
 		}
 		// Restore the per-test config env that use_base_dir() may have repointed at a
 		// (now-deleted) temp config, and drop Config's memoized base/dirs. Otherwise a

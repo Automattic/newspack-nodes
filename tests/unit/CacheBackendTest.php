@@ -248,6 +248,35 @@ class CacheBackendTest extends TestCase {
 		);
 	}
 
+	public function test_read_multi_reports_a_broken_batch_to_a_caller_that_asks(): void {
+		// Empty is also what an all-miss returns; a writer merging deltas onto
+		// what it read must tell the two apart, or it overwrites stored values.
+		$memd = new class() extends InMemoryMemcached {
+			public function getMulti( array $keys, int $get_flags = 0 ): array|false {
+				return false;
+			}
+		};
+		Core::$memd                 = $memd;
+		Cache_Backend::$apcu_usable = static fn (): bool => false;
+		$backend                    = Cache_Backend::shared_first();
+		$memd->set( 'sku-4411', [ 'usd' => 4411 ], 0 );
+
+		$failed = false;
+		$this->assertSame( [], $backend->read_multi( [ 'sku-4411' ], $failed ) );
+		$this->assertTrue( $failed, 'the broken batch is reported, not read as all-miss' );
+	}
+
+	public function test_read_multi_reports_an_all_miss_as_no_failure(): void {
+		$memd                       = new InMemoryMemcached();
+		Core::$memd                 = $memd;
+		Cache_Backend::$apcu_usable = static fn (): bool => false;
+		$backend                    = Cache_Backend::shared_first();
+
+		$failed = true;
+		$this->assertSame( [], $backend->read_multi( [ 'never-stored-3120' ], $failed ) );
+		$this->assertFalse( $failed, 'a miss is an answer, not a failure' );
+	}
+
 	public function test_read_multi_of_nothing_asks_the_backend_nothing(): void {
 		$memd = new class() extends InMemoryMemcached {
 			public int $multi_calls = 0;

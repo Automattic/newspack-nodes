@@ -98,31 +98,6 @@ class MessagesStreamSlotPoolTest extends TestCase {
 		$this->assertSame( 3, $captured );
 	}
 
-	public function test_stream_enables_ignore_user_abort_before_entering_the_loop(): void {
-		$previous = \ignore_user_abort( false );
-		$ctrl     = new class() extends SSE_Out_Node {
-			public bool $ignored_user_abort = false;
-
-			protected function init_sse_headers(): void {
-				$this->ignored_user_abort = 1 === \ignore_user_abort();
-				throw new \RuntimeException( 'stop before stream exit 731' );
-			}
-		};
-		SSE_Out_Node::$acquire_slot = static fn (): array => [ 'slot' => 7, 'owner' => 42424243 ];
-		$request = new \WP_REST_Request( 'GET' );
-		$request->set_param( 'subscribe', 'firehose-workers.p3' );
-
-		try {
-			$ctrl->stream( $request );
-		} catch ( \RuntimeException $e ) {
-			$this->assertSame( 'stop before stream exit 731', $e->getMessage() );
-		} finally {
-			\ignore_user_abort( (bool) $previous );
-		}
-
-		$this->assertTrue( $ctrl->ignored_user_abort );
-	}
-
 	public function test_stream_setup_exception_is_diagnosed_released_once_and_rethrown(): void {
 		$lease              = [ 'slot' => 6, 'owner' => 62626263 ];
 		$partition          = 5;
@@ -130,7 +105,6 @@ class MessagesStreamSlotPoolTest extends TestCase {
 		$acquired_partition = null;
 		$released           = [];
 		$logged             = [];
-		$previous           = \ignore_user_abort();
 		SSE_Out_Node::$acquire_slot = static function ( int $actual_partition ) use ( &$acquired_partition, $lease ): array {
 			$acquired_partition = $actual_partition;
 			return $lease;
@@ -158,8 +132,6 @@ class MessagesStreamSlotPoolTest extends TestCase {
 			$ctrl->stream( $request );
 		} catch ( \Throwable $e ) {
 			$caught = $e;
-		} finally {
-			\ignore_user_abort( (bool) $previous );
 		}
 
 		$this->assertSame( $failure, $caught, 'the original setup exception must escape unchanged' );
@@ -246,6 +218,53 @@ class MessagesStreamSlotPoolTest extends TestCase {
 
 		$this->assertSame( $lease, $released_lease );
 		$this->assertSame( 3, $released_partition );
+	}
+
+	public function test_a_stream_registers_a_shutdown_release_that_frees_the_slot_once(): void {
+		$lease    = [ 'slot' => 5, 'owner' => 73310997 ];
+		$released = [];
+		$hook     = null;
+		SSE_Out_Node::$release_slot = static function ( array $actual_lease, int $partition ) use ( &$released ): void {
+			$released[] = [ $actual_lease, $partition ];
+		};
+		SSE_Out_Node::$on_shutdown = static function ( \Closure $release ) use ( &$hook ): void {
+			$hook = $release;
+		};
+
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->make_temp_dir( 'msg-slot-shutdown-' ) );
+		SSE_Out_Node::$check_slot = $this->boundedTicks( 2 );
+
+		\ob_start();
+		$ctrl->run_stream_loop( [ 'firehose.*' ], null, 500, $lease, 6 );
+		\ob_get_clean();
+
+		$this->assertInstanceOf( \Closure::class, $hook, 'the stream registers a shutdown release' );
+		$hook();
+		$this->assertSame( [ [ $lease, 6 ] ], $released, 'finally and shutdown together release once' );
+	}
+
+	public function test_the_shutdown_release_frees_a_slot_the_finally_never_reached(): void {
+		$lease    = [ 'slot' => 4, 'owner' => 91827364 ];
+		$released = [];
+		SSE_Out_Node::$release_slot = static function ( array $actual_lease, int $partition ) use ( &$released ): void {
+			$released[] = [ $actual_lease, $partition ];
+		};
+		// A fatal (the time limit) or an unignored abort ends the process at
+		// once: run the registered release where it is registered, as PHP would.
+		SSE_Out_Node::$on_shutdown = static function ( \Closure $release ): void {
+			$release();
+		};
+
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->make_temp_dir( 'msg-slot-shutdown-first-' ) );
+		SSE_Out_Node::$check_slot = $this->boundedTicks( 2 );
+
+		\ob_start();
+		$ctrl->run_stream_loop( [ 'firehose.*' ], null, 500, $lease, 8 );
+		\ob_get_clean();
+
+		$this->assertSame( [ [ $lease, 8 ] ], $released, 'the shutdown release frees it, and finally does not again' );
 	}
 
 	public function test_run_stream_loop_aborts_when_check_slot_returns_false(): void {

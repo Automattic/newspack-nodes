@@ -7,14 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A failed batch read is reported to a caller that asks.**
+  `Cache_Backend::read_multi()` and `Table_Node::lookup_multi()` take an
+  optional by-reference `$failed`, set true when the cache could not answer
+  the batch. A failed batch still returns what it did before, so a caller
+  that passes nothing behaves as it did; one that merges onto what it read
+  can now tell an unread key from an unstored one.
+
 ### Changed
 
 - **An idle SSE stream closes after five seconds, not fifteen.**
   `sse_idle_timeout` defaults to 5; a site that sets the key keeps its
   own value.
-- **An SSE stream runs under a 30-second PHP time limit and no longer
-  ignores a client abort.** It set no limit and ignored aborts, so a
-  stream kept its PHP process after the client went away.
+- **An SSE stream runs under a 30-second PHP time limit and ends when its
+  client goes away.** It set no limit and ignored a client abort. The
+  limit counts CPU time, so a stream waiting in its drain runs on; one
+  that spends 30 seconds of CPU ends in a fatal error. A client that
+  leaves ends the script at its next write.
+- **A stream's slot is released however the stream ends.** The release
+  also runs from a shutdown function, once, so a time-limit fatal or a
+  client abort, neither of which reaches the drain's `finally`, no longer
+  leaves the slot held until its TTL expires.
 
 ## [2.65.11] - 2026-09-22
 

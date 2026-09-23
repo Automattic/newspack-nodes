@@ -397,18 +397,24 @@ final class Cache_Backend {
 	 *
 	 * A batch that fails outright is logged rather than swallowed, because the
 	 * empty array it returns reads as "nothing stored" downstream: silently, a
-	 * reset connection renders a whole page of rows as absent.
+	 * reset connection renders a whole page of rows as absent. A caller that
+	 * merges onto what it read passes `$failed` to tell the two apart.
 	 *
-	 * @param list<string> $keys Cache keys.
+	 * @param list<string> $keys   Cache keys.
+	 * @param ?bool        $failed Set true when the batch failed outright,
+	 *                             false when it answered, misses included.
+	 * @param-out bool     $failed
 	 * @return array<string,mixed> Values for the keys that were present.
 	 */
-	public function read_multi( array $keys ): array {
+	public function read_multi( array $keys, ?bool &$failed = null ): array {
+		$failed = false;
 		if ( [] === $keys ) {
 			return [];
 		}
 		$found = null !== $this->memd ? $this->memd->getMulti( $keys ) : \apcu_fetch( $keys );
 		if ( ! \is_array( $found ) ) {
 			Core::print_less_often( 'Cache_Backend: batch read error from ', $this->backend_name() );
+			$failed = true;
 			return [];
 		}
 		$out = [];

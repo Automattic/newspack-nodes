@@ -782,7 +782,7 @@ log partitions and worker IPC partitions both surface as `Consumer_Node`
 instances drained in the same loop. Each Message reaching the `_sse` egress goes
 out as an SSE `msg` event carrying the packed Message.
 
-![A stream's life in order: the slot acquire before any header, the headers, the retry event, the graph build, the connected handshake with its 4096-byte padding flush, then the five checks of every drain tick, the finally that releases the slot, the four Closure seams and when each is called, the pool's four numbers, and the client heartbeat that alone keeps a lease alive.](img/api-sse-lifecycle.png)
+![A stream's life in order: the slot acquire before any header, the headers, the retry event, the graph build, the connected handshake with its 4096-byte padding flush, then the four checks of every drain tick, the finally that releases the slot, the four Closure seams and when each is called, the pool's four numbers, and the client heartbeat that alone keeps a lease alive.](img/api-sse-lifecycle.png)
 
 **Permission**: the fleet gate, then the READ role. No nonce — that would break
 the cross-server SSE pull, which is the aggregator's whole job, and it is why
@@ -845,7 +845,7 @@ The application controls concurrency through four optional Closure seams on
 |---|---|---|
 | `$acquire_slot` | `function ( int $partition ): array{slot:int,owner:positive-int}\|false` | Once per stream, before any header, so `false` can still answer `429 too_many_connections`. |
 | `$check_slot` | `function ( array $lease, int $partition ): bool` | Every drain tick; false takes the `disconnect` close. It only READS — refreshing the TTL belongs to the client heartbeat, and refreshing it here would let a stream nobody is reading hold its slot forever. |
-| `$release_slot` | `function ( array $lease, int $partition ): void` | From the drain's `finally`, so neither a clean close nor a throw leaves the slot held until its TTL expires. |
+| `$release_slot` | `function ( array $lease, int $partition ): void` | Once per stream, from the drain's `finally` or from a shutdown function, whichever runs first, so no close, throw, time-limit fatal or client abort leaves the slot held until its TTL expires. |
 | `$inspect_slot` | `function ( array $lease, int $partition ): array<string,int\|string>` | Only once a check has already failed, to name the backend and lease state in the diagnostic line. The healthy path never pays it. |
 
 Both stream routes draw on one host-wide pool, sized by `sse_max_streams`
