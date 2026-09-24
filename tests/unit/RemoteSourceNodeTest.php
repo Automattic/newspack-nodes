@@ -458,11 +458,7 @@ class RemoteSourceNodeTest extends TestCase {
 
 	/** A spoke's `connected` handshake naming where the stream begins. */
 	private function handshake( SSE_In_Node $sse, string $cursors ): void {
-		$m                   = Message::new_message();
-		$m[ Message::TYPE ]  = Message::TM_INFO;
-		$m[ Message::KEY ]   = 'connected';
-		$m[ Message::VALUE ] = "SLOT 7 OWNER 42424243 CURSORS {$cursors}";
-		$sse->process_sse_chunk( "event: connected\ndata: " . Message::packed( $m ) . "\n\n" );
+		$sse->process_sse_chunk( self::connected_frame( "SLOT 7 OWNER 42424243 CURSORS {$cursors}" ) );
 	}
 
 	public function test_the_handshake_cursor_resolves_a_pending_seek(): void {
@@ -511,11 +507,11 @@ class RemoteSourceNodeTest extends TestCase {
 		$sse = Core::node( 'remote-austin:sse-in' );
 		$node->set_line_mode( true );
 		foreach ( [ '5:0:30' => 'r1-121', '5:30:30' => 'r2-232', '5:60:30' => 'r3-343' ] as $crumb => $value ) {
-			$m                   = Message::new_message();
-			$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-			$m[ Message::ID ]    = $crumb;
-			$m[ Message::VALUE ] = $value;
-			$sse->process_sse_chunk( "event: msg\ndata: " . Message::packed( $m ) . "\n\n" );
+			$sse->process_sse_chunk( self::sse_frame( 'msg', [
+				Message::TYPE  => Message::TM_BYTESTREAM,
+				Message::ID    => $crumb,
+				Message::VALUE => $value,
+			] ) );
 		}
 		$node->poll(); // r1 forwarded; r2 and r3 still buffered
 		$sse->disconnect(); // the spoke's idle close
@@ -526,11 +522,11 @@ class RemoteSourceNodeTest extends TestCase {
 		\parse_str( (string) \parse_url( \end( $captured )[ \CURLOPT_URL ], PHP_URL_QUERY ), $query );
 		$asked = \json_decode( $query['positions'], true )['firehose.p0'];
 		foreach ( [ '5:90:30' => 'r4-454' ] as $crumb => $value ) {
-			$m                   = Message::new_message();
-			$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-			$m[ Message::ID ]    = $crumb;
-			$m[ Message::VALUE ] = $value;
-			$sse->process_sse_chunk( "event: msg\ndata: " . Message::packed( $m ) . "\n\n" );
+			$sse->process_sse_chunk( self::sse_frame( 'msg', [
+				Message::TYPE  => Message::TM_BYTESTREAM,
+				Message::ID    => $crumb,
+				Message::VALUE => $value,
+			] ) );
 		}
 		for ( $i = 0; $i < 4; $i++ ) {
 			$node->poll();
@@ -576,11 +572,11 @@ class RemoteSourceNodeTest extends TestCase {
 		$sse = Core::node( 'remote-austin:sse-in' );
 		$node->next_offset( Consumer_Node::SEEK_END );
 
-		$m                   = Message::new_message();
-		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$m[ Message::ID ]    = '9:4096:40';
-		$m[ Message::VALUE ] = 'first-after-seek-525';
-		$sse->process_sse_chunk( "event: msg\ndata: " . Message::packed( $m ) . "\n\n" );
+		$sse->process_sse_chunk( self::sse_frame( 'msg', [
+			Message::TYPE  => Message::TM_BYTESTREAM,
+			Message::ID    => '9:4096:40',
+			Message::VALUE => 'first-after-seek-525',
+		] ) );
 		$node->poll();
 
 		$this->assertFalse( $sse->has_pending_seek(), 'the record says where the stream began' );
@@ -1463,12 +1459,11 @@ class RemoteSourceNodeTest extends TestCase {
 		$sse = Core::node( 'remote-austin:sse-in' );
 
 		// The stamp (999) is what the resume must honor — it is the on-disk record size.
-		$m                   = Message::new_message();
-		$m[ Message::TYPE ]  = Message::TM_STRUCT;
-		$m[ Message::ID ]    = '7:200:999';
-		$m[ Message::VALUE ] = [ 'p' => 1 ];
-		$packed              = Message::packed( $m );
-		$sse->process_sse_chunk( "event: msg\ndata: {$packed}\n\n" );
+		$sse->process_sse_chunk( self::sse_frame( 'msg', [
+			Message::TYPE  => Message::TM_STRUCT,
+			Message::ID    => '7:200:999',
+			Message::VALUE => [ 'p' => 1 ],
+		] ) );
 		$node->poll();
 		$this->assertCount( 1, $spy->captured );
 
@@ -1535,12 +1530,12 @@ class RemoteSourceNodeTest extends TestCase {
 		$http = Core::node( 'remote-austin:http-out' );
 		$sse  = Core::node( 'remote-austin:sse-in' );
 
-		$m                   = Message::new_message();
-		$m[ Message::TYPE ]  = Message::TM_STRUCT;
-		$m[ Message::FROM ]  = 'some-unrelated-node';
-		$m[ Message::ID ]    = '7:1:20';
-		$m[ Message::VALUE ] = [ 'p' => 1 ];
-		$sse->process_sse_chunk( "event: msg\ndata: " . Message::packed( $m ) . "\n\n" );
+		$sse->process_sse_chunk( self::sse_frame( 'msg', [
+			Message::TYPE  => Message::TM_STRUCT,
+			Message::FROM  => 'some-unrelated-node',
+			Message::ID    => '7:1:20',
+			Message::VALUE => [ 'p' => 1 ],
+		] ) );
 		$node->poll();
 
 		$this->assertCount( 1, $spy->captured, 'stream data is relayed downstream regardless of FROM' );
@@ -1643,12 +1638,7 @@ class RemoteSourceNodeTest extends TestCase {
 	 * that tick explicit (crawl caps drain at one line per poll — one poll per delivered line).
 	 */
 	private function deliver( SSE_In_Node $sse, string $id, string $key = '', array $value = [ 'p' => 1 ] ): void {
-		$m                   = Message::new_message();
-		$m[ Message::TYPE ]  = Message::TM_STRUCT;
-		$m[ Message::ID ]    = $id;
-		$m[ Message::KEY ]   = $key;
-		$m[ Message::VALUE ] = $value;
-		$sse->process_sse_chunk( "event: msg\ndata: " . Message::packed( $m ) . "\n\n" );
+		$sse->process_sse_chunk( self::msg_frame( $id, $key, $value ) );
 		$patron = $sse->patron();
 		if ( $patron instanceof Remote_Source_Node ) {
 			$patron->poll();
@@ -1661,7 +1651,7 @@ class RemoteSourceNodeTest extends TestCase {
 	 * loop; the worker then routes to cooperative_stop).
 	 */
 	private function deliver_built( SSE_In_Node $sse, array $m ): void {
-		$sse->process_sse_chunk( "event: msg\ndata: " . Message::packed( $m ) . "\n\n" );
+		$sse->process_sse_chunk( self::sse_frame( 'msg', $m ) );
 		$patron = $sse->patron();
 		try {
 			if ( $patron instanceof Remote_Source_Node ) {
@@ -1765,11 +1755,11 @@ class RemoteSourceNodeTest extends TestCase {
 		$sse = Core::node( 'remote-austin:sse-in' );
 
 		$sse->process_sse_chunk( "event: heartbeat\ndata: {}\n\n" );
-		$m                   = Message::new_message();
-		$m[ Message::TYPE ]  = Message::TM_STRUCT;
-		$m[ Message::KEY ]   = 'k';
-		$m[ Message::VALUE ] = [ 'a' => 1 ];
-		$sse->process_sse_chunk( "event: msg\ndata: " . Message::packed( $m ) . "\n\n" );
+		$sse->process_sse_chunk( self::sse_frame( 'msg', [
+			Message::TYPE  => Message::TM_STRUCT,
+			Message::KEY   => 'k',
+			Message::VALUE => [ 'a' => 1 ],
+		] ) );
 
 		// The aggregator's Remote_Source reports the stream stats of its SSE_In
 		// child, not its own (which never reads the wire).
@@ -1914,7 +1904,7 @@ class RemoteSourceNodeTest extends TestCase {
 
 		// Give the SSE_In a complete lease via the connected handshake.
 		$sse = Core::node( 'remote-austin:sse-in' );
-		$this->set_slot( $sse, 7, 42424243 );
+		self::set_slot( $sse, 7, 42424243 );
 
 		// Advance clock past the heartbeat interval (16s) but under the stale timeout (45s).
 		Core::$now = \microtime( true ) + 16;
@@ -1938,7 +1928,7 @@ class RemoteSourceNodeTest extends TestCase {
 		[ $node ] = $this->make_remote( 'remote-austin' );
 		$node->fire();
 		$sse = Core::node( 'remote-austin:sse-in' );
-		$this->set_slot( $sse, 5 );
+		self::set_slot( $sse, 5 );
 		Core::$now = \microtime( true ) + 16;
 		$node->fire(); // sends heartbeat, records send-time
 
@@ -1966,7 +1956,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->stub_sse_connect();
 		[ $node ] = $this->make_remote( 'remote-austin' );
 		$node->fire();
-		$this->set_slot( Core::node( 'remote-austin:sse-in' ), 7, 42424243 );
+		self::set_slot( Core::node( 'remote-austin:sse-in' ), 7, 42424243 );
 		Core::$now = 1748960000.0;
 		$node->fire();
 
@@ -2011,7 +2001,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->stub_sse_connect();
 		[ $node ] = $this->make_remote( 'remote-austin' );
 		$node->fire();
-		$this->set_slot( Core::node( 'remote-austin:sse-in' ), 7, 42424243 );
+		self::set_slot( Core::node( 'remote-austin:sse-in' ), 7, 42424243 );
 		Core::$now = 1748960000.0;
 		$node->fire();
 
@@ -2049,7 +2039,7 @@ class RemoteSourceNodeTest extends TestCase {
 		[ $node ] = $this->make_remote( 'remote-austin' );
 		$node->fire();
 		$sse = Core::node( 'remote-austin:sse-in' );
-		$this->set_slot( $sse, 5 );
+		self::set_slot( $sse, 5 );
 
 		Core::$now = 1000.0;
 		$node->fire(); // mints the heartbeat (records send-time)
@@ -2094,7 +2084,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertInstanceOf( \CurlHandle::class, $handle );
 
 		$sse->process_sse_chunk( "retry: 9000\n\n" );
-		$this->set_slot( $sse, 5 );
+		self::set_slot( $sse, 5 );
 		// The stub handle never transferred, so seed the status a live 200
 		// stream would have observed while its bytes arrived.
 		( new \ReflectionProperty( SSE_In_Node::class, 'last_http_code' ) )->setValue( $sse, 200 );
@@ -2135,7 +2125,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->drain_connect_queue();
 		$sse = Core::node( 'remote-austin:sse-in' );
 		$this->assertInstanceOf( SSE_In_Node::class, $sse );
-		$this->set_slot( $sse, 5 );
+		self::set_slot( $sse, 5 );
 		Core::$now = 1748970001.0;
 		$node->fire();
 
@@ -2314,16 +2304,6 @@ class RemoteSourceNodeTest extends TestCase {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
 		};
-	}
-
-	/** Push an exact slot lease into an SSE_In via its `connected` handshake parser. */
-	private function set_slot( SSE_In_Node $sse, int $slot, int $owner = 42424243 ): void {
-		$m                   = Message::new_message();
-		$m[ Message::TYPE ]  = Message::TM_STRUCT;
-		$m[ Message::ID ]    = '';
-		$m[ Message::KEY ]   = 'connected';
-		$m[ Message::VALUE ] = "SLOT {$slot} OWNER {$owner}";
-		$sse->process_sse_chunk( "event: connected\ndata: " . Message::packed( $m ) . "\n\n" );
 	}
 
 	/**

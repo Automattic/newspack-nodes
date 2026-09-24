@@ -73,24 +73,6 @@ class RemoteLinkNodeTest extends TestCase {
 		};
 	}
 
-	/** Push an exact slot lease into an SSE_In via its `connected` handshake parser. */
-	private function set_slot( SSE_In_Node $sse, int $slot, int $owner = 42424243 ): void {
-		$m                   = Message::new_message();
-		$m[ Message::TYPE ]  = Message::TM_STRUCT;
-		$m[ Message::KEY ]   = 'connected';
-		$m[ Message::VALUE ] = "SLOT {$slot} OWNER {$owner}";
-		$sse->process_sse_chunk( "event: connected\ndata: " . Message::packed( $m ) . "\n\n" );
-	}
-
-	/** Push a terminal `disconnect` frame into an SSE_In. */
-	private function disconnect_sse( SSE_In_Node $sse, string $key, string $value ): void {
-		$m                   = Message::new_message();
-		$m[ Message::TYPE ]  = Message::TM_ERROR;
-		$m[ Message::KEY ]   = $key;
-		$m[ Message::VALUE ] = $value;
-		$sse->process_sse_chunk( "event: disconnect\ndata: " . Message::packed( $m ) . "\n\n" );
-	}
-
 	/**
 	 * Build a named base Remote_Link wired to a capture sink + downstream target.
 	 *
@@ -560,7 +542,7 @@ class RemoteLinkNodeTest extends TestCase {
 		[ $node ] = $this->make_link( 'link-austin' );
 		$node->fire();
 		$sse = Core::node( 'link-austin:sse-in' );
-		$this->set_slot( $sse, 5 );
+		self::set_slot( $sse, 5 );
 
 		// First beat goes out; no reply ever arrives.
 		Core::$now = \microtime( true ) + Remote_Link_Node::HEARTBEAT_INTERVAL + 1;
@@ -594,7 +576,7 @@ class RemoteLinkNodeTest extends TestCase {
 		$node->fire();
 
 		$sse = Core::node( 'link-austin:sse-in' );
-		$this->set_slot( $sse, 7 );
+		self::set_slot( $sse, 7 );
 		$owner = new \ReflectionProperty( SSE_In_Node::class, 'owner' );
 		$owner->setValue( $sse, null );
 
@@ -614,7 +596,7 @@ class RemoteLinkNodeTest extends TestCase {
 		$node->fire();
 
 		$sse = Core::node( 'link-austin:sse-in' );
-		$this->set_slot( $sse, 7, 42424243 );
+		self::set_slot( $sse, 7, 42424243 );
 
 		// Past the heartbeat interval, under the stale timeout.
 		Core::$now = \microtime( true ) + Remote_Link_Node::HEARTBEAT_INTERVAL + 1;
@@ -648,7 +630,7 @@ class RemoteLinkNodeTest extends TestCase {
 		$node->fire();
 
 		$sse = Core::node( 'link-austin:sse-in' );
-		$this->set_slot( $sse, 7, 42424243 );
+		self::set_slot( $sse, 7, 42424243 );
 		// Both clocks start on the first tick that sees the lease.
 		Core::$now = $start + 1;
 		$node->fire();
@@ -693,7 +675,7 @@ class RemoteLinkNodeTest extends TestCase {
 		$start     = \microtime( true );
 		Core::$now = $start;
 		$node->fire();
-		$this->set_slot( Core::node( 'link-austin:sse-in' ), 7, 42424243 );
+		self::set_slot( Core::node( 'link-austin:sse-in' ), 7, 42424243 );
 		Core::$now = $start + 1;
 		$node->fire();
 		$epoch = $start + 1;
@@ -793,7 +775,7 @@ class RemoteLinkNodeTest extends TestCase {
 		foreach ( $links as $name => $node ) {
 			Core::$now = $start + 1;
 			$node->fire();
-			$this->set_slot( Core::node( "{$name}:sse-in" ), 3, 42424243 );
+			self::set_slot( Core::node( "{$name}:sse-in" ), 3, 42424243 );
 		}
 
 		// Walk a full cadence and record which second each link asks on.
@@ -828,8 +810,8 @@ class RemoteLinkNodeTest extends TestCase {
 		$node->fire();
 
 		$sse = Core::node( 'link-austin:sse-in' );
-		$this->set_slot( $sse, 7, 42424243 );
-		$this->disconnect_sse( $sse, 'slot_lease_lost', 'SSE slot lease lost' );
+		self::set_slot( $sse, 7, 42424243 );
+		$sse->process_sse_chunk( self::disconnect_frame( 'slot_lease_lost', 'SSE slot lease lost' ) );
 
 		Core::$now = 1000.0 + Remote_Link_Node::HEARTBEAT_INTERVAL + 1;
 		$node->fire();
@@ -851,7 +833,7 @@ class RemoteLinkNodeTest extends TestCase {
 		$node->fire();
 
 		$sse = Core::node( 'link-austin:sse-in' );
-		$this->set_slot( $sse, 8, 51515153 );
+		self::set_slot( $sse, 8, 51515153 );
 		$sse->disconnect();
 		SSE_In_Node::$curl_dispatch = static fn ( array $opts ): bool => false;
 
@@ -910,7 +892,7 @@ class RemoteLinkNodeTest extends TestCase {
 		$this->stub_sse_connect();
 		[ $node ] = $this->make_link( 'link-austin' );
 		$node->fire();
-		$this->set_slot( Core::node( 'link-austin:sse-in' ), 5 );
+		self::set_slot( Core::node( 'link-austin:sse-in' ), 5 );
 		Command_Auth::remember_session( 'austin', \str_repeat( 'b', 32 ), 'heartbeat-session-key' );
 
 		Core::$now = \microtime( true ) + Remote_Link_Node::HEARTBEAT_INTERVAL + 1;
@@ -929,7 +911,7 @@ class RemoteLinkNodeTest extends TestCase {
 		$this->stub_sse_connect();
 		[ $node ] = $this->make_link( 'link-austin' );
 		$node->fire();
-		$this->set_slot( Core::node( 'link-austin:sse-in' ), 5 );
+		self::set_slot( Core::node( 'link-austin:sse-in' ), 5 );
 		Command_Auth::forget_session( 'austin' );
 
 		Core::$now = \microtime( true ) + Remote_Link_Node::HEARTBEAT_INTERVAL + 1;
@@ -953,7 +935,7 @@ class RemoteLinkNodeTest extends TestCase {
 		$this->stub_sse_connect();
 		[ $node ] = $this->make_link( 'link-austin' );
 		$node->fire();
-		$this->set_slot( Core::node( 'link-austin:sse-in' ), 5 );
+		self::set_slot( Core::node( 'link-austin:sse-in' ), 5 );
 
 		Core::$now = 1000 + Remote_Link_Node::HEARTBEAT_INTERVAL;
 		$node->fire();
@@ -1050,11 +1032,11 @@ class RemoteLinkNodeTest extends TestCase {
 		$sse = Core::node( 'link-austin:sse-in' );
 
 		$sse->process_sse_chunk( "event: heartbeat\ndata: {}\n\n" );
-		$m                   = Message::new_message();
-		$m[ Message::TYPE ]  = Message::TM_STRUCT;
-		$m[ Message::KEY ]   = 'k';
-		$m[ Message::VALUE ] = [ 'a' => 1 ];
-		$sse->process_sse_chunk( "event: msg\ndata: " . Message::packed( $m ) . "\n\n" );
+		$sse->process_sse_chunk( self::sse_frame( 'msg', [
+			Message::TYPE  => Message::TM_STRUCT,
+			Message::KEY   => 'k',
+			Message::VALUE => [ 'a' => 1 ],
+		] ) );
 
 		$this->assertGreaterThan( 0, $sse->bytes_read() );
 		$this->assertSame( $sse->bytes_read(), $node->bytes_read() );
@@ -1092,12 +1074,12 @@ class RemoteLinkNodeTest extends TestCase {
 		$node->fire();
 		$sse = Core::node( 'link-austin:sse-in' );
 
-		$m                   = Message::new_message();
-		$m[ Message::TYPE ]  = Message::TM_STRUCT;
-		$m[ Message::ID ]    = '1:0';
-		$m[ Message::KEY ]   = 'req';
-		$m[ Message::VALUE ] = [ 'rid' => 'abc' ];
-		$sse->process_sse_chunk( "event: msg\ndata: " . Message::packed( $m ) . "\n\n" );
+		$sse->process_sse_chunk( self::sse_frame( 'msg', [
+			Message::TYPE  => Message::TM_STRUCT,
+			Message::ID    => '1:0',
+			Message::KEY   => 'req',
+			Message::VALUE => [ 'rid' => 'abc' ],
+		] ) );
 
 		$this->assertCount( 1, $sink->captured );
 		$this->assertSame( 'downstream', $sink->captured[0][ Message::TO ], 'a set target forces TO' );
@@ -1114,11 +1096,11 @@ class RemoteLinkNodeTest extends TestCase {
 		$node->fire();
 		$sse = Core::node( 'link-austin:sse-in' );
 
-		$m                   = Message::new_message();
-		$m[ Message::TYPE ]  = Message::TM_STRUCT;
-		$m[ Message::FROM ]  = '_output/5';
-		$m[ Message::VALUE ] = [ 'x' => 1 ];
-		$sse->process_sse_chunk( "event: msg\ndata: " . Message::packed( $m ) . "\n\n" );
+		$sse->process_sse_chunk( self::sse_frame( 'msg', [
+			Message::TYPE  => Message::TM_STRUCT,
+			Message::FROM  => '_output/5',
+			Message::VALUE => [ 'x' => 1 ],
+		] ) );
 
 		$this->assertCount( 1, $sink->captured );
 		$this->assertSame( 'link-austin:sse-in/_output/5', $sink->captured[0][ Message::FROM ], 'FROM is prepended with the SSE_In sibling name' );
@@ -1144,11 +1126,11 @@ class RemoteLinkNodeTest extends TestCase {
 			Core::node( 'link-austin:http-out' )->allow_replies_to( $to );
 		}
 
-		$m                   = Message::new_message();
-		$m[ Message::TYPE ]  = Message::TM_STRUCT;
-		$m[ Message::TO ]    = $to;
-		$m[ Message::VALUE ] = [ 'x' => 1 ];
-		Core::node( 'link-austin:sse-in' )->process_sse_chunk( "event: msg\ndata: " . Message::packed( $m ) . "\n\n" );
+		Core::node( 'link-austin:sse-in' )->process_sse_chunk( self::sse_frame( 'msg', [
+			Message::TYPE  => Message::TM_STRUCT,
+			Message::TO    => $to,
+			Message::VALUE => [ 'x' => 1 ],
+		] ) );
 		return [ $node, $sink ];
 	}
 
@@ -1178,11 +1160,11 @@ class RemoteLinkNodeTest extends TestCase {
 		$node->fire();
 		$sse = Core::node( 'link-austin:sse-in' );
 
-		$m                   = Message::new_message();
-		$m[ Message::TYPE ]  = Message::TM_STRUCT;
-		$m[ Message::FROM ]  = \str_repeat( 'a', \Newspack_Nodes\Node::MAX_FROM_SIZE );
-		$m[ Message::VALUE ] = [ 'x' => 1 ];
-		$sse->process_sse_chunk( "event: msg\ndata: " . Message::packed( $m ) . "\n\n" );
+		$sse->process_sse_chunk( self::sse_frame( 'msg', [
+			Message::TYPE  => Message::TM_STRUCT,
+			Message::FROM  => \str_repeat( 'a', \Newspack_Nodes\Node::MAX_FROM_SIZE ),
+			Message::VALUE => [ 'x' => 1 ],
+		] ) );
 
 		$this->assertCount( 0, $sink->captured, 'an over-MAX_FROM_SIZE message is dropped, not forwarded' );
 	}

@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **A command asked for from inside a tick joins that tick's POST.** The log viewers' segment rail refreshes `dump_log` from its own 10-second timer, and the refresh's `requestTick()` scheduled a second tick after the first had flushed, so `dump_log` went out in a POST of its own beside the `list_logs` and heartbeat batch. `RouterNode` now serves an ask made during a tick before it flushes, with one more pass that fires only the timers marked due. An ask made in that pass leaves its timer due for the next one-second cadence tick, so a cycle of asks costs one fire a second rather than a page that never yields.
 
+### Changed
+
+- **A busy stream reopens at once after its 30-second lifetime.** When a stream that delivered records reaches `sse_max_lifetime`, `SSE_Out_Node` sends a `retry` of 0 before closing it, and both clients, the browser's `SseInNode` and PHP's `SSE_In_Node`, reopen on it at once instead of waiting out `sse_retry_ms`. An idle close keeps the 5-second gap, which is what gives the PHP child back to a page nobody is reading, and so does a lifetime close on a stream that delivered nothing. The browser client now forgets the advertised delay when its connection ends, so a reopen that fails before advertising one backs off rather than retrying flat on the old value, and it reads a `retry` VALUE as PHP does, a canonical decimal, so an empty one is no longer a schedule of 0. An `sse_retry_ms` of 0 now sends no `retry` at open.
+
 ## [2.65.17] - 2026-09-23
 
 ### Added

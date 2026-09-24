@@ -56,36 +56,8 @@ class SseInCoverageTest extends TestCase {
 	/** Connect AND complete the `connected` handshake: an established lease. */
 	private function establish( SSE_In_Node $node ): \CurlHandle {
 		$handle = $this->connect( $node );
-		$node->process_sse_chunk( $this->connected_frame( 'SLOT 5 OWNER 90210007' ) );
+		$node->process_sse_chunk( self::connected_frame( 'SLOT 5 OWNER 90210007' ) );
 		return $handle;
-	}
-
-	/** A `msg` SSE frame whose data is a packed 7-field Message envelope. */
-	private function msg_frame( string $id, string $key, $value ): string {
-		$m                   = Message::new_message();
-		$m[ Message::TYPE ]  = Message::TM_STRUCT;
-		$m[ Message::ID ]    = $id;
-		$m[ Message::KEY ]   = $key;
-		$m[ Message::VALUE ] = $value;
-		return "event: msg\ndata: " . Message::packed( $m ) . "\n\n";
-	}
-
-	/** A `connected` SSE frame (its own event type, mirroring `heartbeat`). */
-	private function connected_frame( $value ): string {
-		$m                   = Message::new_message();
-		$m[ Message::TYPE ]  = Message::TM_INFO;
-		$m[ Message::KEY ]   = 'connected';
-		$m[ Message::VALUE ] = $value;
-		return "event: connected\ndata: " . Message::packed( $m ) . "\n\n";
-	}
-
-	/** A terminal `disconnect` SSE frame. */
-	private function disconnect_frame( string $key, string $value ): string {
-		$m                   = Message::new_message();
-		$m[ Message::TYPE ]  = Message::TM_ERROR;
-		$m[ Message::KEY ]   = $key;
-		$m[ Message::VALUE ] = $value;
-		return "event: disconnect\ndata: " . Message::packed( $m ) . "\n\n";
 	}
 
 	/** Seed the HTTP status observed while response bytes were arriving. */
@@ -212,7 +184,7 @@ class SseInCoverageTest extends TestCase {
 		$node->on_message = static function ( string $raw ) use ( &$captured ): void {
 			$captured[] = $raw;
 		};
-		$frame = $this->msg_frame( '1:0', 'req', [ 'rid' => 'abc' ] );
+		$frame = self::msg_frame( '1:0', 'req', [ 'rid' => 'abc' ] );
 
 		$this->assertSame( \strlen( $frame ), $node->on_curl_data( $handle, $frame ) );
 		$this->assertCount( 1, $captured );
@@ -280,7 +252,7 @@ class SseInCoverageTest extends TestCase {
 		[ $node ] = $this->configured_node();
 		$handle   = $this->connect( $node );
 		$node->process_sse_chunk(
-			$this->disconnect_frame( 'slot_lease_lost', 'SSE slot lease lost' )
+			self::disconnect_frame( 'slot_lease_lost', 'SSE slot lease lost' )
 		);
 
 		$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_COULDNT_CONNECT ] );
@@ -297,7 +269,7 @@ class SseInCoverageTest extends TestCase {
 		$handle   = $this->connect( $node );
 		$node->process_sse_chunk( \str_repeat( 'x', SSE_In_Node::MAX_BUFFER_SIZE + 1 ) );
 		$node->process_sse_chunk(
-			$this->disconnect_frame( 'slot_lease_lost', 'SSE slot lease lost' )
+			self::disconnect_frame( 'slot_lease_lost', 'SSE slot lease lost' )
 		);
 
 		$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_COULDNT_CONNECT ] );
@@ -323,7 +295,7 @@ class SseInCoverageTest extends TestCase {
 		Core::$now = 1748960000.25;
 		$handle    = $this->connect( $node );
 		$node->process_sse_chunk(
-			$this->connected_frame( 'SLOT 7 OWNER 42424243' )
+			self::connected_frame( 'SLOT 7 OWNER 42424243' )
 		);
 		$this->set_http_code( $node, 200 );
 		Core::$now = 1748960012.59;
@@ -347,7 +319,7 @@ class SseInCoverageTest extends TestCase {
 		Core::$now = 1748960000.0;
 		$handle    = $this->connect( $node );
 		$node->process_sse_chunk( "retry: 4500\n\n" );
-		$node->process_sse_chunk( $this->connected_frame( 'SLOT 7 OWNER 42424243' ) );
+		$node->process_sse_chunk( self::connected_frame( 'SLOT 7 OWNER 42424243' ) );
 		$this->set_http_code( $node, 200 );
 		Core::$now = 1748960100.0;
 
@@ -401,6 +373,21 @@ class SseInCoverageTest extends TestCase {
 		$this->assertFalse( $node->maybe_connect(), 'the reopen waits out the advertised delay' );
 		Core::$now = 1748960106.0;
 		$this->assertTrue( $node->maybe_connect() );
+	}
+
+	public function test_a_closing_retry_event_of_zero_reopens_at_once(): void {
+		[ $node ] = $this->configured_node();
+		Core::$now = 1748960000.0;
+		$handle    = $this->connect( $node );
+		$node->process_sse_chunk( self::retry_frame( '4500' ) );
+		$node->process_sse_chunk( self::retry_frame( '0' ) );
+		$this->set_http_code( $node, 200 );
+		Core::$now = 1748960030.0;
+		$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_OK ] );
+
+		$this->assertNull( $node->connection()['last_error'], 'a lifetime close is not a failure' );
+		$this->assertSame( 1748960030, $node->connection()['scheduled_reconnect_at'] );
+		$this->assertTrue( $node->maybe_connect(), 'a busy stream comes straight back' );
 	}
 
 	public function test_a_transport_error_still_backs_off_even_after_a_retry_hint(): void {
@@ -458,11 +445,11 @@ class SseInCoverageTest extends TestCase {
 		Core::$now = 1748960000.25;
 		$this->connect( $node );
 		$node->process_sse_chunk(
-			$this->connected_frame( 'SLOT 7 OWNER 42424243' )
+			self::connected_frame( 'SLOT 7 OWNER 42424243' )
 		);
 		$node->process_sse_chunk( "event: heartbeat\ndata: {}\n\n" );
 		$node->process_sse_chunk(
-			$this->disconnect_frame( 'slot_lease_lost', 'SSE slot lease lost' )
+			self::disconnect_frame( 'slot_lease_lost', 'SSE slot lease lost' )
 		);
 		$node->disconnect();
 		Core::$now = 1748960002.25;
@@ -520,7 +507,7 @@ class SseInCoverageTest extends TestCase {
 		$node->on_message = static function ( string $raw ) use ( &$captured ): void {
 			$captured[] = $raw;
 		};
-		$node->process_sse_chunk( $this->msg_frame( 'plainid', 'req', [ 'x' => 1 ] ) );
+		$node->process_sse_chunk( self::msg_frame( 'plainid', 'req', [ 'x' => 1 ] ) );
 		$this->assertCount( 1, $captured );
 		$this->assertSame( [ 'segment' => 0, 'offset' => 0 ], $node->position() );
 	}
@@ -528,12 +515,12 @@ class SseInCoverageTest extends TestCase {
 	public function test_msg_with_null_delivery_seam_is_dropped(): void {
 		// No owner wired the seam → the msg is silently dropped (no throw), the stream keeps draining.
 		[ $node ] = $this->configured_node();
-		$this->assertTrue( $node->process_sse_chunk( $this->msg_frame( 'a:b', 'req', [ 'x' => 1 ] ) ) );
+		$this->assertTrue( $node->process_sse_chunk( self::msg_frame( 'a:b', 'req', [ 'x' => 1 ] ) ) );
 	}
 
 	public function test_connected_envelope_with_non_string_value_is_error_not_forwarded(): void {
 		[ $node, $sink ] = $this->configured_node();
-		$node->process_sse_chunk( $this->connected_frame( [ 'SLOT' => 7 ] ) );
+		$node->process_sse_chunk( self::connected_frame( [ 'SLOT' => 7 ] ) );
 		$this->assertCount( 0, $sink->captured );
 		$this->assertFalse( $node->connection()['connected'] );
 		$this->assertStringContainsString( 'malformed connected envelope', (string) $node->connection()['last_error'] );
@@ -548,7 +535,7 @@ class SseInCoverageTest extends TestCase {
 		$node->name( 'sse-in' );
 		$node->configure( 'https://austin.example', '', '', '', 'firehose.p0', [], true, false );
 
-		$this->assertTrue( $node->process_sse_chunk( $this->msg_frame( '1:0', 'req', [ 'x' => 1 ] ) ) );
+		$this->assertTrue( $node->process_sse_chunk( self::msg_frame( '1:0', 'req', [ 'x' => 1 ] ) ) );
 	}
 
 	// ----- check_stale -----

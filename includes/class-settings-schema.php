@@ -299,7 +299,7 @@ class Settings_Schema {
 					render: [ Admin::class, 'alert_emit_interval_callback' ],
 					register_args: [ 'type' => 'integer', 'autoload' => false ],
 				),
-				// Idle-close window and reopen delay, read at stream open.
+				// Seconds without data before a stream closes clean.
 				new Field(
 					key: 'sse_idle_timeout',
 					type: 'int',
@@ -313,6 +313,7 @@ class Settings_Schema {
 					default: 30,
 					ui: false,
 				),
+				// Reopen delay; a busy stream's lifetime close sends 0 instead.
 				new Field(
 					key: 'sse_retry_ms',
 					type: 'int',

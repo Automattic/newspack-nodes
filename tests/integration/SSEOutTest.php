@@ -322,6 +322,20 @@ class SSEOutTest extends TestCase {
 		$this->assertLessThan( $connected_at, $retry_at, 'the client learns when to come back before anything else' );
 	}
 
+	public function test_a_zero_reconnect_delay_advertises_no_schedule(): void {
+		$this->set_sse_config( 900, 0 );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->make_temp_dir( 'sse-retry-none-' ) );
+		SSE_Out_Node::$check_slot = $this->boundedTicks( 1 );
+
+		\ob_start();
+		$ctrl->run_stream_loop( [ 'firehose.*' ], null, 500 );
+		$out = (string) \ob_get_clean();
+
+		$this->assertSame( [], $this->retry_values( $out ), 'a `retry` of 0 means reopen at once, so 0 must send none' );
+		$this->assertSame( 'connected', $this->split_sse_events( $out )[0]['event'] );
+	}
+
 	public function test_stream_closes_itself_after_the_configured_idle_timeout_at_eof(): void {
 		$this->set_sse_config( 1, 4500 );
 		$base = $this->make_temp_dir( 'sse-idle-close-' );
@@ -342,6 +356,7 @@ class SSEOutTest extends TestCase {
 		$this->assertFalse( $capped, 'the idle timeout, not the safety cap, must end the stream' );
 		$this->assertGreaterThanOrEqual( 1.0, $elapsed, 'the stream must survive the whole idle window' );
 		$this->assertStringNotContainsString( 'event: disconnect', $out, 'an idle close is a clean EOF, not a failure' );
+		$this->assertSame( [ '4500' ], $this->retry_values( $out ), 'an idle close keeps the advertised gap' );
 
 		$this->rmdir_recursive( $base );
 	}
@@ -621,9 +636,60 @@ class SSEOutTest extends TestCase {
 		$this->assertGreaterThanOrEqual( 17.0, $elapsed, 'the stream must not close before its lifetime' );
 		$this->assertLessThan( 18.0, $elapsed, 'the stream must close once its lifetime elapses' );
 		$this->assertStringNotContainsString( 'event: disconnect', $out, 'a lifetime close is a clean EOF, not a failure' );
+		$this->assertSame( [ '4500', '0' ], $this->retry_values( $out ), 'a busy stream closed on its lifetime sends its reader straight back' );
 		$reopened = $acquire( -1 );
 		$this->assertIsArray( $reopened, 'the reopen must find its own slot free' );
 		$this->assertSame( $lease['slot'], $reopened['slot'] );
+
+		$this->rmdir_recursive( $base );
+	}
+
+	/**
+	 * @return array<string,array{int,bool,array<int,string>}>
+	 */
+	public static function lifetime_close_cases(): array {
+		return [
+			'quiet, idle close off'          => [ 0, false, [ '4500' ] ],
+			'quiet, idle window past it'     => [ 60, false, [ '4500' ] ],
+			'busy, idle close off'           => [ 0, true, [ '4500', '0' ] ],
+			'busy, idle window past it'      => [ 60, true, [ '4500', '0' ] ],
+		];
+	}
+
+	/**
+	 * Only a stream that delivered records reopens at once; the idle window
+	 * decides nothing here, since a window at or past the lifetime never ends
+	 * a stream first.
+	 *
+	 * @param array<int,string> $expected
+	 */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'lifetime_close_cases' )]
+	public function test_a_lifetime_close_sends_zero_only_after_delivering( int $idle_s, bool $busy, array $expected ): void {
+		$this->set_sse_config( $idle_s, 4500 );
+		$this->set_sse_max_lifetime( 3 );
+		$base = $this->make_temp_dir( 'sse-lifetime-delivered-' );
+		\mkdir( "{$base}/logs/firehose.p0", 0755, true );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $base );
+		$capped   = false;
+		$deadline = Core::right_now() + 40.0;
+		SSE_Out_Node::$check_slot = static function () use ( $ctrl, $busy, $deadline, &$capped ): bool {
+			if ( $busy ) {
+				$record                   = Message::new_message();
+				$record[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+				$record[ Message::VALUE ] = "busy\n";
+				$ctrl->fill( $record );
+			}
+			$capped = Core::$now >= $deadline;
+			return ! $capped;
+		};
+
+		\ob_start();
+		$ctrl->run_stream_loop( [ 'firehose.*' ], null, 60000 );
+		$out = (string) \ob_get_clean();
+
+		$this->assertFalse( $capped, 'the lifetime bound must end the stream' );
+		$this->assertSame( $expected, $this->retry_values( $out ) );
 
 		$this->rmdir_recursive( $base );
 	}
@@ -1092,6 +1158,21 @@ class SSEOutTest extends TestCase {
 		$this->assertSame( 'unexpected_exception', $logged[0]['reason'] );
 		$this->assertSame( \LogicException::class, $logged[0]['exception_class'] );
 		$this->assertSame( 'distinct inspection failure 731', $logged[0]['exception_message'] );
+	}
+
+	/**
+	 * Every `retry` event's VALUE, in the order the stream sent them.
+	 *
+	 * @return array<int,string>
+	 */
+	private function retry_values( string $raw ): array {
+		$values = [];
+		foreach ( $this->split_sse_events( $raw ) as $event ) {
+			if ( 'retry' === $event['event'] ) {
+				$values[] = Core::as_string( \json_decode( $event['data'], true )[ Message::VALUE ] ?? null );
+			}
+		}
+		return $values;
 	}
 
 	/**

@@ -831,7 +831,7 @@ apart:
 
 | Event | Message | Meaning |
 |---|---|---|
-| `retry` | `KEY=retry`, VALUE the `sse_retry_ms` config value (default 5000) | The reopen schedule, sent first because every close relies on it. An EVENT rather than the protocol `retry:` field, since the client owns reconnect and needs the interval as data it can read. Set `sse_retry_ms` to 0 to advertise nothing — the client ignores any value at or below zero. |
+| `retry` | `KEY=retry`, VALUE the `sse_retry_ms` config value (default 5000), or 0 at a lifetime close | The reopen schedule, sent first because an idle close relies on it, and again as 0 just before the lifetime close of a stream that delivered records. An EVENT rather than the protocol `retry:` field, since the client owns reconnect and needs the interval as data it can read. The VALUE is a canonical decimal; the last one a connection carries sets the delay after its close, and 0 means at once. Set `sse_retry_ms` to 0 to advertise nothing at open: an idle close then leaves the client on its own backoff. |
 | `connected` | `KEY=connected`, VALUE the flat envelope below | The session handshake; see below. |
 | `msg` | the packed Message the egress received | One delivered record. Only these count as data, which is what defers the idle close. |
 | `heartbeat` | `KEY=heartbeat`, VALUE the tick timestamp | Liveness every `HEARTBEAT_MS = 2000`ms. Deliberately not data: a heartbeat never defers the idle close. |
@@ -841,9 +841,12 @@ The stream **closes itself after `sse_idle_timeout` seconds** (default 5)
 with no `msg` event, and **after `sse_max_lifetime` seconds open** (default
 30) however busy it is. Either is disabled at 0. The lifetime runs on the wall
 clock, from `Core::$now` against the instant the stream opened, so a session
-never holds one PHP-FPM child for its whole life: the client reopens on the
-`retry` schedule, resumes from its positions and takes its own slot over. Both
-closes are a bare EOF with no terminal event; a `disconnect` frame always
+never holds one PHP-FPM child for its whole life: the client resumes from its
+positions and takes its own slot over. After an idle close it waits out the
+`retry` schedule, which is what gives the child back to a page nobody is
+reading. A lifetime close on a stream that delivered records sends `retry` 0
+first, so a busy stream reopens at once; one that delivered nothing keeps the
+gap. Neither close sends a terminal event; a `disconnect` frame always
 means failure, and `SSE_In_Node` is the reference
 implementation for consuming one.
 
@@ -957,7 +960,7 @@ a `disconnect()`, because the sentinel is read at connect time only.
 |---|---|---|
 | `CONNECT_TIMEOUT` | 5 seconds | The connect, as `CURLOPT_CONNECTTIMEOUT`. The transfer itself is untimed (`CURLOPT_TIMEOUT` 0), which is what `check_stale()` covers instead. |
 | `HEARTBEAT_TIMEOUT` | 45 seconds | The silence `check_stale()` reads as a dead stream. `SSE_Out_Node` heartbeats every 2 seconds, so only a broken link reaches it. |
-| `INITIAL_BACKOFF` / `MAX_BACKOFF` | 1 / 30 seconds | The reconnect delay, doubling on each failure and reset to the floor by any received event. A clean 200 close on a stream that advertised a reopen delay — the `retry` event, or a plain server's `retry:` field — takes that delay instead, clamped to the same range and leaving the failure state untouched. |
+| `INITIAL_BACKOFF` / `MAX_BACKOFF` | 1 / 30 seconds | The reconnect delay, doubling on each failure and reset to the floor by any received event. A clean 200 close on a stream that advertised a reopen delay — the `retry` event, or a plain server's `retry:` field — takes that delay instead, capped at `MAX_BACKOFF` and leaving the failure state untouched; a delay of 0 reopens on the next tick. |
 | `MAX_BUFFER_SIZE` | 33554432 (32 MiB) | Received bytes holding no newline. |
 | `MAX_EVENT_SIZE` | 33554432 (32 MiB) | One event's accumulated `data:`. |
 

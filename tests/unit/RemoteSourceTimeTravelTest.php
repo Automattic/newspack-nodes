@@ -252,20 +252,16 @@ class RemoteSourceTimeTravelTest extends TestCase {
 
 	/** Deliver one spoke record, breadcrumb `$seg:$off:$len`, through SSE_In. */
 	private function deliver( SSE_In_Node $sse, string $crumb, string $value ): void {
-		$m                   = Message::new_message();
-		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$m[ Message::ID ]    = $crumb;
-		$m[ Message::VALUE ] = $value;
-		$sse->process_sse_chunk( "event: msg\ndata: " . Message::packed( $m ) . "\n\n" );
+		$sse->process_sse_chunk( self::sse_frame( 'msg', [
+			Message::TYPE  => Message::TM_BYTESTREAM,
+			Message::ID    => $crumb,
+			Message::VALUE => $value,
+		] ) );
 	}
 
 	/** The spoke's `connected` handshake, naming the stream's first position. */
 	private function handshake( SSE_In_Node $sse, string $cursors ): void {
-		$m                   = Message::new_message();
-		$m[ Message::TYPE ]  = Message::TM_INFO;
-		$m[ Message::KEY ]   = 'connected';
-		$m[ Message::VALUE ] = "SLOT 7 OWNER 42424243 CURSORS {$cursors}";
-		$sse->process_sse_chunk( "event: connected\ndata: " . Message::packed( $m ) . "\n\n" );
+		$sse->process_sse_chunk( self::connected_frame( "SLOT 7 OWNER 42424243 CURSORS {$cursors}" ) );
 	}
 
 	/** Values the downstream sink has received, in order. */

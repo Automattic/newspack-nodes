@@ -61,6 +61,15 @@ const ID_POSITION_RE = /^(\d+):(\d+):(\d+)$/;
 const LEASE_OWNER_RE = /^[1-9][0-9]*$/;
 
 /**
+ * A `retry` VALUE must be a canonical decimal, as PHP's
+ * `Core::canonical_decimal()` requires, and the delay it names is capped at
+ * `MAX_BACKOFF_MS` as `SSE_In_Node::schedule_reconnect()` caps it. PHP also
+ * rounds up to whole seconds, which the browser has no reason to copy.
+ * `Number()` alone would take `''` and `' '` as 0: reopen at once.
+ */
+const RETRY_MS_RE = /^(?:0|[1-9][0-9]*)$/;
+
+/**
  * The `Log_Discovery::GROUPS` roots a stamp keeps its prefix under.
  * `SSE_Out_Node::stamp_for()` returns a bare basename for the `logs` group and
  * `{group}/{basename}` for these two, so a position under one keys on the full
@@ -440,7 +449,8 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 	 * so a browser left to itself falls back to its own default and the two
 	 * halves of one link disagree about the cadence. Closing the stream is what
 	 * stops that built-in retry from racing this one; the backoff covers a
-	 * server that advertised nothing.
+	 * connection that advertised nothing. The last `retry` wins, so a lifetime
+	 * close's 0 reopens a busy stream at once.
 	 */
 	_scheduleReopen() {
 		if ( this._reopenTimer ) {
@@ -554,9 +564,10 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 				return;
 			}
 			this.lastEventTime = Date.now();
-			const ms = Number( unpack( e.data )[ VALUE ] );
-			if ( Number.isFinite( ms ) && ms > 0 ) {
-				this._serverRetryMs = ms;
+			const ms = unpack( e.data )[ VALUE ];
+			// 0 is a schedule: a lifetime close sends it to reopen at once.
+			if ( 'string' === typeof ms && RETRY_MS_RE.test( ms ) ) {
+				this._serverRetryMs = Math.min( MAX_BACKOFF_MS, Number( ms ) );
 			}
 		} );
 		// Idle keepalive `event: heartbeat`: snoop for liveness, don't route.
@@ -715,8 +726,8 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 	/**
 	 * Close the stream and forget everything tied to this connection: any
 	 * pending reopen, the visibility listener, the watchdog, the frame clock,
-	 * the session lease, and any terminal disconnect. Safe when nothing is
-	 * open, and `start()` calls it first.
+	 * the advertised reopen delay, the session lease, and any terminal
+	 * disconnect. Safe when nothing is open, and `start()` calls it first.
 	 */
 	close() {
 		if ( this._reopenTimer ) {
@@ -736,7 +747,8 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 		this._es = null;
 		// A later stream starts with no frame timestamp from this connection.
 		this.lastEventTime = null;
-		// Forget this connection's complete session lease and terminal event.
+		// Forget this connection's retry delay, lease and terminal event.
+		this._serverRetryMs = null;
 		this.presentedSession = null;
 		this.sessionHandle = null;
 		this.sessionSlot = null;

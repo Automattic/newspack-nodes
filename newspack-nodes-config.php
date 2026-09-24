@@ -75,8 +75,11 @@ return [
     // closes clean and the client reopens; 0 = no limit.
     // 'sse_max_lifetime'           => 30,
 
-    // Reopen delay, sent as a `retry` EVENT when the stream opens rather than
-    // as the protocol `retry:` field, because the client owns reconnect.
+    // Reopen delay, sent as a `retry` EVENT when the stream opens rather
+    // than as the protocol `retry:` field, because the client owns reconnect.
+    // A stream that delivered records sends 0 at its lifetime close: reopen
+    // at once. 0 here sends nothing at open, so an idle close falls back to
+    // the client's own backoff.
     // 'sse_retry_ms'               => 5000,
 
     // Sustained SSE streams this HOST allows; each holds a php-fpm child for

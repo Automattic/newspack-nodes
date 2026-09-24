@@ -434,8 +434,11 @@ class SSE_Out_Node extends Node {
 				$this->init_sse_headers();
 			}
 
-			// Lead with the reopen schedule; every close relies on it.
-			$this->send_sse_event( 'retry', $this->build_retry_msg() );
+			// Lead with the reopen schedule; every idle close relies on it.
+			$retry_ms = Core::num_int( Config::value( 'sse_retry_ms' ), 0 );
+			if ( $retry_ms > 0 ) {
+				$this->send_sse_event( 'retry', $this->build_retry_msg( $retry_ms ) );
+			}
 
 			// Build INSIDE try so finally cleans up (else _router collides).
 			( new Router_Node() )->name( Node_Names::ROUTER );
@@ -552,8 +555,12 @@ class SSE_Out_Node extends Node {
 						$this->flush_if_needed();
 						return false;
 					}
-					// Open a lifetime: the same clean close, however busy.
+					// Open a lifetime: a busy reader comes straight back.
 					if ( $max_lifetime > 0 && ( $now - $opened_at ) >= $max_lifetime ) {
+						// A stream that delivered nothing keeps the gap.
+						if ( 0 < $this->counter ) {
+							$this->send_sse_event( 'retry', $this->build_retry_msg( 0 ) );
+						}
 						$this->flush_if_needed();
 						return false;
 					}
@@ -1004,15 +1011,18 @@ class SSE_Out_Node extends Node {
 	/**
 	 * The reopen schedule, as an EVENT rather than the protocol `retry:` field:
 	 * the client owns reconnect, so it needs the interval as data it can read.
+	 * The last one a connection carries sets the delay after its close, and 0
+	 * means at once.
 	 *
+	 * @param int $retry_ms Milliseconds the client waits before it reopens.
 	 * @return array<int,mixed> `retry` Message envelope.
 	 */
-	private function build_retry_msg(): array {
+	private function build_retry_msg( int $retry_ms ): array {
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_INFO;
 		$message[ Message::FROM ]  = '_stream';
 		$message[ Message::KEY ]   = 'retry';
-		$message[ Message::VALUE ] = (string) Core::num_int( Config::value( 'sse_retry_ms' ), 0 );
+		$message[ Message::VALUE ] = (string) $retry_ms;
 		return $message;
 	}
 

@@ -554,8 +554,8 @@ class SSE_In_Node extends Node {
 				return true;
 			}
 			$advertised = Core::canonical_decimal( $message[ Message::VALUE ] );
-			// 0 is "no schedule", not a schedule of zero.
-			if ( null !== $advertised && $advertised > 0 ) {
+			// 0 is a schedule: a lifetime close sends it to reopen at once.
+			if ( null !== $advertised ) {
 				$this->server_retry_ms = $advertised;
 			}
 			return true;
@@ -767,12 +767,13 @@ class SSE_In_Node extends Node {
 	 * A close the server scheduled with `retry:`. Hold the advertised delay from
 	 * THIS moment — a long-lived stream has already outrun a delay measured from
 	 * its connect — and leave the failure state untouched: no error, no doubling
-	 * backoff, nothing a dashboard reads as a dead link.
+	 * backoff, nothing a dashboard reads as a dead link. A delay of 0 reopens on
+	 * the next tick.
 	 *
 	 * @param int $retry_ms The advertised reopen delay.
 	 */
 	private function schedule_reconnect( int $retry_ms ): void {
-		$seconds = \max( self::INITIAL_BACKOFF, \min( self::MAX_BACKOFF, (int) \ceil( $retry_ms / 1000 ) ) );
+		$seconds = \min( self::MAX_BACKOFF, (int) \ceil( $retry_ms / 1000 ) );
 		$this->set_state( 'RECONNECTING', "scheduled reconnect in {$seconds}s" );
 		$this->detach_handle();
 		$this->current_backoff        = $seconds;

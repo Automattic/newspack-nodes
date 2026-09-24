@@ -12,6 +12,13 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   tick's POST. A caller asking from inside a tick marks its own timer due
   with `markDue()` first, as `useBatchedPoll`'s `pollNow()` does; an
   unmarked timer waits for its cadence.
+- **A busy stream's lifetime close now reopens at once.** Just before
+  closing a stream that delivered records at `sse_max_lifetime`,
+  `SSE_Out_Node` sends a second `retry` event whose VALUE is 0. A hand-rolled
+  client keeps the LAST `retry` a connection carried, reads its VALUE as a
+  canonical decimal, treats 0 as "reopen now", and forgets the value when the
+  connection ends, so a failed reopen falls back to its own backoff. An
+  `sse_retry_ms` of 0 no longer sends a `retry` of 0 at open; it sends none.
 - **An idle `/messages/stream` or `/log/stream` connection now closes after
   five seconds of no `msg` event, not fifteen.** `sse_idle_timeout` defaults
   to 5. A site that already sets the key in a config file or as a

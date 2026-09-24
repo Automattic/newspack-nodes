@@ -76,7 +76,7 @@ stream bound.
 | `sse_slot_ttl` | 60 | 45–3600, raised to 45 rather than honoured below it | Lease lifetime in seconds |
 | `sse_idle_timeout` | 5 | none declared | Seconds without data before a stream closes clean; 0 never closes |
 | `sse_max_lifetime` | 30 | none declared | Wall-clock seconds a stream stays open, busy or not, before it closes clean; 0 never closes |
-| `sse_retry_ms` | 5000 | none declared | Milliseconds the client waits before reopening |
+| `sse_retry_ms` | 5000 | none declared | Milliseconds the client waits before reopening; after its lifetime close, a stream that delivered records reopens at once |
 
 None of the seven appears on Settings → Nodes Runtime, because [`Settings_Schema`](../includes/class-settings-schema.php)
 declares each of them `ui: false`. Set one in [`newspack-nodes-config.php`](../newspack-nodes-config.php), in
@@ -94,8 +94,8 @@ to the default `Settings_Schema` declares
 rather than to zero. Read unguarded, an operator's blank entry would collapse
 the host cap to 1. `SSE_Out_Node` reads the other three straight through
 [`Config::value()`](../includes/class-config.php) with a zero fallback, so a blank `sse_idle_timeout` or
-`sse_max_lifetime` stops that close outright and a blank `sse_retry_ms` sends a `retry` of 0 that the
-client discards in favour of its own backoff.
+`sse_max_lifetime` stops that close outright and a blank `sse_retry_ms` advertises no `retry`, leaving
+the client on its own backoff.
 
 [`Bootstrap::register_rest_routes()`](../includes/class-bootstrap.php) installs the pool's four seams on
 `SSE_Out_Node` in the pass that registers the two routes, so a stream and its
