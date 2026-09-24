@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A command asked for from inside a tick joins that tick's POST.** The log viewers' segment rail refreshes `dump_log` from its own 10-second timer, and the refresh's `requestTick()` scheduled a second tick after the first had flushed, so `dump_log` went out in a POST of its own beside the `list_logs` and heartbeat batch. `RouterNode` now serves an ask made during a tick before it flushes, with one more pass that fires only the timers marked due. An ask made in that pass leaves its timer due for the next one-second cadence tick, so a cycle of asks costs one fire a second rather than a page that never yields.
+
 ## [2.65.17] - 2026-09-23
 
 ### Added
