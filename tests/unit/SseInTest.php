@@ -40,38 +40,10 @@ class SseInTest extends TestCase {
 		return [ $node, $sink ];
 	}
 
-	/** Build a `msg` SSE frame whose data is a packed 7-field Message envelope. */
-	private function msg_frame( string $id, string $key, $value ): string {
-		$m                   = Message::new_message();
-		$m[ Message::TYPE ]  = Message::TM_STRUCT;
-		$m[ Message::ID ]    = $id;
-		$m[ Message::KEY ]   = $key;
-		$m[ Message::VALUE ] = $value;
-		return "event: msg\ndata: " . Message::packed( $m ) . "\n\n";
-	}
-
-	/** Build a `connected` SSE frame (its own event type, mirroring `heartbeat`). */
-	private function connected_frame( $value ): string {
-		$m                   = Message::new_message();
-		$m[ Message::TYPE ]  = Message::TM_INFO;
-		$m[ Message::KEY ]   = 'connected';
-		$m[ Message::VALUE ] = $value;
-		return "event: connected\ndata: " . Message::packed( $m ) . "\n\n";
-	}
-
-	/** Build a terminal `disconnect` SSE frame. */
-	private function disconnect_frame( string $key, string $value ): string {
-		$m                   = Message::new_message();
-		$m[ Message::TYPE ]  = Message::TM_ERROR;
-		$m[ Message::KEY ]   = $key;
-		$m[ Message::VALUE ] = $value;
-		return "event: disconnect\ndata: " . Message::packed( $m ) . "\n\n";
-	}
-
 	public function test_bytes_read_accumulates_received_wire_bytes(): void {
 		[ $node ] = $this->configured_node();
 		$chunk1   = "event: heartbeat\ndata: {}\n\n";
-		$chunk2   = $this->msg_frame( '1:0', 'k', [ 'a' => 1 ] );
+		$chunk2   = self::msg_frame( '1:0', 'k', [ 'a' => 1 ] );
 		$node->process_sse_chunk( $chunk1 );
 		$node->process_sse_chunk( $chunk2 );
 		$this->assertSame(
@@ -87,7 +59,7 @@ class SseInTest extends TestCase {
 	 */
 	public function test_a_partial_trailing_line_stays_buffered_until_completed(): void {
 		[ $node ] = $this->configured_node();
-		$frame    = $this->msg_frame( '1:0', 'k', [ 'a' => 1 ] );
+		$frame    = self::msg_frame( '1:0', 'k', [ 'a' => 1 ] );
 		// Split BEFORE the first newline, so nothing is parseable yet.
 		$head     = \substr( $frame, 0, 8 );
 		$tail     = \substr( $frame, 8 );
@@ -107,7 +79,7 @@ class SseInTest extends TestCase {
 	 */
 	public function test_a_terminal_frame_still_consumes_what_it_parsed(): void {
 		[ $node ] = $this->configured_node();
-		$trailing = $this->msg_frame( '9:0', 'k', [ 'z' => 1 ] );
+		$trailing = self::msg_frame( '9:0', 'k', [ 'z' => 1 ] );
 		// An unparseable disconnect envelope is a terminal parse failure.
 		$chunk    = "event: disconnect\ndata: {not json}\n\n" . $trailing;
 
@@ -122,11 +94,11 @@ class SseInTest extends TestCase {
 
 	public function test_largest_msg_sent_tracks_the_biggest_forwarded_msg(): void {
 		[ $node ] = $this->configured_node();
-		$node->process_sse_chunk( $this->msg_frame( '1:0', 'k', [ 'a' => 1 ] ) );
+		$node->process_sse_chunk( self::msg_frame( '1:0', 'k', [ 'a' => 1 ] ) );
 		$small = $node->largest_msg_sent();
 		$this->assertGreaterThan( 0, $small );
 		$node->process_sse_chunk(
-			$this->msg_frame( '2:0', 'k', [ 'blob' => \str_repeat( 'x', 1000 ) ] )
+			self::msg_frame( '2:0', 'k', [ 'blob' => \str_repeat( 'x', 1000 ) ] )
 		);
 		$this->assertGreaterThan( $small, $node->largest_msg_sent() );
 		$this->assertGreaterThanOrEqual( 1000, $node->largest_msg_sent() );
@@ -138,8 +110,8 @@ class SseInTest extends TestCase {
 		// nothing reads. Each `msg` event must bump it exactly once.
 		[ $node ] = $this->configured_node();
 		$this->assertSame( 0, $node->counter() );
-		$node->process_sse_chunk( $this->msg_frame( '1:0', 'k', [ 'a' => 1 ] ) );
-		$node->process_sse_chunk( $this->msg_frame( '2:0', 'k', [ 'b' => 2 ] ) );
+		$node->process_sse_chunk( self::msg_frame( '1:0', 'k', [ 'a' => 1 ] ) );
+		$node->process_sse_chunk( self::msg_frame( '2:0', 'k', [ 'b' => 2 ] ) );
 		$this->assertSame( 2, $node->counter(), 'counter advances once per delivered msg event' );
 	}
 
@@ -148,7 +120,7 @@ class SseInTest extends TestCase {
 		// `msg` branch, so neither may inflate the message counter.
 		[ $node ] = $this->configured_node();
 		$node->process_sse_chunk( "event: heartbeat\ndata: {}\n\n" );
-		$node->process_sse_chunk( $this->connected_frame( 'SLOT 7 OWNER 42424243' ) );
+		$node->process_sse_chunk( self::connected_frame( 'SLOT 7 OWNER 42424243' ) );
 		$this->assertSame( 0, $node->counter(), 'heartbeat/connected frames do not bump the message counter' );
 	}
 
@@ -257,7 +229,7 @@ class SseInTest extends TestCase {
 		};
 		$this->assertTrue( $node->maybe_connect() );
 
-		$node->process_sse_chunk( $this->connected_frame( 'SLOT 5 OWNER 90210007' ) );
+		$node->process_sse_chunk( self::connected_frame( 'SLOT 5 OWNER 90210007' ) );
 
 		$this->assertTrue( $node->connection()['connected'] );
 		$this->assertFalse( $node->connection()['connecting'] );
@@ -278,7 +250,7 @@ class SseInTest extends TestCase {
 	public function test_connected_handshake_consumed_and_captures_exact_lease(): void {
 		[ $node, $sink ] = $this->configured_node();
 
-		$node->process_sse_chunk( $this->connected_frame( 'SLOT 7 OWNER 42424243' ) );
+		$node->process_sse_chunk( self::connected_frame( 'SLOT 7 OWNER 42424243' ) );
 
 		$this->assertCount( 0, $sink->captured );
 		$this->assertSame( 7, $node->slot() );
@@ -294,7 +266,7 @@ class SseInTest extends TestCase {
 			$seen[] = [ $segment, $offset ];
 		};
 
-		$node->process_sse_chunk( $this->connected_frame( 'SLOT 7 OWNER 42424243 CURSORS other.p3=1:2,firehose.p0=12:345' ) );
+		$node->process_sse_chunk( self::connected_frame( 'SLOT 7 OWNER 42424243 CURSORS other.p3=1:2,firehose.p0=12:345' ) );
 
 		$this->assertSame( [ [ 12, 345 ] ], $seen );
 		$this->assertTrue( $node->connection()['connected'] );
@@ -308,7 +280,7 @@ class SseInTest extends TestCase {
 				$seen[] = [ $segment, $offset ];
 			};
 
-			$node->process_sse_chunk( $this->connected_frame( "SLOT 7 OWNER 42424243{$extra}" ) );
+			$node->process_sse_chunk( self::connected_frame( "SLOT 7 OWNER 42424243{$extra}" ) );
 
 			$this->assertSame( [], $seen, "no cursor from '{$extra}'" );
 			$this->assertTrue( $node->connection()['connected'], 'an older spoke sends no CURSORS' );
@@ -320,7 +292,7 @@ class SseInTest extends TestCase {
 	public function test_a_connected_handshake_needs_no_process_pid(): void {
 		[ $node, $sink ] = $this->configured_node();
 
-		$node->process_sse_chunk( $this->connected_frame( 'SLOT 7 OWNER 42424243' ) );
+		$node->process_sse_chunk( self::connected_frame( 'SLOT 7 OWNER 42424243' ) );
 
 		$this->assertCount( 0, $sink->captured );
 		$this->assertTrue( $node->connection()['connected'] );
@@ -330,11 +302,11 @@ class SseInTest extends TestCase {
 
 	public function test_disconnect_frame_is_consumed_and_retains_machine_key_and_display_value(): void {
 		[ $node, $sink ] = $this->configured_node();
-		$node->process_sse_chunk( $this->connected_frame( 'SLOT 7 OWNER 42424243' ) );
+		$node->process_sse_chunk( self::connected_frame( 'SLOT 7 OWNER 42424243' ) );
 
 		$this->assertTrue(
 			$node->process_sse_chunk(
-				$this->disconnect_frame( 'slot_lease_lost', 'SSE slot lease lost' )
+				self::disconnect_frame( 'slot_lease_lost', 'SSE slot lease lost' )
 			)
 		);
 
@@ -369,7 +341,7 @@ class SseInTest extends TestCase {
 	public function test_malformed_connected_lease_never_arms_heartbeat( string $value ): void {
 		[ $node, $sink ] = $this->configured_node();
 
-		$node->process_sse_chunk( $this->connected_frame( $value ) );
+		$node->process_sse_chunk( self::connected_frame( $value ) );
 
 		$this->assertCount( 0, $sink->captured );
 		$this->assertNull( $node->slot() );
@@ -489,7 +461,7 @@ class SseInTest extends TestCase {
 		};
 		$huge = \str_repeat( 'x', 8000 );
 
-		$node->process_sse_chunk( $this->msg_frame( '1:0', 'big', [ 'blob' => $huge ] ) );
+		$node->process_sse_chunk( self::msg_frame( '1:0', 'big', [ 'blob' => $huge ] ) );
 
 		$this->assertCount( 1, $captured );
 	}

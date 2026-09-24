@@ -110,6 +110,78 @@ test( "the server's retry event sets the reopen delay we schedule", () => {
 	expect( FakeEventSource.last ).not.toBe( first );
 } );
 
+test( 'a closing retry of 0 reopens a busy stream at once', () => {
+	jest.useFakeTimers();
+	const { sse } = makeSseIn();
+	sse.start();
+	const first = FakeEventSource.last;
+	const m = newMessage();
+	m[ VALUE ] = '7000';
+	first.dispatch( 'retry', JSON.stringify( m ) );
+	// The lifetime close re-advertises the schedule as "now".
+	m[ VALUE ] = '0';
+	first.dispatch( 'retry', JSON.stringify( m ) );
+
+	first.dispatchError( FakeEventSource.CONNECTING );
+	jest.advanceTimersByTime( 0 );
+	expect( FakeEventSource.last ).not.toBe( first );
+} );
+
+test.each( [ '', ' ', '4.5', '-0', '07' ] )(
+	'a retry of %j is no schedule, so the reopen backs off',
+	( junk ) => {
+		jest.useFakeTimers();
+		const { sse } = makeSseIn();
+		sse.start();
+		const first = FakeEventSource.last;
+		const m = newMessage();
+		m[ VALUE ] = junk;
+		first.dispatch( 'retry', JSON.stringify( m ) );
+
+		// `Number( '' )` is 0; read as a schedule it would reopen at once.
+		first.dispatchError( FakeEventSource.CONNECTING );
+		jest.advanceTimersByTime( DEFAULT_REOPEN_MS - 1 );
+		expect( FakeEventSource.last ).toBe( first );
+		jest.advanceTimersByTime( 1 );
+		expect( FakeEventSource.last ).not.toBe( first );
+	}
+);
+
+test( 'an advertised delay is capped at the backoff ceiling, as in PHP', () => {
+	jest.useFakeTimers();
+	const { sse } = makeSseIn();
+	sse.start();
+	const first = FakeEventSource.last;
+	const m = newMessage();
+	m[ VALUE ] = '86400000';
+	first.dispatch( 'retry', JSON.stringify( m ) );
+
+	first.dispatchError( FakeEventSource.CONNECTING );
+	jest.advanceTimersByTime( 29999 );
+	expect( FakeEventSource.last ).toBe( first );
+	jest.advanceTimersByTime( 1 );
+	expect( FakeEventSource.last ).not.toBe( first );
+} );
+
+test( 'an advertised delay belongs to the connection that sent it', () => {
+	jest.useFakeTimers();
+	const { sse } = makeSseIn();
+	sse.start();
+	const first = FakeEventSource.last;
+	const m = newMessage();
+	m[ VALUE ] = '7000';
+	first.dispatch( 'retry', JSON.stringify( m ) );
+	first.dispatchError( FakeEventSource.CONNECTING );
+	jest.advanceTimersByTime( 7000 );
+	const second = FakeEventSource.last;
+	expect( second ).not.toBe( first );
+
+	// The reopen fails before advertising anything: our backoff, not 7000.
+	second.dispatchError( FakeEventSource.CONNECTING );
+	jest.advanceTimersByTime( DEFAULT_REOPEN_MS );
+	expect( FakeEventSource.last ).not.toBe( second );
+} );
+
 test( 'a server close no longer leaves the browser to reconnect', () => {
 	jest.useFakeTimers();
 	const { sse } = makeSseIn();

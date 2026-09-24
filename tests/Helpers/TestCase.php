@@ -388,6 +388,41 @@ abstract class TestCase extends PHPUnitTestCase {
 	}
 
 	/**
+	 * One SSE event as `SSE_Out_Node` frames it: the named event carrying a
+	 * packed Message, `$fields` set over a fresh envelope by Message index.
+	 *
+	 * @param array<int,mixed> $fields Message fields, keyed by `Message::*` index.
+	 */
+	protected static function sse_frame( string $event, array $fields ): string {
+		return "event: {$event}\ndata: " . Message::packed( \array_replace( Message::new_message(), $fields ) ) . "\n\n";
+	}
+
+	/** A `msg` SSE frame: one delivered record. */
+	protected static function msg_frame( string $id, string $key, mixed $value ): string {
+		return self::sse_frame( 'msg', [ Message::TYPE => Message::TM_STRUCT, Message::ID => $id, Message::KEY => $key, Message::VALUE => $value ] );
+	}
+
+	/** A `connected` SSE frame carrying the flat handshake envelope. */
+	protected static function connected_frame( mixed $value ): string {
+		return self::sse_frame( 'connected', [ Message::TYPE => Message::TM_INFO, Message::KEY => 'connected', Message::VALUE => $value ] );
+	}
+
+	/** A `retry` SSE frame carrying the reopen delay in milliseconds. */
+	protected static function retry_frame( string $ms ): string {
+		return self::sse_frame( 'retry', [ Message::TYPE => Message::TM_INFO, Message::KEY => 'retry', Message::VALUE => $ms ] );
+	}
+
+	/** Push an exact slot lease into an SSE_In through its `connected` parser. */
+	protected static function set_slot( \Newspack_Nodes\SSE_In_Node $sse, int $slot, int $owner = 42424243 ): void {
+		$sse->process_sse_chunk( self::connected_frame( "SLOT {$slot} OWNER {$owner}" ) );
+	}
+
+	/** A terminal `disconnect` SSE frame. */
+	protected static function disconnect_frame( string $key, string $value ): string {
+		return self::sse_frame( 'disconnect', [ Message::TYPE => Message::TM_ERROR, Message::KEY => $key, Message::VALUE => $value ] );
+	}
+
+	/**
 	 * Read a Partition's segment contents and return the unpacked VALUE strings
 	 * — what tests previously asserted on raw `file_get_contents()` for. Each
 	 * line in the segment is a packed Tachikoma Message; this returns the
