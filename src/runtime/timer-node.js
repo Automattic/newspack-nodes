@@ -110,6 +110,8 @@ export class TimerNode extends Node {
 		this.isRouter = false;
 		// Grid clock of a hitchhiker over 1000ms; seconds, Core.now() scale.
 		this.lastFireTime = 0;
+		// Asked for by markDue() and not yet served by a fire or markFired().
+		this.due = false;
 		// Stamped onto each message's KEY (Tachikoma STREAM); '' = unset.
 		this.key = '';
 	}
@@ -178,6 +180,7 @@ export class TimerNode extends Node {
 			}
 			this.lastFireTime = now;
 		}
+		this.due = false;
 		this.fireCount++;
 		this.fire();
 	}
@@ -317,6 +320,7 @@ export class TimerNode extends Node {
 	/**
 	 * Due on the next tick, whatever the cadence says — what a caller means by
 	 * "this changed, poll now". The grid resumes from wherever that fire lands.
+	 * Asked from inside a tick, the Router fires it before that tick's flush.
 	 *
 	 * Only a hitchhiker above the 1s tick reads `lastFireTime`, so this changes
 	 * nothing for an own slot.
@@ -325,6 +329,7 @@ export class TimerNode extends Node {
 	 */
 	markDue() {
 		this.lastFireTime = 0;
+		this.due = true;
 	}
 
 	/**
@@ -339,6 +344,7 @@ export class TimerNode extends Node {
 	 * @return {void}
 	 */
 	markFired() {
+		this.due = false;
 		this.lastFireTime = nextBoundary( Core.now(), this.interval_ms );
 	}
 

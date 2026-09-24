@@ -1,5 +1,6 @@
 import { TimerNode, GRID_PHASE_MS } from '../timer-node';
 import { RouterNode } from '../router-node';
+import { Node } from '../node';
 import { Core } from '../core';
 import names from '../reserved-node-names.json';
 import { TYPE, VALUE, TM_BYTESTREAM } from '../message';
@@ -476,5 +477,36 @@ describe( 'hitchhike + throttle (setTimer(ms) with ms >= 1000)', () => {
 		r.notifyTimer();
 		expect( sent ).toHaveLength( 3 );
 		t.stopTimer();
+	} );
+} );
+
+// `due` means asked for and not yet served. A throttled pass serves nothing,
+// so it must leave the ask standing; `markFired()` says the caller served it.
+describe( 'due', () => {
+	function hitchhiker() {
+		const router = new RouterNode();
+		router.name = '_router';
+		const t = new TimerNode();
+		t.name = 'rail:fetch';
+		t.sink = new Node();
+		t.sink.fill = () => {};
+		t.setTimer( 10000 );
+		return t;
+	}
+
+	test( 'survives a throttled pass', () => {
+		const t = hitchhiker();
+		t.markFired();
+		t.due = true;
+		t.fireCb();
+		expect( t.fireCount ).toBe( 0 );
+		expect( t.due ).toBe( true );
+	} );
+
+	test( 'is served by markFired()', () => {
+		const t = hitchhiker();
+		t.markDue();
+		t.markFired();
+		expect( t.due ).toBe( false );
 	} );
 } );

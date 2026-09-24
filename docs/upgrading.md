@@ -6,6 +6,12 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **`RouterNode.requestTick()` called from inside a tick no longer runs a
+  second tick.** The Router serves it before that tick's flush, with one
+  more pass firing the timers marked due, so the commands they mint join the
+  tick's POST. A caller asking from inside a tick marks its own timer due
+  with `markDue()` first, as `useBatchedPoll`'s `pollNow()` does; an
+  unmarked timer waits for its cadence.
 - **An idle `/messages/stream` or `/log/stream` connection now closes after
   five seconds of no `msg` event, not fifteen.** `sse_idle_timeout` defaults
   to 5. A site that already sets the key in a config file or as a

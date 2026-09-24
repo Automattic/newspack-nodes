@@ -105,6 +105,9 @@ export class RouterNode extends TimerNode {
 		super();
 		this.isRouter = true;
 		this._tickAsked = false;
+		// Inside fireCb's bracket, and whether a tick was asked for there.
+		this._ticking = false;
+		this._askedMidTick = false;
 		this.handlingError = false;
 		this.setTimer( ROUTER_TICK_MS );
 	}
@@ -206,14 +209,28 @@ export class RouterNode extends TimerNode {
 	 * mounted last: a mount opening a bracket of its own would make that tick
 	 * pay for a second POST. The `finally` flushes even when a subscriber
 	 * throws, and trims idle profile entries while profiling is on.
+	 *
+	 * A tick asked for from INSIDE the walk — a rail refresh sending its verb
+	 * — is served in the same bracket, by one more pass firing only the
+	 * timers marked due, so its commands join this POST. That pass is the
+	 * only one: an ask it makes leaves its timer due for the next cadence
+	 * tick, so a cycle of asks costs one fire per second rather than a tab
+	 * that never yields.
 	 */
 	fireCb() {
 		this.fireCount++;
 		const http = Core.node( names.HTTP );
 		http?.lock();
+		this._ticking = true;
 		try {
 			this.notifyTimer();
+			if ( this._askedMidTick ) {
+				this._askedMidTick = false;
+				this.notifyTimer( true );
+			}
 		} finally {
+			this._ticking = false;
+			this._askedMidTick = false;
 			http?.flush();
 			if ( null !== RouterNode._profiles ) {
 				this.trimProfiles();
@@ -312,14 +329,25 @@ export class RouterNode extends TimerNode {
 	 *
 	 * Iterating `Object.keys()` walks a snapshot, so a registrant unregistering
 	 * itself or a peer from inside its own `fireCb()` cannot disturb the walk.
+	 *
+	 * @param {boolean} dueOnly Fire only the registrants due as the pass begins and still due when reached.
 	 */
-	notifyTimer() {
+	notifyTimer( dueOnly = false ) {
 		const registrations = this.registrations.TIMER;
-		for ( const name of Object.keys( registrations ) ) {
+		// Due as the pass begins; an ask made during it waits for the cadence.
+		const walk = dueOnly
+			? Object.keys( registrations ).filter(
+					( n ) => Core.node( n )?.due
+			  )
+			: Object.keys( registrations );
+		for ( const name of walk ) {
 			const node = Core.node( name );
 			if ( ! node ) {
 				this.stderr( `WARNING: ${ name } forgot to unregister` );
 				delete registrations[ name ];
+				continue;
+			}
+			if ( dueOnly && ! node.due ) {
 				continue;
 			}
 			node.fireCb();
@@ -336,11 +364,16 @@ export class RouterNode extends TimerNode {
 	 *
 	 * The window is the microtask checkpoint closing the current commit, and
 	 * the ask is cleared before the tick runs, so an ask arriving afterwards is
-	 * a later tick rather than a lost one.
+	 * a later tick rather than a lost one. An ask from inside a tick is that
+	 * tick's: `fireCb()` fires the timers marked due before the flush.
 	 *
 	 * @return {void}
 	 */
 	requestTick() {
+		if ( this._ticking ) {
+			this._askedMidTick = true;
+			return;
+		}
 		if ( this._tickAsked ) {
 			return;
 		}

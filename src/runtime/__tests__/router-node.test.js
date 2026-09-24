@@ -296,3 +296,161 @@ test( 'requestTick coalesces many asks in one commit into ONE tick', async () =>
 	await Promise.resolve();
 	expect( router.fireCount ).toBe( 2 );
 } );
+
+// A timer that asks for a tick from INSIDE one — a rail refresh sending its
+// verb — must ride the bracket it is already in. A fresh tick would open a
+// second lock/flush and put that one command in a POST of its own.
+describe( 'a tick asked for during a tick', () => {
+	function tickHarness() {
+		const router = new RouterNode();
+		router.name = '_router';
+		const http = new Node();
+		http.name = '_http';
+		http.brackets = [];
+		http.lock = () => http.brackets.push( 'lock' );
+		http.flush = () => http.brackets.push( 'flush' );
+		const fired = [];
+		const timer = ( name, ms ) => {
+			const t = new TimerNode();
+			t.name = name;
+			t.sink = new Node();
+			t.sink.fill = () => {};
+			t.register( 'FIRE', `${ name }:probe`, () => {
+				fired.push( name );
+			} );
+			t.setTimer( ms );
+			return t;
+		};
+		return { router, http, fired, timer };
+	}
+
+	test( 'fires the timer it marked due before the one flush', async () => {
+		const { router, http, fired, timer } = tickHarness();
+		const fetch = timer( 'rail:fetch', 1000 );
+		const rail = timer( 'rail:timer', 10000 );
+		rail.register( 'FIRE', 'rail:refresh', () => {
+			fetch.markDue();
+			router.requestTick();
+		} );
+
+		router.fireCb();
+		await Promise.resolve();
+
+		expect( fired ).toEqual( [ 'rail:fetch', 'rail:timer', 'rail:fetch' ] );
+		expect( http.brackets ).toEqual( [ 'lock', 'flush' ] );
+		expect( router.fireCount ).toBe( 1 );
+	} );
+
+	test( 'leaves an ask made in the extra pass due for the cadence tick', async () => {
+		const { router, http, fired, timer } = tickHarness();
+		const tail = timer( 'chain:tail', 10000 );
+		const head = timer( 'chain:head', 10000 );
+		const rail = timer( 'rail:timer', 10000 );
+		rail.register( 'FIRE', 'rail:ask', () => {
+			head.markDue();
+			router.requestTick();
+		} );
+		head.register( 'FIRE', 'head:ask', () => {
+			tail.markDue();
+			router.requestTick();
+		} );
+		// Both just fired, so only an ask brings either round again.
+		tail.markFired();
+		head.markFired();
+
+		router.fireCb();
+		await Promise.resolve();
+
+		expect( http.brackets ).toEqual( [ 'lock', 'flush' ] );
+		expect( router.fireCount ).toBe( 1 );
+		expect( fired.filter( ( n ) => 'chain:tail' === n ) ).toHaveLength( 0 );
+		expect( tail.due ).toBe( true );
+	} );
+
+	test( 'leaves it due whichever order the timers registered in', () => {
+		const { router, fired, timer } = tickHarness();
+		const head = timer( 'chain:head', 10000 );
+		const tail = timer( 'chain:tail', 10000 );
+		const rail = timer( 'rail:timer', 10000 );
+		rail.register( 'FIRE', 'rail:ask', () => {
+			head.markDue();
+			router.requestTick();
+		} );
+		head.register( 'FIRE', 'head:ask', () => {
+			tail.markDue();
+			router.requestTick();
+		} );
+		head.markFired();
+		tail.markFired();
+
+		router.fireCb();
+
+		expect( fired ).toEqual( [ 'rail:timer', 'chain:head' ] );
+		expect( tail.due ).toBe( true );
+	} );
+
+	test( 'a cycle of asks ends with the tick instead of spinning', async () => {
+		const { router, timer } = tickHarness();
+		const a = timer( 'cycle:a', 10000 );
+		const b = timer( 'cycle:b', 10000 );
+		// A cap on the asks, so a regression fails here instead of hanging.
+		let asks = 0;
+		const ask = ( other ) => () => {
+			if ( 64 > ++asks ) {
+				other.markDue();
+				router.requestTick();
+			}
+		};
+		a.register( 'FIRE', 'cycle:a:ask', ask( b ) );
+		b.register( 'FIRE', 'cycle:b:ask', ask( a ) );
+
+		router.fireCb();
+		for ( let i = 0; i < 64; i++ ) {
+			await Promise.resolve();
+		}
+
+		expect( router.fireCount ).toBe( 1 );
+	} );
+
+	test( 'clears an unserved ask when a timer throws mid-walk', () => {
+		const { router, fired, timer } = tickHarness();
+		// Re-marks itself due every fire, as a refused mint does.
+		const unsigned = timer( 'unsigned', 1000 );
+		unsigned.register( 'FIRE', 'unsigned:refused', () => {
+			unsigned.markDue();
+		} );
+		const rail = timer( 'rail:timer', 10000 );
+		rail.register( 'FIRE', 'rail:ask', () => {
+			router.requestTick();
+		} );
+		const broken = timer( 'broken', 10000 );
+		broken.register( 'FIRE', 'broken:throw', () => {
+			throw new Error( 'poller 5519 threw' );
+		} );
+
+		expect( () => router.fireCb() ).toThrow( 'poller 5519 threw' );
+		broken.stopTimer();
+		fired.length = 0;
+		router.fireCb();
+
+		expect( fired.filter( ( n ) => 'unsigned' === n ) ).toHaveLength( 1 );
+	} );
+
+	test( 'leaves a timer nobody marked due alone', async () => {
+		const { router, fired, timer } = tickHarness();
+		timer( 'status:poll', 1000 );
+		const fetch = timer( 'rail:fetch', 1000 );
+		const rail = timer( 'rail:timer', 10000 );
+		rail.register( 'FIRE', 'rail:refresh', () => {
+			fetch.markDue();
+			router.requestTick();
+		} );
+
+		router.fireCb();
+		await Promise.resolve();
+
+		expect( fired.filter( ( n ) => 'status:poll' === n ) ).toHaveLength(
+			1
+		);
+	} );
+} );
