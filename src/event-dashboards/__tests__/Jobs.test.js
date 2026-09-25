@@ -218,6 +218,17 @@ describe( 'Jobs', () => {
 		expect( titles.some( ( t ) => /latency/i.test( t ) ) ).toBe( true );
 	} );
 
+	it( 'titles each panel Y-axis with the quantity it plots', () => {
+		useNodeField.mockReturnValue( model() );
+		render( <Jobs /> );
+		expect( globalThis.__jobsPanels.map( ( p ) => p.yLabel ) ).toEqual( [
+			'Runs',
+			'Errors',
+			'Backlog',
+			'Latency',
+		] );
+	} );
+
 	it( 'lays the panels in columns no drawn chart can widen', () => {
 		// A chart SVG carries the width it measured, and a `1fr` track can
 		// never be narrower than its content: the wider panel of a row would

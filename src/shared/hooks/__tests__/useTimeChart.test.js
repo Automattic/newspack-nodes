@@ -95,7 +95,7 @@ describe( 'useTimeChart constants', () => {
 			top: 20,
 			right: 20,
 			bottom: 65,
-			left: 60,
+			left: 72,
 		} );
 	} );
 

@@ -94,7 +94,7 @@ const StackIcon = () => (
  * @param {( label: string, index: number ) => string}                          props.colorAt      The colour for a series at its place in the full list: area, stroke and legend swatch.
  * @param {string}                                                              props.title        Translated heading.
  * @param {number}                                                              props.height       Total SVG height in pixels.
- * @param {string}                                                              [props.yLabel]     Translated Y-axis title; omitted leaves the axis unlabelled.
+ * @param {string}                                                              props.yLabel       Translated Y-axis title naming the quantity; the ticks carry the unit.
  * @param {boolean}                                                             [props.stacked]    Stack the series by default; the corner toggle overrides it until the default moves.
  * @param {boolean}                                                             [props.stackable]  Offer the toggle at all; `false` for bands that must not be summed.
  * @param {string}                                                              [props.totalLabel] Translated label for the tooltip's leading column-total row, printed while the bands are stacked; omitted drops the row.
@@ -107,7 +107,7 @@ function AreaTimeChart( {
 	colorAt,
 	title,
 	height,
-	yLabel = '',
+	yLabel,
 	stacked: stackedDefault = false,
 	stackable = true,
 	totalLabel = '',

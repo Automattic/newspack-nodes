@@ -125,24 +125,28 @@ export default function Jobs() {
 			<div className="nodes-jobs__panels">
 				<TopicsChart
 					title={ __( 'Job Runs Rate', 'newspack-nodes' ) }
+					yLabel={ __( 'Runs', 'newspack-nodes' ) }
 					series={ runsSeries }
 					formatValue={ formatMsgRate }
 					fillMode={ fillModeForMetric( 'runsRate' ) }
 				/>
 				<TopicsChart
 					title={ __( 'Job Errors Rate', 'newspack-nodes' ) }
+					yLabel={ __( 'Errors', 'newspack-nodes' ) }
 					series={ errorsSeries }
 					formatValue={ formatMsgRate }
 					fillMode={ fillModeForMetric( 'errorsRate' ) }
 				/>
 				<TopicsChart
 					title={ __( 'Job Backlog', 'newspack-nodes' ) }
+					yLabel={ __( 'Backlog', 'newspack-nodes' ) }
 					series={ backlogSeries }
 					formatValue={ formatBytes }
 					fillMode={ fillModeForMetric( 'backlog' ) }
 				/>
 				<TopicsChart
 					title={ __( 'Job Queue Latency', 'newspack-nodes' ) }
+					yLabel={ __( 'Latency', 'newspack-nodes' ) }
 					series={ latencySeries }
 					formatValue={ formatMs }
 					fillMode={ fillModeForMetric( 'queueLatencyMs' ) }

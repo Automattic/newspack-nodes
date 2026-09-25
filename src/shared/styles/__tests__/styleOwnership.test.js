@@ -653,6 +653,15 @@ describe( 'canonical appearance ownership', () => {
 		}
 	} );
 
+	it( 'inks the chart Y title, which SVG would otherwise draw black', () => {
+		const declarations = mergedDeclarationsForSelectors(
+			compile( UI_ENTRY ),
+			( selector ) =>
+				selector.endsWith( '.newspack-nodes-chart__plot .y-label' )
+		);
+		expect( declarations?.fill ).toBe( 'var(--ink, var(--np-text))' );
+	} );
+
 	it( 'lays a button out above WordPress own display, once, for everyone', () => {
 		// `.wp-core-ui .button` sets `display: inline-block` and is two classes
 		// deep, so any single-class component rule that tried to lay a button

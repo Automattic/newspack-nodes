@@ -148,8 +148,4 @@ describe( 'drawAxes', () => {
 		expect( label.getAttribute( 'x' ) ).toBe( String( 0 - INNER_H / 2 ) );
 		expect( label.getAttribute( 'dy' ) ).toBe( '1em' );
 	} );
-
-	it( 'leaves the value axis unlabelled when no title is given', () => {
-		expect( frame().querySelector( 'text.y-label' ) ).toBeNull();
-	} );
 } );

@@ -343,24 +343,28 @@ export default function Overview( { headerControlsSlot } ) {
 			<div className="nodes-overview__panels">
 				<TopicsChart
 					title={ __( 'Topics Message Rate', 'newspack-nodes' ) }
+					yLabel={ __( 'Messages', 'newspack-nodes' ) }
 					series={ msgRateSeries }
 					formatValue={ formatMsgRate }
 					fillMode={ fillModeForMetric( 'msgRate' ) }
 				/>
 				<TopicsChart
 					title={ __( 'Topics Byte Rate', 'newspack-nodes' ) }
+					yLabel={ __( 'Bytes', 'newspack-nodes' ) }
 					series={ byteRateSeries }
 					formatValue={ formatByteRate }
 					fillMode={ fillModeForMetric( 'byteRate' ) }
 				/>
 				<TopicsChart
 					title={ __( 'Topics Backlog', 'newspack-nodes' ) }
+					yLabel={ __( 'Backlog', 'newspack-nodes' ) }
 					series={ backlogSeries }
 					formatValue={ formatBytes }
 					fillMode={ fillModeForMetric( 'backlog' ) }
 				/>
 				<TopicsChart
 					title={ __( 'Topics Cache Size', 'newspack-nodes' ) }
+					yLabel={ __( 'Cache Size', 'newspack-nodes' ) }
 					series={ cacheSizeSeries }
 					formatValue={ formatBytes }
 					fillMode={ fillModeForMetric( 'cacheSize' ) }

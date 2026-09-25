@@ -82,6 +82,13 @@ describe( 'TopicsChart', () => {
 		).not.toBeNull();
 	} );
 
+	it( 'titles its Y-axis with the label the caller names', () => {
+		const { container } = mount( { yLabel: 'Messages' } );
+		expect( container.querySelector( '.y-label' ).textContent ).toBe(
+			'Messages'
+		);
+	} );
+
 	it( 'ranks the legend busiest first and colours each rank by its skin token', () => {
 		const { container } = mount();
 		expect( legendLabels( container ) ).toEqual( [ 'high.p0', 'low.p0' ] );
