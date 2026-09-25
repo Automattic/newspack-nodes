@@ -298,6 +298,21 @@ describe( 'Overview fleet board', () => {
 		] );
 	} );
 
+	it( 'titles each Topics panel Y-axis with the quantity it plots', () => {
+		useTopologyManager.mockReturnValue(
+			hookValue( {
+				topologies: [ active( 'alpha', 'ok', [ worker() ] ) ],
+			} )
+		);
+		render( <Overview /> );
+		expect( globalThis.__topicsPanels.map( ( p ) => p.yLabel ) ).toEqual( [
+			'Messages',
+			'Bytes',
+			'Backlog',
+			'Cache Size',
+		] );
+	} );
+
 	it( 'feeds each panel its per-topic 24h series rolled up from the probe view', () => {
 		useNodeField.mockReturnValue( {
 			consumers: {

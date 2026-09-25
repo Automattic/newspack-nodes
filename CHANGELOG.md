@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The Topics, Jobs and overlay rate charts title their Y-axis.** All ten panels drew bare ticks. `TopicsChart` now takes a `yLabel`, and each panel names its quantity: Messages, Bytes, Backlog and Cache Size on Overview; Runs, Errors, Backlog and Latency on Jobs; Messages and Bytes in the debug overlay. The ticks still carry the unit.
+- **The chart role inks the Y-axis title.** `.newspack-nodes-chart__plot` painted the tick text but not `.y-label`, so a title drew in SVG's default black, unreadable on a dark skin. It now takes `--ink`.
+- **A Y-axis title no longer collides with wide ticks.** The plot's left inset was 60px, and a tick seven characters or wider — `800ms/s`, `768 KB/s` — ran under the rotated title. `MARGIN.left` is now 72.
+
+### Changed
+
+- **`AreaTimeChart` and `drawAxes` require `yLabel`.** An omitted title left the axis silently bare, which is how ten panels shipped without one; `lint:types` now refuses the omission, and the unlabelled branch is gone.
+
 ## [2.65.18] - 2026-09-24
 
 ### Fixed

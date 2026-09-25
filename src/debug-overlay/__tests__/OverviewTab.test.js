@@ -43,6 +43,17 @@ test( 'renders the metric cards and both rate-chart panels', () => {
 	).toBe( true );
 } );
 
+test( 'titles each rate chart Y-axis with the quantity it plots', () => {
+	const now = Math.floor( Date.now() / 1000 );
+	IoTelemetry.sample( now - 1 );
+	IoTelemetry.sample( now );
+	const { container } = renderTab();
+	const yLabels = [ ...container.querySelectorAll( '.y-label' ) ].map(
+		( el ) => el.textContent
+	);
+	expect( yLabels ).toEqual( [ 'Messages', 'Bytes' ] );
+} );
+
 test( 'shows a client uptime card (time since the page loaded)', () => {
 	const { getByTestId } = renderTab();
 	const card = getByTestId( 'overview-card-client-uptime' );

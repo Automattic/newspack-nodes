@@ -6,6 +6,12 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **`AreaTimeChart` and `drawAxes` require `yLabel`.** An omitted title used
+  to leave the axis bare; `lint:types` now refuses the call, and at runtime
+  the axis draws an empty title. Pass the translated name of the quantity the
+  chart plots — `Requests`, `Messages`, `Latency` — and leave the unit to the
+  ticks. The chart role now inks the title, so a consumer's own `.y-label`
+  fill can go once its `version_at_least()` floor reaches this release.
 - **`RouterNode.requestTick()` called from inside a tick no longer runs a
   second tick.** The Router serves it before that tick's flush, with one
   more pass firing the timers marked due, so the commands they mint join the

@@ -5,10 +5,11 @@
  * Nothing here knows which metric it draws, so one component serves the
  * Overview dashboard's four panels (message rate, byte rate, backlog, cache
  * size), the Jobs dashboard's four, and the debug overlay's two. The metric
- * arrives as data: the `series` to draw, the `formatValue` its axis ticks and
- * tooltip rows print through, and the `fillMode` saying how a bucket aggregates
- * its samples and what an empty one holds. `topicChartSeries` builds the series
- * on the dashboards, `overviewChartSeries` in the overlay.
+ * arrives as data: the `series` to draw, the `yLabel` naming the quantity, the
+ * `formatValue` its axis ticks and tooltip rows print through, and the
+ * `fillMode` saying how a bucket aggregates its samples and what an empty one
+ * holds. `topicChartSeries` builds the series on the dashboards,
+ * `overviewChartSeries` in the overlay.
  *
  * `buildAlignedSeries` snaps every topic onto ONE epoch-aligned bucket grid
  * first, because each worker runs its own `Topic_Probe` on an independent 15s
@@ -59,12 +60,13 @@ export const TopicsChart = memo(
 	 *
 	 * @param {Object}        props             Component props.
 	 * @param {string}        props.title       Panel heading, e.g. "Topics Message Rate".
+	 * @param {string}        props.yLabel      Y-axis title naming the quantity, e.g. "Messages"; the ticks carry the unit.
 	 * @param {?Object}       props.series      `{ [topic]: { points:[{ts,value,weight}], max, avg } }` (ts in seconds); empty or absent wipes the panel.
 	 * @param {AxisFormatter} props.formatValue Formats a value for the Y-axis ticks and the tooltip rows; a `tickValues` property on it ticks the axis in its own unit.
 	 * @param {Object}        [props.fillMode]  Fill/aggregate mode from `fillModeForMetric`; an omitted mode zero-fills and re-divides per bucket, as a rate wants.
 	 * @return {import('react').ReactElement} The rendered panel.
 	 */
-	function TopicsChart( { title, series, formatValue, fillMode } ) {
+	function TopicsChart( { title, yLabel, series, formatValue, fillMode } ) {
 		const chartState = useMemo(
 			() => buildAlignedSeries( series, MAX_POINTS, fillMode ),
 			[ series, fillMode ]
@@ -79,6 +81,7 @@ export const TopicsChart = memo(
 					yFormatFor={ yFormatFor }
 					colorAt={ rankColor }
 					title={ title }
+					yLabel={ yLabel }
 					height={ HEIGHT }
 				/>
 			</div>

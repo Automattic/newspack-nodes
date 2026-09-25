@@ -72,7 +72,7 @@ describe( 'openFrame', () => {
 			openFrame( el, height );
 			expect( el.innerHTML ).toBe(
 				`<svg width="${ WIDTH }" height="${ height }">` +
-					'<g transform="translate(60,20)"></g></svg>'
+					`<g transform="translate(${ MARGIN.left },${ MARGIN.top })"></g></svg>`
 			);
 		} );
 	} );

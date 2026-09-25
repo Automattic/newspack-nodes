@@ -257,11 +257,13 @@ export default function OverviewTab( { publishHeader } ) {
 			<div className="nodes-overview__panels">
 				<TopicsChart
 					title={ __( 'Message Rate', 'newspack-nodes' ) }
+					yLabel={ __( 'Messages', 'newspack-nodes' ) }
 					series={ msgRateSeries }
 					formatValue={ formatMsgRate }
 				/>
 				<TopicsChart
 					title={ __( 'Byte Rate', 'newspack-nodes' ) }
+					yLabel={ __( 'Bytes', 'newspack-nodes' ) }
 					series={ byteRateSeries }
 					formatValue={ formatByteRate }
 				/>

@@ -12,10 +12,9 @@
  * them at once.
  *
  * Nothing here reads a host global. The retention window, the series and the
- * formatters all arrive as arguments, and a parameter a caller may not pass
- * yet carries a default — `retentionSeconds`, `yLabel` — so a consumer built
- * against an older substrate degrades to the plainer chart rather than
- * failing on a signature it has never seen.
+ * formatters all arrive as arguments. `retentionSeconds` carries a default, so
+ * a consumer built against an older substrate keeps the stock window rather
+ * than failing on a signature it has never seen.
  */
 
 import { useCallback, useEffect, useRef } from '@wordpress/element';
@@ -58,13 +57,13 @@ export const NUM_BUCKETS = Math.ceil(
 
 /**
  * Plot-box insets in pixels, each side sized by what it has to clear:
- * `bottom` the time labels `drawAxes` rotates 45 degrees, `left` the value
- * labels plus the rotated axis title, and `right` the last time label's
- * overhang. The legend is not in the SVG: `ChartLegend` sits beside it in the
- * `.newspack-nodes-chart__row`. Marks scale to the inner box, so a chart never
- * draws over them.
+ * `bottom` the time labels `drawAxes` rotates 45 degrees, `left` the rotated
+ * axis title plus value labels as wide as `768 KB/s` or `1000000`, and `right`
+ * the last time label's overhang. The legend is not in the SVG: `ChartLegend`
+ * sits beside it in the `.newspack-nodes-chart__row`. Marks scale to the inner
+ * box, so a chart never draws over them.
  */
-export const MARGIN = { top: 20, right: 20, bottom: 65, left: 60 };
+export const MARGIN = { top: 20, right: 20, bottom: 65, left: 72 };
 
 /**
  * Value-axis ticks asked of d3, which reads the count as a hint. Five is what
@@ -231,12 +230,9 @@ export const openFrame = ( container, height ) => {
  * @param {number}                                      params.innerH    Chart inner height.
  * @param {number}                                      params.tickCount Slot count; the time axis caps ticks at 8.
  * @param {import('../utils/axis-ticks').AxisFormatter} params.yFormat   Formats a value for the Y axis; a `tickValues` property on it ticks the axis in its own unit.
- * @param {string}                                      [params.yLabel]  Translated Y-axis title; omitted leaves the axis unlabelled.
+ * @param {string}                                      params.yLabel    Translated Y-axis title naming the quantity; the ticks carry the unit.
  */
-export const drawAxes = (
-	g,
-	{ x, y, innerH, tickCount, yFormat, yLabel = '' }
-) => {
+export const drawAxes = ( g, { x, y, innerH, tickCount, yFormat, yLabel } ) => {
 	g.append( 'g' )
 		.attr( 'transform', `translate(0,${ innerH })` )
 		.call(
@@ -255,17 +251,15 @@ export const drawAxes = (
 	}
 	g.append( 'g' ).call( yAxis );
 
-	if ( yLabel ) {
-		g.append( 'text' )
-			.attr( 'class', 'y-label' )
-			.attr( 'transform', 'rotate(-90)' )
-			.attr( 'y', 0 - MARGIN.left )
-			.attr( 'x', 0 - innerH / 2 )
-			.attr( 'dy', '1em' )
-			.style( 'text-anchor', 'middle' )
-			.style( 'font-size', '12px' )
-			.text( yLabel );
-	}
+	g.append( 'text' )
+		.attr( 'class', 'y-label' )
+		.attr( 'transform', 'rotate(-90)' )
+		.attr( 'y', 0 - MARGIN.left )
+		.attr( 'x', 0 - innerH / 2 )
+		.attr( 'dy', '1em' )
+		.style( 'text-anchor', 'middle' )
+		.style( 'font-size', '12px' )
+		.text( yLabel );
 };
 
 /**

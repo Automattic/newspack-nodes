@@ -502,6 +502,10 @@
 				font-size: 10px;
 			}
 
+			.y-label {
+				fill: var(--ink, var(--np-text));
+			}
+
 			.tick line,
 			.domain {
 				stroke: var(--paper-shadow, var(--np-border-strong));
