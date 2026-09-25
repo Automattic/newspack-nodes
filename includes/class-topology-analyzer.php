@@ -538,26 +538,6 @@ class Topology_Analyzer {
 	}
 
 	/**
-	 * True when a TSL class token resolves to a class that keeps a target LIST.
-	 *
-	 * Fan-out is the `Fanout_Targets` trait, not the Tee class — Settings_Sync
-	 * and ELN's Discovery_Collector keep a target list without a Tee ancestor.
-	 * `Tee` is asked first because `type_is()` answers for a base token even
-	 * before a namespace is registered, while `resolve_class()` returns null
-	 * until then and the trait check never runs.
-	 *
-	 * @param string $type TSL class token.
-	 * @return bool True when the class keeps a target list.
-	 */
-	private static function type_fans_out( string $type ): bool {
-		if ( self::type_is( $type, Tee_Node::class ) ) {
-			return true;
-		}
-		$fqcn = Command_Interpreter_Node::resolve_class( $type );
-		return null !== $fqcn && Core::class_fans_out( $fqcn );
-	}
-
-	/**
 	 * A make_node class token's layout kind, by LINEAGE — one classification
 	 * policy for the whole file.
 	 *
@@ -988,32 +968,6 @@ class Topology_Analyzer {
 	}
 
 	/**
-	 * Whether a TSL class token resolves to $fqcn (or a subclass).
-	 *
-	 * Ask the type system, never string-compare the raw token. The write set is
-	 * a SAFETY gate — it feeds `find_conflicts` and `Log_Cleaner`'s declared-dir
-	 * set — and a plugin's Partition subclass writes a real log that a token
-	 * comparison hides from both: no conflict check sees it, and the GC does not
-	 * know it is declared.
-	 *
-	 * `resolve_class()` returns null whenever no namespace is registered yet, so
-	 * the token alone has to answer for the base classes themselves. ONE rule
-	 * covers that: `<token>_Node` is the base's short name.
-	 *
-	 * @param string $type TSL class token.
-	 * @param string $fqcn Fully-qualified base class.
-	 * @return bool True when the token is that class or a subclass.
-	 */
-	private static function type_is( string $type, string $fqcn ): bool {
-		$resolved = Command_Interpreter_Node::resolve_class( $type );
-		if ( null !== $resolved ) {
-			return \is_a( $resolved, $fqcn, true );
-		}
-		$slash = \strrpos( $fqcn, '\\' );
-		return $type . '_Node' === ( false === $slash ? $fqcn : \substr( $fqcn, $slash + 1 ) );
-	}
-
-	/**
 	 * Every topology `$name` pulls in, at any depth — itself excluded.
 	 *
 	 * "Does this deployment run X?" cannot be answered from the ACTIVE topology
@@ -1060,7 +1014,8 @@ class Topology_Analyzer {
 	 *
 	 * Mirrors the Shell's include rules statically: registry name resolution,
 	 * `#pragma once` per resolved path, an ancestor-stack cycle guard, and
-	 * make_node dedup-or-conflict. Statement ORDER is the eval order.
+	 * make_node dedup-or-conflict. Statement ORDER is the eval order, and a
+	 * Vault_Group's children, read from the Vault, sit where they take effect.
 	 *
 	 * EVERY static reader goes through here (`frontmatter()` excepted — see its
 	 * docblock). Scanning the raw file makes an include-only topology (ELN's
@@ -1109,10 +1064,184 @@ class Topology_Analyzer {
 			$tree[ $include ] = self::walk( $path, $include, $include, [ $include ], [], $state );
 		}
 		$out = [
-			'statements' => $state['statements'],
+			'statements' => self::with_group_children( $state['statements'] ),
 			'tree'       => $tree,
 		];
 		return self::$statements_cache[ $memo_key ] = $out;
+	}
+
+	/**
+	 * The walked statements with each Vault_Group's derived ones in place: a
+	 * child `make_node` per Vault member right after the group's, and after
+	 * every statement naming the group, one copy per child. The group's own
+	 * statements stay, since the node exists at runtime too, and the order
+	 * stays the eval order.
+	 *
+	 * A child's name and arguments come from `Vault_Group_Node`, the spelling
+	 * the runtime builds with, so every reader takes a derived record as it
+	 * would a written line. As at runtime, a child whose name a written
+	 * `make_node` already holds is not built, and only a fan-out upstream
+	 * reaches the children. A child `make_node` carries the group statement's
+	 * provenance; a copy carries the provenance of the line it copies.
+	 *
+	 * @param list<array{line: string,verb: string,values: list<string>,spans: list<string>,origin: ?string,origins: list<string>,via: list<string>}> $statements Walked statements.
+	 * @return list<array{line: string,verb: string,values: list<string>,spans: list<string>,origin: ?string,origins: list<string>,via: list<string>}>
+	 */
+	private static function with_group_children( array $statements ): array {
+		$classes = [];
+		foreach ( $statements as $statement ) {
+			if ( 'make_node' === $statement['verb'] ) {
+				$classes[ $statement['values'][2] ?? '' ] = $statement['values'][1] ?? '';
+			}
+		}
+		$made     = [];
+		$children = [];
+		foreach ( $statements as $index => $group ) {
+			if ( 'make_node' !== $group['verb'] || ! self::type_is( $group['values'][1] ?? '', Vault_Group_Node::class ) ) {
+				continue;
+			}
+			$name              = $group['values'][2] ?? '';
+			$ids               = Vault::get_instance()->in_group( $group['values'][4] ?? '' );
+			$children[ $name ] = [];
+			foreach ( Vault_Group_Node::expand( $ids, \array_slice( $group['values'], 5 ), \array_slice( $group['spans'], 5 ) ) as $id => [ $tokens, $spans ] ) {
+				$child = Node::sibling_name_of( $name, (string) $id );
+				if ( isset( $classes[ $child ] ) ) {
+					continue;
+				}
+				$children[ $name ][] = $child;
+				$made[ $index ][]    = self::derived_statement(
+					$group,
+					[ 'make_node', $group['values'][3] ?? '', $child, ...$tokens ],
+					[ 'make_node', $group['spans'][3] ?? '', Node::serialize_arg( $child ), ...$spans ]
+				);
+			}
+		}
+		if ( [] === $children ) {
+			return $statements;
+		}
+		$out = [];
+		foreach ( $statements as $index => $statement ) {
+			$out[] = $statement;
+			foreach ( $made[ $index ] ?? [] as $child_make ) {
+				$out[] = $child_make;
+			}
+			$fans_out = \in_array( $statement['verb'], [ 'connect_node', 'disconnect_node' ], true )
+				&& self::type_fans_out( $classes[ $statement['values'][1] ?? '' ] ?? '' );
+			foreach ( $children as $group => $names ) {
+				foreach ( $names as $child ) {
+					$renamed = self::renamed_for_child( $statement, $group, $child, $fans_out );
+					if ( null !== $renamed ) {
+						$out[] = self::derived_statement( $statement, ...$renamed );
+					}
+				}
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * A statement's tokens with the group replaced by one child, or null when
+	 * it names no group: the source of a `connect_node` / `disconnect_node`,
+	 * its target when the source fans out, or the group's `:config`
+	 * interpreter under `command_node`. A reference is matched by its head
+	 * segment and keeps its rest, as the runtime expands `<group>/<rest>`.
+	 *
+	 * @param array{verb: string,values: list<string>,spans: list<string>} $statement Walked statement.
+	 * @param string $group    The group node's name.
+	 * @param string $child    The child's name.
+	 * @param bool   $fans_out Whether the statement's source keeps a target list.
+	 * @return array{0: list<string>, 1: list<string>}|null Values, then spans.
+	 */
+	private static function renamed_for_child( array $statement, string $group, string $child, bool $fans_out ): ?array {
+		$source    = [ $group, $child ];
+		$positions = match ( $statement['verb'] ) {
+			'connect_node', 'disconnect_node' => $fans_out ? [ 1 => $source, 2 => $source ] : [ 1 => $source ],
+			'command_node'                    => [ 1 => [ Node::sibling_name_of( $group, 'config' ), Node::sibling_name_of( $child, 'config' ) ] ],
+			default                           => [],
+		};
+		$values  = $statement['values'];
+		$spans   = $statement['spans'];
+		$renamed = false;
+		foreach ( $positions as $index => [ $reference, $replacement ] ) {
+			if ( ! isset( $values[ $index ], $spans[ $index ] ) ) {
+				continue;
+			}
+			[ $head, $rest ] = Message::split_first( $values[ $index ] );
+			if ( $reference !== $head ) {
+				continue;
+			}
+			$values[ $index ] = Message::join_path( $replacement, $rest );
+			$spans[ $index ]  = Node::serialize_arg( $values[ $index ] );
+			$renamed          = true;
+		}
+		return $renamed ? [ $values, $spans ] : null;
+	}
+
+	/**
+	 * True when a TSL class token resolves to a class that keeps a target LIST.
+	 *
+	 * Fan-out is the `Fanout_Targets` trait, not the Tee class — Settings_Sync
+	 * and ELN's Discovery_Collector keep a target list without a Tee ancestor.
+	 * `Tee` is asked first because `type_is()` answers for a base token even
+	 * before a namespace is registered, while `resolve_class()` returns null
+	 * until then and the trait check never runs.
+	 *
+	 * @param string $type TSL class token.
+	 * @return bool True when the class keeps a target list.
+	 */
+	private static function type_fans_out( string $type ): bool {
+		if ( self::type_is( $type, Tee_Node::class ) ) {
+			return true;
+		}
+		$fqcn = Command_Interpreter_Node::resolve_class( $type );
+		return null !== $fqcn && Core::class_fans_out( $fqcn );
+	}
+
+	/**
+	 * Whether a TSL class token resolves to $fqcn (or a subclass).
+	 *
+	 * Ask the type system, never string-compare the raw token. The write set is
+	 * a SAFETY gate — it feeds `find_conflicts` and `Log_Cleaner`'s declared-dir
+	 * set — and a plugin's Partition subclass writes a real log that a token
+	 * comparison hides from both: no conflict check sees it, and the GC does not
+	 * know it is declared.
+	 *
+	 * `resolve_class()` returns null whenever no namespace is registered yet, so
+	 * the token alone has to answer for the base classes themselves. ONE rule
+	 * covers that: `<token>_Node` is the base's short name.
+	 *
+	 * @param string $type TSL class token.
+	 * @param string $fqcn Fully-qualified base class.
+	 * @return bool True when the token is that class or a subclass.
+	 */
+	private static function type_is( string $type, string $fqcn ): bool {
+		$resolved = Command_Interpreter_Node::resolve_class( $type );
+		if ( null !== $resolved ) {
+			return \is_a( $resolved, $fqcn, true );
+		}
+		$slash = \strrpos( $fqcn, '\\' );
+		return $type . '_Node' === ( false === $slash ? $fqcn : \substr( $fqcn, $slash + 1 ) );
+	}
+
+	/**
+	 * One derived record, shaped like a walked one, with the provenance of
+	 * the statement it derives from.
+	 *
+	 * @param array{origin: ?string,origins: list<string>,via: list<string>} $source Statement it derives from.
+	 * @param list<string> $values Quote-stripped tokens.
+	 * @param list<string> $spans  Source-text tokens.
+	 * @return array{line: string,verb: string,values: list<string>,spans: list<string>,origin: ?string,origins: list<string>,via: list<string>}
+	 */
+	private static function derived_statement( array $source, array $values, array $spans ): array {
+		return [
+			'line'    => \implode( ' ', $spans ),
+			'verb'    => $values[0],
+			'values'  => $values,
+			'spans'   => $spans,
+			'origin'  => $source['origin'],
+			'origins' => $source['origins'],
+			'via'     => $source['via'],
+		];
 	}
 
 	/**

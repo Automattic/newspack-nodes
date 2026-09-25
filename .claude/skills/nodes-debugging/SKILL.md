@@ -79,7 +79,8 @@ ls -a [-clst] [<regex>]     #   -s sinks -t targets; -a every node matching an U
                             #   regex — remove_node -a anchors its own, this one does not
 dump_node <node> [<keys>]   # one node's config and state (alias: dump)
 dump_config [<glob>]        # the graph as round-trippable config lines, minus the session
-                            #   scaffolding and patron sidecars a replay rebuilds anyway
+                            #   scaffolding, and a patron's or a publisher's sidecars —
+                            #   Vault_Group's children among them — a replay rebuilds anyway
 dump_metadata [<node>]      # JSON keyed by node name: class, counter, sink, target(s),
                             #   debug_state, arguments and the stats counters — one
                             #   round-trip draws the graph, and a full snapshot adds a

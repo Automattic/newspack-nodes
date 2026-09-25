@@ -262,6 +262,7 @@ describe( 'useVaultGraph — what a row is waiting on', () => {
 				url: 'https://d.example.test',
 				auth_username: 'reader-2207',
 				auth_password: 'hunter-5541',
+				group: '',
 			} )
 		);
 
@@ -270,10 +271,31 @@ describe( 'useVaultGraph — what a row is waiting on', () => {
 		expect( add[ VALUE ].arguments ).toEqual( [
 			'spoke-04',
 			'--url=https://d.example.test',
+			'--group=',
 			'--user=reader-2207',
 			'--password=hunter-5541',
 		] );
 		expect( add[ FROM ] ).toBe( 'vault:add:in/spoke-04' );
+	}, 30000 );
+
+	test( 'addServer sends the group as a named arg', async () => {
+		const wire = installWire( { list: {}, add: { ok: 1 } } );
+		const { result } = renderHook( () => useVaultGraph() );
+		await act( async () => {} );
+
+		act( () =>
+			result.current.addServer( {
+				id: 'tw9',
+				url: 'https://tw9.example',
+				auth_username: '',
+				auth_password: '',
+				group: 'tw-edge',
+			} )
+		);
+
+		await waitForVerb( wire, 'add' );
+		const add = findVerb( wire.batches, 'add' );
+		expect( add[ VALUE ].arguments ).toContain( '--group=tw-edge' );
 	}, 30000 );
 
 	test( 'updateServer names the entry by the id it HAS and the new one by --new_id', async () => {
@@ -287,6 +309,7 @@ describe( 'useVaultGraph — what a row is waiting on', () => {
 				url: 'https://after.example.test',
 				auth_username: 'editor-4471',
 				auth_password: 'pw-8823',
+				group: '',
 			} )
 		);
 
@@ -296,6 +319,7 @@ describe( 'useVaultGraph — what a row is waiting on', () => {
 			'spoke-was-4471',
 			'--new_id=spoke-now-6612',
 			'--url=https://after.example.test',
+			'--group=',
 			'--user=editor-4471',
 			'--password=pw-8823',
 		] );
@@ -316,6 +340,7 @@ describe( 'useVaultGraph — what a row is waiting on', () => {
 				url: 'https://after.example.test',
 				auth_username: 'editor-4471',
 				auth_password: '',
+				group: '',
 			} )
 		);
 
@@ -324,8 +349,31 @@ describe( 'useVaultGraph — what a row is waiting on', () => {
 		expect( update[ VALUE ].arguments ).toEqual( [
 			'spoke-was-4471',
 			'--url=https://after.example.test',
+			'--group=',
 			'--user=editor-4471',
 		] );
+	}, 30000 );
+
+	// `--group=` always rides, unlike the password: a blank group means the
+	// entry has none, and the operator's edit must be able to say so.
+	test( 'updateServer sends --group= to clear a stored group', async () => {
+		const wire = installWire( { list: {}, update: { ok: 1 } } );
+		const { result } = renderHook( () => useVaultGraph() );
+		await act( async () => {} );
+
+		act( () =>
+			result.current.updateServer( 'tw9', {
+				id: 'tw9',
+				url: 'https://tw9.example',
+				auth_username: '',
+				auth_password: '',
+				group: '',
+			} )
+		);
+
+		await waitForVerb( wire, 'update' );
+		const update = findVerb( wire.batches, 'update' );
+		expect( update[ VALUE ].arguments ).toContain( '--group=' );
 	}, 30000 );
 } );
 

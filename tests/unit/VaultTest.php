@@ -427,4 +427,31 @@ final class VaultTest extends TestCase {
 		$this->assertTrue( Vault::is_valid_id( 'spoke-one' ), 'and the ordinary id still does' );
 	}
 
+	public function test_group_round_trips_through_add_and_update(): void {
+		$vault = Vault::get_instance();
+		$this->assertTrue( $vault->add( 'tw9', [ 'url' => 'https://tw9.example', 'group' => 'tw-edge' ] ) );
+		$this->assertSame( 'tw-edge', $vault->get( 'tw9' )['group'] );
+		$this->assertTrue( $vault->update( 'tw9', [ 'group' => 'llm' ] ) );
+		$this->assertSame( 'llm', Vault::fresh()->get( 'tw9' )['group'] );
+		$this->assertTrue( $vault->update( 'tw9', [ 'group' => '' ] ) );
+		$this->assertSame( '', Vault::fresh()->get( 'tw9' )['group'] );
+	}
+
+	public function test_invalid_group_refuses_the_write(): void {
+		$vault = Vault::get_instance();
+		$this->assertFalse( $vault->add( 'tw9', [ 'url' => 'https://tw9.example', 'group' => 'has space' ] ) );
+		$this->assertNull( $vault->get( 'tw9' ) );
+	}
+
+	public function test_in_group_returns_only_members_sorted(): void {
+		$vault = Vault::get_instance();
+		$vault->add( 'tw9', [ 'url' => 'https://tw9.example', 'group' => 'tw-edge' ] );
+		$vault->add( 'lone', [ 'url' => 'https://lone.example' ] );
+		$vault->add( 'aux', [ 'url' => 'https://aux.example', 'group' => 'llm' ] );
+		$vault->add( 'tw0', [ 'url' => 'https://tw0.example', 'group' => 'tw-edge' ] );
+		$this->assertSame( [ 'tw0', 'tw9' ], Vault::fresh()->in_group( 'tw-edge' ) );
+		$this->assertSame( [], Vault::fresh()->in_group( '' ) );
+		$this->assertSame( '', Vault::fresh()->get( 'lone' )['group'] );
+	}
+
 }

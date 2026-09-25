@@ -891,4 +891,26 @@ class LogCleanerTest extends TestCase {
 		$this->assertDirectoryExists( $p0 );
 		$this->assertDirectoryExists( $p1 );
 	}
+
+	/** A group's children declare their cursors; a quiet spoke's is not swept. */
+	public function test_keeps_the_cursor_of_each_vault_group_child(): void {
+		$this->seed_vault_servers(
+			[
+				'tw9'  => [ 'url' => 'https://tw9.example', 'group' => 'tw-edge' ],
+				'lone' => [ 'url' => 'https://lone.example' ],
+			]
+		);
+		$this->declare_topology(
+			'pull-lab',
+			"make_node Vault_Group firehose Remote_Source tw-edge firehose.p<partition> <config:offsets_dir>/<topology>.firehose.{id}.p<partition>\n"
+		);
+
+		$member   = $this->seed_offsetlog_dir( 'pull-lab.firehose.tw9', 0 );
+		$outsider = $this->seed_offsetlog_dir( 'pull-lab.firehose.lone', 0 );
+
+		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
+
+		$this->assertDirectoryExists( $member );
+		$this->assertDirectoryDoesNotExist( $outsider );
+	}
 }

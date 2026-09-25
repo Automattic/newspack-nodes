@@ -18,18 +18,13 @@ class TopologyLoaderTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		Topology_Registry::reset();
-		$this->stock = $this->make_temp_dir( 'tsl-load-' );
-		Topology_Registry::register_stock_dir( $this->stock );
+		$this->stock = $this->stock_topology_dir( 'tsl-load-' );
 	}
 
 	protected function tearDown(): void {
 		$this->rmdir_recursive( $this->stock );
 		Topology_Registry::reset();
 		parent::tearDown();
-	}
-
-	private function write_tsl( string $name, string $body ): void {
-		\file_put_contents( "{$this->stock}/{$name}.tsl", $body );
 	}
 
 	public function test_load_builds_graph_from_tsl_script(): void {

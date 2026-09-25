@@ -18,18 +18,13 @@ class ShellIncludeTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		Topology_Registry::reset();
-		$this->tmp = $this->make_temp_dir( 'shell-include-' );
-		Topology_Registry::register_stock_dir( $this->tmp );
+		$this->tmp = $this->stock_topology_dir( 'shell-include-' );
 	}
 
 	protected function tearDown(): void {
 		Topology_Registry::reset();
 		$this->rmdir_recursive( $this->tmp );
 		parent::tearDown();
-	}
-
-	private function write_tsl( string $name, string $contents ): void {
-		\file_put_contents( "{$this->tmp}/{$name}.tsl", $contents );
 	}
 
 	// ── include is confined to the registered topology directories ─────────

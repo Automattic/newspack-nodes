@@ -31,6 +31,7 @@ supersede.
 | [18](#adr-18-a-table-can-front-a-durable-record-the-walk-that-finds-it-stays-in-the-app) | A Table can front a durable record; the walk that finds it stays in the app |
 | [19](#adr-19-a-node-may-declare-a-destination-it-writes-without-routing) | A node may DECLARE a destination it writes without routing |
 | [20](#adr-20-a-config-default-lives-in-code-every-config-file-is-an-override-surface) | A config default lives in CODE; every config file is an override surface |
+| [21](#adr-21-a-node-may-derive-its-children-from-the-vault-and-static-analysis-reads-it) | A node may derive its children from the Vault, and static analysis reads it |
 
 ---
 
@@ -613,15 +614,16 @@ the drain path catches it — and if that catch treats it as an error, the stop 
 
 **Decision:** A broad catch on the message/drain path re-throws `Worker_Should_Stop` before
 handling anything else — `catch (Worker_Should_Stop $e) { throw $e; }` — with three deliberate
-carve-outs, documented at each site. Fan-out through `Fanout_Targets` (Tee and Tap), and
-`LRU_Cache::evict_bucket()` over its callbacks, attempts every target and defers the throwable,
+carve-outs, documented at each site. Fan-out through `Fanout_Targets` (Tee and Tap),
+`Vault_Group_Node` forwarding a config verb to its children, and `LRU_Cache::evict_bucket()`
+over its callbacks, attempts every target and defers the throwable,
 keeping whichever `Worker_Should_Stop::outranks()` ranks safest: a plain `Worker_Should_Stop`
 over a `Worker_Should_Stop_Clean` over a poison.
 `Job_Worker_Node`'s `after_job` `finally` swallows everything, because it fires whether the
 handler returned or threw. Event-logger-nodes' `Log_Manager::finish()` writes the terminal and
 then re-raises, because terminal-last is a wire contract.
 
-![The rule as a decision: inside a broad catch on the drain path, a Worker_Should_Stop is re-thrown as control flow and anything else is handled as a real error; the failure prevented is a worker draining on past max_runtime or the memory watermark. Three carve-outs: fan-out through Fanout_Targets, and LRU_Cache::evict_bucket() over its callbacks, attempts every target and defers the throwable, Tap always performing its passthrough first; Job_Worker_Node's after_job finally swallows everything while before_job follows the rule; Log_Manager::finish in event-logger-nodes writes the terminal then re-raises. A precedence table for Worker_Should_Stop::outranks shows a plain Worker_Should_Stop replacing a deferred clean stop or poison, a clean stop replacing a poison, and a poison never displacing either.](img/adr-stop-precedence.png)
+![The rule as a decision: inside a broad catch on the drain path, a Worker_Should_Stop is re-thrown as control flow and anything else is handled as a real error; the failure prevented is a worker draining on past max_runtime or the memory watermark. Three carve-outs: fan-out through Fanout_Targets, Vault_Group_Node::forward() over its children, and LRU_Cache::evict_bucket() over its callbacks, attempts every target and defers the throwable, Tap always performing its passthrough first; Job_Worker_Node's after_job finally swallows everything while before_job follows the rule; Log_Manager::finish in event-logger-nodes writes the terminal then re-raises. A precedence table for Worker_Should_Stop::outranks shows a plain Worker_Should_Stop replacing a deferred clean stop or poison, a clean stop replacing a poison, and a poison never displacing either.](img/adr-stop-precedence.png)
 
 **Alternatives considered:** A marker interface / `Control_Flow` exception base caught separately
 — premature: the control-flow family today is `Worker_Should_Stop` plus its subclass
@@ -1078,3 +1080,67 @@ default as "this install's directory".
 derived from the host at runtime — at which point the answer is a resolver called from the
 declaration, not a value in a file.
 
+---
+
+## ADR-21: A node may derive its children from the Vault, and static analysis reads it
+
+**Status:** Accepted
+
+**Context:** A hub pulls every spoke's firehose through one `Remote_Source` and pushes
+settings to every spoke through one `HTTP_Out`, and each was a hand-repeated TSL leg per spoke.
+The spoke list therefore lived twice — in the [Vault](../includes/class-vault.php), which holds
+each spoke's URL and credentials, and in the TSL — and adding a spoke meant editing the Vault,
+regenerating the TSL, redeploying and restarting. Static analysis reads only TSL text: the
+write set, `find_conflicts()`, `Log_Cleaner`'s GC and the console graph all take their nodes
+from the flattened statements, so a node that builds children at runtime is invisible to every
+one of them unless the flatten knows how to see it.
+
+**Decision:** [`Vault_Group_Node`](../includes/class-vault-group-node.php) owns one child per
+server `Vault::in_group()` returns, each published as an owned sibling
+(`Node::publish_sibling()`) named `<group>:<vault id>`, and NOT patroned, so each keeps its own
+`:config` interpreter and draws on the canvas like a hand-written node. It rebuilds its
+children on the fleet's RELOAD through `update_graph()`, Tachikoma's `ConsumerBroker`
+vocabulary: a new id is built and replays every recorded command and edge, a departed one hands
+its cursor off and is retracted through its normal teardown. The sibling map is the one list
+of members; `members()` reads it through `Node::siblings()`, in the order the group built them,
+and answers `Node::members()`, the hook `Fanout_Targets` asks of every target, so a fan-out
+connected to the group delivers to each member.
+
+[`Topology_Analyzer`](../includes/class-topology-analyzer.php)'s flatten keeps each group
+statement as written and appends the derived ones beside it — a child `make_node` per member,
+and a per-child copy of each statement naming the group — through the same
+`Vault_Group_Node::expand()` and `Node::sibling_name_of()` the runtime builds with, reading
+membership through the same `Vault::in_group()`. The write set, conflicts, GC and graph
+therefore see every member's cursor and every member's edge. `dump_config` emits only the
+group and its recorded commands, since the group rebuilds its children from them.
+
+Group configuration goes through the group: a verb sent to `<group>:config` reaches every
+child and, when every child accepted it and it changed a child's configuration, is recorded
+last-write-wins. A per-child verb sent straight to `<group>:<id>:config` is LIVE-ONLY — no
+dump replays it, because `dump_config` replays the group and its recorded commands, never a
+child.
+
+**Alternatives considered:** Generating the TSL from the Vault — rejected: the list still lives
+twice, and a spoke added to the Vault stays unwired until someone regenerates, redeploys and
+restarts; the generator had also drifted, emitting `include` names no topology defines.
+Hand-written legs per spoke — rejected: that is the problem. Patroned children — rejected: a
+patroned node vanishes from the canvas and shares its patron's interpreter, so per-spoke
+state and edges become invisible exactly where an operator diagnosing one spoke looks.
+Runtime-only expansion, leaving the flatten alone — rejected: the write set would be blind to
+every member's offsetlog and deadletter, and `wp nodes gc` would sweep live cursors once
+`Log_Cleaner::DELETE_GRACE_S` passed.
+
+**Consequences:** Analyzer output is no longer a pure function of the TSL text: it depends on
+the Vault too, so the `newspack_nodes/vault/changed` handler resets the analyzer's
+per-process caches before planning. A spoke dropped from its group has its cursor swept once
+`DELETE_GRACE_S` passes, like any directory no active topology declares. Group semantics are
+spelled twice — at runtime in the node, and in the flatten — so both call the one `expand()`
+and the one sibling-name composer, and a change to either shape moves both. A group builds and
+retracts members on RELOAD even after `secure`, because the topology declared Vault membership
+before securing, and the Vault itself is MANAGE-gated — the same standing `Remote_Link` has when
+it rebuilds its patroned siblings.
+
+**Revisit if:** a second node type derives its children from runtime state rather than from
+the TSL, at which point the flatten needs a general derivation hook instead of a
+`Vault_Group` case; or analyzer results must be shared across processes, where a per-process
+cache reset no longer reaches every reader.

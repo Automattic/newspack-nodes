@@ -203,7 +203,7 @@ describe( 'VaultAdmin', () => {
 	it( 'gives the URL column more width than the ID, Status, and Actions columns', () => {
 		registerViewFixture( { servers: SAMPLE_SERVERS, loading: false } );
 		const { container } = mount();
-		const [ idTh, urlTh, statusTh, actionsTh ] = Array.from(
+		const [ idTh, urlTh, , statusTh, actionsTh ] = Array.from(
 			container.querySelectorAll( 'thead th' )
 		);
 		const w = ( th ) => parseFloat( th.style.width );
@@ -223,6 +223,24 @@ describe( 'VaultAdmin', () => {
 		).toBeTruthy();
 		expect( container.textContent ).toContain( 'spoke-01' );
 		expect( container.textContent ).toContain( 'https://a.example.test' );
+	} );
+
+	it( "shows a Group column with the row's group value", () => {
+		registerViewFixture( {
+			servers: [
+				{
+					id: 'tw9',
+					url: 'https://tw9.example',
+					auth_username: '',
+					has_credentials: false,
+					group: 'tw-edge',
+				},
+			],
+			loading: false,
+		} );
+		const { container } = mount();
+		const row = container.querySelector( 'tr[data-server-id="tw9"]' );
+		expect( row.textContent ).toContain( 'tw-edge' );
 	} );
 
 	it( 'shows the no-servers empty row when servers is an empty array', () => {
@@ -262,6 +280,7 @@ describe( 'VaultAdmin', () => {
 		expect( dialog.className ).toBe( 'newspack-nodes-modal' );
 		expect( dialog.querySelector( '#vault-server-id' ) ).toBeTruthy();
 		expect( dialog.querySelector( '#vault-server-url' ) ).toBeTruthy();
+		expect( dialog.querySelector( '#vault-server-group' ) ).toBeTruthy();
 		expect( dialog.querySelector( '#vault-server-username' ) ).toBeTruthy();
 		expect( dialog.querySelector( '#vault-server-password' ) ).toBeTruthy();
 		expect( dialog.querySelector( '#vault-server-save' ) ).toBeTruthy();
@@ -349,6 +368,7 @@ describe( 'VaultAdmin', () => {
 			url: 'https://spoke.example',
 			auth_username: 'admin',
 			auth_password: 'secret',
+			group: '',
 		} );
 	} );
 
@@ -387,6 +407,50 @@ describe( 'VaultAdmin', () => {
 		} );
 		expect( addServer ).not.toHaveBeenCalled();
 		expect( container.textContent ).toContain( 'https://' );
+	} );
+
+	it( 'blocks add submission when the id holds a character the store refuses', async () => {
+		registerViewFixture( { servers: [], loading: false } );
+		const { container } = mount();
+		openAddModal( container );
+		setInput( container.querySelector( '#vault-server-id' ), 'spoke/09' );
+		setInput(
+			container.querySelector( '#vault-server-url' ),
+			'https://spoke.example'
+		);
+		await act( async () => {
+			container
+				.querySelector( '#vault-server-save' )
+				.dispatchEvent( new Event( 'click', { bubbles: true } ) );
+		} );
+		expect( addServer ).not.toHaveBeenCalled();
+		expect(
+			container.querySelector( '#vault-server-status' ).textContent
+		).toContain( 'ID' );
+	} );
+
+	it( 'blocks add submission and names the group when it is malformed', async () => {
+		registerViewFixture( { servers: [], loading: false } );
+		const { container } = mount();
+		openAddModal( container );
+		setInput( container.querySelector( '#vault-server-id' ), 'spoke-09' );
+		setInput(
+			container.querySelector( '#vault-server-url' ),
+			'https://spoke.example'
+		);
+		setInput(
+			container.querySelector( '#vault-server-group' ),
+			'edge pool!'
+		);
+		await act( async () => {
+			container
+				.querySelector( '#vault-server-save' )
+				.dispatchEvent( new Event( 'click', { bubbles: true } ) );
+		} );
+		expect( addServer ).not.toHaveBeenCalled();
+		expect(
+			container.querySelector( '#vault-server-status' ).textContent
+		).toContain( 'Group' );
 	} );
 
 	// ---------------------------------------------------------------------
@@ -450,6 +514,7 @@ describe( 'VaultAdmin', () => {
 			url: 'https://moved.example.test',
 			auth_username: 'editor-6612',
 			auth_password: 'pw-8823',
+			group: '',
 		} );
 	} );
 

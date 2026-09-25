@@ -14,9 +14,6 @@ final class Config_Sibling_Node extends Node {
 	public function __construct() {
 		$this->auto_wire_interpreter();
 	}
-	public function interpreter(): \Newspack_Nodes\Command_Interpreter_Node {
-		return $this->interpreter;
-	}
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
 			'commands' => [
@@ -321,6 +318,27 @@ class NodeTest extends TestCase {
 		$n->register( 'PING', 'cb', function ( $payload ) use ( &$received ) { $received = $payload; } );
 		$n->notify( 'PING', 'hello' );
 		$this->assertSame( 'hello', $received );
+	}
+
+	public function test_a_listener_unregistered_mid_dispatch_is_skipped_silently(): void {
+		$n = new class extends Node {
+			public function __construct() {
+				$this->registrations = [ 'RELOAD' => [] ];
+			}
+		};
+		$n->name( 'fleet-7' );
+		$late_calls = 0;
+		$n->register( 'RELOAD', 'group-3', function () use ( $n ): void {
+			$n->unregister( 'RELOAD', 'group-3:tw9' );
+		} );
+		$n->register( 'RELOAD', 'group-3:tw9', function () use ( &$late_calls ): void {
+			++$late_calls;
+		} );
+		$buf = '';
+		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );
+		$n->notify( 'RELOAD', 'w-41' );
+		$this->assertSame( 0, $late_calls );
+		$this->assertStringNotContainsString( 'forgot to unregister', $buf );
 	}
 
 	public function test_register_replays_cached_state_to_late_subscribers(): void {
@@ -1239,9 +1257,6 @@ class NodeTest extends TestCase {
 			public function __construct() {
 				$this->auto_wire_interpreter();
 			}
-			public function interpreter(): \Newspack_Nodes\Command_Interpreter_Node {
-				return $this->interpreter;
-			}
 			public static function node_schema(): array {
 				return \array_merge( parent::node_schema(), [
 					'commands' => [
@@ -1277,9 +1292,6 @@ class NodeTest extends TestCase {
 			public function __construct() {
 				$this->auto_wire_interpreter();
 			}
-			public function interpreter(): \Newspack_Nodes\Command_Interpreter_Node|null {
-				return $this->interpreter;
-			}
 			public static function node_schema(): array {
 				return \array_merge( parent::node_schema(), [
 					'commands' => [ [ 'name' => 'doc_only' ] ],
@@ -1304,9 +1316,6 @@ class NodeTest extends TestCase {
 			public function __construct() {
 				$this->auto_wire_interpreter();
 				$this->auto_wire_interpreter();
-			}
-			public function interpreter(): \Newspack_Nodes\Command_Interpreter_Node {
-				return $this->interpreter;
 			}
 			public static function node_schema(): array {
 				return \array_merge( parent::node_schema(), [
@@ -1434,5 +1443,97 @@ class NodeTest extends TestCase {
 		$this->assertFalse( $probe::probe( '' ) );
 		$this->assertTrue( $probe::probe( '0' ) );
 		$this->assertTrue( $probe::probe( 'x' ) );
+	}
+
+	/** An emitter declaring RELOAD, named $name. */
+	private function reload_emitter( string $name ): Node {
+		$emitter = new class extends Node {
+			public function __construct() {
+				$this->registrations = [ 'RELOAD' => [] ];
+			}
+		};
+		$emitter->name( $name );
+		return $emitter;
+	}
+
+	/** A node exposing the protected subscribe() to the test. */
+	private function subscriber(): Node {
+		return new class extends Node {
+			public function listen( string $emitter, string $event, \Closure $callback ): void {
+				$this->subscribe( $emitter, $event, $callback );
+			}
+		};
+	}
+
+	public function test_a_subscription_fires_on_the_emitters_event(): void {
+		$emitter    = $this->reload_emitter( 'fleet-5518' );
+		$subscriber = $this->subscriber();
+		$subscriber->name( 'group-2207' );
+		$received = [];
+		$subscriber->listen( 'fleet-5518', 'RELOAD', function ( $payload ) use ( &$received ): void {
+			$received[] = $payload;
+		} );
+
+		$emitter->notify( 'RELOAD', 'w-8841' );
+
+		$this->assertSame( [ 'w-8841' ], $received );
+	}
+
+	public function test_a_subscription_follows_a_rename(): void {
+		$emitter    = $this->reload_emitter( 'fleet-5518' );
+		$subscriber = $this->subscriber();
+		$subscriber->name( 'group-south-3391' );
+		$calls = 0;
+		$subscriber->listen( 'fleet-5518', 'RELOAD', function () use ( &$calls ): void {
+			++$calls;
+		} );
+
+		$subscriber->name( 'group-north-6620' );
+		$emitter->notify( 'RELOAD', 'w-8841' );
+
+		$this->assertSame( [ 'group-north-6620' ], \array_keys( $this->read_private( $emitter, 'registrations' )['RELOAD'] ) );
+		$this->assertSame( 1, $calls );
+	}
+
+	public function test_a_subscription_made_unnamed_registers_once_named(): void {
+		$emitter    = $this->reload_emitter( 'fleet-5518' );
+		$subscriber = $this->subscriber();
+		$calls      = 0;
+		$subscriber->listen( 'fleet-5518', 'RELOAD', function () use ( &$calls ): void {
+			++$calls;
+		} );
+		$this->assertSame( [], $this->read_private( $emitter, 'registrations' )['RELOAD'] );
+
+		$subscriber->name( 'group-late-4150' );
+		$emitter->notify( 'RELOAD', 'w-8841' );
+
+		$this->assertSame( 1, $calls );
+	}
+
+	public function test_remove_node_drops_its_subscriptions(): void {
+		$emitter    = $this->reload_emitter( 'fleet-5518' );
+		$subscriber = $this->subscriber();
+		$subscriber->name( 'group-gone-7304' );
+		$calls = 0;
+		$subscriber->listen( 'fleet-5518', 'RELOAD', function () use ( &$calls ): void {
+			++$calls;
+		} );
+
+		$subscriber->remove_node();
+		$emitter->notify( 'RELOAD', 'w-8841' );
+
+		$this->assertSame( [], $this->read_private( $emitter, 'registrations' )['RELOAD'] );
+		$this->assertSame( 0, $calls );
+	}
+
+	public function test_subscribing_to_an_absent_emitter_is_a_no_op(): void {
+		$subscriber = $this->subscriber();
+		$subscriber->name( 'group-alone-9012' );
+
+		$subscriber->listen( 'fleet-absent-1187', 'RELOAD', static function (): void {} );
+		$subscriber->name( 'group-alone-9013' );
+		$subscriber->remove_node();
+
+		$this->assertNull( Core::node( 'fleet-absent-1187' ) );
 	}
 }

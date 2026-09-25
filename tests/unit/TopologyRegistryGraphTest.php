@@ -22,18 +22,13 @@ class TopologyRegistryGraphTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		Topology_Registry::reset();
-		$this->tmp = $this->make_temp_dir( 'topology-graph-' );
-		Topology_Registry::register_stock_dir( $this->tmp );
+		$this->tmp = $this->stock_topology_dir( 'topology-graph-' );
 	}
 
 	protected function tearDown(): void {
 		Topology_Registry::reset();
 		$this->rmdir_recursive( $this->tmp );
 		parent::tearDown();
-	}
-
-	private function write_tsl( string $name, string $contents ): void {
-		\file_put_contents( "{$this->tmp}/{$name}.tsl", $contents );
 	}
 
 	public function test_graph_for_kinds_from_class_logs_from_args_edges_from_connect_and_targets(): void {

@@ -25,12 +25,11 @@ class TopologyRegistryResolvedDirsTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		Topology_Registry::reset();
-		$this->tmp = $this->make_temp_dir( 'topology-resolved-dirs-' );
+		$this->tmp = $this->stock_topology_dir( 'topology-resolved-dirs-' );
 		// Pin base_directory so <config:logs_dir>/<config:offsets_dir> resolve
 		// to $this->tmp/logs and $this->tmp/offsets.
 		$this->use_base_dir( $this->tmp );
 		Config::register_token_namespace();
-		Topology_Registry::register_stock_dir( $this->tmp );
 	}
 
 	protected function tearDown(): void {
@@ -38,11 +37,6 @@ class TopologyRegistryResolvedDirsTest extends TestCase {
 		Config::reset();
 		$this->rmdir_recursive( $this->tmp );
 		parent::tearDown();
-	}
-
-	private function write_tsl( string $name, string $contents ): void {
-		\file_put_contents( "{$this->tmp}/{$name}.tsl", $contents );
-		Topology_Registry::reset_basename_cache();
 	}
 
 	public function test_suffix_partition_token_yields_per_partition_log_dirs(): void {

@@ -14,6 +14,11 @@
  * to prune would keep minting — and signing — commands addressed at nodes that
  * no longer exist.
  *
+ * An entry whose node answers `Node::members()` with a list stands for those
+ * members: `live_targets()` expands it to one delivered target per member,
+ * which is how a minter signs one command per spoke through a single
+ * `connect_node( $group )` rather than one per spoke.
+ *
  * What is deliberately NOT here: the dispatch loop. Tee prepends the remaining
  * path so routing continues past the hop; Tap hard-addresses and then passes the
  * original through. Both attempt every target, defer the throwable `outranks()`
@@ -97,31 +102,85 @@ trait Fanout_Targets {
 	 * @return string `<target>/<remainder>`, or the target alone when the remainder is empty.
 	 */
 	protected function target_path( string $target, string $remainder ): string {
-		return '' === $remainder ? $target : $target . '/' . $remainder;
+		return Message::join_path( $target, $remainder );
 	}
 
 	/**
-	 * The targets that still resolve, pruned in place. A target is alive when the
+	 * The targets that still resolve, pruned in place and with every entry
+	 * standing for members expanded into them. A target is alive when the
 	 * HEAD segment of its path names a live node — Router peels the rest, so
-	 * `spoke/settings` survives as long as `spoke` does.
+	 * `spoke/settings` survives as long as `spoke` does. The STORED list keeps
+	 * the group's own name; only the returned list is expanded, which is how a
+	 * minter signs one command per spoke through a group with one `connect_node`.
 	 *
 	 * CONNECT order is preserved, and that is contractual: a consumer may depend
 	 * on an earlier target having been fully delivered before a later one is.
 	 * The JS port says the same, where `addSliceFetcher` rests on it.
 	 *
-	 * @return list<string> The targets whose head still resolves, in connect order.
+	 * @return list<string> The targets whose head still resolves, in connect
+	 *                       order, group entries expanded to their members.
 	 */
 	protected function live_targets(): array {
 		// Inline array test, not Core::arr, so phpstan narrows the property.
-		$targets = \is_array( $this->target ) ? $this->target : [];
-		$alive   = [];
+		$targets   = \is_array( $this->target ) ? $this->target : [];
+		$alive     = [];
+		$delivered = [];
 		foreach ( $targets as $t ) {
-			[ $head ] = Message::split_first( Core::as_string( $t ) );
-			if ( null !== Core::node( $head ) ) {
-				$alive[] = Core::as_string( $t );
+			$target = Core::as_string( $t );
+			$paths  = $this->delivered_paths( $target );
+			if ( null !== $paths ) {
+				$alive[] = $target;
+				\array_push( $delivered, ...$paths );
 			}
 		}
 		$this->target = $alive;
-		return $alive;
+		return $delivered;
+	}
+
+	/**
+	 * The paths one target delivers to, resolving its head once: each member's
+	 * name carrying the rest when the head stands for members, the target
+	 * itself when it stands for itself, and null when the head is gone.
+	 *
+	 * @param string $target A target, possibly a `<node>/<rest>` path.
+	 * @return list<string>|null
+	 */
+	private function delivered_paths( string $target ): ?array {
+		[ $head, $rest ] = Message::split_first( $target );
+		$node            = Core::node( $head );
+		if ( null === $node ) {
+			return null;
+		}
+		$members = $node->members();
+		return null === $members ? [ $target ] : \array_map( static fn ( Node $member ): string => Message::join_path( $member->name(), $rest ), $members );
+	}
+
+	/**
+	 * Every member of every target standing for members: the destinations it
+	 * writes that its stored target list names only by group (ADR-19).
+	 *
+	 * @return list<string>
+	 */
+	protected function extra_targets(): array {
+		$out = [];
+		foreach ( Node::target_list( $this->target ) as $target ) {
+			$paths = $this->delivered_paths( Core::as_string( $target ) ) ?? [];
+			if ( [ $target ] !== $paths ) {
+				\array_push( $out, ...$paths );
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * The HTTP_Out a target names, or null; a target may be a path, so resolve
+	 * its head. Every minter that signs per spoke asks here.
+	 *
+	 * @param string $target The live target, possibly a `<node>/<rest>` path.
+	 */
+	protected function egress_for( string $target ): ?HTTP_Out_Node {
+		[ $head ] = Message::split_first( $target );
+		$node     = Core::node( $head );
+		return $node instanceof HTTP_Out_Node ? $node : null;
 	}
 }

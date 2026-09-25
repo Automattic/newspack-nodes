@@ -121,7 +121,10 @@ const VERB_TEXTS = {
  * read `'' === server.id` to tell an add from an edit, so there is no second
  * mode flag that could disagree with the seed.
  */
-const BLANK_SERVER = { id: '', url: '', auth_username: '' };
+const BLANK_SERVER = { id: '', url: '', auth_username: '', group: '' };
+
+/** The `Vault::is_valid_id()` rule, which a server id and a group both obey. */
+const ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
 
 /**
  * A single server row — its id, url and status, with Test, Edit and Remove.
@@ -131,7 +134,7 @@ const BLANK_SERVER = { id: '', url: '', auth_username: '' };
  * hands each row its own, and a sibling being tested cannot blank this line.
  *
  * @param {Object}                          props          Component props.
- * @param {Object}                          props.server   Public server shape from the view model: id, url, auth_username, has_credentials.
+ * @param {Object}                          props.server   Public server shape from the view model: id, url, auth_username, has_credentials, group.
  * @param {?{verb: string, error: ?string}} props.answer   This row's last answer, or null.
  * @param {?string}                         props.pending  The verb outstanding about this row, if any.
  * @param {Function}                        props.onEdit   Opens the form on this server; called with the row.
@@ -140,7 +143,7 @@ const BLANK_SERVER = { id: '', url: '', auth_username: '' };
  * @return {import('react').ReactElement} The rendered row.
  */
 function ServerRow( { server, answer, pending, onEdit, onRemove, onTest } ) {
-	const { id, url } = server;
+	const { id, url, group } = server;
 	const [ isConfirmOpen, setIsConfirmOpen ] = useState( false );
 	const busy = Boolean( pending );
 	// An outstanding verb picks the words; once answered, the answer does.
@@ -161,6 +164,7 @@ function ServerRow( { server, answer, pending, onEdit, onRemove, onTest } ) {
 				<code>{ id }</code>
 			</td>
 			<td>{ url }</td>
+			<td>{ group }</td>
 			<td>
 				<span
 					className={ `newspack-nodes-status test-status ${ status.tone }` }
@@ -210,17 +214,24 @@ function ServerRow( { server, answer, pending, onEdit, onRemove, onTest } ) {
 /**
  * The form's own refusal, before anything is sent.
  *
- * The store refuses all three cases as well, so this buys the operator a
+ * The store refuses every case as well, so this buys the operator a
  * message beside the field rather than a round trip ending in `add failed:
  * check URL format`.
  *
- * @param {string} id  Trimmed server id.
- * @param {string} url Trimmed server URL.
+ * @param {string} id    Trimmed server id.
+ * @param {string} url   Trimmed server URL.
+ * @param {string} group Trimmed group name; '' joins no group.
  * @return {string} The refusal text, or '' when the fields are usable.
  */
-function validate( id, url ) {
+function validate( id, url, group ) {
 	if ( ! id ) {
 		return __( 'ID is required', 'newspack-nodes' );
+	}
+	if ( ! ID_PATTERN.test( id ) ) {
+		return __(
+			'ID may hold only letters, digits, - and _ (at most 64)',
+			'newspack-nodes'
+		);
 	}
 	if ( ! url ) {
 		return __( 'Server URL is required', 'newspack-nodes' );
@@ -228,12 +239,19 @@ function validate( id, url ) {
 	if ( ! url.startsWith( 'https://' ) ) {
 		return __( 'URL must start with https://', 'newspack-nodes' );
 	}
+	if ( group && ! ID_PATTERN.test( group ) ) {
+		return __(
+			'Group may hold only letters, digits, - and _ (at most 64)',
+			'newspack-nodes'
+		);
+	}
 	return '';
 }
 
 /**
- * The server form — id, url, username and password, plus submit. Owns the field
- * state and the validation/status line. Rendered inside the server modal.
+ * The server form — id, url, group, username and password, plus submit. Owns
+ * the field state and the validation/status line. Rendered inside the server
+ * modal.
  *
  * The seed says which act this is: a server with no id yet is one being added.
  * The answer arrives named after the id that was SENT — the row's existing one
@@ -242,7 +260,7 @@ function validate( id, url ) {
  *
  * @param {Object}                          props          Component props.
  * @param {Object}                          props.server   The row being edited, or BLANK_SERVER.
- * @param {Function}                        props.onSave   Save callback; called with the four trimmed fields.
+ * @param {Function}                        props.onSave   Save callback; called with the five trimmed fields.
  * @param {?{verb: string, error: ?string}} props.answer   The answer for the submitted id, if any.
  * @param {boolean}                         props.busy     Whether the save is outstanding.
  * @param {() => void}                      props.onCancel Dismisses the modal from the footer Cancel button.
@@ -252,6 +270,7 @@ function ServerForm( { server, onSave, answer, busy, onCancel } ) {
 	const isNew = '' === server.id;
 	const [ id, setId ] = useState( server.id );
 	const [ url, setUrl ] = useState( server.url );
+	const [ group, setGroup ] = useState( server.group ?? '' );
 	const [ username, setUsername ] = useState( server.auth_username ?? '' );
 	// Never seeded: the stored password does not reach the browser at all.
 	const [ password, setPassword ] = useState( '' );
@@ -271,7 +290,8 @@ function ServerForm( { server, onSave, answer, busy, onCancel } ) {
 	const handleSave = () => {
 		const trimmedId = id.trim();
 		const trimmedUrl = url.trim();
-		const refusal = validate( trimmedId, trimmedUrl );
+		const trimmedGroup = group.trim();
+		const refusal = validate( trimmedId, trimmedUrl, trimmedGroup );
 		setInvalid( refusal );
 		if ( refusal ) {
 			return;
@@ -279,6 +299,7 @@ function ServerForm( { server, onSave, answer, busy, onCancel } ) {
 		onSave( {
 			id: trimmedId,
 			url: trimmedUrl,
+			group: trimmedGroup,
 			auth_username: username.trim(),
 			auth_password: password,
 		} );
@@ -301,7 +322,6 @@ function ServerForm( { server, onSave, answer, busy, onCancel } ) {
 								id="vault-server-id"
 								className="regular-text"
 								placeholder="prod-web-01"
-								pattern="[a-zA-Z0-9_-]+"
 								value={ id }
 								onChange={ ( e ) => setId( e.target.value ) }
 							/>
@@ -336,6 +356,29 @@ function ServerForm( { server, onSave, answer, busy, onCancel } ) {
 							<p className="description">
 								{ __(
 									'HTTPS URL of the WordPress site.',
+									'newspack-nodes'
+								) }
+							</p>
+						</td>
+					</tr>
+					<tr>
+						<th>
+							<label htmlFor="vault-server-group">
+								{ __( 'Group', 'newspack-nodes' ) }
+							</label>
+						</th>
+						<td>
+							<input
+								type="text"
+								id="vault-server-group"
+								className="regular-text"
+								placeholder="spoke"
+								value={ group }
+								onChange={ ( e ) => setGroup( e.target.value ) }
+							/>
+							<p className="description">
+								{ __(
+									'A Vault_Group node builds one child per server in its group.',
 									'newspack-nodes'
 								) }
 							</p>
@@ -431,7 +474,7 @@ function ServerForm( { server, onSave, answer, busy, onCancel } ) {
  *
  * @param {Object}                          props         Component props.
  * @param {Object}                          props.server  The row being edited, or BLANK_SERVER.
- * @param {Function}                        props.onSave  Save callback; called with the four trimmed fields.
+ * @param {Function}                        props.onSave  Save callback; called with the five trimmed fields.
  * @param {?{verb: string, error: ?string}} props.answer  The answer for the submitted id, if any.
  * @param {boolean}                         props.busy    Whether the save is outstanding.
  * @param {() => void}                      props.onClose Dismisses the modal.
@@ -538,8 +581,11 @@ export default function VaultAdmin( { headerControlsSlot } ) {
 						<th style={ { width: '12%' } }>
 							{ __( 'ID', 'newspack-nodes' ) }
 						</th>
-						<th style={ { width: '48%' } }>
+						<th style={ { width: '36%' } }>
 							{ __( 'URL', 'newspack-nodes' ) }
+						</th>
+						<th style={ { width: '12%' } }>
+							{ __( 'Group', 'newspack-nodes' ) }
 						</th>
 						<th style={ { width: '15%' } }>
 							{ __( 'Status', 'newspack-nodes' ) }
@@ -564,7 +610,7 @@ export default function VaultAdmin( { headerControlsSlot } ) {
 						) )
 					) : (
 						<tr>
-							<td colSpan={ 4 }>
+							<td colSpan={ 5 }>
 								{ __(
 									'No servers configured.',
 									'newspack-nodes'

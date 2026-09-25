@@ -61,9 +61,10 @@ r.appendChild(s);
 
 <div class="carve">
   <div class="card">
-    <h3>Carve-out 1: fan-out (Tee and Tap via <span class="mono">Fanout_Targets</span>, and <span class="mono">LRU_Cache::evict_bucket()</span> over its callbacks)</h3>
+    <h3>Carve-out 1: fan-out (Tee and Tap via <span class="mono">Fanout_Targets</span>, <span class="mono">Vault_Group_Node::forward()</span> over its children, and <span class="mono">LRU_Cache::evict_bucket()</span> over its callbacks)</h3>
     <p>A target throwing says nothing about its siblings, so a fan-out attempts EVERY target and defers the throwable: a skipped healthy target is a permanent loss once the poison path dead-letters the message and advances the cursor. Completing the fan-out preserves at-least-once; duplicates on replay are its accepted cost, and they arise with any fan-out regardless of when it throws.</p>
     <p>Tap always performs its passthrough before re-throwing — the passthrough IS the pipeline, and a <span class="mono">Worker_Should_Stop_Clean</span> commits PAST the message, so aborting early would drop it from the main path. Tap claims no exemption as observability: a snapshot node raising the clean stop from a tap participates in cursor semantics, so Tap defers an ordinary target error exactly as Tee does rather than swallowing it.</p>
+    <p><span class="mono">forward()</span> dispatches a config verb to every child's interpreter, keeps each answer, and defers a throwable exactly as Tee does: a child's refusal joins one combined error raised after the loop, and a child's <span class="mono">Worker_Should_Stop</span> is deferred until the loop ends, when the one <span class="mono">outranks()</span> picks is raised.</p>
   </div>
   <div class="card">
     <h3>Carve-out 2: post-job <span class="mono">finally</span></h3>

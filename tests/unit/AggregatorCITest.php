@@ -29,6 +29,7 @@ use Newspack_Nodes\Tests\Helpers\VerbHarness;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
+use Newspack_Nodes\Remote_Source_Node;
 use Newspack_Nodes\Tests\Helpers\InMemoryMemcached;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Vault;
@@ -77,122 +78,122 @@ class AggregatorCITest extends TestCase {
 	}
 
 	/**
-	 * Seed the active `aggregator` topology graph with operator-wired
-	 * Remote_Source nodes by writing a real .tsl into the registered user dir
-	 * (graph_for parses it). Each line is the real 2-arg schema
-	 * `make_node Remote_Source <name> <vault> <remote_partition>`, where
-	 * remote_partition embeds the `<partition>` token so the node fans across
-	 * every configured partition. `var num_partitions` pins how many partitions
+	 * Seed an active topology whose spokes come from the Vault through one
+	 * `Vault_Group` of `Remote_Source` children over `tw-edge`, the way a hub
+	 * declares them. Each id in `$members` joins `tw-edge`; `lone` (no group)
+	 * and `aux` (group `llm`) sit in the Vault too, so a reader that lists the
+	 * whole Vault rather than the group shows them. Children are named
+	 * `firehose:<id>`, and `var num_partitions` pins how many partitions
 	 * Aggregator_CI enumerates.
 	 *
-	 * @param array<int,array{0:string,1:string,2:string}> $sources        Tuples of [node-name, vault-id, remote_partition-template].
-	 * @param int                                          $num_partitions Configured partition count.
+	 * @param list<string> $members        Vault ids in `tw-edge`.
+	 * @param int          $num_partitions Configured partition count.
+	 * @param string       $topology       Active topology name.
+	 * @param list<string> $written        Further hand-written lines.
 	 */
-	private function seed_aggregator_topology( array $sources, int $num_partitions = 1 ): void {
+	private function seed_group_topology( array $members, int $num_partitions = 1, string $topology = 'aggregator', array $written = [] ): void {
+		$servers = [
+			'lone' => [ 'url' => 'https://lone.example/' ],
+			'aux'  => [ 'url' => 'https://aux.example/', 'group' => 'llm' ],
+		];
+		foreach ( $members as $id ) {
+			$servers[ $id ] = [ 'url' => "https://{$id}.example/", 'group' => 'tw-edge' ];
+		}
+		$this->seed_vault_servers( $servers );
 		$lines = [
 			"var num_partitions = {$num_partitions}",
 			'make_node Remote_Job_Rewrite remote-job-rewrite',
+			'make_node Vault_Group firehose Remote_Source tw-edge firehose.p<partition>',
+			'connect_node firehose remote-job-rewrite',
+			...$written,
 		];
-		foreach ( $sources as [ $node_name, $vault_id, $remote_partition ] ) {
-			$lines[] = "make_node Remote_Source {$node_name} {$vault_id} {$remote_partition}";
-			$lines[] = "connect_node {$node_name} remote-job-rewrite";
-		}
-		\file_put_contents( $this->tmp . '/topologies/aggregator.tsl', \implode( "\n", $lines ) . "\n" );
+		\file_put_contents( "{$this->tmp}/topologies/{$topology}.tsl", \implode( "\n", $lines ) . "\n" );
 		Topology_Registry::reset_basename_cache();
 		// The snapshot scans the ACTIVE set; a seeded topology must be active.
-		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'aggregator' ];
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ $topology ];
 		\Newspack_Nodes\Config::reset();
 	}
 
 	/**
-	 * Seed the substrate Vault directly via its option store so the
-	 * status/servers verbs (which read `Vault::get_instance()`) see the
-	 * server set under test. `logs` is intentionally NOT stored — the Vault
-	 * drops it, matching the substrate public shape.
+	 * Seed one child's status snapshot, as its reader publishes it.
 	 *
-	 * @param string               $id     Server id.
-	 * @param array<string, mixed> $config Server config (url, enabled, auth_*).
+	 * @param string               $id       Vault id of the child.
+	 * @param string               $source   Concrete remote partition.
+	 * @param array<string, mixed> $snapshot Published status.
 	 */
-	protected function seed_vault( string $id, array $config ): void {
-		$existing         = $GLOBALS['_wp_options'][ Vault::OPTION_KEY ] ?? [];
-		$existing[ $id ]  = $config;
-		$this->seed_vault_servers( \is_array( $existing ) ? $existing : [ $id => $config ] );
+	private static function seed_status( string $id, string $source, array $snapshot ): void {
+		Core::$memd->set( Remote_Source_Node::status_key_for( "firehose:{$id}", $source ), $snapshot, 60 );
+	}
+
+	/** @return list<array<string, mixed>> The decoded `list_servers` slice. */
+	private static function list_servers(): array {
+		return \json_decode( VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'list_servers' ), true );
 	}
 
 	// ---------------------------------------------------------------------
 	// build_snapshot (exercised via the list_servers slice)
 	// ---------------------------------------------------------------------
 
-	public function test_list_servers_discovers_remote_sources_in_any_active_topology(): void {
-		// Readers live in include-based overlays with their own names (e.g.
-		// aggregator-tw0); the dashboard must not be married to the literal
-		// topology name 'aggregator'.
-		$lines = [
-			'var num_partitions = 1',
-			'make_node Remote_Job_Rewrite remote-job-rewrite',
-			'make_node Remote_Source spoke-x9 xvault firehose.p<partition>',
-			'connect_node spoke-x9 remote-job-rewrite',
-		];
-		\file_put_contents( $this->tmp . '/topologies/aggregator-x9.tsl', \implode( "\n", $lines ) . "\n" );
-		Topology_Registry::reset_basename_cache();
-		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'aggregator-x9' ];
-		\Newspack_Nodes\Config::reset();
-		$this->seed_vault( 'xvault', [ 'url' => 'https://x9.example' ] );
+	public function test_list_servers_names_the_group_members_in_any_active_topology(): void {
+		// Readers live in include-based overlays with their own names; the
+		// dashboard must not be married to the literal topology name.
+		$this->seed_group_topology( [ 'tw0', 'tw9' ], 1, 'aggregator-x9' );
 
-		$decoded = \json_decode(
-			VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'list_servers' ),
-			true
-		);
+		$decoded = self::list_servers();
 
-		$this->assertCount( 1, $decoded );
-		$this->assertSame( 'spoke-x9', $decoded[0]['id'] );
-		$this->assertSame( 'xvault', $decoded[0]['vault_id'] );
+		$this->assertSame( [ 'firehose:tw0', 'firehose:tw9' ], \array_column( $decoded, 'id' ) );
+		$this->assertSame( [ 'tw0', 'tw9' ], \array_column( $decoded, 'vault_id' ) );
+	}
+
+	public function test_list_servers_lists_a_written_reader_beside_the_group(): void {
+		$this->seed_group_topology( [ 'tw0', 'tw9' ], 1, 'aggregator', [ 'make_node Remote_Source spoke-x9 lone firehose.p<partition>' ] );
+
+		$decoded = self::list_servers();
+
+		$this->assertSame( [ 'firehose:tw0', 'firehose:tw9', 'spoke-x9' ], \array_column( $decoded, 'id' ) );
+		$this->assertSame( 'https://lone.example/', \array_column( $decoded, 'url', 'id' )['spoke-x9'] );
+	}
+
+	public function test_list_servers_skips_a_config_vault_id(): void {
+		$this->seed_group_topology( [ 'config', 'tw9' ] );
+
+		$this->assertSame( [ 'firehose:tw9' ], \array_column( self::list_servers(), 'id' ) );
 	}
 
 	public function test_list_servers_uses_empty_block_on_cache_miss(): void {
-		$this->seed_aggregator_topology( [ [ 'spoke-b', 'other', 'firehose.p<partition>' ] ] );
+		$this->seed_group_topology( [ 'tw9' ] );
 
-		$decoded = \json_decode(
-			VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'list_servers' ),
-			true
-		);
+		$decoded = self::list_servers();
 
-		$this->assertSame( 'spoke-b', $decoded[0]['id'] );
+		$this->assertSame( 'firehose:tw9', $decoded[0]['id'] );
 		$this->assertSame( [], $decoded[0]['partitions'][0] );
 	}
 
 	public function test_list_servers_reads_every_configured_partition(): void {
-		// One Remote_Source whose remote_partition embeds the `<partition>` token
-		// fans across all configured partitions: with num_partitions=2 the snapshot
-		// reads np:remote:spoke-c:firehose.p0 AND ...firehose.p1, keyed by partition
-		// index (0,1) — not a single wired partition.
-		$this->seed_aggregator_topology( [ [ 'spoke-c', 'cville', 'firehose.p<partition>' ] ], 2 );
-		Core::$memd->set( \Newspack_Nodes\Remote_Source_Node::status_key_for( 'spoke-c', 'firehose.p0' ), [ 'connected' => true ], 60 );
-		Core::$memd->set( \Newspack_Nodes\Remote_Source_Node::status_key_for( 'spoke-c', 'firehose.p1' ), [ 'connected' => false ], 60 );
+		// The remote_partition template carries `<partition>`, so with two
+		// partitions the snapshot reads firehose.p0 AND firehose.p1, keyed by
+		// partition index.
+		$this->seed_group_topology( [ 'tw9' ], 2 );
+		self::seed_status( 'tw9', 'firehose.p0', [ 'connected' => true ] );
+		self::seed_status( 'tw9', 'firehose.p1', [ 'connected' => false ] );
 
-		$decoded = \json_decode(
-			VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'list_servers' ),
-			true
-		);
+		$decoded = self::list_servers();
 
-		$this->assertSame( 'spoke-c', $decoded[0]['id'] );
+		$this->assertSame( 'firehose:tw9', $decoded[0]['id'] );
 		$this->assertSame( [ 0, 1 ], \array_keys( $decoded[0]['partitions'] ) );
 		$this->assertTrue( $decoded[0]['partitions'][0]['connected'] );
 		$this->assertFalse( $decoded[0]['partitions'][1]['connected'] );
 	}
 
 	public function test_list_servers_ignores_non_remote_source_nodes(): void {
-		// The rewrite node + Topic sink are in the graph too; only Remote_Source
-		// nodes become snapshot entries.
-		$this->seed_aggregator_topology( [ [ 'spoke-d', 'denver', 'firehose.p<partition>' ] ] );
+		// The rewrite node and the group itself are in the graph too; only the
+		// Remote_Source children become snapshot entries.
+		$this->seed_group_topology( [ 'tw9' ] );
 
-		$decoded = \json_decode(
-			VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'list_servers' ),
-			true
-		);
+		$decoded = self::list_servers();
 
 		$this->assertCount( 1, $decoded );
-		$this->assertSame( 'spoke-d', $decoded[0]['id'] );
+		$this->assertSame( 'firehose:tw9', $decoded[0]['id'] );
 	}
 
 	// ---------------------------------------------------------------------
@@ -208,7 +209,7 @@ class AggregatorCITest extends TestCase {
 	// ---------------------------------------------------------------------
 
 	public function test_summary_verb_returns_zero_counts_when_no_remote_sources_wired(): void {
-		$this->seed_aggregator_topology( [] );
+		$this->seed_group_topology( [] );
 
 		$interpreter = new Aggregator_CI_Node();
 		$result      = VerbHarness::fire( $interpreter, 'aggregator', 'summary' );
@@ -216,22 +217,16 @@ class AggregatorCITest extends TestCase {
 		$this->assertIsString( $result );
 		$decoded = \json_decode( $result, true );
 		$this->assertSame( 0, $decoded['connected'] );
-		$this->assertSame( 0, $decoded['total'] );
+		$this->assertSame( 0, $decoded['total'], 'lone and aux sit outside the group' );
 		$this->assertIsInt( $decoded['server_now'] );
 	}
 
 	public function test_summary_verb_counts_servers_with_at_least_one_connected_partition(): void {
-		// spoke-a has one connected partition (p0) → counts as 1 connected;
-		// spoke-b has no connected partitions → counts toward total only.
-		$this->seed_aggregator_topology(
-			[
-				[ 'spoke-a', 'austin', 'firehose.p<partition>' ],
-				[ 'spoke-b', 'denver', 'firehose.p<partition>' ],
-			],
-			2
-		);
-		Core::$memd->set( \Newspack_Nodes\Remote_Source_Node::status_key_for( 'spoke-a', 'firehose.p0' ), [ 'connected' => true ], 60 );
-		Core::$memd->set( \Newspack_Nodes\Remote_Source_Node::status_key_for( 'spoke-a', 'firehose.p1' ), [ 'connected' => false ], 60 );
+		// tw0 has one connected partition (p0) → counts as 1 connected;
+		// tw9 has no connected partitions → counts toward total only.
+		$this->seed_group_topology( [ 'tw0', 'tw9' ], 2 );
+		self::seed_status( 'tw0', 'firehose.p0', [ 'connected' => true ] );
+		self::seed_status( 'tw0', 'firehose.p1', [ 'connected' => false ] );
 
 		$interpreter = new Aggregator_CI_Node();
 		$decoded     = \json_decode( VerbHarness::fire( $interpreter, 'aggregator', 'summary' ), true );
@@ -241,27 +236,13 @@ class AggregatorCITest extends TestCase {
 	}
 
 	public function test_summary_verb_counts_a_spoke_idle_at_eof_as_up_not_missing(): void {
-		// spoke-a is streaming; spoke-b closed at EOF and is due back. Both are
-		// up — a header that read spoke-b as missing would alarm an operator
-		// about a fleet where nothing is wrong.
-		$this->seed_aggregator_topology(
-			[
-				[ 'spoke-a', 'austin', 'firehose.p<partition>' ],
-				[ 'spoke-b', 'denver', 'firehose.p<partition>' ],
-				[ 'spoke-c', 'tucson', 'firehose.p<partition>' ],
-			]
-		);
-		Core::$memd->set( \Newspack_Nodes\Remote_Source_Node::status_key_for( 'spoke-a', 'firehose.p0' ), [ 'connected' => true ], 60 );
-		Core::$memd->set(
-			\Newspack_Nodes\Remote_Source_Node::status_key_for( 'spoke-b', 'firehose.p0' ),
-			[ 'connected' => false, 'scheduled_reconnect_at' => \time() + 9 ],
-			60
-		);
-		Core::$memd->set(
-			\Newspack_Nodes\Remote_Source_Node::status_key_for( 'spoke-c', 'firehose.p0' ),
-			[ 'connected' => false, 'last_error' => 'connection refused 8531' ],
-			60
-		);
+		// tw0 is streaming; tw5 closed at EOF and is due back. Both are up — a
+		// header that read tw5 as missing would alarm an operator about a
+		// fleet where nothing is wrong.
+		$this->seed_group_topology( [ 'tw0', 'tw5', 'tw9' ] );
+		self::seed_status( 'tw0', 'firehose.p0', [ 'connected' => true ] );
+		self::seed_status( 'tw5', 'firehose.p0', [ 'connected' => false, 'scheduled_reconnect_at' => \time() + 9 ] );
+		self::seed_status( 'tw9', 'firehose.p0', [ 'connected' => false, 'last_error' => 'connection refused 8531' ] );
 
 		$interpreter = new Aggregator_CI_Node();
 		$decoded     = \json_decode( VerbHarness::fire( $interpreter, 'aggregator', 'summary' ), true );
@@ -272,7 +253,7 @@ class AggregatorCITest extends TestCase {
 	}
 
 	public function test_summary_verb_stamps_a_wall_clock_server_now(): void {
-		$this->seed_aggregator_topology( [ [ 'spoke-a', 'austin', 'firehose.p<partition>' ] ] );
+		$this->seed_group_topology( [ 'tw9' ] );
 
 		$before  = \time();
 		$decoded = \json_decode(
@@ -302,20 +283,9 @@ class AggregatorCITest extends TestCase {
 	// and encoded as a JSON STRING (SliceViewNode contract).
 	// ---------------------------------------------------------------------
 
-	public function test_list_servers_answers_the_server_snapshot_list(): void {
-		$this->seed_aggregator_topology( [] );
-
-		$decoded = \json_decode(
-			VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'list_servers' ),
-			true
-		);
-
-		$this->assertSame( [], $decoded );
-	}
-
 	/** The verb is `list_servers`; the noun-first name is refused, not aliased. */
 	public function test_servers_status_is_refused_as_an_unknown_command(): void {
-		$this->seed_aggregator_topology( [] );
+		$this->seed_group_topology( [] );
 
 		$result = VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'servers_status' );
 
@@ -324,36 +294,23 @@ class AggregatorCITest extends TestCase {
 	}
 
 	public function test_list_servers_verb_returns_empty_array_when_no_remote_sources_wired(): void {
-		$this->seed_aggregator_topology( [] );
+		$this->seed_group_topology( [] );
 
-		$decoded = \json_decode(
-			VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'list_servers' ),
-			true
-		);
-
-		$this->assertSame( [], $decoded );
+		$this->assertSame( [], self::list_servers() );
 	}
 
 	public function test_list_servers_verb_returns_sequential_array_of_server_snapshots(): void {
-		$this->seed_aggregator_topology( [ [ 'spoke-a', 'austin', 'firehose.p<partition>' ] ] );
-		$this->seed_vault( 'austin', [ 'url' => 'https://spoke.example/' ] );
-		Core::$memd->set(
-			\Newspack_Nodes\Remote_Source_Node::status_key_for( 'spoke-a', 'firehose.p0' ),
-			[ 'connected' => true, 'last_http_code' => 200 ],
-			60
-		);
+		$this->seed_group_topology( [ 'tw9' ] );
+		self::seed_status( 'tw9', 'firehose.p0', [ 'connected' => true, 'last_http_code' => 200 ] );
 
-		$decoded = \json_decode(
-			VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'list_servers' ),
-			true
-		);
+		$decoded = self::list_servers();
 
 		// Sequential array (NOT keyed by node-name) — the card list maps over it.
 		$this->assertArrayHasKey( 0, $decoded );
 		$this->assertCount( 1, $decoded );
-		$this->assertSame( 'spoke-a', $decoded[0]['id'] );
-		$this->assertSame( 'austin', $decoded[0]['vault_id'] );
-		$this->assertStringStartsWith( 'https://spoke.example', $decoded[0]['url'] );
+		$this->assertSame( 'firehose:tw9', $decoded[0]['id'] );
+		$this->assertSame( 'tw9', $decoded[0]['vault_id'] );
+		$this->assertStringStartsWith( 'https://tw9.example', $decoded[0]['url'] );
 		$this->assertTrue( $decoded[0]['partitions'][0]['connected'] );
 		$this->assertSame( 200, $decoded[0]['partitions'][0]['last_http_code'] );
 	}
@@ -369,24 +326,19 @@ class AggregatorCITest extends TestCase {
 	public function test_slice_verbs_agree_on_the_same_snapshot(): void {
 		// summary and list_servers both derive from build_snapshot(), so the
 		// header counts must match the server-card list they summarize.
-		$this->seed_aggregator_topology(
-			[
-				[ 'spoke-a', 'austin', 'firehose.p<partition>' ],
-				[ 'spoke-b', 'denver', 'firehose.p<partition>' ],
-			]
-		);
+		$this->seed_group_topology( [ 'tw0', 'tw9' ] );
 		// Each VerbHarness::fire builds a fresh request-scope graph and Core::reset
 		// (which clears Core::$memd) clears its node registry between fires. Re-seed
 		// the memcache snapshot + auth before each fire so both verbs read the same
 		// snapshot; the seeded topology lives in Topology_Registry and survives.
 		$reseed = function (): void {
 			Core::$memd = new InMemoryMemcached();
-			Core::$memd->set( \Newspack_Nodes\Remote_Source_Node::status_key_for( 'spoke-a', 'firehose.p0' ), [ 'connected' => true ], 60 );
+			self::seed_status( 'tw0', 'firehose.p0', [ 'connected' => true ] );
 			$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
 		};
 
 		$reseed();
-		$servers_slice = \json_decode( VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'list_servers' ), true );
+		$servers_slice = self::list_servers();
 		VerbHarness::reset();
 		$reseed();
 		$summary = \json_decode( VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'summary' ), true );
@@ -435,39 +387,20 @@ class AggregatorCITest extends TestCase {
 		}
 	}
 
-	public function test_list_servers_reads_the_vault(): void {
-		// A server seeded into the substrate Vault must surface in the response,
-		// proving the dispatched handler reads the Vault singleton rather than a
-		// fresh/empty view.
-		$this->seed_aggregator_topology( [ [ 'spoke-a', 'sentinel', 'firehose.p<partition>' ] ] );
-		$this->seed_vault( 'sentinel', [ 'url' => 'https://sentinel.example/', 'enabled' => true ] );
-
-		$decoded = \json_decode(
-			VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'list_servers' ),
-			true
-		);
-
-		$this->assertCount( 1, $decoded );
-		$this->assertSame( 'sentinel', $decoded[0]['vault_id'] );
-		$this->assertStringStartsWith( 'https://sentinel.example', $decoded[0]['url'] );
-	}
-
 	/**
 	 * Tachikoma uniform-construction parity: the substrate `make_node` calls
-	 * a no-arg ctor. Aggregator_CI now reads the Vault singleton directly (no
-	 * injected object dep), so a bare `new Aggregator_CI_Node()` must dispatch
-	 * its verbs against the seeded Vault with no further wiring.
+	 * a no-arg ctor. Aggregator_CI reads the Vault singleton directly (no
+	 * injected object dep), so a bare `new Aggregator_CI_Node()` dispatches
+	 * its verbs against the seeded Vault with no further wiring — the member's
+	 * URL proves the handler read the option store.
 	 */
 	public function test_constructible_via_no_arg_ctor(): void {
-		$this->seed_aggregator_topology( [ [ 'spoke-a', 'sentinel', 'firehose.p<partition>' ] ] );
-		$this->seed_vault( 'sentinel', [ 'url' => 'https://s.example/', 'enabled' => true ] );
+		$this->seed_group_topology( [ 'tw9' ] );
 
-		$decoded = \json_decode(
-			VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'list_servers' ),
-			true
-		);
+		$decoded = self::list_servers();
 
-		$this->assertSame( 'sentinel', $decoded[0]['vault_id'] );
+		$this->assertSame( 'tw9', $decoded[0]['vault_id'] );
+		$this->assertStringStartsWith( 'https://tw9.example', $decoded[0]['url'] );
 	}
 
 	/**

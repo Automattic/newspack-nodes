@@ -7,6 +7,7 @@ use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\Helpers\InMemoryMemcached;
 use Newspack_Nodes\Command_Auth;
+use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\HTTP_Out_Node;
 use Newspack_Nodes\Message;
@@ -39,6 +40,7 @@ class SettingsSyncFanoutTest extends TestCase {
 		HTTP_Out_Node::$curl_dispatch = null;
 		Command_Auth::forget_session( 'tw0' );
 		Command_Auth::forget_session( 'tw1' );
+		Command_Auth::forget_session( 'tw9' );
 		Vault::get_instance()->reset_cache();
 		Core::$memd = $this->prev_memd;
 		parent::tearDown();
@@ -159,5 +161,38 @@ class SettingsSyncFanoutTest extends TestCase {
 
 		$this->assertCount( 1, $sink->captured );
 		$this->assertSame( 'settings:tw0/settings', $sink->captured[0][ Message::TO ] );
+	}
+
+	/**
+	 * A `Vault_Group` target expands to its members before the mint, so one
+	 * `connect_node( 'egress' )` still signs a separate command per spoke —
+	 * each under that spoke's own session key, addressed at its own member.
+	 */
+	public function test_a_vault_group_target_signs_one_command_per_member(): void {
+		\update_option( 'newspack_nodes_max_segments', 8 );
+		$this->seed_vault_servers(
+			[
+				'tw0' => [ 'url' => 'https://tw0.example', 'group' => 'tw-edge' ],
+				'tw9' => [ 'url' => 'https://tw9.example', 'group' => 'tw-edge' ],
+			]
+		);
+		( new Command_Interpreter_Node() )->make_node( 'Vault_Group', 'egress', 'HTTP_Out', 'tw-edge' );
+		$a = Command_Auth::mint_session();
+		$b = Command_Auth::mint_session();
+		Command_Auth::remember_session( 'tw0', $a['handle'], $a['secret'] );
+		Command_Auth::remember_session( 'tw9', $b['handle'], $b['secret'] );
+
+		$sink = new Capture_Sink_Node();
+		$node = $this->minter( $sink );
+		$node->add_setting( [ 'newspack_nodes_max_segments', 'settings', 'newspack_nodes_max_segments' ] );
+		$node->connect_node( 'egress' );
+
+		$this->push( $node );
+
+		$this->assertCount( 2, $sink->captured, 'one signed command per group member' );
+		$this->assertSame( 'egress:tw0/settings', $sink->captured[0][ Message::TO ] );
+		$this->assertSame( 'egress:tw9/settings', $sink->captured[1][ Message::TO ] );
+		$this->assertSame( $a['handle'], $sink->captured[0][ Message::VALUE ]['auth']['handle'] );
+		$this->assertSame( $b['handle'], $sink->captured[1][ Message::VALUE ]['auth']['handle'] );
 	}
 }

@@ -50,8 +50,7 @@ class OnDemandWorkersTest extends TestCase {
 		$GLOBALS['_test_wp_cli_warns']   = [];
 		$GLOBALS['_test_wp_cli_errors']  = [];
 		$GLOBALS['_test_wp_cli_success'] = [];
-		$this->tmp = $this->make_temp_dir( 'on-demand-' );
-		Topology_Registry::register_stock_dir( $this->tmp );
+		$this->tmp = $this->stock_topology_dir( 'on-demand-' );
 		$this->use_base_dir( $this->tmp );
 	}
 
@@ -61,10 +60,6 @@ class OnDemandWorkersTest extends TestCase {
 		Alerts::reset();
 		$this->rmdir_recursive( $this->tmp );
 		parent::tearDown();
-	}
-
-	private function write_tsl( string $name, string $contents ): void {
-		\file_put_contents( "{$this->tmp}/{$name}.tsl", $contents );
 	}
 
 	/** A descriptor of the shape expand_workers() emits. */

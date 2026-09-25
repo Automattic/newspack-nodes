@@ -1674,8 +1674,8 @@ class Command_Interpreter_Node extends Node {
 	 * `dump_config [<regex glob>]` — the graph as round-trippable config lines.
 	 *
 	 * Session scaffolding is skipped because every session already has it, and a
-	 * patron's sidecars are skipped because the patron's own line rebuilds them —
-	 * emitting both would construct each sidecar twice on replay.
+	 * patron's or publisher's sidecars are skipped because that node's own line
+	 * rebuilds them — emitting both would construct each sidecar twice on replay.
 	 *
 	 * @param string $glob Regex filter on node names; empty dumps every node.
 	 */
@@ -1692,8 +1692,8 @@ class Command_Interpreter_Node extends Node {
 			// $name from Core::$nodes_by_name keys; lookup always present.
 			/** @var \Newspack_Nodes\Node $node Node from the registry. */
 			$node = Core::node( $name );
-			// Omit patron sidecars; patron's config line recreates them.
-			if ( null !== $node->patron() ) {
+			// A patron or publisher rebuilds this; replaying it duplicates.
+			if ( null !== $node->patron() || null !== $node->publisher() ) {
 				continue;
 			}
 			$out .= $node->dump_config();

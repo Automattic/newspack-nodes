@@ -6,6 +6,7 @@ use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Topic_Node;
+use Newspack_Nodes\Topology_Registry;
 
 abstract class TestCase extends PHPUnitTestCase {
 	/** @var array<int,string> Temp dirs created via make_temp_dir(), auto-removed in tearDown. */
@@ -34,6 +35,9 @@ abstract class TestCase extends PHPUnitTestCase {
 
 	/** Root make_temp_dir() hands dirs out under, resolved once per test in setUp(). */
 	private string $temp_root = '';
+
+	/** Stock topology dir write_tsl() writes into, set by stock_topology_dir(). */
+	private string $topology_dir = '';
 
 	protected function setUp(): void {
 		// Keep APCu pinned off so Memcached fixtures remain deterministic: tests
@@ -294,6 +298,32 @@ abstract class TestCase extends PHPUnitTestCase {
 		// every call in the suite leaks a directory under the runtime base.
 		$this->temp_dirs[] = $dir;
 		return $dir;
+	}
+
+	/**
+	 * A temp dir registered as the stock topology dir write_tsl() writes into.
+	 *
+	 * @param string $prefix Temp dir name prefix.
+	 * @return string The dir.
+	 */
+	protected function stock_topology_dir( string $prefix ): string {
+		$this->topology_dir = $this->make_temp_dir( $prefix );
+		Topology_Registry::register_stock_dir( $this->topology_dir );
+		return $this->topology_dir;
+	}
+
+	/**
+	 * Write `<name>.tsl` into the stock_topology_dir(). The parsed caches are
+	 * left alone, so a test proving they memoize can rewrite a file under them.
+	 *
+	 * @param string $name     Topology name.
+	 * @param string $contents TSL body.
+	 */
+	protected function write_tsl( string $name, string $contents ): void {
+		if ( '' === $this->topology_dir ) {
+			throw new \LogicException( 'call stock_topology_dir() first' );
+		}
+		\file_put_contents( "{$this->topology_dir}/{$name}.tsl", $contents );
 	}
 
 	/**

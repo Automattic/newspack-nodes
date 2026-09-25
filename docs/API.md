@@ -500,6 +500,12 @@ up by it. It is also what `help Layouts_CI` renders a schema for, because
 `Bootstrap` registers the `Newspack_Nodes\Rest\` prefix alongside
 `Newspack_Nodes\`.
 
+**`vault add` and `update` take a `group`.** A server's optional `group`
+option, held to the same id rule as its own id, groups it with any other
+server sharing the name; `public_shape()` echoes it back on `list` and `get`
+alongside `url`, `auth_username` and `has_credentials`. It is the field a
+[`Vault_Group`](#the-substrate-as-client) node reads to decide its members.
+
 **`workers.dump_graph` vs `dump_metadata` — different verbs, different shapes.**
 The `workers` CI's `dump_graph` returns the dashboard payload:
 
@@ -927,6 +933,14 @@ POSTs commands to its spokes through `HTTP_Out_Node` and pulls their streams bac
 through `SSE_In_Node`. Both bound themselves, and an operator diagnosing a
 flapping spoke reads it against the numbers below.
 
+A hub with many spokes builds many such nodes from one line: `Vault_Group`
+([`class-vault-group-node.php`](../includes/class-vault-group-node.php)) keeps
+one child — an `HTTP_Out`, a `Remote_Source`, or any other type — per server in
+a [Vault](../includes/class-vault.php) `group`, running `update_graph()` on
+the fleet's RELOAD as a spoke is added to or dropped from the group. Each child is a
+normal client of the endpoints below, published as an owned sibling named
+`<group>:<vault id>` rather than hand-written per spoke.
+
 ### `HTTP_Out_Node` — `/command` and `/auth`
 
 ![The push side in four steps: fill() buffering under a one-shot timer with the three in-tree minters, fire() dropping an unaddressable batch or holding one while /auth runs, the JSONL POST with its 15-second timeout and 8 MiB reply cap, and on_curl_message() branching on transport error, 401, 202, other non-200 and 200; beneath, the blocking probe_command() bounds and what an operator reads off a flapping spoke.](img/api-http-out-push.png)
@@ -995,7 +1009,7 @@ answer. Every `newspack_nodes/*` name and signature is frozen surface — see
 | `newspack_nodes/config_reset` | — | `Config::reset()`. Drop anything memoized from config: the substrate drops log-dir scans, parsed TSL and vault credentials here. |
 | `newspack_nodes/job_worker/after_job` | `string $handler, string $id, ?array $outcome` | [`Job_Worker_Node`](../includes/class-job-worker-node.php), always — after a success, a throw, or a decline. Tear down per-job request context here. |
 | `newspack_nodes/job_worker/batch_complete` | `string $batch` | `Job_Worker_Node`, when a batch's last job settles. |
-| `newspack_nodes/vault/changed` | `string $id, string $action, string $previous` | [`Vault_CI_Node`](../includes/rest/class-vault-ci-node.php), on any credential write. `$action` is `added`, `updated`, `renamed` or `removed`; `$previous` carries the id a rename moved away from, else `''`. |
+| `newspack_nodes/vault/changed` | `string $id, string $action, string $previous` | [`Vault_CI_Node`](../includes/rest/class-vault-ci-node.php), on any credential write, a `group` edit included. `$action` is `added`, `updated`, `renamed` or `removed`; `$previous` carries the id a rename moved away from, else `''`. [`Bootstrap::reload_vault_consumers()`](../includes/class-bootstrap.php) listens here to signal RELOAD to every topology holding a `Remote_Link`, `Remote_Source` or `Vault_Group`, and to reset the analyzer's caches so a planning read later in the same process sees the write. |
 | `newspack_nodes/stderr` | `string $text` | [`Core::_stderr()`](../includes/class-core.php), beside the stderr handler and under the same re-entry guard. A listener that throws cannot break the last-resort diagnostic path, and one that calls `stderr()` itself short-circuits to `error_log` rather than recursing. |
 | `newspack_nodes/settings_after_form` | — | [`Admin`](../includes/admin/class-admin.php), below the settings form. |
 

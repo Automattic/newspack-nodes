@@ -281,7 +281,7 @@ class VaultCINodeTest extends TestCase {
 		);
 		$this->assertIsString( $out, 'an unread option is a refusal, not a stored entry' );
 		$this->assertStringContainsString( 'unknown option --credential', $out );
-		$this->assertStringContainsString( 'this verb takes --url, --user, --password', $out );
+		$this->assertStringContainsString( 'this verb takes --url, --group, --user, --password', $out );
 	}
 
 	public function test_update_refuses_an_option_it_does_not_read(): void {
@@ -303,7 +303,7 @@ class VaultCINodeTest extends TestCase {
 
 		$this->assertIsString( $out, 'an unread option is a refusal, not a save that changed nothing' );
 		$this->assertStringContainsString( 'unknown option --auth_password', $out );
-		$this->assertStringContainsString( 'this verb takes --new_id, --url, --user, --password', $out );
+		$this->assertStringContainsString( 'this verb takes --new_id, --url, --group, --user, --password', $out );
 		Vault::get_instance()->reset_cache();
 		$stored = Vault::get_instance()->get( 'vault-unknown-6650' );
 		$this->assertSame( 'vault-pw-6650', $stored['auth_password'], 'a refused update leaves the stored credential alone' );
@@ -651,6 +651,20 @@ class VaultCINodeTest extends TestCase {
 		$this->assertStringContainsString( 'add failed', $out );
 	}
 
+	public function test_add_refuses_a_malformed_group_by_name(): void {
+		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'add', 'spoke1 --url=https://e.com --group=bad!group' );
+		$this->assertSame( "invalid group: bad!group\n", $out );
+		$this->assertNull( Vault::fresh()->get( 'spoke1' ) );
+	}
+
+	public function test_update_refuses_a_malformed_group_by_name(): void {
+		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com', 'group' => 'edge-5' ] );
+		Vault::get_instance()->reset_cache();
+		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'update', 'spoke1 --group=bad!group' );
+		$this->assertSame( "invalid group: bad!group\n", $out );
+		$this->assertSame( 'edge-5', Vault::fresh()->get( 'spoke1' )['group'] );
+	}
+
 	public function test_update_throws_when_id_missing(): void {
 		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'update', '--url=https://e.com' );
 		$this->assertIsString( $out );
@@ -803,6 +817,19 @@ class VaultCINodeTest extends TestCase {
 		$this->assertSame( [ 'id', 'status' ], \array_keys( $out ) );
 		$this->assertSame( 'spoke1', $out['id'] );
 		$this->assertSame( 'connected', $out['status'] );
+	}
+
+	public function test_add_and_update_carry_group(): void {
+		VerbHarness::fire( new Vault_CI_Node(), 'vault', 'add', 'tw9 --url=https://tw9.example --group=tw-edge' );
+		Vault::get_instance()->reset_cache();
+		VerbHarness::reset();
+		$this->assertSame( 'tw-edge', VerbHarness::fire( new Vault_CI_Node(), 'vault', 'get', 'tw9' )['group'] );
+
+		VerbHarness::reset();
+		VerbHarness::fire( new Vault_CI_Node(), 'vault', 'update', [ 'tw9', '--group=' ] );
+		Vault::get_instance()->reset_cache();
+		VerbHarness::reset();
+		$this->assertSame( '', VerbHarness::fire( new Vault_CI_Node(), 'vault', 'get', 'tw9' )['group'] );
 	}
 
 	// ---------------------------------------------------------------------

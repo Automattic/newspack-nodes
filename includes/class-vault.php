@@ -61,7 +61,7 @@ class Vault {
 	 * is dropped before the merge, so a form post cannot reach a stored key this
 	 * class does not manage.
 	 */
-	private const ALLOWED_KEYS = [ 'url', 'auth_username', 'auth_password' ];
+	private const ALLOWED_KEYS = [ 'url', 'auth_username', 'auth_password', 'group' ];
 
 	/**
 	 * Singleton instance.
@@ -113,9 +113,31 @@ class Vault {
 	}
 
 	/**
+	 * The ids of every server whose group is $group, sorted. The ONE membership
+	 * read: Vault_Group_Node and Topology_Analyzer both ask here.
+	 *
+	 * @api
+	 * @param string $group Group name; '' matches nothing.
+	 * @return list<string>
+	 */
+	public function in_group( string $group ): array {
+		if ( '' === $group ) {
+			return [];
+		}
+		$ids = [];
+		foreach ( $this->get_all() as $id => $server ) {
+			if ( $group === ( $server['group'] ?? '' ) ) {
+				$ids[] = (string) $id;
+			}
+		}
+		\sort( $ids, \SORT_STRING );
+		return $ids;
+	}
+
+	/**
 	 * Register a new server.
 	 *
-	 * The stored entry is exactly `validate_config()`'s three-key projection.
+	 * The stored entry is exactly `validate_config()`'s four-key projection.
 	 * Unlike `update()`, nothing is carried over from what was there before,
 	 * because a new id has nothing to carry.
 	 *
@@ -226,7 +248,7 @@ class Vault {
 	}
 
 	/**
-	 * Project a raw configuration onto the three keys this class manages,
+	 * Project a raw configuration onto the four keys this class manages,
 	 * sanitized, with the password sealed.
 	 *
 	 * A missing, non-string or non-HTTPS URL refuses the whole config: plain HTTP
@@ -239,8 +261,11 @@ class Vault {
 	 * of storage, so it is verified rather than re-sealed, and dropped when it no
 	 * longer opens under the current key.
 	 *
+	 * The group, when set, must obey `is_valid_id()`; an invalid one refuses the
+	 * whole config rather than silently dropping it.
+	 *
 	 * @param array<string,mixed> $config Raw configuration.
-	 * @return array<string,mixed>|null The url, auth_username and auth_password triple, or null when invalid.
+	 * @return array<string,mixed>|null The url, auth_username, auth_password and group quad, or null when invalid.
 	 */
 	private function validate_config( array $config ): ?array {
 		// URL is required, must be string, must be HTTPS.
@@ -261,6 +286,7 @@ class Vault {
 			'url'           => \rtrim( $url, '/' ),
 			'auth_username' => '',
 			'auth_password' => '',
+			'group'         => '',
 		];
 
 		// auth_username — sanitize + 256-byte cap.
@@ -293,6 +319,12 @@ class Vault {
 			}
 			$validated['auth_password'] = $password;
 		}
+
+		$group = $config['group'] ?? '';
+		if ( ! \is_string( $group ) || ( '' !== $group && ! self::is_valid_id( $group ) ) ) {
+			return null;
+		}
+		$validated['group'] = $group;
 
 		return $validated;
 	}
@@ -423,7 +455,7 @@ class Vault {
 	}
 
 	/**
-	 * The whole registry, every entry filled out to the three managed keys and
+	 * The whole registry, every entry filled out to the four managed keys and
 	 * its password opened.
 	 *
 	 * Memoized for the process, so `reset_cache()` is the only way back to the
@@ -447,6 +479,7 @@ class Vault {
 					'url'           => '',
 					'auth_username' => '',
 					'auth_password' => '',
+					'group'         => '',
 				];
 				$pw = $server['auth_password'];
 				if ( '' !== $pw && \is_scalar( $pw ) ) {

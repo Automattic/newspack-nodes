@@ -265,4 +265,16 @@ class Message {
 		$parts = \explode( '/', $path, 2 );
 		return [ $parts[0], $parts[1] ?? '' ];
 	}
+
+	/**
+	 * Join a head and a remainder into one path, `split_first()`'s inverse:
+	 * the head alone when the remainder is empty.
+	 *
+	 * @param string $head The first segment.
+	 * @param string $rest The path after it, possibly empty.
+	 * @return string `<head>/<rest>`, or `<head>`.
+	 */
+	public static function join_path( string $head, string $rest ): string {
+		return '' === $rest ? $head : $head . '/' . $rest;
+	}
 }

@@ -24,34 +24,62 @@ namespace Newspack_Nodes;
 trait Schema_Reflection {
 
 	/**
-	 * Walk `node_schema()['arguments']` and assign each declared positional to the
-	 * matching `$this->{$name}` property, coerced to its declared type — the
-	 * assignment half of Tachikoma's per-node `arguments()` parsing, and the one
-	 * place defaults and required-argument enforcement live (ADR-11). Tokens
-	 * beyond the declared positions are ignored; a missing token takes the arg's
-	 * schema `default`, throws when the arg is `required` (so an under-argged
-	 * `make_node` fails loudly), and otherwise leaves the property's declaration
-	 * default standing. A node declaring no arguments is a no-op.
+	 * Assign each declared positional to the matching `$this->{$name}` property,
+	 * coerced to its declared type — the assignment half of Tachikoma's per-node
+	 * `arguments()` parsing (ADR-11). `schema_values()` checks every token first,
+	 * so a refusal raised while validating the tokens leaves the node's fields
+	 * as they were. A node declaring no arguments is a no-op.
 	 *
 	 * Recording the raw tokens into `$this->arguments` is what makes
 	 * `dump_config()` round-trip: it emits the `make_node` line from those tokens,
 	 * so a walk that assigned the properties without storing them would replay as
 	 * a differently-configured node.
 	 *
+	 * @param list<string> $args Raw positional argument tokens.
+	 * @throws \InvalidArgumentException When `schema_values()` refuses a token.
+	 */
+	protected function parse_schema_args( array $args ): void {
+		if ( [] !== self::declared_arguments() ) {
+			$this->assign_schema_args( $args, $this->schema_values( $args ) );
+		}
+	}
+
+	/**
+	 * Assign values `schema_values()` already checked and record the tokens
+	 * they came from — the step a node takes itself when it must read a
+	 * validated value before anything is assigned.
+	 *
+	 * @param list<string>        $args   Raw positional argument tokens.
+	 * @param array<string,mixed> $values Property => value, from `schema_values()`.
+	 */
+	protected function assign_schema_args( array $args, array $values ): void {
+		foreach ( $values as $name => $value ) {
+			$this->{$name} = $value;
+		}
+		$this->arguments = $args;
+	}
+
+	/**
+	 * Walk `node_schema()['arguments']` and answer the value each declared
+	 * positional would assign, assigning nothing — the one place defaults and
+	 * required-argument enforcement live (ADR-11). Tokens beyond the declared
+	 * positions are ignored; a missing token takes the arg's schema `default`,
+	 * throws when the arg is `required` (so an under-argged `make_node` fails
+	 * loudly), and otherwise leaves the property's declaration default standing
+	 * by answering no value for it.
+	 *
 	 * A declared name that is not a real property is refused rather than assigned:
 	 * PHP would take the typo as a dynamic property, which nothing then reads.
 	 *
 	 * @param list<string> $args Raw positional argument tokens.
+	 * @return array<string,mixed> Property => value.
 	 * @throws \InvalidArgumentException When a spec carries no name, names no
 	 *                                   property, a required token is missing, or
 	 *                                   a token is not of its declared type.
 	 */
-	protected function parse_schema_args( array $args ): void {
-		$declared = static::node_schema()['arguments'] ?? [];
-		if ( ! \is_array( $declared ) || empty( $declared ) ) {
-			return;
-		}
-		foreach ( $declared as $i => $arg_spec ) {
+	protected function schema_values( array $args ): array {
+		$values = [];
+		foreach ( self::declared_arguments() as $i => $arg_spec ) {
 			if ( ! \is_array( $arg_spec ) ) {
 				continue;
 			}
@@ -70,14 +98,25 @@ trait Schema_Reflection {
 				$token = null;
 			}
 			if ( null !== $token ) {
-				$this->{$name} = $this->coerce_argument( $token, $type, $name );
+				$values[ $name ] = $this->coerce_argument( $token, $type, $name );
 			} elseif ( \array_key_exists( 'default', $arg_spec ) ) {
-				$this->{$name} = $this->resolve_default( $arg_spec['default'], $type, $name );
+				$values[ $name ] = $this->resolve_default( $arg_spec['default'], $type, $name );
 			} elseif ( \array_key_exists( 'required', $arg_spec ) && $arg_spec['required'] ) {
 				throw new \InvalidArgumentException( \esc_html( "Missing required argument: {$name}" ) );
 			}
 		}
-		$this->arguments = $args;
+		return $values;
+	}
+
+	/**
+	 * The node's declared positional specs; empty when it declares none or
+	 * declares something other than a list.
+	 *
+	 * @return array<array-key,mixed>
+	 */
+	private static function declared_arguments(): array {
+		$declared = static::node_schema()['arguments'] ?? [];
+		return \is_array( $declared ) ? $declared : [];
 	}
 
 	/**
@@ -238,19 +277,27 @@ trait Schema_Reflection {
 	 * rename, sink and teardown cascades. A consuming node calls this from its own
 	 * constructor — Node carries none of this trait's behavior.
 	 *
-	 * No-op for a Command_Interpreter itself, for a node that already attached its
-	 * own interpreter (so a second call is idempotent), and for a schema with no
-	 * handler-bearing verbs.
+	 * No-op for a Command_Interpreter itself; the rest of the guard lives in
+	 * `wire_interpreter()`.
 	 */
 	protected function auto_wire_interpreter(): void {
 		if ( $this instanceof Command_Interpreter_Node ) {
 			return;
 		}
-		if ( null !== $this->interpreter ) {
-			return;
-		}
-		$verbs = self::verbs_with_handlers( static::node_schema() );
-		if ( empty( $verbs ) ) {
+		$this->wire_interpreter( self::verbs_with_handlers( static::node_schema() ) );
+	}
+
+	/**
+	 * Build a `{name}:config` interpreter from an already-resolved verb table,
+	 * patron it and publish it — the half `auto_wire_interpreter()` shares with a
+	 * builder that assembles its own verb table rather than reading it straight
+	 * off `node_schema()`. No-op for a node that already attached its own
+	 * interpreter (so a second call is idempotent) and for an empty verb table.
+	 *
+	 * @param array<string,callable> $verbs Verb name => handler.
+	 */
+	protected function wire_interpreter( array $verbs ): void {
+		if ( null !== $this->interpreter || [] === $verbs ) {
 			return;
 		}
 		$interpreter = new Command_Interpreter_Node();
