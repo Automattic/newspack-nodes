@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.66.0] - 2026-09-25
+
 ### Added
 
 - **A Vault server can carry a `group`.** `vault add` and `update` take `--group=<name>`, held to the same id rule as a server's own id and refused as `invalid group: <name>` when it breaks it; `Vault::in_group()` returns a group's members, sorted, the one membership read every consumer shares.
