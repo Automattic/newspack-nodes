@@ -631,6 +631,31 @@ trait Durable_Reader {
 	}
 
 	/**
+	 * Hand the cursor off at a stop: a cooperative one (timeout / memory) routes
+	 * through the fair-shot rule, any other is a clean graceful checkpoint. The
+	 * worker's shutdown sweep calls this on every registered node, and a
+	 * `Vault_Group` calls it on each child it retracts.
+	 *
+	 * @param string $stop_reason             `timeout` or `memory` for a cooperative stop; anything else is operational.
+	 * @param bool   $baseline_near_watermark Memory stop only: the fresh baseline already sat near the watermark.
+	 */
+	public function hand_off_cursor( string $stop_reason = '', bool $baseline_near_watermark = false ): void {
+		if ( 'timeout' === $stop_reason || 'memory' === $stop_reason ) {
+			$this->cooperative_stop( $stop_reason, $baseline_near_watermark );
+			return;
+		}
+		$this->checkpoint_shutdown();
+	}
+
+	/**
+	 * The graceful handoff of an operational stop: commit the cursor with
+	 * attempts=0. `Remote_Source_Node` overrides it to keep a crash lineage.
+	 */
+	public function checkpoint_shutdown(): void {
+		$this->checkpoint( true );
+	}
+
+	/**
 	 * Cooperative-stop checkpoint ([42]): the fair-shot rule for a timeout / memory
 	 * stop. Called at worker shutdown INSTEAD of the graceful checkpoint() when the
 	 * stop was cooperative — it decides whether the in-flight message earned a strike.

@@ -3540,10 +3540,6 @@ class CommandInterpreterTest extends TestCase {
 				$this->auto_wire_interpreter();
 			}
 
-			public function interpreter(): ?Command_Interpreter_Node {
-				return $this->interpreter;
-			}
-
 			public static function node_schema(): array {
 				return [
 					'verb_classes' => [ 'rebuild_everything' => 'make_node' ],

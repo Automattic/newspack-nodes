@@ -291,22 +291,20 @@ class Worker_Base {
 	}
 
 	/**
-	 * Clean-shutdown handoff for every durable reader this process owns: the registered
-	 * Consumers and Remote_Sources (`Core::$nodes_by_name`) plus the anonymous IPC
-	 * consumer, which no registry can see. A graceful checkpoint stamps attempts=0 at
-	 * the current cursor, so the respawn resumes at the virgin baseline rather than
-	 * counting the clean recycle as a crash. That stamp is half the crash detector:
-	 * every boot climbs attempts unconditionally, so without it an idle cursor would
-	 * cross the threshold and quarantine an innocent message (ADR-12).
+	 * Clean-shutdown handoff for every durable reader this process owns: every
+	 * registered node (`Core::$nodes_by_name`) plus the anonymous IPC consumer,
+	 * which no registry can see. Each answers `Node::hand_off_cursor()` for
+	 * itself, so the sweep names no reader class. A graceful checkpoint stamps
+	 * attempts=0 at the current cursor, so the respawn resumes at the virgin
+	 * baseline rather than counting the clean recycle as a crash. That stamp is
+	 * half the crash detector: every boot climbs attempts unconditionally, so
+	 * without it an idle cursor would cross the threshold and quarantine an
+	 * innocent message (ADR-12).
 	 */
 	public function checkpoint_durable_consumers(): void {
+		$near = $this->baseline_near_watermark();
 		foreach ( Core::$nodes_by_name as $node ) {
-			if ( $node instanceof Consumer_Node ) {
-				$this->handoff_consumer( $node );
-			} elseif ( $node instanceof Remote_Source_Node ) {
-				// Also a durable cursor, but not a Consumer_Node.
-				$this->handoff_remote_source( $node );
-			}
+			$node->hand_off_cursor( $this->stop_reason, $near );
 		}
 		$this->checkpoint_ipc_input();
 	}
@@ -317,56 +315,18 @@ class Worker_Base {
 	 * only checkpoints on a periodic cadence; the final <1s would re-deliver).
 	 */
 	public function checkpoint_ipc_input(): void {
-		if ( null !== $this->ipc_input_consumer ) {
-			$this->handoff_consumer( $this->ipc_input_consumer );
-		}
+		$this->ipc_input_consumer?->hand_off_cursor( $this->stop_reason, $this->baseline_near_watermark() );
 	}
 
 	/**
-	 * Shutdown handoff for one durable consumer. A cooperative stop (timeout/memory)
-	 * routes through the fair-shot rule — which strikes/quarantines an in-flight poison
-	 * message and clears an innocent one; an operational stop is a clean graceful
-	 * checkpoint (attempts=0). For memory, pass whether the fresh baseline was already
-	 * near the watermark so a leak isn't blamed on the in-flight message.
-	 *
-	 * @param Consumer_Node $node The consumer to hand off.
-	 */
-	private function handoff_consumer( Consumer_Node $node ): void {
-		$is_memory = 'memory' === $this->stop_reason;
-		if ( 'timeout' === $this->stop_reason || $is_memory ) {
-			$node->cooperative_stop( $this->stop_reason, $is_memory && $this->baseline_near_watermark() );
-			return;
-		}
-		$node->checkpoint( true );
-	}
-
-	/**
-	 * Shutdown handoff for one Remote_Source. Mirrors handoff_consumer: a cooperative stop
-	 * (timeout/memory) routes through the fair-shot rule; an operational stop is a clean
-	 * graceful checkpoint. For memory, pass whether the fresh baseline was already near the
-	 * watermark so a leak isn't blamed on the in-flight message. A Remote_Source is not a
-	 * Consumer_Node, which is why it needs a branch rather than the Consumer one.
-	 *
-	 * @param Remote_Source_Node $node The remote source to hand off.
-	 */
-	private function handoff_remote_source( Remote_Source_Node $node ): void {
-		$is_memory = 'memory' === $this->stop_reason;
-		if ( 'timeout' === $this->stop_reason || $is_memory ) {
-			$node->cooperative_stop( $this->stop_reason, $is_memory && $this->baseline_near_watermark() );
-			return;
-		}
-		$node->checkpoint_shutdown();
-	}
-
-	/**
-	 * Memory baseline guard: was the fresh post-reset baseline already near the
-	 * watermark? If so a memory stop is a leak / undersized memory_limit, not a single
-	 * poison message — the fair-shot rule alerts instead of striking the in-flight
-	 * message. An unlimited memory_limit has no watermark to be near, so it answers no.
+	 * Memory baseline guard: did a MEMORY stop find the fresh post-reset baseline
+	 * already near the watermark? If so the stop is a leak / undersized memory_limit,
+	 * not a single poison message — the fair-shot rule alerts instead of striking the
+	 * in-flight message. Any other stop, and an unlimited memory_limit, answer no.
 	 */
 	protected function baseline_near_watermark(): bool {
 		$limit = $this->memory_limit_bytes();
-		if ( $limit <= 0 ) {
+		if ( 'memory' !== $this->stop_reason || $limit <= 0 ) {
 			return false;
 		}
 		return $this->baseline_memory >= (int) ( $limit * self::BASELINE_WATERMARK_PCT );

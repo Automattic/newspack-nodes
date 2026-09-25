@@ -250,6 +250,23 @@ class SchemaReflectionTest extends TestCase {
 		$node->parse( [ '12', 'later' ] );
 	}
 
+	public function test_parse_schema_args_refusal_assigns_nothing(): void {
+		// A refused reconfiguration must leave the node as it was, not half-set.
+		$node = $this->numeric_node();
+		$node->parse( [ '55', '1.5' ] );
+
+		try {
+			$node->parse( [ '12', 'later' ] );
+			$this->fail( 'a non-numeric float must refuse' );
+		} catch ( \InvalidArgumentException $e ) {
+			$this->assertStringContainsString( 'ratio', $e->getMessage() );
+		}
+
+		$this->assertSame( 55, $node->count );
+		$this->assertSame( 1.5, $node->ratio );
+		$this->assertSame( [ '55', '1.5' ], $node->arguments() );
+	}
+
 	public function test_parse_schema_args_reads_an_empty_numeric_token_as_absent(): void {
 		// A blank positional is a placeholder for "not supplied" — every
 		// self-pacing Timer subclass spelled that rule by hand before the trait
@@ -379,10 +396,6 @@ class SchemaReflectionTest extends TestCase {
 				$this->auto_wire_interpreter();
 			}
 
-			public function interpreter(): ?Command_Interpreter_Node {
-				return $this->interpreter;
-			}
-
 			public static function node_schema(): array {
 				return [
 					'commands' => [
@@ -423,10 +436,6 @@ class SchemaReflectionTest extends TestCase {
 
 			public function wire(): void {
 				$this->auto_wire_interpreter();
-			}
-
-			public function interpreter(): ?Command_Interpreter_Node {
-				return $this->interpreter;
 			}
 
 			public function dump(): string {
@@ -502,10 +511,6 @@ class SchemaReflectionTest extends TestCase {
 
 			public function wire(): void {
 				$this->auto_wire_interpreter();
-			}
-
-			public function interpreter(): ?Command_Interpreter_Node {
-				return $this->interpreter;
 			}
 
 			public function dump(): string {

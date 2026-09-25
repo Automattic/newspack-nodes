@@ -220,11 +220,18 @@ class WorkerBaseTest extends TestCase {
 		$baseline = $ref->getProperty( 'baseline_memory' );
 		$method   = new \ReflectionMethod( Worker_Base::class, 'baseline_near_watermark' );
 
+		$reason   = $ref->getProperty( 'stop_reason' );
+
+		$reason->setValue( $w, 'memory' );
 		$baseline->setValue( $w, 600 ); // >= 1000 * 0.5
 		$this->assertTrue( $method->invoke( $w ) );
 
 		$baseline->setValue( $w, 100 ); // < 500
 		$this->assertFalse( $method->invoke( $w ) );
+
+		$reason->setValue( $w, 'timeout' );
+		$baseline->setValue( $w, 600 );
+		$this->assertFalse( $method->invoke( $w ), 'only a memory stop reads the baseline' );
 	}
 
 	public function test_is_fatal_shutdown_detects_unrecoverable_error_types(): void {
@@ -567,6 +574,23 @@ class WorkerBaseTest extends TestCase {
 		$w->checkpoint_durable_consumers();
 
 		$this->assertSame( 1, $spy->shutdown_calls, 'the shutdown handoff must checkpoint Remote_Source nodes' );
+	}
+
+	public function test_checkpoint_durable_consumers_hands_off_any_node_answering_the_hook(): void {
+		$w = new TestableWorker( $this->tmp, 'test-worker', 0 );
+		$w->set_stop_reason_for_test( 'memory' );
+		$spy = new class() extends \Newspack_Nodes\Node {
+			/** @var list<array{0:string,1:bool}> */
+			public array $handed = [];
+			public function hand_off_cursor( string $stop_reason = '', bool $baseline_near_watermark = false ): void {
+				$this->handed[] = [ $stop_reason, $baseline_near_watermark ];
+			}
+		};
+		$spy->name( 'cursor-keeper-4' );
+
+		$w->checkpoint_durable_consumers();
+
+		$this->assertSame( [ [ 'memory', false ] ], $spy->handed );
 	}
 
 	public function test_cooperative_stop_routes_remote_source_to_the_fair_shot_rule(): void {

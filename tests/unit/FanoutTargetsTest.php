@@ -5,7 +5,23 @@ use PHPUnit\Framework\Attributes\CoversTrait;
 use Newspack_Nodes\Fanout_Targets;
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Tests\TestCase;
+use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Echo_Node;
+use Newspack_Nodes\Message;
+use Newspack_Nodes\Tee_Node;
+use Newspack_Nodes\Vault;
+use Newspack_Nodes\Tests\Capture_Sink_Node;
+
+/** A plain node standing for whatever members a test hands it. */
+final class Stands_For_Node extends Node {
+	/** @var list<Node> */
+	public array $stands_for = [];
+
+	/** @return list<Node> */
+	public function members(): ?array {
+		return $this->stands_for;
+	}
+}
 
 /**
  * The liveness of a fan-out target list lives in ONE place. Tee and Tap carried
@@ -28,6 +44,11 @@ class FanoutTargetsTest extends TestCase {
 			/** @return list<string> */
 			public function targets(): array {
 				return $this->live_targets();
+			}
+
+			/** @return list<string> */
+			public function extras(): array {
+				return $this->extra_targets();
 			}
 
 			public function path( string $target, string $remainder ): string {
@@ -149,5 +170,96 @@ class FanoutTargetsTest extends TestCase {
 		$node->disconnect_node( 'spoke-alpha' );
 
 		$this->assertSame( [ 'spoke-beta' ], $node->targets() );
+	}
+
+	protected function tearDown(): void {
+		Vault::get_instance()->reset_cache();
+		parent::tearDown();
+	}
+
+	/**
+	 * A `Vault_Group` target stands for its members: `live_targets()` expands
+	 * it into one entry per member, `target()` keeps reporting the group by
+	 * name (the stored list still holds it), and `display_targets()` shows
+	 * both the group edge and every member edge fanned through it.
+	 */
+	public function test_live_targets_expands_a_vault_group_into_its_members(): void {
+		$this->seed_vault_servers(
+			[
+				'tw0'  => [ 'url' => 'https://tw0.example', 'group' => 'tw-edge' ],
+				'tw9'  => [ 'url' => 'https://tw9.example', 'group' => 'tw-edge' ],
+				'lone' => [ 'url' => 'https://lone.example' ],
+				'aux'  => [ 'url' => 'https://aux.example', 'group' => 'llm' ],
+			]
+		);
+		( new Command_Interpreter_Node() )->make_node( 'Vault_Group', 'egress', 'Echo', 'tw-edge' );
+		( new Echo_Node() )->name( 'plain-3' );
+
+		$node = $this->fanout();
+		$node->connect_node( 'egress' );
+		$node->connect_node( 'plain-3' );
+
+		$this->assertSame( [ 'egress:tw0', 'egress:tw9', 'plain-3' ], $node->targets() );
+		$this->assertSame( [ 'egress', 'plain-3' ], $node->target() );
+		$this->assertSame(
+			[ 'egress', 'plain-3', 'egress:tw0', 'egress:tw9' ],
+			$node->display_targets()
+		);
+	}
+
+	/**
+	 * A `Vault_Group` whose group has zero members fans out to nothing and
+	 * declares no extra destination — an empty group is a moment with nowhere
+	 * to fan out, not an error — while its own name still stands in `target()`.
+	 */
+	public function test_a_vault_group_with_no_members_contributes_nothing(): void {
+		$this->seed_vault_servers(
+			[
+				'tw0'  => [ 'url' => 'https://tw0.example', 'group' => 'tw-edge' ],
+				'tw9'  => [ 'url' => 'https://tw9.example', 'group' => 'tw-edge' ],
+				'lone' => [ 'url' => 'https://lone.example' ],
+				'aux'  => [ 'url' => 'https://aux.example', 'group' => 'llm' ],
+			]
+		);
+		$group = ( new Command_Interpreter_Node() )->make_node( 'Vault_Group', 'egress', 'Echo', 'ghost' );
+		$this->assertSame( [], $group->members() );
+
+		$node = $this->fanout();
+		$node->connect_node( 'egress' );
+
+		$this->assertSame( [], $node->targets() );
+		$this->assertSame( [ 'egress' ], $node->target() );
+		$this->assertSame( [], $node->extras() );
+	}
+
+	/**
+	 * Expansion asks the target node, not its class: any node whose
+	 * `members()` answers a list is delivered as those members, exactly as a
+	 * group is, while a node answering null stands for itself.
+	 */
+	public function test_a_tee_expands_any_node_that_stands_for_members(): void {
+		$bundle = new Stands_For_Node();
+		$bundle->name( 'bundle-5' );
+		foreach ( [ 'member-a', 'member-b' ] as $name ) {
+			$member = new Echo_Node();
+			$member->name( $name );
+			$bundle->stands_for[] = $member;
+		}
+		( new Echo_Node() )->name( 'plain-3' );
+		$sink = new Capture_Sink_Node();
+		$tee  = new Tee_Node();
+		$tee->sink( $sink );
+		$tee->connect_node( 'bundle-5' );
+		$tee->connect_node( 'plain-3' );
+
+		$message                = Message::new_message();
+		$message[ Message::TO ] = 'tail-7';
+		$tee->fill( $message );
+
+		$this->assertSame(
+			[ 'member-a/tail-7', 'member-b/tail-7', 'plain-3/tail-7' ],
+			\array_map( static fn ( array $m ): string => $m[ Message::TO ], $sink->captured )
+		);
+		$this->assertNull( ( new Echo_Node() )->members() );
 	}
 }

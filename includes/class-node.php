@@ -79,6 +79,9 @@ class Node {
 	/** Non-null marks this node as plumbing for the patron; dump_metadata hides it from the canvas. */
 	protected ?Node $patron = null;
 
+	/** The node that published this one as an owned sibling, or null. */
+	private ?Node $publisher = null;
+
 	/**
 	 * Declared events, each holding its listeners keyed by identity. A closure is
 	 * stored as given; a null value means the identity is a Node name and dispatch
@@ -101,8 +104,9 @@ class Node {
 	/**
 	 * The nodes this one built for itself, keyed by the KIND each was built for
 	 * — the collision pre-check, the rename, the sink and the teardown all walk
-	 * this. Written only by `publish_sibling()` / `retract_sibling()`, so
-	 * publishing IS declaring and there is no declaration to forget.
+	 * this, and `siblings()` hands a subclass a read of it. Written only by
+	 * `publish_sibling()` / `retract_sibling()`, so publishing IS declaring and
+	 * there is no declaration to forget.
 	 *
 	 * @var array<string,Node>
 	 */
@@ -110,6 +114,15 @@ class Node {
 
 	/** The physical next hop `fill()` forwards to; `target` is the logical half. */
 	protected ?Node $sink = null;
+
+	/**
+	 * Closures this node listens with at OTHER nodes, by emitter name and then
+	 * event. The emitter keys each under this node's name, so `name()` moves
+	 * them and `remove_node()` drops them.
+	 *
+	 * @var array<array-key,array<string,\Closure>>
+	 */
+	private array $subscriptions = [];
 
 	/**
 	 * The logical path stamped into an empty TO. A string names one destination;
@@ -195,12 +208,14 @@ class Node {
 				return $this->name;
 			}
 			$this->check_name_availability( $name );
-			if ( '' !== $this->name ) {
-				Core::unregister_node( $this->name );
+			$previous = $this->name;
+			if ( '' !== $previous ) {
+				Core::unregister_node( $previous );
 			}
 			$this->name = $name;
 			Core::register_node( $name, $this );
 			$this->set_sibling_names();
+			$this->move_subscriptions( $previous, $name );
 		}
 		return $this->name;
 	}
@@ -236,10 +251,10 @@ class Node {
 		$deferred = $this->siblings['config'] ?? null;
 		foreach ( $this->siblings as $kind => $sibling ) {
 			if ( $sibling !== $deferred ) {
-				$sibling->check_name_availability( "{$name}:{$this->sibling_suffix( $kind )}" );
+				$sibling->check_name_availability( self::sibling_name_of( $name, $this->sibling_suffix( $kind ) ) );
 			}
 		}
-		$deferred?->check_name_availability( "{$name}:{$this->sibling_suffix( 'config' )}" );
+		$deferred?->check_name_availability( self::sibling_name_of( $name, $this->sibling_suffix( 'config' ) ) );
 		if ( Core::node( $name ) !== null ) {
 			throw new \RuntimeException( \esc_html( "node name collision: {$name} already registered" ) );
 		}
@@ -269,10 +284,12 @@ class Node {
 			throw new \RuntimeException( \esc_html( "sibling slot occupied: {$kind}; retract_sibling() to replace it" ) );
 		}
 		$this->siblings[ $kind ] = $sibling;
+		$sibling->publisher      = $this;
 		try {
 			$this->set_sibling_names();
 		} catch ( \Throwable $e ) {
 			unset( $this->siblings[ $kind ] );
+			$sibling->publisher = null;
 			throw $e;
 		}
 	}
@@ -293,7 +310,7 @@ class Node {
 			return;
 		}
 		foreach ( $this->siblings as $kind => $sibling ) {
-			$sibling->name( "{$this->name}:{$this->sibling_suffix( $kind )}" );
+			$sibling->name( self::sibling_name_of( $this->name, $this->sibling_suffix( $kind ) ) );
 		}
 	}
 
@@ -351,13 +368,10 @@ class Node {
 	/**
 	 * Multi-modal listener: store either a closure (with callable) or a Node name string.
 	 *
-	 * A node that registers ITSELF by name at another node owes that
-	 * registration a move in its own `name()` and a drop in `remove_node()` —
-	 * the entry lives in the emitter's table, so nothing here follows a
-	 * rename. A closure listener has no self-heal at all: `notify()` keeps
-	 * anything that does not return exactly false. `Timer_Node` (the router's
-	 * TIMER list) and `Remote_Link_Node` (the fleet's RELOAD) are both this
-	 * shape.
+	 * The entry lives in the emitter's table, so nothing here follows the
+	 * listener's rename. A node listening with a closure under its OWN name
+	 * goes through `subscribe()`, which does; `Timer_Node` moves its
+	 * name-dispatched TIMER hitchhike itself, in its own `name()`.
 	 *
 	 * @param string        $event    Must be pre-declared in registrations.
 	 * @param string        $listener Identity (closure ID or Node name).
@@ -400,7 +414,9 @@ class Node {
 
 	/**
 	 * Fire the event at every currently-registered listener. A closure returning
-	 * exactly false is dropped, which is the only self-heal a closure gets.
+	 * exactly false is dropped, which is the only self-heal a closure gets. The
+	 * walk is over a snapshot, so a listener an earlier one unregistered during
+	 * this dispatch is skipped rather than reported as forgotten.
 	 *
 	 * @param string $event   Event name; an undeclared one is a silent no-op.
 	 * @param mixed  $payload Handed to a closure, carried as a Node name's TM_INFO VALUE.
@@ -426,8 +442,13 @@ class Node {
 	 * @param mixed  $payload  Event payload.
 	 * @return mixed The closure's own return; for a Node name, false when that node
 	 *               is gone and true otherwise. Exactly false unregisters the listener.
+	 *               Null for a listener no longer registered, which is skipped.
 	 */
 	private function _notify_registered( string $event, string $listener, mixed $payload ): mixed {
+		// Unregistered mid-dispatch: notify() walks a snapshot of the table.
+		if ( ! \array_key_exists( $listener, $this->registrations[ $event ] ?? [] ) ) {
+			return null;
+		}
 		$cb = $this->registrations[ $event ][ $listener ] ?? null;
 		if ( null !== $cb && \is_callable( $cb ) ) {
 			return $cb( $payload );
@@ -765,7 +786,20 @@ class Node {
 	 * @return string The sibling's registered name.
 	 */
 	protected function sibling_name( string $kind ): string {
-		return $this->name . ':' . $this->sibling_suffix( $kind );
+		return self::sibling_name_of( $this->name, $this->sibling_suffix( $kind ) );
+	}
+
+	/**
+	 * `{patron}:{suffix}` — the ONE spelling of a sibling's name. The namer,
+	 * the collision pre-check, `sibling_name()` and `Topology_Analyzer`'s
+	 * flatten of a `Vault_Group` all compose through it.
+	 *
+	 * @api Topology_Analyzer names a flattened group child through this.
+	 * @param string $patron The publishing node's name.
+	 * @param string $suffix What `sibling_suffix()` answers for the slot.
+	 */
+	public static function sibling_name_of( string $patron, string $suffix ): string {
+		return "{$patron}:{$suffix}";
 	}
 
 	/**
@@ -831,6 +865,121 @@ class Node {
 	 */
 	protected function extra_targets(): array {
 		return [];
+	}
+
+	/**
+	 * Tear the node down: drop its subscriptions, then cascade a full
+	 * `remove_node()` to each owned sibling first so a same-name respawn cannot
+	 * collide with a leftover slot.
+	 */
+	public function remove_node(): void {
+		$this->move_subscriptions( $this->name, '' );
+		$this->subscriptions = [];
+		foreach ( $this->siblings as $sibling ) {
+			$sibling->remove_node();
+		}
+		$this->siblings      = [];
+		$this->registrations = [];
+		$this->set_state     = [];
+		$this->sink          = null;
+		$this->target        = '';
+		$this->patron        = null;
+		$this->publisher     = null;
+		$this->interpreter   = null;
+		if ( '' !== $this->name ) {
+			Core::unregister_node( $this->name );
+			$this->name = '';
+		}
+	}
+
+	/**
+	 * Re-key every subscription from one listener name to another at its
+	 * emitter; an empty `$to` only drops them.
+	 *
+	 * @param string $from The name the emitters hold them under.
+	 * @param string $to   The name to hold them under now, or '' to drop.
+	 */
+	private function move_subscriptions( string $from, string $to ): void {
+		foreach ( $this->subscriptions as $emitter => $events ) {
+			$node = Core::node( (string) $emitter );
+			foreach ( $events as $event => $callback ) {
+				$node?->unregister( $event, $from );
+				if ( '' !== $to ) {
+					$node?->register( $event, $to, $callback );
+				}
+			}
+		}
+	}
+
+	/**
+	 * The published siblings, keyed by the kind each slot was published under.
+	 * A READ of the map the four cascades walk, so a publisher enumerating what
+	 * it built keeps no second list in step by hand; `Vault_Group_Node` reads
+	 * its members here.
+	 *
+	 * @return array<array-key,Node> PHP keys an all-digit kind as an int.
+	 */
+	protected function siblings(): array {
+		return $this->siblings;
+	}
+
+	/**
+	 * Hand a durable read cursor off at a stop. A node holding none has nothing
+	 * to hand off; `Durable_Reader` answers it for every node that does, so the
+	 * worker's shutdown sweep and a `Vault_Group` retracting a child both key
+	 * on the capability rather than on a class.
+	 *
+	 * @param string $stop_reason             `timeout` or `memory` for a cooperative stop; anything else is operational.
+	 * @param bool   $baseline_near_watermark Memory stop only: the fresh baseline already sat near the watermark.
+	 */
+	public function hand_off_cursor( string $stop_reason = '', bool $baseline_near_watermark = false ): void {}
+
+	/**
+	 * The nodes this one stands for as a fan-out target, or null when it stands
+	 * for itself. `Fanout_Targets` delivers a target answering a list to each
+	 * member instead, so one `connect_node` reaches every node a group keeps;
+	 * an empty list is a group with nowhere to deliver yet.
+	 *
+	 * @return list<Node>|null
+	 */
+	public function members(): ?array {
+		return null;
+	}
+
+	/**
+	 * Listen at another node under this node's own name, for this node's life.
+	 *
+	 * The subscription is recorded here and registered at the emitter, which is
+	 * resolved by name at every (re)registration: a missing one — no fleet in
+	 * REPL or request scope — is a no-op. Unnamed, it registers once named. A
+	 * rename moves it and `remove_node()` drops it; re-subscribing the same
+	 * emitter and event replaces the callback. A closure has no self-heal of its
+	 * own, since `notify()` keeps any listener that does not return exactly
+	 * false, so without the move an entry left under the old name keeps firing
+	 * while a later node taking that name overwrites it.
+	 *
+	 * @param string   $emitter  Name of the node whose event this listens to.
+	 * @param string   $event    An event the emitter declares.
+	 * @param \Closure $callback Takes the payload; returning exactly false unsubscribes at the emitter.
+	 */
+	protected function subscribe( string $emitter, string $event, \Closure $callback ): void {
+		$this->subscriptions[ $emitter ][ $event ] = $callback;
+		if ( '' !== $this->name ) {
+			Core::node( $emitter )?->register( $event, $this->name, $callback );
+		}
+	}
+
+	/**
+	 * The node that published this one as an owned sibling, or null. A published
+	 * sibling is rebuilt by its publisher, so `dump_config` never replays it.
+	 */
+	public function publisher(): ?Node {
+		return $this->publisher;
+	}
+
+	/** This node's `:config` interpreter, or null when it declares no verbs. */
+	public function interpreter(): ?Command_Interpreter_Node {
+		return $this->interpreter;
 	}
 
 	/**
@@ -968,27 +1117,6 @@ class Node {
 	 */
 	public function disconnect_node( string $target = '' ): void {
 		$this->target = '';
-	}
-
-	/**
-	 * Tear the node down, cascading a full `remove_node()` to each owned sibling
-	 * first so a same-name respawn cannot collide with a leftover slot.
-	 */
-	public function remove_node(): void {
-		foreach ( $this->siblings as $sibling ) {
-			$sibling->remove_node();
-		}
-		$this->siblings      = [];
-		$this->registrations = [];
-		$this->set_state     = [];
-		$this->sink          = null;
-		$this->target        = '';
-		$this->patron        = null;
-		$this->interpreter   = null;
-		if ( '' !== $this->name ) {
-			Core::unregister_node( $this->name );
-			$this->name = '';
-		}
 	}
 
 	/**

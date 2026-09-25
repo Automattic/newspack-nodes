@@ -48,11 +48,11 @@ class Vault_CI_Node extends Service_CI_Node {
 	];
 
 	/**
-	 * Verb option name => stored config key, for the three fields `add` and
+	 * Verb option name => stored config key, for the four fields `add` and
 	 * `update` write. One declaration serves both the whole blob and the partial
-	 * one; `url` is the same word on both sides.
+	 * one; `url` and `group` are the same word on both sides.
 	 */
-	private const OPTION_TO_KEY = [ 'url' => 'url' ] + self::CREDENTIAL_OPTION_TO_KEY;
+	private const OPTION_TO_KEY = [ 'url' => 'url', 'group' => 'group' ] + self::CREDENTIAL_OPTION_TO_KEY;
 
 	/**
 	 * `list` verb handler — every registered server in its public shape,
@@ -104,6 +104,7 @@ class Vault_CI_Node extends Service_CI_Node {
 			'url'             => Core::as_string( $config['url'] ?? '' ),
 			'auth_username'   => Core::as_string( $config['auth_username'] ?? '' ),
 			'has_credentials' => ! empty( $config['auth_username'] ) && ! empty( $config['auth_password'] ),
+			'group'           => Core::as_string( $config['group'] ?? '' ),
 		];
 	}
 
@@ -111,11 +112,12 @@ class Vault_CI_Node extends Service_CI_Node {
 	 * `add` verb handler — register a server under the id the first positional
 	 * names; returns that id.
 	 *
-	 * @param list<string> $args Verb argument tokens: `<id> --url=<url> [--user=<u>] [--password=<p>]`.
+	 * @param list<string> $args Verb argument tokens: `<id> --url=<url> [--group=<g>] [--user=<u>] [--password=<p>]`.
 	 * @return array<string,mixed> The stored id, as `[ 'id' => <id> ]`.
 	 * @throws \RuntimeException When an option is not one this verb reads or
 	 *                           carries no value, the url is absent, the id is
-	 *                           malformed or taken, or the store refuses the entry.
+	 *                           malformed or taken, the group is malformed, or
+	 *                           the store refuses the entry.
 	 */
 	public static function cmd_add( array $args ): array {
 		$parsed = Command_Args::parse( $args );
@@ -126,6 +128,7 @@ class Vault_CI_Node extends Service_CI_Node {
 		$id       = $parsed['positional'][0] ?? '';
 		$registry = Vault::fresh();
 		self::assert_free_id( $id, $registry );
+		self::assert_valid_group( $opts );
 		$config = self::extract_server_config( $opts );
 		if ( ! $registry->add( $id, $config ) ) {
 			// Registry rejected (bad/non-HTTPS URL) or hit MAX_SERVERS.
@@ -136,7 +139,7 @@ class Vault_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Build the complete three-key blob `add` stores, defaulting an absent
+	 * Build the complete four-key blob `add` stores, defaulting an absent
 	 * option to ''.
 	 *
 	 * `Vault::add()` stores exactly this projection and carries nothing over
@@ -144,7 +147,7 @@ class Vault_CI_Node extends Service_CI_Node {
 	 * the deliberate opposite, for the same reason.
 	 *
 	 * @param array<string,string> $opts Checked `--key=value` options.
-	 * @return array<string,mixed> The url, auth_username and auth_password triple.
+	 * @return array<string,mixed> The url, group, auth_username and auth_password quad.
 	 */
 	private static function extract_server_config( array $opts ): array {
 		$config = [];
@@ -159,11 +162,11 @@ class Vault_CI_Node extends Service_CI_Node {
 	 * existing entry, moving it when `--new_id` names somewhere else. Returns
 	 * the id the entry now carries.
 	 *
-	 * @param list<string> $args Verb argument tokens: `<id> [--new_id=<id>] [--url=<url>] [--user=<u>] [--password=<p>]`.
+	 * @param list<string> $args Verb argument tokens: `<id> [--new_id=<id>] [--url=<url>] [--group=<g>] [--user=<u>] [--password=<p>]`.
 	 * @return array<string,mixed> The entry's id after the write, as `[ 'id' => <id> ]`.
 	 * @throws \RuntimeException When an option is not one this verb reads or carries
-	 *                           no value, the id is absent or unknown, the new id is
-	 *                           unusable, or the store refuses the write.
+	 *                           no value, the id is absent or unknown, the new id or
+	 *                           the group is unusable, or the store refuses the write.
 	 */
 	public static function cmd_update( array $args ): array {
 		$parsed = Command_Args::parse( $args );
@@ -178,6 +181,7 @@ class Vault_CI_Node extends Service_CI_Node {
 			throw new \RuntimeException( \esc_html( "server not found: {$id}" ) );
 		}
 		$new_id = self::renamed_to( $opts, $id, $registry );
+		self::assert_valid_group( $opts );
 		$partial = self::partial_config( $opts );
 		if ( ! $registry->update( $id, $partial, $new_id ) ) {
 			throw new \RuntimeException( 'update failed' );
@@ -229,6 +233,20 @@ class Vault_CI_Node extends Service_CI_Node {
 		}
 		if ( null !== $registry->get( $id ) ) {
 			throw new \RuntimeException( \esc_html( "server already exists: {$id}" ) );
+		}
+	}
+
+	/**
+	 * Refuse a `--group` the store would reject, naming it, where the store
+	 * answers only `false`. An absent or empty group joins no group.
+	 *
+	 * @param array<string,string> $opts Checked `--key=value` options.
+	 * @throws \RuntimeException When the group breaks the `Vault::is_valid_id()` rule.
+	 */
+	private static function assert_valid_group( array $opts ): void {
+		$group = $opts['group'] ?? '';
+		if ( '' !== $group && ! Vault::is_valid_id( $group ) ) {
+			throw new \RuntimeException( \esc_html( "invalid group: {$group}" ) );
 		}
 	}
 
@@ -448,6 +466,7 @@ class Vault_CI_Node extends Service_CI_Node {
 					'args'        => [
 						[ 'name' => 'id', 'type' => 'string', 'required' => true ],
 						[ 'name' => 'url', 'type' => 'string', 'required' => false ],
+						[ 'name' => 'group', 'type' => 'string', 'required' => false ],
 						[ 'name' => 'user', 'type' => 'string', 'required' => false ],
 						[ 'name' => 'password', 'type' => 'string', 'required' => false ],
 					],
@@ -460,6 +479,7 @@ class Vault_CI_Node extends Service_CI_Node {
 						[ 'name' => 'id', 'type' => 'string', 'required' => true ],
 						[ 'name' => 'new_id', 'type' => 'string', 'required' => false ],
 						[ 'name' => 'url', 'type' => 'string', 'required' => false ],
+						[ 'name' => 'group', 'type' => 'string', 'required' => false ],
 						[ 'name' => 'user', 'type' => 'string', 'required' => false ],
 						[ 'name' => 'password', 'type' => 'string', 'required' => false ],
 					],

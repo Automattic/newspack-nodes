@@ -352,14 +352,13 @@ class Remote_Source_Node extends Remote_Link_Node {
 	}
 
 	/**
-	 * Final cursor handoff at worker shutdown. Remote_Source is not a Consumer_Node, so the
-	 * worker's shutdown sweep reaches it through its own branch rather than the Consumer one.
-	 * A healthy reader commits gracefully (attempts=0), so progress survives the recycle; a
+	 * Final cursor handoff of an operational stop, overriding `Durable_Reader`'s. A
+	 * healthy reader commits gracefully (attempts=0), so progress survives the recycle; a
 	 * hard-crash lineage still in flight keeps its climbing, pinned frame instead. The
 	 * cooperative-stop fair-shot lives elsewhere, in Durable_Reader's cooperative_stop(),
 	 * gated on buffer_head_line() and stopped_in_fill.
 	 *
-	 * @api Invoked by Worker_Base::handoff_remote_source() on an operational stop.
+	 * @api Invoked by Durable_Reader::hand_off_cursor() on an operational stop.
 	 */
 	public function checkpoint_shutdown(): void {
 		// Paused SEEK sets offset_set w/o poll_initialized; survives shutdown.

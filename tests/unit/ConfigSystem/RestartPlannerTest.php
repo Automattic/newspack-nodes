@@ -19,8 +19,7 @@ class RestartPlannerTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		Topology_Registry::reset();
-		$this->tmp = $this->make_temp_dir( 'restart-planner-' );
-		Topology_Registry::register_stock_dir( $this->tmp );
+		$this->tmp = $this->stock_topology_dir( 'restart-planner-' );
 		// Active set = these topologies (1 partition each, except multipart=3).
 		// Config memoizes the overlay in load_config(), so invalidate it after
 		// writing the option.
@@ -40,10 +39,6 @@ class RestartPlannerTest extends TestCase {
 		Topology_Registry::reset();
 		$this->rmdir_recursive( $this->tmp );
 		parent::tearDown();
-	}
-
-	private function write_tsl( string $name, string $contents ): void {
-		\file_put_contents( "{$this->tmp}/{$name}.tsl", $contents );
 	}
 
 	public function test_empty_classification_resolves_to_nothing(): void {
@@ -67,6 +62,15 @@ class RestartPlannerTest extends TestCase {
 		$this->assertSame( [ 'combined' ], \array_keys( Restart_Planner::topologies_for( [ 'Tee' ] ) ) );
 		// Job_Worker only in job-worker.
 		$this->assertSame( [ 'job-worker' ], \array_keys( Restart_Planner::topologies_for( [ 'Job_Worker' ] ) ) );
+	}
+
+	public function test_a_vault_groups_child_type_matches_its_topology(): void {
+		$this->seed_vault_servers( [ 'tw9' => [ 'url' => 'https://tw9.example', 'group' => 'tw-edge' ] ] );
+		$this->write_tsl( 'pull-lab', "make_node Vault_Group firehose Remote_Source tw-edge firehose.p<partition>\n" );
+		\update_option( 'newspack_nodes_topologies', [ 'combined', 'pull-lab' ] );
+		Config::reset();
+
+		$this->assertSame( [ 'pull-lab' ], \array_keys( Restart_Planner::topologies_for( [ 'Remote_Source' ] ) ) );
 	}
 
 	public function test_unknown_node_type_resolves_to_nothing(): void {

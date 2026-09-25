@@ -22,18 +22,13 @@ class TopologyRegistryExpandTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		Topology_Registry::reset();
-		$this->tmp = $this->make_temp_dir( 'topology-expand-' );
-		Topology_Registry::register_stock_dir( $this->tmp );
+		$this->tmp = $this->stock_topology_dir( 'topology-expand-' );
 	}
 
 	protected function tearDown(): void {
 		Topology_Registry::reset();
 		$this->rmdir_recursive( $this->tmp );
 		parent::tearDown();
-	}
-
-	private function write_tsl( string $name, string $contents ): void {
-		\file_put_contents( "{$this->tmp}/{$name}.tsl", $contents );
 	}
 
 	/**

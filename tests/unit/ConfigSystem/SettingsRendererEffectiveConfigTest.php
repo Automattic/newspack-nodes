@@ -34,8 +34,7 @@ class SettingsRendererEffectiveConfigTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		Topology_Registry::reset();
-		$this->tmp = $this->make_temp_dir( 'settings-renderer-effective-config-' );
-		Topology_Registry::register_stock_dir( $this->tmp );
+		$this->tmp = $this->stock_topology_dir( 'settings-renderer-effective-config-' );
 		$this->use_base_dir( $this->tmp );
 		// Active set mirrors RestartPlannerTest::setUp — `combined` instantiates a
 		// Partition (geometry-classified max_segments restarts it).
@@ -57,10 +56,6 @@ class SettingsRendererEffectiveConfigTest extends TestCase {
 		Topology_Registry::reset();
 		$this->rmdir_recursive( $this->tmp );
 		parent::tearDown();
-	}
-
-	private function write_tsl( string $name, string $contents ): void {
-		\file_put_contents( "{$this->tmp}/{$name}.tsl", $contents );
 	}
 
 	/** @return array<string,array<string,mixed>> */

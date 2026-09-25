@@ -198,13 +198,6 @@ class Settings_Sync_Node extends Timer_Node {
 		}
 	}
 
-	/** The HTTP_Out a target names, or null; a target may be a path, so resolve its head. */
-	private function egress_for( string $target ): ?HTTP_Out_Node {
-		[ $head ] = Message::split_first( $target );
-		$node     = Core::node( $head );
-		return $node instanceof HTTP_Out_Node ? $node : null;
-	}
-
 	/**
 	 * Flatten a value to one command token: an array encodes as JSON, a scalar
 	 * stringifies. JSON rather than a join because an option's array KEYS are

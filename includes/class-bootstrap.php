@@ -394,13 +394,22 @@ class Bootstrap {
 	 * A Vault mutation re-credentials the spokes, so every worker holding a
 	 * vault-consuming node must RE-READ them rather than serve stale credentials
 	 * for the rest of its ~10-minute lifetime. The reload channel, never the
-	 * restart one: a credential change must not cost a process recycle.
+	 * restart one: a credential change must not cost a process recycle. A
+	 * `Vault_Group` also reconciles its members on this same RELOAD, building
+	 * new children and retracting departed ones.
 	 *
 	 * Which topologies those are is DERIVED from each active topology's parsed
 	 * graph, never a topology name — names are deployment config (renamable,
 	 * user-dir-shadowable) and a name-keyed signal drifts silently into a no-op.
 	 * `Remote_Source` IS-A `Remote_Link`, so the second declaration is redundant
-	 * and stays declared in case that stops being true.
+	 * and stays declared in case that stops being true. `Vault_Group` is its
+	 * own entry rather than relying on its children's class: a group whose
+	 * last member just left derives no Remote_Source at all, and its own type
+	 * is what still counts it as a consumer. The reset below does not decide
+	 * that match — a cold read already sees the current Vault — it exists so
+	 * a reader LATER in this same process (the flattened statements, the
+	 * graph, the write set) sees the Vault as just written rather than
+	 * whatever an earlier read in this process cached.
 	 *
 	 * Best-effort: a Vault save never fails on the signal it triggers.
 	 */
@@ -409,8 +418,9 @@ class Bootstrap {
 			return; // Subsite: the fleet is network-global and runs on the main site.
 		}
 		try {
+			Topology_Analyzer::reset_caches();
 			$coordinator = self::spawn_coordinator();
-			foreach ( Restart_Planner::topologies_for( [ 'Remote_Link', 'Remote_Source' ] ) as $name => $entry ) {
+			foreach ( Restart_Planner::topologies_for( [ 'Remote_Link', 'Remote_Source', 'Vault_Group' ] ) as $name => $entry ) {
 				$count = self::partitions_of( Core::arr( $entry ) );
 				for ( $p = 0; $p < $count; $p++ ) {
 					Lock_Node::request_reload_at( $coordinator->lock_path( $name, $p ) );

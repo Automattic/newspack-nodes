@@ -52,6 +52,19 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   `$release_slot = function ( array $lease, int $partition, ?string $session )`.
   A closure declaring fewer parameters still loads, because PHP drops extra
   arguments to a closure.
+- **`dump_config` omits every published sibling, not only a patron's.** A
+  node built through `publish_sibling()` and dumped separately before —
+  never patroned — no longer emits its own config line; its publisher's
+  line rebuilds it on replay. Read `Node::publisher()` to find who owns it.
+- **A fan-out target that stands for members expands to them.**
+  `Node::members()` answers null, the node standing for itself; a node
+  answering a list — `Vault_Group_Node` answers its children — stands for
+  those members, and `Fanout_Targets::live_targets()` expands a
+  `connect_node <group>` entry into one delivered target per member, so a
+  `dump_metadata` `targets` list or a live delivery carries the members
+  rather than the group's own name. A subclass overriding `live_targets()`
+  must expand a target whose node answers `members()` itself or lose the
+  fan-out.
 
 ## 2.65.6
 

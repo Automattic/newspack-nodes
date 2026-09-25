@@ -19,7 +19,9 @@ use Newspack_Nodes\Config;
 use Newspack_Nodes\Lock_Node;
 use Newspack_Nodes\Spawn_Coordinator;
 use Newspack_Nodes\Tests\TestCase;
+use Newspack_Nodes\Topology_Analyzer;
 use Newspack_Nodes\Topology_Registry;
+use Newspack_Nodes\Vault;
 
 #[CoversClass( Bootstrap::class )]
 class BootstrapVaultReloadTest extends TestCase {
@@ -32,9 +34,8 @@ class BootstrapVaultReloadTest extends TestCase {
 		$this->base_dir = $this->make_temp_dir( 'vault-reload-' );
 		$this->use_base_dir( $this->base_dir );
 
-		$this->stock = $this->make_temp_dir( 'vault-reload-stock-' );
 		Topology_Registry::reset();
-		Topology_Registry::register_stock_dir( $this->stock );
+		$this->stock = $this->stock_topology_dir( 'vault-reload-stock-' );
 
 		// Deliberately non-stock names: nothing may key off a known topology.
 		$this->write_tsl(
@@ -56,10 +57,6 @@ class BootstrapVaultReloadTest extends TestCase {
 		$this->rmdir_recursive( $this->stock );
 		$this->rmdir_recursive( $this->base_dir );
 		parent::tearDown();
-	}
-
-	private function write_tsl( string $name, string $contents ): void {
-		\file_put_contents( "{$this->stock}/{$name}.tsl", $contents );
 	}
 
 	private function make_lock_dir( string $name ): void {
@@ -158,6 +155,69 @@ class BootstrapVaultReloadTest extends TestCase {
 		Bootstrap::reload_vault_consumers();
 
 		$this->assertFileDoesNotExist( $this->flag( 'spoke-pull-lab', Lock_Node::RELOAD_FLAG ) );
+	}
+
+	public function test_a_vault_group_with_no_members_yet_still_gets_signalled(): void {
+		// Vault_Group's own type in the class list — not its child's — is what
+		// makes an empty group count, so the child type here is Echo, which
+		// never matches Remote_Link or Remote_Source on its own.
+		$this->write_tsl( 'group-lab', "make_node Vault_Group late-7 Echo arrives-later\n" );
+		\update_option( 'newspack_nodes_topologies', [ 'group-lab' ] );
+		Config::reset();
+		$this->make_lock_dir( 'group-lab' );
+
+		Bootstrap::reload_vault_consumers();
+
+		$this->assertFileExists( $this->flag( 'group-lab', Lock_Node::RELOAD_FLAG ) );
+	}
+
+	public function test_the_groups_last_member_leaving_still_gets_a_reload_signal(): void {
+		$this->seed_vault_servers( [ 'tw0' => [ 'url' => 'https://tw0.example', 'group' => 'tw-edge' ] ] );
+		$this->write_tsl(
+			'group-lab',
+			"make_node Vault_Group late-7 Remote_Source tw-edge firehose.p<partition>\n"
+		);
+		\update_option( 'newspack_nodes_topologies', [ 'group-lab' ] );
+		Config::reset();
+		$this->make_lock_dir( 'group-lab' );
+
+		// tw0 was the group's only member; once it leaves, the flattened graph
+		// derives no Remote_Source child at all for this topology.
+		Vault::get_instance()->remove( 'tw0' );
+
+		Bootstrap::reload_vault_consumers();
+
+		$this->assertFileExists(
+			$this->flag( 'group-lab', Lock_Node::RELOAD_FLAG ),
+			'the departed child must still be told to retract on reload'
+		);
+	}
+
+	public function test_reload_drops_a_stale_analyzer_read_of_the_departed_child(): void {
+		$this->seed_vault_servers( [ 'tw0' => [ 'url' => 'https://tw0.example', 'group' => 'tw-edge' ] ] );
+		$this->write_tsl(
+			'group-lab',
+			"make_node Vault_Group late-7 Remote_Source tw-edge firehose.p<partition>\n"
+		);
+		\update_option( 'newspack_nodes_topologies', [ 'group-lab' ] );
+		Config::reset();
+		$this->make_lock_dir( 'group-lab' );
+
+		// Warm the analyzer's cache while tw0 is still a member, as an earlier
+		// read in the same process (a dashboard, a prior reload) would.
+		$before = \array_column( Topology_Analyzer::statements( 'group-lab' )['statements'], 'line' );
+		$this->assertContains( 'make_node Remote_Source late-7:tw0 tw0 firehose.p<partition>', $before );
+
+		Vault::get_instance()->remove( 'tw0' );
+
+		Bootstrap::reload_vault_consumers();
+
+		$after = \array_column( Topology_Analyzer::statements( 'group-lab' )['statements'], 'line' );
+		$this->assertNotContains(
+			'make_node Remote_Source late-7:tw0 tw0 firehose.p<partition>',
+			$after,
+			'a stale analyzer cache must not survive the reload'
+		);
 	}
 
 	public function test_the_listener_is_wired_to_the_vault_changed_action(): void {

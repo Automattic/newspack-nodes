@@ -112,6 +112,12 @@ class Remote_Link_Node extends Timer_Node {
 	 * rebuilds. A credential rotated WITHIN a vault_id moves neither argument,
 	 * and stays `reload()`'s job.
 	 *
+	 * The fleet's RELOAD reaches `reload()` through a closure, not a name
+	 * registration: `fill()` relays anything it does not recognize OUT to a
+	 * remote spoke, so control dispatched by name would ride the one entry
+	 * point whose fall-through is a third party. A closure mints no message,
+	 * and its identity is its provenance.
+	 *
 	 * @api Dynamic entrypoint.
 	 * @param list<string>|null $args Positional tokens, or null to read the current ones.
 	 * @return list<string>
@@ -131,7 +137,7 @@ class Remote_Link_Node extends Timer_Node {
 		if ( [] !== $args ) {
 			$this->set_timer( self::TICK_INTERVAL_MS );
 			// Subscribed where the vault config is captured: one lifetime.
-			$this->subscribe_reload();
+			$this->subscribe( Node_Names::FLEET, 'RELOAD', $this->reload( ... ) );
 		}
 		return $args;
 	}
@@ -186,59 +192,6 @@ class Remote_Link_Node extends Timer_Node {
 		$this->queue_connect( $sse );
 		$this->maybe_send_heartbeat();
 		$this->publish_status();
-	}
-
-	/**
-	 * Move the fleet RELOAD subscription with the name. It is keyed by NAME in
-	 * ANOTHER node's registrations, and this listener is a CLOSURE, so nothing
-	 * self-heals it: `notify()` keeps any listener that does not return
-	 * exactly false, and a void closure returns null. An entry left under the
-	 * old spelling therefore keeps firing on a link the topology renamed —
-	 * healthy-looking, while `remove_node()` unregisters the new name as a
-	 * no-op and a later link taking the old name overwrites it, ending the
-	 * original's reloads and reconnecting it with a rotated credential's
-	 * predecessor.
-	 *
-	 * @param string|null $name New name; omit the argument entirely to read.
-	 * @return string The name now held.
-	 */
-	public function name( ?string $name = null ): string {
-		if ( 0 === \func_num_args() ) {
-			return parent::name();
-		}
-		$previous = $this->name;
-		$result   = parent::name( $name );
-		// vault_id is required, so a configured link is a subscribed one.
-		if ( $previous !== $result && '' !== $this->vault_id ) {
-			Core::node( Node_Names::FLEET )?->unregister( 'RELOAD', $previous );
-			$this->subscribe_reload();
-		}
-		return $result;
-	}
-
-	/**
-	 * Subscribe this link's CURRENT name to the fleet's RELOAD.
-	 *
-	 * Null outside a worker (REPL or request scope): no fleet, so nothing
-	 * detects a change.
-	 *
-	 * CLOSURE, not Node-name dispatch. `fill()` relays anything it does not
-	 * recognize OUT to a remote spoke, so a name registration would route
-	 * control through the one entry point whose fall-through is a third party,
-	 * and every message would then have to be discriminated from control. A
-	 * closure builds no message at all: provenance is the callback identity,
-	 * one closure per (emitter, event), so there is nothing to verify. Only an
-	 * explicit `return false` unregisters (`notify()` compares identity), so a
-	 * void handler keeps listening.
-	 */
-	private function subscribe_reload(): void {
-		Core::node( Node_Names::FLEET )?->register(
-			'RELOAD',
-			$this->name,
-			function (): void {
-				$this->reload();
-			}
-		);
 	}
 
 	/**
@@ -595,9 +548,6 @@ class Remote_Link_Node extends Timer_Node {
 	 * @api Dynamic entrypoint.
 	 */
 	public function remove_node(): void {
-		// @longform Registrations are by NAME: a stale one outlives the node
-		// and gets walked on the next notify (Timer_Node drops TIMER alike).
-		Core::node( Node_Names::FLEET )?->unregister( 'RELOAD', $this->name );
 		$this->drop_patrons();
 		parent::remove_node();
 	}
