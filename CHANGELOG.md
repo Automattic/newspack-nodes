@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.65.19] - 2026-09-25
+
 ### Fixed
 
 - **The Topics, Jobs and overlay rate charts title their Y-axis.** All ten panels drew bare ticks. `TopicsChart` now takes a `yLabel`, and each panel names its quantity: Messages, Bytes, Backlog and Cache Size on Overview; Runs, Errors, Backlog and Latency on Jobs; Messages and Bytes in the debug overlay. The ticks still carry the unit.
