@@ -83,7 +83,7 @@ if ( ! \defined( 'ABSPATH' ) ) {
 class Job_Worker_Node extends Node {
 	use Schema_Reflection;
 
-	/** Jobs between `wp_cache_flush()` calls; the `cache_flush_interval` default. */
+	/** Jobs between `wp_cache_flush_runtime()` calls; the `cache_flush_interval` default. */
 	public const CACHE_FLUSH_INTERVAL = 50;
 
 	/** Accepted handler names. Job_Intake and an application's router hold matching copies. */
@@ -299,11 +299,9 @@ class Job_Worker_Node extends Node {
 		// Force GC each job; refcount GC can't break cycles immediately.
 		\gc_collect_cycles();
 
-		// Periodic cache flush extends runtime on wp_query-heavy handlers.
+		// A full flush rotates a memcached prefix; drop our own copy only.
 		if ( $this->jobs_since_cache_flush >= $this->cache_flush_interval ) {
-			if ( \function_exists( 'wp_cache_flush' ) ) {
-				\wp_cache_flush();
-			}
+			\wp_cache_flush_runtime();
 			$this->set_state( 'CACHE_FLUSH', (string) $this->cache_flush_interval );
 			$this->jobs_since_cache_flush = 0;
 		}
@@ -663,7 +661,7 @@ class Job_Worker_Node extends Node {
 			'category'    => 'Control',
 			'description' => 'Consumes jobs.log entries and dispatches to registered handlers.',
 			'arguments'        => [
-				[ 'name' => 'cache_flush_interval', 'type' => 'int', 'default' => self::CACHE_FLUSH_INTERVAL, 'description' => 'Jobs processed between wp_cache_flush() calls (default 50); clamped to a minimum of 1.' ],
+				[ 'name' => 'cache_flush_interval', 'type' => 'int', 'default' => self::CACHE_FLUSH_INTERVAL, 'description' => 'Jobs processed between wp_cache_flush_runtime() calls, each dropping this worker\'s own object-cache copy (default 50); clamped to a minimum of 1.' ],
 			],
 			'commands'       => [],
 			'requests'    => [

@@ -282,6 +282,8 @@ class Bootstrap {
 	public static function activate(): void {
 		// An unsalted install has a computable cache scope.
 		Cache_Backend::ensure_salt();
+		// A row that always exists never sits in a stale notoptions list.
+		\add_option( Spawn_Coordinator::HOLD_OPTION, 0, '', false );
 		if ( ! \wp_next_scheduled( self::CRON_EVENT ) ) {
 			$result = \wp_schedule_event( \time() + 5, self::CRON_SCHEDULE, self::CRON_EVENT, [], true );
 			if ( \is_wp_error( $result ) ) {

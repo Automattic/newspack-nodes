@@ -284,6 +284,36 @@ if ( ! function_exists( 'set_transient' ) ) {
 	}
 }
 
+// Each flush records `runtime` or its group; see wp-object-cache-stub.
+if ( ! function_exists( 'wp_using_ext_object_cache' ) ) {
+	function wp_using_ext_object_cache(): bool {
+		return $GLOBALS['_wp_using_ext_object_cache'] ?? true;
+	}
+}
+if ( ! function_exists( 'wp_cache_flush_runtime' ) ) {
+	function wp_cache_flush_runtime(): bool {
+		$GLOBALS['_wp_cache_flushes'][] = 'runtime';
+		if ( isset( $GLOBALS['_wp_option_cache'] ) ) {
+			$GLOBALS['_wp_option_cache'] = [];
+			// Core's own cache has no shared tier: this IS wp_cache_flush().
+			if ( ! wp_using_ext_object_cache() ) {
+				$GLOBALS['_wp_option_shared'] = [];
+			}
+		}
+		return true;
+	}
+}
+if ( ! function_exists( 'wp_cache_flush_group' ) ) {
+	function wp_cache_flush_group( string $group ): bool {
+		$GLOBALS['_wp_cache_flushes'][] = $group;
+		if ( 'options' === $group && isset( $GLOBALS['_wp_option_cache'] ) ) {
+			$GLOBALS['_wp_option_cache']  = [];
+			$GLOBALS['_wp_option_shared'] = [];
+		}
+		return true;
+	}
+}
+
 // Note: wp_cache_set / wp_cache_get are intentionally NOT stubbed here.
 // Spawn_Coordinator falls back to set_transient/get_transient when the object
 // cache API is unavailable, and the cross-process persistence test exercises
@@ -467,16 +497,133 @@ if ( ! function_exists( 'status_header' ) ) {
 // ── WP option / esc helpers — Config tests require these. ──────────────────
 
 if ( ! function_exists( 'get_option' ) ) {
+	// The `options` cache model is wp-object-cache-stub.php's; see its docblock.
 	$GLOBALS['_wp_options'] = [];
 	function get_option( string $key, mixed $default = false ): mixed {
-		return $GLOBALS['_wp_options'][ $key ] ?? $default;
+		// Test seam: lets a test simulate the production wpdb->query → query-filter
+		// → Core::hook_start chain that real get_option triggers when alloptions
+		// isn't cached. The hook fires before the option lookup, mirroring the
+		// real recursion window.
+		if ( isset( $GLOBALS['_test_get_option_hook'] ) ) {
+			( $GLOBALS['_test_get_option_hook'] )( $key );
+		}
+		if ( ! isset( $GLOBALS['_wp_option_cache'] ) ) {
+			return $GLOBALS['_wp_options'][ $key ] ?? $default;
+		}
+		$notoptions = wp_test_cache_read( 'notoptions' ) ?? [];
+		if ( isset( $notoptions[ $key ] ) ) {
+			return $default;
+		}
+		$alloptions = wp_test_cache_read( 'alloptions' );
+		if ( null === $alloptions ) {
+			$alloptions = \array_filter( $GLOBALS['_wp_options'], 'wp_test_option_autoloads', ARRAY_FILTER_USE_KEY );
+			wp_test_cache_write( 'alloptions', $alloptions );
+		}
+		if ( \array_key_exists( $key, $alloptions ) ) {
+			return $alloptions[ $key ];
+		}
+		$value = wp_test_cache_read( $key );
+		if ( null !== $value ) {
+			return $value;
+		}
+		if ( ! \array_key_exists( $key, $GLOBALS['_wp_options'] ) ) {
+			$notoptions[ $key ] = true;
+			wp_test_cache_write( 'notoptions', $notoptions );
+			return $default;
+		}
+		wp_test_cache_write( $key, $GLOBALS['_wp_options'][ $key ] );
+		return $GLOBALS['_wp_options'][ $key ];
 	}
-	function update_option( string $key, mixed $value, $autoload = null ): bool {
+	// One cache entry: the runtime copy, else the shared tier copied down.
+	function wp_test_cache_read( string $entry ): mixed {
+		if ( \array_key_exists( $entry, $GLOBALS['_wp_option_cache'] ) ) {
+			return $GLOBALS['_wp_option_cache'][ $entry ];
+		}
+		if ( \array_key_exists( $entry, $GLOBALS['_wp_option_shared'] ) ) {
+			return $GLOBALS['_wp_option_cache'][ $entry ] = $GLOBALS['_wp_option_shared'][ $entry ];
+		}
+		return null;
+	}
+	// Store one cache entry in both tiers, as this process's own write does.
+	function wp_test_cache_write( string $entry, mixed $value ): void {
+		$GLOBALS['_wp_option_cache'][ $entry ]  = $value;
+		$GLOBALS['_wp_option_shared'][ $entry ] = $value;
+	}
+	// Whether a row is autoloaded: core's default for a new row, unless written off.
+	function wp_test_option_autoloads( string $key ): bool {
+		return ! \in_array( $GLOBALS['_wp_option_autoload'][ $key ] ?? null, [ false, 'no', 'off', 'auto-off' ], true );
+	}
+	// Record a row and its flag, then land it in each named tier as core does.
+	// `null` keeps an existing row's flag, as core does.
+	function wp_test_store_option( array $tiers, string $key, mixed $value, $autoload ): void {
 		$GLOBALS['_wp_options'][ $key ] = $value;
+		if ( null !== $autoload || ! \array_key_exists( $key, $GLOBALS['_wp_option_autoload'] ) ) {
+			$GLOBALS['_wp_option_autoload'][ $key ] = $autoload;
+		}
+		foreach ( $tiers as $tier ) {
+			$cache = &$GLOBALS[ $tier ];
+			unset( $cache['notoptions'][ $key ] );
+			if ( wp_test_option_autoloads( $key ) ) {
+				unset( $cache[ $key ] );
+				if ( isset( $cache['alloptions'] ) ) {
+					$cache['alloptions'][ $key ] = $value;
+				}
+			} else {
+				unset( $cache['alloptions'][ $key ] );
+				$cache[ $key ] = $value;
+			}
+			unset( $cache );
+		}
+	}
+	// The tiers this process's own write lands in: none until the model is on.
+	function wp_test_own_tiers(): array {
+		return isset( $GLOBALS['_wp_option_cache'] ) ? [ '_wp_option_cache', '_wp_option_shared' ] : [];
+	}
+	// Another process's `update_option()`: the database and the shared tier.
+	function wp_test_write_elsewhere( string $key, mixed $value, $autoload = null ): void {
+		wp_test_store_option( [ '_wp_option_shared' ], $key, $value, $autoload );
+	}
+	// Drop a row, then its entries from each named tier as core does.
+	function wp_test_unstore_option( array $tiers, string $key ): void {
+		unset( $GLOBALS['_wp_options'][ $key ], $GLOBALS['_wp_option_autoload'][ $key ] );
+		foreach ( $tiers as $tier ) {
+			unset( $GLOBALS[ $tier ]['alloptions'][ $key ], $GLOBALS[ $tier ][ $key ] );
+		}
+	}
+	// Another process's `delete_option()`: the database and the shared tier.
+	function wp_test_delete_elsewhere( string $key ): void {
+		wp_test_unstore_option( [ '_wp_option_shared' ], $key );
+	}
+	$GLOBALS['_wp_option_autoload'] = [];
+	function update_option( string $key, mixed $value, $autoload = null ): bool {
+		$existed = \array_key_exists( $key, $GLOBALS['_wp_options'] );
+		$old     = $GLOBALS['_wp_options'][ $key ] ?? false;
+		wp_test_store_option( wp_test_own_tiers(), $key, $value, $autoload );
+		// Opt-in seam: real WP fires add_option/update_option on a write so the
+		// Settings_Event_Writer watcher runs. Off by default (other tests rely
+		// on the silent shim); a test sets the flag to exercise the watcher path.
+		if ( ! empty( $GLOBALS['_test_fire_option_actions'] ) ) {
+			if ( $existed ) {
+				do_action( 'update_option', $key, $old, $value );
+			} else {
+				do_action( 'add_option', $key, $value );
+			}
+		}
 		return true;
 	}
+	// Core's add_option(): a row that already exists is left alone.
+	function add_option( string $key, mixed $value = '', string $deprecated = '', $autoload = null ): bool {
+		if ( \array_key_exists( $key, $GLOBALS['_wp_options'] ) ) {
+			return false;
+		}
+		return update_option( $key, $value, $autoload );
+	}
 	function delete_option( string $key ): bool {
-		unset( $GLOBALS['_wp_options'][ $key ] );
+		$existed = \array_key_exists( $key, $GLOBALS['_wp_options'] );
+		wp_test_unstore_option( wp_test_own_tiers(), $key );
+		if ( $existed && ! empty( $GLOBALS['_test_fire_option_actions'] ) ) {
+			do_action( 'delete_option', $key );
+		}
 		return true;
 	}
 	// WP 6.4+ bulk option-cache primer. Records the primed option names so tests

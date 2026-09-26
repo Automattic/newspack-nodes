@@ -660,7 +660,9 @@ class Vault {
 	 * Drop the singleton's memoized entries. Wired to Config::RESET_ACTION, the
 	 * one signal every process-lifetime cache answers to — without it a worker
 	 * that read the Vault once serves those credentials until it recycles, so a
-	 * rotated password reconnects a healthy spoke with the old one.
+	 * rotated password reconnects a healthy spoke with the old one. The option
+	 * beneath the memo is fresh by then: a reload purges WordPress's option
+	 * cache before `Config::reset()` fires the action.
 	 */
 	public static function reset(): void {
 		self::$instance?->reset_cache();

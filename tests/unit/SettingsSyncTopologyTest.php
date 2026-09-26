@@ -32,7 +32,7 @@ class SettingsSyncTopologyTest extends TestCase {
 	}
 
 	/**
-	 * The option names actually SENT — `send_set` ships `$spec['remote']`, the
+	 * The option names actually SENT — `push` ships `$spec['remote']`, the
 	 * map's values. A guard over the keys checks the hub's own axis names and
 	 * misses every push whose spoke-side name differs, which is the whole point.
 	 *

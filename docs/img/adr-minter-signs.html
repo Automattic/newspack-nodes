@@ -78,7 +78,7 @@
   </div>
   <div class="card" style="border-color:#003DA5">
     <h3><span class="mono">sign_for( $destination )</span> IS the destination binding</h3>
-    <p>A signature under one remote's session verifies only there, which pins a command to its destination without signing TO. No session means no signature: the minter waits rather than emit something refused. Waiting alone deadlocks, because every minter refuses to queue unsigned and nothing else asks for the handshake, so the skip branch kicks it: resolve the target's head through <span class="mono">Core::node()</span>, type-test for <span class="mono">HTTP_Out_Node</span>, call <span class="mono">ensure_session()</span>. <span class="mono">Settings_Sync_Node::send_set()</span> is the worked example; on the JS side <span class="mono">Node.command()</span> returns null when <span class="mono">readyToMint()</span> finds no session, and the caller re-arms for a later tick.</p>
+    <p>A signature under one remote's session verifies only there, which pins a command to its destination without signing TO. No session means no signature: the minter waits rather than emit something refused. Waiting alone deadlocks, because every minter refuses to queue unsigned and nothing else asks for the handshake, so the skip branch kicks it: resolve the target's head through <span class="mono">Core::node()</span>, type-test for <span class="mono">HTTP_Out_Node</span>, call <span class="mono">ensure_session()</span>. <span class="mono">Fanout_Targets::send_signed()</span> is that loop, written once; on the JS side <span class="mono">Node.command()</span> returns null when <span class="mono">readyToMint()</span> finds no session, and the caller re-arms for a later tick.</p>
   </div>
 </div>
 

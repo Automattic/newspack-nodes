@@ -5,7 +5,6 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Command_Args;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Command_Auth;
-use Newspack_Nodes\HTTP_Out_Node;
 use Newspack_Nodes\Vault;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Settings_Sync_Node;
@@ -106,9 +105,7 @@ class SettingsSyncNodeTest extends TestCase {
 		$sink->name( '_command_interpreter' );
 		\update_option( Vault::OPTION_KEY, [ 'tw0' => [ 'url' => 'https://tw0.example' ] ] );
 		Vault::get_instance()->reset_cache();
-		$egress = new HTTP_Out_Node();
-		$egress->name( 'spokes:tw0' );
-		$egress->arguments( [ 'tw0' ] );
+		$this->egress( 'spokes:tw0', 'tw0' );
 		Command_Auth::remember_session( 'tw0', \str_repeat( '5', 32 ), 'harness-session-key' );
 
 		$node = new Settings_Sync_Node();
@@ -135,6 +132,7 @@ class SettingsSyncNodeTest extends TestCase {
 		$this->assertSame( 'spokes:tw0/settings', $out[ Message::TO ] );
 		$this->assertSame( 'set', $out[ Message::VALUE ]['name'] );
 		$this->assertSame( [ 'newspack_nodes_max_segments', '8' ], $out[ Message::VALUE ]['arguments'] );
+		$this->assertSame( \str_repeat( '5', 32 ), $out[ Message::VALUE ]['auth']['handle'] );
 	}
 
 	public function test_add_setting_twice_for_same_local_pushes_to_each_remote(): void {
@@ -171,30 +169,90 @@ class SettingsSyncNodeTest extends TestCase {
 		$this->assertCount( 1, $ref->getValue( $node )['a'] );
 	}
 
-	public function test_push_invalidates_options_cache_before_reading(): void {
-		// A long-lived worker freezes an alloptions snapshot, so a concurrent admin
-		// save (reset-to-default, remote_* change) is invisible to get_option until
-		// the cache is dropped. push() must invalidate FIRST. The seam simulates the
-		// clear revealing the current value; without the invalidate it ships stale.
-		\update_option( 'newspack_nodes_max_segments', 2 );
+	#[\PHPUnit\Framework\Attributes\RunInSeparateProcess]
+	public function test_push_rereads_a_non_schema_option_another_process_wrote(): void {
+		// A worker's runtime copy keeps a non-autoloaded option under its own key.
+		require_once __DIR__ . '/../Helpers/wp-object-cache-stub.php';
+		\update_option( 'spoke_probe_ceiling', '2', false );
 		$sink = new Capture_Sink_Node();
 		$node = $this->wired_node( $sink );
-		$node->add_setting( [ 'newspack_nodes_max_segments', 'settings', 'newspack_nodes_max_segments' ] );
+		$node->add_setting( [ 'spoke_probe_ceiling', 'settings', 'spoke_probe_ceiling' ] );
 
-		Settings_Sync_Node::$invalidate_options_cache = static function (): void {
-			$GLOBALS['_wp_options']['newspack_nodes_max_segments'] = 9;
-		};
-		try {
-			$msg                   = Message::new_message();
-			$msg[ Message::TYPE ]  = Message::TM_STRUCT;
-			$msg[ Message::VALUE ] = [ 'option' => 'newspack_nodes_max_segments' ];
-			$node->fill( $msg );
-		} finally {
-			Settings_Sync_Node::$invalidate_options_cache = null;
-		}
+		// The admin's save reaches the shared cache, not this worker's copy.
+		\wp_test_write_elsewhere( 'spoke_probe_ceiling', '9', false );
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
+		$msg[ Message::VALUE ] = [ 'option' => 'spoke_probe_ceiling' ];
+		$node->fill( $msg );
 
-		$this->assertCount( 1, $sink->captured );
-		$this->assertSame( [ 'newspack_nodes_max_segments', '9' ], $sink->captured[0][ Message::VALUE ]['arguments'] );
+		$this->assertSame( [ 'spoke_probe_ceiling', '9' ], $sink->captured[0][ Message::VALUE ]['arguments'] );
+	}
+
+	#[\PHPUnit\Framework\Attributes\RunInSeparateProcess]
+	public function test_push_reads_an_option_absent_at_first_read_and_set_later(): void {
+		// WordPress caches the ABSENCE of a row it read, in `notoptions`.
+		require_once __DIR__ . '/../Helpers/wp-object-cache-stub.php';
+		$sink = new Capture_Sink_Node();
+		$node = $this->wired_node( $sink );
+		$node->add_setting( [ 'spoke_probe_ceiling', 'settings', 'spoke_probe_ceiling' ] );
+		$this->assertFalse( \get_option( 'spoke_probe_ceiling' ) );
+
+		\wp_test_write_elsewhere( 'spoke_probe_ceiling', '9', false );
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
+		$msg[ Message::VALUE ] = [ 'option' => 'spoke_probe_ceiling' ];
+		$node->fill( $msg );
+
+		$this->assertSame( [ 'spoke_probe_ceiling', '9' ], $sink->captured[0][ Message::VALUE ]['arguments'] );
+	}
+
+	#[\PHPUnit\Framework\Attributes\RunInSeparateProcess]
+	public function test_fire_rereads_every_autoloaded_option_through_one_flush(): void {
+		require_once __DIR__ . '/../Helpers/wp-object-cache-stub.php';
+		\update_option( 'spoke_probe_ceiling', '2' );
+		\update_option( 'spoke_probe_floor', '3' );
+		$sink = new Capture_Sink_Node();
+		$node = $this->wired_node( $sink );
+		$node->add_setting( [ 'spoke_probe_ceiling', 'settings', 'spoke_probe_ceiling' ] );
+		$node->add_setting( [ 'spoke_probe_floor', 'settings', 'spoke_probe_floor' ] );
+		$node->fire();
+
+		// Both saves reach the shared `alloptions`, behind this worker's copy.
+		\wp_test_write_elsewhere( 'spoke_probe_ceiling', '9' );
+		\wp_test_write_elsewhere( 'spoke_probe_floor', '7' );
+		$sink->captured               = [];
+		$GLOBALS['_wp_cache_flushes'] = [];
+		$node->fire();
+
+		$this->assertSame(
+			[ [ 'spoke_probe_ceiling', '9' ], [ 'spoke_probe_floor', '7' ] ],
+			\array_map( static fn ( array $m ): array => $m[ Message::VALUE ]['arguments'], $sink->captured )
+		);
+		$this->assertSame( [ 'runtime' ], $GLOBALS['_wp_cache_flushes'], 'one flush per sweep, evicting nothing shared' );
+		$this->assertSame( '7', $GLOBALS['_wp_option_shared']['alloptions']['spoke_probe_floor'] );
+	}
+
+	#[\PHPUnit\Framework\Attributes\RunInSeparateProcess]
+	public function test_the_value_filter_reads_another_option_fresh_without_an_external_cache(): void {
+		// ELN's filter hydrates a pointer rule from a non-autoloaded option.
+		require_once __DIR__ . '/../Helpers/wp-object-cache-stub.php';
+		$GLOBALS['_wp_using_ext_object_cache'] = false;
+		\update_option( 'spoke_probe_ceiling', '2', false );
+		\update_option( 'spoke_probe_hooks', 'save_post', false );
+		\add_filter(
+			'newspack_nodes/settings_sync/value',
+			static fn ( $value ): string => $value . ':' . \get_option( 'spoke_probe_hooks' )
+		);
+		$sink = new Capture_Sink_Node();
+		$node = $this->wired_node( $sink );
+		$node->add_setting( [ 'spoke_probe_ceiling', 'settings', 'spoke_probe_ceiling' ] );
+		$node->fire();
+
+		\wp_test_write_elsewhere( 'spoke_probe_hooks', 'wp_loaded', false );
+		$sink->captured = [];
+		$node->fire();
+
+		$this->assertSame( [ 'spoke_probe_ceiling', '2:wp_loaded' ], $sink->captured[0][ Message::VALUE ]['arguments'] );
 	}
 
 	public function test_fill_scalarizes_array_value_to_json(): void {
@@ -264,6 +322,32 @@ class SettingsSyncNodeTest extends TestCase {
 		$node->fill( $msg );
 
 		$this->assertCount( 0, $sink->captured );
+		$this->assertSame( [], $GLOBALS['_wp_cache_flushes'], 'an event nothing pushes pays no flush' );
+	}
+
+	public function test_a_node_with_no_spokes_pays_no_flush_for_a_registered_option(): void {
+		$sink = new Capture_Sink_Node();
+		$sink->name( '_command_interpreter' );
+		$node = new Settings_Sync_Node();
+		$node->name( 'settings-sync' );
+		$node->sink( $sink );
+		$node->add_setting( [ 'spoke_probe_ceiling', 'settings', 'spoke_probe_ceiling' ] );
+
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
+		$msg[ Message::VALUE ] = [ 'option' => 'spoke_probe_ceiling' ];
+		$node->fill( $msg );
+		$node->fire();
+
+		$this->assertSame( [], $GLOBALS['_wp_cache_flushes'] );
+	}
+
+	public function test_a_sweep_with_nothing_registered_pays_no_flush(): void {
+		$node = $this->wired_node( new Capture_Sink_Node() );
+
+		$node->fire();
+
+		$this->assertSame( [], $GLOBALS['_wp_cache_flushes'] );
 	}
 
 	public function test_fill_honors_value_resolver_filter(): void {

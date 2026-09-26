@@ -5,8 +5,11 @@ use PHPUnit\Framework\Attributes\CoversTrait;
 use Newspack_Nodes\Fanout_Targets;
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Tests\TestCase;
+use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\Command_Interpreter_Node;
+use Newspack_Nodes\Core;
 use Newspack_Nodes\Echo_Node;
+use Newspack_Nodes\HTTP_Out_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Tee_Node;
 use Newspack_Nodes\Vault;
@@ -53,6 +56,11 @@ class FanoutTargetsTest extends TestCase {
 
 			public function path( string $target, string $remainder ): string {
 				return $this->target_path( $target, $remainder );
+			}
+
+			/** @param list<string> $arguments */
+			public function send( string $to, string $verb, array $arguments ): void {
+				$this->send_signed( $to, $verb, $arguments );
 			}
 		};
 	}
@@ -173,8 +181,170 @@ class FanoutTargetsTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
+		HTTP_Out_Node::$curl_dispatch = null;
+		Command_Auth::forget_session( 'tw0' );
+		Command_Auth::forget_session( 'tw1' );
+		Command_Auth::forget_session( 'tw9' );
+		Command_Auth::forget_session( 'lone' );
+		Command_Auth::forget_session( 'aux' );
 		Vault::get_instance()->reset_cache();
 		parent::tearDown();
+	}
+
+	/** Distinct per spoke, so a signature under the wrong key is visible. */
+	private const HANDLE_A = 'a1a1b2b2c3c3d4d4e5e5f6f6a7a7b8b8';
+	private const HANDLE_B = 'f9f9e8e8d7d7c6c6b5b5a4a4f3f3e2e2';
+
+	/** Count the `/auth` handshakes an egress starts, without any real HTTP. */
+	private function count_handshakes( int &$posts ): void {
+		HTTP_Out_Node::$curl_dispatch = static function ( array $opts ) use ( &$posts ): \CurlHandle {
+			++$posts;
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+			return \curl_init();
+		};
+	}
+
+	/** A named sender sinking into a capture, targeted at the given spokes. */
+	private function sender( Capture_Sink_Node $sink, string ...$targets ): object {
+		$node = $this->fanout();
+		$node->name( 'probe-7' );
+		$node->sink( $sink );
+		foreach ( $targets as $target ) {
+			$node->connect_node( $target );
+		}
+		return $node;
+	}
+
+	/**
+	 * One command per live spoke, minted by this node and signed under that
+	 * spoke's own key: a signature verifies only where it was minted for, so
+	 * the mint cannot happen once and be re-addressed afterwards.
+	 */
+	public function test_send_signed_mints_one_signed_command_per_live_target(): void {
+		$this->egress( 'spokes:tw0', 'tw0' );
+		$this->egress( 'spokes:tw1', 'tw1' );
+		Command_Auth::remember_session( 'tw0', self::HANDLE_A, 'key-tw0-4242' );
+		Command_Auth::remember_session( 'tw1', self::HANDLE_B, 'key-tw1-9999' );
+		$sink = new Capture_Sink_Node();
+
+		$this->sender( $sink, 'spokes:tw0', 'spokes:tw1' )->send( 'inbox-3', 'reindex', [ 'alpha-5', '--depth=2' ] );
+
+		$this->assertCount( 2, $sink->captured );
+		foreach ( [ 0 => [ 'spokes:tw0/inbox-3', self::HANDLE_A ], 1 => [ 'spokes:tw1/inbox-3', self::HANDLE_B ] ] as $i => [ $to, $handle ] ) {
+			$out = $sink->captured[ $i ];
+			$this->assertSame( Message::TM_COMMAND, $out[ Message::TYPE ] );
+			$this->assertSame( 'probe-7', $out[ Message::FROM ] );
+			$this->assertSame( $to, $out[ Message::TO ] );
+			$this->assertSame( 'reindex', $out[ Message::VALUE ]['name'] );
+			$this->assertSame( [ 'alpha-5', '--depth=2' ], $out[ Message::VALUE ]['arguments'] );
+			$this->assertSame( $handle, $out[ Message::VALUE ]['auth']['handle'] );
+		}
+	}
+
+	/** With nowhere to deliver, nothing is minted and no handshake is asked for. */
+	public function test_send_signed_without_a_sink_mints_nothing_and_asks_no_handshake(): void {
+		$this->seed_vault_servers( [ 'tw0' => [ 'url' => 'https://tw0.example' ] ] );
+		$this->egress( 'spokes:tw0', 'tw0' );
+		$posts = 0;
+		$this->count_handshakes( $posts );
+		$node = $this->fanout();
+		$node->name( 'probe-7' );
+		$node->connect_node( 'spokes:tw0' );
+
+		$node->send( 'inbox-3', 'reindex', [] );
+
+		$this->assertSame( 0, $posts );
+	}
+
+	/**
+	 * A spoke with no session is skipped AND asked to handshake, or both sides
+	 * sit still. The skip is logged only past 30 seconds of uptime, while a
+	 * session still being established is not worth a line.
+	 */
+	public function test_a_sessionless_spoke_is_skipped_asked_to_handshake_and_logged_after_30s(): void {
+		$this->seed_vault_servers(
+			[
+				'tw0' => [ 'url' => 'https://tw0.example' ],
+				'tw1' => [ 'url' => 'https://tw1.example' ],
+			]
+		);
+		$this->egress( 'spokes:tw0', 'tw0' );
+		$this->egress( 'spokes:tw1', 'tw1' );
+		Command_Auth::remember_session( 'tw0', self::HANDLE_A, 'key-tw0-4242' );
+		$posts = 0;
+		$this->count_handshakes( $posts );
+		$lines = [];
+		Core::set_stderr_handler(
+			static function ( string $line ) use ( &$lines ): void {
+				$lines[] = $line;
+			}
+		);
+		$sink = new Capture_Sink_Node();
+		$node = $this->sender( $sink, 'spokes:tw0', 'spokes:tw1' );
+
+		Core::$init_time = 5000.0;
+		Core::$now       = 5029.0;
+		$node->send( 'inbox-3', 'reindex', [] );
+		$quiet = $lines;
+		Core::$now = 5031.0;
+		$node->send( 'inbox-3', 'reindex', [] );
+
+		$this->assertSame( [], $quiet, 'the first 30 seconds stay quiet' );
+		$this->assertCount( 1, $lines );
+		$this->assertStringContainsString( 'no session for spokes:tw1; skipping', $lines[0] );
+		$this->assertGreaterThan( 0, $posts, 'the skip must ask for a handshake' );
+		$this->assertSame(
+			[ 'spokes:tw0/inbox-3', 'spokes:tw0/inbox-3' ],
+			\array_map( static fn ( array $m ): string => $m[ Message::TO ], $sink->captured ),
+			'the sessionless spoke gets nothing; the other still ships'
+		);
+	}
+
+	/**
+	 * A target may be a PATH, alive while its head is, so the egress is
+	 * resolved by that head: a full-path lookup finds nothing, the handshake
+	 * never starts, and the deadlock the skip exists to break survives.
+	 */
+	public function test_a_path_form_target_without_a_session_still_kicks_the_handshake(): void {
+		$this->seed_vault_servers( [ 'tw0' => [ 'url' => 'https://tw0.example' ] ] );
+		$this->egress( 'spokes:tw0', 'tw0' );
+		$posts = 0;
+		$this->count_handshakes( $posts );
+		$sink = new Capture_Sink_Node();
+
+		$this->sender( $sink, 'spokes:tw0/inbox-3' )->send( 'inbox-3', 'reindex', [] );
+
+		$this->assertSame( [], $sink->captured, 'no session: nothing may be minted' );
+		$this->assertGreaterThan( 0, $posts, 'the skip path must ask for a handshake' );
+	}
+
+	/**
+	 * A `Vault_Group` target signs one command per member, each under that
+	 * member's own key. The non-members carry sessions too, so a stray the
+	 * expansion leaked would ship its own command rather than be skipped.
+	 */
+	public function test_send_signed_signs_one_command_per_vault_group_member(): void {
+		$this->seed_vault_servers(
+			[
+				'tw0'  => [ 'url' => 'https://tw0.example', 'group' => 'tw-edge' ],
+				'tw9'  => [ 'url' => 'https://tw9.example', 'group' => 'tw-edge' ],
+				'lone' => [ 'url' => 'https://lone.example' ],
+				'aux'  => [ 'url' => 'https://aux.example', 'group' => 'llm' ],
+			]
+		);
+		( new Command_Interpreter_Node() )->make_node( 'Vault_Group', 'egress', 'HTTP_Out', 'tw-edge' );
+		Command_Auth::remember_session( 'tw0', self::HANDLE_A, 'key-tw0-4242' );
+		Command_Auth::remember_session( 'tw9', self::HANDLE_B, 'key-tw9-9999' );
+		Command_Auth::remember_session( 'lone', 'c4c4d5d5e6e6f7f7a8a8b9b9c0c0d1d1', 'key-lone-1111' );
+		Command_Auth::remember_session( 'aux', 'e2e2f3f3a4a4b5b5c6c6d7d7e8e8f9f9', 'key-aux-2222' );
+		$sink = new Capture_Sink_Node();
+
+		$this->sender( $sink, 'egress' )->send( 'inbox-3', 'reindex', [] );
+
+		$this->assertSame(
+			[ [ 'egress:tw0/inbox-3', self::HANDLE_A ], [ 'egress:tw9/inbox-3', self::HANDLE_B ] ],
+			\array_map( static fn ( array $m ): array => [ $m[ Message::TO ], $m[ Message::VALUE ]['auth']['handle'] ], $sink->captured )
+		);
 	}
 
 	/**

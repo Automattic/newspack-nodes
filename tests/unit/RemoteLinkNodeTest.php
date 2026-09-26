@@ -274,6 +274,25 @@ class RemoteLinkNodeTest extends TestCase {
 		$this->assertSame( 'https://austin-7714.example', $this->read_private( Core::node( 'link-austin:sse-in' ), 'url' ) );
 	}
 
+	#[\PHPUnit\Framework\Attributes\RunInSeparateProcess]
+	public function test_a_reload_re_reads_a_url_another_process_wrote(): void {
+		// A worker's WordPress caches the option under its own key on first read.
+		require_once __DIR__ . '/../Helpers/wp-object-cache-stub.php';
+		$fleet = $this->mount_fleet();
+		$this->seed_vault();
+		[ $node ] = $this->make_link( 'link-austin' );
+		$node->fire();
+
+		// The Vault tab's save reaches the shared cache, not this worker's copy.
+		$servers                  = $GLOBALS['_wp_options'][ Vault::OPTION_KEY ];
+		$servers['austin']['url'] = 'https://austin-5521.example';
+		\wp_test_write_elsewhere( Vault::OPTION_KEY, $servers, false );
+		$this->signal_reload( $fleet );
+		$this->tick_next_second( $node );
+
+		$this->assertSame( 'https://austin-5521.example', $this->read_private( Core::node( 'link-austin:sse-in' ), 'url' ) );
+	}
+
 	public function test_a_second_reload_is_still_delivered(): void {
 		// The registration must survive its own delivery: notify() drops a
 		// listener whose handler returns exactly false, so only a deliberate

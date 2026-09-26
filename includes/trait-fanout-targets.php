@@ -19,11 +19,12 @@
  * which is how a minter signs one command per spoke through a single
  * `connect_node( $group )` rather than one per spoke.
  *
- * What is deliberately NOT here: the dispatch loop. Tee prepends the remaining
- * path so routing continues past the hop; Tap hard-addresses and then passes the
- * original through. Both attempt every target, defer the throwable `outranks()`
- * selects, and re-throw it after the loop (ADR-14). Those are different
- * contracts, not one contract with a flag.
+ * The minters' dispatch loop IS here, as `send_signed()`: each mints its own
+ * command per spoke, so they share one contract. Tee's and Tap's loops are
+ * not. Tee prepends the remaining path so routing continues past the hop; Tap
+ * hard-addresses and then passes the original through. Both attempt every
+ * target, defer the throwable `outranks()` selects, and re-throw it after the
+ * loop (ADR-14). Those are different contracts, not one contract with a flag.
  *
  * @package Newspack_Nodes
  */
@@ -86,6 +87,51 @@ trait Fanout_Targets {
 			return;
 		}
 		$this->target = \array_values( \array_filter( $this->target, static fn ( $t ): bool => $t !== $target ) );
+	}
+
+	/**
+	 * Mint one `<verb>` command per live target, addressed `<target>/<to>` and
+	 * signed under that spoke's own session key, then fill it into the sink.
+	 * Drops silently when the node has no sink.
+	 *
+	 * Signing happens per spoke because the key chosen IS the destination
+	 * binding (ADR-15): one command re-addressed to N spokes after the mint
+	 * would verify nowhere. A spoke with no session yet is skipped AND asked to
+	 * handshake, since every minter refuses to queue unsigned and nothing else
+	 * would ask. The skip is logged only past the first 30 seconds of uptime,
+	 * while a session still being established is not worth a line.
+	 *
+	 * @param string       $to        Path below each spoke target the command addresses.
+	 * @param string       $verb      Command name the spoke's interpreter runs.
+	 * @param list<string> $arguments Command argument tokens.
+	 */
+	protected function send_signed( string $to, string $verb, array $arguments ): void {
+		$sink = $this->sink;
+		if ( null === $sink ) {
+			return;
+		}
+		foreach ( $this->live_targets() as $target ) {
+			$egress = $this->egress_for( $target );
+			$spoke  = $egress?->vault_id() ?? '';
+			if ( '' === $spoke || ! Command_Auth::has_session( $spoke ) ) {
+				if ( (int) ( Core::$now - Core::$init_time ) > 30 ) {
+					$this->print_less_often( 'no session for ', $target, '; skipping' );
+				}
+				// Skipping alone deadlocks: someone must ask for the handshake.
+				$egress?->ensure_session();
+				continue;
+			}
+			$out                   = Message::new_message();
+			$out[ Message::TYPE ]  = Message::TM_COMMAND;
+			$out[ Message::FROM ]  = $this->name;
+			$out[ Message::TO ]    = $this->target_path( $target, $to );
+			$out[ Message::VALUE ] = [
+				'name'      => $verb,
+				'arguments' => $arguments,
+			];
+			Command_Auth::sign_for( $spoke, $out );
+			$sink->fill( $out );
+		}
 	}
 
 	/**

@@ -693,4 +693,64 @@ class SpawnCoordinatorTest extends TestCase {
 		$this->assertTrue( \Newspack_Nodes\Lock_Node::is_restart_pending( "{$this->tmp}/locks/retired-type.p0.lock.d" ) );
 		$this->assertTrue( \Newspack_Nodes\Lock_Node::is_restart_pending( "{$this->tmp}/locks/retired-type.p9.lock.d" ) );
 	}
+
+	// ── the deploy hold ───────────────────────────────────────────────────
+
+	/**
+	 * Web shutdown reaches `spawn_each()` through a producer's wake, so it reads
+	 * the hold through its cache; `Fleet_Node` refreshes the worker's copy.
+	 */
+	#[\PHPUnit\Framework\Attributes\RunInSeparateProcess]
+	public function test_spawn_each_reads_the_hold_without_flushing_the_cache(): void {
+		require_once __DIR__ . '/../Helpers/wp-object-cache-stub.php';
+		$this->with_active_fleet( [
+			'cold-start-workers' => [ 'num_partitions' => 1, 'topology' => '/cs.tsl', 'stale_timeout' => 45 ],
+		] );
+		$s = new Spawn_Coordinator( $this->tmp, 'COLD_START_SALT' );
+
+		$this->assertSame( 1, $s->spawn_each( [ [ 'type' => 'cold-start-workers', 'partition' => 0 ] ], 'spawn failed', 1700000000.0 ) );
+		$this->assertSame( [], $GLOBALS['_wp_cache_flushes'] );
+	}
+
+	/**
+	 * A stale `notoptions` written back by an unrelated miss must not hide the
+	 * hold, so `clear_hold()` keeps the row rather than deleting it.
+	 */
+	#[\PHPUnit\Framework\Attributes\RunInSeparateProcess]
+	public function test_a_worker_notoptions_write_back_cannot_hide_a_hold_after_a_stop_start_cycle(): void {
+		require_once __DIR__ . '/../Helpers/wp-object-cache-stub.php';
+		$this->with_active_fleet( [
+			'cold-start-workers' => [ 'num_partitions' => 2, 'topology' => '/cs.tsl', 'stale_timeout' => 45 ],
+		] );
+		Spawn_Coordinator::set_hold( 1790001111 );
+		Spawn_Coordinator::clear_hold();
+		$this->assertTrue( \array_key_exists( Spawn_Coordinator::HOLD_OPTION, $GLOBALS['_wp_options'] ), 'clear_hold must keep the row' );
+		$this->assertSame( 0, $GLOBALS['_wp_options'][ Spawn_Coordinator::HOLD_OPTION ] );
+
+		$s = new Spawn_Coordinator( $this->tmp, 'COLD_START_SALT' );
+		$this->assertSame( 1, $s->spawn_each( [ [ 'type' => 'cold-start-workers', 'partition' => 0 ] ], 'spawn failed', 1700000000.0 ) );
+
+		// `wp nodes stop` places the hold from another process.
+		\wp_test_write_elsewhere( Spawn_Coordinator::HOLD_OPTION, 1790004242, false );
+		// The worker then misses on an unrelated option; core writes its stale `notoptions` back.
+		$this->assertFalse( \get_option( 'newspack_nodes_test_never_written' ) );
+
+		// The worker's fleet pass refreshes its cache before it spawns.
+		\Newspack_Nodes\Config::invalidate_options_cache();
+		$GLOBALS['_test_outbound_posts'] = [];
+		$this->assertSame( 0, $s->spawn_each( [ [ 'type' => 'cold-start-workers', 'partition' => 1 ] ], 'spawn failed', 1700000001.0 ) );
+		$this->assertSame( [], $GLOBALS['_test_outbound_posts'] );
+		$this->assertSame( 1790004242, Spawn_Coordinator::hold() );
+	}
+
+	/** A web, REST or CLI reader is short-lived, so it reads through its cache. */
+	#[\PHPUnit\Framework\Attributes\RunInSeparateProcess]
+	public function test_hold_reads_through_this_process_cache(): void {
+		require_once __DIR__ . '/../Helpers/wp-object-cache-stub.php';
+		$this->assertSame( 0, Spawn_Coordinator::hold() );
+
+		\wp_test_write_elsewhere( Spawn_Coordinator::HOLD_OPTION, 1790004242, false );
+
+		$this->assertSame( 0, Spawn_Coordinator::hold(), 'a plain read must not flush the runtime cache' );
+	}
 }

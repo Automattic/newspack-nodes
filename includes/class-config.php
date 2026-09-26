@@ -588,6 +588,29 @@ class Config {
 	}
 
 	/**
+	 * Drop this process's cached copy of every option, so it rereads what
+	 * another process wrote. A long-lived reader calls it once at the start of
+	 * each unit of work. Where a `Config::reset()` follows, this must run FIRST:
+	 * reset only forces the next `load_config()`, whose option layer resolves
+	 * through `get_option()`, so a purge afterwards leaves any read landing in
+	 * between memoized on the stale copy.
+	 *
+	 * With an external object cache the writer already stored the value there,
+	 * so only this process's runtime copy is flushed: deleting a key would
+	 * evict the shared entry. Without one the cache is this process's alone,
+	 * and flushing the `options` group keeps every other group.
+	 *
+	 * @api
+	 */
+	public static function invalidate_options_cache(): void {
+		if ( \wp_using_ext_object_cache() ) {
+			\wp_cache_flush_runtime();
+			return;
+		}
+		\wp_cache_flush_group( 'options' );
+	}
+
+	/**
 	 * Register the substrate's `config` topology-token namespace.
 	 *
 	 * Three names resolve off the base directory rather than off config:
@@ -670,33 +693,6 @@ class Config {
 		self::$validated_subdirs        = [];
 		if ( \function_exists( 'do_action' ) ) {
 			\do_action( self::RESET_ACTION );
-		}
-	}
-
-	/**
-	 * Drop WP's per-process option snapshots so workers see fresh writes. Where a
-	 * `Config::reset()` follows, this must run FIRST: reset only forces the next
-	 * `load_config()`, whose option layer resolves through `get_option()`, so a
-	 * purge afterwards leaves any read landing in between memoized on the stale
-	 * snapshot.
-	 *
-	 * Purges the two aggregate groups AND each schema key's own cache entry —
-	 * WP core caches an option under its own key in addition to alloptions/
-	 * notoptions, so a long-running process (a draining worker) that read
-	 * a key once would otherwise keep serving that stale value even after this
-	 * runs, no matter how often it's called.
-	 *
-	 * @api
-	 */
-	public static function invalidate_options_cache(): void {
-		if ( ! \function_exists( 'wp_cache_delete' ) ) {
-			return;
-		}
-		\wp_cache_delete( 'alloptions', 'options' );
-		\wp_cache_delete( 'notoptions', 'options' );
-		$schema = Settings_Schema::get();
-		foreach ( $schema->overlay_keys() as $key ) {
-			\wp_cache_delete( $schema->prefix() . $key, 'options' );
 		}
 	}
 }

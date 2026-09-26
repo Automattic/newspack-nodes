@@ -770,9 +770,14 @@ class Spawn_Coordinator {
 		\update_option( self::HOLD_OPTION, $when, false );
 	}
 
-	/** Lift the deploy hold; `wp nodes start` calls it, then spawns the fleet. */
+	/**
+	 * Lift the deploy hold; `wp nodes start` calls it, then spawns the fleet.
+	 *
+	 * The row is kept at 0 rather than deleted, because a worker's stale
+	 * `notoptions` written back to a shared cache would otherwise hide the next hold.
+	 */
 	public static function clear_hold(): void {
-		\delete_option( self::HOLD_OPTION );
+		\update_option( self::HOLD_OPTION, 0, false );
 	}
 
 	/**

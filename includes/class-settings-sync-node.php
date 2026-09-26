@@ -19,7 +19,7 @@ namespace Newspack_Nodes;
 /**
  * Pushes every registered WP option to the connected spokes as a signed `set`.
  *
- * The node fans out itself rather than sinking into a Tee. `send_set()` mints
+ * The node fans out itself rather than sinking into a Tee. `send_signed()` mints
  * one command per live target and signs it under that spoke's session key, and
  * the key chosen IS the destination binding
  * ([ADR-15](docs/architecture-decisions.md#adr-15-command-authorization-local-taint--the-minter-signs)),
@@ -39,18 +39,6 @@ class Settings_Sync_Node extends Timer_Node {
 
 	/** Re-push sweep cadence in seconds; positional 0, floored at one second by cadence_ms(). */
 	protected int $interval_seconds = self::DEFAULT_INTERVAL_SECONDS;
-
-	/**
-	 * Options-cache-invalidation seam. Lazily-defaulted to drop the WP options
-	 * cache (alloptions/notoptions) so this long-lived worker reads the CURRENT
-	 * option value in push(), not a frozen snapshot — a concurrent admin save
-	 * (reset-to-default, remote_* change) would otherwise stay invisible until the
-	 * worker respawns. Tests reassign to record/simulate the clear without a real
-	 * cache. Signature: `function (): void`.
-	 *
-	 * @var \Closure|null
-	 */
-	public static ?\Closure $invalidate_options_cache = null;
 
 	/**
 	 * Local option name to the mappings it pushes under: `to` is the path below
@@ -97,7 +85,9 @@ class Settings_Sync_Node extends Timer_Node {
 	 *
 	 * The Consumer feeds a TM_STRUCT carrying only the option NAME
 	 * (`VALUE = ['option' => $name]`); the effective value is read here at
-	 * consume time. Anything that isn't a TM_STRUCT with an 'option' key is dropped.
+	 * consume time. Anything that isn't a TM_STRUCT with an 'option' key is
+	 * dropped, and so is an option this node would not push, before it pays the
+	 * cache flush: `Settings_Event_Writer` records every `newspack_*` option.
 	 *
 	 * @param array<int,mixed> $message The 7-field positional message array.
 	 */
@@ -111,16 +101,26 @@ class Settings_Sync_Node extends Timer_Node {
 		if ( ! \is_array( $value ) || ! isset( $value['option'] ) ) {
 			return;
 		}
-		$this->push( Core::as_string( $value['option'] ) );
+		$local = Core::as_string( $value['option'] );
+		if ( ! isset( $this->registry[ $local ] ) || [] === $this->live_targets() ) {
+			return;
+		}
+		Config::invalidate_options_cache();
+		$this->push( $local );
 	}
 
 	/**
 	 * Periodic re-push: emit one `set` command for EVERY registered option in a
 	 * single tick, so the batching `HTTP_Out` downstream coalesces them into one
 	 * POST per spoke. It replaces the base Timer heartbeat rather than adding to
-	 * it — a spoke wants the settings, not a tick.
+	 * it — a spoke wants the settings, not a tick. One cache flush serves the
+	 * whole sweep, and a sweep with nothing to push pays none.
 	 */
 	public function fire(): void {
+		if ( [] === $this->registry || [] === $this->live_targets() ) {
+			return;
+		}
+		Config::invalidate_options_cache();
 		foreach ( \array_keys( $this->registry ) as $local ) {
 			$this->push( $local );
 		}
@@ -128,18 +128,13 @@ class Settings_Sync_Node extends Timer_Node {
 
 	/**
 	 * Read one registered local option and fan its current value out, one `set`
-	 * per mapping. Drops silently when the option is unregistered or the node has
-	 * no sink; a value that will not encode drops with a rate-limited line.
+	 * per mapping. The caller has already checked that the option is registered
+	 * and a spoke is connected, and flushed the options cache; a value that
+	 * will not encode drops with a rate-limited line.
 	 *
-	 * @param string $local Local WP-option name.
+	 * @param string $local Registered local WP-option name.
 	 */
-	protected function push( string $local ): void {
-		$specs = $this->registry[ $local ] ?? [];
-		if ( [] === $specs || null === $this->sink ) {
-			return;
-		}
-		// Drop the frozen alloptions cache so get_option sees concurrent saves.
-		( self::$invalidate_options_cache ?? static fn () => Config::invalidate_options_cache() )();
+	private function push( string $local ): void {
 		// App-overridable: ELN resolves a blank remote_* to its file default.
 		$value  = \apply_filters( 'newspack_nodes/settings_sync/value', \get_option( $local ), $local );
 		$scalar = self::scalarize( $value );
@@ -149,52 +144,8 @@ class Settings_Sync_Node extends Timer_Node {
 			return;
 		}
 		// One `set` per mapping — a local may target several spoke options.
-		foreach ( $specs as $spec ) {
-			$this->send_set( $spec['to'], $spec['remote'], $scalar );
-		}
-	}
-
-	/**
-	 * Mint one `set <remote_option> <scalar>` command per live target, each
-	 * addressed `<target>/<to>` and signed under that spoke's own session key.
-	 *
-	 * A spoke with no session yet is skipped AND asked to handshake: every
-	 * minter refuses to queue unsigned, so nothing else would ask and both sides
-	 * would sit still. The first 30 seconds of a worker's life stay quiet,
-	 * because a session still being established is not worth a line.
-	 *
-	 * @param string $to            Path below each spoke target the command is addressed to.
-	 * @param string $remote_option Option name to set on the spoke.
-	 * @param string $scalar        Already-scalarized value token.
-	 */
-	private function send_set( string $to, string $remote_option, string $scalar ): void {
-		$sink = $this->sink;
-		if ( null === $sink ) {
-			return;
-		}
-		// One signed command per spoke; re-addressing post-mint can't verify.
-		foreach ( $this->live_targets() as $target ) {
-			$egress = $this->egress_for( $target );
-			$spoke  = $egress?->vault_id() ?? '';
-			if ( '' === $spoke || ! Command_Auth::has_session( $spoke ) ) {
-				$uptime = (int) ( Core::$now - Core::$init_time );
-				if ( $uptime > 30 ) {
-					$this->print_less_often( 'no session for ', $target, '; skipping this push' );
-				}
-				// Skipping alone deadlocks: someone must ask for the handshake.
-				$egress?->ensure_session();
-				continue;
-			}
-			$out                   = Message::new_message();
-			$out[ Message::TYPE ]  = Message::TM_COMMAND;
-			$out[ Message::FROM ]  = $this->name;
-			$out[ Message::TO ]    = $this->target_path( $target, $to );
-			$out[ Message::VALUE ] = [
-				'name'      => 'set',
-				'arguments' => Command_Args::format( [ $remote_option, $scalar ], [] ),
-			];
-			Command_Auth::sign_for( $spoke, $out );
-			$sink->fill( $out );
+		foreach ( $this->registry[ $local ] as $spec ) {
+			$this->send_signed( $spec['to'], 'set', [ $spec['remote'], $scalar ] );
 		}
 	}
 

@@ -169,6 +169,11 @@ class Fleet_Node extends Timer_Node {
 			}
 			$due[] = $worker;
 		}
+		if ( [] === $due ) {
+			return;
+		}
+		// The deploy hold is written by another process; read it fresh.
+		Config::invalidate_options_cache();
 		$coordinator->spawn_each( $due, 'spawn failed', $now );
 	}
 
