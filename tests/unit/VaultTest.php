@@ -454,4 +454,41 @@ final class VaultTest extends TestCase {
 		$this->assertSame( '', Vault::fresh()->get( 'lone' )['group'] );
 	}
 
+	#[\PHPUnit\Framework\Attributes\RunInSeparateProcess]
+	public function test_a_reload_rereads_a_registry_another_process_rewrote(): void {
+		// A worker's WordPress caches the option under its own key on first read.
+		require_once __DIR__ . '/../Helpers/wp-object-cache-stub.php';
+		$this->seed_vault_servers(
+			[
+				'tw0' => [ 'url' => 'https://tw0.example', 'group' => 'tw-edge' ],
+				'tw9' => [ 'url' => 'https://tw9.example', 'group' => 'tw-edge' ],
+			]
+		);
+		$this->assertSame( [ 'tw0', 'tw9' ], Vault::get_instance()->in_group( 'tw-edge' ) );
+
+		// The Vault tab's save reaches the database and the shared cache, not
+		// this process's runtime copy.
+		$servers = $GLOBALS['_wp_options'][ Vault::OPTION_KEY ];
+		unset( $servers['tw9'] );
+		\wp_test_write_elsewhere( Vault::OPTION_KEY, $servers, false );
+		$this->assertArrayHasKey( 'tw9', \get_option( Vault::OPTION_KEY ), 'the shim must hold the stale copy' );
+
+		\Newspack_Nodes\Topology_Registry::invalidate_config_cache();
+
+		$this->assertSame( [ 'tw0' ], Vault::get_instance()->in_group( 'tw-edge' ) );
+		$this->assertArrayHasKey( Vault::OPTION_KEY, $GLOBALS['_wp_option_shared'], 'a reload must evict nothing shared' );
+	}
+
+	#[\PHPUnit\Framework\Attributes\RunInSeparateProcess]
+	public function test_a_reload_reads_a_registry_absent_at_boot_and_added_later(): void {
+		// WordPress caches the ABSENCE of the row, in `notoptions`.
+		require_once __DIR__ . '/../Helpers/wp-object-cache-stub.php';
+		$this->assertSame( [], Vault::get_instance()->in_group( 'tw-edge' ) );
+
+		\wp_test_write_elsewhere( Vault::OPTION_KEY, [ 'tw4' => [ 'url' => 'https://tw4.example', 'group' => 'tw-edge' ] ], false );
+		\Newspack_Nodes\Topology_Registry::invalidate_config_cache();
+
+		$this->assertSame( [ 'tw4' ], Vault::get_instance()->in_group( 'tw-edge' ) );
+	}
+
 }

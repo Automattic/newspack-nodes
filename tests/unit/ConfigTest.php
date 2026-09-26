@@ -350,24 +350,61 @@ class ConfigTest extends TestCase {
 		$this->assertNotSame( 99, $config['num_partitions'] );
 	}
 
-	// ── invalidate_options_cache: per-key purge ────────────────────────────
+	// ── invalidate_options_cache ─────────────────────────────────────────
 
 	#[\PHPUnit\Framework\Attributes\RunInSeparateProcess]
-	public function test_invalidate_options_cache_purges_each_schema_keys_own_cache_entry(): void {
-		// The aggregate `alloptions`/`notoptions` groups are only two of the cache
-		// entries a long-running process can hold stale — WP core also caches each
-		// option under its own key. A worker process that read `topologies`
-		// once and never saw invalidate_options_cache() purge THAT key would keep
-		// serving the stale value forever, no matter how often reset() runs.
-		$GLOBALS['_wp_cache_delete_calls'] = [];
-		require_once __DIR__ . '/../Helpers/wp-cache-delete-stub.php';
+	public function test_invalidate_options_cache_rereads_a_non_schema_option_another_process_rewrote(): void {
+		// A worker's runtime copy holds the option it read; the shared tier moves on.
+		require_once __DIR__ . '/../Helpers/wp-object-cache-stub.php';
+		\update_option( 'spoke_probe_roster', [ 'tw0', 'tw9' ], false );
+		$this->assertSame( [ 'tw0', 'tw9' ], \get_option( 'spoke_probe_roster' ) );
+		\wp_test_write_elsewhere( 'spoke_probe_roster', [ 'tw0' ], false );
 
 		Config::invalidate_options_cache();
 
-		$deleted = \array_column( $GLOBALS['_wp_cache_delete_calls'], 0 );
-		$this->assertContains( 'alloptions', $deleted );
-		$this->assertContains( 'notoptions', $deleted );
-		$this->assertContains( 'newspack_nodes_topologies', $deleted, 'the per-key cache entry for a schema key must be purged too' );
+		$this->assertSame( [ 'tw0' ], \get_option( 'spoke_probe_roster' ) );
+		$this->assertSame( [ 'runtime' ], $GLOBALS['_wp_cache_flushes'], 'a reload must evict nothing shared' );
+	}
+
+	#[\PHPUnit\Framework\Attributes\RunInSeparateProcess]
+	public function test_invalidate_options_cache_rereads_an_option_absent_at_first_read(): void {
+		// WordPress caches the ABSENCE of a row it read, in `notoptions`.
+		require_once __DIR__ . '/../Helpers/wp-object-cache-stub.php';
+		$this->assertSame( 'none', \get_option( 'spoke_probe_ceiling', 'none' ) );
+		\wp_test_write_elsewhere( 'spoke_probe_ceiling', '9', false );
+
+		Config::invalidate_options_cache();
+
+		$this->assertSame( '9', \get_option( 'spoke_probe_ceiling', 'none' ) );
+	}
+
+	#[\PHPUnit\Framework\Attributes\RunInSeparateProcess]
+	public function test_invalidate_options_cache_without_an_external_cache_flushes_only_the_options_group(): void {
+		// No drop-in: core's cache is this process's alone, and pyrobase keeps
+		// in-process state in other groups a full flush would drop.
+		require_once __DIR__ . '/../Helpers/wp-object-cache-stub.php';
+		$GLOBALS['_wp_using_ext_object_cache'] = false;
+		\update_option( 'spoke_probe_floor', '3' );
+		$this->assertSame( '3', \get_option( 'spoke_probe_floor' ) );
+		\wp_test_write_elsewhere( 'spoke_probe_floor', '7' );
+
+		Config::invalidate_options_cache();
+
+		$this->assertSame( '7', \get_option( 'spoke_probe_floor' ) );
+		$this->assertSame( [ 'options' ], $GLOBALS['_wp_cache_flushes'] );
+	}
+
+	public function test_a_flush_is_recorded_for_the_test_that_made_it(): void {
+		Config::invalidate_options_cache();
+		Config::invalidate_options_cache();
+
+		$this->assertSame( [ 'runtime', 'runtime' ], $GLOBALS['_wp_cache_flushes'] );
+	}
+
+	/** The flushes the test above left behind must not reach this one. */
+	#[\PHPUnit\Framework\Attributes\Depends( 'test_a_flush_is_recorded_for_the_test_that_made_it' )]
+	public function test_setup_forgets_the_flushes_an_earlier_test_recorded(): void {
+		$this->assertSame( [], $GLOBALS['_wp_cache_flushes'] );
 	}
 
 	// ── Path/directory accessors ───────────────────────────────────────────

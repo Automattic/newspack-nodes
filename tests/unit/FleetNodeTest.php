@@ -571,6 +571,51 @@ class FleetNodeTest extends TestCase {
 		$this->assertSame( [], $seen );
 	}
 
+	// ── the deploy hold ───────────────────────────────────────────────────
+
+	/** Activation seeds the row at 0, so the worker caches a value, not an absence. */
+	#[\PHPUnit\Framework\Attributes\RunInSeparateProcess]
+	public function test_a_pass_with_a_worker_due_sees_a_hold_placed_after_the_worker_read_it(): void {
+		require_once __DIR__ . '/../Helpers/wp-object-cache-stub.php';
+		$this->with_topology( $this->ledger( 1 ) );
+		Bootstrap::activate();
+		$this->assertSame( 0, \Newspack_Nodes\Spawn_Coordinator::hold() );
+
+		// `wp nodes stop` places the hold from another process.
+		\wp_test_write_elsewhere( \Newspack_Nodes\Spawn_Coordinator::HOLD_OPTION, 1790004242, false );
+		Core::right_now();
+		$this->mount_fleet()->fire_cb();
+
+		$this->assertSame( [], $this->posted_bodies() );
+	}
+
+	#[\PHPUnit\Framework\Attributes\RunInSeparateProcess]
+	public function test_a_pass_with_a_worker_due_sees_a_hold_lifted_after_the_worker_read_it(): void {
+		require_once __DIR__ . '/../Helpers/wp-object-cache-stub.php';
+		$this->with_topology( $this->ledger( 1 ) );
+		\Newspack_Nodes\Spawn_Coordinator::set_hold( 1790004242 );
+		$this->assertSame( 1790004242, \Newspack_Nodes\Spawn_Coordinator::hold() );
+
+		// `wp nodes start` lifts the hold from another process.
+		\wp_test_write_elsewhere( \Newspack_Nodes\Spawn_Coordinator::HOLD_OPTION, 0, false );
+		Core::right_now();
+		$this->mount_fleet()->fire_cb();
+
+		$this->assertCount( 1, $this->posted_bodies() );
+	}
+
+	#[\PHPUnit\Framework\Attributes\RunInSeparateProcess]
+	public function test_a_pass_with_every_worker_alive_flushes_nothing(): void {
+		require_once __DIR__ . '/../Helpers/wp-object-cache-stub.php';
+		$this->with_topology( $this->ledger( 1 ) );
+		$this->make_lock( 'ledger-workers.p0' );
+
+		Core::right_now();
+		$this->mount_fleet()->fire_cb();
+
+		$this->assertSame( [], $GLOBALS['_wp_cache_flushes'], 'a healthy fleet pays nothing' );
+	}
+
 	// ── schema ─────────────────────────────────────────────────────────────
 
 	public function test_a_missing_base_dir_refuses_at_the_boundary(): void {

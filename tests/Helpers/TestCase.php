@@ -62,8 +62,10 @@ abstract class TestCase extends PHPUnitTestCase {
 		// Reset the stubbed WP-options store so option state set by a
 		// previous test (dirty flag, fleet descriptors, etc.) doesn't
 		// bleed into this one.
-		$GLOBALS['_wp_options'] = [];
-		$this->saved_wp_actions = $GLOBALS['_wp_actions'] ?? [];
+		$GLOBALS['_wp_options']         = [];
+		$GLOBALS['_wp_option_autoload'] = [];
+		$GLOBALS['_wp_cache_flushes']   = [];
+		$this->saved_wp_actions         = $GLOBALS['_wp_actions'] ?? [];
 
 		// Service_CI verbs are gated by default; start every test denied so a
 		// cap granted in one test can't leak into another's deny-path. Classes
@@ -264,13 +266,22 @@ abstract class TestCase extends PHPUnitTestCase {
 			}
 		}
 		unset( $entry );
-		\update_option( \Newspack_Nodes\Vault::OPTION_KEY, $servers );
+		// Non-autoloaded, as `Vault::write_option()` stores it.
+		\update_option( \Newspack_Nodes\Vault::OPTION_KEY, $servers, false );
 		\Newspack_Nodes\Vault::get_instance()->reset_cache();
 	}
 
 	/** One server, through `seed_vault_servers()`. */
 	protected function seed_vault( string $id, array $entry ): void {
 		$this->seed_vault_servers( [ $id => $entry ] );
+	}
+
+	/** An egress named independently of its vault id, as the live hub graph is. */
+	protected function egress( string $node_name, string $vault_id ): \Newspack_Nodes\HTTP_Out_Node {
+		$node = new \Newspack_Nodes\HTTP_Out_Node();
+		$node->name( $node_name );
+		$node->arguments( [ $vault_id ] );
+		return $node;
 	}
 
 	protected function drain_connect_queue(): void {

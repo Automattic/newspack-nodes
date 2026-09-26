@@ -1931,4 +1931,30 @@ class BootstrapTest extends TestCase {
 		$this->assertNotSame( '', \Newspack_Nodes\Cache_Backend::salt() );
 	}
 
+	/** A row that exists from activation onward can never sit in a stale `notoptions`. */
+	public function test_activation_seeds_the_deploy_hold_row_unautoloaded(): void {
+		\delete_option( \Newspack_Nodes\Spawn_Coordinator::HOLD_OPTION );
+
+		Bootstrap::activate();
+
+		$this->assertTrue( \array_key_exists( \Newspack_Nodes\Spawn_Coordinator::HOLD_OPTION, $GLOBALS['_wp_options'] ) );
+		$this->assertSame( 0, $GLOBALS['_wp_options'][ \Newspack_Nodes\Spawn_Coordinator::HOLD_OPTION ] );
+		$this->assertFalse( $GLOBALS['_wp_option_autoload'][ \Newspack_Nodes\Spawn_Coordinator::HOLD_OPTION ] );
+	}
+
+	/**
+	 * Activation reruns on every reactivation — a deploy's setup script
+	 * deactivates first — and from `self_heal_reconcile_cron()`; neither may lift
+	 * a standing hold. WordPress runs no activation hook on an in-place update;
+	 * there the first `wp nodes stop` or `start` creates the row, since
+	 * `set_hold()` and `clear_hold()` both write it.
+	 */
+	public function test_activation_leaves_a_standing_hold_in_place(): void {
+		\Newspack_Nodes\Spawn_Coordinator::set_hold( 1790004242 );
+
+		Bootstrap::activate();
+
+		$this->assertSame( 1790004242, \Newspack_Nodes\Spawn_Coordinator::hold() );
+	}
+
 }

@@ -901,6 +901,20 @@ class JobWorkerTest extends TestCase {
 		$this->assertCount( 2, $flush_observed );
 	}
 
+	public function test_the_interval_flush_drops_only_this_workers_runtime_copy(): void {
+		// A full flush rotates a memcached site's key prefix: every page cold.
+		$jw = new Job_Worker_Node();
+		$jw->arguments( [ '3' ] );
+		$this->register_job_handler( $jw, 'noop', fn () => null );
+
+		$jw->fill( $this->job_message( 'noop' ) );
+		$jw->fill( $this->job_message( 'noop' ) );
+		$this->assertSame( [], $GLOBALS['_wp_cache_flushes'], 'nothing flushes before the interval' );
+
+		$jw->fill( $this->job_message( 'noop' ) );
+		$this->assertSame( [ 'runtime' ], $GLOBALS['_wp_cache_flushes'], 'the shared cache is never evicted' );
+	}
+
 	// ── Tachikoma-parity arguments() ────────────────────────────────────
 
 	public function test_constructible_via_no_arg_ctor_and_arguments_setter(): void {

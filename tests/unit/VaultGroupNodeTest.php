@@ -459,6 +459,25 @@ final class VaultGroupNodeTest extends TestCase {
 		$this->assertInstanceOf( Echo_Node::class, Core::node( 'late:tw3' ) );
 	}
 
+	#[\PHPUnit\Framework\Attributes\RunInSeparateProcess]
+	public function test_a_fleet_reload_retracts_a_member_another_process_removed(): void {
+		// A worker's WordPress caches the option under its own key on first read.
+		require_once __DIR__ . '/../Helpers/wp-object-cache-stub.php';
+		[ $fleet, $lock_dir ] = $this->mount_fleet();
+		$ci    = new Command_Interpreter_Node();
+		$group = $ci->make_node( 'Vault_Group', 'edge', 'Echo', 'tw-edge' );
+		$this->assertSame( [ 'edge:tw0', 'edge:tw9' ], self::member_names( $group ) );
+
+		// The Vault tab's delete reaches the shared cache, not this worker's copy.
+		$servers = $GLOBALS['_wp_options'][ Vault::OPTION_KEY ];
+		unset( $servers['tw9'] );
+		\wp_test_write_elsewhere( Vault::OPTION_KEY, $servers, false );
+		$this->signal_reload( $fleet, $lock_dir );
+
+		$this->assertSame( [ 'edge:tw0' ], self::member_names( $group ) );
+		$this->assertNull( Core::node( 'edge:tw9' ) );
+	}
+
 	public function test_a_fleet_reload_retracts_a_later_remote_source_quietly(): void {
 		[ $fleet, $lock_dir ] = $this->mount_fleet();
 		$offsets = Config::get_offsets_directory();
