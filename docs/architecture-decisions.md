@@ -709,7 +709,7 @@ A minter resolves its egress by running the target's head segment through `Core:
 type-tests the result for `HTTP_Out_Node`, and calls
 [`HTTP_Out_Node::ensure_session()`](../includes/class-http-out-node.php), which exists for that and nothing else: it fires the node
 when `Command_Auth::has_session()` says there is none. [`Fanout_Targets::send_signed()`](../includes/trait-fanout-targets.php)
-is that loop, written once: `Settings_Sync_Node` and ELN's [`Discovery_Collector_Node`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.96.0/includes/class-discovery-collector-node.php) both mint through it,
+is that loop, written once: `Settings_Sync_Node` and ELN's [`Discovery_Collector_Node`](https://github.com/Automattic/newspack-event-logger-nodes/blob/4437e383/includes/class-discovery-collector-node.php) both mint through it,
 so a third minter calls it rather than copying the shape. On the JS side [`Node.command( name, args )`](../src/runtime/node.js)
 builds the TM_COMMAND, stamps FROM from the node's name and TO from its target, and hands back
 the message signed and LOCAL-marked — or null when `readyToMint()` finds no session, having

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.67.0] - 2026-09-26
+
 ### Added
 
 - **`Fanout_Targets::send_signed()` mints one signed command per live spoke.** It carries the loop every per-spoke minter shares: each target's egress is resolved by its head, a spoke without a session is skipped and asked to handshake, and the rest get a TM_COMMAND from this node, addressed `<target>/<to>` and signed under that spoke's own key. `Settings_Sync_Node` pushes through it, replacing its private `send_set()`. The skip line now reads `no session for <target>; skipping` for every minter, where Settings_Sync's said `; skipping this push`.
