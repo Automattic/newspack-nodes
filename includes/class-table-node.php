@@ -454,6 +454,34 @@ class Table_Node extends Node {
 	}
 
 	/**
+	 * Cross-process presence check that refreshes the entry, never fetching
+	 * its value.
+	 *
+	 * The TTL is the call's, not the table's as in `store()`: a caller
+	 * refreshing an entry dates it to its own window, as `read_through()`
+	 * warms each entry for the lifetime it carries. It answers as
+	 * `Cache_Backend::touch()` does, so a timeout never reads as eviction.
+	 *
+	 * On a table with an absence seam a remembered absence answers true too,
+	 * and its hold moves to the new TTL; ask only of keys that seam never
+	 * holds. On APCu the backend fetches and re-stores, so it reads the value
+	 * after all and reverts a write landing between the two: safe only where
+	 * one process owns the entry's writes, as the flame builder owns its
+	 * partition's lists.
+	 *
+	 * @api Callers asking whether an entry still stands without reading it.
+	 * @param string $key Key within the table's namespace.
+	 * @param int    $ttl New expiry in seconds; 0 = no expiry.
+	 * @return bool|null True when the entry existed and its expiry moved,
+	 *                   false when it is confirmed absent, null when no
+	 *                   backend is selected or the backend did not answer.
+	 */
+	public function touch( string $key, int $ttl ): ?bool {
+		$entry_key = self::entry_key( $this->namespace, $key );
+		return Cache_Backend::shared_first()?->touch( $entry_key, $ttl );
+	}
+
+	/**
 	 * Cache key for one entry. Site-scoped through Cache_Backend: a table is a
 	 * cross-container source of truth for THIS install, and a co-tenant
 	 * install's table of the same name is a different table.

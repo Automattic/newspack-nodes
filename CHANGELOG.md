@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`Table_Node::touch( $key, $ttl )` asks whether an entry still stands without fetching it.** It moves the entry's expiry through `Cache_Backend::touch()` under the table's own key, so a caller checking presence need not rebuild `entry_key()` and reach the backend by hand. The TTL is the call's rather than the table's, because a caller refreshing an entry dates it to its own window. It answers true, false for a confirmed miss, or null when no backend is selected or the backend did not answer. The test double `InMemoryMemcached` counts each `touch()` in a new `$touches` and no longer counts it in `$get_calls`, since a touch is not a read; nor does a touch spend a `get()` failure armed for a later read, and `fail_touch()` arms a touch failure of its own.
+
+### Changed
+
+- **`Cache_Backend::touch()` tells a miss from a backend that did not answer.** It returns `?bool`, as `read()` already separates hit, miss and error: false only for memcached `RES_NOTFOUND` or an APCu fetch that missed, null for any other memcached result or an APCu store refused after its fetch hit. `SSE_Slot_Pool::touch()` still fails closed on both.
+
 ## [2.67.0] - 2026-09-26
 
 ### Added

@@ -639,6 +639,11 @@ final class Cache_Backend {
 	/**
 	 * Extend a key's expiry without rewriting its value.
 	 *
+	 * Three answers, as `read()` gives three: a confirmed miss is false, and
+	 * a backend that did not answer — any memcached result but NOTFOUND, or
+	 * an APCu store refused after its fetch hit — is null, so a caller never
+	 * mistakes a timeout for an evicted key.
+	 *
 	 * APCu has no native touch, so that arm fetches and re-stores under the
 	 * new ttl. Those are two operations, and a write landing between them is
 	 * overwritten with the older value — use it where the value is a lease the
@@ -646,13 +651,21 @@ final class Cache_Backend {
 	 *
 	 * @param string $key The cache key.
 	 * @param int    $ttl New expiry in seconds; 0 = no expiry.
-	 * @return bool True when the key existed and its expiry moved.
+	 * @return bool|null True when the key existed and its expiry moved, false
+	 *                   when it is confirmed absent, null when the backend
+	 *                   did not answer.
 	 */
-	public function touch( string $key, int $ttl ): bool {
+	public function touch( string $key, int $ttl ): ?bool {
 		if ( null !== $this->memd ) {
-			return $this->memd->touch( $key, $ttl );
+			if ( $this->memd->touch( $key, $ttl ) ) {
+				return true;
+			}
+			return \Memcached::RES_NOTFOUND === $this->memd->getResultCode() ? false : null;
 		}
 		$value = \apcu_fetch( $key, $hit );
-		return $hit && \apcu_store( $key, $value, $ttl );
+		if ( ! $hit ) {
+			return false;
+		}
+		return \apcu_store( $key, $value, $ttl ) ? true : null;
 	}
 }
