@@ -31,6 +31,9 @@ class InMemoryMemcached extends \Memcached {
 	/** @var array<string,int> */
 	private array $next_get_failures = [];
 
+	/** @var array<string,int> */
+	private array $touch_failures = [];
+
 	/**
 	 * One-shot seam after touch reads the old value but before it stores the
 	 * refreshed value. This models APCu's non-atomic fetch/store touch.
@@ -42,11 +45,13 @@ class InMemoryMemcached extends \Memcached {
 	/**
 	 * Round trips by shape, so a test can assert a tier answered without one.
 	 * getMulti() counts as ONE batch trip and no single-key trips, however many
-	 * keys it reads.
+	 * keys it reads; a touch() counts in `$touches` alone, never as a read.
 	 */
 	public int $get_calls = 0;
 
 	public int $multi_calls = 0;
+
+	public int $touches = 0;
 
 	/** Keys ASKED for across every getMulti — the fan-out width, not the trips. */
 	public int $multi_keys = 0;
@@ -78,6 +83,11 @@ class InMemoryMemcached extends \Memcached {
 		$this->add_failure = $result_code;
 	}
 
+	/** Force touch() to return false with a non-NOTFOUND backend result. */
+	public function fail_touch( string $key, int $result_code = \Memcached::RES_FAILURE ): void {
+		$this->touch_failures[ $key ] = $result_code;
+	}
+
 	/** Force only the next get() to return a backend error. */
 	public function fail_next_get( string $key, int $result_code = \Memcached::RES_FAILURE ): void {
 		$this->next_get_failures[ $key ] = $result_code;
@@ -85,15 +95,28 @@ class InMemoryMemcached extends \Memcached {
 
 	public function get( string $key, ?callable $cache_cb = null, int $get_flags = 0 ): mixed {
 		++$this->get_calls;
+		if ( $this->armed_get_failure( $key ) ) {
+			return false;
+		}
+		return $this->stored( $key, $get_flags );
+	}
+
+	/** Spend a get failure armed for the key, reporting whether one was. */
+	private function armed_get_failure( string $key ): bool {
 		if ( \array_key_exists( $key, $this->next_get_failures ) ) {
 			$this->result_code = $this->next_get_failures[ $key ];
 			unset( $this->next_get_failures[ $key ] );
-			return false;
+			return true;
 		}
 		if ( \array_key_exists( $key, $this->get_failures ) ) {
 			$this->result_code = $this->get_failures[ $key ];
-			return false;
+			return true;
 		}
+		return false;
+	}
+
+	/** The store's answer for a key, counting nothing and spending no armed failure. */
+	private function stored( string $key, int $get_flags = 0 ): mixed {
 		$entry = $this->store[ $key ] ?? null;
 		if ( null === $entry ) {
 			$this->result_code = \Memcached::RES_NOTFOUND;
@@ -194,8 +217,13 @@ class InMemoryMemcached extends \Memcached {
 	}
 
 	public function touch( string $key, int $expiration = 0 ): bool {
-		$value = $this->get( $key );
-		if ( false === $value ) {
+		++$this->touches;
+		if ( \array_key_exists( $key, $this->touch_failures ) ) {
+			$this->result_code = $this->touch_failures[ $key ];
+			return false;
+		}
+		$value = $this->stored( $key );
+		if ( \Memcached::RES_SUCCESS !== $this->result_code ) {
 			return false;
 		}
 		$after_touch_read       = $this->after_touch_read;
@@ -216,15 +244,16 @@ class InMemoryMemcached extends \Memcached {
 	public function getMulti( array $keys, int $get_flags = 0 ): array|false {
 		++$this->multi_calls;
 		$this->multi_keys += \count( $keys );
-		$singles = $this->get_calls;
-		$out     = [];
+		$out = [];
 		foreach ( $keys as $key ) {
-			$val = $this->get( $key );
+			if ( $this->armed_get_failure( $key ) ) {
+				continue;
+			}
+			$val = $this->stored( $key );
 			if ( \Memcached::RES_SUCCESS === $this->result_code ) {
 				$out[ $key ] = $val;
 			}
 		}
-		$this->get_calls = $singles;
 		return $out;
 	}
 

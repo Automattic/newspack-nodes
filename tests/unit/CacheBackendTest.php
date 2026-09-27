@@ -95,6 +95,35 @@ class CacheBackendTest extends TestCase {
 		);
 	}
 
+	public function test_memcached_touch_distinguishes_moved_confirmed_miss_and_backend_error(): void {
+		$memd                       = new InMemoryMemcached();
+		Core::$memd                 = $memd;
+		Cache_Backend::$apcu_usable = static fn (): bool => false;
+		$backend                    = Cache_Backend::shared_first();
+		$memd->set( 'touch-hit', 'held', 83 );
+		$memd->set( 'touch-error', 'held', 83 );
+		$memd->fail_touch( 'touch-error', \Memcached::RES_TIMEOUT );
+
+		$this->assertTrue( $backend->touch( 'touch-hit', 4471 ) );
+		$this->assertFalse( $backend->touch( 'touch-miss', 4471 ), 'a confirmed miss' );
+		$this->assertNull( $backend->touch( 'touch-error', 4471 ), 'a backend that did not answer is no miss' );
+		$this->assertEqualsWithDelta( \time() + 83, $memd->expiries()['touch-error'], 2, 'and moved nothing' );
+	}
+
+	public function test_a_touch_leaves_a_read_failure_armed_for_the_next_read(): void {
+		$memd                       = new InMemoryMemcached();
+		Core::$memd                 = $memd;
+		Cache_Backend::$apcu_usable = static fn (): bool => false;
+		$backend                    = Cache_Backend::shared_first();
+		$memd->set( 'lease-pointer', 42424243, 83 );
+		$memd->fail_next_get( 'lease-pointer', \Memcached::RES_TIMEOUT );
+
+		$this->assertTrue( $backend->touch( 'lease-pointer', 4471 ), 'a touch is not the armed read' );
+		$this->assertSame( Cache_Backend::READ_ERROR, $backend->read( 'lease-pointer' )['status'] );
+		$this->assertSame( 1, $memd->get_calls, 'and only the read counts as one' );
+		$this->assertSame( 1, $memd->touches );
+	}
+
 	public function test_memcached_diagnostics_report_the_last_backend_read_error(): void {
 		$memd = new class() extends InMemoryMemcached {
 			public function getResultMessage(): string {
@@ -397,6 +426,7 @@ class CacheBackendTest extends TestCase {
 		$this->assertTrue( $b->touch( 'v', 120 ) );
 		$this->assertTrue( $b->delete( 'v' ) );
 		$this->assertFalse( $b->get( 'v' ) );
+		$this->assertFalse( $b->touch( 'v', 120 ), 'a fetch that missed is a confirmed miss' );
 
 		$b->set( 'owner', 42424243, 0 );
 		$this->assertTrue( $this->compare_and_swap_without_ttl( $b, 'owner', 42424243, 51515153 ) );

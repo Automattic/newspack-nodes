@@ -698,6 +698,19 @@ class SseSlotPoolTest extends TestCase {
 		$this->assertTrue( SSE_Slot_Pool::release( 'lease-host', 0, 42424243 ) );
 	}
 
+	public function test_touch_fails_closed_when_the_lease_refresh_errors(): void {
+		/** @var InMemoryMemcached $memd */
+		$memd  = Core::$memd;
+		$lease = SSE_Slot_Pool::acquire( 'lease-host', '17:abc12345', 4, 4, 83 );
+		$this->assertIsArray( $lease );
+		$lease_key = "newspack_nodes:v3:lease-host:sse:0:lease:{$lease['owner']}";
+		$expiry    = $memd->expiries()[ $lease_key ];
+		$memd->fail_touch( $lease_key, \Memcached::RES_TIMEOUT );
+
+		$this->assertFalse( SSE_Slot_Pool::touch( 'lease-host', $lease['slot'], $lease['owner'], 47 ) );
+		$this->assertSame( $expiry, $memd->expiries()[ $lease_key ], 'an unanswered refresh extends nothing' );
+	}
+
 	public function test_touch_fails_closed_when_memd_null(): void {
 		Core::$memd = null;
 		$this->assertFalse( SSE_Slot_Pool::touch( 'lease-host', 0, 42424243, 47 ) );

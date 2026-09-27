@@ -320,6 +320,47 @@ class TableNodeTest extends TestCase {
 		$this->assertNull( $table->lookup( 'sku-9' ) );
 	}
 
+	public function test_touch_moves_an_entry_s_expiry_to_the_call_s_ttl(): void {
+		// A caller refreshing an entry dates it to its own window, so the
+		// touch takes the call's lifetime where store() takes the table's.
+		$table = Table_Node::table( 'prices', 300 );
+		$table->store( 'sku-9', 'held' );
+		$this->memd->get_calls = 0;
+
+		$this->assertTrue( $table->touch( 'sku-9', 4471 ) );
+
+		$this->assertEqualsWithDelta(
+			\time() + 4471,
+			$this->memd->expiries()[ Table_Node::entry_key( 'prices', 'sku-9' ) ],
+			2
+		);
+		$this->assertSame( 'held', $table->lookup( 'sku-9' ), 'the value is left as it was' );
+		$this->assertSame( 1, $this->memd->touches, 'one touch' );
+		$this->assertSame( 1, $this->memd->get_calls, 'and the lookup its only read' );
+	}
+
+	public function test_touch_reports_an_absent_entry(): void {
+		$table = Table_Node::table( 'prices', 300 );
+
+		$this->assertFalse( $table->touch( 'sku-404', 4471 ) );
+		$this->assertArrayNotHasKey( Table_Node::entry_key( 'prices', 'sku-404' ), $this->memd->expiries() );
+	}
+
+	public function test_touch_reports_a_backend_error_as_unknown_not_absent(): void {
+		$table = Table_Node::table( 'prices', 300 );
+		$table->store( 'sku-9', 'held' );
+		$this->memd->fail_touch( Table_Node::entry_key( 'prices', 'sku-9' ), \Memcached::RES_CONNECTION_FAILURE );
+
+		$this->assertNull( $table->touch( 'sku-9', 4471 ) );
+	}
+
+	public function test_touch_reports_unknown_with_no_backend(): void {
+		$table      = Table_Node::table( 'prices', 300 );
+		Core::$memd = null;
+
+		$this->assertNull( $table->touch( 'sku-9', 4471 ) );
+	}
+
 	public function test_store_and_forget_survive_a_backend_that_went_away(): void {
 		// Every other cache path here fails soft; a ruleset save must not fatal
 		// because memcached died after the table was built. A table built with

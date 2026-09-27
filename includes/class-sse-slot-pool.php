@@ -624,7 +624,7 @@ class SSE_Slot_Pool {
 		if ( ! self::pointer_matches( $backend, $pointer_key, $owner ) ) {
 			return false;
 		}
-		if ( ! $backend->touch( $lease_key, $ttl ) ) {
+		if ( true !== $backend->touch( $lease_key, $ttl ) ) {
 			return false;
 		}
 
