@@ -447,14 +447,14 @@ class ConsumerTimeTravelTest extends TestCase {
 		$this->produce_line( $source, 'after-414' );
 
 		$c = new Consumer_Node();
-		$c->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0" ] );
+		$c->arguments( [ "{$this->tmp}/data/p0", "{$this->tmp}/offsets/r/p0", "{$this->tmp}/deadletter/r/p0" ] );
 		$c->name( 'firehose:consumer' );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
 		$c->step();
 		$c->step();
-		$this->assertSame( [ 'before-313' ], \array_column( $cap->captured, Message::VALUE ), 'the unparseable record is the second step' );
+		$this->assertSame( [ 'before-313' ], \array_column( $cap->captured, Message::VALUE ), 'the quarantined unparseable record is the second step' );
 		$c->step();
 		$this->assertSame( [ 'before-313', 'after-414' ], \array_column( $cap->captured, Message::VALUE ) );
 	}

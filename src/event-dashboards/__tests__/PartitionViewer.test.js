@@ -11,6 +11,7 @@ import { Core } from '../../runtime/core';
 import { TM_STRUCT, TM_RESPONSE } from '../../runtime/message';
 import { mountExospine } from '../../runtime/exospine';
 import PartitionViewer from '../PartitionViewer';
+import { publishSkippedLines } from '@newspack-nodes/shared/test-utils/skippedLines';
 
 // Capture the props PartitionViewer hands the shared list + sidebar each render.
 let logRowListProps;
@@ -177,6 +178,15 @@ describe( 'PartitionViewer', () => {
 		mockRail = result?.segments ?? [];
 		mounted.forEach( ( r ) => r.rerender( <PartitionViewer /> ) );
 	}
+
+	it( 'shows the lines its stream skipped as unparseable', async () => {
+		publishSkippedLines( 'partition:link', 1 );
+		registerViewFixture( { logs: [], selected: '' } );
+		const { container } = await renderViewer();
+		expect( container.textContent ).toContain(
+			'1 line would not parse and was skipped.'
+		);
+	} );
 
 	it( 'renders a select populated from the view model', async () => {
 		registerViewFixture( {

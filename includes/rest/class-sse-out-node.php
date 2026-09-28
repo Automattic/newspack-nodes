@@ -96,13 +96,12 @@ class SSE_Out_Node extends Node {
 	 * @var array<string,int>
 	 */
 	private const SAFE_EVENTS = [
-		'hello'      => 1,
-		'msg'        => 1,
-		'heartbeat'  => 1,
-		'connected'  => 1,
-		'disconnect' => 1,
-		'retry'      => 1,
-		'timeout'    => 1,
+		'msg'               => 1,
+		'heartbeat'         => 1,
+		'connected'         => 1,
+		'disconnect'        => 1,
+		'retry'             => 1,
+		'unparseable_lines' => 1,
 	];
 
 	/**
@@ -437,7 +436,7 @@ class SSE_Out_Node extends Node {
 			// Lead with the reopen schedule; every idle close relies on it.
 			$retry_ms = Core::num_int( Config::value( 'sse_retry_ms' ), 0 );
 			if ( $retry_ms > 0 ) {
-				$this->send_sse_event( 'retry', $this->build_retry_msg( $retry_ms ) );
+				$this->send_sse_event( 'retry', $this->build_info_msg( 'retry', (string) $retry_ms ) );
 			}
 
 			// Build INSIDE try so finally cleans up (else _router collides).
@@ -495,16 +494,6 @@ class SSE_Out_Node extends Node {
 			// poll will not read from.
 			$idle_since = $this->opened_at_eof_since( $consumers );
 
-			// Own cursors: never advertise the last stream's subscriptions.
-			$pairs = [];
-			foreach ( $consumers as $name => $c ) {
-				$dir = self::dir_from_stamp( $name );
-				// Either would desync the envelope's KEY VALUE pairing.
-				if ( '' === $dir || \strpbrk( $dir, ' ,' ) ) {
-					continue;
-				}
-				$pairs[] = $dir . '=' . $c->cursor_position();
-			}
 			// @longform The envelope carries the STARTING resume point, so a
 			// stream that closes without delivering a message still leaves the
 			// client somewhere to resume — an idle close makes zero-message
@@ -518,7 +507,7 @@ class SSE_Out_Node extends Node {
 					$active_lease,
 					$subs,
 					$interval,
-					\implode( ',', $pairs )
+					self::cursor_pairs( $consumers )
 				)
 			);
 			// Padding clears proxy buffers; a bare flush does not.
@@ -532,16 +521,18 @@ class SSE_Out_Node extends Node {
 			$max_lifetime       = Core::num_int( Config::value( 'sse_max_lifetime' ), 0 );
 			Event_Framework::instance()->drain(
 				function () use ( &$last_heartbeat, &$consumers, &$glob_owned, &$diagnostic_written, $glob_subs, $default_route, $heartbeat_interval, $idle_timeout, $max_lifetime, $opened_at, $active_lease, $partition, $subs ): bool {
+					// Before any close, so no skip goes unreported.
+					$this->report_unparseable_lines( $consumers );
 					$check = self::$check_slot;
 					if ( null !== $check && ! $check( $active_lease, $partition ) ) {
 						$inspection = $this->inspect_lost_lease( $active_lease, $partition );
 						// Its own reconnect took the lease: no error.
 						if ( 'superseded' === $inspection['lease_state'] ) {
-							$this->send_sse_event( 'disconnect', $this->build_disconnect_msg( 'superseded', 'SSE stream superseded by its reconnect' ) );
+							$this->send_sse_event( 'disconnect', $this->build_info_msg( 'superseded', 'SSE stream superseded by its reconnect' ) );
 							$this->flush_if_needed();
 							return false;
 						}
-						$this->send_sse_event( 'disconnect', $this->build_disconnect_msg( 'slot_lease_lost', 'SSE slot lease lost' ) );
+						$this->send_sse_event( 'disconnect', $this->build_info_msg( 'slot_lease_lost', 'SSE slot lease lost' ) );
 						$this->flush_if_needed();
 						$this->write_diagnostic(
 							$this->lease_loss_context( $active_lease, $partition, $subs, $inspection )
@@ -559,13 +550,13 @@ class SSE_Out_Node extends Node {
 					if ( $max_lifetime > 0 && ( $now - $opened_at ) >= $max_lifetime ) {
 						// A stream that delivered nothing keeps the gap.
 						if ( 0 < $this->counter ) {
-							$this->send_sse_event( 'retry', $this->build_retry_msg( 0 ) );
+							$this->send_sse_event( 'retry', $this->build_info_msg( 'retry', '0' ) );
 						}
 						$this->flush_if_needed();
 						return false;
 					}
 					if ( ( $now - $last_heartbeat ) >= $heartbeat_interval ) {
-						$this->send_sse_event( 'heartbeat', $this->build_heartbeat_msg( $now ) );
+						$this->send_sse_event( 'heartbeat', $this->build_info_msg( 'heartbeat', (string) $now ) );
 						// Self-heal glob subs against the live filesystem.
 						if ( ! empty( $glob_subs ) ) {
 							$this->reconcile_glob_consumers( $glob_subs, $consumers, $glob_owned, $default_route );
@@ -619,6 +610,49 @@ class SSE_Out_Node extends Node {
 			Core::unregister_node( Node_Names::SSE );
 			$this->release_held_slot( $partition );
 		}
+	}
+
+	/**
+	 * Tell the client how many lines this tick's readers skipped as unparseable,
+	 * and where each reader now stands.
+	 *
+	 * Every Consumer here is a `Consumer_Node::scan()`, cursorless over a log
+	 * other processes append to, so it skips a torn line rather than end the
+	 * stream on it; a raw Tail unpacks nothing and skips none. The frame is
+	 * what keeps that skip visible: `COUNT` for the client to show, and
+	 * `CURSORS` in the `connected` envelope's own shape, so a reopen resumes
+	 * past the skipped lines instead of reading and counting them again. A
+	 * tick that skipped nothing sends nothing.
+	 *
+	 * @param array<string,Consumer_Node> $consumers Attached readers, keyed by stamp.
+	 */
+	private function report_unparseable_lines( array $consumers ): void {
+		$skipped = Consumer_Node::take_unparseable_lines_of( $consumers );
+		if ( 0 === $skipped ) {
+			return;
+		}
+		$cursors = self::cursor_pairs( $consumers );
+		$this->send_sse_event( 'unparseable_lines', $this->build_info_msg( 'unparseable_lines', "COUNT {$skipped}" . ( '' === $cursors ? '' : " CURSORS {$cursors}" ) ) );
+	}
+
+	/**
+	 * Every reader's resume point as the `CURSORS` token: comma-separated
+	 * `dir=segment:offset` pairs. A dir holding a space or a comma is left out,
+	 * because either would desync the flat `KEY VALUE` pairing it rides in.
+	 *
+	 * @param array<string,Consumer_Node> $consumers Attached readers, keyed by stamp.
+	 * @return string The pairs, or '' when none can be stated.
+	 */
+	private static function cursor_pairs( array $consumers ): string {
+		$pairs = [];
+		foreach ( $consumers as $name => $c ) {
+			$dir = self::dir_from_stamp( $name );
+			if ( '' === $dir || \strpbrk( $dir, ' ,' ) ) {
+				continue;
+			}
+			$pairs[] = $dir . '=' . $c->cursor_position();
+		}
+		return \implode( ',', $pairs );
 	}
 
 	/**
@@ -754,8 +788,7 @@ class SSE_Out_Node extends Node {
 			$ipc_output = "{$base}/ipc/{$sub}/output";
 			if ( \is_dir( $ipc_output ) ) {
 				$this->is_interactive = true;
-				$consumer             = new Consumer_Node();
-				$consumer->arguments( [ $ipc_output ] );
+				$consumer             = Consumer_Node::scan( $ipc_output );
 				$consumer->next_offset( self::position_arg( $positions, $sub ) );
 				$consumer->set_stamp_as( $sub );
 				return [ $consumer ];
@@ -883,8 +916,7 @@ class SSE_Out_Node extends Node {
 	 * @return Consumer_Node A reader seeded from its saved position, else tail-seeking.
 	 */
 	private function log_consumer_for( string $dir, string $name, ?array $positions ): Consumer_Node {
-		$consumer = new Consumer_Node();
-		$consumer->arguments( [ $dir ] );
+		$consumer = Consumer_Node::scan( $dir );
 		$consumer->set_multi_writer( $this->multi_writer );
 		$consumer->next_offset( self::position_arg( $positions, $name ) );
 		$consumer->set_stamp_as( $name );
@@ -1005,24 +1037,6 @@ class SSE_Out_Node extends Node {
 		if ( '' !== $cursors ) {
 			$message[ Message::VALUE ] .= ' CURSORS ' . $cursors;
 		}
-		return $message;
-	}
-
-	/**
-	 * The reopen schedule, as an EVENT rather than the protocol `retry:` field:
-	 * the client owns reconnect, so it needs the interval as data it can read.
-	 * The last one a connection carries sets the delay after its close, and 0
-	 * means at once.
-	 *
-	 * @param int $retry_ms Milliseconds the client waits before it reopens.
-	 * @return array<int,mixed> `retry` Message envelope.
-	 */
-	private function build_retry_msg( int $retry_ms ): array {
-		$message                   = Message::new_message();
-		$message[ Message::TYPE ]  = Message::TM_INFO;
-		$message[ Message::FROM ]  = '_stream';
-		$message[ Message::KEY ]   = 'retry';
-		$message[ Message::VALUE ] = (string) $retry_ms;
 		return $message;
 	}
 
@@ -1182,33 +1196,27 @@ class SSE_Out_Node extends Node {
 	}
 
 	/**
-	 * Build the `heartbeat` envelope that proves an idle stream is still live.
-	 * It carries the tick's timestamp and nothing else, and it does not count
-	 * as data, so it never defers the idle close.
+	 * A `_stream` TM_INFO frame: a machine KEY the client branches on, and a
+	 * flat string VALUE. Four frames take this shape.
 	 *
-	 * @param float $now The current timestamp, as the drain read it.
+	 * - `retry` — the reopen schedule in milliseconds, as an EVENT rather than
+	 *   the protocol `retry:` field, because the client owns reconnect and
+	 *   needs the interval as data. The last one a connection carries sets the
+	 *   delay after its close, and 0 means at once.
+	 * - `heartbeat` — the tick's timestamp, proving an idle stream is live. It
+	 *   does not count as data, so it never defers the idle close.
+	 * - `unparseable_lines` — `COUNT <n>`, plus `CURSORS <pairs>` in the
+	 *   `connected` envelope's shape when any reader can state one.
+	 * - the terminal frame of a stream whose lease is gone: `slot_lease_lost`
+	 *   means failure, `superseded` that this stream's own reconnect took the
+	 *   lease over, and the VALUE is display text. A clean idle close sends no
+	 *   frame at all.
+	 *
+	 * @param string $key   The frame's machine key.
+	 * @param string $value Its flat VALUE.
 	 * @return array<int,mixed> The 7-field positional Message.
 	 */
-	private function build_heartbeat_msg( float $now ): array {
-		$message                   = Message::new_message();
-		$message[ Message::TYPE ]  = Message::TM_INFO;
-		$message[ Message::FROM ]  = '_stream';
-		$message[ Message::KEY ]   = 'heartbeat';
-		$message[ Message::VALUE ] = (string) $now;
-		return $message;
-	}
-
-	/**
-	 * The terminal frame for a stream whose lease is gone: a machine KEY the
-	 * client branches on, and a VALUE it can display. `slot_lease_lost` means
-	 * failure; `superseded` means this stream's own reconnect took the lease
-	 * over. A clean idle close sends no frame at all.
-	 *
-	 * @param string $key   Machine reason: `slot_lease_lost` or `superseded`.
-	 * @param string $value Display text.
-	 * @return array<int,mixed> The 7-field positional Message.
-	 */
-	private function build_disconnect_msg( string $key, string $value ): array {
+	private function build_info_msg( string $key, string $value ): array {
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_INFO;
 		$message[ Message::FROM ]  = '_stream';

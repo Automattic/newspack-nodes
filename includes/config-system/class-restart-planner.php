@@ -25,6 +25,7 @@ use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Lock_Node;
+use Newspack_Nodes\Spawn_Coordinator;
 use Newspack_Nodes\Topology_Analyzer;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Worker_Should_Stop;
@@ -38,28 +39,20 @@ class Restart_Planner {
 	 * recycle the workers the classification names, then tell every live worker
 	 * to re-read the config cache it froze at boot.
 	 *
-	 * Best-effort by contract. Resolving the locks directory and reading the
-	 * active set both go through config loading, which throws on an unusable
-	 * base directory or an unreadable topology file; a save must not fatal on
-	 * that, and the next worker generation boots on the new config whatever
-	 * happens here.
+	 * Every caller runs this after the option row is written, so a failure
+	 * here — an unusable base directory, an unreadable topology file, a flag
+	 * that would not land — propagates to the writer: the save stands, and the
+	 * error says the live fleet never heard of it.
 	 *
 	 * @param array<int,string>|string $restart Restart classification (see topologies_for()).
-	 * @return array<int,string> Topology names a restart was requested of; empty off the fleet site and on failure.
-	 * @throws Worker_Should_Stop When a cooperative stop reaches the planner from inside a worker (ADR-14).
+	 * @return array<int,string> Topology names a restart was requested of; empty off the fleet site.
+	 * @throws \Throwable When the locks directory, the active set or a flag write fails.
 	 */
 	public static function plan( array|string $restart ): array {
-		try {
-			$locks_dir = Config::get_locks_directory();
-			$restarted = self::request_restarts( $restart, $locks_dir );
-			self::request_reloads( $locks_dir );
-			return $restarted;
-		} catch ( Worker_Should_Stop $e ) {
-			throw $e; // ADR-14: a cooperative stop is not a planning failure.
-		} catch ( \Throwable $e ) {
-			Core::print_less_often( 'settings: restart planning failed: ', $e->getMessage() );
-			return [];
-		}
+		$locks_dir = Config::get_locks_directory();
+		$restarted = self::request_restarts( $restart, $locks_dir );
+		self::request_reloads( $locks_dir );
+		return $restarted;
 	}
 
 	/**
@@ -71,17 +64,17 @@ class Restart_Planner {
 	 * alive holds a Config cache frozen at boot and so must re-read whatever
 	 * changed. Without this, a field classified `[]` waits out a whole ~595s
 	 * worker lifetime instead of landing on the next 15s `_fleet` scan. A reload
-	 * costs no process recycle, so the broad fan-out is cheap.
+	 * costs no process recycle, so the broad fan-out is cheap. A Vault write
+	 * narrows it to the topologies running a credential consumer, through the
+	 * same classification a restart takes.
 	 *
-	 * @param string $locks_dir Locks directory holding the per-partition lock dirs.
+	 * @param string                   $locks_dir Locks directory holding the per-partition lock dirs.
+	 * @param array<int,string>|string $consumers Classification of who re-reads (see topologies_for()).
 	 * @return array<int,string> Topology names addressed; empty off the fleet site.
+	 * @throws \Throwable Every unreadable topology and failed flag write, after every dir was offered its flag.
 	 */
-	public static function request_reloads( string $locks_dir ): array {
-		return self::fan_out(
-			self::topologies_for( 'all' ),
-			$locks_dir,
-			Lock_Node::request_reload_at( ... )
-		);
+	public static function request_reloads( string $locks_dir, array|string $consumers = 'all' ): array {
+		return self::fan_out( $consumers, $locks_dir, Lock_Node::request_reload_at( ... ) );
 	}
 
 	/**
@@ -91,13 +84,46 @@ class Restart_Planner {
 	 * @param array<int,string>|string $restart   Restart classification (see topologies_for()).
 	 * @param string                   $locks_dir Locks directory holding the per-partition lock dirs.
 	 * @return array<int,string> Topology names addressed; empty off the fleet site.
+	 * @throws \Throwable Every unreadable topology and failed flag write, after every dir was offered its flag.
 	 */
 	public static function request_restarts( array|string $restart, string $locks_dir ): array {
-		return self::fan_out(
-			self::topologies_for( $restart ),
-			$locks_dir,
-			Lock_Node::request_restart_at( ... )
-		);
+		return self::fan_out( $restart, $locks_dir, Lock_Node::request_restart_at( ... ) );
+	}
+
+	/**
+	 * Signal every partition lock dir of the topologies $restart classifies;
+	 * return the names addressed. A lock dir that does not exist holds no
+	 * worker and takes no flag, so the return names what was ADDRESSED, never
+	 * what a running worker received. Every readable topology's every dir is
+	 * offered its flag before anything escapes, so neither an unreadable
+	 * topology nor a dir that refuses the write costs the others their signal.
+	 *
+	 * Off the fleet site nothing is touched — the fleet is network-global, so a
+	 * subsite must never reach the main site's lock dirs.
+	 *
+	 * @param array<int,string>|string $restart   Classification (see topologies_for()).
+	 * @param string                   $locks_dir Locks directory.
+	 * @param callable(string):bool    $signal    Per-lock-dir signal.
+	 * @return array<int,string>
+	 * @throws \Throwable Every unreadable topology and failed signal, combined.
+	 */
+	private static function fan_out( array|string $restart, string $locks_dir, callable $signal ): array {
+		if ( ! Bootstrap::fleet_site() ) {
+			return [];
+		}
+		[ $topologies, $unreadable ] = self::classify( $restart );
+		$workers                     = [];
+		foreach ( $topologies as $name => $entry ) {
+			$count = Bootstrap::partitions_of( Core::arr( $entry ) );
+			for ( $p = 0; $p < $count; $p++ ) {
+				$workers[] = [ $name, $p ];
+			}
+		}
+		Worker_Should_Stop::raise( [
+			...$unreadable,
+			...Worker_Should_Stop::attempt( static fn () => Spawn_Coordinator::signal_workers( $locks_dir, $workers, $signal ) ),
+		] );
+		return \array_map( 'strval', \array_keys( $topologies ) );
 	}
 
 	/**
@@ -113,27 +139,44 @@ class Restart_Planner {
 	 *
 	 * @param array<int,string>|string $restart [] | 'all' | node-type tokens.
 	 * @return array<string,mixed> Active topology name => entry.
+	 * @throws \Throwable Every active topology whose graph would not read.
 	 */
 	public static function topologies_for( array|string $restart ): array {
+		[ $readable, $unreadable ] = self::classify( $restart );
+		Worker_Should_Stop::raise( $unreadable );
+		return $readable;
+	}
+
+	/**
+	 * `topologies_for()`'s answer, and what each active topology that will not
+	 * read threw instead, by name — `Bootstrap::active_topologies()`'s answer,
+	 * so one broken `.tsl` leaves the rest classified. `'all'` reads no graph,
+	 * so it signals every configured topology and raises nothing.
+	 *
+	 * @param array<int,string>|string $restart [] | 'all' | node-type tokens.
+	 * @return array{0: array<string,mixed>, 1: array<string,\Throwable>} Classified name => entry, then the failures.
+	 */
+	private static function classify( array|string $restart ): array {
 		if ( [] === $restart ) {
-			return [];
+			return [ [], [] ];
 		}
-		$active = Bootstrap::get_topologies();
 		if ( 'all' === $restart ) {
-			return $active;
+			return [ Bootstrap::get_topologies(), [] ];
 		}
 		if ( ! \is_array( $restart ) ) {
-			return [];
+			return [ [], [] ];
 		}
 		$want = self::resolve_types( $restart );
 		if ( [] === $want ) {
-			return [];
+			return [ [], [] ];
 		}
-		return \array_filter(
-			$active,
-			static fn( string $name ): bool => self::topology_has_consumer( $name, $want ),
+		[ $readable, $unreadable ] = Bootstrap::active_topologies();
+		$consumers                 = \array_filter(
+			$readable,
+			static fn ( string $name ): bool => self::topology_has_consumer( $name, $want ),
 			\ARRAY_FILTER_USE_KEY
 		);
+		return [ $consumers, $unreadable ];
 	}
 
 	/**
@@ -184,32 +227,5 @@ class Restart_Planner {
 			}
 		}
 		return $out;
-	}
-
-	/**
-	 * Signal every partition lock dir of $topologies; return the names
-	 * addressed. A lock dir that does not exist takes no flag and the per-dir
-	 * result is discarded, so the return names what was ADDRESSED, never what a
-	 * running worker received.
-	 *
-	 * Off the fleet site nothing is touched — the fleet is network-global, so a
-	 * subsite must never reach the main site's lock dirs.
-	 *
-	 * @param array<string,mixed>   $topologies Active topology name => entry.
-	 * @param string                $locks_dir  Locks directory.
-	 * @param callable(string):bool $signal     Per-lock-dir signal.
-	 * @return array<int,string>
-	 */
-	private static function fan_out( array $topologies, string $locks_dir, callable $signal ): array {
-		if ( ! Bootstrap::fleet_site() ) {
-			return [];
-		}
-		foreach ( $topologies as $name => $entry ) {
-			$count = Bootstrap::partitions_of( Core::arr( $entry ) );
-			for ( $p = 0; $p < $count; $p++ ) {
-				$signal( "{$locks_dir}/{$name}.p{$p}.lock.d" );
-			}
-		}
-		return \array_map( 'strval', \array_keys( $topologies ) );
 	}
 }

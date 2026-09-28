@@ -105,7 +105,7 @@ class Bootstrap {
 	/** Tracks the event entering schedule_event so a late falsy veto still has context. */
 	private static bool $schedule_event_context_is_reconcile = false;
 
-	/** @var array<string,list<array<array-key,mixed>>>|null Request-static half of the wake map. */
+	/** @var array{0: array<string,list<array<array-key,mixed>>>, 1: array<string,\Throwable>}|null Request-static half of the wake map, with its failures. */
 	private static ?array $on_demand_wake_map = null;
 
 	/** Wake-map key prefix; the active set's digest completes it and `Cache_Backend` scopes it. Rows carry offsetlog_dir. */
@@ -119,6 +119,26 @@ class Bootstrap {
 	 *
 	 * The answer to "did this write land somewhere an absent worker is waiting
 	 * on", keyed by the concrete path so a writer needs no idea what it wrote.
+	 * Strict: an active topology whose graph will not read throws, after every
+	 * other was read. A caller that acts on the readable part first — the wake
+	 * paths — reads `readable_wake_map()` and raises its failures itself.
+	 *
+	 * @api Called from consumer plugins (cross-repo, invisible here).
+	 *
+	 * @return array<string,list<array<array-key,mixed>>>
+	 * @throws \Throwable Every unreadable topology, combined.
+	 */
+	public static function on_demand_wake_map(): array {
+		[ $map, $unreadable ] = self::readable_wake_map();
+		Worker_Should_Stop::raise( $unreadable );
+		return $map;
+	}
+
+	/**
+	 * The wake map over every READABLE on-demand topology, and what each
+	 * unreadable on-demand one threw instead of answering. Which topologies
+	 * read is `active_topologies()`'s answer; a resident one wakes nothing, so
+	 * its failure is not this map's to raise.
 	 *
 	 * Built by SUBSTITUTION, never by parsing: each Consumer source template is
 	 * resolved through `Core::resolve_partition_template()` for that worker's
@@ -134,10 +154,12 @@ class Bootstrap {
 	 * active set, so activation cannot serve a stale answer. Every other input
 	 * rides the TTL alone — an edited `.tsl`, the global `num_partitions`, the
 	 * fleet-wide `on_demand_idle` — and a stale miss costs one cron-cadence wake.
+	 * A map missing an unreadable topology is memoized for the request, failures
+	 * and all, and never cached: a cached partial map would hide the failure.
 	 *
-	 * @return array<string,list<array<array-key,mixed>>>
+	 * @return array{0: array<string,list<array<array-key,mixed>>>, 1: array<string,\Throwable>} The map, then each unreadable on-demand topology's failure by name.
 	 */
-	public static function on_demand_wake_map(): array {
+	public static function readable_wake_map(): array {
 		if ( null !== self::$on_demand_wake_map ) {
 			return self::$on_demand_wake_map;
 		}
@@ -147,66 +169,32 @@ class Bootstrap {
 		if ( null !== $cache ) {
 			$hit = $cache->get( $key );
 			if ( \is_array( $hit ) ) {
-				return self::$on_demand_wake_map = self::sanitize_wake_map( $hit );
+				return self::$on_demand_wake_map = [ self::sanitize_wake_map( $hit ), [] ];
 			}
 		}
-		$map = [];
-		foreach ( self::expand_workers() as $worker ) {
-			if ( 0 === self::on_demand_idle_of( $worker ) ) {
-				continue;
-			}
-			$partition = Core::as_int( $worker['partition'] );
-			$topology  = Core::as_string( $worker['topology'] );
-			foreach ( Topology_Analyzer::consumer_positions( $topology ) as $position ) {
-				$dir      = \rtrim( Core::resolve_partition_template( $position['source'], $partition, $topology ), '/' );
-				$cursor   = '' === $position['offsetlog']
-					? ''
-					: \rtrim( Core::resolve_partition_template( $position['offsetlog'], $partition, $topology ), '/' );
-				// Paired here so the backlog sweep never re-walks the graph.
-				$map[ $dir ][] = $worker + [ 'offsetlog_dir' => $cursor ];
-			}
-		}
-		$cache?->set( $key, $map, self::ON_DEMAND_WAKE_TTL_S );
-		return self::$on_demand_wake_map = $map;
-	}
-
-	/**
-	 * Expand topologies to flat worker descriptors, one per partition (count clamped to MAX_PARTITIONS).
-	 *
-	 * @return array<int,Worker_Descriptor>
-	 */
-	public static function expand_workers(): array {
-		$topologies = self::get_topologies();
-		$workers    = [];
-		foreach ( $topologies as $type => $config ) {
-			$config = Core::arr( $config );
-			$count  = self::partitions_of( $config );
-			for ( $p = 0; $p < $count; ++$p ) {
-				$workers[] = [
-					'type'           => $type,
-					'partition'      => $p,
-					'topology'       => $config['topology'] ?? '',
-					'stale_timeout'  => Lock_Node::stale_timeout_of( $config ),
-					'on_demand_idle' => self::on_demand_idle_of( $config ),
-				];
+		$entries                   = self::get_topologies();
+		[ $readable, $unreadable ] = self::split_readable( $entries );
+		$on_demand                 = \array_filter( $entries, static fn ( mixed $entry ): bool => 0 !== self::on_demand_idle_of( Core::arr( $entry ) ) );
+		$map                       = [];
+		foreach ( \array_intersect_key( $readable, $on_demand ) as $topology => $entry ) {
+			$positions = Topology_Analyzer::consumer_positions( $topology );
+			foreach ( self::workers_of( $topology, $entry ) as $worker ) {
+				foreach ( $positions as $position ) {
+					$dir    = \rtrim( Core::resolve_partition_template( $position['source'], $worker['partition'], $topology ), '/' );
+					$cursor = '' === $position['offsetlog']
+						? ''
+						: \rtrim( Core::resolve_partition_template( $position['offsetlog'], $worker['partition'], $topology ), '/' );
+					// Paired so the backlog sweep never re-walks it.
+					$map[ $dir ][] = $worker + [ 'offsetlog_dir' => $cursor ];
+				}
 			}
 		}
-		return $workers;
-	}
-
-	/**
-	 * Seconds a worker stays idle before exiting; 0 means it stays resident.
-	 *
-	 * The window IS the flag — declaring one opts a topology in — so a descriptor
-	 * declaring none falls to $default, and that default is 0 unless the operator
-	 * set a fleet-wide window. Reading absence as nonzero would scale to zero a
-	 * topology that never opted in.
-	 *
-	 * @param array<array-key,mixed> $descriptor Topology entry or worker descriptor.
-	 * @param int                    $default    Fleet-wide window when the descriptor declares none.
-	 */
-	public static function on_demand_idle_of( array $descriptor, int $default = 0 ): int {
-		return \max( 0, Core::num_int( $descriptor['on_demand_idle'] ?? null, $default ) );
+		// Only an on-demand topology's failure can hide a reader.
+		$unreadable = \array_intersect_key( $unreadable, $on_demand );
+		if ( [] === $unreadable ) {
+			$cache?->set( $key, $map, self::ON_DEMAND_WAKE_TTL_S );
+		}
+		return self::$on_demand_wake_map = [ $map, $unreadable ];
 	}
 
 	/**
@@ -228,6 +216,56 @@ class Bootstrap {
 			}
 		}
 		return $map;
+	}
+
+	/**
+	 * Expand topologies to flat worker descriptors, one per partition (count clamped to MAX_PARTITIONS).
+	 *
+	 * @return array<int,Worker_Descriptor>
+	 */
+	public static function expand_workers(): array {
+		$workers = [];
+		foreach ( self::get_topologies() as $type => $entry ) {
+			\array_push( $workers, ...self::workers_of( $type, Core::arr( $entry ) ) );
+		}
+		return $workers;
+	}
+
+	/**
+	 * One topology's worker descriptors, one per partition.
+	 *
+	 * @param string                 $type  Topology name.
+	 * @param array<array-key,mixed> $entry Its active entry.
+	 * @return list<Worker_Descriptor>
+	 */
+	private static function workers_of( string $type, array $entry ): array {
+		$workers = [];
+		$count   = self::partitions_of( $entry );
+		for ( $p = 0; $p < $count; ++$p ) {
+			$workers[] = [
+				'type'           => $type,
+				'partition'      => $p,
+				'topology'       => $entry['topology'] ?? '',
+				'stale_timeout'  => Lock_Node::stale_timeout_of( $entry ),
+				'on_demand_idle' => self::on_demand_idle_of( $entry ),
+			];
+		}
+		return $workers;
+	}
+
+	/**
+	 * Seconds a worker stays idle before exiting; 0 means it stays resident.
+	 *
+	 * The window IS the flag — declaring one opts a topology in — so a descriptor
+	 * declaring none falls to $default, and that default is 0 unless the operator
+	 * set a fleet-wide window. Reading absence as nonzero would scale to zero a
+	 * topology that never opted in.
+	 *
+	 * @param array<array-key,mixed> $descriptor Topology entry or worker descriptor.
+	 * @param int                    $default    Fleet-wide window when the descriptor declares none.
+	 */
+	public static function on_demand_idle_of( array $descriptor, int $default = 0 ): int {
+		return \max( 0, Core::num_int( $descriptor['on_demand_idle'] ?? null, $default ) );
 	}
 
 	/**
@@ -313,13 +351,12 @@ class Bootstrap {
 	 *
 	 * @param string $node Node name as its topology declares it.
 	 * @return array<int,string> Partition index => directory.
-	 * @throws \RuntimeException When the base directory is unusable, or a topology declares an unknown include, a cycle, or a conflicting make_node.
+	 * @throws \Throwable When the base directory is unusable, or no readable topology declares `$node` and an active one will not read.
 	 */
 	public static function node_dirs( string $node ): array {
 		$dirs = [];
-		foreach ( self::get_topologies() as $name => $entry ) {
-			$count = self::partitions_of( Core::arr( $entry ) );
-			foreach ( Topology_Analyzer::resolved_node_dirs( $name, $node, $count ) as $p => $dir ) {
+		foreach ( self::declaring( $node ) as $name => $entry ) {
+			foreach ( Topology_Analyzer::resolved_node_dirs( $name, $node, self::partitions_of( $entry ) ) as $p => $dir ) {
 				$dirs[ $p ] ??= $dir;
 			}
 		}
@@ -336,22 +373,57 @@ class Bootstrap {
 	 *
 	 * @param string $node Node name as its topology declares it.
 	 * @return list<int> Partition indices, ascending.
-	 * @throws \RuntimeException When the base directory is unusable, or a topology declares an unknown include, a cycle, or a conflicting make_node.
+	 * @throws \Throwable When the base directory is unusable, or no readable topology declares `$node` and an active one will not read.
 	 */
 	public static function node_partitions( string $node ): array {
 		$seen = [];
-		foreach ( self::get_topologies() as $name => $entry ) {
-			if ( ! Topology_Analyzer::declares_node( $name, $node ) ) {
-				continue;
-			}
-			$count = self::partitions_of( Core::arr( $entry ) );
-			for ( $p = 0; $p < $count; $p++ ) {
-				$seen[ $p ] = true;
-			}
+		foreach ( self::declaring( $node ) as $entry ) {
+			$seen += \array_fill( 0, self::partitions_of( $entry ), true );
 		}
 		$out = \array_keys( $seen );
 		\sort( $out );
 		return $out;
+	}
+
+	/**
+	 * The readable active topologies declaring `$node`, name => entry. One
+	 * that will not read costs only its own share of the answer; when no
+	 * readable one declares the node, every unreadable one raises, because
+	 * the node may be exactly what it declares.
+	 *
+	 * @param string $node Node name as its topology declares it.
+	 * @return array<string,array<array-key,mixed>>
+	 * @throws \Throwable Every unreadable active topology, combined, when no readable one declares `$node`.
+	 */
+	private static function declaring( string $node ): array {
+		[ $readable, $unreadable ] = self::active_topologies();
+		$declaring                 = \array_filter(
+			$readable,
+			static fn ( string $name ): bool => Topology_Analyzer::declares_node( $name, $node ),
+			\ARRAY_FILTER_USE_KEY
+		);
+		if ( [] === $declaring ) {
+			Worker_Should_Stop::raise( $unreadable );
+		}
+		return $declaring;
+	}
+
+	/**
+	 * Which active topologies READ, answered once for every caller that reads
+	 * a graph: each readable name with its `get_topologies()` entry, and what
+	 * each other active name threw instead, keyed by name. A name with no
+	 * `.tsl` fails naming itself rather than dropping out in silence.
+	 *
+	 * Each consumer acts on the readable set and surfaces the failures its own
+	 * way — a row per topology in a listing, a raise after the work is done —
+	 * so one broken `.tsl` costs its own rows and nothing else. The graph walk
+	 * memoizes success and failure alike, so asking again costs no parse.
+	 *
+	 * @return array{0: array<string,array<array-key,mixed>>, 1: array<string,\Throwable>} Readable name => entry, then name => what it threw, in configured order.
+	 * @throws \RuntimeException When the runtime base directory is unusable.
+	 */
+	public static function active_topologies(): array {
+		return self::split_readable( self::get_topologies() );
 	}
 
 	/**
@@ -361,35 +433,62 @@ class Bootstrap {
 	 * Anything but a list of names — the empty default included — activates
 	 * nothing, so an install spawns no workers until an operator opts one in. A
 	 * selected name the catalog does not carry is synthesized from its `.tsl`
-	 * frontmatter, and dropped only when no `.tsl` resolves, so a topology
+	 * frontmatter, and left out only when no `.tsl` resolves, so a topology
 	 * registered after the catalog is published still spawns.
+	 *
+	 * This is the CONFIGURED set: what spawns, what holds lock dirs, how many
+	 * partitions each carries. None of that reads a graph, so an entry whose
+	 * graph will not read is here too. A caller that reads graphs takes
+	 * `active_topologies()`, which also names every name left out here.
 	 *
 	 * @return array<string,mixed> Topology name => entry (keys are always non-empty strings).
 	 */
 	public static function get_topologies(): array {
-		$catalog = self::get_topology_catalog();
-		// Active set = `topologies` config key; empty default spawns nothing.
-		$active_names = Config::value( 'topologies' );
-		if ( ! \is_array( $active_names ) ) {
-			$active_names = [];
-		}
+		$catalog      = self::get_topology_catalog();
 		$default_np   = self::global_num_partitions();
 		$default_idle = self::config_on_demand_idle();
 		$active       = [];
-		foreach ( $active_names as $name ) {
-			if ( ! \is_string( $name ) || '' === $name ) {
-				continue;
-			}
-			if ( isset( $catalog[ $name ] ) ) {
-				$active[ $name ] = $catalog[ $name ];
-				continue;
-			}
-			$synthesized = Topology_Registry::synthesize_entry( $name, $default_np, Lock_Node::STALE_TIMEOUT, $default_idle );
-			if ( null !== $synthesized ) {
-				$active[ $name ] = $synthesized;
+		foreach ( self::active_names() as $name ) {
+			$entry = $catalog[ $name ] ?? Topology_Registry::synthesize_entry( $name, $default_np, Lock_Node::STALE_TIMEOUT, $default_idle );
+			if ( null !== $entry ) {
+				$active[ $name ] = $entry;
 			}
 		}
 		return $active;
+	}
+
+	/**
+	 * `active_topologies()` over entries the caller already built, so a caller
+	 * that needs the configured entries too walks the catalog once.
+	 *
+	 * @param array<string,mixed> $entries `get_topologies()`.
+	 * @return array{0: array<string,array<array-key,mixed>>, 1: array<string,\Throwable>}
+	 */
+	private static function split_readable( array $entries ): array {
+		$names    = self::active_names();
+		$failures = Worker_Should_Stop::attempt_each(
+			\array_combine( $names, $names ),
+			static function ( string $name ) use ( $entries ): void {
+				if ( ! isset( $entries[ $name ] ) ) {
+					throw new \RuntimeException( \esc_html( "unknown topology '$name': no .tsl resolves" ) );
+				}
+				Topology_Analyzer::graph_for( $name );
+			}
+		);
+		return [ \array_map( Core::arr( ... ), \array_diff_key( $entries, $failures ) ), $failures ];
+	}
+
+	/**
+	 * The names the `topologies` config key selects, deduplicated, in order.
+	 *
+	 * @return list<non-empty-string>
+	 */
+	private static function active_names(): array {
+		$names = Config::value( 'topologies' );
+		return \array_values( \array_unique( \array_filter(
+			\is_array( $names ) ? $names : [],
+			static fn ( mixed $name ): bool => \is_string( $name ) && '' !== $name
+		) ) );
 	}
 
 	/**
@@ -413,24 +512,18 @@ class Bootstrap {
 	 * graph, the write set) sees the Vault as just written rather than
 	 * whatever an earlier read in this process cached.
 	 *
-	 * Best-effort: a Vault save never fails on the signal it triggers.
+	 * `Restart_Planner::request_reloads()` signals every readable consumer
+	 * whatever another topology or lock dir refused, then raises the refusals,
+	 * so the Vault write that fired this action reports them.
+	 *
+	 * @throws \Throwable Every unreadable topology and refused signal, after the rest were signalled.
 	 */
 	public static function reload_vault_consumers(): void {
 		if ( ! self::fleet_site() ) {
 			return; // Subsite: the fleet is network-global and runs on the main site.
 		}
-		try {
-			Topology_Analyzer::reset_caches();
-			$coordinator = self::spawn_coordinator();
-			foreach ( Restart_Planner::topologies_for( [ 'Remote_Link', 'Remote_Source', 'Vault_Group' ] ) as $name => $entry ) {
-				$count = self::partitions_of( Core::arr( $entry ) );
-				for ( $p = 0; $p < $count; $p++ ) {
-					Lock_Node::request_reload_at( $coordinator->lock_path( $name, $p ) );
-				}
-			}
-		} catch ( \Throwable $e ) {
-			Core::print_less_often( 'vault reload failed: ', $e->getMessage() );
-		}
+		Topology_Analyzer::reset_caches();
+		Restart_Planner::request_reloads( Config::get_locks_directory(), [ 'Remote_Link', 'Remote_Source', 'Vault_Group' ] );
 	}
 
 	/**
@@ -538,6 +631,12 @@ class Bootstrap {
 	 * `$_SERVER['NEWSPACK_NODES_WORKER_TYPE']` labels this pass `reconcile` — the
 	 * dimension newspack-event-logger-nodes files its stats under. Nothing compares
 	 * against the literal; it is a label, not a worker type.
+	 *
+	 * `newspack_nodes/after_reconcile` fires whatever the steps threw, and
+	 * every failure escapes the cron callback after it, so a broken pass fails
+	 * loud once a minute rather than reporting a line and carrying on.
+	 *
+	 * @throws \Throwable What the steps and the `after_reconcile` subscribers threw.
 	 */
 	public static function reconcile_fleet(): void {
 		if ( ! self::fleet_site() ) {
@@ -558,54 +657,41 @@ class Bootstrap {
 		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
 		$_SERVER['NEWSPACK_NODES_WORKER_TYPE']      = 'reconcile';
 		$_SERVER['NEWSPACK_NODES_WORKER_PARTITION'] = '0';
-		try {
-			self::run_reconcile_steps();
-		} catch ( \Throwable $e ) {
-			// An escape would fatal this cron callback sixty times an hour.
-			Core::print_less_often( 'reconcile pass failed: ', $e->getMessage() );
-		} finally {
-			\do_action( 'newspack_nodes/after_reconcile' );
-		}
+		Worker_Should_Stop::raise(
+			Worker_Should_Stop::attempt(
+				self::run_reconcile_steps( ... ),
+				static fn () => \do_action( 'newspack_nodes/after_reconcile' )
+			)
+		);
 	}
 
 	/**
 	 * Spawn ahead of the janitorial steps — it is the revival path and the only
-	 * time-critical one, so housekeeping may never preempt it by throwing. Every
-	 * step then stands alone, because each one runs third-party code:
+	 * time-critical one. Every step then runs whatever an earlier one threw,
+	 * because each one runs code a failure elsewhere must not starve:
 	 * `expand_workers()` fires the `topologies` filter, and `periodic` is
-	 * whatever subscribed. One bad provider must not cost the others their
-	 * window.
+	 * whatever subscribed. Alert emission and the delayed-jobs sweep are steps
+	 * of their own for the same reason, and the failures escape after the last.
+	 *
+	 * @throws \Throwable What the steps threw, combined by `Worker_Should_Stop::raise()`.
 	 */
 	private static function run_reconcile_steps(): void {
-		// @longform Third-party surface, so it gets its own step: fired bare,
-		// a throw escapes the callback and skips the spawn behind it.
-		self::reconcile_step( 'before', static fn() => \do_action( 'newspack_nodes/before_reconcile' ) );
 		$coordinator = self::spawn_coordinator();
 		$base_dir    = self::base_dir();
-		self::reconcile_step( 'spawn', static fn() => $coordinator->spawn_due_workers( Core::right_now() ) );
-		// Revival too: the only pass that notices an external producer's write.
-		self::reconcile_step( 'backlog-wake', static fn() => $coordinator->wake_readers_with_backlog( Core::right_now() ) );
-		self::reconcile_step( 'lock-dirs', static fn() => $coordinator->reconcile_lock_dirs() );
-		self::reconcile_step( 'retention', static fn() => Log_Cleaner::cleanup_orphan_partitions( $base_dir ) );
-		self::reconcile_step( 'orphan-ipc', static fn() => $coordinator->cleanup_orphan_ipc() );
-		self::reconcile_step( 'periodic', static fn() => \do_action( 'newspack_nodes/periodic' ) );
-	}
-
-	/**
-	 * Run one reconciliation step, reporting rather than propagating. No
-	 * `Worker_Should_Stop` carve-out (ADR-14): this is a cron request, not a
-	 * worker drain loop, so there is no worker for a cooperative stop to reach
-	 * and letting one escape would only fatal the callback.
-	 *
-	 * @param string   $label Step name, for the failure report.
-	 * @param callable $work  The step.
-	 */
-	private static function reconcile_step( string $label, callable $work ): void {
-		try {
-			$work();
-		} catch ( \Throwable $e ) {
-			Core::print_less_often( "reconcile step '{$label}' failed: ", $e->getMessage() );
-		}
+		$steps       = [
+			// Third-party surface, so it runs as a step of its own.
+			'before'       => static fn () => \do_action( 'newspack_nodes/before_reconcile' ),
+			'spawn'        => static fn () => $coordinator->spawn_due_workers( Core::right_now() ),
+			// Revival: the one pass noticing an external producer's write.
+			'backlog-wake' => static fn () => $coordinator->wake_readers_with_backlog( Core::right_now() ),
+			'lock-dirs'    => static fn () => $coordinator->reconcile_lock_dirs(),
+			'retention'    => static fn () => Log_Cleaner::cleanup_orphan_partitions( $base_dir ),
+			'orphan-ipc'   => static fn () => $coordinator->cleanup_orphan_ipc(),
+			'alerts'       => static fn () => Alerts::emit(),
+			'job-delay'    => static fn () => Job_Delay::sweep(),
+			'periodic'     => static fn () => \do_action( 'newspack_nodes/periodic' ),
+		];
+		Worker_Should_Stop::raise( Worker_Should_Stop::attempt( ...$steps ) );
 	}
 
 	/** Unschedule the reconcile cron event. */
@@ -767,21 +853,11 @@ class Bootstrap {
 	}
 
 	/**
-	 * The request-scope spawn coordinator (factory seam for tests).
-	 *
-	 * @throws \RuntimeException When the default factory cannot resolve the base directory.
-	 */
-	public static function spawn_coordinator(): Spawn_Coordinator {
-		$factory = self::$spawn_coordinator_factory ?? static fn (): Spawn_Coordinator => new Spawn_Coordinator( self::base_dir() );
-		return $factory();
-	}
-
-	/**
 	 * Wire the substrate runtime: the node-class namespaces `make_node` resolves
 	 * against, the `<config:…>` token namespace, the user topology directory,
 	 * the substrate's own log-producer and segment-size filters, its
-	 * `newspack_nodes/periodic` and `newspack_nodes/vault/changed` subscribers,
-	 * and the self-respawn token provider.
+	 * `newspack_nodes/vault/changed` subscribers, and the self-respawn token
+	 * provider.
 	 *
 	 * Idempotent and lazy — the first `Core::memd()` wires the non-storage tier,
 	 * while node-graph/storage entry points call this method and still fail
@@ -808,16 +884,22 @@ class Bootstrap {
 		\add_filter( 'newspack_nodes/segment_size_overrides', [ self::class, 'register_segment_sizes' ] );
 		// Self-respawn tokens must be minted at POST time, not worker boot.
 		Worker_Base::$token_provider ??= static fn (): string => self::spawn_coordinator()->generate_spawn_token( \time() );
-		// Fleet alerting: journal alert transitions into alerts.p0.
-		\add_action( 'newspack_nodes/periodic', [ Alerts::class, 'emit' ] );
-		// Delayed-jobs sweep: deliver due entries, circulate the rest.
-		\add_action( 'newspack_nodes/periodic', [ Job_Delay::class, 'sweep_action' ] );
 		// A re-credentialed or removed spoke invalidates its command session.
 		\add_action( 'newspack_nodes/vault/changed', [ self::class, 'forget_command_session' ] );
 		// ...and the workers holding its credentials must re-read them.
 		\add_action( 'newspack_nodes/vault/changed', [ self::class, 'reload_vault_consumers' ] );
 		// Footgun: don't wire SSE_Slot_Pool here; it autoloads SSE_Out_Node.
 		self::$runtime_wired = true;
+	}
+
+	/**
+	 * The request-scope spawn coordinator (factory seam for tests).
+	 *
+	 * @throws \RuntimeException When the default factory cannot resolve the base directory.
+	 */
+	public static function spawn_coordinator(): Spawn_Coordinator {
+		$factory = self::$spawn_coordinator_factory ?? static fn (): Spawn_Coordinator => new Spawn_Coordinator( self::base_dir() );
+		return $factory();
 	}
 
 	/**

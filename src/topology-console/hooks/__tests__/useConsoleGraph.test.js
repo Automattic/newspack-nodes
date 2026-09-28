@@ -574,6 +574,24 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 		] );
 	} );
 
+	it( 'reports the lines a worker stream skipped as unparseable in the transcript', async () => {
+		renderGraph();
+		const m = wire.newMessage();
+		m[ wire.TYPE ] = wire.TM_INFO;
+		m[ wire.KEY ] = 'unparseable_lines';
+		m[ wire.VALUE ] = 'COUNT 3';
+		act( () =>
+			FakeEventSource.last.dispatch( 'unparseable_lines', wire.pack( m ) )
+		);
+		await flushFrame();
+		expect( Core.node( names.OUTPUT ).transcript ).toEqual( [
+			expect.objectContaining( {
+				kind: 'error',
+				text: 'demo.p0: 3 unparseable line(s) skipped',
+			} ),
+		] );
+	} );
+
 	it( 'an SSE broadcast with empty TO lands in the Dumper transcript', async () => {
 		renderGraph();
 		// Empty TO falls back to the connector's target (_output) in Node.fill.

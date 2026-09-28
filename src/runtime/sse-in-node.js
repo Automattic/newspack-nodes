@@ -70,6 +70,23 @@ const LEASE_OWNER_RE = /^[1-9][0-9]*$/;
 const RETRY_MS_RE = /^(?:0|[1-9][0-9]*)$/;
 
 /**
+ * Split a flat TM_INFO VALUE — space-separated `KEY VALUE` pairs, the shape of
+ * the `connected` envelope and the `unparseable_lines` frame — into a map.
+ *
+ * @param {*} value The frame's VALUE.
+ * @return {Object<string,string>} Each KEY to the VALUE after it.
+ */
+function flatInfo( value ) {
+	const parts = String( value ?? '' ).split( ' ' );
+	/** @type {Object<string,string>} */
+	const info = {};
+	for ( let i = 0; i + 1 < parts.length; i += 2 ) {
+		info[ parts[ i ] ] = parts[ i + 1 ];
+	}
+	return info;
+}
+
+/**
  * The `Log_Discovery::GROUPS` roots a stamp keeps its prefix under.
  * `SSE_Out_Node::stamp_for()` returns a bare basename for the `logs` group and
  * `{group}/{basename}` for these two, so a position under one keys on the full
@@ -158,8 +175,8 @@ const PROBE_STREAM_ID = '!';
  * notices when it dies silently, and the session identity the `connected`
  * handshake hands back. `start()` opens the stream; each `msg` frame is
  * unpacked and filled into the local graph, while `connected`, `retry`,
- * `heartbeat` and `disconnect` are snooped for lifecycle, reopen cadence and
- * liveness rather than routed.
+ * `heartbeat`, `disconnect` and `unparseable_lines` are snooped for lifecycle,
+ * reopen cadence, liveness and skipped lines rather than routed.
  */
 export class SseInNode extends SchemaReflection( TimerNode ) {
 	/**
@@ -204,6 +221,8 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 		this.sessionLeaseOwner = null;
 		// Last terminal server control event for this EventSource connection.
 		this.terminalDisconnect = null;
+		// Lines the server skipped as unparseable; kept across reconnects.
+		this.unparseableLines = 0;
 		this._handleVisibilityChange = () => {
 			if ( 'visible' !== document.visibilityState ) {
 				return;
@@ -220,6 +239,7 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 		this.registrations.CONNECTING = {};
 		this.registrations.CONNECTED = {};
 		this.registrations.DISCONNECTED = {};
+		this.registrations.UNPARSEABLE_LINES = {};
 	}
 
 	/**
@@ -296,12 +316,7 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 	_applyConnected( value ) {
 		// A live handshake clears the backoff, like PHP's dispatch_event.
 		this._backoffMs = INITIAL_BACKOFF_MS;
-		const raw = String( value ?? '' );
-		const parts = raw.split( ' ' );
-		const info = {};
-		for ( let i = 0; i + 1 < parts.length; i += 2 ) {
-			info[ parts[ i ] ] = parts[ i + 1 ];
-		}
+		const info = flatInfo( value );
 		if ( ( info.SESSION ?? null ) !== this.presentedSession ) {
 			this._rejectConnected( 'names another SESSION' );
 			return;
@@ -329,6 +344,34 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 		this._mayRenewNonce = true;
 		// Stamp the live-stream connect time for the Overview SSE Uptime card.
 		IoTelemetry.markSseConnected();
+	}
+
+	/**
+	 * Add one `unparseable_lines` frame to the running count, published as
+	 * UNPARSEABLE_LINES, and resume past the lines it skipped.
+	 *
+	 * The server's readers keep no cursor, so a line that will not unpack is
+	 * skipped rather than ending the stream, and this frame is how the reader
+	 * of the page learns of it. `COUNT` covers only the skips since the last
+	 * frame, so the total holds across reconnects; `CURSORS` moves each
+	 * subscription's resume point past them, so a reopen does not read the same
+	 * torn line and count it again.
+	 *
+	 * @param {*} value `COUNT n CURSORS dir=segment:offset,…`.
+	 */
+	_applyUnparseable( value ) {
+		const info = flatInfo( value );
+		const count = Number( info.COUNT );
+		if ( ! Number.isSafeInteger( count ) || count < 1 ) {
+			this.setState( 'ERROR', 'malformed unparseable_lines frame' );
+			Core.printLessOften(
+				'ERROR: SseInNode: dropped a malformed unparseable_lines frame'
+			);
+			return;
+		}
+		this.unparseableLines += count;
+		this._seedPositions( info.CURSORS );
+		this.setState( 'UNPARSEABLE_LINES', this.unparseableLines );
 	}
 
 	/**
@@ -585,6 +628,14 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 			this.lastEventTime = Date.now();
 			this._applyConnected( unpack( e.data )[ VALUE ] );
 		} );
+		// Torn lines the server skipped: count them, resume past them.
+		es.addEventListener( 'unparseable_lines', ( e ) => {
+			if ( stale() ) {
+				return;
+			}
+			this.lastEventTime = Date.now();
+			this._applyUnparseable( unpack( e.data )[ VALUE ] );
+		} );
 		// Deliberate server termination: consume and retain its safe reason.
 		es.addEventListener( 'disconnect', ( e ) => {
 			if ( stale() ) {
@@ -812,24 +863,6 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 	}
 
 	/**
-	 * @return {?Object<string,{segment:number,offset:number}|number|string>} The seek this stream was asked to open at.
-	 */
-	get positions() {
-		return this._positions;
-	}
-
-	/**
-	 * A new seek supersedes where the old stream got to — otherwise a seek back
-	 * to the start of the log would be beaten by the resume it is replacing.
-	 *
-	 * @param {?Object<string,{segment:number,offset:number}|number|string>} value Per-subscription seek, or null to tail every name.
-	 */
-	set positions( value ) {
-		this._positions = value;
-		this.lastPositions = {};
-	}
-
-	/**
 	 * Publish one disconnect three ways: DISCONNECTED for dashboards, the
 	 * telemetry mark the Overview uptime card reads, and a rate-limited log.
 	 *
@@ -872,6 +905,24 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 			segment: Number( idMatch[ 1 ] ),
 			offset: Number( idMatch[ 2 ] ) + Number( idMatch[ 3 ] ),
 		};
+	}
+
+	/**
+	 * @return {?Object<string,{segment:number,offset:number}|number|string>} The seek this stream was asked to open at.
+	 */
+	get positions() {
+		return this._positions;
+	}
+
+	/**
+	 * A new seek supersedes where the old stream got to — otherwise a seek back
+	 * to the start of the log would be beaten by the resume it is replacing.
+	 *
+	 * @param {?Object<string,{segment:number,offset:number}|number|string>} value Per-subscription seek, or null to tail every name.
+	 */
+	set positions( value ) {
+		this._positions = value;
+		this.lastPositions = {};
 	}
 
 	/**

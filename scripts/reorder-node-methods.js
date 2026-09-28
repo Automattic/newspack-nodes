@@ -269,31 +269,24 @@ function thisCallName( callee ) {
  * Collect self-dispatched calls under an AST node, in source-position order.
  *
  * Reading the AST rather than the text is what keeps strings, comments and
- * template literals from forging a call edge. A nested function body is a scope
- * of its own: the call runs later, under whoever invokes it, so blaming the
- * enclosing method invents an edge. The walk descends anyway and marks those
- * hits soft — soft hits gate nothing, and only nudge the tie-break toward
- * keeping related methods together.
+ * template literals from forging a call edge. A call inside an arrow function
+ * or function expression the method defines counts as the method's own: the
+ * reader meets the callee there, so it belongs below the method.
  *
- * @param {Object}  node   Any AST node.
- * @param {Array}   hits   Accumulator of `{name, pos, soft}`, appended in place.
- * @param {boolean} [soft] True once the walk is inside a nested function.
+ * @param {Object} node Any AST node.
+ * @param {Array}  hits Accumulator of `{name, pos}`, appended in place.
  */
-function collectThisCalls( node, hits, soft = false ) {
+function collectThisCalls( node, hits ) {
 	if ( ! node || typeof node.type !== 'string' ) {
 		return;
 	}
-	const nested =
-		node.type === 'FunctionExpression' ||
-		node.type === 'ArrowFunctionExpression' ||
-		node.type === 'FunctionDeclaration';
 	if (
 		node.type === 'CallExpression' ||
 		node.type === 'OptionalCallExpression'
 	) {
 		const nm = thisCallName( node.callee );
 		if ( nm ) {
-			hits.push( { name: nm, pos: node.start, soft } );
+			hits.push( { name: nm, pos: node.start } );
 		}
 	}
 	for ( const k in node ) {
@@ -307,9 +300,9 @@ function collectThisCalls( node, hits, soft = false ) {
 		}
 		const v = node[ k ];
 		if ( Array.isArray( v ) ) {
-			v.forEach( ( c ) => collectThisCalls( c, hits, soft || nested ) );
+			v.forEach( ( c ) => collectThisCalls( c, hits ) );
 		} else if ( v && typeof v.type === 'string' ) {
-			collectThisCalls( v, hits, soft || nested );
+			collectThisCalls( v, hits );
 		}
 	}
 }
@@ -474,12 +467,10 @@ function reorderClass( src, cls, isNode ) {
 	 * calling itself is not an edge, and a get/set pair calling its twin would
 	 * otherwise depend on the unit it already travels with.
 	 *
-	 * @param {Object}  u          The calling unit.
-	 * @param {boolean} [wantSoft] True to take the closure-body calls instead
-	 *                             of the direct ones.
+	 * @param {Object} u The calling unit.
 	 * @return {string[]} Callee names.
 	 */
-	const calleesOf = ( u, wantSoft = false ) => {
+	const calleesOf = ( u ) => {
 		const self = new Set( u.members.map( mname ).filter( Boolean ) );
 		const hits = [];
 		u.members.forEach( ( m ) => collectThisCalls( m, hits ) );
@@ -488,7 +479,6 @@ function reorderClass( src, cls, isNode ) {
 		const out = [];
 		for ( const h of hits ) {
 			if (
-				!! h.soft !== wantSoft ||
 				! allNames.has( h.name ) ||
 				self.has( h.name ) ||
 				seen.has( h.name )
@@ -640,13 +630,6 @@ function reorderClass( src, cls, isNode ) {
 			for ( const cu of calleeUnits.get( u ) ) {
 				indeg.set( cu, indeg.get( cu ) - 1 );
 				if ( indeg.get( cu ) === 0 ) {
-					freed.set( cu, ++tick );
-				}
-			}
-			// Closure-body calls gate nothing, but say these belong together.
-			for ( const cn of calleesOf( u, true ) ) {
-				const cu = byName[ cn ];
-				if ( cu && ! visited.has( cu ) && indeg.get( cu ) === 0 ) {
 					freed.set( cu, ++tick );
 				}
 			}

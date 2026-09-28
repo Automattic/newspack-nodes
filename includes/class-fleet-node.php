@@ -106,31 +106,27 @@ class Fleet_Node extends Timer_Node {
 	/**
 	 * One scan. It reaches third-party code — `expand_workers()` fires the
 	 * `newspack_nodes/topologies` filter, and a reload fires
-	 * `Config::RESET_ACTION` — so nothing may escape: an uncaught throw here
-	 * unwinds through Router into Worker_Base, which catches only
-	 * Worker_Should_Stop. Every worker reads the same config on the same cadence,
-	 * so one bad provider would crash-loop the whole fleet in lockstep.
+	 * `Config::RESET_ACTION` — and whatever that throws propagates: through the
+	 * Router into `Worker_Base::execute()`, which hands the slot to a successor
+	 * and raises it. Every worker reads the same config on the same cadence, so
+	 * one bad provider fails every worker loud, each respawn gated by the spawn
+	 * endpoint's throttle.
 	 *
 	 * The scan sends nothing to its sink. `FIRE` and `RELOAD` are its whole
 	 * output: a closure subscriber takes the payload directly, and one
 	 * registered by NAME would take it as a TM_INFO message. `FIRE` precedes
 	 * both guards below, so a node holding no `base_dir`, and one the
 	 * `Bootstrap::is_fleet_enabled()` switch has turned off, announce the tick
-	 * and scan nothing. That notice sits outside the catch as well: a `FIRE`
-	 * subscriber that throws escapes into the Router.
+	 * and scan nothing.
+	 *
+	 * @throws \Throwable What the scan's providers and spawn posts threw.
 	 */
 	protected function fire(): void {
 		$this->notify( 'FIRE', Core::$now );
 		if ( '' === $this->base_dir || ! Bootstrap::is_fleet_enabled() ) {
 			return;
 		}
-		try {
-			$this->scan( Core::$now );
-		} catch ( Worker_Should_Stop $e ) {
-			throw $e; // ADR-14: a cooperative stop is not an error.
-		} catch ( \Throwable $e ) {
-			$this->print_less_often( 'fleet scan failed: ', $e->getMessage() );
-		}
+		$this->scan( Core::$now );
 	}
 
 	/**
@@ -285,15 +281,19 @@ class Fleet_Node extends Timer_Node {
 	 * should_continue(), and its self-respawn is refused because the type is no
 	 * longer in the active set.
 	 *
+	 * Every worker is offered its flag, and every refused write raises together
+	 * after the last.
+	 *
 	 * @param Spawn_Coordinator $coordinator Owns the `{type}.p{N}.lock.d` layout, so this walk cannot drift from the writer.
+	 * @throws \Throwable Every flag write that failed, combined.
 	 */
 	private function drain_all_workers( Spawn_Coordinator $coordinator ): void {
-		foreach ( \array_keys( $coordinator->worker_lock_dirs() ) as $path ) {
-			if ( \file_exists( $path . '/' . Lock_Node::RESTART_FLAG ) ) {
-				continue; // Already flagged — avoid disk churn.
-			}
-			Lock_Node::request_restart_at( $path );
-		}
+		// Already flagged — avoid disk churn.
+		$unflagged = \array_filter(
+			\array_keys( $coordinator->worker_lock_dirs() ),
+			static fn ( string $path ): bool => ! \file_exists( $path . '/' . Lock_Node::RESTART_FLAG )
+		);
+		Worker_Should_Stop::raise( Worker_Should_Stop::attempt_each( $unflagged, Lock_Node::request_restart_at( ... ) ) );
 	}
 
 	/**

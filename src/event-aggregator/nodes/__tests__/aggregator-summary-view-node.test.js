@@ -65,6 +65,19 @@ describe( 'AggregatorSummaryViewNode', () => {
 		} );
 	} );
 
+	test( 'carries each unreadable topology the summary names, and none when it names none', () => {
+		const v = makeView();
+		const unreadable = { 'marmot-8830': 'include orphaned-8831 failed' };
+		v.fill( reply( { connected: 1, total: 1, unreadable } ) );
+		expect( v.view.unreadable ).toEqual( unreadable );
+		v.fill( reply( { connected: 1, total: 1, unreadable: [] } ) );
+		expect( v.view.unreadable ).toEqual( [] );
+	} );
+
+	test( 'starts with no unreadable topology', () => {
+		expect( makeView().view.unreadable ).toEqual( {} );
+	} );
+
 	test( 'a summary reply sets lastRefresh (a browser-clock ms number)', () => {
 		const v = makeView();
 		const before = Date.now();

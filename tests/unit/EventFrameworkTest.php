@@ -285,11 +285,50 @@ class EventFrameworkTest extends TestCase {
 		$this->assertTrue( $state->reached ?? false, 'second rapid pump was throttled, not re-checked' );
 	}
 
+	public function test_a_stop_due_inside_an_uninterruptible_unit_raises_at_the_first_pump_after_it(): void {
+		$finished = false;
+		$stop     = $this->with_stop_due(
+			static function () use ( &$finished ): void {
+				$ef = Event_Framework::instance();
+				$ef->uninterruptible(
+					static function () use ( $ef, &$finished ): void {
+						$ef->stop_check();
+						$ef->pump();
+						$finished = true;
+					}
+				);
+				$ef->pump();
+			}
+		);
+
+		$this->assertTrue( $finished, 'the unit ran to its end' );
+		$this->assertNotNull( $stop, 'the stop raised once the unit closed' );
+	}
+
+	public function test_an_uninterruptible_unit_nested_in_another_restores_the_outer_hold(): void {
+		$reached = false;
+		$stop    = $this->with_stop_due(
+			static function () use ( &$reached ): void {
+				$ef = Event_Framework::instance();
+				$ef->uninterruptible(
+					static function () use ( $ef, &$reached ): void {
+						$ef->uninterruptible( static fn () => null );
+						$ef->stop_check();
+						$reached = true;
+					}
+				);
+			}
+		);
+
+		$this->assertTrue( $reached, 'the outer unit still holds after the inner one closed' );
+		$this->assertNull( $stop, 'nothing reached a stop boundary after the units' );
+	}
+
 	public function test_pump_does_not_throw_while_inside_the_stderr_handler(): void {
 		// Logging the stop reason must not self-throw a cooperative stop: the worker
 		// routes stderr into the REPL partition, whose fill() calls pump() while the
-		// predicate is already false. Without the guard that is a spurious
-		// "stopped mid-job (pump)" on every shutdown.
+		// predicate is already false. Without the guard every shutdown's own
+		// stop-reason line would raise a second, spurious stop.
 		$ef    = Event_Framework::instance();
 		$state = (object) [ 'stop' => false, 'ticks' => 0, 'reached' => false ];
 

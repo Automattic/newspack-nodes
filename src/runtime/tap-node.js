@@ -1,5 +1,6 @@
 import { TeeNode } from './tee-node';
 import { TO } from './message';
+import { attemptEach, raise } from './failures';
 
 /**
  * Tap: Tee with hard targets and passthrough.
@@ -19,36 +20,30 @@ export class TapNode extends TeeNode {
 	/**
 	 * Copy the message to every live target, then pass the original downstream.
 	 *
-	 * It drops any target whose head node has left this registry, and logs a
-	 * target that throws rather than letting one broken branch cancel the rest of
-	 * the fan-out or the passthrough.
+	 * Every target is attempted, and the passthrough after them, whatever an
+	 * earlier one threw; everything caught — the passthrough's failure included —
+	 * is raised after the last, as the PHP twin raises it.
 	 *
 	 * @param {Array} message 7-field positional message, forwarded unchanged;
 	 *                        only the per-target copies get their TO rewritten.
-	 * @throws {Error} When no sink is wired.
+	 * @throws {Error} When no sink is wired, or what the fan-out threw.
 	 */
 	fill( message ) {
 		this.counter++;
-		const targets = Array.isArray( this.target ) ? this.target : [];
-		// Prune dead heads in THIS registry, or a draft loses every edge.
-		const alive = targets.filter(
-			( t ) => null !== this.registry.node( t.split( '/' )[ 0 ] )
-		);
-		this.target = alive;
-		for ( const t of alive ) {
-			if ( ! this.sink ) {
-				throw new Error( 'fill requires a wired sink' );
-			}
-			try {
-				const copy = message.slice();
-				copy[ TO ] = t;
-				this.sink.fill( copy );
-			} catch ( e ) {
-				this.printLessOften(
-					`WARNING: target ${ t } threw: ${ e.message }`
-				);
-			}
+		const alive = this.liveTargets();
+		if ( ! this.sink ) {
+			throw new Error( 'fill requires a wired sink' );
 		}
-		this.sink.fill( message );
+		const caught = attemptEach( alive, ( t ) => {
+			const copy = message.slice();
+			copy[ TO ] = t;
+			this.sink.fill( copy );
+		} );
+		try {
+			this.sink.fill( message );
+		} catch ( e ) {
+			caught.push( e );
+		}
+		raise( caught );
 	}
 }

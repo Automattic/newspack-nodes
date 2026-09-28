@@ -1,4 +1,3 @@
-/* global globalThis */
 /**
  * Drilling into a hull ("Open request-builder.tsl") from LIVE mode.
  *

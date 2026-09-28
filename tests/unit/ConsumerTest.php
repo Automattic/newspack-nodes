@@ -165,12 +165,11 @@ class ConsumerTest extends TestCase {
 		$superseded = $this->read_private( $c, 'source' );
 		$c->refuse_naming = true;
 
-		try {
-			$c->arguments( [ "{$this->tmp}/grapnel.p9" ] );
-			$this->fail( 'expected the refused naming to unwind the replay' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertSame( 'grapnel refuses the name', $e->getMessage() );
-		}
+		$e = $this->caught(
+			fn () => $c->arguments( [ "{$this->tmp}/grapnel.p9" ] ),
+			'expected the refused naming to unwind the replay'
+		);
+		$this->assertSame( 'grapnel refuses the name', $e->getMessage() );
 
 		$live = $this->read_private( $c, 'source' );
 		$this->assertNotSame( $superseded, $live, 'the property holds the source the replay built' );
@@ -718,7 +717,7 @@ class ConsumerTest extends TestCase {
 		$message[ Message::VALUE ] = $stats;
 		\file_put_contents( "{$dir}/0.log", Message::packed( $message ) . "\n" );
 
-		$rows = ( new CLI( $this->tmp ) )->consumer_rows();
+		$rows = ( new CLI( $this->tmp ) )->consumer_rows()['rows'];
 		$this->assertCount( 1, $rows );
 		$row = $rows[0];
 		$this->assertSame( $stats[ Probe_Record::READER ], $row['reader'] );
@@ -1389,11 +1388,11 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( 1, $this->count_offsetlog_records( "{$this->tmp}/deadletter.p0" ) );
 	}
 
-	public function test_deadletter_write_failure_does_not_wedge_the_partition(): void {
-		// If quarantine itself fails (disk full / I/O), the poison must still be
-		// dropped and the cursor advanced — a failed DLQ write must NOT re-wedge the
-		// partition, which would loop forever: re-read poison → sink throws →
-		// dead_letter's write throws → escapes forward_line uncaught → never advances.
+	public function test_a_failed_quarantine_escapes_and_leaves_the_cursor_on_the_poison(): void {
+		// A quarantine that cannot be written is no quarantine: the handler's
+		// error and the write failure escape together, and the cursor stays on
+		// the poison so the successor replays it rather than commit past a record
+		// that never landed anywhere.
 		$source = new Partition_Node();
 		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'poison' );
@@ -1406,18 +1405,26 @@ class ConsumerTest extends TestCase {
 				throw new \RuntimeException( 'handler boom' );
 			}
 		} );
+		// Every quarantine write refused: the DLQ's disk is full.
+		Partition_Node::$fwrite = static function ( $fh, string $bytes ) {
+			$uri = (string) ( \stream_get_meta_data( $fh )['uri'] ?? '' );
+			return \str_contains( $uri, '/deadletter.p0/' ) ? false : \fwrite( $fh, $bytes );
+		};
+		Core::set_stderr_handler( static function () { /* swallow */ } );
 
-		// Swap the DLQ sibling for one whose write itself fails.
-		$ref  = new \ReflectionProperty( Consumer_Node::class, 'deadletter' );
-		$ref->setValue( $c, new class() extends Partition_Node {
-			public function fill( array $message ): void {
-				throw new \RuntimeException( 'disk full' );
-			}
-		} );
+		$escaped = null;
+		try {
+			$this->pump_consumer( $c );
+		} catch ( \Newspack_Nodes\Failures $e ) {
+			$escaped = $e;
+		} finally {
+			Partition_Node::$fwrite = null;
+		}
 
-		// Must complete without the DLQ-write failure escaping (no infinite wedge).
-		$this->pump_consumer( $c );
-		$this->addToAssertionCount( 1 );
+		$this->assertNotNull( $escaped, 'a failed quarantine must escape the drain' );
+		$this->assertSame( 'handler boom', $escaped->all()[0]->getMessage() );
+		$this->assertStringContainsString( "{$this->tmp}/deadletter.p0/0.log", $escaped->all()[1]->getMessage() );
+		$this->assertSame( 0, $this->read_private( $c, 'cursor_offset' ), 'the cursor stays on the poison' );
 	}
 
 	public function test_unparseable_source_line_is_quarantined_not_dropped(): void {
@@ -1645,6 +1652,75 @@ class ConsumerTest extends TestCase {
 		$c->cooperative_stop( 'timeout', false );
 		$entry = $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" );
 		$this->assertSame( 0, $entry['attempts'], 'clean-shutdown plain stop advances the cursor — no strike' );
+	}
+
+	public function test_assume_clean_shutdown_replays_a_stop_whose_downstream_flush_failed(): void {
+		// A plain stop carrying a previous says the chain's durable write FAILED (the
+		// Partition's flush threw while honoring the stop). assume_clean_shutdown's
+		// promise is void then: the in-flight message never landed, so the Consumer
+		// must replay it, and the failure must escape on the stop rather than vanish.
+		$source = new Partition_Node();
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
+		$this->produce_line( $source, 'A' );
+		$this->produce_line( $source, 'B' );
+		$this->produce_line( $source, 'C' );
+
+		$c = new Consumer_Node();
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
+		$c->name( 'firehose:consumer' );
+		$c->set_assume_clean_shutdown( true );
+		$flush_error = new \RuntimeException( 'segment write refused: ENOSPC' );
+		$c->sink( new class( $flush_error ) extends Node {
+			public function __construct( private \RuntimeException $flush_error ) {}
+			public function fill( array $message ): void {
+				if ( 'C' === $message[ Message::VALUE ] ) {
+					throw new \Newspack_Nodes\Worker_Should_Stop( '', 0, $this->flush_error );
+				}
+			}
+		} );
+		try {
+			$this->pump_consumer( $c );
+			$this->fail( 'expected Worker_Should_Stop' );
+		} catch ( \Newspack_Nodes\Worker_Should_Stop $e ) {
+			$this->assertNotInstanceOf( \Newspack_Nodes\Worker_Should_Stop_Clean::class, $e, 'a failed flush never converts to clean' );
+			$this->assertSame( $flush_error, $e->getPrevious(), 'the flush failure escapes on the stop' );
+		}
+
+		$buffer = (string) $this->read_private( $c, 'buffer' );
+		$this->assertNotFalse( \strpos( $buffer, "\n" ), 'C stays buffered at the cursor for the successor to replay' );
+	}
+
+	public function test_a_clean_stop_carrying_a_failure_replays_instead_of_committing_past(): void {
+		// PHP chains an in-flight failure onto a stop thrown in a finally, so a Clean
+		// stop can arrive carrying one. Its record never became durable: the cursor
+		// must stay on C for the successor, and the failure must escape with it.
+		$source = new Partition_Node();
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
+		$this->produce_line( $source, 'A' );
+		$this->produce_line( $source, 'B' );
+		$this->produce_line( $source, 'C' );
+
+		$c = new Consumer_Node();
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
+		$c->name( 'firehose:consumer' );
+		$flush_error = new \RuntimeException( 'segment write refused: EIO-57' );
+		$c->sink( new class( $flush_error ) extends Node {
+			public function __construct( private \RuntimeException $flush_error ) {}
+			public function fill( array $message ): void {
+				if ( 'C' === $message[ Message::VALUE ] ) {
+					throw new \Newspack_Nodes\Worker_Should_Stop_Clean( 'clean-58', 0, $this->flush_error );
+				}
+			}
+		} );
+		try {
+			$this->pump_consumer( $c );
+			$this->fail( 'expected Worker_Should_Stop' );
+		} catch ( \Newspack_Nodes\Worker_Should_Stop $e ) {
+			$this->assertSame( $flush_error, $e->getPrevious(), 'the failure escapes on the stop' );
+		}
+
+		$buffer = (string) $this->read_private( $c, 'buffer' );
+		$this->assertNotFalse( \strpos( $buffer, "\n" ), 'C stays buffered at the cursor for the successor to replay' );
 	}
 
 	public function test_assume_clean_shutdown_round_trips_through_dump_config(): void {
@@ -2175,6 +2251,43 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( [ 'in_flight' => [ 'r1' => 'a-state' ] ], $entry['cache']['request-builder'] ?? null );
 	}
 
+	public function test_a_stop_a_snapshot_save_reaches_waits_for_the_frame_to_commit(): void {
+		$source = new Partition_Node();
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
+		$this->produce_line( $source, 'hello' );
+		$writer        = new Stopping_Snapshot_Probe();
+		$writer->name( 'flame-builder' );
+		$writer->state = [ 'pending' => [ 'bucket-6613' => 29 ] ];
+		$gate          = new Snapshot_Probe();
+		$gate->name( 'value-gate' );
+		$gate->state = [ 'recently_sent' => [ 'warm-6613' => 71.5 ] ];
+
+		$c = new Consumer_Node();
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
+		$c->name( 'firehose:consumer' );
+		$c->sink( new Capture_Sink_Node() );
+		$c->add_snapshot_node( 'flame-builder' );
+		$c->add_snapshot_node( 'value-gate' );
+		$this->pump_consumer( $c );
+		// Its own poll would checkpoint first, before the stop is due.
+		$c->stop_timer();
+
+		$committed = false;
+		$stop      = $this->with_stop_due(
+			static function () use ( $c, &$committed ): void {
+				$c->checkpoint();
+				$committed = true;
+				\Newspack_Nodes\Event_Framework::instance()->pump();
+			}
+		);
+
+		$this->assertTrue( $committed, 'the checkpoint ran whole' );
+		$this->assertNotNull( $stop, 'the stop raised at the next pump' );
+		$entry = $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" );
+		$this->assertSame( [ 'pending' => [ 'bucket-6613' => 29 ] ], $entry['cache']['flame-builder'] ?? null );
+		$this->assertSame( [ 'recently_sent' => [ 'warm-6613' => 71.5 ] ], $entry['cache']['value-gate'] ?? null );
+	}
+
 	public function test_checkpoint_co_commits_multiple_snapshot_nodes_keyed_by_name(): void {
 		// add_snapshot_node composes: each named node's save_state() rides the ONE
 		// frame under its own name, and a respawn restores each by name. A name
@@ -2379,12 +2492,12 @@ class ConsumerTest extends TestCase {
 		$b->add_snapshot_node( 'request-builder' );
 		( new Throwing_Snapshot_Probe() )->name( 'request-builder' );
 
-		try {
-			$this->pump_consumer( $b ); // restore_state() throws mid-boot.
-			$this->fail( 'expected the throwing restore to propagate' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertSame( 'restore boom', $e->getMessage() );
-		}
+		// restore_state() throws mid-boot.
+		$e = $this->caught(
+			fn () => $this->pump_consumer( $b ),
+			'expected the throwing restore to propagate'
+		);
+		$this->assertSame( 'restore boom', $e->getMessage() );
 
 		$entry = $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" );
 		$this->assertSame( 2, $entry['attempts'], 'the bumped attempt must be durable even though restore crashed' );
@@ -3914,20 +4027,13 @@ class ConsumerTest extends TestCase {
 	public function test_poll_skips_line_that_fails_unpacked_and_continues(): void {
 		// A genuinely corrupt on-disk line (here a too-few-fields array that
 		// Message::unpacked() rejects) followed by a valid packed line. The drain
-		// loop must skip the bad line and still emit the following valid one, not
-		// abort the poll. Written raw because packed() now slices to 7 fields, so
-		// it can no longer be coaxed into emitting a malformed line itself.
-		$seg_dir = "{$this->tmp}/data.p0";
-		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
-		@\mkdir( $seg_dir, 0755, true );
-
-		$good                   = Message::new_message();
-		$good[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$good[ Message::VALUE ] = 'keepme';
-		\file_put_contents( "{$seg_dir}/0.log", "[1,2,3]\n" . Message::packed( $good ) . "\n" );
+		// loop must quarantine the bad line and still emit the following valid
+		// one, not abort the poll. Written raw because packed() now slices to 7
+		// fields, so it can no longer be coaxed into emitting a malformed line.
+		$this->seed_corrupt_then_good_line();
 
 		$c = new Consumer_Node();
-		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
 		$capture = new Capture_Sink_Node();
 		$c->sink( $capture );
 
@@ -3935,17 +4041,125 @@ class ConsumerTest extends TestCase {
 
 		$values = \array_map( static fn ( $m ) => $m[ Message::VALUE ], $capture->captured );
 		$this->assertSame( [ 'keepme' ], $values );
+		$this->assertStringContainsString( '[1,2,3]', (string) \file_get_contents( "{$this->tmp}/deadletter.p0/0.log" ), 'the corrupt line is quarantined' );
 	}
 
-	public function test_construct_ignores_unparseable_offsetlog_entry(): void {
+	public function test_poll_raises_an_unparseable_line_with_no_quarantine(): void {
+		// No deadletter_dir: the unpack error is the message's only record, so
+		// it escapes, and nothing past the bad line is forwarded.
+		$this->seed_corrupt_then_good_line();
+
+		$c = new Consumer_Node();
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
+		$capture = new Capture_Sink_Node();
+		$c->sink( $capture );
+
+		try {
+			$this->pump_consumer( $c );
+			$this->fail( 'expected the unpack error to escape' );
+		} catch ( \InvalidArgumentException $e ) {
+			$this->assertStringContainsString( '7-element', $e->getMessage() );
+		}
+		$this->assertSame( [], $capture->captured );
+		$this->assertSame( 0, $this->read_private( $c, 'cursor_offset' ), 'the cursor stays at the bad line' );
+	}
+
+	public function test_a_cursorless_reader_counts_the_unparseable_lines_it_skips(): void {
+		$seg_dir = "{$this->tmp}/data.p0";
+		\mkdir( $seg_dir, 0755, true );
+		$good                   = Message::new_message();
+		$good[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$good[ Message::VALUE ] = 'mizzen-4417';
+		\file_put_contents( "{$seg_dir}/0.log", "[1,2,3]\n{torn\n" . Message::packed( $good ) . "\n" );
+
+		$c = new Consumer_Node();
+		$c->arguments( [ $seg_dir ] );
+		$c->set_skip_unparseable( true );
+		$capture = new Capture_Sink_Node();
+		$c->sink( $capture );
+
+		$this->pump_consumer( $c );
+
+		$values = \array_map( static fn ( $m ) => $m[ Message::VALUE ], $capture->captured );
+		$this->assertSame( [ 'mizzen-4417' ], $values, 'both torn lines are skipped, the good one forwarded' );
+		$this->assertSame( 2, $c->take_unparseable_lines() );
+		$this->assertSame( 0, $c->take_unparseable_lines(), 'the read drains the count' );
+	}
+
+	public function test_a_scan_reads_a_log_whole_and_the_readers_torn_lines_sum_once(): void {
+		$lines = [ 'p0' => "[1,2,3]\n{torn\n", 'p1' => "[4,5]\n" ];
+		$kept  = [ 'p0' => 'mizzen-4417', 'p1' => 'jib-2291' ];
+		$scans = [];
+		foreach ( $lines as $p => $torn ) {
+			$dir = "{$this->tmp}/data.{$p}";
+			\mkdir( $dir, 0755, true );
+			$good                   = Message::new_message();
+			$good[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+			$good[ Message::VALUE ] = $kept[ $p ];
+			\file_put_contents( "{$dir}/0.log", $torn . Message::packed( $good ) . "\n" );
+			$scans[ $p ] = Consumer_Node::scan( $dir );
+		}
+		$capture = new Capture_Sink_Node();
+		foreach ( $scans as $scan ) {
+			$scan->sink( $capture );
+			$scan->drain();
+		}
+
+		$values = \array_values( \array_filter( \array_map( static fn ( $m ) => $m[ Message::VALUE ], $capture->captured ) ) );
+		$this->assertSame( [ 'mizzen-4417', 'jib-2291' ], $values );
+		$this->assertSame( 3, Consumer_Node::take_unparseable_lines_of( $scans ) );
+		$this->assertSame( 0, Consumer_Node::take_unparseable_lines_of( $scans ), 'the take drains every count' );
+	}
+
+	public function test_a_cursorless_reader_raises_an_unparseable_line_unless_it_skips(): void {
+		$this->seed_corrupt_then_good_line();
+
+		$c = new Consumer_Node();
+		$c->arguments( [ "{$this->tmp}/data.p0" ] );
+		$c->sink( new Capture_Sink_Node() );
+
+		$this->expectException( \InvalidArgumentException::class );
+		$this->pump_consumer( $c );
+	}
+
+	public function test_skipping_unparseable_lines_is_refused_to_a_reader_with_a_cursor(): void {
+		$c = new Consumer_Node();
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
+
+		$this->expectException( \LogicException::class );
+		$this->expectExceptionMessage( 'cursor' );
+		$c->set_skip_unparseable( true );
+	}
+
+	public function test_skipping_unparseable_lines_is_refused_to_a_reader_with_a_quarantine(): void {
+		$c = new Consumer_Node();
+		$c->arguments( [ "{$this->tmp}/data.p0", '', "{$this->tmp}/deadletter.p0" ] );
+
+		$this->expectException( \LogicException::class );
+		$this->expectExceptionMessage( 'quarantine' );
+		$c->set_skip_unparseable( true );
+	}
+
+	/** Write a too-few-fields line, then a valid packed `keepme` line. */
+	private function seed_corrupt_then_good_line(): void {
+		$seg_dir = "{$this->tmp}/data.p0";
+		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
+		@\mkdir( $seg_dir, 0755, true );
+		$good                   = Message::new_message();
+		$good[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$good[ Message::VALUE ] = 'keepme';
+		\file_put_contents( "{$seg_dir}/0.log", "[1,2,3]\n" . Message::packed( $good ) . "\n" );
+	}
+
+	public function test_poll_raises_an_unparseable_offsetlog_entry(): void {
 		$source = new Partition_Node();
 		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'hello' );
 
 		// Write a real checkpoint, then corrupt that entry in place at the same
 		// byte length (segment size unchanged) so it is a complete-but-
-		// unparseable offsetlog line. A fresh Consumer must seed past it without
-		// throwing, starting from the default cursor (0/0).
+		// unparseable offsetlog line. The committed cursor is unknown, so the
+		// first poll raises rather than restarting from a default position.
 		$c1 = new Consumer_Node();
 		$c1->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c1->sink( new Capture_Sink_Node() );
@@ -3959,13 +4173,17 @@ class ConsumerTest extends TestCase {
 		\file_put_contents( $offsetlog_path, \str_repeat( 'x', (int) $nl ) . \substr( $content, (int) $nl ) );
 		\clearstatcache();
 
-		$c2  = new Consumer_Node();
+		$c2      = new Consumer_Node();
+		$capture = new Capture_Sink_Node();
 		$c2->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
-		$ref = new \ReflectionObject( $c2 );
-		$segment = $ref->getProperty( 'cursor_segment' );
-		$offset = $ref->getProperty( 'cursor_offset' );
-		$this->assertSame( 0, $segment->getValue( $c2 ) );
-		$this->assertSame( 0, $offset->getValue( $c2 ) );
+		$c2->sink( $capture );
+
+		$this->expectException( \InvalidArgumentException::class );
+		try {
+			$c2->poll();
+		} finally {
+			$this->assertSame( [], $capture->captured, 'nothing is read from a guessed position' );
+		}
 	}
 
 	public function test_named_consumer_registers_source_sibling(): void {
@@ -4307,6 +4525,19 @@ class Snapshot_Probe extends Node {
 	/** @var array<string, mixed> */
 	public array $state = [];
 	public function save_state(): array {
+		return $this->state;
+	}
+	public function restore_state( array $saved ): void {
+		$this->state = $saved;
+	}
+}
+
+/** A snapshot node whose save reaches a stop boundary, as a partition write does. */
+class Stopping_Snapshot_Probe extends Node {
+	/** @var array<string, mixed> */
+	public array $state = [];
+	public function save_state(): array {
+		\Newspack_Nodes\Event_Framework::instance()->stop_check();
 		return $this->state;
 	}
 	public function restore_state( array $saved ): void {

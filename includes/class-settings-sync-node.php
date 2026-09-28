@@ -114,39 +114,46 @@ class Settings_Sync_Node extends Timer_Node {
 	 * single tick, so the batching `HTTP_Out` downstream coalesces them into one
 	 * POST per spoke. It replaces the base Timer heartbeat rather than adding to
 	 * it — a spoke wants the settings, not a tick. One cache flush serves the
-	 * whole sweep, and a sweep with nothing to push pays none.
+	 * whole sweep, and a sweep with nothing to push pays none. Every option is
+	 * attempted, and what any of them threw is raised after the last.
+	 *
+	 * @throws \Throwable Every option's failure, combined, raised after the sweep.
 	 */
 	public function fire(): void {
 		if ( [] === $this->registry || [] === $this->live_targets() ) {
 			return;
 		}
 		Config::invalidate_options_cache();
-		foreach ( \array_keys( $this->registry ) as $local ) {
-			$this->push( $local );
-		}
+		$caught = Worker_Should_Stop::attempt_each(
+			\array_keys( $this->registry ),
+			fn ( string $local ) => $this->push( $local )
+		);
+		Worker_Should_Stop::raise( $caught );
 	}
 
 	/**
 	 * Read one registered local option and fan its current value out, one `set`
 	 * per mapping. The caller has already checked that the option is registered
-	 * and a spoke is connected, and flushed the options cache; a value that
-	 * will not encode drops with a rate-limited line.
+	 * and a spoke is connected, and flushed the options cache. A value that
+	 * will not encode sends nothing and throws, since an empty token would
+	 * wipe the option at every spoke. Every mapping is attempted, and what any
+	 * of them threw is raised after the last.
 	 *
 	 * @param string $local Registered local WP-option name.
+	 * @throws \RuntimeException When the value will not encode.
+	 * @throws \Throwable Every mapping's failure, combined, raised after the last.
 	 */
 	private function push( string $local ): void {
 		// App-overridable: ELN resolves a blank remote_* to its file default.
 		$value  = \apply_filters( 'newspack_nodes/settings_sync/value', \get_option( $local ), $local );
-		$scalar = self::scalarize( $value );
-		// Skip unencodable values; an empty token would WIPE the option.
-		if ( null === $scalar ) {
-			$this->print_less_often( 'cannot encode value for ', $local, '; skipping' );
-			return;
-		}
+		$scalar = self::scalarize( $value )
+			?? throw new \RuntimeException( \esc_html( "settings_sync: cannot encode value for {$local}" ) );
 		// One `set` per mapping — a local may target several spoke options.
-		foreach ( $this->registry[ $local ] as $spec ) {
-			$this->send_signed( $spec['to'], 'set', [ $spec['remote'], $scalar ] );
-		}
+		$caught = Worker_Should_Stop::attempt_each(
+			$this->registry[ $local ],
+			fn ( array $spec ) => $this->send_signed( $spec['to'], 'set', [ $spec['remote'], $scalar ] )
+		);
+		Worker_Should_Stop::raise( $caught );
 	}
 
 	/**

@@ -17,8 +17,9 @@
  * and `check_stale()`. The patron owns durable position persistence and any status
  * memcache write — SSE_In keeps only the in-memory cursor + connection state.
  *
- * The wire is `SSE_Out`'s: five event types — `connected`, `msg`, `heartbeat`,
- * `retry` and `disconnect` — each carrying one packed 7-field Message.
+ * The wire is `SSE_Out`'s: six event types — `connected`, `msg`, `heartbeat`,
+ * `retry`, `disconnect` and `unparseable_lines` — each carrying one packed
+ * 7-field Message.
  *
  * @package Newspack_Nodes
  */
@@ -108,6 +109,18 @@ class SSE_In_Node extends Node {
 	 */
 	public ?\Closure $on_connecting     = null;
 
+	/**
+	 * Skip seam, set by the patron. An `unparseable_lines` frame names, in
+	 * CURSORS, where the spoke's reader stands past the torn lines it skipped;
+	 * this hands that position for `$subscribe` to the patron, which owns the
+	 * cursor, so a reopen resumes past those lines instead of counting them again.
+	 *
+	 * Signature: `function ( int $segment, int $offset ): void`.
+	 *
+	 * @var \Closure|null
+	 */
+	public ?\Closure $on_skipped        = null;
+
 	/** Application-Password secret, paired with `$auth_username` for Basic auth. */
 	protected string $auth_password     = '';
 
@@ -158,6 +171,9 @@ class SSE_In_Node extends Node {
 
 	/** Wall-second of the last `heartbeat` event, for the patron's status display. */
 	private ?int    $last_sse_heartbeat = null;
+
+	/** Lines the spoke skipped as unparseable, summed across every connection. */
+	private int     $unparseable_lines  = 0;
 
 	/**
 	 * Read cursor sent at connect. The patron owns it — `configure()` and
@@ -524,8 +540,9 @@ class SSE_In_Node extends Node {
 
 	/**
 	 * Dispatch the accumulated event and clear the accumulator. `msg` hands its RAW
-	 * payload to `on_message`; `connected`, `heartbeat`, `retry` and `disconnect` are
-	 * bookkeeping this node consumes; an unknown type is ignored. Every event resets
+	 * payload to `on_message`; `connected`, `heartbeat`, `retry`, `disconnect` and
+	 * `unparseable_lines` are bookkeeping this node consumes; an unknown type is
+	 * ignored. Every event resets
 	 * the backoff and refreshes liveness, so a talking stream never ages into
 	 * `check_stale()`.
 	 *
@@ -614,6 +631,10 @@ class SSE_In_Node extends Node {
 			return true;
 		}
 
+		if ( 'unparseable_lines' === $type ) {
+			return $this->handle_unparseable( $raw_data );
+		}
+
 		// 'msg' hands RAW payload to owner; its forward_line owns unparse/DLQ.
 		if ( 'msg' === $type ) {
 			$this->largest_msg_sent = \max( $this->largest_msg_sent, \strlen( $raw_data ) );
@@ -641,13 +662,9 @@ class SSE_In_Node extends Node {
 		if ( ! \is_string( $value ) ) {
 			return $this->reject_connected( 'malformed connected envelope (non-string value)' );
 		}
-		$tokens = \preg_split( '/ +/', \trim( $value ) );
-		if ( false === $tokens || 0 !== \count( $tokens ) % 2 ) {
+		$info = self::flat_info( $value );
+		if ( null === $info ) {
 			return $this->reject_connected( 'malformed connected envelope' );
-		}
-		$info = [];
-		for ( $i = 0, $count = \count( $tokens ); $i < $count; $i += 2 ) {
-			$info[ $tokens[ $i ] ] = $tokens[ $i + 1 ];
 		}
 
 		$slot = Core::canonical_decimal( $info['SLOT'] ?? null );
@@ -664,7 +681,7 @@ class SSE_In_Node extends Node {
 		$this->connected_at = Core::$now ?: Core::right_now();
 		// OWNER is a fencing token; omit it from debug/state payloads and logs.
 		$this->set_state( 'CONNECTED', "SLOT {$slot}" );
-		$cursor = $this->handshake_cursor( Core::as_string( $info['CURSORS'] ?? '' ) );
+		$cursor = $this->subscription_cursor( Core::as_string( $info['CURSORS'] ?? '' ) );
 		if ( null !== $cursor && null !== $this->on_connected ) {
 			( $this->on_connected )( $cursor[0], $cursor[1] );
 		}
@@ -672,13 +689,65 @@ class SSE_In_Node extends Node {
 	}
 
 	/**
-	 * This subscription's entry in a handshake's CURSORS token,
+	 * Add one `unparseable_lines` frame to the running count, published as
+	 * UNPARSEABLE_LINES, and hand the patron where the spoke's reader now
+	 * stands. The spoke's readers keep no cursor, so a torn line is skipped
+	 * rather than ending the stream, and this frame is how the hub learns of
+	 * it. A frame whose COUNT is not a positive decimal is reported as an ERROR
+	 * and counts nothing, but leaves the stream up, as the browser twin does.
+	 *
+	 * @param string $raw_data The frame's packed Message.
+	 * @return bool Always true: no frame of this type ends the connection.
+	 */
+	private function handle_unparseable( string $raw_data ): bool {
+		try {
+			$value = Message::unpacked( $raw_data )[ Message::VALUE ];
+		} catch ( \InvalidArgumentException $e ) {
+			$value = null;
+		}
+		$info  = self::flat_info( \is_string( $value ) ? $value : '' ) ?? [];
+		$count = Core::canonical_decimal( $info['COUNT'] ?? null );
+		if ( null === $count || 0 === $count ) {
+			$this->set_state( 'ERROR', 'malformed unparseable_lines frame' );
+			$this->print_less_often( 'ERROR: dropped a malformed unparseable_lines frame' );
+			return true;
+		}
+		$this->unparseable_lines += $count;
+		$this->set_state( 'UNPARSEABLE_LINES', (string) $this->unparseable_lines );
+		$cursor = $this->subscription_cursor( $info['CURSORS'] ?? '' );
+		if ( null !== $cursor && null !== $this->on_skipped ) {
+			( $this->on_skipped )( $cursor[0], $cursor[1] );
+		}
+		return true;
+	}
+
+	/**
+	 * Split a flat TM_INFO VALUE — space-separated `KEY VALUE` pairs, the shape of
+	 * the `connected` envelope and the `unparseable_lines` frame — into a map.
+	 *
+	 * @param string $value The frame's VALUE.
+	 * @return array<string,string>|null Each KEY to the token after it, or null when a KEY has no VALUE.
+	 */
+	private static function flat_info( string $value ): ?array {
+		$tokens = \preg_split( '/ +/', \trim( $value ) );
+		if ( false === $tokens || 0 !== \count( $tokens ) % 2 ) {
+			return null;
+		}
+		$info = [];
+		for ( $i = 0, $count = \count( $tokens ); $i < $count; $i += 2 ) {
+			$info[ $tokens[ $i ] ] = $tokens[ $i + 1 ];
+		}
+		return $info;
+	}
+
+	/**
+	 * This subscription's entry in a frame's CURSORS token,
 	 * `dir=segment:offset` pairs joined by commas.
 	 *
 	 * @param string $cursors The token, empty when the spoke sent none.
 	 * @return array{0:int,1:int}|null The segment and offset, or null when absent or malformed.
 	 */
-	private function handshake_cursor( string $cursors ): ?array {
+	private function subscription_cursor( string $cursors ): ?array {
 		foreach ( \explode( ',', $cursors ) as $pair ) {
 			[ $dir, $position ] = \array_pad( \explode( '=', $pair, 2 ), 2, '' );
 			if ( $dir !== $this->subscribe ) {
@@ -982,7 +1051,7 @@ class SSE_In_Node extends Node {
 	 * own rather than being inferred from the absence of a failure.
 	 *
 	 * @api Dynamic entrypoint.
-	 * @return array{connected:bool,connecting:bool,last_http_code:?int,last_error:?string,current_backoff:int,last_sse_heartbeat:?int,last_attempt:?int,scheduled_reconnect_at:?int}
+	 * @return array{connected:bool,connecting:bool,last_http_code:?int,last_error:?string,current_backoff:int,last_sse_heartbeat:?int,last_attempt:?int,scheduled_reconnect_at:?int,unparseable_lines:int}
 	 */
 	public function connection(): array {
 		return [
@@ -994,6 +1063,7 @@ class SSE_In_Node extends Node {
 			'last_sse_heartbeat'     => $this->last_sse_heartbeat,
 			'last_attempt'           => $this->last_attempt > 0.0 ? (int) $this->last_attempt : null,
 			'scheduled_reconnect_at' => $this->scheduled_reconnect_at,
+			'unparseable_lines'      => $this->unparseable_lines,
 		];
 	}
 

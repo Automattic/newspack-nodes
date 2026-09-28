@@ -106,6 +106,23 @@ class ConfigTokenResolverTest extends TestCase {
 		$this->assertStringEndsWith( '/deadletter', Core::resolve_config_token( 'config', 'deadletter_dir' ) );
 	}
 
+	/**
+	 * One root: `<config:deadletter_dir>` resolves, against the base the
+	 * config names, to exactly the root `Config::deadletter_dir()` gives every
+	 * writer and reader.
+	 */
+	public function test_the_deadletter_token_is_the_deadletter_root_of_the_seeded_base(): void {
+		$base = $this->make_temp_dir( 'kea-4476-' );
+		$this->use_base_dir( $base );
+		Config::register_token_namespace();
+
+		$resolved = Core::resolve_config_token( 'config', 'deadletter_dir', true );
+
+		$this->assertSame( '/srv/kea-4476/deadletter', Config::deadletter_dir( '/srv/kea-4476/' ) );
+		$this->assertSame( Config::deadletter_dir( $base ), $resolved );
+		$this->assertStringStartsWith( $base . '/', $resolved );
+	}
+
 	public function test_substrate_config_namespace_resolves_config_value_as_string(): void {
 		Config::register_token_namespace();
 		// num_partitions is 1 in the test config; tokens always resolve to strings.

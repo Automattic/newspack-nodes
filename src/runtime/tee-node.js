@@ -1,5 +1,6 @@
 import { Node } from './node';
 import { TO } from './message';
+import { attemptEach, raise } from './failures';
 
 /**
  * TeeNode — fan-out: every connected target gets its own copy of each message.
@@ -22,11 +23,10 @@ import { TO } from './message';
  * Targets are pruned on every fill against THIS node's registry, by their FIRST
  * path segment: a draft graph's nodes are invisible to any other registry, so
  * resolving elsewhere would read every edge as dead and drop it, and a
- * path-shaped target lives as long as its head node does. A target that throws
- * is logged and the fan-out continues, so one broken branch cannot silence the
- * others. The PHP twin instead defers the outranking throwable and re-raises it
- * after the loop (ADR-14), which keeps a consumer cursor from advancing past a
- * message that needs a replay; the browser has no such cursor.
+ * path-shaped target lives as long as its head node does. Every live target is
+ * attempted whatever an earlier one threw, so one broken branch cannot silence
+ * the others, and everything caught is raised after the last, as the PHP twin
+ * raises it (ADR-14): a failed branch is the caller's to see, never a log line.
  */
 export class TeeNode extends Node {
 	/**
@@ -48,31 +48,37 @@ export class TeeNode extends Node {
 	 * messages filled, not copies emitted — what `dump_metadata` reports.
 	 *
 	 * @param {Array} message The 7-field positional message, read but not rewritten.
-	 * @throws {Error} When a live target exists and no sink is wired.
+	 * @throws {Error} When a live target exists and no sink is wired, or what the targets threw.
 	 */
 	fill( message ) {
 		this.counter++;
 		const to = message[ TO ];
-		const targets = Array.isArray( this.target ) ? this.target : [];
-		// Prune dead heads in THIS registry, or a draft loses every edge.
-		const alive = targets.filter(
-			( t ) => null !== this.registry.node( t.split( '/' )[ 0 ] )
-		);
-		this.target = alive;
-		for ( const t of alive ) {
-			if ( ! this.sink ) {
-				throw new Error( 'fill requires a wired sink' );
-			}
-			try {
+		const alive = this.liveTargets();
+		if ( alive.length > 0 && ! this.sink ) {
+			throw new Error( 'fill requires a wired sink' );
+		}
+		raise(
+			attemptEach( alive, ( t ) => {
 				const copy = message.slice();
 				copy[ TO ] = '' === to ? t : `${ t }/${ to }`;
 				this.sink.fill( copy );
-			} catch ( e ) {
-				this.printLessOften(
-					`WARNING: target ${ t } threw: ${ e.message }`
-				);
-			}
-		}
+			} )
+		);
+	}
+
+	/**
+	 * The fan-out list, pruned in place of every target whose HEAD node has left
+	 * THIS registry — a draft graph's nodes are invisible to any other, so
+	 * resolving elsewhere would drop every edge.
+	 *
+	 * @return {string[]} The targets still alive, in connect order.
+	 */
+	liveTargets() {
+		const targets = Array.isArray( this.target ) ? this.target : [];
+		this.target = targets.filter(
+			( t ) => null !== this.registry.node( t.split( '/' )[ 0 ] )
+		);
+		return this.target;
 	}
 
 	/**

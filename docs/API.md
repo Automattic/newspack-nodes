@@ -510,19 +510,29 @@ alongside `url`, `auth_username` and `has_credentials`. It is the field a
 The `workers` CI's `dump_graph` returns the dashboard payload:
 
 ```
-{ workers[], consumers[], logs[], log_partitions, deadletter_segments,
-  deadletter_by_reader, num_partitions, max_segments, segment_size,
-  timestamp, heartbeat_interval_s, graph }
+{ workers[], unreadable, consumers[], unparseable_lines, refused_producers,
+  logs[], log_partitions, deadletter_segments, deadletter_by_reader,
+  num_partitions, max_segments, segment_size, timestamp, heartbeat_interval_s,
+  graph }
 ```
 
-![Where each dump_graph key comes from, one row per source: the lock dirs to workers[] with its ten fields, the last 128 KiB of the topicprobe log to consumers[] with its nine fields and the stale re-measure, the log catalog to logs[] and its join key, the logs root to log_partitions, the dead-letter dirs to the two dead-letter keys, config to the five scalars, and the active topologies to graph; beneath, the two readers of the one snapshot, the dashboard's dump_graph and Alerts::evaluate().](img/api-dump-graph-sources.png)
+`unreadable` maps each active topology that will not read to its message, and
+`graph` omits it. `refused_producers` maps each registered log producer
+template that declares no dir under `<config:logs_dir>` to its message, and
+`logs[]` omits its dirs. Both are `[]` when nothing failed, and the Overview
+tab renders each entry as an error banner.
+
+![Where each dump_graph key comes from, one row per source: the lock dirs to workers[] with its ten fields, the last 128 KiB of the topicprobe log to consumers[] with its nine fields, the stale re-measure and the unparseable_lines count, the log catalog to logs[] and its join key, the logs root to log_partitions, the dead-letter dirs to the two dead-letter keys, config to the five scalars, and the active topologies to graph; beneath, the two readers of the one snapshot, the dashboard's dump_graph and Alerts::evaluate().](img/api-dump-graph-sources.png)
 
 `consumers[]` is a report, not an inventory: [`CLI::consumer_rows()`](../includes/class-cli.php)
 builds it from one [`Probe_Record`](../includes/class-probe-record.php) per
 reader in the shared topicprobe log, so a reader that has not reported recently
 drops out instead of reading stale, and a record aged past
 [`Topic_Probe_Node::stale_after_s()`](../includes/class-topic-probe-node.php) is
-re-measured off disk. [`Alerts::evaluate()`](../includes/class-alerts.php) reads
+re-measured off disk. Every worker appends to that one log, and a short write
+can leave a torn line there; `unparseable_lines` counts the lines in the window
+that would not unpack and were skipped, and `wp nodes status` warns with the
+same count. [`Alerts::evaluate()`](../includes/class-alerts.php) reads
 the same snapshot, so an alert can never name a fleet the dashboard does not
 show.
 
@@ -583,7 +593,9 @@ refused. The probe's reply is the whitelisted roll-up
 deadletter_segments }`, where `dead` counts every worker that is neither live
 nor stale — one that never started — and `worst_distance` is the largest
 `distance` across the spoke's `consumers[]`. `summary` reduces the same snapshot
-to `{ connected, idle, total, server_now }`, and its per-server reading is best
+to `{ connected, idle, total, server_now, unreadable }` — `unreadable` maps each
+active topology that will not read to its message, and the Aggregator Status
+tab renders each as an error banner — and its per-server reading is best
 partition wins: `connected` while any partition is connected, `idle` while none
 is connected but one carries a `scheduled_reconnect_at`, and `down` otherwise —
 so a partition mid-handshake or in error backoff counts toward `down`.
@@ -831,7 +843,7 @@ A standard SSE stream, `Content-Type: text/event-stream`, with every buffering
 layer between PHP and the browser disabled and each tick's output chased with
 the `FLUSH_SIZE` (4096) padding comment the lifecycle diagram shows.
 
-Five events go out, in this order of first appearance. Every one but `msg` is a
+Six events go out, in this order of first appearance. Every one but `msg` is a
 TM_INFO frame stamped `FROM=_stream`, so the table names only what tells them
 apart:
 
@@ -841,6 +853,7 @@ apart:
 | `connected` | `KEY=connected`, VALUE the flat envelope below | The session handshake; see below. |
 | `msg` | the packed Message the egress received | One delivered record. Only these count as data, which is what defers the idle close. |
 | `heartbeat` | `KEY=heartbeat`, VALUE the tick timestamp | Liveness every `HEARTBEAT_MS = 2000`ms. Deliberately not data: a heartbeat never defers the idle close. |
+| `unparseable_lines` | `KEY=unparseable_lines`, VALUE `COUNT <n> CURSORS <pairs>` | Lines the stream's readers skipped since the last such frame because they would not unpack, sent on the tick that skipped them. The readers keep no cursor to replay a torn line from, so each is skipped rather than ending the stream on it; `CURSORS` is the `connected` envelope's token, restating every reader's resume point past the skip so a reopen does not read the line again. Not data: it never defers the idle close. Both readers add `COUNT` to a running total they publish as `UNPARSEABLE_LINES`: the browser's `SseInNode` re-seats each subscription's resume point from `CURSORS` itself, and the PHP `SSE_In_Node` hands its own subscription's pair to its patron, so a `Remote_Source` moves its cursor past the skipped lines once the records buffered ahead of them drain, and shows the total on the Aggregator card as Skipped lines. |
 | `disconnect` | `KEY=slot_lease_lost`, VALUE `SSE slot lease lost`; or `KEY=superseded`, VALUE `SSE stream superseded by its reconnect` | The terminal frame for a stream whose lease is gone. `slot_lease_lost` is a failure and writes a diagnostic line; `superseded` means the stream's own reconnect took the lease over, and writes nothing. |
 
 The stream **closes itself after `sse_idle_timeout` seconds** (default 5)
@@ -906,7 +919,10 @@ Consumer. A caller can never supply a path, so there is no traversal surface.
 ![The Log_Sources registry: the three families merged in priority order with the tail mode each carries, the six fields of a taillog sources row, the two classes Log_Sources::open_tail() maps the mode token to, the one read model behind taillog read and raw-logs read_message with the struct it answers, and the string errors the two verbs return instead of throwing: two shared, and unknown log source from taillog read alone.](img/api-log-stream-sources.png)
 
 The same registry backs the REPL's `taillog` verb (`Log_Sources::taillog()`),
-and its `taillog sources` name returns the merged catalog for GUI pickers.
+and its `taillog sources` name returns the merged catalog for GUI pickers. A
+source whose segments will not list, and an active topology that will not read,
+each take an unavailable row carrying `error` beside every readable source, so
+one failure never blanks the picker; a topology's row is named for the topology.
 
 **Permission**: inherited from `SSE_Out_Node` — the fleet gate, then the READ
 role, with no nonce.
@@ -1002,12 +1018,12 @@ answer. Every `newspack_nodes/*` name and signature is frozen surface — see
 | `newspack_nodes/spawn_worker` | `string $type, int $partition` | [`Spawn_Controller::spawn()`](../includes/rest/class-spawn-controller.php). Build the worker for `$type` and `->execute()` it. `Topology_Registry::spawn_worker` handles every active topology already. |
 | `newspack_nodes/reconcile` | — | The WP-Cron event itself, on the registered 60-second `newspack_nodes_minute` schedule. `Bootstrap::reconcile_fleet()` is its handler. |
 | `newspack_nodes/before_reconcile` | — | `Bootstrap::reconcile_fleet()`, before the pass. |
-| `newspack_nodes/periodic` | — | `Bootstrap::reconcile_fleet()`. The minute-cadence tick for work that needs no worker; [`Alerts::emit()`](../includes/class-alerts.php) and [`Job_Delay::sweep_action()`](../includes/class-job-delay.php) ride it. The whole action is ONE `reconcile_step()` wrapper, so the isolation is from the other reconciliation steps, not between subscribers: a subscriber that throws takes every later subscriber's window with it. Contain your own failures — `Alerts::emit()` catches its journal-write failure and reports it through `Core::stderr()` rather than cost `Job_Delay::sweep_action()` its sweep. |
-| `newspack_nodes/after_reconcile` | — | `Bootstrap::reconcile_fleet()`, after the pass. |
+| `newspack_nodes/periodic` | — | `Bootstrap::reconcile_fleet()`. The minute-cadence tick for work that needs no worker, fired as the last of the reconciliation steps. The substrate's own minute work — [`Alerts::emit()`](../includes/class-alerts.php) and [`Job_Delay::sweep()`](../includes/class-job-delay.php) — runs as steps of their own ahead of it, not as subscribers. The whole action is ONE step, so a subscriber that throws takes every later subscriber's window in that tick with it; the other steps all run regardless, and the failure then escapes the cron callback beside theirs. |
+| `newspack_nodes/after_reconcile` | — | `Bootstrap::reconcile_fleet()`, after the pass's last step, whatever the steps threw; their failures escape after it. |
 | `newspack_nodes/restart_fleet` | `string $name` | [`Topologies_CI_Node`](../includes/rest/class-topologies-ci-node.php), once per AFFECTED fleet on a topology save or delete — a saved child restarts every parent that composes it, transitively. [`Worker_CLI_Command::restart_fleet_by_name()`](../includes/cli/class-worker-cli-command.php) is registered on it at load and restarts every partition of the named fleet, so a substrate-side restart already happens; a name no active worker carries restarts nothing. |
 | `newspack_nodes/declare_config_keys` | — | [`Config`](../includes/class-config.php), on the first key check of the process and again on any miss. Call `Config::register_keys()` here and nothing else — see below. |
 | `newspack_nodes/config_reset` | — | `Config::reset()`. Drop anything memoized from config: the substrate drops log-dir scans, parsed TSL and vault credentials here. |
-| `newspack_nodes/job_worker/after_job` | `string $handler, string $id, ?array $outcome` | [`Job_Worker_Node`](../includes/class-job-worker-node.php), always — after a success, a throw, or a decline. Tear down per-job request context here. |
+| `newspack_nodes/job_worker/after_job` | `string $handler, string $id, ?array $outcome` | [`Job_Worker_Node`](../includes/class-job-worker-node.php), always — after a success, a throw, or a decline. Tear down per-job request context here. A listener that throws fails the job: its failure joins the job's own and propagates to the Consumer. |
 | `newspack_nodes/job_worker/batch_complete` | `string $batch` | `Job_Worker_Node`, when a batch's last job settles. |
 | `newspack_nodes/vault/changed` | `string $id, string $action, string $previous` | [`Vault_CI_Node`](../includes/rest/class-vault-ci-node.php), on any credential write, a `group` edit included. `$action` is `added`, `updated`, `renamed` or `removed`; `$previous` carries the id a rename moved away from, else `''`. [`Bootstrap::reload_vault_consumers()`](../includes/class-bootstrap.php) listens here to signal RELOAD to every topology holding a `Remote_Link`, `Remote_Source` or `Vault_Group`, and to reset the analyzer's caches so a planning read later in the same process sees the write. |
 | `newspack_nodes/stderr` | `string $text` | [`Core::_stderr()`](../includes/class-core.php), beside the stderr handler and under the same re-entry guard. A listener that throws cannot break the last-resort diagnostic path, and one that calls `stderr()` itself short-circuits to `error_log` rather than recursing. |
@@ -1043,7 +1059,7 @@ log_level 2 or above, and `debug` is what keeps it out of the paging path.
 | `newspack_nodes/job_worker/before_job` | `bool $run, string $handler, string $id, array $message` | `Job_Worker_Node`. Return `false` to DECLINE the job. |
 | `newspack_nodes/capability_map` | `array $map` — role => WP capability | [`Capabilities::cap_for()`](../includes/class-capabilities.php). The baseline is [`Roles::defaults()`](../includes/class-roles.php): all three roles map to `manage_options` until a site installs the granular capabilities, and then to `newspack_nodes_{read,tune,manage}`. Return all three roles — the union form `fn ( $map ) => [ 'read' => 'edit_posts' ] + $map`, never a bare `[ 'read' => … ]`; see below. |
 | `newspack_nodes/command_rate_limit` | `int $burst` | [`HTTP_In_Node::check_rate_limit()`](../includes/rest/class-http-in-node.php). Clamped to a minimum of 1. |
-| `newspack_nodes/registered_log_producers` | `array<int,string> $producers` — path templates | [`Log_Cleaner`](../includes/class-log-cleaner.php). Declare a log dir the retention sweep must know about. Non-string and empty entries are dropped and duplicates collapse, but a well-formed template resolving to no directory under `<config:logs_dir>` anywhere in the partition range is NOT dropped: `producer_log_dirs()` returns its fail-closed null and the whole sweep, `offsets/` included, is skipped. [`Core::resolve_partition_template`](../includes/class-core.php) expands each template over `Bootstrap::global_num_partitions()` — the global `num_partitions` clamped to `Spawn_Coordinator::MAX_PARTITIONS`, never the declaring topology's own count — so a producer writing past that range leaves undeclared dirs the sweep will take. A template carrying no `{partition}` or `<partition>` token collapses to one directory pinned across the fleet, which is how `alerts.p0` is declared. One log dir escapes this rule: `Log_Cleaner` reads `Settings_Event_Writer::SETTINGS_LOG_DIR` directly and seeds `settings.p0` at partition 0 into an already non-empty declared set, because the settings writer has no `.tsl` write-set entry and registers no template. Do not copy the settings writer as the model for a new PHP producer — one that declares nothing here is reaped. |
+| `newspack_nodes/registered_log_producers` | `array<int,string> $producers` — path templates | [`Log_Cleaner`](../includes/class-log-cleaner.php). Declare a log dir the retention sweep must know about. Non-string and empty entries are dropped and duplicates collapse, but a well-formed template resolving to no directory under `<config:logs_dir>` anywhere in the partition range is NOT dropped: it refuses the whole sweep, `offsets/` included, raising `log producer <template> declares no dir under the logs root <root>` before any delete, and `dump_graph` lists every other log and names the template under `refused_producers`. [`Core::resolve_partition_template`](../includes/class-core.php) expands each template over `Bootstrap::global_num_partitions()` — the global `num_partitions` clamped to `Spawn_Coordinator::MAX_PARTITIONS`, never the declaring topology's own count — so a producer writing past that range leaves undeclared dirs the sweep will take. A template carrying no `{partition}` or `<partition>` token collapses to one directory pinned across the fleet, which is how `alerts.p0` is declared. One log dir escapes this rule: `Log_Cleaner` reads `Settings_Event_Writer::SETTINGS_LOG_DIR` directly and seeds `settings.p0` at partition 0 into an already non-empty declared set, because the settings writer has no `.tsl` write-set entry and registers no template. Do not copy the settings writer as the model for a new PHP producer — one that declares nothing here is reaped. |
 | `newspack_nodes/segment_size_overrides` | `array<string,int> $overrides` — basename => bytes | [`Workers_CI_Node`](../includes/rest/class-workers-ci-node.php). Declare the geometry of a Partition built in PHP rather than by a `make_node` line, which has no literal size to read. The union keeps the left side, so the filter fills gaps and never restates. |
 | `newspack_nodes/settings_sync/value` | `mixed $value, string $option` | [`Settings_Sync_Node`](../includes/class-settings-sync-node.php). Resolve the value a hub pushes to its spokes — a requirement for any option that can be absent, not an optional refinement. `push()` reads `\get_option( $local )` with NO default and never goes through `Config::value()`, `register_setting()` defaults apply only inside `is_admin()` requests and a worker is never one, and [`Reset_Gate`](../includes/config-system/class-reset-gate.php) DELETES the row on reset-to-default. An unsaved or freshly-reset option therefore resolves to `false`, `Core::as_string()` makes that `''`, and the spoke's typed receiver refuses it with `invalid value for setting: …`. A hub syncing the substrate's own `remote_*` geometry needs a resolver mapping absent to the owning config's default; the filter runs on every push, the periodic sweep included. The substrate registers no handler of its own. |
 | `newspack_nodes/settings_audit_values_allowlist` | `array $options` | [`Settings_Event_Writer`](../includes/class-settings-event-writer.php), over the [`Settings_Schema`](../includes/class-settings-schema.php) option names. Options whose old and new values may ride in a settings-audit record; everything else is logged by NAME only. The encrypted vault option is refused BEFORE the filter runs, so no filter can opt the credential store back in. |

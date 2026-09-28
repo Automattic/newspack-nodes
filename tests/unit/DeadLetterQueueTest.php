@@ -3,8 +3,10 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversTrait;
 use Newspack_Nodes\Command_Interpreter_Node;
+use Newspack_Nodes\Core;
 use Newspack_Nodes\Dead_Letter_Queue;
 use Newspack_Nodes\Event_Framework;
+use Newspack_Nodes\Failures;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Partition_Node;
@@ -124,12 +126,11 @@ class DeadLetterQueueTest extends TestCase {
 		$d = new Dead_Letter_Queue_Double();
 		$d->name( 'brigantine' );
 
-		try {
-			$d->build_dlq( "{$this->tmp}/quarantine.p3" );
-			$this->fail( 'expected the squatted deadletter slot to be refused' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertStringContainsString( 'brigantine:deadletter already registered', $e->getMessage() );
-		}
+		$e = $this->caught(
+			fn () => $d->build_dlq( "{$this->tmp}/quarantine.p3" ),
+			'expected the squatted deadletter slot to be refused'
+		);
+		$this->assertStringContainsString( 'brigantine:deadletter already registered', $e->getMessage() );
 
 		$this->assertNull( $this->read_private( $d, 'deadletter' ), 'the refused sidecar is not cached' );
 		$this->expectException( \RuntimeException::class );
@@ -170,12 +171,41 @@ class DeadLetterQueueTest extends TestCase {
 		$this->assertSame( 1, $this->count_records( "{$this->tmp}/dlq.p0" ) );
 	}
 
-	public function test_dead_letter_without_partition_drops_without_throwing(): void {
+	public function test_dead_letter_without_partition_drops_a_message_nothing_threw_on(): void {
 		$d                         = new Dead_Letter_Queue_Double();
 		$message                   = Message::new_message();
 		$message[ Message::VALUE ] = 'poison';
-		$d->quarantine( $message, 'throw' );
-		$this->addToAssertionCount( 1 );
+		$lines                     = [];
+		Core::set_stderr_handler( static function ( string $line ) use ( &$lines ): void {
+			$lines[] = $line;
+		} );
+		$d->quarantine( $message, 'crash' );
+		$this->assertCount( 1, \array_filter( $lines, static fn ( string $l ): bool => \str_contains( $l, 'DEAD-LETTER [crash]' ) ) );
+	}
+
+	/**
+	 * With nowhere to quarantine, the error that condemned the message is
+	 * the only record of it, so it raises rather than printing and dropping.
+	 */
+	public function test_dead_letter_without_partition_raises_the_condemning_error(): void {
+		$d                         = new Dead_Letter_Queue_Double();
+		$message                   = Message::new_message();
+		$message[ Message::VALUE ] = 'poison';
+		$original                  = new \RuntimeException( 'handler choked on poison 7730' );
+		$lines                     = [];
+		Core::set_stderr_handler( static function ( string $line ) use ( &$lines ): void {
+			$lines[] = $line;
+		} );
+
+		$caught = null;
+		try {
+			$d->quarantine( $message, 'throw', $original );
+		} catch ( \RuntimeException $e ) {
+			$caught = $e;
+		}
+
+		$this->assertSame( $original, $caught );
+		$this->assertSame( [], $lines, 'nothing claims the message was dropped' );
 	}
 
 	public function test_dead_letter_rethrows_worker_should_stop(): void {
@@ -191,18 +221,67 @@ class DeadLetterQueueTest extends TestCase {
 		$d->quarantine( $message, 'throw' );
 	}
 
-	public function test_dead_letter_swallows_write_failure(): void {
+	public function test_a_stop_during_quarantine_carries_the_condemning_error(): void {
 		$d = new Dead_Letter_Queue_Double();
 		$d->set_dlq( new class() extends Partition_Node {
 			public function fill( array $message ): void {
-				throw new \RuntimeException( 'disk full' );
+				throw new Worker_Should_Stop();
 			}
 		} );
 		$message                   = Message::new_message();
 		$message[ Message::VALUE ] = 'poison';
-		// A failed quarantine must not escape — the caller advances the cursor regardless.
-		$d->quarantine( $message, 'throw' );
-		$this->addToAssertionCount( 1 );
+		$original                  = new \RuntimeException( 'handler choked on poison' );
+		try {
+			$d->quarantine( $message, 'throw', $original );
+		} catch ( Worker_Should_Stop $e ) {
+			$this->assertSame( $original, $e->getPrevious(), 'the error the quarantine never recorded rides the stop' );
+			return;
+		}
+		$this->fail( 'the stop must escape' );
+	}
+
+	/**
+	 * A quarantine that cannot be written is no quarantine: the write failure
+	 * escapes beside the error that condemned the message, and nothing claims
+	 * the message was dropped and moved past.
+	 */
+	public function test_a_failed_quarantine_raises_the_write_failure_beside_the_original(): void {
+		$d = new Dead_Letter_Queue_Double();
+		$d->build_dlq( "{$this->tmp}/dlq.p0" );
+		$message                   = Message::new_message();
+		$message[ Message::VALUE ] = 'poison';
+		$original                  = new \RuntimeException( 'handler choked on poison' );
+		$lines                     = [];
+		Core::set_stderr_handler( static function ( string $line ) use ( &$lines ): void {
+			$lines[] = $line;
+		} );
+		// Every write refused: the disk under the quarantine is full.
+		Partition_Node::$fwrite = static fn ( $fh, string $bytes ): false => false;
+
+		$failures = null;
+		try {
+			$d->quarantine( $message, 'throw', $original );
+		} catch ( Failures $e ) {
+			$failures = $e->all();
+		}
+		$this->assertNotNull( $failures, 'a failed quarantine must escape' );
+		[ $first, $second ] = $failures;
+		$this->assertSame( $original, $first );
+		$this->assertStringContainsString( "{$this->tmp}/dlq.p0/0.log", $second->getMessage() );
+		$this->assertSame( [], \array_filter( $lines, static fn ( string $l ): bool => \str_contains( $l, 'DROP' ) ) );
+	}
+
+	public function test_a_failed_quarantine_with_no_original_raises_the_write_failure(): void {
+		$d = new Dead_Letter_Queue_Double();
+		$d->build_dlq( "{$this->tmp}/dlq.p0" );
+		$message                   = Message::new_message();
+		$message[ Message::VALUE ] = 'crash-suspect';
+		Core::set_stderr_handler( static function () { /* swallow */ } );
+		Partition_Node::$fwrite = static fn ( $fh, string $bytes ): false => false;
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( "{$this->tmp}/dlq.p0/0.log" );
+		$d->quarantine( $message, 'crash' );
 	}
 
 	public function test_poison_from_line_unpacks_a_parseable_line(): void {
@@ -769,12 +848,11 @@ class DeadLetterQueueTest extends TestCase {
 		$d->name( 'orphan-probe' );
 		$outside = '/newspack-nodes-outside-any-base/dlq.p7';
 
-		try {
-			$d->build_dlq( $outside );
-			$this->fail( 'expected the containment check to refuse the dir' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertStringNotContainsString( 'collision', $e->getMessage() );
-		}
+		$e = $this->caught(
+			fn () => $d->build_dlq( $outside ),
+			'expected the containment check to refuse the dir'
+		);
+		$this->assertStringNotContainsString( 'collision', $e->getMessage() );
 
 		$this->assertNull(
 			\Newspack_Nodes\Core::node( 'orphan-probe:deadletter' ),

@@ -4,8 +4,8 @@
  * records back through a Topic onto disk.
  *
  * This is the read side of everything a Partition set aside: the `:deadletter`
- * quarantine a poison handler filled, the messages a write stall could not
- * land, a segment directory moved out of the way. Records go back in through
+ * quarantine a poison handler filled, the messages whose segment would not
+ * open, a segment directory moved out of the way. Records go back in through
  * `Topic_Node::fill()` rather than as appended bytes, so each one re-partitions
  * against the destination's geometry and that geometry's rotation and
  * retention rules apply. Re-segmenting a log whose `segment_size` or partition

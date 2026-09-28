@@ -11,8 +11,9 @@
  * Opting in is the whole point: `Worker_Base` names no application class, and
  * a graph with no reporter has nothing to measure, so it never idle-exits. The
  * scan walks the process registry (`Core::$nodes_by_name`), so a node that
- * never took a name is invisible to it; that is why the anonymous IPC consumer
- * is handed to the scan separately.
+ * never took a name is invisible to it. The worker's IPC-input Consumer is
+ * registered as `_repl:input` for that reason: an attached REPL is someone
+ * using the worker.
  *
  * The timestamp, rather than a bool, is what `Consumer_Node::idle_since()`
  * already returns and what `SSE_Out_Node` already consumes — so a node that

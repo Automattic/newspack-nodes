@@ -172,6 +172,22 @@ class ShellIncludeTest extends TestCase {
 		$this->assertContains( 'make_node Echo right-echo', $lines );
 	}
 
+	public function test_a_refused_line_in_an_include_spares_the_lines_after_it(): void {
+		$this->write_tsl( 'marten-base', "command_node marten-widget\nmake_node Echo marten-echo-3307\n" );
+		$shell = new Shell_Node();
+		$sink  = new Capture_Sink_Node();
+		$shell->sink( $sink );
+		$shell->want_reply( false );
+		$shell->fatal_errors( true );
+
+		$e = $this->caught(
+			fn () => $shell->eval_script( "include marten-base\n" ),
+			'a refused line in an include must fail the load'
+		);
+		$this->assertStringContainsString( 'usage: cmd <path> <verb>', $e->getMessage() );
+		$this->assertSame( [ 'make_node Echo marten-echo-3307' ], $this->captured_lines( $sink ) );
+	}
+
 	public function test_include_cycle_throws_naming_the_chain_in_fatal_mode(): void {
 		// Loader-shaped: Topology_Loader turns fatal_errors on so a cyclic
 		// .tsl fails loud at worker boot instead of booting a half-built graph.
@@ -201,12 +217,47 @@ class ShellIncludeTest extends TestCase {
 		$this->assertContains( 'make_node Echo after-missing', $lines, 'an unresolvable include must log and continue, not abort the script' );
 	}
 
-	public function test_include_of_unknown_topology_logs_and_continues_in_fatal_mode_too(): void {
-		// fatal_errors only escalates a real parse/cycle detection; an unresolvable
-		// name never reaches that branch, so fatal mode doesn't change this.
-		$lines = $this->run_script( "include no-such-topology\nmake_node Echo after-missing\n", true );
+	public function test_include_of_unknown_topology_throws_in_fatal_mode(): void {
+		// Loader-shaped: a missing include would boot a graph short every node
+		// it declares, so it fails loud like the cycle does.
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'no-such-topology-2291' );
 
-		$this->assertContains( 'make_node Echo after-missing', $lines );
+		$this->run_script( "include no-such-topology-2291\nmake_node Echo after-missing\n", true );
+	}
+
+	public function test_include_of_an_unreadable_topology_throws_in_fatal_mode(): void {
+		$this->write_tsl( 'sealed-6120', "make_node Echo sealed-echo\n" );
+		\chmod( "{$this->tmp}/sealed-6120.tsl", 0000 );
+
+		try {
+			$e = $this->caught(
+				fn () => $this->run_script( "include sealed-6120\n", true ),
+				'an include that will not open must throw in fatal mode'
+			);
+			$this->assertStringContainsString( 'sealed-6120', $e->getMessage() );
+		} finally {
+			\chmod( "{$this->tmp}/sealed-6120.tsl", 0644 );
+		}
+	}
+
+	public function test_include_of_an_unreadable_topology_reports_and_continues_by_default(): void {
+		$this->write_tsl( 'sealed-6121', "make_node Echo sealed-echo\n" );
+		\chmod( "{$this->tmp}/sealed-6121.tsl", 0000 );
+		$captured = [];
+		\Newspack_Nodes\Core::set_stderr_handler( static function ( $m ) use ( &$captured ): void {
+			$captured[] = $m;
+		} );
+
+		try {
+			$lines = $this->run_script( "include sealed-6121\nmake_node Echo after-sealed\n" );
+		} finally {
+			\chmod( "{$this->tmp}/sealed-6121.tsl", 0644 );
+			\Newspack_Nodes\Core::set_stderr_handler( static function (): void {} );
+		}
+
+		$this->assertSame( [ 'make_node Echo after-sealed' ], $lines );
+		$this->assertStringContainsString( 'cannot open', \implode( "\n", $captured ) );
 	}
 
 	public function test_repl_reincludes_after_a_second_top_level_call(): void {

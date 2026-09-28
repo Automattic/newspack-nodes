@@ -9,8 +9,8 @@ use Newspack_Nodes\Tests\TestCase;
 
 /**
  * Root must not drop a restart flag: the file would be root-owned, and the
- * worker that has to delete it on pickup runs as the web user. Denial is
- * non-fatal — the caller reports zero restarts rather than fataling.
+ * worker that has to delete it on pickup runs as the web user. The refusal
+ * throws, so a caller never reports a restart the worker will not see.
  */
 #[CoversClass( Lock_Node::class )]
 class LockNodeRootTest extends TestCase {
@@ -30,11 +30,19 @@ class LockNodeRootTest extends TestCase {
 		parent::tearDown();
 	}
 
-	public function test_root_writes_no_restart_flag(): void {
+	public function test_root_writes_no_restart_flag_and_throws_naming_it(): void {
 		CLI::$uid_provider = static fn (): int => 0;
 		Core::set_stderr_handler( static function ( string $line ): void {} );
 
-		$this->assertFalse( Lock_Node::request_restart_at( $this->lock_dir ) );
+		$thrown = null;
+		try {
+			Lock_Node::request_restart_at( $this->lock_dir );
+		} catch ( \RuntimeException $e ) {
+			$thrown = $e;
+		}
+		$this->assertNotNull( $thrown, 'a refused flag write must throw' );
+		$this->assertStringContainsString( $this->lock_dir, $thrown->getMessage() );
+		$this->assertStringContainsString( Lock_Node::RESTART_FLAG, $thrown->getMessage() );
 		$this->assertSame( [], \glob( $this->lock_dir . '/*' ) ?: [] );
 	}
 

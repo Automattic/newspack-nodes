@@ -147,6 +147,7 @@ export default function LogViewer( { headerControlsSlot } ) {
 			pickerEmptyLabel={ __( 'No sources available', 'newspack-nodes' ) }
 			isPaused={ isPaused }
 			connectionError={ connectionError }
+			linkNode="log-viewer:link"
 			onTogglePause={ () => setPaused( ! isPaused ) }
 			onStep={ step }
 			onJump={ jump }

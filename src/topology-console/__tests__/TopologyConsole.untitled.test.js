@@ -1,4 +1,3 @@
-/* global globalThis */
 /**
  * F2 regression: a brand-new install with NO topologies (empty
  * topologyWorkers, so the module-level TOPOLOGIES list is empty and the

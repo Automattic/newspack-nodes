@@ -428,6 +428,27 @@ class AdminTest extends TestCase {
 		$this->assertStringContainsString( 'flushed=1', $redirect );
 	}
 
+	public function test_handle_flush_cache_raises_a_failed_worker_restart_after_the_rotation(): void {
+		$GLOBALS['_wp_test_valid_nonces'][ Admin::FLUSH_ACTION ] = 'nonce_' . Admin::FLUSH_ACTION;
+		$_POST = [ Admin::FLUSH_NONCE => 'nonce_' . Admin::FLUSH_ACTION ];
+		$exploded = new \RuntimeException( 'flush provider exploded-5237' );
+		\add_filter( 'newspack_nodes/topologies', static function () use ( $exploded ): array {
+			throw $exploded;
+		} );
+		\Newspack_Nodes\Config::reset();
+		$salt = \get_option( 'newspack_nodes_cache_salt' );
+
+		$caught = null;
+		try {
+			( new Admin() )->handle_flush_cache();
+		} catch ( \Throwable $e ) {
+			$caught = $e;
+		}
+
+		$this->assertSame( $exploded, $caught, 'the restart failure surfaces instead of the success redirect' );
+		$this->assertNotSame( $salt, \get_option( 'newspack_nodes_cache_salt' ), 'the salt still rotated' );
+	}
+
 	public function test_handle_flush_cache_rejects_an_unauthorized_user(): void {
 		$GLOBALS['_wp_test_valid_nonces'][ Admin::FLUSH_ACTION ]  = 'nonce_' . Admin::FLUSH_ACTION;
 		$_POST                                                    = [ Admin::FLUSH_NONCE => 'nonce_' . Admin::FLUSH_ACTION ];
@@ -1163,19 +1184,18 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 
 	// ---- maybe_request_worker_restart (configuration-error path) --------
 
-	public function test_maybe_request_worker_restart_swallows_throwable_when_locks_dir_unconfigurable(): void {
+	public function test_maybe_request_worker_restart_propagates_an_unconfigurable_locks_dir(): void {
 		// Force Config::get_locks_directory() to throw by writing a config file
 		// whose `base_directory` contains a null byte — Config::ensure_path()
-		// rejects these immediately. The Admin must catch and silently return.
+		// rejects these immediately. The option row is already written, so the
+		// save must learn that no worker heard of it.
 		$conf = $this->base_dir . '/bad-base-dir.php';
 		\file_put_contents( $conf, "<?php\nreturn [ 'base_directory' => \"/tmp/has\\0null\" ];\n" );
 		\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . $conf );
 		Config::reset();
 
-		$admin = new Admin();
-		// Must not throw; must be a no-op.
-		$admin->maybe_request_worker_restart( 'newspack_nodes_base_directory' );
-		$this->assertTrue( true );
+		$this->expectException( \RuntimeException::class );
+		( new Admin() )->maybe_request_worker_restart( 'newspack_nodes_base_directory' );
 	}
 
 	// ---- topologies: overlay-only, never a settings-form option -----------

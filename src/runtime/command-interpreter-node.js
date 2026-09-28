@@ -240,7 +240,8 @@ export class CommandInterpreterNode extends Node {
 	 * Authorize, resolve and run the verb carried in VALUE, then respond.
 	 *
 	 * A throw from a verb becomes a TM_ERROR reply: the central catch is the
-	 * contract, which is why verbs carry no try/catch of their own.
+	 * contract, which is why verbs carry no try/catch of their own. A
+	 * TM_NOREPLY command's refusal throws instead; see `_respond()`.
 	 *
 	 * @param {Array} message TM_COMMAND whose VALUE is `{ name, arguments }`.
 	 */
@@ -292,12 +293,15 @@ export class CommandInterpreterNode extends Node {
 	 * Route a verb's result back to whoever asked, as TM_COMMAND|kind.
 	 *
 	 * An empty result sends nothing. A TM_NOREPLY request gets no message at
-	 * all — a failure still reaches stderr, since nobody else would see it.
+	 * all, so no TM_ERROR can carry its failure: the refusal throws to
+	 * whatever filled the command, as PHP's `interpret()` does, and a broken
+	 * line fails the load instead of building half a graph.
 	 *
 	 * @param {Array}  message The request being answered.
 	 * @param {string} name    Verb name, echoed in the response VALUE.
 	 * @param {*}      payload Verb result: a reply string or a struct.
 	 * @param {number} kind    TM_RESPONSE or TM_ERROR.
+	 * @throws {Error} The refusal of a TM_NOREPLY command.
 	 */
 	_respond( message, name, payload, kind ) {
 		if ( payload === '' || payload === undefined ) {
@@ -307,11 +311,10 @@ export class CommandInterpreterNode extends Node {
 		if ( typeof payload === 'string' && ! payload.endsWith( '\n' ) ) {
 			payload += '\n';
 		}
-		// TM_NOREPLY: suppress the routed reply, but surface errors to stderr.
 		const inType = message[ TYPE ];
 		if ( ( typeof inType === 'number' ? inType : 0 ) & TM_NOREPLY ) {
 			if ( kind & TM_ERROR ) {
-				this.stderr( `ERROR: from TM_NOREPLY command: ${ payload }` );
+				throw new Error( String( payload ).trimEnd() );
 			}
 			return;
 		}
@@ -886,7 +889,7 @@ export class CommandInterpreterNode extends Node {
 	 */
 	_cmdList( args, env = {} ) {
 		// Completion mode: bare node names only, ignoring -clst column flags.
-		const isCompletion = env && env[ KEY ] === 'completion';
+		const isCompletion = env && env[ KEY ] === 'completion'; // contract-ok: a request mode, not a reply demux
 		let listMatches = false;
 		let showCount = false;
 		let showSink = false;
@@ -1259,7 +1262,8 @@ export class CommandInterpreterNode extends Node {
 	 */
 	static _cmdHelp( args, env = {} ) {
 		// Completion: bare sorted verb names, newline-separated, no help text.
-		if ( env && env[ KEY ] === 'completion' ) {
+		const isCompletion = env && env[ KEY ] === 'completion'; // contract-ok: a request mode, not a reply demux
+		if ( isCompletion ) {
 			// From verb dispatch table (not help-topic) so aliases are listed.
 			return Object.keys( CommandInterpreterNode._defaultCommands() )
 				.sort()

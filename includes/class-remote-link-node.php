@@ -217,11 +217,6 @@ class Remote_Link_Node extends Timer_Node {
 		$this->http_out?->fill( $message );
 	}
 
-	/** Whether a tick initiates/keeps the connection. Base always pulls. */
-	protected function should_connect(): bool {
-		return true;
-	}
-
 	/**
 	 * Every ~HEARTBEAT_INTERVAL seconds, mint a `workers.heartbeat` TM_COMMAND
 	 * (FROM=<this node>, TO=workers, args `<slot> <owner>`) and fill it into the
@@ -309,6 +304,11 @@ class Remote_Link_Node extends Timer_Node {
 			$timer->sink( Core::node( Node_Names::COMMAND_INTERPRETER ) );
 			$timer->set_timer( Connect_Queue_Timer_Node::INTERVAL_MS );
 		}
+	}
+
+	/** Whether a tick initiates/keeps the connection. Base always pulls. */
+	protected function should_connect(): bool {
+		return true;
 	}
 
 	/**

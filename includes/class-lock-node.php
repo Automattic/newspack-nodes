@@ -60,11 +60,36 @@ class Lock_Node extends Node {
 	 */
 	public const STOP_FLAG      = 'stop';
 
+	/**
+	 * Clear-and-rmdir passes a release makes before leaving the dir: a flag
+	 * written between its unlinks and its rmdir costs one more pass.
+	 */
+	public const RELEASE_ATTEMPTS = 3;
+
 	/** Default seconds without a heartbeat before a holder becomes stealable. */
 	public const STALE_TIMEOUT  = 60;
 
 	/** Acquisition time in Unix seconds; `wp nodes status` reads it as uptime. */
 	public const STARTED_FILE   = 'started';
+
+	/**
+	 * Flag-write seam: replaces the one `file_put_contents()` in
+	 * `write_flag_at()`. Tests reassign it to release the lock between the
+	 * dir check and the write. Signature:
+	 * `function (string $path, string $contents): int|false`.
+	 *
+	 * @var \Closure|null
+	 */
+	public static ?\Closure $put_contents = null;
+
+	/**
+	 * Lock-dir removal seam: replaces the one `rmdir()` in
+	 * `force_release_at()`. Tests reassign it to land a flag between the
+	 * release's unlinks and its rmdir. Signature: `function (string $dir): bool`.
+	 *
+	 * @var \Closure|null
+	 */
+	public static ?\Closure $rmdir = null;
 
 	/** Why the last acquire() failed; '' after a success. */
 	private string $acquire_failure = '';
@@ -246,9 +271,17 @@ class Lock_Node extends Node {
 	 * other returns false. Keep the recreate an `mkdir` (an unconditional
 	 * rename-back or removing the existence check would reopen a double-holder).
 	 *
-	 * A process killed between the rename and the discard leaks the `.stealing.`
-	 * scratch dir, and `Spawn_Coordinator::reap_steal_scratch_dirs()` is what
-	 * collects it.
+	 * The `.stealing.` aside is deleted recursively, whatever it holds. It is
+	 * garbage the moment the rename lands: the lock it held was stale, and
+	 * its pid-and-uniqid name is reachable by no other process. It never goes
+	 * through `force_release_at()`, because a file this class never wrote — an
+	 * older flag name, an NFS `.nfs*` placeholder — would make that throw and
+	 * abort the acquire. Deleting it here rather than leaving it to a reaper is
+	 * what covers every lock: a Partition's `write.lock.d` and pyrobase's DDL
+	 * lock live outside `locks/`, where no sweep looks. Only a process killed
+	 * between the rename and the delete leaks one, and
+	 * `Spawn_Coordinator::reap_steal_scratch_dirs()` collects that inside
+	 * `locks/`.
 	 *
 	 * @return bool True if WE won the recreate and now hold the dir.
 	 */
@@ -258,7 +291,7 @@ class Lock_Node extends Node {
 		if ( ! @\rename( $this->lock_path, $aside ) ) {
 			return false; // Lost the steal — another racer got it first.
 		}
-		self::force_release_at( $aside ); // Discard the stolen dir + its files.
+		Spawn_Coordinator::delete_directory_recursive( $aside, \dirname( $this->lock_path ) );
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 		return @\mkdir( $this->lock_path, 0755, true );
 	}
@@ -318,14 +351,22 @@ class Lock_Node extends Node {
 	 * dies of "lock dir gone" on its next tick and both respawn, turning a
 	 * self-correcting handoff into a restart loop. Failing closed leaks a dir
 	 * at worst, and a leaked dir goes stale and is stolen normally.
+	 *
+	 * A dir the release cannot remove raises, and RELEASED is never published
+	 * for it; the heartbeat is gone either way, so the lock is no longer held.
+	 *
+	 * @throws \RuntimeException When the lock dir survives the release.
 	 */
 	public function release(): void {
 		if ( ! $this->verify_ownership() ) {
 			$this->is_held = false;
 			return;
 		}
-		self::force_release_at( $this->lock_path );
-		$this->is_held = false;
+		try {
+			self::force_release_at( $this->lock_path );
+		} finally {
+			$this->is_held = false;
+		}
 		$this->set_state( 'RELEASED', $this->lock_path );
 	}
 
@@ -351,13 +392,38 @@ class Lock_Node extends Node {
 	 * caller has to know it is entitled — release() verifies first, and claim()
 	 * rolls back a half-written dir of its own.
 	 *
+	 * A peer may write a flag between the unlinks and the rmdir, which leaves
+	 * a heartbeat-less dir `wp nodes stop` would wait out, so a refused rmdir
+	 * clears the dir again, up to RELEASE_ATTEMPTS passes. A dir still standing
+	 * after the last — a refused rmdir, a file this class never wrote — throws.
+	 *
 	 * @param string $lock_dir The lock directory path.
+	 * @throws \RuntimeException When the dir survives every pass, naming what remains in it.
 	 */
 	public static function force_release_at( string $lock_dir ): void {
 		$lock_dir = \rtrim( $lock_dir, '/' );
-		if ( ! \is_dir( $lock_dir ) ) {
-			return;
+		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_rmdir
+		$rmdir = self::$rmdir ?? static fn ( string $dir ): bool => @\rmdir( $dir );
+		for ( $pass = 0; $pass < self::RELEASE_ATTEMPTS && \is_dir( $lock_dir ); $pass++ ) {
+			self::clear_files_at( $lock_dir );
+			if ( $rmdir( $lock_dir ) ) {
+				return;
+			}
+			\clearstatcache( true, $lock_dir );
 		}
+		if ( \is_dir( $lock_dir ) ) {
+			$names = @\scandir( $lock_dir );
+			$left  = false === $names ? 'an unreadable listing' : \implode( ', ', \array_diff( $names, [ '.', '..' ] ) );
+			throw new \RuntimeException( \esc_html( "could not remove lock dir {$lock_dir}; it still holds: " . ( '' === $left ? 'nothing' : $left ) ) );
+		}
+	}
+
+	/**
+	 * Unlink every file this class writes into a lock dir.
+	 *
+	 * @param string $lock_dir The lock directory path, trailing slash stripped.
+	 */
+	private static function clear_files_at( string $lock_dir ): void {
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
 		@\unlink( $lock_dir . '/' . self::HEARTBEAT_FILE );
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
@@ -374,8 +440,6 @@ class Lock_Node extends Node {
 		// fresh config, so it has nothing stale to reload.
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
 		@\unlink( $lock_dir . '/' . self::RELOAD_FLAG );
-		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_rmdir
-		@\rmdir( $lock_dir );
 	}
 
 	/**
@@ -418,22 +482,54 @@ class Lock_Node extends Node {
 
 	/**
 	 * Write one signal file into a lock dir the caller does not hold. The three
-	 * flags differ only in name, diagnostic and contents; refusing a missing dir
-	 * and refusing to write as root is one rule for all three.
+	 * flags differ only in name, diagnostic and contents, and share one rule: a
+	 * missing dir means no worker holds the slot, so there is nobody to signal
+	 * and the answer is false — also when the holder released it between the
+	 * check and the write.
+	 *
+	 * A write that fails into a dir still standing is retried once, because a
+	 * successor may have released and re-created the path in between; neither
+	 * the error's text, which speaks the locale, nor the dir's inode, which the
+	 * filesystem reuses, can tell that apart from a real refusal. The retried
+	 * flag then reaches the successor: right for a stop, which is aimed at the
+	 * slot rather than one process, and harmless for a restart or a reload,
+	 * which cost the successor one recycle or one config re-read. A second
+	 * failure, or a write refused as root, throws, because the caller would
+	 * otherwise report a signal no worker will ever read.
 	 *
 	 * @param string $lock_dir The lock directory path.
 	 * @param string $flag     Flag filename constant.
-	 * @param string $what     Label `Config::write_denied()` logs the skipped write under.
+	 * @param string $what     Label `Config::write_denied()` logs the refused write under.
 	 * @param string $contents The signal itself.
-	 * @return bool True if the flag file was written.
+	 * @return bool True when the flag landed; false when no lock dir exists.
+	 * @throws \RuntimeException When the write is refused as root or fails twice, naming the dir and flag.
 	 */
 	private static function write_flag_at( string $lock_dir, string $flag, string $what, string $contents ): bool {
 		$lock_dir = \rtrim( $lock_dir, '/' );
-		if ( ! \is_dir( $lock_dir ) || Config::write_denied( $what ) ) {
+		if ( ! \is_dir( $lock_dir ) ) {
 			return false;
 		}
-		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_file_put_contents
-		return false !== @\file_put_contents( $lock_dir . '/' . $flag, $contents );
+		$path = $lock_dir . '/' . $flag;
+		if ( Config::write_denied( $what ) ) {
+			throw new \RuntimeException( \esc_html( "refused to write {$path} as root" ) );
+		}
+		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_file_put_contents -- @ because the throw carries the error.
+		$put = self::$put_contents ?? static fn ( string $path, string $contents ): int|false => @\file_put_contents( $path, $contents );
+		for ( $attempt = 1; ; $attempt++ ) {
+			\error_clear_last();
+			if ( false !== $put( $path, $contents ) ) {
+				return true;
+			}
+			\clearstatcache( true, $lock_dir );
+			if ( ! \is_dir( $lock_dir ) ) {
+				return false; // The holder released between the check and the write.
+			}
+			if ( $attempt >= 2 ) {
+				$error = \error_get_last()['message'] ?? 'unknown error';
+				$why   = \preg_replace( '/^file_put_contents\(.*?\): /', '', $error );
+				throw new \RuntimeException( \esc_html( "could not write {$path}: {$why}" ) );
+			}
+		}
 	}
 
 	/** Why the last acquire() failed ('' after success): 'lock_held' = contention; anything else is an I/O diagnosis. */

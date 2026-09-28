@@ -770,11 +770,27 @@ class Node {
 	 * name, and a name the registry still holds refuses the slot's next
 	 * occupant for the life of the process. A no-op on an empty slot.
 	 *
+	 * A teardown that throws empties the slot whenever it got as far as tearing
+	 * the sibling down — `remove_node()` unregisters and drops the publisher
+	 * before raising what its own siblings threw — because a slot still holding
+	 * that dead node re-registers it on the next rename and refuses the next
+	 * publish as occupied. A sibling that refused before tearing down is still
+	 * registered and still names this node its publisher, so it keeps the slot
+	 * for a later retraction: dropping it would strand a live, registered node
+	 * no cascade reaches.
+	 *
 	 * @param string $kind The kind the slot was published under.
+	 * @throws \Throwable What the sibling's teardown threw.
 	 */
 	protected function retract_sibling( string $kind ): void {
-		( $this->siblings[ $kind ] ?? null )?->remove_node();
-		unset( $this->siblings[ $kind ] );
+		$sibling = $this->siblings[ $kind ] ?? null;
+		try {
+			$sibling?->remove_node();
+		} finally {
+			if ( $this !== $sibling?->publisher ) {
+				unset( $this->siblings[ $kind ] );
+			}
+		}
 	}
 
 	/**
@@ -870,14 +886,16 @@ class Node {
 	/**
 	 * Tear the node down: drop its subscriptions, then cascade a full
 	 * `remove_node()` to each owned sibling first so a same-name respawn cannot
-	 * collide with a leftover slot.
+	 * collide with a leftover slot. Every sibling is torn down whatever another
+	 * threw — a Partition's teardown flushes — and this node's own teardown
+	 * still completes; the failures escape after it.
+	 *
+	 * @throws \Throwable What the siblings' teardowns threw, combined by `Worker_Should_Stop::raise()`.
 	 */
 	public function remove_node(): void {
 		$this->move_subscriptions( $this->name, '' );
 		$this->subscriptions = [];
-		foreach ( $this->siblings as $sibling ) {
-			$sibling->remove_node();
-		}
+		$caught              = Worker_Should_Stop::attempt_each( $this->siblings, static fn ( Node $sibling ) => $sibling->remove_node() );
 		$this->siblings      = [];
 		$this->registrations = [];
 		$this->set_state     = [];
@@ -890,6 +908,7 @@ class Node {
 			Core::unregister_node( $this->name );
 			$this->name = '';
 		}
+		Worker_Should_Stop::raise( $caught );
 	}
 
 	/**

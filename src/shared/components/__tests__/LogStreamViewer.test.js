@@ -8,6 +8,7 @@
 
 import { render, fireEvent, act } from '@testing-library/react';
 import { Core } from '../../../runtime/core';
+import { publishSkippedLines } from '../../test-utils/skippedLines';
 import LogStreamViewer from '../LogStreamViewer';
 
 let logRowListProps;
@@ -43,6 +44,19 @@ const BASE = {
 
 beforeEach( () => {
 	logRowListProps = undefined;
+} );
+
+it( 'shows how many lines its link reports skipped as unparseable', () => {
+	Core.reset();
+	publishSkippedLines( 'viewer-3316:link', 12 );
+	const { container } = render(
+		<LogStreamViewer { ...BASE } linkNode="viewer-3316:link" />
+	);
+
+	expect(
+		container.querySelector( '.newspack-nodes-banner.is-warning' )
+			.textContent
+	).toBe( '12 lines would not parse and were skipped.' );
 } );
 
 // Every other toolbar control travels as a message through the consumer's

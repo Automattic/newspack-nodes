@@ -35,7 +35,7 @@
 <div class="tiers">
   <div class="tier">
     <h3>Tier 1 · self-respawn</h3>
-    <div class="cad">every <b>~595 s</b>, from the dying worker's <span class="mono">finally</span></div>
+    <div class="cad">every <b>~595 s</b>, from the dying worker's shutdown</div>
     <div class="step"><div class="n">1</div><div class="t"><span class="mono">release()</span> the lock, THEN <span class="mono">self_respawn()</span>.</div></div>
     <div class="step"><div class="n">2</div><div class="t">Refused for two stop categories: <span class="mono">idle</span> (respawning would undo the exit) and <span class="mono">stop</span> (the operator's <span class="mono">wp nodes stop</span>).</div></div>
     <div class="step"><div class="n">3</div><div class="t">A current-window token from <span class="mono">$token_provider</span>; the boot token is ~595 s stale.</div></div>
@@ -51,13 +51,13 @@
   <div class="tier">
     <h3>Tier 3 · WP-Cron</h3>
     <div class="cad">every <b>60 s</b> (<span class="mono">newspack_nodes_minute</span>), <span class="mono">Bootstrap::reconcile_fleet()</span>, no lock, no loop</div>
-    <div class="step j"><div class="n">1</div><div class="t"><span class="mono">before</span> — <span class="mono">newspack_nodes/before_reconcile</span>, third-party code in its own guarded step</div></div>
-    <div class="step"><div class="n">2</div><div class="t"><b><span class="mono">spawn</span></b> — <span class="mono">spawn_due_workers()</span>, ahead of every janitorial step so none can preempt it by throwing</div></div>
+    <div class="step j"><div class="n">1</div><div class="t"><span class="mono">before</span> — <span class="mono">newspack_nodes/before_reconcile</span>, third-party code as a step of its own</div></div>
+    <div class="step"><div class="n">2</div><div class="t"><b><span class="mono">spawn</span></b> — <span class="mono">spawn_due_workers()</span>, ahead of every janitorial step, the revival path</div></div>
     <div class="step"><div class="n">3</div><div class="t"><b><span class="mono">backlog-wake</span></b> — <span class="mono">wake_readers_with_backlog()</span>: the only pass that notices an EXTERNAL producer's write</div></div>
     <div class="step j"><div class="n">4</div><div class="t"><span class="mono">lock-dirs</span> — reap dirs outside the active fleet and <span class="mono">*.lock.d.stealing.*</span> scratch; a surplus partition gets the restart flag, not a kill</div></div>
     <div class="step j"><div class="n">5</div><div class="t"><span class="mono">retention</span> — <span class="mono">Log_Cleaner::cleanup_orphan_partitions()</span></div></div>
     <div class="step j"><div class="n">6</div><div class="t"><span class="mono">orphan-ipc</span> — <span class="mono">cleanup_orphan_ipc()</span></div></div>
-    <div class="step j"><div class="n">7</div><div class="t"><span class="mono">periodic</span> — <span class="mono">newspack_nodes/periodic</span>: alerts, the delayed-jobs sweep. Each step behind its own catch; <span class="mono">after_reconcile</span> in a <span class="mono">finally</span>.</div></div>
+    <div class="step j"><div class="n">7</div><div class="t"><span class="mono">alerts</span>, <span class="mono">job-delay</span>, <span class="mono">periodic</span> — <span class="mono">Alerts::emit()</span>, <span class="mono">Job_Delay::sweep()</span>, then <span class="mono">newspack_nodes/periodic</span>. Every step runs whatever another threw; <span class="mono">after_reconcile</span> fires, then the failures escape together.</div></div>
   </div>
 </div>
 

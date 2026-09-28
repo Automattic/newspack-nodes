@@ -78,26 +78,51 @@ test( 'fill with a path target but no sink throws because it cannot route', () =
 	);
 } );
 
-test( 'fill logs and continues when a routed target throws', () => {
-	const router = new Node();
-	router.name = '_router';
+test( 'fill attempts every target, then throws the one failure it caught', () => {
+	const delivered = [];
+	const failure = new Error( 'target exploded 404' );
 	const sink = new Node();
-	sink.fill = () => {
-		throw new Error( 'target exploded' );
+	sink.fill = ( m ) => {
+		if ( m[ TO ] === 'a' ) {
+			throw failure;
+		}
+		delivered.push( m[ TO ] );
 	};
+	for ( const name of [ 'a', 'b' ] ) {
+		new Node().name = name;
+	}
 	const t = new TeeNode();
 	t.sink = sink;
-	t.target = [ '_router/a' ];
-	const spy = jest
-		.spyOn( t, 'printLessOften' )
-		.mockImplementation( () => {} );
+	t.target = [ 'a', 'b' ];
 
-	t.fill( newMessage() );
+	expect( () => t.fill( newMessage() ) ).toThrow( failure );
+	expect( delivered ).toEqual( [ 'b' ] );
+} );
 
-	expect( spy ).toHaveBeenCalledWith(
-		expect.stringMatching( /^WARNING:.*target exploded/ )
+test( 'fill raises every target failure together, in the PHP Failures shape', () => {
+	const sink = new Node();
+	sink.fill = ( m ) => {
+		throw new Error( `${ m[ TO ] } exploded 717` );
+	};
+	for ( const name of [ 'a', 'b' ] ) {
+		new Node().name = name;
+	}
+	const t = new TeeNode();
+	t.sink = sink;
+	t.target = [ 'a', 'b' ];
+
+	let thrown = null;
+	try {
+		t.fill( newMessage() );
+	} catch ( e ) {
+		thrown = e;
+	}
+
+	expect( thrown ).toBeInstanceOf( AggregateError );
+	expect( thrown.message ).toBe(
+		'2 failures: a exploded 717 | b exploded 717'
 	);
-	spy.mockRestore();
+	expect( thrown.errors ).toHaveLength( 2 );
 } );
 
 test( 'fill does not mutate caller TO when fanning out', () => {

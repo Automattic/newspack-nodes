@@ -58,28 +58,25 @@ class Topic_Probe_Node extends Probe_Node {
 
 	/**
 	 * Read the cadence `topic-probe.tsl` declares, or `DEFAULT_INTERVAL_S` when
-	 * the topology is unreachable or names no `Topic_Probe`. Memoized for the
-	 * request — a status poll asks once per reader row — off a graph the analyzer
-	 * already caches; `forget_interval()` drops the memo when the active set
-	 * changes.
+	 * no such topology is registered or it names no `Topic_Probe`. Memoized for
+	 * the request — a status poll asks once per reader row — off a graph the
+	 * analyzer already caches; `forget_interval()` drops the memo when the active
+	 * set changes.
+	 *
+	 * @throws \RuntimeException When the topology is registered but will not parse.
 	 */
 	public static function declared_interval_s(): int {
 		if ( null !== self::$declared_interval_s ) {
 			return self::$declared_interval_s;
 		}
 		$declared = 0;
-		try {
-			foreach ( Topology_Analyzer::graph_for( self::TOPOLOGY )['nodes'] as $node ) {
-				if ( 'Topic_Probe' !== ( $node['type'] ?? '' ) ) {
-					continue;
-				}
-				$args     = \is_array( $node['args'] ?? null ) ? $node['args'] : [];
-				$declared = Core::num_int( $args[0] ?? 0, 0 );
-				break;
+		foreach ( Topology_Analyzer::graph_for( self::TOPOLOGY )['nodes'] as $node ) {
+			if ( 'Topic_Probe' !== ( $node['type'] ?? '' ) ) {
+				continue;
 			}
-		} catch ( \Throwable $e ) {
-			// An unreadable topology is a default, never a "never stale".
-			$declared = 0;
+			$args     = \is_array( $node['args'] ?? null ) ? $node['args'] : [];
+			$declared = Core::num_int( $args[0] ?? 0, 0 );
+			break;
 		}
 		return self::$declared_interval_s = $declared > 0 ? $declared : self::DEFAULT_INTERVAL_S;
 	}

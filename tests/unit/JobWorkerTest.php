@@ -131,52 +131,93 @@ class JobWorkerTest extends TestCase {
 		add_action( 'newspack_nodes/job_worker/after_job', function () use ( &$after ) { ++$after; } );
 
 		$message = $this->job_message( 'boom' );
-		try {
-			$jw->fill( $message );
-			$this->fail( 'expected the handler throw to propagate' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertSame( 'x', $e->getMessage() );
-		}
+		$e = $this->caught(
+			fn () => $jw->fill( $message ),
+			'expected the handler throw to propagate'
+		);
+		$this->assertSame( 'x', $e->getMessage() );
 
 		$this->assertSame( 1, $after, 'after_job fires before the throw propagates' );
 	}
 
-	public function test_after_job_listener_throw_does_not_poison_a_successful_job(): void {
-		// after_job is an app cleanup extension point. A listener throwing there must
-		// NOT masquerade as handler poison — otherwise a job that already SUCCEEDED is
-		// quarantined and double-executed on replay. Swallow it, symmetric with
-		// before_job; the successful job is still counted.
-		$jw  = new Job_Worker_Node();
-		$ran = false;
+	public function test_an_after_job_listener_failure_escapes_a_successful_job(): void {
+		// The job ran; the listener's failure still propagates.
+		$jw      = new Job_Worker_Node();
+		$ran     = false;
+		$cleanup = new \RuntimeException( 'cleanup boom-3391' );
 		$this->register_job_handler( $jw, 'ok', function () use ( &$ran ) { $ran = true; } );
-		add_action( 'newspack_nodes/job_worker/after_job', function () { throw new \RuntimeException( 'cleanup boom' ); } );
+		add_action( 'newspack_nodes/job_worker/after_job', function () use ( $cleanup ) { throw $cleanup; } );
 
-		$message = $this->job_message( 'ok' );
-		$jw->fill( $message ); // must NOT throw — the handler succeeded.
+		$caught = null;
+		try {
+			$jw->fill( $this->job_message( 'ok' ) );
+		} catch ( \Throwable $e ) {
+			$caught = $e;
+		}
 
+		$this->assertSame( $cleanup, $caught );
 		$this->assertTrue( $ran );
-		$this->assertSame( 1, $this->jobs_executed( $jw ), 'a successful job is counted even if after_job throws' );
 	}
 
-	public function test_after_job_fires_and_worker_survives_when_before_job_listener_throws(): void {
-		// before_job is a public extension point: an arbitrary plugin listener
-		// may throw. fill() must NOT let that escape (it would crash the whole
-		// Consumer drain batch) and must STILL fire after_job (else an app's
-		// logger left suspended in before_job never resumes).
-		$jw = new Job_Worker_Node();
+	public function test_an_after_job_failure_combines_with_the_handler_failure(): void {
+		$jw      = new Job_Worker_Node();
+		$poison  = new \RuntimeException( 'handler poison-6120' );
+		$cleanup = new \LogicException( 'cleanup boom-6121' );
+		$this->register_job_handler( $jw, 'boom', function () use ( $poison ) { throw $poison; } );
+		add_action( 'newspack_nodes/job_worker/after_job', function () use ( $cleanup ) { throw $cleanup; } );
+
+		$caught = null;
+		try {
+			$jw->fill( $this->job_message( 'boom' ) );
+		} catch ( \Throwable $e ) {
+			$caught = $e;
+		}
+
+		$this->assertInstanceOf( \Newspack_Nodes\Failures::class, $caught );
+		$this->assertSame( [ $poison, $cleanup ], $caught->all() );
+	}
+
+	public function test_an_after_job_failure_beside_a_stop_rides_the_stop(): void {
+		// A stop still replays the message; the listener failure is not lost.
+		$jw      = new Job_Worker_Node();
+		$cleanup = new \RuntimeException( 'cleanup boom-6122' );
+		$this->register_job_handler( $jw, 'stopper', function () { throw new Worker_Should_Stop( 'drain over' ); } );
+		add_action( 'newspack_nodes/job_worker/after_job', function () use ( $cleanup ) { throw $cleanup; } );
+
+		$caught = null;
+		try {
+			$jw->fill( $this->job_message( 'stopper' ) );
+		} catch ( \Throwable $e ) {
+			$caught = $e;
+		}
+
+		$this->assertInstanceOf( Worker_Should_Stop::class, $caught );
+		$this->assertFalse( Worker_Should_Stop::is_clean( $caught ) );
+		$this->assertSame( $cleanup, $caught->getPrevious() );
+	}
+
+	public function test_a_before_job_listener_failure_escapes_after_after_job_fires(): void {
+		// The listener's crash is the job's failure, so the Consumer quarantines
+		// it; after_job still fires, so a context the listener opened is closed.
+		$jw          = new Job_Worker_Node();
 		$handler_ran = false;
+		$listener    = new \RuntimeException( 'listener boom-5518' );
 		$this->register_job_handler( $jw, 'ctx', function () use ( &$handler_ran ) { $handler_ran = true; } );
 
 		$after = 0;
-		add_action( 'newspack_nodes/job_worker/before_job', function () { throw new \RuntimeException( 'listener boom' ); } );
+		add_action( 'newspack_nodes/job_worker/before_job', function () use ( $listener ) { throw $listener; } );
 		add_action( 'newspack_nodes/job_worker/after_job', function () use ( &$after ) { ++$after; } );
 
-		$message = $this->job_message( 'ctx' );
-		$jw->fill( $message ); // must not throw out of fill()
+		$caught = null;
+		try {
+			$jw->fill( $this->job_message( 'ctx' ) );
+		} catch ( \Throwable $e ) {
+			$caught = $e;
+		}
 
+		$this->assertSame( $listener, $caught );
 		$this->assertSame( 1, $after, 'after_job must fire even when a before_job listener throws' );
 		$this->assertFalse( $handler_ran, 'handler is skipped when before_job throws' );
-		$this->assertSame( 1, $this->jobs_executed( $jw ) );
 	}
 
 	public function test_before_job_returning_false_declines_the_job(): void {
@@ -426,12 +467,11 @@ class JobWorkerTest extends TestCase {
 		$this->register_job_handler( $jw, 'boom', function () { throw new \RuntimeException( 'x' ); } );
 
 		$message = $this->job_message( 'boom' );
-		try {
-			$jw->fill( $message );
-			$this->fail( 'expected the handler throw to propagate out of fill()' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertSame( 'x', $e->getMessage() );
-		}
+		$e = $this->caught(
+			fn () => $jw->fill( $message ),
+			'expected the handler throw to propagate out of fill()'
+		);
+		$this->assertSame( 'x', $e->getMessage() );
 		$this->assertSame( 0, $this->jobs_executed( $jw ) );
 	}
 
@@ -992,7 +1032,7 @@ class JobWorkerTest extends TestCase {
 		return $lines;
 	}
 
-	public function test_handler_throw_with_retries_left_requeues_with_backoff_and_swallows(): void {
+	public function test_handler_throw_with_retries_left_requeues_with_backoff_instead_of_poisoning(): void {
 		$tmp = $this->arrange_retry_base();
 		$jw  = new Job_Worker_Node();
 		$this->register_job_handler( $jw, 'flaky', function () { throw new \RuntimeException( 'transient 503' ); } );
@@ -1035,13 +1075,60 @@ class JobWorkerTest extends TestCase {
 		$jw  = new Job_Worker_Node();
 		$this->register_job_handler( $jw, 'flaky', function () { throw new \RuntimeException( 'permanent' ); } );
 
-		try {
-			$jw->fill( $this->job_message( 'flaky', [], 'job', null, [ 'retries' => 3, 'attempt' => 3 ] ) );
-			$this->fail( 'exhausted retries must fall back to the poison path' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertSame( 'permanent', $e->getMessage() );
-		}
+		$e = $this->caught(
+			fn () => $jw->fill( $this->job_message( 'flaky', [], 'job', null, [ 'retries' => 3, 'attempt' => 3 ] ) ),
+			'exhausted retries must fall back to the poison path'
+		);
+		$this->assertSame( 'permanent', $e->getMessage() );
 		$this->assertSame( [], $this->read_jobdelay_lines( $tmp ) );
+	}
+
+	public function test_a_failed_requeue_escapes_with_the_handler_failure(): void {
+		$tmp = $this->arrange_retry_base();
+		// A file where the delay partition's directory belongs refuses the write.
+		\file_put_contents( "{$tmp}/logs/jobdelay.p0", 'not a directory' );
+		$jw     = new Job_Worker_Node();
+		$poison = new \RuntimeException( 'transient 503-8817' );
+		$this->register_job_handler( $jw, 'flaky', function () use ( $poison ) { throw $poison; } );
+
+		$caught = null;
+		try {
+			$jw->fill( $this->job_message( 'flaky', [], 'job', null, [ 'retries' => 3 ] ) );
+		} catch ( \Throwable $e ) {
+			$caught = $e;
+		}
+
+		$this->assertInstanceOf( \Newspack_Nodes\Failures::class, $caught, 'the requeue failure joins the handler failure' );
+		$this->assertSame( $poison, $caught->all()[0] );
+		$this->assertCount( 2, $caught->all() );
+	}
+
+	public function test_a_requeue_refused_on_lock_contention_escapes_as_the_handler_failure_alone(): void {
+		$tmp    = $this->arrange_retry_base();
+		$holder = new Job_Intake( $tmp, 1 );
+		$this->assertTrue( $holder->write_job( 'holder_h', null, [], null, [ 'not_before' => \microtime( true ) + 3600.0 ] ) );
+		$jw     = new Job_Worker_Node();
+		$poison = new \RuntimeException( 'transient 503-8823' );
+		$this->register_job_handler( $jw, 'flaky', function () use ( $poison ) { throw $poison; } );
+		// A clock leaping past the 15s lock wait answers contention at once.
+		$saved       = Core::$clock;
+		$t           = \microtime( true );
+		Core::$clock = static function () use ( &$t ): float {
+			$t += 20.0;
+			return $t;
+		};
+
+		$caught = null;
+		try {
+			$jw->fill( $this->job_message( 'flaky', [], 'job', null, [ 'retries' => 3 ] ) );
+		} catch ( \Throwable $e ) {
+			$caught = $e;
+		} finally {
+			Core::$clock = $saved;
+			$holder->close();
+		}
+
+		$this->assertSame( $poison, $caught, 'contention is no failure of its own' );
 	}
 
 	public function test_worker_should_stop_is_never_retried(): void {
@@ -1131,6 +1218,43 @@ class JobWorkerTest extends TestCase {
 		} finally {
 			Core::$memd = $prev;
 			\Newspack_Nodes\Alerts::reset();
+		}
+	}
+
+	public function test_a_failed_completion_journal_escapes_after_the_counters_are_reaped(): void {
+		$this->arrange_retry_base();
+		$prev       = Core::$memd;
+		$memd       = new InMemoryMemcached();
+		Core::$memd = $memd;
+		$refused    = new \RuntimeException( 'alerts journal refused-2291' );
+		$journal    = new \ReflectionProperty( \Newspack_Nodes\Alerts::class, 'journal' );
+		$journal->setValue( null, new class( $refused ) extends \Newspack_Nodes\Partition_Node {
+			public function __construct( private \RuntimeException $refused ) {
+				parent::__construct();
+			}
+			public function fill( array $message ): void {
+				throw $this->refused;
+			}
+		} );
+		try {
+			$memd->set( Job_Intake::batch_count_key( 'bJ' ), 1, 0 );
+			$memd->set( Job_Intake::batch_err_key( 'bJ' ), 0, 0 );
+			$jw = new Job_Worker_Node();
+			$this->register_job_handler( $jw, 'member', fn () => null );
+
+			$caught = null;
+			try {
+				$jw->fill( $this->job_message( 'member', [], 'job', null, [ 'batch' => 'bJ' ] ) );
+			} catch ( \Throwable $e ) {
+				$caught = $e;
+			}
+
+			$this->assertSame( $refused, $caught );
+			$this->assertFalse( $memd->get( Job_Intake::batch_count_key( 'bJ' ) ), 'the completed batch is still reaped' );
+			$this->assertFalse( $memd->get( Job_Intake::batch_err_key( 'bJ' ) ) );
+		} finally {
+			$journal->setValue( null, null );
+			Core::$memd = $prev;
 		}
 	}
 

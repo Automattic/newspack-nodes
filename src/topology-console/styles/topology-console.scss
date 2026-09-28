@@ -62,6 +62,7 @@ body:has(.nodes-station .topology-app) {
 	font-size: 13px;
 	z-index: 9100;
 	max-width: 70vw;
+	white-space: pre-line;
 }
 
 .topology-toast--success {

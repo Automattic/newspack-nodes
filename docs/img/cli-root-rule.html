@@ -23,7 +23,7 @@
 </style>
 <div class="sheet">
 <h1>What each verb does when root runs it</h1>
-<p class="sub">Workers run as the web user and own every lock, IPC and segment file. Root is refused by two verbs, warned by one, and skipped past by the rest, so a root run reports success while writing nothing. The exception is <span class="mono">ingest</span>, which writes as root and leaves the damage for later.</p>
+<p class="sub">Workers run as the web user and own every lock, IPC and segment file. Root is refused by two verbs and fails every write that flags a worker, so no root run reports a signal it never sent; <span class="mono">memcache flush</span> alone warns and carries on. The exception is <span class="mono">ingest</span>, which writes as root and leaves the damage for later.</p>
 
 <div class="tree">
   <svg viewBox="0 0 1052 130">
@@ -48,23 +48,23 @@
   </div>
 
   <div class="branch card">
-    <h3>Warn, then wait anyway</h3>
-    <div class="verbs"><span>stop</span></div>
-    <div class="line"><span class="w">Warning:</span> could not write the stop flag for: job-worker.p0, …</div>
-    <p>Every stop flag is refused, so no worker exits. The command spins its whole timeout (90 s by default) and then exits non-zero, listing those same workers as stragglers. It is the one write-shaped verb that says so.</p>
+    <h3>Fail on the refused write</h3>
+    <div class="verbs"><span>stop</span><span>restart</span><span>a settings save</span></div>
+    <div class="line">refused to write {base}/locks/job-worker.p0.lock.d/stop as root</div>
+    <p>Every lock dir is offered its flag, then every refusal escapes together, naming each dir and flag, and the command exits non-zero. <span class="mono">stop</span> has already set the hold, so the fleet stays held with its workers still running; a settings save has already written its option row, and the error says no worker heard of it.</p>
   </div>
 
   <div class="branch card">
-    <h3>Skip the write, report success</h3>
-    <div class="verbs"><span>restart</span><span>memcache flush</span><span>a settings save</span></div>
-    <div class="line">WARNING: running as root; skipping restart flag - a root-owned file would be unwritable by the workers<br><span class="g">Success:</span> Requested restart for 0 worker(s).</div>
-    <p>The restart flags, the fleet restart <span class="mono">memcache flush</span> runs after rotating the salt, and the reload watermark a settings save writes are all passed over. The warning is rate-limited on its shared prefix: the first refusal in the process prints, every later one is silent. Exit status is 0.</p>
+    <h3>Warn, then carry on</h3>
+    <div class="verbs"><span>memcache flush</span></div>
+    <div class="line"><span class="w">Warning:</span> Workers were not restarted: refused to write … as root — the new scope takes effect on their next spawn.<br><span class="g">Success:</span> Cache salt rotated; …</div>
+    <p>The salt rotates first, and that is the flush. The fleet restart after it is refused like any other flag write, and the command says so and exits 0, because a worker picks the new scope up at its next spawn anyway.</p>
   </div>
 
   <div class="branch ok card">
     <h3>Work as usual</h3>
     <div class="verbs"><span>status</span><span>types</span><span>doctor</span></div>
-    <p>Read-only verbs need no write, so denial costs them nothing. That is why denial is non-fatal by design.</p>
+    <p>Read-only verbs need no write, so denial costs them nothing.</p>
   </div>
 </div>
 
@@ -75,7 +75,7 @@
   </div>
   <div class="note" style="margin-top:0">
     <h4>Reading a quiet result</h4>
-    <p>A <span class="mono">0 worker(s)</span> restart on a fleet that is plainly live is a root run, not an empty fleet. A multisite subsite prints the same line for a different reason: the fleet is network-global and runs on the main site alone, so a subsite's <span class="mono">restart</span> flags nobody and still exits 0.</p>
+    <p>A <span class="mono">0 worker(s)</span> restart counts lock dirs that took a flag, and a missing dir holds no worker. On a fleet that is plainly live it is a multisite subsite: the fleet is network-global and runs on the main site alone, so a subsite's <span class="mono">restart</span> flags nobody and exits 0.</p>
   </div>
 </div>
 </div>

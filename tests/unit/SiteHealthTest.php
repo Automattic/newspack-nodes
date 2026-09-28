@@ -13,7 +13,6 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
-use Newspack_Nodes\Alerts;
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Health_Checks;
@@ -210,30 +209,5 @@ class SiteHealthTest extends TestCase {
 		$this->assertStringContainsString( 'WARN &lt;label-7319&gt;', $result['description'] );
 		$this->assertStringContainsString( '&lt;script&gt;health-8843&lt;/script&gt;', $result['description'] );
 		$this->assertStringContainsString( '&lt;img src=x onerror=health-7319&gt;', $result['description'] );
-	}
-
-	public function test_ensure_runtime_wired_registers_alert_hooks(): void {
-		$runtime_ref     = new \ReflectionProperty( Bootstrap::class, 'runtime_wired' );
-		$diagnostics_ref = new \ReflectionProperty( Bootstrap::class, 'diagnostics_wired' );
-		$saved_runtime   = $runtime_ref->getValue();
-		$saved_diagnostics = $diagnostics_ref->getValue();
-		$saved_memd      = Core::$memd;
-
-		try {
-			$GLOBALS['_wp_actions'] = [];
-			$runtime_ref->setValue( null, false );
-			$diagnostics_ref->setValue( null, false );
-			Bootstrap::ensure_runtime_wired();
-
-			$this->assertContains(
-				[ Alerts::class, 'emit' ],
-				$GLOBALS['_wp_actions']['newspack_nodes/periodic'] ?? [],
-				'alert emit must be hooked to the fleet periodic sweep'
-			);
-		} finally {
-			$runtime_ref->setValue( null, $saved_runtime );
-			$diagnostics_ref->setValue( null, $saved_diagnostics );
-			Core::$memd = $saved_memd;
-		}
 	}
 }

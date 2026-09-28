@@ -462,10 +462,7 @@ test( 'a structurally invalid command warns to stderr (classified, not silent)',
 	warnSpy.mockRestore();
 } );
 
-test( 'TM_NOREPLY command suppresses the reply but surfaces an error to stderr', () => {
-	const warnSpy = jest
-		.spyOn( console, 'warn' )
-		.mockImplementation( () => {} );
+test( 'a TM_NOREPLY command that fails throws, since no reply can carry it', () => {
 	const sink = new Node();
 	const got = [];
 	sink.fill = ( m ) => got.push( [ ...m ] );
@@ -475,7 +472,7 @@ test( 'TM_NOREPLY command suppresses the reply but surfaces an error to stderr',
 	interpreter.sink = sink;
 	interpreter.commands( {
 		bad: () => {
-			throw new Error( 'boom' );
+			throw new Error( 'boom-7731' );
 		},
 	} );
 
@@ -484,14 +481,42 @@ test( 'TM_NOREPLY command suppresses the reply but surfaces an error to stderr',
 	m[ FROM ] = '_output/123';
 	m[ VALUE ] = { name: 'bad', arguments: '' };
 	m[ LOCAL ] = true;
-	interpreter.fill( m );
 
-	// No routed reply, but the error is visible in stderr (dmesg).
+	expect( () => interpreter.fill( m ) ).toThrow( 'boom-7731' );
 	expect( got ).toHaveLength( 0 );
-	expect( warnSpy ).toHaveBeenCalled();
-	expect( warnSpy.mock.calls.at( -1 )[ 0 ] ).toContain( 'boom' );
-	expect( warnSpy.mock.calls.at( -1 )[ 0 ] ).toContain( 'ERROR:' );
-	warnSpy.mockRestore();
+} );
+
+test( 'an unauthorized TM_NOREPLY command throws and runs nothing', () => {
+	let ran = false;
+	const interpreter = new CommandInterpreterNode();
+	interpreter.name = 'test_interpreter';
+	interpreter.sink = { fill: () => {} };
+	interpreter.commands( {
+		echo7732: () => {
+			ran = true;
+			return 'ok';
+		},
+	} );
+
+	const m = newMessage();
+	m[ TYPE ] = TM_COMMAND | TM_NOREPLY;
+	m[ VALUE ] = { name: 'echo7732', arguments: [] };
+
+	expect( () => interpreter.fill( m ) ).toThrow( 'unauthorized: echo7732' );
+	expect( ran ).toBe( false );
+} );
+
+test( 'a TM_NOREPLY command naming no verb throws', () => {
+	const interpreter = new CommandInterpreterNode();
+	interpreter.name = 'test_interpreter';
+	interpreter.sink = { fill: () => {} };
+
+	const m = newMessage();
+	m[ TYPE ] = TM_COMMAND | TM_NOREPLY;
+	m[ VALUE ] = { name: 'nosuch7733', arguments: [] };
+	m[ LOCAL ] = true;
+
+	expect( () => interpreter.fill( m ) ).toThrow( 'no such verb: nosuch7733' );
 } );
 
 test( 'empty verb payload suppresses the routed response', () => {

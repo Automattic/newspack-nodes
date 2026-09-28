@@ -141,7 +141,7 @@ class WorkerScaffoldingTest extends TestCase {
 
 	public function test_clean_shutdown_graceful_checkpoints_registry_work_consumers(): void {
 		// A clean recycle must hand off the worker's durable work consumers (registered
-		// in Core, unlike the anonymous IPC consumer) at attempts=0, so a respawn
+		// in Core, as the IPC-input consumer is too) at attempts=0, so a respawn
 		// resumes at the virgin baseline (1) instead of climbing toward a false poison
 		// strike. Only a hard crash — which never runs this shutdown path — leaves a
 		// non-graceful frame and lets attempts climb.
@@ -233,13 +233,19 @@ class WorkerScaffoldingTest extends TestCase {
 		$this->assertSame( 0, $probe->sweeps );
 	}
 
-	public function test_a_throwing_sweeper_does_not_block_the_cursor_handoff(): void {
-		$boom = new class() extends \Newspack_Nodes\Node implements \Newspack_Nodes\Shutdown_Sweeper {
+	public function test_a_throwing_sweeper_costs_neither_its_peers_nor_the_cursor_handoff(): void {
+		$lost = new \RuntimeException( 'probe log gone-4417' );
+		$boom = new class( $lost ) extends \Newspack_Nodes\Node implements \Newspack_Nodes\Shutdown_Sweeper {
+			public function __construct( private \RuntimeException $lost ) {
+				parent::__construct();
+			}
 			public function shutdown_sweep(): void {
-				throw new \RuntimeException( 'log gone' );
+				throw $this->lost;
 			}
 		};
 		$boom->name( 'badprobe' );
+		$peer = new RecordingSweeper();
+		$peer->name( 'goodprobe' );
 		$this->seed_offsetlog_frame( "{$this->tmp}/offsets.p0", 0, 0, 2, '' );
 
 		$c = new Consumer_Node();
@@ -250,10 +256,17 @@ class WorkerScaffoldingTest extends TestCase {
 
 		$w      = new FatalProbeWorker( $this->tmp, 'firehose', 0 );
 		$w->err = null;
-		$w->shutdown_handoff();
+		$caught = null;
+		try {
+			$w->shutdown_handoff();
+		} catch ( \RuntimeException $e ) {
+			$caught = $e;
+		}
+		$this->assertSame( $lost, $caught, 'the sweeper failure escapes the handoff' );
 
+		$this->assertSame( 1, $peer->sweeps, 'the sweeper after the failure still sweeps' );
 		$entry = $this->newest_offsetlog_entry_for( "{$this->tmp}/offsets.p0" );
-		$this->assertSame( 0, $entry['attempts'] );
+		$this->assertSame( 0, $entry['attempts'], 'the cursors still hand off gracefully' );
 	}
 
 	public function test_fatal_shutdown_skips_graceful_handoff_so_attempts_climb(): void {
@@ -311,7 +324,7 @@ class WorkerScaffoldingTest extends TestCase {
 		\file_put_contents( "{$dir}/0.log", \Newspack_Nodes\Message::packed( $m ) . "\n" );
 	}
 
-	public function test_checkpoint_ipc_input_persists_consumed_offset(): void {
+	public function test_checkpoint_durable_consumers_persists_the_ipc_input_offset(): void {
 		// A clean recycle checkpoints the IPC input: a command consumed before
 		// shutdown is NOT replayed on respawn, while one that arrived during the
 		// downtime IS delivered. (Without the shutdown checkpoint, the respawn's
@@ -326,8 +339,9 @@ class WorkerScaffoldingTest extends TestCase {
 
 		$input->arguments( [ "{$ipc_dir}/input" ] );
 		$this->write_ipc_line( $input, 'cmd1' );
-		$this->pump_consumer( $in );   // consume cmd1 before the recycle
-		$w->checkpoint_ipc_input();    // clean-recycle shutdown checkpoint
+		$this->pump_consumer( $in );          // consume cmd1 before the recycle
+		$w->checkpoint_durable_consumers();   // clean-recycle shutdown checkpoint
+		Core::cleanup_all_nodes();
 
 		$this->write_ipc_line( $input, 'cmd2' );   // queued during the downtime
 
@@ -338,6 +352,74 @@ class WorkerScaffoldingTest extends TestCase {
 
 		$this->assertCount( 1, $cap->captured, 'respawn delivers the queued command, not the already-consumed one' );
 		$this->assertSame( 'cmd2', $cap->captured[0][ \Newspack_Nodes\Message::VALUE ] );
+	}
+
+	public function test_ipc_input_quarantines_a_poison_command_and_drains_past_it(): void {
+		// A torn line between two good commands must not wedge the reader:
+		// both good ones run, the poison is dead-lettered, nothing raises.
+		$ipc_dir    = "{$this->tmp}/ipc/poisonous.p3";
+		$quarantine = "{$this->tmp}/deadletter/poisonous-ipc-input.p3";
+		$this->assertStringStartsNotWith( $this->tmp, Core::resolve_config_token( 'config', 'deadletter_dir', true ), 'the worker root is not the configured one' );
+		\mkdir( "{$ipc_dir}/input", 0755, true );
+		try {
+			$w  = new Worker_Base( $this->tmp, 'poisonous', 3 );
+			$in = $w->build_ipc_input_consumer( $ipc_dir );
+			$cap = new \Newspack_Nodes\Tests\Capture_Sink_Node();
+			$in->sink( $cap );
+			$in->poll(); // Seed the cursor at the (empty) tail.
+
+			$input = new Partition_Node();
+			$input->arguments( [ "{$ipc_dir}/input" ] );
+			$this->write_ipc_line( $input, 'first-good' );
+			\file_put_contents( "{$ipc_dir}/input/0.log", "{\"torn\n", \FILE_APPEND );
+			$this->write_ipc_line( $input, 'second-good' );
+
+			$this->pump_consumer( $in );
+
+			$values = \array_map( static fn ( array $m ) => $m[ \Newspack_Nodes\Message::VALUE ], $cap->captured );
+			$this->assertSame( [ 'first-good', 'second-good' ], $values, 'both good commands run around the poison' );
+			$quarantined = (string) \file_get_contents( "{$quarantine}/0.log" );
+			$this->assertStringContainsString( 'torn', $quarantined, 'the poison lands in the IPC reader\'s quarantine' );
+		} finally {
+			$this->rmdir_recursive( $quarantine );
+		}
+	}
+
+	/**
+	 * The IPC input's quarantine counts toward the dead-letters alert, so it
+	 * must be operable: the reader carries a reserved name, and the dl_ verbs
+	 * reach it through its `:config` interpreter like any other reader's.
+	 */
+	public function test_the_ipc_input_quarantine_answers_the_dead_letter_verbs(): void {
+		$w  = new Worker_Base( $this->tmp, 'kestrel', 4 );
+		$w->build_scaffolding();
+		$in = Core::node( \Newspack_Nodes\Node_Names::REPL_INPUT );
+		$this->assertInstanceOf( Consumer_Node::class, $in );
+		$this->assertSame( "{$this->tmp}/deadletter/kestrel-ipc-input.p4", $in->arguments()[2] );
+
+		$page = Core::node( \Newspack_Nodes\Node_Names::REPL_INPUT . ':config' )->dispatch( 'dl_list', [] );
+
+		$this->assertSame( 0, $page['total'] );
+		$this->assertContains( \Newspack_Nodes\Node_Names::REPL_INPUT, \Newspack_Nodes\Node_Names::SESSION_SCAFFOLDING, 'no replay rebuilds it and no remove_node takes it' );
+	}
+
+	/**
+	 * Scaffolding protects its whole household: a sibling published by a
+	 * protected node is refused too, so `rm -a` cannot strip the IPC input of
+	 * its source or its dead-letter interpreter.
+	 */
+	public function test_remove_node_refuses_the_siblings_of_scaffolding(): void {
+		$w           = new Worker_Base( $this->tmp, 'plover', 2 );
+		$interpreter = $w->build_scaffolding();
+		$input       = \Newspack_Nodes\Node_Names::REPL_INPUT;
+		$this->assertNotNull( Core::node( "{$input}:source" ) );
+
+		$out = $interpreter->dispatch( 'remove_node', [ '-a', '_repl:input.*' ] );
+
+		foreach ( [ $input, "{$input}:source", "{$input}:config" ] as $name ) {
+			$this->assertNotNull( Core::node( $name ), "{$name} survives" );
+			$this->assertStringContainsString( "refusing to destroy baseline scaffolding: {$name}", $out );
+		}
 	}
 
 	public function test_build_scaffolding_installs_command_verifier(): void {

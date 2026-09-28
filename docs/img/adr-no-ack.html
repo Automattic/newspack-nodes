@@ -59,7 +59,7 @@
 <div class="three">
   <div class="card">
     <h3>The one reply-control flag: <span class="mono">TM_NOREPLY</span></h3>
-    <p>A Shell with <span class="mono">want_reply( false )</span> — topology load and script mode — ORs it onto every command it mints, and the interpreter suppresses the reply, still surfacing a failure on stderr as <span class="mono">error from TM_NOREPLY command:</span>.</p>
+    <p>A Shell with <span class="mono">want_reply( false )</span> — topology load and script mode — ORs it onto every command it mints, and the interpreter suppresses the reply. No reply carries a failure either, so it propagates, and a broken topology line fails the load.</p>
     <p>Without it a worker's boot-topology replies route to <span class="mono">_output/&lt;pid&gt;</span>, which no worker has, and bounce a dropped <span class="mono">NOT_AVAILABLE</span> every startup.</p>
   </div>
   <div class="card">

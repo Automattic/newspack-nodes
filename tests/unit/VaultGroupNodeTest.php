@@ -74,7 +74,18 @@ final class Stop_Spy_Node extends Node {
 			}
 			return 'poked';
 		};
-		return [ 'commands' => [ [ 'name' => 'poke', 'handler' => $poke ] ] ] + parent::node_schema();
+		$jolt = static function ( Command_Interpreter_Node $ci ): string {
+			if ( \str_ends_with( $ci->patron()->name(), ':tw0' ) ) {
+				throw new Worker_Should_Stop( 'stop-52' );
+			}
+			throw new \RuntimeException( 'refused-53' );
+		};
+		return [
+			'commands' => [
+				[ 'name' => 'poke', 'handler' => $poke ],
+				[ 'name' => 'jolt', 'handler' => $jolt ],
+			],
+		] + parent::node_schema();
 	}
 }
 
@@ -208,6 +219,19 @@ final class VaultGroupNodeTest extends TestCase {
 		}
 	}
 
+	public function test_a_stop_and_a_refusal_from_two_children_both_escape(): void {
+		Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Tests\\Unit\\' );
+		$group = ( new Command_Interpreter_Node() )->make_node( 'Vault_Group', 'spy', 'Stop_Spy', 'tw-edge' );
+		try {
+			$group->interpreter()->dispatch( 'jolt' );
+			$this->fail( 'expected Worker_Should_Stop' );
+		} catch ( Worker_Should_Stop $e ) {
+			$this->assertSame( 'stop-52', $e->getMessage() );
+			$this->assertSame( 'spy:tw9: refused-53', $e->getPrevious()?->getMessage(), 'the refusal escapes on the stop, naming its child' );
+		}
+		$this->assertStringNotContainsString( 'jolt', $group->dump_config() );
+	}
+
 	public function test_an_unknown_child_type_refuses_the_make_node(): void {
 		$ci = new Command_Interpreter_Node();
 		$this->expectExceptionMessage( 'unknown child type No_Such_Type' );
@@ -237,7 +261,7 @@ final class VaultGroupNodeTest extends TestCase {
 	public function test_a_refusal_throws_naming_each_child_and_nothing_is_recorded(): void {
 		$ci    = new Command_Interpreter_Node();
 		$group = $ci->make_node( 'Vault_Group', 'egress', 'HTTP_Out', 'tw-edge' );
-		$this->expectExceptionMessageMatches( '/egress:tw0: usage: allow_replies_to .*; egress:tw9: usage: allow_replies_to /' );
+		$this->expectExceptionMessageMatches( '/^2 failures: egress:tw0: usage: allow_replies_to .* \| egress:tw9: usage: allow_replies_to /' );
 		try {
 			$group->interpreter()->dispatch( 'allow_replies_to', [ '' ] );
 		} finally {
@@ -372,52 +396,107 @@ final class VaultGroupNodeTest extends TestCase {
 		$this->assertSame( [ 'edge:tw0' ], self::member_names( $group ) );
 	}
 
-	public function test_colliding_id_is_skipped_and_the_rest_build(): void {
-		Vault::get_instance()->add( 'config', [ 'url' => 'https://c.example', 'group' => 'tw-edge' ] );
+	public function test_a_colliding_id_raises_after_the_rest_build(): void {
 		$ci    = new Command_Interpreter_Node();
-		$squat = $ci->make_node( 'Echo', 'edge:tw9' );
 		$group = $ci->make_node( 'Vault_Group', 'edge', 'Echo', 'tw-edge' );
-		$this->assertSame( [ 'edge:tw0' ], self::member_names( $group ) );
-		$this->assertSame( $squat, Core::node( 'edge:tw9' ) );
-		$this->assertStringContainsString( 'Vault id config', $this->stderr );
-		$this->assertStringContainsString( 'Vault id tw9', $this->stderr );
+		$squat = $ci->make_node( 'Echo', 'edge:tw5' );
+		Vault::get_instance()->add( 'tw5', [ 'url' => 'https://tw5.example', 'group' => 'tw-edge' ] );
+		Vault::get_instance()->add( 'tw7', [ 'url' => 'https://tw7.example', 'group' => 'tw-edge' ] );
+
+		$e = $this->caught(
+			fn () => $group->update_graph(),
+			'a colliding id must raise'
+		);
+		$this->assertStringContainsString( 'building Vault id tw5', $e->getMessage() );
+
+		$this->assertSame( [ 'edge:tw0', 'edge:tw9', 'edge:tw7' ], self::member_names( $group ), 'the id after the collision still builds' );
+		$this->assertSame( $squat, Core::node( 'edge:tw5' ) );
 	}
 
-	public function test_a_config_id_leaves_the_groups_own_interpreter_standing(): void {
-		Vault::get_instance()->add( 'config', [ 'url' => 'https://c.example', 'group' => 'tw-edge' ] );
+	public function test_a_config_id_raises_after_the_rest_build(): void {
 		$ci    = new Command_Interpreter_Node();
 		$group = $ci->make_node( 'Vault_Group', 'egress', 'HTTP_Out', 'tw-edge' );
-		$this->assertSame( [ 'egress:tw0', 'egress:tw9' ], self::member_names( $group ) );
+		Vault::get_instance()->add( 'config', [ 'url' => 'https://c.example', 'group' => 'tw-edge' ] );
+		Vault::get_instance()->add( 'tw7', [ 'url' => 'https://tw7.example', 'group' => 'tw-edge' ] );
+
+		$e = $this->caught(
+			fn () => $group->update_graph(),
+			'a config id must raise'
+		);
+		$this->assertStringContainsString( 'Vault id config', $e->getMessage() );
+
+		$this->assertSame( [ 'egress:tw0', 'egress:tw9', 'egress:tw7' ], self::member_names( $group ), 'the id after it still builds' );
 		$this->assertSame( $group->interpreter(), Core::node( 'egress:config' ) );
 		$this->assertNotNull( $group->interpreter() );
 	}
 
-	public function test_a_child_whose_teardown_throws_is_logged_and_kept(): void {
+	public function test_a_config_id_met_at_make_node_fails_it(): void {
+		Vault::get_instance()->add( 'config', [ 'url' => 'https://c.example', 'group' => 'tw-edge' ] );
+		$e = $this->caught(
+			fn () => ( new Command_Interpreter_Node() )->make_node( 'Vault_Group', 'edge', 'Echo', 'tw-edge' ),
+			'a config id must fail make_node'
+		);
+		$this->assertStringContainsString( 'Vault id config', $e->getMessage() );
+		$this->assertNull( Core::node( 'edge' ) );
+		$this->assertNull( Core::node( 'edge:tw0' ) );
+	}
+
+	public function test_a_child_whose_teardown_throws_raises_and_is_kept(): void {
 		Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Tests\\Unit\\' );
 		$ci    = new Command_Interpreter_Node();
 		$group = $ci->make_node( 'Vault_Group', 'edge', 'Refusing_Teardown', 'tw-edge' );
 		Vault::get_instance()->update( 'tw9', [ 'group' => 'llm' ] );
-		$group->update_graph();
-		$this->assertStringContainsString( 'retracting Vault id tw9: teardown refused', $this->stderr );
+
+		$e = $this->caught(
+			fn () => $group->update_graph(),
+			'a refused teardown must raise'
+		);
+		$this->assertSame( 'retracting Vault id tw9: teardown refused', $e->getMessage() );
+
 		$this->assertSame( [ 'edge:tw0', 'edge:tw9' ], self::member_names( $group ) );
 	}
 
-	public function test_a_type_change_keeps_a_child_whose_teardown_threw_in_its_slot(): void {
+	public function test_a_type_change_raises_every_refused_teardown_and_rewires(): void {
 		Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Tests\\Unit\\' );
 		$ci    = new Command_Interpreter_Node();
 		$group = $ci->make_node( 'Vault_Group', 'edge', 'Refusing_Teardown', 'tw-edge' );
 		$stuck = $group->members();
-		$group->arguments( [ 'Echo', 'tw-edge' ] );
-		$this->assertStringContainsString( 'retracting Vault id tw0: teardown refused', $this->stderr );
+
+		try {
+			$group->arguments( [ 'Knob_Spy', 'tw-edge' ] );
+			$this->fail( 'refused teardowns must raise' );
+		} catch ( \Newspack_Nodes\Failures $e ) {
+			$this->assertSame(
+				[ 'retracting Vault id tw0: teardown refused', 'retracting Vault id tw9: teardown refused' ],
+				\array_map( static fn ( \Throwable $f ): string => $f->getMessage(), $e->all() )
+			);
+		}
+
 		$this->assertSame( $stuck, $group->members() );
+		$this->assertNotNull( $group->interpreter(), 'the new child type\'s verbs are wired all the same' );
 	}
 
-	public function test_a_refused_build_whose_cleanup_throws_escapes_nothing(): void {
+	public function test_a_refused_build_raises_with_its_refused_cleanup_and_the_rest_attempted(): void {
 		Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Tests\\Unit\\' );
-		$ci    = new Command_Interpreter_Node();
-		$group = $ci->make_node( 'Vault_Group', 'edge', 'Refusing_Build', 'tw-edge' );
-		$this->assertStringContainsString( 'skipping Vault id tw0: arguments refused', $this->stderr );
-		$this->assertStringContainsString( 'retracting Vault id tw0: teardown refused', $this->stderr );
+		$group = new Vault_Group_Node();
+		$group->name( 'edge' );
+		$group->sink( new Capture_Sink_Node() );
+
+		try {
+			$group->arguments( [ 'Refusing_Build', 'tw-edge' ] );
+			$this->fail( 'a refused build must raise' );
+		} catch ( \Newspack_Nodes\Failures $e ) {
+			$this->assertSame(
+				[
+					'building Vault id tw0: arguments refused',
+					'retracting Vault id tw0: teardown refused',
+					'building Vault id tw9: arguments refused',
+					'retracting Vault id tw9: teardown refused',
+				],
+				\array_map( static fn ( \Throwable $f ): string => $f->getMessage(), $e->all() )
+			);
+		}
+
 		$this->assertSame( [ 'edge:tw0', 'edge:tw9' ], self::member_names( $group ) );
 	}
 
@@ -679,8 +758,13 @@ final class VaultGroupNodeTest extends TestCase {
 		$group = ( new Command_Interpreter_Node() )->make_node( 'Vault_Group', 'dial', 'Knob_Spy', 'arrives-later' );
 		$group->interpreter()->dispatch( 'tune', [ 'knob-61', 'fast' ] );
 		Vault::get_instance()->add( 'tw3', [ 'url' => 'https://tw3.example', 'group' => 'arrives-later' ] );
-		$group->update_graph();
-		$this->assertStringContainsString( 'skipping Vault id tw3: replaying tune knob-61 fast: refused-88', $this->stderr );
+
+		$e = $this->caught(
+			fn () => $group->update_graph(),
+			'a refused replay must raise'
+		);
+		$this->assertSame( 'building Vault id tw3: replaying tune knob-61 fast: refused-88', $e->getMessage() );
+
 		$this->assertNull( Core::node( 'dial:tw3' ) );
 	}
 }

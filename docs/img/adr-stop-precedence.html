@@ -27,14 +27,14 @@
 </style>
 <div class="sheet">
 <h1>A broad catch re-throws the stop before it handles anything else</h1>
-<p class="sub"><span class="mono">Worker_Should_Stop</span> extends <span class="mono">\RuntimeException</span>, so every <span class="mono">catch (\Throwable)</span> on the drain path catches it. Treated as an error, the stop is swallowed and the worker runs past its deadline until the next drain tick re-checks. Three sites carve themselves out.</p>
+<p class="sub"><span class="mono">Worker_Should_Stop</span> extends <span class="mono">\RuntimeException</span>, so every <span class="mono">catch (\Throwable)</span> on the drain path catches it. Treated as an error, the stop is swallowed and the worker runs past its deadline until the next drain tick re-checks. A loop that attempts every step raises everything it caught after the last, and one site carves itself out.</p>
 
 <div class="rule">
   <div class="box in"><b>Inside a broad catch on the message or drain path</b><span class="mono">Event_Framework::stop_check()</span> raises it from a long in-process job (timeout, memory, shutdown); <span class="mono">pump()</span> is its throttled form, which firehose writers reach per write. Without the rule a mid-job stop is guaranteed only on the direct firehose path, from <span class="mono">Log_Manager</span> through <span class="mono">Topic</span> to <span class="mono">Partition</span>, because an intervening Tee or Command_Interpreter eats it.</div>
   <div class="box q"><b>Is it a <span class="mono">Worker_Should_Stop</span>?</b><span style="font-size:11.5px;color:#50575E;margin-top:4px">One explicit-first catch on the parent covers the subclass too</span></div>
   <div class="outs">
     <div class="box y"><b>Yes:</b> <span class="mono">catch (Worker_Should_Stop $e) { throw $e; }</span> — it is control flow, not an error.</div>
-    <div class="box n"><b>No:</b> handle it as a real error: log it, wrap it <span class="mono">TM_ERROR</span>, defer it. Broad catches stay legal.</div>
+    <div class="box n"><b>No:</b> propagate it, or translate it into a result the caller sees — a <span class="mono">TM_ERROR</span> reply, a refusal. Printing it and moving on swallows it. Broad catches stay legal.</div>
     <div class="box bad"><b>The failure the rule prevents:</b> the stop logged as an error, the worker draining on past <span class="mono">max_runtime</span> or the memory watermark.</div>
   </div>
 </div>
@@ -61,34 +61,34 @@ r.appendChild(s);
 
 <div class="carve">
   <div class="card">
-    <h3>Carve-out 1: fan-out (Tee and Tap via <span class="mono">Fanout_Targets</span>, <span class="mono">Vault_Group_Node::forward()</span> over its children, and <span class="mono">LRU_Cache::evict_bucket()</span> over its callbacks)</h3>
-    <p>A target throwing says nothing about its siblings, so a fan-out attempts EVERY target and defers the throwable: a skipped healthy target is a permanent loss once the poison path dead-letters the message and advances the cursor. Completing the fan-out preserves at-least-once; duplicates on replay are its accepted cost, and they arise with any fan-out regardless of when it throws.</p>
-    <p>Tap always performs its passthrough before re-throwing — the passthrough IS the pipeline, and a <span class="mono">Worker_Should_Stop_Clean</span> commits PAST the message, so aborting early would drop it from the main path. Tap claims no exemption as observability: a snapshot node raising the clean stop from a tap participates in cursor semantics, so Tap defers an ordinary target error exactly as Tee does rather than swallowing it.</p>
-    <p><span class="mono">forward()</span> dispatches a config verb to every child's interpreter, keeps each answer, and defers a throwable exactly as Tee does: a child's refusal joins one combined error raised after the loop, and a child's <span class="mono">Worker_Should_Stop</span> is deferred until the loop ends, when the one <span class="mono">outranks()</span> picks is raised.</p>
+    <h3>Attempt-all loops: fan-out (Tee, Tap and <span class="mono">send_signed()</span> via <span class="mono">Fanout_Targets</span>), <span class="mono">Settings_Sync</span>, <span class="mono">Vault_Group_Node::forward()</span>, <span class="mono">LRU_Cache</span> eviction, <span class="mono">HTTP_Out</span> replies</h3>
+    <p>A step throwing says nothing about its siblings, so the loop attempts EVERY step through <span class="mono">Worker_Should_Stop::attempt_each()</span>, which returns everything caught, and <span class="mono">raise()</span> throws it after the last, combined. A skipped healthy target is a permanent loss once the poison path dead-letters the message and advances the cursor; duplicates on replay are the accepted cost.</p>
+    <p>Tap performs its passthrough before raising — the passthrough IS the pipeline — and the passthrough's own failure joins the list, so a clean tap stop beside a failed pipeline write replays. <span class="mono">Vault_Group_Node::forward()</span> re-raises each child's refusal naming that child, in the same list as any stop.</p>
   </div>
   <div class="card">
-    <h3>Carve-out 2: post-job <span class="mono">finally</span></h3>
-    <p><span class="mono">Job_Worker_Node</span>'s <span class="mono">newspack_nodes/job_worker/after_job</span> swallows everything, WSS included. It fires whether the handler returned or threw, so propagating out of it would either false-poison a completed job — the drain would quarantine an already-processed message (ADR-12) — or mask the failure it fired after.</p>
-    <p>Its <span class="mono">before_job</span> counterpart is NOT a carve-out: it re-throws WSS first and swallows only a listener's own error, which skips that one job instead of killing the batch.</p>
+    <h3>Not a carve-out: <span class="mono">after_job</span></h3>
+    <p><span class="mono">Job_Worker_Node</span>'s <span class="mono">newspack_nodes/job_worker/after_job</span> fires whether the handler returned or threw, and a listener's throw joins the job's own through <span class="mono">raise()</span>: neither masks the other, and a stop beside it is a plain stop carrying it, so the reader replays.</p>
+    <p>A <span class="mono">before_job</span> listener that throws fails the job the way a handler does, after <span class="mono">after_job</span> has fired.</p>
   </div>
   <div class="card">
-    <h3>Carve-out 3: <span class="mono">Log_Manager::finish()</span> (event-logger-nodes)</h3>
-    <p>Every line it writes before the terminal is a write — the orphan drain, the memory line, the resources line, <span class="mono">complete()</span> itself — so a stop can land on any of them. Skipping the terminal strands the request in flight until eviction, because <span class="mono">finished</span> latches on entry and nothing retries it. So it marks the request aborted, writes the terminal, then re-raises.</p>
+    <h3>Not a carve-out: <span class="mono">Log_Manager::finish()</span> (event-logger-nodes)</h3>
+    <p>Every line it writes before the terminal is a write — the orphan drain, the memory line, the resources line, <span class="mono">complete()</span> itself — so a stop or a failed write can land on any of them. Skipping the terminal strands the request in flight until eviction, because <span class="mono">finished</span> latches on entry and nothing retries it. So it writes the terminal whatever the drain threw — aborted, when that was a stop — then raises both through <span class="mono">raise()</span>.</p>
     <p>Terminal-last is a wire contract: <span class="mono">Reqgrep_Core</span> finalizes and evicts the rid on it, so anything written after arrives at a request that no longer exists.</p>
   </div>
 </div>
 
 <div class="card prec">
-  <h3>What a fan-out keeps in its deferred slot: <span class="mono">Worker_Should_Stop::outranks( $candidate, $deferred )</span></h3>
+  <h3>What escapes an attempt-all loop: <span class="mono">Worker_Should_Stop::combine( $caught )</span></h3>
   <table>
-    <thead><tr><th style="width:26%">A target throws…</th><th>…while a plain <span class="mono">Worker_Should_Stop</span> is deferred</th><th>…while a <span class="mono">Worker_Should_Stop_Clean</span> is deferred</th><th>…while a poison is deferred</th></tr></thead>
+    <thead><tr><th style="width:34%">The loop caught…</th><th>…so it raises</th><th style="width:26%">…and the reader</th></tr></thead>
     <tbody>
-      <tr><td>a plain <span class="mono">Worker_Should_Stop</span> (replay)</td><td class="same">kept: same outcome</td><td class="win">replaces it</td><td class="win">replaces it</td></tr>
-      <tr><td>a <span class="mono">Worker_Should_Stop_Clean</span> (commit past)</td><td class="lose">the plain stop stands</td><td class="same">replaces it: same outcome</td><td class="win">replaces it</td></tr>
-      <tr><td>a poison (dead-letter, cursor advances)</td><td class="lose">the plain stop stands</td><td class="lose">the clean stop stands</td><td class="same">the first poison stands</td></tr>
+      <tr><td>nothing</td><td class="same">nothing</td><td class="same">advances</td></tr>
+      <tr><td>only bare <span class="mono">Worker_Should_Stop_Clean</span> stops</td><td class="win">the first clean stop</td><td class="win">commits past the message</td></tr>
+      <tr><td>any <span class="mono">Worker_Should_Stop</span>, clean or plain, among anything else</td><td class="lose">a plain stop carrying every failure as its previous: each non-stop throwable and each stop's own previous, as <span class="mono">Failures</span> when there are several</td><td class="lose">replays the message</td></tr>
+      <tr><td>failures alone</td><td class="lose">the one failure, or all of them as <span class="mono">Failures</span></td><td class="lose">dead-letters it</td></tr>
     </tbody>
   </table>
-  <p style="margin-top:10px">The winner moves the consumer cursor, so the slot holds whichever throwable is safest to act on. Advancing past a message that needed a replay loses it; replaying a clean one is a duplicate the contract already tolerates. <span class="mono">tests/unit/TeeStopPrecedenceTest.php</span> pins the inversion.</p>
+  <p style="margin-top:10px">A clean stop carrying a previous is not clean (<span class="mono">is_clean()</span>): PHP chains an in-flight failure onto a stop thrown in a <span class="mono">finally</span>. Nothing caught is dropped. <span class="mono">tests/unit/WorkerShouldStopTest.php</span> pins every branch.</p>
 </div>
 
 <div class="note">

@@ -1,4 +1,3 @@
-/* global globalThis */
 /**
  * The Topologies-tab deep-links: `?topology=X&edit=1` opens topology X in the
  * editor; `?new=1` opens a blank New draft (handleNew). New uses a DISTINCT

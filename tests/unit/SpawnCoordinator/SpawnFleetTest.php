@@ -95,6 +95,7 @@ class SpawnFleetTest extends TestCase {
 	public function test_spawn_fleet_honors_the_shared_spawn_throttle(): void {
 		$this->with_topology( [
 			'firehose-workers' => [ 'num_partitions' => 3, 'topology' => '/x.php' ],
+			'job-workers'      => [ 'num_partitions' => 1, 'topology' => '/y.php' ],
 		] );
 		$s = new Spawn_Coordinator( $this->tmp, 'NONCE_SALT_FOR_TEST' );
 
@@ -107,6 +108,7 @@ class SpawnFleetTest extends TestCase {
 	public function test_spawn_fleet_uses_a_valid_spawn_token(): void {
 		$this->with_topology( [
 			'firehose-workers' => [ 'num_partitions' => 1, 'topology' => '/x.php' ],
+			'job-workers'      => [ 'num_partitions' => 1, 'topology' => '/y.php' ],
 		] );
 		$s = new Spawn_Coordinator( $this->tmp, 'NONCE_SALT_FOR_TEST' );
 

@@ -136,6 +136,46 @@ class RouterTest extends TestCase {
 		$this->assertSame( 'nonexistent', $err[ Message::FROM ] );
 	}
 
+	public function test_a_noreply_command_no_node_answers_throws_and_bounces_nothing(): void {
+		$router = new Router_Node();
+		$router->name( '_router' );
+		$producer = new Capture_Sink_Node();
+		$producer->name( 'producer-8813' );
+
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_NOREPLY;
+		$message[ Message::TO ]    = 'absent-8813:config';
+		$message[ Message::FROM ]  = 'producer-8813';
+		$message[ Message::VALUE ] = [ 'name' => 'set_line_mode', 'arguments' => [ 'true' ] ];
+
+		$e = $this->caught(
+			fn () => $router->fill( $message ),
+			'a TM_NOREPLY command no node answers must throw'
+		);
+		$this->assertStringContainsString( 'NOT_AVAILABLE', $e->getMessage() );
+		$this->assertStringContainsString( 'absent-8813:config', $e->getMessage() );
+		$this->assertStringContainsString( 'set_line_mode', $e->getMessage() );
+		$this->assertCount( 0, $producer->captured, 'no reply was asked for' );
+	}
+
+	public function test_a_command_that_wants_a_reply_still_bounces(): void {
+		$router = new Router_Node();
+		$router->name( '_router' );
+		$producer = new Capture_Sink_Node();
+		$producer->name( 'producer-8814' );
+
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND;
+		$message[ Message::TO ]    = 'absent-8814:config';
+		$message[ Message::FROM ]  = 'producer-8814';
+		$message[ Message::VALUE ] = [ 'name' => 'set_line_mode', 'arguments' => [ 'true' ] ];
+
+		$router->fill( $message );
+
+		$this->assertCount( 1, $producer->captured );
+		$this->assertSame( "NOT_AVAILABLE\n", $producer->captured[0][ Message::VALUE ] );
+	}
+
 	/**
 	 * A non-scalar TO is NOT_AVAILABLE, not "unaddressed". The empty-TO guard
 	 * compares the RAW value, so an array TO falls through it, coerces to '',
@@ -312,4 +352,48 @@ class RouterTest extends TestCase {
 		$this->assertStringNotContainsString( 'secure level', $buf );
 	}
 
+	/**
+	 * The tick's housekeeping is independent work: a wake that throws must not
+	 * cost the rate-limiter re-window or the profile trim, and its failure
+	 * escapes once every step has run.
+	 */
+	public function test_a_failed_wake_still_prunes_logs_and_trims_profiles_then_raises(): void {
+		$tmp = $this->make_temp_dir();
+		$this->use_base_dir( $tmp );
+		\Newspack_Nodes\Partition_Node::forget_pending_wakes();
+		$p = new \Newspack_Nodes\Partition_Node();
+		$p->arguments( [ "{$tmp}/logs/heron.p0" ] );
+		$p->fill( $this->produce( 'wake-me' ) );
+		$p->flush();
+		$refused = new \RuntimeException( 'wake refused 6614' );
+		\Newspack_Nodes\Bootstrap::$spawn_coordinator_factory = static fn (): \Newspack_Nodes\Spawn_Coordinator => new class( $tmp, $refused ) extends \Newspack_Nodes\Spawn_Coordinator {
+			public function __construct( string $base, private \RuntimeException $refused ) {
+				parent::__construct( $base );
+			}
+			public function wake_on_demand( string $dir, float $now ): int {
+				throw $this->refused;
+			}
+		};
+		Core::$now                                    = 50000.0;
+		Core::$recent_log_timers['stale warning 91'] = 50000.0 - Core::$log_timeout - 1;
+		Router_Node::profiles( [ 'idle-node' => [ 'time' => 1.0, 'count' => 3, 'avg' => 0.3, 'oldest' => 1.0, 'timestamp' => 50000.0 - Router_Node::PROFILE_TTL_S - 1 ] ] );
+		Core::$secure_level = null;
+		$router = new Router_Node();
+		$router->name( '_router' );
+
+		$caught = null;
+		try {
+			$router->fire_cb();
+		} catch ( \RuntimeException $e ) {
+			$caught = $e;
+		} finally {
+			$profiles = Router_Node::profiles();
+			Router_Node::profiles( null );
+		}
+
+		$this->assertSame( $refused, $caught );
+		$this->assertArrayNotHasKey( 'stale warning 91', Core::$recent_log_timers, 'prune_logs() still ran' );
+		$this->assertSame( [], $profiles, 'trim_profiles() still ran' );
+		$this->assertSame( 1, $router->get_fire_count() );
+	}
 }

@@ -28,6 +28,7 @@ export const views = registerSliceViews( {
 			idle: 0,
 			total: 0,
 			serverNow: null,
+			unreadable: {},
 			error: null,
 			loading: true,
 			lastRefresh: null,
@@ -38,6 +39,8 @@ export const views = registerSliceViews( {
 			total: body.total || 0,
 			// Seconds, and the clock the cards' "ago" strings use.
 			serverNow: body.server_now ?? null,
+			// Each active topology that will not read, name => why.
+			unreadable: body.unreadable ?? {},
 			error: null,
 			loading: false,
 			// Browser milliseconds: when the reply landed, not the snapshot.

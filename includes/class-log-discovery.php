@@ -46,14 +46,15 @@ final class Log_Discovery {
 	 * The browsable partition-dir roots under `{base}`, in catalog order.
 	 *
 	 * `logs` holds the data partitions, `offsets` the durable reader cursors,
-	 * and `deadletter` the poison and write-stall quarantines. All three hold
+	 * and `deadletter` the poison quarantines and the write quarantines of
+	 * batches whose segment would not open. All three hold
 	 * packed partition dirs, so the Partition Viewer renders any of them.
 	 * `SSE_Out_Node::parse_group()` accepts a `{group}/` subscription prefix
 	 * from this list and refuses every other one, an explicit `logs/` included,
 	 * because a bare name already addresses that root. That list is what keeps
 	 * a caller-supplied prefix out of the glob path the node then builds.
 	 */
-	public const GROUPS = [ 'logs', 'offsets', 'deadletter' ];
+	public const GROUPS = [ 'logs', 'offsets', Config::DEADLETTER_SUBDIR ];
 
 	/** @var list<string>|null Memoized `logs` basenames; null before a scan. */
 	private static ?array $cached = null;

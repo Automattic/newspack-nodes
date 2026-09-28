@@ -259,8 +259,9 @@ class OnDemandWakeTest extends TestCase {
 
 	/**
 	 * The reader lookup walks the topology catalog, which globs both topology
-	 * dirs and parses every `.tsl`. A batch coalesces to ONE wake per partition
-	 * before any of that runs, so the walk cannot happen per job.
+	 * dirs and parses every `.tsl`, and so does the spawn gate judging the
+	 * active set. A batch coalesces to ONE wake per partition before either
+	 * runs, so neither walk can happen per job.
 	 */
 	public function test_a_batch_resolves_the_fleet_once_not_once_per_job(): void {
 		$this->activate( 'marmot-ondemand', 23 );
@@ -280,7 +281,7 @@ class OnDemandWakeTest extends TestCase {
 		] );
 		Partition_Node::flush_pending_wakes();
 
-		$this->assertSame( 1, $scans, 'one catalog walk for the whole batch' );
+		$this->assertSame( 2, $scans, 'one reader lookup and one spawn gate for the whole batch' );
 		$this->assertSame( [ 'marmot-ondemand.p1' ], $this->woken() );
 	}
 
@@ -626,6 +627,94 @@ class OnDemandWakeTest extends TestCase {
 
 		$this->assertSame(
 			[ 'marmot-ondemand' ],
+			\array_column( Bootstrap::on_demand_wake_map()[ "{$this->tmp}/logs/jobintake.p1" ] ?? [], 'type' )
+		);
+	}
+
+	/**
+	 * Activate an on-demand topology whose `.tsl` includes one that does not
+	 * exist, so reading its consumers throws naming the missing include.
+	 */
+	private function activate_unreadable( string $name ): void {
+		\file_put_contents( "{$this->stock}/{$name}.tsl", "var num_partitions = 2\nvar on_demand_idle = 31\ninclude absent-{$name}\n" );
+		$entry = [
+			'topology'       => $name,
+			'num_partitions' => 2,
+			'stale_timeout'  => 47,
+			'on_demand_idle' => 31,
+		];
+		\add_filter(
+			'newspack_nodes/topologies',
+			static fn ( array $t ): array => $t + [ $name => $entry ]
+		);
+		$active                                              = $GLOBALS['_wp_options']['newspack_nodes_topologies'] ?? [];
+		$active[]                                            = $name;
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = \array_values( \array_unique( $active ) );
+		Topology_Registry::invalidate_config_cache();
+	}
+
+	public function test_the_backlog_sweep_wakes_the_readable_and_raises_the_unreadable(): void {
+		$this->activate_unreadable( 'marmot-broken-6620' );
+		$this->activate( 'marmot-ondemand', 23 );
+		$this->seed_partition( 'jobintake.p1', 512 );
+		$this->seed_offsetlog( 'jobintake.p1', 0, 200 );
+
+		$e = $this->caught(
+			fn () => $this->coordinator()->wake_readers_with_backlog( (float) \time() ),
+			'an unreadable topology must escape the sweep'
+		);
+		$this->assertStringContainsString( 'absent-marmot-broken-6620', $e->getMessage() );
+		$this->assertSame( [ 'marmot-ondemand.p1' ], $this->woken() );
+	}
+
+	public function test_a_write_wakes_the_readable_and_raises_the_unreadable(): void {
+		$this->activate_unreadable( 'marmot-broken-6620' );
+		$this->activate( 'marmot-ondemand', 23 );
+
+		$e = $this->caught(
+			fn () => $this->coordinator()->wake_on_demand( "{$this->tmp}/logs/jobintake.p1", (float) \time() ),
+			'an unreadable topology must escape the wake'
+		);
+		$this->assertStringContainsString( 'absent-marmot-broken-6620', $e->getMessage() );
+		$this->assertNotInstanceOf( \Newspack_Nodes\Failures::class, $e, 'two collectors of one failure list it once' );
+		$this->assertSame( [ 'marmot-ondemand.p1' ], $this->woken() );
+	}
+
+	/**
+	 * The map answers for on-demand readers alone: an unknown active name and a
+	 * broken resident topology wake nothing, so they fail nothing here either.
+	 */
+	public function test_an_unknown_name_and_a_broken_resident_topology_cost_the_wake_map_nothing(): void {
+		$this->activate( 'marmot-ondemand', 23 );
+		\file_put_contents( "{$this->stock}/marmot-resident-7702.tsl", "include absent-marmot-resident-7702\n" );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'][] = 'marmot-resident-7702';
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'][] = 'marmot-ghost-7702';
+		Topology_Registry::invalidate_config_cache();
+
+		$this->assertSame(
+			[ 'marmot-ondemand', 'marmot-ondemand' ],
+			\array_column( \array_merge( ...\array_values( Bootstrap::on_demand_wake_map() ) ), 'type' )
+		);
+	}
+
+	/** A map missing an unreadable topology's readers is never cached. */
+	public function test_a_map_with_an_unreadable_topology_is_not_cached(): void {
+		$this->with_apcu();
+		$this->activate_unreadable( 'marmot-broken-6620' );
+		$e = $this->caught(
+			fn () => Bootstrap::on_demand_wake_map(),
+			'the strict map raises the unreadable topology'
+		);
+		$this->assertStringContainsString( 'absent-marmot-broken-6620', $e->getMessage() );
+		\file_put_contents(
+			"{$this->stock}/marmot-broken-6620.tsl",
+			"var num_partitions = 2\nvar on_demand_idle = 31\nmake_node Consumer mended:in <config:logs_dir>/jobintake.p<partition> <config:offsets_dir>/mended.p<partition>\n"
+		);
+		Bootstrap::forget_on_demand_readers();
+		Topology_Analyzer::reset_caches();
+
+		$this->assertSame(
+			[ 'marmot-broken-6620' ],
 			\array_column( Bootstrap::on_demand_wake_map()[ "{$this->tmp}/logs/jobintake.p1" ] ?? [], 'type' )
 		);
 	}

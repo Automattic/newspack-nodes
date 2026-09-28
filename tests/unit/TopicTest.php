@@ -449,12 +449,11 @@ class TopicTest extends TestCase {
 		$t->name( 'flotsam' );
 		$t->arguments( [ "{$this->tmp}/trespass.p{partition}", "1", "65536", "2", "4", "86400", "0" ] );
 
-		try {
-			$this->produce_into( $t, 'contraband', 'k9' );
-			$this->fail( 'expected the out-of-base partition dir to be refused' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertStringContainsString( 'outside the runtime base directory', $e->getMessage() );
-		}
+		$e = $this->caught(
+			fn () => $this->produce_into( $t, 'contraband', 'k9' ),
+			'expected the out-of-base partition dir to be refused'
+		);
+		$this->assertStringContainsString( 'outside the runtime base directory', $e->getMessage() );
 
 		$this->assertNull( Core::node( 'flotsam:p0' ), 'a refused partition stays out of the registry' );
 		$this->expectException( \RuntimeException::class );
@@ -478,23 +477,21 @@ class TopicTest extends TestCase {
 		mkdir( "{$this->tmp}/kedge.p0", 0700, true );
 		file_put_contents( "{$this->tmp}/kedge.p0/write.lock.d", 'not a lock dir' );
 
-		try {
-			$this->produce_into( $t, 'windward', 'k3' );
-			$this->fail( 'expected the write lock acquire to be refused' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertStringContainsString( 'failed to acquire write lock', $e->getMessage() );
-		}
+		$e = $this->caught(
+			fn () => $this->produce_into( $t, 'windward', 'k3' ),
+			'expected the write lock acquire to be refused'
+		);
+		$this->assertStringContainsString( 'failed to acquire write lock', $e->getMessage() );
 
 		$this->assertNull( Core::node( 'kedge:p0' ), 'a refused partition stays out of the registry' );
 		$this->assertNull( Core::node( 'kedge:p0:lock' ), 'and so does its lock' );
 
-		try {
-			$this->produce_into( $t, 'windward', 'k3' );
-			$this->fail( 'expected the second fill to be refused too' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertStringNotContainsString( 'collision', $e->getMessage() );
-			$this->assertStringContainsString( 'failed to acquire write lock', $e->getMessage() );
-		}
+		$e = $this->caught(
+			fn () => $this->produce_into( $t, 'windward', 'k3' ),
+			'expected the second fill to be refused too'
+		);
+		$this->assertStringNotContainsString( 'collision', $e->getMessage() );
+		$this->assertStringContainsString( 'failed to acquire write lock', $e->getMessage() );
 	}
 
 	public function test_remove_node_tears_down_partitions(): void {
@@ -580,6 +577,80 @@ class TopicTest extends TestCase {
 			$this->read_private( $t, 'partitions' )[0]
 		);
 		$this->assertSame( [ 'small', $big ], $values );
+	}
+
+	/** A two-partition Topic named `firehose`, its partitions materialized by the sink. */
+	private function two_partition_topic(): Topic_Node {
+		$t = new Topic_Node();
+		$t->name( 'firehose' );
+		$t->arguments( [ "{$this->tmp}/firehose.p{partition}", "2", "67108864", "2", "4", "0", "0" ] );
+		return $t;
+	}
+
+	/** Leave a FILE where p0's write-lock directory goes, so taking it fails at once. */
+	private function block_p0_write_lock(): void {
+		\mkdir( "{$this->tmp}/firehose.p0", 0755, true );
+		\file_put_contents( "{$this->tmp}/firehose.p0/write.lock.d", 'not a dir' );
+	}
+
+	public function test_flush_attempts_every_partition_then_raises(): void {
+		$t = $this->two_partition_topic();
+		$t->sink( new Capture_Sink_Node() );
+		foreach ( [ 'p0' => 'kept-in-p0', 'p1' => 'landed-in-p1-2207' ] as $to => $value ) {
+			$m                   = Message::new_message();
+			$m[ Message::TO ]    = $to;
+			$m[ Message::VALUE ] = $value;
+			$t->fill( $m );
+		}
+		Partition_Node::$fwrite = static fn ( $fh, string $bytes ): int|false =>
+			\str_contains( \stream_get_meta_data( $fh )['uri'], '/firehose.p0/' ) ? false : \fwrite( $fh, $bytes );
+
+		$caught = null;
+		try {
+			$t->flush();
+		} catch ( \RuntimeException $e ) {
+			$caught = $e;
+		} finally {
+			Partition_Node::$fwrite = null;
+		}
+
+		$this->assertStringContainsString( 'firehose.p0/0.log', (string) $caught?->getMessage() );
+		$this->assertFileExists( "{$this->tmp}/firehose.p1/0.log", 'p1 still flushed' );
+		$landed = (string) \file_get_contents( "{$this->tmp}/firehose.p1/0.log" );
+		$this->assertSame( 'landed-in-p1-2207', Message::unpacked( \rtrim( $landed, "\n" ) )[ Message::VALUE ] );
+	}
+
+	public function test_allow_large_writes_attempts_every_partition_then_raises(): void {
+		$t = $this->two_partition_topic();
+		$t->sink( new Capture_Sink_Node() );
+		$this->block_p0_write_lock();
+
+		$caught = null;
+		try {
+			$t->allow_large_writes();
+		} catch ( \RuntimeException $e ) {
+			$caught = $e;
+		}
+
+		$this->assertStringContainsString( 'firehose.p0/write.lock.d', (string) $caught?->getMessage() );
+		$this->assertDirectoryExists( "{$this->tmp}/firehose.p1/write.lock.d", 'p1 still took its lock' );
+	}
+
+	public function test_sink_materializes_every_partition_then_raises(): void {
+		$t = $this->two_partition_topic();
+		$t->allow_large_writes();
+		$this->block_p0_write_lock();
+
+		$caught = null;
+		try {
+			$t->sink( new Capture_Sink_Node() );
+		} catch ( \RuntimeException $e ) {
+			$caught = $e;
+		}
+
+		$this->assertStringContainsString( 'firehose.p0/write.lock.d', (string) $caught?->getMessage() );
+		$this->assertInstanceOf( Partition_Node::class, Core::node( 'firehose:p1' ), 'p1 still materialized' );
+		$this->assertNull( Core::node( 'firehose:p0' ), 'the refused partition is not left registered' );
 	}
 
 	public function test_allow_large_writes_repeat_in_same_mode_is_a_noop(): void {
@@ -735,12 +806,11 @@ class TopicTest extends TestCase {
 		$t->name( 'zebra:topic' );
 		$t->arguments( [ "{$this->tmp}/zebra.p{partition}", "2", "65536", "2", "4", "86400", "0" ] );
 
-		try {
-			$this->verb( $t, 'with_index', 'no-such-formatter' );
-			$this->fail( 'an unknown formatter must raise, not answer with a line' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertSame( 'unknown formatter: no-such-formatter', $e->getMessage() );
-		}
+		$e = $this->caught(
+			fn () => $this->verb( $t, 'with_index', 'no-such-formatter' ),
+			'an unknown formatter must raise, not answer with a line'
+		);
+		$this->assertSame( 'unknown formatter: no-such-formatter', $e->getMessage() );
 		$this->assertSame(
 			"ok\n",
 			$this->verb( $t, 'with_index', 'zebra-index' )

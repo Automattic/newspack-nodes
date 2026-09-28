@@ -10,8 +10,8 @@ use Newspack_Nodes\Tests\Capture_Stdout_Node;
 use Newspack_Nodes\Tests\TestCase;
 
 /**
- * Worker-boot scope: `_stdout` is registered ONLY by `wp nodes cli`, so a
- * topology load has no such node. A refusal must still reach an operator.
+ * Worker-boot scope: a Shell loading a topology fails the load on a refused
+ * statement, after every other statement ran; a REPL prints the refusal.
  */
 #[CoversClass( Shell_Node::class )]
 class ShellWorkerBootRefusalTest extends TestCase {
@@ -38,33 +38,36 @@ class ShellWorkerBootRefusalTest extends TestCase {
 		return $shell;
 	}
 
-	public function test_command_node_missing_verb_is_reported_at_worker_boot(): void {
+	public function test_command_node_missing_verb_fails_the_load(): void {
 		$shell = $this->boot_shell();
 
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'usage: cmd <path> <verb>' );
 		$shell->eval_script( "make_node Echo telemetry_sprocket\ncommand_node telemetry_sprocket\n" );
-
-		$this->assertStringContainsString(
-			'usage: cmd <path> <verb>',
-			\implode( '', $this->emitted ),
-			'a TSL statement skipped at worker boot must leave a trace'
-		);
 	}
 
-	public function test_var_division_by_zero_is_reported_at_worker_boot(): void {
+	public function test_var_division_by_zero_fails_the_load_and_keeps_the_value(): void {
 		$shell = $this->boot_shell();
 
-		$shell->eval_script( "var beat_interval = 7331\nvar beat_interval /= 0\n" );
-
-		$this->assertStringContainsString( 'var: division by zero', \implode( '', $this->emitted ) );
+		$e = $this->caught(
+			fn () => $shell->eval_script( "var beat_interval = 7331\nvar beat_interval /= 0\n" ),
+			'a refused assignment must fail the load'
+		);
+		$this->assertStringContainsString( 'var: division by zero', $e->getMessage() );
 		$this->assertSame( '7331', Core::$var['beat_interval'], 'the refused operation leaves the stale value' );
 	}
 
-	public function test_a_repeated_refusal_is_rate_limited(): void {
+	public function test_every_refused_statement_runs_and_raises_together(): void {
 		$shell = $this->boot_shell();
 
-		$shell->eval_script( "command_node alpha_widget\ncommand_node beta_widget\n" );
-
-		$this->assertCount( 1, $this->emitted, 'identical refusals must not flood the log' );
+		try {
+			$shell->eval_script( "command_node alpha_widget\nvar sprocket_count = 6152\ncommand_node beta_widget\n" );
+			$this->fail( 'refused statements must fail the load' );
+		} catch ( \Newspack_Nodes\Failures $e ) {
+			$this->assertCount( 2, $e->all() );
+		}
+		$this->assertSame( '6152', Core::$var['sprocket_count'], 'the statement between the refusals ran' );
+		$this->assertSame( [], $this->emitted, 'a refusal is raised, not printed' );
 	}
 
 	public function test_a_repl_refusal_reaches_stdout_and_is_not_double_printed(): void {

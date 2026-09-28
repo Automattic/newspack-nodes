@@ -16,8 +16,7 @@
  *
  * Opting in is the whole point: `Worker_Base` names no class. It sweeps the
  * process registry (`Core::$nodes_by_name`), so an implementor that never took
- * a name is never swept — the same blind spot `Worker_Base` works around by
- * checkpointing the anonymous IPC consumer explicitly.
+ * a name is never swept.
  *
  * @package Newspack_Nodes
  */

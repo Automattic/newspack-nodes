@@ -42,9 +42,11 @@ class Topology_Loader {
 	 * @param int    $partition Partition number bound to `<partition>`.
 	 * @param Node   $sink      Where the dispatched Messages flow — the worker's
 	 *                          `_command_interpreter` in production.
-	 * @throws \RuntimeException When the name is not in the registry, a topology
-	 *                           includes itself, or the file ends inside an open
-	 *                           quote or continuation.
+	 * @throws \Throwable When the name is not in the registry; otherwise every
+	 *                    line that failed — a refused statement, a command that
+	 *                    threw or reached no node, a missing or cyclic include,
+	 *                    an open quote at end of file — raised together after
+	 *                    the last line ran.
 	 */
 	public static function load(
 		string $name,

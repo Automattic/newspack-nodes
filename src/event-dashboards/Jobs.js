@@ -23,6 +23,7 @@ import { __ } from '@wordpress/i18n';
 import { useJobstatsStream } from './hooks/useJobstatsStream';
 import { useTopicProbeStream } from './hooks/useTopicProbeStream';
 import { useNodeField } from '../runtime/react';
+import UnparseableLinesNotice from '@newspack-nodes/shared/components/UnparseableLinesNotice';
 import { topicChartSeries, fillModeForMetric } from './topicProbeSeries';
 import { TopicsChart } from './TopicsChart';
 import {
@@ -122,6 +123,14 @@ export default function Jobs() {
 
 	return (
 		<div className="nodes-jobs">
+			<UnparseableLinesNotice
+				source={ __( 'Job statistics', 'newspack-nodes' ) }
+				node="jobstats:link"
+			/>
+			<UnparseableLinesNotice
+				source={ __( 'Job backlog', 'newspack-nodes' ) }
+				node="topicprobe:link"
+			/>
 			<div className="nodes-jobs__panels">
 				<TopicsChart
 					title={ __( 'Job Runs Rate', 'newspack-nodes' ) }

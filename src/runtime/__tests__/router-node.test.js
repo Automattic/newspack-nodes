@@ -10,6 +10,7 @@ import {
 	VALUE,
 	TM_ERROR,
 	TM_COMMAND,
+	TM_NOREPLY,
 	newMessage,
 } from '../message';
 
@@ -96,6 +97,27 @@ test( 'unknown TO head yields NOT_AVAILABLE error walked back to FROM', () => {
 	expect( got[ 0 ][ TYPE ] & TM_ERROR ).toBeTruthy();
 	expect( got[ 0 ][ ID ] ).toBe( 'cmd-42' );
 	expect( got[ 0 ][ VALUE ] ).toMatch( /NOT_AVAILABLE/ );
+} );
+
+test( 'a TM_NOREPLY command no node answers throws and bounces nothing', () => {
+	const r = new RouterNode();
+	r.name = '_router';
+
+	const origin = new Node();
+	origin.name = 'origin-9914';
+	const got = [];
+	origin.fill = ( m ) => got.push( [ ...m ] );
+
+	const m = newMessage();
+	m[ TYPE ] = TM_COMMAND | TM_NOREPLY;
+	m[ FROM ] = 'origin-9914';
+	m[ TO ] = 'absent-9914:config';
+	m[ VALUE ] = { name: 'set_line_mode', arguments: [ 'true' ] };
+
+	expect( () => r.fill( m ) ).toThrow(
+		'NOT_AVAILABLE: absent-9914:config set_line_mode'
+	);
+	expect( got ).toHaveLength( 0 );
 } );
 
 /**

@@ -157,13 +157,13 @@ class Settings_Event_Writer {
 	 * same request would collide on that name and leak the first Partition;
 	 * `remove_node()` in the `finally` deregisters it even when the fill or the
 	 * flush throws. `flush()` forces the batched bytes to disk while the handle
-	 * is still open.
+	 * is still open. A failed append propagates into the option write that
+	 * fired it: an audit event that cannot land is not dropped in silence.
 	 *
 	 * @param array<int,mixed> $message The 7-field positional message array.
-	 * @throws Worker_Should_Stop When a cooperative stop lands mid-append.
+	 * @throws \Throwable What resolving the log dir or the append threw.
 	 */
 	private static function default_append( array $message ): void {
-		// Runs on EVERY update_option; never fatal the caller we observe.
 		$writer = null;
 		try {
 			$dir    = Config::get_logs_directory() . '/' . self::SETTINGS_LOG_DIR;
@@ -172,10 +172,6 @@ class Settings_Event_Writer {
 			$writer->arguments( self::partition_args( $dir ) );
 			$writer->fill( $message );
 			$writer->flush();
-		} catch ( Worker_Should_Stop $e ) {
-			throw $e; // ADR-14: a cooperative stop is not a write failure.
-		} catch ( \Throwable $e ) {
-			Core::print_less_often( 'settings-writer: ' . $e->getMessage() );
 		} finally {
 			$writer?->remove_node();
 		}
@@ -328,7 +324,7 @@ class Settings_Event_Writer {
 		// Arming the hooks arms what resolving their args needs. The
 		// writer builds a Partition per change, and Partition's schema
 		// defaults carry `<config:*>` tokens resolved STRICTLY — with no
-		// namespace the construction throws and the event is dropped.
+		// namespace the construction throws into the option write.
 		// ensure_runtime_wired() registers it too, but it is lazy and an
 		// option change beats it. Registering twice costs nothing: the
 		// namespace is one closure in a map.

@@ -24,6 +24,7 @@ namespace Newspack_Nodes\Config_System;
 
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Fleet_Node;
+use Newspack_Nodes\Worker_Should_Stop;
 
 \defined( 'ABSPATH' ) || exit;
 
@@ -153,10 +154,13 @@ class Settings_Renderer {
 	 * the value lands within one `_fleet` scan instead of at the end of a ~595s
 	 * worker lifetime. A classification naming node types that no ACTIVE topology
 	 * instantiates reports no consumer, which is the honest answer — nothing will
-	 * be restarted. Otherwise the column names the topologies.
+	 * be restarted. Otherwise the column names the topologies. An active topology
+	 * that will not read leaves the impact unknown, and the column says so with
+	 * the failure rather than taking the whole page down; a stop propagates.
 	 *
 	 * @param array<int,string>|string $restart Restart classification (see Restart_Planner).
 	 * @return string Panel text, already translated.
+	 * @throws Worker_Should_Stop When a cooperative stop reaches the planner (ADR-14).
 	 */
 	private static function restart_impact( array|string $restart ): string {
 		if ( [] === $restart ) {
@@ -166,7 +170,17 @@ class Settings_Renderer {
 				\intdiv( Fleet_Node::SCAN_INTERVAL_MS, 1000 )
 			);
 		}
-		$topologies = Restart_Planner::topologies_for( $restart );
+		try {
+			$topologies = Restart_Planner::topologies_for( $restart );
+		} catch ( Worker_Should_Stop $e ) {
+			throw $e;
+		} catch ( \Throwable $e ) {
+			return \sprintf(
+				/* translators: %s: why the active topologies could not be read. */
+				\__( 'Restart impact unknown: %s', 'newspack-nodes' ),
+				$e->getMessage()
+			);
+		}
 		if ( [] === $topologies ) {
 			return \__( 'Restarts: (no active consumer)', 'newspack-nodes' );
 		}

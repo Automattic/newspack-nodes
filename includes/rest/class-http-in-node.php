@@ -39,7 +39,9 @@ use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Node_Names;
+use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Router_Node;
+use Newspack_Nodes\Worker_Should_Stop;
 
 \defined( 'ABSPATH' ) || exit;
 
@@ -245,7 +247,8 @@ class HTTP_In_Node extends Node {
 	 *
 	 * The batch fills the base interpreter in the order posted, serially: a
 	 * client that sends `connect_worker_input` ahead of the command it enables
-	 * depends on that order holding.
+	 * depends on that order holding. What it wrote into a Partition is flushed
+	 * before the status is decided, so a failed write never answers 202.
 	 *
 	 * The reply decides the status. A synchronous reply walks back to `fill()`,
 	 * which has already sent 200 or 401; when nothing writes back, the work
@@ -255,6 +258,7 @@ class HTTP_In_Node extends Node {
 	 *
 	 * @param \WP_REST_Request $request Request whose body is the JSONL batch.
 	 * @throws \InvalidArgumentException When the body carries no parseable Message.
+	 * @throws \Throwable What flushing the Partitions the batch wrote threw.
 	 */
 	public function dispatch( \WP_REST_Request $request ): void {
 		$messages = $this->messages_from_body( $request->get_body() );
@@ -289,6 +293,7 @@ class HTTP_In_Node extends Node {
 			// Ingress does NOT sign: authority comes from the minter.
 			$base_interpreter->fill( $message );
 		}
+		self::flush_partitions();
 		// After the batch: the 401 latch must settle first.
 		foreach ( $refused as $message ) {
 			$this->drop_message( $message, 'path exceeded ' . Node::MAX_FROM_SIZE . ' bytes' );
@@ -300,6 +305,23 @@ class HTTP_In_Node extends Node {
 			( $this->send_header )( $this->refused_a_command ? 401 : 202 );
 		}
 		$this->finish();
+	}
+
+	/**
+	 * Land what the batch wrote into a Partition — a worker's IPC input above
+	 * all. A request runs no event loop, so no Partition's flush timer fires,
+	 * and the explicit flush is the only one: every Partition is attempted, and
+	 * every failure escapes after the last.
+	 *
+	 * @throws \Throwable What the flushes threw, combined by `Worker_Should_Stop::raise()`.
+	 */
+	private static function flush_partitions(): void {
+		Worker_Should_Stop::raise(
+			Worker_Should_Stop::attempt_each(
+				\array_filter( Core::$nodes_by_name, static fn ( Node $node ): bool => $node instanceof Partition_Node ),
+				static fn ( Partition_Node $partition ) => $partition->flush()
+			)
+		);
 	}
 
 	/**

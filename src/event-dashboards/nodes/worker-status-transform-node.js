@@ -184,9 +184,13 @@ export class WorkerStatusTransformNode extends Node {
 	 * would ever animate in.
 	 *
 	 * @param {Object} data The lean `dump_graph` payload: `graph`, `workers`,
-	 *                      `consumers`, `logs`, `timestamp`, and the sticky
+	 *                      `consumers`, `logs`, `timestamp`, the sticky
 	 *                      scalars (`segment_size`, `heartbeat_interval_s`,
-	 *                      `log_partitions`).
+	 *                      `log_partitions`), `unparseable_lines`, the
+	 *                      lines the probe-log read skipped, and
+	 *                      `unreadable` and `refused_producers`, each name
+	 *                      the snapshot left out with why. Those three are
+	 *                      measurements of this poll, never sticky.
 	 * @return {void}
 	 */
 	_emitModel( data ) {
@@ -288,6 +292,9 @@ export class WorkerStatusTransformNode extends Node {
 			byteRates: newByteRates,
 			writeRates: newWriteRates,
 			logPartitions: this._logPartitions,
+			unparseableLines: data.unparseable_lines,
+			unreadable: data.unreadable ?? {},
+			refusedProducers: data.refused_producers ?? {},
 			segmentSize: this._segmentSize,
 			currentTime: this._currentTime,
 			heartbeatIntervalS: this._heartbeatIntervalS,

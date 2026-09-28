@@ -9,7 +9,7 @@
  * re-implements none of those reads.
  *
  * Site Health, `wp nodes doctor` and the admin notice call the read-only
- * `evaluate()`. The minute reconcile pass calls `emit()`, which journals each
+ * `evaluate()`. The minute reconcile pass runs `emit()`, which journals each
  * transition into the substrate's `alerts.p0` partition; a producer outside
  * that pass — `Job_Worker_Node`'s batch completion — writes its row through
  * `journal_event()`. Thresholds come from `Config::value()` at evaluation
@@ -37,7 +37,7 @@ use Newspack_Nodes\Rest\Workers_CI_Node;
  */
 class Alerts {
 
-	/** A configured worker is not running: it never started, or it stopped heartbeating. */
+	/** A configured worker is not running: it never started, it stopped heartbeating, or its topology will not read. */
 	public const FAMILY_WORKER_LIVENESS = 'worker-liveness';
 
 	/** A consumer trails its source by more than `alert_lag_threshold` bytes. */
@@ -49,7 +49,7 @@ class Alerts {
 	/** Attention, not urgency: consumer lag, dead letters, a worker that never started, a batch that reported errors. */
 	public const SEVERITY_WARNING = 'warning';
 
-	/** A worker that was running has stopped — needs attention now. */
+	/** A worker that was running has stopped, or a topology will not read — needs attention now. */
 	public const SEVERITY_CRITICAL = 'critical';
 
 	/**
@@ -84,16 +84,16 @@ class Alerts {
 	 * Journal alert TRANSITIONS into `alerts.p0` — a row when a condition
 	 * raises or changes severity, and a `resolved` row when it clears. A
 	 * persisting condition journals nothing: the journal records state
-	 * changes, not heartbeats. Hooked to `newspack_nodes/periodic` on the minute
-	 * reconcile pass, and silent while a deploy hold stands. The transient gate
-	 * is the flap backstop, and the last-journaled state advances only on a
-	 * successful write, so a gated or failed tick reconciles on the next open
-	 * window. Rows go out through `journal_event()`, keyed by the alert's stable
-	 * key, and a write that throws is caught here: the periodic action runs
-	 * every subscriber inside ONE reconcile step, so an escape would cost
-	 * `Job_Delay::sweep_action()` its window. The `evaluate()` call ahead of the
-	 * try is NOT guarded — a refused base directory is the operator's to fix,
-	 * and the reconcile step reports it.
+	 * changes, not heartbeats. A step of its own on the minute reconcile pass,
+	 * and silent while a deploy hold stands. The transient gate is the flap
+	 * backstop, and the last-journaled state advances only on a successful
+	 * write, so a gated or failed tick reconciles on the next open window. Rows
+	 * go out through `journal_event()`, keyed by the alert's stable key; a write
+	 * that throws propagates, and the pass runs its remaining steps before it
+	 * raises.
+	 *
+	 * @throws \RuntimeException When the runtime base directory will not resolve,
+	 *   or a journal write fails.
 	 */
 	public static function emit(): void {
 		// Held: a partial evaluate() would journal false `resolved:` rows.
@@ -134,23 +134,19 @@ class Alerts {
 		if ( [] === $rows ) {
 			return;
 		}
-		try {
-			foreach ( $rows as $key => $row ) {
-				self::journal_event( (string) $key, $row['m'], $row['severity'] );
-			}
-			// Advance only after a durable write; failures retry next window.
-			if ( \function_exists( 'update_option' ) ) {
-				\update_option(
-					self::STATE_OPTION,
-					\array_map(
-						static fn ( array $alert ): string => Core::as_string( $alert['severity'] ?? '' ),
-						$current
-					),
-					false
-				);
-			}
-		} catch ( \Throwable $e ) {
-			Core::stderr( 'Alerts::emit journal write failed: ' . $e->getMessage() );
+		foreach ( $rows as $key => $row ) {
+			self::journal_event( (string) $key, $row['m'], $row['severity'] );
+		}
+		// Advance only after a durable write; failures retry next window.
+		if ( \function_exists( 'update_option' ) ) {
+			\update_option(
+				self::STATE_OPTION,
+				\array_map(
+					static fn ( array $alert ): string => Core::as_string( $alert['severity'] ?? '' ),
+					$current
+				),
+				false
+			);
 		}
 	}
 
@@ -161,8 +157,7 @@ class Alerts {
 	 * because an alert row belongs to no request sequence. KEY is the caller's
 	 * stable per-condition key, so consumers can dedupe. Used by `emit()`'s
 	 * transition rows and by producers outside the reconcile pass
-	 * (`Job_Worker_Node` batch completion), which own the swallow-or-not
-	 * decision.
+	 * (`Job_Worker_Node` batch completion); a failed write propagates to each.
 	 *
 	 * @api Cross-class journal entry point.
 	 * @param string $key      Stable condition key (e.g. `batch:{id}`).
@@ -226,7 +221,9 @@ class Alerts {
 	 * belong to `emit()`. Each row is `{ key, family, severity, message, ... }`,
 	 * where `key` is stable per condition so a consumer can dedupe and the tail
 	 * carries the per-family detail: `reader` + `distance` for lag, `reader` +
-	 * `count` for dead letters, `type` + `partition` for a worker.
+	 * `count` for dead letters, `type` + `partition` for a worker, and `type`
+	 * alone for a topology that will not read — one critical row each, while
+	 * every other condition is still evaluated.
 	 *
 	 * @return array<int,array<string,mixed>>
 	 * @throws \RuntimeException When the runtime base directory will not resolve; `Health_Checks` guards the call for that reason.
@@ -236,6 +233,17 @@ class Alerts {
 		$held   = self::fleet_is_held();
 		$meta   = Workers_CI_Node::collect_dump_metadata();
 		$alerts = [];
+
+		foreach ( Core::arr( $meta['unreadable'] ?? [] ) as $type => $reason ) {
+			$type     = Core::as_string( $type );
+			$alerts[] = [
+				'key'      => "topology_unreadable:{$type}",
+				'family'   => self::FAMILY_WORKER_LIVENESS,
+				'severity' => self::SEVERITY_CRITICAL,
+				'message'  => "Topology {$type} will not read, so none of its workers can run: " . Core::as_string( $reason ),
+				'type'     => $type,
+			];
+		}
 
 		foreach ( $held ? [] : Core::arr( $meta['workers'] ?? [] ) as $worker ) {
 			$alert = self::worker_alert( Core::arr( $worker ) );

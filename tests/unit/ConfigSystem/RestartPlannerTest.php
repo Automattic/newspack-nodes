@@ -5,6 +5,7 @@ namespace Newspack_Nodes\Tests\Unit\ConfigSystem;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Config;
+use Newspack_Nodes\Failures;
 use Newspack_Nodes\Config_System\Restart_Planner;
 use Newspack_Nodes\Lock_Node;
 use Newspack_Nodes\Topology_Registry;
@@ -123,6 +124,40 @@ class RestartPlannerTest extends TestCase {
 		$this->rmdir_recursive( $locks );
 	}
 
+	public function test_an_unreadable_topology_spares_the_rest_and_raises_after_them(): void {
+		// One broken .tsl must not stop every restart: the readable topologies
+		// are signalled first, and the one that would not parse escapes after.
+		$this->write_tsl( 'fractured', "make_node Echo twin-4471\nmake_node Null twin-4471\n" );
+		\update_option( 'newspack_nodes_topologies', [ 'combined', 'fractured', 'multipart' ] );
+		Config::reset();
+		$locks = $this->make_temp_dir( 'locks-' );
+		foreach ( [ 'combined.p0', 'fractured.p0', 'multipart.p0', 'multipart.p1', 'multipart.p2' ] as $slot ) {
+			\mkdir( "{$locks}/{$slot}.lock.d", 0777, true );
+		}
+
+		$thrown = null;
+		try {
+			Restart_Planner::request_restarts( [ 'Echo', 'Tee' ], $locks );
+		} catch ( \RuntimeException $e ) {
+			$thrown = $e;
+		}
+
+		$this->assertNotNull( $thrown, 'the unreadable topology is raised' );
+		$this->assertFileExists( "{$locks}/combined.p0.lock.d/" . Lock_Node::RESTART_FLAG );
+		$this->assertFileExists( "{$locks}/multipart.p2.lock.d/" . Lock_Node::RESTART_FLAG );
+		$this->assertFileDoesNotExist( "{$locks}/fractured.p0.lock.d/" . Lock_Node::RESTART_FLAG );
+		$this->rmdir_recursive( $locks );
+	}
+
+	public function test_topologies_for_raises_an_unreadable_topology(): void {
+		$this->write_tsl( 'fractured', "make_node Echo twin-4471\nmake_node Null twin-4471\n" );
+		\update_option( 'newspack_nodes_topologies', [ 'combined', 'fractured' ] );
+		Config::reset();
+
+		$this->expectException( \RuntimeException::class );
+		Restart_Planner::topologies_for( [ 'Tee' ] );
+	}
+
 	public function test_plan_restarts_the_classification_and_reloads_every_live_worker(): void {
 		// The one settings-save recipe: recycle what the classification names,
 		// tell every other live worker to re-read its boot-frozen config cache.
@@ -142,22 +177,74 @@ class RestartPlannerTest extends TestCase {
 		$this->rmdir_recursive( $base );
 	}
 
-	public function test_plan_swallows_a_failure_to_resolve_the_locks_directory(): void {
-		// Best-effort by contract: the next worker generation reads the new
-		// config regardless, so a save must not fatal on an unusable locks dir.
+	public function test_plan_propagates_a_failure_to_resolve_the_locks_directory(): void {
+		// The option row is already written: a save whose signal never landed
+		// must say so rather than report a recycle no worker will see.
 		$base = $this->make_temp_dir( 'plan-base-' );
 		\mkdir( "{$base}/elsewhere", 0777, true );
 		// A symlink AT the leaf is what Config::ensure_path() refuses outright.
 		\symlink( "{$base}/elsewhere", "{$base}/locks" );
 
+		$thrown = null;
 		try {
 			$this->use_base_dir( $base );
-			$this->assertSame( [], Restart_Planner::plan( 'all' ) );
+			Restart_Planner::plan( 'all' );
+		} catch ( \RuntimeException $e ) {
+			$thrown = $e;
 		} finally {
 			// Unlink first: rmdir_recursive walks INTO a symlinked directory.
 			\unlink( "{$base}/locks" );
 			$this->rmdir_recursive( $base );
 		}
+		$this->assertNotNull( $thrown, 'an unusable locks directory must reach the caller' );
+	}
+
+	public function test_a_failed_flag_write_spares_its_siblings_and_then_raises(): void {
+		// p1 refuses the write; p0 and p2 must still hear, and p1 must be named.
+		$locks = $this->make_temp_dir( 'locks-' );
+		for ( $p = 0; $p < 3; $p++ ) {
+			\mkdir( "{$locks}/multipart.p{$p}.lock.d", 0777, true );
+		}
+		\chmod( "{$locks}/multipart.p1.lock.d", 0555 );
+
+		$thrown = null;
+		try {
+			Restart_Planner::request_restarts( [ 'Echo' ], $locks );
+		} catch ( \RuntimeException $e ) {
+			$thrown = $e;
+		} finally {
+			\chmod( "{$locks}/multipart.p1.lock.d", 0755 );
+		}
+
+		$this->assertNotNull( $thrown, 'the failed signal must propagate' );
+		$this->assertStringContainsString( 'multipart.p1.lock.d', $thrown->getMessage() );
+		$this->assertFileExists( "{$locks}/multipart.p0.lock.d/" . Lock_Node::RESTART_FLAG );
+		$this->assertFileExists( "{$locks}/multipart.p2.lock.d/" . Lock_Node::RESTART_FLAG );
+		$this->rmdir_recursive( $locks );
+	}
+
+	public function test_every_failed_flag_write_is_raised_together(): void {
+		$locks = $this->make_temp_dir( 'locks-' );
+		for ( $p = 0; $p < 3; $p++ ) {
+			\mkdir( "{$locks}/multipart.p{$p}.lock.d", 0777, true );
+		}
+		\chmod( "{$locks}/multipart.p0.lock.d", 0555 );
+		\chmod( "{$locks}/multipart.p2.lock.d", 0555 );
+
+		$thrown = null;
+		try {
+			Restart_Planner::request_reloads( $locks );
+		} catch ( Failures $e ) {
+			$thrown = $e;
+		} finally {
+			\chmod( "{$locks}/multipart.p0.lock.d", 0755 );
+			\chmod( "{$locks}/multipart.p2.lock.d", 0755 );
+		}
+
+		$this->assertNotNull( $thrown, 'two failed signals raise as one Failures' );
+		$this->assertCount( 2, $thrown->all() );
+		$this->assertFileExists( "{$locks}/multipart.p1.lock.d/" . Lock_Node::RELOAD_FLAG );
+		$this->rmdir_recursive( $locks );
 	}
 
 	public function test_plan_lets_a_cooperative_stop_escape_its_best_effort_catch(): void {

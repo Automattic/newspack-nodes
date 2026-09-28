@@ -62,6 +62,25 @@ class ReconcileTest extends TestCase {
 		$this->assertFileExists( "{$this->tmp}/locks/ledger-workers.p3.lock.d/restart", 'a partition past the count must retire' );
 	}
 
+	public function test_a_refused_retire_flag_spares_the_other_surplus_dirs_and_escapes(): void {
+		$this->ledger( 1 );
+		$this->make_lock( 'ledger-workers.p2' );
+		$this->make_lock( 'ledger-workers.p5' );
+		\chmod( "{$this->tmp}/locks/ledger-workers.p2.lock.d", 0555 );
+
+		try {
+			$e = $this->caught(
+				fn () => $this->coordinator()->reconcile_lock_dirs(),
+				'a refused retire flag must escape'
+			);
+			$this->assertStringContainsString( 'ledger-workers.p2.lock.d', $e->getMessage() );
+		} finally {
+			\chmod( "{$this->tmp}/locks/ledger-workers.p2.lock.d", 0755 );
+		}
+
+		$this->assertFileExists( "{$this->tmp}/locks/ledger-workers.p5.lock.d/restart" );
+	}
+
 	public function test_it_leaves_a_non_partitioned_lock_dir_alone(): void {
 		// Anything without a `.p<N>` suffix is not a worker, so there is no
 		// partition count to judge it by and it must not be retired.

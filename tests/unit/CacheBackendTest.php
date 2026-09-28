@@ -497,24 +497,37 @@ class CacheBackendTest extends TestCase {
 	 * prefixes because a scope a caller has to remember to apply is one a
 	 * caller eventually forgets.
 	 *
-	 * @return array<string,array{0:string}>
+	 * The provider hands over BUILDERS, called inside the test: PHPUnit runs a
+	 * provider before any test, so a key built there freezes whatever salt was
+	 * memoized then, and a test that rotated it since makes the scope disagree.
+	 *
+	 * @return array<string,array{0:\Closure():string}>
 	 */
 	public static function scoped_key_provider(): array {
 		return [
-			'table entry'    => [ \Newspack_Nodes\Table_Node::entry_key( 'stats', '7719' ) ],
-			'batch counter'  => [ \Newspack_Nodes\Job_Intake::batch_count_key( 'import-7719' ) ],
-			'batch errors'   => [ \Newspack_Nodes\Job_Intake::batch_err_key( 'import-7719' ) ],
-			'unique claim'   => [ \Newspack_Nodes\Job_Intake::unique_key( 'probe_h', 'tok-7719' ) ],
+			'table entry'    => [ static fn (): string => \Newspack_Nodes\Table_Node::entry_key( 'stats', '7719' ) ],
+			'batch counter'  => [ static fn (): string => \Newspack_Nodes\Job_Intake::batch_count_key( 'import-7719' ) ],
+			'batch errors'   => [ static fn (): string => \Newspack_Nodes\Job_Intake::batch_err_key( 'import-7719' ) ],
+			'unique claim'   => [ static fn (): string => \Newspack_Nodes\Job_Intake::unique_key( 'probe_h', 'tok-7719' ) ],
 		];
 	}
 
 	#[\PHPUnit\Framework\Attributes\DataProvider( 'scoped_key_provider' )]
-	public function test_shared_surfaces_are_site_scoped( string $key ): void {
-		$this->assertStringStartsWith(
-			'newspack_nodes:' . Cache_Backend::KEY_VERSION . ':' . Cache_Backend::site() . ':',
-			$key
-		);
-		$this->assertStringNotContainsString( (string) \gethostname(), $key );
+	public function test_shared_surfaces_are_site_scoped( \Closure $build ): void {
+		[ $salt, $site ] = [ Cache_Backend::$salt, Cache_Backend::$site ];
+		// Another test may have rotated the salt after the provider ran.
+		Cache_Backend::$salt = 'salt-7719-rotated';
+		Cache_Backend::$site = '';
+		try {
+			$key = $build();
+			$this->assertStringStartsWith(
+				'newspack_nodes:' . Cache_Backend::KEY_VERSION . ':' . Cache_Backend::site() . ':',
+				$key
+			);
+			$this->assertStringNotContainsString( (string) \gethostname(), $key );
+		} finally {
+			[ Cache_Backend::$salt, Cache_Backend::$site ] = [ $salt, $site ];
+		}
 	}
 
 	public function test_site_key_separates_co_tenant_installs_by_table_prefix(): void {

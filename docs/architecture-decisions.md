@@ -127,7 +127,13 @@ CPU.
 `cancel()`. The one reply-control flag is `TM_NOREPLY`: a Shell with `want_reply(false)`
 (topology load, script mode) ORs it onto its commands and the interpreter suppresses the
 reply, since a worker's boot-topology replies would otherwise route to an absent
-`_output/<pid>` and bounce a dropped `NOT_AVAILABLE` every startup.
+`_output/<pid>` and bounce a dropped `NOT_AVAILABLE` every startup. With no reply to carry
+it, a TM_NOREPLY command's failure propagates to whatever filled the command, so a broken
+topology line fails the load: [`Command_Interpreter_Node::interpret()`](../includes/class-command-interpreter-node.php)
+re-throws a refusal or a verb's throwable, and [`Router_Node::send_error()`](../includes/class-router-node.php)
+throws `NOT_AVAILABLE` for a command addressed to no node instead of bouncing it. Both browser
+twins do the same. Tachikoma prints the one and bounces the other while the script runs on;
+the lineage records [why this differs](tachikoma-lineage.md#a-tm_noreply-failure-raises-instead-of-printing).
 
 ![Two panels. Rejected, Tachikoma's handshake: a producer sends TM_PERSIST into a Buffer whose max_unanswered caps what is in flight, and the consumer later answers or cancels with a TM_PERSIST | TM_RESPONSE sent TO=FROM, because consumption is asynchronous from delivery and the ack is the tier's advance-or-discard signal. Chosen: Consumer::poll() reads a record, fill() runs down one call stack to the last sink, and only then does the cursor advance, Consumer chopping past the record and Remote_Source committing on arrival at each message's start; the next poll() waits for all of it, which is the backpressure. Three cards below: TM_NOREPLY, which a Shell with want_reply(false) ORs onto its commands so a booting worker's replies do not bounce NOT_AVAILABLE from the absent _output/<pid>; flow control belonging at the producer that needs it; and the three revisit conditions.](img/adr-no-ack.png)
 
@@ -398,7 +404,7 @@ system — and whatever revives it can itself die.
 ([`Fleet_Node`](../includes/class-fleet-node.php)); WP-Cron catches a fleet with nothing left running, at minute cadence, via
 [`Bootstrap::reconcile_fleet()`](../includes/class-bootstrap.php).
 
-![Three spawners feed one gate. Tier 1: the finally in Worker_Base::execute, which releases the lock then self-respawns; and _fleet, which every 15 seconds (SCAN_INTERVAL_MS) spawns any worker whose lock dir is missing or heartbeat stale, at most MAX_SPAWNS_PER_TICK 4 per pass because each POST is a blocking cURL. Tier 2: Bootstrap::reconcile_fleet on WP-Cron once a minute, no per-pass cap. All three POST the HMAC-validated spawn endpoint, where is_recently_spawned enforces 15 seconds per slot and records last_spawn:{type}|{partition} through shared_first with a transient fallback at twice MIN_SPAWN_INTERVAL_S. The minute pass, Bootstrap::run_reconcile_steps(), runs seven steps in order, each behind its own try/catch: before_reconcile, spawn_due_workers, wake_readers_with_backlog, lock-dir reconcile, retention, orphan-IPC reaping, newspack_nodes/periodic. Cards give the rejected dedicated supervisor and what N spawners buy.](img/adr-safety-net.png)
+![Three spawners feed one gate. Tier 1: the shutdown in Worker_Base::execute, which releases the lock then self-respawns; and _fleet, which every 15 seconds (SCAN_INTERVAL_MS) spawns any worker whose lock dir is missing or heartbeat stale, at most MAX_SPAWNS_PER_TICK 4 per pass because each POST is a blocking cURL. Tier 2: Bootstrap::reconcile_fleet on WP-Cron once a minute, no per-pass cap. All three POST the HMAC-validated spawn endpoint, where is_recently_spawned enforces 15 seconds per slot and records last_spawn:{type}|{partition} through shared_first with a transient fallback at twice MIN_SPAWN_INTERVAL_S. The minute pass, Bootstrap::run_reconcile_steps(), runs nine steps in order, each attempted whatever an earlier one threw, then after_reconcile, then every failure raised together: before_reconcile, spawn_due_workers, wake_readers_with_backlog, lock-dir reconcile, retention, orphan-IPC reaping, alerts, the delayed-jobs sweep, newspack_nodes/periodic. Cards give the rejected dedicated supervisor and what N spawners buy.](img/adr-safety-net.png)
 
 **Alternatives considered:** Self-respawn only — rejected: nothing catches a worker that dies
 before it can respawn. An OS-level process supervisor (systemd, a platform worker tier) —
@@ -417,7 +423,12 @@ cold-start pass deserves its direct tests. Housekeeping depends on no live worke
 retention and orphan reaping run even when the fleet is down, which is when disk most needs
 reclaiming — and its real cadence needs are minutes or slower ([`Log_Cleaner`](../includes/class-log-cleaner.php)'s delete grace
 alone is an hour). The delayed-jobs sweep moves with it, so `not_before` granularity is a
-minute; firing late is what `not_before` means, and firing early would be the bug.
+minute; firing late is what `not_before` means, and firing early would be the bug. The gate
+judges write conflicts over the topologies that read, as
+[`Bootstrap::active_topologies()`](../includes/class-bootstrap.php) answers them; one that will
+not — a broken include, or a configured name no `.tsl` resolves — boots nothing, and every pass
+that reaches the gate raises it after posting the rest, so a stale name fails loud each minute
+rather than dropping out of the fleet in silence.
 
 **Revisit if:** an OS-level process supervisor becomes available — the tiered self-revival
 collapses into it.
@@ -528,6 +539,22 @@ leak (alert), not poison. Crawl entry sacrifices the boot-pinned suspect to the 
 `crash`, and crawl won't exit while that sacrifice is still armed, or an un-sacrificed poison
 re-arms the crash loop next boot.
 
+A reader with no quarantine configured has nowhere to put poison, so `dead_letter()` raises
+the error that condemned the message and the successor replays it; a message condemned with no
+error — a crash suspect, a fair-shot strike — is reported and dropped.
+
+A sink that can tell a transient failure from poison catches it rather than let the reader
+dead-letter the message on sight: [`Job_Delay::sweep()`](../includes/class-job-delay.php) holds
+every failed delivery, raises them after the drain and skips the checkpoint, so an intake write
+that failed once replays next pass instead of landing in the sweep's quarantine.
+
+A quarantine that cannot be written is no quarantine. `dead_letter()` then raises the write
+failure combined with the error that condemned the message, through
+`Worker_Should_Stop::raise()` ([ADR-14](#adr-14-cooperative-stop-propagates-through-broad-catches)),
+so both escape the drain and the cursor stays on the message for the successor to replay. A
+full disk under the quarantine therefore fails loudly on every respawn rather than committing
+past a record nothing holds.
+
 The reusable core (`attempts` accounting, `record_poison_strike`,
 `resume_attempts_from_frame`, `crawl_interval_elapsed` / `exit_crawl`, `dead_letter`, the
 three thresholds) lives in `Dead_Letter_Queue`; the cursor and its advance live in
@@ -548,14 +575,35 @@ only risk wedging the stream; and the transient failures retries would target ar
 (a recycling spoke drops the SSE stream — the reconnect path's problem), which never makes a
 downstream `fill()` throw.
 
-**Consequences:** Poison can't wedge a stream and is never silently lost — every give-up
-emits a rate-limited alert and (when configured) a replayable `:deadletter` entry. Cost:
+**Consequences:** Poison can't wedge a stream while its quarantine can be written, and is
+never silently lost — every give-up emits a rate-limited alert and (when configured) a
+replayable `:deadletter` entry, and a give-up the quarantine refuses raises instead. Cost:
 per-cursor offsetlog bookkeeping and, in crawl, per-message checkpoint I/O, bounded by the
 interval-survival exit. Poison handling is symmetric across both readers, and both self-heal
 from a deterministic fatal-poison without operator intervention.
 
 **Revisit if:** the shared trait surface starts carrying read-loop specifics (the wrong thing
 was extracted), or a third durable reader appears whose model fits neither shape.
+
+**Amendment:** a reader with no cursor and no quarantine, over a log many processes append
+to, may skip a line that will not unpack, provided its caller surfaces the count. A
+multi-writer append can land torn, and such a reader has no successor to replay the line and
+no quarantine to file it in. [`Durable_Reader::set_skip_unparseable()`](../includes/trait-durable-reader.php)
+opts a reader in and refuses one carrying an offsetlog or a deadletter dir, because a cursor
+would commit past a line nothing replays and a quarantine is where the line belongs;
+`take_unparseable_lines()` hands the count over. [`Consumer_Node::scan()`](../includes/class-consumer-node.php)
+builds such a reader over one partition dir, and `Consumer_Node::take_unparseable_lines_of()`
+takes and sums the counts of every reader a caller holds. Three callers take it, each reporting it where
+its reader looks: [`SSE_Out_Node`](../includes/rest/class-sse-out-node.php) sends an
+`unparseable_lines` event down the stream — which a hub's `SSE_In_Node` totals as
+`UNPARSEABLE_LINES` and `Remote_Source_Node` publishes to the Aggregator card, moving its cursor
+past the skip — event-logger-nodes' `grep_requests` verb returns it
+in its reply, and `wp nodes reqgrep` prints a warning. [`Partition_Node::read_tail_frames_by()`](../includes/class-partition-node.php)
+counts the same way for the tail read behind `wp nodes status` and the Workers dashboard,
+under `unparseable_lines`. Raising was rejected: one torn line would end every read of that
+segment until it rotated. Quarantining was rejected: a view has no quarantine, and every
+viewer would file the same line again. Revisit if such a reader gains a cursor or a
+quarantine, or its count stops reaching a surface its reader sees.
 
 ---
 
@@ -613,28 +661,89 @@ in-process job to unwind the worker's `fill()` stack and stop cooperatively (tim
 the drain path catches it — and if that catch treats it as an error, the stop is swallowed.
 
 **Decision:** A broad catch on the message/drain path re-throws `Worker_Should_Stop` before
-handling anything else — `catch (Worker_Should_Stop $e) { throw $e; }` — with three deliberate
-carve-outs, documented at each site. Fan-out through `Fanout_Targets` (Tee and Tap),
-`Vault_Group_Node` forwarding a config verb to its children, and `LRU_Cache::evict_bucket()`
-over its callbacks, attempts every target and defers the throwable,
-keeping whichever `Worker_Should_Stop::outranks()` ranks safest: a plain `Worker_Should_Stop`
-over a `Worker_Should_Stop_Clean` over a poison.
-`Job_Worker_Node`'s `after_job` `finally` swallows everything, because it fires whether the
-handler returned or threw. Event-logger-nodes' `Log_Manager::finish()` writes the terminal and
-then re-raises, because terminal-last is a wire contract.
+handling anything else — `catch (Worker_Should_Stop $e) { throw $e; }`. A catch that prints,
+returns a default or drops a throwable swallows it; a catch that turns it into a result the
+caller sees — a TM_ERROR reply, a refusal — translates it and stays.
 
-![The rule as a decision: inside a broad catch on the drain path, a Worker_Should_Stop is re-thrown as control flow and anything else is handled as a real error; the failure prevented is a worker draining on past max_runtime or the memory watermark. Three carve-outs: fan-out through Fanout_Targets, Vault_Group_Node::forward() over its children, and LRU_Cache::evict_bucket() over its callbacks, attempts every target and defers the throwable, Tap always performing its passthrough first; Job_Worker_Node's after_job finally swallows everything while before_job follows the rule; Log_Manager::finish in event-logger-nodes writes the terminal then re-raises. A precedence table for Worker_Should_Stop::outranks shows a plain Worker_Should_Stop replacing a deferred clean stop or poison, a clean stop replacing a poison, and a poison never displacing either.](img/adr-stop-precedence.png)
+A loop that must attempt every step collects what the steps threw through
+`Worker_Should_Stop::attempt_each()`, which keeps each failure under its item's key — or
+`attempt()`, its form for a fixed list of closures — and raises it after the last through
+`Worker_Should_Stop::raise()`, which ignores the keys: fan-out through `Fanout_Targets` (Tee, Tap and
+`send_signed()`), `Settings_Sync_Node` over its options and their mappings,
+`Vault_Group_Node` forwarding a config verb to its children, `LRU_Cache` over its evict
+callbacks, and `HTTP_Out_Node` over the reply lines of one POST. `Worker_Should_Stop::combine()`
+is the one rule for what escapes. Only when every catch is clean is the result clean. Any stop
+among them makes the result a stop, carrying every failure — each non-stop throwable and each
+stop's own previous — as its previous, one or all of them as `Failures`; a plain stop already
+carrying exactly those, a `Failures` included, is raised as it came. With no stop, the
+failures propagate as they are. A `Worker_Should_Stop_Clean` carrying a previous is not clean
+(`Worker_Should_Stop::is_clean()`), because PHP chains an in-flight failure onto a stop thrown
+in a `finally`, and every reader deciding to commit past a message asks that predicate. Nothing
+caught is dropped: `Failures::all()` keeps every member, and only its message is bounded, at
+64 KiB, counting the members it leaves out. `Deferred_Clean_Stop::deferring()` applies the same
+rule to a snapshot node's message, after turning each held bare plain stop
+(`Worker_Should_Stop::is_bare()`) clean.
+
+A fan-out offers every item a stop included, because each target must see the message. A long
+work loop is the other contract: `Worker_Should_Stop::attempt_until_stop()` collects every
+failure the same way but returns at the first stop, so the stop is honoured before the next
+item's work begins and the items never offered are the successor's to replay.
+
+No site carves itself out. Two look as if they do. `Job_Worker_Node`'s `after_job` fires
+whether the handler returned or threw, and a listener that throws joins the job's own outcome
+through `raise()`, so neither masks the other. Event-logger-nodes' `Log_Manager::finish()`
+writes the terminal whatever the drain threw, because terminal-last is a wire contract, then
+raises both through `raise()`. The lifecycle attempts every step the same way: the reconcile
+pass, `Worker_Base`'s shutdown and its sweepers, `Core::cleanup_all_nodes()`, the probes'
+sweep and `Job_Intake::close()`.
+
+![The rule as a decision: inside a broad catch on the drain path, a Worker_Should_Stop is re-thrown as control flow and anything else is propagated or translated into a result the caller sees; the failure prevented is a worker draining on past max_runtime or the memory watermark. Attempt-all loops — fan-out through Fanout_Targets, Settings_Sync, Vault_Group_Node::forward(), LRU_Cache eviction and HTTP_Out replies — attempt every step and raise everything caught after the last, Tap performing its passthrough first and adding its failure to the list. No carve-out: Job_Worker_Node's after_job joins a listener's throw to the job's own, and a before_job throw fails the job. Log_Manager::finish in event-logger-nodes writes the terminal whatever the drain threw, then raises both. A table for Worker_Should_Stop::combine shows nothing caught raising nothing, only bare clean stops raising the first clean stop, any stop among anything else raising a plain stop carrying every failure, and failures alone raising the one failure or all of them as Failures.](img/adr-stop-precedence.png)
 
 **Alternatives considered:** A marker interface / `Control_Flow` exception base caught separately
 — premature: the control-flow family today is `Worker_Should_Stop` plus its subclass
 `Worker_Should_Stop_Clean`, so one explicit-first catch on the parent already covers both. A
-third, unrelated one can share that pattern, or introduce the base then.
+third, unrelated one can share that pattern, or introduce the base then. Ranking what an
+attempt-all loop caught and raising the one throwable an `outranks()` comparison judged safest
+— rejected: every failure but the winner was dropped, so a fan-out reported one target's
+failure however many had failed, and which one depended on the ranking rather than on what
+broke. `combine()` raises all of them instead.
 
 **Consequences:** Cooperative stop is guaranteed on every drain path, not just the direct
 firehose write. Broad catches stay legal for real errors but must front the WSS re-throw.
 
-**Revisit if:** a second control-flow exception appears (introduce a shared base and catch it),
-or a carve-out's rationale stops holding.
+**Revisit if:** a second control-flow exception appears (introduce a shared base and catch it).
+
+**Amendment:** a snapshot node's save may write, and the checkpoint is not a stop boundary. A
+reader co-commits each snapshot node's `save_state()` into its checkpoint frame, and one node
+needs work to land before the cursor does: event-logger-nodes' `Flame_Builder_Node` drains its
+per-URL stats and appends its closed buckets' mirror frames inside `save_state()`, because what
+the checkpoint does not carry is lost to the successor once the cursor has passed it. Those
+writes reach `Partition_Node::maybe_stop()`, and a stop raised there would split the state the
+save produced from the frame meant to carry it. [`Consumer_Node::write_checkpoint_frame()`](../includes/class-consumer-node.php)
+therefore runs the saves and the commit inside [`Event_Framework::uninterruptible()`](../includes/class-event-framework.php),
+a scoped window in which `stop_check()` — and so `pump()` — raises nothing, as it already raises
+nothing while `Core::in_stderr()` holds. A held check leaves the pump throttle where it was, so a
+stop that fell due inside the window raises at the first pump after the commit, with the frame
+already durable. No snapshot node needs a bracket of its own for its save. Tachikoma's
+`Nodes/Consumer.pm` is the precedent: `commit_offset` calls the edge's `on_save_snapshot` inside
+the commit, before it fills the frame to the offsetlog, so the save runs as the commit's own
+pre-commit step rather than as a getter the reader reads afterwards. Forbidding a writing save
+was rejected: the flame builder's writes must land before the cursor, and a stop between a
+commit and writes made after it loses what the checkpoint no longer carries. Holding the stop
+per node — a bracket each snapshot node carries around its save, which the reader finds by
+probing for the method — was rejected: it puts the checkpoint's integrity in every snapshot node
+rather than in the one writer that owns the checkpoint. Revisit if a second node needs work to land before
+its cursor, which would earn a declared pre-commit hook in place of a save that writes, or if a
+save grows long enough that holding a due stop across it outlasts the worker's deadline.
+
+A snapshot node's handling of the record the cursor still points at must be idempotent
+([`Durable_Reader::add_snapshot_node()`](../includes/trait-durable-reader.php)). A plain stop —
+one carrying a failure, or any stop outside a `deferring()` bracket — leaves the cursor on the
+in-flight record, so the successor restores a state that may already hold it and replays it on
+top. The current nodes meet this three ways: `Flame_Builder_Node` skips a record whose crumb
+matches its saved `$counted`, `Request_Builder_Node` drops a line whose sequence number it
+already folded, and newspack-intelligence's `Digest_Builder_Node` skips an item its `seen` map
+already holds.
 
 ---
 

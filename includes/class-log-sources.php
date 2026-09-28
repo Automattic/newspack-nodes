@@ -77,7 +77,11 @@ class Log_Sources {
 	 * struct (array) a GUI reads; and `read <source> <segment>:<offset>` returns
 	 * the single line at a position (the paused single-step debugger). An
 	 * unknown name, or a file that is missing or unreadable, comes back as a
-	 * teaching error naming the resolved path (errors-as-docs). The
+	 * teaching error naming the resolved path (errors-as-docs). A source that
+	 * cannot be listed, and an active topology that cannot be read, appear in
+	 * both listings carrying their failure beside every readable source; a
+	 * name the registry lacks raises those topology failures instead, since
+	 * the name may be one of theirs. The
 	 * interpreter's `taillog` verb delegates here, so the file I/O sits beside
 	 * the registry this class owns.
 	 *
@@ -85,17 +89,22 @@ class Log_Sources {
 	 * @return string|array<array-key,mixed> Struct/read replies are arrays; tails and errors are strings.
 	 */
 	public static function taillog( array $args ): string|array {
-		[ $source, $max_kb ] = \array_pad( $args, 2, '' );
-		$registry            = self::registry();
+		[ $source, $max_kb ]        = \array_pad( $args, 2, '' );
+		[ $registry, $unreadable ] = self::readable_registry();
 
 		if ( 'sources' === $source ) {
-			return self::taillog_sources_struct( $registry );
-		}
-		if ( 'read' === $source ) {
-			return self::taillog_read( $registry, $args[1] ?? '', $args[2] ?? '' );
+			return self::taillog_sources_struct( $registry, $unreadable );
 		}
 		if ( '' === $source ) {
-			return self::taillog_list( $registry );
+			return self::taillog_list( $registry, $unreadable );
+		}
+		$name = 'read' === $source ? ( $args[1] ?? '' ) : $source;
+		if ( ! isset( $registry[ $name ] ) ) {
+			// The name may be one an unreadable topology declares.
+			Worker_Should_Stop::raise( $unreadable );
+		}
+		if ( 'read' === $source ) {
+			return self::taillog_read( $registry, $name, $args[2] ?? '' );
 		}
 		if ( ! isset( $registry[ $source ] ) ) {
 			return self::unknown_source( $registry, $source );
@@ -155,33 +164,6 @@ class Log_Sources {
 		}
 		$newest = \end( $segments );
 		return "{$entry['path']}.{$newest['id']}";
-	}
-
-	/**
-	 * Tabulate the registry: SOURCE, AVAILABLE (`is_available()`), BYTES, PATH.
-	 * Reuses the ONE Command_Interpreter_Node::tabulate renderer.
-	 *
-	 * @param array<string,array{path: string,mode: string}> $registry Name → entry.
-	 * @return string The rendered table.
-	 */
-	private static function taillog_list( array $registry ): string {
-		$rows = [];
-		foreach ( $registry as $name => $entry ) {
-			// One listing per row: AVAILABLE and BYTES are two reads of it.
-			$segments = self::source_segments( $entry );
-			$size     = self::tail_bytes( $entry, $segments );
-			$rows[]   = [
-				$name,
-				self::is_available( $entry, $segments ) ? 'yes' : 'no',
-				null === $size ? '-' : (string) $size,
-				$entry['path'],
-			];
-		}
-		return Command_Interpreter_Node::tabulate(
-			[ 'left', 'left', 'right', 'left' ],
-			[ 'SOURCE', 'AVAILABLE', 'BYTES', 'PATH' ],
-			$rows
-		);
 	}
 
 	/**
@@ -301,6 +283,33 @@ class Log_Sources {
 	}
 
 	/**
+	 * Tabulate the registry: SOURCE, AVAILABLE (`is_available()`), BYTES, PATH.
+	 * A failure reads `error` and names itself after the path. Reuses the ONE
+	 * Command_Interpreter_Node::tabulate renderer.
+	 *
+	 * @param array<string,array{path: string,mode: string}> $registry   Name → entry.
+	 * @param array<string,\Throwable>                       $unreadable Topology name → what reading it threw.
+	 * @return string The rendered table.
+	 */
+	private static function taillog_list( array $registry, array $unreadable ): string {
+		$rows = [];
+		foreach ( self::taillog_sources_struct( $registry, $unreadable ) as $row ) {
+			$error  = $row['error'] ?? null;
+			$rows[] = [
+				$row['name'],
+				null !== $error ? 'error' : ( $row['available'] ? 'yes' : 'no' ),
+				null === $row['bytes'] ? '-' : (string) $row['bytes'],
+				\trim( $row['path'] . ( null === $error ? '' : " ({$error})" ) ),
+			];
+		}
+		return Command_Interpreter_Node::tabulate(
+			[ 'left', 'left', 'right', 'left' ],
+			[ 'SOURCE', 'AVAILABLE', 'BYTES', 'PATH' ],
+			$rows
+		);
+	}
+
+	/**
 	 * The reserved `taillog sources` reply: one { name, path, mode, available, bytes,
 	 * segments } row per (deduped) registry entry, as a plain array a GUI reads to
 	 * build its source picker — mirrors the dump_metadata array-reply precedent.
@@ -308,23 +317,67 @@ class Log_Sources {
 	 * boundary); null when the source has no file to size. `segments` is the
 	 * `{id, size}` list a segment browser renders — [] in file mode.
 	 *
-	 * @param array<string,array{path: string,mode: string}> $registry Name → entry.
-	 * @return list<array{name:string,path:string,mode:string,available:bool,bytes:?int,segments:list<array{id:int,size:int}>}>
+	 * A source whose segments cannot be listed, and an active topology that
+	 * cannot be read, each take an unavailable row carrying `error`, so one
+	 * failure never blanks the picker; a topology's row is named for the
+	 * topology. Every source is offered its listing, and a stop among the
+	 * failures escapes carrying the rest, which is `Worker_Should_Stop`'s rule.
+	 *
+	 * @param array<string,array{path: string,mode: string}> $registry   Name → entry.
+	 * @param array<string,\Throwable>                       $unreadable Topology name → what reading it threw.
+	 * @return list<array{name:string,path:string,mode:string,available:bool,bytes:?int,segments:list<array{id:int,size:int}>,error?:string}>
+	 * @throws Worker_Should_Stop When a stop is among the failures, carrying the rest.
 	 */
-	private static function taillog_sources_struct( array $registry ): array {
-		$rows = [];
-		foreach ( $registry as $name => $entry ) {
-			$segments = self::source_segments( $entry );
-			$rows[]   = [
-				'name'      => $name,
-				'path'      => $entry['path'],
-				'mode'      => $entry['mode'],
-				'available' => self::is_available( $entry, $segments ),
-				'bytes'     => self::tail_bytes( $entry, $segments ),
-				'segments'  => $segments,
-			];
+	private static function taillog_sources_struct( array $registry, array $unreadable ): array {
+		$rows   = \array_fill_keys( \array_keys( $registry ), null );
+		$failed = Worker_Should_Stop::attempt_each(
+			$registry,
+			static function ( array $entry, string $name ) use ( &$rows ): void {
+				$segments      = self::source_segments( $entry );
+				$rows[ $name ] = [
+					'name'      => $name,
+					'path'      => $entry['path'],
+					'mode'      => $entry['mode'],
+					'available' => self::is_available( $entry, $segments ),
+					'bytes'     => self::tail_bytes( $entry, $segments ),
+					'segments'  => $segments,
+				];
+			}
+		);
+		$caught = Worker_Should_Stop::combine( [ ...\array_values( $failed ), ...\array_values( $unreadable ) ] );
+		if ( $caught instanceof Worker_Should_Stop ) {
+			throw $caught;
+		}
+		foreach ( $failed as $name => $e ) {
+			$rows[ $name ] = self::failed_row( $name, $registry[ $name ]['path'], $registry[ $name ]['mode'], $e );
+		}
+		$rows = \array_values( \array_filter( $rows ) );
+		foreach ( $unreadable as $topology => $e ) {
+			$rows[] = self::failed_row( $topology, '', Tail_Node::MODE_SEGMENTED, $e );
 		}
 		return $rows;
+	}
+
+	/**
+	 * The unavailable row a listing shows for a source or topology it could
+	 * not read, carrying the failure.
+	 *
+	 * @param string     $name Source or topology name.
+	 * @param string     $path The source's path; '' for a topology.
+	 * @param string     $mode A `Tail_Node::MODE_*` token.
+	 * @param \Throwable $e    What reading it threw.
+	 * @return array{name:string,path:string,mode:string,available:bool,bytes:null,segments:list<array{id:int,size:int}>,error:string}
+	 */
+	private static function failed_row( string $name, string $path, string $mode, \Throwable $e ): array {
+		return [
+			'name'      => $name,
+			'path'      => $path,
+			'mode'      => $mode,
+			'available' => false,
+			'bytes'     => null,
+			'segments'  => [],
+			'error'     => \html_entity_decode( $e->getMessage(), \ENT_QUOTES ),
+		];
 	}
 
 	/**
@@ -384,13 +437,12 @@ class Log_Sources {
 	 * a data segment. (The sibling `Raw_Logs_CI_Node::cmd_dump_log` builds an
 	 * ephemeral Partition for the same reason.) File mode has no segments: [].
 	 *
-	 * Every listing caller walks the WHOLE registry, so one entry that cannot be
-	 * listed degrades to no segments rather than blanking the reply — a
-	 * debugging surface has to survive the broken thing being debugged.
+	 * An entry that cannot be listed fails the listing that asked, because an
+	 * empty segment list would report a broken source as an empty one.
 	 *
 	 * @param array{path: string, mode: string} $entry A registry() entry.
 	 * @return list<array{id: int,size: int}>
-	 * @throws Worker_Should_Stop When a cooperative stop lands mid-listing.
+	 * @throws \Throwable What listing the segments threw.
 	 */
 	private static function source_segments( array $entry ): array {
 		if ( Tail_Node::MODE_SEGMENTED !== $entry['mode'] ) {
@@ -400,11 +452,6 @@ class Log_Sources {
 		try {
 			$log->arguments( [ $entry['path'] ] );
 			return \array_values( $log->get_segments( true ) );
-		} catch ( Worker_Should_Stop $e ) {
-			throw $e; // ADR-14: cooperative stop is never a skippable error.
-		} catch ( \Throwable $e ) {
-			Core::print_less_often( 'log_sources: cannot list segments of ', $entry['path'] . ': ' . $e->getMessage() );
-			return [];
 		} finally {
 			$log->remove_node();
 		}
@@ -413,11 +460,27 @@ class Log_Sources {
 	/**
 	 * The merged registry: built-ins, then config, then topologies. First name
 	 * wins and realpath dedupe keeps the first, so insertion order is priority.
+	 * Strict: an active topology that cannot be read throws, after every other
+	 * was read.
 	 *
 	 * @return array<string,array{path: string,mode: string}>
+	 * @throws \Throwable What the unreadable topologies threw, combined.
 	 */
 	public static function registry(): array {
-		$entries = [];
+		[ $entries, $unreadable ] = self::readable_registry();
+		Worker_Should_Stop::raise( $unreadable );
+		return $entries;
+	}
+
+	/**
+	 * The registry over every readable family, and what each active topology
+	 * that could not be read threw instead, keyed by topology name.
+	 *
+	 * @return array{0: array<string,array{path: string,mode: string}>, 1: array<string,\Throwable>}
+	 */
+	private static function readable_registry(): array {
+		[ $topology_entries, $unreadable ] = self::topology_entries();
+		$entries                           = [];
 		foreach ( self::builtin_entries() as $name => $path ) {
 			$entries[ $name ] = [
 				'path' => $path,
@@ -430,10 +493,10 @@ class Log_Sources {
 				'mode' => Tail_Node::MODE_FILE,
 			];
 		}
-		foreach ( self::topology_entries() as $name => $entry ) {
+		foreach ( $topology_entries as $name => $entry ) {
 			$entries[ $name ] ??= $entry;
 		}
-		return self::dedupe_by_realpath( $entries );
+		return [ self::dedupe_by_realpath( $entries ), $unreadable ];
 	}
 
 	/**
@@ -461,70 +524,6 @@ class Log_Sources {
 			$deduped[ $name ] = $entry;
 		}
 		return $deduped;
-	}
-
-	/**
-	 * Segmented sources inferred from every `Log` node in the active topologies,
-	 * one per partition where the path template carries a partition token. Named
-	 * by lowercased writes-basename (+ `.p{N}` when the template is per-partition
-	 * but the basename isn't). The graph scan is display-grade: a failure stops
-	 * that topology's scan where it happened, keeps the entries already listed,
-	 * and never throws into the stream.
-	 *
-	 * @return array<string,array{path: string,mode: string}>
-	 * @throws Worker_Should_Stop When a cooperative stop lands mid-scan.
-	 */
-	private static function topology_entries(): array {
-		$partitions_by_type = [];
-		foreach ( Bootstrap::expand_workers() as $worker ) {
-			$partitions_by_type[ Core::as_string( $worker['type'] ) ][] = Core::num_int( $worker['partition'] );
-		}
-		$entries = [];
-		foreach ( $partitions_by_type as $type => $partitions ) {
-			try {
-				$graph = Topology_Analyzer::graph_for( $type );
-				foreach ( $graph['nodes'] as $node ) {
-					if ( 'log' !== ( $node['kind'] ?? '' ) ) {
-						continue;
-					}
-					$template = Core::as_string( $node['path'] ?? '' );
-					$writes   = \strtolower( Core::as_string( $node['writes'] ?? '' ) );
-					if ( '' === $template || '' === $writes ) {
-						continue;
-					}
-					// An unresolvable <ns:key> throws, skipping the topology.
-					Core::resolve_config_tokens( $template, true );
-					$per_partition = self::has_partition_token( $template );
-					foreach ( $partitions as $p ) {
-						$name = Core::resolve_partition_template( $writes, $p, $type );
-						if ( $per_partition && ! self::has_partition_token( $writes ) ) {
-							$name .= ".p{$p}";
-						}
-						if ( ! self::is_valid_name( $name ) ) {
-							continue;
-						}
-						$path = Core::resolve_partition_template( $template, $p, $type );
-						if ( '' === $path || '/' !== $path[0] ) {
-							continue;
-						}
-						$entries[ $name ] ??= [
-							'path' => $path,
-							'mode' => Tail_Node::MODE_SEGMENTED,
-						];
-					}
-				}
-			} catch ( Worker_Should_Stop $e ) {
-				throw $e; // ADR-14: cooperative stop is never a skippable error.
-			} catch ( \Throwable $e ) {
-				Core::print_less_often( 'log_sources: skipping topology ', $type . ': ' . $e->getMessage() );
-			}
-		}
-		return $entries;
-	}
-
-	/** Whether $template carries a partition token in either spelling `resolve_partition_template` accepts. */
-	private static function has_partition_token( string $template ): bool {
-		return \str_contains( $template, '<partition>' ) || \str_contains( $template, '{partition}' );
 	}
 
 	/**
@@ -574,21 +573,6 @@ class Log_Sources {
 	}
 
 	/**
-	 * Whether $name is a legal registry name: the NAME_PATTERN charset, no `..`,
-	 * and neither of the words `taillog` reserves for its sub-verbs, `sources`
-	 * and `read` — a source wearing either would be unreachable behind it.
-	 *
-	 * @param string $name Candidate registry name.
-	 * @return bool True when the name is legal.
-	 */
-	public static function is_valid_name( string $name ): bool {
-		if ( \in_array( $name, [ 'sources', 'read' ], true ) || \str_contains( $name, '..' ) ) {
-			return false;
-		}
-		return 1 === \preg_match( self::NAME_PATTERN, $name );
-	}
-
-	/**
 	 * The built-in family, resolved through the `$builtin_sources` seam so a
 	 * test can supply fixtures in place of the host's ini and constants.
 	 *
@@ -609,5 +593,91 @@ class Log_Sources {
 			return $sources;
 		};
 		return $resolve();
+	}
+
+	/**
+	 * Segmented sources inferred from every `Log` node in the active topologies,
+	 * one per partition where the path template carries a partition token. Named
+	 * by lowercased writes-basename (+ `.p{N}` when the template is per-partition
+	 * but the basename isn't). Every readable topology is scanned whatever
+	 * another threw, and every failure — `Bootstrap::active_topologies()`'s, and
+	 * an unresolvable `<ns:key>` token — is returned beside the entries, keyed by
+	 * the topology that threw it.
+	 *
+	 * @return array{0: array<string,array{path: string,mode: string}>, 1: array<string,\Throwable>}
+	 */
+	private static function topology_entries(): array {
+		[ $readable, $unreadable ] = Bootstrap::active_topologies();
+		$entries                   = [];
+		$failed                    = Worker_Should_Stop::attempt_each(
+			$readable,
+			static function ( array $entry, string $type ) use ( &$entries ): void {
+				$entries += self::entries_of( Bootstrap::partitions_of( $entry ), $type );
+			}
+		);
+		return [ $entries, $unreadable + $failed ];
+	}
+
+	/**
+	 * The segmented sources one topology's `Log` nodes declare.
+	 *
+	 * @param int    $partitions Its partition count.
+	 * @param string $type       Topology name.
+	 * @return array<string,array{path: string,mode: string}>
+	 * @throws \RuntimeException When a path template carries an unresolvable token.
+	 */
+	private static function entries_of( int $partitions, string $type ): array {
+		$entries = [];
+		foreach ( Topology_Analyzer::graph_for( $type )['nodes'] as $node ) {
+			if ( 'log' !== ( $node['kind'] ?? '' ) ) {
+				continue;
+			}
+			$template = Core::as_string( $node['path'] ?? '' );
+			$writes   = \strtolower( Core::as_string( $node['writes'] ?? '' ) );
+			if ( '' === $template || '' === $writes ) {
+				continue;
+			}
+			// Strict: an unresolvable <ns:key> throws.
+			Core::resolve_config_tokens( $template, true );
+			$per_partition = self::has_partition_token( $template );
+			for ( $p = 0; $p < $partitions; $p++ ) {
+				$name = Core::resolve_partition_template( $writes, $p, $type );
+				if ( $per_partition && ! self::has_partition_token( $writes ) ) {
+					$name .= ".p{$p}";
+				}
+				if ( ! self::is_valid_name( $name ) ) {
+					continue;
+				}
+				$path = Core::resolve_partition_template( $template, $p, $type );
+				if ( '' === $path || '/' !== $path[0] ) {
+					continue;
+				}
+				$entries[ $name ] ??= [
+					'path' => $path,
+					'mode' => Tail_Node::MODE_SEGMENTED,
+				];
+			}
+		}
+		return $entries;
+	}
+
+	/**
+	 * Whether $name is a legal registry name: the NAME_PATTERN charset, no `..`,
+	 * and neither of the words `taillog` reserves for its sub-verbs, `sources`
+	 * and `read` — a source wearing either would be unreachable behind it.
+	 *
+	 * @param string $name Candidate registry name.
+	 * @return bool True when the name is legal.
+	 */
+	public static function is_valid_name( string $name ): bool {
+		if ( \in_array( $name, [ 'sources', 'read' ], true ) || \str_contains( $name, '..' ) ) {
+			return false;
+		}
+		return 1 === \preg_match( self::NAME_PATTERN, $name );
+	}
+
+	/** Whether $template carries a partition token in either spelling `resolve_partition_template` accepts. */
+	private static function has_partition_token( string $template ): bool {
+		return \str_contains( $template, '<partition>' ) || \str_contains( $template, '{partition}' );
 	}
 }

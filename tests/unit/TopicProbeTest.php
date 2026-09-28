@@ -89,6 +89,22 @@ class TopicProbeTest extends TestCase {
 		$this->rmdir_recursive( $stock );
 	}
 
+	public function test_an_unreadable_probe_topology_fails_the_cadence_read(): void {
+		$stock = $this->make_temp_dir( 'probe-broken-' );
+		\file_put_contents( "{$stock}/topic-probe.tsl", "include no-such-probe-base-7719\n" );
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+		Topic_Probe_Node::forget_interval();
+
+		try {
+			$this->expectExceptionMessageMatches( '/no-such-probe-base-7719/' );
+			Topic_Probe_Node::declared_interval_s();
+		} finally {
+			Topic_Probe_Node::forget_interval();
+			\Newspack_Nodes\Topology_Registry::reset();
+			$this->rmdir_recursive( $stock );
+		}
+	}
+
 	public function test_the_cadence_is_read_once_and_memoized(): void {
 		// Read per request, off a graph the analyzer caches — a status poll must
 		// not re-parse the TSL for every reader row.
@@ -302,23 +318,36 @@ class TopicProbeTest extends TestCase {
 		$this->assertSame( [ Core::$now ], $fired );
 	}
 
-	public function test_fire_skips_a_consumer_whose_probe_stats_throws(): void {
-		// One bad Consumer (probe_stats throws) is skipped rate-limited; the healthy
-		// Consumer in the same sweep still emits its snapshot.
-		$bad = new class() extends Consumer_Node {
+	public function test_a_consumer_whose_probe_stats_throws_costs_its_peers_nothing_then_escapes(): void {
+		// Every Consumer is swept; the bad one's failure escapes after the last.
+		$no_segment = new \RuntimeException( 'no segment yet-2716' );
+		$bad        = new class( $no_segment ) extends Consumer_Node {
+			public function __construct( private \RuntimeException $no_segment ) {
+				parent::__construct();
+			}
 			public function probe_stats(): array {
-				throw new \RuntimeException( 'no segment yet' );
+				throw $this->no_segment;
+			}
+			public function make_ready(): void {
+				$this->set_state( 'READY', $this->name );
 			}
 		};
 		$bad->name( 'broken' );
+		$bad->make_ready();
 		$this->stub_consumer( 'firehose' );
 
 		$capture = new Capture_Sink_Node();
 		$probe   = new Topic_Probe_Node();
 		$probe->name( 'topicprobe' );
 		$probe->sink( $capture );
-		$probe->fire_cb();
+		$caught = null;
+		try {
+			$probe->fire_cb();
+		} catch ( \RuntimeException $e ) {
+			$caught = $e;
+		}
 
+		$this->assertSame( $no_segment, $caught );
 		$this->assertCount( 1, $capture->captured );
 		$this->assertSame(
 			'firehose.p0',

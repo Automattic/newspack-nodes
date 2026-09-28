@@ -241,6 +241,39 @@ class FanoutTargetsTest extends TestCase {
 		}
 	}
 
+	/** A spoke whose delivery throws costs the spokes after it nothing. */
+	public function test_send_signed_reaches_every_spoke_after_one_throws_then_raises(): void {
+		$this->egress( 'spokes:tw0', 'tw0' );
+		$this->egress( 'spokes:tw1', 'tw1' );
+		$this->egress( 'spokes:tw9', 'tw9' );
+		Command_Auth::remember_session( 'tw0', self::HANDLE_A, 'key-tw0-4242' );
+		Command_Auth::remember_session( 'tw1', self::HANDLE_B, 'key-tw1-9999' );
+		Command_Auth::remember_session( 'tw9', self::HANDLE_A, 'key-tw9-3131' );
+		$refused = new \RuntimeException( 'spoke tw1 refused-77' );
+		$sink    = new class( $refused ) extends Capture_Sink_Node {
+			public function __construct( private \RuntimeException $refused ) {
+				parent::__construct();
+			}
+			public function fill( array $message ): void {
+				if ( \str_starts_with( (string) $message[ Message::TO ], 'spokes:tw1/' ) ) {
+					throw $this->refused;
+				}
+				parent::fill( $message );
+			}
+		};
+
+		$e = $this->caught(
+			fn () => $this->sender( $sink, 'spokes:tw0', 'spokes:tw1', 'spokes:tw9' )->send( 'inbox-3', 'reindex', [ 'alpha-5' ] ),
+			'the refused spoke must still raise'
+		);
+		$this->assertSame( $refused, $e );
+
+		$this->assertSame(
+			[ 'spokes:tw0/inbox-3', 'spokes:tw9/inbox-3' ],
+			\array_map( static fn ( array $m ): string => (string) $m[ Message::TO ], $sink->captured )
+		);
+	}
+
 	/** With nowhere to deliver, nothing is minted and no handshake is asked for. */
 	public function test_send_signed_without_a_sink_mints_nothing_and_asks_no_handshake(): void {
 		$this->seed_vault_servers( [ 'tw0' => [ 'url' => 'https://tw0.example' ] ] );

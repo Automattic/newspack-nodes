@@ -88,7 +88,11 @@ final class Health_Checks {
 	 * rejected. When it does not resolve, the alerts evaluator is skipped — it
 	 * computes every condition from lock-dir heartbeats, the probe cursor log
 	 * and the quarantine dirs, all of which live under that base — and the three
-	 * fleet families report that instead.
+	 * fleet families report that instead. An evaluator that throws — a topology
+	 * catalog that will not build — is reported the same way, as critical and
+	 * carrying its message, so it too costs the fleet rows and nothing else. A
+	 * single topology that will not read is no such failure: `Alerts` answers
+	 * it as one critical worker-liveness row, and the rest still evaluate.
 	 *
 	 * `wp nodes doctor` passes the web runtime's cache result over the loopback,
 	 * because a CLI process sees a different cache posture than the process
@@ -110,8 +114,8 @@ final class Health_Checks {
 		}
 
 		$fleet = null === $base_dir
-			? self::unavailable_fleet_results()
-			: self::fleet_results( self::current_alerts() );
+			? self::unavailable_fleet_results( 'the runtime base directory is unavailable', self::STATUS_RECOMMENDED )
+			: self::evaluated_fleet_results();
 		return [
 			$cache_result ?? self::cache_backend(),
 			self::filesystem( $base_dir, $refused ),
@@ -183,8 +187,8 @@ final class Health_Checks {
 	 * Housekeeping rides `Bootstrap::reconcile_fleet()` on the minute cron, so a
 	 * missing `newspack_nodes/reconcile` event loses cold-start worker revival,
 	 * the backlog wake, lock-dir reconciliation, log retention, orphan IPC
-	 * reaping and every `newspack_nodes/periodic` subscriber — `Alerts::emit()`
-	 * and `Job_Delay::sweep_action()` among them. Nothing else shows it: a
+	 * reaping, `Alerts::emit()`, `Job_Delay::sweep()` and every
+	 * `newspack_nodes/periodic` subscriber. Nothing else shows it: a
 	 * failed schedule and a vetoed one both report through
 	 * `Core::print_less_often()`, which reaches stderr and not wp-admin.
 	 *
@@ -377,13 +381,24 @@ final class Health_Checks {
 	}
 
 	/**
-	 * The alert rows for this report, read through the seam.
+	 * The three fleet families from the alert rows, read through the seam. An
+	 * evaluator failure becomes the three rows, critical and carrying its
+	 * message: every family is unknown when the fleet cannot be read. A stop
+	 * propagates (ADR-14).
 	 *
-	 * @return array<int,array<string,mixed>>
+	 * @return list<HealthResult>
+	 * @throws Worker_Should_Stop When the evaluator raises a cooperative stop.
 	 */
-	private static function current_alerts(): array {
+	private static function evaluated_fleet_results(): array {
 		$evaluate = self::$evaluate_alerts ?? static fn (): array => Alerts::evaluate();
-		return $evaluate();
+		try {
+			$alerts = $evaluate();
+		} catch ( Worker_Should_Stop $e ) {
+			throw $e;
+		} catch ( \Throwable $e ) {
+			return self::unavailable_fleet_results( $e->getMessage(), self::STATUS_CRITICAL );
+		}
+		return self::fleet_results( $alerts );
 	}
 
 	/**
@@ -502,21 +517,22 @@ final class Health_Checks {
 	}
 
 	/**
-	 * The three fleet families reported unevaluated, for a base directory that
-	 * did not resolve.
+	 * The three fleet families reported unevaluated, naming why.
 	 *
-	 * `recommended`, not `critical`: the filesystem and ownership results
-	 * already carry that failure, and these three say only that fleet state is
-	 * unknown.
+	 * An unresolved base directory reports `recommended`, because the
+	 * filesystem and ownership results already carry that failure; an
+	 * evaluator failure reports `critical`, because nothing else does.
 	 *
+	 * @param string       $reason Why fleet state could not be read.
+	 * @param HealthStatus $status Status the three rows carry.
 	 * @return list<HealthResult>
 	 */
-	private static function unavailable_fleet_results(): array {
-		$message = 'Fleet state could not be evaluated because the runtime base directory is unavailable.';
+	private static function unavailable_fleet_results( string $reason, string $status ): array {
+		$message = "Fleet state could not be evaluated: {$reason}.";
 		return [
-			self::result( Alerts::FAMILY_WORKER_LIVENESS, 'Worker liveness', self::STATUS_RECOMMENDED, $message ),
-			self::result( Alerts::FAMILY_CONSUMER_LAG, 'Consumer lag', self::STATUS_RECOMMENDED, $message ),
-			self::result( Alerts::FAMILY_DEAD_LETTERS, 'Dead letters', self::STATUS_RECOMMENDED, $message ),
+			self::result( Alerts::FAMILY_WORKER_LIVENESS, 'Worker liveness', $status, $message ),
+			self::result( Alerts::FAMILY_CONSUMER_LAG, 'Consumer lag', $status, $message ),
+			self::result( Alerts::FAMILY_DEAD_LETTERS, 'Dead letters', $status, $message ),
 		];
 	}
 

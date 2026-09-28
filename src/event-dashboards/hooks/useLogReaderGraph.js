@@ -92,7 +92,7 @@ const PARTITION_STEP_READ = { ci: RAW_LOGS_CI, command: 'read_message' };
  * @param {Object} opts.stepRead   `{ ci, command, argsFor, subjectOf }` for the
  *                                 one-record read behind the paused step.
  * @return {{ catalog: Array, viewRef: Object, control: Function, select: (log: string) => void, seek: Function, resubscribe: Function, setPaused: (paused: boolean) => void, step: () => void, setFilter: (term: string) => void, clear: () => void }}
- *   The catalog rows, the live view node, and the shared controls.
+ *   The catalog rows, the live view node and the shared controls.
  */
 function useLogReaderGraph( opts ) {
 	const { prefix } = opts;

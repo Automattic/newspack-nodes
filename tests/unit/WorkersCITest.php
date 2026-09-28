@@ -249,20 +249,17 @@ class WorkersCITest extends TestCase {
 		\Newspack_Nodes\Topology_Registry::reset();
 	}
 
-	public function test_dump_graph_survives_a_topology_including_a_dormant_providers_name(): void {
+	public function test_dump_graph_reports_a_topology_including_a_dormant_providers_name(): void {
 		// aggregator-eve.tsl includes `aggregator`; when the plugin providing
-		// `aggregator` is dormant (version handshake), the include is
-		// unresolvable. Admin surfaces read dump_graph — degrade, don't fatal.
+		// `aggregator` is dormant, the include is unresolvable. That topology
+		// answers its own `unreadable` row, never a graph that reads as
+		// "declares nothing", and the rest of the fleet still draws.
 		$base  = $this->arrange_base_dir();
 		$stock = "{$base}/topologies";
 		\mkdir( $stock, 0755, true );
 		\file_put_contents(
 			"{$stock}/demo-workers.tsl",
 			"include orphaned-topology-7311\n"
-		);
-		\file_put_contents(
-			"{$stock}/request-workers.tsl",
-			"make_node Log sized:log <config:logs_dir>/sized-7311.log 7311234\n"
 		);
 		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
 
@@ -271,19 +268,86 @@ class WorkersCITest extends TestCase {
 
 		$result = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
-		// Degrades, never fatals: the declared set fail-closes (a PARTIAL set
-		// reads the dormant plugin's logs as GC orphans — the errors.p0
-		// deletion bug), while the graph-sourced sink catalog still carries
-		// the intact sibling's Log with its override.
-		$this->assertIsArray( $result );
-		$this->assertArrayHasKey( 'workers', $result );
-		$sized = \array_values( \array_filter(
-			$result['logs'],
-			static fn ( array $l ): bool => 'sized-7311.log' === $l['name']
-		) );
-		$this->assertSame( 7311234, $sized[0]['segment_size'] ?? null );
+		$this->assertIsArray( $result, 'one broken topology answers the rest' );
+		$this->assertSame( [ 'demo-workers' ], \array_keys( $result['unreadable'] ) );
+		$this->assertStringContainsString( 'orphaned-topology-7311', $result['unreadable']['demo-workers'] );
+		$this->assertSame( [ 'request-workers', 'job-workers', 'aggregator' ], \array_keys( $result['graph'] ) );
 
 		\Newspack_Nodes\Topology_Registry::reset();
+	}
+
+	/**
+	 * `Alerts::evaluate()` reads this envelope, so a fleet it cannot expand
+	 * must not read as a fleet with no workers.
+	 */
+	public function test_collect_dump_metadata_propagates_a_failed_worker_expansion(): void {
+		$this->arrange_base_dir();
+		$refused = new \RuntimeException( 'catalog refused-8812' );
+		$calls   = 0;
+		\add_filter(
+			'newspack_nodes/topologies',
+			static function ( array $topologies ) use ( $refused, &$calls ): array {
+				if ( 1 === ++$calls ) {
+					throw $refused;
+				}
+				return $topologies;
+			},
+			20
+		);
+
+		$e = $this->caught(
+			fn () => Workers_CI_Node::collect_dump_metadata(),
+			'a catalog that will not load must propagate'
+		);
+		$this->assertSame( $refused, $e );
+	}
+
+	/**
+	 * An unreadable topology fails its own row: the envelope names it and why,
+	 * and every worker is still reported.
+	 */
+	public function test_collect_dump_metadata_names_an_unreadable_topology_beside_the_fleet(): void {
+		$base  = $this->arrange_base_dir();
+		$stock = "{$base}/topologies";
+		\mkdir( $stock, 0755, true );
+		\file_put_contents( "{$stock}/request-workers.tsl", "include orphaned-topology-5530\n" );
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+
+		try {
+			$meta = Workers_CI_Node::collect_dump_metadata();
+		} finally {
+			\Newspack_Nodes\Topology_Registry::reset();
+		}
+
+		$this->assertSame( [ 'request-workers' ], \array_keys( $meta['unreadable'] ) );
+		$this->assertStringContainsString( 'orphaned-topology-5530', $meta['unreadable']['request-workers'] );
+		$this->assertSame(
+			[ 'demo-workers', 'request-workers', 'job-workers', 'aggregator' ],
+			\array_column( $meta['workers'], 'type' )
+		);
+	}
+
+	/** The active-set read every per-topology collector shares propagates too. */
+	public function test_collect_dump_metadata_propagates_a_failed_active_set_read(): void {
+		$this->arrange_base_dir();
+		$refused = new \RuntimeException( 'catalog refused on reread-6604' );
+		$calls   = 0;
+		\add_filter(
+			'newspack_nodes/topologies',
+			static function ( array $topologies ) use ( $refused, &$calls ): array {
+				if ( 2 === ++$calls ) {
+					throw $refused;
+				}
+				return $topologies;
+			},
+			20
+		);
+
+		$e = $this->caught(
+			fn () => Workers_CI_Node::collect_dump_metadata(),
+			'the second catalog read must propagate'
+		);
+		$this->assertSame( $refused, $e );
 	}
 
 	public function test_dump_graph_payload_includes_heartbeat_interval(): void {
@@ -309,7 +373,7 @@ class WorkersCITest extends TestCase {
 		$base = $this->arrange_base_dir();
 		$this->seed_log_segment( $base, 'firehose', 0, 0 );
 		$this->seed_log_segment( $base, 'requests', 0, 0 );
-		$this->seed_log_segment( $base, 'topicprobe', 0, 0 );
+		$this->seed_log_segment( $base, 'errors', 0, 0 );
 
 		$interpreter        = new Workers_CI_Node();
 		$interpreter->cli   = $this->stub_cli();
@@ -843,6 +907,19 @@ class WorkersCITest extends TestCase {
 		$this->assertSame( 7, $consumers[0]['msgs'] );
 	}
 
+	public function test_dump_graph_reports_the_unparseable_probe_lines_it_skipped(): void {
+		$base = $this->arrange_base_dir();
+		$this->seed_probe_record( $base, 'firehose', 0, [ 'source' => 'firehose.p0', 'distance' => 77 ] );
+		\file_put_contents( "{$base}/logs/topicprobe.p0/0.log", "[1,\"torn-x\n[2,\"torn-y\n", \FILE_APPEND );
+
+		$interpreter      = new Workers_CI_Node();
+		$interpreter->cli = $this->stub_cli();
+		$result           = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+
+		$this->assertSame( 2, $result['unparseable_lines'] );
+		$this->assertSame( [ 'firehose.p0' ], \array_column( $result['consumers'], 'reader' ) );
+	}
+
 	public function test_dump_metadata_consumers_carry_the_recorded_source_partition(): void {
 		// A disambiguated reader (`firehose.job-router.p0`) reports the REAL source
 		// partition it tails (`firehose.p0`) via SOURCE — not its offset-dir name.
@@ -960,6 +1037,29 @@ class WorkersCITest extends TestCase {
 		$this->assertSame( 128, $by_name['firehose.p0']['partitions'][0]['total_size'] );
 		$this->assertCount( 1, $by_name['jobintake.p1']['partitions'][0]['segments'] );
 		$this->assertSame( 64, $by_name['jobintake.p1']['partitions'][0]['total_size'] );
+	}
+
+	public function test_dump_graph_names_a_producer_declaring_no_log_dir_and_lists_the_rest(): void {
+		// A producer template landing under no logs dir refuses the sweep; the
+		// catalog deletes nothing, so it lists every other log and names the
+		// refused template in its own row, apart from the topologies alerts read.
+		$base = $this->arrange_base_dir();
+		$this->use_base_dir( $base, [ 'num_partitions' => 2 ] );
+		\add_filter(
+			'newspack_nodes/registered_log_producers',
+			static fn (): array => [ 'firehose-4419.p<partition>', '<config:logs_dir>/jobintake.p<partition>' ]
+		);
+
+		$interpreter      = new Workers_CI_Node();
+		$interpreter->cli = $this->stub_cli();
+		$result           = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+
+		$names = \array_column( $result['logs'], 'name' );
+		$this->assertContains( 'jobintake.p0', $names );
+		$this->assertContains( 'jobintake.p1', $names );
+		$this->assertSame( [], $result['unreadable'], 'no topology failed' );
+		$this->assertSame( [ 'firehose-4419.p<partition>' ], \array_keys( $result['refused_producers'] ) );
+		$this->assertStringContainsString( 'log producer firehose-4419.p<partition>', $result['refused_producers']['firehose-4419.p<partition>'] );
 	}
 
 	public function test_dump_metadata_logs_carry_per_partition_segment_size_overrides(): void {

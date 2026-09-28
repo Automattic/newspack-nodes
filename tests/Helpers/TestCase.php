@@ -92,6 +92,7 @@ abstract class TestCase extends PHPUnitTestCase {
 		// installed by one test (HTTP_In/worker bootstrap) doesn't gate the next.
 		if ( \class_exists( '\Newspack_Nodes\Command_Interpreter_Node' ) ) {
 			\Newspack_Nodes\Command_Interpreter_Node::$default_authorize = null;
+			\Newspack_Nodes\Command_Interpreter_Node::$around_dispatch   = null;
 		}
 
 		// Log-source builtin seam is static process state; clear it likewise.
@@ -199,10 +200,14 @@ abstract class TestCase extends PHPUnitTestCase {
 		}
 		if ( \class_exists( '\Newspack_Nodes\CLI', false ) ) {
 			// @longform A leaked root uid makes Config::write_denied() true, so
-			// Lock_Node::request_restart_at() silently writes nothing — every
+			// Lock_Node::request_restart_at() throws instead of writing — every
 			// restart-flag test downstream of LockNodeRootTest then fails, and
 			// only in the orders where it happens to run first.
 			\Newspack_Nodes\CLI::$uid_provider = null;
+		}
+		if ( \class_exists( '\Newspack_Nodes\Lock_Node', false ) ) {
+			\Newspack_Nodes\Lock_Node::$put_contents = null;
+			\Newspack_Nodes\Lock_Node::$rmdir        = null;
 		}
 		// A leaked fake clock would freeze every later test on loop time.
 		if ( \class_exists( '\Newspack_Nodes\Core', false ) ) {
@@ -393,6 +398,29 @@ abstract class TestCase extends PHPUnitTestCase {
 	}
 
 	/**
+	 * Run $fn and return the RuntimeException it threw; fail with $why if none.
+	 *
+	 * Replaces `try { …; $this->fail(); } catch ( \RuntimeException $e )`: in
+	 * PHPUnit 10 `fail()` throws AssertionFailedError, itself a
+	 * RuntimeException, so that idiom catches its own failure and passes when
+	 * the call stops throwing. Here `fail()` sits outside the try, and PHPUnit's
+	 * own exceptions — a failed assertion, the per-test time limit — escape.
+	 *
+	 * @param callable $fn  The call expected to throw.
+	 * @param string   $why Failure message when it throws nothing.
+	 */
+	protected function caught( callable $fn, string $why ): \RuntimeException {
+		try {
+			$fn();
+		} catch ( \PHPUnit\Exception | \SebastianBergmann\Invoker\Exception $e ) {
+			throw $e;
+		} catch ( \RuntimeException $e ) {
+			return $e;
+		}
+		$this->fail( $why );
+	}
+
+	/**
 	 * Build a TM_BYTESTREAM Message wrapping $value (and optional $key).
 	 * Convenience for tests that previously called `$p->write("foo\n")` directly
 	 * and now need to go through `$p->fill(...)` since Partition::write was
@@ -448,6 +476,11 @@ abstract class TestCase extends PHPUnitTestCase {
 		return self::sse_frame( 'connected', [ Message::TYPE => Message::TM_INFO, Message::KEY => 'connected', Message::VALUE => $value ] );
 	}
 
+	/** An `unparseable_lines` SSE frame: `COUNT n CURSORS dir=segment:offset,…`. */
+	protected static function unparseable_frame( string $value ): string {
+		return self::sse_frame( 'unparseable_lines', [ Message::TYPE => Message::TM_INFO, Message::KEY => 'unparseable_lines', Message::VALUE => $value ] );
+	}
+
 	/** A `retry` SSE frame carrying the reopen delay in milliseconds. */
 	protected static function retry_frame( string $ms ): string {
 		return self::sse_frame( 'retry', [ Message::TYPE => Message::TM_INFO, Message::KEY => 'retry', Message::VALUE => $ms ] );
@@ -475,7 +508,7 @@ abstract class TestCase extends PHPUnitTestCase {
 		// Tests typically write via `$p->fill()` or `produce_into()` and then
 		// immediately read the segment file. Flush any pending batch first so
 		// the read picks up the data — Partition::fill batches in memory and
-		// only syswrites at PIPE_BUF threshold or destructor time.
+		// only syswrites at the PIPE_BUF threshold, a flush or teardown.
 		$p->flush();
 		$path = "{$p->partition_dir()}/{$segment_id}.log";
 		if ( ! \file_exists( $path ) ) {
@@ -525,6 +558,40 @@ abstract class TestCase extends PHPUnitTestCase {
 	/** Worker's private executed-job counter (increments even when a handler throws; no public accessor by design). */
 	protected function jobs_executed( \Newspack_Nodes\Job_Worker_Node $jw ): int {
 		return (int) $this->read_private( $jw, 'jobs_executed' );
+	}
+
+	/**
+	 * Run $work inside a worker's drain whose deadline has already passed, as
+	 * a long job finds itself when the lock is flagged mid-fill: every
+	 * `Event_Framework::stop_check()` it reaches, and every `pump()` past the
+	 * throttle, raises.
+	 *
+	 * @param \Closure(): void $work What runs mid-work.
+	 * @return \Newspack_Nodes\Worker_Should_Stop|null The stop that escaped the drain, if any.
+	 */
+	protected function with_stop_due( \Closure $work ): ?\Newspack_Nodes\Worker_Should_Stop {
+		$state = (object) [ 'stop' => false, 'ticks' => 0 ];
+		$timer = new class() extends \Newspack_Nodes\Timer_Node {
+			/** @var \Closure(): void */
+			public \Closure $on_fire;
+			public function fire_cb(): void {
+				( $this->on_fire )();
+			}
+		};
+		$timer->on_fire = static function () use ( $state, $work ): void {
+			$state->stop = true;
+			$work();
+		};
+		$timer->set_timer( 1, true );
+		try {
+			\Newspack_Nodes\Event_Framework::instance()->drain(
+				static fn (): bool => ! $state->stop && ++$state->ticks < 1000,
+				cooperative_stop: true
+			);
+		} catch ( \Newspack_Nodes\Worker_Should_Stop $stop ) {
+			return $stop;
+		}
+		return null;
 	}
 
 	protected function pump_consumer( \Newspack_Nodes\Consumer_Node $c, int $max = 5000 ): void {

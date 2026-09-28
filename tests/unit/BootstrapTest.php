@@ -277,8 +277,8 @@ class BootstrapTest extends TestCase {
 
 	public function test_get_topologies_drops_operator_names_that_have_no_tsl_file(): void {
 		// Operator option points at a topology with no TSL file (typo or
-		// stale selection after the app removed the file). Must not blow
-		// up the fleet — silently dropped.
+		// stale selection after the app removed the file). No entry means
+		// nothing to spawn; active_topologies() is what reports the name.
 		\Newspack_Nodes\Topology_Registry::reset();
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'no-such-topology', 'also-missing' ];
 
@@ -287,6 +287,35 @@ class BootstrapTest extends TestCase {
 			$this->assertSame( [], $result );
 		} finally {
 			unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
+		}
+	}
+
+	/**
+	 * The one readability answer: every active name that reads, and a failure
+	 * per name that does not — an unknown name named, never dropped silently.
+	 */
+	public function test_active_topologies_answers_the_readable_set_and_a_failure_per_unreadable_name(): void {
+		\Newspack_Nodes\Topology_Registry::reset();
+		$stock = $this->make_temp_dir( 'tsl-active-' );
+		\file_put_contents( "{$stock}/sound-3301.tsl", "var num_partitions = 3\nmake_node Echo e\n" );
+		\file_put_contents( "{$stock}/cracked-3301.tsl", "include missing-3301\n" );
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'sound-3301', 'ghost-3301', 'cracked-3301' ];
+		\Newspack_Nodes\Config::reset();
+
+		try {
+			[ $readable, $failures ] = Bootstrap::active_topologies();
+
+			$this->assertSame( [ 'sound-3301' ], \array_keys( $readable ) );
+			$this->assertSame( 3, $readable['sound-3301']['num_partitions'], 'a readable name carries its entry' );
+			$this->assertSame( [ 'ghost-3301', 'cracked-3301' ], \array_keys( $failures ), 'failures keyed by name, in configured order' );
+			$this->assertStringContainsString( 'ghost-3301', $failures['ghost-3301']->getMessage() );
+			$this->assertStringContainsString( 'missing-3301', $failures['cracked-3301']->getMessage() );
+		} finally {
+			unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
+			\Newspack_Nodes\Config::reset();
+			\Newspack_Nodes\Topology_Registry::reset();
+			$this->rmdir_recursive( $stock );
 		}
 	}
 
@@ -1184,12 +1213,11 @@ class BootstrapTest extends TestCase {
 			$runtime_ref->setValue( null, false );
 			\Newspack_Nodes\Worker_Base::$token_provider = null;
 
-			try {
-				Bootstrap::ensure_runtime_wired();
-				$this->fail( 'an unusable base must surface, not wire silently' );
-			} catch ( \RuntimeException $e ) {
-				$this->assertFalse( $runtime_ref->getValue(), 'a throw must leave the wiring un-flagged' );
-			}
+			$this->caught(
+				fn () => Bootstrap::ensure_runtime_wired(),
+				'an unusable base must surface, not wire silently'
+			);
+			$this->assertFalse( $runtime_ref->getValue(), 'a throw must leave the wiring un-flagged' );
 
 			// The operator fixes the base; the next entry point finishes wiring.
 			$this->use_base_dir( $tmp );
@@ -1320,33 +1348,30 @@ class BootstrapTest extends TestCase {
 
 	/**
 	 * `expand_workers()` fires the third-party `newspack_nodes/topologies`
-	 * filter. The tier of last resort must not fatal every cron minute because
-	 * one provider threw.
+	 * filter. A provider that throws fails the pass loud — after every step
+	 * has run and `after_reconcile` has fired.
 	 */
-	public function test_reconcile_fleet_survives_a_throwing_topologies_provider(): void {
+	public function test_a_throwing_topologies_provider_escapes_the_pass_after_after_reconcile(): void {
 		$dir = $this->make_temp_dir( 'cold-start-hostile-' );
 		$this->use_base_dir( $dir );
 		\add_filter( 'newspack_nodes/topologies', static function (): array {
-			throw new \RuntimeException( 'hostile topology provider' );
+			throw new \RuntimeException( 'hostile topology provider-6613' );
 		} );
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'cold-start-workers' ];
 		\Newspack_Nodes\Config::reset();
-
-		$stderr = [];
-		Core::set_stderr_handler( static function ( string $line ) use ( &$stderr ): void {
-			$stderr[] = $line;
-		} );
 		$after = 0;
 		\add_action( 'newspack_nodes/after_reconcile', function () use ( &$after ) { ++$after; } );
 
-		Bootstrap::reconcile_fleet();
+		$caught = null;
+		try {
+			Bootstrap::reconcile_fleet();
+		} catch ( \Throwable $e ) {
+			$caught = $e;
+		}
 
-		$this->assertSame( 1, $after, 'the lifecycle action must still fire from finally' );
-		$this->assertStringContainsString(
-			'hostile topology provider',
-			\implode( "\n", $stderr ),
-			'the swallowed throwable must be logged, not silently dropped'
-		);
+		$this->assertSame( 1, $after, 'the lifecycle action still fires' );
+		$this->assertNotNull( $caught, 'the provider failure escapes the pass' );
+		$this->assertStringContainsString( 'hostile topology provider-6613', $caught->getMessage() );
 
 		$this->rmdir_recursive( $dir );
 	}
@@ -1449,44 +1474,51 @@ class BootstrapTest extends TestCase {
 
 	// ── reconcile_fleet: hostile input ───────────────────────────────────
 
-	public function test_a_throwing_before_reconcile_subscriber_costs_neither_the_spawn_nor_the_callback(): void {
+	public function test_a_throwing_before_reconcile_subscriber_costs_no_step_and_escapes_after_the_last(): void {
 		// `before_reconcile` is third-party surface — event-logger-nodes already
-		// subscribes. It fired OUTSIDE the try, so one throwing subscriber both
-		// escaped the cron callback and skipped the spawn, deterministically,
-		// every minute, with doctor still green (it checks the event is
-		// SCHEDULED, never that a pass succeeded).
+		// subscribes. Its throw must not cost the spawn behind it, and must not
+		// be swallowed either: it escapes once every step has run.
 		$dir = $this->cold_start_fleet( [
 			'cold-start-workers' => [ 'num_partitions' => 1, 'topology' => '/cs.tsl' ],
 		] );
-		\add_action( 'newspack_nodes/before_reconcile', static function (): void {
-			throw new \RuntimeException( 'a before_reconcile subscriber exploded' );
+		$exploded = new \RuntimeException( 'a before_reconcile subscriber exploded-2204' );
+		\add_action( 'newspack_nodes/before_reconcile', static function () use ( $exploded ): void {
+			throw $exploded;
 		} );
 
-		Bootstrap::reconcile_fleet();
+		$caught = null;
+		try {
+			Bootstrap::reconcile_fleet();
+		} catch ( \Throwable $e ) {
+			$caught = $e;
+		}
 
-		$this->assertCount(
-			1,
-			$GLOBALS['_test_outbound_posts'] ?? [],
-			'a throwing before_reconcile subscriber must not cost the spawn'
-		);
+		$this->assertSame( $exploded, $caught );
+		$this->assertCount( 1, $GLOBALS['_test_outbound_posts'] ?? [], 'the spawn still ran' );
 		$this->rmdir_recursive( $dir );
 	}
 
-	public function test_a_throwing_periodic_subscriber_costs_neither_the_spawn_nor_retention(): void {
-		// Third-party code: pyrobase and nuclear-gyrobase both subscribe. One bad
-		// subscriber must not escape the cron callback or undo the pass.
+	public function test_a_throwing_periodic_subscriber_costs_no_step_and_escapes_after_the_last(): void {
+		// Third-party code: pyrobase and nuclear-gyrobase both subscribe.
 		$dir = $this->cold_start_fleet( [
 			'cold-start-workers' => [ 'num_partitions' => 1, 'topology' => '/cs.tsl' ],
 		] );
 		\mkdir( "{$dir}/ipc/retired-workers.p7/input", 0755, true );
-		\add_action( 'newspack_nodes/periodic', static function (): void {
-			throw new \RuntimeException( 'a periodic subscriber exploded' );
+		$exploded = new \RuntimeException( 'a periodic subscriber exploded-2205' );
+		\add_action( 'newspack_nodes/periodic', static function () use ( $exploded ): void {
+			throw $exploded;
 		} );
 		$after = 0;
 		\add_action( 'newspack_nodes/after_reconcile', function () use ( &$after ) { ++$after; } );
 
-		Bootstrap::reconcile_fleet();
+		$caught = null;
+		try {
+			Bootstrap::reconcile_fleet();
+		} catch ( \Throwable $e ) {
+			$caught = $e;
+		}
 
+		$this->assertSame( $exploded, $caught );
 		$this->assertCount( 1, $GLOBALS['_test_outbound_posts'], 'the spawn already ran and stands' );
 		$this->assertDirectoryDoesNotExist( "{$dir}/ipc/retired-workers.p7", 'ipc reaping already ran and stands' );
 		$this->assertSame( 1, $after );
@@ -1495,8 +1527,8 @@ class BootstrapTest extends TestCase {
 
 	public function test_a_throwing_topologies_filter_still_leaves_the_periodic_hook_its_window(): void {
 		// spawn, lock reconcile, retention and ipc reaping all read the active
-		// set, so a hostile provider fails all four. Per-step isolation is what
-		// keeps the fifth — every third-party `periodic` subscriber — running.
+		// set, so a hostile provider fails all four. Every step still runs, so
+		// every third-party `periodic` subscriber keeps its window.
 		$dir = $this->make_temp_dir( 'cold-start-isolation-' );
 		$this->use_base_dir( $dir );
 		\add_filter( 'newspack_nodes/topologies', static function (): array {
@@ -1509,9 +1541,55 @@ class BootstrapTest extends TestCase {
 			++$fired;
 		} );
 
-		Bootstrap::reconcile_fleet();
+		try {
+			Bootstrap::reconcile_fleet();
+		} catch ( \RuntimeException $e ) {
+			$this->assertStringContainsString( 'hostile topology provider', $e->getMessage() );
+		}
 
 		$this->assertSame( 1, $fired, 'one failing step must not cost the others their window' );
+		$this->rmdir_recursive( $dir );
+	}
+
+	public function test_a_failed_alert_journal_costs_the_delay_sweep_nothing(): void {
+		// Alert emission and the delayed-jobs sweep are steps of their own, so
+		// one throwing leaves the other its window, and the pass then raises.
+		$dir = $this->cold_start_fleet( [
+			'cold-start-workers' => [ 'num_partitions' => 1, 'topology' => '/cs.tsl' ],
+		] );
+		\mkdir( "{$dir}/logs", 0755, true );
+		$now    = \microtime( true );
+		$intake = new \Newspack_Nodes\Job_Intake( $dir, 1 );
+		$this->assertTrue( $intake->write_job( 'due-after-alerts-7781', null, [], null, [ 'not_before' => $now + 30.0 ] ) );
+		$intake->close();
+
+		$refused = new \RuntimeException( 'alerts journal refused-7780' );
+		$journal = new \ReflectionProperty( \Newspack_Nodes\Alerts::class, 'journal' );
+		$journal->setValue( null, new class( $refused ) extends \Newspack_Nodes\Partition_Node {
+			public function __construct( private \RuntimeException $refused ) {
+				parent::__construct();
+			}
+			public function fill( array $message ): void {
+				throw $this->refused;
+			}
+		} );
+		unset( $GLOBALS['_wp_test_transients']['newspack_nodes_alerts_emitted'] );
+		// The sweep reads the tick clock: a minute on, the entry is due.
+		$saved_clock = Core::$clock;
+		Core::$clock = static fn (): float => $now + 60.0;
+		$caught      = null;
+		try {
+			Bootstrap::reconcile_fleet();
+		} catch ( \Throwable $e ) {
+			$caught = $e;
+		} finally {
+			Core::$clock = $saved_clock;
+			$journal->setValue( null, null );
+		}
+
+		$this->assertSame( $refused, $caught );
+		$delivered = \file_get_contents( (string) ( \glob( "{$dir}/logs/jobintake.p0/*.log" )[0] ?? '' ) ) ?: '';
+		$this->assertStringContainsString( 'due-after-alerts-7781', $delivered, 'the delay sweep still ran' );
 		$this->rmdir_recursive( $dir );
 	}
 
@@ -1856,6 +1934,52 @@ class BootstrapTest extends TestCase {
 
 		try {
 			$this->assertSame( [ 0, 1, 2 ], Bootstrap::node_partitions( 'flame-builder' ) );
+		} finally {
+			\Newspack_Nodes\Topology_Registry::reset();
+			$this->rmdir_recursive( $stock );
+		}
+	}
+
+	/**
+	 * One broken topology costs its own nodes, never the answer every other
+	 * topology gives: the readable declarers answer, the broken one's count
+	 * of 5 is nowhere in it, and nothing throws.
+	 */
+	public function test_node_readers_answer_the_readable_topologies_beside_an_unreadable_one(): void {
+		$decl  = "make_node Flame_Builder flame-builder\n"
+			. "make_node Partition requests:partition <config:logs_dir>/requests.p<partition>\n";
+		$stock = $this->activate_topologies(
+			[ 'combined' => $decl, 'marmot-hub' => "include orphaned-topology-4417\n" ],
+			[ 'combined' => 3, 'marmot-hub' => 5 ]
+		);
+
+		try {
+			$this->assertSame( [ 0, 1, 2 ], \array_keys( Bootstrap::node_dirs( 'requests:partition' ) ) );
+			$this->assertSame( [ 0, 1, 2 ], Bootstrap::node_partitions( 'flame-builder' ) );
+		} finally {
+			\Newspack_Nodes\Topology_Registry::reset();
+			$this->rmdir_recursive( $stock );
+		}
+	}
+
+	/**
+	 * A node no readable topology declares may live in the one that will not
+	 * read — an unknown name included — so the reader gets that failure
+	 * rather than an empty answer reading as "nothing declares it".
+	 */
+	public function test_node_readers_raise_the_unreadable_topologies_when_no_readable_one_declares_the_node(): void {
+		$stock = $this->activate_topologies(
+			[ 'combined' => "make_node Partition requests:partition <config:logs_dir>/requests.p<partition>\n" ],
+			[ 'combined' => 3 ]
+		);
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'combined', 'vole-unregistered' ];
+		\Newspack_Nodes\Config::reset();
+
+		try {
+			foreach ( [ 'node_dirs' => 'flames:partition', 'node_partitions' => 'flame-builder' ] as $reader => $node ) {
+				$e = $this->caught( static fn () => Bootstrap::$reader( $node ), "{$reader} must not answer an unreadable declarer with nothing" );
+				$this->assertStringContainsString( 'vole-unregistered', \html_entity_decode( $e->getMessage(), \ENT_QUOTES ) );
+			}
 		} finally {
 			\Newspack_Nodes\Topology_Registry::reset();
 			$this->rmdir_recursive( $stock );

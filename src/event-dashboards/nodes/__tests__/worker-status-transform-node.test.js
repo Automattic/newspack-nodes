@@ -676,8 +676,11 @@ describe( 'worker-status:transform — model envelope', () => {
 				'logPartitions',
 				'logs',
 				'prevSegments',
+				'refusedProducers',
 				'removingSegments',
 				'segmentSize',
+				'unparseableLines',
+				'unreadable',
 				'writeRates',
 				'workers',
 			].sort()
@@ -762,6 +765,46 @@ describe( 'worker-status:transform — model envelope', () => {
 		} );
 		expect( sink.got[ 0 ][ VALUE ].model.logPartitions ).toBe( 11 );
 		expect( sink.got[ 1 ][ VALUE ].model.logPartitions ).toBe( 11 );
+	} );
+
+	test( "carries each poll's unparseable_lines as measured, never a stale one", () => {
+		const sink = capture();
+		const t = makeTransform( 'worker-status:transform' );
+		t.sink = sink.node;
+		const torn = snap();
+		torn.unparseable_lines = 13;
+		const clean = snap();
+		clean.unparseable_lines = 0;
+		withClock( () => {
+			t.fill( metadataMsg( torn ) );
+			t.fill( metadataMsg( clean ) );
+		} );
+		expect( sink.got[ 0 ][ VALUE ].model.unparseableLines ).toBe( 13 );
+		expect( sink.got[ 1 ][ VALUE ].model.unparseableLines ).toBe( 0 );
+	} );
+
+	test( "carries each poll's unreadable topologies and refused producers as answered", () => {
+		const sink = capture();
+		const t = makeTransform( 'worker-status:transform' );
+		t.sink = sink.node;
+		const broken = snap();
+		broken.unreadable = { 'marmot-3301': 'include orphaned-3302 failed' };
+		broken.refused_producers = {
+			'firehose-3303.p{partition}': 'log producer firehose-3303 refused',
+		};
+		const mended = snap();
+		mended.unreadable = [];
+		mended.refused_producers = [];
+		withClock( () => {
+			t.fill( metadataMsg( broken ) );
+			t.fill( metadataMsg( mended ) );
+		} );
+		const first = sink.got[ 0 ][ VALUE ].model;
+		expect( first.unreadable ).toEqual( broken.unreadable );
+		expect( first.refusedProducers ).toEqual( broken.refused_producers );
+		const second = sink.got[ 1 ][ VALUE ].model;
+		expect( second.unreadable ).toEqual( [] );
+		expect( second.refusedProducers ).toEqual( [] );
 	} );
 
 	test( 'first snapshot reports loading=false and a null error', () => {

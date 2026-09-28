@@ -338,11 +338,14 @@ class HTTP_Out_Node extends Timer_Node {
 	 * by TO=FROM through `_command_interpreter` and then `_router`; the JS mirror
 	 * is `_post` in `src/runtime/http-out-node.js`. Transport errors and non-200
 	 * codes are reported rate-limited — bar HTTP_In's 202, which acks an async
-	 * dispatch instead of reporting a failure — and the handle always detaches.
+	 * dispatch instead of reporting a failure. Every reply line is attempted, and
+	 * what any of them threw is raised after the last; the handle detaches in a
+	 * `finally`, so a throw never strands it in the drain loop.
 	 *
 	 * @api Used by substrate.
 	 *
 	 * @param array{msg?:int,handle?:\CurlHandle,result?:int} $info One `curl_multi_info_read()` row.
+	 * @throws \Throwable Every reply's failure, combined, raised after the last reply.
 	 */
 	public function on_curl_message( array $info ): void {
 		if ( \CURLMSG_DONE !== ( $info['msg'] ?? 0 ) ) {
@@ -357,52 +360,62 @@ class HTTP_Out_Node extends Timer_Node {
 
 		$kind = Core::as_string( $this->inflight[ $id ]['kind'] ?? 'command' );
 
-		$result = $info['result'] ?? \CURLE_OK;
-		if ( \CURLE_OK !== $result ) {
-			$this->print_less_often( 'transport error ', (string) $result );
-			if ( 'auth' === $kind ) {
-				$this->auth_in_flight = false;
-			}
-		} elseif ( 'auth' === $kind ) {
-			$res = $this->read_result( $easy );
-			$this->on_session_reply( $res['code'], $res['body'] );
-		} else {
-			$res = $this->read_result( $easy );
-			if ( 200 !== $res['code'] ) {
-				// 401: the spoke dropped this handle; every send now fails.
-				if ( 401 === $res['code'] ) {
-					Command_Auth::forget_session( $this->vault_id );
+		try {
+			$result = $info['result'] ?? \CURLE_OK;
+			if ( \CURLE_OK !== $result ) {
+				$this->print_less_often( 'transport error ', (string) $result );
+				if ( 'auth' === $kind ) {
+					$this->auth_in_flight = false;
 				}
-				if ( 202 !== $res['code'] ) {
-					$this->print_less_often( 'HTTP ', (string) $res['code'] );
-				}
-			} elseif ( null !== $this->sink && '' !== $res['body'] ) {
-				foreach ( \explode( "\n", $res['body'] ) as $line ) {
-					if ( '' === $line ) {
-						continue;
+			} elseif ( 'auth' === $kind ) {
+				$res = $this->read_result( $easy );
+				$this->on_session_reply( $res['code'], $res['body'] );
+			} else {
+				$res = $this->read_result( $easy );
+				if ( 200 !== $res['code'] ) {
+					// 401: the spoke dropped this handle; every send now fails.
+					if ( 401 === $res['code'] ) {
+						Command_Auth::forget_session( $this->vault_id );
 					}
-					// unpacked() throws on a bad line; skip it, keep the rest.
-					try {
-						$reply = Message::unpacked( $line );
-					} catch ( \InvalidArgumentException $e ) {
-						$this->print_less_often( "malformed reply line" );
-						continue;
+					if ( 202 !== $res['code'] ) {
+						$this->print_less_often( 'HTTP ', (string) $res['code'] );
 					}
-					// HTTP_In prepends _output/ to FROM; strip it.
-					$to = Core::as_string( $reply[ Message::TO ] );
-					if ( \str_starts_with( $to, '_output/' ) ) {
-						$reply[ Message::TO ] = \substr( $to, \strlen( '_output/' ) );
-					}
-					++$this->counter;
-					if ( $this->accept_inbound( $reply ) ) {
-						$this->sink?->fill( $reply );
-					}
+				} elseif ( null !== $this->sink && '' !== $res['body'] ) {
+					$caught = Worker_Should_Stop::attempt_each(
+						\explode( "\n", $res['body'] ),
+						fn ( string $line ) => $this->deliver_reply( $line )
+					);
+					Worker_Should_Stop::raise( $caught );
 				}
 			}
+		} finally {
+			$this->detach( $easy );
+			unset( $this->inflight[ $id ], self::$bodies[ $id ] );
 		}
+	}
 
-		$this->detach( $easy );
-		unset( $this->inflight[ $id ], self::$bodies[ $id ] );
+	/**
+	 * Hand one line of a 200 body to the sink as a reply Message: a blank line
+	 * is the body's trailing newline. A line that will not unpack throws, and
+	 * the caller raises it after delivering the rest of the body.
+	 *
+	 * @param string $line One line of the reply body.
+	 * @throws \InvalidArgumentException When the line is not a packed Message.
+	 */
+	private function deliver_reply( string $line ): void {
+		if ( '' === $line ) {
+			return;
+		}
+		$reply = Message::unpacked( $line );
+		// HTTP_In prepends _output/ to FROM; strip it.
+		$to = Core::as_string( $reply[ Message::TO ] );
+		if ( \str_starts_with( $to, '_output/' ) ) {
+			$reply[ Message::TO ] = \substr( $to, \strlen( '_output/' ) );
+		}
+		++$this->counter;
+		if ( $this->accept_inbound( $reply ) ) {
+			$this->sink?->fill( $reply );
+		}
 	}
 
 	/**

@@ -21,6 +21,7 @@ class CommandInterpreterTest extends TestCase {
 	protected function tearDown(): void {
 		// $default_authorize is static process state — reset so tests don't bleed.
 		Command_Interpreter_Node::$default_authorize = null;
+		Command_Interpreter_Node::$around_dispatch   = null;
 		Log_Sources::$builtin_sources                = null;
 		Router_Node::profiles( null );
 		parent::tearDown();
@@ -287,21 +288,34 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertCount( 0, $sink->captured );
 	}
 
-	public function test_noreply_command_error_is_logged_to_stderr_not_replied(): void {
-		// Tachikoma CommandInterpreter::send_response: a failing TM_NOREPLY command
-		// still surfaces its error via stderr (so a bad boot make_node is visible in
-		// dmesg) — but emits no routed response.
-		$buf = '';
-		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );
+	public function test_a_failing_noreply_command_throws_and_replies_nothing(): void {
+		// No reply carries a TM_NOREPLY failure, so the failure itself escapes:
+		// a topology line that fails must fail the load, not boot half a graph.
 		$interpreter = new Command_Interpreter_Node();
 		$sink        = new Capture_Sink_Node();
 		$interpreter->sink( $sink );
-		$message                  = $this->command_message( 'no_such_verb', '', true );
+		$message                  = $this->command_message( 'no_such_verb_5518', '', true );
 		$message[ Message::TYPE ] = Message::TM_COMMAND | Message::TM_NOREPLY;
-		$interpreter->fill( $message );
+
+		try {
+			$interpreter->fill( $message );
+			$this->fail( 'a failing TM_NOREPLY command must throw' );
+		} catch ( \InvalidArgumentException $e ) {
+			$this->assertStringContainsString( 'no_such_verb_5518', $e->getMessage() );
+		}
 		$this->assertCount( 0, $sink->captured );
-		$this->assertStringContainsString( 'error from TM_NOREPLY command', $buf );
-		$this->assertStringContainsString( 'no_such_verb', $buf );
+	}
+
+	public function test_an_unauthorized_noreply_command_throws(): void {
+		$interpreter            = new Command_Interpreter_Node();
+		$interpreter->authorize = static fn (): bool => false;
+		$interpreter->sink( new Capture_Sink_Node() );
+		$message                  = $this->command_message( 'uptime', '', true );
+		$message[ Message::TYPE ] = Message::TM_COMMAND | Message::TM_NOREPLY;
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'unauthorized: uptime' );
+		$interpreter->fill( $message );
 	}
 
 	public function test_worker_should_stop_from_a_verb_propagates(): void {
@@ -805,6 +819,206 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertInstanceOf( Capture_Sink_Node::class, Core::node( 'direct' ) );
 	}
 
+	// ── $around_dispatch ────────────────────────────────────────────────────
+
+	/**
+	 * An interpreter answering one verb, `kakapo`, with 'kakapo-7731'.
+	 */
+	private function kakapo_interpreter(): Command_Interpreter_Node {
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( 'kakapo:ci' );
+		$interpreter->commands(
+			[
+				'kakapo' => static fn ( Command_Interpreter_Node $self, array $args = [], array $envelope = [] ): string => 'kakapo-7731',
+				'boom'   => static function (): never {
+					throw new \DomainException( 'takahe-4409' );
+				},
+			]
+		);
+		return $interpreter;
+	}
+
+	/**
+	 * Install a wrapper recording each call as [ interpreter, verb ].
+	 *
+	 * @param list<array{0:Command_Interpreter_Node,1:string}> $calls Filled by reference.
+	 */
+	private function record_around_dispatch( array &$calls, ?\Closure $shape = null ): void {
+		Command_Interpreter_Node::$around_dispatch = static function ( Command_Interpreter_Node $ci, string $verb, \Closure $run ) use ( &$calls, $shape ): mixed {
+			$calls[] = [ $ci, $verb ];
+			return null === $shape ? $run() : $shape( $run );
+		};
+	}
+
+	public function test_around_dispatch_wraps_the_handler_and_its_return_is_the_result(): void {
+		$interpreter = $this->kakapo_interpreter();
+		$calls       = [];
+		$this->record_around_dispatch( $calls, static fn ( \Closure $run ): string => 'wrapped:' . $run() );
+
+		$result = $interpreter->dispatch( 'kakapo' );
+
+		$this->assertSame( 'wrapped:kakapo-7731', $result, 'dispatch returns what the wrapper returns, and $run yields the handler result' );
+		$this->assertCount( 1, $calls );
+		$this->assertSame( $interpreter, $calls[0][0] );
+		$this->assertSame( 'kakapo', $calls[0][1] );
+	}
+
+	public function test_around_dispatch_lets_a_handler_exception_propagate(): void {
+		$interpreter = $this->kakapo_interpreter();
+		$calls       = [];
+		$this->record_around_dispatch( $calls );
+
+		try {
+			$interpreter->dispatch( 'boom' );
+			$this->fail( 'the handler exception must propagate through the wrapper' );
+		} catch ( \DomainException $e ) {
+			$this->assertSame( 'takahe-4409', $e->getMessage() );
+		}
+		$this->assertSame( 'boom', $calls[0][1] ?? null, 'the wrapper saw the throwing verb' );
+	}
+
+	public function test_around_dispatch_never_sees_an_unknown_verb(): void {
+		$interpreter = $this->kakapo_interpreter();
+		$calls       = [];
+		$this->record_around_dispatch( $calls );
+
+		try {
+			$interpreter->dispatch( 'kea-unknown-5518' );
+			$this->fail( 'an unknown verb must throw' );
+		} catch ( \InvalidArgumentException $e ) {
+			$this->assertStringContainsString( 'unknown command: kea-unknown-5518', $e->getMessage() );
+		}
+		$this->assertSame( [], $calls, 'a client-chosen verb name must never reach the wrapper' );
+	}
+
+	public function test_around_dispatch_never_sees_a_capability_refused_verb(): void {
+		$interpreter                      = $this->kakapo_interpreter();
+		$interpreter->required_capability = \Newspack_Nodes\Capabilities::MANAGE;
+		\Newspack_Nodes\Capabilities::$session_scope = \Newspack_Nodes\Capabilities::READ;
+		$calls = [];
+		$this->record_around_dispatch( $calls );
+
+		$e = $this->caught(
+			fn () => $interpreter->dispatch( 'kakapo' ),
+			'a READ scope must not reach a MANAGE verb'
+		);
+		$this->assertStringContainsString( 'permission denied', $e->getMessage() );
+		$this->assertSame( [], $calls );
+	}
+
+	public function test_around_dispatch_never_sees_a_secure_level_refused_verb(): void {
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+		$calls = [];
+		$this->record_around_dispatch( $calls );
+		$prev               = Core::$secure_level;
+		Core::$secure_level = 1;
+
+		try {
+			$e = $this->caught(
+				fn () => $interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'weka-refused' ] ),
+				'make_node must be refused at secure level 1'
+			);
+			$this->assertStringContainsString( 'disabled at secure level 1', $e->getMessage() );
+		} finally {
+			Core::$secure_level = $prev;
+		}
+		$this->assertSame( [], $calls );
+		$this->assertNull( Core::node( 'weka-refused' ) );
+	}
+
+	public function test_a_null_around_dispatch_calls_the_handler_directly(): void {
+		Command_Interpreter_Node::$around_dispatch = null;
+
+		$this->assertSame( 'kakapo-7731', $this->kakapo_interpreter()->dispatch( 'kakapo' ) );
+	}
+
+	public function test_around_dispatch_wraps_a_subclass_calling_parent_dispatch_once(): void {
+		$interpreter = new class() extends Command_Interpreter_Node {
+			public function dispatch( string $name, array $args = [], array $envelope = [] ): mixed {
+				return parent::dispatch( $name, $args, $envelope );
+			}
+		};
+		$sink        = new Capture_Sink_Node();
+		$interpreter->name( 'kakapo:sub' );
+		$interpreter->sink( $sink );
+		$interpreter->commands(
+			[ 'kakapo' => static fn ( Command_Interpreter_Node $self, array $args = [], array $envelope = [] ): string => 'kakapo-7731' ]
+		);
+		$calls = [];
+		$this->record_around_dispatch( $calls, static fn ( \Closure $run ): string => 'wrapped:' . $run() );
+
+		$interpreter->fill( $this->command_message( 'kakapo', '', true ) );
+
+		$this->assertCount( 1, $calls, 'the message path wraps the verb exactly once' );
+		$reply = $sink->captured[0];
+		$this->assertSame( "wrapped:kakapo-7731\n", $reply[ Message::VALUE ]['payload'] );
+	}
+
+	public function test_around_dispatch_wrappers_compose_in_assignment_order(): void {
+		$interpreter = $this->kakapo_interpreter();
+		$order       = [];
+		Command_Interpreter_Node::$around_dispatch = static function ( Command_Interpreter_Node $ci, string $verb, \Closure $run ) use ( &$order ): mixed {
+			$order[] = "inner:{$verb}";
+			return 'inner(' . $run() . ')';
+		};
+		$prior                                     = Command_Interpreter_Node::$around_dispatch;
+		Command_Interpreter_Node::$around_dispatch = static function ( Command_Interpreter_Node $ci, string $verb, \Closure $run ) use ( &$order, $prior ): mixed {
+			$order[] = "outer:{$verb}";
+			return 'outer(' . $prior( $ci, $verb, $run ) . ')';
+		};
+
+		$result = $interpreter->dispatch( 'kakapo' );
+
+		$this->assertSame( [ 'outer:kakapo', 'inner:kakapo' ], $order );
+		$this->assertSame( 'outer(inner(kakapo-7731))', $result );
+	}
+
+	public function test_around_dispatch_sees_a_service_ci_verb_refused_by_its_own_role(): void {
+		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => false ];
+		$ci                                   = new class() extends \Newspack_Nodes\Service_CI_Node {
+			public static function node_schema(): array {
+				return [
+					'category'    => 'Control',
+					'description' => 'role-refusal double',
+					'arguments'   => [],
+					'commands'    => [
+						[
+							'name'        => 'weka',
+							'description' => 'manage-gated verb',
+							'capability'  => \Newspack_Nodes\Capabilities::MANAGE,
+							'handler'     => static fn (): string => 'weka-8812',
+						],
+					],
+					'requests'    => [],
+				];
+			}
+		};
+		$ci->name( 'weka:ci' );
+		$seen = [];
+		Command_Interpreter_Node::$around_dispatch = static function ( Command_Interpreter_Node $ci, string $verb, \Closure $run ) use ( &$seen ): mixed {
+			try {
+				return $run();
+			} catch ( \Throwable $e ) {
+				$seen[] = [ $verb, $e->getMessage() ];
+				throw $e;
+			}
+		};
+
+		try {
+			$e = $this->caught(
+				fn () => $ci->dispatch( 'weka' ),
+				'a verb whose declared role the caller lacks must throw'
+			);
+			$this->assertStringContainsString( 'permission denied', $e->getMessage() );
+		} finally {
+			$GLOBALS['_wp_test_current_user_can'] = [];
+		}
+		$this->assertCount( 1, $seen, 'the verb exists, so its own role check runs inside the wrapper' );
+		$this->assertSame( 'weka', $seen[0][0] );
+		$this->assertStringContainsString( 'permission denied', $seen[0][1] );
+	}
+
 	public function test_make_node_creates_named_node_in_registry(): void {
 		// Capture_Sink_Node resolves via the `Newspack_Nodes\Tests\` prefix
 		// registered in bootstrap, so `make_node Capture_Sink ...` works.
@@ -849,6 +1063,25 @@ class CommandInterpreterTest extends TestCase {
 		// name() registers the sibling too, so the rollback has to take both —
 		// a bare unregister would leave `doomed:config` squatting the name.
 		$this->assertNull( Core::node( 'doomed:config' ), 'the :config sibling must go with it' );
+	}
+
+	public function test_make_node_raises_a_failed_cleanup_beside_the_original_failure(): void {
+		// The rejection and the rollback's own failure both reach the caller.
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+		CommandInterpreterTest_Unremovable_Node::$refusal = new \LogicException( 'teardown refused-7714' );
+		Command_Interpreter_Node::register_namespace( __NAMESPACE__ . '\\' );
+
+		$caught = null;
+		try {
+			$interpreter->make_node( 'Unremovable_CI', 'doomed-7714' );
+		} catch ( \Throwable $e ) {
+			$caught = $e;
+		}
+
+		$this->assertInstanceOf( \Newspack_Nodes\Failures::class, $caught );
+		$this->assertSame( 'arguments rejected-7714', $caught->all()[0]->getMessage() );
+		$this->assertSame( CommandInterpreterTest_Unremovable_Node::$refusal, $caught->all()[1] );
 	}
 
 	public function test_tabulate_terminates_its_last_row(): void {
@@ -1345,6 +1578,40 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertNotNull( Core::node( \Newspack_Nodes\Node_Names::STDOUT ) );
 	}
 
+	/**
+	 * Job_Intake and Log_Manager patron a partition with itself; the scaffolding
+	 * check must neither spin on that loop nor refuse the node.
+	 */
+	public function test_remove_node_removes_a_node_that_is_its_own_patron(): void {
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+		$selfie = new Node();
+		$selfie->patron( $selfie );
+		$selfie->name( 'jobintake:selfie' );
+
+		$out = $interpreter->dispatch( 'remove_node', [ 'jobintake:selfie' ] );
+
+		$this->assertSame( "removed jobintake:selfie\n", $out );
+		$this->assertNull( Core::node( 'jobintake:selfie' ) );
+	}
+
+	/**
+	 * A transient partition patroned by the interpreter — the worker's IPC
+	 * scratch, a CI's status probe — is plumbing, not scaffolding.
+	 */
+	public function test_remove_node_removes_a_node_the_interpreter_patrons(): void {
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+		$scratch = new Node();
+		$scratch->patron( $interpreter );
+		$scratch->name( 'raven:status' );
+
+		$out = $interpreter->dispatch( 'remove_node', [ 'raven:status' ] );
+
+		$this->assertSame( "removed raven:status\n", $out );
+		$this->assertNull( Core::node( 'raven:status' ) );
+	}
+
 	public function test_dump_config_omits_stdout_session_scaffolding(): void {
 		// _stdout is auto-mounted session infra (like _output) — dump_config must skip it,
 		// so a session's config dump doesn't try to reconstruct REPL plumbing.
@@ -1560,15 +1827,14 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		try {
-			$interpreter->dispatch( 'ls', [ 'nonexistent' ] );
-			$this->fail( 'an unknown node must be refused' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertSame(
-				'can\'t find node "nonexistent"',
-				\html_entity_decode( $e->getMessage(), \ENT_QUOTES )
-			);
-		}
+		$e = $this->caught(
+			fn () => $interpreter->dispatch( 'ls', [ 'nonexistent' ] ),
+			'an unknown node must be refused'
+		);
+		$this->assertSame(
+			'can\'t find node "nonexistent"',
+			\html_entity_decode( $e->getMessage(), \ENT_QUOTES )
+		);
 	}
 
 	public function test_ls_dash_c_shows_count_column(): void {
@@ -1829,15 +2095,14 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter->name( '_command_interpreter' );
 
 		// esc_html escapes the throw; only the wire path decodes it.
-		try {
-			$interpreter->dispatch( 'dump_node', [ 'nonexistent' ] );
-			$this->fail( 'an unknown node must be refused' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertSame(
-				'can\'t find node "nonexistent"',
-				\html_entity_decode( $e->getMessage(), \ENT_QUOTES )
-			);
-		}
+		$e = $this->caught(
+			fn () => $interpreter->dispatch( 'dump_node', [ 'nonexistent' ] ),
+			'an unknown node must be refused'
+		);
+		$this->assertSame(
+			'can\'t find node "nonexistent"',
+			\html_entity_decode( $e->getMessage(), \ENT_QUOTES )
+		);
 	}
 
 	public function test_dump_node_unknown_key_raises(): void {
@@ -1846,15 +2111,14 @@ class CommandInterpreterTest extends TestCase {
 
 		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
 
-		try {
-			$interpreter->dispatch( 'dump_node', [ 'alice', 'no_such_key' ] );
-			$this->fail( 'an unknown key must be refused' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertSame(
-				'can\'t find key "no_such_key"',
-				\html_entity_decode( $e->getMessage(), \ENT_QUOTES )
-			);
-		}
+		$e = $this->caught(
+			fn () => $interpreter->dispatch( 'dump_node', [ 'alice', 'no_such_key' ] ),
+			'an unknown key must be refused'
+		);
+		$this->assertSame(
+			'can\'t find key "no_such_key"',
+			\html_entity_decode( $e->getMessage(), \ENT_QUOTES )
+		);
 	}
 
 	public function test_TM_PING_with_empty_TO_bounces_to_FROM(): void {
@@ -2514,12 +2778,11 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		try {
-			$interpreter->dispatch( 'make_node', [ 'NotARegisteredClass', 'alice' ] );
-			$this->fail( 'an unresolvable class must raise, not answer with a line' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertSame( 'unknown class: NotARegisteredClass', $e->getMessage() );
-		}
+		$e = $this->caught(
+			fn () => $interpreter->dispatch( 'make_node', [ 'NotARegisteredClass', 'alice' ] ),
+			'an unresolvable class must raise, not answer with a line'
+		);
+		$this->assertSame( 'unknown class: NotARegisteredClass', $e->getMessage() );
 		$this->assertNull( Core::node( 'alice' ) );
 	}
 
@@ -2554,12 +2817,11 @@ class CommandInterpreterTest extends TestCase {
 		// alice exists, ghost does not — both src and dst lookup go
 		// through Core::node, so either being null raises 'unknown node'.
 		foreach ( [ [ 'alice', 'ghost' ], [ 'ghost', 'alice' ] ] as $pair ) {
-			try {
-				$interpreter->dispatch( 'set_sink', $pair );
-				$this->fail( 'an unknown node must raise, not answer with a line' );
-			} catch ( \RuntimeException $e ) {
-				$this->assertSame( 'unknown node', $e->getMessage() );
-			}
+			$e = $this->caught(
+				fn () => $interpreter->dispatch( 'set_sink', $pair ),
+				'an unknown node must raise, not answer with a line'
+			);
+			$this->assertSame( 'unknown node', $e->getMessage() );
 		}
 	}
 
@@ -3272,12 +3534,11 @@ class CommandInterpreterTest extends TestCase {
 		$i = $this->armed_interpreter();
 		Core::$secure_level = 1;
 
-		try {
-			$i->dispatch( 'make_node', [ 'Capture_Sink', 'nope' ], $this->command_message( 'make_node' ) );
-			$this->fail( 'the verb must be refused' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertStringContainsString( 'disabled at secure level 1', $e->getMessage() );
-		}
+		$e = $this->caught(
+			fn () => $i->dispatch( 'make_node', [ 'Capture_Sink', 'nope' ], $this->command_message( 'make_node' ) ),
+			'the verb must be refused'
+		);
+		$this->assertStringContainsString( 'disabled at secure level 1', $e->getMessage() );
 		$this->assertNull( Core::node( 'nope' ) );
 	}
 
@@ -3285,24 +3546,18 @@ class CommandInterpreterTest extends TestCase {
 		$i = $this->armed_interpreter();
 		Core::$secure_level = 2;
 
-		try {
-			$i->dispatch( 'reply_to', [ 'somewhere', 'ls' ], $this->command_message( 'reply_to' ) );
-			$this->fail( 'the verb must be refused' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertStringContainsString( 'disabled at secure level 2', $e->getMessage() );
-		}
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'disabled at secure level 2' );
+		$i->dispatch( 'reply_to', [ 'somewhere', 'ls' ], $this->command_message( 'reply_to' ) );
 	}
 
 	public function test_level_three_blocks_connect_node(): void {
 		$i = $this->armed_interpreter();
 		Core::$secure_level = 3;
 
-		try {
-			$i->dispatch( 'connect_node', [ 'a', 'b' ], $this->command_message( 'connect_node' ) );
-			$this->fail( 'the verb must be refused' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertStringContainsString( 'disabled at secure level 3', $e->getMessage() );
-		}
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'disabled at secure level 3' );
+		$i->dispatch( 'connect_node', [ 'a', 'b' ], $this->command_message( 'connect_node' ) );
 	}
 
 	/** Undeclared and unratcheted processes run every verb. */
@@ -3367,12 +3622,11 @@ class CommandInterpreterTest extends TestCase {
 		Core::$secure_level = 3;
 		$i = $this->armed_interpreter();
 
-		try {
-			$i->dispatch( 'secure', [ '1' ], $this->command_message( 'secure' ) );
-			$this->fail( 'descending the ratchet must be refused' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertStringContainsString( 'cannot lower', $e->getMessage() );
-		}
+		$e = $this->caught(
+			fn () => $i->dispatch( 'secure', [ '1' ], $this->command_message( 'secure' ) ),
+			'descending the ratchet must be refused'
+		);
+		$this->assertStringContainsString( 'cannot lower', $e->getMessage() );
 		$this->assertSame( 3, Core::$secure_level );
 	}
 
@@ -3397,12 +3651,11 @@ class CommandInterpreterTest extends TestCase {
 		Core::$secure_level = 1;
 		$i = $this->armed_interpreter();
 
-		try {
-			$i->dispatch( 'insecure', [], $this->command_message( 'insecure' ) );
-			$this->fail( 'insecure must be refused once secured' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertStringContainsString( 'already secured', $e->getMessage() );
-		}
+		$e = $this->caught(
+			fn () => $i->dispatch( 'insecure', [], $this->command_message( 'insecure' ) ),
+			'insecure must be refused once secured'
+		);
+		$this->assertStringContainsString( 'already secured', $e->getMessage() );
 		$this->assertSame( 1, Core::$secure_level );
 	}
 
@@ -3432,16 +3685,15 @@ class CommandInterpreterTest extends TestCase {
 			foreach ( $verbs as $verb ) {
 				Core::$secure_level = $level;
 
-				try {
-					$i->dispatch( $verb, [ 'x' ], $this->command_message( $verb ) );
-					$this->fail( "{$verb} must stay disabled at secure level {$level}" );
-				} catch ( \RuntimeException $e ) {
-					$this->assertStringContainsString(
-						'disabled at secure level',
-						$e->getMessage(),
-						"{$verb} must stay disabled at secure level {$level}"
-					);
-				}
+				$e = $this->caught(
+					fn () => $i->dispatch( $verb, [ 'x' ], $this->command_message( $verb ) ),
+					"{$verb} must stay disabled at secure level {$level}"
+				);
+				$this->assertStringContainsString(
+					'disabled at secure level',
+					$e->getMessage(),
+					"{$verb} must stay disabled at secure level {$level}"
+				);
 			}
 		}
 	}
@@ -3473,12 +3725,9 @@ class CommandInterpreterTest extends TestCase {
 		$i                  = $this->armed_interpreter();
 		Core::$secure_level = 1;
 
-		try {
-			$i->dispatch( $verb, [ 'a', 'b' ], $this->command_message( $verb ) );
-			$this->fail( 'the verb must be refused' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertStringContainsString( 'disabled at secure level', $e->getMessage() );
-		}
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'disabled at secure level' );
+		$i->dispatch( $verb, [ 'a', 'b' ], $this->command_message( $verb ) );
 	}
 
 	/**
@@ -3506,12 +3755,9 @@ class CommandInterpreterTest extends TestCase {
 		$i                  = $this->armed_interpreter();
 		Core::$secure_level = 3;
 
-		try {
-			$i->dispatch( $verb, [ 'a', 'b', 'c' ], $this->command_message( $verb ) );
-			$this->fail( 'the verb must be refused' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertStringContainsString( 'disabled at secure level', $e->getMessage() );
-		}
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'disabled at secure level' );
+		$i->dispatch( $verb, [ 'a', 'b', 'c' ], $this->command_message( $verb ) );
 	}
 
 	/**
@@ -3560,16 +3806,13 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter->sink( new Capture_Sink_Node() );
 		Core::$secure_level = 1;
 
-		try {
-			$interpreter->dispatch(
-				'rebuild_everything',
-				[],
-				$this->command_message( 'rebuild_everything' )
-			);
-			$this->fail( 'the verb must be refused' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertStringContainsString( 'disabled at secure level', $e->getMessage() );
-		}
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'disabled at secure level' );
+		$interpreter->dispatch(
+			'rebuild_everything',
+			[],
+			$this->command_message( 'rebuild_everything' )
+		);
 	}
 
 	private function armed_interpreter(): Command_Interpreter_Node {
@@ -3663,4 +3906,22 @@ final class Clobbering_Metadata_Node extends Node {
 		return [ 'class' => 'HIJACK', 'extra_only' => 99 ];
 	}
 
+}
+
+/** A node whose arguments() rejects and whose rollback teardown refuses too. */
+class Unremovable_CI_Node extends \Newspack_Nodes\Node {
+	public function arguments( ?array $args = null ): array {
+		if ( null === $args ) {
+			return parent::arguments();
+		}
+		throw new \InvalidArgumentException( 'arguments rejected-7714' );
+	}
+	public function remove_node(): void {
+		throw CommandInterpreterTest_Unremovable_Node::$refusal;
+	}
+}
+
+/** Carries the teardown refusal Unremovable_CI_Node throws. */
+class CommandInterpreterTest_Unremovable_Node {
+	public static ?\Throwable $refusal = null;
 }

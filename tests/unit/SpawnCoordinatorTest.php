@@ -647,6 +647,35 @@ class SpawnCoordinatorTest extends TestCase {
 		$this->rmdir_recursive( $stock );
 	}
 
+	/**
+	 * Every exit after the readability read raises what it found, the one
+	 * where no spawn endpoint resolves included.
+	 */
+	public function test_spawn_each_raises_an_unreadable_topology_when_no_endpoint_resolves(): void {
+		$stock = $this->make_temp_dir( 'cold-start-cracked-' );
+		\file_put_contents( "{$stock}/cracked-5519.tsl", "include absent-5519\n" );
+		\Newspack_Nodes\Topology_Registry::reset();
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+		$this->with_active_fleet( [
+			'cold-start-workers' => [ 'num_partitions' => 1, 'topology' => '/cs.tsl', 'stale_timeout' => 45 ],
+		] );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'][] = 'cracked-5519';
+		\Newspack_Nodes\Config::reset();
+		\add_filter( 'rest_url', static fn (): string => '' );
+
+		try {
+			$e = $this->caught(
+				fn () => ( new Spawn_Coordinator( $this->tmp, 'COLD_START_SALT' ) )->spawn_due_workers( 1700000000.0 ),
+				'the unreadable topology must escape the no-endpoint exit'
+			);
+			$this->assertStringContainsString( 'absent-5519', $e->getMessage() );
+			$this->assertEmpty( $GLOBALS['_test_outbound_posts'], 'no endpoint, no POST' );
+		} finally {
+			\Newspack_Nodes\Topology_Registry::reset();
+			$this->rmdir_recursive( $stock );
+		}
+	}
+
 	// ── kill_readers ──────────────────────────────────────────────────────
 
 	public function test_kill_readers_drops_a_restart_flag_for_each_partition(): void {
@@ -677,6 +706,28 @@ class SpawnCoordinatorTest extends TestCase {
 
 		$this->assertTrue( \Newspack_Nodes\Lock_Node::is_restart_pending( "{$this->tmp}/locks/cold-start-workers.p0.lock.d" ) );
 		$this->assertFalse( \is_dir( "{$this->tmp}/locks/cold-start-workers.p1.lock.d" ) );
+	}
+
+	public function test_kill_readers_flags_every_group_then_raises_a_refused_flag(): void {
+		$this->with_active_fleet( [
+			'alpha-9133' => [ 'num_partitions' => 1, 'topology' => '/a.tsl' ],
+			'beta-9133'  => [ 'num_partitions' => 1, 'topology' => '/b.tsl' ],
+		] );
+		\mkdir( "{$this->tmp}/locks/alpha-9133.p0.lock.d", 0755, true );
+		\mkdir( "{$this->tmp}/locks/beta-9133.p0.lock.d", 0755, true );
+		\chmod( "{$this->tmp}/locks/alpha-9133.p0.lock.d", 0555 );
+
+		try {
+			$e = $this->caught(
+				fn () => ( new Spawn_Coordinator( $this->tmp ) )->kill_readers( [ 'alpha-9133', 'beta-9133' ] ),
+				'a refused restart flag must escape'
+			);
+			$this->assertStringContainsString( 'alpha-9133.p0.lock.d', $e->getMessage() );
+		} finally {
+			\chmod( "{$this->tmp}/locks/alpha-9133.p0.lock.d", 0755 );
+		}
+
+		$this->assertTrue( \Newspack_Nodes\Lock_Node::is_restart_pending( "{$this->tmp}/locks/beta-9133.p0.lock.d" ) );
 	}
 
 	public function test_kill_readers_reaches_max_partitions_for_a_retired_type(): void {

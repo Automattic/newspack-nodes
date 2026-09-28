@@ -67,12 +67,14 @@ final class Vault_Group_Node extends Node {
 	 * every child and the interpreter first: the child type, and with it the
 	 * verbs, may have changed. The tokens are checked and the child type
 	 * resolved before anything is assigned, so a refusal leaves the group as
-	 * it was.
+	 * it was. Past that, every step runs, and a child that would not retract or
+	 * build is raised after the last.
 	 *
 	 * @api Dynamic entrypoint.
 	 * @param list<string>|null $args Positional tokens, or null to read them.
 	 * @return list<string>
 	 * @throws \InvalidArgumentException When the child type resolves to no node class.
+	 * @throws \Throwable Every retraction and build that failed, combined.
 	 */
 	public function arguments( ?array $args = null ): array {
 		if ( null === $args ) {
@@ -86,12 +88,16 @@ final class Vault_Group_Node extends Node {
 		$this->assign_schema_args( $args, $values );
 		$this->child_class = $child_class;
 		$this->child_args  = \array_slice( $args, 2 );
-		if ( [] !== $previous && $previous !== $args ) {
-			$this->retract_all();
-		}
-		$this->wire_interpreter( $this->forwarding_verbs() );
-		$this->update_graph();
-		$this->subscribe( Node_Names::FLEET, 'RELOAD', $this->update_graph( ... ) );
+		Worker_Should_Stop::raise(
+			[
+				...( [] !== $previous && $previous !== $args ? $this->retract_all() : [] ),
+				...Worker_Should_Stop::attempt(
+					fn () => $this->wire_interpreter( $this->forwarding_verbs() ),
+					$this->update_graph( ... ),
+					fn () => $this->subscribe( Node_Names::FLEET, 'RELOAD', $this->update_graph( ... ) )
+				),
+			]
+		);
 		return $args;
 	}
 
@@ -111,16 +117,20 @@ final class Vault_Group_Node extends Node {
 
 	/**
 	 * Tear down every child and the forwarding interpreter, dropping the verbs
-	 * they were configured with. A child whose teardown refused keeps its slot,
-	 * and so its id, until a later retraction succeeds.
+	 * they were configured with. Every slot is attempted; a child whose
+	 * teardown refused keeps its slot, and so its id, until a later retraction
+	 * succeeds.
+	 *
+	 * @return array<array-key,\Throwable> Every retraction that failed, for the caller to raise.
 	 */
-	private function retract_all(): void {
-		foreach ( \array_keys( $this->children() ) as $id ) {
-			$this->retract_child( (string) $id );
-		}
-		$this->retract_sibling( self::RESERVED_ID );
+	private function retract_all(): array {
+		$caught            = Worker_Should_Stop::attempt_each(
+			[ ...\array_keys( $this->children() ), self::RESERVED_ID ],
+			fn ( int|string $id ) => $this->retract_child( (string) $id )
+		);
 		$this->interpreter = null;
 		$this->commands    = [];
+		return $caught;
 	}
 
 	/**
@@ -150,24 +160,34 @@ final class Vault_Group_Node extends Node {
 	/**
 	 * Build members the group gained and retract members it lost, Tachikoma's
 	 * ConsumerBroker `update_graph()`. The Vault memo is current here: the
-	 * fleet resets it before announcing RELOAD.
+	 * fleet resets it before announcing RELOAD. Every member is attempted, and
+	 * what any of them threw is raised after the last, together with a refusal
+	 * for a `config` id, whose slot the group's interpreter holds.
 	 *
 	 * @api Fleet RELOAD.
+	 * @throws \Throwable Every retraction and build that failed, combined.
 	 */
 	public function update_graph(): void {
 		$wanted = Vault::get_instance()->in_group( $this->group );
 		$have   = \array_map( 'strval', \array_keys( $this->children() ) );
-		foreach ( \array_diff( $have, $wanted ) as $gone ) {
-			$this->retract_child( $gone );
-		}
-		$new   = \array_values( \array_diff( $wanted, $have ) );
-		$built = self::expand( $new, $this->child_args );
+		$caught = Worker_Should_Stop::attempt_each(
+			\array_diff( $have, $wanted ),
+			fn ( string $gone ) => $this->retract_child( $gone )
+		);
+		$new    = \array_values( \array_diff( $wanted, $have ) );
+		$built  = self::expand( $new, $this->child_args );
 		foreach ( \array_diff( $new, \array_map( 'strval', \array_keys( $built ) ) ) as $reserved ) {
-			$this->print_less_often( "ERROR: skipping Vault id {$reserved}: ", 'reserved sibling slot' );
+			$caught[] = new \RuntimeException( \esc_html( "building Vault id {$reserved}: the group's :config interpreter holds that slot" ) );
 		}
-		foreach ( $built as $id => [ $tokens ] ) {
-			$this->build_child( (string) $id, $tokens );
-		}
+		Worker_Should_Stop::raise(
+			[
+				...$caught,
+				...Worker_Should_Stop::attempt_each(
+					$built,
+					fn ( array $lists, int|string $id ) => $this->build_child( (string) $id, $lists[0] )
+				),
+			]
+		);
 	}
 
 	/**
@@ -194,97 +214,42 @@ final class Vault_Group_Node extends Node {
 	}
 
 	/**
-	 * Build, name, configure and wire one child the way `make_node` does. A
-	 * refusal skips that id alone, with a rate-limited error naming the
-	 * recorded command it refused, if any.
-	 *
-	 * @param string       $id     Vault id; also the sibling slot.
-	 * @param list<string> $tokens The child's argument tokens.
-	 */
-	private function build_child( string $id, array $tokens ): void {
-		$replaying = '';
-		try {
-			$child = new ( $this->child_class )();
-			$this->publish_sibling( $id, $child );
-			$child->arguments( $tokens );
-			$child->sink( $this->sink );
-			$child->debug_state( $this->debug_state );
-			foreach ( Node::target_list( $this->target ) as $target ) {
-				$child->connect_node( $target );
-			}
-			foreach ( $this->commands as [ $verb, $args ] ) {
-				$replaying = "replaying {$verb} " . self::serialize_args( $args ) . ': ';
-				$child->interpreter()?->dispatch( $verb, $args );
-			}
-		} catch ( Worker_Should_Stop $e ) {
-			throw $e;
-		} catch ( \Throwable $e ) {
-			$this->print_less_often( "ERROR: skipping Vault id {$id}: ", $replaying, $e->getMessage() );
-			$this->retract_child( $id );
-		}
-	}
-
-	/**
-	 * Retract one child's slot, handing its cursor off first as an operational
-	 * stop does. A failure is logged, never raised into the drain loop, and
-	 * leaves the child in its slot, still a member.
-	 *
-	 * @param string $id The child's Vault id.
-	 */
-	private function retract_child( string $id ): void {
-		try {
-			( $this->siblings()[ $id ] ?? null )?->hand_off_cursor();
-			$this->retract_sibling( $id );
-		} catch ( Worker_Should_Stop $e ) {
-			throw $e;
-		} catch ( \Throwable $e ) {
-			$this->print_less_often( "ERROR: retracting Vault id {$id}: ", $e->getMessage() );
-		}
-	}
-
-	/**
 	 * Dispatch one verb to every child and answer with each child's reply. Every
-	 * child is attempted, a stop included (ADR-14); after the loop the stop
-	 * `outranks()` keeps is raised, else a refusal from any child throws,
-	 * naming each child that refused. Record the command when every child took
-	 * it and it changed some child's configuration, or when there is no child
-	 * yet. It replaces every earlier record of the verb when $by_verb, and of
-	 * an identical command otherwise, so the last write wins on replay.
+	 * child is attempted, a stop included (ADR-14). A refusal is re-raised
+	 * naming the child that refused, and after the loop every stop and refusal
+	 * is raised together, combined by `Worker_Should_Stop::raise()`. Record the
+	 * command when every child took it and it changed some child's
+	 * configuration, or when there is no child yet. It replaces every earlier
+	 * record of the verb when $by_verb, and of an identical command otherwise,
+	 * so the last write wins on replay.
 	 *
 	 * @param string                 $verb The child verb.
 	 * @param array<array-key,mixed> $args    Its argument tokens.
 	 * @param bool                   $by_verb Whether the verb holds one value.
 	 * @return array<string,mixed> Child name => that child's answer.
-	 * @throws Worker_Should_Stop When any child raised a stop.
-	 * @throws \RuntimeException When any child refused the verb.
+	 * @throws \Throwable Every child's stop and refusal, combined, raised after the loop.
 	 */
 	private function forward( string $verb, array $args, bool $by_verb ): array {
 		$tokens   = \array_values( \array_map( static fn ( $arg ): string => Core::as_string( $arg ), $args ) );
 		$children = $this->children();
 		$answers  = [];
-		$refusals = [];
-		$stop     = null;
 		$changed  = [] === $children;
-		foreach ( $children as $child ) {
-			$before = $child->dump_config();
-			try {
-				$answers[ $child->name() ] = $child->interpreter()?->dispatch( $verb, $tokens );
-			} catch ( Worker_Should_Stop $e ) {
-				$stop = Worker_Should_Stop::outranks( $e, $stop ) ? $e : $stop;
-				continue;
-			} catch ( \Throwable $e ) {
-				$refusals[] = \esc_html( $child->name() ) . ': ' . $e->getMessage();
-				continue;
+		$caught   = Worker_Should_Stop::attempt_each(
+			$children,
+			static function ( Node $child ) use ( $verb, $tokens, &$answers, &$changed ): void {
+				$before = $child->dump_config();
+				try {
+					$answers[ $child->name() ] = $child->interpreter()?->dispatch( $verb, $tokens );
+				} catch ( Worker_Should_Stop $e ) {
+					throw $e;
+				} catch ( \Throwable $e ) {
+					// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- the child's refusal arrives escaped.
+					throw new \RuntimeException( \esc_html( $child->name() ) . ': ' . $e->getMessage(), 0, $e );
+				}
+				$changed = $changed || $before !== $child->dump_config();
 			}
-			$changed = $changed || $before !== $child->dump_config();
-		}
-		if ( null !== $stop ) {
-			throw $stop;
-		}
-		if ( [] !== $refusals ) {
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- each child's refusal arrives escaped.
-			throw new \RuntimeException( \implode( '; ', $refusals ) );
-		}
+		);
+		Worker_Should_Stop::raise( $caught );
 		if ( $changed ) {
 			$command        = [ $verb, $tokens ];
 			$this->commands = [ ...\array_filter( $this->commands, static fn ( array $recorded ): bool => $by_verb ? $recorded[0] !== $verb : $recorded !== $command ), $command ];
@@ -352,6 +317,60 @@ final class Vault_Group_Node extends Node {
 		$children = $this->siblings();
 		unset( $children[ self::RESERVED_ID ] );
 		return $children;
+	}
+
+	/**
+	 * Build, name, configure and wire one child the way `make_node` does. A
+	 * refusal retracts that id's half-built child and throws, naming the id
+	 * and the recorded command it refused, if any, together with any failure
+	 * of the retraction.
+	 *
+	 * @param string       $id     Vault id; also the sibling slot.
+	 * @param list<string> $tokens The child's argument tokens.
+	 * @throws \Throwable The refusal, combined with a failed retraction.
+	 */
+	private function build_child( string $id, array $tokens ): void {
+		$replaying = '';
+		try {
+			$child = new ( $this->child_class )();
+			$this->publish_sibling( $id, $child );
+			$child->arguments( $tokens );
+			$child->sink( $this->sink );
+			$child->debug_state( $this->debug_state );
+			foreach ( Node::target_list( $this->target ) as $target ) {
+				$child->connect_node( $target );
+			}
+			foreach ( $this->commands as [ $verb, $args ] ) {
+				$replaying = "replaying {$verb} " . self::serialize_args( $args ) . ': ';
+				$child->interpreter()?->dispatch( $verb, $args );
+			}
+		} catch ( \Throwable $e ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- the refusal arrives escaped.
+			$refusal = $e instanceof Worker_Should_Stop ? $e : new \RuntimeException( \esc_html( "building Vault id {$id}: {$replaying}" ) . $e->getMessage(), 0, $e );
+			Worker_Should_Stop::raise(
+				[ $refusal, ...Worker_Should_Stop::attempt( fn () => $this->retract_child( $id ) ) ]
+			);
+		}
+	}
+
+	/**
+	 * Retract one child's slot, handing its cursor off first as an operational
+	 * stop does. A failure throws naming the id, and leaves the child in its
+	 * slot, still a member.
+	 *
+	 * @param string $id The child's Vault id.
+	 * @throws \Throwable The failed handoff or teardown; a stop as it came.
+	 */
+	private function retract_child( string $id ): void {
+		try {
+			( $this->siblings()[ $id ] ?? null )?->hand_off_cursor();
+			$this->retract_sibling( $id );
+		} catch ( Worker_Should_Stop $e ) {
+			throw $e;
+		} catch ( \Throwable $e ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- the failure arrives escaped.
+			throw new \RuntimeException( \esc_html( "retracting Vault id {$id}: " ) . $e->getMessage(), 0, $e );
+		}
 	}
 
 	/**

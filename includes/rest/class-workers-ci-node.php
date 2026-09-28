@@ -85,14 +85,17 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * for the declared `.tsl` structure, and `append_log_sinks()` for the Log
 	 * file-sinks the partitioned catalog does not cover. Separately timed verbs
 	 * would let a slow poll join a worker list against a graph and a segment
-	 * list captured at other instants.
+	 * list captured at other instants. A topology that will not load draws no
+	 * graph and answers its `unreadable` row; a catalog that will not load
+	 * throws, and the interpreter answers the poll with that TM_ERROR.
 	 *
 	 * @return array<int|string,mixed>
+	 * @throws \RuntimeException When the topology catalog will not load.
 	 */
 	public static function cmd_dump_graph(): array {
 		$payload          = self::collect_dump_metadata();
 		$payload['graph'] = self::collect_topology_graphs();
-		$payload['logs']  = self::append_log_sinks( (array) $payload['logs'] );
+		$payload['logs']  = self::append_log_sinks( (array) $payload['logs'], $payload['graph'] );
 		return $payload;
 	}
 
@@ -105,7 +108,15 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * two copies that drift, until an alert names a fleet the dashboard does
 	 * not show.
 	 *
+	 * A fleet it cannot expand throws: an alert computed off an empty fleet
+	 * would report every worker healthy. An active topology that will not read
+	 * costs its own row instead — `unreadable` names it and why, from
+	 * `Bootstrap::active_topologies()`, and every other read goes on. A log
+	 * producer template declaring no dir costs only its own catalog entries,
+	 * and `refused_producers` names it and why.
+	 *
 	 * @return array<string,mixed> Envelope ready for wp_json_encode.
+	 * @throws \RuntimeException When the topology catalog will not load.
 	 */
 	public static function collect_dump_metadata(): array {
 		$now            = \time();
@@ -120,18 +131,9 @@ class Workers_CI_Node extends Service_CI_Node {
 		$log_base       = $base_dir . '/logs';
 		$locks_base     = $base_dir . '/locks';
 
-		$descriptors = [];
-		if ( \class_exists( '\\Newspack_Nodes\\Bootstrap' ) ) {
-			try {
-				$descriptors = Bootstrap::expand_workers();
-			} catch ( \Throwable $e ) {
-				$descriptors = [];
-			}
-		}
-
 		// workers[] is pure per-(type,partition) liveness; no per-consumer.
 		$workers = [];
-		foreach ( $descriptors as $w ) {
+		foreach ( Bootstrap::expand_workers() as $w ) {
 			$type      = $w['type'];
 			$partition = $w['partition'];
 			if ( '' === $type ) {
@@ -149,11 +151,14 @@ class Workers_CI_Node extends Service_CI_Node {
 		}
 
 		// Per-reader probe STATE (cursor, end, distance), keyed by reader.
-		$consumers = self::enumerate_offsetlog_rows( $base_dir );
+		$probe = self::enumerate_offsetlog_rows( $base_dir );
 
 		// Per-log catalog, resolver-driven; segment_size honors TSL overrides.
-		$segment_size_overrides = self::collect_segment_size_overrides();
-		$logs                   = self::enumerate_logs( $log_base, $segment_size, $segment_size_overrides );
+		[ $readable, $unreadable ] = Bootstrap::active_topologies();
+		$segment_size_overrides    = self::collect_segment_size_overrides( $readable );
+		[ $declared, $refused ]    = Log_Cleaner::declared_log_partitions();
+		$logs                      = self::enumerate_logs( $log_base, $segment_size, $segment_size_overrides, $declared );
+		$messages                  = static fn ( \Throwable $e ): string => \html_entity_decode( $e->getMessage(), \ENT_QUOTES );
 
 		// On-disk log partitions: glob .pN dirs fresh (layout-agnostic).
 		$log_partitions = \count( @\glob( "{$log_base}/*", \GLOB_ONLYDIR ) ?: [] );
@@ -162,7 +167,10 @@ class Workers_CI_Node extends Service_CI_Node {
 
 		return [
 			'workers'        => $workers,
-			'consumers'      => $consumers,
+			'unreadable'     => \array_map( $messages, $unreadable ),
+			'refused_producers' => \array_map( $messages, $refused ),
+			'consumers'      => $probe['rows'],
+			'unparseable_lines' => $probe['unparseable_lines'],
 			'logs'           => $logs,
 			'log_partitions' => $log_partitions,
 			'deadletter_segments'  => \array_sum( $deadletter_by_reader ),
@@ -186,7 +194,7 @@ class Workers_CI_Node extends Service_CI_Node {
 	 */
 	private static function deadletter_segments_by_reader( string $base_dir ): array {
 		$by_reader = [];
-		foreach ( @\glob( "{$base_dir}/deadletter/*/*.log" ) ?: [] as $segment ) {
+		foreach ( @\glob( RuntimeConfig::deadletter_dir( $base_dir ) . '/*/*.log' ) ?: [] as $segment ) {
 			$reader               = \basename( \dirname( $segment ) );
 			$by_reader[ $reader ] = ( $by_reader[ $reader ] ?? 0 ) + 1;
 		}
@@ -263,17 +271,18 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * in the catalog is left alone — a real segmented-log entry outranks a
 	 * synthesized one.
 	 *
-	 * @param array<array-key,mixed> $logs Existing catalog (each entry `{name,partitions,segment_size}`).
+	 * @param array<array-key,mixed>                                        $logs   Existing catalog (each entry `{name,partitions,segment_size}`).
+	 * @param array<string,array{nodes: list<array<string,int|string|list<string>>>}> $graphs `collect_topology_graphs()`.
 	 * @return array<array-key,mixed> $logs plus one entry per Log sink.
 	 */
-	private static function append_log_sinks( array $logs ): array {
+	private static function append_log_sinks( array $logs, array $graphs ): array {
 		$existing = [];
 		foreach ( $logs as $log ) {
 			if ( \is_array( $log ) && isset( $log['name'] ) && \is_scalar( $log['name'] ) ) {
 				$existing[ (string) $log['name'] ] = true;
 			}
 		}
-		foreach ( self::collect_topology_graphs() as $graph ) {
+		foreach ( $graphs as $graph ) {
 			foreach ( $graph['nodes'] as $node ) {
 				if ( 'log' !== ( $node['kind'] ?? '' ) || ! isset( $node['path'] ) || ! \is_scalar( $node['path'] ) ) {
 					continue;
@@ -298,19 +307,18 @@ class Workers_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * The structural graph of every active topology: name =>
+	 * The structural graph of every READABLE active topology: name =>
 	 * `Topology_Analyzer::graph_for( name )` (`{nodes, edges}`). The dashboard
 	 * renders the `.tsl` wiring alongside the live fleet, so an operator reads
-	 * node structure next to worker status.
+	 * node structure next to worker status; one that will not read is the
+	 * envelope's `unreadable` row instead.
 	 *
 	 * @return array<string,array{nodes: list<array<string,int|string|list<string>>>,edges: list<array{0:string,1:string}>}>
+	 * @throws \RuntimeException When the topology catalog will not load.
 	 */
 	private static function collect_topology_graphs(): array {
-		$graphs = [];
-		foreach ( self::active_topologies() as $name => $_cfg ) {
-			$graphs[ $name ] = Topology_Analyzer::graph_for( $name );
-		}
-		return $graphs;
+		$names = \array_keys( Bootstrap::active_topologies()[0] );
+		return \array_map( Topology_Analyzer::graph_for( ... ), \array_combine( $names, $names ) );
 	}
 
 	/**
@@ -382,18 +390,13 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * topology (last write wins on a dir collision), then let the partitions
 	 * built in PHP fill the gaps through the filter.
 	 *
+	 * @param array<string,array<array-key,mixed>> $readable Readable active topology name => entry.
 	 * @return array<string,int> Concrete first-level log dir, or the filter's bare basename, => bytes.
 	 */
-	private static function collect_segment_size_overrides(): array {
+	private static function collect_segment_size_overrides( array $readable ): array {
 		$out = [];
-		foreach ( self::active_topologies() as $name => $entry ) {
-			try {
-				$overrides = Topology_Analyzer::segment_size_overrides_for( $name, Bootstrap::partitions_of( Core::arr( $entry ) ) );
-			} catch ( \RuntimeException $e ) {
-				// Dormant provider: skip, do not fatal every admin page.
-				Core::print_less_often( "segment-size overrides skipped for {$name}: ", $e->getMessage() );
-				continue;
-			}
+		foreach ( $readable as $name => $entry ) {
+			$overrides = Topology_Analyzer::segment_size_overrides_for( $name, Bootstrap::partitions_of( $entry ) );
 			foreach ( $overrides as $basename => $size ) {
 				$out[ $basename ] = $size;
 			}
@@ -414,31 +417,12 @@ class Workers_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * The active topology catalog (`name => cfg`), or `[]` when the substrate
-	 * is not loaded or the lookup throws. Every per-topology collector in this
-	 * class reads through it, so the `class_exists` test and the catch that
-	 * degrade an admin page to an empty fleet live in exactly one place.
-	 *
-	 * @return array<string,mixed>
-	 */
-	private static function active_topologies(): array {
-		if ( ! \class_exists( '\\Newspack_Nodes\\Bootstrap' ) ) {
-			return [];
-		}
-		try {
-			return Bootstrap::get_topologies();
-		} catch ( \Throwable $e ) {
-			return [];
-		}
-	}
-
-	/**
 	 * Enumerate the flat partition-in-name log layout: ONE entry per concrete
 	 * dir, named by that dir (`requests.p0`), carrying that single partition's
 	 * segments and stamped with its REAL enumerated partition.
 	 *
-	 * The dir list is the GC's declared set
-	 * (`Log_Cleaner::declared_log_partitions()`) — one source of truth with the
+	 * The dir list is the GC's declared set, which the caller reads from
+	 * `Log_Cleaner::declared_log_partitions()` — one source of truth with the
 	 * retention sweep. That set covers every on-disk topology's resolved
 	 * per-partition log dirs PLUS the logs no `.tsl` declares: the PHP
 	 * producers' firehose and jobintake, and the settings log. Sourcing the
@@ -454,12 +438,14 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * @param string            $log_base               Absolute `{base}/logs` dir.
 	 * @param int               $default_segment_size   Fleet-wide segment size in bytes.
 	 * @param array<string,int> $segment_size_overrides `{basename => int}` map.
+	 * @param array<string,int> $declared               Concrete log dir => enumerated partition.
 	 * @return array<int,array{name:string,partitions:array<int,mixed>,segment_size:int}>
 	 */
 	private static function enumerate_logs(
 		string $log_base,
 		int $default_segment_size,
-		array $segment_size_overrides
+		array $segment_size_overrides,
+		array $declared
 	): array {
 		$logs = [];
 		$seen = [];
@@ -482,7 +468,7 @@ class Workers_CI_Node extends Service_CI_Node {
 			];
 		};
 		// Stamp each entry with the REAL enumerated partition, not 0.
-		foreach ( Log_Cleaner::declared_log_partitions() as $concrete => $partition ) {
+		foreach ( $declared as $concrete => $partition ) {
 			$add( $concrete, $partition );
 		}
 		return $logs;
@@ -492,10 +478,10 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * One row per active Consumer, via the canonical per-Consumer enumeration
 	 * (`CLI::consumer_rows()`, sourced from the Topic_Probe log) — shared with
 	 * `wp nodes status`, so the dashboard and the cli read positions exactly
-	 * one way.
+	 * one way, with the count of probe lines that would not unpack.
 	 *
 	 * @param string $base_dir Substrate base directory.
-	 * @return array<int,array<string,mixed>>
+	 * @return array{rows: list<array<string,mixed>>, unparseable_lines: int}
 	 */
 	private static function enumerate_offsetlog_rows( string $base_dir ): array {
 		return ( new CLI( $base_dir ) )->consumer_rows();

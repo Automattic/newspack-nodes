@@ -296,12 +296,10 @@ class CoreTest extends TestCase {
 				}
 			}
 		);
-		try {
-			Core::print_less_often( 'first' );
-			$this->fail( 'Expected RuntimeException to propagate' );
-		} catch ( \RuntimeException $e ) {
-			// Expected.
-		}
+		$this->caught(
+			fn () => Core::print_less_often( 'first' ),
+			'Expected RuntimeException to propagate'
+		);
 		// Second call (distinct text → no dedup): the handler should see it,
 		// proving the in_stderr flag was reset by the finally block.
 		Core::print_less_often( 'second' );
@@ -408,25 +406,36 @@ class CoreTest extends TestCase {
 	// duck-typed-skip path that test_cleanup_all_nodes_skips_objects_without_remove_node
 	// exercised (a non-Node object in the registry) is unreachable.
 
-	public function test_cleanup_all_nodes_keeps_going_when_one_throws(): void {
-		// Spec docs: "Best-effort teardown; one node's failure shouldn't block
-		// the rest." A throwing remove_node() must not prevent the next node
-		// from being cleaned up.
+	public function test_cleanup_all_nodes_tears_every_node_down_then_raises_each_failure(): void {
+		// Every node is attempted; both failures escape together after the last.
 		CoreTest_RecordingNode::$log = [];
-
-		Core::register_node( 'a', new class extends \Newspack_Nodes\Node {
+		$first  = new \RuntimeException( 'teardown-refused-5521' );
+		$second = new \LogicException( 'teardown-refused-8830' );
+		Core::register_node( 'a', new class( $first ) extends \Newspack_Nodes\Node {
+			public function __construct( private \Throwable $e ) {
+				parent::__construct();
+			}
 			public function remove_node(): void {
-				throw new \RuntimeException( 'simulated teardown failure' );
+				throw $this->e;
 			}
 		} );
 		Core::register_node( 'b', new CoreTest_RecordingNode( 'b' ) );
+		Core::register_node( 'c', new class( $second ) extends \Newspack_Nodes\Node {
+			public function __construct( private \Throwable $e ) {
+				parent::__construct();
+			}
+			public function remove_node(): void {
+				throw $this->e;
+			}
+		} );
 
-		// Swallow the rate-limited stderr emission from the thrown error.
-		Core::set_stderr_handler( static function ( string $message ): void {} );
-
-		Core::cleanup_all_nodes();
-
-		$this->assertSame( [ 'b' ], CoreTest_RecordingNode::$log, 'second node must still be cleaned up after the first throws' );
+		try {
+			Core::cleanup_all_nodes();
+			$this->fail( 'the teardown failures must escape' );
+		} catch ( \Newspack_Nodes\Failures $e ) {
+			$this->assertSame( [ $first, $second ], $e->all() );
+		}
+		$this->assertSame( [ 'b' ], CoreTest_RecordingNode::$log, 'the node between the failures is still torn down' );
 	}
 
 	public function test_cleanup_all_nodes_snapshots_registry_before_iterating(): void {

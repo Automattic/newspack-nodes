@@ -1,4 +1,4 @@
-/* global globalThis, Element */
+/* global Element */
 /**
  * Overview — the merged station board. Every active topology renders as a TopologyRow
  * (folded compact ↔ unfolded detail), in the user's persisted drag order (NOT
@@ -9,6 +9,8 @@
 
 import { render, fireEvent, act } from '@testing-library/react';
 import Overview from '../Overview';
+import { Core } from '../../runtime/core';
+import { publishSkippedLines } from '@newspack-nodes/shared/test-utils/skippedLines';
 
 jest.mock( '../hooks/useTopologyManager', () => ( {
 	useTopologyManager: jest.fn(),
@@ -131,6 +133,7 @@ function hookValue( overrides = {} ) {
 }
 
 beforeEach( () => {
+	Core.reset();
 	useNodeField.mockReturnValue( undefined );
 	overviewPrefs.readOrder.mockReturnValue( [] );
 	overviewPrefs.readExpanded.mockReturnValue( new Set() );
@@ -194,6 +197,57 @@ describe( 'Overview fleet board', () => {
 		expect( cards.readRate ).toBe( 4096 );
 		expect( cards.writeRate ).toBe( 8192 );
 		expect( cards.logPartitions ).toBe( 3 );
+	} );
+
+	it( 'shows the probe read and the probe stream skips as two named notices', () => {
+		publishSkippedLines( 'topicprobe:link', 4 );
+		useTopologyManager.mockReturnValue(
+			hookValue( { unparseableLines: 5 } )
+		);
+		const { container } = render( <Overview /> );
+		const notices = [
+			...container.querySelectorAll(
+				'.newspack-nodes-banner.is-warning'
+			),
+		].map( ( n ) => n.textContent );
+		expect( notices ).toEqual( [
+			'Consumer rows: 5 lines would not parse and were skipped.',
+			'Topics charts: 4 lines would not parse and were skipped.',
+		] );
+	} );
+
+	it( 'names each unreadable topology and refused producer in an error banner', () => {
+		useTopologyManager.mockReturnValue(
+			hookValue( {
+				unreadable: { 'marmot-5140': 'include orphaned-5141 failed' },
+				refusedProducers: {
+					'firehose-5142.p{partition}':
+						'log producer firehose-5142.p{partition} declares no dir',
+				},
+			} )
+		);
+		const { container } = render( <Overview /> );
+		const banners = [
+			...container.querySelectorAll( '.newspack-nodes-error-banner' ),
+		].map( ( n ) => n.textContent );
+		expect( banners ).toEqual( [
+			'Topology marmot-5140 will not read, so this board leaves it out: include orphaned-5141 failed',
+			'The log catalog leaves out firehose-5142.p{partition}, and the log sweep refuses to run: log producer firehose-5142.p{partition} declares no dir',
+		] );
+	} );
+
+	it( 'shows only the notice of the source that skipped a line', () => {
+		publishSkippedLines( 'topicprobe:link', 6 );
+		useTopologyManager.mockReturnValue( hookValue() );
+		const { container } = render( <Overview /> );
+		const notices = [
+			...container.querySelectorAll(
+				'.newspack-nodes-banner.is-warning'
+			),
+		].map( ( n ) => n.textContent );
+		expect( notices ).toEqual( [
+			'Topics charts: 6 lines would not parse and were skipped.',
+		] );
 	} );
 
 	it( 'renders each active topology as a TopologyRow wired with the hook handlers + folded flag', () => {

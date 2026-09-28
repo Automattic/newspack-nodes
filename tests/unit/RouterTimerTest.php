@@ -161,15 +161,14 @@ class RouterTimerTest extends TestCase {
 
 		$timer = new Timer_Node(); // no name() call
 
-		try {
-			$timer->set_timer();
-			$this->fail( 'expected the own-slot interval guard to throw' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertStringContainsString(
-				'Own-slot timer requires an interval (ms)',
-				$e->getMessage()
-			);
-		}
+		$e = $this->caught(
+			fn () => $timer->set_timer(),
+			'expected the own-slot interval guard to throw'
+		);
+		$this->assertStringContainsString(
+			'Own-slot timer requires an interval (ms)',
+			$e->getMessage()
+		);
 
 		$router->notify_timer();
 		$this->assertSame( 0, $timer->get_fire_count(), 'never joined the tick' );

@@ -669,6 +669,62 @@ test( 'the connected envelope seeds positions for a zero-message stream', () => 
 	} );
 } );
 
+function unparseableFrame( value ) {
+	const m = newMessage();
+	m[ TYPE ] = TM_INFO;
+	m[ KEY ] = 'unparseable_lines';
+	m[ VALUE ] = value;
+	return JSON.stringify( m );
+}
+
+test( 'skipped lines add up across frames and reconnects', () => {
+	const { sse } = makeSseIn( { subscribe: [ 'firehose.p0' ] } );
+	sse.start();
+	FakeEventSource.last.dispatch(
+		'unparseable_lines',
+		unparseableFrame( 'COUNT 2 CURSORS firehose.p0=7:40' )
+	);
+	sse.start();
+	FakeEventSource.last.dispatch(
+		'unparseable_lines',
+		unparseableFrame( 'COUNT 3 CURSORS firehose.p0=7:95' )
+	);
+
+	// Each frame counts only its own skips, so the page's total is the sum.
+	expect( sse.setStateCache.UNPARSEABLE_LINES ).toBe( 5 );
+} );
+
+test( 'a skip moves the resume point past the lines it skipped', () => {
+	const { sse } = makeSseIn( { subscribe: [ 'firehose.p0' ] } );
+	sse.start();
+	FakeEventSource.last.dispatch(
+		'unparseable_lines',
+		unparseableFrame( 'COUNT 1 CURSORS firehose.p0=11647:2210' )
+	);
+
+	// Else a reopen reads the torn line again and counts it twice.
+	expect( sse.seekMap() ).toEqual( {
+		'firehose.p0': { segment: 11647, offset: 2210 },
+	} );
+} );
+
+test( 'a malformed count is an error and adds nothing', () => {
+	expectConsoleWarn(
+		'ERROR: SseInNode: dropped a malformed unparseable_lines frame'
+	);
+	const { sse } = makeSseIn();
+	sse.start();
+	FakeEventSource.last.dispatch(
+		'unparseable_lines',
+		unparseableFrame( 'COUNT two' )
+	);
+
+	expect( sse.setStateCache.UNPARSEABLE_LINES ).toBeUndefined();
+	expect( sse.setStateCache.ERROR ).toBe(
+		'malformed unparseable_lines frame'
+	);
+} );
+
 test( 'a delivered record advances past the envelope seed', () => {
 	const { sse } = makeSseIn( { subscribe: [ 'firehose.p0' ] } );
 	sse.start();

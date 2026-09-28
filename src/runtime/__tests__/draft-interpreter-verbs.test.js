@@ -14,16 +14,18 @@ import { Core } from '../core';
 import { serializeDraftArg } from '../shell-node';
 import { DraftInterpreterNode } from '../draft-interpreter-node';
 
-// A draft reports every non-`ok` reply, because nothing else would: several
-// cases here exercise a deliberate refusal, so capture and assert on it.
-let reported = [];
+// A draft records every refused statement for the editor to show, and prints
+// none of them: several cases here refuse deliberately, so read the record.
+let printed = [];
 beforeEach( () => {
-	reported = [];
+	printed = [];
 	jest.spyOn( Core, 'stderr' ).mockImplementation( ( line ) =>
-		reported.push( line )
+		printed.push( line )
 	);
 } );
 afterEach( () => jest.restoreAllMocks() );
+
+const refused = ( d ) => d.refusals.map( ( r ) => r.message ).join( '\n' );
 
 const draft = ( tsl = '', baseline = null ) => {
 	const d = new DraftInterpreterNode();
@@ -158,7 +160,7 @@ describe( 'move_node', () => {
 
 		// Both survive: a rename that silently merged them would lose one.
 		expect( names( d ) ).toEqual( [ 'pangolin', 'quokka' ] );
-		expect( reported.join( '\n' ) ).toContain( 'name collision' );
+		expect( refused( d ) ).toContain( 'name collision' );
 	} );
 
 	it( 'is a no-op when the name is unchanged', () => {
@@ -184,7 +186,7 @@ describe( 'move_node', () => {
 		d.run( 'move_node pangolin wombat' );
 
 		expect( names( d ) ).toEqual( [ 'pangolin' ] );
-		expect( reported.join( '\n' ) ).toContain( 'collision' );
+		expect( refused( d ) ).toContain( 'collision' );
 		expect( d.dumpDocument() ).toContain( 'capybara' );
 	} );
 } );
@@ -327,7 +329,7 @@ describe( 'what a save must not lose', () => {
 		// editor that accepts `secure banana` writes a file nothing can load.
 		const d = draft( 'secure banana' );
 
-		expect( reported.join( '\n' ) ).toContain( 'invalid secure level' );
+		expect( refused( d ) ).toContain( 'invalid secure level' );
 		expect( d.secureLevel ).toBe( '' );
 		expect( d.dumpDocument() ).toBe( '' );
 	} );
@@ -335,7 +337,7 @@ describe( 'what a save must not lose', () => {
 	it( 'refuses secure 0 — the runtime floor is 1', () => {
 		const d = draft( 'secure 0' );
 
-		expect( reported.join( '\n' ) ).toContain( 'invalid secure level' );
+		expect( refused( d ) ).toContain( 'invalid secure level' );
 		expect( d.secureLevel ).toBe( '' );
 	} );
 
@@ -501,7 +503,7 @@ describe( 'var follows the canonical frontmatter grammar', () => {
 		// "a compound operator leaves its head on the key; never coin".
 		const d = draft( 'var retention_grace += 17' );
 
-		expect( reported.join( '\n' ) ).toContain( 'usage: var' );
+		expect( refused( d ) ).toContain( 'usage: var' );
 		expect( d.frontmatter ).toEqual( {} );
 		expect( d.dumpDocument() ).toBe( '' );
 	} );
@@ -598,17 +600,40 @@ describe( 'a statement the document rejects is not silent', () => {
 
 		d.run( 'connect_node nonesuch aardvark' );
 
-		// One line, naming the statement: a document has many.
-		expect( reported ).toHaveLength( 1 );
-		expect( reported[ 0 ] ).toContain(
-			'connect_node: unknown node: nonesuch'
-		);
+		// One record, naming the statement: a document has many.
+		expect( d.refusals ).toEqual( [
+			{
+				line: 1,
+				statement: 'connect_node nonesuch aardvark',
+				message: 'unknown node: nonesuch',
+			},
+		] );
+		expect( printed ).toEqual( [] );
 	} );
 
-	it( 'says nothing when every statement is accepted', () => {
-		draft( 'make_node Echo aardvark' );
+	it( 'records nothing when every statement is accepted', () => {
+		expect( draft( 'make_node Echo aardvark' ).refusals ).toEqual( [] );
+	} );
 
-		expect( reported ).toEqual( [] );
+	it( 'records every refusal of a load by line, and loads the rest', () => {
+		const d = draft(
+			'make_node Echo aardvark\nsecure banana\nmake_node Nope\nmake_node Echo quokka'
+		);
+
+		expect( d.refusals.map( ( r ) => [ r.line, r.statement ] ) ).toEqual( [
+			[ 2, 'secure banana' ],
+			[ 3, 'make_node Nope' ],
+		] );
+		expect( names( d ) ).toEqual( [ 'aardvark', 'quokka' ] );
+		expect( printed ).toEqual( [] );
+	} );
+
+	it( 'answers for the last operation alone', () => {
+		const d = draft( 'secure banana' );
+
+		d.run( 'make_node Echo aardvark' );
+
+		expect( d.refusals ).toEqual( [] );
 	} );
 } );
 
@@ -677,7 +702,7 @@ describe( 'round-trip defects the fourth review found', () => {
 
 		d.run( 'make_node Echo fan' );
 
-		expect( reported.join( '\n' ) ).toContain( 'fan' );
+		expect( refused( d ) ).toContain( 'fan' );
 	} );
 } );
 

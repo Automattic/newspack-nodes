@@ -110,12 +110,11 @@ class ScaffoldCliCommandTest extends TestCase {
 		\mkdir( "{$this->tmp}/orbit-mail", 0755, true );
 		\file_put_contents( "{$this->tmp}/orbit-mail/orbit-mail.php", "<?php // precious\n" );
 
-		try {
-			$this->scaffold( 'plugin', 'orbit-mail' );
-			$this->fail( 'Expected WP_CLI::error on existing target.' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertStringContainsString( 'orbit-mail/orbit-mail.php', $e->getMessage() );
-		}
+		$e = $this->caught(
+			fn () => $this->scaffold( 'plugin', 'orbit-mail' ),
+			'Expected WP_CLI::error on existing target.'
+		);
+		$this->assertStringContainsString( 'orbit-mail/orbit-mail.php', $e->getMessage() );
 		$this->assertSame( "<?php // precious\n", \file_get_contents( "{$this->tmp}/orbit-mail/orbit-mail.php" ) );
 	}
 
@@ -145,12 +144,9 @@ class ScaffoldCliCommandTest extends TestCase {
 		\mkdir( "{$this->tmp}/includes", 0755, true );
 		\file_put_contents( "{$this->tmp}/includes/class-fancy-filter-node.php", "<?php // precious\n" );
 
-		try {
-			$this->scaffold( 'node', 'Fancy_Filter' );
-			$this->fail( 'Expected WP_CLI::error on existing target.' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertStringContainsString( 'class-fancy-filter-node.php', $e->getMessage() );
-		}
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'class-fancy-filter-node.php' );
+		$this->scaffold( 'node', 'Fancy_Filter' );
 	}
 
 	// -------------------------------------------------------------------------

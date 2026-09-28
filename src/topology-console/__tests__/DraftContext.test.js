@@ -49,6 +49,26 @@ describe( 'useDraftInterpreter', () => {
 		] );
 	} );
 
+	it( 'publishes what the last change refused, and clears it on the next', () => {
+		const { result } = renderHook( () => useDraftInterpreter() );
+		act( () => {
+			result.current.load( 'make_node Echo armadillo\nsecure banana' );
+		} );
+
+		expect( result.current.refusals ).toEqual( [
+			expect.objectContaining( {
+				line: 2,
+				statement: 'secure banana',
+			} ),
+		] );
+
+		act( () => {
+			result.current.run( 'make_node Echo pangolin' );
+		} );
+
+		expect( result.current.refusals ).toEqual( [] );
+	} );
+
 	it( 'replaces the whole document on load, and returns the new graph', () => {
 		const { result } = renderHook( () => useDraftInterpreter() );
 		act( () => {

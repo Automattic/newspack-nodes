@@ -17,7 +17,6 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Lock_Node;
-use Newspack_Nodes\Spawn_Coordinator;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Topology_Analyzer;
 use Newspack_Nodes\Topology_Registry;
@@ -135,26 +134,26 @@ class BootstrapVaultReloadTest extends TestCase {
 		}
 	}
 
-	public function test_unparseable_topology_is_skipped_and_the_rest_still_signal(): void {
+	public function test_an_unparseable_topology_fails_the_reload_after_the_healthy_ones_are_signalled(): void {
 		$this->write_tsl( 'broken-lab', "include no-such-topology-4471\n" );
 		\update_option( 'newspack_nodes_topologies', [ 'spoke-pull-lab', 'broken-lab' ] );
 		Config::reset();
 		$this->make_lock_dir( 'broken-lab' );
 
-		Bootstrap::reload_vault_consumers();
+		$caught = null;
+		try {
+			Bootstrap::reload_vault_consumers();
+		} catch ( \RuntimeException $e ) {
+			$caught = $e;
+		}
 
-		$this->assertFileExists( $this->flag( 'spoke-pull-lab', Lock_Node::RELOAD_FLAG ) );
+		$this->assertNotNull( $caught, 'the unreadable topology escapes the reload' );
+		$this->assertStringContainsString( 'no-such-topology-4471', $caught->getMessage() );
+		$this->assertFileExists(
+			$this->flag( 'spoke-pull-lab', Lock_Node::RELOAD_FLAG ),
+			'the healthy consumer is still signalled'
+		);
 		$this->assertFileDoesNotExist( $this->flag( 'broken-lab', Lock_Node::RELOAD_FLAG ) );
-	}
-
-	public function test_a_throwing_provider_does_not_fatal_the_vault_save(): void {
-		Bootstrap::$spawn_coordinator_factory = static function (): Spawn_Coordinator {
-			throw new \RuntimeException( 'spawn coordinator unavailable 8823' );
-		};
-
-		Bootstrap::reload_vault_consumers();
-
-		$this->assertFileDoesNotExist( $this->flag( 'spoke-pull-lab', Lock_Node::RELOAD_FLAG ) );
 	}
 
 	public function test_a_vault_group_with_no_members_yet_still_gets_signalled(): void {

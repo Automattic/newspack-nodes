@@ -17,6 +17,7 @@
 
 import { markLocal } from './command-auth';
 import { Core } from './core';
+import { attemptEach, raise } from './failures';
 import { MAX_DEBUG_LEVEL } from './dumper-node';
 import { Node, serializeArg } from './node';
 import {
@@ -593,6 +594,11 @@ export class ShellNode extends Node {
 		this.pendingQuote = '';
 		/** Backslash continuation: the next line splices on, no separator. */
 		this.lineContinuation = '';
+		/**
+		 * A REPL prints a refusal and carries on; a topology load throws it,
+		 * so a broken line never builds half a graph. Mirrors PHP's setter.
+		 */
+		this._fatalErrors = false;
 		/** Dispatch tap: called with every outgoing Message before the sink. */
 		this.onDispatch = null;
 		/** Skin callbacks; the host owns the stylesheet and its storage. */
@@ -611,7 +617,11 @@ export class ShellNode extends Node {
 	 * The Shell stays unnamed and unroutable, so no message can ARRIVE here by
 	 * routing: a caller either holds this reference or sinks into it.
 	 *
+	 * Every statement runs whatever an earlier one threw, and what any threw
+	 * escapes after the last, as PHP's `attempt_each()` + `raise()` do.
+	 *
 	 * @param {Array} message Positional Message carrying the line in VALUE.
+	 * @throws {Error} What the statements threw; several as an AggregateError.
 	 */
 	fill( message ) {
 		if ( ! this.sink ) {
@@ -632,17 +642,19 @@ export class ShellNode extends Node {
 			this.sink.fill( message );
 			return;
 		}
-		for ( const { text } of splitStatementsIndexed( value ) ) {
-			const parsed = this.parse( text );
-			if ( null === parsed ) {
-				continue;
-			}
-			this.counter++;
-			if ( '' === parsed[ KEY ] ) {
-				parsed[ KEY ] = message[ KEY ];
-			}
-			this.dispatch( parsed );
-		}
+		raise(
+			attemptEach( splitStatementsIndexed( value ), ( { text } ) => {
+				const parsed = this.parse( text );
+				if ( null === parsed ) {
+					return;
+				}
+				this.counter++;
+				if ( '' === parsed[ KEY ] ) {
+					parsed[ KEY ] = message[ KEY ];
+				}
+				this.dispatch( parsed );
+			} )
+		);
 	}
 
 	/**
@@ -697,7 +709,7 @@ export class ShellNode extends Node {
 
 		// `include` reads a topology file from disk — impossible in-browser.
 		if ( 'include' === verb ) {
-			this.stdout( 'include is not supported in the browser shell\n' );
+			this.refuse( 'include is not supported in the browser shell\n' );
 			return null;
 		}
 
@@ -739,13 +751,13 @@ export class ShellNode extends Node {
 					{ length: MAX_DEBUG_LEVEL + 1 },
 					( _, i ) => i
 				).join( '|' );
-				this.stdout( `usage: debug_level [${ usage }]\n` );
+				this.refuse( `usage: debug_level [${ usage }]\n` );
 				return null;
 			}
 			const level = '' === arg ? null : Number( arg );
 			const dumper = Core.node( names.OUTPUT );
 			if ( ! dumper?.setDebugLevel ) {
-				this.stdout( `debug_level: unknown node: ${ names.OUTPUT }\n` );
+				this.refuse( `debug_level: unknown node: ${ names.OUTPUT }\n` );
 				return null;
 			}
 			// No argument toggles; PHP's `debug_level` does the same.
@@ -758,12 +770,12 @@ export class ShellNode extends Node {
 		if ( 'debug_ui' === verb ) {
 			const arg = args[ 0 ] ?? '';
 			if ( '' !== arg && 'on' !== arg && 'off' !== arg ) {
-				this.stdout( 'usage: debug_ui [on|off]\n' );
+				this.refuse( 'usage: debug_ui [on|off]\n' );
 				return null;
 			}
 			const dumper = Core.node( names.OUTPUT );
 			if ( ! dumper?.setDebugUi ) {
-				this.stdout( `debug_ui: unknown node: ${ names.OUTPUT }\n` );
+				this.refuse( `debug_ui: unknown node: ${ names.OUTPUT }\n` );
 				return null;
 			}
 			dumper.setDebugUi( '' === arg ? ! dumper.debugUi : 'on' === arg );
@@ -779,7 +791,7 @@ export class ShellNode extends Node {
 		if ( 'set_skin' === verb ) {
 			const skin = join( 0 );
 			if ( '' === skin ) {
-				this.stdout( 'usage: set_skin <name>\n' );
+				this.refuse( 'usage: set_skin <name>\n' );
 				return null;
 			}
 			this.host.setSkin?.( skin );
@@ -798,7 +810,7 @@ export class ShellNode extends Node {
 		message[ FROM ] =
 			this.vars[ 'message.from' ] || this.replyFrom( names.OUTPUT );
 		message[ KEY ] = this.vars[ 'message.key' ] ?? '';
-		message[ ID ] = this.vars[ 'message.id' ] ?? '';
+		message[ ID ] = this.vars[ 'message.id' ] ?? ''; // contract-ok: a REPL forges ID on purpose
 		// A forged TIMESTAMP is a debugging tool; unset keeps the mint clock.
 		if ( this.vars[ 'message.timestamp' ] ) {
 			message[ TIMESTAMP ] = this.vars[ 'message.timestamp' ];
@@ -808,7 +820,7 @@ export class ShellNode extends Node {
 		if ( 'cmd' === verb || 'command' === verb || 'command_node' === verb ) {
 			const name = args[ 1 ] ?? '';
 			if ( ! to || ! name ) {
-				this.stdout( 'usage: cmd <path> <verb> [<args>]\n' );
+				this.refuse( 'usage: cmd <path> <verb> [<args>]\n' );
 				return null;
 			}
 			message[ TYPE ] = TM_COMMAND;
@@ -818,7 +830,7 @@ export class ShellNode extends Node {
 
 		if ( 'send' === verb || 'send_node' === verb ) {
 			if ( ! to ) {
-				this.stdout( 'usage: send <path> <bytes>\n' );
+				this.refuse( 'usage: send <path> <bytes>\n' );
 				return null;
 			}
 			message[ TYPE ] = TM_BYTESTREAM;
@@ -829,7 +841,7 @@ export class ShellNode extends Node {
 
 		if ( 'request' === verb || 'request_node' === verb ) {
 			if ( ! to ) {
-				this.stdout( 'usage: request <path> <args>\n' );
+				this.refuse( 'usage: request <path> <args>\n' );
 				return null;
 			}
 			message[ TYPE ] = TM_REQUEST;
@@ -839,7 +851,7 @@ export class ShellNode extends Node {
 
 		if ( 'tell' === verb || 'tell_node' === verb ) {
 			if ( ! to ) {
-				this.stdout( 'usage: tell <path> <bytes>\n' );
+				this.refuse( 'usage: tell <path> <bytes>\n' );
 				return null;
 			}
 			message[ TYPE ] = TM_INFO;
@@ -849,14 +861,14 @@ export class ShellNode extends Node {
 
 		if ( 'send_struct' === verb || 'send_struct_node' === verb ) {
 			if ( ! to ) {
-				this.stdout( 'usage: send_struct <path> <json>\n' );
+				this.refuse( 'usage: send_struct <path> <json>\n' );
 				return null;
 			}
 			let value;
 			try {
 				value = JSON.parse( join( 1 ) );
 			} catch ( e ) {
-				this.stdout( `send_struct: ${ e.message }\n` );
+				this.refuse( `send_struct: ${ e.message }\n` );
 				return null;
 			}
 			message[ TYPE ] = TM_STRUCT;
@@ -866,7 +878,7 @@ export class ShellNode extends Node {
 
 		if ( 'send_eof' === verb ) {
 			if ( ! to ) {
-				this.stdout( 'usage: send_eof <path>\n' );
+				this.refuse( 'usage: send_eof <path>\n' );
 				return null;
 			}
 			message[ TYPE ] = TM_EOF;
@@ -930,14 +942,14 @@ export class ShellNode extends Node {
 
 		const m = VAR_GRAMMAR.exec( line );
 		if ( ! m ) {
-			this.stdout( 'var: expected <name> [ <op> [ <value> ] ]\n' );
+			this.refuse( 'var: expected <name> [ <op> [ <value> ] ]\n' );
 			return null;
 		}
 		const [ , name, op = '', rest = '' ] = m;
 		// Shell3:2825 — a value TOKEN sets (even if blank); none deletes.
 		const hasValue = '' !== rest;
 		if ( name.includes( ':' ) ) {
-			this.stdout(
+			this.refuse(
 				`var: invalid name '${ name }' (':' is reserved for read-only namespaces like config:)\n`
 			);
 			return null;
@@ -948,7 +960,7 @@ export class ShellNode extends Node {
 		if ( '' === op ) {
 			// Shell3:630 fatals on trailing junk where an operator belongs.
 			if ( '' !== value.trim() ) {
-				this.stdout(
+				this.refuse(
 					`var: unexpected token in assignment: ${ value }\n`
 				);
 				return null;
@@ -990,7 +1002,7 @@ export class ShellNode extends Node {
 			} else if ( '--' === op ) {
 				this.vars[ name ] = String( num( current ) - 1 );
 			} else {
-				this.stdout( `var: bad arguments: ${ op }\n` );
+				this.refuse( `var: bad arguments: ${ op }\n` );
 				return null;
 			}
 			return null;
@@ -1015,7 +1027,7 @@ export class ShellNode extends Node {
 				return null;
 			case '/=':
 				if ( 0 === num( value ) ) {
-					this.stdout( 'var: division by zero\n' );
+					this.refuse( 'var: division by zero\n' );
 					return null;
 				}
 				this.vars[ name ] = String( num( current ) / num( value ) );
@@ -1030,7 +1042,7 @@ export class ShellNode extends Node {
 				this.vars[ name ] = String( num( current ) * num( value ) );
 				return null;
 			default:
-				this.stdout( `var: invalid operator: ${ op }\n` );
+				this.refuse( `var: invalid operator: ${ op }\n` );
 				return null;
 		}
 	}
@@ -1245,8 +1257,10 @@ export class ShellNode extends Node {
 
 	/**
 	 * End-of-input gate: a held continuation at EOF is Tachikoma's
-	 * `got EOF while waiting for tokens` — report it through `_stdout` and
-	 * clear, as PHP's `flush_pending()` does.
+	 * `got EOF while waiting for tokens` — clear it and refuse it, as PHP's
+	 * `flush_pending()` does.
+	 *
+	 * @throws {Error} On pending input when fatalErrors is on.
 	 */
 	flushPending() {
 		const pending = (
@@ -1258,7 +1272,22 @@ export class ShellNode extends Node {
 		if ( '' === pending ) {
 			return;
 		}
-		this.stdout( `got EOF while waiting for tokens: ${ pending }\n` );
+		this.refuse( `got EOF while waiting for tokens: ${ pending }\n` );
+	}
+
+	/**
+	 * Refuse a statement: a throw when loading a topology, where a skipped
+	 * statement builds a graph other than the one written, and a line on the
+	 * terminal in a REPL. Mirrors PHP `Shell_Node::refuse()`.
+	 *
+	 * @param {string} line The refusal, carrying its own newline.
+	 * @throws {Error} When fatalErrors is on.
+	 */
+	refuse( line ) {
+		if ( this._fatalErrors ) {
+			throw new Error( line.replace( /\n+$/, '' ) );
+		}
+		this.stdout( line );
 	}
 
 	/**
@@ -1346,6 +1375,20 @@ export class ShellNode extends Node {
 			this._wantReply = value;
 		}
 		return this._wantReply;
+	}
+
+	/**
+	 * Accessor: interactive sessions print a refusal and carry on; topology
+	 * loads fail loud. Mirrors PHP `Shell_Node::fatal_errors()`.
+	 *
+	 * @param {?boolean} value New setting, or undefined/null to read.
+	 * @return {boolean} The setting in force.
+	 */
+	fatalErrors( value = null ) {
+		if ( null !== value ) {
+			this._fatalErrors = value;
+		}
+		return this._fatalErrors;
 	}
 
 	/**

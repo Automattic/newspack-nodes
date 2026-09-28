@@ -22,9 +22,10 @@
  * The minters' dispatch loop IS here, as `send_signed()`: each mints its own
  * command per spoke, so they share one contract. Tee's and Tap's loops are
  * not. Tee prepends the remaining path so routing continues past the hop; Tap
- * hard-addresses and then passes the original through. Both attempt every
- * target, defer the throwable `outranks()` selects, and re-throw it after the
- * loop (ADR-14). Those are different contracts, not one contract with a flag.
+ * hard-addresses and then passes the original through. All three attempt
+ * every target and raise what they caught after the last, combined by
+ * `Worker_Should_Stop::raise()` (ADR-14). Those are different contracts, not
+ * one contract with a flag.
  *
  * @package Newspack_Nodes
  */
@@ -101,37 +102,45 @@ trait Fanout_Targets {
 	 * would ask. The skip is logged only past the first 30 seconds of uptime,
 	 * while a session still being established is not worth a line.
 	 *
+	 * Every spoke is attempted, and what any of them threw is raised after the
+	 * last: one spoke's failure says nothing about the next one's delivery.
+	 *
 	 * @param string       $to        Path below each spoke target the command addresses.
 	 * @param string       $verb      Command name the spoke's interpreter runs.
 	 * @param list<string> $arguments Command argument tokens.
+	 * @throws \Throwable Every spoke's failure, combined, raised after the last spoke.
 	 */
 	protected function send_signed( string $to, string $verb, array $arguments ): void {
 		$sink = $this->sink;
 		if ( null === $sink ) {
 			return;
 		}
-		foreach ( $this->live_targets() as $target ) {
-			$egress = $this->egress_for( $target );
-			$spoke  = $egress?->vault_id() ?? '';
-			if ( '' === $spoke || ! Command_Auth::has_session( $spoke ) ) {
-				if ( (int) ( Core::$now - Core::$init_time ) > 30 ) {
-					$this->print_less_often( 'no session for ', $target, '; skipping' );
+		$caught = Worker_Should_Stop::attempt_each(
+			$this->live_targets(),
+			function ( string $target ) use ( $sink, $to, $verb, $arguments ): void {
+				$egress = $this->egress_for( $target );
+				$spoke  = $egress?->vault_id() ?? '';
+				if ( '' === $spoke || ! Command_Auth::has_session( $spoke ) ) {
+					if ( (int) ( Core::$now - Core::$init_time ) > 30 ) {
+						$this->print_less_often( 'no session for ', $target, '; skipping' );
+					}
+					// Skipping alone deadlocks: someone must ask to handshake.
+					$egress?->ensure_session();
+					return;
 				}
-				// Skipping alone deadlocks: someone must ask for the handshake.
-				$egress?->ensure_session();
-				continue;
+				$out                   = Message::new_message();
+				$out[ Message::TYPE ]  = Message::TM_COMMAND;
+				$out[ Message::FROM ]  = $this->name;
+				$out[ Message::TO ]    = $this->target_path( $target, $to );
+				$out[ Message::VALUE ] = [
+					'name'      => $verb,
+					'arguments' => $arguments,
+				];
+				Command_Auth::sign_for( $spoke, $out );
+				$sink->fill( $out );
 			}
-			$out                   = Message::new_message();
-			$out[ Message::TYPE ]  = Message::TM_COMMAND;
-			$out[ Message::FROM ]  = $this->name;
-			$out[ Message::TO ]    = $this->target_path( $target, $to );
-			$out[ Message::VALUE ] = [
-				'name'      => $verb,
-				'arguments' => $arguments,
-			];
-			Command_Auth::sign_for( $spoke, $out );
-			$sink->fill( $out );
-		}
+		);
+		Worker_Should_Stop::raise( $caught );
 	}
 
 	/**

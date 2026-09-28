@@ -6,6 +6,129 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **`Deferred_Clean_Stop` is one bracket: `deferring( \Closure $body )`.**
+  `clear_pending_stop()` and `raise_pending_stop()` are gone. Wrap a
+  snapshot node's whole per-message work in `$this->deferring( fn () => … )`
+  and keep each forward in `guarded()`; the bracket raises when the body
+  returns. Outside a bracket, `guarded()` now lets a stop propagate at once.
+- **`Lock_Node::request_restart_at()`, `request_stop_at()` and
+  `request_reload_at()` throw when the flag will not land.** False still
+  means no lock dir, so no worker; a write refused as root or one that
+  fails raises a `\RuntimeException` naming the dir and flag. A caller
+  that counted false as a refusal catches or lets it escape instead.
+  `Restart_Planner::plan()` no longer swallows: an unusable locks directory,
+  an unreadable active topology or a failed flag reaches the writer, after
+  every readable topology's dirs were flagged, and `request_reloads()`
+  takes an optional classification, `request_reloads( $locks_dir,
+  [ 'Remote_Source' ] )`, for a reload narrower than `'all'`.
+- **`Worker_Should_Stop::outranks()` is gone; `attempt_each()` returns
+  the failures it caught, each under its item's key.** An attempt-all loop
+  hands what `attempt_each()` returned to `Worker_Should_Stop::raise()`,
+  which ignores the keys, instead of throwing one survivor. Every caught throwable escapes: several failures arrive as
+  `Failures` (`all()` lists them), and a stop beside a failure is a plain
+  stop carrying it as `getPrevious()`. A reader deciding to commit past a
+  message asks `Worker_Should_Stop::is_clean()`, never `instanceof
+  Worker_Should_Stop_Clean`, because a clean stop carrying a previous is not
+  clean.
+- **A `Vault_Group` refusal from several children reads
+  `<n> failures: <child>: <reason> | <child>: <reason>`**, where it joined
+  the refusals with `; `. A single refusal still reads
+  `<child>: <reason>`. A stop from one child and a refusal from another now
+  raise together: the stop, carrying the refusal.
+- **`Topology_Analyzer::graph_for()` throws on a broken include**, as every
+  other reader of the flattened statements already did, and memoizes
+  nothing when it does. A caller that read an empty graph as "declares
+  nothing" now sees the failure; catch it only to turn it into a result
+  your own caller sees. `dump_graph` answers such a topology with a
+  TM_ERROR rather than an empty graph.
+- **A topology with any failing line fails the load** instead of booting a
+  partial graph. That covers a `make_node` the interpreter refuses, a `cmd`
+  or `command_node` whose verb throws or whose path names no node
+  (`NOT_AVAILABLE: <path> <verb>`), a Shell refusal such as a `usage:` line
+  or a bad `var`, a quote left open at end of file, and an `include` that
+  names no registered topology, will not open, or cycles. Every line still
+  runs; the failures escape together after the last, one as itself and
+  several as `Failures`, and the worker releases its slot without
+  respawning. Before upgrading, load each of your topologies in a test —
+  `Topology_Loader::load()` against a `Command_Interpreter_Node` sinking
+  into a `_router` — or read a worker's boot error, then fix or delete the
+  failing line. A `cmd` aimed at a node another topology declares needs
+  that topology `include`d above it, and a topology including one whose
+  providing plugin is dormant must be deactivated with that plugin.
+- **A Vault id named `config` fails its `Vault_Group`** as
+  `building Vault id config: …`, after every other member built, where it
+  was skipped with a line. The group's own `:config` interpreter holds that
+  slot; rename the Vault entry.
+- **`Vault_Group_Node::update_graph()` raises.** A member that will not
+  build — a name collision, a refused argument, a refused replay — is
+  retracted and raised as `building Vault id <id>: <reason>`; one that will
+  not retract keeps its slot and is raised as
+  `retracting Vault id <id>: <reason>`. Every member is still attempted,
+  and the failures escape together on the fleet's RELOAD.
+- **`Spawn_Coordinator::lock_path()` is static and takes the locks
+  directory first:** `Spawn_Coordinator::lock_path( $locks_dir, $type,
+  $partition )`, where it was the instance method `lock_path( $type,
+  $partition )`. Pass `"{$base_dir}/locks"`; it needs no coordinator.
+- **`Bootstrap::node_dirs()` and `node_partitions()` answer from the
+  readable active topologies.** A topology that will not read no longer
+  fails the call when a readable one declares the node; when none does,
+  every unreadable active topology raises, an active name no `.tsl`
+  resolves included, where that name returned an empty answer.
+- **A log producer template declaring no dir refuses the retention sweep
+  out loud.** A template registered through
+  `newspack_nodes/registered_log_producers` that resolves under no
+  `<config:logs_dir>` dir raises `log producer <template> declares no dir
+  under the logs root <root>` from the sweep and `workers dump_cleanup`,
+  where it printed a line and skipped. `Log_Cleaner::producer_log_dirs()`
+  is private, and `declared_log_partitions()` returns
+  `[ $map, $refused ]`, the refusals keyed by template. `dump_graph`
+  carries them under `refused_producers`.
+- **An unreadable active topology refuses the retention sweep out loud.**
+  `Log_Cleaner::cleanup_orphan_partitions()` — the reconcile pass's
+  `retention` step and `wp nodes gc` — and the `workers dump_cleanup` verb
+  raise its failure, where the sweep skipped with a line; nothing is
+  deleted. The `aggregator summary` slice names each such topology under
+  `unreadable`, and `wp nodes status` and `types` warn naming it.
+- **`Settings_Sync_Node` raises an option it cannot encode**
+  (`settings_sync: cannot encode value for <option>`) after pushing the
+  rest, where it printed and skipped it. Nothing is sent for that option.
+- **`HTTP_Out_Node` raises a malformed reply line** — the
+  `Message::unpacked()` refusal — after delivering every other line of the
+  body.
+
+- **`Worker_Base::execute()` raises a topology load failure** after the
+  teardown and the release, still without a self-respawn, where it returned
+  `[ 'status' => 'load_failed', 'error' => … ]`. It returns only `skipped`
+  or `ok`; a caller branching on `load_failed` catches the throwable instead.
+  Whatever the drain, the shutdown sweep, the cursor handoff, the teardown or
+  the release threw escapes the same way, after the slot is handed on.
+- **`Job_Delay::sweep_action()` is gone.** `Alerts::emit()` and
+  `Job_Delay::sweep()` are steps of the reconcile pass, no longer
+  `newspack_nodes/periodic` subscribers; call `Job_Delay::sweep()` directly.
+  Every reconcile step runs whatever an earlier one threw, then the pass
+  raises them all out of the cron callback after `after_reconcile`.
+- **Lock contention is `Write_Lock_Held`.** `Partition_Node::allow_large_writes()`
+  raises it when a live writer still holds the lock, and a plain
+  `\RuntimeException` naming the cause for any other refusal.
+  `Job_Intake::queue()` returns false for contention alone and lets every
+  other failure propagate; catch `Write_Lock_Held`, not `\RuntimeException`,
+  to keep a boolean contract of your own.
+- **A `newspack_nodes/job_worker/after_job` or `before_job` listener that
+  throws fails the job.** The listener's failure joins the job's own through
+  `Worker_Should_Stop::raise()` and reaches the Consumer, which dead-letters
+  it; `after_job` still fires first. A `newspack_nodes/stderr` listener that
+  throws escapes `Core::stderr()` after the line is handled. Catch in your
+  listener only to turn a failure into a result someone sees.
+- **Failures the lifecycle printed now propagate:** a throwing
+  `Shutdown_Sweeper`, a node teardown in `Core::cleanup_all_nodes()` (every
+  node still torn down), a probe's `probe_stats()` (every node still
+  swept), the fleet scan (the worker hands on and raises), a failed
+  settings-audit append (into the `update_option()` that fired it), a
+  failed Vault reload signal, the cache-flush worker restart, an unreadable
+  topology or segment listing in `taillog`, a stale status row whose disk
+  read fails, and a `make_node` rollback that throws beside the refusal it
+  rolls back.
+
 - **`AreaTimeChart` and `drawAxes` require `yLabel`.** An omitted title used
   to leave the axis bare; `lint:types` now refuses the call, and at runtime
   the axis draws an empty title. Pass the translated name of the quantity the

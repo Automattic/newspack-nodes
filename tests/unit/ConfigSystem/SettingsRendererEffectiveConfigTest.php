@@ -77,6 +77,18 @@ class SettingsRendererEffectiveConfigTest extends TestCase {
 		$this->assertStringContainsString( 're-read', \strtolower( $rows['num_partitions']['restart'] ) );
 	}
 
+	public function test_an_unreadable_topology_is_reported_in_the_restart_column(): void {
+		\update_option( 'newspack_nodes_topologies', [ 'combined', 'broken-lab-5521' ] );
+		$this->write_tsl( 'broken-lab-5521', "include absent-lab-5521\n" );
+		Config::reset();
+
+		$rows = $this->rows_by_key();
+
+		$this->assertStringContainsString( 'Restart impact unknown', $rows['max_segments']['restart'] );
+		$this->assertStringContainsString( 'absent-lab-5521', $rows['max_segments']['restart'] );
+		$this->assertSame( 'No restart (workers re-read within ~15s)', $rows['num_partitions']['restart'] );
+	}
+
 	public function test_unstored_setting_reports_file_default_and_no_overlay(): void {
 		$rows = $this->rows_by_key();
 		$this->assertStringContainsString( 'file default', $rows['max_segments']['stored'] );

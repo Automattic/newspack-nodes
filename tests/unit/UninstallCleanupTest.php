@@ -198,4 +198,24 @@ final class UninstallCleanupTest extends TestCase {
 			\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . ( false === $prev ? '' : $prev ) );
 		}
 	}
+
+	/**
+	 * The dead-letter root the runtime writes quarantines under — wherever
+	 * `Config::deadletter_dir()` puts it — goes with the plugin, while a file
+	 * the operator keeps beside it stays.
+	 */
+	public function test_delete_runtime_tree_removes_the_deadletter_root(): void {
+		$base = (string) \realpath( \sys_get_temp_dir() ) . '/nodes-uninstall-' . \uniqid();
+		$root = \Newspack_Nodes\Config::deadletter_dir( $base );
+		\mkdir( "{$root}/logs.skerry-2291.p4", 0755, true );
+		\file_put_contents( "{$root}/logs.skerry-2291.p4/0.log", 'poison' );
+		\file_put_contents( "{$base}/operator-notes.txt", 'keep me' );
+
+		\Newspack_Nodes\delete_runtime_tree( $base );
+
+		$this->assertDirectoryDoesNotExist( $root, 'the dead-letter root must not survive plugin deletion' );
+		$this->assertFileExists( "{$base}/operator-notes.txt" );
+		\unlink( "{$base}/operator-notes.txt" );
+		\rmdir( $base );
+	}
 }

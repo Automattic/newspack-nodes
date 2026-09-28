@@ -216,6 +216,54 @@ describe( 'getStateColor', () => {
 		expect( fresh( 'somePlugin plugin' ) ).toBe( '#AB47BC' );
 	} );
 
+	it( 'colors a " command" span apart from hooks, plugins and HTTP', async () => {
+		const { getStateColor: fresh } = await import( '../formatUtils' );
+		expect( fresh( 'dump_url command' ) ).toBe( '#905665' );
+		expect( fresh( 'overview command (start)' ) ).toBe( '#905665' );
+	} );
+
+	it( 'resolves the " command" suffix ahead of a custom color', async () => {
+		window.eventLoggerCustomColors = { 'kakapo command': '#123abc' };
+		const { getStateColor: fresh } = await import( '../formatUtils' );
+		expect( fresh( 'kakapo command' ) ).toBe( '#905665' );
+	} );
+
+	it( 'cuts a name at its first ": ", never at a bare colon', async () => {
+		const { getStateColor: fresh } = await import( '../formatUtils' );
+		expect( fresh( 'sql: SELECT wp_posts' ) ).toBe( '#8E24AA' );
+		expect( fresh( 'Vault_Group dump command: x' ) ).toBe( '#905665' );
+	} );
+
+	it( 'keeps a wrapped listener span whole past its bare colons', async () => {
+		const listener =
+			'{closure}:atomic-platform-virtual-patches.php:21080 @0';
+		window.eventLoggerCustomColors = {
+			'{closure}': '#5d2e8c',
+			[ listener ]: '#3c7a1e',
+		};
+		const { getStateColor: fresh } = await import( '../formatUtils' );
+		expect( fresh( listener ) ).toBe( '#3c7a1e' );
+		expect( fresh( `${ listener } (complete)` ) ).toBe( '#3c7a1e' );
+	} );
+
+	it( 'gives a name matching an inherited member the default grey', async () => {
+		const { getStateColor: fresh } = await import( '../formatUtils' );
+		expect( fresh( 'constructor' ) ).toBe( '#9e9e9e' );
+		expect( fresh( '__proto__' ) ).toBe( '#9e9e9e' );
+
+		// No custom-color entry, so the lookup reaches SYSTEM_COLORS.
+		window.eventLoggerCustomColors = { kakapo: '#123abc' };
+		expect( fresh( 'constructor' ) ).toBe( '#9e9e9e' );
+	} );
+
+	it( "leaves an application's span names to its custom colors", async () => {
+		const { getStateColor: fresh } = await import( '../formatUtils' );
+		expect( fresh( 'url fold (complete)' ) ).toBe( '#9e9e9e' );
+
+		window.eventLoggerCustomColors = { 'url fold': '#7731ab' };
+		expect( fresh( 'url fold (complete)' ) ).toBe( '#7731ab' );
+	} );
+
 	it( 'returns custom event color from window.eventLoggerCustomColors', async () => {
 		window.eventLoggerCustomColors = { my_event: '#abcdef' };
 		const { getStateColor: fresh } = await import( '../formatUtils' );

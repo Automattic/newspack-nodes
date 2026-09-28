@@ -228,6 +228,164 @@ class LockTest extends TestCase {
 		$this->assertSame( 'restart requested', $holder->restart_reason() );
 	}
 
+	/**
+	 * A flag that never landed must say so: the caller told an operator the
+	 * worker would recycle. The throw names the dir, the flag and the error.
+	 */
+	public function test_request_stop_at_throws_naming_the_dir_and_flag_when_the_write_fails(): void {
+		$dir = "{$this->tmp}/obsidian-relay.p5.lock.d";
+		\mkdir( $dir, 0755, true );
+		\chmod( $dir, 0555 );
+
+		$thrown = null;
+		try {
+			Lock_Node::request_stop_at( $dir );
+		} catch ( \RuntimeException $e ) {
+			$thrown = $e;
+		} finally {
+			\chmod( $dir, 0755 );
+		}
+		$this->assertNotNull( $thrown, 'a failed flag write must throw' );
+		$this->assertStringContainsString( $dir, $thrown->getMessage() );
+		$this->assertStringContainsString( Lock_Node::STOP_FLAG, $thrown->getMessage() );
+		$this->assertStringContainsString( 'Permission denied', $thrown->getMessage() );
+		$this->assertFileDoesNotExist( $dir . '/' . Lock_Node::STOP_FLAG );
+	}
+
+	/**
+	 * A holder may release between the dir check and the write. A dir gone by
+	 * then means no worker holds the slot, the same answer a missing dir gets.
+	 * The error text is never read: under a German locale it is not English.
+	 */
+	public function test_request_stop_at_answers_false_when_the_holder_releases_mid_write(): void {
+		$dir = "{$this->tmp}/tidewater-sluice.p8.lock.d";
+		\mkdir( $dir, 0755, true );
+		Lock_Node::$put_contents = static function ( string $path ) use ( $dir ) {
+			\rmdir( $dir );
+			return self::localized_failure( $path );
+		};
+		try {
+			$this->assertFalse( Lock_Node::request_stop_at( $dir ), 'a released lock dir has nobody to signal' );
+		} finally {
+			Lock_Node::$put_contents = null;
+		}
+		$this->assertDirectoryDoesNotExist( $dir );
+	}
+
+	/**
+	 * A successor may re-create the dir between the check and the write. The
+	 * retry lands the flag in the successor's dir, which is where it belongs:
+	 * the successor now holds the slot the signal was meant for.
+	 */
+	public function test_request_stop_at_lands_the_flag_when_a_successor_recreates_the_dir_mid_write(): void {
+		$dir   = "{$this->tmp}/basalt-weir.p3.lock.d";
+		$calls = 0;
+		\mkdir( $dir, 0755, true );
+		Lock_Node::$put_contents = static function ( string $path, string $contents ) use ( $dir, &$calls ) {
+			if ( 1 === ++$calls ) {
+				\rmdir( $dir );
+				\mkdir( $dir, 0755, true );
+				return self::localized_failure( $path );
+			}
+			return \file_put_contents( $path, $contents );
+		};
+		try {
+			$this->assertTrue( Lock_Node::request_stop_at( $dir ), 'the retry reaches the successor' );
+		} finally {
+			Lock_Node::$put_contents = null;
+		}
+		$this->assertSame( 2, $calls, 'exactly one retry' );
+		$this->assertFileExists( $dir . '/' . Lock_Node::STOP_FLAG );
+	}
+
+	/** A write refused twice into a standing dir is a failure, whatever the locale. */
+	public function test_request_stop_at_throws_when_the_write_fails_into_the_same_dir(): void {
+		$dir   = "{$this->tmp}/pumice-sill.p9.lock.d";
+		$calls = 0;
+		\mkdir( $dir, 0755, true );
+		Lock_Node::$put_contents = static function ( string $path ) use ( &$calls ) {
+			++$calls;
+			return self::localized_failure( $path );
+		};
+		try {
+			$e = $this->caught( static fn () => Lock_Node::request_stop_at( $dir ), 'a write that failed into a standing dir must throw' );
+		} finally {
+			Lock_Node::$put_contents = null;
+		}
+		$this->assertSame( 2, $calls, 'the write is retried once before it throws' );
+		$this->assertStringContainsString( 'Datei oder Verzeichnis nicht gefunden', $e->getMessage() );
+	}
+
+	/** A failed write whose warning speaks German, as it would under `de_DE`. */
+	private static function localized_failure( string $path ): bool {
+		@\trigger_error( "file_put_contents({$path}): Failed to open stream: Datei oder Verzeichnis nicht gefunden", \E_USER_WARNING );
+		return false;
+	}
+
+	/**
+	 * A flag written between the release's unlinks and its rmdir would leave
+	 * a heartbeat-less dir that `wp nodes stop` waits out; the release clears
+	 * it and removes the dir.
+	 */
+	public function test_force_release_at_removes_a_flag_landing_before_its_rmdir(): void {
+		$dir = "{$this->tmp}/granite-flume.p6.lock.d";
+		\mkdir( $dir, 0755, true );
+		\touch( "{$dir}/heartbeat" );
+		$calls             = 0;
+		Lock_Node::$rmdir = static function ( string $path ) use ( &$calls ): bool {
+			if ( 1 === ++$calls ) {
+				Lock_Node::request_stop_at( $path );
+			}
+			return @\rmdir( $path );
+		};
+
+		Lock_Node::force_release_at( $dir );
+
+		$this->assertDirectoryDoesNotExist( $dir );
+		$this->assertSame( 2, $calls, 'one retry after the flag landed' );
+	}
+
+	/**
+	 * A writer that never relents cannot hold the release in a loop, and a dir
+	 * still standing after the last pass is a failure, not a release.
+	 */
+	public function test_force_release_at_throws_naming_what_remains_after_the_bounded_retries(): void {
+		$dir = "{$this->tmp}/shale-race.p7.lock.d";
+		\mkdir( $dir, 0755, true );
+		$calls             = 0;
+		Lock_Node::$rmdir = static function ( string $path ) use ( &$calls ): bool {
+			++$calls;
+			Lock_Node::request_reload_at( $path );
+			return @\rmdir( $path );
+		};
+
+		$e = $this->caught( static fn () => Lock_Node::force_release_at( $dir ), 'a dir the release could not remove must throw' );
+
+		$this->assertStringContainsString( $dir, $e->getMessage() );
+		$this->assertStringContainsString( Lock_Node::RELOAD_FLAG, $e->getMessage(), 'it names what remains' );
+
+		$this->assertSame( Lock_Node::RELEASE_ATTEMPTS, $calls );
+		$this->assertDirectoryExists( $dir );
+	}
+
+	/**
+	 * A release that cannot remove its dir raises and never publishes
+	 * RELEASED; the holder no longer believes it holds the lock, because its
+	 * heartbeat is already gone.
+	 */
+	public function test_release_raises_a_dir_it_could_not_remove_without_reporting_it_released(): void {
+		$dir  = "{$this->tmp}/tuff-ledge.p2.lock.d";
+		$lock = new Lock_Node( $dir );
+		$this->assertTrue( $lock->acquire() );
+		\file_put_contents( "{$dir}/stray-4471", 'x' );
+
+		$e = $this->caught( static fn () => $lock->release(), 'a release leaving its dir behind must throw' );
+
+		$this->assertStringContainsString( 'stray-4471', $e->getMessage() );
+		$this->assertFalse( $lock->is_held() );
+		$this->assertNotSame( $dir, $lock->get_state( 'RELEASED' ), 'no RELEASED for a dir still standing' );
+	}
+
 	public function test_request_restart_at_returns_false_for_missing_dir(): void {
 		$this->assertFalse( Lock_Node::request_restart_at( "{$this->tmp}/missing.lock.d" ) );
 	}
@@ -399,6 +557,32 @@ class LockTest extends TestCase {
 			[],
 			glob( "{$this->tmp}/orphan.lock.d.stealing.*" ),
 			'Atomic steal must clean up its renamed-aside scratch dir.'
+		);
+	}
+
+	/**
+	 * A stale write lock beside a partition — outside `locks/`, where no reaper
+	 * looks — holding a file this class never wrote and a stray subdirectory is
+	 * still stolen, and the steal leaves no aside behind: the stolen dir is
+	 * garbage the moment it is renamed away.
+	 */
+	public function test_acquire_steals_a_stale_write_lock_holding_strays_and_leaves_no_aside(): void {
+		$dir = "{$this->tmp}/logs/scoria-vent.p3/write.lock.d";
+		\mkdir( "{$dir}/.nfs-subdir", 0755, true );
+		\file_put_contents( "{$dir}/heartbeat", (string) ( \getmypid() + 6121 ) );
+		\file_put_contents( "{$dir}/.nfs000000000abc0042", 'x' );
+		\file_put_contents( "{$dir}/.nfs-subdir/.nfs000000000def0017", 'y' );
+		\touch( "{$dir}/heartbeat", \time() - 900 );
+
+		$lock = new Lock_Node( $dir, 30 );
+
+		$this->assertTrue( $lock->acquire(), 'a stray file in a stale dir must not abort the steal' );
+		$this->assertSame( (string) \getmypid(), \file_get_contents( "{$dir}/heartbeat" ) );
+		$this->assertSame( [], \glob( "{$dir}.stealing.*" ) ?: [], 'the steal must discard its aside, strays and all' );
+		$this->assertSame(
+			[ '.', '..', 'write.lock.d' ],
+			\scandir( "{$this->tmp}/logs/scoria-vent.p3" ),
+			'nothing but the new lock dir may stand beside the partition'
 		);
 	}
 

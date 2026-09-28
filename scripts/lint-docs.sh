@@ -27,6 +27,8 @@
 #      callbacks ask started_instance(), and has_instance() is the test API.
 #      Narrow by design: it matches the two phrasings that drifted, not a
 #      synonym for "asks" or a named callback as the subject.
+#  10. Every docs/tachikoma-lineage.md table row naming a divergence carries
+#      "(see below)", pointing at the Deliberate divergences section arguing it.
 
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
@@ -100,6 +102,14 @@ if [ -f includes/class-log-manager.php ]; then
 	hits=$(grep -rn 'has_instance' README.md AGENTS.md docs .claude/skills includes \
 		--include='*.md' --include='*.php' 2>/dev/null | grep -v '^docs/upgrading.md:' | grep -iE '(instrumentation|callbacks?) asks? (this\b|`?(Log_Manager::)?has_instance)' || true)
 	[ -n "$hits" ] && report "instrumentation described as asking has_instance(); it asks started_instance():"$'\n'"$hits"
+fi
+
+# 10. A lineage row that names a divergence points at the section arguing it,
+# or a reader takes the one-clause summary for the whole case. A plugin without
+# the lineage file has nothing to match and passes.
+if [ -f docs/tachikoma-lineage.md ]; then
+	hits=$(grep -nE '^\|' docs/tachikoma-lineage.md | grep -i 'diverg' | grep -vF '(see below)' || true)
+	[ -n "$hits" ] && report "a lineage row names a divergence without pointing at it with (see below):"$'\n'"$hits"
 fi
 
 [ "$fail" -eq 0 ] && printf '\342\234\223 lint-docs: docs in sync with the runtime\n' >&2
