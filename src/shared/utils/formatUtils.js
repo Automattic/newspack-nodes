@@ -60,6 +60,9 @@ const SYSTEM_COLORS = {
 	default: '#9e9e9e',
 };
 
+/** The word a command-interpreter verb span's base ends in. */
+const COMMAND_SUFFIX = ' command';
+
 /**
  * The dark ink `getTextColor` weighs against white: WordPress admin's
  * near-black, so a badge label matches the text around it.
@@ -273,14 +276,7 @@ export const getStateColor = ( name ) => {
 		return SYSTEM_COLORS.default;
 	}
 
-	// Strip (start)/(complete) suffix for log entries.
-	let baseName = name.replace( / \((start|complete)\)$/, '' ).trim();
-
-	// Cut "base: label" to base; a bare colon belongs to the base.
-	const labelAt = baseName.indexOf( ': ' );
-	if ( labelAt > 0 ) {
-		baseName = baseName.substring( 0, labelAt ).trim();
-	}
+	const baseName = spanBaseName( name );
 
 	// WordPress hooks end with " hook".
 	if ( baseName.endsWith( ' hook' ) ) {
@@ -297,8 +293,7 @@ export const getStateColor = ( name ) => {
 		return SYSTEM_COLORS.plugin;
 	}
 
-	// Command-interpreter verb spans end with " command".
-	if ( baseName.endsWith( ' command' ) ) {
+	if ( baseName.endsWith( COMMAND_SUFFIX ) ) {
 		return SYSTEM_COLORS.command;
 	}
 
@@ -314,6 +309,47 @@ export const getStateColor = ( name ) => {
 		? SYSTEM_COLORS[ baseName ]
 		: SYSTEM_COLORS.default;
 };
+
+/**
+ * Whether a span is a command-interpreter verb span: its base ends in
+ * ` command`. Any `(start)`/`(complete)` marker or `: label` tail is read past.
+ *
+ * @param {?string} name Event/node name.
+ * @return {boolean} True for a verb span.
+ */
+export const isCommandSpan = ( name ) =>
+	spanBaseName( name ?? '' ).endsWith( COMMAND_SUFFIX );
+
+/**
+ * A span name reduced to its base: the trailing ` (start)`/` (complete)`
+ * marker off, then everything from the first `: `. A name opening with `: `
+ * has no base before its label, so it stays whole rather than collapsing to
+ * the empty base every such name would share. The event logger's PHP
+ * `Flame_Tree::base_name()` is the same function, held to it by
+ * `tests/fixtures/span-base-names.json`, the case list both suites read.
+ *
+ * @param {string} name Event/node name.
+ * @return {string} The base name.
+ */
+export const spanBaseName = ( name ) => {
+	const base = trimAscii(
+		String( name ).replace( / \((start|complete)\)$/, '' )
+	);
+	const labelAt = base.indexOf( ': ' );
+	return labelAt > 0 ? trimAscii( base.substring( 0, labelAt ) ) : base;
+};
+
+/**
+ * A string with its ASCII whitespace — space, tab, LF, CR, VT and FF — off
+ * both ends, the set PHP's `Flame_Tree::base_name()` trims. `trim()` would
+ * also strip U+00A0, U+FEFF and the Unicode spaces, which PHP cannot match:
+ * a `/u` pattern fails outright on a name that is not valid UTF-8.
+ *
+ * @param {string} value Any string.
+ * @return {string} The trimmed string.
+ */
+const trimAscii = ( value ) =>
+	value.replace( /^[ \t\n\r\v\f]+|[ \t\n\r\v\f]+$/g, '' );
 
 /**
  * The chart-fill colors for the four HTTP status classes and the unknown one,

@@ -8,6 +8,12 @@
  * gates at MANAGE — no verb declares a `capability`, and `Service_CI_Node`
  * hands an undeclared verb the strictest role rather than the loosest.
  *
+ * `add` and `update` declare `password` `'secret' => true`, the only secret
+ * arguments in the system, so the command line a dispatch wrapper logs keeps
+ * only the id and the option names. Both refuse a `--url` that
+ * `Vault::url_carries_credentials()` refuses: a credential goes in `--user`
+ * and `--password`.
+ *
  * A read never carries the password. `public_shape()` is the one projection
  * both reading verbs return, and it says what else it keeps and why. A write
  * never acts on its own consequences: it announces on
@@ -129,6 +135,7 @@ class Vault_CI_Node extends Service_CI_Node {
 		$registry = Vault::fresh();
 		self::assert_free_id( $id, $registry );
 		self::assert_valid_group( $opts );
+		self::assert_url_without_credentials( $opts );
 		$config = self::extract_server_config( $opts );
 		if ( ! $registry->add( $id, $config ) ) {
 			// Registry rejected (bad/non-HTTPS URL) or hit MAX_SERVERS.
@@ -182,6 +189,7 @@ class Vault_CI_Node extends Service_CI_Node {
 		}
 		$new_id = self::renamed_to( $opts, $id, $registry );
 		self::assert_valid_group( $opts );
+		self::assert_url_without_credentials( $opts );
 		$partial = self::partial_config( $opts );
 		if ( ! $registry->update( $id, $partial, $new_id ) ) {
 			throw new \RuntimeException( 'update failed' );
@@ -247,6 +255,21 @@ class Vault_CI_Node extends Service_CI_Node {
 		$group = $opts['group'] ?? '';
 		if ( '' !== $group && ! Vault::is_valid_id( $group ) ) {
 			throw new \RuntimeException( \esc_html( "invalid group: {$group}" ) );
+		}
+	}
+
+	/**
+	 * Refuse a `--url` that `Vault::url_carries_credentials()` says may carry
+	 * a credential, which the store would refuse with a bare `false`, saying
+	 * where one goes instead. The URL is not echoed: its userinfo is the
+	 * secret. An absent `--url` is `update` leaving the stored one alone.
+	 *
+	 * @param array<string,string> $opts Checked `--key=value` options.
+	 * @throws \RuntimeException When the url carries userinfo or will not parse.
+	 */
+	private static function assert_url_without_credentials( array $opts ): void {
+		if ( isset( $opts['url'] ) && Vault::url_carries_credentials( $opts['url'] ) ) {
+			throw new \RuntimeException( 'url carries credentials or will not parse: give the username as --user and the password as --password' );
 		}
 	}
 
@@ -468,7 +491,7 @@ class Vault_CI_Node extends Service_CI_Node {
 						[ 'name' => 'url', 'type' => 'string', 'required' => false ],
 						[ 'name' => 'group', 'type' => 'string', 'required' => false ],
 						[ 'name' => 'user', 'type' => 'string', 'required' => false ],
-						[ 'name' => 'password', 'type' => 'string', 'required' => false ],
+						[ 'name' => 'password', 'type' => 'string', 'required' => false, 'secret' => true ],
 					],
 					'handler'     => static fn ( Vault_CI_Node $self, array $args, array $envelope = [] ): array => self::cmd_add( self::arg_strings( $args ) ),
 				],
@@ -481,7 +504,7 @@ class Vault_CI_Node extends Service_CI_Node {
 						[ 'name' => 'url', 'type' => 'string', 'required' => false ],
 						[ 'name' => 'group', 'type' => 'string', 'required' => false ],
 						[ 'name' => 'user', 'type' => 'string', 'required' => false ],
-						[ 'name' => 'password', 'type' => 'string', 'required' => false ],
+						[ 'name' => 'password', 'type' => 'string', 'required' => false, 'secret' => true ],
 					],
 					'handler'     => static fn ( Vault_CI_Node $self, array $args, array $envelope = [] ): array => self::cmd_update( self::arg_strings( $args ) ),
 				],

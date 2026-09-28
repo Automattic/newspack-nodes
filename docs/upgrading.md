@@ -6,6 +6,22 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **An `$around_dispatch` wrapper receives a fourth argument, `$command`,** a
+  `\Closure(): string` rendering the command line — `/<name>> <verb> <args>`,
+  tokens quoted, and only the id and the option names of a verb whose schema
+  declares any argument `secret`. Call it only when you record it. One composing over an earlier
+  wrapper hands it on unrendered — `$inner( $ci, $verb, $run, $command )` —
+  or the inner one loses it.
+- **A verb argument carrying a credential declares `'secret' => true`,** or
+  it is logged verbatim. A declared one logs as `--<name>=<redacted>`. Better, take
+  none: a credential belongs in the Vault, and a node names the Vault id.
+- **The Vault refuses a `url` carrying userinfo, or one that will not parse,**
+  judged after `esc_url_raw()`. Move `user:pass@` out of the URL into `--user`
+  and `--password`, and fix a malformed port; an entry stored with either
+  refuses every `update` until its URL is fixed.
+- **The drop audit quotes a command's tokens** as `serialize_args()` does, so
+  a masked `--password=<redacted>` and a spaced token print single-quoted. A
+  log reader matching the unquoted form must match the quoted one instead.
 - **`Deferred_Clean_Stop` is one bracket: `deferring( \Closure $body )`.**
   `clear_pending_stop()` and `raise_pending_stop()` are gone. Wrap a
   snapshot node's whole per-message work in `$this->deferring( fn () => … )`

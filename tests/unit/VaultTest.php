@@ -2,6 +2,7 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Vault;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Newspack_Nodes\Tests\TestCase;
 
 final class VaultTest extends TestCase {
@@ -36,6 +37,57 @@ final class VaultTest extends TestCase {
 		$this->assertSame( 'secret-pw', $rec['auth_password'] ); // decrypted on read
 		$this->assertArrayNotHasKey( 'logs', $rec );
 		$this->assertArrayNotHasKey( 'enabled', $rec ); // enabled flag removed; presence = enabled.
+	}
+
+	/**
+	 * A credential rides only in the sealed password field. A URL carrying
+	 * userinfo would store it in the clear and print it wherever the URL goes.
+	 */
+	public function test_add_and_update_refuse_a_url_carrying_userinfo(): void {
+		$vault = Vault::get_instance();
+		$this->assertFalse( $vault->add( 'spoke-7713', [ 'url' => 'https://admin:s3cret7713@spoke.example' ] ) );
+		$this->assertFalse( $vault->add( 'spoke-7714', [ 'url' => 'https://admin@spoke.example' ] ) );
+		$this->assertTrue( $vault->add( 'spoke-7715', [ 'url' => 'https://spoke-7715.example/a@b' ] ), 'an @ in the path is no userinfo' );
+		$this->assertFalse( $vault->update( 'spoke-7715', [ 'url' => 'https://kea:moa7713@spoke-7715.example' ] ) );
+		$vault->reset_cache();
+
+		$this->assertNull( $vault->get( 'spoke-7713' ) );
+		$this->assertNull( $vault->get( 'spoke-7714' ) );
+		$this->assertSame( 'https://spoke-7715.example/a@b', $vault->get( 'spoke-7715' )['url'] );
+		$this->assertStringNotContainsString( 's3cret7713', (string) \wp_json_encode( \get_option( Vault::OPTION_KEY ) ) );
+	}
+
+	/**
+	 * The rule judges the URL as it would be STORED, after sanitizing, and
+	 * refuses one that will not parse: nothing then shows it carries no
+	 * credential. Each of these reached the option as `https://kea:…@…`, or
+	 * slipped past a parser that answered false, before the rule did.
+	 *
+	 * @return array<string,array{string}>
+	 */
+	public static function credential_url_provider(): array {
+		return [
+			'leading space'      => [ ' https://kea:s3cret7713@h.example' ],
+			'tab in scheme'      => [ "https:\t//kea:s3cret7713@h.example" ],
+			'non-numeric port'   => [ 'https://kea:s3cret7713@h.example:abc' ],
+			'port out of range'  => [ 'https://kea:s3cret7713@h.example:99999' ],
+			'empty authority'    => [ 'https:///kea:s3cret7713@h.example' ],
+		];
+	}
+
+	#[DataProvider( 'credential_url_provider' )]
+	public function test_a_url_that_sanitizes_into_userinfo_or_will_not_parse_is_refused( string $url ): void {
+		$vault = Vault::get_instance();
+
+		$this->assertTrue( Vault::url_carries_credentials( $url ) );
+		$this->assertFalse( $vault->add( 'spoke-7713', [ 'url' => $url ] ) );
+		$vault->reset_cache();
+		$this->assertNull( $vault->get( 'spoke-7713' ) );
+		$this->assertStringNotContainsString( 's3cret7713', (string) \wp_json_encode( \get_option( Vault::OPTION_KEY ) ) );
+	}
+
+	public function test_a_clean_url_carries_no_credentials(): void {
+		$this->assertFalse( Vault::url_carries_credentials( ' https://kea-7713.example/a@b' ) );
 	}
 
 	public function test_password_is_encrypted_at_rest(): void {

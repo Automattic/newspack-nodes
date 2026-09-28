@@ -2,12 +2,16 @@
  * Tests for the dashboard format utilities (color/class lookups, hex->rgba, formatDuration, getStateColor).
  */
 
+import fs from 'fs';
+import path from 'path';
 import {
 	STATUS_COLORS,
 	formatDuration,
 	getDurationClass,
 	getDurationColor,
 	getStateColor,
+	isCommandSpan,
+	spanBaseName,
 	getStatusCategory,
 	getStatusClass,
 	getStatusColor,
@@ -222,6 +226,31 @@ describe( 'getStateColor', () => {
 		expect( fresh( 'overview command (start)' ) ).toBe( '#905665' );
 	} );
 
+	it( 'names a command span by its base, whatever marker it carries', () => {
+		expect( isCommandSpan( 'Kea_CI probe7713 command' ) ).toBe( true );
+		expect( isCommandSpan( 'Kea_CI probe7713 command (start)' ) ).toBe(
+			true
+		);
+		expect( isCommandSpan( 'Kea_CI probe7713 command: x' ) ).toBe( true );
+		expect( isCommandSpan( 'command7713 hook' ) ).toBe( false );
+		expect( isCommandSpan( 'kea commander7713' ) ).toBe( false );
+		expect( isCommandSpan( '' ) ).toBe( false );
+	} );
+
+	it( 'reduces a span name to its base at the first ": "', () => {
+		expect( spanBaseName( 'include: /Macros/Kea7713.html (start)' ) ).toBe(
+			'include'
+		);
+		expect( spanBaseName( 'Kea_CI probe7713 command (complete)' ) ).toBe(
+			'Kea_CI probe7713 command'
+		);
+		expect( spanBaseName( 'kea:7713 hook' ) ).toBe( 'kea:7713 hook' );
+	} );
+
+	it( 'keeps a name that opens with ": " whole, having no base to cut to', () => {
+		expect( spanBaseName( ': kea 7713 (start)' ) ).toBe( ': kea 7713' );
+	} );
+
 	it( 'resolves the " command" suffix ahead of a custom color', async () => {
 		window.eventLoggerCustomColors = { 'kakapo command': '#123abc' };
 		const { getStateColor: fresh } = await import( '../formatUtils' );
@@ -310,5 +339,25 @@ describe( 'getStateColor', () => {
 		window.eventLoggerHookCategories = {}; // No _patterns/_colors.
 		const { getStateColor: fresh } = await import( '../formatUtils' );
 		expect( fresh( 'something hook' ) ).toBe( '#66BB6A' );
+	} );
+} );
+
+/**
+ * The case list `Flame_Tree::base_name()` in the event logger reads too, so
+ * the two splits cannot drift apart.
+ */
+describe( 'spanBaseName parity with Flame_Tree::base_name()', () => {
+	const cases = JSON.parse(
+		fs.readFileSync(
+			path.join(
+				__dirname,
+				'../../../../tests/fixtures/span-base-names.json'
+			),
+			'utf8'
+		)
+	);
+
+	it.each( cases )( '%s', ( _label, name, expected ) => {
+		expect( spanBaseName( name ) ).toBe( expected );
 	} );
 } );

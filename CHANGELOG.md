@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`Command_Interpreter_Node::$around_dispatch` receives the command line** as a fourth parameter, a `\Closure(): string` that renders, on demand, `/<name>> <verb> <args>` as the REPL echoes it, each token quoted through `serialize_args()`. A wrapper that records nothing never pays for the rendering, and raw tokens never cross the hook. A wrapper declaring three parameters is still called and ignores the fourth.
+- **A verb argument may declare `'secret' => true`,** and the command line renders that option as `--<name>=<redacted>`; every other token reaches the wrapper verbatim. `vault add` and `vault update` declare it on `password`, the only secret arguments in the system. The line renders for any `$args` `dispatch()` accepts — the array reindexed and each non-string token through `Core::as_string()` — so logging never changes whether a verb runs.
+- **`isCommandSpan()` and `spanBaseName()` are exported from `@newspack-nodes/shared/utils/formatUtils`.** `spanBaseName()` is the base-name rule `getStateColor()` colors by — the `(start)`/`(complete)` marker off, ASCII whitespace trimmed, then everything from the first `: ` — and `isCommandSpan()` tests that base for the ` command` suffix. It trims space, tab, LF, CR, VT and FF alone, not the Unicode spaces `trim()` strips, so it matches the event logger's PHP `Flame_Tree::base_name()` byte for byte; `tests/fixtures/span-base-names.json` is the case list both suites read.
+
+### Changed
+
+- **The drop audit quotes a command's tokens** as `serialize_args()` does, in both ports, so `'takahe 7713'` reads as one argument and a masked `'--password=<redacted>'` prints single-quoted. A command whose `arguments` is a keyed map prints its values, masked as before, and the browser port renders a non-scalar argument empty as PHP does.
+- **The Vault refuses a URL carrying userinfo.** `Vault::add()` and `Vault::update()` refuse a `url` with `user@` or `user:pass@` before its host, judged on the URL as it would be stored — after `esc_url_raw()`, which turns ` https://u:p@h` and `https:\t//u:p@h` into userinfo — and refuse one that will not then parse, such as a non-numeric or out-of-range port, since nothing shows it carries none. `Vault::url_carries_credentials()` is that one rule, and `vault add` / `vault update` call it to answer `url carries credentials or will not parse: give the username as --user and the password as --password` without echoing the URL. A credential enters only through the Vault's own username and password.
+
 ## [2.69.1] - 2026-09-28
 
 ### Fixed
