@@ -40,18 +40,18 @@ class Restart_Planner {
 	 * to re-read the config cache it froze at boot.
 	 *
 	 * Every caller runs this after the option row is written, so a failure
-	 * here — an unusable base directory, an unreadable topology file, a flag
-	 * that would not land — propagates to the writer: the save stands, and the
-	 * error says the live fleet never heard of it.
+	 * here — an unusable base directory or lock tree, an unreadable topology
+	 * file, a flag that would not land — propagates to the writer: the save
+	 * stands, and the error says the live fleet never heard of it.
 	 *
 	 * @param array<int,string>|string $restart Restart classification (see topologies_for()).
 	 * @return array<int,string> Topology names a restart was requested of; empty off the fleet site.
-	 * @throws \Throwable When the locks directory, the active set or a flag write fails.
+	 * @throws \Throwable When the base directory, its lock tree, the active set or a flag write fails.
 	 */
 	public static function plan( array|string $restart ): array {
-		$locks_dir = Config::get_locks_directory();
-		$restarted = self::request_restarts( $restart, $locks_dir );
-		self::request_reloads( $locks_dir );
+		$base_dir  = Config::get_base_directory_with_locks();
+		$restarted = self::request_restarts( $restart, $base_dir );
+		self::request_reloads( $base_dir );
 		return $restarted;
 	}
 
@@ -68,26 +68,26 @@ class Restart_Planner {
 	 * narrows it to the topologies running a credential consumer, through the
 	 * same classification a restart takes.
 	 *
-	 * @param string                   $locks_dir Locks directory holding the per-partition lock dirs.
+	 * @param string                   $base_dir  Runtime state root holding the per-partition lock dirs.
 	 * @param array<int,string>|string $consumers Classification of who re-reads (see topologies_for()).
 	 * @return array<int,string> Topology names addressed; empty off the fleet site.
 	 * @throws \Throwable Every unreadable topology and failed flag write, after every dir was offered its flag.
 	 */
-	public static function request_reloads( string $locks_dir, array|string $consumers = 'all' ): array {
-		return self::fan_out( $consumers, $locks_dir, Lock_Node::request_reload_at( ... ) );
+	public static function request_reloads( string $base_dir, array|string $consumers = 'all' ): array {
+		return self::fan_out( $consumers, $base_dir, Lock_Node::request_reload_at( ... ) );
 	}
 
 	/**
 	 * Write the restart flag into every partition lock dir of each topology a
 	 * save of $restart must recycle; return the topology names addressed.
 	 *
-	 * @param array<int,string>|string $restart   Restart classification (see topologies_for()).
-	 * @param string                   $locks_dir Locks directory holding the per-partition lock dirs.
+	 * @param array<int,string>|string $restart  Restart classification (see topologies_for()).
+	 * @param string                   $base_dir Runtime state root holding the per-partition lock dirs.
 	 * @return array<int,string> Topology names addressed; empty off the fleet site.
 	 * @throws \Throwable Every unreadable topology and failed flag write, after every dir was offered its flag.
 	 */
-	public static function request_restarts( array|string $restart, string $locks_dir ): array {
-		return self::fan_out( $restart, $locks_dir, Lock_Node::request_restart_at( ... ) );
+	public static function request_restarts( array|string $restart, string $base_dir ): array {
+		return self::fan_out( $restart, $base_dir, Lock_Node::request_restart_at( ... ) );
 	}
 
 	/**
@@ -101,13 +101,13 @@ class Restart_Planner {
 	 * Off the fleet site nothing is touched — the fleet is network-global, so a
 	 * subsite must never reach the main site's lock dirs.
 	 *
-	 * @param array<int,string>|string $restart   Classification (see topologies_for()).
-	 * @param string                   $locks_dir Locks directory.
-	 * @param callable(string):bool    $signal    Per-lock-dir signal.
+	 * @param array<int,string>|string $restart  Classification (see topologies_for()).
+	 * @param string                   $base_dir Runtime state root.
+	 * @param callable(string):bool    $signal   Per-lock-dir signal.
 	 * @return array<int,string>
 	 * @throws \Throwable Every unreadable topology and failed signal, combined.
 	 */
-	private static function fan_out( array|string $restart, string $locks_dir, callable $signal ): array {
+	private static function fan_out( array|string $restart, string $base_dir, callable $signal ): array {
 		if ( ! Bootstrap::fleet_site() ) {
 			return [];
 		}
@@ -121,7 +121,7 @@ class Restart_Planner {
 		}
 		Worker_Should_Stop::raise( [
 			...$unreadable,
-			...Worker_Should_Stop::attempt( static fn () => Spawn_Coordinator::signal_workers( $locks_dir, $workers, $signal ) ),
+			...Worker_Should_Stop::attempt( static fn () => Spawn_Coordinator::signal_workers( $base_dir, $workers, $signal ) ),
 		] );
 		return \array_map( 'strval', \array_keys( $topologies ) );
 	}

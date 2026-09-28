@@ -516,14 +516,14 @@ class Bootstrap {
 	 * whatever another topology or lock dir refused, then raises the refusals,
 	 * so the Vault write that fired this action reports them.
 	 *
-	 * @throws \Throwable Every unreadable topology and refused signal, after the rest were signalled.
+	 * @throws \Throwable An unusable lock tree; every unreadable topology and refused signal, after the rest were signalled.
 	 */
 	public static function reload_vault_consumers(): void {
 		if ( ! self::fleet_site() ) {
 			return; // Subsite: the fleet is network-global and runs on the main site.
 		}
 		Topology_Analyzer::reset_caches();
-		Restart_Planner::request_reloads( Config::get_locks_directory(), [ 'Remote_Link', 'Remote_Source', 'Vault_Group' ] );
+		Restart_Planner::request_reloads( Config::get_base_directory_with_locks(), [ 'Remote_Link', 'Remote_Source', 'Vault_Group' ] );
 	}
 
 	/**
@@ -1074,28 +1074,20 @@ class Bootstrap {
 	 * idempotent). A sleeping on-demand worker is woken first, and skips the
 	 * input-dir check, because it creates that directory only once it runs.
 	 *
-	 * @param string $worker_id Reader id, `<type>.p<N>`; any other shape is refused.
+	 * @param string $worker_id Reader id; `CLI::parse_worker_id()` refuses any other shape.
 	 * @param string $base_dir  Runtime base holding `locks/` and `ipc/`.
 	 * @return bool True iff the partition is now mounted.
 	 */
 	public static function register_worker_partition( string $worker_id, string $base_dir ): bool {
-		if ( ! \preg_match( '/^[a-z0-9_-]+\.p\d+$/D', $worker_id ) ) {
+		// Parsed first, so no other node's name answers the idempotency test.
+		if ( null === CLI::parse_worker_id( $worker_id ) ) {
 			return false;
 		}
 		if ( Core::node( $worker_id ) instanceof Partition_Node ) {
 			return true;
 		}
-		// A live worker holds a lock dir; a sleeping on-demand one holds none.
-		$sleeping = false;
-		if ( ! \is_dir( "{$base_dir}/locks/{$worker_id}.lock.d" ) ) {
-			// Scoped to the caller's base_dir, not the request-scope seam's.
-			$sleeping = ( new Spawn_Coordinator( $base_dir ) )->wake_sleeping_worker( $worker_id, Core::right_now() );
-			if ( ! $sleeping ) {
-				return false;
-			}
-		}
-		$input_dir = "{$base_dir}/ipc/{$worker_id}/input";
-		if ( ! $sleeping && ! \is_dir( $input_dir ) ) {
+		$channel = Spawn_Coordinator::worker_channel( $base_dir, $worker_id, Core::right_now() );
+		if ( null === $channel || ( ! $channel['sleeping'] && ! \is_dir( $channel['input'] ) ) ) {
 			return false;
 		}
 		$part = new Partition_Node();
@@ -1109,7 +1101,7 @@ class Bootstrap {
 		if ( null !== $ci ) {
 			$part->sink( $ci );
 		}
-		$part->arguments( Worker_Base::ipc_partition_args( $input_dir ) );
+		$part->arguments( Worker_Base::ipc_partition_args( $channel['input'] ) );
 		return true;
 	}
 

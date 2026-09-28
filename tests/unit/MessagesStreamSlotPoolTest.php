@@ -98,6 +98,26 @@ class MessagesStreamSlotPoolTest extends TestCase {
 		$this->assertSame( 3, $captured );
 	}
 
+	/**
+	 * The pool partition comes off `CLI::parse_worker_id()`: a dotted type
+	 * pools under its partition, and an id the fleet never spells under none.
+	 */
+	public function test_acquire_slot_reads_the_partition_through_the_worker_id_grammar(): void {
+		$captured = [];
+		SSE_Out_Node::$acquire_slot = static function ( int $partition ) use ( &$captured ): array|false {
+			$captured[] = $partition;
+			return false;
+		};
+
+		foreach ( [ 'foo.bar.p41', 'kea-7713.p03', 'kea-7713.pX' ] as $sub ) {
+			$req = new \WP_REST_Request( 'GET' );
+			$req->set_param( 'subscribe', $sub );
+			( new SSE_Out_Node() )->stream( $req );
+		}
+
+		$this->assertSame( [ 41, -1, -1 ], $captured );
+	}
+
 	public function test_a_rest_stream_leaves_the_process_time_limit_unbounded(): void {
 		// sse_max_lifetime bounds the stream; a CPU limit would kill it mid-write.
 		\set_time_limit( 37 );

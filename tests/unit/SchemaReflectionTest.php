@@ -572,6 +572,117 @@ class SchemaReflectionTest extends TestCase {
 		$this->assertFalse( Schema_Reflection_Probe::truthy_probe( '' ) );
 		$this->assertFalse( Schema_Reflection_Probe::truthy_probe( 'nope' ) );
 	}
+
+	// ── declarative request verbs: the `requests` table answers ────────────
+
+	/** Anon node whose one request verb answers from a private field. */
+	private function request_node(): Node {
+		return new class extends Node {
+			use Schema_Reflection;
+
+			private string $probe = 'kea-7713-state';
+
+			public function fill( array $message ): void {
+				if ( $this->answer_request( $message ) ) {
+					return;
+				}
+				parent::fill( $message );
+			}
+
+			public static function node_schema(): array {
+				return [
+					'category'    => 'Test',
+					'description' => 'request probe',
+					'requests'    => [
+						[ 'name' => 'GET_DOC_ONLY', 'description' => 'Catalog-only.' ],
+						[
+							'name'        => 'GET_KEA7713',
+							'description' => 'Answers the probe field.',
+							'handler'     => static fn ( self $node ): array => [ 'probe' => $node->probe ],
+						],
+					],
+				];
+			}
+		};
+	}
+
+	/**
+	 * @param string $value Request VALUE.
+	 * @return array<int,mixed>
+	 */
+	private function request_message( string $value ): array {
+		$message                   = \Newspack_Nodes\Message::new_message();
+		$message[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_REQUEST;
+		$message[ \Newspack_Nodes\Message::FROM ]  = 'asker/kea';
+		$message[ \Newspack_Nodes\Message::ID ]    = 'id-7713';
+		$message[ \Newspack_Nodes\Message::KEY ]   = 'key-7713';
+		$message[ \Newspack_Nodes\Message::VALUE ] = $value;
+		return $message;
+	}
+
+	public function test_a_declared_request_handler_answers_its_verb(): void {
+		$node    = $this->request_node();
+		$capture = new \Newspack_Nodes\Tests\Capture_Sink_Node();
+		$node->name( 'kea-probe' );
+		$node->sink( $capture );
+
+		$node->fill( $this->request_message( '  get_kea7713 extra words' ) );
+
+		$this->assertCount( 1, $capture->captured );
+		$reply = $capture->captured[0];
+		$this->assertSame( \Newspack_Nodes\Message::TM_STRUCT | \Newspack_Nodes\Message::TM_RESPONSE, $reply[ \Newspack_Nodes\Message::TYPE ] );
+		$this->assertSame( 'kea-probe', $reply[ \Newspack_Nodes\Message::FROM ] );
+		$this->assertSame( 'asker/kea', $reply[ \Newspack_Nodes\Message::TO ] );
+		$this->assertSame( 'id-7713', $reply[ \Newspack_Nodes\Message::ID ] );
+		$this->assertSame( 'key-7713', $reply[ \Newspack_Nodes\Message::KEY ] );
+		$this->assertSame(
+			[ 'verb' => 'GET_KEA7713', 'data' => [ 'probe' => 'kea-7713-state' ] ],
+			$reply[ \Newspack_Nodes\Message::VALUE ]
+		);
+	}
+
+	public function test_an_undeclared_or_handlerless_request_verb_is_refused_on_the_error_plane(): void {
+		$node    = $this->request_node();
+		$capture = new \Newspack_Nodes\Tests\Capture_Sink_Node();
+		$node->name( 'kea-probe' );
+		$node->sink( $capture );
+
+		$node->fill( $this->request_message( 'NOT_KEA' ) );
+		$node->fill( $this->request_message( 'get_doc_only' ) );
+
+		$this->assertSame(
+			[ "unknown request verb: NOT_KEA\n", "unknown request verb: GET_DOC_ONLY\n" ],
+			\array_column( $capture->captured, \Newspack_Nodes\Message::VALUE )
+		);
+		$reply = $capture->captured[0];
+		$this->assertSame( \Newspack_Nodes\Message::TM_ERROR, $reply[ \Newspack_Nodes\Message::TYPE ] );
+		$this->assertSame( 'kea-probe', $reply[ \Newspack_Nodes\Message::FROM ] );
+		$this->assertSame( 'asker/kea', $reply[ \Newspack_Nodes\Message::TO ] );
+		$this->assertSame( 'id-7713', $reply[ \Newspack_Nodes\Message::ID ] );
+		$this->assertSame( 'key-7713', $reply[ \Newspack_Nodes\Message::KEY ] );
+	}
+
+	public function test_a_message_without_the_request_flag_is_left_to_the_node(): void {
+		$node    = $this->request_node();
+		$capture = new \Newspack_Nodes\Tests\Capture_Sink_Node();
+		$node->name( 'kea-probe' );
+		$node->sink( $capture );
+		$message = $this->request_message( 'GET_KEA7713' );
+		$message[ \Newspack_Nodes\Message::TYPE ] = \Newspack_Nodes\Message::TM_STRUCT | \Newspack_Nodes\Message::TM_RESPONSE;
+
+		$node->fill( $message );
+
+		$this->assertSame( [ $message ], $capture->captured, 'forwarded untouched by parent::fill' );
+	}
+
+	public function test_a_request_with_no_sink_to_reply_through_throws(): void {
+		$node = $this->request_node();
+		$node->name( 'kea-probe' );
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'fill requires a wired sink' );
+		$node->fill( $this->request_message( 'GET_KEA7713' ) );
+	}
 }
 
 /** Concrete host exposing Schema_Reflection::truthy() for the parse test. */

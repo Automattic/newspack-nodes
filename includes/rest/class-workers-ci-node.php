@@ -36,6 +36,7 @@ use Newspack_Nodes\Config as RuntimeConfig;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Lock_Node;
 use Newspack_Nodes\SSE_Slot_Pool;
+use Newspack_Nodes\Spawn_Coordinator;
 use Newspack_Nodes\Log_Cleaner;
 use Newspack_Nodes\Service_CI_Node;
 use Newspack_Nodes\Topology_Analyzer;
@@ -129,7 +130,6 @@ class Workers_CI_Node extends Service_CI_Node {
 		$segment_size   = self::to_int( RuntimeConfig::value( 'segment_size' ) );
 		$base_dir       = RuntimeConfig::get_base_directory();
 		$log_base       = $base_dir . '/logs';
-		$locks_base     = $base_dir . '/locks';
 
 		// workers[] is pure per-(type,partition) liveness; no per-consumer.
 		$workers = [];
@@ -143,7 +143,7 @@ class Workers_CI_Node extends Service_CI_Node {
 			$workers[] = self::build_worker_status(
 				$type,
 				$partition,
-				"{$locks_base}/{$type}.p{$partition}.lock.d",
+				Spawn_Coordinator::lock_path( $base_dir, $type, $partition ),
 				$now,
 				$stale_to,
 				Bootstrap::on_demand_idle_of( $w )

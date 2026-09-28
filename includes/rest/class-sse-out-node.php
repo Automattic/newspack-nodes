@@ -32,6 +32,7 @@ use Newspack_Nodes\Node;
 use Newspack_Nodes\Node_Names;
 use Newspack_Nodes\Router_Node;
 use Newspack_Nodes\Worker_Should_Stop;
+use Newspack_Nodes\Worker_Base;
 
 \defined( 'ABSPATH' ) || exit;
 
@@ -346,8 +347,9 @@ class SSE_Out_Node extends Node {
 			if ( false !== $slash && \in_array( \substr( $sub, 0, $slash ), Log_Discovery::GROUPS, true ) ) {
 				$sub = \substr( $sub, $slash + 1 );
 			}
-			if ( \preg_match( '/^[a-z0-9_-]+\.p(\d+)$/D', $sub, $m ) ) {
-				return (int) $m[1];
+			$worker = CLI::parse_worker_id( $sub );
+			if ( null !== $worker ) {
+				return $worker[1];
 			}
 		}
 		return -1;
@@ -757,10 +759,12 @@ class SSE_Out_Node extends Node {
 	 * same way, keyed by `$sub`, so a reconnecting console keeps the replies
 	 * written while it was away.
 	 *
-	 * The remainder after the group prefix must lead with a name character and
-	 * contain neither `/` nor `..`, which leaves `*` as the only wildcard and
-	 * confines the glob to one level under a browsable root; anything else
-	 * throws. A matching `$positions` entry seeds that reader's cursor and an
+	 * A bare sub `CLI::parse_worker_id()` reads as a worker, whatever its case,
+	 * attaches to that worker's IPC channel when one exists. Every other sub's
+	 * remainder after the group prefix must lead with a lowercase name
+	 * character and contain neither `/` nor `..`, which leaves `*` as the only
+	 * wildcard and confines the glob to one level under a browsable root;
+	 * anything else throws. A matching `$positions` entry seeds that reader's cursor and an
 	 * absent one tail-seeks. A valid pattern matching nothing opens nothing.
 	 *
 	 * @param string                      $sub       Subscription name or glob.
@@ -776,16 +780,10 @@ class SSE_Out_Node extends Node {
 
 		[ $group, $rest ] = self::parse_group( $sub );
 
-		// Traversal guard: must start with a name char (blocks `.*` / `..`).
-		if ( ! \preg_match( '/^[a-z0-9_-][a-z0-9_.*-]*$/D', $rest ) || \str_contains( $rest, '..' ) ) {
-			throw new \InvalidArgumentException(
-				\esc_html( "invalid subscription: {$sub}" )
-			);
-		}
-
-		// IPC (bare exact subs only): grouped subs never address ipc/.
-		if ( $sub === $rest && ! \str_contains( $sub, '*' ) ) {
-			$ipc_output = "{$base}/ipc/{$sub}/output";
+		// IPC (bare subs only): the worker-id grammar admits it, not the guard.
+		$worker = $sub === $rest ? CLI::parse_worker_id( $sub ) : null;
+		if ( null !== $worker ) {
+			$ipc_output = Worker_Base::ipc_dir( $base, $worker[0], $worker[1], Worker_Base::IPC_OUTPUT );
 			if ( \is_dir( $ipc_output ) ) {
 				$this->is_interactive = true;
 				$consumer             = Consumer_Node::scan( $ipc_output );
@@ -793,6 +791,13 @@ class SSE_Out_Node extends Node {
 				$consumer->set_stamp_as( $sub );
 				return [ $consumer ];
 			}
+		}
+
+		// Traversal guard: must start with a name char (blocks `.*` / `..`).
+		if ( ! \preg_match( '/^[a-z0-9_-][a-z0-9_.*-]*$/D', $rest ) || \str_contains( $rest, '..' ) ) {
+			throw new \InvalidArgumentException(
+				\esc_html( "invalid subscription: {$sub}" )
+			);
 		}
 
 		// Partition feed: one Consumer per matched dir.

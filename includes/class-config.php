@@ -159,17 +159,6 @@ class Config {
 	}
 
 	/**
-	 * Get the locks directory path ({base}/locks).
-	 *
-	 * @api
-	 * @return string
-	 * @throws \RuntimeException If the base directory or {base}/locks fails ensure_path().
-	 */
-	public static function get_locks_directory(): string {
-		return self::validated_subdir( 'locks' );
-	}
-
-	/**
 	 * Get the offsets directory path ({base}/offsets).
 	 *
 	 * @api
@@ -189,6 +178,26 @@ class Config {
 	 */
 	private static function validated_subdir( string $sub ): string {
 		return self::$validated_subdirs[ $sub ] ??= self::ensure_path( self::get_base_directory() . '/' . $sub );
+	}
+
+	/**
+	 * The runtime base directory, once the lock tree under it,
+	 * `Spawn_Coordinator::locks_dir()`, has passed `ensure_path()` too.
+	 *
+	 * The resolver for a settings writer about to flag the lock dirs of
+	 * workers it does not run: a `{base}/locks` planted as a symlink, or owned
+	 * by another uid, would carry every flag wherever it points, so the write
+	 * refuses instead. Workers lock through `locks_dir()` unchecked, so the
+	 * gate belongs to the writers, and runs fresh on every call.
+	 *
+	 * @api
+	 * @return string Canonical base path.
+	 * @throws \RuntimeException When the base directory or its lock tree fails ensure_path().
+	 */
+	public static function get_base_directory_with_locks(): string {
+		$base = self::get_base_directory();
+		self::ensure_path( Spawn_Coordinator::locks_dir( $base ) );
+		return $base;
 	}
 
 	/**

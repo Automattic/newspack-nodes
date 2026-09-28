@@ -57,7 +57,7 @@ final class CommunitySourceTest extends TestCase {
 		) );
 		$this->assertCount( 1, $replies, 'TICK replies once with the emitted count' );
 		$this->assertSame( '_repl', $replies[0][ Message::TO ], 'reply routes back TO the requester' );
-		$this->assertSame( 3, $replies[0][ Message::VALUE ]['emitted'], 'all three canned items counted' );
+		$this->assertSame( [ 'verb' => 'TICK', 'data' => [ 'emitted' => 3 ] ], $replies[0][ Message::VALUE ], 'all three canned items counted' );
 	}
 
 	public function test_emitted_message_carries_TO_from_target(): void {

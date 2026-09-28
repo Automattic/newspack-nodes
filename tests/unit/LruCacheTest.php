@@ -231,8 +231,8 @@ class LruCacheTest extends TestCase {
 	public function test_on_evict_callback_called_on_capacity_eviction(): void {
 		$evicted = [];
 		$cache   = new LRU_Cache( 2, 2 );
-		$cache->with_timed_rotation( 999, function ( $k, $v ) use ( &$evicted ) {
-			$evicted[ $k ] = $v;
+		$cache->with_timed_rotation( 999, function ( $k, $v, bool $timed ) use ( &$evicted ) {
+			$evicted[ $k ] = [ $v, $timed ];
 		} );
 
 		// Fill bucket 0 then bucket 1; the third bucket forces eviction of bucket 0.
@@ -242,7 +242,7 @@ class LruCacheTest extends TestCase {
 		$cache->set( 'd', 4 );
 		$cache->set( 'e', 5 ); // Triggers second rotation, evicts bucket 0.
 
-		$this->assertSame( [ 'a' => 1, 'b' => 2 ], $evicted );
+		$this->assertSame( [ 'a' => [ 1, false ], 'b' => [ 2, false ] ], $evicted, 'a full bucket, not the clock' );
 	}
 
 	public function test_evict_bucket_without_callback_safe(): void {
@@ -279,8 +279,8 @@ class LruCacheTest extends TestCase {
 		Core::$now = 500.0;
 		$cache     = new LRU_Cache( 100, 2 );
 		$evicted   = [];
-		$cache->with_timed_rotation( 0.001, function ( $k, $v ) use ( &$evicted ) {
-			$evicted[ $k ] = $v;
+		$cache->with_timed_rotation( 0.001, function ( $k, $v, bool $timed ) use ( &$evicted ) {
+			$evicted[ $k ] = [ $v, $timed ];
 		} );
 
 		$cache->set( 'a', 1 );
@@ -291,8 +291,7 @@ class LruCacheTest extends TestCase {
 		Core::$now = 500.004;
 		$cache->rotate_if_due(); // bucket 1 → bucket 2 (count > 2, evicts bucket 0).
 
-		$this->assertArrayHasKey( 'a', $evicted );
-		$this->assertArrayHasKey( 'b', $evicted );
+		$this->assertSame( [ 'a' => [ 1, true ], 'b' => [ 2, true ] ], $evicted, 'the clock, not a full bucket' );
 	}
 
 	/**

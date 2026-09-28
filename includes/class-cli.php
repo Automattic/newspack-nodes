@@ -19,9 +19,9 @@ namespace Newspack_Nodes;
 
 /**
  * An instance is scoped to ONE base directory, and every path it builds hangs
- * off that. The public statics — the uid seam, the root refusal, worker-id and
- * flag parsing, byte and duration formatting — need no tree and are callable
- * from request scope.
+ * off that. The public statics — the uid seam, the root refusal, worker-id
+ * spelling and parsing, flag parsing, byte and duration formatting — need no
+ * tree and are callable from request scope.
  */
 class CLI {
 
@@ -52,55 +52,25 @@ class CLI {
 	}
 
 	/**
-	 * Resolve the input and output IPC paths for a `{type}.p{N}` reader id,
-	 * spawning an on-demand worker that is asleep.
-	 *
-	 * A missing lock dir does not by itself mean a missing worker: an on-demand
-	 * worker sleeps holding no lock, so the miss falls through to
-	 * `Spawn_Coordinator::wake_sleeping_worker()`, which spawns the worker when
-	 * it owns that id. Only a refusal there is an error; refusing on the absent
-	 * lock alone refuses every on-demand worker.
+	 * Resolve the IPC channel of a `{type}.p{N}` reader id, spawning an
+	 * on-demand worker that is asleep, through
+	 * `Spawn_Coordinator::worker_channel()`.
 	 *
 	 * @param string $worker_id Worker id in `{type}.p{N}` form.
-	 * @return array{input:string,output:string,type:string,partition:int}
+	 * @return array{id:string,type:string,partition:int,input:string,output:string,sleeping:bool}
 	 * @throws \InvalidArgumentException When the id will not parse, or names no worker that is running or wakeable.
 	 */
 	public function attach_to_worker( string $worker_id ): array {
-		[ $type, $partition ] = self::parse_worker_id( $worker_id );
-		$lock_dir             = Spawn_Coordinator::lock_path( "{$this->base_dir}/locks", $type, $partition );
-		// Not Bootstrap's shared one: that hangs off the global tree.
-		if ( ! \is_dir( $lock_dir )
-			&& ! ( new Spawn_Coordinator( $this->base_dir ) )->wake_sleeping_worker( $worker_id, Core::right_now() ) ) {
-			throw new \InvalidArgumentException(
-				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- terminal message, not HTML; terminal_safe() renders control chars, and esc_html() would render the quotes as &#039;.
-				"no worker '" . Core::terminal_safe( $worker_id ) . "' (run `wp nodes status` to list active workers)"
-			);
+		$channel = Spawn_Coordinator::worker_channel( $this->base_dir, $worker_id, Core::right_now() );
+		if ( null !== $channel ) {
+			return $channel;
 		}
-		return [
-			'input'     => "{$this->base_dir}/ipc/{$worker_id}/input",
-			'output'    => "{$this->base_dir}/ipc/{$worker_id}/output",
-			'type'      => $type,
-			'partition' => $partition,
-		];
-	}
-
-	/**
-	 * Parse `{type}.p{N}` into [type, partition].
-	 *
-	 * The type match is greedy, so a dotted topology name keeps its dots and
-	 * only the FINAL `.p{N}` reads as the partition: `foo.bar.p3` is partition 3
-	 * of `foo.bar`, never partition 3 of `foo` inside something called `bar`.
-	 *
-	 * @param string $worker_id Worker id.
-	 * @return array{0:string,1:int}
-	 * @throws \InvalidArgumentException If worker_id can't be parsed.
-	 */
-	public static function parse_worker_id( string $worker_id ): array {
-		if ( ! \preg_match( '/^(.+)\.p(\d+)$/D', $worker_id, $m ) ) {
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- terminal message, not HTML; terminal_safe() renders control chars, and esc_html() would mangle the text.
-			throw new \InvalidArgumentException( 'invalid reader id: ' . Core::terminal_safe( $worker_id ) . ' (expected {type}.p{N})' );
-		}
-		return [ $m[1], (int) $m[2] ];
+		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- terminal message, not HTML; terminal_safe() renders control chars, and esc_html() would mangle the text.
+		throw new \InvalidArgumentException(
+			null === self::parse_worker_id( $worker_id )
+				? 'invalid reader id: ' . Core::terminal_safe( $worker_id ) . ' (expected {type}.p{N})'
+				: "no worker '" . Core::terminal_safe( $worker_id ) . "' (run `wp nodes status` to list active workers)"
+		);
 	}
 
 	/**
@@ -129,15 +99,16 @@ class CLI {
 		$now  = (int) Core::right_now();
 		$tail = $this->read_probe_frames();
 		foreach ( $tail['records'] as $reader => $frame ) {
-			// The reader id is an offsetlog basename ending `.p{N}`.
-			if ( ! \preg_match( '/^(.+)\.p(\d+)$/D', $reader, $m ) ) {
+			// An offsetlog basename, spelled as a worker id is.
+			$parsed = self::parse_worker_id( $reader );
+			if ( null === $parsed ) {
 				continue;
 			}
 			$record = $frame['value'];
 			$row    = [
 				'reader'         => $reader,
 				'source'         => Core::as_string( $record[ Probe_Record::SOURCE ] ?? '' ),
-				'partition'      => (int) $m[2],
+				'partition'      => $parsed[1],
 				'cursor_segment' => Core::as_int( $record[ Probe_Record::CURSOR_SEGMENT ] ?? 0 ),
 				'cursor_offset'  => Core::as_int( $record[ Probe_Record::CURSOR_OFF ] ?? 0 ),
 				'end_segment'    => Core::as_int( $record[ Probe_Record::END_SEGMENT ] ?? 0 ),
@@ -209,6 +180,30 @@ class CLI {
 	}
 
 	/**
+	 * Parse `{type}.p{N}` into [type, partition], the inverse of `worker_id()`.
+	 *
+	 * The type match is greedy, so a dotted topology name keeps its dots and
+	 * only the FINAL `.p{N}` reads as the partition: `foo.bar.p3` is partition 3
+	 * of `foo.bar`, never partition 3 of `foo` inside something called `bar`.
+	 *
+	 * Only a spelling `worker_id()` can write parses. The type carries no `/`
+	 * and no NUL, because the id is one path segment of the lock and IPC trees
+	 * and one segment of a node path; the partition carries no leading zero,
+	 * because `x.p03` would resolve to the lock `x.p3` holds while naming an
+	 * IPC tree nothing reads.
+	 *
+	 * @param string $worker_id Worker id.
+	 * @return array{0:string,1:int}|null Type and partition; null when the id
+	 *                                    is no worker's spelling.
+	 */
+	public static function parse_worker_id( string $worker_id ): ?array {
+		if ( ! \preg_match( '/^([^\/\x00]+)\.p(0|[1-9][0-9]*)$/D', $worker_id, $m ) ) {
+			return null;
+		}
+		return [ $m[1], (int) $m[2] ];
+	}
+
+	/**
 	 * The latest stats record in the shared topicprobe log for each reader in
 	 * its tail, keyed by reader id — the basename of that consumer's offsetlog
 	 * dir, which is what tells two readers of one partition apart — each with
@@ -238,7 +233,9 @@ class CLI {
 
 	/**
 	 * Every worker lock dir under this tree, sorted by type then partition, each
-	 * with its heartbeat time, start time and staleness.
+	 * with its heartbeat time, start time and staleness. The dirs are the ones
+	 * `Spawn_Coordinator::worker_lock_dirs()` reads, so status lists exactly the
+	 * set the fleet reconciles.
 	 *
 	 * Staleness is judged against the threshold the worker's OWN topology
 	 * declares (`Bootstrap::stale_timeout_for()`), never a flat one: a topology
@@ -247,26 +244,16 @@ class CLI {
 	 * One `time()` serves the whole scan, so every worker is judged against the
 	 * same clock.
 	 *
-	 * @return array<int,array{type:string,partition:int,heartbeat_at:int,started_at:int,stale:bool}>
+	 * @return array<int,array{id:string,type:string,partition:int,heartbeat_at:int,started_at:int,stale:bool}>
 	 */
 	public function ls_workers(): array {
-		$locks_dir = "{$this->base_dir}/locks";
-		if ( ! \is_dir( $locks_dir ) ) {
-			return [];
-		}
 		$now     = \time();
 		$workers = [];
-		foreach ( \scandir( $locks_dir ) ?: [] as $entry ) {
-			if ( ! \preg_match( '/^(.+)\.p(\d+)\.lock\.d$/D', $entry, $m ) ) {
-				continue;
-			}
-			$workers[] = [
-				'type'      => $m[1],
-				'partition' => (int) $m[2],
-			] + self::lock_liveness(
-				"{$locks_dir}/{$entry}",
+		foreach ( Spawn_Coordinator::worker_lock_dirs( $this->base_dir ) as $dir => $lock ) {
+			$workers[] = $lock + self::lock_liveness(
+				$dir,
 				$now,
-				Bootstrap::stale_timeout_for( $m[1] )
+				Bootstrap::stale_timeout_for( $lock['type'] )
 			);
 		}
 		\usort( $workers, fn ( $a, $b ) =>
@@ -325,6 +312,20 @@ class CLI {
 		$provider = self::$uid_provider
 			?? static fn (): int => \function_exists( 'posix_geteuid' ) ? \posix_geteuid() : -1;
 		return Core::as_int( $provider(), -1 );
+	}
+
+	/**
+	 * Spell the worker id `{type}.p{N}`, the inverse of `parse_worker_id()`.
+	 *
+	 * The id names a worker everywhere it is addressed: its lock dir, its IPC
+	 * tree, its REPL partition, its stop label and the fleet's liveness keys.
+	 *
+	 * @param string $type      Worker type, a topology name.
+	 * @param int    $partition Partition index.
+	 * @return string The worker id.
+	 */
+	public static function worker_id( string $type, int $partition ): string {
+		return "{$type}.p{$partition}";
 	}
 
 	/**
@@ -391,7 +392,7 @@ class CLI {
 			}
 			$targets[] = [ $type, $p ];
 		}
-		return Spawn_Coordinator::signal_workers( "{$this->base_dir}/locks", $targets, Lock_Node::request_restart_at( ... ) );
+		return Spawn_Coordinator::signal_workers( $this->base_dir, $targets, Lock_Node::request_restart_at( ... ) );
 	}
 
 	/**

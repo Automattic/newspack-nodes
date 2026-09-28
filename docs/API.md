@@ -229,6 +229,15 @@ $_SERVER['NEWSPACK_NODES_WORKER_TYPE']      = $type;        // e.g. "job-worker"
 $_SERVER['NEWSPACK_NODES_WORKER_PARTITION'] = (string) $partition;  // e.g. "0"
 ```
 
+Once `Worker_Base::execute()` holds that worker's lock, it fires
+`newspack_nodes/worker_identified` with the same pair, so a listener that read
+the keys before they were set — a request logger naming the process at its
+start — learns the worker's identity mid-process. A spawn that loses the lock
+race never becomes the worker and announces nothing, and neither does
+`wp nodes run`, which sets no tag. A listener that needs the worker id spells
+it with `CLI::worker_id( $type, $partition )`, the inverse of
+`CLI::parse_worker_id()`.
+
 These are process-identity tags, not credentials. Three things read them:
 
 - **[`Core::argv0()`](../includes/class-core.php)** puts the worker type in every log line's midfix, so a firehose line names the process that wrote it instead of the SAPI.
@@ -393,10 +402,13 @@ positional array, and `Message::unpacked()` throws on the first that does not. A
 body carrying no parseable line throws as well.
 
 That mount is not a pure graph edit.
-[`Bootstrap::register_worker_partition()`](../includes/class-bootstrap.php) validates the id against
-`/^[a-z0-9_-]+\.p\d+$/`, returns early when the partition is already mounted,
-and where the worker holds no lock dir calls
-[`Spawn_Coordinator::wake_sleeping_worker()`](../includes/class-spawn-coordinator.php) — so attaching a browser console to
+[`Bootstrap::register_worker_partition()`](../includes/class-bootstrap.php) reads the id through
+[`CLI::parse_worker_id()`](../includes/class-cli.php), which refuses any string
+`CLI::worker_id()` cannot write — a `/` or NUL in the type, a leading zero in the
+partition — then returns early when the partition is already mounted,
+and otherwise resolves the worker through
+[`Spawn_Coordinator::worker_channel()`](../includes/class-spawn-coordinator.php), which wakes
+a worker holding no lock dir — so attaching a browser console to
 an `idle` on-demand slot STARTS a process. A woken worker skips the
 `ipc/{id}/input` existence check, because it creates that directory only once it
 runs. Every refusal is silent, since the verb always answers an empty string, and
@@ -703,9 +715,21 @@ console flags `multiple`, `hidden` and `action`, and each arg is
 `{ name, type, required }` plus an optional `default` (for example,
 `workers restart`'s `partition`, defaulting to `-1`) and an optional `secret`.
 A node schema may also
-carry `requests`, `registrations`, `accepts_fill`, `has_target` and `hidden`;
-`requests[]` entries are answered by the addressed node's own `fill()` and
-contribute no dispatch entry.
+carry `requests`, `registrations`, `accepts_fill`, `has_target` and `hidden`.
+A `requests` entry is `{ name, description, reply_shape }` plus an optional
+`args`, in the shape a command's take, and an optional
+`handler( static $node ): array`; `classes dump` carries every field but the
+`handler`, and nothing undeclared. It contributes no dispatch entry: the
+addressed node answers a TM_REQUEST itself, by calling
+`Schema_Reflection::answer_request( $message )` first in its `fill()` and
+returning when that answers true. The trait takes VALUE's first word,
+upper-cased, as the verb and runs the matching entry's `handler` for the
+reply's `data`, answering `TM_STRUCT | TM_RESPONSE` with VALUE
+`{ verb, data }`. Any other verb, a handlerless entry included, is refused with
+`TM_ERROR` and VALUE `"unknown request verb: <VERB>\n"`, the error plane the
+interpreter refuses a command on. Either reply goes from the node TO the
+request's FROM, with ID and KEY echoed, and a request reaching a node with no
+sink throws `fill requires a wired sink`. `reply_shape` documents `data`.
 
 An arg's `required` flag is palette and Inspector metadata, and nothing enforces
 it. `Service_CI_Node` builds the dispatch table and the capability gate from
@@ -740,8 +764,8 @@ class's schema for the topology-editor palette and the live-mode Inspector. It
 returns `{ classes[], formatters[] }`, each class carrying `shell_name`, `fqcn`,
 `category`, `description`, `arguments`, `commands`, `requests`,
 `registrations`, `accepts_fill`, `has_target`, `is_interpreter` and `fans_out`.
-The non-serializable `handler` and the server-enforced `capability` are stripped
-on the way out. `formatters[]` is [`Formatters::list_names()`](../includes/class-formatters.php) sorted, and it is
+The non-serializable `handler` — a command's and a request's — and the
+server-enforced `capability` are stripped on the way out. `formatters[]` is [`Formatters::list_names()`](../includes/class-formatters.php) sorted, and it is
 the option list the console renders for any `node_schema()` argument declared
 `type: formatter_name` — today only `with_index`'s. The substrate registers no
 formatters of its own, so on an install carrying no consumer plugin that calls
@@ -1025,6 +1049,7 @@ answer. Every `newspack_nodes/*` name and signature is frozen surface — see
 | Hook | Arguments | Fired from |
 |---|---|---|
 | `newspack_nodes/request_graph_ready` | `Command_Interpreter_Node $base_interpreter` | [`Bootstrap::mount_request_graph()`](../includes/class-bootstrap.php), on every command door. Mount your service CIs here — see below. |
+| `newspack_nodes/worker_identified` | `string $type, int $partition` | [`Worker_Base::execute()`](../includes/class-worker-base.php), once the worker holds its lock, and only where `Spawn_Controller` tagged the process as that worker. The identity is the validated pair, never the raw request; a refused spawn, a spawn that loses the lock race and `wp nodes run` fire nothing. A request logger that named the process at its start renames it here. The announcement runs inside the topology load path, so a listener's `RuntimeException` ends the run as a malformed `.tsl` does: the lock is released, the throw escapes `execute()`, and no successor is spawned. |
 | `newspack_nodes/spawn_worker` | `string $type, int $partition` | [`Spawn_Controller::spawn()`](../includes/rest/class-spawn-controller.php). Build the worker for `$type` and `->execute()` it. `Topology_Registry::spawn_worker` handles every active topology already. |
 | `newspack_nodes/reconcile` | — | The WP-Cron event itself, on the registered 60-second `newspack_nodes_minute` schedule. `Bootstrap::reconcile_fleet()` is its handler. |
 | `newspack_nodes/before_reconcile` | — | `Bootstrap::reconcile_fleet()`, before the pass. |

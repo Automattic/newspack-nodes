@@ -543,7 +543,7 @@ class Core {
 			return 'curl_init failed';
 		}
 		$fields  = \http_build_query( $body );
-		$slot    = self::as_string( $body['type'] ) . '.p' . self::as_int( $body['partition'] );
+		$slot    = CLI::worker_id( self::as_string( $body['type'] ), self::as_int( $body['partition'] ) );
 		$options = self::post_curl_options( $url, $fields, "{$role}; {$slot}" );
 		\curl_setopt_array( $ch, $options );
 		// The default ignores $b and $o, already on $ch; mocks read them.

@@ -330,6 +330,28 @@ class ClassesCITest extends TestCase {
 		}
 	}
 
+	/** The request strip is an allowlist: an undeclared field fails closed. */
+	public function test_dump_keeps_only_the_declared_request_fields(): void {
+		$this->register_fixture_class(
+			Malformed_Schema_Node::class,
+			\dirname( __DIR__ ) . '/Helpers/fixtures/class-malformed-schema-node.php'
+		);
+
+		$raw     = ( new Classes_CI_Node() )->dispatch( 'dump' );
+		$entries = \array_column( $raw['classes'], null, 'shell_name' );
+
+		$this->assertSame(
+			[
+				[
+					'name'        => 'GET_KEA7713',
+					'description' => 'Well-formed request.',
+					'reply_shape' => '{ kea }',
+				],
+			],
+			$entries['Malformed_Schema']['requests']
+		);
+	}
+
 	public function test_raw_catalog_payload_has_no_live_closures(): void {
 		// Dispatch the verb DIRECTLY (not through VerbHarness, whose JSON wire
 		// would already have flattened any leaked Closure to `{}` → `[]`). On the
@@ -366,6 +388,23 @@ class ClassesCITest extends TestCase {
 			function ( $leaf ): void {
 				$this->assertNotInstanceOf( \Closure::class, $leaf, 'no Closure may leak into the class catalog' );
 			}
+		);
+	}
+
+	public function test_dump_strips_request_handlers_and_keeps_the_declared_fields(): void {
+		$raw     = ( new Classes_CI_Node() )->dispatch( 'dump' );
+		$entries = \array_column( $raw['classes'], null, 'shell_name' );
+		$this->assertArrayHasKey( 'Job_Worker', $entries, 'Job_Worker absent — stale composer classmap?' );
+
+		$this->assertSame(
+			[
+				[
+					'name'        => 'GET_HEALTH',
+					'description' => 'Memory usage + handler counts + cache-flush progress.',
+					'reply_shape' => '{ memory_used_mb, memory_limit_mb, jobs_since_cache_flush, cache_flush_interval, local_handler_count, remote_handler_count, counter }',
+				],
+			],
+			$entries['Job_Worker']['requests']
 		);
 	}
 

@@ -57,9 +57,9 @@
 </div>
 
 <div class="reqs">
-  <div class="r"><div class="cmd"><span class="p">/example-ai-newsletter.p0&gt;</span> request_node releases TICK<br><span class="o">{ "emitted": 2 }</span></div><span class="mono">TICK</span> and <span class="mono">FLUSH</span> are <span class="mono">TM_REQUEST</span>s, sent with <span class="mono">request_node</span>, not admin commands. The reply rides the FROM breadcrumb back to the REPL while the items flow downstream, so watch the console counters climb card by card.</div>
-  <div class="r"><div class="cmd"><span class="p">/example-ai-newsletter.p0&gt;</span> request_node community TICK<br><span class="o">{ "emitted": 3 }</span></div>Five items now sit in <span class="mono">scored:partition</span>. The consumer paces the durable log, so give the ticks a beat before flushing.</div>
-  <div class="r"><div class="cmd"><span class="p">/example-ai-newsletter.p0&gt;</span> request_node digest FLUSH<br><span class="o">{ "flushed": 5 }</span></div><span class="mono">flushed</span> counts what the consumer had delivered by the time you typed it. The draft opens <span class="mono"># Newsletter draft</span> and lists one bullet per summary.</div>
+  <div class="r"><div class="cmd"><span class="p">/example-ai-newsletter.p0&gt;</span> request_node releases TICK<br><span class="o">{ "verb": "TICK", "data": { "emitted": 2 } }</span></div><span class="mono">TICK</span> and <span class="mono">FLUSH</span> are <span class="mono">TM_REQUEST</span>s, sent with <span class="mono">request_node</span>, not admin commands. The reply rides the FROM breadcrumb back to the REPL while the items flow downstream, so watch the console counters climb card by card.</div>
+  <div class="r"><div class="cmd"><span class="p">/example-ai-newsletter.p0&gt;</span> request_node community TICK<br><span class="o">{ "verb": "TICK", "data": { "emitted": 3 } }</span></div>Five items now sit in <span class="mono">scored:partition</span>. The consumer paces the durable log, so give the ticks a beat before flushing.</div>
+  <div class="r"><div class="cmd"><span class="p">/example-ai-newsletter.p0&gt;</span> request_node digest FLUSH<br><span class="o">{ "verb": "FLUSH", "data": { "flushed": 5 } }</span></div><span class="mono">flushed</span> counts what the consumer had delivered by the time you typed it. The draft opens <span class="mono"># Newsletter draft</span> and lists one bullet per summary.</div>
 </div>
 
 <div class="two">

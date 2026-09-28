@@ -125,15 +125,24 @@ wp nodes cli example-ai-newsletter.p0
 ```
 /example-ai-newsletter.p0> request_node releases TICK    # the releases source emits its 2 canned items
 {
-    "emitted": 2
+    "verb": "TICK",
+    "data": {
+        "emitted": 2
+    }
 }
 /example-ai-newsletter.p0> request_node community TICK   # the other source emits its 3
 {
-    "emitted": 3
+    "verb": "TICK",
+    "data": {
+        "emitted": 3
+    }
 }
 /example-ai-newsletter.p0> request_node digest FLUSH     # assemble and write the draft
 {
-    "flushed": 5
+    "verb": "FLUSH",
+    "data": {
+        "flushed": 5
+    }
 }
 ```
 

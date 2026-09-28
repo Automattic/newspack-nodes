@@ -1184,8 +1184,8 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 
 	// ---- maybe_request_worker_restart (configuration-error path) --------
 
-	public function test_maybe_request_worker_restart_propagates_an_unconfigurable_locks_dir(): void {
-		// Force Config::get_locks_directory() to throw by writing a config file
+	public function test_maybe_request_worker_restart_propagates_an_unconfigurable_base_dir(): void {
+		// Force Config::get_base_directory() to throw by writing a config file
 		// whose `base_directory` contains a null byte — Config::ensure_path()
 		// rejects these immediately. The option row is already written, so the
 		// save must learn that no worker heard of it.

@@ -77,7 +77,12 @@ import {
 	verbUsesConfig,
 } from './utils/editorLines';
 import { useCommandOnce } from '@newspack-nodes/shared/hooks/useCommandOnce';
-import { scopeFromCwd } from './utils/scope';
+import {
+	parseWorkerId,
+	scopeFromCwd,
+	workerId,
+	workerOfPath,
+} from './utils/scope';
 import { Core } from '../runtime/core';
 import {
 	newMessage,
@@ -143,8 +148,8 @@ function buildPathOptions( partitions, active ) {
 		...sortTopologies( partitions, active )
 			.filter( ( t ) => activeSet.has( t ) )
 			.flatMap( ( t ) =>
-				partitionIndices( partitions, t ).map(
-					( p ) => `${ t }.p${ p }`
+				partitionIndices( partitions, t ).map( ( p ) =>
+					workerId( t, p )
 				)
 			),
 	];
@@ -195,22 +200,7 @@ const TOPOLOGIES = sortTopologies(
 		[]
 );
 
-/**
- * The worker a cwd mounts — the two halves of a `{topology}.p{N}` path.
- *
- * @typedef {{ topology: string, partition: number }} AttachedWorker
- */
-
-/**
- * Split a `{topology}.p{N}` cwd into its topology and partition.
- *
- * @param {string} cwd Path to classify.
- * @return {?AttachedWorker} The worker, or null for any other cwd.
- */
-function parseWorker( cwd ) {
-	const m = String( cwd ).match( /^([^/]+)\.p(\d+)$/ );
-	return m ? { topology: m[ 1 ], partition: Number( m[ 2 ] ) } : null;
-}
+/** @typedef {import('./utils/scope').AttachedWorker} AttachedWorker */
 
 /**
  * Re-exported so the console's surface still carries it. The implementation
@@ -258,33 +248,29 @@ export function statusLines( { sseSession, cwd, worker } ) {
 		`Browser console — SSE session ${ sseSession }`,
 		`  cwd: ${ cwd || '/' }`,
 		worker
-			? `  attached worker: ${ worker.topology }.p${ worker.partition }`
+			? `  attached worker: ${ workerId(
+					worker.topology,
+					worker.partition
+			  ) }`
 			: '  no attached worker (local graph).',
 	];
 }
 
 /**
- * The worker a path is mounted on: the longest `{topology}.p{N}` entry in the
- * menu that the path equals or descends from, so a node path inside a worker
- * resolves to that worker. The local graph and `_http` mount none.
+ * The worker a path is mounted on, when the Path menu offers that worker: an
+ * active worker the path equals or descends from. The local graph, `_http`
+ * and an inactive worker mount none.
  *
  * @param {string}   path    Path to resolve, usually the mirrored cwd.
  * @param {string[]} options Every cwd the Path menu offers.
  * @return {?AttachedWorker} The worker, or null when the path mounts none.
  */
-function longestWorkerPrefix( path, options ) {
-	let best = null;
-	for ( const opt of options ) {
-		if ( ! parseWorker( opt ) ) {
-			continue;
-		}
-		if ( path === opt || path.startsWith( opt + '/' ) ) {
-			if ( null === best || opt.length > best.length ) {
-				best = opt;
-			}
-		}
-	}
-	return best ? parseWorker( best ) : null;
+function mountedWorker( path, options ) {
+	const worker = workerOfPath( path );
+	return worker &&
+		options.includes( workerId( worker.topology, worker.partition ) )
+		? worker
+		: null;
 }
 
 /**
@@ -297,8 +283,8 @@ function longestWorkerPrefix( path, options ) {
  * @return {?string} The worker mount, or null when the cwd is not under one.
  */
 export function workerPollPath( cwd, pathOptions ) {
-	const worker = longestWorkerPrefix( cwd, pathOptions );
-	return worker ? `${ worker.topology }.p${ worker.partition }` : null;
+	const w = mountedWorker( cwd, pathOptions );
+	return w ? workerId( w.topology, w.partition ) : null;
 }
 
 /**
@@ -310,7 +296,7 @@ export function workerPollPath( cwd, pathOptions ) {
  * @return {boolean} True when the send must wait for a live SSE session.
  */
 export function toNeedsSseSession( to ) {
-	return /^[a-z0-9_-]+\.p\d+(?:\/|$)/.test( to || '' );
+	return null !== workerOfPath( to );
 }
 
 /** Height in px of the REPL bar, the chrome below the transcript. */
@@ -547,7 +533,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			partition,
 			enabled: mode !== 'edit',
 			// One RemoteIpc per active worker, keyed by {topology}.p{N}.
-			workers: pathOptions.filter( ( o ) => parseWorker( o ) ),
+			workers: pathOptions.filter( ( o ) => parseWorkerId( o ) ),
 			streamEnabled: null !== workerPollPath( cwd, pathOptions ),
 			debugLevelRef,
 			catalog: phpCatalog,
@@ -1064,7 +1050,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				shell.path = nextPath;
 			}
 			setCwd( nextPath );
-			const worker = longestWorkerPrefix( nextPath, pathOptions );
+			const worker = mountedWorker( nextPath, pathOptions );
 			if (
 				worker &&
 				( worker.topology !== topology ||
@@ -1188,7 +1174,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			shell.statusLines = statusLines( {
 				sseSession,
 				cwd,
-				worker: longestWorkerPrefix( cwd, pathOptions ),
+				worker: mountedWorker( cwd, pathOptions ),
 			} );
 		}
 	}, [ shell, mode, sseSession, cwd, pathOptions ] );
@@ -1853,7 +1839,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			pathOptions={ pathOptions }
 			path={ cwd }
 			onPathChange={ handlePathChange }
-			canEdit={ null !== longestWorkerPrefix( cwd, pathOptions ) }
+			canEdit={ null !== mountedWorker( cwd, pathOptions ) }
 			streamStatus={ status }
 			uptime={ uptime }
 			mode={ mode }

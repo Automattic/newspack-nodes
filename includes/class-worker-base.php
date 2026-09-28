@@ -38,6 +38,12 @@ class Worker_Base {
 	 */
 	public const BASELINE_WATERMARK_PCT = 0.50;
 
+	/** `ipc_dir()` leg: the Partition a worker's commands arrive on. */
+	public const IPC_INPUT = 'input';
+
+	/** `ipc_dir()` leg: the input reader's durable offsetlog. */
+	public const IPC_INPUT_OFFSETS = 'input.offsets';
+
 	/** IPC scratch geometry: the age rule is off, so a partition is bounded by count. */
 	public const IPC_LIFETIME = 0;
 
@@ -52,6 +58,9 @@ class Worker_Base {
 
 	/** IPC scratch geometry: count-rule target the oldest segments are pruned back to. */
 	public const IPC_NUM_SEGMENTS = 2;
+
+	/** `ipc_dir()` leg: the `_repl` Partition an attached cli tails for replies. */
+	public const IPC_OUTPUT = 'output';
 
 	/** IPC scratch geometry: 1 MiB segment rotation threshold. */
 	public const IPC_SEGMENT_SIZE = 1048576;
@@ -146,15 +155,16 @@ class Worker_Base {
 	 * @param string   $token     HMAC spawn token, used when `$token_provider` is unwired.
 	 * @return array{status: string, reason?: string} `skipped` plus the acquire
 	 *   failure, or `ok`.
-	 * @throws \Throwable A topology load failure, raised after the teardown and
-	 *   release with no self-respawn; otherwise whatever the run and the shutdown
-	 *   threw, raised only after the handoff, release and respawn.
+	 * @throws \Throwable A topology load failure or a `RuntimeException` from a
+	 *   `newspack_nodes/worker_identified` listener, raised after the teardown
+	 *   and release with no self-respawn; otherwise whatever the run and the
+	 *   shutdown threw, raised only after the handoff, release and respawn.
 	 */
 	public function execute( callable $topology, string $spawn_url, string $token ): array {
 		if ( ! $this->acquire() ) {
 			$reason = null !== $this->lock ? ( $this->lock->acquire_failure() ?: 'lock_held' ) : 'lock_held';
 			if ( 'lock_held' !== $reason ) {
-				Core::print_less_often( "{$this->worker_type}.p{$this->partition}: spawn skipped: ", $reason );
+				Core::print_less_often( CLI::worker_id( $this->worker_type, $this->partition ) . ': spawn skipped: ', $reason );
 			}
 			return [ 'status' => 'skipped', 'reason' => $reason ];
 		}
@@ -169,14 +179,15 @@ class Worker_Base {
 				function () use ( $topology ): void {
 					$interpreter = $this->build_scaffolding();
 					try {
+						$this->announce_identity();
 						$this->run_topology( $topology, $interpreter );
 					} catch ( Worker_Should_Stop $e ) {
 						// A stop IS a RuntimeException; never a load failure.
 						throw $e;
 					} catch ( \RuntimeException $e ) {
-						// @longform A malformed .tsl fails loud but CLEAN:
-						// lock freed, NO self-respawn (a hot loop on the same
-						// bad file); a peer's scan retries on its own tick.
+						// @longform A malformed .tsl or a throwing announcement
+						// fails loud but CLEAN: lock freed, NO self-respawn (a
+						// hot loop on the same failure); a peer's scan retries.
 						$this->shutdown_handled = true;
 						Worker_Should_Stop::raise( [ $e, ...Worker_Should_Stop::attempt( ...$this->teardown() ) ] );
 					}
@@ -212,6 +223,28 @@ class Worker_Base {
 	}
 
 	/**
+	 * Fire `newspack_nodes/worker_identified` from the process that holds the
+	 * slot, which is when a spawn becomes the worker rather than a request that
+	 * may yet lose the lock race. Only a process `Spawn_Controller` tagged as
+	 * this worker announces: `wp nodes run` sets no tag, so nothing else in
+	 * that process names the worker either, and neither does this.
+	 *
+	 * `execute()` calls it inside the topology load path, so a listener's
+	 * `RuntimeException` ends the run as a malformed `.tsl` does: the lock is
+	 * released, the throw escapes, and no successor is spawned to throw again.
+	 */
+	private function announce_identity(): void {
+		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- compared, never output; set by Spawn_Controller after HMAC auth.
+		$type = $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ?? null;
+		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- compared, never output.
+		$partition = $_SERVER['NEWSPACK_NODES_WORKER_PARTITION'] ?? null;
+		if ( $this->worker_type !== $type || (string) $this->partition !== $partition ) {
+			return;
+		}
+		\do_action( 'newspack_nodes/worker_identified', $this->worker_type, $this->partition );
+	}
+
+	/**
 	 * Build the scaffolding every worker graph starts from: `_router`,
 	 * `_command_interpreter`, `_fleet`, the `_repl` output Partition and the
 	 * `_repl:input` IPC-input Consumer.
@@ -226,7 +259,7 @@ class Worker_Base {
 		// A worker VERIFIES commands: set the process-wide authorize once.
 		Command_Interpreter_Node::$default_authorize = Command_Auth::verifier();
 
-		$ipc_dir = self::ipc_dir( $this->base_dir, $this->worker_type, $this->partition );
+		$output_dir = self::ipc_dir( $this->base_dir, $this->worker_type, $this->partition, self::IPC_OUTPUT );
 
 		$router = new Router_Node();
 		$router->name( Node_Names::ROUTER );
@@ -242,20 +275,20 @@ class Worker_Base {
 		$interpreter->make_node( 'Fleet', Node_Names::FLEET, $this->base_dir, $this->held_lock_path() );
 
 		// The _repl output Partition, which an attached `wp nodes cli` tails.
-		if ( ! \is_dir( "{$ipc_dir}/output" ) ) {
+		if ( ! \is_dir( $output_dir ) ) {
 			if ( ! Config::write_denied( 'ipc output dir' ) ) {
 				// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
-				@\mkdir( "{$ipc_dir}/output", 0755, true );
+				@\mkdir( $output_dir, 0755, true );
 			}
 		}
 		// make_node names it, applies the arguments, and sinks it into us.
-		$repl = $interpreter->make_node( 'Partition', Node_Names::REPL, ...self::ipc_partition_args( "{$ipc_dir}/output" ) );
+		$repl = $interpreter->make_node( 'Partition', Node_Names::REPL, ...self::ipc_partition_args( $output_dir ) );
 		// Dumps exceed PIPE_BUF, and this worker is its only writer: no lock.
 		if ( $repl instanceof Partition_Node ) {
 			$repl->void_warranty();
 		}
 
-		$repl_in = $this->build_ipc_input_consumer( $ipc_dir );
+		$repl_in = $this->build_ipc_input_consumer();
 		$repl_in->sink( $interpreter );
 
 		return $interpreter;
@@ -286,11 +319,10 @@ class Worker_Base {
 	 * quarantine it would raise, and the parked cursor would replay it into
 	 * every successor.
 	 *
-	 * @param string $ipc_dir This worker's IPC dir (`{base}/ipc/{type}.p{N}`).
 	 * @return Consumer_Node The consumer, unsunk; the caller wires it.
 	 */
-	public function build_ipc_input_consumer( string $ipc_dir ): Consumer_Node {
-		$input_dir = "{$ipc_dir}/input";
+	public function build_ipc_input_consumer(): Consumer_Node {
+		$input_dir = self::ipc_dir( $this->base_dir, $this->worker_type, $this->partition, self::IPC_INPUT );
 		if ( ! \is_dir( $input_dir ) ) {
 			if ( ! Config::write_denied( 'ipc input dir' ) ) {
 				// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
@@ -302,7 +334,7 @@ class Worker_Base {
 		$consumer->arguments(
 			[
 				$input_dir,
-				"{$ipc_dir}/input.offsets",
+				self::ipc_dir( $this->base_dir, $this->worker_type, $this->partition, self::IPC_INPUT_OFFSETS ),
 				Config::deadletter_dir( $this->base_dir ) . "/{$this->worker_type}-ipc-input.p{$this->partition}",
 			]
 		);
@@ -310,6 +342,23 @@ class Worker_Base {
 		$consumer->next_offset( 'end' );
 		$consumer->set_stamp_as( Node_Names::REPL );
 		return $consumer;
+	}
+
+	/**
+	 * Where a worker's IPC tree lives: `{base}/ipc/{type}.p{N}`, or one `$leg`
+	 * under it. One definition, because the fleet's own scaffolding and anything
+	 * asking about another worker must agree — this layout is the SUBSTRATE's,
+	 * unlike a TSL path template, so constructing it here is not the layout
+	 * assumption a `.p<N>` parse would be.
+	 *
+	 * @param string $base_dir  Runtime state root.
+	 * @param string $type      Worker type.
+	 * @param int    $partition Partition number.
+	 * @param string $leg       `IPC_INPUT`, `IPC_OUTPUT` or `IPC_INPUT_OFFSETS`; '' names the tree.
+	 */
+	public static function ipc_dir( string $base_dir, string $type, int $partition, string $leg = '' ): string {
+		$tree = \rtrim( $base_dir, '/' ) . '/ipc/' . CLI::worker_id( $type, $partition );
+		return '' === $leg ? $tree : "{$tree}/{$leg}";
 	}
 
 	/**
@@ -331,20 +380,6 @@ class Worker_Base {
 			self::IPC_MIN_LIFETIME,
 			self::IPC_LIFETIME,
 		] );
-	}
-
-	/**
-	 * Where a worker's IPC tree lives: `{base}/ipc/{type}.p{N}`. One definition,
-	 * because the fleet's own scaffolding and anything asking about another worker
-	 * must agree — this layout is the SUBSTRATE's, unlike a TSL path template, so
-	 * constructing it here is not the layout assumption a `.p<N>` parse would be.
-	 *
-	 * @param string $base_dir  Runtime state root.
-	 * @param string $type      Worker type.
-	 * @param int    $partition Partition number.
-	 */
-	public static function ipc_dir( string $base_dir, string $type, int $partition ): string {
-		return \rtrim( $base_dir, '/' ) . "/ipc/{$type}.p{$partition}";
 	}
 
 	/**
@@ -394,7 +429,7 @@ class Worker_Base {
 			'nonce'     => $token,
 		], 'self-respawn' );
 		if ( null !== $err ) {
-			Core::stderr( "{$this->worker_type}.p{$this->partition}: self_respawn failed: {$err}" );
+			Core::stderr( CLI::worker_id( $this->worker_type, $this->partition ) . ": self_respawn failed: {$err}" );
 		}
 	}
 
@@ -545,11 +580,12 @@ class Worker_Base {
 	 * @return bool True when this process owns the slot.
 	 */
 	public function acquire(): bool {
-		if ( ! \is_dir( "{$this->base_dir}/locks" ) ) {
+		$locks_dir = Spawn_Coordinator::locks_dir( $this->base_dir );
+		if ( ! \is_dir( $locks_dir ) ) {
 			// base_dir is operator-configured worker storage, not WP-managed.
 			if ( ! Config::write_denied( 'locks dir' ) ) {
 				// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
-				@\mkdir( "{$this->base_dir}/locks", 0755, true );
+				@\mkdir( $locks_dir, 0755, true );
 			}
 		}
 		// Lifecycle lock, acquired pre-graph: bare new, no interpreter yet.
@@ -565,12 +601,12 @@ class Worker_Base {
 
 	/** The `.lock.d` directory THIS worker holds: `{base}/locks/{type}.p{N}.lock.d`. */
 	protected function held_lock_path(): string {
-		return "{$this->base_dir}/locks/{$this->worker_type}.p{$this->partition}.lock.d";
+		return Spawn_Coordinator::lock_path( $this->base_dir, $this->worker_type, $this->partition );
 	}
 
 	/** How a worker names itself in a stop message. */
 	protected function stop_label(): string {
-		return "{$this->worker_type}.p{$this->partition}";
+		return CLI::worker_id( $this->worker_type, $this->partition );
 	}
 
 }

@@ -236,6 +236,7 @@ class CliCommandTest extends TestCase {
 	 */
 	public function test_the_reply_consumer_stamps_the_worker_id_at_the_head(): void {
 		$ipc = [
+			'id'        => 'firehose-workers.p0',
 			'input'     => "{$this->tmp}/ipc/firehose-workers.p0/input",
 			'output'    => "{$this->tmp}/ipc/firehose-workers.p0/output",
 			'type'      => 'firehose-workers',
@@ -265,6 +266,7 @@ class CliCommandTest extends TestCase {
 		// Attached mode: the IPC input Partition is mounted under the WORKER id (the
 		// mount point routing peels to), plus an unnamed `reply-in` Consumer.
 		$ipc = [
+			'id'        => 'firehose-workers.p0',
 			'input'     => "{$this->tmp}/ipc/firehose-workers.p0/input",
 			'output'    => "{$this->tmp}/ipc/firehose-workers.p0/output",
 			'type'      => 'firehose-workers',
@@ -304,6 +306,7 @@ class CliCommandTest extends TestCase {
 		// to_filter field — we verify behavior: a message addressed to "$pid"
 		// should render, while one to a different pid should drop.
 		$ipc = [
+			'id'        => 'jobs.p0',
 			'input'     => "{$this->tmp}/ipc/jobs.p0/input",
 			'output'    => "{$this->tmp}/ipc/jobs.p0/output",
 			'type'      => 'jobs',

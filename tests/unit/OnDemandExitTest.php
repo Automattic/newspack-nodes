@@ -346,7 +346,7 @@ class OnDemandExitTest extends TestCase {
 	/** The worker's real IPC-input Consumer, its cursor seeded at the empty tail. */
 	private function ipc_input( Worker_Base $w ): string {
 		$ipc_dir = Worker_Base::ipc_dir( $this->tmp, 'quokka-workers', 0 );
-		$in      = $w->build_ipc_input_consumer( $ipc_dir );
+		$in      = $w->build_ipc_input_consumer();
 		$in->sink( new \Newspack_Nodes\Tests\Capture_Sink_Node() );
 		$this->pump_consumer( $in );
 		return "{$ipc_dir}/input";

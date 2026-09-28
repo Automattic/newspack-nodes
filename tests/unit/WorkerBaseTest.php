@@ -549,6 +549,123 @@ class WorkerBaseTest extends TestCase {
 		$this->assertSame( 'token-abc', $posts[0]['body']['nonce'] );
 	}
 
+	/**
+	 * Record every `worker_identified` announcement, with whether the lock
+	 * dir existed at that moment.
+	 *
+	 * @param array<int,array{0:string,1:int,2:bool}> $announced Capture sink, by reference.
+	 */
+	private function capture_announcements( array &$announced, string $lock_path ): void {
+		\add_action(
+			'newspack_nodes/worker_identified',
+			static function ( string $type, int $partition ) use ( &$announced, $lock_path ): void {
+				$announced[] = [ $type, $partition, \is_dir( $lock_path ) ];
+			},
+			10,
+			2
+		);
+	}
+
+	/**
+	 * A spawn that loses the lock race never becomes the worker, so it names
+	 * none: its request keeps whatever it called itself.
+	 */
+	public function test_a_spawn_whose_lock_is_held_announces_no_worker(): void {
+		$_SERVER['NEWSPACK_NODES_WORKER_TYPE']      = 'kea-7713';
+		$_SERVER['NEWSPACK_NODES_WORKER_PARTITION'] = '3';
+		$announced = [];
+		$this->capture_announcements( $announced, "{$this->tmp}/locks/kea-7713.p3.lock.d" );
+		$held = new TestableWorker( $this->tmp, 'kea-7713', 3 );
+		$this->assertTrue( $held->acquire() );
+
+		try {
+			$result = ( new TestableWorker( $this->tmp, 'kea-7713', 3 ) )->execute( fn () => null, 'http://example/', 'token' );
+		} finally {
+			unset( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'], $_SERVER['NEWSPACK_NODES_WORKER_PARTITION'] );
+		}
+
+		$this->assertSame( 'lock_held', $result['reason'] );
+		$this->assertSame( [], $announced );
+	}
+
+	/**
+	 * A spawn that takes the lock is the worker from then on, and says so
+	 * once, while it holds the lock.
+	 */
+	public function test_a_spawn_that_acquires_announces_its_identity_once_holding_the_lock(): void {
+		$posts = [];
+		$this->capture_spawn_posts( $posts );
+		$_SERVER['NEWSPACK_NODES_WORKER_TYPE']      = 'kea-7713';
+		$_SERVER['NEWSPACK_NODES_WORKER_PARTITION'] = '3';
+		$lock_path = "{$this->tmp}/locks/kea-7713.p3.lock.d";
+		$announced = [];
+		$this->capture_announcements( $announced, $lock_path );
+
+		try {
+			$result = ( new TestableWorker( $this->tmp, 'kea-7713', 3 ) )->execute(
+				static fn () => \Newspack_Nodes\Lock_Node::request_restart_at( $lock_path ),
+				'http://example/spawn',
+				'token'
+			);
+		} finally {
+			unset( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'], $_SERVER['NEWSPACK_NODES_WORKER_PARTITION'] );
+		}
+
+		$this->assertSame( 'ok', $result['status'] );
+		$this->assertSame( [ [ 'kea-7713', 3, true ] ], $announced );
+	}
+
+	/**
+	 * A listener that throws fails the run it announced as a load failure
+	 * does: the slot is released and the throw escapes, rather than leaving the
+	 * lock held until stale, and no successor is spawned, because a listener
+	 * that throws once throws again in every successor.
+	 */
+	public function test_a_throwing_identity_listener_releases_the_lock_and_escapes_without_respawn(): void {
+		$posts = [];
+		$this->capture_spawn_posts( $posts );
+		$_SERVER['NEWSPACK_NODES_WORKER_TYPE']      = 'kea-7713';
+		$_SERVER['NEWSPACK_NODES_WORKER_PARTITION'] = '3';
+		$boom = new \RuntimeException( 'listener 5309 broke' );
+		\add_action( 'newspack_nodes/worker_identified', static function () use ( $boom ): void {
+			throw $boom;
+		} );
+
+		$caught = null;
+		try {
+			( new TestableWorker( $this->tmp, 'kea-7713', 3 ) )->execute( fn () => null, 'http://example/spawn', 'token' );
+		} catch ( \RuntimeException $e ) {
+			$caught = $e;
+		} finally {
+			unset( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'], $_SERVER['NEWSPACK_NODES_WORKER_PARTITION'] );
+		}
+
+		$this->assertSame( $boom, $caught );
+		$this->assertFalse( \is_dir( "{$this->tmp}/locks/kea-7713.p3.lock.d" ), 'the slot is released' );
+		$this->assertSame( [], $posts, 'no self-respawn after a throwing announcement' );
+	}
+
+	/**
+	 * `wp nodes run` never tags the process with a worker identity, so the
+	 * worker it runs announces none either.
+	 */
+	public function test_an_untagged_process_announces_no_worker(): void {
+		$posts = [];
+		$this->capture_spawn_posts( $posts );
+		$lock_path = "{$this->tmp}/locks/weka-3120.p1.lock.d";
+		$announced = [];
+		$this->capture_announcements( $announced, $lock_path );
+
+		$result = ( new TestableWorker( $this->tmp, 'weka-3120', 1 ) )->execute(
+			static fn () => \Newspack_Nodes\Lock_Node::request_restart_at( $lock_path ),
+			'http://example/spawn',
+			'token'
+		);
+
+		$this->assertSame( 'ok', $result['status'] );
+		$this->assertSame( [], $announced );
+	}
+
 	public function test_execute_hands_off_then_raises_the_failure_a_stop_carried(): void {
 		// A mid-job stop whose Partition flush failed carries that failure as its
 		// previous. The stop still wins — lock released, successor spawned — and

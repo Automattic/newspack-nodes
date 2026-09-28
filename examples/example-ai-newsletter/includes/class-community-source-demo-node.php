@@ -12,6 +12,7 @@ namespace Example_AI_Newsletter;
 
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Message;
+use Newspack_Nodes\Schema_Reflection;
 
 \defined( 'ABSPATH' ) || exit;
 
@@ -26,36 +27,32 @@ use Newspack_Nodes\Message;
  * collapses the duplication once three connectors share it.
  */
 class Community_Source_Demo_Node extends Node {
+	use Schema_Reflection;
 
 	/**
-	 * Runs the TICK batch on any TM_REQUEST and ignores every other type.
+	 * Answers a TM_REQUEST and ignores every other type.
 	 *
-	 * TICK is a runtime trigger, so it arrives as a TM_REQUEST handled here in
-	 * fill(), never as a TM_COMMAND verb — that flag carries startup and
-	 * administration. A source mints messages and consumes none, so anything else
-	 * is dropped rather than forwarded to the sink. A TYPE that is not numeric
-	 * reads as 0 and matches no flag.
+	 * TICK is a runtime trigger, so it arrives as a TM_REQUEST, never as a
+	 * TM_COMMAND verb — that flag carries startup and administration.
+	 * `answer_request()` answers it from the schema. A source mints messages
+	 * and consumes none, so anything that is not a request is dropped rather
+	 * than forwarded.
 	 *
 	 * @param array<int,mixed> $message The 7-field positional message array.
 	 */
 	public function fill( array $message ): void {
-		$type = \is_numeric( $message[ Message::TYPE ] ) ? (int) $message[ Message::TYPE ] : 0;
-		if ( $type & Message::TM_REQUEST ) {
-			$this->handle_request( $message );
-		}
+		$this->answer_request( $message );
 	}
 
 	/**
-	 * Emits each item as its own TM_STRUCT message, then replies with the count.
+	 * Emits each item as its own TM_STRUCT message and reports the count.
 	 *
 	 * The per-item emits are fire-and-forget: nothing acks them and nothing
-	 * waits (ADR-3). Every TM_REQUEST runs the batch — the VALUE verb goes
-	 * unread, because TICK is the only request the schema declares. The reply
-	 * echoes the request's ID and KEY, matching `Job_Worker_Node::handle_request`.
+	 * waits (ADR-3). The count is the reply's `data`.
 	 *
-	 * @param array<int,mixed> $message The TICK request.
+	 * @return array{emitted:int} The TICK reply data.
 	 */
-	private function handle_request( array $message ): void {
+	private function tick(): array {
 		$emitted = 0;
 		foreach ( $this->items() as $item ) {
 			$response                   = Message::new_message();
@@ -66,15 +63,7 @@ class Community_Source_Demo_Node extends Node {
 			parent::fill( $response );
 			++$emitted;
 		}
-		// TO=FROM addresses the reply, as Job_Worker_Node::handle_request does.
-		$reply                   = Message::new_message();
-		$reply[ Message::TYPE ]  = Message::TM_STRUCT | Message::TM_RESPONSE;
-		$reply[ Message::FROM ]  = $this->name;
-		$reply[ Message::TO ]    = $message[ Message::FROM ];
-		$reply[ Message::ID ]    = $message[ Message::ID ];
-		$reply[ Message::KEY ]   = $message[ Message::KEY ];
-		$reply[ Message::VALUE ] = [ 'emitted' => $emitted ];
-		parent::fill( $reply );
+		return [ 'emitted' => $emitted ];
 	}
 
 	/**
@@ -83,7 +72,7 @@ class Community_Source_Demo_Node extends Node {
 	 * Canned data keeps the walkthrough deterministic, and the suite asserts a
 	 * TICK reports an `emitted` of 3. A real source fetches here — a feed, an
 	 * API, a table — and returns the same shape. It leaves the `source` key
-	 * alone: `handle_request()` unions that in ahead of the item, so an override
+	 * alone: `tick()` unions that in ahead of the item, so an override
 	 * can neither forget it nor change it.
 	 *
 	 * @return array<int,array<string,string>> Items keyed `title`, `url` and `body`.
@@ -99,10 +88,11 @@ class Community_Source_Demo_Node extends Node {
 	/**
 	 * Describes the node for the console palette, the Inspector and `help`.
 	 *
-	 * The `requests` entry draws the Inspector's TICK button and the REQUESTS
-	 * row of `help Community_Source_Demo`. `accepts_fill` stays true because the
-	 * request itself arrives at `fill()`, and no `commands` entry is declared,
-	 * since a runtime trigger never becomes a TM_COMMAND verb.
+	 * The `requests` entry names the TICK `handler`, and draws the Inspector's
+	 * TICK button and the REQUESTS row of `help Community_Source_Demo`.
+	 * `accepts_fill` stays true because the request itself arrives at `fill()`,
+	 * and no `commands` entry is declared, since a runtime trigger never becomes
+	 * a TM_COMMAND verb.
 	 *
 	 * @return array<string,mixed> The base schema with this node's entries merged over it.
 	 */
@@ -116,6 +106,7 @@ class Community_Source_Demo_Node extends Node {
 					'name'        => 'TICK',
 					'description' => 'Emit the current batch of items. Trigger with `request_node community TICK`.',
 					'reply_shape' => '{ emitted }',
+					'handler'     => static fn ( self $node ): array => $node->tick(),
 				],
 			],
 			'accepts_fill' => true,

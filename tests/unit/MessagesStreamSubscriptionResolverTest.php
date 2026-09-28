@@ -383,6 +383,19 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		$this->assertContainsOnlyInstancesOf( Consumer_Node::class, $consumers );
 	}
 
+	/** A worker id the fleet writes attaches, whatever its case. */
+	public function test_ipc_subscription_attaches_an_uppercase_worker(): void {
+		\mkdir( "{$this->tmp}/ipc/Kea-7713.p3/output", 0755, true );
+
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->tmp );
+
+		$consumers = $ctrl->open_subscription( 'Kea-7713.p3', null );
+
+		$this->assertCount( 1, $consumers );
+		$this->assertStringStartsWith( "{$this->tmp}/ipc/Kea-7713.p3/output", $consumers[0]->arguments()[0] );
+	}
+
 	public function test_ipc_subscription_falls_back_to_log_partition_when_no_worker(): void {
 		// Aggregator hub path: RemoteSource subscribes as `firehose.p0` to
 		// tail the spoke's firehose.p0 partition 0. There's NO worker

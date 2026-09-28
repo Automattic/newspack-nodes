@@ -163,6 +163,22 @@ class CliTest extends TestCase {
 		$this->assertSame( 'firehose-workers', $workers[0]['type'] );
 	}
 
+	/** The walk `Spawn_Coordinator::worker_lock_dirs()` owns, not a second one. */
+	public function test_ls_reads_the_lock_dirs_the_coordinator_reads(): void {
+		foreach ( [ 'foo.bar.p41', 'kea-7713.p07', 'kea.pX' ] as $name ) {
+			mkdir( "{$this->tmp}/locks/{$name}.lock.d", 0755, true );
+			touch( "{$this->tmp}/locks/{$name}.lock.d/heartbeat" );
+		}
+
+		$workers = ( new CLI( $this->tmp ) )->ls_workers();
+
+		$this->assertSame(
+			[ [ 'foo.bar.p41', 'foo.bar', 41 ] ],
+			array_map( fn( $w ) => [ $w['id'], $w['type'], $w['partition'] ], $workers ),
+			'a dotted type lists; a padded or non-numeric partition names no worker'
+		);
+	}
+
 	public function test_ls_sorts_by_type_then_partition(): void {
 		mkdir( "{$this->tmp}/locks", 0755, true );
 		// Create out of order; expect sorted output.
@@ -179,26 +195,32 @@ class CliTest extends TestCase {
 		$this->assertSame( [ 'firehose.p0', 'firehose.p1', 'jobs.p0', 'jobs.p1' ], $ordered );
 	}
 
-	// ── parse_worker_id() / attach_to_worker() ─────────────────────────────────
+	// ── worker_id() / parse_worker_id() / attach_to_worker() ───────────────────
 
-	public function test_parse_worker_id_returns_type_and_partition(): void {
-		$this->assertSame( [ 'firehose-workers', 0 ], CLI::parse_worker_id( 'firehose-workers.p0' ) );
-		$this->assertSame( [ 'jobs', 12 ], CLI::parse_worker_id( 'jobs.p12' ) );
+	/**
+	 * The case list `parseWorkerId()` in `src/topology-console/utils/scope.js`
+	 * reads too, so the two grammars cannot drift apart. A valid id also
+	 * round-trips through `worker_id()`, the one writer.
+	 *
+	 * @param string                    $id       Candidate worker id.
+	 * @param array{0:string,1:int}|null $expected Type and partition, or null.
+	 */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'worker_id_provider' )]
+	public function test_parse_worker_id_matches_the_shared_case_list( string $id, ?array $expected ): void {
+		$this->assertSame( $expected, CLI::parse_worker_id( $id ) );
+		if ( null !== $expected ) {
+			$this->assertSame( $id, CLI::worker_id( ...$expected ) );
+		}
 	}
 
-	public function test_parse_worker_id_handles_dotted_types(): void {
-		// Type can contain dots — only the trailing .p{N} is partition.
-		$this->assertSame( [ 'foo.bar', 3 ], CLI::parse_worker_id( 'foo.bar.p3' ) );
-	}
-
-	public function test_parse_worker_id_throws_on_invalid_input(): void {
-		$this->expectException( \InvalidArgumentException::class );
-		CLI::parse_worker_id( 'no-partition-suffix' );
-	}
-
-	public function test_parse_worker_id_throws_on_non_numeric_partition(): void {
-		$this->expectException( \InvalidArgumentException::class );
-		CLI::parse_worker_id( 'foo.pX' );
+	/** @return array<string,array{0:string,1:?array{0:string,1:int}}> */
+	public static function worker_id_provider(): array {
+		$cases = \json_decode( (string) \file_get_contents( __DIR__ . '/../fixtures/worker-ids.json' ), true, 512, \JSON_THROW_ON_ERROR );
+		$out   = [];
+		foreach ( $cases as [ $label, $id, $expected ] ) {
+			$out[ $label ] = [ $id, $expected ];
+		}
+		return $out;
 	}
 
 	public function test_attach_to_worker_returns_ipc_paths(): void {
@@ -213,6 +235,28 @@ class CliTest extends TestCase {
 		$this->assertSame( "{$this->tmp}/ipc/firehose-workers.p2/output", $ipc['output'] );
 		$this->assertSame( 'firehose-workers', $ipc['type'] );
 		$this->assertSame( 2, $ipc['partition'] );
+	}
+
+	public function test_attach_to_worker_resolves_a_dotted_type(): void {
+		\mkdir( "{$this->tmp}/locks/foo.bar.p41.lock.d", 0755, true );
+
+		$ipc = ( new CLI( $this->tmp ) )->attach_to_worker( 'foo.bar.p41' );
+
+		$this->assertSame( "{$this->tmp}/ipc/foo.bar.p41/input", $ipc['input'] );
+		$this->assertSame( "{$this->tmp}/ipc/foo.bar.p41/output", $ipc['output'] );
+		$this->assertSame( [ 'foo.bar.p41', 'foo.bar', 41 ], [ $ipc['id'], $ipc['type'], $ipc['partition'] ] );
+	}
+
+	/**
+	 * `kea-7713.p03` is no spelling of partition 3: attaching it would hand
+	 * back an IPC tree the running `kea-7713.p3` never reads.
+	 */
+	public function test_attach_to_worker_refuses_a_padded_id_beside_a_live_worker(): void {
+		\mkdir( "{$this->tmp}/locks/kea-7713.p3.lock.d", 0755, true );
+
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'invalid reader id: kea-7713.p03' );
+		( new CLI( $this->tmp ) )->attach_to_worker( 'kea-7713.p03' );
 	}
 
 	public function test_attach_to_worker_throws_when_lock_dir_missing(): void {
@@ -501,6 +545,19 @@ class CliTest extends TestCase {
 		$this->assertSame( 0, $rows[0]['msgs'], 'nobody reading means no rate' );
 	}
 
+	public function test_consumer_rows_reads_the_partition_through_the_worker_id_grammar(): void {
+		$this->seed_probe_record( [ 'reader' => 'foo.bar.p41', 'distance' => 23 ] );
+		$this->seed_probe_record( [ 'reader' => 'kea-7713.p07', 'distance' => 29 ] );
+		$this->seed_probe_record( [ 'reader' => 'kea.pX', 'distance' => 31 ] );
+
+		$rows = ( new CLI( $this->tmp ) )->consumer_rows()['rows'];
+
+		$this->assertSame(
+			[ [ 'foo.bar.p41', 41, 23 ] ],
+			array_map( fn( $r ) => [ $r['reader'], $r['partition'], $r['distance'] ], $rows )
+		);
+	}
+
 	public function test_consumer_rows_keeps_a_fresh_row_as_reported(): void {
 		// A live reader's record is a PAIRED measurement; recomputing its end
 		// against a newer stat would overstate it by an interval of throughput.
@@ -699,10 +756,10 @@ class CliTest extends TestCase {
 		);
 	}
 
-	public function test_parse_worker_id_renders_control_bytes_in_the_refusal(): void {
+	public function test_attach_to_worker_renders_control_bytes_in_the_refusal(): void {
 		$this->expectException( \InvalidArgumentException::class );
 		$this->expectExceptionMessage( 'invalid reader id: quarry<0D>granted' );
-		CLI::parse_worker_id( "quarry\rgranted" );
+		( new CLI( $this->tmp ) )->attach_to_worker( "quarry\rgranted" );
 	}
 
 	public function test_require_flag_int_errors_on_zero_when_zero_is_disallowed(): void {

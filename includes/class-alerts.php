@@ -309,7 +309,7 @@ class Alerts {
 		}
 		$type      = Core::as_string( $worker['type'] ?? '' );
 		$partition = Core::as_int( $worker['partition'] ?? 0 );
-		$label     = "{$type}.p{$partition}";
+		$label     = CLI::worker_id( $type, $partition );
 		if ( true === ( $worker['stale'] ?? false ) ) {
 			$age = Core::as_int( $worker['heartbeat_age'] ?? 0 );
 			return [

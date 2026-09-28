@@ -1,0 +1,19 @@
+[
+  ["a plain type", "kea-7713.p3", ["kea-7713", 3]],
+  ["partition zero", "kea-7713.p0", ["kea-7713", 0]],
+  ["a partition ending in zero", "kea-7713.p30", ["kea-7713", 30]],
+  ["a dotted type keeps its dots", "foo.bar.p41", ["foo.bar", 41]],
+  ["only the final .p{N} is the partition", "foo.p2.p41", ["foo.p2", 41]],
+  ["an uppercase type", "Kea.p0", ["Kea", 0]],
+  ["a padded partition", "kea.p03", null],
+  ["a non-numeric partition", "kea.pX", null],
+  ["no partition digits", "kea.p", null],
+  ["no partition suffix", "no-partition-suffix", null],
+  ["an empty type", ".p3", null],
+  ["the empty string", "", null],
+  ["a parent-directory type", "../x.p3", null],
+  ["a slash in the type", "a/b.p1", null],
+  ["a node path under a worker", "kea.p3/node", null],
+  ["a NUL in the type", "kea\u0000.p3", null],
+  ["a trailing newline", "kea.p3\n", null]
+]

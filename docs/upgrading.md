@@ -6,6 +6,48 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **`Spawn_Coordinator::lock_path()` takes the base directory,**
+  `lock_path( $base_dir, $type, $partition )`, where it took the locks
+  directory. Drop the `/locks` the call site appended;
+  `Spawn_Coordinator::locks_dir( $base_dir )` names that directory where one
+  is needed on its own.
+- **`Spawn_Coordinator::worker_lock_dirs()` is static and takes the base
+  directory,** and each entry carries the worker's `id`:
+  `Spawn_Coordinator::worker_lock_dirs( $base_dir )` returns
+  `path => { id, type, partition }`. Read `$lock['id']` rather than joining
+  the type and partition back through `CLI::worker_id()`.
+- **`Spawn_Coordinator::wake_sleeping_worker()` takes `( $type, $partition,
+  $now )`,** where it took a worker id. A caller that resolves a worker's IPC
+  channel calls `Spawn_Coordinator::worker_channel( $base_dir, $worker_id,
+  $now )`, which parses the id, wakes a sleeping on-demand worker and returns
+  `{ id, type, partition, input, output, sleeping }`, or null. Read
+  `$channel['id']` rather than joining it back through `CLI::worker_id()`.
+- **`Restart_Planner::request_restarts()`, `request_reloads()` and
+  `Spawn_Coordinator::signal_workers()` take the base directory** where they
+  took the locks directory: `request_restarts( $restart, $base_dir )`,
+  `request_reloads( $base_dir, $consumers )`,
+  `signal_workers( $base_dir, $workers, $signal )`. Pass
+  `Config::get_base_directory_with_locks()`, which refuses a `{base}/locks`
+  that is a symlink or belongs to another uid, as the removed
+  `Config::get_locks_directory()` did. That accessor is gone, and with it
+  event-logger-nodes' `Config::get_locks_directory()`;
+  `Spawn_Coordinator::locks_dir( $base_dir )` names the directory, and
+  `Spawn_Coordinator::lock_path()` one worker's lock dir within it.
+- **`Worker_Base::ipc_dir()` takes the leg,** `ipc_dir( $base_dir, $type,
+  $partition, Worker_Base::IPC_INPUT )`, in place of appending `/input` or
+  `/output`; `build_ipc_input_consumer()` takes no argument and builds its
+  worker's own input reader.
+- **An unknown request verb is refused with a `TM_ERROR`,** not answered
+  `TM_STRUCT | TM_RESPONSE` with `data.error`. `Job_Worker_Node`'s
+  `GET_HEALTH`, and every node answering through
+  `Schema_Reflection::answer_request()`, sends VALUE
+  `"unknown request verb: <VERB>\n"` to the same address. A caller reading
+  `data.error` off the reply tests the reply's TYPE for `TM_ERROR` instead.
+- **`CLI::parse_worker_id()` answers `null` for an id it refuses,** where it
+  threw `InvalidArgumentException`, and refuses a padded partition
+  (`kea.p03`) or a `/` in the type. A caller that caught the throw tests for
+  `null`; one that needs the refusal as an exception calls
+  `CLI::attach_to_worker()`, which still throws `invalid reader id`.
 - **An `$around_dispatch` wrapper receives a fourth argument, `$command`,** a
   `\Closure(): string` rendering the command line — `/<name>> <verb> <args>`,
   tokens quoted, and only the id and the option names of a verb whose schema
@@ -32,10 +74,10 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   means no lock dir, so no worker; a write refused as root or one that
   fails raises a `\RuntimeException` naming the dir and flag. A caller
   that counted false as a refusal catches or lets it escape instead.
-  `Restart_Planner::plan()` no longer swallows: an unusable locks directory,
+  `Restart_Planner::plan()` no longer swallows: an unusable base directory,
   an unreadable active topology or a failed flag reaches the writer, after
   every readable topology's dirs were flagged, and `request_reloads()`
-  takes an optional classification, `request_reloads( $locks_dir,
+  takes an optional classification, `request_reloads( $base_dir,
   [ 'Remote_Source' ] )`, for a reload narrower than `'all'`.
 - **`Worker_Should_Stop::outranks()` is gone; `attempt_each()` returns
   the failures it caught, each under its item's key.** An attempt-all loop
@@ -81,10 +123,9 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   not retract keeps its slot and is raised as
   `retracting Vault id <id>: <reason>`. Every member is still attempted,
   and the failures escape together on the fleet's RELOAD.
-- **`Spawn_Coordinator::lock_path()` is static and takes the locks
-  directory first:** `Spawn_Coordinator::lock_path( $locks_dir, $type,
-  $partition )`, where it was the instance method `lock_path( $type,
-  $partition )`. Pass `"{$base_dir}/locks"`; it needs no coordinator.
+- **`Spawn_Coordinator::lock_path()` is static:** it was the instance
+  method `lock_path( $type, $partition )`, and needs no coordinator. It
+  takes the base directory first; see the entry above.
 - **`Bootstrap::node_dirs()` and `node_partitions()` answer from the
   readable active topologies.** A topology that will not read no longer
   fails the call when a readable one declares the node; when none does,

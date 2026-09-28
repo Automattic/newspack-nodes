@@ -68,7 +68,7 @@ class LRU_Cache {
 	/** @var int Max number of buckets. */
 	private int $num_buckets;
 
-	/** @var callable|null Called with (key, value) for each evicted item. */
+	/** @var callable|null Called with (key, value, timed) for each evicted item. */
 	private $on_evict = null;
 
 	/** @var float Seconds between time-based rotations (0 = capacity-only). */
@@ -169,7 +169,7 @@ class LRU_Cache {
 		if ( \count( $this->buckets[ $this->current ] ) < $this->bucket_size ) {
 			return;
 		}
-		$this->force_rotate();
+		$this->force_rotate( false );
 	}
 
 	/**
@@ -202,7 +202,7 @@ class LRU_Cache {
 		$this->next_window = $this->next_boundary( $now );
 		$caught = Worker_Should_Stop::attempt_each(
 			\range( 1, \min( $elapsed, $this->num_buckets ) ),
-			fn () => $this->force_rotate()
+			fn () => $this->force_rotate( true )
 		);
 		Worker_Should_Stop::raise( $caught );
 	}
@@ -213,14 +213,16 @@ class LRU_Cache {
 	 * Leaves the time grid alone — a capacity rotation is not a window, and
 	 * pushing the boundary each time one fires would let a busy cache defer the
 	 * timed roll indefinitely.
+	 *
+	 * @param bool $timed Whether the clock rolled it, rather than a full bucket.
 	 */
-	private function force_rotate(): void {
+	private function force_rotate( bool $timed ): void {
 		++$this->current;
 		$this->buckets[ $this->current ] = [];
 
 		if ( \count( $this->buckets ) > $this->num_buckets ) {
 			$oldest = \min( \array_keys( $this->buckets ) );
-			$this->evict_bucket( $oldest );
+			$this->evict_bucket( $oldest, $timed );
 		}
 	}
 
@@ -235,10 +237,11 @@ class LRU_Cache {
 	 * loop is a fan-out: every item is offered, and everything the callback
 	 * threw is raised after the last, combined (ADR-14).
 	 *
-	 * @param int $index Bucket index to evict.
+	 * @param int  $index Bucket index to evict.
+	 * @param bool $timed Whether the clock rolled it, rather than a full bucket.
 	 * @throws \Throwable Every callback failure, combined, raised after the loop.
 	 */
-	private function evict_bucket( int $index ): void {
+	private function evict_bucket( int $index, bool $timed ): void {
 		if ( ! isset( $this->buckets[ $index ] ) ) {
 			return;
 		}
@@ -250,7 +253,7 @@ class LRU_Cache {
 		$on_evict = $this->on_evict;
 		$caught   = Worker_Should_Stop::attempt_each(
 			$bucket,
-			static fn ( $value, $key ) => $on_evict( $key, $value )
+			static fn ( $value, $key ) => $on_evict( $key, $value, $timed )
 		);
 		Worker_Should_Stop::raise( $caught );
 	}
@@ -260,11 +263,12 @@ class LRU_Cache {
 	 *
 	 * This is the only way to register on_evict, and the callback fires for
 	 * capacity evictions too — pass a large interval to get the callback
-	 * without timed rotation.
+	 * without timed rotation. Its third argument says which evicted the item:
+	 * true for the clock's rotation, false for a full newest bucket.
 	 *
 	 * @api Sibling plugins arm the wall-clock window and its evict callback.
 	 * @param float    $seconds  Seconds between rotations.
-	 * @param callable $on_evict Called with (key, value) for each evicted item.
+	 * @param callable $on_evict Called with (key, value, timed) for each evicted item.
 	 * @return self This cache, for chaining onto the constructor.
 	 */
 	public function with_timed_rotation( float $seconds, callable $on_evict ): self {

@@ -270,6 +270,12 @@ Tachikoma's `Table.pm` holds windowed in-memory buckets. Ours stores through to 
 
 **Why:** the dashboards, REST endpoints, and CLI here have no efficient way to query a live worker's memory, so a value that exists only inside one worker process is a value nothing can read. Two consequences follow deliberately: an absent key is an ERROR rather than the empty string upstream `Table.pm`'s `fill()` GET branch returns — the `lookup($key) // q()` fallback inside that branch — because an empty string cannot distinguish *absent* from *stored-empty*; and `KEYS` / `STATS` are absent entirely, because both enumerate in-memory buckets that a cache backing cannot enumerate.
 
+### A declared request answers in an envelope; Table's `GET` answers bare
+
+Two request conventions run side by side. A node declaring its verbs under `node_schema()['requests']` answers through [`Schema_Reflection::answer_request()`](../includes/trait-schema-reflection.php): the verb is VALUE's first word, upper-cased; the reply is `TM_STRUCT | TM_RESPONSE` with VALUE `{ verb, data }`; and an undeclared verb is refused with a `TM_ERROR` reading `unknown request verb: <VERB>`. [`Table_Node::handle_request()`](../includes/class-table-node.php) keeps `Table.pm`'s shape instead: `GET <key>` matches case-sensitively, the reply carries the stored value itself — `TM_STRUCT` or `TM_BYTESTREAM` by its shape, KEY set to the key — with no `TM_RESPONSE` bit and no envelope, an absent key answers a `TM_ERROR` reading `NOT_FOUND`, and any other verb is logged and dropped with no reply, as upstream drops it. Both reply TO the request's FROM. Table declares `GET` under `requests` with no `handler`, so `help Table` and the Inspector list it while `answer_request()` never touches it.
+
+**Why:** the envelope is new work, the uniform shape a console reads for any node's verb without knowing the node. Table is a port, and its `GET` is the one request a Tachikoma operator already knows, answering with a value another Table-shaped reader can store unchanged. Wrapping it would buy uniformity by breaking the port, so the two shapes stay distinct and this entry names both.
+
 ### Graphite ships datagrams, not a reconnecting socket
 
 Upstream has no Graphite node: `TopicProbeToGraphite.pm` formats the lines and sinks them, and reaching a collector is the operator's `connect_inet --io --reconnect` — a TCP socket the process holds open and re-dials. [`Graphite_Node`](../includes/class-graphite-node.php) opens and closes a connectionless socket per message instead.
