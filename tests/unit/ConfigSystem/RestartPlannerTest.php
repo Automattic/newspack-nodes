@@ -79,40 +79,43 @@ class RestartPlannerTest extends TestCase {
 	}
 
 	public function test_request_restarts_touches_only_live_lock_dirs(): void {
-		$locks = $this->make_temp_dir( 'locks-' );
+		$base  = $this->make_temp_dir( 'kea-7713-base-' );
+		$locks = "{$base}/locks";
 		\mkdir( "{$locks}/combined.p0.lock.d", 0777, true );
-		$touched = Restart_Planner::request_restarts( [ 'Tee' ], $locks );
+		$touched = Restart_Planner::request_restarts( [ 'Tee' ], $base );
 		$this->assertSame( [ 'combined' ], $touched );
 		$this->assertFileExists( "{$locks}/combined.p0.lock.d/" . Lock_Node::RESTART_FLAG );
-		$this->rmdir_recursive( $locks );
+		$this->rmdir_recursive( $base );
 	}
 
 	public function test_request_restarts_fans_out_over_every_partition(): void {
 		// multipart declares `var num_partitions = 3` → touch .p0/.p1/.p2, not .p3.
-		$locks = $this->make_temp_dir( 'locks-' );
+		$base  = $this->make_temp_dir( 'kea-7713-base-' );
+		$locks = "{$base}/locks";
 		\mkdir( "{$locks}/multipart.p0.lock.d", 0777, true );
 		\mkdir( "{$locks}/multipart.p1.lock.d", 0777, true );
 		\mkdir( "{$locks}/multipart.p2.lock.d", 0777, true );
-		$touched = Restart_Planner::request_restarts( [ 'Echo' ], $locks );
+		$touched = Restart_Planner::request_restarts( [ 'Echo' ], $base );
 		$this->assertSame( [ 'multipart' ], $touched );
 		$this->assertFileExists( "{$locks}/multipart.p0.lock.d/" . Lock_Node::RESTART_FLAG );
 		$this->assertFileExists( "{$locks}/multipart.p1.lock.d/" . Lock_Node::RESTART_FLAG );
 		$this->assertFileExists( "{$locks}/multipart.p2.lock.d/" . Lock_Node::RESTART_FLAG );
 		$this->assertDirectoryDoesNotExist( "{$locks}/multipart.p3.lock.d" );
-		$this->rmdir_recursive( $locks );
+		$this->rmdir_recursive( $base );
 	}
 
 	public function test_request_reloads_covers_every_active_topology_and_partition(): void {
 		// Unclassified by design: every worker alive holds a Config cache frozen
 		// at boot, whatever the saved field's restart classification says.
-		$locks = $this->make_temp_dir( 'locks-' );
+		$base  = $this->make_temp_dir( 'kea-7713-base-' );
+		$locks = "{$base}/locks";
 		\mkdir( "{$locks}/combined.p0.lock.d", 0777, true );
 		\mkdir( "{$locks}/job-worker.p0.lock.d", 0777, true );
 		for ( $p = 0; $p < 3; $p++ ) {
 			\mkdir( "{$locks}/multipart.p{$p}.lock.d", 0777, true );
 		}
 
-		$touched = Restart_Planner::request_reloads( $locks );
+		$touched = Restart_Planner::request_reloads( $base );
 
 		$this->assertEqualsCanonicalizing( [ 'combined', 'aggregator', 'job-worker', 'multipart' ], $touched );
 		$this->assertFileExists( "{$locks}/combined.p0.lock.d/" . Lock_Node::RELOAD_FLAG );
@@ -121,7 +124,7 @@ class RestartPlannerTest extends TestCase {
 			$this->assertFileExists( "{$locks}/multipart.p{$p}.lock.d/" . Lock_Node::RELOAD_FLAG );
 		}
 		$this->assertFileDoesNotExist( "{$locks}/combined.p0.lock.d/" . Lock_Node::RESTART_FLAG, 're-read, never recycle' );
-		$this->rmdir_recursive( $locks );
+		$this->rmdir_recursive( $base );
 	}
 
 	public function test_an_unreadable_topology_spares_the_rest_and_raises_after_them(): void {
@@ -130,14 +133,15 @@ class RestartPlannerTest extends TestCase {
 		$this->write_tsl( 'fractured', "make_node Echo twin-4471\nmake_node Null twin-4471\n" );
 		\update_option( 'newspack_nodes_topologies', [ 'combined', 'fractured', 'multipart' ] );
 		Config::reset();
-		$locks = $this->make_temp_dir( 'locks-' );
+		$base  = $this->make_temp_dir( 'kea-7713-base-' );
+		$locks = "{$base}/locks";
 		foreach ( [ 'combined.p0', 'fractured.p0', 'multipart.p0', 'multipart.p1', 'multipart.p2' ] as $slot ) {
 			\mkdir( "{$locks}/{$slot}.lock.d", 0777, true );
 		}
 
 		$thrown = null;
 		try {
-			Restart_Planner::request_restarts( [ 'Echo', 'Tee' ], $locks );
+			Restart_Planner::request_restarts( [ 'Echo', 'Tee' ], $base );
 		} catch ( \RuntimeException $e ) {
 			$thrown = $e;
 		}
@@ -146,7 +150,7 @@ class RestartPlannerTest extends TestCase {
 		$this->assertFileExists( "{$locks}/combined.p0.lock.d/" . Lock_Node::RESTART_FLAG );
 		$this->assertFileExists( "{$locks}/multipart.p2.lock.d/" . Lock_Node::RESTART_FLAG );
 		$this->assertFileDoesNotExist( "{$locks}/fractured.p0.lock.d/" . Lock_Node::RESTART_FLAG );
-		$this->rmdir_recursive( $locks );
+		$this->rmdir_recursive( $base );
 	}
 
 	public function test_topologies_for_raises_an_unreadable_topology(): void {
@@ -177,13 +181,29 @@ class RestartPlannerTest extends TestCase {
 		$this->rmdir_recursive( $base );
 	}
 
-	public function test_plan_propagates_a_failure_to_resolve_the_locks_directory(): void {
+	public function test_plan_propagates_a_failure_to_resolve_the_base_directory(): void {
 		// The option row is already written: a save whose signal never landed
-		// must say so rather than report a recycle no worker will see.
-		$base = $this->make_temp_dir( 'plan-base-' );
-		\mkdir( "{$base}/elsewhere", 0777, true );
+		// must say so rather than report a recycle no worker will see. A null
+		// byte is what Config::ensure_path() refuses outright.
+		$conf = $this->make_temp_dir( 'plan-conf-' ) . '/bad-base-dir.php';
+		\file_put_contents( $conf, "<?php\nreturn [ 'base_directory' => \"/tmp/kea\\0-7713\" ];\n" );
+		\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . $conf );
+		Config::reset();
+
+		$this->expectException( \RuntimeException::class );
+		Restart_Planner::plan( 'all' );
+	}
+
+	/**
+	 * A `{base}/locks` planted as a symlink would carry every flag a settings
+	 * save writes into the directory it names. The save refuses loudly, and
+	 * the redirected tree receives nothing.
+	 */
+	public function test_plan_refuses_a_symlinked_locks_directory(): void {
+		$base = $this->make_temp_dir( 'kea-7713-plan-' );
+		\mkdir( "{$base}/elsewhere-4471/combined.p0.lock.d", 0700, true );
 		// A symlink AT the leaf is what Config::ensure_path() refuses outright.
-		\symlink( "{$base}/elsewhere", "{$base}/locks" );
+		\symlink( "{$base}/elsewhere-4471", "{$base}/locks" );
 
 		$thrown = null;
 		try {
@@ -192,16 +212,21 @@ class RestartPlannerTest extends TestCase {
 		} catch ( \RuntimeException $e ) {
 			$thrown = $e;
 		} finally {
+			$flagged = \file_exists( "{$base}/elsewhere-4471/combined.p0.lock.d/" . Lock_Node::RESTART_FLAG );
 			// Unlink first: rmdir_recursive walks INTO a symlinked directory.
 			\unlink( "{$base}/locks" );
 			$this->rmdir_recursive( $base );
 		}
 		$this->assertNotNull( $thrown, 'an unusable locks directory must reach the caller' );
+		$this->assertStringContainsString( "Path {$base}/locks resolves to", $thrown->getMessage() );
+		$this->assertStringContainsString( 'symlink or path traversal detected', $thrown->getMessage() );
+		$this->assertFalse( $flagged, 'no flag may land through the planted link' );
 	}
 
 	public function test_a_failed_flag_write_spares_its_siblings_and_then_raises(): void {
 		// p1 refuses the write; p0 and p2 must still hear, and p1 must be named.
-		$locks = $this->make_temp_dir( 'locks-' );
+		$base  = $this->make_temp_dir( 'kea-7713-base-' );
+		$locks = "{$base}/locks";
 		for ( $p = 0; $p < 3; $p++ ) {
 			\mkdir( "{$locks}/multipart.p{$p}.lock.d", 0777, true );
 		}
@@ -209,7 +234,7 @@ class RestartPlannerTest extends TestCase {
 
 		$thrown = null;
 		try {
-			Restart_Planner::request_restarts( [ 'Echo' ], $locks );
+			Restart_Planner::request_restarts( [ 'Echo' ], $base );
 		} catch ( \RuntimeException $e ) {
 			$thrown = $e;
 		} finally {
@@ -220,11 +245,12 @@ class RestartPlannerTest extends TestCase {
 		$this->assertStringContainsString( 'multipart.p1.lock.d', $thrown->getMessage() );
 		$this->assertFileExists( "{$locks}/multipart.p0.lock.d/" . Lock_Node::RESTART_FLAG );
 		$this->assertFileExists( "{$locks}/multipart.p2.lock.d/" . Lock_Node::RESTART_FLAG );
-		$this->rmdir_recursive( $locks );
+		$this->rmdir_recursive( $base );
 	}
 
 	public function test_every_failed_flag_write_is_raised_together(): void {
-		$locks = $this->make_temp_dir( 'locks-' );
+		$base  = $this->make_temp_dir( 'kea-7713-base-' );
+		$locks = "{$base}/locks";
 		for ( $p = 0; $p < 3; $p++ ) {
 			\mkdir( "{$locks}/multipart.p{$p}.lock.d", 0777, true );
 		}
@@ -233,7 +259,7 @@ class RestartPlannerTest extends TestCase {
 
 		$thrown = null;
 		try {
-			Restart_Planner::request_reloads( $locks );
+			Restart_Planner::request_reloads( $base );
 		} catch ( Failures $e ) {
 			$thrown = $e;
 		} finally {
@@ -244,7 +270,7 @@ class RestartPlannerTest extends TestCase {
 		$this->assertNotNull( $thrown, 'two failed signals raise as one Failures' );
 		$this->assertCount( 2, $thrown->all() );
 		$this->assertFileExists( "{$locks}/multipart.p1.lock.d/" . Lock_Node::RELOAD_FLAG );
-		$this->rmdir_recursive( $locks );
+		$this->rmdir_recursive( $base );
 	}
 
 	public function test_plan_lets_a_cooperative_stop_escape_its_best_effort_catch(): void {
@@ -288,32 +314,33 @@ class RestartPlannerTest extends TestCase {
 
 	public function test_an_empty_restart_builds_no_catalog(): void {
 		// plan() hands every `[]`-classified save to request_restarts().
-		$locks = $this->make_temp_dir( 'locks-' );
-		$this->assertSame( 0, $this->catalog_builds( static fn () => Restart_Planner::request_restarts( [], $locks ) ) );
-		$this->rmdir_recursive( $locks );
+		$base = $this->make_temp_dir( 'kea-7713-base-' );
+		$this->assertSame( 0, $this->catalog_builds( static fn () => Restart_Planner::request_restarts( [], $base ) ) );
+		$this->rmdir_recursive( $base );
 	}
 
 	public function test_a_reload_builds_the_catalog_once(): void {
 		// The counts ride on the active entries the name lookup already built.
-		$locks = $this->make_temp_dir( 'locks-' );
-		$this->assertSame( 1, $this->catalog_builds( static fn () => Restart_Planner::request_reloads( $locks ) ) );
-		$this->rmdir_recursive( $locks );
+		$base = $this->make_temp_dir( 'kea-7713-base-' );
+		$this->assertSame( 1, $this->catalog_builds( static fn () => Restart_Planner::request_reloads( $base ) ) );
+		$this->rmdir_recursive( $base );
 	}
 
 	public function test_request_reloads_is_a_no_op_off_the_fleet_site(): void {
 		// The fleet is network-global; a subsite must not touch the main site's
 		// lock dirs, exactly as request_restarts() refuses to.
-		$locks = $this->make_temp_dir( 'locks-' );
+		$base  = $this->make_temp_dir( 'kea-7713-base-' );
+		$locks = "{$base}/locks";
 		\mkdir( "{$locks}/combined.p0.lock.d", 0777, true );
 		$GLOBALS['_wp_test_is_multisite']  = true;
 		$GLOBALS['_wp_test_is_main_site']  = false;
 
 		try {
-			$this->assertSame( [], Restart_Planner::request_reloads( $locks ) );
+			$this->assertSame( [], Restart_Planner::request_reloads( $base ) );
 			$this->assertFileDoesNotExist( "{$locks}/combined.p0.lock.d/" . Lock_Node::RELOAD_FLAG );
 		} finally {
 			unset( $GLOBALS['_wp_test_is_multisite'], $GLOBALS['_wp_test_is_main_site'] );
-			$this->rmdir_recursive( $locks );
+			$this->rmdir_recursive( $base );
 		}
 	}
 }

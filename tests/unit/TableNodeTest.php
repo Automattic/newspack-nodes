@@ -319,6 +319,70 @@ class TableNodeTest extends TestCase {
 		$this->assertNull( $table->lookup( 'sku-9' ) );
 	}
 
+	/**
+	 * A remembered absence gives way to the value a writer now holds, in
+	 * one read and one write, under the entry's own lifetime; a key holding
+	 * a value or nothing is left as it stands, and another table's is not
+	 * touched, since the scope is store()'s.
+	 */
+	public function test_replace_absent_writes_the_value_only_where_an_absence_stands(): void {
+		$reader = Table_Node::table( 'prices', 600 );
+		$reader->backed_by( static fn ( array $keys ): array => [], static fn ( string $key ): int => 900 );
+		$ledger = Table_Node::table( 'ledger', 600 );
+		$ledger->backed_by( static fn ( array $keys ): array => [], static fn ( string $key ): int => 900 );
+		$this->assertSame( [], $reader->lookup_multi( [ 'sku-4471', 'sku-8820' ] ), 'both marked absent' );
+		$this->assertNull( $ledger->lookup( 'sku-4471' ), 'and the ledger\'s twin too' );
+		$reader->store( 'sku-5519', [ 'usd' => 5519 ] );
+		$this->memd->multi_calls = 0;
+
+		$refused = Table_Node::table( 'prices', 600 )->replace_absent(
+			[
+				'sku-4471' => [ 'value' => [ 'usd' => 4471 ], 'ttl' => 45 ],
+				'sku-5519' => [ 'value' => [ 'usd' => 1 ], 'ttl' => 45 ],
+				'sku-6613' => [ 'value' => [ 'usd' => 6613 ], 'ttl' => 45 ],
+				'sku-8820' => [ 'value' => [ 'usd' => 8820 ], 'ttl' => 0 ],
+			]
+		);
+
+		$expiries = $this->memd->expiries();
+		$this->assertSame( [], $refused );
+		$this->assertSame( 1, $this->memd->multi_calls, 'one read for the whole set' );
+		$this->assertSame( [ 'sku-4471' => [ 'usd' => 4471 ], 'sku-5519' => [ 'usd' => 5519 ] ], $reader->lookup_multi( [ 'sku-4471', 'sku-5519', 'sku-6613', 'sku-8820' ] ) );
+		$this->assertEqualsWithDelta( \time() + 45, $expiries[ Table_Node::entry_key( 'prices', 'sku-4471' ) ] ?? 0, 2, 'the entry\'s lifetime, not the table\'s 600' );
+		$this->assertArrayNotHasKey( Table_Node::entry_key( 'prices', 'sku-6613' ), $expiries, 'nothing held, nothing written' );
+		$this->assertEqualsWithDelta( \time() + 900, $expiries[ Table_Node::entry_key( 'prices', 'sku-8820' ) ] ?? 0, 2, 'a spent lifetime leaves the absence standing' );
+		$this->assertNull( $ledger->lookup( 'sku-4471' ), 'another table\'s absence is its own' );
+	}
+
+	/** A refused write comes back as the table's own key: its absence stands. */
+	public function test_replace_absent_reports_the_keys_whose_write_was_refused(): void {
+		$reader = Table_Node::table( 'prices', 600 );
+		$reader->backed_by( static fn ( array $keys ): array => [], static fn ( string $key ): int => 900 );
+		$reader->lookup_multi( [ 'sku-4471', 'sku-6613' ] );
+		$this->memd->fail_set( Table_Node::entry_key( 'prices', 'sku-6613' ) );
+
+		$this->assertSame(
+			[ 'sku-6613' ],
+			$reader->replace_absent(
+				[
+					'sku-4471' => [ 'value' => [ 'usd' => 4471 ], 'ttl' => 90 ],
+					'sku-6613' => [ 'value' => [ 'usd' => 6613 ], 'ttl' => 30 ],
+				]
+			)
+		);
+		$this->assertSame( [ 'usd' => 4471 ], $reader->lookup( 'sku-4471' ) );
+	}
+
+	public function test_replace_absent_asks_nothing_of_an_empty_set_or_a_gone_backend(): void {
+		$table = Table_Node::table( 'prices' );
+		$this->assertSame( [], $table->replace_absent( [] ) );
+		$this->assertSame( 0, $this->memd->multi_calls );
+
+		Core::$memd = null;
+		$this->assertSame( [], $table->replace_absent( [ 'sku-4471' => [ 'value' => 'kea', 'ttl' => 60 ] ] ) );
+		$this->assertSame( 0, $this->memd->multi_calls, 'nothing to ask' );
+	}
+
 	public function test_touch_moves_an_entry_s_expiry_to_the_call_s_ttl(): void {
 		// A caller refreshing an entry dates it to its own window, so the
 		// touch takes the call's lifetime where store() takes the table's.
@@ -692,6 +756,29 @@ class TableNodeTest extends TestCase {
 
 		$this->assertSame( [], $capture->captured, 'a refused request gets no reply' );
 		$this->assertSame( [ 'ERROR: bad request: SET sku-9 12' ], $table->warnings );
+	}
+
+	/** GET is catalogued for `help` and the Inspector, and answered by fill(). */
+	public function test_get_is_declared_without_a_handler_and_help_lists_it(): void {
+		$requests = Table_Node::node_schema()['requests'];
+
+		$this->assertSame( [ 'GET' ], \array_column( $requests, 'name' ) );
+		$this->assertArrayNotHasKey( 'handler', $requests[0] );
+		$this->assertMatchesRegularExpression(
+			'/^REQUESTS\n.*\bGET\b/m',
+			\Newspack_Nodes\Node_Schema_Help::render( 'Table', Table_Node::node_schema() )
+		);
+	}
+
+	/** Tachikoma's shape stays case-sensitive: `get` is no verb, and drops. */
+	public function test_a_lowercase_get_is_dropped_not_refused(): void {
+		[ $table, $sink ] = $this->table();
+		$table->fill( $this->keyed( 'sku-7713', "kea\n" ) );
+		$sink->captured = [];
+
+		$table->fill( $this->request( 'get sku-7713' ) );
+
+		$this->assertSame( [], $sink->captured );
 	}
 
 	public function test_a_backend_read_error_is_said_out_loud(): void {

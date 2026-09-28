@@ -60,7 +60,7 @@ import { primeExpandedIncludes } from './useExpandedIncludes';
 const EMPTY_EXPANSION = { nodes: [], edges: [], tree: {}, hulls: {} };
 import { withReplAnchor, withResolvedConfigEdges } from '../utils/consoleGraph';
 import { augmentWithVirtualEdges } from '../utils/virtualEdges';
-import { scopeFromCwd } from '../utils/scope';
+import { scopeFromCwd, workerId } from '../utils/scope';
 import { makeSkinHost } from '../core/skinCommands';
 import { THEMES, getStoredTheme, applySkin } from '../themes';
 import {
@@ -153,7 +153,7 @@ export function useConsoleGraph( {
 			setSeedError( null );
 			return undefined;
 		}
-		const reader = `${ topology }.p${ partition }`;
+		const reader = workerId( topology, partition );
 
 		// The shared rule-#2 backbone: _command_interpreter sinks into _router.
 		const {
@@ -382,7 +382,7 @@ export function useConsoleGraph( {
 		if ( ! enabled ) {
 			return undefined;
 		}
-		const reader = `${ topology }.p${ partition }`;
+		const reader = workerId( topology, partition );
 		if ( streamEnabled && isPageVisible ) {
 			Core.node( reader )?.connect();
 		} else {

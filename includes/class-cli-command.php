@@ -213,8 +213,8 @@ class CLI_Command {
 	 * puts `TO={worker-id}` on a default command so `_router` hands it to the
 	 * Partition instead of running it locally.
 	 *
-	 * @param bool                                                             $attached True selects attached mode; the IPC pair needs `$ipc` non-null too.
-	 * @param array{input:string,output:string,type:string,partition:int}|null $ipc      IPC paths from `CLI::attach_to_worker()`; null in bare mode.
+	 * @param bool                                                                           $attached True selects attached mode; the IPC pair needs `$ipc` non-null too.
+	 * @param array{id:string,type:string,partition:int,input:string,output:string,sleeping:bool}|null $ipc      IPC channel from `CLI::attach_to_worker()`; null in bare mode.
 	 * @return array{0:Shell_Node,1:Dumper_Node,2:TTY_Out_Node}
 	 */
 	private function build_repl_graph( bool $attached, ?array $ipc ): array {
@@ -246,7 +246,7 @@ class CLI_Command {
 		$shell->sink( $console_tap );
 
 		// Empty in bare mode, and declared here for the guarded blocks below.
-		$worker_id = ( $attached && null !== $ipc ) ? "{$ipc['type']}.p{$ipc['partition']}" : '';
+		$worker_id = ( $attached && null !== $ipc ) ? $ipc['id'] : '';
 		if ( $attached && null !== $ipc ) {
 			$shell->prompt = "/{$worker_id}> ";
 		}

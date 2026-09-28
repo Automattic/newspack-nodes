@@ -360,6 +360,39 @@ class SpawnControllerTest extends TestCase {
 		$this->assertSame( '2', $_SERVER['NEWSPACK_NODES_WORKER_PARTITION'] );
 	}
 
+	/**
+	 * The controller tags the process and names no worker itself: a spawn
+	 * whose `spawn_worker` then loses the lock race never becomes one, so the
+	 * announcement belongs to the worker that acquires.
+	 */
+	public function test_spawn_tags_the_process_but_announces_no_worker_itself(): void {
+		$this->with_topology( [
+			'kea-7713' => [ 'num_partitions' => 5, 'topology' => '/x.php' ],
+		] );
+		$announced = 0;
+		\add_action( 'newspack_nodes/worker_identified', function () use ( &$announced ): void {
+			++$announced;
+		} );
+		$ran = [];
+		\add_action(
+			'newspack_nodes/spawn_worker',
+			function ( string $type, int $partition ) use ( &$ran ): void {
+				$ran[] = [ $type, $partition, $_SERVER['NEWSPACK_NODES_WORKER_TYPE'], $_SERVER['NEWSPACK_NODES_WORKER_PARTITION'] ];
+			},
+			10,
+			2
+		);
+
+		$this->controller->spawn( $this->make_request( [
+			'type'      => 'kea-7713',
+			'partition' => 3,
+			'nonce'     => $this->fleet->generate_spawn_token( \time() ),
+		] ) );
+
+		$this->assertSame( [ [ 'kea-7713', 3, 'kea-7713', '3' ] ], $ran, 'tagged before the worker runs' );
+		$this->assertSame( 0, $announced );
+	}
+
 	public function test_spawn_returns_200_for_topology_worker(): void {
 		$this->with_topology( [
 			'firehose-workers' => [ 'num_partitions' => 1, 'topology' => '/x.php' ],

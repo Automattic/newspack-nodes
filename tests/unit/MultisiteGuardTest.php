@@ -57,7 +57,7 @@ class MultisiteGuardTest extends TestCase {
 	public function test_settings_save_does_not_restart_the_fleet_from_a_subsite(): void {
 		$this->seed_active_topology( 'msguard-topology-6641' );
 		$tmp      = $this->make_temp_dir( 'newspack-msguard-planner-' );
-		$lock_dir = "{$tmp}/msguard-topology-6641.p0.lock.d";
+		$lock_dir = "{$tmp}/locks/msguard-topology-6641.p0.lock.d";
 		\mkdir( $lock_dir, 0700, true );
 
 		$GLOBALS['_wp_test_is_multisite'] = true;

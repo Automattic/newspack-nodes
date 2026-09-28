@@ -14,6 +14,7 @@ use Newspack_Nodes\CLI;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Config_Utils;
 use Newspack_Nodes\Core;
+use Newspack_Nodes\Spawn_Coordinator;
 use Newspack_Nodes\Tests\TestCase;
 
 #[\PHPUnit\Framework\Attributes\CoversClass( Config::class )]
@@ -417,18 +418,36 @@ class ConfigTest extends TestCase {
 		$this->assertDirectoryExists( $base );
 	}
 
-	public function test_get_logs_locks_offsets_dirs(): void {
+	public function test_get_logs_offsets_dirs(): void {
 		\update_option( 'newspack_nodes_base_directory', $this->temp_dir . '/base2' );
 		Config::reset();
 		$logs    = Config::get_logs_directory();
-		$locks   = Config::get_locks_directory();
 		$offsets = Config::get_offsets_directory();
 		$this->assertSame( $this->temp_dir . '/base2/logs', $logs );
-		$this->assertSame( $this->temp_dir . '/base2/locks', $locks );
 		$this->assertSame( $this->temp_dir . '/base2/offsets', $offsets );
 		$this->assertDirectoryExists( $logs );
-		$this->assertDirectoryExists( $locks );
 		$this->assertDirectoryExists( $offsets );
+	}
+
+	public function test_get_base_directory_with_locks_creates_the_lock_tree(): void {
+		\update_option( 'newspack_nodes_base_directory', $this->temp_dir . '/kea-7713' );
+		Config::reset();
+		$this->assertSame( $this->temp_dir . '/kea-7713', Config::get_base_directory_with_locks() );
+		$this->assertDirectoryExists( Spawn_Coordinator::locks_dir( $this->temp_dir . '/kea-7713' ) );
+	}
+
+	public function test_get_base_directory_with_locks_refuses_a_symlinked_lock_tree(): void {
+		\mkdir( $this->temp_dir . '/kea-7713/elsewhere', 0700, true );
+		\symlink( $this->temp_dir . '/kea-7713/elsewhere', $this->temp_dir . '/kea-7713/locks' );
+		\update_option( 'newspack_nodes_base_directory', $this->temp_dir . '/kea-7713' );
+		Config::reset();
+
+		try {
+			$this->expectExceptionMessage( 'symlink or path traversal detected' );
+			Config::get_base_directory_with_locks();
+		} finally {
+			\unlink( $this->temp_dir . '/kea-7713/locks' );
+		}
 	}
 
 	public function test_directories_are_cached(): void {

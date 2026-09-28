@@ -388,6 +388,36 @@ class BootstrapTest extends TestCase {
 	}
 
 	/**
+	 * The id is read through `CLI::parse_worker_id()`, so every type the fleet
+	 * spells mounts — a dotted `.tsl` name and an uppercase one included.
+	 */
+	public function test_register_worker_partition_mounts_every_type_the_fleet_spells(): void {
+		$base = $this->make_temp_dir();
+		foreach ( [ 'foo.bar.p41', 'Kea-7713.p3' ] as $id ) {
+			\mkdir( "{$base}/locks/{$id}.lock.d", 0755, true );
+			\mkdir( "{$base}/ipc/{$id}/input", 0755, true );
+
+			$this->assertTrue( Bootstrap::register_worker_partition( $id, $base ), $id );
+			$this->assertInstanceOf( \Newspack_Nodes\Partition_Node::class, Core::node( $id ) );
+		}
+	}
+
+	/**
+	 * A padded, slashed or non-numeric id names no worker, even where the
+	 * worker it resembles holds a lock and an input dir.
+	 */
+	public function test_register_worker_partition_refuses_an_id_the_fleet_never_spells(): void {
+		$base = $this->make_temp_dir();
+		\mkdir( "{$base}/locks/kea-7713.p3.lock.d", 0755, true );
+		\mkdir( "{$base}/ipc/kea-7713.p3/input", 0755, true );
+
+		foreach ( [ 'kea-7713.p03', 'kea-7713.pX', '../locks/kea-7713.p3' ] as $id ) {
+			$this->assertFalse( Bootstrap::register_worker_partition( $id, $base ), $id );
+			$this->assertNull( Core::node( $id ), $id );
+		}
+	}
+
+	/**
 	 * A sleeping on-demand worker has neither a lock dir nor an IPC tree, and
 	 * this mount is what the BROWSER writes commands through — so refusing here
 	 * meant a topology that went idle could never be woken from the console

@@ -530,9 +530,50 @@ class OnDemandWakeTest extends TestCase {
 	public function test_waking_a_named_sleeping_worker_refuses_a_conflicting_set(): void {
 		$this->conflicting_pair();
 
-		$found = $this->coordinator()->wake_sleeping_worker( 'marmot-jobs.p1', (float) \time() );
+		$found = $this->coordinator()->wake_sleeping_worker( 'marmot-jobs', 1, (float) \time() );
 
 		$this->assertTrue( $found, 'the worker is still named by the fleet' );
+		$this->assertSame( [], $this->woken() );
+	}
+
+	// ── the worker channel ──────────────────────────────────────────────────
+
+	/** A live worker's channel is its IPC legs, and resolving it posts nothing. */
+	public function test_a_live_workers_channel_is_its_ipc_legs(): void {
+		\mkdir( "{$this->tmp}/locks/kea-7713.p3.lock.d", 0755, true );
+
+		$this->assertSame(
+			[
+				'id'        => 'kea-7713.p3',
+				'type'      => 'kea-7713',
+				'partition' => 3,
+				'input'     => "{$this->tmp}/ipc/kea-7713.p3/input",
+				'output'    => "{$this->tmp}/ipc/kea-7713.p3/output",
+				'sleeping'  => false,
+			],
+			Spawn_Coordinator::worker_channel( "{$this->tmp}/", 'kea-7713.p3', (float) \time() )
+		);
+		$this->assertSame( [], $this->woken() );
+	}
+
+	/** A sleeping on-demand worker holds no lock: resolving its channel wakes it. */
+	public function test_a_sleeping_workers_channel_wakes_it(): void {
+		$this->activate( 'marmot-ondemand', 23 );
+
+		$channel = Spawn_Coordinator::worker_channel( $this->tmp, 'marmot-ondemand.p1', (float) \time() );
+
+		$this->assertTrue( $channel['sleeping'] ?? null );
+		$this->assertSame( "{$this->tmp}/ipc/marmot-ondemand.p1/input", $channel['input'] ?? null );
+		$this->assertSame( [ 'marmot-ondemand.p1' ], $this->woken() );
+	}
+
+	/** No channel for an id the fleet cannot spell, nor for a resident worker that is down. */
+	public function test_no_channel_for_a_bad_id_or_a_down_resident_worker(): void {
+		$this->activate( 'marmot-resident', 0 );
+		\mkdir( "{$this->tmp}/locks/marmot-resident.p1.lock.d", 0755, true );
+
+		$this->assertNull( Spawn_Coordinator::worker_channel( $this->tmp, 'marmot-resident.p01', (float) \time() ) );
+		$this->assertNull( Spawn_Coordinator::worker_channel( $this->tmp, 'marmot-resident.p0', (float) \time() ) );
 		$this->assertSame( [], $this->woken() );
 	}
 

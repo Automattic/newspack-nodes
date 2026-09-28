@@ -135,6 +135,36 @@ class ReconcileTest extends TestCase {
 		$this->assertDirectoryExists( $fresh );
 	}
 
+	public function test_the_lock_layout_hangs_off_the_base_dir(): void {
+		$this->assertSame( "{$this->tmp}/locks", Spawn_Coordinator::locks_dir( "{$this->tmp}/" ) );
+		$this->assertSame(
+			"{$this->tmp}/locks/kea-7713.p3.lock.d",
+			Spawn_Coordinator::lock_path( "{$this->tmp}/", 'kea-7713', 3 )
+		);
+	}
+
+	public function test_worker_lock_dirs_reads_the_worker_id_grammar(): void {
+		foreach ( [ 'foo.bar.p41', 'kea-7713.p07', 'kea.pX' ] as $name ) {
+			$this->make_lock( $name );
+		}
+
+		$this->assertSame(
+			[ "{$this->tmp}/locks/foo.bar.p41.lock.d" => [ 'id' => 'foo.bar.p41', 'type' => 'foo.bar', 'partition' => 41 ] ],
+			Spawn_Coordinator::worker_lock_dirs( $this->tmp )
+		);
+	}
+
+	/** A lock is a directory; a file named like one is no worker's lock. */
+	public function test_worker_lock_dirs_lists_directories_only(): void {
+		$this->make_lock( 'kea-7713.p3' );
+		\touch( "{$this->tmp}/locks/foo.bar.p41.lock.d" );
+
+		$this->assertSame(
+			[ "{$this->tmp}/locks/kea-7713.p3.lock.d" ],
+			\array_keys( Spawn_Coordinator::worker_lock_dirs( $this->tmp ) )
+		);
+	}
+
 	// ── orphan ipc ─────────────────────────────────────────────────────────
 
 	public function test_it_removes_an_orphan_ipc_dir(): void {
@@ -158,5 +188,26 @@ class ReconcileTest extends TestCase {
 		$this->coordinator()->cleanup_orphan_ipc();
 
 		$this->assertDirectoryExists( "{$this->tmp}/ipc/retired-workers.p7" );
+	}
+
+	public function test_it_reaps_an_orphan_ipc_dir_of_a_dotted_type(): void {
+		$this->ledger( 1 );
+		\mkdir( "{$this->tmp}/ipc/foo.bar.p41/input", 0755, true );
+
+		$this->coordinator()->cleanup_orphan_ipc();
+
+		$this->assertDirectoryDoesNotExist( "{$this->tmp}/ipc/foo.bar.p41" );
+	}
+
+	/** An ipc dir no `worker_id()` spells is not a worker's, and is not reaped. */
+	public function test_it_leaves_an_ipc_dir_no_worker_id_spells(): void {
+		$this->ledger( 1 );
+		\mkdir( "{$this->tmp}/ipc/kea-7713.p07/input", 0755, true );
+		\mkdir( "{$this->tmp}/ipc/kea.pX/input", 0755, true );
+
+		$this->coordinator()->cleanup_orphan_ipc();
+
+		$this->assertDirectoryExists( "{$this->tmp}/ipc/kea-7713.p07" );
+		$this->assertDirectoryExists( "{$this->tmp}/ipc/kea.pX" );
 	}
 }

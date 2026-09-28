@@ -1322,7 +1322,7 @@ trait Durable_Reader {
 				'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_play( $interpreter ),
 			],
 			[
-				// `step` mutates: auth-gated command path, not TM_REQUEST.
+				// A command like pause; requests may mutate too (ADR-23).
 				'name'        => 'step',
 				'description' => 'Time-travel: consume exactly one record, forwarded or not (forces line granularity, implies pause), and reply with the {segment, offset, at_eof} cursor.',
 				'hidden'      => true,

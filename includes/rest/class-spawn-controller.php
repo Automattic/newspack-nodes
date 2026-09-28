@@ -22,6 +22,7 @@ namespace Newspack_Nodes\Rest;
 use Newspack_Nodes\Capabilities;
 
 use Newspack_Nodes\Bootstrap;
+use Newspack_Nodes\CLI;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Spawn_Coordinator;
 
@@ -149,6 +150,11 @@ class Spawn_Controller {
 	 * hold, and the shared 15-second throttle. Recording the accepted spawn
 	 * here is what gives every spawner one window to share.
 	 *
+	 * An admitted spawn tags the process with its worker identity before
+	 * `newspack_nodes/spawn_worker` runs the worker. It announces nothing:
+	 * the worker fires `newspack_nodes/worker_identified` once it holds the
+	 * lock, so a spawn that loses the race never names one.
+	 *
 	 * The action runs the worker inline for its whole lifetime — 595 seconds
 	 * by default — which is why `ignore_user_abort()` and `set_time_limit()`
 	 * come first: the caller POSTs fire-and-forget with a sub-second timeout
@@ -185,7 +191,7 @@ class Spawn_Controller {
 		if ( $this->coordinator->is_recently_spawned( $type, $partition, $now ) ) {
 			return new \WP_Error(
 				'spawn_throttled',
-				\sprintf( '%s.p%d spawned less than %ds ago', $type, $partition, Spawn_Coordinator::MIN_SPAWN_INTERVAL_S ),
+				\sprintf( '%s spawned less than %ds ago', CLI::worker_id( $type, $partition ), Spawn_Coordinator::MIN_SPAWN_INTERVAL_S ),
 				[ 'status' => 429 ]
 			);
 		}

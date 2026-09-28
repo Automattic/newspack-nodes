@@ -137,7 +137,7 @@ class Worker_CLI_Command {
 			$type = $w['type'];
 			$p    = $w['partition'];
 			if ( $fleet->is_recently_spawned( $type, $p, $now ) ) {
-				$blockers[] = "{$type}.p{$p} (spawn in flight)";
+				$blockers[] = CLI::worker_id( $type, $p ) . ' (spawn in flight)';
 			}
 		}
 		return $blockers;
@@ -192,19 +192,20 @@ class Worker_CLI_Command {
 	}
 
 	/**
-	 * Every `.lock.d` under the locks dir, keyed by its `type.pN` slot.
+	 * Every worker lock dir, keyed by its worker id.
 	 *
-	 * Read from DISK rather than derived from the active topology set: a worker
-	 * whose topology was deactivated, or whose partition index is above the
-	 * current `num_partitions`, still holds a real lock and still runs until
+	 * Read from DISK through `Spawn_Coordinator::worker_lock_dirs()` rather than
+	 * derived from the active topology set: a worker whose topology was
+	 * deactivated, or whose partition index is above the current
+	 * `num_partitions`, still holds a real lock and still runs until
 	 * `reconcile_lock_dirs()` retires it a full lifetime later.
 	 *
-	 * @return array<string,string> slot => directory path.
+	 * @return array<string,string> worker id => directory path.
 	 */
 	private function held_lock_dirs(): array {
 		$dirs = [];
-		foreach ( (array) \glob( $this->base_dir() . '/locks/*.lock.d', \GLOB_ONLYDIR ) as $path ) {
-			$dirs[ \basename( Core::as_string( $path ), '.lock.d' ) ] = Core::as_string( $path );
+		foreach ( Spawn_Coordinator::worker_lock_dirs( Bootstrap::base_dir() ) as $path => $lock ) {
+			$dirs[ $lock['id'] ] = $path;
 		}
 		return $dirs;
 	}
@@ -292,7 +293,7 @@ class Worker_CLI_Command {
 		$now   = \time();
 		$locks = [];
 		foreach ( $this->cli()->ls_workers() as $w ) {
-			$locks[ "{$w['type']}.p{$w['partition']}" ] = $w;
+			$locks[ $w['id'] ] = $w;
 		}
 
 		// One row per expected worker of each active topology; no lock = down.
@@ -303,8 +304,9 @@ class Worker_CLI_Command {
 			$partitions     = Bootstrap::partitions_of( $config );
 			$on_demand_idle = Bootstrap::on_demand_idle_of( $config );
 			for ( $p = 0; $p < $partitions; $p++ ) {
-				$rows[] = self::fleet_row( $name, $p, $locks[ "{$name}.p{$p}" ] ?? null, $now, $on_demand_idle );
-				unset( $locks[ "{$name}.p{$p}" ] );
+				$worker_id = CLI::worker_id( $name, $p );
+				$rows[]    = self::fleet_row( $name, $p, $locks[ $worker_id ] ?? null, $now, $on_demand_idle );
+				unset( $locks[ $worker_id ] );
 			}
 		}
 		// Leftover locks belong to deactivated types still winding down.
@@ -412,7 +414,7 @@ class Worker_CLI_Command {
 			$state = $w['stale'] ? 'stale' : 'live';
 		}
 		return [
-			'Worker'    => "{$name}.p{$p}",
+			'Worker'    => CLI::worker_id( $name, $p ),
 			'State'     => $state,
 			'Heartbeat' => $heartbeat_at > 0 ? CLI::format_duration( $now - $heartbeat_at ) . ' ago' : '-',
 			'Uptime'    => $started_at > 0 ? CLI::format_duration( $now - $started_at ) : '-',
@@ -647,7 +649,7 @@ class Worker_CLI_Command {
 			Topology_Loader::load( $topology_name, $partition_arg, $interpreter );
 		};
 
-		\WP_CLI::log( \sprintf( 'Starting %s.p%d (direct mode, no spawn endpoint)...', $type, $partition ) );
+		\WP_CLI::log( 'Starting ' . CLI::worker_id( $type, $partition ) . ' (direct mode, no spawn endpoint)...' );
 
 		// Bootstrap::spawn_coordinator() so the HMAC salt matches the runtime.
 		$coordinator = Bootstrap::spawn_coordinator();

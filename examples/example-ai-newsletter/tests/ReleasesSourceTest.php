@@ -58,7 +58,21 @@ final class ReleasesSourceTest extends TestCase {
 		$this->assertCount( 1, $replies, 'TICK replies once with the emitted count' );
 		$reply = $replies[0];
 		$this->assertSame( '_repl', $reply[ Message::TO ], 'reply routes back TO the requester' );
-		$this->assertSame( 2, $reply[ Message::VALUE ]['emitted'], 'both canned items counted' );
+		$this->assertSame( [ 'verb' => 'TICK', 'data' => [ 'emitted' => 2 ] ], $reply[ Message::VALUE ], 'both canned items counted' );
+	}
+
+	public function test_an_undeclared_verb_emits_nothing_and_is_refused(): void {
+		$sink   = new Capture_Sink_Node();
+		$source = new Releases_Source_Demo_Node();
+		$source->sink( $sink );
+
+		$req                   = $this->tick_request();
+		$req[ Message::VALUE ] = 'TOCK_9931';
+		$source->fill( $req );
+
+		$this->assertCount( 1, $sink->captured, 'the refusal alone; no item emitted' );
+		$this->assertSame( Message::TM_ERROR, $sink->captured[0][ Message::TYPE ] );
+		$this->assertSame( "unknown request verb: TOCK_9931\n", $sink->captured[0][ Message::VALUE ] );
 	}
 
 	public function test_emitted_message_carries_TO_from_target(): void {

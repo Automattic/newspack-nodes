@@ -5,6 +5,7 @@
  */
 
 import { __ } from '@wordpress/i18n';
+import { workerId } from '../utils/scope';
 
 /**
  * The slice of the PHP-localized payload this file reads. Admin localizes many
@@ -163,7 +164,7 @@ export default function CanvasFrame( {
 					</div>
 					<div className="topology-title-block__v">
 						{ isWorker
-							? `${ topology }.p${ partition }`
+							? workerId( topology, partition )
 							: topology }
 					</div>
 				</div>

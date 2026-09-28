@@ -23,6 +23,13 @@ class WorkerScaffoldingTest extends TestCase {
 		parent::tearDown();
 	}
 
+	/** Every leg of the IPC tree comes from the one owner, never a caller's join. */
+	public function test_ipc_dir_names_each_leg_of_the_tree(): void {
+		$this->assertSame( "{$this->tmp}/ipc/kea-7713.p3", Worker_Base::ipc_dir( "{$this->tmp}/", 'kea-7713', 3 ) );
+		$this->assertSame( "{$this->tmp}/ipc/kea-7713.p3/output", Worker_Base::ipc_dir( $this->tmp, 'kea-7713', 3, Worker_Base::IPC_OUTPUT ) );
+		$this->assertSame( "{$this->tmp}/ipc/kea-7713.p3/input.offsets", Worker_Base::ipc_dir( $this->tmp, 'kea-7713', 3, Worker_Base::IPC_INPUT_OFFSETS ) );
+	}
+
 	public function test_build_scaffolding_creates_router_and_interpreter(): void {
 		$w = new Worker_Base( $this->tmp, 'test', 0 );
 		$interpreter = $w->build_scaffolding();
@@ -94,7 +101,7 @@ class WorkerScaffoldingTest extends TestCase {
 		unset( $seed );
 
 		$w  = new Worker_Base( $this->tmp, 'test', 0 );
-		$in = $w->build_ipc_input_consumer( $ipc_dir );
+		$in = $w->build_ipc_input_consumer();
 		// has_checkpoint is meaningful only after the first poll seeds the cursor
 		// from the offsetlog (construction does no I/O).
 		$in->sink( new \Newspack_Nodes\Tests\Capture_Sink_Node() );
@@ -115,7 +122,7 @@ class WorkerScaffoldingTest extends TestCase {
 		$input->fill( $message );
 
 		$w   = new Worker_Base( $this->tmp, 'test', 0 );
-		$in  = $w->build_ipc_input_consumer( $ipc_dir );
+		$in  = $w->build_ipc_input_consumer();
 		$cap = new \Newspack_Nodes\Tests\Capture_Sink_Node();
 		$in->sink( $cap );
 		$in->poll();
@@ -332,7 +339,7 @@ class WorkerScaffoldingTest extends TestCase {
 		$ipc_dir = "{$this->tmp}/ipc/ckpt.p0";
 		\mkdir( "{$ipc_dir}/input", 0755, true );
 		$w  = new Worker_Base( $this->tmp, 'ckpt', 0 );
-		$in = $w->build_ipc_input_consumer( $ipc_dir );
+		$in = $w->build_ipc_input_consumer();
 		$in->sink( new \Newspack_Nodes\Tests\Capture_Sink_Node() );
 
 		$input = new Partition_Node();
@@ -345,7 +352,7 @@ class WorkerScaffoldingTest extends TestCase {
 
 		$this->write_ipc_line( $input, 'cmd2' );   // queued during the downtime
 
-		$in2 = ( new Worker_Base( $this->tmp, 'ckpt', 0 ) )->build_ipc_input_consumer( $ipc_dir );
+		$in2 = ( new Worker_Base( $this->tmp, 'ckpt', 0 ) )->build_ipc_input_consumer();
 		$cap = new \Newspack_Nodes\Tests\Capture_Sink_Node();
 		$in2->sink( $cap );
 		$this->pump_consumer( $in2 );
@@ -363,7 +370,7 @@ class WorkerScaffoldingTest extends TestCase {
 		\mkdir( "{$ipc_dir}/input", 0755, true );
 		try {
 			$w  = new Worker_Base( $this->tmp, 'poisonous', 3 );
-			$in = $w->build_ipc_input_consumer( $ipc_dir );
+			$in = $w->build_ipc_input_consumer();
 			$cap = new \Newspack_Nodes\Tests\Capture_Sink_Node();
 			$in->sink( $cap );
 			$in->poll(); // Seed the cursor at the (empty) tail.

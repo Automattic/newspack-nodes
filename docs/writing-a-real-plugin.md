@@ -99,7 +99,7 @@ The standing rule across these plugins is the static `\Closure` property, never 
 
 ## 2. The `Source_Node` abstract base — the uniform connector
 
-In the toy, *every* source hand-rolls its own `fill()` and its own `handle_request()` — Ana's releases source and Ben's community source are near-identical copies. That's fine for two canned sources in a tutorial. For three real connectors that all need TICK handling, dedup, fire-and-forget emit, and normalization, copying that boilerplate three times is how drift creeps in. All of it therefore lives in one abstract base, `Source_Node`, leaving each connector only the two things that genuinely differ.
+In the toy, *every* source hand-rolls its own `fill()` and its own `tick()` — Ana's releases source and Ben's community source are near-identical copies. That's fine for two canned sources in a tutorial. For three real connectors that all need TICK handling, dedup, fire-and-forget emit, and normalization, copying that boilerplate three times is how drift creeps in. All of it therefore lives in one abstract base, `Source_Node`, leaving each connector only the two things that genuinely differ.
 
 [`includes/class-source-node.php`](https://github.com/Automattic/newspack-intelligence/blob/v0.9.12/includes/class-source-node.php):
 

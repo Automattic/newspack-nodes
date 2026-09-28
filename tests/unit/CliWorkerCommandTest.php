@@ -306,6 +306,33 @@ class CliWorkerCommandTest extends TestCase {
 		);
 	}
 
+	/** Only a dir whose name is a worker id is a worker's lock. */
+	public function test_stop_ignores_a_lock_dir_that_names_no_worker(): void {
+		$this->register_topology( 'firehose-workers', 1 );
+		$padded = "{$this->tmp}/locks/kea.p03.lock.d";
+		\mkdir( $padded, 0755, true );
+		Worker_CLI_Command::$sleep = static function (): void {};
+
+		( new Worker_CLI_Command() )->stop( [], [ 'timeout' => 0 ] );
+
+		$this->assertNotEmpty( $GLOBALS['_test_wp_cli_success'], 'a padded id holds no worker' );
+		$this->assertFileDoesNotExist( $padded . '/' . Lock_Node::STOP_FLAG );
+	}
+
+	public function test_stop_waits_for_a_lock_dir_that_names_a_worker(): void {
+		$this->register_topology( 'firehose-workers', 1 );
+		$held = "{$this->tmp}/locks/kea-7713.p3.lock.d";
+		\mkdir( $held, 0755, true );
+		Worker_CLI_Command::$sleep = static function (): void {};
+
+		$this->caught(
+			fn () => ( new Worker_CLI_Command() )->stop( [], [ 'timeout' => 0 ] ),
+			'a worker lock must block'
+		);
+		$this->assertStringContainsString( 'kea-7713.p3', \implode( ' ', $GLOBALS['_test_wp_cli_errors'] ) );
+		$this->assertFileExists( $held . '/' . Lock_Node::STOP_FLAG );
+	}
+
 	/**
 	 * A worker that acquires mid-wait must still be told to stop — flagging only
 	 * once, before the wait, leaves it running and spins out the full timeout.

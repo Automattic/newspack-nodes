@@ -3,10 +3,11 @@
  * Schema_Reflection: a node's `node_schema()` IS its configuration surface.
  *
  * A node opting in declares its positional arguments and its runtime verbs once,
- * and this trait reads that one declaration three ways. `parse_schema_args()`
+ * and this trait reads that one declaration four ways. `parse_schema_args()`
  * assigns the positional tokens onto the declared properties (ADR-11).
  * `auto_wire_interpreter()` builds the sibling `{name}:config` interpreter from
- * the declared commands. The `dump_declared()` / `declared_setter()` pair turns a
+ * the declared commands, and `answer_request()` answers a TM_REQUEST from the
+ * declared requests. The `dump_declared()` / `declared_setter()` pair turns a
  * `toggle` or `setter` key into both the verb's handler and its `dump_config()`
  * fragment, so a setting is a declaration rather than the hand-rolled trio —
  * handler, dump fragment, argument parse — each class would otherwise carry.
@@ -305,6 +306,52 @@ trait Schema_Reflection {
 		$interpreter->commands( $verbs );
 		$this->interpreter = $interpreter;
 		$this->publish_sibling( 'config', $interpreter );
+	}
+
+	/**
+	 * Answer a TM_REQUEST from `node_schema()['requests']` — the request-side
+	 * twin of `auto_wire_interpreter()`. A node's `fill()` calls this first and
+	 * returns when it answers true, so the node itself never tests the flag.
+	 *
+	 * The verb is VALUE's first space-separated word, upper-cased. The entry of
+	 * that name carrying a callable `handler` — `callable( static $node ): array`
+	 * — supplies the reply's `data`, and the reply is TM_STRUCT|TM_RESPONSE,
+	 * VALUE `{ verb, data }`. Any other verb, a catalog-only entry included, is
+	 * refused on the error plane, as Tachikoma's Partition refuses a request
+	 * and as the interpreter refuses a command: TM_ERROR, VALUE
+	 * `unknown request verb: <VERB>` with one terminating newline.
+	 *
+	 * Either reply goes from this node TO the request's FROM, with ID and KEY
+	 * echoed: the address is the whole correlation, so the asker keeps no
+	 * registry of outstanding requests (ADR-7).
+	 *
+	 * @param array<int,mixed> $message Incoming Message.
+	 * @return bool True when the message was a TM_REQUEST, now answered.
+	 * @throws \RuntimeException When no sink is wired to carry the reply.
+	 */
+	protected function answer_request( array $message ): bool {
+		if ( ! ( Core::as_int( $message[ Message::TYPE ] ) & Message::TM_REQUEST ) ) {
+			return false;
+		}
+		$sink  = $this->require_sink();
+		$verb  = \strtoupper( \explode( ' ', \trim( Core::as_string( $message[ Message::VALUE ] ) ), 2 )[0] );
+		$reply = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_ERROR;
+		$reply[ Message::VALUE ] = "unknown request verb: {$verb}\n";
+		foreach ( Core::arr( static::node_schema()['requests'] ?? [] ) as $request ) {
+			if ( \is_array( $request ) && $verb === ( $request['name'] ?? null ) && \is_callable( $request['handler'] ?? null ) ) {
+				$reply[ Message::TYPE ]  = Message::TM_STRUCT | Message::TM_RESPONSE;
+				$reply[ Message::VALUE ] = [ 'verb' => $verb, 'data' => $request['handler']( $this ) ];
+				break;
+			}
+		}
+
+		$reply[ Message::FROM ] = $this->name;
+		$reply[ Message::TO ]   = $message[ Message::FROM ];
+		$reply[ Message::ID ]   = $message[ Message::ID ];
+		$reply[ Message::KEY ]  = $message[ Message::KEY ];
+		$sink->fill( $reply );
+		return true;
 	}
 
 	/**

@@ -11,6 +11,7 @@ namespace Example_AI_Newsletter;
 
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Message;
+use Newspack_Nodes\Schema_Reflection;
 
 \defined( 'ABSPATH' ) || exit;
 
@@ -25,37 +26,33 @@ use Newspack_Nodes\Message;
  * palette tile and its Inspector lookup by that name.
  */
 class Releases_Source_Demo_Node extends Node {
+	use Schema_Reflection;
 
 	/**
-	 * Run the TICK batch on any TM_REQUEST and ignore every other type.
+	 * Answer a TM_REQUEST and ignore every other type.
 	 *
 	 * TICK drives an already-running graph, so it arrives as a TM_REQUEST
-	 * handled here rather than as a TM_COMMAND verb on a sibling interpreter;
-	 * TM_COMMAND is the startup and administration plane. A TYPE that is not
-	 * numeric reads as 0 and matches no flag.
+	 * rather than as a TM_COMMAND verb on a sibling interpreter; TM_COMMAND is
+	 * the startup and administration plane. `answer_request()` answers it from
+	 * the schema. A source mints messages and consumes none, so anything that
+	 * is not a request is dropped.
 	 *
 	 * @param array<int,mixed> $message The 7-field positional message array.
 	 */
 	public function fill( array $message ): void {
-		$type = \is_numeric( $message[ Message::TYPE ] ) ? (int) $message[ Message::TYPE ] : 0;
-		if ( $type & Message::TM_REQUEST ) {
-			$this->handle_request( $message );
-		}
+		$this->answer_request( $message );
 	}
 
 	/**
-	 * Emit each item as its own TM_STRUCT message, then reply with the count.
+	 * Emit each item as its own TM_STRUCT message and report the count.
 	 *
 	 * The items go out fire-and-forget: nothing acknowledges them (ADR-3) and
-	 * `fill()` returns nothing to inspect (ADR-13). The request gets one reply,
-	 * echoing the ID and KEY it carried. Each item is built in a fresh message
-	 * rather than by reassigning the request, because the reply reads that
-	 * request's FROM, ID and KEY after the loop. Every TM_REQUEST emits — TICK
-	 * is the one verb the schema declares, so the VALUE goes unread.
+	 * `fill()` returns nothing to inspect (ADR-13). The returned count is the
+	 * reply's `data`.
 	 *
-	 * @param array<int,mixed> $message The TICK request.
+	 * @return array{emitted:int} The TICK reply data.
 	 */
-	private function handle_request( array $message ): void {
+	private function tick(): array {
 		$emitted = 0;
 		foreach ( $this->items() as $item ) {
 			$response                   = Message::new_message();
@@ -66,15 +63,7 @@ class Releases_Source_Demo_Node extends Node {
 			parent::fill( $response );
 			++$emitted;
 		}
-		// TO=FROM is the whole correlation; no table of pending asks (ADR-7).
-		$reply                   = Message::new_message();
-		$reply[ Message::TYPE ]  = Message::TM_STRUCT | Message::TM_RESPONSE;
-		$reply[ Message::FROM ]  = $this->name;
-		$reply[ Message::TO ]    = $message[ Message::FROM ];
-		$reply[ Message::ID ]    = $message[ Message::ID ];
-		$reply[ Message::KEY ]   = $message[ Message::KEY ];
-		$reply[ Message::VALUE ] = [ 'emitted' => $emitted ];
-		parent::fill( $reply );
+		return [ 'emitted' => $emitted ];
 	}
 
 	/**
@@ -82,7 +71,7 @@ class Releases_Source_Demo_Node extends Node {
 	 *
 	 * This is the ONE seam a real source replaces: override it with an HTTP
 	 * fetch or a feed parse and the rest of the node is unchanged. Leave the
-	 * `source` key out — `handle_request()` stamps it on, and its value wins
+	 * `source` key out — `tick()` stamps it on, and its value wins
 	 * the union, so an override can neither omit it nor change it. Canned items
 	 * keep the walkthrough deterministic, and the suite asserts a TICK reports
 	 * an `emitted` of 2.
@@ -99,12 +88,12 @@ class Releases_Source_Demo_Node extends Node {
 	/**
 	 * Describe the node for the console palette, the Inspector and `help`.
 	 *
-	 * Declaring the `requests` entry is the whole wiring TICK needs: it gives
-	 * the Inspector a TM_REQUEST button firing what the REPL types as
-	 * `request_node releases TICK`. `accepts_fill` stays true because the node
-	 * acts on a message arriving at `fill()` — the request itself — though it
-	 * only ever mints items. It declares no `commands`, since a runtime trigger
-	 * never becomes a TM_COMMAND verb.
+	 * Declaring the `requests` entry is the whole wiring TICK needs: it names
+	 * the `handler`, and it gives the Inspector a TM_REQUEST button firing what
+	 * the REPL types as `request_node releases TICK`. `accepts_fill` stays true
+	 * because the node acts on a message arriving at `fill()` — the request
+	 * itself — though it only ever mints items. It declares no `commands`, since
+	 * a runtime trigger never becomes a TM_COMMAND verb.
 	 *
 	 * @return array<string,mixed> The base schema with this node's entries merged over it.
 	 */
@@ -118,6 +107,7 @@ class Releases_Source_Demo_Node extends Node {
 					'name'        => 'TICK',
 					'description' => 'Emit the current batch of items. Trigger with `request_node releases TICK`.',
 					'reply_shape' => '{ emitted }',
+					'handler'     => static fn ( self $node ): array => $node->tick(),
 				],
 			],
 			'accepts_fill' => true,

@@ -35,8 +35,9 @@ if ( ! \defined( 'ABSPATH' ) ) {
  * record of the POSTs this process fired — which is why
  * `Bootstrap::spawn_coordinator()` can hand out a fresh one per call.
  *
- * The static half needs neither instance nor base_dir: the deploy hold, the
- * spawn-token key, the conflict description, and the contained delete.
+ * The static half needs no spawn key: the lock and IPC layout under a base
+ * dir it is handed, the deploy hold, the spawn-token key, the conflict
+ * description, and the contained delete.
  */
 class Spawn_Coordinator {
 
@@ -107,9 +108,9 @@ class Spawn_Coordinator {
 		if ( empty( $active ) ) {
 			return; // No known fleet: every dir would read as an orphan.
 		}
-		$this->reap_steal_scratch_dirs( $this->locks_dir() );
+		$this->reap_steal_scratch_dirs( self::locks_dir( $this->base_dir ) );
 		$surplus = \array_filter(
-			$this->worker_lock_dirs(),
+			self::worker_lock_dirs( $this->base_dir ),
 			static fn ( array $lock ): bool => $lock['partition'] >= ( $active[ $lock['type'] ] ?? 0 )
 		);
 		Worker_Should_Stop::raise(
@@ -172,22 +173,27 @@ class Spawn_Coordinator {
 	}
 
 	/**
-	 * Every worker lock dir under `locks/`, as `path => {type, partition}`.
+	 * Every worker lock dir under `{base}/locks/`, as
+	 * `path => {id, type, partition}`.
 	 *
 	 * The `{type}.p{N}.lock.d` layout, read ONCE here beside the `lock_path()`
 	 * that writes it. A second hand-written walk drifts to a narrower glob or a
 	 * weaker regex, and then one pass retires a dir another pass never sees.
+	 * Static, because listing locks needs no spawn key.
 	 *
-	 * @return array<string,array{type:string,partition:int}>
+	 * @param string $base_dir Runtime state root holding `locks/`.
+	 * @return array<string,array{id:string,type:string,partition:int}>
 	 */
-	public function worker_lock_dirs(): array {
+	public static function worker_lock_dirs( string $base_dir ): array {
 		$out = [];
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_glob -- Operator storage, never WP-managed.
-		foreach ( \glob( $this->locks_dir() . '/*.lock.d' ) ?: [] as $path ) {
-			if ( ! \preg_match( '/^(.+)\.p(\d+)$/D', \basename( $path, '.lock.d' ), $m ) ) {
-				continue; // Non-partitioned dir — not a worker.
+		foreach ( \glob( self::locks_dir( $base_dir ) . '/*.lock.d', \GLOB_ONLYDIR ) ?: [] as $path ) {
+			$id     = \basename( $path, '.lock.d' );
+			$worker = CLI::parse_worker_id( $id );
+			if ( null === $worker ) {
+				continue; // No worker id — not a worker's lock.
 			}
-			$out[ $path ] = [ 'type' => $m[1], 'partition' => (int) $m[2] ];
+			$out[ $path ] = [ 'id' => $id, 'type' => $worker[0], 'partition' => $worker[1] ];
 		}
 		return $out;
 	}
@@ -247,7 +253,7 @@ class Spawn_Coordinator {
 		$partition = Core::as_int( $worker['partition'] );
 		$stale     = Lock_Node::stale_timeout_of( $worker );
 
-		$dir = self::lock_path( $this->locks_dir(), $type, $partition );
+		$dir = self::lock_path( $this->base_dir, $type, $partition );
 		if ( ! \is_dir( $dir ) ) {
 			// Clean absence is normal on-demand; a producer wakes it, not us.
 			return 0 === Bootstrap::on_demand_idle_of( $worker );
@@ -310,37 +316,59 @@ class Spawn_Coordinator {
 	}
 
 	/**
-	 * Wake the on-demand worker `$worker_id` names; false when it names none.
+	 * The IPC channel of the worker `$worker_id` names, waking it when it is an
+	 * on-demand worker asleep; null when the id will not parse, or names no
+	 * worker that is running or wakeable.
 	 *
-	 * ONE rule, shared by every entry point that meets an absent worker: a
-	 * cleanly absent on-demand worker is asleep BY DESIGN and holds no lock dir,
-	 * so a caller that refuses on the missing lock alone never wakes one — which
-	 * is what an attach, and a request-scope Partition mount, both need. A
-	 * resident worker with no lock dir is a typo or a dead fleet, and stays
-	 * refused.
+	 * THE resolution every door into a worker's IPC takes — an attached cli and
+	 * a request-scope Partition mount — so none re-derives the lock test, the
+	 * wake or the legs. `sleeping` says the worker held no lock and was woken,
+	 * so its IPC tree may not exist yet. Static, so a live worker costs no
+	 * spawn key; only a wake builds a coordinator.
 	 *
-	 * Matches on the id the FLEET spells (`{type}.p{N}`, unpadded), because that
-	 * is the ipc/ tree the caller goes on to read; a padded id names no worker
-	 * and must refuse rather than wake a different partition.
-	 *
+	 * @param string $base_dir  Runtime state root holding `locks/` and `ipc/`.
 	 * @param string $worker_id `{type}.p{N}`.
-	 * @param float  $now       Clock, so one pass judges every worker alike.
-	 * @return bool True when the id names an on-demand worker; the wake itself is
-	 *              fire-and-forget, and the throttle may still swallow it.
+	 * @param float  $now       Clock the wake judges the throttle by.
+	 * @return array{id:string,type:string,partition:int,input:string,output:string,sleeping:bool}|null
 	 */
-	public function wake_sleeping_worker( string $worker_id, float $now ): bool {
-		foreach ( Bootstrap::expand_workers() as $worker ) {
-			if ( 0 === Bootstrap::on_demand_idle_of( $worker ) ) {
-				continue;
-			}
-			$id = Core::as_string( $worker['type'] ) . '.p' . Core::as_int( $worker['partition'] );
-			if ( $id !== $worker_id ) {
-				continue;
-			}
-			$this->wake_on_demand( "{$this->base_dir}/ipc/{$worker_id}/input", $now );
-			return true;
+	public static function worker_channel( string $base_dir, string $worker_id, float $now ): ?array {
+		$worker = CLI::parse_worker_id( $worker_id );
+		if ( null === $worker ) {
+			return null;
 		}
-		return false;
+		[ $type, $partition ] = $worker;
+		$sleeping             = ! \is_dir( self::lock_path( $base_dir, $type, $partition ) );
+		if ( $sleeping && ! ( new self( $base_dir ) )->wake_sleeping_worker( $type, $partition, $now ) ) {
+			return null;
+		}
+		return [
+			'id'        => $worker_id,
+			'type'      => $type,
+			'partition' => $partition,
+			'input'     => Worker_Base::ipc_dir( $base_dir, $type, $partition, Worker_Base::IPC_INPUT ),
+			'output'    => Worker_Base::ipc_dir( $base_dir, $type, $partition, Worker_Base::IPC_OUTPUT ),
+			'sleeping'  => $sleeping,
+		];
+	}
+
+	/**
+	 * Wake the on-demand worker `{type}.p{partition}`, which holds no lock dir
+	 * because it sleeps BY DESIGN; false when the fleet runs no such on-demand
+	 * worker, so a resident one with no lock dir — a typo or a dead fleet —
+	 * stays refused.
+	 *
+	 * @param string $type      Worker type.
+	 * @param int    $partition Partition number.
+	 * @param float  $now       Clock, so one pass judges every worker alike.
+	 * @return bool True when the pair names an on-demand worker; the wake itself
+	 *              is fire-and-forget, and the throttle may still swallow it.
+	 */
+	public function wake_sleeping_worker( string $type, int $partition, float $now ): bool {
+		if ( null === $this->on_demand_worker( $type, $partition ) ) {
+			return false;
+		}
+		$this->wake_on_demand( Worker_Base::ipc_dir( $this->base_dir, $type, $partition, Worker_Base::IPC_INPUT ), $now );
+		return true;
 	}
 
 	/**
@@ -410,7 +438,7 @@ class Spawn_Coordinator {
 	 */
 	private function is_absent( array $worker ): bool {
 		return ! \is_dir( self::lock_path(
-			$this->locks_dir(),
+			$this->base_dir,
 			Core::as_string( $worker['type'] ),
 			Core::as_int( $worker['partition'] )
 		) );
@@ -421,10 +449,9 @@ class Spawn_Coordinator {
 	 * one — the same rule as any other partition, resolved a shorter way.
 	 *
 	 * IPC needs no map entry because the PATH names its worker: this layout is
-	 * the substrate's own (`Spawn_Coordinator::lock_path()` and
-	 * `Cli::attach_to_worker()` already build and read it), not a user-authored
-	 * template, so reading an identity out of it assumes nothing about where a
-	 * `<partition>` token sits in someone's TSL.
+	 * the substrate's own (`Worker_Base::ipc_dir()` builds it), not a
+	 * user-authored template, so reading an identity out of it assumes nothing
+	 * about where a `<partition>` token sits in someone's TSL.
 	 *
 	 * @param string $dir Resolved partition directory.
 	 * @return list<array<array-key,mixed>>|null Null when $dir is not under ipc/.
@@ -434,34 +461,48 @@ class Spawn_Coordinator {
 		if ( ! \str_starts_with( $dir, $prefix ) ) {
 			return null;
 		}
-		$worker_id = \explode( '/', \substr( $dir, \strlen( $prefix ) ) )[0];
+		$worker = CLI::parse_worker_id( \explode( '/', \substr( $dir, \strlen( $prefix ) ) )[0] );
+		$reader = null === $worker ? null : $this->on_demand_worker( ...$worker );
+		return null === $reader ? [] : [ $reader ];
+	}
+
+	/**
+	 * The fleet's descriptor for on-demand worker `{type}.p{partition}`, or null
+	 * when the active fleet runs no such on-demand worker.
+	 *
+	 * @param string $type      Worker type.
+	 * @param int    $partition Partition number.
+	 * @return array<array-key,mixed>|null Worker descriptor.
+	 */
+	private function on_demand_worker( string $type, int $partition ): ?array {
 		foreach ( Bootstrap::expand_workers() as $worker ) {
-			if ( 0 === Bootstrap::on_demand_idle_of( $worker ) ) {
-				continue;
-			}
-			if ( $worker_id === Core::as_string( $worker['type'] ) . '.p' . Core::as_int( $worker['partition'] ) ) {
-				return [ $worker ];
+			if ( 0 !== Bootstrap::on_demand_idle_of( $worker )
+				&& $type === Core::as_string( $worker['type'] )
+				&& $partition === Core::as_int( $worker['partition'] ) ) {
+				return $worker;
 			}
 		}
-		return [];
+		return null;
 	}
 
 	/**
 	 * Reap ipc dirs for workers no longer in the fleet. A live worker's lock dir
-	 * defers its own removal, so a worker mid-recycle keeps its IPC.
+	 * defers its own removal, so a worker mid-recycle keeps its IPC, and a dir
+	 * whose name `CLI::parse_worker_id()` refuses is no worker's and stays.
 	 */
 	public function cleanup_orphan_ipc(): void {
 		$active = [];
 		foreach ( Bootstrap::expand_workers() as $worker ) {
-			$active[ "{$worker['type']}.p{$worker['partition']}" ] = true;
+			$active[ CLI::worker_id( $worker['type'], $worker['partition'] ) ] = true;
 		}
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_glob -- Operator storage, never WP-managed.
-		foreach ( \glob( "{$this->base_dir}/ipc/*.p*", \GLOB_ONLYDIR ) ?: [] as $dir ) {
-			$name = \basename( $dir );
-			if ( isset( $active[ $name ] ) || ! \preg_match( '/\.p\d+$/', $name ) ) {
+		foreach ( \glob( "{$this->base_dir}/ipc/*", \GLOB_ONLYDIR ) ?: [] as $dir ) {
+			$name   = \basename( $dir );
+			$worker = CLI::parse_worker_id( $name );
+			if ( isset( $active[ $name ] ) || null === $worker ) {
 				continue;
 			}
-			if ( \is_dir( "{$this->locks_dir()}/{$name}.lock.d" ) ) {
+			if ( \is_dir( self::lock_path( $this->base_dir, ...$worker ) ) ) {
 				continue; // A live worker still holds it.
 			}
 			self::delete_directory_recursive( $dir, $this->base_dir );
@@ -627,7 +668,7 @@ class Spawn_Coordinator {
 			foreach ( $due as [ $type, $partition ] ) {
 				$err = $this->post_spawn( $spawn_url, $type, $partition, $token );
 				if ( null !== $err ) {
-					Core::print_less_often( "{$label} for {$type}.p{$partition}: ", $err );
+					Core::print_less_often( "{$label} for " . CLI::worker_id( $type, $partition ) . ': ', $err );
 				}
 				$this->record_spawn_local( $type, $partition, $now );
 			}
@@ -808,12 +849,7 @@ class Spawn_Coordinator {
 			}
 		}
 		// Restart channel; force_release would read as a steal.
-		self::signal_workers( $this->locks_dir(), $workers, Lock_Node::request_restart_at( ... ) );
-	}
-
-	/** The `locks/` directory under this coordinator's runtime tree. */
-	private function locks_dir(): string {
-		return "{$this->base_dir}/locks";
+		self::signal_workers( $this->base_dir, $workers, Lock_Node::request_restart_at( ... ) );
 	}
 
 	/**
@@ -822,19 +858,19 @@ class Spawn_Coordinator {
 	 * `CLI::restart_workers()` and `Restart_Planner`'s restart and reload
 	 * signals: a lock dir that does not exist holds no worker and takes none.
 	 *
-	 * @param string                        $locks_dir Locks directory the dirs hang off.
-	 * @param list<array{0:string,1:int}>   $workers   `[ type, partition ]` pairs.
-	 * @param callable(string):bool         $signal    Per-lock-dir write, e.g. `Lock_Node::request_restart_at()`.
+	 * @param string                      $base_dir Runtime state root holding `locks/`.
+	 * @param list<array{0:string,1:int}> $workers  `[ type, partition ]` pairs.
+	 * @param callable(string):bool       $signal   Per-lock-dir write, e.g. `Lock_Node::request_restart_at()`.
 	 * @return int Flags written.
 	 * @throws \Throwable Every refused or failed write, combined.
 	 */
-	public static function signal_workers( string $locks_dir, array $workers, callable $signal ): int {
+	public static function signal_workers( string $base_dir, array $workers, callable $signal ): int {
 		$written = 0;
 		Worker_Should_Stop::raise(
 			Worker_Should_Stop::attempt_each(
 				$workers,
-				static function ( array $worker ) use ( $locks_dir, $signal, &$written ): void {
-					$written += (int) $signal( self::lock_path( $locks_dir, ...$worker ) );
+				static function ( array $worker ) use ( $base_dir, $signal, &$written ): void {
+					$written += (int) $signal( self::lock_path( $base_dir, ...$worker ) );
 				}
 			)
 		);
@@ -843,15 +879,26 @@ class Spawn_Coordinator {
 
 	/**
 	 * The lock directory one worker acquires. THE writer of the
-	 * `{type}.p{N}.lock.d` layout `worker_lock_dirs()` reads back.
+	 * `{base}/locks/{type}.p{N}.lock.d` layout `worker_lock_dirs()` reads back.
 	 *
-	 * @param string $locks_dir Locks directory, `{base}/locks` in production.
+	 * @param string $base_dir  Runtime state root, as `Worker_Base::ipc_dir()` takes it.
 	 * @param string $type      Worker type.
 	 * @param int    $partition Partition number.
 	 * @return string Absolute path, which need not exist.
 	 */
-	public static function lock_path( string $locks_dir, string $type, int $partition ): string {
-		return "{$locks_dir}/{$type}.p{$partition}.lock.d";
+	public static function lock_path( string $base_dir, string $type, int $partition ): string {
+		return self::locks_dir( $base_dir ) . '/' . CLI::worker_id( $type, $partition ) . '.lock.d';
+	}
+
+	/**
+	 * The `locks/` directory of a runtime tree. THE writer of that name, so no
+	 * caller joins it by hand.
+	 *
+	 * @param string $base_dir Runtime state root.
+	 * @return string Absolute path, which need not exist.
+	 */
+	public static function locks_dir( string $base_dir ): string {
+		return \rtrim( $base_dir, '/' ) . '/locks';
 	}
 
 	/**

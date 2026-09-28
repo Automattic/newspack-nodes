@@ -80,7 +80,7 @@ final class DigestBuilderTest extends TestCase {
 		) );
 		$this->assertCount( 1, $replies, 'FLUSH replies once with the flushed count' );
 		$this->assertSame( '_repl', $replies[0][ Message::TO ], 'reply routes back TO the requester' );
-		$this->assertSame( 5, $replies[0][ Message::VALUE ]['flushed'], 'all five accumulated items counted' );
+		$this->assertSame( [ 'verb' => 'FLUSH', 'data' => [ 'flushed' => 5 ] ], $replies[0][ Message::VALUE ], 'all five accumulated items counted' );
 	}
 
 	public function test_flush_request_verb_is_documented_in_schema(): void {

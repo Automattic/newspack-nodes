@@ -32,6 +32,8 @@ supersede.
 | [19](#adr-19-a-node-may-declare-a-destination-it-writes-without-routing) | A node may DECLARE a destination it writes without routing |
 | [20](#adr-20-a-config-default-lives-in-code-every-config-file-is-an-override-surface) | A config default lives in CODE; every config file is an override surface |
 | [21](#adr-21-a-node-may-derive-its-children-from-the-vault-and-static-analysis-reads-it) | A node may derive its children from the Vault, and static analysis reads it |
+| [22](#adr-22-a-worker-id-has-one-writer-one-reader-and-two-layout-owners) | A worker id has one writer, one reader, and two layout owners |
+| [23](#adr-23-a-request-carries-no-authority-of-its-own) | A request carries no authority of its own |
 
 ---
 
@@ -1060,6 +1062,12 @@ held-frame tier. The marker is added, never set: the walk that answers an absenc
 a writer's value can land inside it, and whatever landed first stands. And a backing that
 could not look answers null — a spent budget, a partition not yet resolved — and nothing is
 remembered of that read; only a walk that found nothing is an absence.
+A writer that later holds the value undoes a marker with `replace_absent()`, the converse of
+the add: one batched read, then one write per lifetime for exactly the keys still holding a
+marker. Deleting instead would evict every live value the batch named and send its next read
+to the backing. The read and the write are not atomic: a marker added after the read stands
+for its hold, and a value added after it is overwritten with the caller's copy. The method's
+docblock names when each is harmless.
 
 `locate_by()` resolves a key to its NEWEST record in one newest-first pass, because the
 remaining-`ttl` rule reads the lifetime off whichever record the key lands on: an older write
@@ -1253,3 +1261,102 @@ it rebuilds its patroned siblings.
 the TSL, at which point the flatten needs a general derivation hook instead of a
 `Vault_Group` case; or analyzer results must be shared across processes, where a per-process
 cache reset no longer reaches every reader.
+
+---
+
+## ADR-22: A worker id has one writer, one reader, and two layout owners
+
+**Status:** Accepted
+
+**Context:** A worker's id, `{type}.p{N}`, names its lock dir, its IPC tree, its liveness
+keys, its REPL partition and its stop label. Each site that needed an id spelled it, and each
+site that read one back carried a grammar of its own. They disagreed.
+`connect_worker_input` and the SSE pool pick accepted only `[a-z0-9_-]+` types, so a dotted
+or uppercase topology was refused or pooled under partition -1. `wp nodes cli`,
+`wp nodes status` and the lock reconcile cast the partition through `(int)`, so `kea.p03`
+read as `kea.p3` and an attach landed on an IPC tree no worker reads. Two grammars that
+disagree let one pass retire a directory another pass never sees.
+
+**Decision:** [`CLI::worker_id()`](../includes/class-cli.php) is the only writer of the id
+and `CLI::parse_worker_id()` the only reader. The reader accepts exactly the strings the
+writer can produce — a type holding no `/` or NUL, then the final `.p{N}` with no leading
+zero — and answers null for anything else. Their JS twins, `workerId()` and
+`parseWorkerId()` in [`src/topology-console/utils/scope.js`](../src/topology-console/utils/scope.js),
+read one case list with the PHP pair, [`tests/fixtures/worker-ids.json`](../tests/fixtures/worker-ids.json).
+
+Two layouts hang off the id, and each has one owner.
+[`Spawn_Coordinator`](../includes/class-spawn-coordinator.php) owns the lock tree:
+`locks_dir()` and `lock_path()` write it from a base directory, `signal_workers()` flags
+the lock dirs `lock_path()` names, and `worker_lock_dirs()` walks it, each entry carrying
+its `id`.
+[`Worker_Base::ipc_dir()`](../includes/class-worker-base.php) builds every IPC path, its
+`input`, `output` and `input.offsets` legs included, and `Spawn_Coordinator` is the one
+class that walks the IPC tree (`cleanup_orphan_ipc()`), reads a worker back out of an IPC
+path (`ipc_reader_of()`), or resolves a worker id to its channel (`worker_channel()`,
+which wakes a sleeping on-demand worker and hands the `id` back with the channel). No other file globs, joins or
+strips either tree. A process outside PHP receives type, partition and the resolved
+directory, never an id to parse, because a second grammar accepts what the first refuses.
+
+**Alternatives considered:** One regex constant shared by every site — rejected: it shares a
+pattern, not the decision, and each site still wraps it in its own trim, cast and fallback,
+which is where `kea.p03` became `kea.p3`. A lenient reader that normalizes a padded partition
+— rejected: the normalized id names a lock dir the writer never made, so the attach succeeds
+against an IPC tree nothing reads.
+
+**Consequences:** An id the writer cannot produce names no worker anywhere:
+`wp nodes cli kea.p03` refuses, `wp nodes stop` does not wait on a `kea.p03.lock.d`, and an
+orphan IPC dir spelled that way is left alone rather than reaped. A new site needing a
+worker's lock dir or IPC path calls an owner rather than `glob()`. The reader runs on
+ordinary web requests — SSE subscriptions, the Workers dashboard — so it stays one anchored
+match with no filesystem call.
+
+**Revisit if:** the lock or IPC layout becomes operator-configurable, at which point the
+owners read a template rather than a constant and an id stops being recoverable from a
+path alone.
+
+---
+
+## ADR-23: A request carries no authority of its own
+
+**Status:** Accepted
+
+**Context:** TM_REQUEST is the runtime plane: a trigger or a query against a running graph.
+A request may mutate — the example plugin's `TICK` emits items and its `FLUSH` writes a
+draft, and intelligence's `RESET` empties the digest's items and `REGENERATE` composes a new
+draft. Nothing verifies a request. `HTTP_In` installs its HMAC verifier as every interpreter's
+default `authorize`, which `Command_Interpreter_Node::interpret()` calls for a TM_COMMAND alone, and
+`Message::packed()` slices `Message::LOCAL` off, so no taint survives an IPC hop
+([ADR-15](#adr-15-command-authorization-local-taint--the-minter-signs)). The authority for a
+mutating request has to live somewhere else.
+
+**Decision:** From outside a worker, a request reaches the worker's nodes only through that
+worker's input Partition, and two things write there. `Bootstrap::register_worker_partition()`
+mounts it into a request graph, and every verb reaching that call declares MANAGE:
+`topologies connect_worker_input`, and intelligence's `insights generate` and
+`insights collect`, each by declaring no capability, which `Service_CI_Node` gates at MANAGE.
+The request graph is built per request, so a POST that does not mount the worker gets
+`NOT_AVAILABLE` from the Router. An attached `wp nodes cli` appends to the same Partition
+with the site's own filesystem authority, and refuses to run as root. That mount is the
+gate, so a `node_schema()['requests']` entry declares no capability.
+
+A request may drive a running graph. A declared request answers TO=FROM through
+[`Schema_Reflection::answer_request()`](../includes/trait-schema-reflection.php) with
+`TM_STRUCT | TM_RESPONSE` and VALUE `{ verb, data }`, or refuses an undeclared verb with a
+`TM_ERROR`. `Table_Node`'s `GET <key>` keeps Tachikoma's bare shape instead, as
+[`tachikoma-lineage.md`](tachikoma-lineage.md#a-declared-request-answers-in-an-envelope-tables-get-answers-bare)
+records.
+
+**Alternatives considered:** Signing requests as commands are signed — rejected: the mount
+already demands MANAGE of every outside caller before a request can reach a worker, so a
+signature would gate the same principal twice. A capability on each `requests` entry —
+rejected: the handler runs in a worker, where no WordPress user is current, so
+`Capabilities` has nothing to test and the declaration would be decoration no code enforces.
+
+**Consequences:** A request handler may mutate, and its author weighs it as a MANAGE verb.
+Inside a worker, a node filling a request into another — a Timer firing `TICK` at a source —
+acts with the authority that loaded the topology. A verb whose caller must be told apart
+from another MANAGE holder by session scope is a command, because only a command carries
+the minter's session into the worker.
+
+**Revisit if:** anything writes into a worker's input Partition below MANAGE — a verb that
+mounts it under a lower role, or a second writer beside the attached cli.

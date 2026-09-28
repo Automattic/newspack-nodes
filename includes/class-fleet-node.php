@@ -148,7 +148,7 @@ class Fleet_Node extends Timer_Node {
 		if ( null === $coordinator ) {
 			return;
 		}
-		$this->refresh_active_set( $coordinator, $now );
+		$this->refresh_active_set( $now );
 		$due = [];
 		foreach ( $this->workers as $worker ) {
 			if ( \count( $due ) >= self::MAX_SPAWNS_PER_TICK ) {
@@ -210,10 +210,9 @@ class Fleet_Node extends Timer_Node {
 	 * `expand_workers()` stays unconditional: it is the scan's input, not a
 	 * poll.
 	 *
-	 * @param Spawn_Coordinator $coordinator Forwarded to `drain_all_workers()`, which walks the locks/ layout it owns.
-	 * @param float             $now         Pass clock, so one pass dates every deferral alike.
+	 * @param float $now Pass clock, so one pass dates every deferral alike.
 	 */
-	private function refresh_active_set( Spawn_Coordinator $coordinator, float $now ): void {
+	private function refresh_active_set( float $now ): void {
 		// @longform Purge, reset, THEN announce: a subscriber reading inline
 		// must see the config the reload delivers, not the boot values.
 		// `notify()`, not `set_state()` — a node built after a reload already
@@ -233,7 +232,7 @@ class Fleet_Node extends Timer_Node {
 
 		if ( empty( $workers ) ) {
 			if ( $had_workers ) {
-				$this->drain_all_workers( $coordinator );
+				$this->drain_all_workers();
 			}
 			$this->workers = [];
 			return;
@@ -284,13 +283,12 @@ class Fleet_Node extends Timer_Node {
 	 * Every worker is offered its flag, and every refused write raises together
 	 * after the last.
 	 *
-	 * @param Spawn_Coordinator $coordinator Owns the `{type}.p{N}.lock.d` layout, so this walk cannot drift from the writer.
 	 * @throws \Throwable Every flag write that failed, combined.
 	 */
-	private function drain_all_workers( Spawn_Coordinator $coordinator ): void {
+	private function drain_all_workers(): void {
 		// Already flagged — avoid disk churn.
 		$unflagged = \array_filter(
-			\array_keys( $coordinator->worker_lock_dirs() ),
+			\array_keys( Spawn_Coordinator::worker_lock_dirs( $this->base_dir ) ),
 			static fn ( string $path ): bool => ! \file_exists( $path . '/' . Lock_Node::RESTART_FLAG )
 		);
 		Worker_Should_Stop::raise( Worker_Should_Stop::attempt_each( $unflagged, Lock_Node::request_restart_at( ... ) ) );

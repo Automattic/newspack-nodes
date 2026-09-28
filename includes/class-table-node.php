@@ -396,7 +396,6 @@ class Table_Node extends Node {
 			return [];
 		}
 		$out     = [];
-		$warm    = [];
 		$backend = Cache_Backend::shared_first();
 		$absence = $this->absence;
 		if ( null !== $absence && null !== $backend ) {
@@ -408,18 +407,10 @@ class Table_Node extends Node {
 			}
 		}
 		foreach ( $got as $key => $entry ) {
-			// Served either way; a spent remainder is not worth a cache slot.
-			$left = \array_key_exists( 'ttl', $entry ) ? Core::as_int( $entry['ttl'] ) : $this->ttl;
-			if ( $left > 0 ) {
-				// Grouped by lifetime: a round trip per TTL, not per key.
-				$warm[ $left ][ self::entry_key( $this->namespace, (string) $key ) ] = $entry['value'];
-			}
 			$out[ (string) $key ] = $entry['value'];
 		}
 		// Best-effort: a dead backend must not turn a read into a miss.
-		foreach ( $warm as $ttl => $items ) {
-			$backend?->write_multi( $items, $ttl );
-		}
+		$this->warm( $got );
 		return $out;
 	}
 
@@ -451,6 +442,82 @@ class Table_Node extends Node {
 	public function forget( string $key ): void {
 		$entry_key = self::entry_key( $this->namespace, $key );
 		Cache_Backend::shared_first()?->delete( $entry_key );
+	}
+
+	/**
+	 * Give each remembered absence among these keys the value a writer now
+	 * holds for it, in one read and one write per lifetime, scoped as
+	 * `store()` scopes one.
+	 *
+	 * An absence is claimed with `add()` so it never displaces a value, and
+	 * this is its converse: only a key still holding the marker is written.
+	 * A key holding a value keeps it, since the caller's copy may be older,
+	 * and a key holding nothing stays empty. Each entry takes its own
+	 * lifetime, as a backing's does, and a spent one writes nothing.
+	 *
+	 * The read and the write are two round trips with no compare between
+	 * them, which leaves two gaps. A marker added after the read stands until
+	 * its hold ends, because the read saw no marker there. A value added
+	 * after the read is overwritten with the caller's copy, because the write
+	 * is an unconditional set. The second is harmless for a key with one
+	 * writer whose read-through warm writes the same value the caller holds,
+	 * since the overwrite then replaces a value with itself. The first is not
+	 * closed by that: a read-through walk that began before the value reached
+	 * its backing finds nothing and adds its marker late, so it is harmless
+	 * only where serving an absence for the rest of its hold is acceptable.
+	 * A caller that can accept neither writes the value outright instead.
+	 *
+	 * @api Writers disproving absences a reader remembered (a stats mirror).
+	 * @param array<array-key,array{value: mixed,ttl: int}> $entries Key within
+	 *        the table's namespace => the value and its remaining life.
+	 * @return list<string> The keys whose absence stands because the write
+	 *                      was refused.
+	 */
+	public function replace_absent( array $entries ): array {
+		$entry_keys = [];
+		foreach ( \array_keys( $entries ) as $key ) {
+			$entry_keys[ self::entry_key( $this->namespace, (string) $key ) ] = (string) $key;
+		}
+		$held   = Cache_Backend::shared_first()?->read_multi( \array_keys( $entry_keys ) ) ?? [];
+		$marked = [];
+		foreach ( $held as $entry_key => $value ) {
+			if ( self::ABSENT === $value ) {
+				$key            = $entry_keys[ $entry_key ];
+				$marked[ $key ] = $entries[ $key ];
+			}
+		}
+		return $this->warm( $marked );
+	}
+
+	/**
+	 * Store entries under their own remaining lifetimes, a round trip per
+	 * lifetime rather than per key. An entry stating none takes the table's,
+	 * and one whose life is spent takes no cache slot.
+	 *
+	 * @param array<array-key,array{value: mixed,ttl?: int}> $entries Key within
+	 *        the table's namespace => value and remaining life.
+	 * @return list<string> The keys a refused write left unstored.
+	 */
+	private function warm( array $entries ): array {
+		$groups = [];
+		$names  = [];
+		foreach ( $entries as $key => $entry ) {
+			$left = \array_key_exists( 'ttl', $entry ) ? Core::as_int( $entry['ttl'] ) : $this->ttl;
+			if ( $left > 0 ) {
+				$entry_key                     = self::entry_key( $this->namespace, (string) $key );
+				$groups[ $left ][ $entry_key ] = $entry['value'];
+				$names[ $entry_key ]           = (string) $key;
+			}
+		}
+		$refused = [];
+		foreach ( $groups as $ttl => $items ) {
+			if ( true !== Cache_Backend::shared_first()?->write_multi( $items, $ttl ) ) {
+				foreach ( \array_keys( $items ) as $entry_key ) {
+					$refused[] = $names[ $entry_key ];
+				}
+			}
+		}
+		return $refused;
 	}
 
 	/**
@@ -613,6 +680,15 @@ class Table_Node extends Node {
 						$patron = $interpreter->patron();
 						return $patron instanceof self ? $patron->rm( Core::as_string( $args[0] ?? '', '' ) ) : throw new \RuntimeException( 'no table patron' );
 					},
+				],
+			],
+			// No handler: handle_request() answers GET in Tachikoma's shape.
+			'requests'    => [
+				[
+					'name'        => 'GET',
+					'description' => 'The stored value, TM_STRUCT or TM_BYTESTREAM by its shape; NOT_FOUND as a TM_ERROR. Case-sensitive.',
+					'args'        => [ [ 'name' => 'key', 'type' => 'string', 'required' => true ] ],
+					'reply_shape' => 'the stored value itself, KEY set to <key>',
 				],
 			],
 			'has_target'  => true,

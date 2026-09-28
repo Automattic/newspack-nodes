@@ -20,7 +20,7 @@ If you haven't run the example yet, do [getting-started.md](getting-started.md) 
 
 Two **sources** emit items. One **summarizer** condenses each item to a line. One **builder** accumulates the lines and, on request, writes a draft. `log` is the substrate's built-in `Log`. Sources emit on a `TICK` request; the digest writes on a `FLUSH` request — both typeable in the REPL with `request_node`, so you can drive the whole thing by hand.
 
-> **TM_COMMAND vs. TM_REQUEST — the convention.** Two jobs, two message types. **`TM_COMMAND`** is the *startup and administration* plane: graph construction (`make_node`/`connect_node`), config verbs, topology load. **`TM_REQUEST`** is the *runtime* plane: live triggers and queries that drive a running graph (`TICK`, `FLUSH`, `GET_HEALTH`). A request is handled in the node's own `fill()` — branch on `TM_REQUEST`, do the work, and reply `TM_STRUCT | TM_RESPONSE` to `TO = $message[FROM]` (the breadcrumb). You trigger one from the REPL with `request_node <node> <VERB>`. So a *runtime trigger is never a `commands` verb* — `commands` is for the admin and config that runs once at build time. A `commands` verb that ACTS rather than configures — `Table`'s `get` and `rm` — declares `'action' => true`, which keeps it invocable on a live node while withholding it from the topology editor's config list: that list renders each verb as a checkbox and writes every ticked one into the `.tsl` as `command_node <node>:config <verb>`, so an action offered there would re-run on every worker boot.
+> **TM_COMMAND vs. TM_REQUEST — the convention.** Two jobs, two message types. **`TM_COMMAND`** is the *startup and administration* plane: graph construction (`make_node`/`connect_node`), config verbs, topology load. **`TM_REQUEST`** is the *runtime* plane: live triggers and queries that drive a running graph (`TICK`, `FLUSH`, `GET_HEALTH`). A request is answered in the node's own `fill()`: declare each verb under `node_schema()['requests']` with a `handler` returning the reply's data, and let `fill()` call `Schema_Reflection::answer_request()` first, which runs the handler and replies `TM_STRUCT | TM_RESPONSE` to `TO = $message[FROM]` (the breadcrumb), or refuses an undeclared verb with a `TM_ERROR` to the same address. You trigger one from the REPL with `request_node <node> <VERB>`. So a *runtime trigger is never a `commands` verb* — `commands` is for the admin and config that runs once at build time. A `commands` verb that ACTS rather than configures — `Table`'s `get` and `rm` — declares `'action' => true`, which keeps it invocable on a live node while withholding it from the topology editor's config list: that list renders each verb as a checkbox and writes every ticked one into the `.tsl` as `command_node <node>:config <verb>`, so an action offered there would re-run on every worker boot.
 
 We'll write it in the order you'd discover it: one node, run it, wire the next, run it again.
 
@@ -116,8 +116,10 @@ namespace Newspack_AI_Newsletter;
 
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Message;
+use Newspack_Nodes\Schema_Reflection;
 
 class Releases_Source_Node extends Node {
+	use Schema_Reflection;
 
 	/** The ONE seam a real source replaces: return ingest items. Toy = canned. */
 	protected function items(): array {
@@ -127,15 +129,13 @@ class Releases_Source_Node extends Node {
 		];
 	}
 
-	/** TICK is a runtime trigger: a TM_REQUEST handled here in fill(). */
+	/** TICK is a runtime trigger: a TM_REQUEST, answered from node_schema(). */
 	public function fill( array $message ): void {
-		if ( $message[ Message::TYPE ] & Message::TM_REQUEST ) {
-			$this->handle_request( $message );
-		}
+		$this->answer_request( $message );
 	}
 
-	/** TICK handler: emit each item as a TM_STRUCT message, then reply with the count. */
-	private function handle_request( array $message ): void {
+	/** TICK handler: emit each item as a TM_STRUCT message, return the count. */
+	private function tick(): array {
 		$emitted = 0;
 		foreach ( $this->items() as $item ) {
 			$response                   = Message::new_message();
@@ -145,28 +145,20 @@ class Releases_Source_Node extends Node {
 			parent::fill( $response );   // <-- see "the emit pattern" below
 			++$emitted;
 		}
-		// Reply { emitted } along the breadcrumb, TO=FROM.
-		$reply                   = Message::new_message();
-		$reply[ Message::TYPE ]  = Message::TM_STRUCT | Message::TM_RESPONSE;
-		$reply[ Message::FROM ]  = $this->name;
-		$reply[ Message::TO ]    = $message[ Message::FROM ];
-		$reply[ Message::ID ]    = $message[ Message::ID ];
-		$reply[ Message::KEY ]   = $message[ Message::KEY ];
-		$reply[ Message::VALUE ] = [ 'emitted' => $emitted ];
-		parent::fill( $reply );
+		return [ 'emitted' => $emitted ];   // answer_request() replies TO=FROM
 	}
 }
 ```
 
-![One TICK through Releases_Source_Node in three hops. The TM_REQUEST arrives FROM _output/<pid> with VALUE "TICK", and fill() tests the TM_REQUEST flag alone. Each item leaves as a fresh TM_STRUCT whose empty TO Node::fill() stamps with the target, summarizer. One TM_STRUCT | TM_RESPONSE reply, addressed TO the request's own FROM and carrying { emitted: 2 }, goes back to the REPL. Every forward bumps the node's counter, so one TICK counts three. Side notes: a request minted with no FROM has its reply delivered downstream as an item, $this->fill() recurses, a second verb means parsing VALUE as Job_Worker_Node does, and TYPE wants narrowing before the bitwise test.](img/wp-tick-at-the-source.png)
+![One TICK through Releases_Source_Node in three hops. The TM_REQUEST arrives FROM _output/<pid> with VALUE "TICK", and fill() hands it to answer_request(), which reads the verb and runs the handler declared for it, tick(). Each item leaves as a fresh TM_STRUCT whose empty TO Node::fill() stamps with the target, summarizer. One TM_STRUCT | TM_RESPONSE reply, addressed TO the request's own FROM and carrying { verb: TICK, data: { emitted: 2 } }, leaves through the sink and goes back to the REPL. Only the items pass Node::fill(), so one TICK counts two. Side notes: a reply is addressed rather than stamped, so a request minted with no FROM cannot have its reply delivered downstream as an item; $this->fill() recurses; a second verb is a second requests entry; and TYPE wants narrowing before the bitwise test.](img/wp-tick-at-the-source.png)
 
-**Send with `parent::fill()`.** The base [`Node::fill()`](../includes/class-node.php) stamps `TO` from this node's `target` and forwards to the `sink`; `$this->fill()` would re-enter your own `fill()` and recurse. Generator nodes across the substrate follow this pattern — see `Tail_Node::forward_line()`. Each item is fire-and-forget, with no ack and nothing returned from `fill()` to inspect ([ADR-3](architecture-decisions.md#adr-3-fire-and-forget-messaging)); the request alone gets a reply, built from the untouched request's `FROM`, `ID` and `KEY` the way [`Job_Worker_Node`](../includes/class-job-worker-node.php)'s `GET_HEALTH` answers. The walkthrough sends that reply through `parent::fill()` for symmetry with the emit, which is why one TICK counts three. A source of your own should send it through `$this->require_sink()->fill( $reply )`, as `Job_Worker_Node` and `Table_Node` do: that path stamps no `TO`, so a request minted without a FROM cannot have its `{ emitted }` delivered to the summarizer as an item.
+**Send with `parent::fill()`.** The base [`Node::fill()`](../includes/class-node.php) stamps `TO` from this node's `target` and forwards to the `sink`; `$this->fill()` would re-enter your own `fill()` and recurse. Generator nodes across the substrate follow this pattern — see `Tail_Node::forward_line()`. Each item is fire-and-forget, with no ack and nothing returned from `fill()` to inspect ([ADR-3](architecture-decisions.md#adr-3-fire-and-forget-messaging)); the request alone gets a reply. `tick()` never builds it: it returns the reply's data, and `answer_request()` addresses it from the untouched request's `FROM`, `ID` and `KEY` and sends it through `$this->require_sink()->fill()`, the way [`Job_Worker_Node`](../includes/class-job-worker-node.php)'s `GET_HEALTH` answers. That path stamps no `TO`, so a request minted without a FROM cannot have its `{ emitted }` delivered to the summarizer as an item, and it counts nothing, so one TICK counts two.
 
-**`TICK` is a runtime trigger**, so it is a `TM_REQUEST` handled in `fill()`, never a `TM_COMMAND` verb on a sibling interpreter (the convention box in §0). The flag is the whole dispatch while a node declares one entry under `requests`, which is also why §4's digest flushes on any request that reaches it. Declare a second and parse the verb yourself; the diagram sets `Job_Worker_Node::handle_request()`, the shape to copy, beside `Table_Node::handle_request()`, a deliberately different one.
+**`TICK` is a runtime trigger**, so it is a `TM_REQUEST` answered in `fill()`, never a `TM_COMMAND` verb on a sibling interpreter (the convention box in §0). [`Schema_Reflection::answer_request()`](../includes/trait-schema-reflection.php) is the whole dispatch: it upper-cases VALUE's first word, runs the `handler` of the `requests` entry by that name, and refuses any other verb with a `TM_ERROR` reply, VALUE `unknown request verb: <VERB>`, rather than running the batch. Declare a second verb and you have written its whole wiring. `Table_Node::handle_request()` is the deliberate exception, Tachikoma's `GET <key>` shape, and the diagram sets the two side by side.
 
-**The samples read `TYPE` bare** to keep each branch readable, where the shipped sources and digest narrow it and the shipped transforms, `Summarizer_Demo_Node` and `Scorer_Demo_Node`, only annotate it; the diagram shows what each costs. Put the narrowing back when you adopt §8c's PHPStan config.
+**The samples read `TYPE` bare** to keep each branch readable, where the shipped digest narrows it, `answer_request()` reads it through `Core::as_int()`, and the shipped transforms, `Summarizer_Demo_Node` and `Scorer_Demo_Node`, only annotate it; the diagram shows what each costs. Put the narrowing back when you adopt §8c's PHPStan config.
 
-You still document the verb in `node_schema()`, under a **`requests`** key (the runtime counterpart to `commands`) so the Inspector's Verbs section and the REPL's `help Releases_Source` both list it — the palette tile carries the class's category and description alone:
+The verb and its `handler` live in `node_schema()`, under a **`requests`** key (the runtime counterpart to `commands`): `answer_request()` dispatches from it, and the Inspector's Verbs section and the REPL's `help Releases_Source` both list it — the palette tile carries the class's category and description alone:
 
 ```php
 	public static function node_schema(): array {
@@ -179,6 +171,7 @@ You still document the verb in `node_schema()`, under a **`requests`** key (the 
 					'name'        => 'TICK',
 					'description' => 'Emit the current batch of items. Trigger with `request_node releases TICK`.',
 					'reply_shape' => '{ emitted }',
+					'handler'     => static fn ( self $node ): array => $node->tick(),
 				],
 			],
 			'accepts_fill' => true,
@@ -190,8 +183,8 @@ You still document the verb in `node_schema()`, under a **`requests`** key (the 
 Three things to internalize:
 
 - **`arguments` is empty because this node takes none.** A node that wants positional configuration declares each one there — a `name`, a `type`, and either `required` or a `default` — `use`s the [`Schema_Reflection`](../includes/trait-schema-reflection.php) trait, and runs the tokens through `parse_schema_args()` from its own `arguments()` override. The trait assigns each positional onto the property of that name, coerced to the declared type, taking the `default` when a token is absent and throwing when a `required` token is missing ([ADR-11](architecture-decisions.md#adr-11-make_node-construction-sequence)). That is what fills the positional arguments §5's `Log` line passes.
-- **No constructor, no sibling interpreter.** A runtime trigger lives on the node itself, in `fill()`; there's no `{node}:config` interpreter to wire and no `Command_Interpreter_Node` import. You reach for that sibling-interpreter machinery only for *admin/config* verbs — `commands` — and this node has none.
-- **`accepts_fill` is `true`, and so is `has_target`.** The pair are the canvas's IN and OUT ports: whether a wire may land on this node, and whether it stamps a `target`. Both are presentation hints and nothing more. `Command_Interpreter_Node` folds them into the metadata the console reads, [`Node_Schema_Help::render()`](../includes/class-node-schema-help.php) prints them under `help`, and no delivery path consults either — which is how `Consumer`, whose only input is off-graph, declares `accepts_fill` `false` and still answers a request in `fill()`. This source declares `true` on the looser reading, that the TICK request itself arrives at `fill()`; the production `source_schema()` in [writing-a-real-plugin.md](writing-a-real-plugin.md) declares `false` on the stricter one, that a source mints messages and consumes none. Prefer `false` for a source of your own. The `true` draws an IN port inviting a wire onto the node, and this `fill()` discards anything that is not a TM_REQUEST with no warning and no forward.
+- **No constructor, no sibling interpreter.** A runtime trigger lives on the node itself, answered in `fill()` from the `requests` table; there's no `{node}:config` interpreter to wire and no `Command_Interpreter_Node` import. The `handler` is a static closure declared inside the class, so it may call the private `tick()` on the node it is handed. You reach for that sibling-interpreter machinery only for *admin/config* verbs — `commands` — and this node has none.
+- **`accepts_fill` is `true`, and so is `has_target`.** The pair are the canvas's IN and OUT ports: whether a wire may land on this node, and whether it stamps a `target`. Both are presentation hints and nothing more. `Command_Interpreter_Node` folds them into the metadata the console reads, [`Node_Schema_Help::render()`](../includes/class-node-schema-help.php) prints them under `help`, and no delivery path consults either — which is how `Consumer`, whose only input is off-graph, declares `accepts_fill` `false` and still answers a request in `fill()`. This source declares `true` on the looser reading, that the TICK request itself arrives at `fill()`; the production `source_schema()` in [writing-a-real-plugin.md](writing-a-real-plugin.md) declares `false` on the stricter one, that a source mints messages and consumes none. Prefer `false` for a source of your own. The `true` draws an IN port inviting a wire onto the node, and this `fill()` discards anything that is not a TM_REQUEST with no warning and no forward: `answer_request()` answers false and nothing else runs.
 
 **Run it — standalone, in the bare REPL.** No topology, no wiring yet: make the node and fire the request.
 
@@ -204,7 +197,10 @@ wp nodes cli            # bare REPL: local nodes only
 ok
 /> request_node releases TICK
 {
-    "emitted": 2
+    "verb": "TICK",
+    "data": {
+        "emitted": 2
+    }
 }
 ```
 
@@ -258,7 +254,7 @@ Wire a source to it and watch an item flow through:
 /> request_node releases TICK
 ```
 
-`connect_node releases summarizer` set the releases node's `target` to `summarizer`; each emitted item is now stamped `TO=summarizer` and the router delivers it. The TICK still replies `{ emitted: 2 }` to you, but the items themselves go to the summarizer, which adds a `summary` and forwards. (To eyeball the struct, splice a [`Struct_To_JSON`](../includes/class-struct-to-json-node.php) in front of a `Log`. A Log writes the message VALUE through `Core::as_string()`, which returns `''` for an array, so a bare `TM_STRUCT` lands as an empty record. Or trust the counts in step 5.)
+`connect_node releases summarizer` set the releases node's `target` to `summarizer`; each emitted item is now stamped `TO=summarizer` and the router delivers it. The TICK still replies `{ verb: TICK, data: { emitted: 2 } }` to you, but the items themselves go to the summarizer, which adds a `summary` and forwards. (To eyeball the struct, splice a [`Struct_To_JSON`](../includes/class-struct-to-json-node.php) in front of a `Log`. A Log writes the message VALUE through `Core::as_string()`, which returns `''` for an array, so a bare `TM_STRUCT` lands as an empty record. Or trust the counts in step 5.)
 
 ---
 
@@ -266,12 +262,13 @@ Wire a source to it and watch an item flow through:
 
 The builder collects summarized items as they arrive, and on a `FLUSH` request renders them to markdown and emits the draft as a `TM_BYTESTREAM` string.
 
-Here `fill()` does **two** jobs, distinguished by message type: a `TM_STRUCT` is *data* to accumulate; a `TM_REQUEST` is the runtime `FLUSH` trigger. That's the general shape of a node that both consumes a stream and answers runtime requests.
+Here `fill()` does **two** jobs: `answer_request()` takes a `TM_REQUEST`, the runtime `FLUSH` trigger, and a `TM_STRUCT` is *data* to accumulate. That's the general shape of a node that both consumes a stream and answers runtime requests.
 
 `includes/class-digest-builder-node.php`:
 
 ```php
 class Digest_Builder_Node extends Node {
+	use Schema_Reflection;
 
 	/** @var array<int,array<string,mixed>> */
 	private array $items = [];
@@ -285,15 +282,15 @@ class Digest_Builder_Node extends Node {
 					'name'        => 'FLUSH',
 					'description' => 'Render the accumulated items to a markdown draft and emit it. Trigger with `request_node digest FLUSH`.',
 					'reply_shape' => '{ flushed }',
+					'handler'     => static fn ( self $node ): array => $node->flush(),
 				],
 			],
 		] );
 	}
 
 	public function fill( array $message ): void {
-		if ( $message[ Message::TYPE ] & Message::TM_REQUEST ) {
-			$this->handle_request( $message );   // FLUSH
-			return;
+		if ( $this->answer_request( $message ) ) {
+			return;   // FLUSH
 		}
 		if ( 0 === ( $message[ Message::TYPE ] & Message::TM_STRUCT ) ) {
 			return;
@@ -302,7 +299,7 @@ class Digest_Builder_Node extends Node {
 		++$this->counter;
 	}
 
-	private function handle_request( array $message ): void {
+	private function flush(): array {
 		$lines = [ '# Newsletter draft', '' ];
 		foreach ( $this->items as $item ) {
 			$lines[] = '- ' . ( $item['summary'] ?? '' );
@@ -317,16 +314,8 @@ class Digest_Builder_Node extends Node {
 		parent::fill( $response );
 		$this->items = [];
 
-		// Reply to the caller along the breadcrumb — read FROM/ID/KEY off the
-		// untouched request (never reassign $message before this point).
-		$reply                   = Message::new_message();
-		$reply[ Message::TYPE ]  = Message::TM_STRUCT | Message::TM_RESPONSE;
-		$reply[ Message::FROM ]  = $this->name;
-		$reply[ Message::TO ]    = $message[ Message::FROM ];
-		$reply[ Message::ID ]    = $message[ Message::ID ];
-		$reply[ Message::KEY ]   = $message[ Message::KEY ];
-		$reply[ Message::VALUE ] = [ 'flushed' => $flushed ];
-		parent::fill( $reply );
+		// The reply's data; answer_request() addresses it TO the caller's FROM.
+		return [ 'flushed' => $flushed ];
 	}
 }
 ```
@@ -342,17 +331,23 @@ The draft has to land somewhere. You don't write a file-writer node — the subs
 /> connect_node digest log
 /> request_node releases TICK
 {
-    "emitted": 2
+    "verb": "TICK",
+    "data": {
+        "emitted": 2
+    }
 }
 /> request_node digest FLUSH
 {
-    "flushed": 2
+    "verb": "FLUSH",
+    "data": {
+        "flushed": 2
+    }
 }
 ```
 
 **Write inside the base directory, and let a token find it.** `<config:logs_dir>` is a config token the Shell resolves before `make_node` ever sees the line — `{base_directory}/logs`, which is `/tmp/newspack-nodes/logs` unless the Nodes Runtime settings page says otherwise ([`wp nodes doctor`](cli.md#doctor-health-report) prints the resolved base directory). Spell a path of your own and the node refuses it: every node that writes segments asserts its directory lies inside the base directory, so `/tmp/example-ai-newsletter/digest.md` throws `storage path /tmp/example-ai-newsletter is outside the runtime base directory`.
 
-The REPL renders a struct reply as pretty-printed JSON, so `{ flushed: 2 }` comes back on three lines. Both replies are the `_output` Dumper's work, not the nodes' — they addressed `TO = $message[FROM]` and the router did the rest.
+The REPL renders a struct reply as pretty-printed JSON, so `{ verb: FLUSH, data: { flushed: 2 } }` comes back on six lines. Both replies are the `_output` Dumper's work, not the nodes' — `answer_request()` addressed them `TO = $message[FROM]` and the router did the rest.
 
 ```bash
 cat /tmp/newspack-nodes/logs/digest.md.0     # Log lays segments out as {file}.0, {file}.1, … — there is no bare {file}
@@ -432,6 +427,7 @@ So he writes the only thing he can: a source.
 
 ```php
 class Community_Source_Node extends Node {
+	use Schema_Reflection;
 
 	protected function items(): array {
 		return [
@@ -442,12 +438,10 @@ class Community_Source_Node extends Node {
 	}
 
 	public function fill( array $message ): void {
-		if ( $message[ Message::TYPE ] & Message::TM_REQUEST ) {
-			$this->handle_request( $message );
-		}
+		$this->answer_request( $message );
 	}
 
-	private function handle_request( array $message ): void {
+	private function tick(): array {
 		$emitted = 0;
 		foreach ( $this->items() as $item ) {
 			$response                   = Message::new_message();
@@ -457,11 +451,12 @@ class Community_Source_Node extends Node {
 			parent::fill( $response );   // emit: fire-and-forget
 			++$emitted;
 		}
-		// …then the same { emitted } reply Releases_Source sends, TO=FROM.
+		return [ 'emitted' => $emitted ];   // the same reply data Releases_Source returns
 	}
 
 	// node_schema(): same shape as Releases_Source — category 'Source', a `TICK`
-	// entry under 'requests'. No constructor, no sibling interpreter.
+	// entry under 'requests' naming tick() as its handler. No constructor, no
+	// sibling interpreter.
 }
 ```
 
@@ -484,15 +479,24 @@ wp nodes cli example-ai-newsletter.p0
 ```
 /example-ai-newsletter.p0> request_node releases  TICK
 {
-    "emitted": 2
+    "verb": "TICK",
+    "data": {
+        "emitted": 2
+    }
 }
 /example-ai-newsletter.p0> request_node community TICK
 {
-    "emitted": 3
+    "verb": "TICK",
+    "data": {
+        "emitted": 3
+    }
 }
 /example-ai-newsletter.p0> request_node digest FLUSH
 {
-    "flushed": 5
+    "verb": "FLUSH",
+    "data": {
+        "flushed": 5
+    }
 }
 ```
 
@@ -506,7 +510,7 @@ Notice what `connect_node community summarizer` is: another node pointing its `t
 
 The example is deterministic on purpose, but every external touchpoint is a single seam:
 
-- **Sources** — the toy `items()` returns a canned array. The real one returns ingest results: a GitHub query, a Linear query, an RSS pull. [`newspack-intelligence`](https://github.com/Automattic/newspack-intelligence) ships those three as `Github_Source_Node`, `Linear_Source_Node` and `Feed_Source_Node`, each hanging the seam on a `Source` interface's `fetch()` rather than on `items()`. Nothing downstream changes — the summarizer and digest never knew the items were canned. What `items()` returns is `title`, `url` and `body` alone: the node stamps its own label on with `[ 'source' => 'releases' ] + $item`, and PHP's array union keeps the left operand, so a `source` key in what you return is discarded without a word. Swap in a fetch whose records already say `'source' => 'github'` and every item still ships labelled `releases`, which mis-weights the Scorer's per-source base weight and mis-labels the dashboard's by-source counts. Renaming the source means editing `handle_request()`, or dropping the stamp the way the production `Source_Node::normalize_item()` does — it takes the source as an explicit parameter and builds the whole item rather than leaning on union precedence.
+- **Sources** — the toy `items()` returns a canned array. The real one returns ingest results: a GitHub query, a Linear query, an RSS pull. [`newspack-intelligence`](https://github.com/Automattic/newspack-intelligence) ships those three as `Github_Source_Node`, `Linear_Source_Node` and `Feed_Source_Node`, each hanging the seam on a `Source` interface's `fetch()` rather than on `items()`. Nothing downstream changes — the summarizer and digest never knew the items were canned. What `items()` returns is `title`, `url` and `body` alone: the node stamps its own label on with `[ 'source' => 'releases' ] + $item`, and PHP's array union keeps the left operand, so a `source` key in what you return is discarded without a word. Swap in a fetch whose records already say `'source' => 'github'` and every item still ships labelled `releases`, which mis-weights the Scorer's per-source base weight and mis-labels the dashboard's by-source counts. Renaming the source means editing `tick()`, or dropping the stamp the way the production `Source_Node::normalize_item()` does — it takes the source as an explicit parameter and builds the whole item rather than leaning on union precedence.
 - **Summarizer** — the toy `summarize()` returns a template string. The real one calls your AI model. The graph is identical; one method body changes.
 
 ```php

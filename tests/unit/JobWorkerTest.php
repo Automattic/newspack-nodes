@@ -804,7 +804,7 @@ class JobWorkerTest extends TestCase {
 		$this->assertArrayNotHasKey( 'memory_pressure', $payload );
 	}
 
-	public function test_handle_request_unknown_verb_returns_error_payload(): void {
+	public function test_handle_request_unknown_verb_is_refused_on_the_error_plane(): void {
 		$jw = new Job_Worker_Node();
 		$sink = new Capture_Sink_Node();
 		$jw->sink( $sink );
@@ -817,10 +817,9 @@ class JobWorkerTest extends TestCase {
 		$jw->fill( $req );
 
 		$this->assertCount( 1, $sink->captured );
-		$value = $sink->captured[0][ Message::VALUE ];
-		$this->assertSame( 'BOGUS_VERB', $value['verb'] );
-		$this->assertArrayHasKey( 'error', $value['data'] );
-		$this->assertStringContainsString( 'BOGUS_VERB', $value['data']['error'] );
+		$this->assertSame( Message::TM_ERROR, $sink->captured[0][ Message::TYPE ] );
+		$this->assertSame( "unknown request verb: BOGUS_VERB\n", $sink->captured[0][ Message::VALUE ] );
+		$this->assertSame( 'corr-2', $sink->captured[0][ Message::ID ] );
 	}
 
 	public function test_handle_request_uppercases_verb(): void {

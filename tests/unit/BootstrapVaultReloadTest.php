@@ -76,6 +76,30 @@ class BootstrapVaultReloadTest extends TestCase {
 		);
 	}
 
+	/**
+	 * The Vault write is a settings writer too: a `{base}/locks` symlink would
+	 * carry its reload flags wherever the link points, so it refuses instead.
+	 */
+	public function test_a_symlinked_locks_directory_refuses_the_reload(): void {
+		\rename( "{$this->base_dir}/locks", "{$this->base_dir}/elsewhere-9317" );
+		\symlink( "{$this->base_dir}/elsewhere-9317", "{$this->base_dir}/locks" );
+
+		$thrown = null;
+		try {
+			Bootstrap::reload_vault_consumers();
+		} catch ( \RuntimeException $e ) {
+			$thrown = $e;
+		} finally {
+			\unlink( "{$this->base_dir}/locks" );
+		}
+
+		$this->assertNotNull( $thrown, 'a planted locks link must reach the Vault writer' );
+		$this->assertStringContainsString( 'symlink or path traversal detected', $thrown->getMessage() );
+		$this->assertFileDoesNotExist(
+			"{$this->base_dir}/elsewhere-9317/spoke-pull-lab.p0.lock.d/" . Lock_Node::RELOAD_FLAG
+		);
+	}
+
 	public function test_builds_the_catalog_once(): void {
 		$builds = 0;
 		\add_filter(

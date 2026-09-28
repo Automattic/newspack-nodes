@@ -39,6 +39,24 @@ use Newspack_Nodes\Tee_Node;
  */
 class Classes_CI_Node extends Service_CI_Node {
 	/**
+	 * What a command entry carries past `strip_entries()`: `args` always, and
+	 * three flags — `multiple` renders one row per invocation, `hidden` drops
+	 * the Inspector's verb button, `action` keeps the verb out of the editor.
+	 */
+	private const COMMAND_FIELDS = [
+		'args'     => 'always',
+		'multiple' => 'flag',
+		'hidden'   => 'flag',
+		'action'   => 'flag',
+	];
+
+	/** What a request entry carries past `strip_entries()`: `args` and `reply_shape`, where declared. */
+	private const REQUEST_FIELDS = [
+		'args'        => 'if_set',
+		'reply_shape' => 'string',
+	];
+
+	/**
 	 * `dump` verb: every concrete Node class this process can build, each
 	 * carrying the serializable half of its `node_schema()`, plus the names the
 	 * formatter registry holds.
@@ -106,8 +124,8 @@ class Classes_CI_Node extends Service_CI_Node {
 					'description'    => $schema['description'] ?? '',
 					'arguments'      => $schema['arguments']   ?? [],
 					// Strip non-serializable handler; keep palette fields.
-					'commands'       => self::strip_commands( Core::arr( $schema_commands ) ),
-					'requests'       => $schema['requests'] ?? [],
+					'commands'       => self::strip_entries( Core::arr( $schema_commands ), self::COMMAND_FIELDS ),
+					'requests'       => self::strip_entries( Core::arr( $schema['requests'] ?? [] ), self::REQUEST_FIELDS ),
 					// Valid register events; inspector UI lists them per node.
 					'registrations'  => $schema['registrations'] ?? [],
 					'accepts_fill'   => (bool) ( $schema['accepts_fill'] ?? true ),
@@ -134,49 +152,49 @@ class Classes_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Strip a node_schema's commands[] to the serializable palette shape
-	 * `{name, description, args}` plus the flags the console renders by
-	 * (`multiple`, `hidden`, `action`), dropping the non-serializable `handler`
-	 * and the `capability` the base gate enforces server-side.
+	 * Strip node_schema entries — `commands[]` or `requests[]` — to the
+	 * serializable fields the console renders: `name` and `description`, then
+	 * each field `$fields` names, kept by its rule. The non-serializable
+	 * `handler`, the `capability` the base gate enforces server-side, and any
+	 * field no rule names stay server-side, so the strip fails closed.
 	 *
-	 * Fail-soft: a malformed command (non-array entry, or one with no/empty name)
-	 * is skipped rather than throwing — a single bad class must not fatal the
-	 * whole catalog `dump`, which scans every registered class. Returns a
-	 * sequential list (JSON array) so the editor palette consumes it as-is.
+	 * Rules: `always` keeps the value, `[]` when absent; `if_set` keeps a set
+	 * value; `string` keeps a set value as a string; `flag` keeps `true` for a
+	 * non-empty value. Fail-soft: a non-array or nameless entry is skipped
+	 * rather than thrown, because one bad class must not fatal the whole
+	 * catalog `dump`. Returns a list, which the palette consumes as a JSON array.
 	 *
-	 * @param array<int|string,mixed> $commands Raw commands[] from a node_schema.
-	 * @return array<int,array{name:string,description:string,args:mixed,multiple?:bool,hidden?:bool,action?:bool}>
+	 * @param array<int|string,mixed>                          $entries Raw entries from a node_schema.
+	 * @param array<string,'always'|'if_set'|'string'|'flag'> $fields  Field => keep rule.
+	 * @return list<array<string,mixed>>
 	 */
-	private static function strip_commands( array $commands ): array {
+	private static function strip_entries( array $entries, array $fields ): array {
 		$stripped = [];
-		foreach ( $commands as $command ) {
-			if ( ! \is_array( $command ) ) {
+		foreach ( $entries as $entry ) {
+			if ( ! \is_array( $entry ) ) {
 				continue;
 			}
-			$raw_name = $command['name'] ?? '';
-			$name     = Core::as_string( $raw_name );
+			$name = Core::as_string( $entry['name'] ?? '' );
 			if ( '' === $name ) {
 				continue;
 			}
-			$raw_desc        = $command['description'] ?? '';
-			$stripped_command = [
+			$kept = [
 				'name'        => $name,
-				'description' => Core::as_string( $raw_desc ),
-				'args'        => $command['args'] ?? [],
+				'description' => Core::as_string( $entry['description'] ?? '' ),
 			];
-			// Carry the multiple flag: console renders one row per invocation.
-			if ( ! empty( $command['multiple'] ) ) {
-				$stripped_command['multiple'] = true;
+			foreach ( $fields as $field => $rule ) {
+				$value = $entry[ $field ] ?? null;
+				$value = match ( $rule ) {
+					'always' => $value ?? [],
+					'if_set' => $value,
+					'string' => null === $value ? null : Core::as_string( $value ),
+					'flag'   => empty( $value ) ? null : true,
+				};
+				if ( null !== $value ) {
+					$kept[ $field ] = $value;
+				}
 			}
-			// Carry the hidden flag; the inspector drops its verb button.
-			if ( ! empty( $command['hidden'] ) ) {
-				$stripped_command['hidden'] = true;
-			}
-			// Carry the action flag; the editor drops it as non-configuration.
-			if ( ! empty( $command['action'] ) ) {
-				$stripped_command['action'] = true;
-			}
-			$stripped[] = $stripped_command;
+			$stripped[] = $kept;
 		}
 		return $stripped;
 	}

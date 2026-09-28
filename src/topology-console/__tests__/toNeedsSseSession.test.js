@@ -51,4 +51,14 @@ describe( 'toNeedsSseSession', () => {
 	it( 'a bare name that is not a worker partition does not match', () => {
 		expect( toNeedsSseSession( '_output' ) ).toBe( false );
 	} );
+
+	it( 'a dotted or uppercase topology is a worker, as the fleet spells it', () => {
+		expect( toNeedsSseSession( 'foo.bar.p41' ) ).toBe( true );
+		expect( toNeedsSseSession( 'Kea-7713.p3/summarizer' ) ).toBe( true );
+	} );
+
+	it( 'a padded or non-numeric partition names no worker', () => {
+		expect( toNeedsSseSession( 'kea-7713.p03' ) ).toBe( false );
+		expect( toNeedsSseSession( 'kea.pX' ) ).toBe( false );
+	} );
 } );

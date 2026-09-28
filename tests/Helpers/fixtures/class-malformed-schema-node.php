@@ -1,7 +1,7 @@
 <?php
 /**
  * Malformed_Schema_Node: a discoverable fixture whose node_schema()'s
- * commands[] mixes a non-array entry (a bare string) with a well-formed verb.
+ * commands[] and requests[] each mix malformed entries with a well-formed one.
  * Used by ClassesCITest to prove the catalog `dump` strip tolerates a
  * malformed verb (skips it) instead of fatal-ing the whole palette with a
  * TypeError.
@@ -29,6 +29,17 @@ class Malformed_Schema_Node extends Node {
 			'arguments'        => [],
 			'commands'       => [
 				[ 'name' => 'good', 'description' => 'Well-formed verb.', 'args' => [] ],
+				'i-am-not-an-array',
+			],
+			'requests'       => [
+				[
+					'name'        => 'GET_KEA7713',
+					'description' => 'Well-formed request.',
+					'reply_shape' => '{ kea }',
+					'handler'     => static fn (): array => [ 'kea' => 7713 ],
+					'internal'    => 'an undeclared field the catalog must not carry',
+				],
+				[ 'description' => 'No name.' ],
 				'i-am-not-an-array',
 			],
 		];

@@ -12,6 +12,7 @@ namespace Example_AI_Newsletter;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Message;
+use Newspack_Nodes\Schema_Reflection;
 
 \defined( 'ABSPATH' ) || exit;
 
@@ -29,6 +30,7 @@ use Newspack_Nodes\Message;
  * `digest:log` with `void_warranty` (ADR-4).
  */
 class Digest_Builder_Demo_Node extends Node {
+	use Schema_Reflection;
 
 	/**
 	 * Accumulated summarized items, oldest first, emptied by every flush.
@@ -42,24 +44,24 @@ class Digest_Builder_Demo_Node extends Node {
 	private array $items = [];
 
 	/**
-	 * Accumulate a TM_STRUCT item, flush on a TM_REQUEST, ignore everything else.
+	 * Answer a TM_REQUEST, accumulate a TM_STRUCT item, ignore everything else.
 	 *
-	 * FLUSH is a runtime trigger, so it arrives as a TM_REQUEST handled here in
-	 * fill() rather than as a TM_COMMAND verb on the `:config` interpreter:
-	 * commands build and administer a graph, requests drive one that already
-	 * runs. A TM_STRUCT whose VALUE is not an array is dropped rather than
-	 * accumulated, because the renderer reads `summary` off each item. The
-	 * numeric guard casts TYPE before either bitwise test, so a TYPE that is not
-	 * numeric reads as 0 and matches neither gate.
+	 * FLUSH is a runtime trigger, so it arrives as a TM_REQUEST rather than as a
+	 * TM_COMMAND verb on the `:config` interpreter: commands build and
+	 * administer a graph, requests drive one that already runs.
+	 * `answer_request()` answers it from the schema. A TM_STRUCT whose VALUE is
+	 * not an array is dropped rather than accumulated, because the renderer
+	 * reads `summary` off each item. The numeric guard casts TYPE before the
+	 * bitwise test, so a TYPE that is not numeric reads as 0 and matches no
+	 * gate.
 	 *
 	 * @param array<int,mixed> $message The 7-field positional message array.
 	 */
 	public function fill( array $message ): void {
-		$type = \is_numeric( $message[ Message::TYPE ] ) ? (int) $message[ Message::TYPE ] : 0;
-		if ( $type & Message::TM_REQUEST ) {
-			$this->handle_request( $message );
+		if ( $this->answer_request( $message ) ) {
 			return;
 		}
+		$type = \is_numeric( $message[ Message::TYPE ] ) ? (int) $message[ Message::TYPE ] : 0;
 		if ( ! ( $type & Message::TM_STRUCT ) ) {
 			return;
 		}
@@ -75,24 +77,18 @@ class Digest_Builder_Demo_Node extends Node {
 
 	/**
 	 * Render the accumulated summaries to markdown, emit the draft, clear, then
-	 * reply with the number flushed.
-	 *
-	 * Every TM_REQUEST flushes: FLUSH is the only verb the schema declares, so
-	 * there is no verb table to consult. `Job_Worker_Node::handle_request` is
-	 * the contrast — it reads the verb off VALUE and answers an unknown one with
-	 * an `error` payload.
+	 * report the number flushed.
 	 *
 	 * An item whose `summary` is missing or not a string renders as an empty
 	 * bullet rather than being skipped.
 	 *
 	 * The draft leaves with an empty TO, which is what lets parent::fill stamp it
-	 * from `target` and hand it to the sink. The reply instead goes TO the
-	 * requester's FROM, echoing ID and KEY: the address IS the correlation, so
-	 * nothing here mints an operation id (ADR-7).
+	 * from `target` and hand it to the sink. The returned count is the reply's
+	 * `data`.
 	 *
-	 * @param array<int,mixed> $message The incoming TM_REQUEST message.
+	 * @return array{flushed:int} The FLUSH reply data.
 	 */
-	private function handle_request( array $message ): void {
+	private function flush(): array {
 		$lines = [ '# Newsletter draft', '' ];
 		foreach ( $this->items as $item ) {
 			$summary = $item['summary'] ?? '';
@@ -107,15 +103,7 @@ class Digest_Builder_Demo_Node extends Node {
 		$response[ Message::VALUE ] = $draft;
 		parent::fill( $response );
 		$this->items = [];
-
-		$reply                   = Message::new_message();
-		$reply[ Message::TYPE ]  = Message::TM_STRUCT | Message::TM_RESPONSE;
-		$reply[ Message::FROM ]  = $this->name;
-		$reply[ Message::TO ]    = $message[ Message::FROM ];
-		$reply[ Message::ID ]    = $message[ Message::ID ];
-		$reply[ Message::KEY ]   = $message[ Message::KEY ];
-		$reply[ Message::VALUE ] = [ 'flushed' => $flushed ];
-		parent::fill( $reply );
+		return [ 'flushed' => $flushed ];
 	}
 
 	/**
@@ -176,6 +164,7 @@ class Digest_Builder_Demo_Node extends Node {
 					'name'        => 'FLUSH',
 					'description' => 'Emit the accumulated draft and clear. Trigger with `request_node digest FLUSH`.',
 					'reply_shape' => '{ flushed }',
+					'handler'     => static fn ( self $node ): array => $node->flush(),
 				],
 			],
 			'accepts_fill' => true,

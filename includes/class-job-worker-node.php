@@ -192,12 +192,11 @@ class Job_Worker_Node extends Node {
 	 */
 	public function fill( array $message ): void {
 		++$this->counter;
-		/** @var int $type */
-		$type = $message[ Message::TYPE ];
-		if ( $type & Message::TM_REQUEST ) {
-			$this->handle_request( $message );
+		if ( $this->answer_request( $message ) ) {
 			return;
 		}
+		/** @var int $type */
+		$type = $message[ Message::TYPE ];
 		if ( ! ( $type & Message::TM_STRUCT ) ) {
 			return;
 		}
@@ -482,50 +481,27 @@ class Job_Worker_Node extends Node {
 	}
 
 	/**
-	 * Answer a TM_REQUEST verb and reply to whoever asked. `GET_HEALTH` is the only
-	 * verb; an unknown one comes back as an `error` payload rather than a throw,
-	 * because no interpreter sits on this path to turn a throw into a TM_ERROR
-	 * reply. TO=FROM is the whole correlation and ID and KEY ride back unchanged, so
-	 * the asker keeps no registry of outstanding requests (ADR-7).
+	 * The `GET_HEALTH` reply data, which `answer_request()` sends back.
 	 *
-	 * The payload REPORTS memory without acting on it. The watermark that ends a
-	 * process before PHP's uncatchable fatal-on-OOM belongs to the
-	 * `Cooperative_Stop` trait's `should_continue()`, which owns every
-	 * cooperative-stop trigger for every worker type.
+	 * It REPORTS memory without acting on it. The watermark that ends a process
+	 * before PHP's uncatchable fatal-on-OOM belongs to the `Cooperative_Stop`
+	 * trait's `should_continue()`, which owns every cooperative-stop trigger for
+	 * every worker type.
 	 *
-	 * @param array<int,mixed> $message Incoming request Message.
+	 * @return array<string,int> Memory, handler counts and cache-flush progress.
 	 */
-	private function handle_request( array $message ): void {
-		$sink = $this->require_sink();
-		/** @var int|float|string|bool|null $raw_value */
-		$raw_value = $message[ Message::VALUE ];
-		$value     = (string) $raw_value;
-		$verb      = \strtoupper( \explode( ' ', \trim( $value ), 2 )[0] );
-
-		if ( 'GET_HEALTH' === $verb ) {
-			$mem_limit = $this->memory_limit_bytes();
-			$mem_used  = \memory_get_usage( true );
-			$payload   = [
-				'memory_used_mb'           => (int) \round( $mem_used / 1048576, 1 ),
-				'memory_limit_mb'          => $mem_limit > 0 ? (int) \round( $mem_limit / 1048576, 1 ) : -1,
-				'jobs_since_cache_flush'   => $this->jobs_since_cache_flush,
-				'cache_flush_interval'     => $this->cache_flush_interval,
-				'local_handler_count'      => \count( $this->local_handlers ),
-				'remote_handler_count'     => \count( $this->remote_handlers ),
-				'counter'                  => $this->counter,
-			];
-		} else {
-			$payload = [ 'error' => "unknown request verb: {$verb}" ];
-		}
-
-		$reply                   = Message::new_message();
-		$reply[ Message::TYPE ]  = Message::TM_STRUCT | Message::TM_RESPONSE;
-		$reply[ Message::FROM ]  = $this->name;
-		$reply[ Message::TO ]    = $message[ Message::FROM ];
-		$reply[ Message::ID ]    = $message[ Message::ID ];
-		$reply[ Message::KEY ]   = $message[ Message::KEY ];
-		$reply[ Message::VALUE ] = [ 'verb' => $verb, 'data' => $payload ];
-		$sink->fill( $reply );
+	private function health(): array {
+		$mem_limit = $this->memory_limit_bytes();
+		$mem_used  = \memory_get_usage( true );
+		return [
+			'memory_used_mb'           => (int) \round( $mem_used / 1048576, 1 ),
+			'memory_limit_mb'          => $mem_limit > 0 ? (int) \round( $mem_limit / 1048576, 1 ) : -1,
+			'jobs_since_cache_flush'   => $this->jobs_since_cache_flush,
+			'cache_flush_interval'     => $this->cache_flush_interval,
+			'local_handler_count'      => \count( $this->local_handlers ),
+			'remote_handler_count'     => \count( $this->remote_handlers ),
+			'counter'                  => $this->counter,
+		];
 	}
 
 	/**
@@ -664,6 +640,7 @@ class Job_Worker_Node extends Node {
 					'name'        => 'GET_HEALTH',
 					'description' => 'Memory usage + handler counts + cache-flush progress.',
 					'reply_shape' => '{ memory_used_mb, memory_limit_mb, jobs_since_cache_flush, cache_flush_interval, local_handler_count, remote_handler_count, counter }',
+					'handler'     => static fn ( self $node ): array => $node->health(),
 				],
 			],
 			'has_target'  => false,

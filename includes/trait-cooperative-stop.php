@@ -98,7 +98,7 @@ trait Cooperative_Stop {
 
 	/**
 	 * The `.lock.d` directory THIS process holds. Named apart from
-	 * `Spawn_Coordinator::lock_path( $locks_dir, $type, $partition )`, which
+	 * `Spawn_Coordinator::lock_path( $base_dir, $type, $partition )`, which
 	 * answers a different question — where some OTHER worker's lock lives.
 	 */
 	abstract protected function held_lock_path(): string;
