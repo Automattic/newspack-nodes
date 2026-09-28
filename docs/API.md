@@ -701,7 +701,8 @@ schema: `{ category, description, arguments, commands }`, where each `commands`
 entry is `{ name, description, capability, args, handler }` plus the optional
 console flags `multiple`, `hidden` and `action`, and each arg is
 `{ name, type, required }` plus an optional `default` (for example,
-`workers restart`'s `partition`, defaulting to `-1`). A node schema may also
+`workers restart`'s `partition`, defaulting to `-1`) and an optional `secret`.
+A node schema may also
 carry `requests`, `registrations`, `accepts_fill`, `has_target` and `hidden`;
 `requests[]` entries are answered by the addressed node's own `fill()` and
 contribute no dispatch entry.
@@ -715,6 +716,15 @@ read_message` declares `log` required and still never refuses one:
 unknown value. This is the opposite of a Node constructor's `arguments()`, where
 `parse_schema_args()` really does throw `Missing required argument: <name>`
 ([ADR-11](architecture-decisions.md#adr-11-make_node-construction-sequence)).
+
+An arg declaring `'secret' => true` is a credential, and the command line
+`Command_Interpreter_Node::$around_dispatch` hands a wrapper then carries only
+that option as `--<name>=<redacted>`; every other token reaches the wrapper
+verbatim. `vault add` and `vault update` declare it on
+`password`, the only secret arguments in the system: the Vault is the one place
+a credential enters, and `Vault::url_carries_credentials()` refuses a `url`
+carrying userinfo — judged after `esc_url_raw()`, and refusing one that will
+not then parse — so none rides in beside it.
 
 What `help` renders of that is thinner. The COMMANDS and REQUESTS tables
 [`Node_Schema_Help::render()`](../includes/class-node-schema-help.php) builds carry `name` and `description` alone: a

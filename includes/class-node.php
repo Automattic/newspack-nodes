@@ -517,23 +517,23 @@ class Node {
 	 * neither, and a credential reaches a verb through it as readily as through
 	 * an argument.
 	 *
-	 * Callers redact BEFORE summarizing, so a `--password=…` argument is masked
-	 * while it is still its own token rather than joined into one string.
+	 * The caller redacts the WHOLE VALUE first, so a secret keyed by name at
+	 * any depth of `arguments` is masked as surely as a `--password=…` token.
+	 * This is the one place a VALUE's arguments become string tokens: a keyed
+	 * map yields its values, and a non-scalar yields ''. `commandSummary()` in
+	 * `src/runtime/node.js` prints the same line.
 	 *
 	 * @param mixed $value The redacted message VALUE.
-	 * @return mixed `name arguments` for a command-shaped VALUE, else it unchanged.
+	 * @return mixed `name arguments`, each token quoted by `serialize_args()`,
+	 *               for a command-shaped VALUE; else it unchanged.
 	 */
 	private static function command_summary( mixed $value ): mixed {
 		if ( ! \is_array( $value ) || ! \array_key_exists( 'name', $value ) ) {
 			return $value;
 		}
-		$arguments = $value['arguments'] ?? [];
-		$tokens    = \array_map(
-			static fn( $token ): string => Core::as_string( $token ),
-			\is_array( $arguments ) ? $arguments : []
-		);
-		\array_unshift( $tokens, Core::as_string( $value['name'] ) );
-		return \rtrim( \implode( ' ', $tokens ) );
+		$arguments = \is_array( $value['arguments'] ?? null ) ? $value['arguments'] : [];
+		$tokens    = \array_map( static fn ( $token ): string => Core::as_string( $token ), \array_values( $arguments ) );
+		return self::serialize_args( [ Core::as_string( $value['name'] ), ...$tokens ] );
 	}
 
 	/**

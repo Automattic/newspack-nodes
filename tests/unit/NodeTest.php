@@ -216,14 +216,58 @@ class NodeTest extends TestCase {
 		$message[ Message::TYPE ]  = Message::TM_COMMAND;
 		$message[ Message::VALUE ] = [
 			'name'      => 'add',
-			'arguments' => [ 'spoke-01', '--auth_username=admin', '--auth_password=hunter2' ],
+			'arguments' => [ 'spoke-7713', '--auth_username=kea', '--auth_password=hunter7713', '--api_key=kaka7713', '--group', 'takahe 7713' ],
 		];
 
 		$n->drop_message( $message, 'unauthorized: add' );
 
-		$this->assertStringNotContainsString( 'hunter2', $buf );
-		$this->assertStringContainsString( 'auth_password', $buf, 'the key stays; only the value goes' );
-		$this->assertStringContainsString( 'spoke-01', $buf, 'non-secret arguments are the diagnostic' );
+		$this->assertStringNotContainsString( 'hunter7713', $buf );
+		$this->assertStringNotContainsString( 'kaka7713', $buf );
+		$this->assertStringContainsString(
+			"payload: add spoke-7713 --auth_username=kea '--auth_password=<redacted>' '--api_key=<redacted>' --group 'takahe 7713'",
+			$buf,
+			'every token and option name survives, quoted as the REPL reads it back; only a secret value goes'
+		);
+	}
+
+	/**
+	 * The whole VALUE is redacted before it is summarized, so a secret keyed
+	 * by name inside `arguments` is masked as surely as a `--password=…`
+	 * token. `src/runtime/__tests__/node-drop-message.test.js` asserts the
+	 * same line for the same VALUE.
+	 */
+	public function test_drop_message_redacts_a_keyed_secret_inside_the_arguments(): void {
+		$buf = '';
+		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );
+		$n = new Capture_Sink_Node();
+		$n->name( 'alice' );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND;
+		$message[ Message::VALUE ] = [
+			'name'      => 'add',
+			'arguments' => [ 'spoke' => 'kea-7713', 'auth_password' => 'hunter7713', 'extra' => '--api_key=kaka7713' ],
+		];
+
+		$n->drop_message( $message, 'unauthorized: add' );
+
+		$this->assertStringNotContainsString( 'hunter7713', $buf );
+		$this->assertStringNotContainsString( 'kaka7713', $buf );
+		$this->assertStringContainsString( "payload: add kea-7713 '<redacted>' '--api_key=<redacted>'", $buf );
+	}
+
+	/** Parity with the JS port: a non-scalar argument is an empty token. */
+	public function test_drop_message_renders_a_non_scalar_argument_empty(): void {
+		$buf = '';
+		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );
+		$n = new Capture_Sink_Node();
+		$n->name( 'alice' );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND;
+		$message[ Message::VALUE ] = [ 'name' => 'add', 'arguments' => [ 'kea-7713', [ 'moa' ], null, 7 ] ];
+
+		$n->drop_message( $message, 'unauthorized: add' );
+
+		$this->assertStringContainsString( "payload: add kea-7713 '' '' 7", $buf );
 	}
 
 	public function test_drop_message_redacts_a_secret_keyed_value(): void {

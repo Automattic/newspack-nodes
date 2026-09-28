@@ -58,7 +58,16 @@ class Command_Interpreter_Node extends Node {
 	 * or calls `$run` when it was null. Wrappers then nest in assignment order,
 	 * the last assigned outermost.
 	 *
-	 * Signature: `function ( Command_Interpreter_Node $ci, string $verb, \Closure $run ): mixed`.
+	 * `$command` renders, on demand, the command as the REPL echoes it,
+	 * `/<name>> <verb> <args>`, each token quoted, and only the shape of a
+	 * verb whose schema declares any argument `secret` — see
+	 * `masked_command()` — so a wrapper that records it cannot leak a
+	 * credential by forgetting to mask, and one that records nothing pays
+	 * nothing. The raw tokens never cross the hook. A wrapper composing over
+	 * an earlier one hands it `$command` unchanged.
+	 *
+	 * Signature: `function ( Command_Interpreter_Node $ci, string $verb, \Closure $run, \Closure $command ): mixed`,
+	 * where `$command` is `\Closure(): string`.
 	 *
 	 * @var \Closure|null
 	 */
@@ -372,7 +381,61 @@ class Command_Interpreter_Node extends Node {
 			throw new \InvalidArgumentException( \esc_html( "unknown command: {$name}" ) );
 		}
 		$run = fn (): mixed => $commands[ $name ]( $this, $args, $envelope );
-		return null === self::$around_dispatch ? $run() : ( self::$around_dispatch )( $this, $name, $run );
+		if ( null === self::$around_dispatch ) {
+			return $run();
+		}
+		$command = fn (): string => $this->masked_command( $name, $args );
+		return ( self::$around_dispatch )( $this, $name, $run, $command );
+	}
+
+	/**
+	 * The command as the REPL echoes it, `/<name>> <verb> <args>`, each token
+	 * quoted by `serialize_args()`.
+	 *
+	 * An option the verb's schema declares `secret` renders as
+	 * `--<name>=<redacted>`; every other token renders verbatim.
+	 *
+	 * It is total over whatever `dispatch()` accepts, so logging can never
+	 * change whether a verb runs: the array is reindexed, and a non-string
+	 * token renders through `Core::as_string()`, as `command_summary()` renders
+	 * a dropped message's arguments.
+	 *
+	 * @param string                 $verb Verb name.
+	 * @param array<array-key,mixed> $args Arguments as handed to `dispatch()`.
+	 */
+	private function masked_command( string $verb, array $args ): string {
+		$secret = $this->secret_options( $verb );
+		$tokens = [];
+		foreach ( \array_values( $args ) as $token ) {
+			$token = Core::as_string( $token );
+			$eq    = \strpos( $token, '=' );
+			if ( false !== $eq && \str_starts_with( $token, '--' ) && isset( $secret[ \substr( $token, 2, $eq - 2 ) ] ) ) {
+				$token = \substr( $token, 0, $eq + 1 ) . self::REDACTED;
+			}
+			$tokens[] = $token;
+		}
+		return "/{$this->name}> " . self::serialize_args( [ $verb, ...$tokens ] );
+	}
+
+	/**
+	 * The option names `$verb`'s schema entry declares `'secret' => true`.
+	 *
+	 * @param string $verb Verb name.
+	 * @return array<string,true>
+	 */
+	private function secret_options( string $verb ): array {
+		$secret = [];
+		foreach ( Core::arr( $this->verb_schema()['commands'] ?? [] ) as $command ) {
+			if ( ! \is_array( $command ) || $verb !== ( $command['name'] ?? null ) ) {
+				continue;
+			}
+			foreach ( Core::arr( $command['args'] ?? [] ) as $arg ) {
+				if ( \is_array( $arg ) && true === ( $arg['secret'] ?? false ) ) {
+					$secret[ Core::as_string( $arg['name'] ?? '' ) ] = true;
+				}
+			}
+		}
+		return $secret;
 	}
 
 	/**
@@ -640,10 +703,19 @@ class Command_Interpreter_Node extends Node {
 
 	/** The patron's class for a verb, or this node's own; '' when unclassified. */
 	private function schema_verb_class( string $verb ): string {
-		$patron = $this->patron();
-		$schema = null !== $patron ? $patron::node_schema() : static::node_schema();
+		$schema = $this->verb_schema();
 		$map    = \is_array( $schema['verb_classes'] ?? null ) ? $schema['verb_classes'] : [];
 		return Core::as_string( $map[ $verb ] ?? '' );
+	}
+
+	/**
+	 * The schema declaring this interpreter's verbs: its patron's, or its own.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private function verb_schema(): array {
+		$patron = $this->patron();
+		return null !== $patron ? $patron::node_schema() : static::node_schema();
 	}
 
 	/**

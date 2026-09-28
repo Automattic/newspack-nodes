@@ -269,13 +269,62 @@ describe( 'Node.dropMessage secret redaction', () => {
 		m[ TYPE ] = TM_COMMAND;
 		m[ VALUE ] = {
 			name: 'save',
-			arguments: [ '--host=db1', '--auth_password=zulu-swordfish' ],
+			arguments: [
+				'--host=db1',
+				'--auth_password=zulu-swordfish',
+				'takahe 7713',
+			],
 		};
 		n.dropMessage( m, 'NOT_AVAILABLE' );
 		const line = spy.mock.calls[ 0 ].join( '' );
 		expect( line ).not.toContain( 'zulu-swordfish' );
-		expect( line ).toContain( '--auth_password=<redacted>' );
-		expect( line ).toContain( '--host=db1' );
+		// Quoted as PHP's masked_command() quotes it, through serializeArg.
+		expect( line ).toContain(
+			"payload: save --host=db1 '--auth_password=<redacted>' 'takahe 7713'"
+		);
+	} );
+
+	// NodeTest::test_drop_message_redacts_a_keyed_secret_inside_the_arguments
+	// asserts this same line for this same VALUE, so the two ports agree.
+	it( 'masks a secret keyed by name inside the arguments, as PHP does', () => {
+		const n = new Node();
+		const spy = jest
+			.spyOn( n, 'printLessOften' )
+			.mockImplementation( () => {} );
+		const m = newMessage();
+		m[ TYPE ] = TM_COMMAND;
+		m[ VALUE ] = {
+			name: 'add',
+			arguments: {
+				spoke: 'kea-7713',
+				auth_password: 'hunter7713',
+				extra: '--api_key=kaka7713',
+			},
+		};
+		n.dropMessage( m, 'unauthorized: add' );
+		const line = spy.mock.calls[ 0 ].join( '' );
+		expect( line ).not.toContain( 'hunter7713' );
+		expect( line ).not.toContain( 'kaka7713' );
+		expect( line ).toContain(
+			"payload: add kea-7713 '<redacted>' '--api_key=<redacted>'"
+		);
+	} );
+
+	it( 'renders a non-scalar argument empty, as PHP Core::as_string does', () => {
+		const n = new Node();
+		const spy = jest
+			.spyOn( n, 'printLessOften' )
+			.mockImplementation( () => {} );
+		const m = newMessage();
+		m[ TYPE ] = TM_COMMAND;
+		m[ VALUE ] = {
+			name: 'add',
+			arguments: [ 'kea-7713', [ 'moa' ], null, 7 ],
+		};
+		n.dropMessage( m, 'unauthorized: add' );
+		expect( spy.mock.calls[ 0 ].join( '' ) ).toContain(
+			"payload: add kea-7713 '' '' 7"
+		);
 	} );
 
 	it( 'masks a credential-named key at any depth', () => {

@@ -83,11 +83,17 @@ const DROP_PAYLOAD_TYPES = TM_INFO | TM_REQUEST | TM_ERROR | TM_COMMAND;
  * `payload` goes with them: Tachikoma prints neither, and a credential reaches
  * a verb through it as readily as through an argument.
  *
- * Callers redact BEFORE summarizing, so a `--password=…` argument is masked
- * while it is still its own token rather than joined into one string.
+ * The caller redacts the WHOLE VALUE first, so a secret keyed by name at any
+ * depth of `arguments` is masked as surely as a `--password=…` token. A keyed
+ * map yields its values, and each becomes a token as PHP `Core::as_string()`
+ * makes one, so both ports print the same line for the same VALUE — save the
+ * order of a map with integer-like keys, which `Object.values()` puts first
+ * and ascending where PHP keeps insertion order; such a map already breaks
+ * the token-array contract.
  *
  * @param {*} value The redacted message VALUE.
- * @return {*} `name arguments` for a command-shaped VALUE, else it unchanged.
+ * @return {*} `name arguments`, quoted as PHP `Node::command_summary()` quotes
+ *   them, for a command-shaped VALUE; else it unchanged.
  */
 function commandSummary( value ) {
 	if (
@@ -97,10 +103,27 @@ function commandSummary( value ) {
 	) {
 		return value;
 	}
-	const args = Array.isArray( value.arguments ) ? value.arguments : [];
-	return [ String( value.name ), ...args.map( String ) ]
-		.join( ' ' )
-		.trimEnd();
+	const args =
+		null !== value.arguments && 'object' === typeof value.arguments
+			? Object.values( value.arguments )
+			: [];
+	return serializeArgs( [ asToken( value.name ), ...args.map( asToken ) ] );
+}
+
+/**
+ * One argument as a string token, as PHP `Core::as_string()` casts it: a
+ * scalar as its string, a boolean as `1` or empty, anything else empty.
+ *
+ * @param {*} value Any argument.
+ * @return {string} The token.
+ */
+function asToken( value ) {
+	if ( 'boolean' === typeof value ) {
+		return value ? '1' : '';
+	}
+	return 'string' === typeof value || 'number' === typeof value
+		? String( value )
+		: '';
 }
 
 /**

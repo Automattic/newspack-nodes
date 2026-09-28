@@ -927,6 +927,142 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertNull( Core::node( 'weka-refused' ) );
 	}
 
+	/**
+	 * A service CI with a `search` verb declaring no secret argument, and a
+	 * `rotate` verb whose second argument, `token`, is declared secret. Both
+	 * answer 'kea-7713', under a caller holding every role.
+	 */
+	private function weka_service_ci(): Command_Interpreter_Node {
+		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
+		$ci = new class() extends \Newspack_Nodes\Service_CI_Node {
+			public static function node_schema(): array {
+				$verb = static fn ( string $name, array $args ): array => [
+					'name'        => $name,
+					'description' => "{$name} double",
+					'capability'  => \Newspack_Nodes\Capabilities::READ,
+					'args'        => $args,
+					'handler'     => static fn (): string => 'kea-7713',
+				];
+				return [
+					'category'    => 'Control',
+					'description' => 'command-line double',
+					'arguments'   => [],
+					'commands'    => [
+						$verb( 'search', [ [ 'name' => 'search', 'type' => 'string' ], [ 'name' => 'password', 'type' => 'string' ] ] ),
+						$verb(
+							'rotate',
+							[
+								[ 'name' => 'id', 'type' => 'string', 'required' => true ],
+								[ 'name' => 'token', 'type' => 'string', 'secret' => true ],
+							]
+						),
+					],
+					'requests'    => [],
+				];
+			}
+		};
+		$ci->name( 'weka:ci' );
+		return $ci;
+	}
+
+	/**
+	 * The command line each dispatch handed the wrapper, rendered.
+	 *
+	 * @param list<array{0:string,1:array<array-key,mixed>}> $calls Verb and arguments per dispatch.
+	 * @return list<string>
+	 */
+	private static function command_lines( Command_Interpreter_Node $ci, array $calls ): array {
+		$seen = [];
+		Command_Interpreter_Node::$around_dispatch = static function ( Command_Interpreter_Node $ci, string $verb, \Closure $run, \Closure $command ) use ( &$seen ): mixed {
+			$seen[] = $command();
+			return $run();
+		};
+		foreach ( $calls as [ $verb, $args ] ) {
+			$ci->dispatch( $verb, $args );
+		}
+		return $seen;
+	}
+
+	/**
+	 * No name heuristic: a verb declaring no secret argument has every token
+	 * logged verbatim, a `--password=` among them.
+	 */
+	public function test_around_dispatch_logs_every_undeclared_token_verbatim(): void {
+		$this->assertSame(
+			[ "/weka:ci> search --search=wombat-7713 --password=x7713 'takahe 7713'", '/weka:ci> search' ],
+			self::command_lines( $this->weka_service_ci(), [ [ 'search', [ '--search=wombat-7713', '--password=x7713', 'takahe 7713' ] ], [ 'search', [] ] ] )
+		);
+	}
+
+	/**
+	 * A verb declaring a secret option masks that option's `--name=` value and
+	 * logs every other token verbatim.
+	 */
+	public function test_around_dispatch_masks_only_a_declared_secret_option(): void {
+		$this->assertSame(
+			[ "/weka:ci> rotate spoke-7713 --note=kea-7713 '--token=<redacted>' tail-7713" ],
+			self::command_lines( $this->weka_service_ci(), [ [ 'rotate', [ 'spoke-7713', '--note=kea-7713', '--token=moa-hunter7713', 'tail-7713' ] ] ] )
+		);
+	}
+
+	/** A `:config` interpreter reads its patron's schema for the secrets. */
+	public function test_around_dispatch_reads_a_patrons_schema_for_its_secrets(): void {
+		$patron = new class() extends \Newspack_Nodes\Node {
+			public static function node_schema(): array {
+				return [
+					'commands' => [
+						[
+							'name' => 'rekey',
+							'args' => [ [ 'name' => 'pem', 'type' => 'string', 'secret' => true ] ],
+						],
+					],
+				] + parent::node_schema();
+			}
+		};
+		$ci = new Command_Interpreter_Node();
+		$ci->patron( $patron );
+		$ci->name( 'moa:config' );
+		$ci->commands( [ 'rekey' => static fn (): string => 'ok' ] );
+
+		$this->assertSame(
+			[ "/moa:config> rekey kea-7713 '--pem=<redacted>'" ],
+			self::command_lines( $ci, [ [ 'rekey', [ 'kea-7713', '--pem=hunter7713' ] ] ] )
+		);
+	}
+
+	/**
+	 * Logging must never change whether a verb runs, so the renderer takes any
+	 * `$args` a caller can hand `dispatch()`: a non-string token renders as
+	 * `Core::as_string()` renders it, and a keyed array by its values.
+	 */
+	public function test_around_dispatch_renders_any_arguments_a_caller_can_dispatch(): void {
+		$this->assertSame(
+			[ "/kakapo:ci> kakapo ''", '/kakapo:ci> kakapo kea-7713 7713 1', "/kakapo:ci> kakapo moa-7713 ''" ],
+			self::command_lines(
+				$this->kakapo_interpreter(),
+				[
+					[ 'kakapo', [ [ 'kea' ] ] ],
+					[ 'kakapo', [ 'spoke' => 'kea-7713', 'count' => 7713, 'on' => true ] ],
+					[ 'kakapo', [ 3 => 'moa-7713', 9 => null ] ],
+				]
+			)
+		);
+	}
+
+	/** The line renders on demand: a wrapper that never asks pays nothing. */
+	public function test_around_dispatch_renders_the_command_line_only_when_asked(): void {
+		$interpreter = $this->kakapo_interpreter();
+		$handed      = null;
+		Command_Interpreter_Node::$around_dispatch = static function ( Command_Interpreter_Node $ci, string $verb, \Closure $run, \Closure $command ) use ( &$handed ): mixed {
+			$handed = $command;
+			return $run();
+		};
+
+		$this->assertSame( 'kakapo-7731', $interpreter->dispatch( 'kakapo', [ 'kea-7713' ] ) );
+		$this->assertInstanceOf( \Closure::class, $handed );
+		$this->assertSame( '/kakapo:ci> kakapo kea-7713', $handed() );
+	}
+
 	public function test_a_null_around_dispatch_calls_the_handler_directly(): void {
 		Command_Interpreter_Node::$around_dispatch = null;
 

@@ -1,0 +1,23 @@
+[
+  ["a bare base", "wp_loaded hook", "wp_loaded hook"],
+  ["a labelled frame", "sql: WP_Query->get_posts", "sql"],
+  ["a traced hook frame", "the_content hook: Kea_7713->build", "the_content hook"],
+  ["the first separator only", "include: /Macros/Kea: 7713.html", "include"],
+  ["a start keyword", "include: /Macros/Kea7713.html (start)", "include"],
+  ["a complete keyword", "Kea_CI probe7713 command (complete)", "Kea_CI probe7713 command"],
+  ["a marker mid-name stays", "kea (start) moa 7713", "kea (start) moa 7713"],
+  ["no separator without its space", "kea:7713 hook", "kea:7713 hook"],
+  ["a name opening with the separator", ": kea 7713", ": kea 7713"],
+  ["a separator-led start keyword", ": kea 7713 (start)", ": kea 7713"],
+  ["surrounding whitespace", "  moa 7713 hook  ", "moa 7713 hook"],
+  ["whitespace before the separator", "moa 7713 : takahe", "moa 7713"],
+  ["whitespace before the marker", "kea 7713  (complete)", "kea 7713"],
+  ["separator after leading whitespace", "  : weka 7713", ": weka 7713"],
+  ["trailing ASCII space", "kea 7713 ", "kea 7713"],
+  ["vertical tab and form feed", "\u000bkea 7713\f", "kea 7713"],
+  ["a leading byte-order mark stays", "\ufeffkea 7713", "\ufeffkea 7713"],
+  ["no-break spaces stay", "\u00a0moa 7713\u00a0", "\u00a0moa 7713\u00a0"],
+  ["an ideographic space stays", "takahe 7713\u3000", "takahe 7713\u3000"],
+  ["NUL is no whitespace", "kea 7713\u0000", "kea 7713\u0000"],
+  ["an empty name", "", ""]
+]

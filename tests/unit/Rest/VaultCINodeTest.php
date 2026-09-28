@@ -16,6 +16,7 @@
 namespace Newspack_Nodes\Tests\Unit\Rest;
 
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\HTTP_Out_Node;
 use Newspack_Nodes\Message;
@@ -649,6 +650,96 @@ class VaultCINodeTest extends TestCase {
 		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'add', 'spoke1 --url=http://insecure.example' );
 		$this->assertIsString( $out );
 		$this->assertStringContainsString( 'add failed', $out );
+	}
+
+	/**
+	 * The line a dispatch wrapper records for one vault verb. It is rendered
+	 * before the handler runs, so a verb that then refuses still has one.
+	 *
+	 * @param list<string> $args Argument tokens.
+	 */
+	private static function span_line( string $verb, array $args ): string {
+		$line = '';
+		\Newspack_Nodes\Command_Interpreter_Node::$around_dispatch = static function ( $ci, string $verb, \Closure $run, \Closure $command ) use ( &$line ): mixed {
+			$line = $command();
+			return $run();
+		};
+		$ci = new Vault_CI_Node();
+		$ci->name( 'vault' );
+		try {
+			$ci->dispatch( $verb, $args );
+		} catch ( \RuntimeException $e ) {
+			unset( $e );
+		}
+		return $line;
+	}
+
+	/** `add` masks its `--password` value and logs every other token. */
+	public function test_add_masks_only_its_password_in_the_span(): void {
+		$this->assertSame(
+			"/vault> add spoke-9 --url=https://example-7713.test '--password=<redacted>' --user=kea-7713",
+			self::span_line( 'add', [ 'spoke-9', '--url=https://example-7713.test', '--password=hunter7713', '--user=kea-7713' ] )
+		);
+	}
+
+	public function test_update_masks_only_its_password_in_the_span(): void {
+		Vault::get_instance()->add( 'spoke-9', [ 'url' => 'https://example-7713.test' ] );
+		Vault::get_instance()->reset_cache();
+
+		$this->assertSame(
+			"/vault> update spoke-9 --group=edge-7713 '--password=<redacted>'",
+			self::span_line( 'update', [ 'spoke-9', '--group=edge-7713', '--password=hunter7713' ] )
+		);
+	}
+
+	/** Userinfo in `--url` is refused by name, without echoing the password. */
+	public function test_add_refuses_a_url_carrying_userinfo(): void {
+		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'add', 'spoke-7713 --url=https://admin:s3cret7713@spoke.example' );
+
+		$this->assertIsString( $out );
+		$this->assertStringContainsString( '--user', $out );
+		$this->assertStringContainsString( '--password', $out );
+		$this->assertStringNotContainsString( 's3cret7713', $out );
+		$this->assertNull( Vault::fresh()->get( 'spoke-7713' ) );
+	}
+
+	/**
+	 * The verb judges the url the store would keep, through `Vault`'s own rule,
+	 * so a url that sanitizes into userinfo, or will not parse, is refused by
+	 * name rather than as a bare `add failed`.
+	 *
+	 * @return array<string,array{string}>
+	 */
+	public static function refused_url_provider(): array {
+		return [
+			'leading space'   => [ ' https://kea:s3cret7713@h.example' ],
+			'tab in scheme'   => [ "https:\t//kea:s3cret7713@h.example" ],
+			'non-numeric port' => [ 'https://kea:s3cret7713@h.example:abc' ],
+			'port out of range' => [ 'https://kea:s3cret7713@h.example:99999' ],
+			'empty authority' => [ 'https:///kea:s3cret7713@h.example' ],
+		];
+	}
+
+	#[DataProvider( 'refused_url_provider' )]
+	public function test_add_refuses_a_url_the_store_would_refuse_by_name( string $url ): void {
+		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'add', [ 'spoke-7713', "--url={$url}" ] );
+
+		$this->assertIsString( $out );
+		$this->assertStringContainsString( '--user', $out );
+		$this->assertStringNotContainsString( 's3cret7713', $out );
+		$this->assertNull( Vault::fresh()->get( 'spoke-7713' ) );
+	}
+
+	public function test_update_refuses_a_url_carrying_userinfo(): void {
+		Vault::get_instance()->add( 'spoke-7713', [ 'url' => 'https://spoke-7713.example' ] );
+		Vault::get_instance()->reset_cache();
+
+		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'update', 'spoke-7713 --url=https://admin:s3cret7713@spoke.example' );
+
+		$this->assertIsString( $out );
+		$this->assertStringContainsString( '--user', $out );
+		$this->assertStringNotContainsString( 's3cret7713', $out );
+		$this->assertSame( 'https://spoke-7713.example', Vault::fresh()->get( 'spoke-7713' )['url'] );
 	}
 
 	public function test_add_refuses_a_malformed_group_by_name(): void {

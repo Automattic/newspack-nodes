@@ -10,6 +10,12 @@
  * The `newspack_nodes_vault` option is the one source: the Vault tab and the
  * `vault` CI verbs write it, and nothing else feeds the view.
  *
+ * It is also the one place a credential enters the system. The password is the
+ * only argument any verb declares secret, so the logged command line of
+ * `vault add` and `vault update` keeps only the id and the option names, and
+ * a URL carrying userinfo is refused rather than stored in the clear beside
+ * it.
+ *
  * Passwords are sealed at rest under a key derived from `wp_salt( 'auth' )` and
  * opened on the way out, so every caller holds plaintext and the option never
  * does.
@@ -252,7 +258,8 @@ class Vault {
 	 * sanitized, with the password sealed.
 	 *
 	 * A missing, non-string or non-HTTPS URL refuses the whole config: plain HTTP
-	 * would put the credential on the wire in the clear. The username goes through
+	 * would put the credential on the wire in the clear. So does a URL that
+	 * `url_carries_credentials()` refuses, judged as sanitized for storage. The username goes through
 	 * `sanitize_text_field()`, or a control-character strip where WordPress is not
 	 * loaded; the password is stripped of control characters. Both cap at 256
 	 * bytes.
@@ -272,10 +279,8 @@ class Vault {
 		if ( empty( $config['url'] ) || ! \is_string( $config['url'] ) ) {
 			return null;
 		}
-		$url = \function_exists( 'esc_url_raw' )
-			? \esc_url_raw( $config['url'] )
-			: $config['url'];
-		if ( '' === $url ) {
+		$url = self::sanitized_url( $config['url'] );
+		if ( '' === $url || self::url_carries_credentials( $url ) ) {
 			return null;
 		}
 		if ( 0 !== \strpos( $url, 'https://' ) ) {
@@ -349,6 +354,36 @@ class Vault {
 		$ciphertext = \sodium_crypto_secretbox( $plaintext, $nonce, self::encryption_key() );
 		// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- binary-safe storage.
 		return self::ENCRYPTED_PREFIX . \base64_encode( $nonce . $ciphertext );
+	}
+
+	/**
+	 * Whether a URL may carry a credential: userinfo — `user@` or `user:pass@`
+	 * before its host — in the URL as it would be STORED, or a stored form
+	 * that will not parse, since nothing then shows it has none.
+	 *
+	 * The ONE rule: `validate_config()` refuses such a URL and the `vault` CI
+	 * names the refusal. A credential belongs in the sealed password field; in
+	 * the URL it would be stored in the clear and printed wherever the URL
+	 * goes — the dashboard, a verb span, a log line. Sanitizing is what can
+	 * turn ` https://u:p@h` or `https:\t//u:p@h` into userinfo, so the raw
+	 * string proves nothing. PHP's `parse_url()`, because this runs where
+	 * WordPress is not loaded.
+	 *
+	 * @param string $url Candidate server URL, raw or already sanitized.
+	 */
+	public static function url_carries_credentials( string $url ): bool {
+		$parts = \parse_url( self::sanitized_url( $url ) ); // phpcs:ignore WordPress.WP.AlternativeFunctions.parse_url_parse_url -- runs without WordPress.
+		return false === $parts || isset( $parts['user'] ) || isset( $parts['pass'] );
+	}
+
+	/**
+	 * A URL as the store keeps it: through `esc_url_raw()` where WordPress is
+	 * loaded, as given where it is not.
+	 *
+	 * @param string $url Raw URL.
+	 */
+	private static function sanitized_url( string $url ): string {
+		return \function_exists( 'esc_url_raw' ) ? \esc_url_raw( $url ) : $url;
 	}
 
 	/**
