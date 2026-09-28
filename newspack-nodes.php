@@ -14,7 +14,8 @@
  *
  * Plugin entry point: the registrations that make the substrate reachable from
  * WordPress. No logic lives here — each hook names a handler elsewhere, and the
- * one function defined below mounts the substrate's service CIs.
+ * two functions defined below register the `wp nodes` tree and mount the
+ * substrate's service CIs.
  *
  * Loading this file wires nothing a page view may not need, because it runs
  * on every request's critical path. Admin and WP-CLI requests wire
@@ -59,11 +60,24 @@ if ( \function_exists( 'is_admin' ) && \is_admin() ) {
 
 if ( \defined( 'WP_CLI' ) && \WP_CLI ) {
 	\Newspack_Nodes\Bootstrap::ensure_diagnostics_wired();
-	// Instances: the verb methods are not static (wp-cli#5472).
+	newspack_nodes_register_cli_commands();
+}
+
+/**
+ * Register the `wp nodes` command tree.
+ *
+ * `nodes` and `nodes memcache` register as classes, so each is a group whose
+ * public methods are its subcommands; the other verbs are bound methods,
+ * because the verb methods cannot be static (wp-cli#5472). A group registers
+ * its own path, or `wp nodes` never lists its verbs —
+ * `ListsEveryCliCommand` states the rule.
+ *
+ * @api Called by the WP_CLI block above; tests drive it against a recorder.
+ */
+function newspack_nodes_register_cli_commands(): void {
 	$nodes_worker_cli   = new \Newspack_Nodes\Worker_CLI_Command();
 	$nodes_ingest_cli   = new \Newspack_Nodes\Ingest_CLI_Command();
 	$nodes_scaffold_cli = new \Newspack_Nodes\Scaffold_CLI_Command();
-	$nodes_memcache_cli = new \Newspack_Nodes\Memcache_CLI_Command();
 	$nodes_caps_cli     = new \Newspack_Nodes\Caps_CLI_Command();
 	\WP_CLI::add_command( 'nodes',           '\\Newspack_Nodes\\CLI_Command' );
 	\WP_CLI::add_command( 'nodes types',      [ $nodes_worker_cli, 'types' ]      );
@@ -78,8 +92,7 @@ if ( \defined( 'WP_CLI' ) && \WP_CLI ) {
 	\WP_CLI::add_command( 'nodes doctor',     [ $nodes_worker_cli, 'doctor' ]     );
 	\WP_CLI::add_command( 'nodes ingest',     [ $nodes_ingest_cli, 'ingest' ]     );
 	\WP_CLI::add_command( 'nodes scaffold',   [ $nodes_scaffold_cli, 'scaffold' ] );
-	\WP_CLI::add_command( 'nodes memcache get', [ $nodes_memcache_cli, 'get' ] );
-	\WP_CLI::add_command( 'nodes memcache flush', [ $nodes_memcache_cli, 'flush' ] );
+	\WP_CLI::add_command( 'nodes memcache',   '\\Newspack_Nodes\\Memcache_CLI_Command' );
 	\WP_CLI::add_command( 'nodes caps',       [ $nodes_caps_cli, 'caps' ]         );
 	\WP_CLI::add_command( 'nodes hub-user',   [ $nodes_caps_cli, 'hub_user' ]     );
 }

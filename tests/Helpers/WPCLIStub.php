@@ -1,7 +1,9 @@
 <?php
 /**
  * Test-only WP_CLI stub. Captures log/warning/error/success calls into globals
- * so command tests can assert against the stream without a real WP-CLI runtime.
+ * so command tests can assert against the stream without a real WP-CLI runtime,
+ * and records each `add_command()` under `_test_wp_cli_commands`, name =>
+ * callable, for the usage-overview rule to read.
  *
  * @package Newspack_Nodes\Tests
  */
@@ -10,6 +12,10 @@
 
 if ( ! \class_exists( 'WP_CLI', false ) ) {
 	class WP_CLI {
+		public static function add_command( string $name, mixed $callable ): void {
+			$GLOBALS['_test_wp_cli_commands'][ $name ] = $callable;
+		}
+
 		public static function log( string $message ): void {
 			$GLOBALS['_test_wp_cli_logs'][] = $message;
 		}

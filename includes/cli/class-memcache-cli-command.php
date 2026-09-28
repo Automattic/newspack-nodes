@@ -11,6 +11,17 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * Read one cache entry, or flush every Newspack plugin's cached values.
+ *
+ * Registered as the `nodes memcache` group, so each public method is a
+ * subcommand; a public instance method added here would list as one too.
+ *
+ * ## EXAMPLES
+ *
+ *     wp nodes memcache get table:prices:sku-9
+ *     wp nodes memcache flush
+ */
 class Memcache_CLI_Command {
 
 	/**
@@ -43,6 +54,7 @@ class Memcache_CLI_Command {
 	 *
 	 *     wp nodes memcache flush
 	 *
+	 * @api WP-CLI subcommand `wp nodes memcache flush` — invoked by WP-CLI via reflection, not called in PHP.
 	 * @param list<string>        $args       Unused.
 	 * @param array<string,mixed> $assoc_args Unused.
 	 */
@@ -100,6 +112,7 @@ class Memcache_CLI_Command {
 	 *     wp nodes memcache get --key job-batch:import-7719
 	 *     wp nodes memcache get --host sse:0
 	 *
+	 * @api WP-CLI subcommand `wp nodes memcache get` — invoked by WP-CLI via reflection, not called in PHP.
 	 * @param list<string>        $args       Positional: the logical name.
 	 * @param array<string,mixed> $assoc_args Flags; WP-CLI passes true for a bare flag.
 	 */
