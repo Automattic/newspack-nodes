@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.70.0] - 2026-09-28
+
 ### Added
 
 - **`Command_Interpreter_Node::$around_dispatch` receives the command line** as a fourth parameter, a `\Closure(): string` that renders, on demand, `/<name>> <verb> <args>` as the REPL echoes it, each token quoted through `serialize_args()`. A wrapper that records nothing never pays for the rendering, and raw tokens never cross the hook. A wrapper declaring three parameters is still called and ignores the fourth.
