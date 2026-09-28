@@ -135,7 +135,7 @@ class Vault_CI_Node extends Service_CI_Node {
 		$registry = Vault::fresh();
 		self::assert_free_id( $id, $registry );
 		self::assert_valid_group( $opts );
-		self::assert_url_without_credentials( $opts );
+		self::assert_url_without_credentials( $opts['url'], 'url' );
 		$config = self::extract_server_config( $opts );
 		if ( ! $registry->add( $id, $config ) ) {
 			// Registry rejected (bad/non-HTTPS URL) or hit MAX_SERVERS.
@@ -173,7 +173,9 @@ class Vault_CI_Node extends Service_CI_Node {
 	 * @return array<string,mixed> The entry's id after the write, as `[ 'id' => <id> ]`.
 	 * @throws \RuntimeException When an option is not one this verb reads or carries
 	 *                           no value, the id is absent or unknown, the new id or
-	 *                           the group is unusable, or the store refuses the write.
+	 *                           the group is unusable, the url it would store carries
+	 *                           credentials or will not parse, or the store refuses
+	 *                           the write.
 	 */
 	public static function cmd_update( array $args ): array {
 		$parsed = Command_Args::parse( $args );
@@ -189,7 +191,7 @@ class Vault_CI_Node extends Service_CI_Node {
 		}
 		$new_id = self::renamed_to( $opts, $id, $registry );
 		self::assert_valid_group( $opts );
-		self::assert_url_without_credentials( $opts );
+		self::assert_url_without_credentials( $opts['url'] ?? Core::as_string( $existing['url'] ?? '' ), isset( $opts['url'] ) ? 'url' : 'stored url' );
 		$partial = self::partial_config( $opts );
 		if ( ! $registry->update( $id, $partial, $new_id ) ) {
 			throw new \RuntimeException( 'update failed' );
@@ -259,17 +261,18 @@ class Vault_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Refuse a `--url` that `Vault::url_carries_credentials()` says may carry
-	 * a credential, which the store would refuse with a bare `false`, saying
-	 * where one goes instead. The URL is not echoed: its userinfo is the
-	 * secret. An absent `--url` is `update` leaving the stored one alone.
+	 * Refuse the url a write would store when `Vault::url_carries_credentials()`
+	 * says it may carry a credential, which the store would refuse with a bare
+	 * `false`, saying where one goes instead. The URL is not echoed: its
+	 * userinfo is the secret. `$which` names where the url came from.
 	 *
-	 * @param array<string,string> $opts Checked `--key=value` options.
+	 * @param string $url   The url the write would store.
+	 * @param string $which `url` for `--url`, `stored url` for the entry's own.
 	 * @throws \RuntimeException When the url carries userinfo or will not parse.
 	 */
-	private static function assert_url_without_credentials( array $opts ): void {
-		if ( isset( $opts['url'] ) && Vault::url_carries_credentials( $opts['url'] ) ) {
-			throw new \RuntimeException( 'url carries credentials or will not parse: give the username as --user and the password as --password' );
+	private static function assert_url_without_credentials( string $url, string $which ): void {
+		if ( Vault::url_carries_credentials( $url ) ) {
+			throw new \RuntimeException( \esc_html( "{$which} carries credentials or will not parse: pass --url without them, the username as --user and the password as --password" ) );
 		}
 	}
 

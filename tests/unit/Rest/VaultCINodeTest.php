@@ -692,6 +692,22 @@ class VaultCINodeTest extends TestCase {
 		);
 	}
 
+	/**
+	 * An update leaving `--url` out keeps the stored url, so a stored url
+	 * carrying userinfo refuses it by that cause.
+	 */
+	public function test_update_names_a_stored_url_carrying_credentials(): void {
+		\update_option( Vault::OPTION_KEY, [ 'spoke-7713' => [ 'url' => 'https://kea:s3cret7713@spoke.example' ] ] );
+		Vault::get_instance()->reset_cache();
+
+		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'update', 'spoke-7713 --group=edge-7713' );
+
+		$this->assertIsString( $out );
+		$this->assertStringContainsString( 'stored url', $out );
+		$this->assertStringContainsString( '--url', $out );
+		$this->assertStringNotContainsString( 's3cret7713', $out );
+	}
+
 	/** Userinfo in `--url` is refused by name, without echoing the password. */
 	public function test_add_refuses_a_url_carrying_userinfo(): void {
 		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'add', 'spoke-7713 --url=https://admin:s3cret7713@spoke.example' );
