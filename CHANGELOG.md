@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.71.0] - 2026-09-28
+
 ### Added
 
 - **`newspack_nodes/worker_identified` announces a spawned worker's identity.** `Worker_Base::execute()` fires it with `( string $type, int $partition )` once the process holds the worker's lock, which is when a spawn becomes the worker. A request logger names the process at its start, before REST dispatch reaches the spawn controller, so this is how it learns which worker the process became. Only a process `Spawn_Controller` tagged with that same `NEWSPACK_NODES_WORKER_TYPE` and `NEWSPACK_NODES_WORKER_PARTITION` announces, so the pair is the one the endpoint validated; a refused spawn — an out-of-range partition, a held fleet, a throttled respawn — and a spawn that loses the lock race to a live worker announce nothing. `wp nodes run` sets no tag, so the worker it runs announces nothing either. The announcement runs inside the topology load path, so a listener's `RuntimeException` ends the run as a malformed `.tsl` does: the lock is released, the throw escapes `execute()`, and no successor is spawned, because a listener that throws once throws again in every successor and a self-respawn would loop on it each throttle window.
