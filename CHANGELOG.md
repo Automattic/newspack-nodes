@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.69.1] - 2026-09-28
+
 ### Fixed
 
 - **`wp nodes` lists `memcache`.** `nodes memcache` registers as a command group, so `wp nodes` shows `wp nodes memcache <command>` and a bare `wp nodes memcache` prints its usage. The two verbs registered with no parent, which WP-CLI defers and never lists in the `wp nodes` overview.
