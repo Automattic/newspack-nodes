@@ -1005,6 +1005,32 @@ class CommandInterpreterTest extends TestCase {
 		);
 	}
 
+	/** A class's secret options are read from its schema once, not per verb. */
+	public function test_around_dispatch_reads_a_schema_once_for_its_secrets(): void {
+		$ci = new class() extends Command_Interpreter_Node {
+			public static int $reads = 0;
+
+			public static function node_schema(): array {
+				++self::$reads;
+				return [ 'commands' => [ [ 'name' => 'rekey', 'args' => [ [ 'name' => 'pem', 'type' => 'string', 'secret' => true ] ] ], [ 'name' => 'peek', 'args' => [] ] ] ] + parent::node_schema();
+			}
+		};
+		$ci->name( 'huia:ci' );
+		$ci->commands( [ 'rekey' => static fn (): string => 'ok', 'peek' => static fn (): string => 'ok' ] );
+		$calls = [ [ 'rekey', [ '--pem=hunter7713' ] ], [ 'peek', [ '--pem=moa7713' ] ], [ 'rekey', [] ] ];
+		$ci::$reads = 0;
+		foreach ( $calls as [ $verb, $args ] ) {
+			$ci->dispatch( $verb, $args );
+		}
+		$unlogged   = $ci::$reads;
+		$ci::$reads = 0;
+
+		$lines = self::command_lines( $ci, $calls );
+
+		$this->assertSame( [ "/huia:ci> rekey '--pem=<redacted>'", '/huia:ci> peek --pem=moa7713', '/huia:ci> rekey' ], $lines );
+		$this->assertLessThanOrEqual( $unlogged + 1, $ci::$reads, 'the secret options are read once per class' );
+	}
+
 	/** A `:config` interpreter reads its patron's schema for the secrets. */
 	public function test_around_dispatch_reads_a_patrons_schema_for_its_secrets(): void {
 		$patron = new class() extends \Newspack_Nodes\Node {

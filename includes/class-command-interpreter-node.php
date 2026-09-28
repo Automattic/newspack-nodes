@@ -156,6 +156,14 @@ class Command_Interpreter_Node extends Node {
 	private static array $resolve_cache = [];
 
 	/**
+	 * Secret option names per verb, keyed by the class whose schema declares
+	 * them — a class's schema is static, so it is read once.
+	 *
+	 * @var array<string,array<string,array<string,true>>>
+	 */
+	private static array $secret_options = [];
+
+	/**
 	 * Per-instance override of $default_authorize (tests / special cases). Null →
 	 * fall back to the static default. Same signature.
 	 *
@@ -418,24 +426,29 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	/**
-	 * The option names `$verb`'s schema entry declares `'secret' => true`.
+	 * The option names `$verb`'s schema entry declares `'secret' => true`,
+	 * read once per schema-owning class into `$secret_options`.
 	 *
 	 * @param string $verb Verb name.
 	 * @return array<string,true>
 	 */
 	private function secret_options( string $verb ): array {
-		$secret = [];
-		foreach ( Core::arr( $this->verb_schema()['commands'] ?? [] ) as $command ) {
-			if ( ! \is_array( $command ) || $verb !== ( $command['name'] ?? null ) ) {
-				continue;
-			}
-			foreach ( Core::arr( $command['args'] ?? [] ) as $arg ) {
-				if ( \is_array( $arg ) && true === ( $arg['secret'] ?? false ) ) {
-					$secret[ Core::as_string( $arg['name'] ?? '' ) ] = true;
+		$owner = ( $this->patron() ?? $this )::class;
+		if ( ! isset( self::$secret_options[ $owner ] ) ) {
+			$by_verb = [];
+			foreach ( Core::arr( $this->verb_schema()['commands'] ?? [] ) as $command ) {
+				if ( ! \is_array( $command ) ) {
+					continue;
+				}
+				foreach ( Core::arr( $command['args'] ?? [] ) as $arg ) {
+					if ( \is_array( $arg ) && true === ( $arg['secret'] ?? false ) ) {
+						$by_verb[ Core::as_string( $command['name'] ?? '' ) ][ Core::as_string( $arg['name'] ?? '' ) ] = true;
+					}
 				}
 			}
+			self::$secret_options[ $owner ] = $by_verb;
 		}
-		return $secret;
+		return self::$secret_options[ $owner ][ $verb ] ?? [];
 	}
 
 	/**
