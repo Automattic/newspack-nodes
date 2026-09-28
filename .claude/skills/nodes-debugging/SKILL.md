@@ -220,6 +220,8 @@ A `{seg}.idx` sidecar appears only when a Partition has a `with_index()` formatt
 
 On-disk records are 7-element positional JSON lists — `[TYPE, TIMESTAMP, FROM, TO, ID, KEY, VALUE]` — so `head -c 500` on the newest `{base}/logs/firehose.p0/{seg}.log` is a legitimate first look. Segment numbers only climb, and retention deletes the oldest, so segment 0 is usually gone.
 
+To print the record at a known byte offset of a segment, run `scripts/get-line-at-offset.sh <offset> <file>` from the plugin directory; it prints that line through `jq`.
+
 ## The browser side
 
 `DebugOverlay` (`src/debug-overlay/`) puts the page's own live `Core.nodes` graph on top of whatever dashboard is running. `?nodes-debug=1` opens the gate and sticks it in `localStorage` under `newspack-nodes:debug`; `?nodes-debug=0` clears it. Ctrl+` then toggles the panel. It carries two tabs: Overview, this browser's I/O rates, sampled whether the panel is open or shut; and Console, the graph in the shared GraphView plus a REPL driving the page's own Command_Interpreter. The gate is a dev affordance, not access control — the REST command endpoint authorizes whatever the REPL sends.

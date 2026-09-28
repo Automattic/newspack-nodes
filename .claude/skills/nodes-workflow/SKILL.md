@@ -128,6 +128,12 @@ npm run build
 # WP-CLI entrypoints, JS-PHP wire constants or test seams — verify every call
 # path (siblings, JS, dynamic) before deleting. `lint:deadcode:js` is the knip
 # half, gated on staged .js/.jsx.
+# Tests are excluded as consumers, so an export only tests import reads as
+# unused: dead if it serves only its own tests, live (mark it `@testonly`) if a
+# test uses it to drive production code. knip has two blind spots. The
+# `@newspack-nodes/*` surface is entry, so a dead export there needs a manual
+# cross-repo sweep; and knip cannot parse JSX in a `.js` file, so a
+# `lazy( () => import( './X' ) )` target must be listed as `entry` in knip.json.
 npm run lint:phpstan          # alias: npm run lint:deadcode
 npm run lint:deadcode:js
 
