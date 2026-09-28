@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.69.0] - 2026-09-27
+
 ### Added
 
 - **`Command_Interpreter_Node::$around_dispatch` wraps each verb handler** once the verb is known to exist: after the capability floor, the secure-level refusal and the unknown-verb throw, but around a `Service_CI_Node` verb's own role check, whose refusal throws through the wrapper. An assigner calls the wrapper it replaces, so plugins compose; see the architecture guide.
