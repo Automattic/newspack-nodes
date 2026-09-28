@@ -62,7 +62,7 @@ For a new Service CI verb (the capability-gated surface dashboards and the admin
 
 For a new `wp nodes` subcommand:
 
-1. Put the class in `includes/cli/class-{name}-cli-command.php` and register the verb in `newspack-nodes.php`'s `WP_CLI` block. The block constructs each command object and registers bound methods, because the verb methods cannot be static (wp-cli#5472).
+1. Put the class in `includes/cli/class-{name}-cli-command.php` and register the verb in `newspack_nodes_register_cli_commands()`, which `newspack-nodes.php` calls under WP-CLI. A single verb registers as a bound method, because the verb methods cannot be static (wp-cli#5472); a group of verbs registers its class under the group's own path, as `nodes memcache` does, BEFORE anything beneath it. WP-CLI defers a verb whose path meets an unregistered level, and `wp nodes` prints its usage before a deferred verb attaches. `tests/unit/CliUsageOverviewTest.php` replays the registration through `tests/Helpers/ListsEveryCliCommand.php`, which models that deferral and fails a verb an overview would hide or a verb under a single command, which WP-CLI refuses.
 2. Read every integer flag through `CLI::require_flag_int()`, which refuses `--partition=abc` rather than casting it to 0 and restarting the wrong fleet.
 3. Document the verb in `docs/cli.md`, the CLI reference.
 

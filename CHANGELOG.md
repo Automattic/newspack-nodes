@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`wp nodes` lists `memcache`.** `nodes memcache` registers as a command group, so `wp nodes` shows `wp nodes memcache <command>` and a bare `wp nodes memcache` prints its usage. The two verbs registered with no parent, which WP-CLI defers and never lists in the `wp nodes` overview.
+
+### Added
+
+- **`newspack_nodes_register_cli_commands()`** registers the `wp nodes` tree; the plugin file calls it under WP-CLI.
+- **`tests/Helpers/ListsEveryCliCommand.php`** replays a registration through a model of WP-CLI's command tree, deferral and flush included, and fails a command a usage overview would hide — under an unregistered level, or registered before its group — one under a single command, which WP-CLI refuses with `can't have subcommands` at load or when it flushes deferred commands, and one further below a single command, which is unreachable. Each plugin's `CliUsageOverviewTest` drives its real registration through it.
+
 ## [2.69.0] - 2026-09-27
 
 ### Added
