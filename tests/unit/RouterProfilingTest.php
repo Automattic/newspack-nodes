@@ -220,12 +220,11 @@ class RouterProfilingTest extends TestCase {
 
 		$message                = Message::new_message();
 		$message[ Message::TO ] = 'boom';
-		try {
-			$router->fill( $message );
-			$this->fail( 'poison throw must propagate (ADR-12)' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertSame( 'poison', $e->getMessage() );
-		}
+		$e = $this->caught(
+			fn () => $router->fill( $message ),
+			'poison throw must propagate (ADR-12)'
+		);
+		$this->assertSame( 'poison', $e->getMessage() );
 
 		$next                = Message::new_message();
 		$next[ Message::TO ] = 'calm';

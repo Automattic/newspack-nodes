@@ -245,22 +245,18 @@ class LogTest extends TestCase {
 		$this->assertTrue( $schema['accepts_fill'] ?? false );
 	}
 
-	public function test_unwritable_path_degrades_without_fatal(): void {
-		// Parent is a regular file → mkdir + fopen both fail; fill()/flush() must not fatal.
+	public function test_unwritable_path_raises_naming_the_segment(): void {
+		// Parent is a regular file → mkdir + fopen both fail; the flush raises.
 		$blocker = "{$this->tmp}/blocker";
 		\file_put_contents( $blocker, 'x' );
 		$path = "{$blocker}/out.log";
 
-		\set_error_handler( static fn (): bool => true, \E_WARNING );
-		try {
-			$log = new Log_Node();
-			$log->arguments( [ $path ] );
-			$this->write_value( $log, "y\n" );
-			$log->flush();
-			$this->assertFileDoesNotExist( "{$path}.0" );
-		} finally {
-			\restore_error_handler();
-		}
+		$log = new Log_Node();
+		$log->arguments( [ $path ] );
+		$this->write_value( $log, "y\n" );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( "cannot open segment {$path}.0: " );
+		$log->flush();
 	}
 	/**
 	 * Log inherits Partition::arguments(), which validates `$this->partition_dir`
@@ -312,7 +308,7 @@ class LogTest extends TestCase {
 		);
 	}
 
-	public function test_a_stalled_write_is_loud_and_leaves_the_torn_tail(): void {
+	public function test_a_stalled_write_raises_and_leaves_the_torn_tail(): void {
 		$this->use_base_dir( $this->tmp );
 
 		$log = new Log_Node();
@@ -338,11 +334,16 @@ class LogTest extends TestCase {
 			return $written;
 		};
 		Core::set_stderr_handler( static function () { /* swallow the loud give-up */ } );
+		$raised = null;
 		try {
 			$log->flush();
+		} catch ( \RuntimeException $e ) {
+			$raised = $e;
 		} finally {
 			Partition_Node::$fwrite = null;
 		}
+		$this->assertNotNull( $raised, 'a short write must raise' );
+		$this->assertStringContainsString( "short write to segment {$this->tmp}/logs/digest.md.0", $raised->getMessage() );
 
 		// This Log made no sole-writer claim, so the torn tail is NOT truncated:
 		// a truncate cuts at this writer's guess about a file peers append to.

@@ -437,6 +437,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	const draftDoc = useDraftInterpreter();
 	const {
 		graph: draft,
+		refusals: draftRefusals,
 		isDirty: draftIsDirty,
 		markSaved: markDraftSaved,
 		run: runDraft,
@@ -645,6 +646,23 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			seededExpansionRef.current = expansion;
 		}
 	}, [ expansion, mode, draft.includes, reseedDraft ] );
+
+	// A draft loads past a broken line; say which lines, and why.
+	useEffect( () => {
+		if ( ! draftRefusals.length ) {
+			return;
+		}
+		const lines = draftRefusals.map( ( r ) =>
+			sprintf(
+				// translators: 1: source line, 2: the statement, 3: why it was refused.
+				__( 'line %1$d: %2$s — %3$s', 'newspack-nodes' ),
+				r.line,
+				r.statement,
+				r.message
+			)
+		);
+		setToast( { kind: 'error', text: lines.join( '\n' ) } );
+	}, [ draftRefusals ] );
 
 	// Pick the catalog where make_node runs: JS at cwd '/', else PHP.
 	const catalog =

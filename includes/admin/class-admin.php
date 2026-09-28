@@ -1077,7 +1077,10 @@ class Admin {
 	 * One rotation orphans every Newspack plugin's cached values at once and
 	 * touches no co-tenant install sharing the server. No plugin keeps a salt of
 	 * its own, deliberately: with three independent rotations, flushing one leaves
-	 * the other two serving stale values.
+	 * the other two serving stale values. A restart that fails propagates after
+	 * the rotation, in place of the success redirect.
+	 *
+	 * @throws \Throwable What resolving or flagging the fleet threw.
 	 */
 	public function handle_flush_cache(): void {
 		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
@@ -1091,14 +1094,8 @@ class Admin {
 
 		Cache_Backend::rotate_salt();
 
-		// @longform The scope is memoized per process, so a live worker keeps
-		// writing the old one until it restarts. Best-effort: a failure only
-		// delays the new scope to the next spawn, so it is logged not surfaced.
-		try {
-			( new CLI( Config::get_base_directory() ) )->restart_workers( Bootstrap::expand_workers(), [], -1 );
-		} catch ( \Throwable $e ) {
-			Core::print_less_often( 'Cache flush: restart_workers failed — ', $e->getMessage() );
-		}
+		// A live worker memoizes the old scope until it restarts.
+		( new CLI( Config::get_base_directory() ) )->restart_workers( Bootstrap::expand_workers(), [], -1 );
 
 		// options-general.php: MENU_SLUG is an add_options_page() submenu.
 		\wp_safe_redirect(
@@ -1329,9 +1326,12 @@ class Admin {
 	 * inside a long unit of work wherever `Event_Framework::pump()` asks, which
 	 * unwinds `fill()` by raising `Worker_Should_Stop`.
 	 *
+	 * The option row is already written when this runs, so a failure to
+	 * resolve the locks directory or land a flag propagates to the writer:
+	 * the save stands, and the error says the live fleet never heard of it.
+	 *
 	 * @param string $option Option name (the full WP option key).
-	 * @throws \Newspack_Nodes\Worker_Should_Stop When the save runs inside a worker
-	 *   that the planner finds has been asked to stop (ADR-14).
+	 * @throws \Throwable What `Restart_Planner::plan()` raised.
 	 */
 	public function maybe_request_worker_restart( string $option ): void {
 		if ( ! \str_starts_with( $option, self::OPTION_PREFIX ) ) {

@@ -44,14 +44,7 @@ import { NodeRegistry } from './node-registry';
 import { StubNode } from './stub-node';
 import { markLocal } from './command-auth';
 import { parseStatements, serializeDraftArg, tokenize } from './shell-node';
-import {
-	newMessage,
-	TYPE,
-	VALUE,
-	TM_COMMAND,
-	TM_NOREPLY,
-	TM_ERROR,
-} from './message';
+import { newMessage, TYPE, VALUE, TM_COMMAND, TM_NOREPLY } from './message';
 import names from './reserved-node-names.json';
 
 /**
@@ -62,6 +55,15 @@ import names from './reserved-node-names.json';
  * @property {string[]} args      Argument tokens; a declared one keeps its
  *                                quote span.
  * @property {boolean}  viaConfig True when the target carried `:config`.
+ */
+
+/**
+ * One statement the draft refused, for the editor to show.
+ *
+ * @typedef {Object} Refusal
+ * @property {number} line      Source line the statement starts on.
+ * @property {string} statement The statement as written.
+ * @property {string} message   Why it was refused.
  */
 
 /**
@@ -118,6 +120,8 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 		this.resolvedConfigEdges = null;
 		// `make_node`'s catalog; `move_node` reads it for node references.
 		this.catalog = [];
+		/** @type {Refusal[]} What the last `run` or `load` refused. */
+		this.refusals = [];
 		this.commands( {
 			var: ( self, args ) => self._cmdVar( unquoteAll( args ) ),
 			include: ( self, args ) => self._cmdInclude( unquoteAll( args ) ),
@@ -140,6 +144,7 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	 *                      separates.
 	 */
 	run( line ) {
+		this.refusals = [];
 		for ( const statement of parseStatements( line ) ) {
 			this._runStatement( statement );
 		}
@@ -163,6 +168,7 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 		const statements = parseStatements( tsl );
 
 		this.resolvedConfigEdges = resolvedConfigEdges;
+		this.refusals = [];
 		this.frontmatter = {};
 		this.includes = [];
 		this.secureLevel = '';
@@ -181,6 +187,11 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	/**
 	 * Fill one already-parsed statement, as the Shell would.
 	 *
+	 * A TM_NOREPLY refusal throws, which fails a topology load. A draft is a
+	 * document being edited, so a broken statement must not stop the rest:
+	 * the refusal is recorded in `refusals`, naming the statement and its
+	 * line, for the editor to show.
+	 *
 	 * @param {{verb: string, values: string[], spans: string[], raw: string,
 	 *          line: number}} statement From `parseStatements`.
 	 */
@@ -191,7 +202,15 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 		m[ TYPE ] = TM_COMMAND | TM_NOREPLY;
 		// SPANS, not values: the quote type is meaning, not decoration.
 		m[ VALUE ] = { name: verb, arguments: statement.spans.slice( 1 ) };
-		this.fill( markLocal( m ) );
+		try {
+			this.fill( markLocal( m ) );
+		} catch ( e ) {
+			this.refusals.push( {
+				line: statement.line,
+				statement: statement.raw,
+				message: e.message,
+			} );
+		}
 	}
 
 	/**
@@ -241,10 +260,12 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	 * an unresolvable type becomes a StubNode carrying the declared class and
 	 * arguments. Re-declaring a name an include seeded CLAIMS it: the borrowed
 	 * node is torn down, its edges are inherited by the replacement, and a
-	 * failed build puts it back.
+	 * failed build puts it back. A replacement that cannot keep an inherited
+	 * edge is built without it, and the statement is refused naming each one.
 	 *
 	 * @param {string[]} args `<type> <name> [<ctor args>...]`, as spans.
 	 * @return {string} The reply line.
+	 * @throws {Error} When the build fails, or drops an inherited edge.
 	 */
 	_cmdMakeNode( args ) {
 		// Declaring a seeded name CLAIMS it; omitting it later erases it.
@@ -281,9 +302,7 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 		const kept = targetsOf( built );
 		const lost = inherited.filter( ( t ) => ! kept.includes( t ) );
 		if ( lost.length ) {
-			this.stderr(
-				`make_node: ${ name } cannot keep ${ lost.join( ', ' ) }`
-			);
+			throw new Error( `${ name } cannot keep ${ lost.join( ', ' ) }` );
 		}
 		return result;
 	}
@@ -616,28 +635,6 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	 */
 	seededEdges() {
 		return this._seededEdges;
-	}
-
-	/**
-	 * Name the statement in the stderr line a refusal leaves behind.
-	 *
-	 * A draft has no sink and no operator watching a REPL, so the base's
-	 * TM_NOREPLY stderr line is all a refused statement produces — and it does
-	 * not say WHICH statement, which a document of many needs. Handled here in
-	 * full, so the base does not log the same failure a second time.
-	 *
-	 * @param {Array}  message The command message.
-	 * @param {string} name    Verb name.
-	 * @param {*}      payload The reply.
-	 * @param {number} kind    TM_RESPONSE or TM_ERROR.
-	 */
-	_respond( message, name, payload, kind ) {
-		if ( kind & TM_ERROR ) {
-			const line = 'string' === typeof payload ? payload.trim() : '';
-			this.stderr( `${ name }: ${ line }` );
-			return;
-		}
-		super._respond( message, name, payload, kind );
 	}
 
 	/**

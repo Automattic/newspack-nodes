@@ -63,9 +63,6 @@ trait Cooperative_Stop {
 	/** Last idle scan (epoch seconds). */
 	protected float $last_idle_check = 0.0;
 
-	/** A reporter the registry cannot see — the anonymous IPC-input Consumer. */
-	protected ?Idle_Reporter $ipc_reporter = null;
-
 	/** Seconds every reporter must stay idle before this process exits; 0 = resident. */
 	protected int $on_demand_idle = 0;
 
@@ -101,8 +98,8 @@ trait Cooperative_Stop {
 
 	/**
 	 * The `.lock.d` directory THIS process holds. Named apart from
-	 * `Spawn_Coordinator::lock_path( $type, $partition )`, which answers a
-	 * different question — where some OTHER worker's lock lives.
+	 * `Spawn_Coordinator::lock_path( $locks_dir, $type, $partition )`, which
+	 * answers a different question — where some OTHER worker's lock lives.
 	 */
 	abstract protected function held_lock_path(): string;
 
@@ -234,15 +231,7 @@ trait Cooperative_Stop {
 		}
 		$this->last_idle_check = $now;
 		$newest                = null;
-		// @longform The IPC-input Consumer is ANONYMOUS on purpose (a pure
-		// source, never a routed TO), so it is absent from the registry below
-		// and the scan could not see it — an attached REPL is someone using
-		// this worker, and it would exit under them mid-session.
-		$reporters = \array_merge(
-			null === $this->ipc_reporter ? [] : [ $this->ipc_reporter ],
-			\array_values( Core::$nodes_by_name )
-		);
-		foreach ( $reporters as $node ) {
+		foreach ( Core::$nodes_by_name as $node ) {
 			if ( ! $node instanceof Idle_Reporter ) {
 				continue;
 			}

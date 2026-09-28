@@ -320,19 +320,6 @@ class Core {
 		}
 	}
 
-	/** Tear down every registered node; snapshots the registry first so unregister doesn't mutate the iteration source. */
-	public static function cleanup_all_nodes(): void {
-		$nodes = self::$nodes_by_name;
-		foreach ( $nodes as $node ) {
-			try {
-				$node->remove_node();
-			} catch ( \Throwable $e ) {
-				// Best-effort: one node's failure shouldn't block the rest.
-				self::stderr( 'cleanup_all_nodes: ' . $e->getMessage() );
-			}
-		}
-	}
-
 	/**
 	 * The one entry point for a diagnostic line: stamp the process midfix, keep
 	 * a timestamped copy in the `dmesg` ring, and hand the midfixed line to the
@@ -359,6 +346,11 @@ class Core {
 	 * error_log, so it can't recurse or re-fire the action. Worker-context
 	 * listeners must write via a Topic/Partition directly, never back through
 	 * stderr(). The function_exists gate keeps Core loadable in WP-less bootstraps.
+	 *
+	 * The handler runs whatever a listener threw, so the line still lands, and
+	 * both failures escape afterwards through `Worker_Should_Stop::raise()`.
+	 *
+	 * @throws \Throwable What the listener or the handler threw.
 	 */
 	public static function _stderr( string $text, bool $raw = false ): void {
 		if ( self::$in_stderr ) {
@@ -368,38 +360,21 @@ class Core {
 		}
 		self::$in_stderr = true;
 		try {
-			if ( \function_exists( 'do_action' ) ) {
-				try {
-					\do_action( 'newspack_nodes/stderr', $text );
-				} catch ( \Throwable $e ) {
-					// A listener can't break the last-resort diagnostic path.
-					// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-					\error_log( 'newspack_nodes/stderr listener threw: ' . $e->getMessage() );
-				}
-			}
-			// Extra args are ignored by handlers that declare only $text.
-			( self::$stderr_handler )( $text, $raw );
+			Worker_Should_Stop::raise(
+				Worker_Should_Stop::attempt(
+					static function () use ( $text ): void {
+						if ( \function_exists( 'do_action' ) ) {
+							\do_action( 'newspack_nodes/stderr', $text );
+						}
+					},
+					// A handler declaring only $text ignores the extra arg.
+					static fn () => ( self::$stderr_handler )( $text, $raw ),
+				)
+			);
 		} finally {
 			// Reset even if handler throws, else stderr latches to fallback.
 			self::$in_stderr = false;
 		}
-	}
-
-	/**
-	 * Per-line timestamp prefix: `Y-m-d H:i:s UTC `.
-	 *
-	 * With no text, returns the bare prefix. With text, chomps a
-	 * trailing newline, prepends the prefix to every line, and appends one
-	 * trailing newline.
-	 */
-	public static function log_prefix( ?string $text = null ): string {
-		$prefix = \gmdate( 'Y-m-d H:i:s' ) . ' UTC ';
-		if ( null === $text ) {
-			return $prefix;
-		}
-		$text = \rtrim( $text, "\n" );
-		$text = $prefix . \str_replace( "\n", "\n" . $prefix, $text );
-		return $text . "\n";
 	}
 
 	/**
@@ -520,6 +495,23 @@ class Core {
 	public static function right_now(): float {
 		self::$now = null !== self::$clock ? ( self::$clock )() : \microtime( true );
 		return self::$now;
+	}
+
+	/**
+	 * Per-line timestamp prefix: `Y-m-d H:i:s UTC `.
+	 *
+	 * With no text, returns the bare prefix. With text, chomps a
+	 * trailing newline, prepends the prefix to every line, and appends one
+	 * trailing newline.
+	 */
+	public static function log_prefix( ?string $text = null ): string {
+		$prefix = \gmdate( 'Y-m-d H:i:s' ) . ' UTC ';
+		if ( null === $text ) {
+			return $prefix;
+		}
+		$text = \rtrim( $text, "\n" );
+		$text = $prefix . \str_replace( "\n", "\n" . $prefix, $text );
+		return $text . "\n";
 	}
 
 	/** Replace the sink `_stderr()` writes to; `$stderr_handler` carries the signature. */
@@ -732,6 +724,19 @@ class Core {
 			return \ord( $match[1] );
 		}
 		return null;
+	}
+
+	/**
+	 * Tear down every registered node, then raise every teardown that threw.
+	 * The registry is snapshotted first, so a node unregistering itself does not
+	 * mutate the walk, and one node's failure costs no other node its teardown.
+	 *
+	 * @throws \Throwable What the teardowns threw, combined by `Worker_Should_Stop::raise()`.
+	 */
+	public static function cleanup_all_nodes(): void {
+		Worker_Should_Stop::raise(
+			Worker_Should_Stop::attempt_each( self::$nodes_by_name, static fn ( Node $node ) => $node->remove_node() )
+		);
 	}
 
 	/**

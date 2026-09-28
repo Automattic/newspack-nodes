@@ -4,11 +4,11 @@
  *
  * `write_all()` puts every byte of a buffer on a handle and reports how many
  * actually landed, so a short write stays visible instead of becoming silent
- * data loss. That number is what lets `Partition_Node::flush()` truncate the
- * torn record off and dead-letter the messages that never made it, which is the
- * substrate's rule that a short write is quarantined, never swallowed.
+ * data loss. That number is what lets `Partition_Node::flush()` cut the torn
+ * record off a sole-writer segment and raise the short write, which is the
+ * substrate's rule that a short write is never swallowed.
  *
- * The trait reaches into two `Node` members, so only a Node may `use` it, and
+ * The trait reaches into a `Node` member, so only a Node may `use` it, and
  * only a file-writing one has reason to: `Partition_Node` uses it and `Log_Node`
  * inherits it, while a logic node has no business carrying an fwrite retry loop.
  *
@@ -44,24 +44,23 @@ trait File_Writer {
 
 	/**
 	 * Write every byte of $bytes to $fh, retrying a refused write until the
-	 * MAX_WRITE_ATTEMPTS budget is spent and then emitting one rate-limited line.
-	 * The happy path is a single fwrite.
+	 * MAX_WRITE_ATTEMPTS budget is spent. The happy path is a single fwrite.
 	 *
 	 * The return is the bytes that landed rather than a success flag, because
 	 * `Partition_Node::flush()` advances `current_size` and its index offsets by
 	 * that number, and a count overstating the write would point index entries
-	 * past the end of a torn segment. Landed bytes also advance the
-	 * `$bytes_written` counter `Node` declares and nothing else in the substrate
-	 * moves. A closed or unwritable handle takes the same loud path as a full
-	 * disk, because the default seam returns false for a non-resource instead of
-	 * raising a TypeError.
+	 * past the end of a torn segment. It prints nothing: every caller compares
+	 * the count with the buffer and throws the short write, naming the path and
+	 * both counts. Landed bytes also advance the `$bytes_written` counter `Node`
+	 * declares and nothing else in the substrate moves. A closed or unwritable
+	 * handle takes the same path as a full disk, because the default seam
+	 * returns false for a non-resource instead of raising a TypeError.
 	 *
-	 * @param resource    $fh      Open, writable handle.
-	 * @param string      $bytes   Bytes to write.
-	 * @param string|null $context Path or label for the failure line; cold path only.
+	 * @param resource $fh    Open, writable handle.
+	 * @param string   $bytes Bytes to write.
 	 * @return int Bytes written, equal to strlen( $bytes ) on full success.
 	 */
-	protected function write_all( $fh, string $bytes, ?string $context = null ): int {
+	protected function write_all( $fh, string $bytes ): int {
 		$total     = \strlen( $bytes );
 		$remaining = $bytes;
 		$attempts  = 0;
@@ -71,8 +70,6 @@ trait File_Writer {
 			$written = $call( $fh, $remaining );
 			if ( false === $written || 0 === $written ) {
 				if ( ++$attempts >= static::MAX_WRITE_ATTEMPTS ) {
-					$where = ( null === $context || '' === $context ) ? '' : " for $context";
-					$this->print_less_often( 'write stalled after ', (string) $attempts, ' attempts', $where );
 					break;
 				}
 				continue;

@@ -123,6 +123,29 @@ describe( 'the declared graph', () => {
 		expect( Core.node( VIEW ).maxLines ).toBe( 0 );
 	} );
 
+	test( 'the link republishes the lines the stream skipped', () => {
+		mount();
+		const stream =
+			FakeEventSource.instances[ FakeEventSource.instances.length - 1 ];
+		act( () => {
+			stream.listeners.unparseable_lines.forEach( ( cb ) =>
+				cb( {
+					data: JSON.stringify( [
+						64,
+						0,
+						'_stream',
+						'',
+						'',
+						'unparseable_lines',
+						'COUNT 6',
+					] ),
+				} )
+			);
+		} );
+
+		expect( Core.node( LINK ).setStateCache.UNPARSEABLE_LINES ).toBe( 6 );
+	} );
+
 	test( 'opens the stream at mount', () => {
 		mount();
 		expect( opened() ).toContain( SUBSCRIBE );

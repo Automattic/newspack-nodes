@@ -93,12 +93,11 @@ class OffsetlogCursorTest extends TestCase {
 		$d = new Offsetlog_Cursor_Double();
 		$d->name( 'sextant' );
 
-		try {
-			$d->build( "{$this->tmp}/cursors.p5" );
-			$this->fail( 'expected the squatted offsetlog slot to be refused' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertStringContainsString( 'sextant:offsetlog already registered', $e->getMessage() );
-		}
+		$e = $this->caught(
+			fn () => $d->build( "{$this->tmp}/cursors.p5" ),
+			'expected the squatted offsetlog slot to be refused'
+		);
+		$this->assertStringContainsString( 'sextant:offsetlog already registered', $e->getMessage() );
 
 		$this->assertNull( $this->read_private( $d, 'offsetlog' ), 'the refused sidecar is not cached' );
 		$this->expectException( \RuntimeException::class );
@@ -154,12 +153,14 @@ class OffsetlogCursorTest extends TestCase {
 		$this->assertSame( 256, $value['offset'] );
 	}
 
-	public function test_read_returns_null_for_unparseable_entry(): void {
+	public function test_read_raises_an_unparseable_entry(): void {
 		$d = new Offsetlog_Cursor_Double();
 		$d->build( "{$this->tmp}/offsets.p0" );
 		\mkdir( "{$this->tmp}/offsets.p0", 0755, true );
 		\file_put_contents( "{$this->tmp}/offsets.p0/0.log", "this is not a packed message\n" );
-		$this->assertNull( $d->read() );
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'this is not a packed message' );
+		$d->read();
 	}
 
 	public function test_read_returns_null_for_non_array_value(): void {

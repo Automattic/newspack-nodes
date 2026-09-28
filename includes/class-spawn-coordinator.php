@@ -94,7 +94,10 @@ class Spawn_Coordinator {
 	 * Order matters — remove_stale_directory must run BEFORE request_restart_at,
 	 * or the flag's fresh mtime blocks the removal. Nothing here is urgent: a
 	 * surplus worker retires within one lifetime on its own, through
-	 * `Spawn_Controller::validate_partition()`.
+	 * `Spawn_Controller::validate_partition()`. Every surplus dir is offered its
+	 * flag, and every refused write raises together after the last.
+	 *
+	 * @throws \Throwable Every flag write that failed, combined.
 	 */
 	public function reconcile_lock_dirs(): void {
 		$active = [];
@@ -104,16 +107,22 @@ class Spawn_Coordinator {
 		if ( empty( $active ) ) {
 			return; // No known fleet: every dir would read as an orphan.
 		}
-		$this->reap_steal_scratch_dirs( "{$this->base_dir}/locks" );
-		foreach ( $this->worker_lock_dirs() as $path => $lock ) {
-			if ( $lock['partition'] < ( $active[ $lock['type'] ] ?? 0 ) ) {
-				continue; // In fleet.
-			}
-			$this->remove_stale_directory( $path, Lock_Node::STALE_TIMEOUT );
-			if ( \is_dir( $path ) && ! \file_exists( $path . '/' . Lock_Node::RESTART_FLAG ) ) {
-				Lock_Node::request_restart_at( $path );
-			}
-		}
+		$this->reap_steal_scratch_dirs( $this->locks_dir() );
+		$surplus = \array_filter(
+			$this->worker_lock_dirs(),
+			static fn ( array $lock ): bool => $lock['partition'] >= ( $active[ $lock['type'] ] ?? 0 )
+		);
+		Worker_Should_Stop::raise(
+			Worker_Should_Stop::attempt_each(
+				\array_keys( $surplus ),
+				function ( string $path ): void {
+					$this->remove_stale_directory( $path, Lock_Node::STALE_TIMEOUT );
+					if ( \is_dir( $path ) && ! \file_exists( $path . '/' . Lock_Node::RESTART_FLAG ) ) {
+						Lock_Node::request_restart_at( $path );
+					}
+				}
+			)
+		);
 	}
 
 	/**
@@ -174,7 +183,7 @@ class Spawn_Coordinator {
 	public function worker_lock_dirs(): array {
 		$out = [];
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_glob -- Operator storage, never WP-managed.
-		foreach ( \glob( "{$this->base_dir}/locks/*.lock.d" ) ?: [] as $path ) {
+		foreach ( \glob( $this->locks_dir() . '/*.lock.d' ) ?: [] as $path ) {
 			if ( ! \preg_match( '/^(.+)\.p(\d+)$/D', \basename( $path, '.lock.d' ), $m ) ) {
 				continue; // Non-partitioned dir — not a worker.
 			}
@@ -238,7 +247,7 @@ class Spawn_Coordinator {
 		$partition = Core::as_int( $worker['partition'] );
 		$stale     = Lock_Node::stale_timeout_of( $worker );
 
-		$dir = $this->lock_path( $type, $partition );
+		$dir = self::lock_path( $this->locks_dir(), $type, $partition );
 		if ( ! \is_dir( $dir ) ) {
 			// Clean absence is normal on-demand; a producer wakes it, not us.
 			return 0 === Bootstrap::on_demand_idle_of( $worker );
@@ -270,12 +279,17 @@ class Spawn_Coordinator {
 	 * ELN topologies tail the firehose, so a behind job-router would otherwise
 	 * drag a drained request-builder up with it, every minute.
 	 *
+	 * A topology whose graph will not read tails nothing the sweep can name:
+	 * every readable reader is woken first, and the failure raises after.
+	 *
 	 * @param float $now Clock, so one pass judges every worker alike.
 	 * @return int Spawns posted.
+	 * @throws \Throwable Every unreadable topology and spawn-loop failure, combined.
 	 */
 	public function wake_readers_with_backlog( float $now ): int {
-		$behind = [];
-		foreach ( Bootstrap::on_demand_wake_map() as $dir => $readers ) {
+		[ $map, $unreadable ] = Bootstrap::readable_wake_map();
+		$behind               = [];
+		foreach ( $map as $dir => $readers ) {
 			foreach ( $readers as $worker ) {
 				if ( ! $this->is_absent( $worker ) ) {
 					continue;
@@ -292,33 +306,7 @@ class Spawn_Coordinator {
 				$behind[] = $worker;
 			}
 		}
-		return $this->spawn_each( $behind, 'backlog wake failed', $now );
-	}
-
-	/**
-	 * True when no lock dir stands for `$worker` — absent, not merely stale. A
-	 * STALE lock is a crash, and the ordinary spawn scan owns crash recovery.
-	 *
-	 * @param array<array-key,mixed> $worker Worker descriptor.
-	 * @return bool True when the worker holds no lock dir.
-	 */
-	private function is_absent( array $worker ): bool {
-		return ! \is_dir( $this->lock_path(
-			Core::as_string( $worker['type'] ),
-			Core::as_int( $worker['partition'] )
-		) );
-	}
-
-	/**
-	 * The lock directory one worker acquires. THE writer of the
-	 * `{type}.p{N}.lock.d` layout `worker_lock_dirs()` reads back.
-	 *
-	 * @param string $type      Worker type.
-	 * @param int    $partition Partition number.
-	 * @return string Absolute path, which need not exist.
-	 */
-	public function lock_path( string $type, int $partition ): string {
-		return "{$this->base_dir}/locks/{$type}.p{$partition}.lock.d";
+		return $this->spawn_then_raise( $behind, 'backlog wake failed', $now, $unreadable );
 	}
 
 	/**
@@ -370,21 +358,62 @@ class Spawn_Coordinator {
 	 * A STALE lock is left alone: that worker crashed, and the ordinary spawn
 	 * scan already owns crash recovery.
 	 *
+	 * An active topology whose graph will not read may tail `$dir` too, so its
+	 * failure raises after the readable readers are woken.
+	 *
 	 * @param string $dir Resolved partition directory just written to.
 	 * @param float  $now Clock, so one enqueue judges every worker alike.
 	 * @return int Spawns posted.
+	 * @throws \Throwable Every unreadable topology and spawn-loop failure, combined.
 	 */
 	public function wake_on_demand( string $dir, float $now ): int {
-		$dir     = \rtrim( $dir, '/' );
-		$readers = $this->ipc_reader_of( $dir ) ?? ( Bootstrap::on_demand_wake_map()[ $dir ] ?? [] );
-		if ( [] === $readers ) {
-			return 0; // A write path: don't mint a token for nobody.
+		$dir        = \rtrim( $dir, '/' );
+		$unreadable = [];
+		$readers    = $this->ipc_reader_of( $dir );
+		if ( null === $readers ) {
+			[ $map, $unreadable ] = Bootstrap::readable_wake_map();
+			$readers              = $map[ $dir ] ?? [];
 		}
-		return $this->spawn_each(
-			\array_filter( $readers, fn ( array $worker ): bool => $this->is_absent( $worker ) ),
-			'wake failed',
-			$now
-		);
+		$absent = \array_filter( $readers, fn ( array $worker ): bool => $this->is_absent( $worker ) );
+		return $this->spawn_then_raise( $absent, 'wake failed', $now, $unreadable );
+	}
+
+	/**
+	 * `spawn_each()`, then raise what the caller could not read, combined with
+	 * anything the spawn loop threw, so a failure never costs a readable
+	 * worker its spawn.
+	 *
+	 * @param array<array-key,array<array-key,mixed>> $workers    Descriptors to spawn.
+	 * @param string                                  $label      Failure-report verb.
+	 * @param float                                   $now        Pass clock.
+	 * @param array<string,\Throwable>                $unreadable What resolving the readers threw, by topology.
+	 * @return int Spawn POSTs fired.
+	 * @throws \Throwable The spawn loop's failure and $unreadable, combined.
+	 */
+	private function spawn_then_raise( array $workers, string $label, float $now, array $unreadable ): int {
+		try {
+			$posted = $this->spawn_each( $workers, $label, $now );
+		} catch ( \Throwable $e ) {
+			$posted     = 0;
+			$unreadable = [ $e, ...$unreadable ];
+		}
+		Worker_Should_Stop::raise( $unreadable );
+		return $posted;
+	}
+
+	/**
+	 * True when no lock dir stands for `$worker` — absent, not merely stale. A
+	 * STALE lock is a crash, and the ordinary spawn scan owns crash recovery.
+	 *
+	 * @param array<array-key,mixed> $worker Worker descriptor.
+	 * @return bool True when the worker holds no lock dir.
+	 */
+	private function is_absent( array $worker ): bool {
+		return ! \is_dir( self::lock_path(
+			$this->locks_dir(),
+			Core::as_string( $worker['type'] ),
+			Core::as_int( $worker['partition'] )
+		) );
 	}
 
 	/**
@@ -432,7 +461,7 @@ class Spawn_Coordinator {
 			if ( isset( $active[ $name ] ) || ! \preg_match( '/\.p\d+$/', $name ) ) {
 				continue;
 			}
-			if ( \is_dir( "{$this->base_dir}/locks/{$name}.lock.d" ) ) {
+			if ( \is_dir( "{$this->locks_dir()}/{$name}.lock.d" ) ) {
 				continue; // A live worker still holds it.
 			}
 			self::delete_directory_recursive( $dir, $this->base_dir );
@@ -551,9 +580,15 @@ class Spawn_Coordinator {
 	 * the wake paths, which are the only ones that revive an on-demand worker at
 	 * all.
 	 *
-	 * The throttle runs FIRST because the refusal parses every configured `.tsl`
-	 * and `wake_on_demand()` is driven by a write: judged the other way round,
-	 * every request that writes pays a full topology parse for the whole window.
+	 * The throttle runs FIRST because the refusal reads the active set — the
+	 * catalog and every configured `.tsl` — and `wake_on_demand()` is driven by
+	 * a write: judged the other way round, every request that writes pays that
+	 * read for the whole window.
+	 *
+	 * A configured topology that will not read — an unknown name, a broken
+	 * include — is judged out of the set, and every exit past that read raises
+	 * it: it cannot load, so it boots no worker to collide with, and the
+	 * readable fleets still come up.
 	 *
 	 * Counts POSTS REQUESTED, not workers started: `fire_and_forget_post` hangs
 	 * up before any outcome, and the endpoint records accepted spawns only after
@@ -563,6 +598,7 @@ class Spawn_Coordinator {
 	 * @param string                                  $label   Failure-report verb, e.g. 'wake failed'.
 	 * @param float                                   $now     Pass clock.
 	 * @return int Spawn POSTs fired.
+	 * @throws \Throwable Every configured topology that will not read, after the POSTs.
 	 */
 	public function spawn_each( array $workers, string $label, float $now ): int {
 		$due = [];
@@ -580,26 +616,25 @@ class Spawn_Coordinator {
 		if ( ! Bootstrap::fleet_site() || self::hold() > 0 ) {
 			return 0;
 		}
-		// Configured names, not the catalog — asking it re-globs every .tsl.
-		$names    = \array_filter( Core::arr( Config::value( 'topologies' ) ), static fn ( mixed $n ): bool => \is_string( $n ) );
-		$conflict = self::conflict_description( \array_values( $names ) );
+		[ $readable, $unreadable ] = Bootstrap::active_topologies();
+		$conflict                  = self::conflict_description( \array_keys( $readable ) );
+		$spawn_url                 = \function_exists( 'rest_url' ) ? \rest_url( 'newspack-nodes/v1/workers/spawn' ) : '';
+		$posted                    = 0;
 		if ( '' !== $conflict ) {
 			Core::print_less_often( 'refusing to spawn — topology write-conflict: ', $conflict );
-			return 0;
-		}
-		$spawn_url = \function_exists( 'rest_url' ) ? \rest_url( 'newspack-nodes/v1/workers/spawn' ) : '';
-		if ( '' === $spawn_url ) {
-			return 0;
-		}
-		$token = $this->generate_spawn_token( (int) $now );
-		foreach ( $due as [ $type, $partition ] ) {
-			$err = $this->post_spawn( $spawn_url, $type, $partition, $token );
-			if ( null !== $err ) {
-				Core::print_less_often( "{$label} for {$type}.p{$partition}: ", $err );
+		} elseif ( '' !== $spawn_url ) {
+			$token = $this->generate_spawn_token( (int) $now );
+			foreach ( $due as [ $type, $partition ] ) {
+				$err = $this->post_spawn( $spawn_url, $type, $partition, $token );
+				if ( null !== $err ) {
+					Core::print_less_often( "{$label} for {$type}.p{$partition}: ", $err );
+				}
+				$this->record_spawn_local( $type, $partition, $now );
 			}
-			$this->record_spawn_local( $type, $partition, $now );
+			$posted = \count( $due );
 		}
-		return \count( $due );
+		Worker_Should_Stop::raise( $unreadable );
+		return $posted;
 	}
 
 	/**
@@ -747,6 +782,79 @@ class Spawn_Coordinator {
 	}
 
 	/**
+	 * Raise a restart flag on every live partition of each named group; plugins
+	 * call this on deactivation. It spawns nothing and takes no lock — each
+	 * worker reads its own flag on the next drain iteration and exits.
+	 *
+	 * A type no longer in the fleet has no partition count to consult, so it is
+	 * swept across the full MAX_PARTITIONS range.
+	 *
+	 * Every live partition is offered its flag, and every refused write raises
+	 * together after the last.
+	 *
+	 * @param string[] $groups Group names to kill.
+	 * @throws \Throwable Every flag write that failed, combined.
+	 */
+	public function kill_readers( array $groups ): void {
+		$counts = [];
+		foreach ( Bootstrap::expand_workers() as $w ) {
+			$counts[ $w['type'] ] = \max( $counts[ $w['type'] ] ?? 0, $w['partition'] + 1 );
+		}
+		$workers = [];
+		foreach ( $groups as $name ) {
+			$count = \min( self::MAX_PARTITIONS, \max( 1, $counts[ $name ] ?? self::MAX_PARTITIONS ) );
+			for ( $p = 0; $p < $count; $p++ ) {
+				$workers[] = [ $name, $p ];
+			}
+		}
+		// Restart channel; force_release would read as a steal.
+		self::signal_workers( $this->locks_dir(), $workers, Lock_Node::request_restart_at( ... ) );
+	}
+
+	/** The `locks/` directory under this coordinator's runtime tree. */
+	private function locks_dir(): string {
+		return "{$this->base_dir}/locks";
+	}
+
+	/**
+	 * Offer each worker's lock dir a signal, whatever an earlier dir refused,
+	 * then raise every refusal together. THE fan-out behind `kill_readers()`,
+	 * `CLI::restart_workers()` and `Restart_Planner`'s restart and reload
+	 * signals: a lock dir that does not exist holds no worker and takes none.
+	 *
+	 * @param string                        $locks_dir Locks directory the dirs hang off.
+	 * @param list<array{0:string,1:int}>   $workers   `[ type, partition ]` pairs.
+	 * @param callable(string):bool         $signal    Per-lock-dir write, e.g. `Lock_Node::request_restart_at()`.
+	 * @return int Flags written.
+	 * @throws \Throwable Every refused or failed write, combined.
+	 */
+	public static function signal_workers( string $locks_dir, array $workers, callable $signal ): int {
+		$written = 0;
+		Worker_Should_Stop::raise(
+			Worker_Should_Stop::attempt_each(
+				$workers,
+				static function ( array $worker ) use ( $locks_dir, $signal, &$written ): void {
+					$written += (int) $signal( self::lock_path( $locks_dir, ...$worker ) );
+				}
+			)
+		);
+		return $written;
+	}
+
+	/**
+	 * The lock directory one worker acquires. THE writer of the
+	 * `{type}.p{N}.lock.d` layout `worker_lock_dirs()` reads back.
+	 *
+	 * @param string $locks_dir Locks directory, `{base}/locks` in production.
+	 * @param string $type      Worker type.
+	 * @param int    $partition Partition number.
+	 * @return string Absolute path, which need not exist.
+	 */
+	public static function lock_path( string $locks_dir, string $type, int $partition ): string {
+		return "{$locks_dir}/{$type}.p{$partition}.lock.d";
+	}
+
+	/**
 	 * The spawn-token HMAC key: `wp_salt('nonce')` run through one purpose-bound
 	 * derivation rather than used raw.
 	 *
@@ -790,32 +898,5 @@ class Spawn_Coordinator {
 	 */
 	public function validate_spawn_token( string $token, int $now ): bool {
 		return Internal_Request_Token::validate( Internal_Request_Token::PURPOSE_SPAWN, $token, $now, $this->nonce_salt );
-	}
-
-	/**
-	 * Raise a restart flag on every live partition of each named group; plugins
-	 * call this on deactivation. It spawns nothing and takes no lock — each
-	 * worker reads its own flag on the next drain iteration and exits.
-	 *
-	 * A type no longer in the fleet has no partition count to consult, so it is
-	 * swept across the full MAX_PARTITIONS range.
-	 *
-	 * @param string[] $groups Group names to kill.
-	 */
-	public function kill_readers( array $groups ): void {
-		$counts = [];
-		foreach ( Bootstrap::expand_workers() as $w ) {
-			$counts[ $w['type'] ] = \max( $counts[ $w['type'] ] ?? 0, $w['partition'] + 1 );
-		}
-		foreach ( $groups as $name ) {
-			$count = \min( self::MAX_PARTITIONS, \max( 1, $counts[ $name ] ?? self::MAX_PARTITIONS ) );
-			for ( $p = 0; $p < $count; $p++ ) {
-				$lock_path = "{$this->base_dir}/locks/{$name}.p{$p}.lock.d";
-				if ( \is_dir( $lock_path ) ) {
-					// Restart channel; force_release reads as a steal.
-					Lock_Node::request_restart_at( $lock_path );
-				}
-			}
-		}
 	}
 }

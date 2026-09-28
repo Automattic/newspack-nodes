@@ -125,7 +125,7 @@
       <h3>Tier one: every worker watches its peers</h3>
       <p>The <span class="mono">_fleet</span> node inside each live worker scans every peer's lock directory every <span class="blue">15 s</span> and POSTs a spawn for each slot it finds due.</p>
       <p>A pass spawns at most <span class="blue">four</span>, because each POST blocks a drain loop that has messages waiting. A cold fleet therefore comes up over consecutive passes.</p>
-      <p>A scan that throws logs the error once and swallows it, so one bad topology provider cannot crash every worker in lockstep.</p>
+      <p>A scan that throws propagates: the worker hands its slot on and raises it, so one bad topology provider fails every worker loud, each respawn held to the endpoint throttle.</p>
     </div>
     <div class="card" style="flex:1.25">
       <h3>Tier two: <span class="mono">newspack_nodes/reconcile</span> on WP-Cron, every minute, running <span class="mono">Bootstrap::reconcile_fleet()</span></h3>
@@ -134,8 +134,8 @@
       <div class="step"><div class="n">2</div><div class="t">Wake each on-demand reader holding a backlog.</div></div>
       <div class="step"><div class="n">3</div><div class="t">Retire lock directories outside the active set.</div></div>
       <div class="step"><div class="n">4</div><div class="t">Sweep orphan partitions.</div></div>
-      <div class="step"><div class="n">5</div><div class="t">Fire the periodic hook.</div></div>
-      <p style="margin-top:8px">Each step runs behind its own catch, and none needs a live worker, so retention runs while the fleet is down.</p>
+      <div class="step"><div class="n">5</div><div class="t">Emit alerts, sweep the delayed jobs, fire the periodic hook.</div></div>
+      <p style="margin-top:8px">Every step runs whatever an earlier one threw, then the failures escape together. None needs a live worker, so retention runs while the fleet is down.</p>
     </div>
     <div class="callout" style="flex:0.95">
       <h4>The one row to read first</h4>

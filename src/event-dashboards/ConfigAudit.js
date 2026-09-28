@@ -19,6 +19,7 @@ import { createPortal, useState } from '@wordpress/element';
 import { __, _n, sprintf } from '@wordpress/i18n';
 import { useLogTailStream } from './hooks/useLogTailStream';
 import { useNodeField } from '../runtime/react';
+import UnparseableLinesNotice from '@newspack-nodes/shared/components/UnparseableLinesNotice';
 import { formatLocalDateTime } from '@newspack-nodes/shared/utils/formatUtils';
 import './styles/config-audit.scss';
 import { views } from './nodes/register';
@@ -148,6 +149,8 @@ export default function ConfigAudit( { headerControlsSlot } ) {
 			aria-label={ __( 'Config Audit', 'newspack-nodes' ) }
 		>
 			{ renderedToolbar }
+
+			<UnparseableLinesNotice node="settings-audit:link" />
 
 			<p className="nodes-config-audit__note">
 				{ __(

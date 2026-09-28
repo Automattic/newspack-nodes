@@ -34,6 +34,7 @@ import {
 } from './message';
 import { byteLength, IoTelemetry } from './io-telemetry';
 import { defaultTransport } from './command-transport';
+import { attemptEach, raise } from './failures';
 import names from './reserved-node-names.json';
 
 /**
@@ -163,9 +164,12 @@ export class HttpOutNode extends Node {
 	 *
 	 * A synchronous reply is fed into the sink, which routes it by TO. A POST
 	 * that never landed answers each entry with a TM_ERROR to its minter,
-	 * since silence is indistinguishable from a 202 routed onward.
+	 * since silence is indistinguishable from a 202 routed onward. A receiver
+	 * that throws is no failed POST: every reply is still delivered, and what
+	 * the receivers threw rejects the returned promise after the last.
 	 *
 	 * @param {Array<Array>} entries Positional command Messages, TO routed.
+	 * @return {Promise<void>} Settles once every reply is delivered.
 	 */
 	_post( entries ) {
 		// Palette drop with no client: default to the localized transport.
@@ -180,25 +184,27 @@ export class HttpOutNode extends Node {
 			this.bytesWritten += size;
 			this.largestMsgSent = Math.max( this.largestMsgSent, size );
 		}
-		Promise.resolve( this.client.postBatch( entries, packed ) )
-			.then( ( messages ) => {
+		return Promise.resolve( this.client.postBatch( entries, packed ) ).then(
+			( messages ) => {
 				// Torn down mid-flight: nothing left to route to.
 				if ( '' === this.name ) {
 					return;
 				}
 				// A bare 202 resolves null: routed onward, nothing to route.
-				for ( const message of messages ?? [] ) {
-					// Read boundary: tally the wire size of each reply.
-					this.bytesRead += byteLength( pack( message ) );
-					this.counter++;
-					if ( ! this.acceptInbound( message ) ) {
-						continue;
-					}
-					this.tallyError( message );
-					this.sink?.fill( message );
-				}
-			} )
-			.catch( ( err ) => {
+				raise(
+					attemptEach( messages ?? [], ( message ) => {
+						// Read boundary: tally the wire size of each reply.
+						this.bytesRead += byteLength( pack( message ) );
+						this.counter++;
+						if ( ! this.acceptInbound( message ) ) {
+							return;
+						}
+						this.tallyError( message );
+						this.sink?.fill( message );
+					} )
+				);
+			},
+			( err ) => {
 				// Surface /command failures, rate-limited to avoid flood.
 				this.printLessOften(
 					`ERROR: HttpOut POST failed: ${ err?.message ?? err }`
@@ -208,15 +214,20 @@ export class HttpOutNode extends Node {
 				// answers nothing, which reads exactly like a 202 routed
 				// onward — so a node awaiting its reply would sit out its
 				// whole deadline for a failure already known here.
-				for ( const sent of entries ) {
-					if ( ! sent[ FROM ] ) {
-						continue;
-					}
-					this.sink?.fill(
-						failureReply( sent, err?.message ?? String( err ) )
-					);
-				}
-			} );
+				raise(
+					attemptEach(
+						entries.filter( ( sent ) => sent[ FROM ] ),
+						( sent ) =>
+							this.sink?.fill(
+								failureReply(
+									sent,
+									err?.message ?? String( err )
+								)
+							)
+					)
+				);
+			}
+		);
 	}
 
 	/**

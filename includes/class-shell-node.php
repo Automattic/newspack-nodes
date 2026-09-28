@@ -9,8 +9,8 @@
  * touch only shell state, and mints a Message for every other verb. The two
  * contexts differ in two switches: `want_reply( false )` marks each command
  * TM_NOREPLY because a booting worker has no console for the reply, and
- * `fatal_errors( true )` turns a cycle or an unterminated quote into a throw so
- * a mangled `.tsl` never half-builds a graph.
+ * `fatal_errors( true )` turns a broken include or an unterminated quote into a
+ * throw so a mangled `.tsl` never half-builds a graph.
  *
  * `parse_statements()` reads the same grammar statically — no interpolation, no
  * dispatch, no node construction — so `Topology_Analyzer` and the topology
@@ -66,9 +66,10 @@ class Shell_Node extends Node {
 	/**
 	 * Script-context error handling: REPLs log-and-continue (safe default) so
 	 * a typo'd include or quote doesn't kill the session; Topology_Loader
-	 * turns this on so a cyclic include or an unterminated quote in a .tsl
-	 * fails loud at worker boot rather than booting a half-built or silently
-	 * mangled graph. Mirrors the want_reply() setter shape.
+	 * turns this on so a missing, unreadable or cyclic include or an
+	 * unterminated quote in a .tsl fails loud at worker boot rather than
+	 * booting a half-built or silently mangled graph. Mirrors the
+	 * want_reply() setter shape.
 	 */
 	private bool $fatal_errors = false;
 
@@ -203,9 +204,14 @@ class Shell_Node extends Node {
 			// A fresh top-level script (not a recursive include) — new memo.
 			$this->included = [];
 		}
-		foreach ( $this->split_statements( $value ) as $statement ) {
-			$parsed = $this->parse( $statement );
-			if ( null !== $parsed ) {
+		// Every statement runs; what any threw escapes after the last.
+		$caught = Worker_Should_Stop::attempt_each(
+			$this->split_statements( $value ),
+			function ( string $statement ) use ( $sink, $message ): void {
+				$parsed = $this->parse( $statement );
+				if ( null === $parsed ) {
+					return;
+				}
 				++$this->counter;
 				if ( '' === $parsed[ Message::KEY ] ) {
 					$parsed[ Message::KEY ] = $message[ Message::KEY ];
@@ -213,7 +219,8 @@ class Shell_Node extends Node {
 				Command_Auth::sign( $parsed );
 				$sink->fill( $parsed );
 			}
-		}
+		);
+		Worker_Should_Stop::raise( $caught );
 	}
 
 	/**
@@ -599,7 +606,7 @@ class Shell_Node extends Node {
 				$cmd_verb  = $args[1] ?? '';
 				$cmd_args  = \array_slice( $args, 2 );
 				if ( '' === $cmd_path || '' === $cmd_verb ) {
-					$this->stdout( "usage: cmd <path> <verb> [<args>]\n" );
+					$this->refuse( "usage: cmd <path> <verb> [<args>]\n" );
 					return null;
 				}
 				$message[ Message::TYPE ]  = Message::TM_COMMAND;
@@ -627,7 +634,7 @@ class Shell_Node extends Node {
 			case 'request':
 			case 'request_node':
 				if ( '' === ( $args[0] ?? '' ) ) {
-					$this->stdout( "usage: request <path> <args>\n" );
+					$this->refuse( "usage: request <path> <args>\n" );
 					return null;
 				}
 				$message[ Message::TYPE ]  = Message::TM_REQUEST;
@@ -637,7 +644,7 @@ class Shell_Node extends Node {
 			case 'send':
 			case 'send_node':
 				if ( '' === ( $args[0] ?? '' ) ) {
-					$this->stdout( "usage: send <path> <bytes>\n" );
+					$this->refuse( "usage: send <path> <bytes>\n" );
 					return null;
 				}
 				$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
@@ -647,14 +654,14 @@ class Shell_Node extends Node {
 			case 'send_struct':
 			case 'send_struct_node':
 				if ( '' === ( $args[0] ?? '' ) ) {
-					$this->stdout( "usage: send_struct <path> <json>\n" );
+					$this->refuse( "usage: send_struct <path> <json>\n" );
 					return null;
 				}
 				// Runs in parse(), before central catch — decode error here.
 				try {
 					$decoded = \json_decode( \implode( ' ', \array_slice( $args, 1 ) ), true, 512, \JSON_THROW_ON_ERROR );
 				} catch ( \JsonException $e ) {
-					$this->stdout( 'send_struct: ' . $e->getMessage() . "\n" );
+					$this->refuse( 'send_struct: ' . $e->getMessage() . "\n" );
 					return null;
 				}
 				$message[ Message::TYPE ]  = Message::TM_STRUCT;
@@ -663,7 +670,7 @@ class Shell_Node extends Node {
 				break;
 			case 'send_eof':
 				if ( '' === ( $args[0] ?? '' ) ) {
-					$this->stdout( "usage: send_eof <path>\n" );
+					$this->refuse( "usage: send_eof <path>\n" );
 					return null;
 				}
 				$message[ Message::TYPE ] = Message::TM_EOF;
@@ -672,7 +679,7 @@ class Shell_Node extends Node {
 			case 'tell':
 			case 'tell_node':
 				if ( '' === ( $args[0] ?? '' ) ) {
-					$this->stdout( "usage: tell <path> <bytes>\n" );
+					$this->refuse( "usage: tell <path> <bytes>\n" );
 					return null;
 				}
 				$message[ Message::TYPE ]  = Message::TM_INFO;
@@ -765,12 +772,12 @@ class Shell_Node extends Node {
 		$max   = Dumper_Node::MAX_DEBUG_LEVEL;
 		$usage = \implode( '|', \range( 0, $max ) );
 		if ( '' !== $level && ( ! \ctype_digit( $level ) || (int) $level > $max ) ) {
-			$this->stdout( "usage: debug_level [$usage]\n" );
+			$this->refuse( "usage: debug_level [$usage]\n" );
 			return;
 		}
 		$dumper = Core::node( Node_Names::OUTPUT );
 		if ( ! $dumper instanceof Dumper_Node ) {
-			$this->stdout( 'debug_level: unknown node: ' . Node_Names::OUTPUT . "\n" );
+			$this->refuse( 'debug_level: unknown node: ' . Node_Names::OUTPUT . "\n" );
 			return;
 		}
 		$next = '' === $level
@@ -805,7 +812,7 @@ class Shell_Node extends Node {
 		}
 
 		if ( ! \preg_match( self::VAR_GRAMMAR, $assignment, $m ) ) {
-			$this->stdout( "var: expected <name> [ <op> [ <value> ] ]\n" );
+			$this->refuse( "var: expected <name> [ <op> [ <value> ] ]\n" );
 			return;
 		}
 		[ , $name, $op, $raw_value ] = $m + [ 3 => '' ];
@@ -814,14 +821,14 @@ class Shell_Node extends Node {
 		// ltrim only: tokenize stripped the edges, so the tail is content.
 		$value     = \ltrim( $raw_value );
 		if ( \str_contains( $name, ':' ) ) {
-			$this->stdout( "var: invalid name '{$name}' (':' is reserved for namespaces like config:)\n" );
+			$this->refuse( "var: invalid name '{$name}' (':' is reserved for namespaces like config:)\n" );
 			return;
 		}
 
 		if ( '' === $op ) {
 			// Shell3:630 fatals on trailing junk where an operator belongs.
 			if ( '' !== \trim( $value ) ) {
-				$this->stdout( "var: unexpected token in assignment: {$value}\n" );
+				$this->refuse( "var: unexpected token in assignment: {$value}\n" );
 				return;
 			}
 			// Reading defines the key — Shell3's `$hash->{$name} //= q()`.
@@ -859,7 +866,7 @@ class Shell_Node extends Node {
 			} elseif ( '--' === $op ) {
 				Core::$var[ $name ] = self::format_number( Core::num_float( $current, 0 ) - 1 );
 			} else {
-				$this->stdout( "var: bad arguments: {$op}\n" );
+				$this->refuse( "var: bad arguments: {$op}\n" );
 			}
 			return;
 		}
@@ -883,7 +890,7 @@ class Shell_Node extends Node {
 				return;
 			case '/=':
 				if ( 0.0 === Core::num_float( $value, 0 ) ) {
-					$this->stdout( "var: division by zero\n" );
+					$this->refuse( "var: division by zero\n" );
 					return;
 				}
 				Core::$var[ $name ] = self::format_number( Core::num_float( $current, 0 ) / Core::num_float( $value, 0 ) );
@@ -898,7 +905,7 @@ class Shell_Node extends Node {
 				);
 				return;
 			default:
-				$this->stdout( "var: invalid operator: {$op}\n" );
+				$this->refuse( "var: invalid operator: {$op}\n" );
 		}
 	}
 
@@ -1091,17 +1098,18 @@ class Shell_Node extends Node {
 	 * this top-level script is a `#pragma once` no-op. `secure`/`insecure` lines
 	 * are skipped (see declares_secure_level()), and flush_pending() judges a
 	 * quote or continuation the file leaves open. A REPL reports each refusal
-	 * rate-limited and carries on; fatal_errors turns the cycle and the open quote
-	 * into throws.
+	 * rate-limited and carries on; fatal_errors turns a missing or unopenable
+	 * include, the cycle and the open quote into throws. Every line of the file
+	 * runs whatever an earlier one threw, and the failures escape after the last.
 	 *
 	 * @param string $file Topology name, as written after `include`.
-	 * @throws \RuntimeException On a cycle, or on an open quote at EOF, when
-	 *                           fatal_errors is on.
+	 * @throws \Throwable On a missing or unopenable include, a cycle, or an open
+	 *                    quote at EOF, when fatal_errors is on; what any line threw.
 	 */
 	private function include_file( string $file ): void {
 		$path = $this->resolve_include( $file );
 		if ( null === $path ) {
-			$this->print_less_often( 'Shell: include: file not found: ', $file );
+			$this->refuse_include( 'Shell: include: file not found: ', $file );
 			return;
 		}
 		$real = \realpath( $path );
@@ -1111,11 +1119,7 @@ class Shell_Node extends Node {
 				' -> ',
 				\array_map( static fn ( string $p ): string => \basename( $p ), [ ...$this->include_stack, $key ] )
 			);
-			if ( $this->fatal_errors ) {
-				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
-				throw new \RuntimeException( "topology include cycle: $chain" );
-			}
-			$this->print_less_often( 'Shell: include: cycle: ', $chain );
+			$this->refuse_include( 'topology include cycle: ', $chain );
 			return;
 		}
 		if ( isset( $this->included[ $key ] ) ) {
@@ -1125,25 +1129,44 @@ class Shell_Node extends Node {
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen
 		$fh = @\fopen( $path, 'r' );
 		if ( false === $fh ) {
-			$this->print_less_often( 'Shell: include: cannot open: ', $path );
+			$this->refuse_include( 'Shell: include: cannot open: ', $path );
 			return;
 		}
+		$lines = [];
+		while ( ( $line = \fgets( $fh ) ) !== false ) {
+			$lines[] = \rtrim( $line, "\r\n" );
+		}
+		\fclose( $fh );
 		$this->included[ $key ] = true;
 		$this->include_stack[] = $key;
 		try {
-			while ( ( $line = \fgets( $fh ) ) !== false ) {
-				$line = \rtrim( $line, "\r\n" );
-				if ( self::declares_secure_level( $line ) ) {
-					continue;
-				}
-				$this->eval_script( $line );
-			}
+			$caught = Worker_Should_Stop::attempt_each(
+				\array_filter( $lines, static fn ( string $line ): bool => ! self::declares_secure_level( $line ) ),
+				$this->eval_script( ... )
+			);
 			// A quote/continuation left open at include EOF never resolves.
-			$this->flush_pending();
+			$caught = [ ...$caught, ...Worker_Should_Stop::attempt( $this->flush_pending( ... ) ) ];
 		} finally {
 			\array_pop( $this->include_stack );
-			\fclose( $fh );
 		}
+		Worker_Should_Stop::raise( $caught );
+	}
+
+	/**
+	 * Refuse an include that cannot be read: a throw at worker boot, where a
+	 * graph missing the include's nodes must not start, and a rate-limited line
+	 * in the REPL, which is the operator's answer there.
+	 *
+	 * @param string $what   Refusal prefix, naming the reason.
+	 * @param string $detail The name or path refused.
+	 * @throws \RuntimeException When fatal_errors is on.
+	 */
+	private function refuse_include( string $what, string $detail ): void {
+		if ( $this->fatal_errors ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+			throw new \RuntimeException( $what . $detail );
+		}
+		$this->print_less_often( $what, $detail );
 	}
 
 	/**
@@ -1183,11 +1206,23 @@ class Shell_Node extends Node {
 			$this->prompt       = $this->prompt_stash;
 			$this->prompt_stash = '';
 		}
+		$this->refuse( 'got EOF while waiting for tokens: ' . \trim( $pending ) . "\n" );
+	}
+
+	/**
+	 * Refuse a statement: a throw when loading a topology, where a skipped
+	 * statement boots a graph other than the one written, and a line on the
+	 * terminal in a REPL, which is the operator's answer there.
+	 *
+	 * @param string $line The refusal, carrying its own newline.
+	 * @throws \RuntimeException When fatal_errors is on.
+	 */
+	private function refuse( string $line ): void {
 		if ( $this->fatal_errors ) {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; esc_html() would render quotes as &#039;.
-			throw new \RuntimeException( 'got EOF while waiting for tokens: ' . \trim( $pending ) );
+			throw new \RuntimeException( \rtrim( $line, "\n" ) );
 		}
-		$this->stdout( 'got EOF while waiting for tokens: ' . \trim( $pending ) . "\n" );
+		$this->stdout( $line );
 	}
 
 	/**
@@ -1371,8 +1406,8 @@ class Shell_Node extends Node {
 	}
 
 	/**
-	 * Accessor: interactive sessions log-and-continue on a cycle or an open quote;
-	 * topology loads fail loud.
+	 * Accessor: interactive sessions log-and-continue on a broken include or an
+	 * open quote; topology loads fail loud.
 	 *
 	 * @param bool|null $value New setting, or null to read.
 	 * @return bool The setting in force.

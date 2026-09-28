@@ -218,11 +218,12 @@ class Topic_Node extends Node {
 	 * holds its locks for life while `dump_config()` advertises a debounce only a
 	 * replayed topology would honour. A repeat call in the same mode with the
 	 * same debounce returns early, because `Partition_Node::allow_large_writes()`
-	 * re-locks on every call.
+	 * re-locks on every call. Every materialized partition is offered the mode
+	 * whatever another threw, and the failures escape after the last.
 	 *
 	 * @param string $mode        One of Partition_Node's LARGE_WRITE_* values.
 	 * @param int    $debounce_ms Idle window before a debounced lock is freed; 0 holds it.
-	 * @throws \RuntimeException When a partition cannot acquire its write lock.
+	 * @throws \Throwable What the partitions threw, combined by `Worker_Should_Stop::raise()`.
 	 * @return self
 	 */
 	private function set_large_write_mode( string $mode, int $debounce_ms = 0 ): self {
@@ -231,9 +232,9 @@ class Topic_Node extends Node {
 		}
 		$this->large_write_mode = $mode;
 		$this->debounce_lock_ms = $debounce_ms;
-		foreach ( $this->partitions as $p ) {
-			$this->apply_large_write_mode( $p );
-		}
+		Worker_Should_Stop::raise(
+			Worker_Should_Stop::attempt_each( $this->partitions, $this->apply_large_write_mode( ... ) )
+		);
 		return $this;
 	}
 
@@ -244,10 +245,13 @@ class Topic_Node extends Node {
 	 * Wiring the sink also materializes all N partitions, because that is the
 	 * moment the Topic can take a message and the node registry is what `ls`
 	 * walks — a partition nothing has written to yet still belongs in it.
+	 * Every partition is attempted whatever another threw; the failures escape
+	 * after the last, and READY is announced only when all N stand.
 	 * Registrants arriving after this get READY's cached payload.
 	 *
 	 * @param Node|null $node New sink; omit the argument entirely to read.
 	 * @return Node|null The current sink.
+	 * @throws \Throwable What materializing the partitions threw, combined.
 	 */
 	public function sink( ?Node $node = null ): ?Node {
 		if ( 0 === \func_num_args() ) {
@@ -255,9 +259,9 @@ class Topic_Node extends Node {
 		}
 		$result = parent::sink( $node );
 		// The registry is what `ls` walks; an unwritten partition is in it.
-		for ( $i = 0; $i < $this->num_partitions; ++$i ) {
-			$this->partition( $i );
-		}
+		Worker_Should_Stop::raise(
+			Worker_Should_Stop::attempt_each( \range( 0, $this->num_partitions - 1 ), $this->partition( ... ) )
+		);
 		$this->set_state( 'READY', $this->name );
 		return $result;
 	}
@@ -404,13 +408,16 @@ class Topic_Node extends Node {
 	 * Flush every materialized partition's batch. A request-scope producer calls
 	 * it before handing off to a subprocess that appends to the same directory,
 	 * so its own messages land ahead of the child's rather than after them.
+	 * Every partition is flushed whatever another threw, and the failures escape
+	 * after the last.
 	 *
 	 * @api
+	 * @throws \Throwable What the flushes threw, combined by `Worker_Should_Stop::raise()`.
 	 */
 	public function flush(): void {
-		foreach ( $this->partitions as $p ) {
-			$p->flush();
-		}
+		Worker_Should_Stop::raise(
+			Worker_Should_Stop::attempt_each( $this->partitions, static fn ( Partition_Node $p ) => $p->flush() )
+		);
 	}
 
 	/** Largest single record any materialized partition has written, in bytes. */

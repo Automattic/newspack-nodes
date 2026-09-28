@@ -93,6 +93,9 @@ class Event_Framework {
 	/** True while inside `drain()`; how a node asks whether an event loop exists here (false in request scope). */
 	private bool $draining = false;
 
+	/** True while an `uninterruptible()` unit runs; `stop_check()` raises nothing then. */
+	private bool $holding = false;
+
 	/** Wall clock of the last `stop_check()`; throttles `pump()` to PUMP_INTERVAL_S. */
 	private float $last_pump = 0.0;
 
@@ -359,14 +362,37 @@ class Event_Framework {
 		if ( null === $this->continue_predicate ) {
 			return;
 		}
-		// A stderr write is not a stop boundary; logging it would self-throw.
-		if ( Core::in_stderr() ) {
+		// No boundary: a held unit, or a stderr write that would self-throw.
+		if ( $this->holding || Core::in_stderr() ) {
 			return;
 		}
 		$this->last_pump = Core::right_now();
 		// mid_work: the idle question is meaningless with a job in flight.
 		if ( ! ( $this->continue_predicate )( true ) ) {
 			throw new Worker_Should_Stop();
+		}
+	}
+
+	/**
+	 * Run $work as one unit no cooperative stop may split: `stop_check()`, and
+	 * so `pump()`, raises nothing while it runs. A stop that fell due inside
+	 * raises at the first check after it, because a held check leaves the pump
+	 * throttle where it was. `Consumer_Node`'s checkpoint writer runs the
+	 * snapshot saves and the frame commit this way, since a save that writes —
+	 * Flame_Builder's stats mirror — would otherwise stop between the state it
+	 * saved and the frame carrying that state. Reentrant: a nested unit hands
+	 * the outer one back its hold.
+	 *
+	 * @param \Closure(): void $work The unit.
+	 * @throws \Throwable Whatever $work throws.
+	 */
+	public function uninterruptible( \Closure $work ): void {
+		$outer         = $this->holding;
+		$this->holding = true;
+		try {
+			$work();
+		} finally {
+			$this->holding = $outer;
 		}
 	}
 

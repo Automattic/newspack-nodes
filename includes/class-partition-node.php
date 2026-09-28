@@ -5,7 +5,7 @@
  *
  * A Topic fans across Partitions, a Log extends one to write producer VALUEs,
  * `Job_Intake` writes one, a worker's IPC input is one, and every Consumer
- * reads one. Batching, the PIPE_BUF cap, rotation, retention, write-stall
+ * reads one. Batching, the PIPE_BUF cap, rotation, retention, the write
  * quarantine and the on-demand reader wake all live on this one write path,
  * because it is the only place that sees every producer.
  *
@@ -53,7 +53,7 @@ class Partition_Node extends Timer_Node {
 	/** Fail-loud `write_all()` and the `$fwrite` seam; every append goes through it. */
 	use File_Writer;
 
-	/** Quarantine for records whose WRITE stalled, replayable via `wp nodes ingest` (ADR-12). */
+	/** Quarantine for records whose segment would not open, replayable via `wp nodes ingest` (ADR-12). */
 	use Dead_Letter_Queue;
 
 	/** Age rule off: no segment is pruned for being old. */
@@ -435,18 +435,27 @@ class Partition_Node extends Timer_Node {
 	/**
 	 * Timer fire: drain the batch at the end of the current event-loop iteration,
 	 * and in debounced mode free the write lock once the burst has gone quiet.
+	 * A drain that throws still frees or re-arms the lock, and escapes after.
+	 *
+	 * @throws \Throwable What the drain and the lock step threw, combined.
 	 */
 	protected function fire(): void {
-		$this->flush();
-		// Debounced: free lock once idle past the window, else re-arm.
-		if ( $this->debounce_lock_ms > 0 && $this->lock_held ) {
-			$idle_ms = ( Core::$now - $this->last_write_at ) * 1000.0;
-			if ( $idle_ms >= $this->debounce_lock_ms ) {
-				$this->release_debounced_lock();
-			} else {
-				$this->set_timer( $this->debounce_lock_ms, true );
-			}
-		}
+		Worker_Should_Stop::raise(
+			Worker_Should_Stop::attempt(
+				$this->flush( ... ),
+				function (): void {
+					// Debounced: free the lock once idle, else re-arm.
+					if ( $this->debounce_lock_ms > 0 && $this->lock_held ) {
+						$idle_ms = ( Core::$now - $this->last_write_at ) * 1000.0;
+						if ( $idle_ms >= $this->debounce_lock_ms ) {
+							$this->release_debounced_lock();
+						} else {
+							$this->set_timer( $this->debounce_lock_ms, true );
+						}
+					}
+				}
+			)
+		);
 	}
 
 	/**
@@ -503,7 +512,7 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
-	 * Write-stall quarantine dir: `{base}/deadletter/{dir-under-base,dotted}` —
+	 * Write quarantine dir: `{base}/deadletter/{dir-under-base,dotted}` —
 	 * unique per partition dir, beside the read-side consumer DLQs. Anything
 	 * already under deadletter/ gets NONE, because a quarantine quarantining into
 	 * a quarantine chains forever on the full disk that caused the stall.
@@ -517,10 +526,10 @@ class Partition_Node extends Timer_Node {
 		}
 		$base = \rtrim( Config::get_base_directory(), '/' );
 		$rel  = \str_starts_with( $dir, "{$base}/" ) ? \substr( $dir, \strlen( $base ) + 1 ) : \ltrim( $dir, '/' );
-		if ( \str_starts_with( $rel, 'deadletter/' ) ) {
+		if ( \str_starts_with( $rel, Config::DEADLETTER_SUBDIR . '/' ) ) {
 			return '';
 		}
-		return "{$base}/deadletter/" . \str_replace( '/', '.', $rel );
+		return Config::deadletter_dir( $base ) . '/' . \str_replace( '/', '.', $rel );
 	}
 
 	/**
@@ -530,16 +539,24 @@ class Partition_Node extends Timer_Node {
 	 * contract) — close_handle does NOT flush, and remove_node's teardown flush lands
 	 * too late (after the Consumer has already committed). The large-write path already
 	 * wrote synchronously, so the flush is a no-op there.
+	 *
+	 * A flush that throws cannot replace the stop, or a generic error would reach the
+	 * dead-letter path instead of Worker_Base. `Worker_Should_Stop::raise()` joins the
+	 * two into one PLAIN stop carrying the failure: flush() cleared the batch before it
+	 * failed, so the record is not durable, and a plain stop is what makes the
+	 * successor replay it. A flush failure that is itself a stop — the quarantine's
+	 * own fill stopping — is combined rather than nested, so the stop escapes carrying
+	 * the write failure and never a second stop. pump() raises only the plain form,
+	 * so nothing clean is ever downgraded here.
 	 */
 	private function maybe_stop(): void {
 		try {
 			Event_Framework::instance()->pump();
 		} catch ( Worker_Should_Stop $e ) {
-			// Stop takes priority: a flush failure must not replace it.
 			try {
 				$this->flush();
 			} catch ( \Throwable $flush_error ) {
-				$this->print_less_often( 'flush failed during cooperative stop: ', $flush_error->getMessage() );
+				Worker_Should_Stop::raise( [ $e, $flush_error ] );
 			}
 			throw $e;
 		}
@@ -590,13 +607,6 @@ class Partition_Node extends Timer_Node {
 		}
 	}
 
-	/** Last resort for a request-scope Partition nobody tore down: flush, then close. */
-	public function __destruct() {
-		// Flush residual batch so request-scope writes aren't GC'd unwritten.
-		$this->flush();
-		$this->close_handle();
-	}
-
 	/**
 	 * Truncate the offsetlog AFTER a segment: delete every segment with id > $segment,
 	 * then reset the write state so the offsetlog resumes coherently FROM $segment —
@@ -641,15 +651,35 @@ class Partition_Node extends Timer_Node {
 		$this->segments_cache_time = Core::$now ?: Core::right_now();
 	}
 
-	/** Flush the residual batch, then close file handles + cap the lifted line size before normal Node teardown. */
+	/**
+	 * Flush the residual batch, then close file handles + cap the lifted line
+	 * size before normal Node teardown. Every step runs whatever an earlier one
+	 * threw — a release that fails must not leave the Partition registered, or
+	 * a rebuild under its name is refused — and every failure escapes after
+	 * the last.
+	 *
+	 * This and `flush()` are the only ways a batch reaches disk. The class has
+	 * no destructor: garbage collection may run anywhere, so a flush there could
+	 * throw from whatever statement dropped the last reference. A Partition
+	 * collected with a batch still held loses it, and its handles close with it.
+	 *
+	 * @throws \Throwable What the flush, the release and the teardown threw, combined.
+	 */
 	public function remove_node(): void {
-		$this->flush(); // deterministic shutdown flush (cleanup_all_nodes), not GC/__destruct
-		$this->close_handle();
-		// Through the single writer: a torn-down node must refuse >PIPE_BUF.
-		$this->enter_large_write_mode( self::LARGE_WRITE_NONE );
-		parent::remove_node();
-		// The cascade tore it down; drop the slot so ensure_ rebuilds.
-		$this->deadletter = null;
+		Worker_Should_Stop::raise(
+			Worker_Should_Stop::attempt(
+				// Deterministic shutdown flush (cleanup_all_nodes), not GC.
+				fn () => $this->flush(),
+				fn () => $this->close_handle(),
+				// The single writer: a torn-down node refuses >PIPE_BUF.
+				fn () => $this->enter_large_write_mode( self::LARGE_WRITE_NONE ),
+				fn () => parent::remove_node(),
+				// The cascade tore it down; drop the slot so ensure_ rebuilds.
+				function (): void {
+					$this->deadletter = null;
+				}
+			)
+		);
 	}
 
 	/**
@@ -669,7 +699,9 @@ class Partition_Node extends Timer_Node {
 	 *                         > 0 = debounced mode: acquire lazily on each write burst and
 	 *                         release after this many ms of idle so other writers can take
 	 *                         turns. Lock acquisition is deferred to the first write.
-	 * @throws \RuntimeException when a sibling name is refused, or the lock cannot be acquired (hold mode).
+	 * @throws Write_Lock_Held when another live writer still holds the lock at the deadline (hold mode).
+	 * @throws \RuntimeException when a sibling name is refused, or the lock cannot be taken for another reason (hold mode).
+	 * @throws Failures when the unwind after a refusal fails too; the refusal is its first member.
 	 * @return self
 	 */
 	public function allow_large_writes( int $max_wait_ms = self::DEFAULT_LOCK_WAIT_MS, int $debounce_ms = 0 ): self {
@@ -707,13 +739,7 @@ class Partition_Node extends Timer_Node {
 
 			// Hold mode: acquire for life; Timer beats, else fill() does.
 			if ( ! $lock->acquire( $max_wait_ms ) ) {
-				throw new \RuntimeException(
-					\esc_html(
-						"Partition::allow_large_writes() failed to acquire write lock at "
-						. "{$this->write_lock_path()} after {$max_wait_ms}ms — another live writer holds it. "
-						. 'Two concurrent writers on the same Partition is unsupported.'
-					)
-				);
+				throw $this->lock_refusal( $lock, $max_wait_ms );
 			}
 
 			$this->lock_held           = true;
@@ -727,8 +753,7 @@ class Partition_Node extends Timer_Node {
 			}
 		} catch ( \Throwable $e ) {
 			// Cap all the way down: a lift with no lock behind it corrupts.
-			$this->enter_large_write_mode( self::LARGE_WRITE_NONE );
-			throw $e;
+			Worker_Should_Stop::raise( [ $e, ...Worker_Should_Stop::attempt( fn () => $this->enter_large_write_mode( self::LARGE_WRITE_NONE ) ) ] );
 		}
 
 		return $this;
@@ -739,19 +764,15 @@ class Partition_Node extends Timer_Node {
 	 * re-syncing segment state from disk afterwards — another writer may have appended or
 	 * rotated while we held nothing, so the cached handle, segment and size are stale.
 	 *
-	 * @throws \RuntimeException when the lock can't be acquired within lock_max_wait_ms.
+	 * @throws Write_Lock_Held when another writer still holds it after lock_max_wait_ms.
+	 * @throws \RuntimeException when the lock cannot be taken for another reason.
 	 */
 	private function ensure_debounced_lock(): void {
 		if ( $this->lock_held || null === $this->write_lock ) {
 			return;
 		}
 		if ( ! $this->write_lock->acquire( $this->lock_max_wait_ms ) ) {
-			throw new \RuntimeException(
-				\esc_html(
-					'Partition::allow_large_writes() (debounced) failed to acquire write lock at '
-					. "{$this->write_lock_path()} after {$this->lock_max_wait_ms}ms — another writer holds it."
-				)
-			);
+			throw $this->lock_refusal( $this->write_lock, $this->lock_max_wait_ms );
 		}
 		$this->lock_held           = true;
 		$this->last_lock_heartbeat = Core::right_now();
@@ -761,14 +782,33 @@ class Partition_Node extends Timer_Node {
 		$this->segments_cache     = null;
 	}
 
-	/** Debounced mode: drain the batch, close the handle, and free the lock for other writers. */
-	private function release_debounced_lock(): void {
-		$this->flush();
-		$this->close_handle();
-		if ( null !== $this->write_lock ) {
-			$this->write_lock->release();
+	/**
+	 * Why the write lock could not be taken: `Write_Lock_Held` for contention,
+	 * which callers answer, and a plain failure naming the I/O cause otherwise.
+	 *
+	 * @param Lock_Node $lock      The lock whose acquire() just returned false.
+	 * @param int       $waited_ms How long the acquire waited.
+	 */
+	private function lock_refusal( Lock_Node $lock, int $waited_ms ): \RuntimeException {
+		$where = "Partition failed to acquire write lock at {$this->write_lock_path()}";
+		if ( 'lock_held' === $lock->acquire_failure() ) {
+			return new Write_Lock_Held( \esc_html( "{$where} after {$waited_ms}ms — another live writer holds it" ) );
 		}
-		$this->lock_held = false;
+		return new \RuntimeException( \esc_html( "{$where}: {$lock->acquire_failure()}" ) );
+	}
+
+	/**
+	 * Debounced mode: close the handle and free the lock for other writers,
+	 * once `fire()` has drained the batch. A release that throws still ends
+	 * the hold.
+	 */
+	private function release_debounced_lock(): void {
+		$this->close_handle();
+		try {
+			$this->write_lock?->release();
+		} finally {
+			$this->lock_held = false;
+		}
 	}
 
 	/**
@@ -776,10 +816,15 @@ class Partition_Node extends Timer_Node {
 	 * entry per record that survived.
 	 *
 	 * The batch is cleared before the write, so a throw below cannot re-flush the
-	 * same bytes. Index entries come last because an entry may only point at a
-	 * record that landed, so a torn batch is reported and left unindexed. The
-	 * torn record is cut off a sole-writer segment; on a shared one it stays,
-	 * and a reader dead-letters the line it cannot unpack and advances.
+	 * same bytes. A segment that will not open quarantines the batch and throws;
+	 * a short write throws without quarantining or indexing, because the
+	 * dead-letter is a Partition on the same filesystem and an .idx row for a
+	 * record that only partly landed points a reader at a tear. The torn record
+	 * is cut off a sole-writer segment; on a shared one it stays, and a reader
+	 * dead-letters the line it cannot unpack and advances. Index entries come
+	 * last: every record is offered its entry, and every failure escapes after.
+	 *
+	 * @throws \RuntimeException Naming the segment, when it will not open or a write falls short.
 	 */
 	public function flush(): void {
 		if ( '' === $this->batch ) {
@@ -800,41 +845,41 @@ class Partition_Node extends Timer_Node {
 			$this->rotate_segment();
 		}
 
+		\error_clear_last();
 		$fh = $this->get_handle();
 		if ( null === $fh ) {
-			$this->quarantine_unwritten( $batch_args, 0, 'segment open failed' );
-			return;
+			$cause = \error_get_last()['message'] ?? 'no handle';
+			$this->quarantine_unwritten(
+				$batch_args,
+				'segment open failed',
+				new \RuntimeException( "Partition: cannot open segment {$this->current_log_path}: {$cause}" )
+			);
 		}
 		$start_offset        = $this->current_size;
-		$wrote               = $this->write_all( $fh, $batch_bytes, $this->current_log_path );
+		$wrote               = $this->write_all( $fh, $batch_bytes );
 		$this->current_size += $wrote;
 
 		if ( $wrote < $batch_len ) {
 			$this->truncate_torn_record( $fh, $start_offset, $batch_args, $wrote );
-			// @longform Loud, and nothing else. Quarantining here would be a
-			// promise this process cannot keep: the dead-letter is a
-			// Partition on the same filesystem, so whatever refused these
-			// bytes refuses those too. Nothing is indexed either — an .idx
-			// row for a record that only partly landed points a reader at a
-			// tear. On a shared segment the torn tail therefore rides, and
-			// the reader dead-letters the line it cannot unpack.
-			$this->print_less_often(
-				'write stalled, batch not indexed: ',
-				"{$wrote}/{$batch_len} bytes to " . Core::as_string( $this->current_log_path )
-			);
 			$this->touch_segments_cache();
-			return;
+			throw new \RuntimeException(
+				"Partition: short write to segment {$this->current_log_path}: {$wrote} of {$batch_len} bytes landed"
+			);
 		}
 
+		$caught = [];
 		if ( null !== $this->index_callback ) {
-			$offset = $start_offset;
+			$by_offset = [];
+			$offset    = $start_offset;
 			foreach ( $batch_args as $item ) {
-				$this->write_index_entry( $item['message'], $offset, $item['size'] );
-				$offset += $item['size'];
+				$by_offset[ $offset ] = $item;
+				$offset              += $item['size'];
 			}
+			$caught = Worker_Should_Stop::attempt_each( $by_offset, $this->write_index_entry( ... ) );
 		}
 
 		$this->touch_segments_cache();
+		Worker_Should_Stop::raise( $caught );
 	}
 
 	/**
@@ -872,19 +917,23 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
-	 * Route the messages from $from onward through the dead-letter queue: loud,
-	 * and replayable via `wp nodes ingest`. With no quarantine dir configured the
-	 * trait logs and drops instead, still loudly.
+	 * Route every unwritten message through the dead-letter queue, replayable
+	 * via `wp nodes ingest`, then raise why the write failed together with every
+	 * quarantine that failed too. With no quarantine dir configured the trait
+	 * logs and drops each message instead, and the write failure still raises.
 	 *
 	 * @param array<int,array{message: array<int,mixed>,size: int}> $batch_args Batched messages.
-	 * @param int                                                   $from       First unwritten index.
-	 * @param string                                                $reason     Why the write failed, recorded on each record.
+	 * @param string                                                $reason     Recorded on each quarantined record.
+	 * @param \RuntimeException                                     $failure    Why the write failed.
+	 * @throws \Throwable The write failure, combined with any failed quarantine.
 	 */
-	protected function quarantine_unwritten( array $batch_args, int $from, string $reason ): void {
+	protected function quarantine_unwritten( array $batch_args, string $reason, \RuntimeException $failure ): never {
 		$this->ensure_deadletter();
-		foreach ( \array_slice( $batch_args, $from ) as $item ) {
-			$this->dead_letter( $item['message'], $reason );
-		}
+		$caught = Worker_Should_Stop::attempt_each(
+			$batch_args,
+			fn ( array $item ) => $this->dead_letter( $item['message'], $reason )
+		);
+		throw Worker_Should_Stop::combine( [ $failure, ...$caught ] );
 	}
 
 	/**
@@ -1164,15 +1213,16 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
-	 * Write one companion-index entry for the message at $offset. The caller
-	 * guards on $index_callback; a formatter that throws, returns nothing, or
-	 * finds no index handle costs the entry, never the record it points at.
+	 * Write one companion-index entry for the record at $offset. The caller
+	 * guards on $index_callback. A formatter returning null or '' skips the
+	 * entry; a formatter that throws, a missing index handle and a short write
+	 * all raise, after the record they would point at has already landed.
 	 *
-	 * @param array<int,mixed> $message The unpacked message handed to the index callback.
-	 * @param int              $offset  Byte offset of the record within its segment.
-	 * @param int              $length  Byte length of the record.
+	 * @param array{message: array<int,mixed>, size: int} $item   The batched message and its record length.
+	 * @param int                                         $offset Byte offset of the record within its segment.
+	 * @throws \RuntimeException Naming the index, when it is not open or a write falls short.
 	 */
-	private function write_index_entry( array $message, int $offset, int $length ): void {
+	private function write_index_entry( array $item, int $offset ): void {
 		$callback   = $this->index_callback;
 		$segment = $this->current_segment_id;
 		if ( null === $callback || null === $segment ) {
@@ -1181,20 +1231,21 @@ class Partition_Node extends Timer_Node {
 		$position = [
 			'segment' => $segment,
 			'offset'     => $offset,
-			'length'     => $length,
+			'length'     => $item['size'],
 		];
-		try {
-			$entry = $callback( $message, $position );
-			if ( null === $entry || '' === $entry ) {
-				return;
-			}
-			if ( ! \is_resource( $this->idx_fh ) ) {
-				$this->print_less_often( 'WARNING: no index handle; dropping entry for ', (string) $this->current_idx_path );
-				return;
-			}
-			$this->write_all( $this->idx_fh, $entry . "\n", $this->current_idx_path );
-		} catch ( \Throwable $e ) {
-			$this->print_less_often( 'WARNING: index callback threw: ', $e->getMessage() );
+		$entry = $callback( $item['message'], $position );
+		if ( null === $entry || '' === $entry ) {
+			return;
+		}
+		if ( ! \is_resource( $this->idx_fh ) ) {
+			throw new \RuntimeException( "Partition: index {$this->current_idx_path} is not open" );
+		}
+		$line  = $entry . "\n";
+		$wrote = $this->write_all( $this->idx_fh, $line );
+		if ( $wrote < \strlen( $line ) ) {
+			throw new \RuntimeException(
+				"Partition: short write to index {$this->current_idx_path}: {$wrote} of " . \strlen( $line ) . ' bytes landed'
+			);
 		}
 	}
 
@@ -1846,9 +1897,9 @@ class Partition_Node extends Timer_Node {
 	 *
 	 * For every dir matching `$offsets_dir/$glob`, read the newest committed record's VALUE
 	 * (via read_latest_value_at), descend `VALUE[$cache_key][$node][$items_key]`, and concatenate the
-	 * array-shaped items into one list. The per-dir read is fault-tolerant: a missing cache,
-	 * a non-array items list, or a non-array item is silently skipped. Callers memoize per
-	 * request — this re-globs and re-reads every call.
+	 * array-shaped items into one list. A missing cache, a non-array items list, or a
+	 * non-array item is skipped as data; a dir that cannot be read raises. Callers memoize
+	 * per request — this re-globs and re-reads every call.
 	 *
 	 * @api Public substrate primitive: a Service_CI that fans a digest snapshot across
 	 *      partitions (e.g. the example AI-newsletter insights demo) reads its accumulated
@@ -1895,7 +1946,7 @@ class Partition_Node extends Timer_Node {
 	 *
 	 * The offsetlog is a flat segmented-log dir; this opens it at $offsetlog_dir,
 	 * reads the last non-empty line of the newest segment, unpacks the packed Message,
-	 * and returns its VALUE (a decoded JSON object), or null if empty/unreadable.
+	 * and returns its VALUE (a decoded JSON object), or null when there is none.
 	 *
 	 * @api Public substrate primitive for dashboard/external consumers that read an
 	 *      offsetlog snapshot (e.g. a Service_CI serving dashboard state). No
@@ -1903,16 +1954,13 @@ class Partition_Node extends Timer_Node {
 	 *
 	 * @param string $offsetlog_dir Absolute path to the offset dir (e.g. {base}/offsets/firehose.p0).
 	 * @return array<array-key,mixed>|null The newest record's VALUE, or null.
+	 * @throws \RuntimeException When the directory is not a readable offsetlog, e.g. outside the base.
+	 * @throws \InvalidArgumentException When the newest record will not unpack.
 	 */
 	public static function read_latest_value_at( string $offsetlog_dir ): ?array {
-		try {
-			$offsetlog = new self();
-			$offsetlog->arguments( [ $offsetlog_dir ] );
-			return self::last_frame_of( $offsetlog );
-		} catch ( \Throwable $e ) {
-			Core::print_less_often( 'ignoring unreadable offsetlog: ', $e->getMessage() );
-			return null;
-		}
+		$offsetlog = new self();
+		$offsetlog->arguments( [ $offsetlog_dir ] );
+		return self::last_frame_of( $offsetlog );
 	}
 
 	/**
@@ -1921,8 +1969,12 @@ class Partition_Node extends Timer_Node {
 	 * before it, so an empty tail falls back a segment; without that fallback a
 	 * freshly-rotated offsetlog reads as "no data".
 	 *
+	 * A final frame that will not unpack raises: the committed cursor is then
+	 * unknown, and null would restart the reader from its default seek.
+	 *
 	 * @param self|null $offsetlog Offsetlog partition, or null.
 	 * @return array<array-key,mixed>|null The frame's VALUE, or null.
+	 * @throws \InvalidArgumentException When the newest frame will not unpack.
 	 */
 	public static function last_frame_of( ?self $offsetlog ): ?array {
 		if ( null === $offsetlog ) {
@@ -1945,13 +1997,8 @@ class Partition_Node extends Timer_Node {
 		if ( empty( $lines ) ) {
 			return null;
 		}
-		try {
-			$message = Message::unpacked( \end( $lines ) );
-		} catch ( \InvalidArgumentException $e ) {
-			Core::print_less_often( 'ignoring unparseable offsetlog entry: ', $e->getMessage() );
-			return null;
-		}
-		$value = $message[ Message::VALUE ];
+		$message = Message::unpacked( \end( $lines ) );
+		$value   = $message[ Message::VALUE ];
 		return \is_array( $value ) ? $value : null;
 	}
 
@@ -2033,47 +2080,63 @@ class Partition_Node extends Timer_Node {
 	 * The ONE write of $large_write_mode. Leaving LOCK caps the lock off, so a
 	 * mode that disclaims the lock cannot leave one held, its heartbeat beating
 	 * and `{name}:lock` registered — a state `dump_config()` cannot express, and
-	 * would replay as a silently dropped lock.
+	 * would replay as a silently dropped lock. The mode moves even when the
+	 * release throws, since the lock is left neither held nor registered.
 	 *
 	 * @param string $mode One of LARGE_WRITE_NONE, LARGE_WRITE_LOCK or LARGE_WRITE_VOID.
 	 */
 	private function enter_large_write_mode( string $mode ): void {
-		if ( self::LARGE_WRITE_LOCK !== $mode ) {
-			$this->release_write_lock();
+		try {
+			if ( self::LARGE_WRITE_LOCK !== $mode ) {
+				$this->release_write_lock();
+			}
+		} finally {
+			$this->large_write_mode = $mode;
 		}
-		$this->large_write_mode = $mode;
 	}
 
 	/**
 	 * Release and unregister the write lock and its heartbeat Timer, leaving
 	 * both slots empty — the exact inverse of the hold-mode setup above, and
 	 * the reason a refused one can be unwound without a hand-copy of it.
-	 * Unregistering matters as much as releasing: `{name}:lock` left behind
-	 * refuses the next Partition to take that name.
+	 *
+	 * The release runs FIRST, while the lock is still registered, so its
+	 * RELEASED reaches its listeners. The state reset and both retractions run
+	 * whatever the release threw — `{name}:lock` left behind refuses the next
+	 * Partition to take that name — and every failure escapes after the last.
+	 *
+	 * @throws \Throwable What the release and the retractions threw, combined.
 	 */
 	private function release_write_lock(): void {
 		// Release only a lock we hold — a debounced peer may own it now.
-		if ( $this->lock_held ) {
-			$this->write_lock?->release();
-		}
-		$this->write_lock         = null;
-		$this->heartbeat_timer    = null;
-		$this->lock_held          = false;
-		$this->lock_stale_timeout = 0;
-		$this->lock_max_wait_ms   = 0;
-		$this->debounce_lock_ms   = 0;
-		// Retracting unregisters both; a left `{name}:lock` refuses the next.
-		$this->retract_sibling( 'heartbeat' );
-		$this->retract_sibling( 'lock' );
+		$lock = $this->lock_held ? $this->write_lock : null;
+		Worker_Should_Stop::raise(
+			Worker_Should_Stop::attempt(
+				static fn () => $lock?->release(),
+				function (): void {
+					$this->write_lock         = null;
+					$this->heartbeat_timer    = null;
+					$this->lock_held          = false;
+					$this->lock_stale_timeout = 0;
+					$this->lock_max_wait_ms   = 0;
+					$this->debounce_lock_ms   = 0;
+				},
+				fn () => $this->retract_sibling( 'heartbeat' ),
+				fn () => $this->retract_sibling( 'lock' )
+			)
+		);
 	}
 
 	/**
 	 * Wake every on-demand worker tailing a partition written since the last
 	 * flush. Fire-and-forget; `Bootstrap::on_demand_wake_map()` caches the
 	 * lookup and `Spawn_Coordinator` throttles the spawn, so a partition nothing
-	 * on-demand tails costs one cached array read.
+	 * on-demand tails costs one cached array read. Every pending partition is
+	 * offered its wake, and every failure raises together after the last.
 	 *
-	 * @api Registered as a shutdown function; also called from the router tick.
+	 * @api Registered as a shutdown function; also called from the router tick
+	 *      and from `Worker_Base::release()`.
+	 * @throws \Throwable What the coordinator or any wake threw, combined.
 	 */
 	public static function flush_pending_wakes(): void {
 		if ( [] === self::$pending_wakes ) {
@@ -2081,16 +2144,14 @@ class Partition_Node extends Timer_Node {
 		}
 		$pending             = self::$pending_wakes;
 		self::$pending_wakes = [];
-		try {
-			$coordinator = Bootstrap::spawn_coordinator();
-			$now         = Core::right_now();
-			foreach ( $pending as $dir ) {
-				$coordinator->wake_on_demand( $dir, $now );
-			}
-		} catch ( \Throwable $e ) {
-			// Shutdown path: a failed wake must not eat the request.
-			Core::print_less_often( 'pending wake failed: ', $e->getMessage() );
-		}
+		$coordinator         = Bootstrap::spawn_coordinator();
+		$now                 = Core::right_now();
+		Worker_Should_Stop::raise(
+			Worker_Should_Stop::attempt_each(
+				$pending,
+				static fn ( string $dir ): int => $coordinator->wake_on_demand( $dir, $now )
+			)
+		);
 	}
 
 	/** Drop pending wakes without posting them. Tests only. */
@@ -2105,7 +2166,7 @@ class Partition_Node extends Timer_Node {
 
 	/**
 	 * Refuse the trait's requeue: it redelivers to the node's SINK, which is a
-	 * reader's downstream. This quarantine holds records whose WRITE stalled, and
+	 * reader's downstream. This quarantine holds records whose WRITE failed, and
 	 * a Partition's sink is `_command_interpreter` — redelivering there would
 	 * hand an unwritten data record to the interpreter and lose it. Retrying the
 	 * write is a different operation, and nothing asks for it.
@@ -2115,7 +2176,7 @@ class Partition_Node extends Timer_Node {
 	 */
 	public function requeue_deadletter( string $locator ): never {
 		unset( $locator );
-		throw new \RuntimeException( "requeue unavailable — this is a write-stall quarantine, not a reader's" );
+		throw new \RuntimeException( "requeue unavailable — this is a write quarantine, not a reader's" );
 	}
 
 	/**
@@ -2161,12 +2222,19 @@ class Partition_Node extends Timer_Node {
 	 * Index the newest segment's TAIL by a VALUE field, latest-record-wins.
 	 *
 	 * Reads at most `$max_bytes` from the END of the NEWEST segment and returns
-	 * `key => record` for the LAST one carrying each distinct `$key_field`.
-	 * Records append chronologically, so the tail holds the most recent ones; a
-	 * producer that writes every key on a short interval (Topic_Probe: every 15s)
-	 * keeps every active key present. A bounded tail read is cheaper than the
-	 * whole segment. A leading partial line (the tail may start mid-record) is
-	 * dropped; records whose key is missing/empty/non-string are skipped.
+	 * `key => record` under `records` for the LAST one carrying each distinct
+	 * `$key_field`. Records append chronologically, so the tail holds the most
+	 * recent ones; a producer that writes every key on a short interval
+	 * (Topic_Probe: every 15s) keeps every active key present. A bounded tail
+	 * read is cheaper than the whole segment. A leading partial line (the tail
+	 * may start mid-record) is dropped; records whose key is missing/empty/
+	 * non-string are skipped.
+	 *
+	 * A whole line that will not unpack is skipped and counted under
+	 * `unparseable_lines`. A multi-writer partition is never truncated after a
+	 * short write — another writer may already have appended past it — so a
+	 * torn line there is expected rather than corrupt, and the caller shows the
+	 * count wherever it shows the tail.
 	 *
 	 * Scope caveat: only the newest segment is read, so a key whose latest record
 	 * predates the last rotation — a producer silent for longer than the newest
@@ -2182,51 +2250,50 @@ class Partition_Node extends Timer_Node {
 	 * @param string     $dir       The partition dir.
 	 * @param int|string $key_field VALUE field to index by (an int for a positional record).
 	 * @param int        $max_bytes Max tail bytes to scan (default 128 KiB).
-	 * @return array<string,array{value: array<mixed>, timestamp: int}> key → the latest record.
+	 * @return array{records: array<string,array{value: array<mixed>, timestamp: int}>, unparseable_lines: int} Key → the latest record, and how many lines were skipped.
+	 * @throws \RuntimeException When the directory is not a readable log, e.g. outside the base.
 	 */
 	public static function read_tail_frames_by( string $dir, int|string $key_field, int $max_bytes = 131072 ): array {
-		$index = [];
-		try {
-			$log = new self();
-			$log->arguments( [ $dir ] );
-			$segments = $log->get_segments( true );
-			if ( empty( $segments ) ) {
-				return [];
-			}
-			$newest = \end( $segments );
-			$size   = $newest['size'];
-			$offset = $size > $max_bytes ? $size - $max_bytes : 0;
-			$bytes  = $log->read_at( $newest['id'], $offset, $size - $offset );
-			if ( '' === $bytes ) {
-				return [];
-			}
-			$lines = \explode( "\n", $bytes );
-			// A non-zero start can land mid-record; line one is a fragment.
-			if ( $offset > 0 ) {
-				\array_shift( $lines );
-			}
-			foreach ( $lines as $line ) {
-				if ( '' === $line ) {
-					continue;
-				}
-				$message = Message::unpacked( $line );
-				$value   = $message[ Message::VALUE ] ?? null;
-				if ( ! \is_array( $value ) ) {
-					continue;
-				}
-				$key = $value[ $key_field ] ?? '';
-				if ( \is_string( $key ) && '' !== $key ) {
-					// Records append chronologically, so the last one wins.
-					$index[ $key ] = [
-						'value'     => $value,
-						'timestamp' => Core::as_int( $message[ Message::TIMESTAMP ] ?? 0 ),
-					];
-				}
-			}
-			return $index;
-		} catch ( \Throwable $e ) {
-			return [];
+		$log = new self();
+		$log->arguments( [ $dir ] );
+		$tail     = [ 'records' => [], 'unparseable_lines' => 0 ];
+		$segments = $log->get_segments( true );
+		if ( empty( $segments ) ) {
+			return $tail;
 		}
+		$newest = \end( $segments );
+		$size   = $newest['size'];
+		$offset = $size > $max_bytes ? $size - $max_bytes : 0;
+		$bytes  = $log->read_at( $newest['id'], $offset, $size - $offset );
+		$lines  = '' === $bytes ? [] : \explode( "\n", $bytes );
+		// A non-zero start can land mid-record; line one is a fragment.
+		if ( $offset > 0 ) {
+			\array_shift( $lines );
+		}
+		foreach ( $lines as $line ) {
+			if ( '' === $line ) {
+				continue;
+			}
+			try {
+				$message = Message::unpacked( $line );
+			} catch ( \InvalidArgumentException ) {
+				++$tail['unparseable_lines'];
+				continue;
+			}
+			$value = $message[ Message::VALUE ] ?? null;
+			if ( ! \is_array( $value ) ) {
+				continue;
+			}
+			$key = $value[ $key_field ] ?? '';
+			if ( \is_string( $key ) && '' !== $key ) {
+				// Records append chronologically, so the last one wins.
+				$tail['records'][ $key ] = [
+					'value'     => $value,
+					'timestamp' => Core::as_int( $message[ Message::TIMESTAMP ] ?? 0 ),
+				];
+			}
+		}
+		return $tail;
 	}
 
 	/**

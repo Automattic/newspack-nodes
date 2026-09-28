@@ -46,12 +46,12 @@ class Tee_Node extends Node {
 	 * Every target is attempted even after one throws. A branch's failure says
 	 * nothing about its siblings, and a skipped healthy target loses the
 	 * message for good once the poison path dead-letters it and advances the
-	 * cursor. Whichever throwable `Worker_Should_Stop::outranks()` selects is raised after the
-	 * loop, the fan-out carve-out ADR-14 grants.
+	 * cursor. Everything the targets threw is raised after the loop, combined
+	 * by `Worker_Should_Stop::raise()` (ADR-14).
 	 *
 	 * @param array<int,mixed> $message The 7-field positional message array.
 	 * @throws \RuntimeException When no sink is wired.
-	 * @throws \Throwable Whichever target failure `Worker_Should_Stop::outranks()` kept, raised after the loop.
+	 * @throws \Throwable Every target failure, combined, raised after the loop.
 	 */
 	public function fill( array $message ): void {
 		$sink = $this->require_sink();
@@ -61,16 +61,14 @@ class Tee_Node extends Node {
 		$alive = $this->live_targets();
 
 		// Attempt every target: a skip is lost when the cursor advances.
-		$deferred = Worker_Should_Stop::attempt_each(
+		$caught = Worker_Should_Stop::attempt_each(
 			$alive,
 			function ( string $t ) use ( $sink, $message, $to ): void {
 				$message[ Message::TO ] = $this->target_path( $t, $to );
 				$sink->fill( $message );
 			}
 		);
-		if ( null !== $deferred ) {
-			throw $deferred;
-		}
+		Worker_Should_Stop::raise( $caught );
 	}
 
 	/**

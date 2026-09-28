@@ -20,6 +20,8 @@ import {
 	VALUE,
 	TIMESTAMP,
 	TM_ERROR,
+	TM_COMMAND,
+	TM_NOREPLY,
 	newMessage,
 } from './message';
 import names from './reserved-node-names.json';
@@ -129,7 +131,12 @@ export class RouterNode extends TimerNode {
 	 * only the path below itself and a deeper Router peels its own head in
 	 * turn.
 	 *
+	 * A TM_NOREPLY command that misses throws instead of bouncing: it asked for
+	 * no reply, so no TM_ERROR could carry the miss. PHP's `send_error()` throws
+	 * identically.
+	 *
 	 * @param {Array} message The 7-field positional message; TO is peeled in place.
+	 * @throws {Error} NOT_AVAILABLE for a TM_NOREPLY command no node answers.
 	 */
 	fill( message ) {
 		this.counter++;
@@ -155,6 +162,14 @@ export class RouterNode extends TimerNode {
 
 		const target = Core.node( head );
 		if ( null === target ) {
+			if (
+				message[ TYPE ] & TM_COMMAND &&
+				message[ TYPE ] & TM_NOREPLY
+			) {
+				// No bounce can carry it: a load line aimed at no node fails.
+				const verb = message[ VALUE ]?.name ?? '';
+				throw new Error( `NOT_AVAILABLE: ${ to } ${ verb }`.trimEnd() );
+			}
 			if ( message[ TYPE ] & TM_ERROR ) {
 				return;
 			}

@@ -3,46 +3,27 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Core;
+use Newspack_Nodes\Failures;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Router_Node;
 use Newspack_Nodes\Tee_Node;
+use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Worker_Should_Stop;
 use Newspack_Nodes\Worker_Should_Stop_Clean;
 
 /**
- * Which throwable escapes a fan-out when several targets fail at once.
+ * What escapes a fan-out when several targets fail at once.
  *
- * Tee defers the first throwable and re-throws after attempting every target
- * (ADR-14's fan-out carve-out). When the failures differ in kind the deferred
- * slot has to hold the one whose handling is SAFEST, because that decision moves
- * the consumer cursor:
+ * Tee attempts every target and raises afterwards what every one threw,
+ * combined (ADR-14). The result moves the consumer cursor, so the rule is
+ * about which outcome the reader acts on:
  *
- *   plain Worker_Should_Stop  → replay the message (cursor stays put)
- *   Worker_Should_Stop_Clean  → commit PAST it (cursor advances)
- *   anything else             → poison, dead-letter, cursor advances
+ *   every target a bare clean stop  → clean, commit PAST the message
+ *   any stop among them             → a plain stop carrying every failure, replay
+ *   failures alone                  → every failure propagates, dead-letter
  *
- * Advancing past a message that needed a replay loses it. Replaying one that was
- * already clean is a duplicate, which at-least-once already tolerates. So a plain
- * stop outranks both of the others, and ADR-14 says as much: "a stop must re-play,
- * not advance."
- *
- * THIS IS AN EXPERIMENT, and it REVERSES a deliberate earlier decision. The
- * previous rule was "Clean always wins, in either order" — Chris set it that way
- * because request-builder was producing duplicates and a sibling branch was
- * suspected of interfering with its clean stop. Preferring Clean suppressed the
- * symptom; whether it addressed the cause was never established.
- *
- * The revert signal is therefore specific: **duplicate deliveries in
- * request-builder**. The mechanism to look for is a fan-out where the
- * clean-stopping snapshot node has a SIBLING that raises a plain
- * Worker_Should_Stop in the same pass — a deadline hit mid-fan-out will do it.
- * Under the old rule the Clean survived and the cursor advanced; under this one
- * the plain stop wins and the message replays, which is the duplicate.
- *
- * If that happens, the sibling's plain stop is the thing to explain, not this
- * rule — but restoring `! ( $deferred instanceof Worker_Should_Stop_Clean )` in
- * Tee_Node::fill() and deleting the two Clean-losing cases below puts it back.
+ * Nothing a target threw is dropped for arriving beside something else.
  */
 #[CoversClass( Tee_Node::class )]
 class TeeStopPrecedenceTest extends TestCase {
@@ -50,7 +31,6 @@ class TeeStopPrecedenceTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		( new Router_Node() )->name( '_router' );
-		// Rate-limited error trail would otherwise pollute the run.
 		Core::set_stderr_handler( static fn ( $message ) => null );
 	}
 
@@ -88,41 +68,68 @@ class TeeStopPrecedenceTest extends TestCase {
 		return null;
 	}
 
-	/** Already true: the poison would advance the cursor, the stop must not let it. */
-	public function test_a_cooperative_stop_outranks_a_deferred_poison(): void {
-		$this->thrower( 'poison', new \RuntimeException( 'poison' ) );
-		$this->thrower( 'stopping', new Worker_Should_Stop( 'deadline' ) );
+	public function test_a_stop_beside_a_poison_is_a_stop_carrying_the_poison(): void {
+		$poison = new \RuntimeException( 'poison-11' );
+		$this->thrower( 'poison', $poison );
+		$this->thrower( 'stopping', new Worker_Should_Stop( 'deadline-12' ) );
 
 		$escaped = $this->escaping( 'poison', 'stopping' );
 
 		$this->assertInstanceOf( Worker_Should_Stop::class, $escaped );
-		$this->assertSame( 'deadline', $escaped->getMessage() );
+		$this->assertSame( $poison, $escaped->getPrevious(), 'the poison escapes with the stop' );
 	}
 
-	/**
-	 * The change. A deferred Clean used to be sticky, so a co-occurring plain stop
-	 * could not displace it and the cursor advanced past a message that needed a
-	 * replay.
-	 */
-	public function test_a_plain_stop_outranks_a_deferred_clean_stop(): void {
-		$this->thrower( 'clean', new Worker_Should_Stop_Clean( 'clean recycle' ) );
-		$this->thrower( 'stopping', new Worker_Should_Stop( 'deadline' ) );
+	public function test_a_plain_stop_after_a_clean_one_is_plain(): void {
+		$this->thrower( 'clean', new Worker_Should_Stop_Clean( 'clean-21' ) );
+		$this->thrower( 'stopping', new Worker_Should_Stop( 'deadline-22' ) );
 
 		$escaped = $this->escaping( 'clean', 'stopping' );
 
-		$this->assertNotInstanceOf( Worker_Should_Stop_Clean::class, $escaped, 'a clean stop must not survive a plain one' );
-		$this->assertInstanceOf( Worker_Should_Stop::class, $escaped );
-		$this->assertSame( 'deadline', $escaped->getMessage() );
+		$this->assertFalse( Worker_Should_Stop::is_clean( $escaped ), 'a clean stop must not survive a plain one' );
+		$this->assertSame( 'deadline-22', $escaped->getMessage() );
 	}
 
-	/** And not the other way round: a later Clean must not downgrade a deferred plain stop. */
-	public function test_a_clean_stop_does_not_displace_a_deferred_plain_stop(): void {
-		$this->thrower( 'stopping', new Worker_Should_Stop( 'deadline' ) );
-		$this->thrower( 'clean', new Worker_Should_Stop_Clean( 'clean recycle' ) );
+	public function test_a_clean_stop_after_a_plain_one_is_plain(): void {
+		$this->thrower( 'stopping', new Worker_Should_Stop( 'deadline-23' ) );
+		$this->thrower( 'clean', new Worker_Should_Stop_Clean( 'clean-24' ) );
 
 		$escaped = $this->escaping( 'stopping', 'clean' );
 
-		$this->assertNotInstanceOf( Worker_Should_Stop_Clean::class, $escaped );
-		$this->assertSame( 'deadline', $escaped->getMessage() );
+		$this->assertFalse( Worker_Should_Stop::is_clean( $escaped ) );
+		$this->assertSame( 'deadline-23', $escaped->getMessage() );
+	}
+
+	public function test_a_clean_stop_beside_a_poison_is_not_clean(): void {
+		$poison = new \RuntimeException( 'poison-31' );
+		$this->thrower( 'clean', new Worker_Should_Stop_Clean( 'clean-32' ) );
+		$this->thrower( 'poison', $poison );
+
+		$escaped = $this->escaping( 'clean', 'poison' );
+
+		$this->assertInstanceOf( Worker_Should_Stop::class, $escaped );
+		$this->assertFalse( Worker_Should_Stop::is_clean( $escaped ) );
+		$this->assertSame( $poison, $escaped->getPrevious() );
+	}
+
+	public function test_every_target_a_clean_stop_is_clean(): void {
+		$this->thrower( 'clean-a', new Worker_Should_Stop_Clean( 'clean-41' ) );
+		$this->thrower( 'clean-b', new Worker_Should_Stop_Clean( 'clean-42' ) );
+
+		$this->assertTrue( Worker_Should_Stop::is_clean( $this->escaping( 'clean-a', 'clean-b' ) ) );
+	}
+
+	public function test_two_poisons_both_escape_and_the_rest_still_receive(): void {
+		$first  = new \RuntimeException( 'poison-51' );
+		$second = new \RuntimeException( 'poison-52' );
+		$this->thrower( 'poison-a', $first );
+		$this->thrower( 'poison-b', $second );
+		$healthy = new Capture_Sink_Node();
+		$healthy->name( 'healthy' );
+
+		$escaped = $this->escaping( 'poison-a', 'healthy', 'poison-b' );
+
+		$this->assertCount( 1, $healthy->captured );
+		$this->assertInstanceOf( Failures::class, $escaped );
+		$this->assertSame( [ $first, $second ], $escaped->all() );
 	}
 }

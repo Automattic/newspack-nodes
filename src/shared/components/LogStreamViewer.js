@@ -2,9 +2,9 @@
  * LogStreamViewer — the chrome every log-stream dashboard wears.
  *
  * It owns the toolbar (counts and rate, source picker, filter, offset jump,
- * pause, step, debug, clear), the reconnect banner, the collapsible browse
- * rail and the virtualized row list, so the Partition Viewer, the Log Viewer
- * and an adopter's own stream all behave alike.
+ * pause, step, debug, clear), the reconnect banner, the skipped-lines notice,
+ * the collapsible browse rail and the virtualized row list, so the Partition
+ * Viewer, the Log Viewer and an adopter's own stream all behave alike.
  *
  * The consumer owns the node graph and passes what differs: the picker
  * catalog, the configured `LogBrowser` rail, the row renderer, and the
@@ -26,6 +26,7 @@ import { Core } from '../../runtime/core';
 import LogRowList from './LogRowList';
 import LogListHeader from './LogListHeader';
 import ConnectionBanner from './ConnectionBanner';
+import UnparseableLinesNotice from './UnparseableLinesNotice';
 import { HeaderSlot } from './HeaderSlot';
 import { readStorage, writeStorage } from '../utils/storage';
 
@@ -142,6 +143,7 @@ const debugHeader = ( hasKeyColumn ) => (
  * @param {string}                    [props.pickerLabel]        The picker's accessible name; defaulted, never absent.
  * @param {boolean}                   props.isPaused             The view's paused flag.
  * @param {boolean}                   props.connectionError      The view's reconnect flag.
+ * @param {string}                    [props.linkNode]           The stream's `<prefix>:link`, whose skipped-line count the notice reads; absent shows none.
  * @param {() => void}                props.onTogglePause        Pause or resume the stream.
  * @param {() => void}                [props.onStep]             Deliver one message; absent renders no step button, and it is disabled while the stream runs.
  * @param {(offset: string) => void}  [props.onJump]             Handler for the offset input, called on Enter with the trimmed text; absent renders no input.
@@ -174,6 +176,7 @@ export default function LogStreamViewer( {
 	pickerLabel = __( 'Browse a source', 'newspack-nodes' ),
 	isPaused,
 	connectionError,
+	linkNode,
 	onTogglePause,
 	onStep,
 	onJump,
@@ -426,6 +429,8 @@ export default function LogStreamViewer( {
 					'newspack-nodes'
 				) }
 			/>
+
+			<UnparseableLinesNotice node={ linkNode } />
 
 			{ belowToolbar }
 

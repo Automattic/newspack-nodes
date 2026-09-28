@@ -117,6 +117,8 @@ export class RemoteLinkNode extends SchemaReflection( Node ) {
 		 * @type {?( () => void )}
 		 */
 		this.onClose = null;
+		// Republished from the SseIn; see ensureChildren().
+		this.registrations.UNPARSEABLE_LINES = {};
 	}
 
 	/**
@@ -263,8 +265,9 @@ export class RemoteLinkNode extends SchemaReflection( Node ) {
 	/**
 	 * Build this link's SseIn, hand the shared `_http` its transport, and
 	 * register the handlers bridging the SseIn's `connected` handshake to a
-	 * Heartbeat slot lease. Idempotent: the first call that needs a stream
-	 * builds it, and every later call returns at once.
+	 * Heartbeat slot lease and republishing its UNPARSEABLE_LINES count on this
+	 * link. Idempotent: the first call that needs a stream builds it, and every
+	 * later call returns at once.
 	 *
 	 * Only the SseIn is created. `_http` and `_heartbeat` are looked up and
 	 * configured, because they are backbone every link on the page shares.
@@ -330,6 +333,12 @@ export class RemoteLinkNode extends SchemaReflection( Node ) {
 				hb.clearSlot( this );
 			}
 			this.onConnected?.( payload );
+			return true;
+		} );
+
+		// Republish on the link, the node a dashboard holds from its build.
+		sse.register( 'UNPARSEABLE_LINES', this.name, ( count ) => {
+			this.setState( 'UNPARSEABLE_LINES', count );
 			return true;
 		} );
 	}

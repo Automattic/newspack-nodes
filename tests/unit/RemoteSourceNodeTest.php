@@ -37,6 +37,15 @@ class Relay_Sink_Spy extends Node {
 		if ( 'stop' === $key ) {
 			throw new Worker_Should_Stop( 'cooperative stop' );
 		}
+		if ( 'stop-flush-failed' === $key ) {
+			throw new Worker_Should_Stop( 'cooperative stop', 0, new \RuntimeException( 'segment write refused: ENOSPC' ) );
+		}
+		if ( 'clean-bare' === $key ) {
+			throw new \Newspack_Nodes\Worker_Should_Stop_Clean( 'clean stop 5146' );
+		}
+		if ( 'clean-flush-failed' === $key ) {
+			throw new \Newspack_Nodes\Worker_Should_Stop_Clean( 'clean stop', 0, new \RuntimeException( 'segment write refused: EIO-63' ) );
+		}
 		$this->captured[] = $message;
 	}
 }
@@ -159,12 +168,11 @@ class RemoteSourceNodeTest extends TestCase {
 		$squatter->name( 'remote-austin:http-out' );
 		[ $node ] = $this->make_remote( 'remote-austin' );
 
-		try {
-			$node->fire();
-			$this->fail( 'expected the squatted http-out slot to be refused' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertStringContainsString( 'remote-austin:http-out already registered', $e->getMessage() );
-		}
+		$e = $this->caught(
+			fn () => $node->fire(),
+			'expected the squatted http-out slot to be refused'
+		);
+		$this->assertStringContainsString( 'remote-austin:http-out already registered', $e->getMessage() );
 
 		$this->assertNull( $this->read_private( $node, 'sse_in' ) );
 	}
@@ -563,6 +571,125 @@ class RemoteSourceNodeTest extends TestCase {
 		\parse_str( (string) \parse_url( \end( $captured )[ \CURLOPT_URL ], PHP_URL_QUERY ), $query );
 		$this->assertSame( [ 'segment' => 8, 'offset' => 704 ], \json_decode( $query['positions'], true )['firehose.p0'] );
 		$this->assertStringEndsWith( "no crumb here\n", $buffer->getValue( $node ), 'the partial line goes' );
+	}
+
+	/** A connect seam recording each request's asked position for firehose.p0. */
+	private function capture_asked_positions( array &$asked ): void {
+		SSE_In_Node::$curl_dispatch = static function ( array $opts ) use ( &$asked ): \CurlHandle {
+			\parse_str( (string) \parse_url( Core::as_string( $opts[ \CURLOPT_URL ] ), PHP_URL_QUERY ), $query );
+			$asked[] = \json_decode( Core::as_string( $query['positions'] ?? '' ), true )['firehose.p0'] ?? null;
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+			return \curl_init();
+		};
+	}
+
+	/** One crumbed record off the wire, unpolled. */
+	private function wire_record( SSE_In_Node $sse, string $crumb, string $value ): void {
+		$sse->process_sse_chunk( self::sse_frame( 'msg', [
+			Message::TYPE  => Message::TM_BYTESTREAM,
+			Message::ID    => $crumb,
+			Message::VALUE => $value,
+		] ) );
+	}
+
+	public function test_a_reconnect_after_skipped_lines_asks_past_them(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$asked = [];
+		$this->capture_asked_positions( $asked );
+		[ $node, $sink ] = $this->make_remote( 'remote-austin' );
+		Core::$now = 1000.0;
+		$node->fire();
+		$this->drain_connect_queue();
+		$sse = Core::node( 'remote-austin:sse-in' );
+		$this->wire_record( $sse, '5:0:30', 'r1-161' );
+		$sse->process_sse_chunk( self::unparseable_frame( 'COUNT 2 CURSORS firehose.p0=5:95' ) );
+
+		Core::$now = 1001.0;
+		$node->fire();
+		$sse->disconnect();
+		Core::$now = 1010.0;
+		$node->fire();
+		$this->drain_connect_queue();
+
+		$this->assertSame( [ 'r1-161' ], \array_column( $sink->captured, Message::VALUE ) );
+		$this->assertSame( [ 'segment' => 5, 'offset' => 95 ], $node->dump_metadata()['cursor'] );
+		$this->assertSame( [ 'segment' => 5, 'offset' => 95 ], \end( $asked ), 'the torn lines are not read, or counted, again' );
+	}
+
+	public function test_skipped_lines_wait_for_the_records_buffered_ahead_of_them(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$asked = [];
+		$this->capture_asked_positions( $asked );
+		[ $node, $sink ] = $this->make_remote( 'remote-austin' );
+		Core::$now = 1000.0;
+		$node->fire();
+		$this->drain_connect_queue();
+		$sse = Core::node( 'remote-austin:sse-in' );
+		$node->set_line_mode( true );
+		$this->wire_record( $sse, '5:0:30', 'r1-171' );
+		$this->wire_record( $sse, '5:30:30', 'r2-282' );
+		$sse->process_sse_chunk( self::unparseable_frame( 'COUNT 1 CURSORS firehose.p0=5:95' ) );
+
+		$node->fire();
+		$this->assertSame( [ 'segment' => 5, 'offset' => 30 ], $node->dump_metadata()['cursor'], 'r2 is still ahead of the skip' );
+
+		$sse->disconnect();
+		Core::$now = 1010.0;
+		$sse->maybe_connect();
+		$this->assertSame( [ 'segment' => 5, 'offset' => 95 ], \end( $asked ), 'the reopen asks past the buffer AND the skip' );
+
+		$node->fire();
+		$this->assertSame( [ 'r1-171', 'r2-282' ], \array_column( $sink->captured, Message::VALUE ) );
+		$this->assertSame( [ 'segment' => 5, 'offset' => 95 ], $node->dump_metadata()['cursor'] );
+	}
+
+	public function test_a_record_after_the_skip_supersedes_it(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		[ $node, $sink ] = $this->make_remote( 'remote-austin' );
+		$node->fire();
+		$sse = Core::node( 'remote-austin:sse-in' );
+		$sse->process_sse_chunk( self::unparseable_frame( 'COUNT 1 CURSORS firehose.p0=5:95' ) );
+		$this->wire_record( $sse, '5:95:40', 'r3-393' );
+
+		$node->poll();
+		Core::$now = 1001.0;
+		$node->fire();
+
+		$this->assertSame( [ 'r3-393' ], \array_column( $sink->captured, Message::VALUE ) );
+		$this->assertSame( [ 'segment' => 5, 'offset' => 135 ], $node->dump_metadata()['cursor'], 'never rewound to the skip' );
+	}
+
+	public function test_a_seek_abandons_a_pending_skip(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$node->fire();
+		$sse = Core::node( 'remote-austin:sse-in' );
+		$sse->process_sse_chunk( self::unparseable_frame( 'COUNT 1 CURSORS firehose.p0=5:95' ) );
+
+		$node->pause();
+		$node->next_offset( [ 'segment' => 7, 'offset' => 41 ] );
+		$node->play();
+		Core::$now = 1001.0;
+		$node->fire();
+
+		$this->assertSame( [ 'segment' => 7, 'offset' => 41 ], $node->dump_metadata()['cursor'] );
+	}
+
+	public function test_published_status_carries_the_skipped_line_count(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$node->fire();
+		$sse = Core::node( 'remote-austin:sse-in' );
+		$sse->process_sse_chunk( self::unparseable_frame( 'COUNT 4 CURSORS firehose.p0=5:95' ) );
+
+		Core::$now = 1001.0;
+		$node->fire();
+
+		$status = Core::$memd->get( Remote_Source_Node::status_key_for( 'remote-austin', 'firehose.p0' ) );
+		$this->assertSame( 4, $status['unparseable_lines'] );
 	}
 
 	public function test_a_bare_seek_resolves_on_the_first_record_even_without_cursors(): void {
@@ -1386,11 +1513,112 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( 0, $frame['attempts'], 'a clean-shutdown stop advances the cursor — no strike' );
 	}
 
+	public function test_assume_clean_shutdown_replays_a_stop_whose_downstream_flush_failed(): void {
+		// A plain stop carrying a previous means the downstream write never landed, so
+		// assume_clean_shutdown may not commit past it: the cursor stays at the message
+		// START (300), and the stop escapes plain with the flush failure attached.
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_remote_spy( 'remote-austin' );
+		$node->set_assume_clean_shutdown( true );
+		$node->fire();
+		$sse = Core::node( 'remote-austin:sse-in' );
+
+		$m                  = $this->stop_message( '7:300:44' );
+		$m[ Message::KEY ]  = 'stop-flush-failed';
+		$sse->process_sse_chunk( self::sse_frame( 'msg', $m ) );
+		try {
+			$node->poll();
+			$this->fail( 'expected Worker_Should_Stop' );
+		} catch ( Worker_Should_Stop $e ) {
+			$this->assertNotInstanceOf( \Newspack_Nodes\Worker_Should_Stop_Clean::class, $e, 'a failed flush never converts to clean' );
+			$this->assertSame( 'segment write refused: ENOSPC', $e->getPrevious()?->getMessage() );
+		}
+		$node->cooperative_stop( 'timeout', false );
+
+		$this->assertSame( 300, $this->newest_offsetlog_frame( $node )['offset'], 'replays from the message start, not past it' );
+	}
+
+	public function test_a_clean_stop_carrying_a_failure_replays_instead_of_committing_past(): void {
+		// A Clean stop carrying a previous is not clean: the downstream write never
+		// landed, so the cursor stays at the message START (300), not past it (344).
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_remote_spy( 'remote-austin' );
+		$node->fire();
+		$sse = Core::node( 'remote-austin:sse-in' );
+
+		$m                 = $this->stop_message( '7:300:44' );
+		$m[ Message::KEY ] = 'clean-flush-failed';
+		$sse->process_sse_chunk( self::sse_frame( 'msg', $m ) );
+		try {
+			$node->poll();
+			$this->fail( 'expected Worker_Should_Stop' );
+		} catch ( Worker_Should_Stop $e ) {
+			$this->assertFalse( Worker_Should_Stop::is_clean( $e ), 'a failed flush is never clean' );
+			$this->assertSame( 'segment write refused: EIO-63', $e->getPrevious()?->getMessage() );
+		}
+		$node->cooperative_stop( 'timeout', false );
+
+		$this->assertSame( 300, $this->newest_offsetlog_frame( $node )['offset'], 'replays from the message start, not past it' );
+	}
+
+	public function test_a_clean_stop_in_crawl_commits_past_the_record(): void {
+		// A clean stop says the record completed, crawl or not: the cursor
+		// moves past it (300 + 44), exactly as a Consumer's drain does.
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		$this->seed_offsetlog_frame( 7, 0, Remote_Source_Node::CRASH_MAX_ATTEMPTS, '' );
+		Core::$now = 1000.0;
+		[ $node ] = $this->make_remote_spy( 'remote-austin' );
+		$node->fire(); // restore → crawl.
+		$this->assertTrue( $this->read_private( $node, 'crawl' ) );
+		$sse = Core::node( 'remote-austin:sse-in' );
+
+		$m                 = $this->stop_message( '7:300:44' );
+		$m[ Message::KEY ] = 'clean-bare';
+		$sse->process_sse_chunk( self::sse_frame( 'msg', $m ) );
+		try {
+			$node->poll();
+			$this->fail( 'expected Worker_Should_Stop' );
+		} catch ( Worker_Should_Stop $e ) {
+			$this->assertTrue( Worker_Should_Stop::is_clean( $e ), 'a clean stop escapes clean in crawl' );
+			$this->assertSame( 'clean stop 5146', $e->getMessage(), 'the stop raised is the one the sink threw' );
+		}
+
+		$this->assertSame( 344, $this->read_private( $node, 'cursor_offset' ), 'commits past the record' );
+	}
+
+	public function test_a_clean_stop_on_a_crumbless_record_escapes_clean_and_moves_the_cursor_by_nothing(): void {
+		// A record with no breadcrumb has no position of its own, so committing
+		// past it advances the cursor by nothing: the stop stays clean, and the
+		// cursor stays at the prior record's end (140), where the spoke resumes.
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_remote_spy( 'remote-austin' );
+		$node->fire();
+		$sse = Core::node( 'remote-austin:sse-in' );
+
+		$this->deliver( $sse, '7:100:40', '' ); // healthy → cursor advances to 140.
+		$m                 = $this->stop_message( '' );
+		$m[ Message::KEY ] = 'clean-bare';
+		$sse->process_sse_chunk( self::sse_frame( 'msg', $m ) );
+		try {
+			$node->poll();
+			$this->fail( 'expected Worker_Should_Stop' );
+		} catch ( Worker_Should_Stop $e ) {
+			$this->assertTrue( Worker_Should_Stop::is_clean( $e ), 'a clean stop is never rewritten' );
+		}
+
+		$this->assertSame( 140, $this->read_private( $node, 'cursor_offset' ), 'a crumbless record moves the cursor by nothing' );
+		$this->assertStringNotContainsString( 'clean-bare', $this->read_private( $node, 'buffer' ), 'the completed line leaves the buffer' );
+	}
+
 	public function test_assume_clean_shutdown_does_not_advance_past_a_crumbless_message(): void {
 		// A crumb-less message has no position of its own — the cursor stands PAST the prior
-		// healthy record. assume_clean_shutdown must NOT advance from that base (that would
-		// be prior_end + this_line_len = a bogus offset that misaligns the stream); it
-		// falls through to the normal mid-dispatch replay, committing where the cursor stands.
+		// healthy record. assume_clean_shutdown commits past it by its crumb's length, which
+		// is zero, never by the local line's bytes (prior_end + this_line_len would be a bogus
+		// offset that misaligns the stream), so the cursor stays where it stands.
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
 		[ $node ] = $this->make_remote_spy( 'remote-austin' );
@@ -2233,16 +2461,17 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( 1748960000, $status['last_sse_heartbeat'] );
 	}
 
-	public function test_restore_position_ignores_unparseable_offsetlog_entry(): void {
+	public function test_restore_position_raises_an_unparseable_offsetlog_entry(): void {
+		// A junk final frame leaves the committed cursor unknown, so the restore
+		// raises rather than connecting from the default position.
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->seed_offsetlog_file( "this is not a packed message\n" );
 
 		[ $node ] = $this->make_remote( 'remote-austin' );
-		$node->fire();
 
-		// A junk line can't be unpacked → restore yields nothing → default cursor.
-		$sse = Core::node( 'remote-austin:sse-in' );
-		$this->assertSame( [ 'segment' => 0, 'offset' => 0 ], $sse->position() );
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'this is not a packed message' );
+		$node->fire();
 	}
 
 	public function test_restore_position_ignores_non_array_value(): void {

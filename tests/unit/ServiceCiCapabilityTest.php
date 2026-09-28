@@ -60,12 +60,11 @@ class ServiceCiCapabilityTest extends TestCase {
 
 		$this->assertSame( 'peeked', $commands['peek']( $ci, [], [] ) );
 
-		try {
-			$commands['mutate']( $ci, [], [] );
-			$this->fail( 'an unmarked verb must stay manage-gated' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertStringContainsString( 'permission denied', $e->getMessage() );
-		}
+		$e = $this->caught(
+			fn () => $commands['mutate']( $ci, [], [] ),
+			'an unmarked verb must stay manage-gated'
+		);
+		$this->assertStringContainsString( 'permission denied', $e->getMessage() );
 	}
 
 	public function test_default_map_keeps_read_verbs_admin_only(): void {

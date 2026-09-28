@@ -26,6 +26,8 @@ module.exports = {
 		'plugin:@wordpress/eslint-plugin/recommended',
 		'plugin:@wordpress/eslint-plugin/i18n',
 	],
+	// Every supported browser ships ES2021; the base env predates it.
+	env: { es2021: true },
 	rules: {
 		// knip reads `@testonly` as "this export exists for its unit test,
 		// not for callers"; without the entry, jsdoc rejects the unknown tag.

@@ -573,6 +573,39 @@ describe( 'HttpOut — an undelivered command', () => {
 		);
 	} );
 
+	// A receiver that throws is not a POST that failed: every other reply in
+	// the batch still lands, no minter is told its command went undelivered,
+	// and the receiver's failure escapes the delivery rather than vanishing.
+	it( 'delivers the rest of a batch past a receiver that throws, then raises', async () => {
+		const { node, postBatch } = makeNode();
+		const replies = [ 'fetch:a', 'fetch:b' ].map( ( to ) => {
+			const reply = newMessage();
+			reply[ TYPE ] = TM_RESPONSE;
+			reply[ TO ] = to;
+			return reply;
+		} );
+		postBatch.mockResolvedValue( replies );
+		const failure = new Error( 'view parse failed 3141' );
+		const delivered = [];
+		node.sink = {
+			fill: ( m ) => {
+				if ( 'fetch:a' === m[ TO ] ) {
+					throw failure;
+				}
+				delivered.push( m );
+			},
+		};
+
+		await expect(
+			node._post( [ routed( { to: 'topologies', from: 'fetch:a' } ) ] )
+		).rejects.toBe( failure );
+
+		expect( delivered.map( ( m ) => m[ TO ] ) ).toEqual( [ 'fetch:b' ] );
+		expect( delivered.every( ( m ) => ! ( m[ TYPE ] & TM_ERROR ) ) ).toBe(
+			true
+		);
+	} );
+
 	it( 'a failed POST for an entry with no FROM answers nobody', async () => {
 		// Distinct text: printLessOften suppresses a repeat within its window.
 		expectConsoleWarn(

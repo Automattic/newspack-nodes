@@ -41,10 +41,12 @@
  * /jobs/{handler}/{id} URL — is NOT a substrate concern. fill() runs the
  * `newspack_nodes/job_worker/before_job` FILTER ( $run, $handler, $id,
  * $message ) and fires the `…/after_job` action ( $handler, $id, $outcome )
- * around each handler so an application hooks its own. The action runs in a
- * finally block, so it fires even when the handler throws. A listener that
- * registered for fewer arguments still receives only those, so the substrate
- * can pass more without breaking it.
+ * around each handler so an application hooks its own. The action fires
+ * whatever the job did — ran, threw or was declined — and a listener that
+ * throws joins the job's own failure through `Worker_Should_Stop::raise()`,
+ * so neither masks the other. A listener that registered for fewer arguments
+ * still receives only those, so the substrate can pass more without breaking
+ * it.
  *
  * before_job is a filter so a listener can DECLINE a job it will not set a
  * context up for — an evtemplate whose id addresses another host reaches every
@@ -56,6 +58,8 @@
  * matters re-checks it rather than trusting the decline alone. after_job fires
  * for a declined job exactly as it does for a thrown one, so a second listener
  * that had already set itself up is torn down whatever order the two ran in.
+ * A before_job listener that THROWS fails the job: the throw propagates to the
+ * Consumer like a handler's, and after_job still fires first.
  *
  * SECURITY: the handler name must match HANDLER_NAME_PATTERN and the encoded
  * entry must fit MAX_JOB_SIZE. Nothing here inspects the parameters — a
@@ -178,7 +182,11 @@ class Job_Worker_Node extends Node {
 	 * The handler call sits between the before_job filter and the after_job action
 	 * the file header describes. A throw is poison by default — it propagates to
 	 * the Consumer, which dead-letters the entry (ADR-12) — unless the entry opted
-	 * into retries and schedule_retry() re-parks it.
+	 * into retries and schedule_retry() re-parks it. What the job and the
+	 * after_job listeners threw escapes combined, after after_job has fired, and
+	 * a job that throws settles no batch.
+	 *
+	 * @throws \Throwable What the job and the after_job listeners threw.
 	 *
 	 * @param array<int,mixed> $message Incoming Message; VALUE is the entry array.
 	 */
@@ -233,60 +241,44 @@ class Job_Worker_Node extends Node {
 		$identity = ( '' !== $id ) ? "{$handler}:{$id}" : $handler;
 		$ts       = Core::num_float( $entry['ts'] ?? 0, 0.0 );
 
-		$before_ok       = false;
-		$declined        = false;
-		$outcome         = null;
-		$retry_scheduled = false;
+		$declined = false;
+		$outcome  = null;
+		$failure  = null;
+		$caught   = [];
 		try {
-			try {
-				// Only an explicit false declines; a null carries on.
-				$before_ok = false !== \apply_filters( 'newspack_nodes/job_worker/before_job', true, $handler, $id, $message );
-				$declined  = ! $before_ok;
-			} catch ( Worker_Should_Stop $e ) {
-				throw $e;
-			} catch ( \Throwable $e ) {
-				// A listener's crash must not dead-letter the job; skip it.
-				$this->print_less_often( 'before_job listener threw: ', $e->getMessage() );
-			}
-			if ( $before_ok ) {
+			// Only an explicit false declines; a null carries on.
+			$declined = false === \apply_filters( 'newspack_nodes/job_worker/before_job', true, $handler, $id, $message );
+			if ( ! $declined ) {
 				$started  = Core::right_now(); // real wall clock: job duration must not use the frozen $now
 				$queue_ms = $ts > 0 ? \max( 0.0, ( $started - $ts ) * 1000 ) : 0.0;
 				try {
-					$result  = ( $handlers[ $handler ] )( $id, $parameters );
-					$outcome = $this->classify_outcome( $result );
+					$outcome = $this->classify_outcome( ( $handlers[ $handler ] )( $id, $parameters ) );
 				} catch ( Worker_Should_Stop $e ) {
 					// Cooperative stop is not a job failure: record nothing.
 					throw $e;
 				} catch ( \Throwable $e ) {
-					// Poison: record first — the throw skips post-try.
+					$failure = $e;
 					$outcome = [ 'status' => 'error', 'message' => $e->getMessage(), 'items_ok' => 0, 'items_err' => 0 ];
-					$this->record_job_stats( $handler, $identity, $started, $queue_ms, $outcome );
+				}
+				$this->record_job_stats( $handler, $identity, $started, $queue_ms, $outcome );
+				if ( null !== $failure ) {
 					// Opted-in retries re-park with backoff; else poison.
-					$retry_scheduled = $this->schedule_retry( $entry );
-					if ( ! $retry_scheduled ) {
-						throw $e;
-					}
-				}
-				if ( ! $retry_scheduled ) {
-					// The retry path already recorded inside its catch.
-					$this->record_job_stats( $handler, $identity, $started, $queue_ms, $outcome );
+					$this->schedule_retry( $entry, $failure );
 				}
 			}
-		} finally {
-			// after_job always fires; swallow throw so it can't mask the error.
-			try {
-				\do_action( 'newspack_nodes/job_worker/after_job', $handler, $id, $outcome );
-			} catch ( \Throwable $e ) {
-				// A cooperative stop carries no message; name its class.
-				$this->print_less_often( 'after_job listener threw: ', '' !== $e->getMessage() ? $e->getMessage() : \get_class( $e ) );
-			}
+		} catch ( \Throwable $e ) {
+			$caught[] = $e;
 		}
+		// after_job fires for every outcome; its throw joins the job's own.
+		Worker_Should_Stop::raise(
+			[ ...$caught, ...Worker_Should_Stop::attempt( static fn () => \do_action( 'newspack_nodes/job_worker/after_job', $handler, $id, $outcome ) ) ]
+		);
+		// Past the raise, a handler failure is one schedule_retry() parked.
+		$retry_scheduled = null !== $failure;
+
 		$batch = Core::as_string( $entry['batch'] ?? '', '' );
-		if ( '' !== $batch && ! $retry_scheduled && ! $declined ) {
-			// @longform A retry-scheduled job isn't settled; its batch stays
-			// open. Nor is a declined one: it is not this host's to settle, and
-			// the host that does own it settles it there. A before_job THROW
-			// still settles — that job failed here and no one else will run it.
+		// A declined job has no outcome: its owning host settles it there.
+		if ( null !== $outcome && '' !== $batch && ! $retry_scheduled ) {
 			$this->settle_batch( $batch, $outcome );
 		}
 		if ( $declined ) {
@@ -309,18 +301,21 @@ class Job_Worker_Node extends Node {
 
 	/**
 	 * Re-park a thrown job in jobdelay.p0 with exponential backoff, when it
-	 * opted in (`retries`) and has attempts left. Returns false — falling back
-	 * to the poison path — when not opted in, exhausted, or the requeue write
-	 * itself fails (a job must never vanish into a failed swallow).
+	 * opted in (`retries`) and has attempts left; otherwise raise the job's own
+	 * failure, the poison path. A requeue write that throws raises beside that
+	 * failure; one that refuses the entry, or meets a live writer holding the
+	 * delay log's lock, raises the failure alone. A job never vanishes into a
+	 * failed requeue.
 	 *
-	 * @param array<string,mixed> $entry The jobs.log entry that threw.
-	 * @return bool True when the entry is re-parked, so the caller swallows the throw.
+	 * @param array<string,mixed> $entry   The jobs.log entry that threw.
+	 * @param \Throwable          $failure What the handler threw.
+	 * @throws \Throwable The failure, joined by the requeue's own, when the entry is not re-parked.
 	 */
-	private function schedule_retry( array $entry ): bool {
+	private function schedule_retry( array $entry, \Throwable $failure ): void {
 		$retries = Core::as_int( $entry['retries'] ?? 0, 0 );
 		$attempt = Core::as_int( $entry['attempt'] ?? 0, 0 );
 		if ( $retries < 1 || $attempt >= $retries ) {
-			return false;
+			throw $failure;
 		}
 		$backoff = (float) \min( self::RETRY_MAX_S, self::RETRY_BASE_S * ( 2 ** $attempt ) );
 		$options = [
@@ -337,21 +332,18 @@ class Job_Worker_Node extends Node {
 		/** @var array<string,mixed> $parameters */
 		$parameters = Core::arr( $entry['parameters'] ?? [], [] );
 		try {
-			$intake = new Job_Intake();
-			try {
-				return $intake->write_job(
-					Core::as_string( $entry['handler'] ?? '', '' ),
-					'' !== $id ? $id : null,
-					$parameters,
-					'' !== $key ? $key : null,
-					$options
-				);
-			} finally {
-				$intake->close();
-			}
-		} catch ( \Throwable $e ) {
-			$this->print_less_often( 'retry requeue failed, falling back to poison path: ', $e->getMessage() );
-			return false;
+			$parked = Job_Intake::queue(
+				Core::as_string( $entry['handler'] ?? '', '' ),
+				'' !== $id ? $id : null,
+				$parameters,
+				'' !== $key ? $key : null,
+				options: $options
+			);
+		} catch ( \Throwable $requeue ) {
+			throw Worker_Should_Stop::combine( [ $failure, $requeue ] );
+		}
+		if ( ! $parked ) {
+			throw $failure;
 		}
 	}
 
@@ -367,16 +359,20 @@ class Job_Worker_Node extends Node {
 	 * member settles on a re-run or an operator `dl_requeue`s the quarantined
 	 * entry; a batch that never completes is pointing at its dead letter.
 	 *
-	 * @param string                                                              $batch   Batch id.
-	 * @param array{status:string,message:string,items_ok:int,items_err:int}|null $outcome Classified outcome (null: job skipped by a before_job crash).
+	 * The completion journal runs before the counters are reaped, and a journal
+	 * that throws still leaves them reaped, then propagates.
+	 *
+	 * @param string                                                         $batch   Batch id.
+	 * @param array{status:string,message:string,items_ok:int,items_err:int} $outcome Classified outcome.
+	 * @throws \Throwable What the completion journal threw.
 	 */
-	private function settle_batch( string $batch, ?array $outcome ): void {
+	private function settle_batch( string $batch, array $outcome ): void {
 		$backend = Cache_Backend::shared_first();
 		if ( null === $backend ) {
 			$this->print_less_often( 'batch job settled with no claim store: ', $batch );
 			return;
 		}
-		if ( null === $outcome || 'error' === $outcome['status'] ) {
+		if ( 'error' === $outcome['status'] ) {
 			$backend->increment( Job_Intake::batch_err_key( $batch ) );
 		}
 		$left = $backend->decrement( Job_Intake::batch_count_key( $batch ) );
@@ -395,11 +391,10 @@ class Job_Worker_Node extends Node {
 				"batch {$batch} complete" . ( $errors > 0 ? " ({$errors} job(s) failed)" : '' ),
 				$errors > 0 ? Alerts::SEVERITY_WARNING : Alerts::SEVERITY_RESOLVED
 			);
-		} catch ( \Throwable $e ) {
-			$this->print_less_often( 'batch completion journal failed: ', $e->getMessage() );
+		} finally {
+			$backend->delete( Job_Intake::batch_count_key( $batch ) );
+			$backend->delete( Job_Intake::batch_err_key( $batch ) );
 		}
-		$backend->delete( Job_Intake::batch_count_key( $batch ) );
-		$backend->delete( Job_Intake::batch_err_key( $batch ) );
 	}
 
 	/**

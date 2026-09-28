@@ -124,13 +124,12 @@ class VerbRoleDeclarationsTest extends TestCase {
 		$settings = new Settings_CI_Node();
 		$settings->name( 'settings' );
 		// Reached the handler: an unknown option is a REFUSAL, not a denial.
-		try {
-			$settings->commands()['set']( $settings, [ 'newspack_nodes_not_a_setting', '1' ], [] );
-			$this->fail( 'the handler should have rejected an unknown setting' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertStringNotContainsString( 'permission denied', $e->getMessage() );
-			$this->assertStringContainsString( 'unknown setting', $e->getMessage() );
-		}
+		$e = $this->caught(
+			fn () => $settings->commands()['set']( $settings, [ 'newspack_nodes_not_a_setting', '1' ], [] ),
+			'the handler should have rejected an unknown setting'
+		);
+		$this->assertStringNotContainsString( 'permission denied', $e->getMessage() );
+		$this->assertStringContainsString( 'unknown setting', $e->getMessage() );
 
 		$topologies = new Topologies_CI_Node();
 		$topologies->name( 'topologies' );

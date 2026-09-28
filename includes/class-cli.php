@@ -67,7 +67,7 @@ class CLI {
 	 */
 	public function attach_to_worker( string $worker_id ): array {
 		[ $type, $partition ] = self::parse_worker_id( $worker_id );
-		$lock_dir             = "{$this->base_dir}/locks/{$worker_id}.lock.d";
+		$lock_dir             = Spawn_Coordinator::lock_path( "{$this->base_dir}/locks", $type, $partition );
 		// Not Bootstrap's shared one: that hangs off the global tree.
 		if ( ! \is_dir( $lock_dir )
 			&& ! ( new Spawn_Coordinator( $this->base_dir ) )->wake_sleeping_worker( $worker_id, Core::right_now() ) ) {
@@ -119,14 +119,16 @@ class CLI {
 	 * `msgs` is the newest record's per-probe-interval count, not a cumulative.
 	 *
 	 * The rows come out in the order the tail window first names each reader, so
-	 * a caller rendering a table sorts them.
+	 * a caller rendering a table sorts them. `unparseable_lines` is how many
+	 * tail lines `read_probe_frames()` skipped, which every renderer shows.
 	 *
-	 * @return array<int,array{reader:string,source:string,partition:int,cursor_segment:int,cursor_offset:int,end_segment:int,end_size:int,distance:int,msgs:int}> A list; `reader` is the id.
+	 * @return array{rows: list<array{reader:string,source:string,partition:int,cursor_segment:int,cursor_offset:int,end_segment:int,end_size:int,distance:int,msgs:int}>, unparseable_lines: int} The rows, `reader` the id, and the skipped-line count.
 	 */
 	public function consumer_rows(): array {
 		$rows = [];
 		$now  = (int) Core::right_now();
-		foreach ( $this->read_probe_frames() as $reader => $frame ) {
+		$tail = $this->read_probe_frames();
+		foreach ( $tail['records'] as $reader => $frame ) {
 			// The reader id is an offsetlog basename ending `.p{N}`.
 			if ( ! \preg_match( '/^(.+)\.p(\d+)$/D', $reader, $m ) ) {
 				continue;
@@ -148,7 +150,7 @@ class CLI {
 			}
 			$rows[] = $row;
 		}
-		return $rows;
+		return [ 'rows' => $rows, 'unparseable_lines' => $tail['unparseable_lines'] ];
 	}
 
 	/**
@@ -164,8 +166,9 @@ class CLI {
 	 *
 	 * Rebuilding a dir from the record's basename assumes the flat layout the
 	 * probe's own SOURCE/READER basenames already assume. Every step must
-	 * resolve — a SOURCE to rebuild from, both dirs on disk, a readable
-	 * partition, a committed cursor — or the row is left alone: this row exists
+	 * resolve — a SOURCE to rebuild from, both dirs on disk, a committed cursor —
+	 * or the row is left alone, and a partition that will not read fails the
+	 * table rather than reporting a guess: this row exists
 	 * because a reader reported it, so that reader HAS a cursor, and an
 	 * offsetlog we cannot find means the basename did not rebuild the path, not
 	 * that there is no cursor. Reading it as absent would call the whole
@@ -178,6 +181,7 @@ class CLI {
 	 *
 	 * @param array{reader:string,source:string,partition:int,cursor_segment:int,cursor_offset:int,end_segment:int,end_size:int,distance:int,msgs:int} $row Stale row.
 	 * @return array{reader:string,source:string,partition:int,cursor_segment:int,cursor_offset:int,end_segment:int,end_size:int,distance:int,msgs:int}
+	 * @throws \Throwable What reading the partition or its cursor off disk threw.
 	 */
 	private function relag_from_disk( array $row ): array {
 		if ( '' === $row['source'] ) {
@@ -189,12 +193,7 @@ class CLI {
 		if ( ! \is_dir( $source_dir ) || ! \is_dir( $offsetlog_dir ) ) {
 			return $row;
 		}
-		try {
-			$lag = Consumer_Node::lag_from_disk( $source_dir, $offsetlog_dir );
-		} catch ( \Throwable $e ) {
-			// A status table must not fatal over one unreadable reader.
-			return $row;
-		}
+		$lag = Consumer_Node::lag_from_disk( $source_dir, $offsetlog_dir );
 		if ( ! $lag['cursor_known'] ) {
 			return $row;
 		}
@@ -225,9 +224,10 @@ class CLI {
 	 * `Partition_Node::read_tail_frames_by()` scans the newest segment's last
 	 * 128 KiB, so a reader with no record inside that window is absent from the
 	 * map rather than stale: it drops out of the status table instead of being
-	 * re-measured off disk.
+	 * re-measured off disk. Every Topic_Probe in the fleet appends to that one
+	 * log, so a line a short write tore is expected; it is skipped and counted.
 	 *
-	 * @return array<string,array{value:array<mixed>,timestamp:int}> Reader id → its latest record and that record's snapshot time.
+	 * @return array{records: array<string,array{value:array<mixed>,timestamp:int}>, unparseable_lines: int} Reader id → its latest record and that record's snapshot time, and the skipped-line count.
 	 */
 	public function read_probe_frames(): array {
 		return Partition_Node::read_tail_frames_by(
@@ -368,20 +368,18 @@ class CLI {
 	 * @param array<int,array<string,mixed>> $workers   List of `[type=>str, partition=>int]`.
 	 * @param array<string,bool>             $filter    Optional `[type => bool]`; empty or an `all` key = wildcard.
 	 * @param int                            $partition Only this partition if >= 0; -1 = any.
-	 * @return int Number of restart-flag files written; 0 under root, where `Config::write_denied()` refuses every write.
+	 * @return int Number of restart-flag files written.
+	 * @throws \Throwable Every flag write refused or failed, raised after each worker was offered its flag.
 	 */
 	public function restart_workers( array $workers, array $filter = [], int $partition = -1 ): int {
 		if ( ! Bootstrap::fleet_site() ) {
 			return 0;
 		}
-		$restarted = 0;
-		$wildcard  = empty( $filter ) || isset( $filter['all'] );
-
+		$wildcard = empty( $filter ) || isset( $filter['all'] );
+		$targets  = [];
 		foreach ( $workers as $w ) {
-			$type_raw = $w['type'] ?? '';
-			$type     = Core::as_string( $type_raw );
-			$p_raw    = $w['partition'] ?? 0;
-			$p        = Core::num_int( $p_raw );
+			$type = Core::as_string( $w['type'] ?? '' );
+			$p    = Core::num_int( $w['partition'] ?? 0 );
 			if ( '' === $type ) {
 				continue;
 			}
@@ -391,11 +389,9 @@ class CLI {
 			if ( $partition >= 0 && $p !== $partition ) {
 				continue;
 			}
-			if ( Lock_Node::request_restart_at( "{$this->base_dir}/locks/{$type}.p{$p}.lock.d" ) ) {
-				++$restarted;
-			}
+			$targets[] = [ $type, $p ];
 		}
-		return $restarted;
+		return Spawn_Coordinator::signal_workers( "{$this->base_dir}/locks", $targets, Lock_Node::request_restart_at( ... ) );
 	}
 
 	/**

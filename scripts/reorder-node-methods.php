@@ -320,16 +320,14 @@ function find_classes( string $src ): array {
  * (`$p->foo()`) is not an edge.
  *
  * Detection scans the TOKEN stream over the method's `[start_fn, end]` range,
- * so a call spelled inside a string, comment or heredoc is never an edge. The
- * reader takes a method index and a `$soft` flag: false returns the edges
- * outside any closure body, which is the call graph both policies sort on; true
- * returns only what the closure bodies call, which gates nothing and serves the
- * generic policy as a locality tie-break.
+ * so a call spelled inside a string, comment or heredoc is never an edge. A call
+ * inside a closure or arrow function the method defines counts as the method's
+ * own: the reader meets the callee there, so it belongs below the method.
  *
  * @param list<Token>       $toks    Every token in the file.
  * @param list<Member>      $methods The class's methods, in source order.
  * @param array<string,int> $names   Method name to its index in $methods.
- * @return callable(int,bool=): list<string>
+ * @return callable(int): list<string>
  */
 function callees_factory( array $toks, array $methods, array $names ): callable {
 	$nt  = count( $toks );
@@ -338,48 +336,18 @@ function callees_factory( array $toks, array $methods, array $names ): callable 
 		return $k;
 	};
 	/**
-	 * @param int  $i    Index into $methods.
-	 * @param bool $soft Return only what this method's closure bodies call.
+	 * @param int $i Index into $methods.
 	 * @return list<string> Callee method names.
 	 */
-	return function ( int $i, bool $soft = false ) use ( $toks, $nt, $methods, $names, $adv ) {
+	return function ( int $i ) use ( $toks, $nt, $methods, $names, $adv ) {
 		$start = $methods[ $i ]['start_fn'];
 		$end   = $methods[ $i ]['end'];
 		$first = [];
-		// @longform A closure body is a scope of its own: the call runs later,
-		// under whoever invokes the closure, so attributing it to the enclosing
-		// method invents an edge. Skip from `function`/`fn` to the end of its
-		// body. $depth counts open brackets of every kind once inside one, so a
-		// comma between parameters sits at depth 1; -1 means we are not inside.
-		$depth = -1;
-		$arrow = false;
 		for ( $k = 0; $k < $nt; $k++ ) {
 			$off = $toks[ $k ][2];
 			if ( $off < $start ) continue;
 			if ( $off >= $end ) break;
 			$id  = $toks[ $k ][0];
-			$own = ( $off === $start ); // own declaration, not a closure
-			if ( ! $own && $depth < 0 && ( T_FUNCTION === $id || T_FN === $id ) ) {
-				$depth = 0;
-				$arrow = ( T_FN === $id );
-				continue;
-			}
-			if ( $depth >= 0 ) {
-				$t = $toks[ $k ][1];
-				if ( in_array( $t, [ '{', '(', '[', '${', '#[' ], true ) ) {
-					$depth++;
-				} elseif ( '}' === $t || ')' === $t || ']' === $t ) {
-					$depth--;
-					// An arrow fn also ends at the bracket enclosing it.
-					if ( 0 === $depth && '}' === $t && ! $arrow ) $depth = -1;
-					elseif ( $depth < 0 ) $depth = -1;
-				} elseif ( $arrow && 0 === $depth && ( ';' === $t || ',' === $t ) ) {
-					$depth = -1; // arrow fn ends at the enclosing list's comma
-				}
-				if ( ! $soft ) continue;
-			} elseif ( $soft ) {
-				continue; // soft pass wants ONLY what the closures call
-			}
 			$txt = $toks[ $k ][1];
 			$is_this   = ( T_VARIABLE === $id && '$this' === $txt );
 			$is_self   = ( T_STRING === $id && 'self' === $txt );
@@ -529,15 +497,6 @@ function order_methods_generic( array $toks, array $methods ): array {
 		$visited[ $i ] = 1; $placed[] = $i;
 		foreach ( $callees[ $i ] as $j ) {
 			if ( 0 === --$indeg[ $j ] ) $freed[ $j ] = ++$tick;
-		}
-		// @longform A closure body's calls gate nothing — they run later, under
-		// whoever invokes the closure — but they still say "these two belong
-		// together", so they nudge an already-free method up the tie-break.
-		foreach ( $callees_of( $i, true ) as $cn ) {
-			$j = $names[ $cn ] ?? null;
-			if ( null !== $j && isset( $indeg[ $j ] ) && ! isset( $visited[ $j ] ) && 0 === $indeg[ $j ] ) {
-				$freed[ $j ] = ++$tick;
-			}
 		}
 	}
 	foreach ( $rest as $i ) if ( ! isset( $visited[ $i ] ) ) { $visited[ $i ] = 1; $placed[] = $i; } // cycle

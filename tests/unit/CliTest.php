@@ -406,6 +406,30 @@ class CliTest extends TestCase {
 		$this->assertSame( 1, $count );
 	}
 
+	public function test_restart_flags_every_worker_then_raises_the_write_it_could_not_make(): void {
+		$refusing = "{$this->tmp}/locks/quarry-workers.p0.lock.d";
+		$willing  = "{$this->tmp}/locks/quarry-workers.p1.lock.d";
+		mkdir( $refusing, 0755, true );
+		mkdir( $willing, 0755, true );
+		chmod( $refusing, 0555 );
+
+		$thrown = null;
+		try {
+			( new CLI( $this->tmp ) )->restart_workers( [
+				[ 'type' => 'quarry-workers', 'partition' => 0 ],
+				[ 'type' => 'quarry-workers', 'partition' => 1 ],
+			] );
+		} catch ( \RuntimeException $e ) {
+			$thrown = $e;
+		} finally {
+			chmod( $refusing, 0755 );
+		}
+
+		$this->assertNotNull( $thrown, 'a restart that never landed must not report success' );
+		$this->assertStringContainsString( $refusing, $thrown->getMessage() );
+		$this->assertFileExists( $willing . '/' . Lock_Node::RESTART_FLAG, 'a sibling after the failure still hears' );
+	}
+
 	public function test_restart_skips_when_lock_dir_missing(): void {
 		// No lock dirs created → request_restart_at returns false.
 		$cli     = new CLI( $this->tmp );
@@ -470,7 +494,7 @@ class CliTest extends TestCase {
 		$this->seed_source( 'firehose.p0', 900 );
 		$this->seed_cursor( 'firehose.p0', 250 );
 
-		$rows = ( new CLI( $this->tmp ) )->consumer_rows();
+		$rows = ( new CLI( $this->tmp ) )->consumer_rows()['rows'];
 
 		$this->assertSame( 650, $rows[0]['distance'] );
 		$this->assertSame( 250, $rows[0]['cursor_offset'] );
@@ -484,7 +508,7 @@ class CliTest extends TestCase {
 		$this->seed_source( 'firehose.p0', 900 );
 		$this->seed_cursor( 'firehose.p0', 250 );
 
-		$rows = ( new CLI( $this->tmp ) )->consumer_rows();
+		$rows = ( new CLI( $this->tmp ) )->consumer_rows()['rows'];
 
 		$this->assertSame( 17, $rows[0]['distance'] );
 		$this->assertSame( 5, $rows[0]['msgs'] );
@@ -496,7 +520,7 @@ class CliTest extends TestCase {
 		$this->seed_probe_record( [ 'reader' => 'firehose.p0', 'distance' => 0, 'age_s' => 300 ] );
 		$this->seed_source( 'firehose.p0', 900 );
 
-		$rows = ( new CLI( $this->tmp ) )->consumer_rows();
+		$rows = ( new CLI( $this->tmp ) )->consumer_rows()['rows'];
 
 		$this->assertSame( 0, $rows[0]['distance'] );
 	}
@@ -505,7 +529,7 @@ class CliTest extends TestCase {
 		$this->seed_probe_record( [ 'reader' => 'firehose.p0', 'distance' => 0, 'age_s' => 300 ] );
 		$this->seed_cursor( 'firehose.p0', 250 );
 
-		$rows = ( new CLI( $this->tmp ) )->consumer_rows();
+		$rows = ( new CLI( $this->tmp ) )->consumer_rows()['rows'];
 
 		$this->assertSame( 0, $rows[0]['distance'] );
 	}
@@ -517,16 +541,40 @@ class CliTest extends TestCase {
 		$this->seed_source( 'firehose.p0', 900 );
 		$this->seed_cursor( 'firehose.p0', null );
 
-		$rows = ( new CLI( $this->tmp ) )->consumer_rows();
+		$rows = ( new CLI( $this->tmp ) )->consumer_rows()['rows'];
 
 		$this->assertSame( 0, $rows[0]['distance'], 'no cursor is no opinion' );
+	}
+
+	public function test_consumer_rows_raises_a_stale_row_whose_disk_read_fails(): void {
+		$this->seed_probe_record( [ 'reader' => 'firehose.p0', 'distance' => 0, 'age_s' => 300 ] );
+		$this->seed_source( 'firehose.p0', 900 );
+		$this->seed_cursor( 'firehose.p0', 250 );
+		$refused                                = new \RuntimeException( 'segment listing refused-8120' );
+		\Newspack_Nodes\Partition_Node::$scandir = static function ( string $dir ) use ( $refused ): array {
+			if ( \str_ends_with( $dir, '/logs/firehose.p0' ) ) {
+				throw $refused;
+			}
+			return \scandir( $dir ) ?: [];
+		};
+
+		$caught = null;
+		try {
+			( new CLI( $this->tmp ) )->consumer_rows()['rows'];
+		} catch ( \RuntimeException $e ) {
+			$caught = $e;
+		} finally {
+			\Newspack_Nodes\Partition_Node::$scandir = null;
+		}
+
+		$this->assertSame( $refused, $caught );
 	}
 
 	public function test_read_probe_frames_keys_records_by_reader(): void {
 		$this->seed_probe_record( [ 'reader' => 'firehose.p0', 'cursor_segment' => 2, 'cursor_offset' => 50 ] );
 		$this->seed_probe_record( [ 'reader' => 'jobintake.p0', 'cursor_segment' => 1, 'cursor_offset' => 9 ] );
 
-		$index = ( new CLI( $this->tmp ) )->read_probe_frames();
+		$index = ( new CLI( $this->tmp ) )->read_probe_frames()['records'];
 
 		$this->assertSame( [ 'firehose.p0', 'jobintake.p0' ], \array_keys( $index ) );
 		$this->assertSame( 2, $index['firehose.p0']['value'][ Probe_Record::CURSOR_SEGMENT ] );
@@ -538,13 +586,13 @@ class CliTest extends TestCase {
 		// is indistinguishable from a live one's.
 		$this->seed_probe_record( [ 'reader' => 'firehose.p0' ] );
 
-		$index = ( new CLI( $this->tmp ) )->read_probe_frames();
+		$index = ( new CLI( $this->tmp ) )->read_probe_frames()['records'];
 
 		$this->assertGreaterThan( 0, $index['firehose.p0']['timestamp'] );
 	}
 
 	public function test_read_probe_frames_empty_when_no_log(): void {
-		$this->assertSame( [], ( new CLI( $this->tmp ) )->read_probe_frames() );
+		$this->assertSame( [ 'records' => [], 'unparseable_lines' => 0 ], ( new CLI( $this->tmp ) )->read_probe_frames() );
 	}
 
 	// ── consumer_rows() ──────────────────────────────────────────────────────────
@@ -556,7 +604,7 @@ class CliTest extends TestCase {
 			'end_segment' => 7, 'end_size' => 2048, 'distance' => 4096, 'msgs' => 31,
 		] );
 
-		$rows = ( new CLI( $this->tmp ) )->consumer_rows();
+		$rows = ( new CLI( $this->tmp ) )->consumer_rows()['rows'];
 
 		$this->assertCount( 1, $rows );
 		$row = $rows[0];
@@ -573,13 +621,26 @@ class CliTest extends TestCase {
 
 	public function test_consumer_rows_parses_partition_from_the_reader_name(): void {
 		$this->seed_probe_record( [ 'reader' => 'requests.p3', 'source' => 'requests.p3' ] );
-		$rows = ( new CLI( $this->tmp ) )->consumer_rows();
+		$rows = ( new CLI( $this->tmp ) )->consumer_rows()['rows'];
 		$this->assertSame( 3, $rows[0]['partition'] );
 	}
 
 	public function test_consumer_rows_skips_a_reader_without_a_partition_suffix(): void {
 		$this->seed_probe_record( [ 'reader' => 'malformed' ] );
-		$this->assertSame( [], ( new CLI( $this->tmp ) )->consumer_rows() );
+		$this->assertSame( [], ( new CLI( $this->tmp ) )->consumer_rows()['rows'] );
+	}
+
+	public function test_consumer_rows_counts_an_unparseable_probe_line(): void {
+		// topicprobe.p0 has many writers, so a torn line is expected; the rows
+		// around it still render, and the count says how many were skipped.
+		$this->seed_probe_record( [ 'reader' => 'firehose.p0', 'distance' => 6203 ] );
+		file_put_contents( "{$this->tmp}/logs/topicprobe.p0/0.log", "[16,\"torn\n", FILE_APPEND );
+		$this->seed_probe_record( [ 'reader' => 'requests.p2', 'distance' => 91 ] );
+
+		$result = ( new CLI( $this->tmp ) )->consumer_rows();
+
+		$this->assertSame( 1, $result['unparseable_lines'] );
+		$this->assertSame( [ 'firehose.p0', 'requests.p2' ], \array_column( $result['rows'], 'reader' ) );
 	}
 
 	// ── format_bytes() ─────────────────────────────────────────────────────────
@@ -614,30 +675,28 @@ class CliTest extends TestCase {
 
 	public function test_require_flag_int_errors_on_a_malformed_flag_naming_it(): void {
 		$GLOBALS['_test_wp_cli_errors'] = [];
-		try {
-			CLI::require_flag_int( [ 'partition' => 'abc' ], 'partition', -7 );
-			$this->fail( 'a malformed operator flag must not resolve to a partition' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertStringContainsString(
-				'--partition must be a non-negative integer; got: abc',
-				$GLOBALS['_test_wp_cli_errors'][0] ?? ''
-			);
-		}
+		$this->caught(
+			fn () => CLI::require_flag_int( [ 'partition' => 'abc' ], 'partition', -7 ),
+			'a malformed operator flag must not resolve to a partition'
+		);
+		$this->assertStringContainsString(
+			'--partition must be a non-negative integer; got: abc',
+			$GLOBALS['_test_wp_cli_errors'][0] ?? ''
+		);
 	}
 
 	public function test_require_flag_int_renders_control_bytes_in_the_rejected_value(): void {
 		// The refusal is echoed to a terminal; a stripped byte would hide from
 		// the operator what was actually in the flag.
 		$GLOBALS['_test_wp_cli_errors'] = [];
-		try {
-			CLI::require_flag_int( [ 'partition' => "4419\x1B[2J" ], 'partition', -7 );
-			$this->fail( 'a malformed operator flag must not resolve to a partition' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertStringContainsString(
-				'got: 4419<1B>[2J',
-				$GLOBALS['_test_wp_cli_errors'][0] ?? ''
-			);
-		}
+		$this->caught(
+			fn () => CLI::require_flag_int( [ 'partition' => "4419\x1B[2J" ], 'partition', -7 ),
+			'a malformed operator flag must not resolve to a partition'
+		);
+		$this->assertStringContainsString(
+			'got: 4419<1B>[2J',
+			$GLOBALS['_test_wp_cli_errors'][0] ?? ''
+		);
 	}
 
 	public function test_parse_worker_id_renders_control_bytes_in_the_refusal(): void {
@@ -648,15 +707,14 @@ class CliTest extends TestCase {
 
 	public function test_require_flag_int_errors_on_zero_when_zero_is_disallowed(): void {
 		$GLOBALS['_test_wp_cli_errors'] = [];
-		try {
-			CLI::require_flag_int( [ 'segment_size' => '0' ], 'segment_size', 1024, false );
-			$this->fail( 'a zero segment size stores nothing and must be refused' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertStringContainsString(
-				'--segment_size must be a positive integer; got: 0',
-				$GLOBALS['_test_wp_cli_errors'][0] ?? ''
-			);
-		}
+		$this->caught(
+			fn () => CLI::require_flag_int( [ 'segment_size' => '0' ], 'segment_size', 1024, false ),
+			'a zero segment size stores nothing and must be refused'
+		);
+		$this->assertStringContainsString(
+			'--segment_size must be a positive integer; got: 0',
+			$GLOBALS['_test_wp_cli_errors'][0] ?? ''
+		);
 	}
 
 }

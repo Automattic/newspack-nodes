@@ -77,9 +77,19 @@ class Remote_Source_Node extends Remote_Link_Node {
 	private int $steps_owed = 0;
 
 	/**
+	 * Where the spoke's reader stood past the torn lines it last reported
+	 * skipping, until the cursor reaches it. Everything buffered when it arrived
+	 * lies before it, and a record arriving after it supersedes it, since that
+	 * record's own crumb is further on.
+	 *
+	 * @var array{segment:int, offset:int}|null
+	 */
+	private ?array $skipped_to = null;
+
+	/**
 	 * The breadcrumb crumb_for_line() last read off the wire, null when that line
 	 * carried none — the distinction the placeholder crumb erases, and what
-	 * drain_line() and forward_line() steer on.
+	 * drain_line() steers on.
 	 *
 	 * @var array{segment:int, offset:int, length:int}|null
 	 */
@@ -137,6 +147,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 		if ( $this->should_connect() && null !== $this->sse_in ) {
 			if ( ! $paused ) {
 				$this->poll();
+				$this->pass_skipped_lines();
 			} elseif ( $this->steps_owed > 0 ) {
 				$this->steps_owed -= $this->poll();
 			}
@@ -209,7 +220,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 		if ( $this->crawl_skip_head && null !== $crumb && $this->sacrifice_boot_head( $line, $crumb ) ) {
 			return; // Sacrificed — not forwarded.
 		}
-		$this->forward_line( $line, $abs_offset, $crumb );
+		$this->forward_line( $line, $abs_offset );
 	}
 
 	/**
@@ -230,18 +241,16 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * put — and moves the cursor by nothing. A downstream throw dead-letters the message ON
 	 * SIGHT and marks the record disposed, so the drain loop advances past it with no
 	 * head-block and no fair-shot climb; that climb is reserved for the hard-crash lineage and
-	 * its crawl. A Worker_Should_Stop is control flow rather than poison: a clean one, or a
-	 * plain one under assume_clean_shutdown, re-raises as clean on a crumb-carrying record
-	 * outside crawl so the drain commits PAST it, while a record with no crumb cannot be
-	 * placed and crawl's pin exists to isolate a crash suspect, so both replay — and a plain
-	 * stop records the mid-dispatch strike on its way out.
+	 * its crawl. A Worker_Should_Stop escapes as `settle_forward_stop()` settles it. When that
+	 * is clean the drain commits past the record by its crumb's length; a crumbless record has
+	 * no position of its own, so that length is zero and the cursor stays where the spoke will
+	 * resume.
 	 *
 	 * @param string $line       One complete line off the pump buffer.
 	 * @param int    $abs_offset Local drain offset, carried for the trait's signature; a push
 	 *                           source places records from the crumb instead.
-	 * @param array{segment:int, offset:int, length:int}|null $crumb The line's parsed breadcrumb.
 	 */
-	protected function forward_line( string $line, int $abs_offset, ?array $crumb = null ): void {
+	protected function forward_line( string $line, int $abs_offset ): void {
 		$sink = $this->sink;
 		if ( null === $sink ) {
 			throw new \RuntimeException( 'Remote_Source relay requires a wired sink' );
@@ -269,16 +278,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 				$this->write_checkpoint_frame( true, true );
 			}
 		} catch ( Worker_Should_Stop $e ) {
-			$clean = $e instanceof Worker_Should_Stop_Clean;
-			// Commit past a placeable message not in crawl; else replay.
-			if ( ( $clean || $this->assume_clean_shutdown ) && null !== $crumb && ! $this->crawl ) {
-				throw $clean ? $e : new Worker_Should_Stop_Clean();
-			}
-			// Cooperative deadline: record the mid-dispatch stop, then escape.
-			if ( ! $clean ) {
-				$this->stopped_in_fill = true;
-			}
-			throw $e;
+			throw $this->settle_forward_stop( $e );
 		} catch ( \Throwable $e ) {
 			$this->dead_letter( $message, 'throw', $e );
 			$this->disposed_record = true;
@@ -410,6 +410,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 		}
 		$this->offset_set = true;
 		$this->buffer     = '';
+		$this->skipped_to = null;
 	}
 
 	/**
@@ -438,8 +439,12 @@ class Remote_Source_Node extends Remote_Link_Node {
 			$sse->on_connecting = function (): void {
 				$this->resume_past_buffer();
 			};
+			$sse->on_skipped = function ( int $segment, int $offset ): void {
+				$this->skipped_to = [ 'segment' => $segment, 'offset' => $offset ];
+			};
 			$sse->on_message = function ( string $raw ): void {
-				$this->buffer .= $raw . "\n";
+				$this->skipped_to = null;
+				$this->buffer    .= $raw . "\n";
 				$this->pump_maybe_disarm();
 				// Drain on the next cycle, not up to a channel tick from now.
 				if ( self::POLL_INTERVAL_BUSY_MS !== $this->interval_ms ) {
@@ -499,7 +504,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 	protected function publish_status(): void {
 		$conn = null !== $this->sse_in
 			? $this->sse_in->connection()
-			: [ 'connected' => false, 'connecting' => false, 'last_http_code' => null, 'last_error' => null, 'current_backoff' => SSE_In_Node::INITIAL_BACKOFF, 'last_sse_heartbeat' => null, 'last_attempt' => null, 'scheduled_reconnect_at' => null ];
+			: [ 'connected' => false, 'connecting' => false, 'last_http_code' => null, 'last_error' => null, 'current_backoff' => SSE_In_Node::INITIAL_BACKOFF, 'last_sse_heartbeat' => null, 'last_attempt' => null, 'scheduled_reconnect_at' => null, 'unparseable_lines' => 0 ];
 		$data = [
 			'last_connection_attempt' => $conn['last_attempt'],
 			'connected'               => $conn['connected'],
@@ -511,6 +516,8 @@ class Remote_Source_Node extends Remote_Link_Node {
 			'last_sse_heartbeat'      => $conn['last_sse_heartbeat'],
 			// The dashboard's idle reading: closed on purpose, back at T.
 			'scheduled_reconnect_at'  => $conn['scheduled_reconnect_at'],
+			// Torn spoke lines this stream skipped; the pull itself stays up.
+			'unparseable_lines'       => $conn['unparseable_lines'],
 		];
 		// Live only while connected AND the response is within slot-TTL window.
 		$hb_live = $conn['connected']
@@ -637,6 +644,10 @@ class Remote_Source_Node extends Remote_Link_Node {
 		$this->pump_armed = true;
 		$end              = \strrpos( $this->buffer, "\n" );
 		$this->buffer     = false === $end ? '' : \substr( $this->buffer, 0, $end + 1 );
+		if ( null !== $this->skipped_to ) {
+			$sse->restore_position( $this->skipped_to['segment'], $this->skipped_to['offset'] );
+			return;
+		}
 		// Walk back line by line to the last crumb; usually the final line.
 		for ( $stop = \strlen( $this->buffer ) - 1; $stop > 0; $stop = $start - 1 ) {
 			$prev  = \strrpos( $this->buffer, "\n", $stop - \strlen( $this->buffer ) - 1 );
@@ -650,6 +661,21 @@ class Remote_Source_Node extends Remote_Link_Node {
 		if ( ! $sse->has_pending_seek() ) {
 			$sse->restore_position( $this->cursor_segment, $this->cursor_offset );
 		}
+	}
+
+	/**
+	 * Move the cursor past the torn lines the spoke skipped, once the records
+	 * buffered ahead of them have drained. Those lines never reach this node,
+	 * so without the move a reopen or a recycle asks the spoke to read them,
+	 * skip them and report them again.
+	 */
+	private function pass_skipped_lines(): void {
+		if ( null === $this->skipped_to || $this->buffer_has_line() ) {
+			return;
+		}
+		$this->cursor_segment = $this->skipped_to['segment'];
+		$this->cursor_offset  = $this->skipped_to['offset'];
+		$this->skipped_to     = null;
 	}
 
 	/**
@@ -695,6 +721,14 @@ class Remote_Source_Node extends Remote_Link_Node {
 		$this->sse_in->restore_position( $segment, $offset );
 	}
 
+	/** Close the valve once the buffer has accumulated past the high-water mark (from on_message). */
+	private function pump_maybe_disarm(): void {
+		if ( $this->pump_armed && \strlen( $this->buffer ) >= self::PUMP_DISARM_BYTES ) {
+			$this->sse_in?->disarm();
+			$this->pump_armed = false;
+		}
+	}
+
 	/**
 	 * A firehose relay declares its destination with its target alone: a record the spoke
 	 * ADDRESSED names a node in this graph, and the patron's `allow_replies_to` list — which
@@ -707,14 +741,6 @@ class Remote_Source_Node extends Remote_Link_Node {
 		// Constant: drop_message keys its throttle on the reason.
 		$this->drop_message( $message, 'addressed with no target' );
 		return false;
-	}
-
-	/** Close the valve once the buffer has accumulated past the high-water mark (from on_message). */
-	private function pump_maybe_disarm(): void {
-		if ( $this->pump_armed && \strlen( $this->buffer ) >= self::PUMP_DISARM_BYTES ) {
-			$this->sse_in?->disarm();
-			$this->pump_armed = false;
-		}
 	}
 
 	/**
@@ -814,7 +840,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 				$parent_args,
 				[
 					[ 'name' => 'offsetlog_dir',  'type' => 'string', 'default' => '', 'description' => 'Directory for the durable read-cursor offsetlog (resume-after-restart); empty disables checkpointing. Carry `<topology>` so two fleets pulling one spoke partition keep separate cursors.' ],
-					[ 'name' => 'deadletter_dir', 'type' => 'string', 'default' => '', 'description' => 'Directory where poison/dead-letter records are quarantined; empty disables the dead-letter queue.' ],
+					[ 'name' => 'deadletter_dir', 'type' => 'string', 'default' => '', 'description' => 'Directory where poison/dead-letter records are quarantined; empty disables the dead-letter queue, so a message that throws or will not unpack raises instead and the reader replays it.' ],
 				]
 			),
 			// DLQ triage + time-travel + pump verbs, shared with Consumer.

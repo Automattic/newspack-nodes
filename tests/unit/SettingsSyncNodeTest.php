@@ -58,12 +58,11 @@ class SettingsSyncNodeTest extends TestCase {
 		$node = new Settings_Sync_Node();
 		$node->name( 'settings-sync' );
 
-		try {
-			$node->add_setting( [ 'only', 'two' ] );
-			$this->fail( 'add_setting accepted two tokens' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertStringStartsWith( 'usage: add_setting', $e->getMessage() );
-		}
+		$e = $this->caught(
+			fn () => $node->add_setting( [ 'only', 'two' ] ),
+			'add_setting accepted two tokens'
+		);
+		$this->assertStringStartsWith( 'usage: add_setting', $e->getMessage() );
 
 		$ref = new \ReflectionProperty( $node, 'registry' );
 		$this->assertSame( [], $ref->getValue( $node ) );
@@ -295,10 +294,10 @@ class SettingsSyncNodeTest extends TestCase {
 		);
 	}
 
-	public function test_push_skips_when_value_cannot_be_encoded(): void {
+	public function test_push_raises_a_value_that_cannot_be_encoded_and_sends_nothing(): void {
 		// A value json_encode rejects (malformed UTF-8) must NOT emit a `set` with
 		// an empty argument — that would decode to [] on the spoke and WIPE the
-		// option. push() drops it instead (rate-limited log), leaving the spoke be.
+		// option. push() sends nothing and raises, naming the option.
 		\update_option( 'newspack_nodes_remote_servers', [ "bad\xB1utf8" ] );
 		$sink = new Capture_Sink_Node();
 		$node = $this->wired_node( $sink );
@@ -307,9 +306,33 @@ class SettingsSyncNodeTest extends TestCase {
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
 		$msg[ Message::VALUE ] = [ 'option' => 'newspack_nodes_remote_servers' ];
-		$node->fill( $msg );
+		$e = $this->caught(
+			fn () => $node->fill( $msg ),
+			'an unencodable value must raise'
+		);
+		$this->assertStringContainsString( 'newspack_nodes_remote_servers', $e->getMessage() );
 
 		$this->assertCount( 0, $sink->captured );
+	}
+
+	public function test_fire_pushes_the_other_options_past_an_unencodable_one(): void {
+		\update_option( 'newspack_nodes_max_segments', 7 );
+		\update_option( 'newspack_nodes_remote_servers', [ "bad\xB2utf8" ] );
+		$sink = new Capture_Sink_Node();
+		$node = $this->wired_node( $sink );
+		$node->add_setting( [ 'newspack_nodes_remote_servers', 'settings', 'newspack_nodes_remote_servers' ] );
+		$node->add_setting( [ 'newspack_nodes_max_segments', 'settings', 'newspack_nodes_max_segments' ] );
+
+		$e = $this->caught(
+			fn () => $node->fire(),
+			'the unencodable option must raise after the sweep'
+		);
+		$this->assertStringContainsString( 'newspack_nodes_remote_servers', $e->getMessage() );
+
+		$this->assertSame(
+			[ [ 'newspack_nodes_max_segments', '7' ] ],
+			\array_map( static fn ( array $m ): array => $m[ Message::VALUE ]['arguments'], $sink->captured )
+		);
 	}
 
 	public function test_fill_drops_unregistered_option(): void {
@@ -398,6 +421,72 @@ class SettingsSyncNodeTest extends TestCase {
 		foreach ( $sink->captured as $out ) {
 			$this->assertSame( 'set', $out[ Message::VALUE ]['name'] );
 		}
+	}
+
+	public function test_fire_pushes_every_option_after_one_throws_then_raises(): void {
+		\update_option( 'newspack_nodes_max_segments', 8 );
+		\update_option( 'newspack_nodes_segment_size', 73728 );
+		\update_option( 'newspack_nodes_num_partitions', 4 );
+		$refused = new \RuntimeException( 'resolver refused-segment_size' );
+		$filter  = static function ( $value, $option ) use ( $refused ) {
+			if ( 'newspack_nodes_segment_size' === $option ) {
+				throw $refused;
+			}
+			return $value;
+		};
+		\add_filter( 'newspack_nodes/settings_sync/value', $filter, 10, 2 );
+		$sink = new Capture_Sink_Node();
+		$node = $this->wired_node( $sink );
+		foreach ( [ 'newspack_nodes_max_segments', 'newspack_nodes_segment_size', 'newspack_nodes_num_partitions' ] as $option ) {
+			$node->add_setting( [ $option, 'settings', $option ] );
+		}
+
+		try {
+			$e = $this->caught(
+				fn () => $node->fire(),
+				'the refused option must still raise'
+			);
+			$this->assertSame( $refused, $e );
+		} finally {
+			\remove_action( 'newspack_nodes/settings_sync/value', $filter );
+		}
+
+		$this->assertSame(
+			[ [ 'newspack_nodes_max_segments', '8' ], [ 'newspack_nodes_num_partitions', '4' ] ],
+			\array_map( static fn ( array $m ): array => $m[ Message::VALUE ]['arguments'], $sink->captured ),
+			'the option after the refused one still reaches the spoke'
+		);
+	}
+
+	public function test_push_sends_every_mapping_after_one_throws_then_raises(): void {
+		\update_option( 'newspack_nodes_remote_max_segments', 6 );
+		$refused = new \RuntimeException( 'egress refused-43' );
+		$sink    = new class( $refused ) extends Capture_Sink_Node {
+			public function __construct( private \RuntimeException $refused ) {
+				parent::__construct();
+			}
+			public function fill( array $message ): void {
+				if ( 'newspack_nodes_max_segments' === $message[ Message::VALUE ]['arguments'][0] ) {
+					throw $this->refused;
+				}
+				parent::fill( $message );
+			}
+		};
+		$node = $this->wired_node( $sink );
+		$node->add_setting( [ 'newspack_nodes_remote_max_segments', 'settings', 'newspack_nodes_max_segments' ] );
+		$node->add_setting( [ 'newspack_nodes_remote_max_segments', 'settings', 'newspack_nodes_remote_max_segments' ] );
+
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
+		$msg[ Message::VALUE ] = [ 'option' => 'newspack_nodes_remote_max_segments' ];
+		$e = $this->caught(
+			fn () => $node->fill( $msg ),
+			'the refused mapping must still raise'
+		);
+		$this->assertSame( $refused, $e );
+
+		$this->assertCount( 1, $sink->captured );
+		$this->assertSame( [ 'newspack_nodes_remote_max_segments', '6' ], $sink->captured[0][ Message::VALUE ]['arguments'] );
 	}
 
 	public function test_arguments_arms_recurring_timer(): void {

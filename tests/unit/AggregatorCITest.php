@@ -185,6 +185,24 @@ class AggregatorCITest extends TestCase {
 		$this->assertFalse( $decoded[0]['partitions'][1]['connected'] );
 	}
 
+	public function test_one_unreadable_topology_costs_its_own_servers_and_is_named_in_the_summary(): void {
+		$this->seed_group_topology( [ 'tw0' ] );
+		\file_put_contents( "{$this->tmp}/topologies/marmot-hub.tsl", "include orphaned-topology-2291\n" );
+		Topology_Registry::reset_basename_cache();
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'aggregator', 'marmot-hub', 'vole-unregistered' ];
+		\Newspack_Nodes\Config::reset();
+
+		$this->assertSame( [ 'firehose:tw0' ], \array_column( self::list_servers(), 'id' ) );
+		VerbHarness::reset();
+		Core::$memd                           = new InMemoryMemcached();
+		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
+		$summary                              = \json_decode( VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'summary' ), true );
+		$this->assertSame( 1, $summary['total'] );
+		$this->assertSame( [ 'marmot-hub', 'vole-unregistered' ], \array_keys( $summary['unreadable'] ) );
+		$this->assertStringContainsString( 'orphaned-topology-2291', $summary['unreadable']['marmot-hub'] );
+		$this->assertStringContainsString( "unknown topology 'vole-unregistered'", $summary['unreadable']['vole-unregistered'] );
+	}
+
 	public function test_list_servers_ignores_non_remote_source_nodes(): void {
 		// The rewrite node and the group itself are in the graph too; only the
 		// Remote_Source children become snapshot entries.

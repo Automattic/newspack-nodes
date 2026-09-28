@@ -65,7 +65,7 @@ class JobDelayTest extends TestCase {
 	}
 
 	public function test_sweep_without_delay_dir_is_a_noop(): void {
-		$this->assertSame( 0, Job_Delay::sweep( $this->tmp, 2 ) );
+		$this->assertSame( 0, Job_Delay::sweep() );
 		$this->assertDirectoryDoesNotExist( "{$this->tmp}/logs/jobdelay.p0" );
 	}
 
@@ -73,7 +73,7 @@ class JobDelayTest extends TestCase {
 		$now = \microtime( true );
 		$this->seed_delayed( 'due_h', $now + 30.0, 'affkey', 'id9', [ 'retries' => 4, 'batch' => 'bD' ] );
 
-		$this->assertSame( 1, Job_Delay::sweep( $this->tmp, 2, $now + 60.0 ) );
+		$this->assertSame( 1, Job_Delay::sweep( $now + 60.0 ) );
 
 		$expected_p = Partition_Node::hash_to_partition( 'affkey', 2 );
 		$lines      = $this->read_partition_dir_lines( "jobintake.p{$expected_p}" );
@@ -90,15 +90,15 @@ class JobDelayTest extends TestCase {
 		$now = \microtime( true );
 		$this->seed_delayed( 'later_h', $now + 3600.0 );
 
-		$this->assertSame( 0, Job_Delay::sweep( $this->tmp, 2, $now ) );
+		$this->assertSame( 0, Job_Delay::sweep( $now ) );
 		$this->assertSame( [], $this->read_all_jobintake_lines() );
 
 		// The durable cursor + the circulated copy: a later sweep delivers ONE.
-		$this->assertSame( 1, Job_Delay::sweep( $this->tmp, 2, $now + 7200.0 ) );
+		$this->assertSame( 1, Job_Delay::sweep( $now + 7200.0 ) );
 		$this->assertCount( 1, $this->read_all_jobintake_lines(), 'circulation must never duplicate a pending job' );
 
 		// And a third sweep finds nothing left.
-		$this->assertSame( 0, Job_Delay::sweep( $this->tmp, 2, $now + 9000.0 ) );
+		$this->assertSame( 0, Job_Delay::sweep( $now + 9000.0 ) );
 		$this->assertCount( 1, $this->read_all_jobintake_lines() );
 	}
 
@@ -109,7 +109,7 @@ class JobDelayTest extends TestCase {
 		// Wedge the re-append: the delay dir refuses writes mid-sweep.
 		chmod( "{$this->tmp}/logs/jobdelay.p0", 0555 );
 		try {
-			Job_Delay::sweep( $this->tmp, 2, $now );
+			Job_Delay::sweep( $now );
 		} catch ( \RuntimeException $e ) {
 			// The aborted sweep may throw; what matters is what survives.
 		} finally {
@@ -118,24 +118,64 @@ class JobDelayTest extends TestCase {
 
 		$this->assertSame(
 			1,
-			Job_Delay::sweep( $this->tmp, 2, $now + 7200.0 ),
+			Job_Delay::sweep( $now + 7200.0 ),
 			'an aborted circulation must leave the cursor behind the entry, never checkpoint past it'
 		);
 	}
 
-	public function test_sweep_action_runs_the_sweep_and_swallows_failures(): void {
-		// Happy path: config points at the test base; nothing delayed -> no-op.
-		Job_Delay::sweep_action();
-		$this->assertDirectoryDoesNotExist( "{$this->tmp}/logs/jobdelay.p0" );
+	public function test_a_delivery_failing_for_a_reason_other_than_contention_propagates(): void {
+		$now = \microtime( true );
+		$this->seed_delayed( 'refused_h', $now + 30.0, 'refkey-4471' );
+		$p = Partition_Node::hash_to_partition( 'refkey-4471', 2 );
+		// A file where the intake partition directory belongs refuses the write.
+		\file_put_contents( "{$this->tmp}/logs/jobintake.p{$p}", 'not a directory' );
 
-		// Failure path: unconfigure the base; the tick wrapper eats the throw.
-		\putenv( 'LOCAL_NEWSPACK_NODES_CONF=/nonexistent-conf-913.php' );
-		\Newspack_Nodes\Config::reset();
+		$caught = null;
 		try {
-			Job_Delay::sweep_action();
-			$this->assertTrue( true, 'fleet tick must survive a sweep failure' );
+			Job_Delay::sweep( $now + 60.0 );
+		} catch ( \RuntimeException $e ) {
+			$caught = $e;
+		}
+
+		$this->assertNotNull( $caught, 'only lock contention circulates; this failure escapes' );
+		$this->assertNotInstanceOf( \Newspack_Nodes\Write_Lock_Held::class, $caught );
+		\unlink( "{$this->tmp}/logs/jobintake.p{$p}" );
+		$this->assertSame( 1, Job_Delay::sweep( $now + 60.0 ), 'the cursor stayed behind the entry' );
+	}
+
+	public function test_a_close_failure_escapes_beside_the_drain_failure(): void {
+		$now = \microtime( true );
+		[ $kept, $refused ] = $this->keys_on_distinct_partitions();
+		$this->seed_delayed( 'kept_h', $now + 30.0, $kept );
+		$this->seed_delayed( 'refused_h', $now + 30.0, $refused );
+		$refused_p = Partition_Node::hash_to_partition( $refused, 2 );
+		// A file where one intake partition belongs refuses that delivery.
+		\file_put_contents( "{$this->tmp}/logs/jobintake.p{$refused_p}", 'not a directory' );
+		// The other delivery buffers, and its flush at close lands nothing.
+		$saved                  = Partition_Node::$fwrite;
+		Partition_Node::$fwrite = static fn ( $fh, string $bytes ): int|false => \str_contains( \stream_get_meta_data( $fh )['uri'], '/logs/jobintake.p' ) ? false : \fwrite( $fh, $bytes );
+
+		$caught = null;
+		try {
+			Job_Delay::sweep( $now + 60.0 );
+		} catch ( \Throwable $e ) {
+			$caught = $e;
 		} finally {
-			$this->use_base_dir( $this->tmp, [ 'num_partitions' => 2 ] );
+			Partition_Node::$fwrite = $saved;
+		}
+
+		$this->assertInstanceOf( \Newspack_Nodes\Failures::class, $caught, 'the close failure joins the drain failure' );
+		$this->assertCount( 2, $caught->all() );
+		$this->assertStringContainsString( 'short write to segment', $caught->all()[1]->getMessage() );
+	}
+
+	/** @return array{0:string,1:string} Two keys hashing to different intake partitions. */
+	private function keys_on_distinct_partitions(): array {
+		$first = 'keep-5510';
+		for ( $i = 5511; ; $i++ ) {
+			if ( Partition_Node::hash_to_partition( "refuse-{$i}", 2 ) !== Partition_Node::hash_to_partition( $first, 2 ) ) {
+				return [ $first, "refuse-{$i}" ];
+			}
 		}
 	}
 
@@ -170,10 +210,10 @@ class JobDelayTest extends TestCase {
 		$p2->fill( $m3 );
 		$p2->remove_node();
 
-		$this->assertSame( 0, Job_Delay::sweep( $this->tmp, 2, \microtime( true ) ) );
+		$this->assertSame( 0, Job_Delay::sweep( \microtime( true ) ) );
 		$this->assertSame( [], $this->read_all_jobintake_lines() );
 		// Dropped for good: a later sweep does not resurrect it.
-		$this->assertSame( 0, Job_Delay::sweep( $this->tmp, 2, \microtime( true ) + 60.0 ) );
+		$this->assertSame( 0, Job_Delay::sweep( \microtime( true ) + 60.0 ) );
 	}
 
 	public function test_entry_coming_due_mid_sweep_delivers_on_reappend(): void {
@@ -191,7 +231,7 @@ class JobDelayTest extends TestCase {
 		$p->fill( $m );
 		$p->remove_node();
 
-		$this->assertSame( 1, Job_Delay::sweep( $this->tmp, 2, $real - 100.0 ) );
+		$this->assertSame( 1, Job_Delay::sweep( $real - 100.0 ) );
 		$this->assertSame( [ 'midsweep_h' ], array_column( $this->read_all_jobintake_lines(), 'handler' ) );
 	}
 
@@ -207,29 +247,8 @@ class JobDelayTest extends TestCase {
 		\Newspack_Nodes\Event_Framework::reset();
 		// The intake's write lock arms a heartbeat Timer, which hitchhikes _router.
 		( new \Newspack_Nodes\Router_Node() )->name( \Newspack_Nodes\Node_Names::ROUTER );
-		$ef    = \Newspack_Nodes\Event_Framework::instance();
-		$state = (object) [ 'stop' => false, 'ticks' => 0 ];
-		$timer = new class() extends \Newspack_Nodes\Timer_Node {
-			/** @var callable */
-			public $on_fire;
-			public function fire_cb(): void {
-				( $this->on_fire )();
-			}
-		};
-		$timer->on_fire = function () use ( $state, $now ) {
-			$state->stop = true;
-			Job_Delay::sweep( $this->tmp, 2, $now + 60.0 );
-		};
-		$timer->set_timer( 1, true );
 
-		$this->expectException( \Newspack_Nodes\Worker_Should_Stop::class );
-		$ef->drain(
-			static function () use ( $state ): bool {
-				\Newspack_Nodes\Core::$now = \microtime( true );
-				return ! $state->stop && ++$state->ticks < 1000;
-			},
-			cooperative_stop: true
-		);
+		$this->assertNotNull( $this->with_stop_due( static fn () => Job_Delay::sweep( $now + 60.0 ) ) );
 	}
 
 	/**
@@ -241,7 +260,7 @@ class JobDelayTest extends TestCase {
 		$now = \microtime( true );
 		$this->seed_delayed( 'dispatch_h', $now + 30.0, 'affkey-Z', 'id-7', [ 'retries' => 6, 'attempt' => 3, 'batch' => 'bZ' ] );
 
-		$this->assertSame( 1, Job_Delay::sweep( $this->tmp, 2, $now + 60.0 ) );
+		$this->assertSame( 1, Job_Delay::sweep( $now + 60.0 ) );
 
 		$delivered = $this->read_all_jobintake_lines();
 		$this->assertCount( 1, $delivered );
@@ -252,18 +271,42 @@ class JobDelayTest extends TestCase {
 		}
 	}
 
+	/**
+	 * ADR-12: one torn line in the delay log is poison for its own reader, so
+	 * it lands in the sweep's quarantine — where the dead-letters alert family
+	 * counts it — and the jobs on either side of it still deliver.
+	 */
+	public function test_a_torn_line_is_quarantined_and_the_jobs_around_it_deliver(): void {
+		$now = \microtime( true );
+		$this->seed_delayed( 'torn_before_h', $now + 20.0 );
+		$segments = \glob( "{$this->tmp}/logs/jobdelay.p0/*.log" );
+		$this->assertCount( 1, $segments );
+		\file_put_contents( $segments[0], "torn-7731{\"k\":\"job\n", \FILE_APPEND );
+		$this->seed_delayed( 'torn_after_h', $now + 40.0 );
+
+		$this->assertSame( 2, Job_Delay::sweep( $now + 90.0 ) );
+
+		$handlers = array_column( $this->read_all_jobintake_lines(), 'handler' );
+		sort( $handlers );
+		$this->assertSame( [ 'torn_after_h', 'torn_before_h' ], $handlers );
+		$quarantine = \glob( "{$this->tmp}/deadletter/" . Job_Delay::READER . '.p0/*.log' );
+		$this->assertCount( 1, $quarantine, 'the torn line is dead-lettered where dl_list and the alerts find it' );
+		$this->assertStringContainsString( 'torn-7731', (string) \file_get_contents( $quarantine[0] ) );
+		$this->assertSame( 0, Job_Delay::sweep( $now + 120.0 ), 'the cursor moved past the torn line' );
+	}
+
 	public function test_short_delay_is_not_blocked_by_long_delay_ahead_of_it(): void {
 		$now = \microtime( true );
 		$this->seed_delayed( 'later_h', $now + 3600.0 );
 		$this->seed_delayed( 'soon_h', $now + 5.0 );
 
-		$this->assertSame( 1, Job_Delay::sweep( $this->tmp, 2, $now + 10.0 ) );
+		$this->assertSame( 1, Job_Delay::sweep( $now + 10.0 ) );
 
 		$delivered = $this->read_all_jobintake_lines();
 		$this->assertCount( 1, $delivered );
 		$this->assertSame( 'soon_h', $delivered[0]['handler'], 'a long delay at the head must not block a due job behind it' );
 
-		$this->assertSame( 1, Job_Delay::sweep( $this->tmp, 2, $now + 7200.0 ) );
+		$this->assertSame( 1, Job_Delay::sweep( $now + 7200.0 ) );
 		$handlers = array_column( $this->read_all_jobintake_lines(), 'handler' );
 		sort( $handlers );
 		$this->assertSame( [ 'later_h', 'soon_h' ], $handlers );

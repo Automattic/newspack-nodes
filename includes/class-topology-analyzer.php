@@ -33,7 +33,7 @@ class Topology_Analyzer {
 	/** @var array<string,array<string,int>> Memoized per-Partition segment_size overrides, by topology name + partition count. */
 	private static array $segment_size_overrides_cache = [];
 
-	/** @var array<string,array{statements:list<array{line:string,verb:string,values:list<string>,spans:list<string>,origin:?string,origins:list<string>,via:list<string>}>,tree:array<string,mixed>}> Memoized flattened statements, keyed by topology name plus the extra includes walked with it. */
+	/** @var array<string,array{statements:list<array{line:string,verb:string,values:list<string>,spans:list<string>,origin:?string,origins:list<string>,via:list<string>}>,tree:array<string,mixed>}|\Throwable> Memoized flattened statements, or what the walk threw, keyed by topology name plus the extra includes walked with it. */
 	private static array $statements_cache = [];
 
 	/** @var array<string,array<string>> Memoized write-set by topology name. */
@@ -230,6 +230,7 @@ class Topology_Analyzer {
 	 *
 	 * @param string $topology Topology name.
 	 * @return list<array{source: string, offsetlog: string}>
+	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
 	 */
 	public static function consumer_positions( string $topology ): array {
 		$out = [];
@@ -257,10 +258,13 @@ class Topology_Analyzer {
 	 * Partition/Topic writes or a Consumer reads, from the path/source ARG — never
 	 * a name suffix), and edges from `connect_node` plus
 	 * `command_node <node>:config set_*target <target>`, with `disconnect_node` applied
-	 * in evaluation order. Memoized.
+	 * in evaluation order. A broken include throws — the walk's memoized
+	 * failure, re-raised to every caller — rather than answering an empty
+	 * graph that reads as "declares nothing".
 	 *
 	 * @param string $name Topology name.
 	 * @return array{nodes: list<array<string,int|string|list<string>>>, edges: list<array{0:string,1:string}>}
+	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
 	 */
 	public static function graph_for( string $name ): array {
 		if ( isset( self::$graph_cache[ $name ] ) ) {
@@ -279,17 +283,7 @@ class Topology_Analyzer {
 		$nodes = [];
 		$types = [];
 		$edges = [];
-		try {
-			$walked = self::statements( $name );
-		} catch ( \RuntimeException $e ) {
-			// Display helper: one broken include must not take out dump_graph.
-			Core::print_less_often( 'graph_for ', $name, ': ' . $e->getMessage() );
-			return self::$graph_cache[ $name ] = [
-				'nodes' => [],
-				'edges' => [],
-			];
-		}
-		foreach ( $walked['statements'] as $statement ) {
+		foreach ( self::statements( $name )['statements'] as $statement ) {
 			$verb   = $statement['verb'];
 			$values = $statement['values'];
 			$spans  = $statement['spans'];
@@ -1022,12 +1016,17 @@ class Topology_Analyzer {
 	 * combined.tsl is two `include` lines) look EMPTY, which silently disarms the
 	 * write_set conflict gate.
 	 *
-	 * THROWS on a broken include. The safety gates read through here: an empty
-	 * write set reads as "no conflict" to find_conflicts and as "every one of its
-	 * logs is an orphan" to Log_Cleaner. Fail loud; the display surfaces catch
-	 * for themselves (graph_for internally; Log_Cleaner::declared_dirs and
-	 * Workers_CI's override collector at their call sites) so one bad .tsl
-	 * can't take out the dashboard or wp-admin.
+	 * THROWS on a broken include, and so does every reader built on it. The
+	 * safety gates read through here: an empty write set reads as "no conflict"
+	 * to find_conflicts and as "every one of its logs is an orphan" to
+	 * Log_Cleaner, which skips its sweep instead. A display surface answers the
+	 * failure as a result its caller sees — `dump_graph` as a row of its own.
+	 *
+	 * Memoized either way: a walk that threw re-raises that same throwable, so
+	 * one broken file is parsed once for every reader, and a repaired one is
+	 * read once `reset_caches()` runs — a new request, or a config reload.
+	 * Rethrown inside a `finally` during another exception, the memo gains that
+	 * exception on its chain — PHP's doing, harmless to classification.
 	 *
 	 * @param string       $name           Top-level topology; '' walks a synthetic top level.
 	 * @param list<string> $extra_includes Includes to walk as if declared by the top level.
@@ -1038,9 +1037,32 @@ class Topology_Analyzer {
 	public static function statements( string $name, array $extra_includes = [] ): array {
 		// Every static reader walks this tree; a re-walk re-reads every file.
 		$memo_key = $name . "\0" . \implode( ' ', $extra_includes );
-		if ( isset( self::$statements_cache[ $memo_key ] ) ) {
-			return self::$statements_cache[ $memo_key ];
+		if ( ! isset( self::$statements_cache[ $memo_key ] ) ) {
+			try {
+				self::$statements_cache[ $memo_key ] = self::flatten( $name, $extra_includes );
+			} catch ( Worker_Should_Stop $stop ) {
+				throw $stop;
+			} catch ( \Throwable $e ) {
+				self::$statements_cache[ $memo_key ] = $e;
+			}
 		}
+		$memo = self::$statements_cache[ $memo_key ];
+		if ( $memo instanceof \Throwable ) {
+			throw $memo;
+		}
+		return $memo;
+	}
+
+	/**
+	 * The walk `statements()` memoizes.
+	 *
+	 * @param string       $name           Top-level topology; '' walks a synthetic top level.
+	 * @param list<string> $extra_includes Includes to walk as if declared by the top level.
+	 *
+	 * @return array{statements: list<array{line: string,verb: string,values: list<string>,spans: list<string>,origin: ?string,origins: list<string>,via: list<string>}>, tree: array<string,mixed>}
+	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
+	 */
+	private static function flatten( string $name, array $extra_includes ): array {
 		$state = [
 			'statements' => [],
 			'expanded'   => [],
@@ -1063,11 +1085,10 @@ class Topology_Analyzer {
 			}
 			$tree[ $include ] = self::walk( $path, $include, $include, [ $include ], [], $state );
 		}
-		$out = [
+		return [
 			'statements' => self::with_group_children( $state['statements'] ),
 			'tree'       => $tree,
 		];
-		return self::$statements_cache[ $memo_key ] = $out;
 	}
 
 	/**

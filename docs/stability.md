@@ -34,12 +34,15 @@ about what it composes. Event-logger-nodes' hub
 detection tests `'aggregator' === $name` and then that include set before it
 falls back to scanning the graph for a `Remote_Source` node.
 
-All four can raise `\RuntimeException`, and not only for the caller's own
-mistake. The three `Bootstrap` names resolve the active topology set first,
-which fails when the runtime base directory is unusable; the analyzer behind
-`node_dirs()`, `node_partitions()` and `includes()` fails again when ANY
-topology it walks declares an unknown include, an include cycle or a conflicting
-`make_node` — someone else's `.tsl`, not the node the caller asked about.
+All four can raise, and not only for the caller's own mistake. The three
+`Bootstrap` names resolve the active topology set first, which fails when the
+runtime base directory is unusable. `node_dirs()` and `node_partitions()`
+answer from the readable active topologies declaring the node, so another
+topology's broken `.tsl` costs them nothing while a readable one declares it;
+when none does, they raise every active topology that will not read — an
+unknown include, an include cycle, a conflicting `make_node`, or a name no
+`.tsl` resolves — because the node may be what that one declares.
+`includes()` raises when the topology it walks will not read.
 Event-logger-nodes calls `node_dirs()` on dashboard request paths from
 [`Performance_CI_Node`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.96.0/includes/app/class-performance-ci-node.php) and [`Flame_Builder_Node`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.96.0/includes/class-flame-builder-node.php), where an uncaught throw is a 500
 on every dashboard request, and wraps `includes()` in a try/catch for the same
@@ -202,9 +205,17 @@ reason. Catch it, or let the surrounding controller's catch own it.
     is `Capabilities::can( MANAGE )`, item 12 below. Nuclear-gyrobase calls
     `css_cache_version()` with no `class_exists()` guard, so withdrawing one is
     a fatal rather than a degradation.
-11. **The cooperative stop.** [`Worker_Should_Stop`](../includes/class-worker-should-stop.php), its
-    `Worker_Should_Stop_Clean` subclass, and the [`Deferred_Clean_Stop`](../includes/trait-deferred-clean-stop.php) trait's
-    `guarded()`, `clear_pending_stop()` and `raise_pending_stop()`.
+11. **The cooperative stop.** [`Worker_Should_Stop`](../includes/class-worker-should-stop.php) with
+    its `is_clean()` and `is_bare()` predicates; `combine()` and `raise()`, which
+    take any array of throwables and ignore its keys; `attempt()` over a fixed
+    list of closures; `attempt_each()`, the fan-out loop that offers every item
+    and returns each failure under its item's key; and `attempt_until_stop()`,
+    the work loop that returns at the first stop with everything caught so far.
+    Its `Worker_Should_Stop_Clean` subclass, the [`Failures`](../includes/class-failures.php)
+    combination, whose `all()` keeps every member while its message stops at
+    `MESSAGE_BUDGET` (64 KiB) and counts the rest, and the
+    [`Deferred_Clean_Stop`](../includes/trait-deferred-clean-stop.php) trait's
+    `deferring()` and `guarded()`.
     [ADR-14](architecture-decisions.md#adr-14-cooperative-stop-propagates-through-broad-catches)
     obliges every broad catch on a consumer's drain path to name
     `Worker_Should_Stop` in an explicit first `catch` and re-throw it, so the

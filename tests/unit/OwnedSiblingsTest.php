@@ -101,6 +101,60 @@ class OwnedSiblingsTest extends TestCase {
 	}
 
 	/**
+	 * A sibling whose teardown throws still leaves its slot: the failure
+	 * escapes, and the slot accepts a fresh occupant rather than refusing it as
+	 * occupied by a node that is already torn down.
+	 */
+	public function test_a_throwing_retraction_still_empties_the_slot(): void {
+		$patron  = $this->patron();
+		$patron->name( 'quartermaster' );
+		$patron->publish(
+			'courier',
+			new class() extends Node {
+				public function remove_node(): void {
+					parent::remove_node();
+					throw new \RuntimeException( 'courier teardown refused 5519' );
+				}
+			}
+		);
+
+		try {
+			$patron->retract( 'courier' );
+			$this->fail( 'expected the courier teardown failure to escape' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertStringContainsString( 'courier teardown refused 5519', $e->getMessage() );
+		}
+		$relief = new Echo_Node();
+		$patron->publish( 'courier', $relief );
+
+		$this->assertSame( $relief, Core::node( 'quartermaster:courier' ) );
+	}
+
+	/**
+	 * A sibling that refuses before tearing anything down is still registered,
+	 * so it keeps its slot: a later rename still carries it and a later
+	 * retraction can still reach it.
+	 */
+	public function test_a_retraction_refused_before_teardown_keeps_the_slot(): void {
+		$patron = $this->patron();
+		$patron->name( 'quartermaster' );
+		$patron->publish(
+			'courier',
+			new class() extends Node {
+				public function remove_node(): void {
+					throw new \RuntimeException( 'courier teardown refused 8830' );
+				}
+			}
+		);
+		$this->caught( static fn () => $patron->retract( 'courier' ), 'expected the courier refusal to escape' );
+
+		$patron->name( 'purser' );
+
+		$this->assertNotNull( Core::node( 'purser:courier' ), 'the live courier follows the rename' );
+		$this->assertNull( Core::node( 'quartermaster:courier' ) );
+	}
+
+	/**
 	 * The refusal can come from a GRANDCHILD — the relief carries a deputy of
 	 * its own, and the naming recurses. The slot is left EMPTY, so the
 	 * caller's idempotency guard rebuilds rather than serving a sibling whose
@@ -229,12 +283,11 @@ class OwnedSiblingsTest extends TestCase {
 		$squatter = new Echo_Node();
 		$squatter->name( 'bosun:escort:deputy' );
 
-		try {
-			$patron->name( 'bosun' );
-			$this->fail( 'expected the grandchild collision to throw' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertStringContainsString( 'bosun:escort:deputy', $e->getMessage() );
-		}
+		$e = $this->caught(
+			fn () => $patron->name( 'bosun' ),
+			'expected the grandchild collision to throw'
+		);
+		$this->assertStringContainsString( 'bosun:escort:deputy', $e->getMessage() );
 
 		$this->assertSame( 'quartermaster', $patron->name() );
 		$this->assertSame( $patron, Core::node( 'quartermaster' ) );

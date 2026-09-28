@@ -24,7 +24,9 @@
  * undocumented way to change the document, and two spellings drift apart.
  *
  * `graph` is a READ of the interpreter, re-derived after every change. The
- * interpreter is the document; the graph is what the canvas draws.
+ * interpreter is the document; the graph is what the canvas draws. `refusals`
+ * is the other read: the statements the last `run` or `load` refused, which
+ * the console shows, since a draft keeps loading past a broken line.
  *
  * The document also knows whether it has diverged from what is stored. That
  * baseline lives here because it is a property of the document: held outside,
@@ -60,8 +62,8 @@ const DraftContext = createContext( null );
 /**
  * Own a draft document and expose its editor surface.
  *
- * @return {Object} `{ graph, isDirty, markSaved, run, load, reseed, dump,
- *                     replaceVerbs, replaceFrontmatter, clearSecure,
+ * @return {Object} `{ graph, refusals, isDirty, markSaved, run, load, reseed,
+ *                     dump, replaceVerbs, replaceFrontmatter, clearSecure,
  *                     setCatalog, assertResolved, revertIncludes }`.
  */
 export function useDraftInterpreter() {
@@ -71,6 +73,7 @@ export function useDraftInterpreter() {
 		ref.current = new DraftInterpreterNode();
 	}
 	const [ graph, setGraph ] = useState( () => draftToGraph( ref.current ) );
+	const [ refusals, setRefusals ] = useState( ref.current.refusals );
 	// What the document last equalled on disk.
 	const [ baseline, setBaseline ] = useState( () =>
 		JSON.stringify( draftToGraph( ref.current ) )
@@ -86,6 +89,7 @@ export function useDraftInterpreter() {
 	const commit = useCallback( () => {
 		const next = draftToGraph( ref.current );
 		setGraph( next );
+		setRefusals( ref.current.refusals );
 		return next;
 	}, [] );
 
@@ -283,6 +287,7 @@ export function useDraftInterpreter() {
 	return useMemo(
 		() => ( {
 			graph,
+			refusals,
 			isDirty,
 			markSaved,
 			run,
@@ -298,6 +303,7 @@ export function useDraftInterpreter() {
 		} ),
 		[
 			graph,
+			refusals,
 			isDirty,
 			markSaved,
 			run,

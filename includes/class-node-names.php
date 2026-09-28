@@ -59,6 +59,9 @@ final class Node_Names {
 	/** The worker's output IPC Partition, and the FROM its input Consumer stamps, so the TO=FROM reply routes back through it to the attached cli. */
 	public const REPL                = '_repl';
 
+	/** The worker's IPC-input Consumer, named so the dead-letter verbs reach its quarantine through `_repl:input:config`. */
+	public const REPL_INPUT          = '_repl:input';
+
 	/** Path dispatch: peel the head of TO and fill the node registered under it. */
 	public const ROUTER              = '_router';
 
@@ -84,7 +87,8 @@ final class Node_Names {
 	public const UPTIME              = '_uptime';
 
 	/**
-	 * The baseline names `dump_config` skips and `remove_node` refuses.
+	 * The baseline names `dump_config` skips and `remove_node` refuses, the
+	 * latter together with every node they patron at any remove.
 	 *
 	 * A dump omits them because every session already has them, so emitting one
 	 * would build it twice on replay. A remove refuses them because destroying
@@ -100,6 +104,7 @@ final class Node_Names {
 		self::FLEET,
 		self::ROUTER,
 		self::OUTPUT,
+		self::REPL_INPUT,
 		self::CONSOLE_TAP,
 		self::STDIN,
 		self::STDOUT,

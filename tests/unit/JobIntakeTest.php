@@ -373,14 +373,21 @@ class JobIntakeTest extends TestCase {
 		$this->assertFalse( is_dir( "{$this->tmp}/logs/jobintake.p0/write.lock.d" ) );
 	}
 
-	public function test_destruct_releases_partition_lock(): void {
-		// __destruct calls close(); per-partition lock should be released even
-		// if the caller forgets to call close() explicitly.
+	/**
+	 * close() is the teardown; garbage collection does no I/O, because a
+	 * destructor that flushed could throw from wherever the last reference
+	 * happened to drop.
+	 */
+	public function test_destroying_an_intake_whose_flush_would_fail_raises_nothing(): void {
 		$intake = new Job_Intake( $this->tmp, num_partitions: 1 );
-		$intake->write_job( 'a', null, [] );
-		$this->assertTrue( is_dir( "{$this->tmp}/logs/jobintake.p0/write.lock.d" ) );
+		$this->assertTrue( $intake->write_feed( 'kestrel', 'k-5120', [] ) );
+		Partition_Node::$fwrite = static fn ( $fh, string $bytes ): false => false;
+
 		unset( $intake );
-		$this->assertFalse( is_dir( "{$this->tmp}/logs/jobintake.p0/write.lock.d" ) );
+		\gc_collect_cycles();
+
+		Partition_Node::$fwrite = null;
+		$this->assertSame( [], $this->read_all_jobintake_lines( '/^jobfeed\.p\d+$/' ), 'nothing is written at destruction' );
 	}
 
 	public function test_writes_to_different_partitions_do_not_contend(): void {
@@ -396,6 +403,44 @@ class JobIntakeTest extends TestCase {
 
 		$first->close();
 		$second->close();
+	}
+
+	public function test_close_tears_every_partition_down_then_raises_a_teardown_failure(): void {
+		$refused = new \RuntimeException( 'segment refused-3321' );
+		$removed = new \ArrayObject();
+		$make    = static function ( ?\RuntimeException $fails ) use ( $removed ): Partition_Node {
+			return new class( $fails, $removed ) extends Partition_Node {
+				public function __construct( private ?\RuntimeException $fails, private \ArrayObject $removed ) {
+					parent::__construct();
+				}
+				public function remove_node(): void {
+					$this->removed[] = $this->name();
+					$fails           = $this->fails;
+					$this->fails     = null;
+					if ( null !== $fails ) {
+						throw $fails;
+					}
+				}
+			};
+		};
+		$intake = new Job_Intake( $this->tmp, num_partitions: 2 );
+		( new \ReflectionProperty( Job_Intake::class, 'partitions' ) )->setValue(
+			$intake,
+			[ 'jobintake.p0' => $make( $refused ), 'jobintake.p1' => $make( null ) ]
+		);
+		$partitions = ( new \ReflectionProperty( Job_Intake::class, 'partitions' ) )->getValue( $intake );
+		$partitions['jobintake.p0']->name( 'failing-3321' );
+		$partitions['jobintake.p1']->name( 'healthy-3322' );
+
+		$caught = null;
+		try {
+			$intake->close();
+		} catch ( \RuntimeException $e ) {
+			$caught = $e;
+		}
+
+		$this->assertSame( $refused, $caught );
+		$this->assertSame( [ 'failing-3321', 'healthy-3322' ], $removed->getArrayCopy(), 'every partition is still torn down' );
 	}
 
 	// --- Static queue() helper ----------------------------------------------
@@ -421,6 +466,50 @@ class JobIntakeTest extends TestCase {
 
 		// Second call succeeds without contention.
 		$this->assertTrue( Job_Intake::queue( 'b', null, [], null, $this->tmp, 1 ) );
+	}
+
+	/**
+	 * Hold jobintake.p0's write lock through a second intake and run $body on a
+	 * clock that leaps past the 15s lock wait on its second read, so contention
+	 * answers at once instead of after a real wait.
+	 */
+	private function while_p0_is_held( callable $body ): void {
+		$holder = new Job_Intake( $this->tmp, num_partitions: 1 );
+		$this->assertTrue( $holder->write_job( 'holder_h', null, [] ) );
+		$saved       = Core::$clock;
+		$t           = \microtime( true );
+		Core::$clock = static function () use ( &$t ): float {
+			$t += 20.0;
+			return $t;
+		};
+		try {
+			$body();
+		} finally {
+			Core::$clock = $saved;
+			$holder->close();
+		}
+	}
+
+	public function test_write_job_raises_write_lock_held_on_contention(): void {
+		$this->while_p0_is_held( function (): void {
+			$intake = new Job_Intake( $this->tmp, num_partitions: 1 );
+			$this->expectException( \Newspack_Nodes\Write_Lock_Held::class );
+			$intake->write_job( 'contender_h', null, [] );
+		} );
+	}
+
+	public function test_static_queue_answers_false_on_lock_contention(): void {
+		$this->while_p0_is_held( function (): void {
+			$this->assertFalse( Job_Intake::queue( 'contender_h', null, [], null, $this->tmp, 1 ) );
+		} );
+	}
+
+	public function test_static_queue_raises_a_write_failure_that_is_not_contention(): void {
+		// A file where the partition directory belongs: the lock cannot even be
+		// created, which is an I/O failure, never contention.
+		\file_put_contents( "{$this->tmp}/logs/jobintake.p0", 'not a directory' );
+		$this->expectException( \RuntimeException::class );
+		Job_Intake::queue( 'refused_h', null, [], null, $this->tmp, 1 );
 	}
 
 	// --- Config fail-loud (no silent /tmp/newspack-nodes default) -----------

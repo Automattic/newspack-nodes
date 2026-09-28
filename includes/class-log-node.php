@@ -155,9 +155,10 @@ class Log_Node extends Partition_Node {
 	}
 
 	/**
-	 * Path seam: the writer identity behind the write-stall quarantine directory.
-	 * Sibling Logs share a directory, so the FILE keys the quarantine and two
-	 * Logs cannot quarantine into each other.
+	 * Path seam: the writer identity behind the write quarantine directory, which
+	 * holds a batch whose segment would not open. Sibling Logs share a
+	 * directory, so the FILE keys the quarantine and two Logs cannot quarantine
+	 * into each other.
 	 *
 	 * @return string Path identifying this writer.
 	 */

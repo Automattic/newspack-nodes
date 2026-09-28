@@ -163,18 +163,24 @@ class Router_Node extends Timer_Node {
 	 * on-demand workers once per process instead of once per partition write,
 	 * `Core::prune_logs()` re-windows the rate limiter so a recurring warning
 	 * eventually prints again, and `trim_profiles()` drops idle profile entries.
+	 *
+	 * The four steps are independent, so each runs whatever an earlier one
+	 * threw, and everything thrown escapes after the last.
+	 *
+	 * @throws \Throwable What the steps threw, combined by `Worker_Should_Stop::raise()`.
 	 */
 	public function fire_cb(): void {
 		if ( 0 === Core::$secure_level ) {
 			$this->print_less_often( 'WARNING: no secure level declared' );
 		}
-		$this->notify_timer();
-		Partition_Node::flush_pending_wakes();
-		Core::prune_logs();
-		if ( null !== self::$profiles ) {
-			$this->trim_profiles();
-		}
+		$caught = Worker_Should_Stop::attempt(
+			fn () => $this->notify_timer(),
+			static fn () => Partition_Node::flush_pending_wakes(),
+			static fn () => Core::prune_logs(),
+			fn () => null === self::$profiles ? null : $this->trim_profiles(),
+		);
 		$this->fire_count++;
+		Worker_Should_Stop::raise( $caught );
 	}
 
 	/**
@@ -246,17 +252,28 @@ class Router_Node extends Timer_Node {
 	 * Answer an unroutable message: bounce a TM_ERROR back down the FROM trail,
 	 * whose own FROM names the address that went missing.
 	 *
+	 * A TM_NOREPLY command — every line a topology load sends — asked for no
+	 * reply, so no bounce can carry the miss: it throws to whatever filled the
+	 * command, as `Command_Interpreter_Node::interpret()` throws a failure of
+	 * one, and a line aimed at a node that does not exist fails the load.
+	 *
 	 * @param array<int,mixed> $message Message that failed to route.
 	 * @param string           $error   Text carried as the TM_ERROR VALUE; callers pass `NOT_AVAILABLE`.
+	 * @throws \RuntimeException For a TM_NOREPLY command, naming the path and the verb.
 	 */
 	public function send_error( array $message, string $error ): void {
+		$type = Core::int( $message[ Message::TYPE ] );
+		if ( ( $type & Message::TM_COMMAND ) && ( $type & Message::TM_NOREPLY ) ) {
+			$to   = Core::as_string( $message[ Message::TO ] );
+			$verb = \is_array( $message[ Message::VALUE ] ) ? Core::as_string( $message[ Message::VALUE ]['name'] ?? '' ) : '';
+			throw new \RuntimeException( \esc_html( \rtrim( "{$error}: {$to} {$verb}" ) ) );
+		}
 		if ( $this->handling_error ) {
 			$this->drop_message( $message, 'breaking recursion' );
 			return;
 		}
 		$this->handling_error = true;
-		$type                 = $message[ Message::TYPE ];
-		if ( Core::int( $type ) & Message::TM_ERROR ) {
+		if ( $type & Message::TM_ERROR ) {
 			$this->handling_error = false;
 			return;
 		}

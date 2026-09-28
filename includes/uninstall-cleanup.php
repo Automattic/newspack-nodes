@@ -99,7 +99,7 @@ function delete_runtime_tree( string $base_dir ): void {
 		return;
 	}
 	require_once __DIR__ . '/class-spawn-coordinator.php';
-	foreach ( [ 'logs', 'locks', 'offsets', 'ipc', 'deadletter', 'topologies' ] as $subdir ) {
+	foreach ( [ 'logs', 'locks', 'offsets', 'ipc', Config::DEADLETTER_SUBDIR, 'topologies' ] as $subdir ) {
 		Spawn_Coordinator::delete_directory_recursive( "{$base_dir}/{$subdir}", $base_dir );
 	}
 	// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_rmdir -- one-time uninstall of the runtime's own reserved dir.

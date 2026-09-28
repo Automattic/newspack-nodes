@@ -968,6 +968,85 @@ describe( 'Shell node — want_reply / TM_NOREPLY (script/topology mode)', () =>
 	} );
 } );
 
+describe( 'Shell node — fatal_errors (topology mode)', () => {
+	it( 'fatalErrors() defaults to false and reads back', () => {
+		const { shell } = makeShell();
+		expect( shell.fatalErrors() ).toBe( false );
+		expect( shell.fatalErrors( true ) ).toBe( true );
+		expect( shell.fatalErrors() ).toBe( true );
+	} );
+
+	it( 'throws a refusal after the lines that follow it still ran', () => {
+		const { shell, filled } = makeShell( { path: '' } );
+		shell.fatalErrors( true );
+		expect( () =>
+			send(
+				shell,
+				'tell before-6621 hi\ncmd only-6621\ntell after-6621 hi'
+			)
+		).toThrow( 'usage: cmd <path> <verb> [<args>]' );
+		expect( filled.map( ( m ) => m[ TO ] ) ).toEqual( [
+			'before-6621',
+			'after-6621',
+		] );
+		expect( printedText() ).toBe( '' );
+	} );
+
+	it( 'raises every failing line together', () => {
+		const { shell } = makeShell( { path: '' } );
+		shell.fatalErrors( true );
+		let raised = null;
+		try {
+			send( shell, 'send_eof\nvar a6622 /= 0' );
+		} catch ( e ) {
+			raised = e;
+		}
+		expect( raised.name ).toBe( 'AggregateError' );
+		expect( raised.errors.map( ( e ) => e.message ) ).toEqual( [
+			'usage: send_eof <path>',
+			'var: division by zero',
+		] );
+		expect( raised.message ).toBe(
+			'2 failures: usage: send_eof <path> | var: division by zero'
+		);
+	} );
+
+	it( 'throws on a statement left open at end of input', () => {
+		const { shell } = makeShell( { path: '' } );
+		shell.fatalErrors( true );
+		send( shell, "tell x-6623 'open" );
+		expect( () => shell.flushPending() ).toThrow(
+			"got EOF while waiting for tokens: tell x-6623 'open"
+		);
+		expect( shell.hasPending() ).toBe( false );
+	} );
+
+	it( 'refuses an include rather than skipping it', () => {
+		const { shell } = makeShell( { path: '' } );
+		shell.fatalErrors( true );
+		expect( () => send( shell, 'include job-6624' ) ).toThrow(
+			'include is not supported in the browser shell'
+		);
+	} );
+
+	it( 'runs every line when the sink throws, then raises what it threw', () => {
+		const { shell } = makeShell( { path: '' } );
+		const reached = [];
+		shell.sink = {
+			fill: ( m ) => {
+				reached.push( m[ TO ] );
+				if ( 'bad-6625' === m[ TO ] ) {
+					throw new Error( 'NOT_AVAILABLE: bad-6625 poke' );
+				}
+			},
+		};
+		expect( () =>
+			send( shell, 'tell bad-6625 hi\ntell good-6625 hi' )
+		).toThrow( 'NOT_AVAILABLE: bad-6625 poke' );
+		expect( reached ).toEqual( [ 'bad-6625', 'good-6625' ] );
+	} );
+} );
+
 describe( 'Shell node — name guard', () => {
 	it( 'Shell refuses to be named', () => {
 		const s = new ShellNode();

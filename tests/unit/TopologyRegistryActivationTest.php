@@ -105,13 +105,12 @@ class TopologyRegistryActivationTest extends TestCase {
 	}
 
 	public function test_activate_throws_on_unknown_topology_without_writing(): void {
-		try {
-			Topology_Registry::activate( 'does-not-exist' );
-			$this->fail( 'expected RuntimeException for unknown topology' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertStringContainsString( 'unknown topology', $e->getMessage() );
-			$this->assertStringContainsString( 'does-not-exist', $e->getMessage() );
-		}
+		$e = $this->caught(
+			fn () => Topology_Registry::activate( 'does-not-exist' ),
+			'expected RuntimeException for unknown topology'
+		);
+		$this->assertStringContainsString( 'unknown topology', $e->getMessage() );
+		$this->assertStringContainsString( 'does-not-exist', $e->getMessage() );
 
 		$this->assertArrayNotHasKey( 'newspack_nodes_topologies', $GLOBALS['_wp_options'] );
 		$this->assertEmpty( $GLOBALS['_test_outbound_posts'] ?? [] );
@@ -124,13 +123,12 @@ class TopologyRegistryActivationTest extends TestCase {
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'alpha' ];
 		Config::reset();
 
-		try {
-			Topology_Registry::activate( 'beta' );
-			$this->fail( 'expected RuntimeException for write-conflict' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertStringContainsString( 'conflict', $e->getMessage() );
-			$this->assertStringContainsString( 'beta', $e->getMessage() );
-		}
+		$e = $this->caught(
+			fn () => Topology_Registry::activate( 'beta' ),
+			'expected RuntimeException for write-conflict'
+		);
+		$this->assertStringContainsString( 'conflict', $e->getMessage() );
+		$this->assertStringContainsString( 'beta', $e->getMessage() );
 
 		$active = (array) \get_option( 'newspack_nodes_topologies', [] );
 		$this->assertContains( 'alpha', $active );

@@ -116,7 +116,9 @@ CommandInterpreterNode.registerNodeClasses( {
  * @param {boolean} [o.clearOnOpen] Empty the view before every open, for a
  *                                  model whose rows go stale across a gap.
  * @return {{ prefix: string, linkRef: Object, viewRef: Object, isPausedRef: Object, isActive: boolean, control: (value: Object) => void, resubscribe: (subs: string[], positions: ?Object) => void, seek: (sub: string, positions: ?Object, source?: Object) => void, setPaused: (paused: boolean) => void, setFilter: (term: string) => void, clear: () => void, targetRef: Object }}
- *   The live handles, the gate's state, and the controls the dashboard drives.
+ *   The live handles, the gate's state and the controls the dashboard
+ *   drives. The skipped-line count is `<prefix>:link`'s own state, which
+ *   `UnparseableLinesNotice` reads by name.
  */
 export function useStreamGraph( {
 	prefix,

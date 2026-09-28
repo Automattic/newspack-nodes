@@ -632,20 +632,35 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	 *                                           keep their own value on a shared key.
 	 */
 	protected function write_checkpoint_frame( bool $graceful, bool $with_state, array $extra = [] ): void {
-		// Co-commit snapshots with offset as ONE record for lockstep respawn.
-		if ( $with_state && [] !== $this->snapshot_nodes ) {
-			$cache = $this->snapshot_carry;
-			foreach ( $this->snapshot_nodes as $snapshot_name ) {
-				$node = Core::node( $snapshot_name );
-				if ( null !== $node && \method_exists( $node, 'save_state' ) ) {
-					$cache[ $snapshot_name ] = $node->save_state();
+		// One unit: a stop a save's writes reach waits for the frame to commit.
+		Event_Framework::instance()->uninterruptible(
+			function () use ( $graceful, $with_state, $extra ): void {
+				// Snapshots ride the offset as ONE record: lockstep respawn.
+				$cache = $with_state ? $this->save_snapshots() : [];
+				if ( [] !== $cache ) {
+					$extra['cache'] = $cache;
 				}
+				$this->commit_checkpoint_frame( $this->cursor_segment, $this->cursor_offset, $graceful, $extra );
 			}
-			if ( [] !== $cache ) {
-				$extra['cache'] = $cache;
+		);
+	}
+
+	/**
+	 * Every snapshot node's saved state, by name, over the state carried for
+	 * the ones that could not restore. A name that resolves to nothing, or to
+	 * a node with no `save_state()`, keeps what the carry holds for it.
+	 *
+	 * @return array<array-key,mixed>
+	 */
+	private function save_snapshots(): array {
+		$cache = $this->snapshot_carry;
+		foreach ( $this->snapshot_nodes as $name ) {
+			$node = Core::node( $name );
+			if ( null !== $node && \method_exists( $node, 'save_state' ) ) {
+				$cache[ $name ] = $node->save_state();
 			}
 		}
-		$this->commit_checkpoint_frame( $this->cursor_segment, $this->cursor_offset, $graceful, $extra );
+		return $cache;
 	}
 
 	/**
@@ -843,6 +858,39 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	}
 
 	/**
+	 * A cursorless reader over one partition dir, for a caller that scans a log
+	 * rather than consuming it: no offsetlog, no quarantine, so a line that will
+	 * not unpack is skipped and counted instead of ending the scan. The caller
+	 * names it, sinks it and seeks it; `take_unparseable_lines_of()` reports
+	 * what its scans skipped.
+	 *
+	 * @api Called by the SSE stream here, and by event-logger-nodes' reqgrep CLI and Performance_CI_Node.
+	 * @param string $dir The partition directory to read.
+	 */
+	public static function scan( string $dir ): self {
+		$reader = new self();
+		$reader->arguments( [ $dir ] );
+		$reader->set_skip_unparseable( true );
+		return $reader;
+	}
+
+	/**
+	 * Take every reader's unparseable-line count and sum them: a draining read,
+	 * so a caller reporting per tick reports each skipped line once.
+	 *
+	 * @api Called by the SSE stream here, and by event-logger-nodes' reqgrep CLI and Performance_CI_Node.
+	 * @param iterable<Consumer_Node> $readers Readers built by `scan()`.
+	 * @return int Lines they skipped since the previous take.
+	 */
+	public static function take_unparseable_lines_of( iterable $readers ): int {
+		$skipped = 0;
+		foreach ( $readers as $reader ) {
+			$skipped += $reader->take_unparseable_lines();
+		}
+		return $skipped;
+	}
+
+	/**
 	 * This reader's resume point, `segment:offset`, for the `connected`
 	 * envelope's CURSORS token.
 	 *
@@ -977,7 +1025,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 			'arguments'     => [
 				[ 'name' => 'source_dir',     'type' => 'string', 'required' => true, 'description' => 'Partition directory to tail; each {seg}.log segment\'s appended messages are emitted to the sink.' ],
 				[ 'name' => 'offsetlog_dir',  'type' => 'string', 'default' => '', 'description' => 'Directory for the durable read-cursor offsetlog (resume-after-restart); empty disables checkpointing.' ],
-				[ 'name' => 'deadletter_dir', 'type' => 'string', 'default' => '', 'description' => 'Directory where poison/dead-letter records are quarantined; empty disables the dead-letter queue.' ],
+				[ 'name' => 'deadletter_dir', 'type' => 'string', 'default' => '', 'description' => 'Directory where poison/dead-letter records are quarantined; empty disables the dead-letter queue, so a message that throws or will not unpack raises instead and the reader replays it.' ],
 			],
 			'commands'      => \array_merge(
 				self::deadletter_verbs(),

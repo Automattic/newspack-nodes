@@ -49,6 +49,7 @@ Paths below are relative to `lib/Tachikoma/`, with one exception worth knowing: 
 | `PROFILE_TTL_S = 900` idle trim | the same 900-second expiry inside `Nodes/Router.pm`'s `trim_profiles` |
 | `Timer_Node`'s two modes, recurring and oneshot | `Nodes/Timer.pm` `set_timer( $time, $oneshot )`, plus Router's TIMER registrants |
 | `Event_Framework::set_timer()` / `stop_timer()` | `EventFrameworks/Select.pm`'s `set_timer` and `stop_timer`, in a framework that also registers reader, writer and watcher nodes over descriptors (see below) |
+| a TM_NOREPLY command no node answers throws `NOT_AVAILABLE`, a deliberate divergence (see below) | `Nodes/Router.pm`'s `send_error`, which bounces a TM_ERROR to FROM and drops the command with a `NOT_AVAILABLE` line |
 
 ### Storage and durable readers
 
@@ -105,7 +106,7 @@ Every `Shell3.pm` citation below is load-bearing: our tokenizer is meant to be t
 | `var` assignment operators (`= .= += -= *= /= //= \|\|=`, `++`, `--`) | `Shell3.pm` `var_assignment` / `$H{'var'}` / `operate()` / `operate_with_value()` |
 | reading an unset var defines it empty | `Shell3.pm`'s `execute_var_assignment`, whose `//= q()` auto-vivifies it |
 | `var <name> =` with no value deletes | the `delete` inside `Shell3.pm`'s `operate()`, in its no-value branch |
-| junk where an operator belongs is refused — `var: unexpected token in assignment`, printed rather than fatal | the same junk raising `Shell3.pm`'s `fatal_parse_error( 'Unexpected token in assignment: ...' )` |
+| junk where an operator belongs is refused — `var: unexpected token in assignment`, printed in a REPL and thrown under `fatal_errors` | the same junk raising `Shell3.pm`'s `fatal_parse_error( 'Unexpected token in assignment: ...' )` |
 | the uninitialized-value warning printed RAW to stderr | `Shell3.pm`'s direct `print {*STDERR}`, and `get_shared`'s empty return |
 | `message.*` vars stamped at the mint | `Shell3.pm`'s `tell_node` builtin does the same for FROM and STREAM |
 | unquoted `#` comments to end of line, anywhere | `Shell3.pm`'s `tokenize`, stripping to end of line on an unescaped `#` |
@@ -114,6 +115,7 @@ Every `Shell3.pm` citation below is load-bearing: our tokenizer is meant to be t
 | single-quote / backtick escapes (`\'`, `` \` ``, `\\`) | `Shell3.pm` `string2` |
 | an open quote continues the statement onto the next line | `Shell3.pm`'s quote continuation |
 | `got EOF while waiting for tokens` on input that ends inside an open quote — thrown under `fatal_errors` so a mangled `.tsl` never half-loads, printed in a REPL | `Shell3.pm`'s `process_command`, which writes the same text to stderr and, off a TTY with errors accumulated, shuts every node down |
+| a failing statement leaves the rest of a topology running, and every failure raises after the last, failing the load | `Shell3.pm`'s `process_command`, which counts each error and, off a TTY, shuts every node down at EOF |
 | `.tsl` topology files | the TSL format and extension |
 
 ### Command interpreter
@@ -133,6 +135,7 @@ Every `Shell3.pm` citation below is load-bearing: our tokenizer is meant to be t
 | `secure` / `insecure` | `Nodes/CommandInterpreter.pm`'s `$C{secure}` / `$C{insecure}` verbs and `Config.pm`'s `secure_level` |
 | the disabled-verb ladder | `Nodes/CommandInterpreter.pm`'s `%DISABLED` |
 | removing a node that threw during construction | the `remove_node` call inside `Nodes/CommandInterpreter.pm`'s `make_node`, once construction fails |
+| a failing TM_NOREPLY command propagates its failure, a deliberate divergence (see below) | `Nodes/CommandInterpreter.pm`'s `send_response`, which prints `error from TM_NOREPLY command:` to stderr and returns |
 | the construction sequence: a no-arg constructor, then `name()`, `arguments()`, `sink()` | the same sequence inside `Nodes/CommandInterpreter.pm`'s `make_node` |
 | a refusal raised rather than returned | every `die` in `Nodes/CommandInterpreter.pm`'s verb table |
 | `Command_Args`' positional + `--key[=value]` grammar, parsed once and carried as tokens | `Getopt::Long`'s `GetOptionsFromString`, which `Nodes/CommandInterpreter.pm` imports and re-runs per verb over the raw argument string |
@@ -194,6 +197,16 @@ Six flags agree in name and value: TM_BYTESTREAM 1, TM_EOF 2, TM_PING 4, TM_COMM
 **Why:** Tachikoma's ack handshake earns its keep when producer and consumer are decoupled by a queue that can fill. Here every boundary is synchronous and the whole graph drains on one CPU, so the drain *is* the backpressure, and the reader owns its cursor entirely — "safe to resume" is local knowledge in the same synchronous drain that dispatched the message, so an ack has nothing to signal. `TM_NOREPLY` is the one reply-control flag we kept. Full reasoning, including the three conditions that would reopen it, in [ADR-3](architecture-decisions.md#adr-3-fire-and-forget-messaging).
 
 The decision cascades through the five nodes the diagram sets side by side: Null's load generator and Tee's ledger are gone, and Grep, AgeSieve and PayloadTimeout drop what upstream would `cancel()`, so a producer cannot tell a filtered message from a delivered one ([ADR-13](architecture-decisions.md#adr-13-fill-returns-nothing)). `Nodes/MemorySieve.pm` has no counterpart at all. The shape returns only in the browser, inside a sink whose rendering cost is not paid in the drain: [`dumper-node.js`](../src/runtime/dumper-node.js), whose docblock calls its bounded ring a MemorySieve degrade.
+
+### A TM_NOREPLY failure raises instead of printing
+
+Upstream, a TM_NOREPLY command that fails leaves no trace its sender can see. `Nodes/CommandInterpreter.pm`'s `send_response` prints `error from TM_NOREPLY command:` and the refusal to stderr, then returns. A TM_NOREPLY command addressed to no node reaches `Nodes/Router.pm`'s `send_error`, which bounces a TM_ERROR to FROM when FROM is set, then drops the command through `Node.pm`'s `drop_message`. Either way the script that sent the line runs on.
+
+Here both raise. [`Router_Node::send_error()`](../includes/class-router-node.php) throws `NOT_AVAILABLE: <path> <verb>` for a TM_COMMAND carrying TM_NOREPLY, before it would mint a bounce, and [`Command_Interpreter_Node::interpret()`](../includes/class-command-interpreter-node.php) re-throws the refusal, or the throwable the verb raised, rather than replying. The browser twins match: `router-node.js`'s `fill()` throws the same `NOT_AVAILABLE` and `command-interpreter-node.js`'s `_respond()` throws the refusal. Whatever filled the command receives the throwable, and the Shell raises every statement's failure after the last statement has run, so a topology line that fails fails the load.
+
+**Why:** every exception propagates. A caught failure is either raised or turned into a result its caller sees, and a TM_NOREPLY command has no reply to carry one: the only command that sets the flag is a Shell's with `want_reply( false )`, which is how a topology load and script mode run. Printing is the one remaining path, and it lands a rate-limited line in a worker's stderr that nothing reads, while the worker boots the rest of a half-built graph and reports itself live. Raising puts the failure on the load, where `Worker_Base` tears the graph down and releases the lock with no respawn, so a broken topology stays down and says why.
+
+**Revisit if** a TM_NOREPLY command is ever minted somewhere a raise has no caller to fail — a timer or a live fan-out rather than a load or a script — or the substrate gains a channel that carries a no-reply failure to an operator as a message, which would let it travel as a TM_ERROR again. [ADR-3](architecture-decisions.md#adr-3-fire-and-forget-messaging) records the same rule from the messaging side.
 
 ### `fill()` returns nothing
 

@@ -189,33 +189,32 @@ class LogSourcesTest extends TestCase {
 		$this->assertSame( Tail_Node::MODE_SEGMENTED, $registry['beacon-7e.p1']['mode'] );
 	}
 
-	public function test_a_broken_topology_is_skipped_not_fatal(): void {
+	public function test_a_broken_topology_fails_the_registry_after_every_topology_is_read(): void {
+		$exploded = new \RuntimeException( 'resolver exploded-6048' );
 		\Newspack_Nodes\Core::register_config_namespace(
 			'lsboom',
-			static function ( string $key ): ?string {
-				throw new \RuntimeException( 'resolver exploded' );
+			static function ( string $key ) use ( $exploded ): ?string {
+				throw $exploded;
 			}
 		);
 		Log_Sources::$builtin_sources = static fn (): array => [];
 		$dir = "{$this->tmp}/topologies";
 		\mkdir( $dir, 0755, true );
 		\file_put_contents( "{$dir}/lsbroken.tsl", "make_node Log b:log <lsboom:x>/boom.log 1 2 7\n" );
-		\file_put_contents( "{$dir}/lsgood.tsl", "make_node Log g:log <config:logs_dir>/still-here.md 1 2 7\n" );
+		\file_put_contents( "{$dir}/lsbroken2.tsl", "make_node Log c:log <nope:x>/dangling.log 1 2 7\n" );
 		Topology_Registry::register_stock_dir( $dir );
-		$this->use_base_dir( $this->tmp, [ 'topologies' => [ 'lsbroken', 'lsgood' ] ] );
+		$this->use_base_dir( $this->tmp, [ 'topologies' => [ 'lsbroken', 'lsbroken2' ] ] );
 
-		$registry = Log_Sources::registry();
+		$caught = null;
+		try {
+			Log_Sources::registry();
+		} catch ( \Throwable $e ) {
+			$caught = $e;
+		}
 
-		$this->assertSame( [ 'still-here.md' ], \array_keys( $registry ) );
-	}
-
-	public function test_an_unresolvable_config_token_skips_that_topology(): void {
-		Log_Sources::$builtin_sources = static fn (): array => [];
-		// `<nope:x>` is unregistered: strict token validation throws, and the
-		// catch degrades to skipping the topology (never a '/dangling.log' ghost).
-		$this->activate_topology( 'lsrel', "make_node Log r:log <nope:x>/dangling.log 1 2 7\n" );
-
-		$this->assertSame( [], Log_Sources::registry() );
+		$this->assertInstanceOf( \Newspack_Nodes\Failures::class, $caught, 'both broken topologies report' );
+		$this->assertSame( $exploded, $caught->all()[0] );
+		$this->assertStringContainsString( 'nope:x', $caught->all()[1]->getMessage() );
 	}
 
 	public function test_non_log_nodes_in_the_graph_are_skipped(): void {
@@ -407,12 +406,7 @@ class LogSourcesTest extends TestCase {
 		$this->assertSame( 233, $rows[0]['bytes'], 'bytes = the newest segment size' );
 	}
 
-	/**
-	 * `taillog sources` lists the whole registry, so a listing that throws for ONE
-	 * entry must cost that entry its segments, never the entire reply — the whole
-	 * point of a debugging surface is to survive the broken thing being debugged.
-	 */
-	public function test_a_source_whose_segment_listing_throws_degrades_to_no_segments(): void {
+	public function test_a_source_whose_segment_listing_throws_shows_its_failure_in_the_listing(): void {
 		$present                      = $this->write_fixed_width_log( 2, 59 );
 		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $present ];
 		$this->activate_topology(
@@ -423,21 +417,88 @@ class LogSourcesTest extends TestCase {
 		\mkdir( "{$this->tmp}/logs", 0755, true );
 		\file_put_contents( "{$this->tmp}/logs/gate-decisions.jsonl.4", \str_repeat( 'c', 431 ) );
 		Partition_Node::$scandir = static function ( string $dir ): array {
-			throw new \RuntimeException( "listing failed for {$dir}" );
+			throw new \RuntimeException( 'listing failed-9912' );
 		};
 
 		try {
-			$rows = Log_Sources::taillog( [ 'sources' ] );
+			$rows  = Log_Sources::taillog( [ 'sources' ] );
+			$table = Log_Sources::taillog( [] );
 		} finally {
 			Partition_Node::$scandir = null;
 		}
 
 		$by_name = \array_column( $rows, null, 'name' );
-		$this->assertSame( [], $by_name['gate-decisions.jsonl']['segments'] );
-		$this->assertFalse( $by_name['gate-decisions.jsonl']['available'] );
-		$this->assertNull( $by_name['gate-decisions.jsonl']['bytes'] );
-		$this->assertTrue( $by_name['php']['available'], 'the healthy entry still lists' );
+		$this->assertTrue( $by_name['php']['available'] );
 		$this->assertSame( \filesize( $present ), $by_name['php']['bytes'] );
+		$this->assertFalse( $by_name['gate-decisions.jsonl']['available'] );
+		$this->assertStringContainsString( 'listing failed-9912', $by_name['gate-decisions.jsonl']['error'] );
+		$this->assertStringContainsString( $present, $table );
+		$this->assertStringContainsString( 'listing failed-9912', $table );
+	}
+
+	/**
+	 * A stop is collected like any other failure: every source is still
+	 * offered its listing, and the stop escapes carrying what the rest threw.
+	 */
+	public function test_a_stop_while_listing_offers_every_source_and_carries_the_other_failures(): void {
+		Log_Sources::$builtin_sources = static fn (): array => [];
+		$this->activate_topology(
+			'lsrc-stopping',
+			"make_node Log a:log <config:logs_dir>/alpha-6610.jsonl 1 2 7\n"
+			. "make_node Log b:log <config:logs_dir>/beta-6610.jsonl 1 2 7\n"
+		);
+		\mkdir( "{$this->tmp}/logs", 0755, true );
+		$calls                   = 0;
+		Partition_Node::$scandir = static function ( string $dir ) use ( &$calls ): array {
+			if ( 1 === ++$calls ) {
+				throw new \Newspack_Nodes\Worker_Should_Stop( 'stop-6610' );
+			}
+			throw new \RuntimeException( 'beta-failed-6610' );
+		};
+
+		try {
+			$e = $this->caught( static fn () => Log_Sources::taillog( [ 'sources' ] ), 'the stop must escape' );
+		} finally {
+			Partition_Node::$scandir = null;
+		}
+
+		$this->assertSame( 2, $calls, 'the stop costs no later source its listing' );
+		$this->assertInstanceOf( \Newspack_Nodes\Worker_Should_Stop::class, $e );
+		$this->assertSame( 'beta-failed-6610', $e->getPrevious()?->getMessage() );
+	}
+
+	public function test_an_unreadable_topology_shows_in_the_listing_beside_the_readable_sources(): void {
+		$present                      = $this->write_fixed_width_log( 2, 59 );
+		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $present ];
+		$this->activate_topology( 'lsrc-dangling', "make_node Log d:log <nope:x>/dangling-4471.log 1 2 7\n" );
+
+		$rows  = Log_Sources::taillog( [ 'sources' ] );
+		$table = Log_Sources::taillog( [] );
+
+		$by_name = \array_column( $rows, null, 'name' );
+		$this->assertTrue( $by_name['php']['available'] );
+		$this->assertFalse( $by_name['lsrc-dangling']['available'] );
+		$this->assertStringContainsString( 'nope:x', $by_name['lsrc-dangling']['error'] );
+		$this->assertStringContainsString( $present, $table );
+		$this->assertStringContainsString( 'lsrc-dangling', $table );
+		$this->assertStringContainsString( 'nope:x', $table );
+	}
+
+	public function test_a_readable_source_tails_beside_an_unreadable_topology(): void {
+		$present                      = $this->write_fixed_width_log( 2, 59 );
+		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $present ];
+		$this->activate_topology( 'lsrc-dangling', "make_node Log d:log <nope:x>/dangling-4471.log 1 2 7\n" );
+
+		$this->assertStringContainsString( 'evlog-line-0001', Log_Sources::taillog( [ 'php' ] ) );
+	}
+
+	public function test_a_name_missing_beside_an_unreadable_topology_raises_its_failure(): void {
+		Log_Sources::$builtin_sources = static fn (): array => [];
+		$this->activate_topology( 'lsrc-dangling', "make_node Log d:log <nope:x>/dangling-4471.log 1 2 7\n" );
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'nope:x' );
+		Log_Sources::taillog( [ 'dangling-4471.log' ] );
 	}
 
 	public function test_taillog_read_returns_the_line_at_a_position_in_a_segment(): void {

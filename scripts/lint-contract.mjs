@@ -43,15 +43,15 @@ const ROOT = process.cwd();
 
 /**
  * Files that implement the routing itself, matched as path PREFIXES. TimerNode
- * owns the wall-clock grid and `index.js` re-exports its phase (ADR-17), the
- * interpreter reads the `completion` KEY it defines, the Shell stamps the ID a
- * command carries, and this file spells every forbidden shape out as a regex.
+ * owns the wall-clock grid and `index.js` re-exports its phase (ADR-17), and
+ * this file spells every forbidden shape out as a regex. A file that trips a
+ * rule on a line or two stays scanned and opts those lines out with
+ * `contract-ok:`: the interpreter reads the `completion` KEY as a request mode,
+ * and the Shell stamps the ID a REPL session forges.
  */
 const EXEMPT = [
 	'src/runtime/timer-node.js',
 	'src/runtime/index.js',
-	'src/runtime/command-interpreter-node.js',
-	'src/runtime/shell-node.js',
 	'scripts/lint-contract.mjs',
 ];
 

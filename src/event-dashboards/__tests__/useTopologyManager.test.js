@@ -197,6 +197,37 @@ describe( 'useTopologyManager', () => {
 		expect( log.partitions[ 0 ].segments ).toHaveLength( 1 );
 	} );
 
+	it( 'reports the lines the dump_graph probe read skipped as unparseable', async () => {
+		installRecordingWire( {
+			dump_graph: { ...DUMP_GRAPH, unparseable_lines: 9 },
+			dump: TOPOLOGIES_LIST,
+		} );
+		const { result } = renderHook( () => useTopologyManager( {} ) );
+		await act( async () => {} );
+
+		expect( result.current.unparseableLines ).toBe( 9 );
+	} );
+
+	it( 'reports what dump_graph answered it could not read beside the board', async () => {
+		const unreadable = { 'marmot-2207': 'include orphaned-2208 failed' };
+		const refused = {
+			'firehose-2209.p{partition}': 'log producer firehose-2209 refused',
+		};
+		installRecordingWire( {
+			dump_graph: {
+				...DUMP_GRAPH,
+				unreadable,
+				refused_producers: refused,
+			},
+			dump: TOPOLOGIES_LIST,
+		} );
+		const { result } = renderHook( () => useTopologyManager( {} ) );
+		await act( async () => {} );
+
+		expect( result.current.unreadable ).toEqual( unreadable );
+		expect( result.current.refusedProducers ).toEqual( refused );
+	} );
+
 	it( 'deactivate dispatches `topologies deactivate <name>`', async () => {
 		const { sent } = buildClient();
 		const { result } = renderHook( () => useTopologyManager( {} ) );

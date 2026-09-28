@@ -163,10 +163,11 @@ trait Durable_Reader {
 	 * Read the newest committed frame's VALUE, or null when there's nothing to
 	 * resume from. Reads the last segment; when its tail is empty (a
 	 * rotated-but-unwritten newest segment) it falls back to the prior segment,
-	 * then unpacks the last parseable line. Returns the raw VALUE array — each
-	 * caller reads its own fields out of it.
+	 * then unpacks the last line, raising when it will not unpack. Returns the
+	 * raw VALUE array — each caller reads its own fields out of it.
 	 *
 	 * @return array<array-key,mixed>|null
+	 * @throws \InvalidArgumentException When the newest frame will not unpack.
 	 */
 	protected function read_last_offsetlog_frame(): ?array {
 		return self::last_frame_of( $this->offsetlog );
@@ -273,6 +274,12 @@ trait Durable_Reader {
 	/** FROM-stamp override read by forward_line(); defaults to $this->name. The IPC input-Consumer stamps as `_repl`. */
 	protected string $stamp_override = '';
 
+	/** Skip and count a line that will not unpack instead of raising it; see set_skip_unparseable(). */
+	protected bool $skip_unparseable = false;
+
+	/** Lines skipped as unparseable since the last take_unparseable_lines(). */
+	protected int $unparseable_lines = 0;
+
 	/**
 	 * True once a downstream fill() raised Worker_Should_Stop through forward_line — the
 	 * worker was actively DISPATCHING a message when the cooperative stop hit. The
@@ -297,6 +304,43 @@ trait Durable_Reader {
 	/** Verb-backed toggle for assume_clean_shutdown (durable-before-stop chains commit past). */
 	public function set_assume_clean_shutdown( bool $flag ): void {
 		$this->assume_clean_shutdown = $flag;
+	}
+
+	/**
+	 * Skip a line that will not unpack and count it, instead of raising it.
+	 *
+	 * For a CURSORLESS reader over a log many processes append to — the SSE
+	 * stream, `grep_requests`, `wp nodes reqgrep` — where one torn line would
+	 * otherwise end every read until the segment rotates. Each such caller
+	 * reports `take_unparseable_lines()` where its reader can see it. A reader
+	 * with a cursor or a quarantine is refused: the first would commit past a
+	 * line nothing replays, and the second is where that line belongs.
+	 *
+	 * @api Programmatic only, not a verb: a topology's readers are durable.
+	 * @param bool $flag True skips and counts; false raises, the default.
+	 * @throws \LogicException When enabling on a reader with an offsetlog or a quarantine.
+	 */
+	public function set_skip_unparseable( bool $flag ): void {
+		if ( $flag && null !== $this->offsetlog ) {
+			throw new \LogicException( 'a reader with a cursor raises an unparseable line; only a cursorless one may skip it' );
+		}
+		if ( $flag && null !== $this->deadletter ) {
+			throw new \LogicException( 'a reader with a quarantine dead-letters an unparseable line; it may not skip it' );
+		}
+		$this->skip_unparseable = $flag;
+	}
+
+	/**
+	 * How many lines this reader skipped as unparseable since the last call,
+	 * resetting the count: a draining read, so a caller polling it per tick
+	 * reports each skip once.
+	 *
+	 * @return int Lines skipped since the previous take.
+	 */
+	public function take_unparseable_lines(): int {
+		$skipped                 = $this->unparseable_lines;
+		$this->unparseable_lines = 0;
+		return $skipped;
 	}
 
 	/**
@@ -443,10 +487,12 @@ trait Durable_Reader {
 				$this->crumb = $this->crumb_for_line( $line );
 				try {
 					$this->drain_line( $line, $this->cursor_offset );
-				} catch ( Worker_Should_Stop_Clean $e ) {
-					// Fully processed: commit past it; a plain stop replays.
-					$pos = $nl + 1;
-					$this->advance_consume_cursor();
+				} catch ( Worker_Should_Stop $e ) {
+					if ( Worker_Should_Stop::is_clean( $e ) ) {
+						// Fully processed: commit past; any other stop replays.
+						$pos = $nl + 1;
+						$this->advance_consume_cursor();
+					}
 					throw $e;
 				}
 				$pos = $nl + 1; // past the consumed \n.
@@ -544,7 +590,8 @@ trait Durable_Reader {
 	/**
 	 * Unpack one packed line and forward it to the sink: stamp FROM (breadcrumb), record the
 	 * seg:offset:length breadcrumb in ID, force TO when a target is set. An unparseable line is
-	 * quarantined to the `:deadletter` sibling; an over-long FROM stamp is logged and dropped.
+	 * quarantined to the `:deadletter` sibling, or skipped and counted by a reader that
+	 * `set_skip_unparseable()`; an over-long FROM stamp is logged and dropped.
 	 * The drain loop owns the cursor and advances past either, so a single bad record can't
 	 * wedge the stream.
 	 *
@@ -562,8 +609,12 @@ trait Durable_Reader {
 		try {
 			$message = Message::unpacked( $line );
 		} catch ( \InvalidArgumentException $e ) {
-			// Won't unpack, never will: quarantine; cursor advances.
-			$this->dead_letter( $this->poison_from_line( $line, $this->cursor_segment, $abs_offset ), 'unparseable', $e );
+			if ( $this->skip_unparseable ) {
+				++$this->unparseable_lines;
+			} else {
+				// Won't unpack, never will: quarantine; cursor advances.
+				$this->dead_letter( $this->poison_from_line( $line, $this->cursor_segment, $abs_offset ), 'unparseable', $e );
+			}
 			$this->disposed_record = true;
 			return;
 		}
@@ -581,23 +632,39 @@ trait Durable_Reader {
 			$this->sink?->fill( $message );
 			// Count only a successful forward, not a re-delivered stop/throw.
 			++$this->counter;
-		} catch ( Worker_Should_Stop_Clean $e ) {
-			// Forwarded before the stop (count it); not poison.
-			++$this->counter;
-			throw $e;
 		} catch ( Worker_Should_Stop $e ) {
-			// Not in crawl: its pin isolates a crash suspect, no commit-past.
-			if ( $this->assume_clean_shutdown && ! $this->crawl ) {
-				// Durable chain, no snapshot: commit past like a clean stop.
+			$settled = $this->settle_forward_stop( $e );
+			if ( Worker_Should_Stop::is_clean( $settled ) ) {
+				// Forwarded before the stop (count it); not poison.
 				++$this->counter;
-				throw new Worker_Should_Stop_Clean();
 			}
-			// Control flow, not poison: record mid-dispatch stop, then escape.
-			$this->stopped_in_fill = true;
-			throw $e;
+			throw $settled;
 		} catch ( \Throwable $e ) {
 			$this->dead_letter( $message, 'throw', $e );
 		}
+	}
+
+	/**
+	 * What a stop the sink raised means for the record in flight — control
+	 * flow, never poison. A clean stop stands, and the drain commits past the
+	 * record. Under `assume_clean_shutdown` a bare plain stop outside crawl
+	 * becomes clean too: the chain wrote the record durably before stopping,
+	 * where in crawl the pin isolates a crash suspect and a stop carrying a
+	 * failure says the write never landed. Any other stop records the
+	 * mid-dispatch strike and stands, so the record replays.
+	 *
+	 * @param Worker_Should_Stop $stop What the sink's fill() raised.
+	 * @return Worker_Should_Stop The stop the forward re-raises.
+	 */
+	protected function settle_forward_stop( Worker_Should_Stop $stop ): Worker_Should_Stop {
+		if ( Worker_Should_Stop::is_clean( $stop ) ) {
+			return $stop;
+		}
+		if ( $this->assume_clean_shutdown && ! $this->crawl && Worker_Should_Stop::is_bare( $stop ) ) {
+			return new Worker_Should_Stop_Clean();
+		}
+		$this->stopped_in_fill = true;
+		return $stop;
 	}
 
 	/** First complete (newline-terminated) line buffered at the cursor, or null when none is in flight. */
@@ -932,6 +999,14 @@ trait Durable_Reader {
 	 * order can't forward-reference a node that doesn't exist yet. Lifts the
 	 * offsetlog's PIPE_BUF cap (void_warranty): the worker holding the topology
 	 * lock is the offsetlog's sole writer, so no per-write lock is needed.
+	 *
+	 * A snapshot node must handle the record the cursor still points at
+	 * idempotently. A plain stop leaves the cursor on the in-flight record, so
+	 * the successor restores a state that may already hold it and replays it
+	 * on top. The current nodes meet this three ways: Flame_Builder skips a
+	 * record whose crumb matches its saved `$counted`, Request_Builder drops a
+	 * line whose sequence number it already folded, and intelligence's
+	 * Digest_Builder skips an item its `seen` map already holds.
 	 *
 	 * @param string $name Node whose save_state() co-commits; a repeat is ignored.
 	 */

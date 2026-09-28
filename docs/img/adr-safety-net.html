@@ -59,17 +59,17 @@
 </div>
 
 <div class="card" style="margin-top:16px;padding-bottom:14px">
-  <h3>The minute pass, <span class="mono">Bootstrap::run_reconcile_steps()</span>: seven steps in a fixed order, each alone behind its own <span class="mono">try</span>/<span class="mono">catch</span></h3>
+  <h3>The minute pass, <span class="mono">Bootstrap::run_reconcile_steps()</span>: nine steps in a fixed order, each attempted whatever an earlier one threw</h3>
   <div class="steps">
-    <div class="step revive" style="flex:1.5"><b><span class="n">1</span>before_reconcile</b>A third-party hook, isolated because a throw from it fired bare would escape the callback and skip the spawn behind it.</div>
+    <div class="step revive" style="flex:1.5"><b><span class="n">1</span>before_reconcile</b>A third-party hook, a step of its own, so its throw costs the spawn behind it nothing.</div>
     <div class="step revive"><b><span class="n">2</span>spawn_due_workers()</b>Revival, ahead of every janitorial step.</div>
     <div class="step revive"><b><span class="n">3</span>wake_readers_with_backlog()</b>The only pass that notices an external producer's write.</div>
     <div class="step" style="flex:.7"><b><span class="n">4</span>lock-dir reconcile</b></div>
     <div class="step"><b><span class="n">5</span>retention sweeps</b><span class="mono">Log_Cleaner</span>'s delete grace alone is an hour.</div>
     <div class="step" style="flex:.7"><b><span class="n">6</span>orphan-IPC reaping</b></div>
-    <div class="step" style="flex:1.6"><b><span class="n">7</span>newspack_nodes/periodic</b>Alerts, the delayed-jobs sweep and every subscriber; <span class="mono">not_before</span> granularity is therefore a minute, and late is what it means.</div>
+    <div class="step" style="flex:1.6"><b><span class="n">7–9</span>alerts, job-delay, periodic</b><span class="mono">Alerts::emit()</span>, the delayed-jobs sweep, then every subscriber; <span class="mono">not_before</span> granularity is therefore a minute.</div>
   </div>
-  <p style="margin-top:10px">No step can cost the others their window. Housekeeping depends on no live worker at all: retention and orphan reaping run while the fleet is down, which is when disk most needs reclaiming.</p>
+  <p style="margin-top:10px">No step can cost the others their window; <span class="mono">after_reconcile</span> fires after the last, then every failure escapes the callback together. Housekeeping depends on no live worker at all: retention and orphan reaping run while the fleet is down, which is when disk most needs reclaiming.</p>
 </div>
 
 <div class="two">

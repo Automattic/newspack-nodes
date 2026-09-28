@@ -243,12 +243,11 @@ class TableNodeTest extends TestCase {
 		$ci->name( 'stray:config' );
 		$verbs = array_column( \Newspack_Nodes\Table_Node::node_schema()['commands'], 'handler', 'name' );
 		foreach ( [ 'get', 'rm' ] as $verb ) {
-			try {
-				$verbs[ $verb ]( $ci, [ 'x' ] );
-				$this->fail( "{$verb} answered a foreign patron" );
-			} catch ( \RuntimeException $e ) {
-				$this->assertSame( 'no table patron', $e->getMessage() );
-			}
+			$e = $this->caught(
+				fn () => $verbs[ $verb ]( $ci, [ 'x' ] ),
+				"{$verb} answered a foreign patron"
+			);
+			$this->assertSame( 'no table patron', $e->getMessage() );
 		}
 	}
 

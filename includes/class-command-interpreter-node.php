@@ -45,6 +45,26 @@ class Command_Interpreter_Node extends Node {
 	public static ?\Closure $default_authorize = null;
 
 	/**
+	 * Wraps each verb handler once the verb is known to exist, so no caller can
+	 * coin a verb name the wrapper sees; see docs/architecture-guide.md.
+	 *
+	 * The interpreter-wide capability floor, the secure-level refusal and the
+	 * unknown-verb throw all run first. A `Service_CI_Node` verb's own declared
+	 * role does not: `gate_table()` checks it inside the handler, so that
+	 * refusal throws through `$run` and out of the wrapper.
+	 *
+	 * One slot serves every plugin, so an assigner composes rather than
+	 * replaces: it reads the current value and calls it from its own wrapper,
+	 * or calls `$run` when it was null. Wrappers then nest in assignment order,
+	 * the last assigned outermost.
+	 *
+	 * Signature: `function ( Command_Interpreter_Node $ci, string $verb, \Closure $run ): mixed`.
+	 *
+	 * @var \Closure|null
+	 */
+	public static ?\Closure $around_dispatch = null;
+
+	/**
 	 * Verb classes disabled at each secure level, modeled on Tachikoma's
 	 * %DISABLED. DECLARED per level — each entry says only what that level
 	 * ADDS, which is how Tachikoma's Ruleset and Scheduler declare only their
@@ -232,11 +252,17 @@ class Command_Interpreter_Node extends Node {
 	 * TO=FROM carrying the inbound ID and KEY, because the address the caller
 	 * minted IS the correlation (ADR-7); an empty string result sends nothing.
 	 *
+	 * A TM_NOREPLY command — every line a topology load sends — asked for no
+	 * reply, so no TM_ERROR can carry its failure: the refusal, or the
+	 * throwable the verb raised, propagates to whatever filled the command,
+	 * and a broken line fails the load instead of booting half a graph.
+	 *
 	 * A VALUE that is not an array, or that carries no `name` key, is dropped
 	 * instead — `drop_message()` leaves one rate-limited audit line, and the
 	 * caller gets no reply at all.
 	 *
 	 * @param array<int,mixed> $message Incoming command Message to interpret.
+	 * @throws \Throwable A stop from the verb; any failure of a TM_NOREPLY command.
 	 */
 	private function interpret( array $message ): void {
 		$cmd = $message[ Message::VALUE ];
@@ -259,8 +285,12 @@ class Command_Interpreter_Node extends Node {
 		// harmless in a request handling one, and a worker stuck
 		// at the first caller's ceiling for its whole ~595s life.
 		$prior_scope = Capabilities::$session_scope;
+		$noreply     = 0 !== ( Core::int( $message[ Message::TYPE ] ) & Message::TM_NOREPLY );
 		try {
 			if ( ! $authorize( $this, $message ) ) {
+				if ( $noreply ) {
+					throw new \RuntimeException( \esc_html( "unauthorized: {$cmd_name}" ) );
+				}
 				$result    = 'unauthorized: ' . $cmd_name;
 				$resp_type = Message::TM_COMMAND | Message::TM_ERROR;
 				// authorize may have logged the reason; skip the generic one.
@@ -273,9 +303,11 @@ class Command_Interpreter_Node extends Node {
 						$message
 					);
 					$resp_type = Message::TM_COMMAND | Message::TM_RESPONSE;
-				} catch ( Worker_Should_Stop $e ) {
-					throw $e; // control flow, not a verb error (ADR-14).
 				} catch ( \Throwable $e ) {
+					// A stop (ADR-14), or a failure no reply can carry.
+					if ( $noreply || $e instanceof Worker_Should_Stop ) {
+						throw $e;
+					}
 					// Handler errors are pre-escaped; the sink re-escapes.
 					$result    = \html_entity_decode( $e->getMessage(), \ENT_QUOTES ) . "\n";
 					$resp_type = Message::TM_COMMAND | Message::TM_ERROR;
@@ -292,12 +324,7 @@ class Command_Interpreter_Node extends Node {
 
 		$sink = $this->require_sink();
 
-		// TM_NOREPLY: suppress the reply, but still surface errors via stderr.
-		$in_type = $message[ Message::TYPE ];
-		if ( Core::int( $in_type ) & Message::TM_NOREPLY ) {
-			if ( ( $resp_type & Message::TM_ERROR ) && '' !== $result ) {
-				$this->stderr( 'error from TM_NOREPLY command: ' . ( Core::as_string( $result ) ) );
-			}
+		if ( $noreply ) {
 			return;
 		}
 
@@ -344,7 +371,8 @@ class Command_Interpreter_Node extends Node {
 		if ( ! isset( $commands[ $name ] ) ) {
 			throw new \InvalidArgumentException( \esc_html( "unknown command: {$name}" ) );
 		}
-		return ( $commands[ $name ] )( $this, $args, $envelope );
+		$run = fn (): mixed => $commands[ $name ]( $this, $args, $envelope );
+		return null === self::$around_dispatch ? $run() : ( self::$around_dispatch )( $this, $name, $run );
 	}
 
 	/**
@@ -374,6 +402,8 @@ class Command_Interpreter_Node extends Node {
 	 * the same tokens returns the node already registered, so reloading a topology
 	 * is idempotent while a genuine collision throws. A node born under a traced
 	 * interpreter inherits its `debug_state`, so `trace` covers what comes next.
+	 * A node that refuses its arguments is torn down again, and a teardown that
+	 * throws too escapes beside the refusal.
 	 *
 	 * @param string $type    Shell name (resolved as `{$prefix}{$type}_Node`, or the bare base `Node`).
 	 * @param string $name    Unique name for the new node (registered with Core).
@@ -424,12 +454,7 @@ class Command_Interpreter_Node extends Node {
 			}
 		} catch ( \Throwable $e ) {
 			// name() registers first, so a reject orphans. Tachikoma CI:2701.
-			try {
-				$node->remove_node();
-			} catch ( \Throwable $cleanup ) {
-				Core::print_less_often( 'ERROR: ', "can't remove_node {$name}: ", $cleanup->getMessage() );
-			}
-			throw $e;
+			Worker_Should_Stop::raise( [ $e, ...Worker_Should_Stop::attempt( $node->remove_node( ... ) ) ] );
 		}
 		return $node;
 	}
@@ -1537,9 +1562,10 @@ class Command_Interpreter_Node extends Node {
 	/**
 	 * `remove_node <name>...` or `remove_node -a <regex>` — tear nodes down.
 	 *
-	 * Refuses to destroy this interpreter or the session scaffolding, and reports
-	 * each refusal beside the removals rather than abandoning the rest of the
-	 * batch.
+	 * Refuses to destroy this interpreter or the session scaffolding — the
+	 * siblings a scaffolding node published included, since its own teardown
+	 * owns them — and reports each refusal beside the removals rather than
+	 * abandoning the rest of the batch.
 	 *
 	 * @param list<string> $args Verb arguments.
 	 */
@@ -1571,9 +1597,8 @@ class Command_Interpreter_Node extends Node {
 			$names = $args;
 		}
 
-		$removed   = [];
-		$errors    = [];
-		$protected = Node_Names::SESSION_SCAFFOLDING;
+		$removed = [];
+		$errors  = [];
 		foreach ( $names as $name ) {
 			if ( '' === $name ) {
 				continue;
@@ -1588,7 +1613,7 @@ class Command_Interpreter_Node extends Node {
 				$errors[] = 'refusing to destroy interpreter';
 				continue;
 			}
-			if ( \in_array( $name, $protected, true ) ) {
+			if ( self::is_scaffolding( $node ) ) {
 				$errors[] = "refusing to destroy baseline scaffolding: $name";
 				continue;
 			}
@@ -1601,6 +1626,25 @@ class Command_Interpreter_Node extends Node {
 			return "no matches\n";
 		}
 		return '' === $out ? "ok\n" : $out . "\n";
+	}
+
+	/**
+	 * Whether a node is session scaffolding, or a sibling one published, at
+	 * any remove. It walks `publisher()`, never `patron()`: a patron owns no
+	 * teardown — a partition may patron itself, and the interpreter patrons
+	 * transient scratch — while a publisher's teardown is the sibling's.
+	 *
+	 * @param Node $node The node a remove names.
+	 */
+	private static function is_scaffolding( Node $node ): bool {
+		$seen = [];
+		for ( $at = $node; null !== $at && ! isset( $seen[ \spl_object_id( $at ) ] ); $at = $at->publisher() ) {
+			if ( \in_array( $at->name(), Node_Names::SESSION_SCAFFOLDING, true ) ) {
+				return true;
+			}
+			$seen[ \spl_object_id( $at ) ] = true;
+		}
+		return false;
 	}
 
 	/**

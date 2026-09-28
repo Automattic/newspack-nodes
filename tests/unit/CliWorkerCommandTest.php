@@ -155,15 +155,14 @@ class CliWorkerCommandTest extends TestCase {
 
 	public function test_restart_rejects_invalid_target(): void {
 		$this->register_topology( 'firehose-workers', 2 );
-		try {
-			( new Worker_CLI_Command() )->restart( [ 'no-such-type' ], [ 'partition' => 0 ] );
-			$this->fail( 'Expected invalid restart target to fail.' );
-		} catch ( \RuntimeException ) {
-			$this->assertSame(
-				[ 'Invalid restart target: no-such-type. Available: firehose-workers, all' ],
-				$GLOBALS['_test_wp_cli_errors']
-			);
-		}
+		$this->caught(
+			fn () => ( new Worker_CLI_Command() )->restart( [ 'no-such-type' ], [ 'partition' => 0 ] ),
+			'Expected invalid restart target to fail.'
+		);
+		$this->assertSame(
+			[ 'Invalid restart target: no-such-type. Available: firehose-workers, all' ],
+			$GLOBALS['_test_wp_cli_errors']
+		);
 	}
 
 	/**
@@ -277,15 +276,14 @@ class CliWorkerCommandTest extends TestCase {
 		\Newspack_Nodes\Bootstrap::$spawn_coordinator_factory = static fn () => $fleet;
 		Worker_CLI_Command::$sleep = static function (): void {};
 
-		try {
-			( new Worker_CLI_Command() )->stop( [], [ 'timeout' => 0 ] );
-			$this->fail( 'an in-flight spawn must not read as a stopped fleet' );
-		} catch ( \RuntimeException ) {
-			$this->assertStringContainsString(
-				'spawn in flight',
-				\implode( ' ', $GLOBALS['_test_wp_cli_errors'] )
-			);
-		}
+		$this->caught(
+			fn () => ( new Worker_CLI_Command() )->stop( [], [ 'timeout' => 0 ] ),
+			'an in-flight spawn must not read as a stopped fleet'
+		);
+		$this->assertStringContainsString(
+			'spawn in flight',
+			\implode( ' ', $GLOBALS['_test_wp_cli_errors'] )
+		);
 	}
 
 	/**
@@ -298,15 +296,14 @@ class CliWorkerCommandTest extends TestCase {
 		\mkdir( "{$this->tmp}/locks/retired-workers.p0.lock.d", 0755, true );
 		Worker_CLI_Command::$sleep = static function (): void {};
 
-		try {
-			( new Worker_CLI_Command() )->stop( [], [ 'timeout' => 0 ] );
-			$this->fail( 'a lock held outside the active fleet must still block' );
-		} catch ( \RuntimeException ) {
-			$this->assertStringContainsString(
-				'retired-workers.p0',
-				\implode( ' ', $GLOBALS['_test_wp_cli_errors'] )
-			);
-		}
+		$this->caught(
+			fn () => ( new Worker_CLI_Command() )->stop( [], [ 'timeout' => 0 ] ),
+			'a lock held outside the active fleet must still block'
+		);
+		$this->assertStringContainsString(
+			'retired-workers.p0',
+			\implode( ' ', $GLOBALS['_test_wp_cli_errors'] )
+		);
 	}
 
 	/**
@@ -349,15 +346,14 @@ class CliWorkerCommandTest extends TestCase {
 		\mkdir( "{$this->tmp}/locks/firehose-workers.p1.lock.d", 0755, true );
 		Worker_CLI_Command::$sleep = static function (): void {};
 
-		try {
-			( new Worker_CLI_Command() )->stop( [], [ 'timeout' => 0 ] );
-			$this->fail( 'a fleet still up must exit non-zero' );
-		} catch ( \RuntimeException ) {
-			$this->assertStringContainsString(
-				'firehose-workers.p1',
-				\implode( ' ', $GLOBALS['_test_wp_cli_errors'] )
-			);
-		}
+		$this->caught(
+			fn () => ( new Worker_CLI_Command() )->stop( [], [ 'timeout' => 0 ] ),
+			'a fleet still up must exit non-zero'
+		);
+		$this->assertStringContainsString(
+			'firehose-workers.p1',
+			\implode( ' ', $GLOBALS['_test_wp_cli_errors'] )
+		);
 	}
 
 	/**
@@ -430,29 +426,32 @@ class CliWorkerCommandTest extends TestCase {
 	}
 
 	/**
-	 * A refused flag write (unwritable dir — the documented root-vs-bend
-	 * ownership footgun) must say so. Silently flagging nothing spins the full
-	 * timeout and blames the workers for not exiting.
+	 * A flag write that fails (unwritable dir — the documented root-vs-bend
+	 * ownership footgun) must stop the command naming it, and must not spare
+	 * the workers after it: silently flagging nothing spins the whole timeout
+	 * and blames the workers for not exiting.
 	 */
-	public function test_stop_reports_flag_writes_it_could_not_make(): void {
-		$this->register_topology( 'firehose-workers', 1 );
-		$dir = "{$this->tmp}/locks/firehose-workers.p0.lock.d";
-		\mkdir( $dir, 0755, true );
-		\chmod( $dir, 0555 );
+	public function test_stop_flags_every_worker_then_raises_the_write_it_could_not_make(): void {
+		$this->register_topology( 'firehose-workers', 2 );
+		$refusing = "{$this->tmp}/locks/firehose-workers.p0.lock.d";
+		$willing  = "{$this->tmp}/locks/firehose-workers.p1.lock.d";
+		\mkdir( $refusing, 0755, true );
+		\mkdir( $willing, 0755, true );
+		\chmod( $refusing, 0555 );
 		Worker_CLI_Command::$sleep = static function (): void {};
 
+		$thrown = null;
 		try {
 			( new Worker_CLI_Command() )->stop( [], [ 'timeout' => 0 ] );
-		} catch ( \RuntimeException ) {
-			// Expected: the worker never exits.
+		} catch ( \RuntimeException $e ) {
+			$thrown = $e;
 		} finally {
-			\chmod( $dir, 0755 );
+			\chmod( $refusing, 0755 );
 		}
 
-		$this->assertStringContainsString(
-			'could not write',
-			\implode( ' ', \array_merge( $GLOBALS['_test_wp_cli_warns'], $GLOBALS['_test_wp_cli_errors'] ) )
-		);
+		$this->assertNotNull( $thrown, 'the failed flag write must stop the command' );
+		$this->assertStringContainsString( $refusing . '/' . Lock_Node::STOP_FLAG, $thrown->getMessage() );
+		$this->assertFileExists( $willing . '/' . Lock_Node::STOP_FLAG, 'a sibling after the failure still hears' );
 	}
 
 	/** The hold stays put until `start` lifts it — that is the whole feature. */
@@ -542,6 +541,44 @@ class CliWorkerCommandTest extends TestCase {
 
 		$this->assertTrue( Lock_Node::is_restart_pending( "{$this->tmp}/locks/firehose-workers.p0.lock.d" ) );
 		$this->assertTrue( Lock_Node::is_restart_pending( "{$this->tmp}/locks/aggregator.p0.lock.d" ) );
+	}
+
+	/**
+	 * Activate a readable `aggregator`, a `marmot-hub` whose include resolves
+	 * nowhere, and a name no `.tsl` answers to.
+	 */
+	private function activate_beside_unreadable(): void {
+		$this->register_topology( 'aggregator', 2 );
+		\mkdir( "{$this->tmp}/tsl", 0755, true );
+		\file_put_contents( "{$this->tmp}/tsl/marmot-hub.tsl", "include orphaned-topology-3307\n" );
+		Topology_Registry::register_builtin_dir( "{$this->tmp}/tsl" );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'aggregator', 'marmot-hub', 'vole-unregistered' ];
+		\Newspack_Nodes\Config::reset();
+	}
+
+	/** @return string Every warning the command printed, one per line. */
+	private static function warnings(): string {
+		return \implode( "\n", $GLOBALS['_test_wp_cli_warns'] );
+	}
+
+	public function test_types_warns_naming_each_unreadable_topology(): void {
+		$this->activate_beside_unreadable();
+
+		( new Worker_CLI_Command() )->types( [], [] );
+
+		$this->assertStringContainsString( 'aggregator (2 partitions', \implode( "\n", $GLOBALS['_test_wp_cli_logs'] ) );
+		$this->assertStringContainsString( 'marmot-hub: unknown topology in include: orphaned-topology-3307', self::warnings() );
+		$this->assertStringContainsString( "vole-unregistered: unknown topology 'vole-unregistered'", self::warnings() );
+	}
+
+	public function test_status_warns_naming_each_unreadable_topology_beside_the_fleet(): void {
+		$this->activate_beside_unreadable();
+
+		( new Worker_CLI_Command() )->status( [], [] );
+
+		$this->assertStringContainsString( 'aggregator.p1', \implode( "\n", $GLOBALS['_test_wp_cli_logs'] ) );
+		$this->assertStringContainsString( 'marmot-hub: unknown topology in include: orphaned-topology-3307', self::warnings() );
+		$this->assertStringContainsString( "vole-unregistered: unknown topology 'vole-unregistered'", self::warnings() );
 	}
 
 	// -------------------------------------------------------------------------
@@ -641,6 +678,28 @@ class CliWorkerCommandTest extends TestCase {
 		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
 		$this->assertStringContainsString( 'firehose.p0', $haystack );
 		$this->assertStringContainsString( 'requests.p1', $haystack );
+	}
+
+	public function test_status_warns_with_the_count_of_unparseable_probe_lines(): void {
+		// A torn topicprobe line is skipped, never silently: status names how many.
+		$this->seed_consumer_checkpoint( 'firehose', 0, [ 'source' => 'firehose.p0', 'distance' => 0 ] );
+		\file_put_contents( "{$this->tmp}/logs/topicprobe.p0/0.log", "[1,\"torn-a\n[2,\"torn-b\n[3,\"torn-c\n", \FILE_APPEND );
+
+		( new Worker_CLI_Command() )->status( [], [] );
+
+		$this->assertStringContainsString( 'firehose.p0', \implode( "\n", $GLOBALS['_test_wp_cli_logs'] ) );
+		$this->assertSame(
+			[ 'topicprobe tail: 3 unparseable line(s) skipped' ],
+			$GLOBALS['_test_wp_cli_warns'] ?? []
+		);
+	}
+
+	public function test_status_warns_nothing_when_every_probe_line_parses(): void {
+		$this->seed_consumer_checkpoint( 'firehose', 0, [ 'source' => 'firehose.p0', 'distance' => 0 ] );
+
+		( new Worker_CLI_Command() )->status( [], [] );
+
+		$this->assertSame( [], $GLOBALS['_test_wp_cli_warns'] ?? [] );
 	}
 
 	public function test_status_sorts_the_reader_list(): void {

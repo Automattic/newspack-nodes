@@ -45,7 +45,7 @@
 </div>
 
 <div class="track">
-  <h2>The reconcile pass <span class="w">— WP-Cron, every 60 s on <span class="mono">newspack_nodes_minute</span>; each step behind its own catch, so one bad provider cannot cost the others their window</span></h2>
+  <h2>The reconcile pass <span class="w">— WP-Cron, every 60 s on <span class="mono">newspack_nodes_minute</span>; every step runs whatever another threw, then the failures escape together</span></h2>
   <div class="rail">
     <div class="st hk"><span class="k">the cron event itself</span><span class="h">reconcile</span><span class="a"><span class="mono">Bootstrap::<wbr>reconcile_fleet()</span> is its handler; a subsite, a refused base or a disabled fleet returns before anything below</span></div><div class="gap">›</div>
     <div class="st hk"><span class="k">step: before</span><span class="h">before_reconcile</span></div><div class="gap">›</div>
@@ -54,8 +54,8 @@
     <div class="br"></div>
     <div class="st fl"><span class="k">step: retention</span><span class="h">registered_log_producers</span><span class="a">a template resolving to no dir anywhere in the range skips the whole sweep, <span class="mono">offsets/</span> included</span></div><div class="gap">›</div>
     <div class="st"><span class="k">step: orphan-ipc</span><span class="h" style="color:#101517">cleanup_orphan_ipc()</span></div><div class="gap">›</div>
-    <div class="st hk"><span class="k">step: periodic</span><span class="h">periodic</span><span class="a">ONE step for every subscriber: a throwing one takes every later subscriber's window. <span class="mono">Alerts::emit()</span> and <span class="mono">Job_Delay::<wbr>sweep_action()</span> ride it</span></div><div class="gap">›</div>
-    <div class="st hk"><span class="k">finally</span><span class="h">after_reconcile</span></div><div class="gap"></div>
+    <div class="st hk"><span class="k">step: periodic</span><span class="h">periodic</span><span class="a">ONE step for every subscriber: a throwing one takes every later subscriber's window. <span class="mono">Alerts::emit()</span> and <span class="mono">Job_Delay::<wbr>sweep()</span> run as steps ahead of it</span></div><div class="gap">›</div>
+    <div class="st hk"><span class="k">after every step</span><span class="h">after_reconcile</span></div><div class="gap"></div>
   </div>
 </div>
 

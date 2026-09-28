@@ -44,6 +44,7 @@ const SYSTEM_COLORS = {
 	custom: '#FF5722',
 	hook: '#66BB6A',
 	plugin: '#AB47BC', // Purple for plugin timing.
+	command: '#905665', // Morganite 900, a chart color no other span takes.
 	complete: '#4CAF50',
 	// @longform Query and outbound-HTTP spans are named `base: detail`, so
 	// they resolve here on the base. Both carry a hue of their own rather
@@ -248,13 +249,19 @@ export const getTextColor = ( background ) => {
  * The color for an event, span or node name.
  *
  * The name reduces to a base first: a trailing ` (start)`/` (complete)` marker
- * comes off, then everything from the first colon, so `process (start)` and
- * `sql: SELECT wp_posts` resolve alongside `process` and `sql`. The base then
- * resolves in four steps — a ` hook` suffix through the category patterns and
- * `SYSTEM_COLORS.hook` behind them, a ` plugin` suffix to the plugin color, an
- * operator's `eventLoggerCustomColors` entry, and `SYSTEM_COLORS` last.
+ * comes off, then everything from the first `: `, so `process (start)` and
+ * `sql: SELECT wp_posts` resolve alongside `process` and `sql`. That is the
+ * event logger's `Flame_Tree::base_name()` rule, so a bare colon stays in the
+ * base: a wrapped listener span such as
+ * `{closure}:atomic-platform-virtual-patches.php:21080` stays whole. Both
+ * color tables are read by own property alone, so a name like `constructor`
+ * takes the default grey rather than an inherited member. The base then
+ * resolves in five steps — a ` hook` suffix through the category patterns and
+ * `SYSTEM_COLORS.hook` behind them, a ` plugin` suffix to the plugin color, a
+ * ` command` suffix to the command color, an operator's
+ * `eventLoggerCustomColors` entry, and `SYSTEM_COLORS` last.
  *
- * The operator's overrides sit ahead of `SYSTEM_COLORS` and behind the two
+ * The operator's overrides sit ahead of `SYSTEM_COLORS` and behind the three
  * suffixes, so an install can recolor `sql` or `process` without flattening
  * the per-hook categorization underneath it.
  *
@@ -269,10 +276,10 @@ export const getStateColor = ( name ) => {
 	// Strip (start)/(complete) suffix for log entries.
 	let baseName = name.replace( / \((start|complete)\)$/, '' ).trim();
 
-	// Handle "base: label" format - extract base.
-	const colonIdx = baseName.indexOf( ':' );
-	if ( colonIdx > 0 ) {
-		baseName = baseName.substring( 0, colonIdx ).trim();
+	// Cut "base: label" to base; a bare colon belongs to the base.
+	const labelAt = baseName.indexOf( ': ' );
+	if ( labelAt > 0 ) {
+		baseName = baseName.substring( 0, labelAt ).trim();
 	}
 
 	// WordPress hooks end with " hook".
@@ -290,15 +297,22 @@ export const getStateColor = ( name ) => {
 		return SYSTEM_COLORS.plugin;
 	}
 
+	// Command-interpreter verb spans end with " command".
+	if ( baseName.endsWith( ' command' ) ) {
+		return SYSTEM_COLORS.command;
+	}
+
 	// Check custom event colors from config.
 	const customColors =
 		/** @type {ColorConfigWindow} */ ( window ).eventLoggerCustomColors ||
 		{};
-	if ( customColors[ baseName ] ) {
+	if ( Object.hasOwn( customColors, baseName ) && customColors[ baseName ] ) {
 		return customColors[ baseName ];
 	}
 
-	return SYSTEM_COLORS[ baseName ] || SYSTEM_COLORS.default;
+	return Object.hasOwn( SYSTEM_COLORS, baseName )
+		? SYSTEM_COLORS[ baseName ]
+		: SYSTEM_COLORS.default;
 };
 
 /**

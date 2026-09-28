@@ -3,6 +3,7 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Core;
+use Newspack_Nodes\Failures;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Router_Node;
 use Newspack_Nodes\Tap_Node;
@@ -72,6 +73,26 @@ class TapStopPrecedenceTest extends TestCase {
 		];
 	}
 
+	/** Tap to $targets with the passthrough addressed at $to; return what escapes. */
+	private function tap_through_to( string $to, string ...$targets ): ?\Throwable {
+		$tap = new Tap_Node();
+		$tap->name( 'tap' );
+		$tap->sink( Core::node( '_router' ) );
+		foreach ( $targets as $t ) {
+			$tap->connect_node( $t );
+		}
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::TO ]    = $to;
+		$message[ Message::VALUE ] = 'data';
+		try {
+			$tap->fill( $message );
+		} catch ( \Throwable $e ) {
+			return $e;
+		}
+		return null;
+	}
+
 	/**
 	 * An ordinary tap error propagates like any other fan-out failure — but only
 	 * after the passthrough, so the pipeline has the message before the consumer
@@ -110,16 +131,42 @@ class TapStopPrecedenceTest extends TestCase {
 		$this->assertSame( 'deadline', $result['escaped']->getMessage() );
 	}
 
-	/** Same precedence as Tee, from the one shared rule: replay beats advance-past. */
-	public function test_a_plain_stop_outranks_a_clean_one_across_two_taps(): void {
+	/** The same rule as Tee: a plain stop beside a clean one is plain. */
+	public function test_a_plain_stop_beside_a_clean_one_across_two_taps_is_plain(): void {
 		$this->thrower( 'snapshot', new Worker_Should_Stop_Clean( 'clean recycle' ) );
 		$this->thrower( 'stopping', new Worker_Should_Stop( 'deadline' ) );
 
 		$result = $this->tap_through( 'snapshot', 'stopping' );
 
 		$this->assertNotNull( $result['passthrough'] );
-		$this->assertNotInstanceOf( Worker_Should_Stop_Clean::class, $result['escaped'] );
+		$this->assertFalse( Worker_Should_Stop::is_clean( $result['escaped'] ) );
 		$this->assertSame( 'deadline', $result['escaped']->getMessage() );
+	}
+
+	/** A passthrough that throws after a tap threw loses neither failure. */
+	public function test_a_passthrough_failure_after_a_tap_failure_escapes_with_it(): void {
+		$tap_error = new \RuntimeException( 'tap blew up-71' );
+		$this->thrower( 'broken', $tap_error );
+		$pass_error = new \RuntimeException( 'pipeline blew up-72' );
+		$this->thrower( 'downstream-broken', $pass_error );
+
+		$result = $this->tap_through_to( 'downstream-broken', 'broken' );
+
+		$this->assertInstanceOf( Failures::class, $result );
+		$this->assertSame( [ $tap_error, $pass_error ], $result->all() );
+	}
+
+	/** A clean tap stop beside a failing passthrough is a stop carrying the failure. */
+	public function test_a_failing_passthrough_beside_a_clean_tap_stop_is_not_clean(): void {
+		$this->thrower( 'snapshot', new Worker_Should_Stop_Clean( 'clean-81' ) );
+		$pass_error = new \RuntimeException( 'pipeline blew up-82' );
+		$this->thrower( 'downstream-broken', $pass_error );
+
+		$result = $this->tap_through_to( 'downstream-broken', 'snapshot' );
+
+		$this->assertInstanceOf( Worker_Should_Stop::class, $result );
+		$this->assertFalse( Worker_Should_Stop::is_clean( $result ), 'the pipeline write failed: replay, never commit past' );
+		$this->assertSame( $pass_error, $result->getPrevious() );
 	}
 
 	/** Every tap is attempted even after one stops; a stop is not a reason to starve siblings. */

@@ -876,6 +876,47 @@ class HttpOutTest extends TestCase {
 		$this->assertCount( 0, $this->read_private( $node, 'inflight' ) ); // cleaned up
 	}
 
+	public function test_a_reply_whose_fill_throws_still_detaches_and_delivers_the_rest(): void {
+		Event_Framework::reset();
+		[ $node, $easy ] = $this->node_with_one_inflight();
+		$node->allow_replies_to( 'settings-sync' );
+
+		$replies = '';
+		foreach ( [ 'boom-1', 'ok-2', 'boom-3' ] as $value ) {
+			$reply                   = Message::new_message();
+			$reply[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+			$reply[ Message::TO ]    = 'settings-sync';
+			$reply[ Message::VALUE ] = $value;
+			$replies                .= Message::packed( $reply ) . "\n";
+		}
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 200, 'body' => $replies ];
+
+		$sink = new class() extends Capture_Sink_Node {
+			public function fill( array $message ): void {
+				if ( \str_starts_with( (string) $message[ Message::VALUE ], 'boom' ) ) {
+					throw new \RuntimeException( "reply {$message[ Message::VALUE ]} blew up" );
+				}
+				parent::fill( $message );
+			}
+		};
+		$sink->name( '_command_interpreter' );
+		$node->sink( $sink );
+
+		try {
+			$node->on_curl_message( $this->done_info( $easy ) );
+			$this->fail( 'the failed replies must still raise' );
+		} catch ( \Newspack_Nodes\Failures $e ) {
+			$this->assertSame(
+				[ 'reply boom-1 blew up', 'reply boom-3 blew up' ],
+				\array_map( static fn ( \Throwable $f ): string => $f->getMessage(), $e->all() )
+			);
+		}
+
+		$this->assertSame( [ 'ok-2' ], \array_map( static fn ( array $m ) => $m[ Message::VALUE ], $sink->captured ), 'the reply after the throw still arrives' );
+		$this->assertCount( 0, $this->read_private( $node, 'inflight' ), 'the handle is released despite the throw' );
+		$this->assertSame( [], Event_Framework::instance()->curl_handles(), 'and detached from the drain loop' );
+	}
+
 	/**
 	 * The interpreter answers a failed verb with TM_COMMAND|TM_ERROR and a
 	 * successful one with TM_COMMAND|TM_RESPONSE. Both are the same round
@@ -1090,20 +1131,27 @@ class HttpOutTest extends TestCase {
 		$this->assertCount( 0, $this->read_private( $node, 'inflight' ) );
 	}
 
-	public function test_on_curl_message_malformed_line_is_skipped_not_fatal(): void {
+	public function test_on_curl_message_delivers_every_line_then_raises_the_malformed_one(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();
 		$reply                   = Message::new_message();
-		$reply[ Message::VALUE ] = 'good';
+		$reply[ Message::VALUE ] = 'good-after-bad-3309';
 		// First line is not a 7-element positional array; Message::unpacked() throws on it.
-		$body = '{"not":"a positional array"}' . "\n" . Message::packed( $reply ) . "\n";
+		$body = '{"not":"a positional array 3309"}' . "\n" . Message::packed( $reply ) . "\n";
 		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 200, 'body' => $body ];
 		$sink = new Capture_Sink_Node();
 		$sink->name( '_command_interpreter' );
 		$node->sink( $sink );
-		$node->on_curl_message( $this->done_info( $easy ) ); // must not throw past the bad line
-		$this->assertCount( 1, $sink->captured );
-		$this->assertSame( 'good', $sink->captured[0][ Message::VALUE ] );
-		$this->assertCount( 0, $this->read_private( $node, 'inflight' ) );
+
+		try {
+			$node->on_curl_message( $this->done_info( $easy ) );
+			$this->fail( 'a malformed reply line must raise after the rest are delivered' );
+		} catch ( \InvalidArgumentException $e ) {
+			$this->assertStringContainsString( 'positional array 3309', $e->getMessage() );
+		}
+
+		$this->assertCount( 1, $sink->captured, 'the line after the bad one is still delivered' );
+		$this->assertSame( 'good-after-bad-3309', $sink->captured[0][ Message::VALUE ] );
+		$this->assertCount( 0, $this->read_private( $node, 'inflight' ), 'the handle detaches all the same' );
 	}
 
 	/** The process-static reply buffers, keyed by easy-handle id. */

@@ -8,6 +8,7 @@ use Newspack_Nodes\Message;
 use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Timer_Node;
 use Newspack_Nodes\Worker_Should_Stop;
+use Newspack_Nodes\Worker_Should_Stop_Clean;
 use Newspack_Nodes\Tests\TestCase;
 
 #[CoversClass( Partition_Node::class )]
@@ -57,14 +58,14 @@ class PartitionTest extends TestCase {
 	// ── write stall: loud, unindexed, and left for a reader to skip ────────
 
 	/**
-	 * A stalled write is reported and left alone — not quarantined.
+	 * A stalled write throws, naming its segment, and is not quarantined.
 	 *
 	 * Quarantining would be a promise this process cannot keep: the dead-letter
 	 * is a Partition on the same filesystem, so whatever refused these bytes
 	 * refuses those too. The tear stays on disk, and a READER dead-letters the
 	 * line it cannot unpack and advances — recovery where it can actually run.
 	 */
-	public function test_flush_write_stall_is_loud_and_leaves_the_torn_tail(): void {
+	public function test_flush_write_stall_throws_and_leaves_the_torn_tail(): void {
 		$this->use_base_dir( $this->tmp );
 		$p = new Partition_Node();
 		$p->name( 'stall' );
@@ -98,10 +99,13 @@ class PartitionTest extends TestCase {
 		};
 		Core::set_stderr_handler( static function () { /* swallow */ } );
 		try {
-			$p->flush();
+			$e = $this->thrown_by( static fn () => $p->flush() );
 		} finally {
 			Partition_Node::$fwrite = null;
 		}
+		$this->assertInstanceOf( \RuntimeException::class, $e );
+		$this->assertStringContainsString( "{$this->tmp}/logs/stall.p0/0.log", $e->getMessage() );
+		$this->assertStringContainsString( 'short write', $e->getMessage() );
 
 		$log = (string) \file_get_contents( "{$this->tmp}/logs/stall.p0/0.log" );
 		$this->assertGreaterThan( $first_len, \strlen( $log ), 'the torn tail is left where it fell' );
@@ -141,7 +145,7 @@ class PartitionTest extends TestCase {
 		$this->assertSame( [ 'alpha-payload' ], $parsed, 'only the record before the tear survives' );
 	}
 
-	public function test_flush_open_failure_quarantines_the_whole_batch(): void {
+	public function test_flush_open_failure_quarantines_the_batch_then_throws(): void {
 		if ( \function_exists( 'posix_getuid' ) && 0 === \posix_getuid() ) {
 			$this->markTestSkipped( 'permission checks are moot as root' );
 		}
@@ -160,10 +164,13 @@ class PartitionTest extends TestCase {
 		\chmod( "{$this->tmp}/logs/openfail.p0", 0555 );
 		Core::set_stderr_handler( static function () { /* swallow */ } );
 		try {
-			$p->flush();
+			$e = $this->thrown_by( static fn () => $p->flush() );
 		} finally {
 			\chmod( "{$this->tmp}/logs/openfail.p0", 0755 );
 		}
+		$this->assertInstanceOf( \RuntimeException::class, $e );
+		$this->assertStringContainsString( "{$this->tmp}/logs/openfail.p0/0.log", $e->getMessage() );
+		$this->assertStringContainsString( 'Permission denied', $e->getMessage() );
 
 		$dl = (string) \file_get_contents( "{$this->tmp}/deadletter/logs.openfail.p0/0.log" );
 		$this->assertStringContainsString( 'omega-payload', $dl, 'an unopenable segment must quarantine the batch, not drop it' );
@@ -196,10 +203,11 @@ class PartitionTest extends TestCase {
 		};
 		Core::set_stderr_handler( static function () { /* swallow */ } );
 		try {
-			$p->fill( $m );
+			$e = $this->thrown_by( static fn () => $p->fill( $m ) );
 		} finally {
 			Partition_Node::$fwrite = null;
 		}
+		$this->assertStringContainsString( 'short write', $e->getMessage() );
 
 		// void_warranty() asserts sole writer, so the torn record is cut off —
 		// nothing else is appending to this segment for the truncate to reach.
@@ -669,12 +677,11 @@ class PartitionTest extends TestCase {
 		$p->name( 'grapnel' );
 		$p->arguments( [ "{$this->tmp}/logs/grapnel.p0", '1048576', '2', '4', '0', '0', '0' ] );
 
-		try {
-			$p->allow_large_writes();
-			$this->fail( 'expected the squatted lock slot to be refused' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertStringContainsString( 'node name collision: grapnel:lock already registered', $e->getMessage() );
-		}
+		$e = $this->caught(
+			fn () => $p->allow_large_writes(),
+			'expected the squatted lock slot to be refused'
+		);
+		$this->assertStringContainsString( 'node name collision: grapnel:lock already registered', $e->getMessage() );
 
 		$this->assertSame( '', $this->read_node_prop( $p, 'large_write_mode' ) );
 		$this->assertNull( $this->read_node_prop( $p, 'write_lock' ) );
@@ -725,6 +732,162 @@ class PartitionTest extends TestCase {
 	}
 
 	/**
+	 * The lock releases while it is still registered, so what listens for its
+	 * RELEASED hears it; a retraction first would clear the listeners.
+	 */
+	public function test_releasing_the_write_lock_notifies_its_released_listeners(): void {
+		$this->use_base_dir( $this->tmp );
+		$p = new Partition_Node();
+		$p->name( 'gunwale' );
+		$p->arguments( [ "{$this->tmp}/logs/gunwale.p0", '1048576', '2', '4', '0', '0', '0' ] );
+		$p->allow_large_writes( 2750 );
+		$heard = [];
+		$lock  = Core::node( 'gunwale:lock' );
+		( function () use ( &$heard ): void {
+			$this->registrations['RELEASED'] = [ 'probe-6613' => static function ( $payload ) use ( &$heard ) {
+				$heard[] = $payload;
+			} ];
+		} )->call( $lock );
+
+		$p->void_warranty();
+
+		$this->assertSame( [ "{$this->tmp}/logs/gunwale.p0/write.lock.d" ], $heard );
+	}
+
+	/**
+	 * A retraction that throws cannot keep the lock dir standing: the release
+	 * runs first, and the retraction's failure escapes after it.
+	 */
+	public function test_a_throwing_retraction_still_releases_the_write_lock(): void {
+		$this->use_base_dir( $this->tmp );
+		$p = new Partition_Node();
+		$p->name( 'thwart' );
+		$p->arguments( [ "{$this->tmp}/logs/thwart.p0", '1048576', '2', '4', '0', '0', '0' ] );
+		$p->allow_large_writes( 3750 );
+		$thrower = new class() extends \Newspack_Nodes\Node {
+			public function remove_node(): void {
+				parent::remove_node();
+				throw new \RuntimeException( 'retraction refused 7741' );
+			}
+		};
+		$lock = Core::node( 'thwart:lock' );
+		( fn () => $this->publish_sibling( 'probe', $thrower ) )->call( $lock );
+
+		$e = $this->caught( static fn () => $p->void_warranty(), 'the retraction failure must escape' );
+
+		$this->assertStringContainsString( 'retraction refused 7741', $e->getMessage() );
+		$this->assertDirectoryDoesNotExist( "{$this->tmp}/logs/thwart.p0/write.lock.d" );
+		$this->assertNull( Core::node( 'thwart:lock' ), 'the lock sibling still frees its name' );
+		$this->assertFalse( $this->read_node_prop( $p, 'lock_held' ) );
+	}
+
+	/**
+	 * A release that throws cannot leave `{name}:lock` registered: the
+	 * retractions and the state reset still run, and the failure escapes.
+	 */
+	public function test_a_throwing_release_still_retracts_the_write_lock(): void {
+		$this->use_base_dir( $this->tmp );
+		$p = new Partition_Node();
+		$p->name( 'sheerline' );
+		$p->arguments( [ "{$this->tmp}/logs/sheerline.p0", '1048576', '2', '4', '0', '0', '0' ] );
+		$p->allow_large_writes( 4750 );
+		\file_put_contents( "{$this->tmp}/logs/sheerline.p0/write.lock.d/stray-8812", 'x' );
+
+		$e = $this->caught( static fn () => $p->void_warranty(), 'the release failure must escape' );
+
+		$this->assertStringContainsString( 'stray-8812', $e->getMessage() );
+		$this->assertNull( Core::node( 'sheerline:lock' ), 'the lock sibling frees its name' );
+		$this->assertNull( $this->read_node_prop( $p, 'write_lock' ) );
+		$this->assertFalse( $this->read_node_prop( $p, 'lock_held' ) );
+		$this->assertSame( 'void', $this->read_node_prop( $p, 'large_write_mode' ) );
+	}
+
+	/**
+	 * A lock retraction that throws still empties the `lock` slot. Left
+	 * occupied, the dead lock rides the next rename back into the registry
+	 * under the new name, and it is no longer the Partition's to publish over.
+	 */
+	public function test_a_throwing_lock_retraction_frees_the_slot_and_large_writes_re_arm(): void {
+		$this->use_base_dir( $this->tmp );
+		$p = new Partition_Node();
+		$p->name( 'catboat' );
+		$p->arguments( [ "{$this->tmp}/logs/catboat.p0", '1048576', '2', '4', '0', '0', '0' ] );
+		$p->allow_large_writes( 3350 );
+		$thrower = new class() extends \Newspack_Nodes\Node {
+			public function remove_node(): void {
+				parent::remove_node();
+				throw new \RuntimeException( 'retraction refused 6627' );
+			}
+		};
+		( fn () => $this->publish_sibling( 'probe', $thrower ) )->call( Core::node( 'catboat:lock' ) );
+		$this->caught( static fn () => $p->void_warranty(), 'the retraction failure must escape' );
+
+		$p->name( 'yawl' );
+
+		$this->assertNull( Core::node( 'yawl:lock' ), 'the torn-down lock must not follow the rename' );
+		$p->allow_large_writes( 3350 );
+		$this->assertSame( $this->read_node_prop( $p, 'write_lock' ), Core::node( 'yawl:lock' ) );
+		$this->assertDirectoryExists( "{$this->tmp}/logs/catboat.p0/write.lock.d" );
+	}
+
+	/**
+	 * Teardown whose lock release throws still unregisters the Partition, so a
+	 * rebuild under the same name — a topology reload, a worker's next graph —
+	 * is not refused as a collision with a node that is already gone.
+	 */
+	public function test_a_throwing_release_at_teardown_still_unregisters_the_partition(): void {
+		$this->use_base_dir( $this->tmp );
+		$p = new Partition_Node();
+		$p->name( 'lugger' );
+		$p->arguments( [ "{$this->tmp}/logs/lugger.p0", '1048576', '2', '4', '0', '0', '0' ] );
+		$p->allow_large_writes( 3450 );
+		\file_put_contents( "{$this->tmp}/logs/lugger.p0/write.lock.d/stray-3308", 'x' );
+
+		$e = $this->caught( static fn () => $p->remove_node(), 'the release failure must escape' );
+
+		$this->assertStringContainsString( 'stray-3308', $e->getMessage() );
+		$this->assertNull( Core::node( 'lugger' ) );
+		$this->assertNull( Core::node( 'lugger:config' ) );
+		$this->assertNull( Core::node( 'lugger:lock' ) );
+		$rebuilt = new Partition_Node();
+		$rebuilt->name( 'lugger' );
+		$rebuilt->arguments( [ "{$this->tmp}/logs/lugger-rebuilt.p0", '1048576', '2', '4', '0', '0', '0' ] );
+		$this->assertSame( $rebuilt, Core::node( 'lugger' ) );
+	}
+
+	/**
+	 * A contended acquire whose unwind throws still delivers the contention:
+	 * `Write_Lock_Held` is what a caller answers, so it rides out combined with
+	 * the unwind's failure rather than being replaced by it.
+	 */
+	public function test_a_throwing_unwind_keeps_the_contention_it_unwinds(): void {
+		$this->use_base_dir( $this->tmp );
+		$holder = new Partition_Node();
+		$holder->name( 'ketch' );
+		$holder->arguments( [ "{$this->tmp}/logs/ketch.p0", '1048576', '2', '4', '0', '0', '0' ] );
+		$holder->allow_large_writes( 3550 );
+		$rival = new class() extends Partition_Node {
+			protected function retract_sibling( string $kind ): void {
+				$occupied = isset( $this->siblings()[ $kind ] );
+				parent::retract_sibling( $kind );
+				if ( $occupied && 'lock' === $kind ) {
+					throw new \RuntimeException( 'unwind refused 4471' );
+				}
+			}
+		};
+		$rival->name( 'pinnace' );
+		$rival->arguments( [ "{$this->tmp}/logs/ketch.p0", '1048576', '2', '4', '0', '0', '0' ] );
+
+		$e = $this->caught( static fn () => $rival->allow_large_writes( 120 ), 'the refusal must escape' );
+
+		$this->assertInstanceOf( \Newspack_Nodes\Failures::class, $e );
+		$classes = \array_map( static fn ( \Throwable $t ): string => $t::class, $e->all() );
+		$this->assertSame( [ \Newspack_Nodes\Write_Lock_Held::class, \RuntimeException::class ], $classes );
+		$this->assertStringContainsString( 'unwind refused 4471', $e->all()[1]->getMessage() );
+		$this->assertSame( '', $this->read_node_prop( $rival, 'large_write_mode' ) );
+	}
+
+	/**
 	 * Teardown is the third exit from LOCK mode, and it bypassed the single
 	 * writer: `remove_node()` released the lock directly, so the mode stayed
 	 * `LARGE_WRITE_LOCK` with nothing behind it. `fill()` needs no sink and
@@ -763,12 +926,11 @@ class PartitionTest extends TestCase {
 		$p->name( 'binnacle' );
 		$p->arguments( [ "{$this->tmp}/logs/binnacle.p0", '1048576', '2', '4', '0', '0', '0' ] );
 
-		try {
-			$p->allow_large_writes();
-			$this->fail( 'expected the unrouted heartbeat arm to be refused' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertStringContainsString( 'Router-hitchhike requires _router', $e->getMessage() );
-		}
+		$e = $this->caught(
+			fn () => $p->allow_large_writes(),
+			'expected the unrouted heartbeat arm to be refused'
+		);
+		$this->assertStringContainsString( 'Router-hitchhike requires _router', $e->getMessage() );
 
 		$this->assertDirectoryDoesNotExist(
 			"{$this->tmp}/logs/binnacle.p0/write.lock.d",
@@ -828,12 +990,11 @@ class PartitionTest extends TestCase {
 		\mkdir( "{$this->tmp}/logs/gunwale.p0", 0700, true );
 		\file_put_contents( "{$this->tmp}/logs/gunwale.p0/write.lock.d", 'not a lock dir' );
 
-		try {
-			$p->allow_large_writes( 9000 );
-			$this->fail( 'expected the re-arm acquire to be refused' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertStringContainsString( 'failed to acquire write lock', $e->getMessage() );
-		}
+		$e = $this->caught(
+			fn () => $p->allow_large_writes( 9000 ),
+			'expected the re-arm acquire to be refused'
+		);
+		$this->assertStringContainsString( 'failed to acquire write lock', $e->getMessage() );
 
 		$this->assertSame( '', $this->read_node_prop( $p, 'large_write_mode' ), 'no lock, no lifted cap' );
 		$this->assertSame( 0, $this->read_node_prop( $p, 'debounce_lock_ms' ) );
@@ -856,12 +1017,11 @@ class PartitionTest extends TestCase {
 		\mkdir( "{$this->tmp}/logs/taffrail.p0", 0700, true );
 		\file_put_contents( "{$this->tmp}/logs/taffrail.p0/write.lock.d", 'not a lock dir' );
 
-		try {
-			$p->allow_large_writes( 9000 );
-			$this->fail( 'expected the acquire to be refused' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertStringContainsString( 'failed to acquire write lock', $e->getMessage() );
-		}
+		$e = $this->caught(
+			fn () => $p->allow_large_writes( 9000 ),
+			'expected the acquire to be refused'
+		);
+		$this->assertStringContainsString( 'failed to acquire write lock', $e->getMessage() );
 
 		$this->assertSame( '', $this->read_node_prop( $p, 'large_write_mode' ) );
 		$this->assertNull( $this->read_node_prop( $p, 'write_lock' ) );
@@ -912,12 +1072,12 @@ class PartitionTest extends TestCase {
 
 		$p2->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$p2->name( 'p2' );
-		try {
-			$p2->allow_large_writes( 100 ); // 100ms — well under stale_timeout
-			$this->fail( 'expected the held lock to refuse the second writer' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertStringContainsString( 'failed to acquire write lock', $e->getMessage() );
-		}
+		// 100ms — well under stale_timeout.
+		$e = $this->caught(
+			fn () => $p2->allow_large_writes( 100 ),
+			'expected the held lock to refuse the second writer'
+		);
+		$this->assertStringContainsString( 'failed to acquire write lock', $e->getMessage() );
 
 		// The refused writer believes nothing: a lifted cap with no lock held
 		// is the state this exit exists to prevent — it also skips the rotate
@@ -986,6 +1146,45 @@ class PartitionTest extends TestCase {
 			"{$this->tmp}.p0/write.lock.d",
 			'an idle interval past the debounce window releases the lock'
 		);
+	}
+
+	/**
+	 * A debounced release that cannot remove its lock dir raises, and the
+	 * partition stops believing it holds the lock it just gave up.
+	 */
+	public function test_a_debounced_release_that_fails_raises_and_drops_the_held_belief(): void {
+		\Newspack_Nodes\Core::$now = 1000.0;
+		$p = $this->debounced_partition( "{$this->tmp}.p0", 100 );
+		$this->produce_into( $p, \str_repeat( 'x', 5000 ) );
+		\file_put_contents( "{$this->tmp}.p0/write.lock.d/stray-4472", 'x' );
+		\Newspack_Nodes\Core::$now = 1000.2;
+
+		$e = $this->caught( static fn () => $p->probe_fire(), 'a release leaving its dir behind must throw' );
+
+		$this->assertStringContainsString( 'stray-4472', $e->getMessage() );
+		$this->assertFalse( $this->read_node_prop( $p, 'lock_held' ) );
+	}
+
+	/**
+	 * A debounced release whose drain throws still gives the lock up: the
+	 * batch failure escapes after the lock dir is gone.
+	 */
+	public function test_a_debounced_release_whose_flush_throws_still_releases_the_lock(): void {
+		\Newspack_Nodes\Core::$now = 2000.0;
+		$p = $this->debounced_partition( "{$this->tmp}.p0", 100 );
+		$p->fill( $this->produce( 'short-5519' ) );
+		$this->assertDirectoryExists( "{$this->tmp}.p0/write.lock.d" );
+		\Newspack_Nodes\Core::$now = 2000.2;
+		Partition_Node::$fwrite = static fn (): int => 0;
+		try {
+			$e = $this->caught( static fn () => $p->probe_fire(), 'the failed drain must escape' );
+		} finally {
+			Partition_Node::$fwrite = null;
+		}
+
+		$this->assertStringContainsString( 'short write', $e->getMessage() );
+		$this->assertDirectoryDoesNotExist( "{$this->tmp}.p0/write.lock.d" );
+		$this->assertFalse( $this->read_node_prop( $p, 'lock_held' ) );
 	}
 
 	public function test_debounced_release_lets_another_writer_acquire(): void {
@@ -2154,41 +2353,39 @@ class PartitionTest extends TestCase {
 		$this->assertContains( 7, $ids, 'unfamiliar current_segment_id must be appended to the cache' );
 	}
 
-	// ============================================================================
-	// Coverage: __destruct flushes pending batch via remove_node() cleanup chain.
-	// ============================================================================
-
-	public function test_destruct_flushes_batched_messages_after_remove_node(): void {
-		// fill() batches in memory; __destruct must flush before close_handle()
-		// so a request-scope Partition (LogManager via Topic) doesn't lose data
-		// when PHP collects it.
-		//
-		// To trigger __destruct deterministically, the test follows the
-		// production cleanup chain in order:
-		//   1. fill() — message lives in $batch.
-		//   2. remove_node() — Partition cascades close_handle + write_lock,
-		//      Timer cascades stop_timer (deferred onto Core's closing queue),
-		//      Node clears registrations + sibling interpreter + name registration.
-		//   3. unset($p) — refcount now actually drops to 0, __destruct fires
-		//      synchronously, flush() writes the batch, close_handle() closes.
+	public function test_remove_node_flushes_the_batch(): void {
+		// fill() batches in memory; remove_node() is the teardown that writes it.
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
-		$message = $this->produce( 'gc-flushed' );
-		$p->fill( $message );
+		$p->fill( $this->produce( 'torn-down-3302' ) );
 
-		// File doesn't exist yet — batch is in memory.
 		$file = "{$this->tmp}.p0/0.log";
 		$this->assertFalse( \file_exists( $file ), 'batch must not have flushed yet' );
 
 		$p->remove_node();
-		unset( $p );
 
-		$this->assertTrue( \file_exists( $file ), '__destruct must materialize the segment file' );
-		$bytes = (string) \file_get_contents( $file );
-		$lines = \array_values( \array_filter( \explode( "\n", $bytes ) ) );
-		$this->assertNotEmpty( $lines, 'flush must write at least one line' );
-		$decoded = Message::unpacked( $lines[0] );
-		$this->assertSame( 'gc-flushed', $decoded[ Message::VALUE ] );
+		$lines = \array_values( \array_filter( \explode( "\n", (string) \file_get_contents( $file ) ) ) );
+		$this->assertSame( 'torn-down-3302', Message::unpacked( $lines[0] )[ Message::VALUE ] );
+	}
+
+	/**
+	 * Garbage collection does no I/O: a destructor that flushed could throw
+	 * from wherever the last reference happened to drop, so an unflushed batch
+	 * is the owner's to tear down, and destroying the node raises nothing.
+	 */
+	public function test_destroying_a_partition_whose_flush_would_fail_raises_nothing(): void {
+		$p = new Partition_Node();
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
+		$p->fill( $this->produce( 'never-torn-down-4471' ) );
+		Partition_Node::$fwrite = static fn ( $fh, string $bytes ): false => false;
+
+		// The flush timer's slot is the last reference; the loop ending drops it.
+		Event_Framework::reset();
+		unset( $p );
+		\gc_collect_cycles();
+
+		Partition_Node::$fwrite = null;
+		$this->assertFalse( \file_exists( "{$this->tmp}.p0/0.log" ), 'nothing is written at destruction' );
 	}
 
 	// ============================================================================
@@ -2471,23 +2668,39 @@ class PartitionTest extends TestCase {
 	// Coverage: with_index callback exception-safety.
 	// ============================================================================
 
-	public function test_with_index_callback_exception_does_not_kill_fill(): void {
-		// write_index_entry wraps the callback in try/catch — a throwing
-		// formatter must NOT propagate out of fill(); the .log is still
-		// written and the next fill continues normally.
+	public function test_a_throwing_index_callback_propagates_after_every_entry_is_attempted(): void {
+		// The records land first; a formatter's throw escapes flush() only
+		// after every other record in the batch has had its index entry.
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$p->void_warranty();
-		$p->with_index( static function () {
-			throw new \RuntimeException( 'formatter exploded' );
+		$p->with_index( static function ( array $message ): string {
+			if ( 'first-rec' === $message[ Message::VALUE ] ) {
+				throw new \RuntimeException( 'formatter exploded' );
+			}
+			return 'entry-' . $message[ Message::VALUE ];
 		} );
+		$p->fill( $this->produce( 'first-rec' ) );
+		$p->fill( $this->produce( 'second-rec' ) );
 
-		$this->produce_into( $p, 'survives' );
+		$this->assertSame( 'formatter exploded', $this->thrown_by( static fn () => $p->flush() )->getMessage() );
 
-		$this->assertSame( [ 'survives' ], $this->read_partition_values( $p ), 'fill must survive a throwing index callback' );
-		// .idx may be empty (callback never returned a value) but the file
-		// can exist as an artifact of the lazy-open path; the contract is
-		// just "no crash + data lands".
+		$this->assertSame( [ 'first-rec', 'second-rec' ], $this->read_partition_values( $p ), 'the records landed before the index' );
+		$this->assertSame( "entry-second-rec\n", \file_get_contents( "{$this->tmp}.p0/0.idx" ), 'the entry after the throw is still written' );
+	}
+
+	public function test_an_unopenable_index_throws_naming_it(): void {
+		$p = new Partition_Node();
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
+		$p->void_warranty();
+		$p->with_index( static fn ( array $message ): string => 'entry' );
+		// A directory where the index belongs: its fopen( 'a' ) fails.
+		\mkdir( "{$this->tmp}.p0/0.idx", 0700, true );
+		$p->fill( $this->produce( 'unindexable' ) );
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( "{$this->tmp}.p0/0.idx" );
+		$p->flush();
 	}
 
 	// ============================================================================
@@ -2753,11 +2966,11 @@ class PartitionTest extends TestCase {
 	// Coverage: write_all partial-write stall loop (shared base-Node primitive).
 	// ============================================================================
 
-	public function test_write_all_returns_zero_and_counts_failure_when_nothing_lands(): void {
+	public function test_write_all_returns_zero_and_prints_nothing_when_nothing_lands(): void {
 		// A read-only file handle makes fwrite() return false. write_all must
 		// retry on each failure and, once attempts exhaust, report 0 bytes
-		// written, and emit one loud, rate-limited line.
-		// A stalled write is never silently swallowed.
+		// written. It prints nothing: every caller throws the short write,
+		// naming the path and the counts, so a line here would say it twice.
 		$probe = "{$this->tmp}/write-all-probe.bin";
 		\file_put_contents( $probe, 'seed' );
 		$ro_fh = \fopen( $probe, 'rb' );
@@ -2773,11 +2986,11 @@ class PartitionTest extends TestCase {
 			$warned .= $message;
 		} );
 
-		$result = $wa->invoke( $p, $ro_fh, 'payload-to-write', $probe );
+		$result = $wa->invoke( $p, $ro_fh, 'payload-to-write' );
 		\fclose( $ro_fh );
 
 		$this->assertSame( 0, $result, 'write_all must report 0 bytes written after exhausting retries' );
-		$this->assertStringContainsString( 'write stalled', $warned );
+		$this->assertSame( '', $warned );
 	}
 
 	public function test_write_all_reports_bytes_actually_written_on_a_partial_stall(): void {
@@ -2799,7 +3012,7 @@ class PartitionTest extends TestCase {
 			\Newspack_Nodes\Core::set_stderr_handler( static function () {} );
 
 			// 10 bytes offered, only 4 accepted before the stream stalls.
-			$wrote = $wa->invoke( $p, $fh, 'ABCDEFGHIJ', 'segment' );
+			$wrote = $wa->invoke( $p, $fh, 'ABCDEFGHIJ' );
 			\fclose( $fh );
 
 			$this->assertSame( 4, $wrote, 'write_all must report the bytes that actually landed' );
@@ -3110,14 +3323,14 @@ class PartitionTest extends TestCase {
 	}
 
 	// ============================================================================
-	// Coverage: flush bails when get_handle returns null.
+	// Coverage: flush throws when get_handle returns null.
 	// ============================================================================
 
-	public function test_flush_returns_when_get_handle_returns_null(): void {
+	public function test_flush_clears_the_batch_and_throws_when_get_handle_returns_null(): void {
 		// flush() builds the batch in memory then asks for an open handle.
 		// If get_handle returns null (e.g., current_log_path points at a
-		// non-openable target), flush must `return` without crashing or
-		// re-flushing on retry. Force the open to fail by setting
+		// non-openable target), flush must throw naming the segment, and
+		// clear the batch so a retry cannot re-flush it. Force the open to fail by setting
 		// current_log_path to an existing directory (fopen('a') on a dir
 		// returns false on every supported OS).
 		$p = new Partition_Node();
@@ -3148,7 +3361,8 @@ class PartitionTest extends TestCase {
 			'size'    => \strlen( $packed ),
 		] ] );
 
-		$p->flush(); // Must not throw; bails on null fh.
+		$e = $this->thrown_by( static fn () => $p->flush() );
+		$this->assertStringContainsString( "cannot open segment {$this->tmp}.p0/blocker", $e->getMessage() );
 
 		// Batch is reset (flush's reset-up-front contract), blocker is intact.
 		$this->assertSame( '', $batch->getValue( $p ), 'flush must clear the batch even when the write bailed' );
@@ -3156,14 +3370,14 @@ class PartitionTest extends TestCase {
 	}
 
 	// ============================================================================
-	// Coverage: fill large-message path bails when get_handle returns null.
+	// Coverage: fill large-message path throws when get_handle returns null.
 	// ============================================================================
 
-	public function test_fill_large_message_returns_when_get_handle_returns_null(): void {
+	public function test_fill_large_message_throws_when_get_handle_returns_null(): void {
 		// The large-message branch (>MAX_LINE_SIZE, only legal under
 		// allow_large_writes) flushes the batch, optionally rotates, then asks
 		// for an open file handle. If get_handle returns null, fill must
-		// `return` without crashing. Force get_handle to fail by pointing
+		// throw naming the segment. Force get_handle to fail by pointing
 		// current_log_path at a directory (fopen('a') on a directory fails)
 		// after allow_large_writes seeded the partition_dir.
 		$p = new Partition_Node();
@@ -3184,7 +3398,8 @@ class PartitionTest extends TestCase {
 		$cur_idx->setValue( $p, "{$this->tmp}.p0/blocker.idx" );
 
 		$big_msg = $this->produce( \str_repeat( 'L', 5000 ) );
-		$p->fill( $big_msg ); // Must not throw; bails on null fh.
+		$e = $this->thrown_by( static fn () => $p->fill( $big_msg ) );
+		$this->assertStringContainsString( "cannot open segment {$this->tmp}.p0/blocker", $e->getMessage() );
 
 		// File-content sanity: nothing was written to a real segment because
 		// the open failed. (No assertion against the value of bytes_written:
@@ -3322,6 +3537,26 @@ class PartitionTest extends TestCase {
 		$this->assertSame( [ 'k' => 'third' ], Partition_Node::read_latest_value_at( $this->tmp ) );
 	}
 
+	/**
+	 * A final frame that will not unpack is no cursor: returning null would
+	 * restart the reader at its default seek, so the unpack error raises.
+	 */
+	public function test_read_latest_value_at_raises_an_unparseable_final_frame(): void {
+		$this->write_value_record( $this->tmp, [ 'segment' => 4, 'offset' => 2291 ] );
+		\file_put_contents( "{$this->tmp}/0.log", "[16,\"torn-frame-5588\n", \FILE_APPEND );
+
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'torn-frame-5588' );
+		Partition_Node::read_latest_value_at( $this->tmp );
+	}
+
+	public function test_read_latest_value_at_raises_an_unreadable_offsetlog(): void {
+		$this->use_base_dir( $this->tmp );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'outside the runtime base directory' );
+		Partition_Node::read_latest_value_at( "{$this->tmp}-elsewhere/offsets/scored.p3" );
+	}
+
 	public function test_read_latest_value_at_returns_null_for_non_array_value(): void {
 		$p   = new Partition_Node();
 		$p->arguments( [ $this->tmp ] );
@@ -3451,10 +3686,75 @@ class PartitionTest extends TestCase {
 		}
 		$log->flush();
 
-		$index = Partition_Node::read_tail_frames_by( $dir, 'offsetlog_dir' );
+		$index = Partition_Node::read_tail_frames_by( $dir, 'offsetlog_dir' )['records'];
 		$this->assertSame( [ 'a.p0', 'b.p0' ], \array_keys( $index ) );
 		$this->assertSame( 9, $index['a.p0']['value']['cursor_offset'], 'latest record per key wins' );
 		$this->assertSame( 2, $index['b.p0']['value']['cursor_offset'] );
+	}
+
+	/**
+	 * A multi-writer tail can hold a line a short write tore: it is skipped
+	 * and COUNTED, and every whole record around it still indexes.
+	 */
+	public function test_read_tail_frames_by_skips_and_counts_an_unparseable_line(): void {
+		$dir = "{$this->tmp}/probe";
+		$log = new Partition_Node();
+		$log->arguments( [ "{$dir}", (string) ( 64 * 1024 ), "2", "2", "0", "0" ] );
+		$write = static function ( array $value ) use ( $log ): void {
+			$message                   = Message::new_message();
+			$message[ Message::TYPE ]  = Message::TM_STRUCT;
+			$message[ Message::VALUE ] = $value;
+			$log->fill( $message );
+			$log->flush();
+		};
+		$write( [ 'offsetlog_dir' => 'a.p0', 'cursor_offset' => 31 ] );
+		\file_put_contents( "{$dir}/0.log", "[1,2,\"torn-4417\n[\"also torn\n", \FILE_APPEND );
+		$write( [ 'offsetlog_dir' => 'b.p0', 'cursor_offset' => 58 ] );
+
+		$tail = Partition_Node::read_tail_frames_by( $dir, 'offsetlog_dir' );
+
+		$this->assertSame( 2, $tail['unparseable_lines'], 'each torn line is counted' );
+		$this->assertSame( 31, $tail['records']['a.p0']['value']['cursor_offset'] );
+		$this->assertSame( 58, $tail['records']['b.p0']['value']['cursor_offset'], 'a record past the torn lines still indexes' );
+	}
+
+	public function test_read_tail_frames_by_raises_an_unreadable_log(): void {
+		$this->use_base_dir( $this->tmp );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'outside the runtime base directory' );
+		Partition_Node::read_tail_frames_by( "{$this->tmp}-elsewhere/logs/topicprobe.p0", 'offsetlog_dir' );
+	}
+
+	/**
+	 * A wake that throws spares the others: every pending partition is
+	 * offered, and every failure escapes together after the last.
+	 */
+	public function test_flush_pending_wakes_attempts_every_wake_then_raises_them_all(): void {
+		$this->use_base_dir( $this->tmp );
+		Partition_Node::forget_pending_wakes();
+		foreach ( [ 'wren.p0', 'wren.p1' ] as $name ) {
+			$p = new Partition_Node();
+			$p->arguments( [ "{$this->tmp}/logs/{$name}" ] );
+			$p->fill( $this->produce( 'wake-me' ) );
+			$p->flush();
+		}
+		$coordinator = new class( $this->tmp ) extends \Newspack_Nodes\Spawn_Coordinator {
+			/** @var list<string> */
+			public array $asked = [];
+			public function wake_on_demand( string $dir, float $now ): int {
+				$this->asked[] = $dir;
+				throw new \RuntimeException( 'wake refused: ' . \basename( $dir ) );
+			}
+		};
+		\Newspack_Nodes\Bootstrap::$spawn_coordinator_factory = static fn (): \Newspack_Nodes\Spawn_Coordinator => $coordinator;
+
+		$e = $this->thrown_by( static fn () => Partition_Node::flush_pending_wakes() );
+		$this->assertInstanceOf( \Newspack_Nodes\Failures::class, $e );
+		$this->assertSame(
+			[ 'wake refused: wren.p0', 'wake refused: wren.p1' ],
+			\array_map( static fn ( \Throwable $f ): string => $f->getMessage(), $e->all() )
+		);
+		$this->assertSame( [ "{$this->tmp}/logs/wren.p0", "{$this->tmp}/logs/wren.p1" ], $coordinator->asked );
 	}
 
 	public function test_fill_pumps_event_framework_so_a_blocked_worker_can_stop_mid_write(): void {
@@ -3532,7 +3832,7 @@ class PartitionTest extends TestCase {
 			);
 			$this->fail( 'expected Worker_Should_Stop' );
 		} catch ( Worker_Should_Stop $e ) {
-			$this->addToAssertionCount( 1 );
+			$this->assertNull( $e->getPrevious(), 'a flush that landed attaches nothing to the stop' );
 		}
 
 		$segment = "{$this->tmp}.p0/0.log";
@@ -3567,6 +3867,27 @@ class PartitionTest extends TestCase {
 		$this->assertSame( 'last-line', $decoded[ Message::VALUE ] );
 	}
 
+	public function test_remove_node_tears_down_even_when_the_final_flush_raises(): void {
+		// The flush's failure escapes, but the node, its lock and its handles
+		// must still go, or the name refuses its successor and the lock is held.
+		$this->use_base_dir( $this->tmp );
+		$dir = "{$this->tmp}/logs/lastgasp.p0";
+		\mkdir( "{$dir}/0.log", 0700, true );
+		$p = new Partition_Node();
+		$p->name( 'lastgasp' );
+		$p->arguments( [ $dir, '1048576', '2', '4', '0', '0', '0' ] );
+		$p->allow_large_writes();
+		$p->fill( $this->produce( 'final-words' ) );
+		Core::set_stderr_handler( static function () { /* swallow */ } );
+
+		$e = $this->thrown_by( static fn () => $p->remove_node() );
+
+		$this->assertStringContainsString( "cannot open segment {$dir}/0.log", $e->getMessage() );
+		$this->assertNull( Core::node( 'lastgasp' ), 'the node is unregistered' );
+		$this->assertNull( Core::node( 'lastgasp:lock' ), 'the lock sibling is retracted' );
+		$this->assertDirectoryDoesNotExist( "{$dir}/write.lock.d", 'the write lock is released' );
+	}
+
 	public function test_fill_does_not_throw_a_stop_when_no_drain_is_active(): void {
 		// The shutdown checkpoint writes the offsetlog (and Flame's stats mirror) via
 		// Partition::fill AFTER drain() unwound and restored continue_predicate to null.
@@ -3587,24 +3908,96 @@ class PartitionTest extends TestCase {
 		$this->assertFileExists( "{$this->tmp}.p0/0.log" );
 	}
 
-	public function test_a_flush_failure_during_a_stop_does_not_mask_the_cooperative_stop(): void {
-		// maybe_stop() flushes the batch durable before rethrowing the stop. If flush()
-		// itself throws (rotate/mkdir/short-write), that must NOT replace the
-		// Worker_Should_Stop — else the cooperative stop is lost and a generic error hits
-		// the poison/dead-letter path instead of a clean respawn.
-		Event_Framework::reset();
-		$ef = Event_Framework::instance();
+	/**
+	 * maybe_stop() flushes the batch durable before rethrowing the stop. When
+	 * the real flush() throws, the failure rides a PLAIN stop as its previous:
+	 * the batch never landed, so the successor must replay the in-flight message.
+	 */
+	public function test_a_short_write_during_a_stop_rides_the_plain_stop_as_its_previous(): void {
+		$this->use_base_dir( $this->tmp );
+		$p = new Partition_Node();
+		$p->name( 'stopstall' );
+		$p->arguments( [ "{$this->tmp}/logs/stopstall.p0", '1048576', '2', '4', '0', '0', '0' ] );
+		// Every write to this segment is refused: a full disk.
+		Partition_Node::$fwrite = static fn ( $fh, string $bytes ): false => false;
+		Core::set_stderr_handler( static function () { /* swallow */ } );
 
-		$p = new class extends Partition_Node {
-			public function flush(): void {
-				throw new \RuntimeException( 'disk full' );
-			}
-			// Base __destruct() flushes; a throwing flush there would crash PHPUnit at GC.
-			public function __destruct() {}
+		$stop = $this->stop_raised_by_fill( $p, 'stalled-in-flight' );
+
+		$this->assertNotInstanceOf( Worker_Should_Stop_Clean::class, $stop, 'an unflushed batch must replay, never commit past' );
+		$failure = $stop->getPrevious();
+		$this->assertInstanceOf( \RuntimeException::class, $failure );
+		$this->assertStringContainsString( 'short write', $failure->getMessage() );
+		$this->assertStringContainsString( "{$this->tmp}/logs/stopstall.p0/0.log", $failure->getMessage() );
+	}
+
+	/** An unopenable segment quarantines the batch, then rides the stop too. */
+	public function test_an_open_failure_during_a_stop_quarantines_and_rides_the_plain_stop(): void {
+		$this->use_base_dir( $this->tmp );
+		$dir = "{$this->tmp}/logs/stopopen.p0";
+		// A directory where segment 0 belongs: fopen( 'a' ) fails as any uid.
+		\mkdir( "{$dir}/0.log", 0700, true );
+		$p = new Partition_Node();
+		$p->name( 'stopopen' );
+		$p->arguments( [ $dir, '1048576', '2', '4', '0', '0', '0' ] );
+		Core::set_stderr_handler( static function () { /* swallow */ } );
+
+		$stop = $this->stop_raised_by_fill( $p, 'unopenable-in-flight' );
+
+		$this->assertNotInstanceOf( Worker_Should_Stop_Clean::class, $stop );
+		$failure = $stop->getPrevious();
+		$this->assertInstanceOf( \RuntimeException::class, $failure );
+		$this->assertStringContainsString( "{$dir}/0.log", $failure->getMessage() );
+		$this->assertStringContainsString( 'Is a directory', $failure->getMessage() );
+		$dl = (string) \file_get_contents( "{$this->tmp}/deadletter/logs.stopopen.p0/0.log" );
+		$this->assertStringContainsString( 'unopenable-in-flight', $dl, 'the batch is quarantined before the throw' );
+	}
+
+	/**
+	 * The quarantine is itself a Partition, and its own fill can stop too. The
+	 * stop that escapes must carry the write failure, never another stop: a
+	 * stop nested as a previous is what Worker_Base raises as a failure.
+	 */
+	public function test_a_stop_raised_by_the_quarantine_does_not_nest_inside_the_stop(): void {
+		$this->use_base_dir( $this->tmp );
+		$dir = "{$this->tmp}/logs/stopnest.p0";
+		\mkdir( "{$dir}/0.log", 0700, true );
+		$p = new Partition_Node();
+		$p->name( 'stopnest' );
+		$p->arguments( [ $dir, '1048576', '2', '4', '0', '0', '0' ] );
+		Core::set_stderr_handler( static function () { /* swallow */ } );
+		// Every pump clears its throttle, so the quarantine's own fill stops.
+		$tick        = 1_900_000_000.0;
+		Core::$clock = static function () use ( &$tick ): float {
+			$tick += 5.0;
+			return $tick;
 		};
-		$p->name( 'firehose-part' );
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 
+		$stop = $this->stop_raised_by_fill( $p, 'nested-in-flight' );
+
+		$failure = $stop->getPrevious();
+		$this->assertNotInstanceOf( Worker_Should_Stop::class, $failure, 'a stop never rides a stop as its previous' );
+		$this->assertInstanceOf( \RuntimeException::class, $failure );
+		$this->assertStringContainsString( "{$dir}/0.log", $failure->getMessage() );
+	}
+
+	/** What $act threw; fails the test when it threw nothing. */
+	private function thrown_by( \Closure $act ): \Throwable {
+		try {
+			$act();
+		} catch ( \Throwable $e ) {
+			return $e;
+		}
+		$this->fail( 'expected a throw' );
+	}
+
+	/**
+	 * Fill one message from inside a drain whose predicate has just said stop,
+	 * so fill()'s maybe_stop() catches the pump's stop and flushes.
+	 */
+	private function stop_raised_by_fill( Partition_Node $p, string $value ): Worker_Should_Stop {
+		Event_Framework::reset();
+		$ef    = Event_Framework::instance();
 		$state = (object) [ 'stop' => false, 'ticks' => 0 ];
 		$timer = new class extends Timer_Node {
 			/** @var callable */
@@ -3613,23 +4006,23 @@ class PartitionTest extends TestCase {
 				( $this->on_fire )();
 			}
 		};
-		$timer->on_fire = function () use ( $p, $state ) {
-			$state->stop               = true;
-			$message                   = Message::new_message();
-			$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-			$message[ Message::VALUE ] = 'x';
-			$p->fill( $message ); // fill → batch → maybe_stop → pump throws → flush throws
+		$timer->on_fire = function () use ( $p, $state, $value ) {
+			$state->stop = true;
+			$p->fill( $this->produce( $value ) );
 		};
 		$timer->set_timer( 1, true );
-
-		$this->expectException( Worker_Should_Stop::class );
-		$ef->drain(
-			function () use ( $state ): bool {
-				Core::$now = \microtime( true );
-				return ! $state->stop && ++$state->ticks < 1000;
-			},
-			cooperative_stop: true
-		);
+		try {
+			$ef->drain(
+				function () use ( $state ): bool {
+					Core::$now = \microtime( true );
+					return ! $state->stop && ++$state->ticks < 1000;
+				},
+				cooperative_stop: true
+			);
+		} catch ( Worker_Should_Stop $e ) {
+			return $e;
+		}
+		$this->fail( 'expected Worker_Should_Stop' );
 	}
 
 	// ============================================================================

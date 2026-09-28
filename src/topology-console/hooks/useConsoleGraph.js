@@ -215,6 +215,14 @@ export function useConsoleGraph( {
 			remote.onConnected = () => setSseSession( remote.session() );
 			// Reset on a steal: the closed stream carries no replies now.
 			remote.onClose = () => setSseSession( null );
+			// A torn line the worker stream skipped still reaches the reader.
+			remote.register( 'UNPARSEABLE_LINES', names.OUTPUT, ( count ) => {
+				dumper.append( {
+					kind: 'error',
+					text: `${ wr }: ${ count } unparseable line(s) skipped`,
+				} );
+				return true;
+			} );
 			remotes.push( remote );
 		}
 

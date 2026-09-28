@@ -5,6 +5,7 @@
 
 import { render, fireEvent } from '@testing-library/react';
 import ConfigAudit from '../ConfigAudit';
+import { publishSkippedLines } from '@newspack-nodes/shared/test-utils/skippedLines';
 
 jest.mock( '../hooks/useLogTailStream', () => ( {
 	useLogTailStream: jest.fn(),
@@ -45,6 +46,14 @@ it( 'tails settings.p0 in history mode, into the audit view', () => {
 } );
 
 describe( 'ConfigAudit', () => {
+	it( 'shows the lines its tail skipped as unparseable', () => {
+		publishSkippedLines( 'settings-audit:link', 7 );
+		const { container } = render( <ConfigAudit /> );
+		expect( container.textContent ).toContain(
+			'7 lines would not parse and were skipped.'
+		);
+	} );
+
 	it( 'renders a row per change with the option name, newest-first', () => {
 		useNodeField.mockReturnValue( model() );
 		const { getByText, container } = render( <ConfigAudit /> );

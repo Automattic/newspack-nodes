@@ -192,7 +192,7 @@ class Job_Intake {
 	 * @return int Number of jobs successfully written.
 	 * @throws \LogicException When $batch is given with no claim store (memcached or APCu).
 	 * @throws \RuntimeException When the batch id is already active, or a partition's write lock
-	 *                           finds a live concurrent writer.
+	 *                           cannot be taken (`Write_Lock_Held` on a live concurrent writer).
 	 * @throws Worker_Should_Stop When a cooperative stop lands mid-write.
 	 */
 	public function queue_many( array $jobs, ?string $key = null, ?string $batch = null ): int {
@@ -267,7 +267,8 @@ class Job_Intake {
 	 * @throws \InvalidArgumentException On an unknown option key, not_before+delay together, or
 	 *                                   `unique` without a positive `unique_ttl`.
 	 * @throws \LogicException When `unique` is passed with no claim store (memcached or APCu).
-	 * @throws \RuntimeException From the per-Partition write lock on a live concurrent writer.
+	 * @throws Write_Lock_Held From the per-Partition write lock on a live concurrent writer.
+	 * @throws \RuntimeException When the write lock cannot be taken for another reason.
 	 * @throws Worker_Should_Stop When a cooperative stop lands mid-write.
 	 */
 	public function write_job( string $handler, ?string $id, array $parameters, ?string $key = null, array $options = [] ): bool {
@@ -496,10 +497,9 @@ class Job_Intake {
 	 * slot pool use. Exactly one successful add wins the ttl; false means either a
 	 * duplicate claim or a backend failure, and the caller fails closed on either.
 	 *
-	 * LogicException family throughout: static queue() swallows RuntimeException
-	 * (its lock-contention boolean contract) and misuse must stay loud through it.
-	 * The claim store resolves shared-first: memcached scope when configured,
-	 * APCu keeping a memcached-less host functional.
+	 * LogicException family throughout, so misuse reads as misuse rather than as
+	 * a failed write. The claim store resolves shared-first: memcached scope when
+	 * configured, APCu keeping a memcached-less host functional.
 	 *
 	 * @param string              $handler Handler name (namespaces the slot).
 	 * @param array<string,mixed> $options The write_job options (unique + unique_ttl).
@@ -526,24 +526,25 @@ class Job_Intake {
 	}
 
 	/**
-	 * Destructor — release any per-Partition write locks still held.
-	 */
-	public function __destruct() {
-		$this->close();
-	}
-
-	/**
 	 * Close every open Partition. `Partition_Node::remove_node()` flushes the
-	 * batch and releases the per-Partition write lock, so a caller that keeps an
-	 * intake alive past its writes holds the lock against every other writer.
+	 * batch and releases the per-Partition write lock — the release even when
+	 * the flush throws — so a caller that keeps an intake alive past its writes
+	 * holds the lock against every other writer. Every Partition is closed
+	 * whatever another threw, and the failures escape after the last.
+	 *
+	 * The caller owns this call, in a `finally`: the class has no destructor,
+	 * because a flush during garbage collection could throw from any statement.
+	 * An intake dropped unclosed loses its batch and holds its locks until a
+	 * peer steals them as stale.
+	 *
+	 * @throws \Throwable What the teardowns threw, combined by `Worker_Should_Stop::raise()`.
 	 */
 	public function close(): void {
-		foreach ( $this->partitions as $partition ) {
-			$partition->flush();
-			// remove_node() owns the siblings (lock + heartbeat).
-			$partition->remove_node();
-		}
+		$partitions       = $this->partitions;
 		$this->partitions = [];
+		Worker_Should_Stop::raise(
+			Worker_Should_Stop::attempt_each( $partitions, static fn ( Partition_Node $partition ) => $partition->remove_node() )
+		);
 	}
 
 	/**
@@ -552,10 +553,10 @@ class Job_Intake {
 	 * Partition selection follows write_job().
 	 *
 	 * Lock acquisition (per-Partition, not host-wide) happens inside
-	 * `Partition_Node::allow_large_writes()`, which waits 15s and throws when a
-	 * live writer still holds the lock. That throw is caught here and reported
-	 * as false, so callers keep the boolean contract; a cooperative stop is
-	 * re-thrown first (ADR-14), because it is not a write failure.
+	 * `Partition_Node::allow_large_writes()`, which waits 15s and raises
+	 * `Write_Lock_Held` when a live writer still holds the lock. That one
+	 * refusal is answered here as false, so callers keep the boolean contract;
+	 * every other failure, a cooperative stop included, propagates.
 	 *
 	 * `$base_dir` and `$num_partitions` default to the substrate config, so a
 	 * caller normally passes `(handler, id, parameters[, key])`. The trailing
@@ -573,6 +574,7 @@ class Job_Intake {
 	 *              writer still holds that partition's lock at the deadline.
 	 * @throws \InvalidArgumentException On a bad option, exactly as write_job() raises it.
 	 * @throws \LogicException When `unique` is passed with no claim store (memcached or APCu).
+	 * @throws \RuntimeException When the write fails for any reason but lock contention.
 	 * @throws Worker_Should_Stop When a cooperative stop lands mid-write.
 	 */
 	public static function queue(
@@ -591,9 +593,7 @@ class Job_Intake {
 		$intake = new self( $base_dir, $num_partitions );
 		try {
 			$result = $intake->write_job( $handler, $id, $parameters, $key, $options );
-		} catch ( Worker_Should_Stop $e ) {
-			throw $e; // ADR-14: a cooperative stop is not a write failure.
-		} catch ( \RuntimeException $e ) {
+		} catch ( Write_Lock_Held $e ) {
 			$result = false;
 		} finally {
 			$intake->close();
@@ -629,13 +629,10 @@ class Job_Intake {
 
 		$intake = new self( $base_dir, $num_partitions );
 		try {
-			$result = $intake->write_feed( $handler, $id, $parameters, $key );
-		} catch ( Worker_Should_Stop $e ) {
-			throw $e; // ADR-14: a cooperative stop is not a write failure.
+			return $intake->write_feed( $handler, $id, $parameters, $key );
 		} finally {
 			$intake->close();
 		}
-		return $result;
 	}
 
 	/**

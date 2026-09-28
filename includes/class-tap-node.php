@@ -11,14 +11,16 @@
  * command the anonymous Shell sends walks through it, so a session can watch
  * its own traffic.
  *
- * Failure handling is Tee's: it attempts every target, defers the throwable
- * `Worker_Should_Stop::outranks()` selects, and re-throws after the passthrough. Completing the
- * fan-out is what keeps at-least-once: a target skipped by an early throw never
- * receives the message once the poison path dead-letters it and advances the
- * cursor. Duplicates on replay are the accepted cost of that, and they arise
- * with any fan-out. The passthrough runs before the re-throw because it IS the
- * pipeline — a `Worker_Should_Stop_Clean` commits PAST the message, so throwing
- * first would drop it from the main path entirely (ADR-14).
+ * Failure handling is Tee's: it attempts every target, then the passthrough,
+ * and raises everything they threw, combined by `Worker_Should_Stop::raise()`.
+ * Completing the fan-out is what keeps at-least-once: a target skipped by an
+ * early throw never receives the message once the poison path dead-letters it
+ * and advances the cursor. Duplicates on replay are the accepted cost of that,
+ * and they arise with any fan-out. The passthrough runs before the raise because
+ * it IS the pipeline — a `Worker_Should_Stop_Clean` commits PAST the message, so
+ * throwing first would drop it from the main path entirely — and its own failure
+ * joins the targets', so a clean tap stop beside a failed pipeline write is a
+ * plain stop and the message replays (ADR-14).
  *
  * @package Newspack_Nodes
  */
@@ -42,7 +44,7 @@ class Tap_Node extends Tee_Node {
 	 *
 	 * @param array<int,mixed> $message The 7-field positional message array.
 	 * @throws \RuntimeException When no sink is wired.
-	 * @throws \Throwable Whichever target failure `Worker_Should_Stop::outranks()` kept, raised after the passthrough.
+	 * @throws \Throwable Every target and passthrough failure, combined, raised after the passthrough.
 	 */
 	public function fill( array $message ): void {
 		$sink = $this->require_sink();
@@ -52,7 +54,7 @@ class Tap_Node extends Tee_Node {
 		$to    = Core::as_string( $message[ Message::TO ] );
 
 		// Defer: the passthrough below IS the pipeline, and Clean commits past.
-		$deferred = Worker_Should_Stop::attempt_each(
+		$caught = Worker_Should_Stop::attempt_each(
 			$alive,
 			static function ( string $t ) use ( $sink, $message ): void {
 				$message[ Message::TO ] = $t; // hard target: no remainder to route on
@@ -60,9 +62,6 @@ class Tap_Node extends Tee_Node {
 			}
 		);
 		$message[ Message::TO ] = $to;
-		$sink->fill( $message );
-		if ( null !== $deferred ) {
-			throw $deferred;
-		}
+		Worker_Should_Stop::raise( [ ...$caught, ...Worker_Should_Stop::attempt( static fn () => $sink->fill( $message ) ) ] );
 	}
 }

@@ -39,9 +39,9 @@
 
 <div class="hop" data-arrow="2,3" data-cap="mkdir, heartbeat, started" data-span="2,3"><span class="n">4</span><span class="mono">acquire()</span> the lock; on refusal return <span class="mono">skipped</span> with <span class="mono">acquire_failure()</span>. Register the shutdown handler, then <span class="mono">usleep( LOCK_CHECK_GRACE_S )</span> 250 ms, so a spawn racing this one reads the lock as held.</div>
 
-<div class="hop" data-span="2,3"><span class="n">5</span><span class="mono">build_scaffolding()</span> mounts <span class="mono">_router</span> (ticking at 1000 ms), <span class="mono">_command_interpreter</span>, <span class="mono">_fleet</span>, the <span class="mono">_repl</span> output Partition under <span class="mono">void_warranty()</span>, and the anonymous IPC-input Consumer stamping <span class="mono">_repl</span>.</div>
+<div class="hop" data-span="2,3"><span class="n">5</span><span class="mono">build_scaffolding()</span> mounts <span class="mono">_router</span> (ticking at 1000 ms), <span class="mono">_command_interpreter</span>, <span class="mono">_fleet</span>, the <span class="mono">_repl</span> output Partition under <span class="mono">void_warranty()</span>, and the <span class="mono">_repl:input</span> IPC-input Consumer stamping <span class="mono">_repl</span>.</div>
 
-<div class="hop bad" data-span="2,3"><span class="n">6</span><span class="mono">run_topology()</span> evaluates the <span class="mono">.tsl</span>. A file that throws — an include cycle, input pending at EOF — logs, releases, returns <span class="mono">load_failed</span> and does NOT respawn. A bad single line is caught per statement and the worker still reports <span class="mono">ok</span>.</div>
+<div class="hop bad" data-span="2,3"><span class="n">6</span><span class="mono">run_topology()</span> evaluates the <span class="mono">.tsl</span>. Every statement runs; any that failed — a refused <span class="mono">make_node</span>, a <span class="mono">cmd</span> that throws or reaches no node, a missing or cyclic include — are raised together at end of file. The worker tears down, releases, raises the failure and does NOT respawn.</div>
 
 <div class="panel" data-span="2,3">
   <header><span class="n">7</span><span class="mono">drain( should_continue, cooperative_stop: true )</span> — for about 595 seconds</header>

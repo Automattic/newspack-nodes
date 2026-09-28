@@ -9,6 +9,7 @@
 import { render, fireEvent, act } from '@testing-library/react';
 import { Core } from '../../runtime/core';
 import LogViewer from '../LogViewer';
+import { publishSkippedLines } from '@newspack-nodes/shared/test-utils/skippedLines';
 
 let logRowListProps;
 jest.mock( '@newspack-nodes/shared/components/LogRowList', () => ( {
@@ -150,6 +151,15 @@ describe( 'LogViewer', () => {
 		window.localStorage.setItem(
 			'newspack-nodes-rail:newspack-nodes-log-viewer',
 			'open'
+		);
+	} );
+
+	it( 'shows the lines its stream skipped as unparseable', () => {
+		publishSkippedLines( 'log-viewer:link', 8 );
+		registerViewFixture( { selected: 'php' } );
+		const { container } = render( <LogViewer /> );
+		expect( container.textContent ).toContain(
+			'8 lines would not parse and were skipped.'
 		);
 	} );
 

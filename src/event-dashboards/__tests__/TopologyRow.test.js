@@ -7,7 +7,6 @@
  * deep-link shapes are exercised here too.
  */
 
-/* global globalThis */
 import { render, fireEvent } from '@testing-library/react';
 import { consoleHref, sectionFor, TopologyRow } from '../TopologyRow';
 

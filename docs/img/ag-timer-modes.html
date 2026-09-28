@@ -79,7 +79,7 @@
 <div class="two">
   <div class="card">
     <h3><span class="mono">Deferred_Clean_Stop</span> — the write side of that protocol</h3>
-    <p>A snapshot node forwarding into a Partition mid-<span class="mono">fill()</span> still owes the message its own bookkeeping. <span class="mono">guarded( $forward )</span> catches the <span class="mono">Worker_Should_Stop</span> and holds it (first one wins; a non-stop throwable propagates to the Consumer's dead-letter path); <span class="mono">raise_pending_stop()</span> re-raises it at exit as a FRESH <span class="mono">Worker_Should_Stop_Clean</span>, which <span class="mono">Durable_Reader::drain_buffer()</span> reads as permission to commit PAST the record. Call <span class="mono">clear_pending_stop()</span> at entry and <span class="mono">raise_pending_stop()</span> at every exit.</p>
+    <p>A snapshot node forwarding into a Partition mid-<span class="mono">fill()</span> still owes the message its own bookkeeping. The node runs each message inside <span class="mono">deferring( $body )</span>, and each forward inside it through <span class="mono">guarded( $forward )</span>, which holds a <span class="mono">Worker_Should_Stop</span> until the bracket closes (a non-stop throwable propagates at once). The bracket then raises a held bare stop as a FRESH <span class="mono">Worker_Should_Stop_Clean</span>, which <span class="mono">Durable_Reader::drain_buffer()</span> reads as permission to commit PAST the record, combined with anything else it caught: a stop carrying a failure, or a failure beside it, raises plain and the message replays.</p>
   </div>
   <div class="card">
     <h3>cURL handles ride the same wait</h3>

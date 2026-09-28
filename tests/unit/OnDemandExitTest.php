@@ -316,14 +316,15 @@ class OnDemandExitTest extends TestCase {
 
 	/**
 	 * An attached REPL is someone using the worker. Its IPC-input Consumer is
-	 * ANONYMOUS — checkpointed by Worker_Base directly, never registered in
-	 * Core::$nodes_by_name — so the reporter scan could not see it, and a worker
-	 * would exit under an operator mid-session.
+	 * registered under a reserved name, so the reporter scan sees a command it
+	 * has not caught up with, and the worker does not exit under an operator
+	 * mid-session.
 	 */
 	public function test_the_ipc_input_consumer_holds_the_worker_open(): void {
 		$this->quiet_for( 'quokka-probe', self::IDLE_SECONDS + 1 );
-		$w = $this->worker();
-		$w->set_ipc_consumer_for_test( new IdleProbe( null ) );
+		$w     = $this->worker();
+		$input = $this->ipc_input( $w );
+		$this->write_command( $input );
 
 		$this->assertTrue( $w->should_continue(), 'a live REPL forbids the exit' );
 	}
@@ -331,12 +332,35 @@ class OnDemandExitTest extends TestCase {
 	/** And once the REPL goes quiet it stops holding it. */
 	public function test_a_quiet_ipc_consumer_stops_holding_the_worker_open(): void {
 		$this->quiet_for( 'quokka-probe', self::IDLE_SECONDS + 1 );
-		$w = $this->worker();
-		$w->set_ipc_consumer_for_test(
-			new IdleProbe( \microtime( true ) - ( self::IDLE_SECONDS + 1 ) )
-		);
+		$w     = $this->worker();
+		$input = $this->ipc_input( $w );
+		$this->write_command( $input );
+		$this->pump_consumer( Core::node( \Newspack_Nodes\Node_Names::REPL_INPUT ) );
+		foreach ( \glob( "{$input}/*.log" ) as $segment ) {
+			\touch( $segment, \time() - ( self::IDLE_SECONDS + 1 ) );
+		}
 
 		$this->assertFalse( $w->should_continue() );
+	}
+
+	/** The worker's real IPC-input Consumer, its cursor seeded at the empty tail. */
+	private function ipc_input( Worker_Base $w ): string {
+		$ipc_dir = Worker_Base::ipc_dir( $this->tmp, 'quokka-workers', 0 );
+		$in      = $w->build_ipc_input_consumer( $ipc_dir );
+		$in->sink( new \Newspack_Nodes\Tests\Capture_Sink_Node() );
+		$this->pump_consumer( $in );
+		return "{$ipc_dir}/input";
+	}
+
+	/** Append one command to an IPC input log. */
+	private function write_command( string $input ): void {
+		$log = new \Newspack_Nodes\Partition_Node();
+		$log->arguments( [ $input ] );
+		$message                                  = \Newspack_Nodes\Message::new_message();
+		$message[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_BYTESTREAM;
+		$message[ \Newspack_Nodes\Message::VALUE ] = "ls\n";
+		$log->fill( $message );
+		$log->flush();
 	}
 
 	/** The whole point: an idle exit must NOT hand the slot straight back. */
@@ -381,7 +405,4 @@ class OnDemandWorker extends Worker_Base {
 		return $this->stop_reason;
 	}
 
-	public function set_ipc_consumer_for_test( Idle_Reporter $reporter ): void {
-		$this->ipc_reporter = $reporter;
-	}
 }

@@ -395,7 +395,7 @@ class SSEOutTest extends TestCase {
 		\mkdir( $dir, 0755, true );
 		// Written long ago and never read: the mtime is stale, but the bytes are
 		// still owed. Hanging up on age alone would starve this every reconnect.
-		\file_put_contents( "{$dir}/0.log", "{}\n" );
+		\file_put_contents( "{$dir}/0.log", Message::packed( Message::new_message() ) . "\n" );
 		\touch( "{$dir}/0.log", \time() - 300 );
 		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $base );
@@ -471,6 +471,47 @@ class SSEOutTest extends TestCase {
 			'a stream that delivers nothing must still hand the client a resume point'
 		);
 		$this->assertStringNotContainsString( 'id: ', $out, 'the id: line is what fed Last-Event-ID' );
+
+		$this->rmdir_recursive( $base );
+	}
+
+	public function test_a_torn_line_is_skipped_counted_and_resumed_past_instead_of_ending_the_stream(): void {
+		$base = $this->make_temp_dir( 'sse-unparseable-' );
+		$dir  = "{$base}/logs/firehose.p0";
+		\mkdir( $dir, 0755, true );
+		$good                   = Message::new_message();
+		$good[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$good[ Message::VALUE ] = 'lanyard-6203';
+		$bytes                  = "{\"torn\n[1,2,3]\n" . Message::packed( $good ) . "\n";
+		\file_put_contents( "{$dir}/0.log", $bytes );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $base );
+		SSE_Out_Node::$check_slot = $this->boundedTicks( 20 );
+
+		\ob_start();
+		$ctrl->run_stream_loop( [ 'firehose.*' ], [ 'firehose.p0' => 'start' ], 500 );
+		$events = $this->split_sse_events( (string) \ob_get_clean() );
+
+		$values  = [];
+		$skipped = [];
+		foreach ( $events as $event ) {
+			$decoded = \json_decode( $event['data'], true );
+			if ( 'msg' === $event['event'] && 'firehose.p0' === $decoded[ Message::FROM ] ) {
+				$values[] = $decoded[ Message::VALUE ];
+			}
+			if ( 'unparseable_lines' === $event['event'] ) {
+				$skipped[] = $decoded;
+			}
+		}
+		$this->assertSame( [ 'lanyard-6203' ], $values, 'the stream carries on past both torn lines' );
+		$this->assertCount( 1, $skipped, 'one frame reports the skips of one tick' );
+		$this->assertSame( Message::TM_INFO, $skipped[0][ Message::TYPE ] );
+		$this->assertSame( 'unparseable_lines', $skipped[0][ Message::KEY ] );
+		$this->assertSame(
+			'COUNT 2 CURSORS firehose.p0=0:' . \strlen( $bytes ),
+			$skipped[0][ Message::VALUE ],
+			'the count, and a resume point past the skipped lines'
+		);
 
 		$this->rmdir_recursive( $base );
 	}

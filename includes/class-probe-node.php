@@ -76,12 +76,12 @@ abstract class Probe_Node extends Timer_Node implements Shutdown_Sweeper {
 	 * sink guard: `fire_cb()` already returns on a null sink, so the guard exists
 	 * for `shutdown_sweep()`, which reaches `fire()` directly.
 	 *
-	 * A node whose `probe()` throws is skipped rate-limited rather than failing
-	 * the whole snapshot — a Consumer that has read no segment yet must not cost
-	 * its healthy peers their window. No claimable nodes, or a claimed one with
+	 * Every node is swept whatever another threw — a Consumer that has read no
+	 * segment yet must not cost its healthy peers their window — and every
+	 * failure escapes after the last. No claimable nodes, or a claimed one with
 	 * nothing recorded yet, emits nothing at all.
 	 *
-	 * @throws Worker_Should_Stop When a swept node signals a cooperative stop.
+	 * @throws \Throwable What the sweep threw, combined by `Worker_Should_Stop::raise()`.
 	 */
 	protected function fire(): void {
 		$this->notify( 'FIRE', Core::$now );
@@ -89,31 +89,30 @@ abstract class Probe_Node extends Timer_Node implements Shutdown_Sweeper {
 		if ( null === $sink ) {
 			return;
 		}
+		Worker_Should_Stop::raise(
+			Worker_Should_Stop::attempt_each( Core::$nodes_by_name, fn ( Node $node ) => $this->sweep( $node, $sink ) )
+		);
+	}
 
-		foreach ( Core::$nodes_by_name as $node ) {
-			try {
-				$records = $this->probe( $node );
-			} catch ( Worker_Should_Stop $e ) {
-				// Cooperative stop, not an error: ADR-14 says re-throw first.
-				throw $e;
-			} catch ( \Throwable $e ) {
-				$who = Command_Interpreter_Node::shell_name_for( $this );
-				$this->print_less_often( "{$who} skipped {$node->name()}: ", $e->getMessage() );
+	/**
+	 * Emit one TM_STRUCT per record this probe takes from `$node`.
+	 *
+	 * @param Node $node A node from this process's registry.
+	 * @param Node $sink Where the records go.
+	 */
+	private function sweep( Node $node, Node $sink ): void {
+		foreach ( $this->probe( $node ) as $record ) {
+			$message                   = Message::new_message();
+			$message[ Message::TYPE ]  = Message::TM_STRUCT;
+			$message[ Message::FROM ]  = $this->name;
+			$message[ Message::TO ]    = $this->target;
+			$message[ Message::VALUE ] = $record;
+			$fitted                    = $this->fit_to_line( $message );
+			if ( null === $fitted ) {
 				continue;
 			}
-			foreach ( $records as $record ) {
-				$message                   = Message::new_message();
-				$message[ Message::TYPE ]  = Message::TM_STRUCT;
-				$message[ Message::FROM ]  = $this->name;
-				$message[ Message::TO ]    = $this->target;
-				$message[ Message::VALUE ] = $record;
-				$fitted                    = $this->fit_to_line( $message );
-				if ( null === $fitted ) {
-					continue;
-				}
-				++$this->counter;
-				$sink->fill( $fitted );
-			}
+			++$this->counter;
+			$sink->fill( $fitted );
 		}
 	}
 

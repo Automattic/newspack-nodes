@@ -50,6 +50,86 @@ class SSE_Slot_Pool {
 	public static ?int $reserved_slots = null;
 
 	/**
+	 * Refresh the exact lease TTL. Fail-CLOSED when ownership is unverifiable.
+	 *
+	 * The pool's only refresh, reached from the `workers heartbeat` verb, so a
+	 * stream lives exactly as long as its client keeps saying so. The pointer is
+	 * confirmed before the refresh and again after it; a rival that took the
+	 * slot in between leaves this owner's revived liveness key behind, which the
+	 * refusal path then deletes.
+	 *
+	 * @param string $namespace Pool scope.
+	 * @param int    $slot      Slot from the lease.
+	 * @param int    $owner     Owner from the lease.
+	 * @param int    $ttl       New lease lifetime in seconds.
+	 * @return bool True when this owner still holds the slot and its lease was extended.
+	 */
+	public static function touch( string $namespace, int $slot, int $owner, int $ttl ): bool {
+		if ( $owner <= 0 ) {
+			return false;
+		}
+		$backend = Cache_Backend::shared_first();
+		if ( null === $backend ) {
+			return false;
+		}
+		$pointer_key = self::slot_key( $namespace, $slot );
+		$lease_key   = self::lease_key( $pointer_key, $owner );
+		if ( ! self::pointer_matches( $backend, $pointer_key, $owner ) ) {
+			return false;
+		}
+		if ( true !== $backend->touch( $lease_key, $ttl ) ) {
+			return false;
+		}
+
+		$pointer = $backend->read( $pointer_key );
+		if ( Cache_Backend::READ_HIT === $pointer['status'] && $owner === $pointer['value'] ) {
+			return true;
+		}
+		$backend->delete( $lease_key );
+		return false;
+	}
+
+	/**
+	 * Install the four `SSE_Out_Node` slot-pool seams. Idempotent. Call from the
+	 * application bootstrap once the cache backends are initialized.
+	 *
+	 * The seams close over the production namespace and bounds, so the endpoint
+	 * carries no pool configuration of its own. They ignore the partition it
+	 * offers, because slots are pooled host-wide and a pool per partition would
+	 * multiply the host cap by the partition count. The session the endpoint
+	 * offers — its lease key and remaining life — is passed through, so a
+	 * reconnect takes its own lease over, and a release forgets the index.
+	 */
+	public static function wire(): void {
+		SSE_Out_Node::$acquire_slot = static function ( int $_partition = -1, ?array $session = null ): array|false {
+			$reserved = self::is_machine_pull() ? 0 : self::reserved_slots();
+			return self::acquire(
+				self::namespace_key(),
+				self::identity(),
+				self::max_streams(),
+				self::max_slots(),
+				self::ttl(),
+				$reserved,
+				null === $session ? null : Core::as_string( $session['key'] ?? null ),
+				null === $session ? 0 : Core::num_int( $session['ttl'] ?? null )
+			);
+		};
+		SSE_Out_Node::$release_slot = static function ( array $lease, int $_partition = -1, ?string $session = null ): void {
+			$lease = self::require_lease( $lease );
+			self::release( self::namespace_key(), $lease['slot'], $lease['owner'], $session );
+		};
+		SSE_Out_Node::$check_slot = static function ( array $lease, int $_partition = -1 ): bool {
+			// Check-only, NEVER refresh TTL here (only client heartbeat does).
+			$lease = self::require_lease( $lease );
+			return self::check( self::namespace_key(), $lease['slot'], $lease['owner'] );
+		};
+		SSE_Out_Node::$inspect_slot = static function ( array $lease, int $_partition = -1 ): array {
+			$lease = self::require_lease( $lease );
+			return self::inspect( self::namespace_key(), $lease['slot'], $lease['owner'] );
+		};
+	}
+
+	/**
 	 * Name why one lease check failed, with fresh, read-only cache operations.
 	 *
 	 * Deliberately separate from the hot-path check, which reports one bool for
@@ -223,6 +303,37 @@ class SSE_Slot_Pool {
 	}
 
 	/**
+	 * Validate the lease again at the pool seam boundary.
+	 *
+	 * The endpoint carries one lease through its whole drain loop and hands it
+	 * back on every check and on release, so the shape is asserted here rather
+	 * than trusted: exactly the two keys `acquire()` returned, a non-negative
+	 * slot and a positive owner. A malformed lease that slipped through would
+	 * check or release whichever slot its numbers happen to name.
+	 *
+	 * @param array<array-key,mixed> $lease Candidate lease from the endpoint.
+	 * @return array{slot:int,owner:int}
+	 * @throws \UnexpectedValueException When the candidate is not exactly that shape.
+	 */
+	private static function require_lease( array $lease ): array {
+		if (
+			2 !== \count( $lease )
+			|| ! \array_key_exists( 'slot', $lease )
+			|| ! \array_key_exists( 'owner', $lease )
+			|| ! \is_int( $lease['slot'] )
+			|| 0 > $lease['slot']
+			|| ! \is_int( $lease['owner'] )
+			|| 0 >= $lease['owner']
+		) {
+			throw new \UnexpectedValueException( 'SSE slot seam did not receive a complete lease.' );
+		}
+		return [
+			'slot'  => $lease['slot'],
+			'owner' => $lease['owner'],
+		];
+	}
+
+	/**
 	 * Lease TTL in seconds: the override, else config, floored at the re-auth
 	 * window. A configured value below it is raised, not honoured.
 	 *
@@ -287,6 +398,25 @@ class SSE_Slot_Pool {
 	/** The current user, or 0 outside a WP runtime. Pairs with the IP hash. */
 	public static function user_id(): int {
 		return \function_exists( 'get_current_user_id' ) ? \get_current_user_id() : 0;
+	}
+
+	/**
+	 * The pool namespace: this SITE on this MACHINE — both halves from
+	 * `Cache_Backend`, which owns key scope for every surface.
+	 *
+	 * Neither half identifies the protected resource alone, and the two
+	 * deployments fail in opposite directions. On Atomic one pool host serves
+	 * many sites, so a machine-only key would put 15 of them on one 10-slot
+	 * budget.
+	 * In dndocker one site spans many containers over a shared database and
+	 * memcached, so a site-only key would collapse those instead. This is the
+	 * only surface that wants the machine: everything else is site-scoped,
+	 * because the hostname fragments what a fleet must agree on.
+	 *
+	 * @return string `{machine}:{site}`, the scope half of every pool key.
+	 */
+	public static function namespace_key(): string {
+		return Cache_Backend::machine() . ':' . Cache_Backend::site();
 	}
 
 	/**
@@ -519,6 +649,51 @@ class SSE_Slot_Pool {
 	}
 
 	/**
+	 * Whether a confirmed pointer read names the exact owner.
+	 *
+	 * A read error is not a match, which is what makes every caller fail closed:
+	 * a backend that cannot answer has not proven the lease is still ours.
+	 *
+	 * @param Cache_Backend $backend     Tier to read through.
+	 * @param string        $pointer_key Slot pointer key.
+	 * @param int           $owner       Owner the lease names.
+	 * @return bool True only on a confirmed hit holding this owner.
+	 *
+	 * @phpstan-impure The external cache can change between consecutive reads.
+	 */
+	private static function pointer_matches( Cache_Backend $backend, string $pointer_key, int $owner ): bool {
+		$pointer = $backend->read( $pointer_key );
+		return Cache_Backend::READ_HIT === $pointer['status'] && $owner === $pointer['value'];
+	}
+
+	/**
+	 * Owner-specific liveness key for one slot pointer.
+	 *
+	 * The owner is in the KEY, not the value, so an expiring lease takes only
+	 * its own liveness with it and a successor writes a different key.
+	 *
+	 * @param string $pointer_key Slot pointer key.
+	 * @param int    $owner       Lease owner.
+	 * @return string The composed liveness key.
+	 */
+	private static function lease_key( string $pointer_key, int $owner ): string {
+		return "{$pointer_key}:lease:{$owner}";
+	}
+
+	/**
+	 * Permanent slot-pointer key. ONE pooled keyspace per host, so the pointer
+	 * count IS the host cap; liveness and holder live in the lease key.
+	 *
+	 * @param string $namespace Pool scope, already `machine:site`.
+	 * @param int    $slot      Slot index, from 0 up to the host cap.
+	 * @return string The composed pointer key.
+	 */
+	private static function slot_key( string $namespace, int $slot ): string {
+		// $namespace IS the scope (machine:site); callers inject their own.
+		return Cache_Backend::key( $namespace, "sse:{$slot}" );
+	}
+
+	/**
 	 * Where the lease a session last held is recorded. It lives no longer than
 	 * the session, is forgotten on release, and is never trusted on its own:
 	 * the takeover's CAS decides whether the lease it names is still that one.
@@ -594,181 +769,6 @@ class SSE_Slot_Pool {
 	private static function budget( string $key ): int {
 		$declared = Settings_Schema::get()->defaults()[ $key ];
 		return Core::num_int( Config::value( $key ), Core::num_int( $declared ) );
-	}
-
-	/**
-	 * Refresh the exact lease TTL. Fail-CLOSED when ownership is unverifiable.
-	 *
-	 * The pool's only refresh, reached from the `workers heartbeat` verb, so a
-	 * stream lives exactly as long as its client keeps saying so. The pointer is
-	 * confirmed before the refresh and again after it; a rival that took the
-	 * slot in between leaves this owner's revived liveness key behind, which the
-	 * refusal path then deletes.
-	 *
-	 * @param string $namespace Pool scope.
-	 * @param int    $slot      Slot from the lease.
-	 * @param int    $owner     Owner from the lease.
-	 * @param int    $ttl       New lease lifetime in seconds.
-	 * @return bool True when this owner still holds the slot and its lease was extended.
-	 */
-	public static function touch( string $namespace, int $slot, int $owner, int $ttl ): bool {
-		if ( $owner <= 0 ) {
-			return false;
-		}
-		$backend = Cache_Backend::shared_first();
-		if ( null === $backend ) {
-			return false;
-		}
-		$pointer_key = self::slot_key( $namespace, $slot );
-		$lease_key   = self::lease_key( $pointer_key, $owner );
-		if ( ! self::pointer_matches( $backend, $pointer_key, $owner ) ) {
-			return false;
-		}
-		if ( true !== $backend->touch( $lease_key, $ttl ) ) {
-			return false;
-		}
-
-		$pointer = $backend->read( $pointer_key );
-		if ( Cache_Backend::READ_HIT === $pointer['status'] && $owner === $pointer['value'] ) {
-			return true;
-		}
-		$backend->delete( $lease_key );
-		return false;
-	}
-
-	/**
-	 * Whether a confirmed pointer read names the exact owner.
-	 *
-	 * A read error is not a match, which is what makes every caller fail closed:
-	 * a backend that cannot answer has not proven the lease is still ours.
-	 *
-	 * @param Cache_Backend $backend     Tier to read through.
-	 * @param string        $pointer_key Slot pointer key.
-	 * @param int           $owner       Owner the lease names.
-	 * @return bool True only on a confirmed hit holding this owner.
-	 *
-	 * @phpstan-impure The external cache can change between consecutive reads.
-	 */
-	private static function pointer_matches( Cache_Backend $backend, string $pointer_key, int $owner ): bool {
-		$pointer = $backend->read( $pointer_key );
-		return Cache_Backend::READ_HIT === $pointer['status'] && $owner === $pointer['value'];
-	}
-
-	/**
-	 * Owner-specific liveness key for one slot pointer.
-	 *
-	 * The owner is in the KEY, not the value, so an expiring lease takes only
-	 * its own liveness with it and a successor writes a different key.
-	 *
-	 * @param string $pointer_key Slot pointer key.
-	 * @param int    $owner       Lease owner.
-	 * @return string The composed liveness key.
-	 */
-	private static function lease_key( string $pointer_key, int $owner ): string {
-		return "{$pointer_key}:lease:{$owner}";
-	}
-
-	/**
-	 * Permanent slot-pointer key. ONE pooled keyspace per host, so the pointer
-	 * count IS the host cap; liveness and holder live in the lease key.
-	 *
-	 * @param string $namespace Pool scope, already `machine:site`.
-	 * @param int    $slot      Slot index, from 0 up to the host cap.
-	 * @return string The composed pointer key.
-	 */
-	private static function slot_key( string $namespace, int $slot ): string {
-		// $namespace IS the scope (machine:site); callers inject their own.
-		return Cache_Backend::key( $namespace, "sse:{$slot}" );
-	}
-
-	/**
-	 * Install the four `SSE_Out_Node` slot-pool seams. Idempotent. Call from the
-	 * application bootstrap once the cache backends are initialized.
-	 *
-	 * The seams close over the production namespace and bounds, so the endpoint
-	 * carries no pool configuration of its own. They ignore the partition it
-	 * offers, because slots are pooled host-wide and a pool per partition would
-	 * multiply the host cap by the partition count. The session the endpoint
-	 * offers — its lease key and remaining life — is passed through, so a
-	 * reconnect takes its own lease over, and a release forgets the index.
-	 */
-	public static function wire(): void {
-		SSE_Out_Node::$acquire_slot = static function ( int $_partition = -1, ?array $session = null ): array|false {
-			$reserved = self::is_machine_pull() ? 0 : self::reserved_slots();
-			return self::acquire(
-				self::namespace_key(),
-				self::identity(),
-				self::max_streams(),
-				self::max_slots(),
-				self::ttl(),
-				$reserved,
-				null === $session ? null : Core::as_string( $session['key'] ?? null ),
-				null === $session ? 0 : Core::num_int( $session['ttl'] ?? null )
-			);
-		};
-		SSE_Out_Node::$release_slot = static function ( array $lease, int $_partition = -1, ?string $session = null ): void {
-			$lease = self::require_lease( $lease );
-			self::release( self::namespace_key(), $lease['slot'], $lease['owner'], $session );
-		};
-		SSE_Out_Node::$check_slot = static function ( array $lease, int $_partition = -1 ): bool {
-			// Check-only, NEVER refresh TTL here (only client heartbeat does).
-			$lease = self::require_lease( $lease );
-			return self::check( self::namespace_key(), $lease['slot'], $lease['owner'] );
-		};
-		SSE_Out_Node::$inspect_slot = static function ( array $lease, int $_partition = -1 ): array {
-			$lease = self::require_lease( $lease );
-			return self::inspect( self::namespace_key(), $lease['slot'], $lease['owner'] );
-		};
-	}
-
-	/**
-	 * Validate the lease again at the pool seam boundary.
-	 *
-	 * The endpoint carries one lease through its whole drain loop and hands it
-	 * back on every check and on release, so the shape is asserted here rather
-	 * than trusted: exactly the two keys `acquire()` returned, a non-negative
-	 * slot and a positive owner. A malformed lease that slipped through would
-	 * check or release whichever slot its numbers happen to name.
-	 *
-	 * @param array<array-key,mixed> $lease Candidate lease from the endpoint.
-	 * @return array{slot:int,owner:int}
-	 * @throws \UnexpectedValueException When the candidate is not exactly that shape.
-	 */
-	private static function require_lease( array $lease ): array {
-		if (
-			2 !== \count( $lease )
-			|| ! \array_key_exists( 'slot', $lease )
-			|| ! \array_key_exists( 'owner', $lease )
-			|| ! \is_int( $lease['slot'] )
-			|| 0 > $lease['slot']
-			|| ! \is_int( $lease['owner'] )
-			|| 0 >= $lease['owner']
-		) {
-			throw new \UnexpectedValueException( 'SSE slot seam did not receive a complete lease.' );
-		}
-		return [
-			'slot'  => $lease['slot'],
-			'owner' => $lease['owner'],
-		];
-	}
-
-	/**
-	 * The pool namespace: this SITE on this MACHINE — both halves from
-	 * `Cache_Backend`, which owns key scope for every surface.
-	 *
-	 * Neither half identifies the protected resource alone, and the two
-	 * deployments fail in opposite directions. On Atomic one pool host serves
-	 * many sites, so a machine-only key would put 15 of them on one 10-slot
-	 * budget.
-	 * In dndocker one site spans many containers over a shared database and
-	 * memcached, so a site-only key would collapse those instead. This is the
-	 * only surface that wants the machine: everything else is site-scoped,
-	 * because the hostname fragments what a fleet must agree on.
-	 *
-	 * @return string `{machine}:{site}`, the scope half of every pool key.
-	 */
-	public static function namespace_key(): string {
-		return Cache_Backend::machine() . ':' . Cache_Backend::site();
 	}
 
 	/**

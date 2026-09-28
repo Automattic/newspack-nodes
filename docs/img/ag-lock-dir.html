@@ -73,7 +73,7 @@
   </div>
   <div class="card">
     <h3>Signalling into a stranger's dir</h3>
-    <p><span class="mono">request_restart_at()</span>, <span class="mono">request_stop_at()</span> and <span class="mono">request_reload_at()</span> need no instance. All three funnel through <span class="mono">write_flag_at()</span>, which refuses before touching disk when the dir does not exist — the lock dir IS the channel, with no queue behind it, so a slot reading <span class="mono">down</span> or <span class="mono">idle</span> takes nothing and <span class="mono">Requested restart for N worker(s)</span> can name fewer than the fleet — and when <span class="mono">Config::write_denied()</span>: as root the file would land unwritable by the workers.</p>
+    <p><span class="mono">request_restart_at()</span>, <span class="mono">request_stop_at()</span> and <span class="mono">request_reload_at()</span> need no instance. All three funnel through <span class="mono">write_flag_at()</span>, which answers false before touching disk when the dir does not exist — the lock dir IS the channel, with no queue behind it, so a slot reading <span class="mono">down</span> or <span class="mono">idle</span> takes nothing and <span class="mono">Requested restart for N worker(s)</span> can name fewer than the fleet. A write <span class="mono">Config::write_denied()</span> refuses — as root the file would land unwritable by the workers — throws, naming the dir and the flag. A write that fails is retried once while the dir stands, because a successor may have re-created it, and a second failure throws the same way; a dir gone by then answers false.</p>
   </div>
   <div class="callout">
     <h4>Why the reload watermark is different</h4>

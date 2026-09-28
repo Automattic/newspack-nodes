@@ -223,82 +223,75 @@ js_gdh="$( node reorder-node-methods.js "$tmp/dualhomed-plain.js" 2>&1 )"
 assert_before "js generic dual-homed: writeA before shared" "$js_gdh" writeA shared
 assert_before "js generic dual-homed: writeB before shared" "$js_gdh" writeB shared
 
-# ---- (D) a call inside a closure body is NOT an edge of the enclosing method ----
-# zboot() only REGISTERS a closure; the call inside it runs later, under whoever
-# invokes the closure. Counting it as zboot -> decorate pins decorate below an
-# unrelated method and opens a hole in emit()'s chain.
-cat > "$tmp/class-closure-edge.php" <<'PHP'
+# ---- (D) a call inside a closure body IS an edge of the enclosing method ----
+# A reader meets the callee's name inside the enclosing method, so the callee
+# belongs below it: `$this->deferring( function () { $this->flush(); } )` is
+# relay() calling flush(). flush() is authored ABOVE relay() and calls a helper
+# of its own, so without the edge it is a free root that sorts first.
+# assert_closure_edge LABEL LANG BODY — relay() wraps BODY; relay precedes flush.
+assert_closure_edge() {
+	local label="$1" lang="$2" body="$3" f
+	if [ "php" = "$lang" ]; then
+		f="$tmp/class-closure-scope-node.php"
+		cat > "$f" <<PHP
 <?php
-class Closure_Edge {
-	public function emit(): void {
-		self::decorate();
+class Closure_Scope_Node extends Node {
+	public function fill( array &\$message ): void {
+		\$this->relay();
 	}
 
-	public function zboot(): void {
-		self::install( static function (): void {
-			self::decorate();
-		} );
+	private static function flush(): void {
+		self::sink_it();
 	}
 
-	private static function install( callable $cb ): void {
+	private function relay(): void {
+		$body
 	}
 
-	private static function decorate(): void {
+	private static function deferring( callable \$cb ): void {
+	}
+
+	private static function sink_it(): void {
 	}
 }
 PHP
-php_ce="$( php reorder-node-methods.php "$tmp/class-closure-edge.php" 2>&1 )"
-assert_before "php closure-edge: decorate stays with emit, above zboot" "$php_ce" decorate zboot
-
-cat > "$tmp/closure-edge.js" <<'JS'
-class ClosureEdge {
-	emit() {
-		this.decorate();
+		assert_before "php closure-edge ($label): relay before flush" "$( php reorder-node-methods.php "$f" 2>&1 )" relay flush
+	else
+		f="$tmp/closure-scope-node.js"
+		cat > "$f" <<JS
+class ClosureScopeNode extends Node {
+	fill( message ) {
+		this.relay();
 	}
 
-	zboot() {
-		this.install( () => {
-			this.decorate();
-		} );
+	flush() {
+		this.sinkIt();
 	}
 
-	install( cb ) {
+	relay() {
+		$body
 	}
 
-	decorate() {
+	deferring( cb ) {
+	}
+
+	sinkIt() {
 	}
 }
 JS
-js_ce="$( node reorder-node-methods.js "$tmp/closure-edge.js" 2>&1 )"
-assert_before "js closure-edge: decorate stays with emit, above zboot" "$js_ce" decorate zboot
-
-# ---- (D2) a multi-parameter closure or arrow function stays one scope ----
-# The comma between parameters is not the end of an arrow function. Misread,
-# the scan leaves the closure at `$a,` and counts every call in its body as an
-# edge of zwire(), pinning decorate below it and away from emit().
-cat > "$tmp/class-multiparam-edge.php" <<'PHP'
-<?php
-class Multiparam_Edge {
-	public function emit(): void {
-		self::decorate();
-	}
-
-	public function zwire(): void {
-		self::install( function ( int $a, int $b ): void {
-			self::decorate();
-		} );
-		self::install( fn( int $a, int $b ) => self::decorate() );
-	}
-
-	private static function install( callable $cb ): void {
-	}
-
-	private static function decorate(): void {
-	}
+		assert_before "js closure-edge ($label): relay before flush" "$( node reorder-node-methods.js "$f" 2>&1 )" relay flush
+	fi
 }
-PHP
-php_mp="$( php reorder-node-methods.php "$tmp/class-multiparam-edge.php" 2>&1 )"
-assert_before "php multi-param closure: decorate stays with emit, above zwire" "$php_mp" decorate zwire
+assert_closure_edge closure        php '$this->deferring( function () { $this->flush(); } );'
+assert_closure_edge arrow          php '$this->deferring( fn () => $this->flush() );'
+assert_closure_edge static-closure php 'self::deferring( static function () { self::flush(); } );'
+assert_closure_edge static-arrow   php 'static::deferring( static fn () => static::flush() );'
+assert_closure_edge multi-param    php 'self::deferring( function ( int $a, int $b ) { self::flush(); } );'
+assert_closure_edge nested         php 'self::deferring( function () { self::deferring( fn () => self::flush() ); } );'
+assert_closure_edge first-class    php 'self::deferring( $this->flush( ... ) );'
+assert_closure_edge arrow          js  'this.deferring( () => this.flush() );'
+assert_closure_edge function-expr  js  'this.deferring( function () { this.flush(); } );'
+assert_closure_edge nested         js  'this.deferring( () => { this.deferring( function () { this.flush(); } ); } );'
 
 # An arrow function passed as an argument ends at the call's closing paren,
 # so a self-call after it in the same method is still an edge.
@@ -315,29 +308,6 @@ class Arrow_Arg_Edge {
 PHP
 php_aa="$( php reorder-node-methods.php "$tmp/class-arrow-arg-edge.php" 2>&1 )"
 assert_before "php arrow-as-argument: after is zfirst's callee" "$php_aa" zfirst after
-
-cat > "$tmp/multiparam-edge.js" <<'JS'
-class MultiparamEdge {
-	emit() {
-		this.decorate();
-	}
-
-	zwire() {
-		this.install( function ( a, b ) {
-			this.decorate();
-		} );
-		this.install( ( a, b ) => this.decorate() );
-	}
-
-	install( cb ) {
-	}
-
-	decorate() {
-	}
-}
-JS
-js_mp="$( node reorder-node-methods.js "$tmp/multiparam-edge.js" 2>&1 )"
-assert_before "js multi-param closure: decorate stays with emit, above zwire" "$js_mp" decorate zwire
 
 # ---- (E) locality: an unrelated root must not wedge into a chain ----
 # loner has no callers, so it is available from the first wave. Emitting

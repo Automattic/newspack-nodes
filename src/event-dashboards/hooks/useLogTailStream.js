@@ -51,9 +51,11 @@ function seekForMode( mode, subscribe ) {
 /**
  * Mount one declared log tail for the calling component's lifetime.
  *
- * The `useStreamGraph` handle is dropped: a declared tail offers no pause, seek
- * or step control, so tab visibility is the whole gate on the SSE connection. A
- * dashboard that drives those controls calls `useStreamGraph` itself.
+ * The `useStreamGraph` handle is dropped: a declared tail offers no pause,
+ * seek or step control, so tab visibility is the whole gate on the SSE
+ * connection. A dashboard that drives those controls calls `useStreamGraph`
+ * itself, and one that shows skipped lines hands `<name>:link` to
+ * `UnparseableLinesNotice`.
  *
  * @param {Object} o
  * @param {string} o.name      Stream name; the three node names derive from it.

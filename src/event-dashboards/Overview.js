@@ -41,6 +41,8 @@ import {
 } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import ConnectionBanner from '@newspack-nodes/shared/components/ConnectionBanner';
+import UnparseableLinesNotice from '@newspack-nodes/shared/components/UnparseableLinesNotice';
+import UnreadableNotice from '@newspack-nodes/shared/components/UnreadableNotice';
 import SummaryCards from './SummaryCards';
 import TopologyControls from './TopologyControls';
 import AlertModal from './AlertModal';
@@ -124,6 +126,9 @@ export default function Overview( { headerControlsSlot } ) {
 		readRate,
 		writeRate,
 		logPartitions,
+		unparseableLines,
+		unreadable,
+		refusedProducers,
 		activate,
 		deactivate,
 		restart,
@@ -332,6 +337,42 @@ export default function Overview( { headerControlsSlot } ) {
 			<ConnectionBanner
 				connectionError={ ! connected }
 				message={ __( 'Disconnected — retrying…', 'newspack-nodes' ) }
+			/>
+			<UnreadableNotice
+				failures={ unreadable }
+				describe={ ( name, message ) =>
+					sprintf(
+						// translators: 1: topology name, 2: why it will not read.
+						__(
+							'Topology %1$s will not read, so this board leaves it out: %2$s',
+							'newspack-nodes'
+						),
+						name,
+						message
+					)
+				}
+			/>
+			<UnreadableNotice
+				failures={ refusedProducers }
+				describe={ ( name, message ) =>
+					sprintf(
+						// translators: 1: log producer template, 2: why it was refused.
+						__(
+							'The log catalog leaves out %1$s, and the log sweep refuses to run: %2$s',
+							'newspack-nodes'
+						),
+						name,
+						message
+					)
+				}
+			/>
+			<UnparseableLinesNotice
+				source={ __( 'Consumer rows', 'newspack-nodes' ) }
+				count={ unparseableLines }
+			/>
+			<UnparseableLinesNotice
+				source={ __( 'Topics charts', 'newspack-nodes' ) }
+				node="topicprobe:link"
 			/>
 			<SummaryCards
 				topologies={ topologies }

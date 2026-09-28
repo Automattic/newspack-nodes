@@ -349,12 +349,11 @@ class LruCacheTest extends TestCase {
 
 	/** Roll the window and assert the poison callback's throw escapes `rotate_if_due()`. */
 	private function rotate_expecting_blowup( LRU_Cache $cache ): void {
-		try {
-			$cache->rotate_if_due();
-			$this->fail( 'the callback throw must propagate out of rotate_if_due()' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertSame( 'evict callback blew up', $e->getMessage() );
-		}
+		$e = $this->caught(
+			fn () => $cache->rotate_if_due(),
+			'the callback throw must propagate out of rotate_if_due()'
+		);
+		$this->assertSame( 'evict callback blew up', $e->getMessage() );
 	}
 
 	public function test_a_throw_mid_roll_still_advances_the_window(): void {
@@ -389,6 +388,36 @@ class LruCacheTest extends TestCase {
 		$this->rotate_expecting_blowup( $cache );
 
 		$this->assertSame( [ 'alpha', 'poison', 'omega' ], $fired, 'every entry is offered to the callback before the throw escapes' );
+	}
+
+	public function test_every_throwing_evict_callback_escapes_together(): void {
+		// Two entries fail in one bucket: neither failure is dropped for the other.
+		Core::$now = 7000000.0;
+		$fired     = [];
+		$cache     = ( new LRU_Cache( 100, 1 ) )->with_timed_rotation(
+			500.0,
+			function ( string $key ) use ( &$fired ): void {
+				$fired[] = $key;
+				if ( \str_starts_with( $key, 'poison' ) ) {
+					throw new \RuntimeException( "evict {$key} blew up" );
+				}
+			}
+		);
+		$cache->set( 'poison-3', 'envelope' );
+		$cache->set( 'healthy-4', 'b' );
+		$cache->set( 'poison-5', 'envelope' );
+
+		Core::$now = 7000500.0;
+		try {
+			$cache->rotate_if_due();
+			$this->fail( 'both callback throws must propagate out of rotate_if_due()' );
+		} catch ( \Newspack_Nodes\Failures $e ) {
+			$this->assertSame(
+				[ 'evict poison-3 blew up', 'evict poison-5 blew up' ],
+				\array_map( static fn ( \Throwable $f ): string => $f->getMessage(), $e->all() )
+			);
+		}
+		$this->assertSame( [ 'poison-3', 'healthy-4', 'poison-5' ], $fired );
 	}
 
 	/**

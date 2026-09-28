@@ -101,16 +101,15 @@ class CliActivateCommandTest extends TestCase {
 		\file_put_contents( "{$this->stock}/alpha.tsl", "make_node Echo a\n" );
 		\file_put_contents( "{$this->stock}/beta.tsl", "make_node Echo b\n" );
 
-		try {
-			( new Worker_CLI_Command() )->activate( [ 'nope' ], [] );
-			$this->fail( 'expected WP_CLI::error to throw' );
-		} catch ( \RuntimeException $e ) {
-			// WP_CLI::error stub throws with the message prefixed.
-			$this->assertStringContainsString( 'nope', $e->getMessage() );
-			// The catalog names are listed so the operator can pick a real one.
-			$this->assertStringContainsString( 'alpha', $e->getMessage() );
-			$this->assertStringContainsString( 'beta', $e->getMessage() );
-		}
+		$e = $this->caught(
+			fn () => ( new Worker_CLI_Command() )->activate( [ 'nope' ], [] ),
+			'expected WP_CLI::error to throw'
+		);
+		// WP_CLI::error stub throws with the message prefixed.
+		$this->assertStringContainsString( 'nope', $e->getMessage() );
+		// The catalog names are listed so the operator can pick a real one.
+		$this->assertStringContainsString( 'alpha', $e->getMessage() );
+		$this->assertStringContainsString( 'beta', $e->getMessage() );
 
 		// Nothing written, nothing spawned.
 		$this->assertArrayNotHasKey( 'newspack_nodes_topologies', $GLOBALS['_wp_options'] );
@@ -124,12 +123,11 @@ class CliActivateCommandTest extends TestCase {
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'alpha' ];
 		Config::reset();
 
-		try {
-			( new Worker_CLI_Command() )->activate( [ 'beta' ], [] );
-			$this->fail( 'expected WP_CLI::error to throw on conflict' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertStringContainsString( 'conflict', $e->getMessage() );
-		}
+		$e = $this->caught(
+			fn () => ( new Worker_CLI_Command() )->activate( [ 'beta' ], [] ),
+			'expected WP_CLI::error to throw on conflict'
+		);
+		$this->assertStringContainsString( 'conflict', $e->getMessage() );
 
 		$active = (array) \get_option( 'newspack_nodes_topologies', [] );
 		$this->assertNotContains( 'beta', $active );
@@ -173,14 +171,13 @@ class CliActivateCommandTest extends TestCase {
 		\file_put_contents( "{$this->stock}/alpha.tsl", "make_node Echo a\n" );
 		\file_put_contents( "{$this->stock}/beta.tsl", "make_node Echo b\n" );
 
-		try {
-			( new Worker_CLI_Command() )->deactivate( [ 'nope' ], [] );
-			$this->fail( 'expected WP_CLI::error to throw' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertStringContainsString( 'nope', $e->getMessage() );
-			$this->assertStringContainsString( 'alpha', $e->getMessage() );
-			$this->assertStringContainsString( 'beta', $e->getMessage() );
-		}
+		$e = $this->caught(
+			fn () => ( new Worker_CLI_Command() )->deactivate( [ 'nope' ], [] ),
+			'expected WP_CLI::error to throw'
+		);
+		$this->assertStringContainsString( 'nope', $e->getMessage() );
+		$this->assertStringContainsString( 'alpha', $e->getMessage() );
+		$this->assertStringContainsString( 'beta', $e->getMessage() );
 
 		// The active-set option must be untouched.
 		$this->assertArrayNotHasKey( 'newspack_nodes_topologies', $GLOBALS['_wp_options'] );

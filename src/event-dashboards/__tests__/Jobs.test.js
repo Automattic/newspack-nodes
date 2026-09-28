@@ -1,4 +1,3 @@
-/* global globalThis */
 /**
  * Jobs — the station's per-handler job-outcome board over the durable jobstats.p0 log.
  * useJobstatsStream (link) is stubbed; the view model is fed via useNodeField.
@@ -9,6 +8,8 @@ import { readFileSync } from 'fs';
 import { resolve as resolvePath } from 'path';
 import { render } from '@testing-library/react';
 import Jobs from '../Jobs';
+import { Core } from '../../runtime/core';
+import { publishSkippedLines } from '@newspack-nodes/shared/test-utils/skippedLines';
 
 jest.mock( '../hooks/useJobstatsStream', () => ( {
 	useJobstatsStream: jest.fn(),
@@ -118,10 +119,27 @@ function model() {
 }
 
 beforeEach( () => {
+	Core.reset();
 	globalThis.__jobsPanels = [];
 } );
 
 describe( 'Jobs', () => {
+	it( 'shows the lines each of its streams skipped as its own named notice', () => {
+		publishSkippedLines( 'jobstats:link', 2 );
+		publishSkippedLines( 'topicprobe:link', 3 );
+		useNodeField.mockReturnValue( undefined );
+		const { container } = render( <Jobs /> );
+		const notices = [
+			...container.querySelectorAll(
+				'.newspack-nodes-banner.is-warning'
+			),
+		].map( ( n ) => n.textContent );
+		expect( notices ).toEqual( [
+			'Job statistics: 2 lines would not parse and were skipped.',
+			'Job backlog: 3 lines would not parse and were skipped.',
+		] );
+	} );
+
 	it( 'renders backlog + queue-latency panels; backlog holds jobs sources only', () => {
 		useNodeField.mockImplementation( ( node ) =>
 			'topicprobe:view' === node

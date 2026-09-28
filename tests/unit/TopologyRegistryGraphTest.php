@@ -158,29 +158,63 @@ class TopologyRegistryGraphTest extends TestCase {
 	}
 
 	/**
-	 * graph_for is a DISPLAY helper — dump_graph walks every registered topology,
-	 * so one cyclic .tsl must degrade to an empty graph, not throw and take the
-	 * whole dashboard down with it. The LOADER still fails loud at boot.
+	 * A broken include throws out of graph_for, so every caller — the restart
+	 * planner, the wake map, dump_graph — sees the failure instead of an empty
+	 * graph that reads as "declares nothing".
 	 */
-	public function test_graph_for_degrades_to_empty_on_a_cyclic_include(): void {
+	public function test_graph_for_throws_on_a_cyclic_include(): void {
 		$this->write_tsl( 'ouroboros-a', "include ouroboros-b\nmake_node Echo wombat-echo\n" );
 		$this->write_tsl( 'ouroboros-b', "include ouroboros-a\n" );
 
-		$this->assertSame(
-			[ 'nodes' => [], 'edges' => [] ],
-			Topology_Analyzer::graph_for( 'ouroboros-a' )
-		);
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'ouroboros' );
+
+		Topology_Analyzer::graph_for( 'ouroboros-a' );
 	}
 
 	/** Same contract for a conflicting make_node across two included topologies. */
-	public function test_graph_for_degrades_to_empty_on_a_conflicting_make_node(): void {
+	public function test_graph_for_throws_on_a_conflicting_make_node(): void {
 		$this->write_tsl( 'clash-a', "make_node Grep shared-grep zebra-pattern\n" );
 		$this->write_tsl( 'clash-b', "make_node Grep shared-grep giraffe-pattern\n" );
 		$this->write_tsl( 'clash-top', "include clash-a\ninclude clash-b\n" );
 
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'shared-grep' );
+
+		Topology_Analyzer::graph_for( 'clash-top' );
+	}
+
+	/**
+	 * A failed walk is memoized like a good one: every reader in the request
+	 * gets the SAME throwable without re-parsing, and a repaired file is read
+	 * once the parsed caches reset — the next request, or a config reload.
+	 */
+	public function test_graph_for_memoizes_the_failure_until_the_caches_reset(): void {
+		$this->write_tsl( 'mended-top', "include mended-missing-4417\nmake_node Echo mended-echo-4417\n" );
+		$first = $this->caught(
+			fn () => Topology_Analyzer::graph_for( 'mended-top' ),
+			'an unresolvable include must throw'
+		);
+		$this->assertStringContainsString( 'mended-missing-4417', $first->getMessage() );
+
+		$this->write_tsl( 'mended-missing-4417', "make_node Echo mended-base-4417\n" );
+
 		$this->assertSame(
-			[ 'nodes' => [], 'edges' => [] ],
-			Topology_Analyzer::graph_for( 'clash-top' )
+			$first,
+			$this->caught( fn () => Topology_Analyzer::graph_for( 'mended-top' ), 'the memoized failure re-raises' ),
+			'the second ask parses nothing and re-raises the first failure'
+		);
+		$this->assertSame(
+			$first,
+			$this->caught( fn () => Topology_Analyzer::write_set( 'mended-top' ), 'every reader shares the walk' ),
+			'a sibling reader of the same walk re-raises it too'
+		);
+
+		Topology_Analyzer::reset_caches();
+
+		$this->assertSame(
+			[ 'mended-base-4417', 'mended-echo-4417' ],
+			\array_column( Topology_Analyzer::graph_for( 'mended-top' )['nodes'], 'name' )
 		);
 	}
 

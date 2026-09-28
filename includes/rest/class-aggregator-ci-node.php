@@ -10,9 +10,9 @@
  * service CIs, and answers the three verbs `node_schema()` declares:
  *
  *   summary        — the polled header slice, `{connected, idle, total,
- *                    server_now}` counted from `build_snapshot()`, so the
- *                    header renders the roll-up without re-deriving it from
- *                    the full partition payload.
+ *                    server_now, unreadable}` counted from `build_snapshot()`,
+ *                    so the header renders the roll-up without re-deriving it
+ *                    from the full partition payload.
  *   list_servers — the polled card slice: the same snapshot re-indexed as a
  *                    SEQUENTIAL ARRAY, which is what the React card list maps
  *                    over.
@@ -150,17 +150,22 @@ class Aggregator_CI_Node extends Service_CI_Node {
 	 * empty block rather than a missing entry, so the cards show a row per
 	 * configured partition whether or not the reader has published yet.
 	 *
-	 * @return array<string,array{id:string,vault_id:string,url:string,partitions:array<int,array<array-key,mixed>>}>
+	 * An active topology that will not read costs only its own spokes: the
+	 * rows cover every readable one, and each failure comes back beside them,
+	 * by name, for the summary to report.
+	 *
+	 * @return array{0: array<string,array{id:string,vault_id:string,url:string,partitions:array<int,array<array-key,mixed>>}>, 1: array<string,\Throwable>} The rows, then what each unreadable topology threw.
 	 */
 	private static function build_snapshot(): array {
 		$registry = Vault::fresh();
 
-		$result = [];
+		$result                    = [];
+		[ $readable, $unreadable ] = Bootstrap::active_topologies();
 		// An operator wires spokes into ANY active topology.
-		foreach ( Bootstrap::get_topologies() as $topology => $entry ) {
+		foreach ( $readable as $topology => $entry ) {
 			$topology = Core::as_string( $topology );
 			// The remote_partition token fans across the partition count.
-			$num_partitions = Bootstrap::partitions_of( Core::arr( $entry ) );
+			$num_partitions = Bootstrap::partitions_of( $entry );
 			foreach ( Topology_Analyzer::graph_for( $topology )['nodes'] as $node ) {
 				if ( 'Remote_Source' !== ( $node['type'] ?? '' ) ) {
 					continue;
@@ -193,7 +198,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 			}
 		}
 
-		return $result;
+		return [ $result, $unreadable ];
 	}
 
 	/**
@@ -238,11 +243,11 @@ class Aggregator_CI_Node extends Service_CI_Node {
 				[
 					'name'        => 'summary',
 					'capability'  => Capabilities::READ,
-					'description' => 'De-god header slice: connected/idle/total counts + snapshot clock (computed from the status snapshot).',
+					'description' => 'De-god header slice: connected/idle/total counts, the snapshot clock, and each unreadable topology by name (computed from the status snapshot).',
 					'args'        => [],
 					'handler'     => self::slice_verb( static function (): array {
-						$snapshot  = self::build_snapshot();
-						$connected = 0;
+						[ $snapshot, $unreadable ] = self::build_snapshot();
+						$connected                 = 0;
 						$idle      = 0;
 						foreach ( $snapshot as $server ) {
 							$state = self::server_state( $server['partitions'] );
@@ -257,6 +262,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 							'idle'       => $idle,
 							'total'      => \count( $snapshot ),
 							'server_now' => \time(),
+							'unreadable' => \array_map( static fn ( \Throwable $e ): string => \html_entity_decode( $e->getMessage(), \ENT_QUOTES ), $unreadable ),
 						];
 					} ),
 				],
@@ -265,7 +271,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 					'capability'  => Capabilities::READ,
 					'description' => 'De-god server-cards slice: the status snapshot as a sequential array.',
 					'args'        => [],
-					'handler'     => self::slice_verb( static fn (): array => \array_values( self::build_snapshot() ) ),
+					'handler'     => self::slice_verb( static fn (): array => \array_values( self::build_snapshot()[0] ) ),
 				],
 				[
 					// No capability declared, so the gate demands MANAGE.

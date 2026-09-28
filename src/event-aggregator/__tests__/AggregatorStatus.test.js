@@ -380,6 +380,62 @@ describe( 'AggregatorStatus', () => {
 		expect( partition.textContent ).toContain( 'HTTP 207' );
 	} );
 
+	it( 'names the torn lines a spoke skipped, and only when it skipped some', () => {
+		registerSlices( {
+			summary: { serverNow: 2000, loading: false },
+			servers: {
+				servers: [
+					{
+						id: 'torn-spoke',
+						url: 'https://torn.example.test',
+						partitions: {
+							0: { connected: true, unparseable_lines: 37 },
+							1: { connected: true, unparseable_lines: 0 },
+						},
+					},
+				],
+				loading: false,
+			},
+		} );
+		const { container } = mount();
+		const [ torn, clean ] = container.querySelectorAll(
+			'.aggregator-partition'
+		);
+		const skippedRow = ( partition ) =>
+			[
+				...partition.querySelectorAll( '.aggregator-partition-row' ),
+			].find(
+				( row ) =>
+					'Skipped lines' ===
+					row.querySelector( '.aggregator-partition-stat-label' )
+						.textContent
+			);
+
+		expect(
+			skippedRow( torn ).querySelector(
+				'.aggregator-partition-stat-value'
+			).textContent
+		).toBe( '37' );
+		expect( skippedRow( clean ) ).toBeUndefined();
+	} );
+
+	it( 'names each unreadable topology from the summary slice in an error banner', () => {
+		registerSlices( {
+			summary: {
+				loading: false,
+				unreadable: { 'marmot-9912': 'include orphaned-9913 failed' },
+			},
+			servers: { servers: SAMPLE_SERVERS, loading: false },
+		} );
+		const { container } = mount();
+		const banners = [
+			...container.querySelectorAll( '.newspack-nodes-error-banner' ),
+		].map( ( n ) => n.textContent );
+		expect( banners ).toEqual( [
+			'Topology marmot-9912 will not read, so its servers are not listed: include orphaned-9913 failed',
+		] );
+	} );
+
 	it( 'renders the connected/total count from the summary slice (not the servers slice)', () => {
 		registerSlices( {
 			summary: { connected: 1, total: 2, loading: false },

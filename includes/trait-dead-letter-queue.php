@@ -12,8 +12,8 @@
  *
  * Three classes use it, in two shapes. `Durable_Reader` mixes it into Consumer_Node
  * and Remote_Source_Node, which both carry a durable cursor and use every piece.
- * Partition_Node uses it for a case with no cursor at all: a short write or a
- * failed segment open quarantines the messages that never landed, so the attempt
+ * Partition_Node uses it for a case with no cursor at all: a failed segment open
+ * quarantines the messages that never landed before the flush raises, so the attempt
  * fields stay at their baseline there and `requeue_deadletter()` is overridden into
  * a refusal.
  *
@@ -150,7 +150,7 @@ trait Dead_Letter_Queue {
 	/**
 	 * Where the quarantine lives; empty disables it. The trait never computes this: a
 	 * reader takes it as a positional argument, Partition derives it from the directory
-	 * whose write stalled, and an override can answer differently again.
+	 * whose segment would not open, and an override can answer differently again.
 	 */
 	protected function deadletter_dir(): string {
 		return $this->deadletter_dir;
@@ -237,13 +237,21 @@ trait Dead_Letter_Queue {
 
 	/**
 	 * Quarantine a poison message: write the replayable original to the `:deadletter`
-	 * sibling when one is configured, else report and drop. The give-up goes out
-	 * through `print_less_often`, which reaches `error_log` via `Core::stderr` and
-	 * collapses a burst to one line per reason per node. A `Worker_Should_Stop` escapes
-	 * the write's broad catch (ADR-14) with nothing committed, so the respawn
-	 * re-quarantines; any other write failure drops and says so, because a source that
-	 * retries the quarantine forever is the wedge this exists to prevent. A reader
-	 * advances its cursor past the message either way.
+	 * sibling when one is configured and report it. The report goes out through
+	 * `print_less_often`, which reaches `error_log` via `Core::stderr` and collapses a
+	 * burst to one line per reason per node.
+	 *
+	 * With no quarantine configured, `$error` is the only record of the message, so
+	 * it raises: a reader's cursor stays put and the successor replays the message,
+	 * wedging loudly on poison until an operator configures a quarantine. A message
+	 * condemned with no error — a crash suspect, a fair-shot strike — has nothing to
+	 * raise, so it is reported and dropped.
+	 *
+	 * A write that fails is no quarantine, so nothing is reported and the failure
+	 * raises through `Worker_Should_Stop::raise()`, combined with `$error`: the error
+	 * the quarantine would have recorded escapes beside the one that stopped it. A
+	 * reader's cursor stays put, and the successor replays the message; a stop during
+	 * the write is a plain stop carrying `$error`, and the replay re-quarantines.
 	 *
 	 * Replay is `wp nodes ingest <topic> <deadletter-segment>`, which re-`fill()`s each
 	 * stored message verbatim — so the entry is the original message, not a wrapper.
@@ -252,26 +260,27 @@ trait Dead_Letter_Queue {
 	 * @param string           $reason  Why it is being quarantined; rides in the .idx row
 	 *                                  and heads the reported line.
 	 * @param \Throwable|null  $error   The throw that condemned it, when there was one.
+	 * @throws \Throwable `$error` when no quarantine is configured; else the failed write, combined with `$error`.
 	 */
 	protected function dead_letter( array $message, string $reason, ?\Throwable $error = null ): void {
 		$where   = Core::as_string( $message[ Message::ID ] ?? '' );
 		$why     = null === $error ? '' : ': ' . $error->getMessage();
 		$outcome = 'dropped (no deadletter_dir)';
+		if ( null === $this->deadletter && null !== $error ) {
+			throw $error;
+		}
 		if ( null !== $this->deadletter ) {
 			// Staged for the .idx callback; cleared in the finally.
 			$this->deadletter_reason = $reason;
 			try {
 				$this->deadletter->fill( $message );
 				$this->deadletter->flush();
-				$outcome = 'quarantined';
-			} catch ( Worker_Should_Stop $e ) {
-				throw $e; // Stop escapes; poison re-quarantines on respawn.
 			} catch ( \Throwable $e ) {
-				// Quarantine failed: drop + advance, else the source loops.
-				$outcome = 'DROP — deadletter write failed: ' . $e->getMessage();
+				Worker_Should_Stop::raise( null === $error ? [ $e ] : [ $error, $e ] );
 			} finally {
 				$this->deadletter_reason = '';
 			}
+			$outcome = 'quarantined';
 		}
 		$this->print_less_often( "DEAD-LETTER [{$reason}] {$this->name} at ", $where, ' — ', $outcome, $why );
 	}

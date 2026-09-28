@@ -100,7 +100,7 @@ class WorkerLifecycleTest extends TestCase {
 		unset( $seed );
 
 		$lock_path = "{$this->tmp}/locks/lifecycle-drain.p0.lock.d";
-		$worker    = new Lifecycle_Worker( $this->tmp, 'lifecycle-drain', 0, 5 );
+		$worker    = new Worker_Base( $this->tmp, 'lifecycle-drain', 0, 5 );
 
 		// Hold the stopper outside the node registry — execute()'s shutdown handler
 		// runs cleanup_all_nodes(), so Core::node('capture') is gone once it returns.
@@ -128,7 +128,7 @@ class WorkerLifecycleTest extends TestCase {
 		$this->assertSame( [ 'lifecycle-msg-1', 'lifecycle-msg-2' ], $values, 'the seeded messages were consumed via the real event loop' );
 
 		// 2) The IPC input was checkpointed at shutdown (clean recycle, no replay).
-		$this->assertSame( 1, $worker->ipc_checkpoint_calls, 'execute shutdown checkpoints the IPC input' );
+		$this->assertNotEmpty( \glob( "{$this->tmp}/ipc/lifecycle-drain.p0/input.offsets/*.log" ), 'execute shutdown checkpoints the IPC input' );
 
 		// 3) The lock dir was released so the next spawn can take over.
 		$this->assertFalse( \is_dir( $lock_path ), 'execute released the worker lock' );
@@ -139,16 +139,6 @@ class WorkerLifecycleTest extends TestCase {
 		$this->assertSame( 'lifecycle-drain', $posts[0]['body']['type'] );
 		$this->assertSame( 0, $posts[0]['body']['partition'] );
 		$this->assertSame( 'tok-drain', $posts[0]['body']['nonce'] );
-	}
-}
-
-/** Worker fixture: counts IPC-input checkpoints so the test can assert the shutdown handoff ran. */
-class Lifecycle_Worker extends Worker_Base {
-	public int $ipc_checkpoint_calls = 0;
-
-	public function checkpoint_ipc_input(): void {
-		++$this->ipc_checkpoint_calls;
-		parent::checkpoint_ipc_input();
 	}
 }
 

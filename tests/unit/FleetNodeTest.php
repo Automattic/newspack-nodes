@@ -223,19 +223,25 @@ class FleetNodeTest extends TestCase {
 
 	// ── resilience ─────────────────────────────────────────────────────────
 
-	public function test_a_throwing_topology_provider_does_not_kill_the_worker(): void {
-		// expand_workers runs third-party filter callbacks. An escape here
-		// unwinds through the router into Worker_Base, which catches only
-		// Worker_Should_Stop — every worker would crash-loop on the same tick.
-		\add_filter( 'newspack_nodes/topologies', static function (): array {
-			throw new \RuntimeException( 'a topology provider exploded' );
+	public function test_a_throwing_topology_provider_escapes_the_scan(): void {
+		// expand_workers runs third-party filter callbacks; their failure unwinds
+		// through the Router into Worker_Base, which hands the slot on and raises.
+		$exploded = new \RuntimeException( 'a topology provider exploded-3308' );
+		\add_filter( 'newspack_nodes/topologies', static function () use ( $exploded ): array {
+			throw $exploded;
 		} );
 
 		Core::right_now();
 		$fleet = $this->mount_fleet();
 
-		$fleet->fire_cb();
+		$caught = null;
+		try {
+			$fleet->fire_cb();
+		} catch ( \RuntimeException $e ) {
+			$caught = $e;
+		}
 
+		$this->assertSame( $exploded, $caught );
 		$this->assertSame( [], $this->posted_bodies() );
 	}
 
@@ -344,6 +350,31 @@ class FleetNodeTest extends TestCase {
 
 		$this->assertFileExists( "{$this->tmp}/locks/ledger-workers.p0.lock.d/restart" );
 		$this->assertFileExists( "{$this->tmp}/locks/audit-workers.p3.lock.d/restart" );
+	}
+
+	public function test_a_refused_drain_flag_spares_the_other_workers_and_escapes(): void {
+		$this->with_topology( $this->ledger( 1 ) );
+		$this->make_lock( 'ledger-workers.p0' );
+		$this->make_lock( 'audit-workers.p4' );
+		$fleet = $this->mount_fleet();
+		$start = Core::right_now();
+		$fleet->fire_cb();
+
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [];
+		$this->signal_reload( 1730000932 );
+		\chmod( "{$this->tmp}/locks/audit-workers.p4.lock.d", 0555 );
+		Core::$now = $start + $this->scan_interval_s() + 1;
+		try {
+			$e = $this->caught(
+				fn () => $fleet->fire_cb(),
+				'a refused restart flag must escape the scan'
+			);
+			$this->assertStringContainsString( 'audit-workers.p4.lock.d', $e->getMessage() );
+		} finally {
+			\chmod( "{$this->tmp}/locks/audit-workers.p4.lock.d", 0755 );
+		}
+
+		$this->assertFileExists( "{$this->tmp}/locks/ledger-workers.p0.lock.d/restart" );
 	}
 
 	// ── the reload watermark ───────────────────────────────────────────────

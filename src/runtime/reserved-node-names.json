@@ -11,6 +11,7 @@
 	"NULL": "_null",
 	"OUTPUT": "_output",
 	"REPL": "_repl",
+	"REPL_INPUT": "_repl:input",
 	"ROUTER": "_router",
 	"SETTINGS_LOG": "_settings:log",
 	"SSE": "_sse",

@@ -68,6 +68,17 @@ class WorkerBaseTest extends TestCase {
 		$this->assertFalse( is_dir( "{$this->tmp}/locks/test-worker.p0.lock.d" ) );
 	}
 
+	public function test_a_release_whose_lock_dir_survives_raises_and_lets_go_of_the_lock(): void {
+		$w = new TestableWorker( $this->tmp, 'test-worker', 0 );
+		$w->acquire();
+		\file_put_contents( "{$this->tmp}/locks/test-worker.p0.lock.d/stray-4473", 'x' );
+
+		$e = $this->caught( static fn () => $w->release(), 'a lock dir left standing must throw' );
+
+		$this->assertStringContainsString( 'stray-4473', $e->getMessage() );
+		$this->assertNull( ( new \ReflectionProperty( Worker_Base::class, 'lock' ) )->getValue( $w ), 'the worker holds no lock it released' );
+	}
+
 	public function test_a_reload_signal_does_not_stop_the_worker(): void {
 		// A reload says "re-read your config", never "exit" — the restart
 		// channel is the only thing that retires a process.
@@ -538,25 +549,122 @@ class WorkerBaseTest extends TestCase {
 		$this->assertSame( 'token-abc', $posts[0]['body']['nonce'] );
 	}
 
-	public function test_execute_reports_a_topology_load_failure_cleanly_without_respawn(): void {
-		// A malformed .tsl fails LOUD but CLEAN: one stderr line, lock released,
-		// and NO self-respawn -- an immediate respawn would hot-loop on the same
-		// bad file; the fleet retries on its own throttled tick.
+	public function test_execute_hands_off_then_raises_the_failure_a_stop_carried(): void {
+		// A mid-job stop whose Partition flush failed carries that failure as its
+		// previous. The stop still wins — lock released, successor spawned — and
+		// only then does the failure escape execute(), so nothing swallows it.
+		$posts = [];
+		$this->capture_spawn_posts( $posts );
+
+		$worker      = new TestableWorker( $this->tmp, 'flush-failed', 0 );
+		$lock        = "{$this->tmp}/locks/flush-failed.p0.lock.d";
+		$flush_error = new \RuntimeException( 'segment write refused: ENOSPC' );
+		$topology    = static function () use ( $flush_error ): void {
+			$timer = new class( $flush_error ) extends \Newspack_Nodes\Timer_Node {
+				public function __construct( private \RuntimeException $flush_error ) {
+					parent::__construct();
+				}
+				public function fire_cb(): void {
+					throw new \Newspack_Nodes\Worker_Should_Stop( '', 0, $this->flush_error );
+				}
+			};
+			$timer->set_timer( 1, true );
+		};
+
+		$caught = null;
+		try {
+			$worker->execute( $topology, 'http://example/spawn', 'tok' );
+		} catch ( \RuntimeException $e ) {
+			$caught = $e;
+		}
+		$this->assertSame( $flush_error, $caught, 'the flush failure escapes execute()' );
+		$this->assertFalse( \is_dir( $lock ), 'the stop still released the lock' );
+		$this->assertNotEmpty( $posts, 'the stop still self-respawned' );
+	}
+
+	public function test_execute_raises_a_topology_load_failure_after_release_without_respawn(): void {
+		// A malformed .tsl fails LOUD but CLEAN: lock released, NO self-respawn
+		// (an immediate respawn would hot-loop on the same bad file), and the
+		// failure itself escapes execute() rather than returning as a status.
 		$posts = [];
 		$this->capture_spawn_posts( $posts );
 
 		$worker   = new TestableWorker( $this->tmp, 'bad-topo', 0 );
 		$lock     = "{$this->tmp}/locks/bad-topo.p0.lock.d";
-		$topology = static function (): void {
-			throw new \RuntimeException( 'parse error: unterminated quote: cmd x add_profile Dont' );
+		$parse    = new \RuntimeException( 'parse error: unterminated quote: cmd x add_profile Dont' );
+		$topology = static function () use ( $parse ): void {
+			throw $parse;
 		};
 
-		$result = $worker->execute( $topology, 'http://example/spawn', 'tok' );
+		$caught = null;
+		try {
+			$worker->execute( $topology, 'http://example/spawn', 'tok' );
+		} catch ( \RuntimeException $e ) {
+			$caught = $e;
+		}
 
-		$this->assertSame( 'load_failed', $result['status'] );
-		$this->assertStringContainsString( 'unterminated quote', $result['error'] );
+		$this->assertSame( $parse, $caught, 'the load failure escapes execute()' );
 		$this->assertFalse( \is_dir( $lock ), 'lock released for the next attempt' );
 		$this->assertSame( [], $posts, 'no self-respawn on a load failure' );
+	}
+
+	public function test_execute_hands_the_slot_on_then_raises_a_shutdown_sweep_failure(): void {
+		$posts = [];
+		$this->capture_spawn_posts( $posts );
+
+		$worker   = new TestableWorker( $this->tmp, 'sweep-fails', 0 );
+		$lock     = "{$this->tmp}/locks/sweep-fails.p0.lock.d";
+		$lost     = new \RuntimeException( 'probe journal refused-7704' );
+		$topology = static function () use ( $lock, $lost ): void {
+			$sweeper = new class( $lost ) extends \Newspack_Nodes\Node implements \Newspack_Nodes\Shutdown_Sweeper {
+				public function __construct( private \RuntimeException $lost ) {
+					parent::__construct();
+				}
+				public function shutdown_sweep(): void {
+					throw $this->lost;
+				}
+			};
+			$sweeper->name( 'sweep-fails:probe' );
+			\Newspack_Nodes\Lock_Node::request_restart_at( $lock );
+		};
+
+		$caught = null;
+		try {
+			$worker->execute( $topology, 'http://example/spawn', 'tok' );
+		} catch ( \RuntimeException $e ) {
+			$caught = $e;
+		}
+
+		$this->assertSame( $lost, $caught, 'the sweep failure escapes execute()' );
+		$this->assertNotEmpty( \glob( "{$this->tmp}/ipc/sweep-fails.p0/input.offsets/*.log" ), 'the cursors still handed off' );
+		$this->assertFalse( \is_dir( $lock ), 'the lock was still released' );
+		$this->assertNotEmpty( $posts, 'the successor was still spawned' );
+	}
+
+	public function test_release_drops_the_lock_even_when_the_wake_flush_throws(): void {
+		$worker = new TestableWorker( $this->tmp, 'wakefail', 0 );
+		$worker->acquire();
+		$part = new \Newspack_Nodes\Partition_Node();
+		$part->name( 'wakefail:partition' );
+		$part->arguments( [ "{$this->tmp}/logs/jobs.p0" ] );
+		( new \ReflectionMethod( $part, 'mark_pending_wake' ) )->invoke( $part );
+		$refused = new \RuntimeException( 'coordinator refused-4462' );
+		$saved   = \Newspack_Nodes\Bootstrap::$spawn_coordinator_factory;
+		\Newspack_Nodes\Bootstrap::$spawn_coordinator_factory = static function () use ( $refused ): \Newspack_Nodes\Spawn_Coordinator {
+			throw $refused;
+		};
+
+		$caught = null;
+		try {
+			$worker->release();
+		} catch ( \RuntimeException $e ) {
+			$caught = $e;
+		} finally {
+			\Newspack_Nodes\Bootstrap::$spawn_coordinator_factory = $saved;
+		}
+
+		$this->assertSame( $refused, $caught );
+		$this->assertFalse( \is_dir( "{$this->tmp}/locks/wakefail.p0.lock.d" ), 'the lock is released regardless' );
 	}
 
 	public function test_checkpoint_durable_consumers_checkpoints_remote_sources(): void {
@@ -591,6 +699,32 @@ class WorkerBaseTest extends TestCase {
 		$w->checkpoint_durable_consumers();
 
 		$this->assertSame( [ [ 'memory', false ] ], $spy->handed );
+	}
+
+	/** One reader's refused handoff spares every later reader, then escapes. */
+	public function test_a_reader_whose_handoff_throws_spares_the_readers_after_it(): void {
+		$w       = new TestableWorker( $this->tmp, 'test-worker', 0 );
+		$refused = new \RuntimeException( 'offsetlog refused-4475' );
+		$handed  = new \ArrayObject();
+		foreach ( [ 'cursor-alder-1', 'cursor-birch-2', 'cursor-cedar-3' ] as $name ) {
+			$reader = new class( $handed, 'cursor-birch-2' === $name ? $refused : null ) extends \Newspack_Nodes\Node {
+				public function __construct( private \ArrayObject $handed, private ?\Throwable $refusal ) {
+					parent::__construct();
+				}
+				public function hand_off_cursor( string $stop_reason = '', bool $baseline_near_watermark = false ): void {
+					if ( null !== $this->refusal ) {
+						throw $this->refusal;
+					}
+					$this->handed[] = $this->name;
+				}
+			};
+			$reader->name( $name );
+		}
+
+		$e = $this->caught( static fn () => $w->checkpoint_durable_consumers(), 'the refused handoff must escape' );
+
+		$this->assertSame( $refused, $e );
+		$this->assertSame( [ 'cursor-alder-1', 'cursor-cedar-3' ], $handed->getArrayCopy() );
 	}
 
 	public function test_cooperative_stop_routes_remote_source_to_the_fair_shot_rule(): void {
@@ -628,7 +762,7 @@ class WorkerBaseTest extends TestCase {
 
 		$worker->execute( $topology, 'http://example/spawn', 'tok' );
 
-		$this->assertSame( 1, $worker->ipc_checkpoint_calls, 'execute shutdown must checkpoint the IPC input' );
+		$this->assertNotEmpty( \glob( "{$this->tmp}/ipc/ckpt-exec.p0/input.offsets/*.log" ), 'execute shutdown must checkpoint the IPC input' );
 	}
 
 	/**
@@ -671,7 +805,7 @@ class WorkerBaseTest extends TestCase {
 
 	/**
 	 * The invariant lives in release() because every exit path goes through it —
-	 * the finally, the shutdown handler, and the load_failed branch. Stated in
+	 * the finally, the shutdown handler, and the load-failure branch. Stated in
 	 * each of those instead, it was added to two and missed the third.
 	 */
 	public function test_release_flushes_pending_wakes_before_dropping_the_lock(): void {
@@ -704,7 +838,6 @@ class WorkerBaseTest extends TestCase {
 }
 
 class TestableWorker extends Worker_Base {
-	public int $ipc_checkpoint_calls = 0;
 	public function set_start_time_for_test( float $t ): void {
 		$this->start_time = $t;
 	}
@@ -713,10 +846,6 @@ class TestableWorker extends Worker_Base {
 	}
 	public function set_stop_reason_for_test( string $reason ): void {
 		$this->stop_reason = $reason;
-	}
-	public function checkpoint_ipc_input(): void {
-		++$this->ipc_checkpoint_calls;
-		parent::checkpoint_ipc_input();
 	}
 }
 

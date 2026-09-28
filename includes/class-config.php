@@ -46,6 +46,9 @@ class Config {
 	/** Action fired from reset() so dependent Configs can invalidate their caches. */
 	public const RESET_ACTION = 'newspack_nodes/config_reset';
 
+	/** The quarantine root's name under the base: `Config::deadletter_dir()`. */
+	public const DEADLETTER_SUBDIR = 'deadletter';
+
 	/** @var array<string,mixed>|null Cached effective config: the defaults under the option overlay. */
 	private static $config = null;
 
@@ -186,6 +189,180 @@ class Config {
 	 */
 	private static function validated_subdir( string $sub ): string {
 		return self::$validated_subdirs[ $sub ] ??= self::ensure_path( self::get_base_directory() . '/' . $sub );
+	}
+
+	/**
+	 * Fail-loud single-key config read: an undeclared key throws instead of
+	 * limping on a `?? default` — that's the guard that catches a renamed or
+	 * typo'd key. A declared key resolves to load_config()[$key] (option overlay
+	 * or file default); declared-but-unset returns null.
+	 *
+	 * @api
+	 * @param string $key Unprefixed config key.
+	 * @return mixed The configured value, or null when the key is declared but unset.
+	 * @throws \RuntimeException If $key is not in the registered set, or a config file is invalid.
+	 */
+	public static function value( string $key ): mixed {
+		if ( ! self::is_declared( $key ) ) {
+			throw new \RuntimeException(
+				\sprintf( "unknown config key '%s' — not declared by any registered schema", \esc_html( $key ) )
+			);
+		}
+		$config = self::load_config();
+		return \array_key_exists( $key, $config ) ? $config[ $key ] : null;
+	}
+
+	/**
+	 * Whether $key is in the registered set. This is the primitive a consumer
+	 * plugin's own value() accessor calls to validate a key against the shared
+	 * substrate registry before reading its own merged config.
+	 *
+	 * A miss re-fires DECLARE_ACTION before it answers false: a consumer plugin
+	 * that loads AFTER the first read (this plugin's own file scope reads
+	 * spawn_verify_ssl on every request) hooks the action too late for that
+	 * pull, and a one-shot derive would deny its keys for the rest of the
+	 * request. Only the action re-fires — the substrate's own keys are already
+	 * registered (declarations are monotone) — and only on a miss, which
+	 * otherwise ends in a throw anyway.
+	 *
+	 * @api
+	 * @param string $key Unprefixed config key.
+	 * @return bool True when some schema declares $key.
+	 */
+	public static function is_declared( string $key ): bool {
+		self::declare_keys();
+		if ( isset( self::$registered_keys[ $key ] ) ) {
+			return true;
+		}
+		if ( \function_exists( 'do_action' ) && ! self::$declaring ) {
+			self::$declaring = true;
+			try {
+				\do_action( self::DECLARE_ACTION );
+			} finally {
+				self::$declaring = false;
+			}
+		}
+		return isset( self::$registered_keys[ $key ] );
+	}
+
+	/**
+	 * Derive the declared set on first read: the substrate's own keys (the
+	 * Settings_Schema overlay keys, which is every Field with a key), then
+	 * DECLARE_ACTION so every consumer plugin declares its own. NOT the config
+	 * file's keys — deriving from the file makes an operator's typo
+	 * self-declaring, and leaves an install whose file predates a key unable to
+	 * read it at all.
+	 *
+	 * Declaration is PULLED, not pushed, because a push has no safe moment.
+	 * This plugin's own file scope reads config at load, before any consumer
+	 * sorting after it has loaded, and a consumer sorting before newspack-nodes
+	 * cannot touch this class at its own file scope; either route therefore
+	 * declares AFTER the first read — the firehose reads num_partitions at
+	 * `plugins_loaded:-10001` — and the fail-loud value() gate refuses a real
+	 * key. Pulling it here means the keys exist by construction whenever anyone
+	 * asks.
+	 *
+	 * Costs nothing on the hot path: load_config() already builds the schema on
+	 * any request that reads config.
+	 */
+	private static function declare_keys(): void {
+		if ( self::$keys_declared || self::$declaring ) {
+			return;
+		}
+		self::$keys_declared = true;
+		self::$declaring     = true;
+		try {
+			self::register_keys( Settings_Schema::get()->overlay_keys() );
+			if ( \function_exists( 'do_action' ) ) {
+				\do_action( self::DECLARE_ACTION );
+			}
+		} finally {
+			self::$declaring = false;
+		}
+	}
+
+	/**
+	 * Declare config keys that value() may read. Idempotent; accumulates across
+	 * calls and never pruned — a declaration is monotone, so a dropped
+	 * DECLARE_ACTION callback can't un-declare keys that already resolve.
+	 *
+	 * @api
+	 * @param array<int,string> $keys Unprefixed config keys.
+	 */
+	public static function register_keys( array $keys ): void {
+		foreach ( $keys as $key ) {
+			if ( '' !== $key ) {
+				self::$registered_keys[ $key ] = true;
+			}
+		}
+	}
+
+	/**
+	 * The configured base path, unvalidated — '' when unset. `wp nodes doctor`
+	 * needs the path ensure_path() REFUSED in order to explain the refusal.
+	 *
+	 * @return string
+	 * @throws \RuntimeException When a config file is invalid — never for the base-directory refusal this exists to explain.
+	 */
+	public static function configured_base_directory(): string {
+		$base_dir = self::load_config()['base_directory'] ?? null;
+		return \is_scalar( $base_dir ) ? (string) $base_dir : '';
+	}
+
+	/**
+	 * Stray keys the shipped config file named, for Site Health and `wp nodes
+	 * doctor`.
+	 *
+	 * Forces the defaults load first: a request that has read no config yet
+	 * would otherwise report a clean file.
+	 *
+	 * @return list<string>
+	 * @throws \RuntimeException When a config file is invalid; the `config-keys` check catches it and reports that instead.
+	 */
+	public static function unrecognized_keys(): array {
+		self::load_config_defaults();
+		return self::$unrecognized;
+	}
+
+	/**
+	 * Register the substrate's `config` topology-token namespace.
+	 *
+	 * Three names resolve off the base directory rather than off config:
+	 * `<config:logs_dir>`, `<config:offsets_dir>` and `<config:deadletter_dir>`.
+	 * Every other key reads straight off load_config().
+	 *
+	 * Registered from two places: `Bootstrap::ensure_runtime_wired()` is lazy, so
+	 * `Settings_Event_Writer::init()` registers it as well — an option change can
+	 * arrive first, and the Partition that writer builds resolves its `<config:*>`
+	 * schema defaults strictly. The map holds one closure per namespace, so
+	 * re-registering costs nothing. `<config:vault>` is refused by name: the
+	 * key is no longer declared, and an unrecognized key is reported rather
+	 * than stripped, so a stale deploy's file could still carry plaintext there.
+	 */
+	public static function register_token_namespace(): void {
+		Core::register_config_namespace(
+			'config',
+			static function ( string $key ) {
+				// Dirs derived from base dir; every other key reads config.
+				if ( 'deadletter_dir' === $key ) {
+					return self::deadletter_dir( self::get_base_directory() );
+				}
+				$derived = [
+					'logs_dir'    => 'logs',
+					'offsets_dir' => 'offsets',
+				];
+				if ( isset( $derived[ $key ] ) ) {
+					return \rtrim( self::get_base_directory(), '/' ) . '/' . $derived[ $key ];
+				}
+				// A stale file may still declare `vault`; refuse it by name.
+				if ( 'vault' === $key ) {
+					Core::print_less_often( 'newspack-nodes: <config:vault> refused; the Vault holds credentials' );
+					return null;
+				}
+				$cfg = self::load_config();
+				return $cfg[ $key ] ?? null;
+			}
+		);
 	}
 
 	/**
@@ -331,124 +508,6 @@ class Config {
 	}
 
 	/**
-	 * Fail-loud single-key config read: an undeclared key throws instead of
-	 * limping on a `?? default` — that's the guard that catches a renamed or
-	 * typo'd key. A declared key resolves to load_config()[$key] (option overlay
-	 * or file default); declared-but-unset returns null.
-	 *
-	 * @api
-	 * @param string $key Unprefixed config key.
-	 * @return mixed The configured value, or null when the key is declared but unset.
-	 * @throws \RuntimeException If $key is not in the registered set, or a config file is invalid.
-	 */
-	public static function value( string $key ): mixed {
-		if ( ! self::is_declared( $key ) ) {
-			throw new \RuntimeException(
-				\sprintf( "unknown config key '%s' — not declared by any registered schema", \esc_html( $key ) )
-			);
-		}
-		$config = self::load_config();
-		return \array_key_exists( $key, $config ) ? $config[ $key ] : null;
-	}
-
-	/**
-	 * Whether $key is in the registered set. This is the primitive a consumer
-	 * plugin's own value() accessor calls to validate a key against the shared
-	 * substrate registry before reading its own merged config.
-	 *
-	 * A miss re-fires DECLARE_ACTION before it answers false: a consumer plugin
-	 * that loads AFTER the first read (this plugin's own file scope reads
-	 * spawn_verify_ssl on every request) hooks the action too late for that
-	 * pull, and a one-shot derive would deny its keys for the rest of the
-	 * request. Only the action re-fires — the substrate's own keys are already
-	 * registered (declarations are monotone) — and only on a miss, which
-	 * otherwise ends in a throw anyway.
-	 *
-	 * @api
-	 * @param string $key Unprefixed config key.
-	 * @return bool True when some schema declares $key.
-	 */
-	public static function is_declared( string $key ): bool {
-		self::declare_keys();
-		if ( isset( self::$registered_keys[ $key ] ) ) {
-			return true;
-		}
-		if ( \function_exists( 'do_action' ) && ! self::$declaring ) {
-			self::$declaring = true;
-			try {
-				\do_action( self::DECLARE_ACTION );
-			} finally {
-				self::$declaring = false;
-			}
-		}
-		return isset( self::$registered_keys[ $key ] );
-	}
-
-	/**
-	 * Derive the declared set on first read: the substrate's own keys (the
-	 * Settings_Schema overlay keys, which is every Field with a key), then
-	 * DECLARE_ACTION so every consumer plugin declares its own. NOT the config
-	 * file's keys — deriving from the file makes an operator's typo
-	 * self-declaring, and leaves an install whose file predates a key unable to
-	 * read it at all.
-	 *
-	 * Declaration is PULLED, not pushed, because a push has no safe moment.
-	 * This plugin's own file scope reads config at load, before any consumer
-	 * sorting after it has loaded, and a consumer sorting before newspack-nodes
-	 * cannot touch this class at its own file scope; either route therefore
-	 * declares AFTER the first read — the firehose reads num_partitions at
-	 * `plugins_loaded:-10001` — and the fail-loud value() gate refuses a real
-	 * key. Pulling it here means the keys exist by construction whenever anyone
-	 * asks.
-	 *
-	 * Costs nothing on the hot path: load_config() already builds the schema on
-	 * any request that reads config.
-	 */
-	private static function declare_keys(): void {
-		if ( self::$keys_declared || self::$declaring ) {
-			return;
-		}
-		self::$keys_declared = true;
-		self::$declaring     = true;
-		try {
-			self::register_keys( Settings_Schema::get()->overlay_keys() );
-			if ( \function_exists( 'do_action' ) ) {
-				\do_action( self::DECLARE_ACTION );
-			}
-		} finally {
-			self::$declaring = false;
-		}
-	}
-
-	/**
-	 * Declare config keys that value() may read. Idempotent; accumulates across
-	 * calls and never pruned — a declaration is monotone, so a dropped
-	 * DECLARE_ACTION callback can't un-declare keys that already resolve.
-	 *
-	 * @api
-	 * @param array<int,string> $keys Unprefixed config keys.
-	 */
-	public static function register_keys( array $keys ): void {
-		foreach ( $keys as $key ) {
-			if ( '' !== $key ) {
-				self::$registered_keys[ $key ] = true;
-			}
-		}
-	}
-
-	/**
-	 * The configured base path, unvalidated — '' when unset. `wp nodes doctor`
-	 * needs the path ensure_path() REFUSED in order to explain the refusal.
-	 *
-	 * @return string
-	 * @throws \RuntimeException When a config file is invalid — never for the base-directory refusal this exists to explain.
-	 */
-	public static function configured_base_directory(): string {
-		$base_dir = self::load_config()['base_directory'] ?? null;
-		return \is_scalar( $base_dir ) ? (string) $base_dir : '';
-	}
-
-	/**
 	 * The effective configuration: `load_config_defaults()` with the stored
 	 * WordPress options overlaid. Memoized for the process; `reset()` clears it.
 	 *
@@ -471,21 +530,6 @@ class Config {
 
 		self::$config = $config;
 		return $config;
-	}
-
-	/**
-	 * Stray keys the shipped config file named, for Site Health and `wp nodes
-	 * doctor`.
-	 *
-	 * Forces the defaults load first: a request that has read no config yet
-	 * would otherwise report a clean file.
-	 *
-	 * @return list<string>
-	 * @throws \RuntimeException When a config file is invalid; the `config-keys` check catches it and reports that instead.
-	 */
-	public static function unrecognized_keys(): array {
-		self::load_config_defaults();
-		return self::$unrecognized;
 	}
 
 	/**
@@ -588,6 +632,17 @@ class Config {
 	}
 
 	/**
+	 * The one dead-letter root under a base directory, which every quarantine
+	 * — a reader's poison queue, a writer's, the IPC input's — sits beneath,
+	 * and which the dead-letters alert globs.
+	 *
+	 * @param string $base_dir A runtime base directory.
+	 */
+	public static function deadletter_dir( string $base_dir ): string {
+		return \rtrim( $base_dir, '/' ) . '/' . self::DEADLETTER_SUBDIR;
+	}
+
+	/**
 	 * Drop this process's cached copy of every option, so it rereads what
 	 * another process wrote. A long-lived reader calls it once at the start of
 	 * each unit of work. Where a `Config::reset()` follows, this must run FIRST:
@@ -608,45 +663,6 @@ class Config {
 			return;
 		}
 		\wp_cache_flush_group( 'options' );
-	}
-
-	/**
-	 * Register the substrate's `config` topology-token namespace.
-	 *
-	 * Three names resolve off the base directory rather than off config:
-	 * `<config:logs_dir>`, `<config:offsets_dir>` and `<config:deadletter_dir>`.
-	 * Every other key reads straight off load_config().
-	 *
-	 * Registered from two places: `Bootstrap::ensure_runtime_wired()` is lazy, so
-	 * `Settings_Event_Writer::init()` registers it as well — an option change can
-	 * arrive first, and the Partition that writer builds resolves its `<config:*>`
-	 * schema defaults strictly. The map holds one closure per namespace, so
-	 * re-registering costs nothing. `<config:vault>` is refused by name: the
-	 * key is no longer declared, and an unrecognized key is reported rather
-	 * than stripped, so a stale deploy's file could still carry plaintext there.
-	 */
-	public static function register_token_namespace(): void {
-		Core::register_config_namespace(
-			'config',
-			static function ( string $key ) {
-				// Dirs derived from base dir; every other key reads config.
-				$derived = [
-					'logs_dir'       => 'logs',
-					'offsets_dir'    => 'offsets',
-					'deadletter_dir' => 'deadletter',
-				];
-				if ( isset( $derived[ $key ] ) ) {
-					return \rtrim( self::get_base_directory(), '/' ) . '/' . $derived[ $key ];
-				}
-				// A stale file may still declare `vault`; refuse it by name.
-				if ( 'vault' === $key ) {
-					Core::print_less_often( 'newspack-nodes: <config:vault> refused; the Vault holds credentials' );
-					return null;
-				}
-				$cfg = self::load_config();
-				return $cfg[ $key ] ?? null;
-			}
-		);
 	}
 
 	/**

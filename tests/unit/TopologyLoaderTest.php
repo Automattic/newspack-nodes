@@ -5,6 +5,7 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Message;
+use Newspack_Nodes\Router_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Topology_Loader;
 use Newspack_Nodes\Topology_Registry;
@@ -174,6 +175,70 @@ class TopologyLoaderTest extends TestCase {
 		$this->assertSame( '4', Core::$var['num_partitions'] );
 		$this->assertSame( '60', Core::$var['stale_timeout'] );
 		$this->assertNotNull( Core::node( 'leader-p0' ) );
+	}
+
+	public function test_a_failing_line_fails_the_load_after_every_other_line_ran(): void {
+		$this->write_tsl(
+			'one-bad-line',
+			"make_node Capture_Sink before-4410\nmake_node Absent_Kind_7741 bogus-4410\nmake_node Capture_Sink after-4410\n"
+		);
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+		$sink = new Capture_Sink_Node();
+		$interpreter->sink( $sink );
+
+		$e = $this->caught(
+			fn () => Topology_Loader::load( 'one-bad-line', 0, $interpreter ),
+			'a failing line must fail the load'
+		);
+		$this->assertStringContainsString( 'Absent_Kind_7741', $e->getMessage() );
+
+		$this->assertNotNull( Core::node( 'before-4410' ) );
+		$this->assertNotNull( Core::node( 'after-4410' ), 'the lines after the failure still ran' );
+		$this->assertCount( 0, $sink->captured, 'a failure is raised, never replied' );
+	}
+
+	public function test_every_failing_line_is_raised_together(): void {
+		$this->write_tsl(
+			'two-bad-lines',
+			"make_node Absent_Kind_7741 bogus-4410\nmake_node Absent_Kind_7742 bogus-4411\n"
+		);
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+		$interpreter->sink( new Capture_Sink_Node() );
+
+		try {
+			Topology_Loader::load( 'two-bad-lines', 0, $interpreter );
+			$this->fail( 'failing lines must fail the load' );
+		} catch ( \Newspack_Nodes\Failures $e ) {
+			$this->assertCount( 2, $e->all() );
+			$this->assertStringContainsString( 'Absent_Kind_7741', $e->all()[0]->getMessage() );
+			$this->assertStringContainsString( 'Absent_Kind_7742', $e->all()[1]->getMessage() );
+		}
+	}
+
+	public function test_a_command_to_a_missing_node_fails_the_load(): void {
+		$this->write_tsl(
+			'missing-target',
+			"make_node Capture_Sink before-5517\ncmd absent-5517:config set_line_mode true\nmake_node Capture_Sink after-5517\n"
+		);
+		$router = new Router_Node();
+		$router->name( '_router' );
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+		$interpreter->sink( $router );
+
+		$raised = null;
+		try {
+			Topology_Loader::load( 'missing-target', 0, $interpreter );
+		} catch ( \RuntimeException $e ) {
+			$raised = $e;
+		}
+
+		$this->assertNotNull( $raised, 'a command no node answers must fail the load' );
+		$this->assertStringContainsString( 'absent-5517:config', $raised->getMessage() );
+		$this->assertStringContainsString( 'set_line_mode', $raised->getMessage() );
+		$this->assertNotNull( Core::node( 'after-5517' ), 'the lines after it still ran' );
 	}
 
 	public function test_load_throws_when_topology_not_found(): void {

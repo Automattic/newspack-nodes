@@ -140,12 +140,11 @@ final class InsightsCiTest extends TestCase {
 		// require_manage_options(), so each slice dispatch must now throw.
 		$GLOBALS['_wp_test_current_user_can'] = [];
 		foreach ( [ 'counts', 'top', 'accumulated' ] as $verb ) {
-			try {
-				$ci->dispatch( $verb );
-				$this->fail( "verb '$verb' should be refused without manage_options" );
-			} catch ( \RuntimeException $e ) {
-				$this->assertStringContainsString( 'permission denied', $e->getMessage() );
-			}
+			$e = $this->caught(
+				fn () => $ci->dispatch( $verb ),
+				"verb '$verb' should be refused without manage_options"
+			);
+			$this->assertStringContainsString( 'permission denied', $e->getMessage() );
 		}
 	}
 

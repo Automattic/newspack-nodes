@@ -1,4 +1,4 @@
-/* global globalThis, requestAnimationFrame */
+/* global requestAnimationFrame */
 /**
  * TopologyConsole tests. useConsoleGraph is mocked to build the REAL receive
  * graph (Router → Dumper/_output, Metadata/_metadata, Uptime/_uptime) plus a
@@ -3339,6 +3339,27 @@ describe( 'TopologyConsole boot', () => {
 		expect( toast ).not.toBeNull();
 		expect( toast.textContent ).toMatch( /bad name/ );
 		expect( toast.textContent ).toMatch( /line 5/ );
+	} );
+
+	it( 'names every statement the editor refused, by line, in the error toast', async () => {
+		hooks.fetchTopology.mockResolvedValueOnce( {
+			tsl: 'make_node Echo x\nsecure banana\nconnect_node nonesuch x\n',
+			name: 'demo',
+		} );
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { container, getByText } = render( <TopologyConsole /> );
+		await act( async () => {
+			fireEvent.click( getByText( 'edit' ) );
+		} );
+
+		const toast = container.querySelector( '.topology-toast--error' );
+		expect( toast ).not.toBeNull();
+		expect( toast.textContent ).toMatch(
+			/line 2: secure banana — invalid secure level/
+		);
+		expect( toast.textContent ).toMatch(
+			/line 3: connect_node nonesuch x — unknown node: nonesuch/
+		);
 	} );
 
 	it( 'handleOpenTopology: clicking pick replaces draft + emits success toast', async () => {

@@ -157,10 +157,14 @@ class JobProbeTest extends TestCase {
 		$this->assertCount( 1, $capture->captured );
 	}
 
-	public function test_fire_skips_a_worker_whose_probe_stats_throws(): void {
-		$bad = new class() extends Job_Worker_Node {
+	public function test_a_worker_whose_probe_stats_throws_costs_its_peers_nothing_then_escapes(): void {
+		$boom = new \RuntimeException( 'boom-5580' );
+		$bad  = new class( $boom ) extends Job_Worker_Node {
+			public function __construct( private \RuntimeException $boom ) {
+				parent::__construct();
+			}
 			public function probe_stats(): array {
-				throw new \RuntimeException( 'boom' );
+				throw $this->boom;
 			}
 		};
 		$bad->name( 'broken' );
@@ -170,8 +174,14 @@ class JobProbeTest extends TestCase {
 		$probe   = new Job_Probe_Node();
 		$probe->name( '_jobstats' );
 		$probe->sink( $capture );
-		$probe->fire_cb();
+		$caught = null;
+		try {
+			$probe->fire_cb();
+		} catch ( \RuntimeException $e ) {
+			$caught = $e;
+		}
 
+		$this->assertSame( $boom, $caught );
 		$this->assertCount( 1, $capture->captured );
 		$this->assertSame( 'ok', $capture->captured[0][ Message::VALUE ][ Jobstats_Record::IDENTITY ] );
 	}

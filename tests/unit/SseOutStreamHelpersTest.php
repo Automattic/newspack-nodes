@@ -82,16 +82,16 @@ final class SseOutStreamHelpersTest extends TestCase {
 	// ── send_sse_event ─────────────────────────────────────────────────────
 
 	public function test_send_sse_event_emits_event_and_data_lines(): void {
-		$out = $this->host()->call_send( 'hello', [ 'pid' => 42 ] );
-		$this->assertStringContainsString( "event: hello\n", $out );
+		$out = $this->host()->call_send( 'heartbeat', [ 'pid' => 42 ] );
+		$this->assertStringContainsString( "event: heartbeat\n", $out );
 		$this->assertStringContainsString( 'data: {"pid":42}', $out );
 		$this->assertStringEndsWith( "\n\n", $out );
 	}
 
 	public function test_send_sse_event_accepts_all_safe_events(): void {
-		// SAFE_EVENTS = hello / msg / heartbeat / connected / timeout.
 		// Each must flow through verbatim with no sanitization.
-		$safe = [ 'hello', 'msg', 'heartbeat', 'connected', 'timeout' ];
+		$safe = \array_keys( ( new \ReflectionClassConstant( SSE_Out_Node::class, 'SAFE_EVENTS' ) )->getValue() );
+		$this->assertContains( 'unparseable_lines', $safe );
 		foreach ( $safe as $name ) {
 			$out = $this->host()->call_send( $name, [] );
 			$this->assertStringContainsString(

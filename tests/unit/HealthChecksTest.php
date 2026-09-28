@@ -611,6 +611,30 @@ class HealthChecksTest extends TestCase {
 		$this->assertSame( 0, $calls );
 	}
 
+	/** A broken topology fails its own liveness row; the other families still evaluate. */
+	public function test_an_unreadable_topology_fails_its_own_row_and_spares_the_rest(): void {
+		$this->activate_topologies( [ 'broken-lab-4417' => "include absent-lab-4417\n" ] );
+
+		$results = $this->by_id( Health_Checks::evaluate( $this->good_cache_result() ) );
+
+		$this->assertSame( 'good', $results['filesystem']['status'] );
+		$this->assertSame( 'good', $results['ownership']['status'] );
+		$this->assertSame( 'critical', $results['worker-liveness']['status'] );
+		$this->assertStringContainsString( 'absent-lab-4417', \implode( "\n", $results['worker-liveness']['messages'] ) );
+		$this->assertSame( 'good', $results['consumer-lag']['status'] );
+		$this->assertSame( 'good', $results['dead-letters']['status'] );
+	}
+
+	public function test_a_stop_from_the_alerts_evaluator_propagates(): void {
+		Health_Checks::$evaluate_alerts = static function (): array {
+			throw new \Newspack_Nodes\Worker_Should_Stop( 'health stop 4417' );
+		};
+
+		$this->expectException( \Newspack_Nodes\Worker_Should_Stop::class );
+		$this->expectExceptionMessage( 'health stop 4417' );
+		Health_Checks::evaluate( $this->good_cache_result() );
+	}
+
 	public function test_alerts_evaluator_is_called_exactly_once_when_base_directory_resolves(): void {
 		$calls                          = 0;
 		Health_Checks::$evaluate_alerts = static function () use ( &$calls ): array {

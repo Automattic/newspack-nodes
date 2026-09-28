@@ -53,21 +53,27 @@ class StderrActionSeamTest extends TestCase {
 		$this->assertStringContainsString( 'unique-throttle-key-4471', $captured[0] );
 	}
 
-	public function test_a_throwing_listener_neither_escapes_nor_skips_the_handler(): void {
-		// The diagnostic last-resort path must not be breakable by a listener:
-		// its throw is swallowed and the real stderr handler still runs.
-		\add_action( 'newspack_nodes/stderr', static function (): void {
-			throw new \RuntimeException( 'listener-blew-up-6634' );
+	public function test_a_throwing_listener_still_reaches_the_handler_then_escapes(): void {
+		// The handler runs whatever the listener threw; the throw then escapes.
+		$thrown = new \RuntimeException( 'listener-blew-up-6634' );
+		\add_action( 'newspack_nodes/stderr', static function () use ( $thrown ): void {
+			throw $thrown;
 		} );
 		$handled = [];
 		Core::set_stderr_handler( static function ( string $line ) use ( &$handled ): void {
 			$handled[] = $line;
 		} );
 
-		Core::stderr( 'must-still-arrive-3319' );
-
+		$caught = null;
+		try {
+			Core::stderr( 'must-still-arrive-3319' );
+		} catch ( \RuntimeException $e ) {
+			$caught = $e;
+		}
+		$this->assertSame( $thrown, $caught, 'the listener failure escapes' );
 		$this->assertCount( 1, $handled );
 		$this->assertStringContainsString( 'must-still-arrive-3319', $handled[0] );
+		$this->assertFalse( Core::in_stderr(), 'the re-entry guard resets on the way out' );
 	}
 
 	public function test_listener_that_logs_does_not_recurse(): void {

@@ -94,7 +94,8 @@ if ( ! function_exists( 'register_rest_route' ) ) {
 
 if ( ! function_exists( 'rest_url' ) ) {
 	function rest_url( $path = '' ) {
-		return 'http://localhost/wp-json/' . ltrim( $path, '/' );
+		// Filtered as core filters it, so a test can resolve no endpoint.
+		return apply_filters( 'rest_url', 'http://localhost/wp-json/' . ltrim( $path, '/' ), $path );
 	}
 }
 

@@ -49,14 +49,6 @@ class Worker_CLI_Command {
 	public static ?\Closure $sleep = null;
 
 	/**
-	 * Slots whose stop-flag write was refused; kept so the warning is not
-	 * repeated on every poll.
-	 *
-	 * @var array<int,string>
-	 */
-	private array $refused_flags = [];
-
-	/**
 	 * Stop the fleet and HOLD it down, so a deploy can replace `includes/` with
 	 * no worker running against the half-swapped directory.
 	 *
@@ -152,24 +144,17 @@ class Worker_CLI_Command {
 	}
 
 	/**
-	 * Flag every held lock to stop, warning about any write that was REFUSED.
+	 * Flag every held lock to stop, then raise every write that failed.
 	 *
-	 * Re-run each pass so a worker that acquired mid-wait is told too. A refusal
-	 * is the documented ownership footgun (worker dirs owned by `bend`, the
-	 * command run as root); silently flagging nothing spins the whole timeout and
-	 * then blames the workers for not exiting.
+	 * Re-run each pass so a worker that acquired mid-wait is told too. A
+	 * failure is the documented ownership footgun (worker dirs owned by `bend`,
+	 * the command run as root); flagging nothing would spin the whole timeout
+	 * and then blame the workers for not exiting, so it ends the command.
 	 */
 	private function flag_held_workers(): void {
-		$refused = [];
-		foreach ( $this->held_lock_dirs() as $slot => $dir ) {
-			if ( ! Lock_Node::request_stop_at( $dir ) ) {
-				$refused[] = $slot;
-			}
-		}
-		if ( ! empty( $refused ) && $refused !== $this->refused_flags ) {
-			$this->refused_flags = $refused;
-			\WP_CLI::warning( 'could not write the stop flag for: ' . \implode( ', ', $refused ) );
-		}
+		Worker_Should_Stop::raise(
+			Worker_Should_Stop::attempt_each( $this->held_lock_dirs(), static fn ( string $dir ) => Lock_Node::request_stop_at( $dir ) )
+		);
 	}
 
 	/**
@@ -277,7 +262,8 @@ class Worker_CLI_Command {
 	 * Fleet overview: every catalog topology with per-partition worker state
 	 * (live/stale/down from the lock heartbeats, plus uptime from the lock-dir
 	 * age), then the consumer-lag table from the Topic_Probe snapshot, whose
-	 * stale rows `CLI::consumer_rows()` re-measures off disk.
+	 * stale rows `CLI::consumer_rows()` re-measures off disk. Each active
+	 * topology that will not read is a warning naming it and why.
 	 *
 	 * ## OPTIONS
 	 *
@@ -341,7 +327,8 @@ class Worker_CLI_Command {
 
 		// One row per active Consumer, sorted (probe order = arrival order).
 		$consumers = [];
-		foreach ( $this->cli()->consumer_rows() as $cr ) {
+		$probe     = $this->cli()->consumer_rows();
+		foreach ( $probe['rows'] as $cr ) {
 			$consumers[] = [
 				'Reader'    => $cr['reader'],
 				'Source'    => $cr['source'],
@@ -357,6 +344,7 @@ class Worker_CLI_Command {
 				<=> [ $b['Reader'], $b['Source'], $b['Partition'] ]
 		);
 
+		self::warn_unreadable();
 		if ( empty( $rows ) && empty( $consumers ) ) {
 			\WP_CLI::warning( 'No topologies registered or running. base_dir=' . $this->base_dir() );
 			return;
@@ -367,6 +355,9 @@ class Worker_CLI_Command {
 		}
 		if ( ! empty( $consumers ) ) {
 			self::render( $format, $consumers, [ 'Reader', 'Source', 'Partition', 'Behind', 'Msgs/int' ] );
+		}
+		if ( $probe['unparseable_lines'] > 0 ) {
+			\WP_CLI::warning( "topicprobe tail: {$probe['unparseable_lines']} unparseable line(s) skipped" );
 		}
 		if ( '' === $format ) {
 			\WP_CLI::log( 'Attach a REPL to a live worker with: wp nodes cli <Worker>' );
@@ -539,7 +530,8 @@ class Worker_CLI_Command {
 
 	/**
 	 * List the active worker topology groups the fleet spawns
-	 * (`Bootstrap::get_topologies()`), so this agrees with `wp nodes status`.
+	 * (`Bootstrap::get_topologies()`), so this agrees with `wp nodes status`,
+	 * warning on each active topology that will not read.
 	 *
 	 * ## EXAMPLES
 	 *
@@ -553,6 +545,7 @@ class Worker_CLI_Command {
 	public function types( array $args, array $assoc_args ): void {
 		$topologies = Bootstrap::get_topologies();
 
+		self::warn_unreadable();
 		if ( empty( $topologies ) ) {
 			\WP_CLI::warning( 'No active topologies. Activate one via Settings → Nodes Runtime → Topologies, or add via the `newspack_nodes/topologies` filter.' );
 			return;
@@ -568,6 +561,16 @@ class Worker_CLI_Command {
 			if ( '' !== $path ) {
 				\WP_CLI::log( "    topology: {$path}" );
 			}
+		}
+	}
+
+	/**
+	 * One warning per active topology that will not read, naming it and why —
+	 * an unknown name included, which the configured set leaves out.
+	 */
+	private static function warn_unreadable(): void {
+		foreach ( Bootstrap::active_topologies()[1] as $name => $e ) {
+			\WP_CLI::warning( "{$name}: " . \html_entity_decode( $e->getMessage(), \ENT_QUOTES ) );
 		}
 	}
 
@@ -663,9 +666,10 @@ class Worker_CLI_Command {
 			: '';
 		$token     = $coordinator->generate_spawn_token( \time() );
 
+		// A load failure, or anything the run raised, surfaces as the error.
 		$result = $wb->execute( $topology, $spawn_url, $token );
 		// The debugging verb: the skip reason IS the diagnosis — print it.
-		$detail = Core::as_string( $result['reason'] ?? $result['error'] ?? '' );
+		$detail = $result['reason'] ?? '';
 		\WP_CLI::success( 'Worker exited with status: ' . $result['status'] . ( '' !== $detail ? " ({$detail})" : '' ) );
 	}
 

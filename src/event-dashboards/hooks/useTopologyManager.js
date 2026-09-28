@@ -264,13 +264,19 @@ function deriveConnected( {
  *                                                        the unit of the staleness
  *                                                        window. Defaults to 5000.
  * @return {{ topologies: Array, readRate: number, writeRate: number,
- *   logPartitions: number, activate: (name: string) => void,
+ *   logPartitions: number, unparseableLines: (number|undefined),
+ *   unreadable: (Object<string,string>|Array|undefined),
+ *   refusedProducers: (Object<string,string>|Array|undefined),
+ *   activate: (name: string) => void,
  *   deactivate: (name: string) => void,
  *   restart: (name: string, partition?: number) => void, connected: boolean }}
  *   Every topology row, with the live status merged onto the active ones; the
  *   fleet-global read and write byte rates and the on-disk log-partition count
- *   the summary cards draw; the three mutation verbs; and whether the board is
- *   connected.
+ *   the summary cards draw; the lines the probe-log read skipped as
+ *   unparseable, undefined before the first poll; each active topology that
+ *   will not read and each log producer the catalog left out, name =>
+ *   message, undefined before the first poll; the three mutation verbs;
+ *   and whether the board is connected.
  */
 export function useTopologyManager( opts = {} ) {
 	const { paused = false } = opts;
@@ -380,6 +386,9 @@ export function useTopologyManager( opts = {} ) {
 		workerModel?.writeRates
 	);
 	const logPartitions = workerModel?.logPartitions ?? 0;
+	const unparseableLines = workerModel?.unparseableLines;
+	const unreadable = workerModel?.unreadable;
+	const refusedProducers = workerModel?.refusedProducers;
 
 	const { run: runRestart } = restartOnce;
 	const { run: runActivate } = activateOnce;
@@ -412,6 +421,9 @@ export function useTopologyManager( opts = {} ) {
 		readRate,
 		writeRate,
 		logPartitions,
+		unparseableLines,
+		unreadable,
+		refusedProducers,
 		activate,
 		deactivate,
 		restart,

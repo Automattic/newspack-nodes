@@ -143,6 +143,40 @@ class AlertsTest extends TestCase {
 	 * operators to ignore worker_down for the one window they most need it —
 	 * the same reasoning that exempts an idle on-demand worker.
 	 */
+	/**
+	 * One topology that will not read is one critical row naming it, and the
+	 * readable fleet beside it is still evaluated — held or not, since the
+	 * stop did not cause it.
+	 */
+	public function test_an_unreadable_topology_is_its_own_critical_row_beside_the_rest(): void {
+		$base  = $this->arrange( [ 'steady-4480' ] );
+		$stock = "{$base}/topologies";
+		\mkdir( $stock, 0755, true );
+		\file_put_contents( "{$stock}/steady-4480.tsl", "make_node Echo e\n" );
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'][] = 'ghost-4480';
+		Config::reset();
+		$this->seed_heartbeat( $base, 'steady-4480', 600 );
+		\Newspack_Nodes\Spawn_Coordinator::set_hold( 1790004480 );
+
+		try {
+			$alerts = $this->alerts_by_key( Alerts::evaluate() );
+		} finally {
+			\Newspack_Nodes\Spawn_Coordinator::clear_hold();
+		}
+
+		$this->assertSame( [ 'topology_unreadable:ghost-4480' ], \array_keys( $alerts ), 'the hold spares the stale worker, not the broken topology' );
+		$row = $alerts['topology_unreadable:ghost-4480'];
+		$this->assertSame( Alerts::FAMILY_WORKER_LIVENESS, $row['family'] );
+		$this->assertSame( Alerts::SEVERITY_CRITICAL, $row['severity'] );
+		$this->assertSame( 'ghost-4480', $row['type'] );
+		$this->assertStringContainsString( 'ghost-4480', $row['message'] );
+
+		$unheld = $this->alerts_by_key( Alerts::evaluate() );
+		$this->assertArrayHasKey( 'worker_down:steady-4480.p0', $unheld, 'the readable fleet is still evaluated' );
+		$this->assertArrayHasKey( 'topology_unreadable:ghost-4480', $unheld );
+	}
+
 	public function test_a_held_fleet_raises_no_worker_alerts(): void {
 		$base = $this->arrange( [ 'stale-workers' ] );
 		$this->seed_heartbeat( $base, 'stale-workers', 120 );
@@ -443,21 +477,31 @@ class AlertsTest extends TestCase {
 		$this->assertContains( 'worker_down:late-workers.p0', $keys );
 	}
 
-	public function test_emit_survives_a_throwing_journal_write(): void {
+	public function test_a_throwing_journal_write_escapes_emit_and_leaves_the_state_unadvanced(): void {
 		$base = $this->arrange( [ 'stale-workers' ] );
 		$this->seed_heartbeat( $base, 'stale-workers', 120 );
 
-		$throwing_journal = new class() extends \Newspack_Nodes\Partition_Node {
+		$refused          = new \RuntimeException( 'boom-777' );
+		$throwing_journal = new class( $refused ) extends \Newspack_Nodes\Partition_Node {
+			public function __construct( private \RuntimeException $refused ) {
+				parent::__construct();
+			}
 			public function fill( array $message ): void {
-				throw new \RuntimeException( 'boom-777' );
+				throw $this->refused;
 			}
 		};
 		$property = new \ReflectionProperty( Alerts::class, 'journal' );
 		$property->setValue( null, $throwing_journal );
 
-		Alerts::emit();
+		$caught = null;
+		try {
+			Alerts::emit();
+		} catch ( \RuntimeException $e ) {
+			$caught = $e;
+		}
 
-		$this->assertTrue( true, 'emit() must not let a journal-write throw escape' );
+		$this->assertSame( $refused, $caught );
+		$this->assertFalse( \get_option( 'newspack_nodes_alerts_state', false ), 'the transition retries next window' );
 	}
 
 	public function test_emit_fires_no_wp_action(): void {

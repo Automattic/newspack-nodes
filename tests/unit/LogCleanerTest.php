@@ -135,8 +135,58 @@ class LogCleanerTest extends TestCase {
 
 		$ghost = $this->seed_log_partition( 'ghost', 0 );
 
-		$this->assertSame( [], Log_Cleaner::cleanup_orphan_partitions( $this->tmp ) );
+		$e = $this->caught(
+			fn () => Log_Cleaner::cleanup_orphan_partitions( $this->tmp ),
+			'a refused sweep must reach the operator'
+		);
+		$this->assertStringContainsString( 'vicuna-unregistered', \html_entity_decode( $e->getMessage(), \ENT_QUOTES ) );
 		$this->assertDirectoryExists( $ghost );
+	}
+
+	public function test_an_unreadable_topology_refuses_both_sweeps_and_raises(): void {
+		$this->declare_topology( 'requests-workers', $this->log_and_offset_tsl( 'requests' ) );
+		$this->declare_topology( 'marmot-workers', "include orphaned-topology-6620\n" );
+
+		$ghost_log    = $this->seed_log_partition( 'ghost', 0 );
+		$ghost_offset = $this->seed_offsetlog_dir( 'ghost', 0 );
+
+		$e = $this->caught(
+			fn () => Log_Cleaner::cleanup_orphan_partitions( $this->tmp, 0 ),
+			'an unreadable topology must refuse the sweep loudly'
+		);
+		$this->assertStringContainsString( 'orphaned-topology-6620', $e->getMessage() );
+		$this->assertDirectoryExists( $ghost_log, 'its logs may be the ghost' );
+		$this->assertDirectoryExists( $ghost_offset, 'its cursors may be the ghost' );
+	}
+
+	public function test_the_orphan_diagnostic_raises_what_refuses_the_sweep(): void {
+		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests' ) );
+		$this->declare_topology( 'marmot-workers', "include orphaned-topology-6621\n" );
+
+		$e = $this->caught(
+			fn () => Log_Cleaner::declared_log_dirs(),
+			'the diagnostic names what the sweep deletes, and it deletes nothing'
+		);
+		$this->assertStringContainsString( 'orphaned-topology-6621', $e->getMessage() );
+	}
+
+	public function test_the_log_catalog_answers_the_readable_topologies(): void {
+		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests', 2 ) );
+		$this->declare_topology( 'marmot-workers', "include orphaned-topology-6622\n" );
+
+		[ $map, $refused ] = Log_Cleaner::declared_log_partitions();
+		\ksort( $map );
+
+		$this->assertSame( [], $refused, 'dump_graph names a topology from active_topologies()' );
+
+		$this->assertSame(
+			[
+				'requests.p0' => 0,
+				'requests.p1' => 1,
+				'settings.p0' => 0,
+			],
+			$map
+		);
 	}
 
 	public function test_deletes_undeclared_flat_log_dir(): void {
@@ -253,49 +303,76 @@ class LogCleanerTest extends TestCase {
 		$this->assertDirectoryDoesNotExist( $orphan );
 	}
 
-	public function test_a_producer_template_outside_the_logs_root_skips_the_sweep(): void {
-		// Fail CLOSED, like every other degraded input here. A producer whose
-		// template declares nothing has live dirs in NO declared set, and a
-		// topology keeps that set non-empty — so the sweep would run and delete
-		// them. Reporting it and carrying on is how errors.p0 died twice.
+	public function test_a_producer_template_outside_the_logs_root_refuses_the_sweep_and_raises(): void {
+		// A producer whose template declares nothing has live dirs in NO declared
+		// set while a topology keeps that set non-empty, so the sweep would delete
+		// them. It refuses loudly, naming the template, before any delete.
 		\add_filter(
 			'newspack_nodes/registered_log_producers',
-			static fn (): array => [ 'firehose' ]
+			static fn (): array => [ 'firehose-7702.p<partition>' ]
 		);
-		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests' ) );
+		$this->declare_topology( 'requests-workers', $this->log_and_offset_tsl( 'requests' ) );
 		$GLOBALS['_wp_options']['newspack_nodes_num_partitions'] = 2;
 		Config::reset();
 
-		$firehose = $this->seed_log_partition( 'firehose', 0 );
-		$requests = $this->seed_log_partition( 'requests', 0 );
+		$firehose     = $this->seed_log_dir( 'firehose-7702.p0' );
+		$ghost_log    = $this->seed_log_partition( 'ghost', 0 );
+		$ghost_offset = $this->seed_offsetlog_dir( 'ghost', 0 );
 
-		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
-
+		$e = $this->caught(
+			fn () => Log_Cleaner::cleanup_orphan_partitions( $this->tmp, 0 ),
+			'a producer declaring nothing must refuse the sweep loudly'
+		);
+		$message = \html_entity_decode( $e->getMessage(), \ENT_QUOTES );
+		$this->assertStringContainsString( 'log producer', $message );
+		$this->assertStringContainsString( 'firehose-7702.p<partition>', $message );
 		$this->assertDirectoryExists( $firehose );
-		$this->assertDirectoryExists( $requests );
-		$this->assertSame( [], Log_Cleaner::declared_log_dirs(), 'the sentinel empties the declared set' );
+		$this->assertDirectoryExists( $ghost_log, 'the refusal lands before any log delete' );
+		$this->assertDirectoryExists( $ghost_offset, 'the refusal lands before any offset delete' );
 	}
 
-	public function test_a_producer_template_outside_the_logs_root_is_reported(): void {
-		// A template that never lands under the logs dir declares nothing, so that
-		// producer's live dirs are orphans on the next sweep. Staying quiet about
-		// it reads exactly like being protected.
-		$buf = '';
-		Core::set_stderr_handler(
-			function ( $message ) use ( &$buf ) {
-				$buf .= $message;
-			}
-		);
+	public function test_the_orphan_diagnostic_raises_a_producer_declaring_nothing(): void {
 		\add_filter(
 			'newspack_nodes/registered_log_producers',
-			static fn (): array => [ 'firehose.p<partition>' ]
+			static fn (): array => [ 'firehose-7703.p<partition>' ]
 		);
 		$GLOBALS['_wp_options']['newspack_nodes_num_partitions'] = 2;
 		Config::reset();
 
-		Log_Cleaner::declared_log_dirs();
+		$e = $this->caught(
+			fn () => Log_Cleaner::declared_log_dirs(),
+			'the diagnostic names what refuses the sweep'
+		);
+		$this->assertStringContainsString( 'firehose-7703.p<partition>', \html_entity_decode( $e->getMessage(), \ENT_QUOTES ) );
+	}
 
-		$this->assertStringContainsString( 'firehose.p<partition>', $buf );
+	public function test_the_log_catalog_answers_the_rest_beside_a_producer_declaring_nothing(): void {
+		// The catalog deletes nothing, so one bad template costs only itself:
+		// every other producer and topology still lists, and the refusal comes
+		// back beside them by template for the dashboard to name.
+		\add_filter(
+			'newspack_nodes/registered_log_producers',
+			static fn (): array => [ 'firehose-7704.p<partition>', '<config:logs_dir>/jobfeed.p<partition>' ]
+		);
+		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests', 2 ) );
+		$GLOBALS['_wp_options']['newspack_nodes_num_partitions'] = 2;
+		Config::reset();
+
+		[ $map, $refused ] = Log_Cleaner::declared_log_partitions();
+		\ksort( $map );
+
+		$this->assertSame(
+			[
+				'jobfeed.p0'  => 0,
+				'jobfeed.p1'  => 1,
+				'requests.p0' => 0,
+				'requests.p1' => 1,
+				'settings.p0' => 0,
+			],
+			$map
+		);
+		$this->assertSame( [ 'firehose-7704.p<partition>' ], \array_keys( $refused ) );
+		$this->assertStringContainsString( 'firehose-7704.p<partition>', \html_entity_decode( $refused['firehose-7704.p<partition>']->getMessage(), \ENT_QUOTES ) );
 	}
 
 	public function test_tokenless_producer_template_declares_exactly_one_dir(): void {
@@ -758,7 +835,7 @@ class LogCleanerTest extends TestCase {
 		$GLOBALS['_wp_options']['newspack_nodes_num_partitions'] = 1;
 		Config::reset();
 
-		$map = Log_Cleaner::declared_log_partitions();
+		[ $map ] = Log_Cleaner::declared_log_partitions();
 		\ksort( $map );
 
 		// requests is 2-partition; firehose producer + the whitelisted non-.tsl
@@ -786,7 +863,7 @@ class LogCleanerTest extends TestCase {
 		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests' ) );
 		Core::$config_resolvers = [];
 
-		$this->assertSame( [], Log_Cleaner::declared_log_partitions() );
+		$this->assertSame( [ [], [] ], Log_Cleaner::declared_log_partitions() );
 	}
 
 	public function test_declared_log_dirs_skips_non_string_producers(): void {

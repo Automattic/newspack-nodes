@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`Command_Interpreter_Node::$around_dispatch` wraps each verb handler** once the verb is known to exist: after the capability floor, the secure-level refusal and the unknown-verb throw, but around a `Service_CI_Node` verb's own role check, whose refusal throws through the wrapper. An assigner calls the wrapper it replaces, so plugins compose; see the architecture guide.
+- **`getStateColor()` colors a ` command` span.** A name whose base ends in ` command` takes the new `SYSTEM_COLORS.command`, `#905665` (Morganite 900, the product design system's sixth chart color), ahead of the operator's custom colors, the way ` hook` and ` plugin` resolve.
+- **`Worker_Should_Stop::combine()`, `raise()`, `attempt()`, `attempt_each()`, `attempt_until_stop()`, `is_clean()` and `is_bare()`** apply one rule to every set of caught throwables: all clean stops make a clean stop; any stop among other failures makes a plain stop carrying them; no stop propagates the failures themselves. **`Failures`** carries several, its message bounded to 64 KiB. `attempt_each()` keeps each failure under its item's key; `attempt_until_stop()` returns at the first stop, for long work loops.
+- **`Deferred_Clean_Stop::deferring()`** brackets a snapshot node's `fill()` and holds a stop its forwards raised until the message's bookkeeping is done.
+- **`Event_Framework::uninterruptible()`** holds a cooperative stop for the length of a unit of work; a Consumer's checkpoint saves and commits inside one, so a snapshot save that writes cannot split the frame.
+- **Readers without a cursor skip and count an unparseable line.** `Consumer_Node::scan()` builds one, `Consumer_Node::take_unparseable_lines_of()` sums the counts, and the count reaches the operator as the `unparseable_lines` SSE event, a `dump_graph` field, a `wp nodes status` warning and `UnparseableLinesNotice` on every stream view.
+- **`Bootstrap::active_topologies()`** answers the readable active topologies and a failure for each one that will not read, an unknown name included. `dump_graph`, the aggregator summary, `wp nodes status` and `types` name each unreadable topology, and the Overview and Aggregator Status pages show it through `UnreadableNotice`.
+- **The REPL input reader is `_repl:input`** with a quarantine under the worker's base dir, so `dl_list` and the other `dl_*` verbs reach a poison command. **`Config::deadletter_dir()`** is the one home of the dead-letter root.
+- **`Write_Lock_Held`** is the throwable a contended write lock raises; `Job_Intake::queue()` answers `false` for it alone.
+
+### Changed
+
+- **Every exception propagates (ADR-14).** A catch that printed, returned a default or dropped a throwable is gone; one that turns it into a result the caller sees stays. Fan-outs (Tee, Tap, `send_signed()`, Settings_Sync, LRU_Cache eviction, Vault_Group, HTTP_Out replies) attempt every target and raise what failed after the last. Loops that isolate steps (the reconcile pass, shutdown sweepers, `cleanup_all_nodes()`, job listeners, probes, wakes, checkpoints) run every step and raise after. See `docs/upgrading.md` for each site.
+- **A Partition write that fails raises.** `flush()` quarantines or truncates as before, then throws for an unopenable segment or a short write; `maybe_stop()` raises the stop carrying it, so the in-flight message replays. A dead-letter write that fails raises with the error that condemned the message, and a reader with no quarantine raises that error rather than dropping the line.
+- **A topology with any failing line fails the load.** A refused `make_node`, a `cmd` or `command_node` that throws or reaches no node, and a missing, unopenable or cyclic include are raised together at end of file, and the worker releases without respawning. A TM_NOREPLY command's failure raises from `Command_Interpreter_Node::interpret()` and `Router_Node::send_error()` instead of printing — a deliberate divergence from Tachikoma, argued in `docs/tachikoma-lineage.md`.
+- **An unknown or unreadable active topology is reported, not dropped.** It raises from every spawn pass, from a node-type settings restart and from the retention sweep, and fails its own rows only: one critical `worker-liveness` row in Site Health and `wp nodes doctor`, beside the rest of the fleet.
+- **Lock flag writes and releases raise.** A refused or failed restart, stop or reload flag throws; a lock dir the holder released mid-write still answers `false`. `force_release_at()` throws when the dir survives its retries.
+- **Site Health, the settings restart panel and `taillog sources` show a failure in place** of the row it cost, rather than throwing the whole page or verb.
+- **Job_Delay's sweep reader quarantines a torn line**, so the delayed jobs around it still deliver.
+- **`remove_node` refuses the siblings a scaffolding node published** (`_repl:input:source`, `_repl:input:config`) as it refuses the scaffolding itself.
+- **A contended `allow_large_writes()` whose unwind also fails raises `Failures`**, `Write_Lock_Held` first, so the contention survives; a caller catching `Write_Lock_Held` alone does not catch that combined case.
+- **Shared tooling.** `reorder-node-methods.{php,js}` counts a call made inside a closure or arrow function as a call from the enclosing method; `lint-docs.sh` holds every divergence row in `docs/tachikoma-lineage.md` to its argued section; `lint-contract.mjs` exempts three lines of the interpreter and the shell instead of the two files whole.
+- **`getStateColor()` cuts a name to its base at the first `: `, not the first bare colon**, the rule `Flame_Tree::base_name()` uses. `sql: SELECT wp_posts` still resolves to `sql`, while a base holding a bare colon, such as the wrapped listener span `{closure}:atomic-platform-virtual-patches.php:21080 @0`, now stays whole.
+- **`getStateColor()` reads its two color tables by own property**, so a name such as `constructor` or `__proto__` takes the default grey instead of returning an inherited `Object` member.
+
+### Removed
+
+- **`Worker_Should_Stop::outranks()`**, replaced by `combine()`; **`Deferred_Clean_Stop::clear_pending_stop()` and `raise_pending_stop()`**, replaced by `deferring()`; the `hello` and `timeout` entries of `SSE_Out_Node::SAFE_EVENTS`, which nothing emits.
+- **`Partition_Node::__destruct()` and `Job_Intake::__destruct()`**, which could throw during garbage collection; `remove_node()` and `close()` are the only flushes.
+
+### Fixed
+
+- **A stolen lock leaves no aside behind.** The steal deletes the renamed stale dir, strays included, so a Partition write lock or pyrobase's DDL lock no longer accumulates `*.stealing.*` dirs the `locks/` reaper never saw.
+- **A lock flag write that races the holder's release answers `false`** instead of throwing; a successor that re-created the dir receives the flag.
+- **`Partition_Node::remove_node()` unregisters the partition even when its lock release throws**, and a write lock is released while still registered, so its RELEASED state reaches listeners.
+- **`retract_sibling()` frees the slot of a sibling that tore itself down before throwing**, so large writes re-arm.
+- **A debounced Partition release runs even when its flush throws.**
+- **`Remote_Source_Node` commits past a clean stop in crawl**, as Consumer does.
+- **`Spawn_Coordinator::spawn_each()` raises an unreadable topology** when no spawn endpoint resolves, instead of returning early without it.
+
 ## [2.68.0] - 2026-09-27
 
 ### Added

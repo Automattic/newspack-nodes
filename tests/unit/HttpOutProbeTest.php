@@ -266,17 +266,16 @@ class HttpOutProbeTest extends TestCase {
 	public function test_a_plaintext_spoke_is_refused_before_any_request(): void {
 		$this->seed_http( [ $this->response( 200, $this->issued_session() ) ] );
 
-		try {
-			HTTP_Out_Node::probe_command(
+		$e = $this->caught(
+			fn () => HTTP_Out_Node::probe_command(
 				self::SPOKE,
 				$this->server( [ 'url' => 'http://spoke.example' ] ),
 				'settings',
 				'get'
-			);
-			$this->fail( 'a plaintext spoke must be refused' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertStringContainsString( 'not https', $e->getMessage() );
-		}
+			),
+			'a plaintext spoke must be refused'
+		);
+		$this->assertStringContainsString( 'not https', $e->getMessage() );
 		$this->assertSame( [], $this->calls, 'refused before any request left' );
 	}
 }

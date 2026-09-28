@@ -31,8 +31,10 @@ namespace Newspack_Nodes;
  *
  * Deletion is irreversible and a skipped sweep costs only disk, so every
  * degraded input fails CLOSED: a declared set that cannot be built completely
- * comes back as `null` and skips its sweep, rather than being swept against a
- * partial set in which live dirs read as orphans.
+ * skips its sweep, rather than being swept against a partial set in which
+ * live dirs read as orphans. An active topology that will not read, and a
+ * producer template declaring no dir, refuse the sweep out loud, raising
+ * their failures before any delete.
  */
 class Log_Cleaner {
 
@@ -65,14 +67,15 @@ class Log_Cleaner {
 	 *                         swept; 0 sweeps it however recently it was written.
 	 * @return array<int,string> Paths of the dirs removed; a delete that leaves the
 	 *                           dir standing is omitted.
-	 * @throws \RuntimeException Before any delete, when the config or the topology
-	 *                           catalog will not load.
+	 * @throws \Throwable Before any delete, when the config or the topology
+	 *                    catalog will not load, an active topology will not read,
+	 *                    or a producer template declares no dir.
 	 */
 	public static function cleanup_orphan_partitions( string $base_dir, int $grace = self::DELETE_GRACE_S ): array {
 		$base_dir = \rtrim( $base_dir, '/' );
 		$deleted  = [];
 
-		$declared = self::declared_dirs();
+		$declared = self::sweep_set();
 
 		// Each bucket's KEYS are the declared dir names to keep (membership).
 		if ( null !== $declared['logs'] && ! empty( $declared['logs'] ) ) {
@@ -141,35 +144,55 @@ class Log_Cleaner {
 	 * template (`newspack_nodes/registered_log_producers`) expanded the same way
 	 * over the global config num_partitions, plus the settings log. The
 	 * `dump_cleanup` diagnostic diffs it against what is on disk to name the
-	 * orphans, and a degraded declared set yields `[]` — nothing declared rather
-	 * than a partial truth.
+	 * orphans, so it raises what refuses the sweep, and a degraded declared set
+	 * yields `[]` — nothing declared rather than a partial truth.
 	 *
 	 * @return array<int,string>
-	 * @throws \RuntimeException When the config or the topology catalog will not load.
+	 * @throws \Throwable When the config or the topology catalog will not load, an active topology will not read, or a producer template declares no dir.
 	 */
 	public static function declared_log_dirs(): array {
-		return \array_keys( self::declared_dirs()['logs'] ?? [] );
+		return \array_keys( self::sweep_set()['logs'] ?? [] );
 	}
 
 	/**
-	 * The same declared LOG set as `declared_log_dirs()`, as the `concrete dir
-	 * name => enumerated partition index` map — the partition comes from the
+	 * `declared_dirs()` for a caller acting on the set as the sweep does: every
+	 * unreadable topology and refused producer raises, combined, because each
+	 * leaves live dirs out of it.
+	 *
+	 * @return array{logs: array<string,int>|null, offsets: array<string,int>|null, unreadable: array<string,\Throwable>, refused: array<string,\RuntimeException>}
+	 * @throws \Throwable When the config or the topology catalog will not load, an active topology will not read, or a producer template declares no dir.
+	 */
+	private static function sweep_set(): array {
+		$declared = self::declared_dirs();
+		Worker_Should_Stop::raise( [ ...\array_values( $declared['unreadable'] ), ...\array_values( $declared['refused'] ) ] );
+		return $declared;
+	}
+
+	/**
+	 * The declared LOG set of every READABLE active topology, as the `concrete
+	 * dir name => enumerated partition index` map — the partition comes from the
 	 * resolver's enumeration loop, never parsed out of a name. The dashboard
 	 * catalog stamps each log entry with this real partition so it joins `logs[]`
 	 * to `consumers[]` on `${name}#${partition}`; a hardcoded 0 there would meet
-	 * the consumer rows on partition 0 alone. A degraded declared set yields `[]`.
+	 * the consumer rows on partition 0 alone. It deletes nothing, so an
+	 * unreadable topology costs only its own logs, which `dump_graph` names in
+	 * its `unreadable` row, and a producer template declaring no dir costs only
+	 * its own, coming back beside the map for `dump_graph` to name. A degraded
+	 * declared set yields `[]`.
 	 *
-	 * @return array<string,int>
+	 * @return array{0: array<string,int>, 1: array<string,\RuntimeException>} The map, then producer template => refusal.
 	 * @throws \RuntimeException When the config or the topology catalog will not load.
 	 */
 	public static function declared_log_partitions(): array {
-		return self::declared_dirs()['logs'] ?? [];
+		$declared = self::declared_dirs();
+		return [ $declared['logs'] ?? [], $declared['refused'] ];
 	}
 
 	/**
 	 * Single-pass declared-set collector. Resolves each config ROOT once and loops
-	 * the operator's ACTIVE topology set (`Bootstrap::get_topologies()` — the same
-	 * source the fleet spawns from) once, filling both buckets UNIFORMLY. Driving
+	 * the operator's READABLE active topologies (`Bootstrap::active_topologies()`
+	 * — the set the fleet spawns from, less what will not read) once, filling
+	 * both buckets UNIFORMLY. Driving
 	 * retention off the active set rather than the on-disk `.tsl` glob means a
 	 * superseded-but-shipped topology's logs AND offsetlogs are reclaimed once it's
 	 * deactivated — down to the last one, since the offset sweep runs on an empty
@@ -181,54 +204,31 @@ class Log_Cleaner {
 	 *
 	 * A `null` bucket is the fail-closed sentinel the caller MUST skip its sweep
 	 * on. An unresolvable config root nulls its own bucket, which no path resolves
-	 * under and which therefore comes back empty anyway. The other three null
-	 * BOTH: an active topology name that neither resolves nor synthesizes, an
-	 * unreadable `.tsl`, and a producer template declaring no dir under the logs
-	 * root each leave live dirs out of a set the remaining contributors keep
-	 * non-empty, which is the shape that deletes data.
+	 * under and which therefore comes back empty anyway. `unreadable` names each
+	 * active topology that neither resolves nor reads, and `refused` each
+	 * producer template declaring no dir under the logs root: their dirs are
+	 * missing from the buckets, the shape that deletes data, so a sweeping caller
+	 * MUST raise both before any delete.
 	 *
 	 * Each non-null bucket is a `concrete dir name => enumerated partition index`
 	 * map (the partition comes from the resolver's enumeration loop, never parsed
 	 * out of a name); the whitelisted settings log is partition 0.
 	 *
-	 * @return array{logs: array<string,int>|null, offsets: array<string,int>|null}
+	 * @return array{logs: array<string,int>|null, offsets: array<string,int>|null, unreadable: array<string,\Throwable>, refused: array<string,\RuntimeException>}
 	 * @throws \RuntimeException When `Config::value()` rejects a key or
-	 *                           `Bootstrap::get_topologies()` cannot build the catalog.
+	 *                           `Bootstrap::active_topologies()` cannot build the catalog.
 	 */
 	private static function declared_dirs(): array {
 		$logs_root    = Core::resolve_config_token( 'config', 'logs_dir' );
 		$offsets_root = Core::resolve_config_token( 'config', 'offsets_dir' );
 
-		$logs    = [];
-		$offsets = [];
-		$active  = Bootstrap::get_topologies();
+		$logs                      = [];
+		$offsets                   = [];
+		$refused                   = [];
+		[ $readable, $unreadable ] = Bootstrap::active_topologies();
 
-		// @longform get_topologies() silently DROPS an active-option name it
-		// cannot resolve or synthesize. Mid-deploy — the plugin torn down, the
-		// option intact — the declared set loses that plugin's dirs, and
-		// sweeping against it deletes live logs.
-		$raw = Config::value( 'topologies' );
-		foreach ( ( \is_array( $raw ) ? $raw : [] ) as $name ) {
-			if ( \is_string( $name ) && '' !== $name && ! isset( $active[ $name ] ) ) {
-				Core::print_less_often( 'Log_Cleaner: skipping sweep: active topology unresolvable: ', $name );
-				return [
-					'logs'    => null,
-					'offsets' => null,
-				];
-			}
-		}
-
-		foreach ( $active as $name => $entry ) {
-			try {
-				$resolved = Topology_Analyzer::resolved_resource_dirs( $name, Bootstrap::partitions_of( Core::arr( $entry ) ) );
-			} catch ( \RuntimeException $e ) {
-				// Unreadable topology: partial sets read logs as orphans.
-				Core::print_less_often( 'Log_Cleaner: skipping sweep: topology unreadable: ', $name . ': ' . $e->getMessage() );
-				return [
-					'logs'    => null,
-					'offsets' => null,
-				];
-			}
+		foreach ( $readable as $name => $entry ) {
+			$resolved = Topology_Analyzer::resolved_resource_dirs( $name, Bootstrap::partitions_of( $entry ) );
 			foreach ( $resolved['logs'] as $dir => $partition ) {
 				$logs[ $dir ] ??= $partition;
 			}
@@ -238,13 +238,7 @@ class Log_Cleaner {
 		}
 
 		if ( '' !== $logs_root ) {
-			$producers = self::producer_log_dirs();
-			if ( null === $producers ) {
-				return [
-					'logs'    => null,
-					'offsets' => null,
-				];
-			}
+			[ $producers, $refused ] = self::producer_log_dirs();
 			foreach ( $producers as $dir => $partition ) {
 				$logs[ $dir ] ??= $partition;
 			}
@@ -255,8 +249,10 @@ class Log_Cleaner {
 		}
 
 		return [
-			'logs'    => '' === $logs_root ? null : $logs,
-			'offsets' => '' === $offsets_root ? null : $offsets,
+			'logs'       => '' === $logs_root ? null : $logs,
+			'offsets'    => '' === $offsets_root ? null : $offsets,
+			'unreadable' => $unreadable,
+			'refused'    => $refused,
 		];
 	}
 
@@ -271,19 +267,20 @@ class Log_Cleaner {
 	 * a declared topology. A template carrying no partition token collapses to one
 	 * dir: `alerts.p0` is pinned across the fleet on purpose.
 	 *
-	 * `null` is the fail-closed sentinel: a registered template that lands under
-	 * no logs dir across the whole partition range declares nothing, so that
-	 * producer's live dirs are in NO declared set while a topology keeps the set
-	 * non-empty — and the sweep would delete them. Every other degraded input
-	 * here fails closed; this one must too.
+	 * A registered template that lands under no logs dir across the whole
+	 * partition range declares nothing, so that producer's live dirs are in NO
+	 * declared set while a topology keeps the set non-empty — and the sweep
+	 * would delete them. It comes back refused, keyed by template, for the
+	 * sweep to raise and the catalog to name.
 	 *
-	 * @return array<string,int>|null `concrete dir name => enumerated partition index`.
+	 * @return array{0: array<string,int>, 1: array<string,\RuntimeException>} `concrete dir name => enumerated partition index`, then template => refusal.
 	 * @throws \RuntimeException When the `num_partitions` config read fails.
 	 */
-	public static function producer_log_dirs(): ?array {
-		$root   = Core::resolve_config_token( 'config', 'logs_dir' );
-		$cfg_np = self::config_num_partitions();
-		$dirs   = [];
+	private static function producer_log_dirs(): array {
+		$root    = Core::resolve_config_token( 'config', 'logs_dir' );
+		$cfg_np  = self::config_num_partitions();
+		$dirs    = [];
+		$refused = [];
 		foreach ( self::registered_producers() as $template ) {
 			$produced = false;
 			for ( $p = 0; $p < $cfg_np; $p++ ) {
@@ -295,11 +292,10 @@ class Log_Cleaner {
 				$dirs[ $first ] ??= $p;
 			}
 			if ( ! $produced ) {
-				Core::print_less_often( 'Log_Cleaner: skipping sweep: producer template declares no dir under the logs root: ', $template );
-				return null;
+				$refused[ $template ] = new \RuntimeException( \esc_html( "log producer {$template} declares no dir under the logs root {$root}" ) );
 			}
 		}
-		return $dirs;
+		return [ $dirs, $refused ];
 	}
 
 	/**

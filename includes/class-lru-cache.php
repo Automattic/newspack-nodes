@@ -173,6 +173,41 @@ class LRU_Cache {
 	}
 
 	/**
+	 * Roll every window that has closed since the last call.
+	 *
+	 * Call this periodically from the processing loop — nothing ages out on a
+	 * quiet cache otherwise, since capacity rotation needs writes. A no-op
+	 * until with_timed_rotation() sets an interval.
+	 *
+	 * Rolls once PER elapsed window, not once per call: a gap — a process that
+	 * was down, or a stretch with no ticks — is repaid in one pass, so a stalled
+	 * entry ages out on wall-clock time rather than on how often a caller looks.
+	 * num_buckets rolls already empty the cache, so a longer gap has nothing
+	 * left to drop and the count caps there. The grid advances BEFORE the roll,
+	 * and every owed roll runs before what the pass caught is raised, combined,
+	 * so a callback that throws leaves no window to replay and no bucket unrolled.
+	 *
+	 * @api Sibling plugins roll the window from their own tick.
+	 */
+	public function rotate_if_due(): void {
+		if ( $this->rotate_interval <= 0 ) {
+			return;
+		}
+		$now = $this->clock();
+		if ( $now < $this->next_window ) {
+			return;
+		}
+		$elapsed = 1 + (int) \floor( ( $now - $this->next_window ) / $this->rotate_interval );
+		// Grid first: a callback throw mid-roll must not replay this window.
+		$this->next_window = $this->next_boundary( $now );
+		$caught = Worker_Should_Stop::attempt_each(
+			\range( 1, \min( $elapsed, $this->num_buckets ) ),
+			fn () => $this->force_rotate()
+		);
+		Worker_Should_Stop::raise( $caught );
+	}
+
+	/**
 	 * Open a fresh newest bucket, evicting the oldest one past capacity.
 	 *
 	 * Leaves the time grid alone — a capacity rotation is not a window, and
@@ -197,11 +232,11 @@ class LRU_Cache {
 	 *
 	 * The bucket is DETACHED before the callback runs, so a throw cannot leave
 	 * it for get_state() to checkpoint and a respawned worker to replay. The
-	 * loop is a fan-out: every item is offered, and the one throwable
-	 * `Worker_Should_Stop::outranks()` keeps is raised after the last (ADR-14).
+	 * loop is a fan-out: every item is offered, and everything the callback
+	 * threw is raised after the last, combined (ADR-14).
 	 *
 	 * @param int $index Bucket index to evict.
-	 * @throws \Throwable Whichever callback failure `outranks()` kept, raised after the loop.
+	 * @throws \Throwable Every callback failure, combined, raised after the loop.
 	 */
 	private function evict_bucket( int $index ): void {
 		if ( ! isset( $this->buckets[ $index ] ) ) {
@@ -213,50 +248,11 @@ class LRU_Cache {
 			return;
 		}
 		$on_evict = $this->on_evict;
-		$deferred = Worker_Should_Stop::attempt_each(
+		$caught   = Worker_Should_Stop::attempt_each(
 			$bucket,
 			static fn ( $value, $key ) => $on_evict( $key, $value )
 		);
-		if ( null !== $deferred ) {
-			throw $deferred;
-		}
-	}
-
-	/**
-	 * Roll every window that has closed since the last call.
-	 *
-	 * Call this periodically from the processing loop — nothing ages out on a
-	 * quiet cache otherwise, since capacity rotation needs writes. A no-op
-	 * until with_timed_rotation() sets an interval.
-	 *
-	 * Rolls once PER elapsed window, not once per call: a gap — a process that
-	 * was down, or a stretch with no ticks — is repaid in one pass, so a stalled
-	 * entry ages out on wall-clock time rather than on how often a caller looks.
-	 * num_buckets rolls already empty the cache, so a longer gap has nothing
-	 * left to drop and the count caps there. The grid advances BEFORE the roll,
-	 * and every owed roll runs before the one throwable the pass kept is raised,
-	 * so a callback that throws leaves no window to replay and no bucket unrolled.
-	 *
-	 * @api Sibling plugins roll the window from their own tick.
-	 */
-	public function rotate_if_due(): void {
-		if ( $this->rotate_interval <= 0 ) {
-			return;
-		}
-		$now = $this->clock();
-		if ( $now < $this->next_window ) {
-			return;
-		}
-		$elapsed = 1 + (int) \floor( ( $now - $this->next_window ) / $this->rotate_interval );
-		// Grid first: a callback throw mid-roll must not replay this window.
-		$this->next_window = $this->next_boundary( $now );
-		$deferred = Worker_Should_Stop::attempt_each(
-			\range( 1, \min( $elapsed, $this->num_buckets ) ),
-			fn () => $this->force_rotate()
-		);
-		if ( null !== $deferred ) {
-			throw $deferred;
-		}
+		Worker_Should_Stop::raise( $caught );
 	}
 
 	/**

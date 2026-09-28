@@ -5,8 +5,9 @@
  * mounts. That graph polls two independent slices, each on its own verb with
  * its own reply path:
  *
- *   summary:view — the header strip: connected/idle/total counts and the
- *                  server's snapshot clock.
+ *   summary:view — the header strip: connected/idle/total counts, the
+ *                  server's snapshot clock, and each active topology that
+ *                  will not read, whose spokes the cards therefore omit.
  *   servers:view — one card per wired `Remote_Source`, each holding a grid of
  *                  that spoke's partitions.
  *
@@ -32,6 +33,7 @@ import {
 	REFRESH_OPTIONS,
 } from './hooks/useAggregatorStatusGraph';
 import ConnectionBanner from '@newspack-nodes/shared/components/ConnectionBanner';
+import UnreadableNotice from '@newspack-nodes/shared/components/UnreadableNotice';
 import useRouterTick from '@newspack-nodes/shared/hooks/useRouterTick';
 import { formatLocalDateTime } from '@newspack-nodes/shared/utils/formatUtils';
 import './styles/aggregator-status.scss';
@@ -43,14 +45,15 @@ import { HeaderSlot } from '@newspack-nodes/shared/components/HeaderSlot';
  * `useNodeField` answers undefined until `summary:view` is mounted, and the
  * effect that builds the graph runs after that first render. The shape mirrors
  * the view node's own `empty` declaration in `nodes/register.js`: this screen
- * reads the counts, the clock and `lastRefresh`, and carries the rest so the
- * two models stay one shape.
+ * reads the counts, the clock, `unreadable` and `lastRefresh`, and carries
+ * the rest so the two models stay one shape.
  */
 const EMPTY_SUMMARY = {
 	connected: 0,
 	idle: 0,
 	total: 0,
 	serverNow: null,
+	unreadable: {},
 	error: null,
 	loading: true,
 	lastRefresh: null,
@@ -337,6 +340,16 @@ function PartitionStatus( { partition, status, now } ) {
 						) }
 					</span>
 				</div>
+				{ status.unparseable_lines > 0 && (
+					<div className="aggregator-partition-row">
+						<span className="newspack-nodes-stat-label aggregator-partition-stat-label">
+							{ __( 'Skipped lines', 'newspack-nodes' ) }
+						</span>
+						<span className="newspack-nodes-stat-value aggregator-partition-stat-value">
+							{ status.unparseable_lines }
+						</span>
+					</div>
+				) }
 			</div>
 		</div>
 	);
@@ -509,8 +522,9 @@ export default function AggregatorStatus( { headerControlsSlot } ) {
 	const summary = useNodeField( 'summary:view', 'view' ) ?? EMPTY_SUMMARY;
 	const serversSlice =
 		useNodeField( 'servers:view', 'view' ) ?? EMPTY_SERVERS;
-	// Header strip reads the summary slice (counts + clock + refresh marker).
-	const { connected, idle, total, serverNow, lastRefresh } = summary;
+	// Summary slice: counts, clock, refresh marker, unreadable topologies.
+	const { connected, idle, total, serverNow, unreadable, lastRefresh } =
+		summary;
 	// Server cards read the servers slice (data + its own loading/error gate).
 	const { servers, error, loading } = serversSlice;
 
@@ -578,6 +592,21 @@ export default function AggregatorStatus( { headerControlsSlot } ) {
 					</span>
 				</div>
 			) }
+
+			<UnreadableNotice
+				failures={ unreadable }
+				describe={ ( name, message ) =>
+					sprintf(
+						// translators: 1: topology name, 2: why it will not read.
+						__(
+							'Topology %1$s will not read, so its servers are not listed: %2$s',
+							'newspack-nodes'
+						),
+						name,
+						message
+					)
+				}
+			/>
 
 			{ ! loading && (
 				<ConnectionBanner

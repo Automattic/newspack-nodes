@@ -765,11 +765,8 @@ class HTTPInTest extends TestCase {
 		$this->assertEmpty( $this->status_codes );
 		$this->assertSame( '', $body );
 
-		// Verify the message landed at the worker's input partition with TO peeled.
-		// Per Task 19 implementer's findings, Partition batches writes; flush
-		// manually before reading via Consumer.
-		$worker_partition->flush();
-
+		// The message landed at the worker's input partition with TO peeled:
+		// a request runs no event loop, so dispatch() flushes it itself.
 		$consumer = new Consumer_Node();
 		$consumer->arguments( [ "{$input_dir}" ] );
 		$consumer->next_offset( 'start' );
@@ -811,7 +808,6 @@ class HTTPInTest extends TestCase {
 		$ctrl->dispatch( $req );
 		\ob_end_clean();
 
-		$worker->flush();
 		$consumer = new Consumer_Node();
 		$consumer->arguments( [ $input_dir ] );
 		$consumer->next_offset( 'start' );

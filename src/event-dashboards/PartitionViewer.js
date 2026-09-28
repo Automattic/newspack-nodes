@@ -302,6 +302,7 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 			pickerLabel={ __( 'Browse a log', 'newspack-nodes' ) }
 			isPaused={ isPaused }
 			connectionError={ connectionError }
+			linkNode="partition:link"
 			onTogglePause={ () => setPaused( ! isPaused ) }
 			onStep={ step }
 			onJump={ jump }
