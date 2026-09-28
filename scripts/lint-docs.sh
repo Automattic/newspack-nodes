@@ -84,11 +84,12 @@ if [ -f includes/class-rule.php ]; then
 	[ -n "$hits" ] && report "a rule-field table gives a diagnostic a true default:"$'\n'"$hits"
 fi
 
-# 8. Every numbered decision in docs/architecture-decisions.md has its row in
+# 8. Every numbered decision (`## Decision N:` or `## ADR-N:`) in
+# docs/architecture-decisions.md has its row in
 # AGENTS.md's decision table; a plugin whose decisions are not numbered this
 # way has nothing to match and passes.
 if [ -f docs/architecture-decisions.md ] && [ -f AGENTS.md ]; then
-	missing=$( { grep -oE '^## Decision [0-9]+:' docs/architecture-decisions.md || true; } | { grep -oE '[0-9]+' || true; } | while read -r n; do
+	missing=$( { grep -oE '^## (Decision |ADR-)[0-9]+:' docs/architecture-decisions.md || true; } | { grep -oE '[0-9]+' || true; } | while read -r n; do
 		grep -qE "^\| $n \| " AGENTS.md || printf 'decision %s\n' "$n"
 	done)
 	[ -n "$missing" ] && report "decisions with no row in AGENTS.md's table:"$'\n'"$missing"
