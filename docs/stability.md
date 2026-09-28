@@ -272,14 +272,14 @@ every substrate API the plugin calls, and is sound rather than complete: a
 call resolved to a union, `mixed` or a dynamic name goes uncounted, so the
 floor it reports is a lower bound.
 
-**A new parameter degrades, and the default is a bridge.** Adding a
-*required* parameter to a public method closes the window with a fatal, so a
-new parameter ships with a default whose behaviour is safe and useless, and
-that default comes out once every consumer's floor is past the release that
-added it. [`Partition_Node::locate_by( \Closure $extract, array $wanted )`](../includes/class-partition-node.php)
-is the worked case above: `$wanted`, the key set that bounds the index walk,
-is required because event-logger-nodes is its only caller in the family and
-floors at 2.58.0, past the 2.41.0 that added it.
+**A new parameter raises the floor.** A signature change ships with no
+bridging default: every consumer that calls it raises its `version_at_least()`
+floor to the release that made the change, so a consumer running against an
+older substrate goes dormant rather than calling the old shape.
+[`Partition_Node::locate_by( \Closure $extract, array $wanted )`](../includes/class-partition-node.php)
+is the worked case: `$wanted`, the key set that bounds the index walk, is
+required, and event-logger-nodes, its only caller, floors past the release
+that added it.
 
 ## How a frozen name changes
 
