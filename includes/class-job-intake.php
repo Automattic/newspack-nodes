@@ -465,9 +465,14 @@ class Job_Intake {
 		if ( self::FEED_BASENAME === $basename ) {
 			$args[] = (string) self::FEED_SEGMENT_SIZE;
 		}
-		$p->arguments( $args );
-		if ( $large ) {
-			$p->allow_large_writes( Partition_Node::DEFAULT_LOCK_WAIT_MS );
+		try {
+			$p->arguments( $args );
+			if ( $large ) {
+				$p->allow_large_writes( Partition_Node::DEFAULT_LOCK_WAIT_MS );
+			}
+		} catch ( \Throwable $e ) {
+			// Named, so registered: close() never sees it, so unregister here.
+			throw Worker_Should_Stop::combine( [ $e, ...Worker_Should_Stop::attempt( $p->remove_node( ... ) ) ] );
 		}
 		$this->partitions[ $slot ] = $p;
 		return $p;

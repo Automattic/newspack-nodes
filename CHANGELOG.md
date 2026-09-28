@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A `Job_Intake` partition whose setup throws is unregistered before the failure propagates**, so a later intake reusing the freed object id cannot collide with the leaked name.
 - **A stolen lock leaves no aside behind.** The steal deletes the renamed stale dir, strays included, so a Partition write lock or pyrobase's DDL lock no longer accumulates `*.stealing.*` dirs the `locks/` reaper never saw.
 - **A lock flag write that races the holder's release answers `false`** instead of throwing; a successor that re-created the dir receives the flag.
 - **`Partition_Node::remove_node()` unregisters the partition even when its lock release throws**, and a write lock is released while still registered, so its RELEASED state reaches listeners.

@@ -208,6 +208,28 @@ class JobIntakeTest extends TestCase {
 		$this->assertSame( 'run-8812', $lines[0]['id'] );
 	}
 
+	public function test_a_partition_whose_setup_throws_is_not_left_registered(): void {
+		$intake = new Job_Intake( $this->tmp, num_partitions: 4 );
+		$intake->partition( 3 );
+		// A file where the partition directory belongs refuses the setup.
+		\file_put_contents( "{$this->tmp}/logs/jobintake.p3", 'not a directory 6613' );
+
+		$caught = null;
+		try {
+			$intake->write_job( 'kestrel_h', 'run-6613', [] );
+		} catch ( \RuntimeException $e ) {
+			$caught = $e;
+		}
+
+		$this->assertNotNull( $caught, 'the refused setup propagates' );
+		$token = \getmypid() . '-' . \spl_object_id( $intake );
+		$this->assertNull(
+			\Newspack_Nodes\Core::node( "jobintake.{$token}.p3" ),
+			'a partition whose setup threw must not stay registered'
+		);
+		\unlink( "{$this->tmp}/logs/jobintake.p3" );
+	}
+
 	public function test_pinned_partition_routes_all_writes_to_one_dir(): void {
 		$intake = new Job_Intake( $this->tmp, num_partitions: 4 );
 		$intake->partition( 2 );
