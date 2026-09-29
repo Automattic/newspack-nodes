@@ -10,8 +10,9 @@ use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
- * The Table protocol: string TM_REQUEST verbs (GET, MGET, TOUCH, RM),
- * the TM_REQUEST|TM_STRUCT carve-out for MSET and ADD, and plain INSERT.
+ * The Table protocol: string TM_REQUEST verbs (GET, MGET, SMEMBERS, TOUCH,
+ * RM), the TM_REQUEST|TM_STRUCT carve-out for MSET, ADD and SADD, and plain
+ * INSERT.
  * Every reply goes TO the request's FROM, FROM the Table, its ID echoed.
  */
 #[CoversClass( Table_Node::class )]
@@ -215,7 +216,7 @@ final class TableProtocolTest extends TestCase {
 
 	public function test_a_struct_request_other_than_one_mset_or_add_is_refused(): void {
 		$struct = Message::TM_REQUEST | Message::TM_STRUCT;
-		$this->assertSame( [ [ Message::TM_ERROR, '', "DEL: only MSET and ADD take a structure\n" ] ], self::shape( $this->ask( [ 'DEL' => [ 'sku-41' => [ 1 ] ] ], $struct ) ) );
+		$this->assertSame( [ [ Message::TM_ERROR, '', "DEL: only MSET, ADD and SADD take a structure\n" ] ], self::shape( $this->ask( [ 'DEL' => [ 'sku-41' => [ 1 ] ] ], $struct ) ) );
 		$this->assertSame( [ [ Message::TM_ERROR, '', "MSET: a structured request needs the TM_STRUCT bit\n" ] ], self::shape( $this->ask( [ 'MSET' => [ 'sku-41' => [ 1 ] ] ] ) ) );
 		$this->assertSame( [ [ Message::TM_ERROR, '', "MSET: a structured request names one verb\n" ] ], self::shape( $this->ask( [ 'MSET' => [ 'sku-41' => [ 1 ] ], 'ADD' => [ 'sku-42' => [ 2 ] ] ], $struct ) ) );
 		$this->assertSame( [ [ Message::TM_ERROR, '', "MSET: needs a map of key => [ value, ttl ]\n" ] ], self::shape( $this->ask( [ 'MSET' => 'sku-41' ], $struct ) ) );
@@ -346,6 +347,149 @@ final class TableProtocolTest extends TestCase {
 		$this->assertSame( $before + 2, $this->table->counter() );
 	}
 
+	// ── Set members: SADD and SMEMBERS on a durable Table ──
+
+	private const STRUCT = Message::TM_REQUEST | Message::TM_STRUCT;
+
+	public function test_sadd_answers_the_set_keys_that_landed_and_smembers_one_message_per_set(): void {
+		$replies = $this->ask( [ 'SADD' => [ 'word:kea' => [ [ 'u-41' => [ 'hits' => 3 ], 'u-43' => 'weka' ] ], 'word:owl' => [ [ 'u-47' => 7 ], 37 ] ] ], self::STRUCT );
+		$this->assertSame( [ [ Message::TM_RESPONSE, '', "SADD word:kea word:owl\n" ] ], self::shape( $replies ) );
+		$this->assertSame( [ 'lab-7:kea', 'asker-9', 'ask-17' ], [ $replies[0][ Message::FROM ], $replies[0][ Message::TO ], $replies[0][ Message::ID ] ] );
+		$replies = $this->ask( "SMEMBERS 9 word:owl word:emu word:kea\n" );
+		$this->assertSame(
+			[
+				[ Message::TM_STRUCT, 'word:owl', [ [ 'u-47', 7 ] ] ],
+				[ Message::TM_STRUCT, 'word:kea', [ [ 'u-41', [ 'hits' => 3 ] ], [ 'u-43', 'weka' ] ] ],
+				[ Message::TM_INFO, '', "SMEMBERS 2\n" ],
+			],
+			self::shape( $replies )
+		);
+		foreach ( $replies as $reply ) {
+			$this->assertSame( [ 'lab-7:kea', 'asker-9', 'ask-17' ], [ $reply[ Message::FROM ], $reply[ Message::TO ], $reply[ Message::ID ] ] );
+		}
+	}
+
+	public function test_an_all_digit_member_answers_as_the_string_it_was_sent(): void {
+		$this->ask( [ 'SADD' => [ '4417' => [ [ '0418' => 'kea', '4419' => 'owl' ] ] ] ], self::STRUCT );
+		$this->assertSame(
+			[
+				[ Message::TM_STRUCT, '4417', [ [ '0418', 'kea' ], [ '4419', 'owl' ] ] ],
+				[ Message::TM_INFO, '', "SMEMBERS 1\n" ],
+			],
+			self::shape( $this->ask( "SMEMBERS 9 4417\n" ) )
+		);
+	}
+
+	public function test_a_set_past_its_limit_answers_the_over_marker_and_no_members(): void {
+		$this->ask( [ 'SADD' => [ 'word:kea' => [ [ 'u-1' => 1, 'u-2' => 2, 'u-3' => 3, 'u-4' => 4, 'u-5' => 5 ] ], 'word:owl' => [ [ 'u-6' => 6, 'u-7' => 7, 'u-8' => 8 ] ] ] ], self::STRUCT );
+		$this->assertSame(
+			[
+				[ Message::TM_BYTESTREAM, 'word:kea', "OVER 3\n" ],
+				[ Message::TM_STRUCT, 'word:owl', [ [ 'u-6', 6 ], [ 'u-7', 7 ], [ 'u-8', 8 ] ] ],
+				[ Message::TM_INFO, '', "SMEMBERS 2\n" ],
+			],
+			self::shape( $this->ask( "SMEMBERS 3 word:kea word:owl\n" ) ),
+			'five members past a limit of 3 are over it; exactly three are not'
+		);
+	}
+
+	public function test_a_set_lives_its_own_ttl_or_the_tables(): void {
+		Core::$clock = static fn (): float => 1790000000.0;
+		$this->ask( [ 'SADD' => [ 'word:kea' => [ [ 'u-41' => 1 ], 37 ], 'word:owl' => [ [ 'u-43' => 2 ] ] ] ], self::STRUCT );
+		Core::$clock = static fn (): float => 1790000037.0;
+		$this->assertSame( [ [ Message::TM_STRUCT, 'word:owl', [ [ 'u-43', 2 ] ] ], [ Message::TM_INFO, '', "SMEMBERS 1\n" ] ], self::shape( $this->ask( "SMEMBERS 9 word:kea word:owl\n" ) ) );
+		Core::$clock = static fn (): float => 1790000777.0;
+		$this->assertSame( [ [ Message::TM_INFO, '', "SMEMBERS 0\n" ] ], self::shape( $this->ask( "SMEMBERS 9 word:owl\n" ) ), 'an untimed set lives the declared 777 seconds' );
+	}
+
+	public function test_a_malformed_set_is_left_out_of_the_reply(): void {
+		$replies = $this->ask( [ 'SADD' => [ 'word kea' => [ [ 'u-1' => 1 ] ], 'word:owl' => [ 'u-2' ], 'word:emu' => [ [ 'u-3' => 3 ], 0 ], 'word:tui' => [ [ 'u-4' => 4 ], 'soon' ], 'word:moa' => [ [ 'u-5' => 5 ], 37 ] ] ], self::STRUCT );
+		$this->assertSame( [ [ Message::TM_RESPONSE, '', "SADD word:moa\n" ] ], self::shape( $replies ) );
+		$this->assertSame( [ [ Message::TM_INFO, '', "SMEMBERS 0\n" ] ], self::shape( $this->ask( "SMEMBERS 9 word:owl word:emu word:tui\n" ) ) );
+	}
+
+	public function test_a_smembers_whose_limit_is_not_a_count_is_refused(): void {
+		foreach ( [ '0', '-3', 'many', '' ] as $limit ) {
+			$this->assertSame( [ [ Message::TM_ERROR, '', "SMEMBERS: usage: SMEMBERS <limit> <set_key>…, limit a whole number from 1 to 10000\n" ] ], self::shape( $this->ask( \rtrim( "SMEMBERS {$limit}" ) . " word:kea\n" ) ) );
+		}
+	}
+
+	public function test_smembers_admits_a_limit_up_to_its_ceiling_and_refuses_one_above(): void {
+		$this->assertSame( 10000, Table_Node::MAX_MEMBERS_LIMIT );
+		$this->ask( [ 'SADD' => [ 'word:kea' => [ [ 'u-41' => 1 ] ] ] ], self::STRUCT );
+		foreach ( [ '5001', '10000' ] as $limit ) {
+			$this->assertSame( [ [ Message::TM_STRUCT, 'word:kea', [ [ 'u-41', 1 ] ] ], [ Message::TM_INFO, '', "SMEMBERS 1\n" ] ], self::shape( $this->ask( "SMEMBERS {$limit} word:kea\n" ) ) );
+		}
+		$this->assertSame( [ [ Message::TM_ERROR, '', "SMEMBERS: usage: SMEMBERS <limit> <set_key>…, limit a whole number from 1 to 10000\n" ] ], self::shape( $this->ask( "SMEMBERS 10001 word:kea\n" ) ) );
+	}
+
+	public function test_a_failed_member_read_answers_an_error_never_absence(): void {
+		( new \PDO( 'sqlite:' . Table_Node::file( 'lab-7:kea', 3 ) ) )->exec( 'DROP TABLE members' );
+		$this->assertSame( [ [ Message::TM_ERROR, '', "SMEMBERS: backend read failed\n" ] ], self::shape( $this->ask( "SMEMBERS 9 word:kea\n" ) ) );
+	}
+
+	public function test_a_corrupt_member_row_answers_a_failed_read(): void {
+		$this->ask( [ 'SADD' => [ 'word:kea' => [ [ 'u-41' => 1 ] ] ] ], self::STRUCT );
+		$db = new \PDO( 'sqlite:' . Table_Node::file( 'lab-7:kea', 3 ) );
+		$db->exec( "UPDATE members SET \"value\" = 'zz-not-tagged'" );
+		$this->assertSame( [ [ Message::TM_ERROR, '', "SMEMBERS: backend read failed\n" ] ], self::shape( $this->ask( "SMEMBERS 9 word:kea\n" ) ) );
+	}
+
+	public function test_a_salt_rotation_orphans_every_set(): void {
+		$this->ask( [ 'SADD' => [ 'word:kea' => [ [ 'u-41' => 1 ] ] ] ], self::STRUCT );
+		\Newspack_Nodes\Cache_Backend::rotate_salt();
+		$this->assertSame( [ [ Message::TM_INFO, '', "SMEMBERS 0\n" ] ], self::shape( $this->ask( "SMEMBERS 9 word:kea\n" ) ) );
+	}
+
+	public function test_a_string_sadd_is_refused_toward_the_structured_form(): void {
+		$this->assertSame( [ [ Message::TM_ERROR, '', "SADD: needs a map of set key => [ [ member => value, … ], ttl ]\n" ] ], self::shape( $this->ask( "SADD word:kea u-41\n" ) ) );
+		$this->assertSame( [ [ Message::TM_ERROR, '', "SADD: needs a map of set key => [ [ member => value, … ], ttl ]\n" ] ], self::shape( $this->ask( [ 'SADD' => 'word:kea' ], self::STRUCT ) ) );
+	}
+
+	public function test_a_volatile_table_refuses_both_member_verbs_naming_itself_and_its_backend(): void {
+		Core::$memd = new InMemoryMemcached();
+		$tables     = [ 'memcache' => $this->worker_table( 'lab-7:owl-memcache', 'owl:p3', 'memcache' ), 'auto' => $this->worker_table( 'lab-7:owl-auto', 'owl:p3', 'auto' ) ];
+		Core::$memd = null;
+		foreach ( $tables as $backend => $owl ) {
+			foreach ( [ [ [ 'SADD' => [ 'word:kea' => [ [ 'u-41' => 1 ] ] ] ], self::STRUCT, 'SADD' ], [ [ 'SADD' => [ 'word kea' => [ [ 'u-41' => 1 ] ] ] ], self::STRUCT, 'SADD' ], [ "SMEMBERS 9 word:kea\n", Message::TM_REQUEST, 'SMEMBERS' ] ] as [ $value, $type, $verb ] ) {
+				$this->assertSame( [ [ Message::TM_ERROR, '', "{$verb}: needs a durable backend; lab-7:owl-{$backend} is {$backend}\n" ] ], self::shape( $this->ask( $value, $type, $owl ) ) );
+			}
+		}
+	}
+
+	public function test_a_failed_wpdb_set_add_is_retried_set_by_set(): void {
+		$prev            = $GLOBALS['wpdb'];
+		$GLOBALS['wpdb'] = new \Newspack_Nodes\Tests\Helpers\Sqlite_Wpdb();
+		try {
+			$owl     = $this->worker_table( 'lab-7:owl', 'owl:p3', 'wpdb' );
+			$replies = $this->ask( [ 'SADD' => [ 'word:kea' => [ [ 'u-41' => 1 ] ], 'word:owl' => [ [ \str_repeat( 'u', 256 ) => 2 ] ], 'word:emu' => [ [ 'u-47' => 7 ] ] ] ], self::STRUCT, $owl );
+			$this->assertSame( [ [ Message::TM_RESPONSE, '', "SADD word:kea word:emu\n" ] ], self::shape( $replies ), 'the set wider than its column is left out and the rest land' );
+			$this->assertSame( [ [ Message::TM_STRUCT, 'word:emu', [ [ 'u-47', 7 ] ] ], [ Message::TM_INFO, '', "SMEMBERS 1\n" ] ], self::shape( $this->ask( "SMEMBERS 9 word:emu\n", Message::TM_REQUEST, $owl ) ) );
+		} finally {
+			$GLOBALS['wpdb'] = $prev;
+		}
+	}
+
+	public function test_a_throw_inside_a_durable_arm_escapes_both_member_verbs(): void {
+		$prev            = $GLOBALS['wpdb'];
+		$GLOBALS['wpdb'] = new \Newspack_Nodes\Tests\Helpers\Sqlite_Wpdb();
+		try {
+			$owl             = $this->worker_table( 'lab-7:owl', 'owl:p3', 'wpdb' );
+			$GLOBALS['wpdb'] = null;
+			foreach ( [ [ [ 'SADD' => [ 'word:kea' => [ [ 'u-41' => 1 ] ] ] ], self::STRUCT ], [ "SMEMBERS 9 word:kea\n", Message::TM_REQUEST ] ] as [ $value, $type ] ) {
+				try {
+					$this->ask( $value, $type, $owl );
+					$this->fail( 'the arm\'s own throw was answered as a refusal' );
+				} catch ( \LogicException $e ) {
+					$this->assertSame( 'wpdb backend needs $wpdb', $e->getMessage() );
+				}
+				$this->assertSame( [], $this->sink->captured );
+			}
+		} finally {
+			$GLOBALS['wpdb'] = $prev;
+		}
+	}
+
 	// ── A mount serves reads only: the declaring worker is the file's one writer ──
 
 	private function mounted_kea(): Table_Node {
@@ -356,13 +500,14 @@ final class TableProtocolTest extends TestCase {
 		$this->table->store( 'sku-41', 'kea-41' );
 		$mount  = $this->mounted_kea();
 		$struct = Message::TM_REQUEST | Message::TM_STRUCT;
-		foreach ( [ 'RM' => [ "RM sku-41\n", Message::TM_REQUEST ], 'TOUCH' => [ "TOUCH 37 sku-41\n", Message::TM_REQUEST ], 'MSET' => [ [ 'MSET' => [ 'sku-41' => [ 'owl' ] ] ], $struct ], 'ADD' => [ [ 'ADD' => [ 'sku-44' => [ 'owl' ] ] ], $struct ] ] as $verb => [ $value, $type ] ) {
+		foreach ( [ 'RM' => [ "RM sku-41\n", Message::TM_REQUEST ], 'TOUCH' => [ "TOUCH 37 sku-41\n", Message::TM_REQUEST ], 'MSET' => [ [ 'MSET' => [ 'sku-41' => [ 'owl' ] ] ], $struct ], 'ADD' => [ [ 'ADD' => [ 'sku-44' => [ 'owl' ] ] ], $struct ], 'SADD' => [ [ 'SADD' => [ 'word:kea' => [ [ 'u-41' => 'owl' ] ] ] ], $struct ] ] as $verb => [ $value, $type ] ) {
 			$replies = $this->ask( $value, $type, $mount );
 			$this->assertSame( [ [ Message::TM_ERROR, '', "{$verb}: a mounted Table serves reads only\n" ] ], self::shape( $replies ) );
 			$this->assertSame( [ 'lab-7:kea.p3', 'asker-9', 'ask-17' ], [ $replies[0][ Message::FROM ], $replies[0][ Message::TO ], $replies[0][ Message::ID ] ] );
 		}
 		$this->assertSame( 'kea-41', $this->table->lookup( 'sku-41' ) );
 		$this->assertNull( $this->table->lookup( 'sku-44' ) );
+		$this->assertSame( [ [ Message::TM_INFO, '', "SMEMBERS 0\n" ] ], self::shape( $this->ask( "SMEMBERS 9 word:kea\n" ) ), 'the refused SADD added no member' );
 	}
 
 	public function test_a_mount_answers_every_read_verb(): void {
@@ -371,6 +516,17 @@ final class TableProtocolTest extends TestCase {
 		$value = [ Message::TM_BYTESTREAM, 'sku-41', 'kea-41' ];
 		$this->assertSame( [ $value, [ Message::TM_INFO, '', "GET 1\n" ] ], self::shape( $this->ask( "GET sku-41\n", Message::TM_REQUEST, $mount ) ) );
 		$this->assertSame( [ $value, [ Message::TM_INFO, '', "MGET 1\n" ] ], self::shape( $this->ask( "MGET sku-41 sku-42\n", Message::TM_REQUEST, $mount ) ) );
+		$this->ask( [ 'SADD' => [ 'word:kea' => [ [ 'u-41' => 'kea-41' ] ] ] ], Message::TM_REQUEST | Message::TM_STRUCT );
+		$this->assertSame( [ [ Message::TM_STRUCT, 'word:kea', [ [ 'u-41', 'kea-41' ] ] ], [ Message::TM_INFO, '', "SMEMBERS 1\n" ] ], self::shape( $this->ask( "SMEMBERS 9 word:kea\n", Message::TM_REQUEST, $mount ) ) );
+	}
+
+	public function test_a_mount_of_a_file_its_writer_declared_before_members_reads_no_members(): void {
+		$file = Table_Node::file( 'lab-7:owl', 3 );
+		$db   = new \PDO( 'sqlite:' . $file );
+		$db->exec( 'PRAGMA journal_mode = WAL' );
+		$db->exec( 'CREATE TABLE kv ( "key" TEXT PRIMARY KEY, "value" BLOB NOT NULL, expires INTEGER NOT NULL )' );
+		$mount = Table_Node::mount( 'lab-7:owl', 3, [ 'namespace' => 'owl:p3', 'ttl' => 777, 'backend' => 'sqlite' ], $this->sink );
+		$this->assertSame( [ [ Message::TM_INFO, '', "SMEMBERS 0\n" ] ], self::shape( $this->ask( "SMEMBERS 9 word:kea\n", Message::TM_REQUEST, $mount ) ) );
 	}
 
 	public function test_a_mount_drops_an_insert_out_loud(): void {

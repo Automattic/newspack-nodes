@@ -65,20 +65,88 @@ final class Table_Client {
 		if ( [] === $keys ) {
 			return [];
 		}
-		return $this->values( 'MGET', $this->ask( $table, Message::TM_REQUEST, 'MGET ' . \implode( ' ', $keys ) . "\n" ), $failed );
+		$found = [];
+		foreach ( $this->counted( 'MGET', $this->ask( $table, Message::TM_REQUEST, 'MGET ' . \implode( ' ', $keys ) . "\n" ), $failed ) as $reply ) {
+			$found[ Core::as_string( $reply[ Message::KEY ], '' ) ] = $reply[ Message::VALUE ];
+		}
+		return $found;
 	}
 
 	/**
-	 * A read's values; failed on a TM_ERROR, no count, or a count they miss.
+	 * `SMEMBERS`: each set's live members by set key then member, in member
+	 * order, or null for a set holding more than `$limit`; a set with no live
+	 * member is absent. An all-digit set key or member comes back as an int
+	 * array key, as PHP casts it.
+	 *
+	 * @api A node asking Tables: event-logger-nodes' search index.
+	 * @param string       $table    The Table's registered name.
+	 * @param list<string> $set_keys Set keys.
+	 * @param int          $limit    Most members a set may hold and be answered,
+	 *                               from 1 to `Table_Node::MAX_MEMBERS_LIMIT`.
+	 * @param ?bool        $failed   Set true when the read did not answer.
+	 * @param-out bool     $failed
+	 * @return array<array-key,array<array-key,mixed>|null>
+	 * @throws \LogicException When an ask is in flight already.
+	 * @throws \RuntimeException When the asker has no name or no sink.
+	 */
+	public function members( string $table, array $set_keys, int $limit, ?bool &$failed = null ): array {
+		$failed   = false;
+		$set_keys = $this->nameable( $set_keys );
+		if ( [] === $set_keys ) {
+			return [];
+		}
+		$found = [];
+		$over  = Table_Node::OVER_LIMIT . " {$limit}\n";
+		foreach ( $this->counted( 'SMEMBERS', $this->ask( $table, Message::TM_REQUEST, "SMEMBERS {$limit} " . \implode( ' ', $set_keys ) . "\n" ), $failed ) as $reply ) {
+			$members = self::member_map( $reply, $over );
+			if ( false === $members ) {
+				$failed = true;
+				return [];
+			}
+			$found[ Core::as_string( $reply[ Message::KEY ], '' ) ] = $members;
+		}
+		return $found;
+	}
+
+	/**
+	 * One set's SMEMBERS answer: a TM_STRUCT list of `[ member, value ]`
+	 * pairs, or the over-limit marker naming the limit asked.
+	 *
+	 * @param array<int,mixed> $reply The set's message.
+	 * @param string           $over  The marker the asked limit gives.
+	 * @return array<array-key,mixed>|null|false Member => value, null past the
+	 *                                           limit, false for anything else.
+	 */
+	private static function member_map( array $reply, string $over ): array|null|false {
+		$value = $reply[ Message::VALUE ];
+		if ( 0 === ( Core::num_int( $reply[ Message::TYPE ] ) & Message::TM_STRUCT ) ) {
+			return $over === $value ? null : false;
+		}
+		if ( ! \is_array( $value ) || ! \array_is_list( $value ) ) {
+			return false;
+		}
+		$members = [];
+		foreach ( $value as $pair ) {
+			if ( ! \is_array( $pair ) || ! \array_is_list( $pair ) || 2 !== \count( $pair ) ) {
+				return false;
+			}
+			$members[ Core::as_string( $pair[0], '' ) ] = $pair[1];
+		}
+		return $members;
+	}
+
+	/**
+	 * A read's value messages; none and failed on a TM_ERROR, no count, or a
+	 * count they miss.
 	 *
 	 * @param string                 $verb    The verb the count names.
 	 * @param list<array<int,mixed>> $replies What the ask collected.
 	 * @param bool                   $failed  Set true when the read did not answer.
-	 * @return array<array-key,mixed>
+	 * @return list<array<int,mixed>>
 	 */
-	private function values( string $verb, array $replies, bool &$failed ): array {
-		$found = [];
-		$count = null;
+	private function counted( string $verb, array $replies, bool &$failed ): array {
+		$values = [];
+		$count  = null;
 		foreach ( $replies as $reply ) {
 			$type = Core::num_int( $reply[ Message::TYPE ] );
 			if ( 0 !== ( $type & Message::TM_ERROR ) ) {
@@ -89,13 +157,13 @@ final class Table_Client {
 				$count = 1 === \preg_match( "/^{$verb} (\\d+)\\n?$/D", Core::as_string( $reply[ Message::VALUE ], '' ), $m ) ? (int) $m[1] : null;
 				continue;
 			}
-			$found[ Core::as_string( $reply[ Message::KEY ], '' ) ] = $reply[ Message::VALUE ];
+			$values[] = $reply;
 		}
-		if ( \count( $found ) !== $count ) {
+		if ( \count( $values ) !== $count ) {
 			$failed = true;
 			return [];
 		}
-		return $found;
+		return $values;
 	}
 
 	/**
@@ -127,10 +195,26 @@ final class Table_Client {
 	}
 
 	/**
-	 * A structured write: `MSET` or `ADD`, under TM_REQUEST|TM_STRUCT.
+	 * `SADD`: each set's members, every set under `$ttl`; a re-added member's
+	 * value and expiry are replaced.
+	 *
+	 * @api A node asking Tables: event-logger-nodes' search index.
+	 * @param string                                   $table The Table's registered name.
+	 * @param array<array-key,array<array-key,mixed>> $sets  Set key => [ member => value ].
+	 * @param int                                      $ttl   Seconds each member lives, at least 1.
+	 * @return list<string> The set keys that landed.
+	 * @throws \LogicException When an ask is in flight already.
+	 * @throws \RuntimeException When the asker has no name or no sink.
+	 */
+	public function add_members( string $table, array $sets, int $ttl ): array {
+		return $this->write_struct( $table, 'SADD', \array_map( static fn ( array $members ): array => [ $members, $ttl ], $sets ) );
+	}
+
+	/**
+	 * A structured write: `MSET`, `ADD` or `SADD`, under TM_REQUEST|TM_STRUCT.
 	 *
 	 * @param string                 $table The Table's registered name.
-	 * @param string                 $verb  `MSET` or `ADD`.
+	 * @param string                 $verb  `MSET`, `ADD` or `SADD`.
 	 * @param array<array-key,mixed> $items Key => [ value, ttl ].
 	 * @return list<string> The keys the write took effect on.
 	 * @throws \LogicException When an ask is in flight already.

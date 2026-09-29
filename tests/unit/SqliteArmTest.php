@@ -241,4 +241,142 @@ final class SqliteArmTest extends TestCase {
 		\clearstatcache();
 		return \filesize( $this->path() ) + ( \is_file( $this->path() . '-wal' ) ? \filesize( $this->path() . '-wal' ) : 0 );
 	}
+
+	public function test_a_member_read_seeks_one_set_through_the_primary_key(): void {
+		$arm = new Sqlite_Arm( $this->path() );
+		for ( $set = 0; $set < 40; ++$set ) {
+			$members = [];
+			for ( $m = 0; $m < 250; ++$m ) {
+				$members[ "https://kea.example/{$set}/{$m}" ] = [ 'hits' => $m ];
+			}
+			$this->assertTrue( $arm->add_members( [ "word:w{$set}" => [ $members, 777 ] ] ) );
+		}
+		$this->assertSame( [ 'word:w17' => null ], $arm->members( [ 'word:w17' ], 7 ), 'past its limit the set reads null' );
+		$read = $arm->members( [ 'word:w17' ], 250 );
+		$this->assertCount( 250, $read['word:w17'] );
+		foreach ( \array_keys( $read['word:w17'] ) as $member ) {
+			$this->assertStringStartsWith( 'https://kea.example/17/', (string) $member );
+		}
+		$sql  = ( new \ReflectionClassConstant( Sqlite_Arm::class, 'MEMBERS_READ' ) )->getValue();
+		$plan = ( new \PDO( 'sqlite:' . $this->path() ) )->prepare( "EXPLAIN QUERY PLAN {$sql}" );
+		$plan->execute( [ 'word:w17', 1, 7 ] );
+		$detail = \implode( "\n", \array_column( $plan->fetchAll( \PDO::FETCH_ASSOC ), 'detail' ) );
+		$this->assertStringContainsString( 'SEARCH members USING PRIMARY KEY (set_key=?)', $detail );
+		$this->assertStringNotContainsString( 'SCAN', $detail );
+		$this->assertStringContainsString( 'ORDER BY member', $sql );
+		$this->assertStringNotContainsString( 'TEMP B-TREE', $detail, 'the key order serves ORDER BY member for free' );
+	}
+
+	public function test_the_member_purge_seeks_expired_rows_through_the_expires_index(): void {
+		$arm = new Sqlite_Arm( $this->path() );
+		$arm->add_members( [ 'word:w1' => [ [ 'u-1' => 1 ], 777 ] ] );
+		$sql  = ( new \ReflectionClassConstant( Sqlite_Arm::class, 'MEMBERS_PURGE' ) )->getValue();
+		$plan = ( new \PDO( 'sqlite:' . $this->path() ) )->prepare( "EXPLAIN QUERY PLAN {$sql}" );
+		$plan->execute( [ 1790000037, 5000 ] );
+		$detail = \array_column( $plan->fetchAll( \PDO::FETCH_ASSOC ), 'detail' );
+		$this->assertSame(
+			[ 'SEARCH members USING PRIMARY KEY (set_key=? AND member=?)', 'SEARCH members USING COVERING INDEX members_expires (expires<?)' ],
+			\array_values( \array_filter( $detail, static fn ( string $line ): bool => \str_starts_with( $line, 'SEARCH' ) ) )
+		);
+		$this->assertStringNotContainsString( 'SCAN', \implode( "\n", $detail ) );
+	}
+
+	public function test_a_member_add_lands_whole_or_not_at_all(): void {
+		$arm = new Sqlite_Arm( $this->path() );
+		$arm->set( 'sku-41', 1, 0 );
+		( new \PDO( 'sqlite:' . $this->path() ) )->exec( "CREATE TRIGGER no_weka BEFORE INSERT ON members WHEN NEW.member = 'm-weka' BEGIN SELECT RAISE( ABORT, 'no weka' ); END" );
+		$this->assertFalse( $arm->add_members( [ 'owl:set-7' => [ [ 'm-kea' => 1 ], 777 ], 'owl:set-9' => [ [ 'm-weka' => 2 ], 777 ] ] ) );
+		$this->assertSame( [], $arm->members( [ 'owl:set-7', 'owl:set-9' ], 9 ), 'the set before the refusal rolled back with it' );
+		$this->assertStringContainsString( 'no weka', $arm->last_failure() );
+	}
+
+	public function test_a_file_holding_no_members_table_fails_a_member_read(): void {
+		$arm = new Sqlite_Arm( $this->path() );
+		( new \PDO( 'sqlite:' . $this->path() ) )->exec( 'DROP TABLE members' );
+		$this->assertFalse( $arm->members( [ 'owl:set-7' ], 9 ), 'a failure never reads as an empty set' );
+		$this->assertStringContainsString( 'no such table: members', $arm->last_failure() );
+	}
+
+	public function test_a_reader_of_a_file_not_there_reads_no_members(): void {
+		$reader = new Sqlite_Arm( $this->path(), read_only: true );
+		$this->assertSame( [], $reader->members( [ 'owl:set-7' ], 9 ) );
+		$this->assertFileDoesNotExist( $this->path() );
+	}
+
+	/** A file its writer declared before members existed: a `kv` table alone. */
+	private function kv_only_file(): void {
+		\mkdir( \dirname( $this->path() ), 0700, true );
+		$db = new \PDO( 'sqlite:' . $this->path() );
+		$db->exec( 'PRAGMA journal_mode = WAL' );
+		$db->exec( 'CREATE TABLE kv ( "key" TEXT PRIMARY KEY, "value" BLOB NOT NULL, expires INTEGER NOT NULL )' );
+	}
+
+	public function test_a_reader_of_a_file_with_no_members_table_reads_no_members(): void {
+		$this->kv_only_file();
+		$reader = new Sqlite_Arm( $this->path(), read_only: true );
+		$this->assertSame( [], $reader->members( [ 'owl:set-7' ], 9 ), 'no members table is an empty set, not a failed read' );
+		$this->assertSame( Cache_Backend::READ_MISS, $reader->read( 'sku-41' )['status'], 'the kv table still answers' );
+	}
+
+	public function test_a_reader_looks_for_the_members_table_once_per_open(): void {
+		$this->kv_only_file();
+		$reader = new Sqlite_Arm( $this->path(), read_only: true );
+		$this->assertSame( [], $reader->members( [ 'owl:set-7' ], 9 ) );
+		( new Sqlite_Arm( $this->path() ) )->add_members( [ 'owl:set-7' => [ [ 'm-41' => 'kea' ], 777 ] ] );
+		$this->assertSame( [], $reader->members( [ 'owl:set-7' ], 9 ), 'the open reader keeps what it found at open' );
+		$fresh = new Sqlite_Arm( $this->path(), read_only: true );
+		$this->assertSame( [ 'owl:set-7' => [ 'm-41' => 'kea' ] ], $fresh->members( [ 'owl:set-7' ], 9 ) );
+	}
+
+	public function test_a_reader_of_a_file_that_is_no_database_opens_and_fails_each_read(): void {
+		\mkdir( \dirname( $this->path() ), 0700, true );
+		\file_put_contents( $this->path(), \str_repeat( 'kea-not-sqlite ', 300 ) );
+		$reader = new Sqlite_Arm( $this->path(), read_only: true );
+		$this->assertSame( Cache_Backend::READ_ERROR, $reader->read( 'sku-41' )['status'] );
+		$this->assertFalse( $reader->members( [ 'owl:set-7' ], 9 ), 'a file that is no database fails the member read too' );
+	}
+
+	public function test_a_reader_opened_before_its_file_reads_members_once_it_appears(): void {
+		$reader = new Sqlite_Arm( $this->path(), read_only: true );
+		$this->assertSame( [], $reader->members( [ 'owl:set-7' ], 9 ) );
+		( new Sqlite_Arm( $this->path() ) )->add_members( [ 'owl:set-7' => [ [ 'm-43' => 'weka' ], 777 ] ] );
+		$this->assertSame( [ 'owl:set-7' => [ 'm-43' => 'weka' ] ], $reader->members( [ 'owl:set-7' ], 9 ) );
+	}
+
+	public function test_a_member_read_holds_one_over_limit_set_at_a_time(): void {
+		$arm   = new Sqlite_Arm( $this->path() );
+		$bytes = \str_repeat( 'k', 2048 );
+		for ( $set = 0; $set < 20; ++$set ) {
+			$members = [];
+			for ( $m = 0; $m < 1001; ++$m ) {
+				$members[ "u-{$m}" ] = $bytes;
+			}
+			$arm->add_members( [ "word:w{$set}" => [ $members, 777 ] ] );
+		}
+		$keys = \array_map( static fn ( int $set ): string => "word:w{$set}", \range( 0, 19 ) );
+		\gc_collect_cycles();
+		$before = \memory_get_usage();
+		\memory_reset_peak_usage();
+		$read = $arm->members( $keys, 1000 );
+		$this->assertSame( \array_fill_keys( $keys, null ), $read );
+		$this->assertLessThan( 8 * 1024 * 1024, \memory_get_peak_usage() - $before, 'twenty over-limit sets of 2 MB never sit in memory together' );
+	}
+
+	public function test_a_member_row_no_serializer_wrote_fails_the_read(): void {
+		$arm = new Sqlite_Arm( $this->path() );
+		$arm->add_members( [ 'owl:set-7' => [ [ 'm-41' => 'kea' ], 777 ] ] );
+		( new \PDO( 'sqlite:' . $this->path() ) )->exec( "INSERT INTO members VALUES ( 'owl:set-7', 'm-43', 'zz-not-tagged', 1999999999 )" );
+		$this->assertFalse( $arm->members( [ 'owl:set-7' ], 9 ), 'a corrupt member is a failed read, as a corrupt kv row is' );
+		$this->assertStringContainsString( 'undecodable row', $arm->last_failure() );
+	}
+
+	public function test_the_purge_takes_keyed_rows_before_members(): void {
+		Core::$clock = static fn (): float => 1790000000.0;
+		$arm         = new Sqlite_Arm( $this->path() );
+		$arm->write_multi( [ 'kea-1' => 1, 'kea-2' => 2, 'kea-3' => 3, 'kea-4' => 4, 'kea-5' => 5 ], 37 );
+		$arm->add_members( [ 'owl:set-7' => [ [ 'm-1' => 1, 'm-2' => 2, 'm-3' => 3 ], 37 ] ] );
+		$count = fn ( string $table ): int => (int) ( new \PDO( 'sqlite:' . $this->path() ) )->query( "SELECT COUNT(*) FROM {$table}" )->fetchColumn();
+		$this->assertSame( 4, $arm->purge( 1790000037, 4 ) );
+		$this->assertSame( [ 1, 3 ], [ $count( 'kv' ), $count( 'members' ) ], 'a limit the keyed rows fill leaves every member' );
+	}
 }

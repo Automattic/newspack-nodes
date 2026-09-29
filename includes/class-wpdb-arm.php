@@ -2,8 +2,10 @@
 /**
  * Wpdb_Arm: the durable Cache_Backend arm shared across hosts.
  *
- * One table, `{base_prefix}newspack_nodes_table`, with a namespace column, so
- * every Table naming this arm shares it and sees only its own rows. For
+ * Two tables, `{base_prefix}newspack_nodes_table` for keyed rows and
+ * `{base_prefix}newspack_nodes_members` for set members, each with a
+ * namespace column, so every Table naming this arm shares them and sees only
+ * its own rows. For
  * low-volume Tables that must survive and be read from any host; a Table
  * written per request belongs on SQLite or memcache.
  *
@@ -15,10 +17,11 @@
  *
  * Values are the tagged serialization in base64, because `$wpdb`'s query
  * sanitizer is not a safe carrier for igbinary's raw bytes. The key columns
- * are binary, so `Kea` and `kea` stay two keys. A key longer than its column,
- * or a row no statement can carry under `max_allowed_packet`, is refused before
- * anything is sent: WordPress clears strict SQL mode, so MySQL would otherwise
- * truncate a long key silently into another key.
+ * are binary, so `Kea` and `kea` stay two keys. A key or member longer than
+ * its column, or a row no statement can carry under `max_allowed_packet`, is
+ * refused before anything is sent: WordPress clears strict SQL mode, so MySQL
+ * would otherwise truncate a long key silently into another key. A member read
+ * is one statement per set key, a seek on the members table's primary key.
  *
  * @package Newspack_Nodes
  */
@@ -30,15 +33,24 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * One namespace of the shared table.
+ * One namespace of the shared tables.
  */
 final class Wpdb_Arm extends Durable_Arm {
 
 	/** Widest namespace the column holds. */
 	private const NAMESPACE_BYTES = 191;
 
-	/** Widest key the column holds. */
+	/**
+	 * Widest key, set key or member a column holds: with the namespace, the
+	 * members table's primary key stays under InnoDB's 767-byte index prefix.
+	 */
 	private const KEY_BYTES = 255;
+
+	/** The keyed rows' table, under the base prefix. */
+	private const KV_TABLE = 'newspack_nodes_table';
+
+	/** The set members' table, under the base prefix. */
+	private const MEMBERS_TABLE = 'newspack_nodes_members';
 
 	/** Keys per SELECT: 500 of at most 255 bytes stay far inside any packet. */
 	private const IN_CHUNK = 500;
@@ -55,6 +67,20 @@ final class Wpdb_Arm extends Durable_Arm {
 	/** What follows a batch's VALUES list. */
 	private const UPSERT_TAIL = ' ON DUPLICATE KEY UPDATE `value` = VALUES( `value` ), expires = VALUES( expires )';
 
+	/** Each shared table's suffix under the base prefix, its DDL, and the column widths it binds. */
+	private const TABLES = [
+		self::KV_TABLE      => [
+			'CREATE TABLE IF NOT EXISTS %i ( namespace VARBINARY(%d) NOT NULL, cache_key VARBINARY(%d) NOT NULL, `value` LONGBLOB NOT NULL,'
+			. ' expires INT UNSIGNED NOT NULL, PRIMARY KEY ( namespace, cache_key ), KEY namespace_expires ( namespace, expires ) )',
+			[ self::NAMESPACE_BYTES, self::KEY_BYTES ],
+		],
+		self::MEMBERS_TABLE => [
+			'CREATE TABLE IF NOT EXISTS %i ( namespace VARBINARY(%d) NOT NULL, set_key VARBINARY(%d) NOT NULL, member VARBINARY(%d) NOT NULL,'
+			. ' `value` LONGBLOB NOT NULL, expires INT UNSIGNED NOT NULL, PRIMARY KEY ( namespace, set_key, member ), KEY namespace_expires ( namespace, expires ) )',
+			[ self::NAMESPACE_BYTES, self::KEY_BYTES, self::KEY_BYTES ],
+		],
+	];
+
 	/**
 	 * Per connection: its `max_allowed_packet`, and the tables created on it,
 	 * so each is read or created once per process and a new connection object
@@ -68,7 +94,7 @@ final class Wpdb_Arm extends Durable_Arm {
 	private int $packet;
 
 	/**
-	 * Read the connection's packet limit and create the table, each once per
+	 * Read the connection's packet limit and create the tables, each once per
 	 * connection.
 	 *
 	 * @param string $namespace The Table's namespace, which scopes every row.
@@ -81,22 +107,24 @@ final class Wpdb_Arm extends Durable_Arm {
 			throw new \InvalidArgumentException( "wpdb backend cannot hold namespace {$namespace}" );
 		}
 		$db           = self::db();
-		$table        = self::table();
 		$connections  = self::$connections ??= new \WeakMap();
 		$state        = $connections[ $db ] ?? [
 			'packet' => self::packet( $db ),
 			'tables' => [],
 		];
 		$this->packet = $state['packet'];
-		if ( ! \array_key_exists( $table, $state['tables'] ) ) {
-			$this->create( $table );
-			$state['tables'][ $table ] = true;
+		foreach ( self::TABLES as $suffix => [ $ddl, $widths ] ) {
+			$table = $db->base_prefix . $suffix;
+			if ( ! \array_key_exists( $table, $state['tables'] ) ) {
+				self::create( $table, $ddl, $widths );
+				$state['tables'][ $table ] = true;
+			}
 		}
 		$connections[ $db ] = $state;
 	}
 
 	/**
-	 * See Durable_Arm::vacuum(). OPTIMIZE rebuilds the whole shared table, so
+	 * See Durable_Arm::vacuum(). OPTIMIZE rebuilds both whole shared tables, so
 	 * it is an operator's verb for a quiet moment. The server reports some
 	 * failures as a result row rather than an error, so every row is read.
 	 *
@@ -104,7 +132,7 @@ final class Wpdb_Arm extends Durable_Arm {
 	 */
 	public function vacuum(): void {
 		try {
-			foreach ( $this->rows( 'OPTIMIZE TABLE %i' ) as $row ) {
+			foreach ( $this->rows( $this->statement( 'OPTIMIZE TABLE %i, %i', self::db()->base_prefix . self::MEMBERS_TABLE ) ) as $row ) {
 				if ( 'error' === \strtolower( Core::as_string( $row['Msg_type'] ) ) ) {
 					throw new \UnexpectedValueException( Core::as_string( $row['Msg_text'] ) );
 				}
@@ -137,27 +165,34 @@ final class Wpdb_Arm extends Durable_Arm {
 		foreach ( \array_chunk( $keys, self::IN_CHUNK ) as $chunk ) {
 			$in   = \implode( ', ', \array_fill( 0, \count( $chunk ), '%s' ) );
 			$out += $this->pairs(
-				'SELECT cache_key, `value` FROM %i WHERE namespace = %s AND cache_key IN ( ' . $in . ' ) AND ' . self::LIVE,
-				$this->namespace,
-				...[ ...$chunk, self::now() ]
+				$this->statement( 'SELECT cache_key, `value` FROM %i WHERE namespace = %s AND cache_key IN ( ' . $in . ' ) AND ' . self::LIVE, $this->namespace, ...[ ...$chunk, self::now() ] ),
+				'cache_key'
 			);
 		}
 		return $out;
 	}
 
+	/** See Durable_Arm::select_set(). */
+	protected function select_set( string $set_key, int $limit ): array {
+		return $this->pairs(
+			$this->member_statement( 'SELECT member, `value` FROM %i WHERE namespace = %s AND set_key = %s AND expires > %d ORDER BY member LIMIT %d', $this->namespace, $set_key, self::now(), $limit ),
+			'member'
+		);
+	}
+
 	/**
-	 * A key/value SELECT against the table, as key => tagged bytes.
+	 * A two-column SELECT's rows, as key => tagged bytes.
 	 *
-	 * @param literal-string $sql     The statement, with placeholders.
-	 * @param mixed          ...$args Its values after the table.
+	 * @param string $statement The bound statement.
+	 * @param string $key       The column the rows are keyed by.
 	 * @return array<string,string>
 	 * @throws \UnexpectedValueException When the server refused it.
 	 */
-	private function pairs( string $sql, mixed ...$args ): array {
+	private function pairs( string $statement, string $key ): array {
 		$out = [];
-		foreach ( $this->rows( $sql, ...$args ) as $row ) {
+		foreach ( $this->rows( $statement ) as $row ) {
 			$bytes = \base64_decode( Core::as_string( $row['value'] ), true );
-			$out[ Core::as_string( $row['cache_key'] ) ] = false === $bytes ? '' : $bytes;
+			$out[ Core::as_string( $row[ $key ] ) ] = false === $bytes ? '' : $bytes;
 		}
 		return $out;
 	}
@@ -165,14 +200,13 @@ final class Wpdb_Arm extends Durable_Arm {
 	/**
 	 * A statement's result rows.
 	 *
-	 * @param literal-string $sql     The statement, with placeholders.
-	 * @param mixed          ...$args Its values after the table.
+	 * @param string $statement The bound statement.
 	 * @return list<array<array-key,mixed>>
 	 * @throws \UnexpectedValueException When the server refused it.
 	 */
-	private function rows( string $sql, mixed ...$args ): array {
+	private function rows( string $statement ): array {
 		$db   = self::db();
-		$rows = $db->get_results( $this->statement( $sql, ...$args ), 'ARRAY_A' );
+		$rows = $db->get_results( $statement, 'ARRAY_A' );
 		if ( '' !== $db->last_error || ! \is_array( $rows ) ) {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- The server's text is the failure record; it is escaped where shown.
 			throw new \UnexpectedValueException( $db->last_error );
@@ -185,14 +219,34 @@ final class Wpdb_Arm extends Durable_Arm {
 	 * sent in as few statements as the packet allows.
 	 */
 	protected function upsert( array $rows, int $expires ): void {
-		$head   = $this->statement( 'INSERT INTO %i ( namespace, cache_key, `value`, expires ) VALUES ' );
-		$room   = $this->packet - self::PACKET_HEADROOM - \strlen( $head ) - \strlen( self::UPSERT_TAIL );
 		$tuples = [];
 		foreach ( $rows as $key => $bytes ) {
-			$tuple    = self::bind( self::db(), '( %s, %s, %s, %d )', [ $this->namespace, self::column_key( (string) $key ), \base64_encode( $bytes ), $expires ] );
-			$tuples[] = $this->fit( $tuple, $room );
+			$tuples[] = self::bind( self::db(), '( %s, %s, %s, %d )', [ $this->namespace, self::column_key( (string) $key ), \base64_encode( $bytes ), $expires ] );
 		}
-		foreach ( self::chunks( $tuples, $room ) as $chunk ) {
+		$this->send_upsert( $this->statement( 'INSERT INTO %i ( namespace, cache_key, `value`, expires ) VALUES ' ), $tuples );
+	}
+
+	/** See Durable_Arm::upsert_members(), measured and sent as upsert() is. */
+	protected function upsert_members( array $rows ): void {
+		$tuples = [];
+		foreach ( $rows as [ $set_key, $member, $bytes, $expires ] ) {
+			$tuples[] = self::bind( self::db(), '( %s, %s, %s, %s, %d )', [ $this->namespace, self::column_key( $set_key ), self::column_key( $member, 'member' ), \base64_encode( $bytes ), $expires ] );
+		}
+		$this->send_upsert( $this->member_statement( 'INSERT INTO %i ( namespace, set_key, member, `value`, expires ) VALUES ' ), $tuples );
+	}
+
+	/**
+	 * Send bound rows under one INSERT head in as few statements as the packet
+	 * allows, every row measured before the first is sent.
+	 *
+	 * @param string       $head   The bound `INSERT … VALUES ` head.
+	 * @param list<string> $tuples Bound rows.
+	 * @throws \UnexpectedValueException When a row cannot fit, or the server refused.
+	 */
+	private function send_upsert( string $head, array $tuples ): void {
+		$room = $this->packet - self::PACKET_HEADROOM - \strlen( $head ) - \strlen( self::UPSERT_TAIL );
+		$fit  = \array_map( fn ( string $tuple ): string => $this->fit( $tuple, $room ), $tuples );
+		foreach ( self::chunks( $fit, $room ) as $chunk ) {
 			self::checked( self::db()->query( $head . \implode( ', ', $chunk ) . self::UPSERT_TAIL ) );
 		}
 	}
@@ -238,13 +292,14 @@ final class Wpdb_Arm extends Durable_Arm {
 	/**
 	 * A key the column holds whole.
 	 *
-	 * @param string $key Key.
+	 * @param string $key  Key.
+	 * @param string $what What the key is, for the refusal.
 	 * @return string The key.
 	 * @throws \UnexpectedValueException On a key wider than the column.
 	 */
-	private static function column_key( string $key ): string {
+	private static function column_key( string $key, string $what = 'key' ): string {
 		if ( \strlen( $key ) > self::KEY_BYTES ) {
-			throw new \UnexpectedValueException( 'key longer than ' . self::KEY_BYTES . ' bytes' );
+			throw new \UnexpectedValueException( "{$what} longer than " . self::KEY_BYTES . ' bytes' );
 		}
 		return $key;
 	}
@@ -292,26 +347,6 @@ final class Wpdb_Arm extends Durable_Arm {
 	}
 
 	/**
-	 * Create the shared table.
-	 *
-	 * @param string $table The table name, for the refusal.
-	 * @throws \RuntimeException When the server refuses.
-	 */
-	private function create( string $table ): void {
-		try {
-			$this->run(
-				'CREATE TABLE IF NOT EXISTS %i ( namespace VARBINARY(%d) NOT NULL, cache_key VARBINARY(%d) NOT NULL, `value` LONGBLOB NOT NULL,'
-				. ' expires INT UNSIGNED NOT NULL, PRIMARY KEY ( namespace, cache_key ), KEY namespace_expires ( namespace, expires ) )',
-				self::NAMESPACE_BYTES,
-				self::KEY_BYTES
-			);
-		} catch ( \UnexpectedValueException $e ) {
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; Table_Node::open() escapes the wrapped message once.
-			throw new \RuntimeException( "wpdb backend could not create {$table}: " . $e->getMessage(), 0, $e );
-		}
-	}
-
-	/**
 	 * Run one statement against the table, which binds as its first `%i`.
 	 *
 	 * @param literal-string $sql     The statement, with placeholders.
@@ -340,11 +375,45 @@ final class Wpdb_Arm extends Durable_Arm {
 	 * @return string The table name.
 	 */
 	public static function table(): string {
-		return self::db()->base_prefix . 'newspack_nodes_table';
+		return self::db()->base_prefix . self::KV_TABLE;
+	}
+
+	/** See Durable_Arm::purge_member_rows(). */
+	protected function purge_member_rows( int $now, int $limit ): int {
+		return self::checked( self::db()->query( $this->member_statement( 'DELETE FROM %i WHERE namespace = %s AND expires <= %d LIMIT %d', $this->namespace, $now, $limit ) ) );
 	}
 
 	/**
-	 * `$wpdb->prepare()`, refusing a statement it will not bind.
+	 * A statement against the members table, which binds as its first `%i`.
+	 *
+	 * @param literal-string $sql     The statement, with placeholders.
+	 * @param mixed          ...$args Its values after the table.
+	 * @return string The bound statement.
+	 */
+	private function member_statement( string $sql, mixed ...$args ): string {
+		return self::bind( self::db(), $sql, [ self::db()->base_prefix . self::MEMBERS_TABLE, ...\array_values( $args ) ] );
+	}
+
+	/**
+	 * Create one shared table.
+	 *
+	 * @param string         $table  The table name.
+	 * @param literal-string $ddl    Its `CREATE TABLE IF NOT EXISTS`.
+	 * @param list<int>      $widths The column widths it binds after the table.
+	 * @throws \RuntimeException When the server refuses.
+	 */
+	private static function create( string $table, string $ddl, array $widths ): void {
+		try {
+			self::checked( self::db()->query( self::bind( self::db(), $ddl, [ $table, ...$widths ] ) ) );
+		} catch ( \UnexpectedValueException $e ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; Table_Node::open() escapes the wrapped message once.
+			throw new \RuntimeException( "wpdb backend could not create {$table}: " . $e->getMessage(), 0, $e );
+		}
+	}
+
+	/**
+	 * `$wpdb->prepare()`, refusing a statement it will not bind. Core's own
+	 * prepare() binds a statement given too many values and only warns.
 	 *
 	 * @param \wpdb          $db   The handle.
 	 * @param literal-string $sql  The statement, with placeholders.
@@ -353,6 +422,10 @@ final class Wpdb_Arm extends Durable_Arm {
 	 * @throws \UnexpectedValueException When the placeholders and values disagree.
 	 */
 	private static function bind( \wpdb $db, string $sql, array $args ): string {
+		$placeholders = \count( \array_diff( \preg_match_all( '/%(%|[sdfFi])/', $sql, $m ) > 0 ? $m[1] : [], [ '%' ] ) );
+		if ( \count( $args ) !== $placeholders ) {
+			throw new \UnexpectedValueException( "statement has {$placeholders} placeholders for " . \count( $args ) . ' values' );
+		}
 		return $db->prepare( $sql, ...$args ) ?? throw new \UnexpectedValueException( 'wpdb could not prepare the statement' );
 	}
 

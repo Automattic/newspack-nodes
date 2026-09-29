@@ -692,11 +692,11 @@ class TableNodeTest extends TestCase {
 		$this->assertNull( $table->lookup( 'sku-9' ) );
 	}
 
-	/** The six verbs are catalogued for `help` and the Inspector, and answered by fill(). */
+	/** The eight verbs are catalogued for `help` and the Inspector, and answered by fill(). */
 	public function test_the_verbs_are_declared_without_a_handler_and_help_lists_them(): void {
 		$requests = Table_Node::node_schema()['requests'];
 
-		$this->assertSame( [ 'GET', 'MGET', 'TOUCH', 'RM', 'MSET', 'ADD' ], \array_column( $requests, 'name' ) );
+		$this->assertSame( [ 'GET', 'MGET', 'SMEMBERS', 'TOUCH', 'RM', 'MSET', 'ADD', 'SADD' ], \array_column( $requests, 'name' ) );
 		foreach ( $requests as $request ) {
 			$this->assertArrayNotHasKey( 'handler', $request );
 			$this->assertNotSame( '', $request['reply_shape'] ?? '' );
@@ -1371,6 +1371,28 @@ class TableNodeTest extends TestCase {
 		$this->assertSame( 0, $rows() );
 	}
 
+	public function test_the_router_tick_purges_expired_members_beside_expired_rows(): void {
+		$this->base_dir( 'table-purge-members-' );
+		$now         = 1790000000.0;
+		Core::$clock = static function () use ( &$now ): float {
+			return $now;
+		};
+		Core::$now   = $now;
+		$router      = $this->router();
+		[ $table ]   = $this->durable( 37 );
+		$request                   = Message::new_message();
+		$request[ Message::TYPE ]  = Message::TM_REQUEST | Message::TM_STRUCT;
+		$request[ Message::FROM ]  = 'asker-9';
+		$request[ Message::VALUE ] = [ 'SADD' => [ 'word:kea' => [ [ 'u-41' => 1, 'u-43' => 3 ] ], 'word:owl' => [ [ 'u-47' => 7 ], 777 ] ] ];
+		$table->fill( $request );
+		$members = static fn (): int => (int) ( new \PDO( 'sqlite:' . Table_Node::file( 'lab-7:kea', 3 ) ) )->query( 'SELECT COUNT(*) FROM members' )->fetchColumn();
+		$this->assertSame( 3, $members() );
+		$now      += 37;
+		Core::$now = $now;
+		$router->fire_cb();
+		$this->assertSame( 1, $members(), 'the expired set is reclaimed and the live one stays' );
+	}
+
 	public function test_a_purge_repeats_full_batches_until_its_budget_is_spent(): void {
 		$this->base_dir( 'table-budget-' );
 		Core::$clock      = static fn (): float => 1790000000.0;
@@ -1386,6 +1408,78 @@ class TableNodeTest extends TestCase {
 		};
 		Table_Node::purge_expired( 1790000037 );
 		$this->assertSame( 1, $rows(), 'two full batches fit the budget; the third waits' );
+	}
+
+	/** Store `$batches` full purge batches plus `$extra` rows, all expiring at 1790000037. */
+	private function expiring( Table_Node $table, int $batches, int $extra, string $tag ): void {
+		$items = [];
+		for ( $i = 0; $i < $batches * Table_Node::PURGE_BATCH_ROWS + $extra; ++$i ) {
+			$items[ "{$tag}-{$i}" ] = $i;
+		}
+		$this->assertTrue( $table->store_multi( $items ) );
+	}
+
+	public function test_a_table_left_behind_spends_the_backlog_budget_until_a_batch_comes_back_short(): void {
+		$this->base_dir( 'table-backlog-' );
+		Core::$clock      = static fn (): float => 1790000000.0;
+		[ $table, $rows ] = $this->durable( 37 );
+		$this->expiring( $table, 12, 3, 'sku' );
+		$reads       = 0;
+		Core::$clock = static function () use ( &$reads ): float {
+			return 1790000037.0 + 0.03 * $reads++;
+		};
+		$logged = [];
+		\add_action(
+			'newspack_nodes/stderr',
+			static function ( string $line ) use ( &$logged ): void {
+				$logged[] = $line;
+			}
+		);
+		$this->assertSame( 0.25, Table_Node::PURGE_BACKLOG_BUDGET_S );
+
+		Table_Node::purge_expired( 1790000037 );
+		$this->assertSame( 10 * Table_Node::PURGE_BATCH_ROWS + 3, $rows(), 'a tick on time spends 50 ms: two batches' );
+		$this->assertStringContainsString( 'lab-7:kea: WARNING: purge is behind: its last batch came back full after 2 batches, 10000 rows', \implode( "\n", $logged ) );
+
+		Table_Node::purge_expired( 1790000097 );
+		$this->assertSame( Table_Node::PURGE_BATCH_ROWS + 3, $rows(), 'a tick behind spends the backlog budget: nine batches, and stops there' );
+
+		Table_Node::purge_expired( 1790000157 );
+		$this->assertSame( 0, $rows(), 'a short batch ends the tick caught up' );
+
+		$this->expiring( $table, 3, 0, 'emu' );
+		Table_Node::purge_expired( 1790000217 );
+		$this->assertSame( Table_Node::PURGE_BATCH_ROWS, $rows(), 'caught up, the next tick spends 50 ms again' );
+	}
+
+	public function test_tables_behind_share_one_tick_deadline(): void {
+		$this->base_dir( 'table-shared-deadline-' );
+		Core::$clock      = static fn (): float => 1790000000.0;
+		[ $kea, $kea_rows ] = $this->durable( 37 );
+		$this->expiring( $kea, 12, 3, 'sku' );
+		Core::$var['partition'] = '3';
+		try {
+			$owl = new Table_Node();
+			$owl->name( 'lab-7:owl' );
+			$owl->arguments( [ 'owl:p3', '37', 'sqlite' ] );
+		} finally {
+			unset( Core::$var['partition'] );
+		}
+		$owl->sink( new Capture_Sink_Node() );
+		$this->expiring( $owl, 3, 5, 'emu' );
+		$owl_file = Table_Node::file( 'lab-7:owl', 3 );
+		$owl_rows = static fn (): int => (int) ( new \PDO( 'sqlite:' . $owl_file ) )->query( 'SELECT COUNT(*) FROM kv' )->fetchColumn();
+		$reads       = 0;
+		Core::$clock = static function () use ( &$reads ): float {
+			return 1790000037.0 + 0.03 * $reads++;
+		};
+		$batch = Table_Node::PURGE_BATCH_ROWS;
+
+		Table_Node::purge_expired( 1790000037 );
+		$this->assertSame( [ 10 * $batch + 3, 2 * $batch + 5 ], [ $kea_rows(), $owl_rows() ], 'the second Table gets its one batch after the first spent the tick' );
+
+		Table_Node::purge_expired( 1790000097 );
+		$this->assertSame( [ $batch + 3, $batch + 5 ], [ $kea_rows(), $owl_rows() ], 'both behind: one 250 ms deadline for the tick, not one each' );
 	}
 
 	public function test_a_mounted_table_never_joins_the_purge(): void {

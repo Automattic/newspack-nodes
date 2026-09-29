@@ -1339,7 +1339,7 @@ gate, so a `node_schema()['requests']` entry declares no capability.
 A Table is the one node a request reaches without its worker. `topologies mount_tables`
 mounts every Table an active topology declares into the request graph through
 `Bootstrap::mount_table()`, and it too declares MANAGE by declaring no capability. A mount
-serves reads alone: it answers `GET` and `MGET`, and refuses every write request, an
+serves reads alone: it answers `GET`, `MGET` and `SMEMBERS`, and refuses every write request, an
 INSERT, and its `:config` interpreter's `rm` and `vacuum`, because the declaring worker is the
 Table's one writer ([ADR-6](#adr-6-crc32--31-bit-mask-partition-routing)). A `sqlite` mount
 opens its file read-only, creates nothing, and reads as empty until its worker has written
@@ -1352,13 +1352,18 @@ A request may drive a running graph. A declared request answers TO=FROM through
 [`tachikoma-lineage.md`](tachikoma-lineage.md#a-declared-request-answers-in-an-envelope-tables-verbs-answer-bare)
 records.
 
-**Amendment:** a request carries a structure for `MSET` and `ADD` alone. A Table's `MSET` and
-`ADD` carry `key => [ value, ttl ]` maps a string cannot hold without an encoding, so they
-travel as `TM_REQUEST | TM_STRUCT` with VALUE `[ 'MSET' => … ]` or `[ 'ADD' => … ]`; every
-other request stays a string. `topologies mount_tables` mounts Tables into a request graph and
+**Amendment:** a request carries a structure for `MSET`, `ADD` and `SADD` alone. A Table's
+`MSET` and `ADD` carry `key => [ value, ttl ]` maps, and its `SADD` carries
+`set_key => [ [ member => value, … ], ttl ]` maps, that a string cannot hold without an
+encoding, so they travel as `TM_REQUEST | TM_STRUCT` with VALUE `[ 'MSET' => … ]`,
+`[ 'ADD' => … ]` or `[ 'SADD' => … ]`; every other request, `SMEMBERS` included, stays a
+string. `SMEMBERS` answers one message per set, as `MGET` answers one per key: `TM_STRUCT`
+with the set's `[ member, value ]` pairs, or `TM_BYTESTREAM "OVER <limit>"` and no members for
+a set holding more than the limit, told from a member list by its type as `MGET` tells a
+string value from an array. `topologies mount_tables` mounts Tables into a request graph and
 declares MANAGE, as `connect_worker_input` does. A Table a verb below MANAGE mounts to read
 stays mounted for the rest of that POST: a later verb or request in it reads through the same
-mount, and `Bootstrap::mount_table()` keeps a mount already there and builds nothing. A verb may mount a Table only when every row it holds is data the verb's declared role may already read, because for the rest of the POST any caller holding that role can `MGET` any key through the mount; a Table holding more is mounted under MANAGE alone.
+mount, and `Bootstrap::mount_table()` keeps a mount already there and builds nothing. A verb may mount a Table only when every row it holds is data the verb's declared role may already read, because for the rest of the POST any caller holding that role can `MGET` any key, or `SMEMBERS` any set, through the mount; a Table holding more is mounted under MANAGE alone.
 
 **Alternatives considered:** Signing requests as commands are signed — rejected: the mount
 already demands MANAGE of every outside caller before a request can reach a worker, so a
@@ -1370,9 +1375,9 @@ rejected: the handler runs in a worker, where no WordPress user is current, so
 Inside a worker, a node filling a request into another — a Timer firing `TICK` at a source —
 acts with the authority that loaded the topology. A verb whose caller must be told apart
 from another MANAGE holder by session scope is a command, because only a command carries
-the minter's session into the worker. A verb may mount a Table only when every row it holds is data the verb's declared role may already read, because for the rest of the POST any caller holding that role can `MGET` any key through the mount; a Table holding more is mounted under MANAGE alone. A mounting verb's output
-is not the bound: `HTTP_In` filters no message type, so a raw `MGET` in the same POST names any
-key, including one the verb never shows.
+the minter's session into the worker. A verb may mount a Table only when every row it holds is data the verb's declared role may already read, because for the rest of the POST any caller holding that role can `MGET` any key, or `SMEMBERS` any set, through the mount; a Table holding more is mounted under MANAGE alone. A mounting verb's output
+is not the bound: `HTTP_In` filters no message type, so a raw `MGET` or `SMEMBERS` in the same POST names any
+key or set, including one the verb never shows.
 
 **Revisit if:** anything writes into a worker's input Partition below MANAGE — a verb that
 mounts it under a lower role, or a second writer beside the attached cli — or a Table must be
@@ -1418,10 +1423,39 @@ inside classes was also invisible to `ls`, `dump_node` and the console.
   orphans durable rows as it orphans cached ones.
 - A read ignores an expired row. `Router_Node`'s tick purges each durable Table its worker
   declared, once a minute, and `vacuum` is an operator verb, never automatic.
+- Set members are durable-only. `SADD` and `SMEMBERS` store and read one row per member in a
+  table of their own beside the keyed rows — `members` in the SQLite file,
+  `{base_prefix}newspack_nodes_members` for wpdb — keyed `( set_key, member )`, so a member
+  read is an exact set-key seek, `ORDER BY member` with a LIMIT one past the asked limit,
+  at most `Table_Node::MAX_MEMBERS_LIMIT` + 1, and never a range. Each set is read and let
+  go before the next, so a set past its limit costs its rows once, never all sets' at once,
+  and a row no serializer wrote fails the read as it fails a keyed read. `add_members()` and `members()` are
+  `Durable_Arm`'s alone, and a Table whose backend is not durable refuses both verbs as it
+  refuses `vacuum`, on `instanceof Durable_Arm`:
+  `<VERB>: needs a durable backend; <table> is <backend>`. Nothing is caught around the arm
+  call, so anything an arm throws while it works escapes
+  ([ADR-14](#adr-14-cooperative-stop-propagates-through-broad-catches)). A `sqlite`
+  mount of a file its writer declared before members reads every set as empty, as it reads
+  a file that is not there. The purge deletes expired members inside the same per-batch
+  limit as expired keyed rows.
+- The purge catches up. A tick that stops with a Table's last batch full leaves it behind
+  and says so in a rate-limited line. The Tables due on one tick share one deadline:
+  `PURGE_BACKLOG_BUDGET_S` (250 ms) while any is behind, 50 ms otherwise, and the first
+  short batch catches a Table up. Every due Table runs at least one batch, so a tick holds
+  the loop for one budget plus one batch a Table. The one 5,000-row batch a minute the
+  normal budget guarantees sits below the ~5,300 rows a minute one partition's aggregate
+  Table in event-logger-nodes expires at 12.0 M entries, ~4,200 of them search-index
+  members. A SQLite batch cost 7 to 16 ms on a small local file, where the backlog budget
+  reclaims at least 75,000 rows a minute; on staging's 15.9 M-row file it cost 597 ms, so
+  the budget buys the one batch a tick every Table runs anyway, and whether the purge
+  keeps pace there is unmeasured. A wpdb batch may cost more, and gets one a tick at least.
 
 **Alternatives considered:**
 
 - Repairing memcache loss further — rejected: see the Context.
+- Members on a volatile arm — rejected: an evicted member vanishes from its set without a
+  trace, so a member read could not tell a whole set from a partial one.
+- A key-range SCAN over kv — rejected: reads scale with the range, not the set.
 - One durable store for every Table — rejected: nonces, sessions and page caches want a
   cache's speed and eviction.
 - A SQL data model — out of scope: aggregates stay key-value.

@@ -81,12 +81,37 @@ describe( 'consoleGraph', () => {
 			} );
 		} );
 
-		it( 'is idempotent — does not duplicate _repl', () => {
+		it( 'adds the reserved _repl:input Consumer, whose quarantine the dl_* verbs reach', () => {
+			const next = withReplAnchor( empty );
+			expect(
+				next.nodes.find( ( n ) => n.id === '_repl:input' )
+			).toEqual( {
+				id: '_repl:input',
+				name: '_repl:input',
+				class: 'Consumer',
+				reserved: true,
+			} );
+		} );
+
+		it( 'is idempotent — does not duplicate _repl or _repl:input', () => {
 			const once = withReplAnchor( empty );
 			const twice = withReplAnchor( once );
 			expect(
 				twice.nodes.filter( ( n ) => n.id === '_repl' )
 			).toHaveLength( 1 );
+			expect(
+				twice.nodes.filter( ( n ) => n.id === '_repl:input' )
+			).toHaveLength( 1 );
+		} );
+
+		it( 'adds only _repl:input to a graph that already holds _repl', () => {
+			const kea = { id: '_repl', name: '_repl', class: 'Kea_Shell' };
+			const next = withReplAnchor( { nodes: [ kea ], edges: [] } );
+			expect( next.nodes.map( ( n ) => n.id ) ).toEqual( [
+				'_repl',
+				'_repl:input',
+			] );
+			expect( next.nodes[ 0 ] ).toBe( kea );
 		} );
 
 		it( 'preserves existing nodes and edges', () => {
