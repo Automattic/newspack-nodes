@@ -417,7 +417,11 @@ the command behind it bounces `NOT_AVAILABLE` instead.
 `topologies mount_tables <topology>` also answers an empty string, but refuses
 out loud: an inactive topology draws a `TM_ERROR` reading
 `mount_tables: <topology> is not active`, and a Table whose backend cannot open
-fails the verb naming the Table, unmounting whatever the call had mounted. Each
+fails the verb naming the Table, unmounting whatever the call had mounted. In
+PHP, `Bootstrap::mount_table()` throws
+[`Table_Unavailable`](../includes/class-table-unavailable.php) for that backend,
+and a plain `\RuntimeException` for a Table two active topologies declare
+differently or a TTL that is not a whole number of at least 1. Each
 mount is named `{table}.p{N}` and serves reads alone
 ([ADR-23](architecture-decisions.md#adr-23-a-request-carries-no-authority-of-its-own));
 [Other Node Primitives](architecture-guide.md#other-node-primitives) carries the

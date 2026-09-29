@@ -1028,7 +1028,7 @@ short.
 **Decision:** [`Table_Node::backed_by( \Closure $backing )`](../includes/class-table-node.php) on the read path, and
 [`Partition_Node::locate_by( \Closure $extract, array $wanted )`](../includes/class-partition-node.php) + `read_many()` underneath.
 
-![Eight hops across four lanes: the caller, Table_Node, the backing closure and Partition_Node. A miss, an expiry and a backend read error all fall through the backing; lookup_multi asks once for every miss; the app calls locate_by with its line parser and the wanted keys, bounding the walk, and reads by key never by position; Partition walks the .idx sidecars newest-first so the first hit is the last write, skipping a segment whose index is unreadable; a class-level memo keyed by directory records what was found and what was searched and is discarded on a new extent or past MAX_LOCATOR_MEMO_KEYS 100,000; read_many reads one handle per segment; a spent ttl is served and not warmed while live entries are warmed grouped by lifetime, best-effort; a miss is never remembered, so every one reaches the backing; the caller cannot tell a backed miss from absent everywhere. Cards give the one wrong answer, the rejected shapes and why the remaining-TTL and newest-record rules are one rule.](img/adr-table-backing.png)
+![Eight hops across four lanes: the caller, Table_Node, the backing closure and Partition_Node. A miss, an expiry and a backend read error all fall through the backing; MGET asks once for every miss; the app calls locate_by with its line parser and the wanted keys, bounding the walk, and reads by key never by position; Partition walks the .idx sidecars newest-first so the first hit is the last write, skipping a segment whose index is unreadable; a class-level memo keyed by directory records what was found and what was searched and is discarded on a new extent or past MAX_LOCATOR_MEMO_KEYS 100,000; read_many reads one handle per segment; a spent ttl is served and not warmed while live entries are warmed grouped by lifetime, best-effort; a miss is never remembered, so every one reaches the backing; the caller cannot tell a backed miss from absent everywhere. Cards give the one wrong answer, the rejected shapes and why the remaining-TTL and newest-record rules are one rule.](img/adr-table-backing.png)
 
 That does not reopen "one table, one lifetime", which governs what a CALLER stores: a
 backing is re-materializing an entry that already had a life, and handing it a fresh full
@@ -1054,11 +1054,9 @@ yet resolved — answers null, and the read is a miss; null and an empty answer 
 caller alike, and the table stores nothing on the strength of either. `tests/unit/TableNodeTest.php`
 pins each rule.
 
-A failed cache read counts differently on the two read paths. `lookup_multi( $keys, $failed )`
-sets `$failed` whenever the Table's arm did not answer the batch, even where the backing then
-returned every key, because a caller merging onto the result must learn that the cache went
-unread. A `GET` or `MGET` request answers `TM_ERROR` only when the arm failed and no backing
-looked at the misses, so on the wire a read the backing answered is a read that succeeded.
+A failed cache read is a failed read only when a key went unread: a `GET` or `MGET` request
+answers `TM_ERROR` when the arm failed and no backing looked at the misses, so a read the
+backing answered is a read that succeeded.
 
 `locate_by()` resolves a key to its NEWEST record in one newest-first pass, because the
 remaining-`ttl` rule reads the lifetime off whichever record the key lands on: an older write
@@ -1079,7 +1077,7 @@ misses cost a walk bounds that cost itself, where it knows which keys can still 
 
 **Consequences:** A table with a backing cannot report a miss the caller can
 distinguish from "absent everywhere" — that is the point. The backing is invoked on the read
-path, so a slow system of record becomes read latency; `lookup_multi()` batching keeps that to
+path, so a slow system of record becomes read latency; `MGET` batching keeps that to
 one walk per read rather than one per key. A key the record does not hold costs that walk on
 every read, because nothing records that it was absent.
 

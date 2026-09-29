@@ -21,14 +21,14 @@
 <div class="seq" id="seq">
 <svg class="wire" id="wire"><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs></svg>
 
-<div class="lane card" data-lane="0"><h3>Caller</h3><p>A dashboard request: <span class="mono" style="white-space:nowrap">lookup( $key )</span> or <span class="mono" style="white-space:nowrap">lookup_multi( $keys )</span>.</p></div>
+<div class="lane card" data-lane="0"><h3>Caller</h3><p>A dashboard request: <span class="mono" style="white-space:nowrap">lookup( $key )</span> or <span class="mono" style="white-space:nowrap">MGET &lt;keys…&gt;</span>.</p></div>
 <div class="lane card" data-lane="1"><h3><span class="mono">Table_Node</span></h3><p>The keyed store on the backend it names, one TTL fixed at construction.</p></div>
 <div class="lane card" data-lane="2"><h3>The backing closure</h3><p>Installed by <span class="mono">backed_by( \Closure )</span>. The application's: it knows the line format.</p></div>
 <div class="lane card" data-lane="3"><h3><span class="mono">Partition_Node</span></h3><p>Treats index lines and keys as opaque strings. Owns the walk.</p></div>
 
 <div class="hop" data-arrow="0,1" data-cap="lookup" data-span="1,2"><span class="n">1</span>A hit is served from the cache. A miss, an expiry and a backend read error all take the same branch: through the backing when one is installed, and back as null when none is. A miss is never remembered, so every one reaches the backing.</div>
 
-<div class="hop app" data-arrow="1,2" data-cap="every miss, asked ONCE" data-span="2,3"><span class="n">2</span><span class="mono">lookup_multi()</span> asks once for all of its misses. The closure receives the key list and returns <span class="mono">key => { value, ttl? }</span>.</div>
+<div class="hop app" data-arrow="1,2" data-cap="every miss, asked ONCE" data-span="2,3"><span class="n">2</span><span class="mono">MGET</span> asks once for all of its misses. The closure receives the key list and returns <span class="mono">key => { value, ttl? }</span>.</div>
 
 <div class="hop" data-arrow="2,3" data-cap="locate_by( $extract, $wanted )" data-span="2,4"><span class="n">3</span>The app passes its line parser and the keys to resolve, and gets key → position for those keys only. The key set bounds the table, the walk and the memo: a whole-index table grows with the PARTITION, and at ~300 bytes a locator an order-1M-key partition exhausts a 512 MB request to answer a handful of rows. The result's order follows <span class="mono">$wanted</span>, so read it by key, never by position.</div>
 

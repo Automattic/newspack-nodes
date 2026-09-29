@@ -246,9 +246,10 @@ abstract class Durable_Arm extends Cache_Backend {
 	 * handle has been built with it, PHP's otherwise. It reads `Core::$memd` as
 	 * built so far and never builds one.
 	 *
+	 * @api Callers sizing a stored value.
 	 * @return 'igbinary'|'php'
 	 */
-	private static function serializer(): string {
+	public static function serializer(): string {
 		$memd = Core::$memd;
 		return null !== $memd && \defined( '\Memcached::SERIALIZER_IGBINARY' )
 			&& \Memcached::SERIALIZER_IGBINARY === $memd->getOption( \Memcached::OPT_SERIALIZER )
