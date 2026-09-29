@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`Table_Node::lookup_multi()` is restored.** This reverses the 2.74.0 removal: 2.74.0 removed it while event-logger-nodes 0.108.0 still calls it, so a site running both fataled. Its `$failed` is true when no cache backend answered the batch, as in 2.73.0.
+
 ## [2.74.0] - 2026-09-29
 
 ### Added
