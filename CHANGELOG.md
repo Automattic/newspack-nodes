@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.75.0] - 2026-09-29
+
 ### Changed
 
 - **`Bootstrap::mount_table()` takes the names alone.** The `?array &$built` out-parameter is gone: a mount lives for the rest of the request, so no caller needs the stems a call built in order to remove them, and the call still unmounts what it built when it throws. A second call for a Table already mounted returns the same stems and opens nothing.
