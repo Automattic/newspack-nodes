@@ -6,6 +6,11 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **A Table no longer answers `SCAN`,** and `Table_Client::scan()`,
+  `Cache_Backend::scan()` and `Table_Node::MAX_SCAN` are gone. No consumer
+  called them. Name the keys you read: `GET`, `MGET` or
+  `Table_Client::get_multi()`. A `SCAN` request draws
+  `TM_ERROR "SCAN: unknown verb"`.
 - **A Table whose backend cannot open throws `Table_Unavailable`,** a
   `\RuntimeException`, so a catch written for a named backend's old refusal
   still takes it. An `auto` Table on a host with neither memcached nor APCu

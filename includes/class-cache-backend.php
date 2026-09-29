@@ -276,28 +276,6 @@ abstract class Cache_Backend {
 	}
 
 	/**
-	 * The keys starting `$prefix`, in byte order, at most `$limit` of them:
-	 * what a durable arm lists. A volatile arm cannot list its keys.
-	 *
-	 * @param string   $prefix The key prefix.
-	 * @param int      $limit  Most keys to return.
-	 * @param ?bool    $failed Set true when the arm did not answer.
-	 * @param-out bool $failed
-	 * @return array<string,mixed> Key => value, in key order.
-	 * @throws \LogicException On an arm that cannot list its keys.
-	 */
-	public function scan( string $prefix, int $limit, ?bool &$failed = null ): array {
-		throw new \LogicException( \esc_html( 'scan needs a durable backend; ' . $this->backend_name() . ' cannot list its keys' ) );
-	}
-
-	/**
-	 * Selected backend name, for failure diagnostics.
-	 *
-	 * @return string 'memcached', 'apcu', 'sqlite' or 'wpdb'.
-	 */
-	abstract public function backend_name(): string;
-
-	/**
 	 * Read many keys in one round trip, found-only, keyed by cache key.
 	 *
 	 * Deliberately without read()'s per-key miss/error distinction: `getMulti`
@@ -458,6 +436,13 @@ abstract class Cache_Backend {
 		self::$site = '';
 		return $salt;
 	}
+
+	/**
+	 * Selected backend name, for failure diagnostics.
+	 *
+	 * @return string 'memcached', 'apcu', 'sqlite' or 'wpdb'.
+	 */
+	abstract public function backend_name(): string;
 
 	/**
 	 * Whether a failed `write_multi()` landed nothing, so a per-key retry is

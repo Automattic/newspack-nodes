@@ -1336,7 +1336,7 @@ gate, so a `node_schema()['requests']` entry declares no capability.
 A Table is the one node a request reaches without its worker. `topologies mount_tables`
 mounts every Table an active topology declares into the request graph through
 `Bootstrap::mount_table()`, and it too declares MANAGE by declaring no capability. A mount
-serves reads alone: it answers `GET`, `MGET` and `SCAN`, and refuses every write request, an
+serves reads alone: it answers `GET` and `MGET`, and refuses every write request, an
 INSERT, and its `:config` interpreter's `rm` and `vacuum`, because the declaring worker is the
 Table's one writer ([ADR-6](#adr-6-crc32--31-bit-mask-partition-routing)).
 
@@ -1401,7 +1401,6 @@ inside classes was also invisible to `ls`, `dump_node` and the console.
   orphans durable rows as it orphans cached ones.
 - A read ignores an expired row. `Router_Node`'s tick purges each durable Table its worker
   declared, once a minute, and `vacuum` is an operator verb, never automatic.
-- Only `sqlite` and `wpdb` answer `SCAN`, so a Table that needs `SCAN` names one of them.
 
 **Alternatives considered:**
 

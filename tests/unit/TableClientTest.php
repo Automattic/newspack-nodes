@@ -95,7 +95,6 @@ final class TableClientTest extends TestCase {
 		$read = $client->get_multi( 'lab-7:kea', [ '4417', '0418' ] );
 		\ksort( $read, \SORT_STRING );
 		$this->assertSame( [ '0418' => 'owl', 4417 => 'kea' ], $read );
-		$this->assertSame( [ 4417 => 'kea' ], $client->scan( 'lab-7:kea', '44', 37 ) );
 	}
 
 	public function test_an_unnamed_asker_cannot_ask(): void {
@@ -105,18 +104,6 @@ final class TableClientTest extends TestCase {
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'Table_Client: an unnamed asker cannot ask lab-7:kea' );
 		$anon->client->set_multi( 'lab-7:kea', [ 'sku-41' => [ 'a' ] ] );
-	}
-
-	public function test_scan_answers_the_keys_under_a_prefix_in_key_order(): void {
-		$client = $this->asker->client;
-		$client->set_multi( 'lab-7:kea', [ 'sku-43' => [ 'c' ], 'sku-41' => [ 'a' ], 'rid-7' => [ 'r' ] ] );
-		$this->assertSame( [ 'sku-41' => 'a', 'sku-43' => 'c' ], $client->scan( 'lab-7:kea', 'sku-', 37, $failed ) );
-		$this->assertFalse( $failed );
-	}
-
-	public function test_a_scan_prefix_holding_whitespace_fails_unasked(): void {
-		$this->assertSame( [], $this->asker->client->scan( 'lab-7:gone.p3', 'sku 4', 37, $failed ) );
-		$this->assertTrue( $failed );
 	}
 
 	public function test_a_worker_table_keeps_its_production_file_name(): void {

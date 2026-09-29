@@ -61,20 +61,6 @@ class CacheBackendTest extends TestCase {
 		$this->assertNull( Cache_Backend::shared_first() );
 	}
 
-	/** A volatile arm cannot list its keys, and says so rather than answering none. */
-	public function test_a_volatile_arm_refuses_to_scan(): void {
-		Core::$memd                 = new InMemoryMemcached();
-		Cache_Backend::$apcu_usable = static fn (): bool => true;
-		foreach ( [ Cache_Backend::memcache_arm(), Cache_Backend::apcu_arm() ] as $arm ) {
-			try {
-				$arm?->scan( 'urltoken:', 10 );
-				$this->fail( 'a volatile arm answered a scan' );
-			} catch ( \LogicException $e ) {
-				$this->assertStringContainsString( 'scan needs a durable backend', $e->getMessage() );
-			}
-		}
-	}
-
 	public function test_memcached_ops_round_trip(): void {
 		Core::$memd                 = new InMemoryMemcached();
 		Cache_Backend::$apcu_usable = static fn (): bool => false;

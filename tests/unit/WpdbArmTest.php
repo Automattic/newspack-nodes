@@ -78,7 +78,6 @@ final class WpdbArmTest extends TestCase {
 		$p3->set( 'sku-43', 'p3', 0 );
 		$p4->set( 'sku-43', 'p4', 37 );
 		$this->assertFalse( $p4->get( 'sku-41' ) );
-		$this->assertSame( [], $p4->scan( 'sku-41', 10 ) );
 		$this->assertFalse( $p4->delete( 'sku-41' ) );
 		$this->assertFalse( $p4->touch( 'sku-41', 777 ) );
 		$this->assertSame( 'p3', $p3->get( 'sku-41' ) );
@@ -258,8 +257,6 @@ final class WpdbArmTest extends TestCase {
 		$this->assertFalse( $arm->get( 'sku-41' ) );
 		$this->assertSame( [], $arm->read_multi( [ 'sku-41' ], $failed ) );
 		$this->assertTrue( $failed );
-		$this->assertSame( [], $arm->scan( 'sku-', 10, $scan_failed ) );
-		$this->assertTrue( $scan_failed );
 		$this->assertSame( 'wpdb kea7_newspack_nodes_table: Lost connection to server during query', $arm->last_failure() );
 	}
 
@@ -282,14 +279,6 @@ final class WpdbArmTest extends TestCase {
 		$this->assertFalse( $arm->set( 'sku-42', 1, 0 ) );
 		$this->assertFalse( $arm->add( 'sku-43', 1, 0 ) );
 		$this->assertStringContainsString( 'Lock wait timeout exceeded', $arm->last_failure() );
-	}
-
-	public function test_a_prefix_of_only_high_bytes_scans_to_the_end_of_the_keyspace(): void {
-		$arm = new Wpdb_Arm( 'kea:p3' );
-		$arm->set( 'sku-41', 1, 0 );
-		$arm->set( "\xFFsku-42", 2, 0 );
-		$this->assertSame( [ "\xFFsku-42" => 2 ], $arm->scan( "\xFF", 10, $failed ) );
-		$this->assertFalse( $failed );
 	}
 
 	public function test_a_row_no_serializer_wrote_reads_as_an_error(): void {

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **A Table no longer answers `SCAN`.** `Table_Client::scan()`, `Cache_Backend::scan()`, `Table_Node::MAX_SCAN` and the durable arms' range read are gone with it; no consumer called them. A Table answers for the keys a caller names: read them through `GET`, `MGET` or `Table_Client::get_multi()`. A `SCAN` request now draws `TM_ERROR "SCAN: unknown verb"`, and a mounted Table refuses it as it refuses any verb but `GET` and `MGET`.
+
 ## [2.74.1] - 2026-09-29
 
 ### Fixed
