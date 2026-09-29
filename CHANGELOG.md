@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.72.0] - 2026-09-29
+
 ### Removed
 
 - **`Table_Node` remembers no absence: `backed_by()`'s second closure, the absence marker and `Table_Node::replace_absent()` are gone.** `backed_by( \Closure $backing )` takes the backing alone, and every miss reaches it on every read; a key the backing does not return writes nothing to the cache. Its callers were event-logger-nodes' dashboard reader and its flame builder's mirror flush; event-logger-nodes 0.108.0 calls neither, and an older event-logger-nodes fatals on this release (`Call to undefined method Table_Node::replace_absent()`), so upgrade the two together. A table reserves no value either, so a marker an older substrate left in the cache reads back as the string it holds. Run `wp nodes memcache flush` once after upgrading, which rotates the install's cache salt and orphans every marker (`docs/upgrading.md`).
