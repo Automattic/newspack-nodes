@@ -2,14 +2,14 @@
 /**
  * Durable_Arm: what every durable Cache_Backend arm means, whatever it stores in.
  *
- * A durable arm keeps rows until they expire or are deleted, lists them in key
- * order, and reclaims the expired ones on `purge()`. This class owns those
- * semantics once — the live-row rule, the refused keys, the tagged
- * serialization, the compare-then-write counters and the failure record — and
- * an arm supplies its statements. Each hook below is one step in the arm's own
- * dialect and throws `\PDOException` or `\UnexpectedValueException` when it
- * fails; `write_scope()` is where each arm decides how its writes hold
- * together, since only the arm knows whose connection it writes on.
+ * A durable arm keeps rows until they expire or are deleted, and reclaims the
+ * expired ones on `purge()`. This class owns those semantics once — the
+ * live-row rule, the refused keys, the tagged serialization, the
+ * compare-then-write counters and the failure record — and an arm supplies its
+ * statements. Each hook below is one step in the arm's own dialect and throws
+ * `\PDOException` or `\UnexpectedValueException` when it fails;
+ * `write_scope()` is where each arm decides how its writes hold together,
+ * since only the arm knows whose connection it writes on.
  *
  * @package Newspack_Nodes
  */
@@ -265,38 +265,6 @@ abstract class Durable_Arm extends Cache_Backend {
 	 * @return T What `$work` returned.
 	 */
 	abstract protected function write_scope( \Closure $work ): mixed;
-
-	/** See Cache_Backend::scan(). */
-	public function scan( string $prefix, int $limit, ?bool &$failed = null ): array {
-		$rows   = $this->attempt( fn (): array => self::decoded( $this->scan_rows( $prefix, self::prefix_upper( $prefix ), \max( 0, $limit ) ) ), null );
-		$failed = null === $rows;
-		return $rows ?? [];
-	}
-
-	/**
-	 * The least string above every string `$prefix` starts, for a range scan.
-	 *
-	 * @param string $prefix The key prefix.
-	 * @return string|null The bound, or null when no upper bound exists.
-	 */
-	private static function prefix_upper( string $prefix ): ?string {
-		$prefix = \rtrim( $prefix, "\xFF" );
-		if ( '' === $prefix ) {
-			return null;
-		}
-		$last = \strlen( $prefix ) - 1;
-		return \substr( $prefix, 0, $last ) . \chr( \ord( $prefix[ $last ] ) + 1 );
-	}
-
-	/**
-	 * Live rows from `$prefix` up to `$upper`, in key order.
-	 *
-	 * @param string      $prefix Least key.
-	 * @param string|null $upper  Bound every key stays below, or null for none.
-	 * @param int         $limit  Most rows.
-	 * @return array<array-key,string> Key => tagged bytes.
-	 */
-	abstract protected function scan_rows( string $prefix, ?string $upper, int $limit ): array;
 
 	/**
 	 * Delete up to `$limit` rows expired at `$now`. A volatile arm has no such

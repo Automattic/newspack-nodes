@@ -69,28 +69,6 @@ final class Table_Client {
 	}
 
 	/**
-	 * `SCAN`: the keys starting `$prefix`, in key order, at most `$limit`.
-	 * An all-digit key comes back as an int array key, as PHP casts it.
-	 *
-	 * @api A node asking Tables: event-logger-nodes' `Stats_Store`.
-	 * @param string   $table  The Table's registered name.
-	 * @param string   $prefix Key prefix; one holding whitespace cannot be named.
-	 * @param int      $limit  Most keys to answer.
-	 * @param ?bool    $failed Set true when the scan did not answer.
-	 * @param-out bool $failed
-	 * @return array<array-key,mixed>
-	 * @throws \LogicException When an ask is in flight already.
-	 * @throws \RuntimeException When the asker has no name or no sink.
-	 */
-	public function scan( string $table, string $prefix, int $limit, ?bool &$failed = null ): array {
-		$failed = Cache_Backend::refuses_key( $prefix );
-		if ( $failed ) {
-			return [];
-		}
-		return $this->values( 'SCAN', $this->ask( $table, Message::TM_REQUEST, "SCAN {$prefix} {$limit}\n" ), $failed );
-	}
-
-	/**
 	 * A read's values; failed on a TM_ERROR, no count, or a count they miss.
 	 *
 	 * @param string                 $verb    The verb the count names.

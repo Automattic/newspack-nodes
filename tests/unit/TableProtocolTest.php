@@ -10,7 +10,7 @@ use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
- * The Table protocol: string TM_REQUEST verbs (GET, MGET, SCAN, TOUCH, RM),
+ * The Table protocol: string TM_REQUEST verbs (GET, MGET, TOUCH, RM),
  * the TM_REQUEST|TM_STRUCT carve-out for MSET and ADD, and plain INSERT.
  * Every reply goes TO the request's FROM, FROM the Table, its ID echoed.
  */
@@ -127,42 +127,9 @@ final class TableProtocolTest extends TestCase {
 		$this->assertSame( [ [ Message::TM_ERROR, '', "MGET: backend read failed\n" ] ], self::shape( $this->ask( "MGET sku-41\n" ) ) );
 	}
 
-	public function test_scan_answers_in_key_order_up_to_its_limit(): void {
-		$this->table->store_multi( [ 'urltoken:ab:wombat:c3' => 'c3', 'urltoken:ab:wolf:c1' => 'c1', 'urltoken:ab:womb:c2' => 'c2' ] );
-		$this->assertSame(
-			[
-				[ Message::TM_BYTESTREAM, 'urltoken:ab:womb:c2', 'c2' ],
-				[ Message::TM_BYTESTREAM, 'urltoken:ab:wombat:c3', 'c3' ],
-				[ Message::TM_INFO, '', "SCAN 2\n" ],
-			],
-			self::shape( $this->ask( "SCAN urltoken:ab:wom 5\n" ) )
-		);
-		$this->assertSame(
-			[
-				[ Message::TM_BYTESTREAM, 'urltoken:ab:wolf:c1', 'c1' ],
-				[ Message::TM_INFO, '', "SCAN 1\n" ],
-			],
-			self::shape( $this->ask( "SCAN urltoken:ab:wo 1\n" ) )
-		);
-	}
-
-	public function test_a_scan_without_a_prefix_and_a_limit_answers_its_usage(): void {
-		$usage = [ [ Message::TM_ERROR, '', "SCAN: usage: SCAN <prefix> <limit>\n" ] ];
-		$this->assertSame( $usage, self::shape( $this->ask( "SCAN urltoken:\n" ) ) );
-		$this->assertSame( $usage, self::shape( $this->ask( "SCAN urltoken: 0\n" ) ) );
-		$this->assertSame( $usage, self::shape( $this->ask( "SCAN urltoken: many\n" ) ) );
-	}
-
-	public function test_scan_on_a_volatile_table_answers_an_error(): void {
-		Core::$memd                = new InMemoryMemcached();
-		$owl                       = Table_Node::mount( 'lab-7:owl', 3, [ 'namespace' => 'owl:p3', 'ttl' => 777, 'backend' => 'memcache' ], $this->sink );
-		$request                   = Message::new_message();
-		$request[ Message::TYPE ]  = Message::TM_REQUEST;
-		$request[ Message::FROM ]  = 'asker-9';
-		$request[ Message::VALUE ] = "SCAN urltoken: 5\n";
-		$this->sink->captured      = [];
-		$owl->fill( $request );
-		$this->assertSame( [ [ Message::TM_ERROR, '', "SCAN: scan needs a durable backend; memcached cannot list its keys\n" ] ], self::shape( $this->sink->captured ) );
+	public function test_a_scan_is_refused_as_an_unknown_verb(): void {
+		$this->table->store( 'urltoken:ab:wolf:c1', 'c1' );
+		$this->assertSame( [ [ Message::TM_ERROR, '', "SCAN: unknown verb\n" ] ], self::shape( $this->ask( "SCAN urltoken:ab:wo 5\n" ) ) );
 	}
 
 	public function test_mset_answers_the_keys_that_landed(): void {
@@ -404,7 +371,6 @@ final class TableProtocolTest extends TestCase {
 		$value = [ Message::TM_BYTESTREAM, 'sku-41', 'kea-41' ];
 		$this->assertSame( [ $value, [ Message::TM_INFO, '', "GET 1\n" ] ], self::shape( $this->ask( "GET sku-41\n", Message::TM_REQUEST, $mount ) ) );
 		$this->assertSame( [ $value, [ Message::TM_INFO, '', "MGET 1\n" ] ], self::shape( $this->ask( "MGET sku-41 sku-42\n", Message::TM_REQUEST, $mount ) ) );
-		$this->assertSame( [ $value, [ Message::TM_INFO, '', "SCAN 1\n" ] ], self::shape( $this->ask( "SCAN sku- 5\n", Message::TM_REQUEST, $mount ) ) );
 	}
 
 	public function test_a_mount_drops_an_insert_out_loud(): void {

@@ -150,6 +150,16 @@ final class Sqlite_Arm extends Durable_Arm {
 		return $out;
 	}
 
+	/**
+	 * A key/value result as key => tagged bytes.
+	 *
+	 * @param \PDOStatement $stmt An executed two-column statement.
+	 * @return array<array-key,string>
+	 */
+	private static function pairs( \PDOStatement $stmt ): array {
+		return \array_map( Core::as_string( ... ), $stmt->fetchAll( \PDO::FETCH_KEY_PAIR ) );
+	}
+
 	/** See Durable_Arm::upsert(). */
 	protected function upsert( array $rows, int $expires ): void {
 		$this->store( 'INSERT OR REPLACE', $rows, $expires );
@@ -201,26 +211,6 @@ final class Sqlite_Arm extends Durable_Arm {
 	/** See Durable_Arm::delete_key(). */
 	protected function delete_key( string $key ): int {
 		return $this->run( 'DELETE FROM kv WHERE "key" = ? AND ' . self::LIVE, [ $key, self::now() ] );
-	}
-
-	/** See Durable_Arm::scan_rows(). */
-	protected function scan_rows( string $prefix, ?string $upper, int $limit ): array {
-		$stmt = $this->db->prepare(
-			'SELECT "key", "value" FROM kv WHERE "key" >= ?' . ( null === $upper ? '' : ' AND "key" < ?' )
-			. ' AND ' . self::LIVE . " ORDER BY \"key\" LIMIT {$limit}"
-		);
-		$stmt->execute( [ $prefix, ...( null === $upper ? [] : [ $upper ] ), self::now() ] );
-		return self::pairs( $stmt );
-	}
-
-	/**
-	 * A key/value result as key => tagged bytes.
-	 *
-	 * @param \PDOStatement $stmt An executed two-column statement.
-	 * @return array<array-key,string>
-	 */
-	private static function pairs( \PDOStatement $stmt ): array {
-		return \array_map( Core::as_string( ... ), $stmt->fetchAll( \PDO::FETCH_KEY_PAIR ) );
 	}
 
 	/** See Durable_Arm::purge_rows(). */

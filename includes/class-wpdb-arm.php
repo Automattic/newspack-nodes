@@ -146,6 +146,41 @@ final class Wpdb_Arm extends Durable_Arm {
 	}
 
 	/**
+	 * A key/value SELECT against the table, as key => tagged bytes.
+	 *
+	 * @param literal-string $sql     The statement, with placeholders.
+	 * @param mixed          ...$args Its values after the table.
+	 * @return array<string,string>
+	 * @throws \UnexpectedValueException When the server refused it.
+	 */
+	private function pairs( string $sql, mixed ...$args ): array {
+		$out = [];
+		foreach ( $this->rows( $sql, ...$args ) as $row ) {
+			$bytes = \base64_decode( Core::as_string( $row['value'] ), true );
+			$out[ Core::as_string( $row['cache_key'] ) ] = false === $bytes ? '' : $bytes;
+		}
+		return $out;
+	}
+
+	/**
+	 * A statement's result rows.
+	 *
+	 * @param literal-string $sql     The statement, with placeholders.
+	 * @param mixed          ...$args Its values after the table.
+	 * @return list<array<array-key,mixed>>
+	 * @throws \UnexpectedValueException When the server refused it.
+	 */
+	private function rows( string $sql, mixed ...$args ): array {
+		$db   = self::db();
+		$rows = $db->get_results( $this->statement( $sql, ...$args ), 'ARRAY_A' );
+		if ( '' !== $db->last_error || ! \is_array( $rows ) ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- The server's text is the failure record; it is escaped where shown.
+			throw new \UnexpectedValueException( $db->last_error );
+		}
+		return \array_map( Core::arr( ... ), $rows );
+	}
+
+	/**
 	 * See Durable_Arm::upsert(): every row is bound and measured first, then
 	 * sent in as few statements as the packet allows.
 	 */
@@ -249,49 +284,6 @@ final class Wpdb_Arm extends Durable_Arm {
 	/** See Durable_Arm::delete_key(). */
 	protected function delete_key( string $key ): int {
 		return $this->run( 'DELETE FROM %i WHERE namespace = %s AND cache_key = %s AND ' . self::LIVE, $this->namespace, $key, self::now() );
-	}
-
-	/** See Durable_Arm::scan_rows(). */
-	protected function scan_rows( string $prefix, ?string $upper, int $limit ): array {
-		if ( null === $upper ) {
-			return $this->pairs( 'SELECT cache_key, `value` FROM %i WHERE namespace = %s AND cache_key >= %s AND ' . self::LIVE . ' ORDER BY cache_key LIMIT %d', $this->namespace, $prefix, self::now(), $limit );
-		}
-		return $this->pairs( 'SELECT cache_key, `value` FROM %i WHERE namespace = %s AND cache_key >= %s AND cache_key < %s AND ' . self::LIVE . ' ORDER BY cache_key LIMIT %d', $this->namespace, $prefix, $upper, self::now(), $limit );
-	}
-
-	/**
-	 * A key/value SELECT against the table, as key => tagged bytes.
-	 *
-	 * @param literal-string $sql     The statement, with placeholders.
-	 * @param mixed          ...$args Its values after the table.
-	 * @return array<string,string>
-	 * @throws \UnexpectedValueException When the server refused it.
-	 */
-	private function pairs( string $sql, mixed ...$args ): array {
-		$out = [];
-		foreach ( $this->rows( $sql, ...$args ) as $row ) {
-			$bytes = \base64_decode( Core::as_string( $row['value'] ), true );
-			$out[ Core::as_string( $row['cache_key'] ) ] = false === $bytes ? '' : $bytes;
-		}
-		return $out;
-	}
-
-	/**
-	 * A statement's result rows.
-	 *
-	 * @param literal-string $sql     The statement, with placeholders.
-	 * @param mixed          ...$args Its values after the table.
-	 * @return list<array<array-key,mixed>>
-	 * @throws \UnexpectedValueException When the server refused it.
-	 */
-	private function rows( string $sql, mixed ...$args ): array {
-		$db   = self::db();
-		$rows = $db->get_results( $this->statement( $sql, ...$args ), 'ARRAY_A' );
-		if ( '' !== $db->last_error || ! \is_array( $rows ) ) {
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- The server's text is the failure record; it is escaped where shown.
-			throw new \UnexpectedValueException( $db->last_error );
-		}
-		return \array_map( Core::arr( ... ), $rows );
 	}
 
 	/** See Durable_Arm::purge_rows(). */

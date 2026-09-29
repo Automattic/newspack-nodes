@@ -106,8 +106,6 @@ final class SqliteArmTest extends TestCase {
 		$this->assertSame( \Newspack_Nodes\Cache_Backend::READ_ERROR, $arm->read( 'sku-99' )['status'] );
 		$this->assertSame( [], $arm->read_multi( [ 'sku-41', 'sku-99' ], $failed ) );
 		$this->assertTrue( $failed, 'a batch holding one undecodable row fails whole' );
-		$arm->scan( 'sku-', 10, $scan_failed );
-		$this->assertTrue( $scan_failed );
 		$this->assertStringContainsString( 'undecodable row', $arm->last_failure() );
 		$this->assertSame( [ 'sqlite_error' => 'undecodable row' ], $arm->diagnostic_metadata() );
 	}
@@ -157,14 +155,6 @@ final class SqliteArmTest extends TestCase {
 		$this->assertSame( 'igbinary', Durable_Arm::serializer() );
 		$memd->setOption( \Memcached::OPT_SERIALIZER, \Memcached::SERIALIZER_PHP );
 		$this->assertSame( 'php', Durable_Arm::serializer() );
-	}
-
-	public function test_a_prefix_of_only_high_bytes_scans_to_the_end_of_the_keyspace(): void {
-		$arm = new Sqlite_Arm( $this->path() );
-		$arm->set( 'sku-41', 1, 0 );
-		$arm->set( "\xFFsku-42", 2, 0 );
-		$this->assertSame( [ "\xFFsku-42" => 2 ], $arm->scan( "\xFF", 10, $failed ) );
-		$this->assertFalse( $failed );
 	}
 
 	public function test_vacuum_throws_when_a_reader_keeps_the_wal_from_truncating(): void {

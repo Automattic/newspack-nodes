@@ -49,9 +49,6 @@ class Table_Node extends Node {
 	/** Every backend a Table may name; `auto` is memcached, else APCu, per call. */
 	public const BACKENDS = [ 'auto', 'memcache', 'apcu', 'sqlite', 'wpdb' ];
 
-	/** Most rows one SCAN answers, whatever it asks. */
-	public const MAX_SCAN = 100000;
-
 	/** Seconds between one Table's purges. */
 	public const PURGE_INTERVAL_S = 60;
 
@@ -74,7 +71,7 @@ class Table_Node extends Node {
 	 * The verbs a mount answers: its declaring worker is the file's one writer
 	 * (ADR-6), and a request carries no authority beyond the mount (ADR-23).
 	 */
-	private const READ_VERBS = [ 'GET', 'MGET', 'SCAN' ];
+	private const READ_VERBS = [ 'GET', 'MGET' ];
 
 	/** Why a mount refuses any other verb. */
 	private const READS_ONLY = 'a mounted Table serves reads only';
@@ -333,7 +330,6 @@ class Table_Node extends Node {
 		match ( $verb ) {
 			'GET'         => $this->reply_values( $request, $verb, \array_slice( $words, 0, 1 ) ),
 			'MGET'        => $this->reply_values( $request, $verb, $words ),
-			'SCAN'        => $this->reply_scan( $request, $words ),
 			'TOUCH'       => $this->reply_touch( $request, $words ),
 			'RM'          => $this->reply_written( $request, $verb, $this->remove_keys( $words ) ),
 			'MSET', 'ADD' => $this->refuse( $request, $verb, self::ITEM_MAP_USAGE ),
@@ -368,10 +364,12 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * `GET`/`MGET`: what the store holds for `$keys`.
+	 * `GET`/`MGET`: what the store holds for `$keys`, a message per value then
+	 * the count. An array answers TM_STRUCT; anything else answers its string
+	 * under TM_BYTESTREAM.
 	 *
 	 * A read failed only when a key went unread: the cache did not answer and
-	 * no backing looked at the misses.
+	 * no backing looked at the misses. It answers one error instead.
 	 *
 	 * @param array<int,mixed> $request The TM_REQUEST.
 	 * @param string           $verb    The verb answered.
@@ -381,51 +379,12 @@ class Table_Node extends Node {
 		$failed   = false;
 		$answered = false;
 		$found    = [] === $keys ? [] : $this->read_keys( $keys, $failed, $answered );
-		$this->send_values( $request, $verb, $found, 0, $failed && ! $answered );
-	}
-
-	/**
-	 * `SCAN <prefix> <limit>`: the keys starting prefix, in key order, at most
-	 * MAX_SCAN of them. A volatile arm cannot list its keys, and says so.
-	 *
-	 * @param array<int,mixed> $request The TM_REQUEST.
-	 * @param list<string>     $words   The prefix, then the limit.
-	 */
-	private function reply_scan( array $request, array $words ): void {
-		$limit = Core::canonical_decimal( $words[1] ?? '', false );
-		if ( '' === ( $words[0] ?? '' ) || null === $limit ) {
-			$this->refuse( $request, 'SCAN', 'usage: SCAN <prefix> <limit>' );
-			return;
-		}
-		$arm    = $this->arm();
-		$failed = null === $arm;
-		try {
-			$rows = $arm?->scan( self::entry_key( $this->namespace, $words[0] ), \min( $limit, self::MAX_SCAN ), $failed ) ?? [];
-		} catch ( \LogicException $e ) {
-			$this->refuse( $request, 'SCAN', $e->getMessage() );
-			return;
-		}
-		$this->send_values( $request, 'SCAN', $rows, \strlen( self::entry_key( $this->namespace, '' ) ), $failed );
-	}
-
-	/**
-	 * A read's replies: each value, then the count, or one error. An array
-	 * answers TM_STRUCT; anything else answers its string under TM_BYTESTREAM.
-	 *
-	 * @param array<int,mixed>       $request The TM_REQUEST.
-	 * @param string                 $verb    The verb answered.
-	 * @param array<array-key,mixed> $found   Key => value.
-	 * @param int                    $head    Leading bytes each key sheds: a
-	 *                                        scanned entry key's scope, or 0.
-	 * @param bool                   $failed  Whether a key went unread.
-	 */
-	private function send_values( array $request, string $verb, array $found, int $head, bool $failed ): void {
-		if ( $failed ) {
+		if ( $failed && ! $answered ) {
 			$this->reply( $request, Message::TM_ERROR, '', "{$verb}: backend read failed\n" );
 			return;
 		}
 		foreach ( $found as $key => $stored ) {
-			$key = \substr( (string) $key, $head );
+			$key = (string) $key;
 			if ( \is_array( $stored ) ) {
 				$this->reply( $request, Message::TM_STRUCT, $key, $stored );
 			} else {
@@ -584,8 +543,9 @@ class Table_Node extends Node {
 	 * @param list<string> $keys   Keys within the table's namespace.
 	 * @param ?bool        $failed Set true when no cache backend answered.
 	 * @param-out bool     $failed
-	 * @return array<string,mixed> Values for the keys the cache or the backing
-	 *                             held; an absent key is absent from the result.
+	 * @return array<array-key,mixed> Values for the keys the cache or the
+	 *                                backing held; an absent key is absent from
+	 *                                the result, and an all-digit key is an int.
 	 */
 	public function lookup_multi( array $keys, ?bool &$failed = null ): array {
 		return $this->read_keys( $keys, $failed );
@@ -601,8 +561,9 @@ class Table_Node extends Node {
 	 * @param ?bool        $answered Set true when a backing looked at the misses.
 	 * @param-out bool     $failed
 	 * @param-out bool     $answered
-	 * @return array<string,mixed> Values for the keys the cache or the backing
-	 *                             held; an absent key is absent from the result.
+	 * @return array<array-key,mixed> Values for the keys the cache or the
+	 *                                backing held; an absent key is absent from
+	 *                                the result, and an all-digit key is an int.
 	 */
 	private function read_keys( array $keys, ?bool &$failed, ?bool &$answered = null ): array {
 		$entry_keys = [];
@@ -1218,15 +1179,6 @@ class Table_Node extends Node {
 					'description' => 'Many stored values in one read.',
 					'args'        => [ [ 'name' => 'keys', 'type' => 'string', 'required' => true, 'description' => 'Whitespace-separated keys.' ] ],
 					'reply_shape' => self::READ_REPLY,
-				],
-				[
-					'name'        => 'SCAN',
-					'description' => 'The keys starting a prefix, in key order; a durable backend only.',
-					'args'        => [
-						[ 'name' => 'prefix', 'type' => 'string', 'required' => true ],
-						[ 'name' => 'limit', 'type' => 'int', 'required' => true, 'description' => 'Most rows, capped at MAX_SCAN.' ],
-					],
-					'reply_shape' => self::READ_REPLY . '; TM_ERROR on a volatile backend',
 				],
 				[
 					'name'        => 'TOUCH',
