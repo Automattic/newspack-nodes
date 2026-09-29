@@ -402,7 +402,10 @@ class Bootstrap {
 	 * @param-out list<string>  $built
 	 * @return array<string,array<int,string>> Name => partition => mounted node name; `[]` for a name no active topology declares.
 	 * @throws \InvalidArgumentException On a name that cannot name a file.
-	 * @throws \RuntimeException With no request graph, or when a backend cannot open.
+	 * @throws \RuntimeException With no request graph.
+	 * @throws Table_Unavailable When a backend cannot open, raised as thrown;
+	 *                           beside a teardown that also throws, both raise
+	 *                           as `Failures`, whose previous is this one.
 	 * @throws \Throwable As node_tables().
 	 */
 	public static function mount_table( array $names, ?array &$built = null ): array {

@@ -148,6 +148,17 @@ final class SqliteArmTest extends TestCase {
 		$this->assertSame( [ 'sku-41' => [ 'n' => 41 ], 'sku-42' => [ 'n' => 42 ] ], $arm->read_multi( [ 'sku-41', 'sku-42' ] ) );
 	}
 
+	public function test_the_serializer_is_the_shared_memcached_handles_own(): void {
+		Core::$memd = null;
+		$this->assertSame( 'php', Durable_Arm::serializer(), 'no handle stores with PHP\'s' );
+		$memd = new InMemoryMemcached();
+		$memd->setOption( \Memcached::OPT_SERIALIZER, \Memcached::SERIALIZER_IGBINARY );
+		Core::$memd = $memd;
+		$this->assertSame( 'igbinary', Durable_Arm::serializer() );
+		$memd->setOption( \Memcached::OPT_SERIALIZER, \Memcached::SERIALIZER_PHP );
+		$this->assertSame( 'php', Durable_Arm::serializer() );
+	}
+
 	public function test_a_prefix_of_only_high_bytes_scans_to_the_end_of_the_keyspace(): void {
 		$arm = new Sqlite_Arm( $this->path() );
 		$arm->set( 'sku-41', 1, 0 );

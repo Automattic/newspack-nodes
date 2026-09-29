@@ -147,8 +147,9 @@ class Table_Node extends Node {
 	 *                                   whitespace, a ttl that is missing or not
 	 *                                   a whole number of at least 1, or an
 	 *                                   unknown backend.
-	 * @throws \LogicException With `auto` and no cache backend (memcached or APCu).
-	 * @throws \RuntimeException When a named backend cannot open.
+	 * @throws \RuntimeException On a declaration a named backend refuses.
+	 * @throws Table_Unavailable When the backend cannot open on this host,
+	 *                           `auto` with neither memcached nor APCu included.
 	 */
 	public function arguments( ?array $args = null ): array {
 		if ( null === $args ) {
@@ -167,9 +168,6 @@ class Table_Node extends Node {
 			throw new \InvalidArgumentException( \esc_html( 'Table backend must be one of ' . \implode( ', ', self::BACKENDS ) . ", not {$backend}" ) );
 		}
 		$arm = $this->open( $backend, $namespace );
-		if ( 'auto' === $backend && null === Cache_Backend::shared_first() ) {
-			throw new \LogicException( 'Table requires memcached or APCu' );
-		}
 		$this->assign_schema_args( $args, $values );
 		$this->arm = $arm;
 		return $args;
@@ -219,28 +217,68 @@ class Table_Node extends Node {
 
 	/**
 	 * The arm a named backend opens, once: a Table whose backend cannot open
-	 * throws when its arguments arrive, naming itself.
+	 * throws when its arguments arrive, naming itself. Resolving the `sqlite`
+	 * file, and an arm refusing an invalid argument, are the declaration's
+	 * fault; any other refusal while an arm opens is the host's.
 	 *
 	 * @param string $backend   One of BACKENDS.
 	 * @param string $namespace The namespace a `wpdb` arm scopes its rows by.
 	 * @return Cache_Backend|null The arm; null for `auto`, which resolves per call.
-	 * @throws \RuntimeException When the backend cannot open.
+	 * @throws \RuntimeException On a base directory or `{base}/tables` that
+	 *                           will not resolve, a name no file can carry, no
+	 *                           bound partition, or a namespace the arm cannot hold.
+	 * @throws Table_Unavailable When the backend cannot open on this host.
 	 */
 	private function open( string $backend, string $namespace ): ?Cache_Backend {
-		$table = $this->table_name();
+		$file = 'sqlite' === $backend ? $this->sqlite_file() : '';
 		try {
+			// arguments() admits BACKENDS alone, so the default arm is `auto`.
 			return match ( $backend ) {
 				'memcache' => Cache_Backend::memcache_arm() ?? throw new \LogicException( 'memcache backend has no memcached handle' ),
 				'apcu'     => Cache_Backend::apcu_arm() ?? throw new \LogicException( 'apcu backend is not usable here' ),
-				'sqlite'   => new Sqlite_Arm( self::file( $table, $this->file_partition() ) ),
+				'sqlite'   => new Sqlite_Arm( $file ),
 				'wpdb'     => new Wpdb_Arm( $namespace ),
-				default    => null,
+				default    => null === Cache_Backend::shared_first() ? throw new \LogicException( 'auto backend finds neither memcached nor APCu' ) : null,
 			};
 		} catch ( Worker_Should_Stop $stop ) {
 			throw $stop;
+		} catch ( \InvalidArgumentException $e ) {
+			throw new \RuntimeException( $this->refusal( $e ), 0, $e );
 		} catch ( \RuntimeException | \LogicException $e ) {
-			throw new \RuntimeException( \esc_html( "Table {$table}: " . $e->getMessage() ), 0, $e );
+			throw new Table_Unavailable( $this->refusal( $e ), 0, $e );
 		}
+	}
+
+	/**
+	 * The `sqlite` file this Table opens, its directory resolved through
+	 * `ensure_path()`, so a base or `{base}/tables` that is unusable refuses
+	 * the declaration before any arm opens.
+	 *
+	 * @return string The file.
+	 * @throws \RuntimeException On a base directory or `{base}/tables` that
+	 *                           will not resolve, a name that cannot name a
+	 *                           file, or no bound partition.
+	 */
+	private function sqlite_file(): string {
+		try {
+			$file = self::file( $this->table_name(), $this->file_partition() );
+			Config::ensure_path( \dirname( $file ) );
+			return $file;
+		} catch ( Worker_Should_Stop $stop ) {
+			throw $stop;
+		} catch ( \RuntimeException | \LogicException $e ) {
+			throw new \RuntimeException( $this->refusal( $e ), 0, $e );
+		}
+	}
+
+	/**
+	 * A refusal's message, naming this Table, escaped once.
+	 *
+	 * @param \Throwable $e What refused.
+	 * @return string `Table <name>: <why>`.
+	 */
+	private function refusal( \Throwable $e ): string {
+		return \esc_html( "Table {$this->table_name()}: " . $e->getMessage() );
 	}
 
 	/**
@@ -337,10 +375,9 @@ class Table_Node extends Node {
 	 * @param list<string>     $keys    Keys.
 	 */
 	private function reply_values( array $request, string $verb, array $keys ): void {
-		$failed   = false;
-		$answered = false;
-		$found    = [] === $keys ? [] : $this->read_keys( $keys, $failed, $answered );
-		$this->send_values( $request, $verb, $found, 0, $failed && ! $answered );
+		$unread = false;
+		$found  = [] === $keys ? [] : $this->read_keys( $keys, $unread );
+		$this->send_values( $request, $verb, $found, 0, $unread );
 	}
 
 	/**
@@ -524,40 +561,19 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * Read many keys at once, returning only those found, under the caller's keys.
+	 * Read many keys in one backend round trip, returning only those found,
+	 * under the caller's keys; the misses go to the backing in one more call.
+	 * A cache read that fails reads as all-miss and still falls through, so a
+	 * read failed only when a key went unread: the cache did not answer and no
+	 * backing looked at the misses.
 	 *
-	 * One backend round trip for the whole set, so a caller resolving
-	 * a set of ids pays one `getMulti` rather than N reads. Whatever the cache
-	 * misses goes to the durable backing in one more call when one is installed.
-	 *
-	 * A cache read that fails reads as all-miss and still falls through, so
-	 * `$failed` is how a caller merging onto the result learns that a key
-	 * absent from it went unread rather than unstored.
-	 *
-	 * @api Batch readers (a dashboard resolving a page of ids).
 	 * @param list<string> $keys   Keys within the table's namespace.
-	 * @param ?bool        $failed Set true when no cache backend answered the
-	 *                             batch, whatever the backing then returned.
-	 * @param-out bool     $failed
+	 * @param ?bool        $unread Set true when a key went unread.
+	 * @param-out bool     $unread
 	 * @return array<string,mixed> Values for the keys the cache or the backing
 	 *                             held; an absent key is absent from the result.
 	 */
-	public function lookup_multi( array $keys, ?bool &$failed = null ): array {
-		return $this->read_keys( $keys, $failed );
-	}
-
-	/**
-	 * lookup_multi(), also saying whether a backing answered for the misses:
-	 * the protocol's read failed only when a key went unread.
-	 *
-	 * @param list<string> $keys     Keys within the table's namespace.
-	 * @param ?bool        $failed   As lookup_multi()'s.
-	 * @param ?bool        $answered Set true when a backing looked at the misses.
-	 * @param-out bool     $failed
-	 * @param-out bool     $answered
-	 * @return array<string,mixed> As lookup_multi()'s.
-	 */
-	private function read_keys( array $keys, ?bool &$failed, ?bool &$answered = null ): array {
+	private function read_keys( array $keys, ?bool &$unread ): array {
 		$entry_keys = [];
 		foreach ( $keys as $key ) {
 			$entry_keys[ self::entry_key( $this->namespace, $key ) ] = $key;
@@ -576,7 +592,9 @@ class Table_Node extends Node {
 				$missed[] = $key;
 			}
 		}
-		return $found + $this->read_through( $missed, $answered );
+		$found += $this->read_through( $missed, $answered );
+		$unread = $failed && ! $answered;
+		return $found;
 	}
 
 	/**
@@ -603,8 +621,8 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * Store many entries in one backend round trip — `lookup_multi()`'s other
-	 * half, for a writer whose cost is its KEY COUNT rather than its bytes.
+	 * Store many entries in one backend round trip — `MGET`'s other half, for
+	 * a writer whose cost is its KEY COUNT rather than its bytes.
 	 *
 	 * Whole-batch success only: neither backend reports per key. A caller that
 	 * must know which key was refused re-sends the batch through `store()`.
@@ -875,8 +893,9 @@ class Table_Node extends Node {
 	 * @param Node                                               $sink      Where fill() forwards.
 	 * @return self The mounted Table.
 	 * @throws \InvalidArgumentException On a name that cannot name a file.
-	 * @throws \Throwable When the backend cannot open, nothing stays registered;
-	 *                    a teardown that also throws escapes beside the cause.
+	 * @throws \Throwable As arguments(), Table_Unavailable as thrown; nothing
+	 *                    stays registered, and a teardown that also throws
+	 *                    escapes beside the cause.
 	 */
 	public static function mount( string $table, int $partition, array $spec, Node $sink ): self {
 		try {
@@ -1043,8 +1062,8 @@ class Table_Node extends Node {
 	/**
 	 * Opt in to a durable system of record behind this table.
 	 *
-	 * A table is a CACHE of something when it has one: `lookup()` and
-	 * `lookup_multi()` fall through on a miss, store what comes back, and
+	 * A table is a CACHE of something when it has one: `lookup()`, `GET` and
+	 * `MGET` fall through on a miss, store what comes back, and
 	 * return it, so every caller reads one API and the durable tier is asked
 	 * once per miss rather than once per caller.
 	 *
@@ -1091,10 +1110,12 @@ class Table_Node extends Node {
 	 *              work and `fill()` does not.
 	 * @throws \InvalidArgumentException With an empty namespace, a TTL below
 	 *                                   one second, or an unknown backend.
-	 * @throws \LogicException With `auto` and no cache backend; a caller that
-	 *                         treats a backend-less host as ordinary guards on
-	 *                         `Cache_Backend::shared_first()` first.
-	 * @throws \RuntimeException When a named backend cannot open.
+	 * @throws \RuntimeException On a declaration a named backend refuses.
+	 * @throws Table_Unavailable When the backend cannot open on this host,
+	 *                           `auto` with no cache backend included; a caller
+	 *                           that treats a backend-less host as ordinary
+	 *                           catches it, or guards on
+	 *                           `Cache_Backend::shared_first()` first.
 	 */
 	public static function table( string $ns, int $ttl, string $backend = 'auto' ): self {
 		$table            = new self();

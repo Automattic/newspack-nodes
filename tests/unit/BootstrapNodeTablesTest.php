@@ -12,9 +12,13 @@ namespace Newspack_Nodes\Tests\Unit;
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Core;
+use Newspack_Nodes\Failures;
 use Newspack_Nodes\Message;
+use Newspack_Nodes\Node;
 use Newspack_Nodes\Node_Names;
+use Newspack_Nodes\Sqlite_Arm;
 use Newspack_Nodes\Table_Node;
+use Newspack_Nodes\Table_Unavailable;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Topology_Registry;
@@ -251,6 +255,74 @@ final class BootstrapNodeTablesTest extends TestCase {
 		$this->assertSame( [], $built, 'what the call built is unmounted again' );
 		foreach ( [ 'lab-7:kea.p0', 'lab-7:kea.p1', 'lab-7:rook.p0', 'lab-7:rook.p1' ] as $stem ) {
 			$this->assertNull( Core::node( $stem ), $stem );
+		}
+	}
+
+	public function test_mount_table_raises_a_backend_that_cannot_open_as_table_unavailable(): void {
+		$this->write_tsl( 'rook-a', "var num_partitions = 3\nmake_node Table lab-7:rook rook:p<partition> 37 sqlite\n" );
+		$this->activate( 'rook-a' );
+		Bootstrap::mount_request_graph();
+		\mkdir( "{$this->base}/tables/lab-7:rook.p2.sqlite", 0700, true );
+		$e = $this->caught( static fn () => Bootstrap::mount_table( [ 'lab-7:rook' ] ), 'a partition whose file cannot open was mounted' );
+		$this->assertInstanceOf( Table_Unavailable::class, $e, 'the rollback raises the one cause as it was thrown' );
+		$this->assertStringStartsWith( 'Table lab-7:rook: sqlite backend could not open ', $e->getMessage() );
+	}
+
+	public function test_mount_table_raises_a_failed_teardown_beside_the_backend_that_could_not_open(): void {
+		$this->write_tsl( 'rook-a', "var num_partitions = 3\nmake_node Table lab-7:rook rook:p<partition> 37 sqlite\n" );
+		$this->activate( 'rook-a' );
+		Bootstrap::mount_request_graph();
+		$refusal = new \LogicException( 'teardown refused-41' );
+		$sibling = new class( $refusal ) extends Node {
+			public function __construct( private \Throwable $refusal ) {
+				parent::__construct();
+			}
+
+			public function remove_node(): void {
+				parent::remove_node();
+				throw $this->refusal;
+			}
+		};
+		// Opening p2: give the built p0 a teardown that refuses, then refuse p2.
+		Sqlite_Arm::$available = static function () use ( $sibling ): bool {
+			if ( null === Core::node( 'lab-7:rook.p2' ) ) {
+				return true;
+			}
+			\Closure::bind(
+				function ( Node $stub ): void {
+					$this->publish_sibling( 'rook', $stub );
+				},
+				Core::node( 'lab-7:rook.p0' ),
+				Node::class
+			)( $sibling );
+			return false;
+		};
+		$built = null;
+		try {
+			$e = $this->caught(
+				static function () use ( &$built ): void {
+					Bootstrap::mount_table( [ 'lab-7:rook' ], $built );
+				},
+				'a partition whose backend cannot open was mounted'
+			);
+		} finally {
+			Sqlite_Arm::$available = null;
+		}
+		$this->assertInstanceOf( Failures::class, $e );
+		$this->assertInstanceOf( Table_Unavailable::class, $e->getPrevious() );
+		$this->assertSame( 'Table lab-7:rook: sqlite backend needs the pdo_sqlite extension', $e->getPrevious()->getMessage() );
+		$this->assertSame( $refusal, $e->all()[1] );
+		$this->assertSame( [], $built );
+		$this->assertNull( Core::node( 'lab-7:rook.p0' ) );
+	}
+
+	public function test_mount_table_raises_a_declaration_it_refuses_as_no_table_unavailable(): void {
+		Bootstrap::mount_request_graph();
+		foreach ( [ 'kea' => [ 'kea-a', 'kea-b' ], 'yak' => [ 'yak-a' ] ] as $name => $topologies ) {
+			$this->activate( ...$topologies );
+			$e = $this->caught( static fn () => Bootstrap::mount_table( [ "lab-7:{$name}" ] ), "lab-7:{$name} was mounted" );
+			$this->assertNotInstanceOf( Table_Unavailable::class, $e, $name );
+			$this->assertStringStartsWith( "Table lab-7:{$name} ", $e->getMessage() );
 		}
 	}
 

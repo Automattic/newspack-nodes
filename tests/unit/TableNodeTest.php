@@ -8,6 +8,7 @@ use Newspack_Nodes\Message;
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Sqlite_Arm;
 use Newspack_Nodes\Table_Node;
+use Newspack_Nodes\Table_Unavailable;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\Helpers\InMemoryMemcached;
 use Newspack_Nodes\Tests\Helpers\Sqlite_Wpdb;
@@ -78,6 +79,24 @@ class TableNodeTest extends TestCase {
 		$message[ Message::FROM ]  = $from;
 		$message[ Message::VALUE ] = $value;
 		return $message;
+	}
+
+	/**
+	 * What an MGET of `$keys` answers, as key => value.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private function mget( Table_Node $table, string ...$keys ): array {
+		$sink = new Capture_Sink_Node();
+		$table->sink( $sink );
+		$table->fill( $this->request( 'MGET ' . \implode( ' ', $keys ) ) );
+		$found = [];
+		foreach ( $sink->captured as $reply ) {
+			if ( 0 === ( $reply[ Message::TYPE ] & ( Message::TM_INFO | Message::TM_ERROR ) ) ) {
+				$found[ $reply[ Message::KEY ] ] = $reply[ Message::VALUE ];
+			}
+		}
+		return $found;
 	}
 
 	public function test_get_request_replies_bytestream_for_a_scalar_value(): void {
@@ -190,13 +209,14 @@ class TableNodeTest extends TestCase {
 		$this->assertSame( [ $info ], $sink->captured );
 	}
 
-	public function test_arguments_without_memcached_throws(): void {
-		Core::$memd = null;
-		$table      = new Table_Node();
-		$table->name( 'prices:table' );
-		$this->expectException( \LogicException::class );
-		$this->expectExceptionMessageMatches( '/memcached/' );
-		$table->arguments( [ 'prices', '37' ] );
+	public function test_an_auto_table_on_a_host_with_no_cache_backend_is_table_unavailable(): void {
+		Core::$memd                 = null;
+		Cache_Backend::$apcu_usable = static fn (): bool => false;
+		try {
+			$this->assert_unavailable( fn () => $this->table( 'kea:p3', '37' ), 'Table prices:table: auto backend finds neither memcached nor APCu' );
+		} finally {
+			Cache_Backend::$apcu_usable = null;
+		}
 	}
 
 	public function test_a_stored_false_reads_back_as_false_not_missing(): void {
@@ -424,10 +444,10 @@ class TableNodeTest extends TestCase {
 	}
 
 	public function test_store_multi_writes_every_entry_in_one_backend_call(): void {
-		// lookup_multi()'s missing half. ELN's stats flush issues one
-		// read-modify-write per key and two of its loops are per URL, so the
-		// write path is where a full-window replay decays. Seeds distinct from
-		// every default: three skus, values 707/808/909.
+		// ELN's stats flush issues one read-modify-write per key and two of
+		// its loops are per URL, so the write path is where a full-window
+		// replay decays. Seeds distinct from every default: three skus,
+		// values 707/808/909.
 		$table = Table_Node::table( 'prices', 60 );
 
 		$this->assertTrue( $table->store_multi( [
@@ -438,7 +458,7 @@ class TableNodeTest extends TestCase {
 
 		$this->assertSame(
 			[ 'sku-707' => [ 'usd' => 707 ], 'sku-808' => [ 'usd' => 808 ], 'sku-909' => [ 'usd' => 909 ] ],
-			$table->lookup_multi( [ 'sku-707', 'sku-808', 'sku-909' ] ),
+			$this->mget( $table, 'sku-707', 'sku-808', 'sku-909' ),
 			'every entry must be readable back under the caller\'s own key'
 		);
 	}
@@ -450,7 +470,7 @@ class TableNodeTest extends TestCase {
 		$this->assertTrue( $table->store_multi( [ '9777777777777' => [ 'usd' => 41 ] ] ) );
 		$this->assertSame(
 			[ '9777777777777' => [ 'usd' => 41 ] ],
-			$table->lookup_multi( [ '9777777777777' ] )
+			$this->mget( $table, '9777777777777' )
 		);
 	}
 
@@ -459,7 +479,7 @@ class TableNodeTest extends TestCase {
 		$this->assertTrue( $table->store_multi( [] ), 'an empty batch is a no-op, not a failure' );
 	}
 
-	public function test_lookup_multi_asks_the_backing_once_for_every_miss(): void {
+	public function test_mget_asks_the_backing_once_for_every_miss(): void {
 		$table = Table_Node::table( 'prices', 60 );
 		$table->store( 'sku-1', [ 'usd' => 100 ] );
 		$calls = 0;
@@ -470,7 +490,7 @@ class TableNodeTest extends TestCase {
 			}
 		);
 
-		$found = $table->lookup_multi( [ 'sku-1', 'sku-2', 'sku-3' ] );
+		$found = $this->mget( $table, 'sku-1', 'sku-2', 'sku-3' );
 
 		$this->assertSame(
 			[ 'sku-1' => [ 'usd' => 100 ], 'sku-2' => [ 'usd' => 200 ], 'sku-3' => [ 'usd' => 300 ] ],
@@ -503,9 +523,9 @@ class TableNodeTest extends TestCase {
 			}
 		);
 
-		$this->assertSame( [ 'sku-2' => [ 'usd' => 200 ] ], $table->lookup_multi( [ 'sku-2', 'sku-5', 'sku-6' ] ) );
+		$this->assertSame( [ 'sku-2' => [ 'usd' => 200 ] ], $this->mget( $table, 'sku-2', 'sku-5', 'sku-6' ) );
 		$this->assertNull( $table->lookup( 'sku-5' ) );
-		$this->assertSame( [ 'sku-2' => [ 'usd' => 200 ] ], $table->lookup_multi( [ 'sku-2', 'sku-5', 'sku-6' ] ) );
+		$this->assertSame( [ 'sku-2' => [ 'usd' => 200 ] ], $this->mget( $table, 'sku-2', 'sku-5', 'sku-6' ) );
 
 		$this->assertSame( [ [ 'sku-2', 'sku-5', 'sku-6' ], [ 'sku-5' ], [ 'sku-5', 'sku-6' ] ], $calls );
 		$this->assertSame(
@@ -531,7 +551,7 @@ class TableNodeTest extends TestCase {
 		$this->memd->set( Table_Node::entry_key( 'prices', 'sku-4471' ), "\0table:absent", 600 );
 
 		$this->assertSame( "\0table:absent", $table->lookup( 'sku-4471' ) );
-		$this->assertSame( [ 'sku-4471' => "\0table:absent" ], $table->lookup_multi( [ 'sku-4471' ] ) );
+		$this->assertSame( [ 'sku-4471' => "\0table:absent" ], $this->mget( $table, 'sku-4471' ) );
 		$this->assertSame( 0, $asked, 'a hit never reaches the backing' );
 	}
 
@@ -588,89 +608,6 @@ class TableNodeTest extends TestCase {
 			$this->memd->expiries(),
 			'and takes no cache slot: a spent remainder is not worth warming'
 		);
-	}
-
-	public function test_lookup_multi_returns_found_only_keyed_by_the_callers_key(): void {
-		// One backend round trip for a set of keys — what ELN's Stats_Store
-		// reads a page of URL buckets through.
-		$table = Table_Node::table( 'prices', 60 );
-		$table->store( 'sku-1', [ 'usd' => 100 ] );
-		$table->store( 'sku-3', [ 'usd' => 300 ] );
-
-		$found = $table->lookup_multi( [ 'sku-1', 'sku-2', 'sku-3' ] );
-
-		$this->assertSame(
-			[ 'sku-1' => [ 'usd' => 100 ], 'sku-3' => [ 'usd' => 300 ] ],
-			$found,
-			'absent keys are omitted, present ones keyed as the caller asked'
-		);
-	}
-
-	public function test_lookup_multi_is_empty_when_the_backend_goes_away(): void {
-		// table() refuses to build without one, so the loss happens after: a
-		// memcached that dies mid-process reads as an empty table, not a throw.
-		$table      = Table_Node::table( 'prices', 60 );
-		$prev       = Core::$memd;
-		Core::$memd = null;
-		try {
-			$this->assertSame( [], $table->lookup_multi( [ 'sku-1' ] ) );
-		} finally {
-			Core::$memd = $prev;
-		}
-	}
-
-	public function test_lookup_multi_reports_a_broken_batch_to_a_caller_that_asks(): void {
-		// The value is stored, but a batch that fails reads as all-miss; a
-		// caller merging onto it must learn the read never happened.
-		$table = Table_Node::table( 'prices', 60 );
-		$table->store( 'sku-6120', [ 'usd' => 6120 ] );
-		Core::$memd = new class() extends InMemoryMemcached {
-			public function getMulti( array $keys, int $get_flags = 0 ): array|false {
-				return false;
-			}
-		};
-
-		$failed = false;
-		$this->assertSame( [], $table->lookup_multi( [ 'sku-6120' ], $failed ) );
-		$this->assertTrue( $failed );
-	}
-
-	public function test_lookup_multi_reports_a_backing_rescue_as_a_failed_batch_still(): void {
-		// The backing answers for what it holds; a key it does not hold is
-		// unread rather than absent, so the batch still reports its failure.
-		$table = Table_Node::table( 'prices', 60 );
-		$table->backed_by( static fn ( array $keys ): array => [ 'sku-71' => [ 'value' => [ 'usd' => 71 ] ] ] );
-		Core::$memd = new class() extends InMemoryMemcached {
-			public function getMulti( array $keys, int $get_flags = 0 ): array|false {
-				return false;
-			}
-		};
-
-		$failed = false;
-		$this->assertSame( [ 'sku-71' => [ 'usd' => 71 ] ], $table->lookup_multi( [ 'sku-71', 'sku-72' ], $failed ) );
-		$this->assertTrue( $failed );
-	}
-
-	public function test_lookup_multi_reports_no_failure_for_a_read_that_answered(): void {
-		$table = Table_Node::table( 'prices', 60 );
-		$table->store( 'sku-5150', [ 'usd' => 5150 ] );
-
-		$failed = true;
-		$this->assertSame( [ 'sku-5150' => [ 'usd' => 5150 ] ], $table->lookup_multi( [ 'sku-5150', 'sku-absent' ], $failed ) );
-		$this->assertFalse( $failed );
-	}
-
-	public function test_lookup_multi_reports_a_lost_backend_as_a_failed_read(): void {
-		$table      = Table_Node::table( 'prices', 60 );
-		$prev       = Core::$memd;
-		Core::$memd = null;
-		try {
-			$failed = false;
-			$this->assertSame( [], $table->lookup_multi( [ 'sku-1' ], $failed ) );
-			$this->assertTrue( $failed, 'no backend answered, so nothing was read' );
-		} finally {
-			Core::$memd = $prev;
-		}
 	}
 
 	public function test_a_request_naming_an_unknown_verb_is_refused_to_its_asker(): void {
@@ -1053,18 +990,6 @@ class TableNodeTest extends TestCase {
 		$this->assertArrayNotHasKey( 'default', $ttl, 'the make_node line is the one place a Table\'s TTL lives' );
 	}
 
-	public function test_a_table_whose_backend_cannot_open_throws_at_construction(): void {
-		Sqlite_Arm::$available  = static fn (): bool => false;
-		Core::$var['partition'] = '3';
-		try {
-			$this->expectExceptionMessage( 'Table prices:table: sqlite backend needs the pdo_sqlite extension' );
-			$this->table( 'prices', '37', 'sqlite' );
-		} finally {
-			Sqlite_Arm::$available = null;
-			unset( Core::$var['partition'] );
-		}
-	}
-
 	public function test_a_cooperative_stop_raised_while_opening_propagates_unwrapped(): void {
 		$stop                   = new \Newspack_Nodes\Worker_Should_Stop( 'stop 37' );
 		Sqlite_Arm::$available  = static fn (): bool => throw $stop;
@@ -1079,23 +1004,150 @@ class TableNodeTest extends TestCase {
 
 	public function test_an_unmounted_sqlite_table_without_a_bound_partition_is_refused(): void {
 		unset( Core::$var['partition'] );
-		$this->expectExceptionMessage( 'Table prices:table: a sqlite backend needs a bound partition' );
-		$this->table( 'kea:p3', '37', 'sqlite' );
+		$e = $this->caught( fn () => $this->table( 'kea:p3', '37', 'sqlite' ), 'a sqlite Table opened with no partition' );
+		$this->assertNotInstanceOf( Table_Unavailable::class, $e, 'a missing partition is the declaration\'s fault' );
+		$this->assertSame( 'Table prices:table: a sqlite backend needs a bound partition', $e->getMessage() );
 	}
 
-	public function test_a_named_memcache_backend_needs_a_handle(): void {
+	/**
+	 * A backend that cannot open is Table_Unavailable, naming the Table and
+	 * carrying the arm's own refusal, escaped once, as its previous.
+	 *
+	 * @param \Closure(): mixed $open    Builds the Table.
+	 * @param string            $message The whole refusal, `Table <name>: <cause>`.
+	 */
+	private function assert_unavailable( \Closure $open, string $message ): void {
+		$e = $this->caught( $open, 'a backend that cannot open was built' );
+		$this->assertInstanceOf( Table_Unavailable::class, $e, \get_class( $e ) . ": {$e->getMessage()}" );
+		$this->assertSame( $message, $e->getMessage() );
+		$this->assertNotNull( $e->getPrevious() );
+		$this->assertStringEndsWith( \esc_html( $e->getPrevious()->getMessage() ), $message );
+	}
+
+	public function test_a_missing_pdo_sqlite_is_table_unavailable(): void {
+		Sqlite_Arm::$available  = static fn (): bool => false;
+		Core::$var['partition'] = '3';
+		try {
+			$this->assert_unavailable( fn () => $this->table( 'kea:p3', '37', 'sqlite' ), 'Table prices:table: sqlite backend needs the pdo_sqlite extension' );
+		} finally {
+			Sqlite_Arm::$available = null;
+			unset( Core::$var['partition'] );
+		}
+	}
+
+	public function test_a_sqlite_file_that_cannot_open_is_table_unavailable(): void {
+		$dir = $this->base_dir( 'table-unopenable-' );
+		\mkdir( "{$dir}/tables/lab-7:kea.p3.sqlite", 0700, true );
+		Core::$var['partition'] = '3';
+		try {
+			$table = new Table_Node();
+			$table->name( 'lab-7:kea' );
+			$this->assert_unavailable( static fn () => $table->arguments( [ 'kea:p3', '37', 'sqlite' ] ), "Table lab-7:kea: sqlite backend could not open {$dir}/tables/lab-7:kea.p3.sqlite: SQLSTATE[HY000] [14] unable to open database file" );
+		} finally {
+			unset( Core::$var['partition'] );
+		}
+	}
+
+	public function test_a_sqlite_directory_that_cannot_be_written_is_table_unavailable(): void {
+		$dir = $this->base_dir( 'table-unwritable-' );
+		\mkdir( "{$dir}/tables", 0500 );
+		try {
+			$this->assert_unavailable( static fn () => Table_Node::table( 'kea:p3', 37, 'sqlite' ), "Table kea:p3: sqlite backend could not open {$dir}/tables/kea:p3.p0.sqlite: SQLSTATE[HY000] [14] unable to open database file" );
+		} finally {
+			\chmod( "{$dir}/tables", 0700 );
+		}
+	}
+
+	public function test_a_wpdb_table_the_server_will_not_create_is_table_unavailable(): void {
+		$prev                     = $GLOBALS['wpdb'];
+		$db                       = new Sqlite_Wpdb();
+		$db->base_prefix          = 'kea9_';
+		$db->deny['CREATE TABLE'] = 'CREATE command denied';
+		$GLOBALS['wpdb']          = $db;
+		try {
+			$this->assert_unavailable( fn () => $this->table( 'kea:p3', '37', 'wpdb' ), 'Table prices:table: wpdb backend could not create kea9_newspack_nodes_table: CREATE command denied' );
+		} finally {
+			$GLOBALS['wpdb'] = $prev;
+		}
+	}
+
+	public function test_a_wpdb_packet_limit_the_server_will_not_say_is_table_unavailable(): void {
+		$prev                             = $GLOBALS['wpdb'];
+		$db                               = new Sqlite_Wpdb();
+		$db->base_prefix                  = 'kea9_';
+		$db->deny['@@max_allowed_packet'] = 'SELECT command denied';
+		$GLOBALS['wpdb']                  = $db;
+		try {
+			$this->assert_unavailable( fn () => $this->table( 'kea:p3', '37', 'wpdb' ), 'Table prices:table: wpdb backend could not read max_allowed_packet: SELECT command denied' );
+		} finally {
+			$GLOBALS['wpdb'] = $prev;
+		}
+	}
+
+	public function test_a_memcache_table_with_no_handle_is_table_unavailable(): void {
 		Core::$memd = null;
-		$this->expectExceptionMessage( 'Table prices:table: memcache backend has no memcached handle' );
-		$this->table( 'kea:p3', '37', 'memcache' );
+		$this->assert_unavailable( fn () => $this->table( 'kea:p3', '37', 'memcache' ), 'Table prices:table: memcache backend has no memcached handle' );
 	}
 
-	public function test_a_named_apcu_backend_needs_apcu(): void {
+	public function test_an_apcu_table_where_apcu_is_unusable_is_table_unavailable(): void {
 		Cache_Backend::$apcu_usable = static fn (): bool => false;
 		try {
-			$this->expectExceptionMessage( 'Table prices:table: apcu backend is not usable here' );
-			$this->table( 'kea:p3', '37', 'apcu' );
+			$this->assert_unavailable( fn () => $this->table( 'kea:p3', '37', 'apcu' ), 'Table prices:table: apcu backend is not usable here' );
 		} finally {
 			Cache_Backend::$apcu_usable = null;
+		}
+	}
+
+	/**
+	 * A Table built fresh under `$name`, so one refusal cannot leave a
+	 * registration that makes the next read as a name collision.
+	 *
+	 * @param list<string> $args The make_node arguments.
+	 */
+	private function named_table( string $name, array $args ): void {
+		$table = new Table_Node();
+		$table->name( $name );
+		$table->arguments( $args );
+	}
+
+	public function test_a_declaration_the_table_refuses_is_not_table_unavailable(): void {
+		$dir             = $this->base_dir( 'table-declared-' );
+		$prev            = $GLOBALS['wpdb'];
+		$db              = new Sqlite_Wpdb();
+		$db->base_prefix = 'kea9_';
+		$GLOBALS['wpdb'] = $db;
+		$wide            = \str_repeat( 'k', 192 );
+		$refusals        = [
+			'Table kea-ttl needs a TTL of at least 1 whole second, not soon' => fn () => $this->named_table( 'kea-ttl', [ 'kea:p3', 'soon', 'sqlite' ] ),
+			'Table backend must be one of auto, memcache, apcu, sqlite, wpdb, not redis' => fn () => $this->named_table( 'kea-redis', [ 'kea:p3', '37', 'redis' ] ),
+			"Table kea-wide: wpdb backend cannot hold namespace {$wide}" => fn () => $this->named_table( 'kea-wide', [ $wide, '37', 'wpdb' ] ),
+			'Table lab..kea: Table name lab..kea cannot name a file' => fn () => $this->named_table( 'lab..kea', [ 'kea:p3', '37', 'sqlite' ] ),
+			'Table kea-base: base_directory not configured' => function () use ( $dir ): void {
+				$this->use_base_dir( $dir, [ 'base_directory' => '' ] );
+				$this->named_table( 'kea-base', [ 'kea:p3', '37', 'sqlite' ] );
+			},
+			"Table kea-link: Path {$dir}/tables resolves to " => function () use ( $dir ): void {
+				$this->use_base_dir( $dir );
+				\mkdir( "{$dir}/elsewhere", 0700 );
+				\symlink( "{$dir}/elsewhere", "{$dir}/tables" );
+				$this->named_table( 'kea-link', [ 'kea:p3', '37', 'sqlite' ] );
+			},
+		];
+		Core::$var['partition'] = '3';
+		try {
+			foreach ( $refusals as $message => $open ) {
+				$e = null;
+				try {
+					$open();
+				} catch ( \RuntimeException | \LogicException $e ) {
+					$this->assertNotInstanceOf( Table_Unavailable::class, $e, $message );
+					$this->assertStringStartsWith( $message, $e->getMessage() );
+				}
+				$this->assertNotNull( $e, "{$message} was taken" );
+			}
+		} finally {
+			$GLOBALS['wpdb'] = $prev;
+			unset( Core::$var['partition'] );
 		}
 	}
 
@@ -1120,7 +1172,7 @@ class TableNodeTest extends TestCase {
 			);
 			$this->assertSame( [], $this->memd->keys(), 'and nowhere in memcached' );
 			Core::$memd = null;
-			$this->assertSame( [ 'sku-41' => [ 'usd' => 41 ], 'sku-43' => [ 'usd' => 43 ] ], $table->lookup_multi( [ 'sku-41', 'sku-43', 'sku-44' ] ) );
+			$this->assertSame( [ 'sku-41' => [ 'usd' => 41 ], 'sku-43' => [ 'usd' => 43 ] ], $this->mget( $table, 'sku-41', 'sku-43', 'sku-44' ) );
 			$this->assertTrue( $table->touch( 'sku-41', 777 ) );
 			$table->forget( 'sku-43' );
 			$this->assertNull( $table->lookup( 'sku-43' ) );

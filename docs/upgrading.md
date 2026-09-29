@@ -6,6 +6,24 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **`Table_Node::lookup_multi()` is gone.** Read a batch through the Table
+  protocol: send `MGET <keys…>` from a node, or call
+  `Table_Client::get_multi()`, which sets `$failed` only when a key went
+  unread. A caller that needs one key reads `Table_Node::lookup()`.
+- **A Table whose backend cannot open throws `Table_Unavailable`,** a
+  `\RuntimeException`, so a catch written for a named backend's old refusal
+  still takes it. An `auto` Table on a host with neither memcached nor APCu
+  threw `\LogicException( 'Table requires memcached or APCu' )`; it throws
+  `Table_Unavailable` now, so a `catch ( \LogicException )` around it catches
+  `Table_Unavailable` instead, or the caller guards on
+  `Cache_Backend::shared_first()` first. A caller that should degrade when
+  the backend is missing — pdo_sqlite absent, a file that will not open, a
+  `wpdb` table the server will not create — catches `Table_Unavailable` alone
+  and lets a misconfiguration fail loud: an `\InvalidArgumentException` for
+  a bad namespace, TTL or backend name, or a plain `\RuntimeException` for a
+  Table two topologies declare differently.
+- **`Durable_Arm::serializer()` is public.** A caller that repeated its rule,
+  reading `Core::$memd`'s `OPT_SERIALIZER`, calls it instead.
 - **A Table's TTL is required and at least one second.** `make_node Table
   <name> <namespace> <ttl> [ <backend> ]` refuses a missing TTL, and
   `Table_Node::table( $ns, $ttl )` has no default, so pass the lifetime an
@@ -89,9 +107,10 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   `request_reloads( $base_dir, $consumers )`,
   `signal_workers( $base_dir, $workers, $signal )`. Pass
   `Config::get_base_directory_with_locks()`, which refuses a `{base}/locks`
-  that is a symlink or belongs to another uid, as the removed
-  `Config::get_locks_directory()` did. That accessor is gone, and with it
-  event-logger-nodes' `Config::get_locks_directory()`;
+  that is a symlink or belongs to another uid, as
+  `Config::get_locks_directory()` does. The substrate keeps that accessor
+  only for nuclear-gyrobase 1.14.x, which calls it; event-logger-nodes'
+  `Config::get_locks_directory()` is gone;
   `Spawn_Coordinator::locks_dir( $base_dir )` names the directory, and
   `Spawn_Coordinator::lock_path()` one worker's lock dir within it.
 - **`Worker_Base::ipc_dir()` takes the leg,** `ipc_dir( $base_dir, $type,
