@@ -378,10 +378,10 @@ class Event_Framework {
 	 * so `pump()`, raises nothing while it runs. A stop that fell due inside
 	 * raises at the first check after it, because a held check leaves the pump
 	 * throttle where it was. `Consumer_Node`'s checkpoint writer runs the
-	 * snapshot saves and the frame commit this way, since a save that writes —
-	 * Flame_Builder's stats mirror — would otherwise stop between the state it
-	 * saved and the frame carrying that state. Reentrant: a nested unit hands
-	 * the outer one back its hold.
+	 * snapshot saves and the frame commit this way, since a save that writes,
+	 * as Flame_Builder's flush into its stats Tables does, would otherwise
+	 * stop between the state it saved and the frame carrying that state.
+	 * Reentrant: a nested unit hands the outer one back its hold.
 	 *
 	 * @param \Closure(): void $work The unit.
 	 * @throws \Throwable Whatever $work throws.

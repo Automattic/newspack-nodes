@@ -74,6 +74,21 @@ final class BootstrapNodeTablesTest extends TestCase {
 		parent::tearDown();
 	}
 
+	/**
+	 * Each named partition's SQLite file, created as its worker creates it,
+	 * holding `sku-{p}` under the `{bird}:p{p}` namespace every `.tsl` here
+	 * declares.
+	 *
+	 * @param string $table         A declared `lab-7:{bird}` Table.
+	 * @param int    ...$partitions Its partitions.
+	 */
+	private function write_files( string $table, int ...$partitions ): void {
+		$bird = \substr( $table, \strlen( 'lab-7:' ) );
+		foreach ( $partitions as $p ) {
+			( new Sqlite_Arm( Table_Node::file( $table, $p ) ) )->set( Table_Node::entry_key( "{$bird}:p{$p}", "sku-{$p}" ), "{$table}.p{$p}", 0 );
+		}
+	}
+
 	private function activate( string ...$names ): void {
 		\update_option( 'newspack_nodes_topologies', $names );
 		Config::reset();
@@ -202,6 +217,8 @@ final class BootstrapNodeTablesTest extends TestCase {
 	public function test_mount_table_mounts_every_partition_of_every_name_once(): void {
 		$this->write_tsl( 'rook-a', "var num_partitions = 3\nmake_node Table lab-7:rook rook:p<partition> 37 sqlite\n" );
 		$this->activate( 'kea-a', 'rook-a' );
+		$this->write_files( 'lab-7:kea', 0, 1 );
+		$this->write_files( 'lab-7:rook', 0, 1, 2 );
 		Bootstrap::mount_request_graph();
 		$this->assertSame(
 			[
@@ -209,27 +226,40 @@ final class BootstrapNodeTablesTest extends TestCase {
 				'lab-7:rook' => [ 0 => 'lab-7:rook.p0', 1 => 'lab-7:rook.p1', 2 => 'lab-7:rook.p2' ],
 				'lab-7:gone' => [],
 			],
-			Bootstrap::mount_table( [ 'lab-7:kea', 'lab-7:rook', 'lab-7:gone' ], $built )
+			Bootstrap::mount_table( [ 'lab-7:kea', 'lab-7:rook', 'lab-7:gone' ] )
 		);
-		$this->assertSame( [ 'lab-7:kea.p0', 'lab-7:kea.p1', 'lab-7:rook.p0', 'lab-7:rook.p1', 'lab-7:rook.p2' ], $built );
-		$this->assertFileExists( "{$this->base}/tables/lab-7:rook.p2.sqlite" );
+		$this->assertSame( 'lab-7:rook.p2', Core::node( 'lab-7:rook.p2' )->lookup( 'sku-2' ) );
 		$this->assertInstanceOf( Table_Node::class, Core::node( 'lab-7:kea.p1' ) );
 		$this->assertSame( Core::node( Node_Names::COMMAND_INTERPRETER ), Core::node( 'lab-7:kea.p1' )->sink() );
 	}
 
-	public function test_mount_table_keeps_a_mounted_stem(): void {
+	public function test_mount_table_is_idempotent_within_a_request_and_builds_each_arm_once(): void {
 		$this->activate( 'kea-a' );
+		$this->write_files( 'lab-7:kea', 0, 1 );
 		Bootstrap::mount_request_graph();
-		Bootstrap::mount_table( [ 'lab-7:kea' ] );
-		$mounted = Core::node( 'lab-7:kea.p1' );
-		$this->assertSame( [ 'lab-7:kea' => [ 0 => 'lab-7:kea.p0', 1 => 'lab-7:kea.p1' ] ], Bootstrap::mount_table( [ 'lab-7:kea' ], $built ) );
-		$this->assertSame( [], $built, 'a mounted stem is kept, not rebuilt' );
-		$this->assertSame( $mounted, Core::node( 'lab-7:kea.p1' ) );
+		$opens                 = 0;
+		Sqlite_Arm::$available = static function () use ( &$opens ): bool {
+			++$opens;
+			return true;
+		};
+		try {
+			$first   = Bootstrap::mount_table( [ 'lab-7:kea' ] );
+			$mounted = Core::node( 'lab-7:kea.p1' );
+			$again   = Bootstrap::mount_table( [ 'lab-7:kea' ] );
+		} finally {
+			Sqlite_Arm::$available = null;
+		}
+		$this->assertSame( [ 'lab-7:kea' => [ 0 => 'lab-7:kea.p0', 1 => 'lab-7:kea.p1' ] ], $again );
+		$this->assertSame( $first, $again );
+		$this->assertSame( 2, $opens, 'two partitions, each arm built once across both calls' );
+		$this->assertSame( $mounted, Core::node( 'lab-7:kea.p1' ), 'the second call builds nothing' );
 	}
 
 	public function test_mount_table_reads_the_active_set_once_for_every_name(): void {
 		$this->write_tsl( 'rook-a', "var num_partitions = 3\nmake_node Table lab-7:rook rook:p<partition> 37 sqlite\n" );
 		$this->activate( 'kea-a', 'rook-a' );
+		$this->write_files( 'lab-7:kea', 0, 1 );
+		$this->write_files( 'lab-7:rook', 0, 1, 2 );
 		Bootstrap::mount_request_graph();
 		$reads         = 0;
 		$this->counter = static function ( array $topologies ) use ( &$reads ): array {
@@ -241,18 +271,19 @@ final class BootstrapNodeTablesTest extends TestCase {
 		$this->assertSame( 1, $reads );
 	}
 
-	public function test_mount_table_reports_what_it_built_before_a_partition_fails(): void {
+	public function test_mount_table_unmounts_what_it_built_before_a_partition_fails(): void {
 		$this->write_tsl( 'rook-a', "var num_partitions = 3\nmake_node Table lab-7:rook rook:p<partition> 37 sqlite\n" );
 		$this->activate( 'kea-a', 'rook-a' );
+		$this->write_files( 'lab-7:kea', 0, 1 );
+		$this->write_files( 'lab-7:rook', 0 );
 		Bootstrap::mount_request_graph();
 		\mkdir( "{$this->base}/tables/lab-7:rook.p1.sqlite", 0700, true );
 		try {
-			Bootstrap::mount_table( [ 'lab-7:kea', 'lab-7:rook' ], $built );
+			Bootstrap::mount_table( [ 'lab-7:kea', 'lab-7:rook' ] );
 			$this->fail( 'a partition whose file cannot open must throw' );
 		} catch ( \RuntimeException $e ) {
 			$this->assertStringContainsString( 'Table lab-7:rook', $e->getMessage() );
 		}
-		$this->assertSame( [], $built, 'what the call built is unmounted again' );
 		foreach ( [ 'lab-7:kea.p0', 'lab-7:kea.p1', 'lab-7:rook.p0', 'lab-7:rook.p1' ] as $stem ) {
 			$this->assertNull( Core::node( $stem ), $stem );
 		}
@@ -261,6 +292,7 @@ final class BootstrapNodeTablesTest extends TestCase {
 	public function test_mount_table_raises_a_backend_that_cannot_open_as_table_unavailable(): void {
 		$this->write_tsl( 'rook-a', "var num_partitions = 3\nmake_node Table lab-7:rook rook:p<partition> 37 sqlite\n" );
 		$this->activate( 'rook-a' );
+		$this->write_files( 'lab-7:rook', 0, 1 );
 		Bootstrap::mount_request_graph();
 		\mkdir( "{$this->base}/tables/lab-7:rook.p2.sqlite", 0700, true );
 		$e = $this->caught( static fn () => Bootstrap::mount_table( [ 'lab-7:rook' ] ), 'a partition whose file cannot open was mounted' );
@@ -271,6 +303,7 @@ final class BootstrapNodeTablesTest extends TestCase {
 	public function test_mount_table_raises_a_failed_teardown_beside_the_backend_that_could_not_open(): void {
 		$this->write_tsl( 'rook-a', "var num_partitions = 3\nmake_node Table lab-7:rook rook:p<partition> 37 sqlite\n" );
 		$this->activate( 'rook-a' );
+		$this->write_files( 'lab-7:rook', 0, 1, 2 );
 		Bootstrap::mount_request_graph();
 		$refusal = new \LogicException( 'teardown refused-41' );
 		$sibling = new class( $refusal ) extends Node {
@@ -297,11 +330,10 @@ final class BootstrapNodeTablesTest extends TestCase {
 			)( $sibling );
 			return false;
 		};
-		$built = null;
 		try {
 			$e = $this->caught(
-				static function () use ( &$built ): void {
-					Bootstrap::mount_table( [ 'lab-7:rook' ], $built );
+				static function (): void {
+					Bootstrap::mount_table( [ 'lab-7:rook' ] );
 				},
 				'a partition whose backend cannot open was mounted'
 			);
@@ -312,7 +344,6 @@ final class BootstrapNodeTablesTest extends TestCase {
 		$this->assertInstanceOf( Table_Unavailable::class, $e->getPrevious() );
 		$this->assertSame( 'Table lab-7:rook: sqlite backend needs the pdo_sqlite extension', $e->getPrevious()->getMessage() );
 		$this->assertSame( $refusal, $e->all()[1] );
-		$this->assertSame( [], $built );
 		$this->assertNull( Core::node( 'lab-7:rook.p0' ) );
 	}
 
@@ -329,6 +360,7 @@ final class BootstrapNodeTablesTest extends TestCase {
 	public function test_a_failed_mount_keeps_what_an_earlier_call_mounted(): void {
 		$this->write_tsl( 'rook-a', "var num_partitions = 3\nmake_node Table lab-7:rook rook:p<partition> 37 sqlite\n" );
 		$this->activate( 'kea-a', 'rook-a' );
+		$this->write_files( 'lab-7:kea', 0, 1 );
 		Bootstrap::mount_request_graph();
 		Bootstrap::mount_table( [ 'lab-7:kea' ] );
 		\mkdir( "{$this->base}/tables/lab-7:rook.p1.sqlite", 0700, true );
@@ -342,6 +374,7 @@ final class BootstrapNodeTablesTest extends TestCase {
 
 	public function test_a_mounted_table_refuses_a_write_through_the_graph(): void {
 		$this->activate( 'kea-a' );
+		$this->write_files( 'lab-7:kea', 0, 1 );
 		Bootstrap::mount_request_graph();
 		Bootstrap::mount_table( [ 'lab-7:kea' ] );
 		$asker = new Capture_Sink_Node();
@@ -356,6 +389,90 @@ final class BootstrapNodeTablesTest extends TestCase {
 		}
 		$types = \array_map( static fn ( array $m ): int => Core::num_int( $m[ Message::TYPE ] ) & Message::TM_ERROR, $asker->captured );
 		$this->assertSame( [ Message::TM_ERROR, Message::TM_ERROR ], $types );
+	}
+
+	public function test_node_tables_resolves_a_name_once_until_the_parsed_topologies_are_dropped(): void {
+		$this->activate( 'kea-a' );
+		$reads         = 0;
+		$this->counter = static function ( array $topologies ) use ( &$reads ): array {
+			++$reads;
+			return $topologies;
+		};
+		\add_filter( 'newspack_nodes/topologies', $this->counter );
+		Bootstrap::node_tables( 'lab-7:kea' );
+		$this->assertSame( 777, Bootstrap::node_tables( 'lab-7:kea' )['lab-7:kea'][1]['ttl'] );
+		$this->assertSame( 1, $reads, 'a name resolved in this request is not resolved again' );
+		$this->write_tsl( 'kea-a', "var num_partitions = 2\nmake_node Table lab-7:kea kea:p<partition> 555 sqlite\n" );
+		Topology_Registry::reset_basename_cache();
+		$this->assertSame( 555, Bootstrap::node_tables( 'lab-7:kea' )['lab-7:kea'][1]['ttl'], 'a saved topology drops the memo' );
+		$this->activate( 'kea-b' );
+		$this->assertSame( [ 0, 1, 2 ], \array_keys( Bootstrap::node_tables( 'lab-7:kea' )['lab-7:kea'] ), 'an activation drops the memo' );
+		$this->assertSame( 900, Bootstrap::node_tables( 'lab-7:kea' )['lab-7:kea'][2]['ttl'] );
+	}
+
+	public function test_the_active_set_invalidation_every_activation_shares_drops_the_memo(): void {
+		$this->activate( 'kea-a' );
+		$this->assertSame( 777, Bootstrap::node_tables( 'lab-7:kea' )['lab-7:kea'][1]['ttl'] );
+		\update_option( 'newspack_nodes_topologies', [ 'kea-b' ] );
+		Topology_Registry::invalidate_config_cache();
+		$this->assertSame( 900, Bootstrap::node_tables( 'lab-7:kea' )['lab-7:kea'][2]['ttl'] );
+	}
+
+	public function test_node_tables_answers_every_name_it_was_asked_in_order(): void {
+		$this->activate( 'kea-a', 'owl-c' );
+		Bootstrap::node_tables( 'lab-7:owl' );
+		$this->assertSame( [ 'lab-7:kea', 'lab-7:owl' ], \array_keys( Bootstrap::node_tables( 'lab-7:kea', 'lab-7:owl' ) ) );
+	}
+
+	public function test_a_partition_no_worker_has_written_mounts_empty_beside_one_that_has(): void {
+		$this->activate( 'kea-a' );
+		Bootstrap::mount_request_graph();
+		$this->write_files( 'lab-7:kea', 0 );
+		Bootstrap::mount_table( [ 'lab-7:kea' ] );
+		$this->assertSame( 'lab-7:kea.p0', Core::node( 'lab-7:kea.p0' )->lookup( 'sku-0' ) );
+		$asker = new Capture_Sink_Node();
+		$asker->name( 'kea-asker' );
+		$request                   = Message::new_message();
+		$request[ Message::TYPE ]  = Message::TM_REQUEST;
+		$request[ Message::FROM ]  = 'kea-asker';
+		$request[ Message::TO ]    = 'lab-7:kea.p1';
+		$request[ Message::VALUE ] = "MGET sku-0 sku-1\n";
+		Core::node( Node_Names::COMMAND_INTERPRETER )->fill( $request );
+		$this->assertSame( [ [ Message::TM_INFO, "MGET 0\n" ] ], \array_map( static fn ( array $m ): array => [ Core::num_int( $m[ Message::TYPE ] ), $m[ Message::VALUE ] ], $asker->captured ), 'no file is no data, not a failed read' );
+		$this->assertFileDoesNotExist( "{$this->base}/tables/lab-7:kea.p1.sqlite" );
+	}
+
+	public function test_a_mount_creates_no_tables_directory(): void {
+		$this->activate( 'kea-a' );
+		Bootstrap::mount_request_graph();
+		Bootstrap::mount_table( [ 'lab-7:kea' ] );
+		$this->assertNull( Core::node( 'lab-7:kea.p1' )->lookup( 'sku-1' ) );
+		$this->assertDirectoryDoesNotExist( "{$this->base}/tables" );
+	}
+
+	public function test_a_mount_refuses_a_process_running_as_root(): void {
+		$this->activate( 'kea-a' );
+		$this->write_files( 'lab-7:kea', 0, 1 );
+		Bootstrap::mount_request_graph();
+		\Newspack_Nodes\CLI::$uid_provider = static fn (): int => 0;
+		$e = $this->caught( static fn () => Bootstrap::mount_table( [ 'lab-7:kea' ] ), 'a root process mounted a Table' );
+		$this->assertNotInstanceOf( Table_Unavailable::class, $e, 'running as root is the operator\'s to fix, not a backend to degrade past' );
+		$this->assertSame( "Table lab-7:kea: a sqlite mount refuses to run as root: a root reader leaves -wal and -shm files beside {$this->base}/tables/lab-7:kea.p0.sqlite that its worker cannot open", $e->getMessage() );
+		$this->assertNull( Core::node( 'lab-7:kea.p0' ) );
+	}
+
+	public function test_a_mount_refuses_a_symlinked_tables_directory_even_with_no_file_in_it(): void {
+		$this->activate( 'kea-a' );
+		$elsewhere = $this->make_temp_dir( 'node-tables-elsewhere-' );
+		\symlink( $elsewhere, "{$this->base}/tables" );
+		Bootstrap::mount_request_graph();
+		try {
+			$e = $this->caught( static fn () => Bootstrap::mount_table( [ 'lab-7:kea' ] ), 'a symlinked tables directory was adopted' );
+		} finally {
+			\unlink( "{$this->base}/tables" );
+		}
+		$this->assertNotInstanceOf( Table_Unavailable::class, $e, 'an adoption refusal is the operator\'s to fix, not a backend to degrade past' );
+		$this->assertStringContainsString( 'symlink or path traversal detected', $e->getMessage() );
 	}
 
 	public function test_is_active_reads_the_configured_set(): void {

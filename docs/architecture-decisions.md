@@ -718,11 +718,10 @@ firehose write. Broad catches stay legal for real errors but must front the WSS 
 
 **Amendment:** a snapshot node's save may write, and the checkpoint is not a stop boundary. A
 reader co-commits each snapshot node's `save_state()` into its checkpoint frame, and one node
-needs work to land before the cursor does: event-logger-nodes' `Flame_Builder_Node` drains its
-per-URL stats and appends its closed buckets' mirror frames inside `save_state()`, because what
-the checkpoint does not carry is lost to the successor once the cursor has passed it. Those
-writes reach `Partition_Node::maybe_stop()`, and a stop raised there would split the state the
-save produced from the frame meant to carry it. [`Consumer_Node::write_checkpoint_frame()`](../includes/class-consumer-node.php)
+needs work to land before the cursor does: event-logger-nodes' `Flame_Builder_Node` writes its
+pending buckets and per-URL stats to its stats Tables inside `save_state()`, because what the
+checkpoint does not carry is lost to the successor once the cursor has passed it. A stop raised
+while those writes run would split the state the save produced from the frame meant to carry it. [`Consumer_Node::write_checkpoint_frame()`](../includes/class-consumer-node.php)
 therefore runs the saves and the commit inside [`Event_Framework::uninterruptible()`](../includes/class-event-framework.php),
 a scoped window in which `stop_check()` — and so `pump()` — raises nothing, as it already raises
 nothing while `Core::in_stderr()` holds. A held check leaves the pump throttle where it was, so a
@@ -1016,9 +1015,12 @@ of a period and the grid would need its own scale.
 
 **Context:** Read-through over a durable system of record — read a keyed store, miss, fall
 back to the record, store the answer back — has two consumers in `newspack-event-logger-nodes`:
-[`Rule_Set::hooks_for()`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.96.0/includes/class-rule-set.php) over a non-autoloaded option, and the stats mirror over a
-`Partition`, which also needs key translation, TTL decay and a scope guard. An idea two
-consumers in one plugin both need belongs lower down. A restored entry needs the life it has
+[`Rule_Set::hooks_for()`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.96.0/includes/class-rule-set.php) over a non-autoloaded option, and the `performance` CI's `urls`
+page cache over the page it builds. An idea two consumers in one plugin both need belongs lower
+down. The Partition half below was written for a third, event-logger-nodes' stats mirror, which
+needed key translation, TTL decay and a scope guard; the mirror's successor reads durable
+Tables ([ADR-24](#adr-24-a-tables-backend-is-chosen-per-table)) and calls neither `locate_by()` nor `read_many()`, which
+stay while a released event-logger-nodes still calls them. A restored entry needs the life it has
 LEFT, and `Table_Node` fixes TTL at construction, so without a per-entry lifetime a consumer
 reaches past its own store to write, through
 [`Cache_Backend::shared_first()->set()`](../includes/class-cache-backend.php) with a hand-rolled `str_starts_with` namespace
@@ -1094,19 +1096,20 @@ value can collide with and no other table sharing the key can read as a value or
 
 **Context:** [ADR-7](#adr-7-sink-vs-target-and-tofrom-replies) splits destinations two ways:
 `sink` is the physical next hop, `target` is the logical TO path. A third kind exists in
-practice, and neither names it: `Flame_Builder_Node` fills its stats-mirror Partition directly
-at flush, and `Request_Builder_Node` stamps TO per message from one of four routes. Without a
-declaration the console draws those destinations with no inbound edge while they fill.
+practice, and neither names it: `Flame_Builder_Node` addresses each of its three stats Tables
+through a per-message TO its `Table_Client` stamps, and `Request_Builder_Node` stamps TO per
+message from one of four routes. Without a declaration the console draws those destinations with
+no inbound edge while they fill.
 
 **Decision:** [`Node::extra_targets(): list<string>`](../includes/class-node.php) is a DECLARATION, not a route.
 A node returns the destinations it writes without going through `target`;
 `Node::display_targets()` unions them with `target_list( target() )`, primary first,
 de-duplicated, empties dropped, and only presentation reads the union: `ls`'s TARGET column
 and `dump_metadata`'s `targets` key. `fill()` reads `$this->target` alone. This licenses no
-second physical output: ADR-7's reopen condition stands, and `Flame_Builder_Node`'s direct
-partition write is the case that would trigger it.
+second physical output: ADR-7's reopen condition stands, and a node filling a destination
+directly, past its sink and past a TO, is the case that would trigger it.
 
-![Three destination kinds side by side: sink, the physical next hop; target, the routing contract fill() reads and dump_config round-trips; and extra_targets(), the destinations a node writes without routing, such as Flame_Builder_Node's stats-mirror Partition filled at flush and Request_Builder_Node's per-message TO. display_targets() unions target_list( target() ) with the extras, de-duplicated, for ls's TARGET column and dump_metadata's targets key only. Three slot rows show the union is positional: index 0 is the routing target only when one is set. Cards give the rejected alternatives and why this licenses no second physical output.](img/adr-display-targets.png)
+![Three destination kinds side by side: sink, the physical next hop; target, the routing contract fill() reads and dump_config round-trips; and extra_targets(), the destinations a node writes without routing, such as the stats Tables Flame_Builder_Node addresses through a per-message TO and Request_Builder_Node's per-message TO. display_targets() unions target_list( target() ) with the extras, de-duplicated, for ls's TARGET column and dump_metadata's targets key only. Three slot rows show the union is positional: index 0 is the routing target only when one is set. Cards give the rejected alternatives and why this licenses no second physical output.](img/adr-display-targets.png)
 
 **Alternatives considered:** Widening `target` to hold the extras — rejected: it is the
 routing contract, `dump_config()` round-trips it as `connect_node` lines, and a display-only
@@ -1338,7 +1341,9 @@ mounts every Table an active topology declares into the request graph through
 `Bootstrap::mount_table()`, and it too declares MANAGE by declaring no capability. A mount
 serves reads alone: it answers `GET` and `MGET`, and refuses every write request, an
 INSERT, and its `:config` interpreter's `rm` and `vacuum`, because the declaring worker is the
-Table's one writer ([ADR-6](#adr-6-crc32--31-bit-mask-partition-routing)).
+Table's one writer ([ADR-6](#adr-6-crc32--31-bit-mask-partition-routing)). A `sqlite` mount
+opens its file read-only, creates nothing, and reads as empty until its worker has written
+([ADR-24](#adr-24-a-tables-backend-is-chosen-per-table)).
 
 A request may drive a running graph. A declared request answers TO=FROM through
 [`Schema_Reflection::answer_request()`](../includes/trait-schema-reflection.php) with
@@ -1351,9 +1356,9 @@ records.
 `ADD` carry `key => [ value, ttl ]` maps a string cannot hold without an encoding, so they
 travel as `TM_REQUEST | TM_STRUCT` with VALUE `[ 'MSET' => … ]` or `[ 'ADD' => … ]`; every
 other request stays a string. `topologies mount_tables` mounts Tables into a request graph and
-declares MANAGE, as `connect_worker_input` does. A verb below MANAGE that mounts a Table to
-read it removes the mount before it returns, so no later message in the same POST reaches the
-Table.
+declares MANAGE, as `connect_worker_input` does. A Table a verb below MANAGE mounts to read
+stays mounted for the rest of that POST: a later verb or request in it reads through the same
+mount, and `Bootstrap::mount_table()` keeps a mount already there and builds nothing. A verb may mount a Table only when every row it holds is data the verb's declared role may already read, because for the rest of the POST any caller holding that role can `MGET` any key through the mount; a Table holding more is mounted under MANAGE alone.
 
 **Alternatives considered:** Signing requests as commands are signed — rejected: the mount
 already demands MANAGE of every outside caller before a request can reach a worker, so a
@@ -1365,11 +1370,14 @@ rejected: the handler runs in a worker, where no WordPress user is current, so
 Inside a worker, a node filling a request into another — a Timer firing `TICK` at a source —
 acts with the authority that loaded the topology. A verb whose caller must be told apart
 from another MANAGE holder by session scope is a command, because only a command carries
-the minter's session into the worker.
+the minter's session into the worker. A verb may mount a Table only when every row it holds is data the verb's declared role may already read, because for the rest of the POST any caller holding that role can `MGET` any key through the mount; a Table holding more is mounted under MANAGE alone. A mounting verb's output
+is not the bound: `HTTP_In` filters no message type, so a raw `MGET` in the same POST names any
+key, including one the verb never shows.
 
 **Revisit if:** anything writes into a worker's input Partition below MANAGE — a verb that
-mounts it under a lower role, or a second writer beside the attached cli — or a Table mount
-outlives the verb below MANAGE that made it.
+mounts it under a lower role, or a second writer beside the attached cli — or a Table must be
+readable below MANAGE while holding rows that role may not read, or a mount outlives the HTTP
+request (the POST) that made it.
 
 ---
 
@@ -1395,6 +1403,15 @@ inside classes was also invisible to `ls`, `dump_node` and the console.
   ([ADR-6](#adr-6-crc32--31-bit-mask-partition-routing)), and
   `Topology_Analyzer::write_set()` claims the file, so two active topologies cannot both
   write it.
+- The writer alone creates the file, enters WAL and declares its table. A request-graph mount
+  opens it read-only and changes nothing in it. A partition
+  whose worker has not yet written has no file, and its mount reads as empty: every `GET` and
+  `MGET` finds nothing, and each read looks for the file again, so one the worker creates
+  mid-request is read from then on. Each partition mounts on its own, so one idle worker
+  empties only its own partition. A path SQLite cannot open is `Table_Unavailable`; a file
+  that opens but is no database, or holds no table, fails each read instead. A mount in a
+  process running as root is refused as a plain `\RuntimeException`, the operator's to fix,
+  because a root reader can leave `-wal` and `-shm` files its worker cannot open.
 - `wpdb` is one shared table, `{base_prefix}newspack_nodes_table`, keyed by namespace, for
   low-volume Tables every host must read.
 - Every arm stores the same key grammar (`Cache_Backend::site_key()`), so a salt rotation

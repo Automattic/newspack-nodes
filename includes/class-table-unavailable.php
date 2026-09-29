@@ -12,9 +12,11 @@ namespace Newspack_Nodes;
 /**
  * Raised by `Table_Node::arguments()` when the arm its backend names cannot
  * open here: pdo_sqlite missing, a SQLite file or directory that cannot open
- * or refuses WAL mode, a `wpdb` table the server will not create or a packet
- * limit it will not report, no memcached handle, or APCu unusable. The arm's
- * own refusal is the previous.
+ * or refuses WAL mode, a SQLite mount in a process running as root, a `wpdb`
+ * table the server will not create or a packet limit it will not report, no
+ * memcached handle, or APCu unusable. The arm's own refusal is the previous.
+ * A SQLite mount whose file does not exist yet is not one: its worker has
+ * written nothing, so the mount reads as empty.
  *
  * A type of its own so a reader can degrade for exactly this while a
  * misconfiguration — a Table two topologies declare differently, a bad TTL,

@@ -14,7 +14,9 @@
  * A named backend opens once, when the Table's arguments arrive — at topology
  * load for a `make_node` Table — so a backend that cannot open throws there,
  * naming the Table, rather than inside some request's first write. A `sqlite`
- * Table keeps one file per partition, `{base}/tables/{table}.p{N}.sqlite`.
+ * Table keeps one file per partition, `{base}/tables/{table}.p{N}.sqlite`,
+ * which its worker creates; a mount opens that file read-only and creates
+ * nothing, and reads nothing from a partition whose worker has not written.
  *
  * fill() stores KEY→VALUE write-through (the message passes on), so the
  * table composes mid-graph: `… → Table → …`. An INSERT (TM_STRUCT or
@@ -233,7 +235,7 @@ class Table_Node extends Node {
 			return match ( $backend ) {
 				'memcache' => Cache_Backend::memcache_arm() ?? throw new \LogicException( 'memcache backend has no memcached handle' ),
 				'apcu'     => Cache_Backend::apcu_arm() ?? throw new \LogicException( 'apcu backend is not usable here' ),
-				'sqlite'   => new Sqlite_Arm( $file ),
+				'sqlite'   => new Sqlite_Arm( $file, read_only: $this->mounted ),
 				'wpdb'     => new Wpdb_Arm( $namespace ),
 				default    => null === Cache_Backend::shared_first() ? throw new \LogicException( 'auto backend finds neither memcached nor APCu' ) : null,
 			};
@@ -249,17 +251,26 @@ class Table_Node extends Node {
 	/**
 	 * The `sqlite` file this Table opens, its directory resolved through
 	 * `ensure_path()`, so a base or `{base}/tables` that is unusable refuses
-	 * the declaration before any arm opens.
+	 * the declaration before any arm opens. A mount creates nothing: it adopts
+	 * a directory that is there, and with none the mount reads as empty. A
+	 * mount refuses a process running as root, which is the operator's to fix
+	 * as a foreign `{base}/tables` is: SQLite can add `-wal` and `-shm` files
+	 * beside a WAL database, and root's would lock its worker out.
 	 *
 	 * @return string The file.
 	 * @throws \RuntimeException On a base directory or `{base}/tables` that
 	 *                           will not resolve, a name that cannot name a
-	 *                           file, or no bound partition.
+	 *                           file, no bound partition, or a mount as root.
 	 */
 	private function sqlite_file(): string {
 		try {
 			$file = self::file( $this->table_name(), $this->file_partition() );
-			Config::ensure_path( \dirname( $file ) );
+			if ( $this->mounted && 0 === CLI::uid() ) {
+				throw new \RuntimeException( "a sqlite mount refuses to run as root: a root reader leaves -wal and -shm files beside {$file} that its worker cannot open" );
+			}
+			if ( ! $this->mounted || \is_dir( \dirname( $file ) ) ) {
+				Config::ensure_path( \dirname( $file ) );
+			}
 			return $file;
 		} catch ( Worker_Should_Stop $stop ) {
 			throw $stop;
