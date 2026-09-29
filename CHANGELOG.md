@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.73.0] - 2026-09-29
+
 ### Added
 
 - **A Table names its backend: `make_node Table <name> <namespace> <ttl> [auto|memcache|apcu|sqlite|wpdb]`, and `Table_Node::table( $ns, $ttl, $backend )` outside a graph.** The new ADR-24, [a Table's backend is chosen per Table](docs/architecture-decisions.md#adr-24-a-tables-backend-is-chosen-per-table), records why. `auto`, the default, is memcached, else APCu, chosen per call. A named backend opens once, in `arguments()`, and throws there naming the Table, so a topology whose Tables cannot open fails at load: `Table lab-7:kea: sqlite backend needs the pdo_sqlite extension`. A `sqlite` Table keeps one file per partition, `{base}/tables/{table}.p{N}.sqlite`, whose name `Table_Node::stem()` and `Table_Node::file()` spell; a `wpdb` Table keeps its rows in the shared `{base_prefix}newspack_nodes_table`, scoped by namespace.
