@@ -1024,10 +1024,10 @@ reaches past its own store to write, through
 check. Reaching under your own abstraction to write is the tell that it stops one parameter
 short.
 
-**Decision:** [`Table_Node::backed_by( \Closure $backing, ?\Closure $absence = null )`](../includes/class-table-node.php) on the read path, and
+**Decision:** [`Table_Node::backed_by( \Closure $backing )`](../includes/class-table-node.php) on the read path, and
 [`Partition_Node::locate_by( \Closure $extract, array $wanted )`](../includes/class-partition-node.php) + `read_many()` underneath.
 
-![Eight hops across four lanes: the caller, Table_Node, the backing closure and Partition_Node. A miss, an expiry and a backend read error all fall through the backing; lookup_multi asks once for every miss; the app calls locate_by with its line parser and the wanted keys, bounding the walk, and reads by key never by position; Partition walks the .idx sidecars newest-first so the first hit is the last write, skipping a segment whose index is unreadable; a class-level memo keyed by directory records what was found and what was searched and is discarded on a new extent or past MAX_LOCATOR_MEMO_KEYS 100,000; read_many reads one handle per segment; a spent ttl is served and not warmed while live entries are warmed grouped by lifetime, best-effort; a miss is remembered as one only on the caller's word, through backed_by's second closure; the caller cannot tell a backed miss from absent everywhere. Cards give the one wrong answer, the rejected shapes and why the remaining-TTL and newest-record rules are one rule.](img/adr-table-backing.png)
+![Eight hops across four lanes: the caller, Table_Node, the backing closure and Partition_Node. A miss, an expiry and a backend read error all fall through the backing; lookup_multi asks once for every miss; the app calls locate_by with its line parser and the wanted keys, bounding the walk, and reads by key never by position; Partition walks the .idx sidecars newest-first so the first hit is the last write, skipping a segment whose index is unreadable; a class-level memo keyed by directory records what was found and what was searched and is discarded on a new extent or past MAX_LOCATOR_MEMO_KEYS 100,000; read_many reads one handle per segment; a spent ttl is served and not warmed while live entries are warmed grouped by lifetime, best-effort; a miss is never remembered, so every one reaches the backing; the caller cannot tell a backed miss from absent everywhere. Cards give the one wrong answer, the rejected shapes and why the remaining-TTL and newest-record rules are one rule.](img/adr-table-backing.png)
 
 That does not reopen "one table, one lifetime", which governs what a CALLER stores: a
 backing is re-materializing an entry that already had a life, and handing it a fresh full
@@ -1046,28 +1046,12 @@ memo caches "this index did not answer for this key" per process and never "this
 not exist"; PHP statics end with the request, so it spares repeats inside one read and nothing
 across reads.
 
-A miss CAN stay a miss, on the caller's word. The second closure of `backed_by()` says, per
-key, how many seconds an absence the backing answered holds, and the table stores a marker
-for that long and reads it as a miss without asking again. It came from the stats mirror: an
-absent key is the one a newest-first index walk cannot stop early on, a full pass of every
-segment where a present key costs the segment that holds it, and a sparse reporting server
-has such keys in every window, so a polling dashboard spent its whole read budget re-learning
-the same absences on every poll and its per-server series never filled in. Four rules keep
-the marker honest, each pinned in `tests/unit/TableNodeTest.php`. The hold is the caller's
-statement, since only it knows that a closed bucket never gains a frame and an open one may.
-Only a table that installed the closure honours a marker; to any other it is an ordinary
-miss, so a writer reading through the same key is never told by a reader that it holds
-nothing, which would have merged an evicted open bucket from zero instead of from the
-held-frame tier. The marker is added, never set: the walk that answers an absence takes time,
-a writer's value can land inside it, and whatever landed first stands. And a backing that
-could not look answers null — a spent budget, a partition not yet resolved — and nothing is
-remembered of that read; only a walk that found nothing is an absence.
-A writer that later holds the value undoes a marker with `replace_absent()`, the converse of
-the add: one batched read, then one write per lifetime for exactly the keys still holding a
-marker. Deleting instead would evict every live value the batch named and send its next read
-to the backing. The read and the write are not atomic: a marker added after the read stands
-for its hold, and a value added after it is overwritten with the caller's copy. The method's
-docblock names when each is harmless.
+A miss is never remembered. A key the backing does not return writes nothing to the cache,
+so every read of it reaches the backing again, and the table reserves no value: whatever sits
+in an entry's slot is data. A backing that could not look — a spent budget, a partition not
+yet resolved — answers null, and the read is a miss; null and an empty answer reach the
+caller alike, and the table stores nothing on the strength of either. `tests/unit/TableNodeTest.php`
+pins each rule.
 
 `locate_by()` resolves a key to its NEWEST record in one newest-first pass, because the
 remaining-`ttl` rule reads the lifetime off whichever record the key lands on: an older write
@@ -1080,17 +1064,22 @@ plugin need it, and each copy carries its own key translation, TTL decay and sco
 Pushing the line format down, so Partition parses index entries — rejected: every consumer's
 fixed-width layout would land in the substrate, and the formatter is the caller's
 (`with_index`). Letting the backing write through `store()` — rejected: `store()` applies the
-table's TTL, which is exactly what a restore must not do.
+table's TTL, which is exactly what a restore must not do. Remembering an absence in the table,
+as a marker in the key's cache slot — rejected: the slot is shared with the values writers
+store there, so keeping one reader's marker from hiding a writer's value took four rules and a
+non-atomic `replace_absent()` with two races of its own, and no caller needs it. A backing whose
+misses cost a walk bounds that cost itself, where it knows which keys can still gain a record.
 
 **Consequences:** A table with a backing cannot report a miss the caller can
 distinguish from "absent everywhere" — that is the point. The backing is invoked on the read
 path, so a slow system of record becomes read latency; `lookup_multi()` batching keeps that to
-one walk per read rather than one per key, and a remembered absence keeps a walk that found
-nothing from being repeated on the next read. A marker occupies a cache slot for its hold, one
-per absent key the caller chose to remember.
+one walk per read rather than one per key. A key the record does not hold costs that walk on
+every read, because nothing records that it was absent.
 
-**Revisit if:** a backing whose cost makes synchronous read-through wrong even with absences
-remembered — at which point the fill belongs on a queue rather than in `lookup()`.
+**Revisit if:** a backing whose cost makes synchronous read-through wrong — at which point the
+fill belongs on a queue rather than in `lookup()` — or a caller whose repeated absent keys cost
+more than its backing can bound. Remembering them in the table again needs a marker no writer's
+value can collide with and no other table sharing the key can read as a value or a miss.
 
 ---
 

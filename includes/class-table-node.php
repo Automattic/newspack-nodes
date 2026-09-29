@@ -55,21 +55,6 @@ class Table_Node extends Node {
 	private ?\Closure $backing = null;
 
 	/**
-	 * How long an absence the backing answered is remembered, per key, in
-	 * seconds; null or 0 remembers none. Set beside the backing.
-	 *
-	 * @var (\Closure(string): int)|null
-	 */
-	private ?\Closure $absence = null;
-
-	/**
-	 * What a remembered absence is stored as. A table value is whatever the
-	 * caller stored, so the marker has to be one nothing stores: a string no
-	 * key names and no encoder emits.
-	 */
-	private const ABSENT = "\0table:absent";
-
-	/**
 	 * Wire the sibling `:config` interpreter that serves `get` and `rm`.
 	 *
 	 * Takes no arguments, for Tachikoma parity and because `make_node`
@@ -209,24 +194,16 @@ class Table_Node extends Node {
 			$entry_keys[ self::entry_key( $this->namespace, $key ) ] = $key;
 		}
 		$found   = [];
-		$absent  = [];
 		$backend = Cache_Backend::shared_first();
 		$failed  = null === $backend;
 		$fetched = $backend?->read_multi( \array_keys( $entry_keys ), $failed ) ?? [];
 		foreach ( $fetched as $entry_key => $value ) {
-			// A held absence spares the backing only for the table holding it.
-			if ( self::ABSENT === $value ) {
-				if ( null !== $this->absence ) {
-					$absent[ $entry_keys[ $entry_key ] ] = true;
-				}
-				continue;
-			}
 			$found[ $entry_keys[ $entry_key ] ] = $value;
 		}
 		// ONE backing call for every miss; per-key defeats this round trip.
 		$missed = [];
 		foreach ( $keys as $key ) {
-			if ( ! \array_key_exists( $key, $found ) && ! isset( $absent[ $key ] ) ) {
+			if ( ! \array_key_exists( $key, $found ) ) {
 				$missed[] = $key;
 			}
 		}
@@ -330,8 +307,8 @@ class Table_Node extends Node {
 	 * Only a HIT answers from the cache. A miss, an expiry and a broken backend
 	 * all fall through to the durable backing when one is installed; with none,
 	 * an absent key stays absent, so a caller polling for one it expects sees it
-	 * as soon as the cache does. A miss is remembered as one only by a table
-	 * that asked for that, through `backed_by()`'s second closure.
+	 * as soon as the cache does. A miss is never remembered, so every one
+	 * reaches the backing.
 	 *
 	 * @api Dashboards / REST / CLI read table values without a live worker.
 	 * @param string $key Key within the table's namespace.
@@ -351,11 +328,10 @@ class Table_Node extends Node {
 				$backend->last_failure()
 			);
 		}
-		if ( Cache_Backend::READ_HIT !== ( $read['status'] ?? null )
-			|| ( self::ABSENT === $read['value'] && null === $this->absence ) ) {
+		if ( Cache_Backend::READ_HIT !== ( $read['status'] ?? null ) ) {
 			return $this->read_through( [ $key ] )[ $key ] ?? null;
 		}
-		return self::ABSENT === $read['value'] ? null : $read['value'];
+		return $read['value'];
 	}
 
 	/**
@@ -376,13 +352,9 @@ class Table_Node extends Node {
 	 * the whole time. So it costs the entry its cache slot, not the read, and
 	 * what a re-materialized entry is warmed for is the BACKING's to state.
 	 *
-	 * A key the backing did not return is stored as an ABSENCE for the
-	 * lifetime the caller stated for it, so the next reader is spared the walk
-	 * the backing spent saying so. A lifetime of 0 remembers nothing, and so
-	 * does a backing that answers NULL: it did not look — out of budget, its
-	 * record not there yet — and only a walk that found nothing is an absence.
-	 * The marker is ADDED, never set: the walk takes time, a writer's value can
-	 * land inside it, and whatever landed first stands.
+	 * A key the backing did not return writes nothing, so the next read of it
+	 * asks the backing again. A backing that answers NULL could not look — out
+	 * of budget, its record not there yet — and reads as a miss for every key.
 	 *
 	 * @param list<string> $keys Keys that missed.
 	 * @return array<string,mixed> Values recovered, under the caller's keys.
@@ -395,17 +367,7 @@ class Table_Node extends Node {
 		if ( null === $got ) {
 			return [];
 		}
-		$out     = [];
-		$backend = Cache_Backend::shared_first();
-		$absence = $this->absence;
-		if ( null !== $absence && null !== $backend ) {
-			foreach ( $keys as $key ) {
-				$hold = \array_key_exists( $key, $got ) ? 0 : $absence( $key );
-				if ( $hold > 0 ) {
-					$backend->add( self::entry_key( $this->namespace, $key ), self::ABSENT, $hold );
-				}
-			}
-		}
+		$out = [];
 		foreach ( $got as $key => $entry ) {
 			$out[ (string) $key ] = $entry['value'];
 		}
@@ -445,79 +407,24 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * Give each remembered absence among these keys the value a writer now
-	 * holds for it, in one read and one write per lifetime, scoped as
-	 * `store()` scopes one.
-	 *
-	 * An absence is claimed with `add()` so it never displaces a value, and
-	 * this is its converse: only a key still holding the marker is written.
-	 * A key holding a value keeps it, since the caller's copy may be older,
-	 * and a key holding nothing stays empty. Each entry takes its own
-	 * lifetime, as a backing's does, and a spent one writes nothing.
-	 *
-	 * The read and the write are two round trips with no compare between
-	 * them, which leaves two gaps. A marker added after the read stands until
-	 * its hold ends, because the read saw no marker there. A value added
-	 * after the read is overwritten with the caller's copy, because the write
-	 * is an unconditional set. The second is harmless for a key with one
-	 * writer whose read-through warm writes the same value the caller holds,
-	 * since the overwrite then replaces a value with itself. The first is not
-	 * closed by that: a read-through walk that began before the value reached
-	 * its backing finds nothing and adds its marker late, so it is harmless
-	 * only where serving an absence for the rest of its hold is acceptable.
-	 * A caller that can accept neither writes the value outright instead.
-	 *
-	 * @api Writers disproving absences a reader remembered (a stats mirror).
-	 * @param array<array-key,array{value: mixed,ttl: int}> $entries Key within
-	 *        the table's namespace => the value and its remaining life.
-	 * @return list<string> The keys whose absence stands because the write
-	 *                      was refused.
-	 */
-	public function replace_absent( array $entries ): array {
-		$entry_keys = [];
-		foreach ( \array_keys( $entries ) as $key ) {
-			$entry_keys[ self::entry_key( $this->namespace, (string) $key ) ] = (string) $key;
-		}
-		$held   = Cache_Backend::shared_first()?->read_multi( \array_keys( $entry_keys ) ) ?? [];
-		$marked = [];
-		foreach ( $held as $entry_key => $value ) {
-			if ( self::ABSENT === $value ) {
-				$key            = $entry_keys[ $entry_key ];
-				$marked[ $key ] = $entries[ $key ];
-			}
-		}
-		return $this->warm( $marked );
-	}
-
-	/**
 	 * Store entries under their own remaining lifetimes, a round trip per
 	 * lifetime rather than per key. An entry stating none takes the table's,
 	 * and one whose life is spent takes no cache slot.
 	 *
 	 * @param array<array-key,array{value: mixed,ttl?: int}> $entries Key within
 	 *        the table's namespace => value and remaining life.
-	 * @return list<string> The keys a refused write left unstored.
 	 */
-	private function warm( array $entries ): array {
+	private function warm( array $entries ): void {
 		$groups = [];
-		$names  = [];
 		foreach ( $entries as $key => $entry ) {
 			$left = \array_key_exists( 'ttl', $entry ) ? Core::as_int( $entry['ttl'] ) : $this->ttl;
 			if ( $left > 0 ) {
-				$entry_key                     = self::entry_key( $this->namespace, (string) $key );
-				$groups[ $left ][ $entry_key ] = $entry['value'];
-				$names[ $entry_key ]           = (string) $key;
+				$groups[ $left ][ self::entry_key( $this->namespace, (string) $key ) ] = $entry['value'];
 			}
 		}
-		$refused = [];
 		foreach ( $groups as $ttl => $items ) {
-			if ( true !== Cache_Backend::shared_first()?->write_multi( $items, $ttl ) ) {
-				foreach ( \array_keys( $items ) as $entry_key ) {
-					$refused[] = $names[ $entry_key ];
-				}
-			}
+			Cache_Backend::shared_first()?->write_multi( $items, $ttl );
 		}
-		return $refused;
 	}
 
 	/**
@@ -529,9 +436,7 @@ class Table_Node extends Node {
 	 * warms each entry for the lifetime it carries. It answers as
 	 * `Cache_Backend::touch()` does, so a timeout never reads as eviction.
 	 *
-	 * On a table with an absence seam a remembered absence answers true too,
-	 * and its hold moves to the new TTL; ask only of keys that seam never
-	 * holds. On APCu the backend fetches and re-stores, so it reads the value
+	 * On APCu the backend fetches and re-stores, so it reads the value
 	 * after all and reverts a write landing between the two: safe only where
 	 * one process owns the entry's writes, as the flame builder owns its
 	 * partition's lists.
@@ -590,25 +495,17 @@ class Table_Node extends Node {
 	 * absent keys stay absent. `ttl` is that entry's REMAINING life — omit it
 	 * to store under the table's own.
 	 *
-	 * An absence costs the backing as much as a hit, often more: a partition
-	 * walk can stop at the frame it finds and must run to the end to say a key
-	 * has none. `$absence` says, per key, how many seconds that answer holds,
-	 * and the table remembers it for that long so no later reader asks again.
-	 * Omit it, or answer 0, and every miss reaches the backing. A table that
-	 * did not ask reads a remembered absence as an ordinary miss, so a writer
-	 * sharing the key is never told by a reader's marker that it holds
-	 * nothing. A backing that could not look answers null and nothing is
-	 * remembered of that read.
+	 * The table remembers no absence: a key the record does not hold writes
+	 * nothing, so every miss reaches the backing, and a backing that could not
+	 * look answers null.
 	 *
 	 * @api Callers whose table fronts a durable source (a partition, an option).
 	 * @param \Closure(list<string>): ?array<array-key,array{value: mixed,ttl?: int}> $backing Durable reader;
 	 *        null when it could not look. A numeric-string key comes back int, so the shape is array-key.
-	 * @param (\Closure(string): int)|null $absence Seconds an absence of the key holds; null remembers none.
 	 * @return self For chaining off table().
 	 */
-	public function backed_by( \Closure $backing, ?\Closure $absence = null ): self {
+	public function backed_by( \Closure $backing ): self {
 		$this->backing = $backing;
-		$this->absence = $absence;
 		return $this;
 	}
 
