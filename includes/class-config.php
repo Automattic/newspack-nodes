@@ -170,6 +170,17 @@ class Config {
 	}
 
 	/**
+	 * Get the locks directory path ({base}/locks).
+	 *
+	 * @api
+	 * @return string
+	 * @throws \RuntimeException If the base directory or {base}/locks fails ensure_path().
+	 */
+	public static function get_locks_directory(): string {
+		return self::validated_subdir( 'locks' );
+	}
+
+	/**
 	 * Memoized `{base}/{sub}` path (created + realpath-checked via ensure_path).
 	 *
 	 * @param string $sub Subdirectory name under the base directory.
