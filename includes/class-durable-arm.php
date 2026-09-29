@@ -3,7 +3,8 @@
  * Durable_Arm: what every durable Cache_Backend arm means, whatever it stores in.
  *
  * A durable arm keeps rows until they expire or are deleted, and reclaims the
- * expired ones on `purge()`. This class owns those semantics once — the
+ * expired ones on `purge()`. It alone holds set members, one row per member
+ * read by an exact set-key seek, beside its keyed rows. This class owns those semantics once — the
  * live-row rule, the refused keys, the tagged serialization, the
  * compare-then-write counters and the failure record — and an arm supplies its
  * statements. Each hook below is one step in the arm's own dialect and throws
@@ -128,26 +129,6 @@ abstract class Durable_Arm extends Cache_Backend {
 	}
 
 	/**
-	 * The `expires` column for a TTL: 0 keeps the row until it is deleted.
-	 *
-	 * @param int $ttl Seconds; 0 = no expiry.
-	 * @return int Epoch second, or 0.
-	 */
-	private static function expires( int $ttl ): int {
-		return $ttl > 0 ? self::now() + $ttl : 0;
-	}
-
-	/**
-	 * Epoch seconds a row's liveness is judged at: `Core::$clock` when a test
-	 * binds it.
-	 *
-	 * @return int Epoch seconds.
-	 */
-	protected static function now(): int {
-		return (int) ( null !== Core::$clock ? ( Core::$clock )() : \time() );
-	}
-
-	/**
 	 * Move a live row's expiry.
 	 *
 	 * @param string $key     Key.
@@ -223,6 +204,104 @@ abstract class Durable_Arm extends Cache_Backend {
 	abstract protected function replace( string $key, string $old, string $new ): bool;
 
 	/**
+	 * Delete up to `$limit` rows expired at `$now`, keyed rows first and set
+	 * members with what the limit leaves. A volatile arm has no such verb: its
+	 * store expires rows on its own.
+	 *
+	 * @param int $now   Epoch second.
+	 * @param int $limit Most rows to delete, keyed and member rows together.
+	 * @return int Rows deleted; 0 when the store refused, which is logged.
+	 */
+	public function purge( int $now, int $limit ): int {
+		$limit  = \max( 0, $limit );
+		$purged = $this->attempt(
+			function () use ( $now, $limit ): int {
+				$rows = $this->purge_rows( $now, $limit );
+				return $rows < $limit ? $rows + $this->purge_member_rows( $now, $limit - $rows ) : $rows;
+			},
+			null
+		);
+		if ( null === $purged ) {
+			Core::print_less_often( 'Table purge failed: ', $this->last_failure() );
+		}
+		return $purged ?? 0;
+	}
+
+	/**
+	 * Delete up to `$limit` member rows expired at `$now`.
+	 *
+	 * @param int $now   Epoch second.
+	 * @param int $limit Most rows.
+	 * @return int Rows deleted.
+	 */
+	abstract protected function purge_member_rows( int $now, int $limit ): int;
+
+	/**
+	 * Delete up to `$limit` keyed rows expired at `$now`.
+	 *
+	 * @param int $now   Epoch second.
+	 * @param int $limit Most rows.
+	 * @return int Rows deleted.
+	 */
+	abstract protected function purge_rows( int $now, int $limit ): int;
+
+	/**
+	 * Upsert set members, each set under its own TTL: one row per member, a
+	 * re-added member's value and expiry replaced. Every member of every set
+	 * goes through one write scope, so a set lands whole where the arm holds
+	 * its writes together. A set whose key is refused or whose TTL is below
+	 * one second refuses the call before anything is written.
+	 *
+	 * @param array<array-key,array{0: array<array-key,mixed>, 1: int}> $sets Set key =>
+	 *        [ member => value, ttl ], the TTL in whole seconds, at least 1.
+	 * @return bool True when every set landed; true for no sets.
+	 */
+	public function add_members( array $sets ): bool {
+		$rows = [];
+		foreach ( $sets as $set_key => [ $members, $ttl ] ) {
+			if ( self::refuses_key( (string) $set_key ) || $ttl < 1 ) {
+				return false;
+			}
+			$expires = self::expires( $ttl );
+			foreach ( $members as $member => $value ) {
+				$rows[] = [ (string) $set_key, (string) $member, $value, $expires ];
+			}
+		}
+		if ( [] === $rows ) {
+			return true;
+		}
+		return $this->attempt(
+			function () use ( $rows ): bool {
+				$encoded = \array_map( static fn ( array $row ): array => [ $row[0], $row[1], self::encode( $row[2] ), $row[3] ], $rows );
+				return $this->write_scope(
+					function () use ( $encoded ): bool {
+						$this->upsert_members( $encoded );
+						return true;
+					}
+				);
+			},
+			false
+		);
+	}
+
+	/**
+	 * Insert or replace member rows.
+	 *
+	 * @param list<array{0: string, 1: string, 2: string, 3: int}> $rows Set key,
+	 *        member, tagged bytes, the `expires` column.
+	 */
+	abstract protected function upsert_members( array $rows ): void;
+
+	/**
+	 * Run a write's statements the way this arm holds them together.
+	 *
+	 * @template T
+	 * @param \Closure(): T $work The statements.
+	 * @return T What `$work` returned.
+	 */
+	abstract protected function write_scope( \Closure $work ): mixed;
+
+	/**
 	 * A value as a durable arm stores it: the serializer's tag, then its bytes,
 	 * so a row reads back under whichever serializer is in force later.
 	 *
@@ -258,38 +337,73 @@ abstract class Durable_Arm extends Cache_Backend {
 	}
 
 	/**
-	 * Run a write's statements the way this arm holds them together.
+	 * The `expires` column for a TTL: 0 keeps the row until it is deleted.
 	 *
-	 * @template T
-	 * @param \Closure(): T $work The statements.
-	 * @return T What `$work` returned.
+	 * @param int $ttl Seconds; 0 = no expiry.
+	 * @return int Epoch second, or 0.
 	 */
-	abstract protected function write_scope( \Closure $work ): mixed;
-
-	/**
-	 * Delete up to `$limit` rows expired at `$now`. A volatile arm has no such
-	 * verb: its store expires rows on its own.
-	 *
-	 * @param int $now   Epoch second.
-	 * @param int $limit Most rows to delete.
-	 * @return int Rows deleted; 0 when the store refused, which is logged.
-	 */
-	public function purge( int $now, int $limit ): int {
-		$purged = $this->attempt( fn (): int => $this->purge_rows( $now, \max( 0, $limit ) ), null );
-		if ( null === $purged ) {
-			Core::print_less_often( 'Table purge failed: ', $this->last_failure() );
-		}
-		return $purged ?? 0;
+	private static function expires( int $ttl ): int {
+		return $ttl > 0 ? self::now() + $ttl : 0;
 	}
 
 	/**
-	 * Delete up to `$limit` rows expired at `$now`.
+	 * Epoch seconds a row's liveness is judged at: `Core::$clock` when a test
+	 * binds it.
 	 *
-	 * @param int $now   Epoch second.
-	 * @param int $limit Most rows.
-	 * @return int Rows deleted.
+	 * @return int Epoch seconds.
 	 */
-	abstract protected function purge_rows( int $now, int $limit ): int;
+	protected static function now(): int {
+		return (int) ( null !== Core::$clock ? ( Core::$clock )() : \time() );
+	}
+
+	/**
+	 * Each set's live members in member order, or null for a set holding more
+	 * than `$limit`: each set is read by an exact set-key seek of `$limit + 1`
+	 * rows, and the row past the limit tells a full set from one over it, whose
+	 * rows are dropped undecoded before the next set is read. A row no
+	 * serializer wrote fails the read, as it fails a keyed read. A limit below 1
+	 * reads nothing, and a failed read is logged.
+	 *
+	 * @param list<string> $set_keys Set keys.
+	 * @param int          $limit    Most members a set may hold and be answered.
+	 * @return array<array-key,array<array-key,mixed>|null>|false Set key =>
+	 *         member => value, or null past the limit; a set with no live member
+	 *         absent; false when the store failed.
+	 */
+	public function members( array $set_keys, int $limit ): array|false {
+		if ( $limit < 1 ) {
+			return [];
+		}
+		$found = $this->attempt(
+			function () use ( $set_keys, $limit ): array {
+				$out = [];
+				foreach ( \array_unique( $set_keys ) as $set_key ) {
+					$rows = $this->select_set( $set_key, $limit + 1 );
+					if ( [] !== $rows ) {
+						$out[ $set_key ] = \count( $rows ) > $limit ? null : self::decoded( $rows );
+					}
+					unset( $rows );
+				}
+				return $out;
+			},
+			false
+		);
+		if ( false === $found ) {
+			Core::print_less_often( 'Table member read failed: ', $this->last_failure() );
+		}
+		return $found;
+	}
+
+	/**
+	 * Up to `$limit` live member rows of one set, lowest member first, by an
+	 * exact set-key seek; one set at a time, so a set past its limit is let
+	 * go before the next is read.
+	 *
+	 * @param string $set_key The set key.
+	 * @param int    $limit   Most rows, at least 2.
+	 * @return array<array-key,string> Member => tagged bytes.
+	 */
+	abstract protected function select_set( string $set_key, int $limit ): array;
 
 	/**
 	 * Reclaim the store's free pages. An operator verb, never automatic.

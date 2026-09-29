@@ -3,11 +3,13 @@
  *
  * Every function here READS a graph and returns a new one: whether an edge is
  * a removable physical connection, the fold of a document's `set_*target`
- * lines into config-role edges, the canvas's reserved `_repl` anchor, and the
+ * lines into config-role edges, the canvas's reserved `_repl` anchors, and the
  * unique name a palette drop takes. None of them mutates a document. Mutation
  * belongs to the draft interpreter, where a TSL verb can reach it, so a
  * transform here that DECIDED something would be in the wrong place.
  */
+
+import names from '../../runtime/reserved-node-names.json';
 
 /**
  * True when an edge is a physical `connect_node` connection — the only kind
@@ -99,29 +101,38 @@ export function withConfigEdges( graph ) {
 }
 
 /**
- * The worker's auto-mounted REPL Partition, as a canvas node. Reserved: no
- * `.tsl` declares it, and the document never gains a line that does.
+ * The nodes every worker mounts on its own, as reserved canvas nodes: the
+ * REPL Partition, and the Consumer reading the worker's IPC input, whose
+ * quarantine the `dl_*` verbs reach. No `.tsl` declares either, and the
+ * document never gains a line that does.
  */
-const REPL_ANCHOR = {
-	id: '_repl',
-	name: '_repl',
-	class: 'Partition',
-	reserved: true,
-};
+const REPL_ANCHORS = [
+	{ id: names.REPL, name: names.REPL, class: 'Partition', reserved: true },
+	{
+		id: names.REPL_INPUT,
+		name: names.REPL_INPUT,
+		class: 'Consumer',
+		reserved: true,
+	},
+];
 
 /**
- * Add the reserved `_repl` anchor node so the canvas can draw the edges a
- * topology points at the worker's auto-mounted REPL Partition. Idempotent: a
- * graph that already carries `_repl` comes back untouched.
+ * Add the reserved REPL anchors, so the graph drawn from a `.tsl` carries
+ * them before the first `dump_metadata` answers with the live graph, and the
+ * canvas can draw edges a topology points at `_repl`. Idempotent: an anchor
+ * the graph already carries is not added again.
  *
- * @param {Object} graph Graph whose `nodes` list receives the anchor.
- * @return {Object} Graph carrying the `_repl` anchor node.
+ * @param {Object} graph Graph whose `nodes` list receives the anchors.
+ * @return {Object} Graph carrying both anchors.
  */
 export function withReplAnchor( graph ) {
-	if ( graph.nodes.some( ( n ) => n.id === '_repl' ) ) {
-		return graph;
-	}
-	return { ...graph, nodes: [ ...graph.nodes, REPL_ANCHOR ] };
+	const held = new Set( graph.nodes.map( ( n ) => n.id ) );
+	const missing = REPL_ANCHORS.filter(
+		( anchor ) => ! held.has( anchor.id )
+	);
+	return missing.length
+		? { ...graph, nodes: [ ...graph.nodes, ...missing ] }
+		: graph;
 }
 
 /**

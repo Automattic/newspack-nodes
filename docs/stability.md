@@ -17,7 +17,11 @@ Table builds. A consumer calls the contract's methods on the arm it is handed
 and never names an arm class. The Table surface a consumer reaches past the list
 is [`Table_Client`](../includes/class-table-client.php), `Bootstrap::node_tables()`
 and `Bootstrap::mount_table( array $names )`, and each moves inside a major as the
-rest do.
+rest do. `Table_Client`'s `@api` methods are `get_multi()`, `set_multi()`,
+`add_multi()`, `touch()`, `remove()`, `accepts()`, and the set-member pair
+`add_members( string $table, array $sets, int $ttl ): array` and
+`members( string $table, array $set_keys, int $limit, ?bool &$failed = null ): array`,
+which answer through a durable Table alone.
 
 That trio and [`Topology_Analyzer::includes()`](../includes/class-topology-analyzer.php) answer questions a consumer cannot
 answer for itself. `node_dirs()` and `node_partitions()` are how a reader finds

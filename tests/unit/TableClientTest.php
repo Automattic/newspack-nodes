@@ -30,6 +30,24 @@ final class Table_Asker_Fixture_Node extends Node {
 	}
 }
 
+/** A Table that answers every request with one scripted set message and a count of 1. */
+final class Scripted_Member_Table_Fixture_Node extends Node {
+	public int $type    = Message::TM_STRUCT;
+	public mixed $value = null;
+
+	public function fill( array $message ): void {
+		foreach ( [ [ $this->type, $this->value ], [ Message::TM_INFO, "SMEMBERS 1\n" ] ] as [ $type, $value ] ) {
+			$reply                   = Message::new_message();
+			$reply[ Message::TYPE ]  = $type;
+			$reply[ Message::FROM ]  = $this->name;
+			$reply[ Message::TO ]    = $message[ Message::FROM ];
+			$reply[ Message::KEY ]   = Message::TM_INFO === $type ? '' : 'word:kea';
+			$reply[ Message::VALUE ] = $value;
+			$this->require_sink()->fill( $reply );
+		}
+	}
+}
+
 /**
  * Table_Client: the asking half of the Table protocol, driven through a real
  * Router, interpreter and SQLite-backed Tables.
@@ -80,6 +98,82 @@ final class TableClientTest extends TestCase {
 		$this->assertSame( [ 'sku-41' ], $client->touch( 'lab-7:kea', 900, [ 'sku-41', 'sku-49' ] ) );
 		$this->assertSame( [ 'sku-44' ], $client->remove( 'lab-7:kea', [ 'sku-44' ] ) );
 		$this->assertSame( [], $this->asker->folded, 'every reply went to the client' );
+	}
+
+	public function test_members_round_trip_through_the_graph(): void {
+		$client = $this->asker->client;
+		$this->assertSame( [ 'word:kea', 'word:owl' ], $client->add_members( 'lab-7:kea', [ 'word:kea' => [ 'u-41' => [ 'hits' => 3 ], 'u-43' => 'weka' ], 'word:owl' => [ 'u-47' => 7 ] ], 37 ) );
+		$this->assertSame(
+			[
+				'word:owl' => [ 'u-47' => 7 ],
+				'word:kea' => null,
+			],
+			$client->members( 'lab-7:kea', [ 'word:owl', 'word:emu', 'word:kea' ], 1, $failed ),
+			'a set past its limit reads null, and an absent one is absent'
+		);
+		$this->assertFalse( $failed );
+		$this->assertSame( [ 'word:kea' => [ 'u-41' => [ 'hits' => 3 ], 'u-43' => 'weka' ] ], $client->members( 'lab-7:kea', [ 'word:kea' ], 2, $failed ) );
+		$this->assertFalse( $failed );
+		$this->assertSame( [], $this->asker->folded, 'every reply went to the client' );
+	}
+
+	public function test_members_expire_on_the_ttl_the_add_named(): void {
+		$client      = $this->asker->client;
+		Core::$clock = static fn (): float => 1790000000.0;
+		$client->add_members( 'lab-7:kea', [ 'word:kea' => [ 'u-41' => 1 ] ], 37 );
+		Core::$clock = static fn (): float => 1790000037.0;
+		$this->assertSame( [], $client->members( 'lab-7:kea', [ 'word:kea' ], 9, $failed ) );
+		$this->assertFalse( $failed, 'an expired set is absent, not a failed read' );
+	}
+
+	public function test_a_refused_member_read_fails_and_a_refused_add_lands_nothing(): void {
+		$this->assertSame( [], $this->asker->client->members( 'lab-7:kea', [ 'word:kea' ], 0, $failed ) );
+		$this->assertTrue( $failed, 'a limit below 1 is refused, never read as empty' );
+		$this->assertSame( [], $this->asker->client->add_members( 'lab-7:kea', [ 'word:kea' => [ 'u-41' => 1 ] ], 0 ) );
+		$this->asker->client->members( 'lab-7:gone.p3', [ 'word:kea' ], 9, $failed );
+		$this->assertTrue( $failed );
+	}
+
+	public function test_a_member_message_that_is_no_struct_pair_fails_the_read(): void {
+		$liar = new Scripted_Member_Table_Fixture_Node();
+		$liar->name( 'lab-7:liar.p3' );
+		$liar->sink( $this->asker->sink() );
+		$malformed = [
+			[ Message::TM_BYTESTREAM, 'u-41' ],
+			[ Message::TM_BYTESTREAM, "OVER 8\n" ],
+			[ Message::TM_STRUCT, "OVER 9\n" ],
+			[ Message::TM_STRUCT, [ 'u-41', 1 ] ],
+			[ Message::TM_STRUCT, [ [ 'u-41' ] ] ],
+			[ Message::TM_STRUCT, [ [ 'u-41', 1, 'extra' ] ] ],
+			[ Message::TM_STRUCT, [ [ 'm' => 'u-41', 'v' => 1 ] ] ],
+			[ Message::TM_STRUCT, [ 'w' => [ 'u-41', 1 ] ] ],
+		];
+		foreach ( $malformed as [ $type, $value ] ) {
+			$liar->type  = $type;
+			$liar->value = $value;
+			$this->assertSame( [], $this->asker->client->members( 'lab-7:liar.p3', [ 'word:kea' ], 9, $failed ) );
+			$this->assertTrue( $failed, 'a malformed set message is a failed read, never a phantom member' );
+		}
+		$liar->type  = Message::TM_STRUCT;
+		$liar->value = [ [ 'u-41', [ 'hits' => 3 ] ], [ '0418', 'owl' ] ];
+		$this->assertSame( [ 'word:kea' => [ 'u-41' => [ 'hits' => 3 ], '0418' => 'owl' ] ], $this->asker->client->members( 'lab-7:liar.p3', [ 'word:kea' ], 9, $failed ) );
+		$this->assertFalse( $failed );
+		$liar->type  = Message::TM_BYTESTREAM;
+		$liar->value = "OVER 9\n";
+		$this->assertSame( [ 'word:kea' => null ], $this->asker->client->members( 'lab-7:liar.p3', [ 'word:kea' ], 9, $failed ), 'the marker naming the asked limit reads null' );
+		$this->assertFalse( $failed );
+	}
+
+	public function test_an_all_digit_member_comes_back_as_an_int_key_in_a_member_map(): void {
+		$client = $this->asker->client;
+		$client->add_members( 'lab-7:kea', [ '4417' => [ '0418' => 'kea', '4419' => 'owl' ] ], 777 );
+		$this->assertSame( [ 4417 => [ '0418' => 'kea', 4419 => 'owl' ] ], $client->members( 'lab-7:kea', [ '4417' ], 9 ) );
+	}
+
+	public function test_a_member_read_of_no_nameable_set_asks_nothing(): void {
+		$this->assertSame( [], $this->asker->client->members( 'lab-7:mute.p3', [ 'word kea' ], 9, $failed ) );
+		$this->assertFalse( $failed );
+		$this->assertSame( [], $this->asker->client->add_members( 'lab-7:mute.p3', [], 777 ) );
 	}
 
 	public function test_all_digit_keys_come_back_as_strings_in_a_key_list(): void {

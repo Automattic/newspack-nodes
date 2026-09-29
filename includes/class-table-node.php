@@ -51,14 +51,35 @@ class Table_Node extends Node {
 	/** Every backend a Table may name; `auto` is memcached, else APCu, per call. */
 	public const BACKENDS = [ 'auto', 'memcache', 'apcu', 'sqlite', 'wpdb' ];
 
+	/**
+	 * Most members one SMEMBERS answers for a set before it answers OVER_LIMIT:
+	 * a ceiling on what a read through a mount may cost, as the arm reads one
+	 * row past it, set at twice the largest reader's need, event-logger-nodes'
+	 * URL search, which shows at most 5,000.
+	 */
+	public const MAX_MEMBERS_LIMIT = 10000;
+
 	/** Seconds between one Table's purges. */
 	public const PURGE_INTERVAL_S = 60;
 
 	/** Rows one purge statement deletes at most. */
 	public const PURGE_BATCH_ROWS = 5000;
 
-	/** Seconds of one tick a Table's purge may spend before its next batch waits. */
+	/** Seconds one tick's purges may spend, all Tables together, before a batch waits. */
 	private const PURGE_BUDGET_S = 0.05;
+
+	/**
+	 * Seconds one tick's purges spend, all Tables together, while any Table is
+	 * behind, until each comes back short. A 5,000-row SQLite batch cost 7 to
+	 * 16 ms on a small local file, but 597 ms on staging's 15.9 M-row file,
+	 * where 250 ms buys the one batch every due Table runs anyway: 5,000 rows
+	 * a minute against the ~5,300 one partition's aggregate Table in
+	 * event-logger-nodes expires, ~4,200 of them search-index members. Whether
+	 * the purge keeps pace there is unmeasured; the behind line says when it
+	 * does not. The drain loop is held a quarter-second a minute, and only
+	 * while behind.
+	 */
+	public const PURGE_BACKLOG_BUDGET_S = 0.25;
 
 	/** Most bytes of a refused verb a log line or its throttle key shows. */
 	private const SHOWN_VERB_BYTES = 64;
@@ -66,14 +87,29 @@ class Table_Node extends Node {
 	/** How every read request is answered. */
 	private const READ_REPLY = 'one message per value found, KEY set: TM_STRUCT for an array, TM_BYTESTREAM (a string) otherwise; then TM_INFO "<VERB> <n>", or one TM_ERROR "<VERB>: backend read failed"';
 
-	/** What MSET and ADD carry, for a refusal to teach. */
-	private const ITEM_MAP_USAGE = 'needs a map of key => [ value, ttl ]';
+	/** How a SMEMBERS request is answered. */
+	private const MEMBERS_REPLY = 'one message per set holding a live member, KEY the set key: TM_STRUCT, VALUE a list of [ member, value ] in member order, or TM_BYTESTREAM "OVER <limit>" past the limit; then TM_INFO "SMEMBERS <n>", or one TM_ERROR "SMEMBERS: backend read failed"';
+
+	/**
+	 * The word a SMEMBERS reply gives a set holding more than its limit, as
+	 * `OVER <limit>\n` under TM_BYTESTREAM: the set's answer as MGET gives a
+	 * string value, told from a member list by its type, and naming the
+	 * limit it passed so a reader can check it asked for that one.
+	 */
+	public const OVER_LIMIT = 'OVER';
+
+	/** What each structured verb carries, for a refusal to teach. */
+	private const STRUCT_USAGE = [
+		'MSET' => 'needs a map of key => [ value, ttl ]',
+		'ADD'  => 'needs a map of key => [ value, ttl ]',
+		'SADD' => 'needs a map of set key => [ [ member => value, … ], ttl ]',
+	];
 
 	/**
 	 * The verbs a mount answers: its declaring worker is the file's one writer
 	 * (ADR-6), and a request carries no authority beyond the mount (ADR-23).
 	 */
-	private const READ_VERBS = [ 'GET', 'MGET' ];
+	private const READ_VERBS = [ 'GET', 'MGET', 'SMEMBERS' ];
 
 	/** Why a mount refuses any other verb. */
 	private const READS_ONLY = 'a mounted Table serves reads only';
@@ -107,6 +143,9 @@ class Table_Node extends Node {
 
 	/** The tick this Table's next purge is due, in epoch seconds. */
 	private int $purge_due = 0;
+
+	/** Whether this Table's last purge stopped with a batch still full. */
+	private bool $purge_behind = false;
 
 	/**
 	 * Durable system of record behind this table, or null until backed_by()
@@ -309,9 +348,9 @@ class Table_Node extends Node {
 	 * Answer one request, TO its FROM, FROM this Table, its ID echoed (ADR-7).
 	 * Reads send a message per value and a TM_INFO count, or one TM_ERROR when
 	 * a key went unread, so a failure never reads as absence. Writes send one
-	 * string TM_RESPONSE naming the keys they took effect on. MSET and ADD
-	 * alone carry a structure, under TM_REQUEST|TM_STRUCT. Anything else the
-	 * Table cannot answer is refused out loud, through refuse().
+	 * string TM_RESPONSE naming the keys they took effect on. MSET, ADD and
+	 * SADD alone carry a structure, under TM_REQUEST|TM_STRUCT. Anything else
+	 * the Table cannot answer is refused out loud, through refuse().
 	 *
 	 * @param array<int,mixed> $request The TM_REQUEST.
 	 * @throws \RuntimeException With no wired sink to reply through.
@@ -339,18 +378,19 @@ class Table_Node extends Node {
 			return;
 		}
 		match ( $verb ) {
-			'GET'         => $this->reply_values( $request, $verb, \array_slice( $words, 0, 1 ) ),
-			'MGET'        => $this->reply_values( $request, $verb, $words ),
-			'TOUCH'       => $this->reply_touch( $request, $words ),
-			'RM'          => $this->reply_written( $request, $verb, $this->remove_keys( $words ) ),
-			'MSET', 'ADD' => $this->refuse( $request, $verb, self::ITEM_MAP_USAGE ),
-			default       => $this->refuse( $request, $verb, 'unknown verb' ),
+			'GET'                 => $this->reply_values( $request, $verb, \array_slice( $words, 0, 1 ) ),
+			'MGET'                => $this->reply_values( $request, $verb, $words ),
+			'SMEMBERS'            => $this->reply_members( $request, $words ),
+			'TOUCH'               => $this->reply_touch( $request, $words ),
+			'RM'                  => $this->reply_written( $request, $verb, $this->remove_keys( $words ) ),
+			'MSET', 'ADD', 'SADD' => $this->refuse( $request, $verb, self::STRUCT_USAGE[ $verb ] ),
+			default               => $this->refuse( $request, $verb, 'unknown verb' ),
 		};
 	}
 
 	/**
-	 * `MSET`/`ADD`: one verb naming a map of key => [ value, ttl ], under the
-	 * TM_STRUCT bit.
+	 * `MSET`/`ADD`/`SADD`: one verb naming a map of key => [ value, ttl ],
+	 * under the TM_STRUCT bit; a SADD value is its set's member map.
 	 *
 	 * @param array<int,mixed>       $request The TM_REQUEST.
 	 * @param array<array-key,mixed> $value   The request's VALUE.
@@ -361,17 +401,129 @@ class Table_Node extends Node {
 		$verb  = Core::as_string( \array_key_first( $value ), '' );
 		$items = $value[ $verb ] ?? null;
 		$fault = match ( true ) {
-			! $struct                                    => 'a structured request needs the TM_STRUCT bit',
-			1 !== \count( $value )                       => 'a structured request names one verb',
-			! \in_array( $verb, [ 'MSET', 'ADD' ], true ) => 'only MSET and ADD take a structure',
-			! \is_array( $items )                        => self::ITEM_MAP_USAGE,
-			default                                      => null,
+			! $struct                                   => 'a structured request needs the TM_STRUCT bit',
+			1 !== \count( $value )                      => 'a structured request names one verb',
+			! isset( self::STRUCT_USAGE[ $verb ] )      => 'only MSET, ADD and SADD take a structure',
+			! \is_array( $items )                       => self::STRUCT_USAGE[ $verb ],
+			default                                     => null,
 		};
 		if ( null !== $fault ) {
 			$this->refuse( $request, $verb, $fault );
 			return;
 		}
+		if ( 'SADD' === $verb ) {
+			$this->reply_added( $request, Core::arr( $items ) );
+			return;
+		}
 		$this->reply_written( $request, $verb, $this->write_items( Core::arr( $items ), 'ADD' === $verb ) );
+	}
+
+	/**
+	 * `SADD`: each set's members under the set's TTL, or the Table's, answered
+	 * with the set keys that landed. Only a durable backend holds members, so
+	 * any other refuses the request, naming the Table and its backend.
+	 *
+	 * @param array<int,mixed>       $request The TM_REQUEST.
+	 * @param array<array-key,mixed> $items   Set key => [ [ member => value, … ], ttl? ].
+	 * @throws \RuntimeException With no wired sink to reply through.
+	 */
+	private function reply_added( array $request, array $items ): void {
+		if ( ! $this->arm instanceof Durable_Arm ) {
+			$this->refuse( $request, 'SADD', $this->needs_durable() );
+			return;
+		}
+		$this->reply_written( $request, 'SADD', $this->add_sets( $this->arm, $items ) );
+	}
+
+	/**
+	 * Every well-formed set in one arm call; an item TTL below one second, or
+	 * a value that is no member map, leaves the set out. A failed call is
+	 * re-sent set by set, except on an arm whose call lands whole or not at
+	 * all, as a failed MSET batch is.
+	 *
+	 * @param Durable_Arm            $arm   The Table's arm.
+	 * @param array<array-key,mixed> $items Set key => [ [ member => value, … ], ttl? ].
+	 * @return list<string> The set keys that landed.
+	 */
+	private function add_sets( Durable_Arm $arm, array $items ): array {
+		$sets  = [];
+		$names = [];
+		foreach ( $items as $set_key => $item ) {
+			$item = Core::arr( $item );
+			$ttl  = $this->item_ttl( $item );
+			if ( Cache_Backend::refuses_key( (string) $set_key ) || ! \is_array( $item[0] ?? null ) || null === $ttl ) {
+				$this->print_less_often( 'ERROR: refused a set: ', (string) $set_key, ' needs a KEY without whitespace, a member map, and a ttl in whole seconds, at least 1' );
+				continue;
+			}
+			$entry           = self::entry_key( $this->namespace, (string) $set_key );
+			$sets[ $entry ]  = [ $item[0], $ttl ];
+			$names[ $entry ] = (string) $set_key;
+		}
+		if ( $arm->add_members( $sets ) ) {
+			return \array_values( $names );
+		}
+		if ( $arm->batch_is_atomic() ) {
+			return [];
+		}
+		$landed = [];
+		foreach ( $sets as $entry => $set ) {
+			if ( $arm->add_members( [ $entry => $set ] ) ) {
+				$landed[] = $names[ $entry ];
+			}
+		}
+		return $landed;
+	}
+
+	/**
+	 * `SMEMBERS <limit> <set_key>…`: one message per set holding a live
+	 * member, KEY its set key, as MGET answers one per value: TM_STRUCT with a
+	 * list of `[ member, value ]` pairs in member order, or, for a set holding
+	 * more than `limit`, TM_BYTESTREAM `OVER <limit>` and no members; then the
+	 * count. A limit that is not a whole number from 1 to MAX_MEMBERS_LIMIT
+	 * is refused, and so is a backend that is not durable; a failed read
+	 * answers one error.
+	 *
+	 * @param array<int,mixed> $request The TM_REQUEST.
+	 * @param list<string>     $words   The limit, then set keys.
+	 * @throws \RuntimeException With no wired sink to reply through.
+	 */
+	private function reply_members( array $request, array $words ): void {
+		$limit = Core::canonical_decimal( \array_shift( $words ) ?? '', false );
+		if ( null === $limit || $limit > self::MAX_MEMBERS_LIMIT ) {
+			$this->refuse( $request, 'SMEMBERS', 'usage: SMEMBERS <limit> <set_key>…, limit a whole number from 1 to ' . self::MAX_MEMBERS_LIMIT );
+			return;
+		}
+		if ( ! $this->arm instanceof Durable_Arm ) {
+			$this->refuse( $request, 'SMEMBERS', $this->needs_durable() );
+			return;
+		}
+		$set_keys = [];
+		foreach ( $words as $set_key ) {
+			$set_keys[ self::entry_key( $this->namespace, $set_key ) ] = $set_key;
+		}
+		$found = $this->arm->members( \array_keys( $set_keys ), $limit );
+		if ( false === $found ) {
+			$this->reply( $request, Message::TM_ERROR, '', "SMEMBERS: backend read failed\n" );
+			return;
+		}
+		$count = 0;
+		foreach ( $set_keys as $entry_key => $set_key ) {
+			if ( ! \array_key_exists( $entry_key, $found ) ) {
+				continue;
+			}
+			$members = $found[ $entry_key ];
+			if ( null === $members ) {
+				$this->reply( $request, Message::TM_BYTESTREAM, $set_key, self::OVER_LIMIT . " {$limit}\n" );
+			} else {
+				$pairs = [];
+				foreach ( $members as $member => $stored ) {
+					$pairs[] = [ (string) $member, $stored ];
+				}
+				$this->reply( $request, Message::TM_STRUCT, $set_key, $pairs );
+			}
+			++$count;
+		}
+		$this->reply( $request, Message::TM_INFO, '', "SMEMBERS {$count}\n" );
 	}
 
 	/**
@@ -423,7 +575,7 @@ class Table_Node extends Node {
 		$groups = [];
 		foreach ( $items as $key => $item ) {
 			$item = Core::arr( $item );
-			$ttl  = null !== ( $item[1] ?? null ) ? Core::canonical_decimal( $item[1], false ) : $this->ttl;
+			$ttl  = $this->item_ttl( $item );
 			if ( Cache_Backend::refuses_key( (string) $key ) || ! \array_key_exists( 0, $item ) || null === $ttl ) {
 				$this->print_less_often( 'ERROR: refused a write item: ', (string) $key, ' needs a KEY without whitespace, a value, and a ttl in whole seconds, at least 1' );
 				continue;
@@ -453,6 +605,17 @@ class Table_Node extends Node {
 			}
 		}
 		return $landed;
+	}
+
+	/**
+	 * A write item's TTL: its own when it states one, the Table's otherwise.
+	 *
+	 * @param array<array-key,mixed> $item [ value, ttl? ].
+	 * @return int|null The TTL, or null when the stated one is not whole
+	 *                  seconds, at least 1.
+	 */
+	private function item_ttl( array $item ): ?int {
+		return null !== ( $item[1] ?? null ) ? Core::canonical_decimal( $item[1], false ) : $this->ttl;
 	}
 
 	/**
@@ -972,7 +1135,7 @@ class Table_Node extends Node {
 	 */
 	public function vacuum(): string {
 		$this->refuse_if_mounted( 'vacuum' );
-		$arm = $this->arm instanceof Durable_Arm ? $this->arm : throw new \RuntimeException( \esc_html( "vacuum needs a durable backend; {$this->name} is {$this->backend}" ) );
+		$arm = $this->arm instanceof Durable_Arm ? $this->arm : throw new \RuntimeException( \esc_html( "vacuum {$this->needs_durable()}" ) );
 		try {
 			$arm->vacuum();
 		} catch ( Worker_Should_Stop $stop ) {
@@ -981,6 +1144,15 @@ class Table_Node extends Node {
 			throw new \RuntimeException( \esc_html( "Table {$this->name}: " . $e->getMessage() ), 0, $e );
 		}
 		return "ok\n";
+	}
+
+	/**
+	 * Why a verb only a durable backend answers is refused here.
+	 *
+	 * @return string `needs a durable backend; <table> is <backend>`.
+	 */
+	private function needs_durable(): string {
+		return "needs a durable backend; {$this->name} is {$this->backend}";
 	}
 
 	/**
@@ -998,38 +1170,54 @@ class Table_Node extends Node {
 	/**
 	 * Delete the rows expired at `$now` from every durable Table in this
 	 * process's graph, at most once a `PURGE_INTERVAL_S` each: the Router
-	 * tick's step. A mount is skipped, since its declaring worker is the
-	 * file's one writer.
+	 * tick's step. The Tables due share one deadline, PURGE_BACKLOG_BUDGET_S
+	 * when any is behind and PURGE_BUDGET_S otherwise, so a tick holds the
+	 * loop for one budget plus one batch a Table. A mount is skipped, since
+	 * its declaring worker is the file's one writer.
 	 *
 	 * @param int $now The tick, in epoch seconds.
 	 * @throws \Throwable What the purges threw, after the last.
 	 */
 	public static function purge_expired( int $now ): void {
-		$purges = [];
+		$due    = [];
+		$behind = false;
 		foreach ( Core::$nodes_by_name as $node ) {
 			if ( $node instanceof self && ! $node->mounted && $node->arm instanceof Durable_Arm && $node->purge_due <= $now ) {
 				$node->purge_due = $now + self::PURGE_INTERVAL_S;
-				$arm             = $node->arm;
-				$purges[]        = static fn () => self::purge_batches( $arm, $now );
+				$due[]           = [ $node, $node->arm ];
+				$behind          = $behind || $node->purge_behind;
 			}
 		}
+		if ( [] === $due ) {
+			return;
+		}
+		$until  = Core::right_now() + ( $behind ? self::PURGE_BACKLOG_BUDGET_S : self::PURGE_BUDGET_S );
+		$purges = \array_map( static fn ( array $table ): \Closure => static fn () => $table[0]->purge_batches( $table[1], $now, $until ), $due );
 		Worker_Should_Stop::raise( Worker_Should_Stop::attempt( ...$purges ) );
 	}
 
 	/**
 	 * One Table's purge: a batch, repeated while each comes back full and the
-	 * budget, read through `Core::right_now()`, lasts; the rest waits a minute.
-	 * The budget is checked between batches, so one statement blocked on the
+	 * tick's deadline, read through `Core::right_now()`, has not passed; the
+	 * rest waits a minute. A purge that stops with its last batch full leaves
+	 * the Table behind, and says so; the first short batch catches it up. The
+	 * deadline is checked between batches, so one statement blocked on the
 	 * file's write lock can hold the tick for the arm's busy_timeout.
 	 *
-	 * @param Durable_Arm $arm The Table's arm.
-	 * @param int         $now The tick, in epoch seconds.
+	 * @param Durable_Arm $arm   The Table's arm.
+	 * @param int         $now   The tick, in epoch seconds.
+	 * @param float       $until The tick's deadline, shared by every Table.
 	 */
-	private static function purge_batches( Durable_Arm $arm, int $now ): void {
-		$until = Core::right_now() + self::PURGE_BUDGET_S;
+	private function purge_batches( Durable_Arm $arm, int $now, float $until ): void {
+		$batches = 0;
 		do {
+			++$batches;
 			$full = self::PURGE_BATCH_ROWS === $arm->purge( $now, self::PURGE_BATCH_ROWS );
 		} while ( $full && Core::right_now() < $until );
+		$this->purge_behind = $full;
+		if ( $full ) {
+			$this->print_less_often( 'WARNING: purge is behind: ', "its last batch came back full after {$batches} batches, " . $batches * self::PURGE_BATCH_ROWS . ' rows; the next purge spends its backlog budget' );
+		}
 	}
 
 	/**
@@ -1192,6 +1380,15 @@ class Table_Node extends Node {
 					'reply_shape' => self::READ_REPLY,
 				],
 				[
+					'name'        => 'SMEMBERS',
+					'description' => 'Up to <limit> live members of each set, lowest member first, by an exact set-key seek; sqlite and wpdb alone hold members.',
+					'args'        => [
+						[ 'name' => 'limit', 'type' => 'int', 'required' => true, 'description' => 'Most members each set answers, from 1 to MAX_MEMBERS_LIMIT (10000).' ],
+						[ 'name' => 'set_keys', 'type' => 'string', 'required' => true, 'description' => 'Whitespace-separated set keys.' ],
+					],
+					'reply_shape' => self::MEMBERS_REPLY,
+				],
+				[
 					'name'        => 'TOUCH',
 					'description' => 'Move each key\'s expiry to <ttl> seconds from now.',
 					'args'        => [
@@ -1215,6 +1412,12 @@ class Table_Node extends Node {
 				[
 					'name'        => 'ADD',
 					'description' => 'A TM_REQUEST|TM_STRUCT map of key => [ value, ttl ], written only where absent.',
+					'args'        => [],
+					'reply_shape' => self::WRITE_REPLY,
+				],
+				[
+					'name'        => 'SADD',
+					'description' => 'A TM_REQUEST|TM_STRUCT map of set key => [ [ member => value, … ], ttl ]; each member upserted, ttl defaulting to the Table\'s. sqlite and wpdb alone hold members.',
 					'args'        => [],
 					'reply_shape' => self::WRITE_REPLY,
 				],

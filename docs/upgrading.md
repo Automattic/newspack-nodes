@@ -6,6 +6,34 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **A durable Table holds set members: `SADD` and `SMEMBERS`, asked through
+  `Table_Client::add_members( $table, $sets, $ttl )` and
+  `Table_Client::members( $table, $set_keys, $limit, $failed )`.** Nothing
+  existing changes shape. A consumer calling either raises its
+  `version_at_least()` floor to 2.76.0, and names `sqlite` or `wpdb` for the
+  Table: a volatile Table refuses both verbs with
+  `TM_ERROR "<VERB>: needs a durable backend; <table> is <backend>"`,
+  which the client reads as a failed read and an add that landed nothing. A
+  `sqlite` file gains its `members` table when its worker next opens it, so
+  restart the workers after deploying; until then a mount reads every set as
+  empty. A `wpdb` install gains the
+  `{base_prefix}newspack_nodes_members` table the first time a `wpdb` Table
+  opens. On `wpdb` a member holds 255 bytes and a set key 255 less its
+  scope, `newspack_nodes:v3:<site>:table:<namespace>:` (38 bytes and the
+  namespace): store a hash as the member and the long string in its value.
+  `SMEMBERS` takes a limit from 1 to `Table_Node::MAX_MEMBERS_LIMIT` (10,000)
+  and answers one message per set: its members in member order, or, past the
+  limit, `OVER <limit>` and none, which `Table_Client::members()` returns as
+  `null` for that set.
+- **A structure on any verb but `MSET`, `ADD` and `SADD` is refused as
+  `only MSET, ADD and SADD take a structure`,** where it read
+  `only MSET and ADD take a structure`. A caller matching the old text
+  matches the new.
+- **A class extending `Durable_Arm` implements three more hooks:**
+  `purge_member_rows()`, `upsert_members()` and `select_members()`, beside
+  `purge_rows()`, which `purge()` now calls first within the same limit.
+  Nothing outside the substrate extends it.
+
 - **`Bootstrap::mount_table( array $names ): array` drops its `?array &$built`
   out-parameter.** Delete the argument and the bookkeeping that read it: a
   mount now lives for the rest of the request, and a later call keeps it.

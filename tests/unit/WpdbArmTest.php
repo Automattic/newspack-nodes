@@ -54,7 +54,7 @@ final class WpdbArmTest extends TestCase {
 		new Wpdb_Arm( 'kea:p3' );
 		$this->db->deny['CREATE TABLE'] = 'CREATE command denied';
 		new Wpdb_Arm( 'kea:p4' );
-		$this->assertCount( 1, $this->sent( 'CREATE TABLE' ), 'a second arm on the same connection creates nothing' );
+		$this->assertCount( 2, $this->sent( 'CREATE TABLE' ), 'a second arm on the same connection creates nothing' );
 		$this->assertCount( 1, $this->sent( '@@max_allowed_packet' ) );
 
 		$fresh                       = new Sqlite_Wpdb();
@@ -291,7 +291,7 @@ final class WpdbArmTest extends TestCase {
 	public function test_vacuum_optimizes_the_table_and_throws_when_refused(): void {
 		$arm = new Wpdb_Arm( 'kea:p3' );
 		$arm->vacuum();
-		$this->assertSame( 'OPTIMIZE TABLE `kea7_newspack_nodes_table`', \end( $this->db->sent ) );
+		$this->assertSame( 'OPTIMIZE TABLE `kea7_newspack_nodes_table`, `kea7_newspack_nodes_members`', \end( $this->db->sent ) );
 		$this->db->deny['OPTIMIZE'] = 'INDEX command denied';
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'vacuum failed: INDEX command denied' );
@@ -322,5 +322,101 @@ final class WpdbArmTest extends TestCase {
 		$this->expectException( \LogicException::class );
 		$this->expectExceptionMessage( 'wpdb backend needs $wpdb' );
 		new Wpdb_Arm( 'kea:p3' );
+	}
+
+	public function test_members_live_in_their_own_table_keyed_by_namespace_set_and_member(): void {
+		new Wpdb_Arm( 'kea:p3' );
+		$create = $this->sent( 'CREATE TABLE' );
+		$this->assertCount( 2, $create );
+		$this->assertStringContainsString( '`kea7_newspack_nodes_members`', $create[1] );
+		$this->assertStringContainsString( 'PRIMARY KEY ( namespace, set_key, member )', $create[1] );
+		$this->assertStringContainsString( 'KEY namespace_expires ( namespace, expires )', $create[1] );
+	}
+
+	public function test_a_member_read_names_one_set_and_its_limit(): void {
+		$arm = new Wpdb_Arm( 'kea:p3' );
+		$arm->add_members( [ 'owl:set-7' => [ [ 'm-41' => 1 ], 777 ] ] );
+		$this->db->sent = [];
+		$arm->members( [ 'owl:set-7', 'owl:set-9' ], 13 );
+		$reads = $this->sent( 'SELECT' );
+		$this->assertCount( 2, $reads );
+		$this->assertStringContainsString( "WHERE namespace = 'kea:p3' AND set_key = 'owl:set-7' AND expires > ", $reads[0] );
+		$this->assertStringEndsWith( 'ORDER BY member LIMIT 14', $reads[0], 'one row past the limit tells a full set from one over it' );
+	}
+
+	public function test_two_namespaces_never_see_each_others_members(): void {
+		Core::$clock = static fn (): float => 1790000000.0;
+		$p3          = new Wpdb_Arm( 'kea:p3' );
+		$p4          = new Wpdb_Arm( 'kea:p4' );
+		$p3->add_members( [ 'owl:set-7' => [ [ 'm-41' => 'p3' ], 37 ] ] );
+		$p4->add_members( [ 'owl:set-7' => [ [ 'm-43' => 'p4' ], 37 ] ] );
+		$this->assertSame( [ 'owl:set-7' => [ 'm-43' => 'p4' ] ], $p4->members( [ 'owl:set-7' ], 9 ) );
+		$this->assertSame( 1, $p4->purge( 1790000037, 10 ), 'a purge reclaims its own namespace alone' );
+		$this->assertSame( 1, $p3->purge( 1790000037, 10 ) );
+	}
+
+	public function test_a_member_add_is_cut_into_statements_that_fit_the_packet(): void {
+		$this->db->max_allowed_packet = 4096;
+		$arm                          = new Wpdb_Arm( 'kea:p3' );
+		$members                      = [];
+		for ( $i = 0; $i < 40; ++$i ) {
+			$members[ "m-{$i}" ] = \str_repeat( 'x', 300 );
+		}
+		$this->assertTrue( $arm->add_members( [ 'owl:set-7' => [ $members, 777 ] ] ) );
+		$inserts = $this->sent( 'INSERT INTO `kea7_newspack_nodes_members`' );
+		$this->assertGreaterThan( 1, \count( $inserts ) );
+		foreach ( $inserts as $sql ) {
+			$this->assertLessThanOrEqual( 4096, \strlen( $sql ) );
+		}
+		$this->assertCount( 40, $arm->members( [ 'owl:set-7' ], 99 )['owl:set-7'] );
+	}
+
+	public function test_a_member_or_set_key_wider_than_its_column_is_refused_before_any_statement(): void {
+		$arm            = new Wpdb_Arm( 'kea:p3' );
+		$this->db->sent = [];
+		$this->assertFalse( $arm->add_members( [ 'owl:set-7' => [ [ 'm-41' => 1, \str_repeat( 'm', 256 ) => 2 ], 777 ] ] ) );
+		$this->assertStringContainsString( 'member longer than 255 bytes', $arm->last_failure() );
+		$this->assertFalse( $arm->add_members( [ \str_repeat( 'k', 256 ) => [ [ 'm-41' => 1 ], 777 ] ] ) );
+		$this->assertStringContainsString( 'key longer than 255 bytes', $arm->last_failure() );
+		$this->assertSame( [], $this->db->sent, 'nothing reached the server' );
+		$this->assertTrue( $arm->add_members( [ \str_repeat( 'k', 255 ) => [ [ \str_repeat( 'm', 255 ) => 3 ], 777 ] ] ) );
+	}
+
+	public function test_a_failed_member_read_is_a_failure_never_an_empty_set(): void {
+		$arm                      = new Wpdb_Arm( 'kea:p3' );
+		$this->db->deny['SELECT'] = 'Lost connection to server during query';
+		$this->assertFalse( $arm->members( [ 'owl:set-7' ], 9 ) );
+		$this->assertStringContainsString( 'Lost connection to server during query', $arm->last_failure() );
+	}
+
+	public function test_bind_refuses_a_statement_whose_values_and_placeholders_disagree(): void {
+		$bind = new \ReflectionMethod( Wpdb_Arm::class, 'bind' );
+		foreach ( [ [ 'SELECT %d FROM %i', [ 41, 'kea', 43 ] ], [ 'SELECT %s, %d FROM %i', [ 'kea', 41 ] ], [ "SELECT '%%s', %s FROM %i", [ 'kea', 'owl', 'emu' ] ] ] as [ $sql, $args ] ) {
+			try {
+				$bind->invoke( null, $this->db, $sql, $args );
+				$this->fail( "bind() took {$sql}" );
+			} catch ( \UnexpectedValueException $e ) {
+				$this->assertStringContainsString( 'placeholders', $e->getMessage() );
+			}
+		}
+		$this->assertSame( "SELECT '%s', 'kea' FROM `emu`", $bind->invoke( null, $this->db, "SELECT '%%s', %s FROM %i", [ 'kea', 'emu' ] ) );
+	}
+
+	public function test_a_member_row_no_serializer_wrote_fails_the_read(): void {
+		$arm = new Wpdb_Arm( 'kea:p3' );
+		$arm->add_members( [ 'owl:set-7' => [ [ 'm-41' => 'kea' ], 777 ] ] );
+		$this->db->query( "INSERT INTO kea7_newspack_nodes_members ( namespace, set_key, member, `value`, expires ) VALUES ( 'kea:p3', 'owl:set-7', 'm-43', '!!not-base64!!', 1999999999 )" );
+		$this->assertFalse( $arm->members( [ 'owl:set-7' ], 9 ) );
+		$this->assertStringContainsString( 'undecodable row', $arm->last_failure() );
+	}
+
+	public function test_the_purge_takes_keyed_rows_before_members(): void {
+		Core::$clock = static fn (): float => 1790000000.0;
+		$arm         = new Wpdb_Arm( 'kea:p3' );
+		$arm->write_multi( [ 'kea-1' => 1, 'kea-2' => 2, 'kea-3' => 3, 'kea-4' => 4, 'kea-5' => 5 ], 37 );
+		$arm->add_members( [ 'owl:set-7' => [ [ 'm-1' => 1, 'm-2' => 2, 'm-3' => 3 ], 37 ] ] );
+		$this->assertSame( 4, $arm->purge( 1790000037, 4 ) );
+		$counts = \array_map( fn ( string $t ): int => (int) $this->db->get_results( "SELECT COUNT(*) AS n FROM kea7_newspack_nodes_{$t}" )[0]['n'], [ 'table', 'members' ] );
+		$this->assertSame( [ 1, 3 ], $counts, 'a limit the keyed rows fill leaves every member' );
 	}
 }

@@ -40,8 +40,11 @@ final class Sqlite_Wpdb extends \wpdb {
 	public function prepare( string $query, mixed ...$args ): string {
 		$at = 0;
 		return (string) \preg_replace_callback(
-			'/%[sdi]/',
+			'/%%|%[sdi]/',
 			function ( array $m ) use ( $args, &$at ): string {
+				if ( '%%' === $m[0] ) {
+					return '%';
+				}
 				$arg = $args[ $at++ ] ?? '';
 				return match ( $m[0] ) {
 					'%d'    => (string) (int) $arg,
@@ -115,7 +118,7 @@ final class Sqlite_Wpdb extends \wpdb {
 
 	private static function sqlite( string $sql ): string {
 		$sql = \str_replace( 'INSERT IGNORE', 'INSERT OR IGNORE', $sql );
-		$sql = (string) \preg_replace( '/ON DUPLICATE KEY UPDATE .*$/s', 'ON CONFLICT ( namespace, cache_key ) DO UPDATE SET `value` = excluded.`value`, expires = excluded.expires', $sql );
+		$sql = (string) \preg_replace( '/ON DUPLICATE KEY UPDATE .*$/s', 'ON CONFLICT DO UPDATE SET `value` = excluded.`value`, expires = excluded.expires', $sql );
 		$sql = (string) \preg_replace( '/^OPTIMIZE TABLE .*$/s', 'VACUUM', $sql );
 		return (string) \preg_replace( '/^DELETE FROM (`[^`]+`) WHERE (.*) LIMIT (\d+)$/s', 'DELETE FROM $1 WHERE rowid IN ( SELECT rowid FROM $1 WHERE $2 LIMIT $3 )', $sql );
 	}

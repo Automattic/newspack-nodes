@@ -6,10 +6,11 @@
  * `{base}/tables/{table}.p{N}.sqlite`, on the one host's local filesystem the
  * substrate already requires (ADR-4). The partition's worker is the file's
  * one writer (ADR-6): it creates the file, puts it in WAL mode and declares
- * the `kv` table. Any other process on the host opens it read-only, changing
- * nothing in it and reading nothing while there is no file yet; WAL lets that
- * reader run without blocking the writer. A row whose `expires` has passed
- * reads as absent, and `purge()` reclaims it on the Router's tick.
+ * the `kv` and `members` tables. Any other process on the host opens it
+ * read-only, changing nothing in it and reading nothing while there is no
+ * file yet; WAL lets that reader run without blocking the writer. A row whose
+ * `expires` has passed reads as absent, and `purge()` reclaims it on the
+ * Router's tick. A member read is one primary-key seek per set key.
  *
  * @package Newspack_Nodes
  */
@@ -19,7 +20,7 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * One SQLite file, one `kv` table.
+ * One SQLite file: a `kv` table, and a `members` table of set members.
  */
 final class Sqlite_Arm extends Durable_Arm {
 
@@ -35,6 +36,12 @@ final class Sqlite_Arm extends Durable_Arm {
 	/** SQL predicate for an expired row; binds one `now`. */
 	private const EXPIRED = '( expires > 0 AND expires <= ? )';
 
+	/** One set's live members: a primary-key seek, in its order; binds set, now, limit. */
+	private const MEMBERS_READ = 'SELECT member, "value" FROM members WHERE set_key = ? AND expires > ? ORDER BY member LIMIT ?';
+
+	/** Expired members through `members_expires`, deleted by key; binds now, limit. */
+	private const MEMBERS_PURGE = 'DELETE FROM members WHERE ( set_key, member ) IN ( SELECT set_key, member FROM members WHERE expires <= ? LIMIT ? )';
+
 	/**
 	 * Extension seam: whether `pdo_sqlite` is loaded. Null reads the real
 	 * `extension_loaded()`; tests pin it false to reach the refusal.
@@ -46,6 +53,12 @@ final class Sqlite_Arm extends Durable_Arm {
 
 	/** The open connection; null while a reader's file does not exist. */
 	private ?\PDO $db = null;
+
+	/** Whether the open file holds a `members` table; null until first asked. */
+	private ?bool $has_members = null;
+
+	/** The open file's member read, prepared on its first use. */
+	private ?\PDOStatement $members_read = null;
 
 	/**
 	 * Open the file as its writer: create it and its directory, enter WAL
@@ -162,16 +175,6 @@ final class Sqlite_Arm extends Durable_Arm {
 		return $out;
 	}
 
-	/**
-	 * A key/value result as key => tagged bytes.
-	 *
-	 * @param \PDOStatement $stmt An executed two-column statement.
-	 * @return array<array-key,string>
-	 */
-	private static function pairs( \PDOStatement $stmt ): array {
-		return \array_map( Core::as_string( ... ), $stmt->fetchAll( \PDO::FETCH_KEY_PAIR ) );
-	}
-
 	/** See Durable_Arm::upsert(). */
 	protected function upsert( array $rows, int $expires ): void {
 		$this->store( 'INSERT OR REPLACE', $rows, $expires );
@@ -243,6 +246,27 @@ final class Sqlite_Arm extends Durable_Arm {
 		return $stmt->rowCount();
 	}
 
+	/** See Durable_Arm::purge_member_rows(); the table has no rowid to name. */
+	protected function purge_member_rows( int $now, int $limit ): int {
+		$stmt = $this->handle()->prepare( self::MEMBERS_PURGE );
+		$stmt->bindValue( 1, $now, \PDO::PARAM_INT );
+		$stmt->bindValue( 2, $limit, \PDO::PARAM_INT );
+		$stmt->execute();
+		return $stmt->rowCount();
+	}
+
+	/** See Durable_Arm::upsert_members(). */
+	protected function upsert_members( array $rows ): void {
+		$stmt = $this->handle()->prepare( 'INSERT OR REPLACE INTO members ( set_key, member, "value", expires ) VALUES ( ?, ?, ?, ? )' );
+		foreach ( $rows as [ $set_key, $member, $bytes, $expires ] ) {
+			$stmt->bindValue( 1, $set_key );
+			$stmt->bindValue( 2, $member );
+			$stmt->bindValue( 3, $bytes, \PDO::PARAM_LOB );
+			$stmt->bindValue( 4, $expires, \PDO::PARAM_INT );
+			$stmt->execute();
+		}
+	}
+
 	/**
 	 * The connection a statement runs on.
 	 *
@@ -250,6 +274,40 @@ final class Sqlite_Arm extends Durable_Arm {
 	 */
 	private function handle(): \PDO {
 		return $this->db() ?? throw new \PDOException( "no file at {$this->path}" );
+	}
+
+	/** See Durable_Arm::select_set(). */
+	protected function select_set( string $set_key, int $limit ): array {
+		$db = $this->db();
+		if ( null === $db ) {
+			// No file: its writer has not written, so there is nothing to read.
+			return [];
+		}
+		// A file its writer declared before members holds none to read.
+		if ( null === $this->has_members ) {
+			$table = $db->prepare( "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'members'" );
+			$table->execute();
+			$this->has_members = false !== $table->fetchColumn();
+		}
+		if ( ! $this->has_members ) {
+			return [];
+		}
+		$this->members_read ??= $db->prepare( self::MEMBERS_READ );
+		$this->members_read->bindValue( 1, $set_key );
+		$this->members_read->bindValue( 2, self::now(), \PDO::PARAM_INT );
+		$this->members_read->bindValue( 3, $limit, \PDO::PARAM_INT );
+		$this->members_read->execute();
+		return self::pairs( $this->members_read );
+	}
+
+	/**
+	 * A key/value result as key => tagged bytes.
+	 *
+	 * @param \PDOStatement $stmt An executed two-column statement.
+	 * @return array<array-key,string>
+	 */
+	private static function pairs( \PDOStatement $stmt ): array {
+		return \array_map( Core::as_string( ... ), $stmt->fetchAll( \PDO::FETCH_KEY_PAIR ) );
 	}
 
 	/**
@@ -270,7 +328,7 @@ final class Sqlite_Arm extends Durable_Arm {
 
 	/**
 	 * Open the connection: read-only, or as the writer in WAL mode with the
-	 * `kv` table declared.
+	 * `kv` and `members` tables declared.
 	 *
 	 * @return \PDO The connection.
 	 * @throws \PDOException When the file cannot open.
@@ -292,6 +350,9 @@ final class Sqlite_Arm extends Durable_Arm {
 		$db->exec( 'PRAGMA synchronous = NORMAL' );
 		$db->exec( 'CREATE TABLE IF NOT EXISTS kv ( "key" TEXT PRIMARY KEY, "value" BLOB NOT NULL, expires INTEGER NOT NULL )' );
 		$db->exec( 'CREATE INDEX IF NOT EXISTS kv_expires ON kv ( expires )' );
+		$db->exec( 'CREATE TABLE IF NOT EXISTS members ( set_key TEXT NOT NULL, member TEXT NOT NULL, "value" BLOB NOT NULL, expires INTEGER NOT NULL, PRIMARY KEY ( set_key, member ) ) WITHOUT ROWID' );
+		$db->exec( 'CREATE INDEX IF NOT EXISTS members_expires ON members ( expires )' );
+		$this->has_members = true;
 		return $db;
 	}
 }
