@@ -44,8 +44,11 @@
       <div class="path"><span class="t">&#9500;&#9472;</span> deadletter/</div>
       <div class="ann">Every quarantine. A write-side one is named for its source directory with the slashes turned to dots.</div>
 
-      <div class="path"><span class="t">&#9500;&#9472;</span> locks/ &nbsp;&nbsp;<span class="t">&#9500;&#9472;</span> ipc/ &nbsp;&nbsp;<span class="t">&#9492;&#9472;</span> topologies/</div>
+      <div class="path"><span class="t">&#9500;&#9472;</span> locks/ &nbsp;&nbsp;<span class="t">&#9500;&#9472;</span> ipc/ &nbsp;&nbsp;<span class="t">&#9500;&#9472;</span> topologies/</div>
       <div class="ann">Worker locks, the console's input and output logs, and the topology files. Part 4 opens these three.</div>
+
+      <div class="path"><span class="t">&#9492;&#9472;</span> tables/ &nbsp;<span class="dim">lab-7:kea.p3.sqlite</span></div>
+      <div class="ann">One SQLite file per partition of each Table that names the <span class="mono">sqlite</span> backend, beside its <span class="mono">-wal</span> and <span class="mono">-shm</span> files. A declared Table's file has one writer, its partition's worker. Nothing prunes the directory.</div>
     </div>
   </div>
 </div>

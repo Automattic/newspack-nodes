@@ -34,6 +34,7 @@ supersede.
 | [21](#adr-21-a-node-may-derive-its-children-from-the-vault-and-static-analysis-reads-it) | A node may derive its children from the Vault, and static analysis reads it |
 | [22](#adr-22-a-worker-id-has-one-writer-one-reader-and-two-layout-owners) | A worker id has one writer, one reader, and two layout owners |
 | [23](#adr-23-a-request-carries-no-authority-of-its-own) | A request carries no authority of its own |
+| [24](#adr-24-a-tables-backend-is-chosen-per-table) | A Table's backend is chosen per Table |
 
 ---
 
@@ -1053,6 +1054,12 @@ yet resolved — answers null, and the read is a miss; null and an empty answer 
 caller alike, and the table stores nothing on the strength of either. `tests/unit/TableNodeTest.php`
 pins each rule.
 
+A failed cache read counts differently on the two read paths. `lookup_multi( $keys, $failed )`
+sets `$failed` whenever the Table's arm did not answer the batch, even where the backing then
+returned every key, because a caller merging onto the result must learn that the cache went
+unread. A `GET` or `MGET` request answers `TM_ERROR` only when the arm failed and no backing
+looked at the misses, so on the wire a read the backing answered is a read that succeeded.
+
 `locate_by()` resolves a key to its NEWEST record in one newest-first pass, because the
 remaining-`ttl` rule reads the lifetime off whichever record the key lands on: an older write
 would make a live entry read as expired and vanish silently.
@@ -1328,12 +1335,27 @@ The request graph is built per request, so a POST that does not mount the worker
 with the site's own filesystem authority, and refuses to run as root. That mount is the
 gate, so a `node_schema()['requests']` entry declares no capability.
 
+A Table is the one node a request reaches without its worker. `topologies mount_tables`
+mounts every Table an active topology declares into the request graph through
+`Bootstrap::mount_table()`, and it too declares MANAGE by declaring no capability. A mount
+serves reads alone: it answers `GET`, `MGET` and `SCAN`, and refuses every write request, an
+INSERT, and its `:config` interpreter's `rm` and `vacuum`, because the declaring worker is the
+Table's one writer ([ADR-6](#adr-6-crc32--31-bit-mask-partition-routing)).
+
 A request may drive a running graph. A declared request answers TO=FROM through
 [`Schema_Reflection::answer_request()`](../includes/trait-schema-reflection.php) with
 `TM_STRUCT | TM_RESPONSE` and VALUE `{ verb, data }`, or refuses an undeclared verb with a
-`TM_ERROR`. `Table_Node`'s `GET <key>` keeps Tachikoma's bare shape instead, as
-[`tachikoma-lineage.md`](tachikoma-lineage.md#a-declared-request-answers-in-an-envelope-tables-get-answers-bare)
+`TM_ERROR`. `Table_Node`'s verbs answer bare instead, as
+[`tachikoma-lineage.md`](tachikoma-lineage.md#a-declared-request-answers-in-an-envelope-tables-verbs-answer-bare)
 records.
+
+**Amendment:** a request carries a structure for `MSET` and `ADD` alone. A Table's `MSET` and
+`ADD` carry `key => [ value, ttl ]` maps a string cannot hold without an encoding, so they
+travel as `TM_REQUEST | TM_STRUCT` with VALUE `[ 'MSET' => … ]` or `[ 'ADD' => … ]`; every
+other request stays a string. `topologies mount_tables` mounts Tables into a request graph and
+declares MANAGE, as `connect_worker_input` does. A verb below MANAGE that mounts a Table to
+read it removes the mount before it returns, so no later message in the same POST reaches the
+Table.
 
 **Alternatives considered:** Signing requests as commands are signed — rejected: the mount
 already demands MANAGE of every outside caller before a request can reach a worker, so a
@@ -1348,4 +1370,73 @@ from another MANAGE holder by session scope is a command, because only a command
 the minter's session into the worker.
 
 **Revisit if:** anything writes into a worker's input Partition below MANAGE — a verb that
-mounts it under a lower role, or a second writer beside the attached cli.
+mounts it under a lower role, or a second writer beside the attached cli — or a Table mount
+outlives the verb below MANAGE that made it.
+
+---
+
+## ADR-24: A Table's backend is chosen per Table
+
+**Status:** Accepted
+
+**Context:** Tables sat on the shared cache tier, and memcache evicts. event-logger-nodes grew
+a durable mirror, a sweep, held frames and restore lifetimes to repair the loss, and each
+review round found holes in the last repair. Storage reached through helper instances built
+inside classes was also invisible to `ls`, `dump_node` and the console.
+
+**Decision:** `make_node Table <name> <namespace> <ttl> [auto|memcache|apcu|sqlite|wpdb]`.
+
+- The TTL is required and at least one second. It is the lifetime of every entry a write does
+  not time itself.
+- `auto`, the default, is memcached, else APCu, chosen per call.
+- A named backend opens once, in `arguments()`, and throws there naming the Table. A topology
+  that cannot open its Tables fails loud at load.
+- `sqlite` is one file per Table per partition, `{base}/tables/{table}.p{N}.sqlite`, on
+  [ADR-4](#adr-4-pipe_buf-atomic-writes)'s local filesystem, in WAL with `synchronous=NORMAL`
+  and a 1000 ms `busy_timeout`. The partition's worker is its one writer
+  ([ADR-6](#adr-6-crc32--31-bit-mask-partition-routing)), and
+  `Topology_Analyzer::write_set()` claims the file, so two active topologies cannot both
+  write it.
+- `wpdb` is one shared table, `{base_prefix}newspack_nodes_table`, keyed by namespace, for
+  low-volume Tables every host must read.
+- Every arm stores the same key grammar (`Cache_Backend::site_key()`), so a salt rotation
+  orphans durable rows as it orphans cached ones.
+- A read ignores an expired row. `Router_Node`'s tick purges each durable Table its worker
+  declared, once a minute, and `vacuum` is an operator verb, never automatic.
+- Only `sqlite` and `wpdb` answer `SCAN`, so a Table that needs `SCAN` names one of them.
+
+**Alternatives considered:**
+
+- Repairing memcache loss further — rejected: see the Context.
+- One durable store for every Table — rejected: nonces, sessions and page caches want a
+  cache's speed and eviction.
+- A SQL data model — out of scope: aggregates stay key-value.
+
+**Consequences:**
+
+- The PHP image needs `pdo_sqlite`. Without it a `sqlite` Table throws
+  `sqlite backend needs the pdo_sqlite extension` at load.
+- A reader on another host cannot see a `sqlite` Table.
+- A long reader starves the WAL checkpoint, so the file grows until the reader ends. A reader
+  never blocks the writer under WAL; a write that waits out `busy_timeout` met a second
+  writer, and returns false.
+- A co-tenant install sharing `{base}` shares the file and becomes its second writer.
+- A Table built outside a graph, `Table_Node::table( $ns, $ttl, 'sqlite' )`, is opened by
+  every web and CLI process that builds it, so its file has no one writer. Such a Table names
+  `wpdb`.
+- The purge walks the named Tables of a worker's graph and skips a request-graph mount. A
+  durable Table that `table()` builds is never purged: reads ignore its expired rows, but
+  they stay on disk. A durable Table that must be reclaimed is declared in a topology.
+- The purge deletes expired rows and nothing else. A salt rotation leaves a durable Table's
+  old-scope rows unreachable until they expire on the TTL they were written with, and every
+  Table's TTL is at least one second, so the purge reclaims each of them in turn. `vacuum`
+  returns free pages and deletes no row.
+- A `wpdb` purge is scoped by the Table's own namespace, so rows under a namespace no active
+  topology declares — a generation moved from `pyrobase:g47` to `pyrobase:g48` — are never
+  reclaimed. Delete them by hand:
+  `DELETE FROM {base_prefix}newspack_nodes_table WHERE namespace = '<old namespace>'`.
+  Nothing sweeps `{base}/tables/` either, so a `sqlite` Table no active topology declares
+  keeps its files until an operator deletes them.
+
+**Revisit if:** a durable Table must be read from another host at volume, or a second writer
+per file appears.

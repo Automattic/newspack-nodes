@@ -99,7 +99,7 @@
     <div class="r ren div"><span class="u">AgeSieve.pm</span><span class="a">→</span><span class="h">Age_Sieve_Node<small>zero takes the 900 s default</small></span></div>
     <div class="r ren"><span class="u">PayloadTimeout.pm</span><span class="a">→</span><span class="h">Value_Timeout_Node</span></div>
     <div class="r gone div"><span class="u">MemorySieve.pm</span><span class="a">→</span><span class="h">—<small>its cancel() is the call ADR-3 removed</small></span></div>
-    <div class="r div"><span class="u">Table.pm</span><span class="a">→</span><span class="h">Table_Node + LRU_Cache<small>cache-backed; an absent key is an error</small></span></div>
+    <div class="r div"><span class="u">Table.pm</span><span class="a">→</span><span class="h">Table_Node + LRU_Cache<small>a backend per Table; an absent key sends nothing</small></span></div>
     <div class="r ren"><span class="u">JobSpawnTimer.pm</span><span class="a">→</span><span class="h">Connect_Queue_Timer_Node<small>500 ms where upstream uses 250 ms</small></span></div>
     <div class="r ren"><span class="u">StorableToJSON.pm</span><span class="a">→</span><span class="h">Struct_To_JSON_Node<small>compact, one line per record</small></span></div>
     <div class="r ren"><span class="u">JSONtoStorable.pm</span><span class="a">→</span><span class="h">JSON_To_Struct_Node</span></div>

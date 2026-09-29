@@ -756,9 +756,16 @@ class Topology_Analyzer {
 	 * back to the path the node derives, `<config:offsets_dir>/<node>.<source>`,
 	 * so the cursor is still claimed and still gated.
 	 *
+	 * A `Table` whose backend resolves to `sqlite` — written literally or as a
+	 * config token, resolved strictly — claims `table:<name>.p<partition>`,
+	 * the stem of its `{base}/tables/<name>.p<partition>.sqlite` file: that
+	 * file has one writer (ADR-6), so two topologies declaring the Table
+	 * conflict whatever their lines say. Every other backend writes no file.
+	 *
 	 * @param string $name Topology name.
 	 * @return array<string> Sorted, namespaced token-form paths.
-	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
+	 * @throws \RuntimeException On unknown include, cycle, conflicting make_node,
+	 *                           or a Table backend token nothing resolves.
 	 */
 	public static function write_set( string $name ): array {
 		if ( isset( self::$write_set_cache[ $name ] ) ) {
@@ -789,7 +796,7 @@ class Topology_Analyzer {
 				// the worker count. Partition has no such argument — its
 				// 4th value is segment_size.
 				$declared_partitions = self::type_is( $class, Topic_Node::class )
-					? Core::as_string( $values[4] ?? self::topic_partitions_default() )
+					? Core::as_string( $values[4] ?? self::schema_default( Topic_Node::class, 'num_partitions' ) )
 					: '';
 				$meta[ $entry ]      = [
 					'sig'        => (string) \preg_replace( '/\s+/', ' ', \trim( \str_replace( '<topology>', $name, $statement['line'] ) ) ),
@@ -814,6 +821,11 @@ class Topology_Analyzer {
 				}
 				continue;
 			}
+			// One writer per SQLite file (ADR-6).
+			if ( 'make_node' === $verb && self::type_is( $class, Table_Node::class ) && 'sqlite' === Core::resolve_config_tokens( $values[5] ?? '', true ) ) {
+				$seen[ 'table:' . ( $values[2] ?? '' ) . '.p<partition>' ] = true;
+				continue;
+			}
 			// offsetlog (4th value) + deadletter (5th): sole-writer logs.
 			if ( 'make_node' === $verb && self::type_is( $class, Consumer_Node::class ) && isset( $values[4] ) ) {
 				$seen[ 'offsetlog:' . $values[4] ] = true;
@@ -836,23 +848,6 @@ class Topology_Analyzer {
 		self::$write_meta_cache[ $name ]  = $meta;
 		self::$write_nodes_cache[ $name ] = $nodes;
 		return self::$write_set_cache[ $name ] = $out;
-	}
-
-	/**
-	 * What a Topic's `num_partitions` means when the argument is OMITTED, read
-	 * off the ONE place that declares it — `Topic_Node::node_schema()`. A copy
-	 * here, however carefully pinned by a test, is a second declaration.
-	 *
-	 * @return string The schema default, or `''` when the schema declares none.
-	 */
-	private static function topic_partitions_default(): string {
-		foreach ( Core::arr( Topic_Node::node_schema()['arguments'] ?? [] ) as $argument ) {
-			$argument = Core::arr( $argument );
-			if ( 'num_partitions' === ( $argument['name'] ?? '' ) ) {
-				return Core::as_string( $argument['default'] ?? '' );
-			}
-		}
-		return '';
 	}
 
 	/**
@@ -883,6 +878,55 @@ class Topology_Analyzer {
 			}
 		}
 		return \array_keys( $names );
+	}
+
+	/**
+	 * Every Table a topology declares, its includes flattened in: name => the
+	 * namespace, TTL and backend as written, an omitted backend read off
+	 * `Table_Node::node_schema()`. A Table's TTL has no default — the
+	 * `make_node` line is the one place it lives — so one declaring none is
+	 * refused here. Keyed by the name as written, as declares_node() reads it;
+	 * write_set() claims the file under the name with `<topology>` substituted.
+	 *
+	 * @param string $name Topology name.
+	 * @return array<string,array{namespace: string, ttl: string, backend: string}>
+	 * @throws \RuntimeException On unknown include, cycle, conflicting make_node,
+	 *                           or a Table declaring no TTL.
+	 */
+	public static function declared_tables( string $name ): array {
+		$out = [];
+		foreach ( self::statements( $name )['statements'] as $statement ) {
+			$values = $statement['values'];
+			if ( 'make_node' !== $statement['verb'] || ! self::type_is( $values[1] ?? '', Table_Node::class ) ) {
+				continue;
+			}
+			$table         = $values[2] ?? '';
+			$out[ $table ] = [
+				'namespace' => $values[3] ?? '',
+				'ttl'       => $values[4] ?? throw new \RuntimeException( \esc_html( "Table {$table} declares no TTL" ) ),
+				'backend'   => $values[5] ?? self::schema_default( Table_Node::class, 'backend' ),
+			];
+		}
+		return $out;
+	}
+
+	/**
+	 * What a node's positional means when the argument is OMITTED, read off the
+	 * ONE place that declares it — the class's `node_schema()`. A copy here,
+	 * however carefully pinned by a test, is a second declaration.
+	 *
+	 * @param class-string<Node> $fqcn     Node class declaring the argument.
+	 * @param string             $argument Argument name.
+	 * @return string The schema default, or `''` when the schema declares none.
+	 */
+	private static function schema_default( string $fqcn, string $argument ): string {
+		foreach ( Core::arr( $fqcn::node_schema()['arguments'] ?? [] ) as $declared ) {
+			$declared = Core::arr( $declared );
+			if ( $argument === ( $declared['name'] ?? '' ) ) {
+				return Core::as_string( $declared['default'] ?? '' );
+			}
+		}
+		return '';
 	}
 
 	/**

@@ -25,18 +25,6 @@ namespace Newspack_Nodes;
 class Memcache_CLI_Command {
 
 	/**
-	 * Worker-restart seam, standing in for the `CLI::restart_workers()` call
-	 * that tells live workers to pick up the new scope. Lazily defaulted to the
-	 * real call; tests reassign it to throw, proving a failed restart still
-	 * leaves a rotated salt, a warning, and a command that succeeded.
-	 *
-	 * Signature: `function (): void`.
-	 *
-	 * @var \Closure|null
-	 */
-	public static ?\Closure $restart_workers = null;
-
-	/**
 	 * Rotate the install's cache salt — THE flush, and the CLI half of the
 	 * admin's "Flush Caches" button.
 	 *
@@ -45,10 +33,11 @@ class Memcache_CLI_Command {
 	 * keep no salt of their own: with three independent rotations, flushing one
 	 * leaves the other two serving stale values.
 	 *
-	 * Workers are restarted after, because the scope is memoized per process
-	 * and a live worker keeps writing the OLD prefix until it respawns. That
-	 * restart is best-effort: a failure only delays the new scope to the next
-	 * spawn, so it is reported as a warning rather than failing the flush.
+	 * The rotation asks every live worker to restart, because the scope is
+	 * memoized per process and a live worker keeps writing the OLD prefix until
+	 * it respawns. That restart is best-effort: a failure only delays the new
+	 * scope to the next spawn, so it is reported as a warning rather than
+	 * failing the flush. A rotation that never moved the salt fails it.
 	 *
 	 * ## EXAMPLES
 	 *
@@ -57,17 +46,19 @@ class Memcache_CLI_Command {
 	 * @api WP-CLI subcommand `wp nodes memcache flush` — invoked by WP-CLI via reflection, not called in PHP.
 	 * @param list<string>        $args       Unused.
 	 * @param array<string,mixed> $assoc_args Unused.
+	 * @throws \Throwable What a rotation that never moved the salt threw.
 	 */
 	public function flush( array $args, array $assoc_args ): void {
-		Cache_Backend::rotate_salt();
-
-		$restart = self::$restart_workers ?? static function (): void {
-			( new CLI( Config::get_base_directory() ) )->restart_workers( Bootstrap::expand_workers(), [], -1 );
-		};
+		$before    = Cache_Backend::salt();
+		$restarted = '; every live worker was asked to restart';
 		try {
-			$restart();
+			Cache_Backend::rotate_salt();
 		} catch ( \Throwable $e ) {
-			\WP_CLI::warning( 'Workers were not restarted: ' . $e->getMessage() . ' — the new scope takes effect on their next spawn.' );
+			if ( Cache_Backend::salt() === $before ) {
+				throw $e;
+			}
+			$restarted = '';
+			\WP_CLI::warning( 'Workers were not asked to restart: ' . $e->getMessage() . ' — the new scope takes effect on their next spawn.' );
 		}
 
 		// @longform Sessions are named because the operator running this may be
@@ -75,7 +66,7 @@ class Memcache_CLI_Command {
 		// MCP client's session going with a deploy reads as a 401 nobody
 		// connects to the flush.
 		\WP_CLI::success(
-			'Cache salt rotated; every Newspack plugin key on this install is orphaned, '
+			"Cache salt rotated{$restarted}; every Newspack plugin key on this install is orphaned, "
 			. 'including every issued session — reissue any you were using.'
 		);
 	}

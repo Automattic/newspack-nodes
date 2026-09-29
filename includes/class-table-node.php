@@ -2,19 +2,28 @@
 /**
  * Table
  *
- * The keyed store (Tachikoma Table vocabulary), backed by the shared cache
- * tier — memcached, else APCu. That is the documented divergence: Tachikoma's
- * Table holds windowed in-memory buckets, but this substrate's dashboards,
- * REST handlers and CLI have no efficient way to query a live worker, so
- * values land in the cache where ANY process reads them via `lookup()`. TTL
- * replaces the bucket window.
+ * The keyed store (Tachikoma Table vocabulary), kept in a Cache_Backend arm
+ * the Table names: `auto` (memcached, else APCu, chosen per call), `memcache`,
+ * `apcu`, or the durable `sqlite` and `wpdb`. That is the documented
+ * divergence: Tachikoma's Table holds windowed in-memory buckets, but this
+ * substrate's dashboards, REST handlers and CLI have no efficient way to query
+ * a live worker, so values land where ANY process reads them via `lookup()`.
+ * TTL replaces the bucket window, and every entry expires: a Table refuses a
+ * TTL below one second, so nothing it holds is stored forever.
+ *
+ * A named backend opens once, when the Table's arguments arrive — at topology
+ * load for a `make_node` Table — so a backend that cannot open throws there,
+ * naming the Table, rather than inside some request's first write. A `sqlite`
+ * Table keeps one file per partition, `{base}/tables/{table}.p{N}.sqlite`.
  *
  * fill() stores KEY→VALUE write-through (the message passes on), so the
- * table composes mid-graph: `… → Table → …`. Keyless messages pass through
- * unstored. `lookup()` / `store()` / `forget()` are the same table reached
+ * table composes mid-graph: `… → Table → …`. An INSERT (TM_STRUCT or
+ * TM_BYTESTREAM) whose KEY is empty or holds whitespace is refused, neither
+ * stored nor forwarded; any other keyless message passes through.
+ * `lookup()` / `store()` / `forget()` are the same table reached
  * from outside a graph — a REST handler, wp-admin, a CLI command — and are
  * how a caller stays out of the key convention's business. Nothing about them
- * needs a graph: `Table_Node::table( $ns )` builds one anywhere.
+ * needs a graph: `Table_Node::table( $ns, $ttl )` builds one anywhere.
  *
  * Two tiers hang off that store, both off until a caller opts in. The
  * ACCUMULATOR holds values a caller is still folding into, bringing back
@@ -32,19 +41,73 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * Table node — `make_node Table <name> <namespace> [ <ttl> ]`.
+ * Table node — `make_node Table <name> <namespace> <ttl> [ auto|memcache|apcu|sqlite|wpdb ]`.
  */
 class Table_Node extends Node {
 	use Schema_Reflection;
 
+	/** Every backend a Table may name; `auto` is memcached, else APCu, per call. */
+	public const BACKENDS = [ 'auto', 'memcache', 'apcu', 'sqlite', 'wpdb' ];
+
+	/** Most rows one SCAN answers, whatever it asks. */
+	public const MAX_SCAN = 100000;
+
+	/** Seconds between one Table's purges. */
+	public const PURGE_INTERVAL_S = 60;
+
+	/** Rows one purge statement deletes at most. */
+	public const PURGE_BATCH_ROWS = 5000;
+
+	/** Seconds of one tick a Table's purge may spend before its next batch waits. */
+	private const PURGE_BUDGET_S = 0.05;
+
+	/** Most bytes of a refused verb a log line or its throttle key shows. */
+	private const SHOWN_VERB_BYTES = 64;
+
+	/** How every read request is answered. */
+	private const READ_REPLY = 'one message per value found, KEY set: TM_STRUCT for an array, TM_BYTESTREAM (a string) otherwise; then TM_INFO "<VERB> <n>", or one TM_ERROR "<VERB>: backend read failed"';
+
+	/** What MSET and ADD carry, for a refusal to teach. */
+	private const ITEM_MAP_USAGE = 'needs a map of key => [ value, ttl ]';
+
+	/**
+	 * The verbs a mount answers: its declaring worker is the file's one writer
+	 * (ADR-6), and a request carries no authority beyond the mount (ADR-23).
+	 */
+	private const READ_VERBS = [ 'GET', 'MGET', 'SCAN' ];
+
+	/** Why a mount refuses any other verb. */
+	private const READS_ONLY = 'a mounted Table serves reads only';
+
+	/** How every write request is answered. */
+	private const WRITE_REPLY = 'one TM_RESPONSE "<VERB> <keys…>" naming the keys it took effect on';
+
 	/** Key scope. Every entry key derives from it, so changing it orphans the table. */
 	private string $namespace = '';
 
-	/** Lifetime in seconds applied to every write; 0 means no expiry. */
-	private int $ttl = 0;
+	/** Lifetime in seconds of every write that states none; at least 1. */
+	private int $ttl;
+
+	/** The backend this Table names. */
+	private string $backend = 'auto';
+
+	/** The arm a named backend opened; null for `auto`, which resolves per call. */
+	private ?Cache_Backend $arm = null;
+
+	/** The declared Table this node answers for; its own name unless mounted. */
+	private string $table = '';
+
+	/** The partition its file belongs to; the bound `<partition>` unless mounted. */
+	private ?int $partition = null;
+
+	/** Whether this is a request-graph mount, which serves reads only. */
+	private bool $mounted = false;
 
 	/** In-memory accumulator, or null until accumulator() opts in. */
 	private ?LRU_Cache $buffer = null;
+
+	/** The tick this Table's next purge is due, in epoch seconds. */
+	private int $purge_due = 0;
 
 	/**
 	 * Durable system of record behind this table, or null until backed_by()
@@ -55,7 +118,7 @@ class Table_Node extends Node {
 	private ?\Closure $backing = null;
 
 	/**
-	 * Wire the sibling `:config` interpreter that serves `get` and `rm`.
+	 * Wire the sibling `:config` interpreter that serves `get`, `rm` and `vacuum`.
 	 *
 	 * Takes no arguments, for Tachikoma parity and because `make_node`
 	 * constructs first and calls `arguments()` after (ADR-11) — the namespace
@@ -67,8 +130,11 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * `<namespace> [ttl]` — namespace is required (it scopes lookup()); ttl in
-	 * seconds, 0 (default) = no expiry.
+	 * `<namespace> <ttl> [backend]` — namespace is required (it scopes
+	 * lookup()); ttl is required, in whole seconds, at least 1, so every entry
+	 * expires; backend one of BACKENDS, `auto` by default. Every token is
+	 * checked, and a named backend opened, before any field moves, so a
+	 * refusal leaves the table as it was.
 	 *
 	 * Re-calling this moves a live table, which is how a caller carries a
 	 * generation: name the table `pyrobase:g47` and a schema bump renames it to
@@ -77,23 +143,35 @@ class Table_Node extends Node {
 	 *
 	 * @param list<string>|null $args
 	 * @return list<string>
-	 * @throws \InvalidArgumentException Without a namespace argument.
-	 * @throws \LogicException With no cache backend (memcached or APCu).
+	 * @throws \InvalidArgumentException On a namespace that is empty or holds
+	 *                                   whitespace, a ttl that is missing or not
+	 *                                   a whole number of at least 1, or an
+	 *                                   unknown backend.
+	 * @throws \LogicException With `auto` and no cache backend (memcached or APCu).
+	 * @throws \RuntimeException When a named backend cannot open.
 	 */
 	public function arguments( ?array $args = null ): array {
 		if ( null === $args ) {
 			return parent::arguments();
 		}
-		$this->arguments = $args;
-		$namespace       = Core::as_string( $args[0] ?? '', '' );
-		if ( '' === $namespace ) {
-			throw new \InvalidArgumentException( 'Table requires a namespace argument' );
+		if ( null === Core::canonical_decimal( $args[1] ?? '', false ) ) {
+			$this->refuse_ttl( $args[1] ?? '' );
 		}
-		if ( null === Cache_Backend::shared_first() ) {
+		$values    = $this->schema_values( $args );
+		$namespace = Core::as_string( $values['namespace'] );
+		$backend   = Core::as_string( $values['backend'] );
+		if ( Cache_Backend::refuses_key( $namespace ) ) {
+			throw new \InvalidArgumentException( 'Table requires a non-empty namespace holding no whitespace' );
+		}
+		if ( ! \in_array( $backend, self::BACKENDS, true ) ) {
+			throw new \InvalidArgumentException( \esc_html( 'Table backend must be one of ' . \implode( ', ', self::BACKENDS ) . ", not {$backend}" ) );
+		}
+		$arm = $this->open( $backend, $namespace );
+		if ( 'auto' === $backend && null === Cache_Backend::shared_first() ) {
 			throw new \LogicException( 'Table requires memcached or APCu' );
 		}
-		$this->namespace = $namespace;
-		$this->ttl       = \max( 0, Core::num_int( $args[1] ?? 0, 0 ) );
+		$this->assign_schema_args( $args, $values );
+		$this->arm = $arm;
 		return $args;
 	}
 
@@ -101,20 +179,30 @@ class Table_Node extends Node {
 	 * Store the message's KEY→VALUE write-through, then pass the message on.
 	 *
 	 * A TM_REQUEST is answered instead of forwarded: it is a question for this
-	 * node, not traffic in transit. Everything else stores when it carries a
-	 * KEY and forwards either way, so a table splices into a live path without
-	 * diverting it. An empty VALUE deletes the entry rather than storing an
-	 * empty one.
+	 * node, not traffic in transit. An INSERT whose KEY no string request could
+	 * name — empty, or holding whitespace — is refused and dropped. Everything
+	 * else stores when it carries a KEY and forwards either way, so a table
+	 * splices into a live path without diverting it. An empty VALUE deletes the
+	 * entry rather than storing an empty one.
 	 *
 	 * @param array<int,mixed> $message The 7-field positional message array.
 	 * @throws \RuntimeException With no wired sink to forward through.
 	 */
 	public function fill( array $message ): void {
-		if ( Core::num_int( $message[ Message::TYPE ] ) & Message::TM_REQUEST ) {
+		$type = Core::num_int( $message[ Message::TYPE ] );
+		if ( 0 !== ( $type & Message::TM_REQUEST ) ) {
 			$this->handle_request( $message );
 			return;
 		}
-		$key   = Core::as_string( $message[ Message::KEY ], '' );
+		$key = Core::as_string( $message[ Message::KEY ], '' );
+		if ( $this->mounted && '' !== $key ) {
+			$this->print_less_often( 'ERROR: refused an INSERT through a mounted Table - from: ', Core::as_string( $message[ Message::FROM ], '' ) );
+			return;
+		}
+		if ( 0 !== ( $type & ( Message::TM_STRUCT | Message::TM_BYTESTREAM ) ) && Cache_Backend::refuses_key( $key ) ) {
+			$this->print_less_often( 'ERROR: refused an INSERT whose KEY is empty or holds whitespace' );
+			return;
+		}
 		$value = $message[ Message::VALUE ];
 		if ( '' !== $key ) {
 			// Empty deletes (Table.pm:313); a bare terminator counts as empty.
@@ -130,43 +218,309 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * `GET <key>` replies with the stored entry (Tachikoma Table.pm:102).
+	 * The arm a named backend opens, once: a Table whose backend cannot open
+	 * throws when its arguments arrive, naming itself.
 	 *
-	 * The reply TYPE follows the stored value's shape, so what went in comes
-	 * back out: an array replies TM_STRUCT, a scalar TM_BYTESTREAM. An absent
-	 * key replies TM_ERROR — a divergence from Tachikoma, which returns an
-	 * empty string and so cannot distinguish absent from stored-empty.
+	 * @param string $backend   One of BACKENDS.
+	 * @param string $namespace The namespace a `wpdb` arm scopes its rows by.
+	 * @return Cache_Backend|null The arm; null for `auto`, which resolves per call.
+	 * @throws \RuntimeException When the backend cannot open.
+	 */
+	private function open( string $backend, string $namespace ): ?Cache_Backend {
+		$table = $this->table_name();
+		try {
+			return match ( $backend ) {
+				'memcache' => Cache_Backend::memcache_arm() ?? throw new \LogicException( 'memcache backend has no memcached handle' ),
+				'apcu'     => Cache_Backend::apcu_arm() ?? throw new \LogicException( 'apcu backend is not usable here' ),
+				'sqlite'   => new Sqlite_Arm( self::file( $table, $this->file_partition() ) ),
+				'wpdb'     => new Wpdb_Arm( $namespace ),
+				default    => null,
+			};
+		} catch ( Worker_Should_Stop $stop ) {
+			throw $stop;
+		} catch ( \RuntimeException | \LogicException $e ) {
+			throw new \RuntimeException( \esc_html( "Table {$table}: " . $e->getMessage() ), 0, $e );
+		}
+	}
+
+	/**
+	 * The partition a `sqlite` file belongs to: the mounted one, else the
+	 * process's bound `<partition>`. Never a guess, since a guessed partition
+	 * would open another partition's file.
 	 *
-	 * `KEYS` and `STATS` are deliberately absent: both enumerate Tachikoma's
-	 * in-memory buckets, which the cache backing cannot do. Any other verb is
-	 * logged rate-limited and dropped without a reply.
+	 * @return int The partition.
+	 * @throws \LogicException When the Table is unmounted and nothing bound one.
+	 */
+	private function file_partition(): int {
+		if ( null !== $this->partition ) {
+			return $this->partition;
+		}
+		$bound = \array_key_exists( 'partition', Core::$var ) ? Core::canonical_decimal( Core::$var['partition'] ) : null;
+		return $bound ?? throw new \LogicException( 'a sqlite backend needs a bound partition' );
+	}
+
+	/**
+	 * Answer one request, TO its FROM, FROM this Table, its ID echoed (ADR-7).
+	 * Reads send a message per value and a TM_INFO count, or one TM_ERROR when
+	 * a key went unread, so a failure never reads as absence. Writes send one
+	 * string TM_RESPONSE naming the keys they took effect on. MSET and ADD
+	 * alone carry a structure, under TM_REQUEST|TM_STRUCT. Anything else the
+	 * Table cannot answer is refused out loud, through refuse().
 	 *
-	 * @param array<int,mixed> $message The TM_REQUEST.
+	 * @param array<int,mixed> $request The TM_REQUEST.
 	 * @throws \RuntimeException With no wired sink to reply through.
 	 */
-	private function handle_request( array $message ): void {
-		$sink = $this->require_sink();
-		$request       = \trim( Core::as_string( $message[ Message::VALUE ], '' ) );
-		[ $cmd, $key ] = \array_pad( \explode( ' ', $request, 2 ), 2, '' );
-		if ( 'GET' !== $cmd ) {
-			$this->print_less_often( 'ERROR: bad request: ', $request );
+	private function handle_request( array $request ): void {
+		++$this->counter;
+		$value  = $request[ Message::VALUE ];
+		$struct = 0 !== ( Core::num_int( $request[ Message::TYPE ] ) & Message::TM_STRUCT );
+		if ( $this->mounted && \is_array( $value ) ) {
+			$this->refuse( $request, Core::as_string( \array_key_first( $value ), '' ), self::READS_ONLY );
 			return;
 		}
-		$key   = \trim( $key );
-		$value = $this->lookup( $key );
-
-		$reply = Message::new_message();
-		if ( null === $value ) {
-			$reply[ Message::TYPE ]  = Message::TM_ERROR;
-			$reply[ Message::VALUE ] = 'NOT_FOUND';
-		} else {
-			$reply[ Message::TYPE ]  = \is_array( $value ) ? Message::TM_STRUCT : Message::TM_BYTESTREAM;
-			$reply[ Message::VALUE ] = $value;
+		if ( \is_array( $value ) ) {
+			$this->handle_struct( $request, $value, $struct );
+			return;
 		}
-		$reply[ Message::FROM ] = $this->name;
-		$reply[ Message::TO ]   = Core::as_string( $message[ Message::FROM ], '' );
-		$reply[ Message::KEY ]  = $key;
-		$sink->fill( $reply );
+		$words = \preg_split( '/\s+/', \trim( Core::as_string( $value, '' ) ), -1, \PREG_SPLIT_NO_EMPTY ) ?: [];
+		$verb  = (string) \array_shift( $words );
+		if ( $this->mounted && ! \in_array( $verb, self::READ_VERBS, true ) ) {
+			$this->refuse( $request, $verb, self::READS_ONLY );
+			return;
+		}
+		if ( $struct ) {
+			$this->refuse( $request, $verb, 'a string request carries no TM_STRUCT bit' );
+			return;
+		}
+		match ( $verb ) {
+			'GET'         => $this->reply_values( $request, $verb, \array_slice( $words, 0, 1 ) ),
+			'MGET'        => $this->reply_values( $request, $verb, $words ),
+			'SCAN'        => $this->reply_scan( $request, $words ),
+			'TOUCH'       => $this->reply_touch( $request, $words ),
+			'RM'          => $this->reply_written( $request, $verb, $this->remove_keys( $words ) ),
+			'MSET', 'ADD' => $this->refuse( $request, $verb, self::ITEM_MAP_USAGE ),
+			default       => $this->refuse( $request, $verb, 'unknown verb' ),
+		};
+	}
+
+	/**
+	 * `MSET`/`ADD`: one verb naming a map of key => [ value, ttl ], under the
+	 * TM_STRUCT bit.
+	 *
+	 * @param array<int,mixed>       $request The TM_REQUEST.
+	 * @param array<array-key,mixed> $value   The request's VALUE.
+	 * @param bool                   $struct  Whether TYPE carries TM_STRUCT.
+	 * @throws \RuntimeException With no wired sink to reply through.
+	 */
+	private function handle_struct( array $request, array $value, bool $struct ): void {
+		$verb  = Core::as_string( \array_key_first( $value ), '' );
+		$items = $value[ $verb ] ?? null;
+		$fault = match ( true ) {
+			! $struct                                    => 'a structured request needs the TM_STRUCT bit',
+			1 !== \count( $value )                       => 'a structured request names one verb',
+			! \in_array( $verb, [ 'MSET', 'ADD' ], true ) => 'only MSET and ADD take a structure',
+			! \is_array( $items )                        => self::ITEM_MAP_USAGE,
+			default                                      => null,
+		};
+		if ( null !== $fault ) {
+			$this->refuse( $request, $verb, $fault );
+			return;
+		}
+		$this->reply_written( $request, $verb, $this->write_items( Core::arr( $items ), 'ADD' === $verb ) );
+	}
+
+	/**
+	 * `GET`/`MGET`: what the store holds for `$keys`.
+	 *
+	 * @param array<int,mixed> $request The TM_REQUEST.
+	 * @param string           $verb    The verb answered.
+	 * @param list<string>     $keys    Keys.
+	 */
+	private function reply_values( array $request, string $verb, array $keys ): void {
+		$failed   = false;
+		$answered = false;
+		$found    = [] === $keys ? [] : $this->read_keys( $keys, $failed, $answered );
+		$this->send_values( $request, $verb, $found, 0, $failed && ! $answered );
+	}
+
+	/**
+	 * `SCAN <prefix> <limit>`: the keys starting prefix, in key order, at most
+	 * MAX_SCAN of them. A volatile arm cannot list its keys, and says so.
+	 *
+	 * @param array<int,mixed> $request The TM_REQUEST.
+	 * @param list<string>     $words   The prefix, then the limit.
+	 */
+	private function reply_scan( array $request, array $words ): void {
+		$limit = Core::canonical_decimal( $words[1] ?? '', false );
+		if ( '' === ( $words[0] ?? '' ) || null === $limit ) {
+			$this->refuse( $request, 'SCAN', 'usage: SCAN <prefix> <limit>' );
+			return;
+		}
+		$arm    = $this->arm();
+		$failed = null === $arm;
+		try {
+			$rows = $arm?->scan( self::entry_key( $this->namespace, $words[0] ), \min( $limit, self::MAX_SCAN ), $failed ) ?? [];
+		} catch ( \LogicException $e ) {
+			$this->refuse( $request, 'SCAN', $e->getMessage() );
+			return;
+		}
+		$this->send_values( $request, 'SCAN', $rows, \strlen( self::entry_key( $this->namespace, '' ) ), $failed );
+	}
+
+	/**
+	 * A read's replies: each value, then the count, or one error. An array
+	 * answers TM_STRUCT; anything else answers its string under TM_BYTESTREAM.
+	 *
+	 * @param array<int,mixed>       $request The TM_REQUEST.
+	 * @param string                 $verb    The verb answered.
+	 * @param array<array-key,mixed> $found   Key => value.
+	 * @param int                    $head    Leading bytes each key sheds: a
+	 *                                        scanned entry key's scope, or 0.
+	 * @param bool                   $failed  Whether a key went unread.
+	 */
+	private function send_values( array $request, string $verb, array $found, int $head, bool $failed ): void {
+		if ( $failed ) {
+			$this->reply( $request, Message::TM_ERROR, '', "{$verb}: backend read failed\n" );
+			return;
+		}
+		foreach ( $found as $key => $stored ) {
+			$key = \substr( (string) $key, $head );
+			if ( \is_array( $stored ) ) {
+				$this->reply( $request, Message::TM_STRUCT, $key, $stored );
+			} else {
+				$this->reply( $request, Message::TM_BYTESTREAM, $key, Core::as_string( $stored, '' ) );
+			}
+		}
+		$this->reply( $request, Message::TM_INFO, '', "{$verb} " . \count( $found ) . "\n" );
+	}
+
+	/**
+	 * `MSET`/`ADD`: each item under its own TTL, or the Table's; an item TTL
+	 * below one second leaves the item out. A failed MSET
+	 * batch is re-sent key by key, except on an arm whose batch lands whole or
+	 * not at all, where a retry would only wait out the same lock again.
+	 *
+	 * @param array<array-key,mixed> $items Key => [ value, ttl? ].
+	 * @param bool                   $add   Write only where the key is absent.
+	 * @return list<string> The keys the write took effect on.
+	 */
+	private function write_items( array $items, bool $add ): array {
+		$arm = $this->arm();
+		if ( null === $arm ) {
+			return [];
+		}
+		$groups = [];
+		foreach ( $items as $key => $item ) {
+			$item = Core::arr( $item );
+			$ttl  = null !== ( $item[1] ?? null ) ? Core::canonical_decimal( $item[1], false ) : $this->ttl;
+			if ( Cache_Backend::refuses_key( (string) $key ) || ! \array_key_exists( 0, $item ) || null === $ttl ) {
+				$this->print_less_often( 'ERROR: refused a write item: ', (string) $key, ' needs a KEY without whitespace, a value, and a ttl in whole seconds, at least 1' );
+				continue;
+			}
+			$groups[ $ttl ][] = [ (string) $key, $item[0] ];
+		}
+		$landed = [];
+		foreach ( $groups as $ttl => $group ) {
+			if ( ! $add ) {
+				$entries = [];
+				foreach ( $group as [ $key, $stored ] ) {
+					$entries[ self::entry_key( $this->namespace, $key ) ] = $stored;
+				}
+				if ( $arm->write_multi( $entries, $ttl ) ) {
+					\array_push( $landed, ...\array_column( $group, 0 ) );
+					continue;
+				}
+				if ( $arm->batch_is_atomic() ) {
+					continue;
+				}
+			}
+			foreach ( $group as [ $key, $stored ] ) {
+				$entry = self::entry_key( $this->namespace, $key );
+				if ( $add ? $arm->add( $entry, $stored, $ttl ) : $arm->set( $entry, $stored, $ttl ) ) {
+					$landed[] = $key;
+				}
+			}
+		}
+		return $landed;
+	}
+
+	/**
+	 * `TOUCH <ttl> <keys…>`: the keys whose expiry moved. A ttl that is not
+	 * whole seconds, at least 1, is refused rather than read as some other
+	 * lifetime.
+	 *
+	 * @param array<int,mixed> $request The TM_REQUEST.
+	 * @param list<string>     $words   The TTL, then keys.
+	 * @throws \RuntimeException With no wired sink to reply through.
+	 */
+	private function reply_touch( array $request, array $words ): void {
+		$ttl = Core::canonical_decimal( \array_shift( $words ) ?? '', false );
+		if ( null === $ttl ) {
+			$this->refuse( $request, 'TOUCH', 'usage: TOUCH <ttl> <key>…, ttl in whole seconds, at least 1' );
+			return;
+		}
+		$arm     = $this->arm();
+		$touched = null === $arm ? [] : \array_values( \array_filter( $words, fn ( string $key ): bool => true === $arm->touch( self::entry_key( $this->namespace, $key ), $ttl ) ) );
+		$this->reply_written( $request, 'TOUCH', $touched );
+	}
+
+	/**
+	 * `RM <keys…>`: the keys that were there to delete.
+	 *
+	 * @param list<string> $words Keys.
+	 * @return list<string>
+	 */
+	private function remove_keys( array $words ): array {
+		$arm = $this->arm();
+		return null === $arm ? [] : \array_values( \array_filter( $words, fn ( string $key ): bool => $arm->delete( self::entry_key( $this->namespace, $key ) ) ) );
+	}
+
+	/**
+	 * A write's reply: the verb and the keys it took effect on.
+	 *
+	 * @param array<int,mixed> $request The TM_REQUEST.
+	 * @param string           $verb    The verb answered.
+	 * @param list<string>     $keys    Keys.
+	 */
+	private function reply_written( array $request, string $verb, array $keys ): void {
+		$this->reply( $request, Message::TM_RESPONSE, '', \rtrim( $verb . ' ' . \implode( ' ', $keys ) ) . "\n" );
+	}
+
+	/**
+	 * Refuse a request out loud: a TM_ERROR `<VERB>: <why>` to its asker, and
+	 * a log line naming the asker, as Tachikoma's Table.pm logs a bad request,
+	 * rate-limited per verb. The verb shows its first SHOWN_VERB_BYTES, and an
+	 * empty one shows as `(empty)`.
+	 *
+	 * @param array<int,mixed> $request The TM_REQUEST.
+	 * @param string           $verb    The verb refused.
+	 * @param string           $why     Why.
+	 * @throws \RuntimeException With no wired sink to reply through.
+	 */
+	private function refuse( array $request, string $verb, string $why ): void {
+		$shown = '' === $verb ? '(empty)' : \substr( $verb, 0, self::SHOWN_VERB_BYTES );
+		$this->print_less_often( "ERROR: bad request: {$shown}", ": {$why} - from: ", Core::as_string( $request[ Message::FROM ], '' ) );
+		$this->reply( $request, Message::TM_ERROR, '', "{$shown}: {$why}\n" );
+	}
+
+	/**
+	 * One reply, TO the request's FROM, FROM this Table, its ID echoed.
+	 *
+	 * @param array<int,mixed> $request The TM_REQUEST.
+	 * @param int              $type    The reply's TYPE.
+	 * @param string           $key     The reply's KEY.
+	 * @param mixed            $value   The reply's VALUE.
+	 * @throws \RuntimeException With no wired sink to reply through.
+	 */
+	private function reply( array $request, int $type, string $key, mixed $value ): void {
+		$reply                   = Message::new_message();
+		$reply[ Message::TYPE ]  = $type;
+		$reply[ Message::FROM ]  = $this->name;
+		$reply[ Message::TO ]    = Core::as_string( $request[ Message::FROM ], '' );
+		$reply[ Message::ID ]    = $request[ Message::ID ];
+		$reply[ Message::KEY ]   = $key;
+		$reply[ Message::VALUE ] = $value;
+		$this->require_sink()->fill( $reply );
 	}
 
 	/**
@@ -189,12 +543,27 @@ class Table_Node extends Node {
 	 *                             held; an absent key is absent from the result.
 	 */
 	public function lookup_multi( array $keys, ?bool &$failed = null ): array {
+		return $this->read_keys( $keys, $failed );
+	}
+
+	/**
+	 * lookup_multi(), also saying whether a backing answered for the misses:
+	 * the protocol's read failed only when a key went unread.
+	 *
+	 * @param list<string> $keys     Keys within the table's namespace.
+	 * @param ?bool        $failed   As lookup_multi()'s.
+	 * @param ?bool        $answered Set true when a backing looked at the misses.
+	 * @param-out bool     $failed
+	 * @param-out bool     $answered
+	 * @return array<string,mixed> As lookup_multi()'s.
+	 */
+	private function read_keys( array $keys, ?bool &$failed, ?bool &$answered = null ): array {
 		$entry_keys = [];
 		foreach ( $keys as $key ) {
 			$entry_keys[ self::entry_key( $this->namespace, $key ) ] = $key;
 		}
 		$found   = [];
-		$backend = Cache_Backend::shared_first();
+		$backend = $this->arm();
 		$failed  = null === $backend;
 		$fetched = $backend?->read_multi( \array_keys( $entry_keys ), $failed ) ?? [];
 		foreach ( $fetched as $entry_key => $value ) {
@@ -207,7 +576,7 @@ class Table_Node extends Node {
 				$missed[] = $key;
 			}
 		}
-		return $found + $this->read_through( $missed );
+		return $found + $this->read_through( $missed, $answered );
 	}
 
 	/**
@@ -215,9 +584,9 @@ class Table_Node extends Node {
 	 *
 	 * `fill()` is the graph's way in, but the processes that own a table's
 	 * contents are not always in a graph: a ruleset saved from wp-admin, a
-	 * REST handler, a CLI command. Without this they each assemble
-	 * `Cache_Backend::shared_first()?->set( Table_Node::entry_key( … ) )` by
-	 * hand, which puts the key convention in every caller.
+	 * REST handler, a CLI command. Without this they each resolve the Table's
+	 * arm and build `Table_Node::entry_key( … )` by hand, which puts the key
+	 * convention and the backend choice in every caller.
 	 *
 	 * Fails soft when no backend answers, as every read here does. The TTL
 	 * is the table's, not the call's — one table, one lifetime.
@@ -230,7 +599,7 @@ class Table_Node extends Node {
 	 */
 	public function store( string $key, mixed $value ): bool {
 		$entry_key = self::entry_key( $this->namespace, $key );
-		return true === Cache_Backend::shared_first()?->set( $entry_key, $value, $this->ttl );
+		return true === $this->arm()?->set( $entry_key, $value, $this->ttl );
 	}
 
 	/**
@@ -254,7 +623,7 @@ class Table_Node extends Node {
 		foreach ( $items as $key => $value ) {
 			$entries[ self::entry_key( $this->namespace, (string) $key ) ] = $value;
 		}
-		return true === Cache_Backend::shared_first()?->write_multi( $entries, $this->ttl );
+		return true === $this->arm()?->write_multi( $entries, $this->ttl );
 	}
 
 	/**
@@ -263,8 +632,10 @@ class Table_Node extends Node {
 	 * @param string $key Key within the table's namespace.
 	 * @return string The verb's reply line, always `ok` — `forget()` cannot
 	 *                report whether the entry was there to delete.
+	 * @throws \RuntimeException On a mounted Table.
 	 */
 	public function rm( string $key ): string {
+		$this->refuse_if_mounted( 'rm' );
 		$this->forget( $key );
 		return "ok\n";
 	}
@@ -302,12 +673,12 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * Cross-process read: the whole point of the shared-cache backing.
+	 * Cross-process read: the whole point of keeping entries outside the worker.
 	 *
-	 * Only a HIT answers from the cache. A miss, an expiry and a broken backend
-	 * all fall through to the durable backing when one is installed; with none,
-	 * an absent key stays absent, so a caller polling for one it expects sees it
-	 * as soon as the cache does. A miss is never remembered, so every one
+	 * Only a HIT answers from the Table's arm. A miss, an expiry and a broken
+	 * arm all fall through to the durable backing when one is installed; with
+	 * none, an absent key stays absent, so a caller polling for one it expects
+	 * sees it as soon as the arm does. A miss is never remembered, so every one
 	 * reaches the backing.
 	 *
 	 * @api Dashboards / REST / CLI read table values without a live worker.
@@ -317,7 +688,7 @@ class Table_Node extends Node {
 	 */
 	public function lookup( string $key ): mixed {
 		$entry_key = self::entry_key( $this->namespace, $key );
-		$backend   = Cache_Backend::shared_first();
+		$backend   = $this->arm();
 		// read() reports hit, miss and error; a null value alone cannot.
 		$read = $backend?->read( $entry_key );
 		if ( null !== $backend && Cache_Backend::READ_ERROR === ( $read['status'] ?? null ) ) {
@@ -356,10 +727,14 @@ class Table_Node extends Node {
 	 * asks the backing again. A backing that answers NULL could not look — out
 	 * of budget, its record not there yet — and reads as a miss for every key.
 	 *
-	 * @param list<string> $keys Keys that missed.
+	 * @param list<string> $keys     Keys that missed.
+	 * @param ?bool        $answered Set true when a backing looked, false when
+	 *                               none is installed or it could not look.
+	 * @param-out bool     $answered
 	 * @return array<string,mixed> Values recovered, under the caller's keys.
 	 */
-	private function read_through( array $keys ): array {
+	private function read_through( array $keys, ?bool &$answered = null ): array {
+		$answered = false;
 		if ( [] === $keys || null === $this->backing ) {
 			return [];
 		}
@@ -367,6 +742,7 @@ class Table_Node extends Node {
 		if ( null === $got ) {
 			return [];
 		}
+		$answered = true;
 		$out = [];
 		foreach ( $got as $key => $entry ) {
 			$out[ (string) $key ] = $entry['value'];
@@ -403,7 +779,7 @@ class Table_Node extends Node {
 	 */
 	public function forget( string $key ): void {
 		$entry_key = self::entry_key( $this->namespace, $key );
-		Cache_Backend::shared_first()?->delete( $entry_key );
+		$this->arm()?->delete( $entry_key );
 	}
 
 	/**
@@ -423,7 +799,7 @@ class Table_Node extends Node {
 			}
 		}
 		foreach ( $groups as $ttl => $items ) {
-			Cache_Backend::shared_first()?->write_multi( $items, $ttl );
+			$this->arm()?->write_multi( $items, $ttl );
 		}
 	}
 
@@ -443,14 +819,112 @@ class Table_Node extends Node {
 	 *
 	 * @api Callers asking whether an entry still stands without reading it.
 	 * @param string $key Key within the table's namespace.
-	 * @param int    $ttl New expiry in seconds; 0 = no expiry.
+	 * @param int    $ttl New expiry in seconds, at least 1.
 	 * @return bool|null True when the entry existed and its expiry moved,
 	 *                   false when it is confirmed absent, null when no
 	 *                   backend is selected or the backend did not answer.
+	 * @throws \InvalidArgumentException On a TTL below one second.
 	 */
 	public function touch( string $key, int $ttl ): ?bool {
+		if ( $ttl < 1 ) {
+			$this->refuse_ttl( (string) $ttl );
+		}
 		$entry_key = self::entry_key( $this->namespace, $key );
-		return Cache_Backend::shared_first()?->touch( $entry_key, $ttl );
+		return $this->arm()?->touch( $entry_key, $ttl );
+	}
+
+	/**
+	 * Refuse a TTL that is not a whole number of at least one second, naming
+	 * the Table: a Table entry always expires.
+	 *
+	 * @param string $ttl The TTL as given; '' when none was.
+	 * @throws \InvalidArgumentException Always.
+	 */
+	private function refuse_ttl( string $ttl ): never {
+		$table = $this->table_name();
+		throw new \InvalidArgumentException( \esc_html( '' === $ttl ? "Table {$table} needs a TTL" : "Table {$table} needs a TTL of at least 1 whole second, not {$ttl}" ) );
+	}
+
+	/**
+	 * The declared Table this node answers for, else its own name.
+	 *
+	 * @return string The name a refusal gives.
+	 */
+	private function table_name(): string {
+		return '' !== $this->table ? $this->table : $this->name;
+	}
+
+	/**
+	 * The arm this call goes through: the named one, or `auto`'s choice now.
+	 *
+	 * @return Cache_Backend|null Null when `auto` finds no backend.
+	 */
+	private function arm(): ?Cache_Backend {
+		return 'auto' === $this->backend ? Cache_Backend::shared_first() : $this->arm;
+	}
+
+	/**
+	 * One partition of a declared Table, named `stem()`, sinking into `$sink`:
+	 * how a request graph mounts a Table outside any topology load. The table
+	 * and partition are set here because a web request binds no `<partition>`.
+	 *
+	 * @api Request graphs mounting a declared Table's partition.
+	 * @param string                                             $table     The declared Table.
+	 * @param int                                                $partition Which partition's file.
+	 * @param array{namespace: string, ttl: int, backend: string} $spec     The resolved declaration.
+	 * @param Node                                               $sink      Where fill() forwards.
+	 * @return self The mounted Table.
+	 * @throws \InvalidArgumentException On a name that cannot name a file.
+	 * @throws \Throwable When the backend cannot open, nothing stays registered;
+	 *                    a teardown that also throws escapes beside the cause.
+	 */
+	public static function mount( string $table, int $partition, array $spec, Node $sink ): self {
+		try {
+			$stem = self::stem( $table, $partition );
+		} catch ( \InvalidArgumentException $e ) {
+			throw new \InvalidArgumentException( \esc_html( $e->getMessage() ), 0, $e );
+		}
+		$node            = new self();
+		$node->table     = $table;
+		$node->partition = $partition;
+		$node->mounted   = true;
+		$node->name( $stem );
+		try {
+			$node->arguments( [ $spec['namespace'], (string) $spec['ttl'], $spec['backend'] ] );
+		} catch ( \Throwable $e ) {
+			// name() registers first, so a refusal would orphan the node.
+			Worker_Should_Stop::raise( [ $e, ...Worker_Should_Stop::attempt( $node->remove_node( ... ) ) ] );
+		}
+		$node->sink( $sink );
+		return $node;
+	}
+
+	/**
+	 * The SQLite file of one partition of a declared Table.
+	 *
+	 * @param string $table     The declared Table.
+	 * @param int    $partition The partition.
+	 * @return string `{base}/tables/{table}.p{partition}.sqlite`.
+	 * @throws \InvalidArgumentException On a name that cannot name a file.
+	 */
+	public static function file( string $table, int $partition ): string {
+		return Bootstrap::base_dir() . '/tables/' . self::stem( $table, $partition ) . '.sqlite';
+	}
+
+	/**
+	 * A declared Table's per-partition name: its file stem and its mount name.
+	 *
+	 * @param string $table     The declared Table.
+	 * @param int    $partition The partition.
+	 * @return string `{table}.p{partition}`.
+	 * @throws \InvalidArgumentException On a name that cannot name a file: a path
+	 *                                   separator, NUL, `..` or a leading dot.
+	 */
+	public static function stem( string $table, int $partition ): string {
+		if ( 1 !== \preg_match( '/^[A-Za-z0-9][A-Za-z0-9_.:-]*$/D', $table ) || \str_contains( $table, '..' ) ) {
+			throw new \InvalidArgumentException( "Table name {$table} cannot name a file" );
+		}
+		return "{$table}.p{$partition}";
 	}
 
 	/**
@@ -465,6 +939,90 @@ class Table_Node extends Node {
 	 */
 	public static function entry_key( string $ns, string $key ): string {
 		return Cache_Backend::site_key( "table:{$ns}:{$key}" );
+	}
+
+	/**
+	 * Reclaim a durable backend's free pages. Verb-exposed (`vacuum`), and
+	 * never automatic: SQLite's VACUUM rewrites the file, wpdb's OPTIMIZE the
+	 * shared table.
+	 *
+	 * @return string The verb's reply line, `ok`.
+	 * @throws \RuntimeException On a mount, on a volatile backend, or when the
+	 *                           backend refuses, naming this Table.
+	 */
+	public function vacuum(): string {
+		$this->refuse_if_mounted( 'vacuum' );
+		$arm = $this->arm instanceof Durable_Arm ? $this->arm : throw new \RuntimeException( \esc_html( "vacuum needs a durable backend; {$this->name} is {$this->backend}" ) );
+		try {
+			$arm->vacuum();
+		} catch ( Worker_Should_Stop $stop ) {
+			throw $stop;
+		} catch ( \RuntimeException $e ) {
+			throw new \RuntimeException( \esc_html( "Table {$this->name}: " . $e->getMessage() ), 0, $e );
+		}
+		return "ok\n";
+	}
+
+	/**
+	 * Refuse a `:config` write verb on a mount, which serves reads only.
+	 *
+	 * @param string $verb The verb refused.
+	 * @throws \RuntimeException On a mounted Table.
+	 */
+	private function refuse_if_mounted( string $verb ): void {
+		if ( $this->mounted ) {
+			throw new \RuntimeException( \esc_html( "{$verb}: {$this->name} is a mounted Table, which serves reads only" ) );
+		}
+	}
+
+	/**
+	 * Delete the rows expired at `$now` from every durable Table in this
+	 * process's graph, at most once a `PURGE_INTERVAL_S` each: the Router
+	 * tick's step. A mount is skipped, since its declaring worker is the
+	 * file's one writer.
+	 *
+	 * @param int $now The tick, in epoch seconds.
+	 * @throws \Throwable What the purges threw, after the last.
+	 */
+	public static function purge_expired( int $now ): void {
+		$purges = [];
+		foreach ( Core::$nodes_by_name as $node ) {
+			if ( $node instanceof self && ! $node->mounted && $node->arm instanceof Durable_Arm && $node->purge_due <= $now ) {
+				$node->purge_due = $now + self::PURGE_INTERVAL_S;
+				$arm             = $node->arm;
+				$purges[]        = static fn () => self::purge_batches( $arm, $now );
+			}
+		}
+		Worker_Should_Stop::raise( Worker_Should_Stop::attempt( ...$purges ) );
+	}
+
+	/**
+	 * One Table's purge: a batch, repeated while each comes back full and the
+	 * budget, read through `Core::right_now()`, lasts; the rest waits a minute.
+	 * The budget is checked between batches, so one statement blocked on the
+	 * file's write lock can hold the tick for the arm's busy_timeout.
+	 *
+	 * @param Durable_Arm $arm The Table's arm.
+	 * @param int         $now The tick, in epoch seconds.
+	 */
+	private static function purge_batches( Durable_Arm $arm, int $now ): void {
+		$until = Core::right_now() + self::PURGE_BUDGET_S;
+		do {
+			$full = self::PURGE_BATCH_ROWS === $arm->purge( $now, self::PURGE_BATCH_ROWS );
+		} while ( $full && Core::right_now() < $until );
+	}
+
+	/**
+	 * No replayable line for a Table given its partition in code — mounted, or
+	 * built by table(). It is derived state: its declaring topology's
+	 * `make_node Table` line is the source of truth, and the mount rebuilds it.
+	 * A dumped `make_node Table lab-7:kea.p3 …` would replay under the mount
+	 * name, which opens another file or none.
+	 *
+	 * @return string The inherited lines for a `make_node` Table, else nothing.
+	 */
+	public function dump_config(): string {
+		return null === $this->partition ? parent::dump_config() : '';
 	}
 
 	/**
@@ -523,24 +1081,31 @@ class Table_Node extends Node {
 	 * than none. Callers wanting one memoize it themselves, which is what keeps
 	 * that lifetime visible at the call site instead of hidden in here.
 	 *
+	 * A `sqlite` table built here keeps partition 0's file, named for `$ns`.
+	 *
 	 * @api Non-graph readers and writers reach a table without a live worker.
-	 * @param string $ns  Table namespace.
-	 * @param int    $ttl Entry TTL in seconds; 0 = no expiry.
+	 * @param string $ns      Table namespace.
+	 * @param int    $ttl     Entry TTL in seconds, at least 1.
+	 * @param string $backend One of BACKENDS.
 	 * @return self A table with no sink, so `lookup()` / `store()` / `forget()`
 	 *              work and `fill()` does not.
-	 * @throws \InvalidArgumentException With an empty namespace.
-	 * @throws \LogicException With no cache backend; a caller that treats a
-	 *                         backend-less host as ordinary guards on
+	 * @throws \InvalidArgumentException With an empty namespace, a TTL below
+	 *                                   one second, or an unknown backend.
+	 * @throws \LogicException With `auto` and no cache backend; a caller that
+	 *                         treats a backend-less host as ordinary guards on
 	 *                         `Cache_Backend::shared_first()` first.
+	 * @throws \RuntimeException When a named backend cannot open.
 	 */
-	public static function table( string $ns, int $ttl = 0 ): self {
-		$table = new self();
-		$table->arguments( [ $ns, (string) $ttl ] );
+	public static function table( string $ns, int $ttl, string $backend = 'auto' ): self {
+		$table            = new self();
+		$table->table     = $ns;
+		$table->partition = 0;
+		$table->arguments( [ $ns, (string) $ttl, $backend ] );
 		return $table;
 	}
 
 	/**
-	 * Palette entry, argument form and the two `:config` verbs the auto-wired
+	 * Palette entry, argument form and the `:config` verbs the auto-wired
 	 * interpreter dispatches. `has_target` is true because fill() forwards
 	 * every message it stores, so a table sits mid-graph with a next hop.
 	 *
@@ -549,10 +1114,11 @@ class Table_Node extends Node {
 	public static function node_schema(): array {
 		return [
 			'category'    => 'Storage',
-			'description' => 'Keyed KEY→VALUE store backed by memcache; write-through fill, cross-process lookup().',
+			'description' => 'Keyed KEY→VALUE store; write-through fill, cross-process lookup().',
 			'arguments'   => [
 				[ 'name' => 'namespace', 'type' => 'string', 'required' => true, 'description' => 'Scopes keys; lookup() reads by it.' ],
-				[ 'name' => 'ttl', 'type' => 'int', 'default' => 0, 'description' => 'Entry TTL in seconds; 0 = no expiry.' ],
+				[ 'name' => 'ttl', 'type' => 'int', 'required' => true, 'description' => 'Entry TTL in seconds, at least 1; entries a write does not time take it.' ],
+				[ 'name' => 'backend', 'type' => 'string', 'default' => 'auto', 'description' => 'auto, memcache, apcu, sqlite or wpdb; sqlite and wpdb are durable.' ],
 			],
 			'commands'    => [
 				[
@@ -578,14 +1144,66 @@ class Table_Node extends Node {
 						return $patron instanceof self ? $patron->rm( Core::as_string( $args[0] ?? '', '' ) ) : throw new \RuntimeException( 'no table patron' );
 					},
 				],
+				[
+					'name'        => 'vacuum',
+					'action'      => true,
+					'description' => 'Reclaim a durable backend\'s free pages (SQLite VACUUM, wpdb OPTIMIZE TABLE). Never automatic.',
+					'args'        => [],
+					'handler'     => static function ( Command_Interpreter_Node $interpreter ): string {
+						$patron = $interpreter->patron();
+						return $patron instanceof self ? $patron->vacuum() : throw new \RuntimeException( 'no table patron' );
+					},
+				],
 			],
-			// No handler: handle_request() answers GET in Tachikoma's shape.
+			// No handler: handle_request() answers every one of these.
 			'requests'    => [
 				[
 					'name'        => 'GET',
-					'description' => 'The stored value, TM_STRUCT or TM_BYTESTREAM by its shape; NOT_FOUND as a TM_ERROR. Case-sensitive.',
+					'description' => 'One stored value. Case-sensitive, as every verb is.',
 					'args'        => [ [ 'name' => 'key', 'type' => 'string', 'required' => true ] ],
-					'reply_shape' => 'the stored value itself, KEY set to <key>',
+					'reply_shape' => self::READ_REPLY,
+				],
+				[
+					'name'        => 'MGET',
+					'description' => 'Many stored values in one read.',
+					'args'        => [ [ 'name' => 'keys', 'type' => 'string', 'required' => true, 'description' => 'Whitespace-separated keys.' ] ],
+					'reply_shape' => self::READ_REPLY,
+				],
+				[
+					'name'        => 'SCAN',
+					'description' => 'The keys starting a prefix, in key order; a durable backend only.',
+					'args'        => [
+						[ 'name' => 'prefix', 'type' => 'string', 'required' => true ],
+						[ 'name' => 'limit', 'type' => 'int', 'required' => true, 'description' => 'Most rows, capped at MAX_SCAN.' ],
+					],
+					'reply_shape' => self::READ_REPLY . '; TM_ERROR on a volatile backend',
+				],
+				[
+					'name'        => 'TOUCH',
+					'description' => 'Move each key\'s expiry to <ttl> seconds from now.',
+					'args'        => [
+						[ 'name' => 'ttl', 'type' => 'int', 'required' => true ],
+						[ 'name' => 'keys', 'type' => 'string', 'required' => true ],
+					],
+					'reply_shape' => self::WRITE_REPLY,
+				],
+				[
+					'name'        => 'RM',
+					'description' => 'Delete each key.',
+					'args'        => [ [ 'name' => 'keys', 'type' => 'string', 'required' => true ] ],
+					'reply_shape' => self::WRITE_REPLY,
+				],
+				[
+					'name'        => 'MSET',
+					'description' => 'A TM_REQUEST|TM_STRUCT map of key => [ value, ttl ]; ttl defaults to the Table\'s.',
+					'args'        => [],
+					'reply_shape' => self::WRITE_REPLY,
+				],
+				[
+					'name'        => 'ADD',
+					'description' => 'A TM_REQUEST|TM_STRUCT map of key => [ value, ttl ], written only where absent.',
+					'args'        => [],
+					'reply_shape' => self::WRITE_REPLY,
 				],
 			],
 			'has_target'  => true,

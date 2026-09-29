@@ -52,6 +52,9 @@ class Bootstrap {
 	/** Its recurrence, registered on `cron_schedules`. */
 	public const CRON_SCHEDULE = 'newspack_nodes_minute';
 
+	/** The one throttle key for a runtime base this request cannot use. */
+	public const RUNTIME_UNAVAILABLE = 'runtime wiring unavailable: ';
+
 	/**
 	 * Health-report seam. Lazily-defaulted to a closure calling
 	 * `Health_Checks::evaluate()`. Tests reassign it to a fixed result list so
@@ -355,7 +358,7 @@ class Bootstrap {
 	 */
 	public static function node_dirs( string $node ): array {
 		$dirs = [];
-		foreach ( self::declaring( $node ) as $name => $entry ) {
+		foreach ( self::declaring( $node, self::active_topologies() ) as $name => $entry ) {
 			foreach ( Topology_Analyzer::resolved_node_dirs( $name, $node, self::partitions_of( $entry ) ) as $p => $dir ) {
 				$dirs[ $p ] ??= $dir;
 			}
@@ -377,11 +380,121 @@ class Bootstrap {
 	 */
 	public static function node_partitions( string $node ): array {
 		$seen = [];
-		foreach ( self::declaring( $node ) as $entry ) {
+		foreach ( self::declaring( $node, self::active_topologies() ) as $entry ) {
 			$seen += \array_fill( 0, self::partitions_of( $entry ), true );
 		}
 		$out = \array_keys( $seen );
 		\sort( $out );
+		return $out;
+	}
+
+	/**
+	 * Mount every partition of each named Table into this request's graph,
+	 * each named `Table_Node::stem()`, sinking into `_command_interpreter` and
+	 * serving reads only. Idempotent: a stem already mounted is kept. All or
+	 * nothing: a throw unmounts what this call built. One read of the active
+	 * set serves every name.
+	 *
+	 * @api Called from consumer plugins (cross-repo, invisible here).
+	 *
+	 * @param list<string>      $names Table names as their topologies declare them.
+	 * @param list<string>|null $built Set to the stems this call built; `[]` after a throw.
+	 * @param-out list<string>  $built
+	 * @return array<string,array<int,string>> Name => partition => mounted node name; `[]` for a name no active topology declares.
+	 * @throws \InvalidArgumentException On a name that cannot name a file.
+	 * @throws \RuntimeException With no request graph, or when a backend cannot open.
+	 * @throws \Throwable As node_tables().
+	 */
+	public static function mount_table( array $names, ?array &$built = null ): array {
+		$built = [];
+		$ci    = Core::node( Node_Names::COMMAND_INTERPRETER ) ?? throw new \RuntimeException( 'mount_table needs a request graph' );
+		foreach ( $names as $name ) {
+			try {
+				Table_Node::stem( $name, 0 );
+			} catch ( \InvalidArgumentException $e ) {
+				throw new \InvalidArgumentException( \esc_html( $e->getMessage() ), 0, $e );
+			}
+		}
+		$out = [];
+		try {
+			foreach ( self::node_tables( ...$names ) as $name => $partitions ) {
+				$out[ $name ] = [];
+				foreach ( $partitions as $p => $spec ) {
+					$stem = Table_Node::stem( $name, $p );
+					if ( ! Core::node( $stem ) instanceof Table_Node ) {
+						Table_Node::mount( $name, $p, $spec, $ci );
+						$built[] = $stem;
+					}
+					$out[ $name ][ $p ] = $stem;
+				}
+			}
+		} catch ( \Throwable $e ) {
+			$undo  = $built;
+			$built = [];
+			throw Worker_Should_Stop::combine( [ $e, ...Worker_Should_Stop::attempt_each( $undo, static fn ( string $stem ) => Core::node( $stem )?->remove_node() ) ] );
+		}
+		return $out;
+	}
+
+	/**
+	 * Each named Table, partition by partition, across every ACTIVE topology
+	 * declaring it: its namespace with its config tokens resolved, then
+	 * `<partition>` and `<topology>` substituted, as a worker's Shell resolves
+	 * them; its TTL and backend with their tokens resolved. Declared
+	 * once in the `.tsl`, so the writer and every reader resolve the same
+	 * Table. One read of the active set serves every name.
+	 *
+	 * @api Called from consumer plugins (cross-repo, invisible here).
+	 *
+	 * @param string ...$names Table names as their topologies declare them.
+	 * @return array<string,array<int,array{namespace: string, ttl: int, backend: string}>> Name => partition => the Table; `[]` for a name no active topology declares.
+	 * @throws \Throwable When two active topologies declare one differently, a TTL is not a whole number of at least 1 second, a token nothing resolves, the base directory is unusable, or no readable topology declares a name and an active one will not read.
+	 */
+	public static function node_tables( string ...$names ): array {
+		$active = self::active_topologies();
+		$out    = [];
+		foreach ( $names as $name ) {
+			$out[ $name ] = self::resolve_table( $name, $active );
+		}
+		return $out;
+	}
+
+	/**
+	 * One Table resolved across `$active`. Declarations that resolve alike
+	 * union their partitions, the way node_dirs() does, however each is
+	 * spelled; one resolving differently is a second Table under one name.
+	 *
+	 * @param string                                                                       $name   Table name.
+	 * @param array{0: array<string,array<array-key,mixed>>, 1: array<string,\Throwable>} $active active_topologies().
+	 * @return array<int,array{namespace: string, ttl: int, backend: string}> Partition => the Table.
+	 * @throws \Throwable As node_tables().
+	 */
+	private static function resolve_table( string $name, array $active ): array {
+		$out   = [];
+		$first = null;
+		foreach ( self::declaring( $name, $active ) as $topology => $entry ) {
+			$declared = Topology_Analyzer::declared_tables( $topology )[ $name ] ?? null;
+			if ( null === $declared ) {
+				continue;
+			}
+			$spec = [
+				'namespace' => \str_replace( [ '<topology>', '{topology}' ], $topology, Core::resolve_config_tokens( $declared['namespace'], true ) ),
+				'ttl'       => Core::canonical_decimal( Core::resolve_config_tokens( $declared['ttl'], true ), false )
+					?? throw new \RuntimeException( \esc_html( "Table {$name} declares a TTL that is not a whole number of at least 1 second: {$declared['ttl']}" ) ),
+				'backend'   => Core::resolve_config_tokens( $declared['backend'], true ),
+			];
+			if ( null !== $first && $first['spec'] !== $spec ) {
+				throw new \RuntimeException( \esc_html( "Table {$name} is declared differently by {$first['topology']} and {$topology}" ) );
+			}
+			$first ??= [
+				'spec'     => $spec,
+				'topology' => $topology,
+			];
+			for ( $p = 0, $n = self::partitions_of( $entry ); $p < $n; ++$p ) {
+				$out[ $p ] ??= [ 'namespace' => Core::resolve_partition_template( $spec['namespace'], $p ) ] + $spec;
+			}
+		}
+		\ksort( $out );
 		return $out;
 	}
 
@@ -391,12 +504,13 @@ class Bootstrap {
 	 * readable one declares the node, every unreadable one raises, because
 	 * the node may be exactly what it declares.
 	 *
-	 * @param string $node Node name as its topology declares it.
+	 * @param string                                                                       $node   Node name as its topology declares it.
+	 * @param array{0: array<string,array<array-key,mixed>>, 1: array<string,\Throwable>} $active active_topologies(), read once by the caller.
 	 * @return array<string,array<array-key,mixed>>
 	 * @throws \Throwable Every unreadable active topology, combined, when no readable one declares `$node`.
 	 */
-	private static function declaring( string $node ): array {
-		[ $readable, $unreadable ] = self::active_topologies();
+	private static function declaring( string $node, array $active ): array {
+		[ $readable, $unreadable ] = $active;
 		$declaring                 = \array_filter(
 			$readable,
 			static fn ( string $name ): bool => Topology_Analyzer::declares_node( $name, $node ),
@@ -476,6 +590,16 @@ class Bootstrap {
 			}
 		);
 		return [ \array_map( Core::arr( ... ), \array_diff_key( $entries, $failures ) ), $failures ];
+	}
+
+	/**
+	 * Whether the `topologies` config key selects `$name`: the configured set,
+	 * read without walking the catalog.
+	 *
+	 * @param string $name Topology name.
+	 */
+	public static function is_active( string $name ): bool {
+		return \in_array( $name, self::active_names(), true );
 	}
 
 	/**
@@ -982,7 +1106,7 @@ class Bootstrap {
 			self::base_dir();
 			return true;
 		} catch ( \RuntimeException $e ) {
-			Core::print_less_often( 'runtime wiring unavailable: ', $e->getMessage() );
+			Core::print_less_often( self::RUNTIME_UNAVAILABLE, $e->getMessage() );
 			return false;
 		}
 	}

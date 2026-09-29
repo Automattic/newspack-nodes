@@ -396,8 +396,8 @@ of the substrate's 7-slot positional array
 `[TYPE, TIMESTAMP, FROM, TO, ID, KEY, VALUE]` (the wire form [`Message::packed()`](../includes/class-message.php)
 emits). Multiple lines in one POST batch through the request-scope graph
 serially, so an earlier command's side effect is visible to a later one — a
-client sending `connect_worker_input` ahead of the command it enables depends on
-that. Blank lines are skipped; every other line must decode to a 7-element
+client sending `connect_worker_input` or `mount_tables` ahead of the command or
+request it enables depends on that. Blank lines are skipped; every other line must decode to a 7-element
 positional array, and `Message::unpacked()` throws on the first that does not. A
 body carrying no parseable line throws as well.
 
@@ -413,6 +413,15 @@ an `idle` on-demand slot STARTS a process. A woken worker skips the
 `ipc/{id}/input` existence check, because it creates that directory only once it
 runs. Every refusal is silent, since the verb always answers an empty string, and
 the command behind it bounces `NOT_AVAILABLE` instead.
+
+`topologies mount_tables <topology>` also answers an empty string, but refuses
+out loud: an inactive topology draws a `TM_ERROR` reading
+`mount_tables: <topology> is not active`, and a Table whose backend cannot open
+fails the verb naming the Table, unmounting whatever the call had mounted. Each
+mount is named `{table}.p{N}` and serves reads alone
+([ADR-23](architecture-decisions.md#adr-23-a-request-carries-no-authority-of-its-own));
+[Other Node Primitives](architecture-guide.md#other-node-primitives) carries the
+Table protocol.
 
 Send that body as `text/plain; charset=UTF-8` — the [`COMMAND_CONTENT_TYPE`](../src/runtime/command-transport.js) the
 browser transport declares — and never as `application/json`; the diagram under
@@ -491,7 +500,7 @@ role rather than the loosest.
 |-----------|-------|--------------|
 | `classes` | [`Classes_CI_Node`](../includes/rest/class-classes-ci-node.php) | `dump` (read) |
 | `layouts` | [`Layouts_CI_Node`](../includes/rest/class-layouts-ci-node.php) | `get` (read), `save` (tune) |
-| `topologies` | [`Topologies_CI_Node`](../includes/rest/class-topologies-ci-node.php) | `dump` (read), `get` (read), `expand` (read), `save`, `delete`, `activate`, `deactivate`, `connect_worker_input` (manage) |
+| `topologies` | [`Topologies_CI_Node`](../includes/rest/class-topologies-ci-node.php) | `dump` (read), `get` (read), `expand` (read), `save`, `delete`, `activate`, `deactivate`, `connect_worker_input`, `mount_tables` (manage) |
 | `raw-logs` | [`Raw_Logs_CI_Node`](../includes/rest/class-raw-logs-ci-node.php) | `list_logs`, `dump_log`, `read_message` (read) |
 | `vault` | [`Vault_CI_Node`](../includes/rest/class-vault-ci-node.php) | `list`, `get`, `add`, `update`, `delete`, `test` (manage) |
 | `aggregator` | [`Aggregator_CI_Node`](../includes/rest/class-aggregator-ci-node.php) | `summary` (read), `list_servers` (read), `probe` (manage — on-demand per-spoke deep roll-up) |
@@ -778,7 +787,7 @@ the palette.
 
 **Every verb reads from the `arguments` token array.** Verbs taking a single
 scalar — `topologies get` / `delete` / `activate` / `deactivate` /
-`connect_worker_input`, `layouts get`, `raw-logs dump_log` — read `$args[0]`
+`connect_worker_input` / `mount_tables`, `layouts get`, `raw-logs dump_log` — read `$args[0]`
 straight from the inner envelope's `arguments` list, so they are typeable in the
 REPL (`command_node topologies get Home`), and `dump_log` answers
 `{ log_id, segments: [ { id, size } ], segment_count, total_size }` for the one

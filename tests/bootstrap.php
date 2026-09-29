@@ -52,6 +52,7 @@ if ( ! \class_exists( 'wpdb', false ) ) {
 	}
 }
 $GLOBALS['wpdb'] = new wpdb();
+require_once __DIR__ . '/Helpers/SqliteWpdb.php';
 // The plugin file (loaded below) defines NEWSPACK_NODES_URL only when
 // plugin_dir_url() exists, which the suite doesn't stub — so define it here so
 // asset-enqueue paths model real WP (DIR + URL both present).
@@ -88,6 +89,8 @@ require_once __DIR__ . '/Helpers/BoundedTicks.php';
 require_once __DIR__ . '/Helpers/VerbHarness.php';
 require_once __DIR__ . '/Helpers/FakeMemcached.php';
 require_once __DIR__ . '/Helpers/InMemoryMemcached.php';
+require_once __DIR__ . '/Helpers/CacheBackendContract.php';
+require_once __DIR__ . '/Helpers/DurableArmContract.php';
 require_once __DIR__ . '/Helpers/TopologyDurability.php';
 
 // Capture the shared fire-and-forget POSTs (spawn fan-out AND

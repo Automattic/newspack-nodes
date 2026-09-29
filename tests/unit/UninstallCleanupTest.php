@@ -152,11 +152,12 @@ final class UninstallCleanupTest extends TestCase {
 	public function test_uninstall_cleanup_removes_the_tree_at_the_option_configured_base(): void {
 		$base                   = $this->seed_runtime_tree();
 		$GLOBALS['_wp_options'] = [ 'newspack_nodes_base_directory' => $base ];
+		$prev                   = $GLOBALS['wpdb'];
 		$GLOBALS['wpdb']        = $this->wpdb();
 		try {
 			\Newspack_Nodes\uninstall_cleanup( 'newspack_nodes_' );
 		} finally {
-			unset( $GLOBALS['wpdb'] );
+			$GLOBALS['wpdb'] = $prev;
 		}
 
 		$this->assertDirectoryDoesNotExist( $base );

@@ -2,18 +2,22 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
+use Newspack_Nodes\Cache_Backend;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
+use Newspack_Nodes\Node;
+use Newspack_Nodes\Sqlite_Arm;
 use Newspack_Nodes\Table_Node;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\Helpers\InMemoryMemcached;
+use Newspack_Nodes\Tests\Helpers\Sqlite_Wpdb;
 use Newspack_Nodes\Tests\TestCase;
 
 /**
- * Table_Node: the keyed store (Tachikoma Table vocabulary) backed by
- * memcache so ANY process — dashboard, REST, CLI — reads values without
- * asking a live worker. fill() stores KEY→VALUE write-through (the message
- * passes on), Table_Node::lookup() is the cross-process read.
+ * Table_Node: the keyed store (Tachikoma Table vocabulary) kept in the
+ * Cache_Backend arm it names, so ANY process — dashboard, REST, CLI — reads
+ * values without asking a live worker. fill() stores KEY→VALUE write-through
+ * (the message passes on), Table_Node::lookup() is the cross-process read.
  */
 #[CoversClass( Table_Node::class )]
 class TableNodeTest extends TestCase {
@@ -22,6 +26,9 @@ class TableNodeTest extends TestCase {
 
 	/** Core::$now as this suite found it; Core::reset() does not clear it. */
 	private float $saved_now = 0.0;
+
+	/** @var list<string> Base directories a test opened, removed in tearDown. */
+	private array $base_dirs = [];
 
 	protected function setUp(): void {
 		parent::setUp();
@@ -34,15 +41,26 @@ class TableNodeTest extends TestCase {
 	protected function tearDown(): void {
 		Core::$memd = $this->prev_memd;
 		Core::$now  = $this->saved_now;
+		foreach ( $this->base_dirs as $dir ) {
+			$this->rmdir_recursive( $dir );
+		}
 		parent::tearDown();
 	}
 
-	private function table( string $ns = 'prices', string ...$rest ): array {
+	/** A fresh base directory for a sqlite Table, removed in tearDown. */
+	private function base_dir( string $prefix ): string {
+		$dir               = $this->make_temp_dir( $prefix );
+		$this->base_dirs[] = $dir;
+		$this->use_base_dir( $dir );
+		return $dir;
+	}
+
+	private function table( string $ns = 'prices', string $ttl = '37', string ...$rest ): array {
 		$sink  = new Capture_Sink_Node();
 		$table = new Table_Node();
 		$table->name( 'prices:table' );
 		$table->sink( $sink );
-		$table->arguments( [ $ns, ...$rest ] );
+		$table->arguments( [ $ns, $ttl, ...$rest ] );
 		return [ $table, $sink ];
 	}
 
@@ -69,13 +87,14 @@ class TableNodeTest extends TestCase {
 
 		$table->fill( $this->request( 'GET sku-9' ) );
 
-		$this->assertCount( 1, $sink->captured );
+		$this->assertCount( 2, $sink->captured );
 		$reply = $sink->captured[0];
 		$this->assertSame( Message::TM_BYTESTREAM, $reply[ Message::TYPE ] );
 		$this->assertSame( 'prices:table', $reply[ Message::FROM ] );
 		$this->assertSame( 'asker', $reply[ Message::TO ] );
 		$this->assertSame( 'sku-9', $reply[ Message::KEY ] );
 		$this->assertSame( "bar\n", $reply[ Message::VALUE ] );
+		$this->assertSame( [ Message::TM_INFO, "GET 1\n" ], [ $sink->captured[1][ Message::TYPE ], $sink->captured[1][ Message::VALUE ] ] );
 	}
 
 	public function test_get_request_replies_struct_for_an_array_value(): void {
@@ -85,20 +104,11 @@ class TableNodeTest extends TestCase {
 
 		$table->fill( $this->request( 'GET sku-9' ) );
 
+		$this->assertCount( 2, $sink->captured );
 		$reply = $sink->captured[0];
 		$this->assertSame( Message::TM_STRUCT, $reply[ Message::TYPE ] );
 		$this->assertSame( [ 'usd' => 1250 ], $reply[ Message::VALUE ] );
-	}
-
-	public function test_get_request_replies_error_for_an_absent_key(): void {
-		[ $table, $sink ] = $this->table();
-
-		$table->fill( $this->request( 'GET never-stored' ) );
-
-		$reply = $sink->captured[0];
-		$this->assertSame( Message::TM_ERROR, $reply[ Message::TYPE ] );
-		$this->assertSame( 'never-stored', $reply[ Message::KEY ] );
-		$this->assertSame( 'NOT_FOUND', $reply[ Message::VALUE ] );
+		$this->assertSame( [ Message::TM_INFO, "GET 1\n" ], [ $sink->captured[1][ Message::TYPE ], $sink->captured[1][ Message::VALUE ] ] );
 	}
 
 	public function test_a_request_is_neither_stored_nor_forwarded(): void {
@@ -110,8 +120,8 @@ class TableNodeTest extends TestCase {
 		$table->fill( $message );
 
 		$this->assertFalse( $this->memd->get( Table_Node::entry_key( 'prices', 'sku-9' ) ) );
-		$this->assertCount( 1, $sink->captured, 'only the reply, not the request itself' );
-		$this->assertSame( Message::TM_ERROR, $sink->captured[0][ Message::TYPE ] );
+		$this->assertCount( 1, $sink->captured, 'only the count, not the request itself' );
+		$this->assertSame( Message::TM_INFO, $sink->captured[0][ Message::TYPE ] );
 	}
 
 	public function test_an_empty_value_deletes_the_key(): void {
@@ -151,7 +161,7 @@ class TableNodeTest extends TestCase {
 
 	public function test_lookup_reads_from_any_process(): void {
 		[ $table ] = $this->table();
-		$other     = Table_Node::table( 'other-ns' );
+		$other     = Table_Node::table( 'other-ns', 37 );
 		$table->fill( $this->keyed( 'sku-9', 'v2' ) );
 
 		$this->assertSame( 'v2', $table->lookup( 'sku-9' ) );
@@ -159,13 +169,25 @@ class TableNodeTest extends TestCase {
 		$this->assertNull( $other->lookup( 'sku-9' ) );
 	}
 
-	public function test_keyless_messages_pass_through_unstored(): void {
+	public function test_a_keyless_struct_is_refused_not_forwarded(): void {
 		[ $table, $sink ] = $this->table();
 
 		$table->fill( $this->keyed( '', [ 'no' => 'key' ] ) );
 
 		$this->assertSame( [], $this->memd->keys() );
-		$this->assertCount( 1, $sink->captured );
+		$this->assertSame( [], $sink->captured );
+	}
+
+	public function test_a_keyless_info_still_passes_through(): void {
+		[ $table, $sink ] = $this->table();
+		$info                   = Message::new_message();
+		$info[ Message::TYPE ]  = Message::TM_INFO;
+		$info[ Message::VALUE ] = "MGET 37\n";
+
+		$table->fill( $info );
+
+		$this->assertSame( [], $this->memd->keys() );
+		$this->assertSame( [ $info ], $sink->captured );
 	}
 
 	public function test_arguments_without_memcached_throws(): void {
@@ -174,7 +196,7 @@ class TableNodeTest extends TestCase {
 		$table->name( 'prices:table' );
 		$this->expectException( \LogicException::class );
 		$this->expectExceptionMessageMatches( '/memcached/' );
-		$table->arguments( [ 'prices' ] );
+		$table->arguments( [ 'prices', '37' ] );
 	}
 
 	public function test_a_stored_false_reads_back_as_false_not_missing(): void {
@@ -227,7 +249,7 @@ class TableNodeTest extends TestCase {
 		$ci->name( '_command_interpreter' );
 		$ci->sink( new Capture_Sink_Node() );
 
-		$table = $ci->make_node( 'Table', 'ledger', 'invoices' );
+		$table = $ci->make_node( 'Table', 'ledger', 'invoices', '37' );
 		$table->fill( $this->keyed( 'inv-42', [ 'eur' => 8800 ] ) );
 
 		$config = Core::node( 'ledger:config' );
@@ -308,12 +330,12 @@ class TableNodeTest extends TestCase {
 	}
 
 	public function test_store_scopes_by_namespace_like_every_other_write(): void {
-		Table_Node::table( 'prices' )->store( 'sku-9', 'here' );
-		$this->assertNull( Table_Node::table( 'ledger' )->lookup( 'sku-9' ) );
+		Table_Node::table( 'prices', 37 )->store( 'sku-9', 'here' );
+		$this->assertNull( Table_Node::table( 'ledger', 37 )->lookup( 'sku-9' ) );
 	}
 
 	public function test_forget_removes_an_entry(): void {
-		$table = Table_Node::table( 'prices' );
+		$table = Table_Node::table( 'prices', 37 );
 		$table->store( 'sku-9', 'gone-soon' );
 		$table->forget( 'sku-9' );
 		$this->assertNull( $table->lookup( 'sku-9' ) );
@@ -365,7 +387,7 @@ class TableNodeTest extends TestCase {
 		// because memcached died after the table was built. A table built with
 		// NO backend at all is a configuration error and says so — see
 		// test_arguments_without_memcached_throws.
-		$table      = Table_Node::table( 'prices' );
+		$table      = Table_Node::table( 'prices', 37 );
 		Core::$memd = null;
 
 		$table->store( 'sku-9', 'nowhere' );
@@ -651,50 +673,50 @@ class TableNodeTest extends TestCase {
 		}
 	}
 
-	public function test_a_request_that_is_not_a_get_is_refused_not_answered(): void {
-		// The verb surface is GET alone; anything else is a caller bug, and
-		// replying to it would look like an empty table rather than a refusal.
-		$table = new class() extends Table_Node {
-			/** @var string[] */
-			public array $warnings = [];
-			public function print_less_often( string $text, string ...$extra ): void {
-				$this->warnings[] = $text . \implode( '', $extra );
+	public function test_a_request_naming_an_unknown_verb_is_refused_to_its_asker(): void {
+		// A silent drop would read as an empty table; a refusal says why.
+		[ $table, $sink ] = $this->table();
+		$logged           = [];
+		\add_action(
+			'newspack_nodes/stderr',
+			static function ( string $line ) use ( &$logged ): void {
+				$logged[] = $line;
 			}
-		};
-		$table->arguments( [ 'prices' ] );
-		$capture = new Capture_Sink_Node();
-		$table->sink( $capture );
+		);
 
-		$message                   = Message::new_message();
-		$message[ Message::TYPE ]  = Message::TM_REQUEST;
-		$message[ Message::VALUE ] = 'SET sku-9 12';
-		$table->fill( $message );
+		$table->fill( $this->request( 'SET sku-9 12', 'asker-12' ) );
 
-		$this->assertSame( [], $capture->captured, 'a refused request gets no reply' );
-		$this->assertSame( [ 'ERROR: bad request: SET sku-9 12' ], $table->warnings );
+		$this->assertCount( 1, $sink->captured );
+		$this->assertSame( [ Message::TM_ERROR, 'asker-12', "SET: unknown verb\n" ], [ $sink->captured[0][ Message::TYPE ], $sink->captured[0][ Message::TO ], $sink->captured[0][ Message::VALUE ] ] );
+		$this->assertCount( 1, $logged );
+		$this->assertStringContainsString( 'ERROR: bad request: SET: unknown verb - from: asker-12', $logged[0] );
+		$this->assertNull( $table->lookup( 'sku-9' ) );
 	}
 
-	/** GET is catalogued for `help` and the Inspector, and answered by fill(). */
-	public function test_get_is_declared_without_a_handler_and_help_lists_it(): void {
+	/** The seven verbs are catalogued for `help` and the Inspector, and answered by fill(). */
+	public function test_the_verbs_are_declared_without_a_handler_and_help_lists_them(): void {
 		$requests = Table_Node::node_schema()['requests'];
 
-		$this->assertSame( [ 'GET' ], \array_column( $requests, 'name' ) );
-		$this->assertArrayNotHasKey( 'handler', $requests[0] );
+		$this->assertSame( [ 'GET', 'MGET', 'SCAN', 'TOUCH', 'RM', 'MSET', 'ADD' ], \array_column( $requests, 'name' ) );
+		foreach ( $requests as $request ) {
+			$this->assertArrayNotHasKey( 'handler', $request );
+			$this->assertNotSame( '', $request['reply_shape'] ?? '' );
+		}
 		$this->assertMatchesRegularExpression(
 			'/^REQUESTS\n.*\bGET\b/m',
 			\Newspack_Nodes\Node_Schema_Help::render( 'Table', Table_Node::node_schema() )
 		);
 	}
 
-	/** Tachikoma's shape stays case-sensitive: `get` is no verb, and drops. */
-	public function test_a_lowercase_get_is_dropped_not_refused(): void {
+	/** Verbs are case-sensitive, as Tachikoma's are: `get` is no verb, and is refused. */
+	public function test_a_lowercase_get_is_refused(): void {
 		[ $table, $sink ] = $this->table();
 		$table->fill( $this->keyed( 'sku-7713', "kea\n" ) );
 		$sink->captured = [];
 
 		$table->fill( $this->request( 'get sku-7713' ) );
 
-		$this->assertSame( [], $sink->captured );
+		$this->assertSame( [ [ Message::TM_ERROR, "get: unknown verb\n" ] ], \array_map( static fn ( array $r ): array => [ $r[ Message::TYPE ], $r[ Message::VALUE ] ], $sink->captured ) );
 	}
 
 	public function test_a_backend_read_error_is_said_out_loud(): void {
@@ -704,7 +726,7 @@ class TableNodeTest extends TestCase {
 			/** @var string[] */
 			public array $warnings = [];
 		};
-		$table->arguments( [ 'prices' ] );
+		$table->arguments( [ 'prices', '37' ] );
 		$prev = Core::$memd;
 		// A handle whose get() fails with something other than NOTFOUND.
 		Core::$memd = new class() extends InMemoryMemcached {
@@ -726,7 +748,7 @@ class TableNodeTest extends TestCase {
 		// The namespace is what scopes lookup(); an empty one would silently
 		// share a keyspace with every other unnamed table.
 		$this->expectException( \InvalidArgumentException::class );
-		Table_Node::table( '' );
+		Table_Node::table( '', 37 );
 	}
 
 	public function test_accumulating_yields_nothing_without_an_accumulator(): void {
@@ -802,4 +824,573 @@ class TableNodeTest extends TestCase {
 		$table->accumulate( 'h1', [ 'count' => 1 ] );
 	}
 
+	// ── Backends: a Table names where it keeps its entries ────────────────
+
+	public function test_a_named_backend_is_kept_after_its_partition_unbinds_and_memcache_leaves(): void {
+		$dir                    = $this->base_dir( 'table-kea-' );
+		Core::$var['partition'] = '3';
+		try {
+			$table = new Table_Node();
+			$table->name( 'lab-7:kea' );
+			$table->arguments( [ 'kea:p3', '777', 'sqlite' ] );
+		} finally {
+			unset( Core::$var['partition'] );
+		}
+		$this->assertTrue( $table->store( 'sku-41', [ 'usd' => 1250 ] ) );
+		$this->assertFileExists( "{$dir}/tables/lab-7:kea.p3.sqlite" );
+		Core::$memd = null;
+		$this->assertSame( [ 'usd' => 1250 ], $table->lookup( 'sku-41' ), 'memcache leaving does not move a named backend' );
+	}
+
+	public function test_mount_names_the_partition_and_opens_its_file(): void {
+		$dir   = $this->base_dir( 'table-mount-' );
+		$sink  = new Capture_Sink_Node();
+		$table = Table_Node::mount( 'lab-7:kea', 3, [ 'namespace' => 'kea:p3', 'ttl' => 777, 'backend' => 'sqlite' ], $sink );
+		$this->assertSame( 'lab-7:kea.p3', $table->name() );
+		$this->assertSame( "{$dir}/tables/lab-7:kea.p3.sqlite", Table_Node::file( 'lab-7:kea', 3 ) );
+		$this->assertFileExists( "{$dir}/tables/lab-7:kea.p3.sqlite" );
+		$this->assertSame( [ 'kea:p3', '777', 'sqlite' ], $table->arguments() );
+		$this->assertSame( $table, Core::node( 'lab-7:kea.p3' ) );
+		$table->fill( $this->request( 'GET sku-42' ) );
+		$this->assertCount( 1, $sink->captured, 'a mounted Table replies through the sink it was given' );
+	}
+
+	public function test_a_mounted_table_dumps_no_replayable_make_node_line(): void {
+		$this->base_dir( 'table-dump-' );
+		$interpreter = new \Newspack_Nodes\Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+		$table = Table_Node::mount( 'lab-7:kea', 3, [ 'namespace' => 'kea:p3', 'ttl' => 777, 'backend' => 'sqlite' ], $interpreter );
+
+		$this->assertSame( '', $table->dump_config() );
+		$this->assertStringNotContainsString( 'make_node Table', $interpreter->dispatch( 'dump_config' ) );
+	}
+
+	public function test_an_unmounted_make_node_table_round_trips_through_dump_config(): void {
+		$this->base_dir( 'table-trip-' );
+		$interpreter = new \Newspack_Nodes\Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+		Core::$var['partition'] = '3';
+		try {
+			$interpreter->make_node( 'Table', 'lab-7:kea', 'kea:p3', '777', 'sqlite' );
+		} finally {
+			unset( Core::$var['partition'] );
+		}
+
+		$this->assertSame( "make_node Table lab-7:kea kea:p3 777 sqlite\n", $interpreter->dispatch( 'dump_config', [ '^lab-7:kea$' ] ) );
+	}
+
+	public function test_a_mount_raises_a_failed_teardown_beside_the_failure_that_began_it(): void {
+		$refusal = new \LogicException( 'teardown refused-37' );
+		// A sibling whose teardown refuses; the Table's own cascade reaches it.
+		$sibling = new class( $refusal ) extends Node {
+			public function __construct( private \Throwable $refusal ) {
+				parent::__construct();
+			}
+
+			public function remove_node(): void {
+				parent::remove_node();
+				throw $this->refusal;
+			}
+		};
+		// The open seam runs once the mount is named: publish, then refuse.
+		Sqlite_Arm::$available = static function () use ( $sibling ): bool {
+			$table = Core::node( 'lab-7:kea.p3' );
+			\Closure::bind(
+				function ( Node $stub ): void {
+					$this->publish_sibling( 'kea', $stub );
+				},
+				$table,
+				Node::class
+			)( $sibling );
+			return false;
+		};
+		$caught = null;
+		try {
+			Table_Node::mount( 'lab-7:kea', 3, [ 'namespace' => 'kea:p3', 'ttl' => 37, 'backend' => 'sqlite' ], new Capture_Sink_Node() );
+		} catch ( \Throwable $e ) {
+			$caught = $e;
+		} finally {
+			Sqlite_Arm::$available = null;
+		}
+
+		$this->assertInstanceOf( \Newspack_Nodes\Failures::class, $caught );
+		$this->assertSame( 'Table lab-7:kea: sqlite backend needs the pdo_sqlite extension', $caught->all()[0]->getMessage() );
+		$this->assertSame( $refusal, $caught->all()[1] );
+		$this->assertNull( Core::node( 'lab-7:kea.p3' ), 'the Table is unregistered whatever its sibling threw' );
+	}
+
+	public function test_a_mount_escapes_a_refused_name_once(): void {
+		try {
+			Table_Node::mount( "lab'kea", 3, [ 'namespace' => 'kea:p3', 'ttl' => 37, 'backend' => 'sqlite' ], new Capture_Sink_Node() );
+			$this->fail( 'a quoted name was mounted' );
+		} catch ( \InvalidArgumentException $e ) {
+			$this->assertSame( 'Table name lab&#039;kea cannot name a file', $e->getMessage() );
+		}
+	}
+
+	public function test_a_wpdb_arm_refusal_reaches_the_table_escaped_once(): void {
+		$prev            = $GLOBALS['wpdb'];
+		$db              = new Sqlite_Wpdb();
+		$db->base_prefix = 'kea7_';
+		$GLOBALS['wpdb'] = $db;
+		$namespace       = \str_repeat( 'k', 190 ) . '&p3';
+		try {
+			$e = $this->caught( fn () => $this->table( $namespace, '37', 'wpdb' ), 'a namespace wider than the column was held' );
+		} finally {
+			$GLOBALS['wpdb'] = $prev;
+		}
+		$this->assertSame( 'Table prices:table: wpdb backend cannot hold namespace ' . \str_repeat( 'k', 190 ) . '&amp;p3', $e->getMessage() );
+	}
+
+	public function test_a_sqlite_arm_refusal_reaches_the_table_escaped_once(): void {
+		$dir = $this->base_dir( 'table-a&b-' );
+		\mkdir( "{$dir}/tables/lab-7:kea.p3.sqlite", 0700, true );
+		Core::$var['partition'] = '3';
+		try {
+			$table = new Table_Node();
+			$table->name( 'lab-7:kea' );
+			$e = $this->caught( static fn () => $table->arguments( [ 'kea:p3', '37', 'sqlite' ] ), 'a directory opened as a database' );
+		} finally {
+			unset( Core::$var['partition'] );
+		}
+		$this->assertStringStartsWith( 'Table lab-7:kea: sqlite backend could not open ' . \esc_html( $dir ) . '/tables/lab-7:kea.p3.sqlite: ', $e->getMessage() );
+		$this->assertStringNotContainsString( '&amp;amp;', $e->getMessage() );
+	}
+
+	public function test_a_mount_whose_backend_cannot_open_leaves_nothing_registered(): void {
+		Sqlite_Arm::$available = static fn (): bool => false;
+		try {
+			$this->caught(
+				static fn () => Table_Node::mount( 'lab-7:kea', 3, [ 'namespace' => 'kea:p3', 'ttl' => 37, 'backend' => 'sqlite' ], new Capture_Sink_Node() ),
+				'a mount whose backend cannot open was built'
+			);
+		} finally {
+			Sqlite_Arm::$available = null;
+		}
+		$this->assertNull( Core::node( 'lab-7:kea.p3' ) );
+		$this->assertNull( Core::node( 'lab-7:kea.p3:config' ) );
+	}
+
+	public function test_a_namespace_holding_whitespace_is_refused(): void {
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'Table requires a non-empty namespace holding no whitespace' );
+		$this->table( "kea p3", '37' );
+	}
+
+	public function test_an_unknown_backend_is_refused(): void {
+		$this->expectExceptionMessage( 'Table backend must be one of auto, memcache, apcu, sqlite, wpdb, not redis' );
+		$this->table( 'prices', '37', 'redis' );
+	}
+
+	public function test_a_ttl_that_is_not_a_whole_number_is_refused(): void {
+		$this->expectExceptionMessage( 'Table prices:table needs a TTL of at least 1 whole second, not soon' );
+		$this->table( 'prices', 'soon' );
+	}
+
+	public function test_a_ttl_below_one_second_is_refused_naming_the_table(): void {
+		[ $table ] = $this->table( 'prices', '37' );
+		foreach ( [ '0', '-3' ] as $ttl ) {
+			try {
+				$table->arguments( [ 'prices', $ttl ] );
+				$this->fail( "a TTL of {$ttl} was taken" );
+			} catch ( \InvalidArgumentException $e ) {
+				$this->assertSame( "Table prices:table needs a TTL of at least 1 whole second, not {$ttl}", $e->getMessage() );
+			}
+		}
+		$this->assertSame( [ 'prices', '37' ], $table->arguments(), 'a refusal leaves the Table as it was' );
+	}
+
+	public function test_a_missing_ttl_is_refused_naming_the_table(): void {
+		foreach ( [ 'kea-bare' => [ 'prices' ], 'kea-blank' => [ 'prices', '' ] ] as $name => $args ) {
+			$table = new Table_Node();
+			$table->name( $name );
+			try {
+				$table->arguments( $args );
+				$this->fail( 'a Table took no TTL' );
+			} catch ( \InvalidArgumentException $e ) {
+				$this->assertSame( "Table {$name} needs a TTL", $e->getMessage() );
+			}
+		}
+	}
+
+	public function test_a_refused_ttl_is_escaped_once(): void {
+		try {
+			$this->table( 'prices', 'a&b' );
+			$this->fail( 'a TTL of a&b was taken' );
+		} catch ( \InvalidArgumentException $e ) {
+			$this->assertSame( 'Table prices:table needs a TTL of at least 1 whole second, not a&amp;b', $e->getMessage() );
+		}
+	}
+
+	public function test_table_refuses_a_ttl_below_one_second(): void {
+		foreach ( [ 0, -3 ] as $ttl ) {
+			try {
+				Table_Node::table( 'prices', $ttl );
+				$this->fail( "table() took a TTL of {$ttl}" );
+			} catch ( \InvalidArgumentException $e ) {
+				$this->assertSame( "Table prices needs a TTL of at least 1 whole second, not {$ttl}", $e->getMessage() );
+			}
+		}
+	}
+
+	public function test_touch_refuses_a_ttl_below_one_second(): void {
+		$table = Table_Node::table( 'prices', 37 );
+		$table->store( 'sku-9', 'timed' );
+		foreach ( [ 0, -3 ] as $ttl ) {
+			try {
+				$table->touch( 'sku-9', $ttl );
+				$this->fail( "touch() took a TTL of {$ttl}" );
+			} catch ( \InvalidArgumentException $e ) {
+				$this->assertSame( "Table prices needs a TTL of at least 1 whole second, not {$ttl}", $e->getMessage() );
+			}
+		}
+		$this->assertEqualsWithDelta( \time() + 37, $this->memd->expiries()[ Table_Node::entry_key( 'prices', 'sku-9' ) ], 2, 'the refused touch left the expiry alone' );
+	}
+
+	public function test_the_ttl_positional_is_required_and_declares_no_default(): void {
+		$ttl = \array_values( \array_filter( Table_Node::node_schema()['arguments'], static fn ( array $arg ): bool => 'ttl' === $arg['name'] ) )[0];
+		$this->assertTrue( $ttl['required'] );
+		$this->assertArrayNotHasKey( 'default', $ttl, 'the make_node line is the one place a Table\'s TTL lives' );
+	}
+
+	public function test_a_table_whose_backend_cannot_open_throws_at_construction(): void {
+		Sqlite_Arm::$available  = static fn (): bool => false;
+		Core::$var['partition'] = '3';
+		try {
+			$this->expectExceptionMessage( 'Table prices:table: sqlite backend needs the pdo_sqlite extension' );
+			$this->table( 'prices', '37', 'sqlite' );
+		} finally {
+			Sqlite_Arm::$available = null;
+			unset( Core::$var['partition'] );
+		}
+	}
+
+	public function test_a_cooperative_stop_raised_while_opening_propagates_unwrapped(): void {
+		$stop                   = new \Newspack_Nodes\Worker_Should_Stop( 'stop 37' );
+		Sqlite_Arm::$available  = static fn (): bool => throw $stop;
+		Core::$var['partition'] = '3';
+		try {
+			$this->assertSame( $stop, $this->caught( fn () => $this->table( 'kea:p3', '37', 'sqlite' ), 'the stop was swallowed' ) );
+		} finally {
+			Sqlite_Arm::$available = null;
+			unset( Core::$var['partition'] );
+		}
+	}
+
+	public function test_an_unmounted_sqlite_table_without_a_bound_partition_is_refused(): void {
+		unset( Core::$var['partition'] );
+		$this->expectExceptionMessage( 'Table prices:table: a sqlite backend needs a bound partition' );
+		$this->table( 'kea:p3', '37', 'sqlite' );
+	}
+
+	public function test_a_named_memcache_backend_needs_a_handle(): void {
+		Core::$memd = null;
+		$this->expectExceptionMessage( 'Table prices:table: memcache backend has no memcached handle' );
+		$this->table( 'kea:p3', '37', 'memcache' );
+	}
+
+	public function test_a_named_apcu_backend_needs_apcu(): void {
+		Cache_Backend::$apcu_usable = static fn (): bool => false;
+		try {
+			$this->expectExceptionMessage( 'Table prices:table: apcu backend is not usable here' );
+			$this->table( 'kea:p3', '37', 'apcu' );
+		} finally {
+			Cache_Backend::$apcu_usable = null;
+		}
+	}
+
+	public function test_a_named_memcache_backend_writes_through_memcached(): void {
+		[ $table ] = $this->table( 'kea:p3', '37', 'memcache' );
+		$this->assertTrue( $table->store( 'sku-41', 'kea' ) );
+		$this->assertSame( 'kea', $this->memd->get( Table_Node::entry_key( 'kea:p3', 'sku-41' ) ) );
+	}
+
+	public function test_a_wpdb_table_keeps_its_rows_in_the_shared_table(): void {
+		$prev                  = $GLOBALS['wpdb'];
+		$db                    = new Sqlite_Wpdb();
+		$db->base_prefix       = 'kea7_';
+		$GLOBALS['wpdb']       = $db;
+		try {
+			$table = Table_Node::table( 'kea:p3', 37, 'wpdb' );
+			$this->assertTrue( $table->store_multi( [ 'sku-41' => [ 'usd' => 41 ], 'sku-43' => [ 'usd' => 43 ] ] ) );
+			$this->assertSame(
+				[ [ 'n' => 2 ] ],
+				$db->get_results( "SELECT COUNT(*) AS n FROM kea7_newspack_nodes_table WHERE namespace = 'kea:p3'" ),
+				'the rows are in the shared table, under the namespace'
+			);
+			$this->assertSame( [], $this->memd->keys(), 'and nowhere in memcached' );
+			Core::$memd = null;
+			$this->assertSame( [ 'sku-41' => [ 'usd' => 41 ], 'sku-43' => [ 'usd' => 43 ] ], $table->lookup_multi( [ 'sku-41', 'sku-43', 'sku-44' ] ) );
+			$this->assertTrue( $table->touch( 'sku-41', 777 ) );
+			$table->forget( 'sku-43' );
+			$this->assertNull( $table->lookup( 'sku-43' ) );
+			$this->assertSame( [ 'kea:p3', '37', 'wpdb' ], $table->arguments() );
+		} finally {
+			$GLOBALS['wpdb'] = $prev;
+		}
+	}
+
+	public function test_a_name_that_cannot_name_a_file_is_refused(): void {
+		$this->expectExceptionMessage( 'Table name ../kea cannot name a file' );
+		Table_Node::stem( '../kea', 3 );
+	}
+
+	public function test_no_path_separator_nul_or_parent_reaches_the_file_name(): void {
+		foreach ( [ 'lab/kea', 'lab\\kea', "lab\0kea", 'lab..kea', '..', '' ] as $name ) {
+			try {
+				Table_Node::file( $name, 3 );
+				$this->fail( "'{$name}' named a file" );
+			} catch ( \InvalidArgumentException $e ) {
+				$this->assertStringEndsWith( ' cannot name a file', $e->getMessage() );
+			}
+		}
+		$this->assertSame( 'lab-7_kea.v2:x.p3', Table_Node::stem( 'lab-7_kea.v2:x', 3 ) );
+	}
+
+	public function test_a_sqlite_table_named_outside_its_directory_is_refused_naming_itself(): void {
+		Core::$var['partition'] = '3';
+		try {
+			$table = new Table_Node();
+			$table->name( 'lab..kea' );
+			$this->expectExceptionMessage( 'Table lab..kea: Table name lab..kea cannot name a file' );
+			$table->arguments( [ 'kea:p3', '37', 'sqlite' ] );
+		} finally {
+			unset( Core::$var['partition'] );
+		}
+	}
+
+	public function test_a_refused_file_name_is_escaped_once(): void {
+		Core::$var['partition'] = '3';
+		try {
+			$table = new Table_Node();
+			$table->name( "lab'kea" );
+			$e = $this->caught( static fn () => $table->arguments( [ 'kea:p3', '37', 'sqlite' ] ), 'a quoted name named a file' );
+		} finally {
+			unset( Core::$var['partition'] );
+		}
+		$this->assertSame( 'Table lab&#039;kea: Table name lab&#039;kea cannot name a file', $e->getMessage() );
+	}
+
+	public function test_every_write_refuses_a_key_holding_whitespace(): void {
+		[ $table, $sink ] = $this->table();
+		$this->assertFalse( $table->store( 'sku 41', 1 ) );
+		$this->assertFalse( $table->store_multi( [ 'sku-43' => 1, "sku\n44" => 2 ] ) );
+		$this->assertNull( $table->lookup( 'sku-43' ) );
+		$table->fill( $this->keyed( "sku\t45", 'v' ) );
+		$this->assertSame( [], $sink->captured, 'a refused INSERT is neither stored nor forwarded' );
+		$this->assertNull( $table->lookup( "sku\t45" ) );
+	}
+
+	public function test_a_refused_insert_is_said_out_loud_once(): void {
+		[ $table ] = $this->table();
+		$lines     = [];
+		\add_action(
+			'newspack_nodes/stderr',
+			static function ( string $line ) use ( &$lines ): void {
+				$lines[] = $line;
+			}
+		);
+
+		$table->fill( $this->keyed( 'sku 46', [ 'usd' => 46 ] ) );
+		$table->fill( $this->keyed( "sku\t47", [ 'usd' => 47 ] ) );
+
+		$refusals = \array_values( \array_filter( $lines, static fn ( string $l ): bool => \str_contains( $l, 'refused an INSERT' ) ) );
+		$this->assertCount( 1, $refusals, 'rate-limited to one line' );
+		$this->assertStringEndsWith( "prices:table: ERROR: refused an INSERT whose KEY is empty or holds whitespace\n", $refusals[0] );
+	}
+
+	public function test_the_schema_declares_the_backend_positional(): void {
+		$args = \array_column( Table_Node::node_schema()['arguments'], null, 'name' );
+		$this->assertSame( 'auto', $args['backend']['default'] );
+	}
+
+	// ── The purge on the Router tick, and the vacuum verb ─────────────────
+
+	/** A sqlite Table of `$ttl` built as a worker's make_node builds one, and its file's row count. */
+	private function durable( int $ttl ): array {
+		Core::$var['partition'] = '3';
+		try {
+			$table = new Table_Node();
+			$table->name( 'lab-7:kea' );
+			$table->arguments( [ 'kea:p3', (string) $ttl, 'sqlite' ] );
+		} finally {
+			unset( Core::$var['partition'] );
+		}
+		$table->sink( new Capture_Sink_Node() );
+		$file = Table_Node::file( 'lab-7:kea', 3 );
+		$rows  = static fn (): int => (int) ( new \PDO( 'sqlite:' . $file ) )->query( 'SELECT COUNT(*) FROM kv' )->fetchColumn();
+		return [ $table, $rows ];
+	}
+
+	/** A Router the tick fires through, as a worker mounts one. */
+	private function router(): \Newspack_Nodes\Router_Node {
+		$router = new \Newspack_Nodes\Router_Node();
+		$router->name( \Newspack_Nodes\Node_Names::ROUTER );
+		return $router;
+	}
+
+	public function test_the_router_tick_purges_a_durable_table_once_a_minute(): void {
+		$this->base_dir( 'table-purge-' );
+		$now              = 1790000000.0;
+		Core::$clock      = static function () use ( &$now ): float {
+			return $now;
+		};
+		Core::$now        = $now;
+		$router           = $this->router();
+		[ $table, $rows ] = $this->durable( 37 );
+		$table->store_multi( [ 'sku-41' => 1, 'sku-42' => 2 ] );
+		$now      += 37;
+		Core::$now = $now;
+		$router->fire_cb();
+		$this->assertSame( 0, $rows() );
+		$table->store( 'sku-43', 3 );
+		$now      += 37;
+		Core::$now = $now;
+		$router->fire_cb();
+		$this->assertSame( 1, $rows(), 'the next purge waits out its minute' );
+		$now      += 60;
+		Core::$now = $now;
+		$router->fire_cb();
+		$this->assertSame( 0, $rows() );
+	}
+
+	public function test_a_purge_repeats_full_batches_until_its_budget_is_spent(): void {
+		$this->base_dir( 'table-budget-' );
+		Core::$clock      = static fn (): float => 1790000000.0;
+		[ $table, $rows ] = $this->durable( 37 );
+		$items            = [];
+		for ( $i = 0; $i < 2 * Table_Node::PURGE_BATCH_ROWS + 1; ++$i ) {
+			$items[ "sku-{$i}" ] = $i;
+		}
+		$this->assertTrue( $table->store_multi( $items ) );
+		$reads       = 0;
+		Core::$clock = static function () use ( &$reads ): float {
+			return 1790000037.0 + 0.03 * $reads++;
+		};
+		Table_Node::purge_expired( 1790000037 );
+		$this->assertSame( 1, $rows(), 'two full batches fit the budget; the third waits' );
+	}
+
+	public function test_a_mounted_table_never_joins_the_purge(): void {
+		$this->base_dir( 'table-mount-purge-' );
+		Core::$clock      = static fn (): float => 1790000000.0;
+		[ $table, $rows ] = $this->durable( 37 );
+		$table->store( 'sku-41', 1 );
+		$table->remove_node();
+		Table_Node::mount( 'lab-7:kea', 3, [ 'namespace' => 'kea:p3', 'ttl' => 37, 'backend' => 'sqlite' ], new Capture_Sink_Node() );
+		Table_Node::purge_expired( 1790000037 );
+		$this->assertSame( 1, $rows(), 'a request graph never becomes the file\'s second writer' );
+	}
+
+	public function test_a_mounted_tables_config_write_verbs_refuse(): void {
+		$this->base_dir( 'table-mount-verbs-' );
+		[ $table, $rows ] = $this->durable( 37 );
+		$table->store( 'sku-41', 1 );
+		$table->remove_node();
+		$file  = Table_Node::file( 'lab-7:kea', 3 );
+		$bytes = \filesize( $file );
+		$mount = Table_Node::mount( 'lab-7:kea', 3, [ 'namespace' => 'kea:p3', 'ttl' => 37, 'backend' => 'sqlite' ], new Capture_Sink_Node() );
+		$refusals = [];
+		foreach ( [ [ 'rm', [ 'sku-41' ] ], [ 'vacuum', [] ] ] as [ $verb, $args ] ) {
+			try {
+				$mount->interpreter()->dispatch( $verb, $args );
+			} catch ( \PHPUnit\Exception $e ) {
+				throw $e;
+			} catch ( \RuntimeException $e ) {
+				$refusals[] = $e->getMessage();
+			}
+		}
+		$this->assertSame( 1, $rows(), 'the routed rm deleted nothing' );
+		\clearstatcache();
+		$this->assertSame( $bytes, \filesize( $file ), 'the routed vacuum rewrote nothing' );
+		$this->assertSame(
+			[ 'rm: lab-7:kea.p3 is a mounted Table, which serves reads only', 'vacuum: lab-7:kea.p3 is a mounted Table, which serves reads only' ],
+			$refusals
+		);
+	}
+
+	public function test_a_table_outside_the_graph_is_never_purged(): void {
+		$this->base_dir( 'table-orphan-' );
+		Core::$clock      = static fn (): float => 1790000000.0;
+		[ $table, $rows ] = $this->durable( 37 );
+		$table->store( 'sku-41', 1 );
+		$table->remove_node();
+		Table_Node::purge_expired( 1790000037 );
+		$this->assertSame( 1, $rows(), 'a removed Table is no longer its file\'s writer' );
+	}
+
+	public function test_vacuum_is_a_verb_a_durable_table_answers(): void {
+		$this->base_dir( 'table-vacuum-' );
+		[ $table ] = $this->durable( 37 );
+		$this->assertSame( "ok\n", $table->interpreter()->dispatch( 'vacuum', [] ) );
+		[ $auto ] = $this->table();
+		$this->expectExceptionMessage( 'vacuum needs a durable backend; prices:table is auto' );
+		$auto->vacuum();
+	}
+
+	public function test_a_refused_vacuum_names_its_table_escaped_once(): void {
+		$dir       = $this->base_dir( "table-vac'" );
+		[ $table ] = $this->durable( 37 );
+		// A 1 ms busy_timeout, as SqliteArmTest opens one, so the refusal is prompt.
+		( new \ReflectionProperty( Table_Node::class, 'arm' ) )->setValue( $table, new Sqlite_Arm( Table_Node::file( 'lab-7:kea', 3 ), 1 ) );
+		$table->store( 'sku-41', 1 );
+		$reader = new \PDO( 'sqlite:' . Table_Node::file( 'lab-7:kea', 3 ) );
+		$reader->exec( 'BEGIN' );
+		$reader->query( 'SELECT count(*) FROM kv' )->fetchAll();
+		$table->store( 'sku-43', 3 );
+		try {
+			$e = $this->caught( static fn () => $table->vacuum(), 'a vacuum under a live reader reported success' );
+		} finally {
+			$reader->exec( 'ROLLBACK' );
+		}
+		$escaped = \str_replace( "'", '&#039;', $dir );
+		$this->assertSame( "Table lab-7:kea: sqlite {$escaped}/tables/lab-7:kea.p3.sqlite: database is locked: a reader holds the WAL", $e->getMessage() );
+	}
+
+	public function test_a_named_volatile_table_refuses_vacuum_as_auto_does(): void {
+		[ $table ] = $this->table( 'kea:p3', '37', 'memcache' );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'vacuum needs a durable backend; prices:table is memcache' );
+		$table->vacuum();
+	}
+
+	public function test_a_refused_verb_is_shown_at_most_64_bytes(): void {
+		[ $table, $sink ] = $this->table();
+		$logged           = [];
+		\add_action(
+			'newspack_nodes/stderr',
+			static function ( string $line ) use ( &$logged ): void {
+				$logged[] = $line;
+			}
+		);
+		$verb = \str_repeat( 'K', 64 );
+
+		$table->fill( $this->request( "{$verb}A sku-9", 'asker-12' ) );
+		$table->fill( $this->request( "{$verb}B sku-9", 'asker-12' ) );
+
+		$this->assertCount( 1, $logged, 'two verbs sharing 64 bytes share one throttle key' );
+		$this->assertStringContainsString( "ERROR: bad request: {$verb}: unknown verb - from: asker-12", $logged[0] );
+		$this->assertSame( "{$verb}: unknown verb\n", \end( $sink->captured )[ Message::VALUE ] );
+	}
+
+	public function test_each_bad_verb_is_logged_once_and_an_empty_one_is_named(): void {
+		[ $table, $sink ] = $this->table();
+		$logged           = [];
+		\add_action(
+			'newspack_nodes/stderr',
+			static function ( string $line ) use ( &$logged ): void {
+				$logged[] = $line;
+			}
+		);
+
+		$table->fill( $this->request( 'SET sku-9 12', 'asker-12' ) );
+		$table->fill( $this->request( 'SET sku-9 13', 'asker-12' ) );
+		$table->fill( $this->request( 'PUT sku-9 14', 'asker-12' ) );
+		$table->fill( $this->request( '  ', 'asker-13' ) );
+
+		$this->assertCount( 3, $logged, 'one line per verb in the window' );
+		$this->assertStringContainsString( 'ERROR: bad request: PUT: unknown verb - from: asker-12', $logged[1] );
+		$this->assertStringContainsString( 'ERROR: bad request: (empty): unknown verb - from: asker-13', $logged[2] );
+		$this->assertSame( "(empty): unknown verb\n", \end( $sink->captured )[ Message::VALUE ] );
+	}
 }

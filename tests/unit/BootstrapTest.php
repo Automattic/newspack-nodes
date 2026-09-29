@@ -1005,6 +1005,28 @@ class BootstrapTest extends TestCase {
 		$this->assertSame( 'newspack_nodes/reconcile', $GLOBALS['_wp_test_scheduled_events'][0]['hook'] );
 	}
 
+	public function test_self_heal_under_an_uncreatable_base_logs_once(): void {
+		[ $dir ] = $this->use_uncreatable_base_dir( 'self-heal-blocked-' );
+		$lines   = [];
+		Core::set_stderr_handler(
+			static function ( string $line ) use ( &$lines ): void {
+				$lines[] = $line;
+			}
+		);
+		try {
+			\delete_option( \Newspack_Nodes\Cache_Backend::SALT_OPTION );
+			\Newspack_Nodes\Cache_Backend::$salt = null;
+
+			Bootstrap::self_heal_reconcile_cron();
+
+			$this->assertNotSame( '', \Newspack_Nodes\Cache_Backend::salt(), 'the salt is seeded' );
+			$this->assertCount( 1, \array_filter( $lines, static fn ( string $l ): bool => \str_contains( $l, 'runtime' ) ), 'one line says the base is unusable' );
+		} finally {
+			$this->rmdir_recursive( $dir );
+			\Newspack_Nodes\Config::reset();
+		}
+	}
+
 	public function test_self_heal_skips_when_logging_disabled(): void {
 		Bootstrap::$fleet_enabled_override = false;
 		\add_filter( 'newspack_nodes/topologies', function ( $topologies ) {

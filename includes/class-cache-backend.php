@@ -33,15 +33,17 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * An instance is one selected tier: a memcached handle, or null, which selects
- * the APCu arm.
+ * An instance is one arm, and the instance half is the contract every arm
+ * keeps. `local_first()` and `shared_first()` select a volatile arm,
+ * `Memcache_Arm` or `Apcu_Arm`; a durable arm, `Sqlite_Arm` or `Wpdb_Arm`
+ * over the shared `Durable_Arm`, is never selected here but built by a Table.
  *
  * The static half selects a tier and owns the key grammar — `site_key()`,
  * `host_key()` and the `key()` they both compose through — so every surface
  * spells a key the same way and `wp nodes memcache get` can rebuild one from a
  * logical name.
  */
-final class Cache_Backend {
+abstract class Cache_Backend {
 
 	/** `read()` status: the backend returned a stored value. */
 	public const READ_HIT = 'hit';
@@ -50,8 +52,9 @@ final class Cache_Backend {
 	public const READ_MISS = 'miss';
 
 	/**
-	 * `read()` status: the backend failed, so absence is unproven. Only the
-	 * memcached arm reports it — APCu cannot tell a failure from a miss.
+	 * `read()` status: the backend failed, so absence is unproven. The
+	 * memcached and durable arms report it — APCu cannot tell a failure from a
+	 * miss.
 	 */
 	public const READ_ERROR = 'error';
 
@@ -116,14 +119,6 @@ final class Cache_Backend {
 	 * @var \Closure(bool): (array<string,mixed>|false)|null
 	 */
 	public static ?\Closure $apcu_sma_info = null;
-
-	/**
-	 * Private, so the tier choice is made at the call site by naming
-	 * `local_first()` or `shared_first()` rather than by handing in a handle.
-	 *
-	 * @param \Memcached|null $memd Selected handle, or null for the APCu arm.
-	 */
-	private function __construct( private readonly ?\Memcached $memd ) {}
 
 	/**
 	 * Key for state one INSTALL owns, shared by every container serving it —
@@ -237,11 +232,7 @@ final class Cache_Backend {
 	 * @return self|null The selected tier, or null when neither is usable.
 	 */
 	public static function local_first(): ?self {
-		if ( self::apcu() ) {
-			return new self( null );
-		}
-		$memd = Core::memd();
-		return null !== $memd ? new self( $memd ) : null;
+		return self::apcu_arm() ?? self::memcache_arm();
 	}
 
 	/**
@@ -252,11 +243,16 @@ final class Cache_Backend {
 	 * @return self|null The selected tier, or null when neither is usable.
 	 */
 	public static function shared_first(): ?self {
-		$memd = Core::memd();
-		if ( null !== $memd ) {
-			return new self( $memd );
-		}
-		return self::apcu() ? new self( null ) : null;
+		return self::memcache_arm() ?? self::apcu_arm();
+	}
+
+	/**
+	 * The APCu arm.
+	 *
+	 * @return self|null The arm, or null where APCu is unusable.
+	 */
+	public static function apcu_arm(): ?self {
+		return self::apcu() ? new Apcu_Arm() : null;
 	}
 
 	/**
@@ -270,122 +266,36 @@ final class Cache_Backend {
 	}
 
 	/**
-	 * Atomically replace one exact, non-expiring integer value with another.
+	 * The memcached arm over the shared handle.
 	 *
-	 * This deliberately has no TTL parameter: callers use it for permanent,
-	 * bounded identity pointers. A failed comparison is a lost race and must
-	 * never fall back to set().
-	 *
-	 * The APCu arm re-reads after the swap, so a true return there means the
-	 * read-back saw the replacement.
-	 *
-	 * @param string $key         The cache key.
-	 * @param int    $expected    Value the key must currently hold.
-	 * @param int    $replacement Value to write when the comparison holds.
-	 * @return bool True when this caller won the swap.
+	 * @return self|null The arm, or null without a handle.
 	 */
-	public function compare_and_swap( string $key, int $expected, int $replacement ): bool {
-		if ( null !== $this->memd ) {
-			$entry = $this->memd->get( $key, null, \Memcached::GET_EXTENDED );
-			if (
-				! \is_array( $entry )
-				|| ! \array_key_exists( 'value', $entry )
-				|| $expected !== $entry['value']
-				|| ! \array_key_exists( 'cas', $entry )
-				|| ( ! \is_string( $entry['cas'] ) && ! \is_int( $entry['cas'] ) && ! \is_float( $entry['cas'] ) )
-			) {
-				return false;
-			}
-			return self::invoke_memcached_cas( [ $this->memd, 'cas' ], $entry['cas'], $key, $replacement );
-		}
-
-		$current = \apcu_fetch( $key, $hit );
-		if ( ! $hit || ! \is_int( $current ) || $expected !== $current || ! \apcu_cas( $key, $expected, $replacement ) ) {
-			return false;
-		}
-		$current = \apcu_fetch( $key, $hit );
-		return $hit && $replacement === $current;
+	public static function memcache_arm(): ?self {
+		$memd = Core::memd();
+		return null !== $memd ? new Memcache_Arm( $memd ) : null;
 	}
 
 	/**
-	 * Hand `Memcached::cas()` the opaque token exactly as the extended read
-	 * returned it.
+	 * The keys starting `$prefix`, in byte order, at most `$limit` of them:
+	 * what a durable arm lists. A volatile arm cannot list its keys.
 	 *
-	 * Extension releases declare that parameter `float` or `string|int|float`,
-	 * so the token rides as the union and nothing here narrows it: a 64-bit
-	 * token cast to float loses its low digits.
-	 *
-	 * @param callable         $cas         The bound `[ $memcached, 'cas' ]`.
-	 * @param string|int|float $token       CAS token from the extended read.
-	 * @param string           $key         The cache key.
-	 * @param int              $replacement Value to write.
-	 * @return bool True when the extension reports the swap landed.
+	 * @param string   $prefix The key prefix.
+	 * @param int      $limit  Most keys to return.
+	 * @param ?bool    $failed Set true when the arm did not answer.
+	 * @param-out bool $failed
+	 * @return array<string,mixed> Key => value, in key order.
+	 * @throws \LogicException On an arm that cannot list its keys.
 	 */
-	private static function invoke_memcached_cas( callable $cas, string|int|float $token, string $key, int $replacement ): bool {
-		return true === $cas( $token, $key, $replacement );
+	public function scan( string $prefix, int $limit, ?bool &$failed = null ): array {
+		throw new \LogicException( \esc_html( 'scan needs a durable backend; ' . $this->backend_name() . ' cannot list its keys' ) );
 	}
 
 	/**
-	 * Add one to a counter, refusing a key that does not exist.
+	 * Selected backend name, for failure diagnostics.
 	 *
-	 * @param string $key The cache key.
-	 * @return int|false The new value, or false on an absent key or a failure.
+	 * @return string 'memcached', 'apcu', 'sqlite' or 'wpdb'.
 	 */
-	public function increment( string $key ): int|false {
-		if ( null !== $this->memd ) {
-			return $this->memd->increment( $key );
-		}
-		if ( ! $this->apcu_has( $key ) ) {
-			return false;
-		}
-		return \apcu_inc( $key );
-	}
-
-	/**
-	 * Subtract one from a counter, refusing a key that does not exist.
-	 *
-	 * Memcached clamps at zero. `apcu_dec` goes negative, so that arm stores
-	 * the clamped zero back and the two agree on what a floor looks like.
-	 *
-	 * @param string $key The cache key.
-	 * @return int|false The new value, or false on an absent key or a failure.
-	 */
-	public function decrement( string $key ): int|false {
-		if ( null !== $this->memd ) {
-			return $this->memd->decrement( $key );
-		}
-		if ( ! $this->apcu_has( $key ) ) {
-			return false;
-		}
-		$value = \apcu_dec( $key, 1, $ok );
-		if ( false === $ok ) {
-			return false;
-		}
-		if ( $value < 0 ) {
-			\apcu_store( $key, 0 );
-			return 0;
-		}
-		return $value;
-	}
-
-	/**
-	 * Whether APCu currently holds the key.
-	 *
-	 * `apcu_inc`/`apcu_dec` CREATE a missing key — that is what their `$ttl`
-	 * parameter is for — while `Memcached::increment`/`decrement` return false
-	 * and set RES_NOTFOUND. Counters are the one place the two arms diverge,
-	 * and the divergence is load-bearing: without this gate, a decrement of an
-	 * evicted batch counter clamps to a stored 0, which
-	 * `Job_Worker_Node::settle_batch()` reads as a completed fan-in. Gating the
-	 * APCu arm on existence is what makes a miss a miss on both.
-	 *
-	 * @param string $key The cache key.
-	 * @return bool True when the key exists.
-	 */
-	private function apcu_has( string $key ): bool {
-		\apcu_fetch( $key, $hit );
-		return (bool) $hit;
-	}
+	abstract public function backend_name(): string;
 
 	/**
 	 * Read many keys in one round trip, found-only, keyed by cache key.
@@ -411,7 +321,7 @@ final class Cache_Backend {
 		if ( [] === $keys ) {
 			return [];
 		}
-		$found = null !== $this->memd ? $this->memd->getMulti( $keys ) : \apcu_fetch( $keys );
+		$found = $this->fetch_multi( $keys );
 		if ( ! \is_array( $found ) ) {
 			Core::print_less_often( 'Cache_Backend: batch read error from ', $this->last_failure() );
 			$failed = true;
@@ -434,47 +344,20 @@ final class Cache_Backend {
 	 * and any operation in between replaces it. Pass it to `print_less_often()`
 	 * as an extra rather than in the key, so varying text shares one limit.
 	 *
-	 * @return string `memcached result <code>: <message>`, or `APCu`.
+	 * @return string `memcached result <code>: <message>`, `APCu`,
+	 *                `sqlite <path>: <message>` or `wpdb <table>: <message>`.
 	 */
-	public function last_failure(): string {
-		if ( null === $this->memd ) {
-			return 'APCu';
-		}
-		$meta = $this->diagnostic_metadata();
-		return "memcached result {$meta['memcached_result_code']}: {$meta['memcached_result_message']}";
-	}
+	abstract public function last_failure(): string;
 
 	/**
-	 * Aggregate facts about the selected backend, for a failed cache-backed
-	 * operation. Never a key name or a stored value, so a caller can log the
-	 * whole array or hand it to a dashboard.
+	 * The arm's one batch read: the found keys' values, or false when the batch
+	 * failed outright. `read_multi()` owns the empty guard, the failure log and
+	 * the key normalising, so an arm chunks or batches however its store needs.
 	 *
-	 * The memcached arm reports the last result code and message. The APCu arm
-	 * reports expunges and free shared memory, the two numbers that say
-	 * whether the segment is thrashing, and is empty when APCu declines both
-	 * info calls.
-	 *
-	 * @return array<string,int|string> Diagnostic facts, possibly empty.
+	 * @param non-empty-list<string> $keys Cache keys.
+	 * @return array<array-key,mixed>|false Key => value for the keys present.
 	 */
-	public function diagnostic_metadata(): array {
-		if ( null !== $this->memd ) {
-			return [
-				'memcached_result_code'    => $this->memd->getResultCode(),
-				'memcached_result_message' => $this->memd->getResultMessage(),
-			];
-		}
-
-		$metadata   = [];
-		$cache_info = ( self::$apcu_cache_info ?? static fn ( bool $limited ) => \apcu_cache_info( $limited ) )( true );
-		if ( \is_array( $cache_info ) && isset( $cache_info['expunges'] ) && \is_numeric( $cache_info['expunges'] ) ) {
-			$metadata['apcu_expunges'] = (int) $cache_info['expunges'];
-		}
-		$sma_info = ( self::$apcu_sma_info ?? static fn ( bool $limited ) => \apcu_sma_info( $limited ) )( true );
-		if ( \is_array( $sma_info ) && isset( $sma_info['avail_mem'] ) && \is_numeric( $sma_info['avail_mem'] ) ) {
-			$metadata['apcu_available_memory_bytes'] = (int) $sma_info['avail_mem'];
-		}
-		return $metadata;
-	}
+	abstract protected function fetch_multi( array $keys ): array|false;
 
 	/**
 	 * Seed the salt if this install has none, and leave a live one alone.
@@ -489,32 +372,30 @@ final class Cache_Backend {
 	 * `rotate_salt()`: activation runs again on every plugin update, and a
 	 * rotation there would orphan a live install's keys on each one.
 	 *
+	 * The seed asks every live worker to restart, as a rotation does, since a
+	 * worker running before it holds the unsalted scope. Activation and the
+	 * admin_init self-heal seed before anything resolves the runtime base, so
+	 * a configured base that does not exist — where no worker can hold a lock
+	 * — is logged under `Bootstrap::RUNTIME_UNAVAILABLE` and the seed stands.
+	 * A base that exists can hold live lock dirs, so any refusal of it throws.
+	 *
 	 * @api Called by `Bootstrap::activate()`.
 	 * @return string The salt in force afterwards.
+	 * @throws \Throwable What refusing the salt write, resolving an existing
+	 *                    base or flagging the fleet threw.
 	 */
 	public static function ensure_salt(): string {
 		$salt = self::salt();
-		return '' === $salt ? self::rotate_salt() : $salt;
-	}
-
-	/**
-	 * Rotate the salt: every key on this install is orphaned at once, and no
-	 * co-tenant's is touched. THE flush — plugins do not keep their own.
-	 *
-	 * Clearing the memoized `$site` is half the work, since the salt folds
-	 * into it; a process that kept the old scope would keep the old keys. Peer
-	 * processes keep theirs until they restart, which is why both callers
-	 * recycle the fleet.
-	 *
-	 * @return string The new salt.
-	 */
-	public static function rotate_salt(): string {
-		$salt = \function_exists( 'wp_generate_password' ) ? \wp_generate_password( 12, false ) : (string) \time();
-		if ( \function_exists( 'update_option' ) ) {
-			\update_option( self::SALT_OPTION, $salt, true );
+		if ( '' !== $salt ) {
+			return $salt;
 		}
-		self::$salt = $salt;
-		self::$site = '';
+		$salt = self::move_salt();
+		$base = Config::value( 'base_directory' );
+		if ( ! \is_string( $base ) || ! \is_dir( $base ) ) {
+			Core::print_less_often( Bootstrap::RUNTIME_UNAVAILABLE, 'cache salt seeded; no runtime base to restart workers under: ', Core::as_string( $base, '' ) );
+			return $salt;
+		}
+		self::restart_fleet();
 		return $salt;
 	}
 
@@ -531,13 +412,113 @@ final class Cache_Backend {
 	}
 
 	/**
-	 * Selected backend name, for failure diagnostics.
+	 * Rotate the salt: every key on this install is orphaned at once, and no
+	 * co-tenant's is touched. THE flush — plugins do not keep their own.
 	 *
-	 * @return string Either 'memcached' or 'apcu'.
+	 * Clearing the memoized `$site` is half the work, since the salt folds
+	 * into it; a process that kept the old scope would keep the old keys. Every
+	 * live worker memoizes its scope too, so every rotation asks every active
+	 * worker to restart, as `wp nodes restart all` does.
+	 *
+	 * @return string The new salt.
+	 * @throws \Throwable What refusing the salt write threw, or, after the salt
+	 *                    moved, what resolving the base or flagging the fleet
+	 *                    threw.
 	 */
-	public function backend_name(): string {
-		return null !== $this->memd ? 'memcached' : 'apcu';
+	public static function rotate_salt(): string {
+		$salt = self::move_salt();
+		self::restart_fleet();
+		return $salt;
 	}
+
+	/**
+	 * Ask every active worker to restart, as `wp nodes restart all` does,
+	 * flagging lock dirs through the base the settings writers resolve.
+	 *
+	 * @throws \Throwable What resolving the base or flagging the fleet threw.
+	 */
+	private static function restart_fleet(): void {
+		( new CLI( Config::get_base_directory_with_locks() ) )->restart_workers( Bootstrap::expand_workers() );
+	}
+
+	/**
+	 * Store a fresh salt and drop the scope memoized from the old one. A write
+	 * the database refused moves nothing, so no process holds a salt the
+	 * others never see.
+	 *
+	 * @return string The new salt.
+	 * @throws \RuntimeException When the option write is refused.
+	 */
+	private static function move_salt(): string {
+		$salt = \function_exists( 'wp_generate_password' ) ? \wp_generate_password( 12, false ) : (string) \time();
+		if ( ! \update_option( self::SALT_OPTION, $salt, true ) ) {
+			throw new \RuntimeException( 'cache salt write refused' );
+		}
+		self::$salt = $salt;
+		self::$site = '';
+		return $salt;
+	}
+
+	/**
+	 * Whether a failed `write_multi()` landed nothing, so a per-key retry is
+	 * pointless.
+	 *
+	 * @return bool True when a batch is all or nothing.
+	 */
+	public function batch_is_atomic(): bool {
+		return false;
+	}
+
+	/**
+	 * Atomically replace one exact, non-expiring integer value with another.
+	 *
+	 * This deliberately has no TTL parameter: callers use it for permanent,
+	 * bounded identity pointers. A failed comparison is a lost race and must
+	 * never fall back to set().
+	 *
+	 * The APCu arm re-reads after the swap, so a true return there means the
+	 * read-back saw the replacement.
+	 *
+	 * @param string $key         The cache key.
+	 * @param int    $expected    Value the key must currently hold.
+	 * @param int    $replacement Value to write when the comparison holds.
+	 * @return bool True when this caller won the swap.
+	 */
+	abstract public function compare_and_swap( string $key, int $expected, int $replacement ): bool;
+
+	/**
+	 * Add one to a counter, refusing a key that does not exist.
+	 *
+	 * @param string $key The cache key.
+	 * @return int|false The new value, or false on an absent key or a failure.
+	 */
+	abstract public function increment( string $key ): int|false;
+
+	/**
+	 * Subtract one from a counter, refusing a key that does not exist.
+	 *
+	 * Memcached clamps at zero. `apcu_dec` goes negative, so that arm stores
+	 * the clamped zero back and the two agree on what a floor looks like.
+	 *
+	 * @param string $key The cache key.
+	 * @return int|false The new value, or false on an absent key or a failure.
+	 */
+	abstract public function decrement( string $key ): int|false;
+
+	/**
+	 * Aggregate facts about the selected backend, for a failed cache-backed
+	 * operation. Never a key name or a stored value, so a caller can log the
+	 * whole array or hand it to a dashboard.
+	 *
+	 * The memcached arm reports the last result code and message, and a durable
+	 * arm its last error message under `<backend>_error`. The APCu arm
+	 * reports expunges and free shared memory, the two numbers that say
+	 * whether the segment is thrashing, and is empty when APCu declines both
+	 * info calls.
+	 *
+	 * @return array<string,int|string> Diagnostic facts, possibly empty.
+	 */
+	abstract public function diagnostic_metadata(): array;
 
 	/**
 	 * Write many entries under ONE ttl in a single round trip — the write-side
@@ -554,15 +535,7 @@ final class Cache_Backend {
 	 *              match, so a caller needing to know WHICH key was refused
 	 *              re-sends that batch one key at a time.
 	 */
-	public function write_multi( array $items, int $ttl ): bool {
-		if ( [] === $items ) {
-			return true;
-		}
-		if ( null !== $this->memd ) {
-			return $this->memd->setMulti( $items, $ttl );
-		}
-		return [] === \apcu_store( $items, null, $ttl );
-	}
+	abstract public function write_multi( array $items, int $ttl ): bool;
 
 	/**
 	 * Claim a key atomically: false when it already exists. This is what a
@@ -573,9 +546,7 @@ final class Cache_Backend {
 	 * @param int    $ttl   Expiry in seconds; 0 = no expiry.
 	 * @return bool True when this caller created the key.
 	 */
-	public function add( string $key, mixed $value, int $ttl ): bool {
-		return null !== $this->memd ? $this->memd->add( $key, $value, $ttl ) : \apcu_add( $key, $value, $ttl );
-	}
+	abstract public function add( string $key, mixed $value, int $ttl ): bool;
 
 	/**
 	 * Read one value, false on a miss (memcached parity). A stored false reads
@@ -585,9 +556,7 @@ final class Cache_Backend {
 	 * @param string $key The cache key.
 	 * @return mixed The stored value, or false.
 	 */
-	public function get( string $key ): mixed {
-		return null !== $this->memd ? $this->memd->get( $key ) : \apcu_fetch( $key );
-	}
+	abstract public function get( string $key ): mixed;
 
 	/**
 	 * Read without collapsing a confirmed miss and a backend failure.
@@ -595,24 +564,7 @@ final class Cache_Backend {
 	 * @param string $key The cache key.
 	 * @return array{status:'hit'|'miss'|'error',value:mixed}
 	 */
-	public function read( string $key ): array {
-		if ( null !== $this->memd ) {
-			$value       = $this->memd->get( $key );
-			$result_code = $this->memd->getResultCode();
-			if ( \Memcached::RES_SUCCESS === $result_code ) {
-				return [ 'status' => self::READ_HIT, 'value' => $value ];
-			}
-			if ( \Memcached::RES_NOTFOUND === $result_code ) {
-				return [ 'status' => self::READ_MISS, 'value' => null ];
-			}
-			return [ 'status' => self::READ_ERROR, 'value' => null ];
-		}
-
-		$value = \apcu_fetch( $key, $hit );
-		return $hit
-			? [ 'status' => self::READ_HIT, 'value' => $value ]
-			: [ 'status' => self::READ_MISS, 'value' => null ];
-	}
+	abstract public function read( string $key ): array;
 
 	/**
 	 * Store a value, replacing whatever the key holds.
@@ -622,9 +574,7 @@ final class Cache_Backend {
 	 * @param int    $ttl   Expiry in seconds; 0 = no expiry.
 	 * @return bool True when the write landed.
 	 */
-	public function set( string $key, mixed $value, int $ttl ): bool {
-		return null !== $this->memd ? $this->memd->set( $key, $value, $ttl ) : \apcu_store( $key, $value, $ttl );
-	}
+	abstract public function set( string $key, mixed $value, int $ttl ): bool;
 
 	/**
 	 * Remove a key.
@@ -632,9 +582,7 @@ final class Cache_Backend {
 	 * @param string $key The cache key.
 	 * @return bool True when the key existed and is now gone.
 	 */
-	public function delete( string $key ): bool {
-		return null !== $this->memd ? $this->memd->delete( $key ) : \apcu_delete( $key );
-	}
+	abstract public function delete( string $key ): bool;
 
 	/**
 	 * Extend a key's expiry without rewriting its value.
@@ -655,17 +603,31 @@ final class Cache_Backend {
 	 *                   when it is confirmed absent, null when the backend
 	 *                   did not answer.
 	 */
-	public function touch( string $key, int $ttl ): ?bool {
-		if ( null !== $this->memd ) {
-			if ( $this->memd->touch( $key, $ttl ) ) {
+	abstract public function touch( string $key, int $ttl ): ?bool;
+
+	/**
+	 * Whether any key of a batch is refused; a refused batch writes nothing.
+	 *
+	 * @param array<array-key,mixed> $items Key => value.
+	 * @return bool True when any key is refused.
+	 */
+	protected static function refuses_any( array $items ): bool {
+		foreach ( \array_keys( $items ) as $key ) {
+			if ( self::refuses_key( (string) $key ) ) {
 				return true;
 			}
-			return \Memcached::RES_NOTFOUND === $this->memd->getResultCode() ? false : null;
 		}
-		$value = \apcu_fetch( $key, $hit );
-		if ( ! $hit ) {
-			return false;
-		}
-		return \apcu_store( $key, $value, $ttl ) ? true : null;
+		return false;
+	}
+
+	/**
+	 * Whether a key cannot be named in a string request: empty, or holding
+	 * whitespace. Every write refuses one, so every stored key is nameable.
+	 *
+	 * @param string $key The cache key.
+	 * @return bool True when a write must refuse the key.
+	 */
+	public static function refuses_key( string $key ): bool {
+		return '' === $key || 1 === \preg_match( '/\s/', $key );
 	}
 }
