@@ -182,6 +182,57 @@ final class SqliteArmTest extends TestCase {
 		$this->assertSame( [ 'blob', 1790000777 ], $row );
 	}
 
+	public function test_a_reader_of_a_file_not_there_reads_nothing_and_creates_nothing(): void {
+		$reader = new Sqlite_Arm( $this->path(), read_only: true );
+		$this->assertSame( [], $reader->read_multi( [ 'sku-41', 'sku-42' ], $failed ) );
+		$this->assertFalse( $failed, 'no file is no data, not a failed read' );
+		$this->assertSame( Cache_Backend::READ_MISS, $reader->read( 'sku-41' )['status'] );
+		$this->assertFalse( $reader->set( 'sku-43', 'kea-43', 0 ), 'a reader writes nothing' );
+		$this->assertDirectoryDoesNotExist( "{$this->dir}/tables", 'a reader creates no directory' );
+	}
+
+	public function test_a_reader_opened_before_its_file_reads_the_file_once_it_appears(): void {
+		$reader = new Sqlite_Arm( $this->path(), read_only: true );
+		$this->assertFalse( $reader->get( 'sku-41' ) );
+		( new Sqlite_Arm( $this->path() ) )->set( 'sku-41', 'kea-41', 0 );
+		$this->assertSame( 'kea-41', $reader->get( 'sku-41' ), 'an absence is not remembered' );
+	}
+
+	public function test_a_path_that_exists_but_will_not_open_refuses_a_reader(): void {
+		\mkdir( $this->path(), 0700, true );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'sqlite backend could not open' );
+		new Sqlite_Arm( $this->path(), read_only: true );
+	}
+
+	public function test_a_reader_refuses_a_host_without_pdo_sqlite(): void {
+		Sqlite_Arm::$available = static fn (): bool => false;
+		$this->expectException( \LogicException::class );
+		$this->expectExceptionMessage( 'sqlite backend needs the pdo_sqlite extension' );
+		new Sqlite_Arm( $this->path(), read_only: true );
+	}
+
+	public function test_a_reader_sees_what_its_writer_commits_and_writes_nothing(): void {
+		$writer = new Sqlite_Arm( $this->path() );
+		$writer->set( 'sku-41', 'kea-41', 0 );
+		$reader = new Sqlite_Arm( $this->path(), read_only: true );
+		$writer->set( 'sku-42', 'kea-42', 0 );
+		$this->assertSame( [ 'sku-41' => 'kea-41', 'sku-42' => 'kea-42' ], $reader->read_multi( [ 'sku-41', 'sku-42' ] ) );
+		$this->assertFalse( $reader->set( 'sku-43', 'kea-43', 0 ) );
+		$this->assertStringContainsString( 'readonly database', $reader->last_failure() );
+		$this->assertFalse( $writer->get( 'sku-43' ) );
+	}
+
+	public function test_a_reader_switches_no_journal_mode_and_declares_no_table(): void {
+		\mkdir( \dirname( $this->path() ), 0700, true );
+		( new \PDO( 'sqlite:' . $this->path() ) )->exec( 'CREATE TABLE lab_7 ( kea INTEGER )' );
+		$reader = new Sqlite_Arm( $this->path(), read_only: true );
+		$this->assertSame( Cache_Backend::READ_ERROR, $reader->read( 'sku-41' )['status'], 'a file with no kv table is a failed read, not a miss' );
+		$probe = new \PDO( 'sqlite:' . $this->path() );
+		$this->assertSame( 'delete', $probe->query( 'PRAGMA journal_mode' )->fetchColumn() );
+		$this->assertSame( [ 'lab_7' ], $probe->query( "SELECT name FROM sqlite_master WHERE type = 'table'" )->fetchAll( \PDO::FETCH_COLUMN ) );
+	}
+
 	private function checkpoint(): void {
 		( new \PDO( 'sqlite:' . $this->path() ) )->query( 'PRAGMA wal_checkpoint(TRUNCATE)' )->fetchAll();
 	}

@@ -139,13 +139,17 @@ class TopologiesCITest extends TestCase {
 		\file_put_contents( "{$this->stock}/kea-a.tsl", "var num_partitions = 2\ninclude kea-base\nmake_node Table lab-7:kea kea:p<partition> 777 sqlite\n" );
 		\update_option( 'newspack_nodes_topologies', [ 'kea-a' ] );
 		Config::reset();
+		foreach ( [ 'lab-7:kea', 'lab-7:rook' ] as $table ) {
+			foreach ( [ 0, 1 ] as $p ) {
+				new \Newspack_Nodes\Sqlite_Arm( \Newspack_Nodes\Table_Node::file( $table, $p ) );
+			}
+		}
 		\Newspack_Nodes\Bootstrap::mount_request_graph();
 
 		$this->assertSame( '', ( new Topologies_CI_Node() )->dispatch( 'mount_tables', [ 'kea-a' ] ) );
 
 		$this->assertInstanceOf( \Newspack_Nodes\Table_Node::class, \Newspack_Nodes\Core::node( 'lab-7:kea.p1' ) );
 		$this->assertInstanceOf( \Newspack_Nodes\Table_Node::class, \Newspack_Nodes\Core::node( 'lab-7:rook.p1' ), 'an included Table mounts too' );
-		$this->assertFileExists( "{$this->base_dir}/tables/lab-7:kea.p1.sqlite" );
 	}
 
 	public function test_mount_tables_refuses_an_inactive_topology(): void {

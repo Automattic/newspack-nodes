@@ -78,7 +78,7 @@ Intentional, load-bearing choices; "fixing" one usually reintroduces a bug alrea
 | 20 | A config default lives in CODE (`Schema::defaults()` or `config_defaults()`); a config file only overrides, and an unknown key there is reported, never thrown |
 | 21 | A node may derive its children from the Vault (`Vault_Group`, rebuilt on RELOAD); static analysis expands every group through `Vault::in_group()`, and `dump_config` emits only the group |
 | 22 | A worker id has one writer (`CLI::worker_id()`) and one reader (`CLI::parse_worker_id()`), held to the JS twins by `tests/fixtures/worker-ids.json`; `Spawn_Coordinator` owns the lock tree, `Worker_Base::ipc_dir()` builds the IPC tree, and nothing else globs, joins or strips either |
-| 23 | A request carries no authority of its own: the MANAGE-gated mount of a worker's input Partition, or of a Table (`topologies mount_tables`, reads only), is the gate, so `requests` entries declare no capability; a declared request answers `TM_STRUCT\|TM_RESPONSE` `{ verb, data }` or a `TM_ERROR`, and only a Table's `MSET` and `ADD` carry a structure |
+| 23 | A request carries no authority of its own: the MANAGE-gated mount of a worker's input Partition, or of a Table (`topologies mount_tables`, reads only), or the read-only mount a verb makes for the rest of its POST, bounded by that verb's role, is the gate, so `requests` entries declare no capability; a declared request answers `TM_STRUCT\|TM_RESPONSE` `{ verb, data }` or a `TM_ERROR`, and only a Table's `MSET` and `ADD` carry a structure |
 | 24 | A Table names its backend — memcache or APCu (volatile), SQLite (durable, one host) or wpdb (durable, shared) |
 
 ## Layout

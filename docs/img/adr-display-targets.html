@@ -21,7 +21,7 @@
 </style>
 <div class="sheet">
 <h1>A node may declare a destination it writes to without routing through it</h1>
-<p class="sub">ADR-7 names two destination kinds. A third exists in practice: a Partition a node fills directly at flush, or a TO stamped per message from a conditional route. Neither appears in <span class="mono">target()</span>, so without a declaration the console draws those destinations with no inbound edge while they fill.</p>
+<p class="sub">ADR-7 names two destination kinds. A third exists in practice: a TO stamped per message, by a Table asker or from a conditional route. Neither appears in <span class="mono">target()</span>, so without a declaration the console draws those destinations with no inbound edge while they fill.</p>
 
 <div class="kinds">
   <div class="kind">
@@ -34,16 +34,16 @@
   </div>
   <div class="kind x">
     <header><span class="mono">extra_targets()</span> — a declaration</header>
-    <div class="body"><b>The destinations a node writes WITHOUT going through <span class="mono">target</span>.</b> <span class="mono">Flame_Builder_Node</span> resolves its stats-mirror Partition by name through <span class="mono">Core::node()</span> and fills it at flush; <span class="mono">Request_Builder_Node</span> stamps TO per message from one of four routes. Returns <span class="mono">list&lt;string&gt;</span>; nothing routes through it, and it must never acquire a caller in <span class="mono">fill()</span>. Prose the class keeps honest: nothing detects drift between it and the actual writes.</div>
+    <div class="body"><b>The destinations a node writes WITHOUT going through <span class="mono">target</span>.</b> <span class="mono">Flame_Builder_Node</span> addresses each of its stats Tables through a per-message TO its <span class="mono">Table_Client</span> stamps; <span class="mono">Request_Builder_Node</span> stamps TO per message from one of four routes. Returns <span class="mono">list&lt;string&gt;</span>; nothing routes through it, and it must never acquire a caller in <span class="mono">fill()</span>. Prose the class keeps honest: nothing detects drift between it and the actual writes.</div>
   </div>
 </div>
 
 <div class="card union">
   <h3><span class="mono">display_targets()</span>: the union, consumed by presentation only</h3>
   <p><span class="mono">target_list( target() )</span> first, then the extras, de-duplicated, empties dropped. It feeds <span class="mono">ls</span>'s TARGET column and <span class="mono">dump_metadata</span>'s <span class="mono">targets</span> key, always a list, which is what edges are drawn from. Two keys because a flattened list cannot express fan-out, and the connect/disconnect verbs need the distinction.</p>
-  <div class="slots"><span class="lbl">Routing target set, one extra:</span><span class="s r"><span class="i">0</span>firehose:partition</span><span class="s e"><span class="i">1</span>stats-mirror:partition</span></div>
-  <div class="slots"><span class="lbl">Tee with two, one extra:</span><span class="s r"><span class="i">0</span>request-builder</span><span class="s r"><span class="i">1</span>error-log</span><span class="s e"><span class="i">2</span>stats-mirror:partition</span></div>
-  <div class="slots"><span class="lbl">Empty target, one extra:</span><span class="s e"><span class="i">0</span>stats-mirror:partition</span><span style="font-size:12px;color:#B32D2E">← index 0 is presentation-only here</span></div>
+  <div class="slots"><span class="lbl">Routing target set, one extra:</span><span class="s r"><span class="i">0</span>firehose:partition</span><span class="s e"><span class="i">1</span>flame-stats:aggregate</span></div>
+  <div class="slots"><span class="lbl">Tee with two, one extra:</span><span class="s r"><span class="i">0</span>request-builder</span><span class="s r"><span class="i">1</span>error-log</span><span class="s e"><span class="i">2</span>flame-stats:aggregate</span></div>
+  <div class="slots"><span class="lbl">Empty target, one extra:</span><span class="s e"><span class="i">0</span>flame-stats:aggregate</span><span style="font-size:12px;color:#B32D2E">← index 0 is presentation-only here</span></div>
   <p>The union is POSITIONAL, so index 0 is the routing target only when one is SET. A consumer slicing <span class="mono">[0]</span> as "the target" presents a display-only destination as the routing contract. One needing the routing value reads <span class="mono">target</span>; one that must split the union splits by the routing COUNT, never at a fixed index.</p>
 </div>
 
@@ -54,7 +54,7 @@
   </div>
   <div class="ok">
     <h4>This does not license a second physical output</h4>
-    <p>ADR-7's reopen condition stands: a true second physical output means reintroducing <span class="mono">edge</span> deliberately, and <span class="mono">Flame_Builder_Node</span>'s direct partition write is the case that would trigger it. Declaring makes an existing write VISIBLE; it does not make it a supported way to build new ones. Revisit if anything routes on <span class="mono">display_targets()</span>, or if <span class="mono">edge</span> arrives and absorbs the physical-write case.</p>
+    <p>ADR-7's reopen condition stands: a true second physical output means reintroducing <span class="mono">edge</span> deliberately, and a node filling a destination directly, past its sink and past a TO, is the case that would trigger it. Declaring makes an existing write VISIBLE; it does not make it a supported way to build new ones. Revisit if anything routes on <span class="mono">display_targets()</span>, or if <span class="mono">edge</span> arrives and absorbs the physical-write case.</p>
   </div>
 </div>
 </div>

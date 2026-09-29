@@ -6,6 +6,18 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **`Bootstrap::mount_table( array $names ): array` drops its `?array &$built`
+  out-parameter.** Delete the argument and the bookkeeping that read it: a
+  mount now lives for the rest of the request, and a later call keeps it.
+  Raise your `version_at_least()` floor to 2.75.0, because a mount no longer
+  creates the file.
+- **A mount no longer creates a `sqlite` Table's file, and refuses root.** A
+  partition whose worker has not written still reads as empty, but no file
+  appears on disk until the worker writes it; a test that mounted in order to
+  create one seeds the file through a writer first. A mount in a process
+  running as root raises a plain `\RuntimeException`, not `Table_Unavailable`,
+  so a caller degrading on `Table_Unavailable` fails loud: run the reader as
+  the workers' user.
 - **A Table no longer answers `SCAN`,** and `Table_Client::scan()`,
   `Cache_Backend::scan()` and `Table_Node::MAX_SCAN` are gone. No consumer
   called them. Name the keys you read: `GET`, `MGET` or

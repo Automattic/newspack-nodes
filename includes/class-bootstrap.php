@@ -111,6 +111,14 @@ class Bootstrap {
 	/** @var array{0: array<string,list<array<array-key,mixed>>>, 1: array<string,\Throwable>}|null Request-static half of the wake map, with its failures. */
 	private static ?array $on_demand_wake_map = null;
 
+	/**
+	 * Each Table `node_tables()` resolved in this process, by name, until
+	 * `forget_node_tables()` drops them with the parsed topologies.
+	 *
+	 * @var array<string,array<int,array{namespace: string, ttl: int, backend: string}>>
+	 */
+	private static array $node_tables = [];
+
 	/** Wake-map key prefix; the active set's digest completes it and `Cache_Backend` scopes it. Rows carry offsetlog_dir. */
 	private const ON_DEMAND_WAKE_KEY = 'on_demand_wake_v2:';
 
@@ -391,15 +399,16 @@ class Bootstrap {
 	/**
 	 * Mount every partition of each named Table into this request's graph,
 	 * each named `Table_Node::stem()`, sinking into `_command_interpreter` and
-	 * serving reads only. Idempotent: a stem already mounted is kept. All or
+	 * serving reads only. A mount lives for the rest of the request, so a
+	 * later call mounting the same Table keeps it and builds nothing. A kept
+	 * mount is matched by stem alone: after an activation earlier in the same
+	 * POST changed a Table's backend or TTL, it keeps the old spec. All or
 	 * nothing: a throw unmounts what this call built. One read of the active
 	 * set serves every name.
 	 *
 	 * @api Called from consumer plugins (cross-repo, invisible here).
 	 *
-	 * @param list<string>      $names Table names as their topologies declare them.
-	 * @param list<string>|null $built Set to the stems this call built; `[]` after a throw.
-	 * @param-out list<string>  $built
+	 * @param list<string> $names Table names as their topologies declare them.
 	 * @return array<string,array<int,string>> Name => partition => mounted node name; `[]` for a name no active topology declares.
 	 * @throws \InvalidArgumentException On a name that cannot name a file.
 	 * @throws \RuntimeException With no request graph.
@@ -408,7 +417,7 @@ class Bootstrap {
 	 *                           as `Failures`, whose previous is this one.
 	 * @throws \Throwable As node_tables().
 	 */
-	public static function mount_table( array $names, ?array &$built = null ): array {
+	public static function mount_table( array $names ): array {
 		$built = [];
 		$ci    = Core::node( Node_Names::COMMAND_INTERPRETER ) ?? throw new \RuntimeException( 'mount_table needs a request graph' );
 		foreach ( $names as $name ) {
@@ -432,9 +441,7 @@ class Bootstrap {
 				}
 			}
 		} catch ( \Throwable $e ) {
-			$undo  = $built;
-			$built = [];
-			throw Worker_Should_Stop::combine( [ $e, ...Worker_Should_Stop::attempt_each( $undo, static fn ( string $stem ) => Core::node( $stem )?->remove_node() ) ] );
+			throw Worker_Should_Stop::combine( [ $e, ...Worker_Should_Stop::attempt_each( $built, static fn ( string $stem ) => Core::node( $stem )?->remove_node() ) ] );
 		}
 		return $out;
 	}
@@ -445,7 +452,9 @@ class Bootstrap {
 	 * `<partition>` and `<topology>` substituted, as a worker's Shell resolves
 	 * them; its TTL and backend with their tokens resolved. Declared
 	 * once in the `.tsl`, so the writer and every reader resolve the same
-	 * Table. One read of the active set serves every name.
+	 * Table. One read of the active set serves every name not yet resolved,
+	 * and a name resolves once until `forget_node_tables()`, which every
+	 * change to the active set, a saved `.tsl` or the config fires.
 	 *
 	 * @api Called from consumer plugins (cross-repo, invisible here).
 	 *
@@ -454,10 +463,16 @@ class Bootstrap {
 	 * @throws \Throwable When two active topologies declare one differently, a TTL is not a whole number of at least 1 second, a token nothing resolves, the base directory is unusable, or no readable topology declares a name and an active one will not read.
 	 */
 	public static function node_tables( string ...$names ): array {
-		$active = self::active_topologies();
-		$out    = [];
+		$unresolved = \array_diff( $names, \array_keys( self::$node_tables ) );
+		if ( [] !== $unresolved ) {
+			$active = self::active_topologies();
+			foreach ( $unresolved as $name ) {
+				self::$node_tables[ $name ] = self::resolve_table( $name, $active );
+			}
+		}
+		$out = [];
 		foreach ( $names as $name ) {
-			$out[ $name ] = self::resolve_table( $name, $active );
+			$out[ $name ] = self::$node_tables[ $name ];
 		}
 		return $out;
 	}
@@ -1166,6 +1181,16 @@ class Bootstrap {
 	/** Extract an event object's hook field, if present. */
 	private static function event_hook( mixed $event ): string {
 		return \is_object( $event ) && isset( $event->hook ) && \is_string( $event->hook ) ? $event->hook : '';
+	}
+
+	/**
+	 * Drop every Table `node_tables()` resolved.
+	 * `Topology_Registry::reset_basename_cache()` calls it beside the parsed
+	 * topologies it drops, since a resolution reads the active set, the
+	 * `.tsl` files and the config tokens they name.
+	 */
+	public static function forget_node_tables(): void {
+		self::$node_tables = [];
 	}
 
 	/**

@@ -842,20 +842,21 @@ class TableNodeTest extends TestCase {
 	}
 
 	public function test_mount_names_the_partition_and_opens_its_file(): void {
-		$dir   = $this->base_dir( 'table-mount-' );
+		$dir = $this->base_dir( 'table-mount-' );
+		( new Sqlite_Arm( Table_Node::file( 'lab-7:kea', 3 ) ) )->set( Table_Node::entry_key( 'kea:p3', 'sku-42' ), [ 'usd' => 4200 ], 0 );
 		$sink  = new Capture_Sink_Node();
 		$table = Table_Node::mount( 'lab-7:kea', 3, [ 'namespace' => 'kea:p3', 'ttl' => 777, 'backend' => 'sqlite' ], $sink );
 		$this->assertSame( 'lab-7:kea.p3', $table->name() );
 		$this->assertSame( "{$dir}/tables/lab-7:kea.p3.sqlite", Table_Node::file( 'lab-7:kea', 3 ) );
-		$this->assertFileExists( "{$dir}/tables/lab-7:kea.p3.sqlite" );
 		$this->assertSame( [ 'kea:p3', '777', 'sqlite' ], $table->arguments() );
 		$this->assertSame( $table, Core::node( 'lab-7:kea.p3' ) );
 		$table->fill( $this->request( 'GET sku-42' ) );
-		$this->assertCount( 1, $sink->captured, 'a mounted Table replies through the sink it was given' );
+		$this->assertSame( [ 'usd' => 4200 ], $sink->captured[0][ Message::VALUE ], 'a mounted Table replies through the sink it was given' );
 	}
 
 	public function test_a_mounted_table_dumps_no_replayable_make_node_line(): void {
 		$this->base_dir( 'table-dump-' );
+		new Sqlite_Arm( Table_Node::file( 'lab-7:kea', 3 ) );
 		$interpreter = new \Newspack_Nodes\Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 		$table = Table_Node::mount( 'lab-7:kea', 3, [ 'namespace' => 'kea:p3', 'ttl' => 777, 'backend' => 'sqlite' ], $interpreter );
@@ -879,6 +880,8 @@ class TableNodeTest extends TestCase {
 	}
 
 	public function test_a_mount_raises_a_failed_teardown_beside_the_failure_that_began_it(): void {
+		$this->base_dir( 'table-teardown-' );
+		new Sqlite_Arm( Table_Node::file( 'lab-7:kea', 3 ) );
 		$refusal = new \LogicException( 'teardown refused-37' );
 		// A sibling whose teardown refuses; the Table's own cascade reaches it.
 		$sibling = new class( $refusal ) extends Node {
@@ -1401,7 +1404,11 @@ class TableNodeTest extends TestCase {
 		[ $table, $rows ] = $this->durable( 37 );
 		$table->store( 'sku-41', 1 );
 		$table->remove_node();
-		$file  = Table_Node::file( 'lab-7:kea', 3 );
+		// Close the writer now: its last close checkpoints the WAL into the file.
+		unset( $table );
+		\gc_collect_cycles();
+		$file = Table_Node::file( 'lab-7:kea', 3 );
+		\clearstatcache();
 		$bytes = \filesize( $file );
 		$mount = Table_Node::mount( 'lab-7:kea', 3, [ 'namespace' => 'kea:p3', 'ttl' => 37, 'backend' => 'sqlite' ], new Capture_Sink_Node() );
 		$refusals = [];

@@ -16,15 +16,15 @@ and [`Apcu_Arm`](../includes/class-apcu-arm.php), which `local_first()` and
 Table builds. A consumer calls the contract's methods on the arm it is handed
 and never names an arm class. The Table surface a consumer reaches past the list
 is [`Table_Client`](../includes/class-table-client.php), `Bootstrap::node_tables()`
-and `Bootstrap::mount_table()`, and each moves inside a major as the rest do.
+and `Bootstrap::mount_table( array $names )`, and each moves inside a major as the
+rest do.
 
 That trio and [`Topology_Analyzer::includes()`](../includes/class-topology-analyzer.php) answer questions a consumer cannot
 answer for itself. `node_dirs()` and `node_partitions()` are how a reader finds
 a node's partitions across every ACTIVE topology declaring it: `node_dirs()`
 answers partition index => directory for a Partition or Topic node, and
-`node_partitions()` the ascending indices alone, for per-partition state that
-never lands on disk — event-logger-nodes builds one memcache `Stats_Store` per
-flame-builder index from it. The global `num_partitions` setting is never that
+`node_partitions()` the ascending indices alone, for per-partition state keyed
+by the worker index rather than a directory. The global `num_partitions` setting is never that
 number. A topology carries its own worker count, and a Topic's second
 constructor argument is its own fan-out width, which an aggregator declares
 above the worker count for hub fan-in or deliberately below it, so a consumer
@@ -287,8 +287,8 @@ floor to the release that made the change, so a consumer running against an
 older substrate goes dormant rather than calling the old shape.
 [`Partition_Node::locate_by( \Closure $extract, array $wanted )`](../includes/class-partition-node.php)
 is the worked case: `$wanted`, the key set that bounds the index walk, is
-required, and event-logger-nodes, its only caller, floors past the release
-that added it.
+required, and event-logger-nodes 0.108.0, its one caller, floors past the
+release that added it.
 
 ## How a frozen name changes
 
