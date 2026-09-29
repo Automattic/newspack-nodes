@@ -39,7 +39,7 @@
 
   <div class="nd hub dim"><b><span class="mono">&lt;name&gt;:null</span> — Null_Node, HTTP_Out's target</b><span class="mono">on_curl_message()</span> strips one leading <span class="mono">_output/</span> and <span class="mono">accept_inbound()</span> stamps the transport's name onto FROM: one mutation per field, and TO=FROM resolves on the hub. An unaddressed message gets the target, and the Null swallows it and counts it; an addressed one passes only to a destination <span class="mono">allow_replies_to</span> declares, whatever type bits it carries.</div>
   <div class="w"></div>
-  <div class="nd dim"><b>What the spoke cannot make the hub do</b>Name a node in the hub's graph. An addressed message, a Table <span class="mono">GET</span> HIT or MISS alike, reaches only a destination the hub declared with <span class="mono">allow_replies_to</span>; nothing declared means nothing addressed passes, and the same declaration bounds the stream leg through <span class="mono">admit_inbound()</span>.</div>
+  <div class="nd dim"><b>What the spoke cannot make the hub do</b>Name a node in the hub's graph. An addressed message, a Table's reply included, reaches only a destination the hub declared with <span class="mono">allow_replies_to</span>; nothing declared means nothing addressed passes, and the same declaration bounds the stream leg through <span class="mono">admit_inbound()</span>.</div>
 </div>
 
 <div class="grid3">

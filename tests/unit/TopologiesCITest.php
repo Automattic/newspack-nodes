@@ -66,6 +66,7 @@ class TopologiesCITest extends TestCase {
 	}
 
 	protected function tearDown(): void {
+		\delete_option( 'newspack_nodes_topologies' );
 		VerbHarness::reset();
 		Topology_Registry::reset();
 		// Restore perms before removing — a 0500 dir can't have its contents unlinked.
@@ -97,7 +98,7 @@ class TopologiesCITest extends TestCase {
 		$names  = \array_map( static fn ( array $v ): string => $v['name'], $schema['commands'] );
 		\sort( $names );
 		$this->assertSame(
-			[ 'activate', 'connect_worker_input', 'deactivate', 'delete', 'dump', 'expand', 'get', 'save' ],
+			[ 'activate', 'connect_worker_input', 'deactivate', 'delete', 'dump', 'expand', 'get', 'mount_tables', 'save' ],
 			$names
 		);
 		$this->assertNotEmpty( $schema['description'] );
@@ -129,6 +130,52 @@ class TopologiesCITest extends TestCase {
 			\Newspack_Nodes\Core::node( 'firehose-workers.p1' ),
 			'connect_worker_input must mount only the named worker, not every live worker'
 		);
+	}
+
+	// ── mount_tables verb ────────────────────────────────────────────────────
+
+	public function test_mount_tables_mounts_what_an_active_topology_declares(): void {
+		\file_put_contents( "{$this->stock}/kea-base.tsl", "make_node Table lab-7:rook rook:p<partition> 37 sqlite\n" );
+		\file_put_contents( "{$this->stock}/kea-a.tsl", "var num_partitions = 2\ninclude kea-base\nmake_node Table lab-7:kea kea:p<partition> 777 sqlite\n" );
+		\update_option( 'newspack_nodes_topologies', [ 'kea-a' ] );
+		Config::reset();
+		\Newspack_Nodes\Bootstrap::mount_request_graph();
+
+		$this->assertSame( '', ( new Topologies_CI_Node() )->dispatch( 'mount_tables', [ 'kea-a' ] ) );
+
+		$this->assertInstanceOf( \Newspack_Nodes\Table_Node::class, \Newspack_Nodes\Core::node( 'lab-7:kea.p1' ) );
+		$this->assertInstanceOf( \Newspack_Nodes\Table_Node::class, \Newspack_Nodes\Core::node( 'lab-7:rook.p1' ), 'an included Table mounts too' );
+		$this->assertFileExists( "{$this->base_dir}/tables/lab-7:kea.p1.sqlite" );
+	}
+
+	public function test_mount_tables_refuses_an_inactive_topology(): void {
+		\file_put_contents( "{$this->stock}/kea-idle.tsl", "make_node Table lab-7:kea kea:p<partition> 777 sqlite\n" );
+		\Newspack_Nodes\Bootstrap::mount_request_graph();
+		try {
+			Topologies_CI_Node::cmd_mount_tables( [ 'kea-idle' ] );
+			$this->fail( 'an inactive topology mounted its Tables' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertSame( 'mount_tables: kea-idle is not active', $e->getMessage() );
+		}
+		$this->assertNull( \Newspack_Nodes\Core::node( 'lab-7:kea.p0' ) );
+	}
+
+	public function test_mount_tables_is_refused_to_a_caller_without_manage(): void {
+		\file_put_contents( "{$this->stock}/kea-a.tsl", "make_node Table lab-7:kea kea:p<partition> 777 sqlite\n" );
+		\update_option( 'newspack_nodes_topologies', [ 'kea-a' ] );
+		Config::reset();
+		$GLOBALS['_wp_test_current_user_can'] = [];
+
+		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'mount_tables', [ 'kea-a' ] );
+
+		$this->assertIsString( $result );
+		$this->assertStringContainsString( 'permission denied: manage capability required', $result );
+		$this->assertNull( \Newspack_Nodes\Core::node( 'lab-7:kea.p0' ) );
+	}
+
+	public function test_mount_tables_is_a_manage_verb(): void {
+		$entry = \array_values( \array_filter( Topologies_CI_Node::node_schema()['commands'], static fn ( array $c ): bool => 'mount_tables' === $c['name'] ) )[0];
+		$this->assertArrayNotHasKey( 'capability', $entry, 'the mount is the gate (ADR-23)' );
 	}
 
 	// ── dump verb ────────────────────────────────────────────────────────────

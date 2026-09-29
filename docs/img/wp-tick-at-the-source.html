@@ -85,7 +85,7 @@
     <div class="card">
       <h3>A second verb is a second entry</h3>
       <p>Declare another <span class="mono">requests</span> entry with its own <span class="mono">handler</span>. <span class="mono">answer_request()</span> does the parsing, and refuses an unknown verb on the error plane, a TM_ERROR to the same address, as the interpreter refuses an unknown command. <span class="mono">Job_Worker_Node</span>'s <span class="mono">GET_HEALTH</span> is the same shape in the substrate.</p>
-      <p><span class="mono">Table_Node::handle_request()</span> and its <span class="mono">GET &lt;key&gt;</span> is the deliberate exception, Tachikoma's shape: case-sensitive, a reply with no TM_RESPONSE bit and no <span class="mono">{ verb, data }</span> envelope, and an unknown verb dropped with no reply at all.</p>
+      <p><span class="mono">Table_Node::handle_request()</span> is the deliberate exception, a bare shape: one message per value and a <span class="mono">TM_INFO</span> count, no TM_RESPONSE bit and no <span class="mono">{ verb, data }</span> envelope. Its verbs are case-sensitive, and an unknown one is refused with a <span class="mono">TM_ERROR</span>.</p>
     </div>
     <div class="card">
       <h3>Narrow TYPE before the bitwise test</h3>

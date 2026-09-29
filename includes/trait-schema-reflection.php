@@ -90,7 +90,8 @@ trait Schema_Reflection {
 			if ( '' === $name ) {
 				throw new \InvalidArgumentException( \esc_html( "Invalid argument specification: missing name at position {$i}" ) );
 			}
-			if ( ! \property_exists( $this, $name ) ) {
+			// A subclass cannot see its parent's private field until it is set.
+			if ( ! \property_exists( $this, $name ) && ! \property_exists( self::class, $name ) ) {
 				throw new \InvalidArgumentException( \esc_html( "Invalid argument specification: {$name}" ) );
 			}
 			$token = $args[ $i ] ?? null;

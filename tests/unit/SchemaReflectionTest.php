@@ -143,6 +143,14 @@ class SchemaReflectionTest extends TestCase {
 		$this->assertSame( 'plain-default', $node->label );
 	}
 
+	public function test_a_subclass_takes_a_positional_its_parent_holds_private_and_unset(): void {
+		$node = new class extends Private_Span_Node {};
+
+		$node->parse( [ '37' ] );
+
+		$this->assertSame( 37, $node->span() );
+	}
+
 	public function test_parse_schema_args_noops_when_arguments_schema_is_not_a_list(): void {
 		$node = new class extends Node {
 			use Schema_Reflection;
@@ -691,5 +699,28 @@ class Schema_Reflection_Probe {
 
 	public static function truthy_probe( string $token ): bool {
 		return self::truthy( $token );
+	}
+}
+
+/** A trait user whose positional is a private typed field with no initial value. */
+class Private_Span_Node extends Node {
+	use Schema_Reflection;
+
+	private int $span;
+
+	public function parse( array $args ): void {
+		$this->parse_schema_args( $args );
+	}
+
+	public function span(): int {
+		return $this->span;
+	}
+
+	public static function node_schema(): array {
+		return [
+			'arguments' => [
+				[ 'name' => 'span', 'type' => 'int', 'required' => true ],
+			],
+		];
 	}
 }

@@ -6,6 +6,56 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **A Table's TTL is required and at least one second.** `make_node Table
+  <name> <namespace> <ttl> [ <backend> ]` refuses a missing TTL, and
+  `Table_Node::table( $ns, $ttl )` has no default, so pass the lifetime an
+  entry takes when its write names none. A TTL below 1 is refused everywhere a
+  Table reads one — `arguments()`, `table()`, `touch()`, the `TOUCH` verb, an
+  `MSET` or `ADD` item, and `Bootstrap::node_tables()` — because a Table entry
+  always expires. A `Cache_Backend` arm called directly still stores a TTL of
+  0 as no expiry.
+- **`Cache_Backend::rotate_salt()` asks every live worker to restart,** as
+  `ensure_salt()` does when it seeds the first salt, so a caller no longer
+  recycles the fleet after either. Both now throw where they reported
+  success: `cache salt write refused` when the database refuses the write,
+  and a seed throws the refusal of a runtime base that exists but is
+  unsafe. A caller that treated either as infallible catches the throw.
+  `Memcache_CLI_Command::$restart_workers` is gone with that call.
+- **A Table's `GET` of an absent key answers only `TM_INFO "GET 0\n"`,** no
+  longer a `TM_ERROR` reading `NOT_FOUND`. A read answers one message per
+  value found and then a `TM_INFO` count, and a `TM_ERROR` now means the read
+  failed. A caller that read `TM_ERROR` as "absent" reads the count instead,
+  or asks through `Table_Client::get_multi()`, which returns the found values
+  and sets `$failed` on an error. Every reply echoes the request's ID, and a
+  verb the Table cannot answer draws a `TM_ERROR` reading `<VERB>: <why>`
+  where it was dropped with no reply.
+- **A keyless `TM_STRUCT` or `TM_BYTESTREAM` sent to a Table is refused,** no
+  longer passed through, and so is one whose KEY holds whitespace. Route
+  keyless traffic around the Table, or give each message the KEY it stores
+  under.
+- **Every cache write refuses a key that is empty or holds whitespace.**
+  `set()`, `add()` and `write_multi()` on every `Cache_Backend` arm return
+  false for one, and a batch holding one writes nothing. Spell logical names
+  without whitespace before handing them to `site_key()` or `host_key()`.
+- **`Cache_Backend` is abstract.** `local_first()` and `shared_first()` return
+  a `Memcache_Arm` or an `Apcu_Arm`, so a caller using the contract's methods
+  is unaffected; the old class was final with a private constructor, so no
+  caller could `new` or extend it. Code comparing `get_class()` of a resolved
+  backend with `Cache_Backend::class` compares an arm's class now, and
+  `instanceof Cache_Backend` still holds.
+- **A `sqlite` Table's name must name a file:** letters, digits, `_`, `.`, `:`
+  and `-`, starting with a letter or digit and holding no `..`. Rename a Table
+  that names `sqlite` and falls outside that set.
+- **Two active topologies declaring the same `sqlite` Table conflict,**
+  directly or through an include, because its file has one writer.
+  `wp nodes activate` refuses the second, and `Bootstrap::node_tables()`
+  refuses two active topologies declaring one Table differently, whatever its
+  backend. Declare each `sqlite` Table in one active topology.
+- **A request graph reaches a Table only through `topologies mount_tables
+  <topology>`,** a MANAGE verb that mounts every Table the topology declares
+  as `{table}.p{N}` for reads alone. A client sends it ahead of the request it
+  enables in the same POST, as it sends `connect_worker_input` ahead of a
+  worker command; PHP mounts through `Bootstrap::mount_table( $names )`.
 - **`Table_Node::backed_by()` takes one closure, and `replace_absent()` is
   gone.** A table no longer remembers an absence the backing answered: drop
   the second argument, and call nothing in place of `replace_absent()`,

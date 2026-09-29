@@ -68,6 +68,15 @@ class InMemoryMemcached extends \Memcached {
 	 */
 	public ?string $result_message = null;
 
+	/**
+	 * Expiry-clock seam. Replaces the `\time()` call every expiry reads; a
+	 * test binds it to move time without sleeping. Null reads the wall clock.
+	 * Signature: `function (): int` (epoch seconds).
+	 *
+	 * @var \Closure|null
+	 */
+	public ?\Closure $clock = null;
+
 	/** Force get() to return false with a non-NOTFOUND backend result. */
 	public function fail_get( string $key, int $result_code = \Memcached::RES_FAILURE ): void {
 		$this->get_failures[ $key ] = $result_code;
@@ -122,7 +131,7 @@ class InMemoryMemcached extends \Memcached {
 			$this->result_code = \Memcached::RES_NOTFOUND;
 			return false;
 		}
-		if ( $entry['expires'] > 0 && \time() >= $entry['expires'] ) {
+		if ( $entry['expires'] > 0 && $this->now() >= $entry['expires'] ) {
 			unset( $this->store[ $key ] );
 			$this->result_code = \Memcached::RES_NOTFOUND;
 			return false;
@@ -163,7 +172,7 @@ class InMemoryMemcached extends \Memcached {
 		}
 		$this->store[ $key ] = [
 			'value'   => $value,
-			'expires' => $expiration > 0 ? \time() + $expiration : 0,
+			'expires' => $expiration > 0 ? $this->now() + $expiration : 0,
 			'cas'     => $this->next_cas++,
 		];
 		$this->result_code = \Memcached::RES_SUCCESS;
@@ -207,6 +216,7 @@ class InMemoryMemcached extends \Memcached {
 	}
 
 	public function delete( string $key, int $time = 0 ): bool {
+		$this->stored( $key );
 		if ( ! \array_key_exists( $key, $this->store ) ) {
 			$this->result_code = \Memcached::RES_NOTFOUND;
 			return false;
@@ -233,7 +243,7 @@ class InMemoryMemcached extends \Memcached {
 		}
 		$this->store[ $key ] = [
 			'value'   => $value,
-			'expires' => $expiration > 0 ? \time() + $expiration : 0,
+			'expires' => $expiration > 0 ? $this->now() + $expiration : 0,
 			'cas'     => $this->next_cas++,
 		];
 		$this->result_code = \Memcached::RES_SUCCESS;
@@ -282,7 +292,7 @@ class InMemoryMemcached extends \Memcached {
 
 	/** Test helper: live (non-expired) keys, sorted. */
 	public function keys(): array {
-		$now  = \time();
+		$now  = $this->now();
 		$live = [];
 		foreach ( $this->store as $k => $entry ) {
 			if ( 0 === $entry['expires'] || $now < $entry['expires'] ) {
@@ -296,5 +306,10 @@ class InMemoryMemcached extends \Memcached {
 	/** Test helper: count of live entries. */
 	public function count(): int {
 		return \count( $this->keys() );
+	}
+
+	/** Epoch seconds expiry reads: the bound seam, else the wall clock. */
+	private function now(): int {
+		return null !== $this->clock ? ( $this->clock )() : \time();
 	}
 }

@@ -362,6 +362,23 @@ abstract class TestCase extends PHPUnitTestCase {
 		}
 	}
 
+	/**
+	 * Point Config at a base directory that cannot exist, because its parent
+	 * is a regular file, as a misconfigured install's base does.
+	 *
+	 * @param string $prefix Temp dir prefix.
+	 * @return array{0: string, 1: string} The temp dir to remove, and the base.
+	 */
+	protected function use_uncreatable_base_dir( string $prefix ): array {
+		$dir     = $this->make_temp_dir( $prefix );
+		$blocker = "{$dir}/blocker";
+		\touch( $blocker );
+		$this->use_base_dir( $dir );
+		\file_put_contents( "{$dir}/test-config.php", "<?php\nreturn [ 'base_directory' => '{$blocker}/runtime-7713' ];\n" );
+		\Newspack_Nodes\Config::reset();
+		return [ $dir, "{$blocker}/runtime-7713" ];
+	}
+
 	protected function rmdir_recursive( string $dir ): void {
 		if ( ! \is_dir( $dir ) ) {
 			return;

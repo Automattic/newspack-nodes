@@ -9,6 +9,15 @@ traffic, and not one of them is on the list. Nothing forbids reaching past the
 list, but those names move inside a major, and every consumer-facing change
 lands in [upgrading.md](upgrading.md) with the rewrite beside it, frozen or not.
 
+`Cache_Backend` is abstract, with four arms: [`Memcache_Arm`](../includes/class-memcache-arm.php)
+and [`Apcu_Arm`](../includes/class-apcu-arm.php), which `local_first()` and
+`shared_first()` hand back, and [`Sqlite_Arm`](../includes/class-sqlite-arm.php) and
+[`Wpdb_Arm`](../includes/class-wpdb-arm.php) over [`Durable_Arm`](../includes/class-durable-arm.php), which only a
+Table builds. A consumer calls the contract's methods on the arm it is handed
+and never names an arm class. The Table surface a consumer reaches past the list
+is [`Table_Client`](../includes/class-table-client.php), `Bootstrap::node_tables()`
+and `Bootstrap::mount_table()`, and each moves inside a major as the rest do.
+
 That trio and [`Topology_Analyzer::includes()`](../includes/class-topology-analyzer.php) answer questions a consumer cannot
 answer for itself. `node_dirs()` and `node_partitions()` are how a reader finds
 a node's partitions across every ACTIVE topology declaring it: `node_dirs()`

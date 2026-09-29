@@ -3,6 +3,7 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Cache_Backend;
+use Newspack_Nodes\Config;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Memcache_CLI_Command;
 use Newspack_Nodes\Tests\Helpers\InMemoryMemcached;
@@ -32,7 +33,6 @@ class MemcacheCliCommandTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
-		Memcache_CLI_Command::$restart_workers = null;
 		Core::$memd                 = $this->prev_memd;
 		Cache_Backend::$apcu_usable = static fn (): bool => false;
 		parent::tearDown();
@@ -169,22 +169,36 @@ class MemcacheCliCommandTest extends TestCase {
 		$this->assertNotSame( [], $GLOBALS['_test_wp_cli_success'] ?? [] );
 	}
 
+	/** A salt standing before the flush, as activation seeds one. */
+	private function seed_salt(): void {
+		\update_option( Cache_Backend::SALT_OPTION, 'kea-salt-8823' );
+		Cache_Backend::$salt = null;
+		Cache_Backend::$site = '';
+	}
+
 	/**
-	 * A worker memoizes the scope at boot, so a rotation without a restart
-	 * leaves live workers writing the OLD prefix. The restart is best-effort —
-	 * a failure only delays the new scope to the next spawn — so it must not
-	 * turn a successful flush into a failed command.
+	 * A worker memoizes the scope at boot, so the rotation asks every worker to
+	 * restart. That restart is best-effort — a failure only delays the new
+	 * scope to the next spawn — so it must not turn a flush into a failure.
 	 */
 	public function test_a_failed_worker_restart_does_not_fail_the_flush(): void {
-		$before = Cache_Backend::site_key( 'probe-8823' );
-		Memcache_CLI_Command::$restart_workers = static function (): void {
+		$this->seed_salt();
+		$before   = Cache_Backend::site_key( 'probe-8823' );
+		$exploded = static function (): array {
 			throw new \RuntimeException( 'no IPC in a unit test' );
 		};
-
-		( new Memcache_CLI_Command() )->flush( [], [] );
+		\add_filter( 'newspack_nodes/topologies', $exploded );
+		Config::reset();
+		try {
+			( new Memcache_CLI_Command() )->flush( [], [] );
+		} finally {
+			\remove_action( 'newspack_nodes/topologies', $exploded );
+			Config::reset();
+		}
 
 		$this->assertNotSame( $before, Cache_Backend::site_key( 'probe-8823' ), 'the salt still rotated' );
 		$this->assertNotSame( [], $GLOBALS['_test_wp_cli_success'] ?? [], 'and the command still succeeded' );
+		$this->assertStringNotContainsString( 'restart', \implode( ' ', $GLOBALS['_test_wp_cli_success'] ), 'without claiming a restart it did not ask for' );
 		$this->assertSame( [], $GLOBALS['_test_wp_cli_errors'] ?? [], 'with no error raised' );
 		$this->assertStringContainsString(
 			'no IPC in a unit test',
@@ -192,6 +206,40 @@ class MemcacheCliCommandTest extends TestCase {
 			'and the operator was told the restart did not happen'
 		);
 	}
+
+	/** A rotation that never landed is a failed flush, never a success line. */
+	public function test_a_rotation_that_never_landed_fails_the_flush(): void {
+		$this->seed_salt();
+		Cache_Backend::salt();
+		$refused                              = new \RuntimeException( 'option write refused-6101' );
+		$refuse                               = static function () use ( $refused ): void {
+			throw $refused;
+		};
+		$GLOBALS['_test_fire_option_actions'] = true;
+		\add_action( 'update_option', $refuse );
+		$caught = null;
+		try {
+			( new Memcache_CLI_Command() )->flush( [], [] );
+		} catch ( \RuntimeException $e ) {
+			$caught = $e;
+		} finally {
+			\remove_action( 'update_option', $refuse );
+			unset( $GLOBALS['_test_fire_option_actions'] );
+		}
+
+		$this->assertSame( $refused, $caught, 'the refusal escapes the command' );
+		$this->assertSame( [], $GLOBALS['_test_wp_cli_success'], 'with no success line' );
+		$this->assertSame( [], $GLOBALS['_test_wp_cli_warns'], 'and no warning dressing it up as a restart' );
+	}
+
+	public function test_the_flush_says_workers_were_asked_to_restart(): void {
+		$this->seed_salt();
+
+		( new Memcache_CLI_Command() )->flush( [], [] );
+
+		$this->assertStringContainsString( 'every live worker was asked to restart', \implode( ' ', $GLOBALS['_test_wp_cli_success'] ) );
+	}
+
 	public function test_the_flush_says_it_signs_every_session_out(): void {
 		// The operator running this may be holding one — an MCP client's
 		// session went with a deploy's flush and came back as a 401. The salt

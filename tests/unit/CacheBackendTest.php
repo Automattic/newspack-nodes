@@ -2,9 +2,14 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
+use Newspack_Nodes\Apcu_Arm;
 use Newspack_Nodes\Cache_Backend;
+use Newspack_Nodes\Memcache_Arm;
+use Newspack_Nodes\Config;
 use Newspack_Nodes\Core;
+use Newspack_Nodes\Lock_Node;
 use Newspack_Nodes\Tests\Helpers\InMemoryMemcached;
+use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Tests\TestCase;
 
 /**
@@ -15,8 +20,13 @@ use Newspack_Nodes\Tests\TestCase;
  * their fail-closed behavior).
  */
 #[CoversClass( Cache_Backend::class )]
+#[CoversClass( Memcache_Arm::class )]
+#[CoversClass( Apcu_Arm::class )]
 class CacheBackendTest extends TestCase {
 	private ?\Memcached $prev_memd = null;
+
+	/** The stock topology dir live_fleet() wrote. */
+	private string $stock = '';
 
 	protected function setUp(): void {
 		parent::setUp();
@@ -49,6 +59,20 @@ class CacheBackendTest extends TestCase {
 		Core::$memd = null;
 		$this->assertNull( Cache_Backend::local_first(), 'nothing available: null, callers fail closed' );
 		$this->assertNull( Cache_Backend::shared_first() );
+	}
+
+	/** A volatile arm cannot list its keys, and says so rather than answering none. */
+	public function test_a_volatile_arm_refuses_to_scan(): void {
+		Core::$memd                 = new InMemoryMemcached();
+		Cache_Backend::$apcu_usable = static fn (): bool => true;
+		foreach ( [ Cache_Backend::memcache_arm(), Cache_Backend::apcu_arm() ] as $arm ) {
+			try {
+				$arm?->scan( 'urltoken:', 10 );
+				$this->fail( 'a volatile arm answered a scan' );
+			} catch ( \LogicException $e ) {
+				$this->assertStringContainsString( 'scan needs a durable backend', $e->getMessage() );
+			}
+		}
 	}
 
 	public function test_memcached_ops_round_trip(): void {
@@ -691,6 +715,133 @@ class CacheBackendTest extends TestCase {
 		$this->assertNotSame( $unsalted, Cache_Backend::site_key( 'table:prices:sku-9' ), 'the scope moved' );
 	}
 
+	/**
+	 * A live fleet under a scratch base: `kea-salt`, two partitions, with only
+	 * p1's lock dir standing, as a live worker holds one.
+	 *
+	 * @return string The p1 lock dir.
+	 */
+	private function live_fleet(): string {
+		$base = $this->make_temp_dir( 'salt-restart-' );
+		$this->use_base_dir( $base );
+		Topology_Registry::reset();
+		$this->stock = $this->stock_topology_dir( 'salt-restart-stock-' );
+		$this->write_tsl( 'kea-salt', "var num_partitions = 2\nmake_node Echo kea-relay\n" );
+		\update_option( 'newspack_nodes_topologies', [ 'kea-salt' ] );
+		Config::reset();
+		$lock = "{$base}/locks/kea-salt.p1.lock.d";
+		\mkdir( $lock, 0755, true );
+		return $lock;
+	}
+
+	private function forget_fleet( string $lock ): void {
+		\delete_option( 'newspack_nodes_topologies' );
+		Config::reset();
+		Topology_Registry::reset();
+		$this->rmdir_recursive( $this->stock );
+		$this->rmdir_recursive( \dirname( $lock, 2 ) );
+	}
+
+	/** A live worker memoizes the old scope, so a rotation recycles it. */
+	public function test_rotating_a_standing_salt_asks_every_live_worker_to_restart(): void {
+		$lock = $this->live_fleet();
+		try {
+			\update_option( Cache_Backend::SALT_OPTION, 'kea-salt-4471' );
+			Cache_Backend::$salt = null;
+
+			Cache_Backend::rotate_salt();
+
+			$this->assertFileExists( "{$lock}/" . Lock_Node::RESTART_FLAG );
+		} finally {
+			$this->forget_fleet( $lock );
+		}
+	}
+
+	/** A worker running before the first salt holds the unsalted scope. */
+	public function test_seeding_the_first_salt_asks_every_live_worker_to_restart(): void {
+		$lock = $this->live_fleet();
+		try {
+			\delete_option( Cache_Backend::SALT_OPTION );
+			Cache_Backend::$salt = null;
+
+			Cache_Backend::ensure_salt();
+
+			$this->assertNotSame( '', Cache_Backend::salt() );
+			$this->assertFileExists( "{$lock}/" . Lock_Node::RESTART_FLAG );
+		} finally {
+			$this->forget_fleet( $lock );
+		}
+	}
+
+	/**
+	 * Activation and the admin_init self-heal seed the salt before anything
+	 * resolves the runtime base, so a base that cannot resolve — where no
+	 * worker can hold a lock — still gets its salt and fails no boot.
+	 */
+	public function test_seeding_the_first_salt_under_an_unusable_base_still_seeds(): void {
+		[ $dir, $base ] = $this->use_uncreatable_base_dir( 'salt-blocked-' );
+		$lines          = [];
+		Core::set_stderr_handler(
+			static function ( string $line ) use ( &$lines ): void {
+				$lines[] = $line;
+			}
+		);
+		try {
+			\delete_option( Cache_Backend::SALT_OPTION );
+			Cache_Backend::$salt = null;
+
+			$seeded = Cache_Backend::ensure_salt();
+
+			$this->assertNotSame( '', $seeded );
+			$this->assertSame( $seeded, \get_option( Cache_Backend::SALT_OPTION ) );
+			$said = \array_values( \array_filter( $lines, static fn ( string $l ): bool => \str_contains( $l, 'cache salt seeded' ) ) );
+			$this->assertCount( 1, $said );
+			$this->assertStringContainsString( "runtime wiring unavailable: cache salt seeded; no runtime base to restart workers under: {$base}", $said[0] );
+		} finally {
+			$this->rmdir_recursive( $dir );
+			Config::reset();
+		}
+	}
+
+	/** A base that exists can hold live lock dirs, so its refusal is loud. */
+	public function test_seeding_the_first_salt_under_a_refused_base_throws(): void {
+		$dir = $this->make_temp_dir( 'salt-symlinked-' );
+		\mkdir( "{$dir}/real-7713" );
+		\symlink( "{$dir}/real-7713", "{$dir}/link-7713" );
+		$this->use_base_dir( $dir );
+		\file_put_contents( "{$dir}/test-config.php", "<?php\nreturn [ 'base_directory' => '{$dir}/link-7713' ];\n" );
+		Config::reset();
+		try {
+			\delete_option( Cache_Backend::SALT_OPTION );
+			Cache_Backend::$salt = null;
+			$this->expectException( \RuntimeException::class );
+			$this->expectExceptionMessage( 'symlink or path traversal detected' );
+			Cache_Backend::ensure_salt();
+		} finally {
+			$this->rmdir_recursive( $dir );
+			Config::reset();
+		}
+	}
+
+	/** A write the database refused moved no salt, so nothing claims it did. */
+	public function test_a_refused_salt_write_moves_nothing(): void {
+		\update_option( Cache_Backend::SALT_OPTION, 'kea-salt-6113' );
+		Cache_Backend::$salt = null;
+		Cache_Backend::$site = '';
+		$scope               = Cache_Backend::site_key( 'probe-6113' );
+		$GLOBALS['_test_refused_option_writes'][ Cache_Backend::SALT_OPTION ] = true;
+		try {
+			Cache_Backend::rotate_salt();
+			$this->fail( 'a refused salt write reported a rotation' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertSame( 'cache salt write refused', $e->getMessage() );
+		} finally {
+			unset( $GLOBALS['_test_refused_option_writes'] );
+		}
+		$this->assertSame( 'kea-salt-6113', Cache_Backend::salt(), 'the memo still holds the stored salt' );
+		$this->assertSame( $scope, Cache_Backend::site_key( 'probe-6113' ) );
+	}
+
 	/** Re-activation must not rotate: that would orphan every live key. */
 	public function test_ensure_salt_keeps_an_existing_salt(): void {
 		\delete_option( Cache_Backend::SALT_OPTION );
@@ -742,6 +893,21 @@ class CacheBackendTest extends TestCase {
 		$backend->write_multi( [], 60 );
 
 		$this->assertFalse( $backend->get( 'wm-none' ) );
+	}
+
+	public function test_an_install_nothing_identifies_shares_the_unscoped_scope(): void {
+		// The harness defines DB_NAME, so a bare process is the only way to
+		// reach the branch where neither DB_NAME nor $wpdb names the install.
+		$script = "define( 'ABSPATH', '/' ); require '" . \dirname( __DIR__, 2 ) . "/vendor/autoload.php'; echo \\Newspack_Nodes\\Cache_Backend::site();";
+		$proc   = \proc_open( [ \PHP_BINARY, '-r', $script ], [ 1 => [ 'pipe', 'w' ], 2 => [ 'pipe', 'w' ] ], $pipes );
+		$this->assertIsResource( $proc );
+		$out = \stream_get_contents( $pipes[1] );
+		$err = \stream_get_contents( $pipes[2] );
+		\fclose( $pipes[1] );
+		\fclose( $pipes[2] );
+		\proc_close( $proc );
+		$this->assertSame( 'unscoped', $out );
+		$this->assertStringContainsString( 'cache scope unresolvable', $err );
 	}
 
 }

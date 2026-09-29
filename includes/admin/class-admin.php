@@ -18,7 +18,6 @@ namespace Newspack_Nodes\Admin;
 use Newspack_Nodes\Capabilities;
 
 use Newspack_Nodes\Bootstrap;
-use Newspack_Nodes\CLI;
 use Newspack_Nodes\Cache_Backend;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Config_System\Field_Reset_Assets;
@@ -1035,6 +1034,14 @@ class Admin {
 		?>
 		<div class="wrap newspack-nodes-settings-wrap newspack-nodes-theme newspack-nodes-ui">
 			<h1><?php \esc_html_e( 'Nodes Runtime Settings', 'newspack-nodes' ); ?></h1>
+			<?php
+			// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only notice flag.
+			if ( isset( $_GET['flushed'] ) ) {
+				echo '<div class="notice notice-success is-dismissible"><p>'
+					. \esc_html__( 'Caches flushed; every live worker was asked to restart.', 'newspack-nodes' )
+					. '</p></div>';
+			}
+			?>
 			<form method="post" action="options.php">
 				<?php
 				\settings_fields( self::OPTIONS_GROUP );
@@ -1072,7 +1079,8 @@ class Admin {
 	}
 
 	/**
-	 * Rotate the install's cache salt — THE flush — then recycle the fleet.
+	 * Rotate the install's cache salt — THE flush — which asks every live worker
+	 * to restart.
 	 *
 	 * One rotation orphans every Newspack plugin's cached values at once and
 	 * touches no co-tenant install sharing the server. No plugin keeps a salt of
@@ -1093,9 +1101,6 @@ class Admin {
 		}
 
 		Cache_Backend::rotate_salt();
-
-		// A live worker memoizes the old scope until it restarts.
-		( new CLI( Config::get_base_directory() ) )->restart_workers( Bootstrap::expand_workers(), [], -1 );
 
 		// options-general.php: MENU_SLUG is an add_options_page() submenu.
 		\wp_safe_redirect(

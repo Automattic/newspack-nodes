@@ -436,7 +436,9 @@ class AdminTest extends TestCase {
 			throw $exploded;
 		} );
 		\Newspack_Nodes\Config::reset();
-		$salt = \get_option( 'newspack_nodes_cache_salt' );
+		\update_option( 'newspack_nodes_cache_salt', 'kea-salt-5237' );
+		\Newspack_Nodes\Cache_Backend::$salt = null;
+		$salt                                 = \get_option( 'newspack_nodes_cache_salt' );
 
 		$caught = null;
 		try {
@@ -447,6 +449,24 @@ class AdminTest extends TestCase {
 
 		$this->assertSame( $exploded, $caught, 'the restart failure surfaces instead of the success redirect' );
 		$this->assertNotSame( $salt, \get_option( 'newspack_nodes_cache_salt' ), 'the salt still rotated' );
+	}
+
+	public function test_the_settings_page_says_a_flush_asked_every_worker_to_restart(): void {
+		$_GET = [ 'flushed' => '1' ];
+		\ob_start();
+		try {
+			( new Admin() )->render_settings_page();
+		} finally {
+			$html = (string) \ob_get_clean();
+			$_GET = [];
+		}
+		$this->assertStringContainsString( 'Caches flushed; every live worker was asked to restart.', $html );
+	}
+
+	public function test_the_settings_page_says_nothing_of_a_flush_that_did_not_happen(): void {
+		\ob_start();
+		( new Admin() )->render_settings_page();
+		$this->assertStringNotContainsString( 'Caches flushed', (string) \ob_get_clean() );
 	}
 
 	public function test_handle_flush_cache_rejects_an_unauthorized_user(): void {

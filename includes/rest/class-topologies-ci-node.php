@@ -52,6 +52,10 @@
  *                into this request's graph and answers nothing, so a command
  *                addressed TO the worker later in the same POST batch resolves
  *                instead of bouncing NOT_AVAILABLE.
+ *   mount_tables — args `{topology}`. Mounts every Table an active topology
+ *                declares, its includes' included, into this request's graph
+ *                and answers nothing, so a request addressed TO one later in
+ *                the same POST batch resolves. Refuses an inactive topology.
  *
  * Each verb names its role in `node_schema()` — READ for `dump`, `get` and
  * `expand`, the MANAGE default for the rest — and `Service_CI_Node::commands()`
@@ -573,6 +577,26 @@ class Topologies_CI_Node extends Service_CI_Node {
 	}
 
 	/**
+	 * `mount_tables` verb handler — mount every Table an active topology
+	 * declares into this request's graph, so a request addressed TO one later
+	 * in the same POST batch resolves. MANAGE, as `connect_worker_input` is:
+	 * the mount is the gate (ADR-23).
+	 *
+	 * @param list<string> $args Verb tokens; the topology name is the first.
+	 *
+	 * @return string Always empty, so the mount adds no reply to the batch.
+	 * @throws \RuntimeException On an inactive topology, or a backend that cannot open.
+	 */
+	public static function cmd_mount_tables( array $args ): string {
+		$topology = self::require_valid_name( $args[0] ?? '' );
+		if ( ! Bootstrap::is_active( $topology ) ) {
+			throw new \RuntimeException( \esc_html( "mount_tables: {$topology} is not active" ) );
+		}
+		Bootstrap::mount_table( \array_map( 'strval', \array_keys( Topology_Analyzer::declared_tables( $topology ) ) ) );
+		return '';
+	}
+
+	/**
 	 * The console manifest and the verb table in one declaration.
 	 * `Service_CI_Node` builds the dispatch table from `commands[]` here, so a
 	 * verb is named once and the `capability` beside it is the role its handler
@@ -583,7 +607,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
 			'category'    => 'Service',
-			'description' => 'Topology (.tsl) management: dump / get / save / delete user topology files, activate / deactivate topologies (immediate spawn / drain), and mount a worker input partition.',
+			'description' => "Topology (.tsl) management: dump / get / save / delete user topology files, activate / deactivate topologies (immediate spawn / drain), and mount a worker input partition or a topology's Tables.",
 			'arguments'   => [],
 			'commands'    => [
 				[
@@ -639,6 +663,12 @@ class Topologies_CI_Node extends Service_CI_Node {
 					'description' => "Mount the named worker's input partition into this request's graph.",
 					'args'        => [ [ 'name' => 'reader', 'type' => 'string', 'required' => true ] ],
 					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_connect_worker_input( self::arg_strings( $args ) ),
+				],
+				[
+					'name'        => 'mount_tables',
+					'description' => "Mount every Table an active topology declares into this request's graph.",
+					'args'        => [ [ 'name' => 'topology', 'type' => 'string', 'required' => true ] ],
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_mount_tables( self::arg_strings( $args ) ),
 				],
 			],
 		] );

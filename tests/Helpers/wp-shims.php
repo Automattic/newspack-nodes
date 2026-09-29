@@ -597,6 +597,10 @@ if ( ! function_exists( 'get_option' ) ) {
 	}
 	$GLOBALS['_wp_option_autoload'] = [];
 	function update_option( string $key, mixed $value, $autoload = null ): bool {
+		// Test seam: a key listed here is refused, as a failed DB write is.
+		if ( isset( $GLOBALS['_test_refused_option_writes'][ $key ] ) ) {
+			return false;
+		}
 		$existed = \array_key_exists( $key, $GLOBALS['_wp_options'] );
 		$old     = $GLOBALS['_wp_options'][ $key ] ?? false;
 		wp_test_store_option( wp_test_own_tiers(), $key, $value, $autoload );
