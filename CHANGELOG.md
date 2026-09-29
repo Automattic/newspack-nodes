@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.74.0] - 2026-09-29
+
 ### Added
 
 - **`Table_Unavailable` names a Table whose backend cannot open on this host.** `Table_Node::arguments()`, and so `make_node Table`, `Table_Node::table()`, `Table_Node::mount()` and `Bootstrap::mount_table()`, throw it when an arm cannot open: pdo_sqlite missing, a SQLite file that cannot open, WAL mode refused, a `wpdb` table the server will not create or a `max_allowed_packet` it will not report, no memcached handle, or APCu unusable. An `auto` Table on a host with neither memcached nor APCu throws it too, reading `Table <name>: auto backend finds neither memcached nor APCu`, where it threw `\LogicException( 'Table requires memcached or APCu' )`. Every other open failure was a plain `\RuntimeException` and is now this subclass. The message reads `Table <name>: <cause>`, and the arm's own refusal is the previous. A misconfiguration keeps its own type: `arguments()` throws `\InvalidArgumentException` for a bad namespace, TTL or backend name, and a plain `\RuntimeException` names the rest — a Table two active topologies declare differently, or whose declared TTL `Bootstrap::node_tables()` refuses, a name no file can carry, a base directory or `{base}/tables` that cannot be created or will not resolve, a namespace the `wpdb` column cannot hold, a `sqlite` Table with no bound partition — so a caller can degrade for an unavailable backend alone and let everything else fail loud. `mount_table()` unmounts what it built and raises a lone cause as thrown; beside a teardown that also throws, both raise as `Failures`, whose previous is the `Table_Unavailable`.
