@@ -6,10 +6,6 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
-- **`Table_Node::lookup_multi()` is gone.** Read a batch through the Table
-  protocol: send `MGET <keys…>` from a node, or call
-  `Table_Client::get_multi()`, which sets `$failed` only when a key went
-  unread. A caller that needs one key reads `Table_Node::lookup()`.
 - **A Table whose backend cannot open throws `Table_Unavailable`,** a
   `\RuntimeException`, so a catch written for a named backend's old refusal
   still takes it. An `auto` Table on a host with neither memcached nor APCu

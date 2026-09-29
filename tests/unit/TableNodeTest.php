@@ -610,6 +610,68 @@ class TableNodeTest extends TestCase {
 		);
 	}
 
+	public function test_lookup_multi_returns_found_only_keyed_by_the_callers_key(): void {
+		$table = Table_Node::table( 'prices', 60 );
+		$table->store( 'sku-1', [ 'usd' => 100 ] );
+		$table->store( 'sku-3', [ 'usd' => 300 ] );
+
+		$this->assertSame(
+			[ 'sku-1' => [ 'usd' => 100 ], 'sku-3' => [ 'usd' => 300 ] ],
+			$table->lookup_multi( [ 'sku-1', 'sku-2', 'sku-3' ] ),
+			'absent keys are omitted, present ones keyed as the caller asked'
+		);
+	}
+
+	public function test_lookup_multi_reports_a_broken_batch_to_a_caller_that_asks(): void {
+		$table = Table_Node::table( 'prices', 60 );
+		$table->store( 'sku-6120', [ 'usd' => 6120 ] );
+		Core::$memd = new class() extends InMemoryMemcached {
+			public function getMulti( array $keys, int $get_flags = 0 ): array|false {
+				return false;
+			}
+		};
+
+		$failed = false;
+		$this->assertSame( [], $table->lookup_multi( [ 'sku-6120' ], $failed ) );
+		$this->assertTrue( $failed );
+	}
+
+	public function test_lookup_multi_reports_a_backing_rescue_as_a_failed_batch_still(): void {
+		$table = Table_Node::table( 'prices', 60 );
+		$table->backed_by( static fn ( array $keys ): array => [ 'sku-71' => [ 'value' => [ 'usd' => 71 ] ] ] );
+		Core::$memd = new class() extends InMemoryMemcached {
+			public function getMulti( array $keys, int $get_flags = 0 ): array|false {
+				return false;
+			}
+		};
+
+		$failed = false;
+		$this->assertSame( [ 'sku-71' => [ 'usd' => 71 ] ], $table->lookup_multi( [ 'sku-71', 'sku-72' ], $failed ) );
+		$this->assertTrue( $failed, 'no cache backend answered, whatever the backing returned' );
+	}
+
+	public function test_lookup_multi_reports_no_failure_for_a_read_that_answered(): void {
+		$table = Table_Node::table( 'prices', 60 );
+		$table->store( 'sku-5150', [ 'usd' => 5150 ] );
+
+		$failed = true;
+		$this->assertSame( [ 'sku-5150' => [ 'usd' => 5150 ] ], $table->lookup_multi( [ 'sku-5150', 'sku-absent' ], $failed ) );
+		$this->assertFalse( $failed );
+	}
+
+	public function test_lookup_multi_reports_a_lost_backend_as_a_failed_read(): void {
+		$table      = Table_Node::table( 'prices', 60 );
+		$prev       = Core::$memd;
+		Core::$memd = null;
+		try {
+			$failed = false;
+			$this->assertSame( [], $table->lookup_multi( [ 'sku-1' ], $failed ) );
+			$this->assertTrue( $failed, 'no backend answered, so nothing was read' );
+		} finally {
+			Core::$memd = $prev;
+		}
+	}
+
 	public function test_a_request_naming_an_unknown_verb_is_refused_to_its_asker(): void {
 		// A silent drop would read as an empty table; a refusal says why.
 		[ $table, $sink ] = $this->table();

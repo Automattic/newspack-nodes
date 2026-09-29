@@ -370,14 +370,18 @@ class Table_Node extends Node {
 	/**
 	 * `GET`/`MGET`: what the store holds for `$keys`.
 	 *
+	 * A read failed only when a key went unread: the cache did not answer and
+	 * no backing looked at the misses.
+	 *
 	 * @param array<int,mixed> $request The TM_REQUEST.
 	 * @param string           $verb    The verb answered.
 	 * @param list<string>     $keys    Keys.
 	 */
 	private function reply_values( array $request, string $verb, array $keys ): void {
-		$unread = false;
-		$found  = [] === $keys ? [] : $this->read_keys( $keys, $unread );
-		$this->send_values( $request, $verb, $found, 0, $unread );
+		$failed   = false;
+		$answered = false;
+		$found    = [] === $keys ? [] : $this->read_keys( $keys, $failed, $answered );
+		$this->send_values( $request, $verb, $found, 0, $failed && ! $answered );
 	}
 
 	/**
@@ -561,19 +565,46 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * Read many keys in one backend round trip, returning only those found,
-	 * under the caller's keys; the misses go to the backing in one more call.
-	 * A cache read that fails reads as all-miss and still falls through, so a
-	 * read failed only when a key went unread: the cache did not answer and no
-	 * backing looked at the misses.
+	 * Read many keys at once, returning only those found, under the caller's keys.
 	 *
+	 * One backend round trip for the whole set, so a caller resolving a set of
+	 * ids pays one `getMulti` rather than N reads. Whatever the cache misses
+	 * goes to the durable backing in one more call when one is installed.
+	 *
+	 * A cache read that fails reads as all-miss and still falls through, so
+	 * `$failed` is how a caller merging onto the result learns that a key
+	 * absent from it went unread rather than unstored. `$failed` is true when
+	 * no cache backend answered the batch, whatever the backing then returned:
+	 * event-logger-nodes 0.108.0 reads it as "the cache failed". The protocol's
+	 * `MGET` says "a key went unread" instead, which a backing that answers
+	 * clears.
+	 *
+	 * @api For consumers released before they moved to `MGET` (event-logger-nodes
+	 *      0.108.0); removed once they floor at or above the release dropping it.
 	 * @param list<string> $keys   Keys within the table's namespace.
-	 * @param ?bool        $unread Set true when a key went unread.
-	 * @param-out bool     $unread
+	 * @param ?bool        $failed Set true when no cache backend answered.
+	 * @param-out bool     $failed
 	 * @return array<string,mixed> Values for the keys the cache or the backing
 	 *                             held; an absent key is absent from the result.
 	 */
-	private function read_keys( array $keys, ?bool &$unread ): array {
+	public function lookup_multi( array $keys, ?bool &$failed = null ): array {
+		return $this->read_keys( $keys, $failed );
+	}
+
+	/**
+	 * Read many keys in one backend round trip, returning only those found,
+	 * under the caller's keys; the misses go to the backing in one more call.
+	 * A cache read that fails reads as all-miss and still falls through.
+	 *
+	 * @param list<string> $keys     Keys within the table's namespace.
+	 * @param ?bool        $failed   Set true when no cache backend answered.
+	 * @param ?bool        $answered Set true when a backing looked at the misses.
+	 * @param-out bool     $failed
+	 * @param-out bool     $answered
+	 * @return array<string,mixed> Values for the keys the cache or the backing
+	 *                             held; an absent key is absent from the result.
+	 */
+	private function read_keys( array $keys, ?bool &$failed, ?bool &$answered = null ): array {
 		$entry_keys = [];
 		foreach ( $keys as $key ) {
 			$entry_keys[ self::entry_key( $this->namespace, $key ) ] = $key;
@@ -592,9 +623,7 @@ class Table_Node extends Node {
 				$missed[] = $key;
 			}
 		}
-		$found += $this->read_through( $missed, $answered );
-		$unread = $failed && ! $answered;
-		return $found;
+		return $found + $this->read_through( $missed, $answered );
 	}
 
 	/**
