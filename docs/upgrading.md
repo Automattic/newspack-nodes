@@ -6,6 +6,17 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **`Table_Node::backed_by()` takes one closure, and `replace_absent()` is
+  gone.** A table no longer remembers an absence the backing answered: drop
+  the second argument, and call nothing in place of `replace_absent()`,
+  since no marker is ever written for it to replace. PHP ignores the extra
+  argument rather than refusing it, so PHPStan is what names a call still
+  passing one. Then run `wp nodes memcache flush` once. A marker an older
+  substrate stored reads back as its own string until it expires, and the
+  flush rotates the install's cache salt, orphaning every one at once.
+  newspack-event-logger-nodes below 0.108.0 still calls `replace_absent()`
+  and fatals on this release, and its version floor cannot catch a substrate
+  that is too new: upgrade it in the same deploy.
 - **`Spawn_Coordinator::lock_path()` takes the base directory,**
   `lock_path( $base_dir, $type, $partition )`, where it took the locks
   directory. Drop the `/locks` the call site appended;
