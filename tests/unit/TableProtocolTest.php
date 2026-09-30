@@ -598,6 +598,56 @@ final class TableProtocolTest extends TestCase {
 		}
 	}
 
+	// ── RM and TOUCH of many keys: one write scope for the request ──
+
+	/** The keyed rows another connection reads in the Table's file. */
+	private static function committed_keys(): array {
+		return ( new \PDO( 'sqlite:' . Table_Node::file( 'lab-7:kea', 3 ) ) )->query( 'SELECT "key" FROM kv ORDER BY "key"' )->fetchAll( \PDO::FETCH_COLUMN );
+	}
+
+	public function test_rm_and_touch_of_many_keys_dirty_their_pages_once(): void {
+		$this->table->store_multi( [ 'sku-41' => 'kea-41', 'sku-43' => 'kea-43', 'sku-47' => 'kea-47', 'sku-53' => 'kea-53', 'sku-59' => 'kea-59' ] );
+		$db     = new \PDO( 'sqlite:' . Table_Node::file( 'lab-7:kea', 3 ) );
+		$frames = function ( string $request ) use ( $db ): int {
+			// A written-back WAL restarts under the request's own writes.
+			$db->query( 'PRAGMA wal_checkpoint(PASSIVE)' )->fetchAll();
+			$this->ask( $request );
+			return Core::as_int( $db->query( 'PRAGMA wal_checkpoint(PASSIVE)' )->fetchAll( \PDO::FETCH_NUM )[0][1] );
+		};
+		$two = $frames( "TOUCH 4471 sku-41 sku-43\n" );
+		$one = $frames( "TOUCH 4473 sku-47\n" );
+		$this->assertGreaterThan( 0, $one );
+		$this->assertSame( $one, $two, 'TOUCH ran one BEGIN IMMEDIATE for both keys' );
+		$two = $frames( "RM sku-41 sku-43\n" );
+		$one = $frames( "RM sku-47\n" );
+		$this->assertGreaterThan( 0, $one );
+		$this->assertSame( $one, $two, 'RM ran one BEGIN IMMEDIATE for both keys' );
+		$this->assertSame( [ 'kea:p3:sku-53', 'kea:p3:sku-59' ], self::committed_keys() );
+	}
+
+	public function test_a_key_named_twice_is_answered_and_counted_once(): void {
+		$this->table->store_multi( [ 'sku-41' => 'kea-41', 'sku-43' => 'kea-43' ] );
+		$this->assertSame( [ [ Message::TM_RESPONSE, '', "TOUCH sku-41\n" ] ], self::shape( $this->ask( "TOUCH 4471 sku-41 sku-41\n" ) ) );
+		$this->assertSame( [ [ Message::TM_RESPONSE, '', "RM sku-41\n" ] ], self::shape( $this->ask( "RM sku-41 sku-41\n" ) ) );
+		$stats = $this->table->stats();
+		$this->assertSame( [ 1, 1, 1, 1 ], [ $stats['TOUCH']['asked'], $stats['TOUCH']['answered'], $stats['RM']['asked'], $stats['RM']['answered'] ] );
+	}
+
+	public function test_rm_and_touch_of_many_keys_land_together_or_not_at_all(): void {
+		$this->table->store_multi( [ 'sku-41' => 'kea-41', 'sku-43' => 'kea-43', 'sku-47' => 'kea-47' ] );
+		$db = new \PDO( 'sqlite:' . Table_Node::file( 'lab-7:kea', 3 ) );
+		$db->exec( "CREATE TRIGGER no_rm BEFORE DELETE ON kv WHEN OLD.\"key\" = 'kea:p3:sku-43' BEGIN SELECT RAISE( ROLLBACK, 'rm 4473' ); END" );
+		$db->exec( "CREATE TRIGGER no_touch BEFORE UPDATE ON kv WHEN OLD.\"key\" = 'kea:p3:sku-47' BEGIN SELECT RAISE( ROLLBACK, 'touch 4477' ); END" );
+		$this->assertSame( [ [ Message::TM_RESPONSE, '', "RM\n" ] ], self::shape( $this->ask( "RM sku-41 sku-43\n" ) ) );
+		$this->assertSame( [ 'kea:p3:sku-41', 'kea:p3:sku-43', 'kea:p3:sku-47' ], self::committed_keys(), 'sku-41 stayed with sku-43' );
+		$expires = static fn (): array => $db->query( 'SELECT expires FROM kv ORDER BY "key"' )->fetchAll( \PDO::FETCH_COLUMN );
+		$before  = $expires();
+		$this->assertSame( [ [ Message::TM_RESPONSE, '', "TOUCH\n" ] ], self::shape( $this->ask( "TOUCH 4471 sku-41 sku-47\n" ) ) );
+		$this->assertSame( $before, $expires(), 'sku-41 kept its expiry with sku-47' );
+		$this->assertSame( [ [ Message::TM_RESPONSE, '', "RM sku-41 sku-47\n" ] ], self::shape( $this->ask( "RM sku-41 sku-47\n" ) ) );
+		$this->assertSame( [ 'kea:p3:sku-43' ], self::committed_keys() );
+	}
+
 	// ── flush: every row and member, MANAGE by declaring nothing, the writer's alone ──
 
 	/** The `flush` verb as a worker's `:config` interpreter answers it. */

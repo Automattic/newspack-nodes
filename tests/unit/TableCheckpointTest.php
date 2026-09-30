@@ -126,11 +126,11 @@ final class TableCheckpointTest extends TestCase {
 		$this->table->store_multi( self::rows( 'kea', 40, 900 ) );
 		Core::$clock = static fn (): float => 1790000000.0;
 		Core::$now   = 1790004242.0;
-		Table_Node::purge_and_checkpoint( 1790004242 );
+		Table_Node::tick( 1790004242 );
 		$this->assertSame( 1790000000.0, Core::$now, 'a due purge reads the live clock' );
 		$this->assertSame( 1, $this->checkpoint_row()['calls'] );
 		Core::$now = 1790004272.0;
-		Table_Node::purge_and_checkpoint( 1790004272 );
+		Table_Node::tick( 1790004272 );
 		$this->assertSame( 1790004272.0, Core::$now, 'a tick that only checkpoints' );
 		$this->assertSame( 2, $this->checkpoint_row()['calls'] );
 	}
@@ -138,15 +138,15 @@ final class TableCheckpointTest extends TestCase {
 	public function test_ticks_inside_the_interval_do_not_checkpoint_and_the_one_at_it_does(): void {
 		$this->assertSame( 30, Table_Node::CHECKPOINT_INTERVAL_S );
 		$this->table->store_multi( self::rows( 'kea', 40, 900 ) );
-		Table_Node::purge_and_checkpoint( 1790000000 );
+		Table_Node::tick( 1790000000 );
 		$this->assertSame( 1, $this->checkpoint_row()['calls'] );
 		$first = $this->checkpoint_row()['asked'];
 		for ( $second = 1; $second < 30; ++$second ) {
 			$this->table->store_multi( self::rows( "s{$second}", 3, 900 ) );
-			Table_Node::purge_and_checkpoint( 1790000000 + $second );
+			Table_Node::tick( 1790000000 + $second );
 		}
 		$this->assertSame( 1, $this->checkpoint_row()['calls'], 'twenty-nine ticks inside the interval' );
-		Table_Node::purge_and_checkpoint( 1790000030 );
+		Table_Node::tick( 1790000030 );
 		$row = $this->checkpoint_row();
 		$this->assertSame( 2, $row['calls'] );
 		$this->assertGreaterThan( 29 * 3, $row['asked'] - $first, 'one checkpoint wrote back every write of the interval' );
@@ -154,14 +154,14 @@ final class TableCheckpointTest extends TestCase {
 	}
 
 	public function test_the_interval_is_per_table(): void {
-		Table_Node::purge_and_checkpoint( 1790000000 );
+		Table_Node::tick( 1790000000 );
 		$owl = $this->worker_table( 'lab-7:owl', 'owl:p3' );
-		Table_Node::purge_and_checkpoint( 1790000010 );
+		Table_Node::tick( 1790000010 );
 		$calls = fn (): array => [ $this->checkpoint_row()['calls'], $this->checkpoint_row( $owl )['calls'] ];
 		$this->assertSame( [ 1, 1 ], $calls(), 'owl was due on its first tick; kea was not' );
-		Table_Node::purge_and_checkpoint( 1790000030 );
+		Table_Node::tick( 1790000030 );
 		$this->assertSame( [ 2, 1 ], $calls() );
-		Table_Node::purge_and_checkpoint( 1790000040 );
+		Table_Node::tick( 1790000040 );
 		$this->assertSame( [ 2, 2 ], $calls() );
 	}
 
@@ -169,7 +169,7 @@ final class TableCheckpointTest extends TestCase {
 		$owl = $this->worker_table( 'lab-7:owl', 'owl:p3' );
 		$this->table->store_multi( self::rows( 'kea', 40, 900 ) );
 		$owl->store_multi( self::rows( 'owl', 70, 900 ) );
-		Table_Node::purge_and_checkpoint( 1790000000 );
+		Table_Node::tick( 1790000000 );
 		$this->assertSame( [ 1, 1 ], [ $this->checkpoint_row()['calls'], $this->checkpoint_row( $owl )['calls'] ] );
 	}
 
@@ -177,7 +177,7 @@ final class TableCheckpointTest extends TestCase {
 		$this->table->store_multi( self::rows( 'kea', 40, 900 ) );
 		$this->table->remove_node();
 		$mount = Table_Node::mount( 'lab-7:kea', 3, [ 'namespace' => 'kea:p3', 'ttl' => 777, 'backend' => 'sqlite' ], new Capture_Sink_Node() );
-		Table_Node::purge_and_checkpoint( 1790000000 );
+		Table_Node::tick( 1790000000 );
 		$this->assertSame( 0, $this->checkpoint_row( $mount )['calls'] );
 		$db = new \PDO( 'sqlite:' . Table_Node::file( 'lab-7:kea', 3 ) );
 		[ , $frames, $written ] = $db->query( 'PRAGMA wal_checkpoint(PASSIVE)' )->fetch( \PDO::FETCH_NUM );
@@ -191,10 +191,10 @@ final class TableCheckpointTest extends TestCase {
 		Core::$clock = static function () use ( &$reads ): float {
 			return 1790000000.0 + 0.06 * $reads++;
 		};
-		Table_Node::purge_and_checkpoint( 1790000000 );
+		Table_Node::tick( 1790000000 );
 		$this->assertSame( 0, $this->checkpoint_row()['calls'] );
 		Core::$clock = static fn (): float => 1790000001.0;
-		Table_Node::purge_and_checkpoint( 1790000001 );
+		Table_Node::tick( 1790000001 );
 		$this->assertSame( 1, $this->checkpoint_row()['calls'] );
 	}
 
@@ -208,12 +208,12 @@ final class TableCheckpointTest extends TestCase {
 		try {
 			for ( $n = 1; $n < Table_Node::WAL_STALL_CHECKPOINTS; ++$n ) {
 				$this->table->store( "sku-{$n}", \str_repeat( 'o', 5000 ) );
-				Table_Node::purge_and_checkpoint( 1790000000 + $n * $interval - 15 );
-				Table_Node::purge_and_checkpoint( 1790000000 + $n * $interval );
+				Table_Node::tick( 1790000000 + $n * $interval - 15 );
+				Table_Node::tick( 1790000000 + $n * $interval );
 			}
 			$this->assertSame( [], $this->warnings(), 'three stalled checkpoints, and the ticks between them, are a slow reader' );
 			$this->table->store( 'sku-4', \str_repeat( 'o', 5000 ) );
-			Table_Node::purge_and_checkpoint( 1790000000 + 4 * $interval );
+			Table_Node::tick( 1790000000 + 4 * $interval );
 			$this->assertSame( 4, $this->checkpoint_row()['calls'], 'a tick inside the interval ran none' );
 			$this->assertCount( 1, $this->warnings() );
 			$this->assertMatchesRegularExpression( '/lab-7:kea: WARNING: WAL checkpoint has not completed for 4 checkpoints while the WAL grew from \d+ to \d+ frames/', $this->warnings()[0] );
@@ -230,7 +230,7 @@ final class TableCheckpointTest extends TestCase {
 		try {
 			$this->table->store( 'sku-1', \str_repeat( 'o', 5000 ) );
 			for ( $n = 1; $n <= 2 * Table_Node::WAL_STALL_CHECKPOINTS; ++$n ) {
-				Table_Node::purge_and_checkpoint( 1790000000 + $n * Table_Node::CHECKPOINT_INTERVAL_S );
+				Table_Node::tick( 1790000000 + $n * Table_Node::CHECKPOINT_INTERVAL_S );
 			}
 		} finally {
 			$reader->exec( 'ROLLBACK' );

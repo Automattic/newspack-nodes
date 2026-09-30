@@ -454,6 +454,76 @@ abstract class Cache_Backend {
 	}
 
 	/**
+	 * Remove many keys. A volatile arm has no batch to hold, so it removes them
+	 * one by one; a durable arm overrides this to hold them in one write scope.
+	 *
+	 * @param list<string> $keys The cache keys.
+	 * @return list<string> The keys that existed and are now gone.
+	 */
+	public function delete_multi( array $keys ): array {
+		return $this->taking( $keys, fn ( string $key ): bool => true === $this->delete( $key ) );
+	}
+
+	/**
+	 * Remove a key.
+	 *
+	 * Three answers, as `touch()` gives three: a confirmed miss is false, and
+	 * a backend that did not answer — any memcached result but NOTFOUND, or a
+	 * durable arm whose statement failed — is null, so a caller revoking a
+	 * credential never reports a live key gone.
+	 *
+	 * @param string $key The cache key.
+	 * @return bool|null True when the key existed and is now gone, false when
+	 *                   it is confirmed absent, null when the backend did not
+	 *                   answer.
+	 */
+	abstract public function delete( string $key ): ?bool;
+
+	/**
+	 * Extend many keys' expiry. One by one on a volatile arm, in one write
+	 * scope on a durable one.
+	 *
+	 * @param list<string> $keys The cache keys.
+	 * @param int          $ttl  New expiry in seconds; 0 = no expiry.
+	 * @return list<string> The keys that existed and whose expiry moved.
+	 */
+	public function touch_multi( array $keys, int $ttl ): array {
+		return $this->taking( $keys, fn ( string $key ): bool => true === $this->touch( $key, $ttl ) );
+	}
+
+	/**
+	 * Extend a key's expiry without rewriting its value.
+	 *
+	 * Three answers, as `read()` gives three: a confirmed miss is false, and
+	 * a backend that did not answer — any memcached result but NOTFOUND, or
+	 * an APCu store refused after its fetch hit — is null, so a caller never
+	 * mistakes a timeout for an evicted key.
+	 *
+	 * APCu has no native touch, so that arm fetches and re-stores under the
+	 * new ttl. Those are two operations, and a write landing between them is
+	 * overwritten with the older value — use it where the value is a lease the
+	 * holder alone refreshes, as `SSE_Slot_Pool::touch()` does.
+	 *
+	 * @param string $key The cache key.
+	 * @param int    $ttl New expiry in seconds; 0 = no expiry.
+	 * @return bool|null True when the key existed and its expiry moved, false
+	 *                   when it is confirmed absent, null when the backend
+	 *                   did not answer.
+	 */
+	abstract public function touch( string $key, int $ttl ): ?bool;
+
+	/**
+	 * The keys `$took` answers true for, in order.
+	 *
+	 * @param list<string>              $keys The cache keys.
+	 * @param \Closure(string): bool $took Whether the operation took effect on a key.
+	 * @return list<string>
+	 */
+	protected function taking( array $keys, \Closure $took ): array {
+		return \array_values( \array_filter( $keys, $took ) );
+	}
+
+	/**
 	 * Selected backend name, for failure diagnostics.
 	 *
 	 * @return string 'memcached', 'apcu', 'sqlite' or 'wpdb'.
@@ -576,42 +646,6 @@ abstract class Cache_Backend {
 	 * @return bool True when the write landed.
 	 */
 	abstract public function set( string $key, mixed $value, int $ttl ): bool;
-
-	/**
-	 * Remove a key.
-	 *
-	 * Three answers, as `touch()` gives three: a confirmed miss is false, and
-	 * a backend that did not answer — any memcached result but NOTFOUND, or a
-	 * durable arm whose statement failed — is null, so a caller revoking a
-	 * credential never reports a live key gone.
-	 *
-	 * @param string $key The cache key.
-	 * @return bool|null True when the key existed and is now gone, false when
-	 *                   it is confirmed absent, null when the backend did not
-	 *                   answer.
-	 */
-	abstract public function delete( string $key ): ?bool;
-
-	/**
-	 * Extend a key's expiry without rewriting its value.
-	 *
-	 * Three answers, as `read()` gives three: a confirmed miss is false, and
-	 * a backend that did not answer — any memcached result but NOTFOUND, or
-	 * an APCu store refused after its fetch hit — is null, so a caller never
-	 * mistakes a timeout for an evicted key.
-	 *
-	 * APCu has no native touch, so that arm fetches and re-stores under the
-	 * new ttl. Those are two operations, and a write landing between them is
-	 * overwritten with the older value — use it where the value is a lease the
-	 * holder alone refreshes, as `SSE_Slot_Pool::touch()` does.
-	 *
-	 * @param string $key The cache key.
-	 * @param int    $ttl New expiry in seconds; 0 = no expiry.
-	 * @return bool|null True when the key existed and its expiry moved, false
-	 *                   when it is confirmed absent, null when the backend
-	 *                   did not answer.
-	 */
-	abstract public function touch( string $key, int $ttl ): ?bool;
 
 	/**
 	 * Whether any key of a batch is refused; a refused batch writes nothing.

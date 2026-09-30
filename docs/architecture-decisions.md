@@ -1588,6 +1588,32 @@ inside classes was also invisible to `ls`, `dump_node` and the console.
 **Revisit if:** a durable Table must be read from another host at volume, or a second writer
 per file appears.
 
+**Amendment:** a `sqlite` Table rewrites a row in place, prepares each fixed statement once,
+and runs the keys of one `TOUCH` or `RM` as one batch.
+
+- A rewrite is an UPSERT: `kv` writes `INSERT … ON CONFLICT ( "key" ) DO UPDATE`, which keeps
+  the row's rowid and so its autoindex entry, and `members` writes
+  `ON CONFLICT ( set_key, member ) DO UPDATE`. `ADD` keeps its `INSERT OR IGNORE` and its
+  expired-row `DELETE`. Every fixed statement is prepared once per connection, in one map
+  keyed by its SQL that a `flush` empties; a keyed read's `IN` list varies with its chunk and
+  is prepared per call. UPSERT needs SQLite 3.24; eve's `pdo_sqlite` links 3.46.1. On eve,
+  against a staging-shaped 671 MB file, an `MSET` call wrote 724 WAL frames as
+  `INSERT OR REPLACE` and 540 as an UPSERT.
+- `Cache_Backend::delete_multi()` and `touch_multi()` take the keys of one request and answer
+  the ones that took effect. A volatile arm loops over `delete()` and `touch()`. `Durable_Arm`
+  runs the whole batch of an atomic arm in one `write_scope()`, so on SQLite it is one
+  transaction for the request rather than one per key, and a statement that fails fails
+  the batch: the arm answers no keys, and SQLite has rolled every one back. A non-atomic arm
+  (`wpdb`) loops per key and answers the keys that took effect.
+
+Frames are the cost that transfers: staging pays about 160 µs a WAL frame in a commit and
+53 µs in a checkpoint, 20 to 40 times eve.
+
+A transaction held across requests, bracketed by `BEGIN` and `COMMIT`, was built and dropped
+before release. Its only caller moved to a Ledger, and a hold needs a lifecycle (the tick, a
+stop, a teardown, `vacuum`, `flush`) plus a poison state for a transaction SQLite ends itself,
+all for a caller that no longer exists.
+
 ---
 
 ## ADR-25: A verb's arguments are bound by its schema

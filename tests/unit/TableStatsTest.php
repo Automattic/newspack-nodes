@@ -134,7 +134,7 @@ final class TableStatsTest extends TestCase {
 		$this->ask( 5000000, "SCAN urltoken 5\n" );
 		$this->step  = 6000000;
 		Core::$clock = static fn (): float => 1790000038.0;
-		Table_Node::purge_and_checkpoint( 1790000038 );
+		Table_Node::tick( 1790000038 );
 
 		$stats      = $this->table->stats();
 		$checkpoint = $stats['CHECKPOINT'];
@@ -230,6 +230,79 @@ final class TableStatsTest extends TestCase {
 			$this->assertSame( 'reset_stats: lab-7:kea.p3 is a mounted Table, which serves reads only', $e->getMessage() );
 		}
 		$this->assertSame( 1, $mount->stats()['MGET']['calls'], 'a refused reset zeroes nothing' );
+	}
+
+	/** Every stderr line written while `$run` runs, past the process identity. */
+	private function stderr_of( \Closure $run ): array {
+		$logged = [];
+		$hook   = static function ( string $line ) use ( &$logged ): void {
+			$logged[] = \preg_replace( '/^[^:]*\]: /', '', \rtrim( $line, "\n" ) );
+		};
+		\add_action( 'newspack_nodes/stderr', $hook );
+		try {
+			$run();
+		} finally {
+			\remove_action( 'newspack_nodes/stderr', $hook );
+		}
+		return $logged;
+	}
+
+	public function test_a_traced_table_sums_each_tick_into_one_line_and_a_quiet_tick_into_none(): void {
+		$this->ask( 9000000, "MGET sku-40\n" );
+		$this->table->debug_state( 1 );
+		$this->ask( 1250000, [ 'MSET' => [ 'sku-41' => [ 'a' ], 'sku-43' => [ 'c', 37 ] ] ] );
+		$this->ask( 2500000, "MGET sku-41\n" );
+		$this->ask( 4000000, "MGET sku-43\n" );
+		$this->step = 6000000;
+		$first      = $this->stderr_of( static fn () => Table_Node::tick( 1790000000 ) );
+		$this->assertSame( [ 'lab-7:kea: DEBUG: MGET 2 6.5ms, MSET 1 1.25ms, PURGE 1 6ms, CHECKPOINT 1 6ms' ], $first, 'calls before the trace began are not in it' );
+		$this->assertSame( [], $this->stderr_of( static fn () => Table_Node::tick( 1790000001 ) ), 'nothing was called since' );
+	}
+
+	public function test_a_trace_turned_off_and_on_again_sums_from_when_it_came_back(): void {
+		Table_Node::tick( 1790000000 );
+		$this->table->debug_state( 1 );
+		$this->ask( 1250000, [ 'MSET' => [ 'sku-41' => [ 'a' ] ] ] );
+		$this->table->debug_state( 0 );
+		$this->ask( 2500000, "MGET sku-41\n" );
+		$this->table->debug_state( 3 );
+		$this->ask( 750000, "GET sku-41\n" );
+		$this->assertSame( [ 'lab-7:kea: DEBUG: GET 1 0.75ms' ], $this->stderr_of( static fn () => Table_Node::tick( 1790000001 ) ) );
+	}
+
+	public function test_a_trace_across_a_reset_sums_what_came_after_it(): void {
+		Table_Node::tick( 1790000000 );
+		$this->table->debug_state( 1 );
+		$this->ask( 2500000, "MGET sku-41\n" );
+		$this->ask( 2500000, "MGET sku-43\n" );
+		$this->assertSame( [ 'lab-7:kea: DEBUG: MGET 2 5ms' ], $this->stderr_of( static fn () => Table_Node::tick( 1790000001 ) ) );
+		$this->table->reset_stats();
+		$this->ask( 750000, "MGET sku-47\n" );
+		$this->assertSame( [ 'lab-7:kea: DEBUG: MGET 1 0.75ms' ], $this->stderr_of( static fn () => Table_Node::tick( 1790000002 ) ) );
+	}
+
+	public function test_an_untraced_table_writes_no_trace_line(): void {
+		$volatile = new Table_Node();
+		$volatile->name( 'lab-7:owl' );
+		$memd       = Core::$memd;
+		Core::$memd = new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
+		try {
+			$volatile->arguments( [ 'owl:p3', '777', 'memcache' ] );
+			$volatile->sink( $this->sink );
+			$lines = $this->stderr_of(
+				function () use ( $volatile ): void {
+					$this->ask( 1250000, [ 'MSET' => [ 'sku-41' => [ 'a' ] ] ] );
+					$this->ask( 1250000, [ 'MSET' => [ 'sku-41' => [ 'a' ] ] ], $volatile );
+					Table_Node::tick( 1790000000 );
+				}
+			);
+			$this->assertSame( [], \array_values( \array_filter( $lines, static fn ( string $line ): bool => \str_contains( $line, 'DEBUG:' ) ) ) );
+			$volatile->debug_state( 1 );
+			$this->ask( 2500000, "MGET sku-41\n", $volatile );
+			$this->assertSame( [ 'lab-7:owl: DEBUG: MGET 1 2.5ms' ], $this->stderr_of( static fn () => Table_Node::tick( 1790000001 ) ), 'a volatile Table traces on the tick too' );
+		} finally {
+			Core::$memd = $memd;
+		}
 	}
 
 	public function test_dump_metadata_and_dump_node_carry_the_counters(): void {

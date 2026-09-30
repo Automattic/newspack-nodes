@@ -16,6 +16,10 @@
  * Router's tick calls `checkpoint()` instead, after the tick's writes, so a
  * write pays for its own frames and never for copying the WAL back.
  *
+ * A write wrapped in `write_scope()` begins its own transaction, and a
+ * rewrite is an UPSERT, updating the row it finds in place. Every fixed
+ * statement is prepared once per connection.
+ *
  * @package Newspack_Nodes
  */
 
@@ -71,6 +75,24 @@ final class Sqlite_Arm extends Durable_Arm {
 	/** One set's live members: a primary-key seek, in its order; binds set, now, limit. */
 	private const MEMBERS_READ = 'SELECT member, "value" FROM members WHERE set_key = ? AND expires > ? ORDER BY member LIMIT ?';
 
+	/** A row when the file declares a `members` table. */
+	private const MEMBERS_TABLE = "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'members'";
+
+	/** Expired keyed rows, deleted by rowid; binds now, limit. */
+	private const KV_PURGE = 'DELETE FROM kv WHERE rowid IN ( SELECT rowid FROM kv WHERE ' . self::EXPIRED . ' LIMIT ? )';
+
+	/** A row written, or rewritten in place; binds key, value, expires. */
+	private const KV_UPSERT = 'INSERT INTO kv ( "key", "value", expires ) VALUES ( ?, ?, ? ) ON CONFLICT ( "key" ) DO UPDATE SET "value" = excluded."value", expires = excluded.expires';
+
+	/** A member written, or rewritten in place; binds set, member, value, expires. */
+	private const MEMBERS_UPSERT = 'INSERT INTO members ( set_key, member, "value", expires ) VALUES ( ?, ?, ?, ? ) ON CONFLICT ( set_key, member ) DO UPDATE SET "value" = excluded."value", expires = excluded.expires';
+
+	/** An expired row under a key `claim()` takes; binds key, now. */
+	private const KV_CLAIM_EXPIRED = 'DELETE FROM kv WHERE "key" = ? AND ' . self::EXPIRED;
+
+	/** A row written only where its key holds none; binds key, value, expires. */
+	private const KV_CLAIM = 'INSERT OR IGNORE INTO kv ( "key", "value", expires ) VALUES ( ?, ?, ? )';
+
 	/** Expired members through `members_expires`, deleted by key; binds now, limit. */
 	private const MEMBERS_PURGE = 'DELETE FROM members WHERE ( set_key, member ) IN ( SELECT set_key, member FROM members WHERE expires <= ? LIMIT ? )';
 
@@ -89,8 +111,12 @@ final class Sqlite_Arm extends Durable_Arm {
 	/** Whether the open file holds a `members` table; null until first asked. */
 	private ?bool $has_members = null;
 
-	/** The open file's member read, prepared on its first use. */
-	private ?\PDOStatement $members_read = null;
+	/**
+	 * The open connection's statements, each prepared on its first use.
+	 *
+	 * @var array<string,\PDOStatement> SQL => statement.
+	 */
+	private array $statements = [];
 
 	/**
 	 * Open the file as its writer: create it and its directory, enter WAL
@@ -137,9 +163,7 @@ final class Sqlite_Arm extends Durable_Arm {
 	 */
 	public function vacuum(): void {
 		$this->handle()->exec( 'VACUUM' );
-		$checkpoint = $this->handle()->prepare( 'PRAGMA wal_checkpoint(TRUNCATE)' );
-		$checkpoint->execute();
-		$row = $checkpoint->fetch( \PDO::FETCH_NUM );
+		$row = $this->single_row( 'PRAGMA wal_checkpoint(TRUNCATE)' );
 		if ( ! \is_array( $row ) || 0 !== Core::as_int( $row[0] ) ) {
 			$this->failure = 'database is locked: a reader holds the WAL';
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; the verb reporting it escapes at its view.
@@ -158,9 +182,7 @@ final class Sqlite_Arm extends Durable_Arm {
 	 */
 	public function checkpoint(): ?array {
 		try {
-			$stmt = $this->handle()->prepare( 'PRAGMA wal_checkpoint(PASSIVE)' );
-			$stmt->execute();
-			$row = $stmt->fetch( \PDO::FETCH_NUM );
+			$row = $this->single_row( 'PRAGMA wal_checkpoint(PASSIVE)' );
 		} catch ( \PDOException $e ) {
 			$this->failure = $e->getMessage();
 			Core::print_less_often( 'Table checkpoint failed: ', $this->last_failure() );
@@ -239,27 +261,27 @@ final class Sqlite_Arm extends Durable_Arm {
 		return $out;
 	}
 
-	/** See Durable_Arm::upsert(). */
+	/** See Durable_Arm::upsert(); a key already there is updated in place. */
 	protected function upsert( array $rows, int $expires ): void {
-		$this->store( 'INSERT OR REPLACE', $rows, $expires );
+		$this->store( self::KV_UPSERT, $rows, $expires );
 	}
 
 	/** See Durable_Arm::claim(). */
 	protected function claim( string $key, string $bytes, int $expires ): bool {
-		$this->run( 'DELETE FROM kv WHERE "key" = ? AND ' . self::EXPIRED, [ $key, self::now() ] );
-		return 1 === $this->store( 'INSERT OR IGNORE', [ $key => $bytes ], $expires );
+		$this->run( self::KV_CLAIM_EXPIRED, [ $key, self::now() ] );
+		return 1 === $this->store( self::KV_CLAIM, [ $key => $bytes ], $expires );
 	}
 
 	/**
-	 * Insert rows with one prepared statement, values bound as blobs.
+	 * Write rows through one prepared statement, values bound as blobs.
 	 *
-	 * @param string                  $verb    `INSERT OR REPLACE` or `INSERT OR IGNORE`.
+	 * @param string                  $sql     KV_UPSERT or KV_CLAIM.
 	 * @param array<array-key,string> $rows    Key => tagged bytes.
 	 * @param int                     $expires The `expires` column for every row.
 	 * @return int Rows changed.
 	 */
-	private function store( string $verb, array $rows, int $expires ): int {
-		$stmt    = $this->handle()->prepare( "{$verb} INTO kv ( \"key\", \"value\", expires ) VALUES ( ?, ?, ? )" );
+	private function store( string $sql, array $rows, int $expires ): int {
+		$stmt    = $this->statement( $sql );
 		$changed = 0;
 		foreach ( $rows as $key => $bytes ) {
 			$stmt->bindValue( 1, (string) $key );
@@ -273,7 +295,7 @@ final class Sqlite_Arm extends Durable_Arm {
 
 	/** See Durable_Arm::replace(). */
 	protected function replace( string $key, string $old, string $new ): bool {
-		$stmt = $this->handle()->prepare( 'UPDATE kv SET "value" = ? WHERE "key" = ? AND "value" = ? AND ' . self::LIVE );
+		$stmt = $this->statement( 'UPDATE kv SET "value" = ? WHERE "key" = ? AND "value" = ? AND ' . self::LIVE );
 		$stmt->bindValue( 1, $new, \PDO::PARAM_LOB );
 		$stmt->bindValue( 2, $key );
 		$stmt->bindValue( 3, $old, \PDO::PARAM_LOB );
@@ -292,11 +314,6 @@ final class Sqlite_Arm extends Durable_Arm {
 		return $this->run( 'DELETE FROM kv WHERE "key" = ? AND ' . self::LIVE, [ $key, self::now() ] );
 	}
 
-	/** See Durable_Arm::purge_rows(). */
-	protected function purge_rows( int $now, int $limit ): int {
-		return $this->run( 'DELETE FROM kv WHERE rowid IN ( SELECT rowid FROM kv WHERE ' . self::EXPIRED . " LIMIT {$limit} )", [ $now ] );
-	}
-
 	/**
 	 * Run one statement.
 	 *
@@ -305,17 +322,22 @@ final class Sqlite_Arm extends Durable_Arm {
 	 * @return int Rows changed.
 	 */
 	private function run( string $sql, array $args ): int {
-		$stmt = $this->handle()->prepare( $sql );
+		$stmt = $this->statement( $sql );
 		$stmt->execute( $args );
 		return $stmt->rowCount();
+	}
+
+	/** See Durable_Arm::purge_rows(). */
+	protected function purge_rows( int $now, int $limit ): int {
+		return $this->delete_expired( self::KV_PURGE, $now, $limit );
 	}
 
 	/**
 	 * See Durable_Arm::discard(): the file, not its rows. A Table partition
 	 * owns its file, and its writer is the file's one writer (ADR-6), so the
 	 * writer unlinks the database and its `-wal` and `-shm`, drops its
-	 * connection and prepared statement, and opens a new file with the same
-	 * pragmas and tables: a cost that never grows with the rows. A mount in
+	 * connection and its prepared statements, and opens a new file with the
+	 * same pragmas and tables: a cost that never grows with the rows. A mount in
 	 * another process that opened the old file keeps reading its rows until
 	 * that request ends; one opened after reads the new file.
 	 *
@@ -335,10 +357,10 @@ final class Sqlite_Arm extends Durable_Arm {
 			}
 		} finally {
 			// Reopen even on a refusal: never write into an unlinked inode.
-			$this->members_read = null;
-			$this->has_members  = null;
-			$this->db           = null;
-			$this->db           = $this->connect();
+			$this->statements  = [];
+			$this->has_members = null;
+			$this->db          = null;
+			$this->db          = $this->connect();
 		}
 		return [ 'bytes' => \array_sum( $sizes ) ];
 	}
@@ -363,16 +385,28 @@ final class Sqlite_Arm extends Durable_Arm {
 
 	/** See Durable_Arm::purge_member_rows(); the table has no rowid to name. */
 	protected function purge_member_rows( int $now, int $limit ): int {
-		$stmt = $this->handle()->prepare( self::MEMBERS_PURGE );
+		return $this->delete_expired( self::MEMBERS_PURGE, $now, $limit );
+	}
+
+	/**
+	 * Delete up to `$limit` rows expired at `$now`, both bound as integers.
+	 *
+	 * @param string $sql   KV_PURGE or MEMBERS_PURGE.
+	 * @param int    $now   Epoch second.
+	 * @param int    $limit Most rows.
+	 * @return int Rows deleted.
+	 */
+	private function delete_expired( string $sql, int $now, int $limit ): int {
+		$stmt = $this->statement( $sql );
 		$stmt->bindValue( 1, $now, \PDO::PARAM_INT );
 		$stmt->bindValue( 2, $limit, \PDO::PARAM_INT );
 		$stmt->execute();
 		return $stmt->rowCount();
 	}
 
-	/** See Durable_Arm::upsert_members(). */
+	/** See Durable_Arm::upsert_members(); a member already there is updated in place. */
 	protected function upsert_members( array $rows ): void {
-		$stmt = $this->handle()->prepare( 'INSERT OR REPLACE INTO members ( set_key, member, "value", expires ) VALUES ( ?, ?, ?, ? )' );
+		$stmt = $this->statement( self::MEMBERS_UPSERT );
 		foreach ( $rows as [ $set_key, $member, $bytes, $expires ] ) {
 			$stmt->bindValue( 1, $set_key );
 			$stmt->bindValue( 2, $member );
@@ -382,6 +416,49 @@ final class Sqlite_Arm extends Durable_Arm {
 		}
 	}
 
+	/** See Durable_Arm::select_set(). */
+	protected function select_set( string $set_key, int $limit ): array {
+		if ( null === $this->db() ) {
+			// No file: its writer has not written, so there is nothing to read.
+			return [];
+		}
+		// A file its writer declared before members holds none to read.
+		$this->has_members ??= null !== $this->single_row( self::MEMBERS_TABLE );
+		if ( ! $this->has_members ) {
+			return [];
+		}
+		$read = $this->statement( self::MEMBERS_READ );
+		$read->bindValue( 1, $set_key );
+		$read->bindValue( 2, self::now(), \PDO::PARAM_INT );
+		$read->bindValue( 3, $limit, \PDO::PARAM_INT );
+		$read->execute();
+		return \array_map( Core::as_string( ... ), $read->fetchAll( \PDO::FETCH_KEY_PAIR ) );
+	}
+
+	/**
+	 * The one row a statement answers, read to its end, so a cached statement
+	 * holds no read snapshot open past this call.
+	 *
+	 * @param string $sql The statement.
+	 * @return array<array-key,mixed>|null The row, or null when it answered none.
+	 */
+	private function single_row( string $sql ): ?array {
+		$stmt = $this->statement( $sql );
+		$stmt->execute();
+		$rows = $stmt->fetchAll( \PDO::FETCH_NUM );
+		return \is_array( $rows[0] ?? null ) ? $rows[0] : null;
+	}
+
+	/**
+	 * The open connection's prepared statement for `$sql`, prepared once.
+	 *
+	 * @param string $sql The statement.
+	 * @throws \PDOException When a reader's file does not exist, or it will not prepare.
+	 */
+	private function statement( string $sql ): \PDOStatement {
+		return $this->statements[ $sql ] ??= $this->handle()->prepare( $sql );
+	}
+
 	/**
 	 * The connection a statement runs on.
 	 *
@@ -389,30 +466,6 @@ final class Sqlite_Arm extends Durable_Arm {
 	 */
 	private function handle(): \PDO {
 		return $this->db() ?? throw new \PDOException( "no file at {$this->path}" );
-	}
-
-	/** See Durable_Arm::select_set(). */
-	protected function select_set( string $set_key, int $limit ): array {
-		$db = $this->db();
-		if ( null === $db ) {
-			// No file: its writer has not written, so there is nothing to read.
-			return [];
-		}
-		// A file its writer declared before members holds none to read.
-		if ( null === $this->has_members ) {
-			$table = $db->prepare( "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'members'" );
-			$table->execute();
-			$this->has_members = false !== $table->fetchColumn();
-		}
-		if ( ! $this->has_members ) {
-			return [];
-		}
-		$this->members_read ??= $db->prepare( self::MEMBERS_READ );
-		$this->members_read->bindValue( 1, $set_key );
-		$this->members_read->bindValue( 2, self::now(), \PDO::PARAM_INT );
-		$this->members_read->bindValue( 3, $limit, \PDO::PARAM_INT );
-		$this->members_read->execute();
-		return \array_map( Core::as_string( ... ), $this->members_read->fetchAll( \PDO::FETCH_KEY_PAIR ) );
 	}
 
 	/**
