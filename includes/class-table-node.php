@@ -1277,7 +1277,7 @@ class Table_Node extends Node {
 
 	/**
 	 * One Table's purge: a batch, repeated while each comes back full and the
-	 * tick's deadline, read through `Core::read_clock()`, has not passed; the
+	 * tick's deadline, read through `Core::right_now()`, has not passed; the
 	 * rest waits a minute. A purge that stops with its last batch full leaves
 	 * the Table behind, and says so; the first short batch catches it up. The
 	 * deadline is checked between batches, so one statement blocked on the
@@ -1298,7 +1298,7 @@ class Table_Node extends Node {
 				$rows    = $arm->purge( $now, self::PURGE_BATCH_ROWS );
 				$purged += $rows;
 				$full    = self::PURGE_BATCH_ROWS === $rows;
-			} while ( $full && Core::read_clock() < $until );
+			} while ( Core::right_now() < $until && $full );
 		} finally {
 			$this->count_rows( 'PURGE', $batches * self::PURGE_BATCH_ROWS, $purged );
 			$this->count_call( 'PURGE', $started, $bytes );
@@ -1310,17 +1310,19 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * One Table's WAL checkpoint, while the tick's deadline has not passed,
-	 * counted as CHECKPOINT: `asked` the WAL's frames, `answered` the frames
+	 * One Table's WAL checkpoint, unless a purge this tick spent the deadline
+	 * (read off `Core::$now`, which the purge refreshed), or at once when no
+	 * purge was due and the tick set no deadline. It is counted as CHECKPOINT: `asked` the WAL's frames, `answered` the frames
 	 * written back. A partial one is ordinary and the next tick carries on;
 	 * WAL_STALL_TICKS of them in a row, with the WAL larger than when the
 	 * stall began, is warned about, rate-limited.
 	 *
 	 * @param Sqlite_Arm $arm   The Table's arm.
-	 * @param float      $until The tick's deadline, shared by every Table.
+	 * @param ?float     $until The tick's deadline, shared by every Table, or
+	 *                          null when no purge was due.
 	 */
-	private function checkpoint_wal( Sqlite_Arm $arm, float $until ): void {
-		if ( Core::read_clock() >= $until ) {
+	private function checkpoint_wal( Sqlite_Arm $arm, ?float $until ): void {
+		if ( null !== $until && Core::$now >= $until ) {
 			return;
 		}
 		$started = self::monotonic_ns();
@@ -1506,8 +1508,14 @@ class Table_Node extends Node {
 		if ( [] === $due && [] === $wals ) {
 			return;
 		}
-		$until       = Core::read_clock() + ( $behind ? self::PURGE_BACKLOG_BUDGET_S : self::PURGE_BUDGET_S );
-		$purges      = \array_map( static fn ( array $table ): \Closure => static fn () => $table[0]->purge_batches( $table[1], $now, $until ), $due );
+		$until  = null;
+		$purges = [];
+		if ( [] !== $due ) {
+			// Only a due purge reads the live clock, refreshing Core::$now.
+			$deadline = Core::right_now() + ( $behind ? self::PURGE_BACKLOG_BUDGET_S : self::PURGE_BUDGET_S );
+			$until    = $deadline;
+			$purges   = \array_map( static fn ( array $table ): \Closure => static fn () => $table[0]->purge_batches( $table[1], $now, $deadline ), $due );
+		}
 		$checkpoints = \array_map( static fn ( array $table ): \Closure => static fn () => $table[0]->checkpoint_wal( $table[1], $until ), $wals );
 		Worker_Should_Stop::raise( Worker_Should_Stop::attempt( ...$purges, ...$checkpoints ) );
 	}
