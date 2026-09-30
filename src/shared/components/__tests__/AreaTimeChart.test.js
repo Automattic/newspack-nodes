@@ -184,6 +184,106 @@ describe( 'AreaTimeChart', () => {
 		);
 	} );
 
+	describe( 'a slot with no value', () => {
+		const wide = [ 0, 1, 2, 3, 4 ].map(
+			( i ) => new Date( 1700000000000 + i * 60000 )
+		);
+		const gapped = [
+			{
+				label: 'edge-kea',
+				values: wide.map( ( date, i ) => ( {
+					date,
+					value: [ 12, 17, null, 41, 23 ][ i ],
+				} ) ),
+			},
+		];
+		const subpaths = ( path ) =>
+			( path.getAttribute( 'd' ).match( /M/g ) ?? [] ).length;
+
+		it( 'splits the band there, and never plots the gap as 0', () => {
+			const { container } = mount( { series: gapped } );
+			expect( subpaths( bands( container )[ 0 ] ) ).toBe( 2 );
+		} );
+
+		it( 'marks a lone measured slot with a dot, which its zero-width area cannot show', () => {
+			const { container } = mount( {
+				series: [
+					{
+						label: 'edge-kea',
+						values: wide.slice( 0, 3 ).map( ( date, i ) => ( {
+							date,
+							value: [ null, 5, null ][ i ],
+						} ) ),
+					},
+				],
+			} );
+			const dots = container.querySelectorAll( 'svg circle' );
+
+			expect( dots ).toHaveLength( 1 );
+			expect( dots[ 0 ].style.fill ).toBe( '#111111' );
+			expect( Number( dots[ 0 ].getAttribute( 'cy' ) ) ).toBeCloseTo(
+				CEILING,
+				3
+			);
+		} );
+
+		it.each( [
+			[ 'first', [ 7, null, null ] ],
+			[ 'last', [ null, null, 9 ] ],
+		] )(
+			'marks a lone measured slot at the %s edge with a dot',
+			( _edge, values ) => {
+				const { container } = mount( {
+					series: [
+						{
+							label: 'edge-kea',
+							values: wide.slice( 0, 3 ).map( ( date, i ) => ( {
+								date,
+								value: values[ i ],
+							} ) ),
+						},
+					],
+				} );
+				const dots = container.querySelectorAll( 'svg circle' );
+
+				expect( dots ).toHaveLength( 1 );
+				expect( Number( dots[ 0 ].getAttribute( 'cy' ) ) ).toBeCloseTo(
+					CEILING,
+					3
+				);
+			}
+		);
+
+		it( 'marks no dot where every measured slot has a measured neighbour', () => {
+			const { container } = mount( { series: gapped } );
+			expect( container.querySelectorAll( 'svg circle' ) ).toHaveLength(
+				0
+			);
+		} );
+
+		it( 'draws a band with every slot measured as one path', () => {
+			const { container } = mount( {
+				series: [
+					{
+						label: 'edge-kea',
+						values: wide.map( ( date ) => ( { date, value: 5 } ) ),
+					},
+				],
+			} );
+			expect( subpaths( bands( container )[ 0 ] ) ).toBe( 1 );
+		} );
+
+		it( 'scales the axis to the measured peak and lists the gap in no tooltip row', () => {
+			const { container } = mount( { series: gapped } );
+			expect( highestPoint( bands( container )[ 0 ] ) ).toBeCloseTo(
+				CEILING,
+				3
+			);
+			expect( tooltipRows( 2 ) ).toEqual( [] );
+			expect( tooltipRows( 3 ).map( ( r ) => r.raw ) ).toEqual( [ 41 ] );
+		} );
+	} );
+
 	it( 'offers no toggle where the caller says the bands must not be summed', () => {
 		const { container } = mount( { stackable: false } );
 		expect( stackButton( container ) ).toBeNull();
