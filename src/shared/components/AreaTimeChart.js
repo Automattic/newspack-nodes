@@ -37,8 +37,12 @@ import ChartLegend from './ChartLegend';
 /** How many series the tooltip lists for a column, largest first. */
 const TOOLTIP_ROWS = 12;
 
+/** Pixel radius of the dot marking a measured slot between two gaps. */
+const LONE_POINT_RADIUS = 2;
+
 /**
- * One slot's value on one series; a missing slot reads as 0.
+ * One slot's value on one series; a missing or unmeasured (null) slot reads
+ * as 0, so it adds nothing to a peak or a tooltip row.
  *
  * @param {{values: Array<{value?: number}>}} s   The series.
  * @param {number}                            idx The slot.
@@ -88,17 +92,17 @@ const StackIcon = () => (
 );
 
 /**
- * @param {Object}                                                              props              Component props.
- * @param {Array<{label: string, values: Array<{date: Date, value?: number}>}>} props.series       Every series shares one slot list.
- * @param {( peak: number ) => import('../utils/axis-ticks').AxisFormatter}     props.yFormatFor   Builds a formatter for a peak. Called for the DRAWN peak, which the axis and the series rows read, so a picked series takes its own unit; and, where `totalLabel` is set, once more for the whole list's peak, which the tooltip's total row reads.
- * @param {( label: string, index: number ) => string}                          props.colorAt      The colour for a series at its place in the full list: area, stroke and legend swatch.
- * @param {string}                                                              props.title        Translated heading.
- * @param {number}                                                              props.height       Total SVG height in pixels.
- * @param {string}                                                              props.yLabel       Translated Y-axis title naming the quantity; the ticks carry the unit.
- * @param {boolean}                                                             [props.stacked]    Stack the series by default; the corner toggle overrides it until the default moves.
- * @param {boolean}                                                             [props.stackable]  Offer the toggle at all; `false` for bands that must not be summed.
- * @param {string}                                                              [props.totalLabel] Translated label for the tooltip's leading column-total row, printed while the bands are stacked; omitted drops the row.
- * @param {string}                                                              [props.className]  Class for the chart element, beside the shared role.
+ * @param {Object}                                                               props              Component props.
+ * @param {Array<{label: string, values: Array<{date: Date, value?: ?number}>}>} props.series       Every series shares one slot list; a null value is unmeasured and draws as a gap.
+ * @param {( peak: number ) => import('../utils/axis-ticks').AxisFormatter}      props.yFormatFor   Builds a formatter for a peak. Called for the DRAWN peak, which the axis and the series rows read, so a picked series takes its own unit; and, where `totalLabel` is set, once more for the whole list's peak, which the tooltip's total row reads.
+ * @param {( label: string, index: number ) => string}                           props.colorAt      The colour for a series at its place in the full list: area, stroke and legend swatch.
+ * @param {string}                                                               props.title        Translated heading.
+ * @param {number}                                                               props.height       Total SVG height in pixels.
+ * @param {string}                                                               props.yLabel       Translated Y-axis title naming the quantity; the ticks carry the unit.
+ * @param {boolean}                                                              [props.stacked]    Stack the series by default; the corner toggle overrides it until the default moves.
+ * @param {boolean}                                                              [props.stackable]  Offer the toggle at all; `false` for bands that must not be summed.
+ * @param {string}                                                               [props.totalLabel] Translated label for the tooltip's leading column-total row, printed while the bands are stacked; omitted drops the row.
+ * @param {string}                                                               [props.className]  Class for the chart element, beside the shared role.
  * @return {import('react').ReactElement} Rendered chart.
  */
 function AreaTimeChart( {
@@ -189,6 +193,8 @@ function AreaTimeChart( {
 				.x( ( d ) => x( d.date ) )
 				.y0( ( d ) => y( d.y0 ) )
 				.y1( ( d ) => y( d.y1 ) )
+				// A null value is a gap: the band splits, never dips to 0.
+				.defined( ( d ) => d.defined )
 				.curve( d3.curveMonotoneX );
 
 			// The overlaid mark trades fill for outline, so bands stay apart.
@@ -196,7 +202,12 @@ function AreaTimeChart( {
 				const band = s.values.map( ( v, idx ) => {
 					const y0 = stacked ? baseline[ idx ] : 0;
 					baseline[ idx ] = y0 + ( v.value || 0 );
-					return { date: v.date, y0, y1: baseline[ idx ] };
+					return {
+						date: v.date,
+						y0,
+						y1: baseline[ idx ],
+						defined: null !== v.value,
+					};
 				} );
 				g.append( 'path' )
 					.datum( band )
@@ -205,6 +216,20 @@ function AreaTimeChart( {
 					.attr( 'fill-opacity', stacked ? 0.7 : 0.5 )
 					.attr( 'stroke-width', stacked ? 0.5 : 1 )
 					.attr( 'd', area );
+				// A lone measured slot has a zero-width area, so it gets a dot.
+				band.forEach( ( point, idx ) => {
+					if (
+						point.defined &&
+						! band[ idx - 1 ]?.defined &&
+						! band[ idx + 1 ]?.defined
+					) {
+						g.append( 'circle' )
+							.attr( 'cx', x( point.date ) )
+							.attr( 'cy', y( point.y1 ) )
+							.attr( 'r', LONE_POINT_RADIUS )
+							.style( 'fill', s.color );
+					}
+				} );
 			} );
 
 			setupTooltip( g, {
