@@ -747,19 +747,26 @@ console flags `multiple`, `hidden` and `action`, and each arg is
 A node schema may also
 carry `requests`, `registrations`, `accepts_fill`, `has_target` and `hidden`.
 A `requests` entry is `{ name, description, reply_shape }` plus an optional
-`args`, in the shape a command's take, and an optional
-`handler( static $node ): array`; `classes dump` carries every field but the
-`handler`, and nothing undeclared. It contributes no dispatch entry: the
-addressed node answers a TM_REQUEST itself, by calling
+`args`, in the shape a command's take, an optional `'value' => 'struct'`, and
+an optional `handler( static $node, mixed $argument ): array`; `classes dump`
+carries every field but the `handler`, and nothing undeclared. It contributes
+no dispatch entry: the addressed node answers a TM_REQUEST itself, by calling
 `Schema_Reflection::answer_request( $message )` first in its `fill()` and
-returning when that answers true. The trait takes VALUE's first word,
-upper-cased, as the verb and runs the matching entry's `handler` for the
-reply's `data`, answering `TM_STRUCT | TM_RESPONSE` with VALUE
-`{ verb, data }`. Any other verb, a handlerless entry included, is refused with
-`TM_ERROR` and VALUE `"unknown request verb: <VERB>\n"`, the error plane the
-interpreter refuses a command on. Either reply goes from the node TO the
-request's FROM, with ID and KEY echoed, and a request reaching a node with no
-sink throws `fill requires a wired sink`. `reply_shape` documents `data`.
+returning when that answers true. For a string request the trait takes VALUE's
+first word, upper-cased, as the verb and the words after it as the argument;
+an entry declaring `'value' => 'struct'` takes a `TM_REQUEST | TM_STRUCT` map
+naming one verb instead, its argument what the map holds under that verb. The
+matching entry's `handler` supplies the reply's `data`, answering
+`TM_STRUCT | TM_RESPONSE` with VALUE `{ verb, data }`. Any other verb, a
+handlerless entry included, is refused with `TM_ERROR` and VALUE
+`"unknown request verb: <VERB>\n"`, the error plane the interpreter refuses a
+command on. A request in the other form answers `"<VERB>: <why>\n"` there, and
+so does one whose argument its handler refuses by throwing an
+`\InvalidArgumentException`, where the entry consumes an argument by declaring
+`'value' => 'struct'` or `args`; any other throw propagates out of `fill()`,
+as it always has. Either reply goes from the node TO the request's FROM, with
+ID and KEY echoed, and a request reaching a node with no sink throws
+`fill requires a wired sink`. `reply_shape` documents `data`.
 
 An arg's declaration is enforced. `Command_Interpreter_Node::dispatch()` binds a
 verb's tokens against its `args` before the handler runs

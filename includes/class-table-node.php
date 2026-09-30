@@ -47,6 +47,9 @@ namespace Newspack_Nodes;
  */
 class Table_Node extends Node {
 	use Schema_Reflection;
+	use Verb_Stats {
+		reset_stats as private zero_stats;
+	}
 
 	/** Every backend a Table may name; `auto` is memcached, else APCu, per call. */
 	public const BACKENDS = [ 'auto', 'memcache', 'apcu', 'sqlite', 'wpdb' ];
@@ -137,40 +140,26 @@ class Table_Node extends Node {
 	/** How every write request is answered. */
 	private const WRITE_REPLY = 'one TM_RESPONSE "<VERB> <keys…>" naming the keys it took effect on';
 
-	/** A verb's calls, in its counter row. */
-	private const CALLS = 0;
-
-	/** Keys or rows a verb's calls asked for. */
-	private const ASKED = 1;
-
-	/** Keys or rows a verb's calls answered or took effect on. */
-	private const ANSWERED = 2;
-
-	/** Encoded bytes a durable arm stored or returned for a verb. */
-	private const BYTES = 3;
-
-	/** A verb's nanoseconds on the monotonic clock, all calls together. */
-	private const TOTAL_NS = 4;
-
-	/** A verb's longest call, in nanoseconds. */
-	private const MAX_NS = 5;
-
 	/**
 	 * Every counted verb's row at zero: the requests, fill()'s keyed INSERT,
-	 * and the Router tick's PURGE and CHECKPOINT.
+	 * and the Router tick's PURGE and CHECKPOINT. Each counts keys, except
+	 * SADD's member rows, SMEMBERS' member rows answered, PURGE's rows (asked
+	 * the batches' room, answered the rows deleted) and CHECKPOINT's WAL
+	 * frames. A volatile arm serializes inside its extension, so its bytes
+	 * read 0.
 	 */
 	private const ZERO_STATS = [
-		'GET'      => [ 0, 0, 0, 0, 0, 0 ],
-		'MGET'     => [ 0, 0, 0, 0, 0, 0 ],
-		'MSET'     => [ 0, 0, 0, 0, 0, 0 ],
-		'ADD'      => [ 0, 0, 0, 0, 0, 0 ],
-		'TOUCH'    => [ 0, 0, 0, 0, 0, 0 ],
-		'RM'       => [ 0, 0, 0, 0, 0, 0 ],
-		'INSERT'   => [ 0, 0, 0, 0, 0, 0 ],
-		'SADD'     => [ 0, 0, 0, 0, 0, 0 ],
-		'SMEMBERS' => [ 0, 0, 0, 0, 0, 0 ],
-		'PURGE'      => [ 0, 0, 0, 0, 0, 0 ],
-		'CHECKPOINT' => [ 0, 0, 0, 0, 0, 0 ],
+		'GET'        => self::ZERO_ROW,
+		'MGET'       => self::ZERO_ROW,
+		'MSET'       => self::ZERO_ROW,
+		'ADD'        => self::ZERO_ROW,
+		'TOUCH'      => self::ZERO_ROW,
+		'RM'         => self::ZERO_ROW,
+		'INSERT'     => self::ZERO_ROW,
+		'SADD'       => self::ZERO_ROW,
+		'SMEMBERS'   => self::ZERO_ROW,
+		'PURGE'      => self::ZERO_ROW,
+		'CHECKPOINT' => self::ZERO_ROW,
 	];
 
 	/**
@@ -180,15 +169,6 @@ class Table_Node extends Node {
 	 * @var array<string,string>|null
 	 */
 	private static ?array $struct_usage = null;
-
-	/**
-	 * Monotonic-clock seam behind the per-verb timings, replacing
-	 * `hrtime( true )`. Tests pin it to set what one verb measures.
-	 * Signature: `function (): int`, nanoseconds from an arbitrary origin.
-	 *
-	 * @var (\Closure(): int)|null
-	 */
-	public static ?\Closure $hrtime = null;
 
 	/** Key scope. Every entry key derives from it, so changing it orphans the table. */
 	private string $namespace = '';
@@ -228,20 +208,6 @@ class Table_Node extends Node {
 
 	/** WAL frames at the first checkpoint of the current stall. */
 	private int $wal_stall_frames = 0;
-
-	/**
-	 * Per-verb counters since the node was built or last reset; see stats().
-	 *
-	 * @var array<string,array{int,int,int,int,int,int}>
-	 */
-	private array $verb_stats = self::ZERO_STATS;
-
-	/**
-	 * The counters as the last trace line left them, held only while traced.
-	 *
-	 * @var array<string,array{int,int,int,int,int,int}>|null
-	 */
-	private ?array $traced = null;
 
 	/**
 	 * Durable system of record behind this table, or null until backed_by()
@@ -350,7 +316,7 @@ class Table_Node extends Node {
 	 */
 	private function insert( string $key, mixed $value ): void {
 		$started = self::monotonic_ns();
-		$bytes   = $this->arm_bytes();
+		$bytes   = $this->stat_bytes();
 		try {
 			// Empty deletes (Table.pm:313); a bare terminator counts as empty.
 			$empty  = null === $value || [] === $value
@@ -470,7 +436,7 @@ class Table_Node extends Node {
 		$words   = \is_array( $value ) ? [] : ( \preg_split( '/\s+/', \trim( Core::as_string( $value, '' ) ), -1, \PREG_SPLIT_NO_EMPTY ) ?: [] );
 		$verb    = \is_array( $value ) ? Core::as_string( \array_key_first( $value ), '' ) : (string) \array_shift( $words );
 		$started = self::monotonic_ns();
-		$bytes   = $this->arm_bytes();
+		$bytes   = $this->stat_bytes();
 		try {
 			$this->answer_verb( $request, $verb, $words );
 		} finally {
@@ -1394,7 +1360,7 @@ class Table_Node extends Node {
 	 *                                   separator, NUL, `..` or a leading dot.
 	 */
 	public static function stem( string $table, int $partition ): string {
-		if ( 1 !== \preg_match( '/^[A-Za-z0-9][A-Za-z0-9_.:-]*$/D', $table ) || \str_contains( $table, '..' ) ) {
+		if ( Sqlite_Arm::refuses_file_name( $table ) ) {
 			throw new \InvalidArgumentException( "Table name {$table} cannot name a file" );
 		}
 		return "{$table}.p{$partition}";
@@ -1517,7 +1483,7 @@ class Table_Node extends Node {
 	 */
 	private function purge_batches( Durable_Arm $arm, int $now, float $until, int $batch ): array {
 		$started = self::monotonic_ns();
-		$bytes   = $this->arm_bytes();
+		$bytes   = $this->stat_bytes();
 		$batches = 0;
 		$purged  = 0;
 		try {
@@ -1556,7 +1522,7 @@ class Table_Node extends Node {
 		try {
 			$result = $arm->checkpoint();
 		} finally {
-			$this->count_call( 'CHECKPOINT', $started, $this->arm_bytes() );
+			$this->count_call( 'CHECKPOINT', $started, $this->stat_bytes() );
 		}
 		if ( null === $result ) {
 			return;
@@ -1576,38 +1542,15 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * The node's snapshot, its per-verb counters shown as stats() reports them.
-	 *
-	 * @return array<string,mixed>
-	 */
-	public function dump_node(): array {
-		return \array_replace( parent::dump_node(), [ 'verb_stats' => $this->stats() ] );
-	}
-
-	/**
-	 * The per-verb counters, for the console's metadata row.
-	 *
-	 * @return array<string,mixed>
-	 */
-	public function dump_metadata(): array {
-		return [ 'verb_stats' => $this->stats() ];
-	}
-
-	/**
-	 * `reset_stats`: zero the counters, answering them as they stood, so no
-	 * call lands between the read and the reset.
+	 * `reset_stats`: zero the counters, answering them as they stood. A mount
+	 * refuses it.
 	 *
 	 * @return array<string,array{calls:int,asked:int,answered:int,bytes:int,total_ms:float,max_ms:float}>
 	 * @throws \RuntimeException On a mounted Table, which serves reads only.
 	 */
 	public function reset_stats(): array {
 		$this->refuse_if_mounted( 'reset_stats' );
-		$stats            = $this->stats();
-		$this->verb_stats = self::ZERO_STATS;
-		if ( null !== $this->traced ) {
-			$this->traced = self::ZERO_STATS;
-		}
-		return $stats;
+		return $this->zero_stats();
 	}
 
 	/**
@@ -1623,85 +1566,12 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * The per-verb counters since the node was built or last reset. `asked`
-	 * and `answered` count keys, except SADD's member rows, SMEMBERS' member
-	 * rows answered, and PURGE's rows: `asked` the batches' room, `answered`
-	 * the rows deleted. `bytes` is what a durable arm encoded or decoded; a
-	 * volatile arm's serializer runs inside its extension, so it reads 0. A
-	 * call that threw still counts, with its time.
-	 *
-	 * @api The `stats` verb, dump_node() and dump_metadata() answer it.
-	 * @return array<string,array{calls:int,asked:int,answered:int,bytes:int,total_ms:float,max_ms:float}>
-	 */
-	public function stats(): array {
-		$out = [];
-		foreach ( $this->verb_stats as $verb => $row ) {
-			$out[ $verb ] = [
-				'calls'    => $row[ self::CALLS ],
-				'asked'    => $row[ self::ASKED ],
-				'answered' => $row[ self::ANSWERED ],
-				'bytes'    => $row[ self::BYTES ],
-				'total_ms' => \round( $row[ self::TOTAL_NS ] / 1e6, 3 ),
-				'max_ms'   => \round( $row[ self::MAX_NS ] / 1e6, 3 ),
-			];
-		}
-		return $out;
-	}
-
-	/**
-	 * Count one call of `$verb` begun at `$started`: its time and the bytes
-	 * its arm handled since `$bytes`. A verb not counted adds no row. Callers
-	 * bracket inline, since a closure would allocate once per message.
-	 *
-	 * @param string $verb    The verb.
-	 * @param int    $started monotonic_ns() when the call began.
-	 * @param int    $bytes   arm_bytes() when the call began.
-	 */
-	private function count_call( string $verb, int $started, int $bytes ): void {
-		if ( ! isset( $this->verb_stats[ $verb ] ) ) {
-			return;
-		}
-		$ns = self::monotonic_ns() - $started;
-		++$this->verb_stats[ $verb ][ self::CALLS ];
-		$this->verb_stats[ $verb ][ self::BYTES ]    += $this->arm_bytes() - $bytes;
-		$this->verb_stats[ $verb ][ self::TOTAL_NS ] += $ns;
-		if ( $ns > $this->verb_stats[ $verb ][ self::MAX_NS ] ) {
-			$this->verb_stats[ $verb ][ self::MAX_NS ] = $ns;
-		}
-	}
-
-	/**
-	 * Add to a verb's keys or rows asked and answered; as count_call(), a
-	 * verb not counted adds no row.
-	 *
-	 * @param string $verb     The verb.
-	 * @param int    $asked    Keys or rows asked.
-	 * @param int    $answered Keys or rows answered or written.
-	 */
-	private function count_rows( string $verb, int $asked, int $answered ): void {
-		if ( ! isset( $this->verb_stats[ $verb ] ) ) {
-			return;
-		}
-		$this->verb_stats[ $verb ][ self::ASKED ]    += $asked;
-		$this->verb_stats[ $verb ][ self::ANSWERED ] += $answered;
-	}
-
-	/**
 	 * The encoded bytes the Table's durable arm has handled; 0 for any other.
 	 *
 	 * @return int Bytes.
 	 */
-	private function arm_bytes(): int {
+	private function stat_bytes(): int {
 		return $this->arm instanceof Durable_Arm ? $this->arm->bytes() : 0;
-	}
-
-	/**
-	 * The monotonic clock: `hrtime( true )`, or the `$hrtime` seam.
-	 *
-	 * @return int Nanoseconds from an arbitrary origin.
-	 */
-	private static function monotonic_ns(): int {
-		return null === self::$hrtime ? (int) \hrtime( true ) : ( self::$hrtime )();
 	}
 
 	/**
@@ -1759,42 +1629,6 @@ class Table_Node extends Node {
 		$node->partition = $partition;
 		$node->arguments( [ $spec['namespace'], (string) $spec['ttl'], $spec['backend'] ] );
 		return $node;
-	}
-
-	/**
-	 * Read or set the trace level. Setting it on holds the counters as they
-	 * stand, so the first trace line sums what came after; off drops them.
-	 *
-	 * @param int|null $level New level (null = pure getter).
-	 * @return int The level now in force.
-	 */
-	public function debug_state( ?int $level = null ): int {
-		$state = parent::debug_state( $level );
-		if ( null !== $level ) {
-			$this->traced = $state > 0 ? $this->traced ?? $this->verb_stats : null;
-		}
-		return $state;
-	}
-
-	/**
-	 * A traced Table's line for one Router tick: `DEBUG: <VERB> <calls>
-	 * <ms>ms, …` over each verb called since its last line, on the stderr
-	 * path set_state()'s DEBUG line takes, so the console's timeline reads
-	 * it; no line when nothing was called.
-	 */
-	private function trace_tick(): void {
-		$last  = $this->traced ?? $this->verb_stats;
-		$parts = [];
-		foreach ( $this->verb_stats as $verb => $row ) {
-			$calls = $row[ self::CALLS ] - $last[ $verb ][ self::CALLS ];
-			if ( $calls > 0 ) {
-				$parts[] = "{$verb} {$calls} " . \round( ( $row[ self::TOTAL_NS ] - $last[ $verb ][ self::TOTAL_NS ] ) / 1e6, 3 ) . 'ms';
-			}
-		}
-		$this->traced = $this->verb_stats;
-		if ( [] !== $parts ) {
-			$this->stderr( 'DEBUG: ' . \implode( ', ', $parts ) );
-		}
 	}
 
 	/**

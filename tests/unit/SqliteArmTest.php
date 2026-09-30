@@ -599,6 +599,34 @@ final class SqliteArmTest extends TestCase {
 		}
 	}
 
+	public function test_open_database_opens_a_writer_in_wal_and_a_reader_creates_no_file(): void {
+		\mkdir( \dirname( $this->path() ), 0700, true );
+		$writer = Sqlite_Arm::open_database( $this->path(), false, 4321 );
+		$this->assertSame(
+			[ 'wal', 4321, 1, 0, Sqlite_Arm::WAL_LIMIT_BYTES, -Sqlite_Arm::CACHE_KIB ],
+			[
+				$writer->query( 'PRAGMA journal_mode' )->fetchColumn(),
+				(int) $writer->query( 'PRAGMA busy_timeout' )->fetchColumn(),
+				(int) $writer->query( 'PRAGMA synchronous' )->fetchColumn(),
+				(int) $writer->query( 'PRAGMA wal_autocheckpoint' )->fetchColumn(),
+				(int) $writer->query( 'PRAGMA journal_size_limit' )->fetchColumn(),
+				(int) $writer->query( 'PRAGMA cache_size' )->fetchColumn(),
+			],
+			'busy_timeout, WAL, synchronous=NORMAL, no autocheckpoint, the WAL cap and the cache'
+		);
+		$this->assertSame( [], $writer->query( "SELECT name FROM sqlite_master WHERE type = 'table'" )->fetchAll( \PDO::FETCH_COLUMN ), 'the opener declares no table' );
+
+		$absent = "{$this->dir}/tables/lab-7:owl.p5.sqlite";
+		try {
+			Sqlite_Arm::open_database( $absent, true, 4321 );
+			$this->fail( 'a reader opened a file that is not there' );
+		} catch ( \PDOException $e ) {
+			$this->assertFileDoesNotExist( $absent, 'a reader creates no file' );
+		}
+		$reader = Sqlite_Arm::open_database( $this->path(), true, 4321 );
+		$this->assertSame( [ 4321, -Sqlite_Arm::CACHE_KIB ], [ (int) $reader->query( 'PRAGMA busy_timeout' )->fetchColumn(), (int) $reader->query( 'PRAGMA cache_size' )->fetchColumn() ] );
+	}
+
 	public function test_a_batch_that_fails_lands_no_key_and_answers_none(): void {
 		$arm = new Sqlite_Arm( $this->path(), 'kea:p3' );
 		$arm->write_multi( [ 'sku-41' => 'kea-41', 'sku-43' => 'kea-43' ], 0 );

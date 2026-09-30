@@ -213,18 +213,44 @@ final class Sqlite_Arm extends Durable_Arm {
 	}
 
 	/**
+	 * Whether `$name` cannot name a SQLite file inside its directory: a path
+	 * separator, NUL, `..`, a leading dot, or any character outside
+	 * `[A-Za-z0-9_.:-]`.
+	 *
+	 * @param string $name A Table's or a Ledger's declared name.
+	 * @return bool True when it cannot.
+	 */
+	public static function refuses_file_name( string $name ): bool {
+		return 1 !== \preg_match( '/^[A-Za-z0-9][A-Za-z0-9_.:-]*$/D', $name ) || \str_contains( $name, '..' );
+	}
+
+	/**
 	 * See Durable_Arm::write_scope(): one transaction holding the write lock
 	 * from its start, so a read inside sees what it writes over. The file is
 	 * this arm's own, so no caller's transaction shares the connection.
 	 */
 	protected function write_scope( \Closure $work ): mixed {
-		$this->handle()->exec( 'BEGIN IMMEDIATE' );
+		return self::immediate( $this->handle(), $work );
+	}
+
+	/**
+	 * Run `$work` in one `BEGIN IMMEDIATE … COMMIT` on `$db`, which takes the
+	 * write lock at its start, waiting on busy_timeout for another writer's.
+	 * A throw rolls the transaction back and propagates.
+	 *
+	 * @template T
+	 * @param \PDO           $db   The connection.
+	 * @param \Closure(): T  $work What the transaction runs.
+	 * @return T What `$work` returned.
+	 */
+	public static function immediate( \PDO $db, \Closure $work ): mixed {
+		$db->exec( 'BEGIN IMMEDIATE' );
 		try {
 			$out = $work();
-			$this->handle()->exec( 'COMMIT' );
+			$db->exec( 'COMMIT' );
 			return $out;
 		} catch ( \Throwable $e ) {
-			$this->rollback();
+			self::rollback( $db );
 			throw $e;
 		}
 	}
@@ -232,10 +258,12 @@ final class Sqlite_Arm extends Durable_Arm {
 	/**
 	 * End a failed transaction, whether it failed mid-way or at a COMMIT
 	 * SQLite answered BUSY, which leaves the transaction open.
+	 *
+	 * @param \PDO $db The connection.
 	 */
-	private function rollback(): void {
+	private static function rollback( \PDO $db ): void {
 		try {
-			$this->handle()->exec( 'ROLLBACK' );
+			$db->exec( 'ROLLBACK' );
 		} catch ( \PDOException ) {
 			// SQLite rolled back on its own error; nothing is left to end.
 			return;
@@ -485,18 +513,45 @@ final class Sqlite_Arm extends Durable_Arm {
 	}
 
 	/**
-	 * Open the connection: read-only, or as the writer in WAL mode with the
-	 * `kv` and `members` tables declared.
+	 * Open the connection through `open_database()`, declaring the writer's
+	 * `kv` and `members` tables.
 	 *
 	 * @return \PDO The connection.
 	 * @throws \PDOException When the file cannot open.
 	 * @throws \RuntimeException When the writer cannot enter WAL mode.
 	 */
 	private function connect(): \PDO {
-		$flags = $this->read_only ? [ \PDO::SQLITE_ATTR_OPEN_FLAGS => \PDO::SQLITE_OPEN_READONLY ] : [];
-		$db    = new \PDO( 'sqlite:' . $this->path, null, null, [ \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION ] + $flags );
-		$db->exec( 'PRAGMA busy_timeout = ' . \max( 1, $this->busy_timeout_ms ) );
+		$db = self::open_database( $this->path, $this->read_only, $this->busy_timeout_ms );
 		if ( $this->read_only ) {
+			return $db;
+		}
+		$db->exec( 'CREATE TABLE IF NOT EXISTS kv ( "key" TEXT PRIMARY KEY, "value" BLOB NOT NULL, expires INTEGER NOT NULL )' );
+		$db->exec( 'CREATE INDEX IF NOT EXISTS kv_expires ON kv ( expires )' );
+		$db->exec( 'CREATE TABLE IF NOT EXISTS members ( set_key TEXT NOT NULL, member TEXT NOT NULL, "value" BLOB NOT NULL, expires INTEGER NOT NULL, PRIMARY KEY ( set_key, member ) ) WITHOUT ROWID' );
+		$db->exec( 'CREATE INDEX IF NOT EXISTS members_expires ON members ( expires )' );
+		$this->has_members = true;
+		return $db;
+	}
+
+	/**
+	 * The one place a SQLite file opens, for a Table's arm and a Ledger alike:
+	 * `busy_timeout`, then for a writer WAL, `synchronous=NORMAL`, no
+	 * autocheckpoint, the WAL cap and the page cache, and for a reader the page
+	 * cache alone. It declares no table; each caller declares its own. A reader
+	 * creates nothing and refuses a path with no file.
+	 *
+	 * @param string $path            Database file; a writer's directory exists.
+	 * @param bool   $read_only       Open as a reader rather than a writer.
+	 * @param int    $busy_timeout_ms Wait on a held write lock, in milliseconds.
+	 * @return \PDO The connection, throwing on every error.
+	 * @throws \PDOException When the file cannot open.
+	 * @throws \RuntimeException When a writer cannot enter WAL mode.
+	 */
+	public static function open_database( string $path, bool $read_only, int $busy_timeout_ms ): \PDO {
+		$flags = $read_only ? [ \PDO::SQLITE_ATTR_OPEN_FLAGS => \PDO::SQLITE_OPEN_READONLY ] : [];
+		$db    = new \PDO( 'sqlite:' . $path, null, null, [ \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION ] + $flags );
+		$db->exec( 'PRAGMA busy_timeout = ' . \max( 1, $busy_timeout_ms ) );
+		if ( $read_only ) {
 			try {
 				$db->exec( self::CACHE_PRAGMA );
 			} catch ( \PDOException ) {
@@ -508,18 +563,13 @@ final class Sqlite_Arm extends Durable_Arm {
 		$mode = $db->prepare( 'PRAGMA journal_mode = WAL' );
 		$mode->execute();
 		if ( 'wal' !== $mode->fetchColumn() ) {
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; Table_Node::open() escapes the wrapped message once.
-			throw new \RuntimeException( "sqlite backend could not enter WAL mode at {$this->path}" );
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; the node wrapping it escapes the message once.
+			throw new \RuntimeException( "sqlite backend could not enter WAL mode at {$path}" );
 		}
 		$db->exec( 'PRAGMA synchronous = NORMAL' );
 		$db->exec( 'PRAGMA wal_autocheckpoint = 0' );
 		$db->exec( 'PRAGMA journal_size_limit = ' . self::WAL_LIMIT_BYTES );
 		$db->exec( self::CACHE_PRAGMA );
-		$db->exec( 'CREATE TABLE IF NOT EXISTS kv ( "key" TEXT PRIMARY KEY, "value" BLOB NOT NULL, expires INTEGER NOT NULL )' );
-		$db->exec( 'CREATE INDEX IF NOT EXISTS kv_expires ON kv ( expires )' );
-		$db->exec( 'CREATE TABLE IF NOT EXISTS members ( set_key TEXT NOT NULL, member TEXT NOT NULL, "value" BLOB NOT NULL, expires INTEGER NOT NULL, PRIMARY KEY ( set_key, member ) ) WITHOUT ROWID' );
-		$db->exec( 'CREATE INDEX IF NOT EXISTS members_expires ON members ( expires )' );
-		$this->has_members = true;
 		return $db;
 	}
 }
