@@ -196,7 +196,7 @@ final class LedgerMountTest extends TestCase {
 		Bootstrap::mount_ledger( [ 'lab-7:kea' ] );
 
 		$this->assertSame( [ Message::TM_STRUCT | Message::TM_RESPONSE, [ 'verb' => 'SUM', 'data' => [] ] ], $this->ask( 'lab-7:kea', [ 'SUM' => [ 'from' => self::T - 1800, 'to' => self::T + 1, 'ks' => [ 'sku-41' ] ] ] ) );
-		$this->assertSame( [ 'verb' => 'TOP', 'data' => [ 'total' => 0, 'rows' => [] ] ], $this->ask( 'lab-7:kea', [ 'TOP' => [ 'from' => self::T - 1800, 'to' => self::T + 1, 'ks' => [ 'sku-41' ], 'column' => 'qty', 'order' => 'desc', 'limit' => 7, 'offset' => 0 ] ] )[1] );
+		$this->assertSame( [ 'verb' => 'TOP', 'data' => [ 'total' => 0, 'rows' => [] ] ], $this->ask( 'lab-7:kea', [ 'TOP' => [ 'from' => self::T - 1800, 'to' => self::T + 1, 'ks' => [ 'sku-41' ], 'order_by' => 'qty', 'order' => 'desc', 'limit' => 7, 'offset' => 0 ] ] )[1] );
 		$this->assertDirectoryDoesNotExist( "{$this->base}/ledgers" );
 	}
 

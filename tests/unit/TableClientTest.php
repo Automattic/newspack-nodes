@@ -378,7 +378,7 @@ final class TableClientTest extends TestCase {
 				'total' => 2,
 				'rows'  => [ [ 'aisle-9', 7.0, 11.0 ] ],
 			],
-			$client->top( 'lab-7:weka', $range + [ 'ks' => [ 'sku-41', 'sku-43' ], 'column' => 'qty', 'order' => 'desc', 'limit' => 1, 'offset' => 0 ] )
+			$client->top( 'lab-7:weka', $range + [ 'ks' => [ 'sku-41', 'sku-43' ], 'order_by' => 'qty', 'order' => 'desc', 'limit' => 1, 'offset' => 0 ] )
 		);
 		$this->assertSame( [ 'aisle-9' ], $client->ledger_members( 'lab-7:weka', 1790000400 - 600, 1790000401, 'sku-41' ) );
 		$this->assertSame( [], $this->asker->folded, 'every reply went to the client' );
@@ -393,14 +393,14 @@ final class TableClientTest extends TestCase {
 			}
 		);
 		$client = $this->asker->client;
-		$this->assertNull( $client->top( 'lab-7:weka', [ 'from' => 0, 'to' => 1, 'ks' => [ 'sku-41' ], 'column' => 'price', 'order' => 'desc', 'limit' => 1, 'offset' => 0 ] ) );
+		$this->assertNull( $client->top( 'lab-7:weka', [ 'from' => 0, 'to' => 1, 'ks' => [ 'sku-41' ], 'order_by' => 'price', 'order' => 'desc', 'limit' => 1, 'offset' => 0 ] ) );
 		$this->assertNull( $client->append( 'lab-7:weka', [ [ 1790000400, 'sku 41', 'aisle-9', [ 3, 7 ] ] ] ) );
 		$this->assertNull( $client->sum( 'lab-7:gone', [ 'from' => 0, 'to' => 1, 'ks' => [ 'sku-41' ] ] ) );
 		$mute = new Capture_Sink_Node();
 		$mute->name( 'lab-7:mute' );
 		$this->assertNull( $client->ledger_members( 'lab-7:mute', 0, 1, 'sku-41' ), 'no answer is no data' );
 		$log = \implode( "\n", $lines );
-		$this->assertStringContainsString( 'Table_Client: lab-7:weka refused an ask from asker-9 — TOP: column is one of qty, hi', $log );
+		$this->assertStringContainsString( 'Table_Client: lab-7:weka refused an ask from asker-9 — TOP: order_by is x or one of qty, hi', $log );
 		$this->assertStringContainsString( 'Table_Client: lab-7:gone refused an ask from asker-9 — NOT_AVAILABLE', $log );
 	}
 

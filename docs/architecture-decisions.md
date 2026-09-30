@@ -1371,7 +1371,7 @@ A request may drive a running graph. A declared request answers TO=FROM through
 [`tachikoma-lineage.md`](tachikoma-lineage.md#a-declared-request-answers-in-an-envelope-tables-verbs-answer-bare)
 records.
 
-**Amendment:** a request carries a structure for a Table's `MSET`, `ADD` and `SADD` and a Ledger's `APPEND`, `SUM`, `TOP` and `MEMBERS` alone. A Ledger's `APPEND` carries a list of `[ t, k, x, [ columns… ] ]` rows, and each of its reads a map of fields naming a `t` range, `from ≤ t < to`: `SUM` `{ from, to, ks, xs?, by_t? }`, `TOP` `{ from, to, ks, column, order, limit, offset, positive? }` and `MEMBERS` `{ from, to, k }`. A read builds its SQL from the Ledger's declaration alone: a column it names is looked up there and refused when absent, and a refusal never echoes the request's text. A Table's
+**Amendment:** a request carries a structure for a Table's `MSET`, `ADD` and `SADD` and a Ledger's `APPEND`, `SUM`, `TOP` and `MEMBERS` alone. A Ledger's `APPEND` carries a list of `[ t, k, x, [ columns… ] ]` rows, and each of its reads a map of fields naming a `t` range, `from ≤ t < to`: `SUM` `{ from, to, ks, xs?, by_t?, group? }`, `TOP` `{ from, to, ks, order_by, order, limit, offset, positive?, positive_each_t? }` and `MEMBERS` `{ from, to, k }`. A read builds its SQL from the Ledger's declaration alone: a column it names is looked up there and refused when absent or when its aggregate gives the use no meaning, and a refusal never echoes the request's text. A Table's
 `MSET` and `ADD` carry `key => [ value, ttl ]` maps, and its `SADD` carries
 `set_key => [ [ member => value, … ], ttl ]` maps, that a string cannot hold without an
 encoding, so they travel as `TM_REQUEST | TM_STRUCT` with VALUE `[ 'MSET' => … ]`,
@@ -1824,9 +1824,16 @@ lifespan, never records; a `Table` files each value into the window of its own t
   reuses for new rows. Every partition's writer runs the drop, and the second finds nothing. An
   `APPEND` row already past the lifespan is dropped and counted, never stored. There is no TTL,
   no expiry column or index, no per-row purge and no `VACUUM`.
-- **Reads name a `t` range.** `SUM`, `TOP` and `MEMBERS` are declared requests answered TO=FROM
-  ([ADR-23](#adr-23-a-request-carries-no-authority-of-its-own)), each over `from ≤ t < to`,
-  walking the distinct `t` in it with one primary-key seek apiece and seeking its keys at each.
+- **Reads name a `t` range and aggregate in SQL.** `SUM`, `TOP` and `MEMBERS` are declared
+  requests answered TO=FROM ([ADR-23](#adr-23-a-request-carries-no-authority-of-its-own)), each
+  over `from ≤ t < to`, walking the distinct `t` in it with one primary-key seek apiece and
+  seeking its keys at each. Every total a reader shows comes out of that one statement, so no
+  reader sums a scope in PHP: `SUM` groups by `( k, x )`, or by `k` alone with `group: 'k'` for
+  a scope's header totals, each optionally per `t`; `TOP` ranks by a column's aggregate, by `x`,
+  or by the ratio of two `sum` columns, a zero denominator last, and its `positive` filter
+  applies to the window's aggregate or, with `positive_each_t`, to each `( t, x )` group before
+  the sum. A request names columns and never supplies SQL, and a combination with no meaning —
+  a ratio over a `min` or `max` column, `positive_each_t` without `positive` — is refused.
   A request graph reads through `Bootstrap::mount_ledger()`, which opens the file read-only and
   refuses `APPEND` and `flush`. ADR-23's bound on a Table mount holds for it too: a verb below
   MANAGE mounts a Ledger only when every row it holds is data the verb's role may already read,

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A Ledger's `TOP` ranks by a ratio or by `x`.** `order_by` names a declared column, as before; `x`, ranking by the member itself; or `[ numerator, denominator ]`, two distinct `sum` columns, ranking by `SUM( numerator ) / NULLIF( SUM( denominator ), 0 )`, so a member whose denominator sums to 0 ranks last in either order. A ratio naming a `min` or `max` column, a column twice or anything but two names is refused as `TOP: order_by is x, one of <columns>, or [ numerator, denominator ] naming two sum columns of <sum columns>`, or `TOP: order_by is x or one of <columns>` on a Ledger with fewer than two sum columns, which offers no ratio. A Ledger declaring no columns ranks by `x`, and refuses any other `order_by` or a `positive` with `TOP: a Ledger declaring no columns ranks by x alone, with no positive`.
+- **`TOP` `positive_each_t: true` filters each `( t, x )` group before the sum.** Only the `t` in which a member's `positive` column is above 0 contribute to its aggregates, its rank and the total; without it `positive` still filters on the window's aggregate. It needs `positive` (`TOP: positive_each_t needs positive`) and is true or false.
+- **`SUM` `group: 'k'` totals every member of each key,** answering `[ k, null, t|null, columns… ]` per key, or per key and `t` with `by_t`, so a scope's header totals come back one row per key. `group: 'x'`, the default, keeps the `( k, x )` grouping; any other value is refused as `SUM: group is x or k`, and with `group: 'k'` `xs` names at most 250 members, since a key's total is one statement's. Every new shape stays on the seek-per-`t` plan, which `LedgerReadTest` pins through `EXPLAIN QUERY PLAN`.
+
+### Changed
+
+- **`TOP`'s `column` field is `order_by`.** A request naming `column` is refused as `TOP: takes the fields from, to, ks, order_by, order, limit, offset, positive and positive_each_t alone`. No alias.
+- **A Ledger column may not be named `x`,** which `order_by` names as the member; `make_node Ledger` refuses it naming the column.
+
 ## [2.80.0] - 2026-09-30
 
 ### Added

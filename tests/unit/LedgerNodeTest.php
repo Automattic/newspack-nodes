@@ -213,6 +213,7 @@ final class LedgerNodeTest extends TestCase {
 				[ [ '600', '3', 'qty:avg' ], 'qty:avg' ],
 				[ [ '600', '3', 'qty', 'qty:max' ], 'qty' ],
 				[ [ '600', '3', 'q ty' ], 'q ty' ],
+				[ [ '600', '3', 'qty', 'x:max' ], 'column x:max: a name in [A-Za-z_][A-Za-z0-9_]* other than x, which TOP orders by as the member' ],
 				[ [ '600' ], 'num_segments' ],
 				[ [ '0', '3', 'qty' ], 'segment_seconds' ],
 			] as [ $args, $named ]

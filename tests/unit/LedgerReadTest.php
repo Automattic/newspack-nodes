@@ -59,6 +59,9 @@ final class LedgerReadTest extends TestCase {
 	/** Past every seeded `t`. */
 	private const END = self::T + 1201;
 
+	/** How a TOP refuses an order_by the kea Ledger, one sum column, cannot rank by. */
+	private const KEA_ORDER_BY = 'order_by is x or one of qty, lo, hi';
+
 	private string $dir = '';
 	private Capture_Sink_Node $sink;
 	private Command_Interpreter_Node $interpreter;
@@ -116,6 +119,28 @@ final class LedgerReadTest extends TestCase {
 			]
 		);
 		return $three;
+	}
+
+	/**
+	 * The ibis Ledger, written by partition 4, with two sum columns a ratio
+	 * divides. Across srv-2 and srv-7, ms / hits / errors / peak: /a 1300 /
+	 * 5 / 1 / 40, /b 450 / 10 / 2 / 90, /c 70 / 0 / 0 / 5 (no hits), /d 30 /
+	 * 2 / 0 / 15. Errors fall only in ( T, /a ) and ( T+600, /b ).
+	 */
+	private function ibis(): Ledger_Node {
+		$ibis = $this->ledger( '4', 'lab-7:ibis', '600', '3', 'ms', 'hits', 'errors', 'peak:max' );
+		$ibis->append(
+			[
+				[ self::T, 'srv-2', '/a', [ 900, 3, 1, 40 ] ],
+				[ self::T + 600, 'srv-2', '/a', [ 100, 1, 0, 20 ] ],
+				[ self::T, 'srv-2', '/b', [ 400, 8, 0, 30 ] ],
+				[ self::T + 600, 'srv-2', '/b', [ 50, 2, 2, 90 ] ],
+				[ self::T, 'srv-7', '/a', [ 300, 1, 0, 10 ] ],
+				[ self::T + 1200, 'srv-7', '/c', [ 70, 0, 0, 5 ] ],
+				[ self::T + 1200, 'srv-7', '/d', [ 30, 2, 0, 15 ] ],
+			]
+		);
+		return $ibis;
 	}
 
 	/**
@@ -215,7 +240,7 @@ final class LedgerReadTest extends TestCase {
 					'rows'  => [ [ 'aisle-12', 7.0, 3.0, 8.0 ] ],
 				]
 			),
-			$this->read( $kea, 'TOP', [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'sku-41', 'sku-43' ], 'column' => 'qty', 'order' => 'desc', 'limit' => 1, 'offset' => 1 ] )
+			$this->read( $kea, 'TOP', [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'sku-41', 'sku-43' ], 'order_by' => 'qty', 'order' => 'desc', 'limit' => 1, 'offset' => 1 ] )
 		);
 		$this->assertSame(
 			self::answered(
@@ -225,7 +250,7 @@ final class LedgerReadTest extends TestCase {
 					'rows'  => [ [ 'aisle-12', 7.0, 3.0, 8.0 ], [ 'aisle-9', 13.0, 0.5, 11.0 ] ],
 				]
 			),
-			$this->read( $kea, 'TOP', [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'sku-41', 'sku-43' ], 'column' => 'lo', 'order' => 'desc', 'limit' => 5, 'offset' => 0 ] ),
+			$this->read( $kea, 'TOP', [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'sku-41', 'sku-43' ], 'order_by' => 'lo', 'order' => 'desc', 'limit' => 5, 'offset' => 0 ] ),
 			'ranked by the minimum lo declares'
 		);
 	}
@@ -239,7 +264,114 @@ final class LedgerReadTest extends TestCase {
 					'rows'  => [ [ 'aisle-12', 5.0, 3.0, 8.0 ] ],
 				]
 			),
-			$this->read( $this->kea(), 'TOP', [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'sku-43' ], 'column' => 'hi', 'order' => 'asc', 'limit' => 9, 'offset' => 0, 'positive' => 'qty' ] )
+			$this->read( $this->kea(), 'TOP', [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'sku-43' ], 'order_by' => 'hi', 'order' => 'asc', 'limit' => 9, 'offset' => 0, 'positive' => 'qty' ] )
+		);
+	}
+
+	public function test_top_orders_by_a_ratio_of_two_sum_columns_with_a_zero_denominator_last(): void {
+		$ibis = $this->ibis();
+		$top  = [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'srv-2', 'srv-7' ], 'order_by' => [ 'ms', 'hits' ], 'limit' => 9, 'offset' => 0 ];
+		$rows = [
+			'/a' => [ '/a', 1300.0, 5.0, 1.0, 40.0 ],
+			'/b' => [ '/b', 450.0, 10.0, 2.0, 90.0 ],
+			'/c' => [ '/c', 70.0, 0.0, 0.0, 5.0 ],
+			'/d' => [ '/d', 30.0, 2.0, 0.0, 15.0 ],
+		];
+		$this->assertSame(
+			self::answered( 'TOP', [ 'total' => 4, 'rows' => [ $rows['/a'], $rows['/b'], $rows['/d'], $rows['/c'] ] ] ),
+			$this->read( $ibis, 'TOP', $top + [ 'order' => 'desc' ] ),
+			'260, 45, 15 ms a hit, and /c with no hits last'
+		);
+		$this->assertSame(
+			self::answered( 'TOP', [ 'total' => 4, 'rows' => [ $rows['/d'], $rows['/b'], $rows['/a'], $rows['/c'] ] ] ),
+			$this->read( $ibis, 'TOP', $top + [ 'order' => 'asc' ] ),
+			'/c with no hits last ascending too'
+		);
+		$this->assertSame(
+			[ Message::TM_ERROR, "TOP: order_by is x, one of ms, hits, errors, peak, or [ numerator, denominator ] naming two sum columns of ms, hits, errors\n" ],
+			$this->read( $ibis, 'TOP', [ 'order' => 'desc', 'order_by' => [ 'ms', 'peak' ] ] + $top ),
+			'a ratio over a max column is refused, naming the sum columns'
+		);
+	}
+
+	public function test_top_orders_by_x_itself(): void {
+		$this->assertSame(
+			self::answered( 'TOP', [ 'total' => 4, 'rows' => [ [ '/d', 30.0, 2.0, 0.0, 15.0 ], [ '/c', 70.0, 0.0, 0.0, 5.0 ] ] ] ),
+			$this->read( $this->ibis(), 'TOP', [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'srv-2', 'srv-7' ], 'order_by' => 'x', 'order' => 'desc', 'limit' => 2, 'offset' => 0 ] )
+		);
+	}
+
+	public function test_top_positive_each_t_sums_only_the_t_in_which_the_member_was_positive(): void {
+		$ibis = $this->ibis();
+		$top  = [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'srv-2', 'srv-7' ], 'order_by' => 'ms', 'order' => 'desc', 'limit' => 9, 'offset' => 0, 'positive' => 'errors' ];
+		$this->assertSame(
+			self::answered( 'TOP', [ 'total' => 2, 'rows' => [ [ '/a', 1300.0, 5.0, 1.0, 40.0 ], [ '/b', 450.0, 10.0, 2.0, 90.0 ] ] ] ),
+			$this->read( $ibis, 'TOP', $top ),
+			'positive alone filters on the window aggregate'
+		);
+		$this->assertSame(
+			self::answered( 'TOP', [ 'total' => 2, 'rows' => [ [ '/a', 1200.0, 4.0, 1.0, 40.0 ], [ '/b', 50.0, 2.0, 2.0, 90.0 ] ] ] ),
+			$this->read( $ibis, 'TOP', $top + [ 'positive_each_t' => true ] ),
+			'( T, /a ) across both keys and ( T+600, /b ) alone'
+		);
+		$this->assertSame(
+			self::answered( 'TOP', [ 'total' => 2, 'rows' => [ [ '/b', 50.0, 2.0, 2.0, 90.0 ] ] ] ),
+			$this->read( $ibis, 'TOP', [ 'order_by' => [ 'errors', 'hits' ], 'limit' => 1 ] + $top + [ 'positive_each_t' => true ] ),
+			'a ratio over the positive t alone: /b 1 a hit, /a 0.25'
+		);
+	}
+
+	public function test_positive_each_t_admits_a_member_the_window_aggregate_excludes(): void {
+		$heron = $this->ledger( '6', 'lab-7:heron', '600', '3', 'qty', 'lo:min' );
+		$heron->append(
+			[
+				[ self::T, 'dock-3', '/p', [ 5, -1 ] ],
+				[ self::T + 600, 'dock-3', '/p', [ 3, 2 ] ],
+				[ self::T, 'dock-3', '/q', [ 7, 4 ] ],
+			]
+		);
+		$top = [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'dock-3' ], 'order_by' => 'qty', 'order' => 'desc', 'limit' => 9, 'offset' => 0, 'positive' => 'lo' ];
+		$this->assertSame(
+			self::answered( 'TOP', [ 'total' => 1, 'rows' => [ [ '/q', 7.0, 4.0 ] ] ] ),
+			$this->read( $heron, 'TOP', $top ),
+			'/p\'s window minimum is -1, so the window filter drops it'
+		);
+		$this->assertSame(
+			self::answered( 'TOP', [ 'total' => 2, 'rows' => [ [ '/q', 7.0, 4.0 ], [ '/p', 3.0, 2.0 ] ] ] ),
+			$this->read( $heron, 'TOP', $top + [ 'positive_each_t' => true ] ),
+			'/p counts at T+600, where its minimum is 2, and the total counts it'
+		);
+	}
+
+	public function test_sum_group_k_totals_every_member_of_each_key(): void {
+		$ibis  = $this->ibis();
+		$range = [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'srv-2', 'srv-7' ], 'group' => 'k' ];
+		$this->assertSame(
+			self::answered( 'SUM', [ [ 'srv-2', null, null, 1450.0, 14.0, 3.0, 90.0 ], [ 'srv-7', null, null, 400.0, 3.0, 0.0, 15.0 ] ] ),
+			$this->read( $ibis, 'SUM', $range )
+		);
+		$this->assertSame(
+			self::answered(
+				'SUM',
+				[
+					[ 'srv-2', null, self::T, 1300.0, 11.0, 1.0, 40.0 ],
+					[ 'srv-2', null, self::T + 600, 150.0, 3.0, 2.0, 90.0 ],
+					[ 'srv-7', null, self::T, 300.0, 1.0, 0.0, 10.0 ],
+					[ 'srv-7', null, self::T + 1200, 100.0, 2.0, 0.0, 15.0 ],
+				]
+			),
+			$this->read( $ibis, 'SUM', $range + [ 'by_t' => true ] ),
+			'per t with by_t'
+		);
+		$this->assertSame(
+			self::answered( 'SUM', [ [ 'srv-2', null, null, 1000.0, 4.0, 1.0, 40.0 ], [ 'srv-7', null, null, 300.0, 1.0, 0.0, 10.0 ] ] ),
+			$this->read( $ibis, 'SUM', $range + [ 'xs' => [ '/a' ] ] ),
+			'xs narrows the members totalled'
+		);
+		$this->assertSame(
+			self::answered( 'SUM', [ [ 'srv-2', '/a', null, 1000.0, 4.0, 1.0, 40.0 ] ] ),
+			$this->read( $ibis, 'SUM', [ 'group' => 'x', 'ks' => [ 'srv-2' ], 'xs' => [ '/a' ] ] + $range ),
+			'group x is the ( k, x ) grouping'
 		);
 	}
 
@@ -252,7 +384,7 @@ final class LedgerReadTest extends TestCase {
 		};
 		$db = ( new \ReflectionProperty( Ledger_Node::class, 'db' ) )->getValue( $kea );
 		$db->setAttribute( \PDO::ATTR_STATEMENT_CLASS, [ Commit_Between_Statement_Fixture::class, [ $late ] ] );
-		[ , $reply ] = $this->read( $kea, 'TOP', [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'sku-41', 'sku-43' ], 'column' => 'qty', 'order' => 'desc', 'limit' => 9, 'offset' => 0 ] );
+		[ , $reply ] = $this->read( $kea, 'TOP', [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'sku-41', 'sku-43' ], 'order_by' => 'qty', 'order' => 'desc', 'limit' => 9, 'offset' => 0 ] );
 		$this->assertSame( [ 'aisle-9', 'aisle-12' ], \array_column( $reply['data']['rows'], 0 ), 'the page reads the snapshot the count read' );
 		$this->assertSame( 2, $reply['data']['total'] );
 		$this->assertFalse( $db->inTransaction(), 'the read transaction ended' );
@@ -260,20 +392,41 @@ final class LedgerReadTest extends TestCase {
 	}
 
 	public function test_each_read_seeks_its_keys_at_each_distinct_t_rather_than_scanning_the_range(): void {
-		$kea = $this->kea();
-		$db  = ( new \ReflectionProperty( Ledger_Node::class, 'db' ) )->getValue( $kea );
-		$db->setAttribute( \PDO::ATTR_STATEMENT_CLASS, [ Recording_Statement_Fixture::class, [] ] );
-		Recording_Statement_Fixture::$ran = [];
-		$range                            = [ 'from' => self::T, 'to' => self::END ];
-		$this->read( $kea, 'SUM', $range + [ 'ks' => [ 'sku-41', 'sku-43' ] ] );
-		$this->read( $kea, 'SUM', $range + [ 'ks' => [ 'sku-41' ], 'xs' => [ 'aisle-9' ], 'by_t' => true ] );
-		$this->read( $kea, 'TOP', $range + [ 'ks' => [ 'sku-41', 'sku-43' ], 'column' => 'qty', 'order' => 'desc', 'limit' => 9, 'offset' => 0 ] );
-		$ran   = Recording_Statement_Fixture::$ran;
-		$ran[] = [ ( new \ReflectionClassConstant( Ledger_Node::class, 'MEMBERS_READ' ) )->getValue(), [ 1 => self::T, 2 => self::END, 3 => self::END, 4 => 'sku-41' ] ];
-		$this->assertCount( 5, $ran, 'two SUMs, the TOP count and page, and MEMBERS' );
-		$plain = new \PDO( 'sqlite:' . Ledger_Node::file( 'lab-7:kea' ) );
-		foreach ( $ran as [ $sql, $bound ] ) {
-			$explain = $plain->prepare( "EXPLAIN QUERY PLAN {$sql}" );
+		$range = [ 'from' => self::T, 'to' => self::END ];
+		$top   = $range + [ 'order' => 'desc', 'limit' => 9, 'offset' => 0 ];
+		$reads = [
+			'lab-7:kea'  => [
+				[ 'SUM', $range + [ 'ks' => [ 'sku-41', 'sku-43' ] ] ],
+				[ 'SUM', $range + [ 'ks' => [ 'sku-41' ], 'xs' => [ 'aisle-9' ], 'by_t' => true ] ],
+				[ 'SUM', $range + [ 'ks' => [ 'sku-41', 'sku-43' ], 'group' => 'k' ] ],
+				[ 'SUM', $range + [ 'ks' => [ 'sku-41' ], 'xs' => [ 'aisle-9' ], 'by_t' => true, 'group' => 'k' ] ],
+				[ 'TOP', $top + [ 'ks' => [ 'sku-41', 'sku-43' ], 'order_by' => 'qty' ] ],
+				[ 'TOP', $top + [ 'ks' => [ 'sku-41', 'sku-43' ], 'order_by' => 'x', 'positive' => 'qty', 'positive_each_t' => true ] ],
+			],
+			'lab-7:ibis' => [
+				[ 'TOP', $top + [ 'ks' => [ 'srv-2', 'srv-7' ], 'order_by' => [ 'ms', 'hits' ] ] ],
+			],
+		];
+		$ledgers = [
+			'lab-7:kea'  => $this->kea(),
+			'lab-7:ibis' => $this->ibis(),
+		];
+		$ran     = [];
+		foreach ( $reads as $name => $asked ) {
+			$db = ( new \ReflectionProperty( Ledger_Node::class, 'db' ) )->getValue( $ledgers[ $name ] );
+			$db->setAttribute( \PDO::ATTR_STATEMENT_CLASS, [ Recording_Statement_Fixture::class, [] ] );
+			Recording_Statement_Fixture::$ran = [];
+			foreach ( $asked as [ $verb, $query ] ) {
+				$this->read( $ledgers[ $name ], $verb, $query );
+			}
+			foreach ( Recording_Statement_Fixture::$ran as [ $sql, $bound ] ) {
+				$ran[] = [ $name, $sql, $bound ];
+			}
+		}
+		$ran[] = [ 'lab-7:kea', ( new \ReflectionClassConstant( Ledger_Node::class, 'MEMBERS_READ' ) )->getValue(), [ 1 => self::T, 2 => self::END, 3 => self::END, 4 => 'sku-41' ] ];
+		$this->assertCount( 11, $ran, 'four SUMs, three TOPs of a count and a page each, and MEMBERS' );
+		foreach ( $ran as [ $name, $sql, $bound ] ) {
+			$explain = ( new \PDO( 'sqlite:' . Ledger_Node::file( $name ) ) )->prepare( "EXPLAIN QUERY PLAN {$sql}" );
 			foreach ( $bound as $i => $value ) {
 				$explain->bindValue( $i, $value );
 			}
@@ -312,7 +465,7 @@ final class LedgerReadTest extends TestCase {
 		$kea   = $this->kea();
 		$range = [ 'from' => self::T - 1800, 'to' => self::T ];
 		$this->assertSame( self::answered( 'SUM', [] ), $this->read( $kea, 'SUM', $range + [ 'ks' => [ 'sku-41' ] ] ) );
-		$this->assertSame( self::answered( 'TOP', [ 'total' => 0, 'rows' => [] ] ), $this->read( $kea, 'TOP', $range + [ 'ks' => [ 'sku-41' ], 'column' => 'qty', 'order' => 'desc', 'limit' => 9, 'offset' => 0 ] ) );
+		$this->assertSame( self::answered( 'TOP', [ 'total' => 0, 'rows' => [] ] ), $this->read( $kea, 'TOP', $range + [ 'ks' => [ 'sku-41' ], 'order_by' => 'qty', 'order' => 'desc', 'limit' => 9, 'offset' => 0 ] ) );
 		$this->assertSame( self::answered( 'MEMBERS', [] ), $this->read( $kea, 'MEMBERS', $range + [ 'k' => 'sku-41' ] ) );
 	}
 
@@ -321,7 +474,7 @@ final class LedgerReadTest extends TestCase {
 		$range = [ 'from' => self::T, 'to' => self::END ];
 		$this->assertSame( self::answered( 'SUM', [] ), $this->read( $kea, 'SUM', $range + [ 'ks' => [] ] ) );
 		$this->assertSame( self::answered( 'SUM', [] ), $this->read( $kea, 'SUM', $range + [ 'ks' => [ 'sku-41' ], 'xs' => [] ] ) );
-		$this->assertSame( self::answered( 'TOP', [ 'total' => 0, 'rows' => [] ] ), $this->read( $kea, 'TOP', $range + [ 'ks' => [], 'column' => 'qty', 'order' => 'desc', 'limit' => 9, 'offset' => 0 ] ) );
+		$this->assertSame( self::answered( 'TOP', [ 'total' => 0, 'rows' => [] ] ), $this->read( $kea, 'TOP', $range + [ 'ks' => [], 'order_by' => 'qty', 'order' => 'desc', 'limit' => 9, 'offset' => 0 ] ) );
 	}
 
 	public function test_a_set_sums_its_groups_with_no_columns_lists_members_and_ranks_nothing(): void {
@@ -332,19 +485,36 @@ final class LedgerReadTest extends TestCase {
 			$this->read( $wren, 'SUM', [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'sku-41' ] ] )
 		);
 		$this->assertSame( self::answered( 'MEMBERS', [ 'aisle-12', 'aisle-9' ] ), $this->read( $wren, 'MEMBERS', [ 'from' => self::T, 'to' => self::END, 'k' => 'sku-41' ] ) );
+		$top = [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'sku-41' ], 'order' => 'desc', 'limit' => 9, 'offset' => 0 ];
 		$this->assertSame(
-			[ Message::TM_ERROR, "TOP: a Ledger declaring no columns has none to rank by\n" ],
-			$this->read( $wren, 'TOP', [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'sku-41' ], 'column' => 'qty', 'order' => 'desc', 'limit' => 9, 'offset' => 0 ] )
+			self::answered( 'TOP', [ 'total' => 2, 'rows' => [ [ 'aisle-9' ], [ 'aisle-12' ] ] ] ),
+			$this->read( $wren, 'TOP', $top + [ 'order_by' => 'x' ] ),
+			'a set ranks its members by x'
 		);
+		foreach ( [ [ 'order_by' => 'qty' ], [ 'order_by' => 'x', 'positive' => 'qty' ] ] as $fields ) {
+			$this->assertSame(
+				[ Message::TM_ERROR, "TOP: a Ledger declaring no columns ranks by x alone, with no positive\n" ],
+				$this->read( $wren, 'TOP', $top + $fields )
+			);
+		}
 	}
 
 	public function test_a_read_it_cannot_answer_is_refused_on_the_error_plane(): void {
 		$kea = $this->kea();
-		$top = [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'sku-41' ], 'column' => 'qty', 'order' => 'desc', 'limit' => 9, 'offset' => 0 ];
+		$top = [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'sku-41' ], 'order_by' => 'qty', 'order' => 'desc', 'limit' => 9, 'offset' => 0 ];
 		foreach (
 			[
-				[ 'TOP', [ 'column' => 'price' ] + $top, 'column is one of qty, lo, hi' ],
-				[ 'TOP', [ 'column' => "qty) --\nTOP: forged" ] + $top, 'column is one of qty, lo, hi' ],
+				[ 'TOP', [ 'order_by' => 'price' ] + $top, self::KEA_ORDER_BY ],
+				[ 'TOP', [ 'order_by' => "qty) --\nTOP: forged" ] + $top, self::KEA_ORDER_BY ],
+				[ 'TOP', [ 'order_by' => [ 'qty', 'lo' ] ] + $top, self::KEA_ORDER_BY ],
+				[ 'TOP', [ 'order_by' => [ 'qty', 'qty' ] ] + $top, self::KEA_ORDER_BY ],
+				[ 'TOP', [ 'order_by' => [ 'qty' ] ] + $top, self::KEA_ORDER_BY ],
+				[ 'TOP', [ 'order_by' => [ 'qty', [ 'qty' ] ] ] + $top, self::KEA_ORDER_BY ],
+				[ 'TOP', [ 'column' => 'qty' ] + $top, 'takes the fields from, to, ks, order_by, order, limit, offset, positive and positive_each_t alone' ],
+				[ 'TOP', [ 'positive_each_t' => true ] + $top, 'positive_each_t needs positive' ],
+				[ 'TOP', [ 'positive' => 'qty', 'positive_each_t' => 'yes' ] + $top, 'positive_each_t is true or false' ],
+				[ 'SUM', [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'sku-41' ], 'group' => 't' ], 'group is x or k' ],
+				[ 'SUM', [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'sku-41' ], 'group' => 'k', 'xs' => \array_map( static fn ( int $i ): string => "aisle-x{$i}", \range( 1, 251 ) ) ], 'xs names at most 250 members with group k' ],
 				[ 'TOP', [ 'positive' => 'price' ] + $top, 'positive is one of qty, lo, hi' ],
 				[ 'TOP', [ 'ks' => \array_map( static fn ( int $i ): string => "sku-x{$i}", \range( 1, 501 ) ) ] + $top, 'ks names at most 500 keys' ],
 				[ 'TOP', [ 'order' => 'up' ] + $top, 'order is asc or desc' ],
@@ -356,7 +526,7 @@ final class LedgerReadTest extends TestCase {
 				[ 'SUM', [ 'from' => self::T, 'to' => self::END, 'ks' => 'sku-41' ], 'ks is a list of strings' ],
 				[ 'SUM', [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'sku-41' ], 'xs' => [ 9 ] ], 'xs is a list of strings' ],
 				[ 'SUM', [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'sku-41' ], 'by_t' => 'yes' ], 'by_t is true or false' ],
-				[ 'SUM', [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'sku-41' ], "bt_t\nSUM: forged" => true ], 'takes the fields from, to, ks, xs and by_t alone' ],
+				[ 'SUM', [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'sku-41' ], "bt_t\nSUM: forged" => true ], 'takes the fields from, to, ks, xs, by_t and group alone' ],
 				[ 'MEMBERS', [ 'from' => self::T, 'to' => self::END, 'k' => [ 'sku-41' ] ], 'k is a string' ],
 				[ 'MEMBERS', 'sku-41', 'needs a map of its fields' ],
 			] as [ $verb, $query, $why ]
@@ -387,7 +557,7 @@ final class LedgerReadTest extends TestCase {
 			return $ns;
 		};
 		$this->read( $kea, 'SUM', [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'sku-41', 'sku-43', 'sku-47' ] ] );
-		$this->read( $kea, 'TOP', [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'sku-41', 'sku-43' ], 'column' => 'qty', 'order' => 'desc', 'limit' => 1, 'offset' => 0 ] );
+		$this->read( $kea, 'TOP', [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'sku-41', 'sku-43' ], 'order_by' => 'qty', 'order' => 'desc', 'limit' => 1, 'offset' => 0 ] );
 		$this->read( $kea, 'MEMBERS', [ 'from' => self::T, 'to' => self::END, 'k' => 'sku-41' ] );
 		$stats = $kea->stats();
 		$this->assertSame( [ 'calls' => 1, 'asked' => 3, 'answered' => 4, 'bytes' => 0, 'total_ms' => 1.5, 'max_ms' => 1.5 ], $stats['SUM'] );

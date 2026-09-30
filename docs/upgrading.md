@@ -6,6 +6,13 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **A Ledger's `TOP` takes `order_by` where it took `column`.** Rename the
+  field in every `TOP` query, `Table_Client::top()`'s included:
+  `[ …, 'column' => 'ms' ]` becomes `[ …, 'order_by' => 'ms' ]`. A query
+  still naming `column` is refused with a `TM_ERROR` and `top()` answers
+  null. event-logger-nodes' `Stats_Store::url_page()` sends `column` and
+  needs the rename. A Ledger declaring a column named `x` no longer opens;
+  rename the column and flush the Ledger (`wp nodes tables flush`).
 - **`Bootstrap::forget_node_tables()` is `Bootstrap::forget_node_stores()`.**
   It drops the Ledgers `node_ledgers()` resolved as well as the Tables. Call
   the new name; no alias remains.
