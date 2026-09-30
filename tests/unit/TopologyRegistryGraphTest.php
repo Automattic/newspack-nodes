@@ -11,7 +11,8 @@ use Newspack_Nodes\Tests\TestCase;
 /**
  * Raw structural graph extraction: node kind is derived from the make_node
  * CLASS token (never a node-name suffix), the log a node reads/writes from its
- * path ARG, and edges from `connect_node` plus `cmd <node>:config set_*_target`.
+ * path ARG, and edges from `connect_node` plus `cmd <node>:config set_*_target`,
+ * which replaces its slot, and `add_*_target`, which adds to it.
  */
 #[CoversClass( Topology_Registry::class )]
 #[CoversClass( Topology_Analyzer::class )]
@@ -96,6 +97,50 @@ class TopologyRegistryGraphTest extends TestCase {
 		$this->assertSame(
 			[ [ 'amber-flame-builder-731', 'green-completed-421' ] ],
 			Topology_Analyzer::graph_for( 'wombat-empty-config-target' )['edges']
+		);
+	}
+
+	public function test_graph_for_add_target_adds_an_edge_each_line_while_set_target_replaces(): void {
+		$this->write_tsl(
+			'wombat-add-config-target',
+			"make_node Echo amber-flame-builder-731\n"
+			. "make_node Echo teal-ledger-totals-208\n"
+			. "make_node Echo plum-ledger-dims-574\n"
+			. "make_node Echo violet-old-stats-947\n"
+			. "make_node Echo green-stats-421\n"
+			. "cmd amber-flame-builder-731:config set_stats_target violet-old-stats-947\n"
+			. "cmd amber-flame-builder-731:config add_ledger_target teal-ledger-totals-208\n"
+			. "cmd amber-flame-builder-731:config add_ledger_target plum-ledger-dims-574\n"
+			. "cmd amber-flame-builder-731:config set_stats_target green-stats-421\n"
+		);
+
+		$this->assertSame(
+			[
+				[ 'amber-flame-builder-731', 'teal-ledger-totals-208' ],
+				[ 'amber-flame-builder-731', 'plum-ledger-dims-574' ],
+				[ 'amber-flame-builder-731', 'green-stats-421' ],
+			],
+			Topology_Analyzer::graph_for( 'wombat-add-config-target' )['edges'],
+			'each add_ledger_target line adds its edge, and the second set_stats_target replaces the first'
+		);
+	}
+
+	public function test_graph_for_resolves_a_config_token_in_each_add_target_line(): void {
+		\Newspack_Nodes\Core::register_config_namespace(
+			'wombat_graph',
+			static fn ( string $key ): ?string => [ 'totals_ledger' => 'teal-ledger-totals-208', 'dims_ledger' => 'plum-ledger-dims-574' ][ $key ] ?? null
+		);
+		$this->write_tsl(
+			'wombat-add-token-target',
+			"make_node Echo amber-flame-builder-731\n"
+			. "cmd amber-flame-builder-731:config add_ledger_target <wombat_graph:totals_ledger>\n"
+			. "cmd amber-flame-builder-731:config add_ledger_target <wombat_graph:dims_ledger>\n"
+		);
+
+		$this->assertSame(
+			[ [ 'amber-flame-builder-731', 'teal-ledger-totals-208' ], [ 'amber-flame-builder-731', 'plum-ledger-dims-574' ] ],
+			Topology_Analyzer::graph_for( 'wombat-add-token-target' )['edges'],
+			'the two edges virtualEdges.test.js draws from the same resolved slot'
 		);
 	}
 

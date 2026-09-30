@@ -1371,7 +1371,7 @@ A request may drive a running graph. A declared request answers TO=FROM through
 [`tachikoma-lineage.md`](tachikoma-lineage.md#a-declared-request-answers-in-an-envelope-tables-verbs-answer-bare)
 records.
 
-**Amendment:** a request carries a structure for a Table's `MSET`, `ADD` and `SADD` and a Ledger's `APPEND`, `SUM`, `TOP` and `MEMBERS` alone. A Ledger's `APPEND` carries a list of `[ t, k, x, [ columns… ] ]` rows, and each of its reads a map of fields naming a `t` range, `from ≤ t < to`: `SUM` `{ from, to, ks, xs?, by_t?, group? }`, `TOP` `{ from, to, ks, order_by, order, limit, offset, positive?, positive_each_t? }` and `MEMBERS` `{ from, to, k }`. A read builds its SQL from the Ledger's declaration alone: a column it names is looked up there and refused when absent or when its aggregate gives the use no meaning, and a refusal never echoes the request's text. A Table's
+**Amendment:** a request carries a structure for a Table's `MSET`, `ADD` and `SADD` and a Ledger's `APPEND`, `SUM`, `TOP` and `MEMBERS` alone. A Ledger's `APPEND` carries a list of `[ t, k, x, [ columns… ] ]` rows, a `min` or `max` column taking null for a value not measured, and each of its reads a map of fields naming a `t` range, `from ≤ t < to`: `SUM` `{ from, to, ks, xs?, by_t?, group?, positive?, positive_each_t? }`, `TOP` `{ from, to, ks, order_by, order, limit, offset, positive?, positive_each_t? }` and `MEMBERS` `{ from, to, k }`. A read builds its SQL from the Ledger's declaration alone: a column it names is looked up there and refused when absent or when its aggregate gives the use no meaning, and a refusal never echoes the request's text. A Table's
 `MSET` and `ADD` carry `key => [ value, ttl ]` maps, and its `SADD` carries
 `set_key => [ [ member => value, … ], ttl ]` maps, that a string cannot hold without an
 encoding, so they travel as `TM_REQUEST | TM_STRUCT` with VALUE `[ 'MSET' => … ]`,
@@ -1812,7 +1812,9 @@ lifespan, never records; a `Table` files each value into the window of its own t
   point's epoch second, `k` a whitespace-free key, `x` a text member, `w` the writing partition
   and `s` a per-writer sequence, one per row, so two deltas never collide. No row is updated. A
   second row for one `( t, k, x )` is a delta, and every read aggregates the rows it finds by
-  the aggregate each column declares, `sum`, `min` or `max`. A flush's rows land in the newest
+  the aggregate each column declares, `sum`, `min` or `max`. A `sum` column is `NOT NULL`; a
+  `min` or `max` column takes null for a value not measured, which its aggregate skips, so an
+  unmeasured minimum never reads as 0 and never ranks first. A flush's rows land in the newest
   few `t` ranges, a handful of contiguous pages at the key's right edge, and a late row lands in
   its own older range. A Ledger declaring no columns is a set keyed `( t, k, x )`, written with
   `INSERT OR IGNORE`.
@@ -1830,9 +1832,10 @@ lifespan, never records; a `Table` files each value into the window of its own t
   seeking its keys at each. Every total a reader shows comes out of that one statement, so no
   reader sums a scope in PHP: `SUM` groups by `( k, x )`, or by `k` alone with `group: 'k'` for
   a scope's header totals, each optionally per `t`; `TOP` ranks by a column's aggregate, by `x`,
-  or by the ratio of two `sum` columns, a zero denominator last, and its `positive` filter
-  applies to the window's aggregate or, with `positive_each_t`, to each `( t, x )` group before
-  the sum. A request names columns and never supplies SQL, and a combination with no meaning —
+  or by the ratio of two `sum` columns, a zero denominator and an unmeasured `min` or `max` last
+  in either order. `SUM` and `TOP` share one `positive` filter, which applies to each group's
+  aggregate over the window or, with `positive_each_t`, to each `( t, group )` before the sum,
+  so errors-only header totals are one `SUM` too. A request names columns and never supplies SQL, and a combination with no meaning —
   a ratio over a `min` or `max` column, `positive_each_t` without `positive` — is refused.
   A request graph reads through `Bootstrap::mount_ledger()`, which opens the file read-only and
   refuses `APPEND` and `flush`. ADR-23's bound on a Table mount holds for it too: a verb below
@@ -1884,8 +1887,8 @@ claims no Ledger, and two topologies may declare one provided they declare it al
   ADR-4's habitable zone.
 - Only the segment drop and `flush` delete rows, and `flush` drops and declares `rows` anew in
   one transaction, never unlinking. A changed column list migrates by flush: a file holding
-  another declaration's `rows` refuses to open, naming `wp nodes tables flush`, which empties it
-  from the declaration.
+  another declaration's `rows`, a column's nullability included, refuses to open, naming
+  `wp nodes tables flush`, which empties it from the declaration.
 - Nothing sweeps `{base}/ledgers/`, so a Ledger no topology declares keeps its file until an
   operator deletes it.
 

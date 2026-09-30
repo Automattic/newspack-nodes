@@ -13,6 +13,12 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   null. event-logger-nodes' `Stats_Store::url_page()` sends `column` and
   needs the rename. A Ledger declaring a column named `x` no longer opens;
   rename the column and flush the Ledger (`wp nodes tables flush`).
+- **A Ledger declaring a `min` or `max` column must be flushed once.** Such
+  a column is nullable now, so a file written before refuses to open, naming
+  `wp nodes tables flush`; run it under the fleet hold. An `APPEND` may send
+  null in a `min` or `max` slot for a value not measured, where a caller
+  sent 0, which read as a real minimum and ranked first; null in a `sum`
+  slot is refused.
 - **`Bootstrap::forget_node_tables()` is `Bootstrap::forget_node_stores()`.**
   It drops the Ledgers `node_ledgers()` resolved as well as the Tables. Call
   the new name; no alias remains.

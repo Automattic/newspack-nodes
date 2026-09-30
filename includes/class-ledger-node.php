@@ -7,11 +7,13 @@
  * writes. A row is `( t, k, x, w, s, c0… )`: `t` the epoch second of the data
  * point, `k` a whitespace-free key, `x` a text member (`''` when unused), `w`
  * the writing partition, `s` that writer's row sequence, and one REAL per
- * declared column. The primary key `( t, k, x, w, s )` is the whole index, in a
- * `WITHOUT ROWID` table, so rows sit in time order and a flush's rows dirty the
- * few pages at the right edge. A row is never updated: a second row for one
- * `( t, k, x )` is a delta, and every read aggregates the rows it finds by the
- * aggregate its column declares. A Ledger declaring no columns is a set, keyed
+ * declared column: NOT NULL for a `sum`, and null in a `min` or `max` for a
+ * value not measured, which the aggregate skips. The primary key
+ * `( t, k, x, w, s )` is the whole index, in a `WITHOUT ROWID` table, so rows
+ * sit in time order and a flush's rows dirty the few pages at the right edge.
+ * A row is never updated: a second row for one `( t, k, x )` is a delta, and
+ * every read aggregates the rows it finds by the aggregate its column
+ * declares. A Ledger declaring no columns is a set, keyed
  * `( t, k, x )` alone, where an append of a row already there stores nothing.
  * Nothing deletes a row but the segment drop and `flush()`, which drops the
  * `rows` table and declares it anew in one transaction, never unlinking the
@@ -75,17 +77,17 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	/** What a read may apply to a column. */
 	public const AGGREGATES = [ self::DEFAULT_AGGREGATE, 'min', 'max' ];
 
-	/** The key every row carries, in key order, with its type. */
+	/** The key every row carries, in key order, with its declaration. */
 	private const KEY_COLUMNS = [
-		't' => 'INTEGER',
-		'k' => 'TEXT',
-		'x' => 'TEXT',
+		't' => 'INTEGER NOT NULL',
+		'k' => 'TEXT NOT NULL',
+		'x' => 'TEXT NOT NULL',
 	];
 
 	/** The key a row of a Ledger with columns adds, naming its writer. */
 	private const WRITER_COLUMNS = [
-		'w' => 'INTEGER',
-		's' => 'INTEGER',
+		'w' => 'INTEGER NOT NULL',
+		's' => 'INTEGER NOT NULL',
 	];
 
 	/** Why a mount refuses an APPEND. */
@@ -95,13 +97,14 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	private const ROW_SHAPE = '[ t, k, x, [ columns… ] ]';
 
 	/**
-	 * Each distinct `t` in `from ≤ t < to`, as `ts`, each found by one
+	 * Each distinct `t` in `from ≤ t < to`, as `ts.at`, each found by one
 	 * primary-key seek past the last: a loose index scan. Binds from, to, to.
+	 * The walk's column is `at`, so a bare `t` beside it is the row's.
 	 */
-	private const WALK = 'WITH RECURSIVE ts ( t ) AS ( SELECT MIN( t ) FROM rows WHERE t >= ? AND t < ? UNION ALL SELECT ( SELECT MIN( t ) FROM rows WHERE t > ts.t AND t < ? ) FROM ts WHERE ts.t IS NOT NULL ) ';
+	private const WALK = 'WITH RECURSIVE ts ( at ) AS ( SELECT MIN( t ) FROM rows WHERE t >= ? AND t < ? UNION ALL SELECT ( SELECT MIN( t ) FROM rows WHERE t > ts.at AND t < ? ) FROM ts WHERE ts.at IS NOT NULL ) ';
 
 	/** The rows at each walked `t`; CROSS JOIN keeps the walk outer, so each `t` seeks its keys. */
-	private const AT_EACH_T = 'FROM ts CROSS JOIN rows WHERE rows.t = ts.t';
+	private const AT_EACH_T = 'FROM ts CROSS JOIN rows WHERE rows.t = ts.at';
 
 	/** A key's distinct members in a `t` range; binds from, to, to, k. */
 	private const MEMBERS_READ = self::WALK . 'SELECT DISTINCT x ' . self::AT_EACH_T . ' AND k = ? ORDER BY x';
@@ -199,7 +202,7 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 			}
 		}
 		$values['columns'] = $this->declared_columns( \array_map( Core::as_string( ... ), Core::arr( $values['columns'] ) ) );
-		$names             = self::stored_columns( \count( $values['columns'] ) );
+		$names             = self::stored_columns( $values['columns'] );
 		[ $db, $partition ] = $this->open( $names );
 		$this->assign_schema_args( $args, $values );
 		$this->db             = $db;
@@ -235,7 +238,7 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	 * read-only and creates nothing; before any writer has made the file it
 	 * reads an empty table of this shape, in memory.
 	 *
-	 * @param array<string,string> $names Every stored column with its type.
+	 * @param array<string,string> $names stored_columns().
 	 * @return array{0: \PDO, 1: int} The connection, and the bound partition a
 	 *                                writer's rows carry as `w`; 0 for a mount.
 	 * @throws \RuntimeException Naming the Ledger, on no bound partition, a
@@ -301,14 +304,16 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	 *
 	 * @api Writers outside a graph, and the APPEND request's handler.
 	 * @param array<array-key,mixed> $rows `[ t, k, x, [ columns… ] ]` each, one
-	 *                                     column per declared column in order.
+	 *                                     column per declared column in order:
+	 *                                     a number, or null in a min or max
+	 *                                     not measured.
 	 * @return array{stored: int, dropped: int} Rows stored, and rows dropped as
 	 *                                          past the lifespan; a set's row
 	 *                                          already held is neither.
 	 * @throws \InvalidArgumentException On a mount, a row of another shape, a
 	 *                                   key that is empty or holds whitespace,
-	 *                                   or a column count other than the
-	 *                                   declared.
+	 *                                   a column count other than the
+	 *                                   declared, or null in a sum column.
 	 * @throws \PDOException When the write fails, the lock held past
 	 *                       BUSY_TIMEOUT_MS among the causes.
 	 * @throws \LogicException Before arguments() has opened the file.
@@ -340,23 +345,29 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	 *
 	 * @param list<mixed> $rows   The APPEND's rows.
 	 * @param int         $cutoff A row whose `t` is below it is dropped.
-	 * @return list<array{0: int, 1: string, 2: string, 3: list<int|float>}> Rows to store.
+	 * @return list<array{0: int, 1: string, 2: string, 3: list<int|float|null>}> Rows to store.
 	 * @throws \InvalidArgumentException On the first row it refuses, naming it.
 	 */
 	private function kept_rows( array $rows, int $cutoff ): array {
-		$width = \count( $this->columns );
+		$names = \array_keys( $this->columns );
+		$width = \count( $names );
 		$kept  = [];
 		foreach ( $rows as $i => $row ) {
 			[ $t, $k, $x, $columns ] = \is_array( $row ) && [ 0, 1, 2, 3 ] === \array_keys( $row ) ? $row : [ null, null, null, null ];
-			$numbers                 = \is_array( $columns ) ? \array_filter( $columns, static fn ( mixed $column ): bool => \is_int( $column ) || \is_float( $column ) ) : [];
+			$numbers                 = \is_array( $columns ) ? \array_filter( $columns, static fn ( mixed $column ): bool => null === $column || \is_int( $column ) || \is_float( $column ) ) : [];
 			if ( ! \is_int( $t ) || ! \is_string( $k ) || ! \is_string( $x ) || ! \is_array( $columns ) || ! \array_is_list( $columns ) || \count( $numbers ) !== \count( $columns ) ) {
-				self::refuse_row( $i, 'needs ' . self::ROW_SHAPE . ', t whole seconds and each column a number' );
+				self::refuse_row( $i, 'needs ' . self::ROW_SHAPE . ', t whole seconds and each column a number or null' );
 			}
 			if ( Cache_Backend::refuses_key( $k ) ) {
 				self::refuse_row( $i, 'key is empty or holds whitespace' );
 			}
 			if ( \count( $numbers ) !== $width ) {
 				self::refuse_row( $i, \count( $numbers ) . " columns, the Ledger declares {$width}" );
+			}
+			foreach ( \array_keys( $numbers, null, true ) as $unmeasured ) {
+				if ( self::DEFAULT_AGGREGATE === $this->columns[ $names[ $unmeasured ] ] ) {
+					self::refuse_row( $i, "{$names[ $unmeasured ]} is a sum column, which takes a number; null is for a min or max not measured" );
+				}
 			}
 			if ( $t >= $cutoff ) {
 				$kept[] = [ $t, $k, $x, \array_values( $numbers ) ];
@@ -380,7 +391,7 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	/**
 	 * Store rows through the one prepared INSERT, each a new `s`.
 	 *
-	 * @param list<array{0: int, 1: string, 2: string, 3: list<int|float>}> $rows Rows to store.
+	 * @param list<array{0: int, 1: string, 2: string, 3: list<int|float|null>}> $rows Rows to store.
 	 * @return int Rows stored; a set's row already held stores none.
 	 */
 	private function insert_rows( array $rows ): int {
@@ -428,9 +439,13 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	 * declared aggregate, in `( k, x[, t] )` order within each chunk:
 	 * IN_CHUNK keys, or PAIRED_CHUNK keys and members. A `k` total reads
 	 * every member it names in one chunk, so it takes PAIRED_CHUNK at most.
+	 * `positive` and `positive_each_t` filter the groups as grouped() says,
+	 * TOP's filter exactly; a group lies whole inside one chunk, so each
+	 * chunk filters its own.
 	 *
 	 * @param array<array-key,mixed> $query `{ from, to, ks, xs?, by_t?,
-	 *                                      group?: x|k }`.
+	 *                                      group?: x|k, positive?,
+	 *                                      positive_each_t? }`.
 	 * @return array{0: int, 1: list<list<mixed>>, 2: int} Keys asked, the
 	 *                                                     `[ k, x|null,
 	 *                                                     t|null, columns… ]`
@@ -439,7 +454,7 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	 * @throws \InvalidArgumentException On a query it refuses.
 	 */
 	private function read_sum( array $query ): array {
-		self::only( $query, 'from', 'to', 'ks', 'xs', 'by_t', 'group' );
+		self::only( $query, 'from', 'to', 'ks', 'xs', 'by_t', 'group', 'positive', 'positive_each_t' );
 		$walk  = self::walk( $query );
 		$ks    = self::strings( $query, 'ks' );
 		$xs    = isset( $query['xs'] ) ? self::strings( $query, 'xs' ) : null;
@@ -452,13 +467,16 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 		if ( ! $per_x && \count( $xs ?? [] ) > self::PAIRED_CHUNK ) {
 			throw new \InvalidArgumentException( 'xs names at most ' . self::PAIRED_CHUNK . ' members with group k' );
 		}
-		$group = \implode( ', ', [ 'k', ...( $per_x ? [ 'x' ] : [] ), ...( $by_t ? [ 'rows.t' ] : [] ) ] );
-		$pick  = \implode( ', ', [ 'k', $per_x ? 'x' : 'NULL', $by_t ? 'rows.t' : 'NULL', ...$this->aggregates() ] );
-		$found = [];
+		[ $positive, $each_t ] = $this->positive( $query );
+		$by                    = $per_x ? [ 'k', 'x' ] : [ 'k' ];
+		$order                 = \implode( ', ', $by_t ? [ ...$by, 't' ] : $by );
+		$pick                  = \implode( ', ', [ 'k', $per_x ? 'x' : 'NULL', $by_t ? 't' : 'NULL', ...$this->aggregates() ] );
+		$found                 = [];
 		foreach ( \array_chunk( $ks, null === $xs ? Sqlite_Arm::IN_CHUNK : self::PAIRED_CHUNK ) as $k_chunk ) {
 			foreach ( null === $xs ? [ [] ] : \array_chunk( $xs, self::PAIRED_CHUNK ) as $x_chunk ) {
 				$members = null === $xs ? '' : ' AND x IN ( ' . self::placeholders( $x_chunk ) . ' )';
-				$found[] = $this->rows( self::WALK . "SELECT {$pick} " . self::AT_EACH_T . ' AND k IN ( ' . self::placeholders( $k_chunk ) . " ){$members} GROUP BY {$group} ORDER BY {$group}", [ ...$walk, ...$k_chunk, ...$x_chunk ] );
+				$keyed   = self::AT_EACH_T . ' AND k IN ( ' . self::placeholders( $k_chunk ) . " ){$members}";
+				$found[] = $this->rows( self::WALK . "SELECT {$pick} " . $this->grouped( $keyed, $by, $by_t, $positive, $each_t ) . " ORDER BY {$order}", [ ...$walk, ...$k_chunk, ...$x_chunk ] );
 			}
 		}
 		$rows = \array_merge( ...$found );
@@ -469,12 +487,11 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	 * `TOP`: the members across every key in `ks`, grouped by `x` and ranked
 	 * by `order_by`, then `x`: a column's aggregate, `x` itself, or the
 	 * aggregate of one `sum` column over another's, whose zero denominator
-	 * ranks last in either order. `positive` keeps a member only when its
-	 * aggregate of that column is above 0; with `positive_each_t` it filters
-	 * each `( t, x )` group instead, so only the `t` in which the member was
-	 * positive are summed. `total` counts the members ranked before `offset`
-	 * and `limit` page them, and one read transaction holds the count and the
-	 * page to one snapshot. A set ranks by `x` alone.
+	 * ranks last in either order, as does a `min` or `max` never measured.
+	 * `positive` and `positive_each_t` filter the members as grouped() says.
+	 * `total` counts the members ranked before `offset` and `limit` page them,
+	 * and one read transaction holds the count and the page to one snapshot.
+	 * A set ranks by `x` alone.
 	 *
 	 * @param array<array-key,mixed> $query `{ from, to, ks, order_by, order,
 	 *                                      limit, offset, positive?,
@@ -488,16 +505,12 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 		if ( [] === $this->columns && ( 'x' !== ( $query['order_by'] ?? null ) || isset( $query['positive'] ) ) ) {
 			throw new \InvalidArgumentException( 'a Ledger declaring no columns ranks by x alone, with no positive' );
 		}
-		$walk       = self::walk( $query );
-		$ks         = self::strings( $query, 'ks' );
-		$aggregates = $this->aggregates();
-		$rank       = $this->rank( $aggregates, $query['order_by'] ?? null );
-		$positive   = isset( $query['positive'] ) ? $this->declared( $aggregates, $query, 'positive' ) . ' > 0' : null;
-		$each_t     = self::boolean( $query, 'positive_each_t' );
-		if ( $each_t && null === $positive ) {
-			throw new \InvalidArgumentException( 'positive_each_t needs positive' );
-		}
-		$order = $query['order'] ?? null;
+		$walk                  = self::walk( $query );
+		$ks                    = self::strings( $query, 'ks' );
+		$aggregates            = $this->aggregates();
+		$rank                  = $this->rank( $aggregates, $query['order_by'] ?? null );
+		[ $positive, $each_t ] = $this->positive( $query );
+		$order                 = $query['order'] ?? null;
 		if ( 'asc' !== $order && 'desc' !== $order ) {
 			throw new \InvalidArgumentException( 'order is asc or desc' );
 		}
@@ -506,13 +519,7 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 		if ( \count( $ks ) > Sqlite_Arm::IN_CHUNK ) {
 			throw new \InvalidArgumentException( 'ks names at most ' . Sqlite_Arm::IN_CHUNK . ' keys' );
 		}
-		$keyed = self::AT_EACH_T . ' AND k IN ( ' . self::placeholders( $ks ) . ' )';
-		if ( $each_t ) {
-			$per_t  = 'SELECT ' . \implode( ', ', [ 'x', ...self::aliased( $aggregates ) ] ) . " {$keyed} GROUP BY rows.t, x HAVING {$positive}";
-			$groups = "FROM ( {$per_t} ) GROUP BY x";
-		} else {
-			$groups = "{$keyed} GROUP BY x" . ( null === $positive ? '' : " HAVING {$positive}" );
-		}
+		$groups = $this->grouped( self::AT_EACH_T . ' AND k IN ( ' . self::placeholders( $ks ) . ' )', [ 'x' ], false, $positive, $each_t );
 		$page   = self::WALK . 'SELECT ' . \implode( ', ', [ 'x', ...$aggregates ] ) . " {$groups} ORDER BY {$rank} " . \strtoupper( $order ) . ' NULLS LAST, x LIMIT ? OFFSET ?';
 		[ $total, $rows ] = Sqlite_Arm::deferred(
 			$this->db ?? throw $this->unopened(),
@@ -557,6 +564,60 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 		$columns = \implode( ', ', \array_keys( $this->columns ) );
 		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; answered as a TM_ERROR line, never rendered.
 		throw new \InvalidArgumentException( \count( $sums ) < 2 ? "order_by is x or one of {$columns}" : "order_by is x, one of {$columns}, or [ numerator, denominator ] naming two sum columns of " . \implode( ', ', $sums ) );
+	}
+
+	/**
+	 * The rows a SUM or a TOP aggregates, as SQL after its SELECT list: the
+	 * keyed rows at each walked `t`, grouped by `$by`, and by `t` as well with
+	 * `$by_t`. Every form keeps each stored column's name, so aggregates()
+	 * selects from any of them. `$positive` keeps a group only when its
+	 * aggregate of that column over the range is above 0, every `t` of it
+	 * with `$by_t`; with `$each_t` it filters each `( t, $by )` group, and
+	 * only the groups that pass are aggregated over the range.
+	 *
+	 * @param string       $keyed    AT_EACH_T and the read's key and member tests.
+	 * @param list<string> $by       The grouping, `t` aside.
+	 * @param bool         $by_t     Whether each group splits per `t`.
+	 * @param string|null  $positive The declared column above 0, or null.
+	 * @param bool         $each_t   Whether it is above 0 at each `t`.
+	 * @return string `FROM … GROUP BY …`, with the filter where one applies.
+	 */
+	private function grouped( string $keyed, array $by, bool $by_t, ?string $positive, bool $each_t ): string {
+		$per_t = [ ...$by, 't' ];
+		$group = ' GROUP BY ' . \implode( ', ', $by_t ? $per_t : $by );
+		if ( null === $positive ) {
+			return $keyed . $group;
+		}
+		$aggregates = $this->aggregates();
+		$above      = "{$aggregates[ $positive ]} > 0";
+		if ( ! $each_t && ! $by_t ) {
+			return "{$keyed}{$group} HAVING {$above}";
+		}
+		$inner = 'SELECT ' . \implode( ', ', [ ...$per_t, ...self::aliased( $aggregates ) ] );
+		$split = ' GROUP BY ' . \implode( ', ', $per_t );
+		if ( $each_t ) {
+			return "FROM ( {$inner} {$keyed}{$split} HAVING {$above} ){$group}";
+		}
+		$over_range = \strtoupper( $this->columns[ $positive ] ) . "( {$aggregates[ $positive ]} ) OVER ( PARTITION BY " . \implode( ', ', $by ) . ' )';
+		return "FROM ( {$inner}, {$over_range} AS over_range {$keyed}{$split} ) WHERE over_range > 0{$group}";
+	}
+
+	/**
+	 * The positive filter a SUM or a TOP asks for.
+	 *
+	 * @param array<array-key,mixed> $query The query.
+	 * @return array{0: string|null, 1: bool} The declared column that must be
+	 *                                        above 0, or null, and whether at
+	 *                                        each `t`.
+	 * @throws \InvalidArgumentException On a column not declared, or
+	 *                                   `positive_each_t` with no `positive`.
+	 */
+	private function positive( array $query ): array {
+		$each_t = self::boolean( $query, 'positive_each_t' );
+		if ( isset( $query['positive'] ) ) {
+			return [ $this->column( $query, 'positive' ), $each_t ];
+		}
+		return $each_t ? throw new \InvalidArgumentException( 'positive_each_t needs positive' ) : [ null, false ];
 	}
 
 	/**
@@ -677,21 +738,20 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	}
 
 	/**
-	 * The aggregate of the declared column a field names.
+	 * The declared column a field names.
 	 *
-	 * @param array<string,string>   $aggregates aggregates().
-	 * @param array<array-key,mixed> $query      The query.
-	 * @param string                 $name       The field naming the column.
-	 * @return string The column's aggregate, as SQL.
+	 * @param array<array-key,mixed> $query The query.
+	 * @param string                 $name  The field naming the column.
+	 * @return string The column's name.
 	 * @throws \InvalidArgumentException When it names no declared column.
 	 */
-	private function declared( array $aggregates, array $query, string $name ): string {
+	private function column( array $query, string $name ): string {
 		$column = $query[ $name ] ?? null;
-		if ( \is_string( $column ) && isset( $aggregates[ $column ] ) ) {
-			return $aggregates[ $column ];
+		if ( \is_string( $column ) && isset( $this->columns[ $column ] ) ) {
+			return $column;
 		}
 		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; answered as a TM_ERROR line, never rendered.
-		throw new \InvalidArgumentException( "{$name} is one of " . \implode( ', ', \array_keys( $this->columns ) ) );
+		throw new \InvalidArgumentException( [] === $this->columns ? "{$name} names a column, and a Ledger declaring no columns has none" : "{$name} is one of " . \implode( ', ', \array_keys( $this->columns ) ) );
 	}
 
 	/**
@@ -845,7 +905,7 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 		if ( $declared !== $this->columns ) {
 			throw new \RuntimeException( \esc_html( "flush: {$this->name} runs " . self::listed( $this->columns ) . ' where its topology declares ' . self::listed( $declared ) . '; restart this worker (`wp nodes restart`), or hold the fleet (`wp nodes stop`), and flush again' ) );
 		}
-		$released               = self::replace_rows( $this->db ?? throw $this->unopened(), self::shape( self::stored_columns( \count( $this->columns ) ) ) );
+		$released               = self::replace_rows( $this->db ?? throw $this->unopened(), self::shape( self::stored_columns( $this->columns ) ) );
 		$this->dropped_below    = 0;
 		$this->drop_behind      = false;
 		$this->checkpoint_due   = (int) Core::$now + self::CHECKPOINT_INTERVAL_S;
@@ -866,7 +926,7 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	private function declared_columns( array $tokens ): array {
 		$columns = [];
 		foreach ( $tokens as $token ) {
-			[ $name, $aggregate ] = \explode( ':', self::spelled( $token ), 2 );
+			[ $name, $aggregate ] = self::name_and_aggregate( $token );
 			if ( 1 !== \preg_match( '/^[A-Za-z_][A-Za-z0-9_]*$/D', $name ) || 'x' === $name || isset( $columns[ $name ] ) ) {
 				$this->refuse_argument( "column {$token}: a name in [A-Za-z_][A-Za-z0-9_]* other than x, which TOP orders by as the member, declared once" );
 			}
@@ -899,18 +959,6 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	}
 
 	/**
-	 * A column token spelled whole, `<name>:<aggregate>`, DEFAULT_AGGREGATE
-	 * where it names none: the form two declarations of a column compare in.
-	 *
-	 * @api Bootstrap::node_ledgers(), which compares declarations so spelled.
-	 * @param string $token `<name>[:sum|min|max]`.
-	 * @return string `<name>:<aggregate>`.
-	 */
-	public static function spelled( string $token ): string {
-		return \str_contains( $token, ':' ) ? $token : $token . ':' . self::DEFAULT_AGGREGATE;
-	}
-
-	/**
 	 * Empty a Ledger no live worker holds, from the declaration alone, as
 	 * `wp nodes tables flush` does: replace_rows() over a writer's connection
 	 * of its own, whatever table the file held. A Ledger whose declaration
@@ -925,24 +973,50 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	 *                           a write that fails.
 	 */
 	public static function flush_file( string $name, array $declaration ): array {
-		$shape = self::shape( self::stored_columns( \count( $declaration['columns'] ) ) );
+		$shape = self::shape( self::stored_columns( \array_map( static fn ( string $column ): string => self::name_and_aggregate( $column )[1], $declaration['columns'] ) ) );
 		return self::replace_rows( self::writer_database( self::file( $name ), $shape ), $shape );
 	}
 
 	/**
-	 * Every column a row stores, in order, with its type: the key, then for a
-	 * Ledger with columns its writer and c0… as REAL.
+	 * A column token read as its name and its aggregate, DEFAULT_AGGREGATE
+	 * where it names none: the one reading of `<name>[:sum|min|max]`.
 	 *
-	 * @param int $width Declared columns.
-	 * @return array<string,string> Name => SQLite type.
+	 * @param string $token `<name>[:sum|min|max]`.
+	 * @return array{0: string, 1: string} The name, and the aggregate.
 	 */
-	private static function stored_columns( int $width ): array {
-		if ( 0 === $width ) {
+	private static function name_and_aggregate( string $token ): array {
+		[ $name, $aggregate ] = \explode( ':', self::spelled( $token ), 2 );
+		return [ $name, $aggregate ];
+	}
+
+	/**
+	 * A column token spelled whole, `<name>:<aggregate>`, DEFAULT_AGGREGATE
+	 * where it names none: the form two declarations of a column compare in.
+	 *
+	 * @api Bootstrap::node_ledgers(), which compares declarations so spelled.
+	 * @param string $token `<name>[:sum|min|max]`.
+	 * @return string `<name>:<aggregate>`.
+	 */
+	public static function spelled( string $token ): string {
+		return \str_contains( $token, ':' ) ? $token : $token . ':' . self::DEFAULT_AGGREGATE;
+	}
+
+	/**
+	 * Every column a row stores, in order, with its declaration: the key,
+	 * then for a Ledger with columns its writer and c0… as REAL, NOT NULL
+	 * for a sum and nullable for a min or max, which skips a null.
+	 *
+	 * @param array<array-key,string> $aggregates Each declared column's
+	 *                                            aggregate, in order.
+	 * @return array<string,string> Name => SQLite declaration.
+	 */
+	private static function stored_columns( array $aggregates ): array {
+		if ( [] === $aggregates ) {
 			return self::KEY_COLUMNS;
 		}
 		$values = [];
-		for ( $i = 0; $i < $width; ++$i ) {
-			$values[ "c{$i}" ] = 'REAL';
+		foreach ( \array_values( $aggregates ) as $i => $aggregate ) {
+			$values[ "c{$i}" ] = self::DEFAULT_AGGREGATE === $aggregate ? 'REAL NOT NULL' : 'REAL';
 		}
 		return self::KEY_COLUMNS + self::WRITER_COLUMNS + $values;
 	}
@@ -951,11 +1025,11 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	 * The `rows` table a row storing `$names` needs, as SQLite records it
 	 * after `CREATE TABLE `.
 	 *
-	 * @param array<string,string> $names Every stored column with its type.
+	 * @param array<string,string> $names stored_columns().
 	 * @return string `rows ( … ) WITHOUT ROWID`.
 	 */
 	private static function shape( array $names ): string {
-		$fields = \implode( ', ', \array_map( static fn ( string $name, string $type ): string => "{$name} {$type} NOT NULL", \array_keys( $names ), $names ) );
+		$fields = \implode( ', ', \array_map( static fn ( string $name, string $declaration ): string => "{$name} {$declaration}", \array_keys( $names ), $names ) );
 		return "rows ( {$fields}, PRIMARY KEY ( " . self::key( $names ) . ' ) ) WITHOUT ROWID';
 	}
 
@@ -979,7 +1053,7 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	 * The primary key of a row storing `$names`: `t, k, x`, and `w, s` for a
 	 * Ledger with columns.
 	 *
-	 * @param array<string,string> $names Every stored column with its type.
+	 * @param array<string,string> $names stored_columns().
 	 * @return string The key's columns, comma-separated.
 	 */
 	private static function key( array $names ): string {
@@ -1075,7 +1149,7 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 			'arguments'   => [
 				[ 'name' => 'segment_seconds', 'type' => 'int', 'required' => true, 'description' => 'Seconds of t one segment spans, at least 1.' ],
 				[ 'name' => 'num_segments', 'type' => 'int', 'required' => true, 'description' => 'Segments kept, at least 1: the lifespan is segment_seconds × num_segments.' ],
-				[ 'name' => 'columns', 'type' => 'string', 'variadic' => true, 'description' => 'Numeric columns, each <name>[:sum|min|max], sum by default, never named x; none makes the Ledger a set.' ],
+				[ 'name' => 'columns', 'type' => 'string', 'variadic' => true, 'description' => 'Numeric columns, each <name>[:sum|min|max], sum by default, never named x; a min or max takes null for a value not measured, a sum never; none makes the Ledger a set.' ],
 			],
 			'commands'    => [
 				[
@@ -1094,25 +1168,25 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 					'name'        => 'APPEND',
 					'description' => 'Store rows in one transaction; a row past the lifespan is dropped and counted, and a bad row refuses the whole request.',
 					'value'       => 'struct',
-					'args'        => [ [ 'name' => 'rows', 'type' => 'json', 'required' => true, 'description' => 'list of [ t, k, x, [ columns… ] ]' ] ],
+					'args'        => [ [ 'name' => 'rows', 'type' => 'json', 'required' => true, 'description' => 'list of [ t, k, x, [ columns… ] ], each column a number, or null in a min or max not measured' ] ],
 					'handler'     => static fn ( self $ledger, mixed $rows ): array => $ledger->append( \is_array( $rows ) ? $rows : throw new \InvalidArgumentException( 'needs a list of ' . self::ROW_SHAPE . ' rows' ) ),
 					'reply_shape' => 'TM_STRUCT|TM_RESPONSE { verb: APPEND, data: { stored, dropped } }, or a TM_ERROR "APPEND: <why>"',
 				],
 				[
 					'name'        => 'SUM',
-					'description' => 'Each ( k, x ) group, or with group k each k across its members, and each per t with by_t, over from ≤ t < to, each column by its declared aggregate; xs narrows the members, to at most 250 with group k.',
+					'description' => 'Each ( k, x ) group, or with group k each k across its members, and each per t with by_t, over from ≤ t < to, each column by its declared aggregate, which skips a null; xs narrows the members, to at most 250 with group k. positive keeps a group only when that column\'s aggregate over the range is above 0, every t of it with by_t, or with positive_each_t totals only the ( t, group ) rows in which it was.',
 					'value'       => 'struct',
-					'args'        => [ [ 'name' => 'query', 'type' => 'json', 'required' => true, 'description' => '{ from, to, ks: [ k… ], xs?: [ x… ], by_t?: bool, group?: x|k }' ] ],
+					'args'        => [ [ 'name' => 'query', 'type' => 'json', 'required' => true, 'description' => '{ from, to, ks: [ k… ], xs?: [ x… ], by_t?: bool, group?: x|k, positive?: column, positive_each_t?: bool }' ] ],
 					'handler'     => static fn ( self $ledger, mixed $query ): array => $ledger->read( 'SUM', $query ),
-					'reply_shape' => 'TM_STRUCT|TM_RESPONSE { verb: SUM, data: [ [ k, x|null, t|null, columns… ], … ] }, x null with group k, or a TM_ERROR "SUM: <why>"',
+					'reply_shape' => 'TM_STRUCT|TM_RESPONSE { verb: SUM, data: [ [ k, x|null, t|null, columns… ], … ] }, x null with group k and a min or max null where nothing was measured, or a TM_ERROR "SUM: <why>"',
 				],
 				[
 					'name'        => 'TOP',
-					'description' => 'The members across every key in ks over from ≤ t < to, ranked by order_by then x, and paged: a column\'s aggregate, x itself, or [ numerator, denominator ] of two sum columns, a zero denominator last. positive keeps a member only when that column\'s aggregate is above 0, or with positive_each_t sums only the t in which it was; a set ranks by x alone.',
+					'description' => 'The members across every key in ks over from ≤ t < to, ranked by order_by then x, and paged: a column\'s aggregate, x itself, or [ numerator, denominator ] of two sum columns, a zero denominator or a min or max never measured last. positive keeps a member only when that column\'s aggregate is above 0, or with positive_each_t sums only the t in which it was; a set ranks by x alone.',
 					'value'       => 'struct',
 					'args'        => [ [ 'name' => 'query', 'type' => 'json', 'required' => true, 'description' => '{ from, to, ks: [ k… ], order_by: x|column|[ sum column, sum column ], order: asc|desc, limit: 1 to TOP_LIMIT_MAX (500), offset, positive?: column, positive_each_t?: bool }' ] ],
 					'handler'     => static fn ( self $ledger, mixed $query ): array => $ledger->read( 'TOP', $query ),
-					'reply_shape' => 'TM_STRUCT|TM_RESPONSE { verb: TOP, data: { total, rows: [ [ x, columns… ], … ] } }, or a TM_ERROR "TOP: <why>"',
+					'reply_shape' => 'TM_STRUCT|TM_RESPONSE { verb: TOP, data: { total, rows: [ [ x, columns… ], … ] } }, a min or max null where nothing was measured, or a TM_ERROR "TOP: <why>"',
 				],
 				[
 					'name'        => 'MEMBERS',

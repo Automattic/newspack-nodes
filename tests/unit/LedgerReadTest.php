@@ -144,6 +144,42 @@ final class LedgerReadTest extends TestCase {
 	}
 
 	/**
+	 * The heron Ledger, written by partition 6: qty summed, lo its minimum.
+	 * ( T, dock-3, /p ) 5 / -1, ( T+600, dock-3, /p ) 3 / 2, and
+	 * ( T, dock-3, /q ) 7 / 4, so dock-3's window minimum is -1 while its
+	 * minimum at T+600 is 2.
+	 */
+	private function heron(): Ledger_Node {
+		$heron = $this->ledger( '6', 'lab-7:heron', '600', '3', 'qty', 'lo:min' );
+		$heron->append(
+			[
+				[ self::T, 'dock-3', '/p', [ 5, -1 ] ],
+				[ self::T + 600, 'dock-3', '/p', [ 3, 2 ] ],
+				[ self::T, 'dock-3', '/q', [ 7, 4 ] ],
+			]
+		);
+		return $heron;
+	}
+
+	/**
+	 * The crane Ledger, written by partition 2, whose min and max columns
+	 * take null for "not measured": /a 10 / 3 / 8 at T and 1 / - / - at
+	 * T+600, /b 20 / - / - (never measured), /c 5 / 1.5 / 12.
+	 */
+	private function crane(): Ledger_Node {
+		$crane = $this->ledger( '2', 'lab-7:crane', '600', '3', 'ms', 'fast:min', 'slow:max' );
+		$crane->append(
+			[
+				[ self::T, 'rack-4', '/a', [ 10, 3, 8 ] ],
+				[ self::T + 600, 'rack-4', '/a', [ 1, null, null ] ],
+				[ self::T, 'rack-4', '/b', [ 20, null, null ] ],
+				[ self::T, 'rack-4', '/c', [ 5, 1.5, 12 ] ],
+			]
+		);
+		return $crane;
+	}
+
+	/**
 	 * Fill one read request and answer the reply's TYPE and VALUE.
 	 *
 	 * @return array{0: int, 1: mixed}
@@ -322,15 +358,8 @@ final class LedgerReadTest extends TestCase {
 	}
 
 	public function test_positive_each_t_admits_a_member_the_window_aggregate_excludes(): void {
-		$heron = $this->ledger( '6', 'lab-7:heron', '600', '3', 'qty', 'lo:min' );
-		$heron->append(
-			[
-				[ self::T, 'dock-3', '/p', [ 5, -1 ] ],
-				[ self::T + 600, 'dock-3', '/p', [ 3, 2 ] ],
-				[ self::T, 'dock-3', '/q', [ 7, 4 ] ],
-			]
-		);
-		$top = [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'dock-3' ], 'order_by' => 'qty', 'order' => 'desc', 'limit' => 9, 'offset' => 0, 'positive' => 'lo' ];
+		$heron = $this->heron();
+		$top   = [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'dock-3' ], 'order_by' => 'qty', 'order' => 'desc', 'limit' => 9, 'offset' => 0, 'positive' => 'lo' ];
 		$this->assertSame(
 			self::answered( 'TOP', [ 'total' => 1, 'rows' => [ [ '/q', 7.0, 4.0 ] ] ] ),
 			$this->read( $heron, 'TOP', $top ),
@@ -375,6 +404,97 @@ final class LedgerReadTest extends TestCase {
 		);
 	}
 
+	public function test_sum_positive_keeps_groups_whose_window_aggregate_is_above_zero(): void {
+		$ibis  = $this->ibis();
+		$range = [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'srv-2', 'srv-7' ], 'positive' => 'errors' ];
+		$this->assertSame(
+			self::answered( 'SUM', [ [ 'srv-2', '/a', null, 1000.0, 4.0, 1.0, 40.0 ], [ 'srv-2', '/b', null, 450.0, 10.0, 2.0, 90.0 ] ] ),
+			$this->read( $ibis, 'SUM', $range ),
+			'srv-7 and every member of it with no errors drops'
+		);
+		$this->assertSame(
+			self::answered(
+				'SUM',
+				[
+					[ 'srv-2', '/a', self::T, 900.0, 3.0, 1.0, 40.0 ],
+					[ 'srv-2', '/a', self::T + 600, 100.0, 1.0, 0.0, 20.0 ],
+					[ 'srv-2', '/b', self::T, 400.0, 8.0, 0.0, 30.0 ],
+					[ 'srv-2', '/b', self::T + 600, 50.0, 2.0, 2.0, 90.0 ],
+				]
+			),
+			$this->read( $ibis, 'SUM', $range + [ 'by_t' => true ] ),
+			'with by_t a kept group answers every t, those with no errors too'
+		);
+		$this->assertSame(
+			self::answered( 'SUM', [ [ 'srv-2', null, null, 1450.0, 14.0, 3.0, 90.0 ] ] ),
+			$this->read( $ibis, 'SUM', $range + [ 'group' => 'k' ] ),
+			'group k keeps the keys with errors'
+		);
+		$this->assertSame(
+			self::answered( 'SUM', [ [ 'srv-2', null, self::T, 1300.0, 11.0, 1.0, 40.0 ], [ 'srv-2', null, self::T + 600, 150.0, 3.0, 2.0, 90.0 ] ] ),
+			$this->read( $ibis, 'SUM', $range + [ 'group' => 'k', 'by_t' => true ] ),
+			'group k with by_t answers each t of the kept key'
+		);
+		$this->assertSame( self::answered( 'SUM', [] ), $this->read( $this->heron(), 'SUM', [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'dock-3' ], 'group' => 'k', 'positive' => 'lo', 'by_t' => true ] ), 'dock-3\'s window minimum is -1, so no t of it answers' );
+	}
+
+	public function test_sum_positive_each_t_totals_only_the_t_in_which_the_group_was_positive(): void {
+		$ibis  = $this->ibis();
+		$range = [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'srv-2', 'srv-7' ], 'positive' => 'errors', 'positive_each_t' => true ];
+		$this->assertSame(
+			self::answered( 'SUM', [ [ 'srv-2', '/a', null, 900.0, 3.0, 1.0, 40.0 ], [ 'srv-2', '/b', null, 50.0, 2.0, 2.0, 90.0 ] ] ),
+			$this->read( $ibis, 'SUM', $range ),
+			'( T, srv-2, /a ) and ( T+600, srv-2, /b ) alone'
+		);
+		$this->assertSame(
+			self::answered( 'SUM', [ [ 'srv-2', '/a', self::T, 900.0, 3.0, 1.0, 40.0 ], [ 'srv-2', '/b', self::T + 600, 50.0, 2.0, 2.0, 90.0 ] ] ),
+			$this->read( $ibis, 'SUM', $range + [ 'by_t' => true ] ),
+			'with by_t each positive t answers alone'
+		);
+		$heron = $this->heron();
+		$dock  = [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'dock-3' ], 'group' => 'k', 'positive' => 'lo' ];
+		$this->assertSame( self::answered( 'SUM', [] ), $this->read( $heron, 'SUM', $dock ), 'the window minimum is -1' );
+		$this->assertSame(
+			self::answered( 'SUM', [ [ 'dock-3', null, null, 3.0, 2.0 ] ] ),
+			$this->read( $heron, 'SUM', $dock + [ 'positive_each_t' => true ] ),
+			'group k: ( T, dock-3 ) has minimum -1, ( T+600, dock-3 ) 2'
+		);
+		$this->assertSame(
+			self::answered( 'SUM', [ [ 'dock-3', null, self::T + 600, 3.0, 2.0 ] ] ),
+			$this->read( $heron, 'SUM', $dock + [ 'positive_each_t' => true, 'by_t' => true ] )
+		);
+	}
+
+	public function test_a_min_or_max_column_skips_what_was_never_measured(): void {
+		$this->assertSame(
+			self::answered(
+				'SUM',
+				[
+					[ 'rack-4', '/a', null, 11.0, 3.0, 8.0 ],
+					[ 'rack-4', '/b', null, 20.0, null, null ],
+					[ 'rack-4', '/c', null, 5.0, 1.5, 12.0 ],
+				]
+			),
+			$this->read( $this->crane(), 'SUM', [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'rack-4' ] ] )
+		);
+	}
+
+	public function test_top_ranks_a_member_never_measured_last_in_either_order(): void {
+		$crane = $this->crane();
+		$top   = [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'rack-4' ], 'limit' => 9, 'offset' => 0 ];
+		foreach (
+			[
+				[ 'fast', 'asc', [ '/c', '/a', '/b' ] ],
+				[ 'fast', 'desc', [ '/a', '/c', '/b' ] ],
+				[ 'slow', 'asc', [ '/a', '/c', '/b' ] ],
+				[ 'slow', 'desc', [ '/c', '/a', '/b' ] ],
+			] as [ $order_by, $order, $ranked ]
+		) {
+			[ , $reply ] = $this->read( $crane, 'TOP', $top + [ 'order_by' => $order_by, 'order' => $order ] );
+			$this->assertSame( $ranked, \array_column( $reply['data']['rows'], 0 ), "{$order_by} {$order}" );
+		}
+	}
+
 	public function test_top_counts_and_pages_one_snapshot_while_another_partition_commits(): void {
 		$kea   = $this->kea();
 		$other = new \PDO( 'sqlite:' . Ledger_Node::file( 'lab-7:kea' ), null, null, [ \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION ] );
@@ -405,6 +525,10 @@ final class LedgerReadTest extends TestCase {
 			],
 			'lab-7:ibis' => [
 				[ 'TOP', $top + [ 'ks' => [ 'srv-2', 'srv-7' ], 'order_by' => [ 'ms', 'hits' ] ] ],
+				[ 'SUM', $range + [ 'ks' => [ 'srv-2', 'srv-7' ], 'positive' => 'errors', 'positive_each_t' => true ] ],
+				[ 'SUM', $range + [ 'ks' => [ 'srv-2', 'srv-7' ], 'group' => 'k', 'by_t' => true, 'positive' => 'errors', 'positive_each_t' => true ] ],
+				[ 'SUM', $range + [ 'ks' => [ 'srv-2', 'srv-7' ], 'by_t' => true, 'positive' => 'errors' ] ],
+				[ 'SUM', $range + [ 'ks' => [ 'srv-2', 'srv-7' ], 'group' => 'k', 'positive' => 'errors' ] ],
 			],
 		];
 		$ledgers = [
@@ -424,7 +548,7 @@ final class LedgerReadTest extends TestCase {
 			}
 		}
 		$ran[] = [ 'lab-7:kea', ( new \ReflectionClassConstant( Ledger_Node::class, 'MEMBERS_READ' ) )->getValue(), [ 1 => self::T, 2 => self::END, 3 => self::END, 4 => 'sku-41' ] ];
-		$this->assertCount( 11, $ran, 'four SUMs, three TOPs of a count and a page each, and MEMBERS' );
+		$this->assertCount( 15, $ran, 'eight SUMs, three TOPs of a count and a page each, and MEMBERS' );
 		foreach ( $ran as [ $name, $sql, $bound ] ) {
 			$explain = ( new \PDO( 'sqlite:' . Ledger_Node::file( $name ) ) )->prepare( "EXPLAIN QUERY PLAN {$sql}" );
 			foreach ( $bound as $i => $value ) {
@@ -485,6 +609,10 @@ final class LedgerReadTest extends TestCase {
 			$this->read( $wren, 'SUM', [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'sku-41' ] ] )
 		);
 		$this->assertSame( self::answered( 'MEMBERS', [ 'aisle-12', 'aisle-9' ] ), $this->read( $wren, 'MEMBERS', [ 'from' => self::T, 'to' => self::END, 'k' => 'sku-41' ] ) );
+		$this->assertSame(
+			[ Message::TM_ERROR, "SUM: positive names a column, and a Ledger declaring no columns has none\n" ],
+			$this->read( $wren, 'SUM', [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'sku-41' ], 'positive' => 'qty' ] )
+		);
 		$top = [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'sku-41' ], 'order' => 'desc', 'limit' => 9, 'offset' => 0 ];
 		$this->assertSame(
 			self::answered( 'TOP', [ 'total' => 2, 'rows' => [ [ 'aisle-9' ], [ 'aisle-12' ] ] ] ),
@@ -526,7 +654,9 @@ final class LedgerReadTest extends TestCase {
 				[ 'SUM', [ 'from' => self::T, 'to' => self::END, 'ks' => 'sku-41' ], 'ks is a list of strings' ],
 				[ 'SUM', [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'sku-41' ], 'xs' => [ 9 ] ], 'xs is a list of strings' ],
 				[ 'SUM', [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'sku-41' ], 'by_t' => 'yes' ], 'by_t is true or false' ],
-				[ 'SUM', [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'sku-41' ], "bt_t\nSUM: forged" => true ], 'takes the fields from, to, ks, xs, by_t and group alone' ],
+				[ 'SUM', [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'sku-41' ], "bt_t\nSUM: forged" => true ], 'takes the fields from, to, ks, xs, by_t, group, positive and positive_each_t alone' ],
+				[ 'SUM', [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'sku-41' ], 'positive_each_t' => true ], 'positive_each_t needs positive' ],
+				[ 'SUM', [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'sku-41' ], 'positive' => 'price' ], 'positive is one of qty, lo, hi' ],
 				[ 'MEMBERS', [ 'from' => self::T, 'to' => self::END, 'k' => [ 'sku-41' ] ], 'k is a string' ],
 				[ 'MEMBERS', 'sku-41', 'needs a map of its fields' ],
 			] as [ $verb, $query, $why ]

@@ -77,8 +77,8 @@ table.c td.g { color:#1E5B1E; font-weight:600; white-space:nowrap; }
     <p>Two topologies whose write sets overlap would put two processes on one file. A partition BOTH declare with the same <span class="mono">make_node</span> line is a shared multi-writer log and no conflict — appends at or under PIPE_BUF are atomic — unless either side lifts the write cap, which asserts a sole writer. Offsetlogs and dead-letter dirs stay sole-writer, so any overlap there conflicts.</p>
   </div>
   <div class="callout">
-    <h4>A <span class="mono">set_*target</span> line is a routing edge</h4>
-    <p>Both <span class="mono">expand()</span> and <span class="mono">graph_for()</span> read a <span class="mono">command_node &lt;node&gt;:config</span> whose verb matches <span class="mono">/^set_\w*target$/</span> as an edge; setting the slot again MOVES it, and an empty target clears it. ELN's <span class="mono">request-builder.tsl</span> routes four of five outputs this way, so a reader who trusts <span class="mono">connect_node</span> alone sees one output where there are five.</p>
+    <h4>A <span class="mono">set_*target</span> or <span class="mono">add_*target</span> line is a routing edge</h4>
+    <p>Both <span class="mono">expand()</span> and <span class="mono">graph_for()</span> read a <span class="mono">command_node &lt;node&gt;:config</span> whose verb matches <span class="mono">/^(set|add)_\w*target$/</span> as an edge. Setting a <span class="mono">set_</span> slot again MOVES its edge, and an empty target clears it; each <span class="mono">add_</span> line ADDS an edge, as ELN's eight <span class="mono">add_ledger_target</span> lines draw eight. ELN's <span class="mono">request-builder.tsl</span> routes four of five outputs this way, so a reader who trusts <span class="mono">connect_node</span> alone sees one output where there are five.</p>
   </div>
 </div>
 </div>

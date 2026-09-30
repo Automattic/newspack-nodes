@@ -32,7 +32,10 @@
  * config token — so it is looked up in `resolvedConfigEdges` by this node and
  * this verb slot. A token the server resolved to nothing draws no edge, which
  * is how a cleared config target reads as cleared rather than as an edge to the
- * literal token text.
+ * literal token text. An `add_*target` slot holds a list, one edge per line,
+ * so a token in it draws every edge the server resolved for the slot, once,
+ * as `Topology_Analyzer::graph_for()` does; a literal line of that slot the
+ * server's list already drew is not drawn twice.
  *
  * Pure: returns the SAME graph reference when there is nothing to add, so React
  * bails on a true no-op, and otherwise a new graph with the virtual edges
@@ -53,6 +56,15 @@ export function augmentWithVirtualEdges( graph, classes ) {
 		if ( ! schema || ! schema.commands ) {
 			continue;
 		}
+		const listed = new Set();
+		const draw = ( verb, to ) => {
+			const key = `${ verb }\0${ to }`;
+			if ( verb.startsWith( 'add_' ) && listed.has( key ) ) {
+				return;
+			}
+			listed.add( key );
+			virtualEdges.push( { from: node.id, to, virtual: true } );
+		};
 		for ( const inv of node.verbInvocations || [] ) {
 			const cspec = schema.commands.find( ( v ) => v.name === inv.verb );
 			if ( ! cspec || ! cspec.args ) {
@@ -64,21 +76,23 @@ export function augmentWithVirtualEdges( graph, classes ) {
 				}
 				let targetName = inv.args && inv.args[ i ];
 				if ( /^<[a-zA-Z_]\w*:[a-zA-Z_]\w*>$/.test( targetName ) ) {
-					const resolved = ( graph.resolvedConfigEdges || [] ).find(
+					const resolved = ( graph.resolvedConfigEdges || [] ).filter(
 						( edge ) =>
 							edge.from === node.id &&
 							( edge.config_slots || [] ).includes( inv.verb )
 					);
-					targetName = resolved?.to || '';
+					if ( inv.verb.startsWith( 'add_' ) ) {
+						resolved.forEach( ( edge ) =>
+							draw( inv.verb, edge.to )
+						);
+						return;
+					}
+					targetName = resolved[ 0 ]?.to || '';
 				}
 				if ( ! targetName ) {
 					return;
 				}
-				virtualEdges.push( {
-					from: node.id,
-					to: targetName,
-					virtual: true,
-				} );
+				draw( inv.verb, targetName );
 			} );
 		}
 	}

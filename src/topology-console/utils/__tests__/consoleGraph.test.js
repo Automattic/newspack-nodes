@@ -38,6 +38,17 @@ describe( 'consoleGraph', () => {
 		);
 	} );
 
+	it( 'fails loud when an add_ target token has no resolved-edge contract', () => {
+		const parsed = graphFromTsl(
+			'make_node Echo cerulean-source-619\n' +
+				'command_node cerulean-source-619:config add_ledger_target <wombat:totals_ledger>\n'
+		);
+
+		expect( () => withResolvedConfigEdges( parsed, undefined ) ).toThrow(
+			'Missing resolved_config_edges in topologies get response.'
+		);
+	} );
+
 	it( 'ignores a token in a verb that is not a target setter', () => {
 		// Broader, the guard fires on ordinary `<config:…>` arguments — which
 		// no runtime resolves into an edge, so nothing is being hidden.
