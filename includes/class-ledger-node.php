@@ -25,8 +25,8 @@
  * the lifespan is dropped and counted, never stored.
  *
  * SQLite serializes the writers on its own lock, so the one-writer-per-file
- * rule for append-by-offset logs (ADR-6) does not bind it: a partition finding
- * the lock held waits BUSY_TIMEOUT_MS. The file opens as its writer in
+ * rule for append-by-offset logs (ADR-6) does not bind it (ADR-27): a partition
+ * finding the lock held waits BUSY_TIMEOUT_MS. The file opens as its writer in
  * `arguments()`, through `Sqlite_Arm::open_database()`, the one place a SQLite
  * file opens. It answers the TM_REQUEST|TM_STRUCT `APPEND` TO its FROM
  * (ADR-23), one transaction a request; `append()` is the same write for a
