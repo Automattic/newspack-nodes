@@ -155,8 +155,17 @@ class CliTest extends TestCase {
 
 		$states = ( new CLI( $this->tmp ) )->worker_states( [ 'kea-idle.p6', 'kea-resident.p0', 'kea-inactive.p0' ], Bootstrap::get_topologies(), true );
 
-		$this->assertSame( [ 'idle', 'down', 'down' ], \array_column( $states, 'state' ), 'no active entry declares a window for kea-inactive' );
+		$this->assertSame( [ 'idle', 'down', 'inactive' ], \array_column( $states, 'state' ), 'a lockless slot of a topology outside the active set is inactive' );
 		$this->assertNull( $states['kea-idle.p6']['lock'] );
+	}
+
+	public function test_worker_states_reads_a_lockless_slot_outside_the_active_set_as_inactive_even_under_the_hold(): void {
+		$this->activate_idle_and_resident();
+		\Newspack_Nodes\Spawn_Coordinator::set_hold( 1754500043 );
+
+		$states = \array_column( ( new CLI( $this->tmp ) )->worker_states( [ 'kea-resident.p0', 'kea-inactive.p2' ], Bootstrap::get_topologies(), false ), 'state' );
+
+		$this->assertSame( [ 'held', 'inactive' ], $states );
 	}
 
 	public function test_worker_states_reads_no_lock_as_held_under_the_hold_idle_window_or_not(): void {
@@ -728,12 +737,39 @@ class CliTest extends TestCase {
 	public function test_consumer_rows_leaves_a_stale_row_alone_without_an_offsetlog_dir(): void {
 		// A nested layout: the reader basename does not rebuild the cursor path.
 		// Treating that as "no cursor" would report the whole partition behind.
-		$this->seed_probe_record( [ 'reader' => 'firehose.p0', 'distance' => 0, 'age_s' => 300 ] );
+		$this->activate_idle_and_resident();
+		$this->seed_probe_record( [ 'reader' => 'kea-idle.firehose.p0', 'distance' => 0, 'age_s' => 300 ] );
 		$this->seed_source( 'firehose.p0', 900 );
 
 		$rows = ( new CLI( $this->tmp ) )->consumer_rows()['rows'];
 
 		$this->assertSame( 0, $rows[0]['distance'] );
+	}
+
+	public function test_consumer_rows_drops_a_stale_row_of_an_inactive_topology_with_no_offsetlog_dir(): void {
+		// `wp nodes deactivate` then `gc` removed the offsets; the last probe
+		// still carries the departed reader's rate and backlog.
+		$this->activate_idle_and_resident();
+		$this->seed_probe_record( [ 'reader' => 'zorp-9.firehose.p2', 'source' => 'firehose.p2', 'distance' => 6_871_947, 'msgs' => 23797, 'age_s' => 300 ] );
+		$this->seed_probe_record( [ 'reader' => 'kea-idle.requests.p3', 'source' => 'requests.p3', 'distance' => 4321, 'msgs' => 29, 'age_s' => 300 ] );
+		$this->seed_probe_record( [ 'reader' => 'zorp-9.requests.p3', 'source' => 'requests.p3', 'distance' => 5, 'msgs' => 31 ] );
+
+		$readers = array_column( ( new CLI( $this->tmp ) )->consumer_rows()['rows'], 'reader' );
+
+		$this->assertSame( [ 'kea-idle.requests.p3', 'zorp-9.requests.p3' ], $readers );
+	}
+
+	public function test_consumer_rows_keeps_a_stale_row_of_an_inactive_topology_whose_offsetlog_dir_exists(): void {
+		$this->activate_idle_and_resident();
+		$this->seed_probe_record( [ 'reader' => 'zorp-9.firehose.p2', 'source' => 'firehose.p2', 'distance' => 0, 'msgs' => 23797, 'age_s' => 300 ] );
+		$this->seed_source( 'firehose.p2', 900 );
+		$this->seed_cursor( 'zorp-9.firehose.p2', 250 );
+
+		$rows = ( new CLI( $this->tmp ) )->consumer_rows()['rows'];
+
+		$this->assertSame( [ 'zorp-9.firehose.p2' ], array_column( $rows, 'reader' ) );
+		$this->assertSame( 650, $rows[0]['distance'] );
+		$this->assertSame( 0, $rows[0]['msgs'] );
 	}
 
 	public function test_consumer_rows_leaves_a_stale_row_alone_without_a_source_dir(): void {

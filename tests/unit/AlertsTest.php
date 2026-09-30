@@ -99,6 +99,22 @@ class AlertsTest extends TestCase {
 		\file_put_contents( "{$dir}/0.log", Message::packed( $message ) . "\n", FILE_APPEND );
 	}
 
+	private function seed_stale_probe( string $base, string $reader, int $distance ): void {
+		$dir = "{$base}/logs/topicprobe.p0";
+		if ( ! \is_dir( $dir ) ) {
+			\mkdir( $dir, 0755, true );
+		}
+		$record                             = [];
+		$record[ Probe_Record::SOURCE ]     = 'firehose.p0';
+		$record[ Probe_Record::READER ]     = $reader;
+		$record[ Probe_Record::DISTANCE ]   = $distance;
+		$message                            = Message::new_message();
+		$message[ Message::TYPE ]           = Message::TM_STRUCT;
+		$message[ Message::VALUE ]          = $record;
+		$message[ Message::TIMESTAMP ]     -= 300;
+		\file_put_contents( "{$dir}/0.log", Message::packed( $message ) . "\n", FILE_APPEND );
+	}
+
 	private function seed_deadletter( string $base, string $reader, int $segments ): void {
 		$dir = "{$base}/deadletter/{$reader}";
 		\mkdir( $dir, 0755, true );
@@ -289,6 +305,19 @@ class AlertsTest extends TestCase {
 		$this->assertArrayHasKey( 'consumer_lag:firehose.p0', $by_key );
 		$this->assertSame( Alerts::SEVERITY_WARNING, $by_key['consumer_lag:firehose.p0']['severity'] );
 		$this->assertSame( 99_000_000, $by_key['consumer_lag:firehose.p0']['distance'] );
+	}
+
+	public function test_departed_consumer_of_an_inactive_topology_yields_no_lag_alert(): void {
+		$base = $this->arrange( [ 'live-workers' ] );
+		$this->seed_heartbeat( $base, 'live-workers', 0 );
+		// Stale probes, no offsets on disk: only the active topology's reader alerts.
+		$this->seed_stale_probe( $base, 'gone-topo.firehose.p0', 97_000_000 );
+		$this->seed_stale_probe( $base, 'live-workers.firehose.p0', 98_000_000 );
+
+		$by_key = $this->alerts_by_key( Alerts::evaluate() );
+
+		$this->assertArrayNotHasKey( 'consumer_lag:gone-topo.firehose.p0', $by_key );
+		$this->assertArrayHasKey( 'consumer_lag:live-workers.firehose.p0', $by_key );
 	}
 
 	public function test_consumer_under_threshold_yields_no_lag_alert(): void {
