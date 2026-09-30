@@ -277,7 +277,8 @@ final class LedgerNodeTest extends TestCase {
 
 	public function test_the_counters_tally_calls_rows_asked_and_rows_stored(): void {
 		$kea = $this->kea();
-		$this->assertSame( [ 'APPEND' => [ 'calls' => 0, 'asked' => 0, 'answered' => 0, 'bytes' => 0, 'total_ms' => 0.0, 'max_ms' => 0.0 ] ], $kea->stats() );
+		$zero = [ 'calls' => 0, 'asked' => 0, 'answered' => 0, 'bytes' => 0, 'total_ms' => 0.0, 'max_ms' => 0.0 ];
+		$this->assertSame( \array_fill_keys( [ 'APPEND', 'SUM', 'TOP', 'MEMBERS' ], $zero ), $kea->stats() );
 		Core::$clock = static fn (): float => (float) ( self::T + 3 * 600 + 1 );
 		$this->append( $kea, [ [ self::T, 'sku-41', 'aisle-9', [ 3, 2.5, 7 ] ], [ self::T + 900, 'sku-43', 'aisle-12', [ 4, 1.5, 9 ] ] ], 1250000 );
 		$this->append( $kea, [ [ self::T + 900, 'sku-41', 'aisle-9', [ 5, 0.5, 8 ] ] ], 2500000 );

@@ -21,7 +21,11 @@ rest do. `Table_Client`'s `@api` methods are `get_multi()`, `set_multi()`,
 `add_multi()`, `touch()`, `remove()`, `accepts()`, and the set-member pair
 `add_members( string $table, array $sets, int $ttl ): array` and
 `members( string $table, array $set_keys, int $limit, ?bool &$failed = null ): array`,
-which answer through a durable Table alone.
+which answer through a durable Table alone, and a Ledger's four asks,
+`append( string $ledger, array $rows ): ?array`, `sum( string $ledger, array $query ): ?array`,
+`top( string $ledger, array $query ): ?array` and
+`ledger_members( string $ledger, int $from, int $to, string $k ): ?array`, each null
+on a refusal or no answer.
 
 That trio and [`Topology_Analyzer::includes()`](../includes/class-topology-analyzer.php) answer questions a consumer cannot
 answer for itself. `node_dirs()` and `node_partitions()` are how a reader finds

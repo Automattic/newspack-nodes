@@ -64,7 +64,7 @@ final class Sqlite_Arm extends Durable_Arm {
 	private const CACHE_PRAGMA = 'PRAGMA cache_size = -' . self::CACHE_KIB;
 
 	/** Keys bound per `IN ( … )`: under the 999 variables an older build allows. */
-	private const IN_CHUNK = 500;
+	public const IN_CHUNK = 500;
 
 	/** SQL predicate for a live row; binds one `now`. */
 	private const LIVE = '( expires = 0 OR expires > ? )';
@@ -197,6 +197,20 @@ final class Sqlite_Arm extends Durable_Arm {
 		return "sqlite {$this->path}: {$this->failure}";
 	}
 
+	/**
+	 * Run `$work` in one `BEGIN DEFERRED … COMMIT` on `$db`, so every read in
+	 * it sees the one snapshot its first read took, whatever another
+	 * connection commits meanwhile. In WAL it takes no lock a writer waits on.
+	 *
+	 * @template T
+	 * @param \PDO           $db   The connection.
+	 * @param \Closure(): T  $work What the transaction reads.
+	 * @return T What `$work` returned.
+	 */
+	public static function deferred( \PDO $db, \Closure $work ): mixed {
+		return self::transaction( $db, 'BEGIN DEFERRED', $work );
+	}
+
 	/** See Durable_Arm::row_key(): `{namespace}:{key}`. */
 	public function row_key( string $key ): string {
 		return "{$this->namespace}:{$key}";
@@ -244,7 +258,21 @@ final class Sqlite_Arm extends Durable_Arm {
 	 * @return T What `$work` returned.
 	 */
 	public static function immediate( \PDO $db, \Closure $work ): mixed {
-		$db->exec( 'BEGIN IMMEDIATE' );
+		return self::transaction( $db, 'BEGIN IMMEDIATE', $work );
+	}
+
+	/**
+	 * Run `$work` between `$begin` and a COMMIT; a throw rolls it back and
+	 * propagates.
+	 *
+	 * @template T
+	 * @param \PDO           $db    The connection.
+	 * @param string         $begin The BEGIN statement.
+	 * @param \Closure(): T  $work  What the transaction runs.
+	 * @return T What `$work` returned.
+	 */
+	private static function transaction( \PDO $db, string $begin, \Closure $work ): mixed {
+		$db->exec( $begin );
 		try {
 			$out = $work();
 			$db->exec( 'COMMIT' );
