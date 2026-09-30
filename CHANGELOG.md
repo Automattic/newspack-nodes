@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.79.2] - 2026-09-30
+
 ### Fixed
 
 - **`wp nodes status`, the Workers dashboard and the consumer-lag alert no longer list the readers of a deactivated topology.** `CLI::consumer_rows()` kept a departed reader's last Topic_Probe row, message rate and backlog included, after `wp nodes deactivate` and `wp nodes gc` had removed its offsets. A row whose snapshot has gone stale now survives only while its offsetlog dir exists or a reader id opens with the name of an active topology; otherwise it is dropped.
