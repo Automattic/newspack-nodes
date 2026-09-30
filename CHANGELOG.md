@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.79.0] - 2026-09-29
+
 ### Added
 
 - **`wp nodes session issue <label> [<role>] [<ttl>]`** mints a command session and prints `<handle>.<secret>` and a newline on stdout, nothing else, so `$( … )` captures the MCP Bearer credential. The session acts as the `--user` login and lists under its label in the Sessions tab. `role` defaults to `manage` and is refused, not lowered, when the user does not hold it; `ttl` defaults to 3600 and is refused outside 60 to 86400. An empty label, an unknown role, a non-integer TTL and a missing `--user` are refused too.
