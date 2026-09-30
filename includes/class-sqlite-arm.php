@@ -63,6 +63,9 @@ final class Sqlite_Arm extends Durable_Arm {
 	/** The page-cache pragma; a negative size counts KiB rather than pages. */
 	private const CACHE_PRAGMA = 'PRAGMA cache_size = -' . self::CACHE_KIB;
 
+	/** The WAL checkpoint every writer runs on the tick. */
+	public const PASSIVE_CHECKPOINT = 'PRAGMA wal_checkpoint(PASSIVE)';
+
 	/** Keys bound per `IN ( … )`: under the 999 variables an older build allows. */
 	public const IN_CHUNK = 500;
 
@@ -171,30 +174,44 @@ final class Sqlite_Arm extends Durable_Arm {
 		}
 	}
 
-	/**
-	 * One PASSIVE checkpoint: copy back every WAL frame no reader's snapshot
-	 * still needs, waiting on no reader and blocking none. Frames past an
-	 * open reader's snapshot stay for the next call, which is ordinary.
-	 *
-	 * @return array{0: int, 1: int}|null The WAL's frames and the frames now
-	 *                                    written back; null when it failed,
-	 *                                    which is logged.
-	 */
-	public function checkpoint(): ?array {
-		try {
-			$row = $this->single_row( 'PRAGMA wal_checkpoint(PASSIVE)' );
-		} catch ( \PDOException $e ) {
-			$this->failure = $e->getMessage();
-			Core::print_less_often( 'Table checkpoint failed: ', $this->last_failure() );
-			return null;
-		}
-		$row = \is_array( $row ) ? $row : [];
-		return [ \max( 0, Core::as_int( $row[1] ?? 0 ) ), \max( 0, Core::as_int( $row[2] ?? 0 ) ) ];
-	}
-
 	/** See Cache_Backend::last_failure(). */
 	public function last_failure(): string {
 		return "sqlite {$this->path}: {$this->failure}";
+	}
+
+	/**
+	 * This file's PASSIVE checkpoint; see passive_checkpoint().
+	 *
+	 * @return array{0: int, 1: int}|null The WAL's frames, and those written
+	 *                                    back; null while another connection
+	 *                                    checkpoints.
+	 * @throws \PDOException When the checkpoint fails.
+	 */
+	public function checkpoint(): ?array {
+		return self::passive_checkpoint( $this->statement( self::PASSIVE_CHECKPOINT ) );
+	}
+
+	/**
+	 * One PASSIVE checkpoint: copy back every WAL frame no reader's snapshot
+	 * still needs, waiting on no reader and blocking none. Frames past an
+	 * open reader's snapshot stay for the next call, which is ordinary. While
+	 * another connection holds the checkpoint lock, as the next partition
+	 * writing a Ledger's file may, SQLite answers busy and copies nothing.
+	 *
+	 * @param \PDOStatement $checkpoint PASSIVE_CHECKPOINT, prepared on a
+	 *                                  writer's connection.
+	 * @return array{0: int, 1: int}|null The WAL's frames, and those written
+	 *                                    back; null when SQLite answered busy.
+	 * @throws \PDOException When the checkpoint fails.
+	 */
+	public static function passive_checkpoint( \PDOStatement $checkpoint ): ?array {
+		self::execute( $checkpoint );
+		$row = $checkpoint->fetchAll( \PDO::FETCH_NUM )[0] ?? [];
+		$row = \is_array( $row ) ? $row : [];
+		if ( 1 === Core::as_int( $row[0] ?? 0 ) ) {
+			return null;
+		}
+		return [ \max( 0, Core::as_int( $row[1] ?? 0 ) ), \max( 0, Core::as_int( $row[2] ?? 0 ) ) ];
 	}
 
 	/**
@@ -309,7 +326,7 @@ final class Sqlite_Arm extends Durable_Arm {
 		foreach ( \array_chunk( $keys, self::IN_CHUNK ) as $chunk ) {
 			$in   = \implode( ',', \array_fill( 0, \count( $chunk ), '?' ) );
 			$stmt = $db->prepare( "SELECT \"key\", \"value\", expires FROM kv WHERE \"key\" IN ( {$in} ) AND " . self::LIVE );
-			$stmt->execute( [ ...$chunk, self::now() ] );
+			self::execute( $stmt, [ ...$chunk, self::now() ] );
 			/** @var array<array-key,array{0: string, 1: int}> $rows The key column keys each row. */
 			$rows = $stmt->fetchAll( \PDO::FETCH_UNIQUE | \PDO::FETCH_NUM );
 			$out  = $rows + $out;
@@ -343,7 +360,7 @@ final class Sqlite_Arm extends Durable_Arm {
 			$stmt->bindValue( 1, (string) $key );
 			$stmt->bindValue( 2, $bytes, \PDO::PARAM_LOB );
 			$stmt->bindValue( 3, $expires, \PDO::PARAM_INT );
-			$stmt->execute();
+			self::execute( $stmt );
 			$changed += $stmt->rowCount();
 		}
 		return $changed;
@@ -356,7 +373,7 @@ final class Sqlite_Arm extends Durable_Arm {
 		$stmt->bindValue( 2, $key );
 		$stmt->bindValue( 3, $old, \PDO::PARAM_LOB );
 		$stmt->bindValue( 4, self::now(), \PDO::PARAM_INT );
-		$stmt->execute();
+		self::execute( $stmt );
 		return 1 === $stmt->rowCount();
 	}
 
@@ -379,7 +396,7 @@ final class Sqlite_Arm extends Durable_Arm {
 	 */
 	private function run( string $sql, array $args ): int {
 		$stmt = $this->statement( $sql );
-		$stmt->execute( $args );
+		self::execute( $stmt, $args );
 		return $stmt->rowCount();
 	}
 
@@ -456,7 +473,7 @@ final class Sqlite_Arm extends Durable_Arm {
 		$stmt = $this->statement( $sql );
 		$stmt->bindValue( 1, $now, \PDO::PARAM_INT );
 		$stmt->bindValue( 2, $limit, \PDO::PARAM_INT );
-		$stmt->execute();
+		self::execute( $stmt );
 		return $stmt->rowCount();
 	}
 
@@ -468,7 +485,7 @@ final class Sqlite_Arm extends Durable_Arm {
 			$stmt->bindValue( 2, $member );
 			$stmt->bindValue( 3, $bytes, \PDO::PARAM_LOB );
 			$stmt->bindValue( 4, $expires, \PDO::PARAM_INT );
-			$stmt->execute();
+			self::execute( $stmt );
 		}
 	}
 
@@ -487,7 +504,7 @@ final class Sqlite_Arm extends Durable_Arm {
 		$read->bindValue( 1, $set_key );
 		$read->bindValue( 2, self::now(), \PDO::PARAM_INT );
 		$read->bindValue( 3, $limit, \PDO::PARAM_INT );
-		$read->execute();
+		self::execute( $read );
 		return \array_map( Core::as_string( ... ), $read->fetchAll( \PDO::FETCH_KEY_PAIR ) );
 	}
 
@@ -500,7 +517,7 @@ final class Sqlite_Arm extends Durable_Arm {
 	 */
 	private function single_row( string $sql ): ?array {
 		$stmt = $this->statement( $sql );
-		$stmt->execute();
+		self::execute( $stmt );
 		$rows = $stmt->fetchAll( \PDO::FETCH_NUM );
 		return \is_array( $rows[0] ?? null ) ? $rows[0] : null;
 	}
@@ -578,7 +595,7 @@ final class Sqlite_Arm extends Durable_Arm {
 	public static function open_database( string $path, bool $read_only, int $busy_timeout_ms ): \PDO {
 		$flags = $read_only ? [ \PDO::SQLITE_ATTR_OPEN_FLAGS => \PDO::SQLITE_OPEN_READONLY ] : [];
 		$db    = new \PDO( 'sqlite:' . $path, null, null, [ \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION ] + $flags );
-		$db->exec( 'PRAGMA busy_timeout = ' . \max( 1, $busy_timeout_ms ) );
+		self::busy_timeout( $db, $busy_timeout_ms );
 		if ( $read_only ) {
 			try {
 				$db->exec( self::CACHE_PRAGMA );
@@ -589,7 +606,7 @@ final class Sqlite_Arm extends Durable_Arm {
 			return $db;
 		}
 		$mode = $db->prepare( 'PRAGMA journal_mode = WAL' );
-		$mode->execute();
+		self::execute( $mode );
 		if ( 'wal' !== $mode->fetchColumn() ) {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; the node wrapping it escapes the message once.
 			throw new \RuntimeException( "sqlite backend could not enter WAL mode at {$path}" );
@@ -599,5 +616,33 @@ final class Sqlite_Arm extends Durable_Arm {
 		$db->exec( 'PRAGMA journal_size_limit = ' . self::WAL_LIMIT_BYTES );
 		$db->exec( self::CACHE_PRAGMA );
 		return $db;
+	}
+
+	/**
+	 * Execute `$statement`, resetting it when it fails, so its next execute
+	 * runs afresh: a statement SQLite answered BUSY fails every retry until
+	 * it is reset. Every statement on a SQLite file runs through here.
+	 *
+	 * @param \PDOStatement    $statement The statement.
+	 * @param list<mixed>|null $params    Values to bind, or null for those bound.
+	 * @throws \PDOException When the statement fails.
+	 */
+	public static function execute( \PDOStatement $statement, ?array $params = null ): void {
+		try {
+			$statement->execute( $params );
+		} catch ( \PDOException $e ) {
+			$statement->closeCursor();
+			throw $e;
+		}
+	}
+
+	/**
+	 * Set how long `$db` waits on another connection's write lock.
+	 *
+	 * @param \PDO $db              The connection.
+	 * @param int  $busy_timeout_ms Milliseconds, at least 1.
+	 */
+	public static function busy_timeout( \PDO $db, int $busy_timeout_ms ): void {
+		$db->exec( 'PRAGMA busy_timeout = ' . \max( 1, $busy_timeout_ms ) );
 	}
 }

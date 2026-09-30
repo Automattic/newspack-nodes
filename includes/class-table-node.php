@@ -45,7 +45,7 @@ namespace Newspack_Nodes;
 /**
  * Table node — `make_node Table <name> <namespace> <ttl> [ auto|memcache|apcu|sqlite|wpdb ]`.
  */
-class Table_Node extends Node {
+class Table_Node extends Node implements Tick_Housekeeper {
 	use Schema_Reflection;
 	use Verb_Stats {
 		reset_stats as private zero_stats;
@@ -86,30 +86,6 @@ class Table_Node extends Node {
 	 * while behind.
 	 */
 	public const PURGE_BACKLOG_BUDGET_S = 0.25;
-
-	/**
-	 * Seconds between one Table's WAL checkpoints. A checkpoint copies each
-	 * page in the WAL back once, however many writes dirtied it since the
-	 * last, so a hot page costs one copy an interval rather than one a tick.
-	 * Checkpointing every tick, staging's aggregate Table spent 1,686 ms in
-	 * 133 checkpoints, 39% of its time, beside 1,879 ms of SADD and 614 ms of
-	 * MSET. At its ~630 frames a second, 30 s leaves ~19,000 frames, ~75 MB,
-	 * to one checkpoint, and bounds what a crash replays from the WAL. It is
-	 * half of PURGE_INTERVAL_S, so every other checkpoint shares a purge tick.
-	 */
-	public const CHECKPOINT_INTERVAL_S = 30;
-
-	/**
-	 * Checkpoints in a row that may leave frames behind, while the WAL grows,
-	 * before the Table warns. A PASSIVE checkpoint stops at the oldest open
-	 * reader's snapshot, and a reader here is one request's mount, which PHP
-	 * ends inside its 30-second max_execution_time. Checkpoints sit
-	 * CHECKPOINT_INTERVAL_S apart, so one request straddles two of them at
-	 * most; four in a row spans at least 90 seconds, three times what one
-	 * request can hold, so it means readers overlapping without a gap, or one
-	 * stuck, and the WAL grows until one lets go.
-	 */
-	public const WAL_STALL_CHECKPOINTS = 4;
 
 	/** Most bytes of a refused verb a log line or its throttle key shows. */
 	private const SHOWN_VERB_BYTES = 64;
@@ -199,15 +175,6 @@ class Table_Node extends Node {
 
 	/** Whether this Table's last purge stopped with a batch still full. */
 	private bool $purge_behind = false;
-
-	/** The tick this Table's next WAL checkpoint is due, in epoch seconds. */
-	private int $checkpoint_due = 0;
-
-	/** Consecutive WAL checkpoints that left frames behind. */
-	private int $wal_stalled = 0;
-
-	/** WAL frames at the first checkpoint of the current stall. */
-	private int $wal_stall_frames = 0;
 
 	/**
 	 * Durable system of record behind this table, or null until backed_by()
@@ -1452,96 +1419,6 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * One Table's purge on the Router tick, in PURGE_BATCH_ROWS batches; the
-	 * rest waits a minute. A purge that stops with its last batch full leaves
-	 * the Table behind, and says so; the first short batch catches it up.
-	 *
-	 * @param Durable_Arm $arm   The Table's arm.
-	 * @param int         $now   The tick, in epoch seconds.
-	 * @param float       $until The tick's deadline, shared by every Table.
-	 */
-	private function purge_tick( Durable_Arm $arm, int $now, float $until ): void {
-		[ $purged, $batches ]   = $this->purge_batches( $arm, $now, $until, self::PURGE_BATCH_ROWS );
-		$this->purge_behind     = $batches * self::PURGE_BATCH_ROWS === $purged;
-		if ( $this->purge_behind ) {
-			$this->print_less_often( 'WARNING: purge is behind: ', "its last batch came back full after {$batches} batches, {$purged} rows; the next purge spends its backlog budget" );
-		}
-	}
-
-	/**
-	 * Delete expired rows `$batch` at a time, counted as one PURGE: a batch,
-	 * repeated while each comes back full and the deadline, read through
-	 * `Core::right_now()`, has not passed, so a spent deadline runs one. The
-	 * deadline is checked between batches, so one statement blocked on the
-	 * file's write lock can hold the tick for the arm's busy_timeout.
-	 *
-	 * @param Durable_Arm $arm   The Table's arm.
-	 * @param int         $now   Rows expired at this epoch second go.
-	 * @param float       $until The deadline.
-	 * @param int         $batch Rows one statement deletes at most.
-	 * @return array{0: int, 1: int} Rows deleted, and batches run.
-	 */
-	private function purge_batches( Durable_Arm $arm, int $now, float $until, int $batch ): array {
-		$started = self::monotonic_ns();
-		$bytes   = $this->stat_bytes();
-		$batches = 0;
-		$purged  = 0;
-		try {
-			do {
-				++$batches;
-				$rows    = $arm->purge( $now, $batch );
-				$purged += $rows;
-			} while ( Core::right_now() < $until && $batch === $rows );
-		} finally {
-			$this->count_rows( 'PURGE', $batches * $batch, $purged );
-			$this->count_call( 'PURGE', $started, $bytes );
-		}
-		return [ $purged, $batches ];
-	}
-
-	/**
-	 * One Table's WAL checkpoint, unless a purge this tick spent the deadline
-	 * (read off `Core::$now`, which the purge refreshed), or at once when no
-	 * purge was due and the tick set no deadline. One that runs dates the
-	 * next from `$now`. It is counted as CHECKPOINT: `asked` the WAL's
-	 * frames, `answered` the frames written back. A partial one is ordinary
-	 * and the next carries on; WAL_STALL_CHECKPOINTS of them in a row, with
-	 * the WAL larger than when the stall began, is warned about, rate-limited.
-	 *
-	 * @param Sqlite_Arm $arm   The Table's arm.
-	 * @param int        $now   The tick, in epoch seconds.
-	 * @param ?float     $until The tick's deadline, shared by every Table, or
-	 *                          null when no purge was due.
-	 */
-	private function checkpoint_wal( Sqlite_Arm $arm, int $now, ?float $until ): void {
-		if ( null !== $until && Core::$now >= $until ) {
-			return;
-		}
-		$this->checkpoint_due = $now + self::CHECKPOINT_INTERVAL_S;
-		$started              = self::monotonic_ns();
-		try {
-			$result = $arm->checkpoint();
-		} finally {
-			$this->count_call( 'CHECKPOINT', $started, $this->stat_bytes() );
-		}
-		if ( null === $result ) {
-			return;
-		}
-		[ $frames, $written ] = $result;
-		$this->count_rows( 'CHECKPOINT', $frames, $written );
-		if ( $written >= $frames ) {
-			$this->wal_stalled = 0;
-			return;
-		}
-		if ( 0 === $this->wal_stalled++ ) {
-			$this->wal_stall_frames = $frames;
-		}
-		if ( $this->wal_stalled >= self::WAL_STALL_CHECKPOINTS && $frames > $this->wal_stall_frames ) {
-			$this->print_less_often( 'WARNING: WAL checkpoint has not completed ', "for {$this->wal_stalled} checkpoints while the WAL grew from {$this->wal_stall_frames} to {$frames} frames; an open reader holds an old snapshot" );
-		}
-	}
-
-	/**
 	 * `reset_stats`: zero the counters, answering them as they stood. A mount
 	 * refuses it.
 	 *
@@ -1563,15 +1440,6 @@ class Table_Node extends Node {
 		if ( $this->mounted ) {
 			throw new \RuntimeException( \esc_html( "{$verb}: {$this->name} is a mounted Table, which serves reads only" ) );
 		}
-	}
-
-	/**
-	 * The encoded bytes the Table's durable arm has handled; 0 for any other.
-	 *
-	 * @return int Bytes.
-	 */
-	private function stat_bytes(): int {
-		return $this->arm instanceof Durable_Arm ? $this->arm->bytes() : 0;
 	}
 
 	/**
@@ -1632,59 +1500,120 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * The Router tick's step for every Table in this process's graph: delete
-	 * the rows expired at `$now` from each durable one, at most once a
-	 * `PURGE_INTERVAL_S` each, then checkpoint each SQLite Table's WAL, at most
-	 * once a `CHECKPOINT_INTERVAL_S` each. Last, every traced Table, volatile
-	 * ones too, writes its trace line. The purges and checkpoints share one
-	 * deadline, PURGE_BACKLOG_BUDGET_S while any purge is behind and PURGE_BUDGET_S
-	 * otherwise, so a tick holds the loop for one budget plus one batch a
-	 * purging Table and one checkpoint begun before the deadline; a checkpoint
-	 * the purges left no time for waits a tick, not an interval. The tick runs its
-	 * timers' flushes first, so a checkpoint never lands inside one. A mount
-	 * is skipped, since its declaring worker is the file's one writer.
+	 * This Table's work on the tick at `$now`, for tick(): its purge, at most
+	 * once a PURGE_INTERVAL_S, which a durable arm alone answers; its WAL
+	 * checkpoint, at most once a CHECKPOINT_INTERVAL_S, which a SQLite arm
+	 * alone has; and its trace line while traced. A mount does neither of
+	 * the first two, since its declaring worker is the file's one writer.
+	 * See Tick_Housekeeper::tick_steps() for the steps.
+	 *
+	 * @param int $now The tick, in epoch seconds.
+	 */
+	public function tick_steps( int $now ): array {
+		$arm   = $this->mounted ? null : $this->arm;
+		$purge = null;
+		if ( $arm instanceof Durable_Arm && $this->purge_due <= $now ) {
+			$this->purge_due = $now + self::PURGE_INTERVAL_S;
+			$purge           = fn ( float $until ) => $this->purge_tick( $arm, $now, $until );
+		}
+		return [
+			'purge'      => $purge,
+			'behind'     => $this->purge_behind,
+			'checkpoint' => $arm instanceof Sqlite_Arm && $this->checkpoint_due <= $now ? fn ( ?float $until ) => $this->checkpoint_wal( $arm->checkpoint( ... ), $now, $until ) : null,
+			'trace'      => $this->debug_state > 0 ? $this->trace_tick( ... ) : null,
+		];
+	}
+
+	/**
+	 * One Table's purge on the Router tick, in PURGE_BATCH_ROWS batches; the
+	 * rest waits a minute. A purge that stops with its last batch full leaves
+	 * the Table behind, and says so; the first short batch catches it up.
+	 *
+	 * @param Durable_Arm $arm   The Table's arm.
+	 * @param int         $now   The tick, in epoch seconds.
+	 * @param float       $until The tick's deadline, shared by every store.
+	 */
+	private function purge_tick( Durable_Arm $arm, int $now, float $until ): void {
+		[ $purged, $batches ]   = $this->purge_batches( $arm, $now, $until, self::PURGE_BATCH_ROWS );
+		$this->purge_behind     = $batches * self::PURGE_BATCH_ROWS === $purged;
+		if ( $this->purge_behind ) {
+			$this->print_less_often( 'WARNING: purge is behind: ', "its last batch came back full after {$batches} batches, {$purged} rows; the next purge spends its backlog budget" );
+		}
+	}
+
+	/**
+	 * Delete the rows expired at `$now` `$batch` at a time, counted as one
+	 * PURGE; see delete_batches().
+	 *
+	 * @param Durable_Arm $arm   The Table's arm.
+	 * @param int         $now   Rows expired at this epoch second go.
+	 * @param float       $until The deadline.
+	 * @param int         $batch Rows one statement deletes at most.
+	 * @return array{0: int, 1: int} Rows deleted, and batches run.
+	 */
+	private function purge_batches( Durable_Arm $arm, int $now, float $until, int $batch ): array {
+		return $this->delete_batches( 'PURGE', static fn (): int => $arm->purge( $now, $batch ), $batch, $until );
+	}
+
+	/**
+	 * The encoded bytes the Table's durable arm has handled; 0 for any other.
+	 *
+	 * @return int Bytes.
+	 */
+	private function stat_bytes(): int {
+		return $this->arm instanceof Durable_Arm ? $this->arm->bytes() : 0;
+	}
+
+	/**
+	 * The Router tick's step for every Tick_Housekeeper in this process's
+	 * graph, each node's work given by its tick_steps() — a durable Table's
+	 * PURGE of the rows expired at `$now` and a Ledger's DROP of the segments
+	 * past its lifespan, then each writer's WAL checkpoint. Last, every
+	 * traced store, volatile Tables too, writes its trace line. The purges
+	 * and checkpoints share one deadline, PURGE_BACKLOG_BUDGET_S while any
+	 * purge is behind and PURGE_BUDGET_S otherwise, so a tick holds the loop
+	 * for one budget plus one batch a purging store and one checkpoint begun
+	 * before the deadline; a checkpoint the purges left no time for waits a
+	 * tick, not an interval. The tick runs its timers' flushes first, so a
+	 * checkpoint never lands inside one.
 	 *
 	 * @param int $now The tick, in epoch seconds.
 	 * @throws \Throwable What the steps threw, after the last.
 	 */
 	public static function tick( int $now ): void {
-		$due    = [];
-		$wals   = [];
-		$traces = [];
-		$behind = false;
+		$purges      = [];
+		$checkpoints = [];
+		$traces      = [];
+		$behind      = false;
 		foreach ( Core::$nodes_by_name as $node ) {
-			if ( ! $node instanceof self ) {
+			if ( ! $node instanceof Tick_Housekeeper ) {
 				continue;
 			}
-			if ( $node->debug_state > 0 ) {
-				$traces[] = $node->trace_tick( ... );
+			$steps = $node->tick_steps( $now );
+			if ( null !== $steps['purge'] ) {
+				$purges[] = $steps['purge'];
+				$behind   = $behind || $steps['behind'];
 			}
-			$arm = $node->mounted ? null : $node->arm;
-			if ( ! $arm instanceof Durable_Arm ) {
-				continue;
+			if ( null !== $steps['checkpoint'] ) {
+				$checkpoints[] = $steps['checkpoint'];
 			}
-			if ( $arm instanceof Sqlite_Arm && $node->checkpoint_due <= $now ) {
-				$wals[] = [ $node, $arm ];
-			}
-			if ( $node->purge_due <= $now ) {
-				$node->purge_due = $now + self::PURGE_INTERVAL_S;
-				$due[]           = [ $node, $arm ];
-				$behind          = $behind || $node->purge_behind;
+			if ( null !== $steps['trace'] ) {
+				$traces[] = $steps['trace'];
 			}
 		}
-		if ( [] === $due && [] === $wals && [] === $traces ) {
+		if ( [] === $purges && [] === $checkpoints && [] === $traces ) {
 			return;
 		}
-		$until  = null;
-		$purges = [];
-		if ( [] !== $due ) {
+		$until = null;
+		$runs  = [];
+		if ( [] !== $purges ) {
 			// Only a due purge reads the live clock, refreshing Core::$now.
 			$deadline = Core::right_now() + ( $behind ? self::PURGE_BACKLOG_BUDGET_S : self::PURGE_BUDGET_S );
 			$until    = $deadline;
-			$purges   = \array_map( static fn ( array $table ): \Closure => static fn () => $table[0]->purge_tick( $table[1], $now, $deadline ), $due );
+			$runs     = \array_map( static fn ( \Closure $purge ): \Closure => static fn () => $purge( $deadline ), $purges );
 		}
-		$checkpoints = \array_map( static fn ( array $table ): \Closure => static fn () => $table[0]->checkpoint_wal( $table[1], $now, $until ), $wals );
-		Worker_Should_Stop::raise( Worker_Should_Stop::attempt( ...$purges, ...$checkpoints, ...$traces ) );
+		$checks = \array_map( static fn ( \Closure $checkpoint ): \Closure => static fn () => $checkpoint( $until ), $checkpoints );
+		Worker_Should_Stop::raise( Worker_Should_Stop::attempt( ...$runs, ...$checks, ...$traces ) );
 	}
 
 	/**

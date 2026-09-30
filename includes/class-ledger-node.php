@@ -42,7 +42,7 @@ namespace Newspack_Nodes;
 /**
  * Ledger node — `make_node Ledger <name> <segment_seconds> <num_segments> <column>[:sum|min|max] …`.
  */
-final class Ledger_Node extends Node {
+final class Ledger_Node extends Node implements Tick_Housekeeper {
 	use Schema_Reflection;
 	use Verb_Stats;
 
@@ -51,6 +51,14 @@ final class Ledger_Node extends Node {
 	 * milliseconds: the longest flush it may have to wait out.
 	 */
 	public const BUSY_TIMEOUT_MS = 5000;
+
+	/**
+	 * Rows one segment-drop statement deletes at most: a batch the tick's
+	 * budget can stop between, where a whole segment in one statement would
+	 * hold the file's write lock, and every other partition's flush, for as
+	 * long as its rows take.
+	 */
+	public const DROP_BATCH_ROWS = 20000;
 
 	/** Most rows one TOP answers: a page, never a dump of every member. */
 	public const TOP_LIMIT_MAX = Sqlite_Arm::IN_CHUNK;
@@ -89,12 +97,18 @@ final class Ledger_Node extends Node {
 	/** Keys, or members, a SUM binds per `IN ( … )` when it binds both lists. */
 	private const PAIRED_CHUNK = Sqlite_Arm::IN_CHUNK / 2;
 
-	/** The verbs a Ledger counts. */
+	/**
+	 * The verbs a Ledger counts: its requests, and the Router tick's DROP
+	 * (asked the batches' room, answered the rows deleted) and CHECKPOINT
+	 * (the WAL's frames).
+	 */
 	private const ZERO_STATS = [
-		'APPEND'  => self::ZERO_ROW,
-		'SUM'     => self::ZERO_ROW,
-		'TOP'     => self::ZERO_ROW,
-		'MEMBERS' => self::ZERO_ROW,
+		'APPEND'     => self::ZERO_ROW,
+		'SUM'        => self::ZERO_ROW,
+		'TOP'        => self::ZERO_ROW,
+		'MEMBERS'    => self::ZERO_ROW,
+		'DROP'       => self::ZERO_ROW,
+		'CHECKPOINT' => self::ZERO_ROW,
 	];
 
 	/** Seconds of `t` one segment spans. */
@@ -118,6 +132,21 @@ final class Ledger_Node extends Node {
 
 	/** The one SELECT a MEMBERS runs. */
 	private ?\PDOStatement $select_members = null;
+
+	/** The one DELETE a segment drop runs per batch; binds cutoff, limit. */
+	private ?\PDOStatement $drop = null;
+
+	/** The one PASSIVE WAL checkpoint the tick runs. */
+	private ?\PDOStatement $checkpoint = null;
+
+	/** Every `t` below it is gone: the cutoff the last whole drop reached. */
+	private int $dropped_below = 0;
+
+	/** Whether the last drop stopped with a batch still full. */
+	private bool $drop_behind = false;
+
+	/** Whether this is a request-graph mount, which never drops or checkpoints. */
+	private bool $mounted = false;
 
 	/** The partition this writer's rows carry as `w`. */
 	private int $partition = 0;
@@ -157,6 +186,8 @@ final class Ledger_Node extends Node {
 		$this->db             = $db;
 		$this->insert         = $db->prepare( ( [] === $values['columns'] ? 'INSERT OR IGNORE' : 'INSERT' ) . ' INTO rows ( ' . \implode( ', ', \array_keys( $names ) ) . ' ) VALUES ( ' . self::placeholders( $names ) . ' )' );
 		$this->select_members = $db->prepare( self::MEMBERS_READ );
+		$this->checkpoint     = $db->prepare( Sqlite_Arm::PASSIVE_CHECKPOINT );
+		$this->drop           = $db->prepare( 'DELETE FROM rows WHERE ( ' . self::key( $names ) . ' ) IN ( SELECT ' . self::key( $names ) . ' FROM rows WHERE t < ? LIMIT ? )' );
 		$this->partition      = $partition;
 		$this->sequence       = (int) \hrtime( true );
 		return $args;
@@ -232,14 +263,13 @@ final class Ledger_Node extends Node {
 		try {
 			$partition = $this->bound_partition();
 			$file   = self::file( $this->name );
-			$key    = \array_keys( \array_intersect_key( $names, self::KEY_COLUMNS + self::WRITER_COLUMNS ) );
 			$fields = \implode( ', ', \array_map( static fn ( string $name, string $type ): string => "{$name} {$type} NOT NULL", \array_keys( $names ), $names ) );
-			$shape  = "rows ( {$fields}, PRIMARY KEY ( " . \implode( ', ', $key ) . ' ) ) WITHOUT ROWID';
+			$shape  = "rows ( {$fields}, PRIMARY KEY ( " . self::key( $names ) . ' ) ) WITHOUT ROWID';
 			Config::ensure_path( \dirname( $file ) );
 			$db = Sqlite_Arm::open_database( $file, false, self::BUSY_TIMEOUT_MS );
 			$db->exec( "CREATE TABLE IF NOT EXISTS {$shape}" );
 			$held = $db->prepare( "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'rows'" );
-			$held->execute();
+			Sqlite_Arm::execute( $held );
 			if ( "CREATE TABLE {$shape}" !== $held->fetchColumn() ) {
 				throw new \UnexpectedValueException( "{$file} holds a rows table another declaration made; `wp nodes tables flush` drops the rows written under it and declares this one" );
 			}
@@ -249,6 +279,17 @@ final class Ledger_Node extends Node {
 		} catch ( \RuntimeException | \LogicException $e ) {
 			throw new \RuntimeException( \esc_html( "Ledger {$this->name}: " . $e->getMessage() ), 0, $e );
 		}
+	}
+
+	/**
+	 * The primary key of a row storing `$names`: `t, k, x`, and `w, s` for a
+	 * Ledger with columns.
+	 *
+	 * @param array<string,string> $names Every stored column with its type.
+	 * @return string The key's columns, comma-separated.
+	 */
+	private static function key( array $names ): string {
+		return \implode( ', ', \array_keys( \array_intersect_key( $names, self::KEY_COLUMNS + self::WRITER_COLUMNS ) ) );
 	}
 
 	/**
@@ -367,7 +408,7 @@ final class Ledger_Node extends Node {
 		$insert = $this->insert ?? throw $this->unopened();
 		$stored = 0;
 		foreach ( $rows as [ $t, $k, $x, $columns ] ) {
-			$insert->execute( [] === $this->columns ? [ $t, $k, $x ] : [ $t, $k, $x, $this->partition, ++$this->sequence, ...$columns ] );
+			Sqlite_Arm::execute( $insert, [] === $this->columns ? [ $t, $k, $x ] : [ $t, $k, $x, $this->partition, ++$this->sequence, ...$columns ] );
 			$stored += $insert->rowCount();
 		}
 		return $stored;
@@ -650,10 +691,82 @@ final class Ledger_Node extends Node {
 		foreach ( $values as $i => $value ) {
 			$statement->bindValue( $i + 1, $value, \is_int( $value ) ? \PDO::PARAM_INT : \PDO::PARAM_STR );
 		}
-		$statement->execute();
+		Sqlite_Arm::execute( $statement );
 		/** @var list<list<mixed>> $rows FETCH_NUM answers each row as a list. */
 		$rows = $statement->fetchAll( \PDO::FETCH_NUM );
 		return $rows;
+	}
+
+	/**
+	 * This Ledger's work on the tick at `$now`, for Table_Node::tick(): its
+	 * DROP of every `t` below the lifespan's edge rounded down to a segment
+	 * boundary, run once that cutoff passes the last drop's and until a drop
+	 * reaches it; its WAL checkpoint, at most once a CHECKPOINT_INTERVAL_S;
+	 * and its trace line while traced. Every partition's writer runs both on
+	 * the one file, so a second drop finds nothing and a checkpoint another
+	 * partition's write outlasts finishes on a later tick. A mount does
+	 * neither.
+	 * See Tick_Housekeeper::tick_steps() for the steps.
+	 *
+	 * @param int $now The tick, in epoch seconds.
+	 */
+	public function tick_steps( int $now ): array {
+		$db         = $this->mounted ? null : $this->db;
+		$drop       = $this->mounted ? null : $this->drop;
+		$checkpoint = $this->mounted ? null : $this->checkpoint;
+		$purge = null;
+		if ( null !== $db && null !== $drop ) {
+			$edge   = $now - $this->segment_seconds * $this->num_segments;
+			$cutoff = $edge - $edge % $this->segment_seconds;
+			$purge  = $cutoff > $this->dropped_below ? fn ( float $until ) => $this->drop_segments( $db, $drop, $cutoff, $until ) : null;
+		}
+		return [
+			'purge'      => $purge,
+			'behind'     => $this->drop_behind,
+			'checkpoint' => null !== $checkpoint && $this->checkpoint_due <= $now ? fn ( ?float $until ) => $this->checkpoint_wal( static fn (): ?array => Sqlite_Arm::passive_checkpoint( $checkpoint ), $now, $until ) : null,
+			'trace'      => $this->debug_state > 0 ? $this->trace_tick( ... ) : null,
+		];
+	}
+
+	/**
+	 * Delete the rows below `$cutoff` DROP_BATCH_ROWS at a time, counted as
+	 * one DROP; see delete_batches(). A drop that stops with its last batch
+	 * full leaves the Ledger behind, says so, and runs again on the next tick
+	 * under the backlog budget. Each batch meeting another partition's write
+	 * lock waits only what the tick's budget has left when it starts, at
+	 * least 1 ms, rather than BUSY_TIMEOUT_MS, which the connection takes
+	 * back after the drop; then the
+	 * drop is skipped, logged rate-limited, and the next tick tries again.
+	 * Every row below the cutoff is past the lifespan, so no drop, whole or
+	 * cut short, deletes a row inside it.
+	 *
+	 * @param \PDO          $db     The writer's connection.
+	 * @param \PDOStatement $drop   The prepared DELETE.
+	 * @param int           $cutoff Every row whose `t` is below it goes.
+	 * @param float         $until  The tick's deadline, shared by every store.
+	 */
+	private function drop_segments( \PDO $db, \PDOStatement $drop, int $cutoff, float $until ): void {
+		$drop->bindValue( 1, $cutoff, \PDO::PARAM_INT );
+		$drop->bindValue( 2, self::DROP_BATCH_ROWS, \PDO::PARAM_INT );
+		$batch = static function () use ( $db, $drop, $until ): int {
+			Sqlite_Arm::busy_timeout( $db, (int) \round( ( $until - Core::right_now() ) * 1000 ) );
+			Sqlite_Arm::execute( $drop );
+			return $drop->rowCount();
+		};
+		try {
+			[ $dropped, $batches ] = $this->delete_batches( 'DROP', $batch, self::DROP_BATCH_ROWS, $until );
+		} catch ( \PDOException $e ) {
+			$this->print_less_often( 'WARNING: segment drop skipped: ', $e->getMessage() . '; the next tick tries again' );
+			return;
+		} finally {
+			Sqlite_Arm::busy_timeout( $db, self::BUSY_TIMEOUT_MS );
+		}
+		$this->drop_behind = $batches * self::DROP_BATCH_ROWS === $dropped;
+		if ( $this->drop_behind ) {
+			$this->print_less_often( 'WARNING: segment drop is behind: ', "its last batch came back full after {$batches} batches, {$dropped} rows; the next tick drops on under the backlog budget" );
+			return;
+		}
+		$this->dropped_below = $cutoff;
 	}
 
 	/**

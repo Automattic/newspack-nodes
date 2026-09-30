@@ -161,9 +161,10 @@ class Router_Node extends Timer_Node {
 	 * The housekeeping rides here because the tick is the one fixed cadence every
 	 * worker already pays for: `Partition_Node::flush_pending_wakes()` wakes
 	 * on-demand workers once per process instead of once per partition write,
-	 * `Table_Node::tick()` deletes the rows no read of a Table reaches,
-	 * writes each SQLite Table's WAL back after the tick's flushes and writes
-	 * each traced Table's trace line,
+	 * `Table_Node::tick()` deletes the rows no read of a Table reaches and
+	 * the segments a Ledger's lifespan has passed, writes each SQLite
+	 * writer's WAL back after the tick's flushes and writes each traced
+	 * store's trace line,
 	 * `Core::prune_logs()` re-windows the rate limiter so a recurring warning
 	 * eventually prints again, and `trim_profiles()` drops idle profile entries.
 	 *

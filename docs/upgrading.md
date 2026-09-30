@@ -7,8 +7,9 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 ## Unreleased
 
 - **`Table_Node::purge_and_checkpoint()` is `Table_Node::tick()`.** The Router's
-  tick calls it for every Table; it purges, checkpoints and writes a traced
-  Table's trace line. Call `Table_Node::tick( $now )` where you called
+  tick calls it for every Tick_Housekeeper, Tables and Ledgers; it purges,
+  drops a Ledger's expired segments, checkpoints and writes a traced store's
+  trace line. Call `Table_Node::tick( $now )` where you called
   `Table_Node::purge_and_checkpoint( $now )`; no alias remains.
 - **A cli process's reply address is `_output/_cli:<pid>/<reply-node>`.** The
   attached REPL stamps FROM `_output/_cli:<pid>/_output`, where it stamped
