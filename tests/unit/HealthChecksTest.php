@@ -66,6 +66,9 @@ class HealthChecksTest extends TestCase {
 		);
 		$owner             = (int) \fileowner( $this->tmp );
 		CLI::$uid_provider = static fn (): int => $owner;
+		// A healthy site: the shared wpdb tables answer the schema probe.
+		$this->use_wpdb();
+		\Newspack_Nodes\Wpdb_Arm::install();
 	}
 
 	protected function tearDown(): void {
@@ -288,6 +291,48 @@ class HealthChecksTest extends TestCase {
 		$this->assertStringContainsString( 'wp nodes start', $by_id['fleet-hold']['messages'][0] );
 
 		\Newspack_Nodes\Spawn_Coordinator::clear_hold();
+	}
+
+	/**
+	 * The row reads the tables, not a record of the last install: an install
+	 * a lock-wait refused, over tables that still answer, reports nothing.
+	 */
+	public function test_a_refused_install_over_working_tables_reports_no_schema_row(): void {
+		$db              = $this->use_wpdb();
+		$db->base_prefix = 'owl3_';
+		\Newspack_Nodes\Wpdb_Arm::install();
+		$db->deny['CREATE TABLE'] = 'Lock wait timeout exceeded 5281';
+		try {
+			\Newspack_Nodes\Wpdb_Arm::install();
+			$this->fail( 'the refused install must throw' );
+		} catch ( \RuntimeException ) {
+			// Refused; the tables it would have created already stand.
+		}
+
+		$this->assertNotContains( 'wpdb-schema', \array_column( Health_Checks::evaluate( $this->good_cache_result() ), 'id' ) );
+	}
+
+	/** A probe that cannot run says so in its own row rather than throwing. */
+	public function test_a_schema_probe_that_cannot_run_is_recommended_naming_why(): void {
+		$GLOBALS['wpdb'] = null;
+
+		$row = $this->by_id( Health_Checks::evaluate( $this->good_cache_result() ) )['wpdb-schema'] ?? null;
+
+		$this->assertSame( Health_Checks::STATUS_RECOMMENDED, $row['status'] ?? null );
+		$this->assertStringContainsString( 'wpdb backend needs $wpdb', $row['messages'][0] );
+	}
+
+	/** A table that does not answer is critical, and the row names it. */
+	public function test_a_missing_shared_table_reports_critical_naming_it(): void {
+		$db              = $this->use_wpdb();
+		$db->base_prefix = 'owl3_';
+		\Newspack_Nodes\Wpdb_Arm::install();
+		$db->query( 'DROP TABLE `owl3_newspack_nodes_members`' );
+
+		$row = $this->by_id( Health_Checks::evaluate( $this->good_cache_result() ) )['wpdb-schema'] ?? null;
+
+		$this->assertSame( Health_Checks::STATUS_CRITICAL, $row['status'] ?? null );
+		$this->assertStringContainsString( 'owl3_newspack_nodes_members', $row['messages'][0] );
 	}
 
 	/** No hold, no row — the check is a reminder, not a permanent status line. */
@@ -628,6 +673,29 @@ class HealthChecksTest extends TestCase {
 
 		$this->expectException( \Newspack_Nodes\Worker_Should_Stop::class );
 		$this->expectExceptionMessage( 'health stop 4417' );
+		Health_Checks::evaluate( $this->good_cache_result() );
+	}
+
+	public function test_a_stop_inside_the_schema_probe_propagates(): void {
+		$GLOBALS['wpdb'] = new class() extends \Newspack_Nodes\Tests\Helpers\Sqlite_Wpdb {
+			public function get_results( string $query, string $output = 'OBJECT' ): array {
+				throw new \Newspack_Nodes\Worker_Should_Stop( 'schema stop 7731' );
+			}
+		};
+
+		$this->expectException( \Newspack_Nodes\Worker_Should_Stop::class );
+		$this->expectExceptionMessage( 'schema stop 7731' );
+		Health_Checks::evaluate( $this->good_cache_result() );
+	}
+
+	public function test_a_stop_while_reading_the_topologies_propagates(): void {
+		Health_Checks::$evaluate_alerts = static fn (): array => [];
+		\add_filter( 'newspack_nodes/topologies', static function (): array {
+			throw new \Newspack_Nodes\Worker_Should_Stop( 'topologies stop 7732' );
+		} );
+
+		$this->expectException( \Newspack_Nodes\Worker_Should_Stop::class );
+		$this->expectExceptionMessage( 'topologies stop 7732' );
 		Health_Checks::evaluate( $this->good_cache_result() );
 	}
 

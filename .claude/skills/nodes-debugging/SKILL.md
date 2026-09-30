@@ -40,7 +40,7 @@ wp nodes ingest <topic> [<file>...]            # replay packed records through a
                                                #   file reads stdin, and --dry-run only sizes them
 ```
 
-`doctor` renders one evaluator, `Health_Checks::evaluate()`, which also backs the Site Health test — so neither surface can carry a check the other lacks. Eight rows in fixed order: `cache-backend`, `filesystem`, `ownership`, `housekeeping`, `config-keys`, `worker-liveness`, `consumer-lag`, `dead-letters`. Two more appear only when they apply: `fleet-hold` while a deploy hold stands, and `other-alerts` when an alert declares a family the report does not bucket.
+`doctor` renders one evaluator, `Health_Checks::evaluate()`, which also backs the Site Health test — so neither surface can carry a check the other lacks. Eight rows in fixed order: `cache-backend`, `filesystem`, `ownership`, `housekeeping`, `config-keys`, `worker-liveness`, `consumer-lag`, `dead-letters`. Three more appear only when they apply: `wpdb-schema` while a shared wpdb table does not answer, `fleet-hold` while a deploy hold stands, and `other-alerts` when an alert declares a family the report does not bucket.
 
 `cache-backend` is the one row `doctor` does not evaluate in its own process. It POSTs `newspack-nodes/v1/health/cache` over the loopback and reports the backend serving requests, because a WP-CLI process picks a backend no visitor ever sees. A loopback it cannot verify comes back as a locally authored warning naming what failed — the HTTP status, or the transport — never as remote text.
 

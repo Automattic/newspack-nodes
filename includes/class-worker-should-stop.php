@@ -39,6 +39,10 @@ namespace Newspack_Nodes;
  * failure, so the record is not durable. No reader may convert such a stop to clean,
  * and `Worker_Base::execute()` raises the previous once it has handed off, so the
  * failure outlives the stop instead of dying with it.
+ *
+ * A stop `combine()` builds to carry a failure reports that failure's
+ * `getFile()` and `getLine()`, so a fatal attributed by file names the code
+ * that failed; its trace still shows where the stop was assembled.
  */
 class Worker_Should_Stop extends \RuntimeException {
 
@@ -122,7 +126,10 @@ class Worker_Should_Stop extends \RuntimeException {
 			}
 		}
 		$carried = 1 === \count( $failures ) ? $failures[0] : new Failures( $failures );
-		return new self( $stops[0]->getMessage(), 0, $carried );
+		$stop       = new self( $stops[0]->getMessage(), 0, $carried );
+		$stop->file = $carried->getFile();
+		$stop->line = $carried->getLine();
+		return $stop;
 	}
 
 	/**

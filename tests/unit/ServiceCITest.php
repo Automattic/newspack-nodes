@@ -1,7 +1,7 @@
 <?php
 /**
- * ServiceCITest: unit tests for the Service_CI base class — three shared
- * verb-helper seams (require_manage_options, decode_args, require_valid_name)
+ * ServiceCITest: unit tests for the Service_CI base class — the shared
+ * verb-helper seams (require_valid_name, slice_verb, probe_command)
  * that substrate + application interpreters both reach for. Tests exercise each
  * helper via a transparent subclass that exposes them publicly so the
  * helpers can be asserted in isolation, without dragging in VerbHarness +
@@ -51,21 +51,6 @@ class ServiceCITest extends TestCase {
 		parent::tearDown();
 	}
 
-	// ── require_manage_options ───────────────────────────────────────────────
-
-	public function test_require_manage_options_passes_when_capability_granted(): void {
-		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
-		// No assertion needed — just confirm it doesn't throw.
-		ServiceCITestProbe::require_manage_options_probe();
-		$this->assertTrue( true );
-	}
-
-	public function test_require_manage_options_throws_when_capability_denied(): void {
-		$this->expectException( \RuntimeException::class );
-		$this->expectExceptionMessage( 'permission denied: manage capability required' );
-		ServiceCITestProbe::require_manage_options_probe();
-	}
-
 	// ── require_valid_name ───────────────────────────────────────────────────
 
 	public function test_require_valid_name_returns_name_when_valid(): void {
@@ -111,13 +96,12 @@ class ServiceCITest extends TestCase {
 		);
 	}
 
-	// ── central gate: commands_from_schema wraps EVERY verb ──────────────────
+	// ── central gate: dispatch() refuses EVERY verb below its declared role ──
 
 	public function test_schema_verb_is_denied_without_manage_options(): void {
-		// The probe's `ping` verb itself never calls require_manage_options;
-		// the gate must come from commands_from_schema wrapping it. With the
-		// cap denied (default) the dispatch must return the permission-error
-		// string, not the verb's sentinel.
+		// The probe's `ping` handler checks no role, so the refusal must come
+		// from dispatch(). With the cap denied (default) the reply is the
+		// permission error, not the verb's sentinel.
 		$result = VerbHarness::fire( new ServiceCITestProbe(), 'probe', 'ping' );
 		$this->assertSame( "permission denied: manage capability required\n", $result );
 	}
@@ -130,9 +114,9 @@ class ServiceCITest extends TestCase {
 
 	public function test_auto_injected_help_is_also_gated(): void {
 		// `help` is injected by the base commands() accessor, not declared in the
-		// schema — so the gate must catch it too, else it's an ungated bypass.
+		// schema: a read-only builtin, it demands READ, never nothing.
 		$result = VerbHarness::fire( new ServiceCITestProbe(), 'probe', 'help' );
-		$this->assertSame( "permission denied: manage capability required\n", $result );
+		$this->assertSame( "permission denied: read capability required\n", $result );
 	}
 
 	public function test_auto_injected_help_runs_after_manage_options_gate_passes(): void {
@@ -180,8 +164,7 @@ class ServiceCITest extends TestCase {
 	}
 
 	public function test_slice_verb_handler_is_gated_when_registered_through_schema(): void {
-		// The slice handler itself never self-gates; registering it via node_schema
-		// must let commands_from_schema's central wrapper deny it without the cap.
+		// The slice handler never self-gates; dispatch() refuses it without the cap.
 		$result = VerbHarness::fire( new ServiceCISliceVerbProbe(), 'probe', 'slice' );
 		$this->assertSame( "permission denied: manage capability required\n", $result );
 	}
@@ -195,14 +178,10 @@ class ServiceCITest extends TestCase {
 	}
 
 	/**
-	 * The gate was installed at CONSTRUCTION and `commands()` is public and
-	 * mutating, with `dispatch()` reading the table at call time. So any table
-	 * installed after `parent::__construct()` — by a subclass, or by anything
-	 * holding the node — replaced the wrapped handlers wholesale and silently
-	 * disabled authorization. Nothing threw, nothing warned; the verbs just
-	 * worked for everyone. This is the substrate's single enforcement point for
-	 * command authorization, so it has to be an invariant of the class rather
-	 * than a property of one code path.
+	 * `commands()` is public and mutating, and `dispatch()` reads the table at
+	 * call time, so a table installed after construction replaces every
+	 * handler. The role is read by verb NAME from the schema at dispatch, so a
+	 * replaced handler is gated like the one it replaced.
 	 */
 	public function test_a_table_installed_after_construction_is_still_gated(): void {
 		$ci = new ServiceCILateTableProbe();
@@ -227,14 +206,14 @@ class ServiceCITest extends TestCase {
 		$this->assertSame( "late-ran\n", VerbHarness::fire( $ci, 'probe', 'late' ) );
 	}
 
-	/** And the base's ungated `help` injection must not win either. */
+	/** And the base's `help` injection answers READ, never nothing. */
 	public function test_help_is_gated_even_on_a_late_installed_table(): void {
 		$ci = new ServiceCILateTableProbe();
 		$ci->name( 'probe' );
 		$ci->install_ungated_table();
 
 		$this->assertSame(
-			"permission denied: manage capability required\n",
+			"permission denied: read capability required\n",
 			VerbHarness::fire( $ci, 'probe', 'help' )
 		);
 	}
@@ -464,10 +443,6 @@ class ServiceCITest extends TestCase {
  */
 class ServiceCITestProbe extends Service_CI_Node {
 
-	public static function require_manage_options_probe(): void {
-		self::require_manage_options();
-	}
-
 	public static function require_valid_name_probe(
 		string $name,
 		string $pattern = '/^[a-zA-Z0-9_-]+$/'
@@ -485,8 +460,7 @@ class ServiceCITestProbe extends Service_CI_Node {
 
 	/**
 	 * One verb whose handler does NOT self-gate — so any auth must come from
-	 * the base's central wrapper in commands_from_schema(). Returns a sentinel
-	 * the gate test asserts against.
+	 * `dispatch()`. Returns a sentinel the gate test asserts against.
 	 */
 	public static function node_schema(): array {
 		return [

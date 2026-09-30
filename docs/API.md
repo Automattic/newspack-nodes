@@ -469,7 +469,7 @@ before verification.
 The batch answers 401 when any command in it failed `Command_Auth`
 verification; the 401 is the fast signal a client checks before parsing the
 body. A capability refusal is
-not this 401: [`Capabilities::require()`](../includes/class-capabilities.php) throws
+not this 401: [`Capabilities::require_verb()`](../includes/class-capabilities.php) throws
 `RuntimeException( "permission denied: <role> capability required" )` from
 [`Command_Interpreter_Node::dispatch()`](../includes/class-command-interpreter-node.php), after `authorize` has already passed.
 
@@ -497,7 +497,8 @@ answers its own caller rather than let a node wait out its deadline:
 The substrate mounts ten service CIs through `newspack_nodes/request_graph_ready`
 ([`newspack_nodes_mount_substrate_cis()`](../newspack-nodes.php) in `newspack-nodes.php`). Each is a
 [`Service_CI_Node`](../includes/class-service-ci-node.php) declaring its verbs once in `node_schema()`, and the base
-derives both the dispatch table and the capability gate from that declaration. A
+derives the dispatch table from that declaration, while `dispatch()` refuses each verb
+below the role it declares ([ADR-26](architecture-decisions.md#adr-26-every-verb-is-gated-by-the-role-its-schema-declares)). A
 verb that declares no `capability` demands MANAGE, so silence is the strictest
 role rather than the loosest.
 
@@ -514,7 +515,7 @@ role rather than the loosest.
 | `sessions` | [`Sessions_CI_Node`](../includes/rest/class-sessions-ci-node.php) | `list`, `create`, `revoke` (manage — issuing one hands out access) |
 | `workers` | [`Workers_CI_Node`](../includes/rest/class-workers-ci-node.php) | `list`, `dump_graph`, `dump_cleanup`, `heartbeat` (read), `restart` (manage) |
 
-![Every service CI's verbs as chips colored by the role each declares, read, tune or manage, with the help verb each CI seeds at manage; the root interpreter's fifteen read-only builtins beside its manage verbs and their aliases; and three notes on install-time gating, the Shell builtins that mint nothing, and the three-level secure ladder.](img/api-verb-roles.png)
+![Every service CI's verbs as chips colored by the role each declares, read, tune or manage, with the help verb each CI answers at read; the root interpreter's fifteen read-only builtins beside its manage verbs and their aliases; and three notes on the dispatch-time gate, the Shell builtins that mint nothing, and the three-level secure ladder.](img/api-verb-roles.png)
 
 The first column is the NODE name — `make_node`'s second argument, and what a
 caller puts in TO. A CI's SHELL name is a different string: the class short name
@@ -548,7 +549,7 @@ template that declares no dir under `<config:logs_dir>` to its message, and
 `logs[]` omits its dirs. Both are `[]` when nothing failed, and the Overview
 tab renders each entry as an error banner.
 
-![Where each dump_graph key comes from, one row per source: the lock dirs to workers[] with its ten fields, the last 128 KiB of the topicprobe log to consumers[] with its nine fields, the stale re-measure and the unparseable_lines count, the log catalog to logs[] and its join key, the logs root to log_partitions, the dead-letter dirs to the two dead-letter keys, config to the five scalars, and the active topologies to graph; beneath, the two readers of the one snapshot, the dashboard's dump_graph and Alerts::evaluate().](img/api-dump-graph-sources.png)
+![Where each dump_graph key comes from, one row per source: the lock dirs to workers[] with its seven fields, the last 128 KiB of the topicprobe log to consumers[] with its nine fields, the stale re-measure and the unparseable_lines count, the log catalog to logs[] and its join key, the logs root to log_partitions, the dead-letter dirs to the two dead-letter keys, config to the five scalars, and the active topologies to graph; beneath, the two readers of the one snapshot, the dashboard's dump_graph and Alerts::evaluate().](img/api-dump-graph-sources.png)
 
 `consumers[]` is a report, not an inventory: [`CLI::consumer_rows()`](../includes/class-cli.php)
 builds it from one [`Probe_Record`](../includes/class-probe-record.php) per
@@ -572,17 +573,18 @@ itself makes, but the diagnostic applies NO grace window, where the sweep and
 ago therefore lists as an orphan here while [`gc`](cli.md) would still leave it alone, so
 reading this verb as "what the next sweep deletes" overcounts.
 
-**`sessions list` — the directory, never the keys.** It returns
+**`sessions list` — the labelled sessions, never the keys.** It returns
 `{ sessions[], ttl_max, scopes[] }`, each row `{ handle, label, scope, created,
-expires, live, state }`. `ttl_max` is `Command_Auth::SESSION_TTL_MAX_S` and
+expires }`. `ttl_max` is `Command_Auth::SESSION_TTL_MAX_S` and
 `scopes` the three `Capabilities` ladder constants, sent so a client draws its
 TTL bound and scope picker from the substrate rather than a second copy that
-drifts into offering a scope the mint refuses. `state` is only ever `live` or
-`revoked`: [`Sessions::all()`](../includes/class-sessions.php) drops every row past its stated expiry before it
-lists, so a listed dead row always lost its store row EARLY — a `sessions revoke`,
-or `wp nodes tables flush nodes-sessions` — and `expired` is not a value a client
-can see. Reading the listing writes nothing; the option keeps
-lapsed rows until the next `Sessions::record()` rewrites it.
+drifts into offering a scope the mint refuses. Every row is live:
+[`Sessions::listing()`](../includes/class-sessions.php) reads the session Table's
+`labelled` set, then every row it names in one read, takes each fact from the
+session's row, and leaves out a session whose row has gone — lapsed, a
+`sessions revoke`, or `wp nodes tables flush nodes-sessions`. A store that does
+not answer, or a set holding more than 10,000 handles, refuses the verb rather
+than listing part or nothing. Reading the listing writes nothing.
 
 **`sessions create` and `sessions revoke`.** `create [<label>] [<scope>] [<ttl>]`
 binds each arg by position or by name, so `create chris-claude tune 86400` and
@@ -628,10 +630,11 @@ Vault credential id separately as `vault_id`. `probe <id>` wants the VAULT id,
 answers `server not found: <id>` for anything else, and echoes it back as its
 own `id`. A client that carries `id` straight from one verb into the other is
 refused. The probe's reply is the whitelisted roll-up
-`{ id, workers: { total, live, stale, dead }, worst_distance,
-deadletter_segments }`, where `dead` counts every worker that is neither live
-nor stale — one that never started — and `worst_distance` is the largest
-`distance` across the spoke's `consumers[]`. `summary` reduces the same snapshot
+`{ id, workers: { total, live, stale, held, idle, down }, worst_distance,
+deadletter_segments }`, counting the spoke's workers by the `state` each
+`workers[]` row carries — the word `wp nodes status` prints for that slot — so
+a spoke reporting any other state fails the probe naming the worker, and
+`worst_distance` is the largest `distance` across the spoke's `consumers[]`. `summary` reduces the same snapshot
 to `{ connected, idle, total, server_now, unreadable }` — `unreadable` maps each
 active topology that will not read to its message, and the Aggregator Status
 tab renders each as an error banner — and its per-server reading is best

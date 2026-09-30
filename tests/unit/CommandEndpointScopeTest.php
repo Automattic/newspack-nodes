@@ -9,13 +9,12 @@ use Newspack_Nodes\Router_Node;
 use Newspack_Nodes\Tests\TestCase;
 
 /**
- * The endpoint door and the base interpreter's authority floor.
+ * The endpoint door and the base interpreter's roles.
  *
- * `/command` used to demand MANAGE before any verb check ran, so a read- or
- * tune-scoped caller was refused at the door and the aggregator had to be an
- * administrator. The door drops to the floor every verb needs; the base
- * interpreter — whose vocabulary builds and rewires the graph and declares no
- * per-verb roles — keeps demanding MANAGE, pinned by the controller.
+ * The door demands READ, the least any verb needs, so a read- or tune-scoped
+ * caller reaches the verbs its role covers. The base interpreter's vocabulary
+ * builds and rewires the graph and declares no role, so `dispatch()` holds
+ * every verb of it at MANAGE but the read-only builtins (ADR-26).
  */
 #[CoversClass( HTTP_In_Node::class )]
 #[CoversClass( Command_Interpreter_Node::class )]
@@ -59,7 +58,7 @@ class CommandEndpointScopeTest extends TestCase {
 		$this->assertFalse( $node->check_permission( new \WP_REST_Request() ) );
 	}
 
-	public function test_an_unpinned_interpreter_dispatches_without_a_user(): void {
+	public function test_a_worker_interpreter_dispatches_without_a_user(): void {
 		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => false ];
 
 		$router = new Router_Node();
@@ -68,42 +67,22 @@ class CommandEndpointScopeTest extends TestCase {
 		$ci->name( 'worker:ci' );
 		$ci->sink( $router );
 
-		$this->assertNull(
-			$ci->required_capability,
-			'a worker loading its own topology has no current user to check'
-		);
 		$this->assertIsString( $ci->dispatch( 'uptime' ) );
+		$this->assertInstanceOf( \Newspack_Nodes\Node::class, $ci->make_node( 'Node', 'worker:kea' ) );
+		$this->assertStringContainsString( 'worker:kea', $ci->dispatch( 'list_nodes', [ '-a' ] ), 'no user is current, so the unscoped command runs at MANAGE' );
 	}
 
-	public function test_a_pinned_interpreter_refuses_a_caller_below_its_floor(): void {
+	public function test_the_graph_vocabulary_refuses_a_logged_in_caller_below_manage(): void {
 		$this->relax_read();
+		$GLOBALS['_wp_test_current_user_id']  = 4133;
 		$GLOBALS['_wp_test_current_user_can'] = [ 'edit_pages' => true, 'manage_options' => false ];
 
 		$ci = new Command_Interpreter_Node();
 		$ci->name( 'request:ci' );
-		$ci->required_capability = Capabilities::MANAGE;
 
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessageMatches( '/permission denied/' );
 		$ci->dispatch( 'make_node' );
-	}
-
-	public function test_the_controller_pins_the_request_scope_base_interpreter(): void {
-		$router = new Router_Node();
-		$router->name( '_router' );
-		$ci = new Command_Interpreter_Node();
-		$ci->name( '_command_interpreter' );
-		$ci->sink( $router );
-
-		$node   = new HTTP_In_Node();
-		$method = new \ReflectionMethod( HTTP_In_Node::class, 'ensure_request_graph' );
-		$method->invoke( $node );
-
-		$this->assertSame(
-			Capabilities::MANAGE,
-			$ci->required_capability,
-			'graph-building verbs must not fall through the lowered door'
-		);
 	}
 
 	/**
@@ -116,19 +95,19 @@ class CommandEndpointScopeTest extends TestCase {
 
 		$ci = new Command_Interpreter_Node();
 		$ci->name( 'request:ci2' );
-		$ci->required_capability = Capabilities::MANAGE;
 
 		$this->expectException( \RuntimeException::class );
 		$ci->dispatch( 'make_node' );
 	}
 
 	/**
-	 * The floor is per-verb, not a whole-table pin: every dashboard on the site
+	 * The role is per-verb, not a whole-table pin: every dashboard on the site
 	 * drives a read-only builtin through this same interpreter, so a blanket
 	 * MANAGE would make the lowered door buy the read surface nothing.
 	 */
 	public function test_a_read_only_caller_still_reaches_the_read_builtins(): void {
 		$this->relax_read();
+		$GLOBALS['_wp_test_current_user_id']  = 4133;
 		$GLOBALS['_wp_test_current_user_can'] = [ 'edit_pages' => true, 'manage_options' => false ];
 
 		$router = new Router_Node();
@@ -136,7 +115,6 @@ class CommandEndpointScopeTest extends TestCase {
 		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 		$ci->sink( $router );
-		$ci->required_capability = Capabilities::MANAGE;
 
 		$this->assertIsString( $ci->dispatch( 'uptime' ) );
 		$this->assertIsString( $ci->dispatch( 'list_nodes' ) );

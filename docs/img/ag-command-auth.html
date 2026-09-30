@@ -25,7 +25,7 @@
 </style>
 <div class="sheet">
 <h1>Every command passes two gates: the signature says who minted it, the capability map says whether they may</h1>
-<p class="sub">One Command_Interpreter_Node class runs in two trust roles, so the first gate is a per-instance authorize closure checked in interpret() for every command. The second is Capabilities::require() around every service verb. Authenticity and authority are two questions.</p>
+<p class="sub">One Command_Interpreter_Node class runs in two trust roles, so the first gate is a per-instance authorize closure checked in interpret() for every command. The second is dispatch()'s refusal of a caller below each verb's declared role. Authenticity and authority are two questions.</p>
 
 <div class="tiers">
   <div class="panel">
@@ -42,7 +42,7 @@
       <p>A LOCAL command passes at once. Anything else must carry a valid HMAC envelope in <span class="mono">VALUE['auth']</span> — inside VALUE, so it survives the IPC that strips LOCAL:</p>
       <div class="chk"><div class="n">1</div><div class="t"><b>Is it a command?</b> Decided by the TYPE bit: <span class="mono">TM_COMMAND</span> set, neither <span class="mono">TM_RESPONSE</span> nor <span class="mono">TM_ERROR</span>, a numeric TIMESTAMP, an array VALUE. Never by sniffing a <span class="mono">name</span> key. TYPE gates signability and is not in the signature, so <span class="mono">TM_COMMAND | TM_NOREPLY</span> signs like any other.</div></div>
       <div class="chk"><div class="n">2</div><div class="t"><b>Freshness:</b> at most <span class="mono">MAX_PAST_S</span> 20 s old, <span class="mono">MAX_FUTURE_S</span> 10 s ahead — an age check, distinct from the spawn token's discrete 10-second windows.</div></div>
-      <div class="chk"><div class="n">3</div><div class="t"><b>Resolve the key.</b> A <span class="mono">handle</span> in the envelope names a session: the key comes from <span class="mono">Cache_Backend::shared_first()</span>. No handle: the per-site secret, <span class="mono">hash_hmac( 'sha256', 'nodes-command-v1', wp_salt( 'nonce' ) )</span>.</div></div>
+      <div class="chk"><div class="n">3</div><div class="t"><b>Resolve the key.</b> A <span class="mono">handle</span> in the envelope names a session: the key comes from its row in the <span class="mono">nodes-sessions</span> Table, read once a <span class="mono">/command</span> POST, and a handle that is not 32 lowercase hex digits is refused unread. No handle: the per-site secret, <span class="mono">hash_hmac( 'sha256', 'nodes-command-v1', wp_salt( 'nonce' ) )</span>.</div></div>
       <div class="chk"><div class="n">4</div><div class="t"><b>Recompute the HMAC</b> over the canonical string <span class="mono">JSON.stringify([ ts, name, arguments, nonce ])</span> — semantics, never routing, because the Router peels TO and nodes stamp FROM in transit. PHP encodes with <span class="mono">JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE</span> to match JS byte for byte; <span class="mono">tests/fixtures/signatures.json</span> pins the parity.</div></div>
       <div class="chk"><div class="n">5</div><div class="t"><b>Single use:</b> the nonce is claimed with an atomic <span class="mono">add()</span> through <span class="mono">Cache_Backend::local_first()</span> at <span class="mono">NONCE_TTL_S</span> 60. A replay, or an unavailable backend, is refused.</div></div>
       <div class="verdict">
@@ -54,7 +54,7 @@
 </div>
 
 <div class="panel gate2">
-  <header>Gate 2 — <span class="mono">Capabilities::require( $role )</span>, wrapped around every <span class="mono">Service_CI_Node</span> handler</header>
+  <header>Gate 2 — <span class="mono">Capabilities::require_verb( $role )</span>, which <span class="mono">dispatch()</span> puts before every verb</header>
   <div class="body">
     <div class="roles">
       <div class="role"><b>read</b>dashboards, the SSE streams, read-only introspection. Its live surface is the RAW log firehose and worker IPC output, not shaped dashboards alone.</div>
@@ -79,7 +79,7 @@
   <div class="card">
     <h3><span class="mono">POST /newspack-nodes/v1/auth</span> mints the session — the minter signs, never the ingress</h3>
     <p>Gated on the fleet site, then the READ role: a scope is a ceiling, so a read-only user's session can only do read-only things. Returns <span class="mono">{ handle, secret, scope, expires_in, now }</span>: a random 16-byte handle, a random 32-byte key, stored with <span class="mono">add()</span> — never <span class="mono">set()</span>, so a colliding handle fails rather than displacing a live session. <span class="mono">scope</span> is clamped to the minting user's highest role; <span class="mono">ttl</span> to <span class="mono">SESSION_TTL_MIN_S</span> 60 … <span class="mono">SESSION_TTL_MAX_S</span> 86400, default <span class="mono">SESSION_TTL_S</span> 3600, and never slid on use, so a leaked handle expires on a bounded schedule. The response is the only place the key is ever disclosed; <span class="mono">now</span> lets the client align its TIMESTAMP.</p>
-    <p><span class="mono">Sessions</span> is the durable directory beside the cache: a non-autoloaded option, one row per LABELLED handle, never the key. The automatic dashboard mints, several per page load, stay unlisted, because at <span class="mono">MAX_ROWS</span> 50 they would evict the sessions an operator issued. The cache stays the authority on liveness, so a row whose lease is gone reads dead rather than vanishing.</p>
+    <p>Every session is one row of the <span class="mono">nodes-sessions</span> wpdb Table — key, scope, user, label, when minted — and the row's expiry is the session's. A LABELLED handle is also a member of the Table's <span class="mono">labelled</span> set under the same TTL, and <span class="mono">Sessions::listing()</span> reads that set, then every row it names in one read, so a lapsed, revoked or flushed session leaves the listing. The automatic dashboard mints, several per page load, carry no label and are never listed.</p>
     <p><span class="mono">HTTP_In</span> decodes, routes and verifies. Conferring authority at the ingress would make the boundary an oracle: anything that reached it would acquire authority, whatever put it there. Every tier is HMAC-SHA256; there is no asymmetric signing anywhere.</p>
   </div>
 </div>

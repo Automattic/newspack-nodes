@@ -37,9 +37,9 @@ use Newspack_Nodes\Service_CI_Node;
 /**
  * The `raw-logs` service interpreter: three READ verbs over on-disk partitions.
  *
- * Each verb declares `Capabilities::READ` in `node_schema()`, and that is what
- * `Service_CI_Node` gates its handler with. Nothing here writes, so nothing
- * here asks for a heavier role.
+ * Each verb declares `Capabilities::READ` in `node_schema()`, and
+ * `dispatch()` refuses a caller below it (ADR-26). Nothing here writes, so
+ * nothing here asks for a heavier role.
  */
 class Raw_Logs_CI_Node extends Service_CI_Node {
 
@@ -232,8 +232,8 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 	 * Palette entry, verb table and capabilities for the topology console.
 	 *
 	 * Declaring a verb here is its whole registration: `Service_CI_Node` derives
-	 * the dispatch table from the `handler` entries and gates each one on the
-	 * `capability` beside it.
+	 * the dispatch table from the `handler` entries, and `dispatch()` refuses a
+	 * caller below the `capability` beside each (ADR-26).
 	 *
 	 * @return array<string,mixed>
 	 */

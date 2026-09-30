@@ -41,9 +41,10 @@ class Tables_CLI_Command {
 	 * then the command-session store.
 	 *
 	 * Each row names the Table's backend and TTL, the worker owning the
-	 * partition and its state — `live`, `stale`, `held` or `down` — and where
-	 * the rows live: the SQLite file and its size with the WAL beside it, or
-	 * the shared wpdb table. A live owner is asked for its per-verb counters
+	 * partition and its state as `wp nodes status` reads it — `live`,
+	 * `stale`, `held`, `idle` or `down` — and where the rows live: the SQLite
+	 * file and its size, its `-wal` and `-shm` counted, or the shared wpdb
+	 * table. A live owner is asked for its per-verb counters
 	 * over its command channel; a verb it has never run is left out, and an
 	 * owner that does not answer in time is warned about and listed without.
 	 *
@@ -75,7 +76,6 @@ class Tables_CLI_Command {
 	 */
 	public function list_( array $args, array $assoc_args ): void {
 		unset( $args );
-		$json    = 'json' === ( $assoc_args['format'] ?? 'table' );
 		$timeout = CLI::require_flag_int( $assoc_args, 'timeout', self::REPLY_TIMEOUT_S );
 		$slots   = $this->slots();
 		$states  = $this->states( $slots );
@@ -90,14 +90,14 @@ class Tables_CLI_Command {
 				'Owner'     => $slot['owner'],
 				'State'     => $states[ $slot['owner'] ],
 				'Store'     => 'sqlite' === $slot['spec']['backend'] ? Table_Node::file( $slot['name'], $slot['partition'] ) : Wpdb_Arm::table(),
-				'Bytes'     => 'sqlite' === $slot['spec']['backend'] ? self::file_bytes( Table_Node::file( $slot['name'], $slot['partition'] ) ) : null,
+				'Bytes'     => 'sqlite' === $slot['spec']['backend'] ? \array_sum( Sqlite_Arm::file_sizes( Table_Node::file( $slot['name'], $slot['partition'] ) ) ) : null,
 				'Verbs'     => 'live' === $states[ $slot['owner'] ] ? self::verbs( $slot, $stats[ $stem ] ?? null, $timeout ) : null,
 			];
 		}
-		$rows[] = [
+		$rows[]  = [
 			'Table'     => Command_Auth::SESSIONS_TABLE,
 			'Partition' => 0,
-			'Backend'   => 'wpdb',
+			'Backend'   => Command_Auth::SESSIONS_BACKEND,
 			'TTL'       => Command_Auth::SESSION_TTL_MIN_S . '-' . Command_Auth::SESSION_TTL_MAX_S,
 			'Owner'     => '-',
 			'State'     => '-',
@@ -105,7 +105,7 @@ class Tables_CLI_Command {
 			'Bytes'     => null,
 			'Verbs'     => null,
 		];
-		\WP_CLI\Utils\format_items( $json ? 'json' : 'table', $json ? $rows : \array_map( self::readable( ... ), $rows ), \array_keys( $rows[0] ) );
+		CLI::print_rows( $assoc_args, $rows, \array_keys( $rows[0] ), self::readable( ... ) );
 	}
 
 	/**
@@ -157,21 +157,6 @@ class Tables_CLI_Command {
 			}
 		}
 		return $verbs;
-	}
-
-	/**
-	 * A SQLite file's bytes, its WAL beside it included; 0 with no file.
-	 *
-	 * @param string $file The database file.
-	 * @return int Bytes.
-	 */
-	private static function file_bytes( string $file ): int {
-		\clearstatcache();
-		$bytes = 0;
-		foreach ( [ $file, "{$file}-wal" ] as $path ) {
-			$bytes += \is_file( $path ) ? (int) \filesize( $path ) : 0;
-		}
-		return $bytes;
 	}
 
 	/**
@@ -232,48 +217,34 @@ class Tables_CLI_Command {
 		if ( [] === $args ) {
 			\WP_CLI::confirm( 'Flush every row of ' . \count( $chosen ) . ' declared Table partitions? The session store is left alone.', $assoc_args );
 		}
-		$states   = $this->states( $slots );
-		$replies  = $this->ask( $this->owned_by_live( $chosen, $states ), 'flush', $timeout );
+		$states  = $this->states( $slots );
+		$replies = $this->ask( $this->owned_by_live( $chosen, $states ), 'flush', $timeout );
+		$steps   = [];
+		foreach ( $chosen as $stem => $slot ) {
+			$state           = $states[ $slot['owner'] ];
+			$steps[ $stem ]  = 'live' === $state
+				? static fn (): string => self::released( self::released_by_owner( $slot, $replies[ $stem ] ?? null, $timeout ) ) . " by {$slot['owner']}"
+				: static fn (): string => self::released( self::flush_here( $slot, $state ) ) . ' under the hold';
+		}
+		if ( \in_array( Command_Auth::SESSIONS_TABLE, $args, true ) ) {
+			$steps[ Command_Auth::SESSIONS_TABLE ] = static fn (): string => self::released( Command_Auth::session_table()->flush() ) . '; every issued session is revoked';
+		}
 		$flushed  = 0;
 		$failures = [];
-		foreach ( $chosen as $stem => $slot ) {
+		foreach ( $steps as $name => $step ) {
 			try {
-				[ $released, $by ] = 'live' === $states[ $slot['owner'] ]
-					? [ self::released_by_owner( $slot, $replies[ $stem ] ?? null, $timeout ), "by {$slot['owner']}" ]
-					: [ self::flush_here( $slot, $states[ $slot['owner'] ] ), 'under the hold' ];
-				\WP_CLI::log( "{$stem}: " . self::released( $released ) . " {$by}" );
+				\WP_CLI::log( "{$name}: " . $step() );
 				++$flushed;
 			} catch ( Worker_Should_Stop $stop ) {
 				throw $stop;
 			} catch ( \RuntimeException $e ) {
-				$failures[] = "{$stem}: " . $e->getMessage();
-			}
-		}
-		if ( \in_array( Command_Auth::SESSIONS_TABLE, $args, true ) ) {
-			try {
-				\WP_CLI::log( Command_Auth::SESSIONS_TABLE . ': ' . self::released( Command_Auth::flush_sessions() ) . '; every issued session is revoked' );
-				++$flushed;
-			} catch ( Session_Store_Unavailable $e ) {
-				$failures[] = Command_Auth::SESSIONS_TABLE . ': ' . $e->getMessage();
+				$failures[] = "{$name}: " . $e->getMessage();
 			}
 		}
 		if ( [] !== $failures ) {
 			\WP_CLI::error( \implode( "\n", $failures ) );
 		}
 		\WP_CLI::success( "Flushed {$flushed} Table partition" . ( 1 === $flushed ? '' : 's' ) . '.' );
-	}
-
-	/**
-	 * What a flush released, as its line says it: a `sqlite` Table's bytes,
-	 * its old files replaced, or a `wpdb` Table's rows deleted.
-	 *
-	 * @param array<array-key,mixed> $released `{ bytes }` or `{ rows }`.
-	 * @return string `<size> released` or `<n> rows deleted`.
-	 */
-	private static function released( array $released ): string {
-		return isset( $released['bytes'] )
-			? CLI::format_bytes( Core::as_int( $released['bytes'] ) ) . ' released'
-			: Core::as_int( $released['rows'] ?? null ) . ' rows deleted';
 	}
 
 	/**
@@ -291,7 +262,7 @@ class Tables_CLI_Command {
 				\esc_html(
 					'stale' === $state
 						? "{$slot['owner']} is stale: its lock stands with no heartbeat; restart it, or wait for its lock to clear, and flush again"
-						: "{$slot['owner']} is down; run `wp nodes stop` to hold the fleet, flush again, then `wp nodes start`"
+						: "{$slot['owner']} is {$state}; run `wp nodes stop` to hold the fleet, flush again, then `wp nodes start`"
 				)
 			);
 		}
@@ -319,6 +290,19 @@ class Tables_CLI_Command {
 	}
 
 	/**
+	 * What a flush released, as its line says it: a `sqlite` Table's bytes,
+	 * its old files replaced, or a `wpdb` Table's rows deleted.
+	 *
+	 * @param array<array-key,mixed> $released `{ bytes }` or `{ rows }`.
+	 * @return string `<size> released` or `<n> rows deleted`.
+	 */
+	private static function released( array $released ): string {
+		return isset( $released['bytes'] )
+			? CLI::format_bytes( Core::as_int( $released['bytes'] ) ) . ' released'
+			: Core::as_int( $released['rows'] ?? null ) . ' rows deleted';
+	}
+
+	/**
 	 * The slots whose owning worker is live.
 	 *
 	 * @param array<string,Slot>   $slots  Stem => slot.
@@ -333,9 +317,9 @@ class Tables_CLI_Command {
 	 * Send each slot's Table its `:config` verb over the owning worker's
 	 * command channel, signed as the attached REPL signs, and wait up to
 	 * `$timeout` seconds for the replies. Every command goes FROM
-	 * `tables-cli/{stem}/{pid}`, so each reply comes back TO the one
-	 * receiver with its stem and this process's pid behind it; a reply to
-	 * any other process on the shared channel is dropped before routing.
+	 * `_output/_cli:{pid}/tables-cli/{stem}`, so the channel's gate keeps only
+	 * this process's replies and each reaches the one receiver with its stem
+	 * as the TO left behind.
 	 *
 	 * @param array<string,Slot> $slots   Stem => slot.
 	 * @param string             $verb    The `:config` verb.
@@ -356,15 +340,7 @@ class Tables_CLI_Command {
 		$receiver    = new Callback_Node(
 			static function ( array $reply ) use ( &$replies ): void {
 				/** @var array<int,mixed> $reply */
-				$replies[ (string) \strstr( Core::as_string( $reply[ Message::TO ] ), '/', true ) ] = $reply;
-			}
-		);
-		$mine        = new Callback_Node(
-			static function ( array $reply ) use ( $router, $pid ): void {
-				if ( \str_ends_with( Core::as_string( $reply[ Message::TO ] ), "/{$pid}" ) ) {
-					/** @var array<int,mixed> $reply */
-					$router->fill( $reply );
-				}
+				$replies[ Core::as_string( $reply[ Message::TO ] ) ] = $reply;
 			}
 		);
 		$built       = [ $router, $interpreter, $receiver ];
@@ -378,11 +354,11 @@ class Tables_CLI_Command {
 			foreach ( $slots as $stem => $slot ) {
 				if ( ! isset( $opened[ $slot['owner'] ] ) ) {
 					$opened[ $slot['owner'] ] = true;
-					\array_push( $built, ...CLI::open_channel( $cli->attach_to_worker( $slot['owner'] ), $interpreter, $mine ) );
+					\array_push( $built, ...CLI::open_channel( $cli->attach_to_worker( $slot['owner'] ), $interpreter, $router, $pid ) );
 				}
 				$command                   = Message::new_message();
 				$command[ Message::TYPE ]  = Message::TM_COMMAND;
-				$command[ Message::FROM ]  = self::RECEIVER . "/{$stem}/{$pid}";
+				$command[ Message::FROM ]  = CLI::reply_head( $pid ) . '/' . self::RECEIVER . "/{$stem}";
 				$command[ Message::TO ]    = "{$slot['owner']}/{$slot['name']}:config";
 				$command[ Message::VALUE ] = [
 					'name'      => $verb,
@@ -406,23 +382,17 @@ class Tables_CLI_Command {
 
 	/**
 	 * The state of each slot's owning worker, by its id, as `wp nodes status`
-	 * reads it: `live` or `stale` for a lock dir on disk, else `held` while the
-	 * fleet is held and `down` otherwise.
+	 * reads it: one `CLI::worker_states()` pass over every owner.
 	 *
 	 * @param array<string,Slot> $slots Stem => slot.
 	 * @return array<string,string> Worker id => state.
 	 */
 	private function states( array $slots ): array {
-		$locks = [];
-		foreach ( ( new CLI( Bootstrap::base_dir() ) )->ls_workers() as $worker ) {
-			$locks[ $worker['id'] ] = $worker['stale'] ? 'stale' : 'live';
-		}
-		$absent = Spawn_Coordinator::hold() > 0 ? 'held' : 'down';
-		$states = [];
-		foreach ( $slots as $slot ) {
-			$states[ $slot['owner'] ] = $locks[ $slot['owner'] ] ?? $absent;
-		}
-		return $states;
+		$owners = \array_values( \array_unique( \array_column( $slots, 'owner' ) ) );
+		return \array_map(
+			static fn ( array $slot ): string => $slot['state'],
+			( new CLI( Bootstrap::base_dir() ) )->worker_states( $owners, Bootstrap::get_topologies(), false )
+		);
 	}
 
 	/**

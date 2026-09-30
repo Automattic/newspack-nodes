@@ -93,9 +93,10 @@ class Auth_Controller {
 			return new \WP_Error( 'invalid_scope', 'No capability to mint a session with.', [ 'status' => 403 ] );
 		}
 
-		$ttl = Command_Auth::bounded_ttl( Core::num_int( $req->get_param( 'ttl' ), Command_Auth::SESSION_TTL_S ) );
+		$ttl   = Command_Auth::bounded_ttl( Core::num_int( $req->get_param( 'ttl' ), Command_Auth::SESSION_TTL_S ) );
+		$label = Core::as_string( $req->get_param( 'label' ) ?? '' );
 		try {
-			$session = Command_Auth::mint_session( $granted, $ttl );
+			return Sessions::issue( $label, $granted, $ttl );
 		} catch ( Session_Store_Unavailable $e ) {
 			Core::print_less_often( 'Auth_Controller: 503, ', $e->getMessage() );
 			return new \WP_Error(
@@ -104,13 +105,6 @@ class Auth_Controller {
 				[ 'status' => 503 ]
 			);
 		}
-		Sessions::record(
-			$session['handle'],
-			$granted,
-			Core::as_string( $req->get_param( 'label' ) ?? '' ),
-			$ttl
-		);
-		return $session;
 	}
 
 	/**

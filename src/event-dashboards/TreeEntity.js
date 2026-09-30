@@ -14,9 +14,15 @@
  * persists it, so fold state has to outlive any tree rendered here.
  */
 
-import { memo } from '@wordpress/element';
+import {
+	memo,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
-import { SegmentBar } from './SegmentBar';
+import { SegmentBar, segmentRegions } from './SegmentBar';
 import {
 	formatByteRate,
 	formatBytes,
@@ -49,7 +55,7 @@ import {
  * would mean rebuilding a key the row already answers.
  *
  * A pill flags its own trouble through three modifier classes the stylesheet
- * colors: `dead` strikes the rate through, a backlog past 1 MB adds `warning`,
+ * colors: `stopped` strikes a non-live rate through, a backlog past 1 MB adds `warning`,
  * and a read rate of zero adds `stalled` to the ETA.
  *
  * @type {import('react').NamedExoticComponent<NodeRowProps>}
@@ -65,13 +71,13 @@ const NodeRow = memo( function NodeRow( { entity } ) {
 				return (
 					<span key={ wkr.partition } className="connector-partition">
 						<span
-							className={ `newspack-nodes-status-badge worker-status-badge compact ${ wkr.status }` }
+							className={ `newspack-nodes-status-badge worker-status-badge compact ${ wkr.state }` }
 						>
 							P{ wkr.partition }
 						</span>
 						<span
 							className={ `connector-rate ${
-								wkr.status === 'dead' ? 'dead' : ''
+								'live' === wkr.state ? '' : 'stopped'
 							}` }
 						>
 							R { formatByteRate( rate ) }
@@ -119,9 +125,6 @@ const NodeRow = memo( function NodeRow( { entity } ) {
  * CONCRETE partition name (`firehose.p0`) that `reconstructWorkers` records
  * against, never the logical name the entity displays.
  *
- * A segment missing from its partition's `prevSegments` entry animates in, so a
- * partition with no entry at all — the first snapshot — animates nothing.
- *
  * @typedef {Object} LogRowsProps
  * @property {Object}                       entity           A `log` entity from
  *                                                           `buildTopologySections`;
@@ -140,12 +143,194 @@ const NodeRow = memo( function NodeRow( { entity } ) {
  *                                                           a log that declares none of
  *                                                           its own.
  * @property {Object<string,Set<number>>}   prevSegments     The prior snapshot's
- *                                                           segment ids.
- * @property {Object<string,Array<Object>>} removingSegments Segments gone since the
- *                                                           prior snapshot, drawn
- *                                                           until they finish
- *                                                           animating out.
+ *                                                           segment ids. A fresh object
+ *                                                           each poll, and missing a
+ *                                                           partition when the transform
+ *                                                           holds no baseline for it.
+ * @property {Object<string,Array<Object>>} removingSegments This poll's departed
+ *                                                           segments.
  */
+
+/**
+ * What one bar last drew: its size, and its regions as one comparable key.
+ *
+ * @typedef {{size: number, key: string}} DrawnBar
+ */
+
+/**
+ * The motion baseline: what the rows drew before the poll `poll` names, and
+ * what they have drawn since. It advances once per poll, never per render.
+ *
+ * @typedef {Object} Baseline
+ * @property {?Object}                          poll   The `prevSegments` object of
+ *                                                     the poll last committed.
+ * @property {Map<string,Map<number,DrawnBar>>} before What the rows drew before it.
+ * @property {Map<string,Map<number,DrawnBar>>} drawn  What they drew at its commit.
+ */
+
+/**
+ * One bar's regions and how it moves on this render: the props `SegmentBar`
+ * takes beyond the segment and the scale.
+ *
+ * @typedef {Object} BarPlan
+ * @property {number}  read       Bytes read.
+ * @property {number}  recorded   Bytes up to the recorded end.
+ * @property {boolean} crossed    The backlog crossed out of the cursor's segment.
+ * @property {number}  stagger    Cascade steps before its fill moves.
+ * @property {boolean} snap       Draw final widths with no fill transition.
+ * @property {boolean} isNew      Arrived since the baseline, so it slides in.
+ * @property {boolean} isRemoving Departed, so it slides out.
+ */
+
+/**
+ * Every bar of one partition row, in id order, with its regions and motion.
+ *
+ * The tail is the newest live segment; every other bar has a newer one to its
+ * right. A bar snaps to its final widths when it is not the tail and either
+ * arrived since the baseline or changed size, because it rotated: its growth
+ * happened between polls and replaying it would show an empty track where the
+ * data is full. Every other change animates, and the cascade counts from the
+ * first animated bar, so a change confined to the tail starts at once. With
+ * no baseline — a first draw, or the poll after a hidden-tab gap — nothing
+ * moves. A departing bar keeps its place by id and only slides out.
+ *
+ * @param {Object}               p         One entry of a log entity's
+ *                                         `partitions`.
+ * @param {boolean}              hasCursor Whether any reader of the log
+ *                                         reported a position.
+ * @param {Array<Object>}        leaving   The row's departed segments.
+ * @param {?Set<number>}         prevIds   The prior snapshot's ids for the row.
+ * @param {Map<number,DrawnBar>} [base]    What the row drew before this poll;
+ *                                         undefined when there is no baseline.
+ * @return {{bars: Array<{segment: Object, plan: BarPlan}>,
+ *   next: Map<number,DrawnBar>}} The row's bars, and what this render draws.
+ */
+function planRow( p, hasCursor, leaving, prevIds, base ) {
+	// Cursor and end travel together; no cursor means a gray row.
+	const cursor =
+		hasCursor && p.cursor_segment !== undefined && p.cursor_segment !== null
+			? {
+					segment: p.cursor_segment,
+					offset: p.cursor_offset,
+					endSegment: p.end_segment,
+					endSize: p.end_size,
+			  }
+			: undefined;
+	const live = [ ...( p.segments || [] ) ].sort( ( a, b ) => a.id - b.id );
+	const tailId = live.length > 0 ? live[ live.length - 1 ].id : null;
+	const next = new Map();
+	const planned = live.map( ( segment ) => {
+		const regions = segmentRegions( segment, cursor );
+		const now = {
+			size: segment.size,
+			key: `${ segment.size }:${ regions.read }:${ regions.recorded }`,
+		};
+		next.set( segment.id, now );
+		const before = base?.get( segment.id );
+		const isNew = !! base && ! before && ! prevIds.has( segment.id );
+		const snap =
+			segment.id !== tailId &&
+			( isNew || ( !! before && before.size !== now.size ) );
+		const animated =
+			! snap && ( isNew || ( !! before && before.key !== now.key ) );
+		return { segment, regions, isNew, snap, animated };
+	} );
+	const first = planned.findIndex( ( b ) => b.animated );
+	const bars = [
+		...leaving.map( ( segment ) => ( {
+			segment,
+			plan: {
+				...segmentRegions( segment, cursor ),
+				stagger: 0,
+				snap: false,
+				isNew: false,
+				isRemoving: true,
+			},
+		} ) ),
+		...planned.map( ( b, i ) => ( {
+			segment: b.segment,
+			plan: {
+				...b.regions,
+				stagger: b.animated ? i - first : 0,
+				snap: b.snap,
+				isNew: b.isNew,
+				isRemoving: false,
+			},
+		} ) ),
+	].sort( ( a, b ) => a.segment.id - b.segment.id );
+	return { bars, next };
+}
+
+/**
+ * A departure in flight: the row it leaves, and the segment it draws.
+ *
+ * @typedef {{row: string, segment: Object}} Departure
+ */
+
+/**
+ * The departed bars `LogRows` holds, both keyed `row#id`, so one departure
+ * offered by any number of renders is one entry.
+ *
+ * @typedef {Object} Departures
+ * @property {Map<string,Departure>} held Departures still sliding out.
+ * @property {Set<string>}           gone Offered departures that already slid
+ *                                        out, which an offer must not revive.
+ */
+
+/**
+ * The key one departure is held and retired under.
+ *
+ * @param {string} row Concrete partition name.
+ * @param {number} id  Segment id.
+ * @return {string} `row#id`.
+ */
+const departureKey = ( row, id ) => `${ row }#${ id }`;
+
+/**
+ * The departures `removingSegments` offers the partitions drawn here, by key.
+ * A row this component does not draw offers none, so nothing accumulates off
+ * screen.
+ *
+ * @param {Object<string,Array<Object>>} incoming This poll's departures, by row.
+ * @param {Array<Object>}                rows     The partitions drawn here.
+ * @return {Map<string,Departure>} The offered departures.
+ */
+function offeredDepartures( incoming, rows ) {
+	const offered = new Map();
+	rows.forEach( ( { name } ) =>
+		( incoming[ name ] || [] ).forEach( ( segment ) =>
+			offered.set( departureKey( name, segment.id ), {
+				row: name,
+				segment,
+			} )
+		)
+	);
+	return offered;
+}
+
+/**
+ * Join the offered departures to the held ones, idempotently by key. An offer
+ * already held or already gone adds nothing, and a gone key no longer offered
+ * is forgotten, because the transform reports a departure in one poll only.
+ *
+ * @param {Departures}            state   What the row holds now.
+ * @param {Map<string,Departure>} offered What `removingSegments` offers.
+ * @return {?Departures} The joined state, or null when nothing changed.
+ */
+function joinDepartures( state, offered ) {
+	const gone = new Set(
+		[ ...state.gone ].filter( ( key ) => offered.has( key ) )
+	);
+	const held = new Map( state.held );
+	offered.forEach( ( departure, key ) => {
+		if ( ! held.has( key ) && ! gone.has( key ) ) {
+			held.set( key, departure );
+		}
+	} );
+	return held.size !== state.held.size || gone.size !== state.gone.size
+		? { held, gone }
+		: null;
+}
 
 /**
  * One `log` entity's per-partition rows: the partition's write rate and its
@@ -154,7 +339,19 @@ const NodeRow = memo( function NodeRow( { entity } ) {
  * The rows sort by partition number, and a departed segment sorts back among
  * the live ones by id, so it holds its place in the row while it animates out.
  *
- * Memoized on those five props, so a log skips re-rendering its bars when the
+ * The departed bars are this component's own state. Every render joins what
+ * `removingSegments` offers, keyed by row and segment id, so an equal object
+ * rebuilt each render adds nothing, and a bar leaves when its own slide-out
+ * ends. A folded row unmounts and takes its departures with it, and a
+ * remounted one ignores what was offered before it mounted, so nothing waits
+ * on a bar that is not drawn.
+ *
+ * The motion baseline is this component's too, because the cursor is this
+ * topology's own and no earlier stage of the graph holds THIS tree's widths.
+ * It advances once per poll, keyed by `prevSegments`, so a re-render between
+ * polls plans against the same baseline as the poll's own render.
+ *
+ * Memoized on its five props, so a log skips re-rendering its bars when the
  * parent re-renders for another reason — a fold toggling, or the per-poll
  * `currentTime` that reaches `TreeEntity` and stops there.
  *
@@ -167,27 +364,66 @@ const LogRows = memo( function LogRows( {
 	prevSegments,
 	removingSegments,
 } ) {
+	// A departure offered before this row mounted is not this row's to draw.
+	const [ departures, setDepartures ] = useState( () => ( {
+		held: new Map(),
+		gone: new Set(
+			offeredDepartures( removingSegments, entity.partitions ).keys()
+		),
+	} ) );
+	const joined = joinDepartures(
+		departures,
+		offeredDepartures( removingSegments, entity.partitions )
+	);
+	if ( joined ) {
+		setDepartures( joined );
+	}
+	const leaving = [ ...( joined ?? departures ).held.values() ];
+	const slidOut = useCallback(
+		( row, id ) =>
+			setDepartures( ( { held, gone } ) => {
+				const key = departureKey( row, id );
+				const left = new Map( held );
+				left.delete( key );
+				return { held: left, gone: new Set( gone ).add( key ) };
+			} ),
+		[]
+	);
+
+	/** @type {import('react').MutableRefObject<Baseline>} */
+	const baseline = useRef( {
+		poll: null,
+		before: new Map(),
+		drawn: new Map(),
+	} );
+	const { poll, before, drawn } = baseline.current;
+	const base = poll === prevSegments ? before : drawn;
+	/** @type {Map<string,Map<number,DrawnBar>>} */
+	const drawnNow = new Map();
+	useEffect( () => {
+		const last = baseline.current;
+		baseline.current =
+			last.poll === prevSegments
+				? { ...last, drawn: drawnNow }
+				: { poll: prevSegments, before: last.drawn, drawn: drawnNow };
+	} );
+
 	const sorted = [ ...entity.partitions ].sort(
 		( a, b ) => a.partition - b.partition
 	);
 	return sorted.map( ( p ) => {
 		const rateKey = p.name;
-		const segs = p.segments || [];
-		// Cursor and end travel together; no cursor means a gray bar.
-		const cursor =
-			entity.hasCursor &&
-			p.cursor_segment !== undefined &&
-			p.cursor_segment !== null
-				? {
-						segment: p.cursor_segment,
-						offset: p.cursor_offset,
-						endSegment: p.end_segment,
-						endSize: p.end_size,
-				  }
-				: undefined;
-		const removing = removingSegments[ rateKey ] || [];
-		const all = [ ...removing, ...segs ].sort( ( a, b ) => a.id - b.id );
-		const removingIds = new Set( removing.map( ( s ) => s.id ) );
+		const prevIds = prevSegments?.[ rateKey ];
+		const { bars, next } = planRow(
+			p,
+			entity.hasCursor,
+			leaving
+				.filter( ( d ) => d.row === rateKey )
+				.map( ( d ) => d.segment ),
+			prevIds,
+			prevIds ? base.get( rateKey ) : undefined
+		);
+		drawnNow.set( rateKey, next );
 		return (
 			<div key={ p.partition } className="log-partition-row">
 				<div className="log-partition-info">
@@ -200,24 +436,20 @@ const LogRows = memo( function LogRows( {
 					</span>
 				</div>
 				<div className="partition-segments">
-					{ all.map( ( seg, index ) => (
+					{ bars.map( ( { segment, plan } ) => (
 						<SegmentBar
-							key={ seg.id }
-							segment={ seg }
-							index={ index }
+							key={ segment.id }
+							segment={ segment }
 							maxSize={ entity.segment_size || segmentSize }
-							cursorSegment={ cursor?.segment }
-							cursorOffset={ cursor?.offset }
-							endSegment={ cursor?.endSegment }
-							endSize={ cursor?.endSize }
-							isNew={
-								prevSegments?.[ rateKey ] &&
-								! prevSegments[ rateKey ].has( seg.id )
+							{ ...plan }
+							onSlidOut={
+								plan.isRemoving
+									? ( id ) => slidOut( rateKey, id )
+									: undefined
 							}
-							isRemoving={ removingIds.has( seg.id ) }
 						/>
 					) ) }
-					{ all.length === 0 && (
+					{ bars.length === 0 && (
 						<div className="no-segments-h">
 							{ __( 'No segments', 'newspack-nodes' ) }
 						</div>

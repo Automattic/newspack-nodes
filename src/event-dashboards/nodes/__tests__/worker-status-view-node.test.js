@@ -9,8 +9,8 @@
  *     on ITS own node, so this one only ever sees the poll's and broadcasts.
  *   - TM_STRUCT `{ action:'model', model }` from the transform stores + publishes
  *     the model (the dump_graph reply path: HttpOut → transform → view).
- *   - A model with non-empty removingSegments schedules a 400ms self-fill of
- *     `clear-removing` so the slide-out animation completes.
+ *   - Each model publishes as the transform sent it, departures included:
+ *     the row drawing a departed bar holds it, not this node.
  */
 
 import {
@@ -40,14 +40,6 @@ function modelMsg( model ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_STRUCT;
 	m[ VALUE ] = { action: 'model', model };
-	return m;
-}
-
-// A control message: TM_STRUCT carrying { action, ... }.
-function controlMsg( payload ) {
-	const m = newMessage();
-	m[ TYPE ] = TM_STRUCT;
-	m[ VALUE ] = payload;
 	return m;
 }
 
@@ -126,102 +118,27 @@ describe( 'worker-status:view — un-correlated TM_ERROR (global error)', () => 
 	} );
 } );
 
-describe( 'worker-status:view — removing-segment animation', () => {
-	test( 'the slide-out clear arrives as a message, so the overlay counts it', () => {
-		jest.useFakeTimers();
-		try {
-			const v = makeView( 'worker-status:view' );
-			v.fill(
-				modelMsg(
-					baseModel( {
-						removingSegments: { 'jobs.p2': [ { id: 5, size: 3 } ] },
-					} )
-				)
-			);
-			jest.advanceTimersByTime( 400 );
-			expect( v.counter ).toBe( 2 );
-		} finally {
-			jest.useRealTimers();
-		}
-	} );
-
-	test( 'a model with removingSegments schedules a 400ms clear that blanks them', () => {
-		jest.useFakeTimers();
-		try {
-			const v = makeView( 'worker-status:view' );
-			v.fill(
-				modelMsg(
-					baseModel( {
-						removingSegments: {
-							'firehose.p0': [ { id: 1, size: 9 } ],
-						},
-					} )
-				)
-			);
-			expect( v.view.removingSegments ).toEqual( {
-				'firehose.p0': [ { id: 1, size: 9 } ],
-			} );
-			jest.advanceTimersByTime( 400 );
-			expect( v.view.removingSegments ).toEqual( {} );
-		} finally {
-			jest.useRealTimers();
-		}
-	} );
-
-	test( 'a clear-removing control blanks removingSegments and republishes', () => {
+describe( 'worker-status:view — departed segments', () => {
+	test( "a model's departures replace the last model's", () => {
 		const v = makeView( 'worker-status:view' );
+		const seg = ( id ) => ( { id, size: 7340032 } );
 		v.fill(
 			modelMsg(
 				baseModel( {
-					removingSegments: { 'firehose.p0': [ { id: 1, size: 9 } ] },
+					removingSegments: { 'firehose.p3': [ seg( 4471 ) ] },
 				} )
 			)
 		);
-		v.fill( controlMsg( { action: 'clear-removing' } ) );
-		expect( v.view.removingSegments ).toEqual( {} );
-	} );
-
-	test( 'a model with no removals schedules no clear timer', () => {
-		jest.useFakeTimers();
-		try {
-			const v = makeView( 'worker-status:view' );
-			const spy = jest.spyOn( v, 'setState' );
-			v.fill( modelMsg( baseModel() ) );
-			spy.mockClear();
-			jest.advanceTimersByTime( 1000 );
-			expect( spy ).not.toHaveBeenCalled();
-		} finally {
-			jest.useRealTimers();
-		}
-	} );
-} );
-
-describe( 'worker-status:view — teardown', () => {
-	test( 'removeNode() clears a pending removing-clear timer (no later setState)', () => {
-		jest.useFakeTimers();
-		try {
-			const v = makeView( 'worker-status:view' );
-			v.fill(
-				modelMsg(
-					baseModel( {
-						removingSegments: {
-							'firehose.p0': [ { id: 1, size: 9 } ],
-						},
-					} )
-				)
-			);
-			const spy = jest.spyOn( v, 'setState' );
-			v.removeNode();
-			jest.advanceTimersByTime( 400 );
-			expect( spy ).not.toHaveBeenCalled();
-		} finally {
-			jest.useRealTimers();
-		}
-	} );
-
-	test( 'removeNode() is safe when no timer is pending', () => {
-		const v = makeView( 'worker-status:view' );
-		expect( () => v.removeNode() ).not.toThrow();
+		v.fill(
+			modelMsg(
+				baseModel( {
+					removingSegments: { 'jobs.p1': [ seg( 9902 ) ] },
+				} )
+			)
+		);
+		expect( v.view.removingSegments ).toEqual( {
+			'jobs.p1': [ seg( 9902 ) ],
+		} );
 	} );
 } );
 
@@ -237,6 +154,17 @@ describe( 'worker-status:view — node wiring', () => {
 		v.fill( modelMsg( {} ) );
 		v.fill( modelMsg( {} ) );
 		expect( v.counter ).toBe( 2 );
+	} );
+
+	test( 'a frame carrying no struct is counted and changes nothing', () => {
+		const v = makeView( 'worker-status:view' );
+		v.fill( modelMsg( baseModel( { currentTime: 4471 } ) ) );
+		const m = newMessage();
+		m[ TYPE ] = TM_STRUCT;
+		m[ VALUE ] = 'dump_graph';
+		v.fill( m );
+		expect( v.counter ).toBe( 2 );
+		expect( v.view.currentTime ).toBe( 4471 );
 	} );
 
 	test( 'declares has_target:false (terminal receiver — no out-port)', () => {

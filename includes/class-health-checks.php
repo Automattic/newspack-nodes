@@ -12,8 +12,8 @@ namespace Newspack_Nodes;
 
 /**
  * The environment and fleet report: cache backend, runtime filesystem,
- * ownership, housekeeping cron, configuration keys and the three alert
- * families.
+ * ownership, housekeeping cron, configuration keys, the shared wpdb tables
+ * when one does not answer, and the three alert families.
  *
  * Declaring a check here is what keeps the two surfaces in sync. Site Health's
  * `direct` test and `wp nodes doctor` both render whatever `evaluate()`
@@ -37,7 +37,7 @@ final class Health_Checks {
 	/** Worth attention, not urgency. */
 	public const STATUS_RECOMMENDED = 'recommended';
 
-	/** Broken now: the cache tier, the runtime directory, the housekeeping cron, the configuration or a worker. */
+	/** Broken now: the cache tier, the runtime directory, the housekeeping cron, the configuration, the wpdb schema or a worker. */
 	public const STATUS_CRITICAL = 'critical';
 
 	/**
@@ -78,9 +78,10 @@ final class Health_Checks {
 	private function __construct() {}
 
 	/**
-	 * Evaluate the ordered health report: eight results, plus `fleet-hold`
-	 * while a deploy hold stands, plus `other-alerts` when an alert declares a
-	 * family this class does not bucket.
+	 * Evaluate the ordered health report: eight results, plus `wpdb-schema`
+	 * while a shared wpdb table does not answer, plus `fleet-hold` while a
+	 * deploy hold stands, plus `other-alerts` when an alert declares a family
+	 * this class does not bucket.
 	 *
 	 * The base directory resolves once here, and its refusal is caught rather
 	 * than propagated: `filesystem()` and `ownership()` are the two checks that
@@ -122,6 +123,7 @@ final class Health_Checks {
 			self::ownership( $base_dir, $configured, $refused ),
 			self::housekeeping(),
 			self::config_keys(),
+			...self::wpdb_schema(),
 			...self::fleet_hold(),
 			...$fleet,
 		];
@@ -152,6 +154,37 @@ final class Health_Checks {
 	}
 
 	/**
+	 * The shared wpdb tables, when one does not answer. Read live, one
+	 * statement over both, so the row reflects the tables rather than a
+	 * record of the last install. Absent while both answer; critical when
+	 * one does not, because every command session and wpdb Table then fails.
+	 *
+	 * @return list<HealthResult>
+	 */
+	private static function wpdb_schema(): array {
+		try {
+			$error = Wpdb_Arm::unavailable();
+		} catch ( Worker_Should_Stop $e ) {
+			throw $e;
+		} catch ( \Throwable $e ) {
+			return [ self::result( 'wpdb-schema', 'Database tables', self::STATUS_RECOMMENDED, 'The wpdb Tables could not be probed: ' . $e->getMessage() ) ];
+		}
+		if ( '' === $error ) {
+			return [];
+		}
+		return [
+			self::result(
+				'wpdb-schema',
+				'Database tables',
+				self::STATUS_CRITICAL,
+				"The wpdb Tables do not answer ({$error}), so command sessions and every wpdb "
+					. 'Table fail. The next statement to find a table missing installs it; grant the '
+					. 'database user CREATE if that install is refused.'
+			),
+		];
+	}
+
+	/**
 	 * Config keys the runtime ignored.
 	 *
 	 * The deploy copies the operator's own file over the shipped path, so a key
@@ -164,6 +197,8 @@ final class Health_Checks {
 	private static function config_keys(): array {
 		try {
 			$unknown = Config::unrecognized_keys();
+		} catch ( Worker_Should_Stop $e ) {
+			throw $e;
 		} catch ( \Throwable $e ) {
 			return self::result( 'config-keys', 'Configuration keys', self::STATUS_RECOMMENDED, 'Configuration could not be read: ' . $e->getMessage() );
 		}
@@ -197,6 +232,8 @@ final class Health_Checks {
 	private static function housekeeping(): array {
 		try {
 			$active = Bootstrap::get_topologies();
+		} catch ( Worker_Should_Stop $e ) {
+			throw $e;
 		} catch ( \Throwable $e ) {
 			return self::result( 'housekeeping', 'Housekeeping', self::STATUS_RECOMMENDED, 'Housekeeping could not be evaluated: ' . $e->getMessage() );
 		}
@@ -216,7 +253,7 @@ final class Health_Checks {
 				. Bootstrap::CRON_EVENT . ' now ' . Bootstrap::CRON_SCHEDULE
 			);
 		}
-		return self::result( 'housekeeping', 'Housekeeping', self::STATUS_GOOD, 'The reconciliation pass is scheduled; next run ' . \gmdate( 'Y-m-d H:i:s', $next ) . ' UTC.' );
+		return self::result( 'housekeeping', 'Housekeeping', self::STATUS_GOOD, 'The reconciliation pass is scheduled; next run ' . Core::format_utc( $next ) . '.' );
 	}
 
 	/**

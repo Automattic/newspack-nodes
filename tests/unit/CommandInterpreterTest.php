@@ -892,8 +892,7 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_around_dispatch_never_sees_a_capability_refused_verb(): void {
-		$interpreter                      = $this->kakapo_interpreter();
-		$interpreter->required_capability = \Newspack_Nodes\Capabilities::MANAGE;
+		$interpreter = $this->kakapo_interpreter();
 		\Newspack_Nodes\Capabilities::$session_scope = \Newspack_Nodes\Capabilities::READ;
 		$calls = [];
 		$this->record_around_dispatch( $calls );
@@ -1171,7 +1170,8 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertSame( 'outer(inner(kakapo-7731))', $result );
 	}
 
-	public function test_around_dispatch_sees_a_service_ci_verb_refused_by_its_own_role(): void {
+	public function test_around_dispatch_never_sees_a_service_ci_verb_refused_by_its_own_role(): void {
+		$GLOBALS['_wp_test_current_user_id']  = 8813;
 		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => false ];
 		$ci                                   = new class() extends \Newspack_Nodes\Service_CI_Node {
 			public static function node_schema(): array {
@@ -1211,9 +1211,7 @@ class CommandInterpreterTest extends TestCase {
 		} finally {
 			$GLOBALS['_wp_test_current_user_can'] = [];
 		}
-		$this->assertCount( 1, $seen, 'the verb exists, so its own role check runs inside the wrapper' );
-		$this->assertSame( 'weka', $seen[0][0] );
-		$this->assertStringContainsString( 'permission denied', $seen[0][1] );
+		$this->assertSame( [], $seen, 'dispatch() refuses the declared role before any wrapper runs' );
 	}
 
 	public function test_make_node_creates_named_node_in_registry(): void {

@@ -27,8 +27,13 @@ function makeView( name = 'sessions:view' ) {
 
 const SAMPLE = {
 	sessions: [
-		{ handle: 'aaaa', label: 'laptop mcp', scope: 'tune', live: true },
-		{ handle: 'bbbb', label: 'stale', scope: 'read', live: false },
+		{
+			handle: 'aaaa',
+			label: 'laptop mcp',
+			scope: 'tune',
+			expires: 4102444800,
+		},
+		{ handle: 'bbbb', label: 'kiwi', scope: 'read', expires: 4102448400 },
 	],
 	ttl_max: 86400,
 	scopes: [ 'read', 'tune', 'manage' ],

@@ -162,7 +162,7 @@ Empty both lists and the Verbs section returns `null`, which is how a `'Hidden'`
 | Addressed to | `<node>:config`, unless the catalog's `is_interpreter` flag says the class *is* an interpreter, in which case the node itself | the node itself |
 | Echoed in the transcript as | `command_node <target> <verb>` | `request_node <node> <verb>` |
 
-A request whose one declared argument is `'type' => 'json'` is **structured**: a Table's `MSET`, `ADD` and `SADD`. Its field renders as a textarea, Run stays disabled until the text parses to a JSON object or array, and the button sends `TM_REQUEST|TM_STRUCT` with VALUE `{ "<verb>": <parsed> }`, echoed as the `request_struct <node> '<json>'` line that sends the same message.
+A request whose entry declares `'value' => 'struct'` is **structured**: a Table's `MSET`, `ADD` and `SADD`. Its `json` field renders as a textarea, Run stays disabled until the text parses to a JSON object or array, and the button sends `TM_REQUEST|TM_STRUCT` with VALUE `{ "<verb>": <parsed> }`, echoed as the `request_struct <node> '<json>'` line that sends the same message.
 
 So select your `releases` source in the console, hit the **TICK** button, and you've driven the pipeline from the canvas — the same trigger the toy guide types as `request_node releases TICK` at the REPL, now a button. Declaring a `requests` entry is all it takes; the inspector wiring is free.
 

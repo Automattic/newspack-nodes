@@ -398,6 +398,43 @@ class HTTPInTest extends TestCase {
 	}
 
 	/** One refusal condemns the batch: a good command behind it can't clear the 401. */
+	/**
+	 * One POST of k commands under one session reads that session once: the
+	 * request's verifier is a batch verifier, built once per POST.
+	 */
+	public function test_a_post_of_three_session_commands_reads_the_session_once(): void {
+		$db = $this->use_wpdb();
+		$this->build_graph_sans_output();
+		$session = Command_Auth::mint_session( \Newspack_Nodes\Capabilities::MANAGE, 5400 );
+		Command_Auth::remember_session( 'kea-spoke-7731', $session['handle'], $session['secret'] );
+		$lines = [];
+		foreach ( [ 1, 2, 3 ] as $n ) {
+			$m                       = Message::new_message();
+			$m[ Message::TYPE ]      = Message::TM_COMMAND;
+			$m[ Message::FROM ]      = '_http';
+			$m[ Message::TIMESTAMP ] = (int) Core::$now;
+			$m[ Message::VALUE ]     = [ 'name' => 'uptime', 'arguments' => [] ];
+			Command_Auth::sign_for( 'kea-spoke-7731', $m );
+			$lines[] = Message::packed( $m );
+		}
+		$req = new \WP_REST_Request();
+		$req->set_body( \implode( "\n", $lines ) );
+		$req->set_header( 'content-type', 'application/json' );
+		$codes = [];
+		$ctrl  = new HTTP_In_Node( static function ( int $code ) use ( &$codes ): void {
+			$codes[] = $code;
+		} );
+		$ctrl->set_test_mode( true );
+		$before = \count( $db->sent );
+		\ob_start();
+		$ctrl->dispatch( $req );
+		\ob_get_clean();
+
+		$selects = \array_filter( \array_slice( $db->sent, $before ), static fn ( string $sql ): bool => \str_starts_with( \ltrim( $sql ), 'SELECT' ) );
+		$this->assertNotContains( 401, $codes, 'every command verified' );
+		$this->assertCount( 1, $selects, 'one session read for three commands' );
+	}
+
 	public function test_a_batch_with_one_refusal_answers_401(): void {
 		$this->build_graph_sans_output();
 

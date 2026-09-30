@@ -79,10 +79,9 @@ class Status_CI_Node extends Service_CI_Node {
 	 * handler and the role it demands.
 	 *
 	 * The inherited `Service_CI_Node` constructor builds the dispatch table
-	 * from this array and wraps the handler in `Capabilities::require()` for
-	 * the declared role, so this class needs no constructor and no hand-built
-	 * verb table that could drift from what `help` and the console palette
-	 * show. The role is READ, not MANAGE, because the snapshot reads state and
+	 * from this array, and `dispatch()` refuses a caller below the declared
+	 * role (ADR-26), so this class needs no constructor and no hand-built verb
+	 * table that could drift from what `help` and the console palette show. The role is READ, not MANAGE, because the snapshot reads state and
 	 * changes none — a dashboard polls it.
 	 *
 	 * `category` replaces the `Hidden` inherited from the interpreter, which is

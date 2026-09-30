@@ -19,6 +19,23 @@ abstract class DurableArmContract extends CacheBackendContract {
 		$this->assertSame( 4, $arm->get( 'kea-forever' ) );
 	}
 
+	public function test_read_entries_answer_each_live_rows_value_and_remaining_life(): void {
+		$arm = $this->arm();
+		$arm->set( 'kea-e1', [ 'n' => 41 ], 777 );
+		$arm->set( 'kea-e2', 'kea-42', 37 );
+		$arm->set( 'kea-forever', 43, 0 );
+		$this->clock += 37;
+		$this->assertSame(
+			[
+				'kea-e1'      => [ 'value' => [ 'n' => 41 ], 'ttl' => 740 ],
+				'kea-forever' => [ 'value' => 43 ],
+			],
+			$arm->read_entries( [ 'kea-e1', 'kea-e2', 'kea-forever', 'kea-absent' ] ),
+			'an expired row is absent, and a row that never expires states no ttl'
+		);
+		$this->assertSame( [], $arm->read_entries( [] ) );
+	}
+
 	public function test_a_flush_deletes_every_keyed_row_and_member_expired_or_not(): void {
 		$arm = $this->arm();
 		$arm->write_multi( [ 'kea-f1' => 41, 'kea-f2' => 42 ], 37 );

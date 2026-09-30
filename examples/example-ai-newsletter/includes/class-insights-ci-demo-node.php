@@ -155,9 +155,9 @@ class Insights_CI_Demo_Node extends Service_CI_Node {
 	 * closure returns. Every shape reads `items()`, so the three verbs of one batch share
 	 * a single offsetlog read.
 	 *
-	 * Authorization belongs to the base class, which wraps each handler in the capability
-	 * its schema declares. These three declare none, so all of them require MANAGE, and a
-	 * per-verb gate here would only stack a second check.
+	 * Authorization belongs to `dispatch()`, which refuses a caller below the role each
+	 * verb's schema declares (ADR-26). These three declare none, so all of them require
+	 * MANAGE, and a per-verb gate here would only stack a second check.
 	 *
 	 * @return array<string,mixed>
 	 */

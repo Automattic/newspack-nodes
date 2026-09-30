@@ -49,7 +49,7 @@ const TAB_WIDTH = 4;
  * Unit tests are exempt from the comment rules by the project's own standard;
  * the rest hold vendored or generated files nobody hand-edits.
  */
-const SKIP_DIRS = [ 'tests', 'vendor', 'node_modules', 'build', 'coverage', 'release', '.phpstan', '.git' ];
+const SKIP_DIRS = [ 'tests', 'vendor', 'node_modules', 'build', 'coverage', 'release', '.phpstan', '.git', '.superpowers' ];
 
 /**
  * Visual length with tabs expanded to the next TAB_WIDTH stop.

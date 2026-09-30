@@ -53,26 +53,26 @@ class ServiceCiCapabilityTest extends TestCase {
 			'newspack_nodes/capability_map',
 			static fn ( array $map ): array => [ 'read' => 'edit_posts' ] + $map
 		);
+		$GLOBALS['_wp_test_current_user_id']  = 5527;
 		$GLOBALS['_wp_test_current_user_can'] = [ 'edit_posts' => true, 'manage_options' => false ];
 
-		$ci       = $this->ci();
-		$commands = $ci->commands();
+		$ci = $this->ci();
 
-		$this->assertSame( 'peeked', $commands['peek']( $ci, [], [] ) );
+		$this->assertSame( 'peeked', $ci->dispatch( 'peek' ) );
 
 		$e = $this->caught(
-			fn () => $commands['mutate']( $ci, [], [] ),
+			fn () => $ci->dispatch( 'mutate' ),
 			'an unmarked verb must stay manage-gated'
 		);
 		$this->assertStringContainsString( 'permission denied', $e->getMessage() );
 	}
 
 	public function test_default_map_keeps_read_verbs_admin_only(): void {
+		$GLOBALS['_wp_test_current_user_id']  = 5527;
 		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => false ];
-		$ci       = $this->ci();
-		$commands = $ci->commands();
+		$ci = $this->ci();
 
 		$this->expectException( \RuntimeException::class );
-		$commands['peek']( $ci, [], [] );
+		$ci->dispatch( 'peek' );
 	}
 }

@@ -31,6 +31,13 @@ use Newspack_Nodes\Router_Node;
 
 class VerbHarness {
 	/**
+	 * The user a REST request carries: `HTTP_In_Node` admits no caller who is
+	 * not logged in, so a verb reached through it always has one current, and
+	 * `Capabilities::require_verb()` asks that user's capabilities (ADR-26).
+	 */
+	public const REQUEST_USER = 4127;
+
+	/**
 	 * Build a request-scope graph and fire a verb against the supplied interpreter.
 	 * Returns the verb's payload from the captured TM_RESPONSE.
 	 *
@@ -63,6 +70,7 @@ class VerbHarness {
 		if ( \is_string( $args ) ) {
 			$args = '' === \trim( $args ) ? [] : ( \preg_split( '/\s+/', \trim( $args ) ) ?: [] );
 		}
+		$GLOBALS['_wp_test_current_user_id'] ??= self::REQUEST_USER;
 		$router = new Router_Node(); $router->name( '_router' );
 		$base   = new Command_Interpreter_Node(); $base->name( '_command_interpreter' ); $base->sink( $router );
 		$interpreter->name( $name );

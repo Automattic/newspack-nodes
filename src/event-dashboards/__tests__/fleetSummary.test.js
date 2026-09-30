@@ -8,7 +8,7 @@ const topo = ( name, o = {} ) => ( {
 	health: o.health ?? 'ok',
 	status: o.workers ? { workers: o.workers } : null,
 } );
-const wk = ( partition, status = 'running' ) => ( { partition, status } );
+const wk = ( partition, state = 'live' ) => ( { partition, state } );
 
 it( 'counts topologies and active topologies', () => {
 	const s = fleetSummary( [
@@ -29,15 +29,30 @@ it( 'workersTotal counts CONFIGURED num_partitions over active topologies, not r
 	expect( s.workersUp ).toBe( 1 );
 } );
 
-it( 'workersUp counts running partitions and is capped at num_partitions', () => {
+it( 'workersUp counts live partitions and is capped at num_partitions', () => {
 	const s = fleetSummary( [
 		topo( 'a', {
 			num_partitions: 1,
-			workers: [ wk( 0, 'running' ), wk( 0, 'running' ) ],
+			workers: [ wk( 0, 'live' ), wk( 0, 'live' ) ],
 		} ),
 	] );
 	expect( s.workersUp ).toBe( 1 );
 	expect( s.workersTotal ).toBe( 1 );
+} );
+
+it( 'workersUp counts only live partitions, never stale, held or idle ones', () => {
+	const s = fleetSummary( [
+		topo( 'a', {
+			num_partitions: 4,
+			workers: [
+				wk( 0, 'stale' ),
+				wk( 1, 'held' ),
+				wk( 2, 'idle' ),
+				wk( 3 ),
+			],
+		} ),
+	] );
+	expect( s.workersUp ).toBe( 1 );
 } );
 
 it( 'excludes inactive topologies from the worker counts', () => {

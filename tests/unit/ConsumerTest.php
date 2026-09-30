@@ -3048,7 +3048,7 @@ class ConsumerTest extends TestCase {
 		// plain Node, which stamps TO only when it's empty (see the companion
 		// test below). `wp nodes cli` relies on the distinction: it routes the
 		// shared output-IPC partition through a plain Node, NOT a Consumer, so
-		// each reply keeps its own TO and the Dumper's per-PID to_filter can drop
+		// each reply keeps its own TO and the channel's session gate can drop
 		// other sessions' traffic — a Consumer here would rewrite every reply's
 		// TO to _output and dump all sessions into the REPL.
 		$source = new Partition_Node();

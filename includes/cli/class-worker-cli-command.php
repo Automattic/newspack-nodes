@@ -290,30 +290,17 @@ class Worker_CLI_Command {
 	 * @param array<string,mixed> $assoc_args Associative arguments; only --format is read.
 	 */
 	public function status( array $args, array $assoc_args ): void {
-		$now   = \time();
-		$locks = [];
-		foreach ( $this->cli()->ls_workers() as $w ) {
-			$locks[ $w['id'] ] = $w;
-		}
-
-		// One row per expected worker of each active topology; no lock = down.
-		$active = Bootstrap::get_topologies();
-		$rows   = [];
-		foreach ( $active as $name => $config ) {
-			$config         = Core::arr( $config );
-			$partitions     = Bootstrap::partitions_of( $config );
-			$on_demand_idle = Bootstrap::on_demand_idle_of( $config );
-			for ( $p = 0; $p < $partitions; $p++ ) {
-				$worker_id = CLI::worker_id( $name, $p );
-				$rows[]    = self::fleet_row( $name, $p, $locks[ $worker_id ] ?? null, $now, $on_demand_idle );
-				unset( $locks[ $worker_id ] );
+		$now    = \time();
+		$active   = Bootstrap::get_topologies();
+		$expected = CLI::slot_ids( $active );
+		$rows     = [];
+		// One row per expected slot, then leftover locks winding down.
+		foreach ( $this->cli()->worker_states( \array_keys( $expected ), $active, true ) as $id => $slot ) {
+			$row = self::fleet_row( $id, $slot, $now );
+			if ( ! isset( $expected[ $id ] ) ) {
+				$row['State'] .= ' (inactive)';
 			}
-		}
-		// Leftover locks belong to deactivated types still winding down.
-		foreach ( $locks as $w ) {
-			$row          = self::fleet_row( $w['type'], $w['partition'], $w, $now );
-			$row['State'] .= ' (inactive)';
-			$rows[]        = $row;
+			$rows[] = $row;
 		}
 		// Catalog topologies that aren't active: visible, clearly parked.
 		foreach ( \array_keys( Topology_Registry::describe() ) as $name ) {
@@ -391,31 +378,19 @@ class Worker_CLI_Command {
 	}
 
 	/**
-	 * One fleet-table row for a {topology, partition} slot.
+	 * One fleet-table row for a slot.
 	 *
-	 * @param string                   $name           Topology name.
-	 * @param int                      $p              Partition.
-	 * @param array<string,mixed>|null $w              Liveness row from `CLI::ls_workers()`; null when the slot holds no lock.
-	 * @param int                      $now            Unix time both durations are measured against.
-	 * @param int                      $on_demand_idle Seconds of idle before the worker exits; 0 stays resident.
+	 * @param string                                                                     $id   Worker id.
+	 * @param array{lock:array{heartbeat_at:int,started_at:int}|null,state:string} $slot Its `CLI::worker_states()` entry.
+	 * @param int                                                                        $now  Unix time both durations are measured against.
 	 * @return array<string,int|string> The Worker, State, Heartbeat and Uptime cells.
 	 */
-	private static function fleet_row( string $name, int $p, ?array $w, int $now, int $on_demand_idle = 0 ): array {
-		$heartbeat_at = null === $w ? 0 : Core::as_int( $w['heartbeat_at'] );
-		$started_at   = null === $w ? 0 : Core::as_int( $w['started_at'] );
-		if ( null === $w ) {
-			// A held or on-demand slot with no lock is waiting, not broken.
-			if ( Spawn_Coordinator::hold() > 0 ) {
-				$state = 'held';
-			} else {
-				$state = $on_demand_idle > 0 ? 'idle' : 'down';
-			}
-		} else {
-			$state = $w['stale'] ? 'stale' : 'live';
-		}
+	private static function fleet_row( string $id, array $slot, int $now ): array {
+		$heartbeat_at = $slot['lock']['heartbeat_at'] ?? 0;
+		$started_at   = $slot['lock']['started_at'] ?? 0;
 		return [
-			'Worker'    => CLI::worker_id( $name, $p ),
-			'State'     => $state,
+			'Worker'    => $id,
+			'State'     => $slot['state'],
 			'Heartbeat' => $heartbeat_at > 0 ? CLI::format_duration( $now - $heartbeat_at ) . ' ago' : '-',
 			'Uptime'    => $started_at > 0 ? CLI::format_duration( $now - $started_at ) : '-',
 		];

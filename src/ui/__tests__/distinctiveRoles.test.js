@@ -248,7 +248,7 @@ const topologyRow = ( source = 'stock', health = 'ok' ) => (
 				workers: [
 					{
 						partition: 0,
-						status: 'running',
+						state: 'live',
 						started_at: 947,
 					},
 				],
@@ -799,16 +799,16 @@ describe( 'distinctive canonical roles', () => {
 		}
 	);
 
-	it( 'keeps P0 and ALL RUN on small-radius badges with independent success-text probes', () => {
+	it( 'keeps P0 and ALL LIVE on small-radius badges with independent success-text probes', () => {
 		const { container } = render( provider( topologyRow() ) );
-		const running = [
-			...container.querySelectorAll( '.worker-status-badge.running' ),
+		const live = [
+			...container.querySelectorAll( '.worker-status-badge.live' ),
 		];
-		const partition = running.find( ( badge ) =>
+		const partition = live.find( ( badge ) =>
 			badge.textContent.includes( 'P0' )
 		);
-		const liveness = running.find( ( badge ) =>
-			badge.textContent.includes( 'ALL RUN' )
+		const liveness = live.find( ( badge ) =>
+			badge.textContent.includes( 'ALL LIVE' )
 		);
 
 		expect( partition ).toBeDefined();

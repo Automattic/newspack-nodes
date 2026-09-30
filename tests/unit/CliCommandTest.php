@@ -24,10 +24,13 @@ use Newspack_Nodes\CLI_Command;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Dumper_Node;
+use Newspack_Nodes\Event_Framework;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Node_Names;
+use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Router_Node;
 use Newspack_Nodes\TTY_Out_Node;
+use Newspack_Nodes\Worker_Base;
 use Newspack_Nodes\Tests\TestCase;
 
 require_once \dirname( __DIR__, 2 ) . '/includes/class-cli-command.php';
@@ -300,29 +303,86 @@ class CliCommandTest extends TestCase {
 		Core::cleanup_all_nodes();
 	}
 
-	public function test_build_repl_graph_attached_sets_dumper_to_filter(): void {
-		// Dumper TO filter must be set to the cli session's $pid so other
-		// sessions' replies drop silently. We can't easily read the private
-		// to_filter field — we verify behavior: a message addressed to "$pid"
-		// should render, while one to a different pid should drop.
+	/**
+	 * Mount an attached REPL graph on `kea-r.p2` writing to a memory stream,
+	 * have the worker append one message per `$tos` entry to its output, and
+	 * answer what the terminal printed.
+	 *
+	 * @param array<string,string> $tos Line printed => the TO it is sent under.
+	 */
+	private function attached_repl_renders( array $tos ): string {
 		$ipc = [
-			'id'        => 'jobs.p0',
-			'input'     => "{$this->tmp}/ipc/jobs.p0/input",
-			'output'    => "{$this->tmp}/ipc/jobs.p0/output",
-			'type'      => 'jobs',
-			'partition' => 0,
+			'id'        => 'kea-r.p2',
+			'input'     => "{$this->tmp}/ipc/kea-r.p2/input",
+			'output'    => "{$this->tmp}/ipc/kea-r.p2/output",
+			'type'      => 'kea-r',
+			'partition' => 2,
 		];
 		\mkdir( $ipc['input'], 0755, true );
 		\mkdir( $ipc['output'], 0755, true );
+		$this->use_loop_time();
+		$rendered            = \fopen( 'php://memory', 'w+' );
+		CLI_Command::$stdout = static fn () => $rendered;
+		try {
+			( new \ReflectionMethod( CLI_Command::class, 'build_repl_graph' ) )->invoke( new CLI_Command(), true, $ipc );
+			$worker = new Partition_Node();
+			$worker->arguments( Worker_Base::ipc_partition_args( $ipc['output'] ) );
+			$worker->sink( new \Newspack_Nodes\Tests\Capture_Sink_Node() );
+			foreach ( $tos as $line => $to ) {
+				$message                   = Message::new_message();
+				$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+				$message[ Message::FROM ]  = '_repl';
+				$message[ Message::TO ]    = $to;
+				$message[ Message::VALUE ] = "{$line}\n";
+				$worker->fill( $message );
+			}
+			$deadline = Core::right_now() + 2;
+			Event_Framework::instance()->drain( static fn (): bool => Core::$now < $deadline );
+			\rewind( $rendered );
+			return (string) \stream_get_contents( $rendered );
+		} finally {
+			CLI_Command::$stdout = null;
+			\fclose( $rendered );
+			Core::cleanup_all_nodes();
+		}
+	}
 
-		$ref = new \ReflectionMethod( CLI_Command::class, 'build_repl_graph' );
+	public function test_an_attached_repl_renders_its_own_replies_and_broadcasts_and_no_other_sessions(): void {
+		$pid = (string) \getmypid();
+		$out = $this->attached_repl_renders(
+			[
+				'ours-7731'      => "_output/_cli:{$pid}/_output",
+				'theirs-5102'    => '_output/_cli:48211/_output',
+				'tail-alike-640' => "_output/_cli:48211/_output/{$pid}",
+				'old-shape-3302' => "_output/{$pid}",
+				'broadcast-2290' => '',
+			]
+		);
+		$this->assertStringContainsString( 'ours-7731', $out );
+		$this->assertStringContainsString( 'broadcast-2290', $out );
+		$this->assertStringNotContainsString( 'theirs-5102', $out );
+		$this->assertStringNotContainsString( 'tail-alike-640', $out );
+		$this->assertStringNotContainsString( 'old-shape-3302', $out );
+	}
 
-		[ , $dumper ] = $ref->invoke( new CLI_Command(), true, $ipc );
+	public function test_an_attached_repl_lists_its_session_gate_aimed_at_output(): void {
+		$ipc = [
+			'id'        => 'kea-r.p2',
+			'input'     => "{$this->tmp}/ipc/kea-r.p2/input",
+			'output'    => "{$this->tmp}/ipc/kea-r.p2/output",
+			'type'      => 'kea-r',
+			'partition' => 2,
+		];
+		\mkdir( $ipc['input'], 0755, true );
+		\mkdir( $ipc['output'], 0755, true );
+		( new \ReflectionMethod( CLI_Command::class, 'build_repl_graph' ) )->invoke( new CLI_Command(), true, $ipc );
 
-		// Reflect on the private field to confirm the filter is the current pid.
-		$pid_prop = new \ReflectionProperty( $dumper, 'to_filter' );
-		$this->assertSame( (string) \getmypid(), $pid_prop->getValue( $dumper ) );
+		$interpreter = Core::node( Node_Names::COMMAND_INTERPRETER );
+		$this->assertInstanceOf( Command_Interpreter_Node::class, $interpreter );
+		$listing = $interpreter->dispatch( 'ls', [ '-at' ] );
 
+		$this->assertMatchesRegularExpression( '/^kea-r\.p2:replies\s+-> _output$/m', $listing );
+		$this->assertInstanceOf( \Newspack_Nodes\HTTP_Filter_Node::class, Core::node( 'kea-r.p2:replies' ) );
 		Core::cleanup_all_nodes();
 	}
 
@@ -330,8 +390,8 @@ class CliCommandTest extends TestCase {
 
 	public function test_reply_addressed_to_output_renders_on_stdout_stream(): void {
 		// End-to-end proof of the REPL output path with a capturable _stdout: a
-		// worker reply addressed TO=_output/$pid, filled at the Dumper, is
-		// rendered and re-minted TO=_stdout, routed through the interpreter +
+		// worker reply, filled at the Dumper with the TO the router leaves it,
+		// is rendered and re-minted TO=_stdout, routed through the interpreter +
 		// router, and fwritten onto _stdout's stream.
 		$router = new Router_Node();
 		$router->name( Node_Names::ROUTER );
@@ -352,7 +412,7 @@ class CliCommandTest extends TestCase {
 
 		$reply                     = Message::new_message();
 		$reply[ Message::TYPE ]    = Message::TM_COMMAND | Message::TM_RESPONSE;
-		$reply[ Message::TO ]      = Node_Names::OUTPUT . '/' . \getmypid();
+		$reply[ Message::TO ]      = '';
 		$reply[ Message::VALUE ]   = [ 'name' => 'ls', 'payload' => 'hello' ];
 
 		$dumper->fill( $reply );

@@ -59,6 +59,9 @@ class Table_Node extends Node {
 	 */
 	public const MAX_MEMBERS_LIMIT = 10000;
 
+	/** The limits SMEMBERS and members_of() admit, for a refusal to name. */
+	private const MEMBERS_LIMIT_RANGE = 'a whole number from 1 to ' . self::MAX_MEMBERS_LIMIT;
+
 	/** Seconds between one Table's purges. */
 	public const PURGE_INTERVAL_S = 60;
 
@@ -122,13 +125,6 @@ class Table_Node extends Node {
 	 */
 	public const OVER_LIMIT = 'OVER';
 
-	/** What each structured verb carries, for a refusal to teach. */
-	private const STRUCT_USAGE = [
-		'MSET' => 'needs a map of key => [ value, ttl ]',
-		'ADD'  => 'needs a map of key => [ value, ttl ]',
-		'SADD' => 'needs a map of set key => [ [ member => value, … ], ttl ]',
-	];
-
 	/**
 	 * The verbs a mount answers: its declaring worker is the file's one writer
 	 * (ADR-6), and a request carries no authority beyond the mount (ADR-23).
@@ -176,6 +172,14 @@ class Table_Node extends Node {
 		'PURGE'      => [ 0, 0, 0, 0, 0, 0 ],
 		'CHECKPOINT' => [ 0, 0, 0, 0, 0, 0 ],
 	];
+
+	/**
+	 * What each structured verb carries, for a refusal to teach, read once
+	 * from the `struct` requests node_schema() declares.
+	 *
+	 * @var array<string,string>|null
+	 */
+	private static ?array $struct_usage = null;
 
 	/**
 	 * Monotonic-clock seam behind the per-verb timings, replacing
@@ -372,7 +376,7 @@ class Table_Node extends Node {
 			return match ( $backend ) {
 				'memcache' => Cache_Backend::memcache_arm() ?? throw new \LogicException( 'memcache backend has no memcached handle' ),
 				'apcu'     => Cache_Backend::apcu_arm() ?? throw new \LogicException( 'apcu backend is not usable here' ),
-				'sqlite'   => new Sqlite_Arm( $file, read_only: $this->mounted ),
+				'sqlite'   => new Sqlite_Arm( $file, $namespace, read_only: $this->mounted ),
 				'wpdb'     => new Wpdb_Arm( $namespace ),
 				default    => null === Cache_Backend::shared_first() ? throw new \LogicException( 'auto backend finds neither memcached nor APCu' ) : null,
 			};
@@ -497,8 +501,7 @@ class Table_Node extends Node {
 			'SMEMBERS'            => $this->reply_members( $request, $words ),
 			'TOUCH'               => $this->reply_touch( $request, $words ),
 			'RM'                  => $this->reply_removed( $request, $words ),
-			'MSET', 'ADD', 'SADD' => $this->refuse( $request, $verb, self::STRUCT_USAGE[ $verb ] ),
-			default               => $this->refuse( $request, $verb, 'unknown verb' ),
+			default               => $this->refuse( $request, $verb, self::struct_usage()[ $verb ] ?? 'unknown verb' ),
 		};
 	}
 
@@ -514,12 +517,13 @@ class Table_Node extends Node {
 	 */
 	private function handle_struct( array $request, string $verb, array $value, bool $struct ): void {
 		$items = $value[ $verb ] ?? null;
+		$usage = self::struct_usage();
 		$fault = match ( true ) {
-			! $struct                                   => 'a structured request needs the TM_STRUCT bit',
-			1 !== \count( $value )                      => 'a structured request names one verb',
-			! isset( self::STRUCT_USAGE[ $verb ] )      => 'only MSET, ADD and SADD take a structure',
-			! \is_array( $items )                       => self::STRUCT_USAGE[ $verb ],
-			default                                     => null,
+			! $struct                    => 'a structured request needs the TM_STRUCT bit',
+			1 !== \count( $value )       => 'a structured request names one verb',
+			! isset( $usage[ $verb ] )   => 'only ' . \implode( ', ', \array_slice( \array_keys( $usage ), 0, -1 ) ) . ' and ' . \array_key_last( $usage ) . ' take a structure',
+			! \is_array( $items )        => $usage[ $verb ],
+			default                      => null,
 		};
 		if ( null !== $fault ) {
 			$this->refuse( $request, $verb, $fault );
@@ -533,6 +537,25 @@ class Table_Node extends Node {
 		$landed = $this->write_items( $items, 'ADD' === $verb );
 		$this->count_rows( $verb, \count( $items ), \count( $landed ) );
 		$this->reply_written( $request, $verb, $landed );
+	}
+
+	/**
+	 * What each structured verb carries: `needs a map of` its one argument,
+	 * for every request node_schema() declares a `struct` value.
+	 *
+	 * @return array<string,string> Verb => usage.
+	 */
+	private static function struct_usage(): array {
+		if ( null === self::$struct_usage ) {
+			self::$struct_usage = [];
+			foreach ( Core::arr( self::node_schema()['requests'] ) as $request ) {
+				$request = Core::arr( $request );
+				if ( 'struct' === ( $request['value'] ?? null ) ) {
+					self::$struct_usage[ Core::as_string( $request['name'] ) ] = 'needs a map of ' . Core::as_string( Core::arr( Core::arr( $request['args'] )[0] )['description'] );
+				}
+			}
+		}
+		return self::$struct_usage;
 	}
 
 	/**
@@ -550,6 +573,19 @@ class Table_Node extends Node {
 			return;
 		}
 		$this->reply_written( $request, 'SADD', $this->add_sets( $this->arm, $items ) );
+	}
+
+	/**
+	 * `SADD` for a caller outside a graph: each set's members under its own
+	 * TTL, or the Table's, down the path the request takes.
+	 *
+	 * @api Non-graph writers indexing entries, a command session's labels among them.
+	 * @param array<array-key,mixed> $sets Set key => [ [ member => value, … ], ttl? ].
+	 * @return list<string> The set keys that landed.
+	 * @throws \RuntimeException On a volatile backend, which holds no members.
+	 */
+	public function add_members( array $sets ): array {
+		return $this->add_sets( $this->durable( 'add_members' ), $sets );
 	}
 
 	/**
@@ -617,42 +653,71 @@ class Table_Node extends Node {
 	private function reply_members( array $request, array $words ): void {
 		$limit = Core::canonical_decimal( \array_shift( $words ) ?? '', false );
 		if ( null === $limit || $limit > self::MAX_MEMBERS_LIMIT ) {
-			$this->refuse( $request, 'SMEMBERS', 'usage: SMEMBERS <limit> <set_key>…, limit a whole number from 1 to ' . self::MAX_MEMBERS_LIMIT );
+			$this->refuse( $request, 'SMEMBERS', 'usage: SMEMBERS <limit> <set_key>…, limit ' . self::MEMBERS_LIMIT_RANGE );
 			return;
 		}
 		if ( ! $this->arm instanceof Durable_Arm ) {
 			$this->refuse( $request, 'SMEMBERS', $this->needs_durable() );
 			return;
 		}
-		$set_keys = [];
-		foreach ( $words as $set_key ) {
-			$set_keys[ $this->key( $set_key ) ] = $set_key;
-		}
-		$found = $this->arm->members( \array_keys( $set_keys ), $limit );
-		$this->count_rows( 'SMEMBERS', \count( $words ), 0 );
+		$found = $this->read_members( $this->arm, $words, $limit );
 		if ( false === $found ) {
 			$this->reply( $request, Message::TM_ERROR, '', "SMEMBERS: backend read failed\n" );
 			return;
 		}
-		$count = 0;
-		foreach ( $set_keys as $entry_key => $set_key ) {
-			if ( ! \array_key_exists( $entry_key, $found ) ) {
+		foreach ( $found as $set_key => $members ) {
+			if ( null === $members ) {
+				$this->reply( $request, Message::TM_BYTESTREAM, (string) $set_key, self::OVER_LIMIT . " {$limit}\n" );
 				continue;
 			}
-			$members = $found[ $entry_key ];
-			if ( null === $members ) {
-				$this->reply( $request, Message::TM_BYTESTREAM, $set_key, self::OVER_LIMIT . " {$limit}\n" );
-			} else {
-				$pairs = [];
-				foreach ( $members as $member => $stored ) {
-					$pairs[] = [ (string) $member, $stored ];
-				}
-				$this->count_rows( 'SMEMBERS', 0, \count( $pairs ) );
-				$this->reply( $request, Message::TM_STRUCT, $set_key, $pairs );
+			$pairs = [];
+			foreach ( $members as $member => $stored ) {
+				$pairs[] = [ (string) $member, $stored ];
 			}
-			++$count;
+			$this->reply( $request, Message::TM_STRUCT, (string) $set_key, $pairs );
 		}
-		$this->reply( $request, Message::TM_INFO, '', "SMEMBERS {$count}\n" );
+		$this->reply( $request, Message::TM_INFO, '', 'SMEMBERS ' . \count( $found ) . "\n" );
+	}
+
+	/**
+	 * `SMEMBERS` for a caller outside a graph, down the path the request
+	 * takes: each set's live members, or null for a set past `$limit`.
+	 *
+	 * @api Non-graph readers of an index, the command-session listing among them.
+	 * @param list<string> $set_keys Set keys.
+	 * @param int          $limit    Most members a set may hold and be answered,
+	 *                               from 1 to MAX_MEMBERS_LIMIT.
+	 * @return array<array-key,array<array-key,mixed>|null>|null Set key => member
+	 *         => value; null when the store did not answer, which `last_failure()`
+	 *         names.
+	 * @throws \InvalidArgumentException On a limit SMEMBERS refuses.
+	 * @throws \RuntimeException On a volatile backend, which holds no members.
+	 */
+	public function members_of( array $set_keys, int $limit ): ?array {
+		$arm = $this->durable( 'members_of' );
+		if ( $limit < 1 || $limit > self::MAX_MEMBERS_LIMIT ) {
+			throw new \InvalidArgumentException( 'members_of: limit ' . self::MEMBERS_LIMIT_RANGE );
+		}
+		$found = $this->read_members( $arm, $set_keys, $limit );
+		return false === $found ? null : $found;
+	}
+
+	/**
+	 * Each set's live members in member order, or null for a set holding
+	 * more than `$limit`, under the caller's set keys; a set with no live
+	 * member is absent. Counted as SMEMBERS: the set keys asked, the members
+	 * answered.
+	 *
+	 * @param Durable_Arm  $arm      The Table's arm.
+	 * @param list<string> $set_keys Set keys.
+	 * @param int          $limit    Most members a set may hold and be answered.
+	 * @return array<array-key,array<array-key,mixed>|null>|false False when
+	 *                                                            the store failed.
+	 */
+	private function read_members( Durable_Arm $arm, array $set_keys, int $limit ): array|false {
+		$found = $this->by_caller_key( $set_keys, static fn ( array $entry_keys ): array|false => $arm->members( $entry_keys, $limit ) );
+		$this->count_rows( 'SMEMBERS', \count( $set_keys ), false === $found ? 0 : \array_sum( \array_map( static fn ( ?array $members ): int => \count( $members ?? [] ), $found ) ) );
+		return $found;
 	}
 
 	/**
@@ -685,67 +750,6 @@ class Table_Node extends Node {
 			}
 		}
 		$this->reply( $request, Message::TM_INFO, '', "{$verb} " . \count( $found ) . "\n" );
-	}
-
-	/**
-	 * `MSET`/`ADD`: each item under its own TTL, or the Table's; an item TTL
-	 * below one second leaves the item out. A failed MSET
-	 * batch is re-sent key by key, except on an arm whose batch lands whole or
-	 * not at all, where a retry would only wait out the same lock again.
-	 *
-	 * @param array<array-key,mixed> $items Key => [ value, ttl? ].
-	 * @param bool                   $add   Write only where the key is absent.
-	 * @return list<string> The keys the write took effect on.
-	 */
-	private function write_items( array $items, bool $add ): array {
-		$arm = $this->arm();
-		if ( null === $arm ) {
-			return [];
-		}
-		$groups = [];
-		foreach ( $items as $key => $item ) {
-			$item = Core::arr( $item );
-			$ttl  = $this->item_ttl( $item );
-			if ( Cache_Backend::refuses_key( (string) $key ) || ! \array_key_exists( 0, $item ) || null === $ttl ) {
-				$this->print_less_often( 'ERROR: refused a write item: ', (string) $key, ' needs a KEY without whitespace, a value, and a ttl in whole seconds, at least 1' );
-				continue;
-			}
-			$groups[ $ttl ][] = [ (string) $key, $item[0] ];
-		}
-		$landed = [];
-		foreach ( $groups as $ttl => $group ) {
-			if ( ! $add ) {
-				$entries = [];
-				foreach ( $group as [ $key, $stored ] ) {
-					$entries[ $this->key( $key ) ] = $stored;
-				}
-				if ( $arm->write_multi( $entries, $ttl ) ) {
-					\array_push( $landed, ...\array_column( $group, 0 ) );
-					continue;
-				}
-				if ( $arm->batch_is_atomic() ) {
-					continue;
-				}
-			}
-			foreach ( $group as [ $key, $stored ] ) {
-				$entry = $this->key( $key );
-				if ( $add ? $arm->add( $entry, $stored, $ttl ) : $arm->set( $entry, $stored, $ttl ) ) {
-					$landed[] = $key;
-				}
-			}
-		}
-		return $landed;
-	}
-
-	/**
-	 * A write item's TTL: its own when it states one, the Table's otherwise.
-	 *
-	 * @param array<array-key,mixed> $item [ value, ttl? ].
-	 * @return int|null The TTL, or null when the stated one is not whole
-	 *                  seconds, at least 1.
-	 */
-	private function item_ttl( array $item ): ?int {
-		return null !== ( $item[1] ?? null ) ? Core::canonical_decimal( $item[1], false ) : $this->ttl;
 	}
 
 	/**
@@ -874,17 +878,15 @@ class Table_Node extends Node {
 	 *                                the result, and an all-digit key is an int.
 	 */
 	private function read_keys( array $keys, ?bool &$failed, ?bool &$answered = null ): array {
-		$entry_keys = [];
-		foreach ( $keys as $key ) {
-			$entry_keys[ $this->key( $key ) ] = $key;
-		}
-		$found   = [];
 		$backend = $this->arm();
 		$failed  = null === $backend;
-		$fetched = $backend?->read_multi( \array_keys( $entry_keys ), $failed ) ?? [];
-		foreach ( $fetched as $entry_key => $value ) {
-			$found[ $entry_keys[ $entry_key ] ] = $value;
-		}
+		$found   = $this->by_caller_key(
+			$keys,
+			static function ( array $entry_keys ) use ( $backend, &$failed ): array {
+				return $backend?->read_multi( $entry_keys, $failed ) ?? [];
+			}
+		);
+		$found   = false === $found ? [] : $found;
 		// ONE backing call for every miss; per-key defeats this round trip.
 		$missed = [];
 		foreach ( $keys as $key ) {
@@ -916,6 +918,98 @@ class Table_Node extends Node {
 	public function store( string $key, mixed $value ): bool {
 		$entry_key = $this->key( $key );
 		return true === $this->arm()?->set( $entry_key, $value, $this->ttl );
+	}
+
+	/**
+	 * Store an entry only where its key holds no live one, under a lifetime of
+	 * its own — ADR-18's one parameter, for a caller whose entries each live
+	 * as long as the thing they record. The same path the `ADD` request takes.
+	 *
+	 * @api Non-graph writers claiming a key, a command session's mint among them.
+	 * @param string $key   Key within the table's namespace.
+	 * @param mixed  $value Value to store.
+	 * @param int    $ttl   The entry's lifetime in seconds, at least 1.
+	 * @return bool True when the entry was stored; false when a live one held
+	 *              the key or the backend refused, which `last_failure()` names.
+	 * @throws \InvalidArgumentException On a TTL below one second.
+	 */
+	public function add( string $key, mixed $value, int $ttl ): bool {
+		if ( $ttl < 1 ) {
+			$this->refuse_ttl( (string) $ttl );
+		}
+		return [] !== $this->write_items( [ $key => [ $value, $ttl ] ], true );
+	}
+
+	/**
+	 * `MSET`/`ADD`: each item under its own TTL, or the Table's; an item TTL
+	 * below one second leaves the item out. A failed MSET
+	 * batch is re-sent key by key, except on an arm whose batch lands whole or
+	 * not at all, where a retry would only wait out the same lock again.
+	 *
+	 * @param array<array-key,mixed> $items Key => [ value, ttl? ].
+	 * @param bool                   $add   Write only where the key is absent.
+	 * @return list<string> The keys the write took effect on.
+	 */
+	private function write_items( array $items, bool $add ): array {
+		$arm = $this->arm();
+		if ( null === $arm ) {
+			return [];
+		}
+		$groups = [];
+		foreach ( $items as $key => $item ) {
+			$item = Core::arr( $item );
+			$ttl  = $this->item_ttl( $item );
+			if ( Cache_Backend::refuses_key( (string) $key ) || ! \array_key_exists( 0, $item ) || null === $ttl ) {
+				$this->print_less_often( 'ERROR: refused a write item: ', (string) $key, ' needs a KEY without whitespace, a value, and a ttl in whole seconds, at least 1' );
+				continue;
+			}
+			$groups[ $ttl ][] = [ (string) $key, $item[0] ];
+		}
+		$landed = [];
+		foreach ( $groups as $ttl => $group ) {
+			if ( ! $add ) {
+				$entries = [];
+				foreach ( $group as [ $key, $stored ] ) {
+					$entries[ $this->key( $key ) ] = $stored;
+				}
+				if ( $arm->write_multi( $entries, $ttl ) ) {
+					\array_push( $landed, ...\array_column( $group, 0 ) );
+					continue;
+				}
+				if ( $arm->batch_is_atomic() ) {
+					continue;
+				}
+			}
+			foreach ( $group as [ $key, $stored ] ) {
+				$entry = $this->key( $key );
+				if ( $add ? $arm->add( $entry, $stored, $ttl ) : $arm->set( $entry, $stored, $ttl ) ) {
+					$landed[] = $key;
+				}
+			}
+		}
+		return $landed;
+	}
+
+	/**
+	 * A write item's TTL: its own when it states one, the Table's otherwise.
+	 *
+	 * @param array<array-key,mixed> $item [ value, ttl? ].
+	 * @return int|null The TTL, or null when the stated one is not whole
+	 *                  seconds, at least 1.
+	 */
+	private function item_ttl( array $item ): ?int {
+		return null !== ( $item[1] ?? null ) ? Core::canonical_decimal( $item[1], false ) : $this->ttl;
+	}
+
+	/**
+	 * Why this Table's backend last refused, for a caller turning a false or
+	 * a null into a message.
+	 *
+	 * @api Callers reporting a refused add() or lookup_entries().
+	 * @return string The arm's failure record, naming its store.
+	 */
+	public function last_failure(): string {
+		return $this->arm()?->last_failure() ?? "{$this->table_name()} has no backend";
 	}
 
 	/**
@@ -1074,6 +1168,68 @@ class Table_Node extends Node {
 	}
 
 	/**
+	 * Each live entry among `$keys` with the life it has left, in one read of
+	 * a durable backend: the `{ value, ttl? }` a backing answers (ADR-18), so
+	 * one copy of an entry's expiry, the store's, answers every reader. A key
+	 * no live entry holds is absent; nothing falls through to a backing.
+	 *
+	 * @api Readers whose entry's remaining life is part of the answer.
+	 * @param list<string> $keys Keys within the table's namespace.
+	 * @return array<array-key,array{value: mixed, ttl?: int}>|null Caller's key
+	 *         => entry, an all-digit key an int; null when the store did not
+	 *         answer, which `last_failure()` names.
+	 * @throws \RuntimeException On a volatile backend, which keeps no expiry
+	 *                           it can read back.
+	 */
+	public function lookup_entries( array $keys ): ?array {
+		$arm   = $this->durable( 'lookup_entries' );
+		$found = $this->by_caller_key( $keys, static fn ( array $entry_keys ): array|false => $arm->read_entries( $entry_keys ) );
+		return false === $found ? null : $found;
+	}
+
+	/**
+	 * Read under the stored keys, answer under the caller's: `$read` takes the
+	 * keys as this Table stores them and returns what it found by those.
+	 *
+	 * @template T
+	 * @param list<string>                                        $keys Keys within the table's namespace.
+	 * @param \Closure(list<string>): (array<array-key,T>|false) $read The read, by stored key.
+	 * @return array<array-key,T>|false What was found, by the caller's key;
+	 *                                  false when the read failed.
+	 */
+	private function by_caller_key( array $keys, \Closure $read ): array|false {
+		$entry_keys = [];
+		foreach ( $keys as $key ) {
+			$entry_keys[ $this->key( $key ) ] = $key;
+		}
+		$fetched = $read( \array_map( 'strval', \array_keys( $entry_keys ) ) );
+		if ( false === $fetched ) {
+			return false;
+		}
+		$found = [];
+		foreach ( $fetched as $entry_key => $value ) {
+			$found[ $entry_keys[ $entry_key ] ] = $value;
+		}
+		return $found;
+	}
+
+	/**
+	 * Delete up to `$limit` expired rows now, counted as one PURGE: how a
+	 * durable Table no worker's tick reaches reclaims its rows, as a command
+	 * session's mint does for the sessions it outlives.
+	 *
+	 * @api Code-built durable Tables, which no Router tick purges.
+	 * @param int $limit Most rows to delete.
+	 * @return int Rows deleted; 0 when the store refused, which is logged.
+	 * @throws \RuntimeException On a mount or a volatile backend.
+	 */
+	public function purge( int $limit ): int {
+		$this->refuse_if_mounted( 'purge' );
+		// A spent deadline runs one batch.
+		return $this->purge_batches( $this->durable( 'purge' ), (int) Core::right_now(), 0.0, $limit )[0];
+	}
+
+	/**
 	 * Cross-process delete, for the same callers `store()` serves.
 	 *
 	 * @api Non-graph writers drop table entries without a live worker.
@@ -1224,30 +1380,14 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * The key this Table stores an entry under: `entry_key()` on a volatile
-	 * arm; the namespace and key alone on a durable one, whose file or table
-	 * already belongs to this install, so a salt rotation leaves its rows.
+	 * The key this Table stores an entry under: a durable arm's row key, or
+	 * a volatile arm's salted one, which `auto` resolves to.
 	 *
 	 * @param string $key Key within the table's namespace.
 	 * @return string The stored key.
 	 */
 	private function key( string $key ): string {
-		return $this->arm instanceof Durable_Arm ? "{$this->namespace}:{$key}" : self::entry_key( $this->namespace, $key );
-	}
-
-	/**
-	 * A volatile arm's key for one entry. Site-scoped through Cache_Backend,
-	 * salt included: a table is a cross-container source of truth for THIS
-	 * install, a co-tenant install's table of the same name is a different
-	 * table, and rotating the salt is how a volatile arm is flushed.
-	 *
-	 * @api Callers reaching an entry through Cache_Backend directly.
-	 * @param string $ns  Table namespace.
-	 * @param string $key Key within that namespace.
-	 * @return string The scoped key a volatile arm stores the entry under.
-	 */
-	public static function entry_key( string $ns, string $key ): string {
-		return Cache_Backend::site_key( "table:{$ns}:{$key}" );
+		return $this->arm instanceof Durable_Arm ? $this->arm->row_key( $key ) : Cache_Backend::entry_key( $this->namespace, $key );
 	}
 
 	/**
@@ -1261,7 +1401,7 @@ class Table_Node extends Node {
 	 */
 	public function vacuum(): string {
 		$this->refuse_if_mounted( 'vacuum' );
-		$arm = $this->arm instanceof Durable_Arm ? $this->arm : throw new \RuntimeException( \esc_html( "vacuum {$this->needs_durable()}" ) );
+		$arm = $this->durable( 'vacuum' );
 		try {
 			$arm->vacuum();
 		} catch ( Worker_Should_Stop $stop ) {
@@ -1278,26 +1418,32 @@ class Table_Node extends Node {
 	 * held, and a `wpdb` Table deletes its namespace's rows, answering how
 	 * many. The state that described the old file — the checkpoint schedule,
 	 * the WAL stall count, a purge left behind — starts over. Verb-exposed
-	 * (`flush`) and MANAGE-only: a worker has no logged-in user, so the
-	 * ceiling a verified session installs stands in for the role, and the
-	 * site's own signature, or a process's own command, carries none.
+	 * (`flush`).
 	 *
 	 * @return array{bytes:int}|array{rows:int} What was released.
-	 * @throws \RuntimeException On a mount, a session scope below MANAGE, a
-	 *                           volatile backend, or a store that refuses.
+	 * @throws \RuntimeException On a mount, a volatile backend, or a store
+	 *                           that refuses.
 	 */
 	public function flush(): array {
 		$this->refuse_if_mounted( 'flush' );
-		if ( ! Capabilities::scope_covers( Capabilities::$session_scope ?? Capabilities::MANAGE, Capabilities::MANAGE ) ) {
-			throw new \RuntimeException( 'flush: permission denied: manage capability required' );
-		}
-		$arm  = $this->arm instanceof Durable_Arm ? $this->arm : throw new \RuntimeException( \esc_html( "flush {$this->needs_durable()}" ) );
+		$arm                    = $this->durable( 'flush' );
 		$released               = $arm->flush() ?? throw new \RuntimeException( \esc_html( "Table {$this->table_name()}: flush failed: " . $arm->last_failure() ) );
 		$this->checkpoint_due   = (int) Core::$now + self::CHECKPOINT_INTERVAL_S;
 		$this->wal_stalled      = 0;
 		$this->wal_stall_frames = 0;
 		$this->purge_behind     = false;
 		return $released;
+	}
+
+	/**
+	 * This Table's durable arm, for a verb only a durable backend answers.
+	 *
+	 * @param string $verb The verb, for the refusal.
+	 * @return Durable_Arm The arm.
+	 * @throws \RuntimeException On a volatile backend.
+	 */
+	private function durable( string $verb ): Durable_Arm {
+		return $this->arm instanceof Durable_Arm ? $this->arm : throw new \RuntimeException( \esc_html( "{$verb} {$this->needs_durable()}" ) );
 	}
 
 	/**
@@ -1319,18 +1465,36 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * One Table's purge: a batch, repeated while each comes back full and the
-	 * tick's deadline, read through `Core::right_now()`, has not passed; the
+	 * One Table's purge on the Router tick, in PURGE_BATCH_ROWS batches; the
 	 * rest waits a minute. A purge that stops with its last batch full leaves
-	 * the Table behind, and says so; the first short batch catches it up. The
-	 * deadline is checked between batches, so one statement blocked on the
-	 * file's write lock can hold the tick for the arm's busy_timeout.
+	 * the Table behind, and says so; the first short batch catches it up.
 	 *
 	 * @param Durable_Arm $arm   The Table's arm.
 	 * @param int         $now   The tick, in epoch seconds.
 	 * @param float       $until The tick's deadline, shared by every Table.
 	 */
-	private function purge_batches( Durable_Arm $arm, int $now, float $until ): void {
+	private function purge_tick( Durable_Arm $arm, int $now, float $until ): void {
+		[ $purged, $batches ]   = $this->purge_batches( $arm, $now, $until, self::PURGE_BATCH_ROWS );
+		$this->purge_behind     = $batches * self::PURGE_BATCH_ROWS === $purged;
+		if ( $this->purge_behind ) {
+			$this->print_less_often( 'WARNING: purge is behind: ', "its last batch came back full after {$batches} batches, {$purged} rows; the next purge spends its backlog budget" );
+		}
+	}
+
+	/**
+	 * Delete expired rows `$batch` at a time, counted as one PURGE: a batch,
+	 * repeated while each comes back full and the deadline, read through
+	 * `Core::right_now()`, has not passed, so a spent deadline runs one. The
+	 * deadline is checked between batches, so one statement blocked on the
+	 * file's write lock can hold the tick for the arm's busy_timeout.
+	 *
+	 * @param Durable_Arm $arm   The Table's arm.
+	 * @param int         $now   Rows expired at this epoch second go.
+	 * @param float       $until The deadline.
+	 * @param int         $batch Rows one statement deletes at most.
+	 * @return array{0: int, 1: int} Rows deleted, and batches run.
+	 */
+	private function purge_batches( Durable_Arm $arm, int $now, float $until, int $batch ): array {
 		$started = self::monotonic_ns();
 		$bytes   = $this->arm_bytes();
 		$batches = 0;
@@ -1338,18 +1502,14 @@ class Table_Node extends Node {
 		try {
 			do {
 				++$batches;
-				$rows    = $arm->purge( $now, self::PURGE_BATCH_ROWS );
+				$rows    = $arm->purge( $now, $batch );
 				$purged += $rows;
-				$full    = self::PURGE_BATCH_ROWS === $rows;
-			} while ( Core::right_now() < $until && $full );
+			} while ( Core::right_now() < $until && $batch === $rows );
 		} finally {
-			$this->count_rows( 'PURGE', $batches * self::PURGE_BATCH_ROWS, $purged );
+			$this->count_rows( 'PURGE', $batches * $batch, $purged );
 			$this->count_call( 'PURGE', $started, $bytes );
 		}
-		$this->purge_behind = $full;
-		if ( $full ) {
-			$this->print_less_often( 'WARNING: purge is behind: ', "its last batch came back full after {$batches} batches, " . $batches * self::PURGE_BATCH_ROWS . ' rows; the next purge spends its backlog budget' );
-		}
+		return [ $purged, $batches ];
 	}
 
 	/**
@@ -1413,14 +1573,14 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * `stats reset`: zero the counters, answering them as they stood, so no
+	 * `reset_stats`: zero the counters, answering them as they stood, so no
 	 * call lands between the read and the reset.
 	 *
 	 * @return array<string,array{calls:int,asked:int,answered:int,bytes:int,total_ms:float,max_ms:float}>
 	 * @throws \RuntimeException On a mounted Table, which serves reads only.
 	 */
 	public function reset_stats(): array {
-		$this->refuse_if_mounted( 'stats reset' );
+		$this->refuse_if_mounted( 'reset_stats' );
 		$stats            = $this->stats();
 		$this->verb_stats = self::ZERO_STATS;
 		return $stats;
@@ -1618,7 +1778,7 @@ class Table_Node extends Node {
 			// Only a due purge reads the live clock, refreshing Core::$now.
 			$deadline = Core::right_now() + ( $behind ? self::PURGE_BACKLOG_BUDGET_S : self::PURGE_BUDGET_S );
 			$until    = $deadline;
-			$purges   = \array_map( static fn ( array $table ): \Closure => static fn () => $table[0]->purge_batches( $table[1], $now, $deadline ), $due );
+			$purges   = \array_map( static fn ( array $table ): \Closure => static fn () => $table[0]->purge_tick( $table[1], $now, $deadline ), $due );
 		}
 		$checkpoints = \array_map( static fn ( array $table ): \Closure => static fn () => $table[0]->checkpoint_wal( $table[1], $now, $until ), $wals );
 		Worker_Should_Stop::raise( Worker_Should_Stop::attempt( ...$purges, ...$checkpoints ) );
@@ -1703,25 +1863,28 @@ class Table_Node extends Node {
 			'commands'    => [
 				[
 					'name'        => 'stats',
-					'action'      => true,
-					'description' => 'Per-verb counters since the Table was built: calls, keys or rows asked and answered, encoded bytes, total and max ms. `stats reset` answers them and zeroes them; a mount refuses it.',
-					'args'        => [ [ 'name' => 'action', 'type' => 'string', 'description' => '`reset` zeroes the counters it answers.' ] ],
-					'handler'     => static function ( Command_Interpreter_Node $interpreter, array $args ): array {
+					'capability'  => Capabilities::READ,
+					'description' => 'Per-verb counters since the Table was built: calls, keys or rows asked and answered, encoded bytes, total and max ms.',
+					'args'        => [],
+					'handler'     => static function ( Command_Interpreter_Node $interpreter ): array {
 						$patron = $interpreter->patron();
-						if ( ! $patron instanceof self ) {
-							throw new \RuntimeException( 'no table patron' );
-						}
-						return match ( $args['action'] ?? null ) {
-							null    => $patron->stats(),
-							'reset' => $patron->reset_stats(),
-							default => throw new \InvalidArgumentException( 'usage: stats [reset]' ),
-						};
+						return $patron instanceof self ? $patron->stats() : throw new \RuntimeException( 'no table patron' );
+					},
+				],
+				[
+					'name'        => 'reset_stats',
+					'action'      => true,
+					'description' => 'Zero the per-verb counters, answering them as they stood. A mount refuses it.',
+					'args'        => [],
+					'handler'     => static function ( Command_Interpreter_Node $interpreter ): array {
+						$patron = $interpreter->patron();
+						return $patron instanceof self ? $patron->reset_stats() : throw new \RuntimeException( 'no table patron' );
 					},
 				],
 				[
 					'name'        => 'flush',
 					'action'      => true,
-					'description' => 'Empty the Table: sqlite replaces its file and answers the bytes released, wpdb deletes its namespace\'s rows and answers how many. Durable backends only; a mount and a session below manage are refused.',
+					'description' => 'Empty the Table: sqlite replaces its file and answers the bytes released, wpdb deletes its namespace\'s rows and answers how many. Durable backends only; a mount refuses it.',
 					'args'        => [],
 					'handler'     => static function ( Command_Interpreter_Node $interpreter ): array {
 						$patron = $interpreter->patron();
@@ -1779,20 +1942,23 @@ class Table_Node extends Node {
 				],
 				[
 					'name'        => 'MSET',
-					'description' => 'Store many keys under a TM_REQUEST|TM_STRUCT map.',
-					'args'        => [ [ 'name' => 'map', 'type' => 'json', 'required' => true, 'description' => 'key => [ value, ttl ]; ttl defaults to the Table\'s.' ] ],
+					'description' => 'Store many keys under a TM_REQUEST|TM_STRUCT map; ttl defaults to the Table\'s.',
+					'value'       => 'struct',
+					'args'        => [ [ 'name' => 'map', 'type' => 'json', 'required' => true, 'description' => 'key => [ value, ttl ]' ] ],
 					'reply_shape' => self::WRITE_REPLY,
 				],
 				[
 					'name'        => 'ADD',
-					'description' => 'Store many keys under a TM_REQUEST|TM_STRUCT map, each only where absent.',
-					'args'        => [ [ 'name' => 'map', 'type' => 'json', 'required' => true, 'description' => 'key => [ value, ttl ]; ttl defaults to the Table\'s.' ] ],
+					'description' => 'Store many keys under a TM_REQUEST|TM_STRUCT map, each only where absent; ttl defaults to the Table\'s.',
+					'value'       => 'struct',
+					'args'        => [ [ 'name' => 'map', 'type' => 'json', 'required' => true, 'description' => 'key => [ value, ttl ]' ] ],
 					'reply_shape' => self::WRITE_REPLY,
 				],
 				[
 					'name'        => 'SADD',
-					'description' => 'Upsert set members under a TM_REQUEST|TM_STRUCT map. sqlite and wpdb alone hold members.',
-					'args'        => [ [ 'name' => 'map', 'type' => 'json', 'required' => true, 'description' => 'set key => [ [ member => value, … ], ttl ]; ttl defaults to the Table\'s.' ] ],
+					'description' => 'Upsert set members under a TM_REQUEST|TM_STRUCT map; ttl defaults to the Table\'s. sqlite and wpdb alone hold members.',
+					'value'       => 'struct',
+					'args'        => [ [ 'name' => 'map', 'type' => 'json', 'required' => true, 'description' => 'set key => [ [ member => value, … ], ttl ]' ] ],
 					'reply_shape' => self::WRITE_REPLY,
 				],
 			],

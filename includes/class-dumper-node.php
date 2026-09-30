@@ -9,9 +9,8 @@
  * becomes a round-trip time, and the envelope is gone. Splice in Struct_To_JSON
  * instead wherever something downstream has to read the message back.
  *
- * Four behaviors belong to `wp nodes cli` and lie dormant in a graph that wires
- * none of them: the completion intercept, the per-session TO filter, the EOF
- * drain callback, and the `prompt` response that writes the Shell's prompt.
+ * Three behaviors belong to `wp nodes cli` and lie dormant in a graph that wires
+ * none of them: the completion intercept, the EOF drain callback, and the `prompt` response that writes the Shell's prompt.
  *
  * @package Newspack_Nodes
  */
@@ -35,7 +34,7 @@ class Dumper_Node extends Node {
 
 	/**
 	 * Tab-completion intercept, wired by `wp nodes cli` in readline mode. It sees
-	 * every message the TO filter admits, ahead of the render, and returning true
+	 * every message ahead of the render, and returning true
 	 * consumes that message: a completion reply feeds the reader's candidate
 	 * cache instead of the terminal. Null leaves every message to the render.
 	 *
@@ -74,16 +73,8 @@ class Dumper_Node extends Node {
 	private ?Shell_Node $shell = null;
 
 	/**
-	 * This cli session's pid. Every attached session tails the SAME worker output
-	 * partition, so another session's replies arrive here too; only a TO naming
-	 * this pid, or an empty TO (an unaddressed broadcast), renders.
-	 */
-	private string $to_filter = '';
-
-	/**
-	 * Render one inbound message, in the order the cascade has to run: drop
-	 * another session's reply, let the completion intercept take its own
-	 * traffic, emit the debug header, fire the EOF drain callback, then render
+	 * Render one inbound message, in the order the cascade has to run: let
+	 * the completion intercept take its own traffic, emit the debug header, fire the EOF drain callback, then render
 	 * by type.
 	 *
 	 * The EOF callback fires ahead of the level-2 early return, so the drain
@@ -93,16 +84,6 @@ class Dumper_Node extends Node {
 	 * @param array<int,mixed> $message The 7-field positional message array.
 	 */
 	public function fill( array $message ): void {
-		// Drop messages addressed to a different cli session; empty TO renders.
-		if ( '' !== $this->to_filter ) {
-			$to = Core::as_string( $message[ Message::TO ] );
-			if ( '' !== $to
-				&& ! \preg_match( '/^(?:_output\/)?' . \preg_quote( $this->to_filter, '/' ) . '$/D', $to )
-			) {
-				return;
-			}
-		}
-
 		// Tab-completion replies feed cli's candidate cache, not the terminal.
 		if ( null !== $this->completion_sink && ( $this->completion_sink )( $message ) ) {
 			return;
@@ -179,7 +160,7 @@ class Dumper_Node extends Node {
 	 *
 	 * Minting a new message leaves TO empty, which is what lets `Node::fill()`
 	 * stamp TO from `$this->target` (`_stdout`); forwarding the inbound message
-	 * would carry its TO of `_output/<pid>` past this node.
+	 * would carry whatever TO it arrived with past this node.
 	 *
 	 * `parent::fill()` also bumps `$this->counter`, so the counter `ls -c` prints
 	 * tracks lines EMITTED rather than messages received — one message at debug
@@ -209,7 +190,7 @@ class Dumper_Node extends Node {
 		$flags    = self::format_type_flags( $type );
 		$ts       = Core::as_string( $message[ Message::TIMESTAMP ] ?? '' );
 		$ts_human = '' !== $ts && \is_numeric( $ts )
-			? \gmdate( 'Y-m-d H:i:s', (int) $ts ) . ' UTC'
+			? Core::format_utc( (int) $ts )
 			: '';
 		// Trim the value's trailing newline (else a blank line precedes `}`).
 		$value    = \rtrim( self::stringify_value( $message[ Message::VALUE ] ?? '' ), "\n" );
@@ -336,15 +317,6 @@ class Dumper_Node extends Node {
 	 */
 	public function set_completion_sink( ?callable $cb ): void {
 		$this->completion_sink = $cb;
-	}
-
-	/**
-	 * Confine rendering to one cli session. An empty pid renders everything.
-	 *
-	 * @param string $pid This session's pid, the tail of the `_output/<pid>` the Shell stamps into FROM.
-	 */
-	public function set_to_filter( string $pid ): void {
-		$this->to_filter = $pid;
 	}
 
 	/**

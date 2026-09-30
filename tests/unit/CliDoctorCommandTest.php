@@ -58,6 +58,9 @@ class CliDoctorCommandTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		// A healthy site: the shared wpdb tables answer the schema probe.
+		$this->use_wpdb();
+		\Newspack_Nodes\Wpdb_Arm::install();
 
 		Health_Probe_Client::$http_call = null;
 		Health_Probe_Client::$clock     = null;

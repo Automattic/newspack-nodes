@@ -136,7 +136,7 @@
 		}
 
 		&.is-success,
-		&.running {
+		&.live {
 			background: var(--sage-subtle, var(--np-success-subtle));
 			color: var(--sage-text, var(--np-text));
 		}
@@ -147,12 +147,14 @@
 		}
 
 		&.is-error,
-		&.dead {
+		&.stale,
+		&.down {
 			background: var(--oxide-subtle, var(--np-error-subtle));
 			color: var(--oxide-text, var(--np-text));
 		}
 
 		&.is-neutral,
+		&.held,
 		&.idle {
 			background: var(--paper-3, var(--np-surface-muted));
 			color: var(--ink-3, var(--np-text-secondary));

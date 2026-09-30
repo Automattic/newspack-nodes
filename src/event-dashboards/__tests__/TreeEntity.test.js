@@ -5,6 +5,7 @@ import { buildTopologySections } from '../topologyGraph';
 // Count SegmentBar renders to prove a stable subtree is NOT re-rendered.
 let mockSegmentBarRenders = 0;
 jest.mock( '../SegmentBar', () => ( {
+	...jest.requireActual( '../SegmentBar' ),
 	SegmentBar: () => {
 		mockSegmentBarRenders++;
 		return <div className="worker-segment-h" />;
@@ -37,7 +38,7 @@ const logEntity = {
 			workers: [
 				{
 					partition: 0,
-					status: 'running',
+					state: 'live',
 					behind: 0,
 					source: 'requests',
 					handler: 'flame-builder',
@@ -154,7 +155,7 @@ it( 'shows behind on a node row when behind > 0', () => {
 				workers: [
 					{
 						partition: 0,
-						status: 'running',
+						state: 'live',
 						behind: 2 * 1024 * 1024,
 						source: 'requests',
 						handler: 'flame-builder',
@@ -259,7 +260,7 @@ it( 'a node row shows a status-colored partition pill and R rate', () => {
 		workers: [
 			{
 				partition: 0,
-				status: 'running',
+				state: 'live',
 				behind: 0,
 				source: '',
 				handler: 'job-router',
@@ -270,11 +271,47 @@ it( 'a node row shows a status-colored partition pill and R rate', () => {
 		<TreeEntity entity={ nodeEntity } depth={ 0 } { ...props } />
 	);
 	expect(
-		container.querySelector( '.worker-status-badge.compact.running' )
+		container.querySelector( '.worker-status-badge.compact.live' )
 	).not.toBeNull();
 	expect( container.querySelector( '.connector-rate' ).textContent ).toMatch(
 		/R /
 	);
+} );
+
+it( 'strikes the rate of a partition that is not live, badge colored by its state', () => {
+	const nodeEntity = {
+		kind: 'node',
+		name: 'job-router',
+		key: 't|job-router|',
+		children: [],
+		workers: [
+			{
+				partition: 0,
+				state: 'held',
+				behind: 0,
+				source: '',
+				handler: 'job-router',
+			},
+			{
+				partition: 1,
+				state: 'live',
+				behind: 0,
+				source: '',
+				handler: 'job-router',
+			},
+		],
+	};
+	const { container } = render(
+		<TreeEntity entity={ nodeEntity } depth={ 0 } { ...props } />
+	);
+	expect(
+		container.querySelector( '.worker-status-badge.compact.held' )
+	).not.toBeNull();
+	expect(
+		[ ...container.querySelectorAll( '.connector-rate' ) ].map( ( r ) =>
+			r.classList.contains( 'stopped' )
+		)
+	).toEqual( [ true, false ] );
 } );
 
 it( 'renders each repeated handler branch with only its own source rate', () => {
@@ -306,7 +343,7 @@ it( 'renders each repeated handler branch with only its own source rate', () => 
 				handler: 'job-router',
 				source: 'firehose.p0',
 				partition: 0,
-				status: 'running',
+				state: 'live',
 				behind: 0,
 				read_rate: 357,
 			},
@@ -315,7 +352,7 @@ it( 'renders each repeated handler branch with only its own source rate', () => 
 				handler: 'job-router',
 				source: 'jobintake.p0',
 				partition: 0,
-				status: 'running',
+				state: 'live',
 				behind: 0,
 				read_rate: 941,
 			},

@@ -932,13 +932,20 @@ describe( 'AggregatorStatus', () => {
 		clickProbe( container, 0 );
 		answerProbe( 'server1-vault-cred', {
 			result: {
-				workers: { total: 4, live: 3, stale: 1, dead: 0 },
+				workers: {
+					total: 9,
+					live: 3,
+					stale: 1,
+					held: 0,
+					idle: 4,
+					down: 1,
+				},
 				worst_distance: 128,
 				deadletter_segments: 5,
 			},
 		} );
 		expect( container.textContent ).toContain(
-			'3 live / 1 stale / 0 dead'
+			'3 live / 1 stale / 0 held / 4 idle / 1 down'
 		);
 		expect( container.textContent ).toContain( '128' );
 		expect( container.textContent ).toContain( 'DLQ 5' );

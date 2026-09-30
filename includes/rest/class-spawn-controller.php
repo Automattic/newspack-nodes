@@ -126,7 +126,7 @@ class Spawn_Controller {
 		if ( ! \function_exists( 'get_transient' ) || ! \function_exists( 'set_transient' ) ) {
 			return true;
 		}
-		$user_id = \function_exists( 'get_current_user_id' ) ? \get_current_user_id() : 0;
+		$user_id = Core::current_user_id();
 		$key     = 'newspack_nodes_spawn_rate:' . $user_id;
 		$last    = \get_transient( $key );
 		if ( false !== $last && \is_scalar( $last ) ) {

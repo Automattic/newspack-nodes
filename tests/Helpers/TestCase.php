@@ -89,6 +89,8 @@ abstract class TestCase extends PHPUnitTestCase {
 		// cap granted in one test can't leak into another's deny-path. Classes
 		// that need the cap grant it after parent::setUp().
 		$GLOBALS['_wp_test_current_user_can'] = [];
+		// No user is current until a test logs one in, as in a worker.
+		unset( $GLOBALS['_wp_test_current_user_id'] );
 
 		// Command_Auth's single-use nonce claim normally hits Core::$memd, which
 		// isn't wired in unit tests. Install a fresh per-test in-memory claim so
@@ -177,6 +179,8 @@ abstract class TestCase extends PHPUnitTestCase {
 		// A remembered session outlives its test and signs the next one's probes.
 		if ( \class_exists( '\Newspack_Nodes\Command_Auth', false ) ) {
 			( new \ReflectionProperty( \Newspack_Nodes\Command_Auth::class, 'sessions' ) )->setValue( null, [] );
+			// The memoized session Table would carry a closed test's arm onward.
+			( new \ReflectionProperty( \Newspack_Nodes\Command_Auth::class, 'table' ) )->setValue( null, null );
 		}
 		if ( isset( $GLOBALS['_wp_actions'] ) ) {
 			$GLOBALS['_wp_actions'] = $this->saved_wp_actions;

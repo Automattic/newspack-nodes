@@ -3,6 +3,7 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Cache_Backend;
+use Newspack_Nodes\Lock_Node;
 use Newspack_Nodes\Spawn_Coordinator;
 use Newspack_Nodes\Tests\TestCase;
 
@@ -264,9 +265,9 @@ class SpawnCoordinatorTest extends TestCase {
 	// ── worker_needs_spawn: heartbeat-missing-but-dir-exists ─────────────
 
 	/**
-	 * A lock dir can exist transiently without a heartbeat file (mid-acquire,
-	 * or after force_release that left the dir but cleaned the heartbeat).
-	 * fleet must treat this as "needs spawn" — the worker is not running.
+	 * A lock dir past the orphan grace with no heartbeat file is a holder
+	 * that died mid-acquire, or a force_release that left the dir, so the
+	 * fleet treats it as "needs spawn" — the worker is not running.
 	 *
 	 * This is distinct from "no lock dir" (test_worker_needs_spawn_when_no_lock)
 	 * and "stale heartbeat" (test_worker_needs_spawn_when_heartbeat_stale).
@@ -275,12 +276,21 @@ class SpawnCoordinatorTest extends TestCase {
 		$s = new Spawn_Coordinator( $this->tmp );
 		// Lock dir exists but heartbeat file is absent.
 		mkdir( "{$this->tmp}/locks/foo.p0.lock.d", 0755, true );
+		touch( "{$this->tmp}/locks/foo.p0.lock.d", time() - ( Lock_Node::ORPHAN_GRACE_S + 23 ) );
 
 		$worker = [ 'type' => 'foo', 'partition' => 0, 'stale_timeout' => 60 ];
 		$this->assertTrue(
 			$s->worker_needs_spawn( $worker, microtime( true ) ),
 			'missing heartbeat file in existing dir must trigger spawn'
 		);
+	}
+
+	/** Inside the orphan grace the holder is acquiring, and a spawn would lose the steal. */
+	public function test_worker_needs_no_spawn_while_a_heartbeatless_lock_is_inside_the_orphan_grace(): void {
+		$s = new Spawn_Coordinator( $this->tmp );
+		mkdir( "{$this->tmp}/locks/foo.p0.lock.d", 0755, true );
+
+		$this->assertFalse( $s->worker_needs_spawn( [ 'type' => 'foo', 'partition' => 0, 'stale_timeout' => 60 ], microtime( true ) ) );
 	}
 
 	/**

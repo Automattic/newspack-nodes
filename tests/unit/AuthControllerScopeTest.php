@@ -73,7 +73,7 @@ class AuthControllerScopeTest extends TestCase {
 		$this->assertSame( 503, $result->get_error_data()['status'] ?? null );
 		$this->assertStringContainsString( 'session store is unavailable', $result->get_error_message() );
 		$this->assertStringNotContainsString( '3907', $result->get_error_message(), 'the backend detail stays in the log' );
-		$this->assertSame( [], Sessions::all(), 'nothing unstored is listed' );
+		$this->assertSame( [], Sessions::listing(), 'nothing unstored is listed' );
 		$this->assertNotEmpty(
 			\array_filter( $captured, static fn ( string $l ): bool => \str_contains( $l, 'Deadlock found 3907' ) ),
 			'the operator sees the server\'s reason'
@@ -126,16 +126,15 @@ class AuthControllerScopeTest extends TestCase {
 		$this->assertFalse( ( new Auth_Controller() )->check_permission( $this->request() ) );
 	}
 
-	public function test_a_labelled_session_is_listed_in_the_directory(): void {
+	public function test_a_labelled_session_is_listed(): void {
 		$body = ( new Auth_Controller() )->issue(
 			$this->request( [ 'scope' => Capabilities::TUNE, 'label' => 'laptop mcp' ] )
 		);
 
-		$rows = Sessions::all();
+		$rows = \array_column( Sessions::listing(), null, 'handle' );
 		$this->assertArrayHasKey( $body['handle'], $rows );
 		$this->assertSame( 'laptop mcp', $rows[ $body['handle'] ]['label'] );
 		$this->assertSame( Capabilities::TUNE, $rows[ $body['handle'] ]['scope'] );
-		$this->assertTrue( $rows[ $body['handle'] ]['live'] );
 	}
 
 	public function test_a_requested_ttl_is_bounded(): void {

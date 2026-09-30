@@ -14,6 +14,7 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Alerts;
+use Newspack_Nodes\Lock_Node;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Probe_Record;
@@ -234,6 +235,40 @@ class AlertsTest extends TestCase {
 
 		$this->assertArrayHasKey( 'worker_missing:missing-workers.p0', $by_key );
 		$this->assertSame( Alerts::SEVERITY_WARNING, $by_key['worker_missing:missing-workers.p0']['severity'] );
+	}
+
+	public function test_a_lock_dir_with_no_heartbeat_past_the_orphan_grace_is_a_stale_worker_and_critical(): void {
+		$base = $this->arrange( [ 'kea-5117' ] );
+		\mkdir( "{$base}/locks/kea-5117.p0.lock.d", 0755, true );
+		\touch( "{$base}/locks/kea-5117.p0.lock.d", \time() - ( Lock_Node::ORPHAN_GRACE_S + 17 ) );
+
+		$by_key = $this->alerts_by_key( Alerts::evaluate() );
+
+		$this->assertSame( [ 'worker_down:kea-5117.p0' ], \array_keys( $by_key ), 'stale, as `wp nodes status` reads it' );
+		$this->assertSame( Alerts::SEVERITY_CRITICAL, $by_key['worker_down:kea-5117.p0']['severity'] );
+		$this->assertSame( 'Worker kea-5117.p0 holds its lock but never heartbeat.', $by_key['worker_down:kea-5117.p0']['message'] );
+	}
+
+	/** A lock dir inside the orphan grace is a worker acquiring, not a stale one. */
+	public function test_a_lock_dir_with_no_heartbeat_inside_the_orphan_grace_raises_nothing(): void {
+		$base = $this->arrange( [ 'kea-8842' ] );
+		\mkdir( "{$base}/locks/kea-8842.p0.lock.d", 0755, true );
+
+		$this->assertSame( [], Alerts::evaluate(), 'between mkdir and the first heartbeat' );
+	}
+
+	public function test_an_on_demand_worker_with_no_lock_is_idle_and_raises_nothing(): void {
+		$this->arrange( [] );
+		\add_filter(
+			'newspack_nodes/topologies',
+			static fn ( array $t ): array => $t + [
+				'kea-ondemand' => [ 'topology' => 'kea-ondemand', 'num_partitions' => 1, 'stale_timeout' => 60, 'on_demand_idle' => 41 ],
+			]
+		);
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'kea-ondemand' ];
+		Config::reset();
+
+		$this->assertSame( [], Alerts::evaluate() );
 	}
 
 	public function test_running_worker_yields_no_alert(): void {

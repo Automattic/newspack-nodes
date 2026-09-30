@@ -7,9 +7,9 @@
  * agent's MCP client, a script on a laptop. The two share a shape and diverge
  * three ways:
  *
- *   - A directory is required. `Command_Auth` keeps keys in a store it reads
- *     by handle and does not enumerate, so `Sessions` holds the listing while
- *     the store stays the authority on liveness.
+ *   - A listing needs an index. The session Table reads rows by handle and
+ *     never scans, so each labelled session's handle is a member of one set
+ *     in that Table, and `Sessions::listing()` reads the set, then the rows.
  *   - Nothing is hashed. Verification recomputes an HMAC, so the key must stay
  *     recoverable, and "show once, keep a digest" is unavailable. That is the
  *     argument for short TTLs, not for a year-long token.
@@ -40,23 +40,17 @@ use Newspack_Nodes\Sessions;
 class Sessions_CI_Node extends Service_CI_Node {
 
 	/**
-	 * `list` verb handler — the directory, newest first, never the keys.
+	 * `list` verb handler — `Sessions::listing()`, newest first, never the keys.
 	 *
-	 * Each row is a `Sessions::all()` row with its `handle` folded in, which is
-	 * the token `revoke` takes. `ttl_max` and `scopes` ride along so the
-	 * Sessions tab draws its TTL bound and its scope picker from the substrate's
-	 * own constants; a second copy in JavaScript drifts into offering a scope
-	 * the mint refuses.
+	 * `ttl_max` and `scopes` ride along so the Sessions tab draws its TTL bound
+	 * and its scope picker from the substrate's own constants; a second copy
+	 * in JavaScript drifts into offering a scope the mint refuses.
 	 *
 	 * @return array<string,mixed>
 	 */
 	public static function cmd_list(): array {
-		$rows = [];
-		foreach ( Sessions::all() as $handle => $row ) {
-			$rows[] = [ 'handle' => $handle ] + $row;
-		}
 		return [
-			'sessions' => $rows,
+			'sessions' => Sessions::listing(),
 			'ttl_max'  => Command_Auth::SESSION_TTL_MAX_S,
 			'scopes'   => [ Capabilities::READ, Capabilities::TUNE, Capabilities::MANAGE ],
 		];
@@ -75,10 +69,9 @@ class Sessions_CI_Node extends Service_CI_Node {
 	 * is refused, because clamping a misspelling would hand back a working key
 	 * under a scope nobody asked for. The ttl is clamped to the session bounds.
 	 *
-	 * An empty label still mints a working session, and `Sessions::record()`
+	 * An empty label still mints a working session, and `Sessions::issue()`
 	 * declines to list it: the automatic `/auth` mints are unlabelled, and
-	 * listing those buries — and at `Sessions::MAX_ROWS` evicts — the sessions
-	 * an operator issued on purpose.
+	 * listing those buries the sessions an operator issued on purpose.
 	 *
 	 * @param array<array-key,mixed> $args Bound verb arguments: label, scope, ttl.
 	 * @return array<string,mixed> The mint — handle, secret, scope, expires_in, now — plus the label.
@@ -96,39 +89,20 @@ class Sessions_CI_Node extends Service_CI_Node {
 		if ( null === $granted ) {
 			throw new \RuntimeException( 'no capability to mint a session with' );
 		}
-		$ttl     = Command_Auth::bounded_ttl( Core::as_int( $args['ttl'] ) );
-		$session = Command_Auth::mint_session( $granted, $ttl );
-		Sessions::record( $session['handle'], $granted, $label, $ttl );
-		return $session + [ 'label' => $label ];
+		return Sessions::issue( $label, $granted, Command_Auth::bounded_ttl( Core::as_int( $args['ttl'] ) ) ) + [ 'label' => $label ];
 	}
 
 	/**
-	 * `revoke` verb handler — `revoke <handle>`.
-	 *
-	 * `Sessions::forget()` drops the store row before it rewrites the
-	 * directory, so a half-failure leaves a dead listed row rather than a live
-	 * unlisted key, and a handle the directory never held still has its row
-	 * dropped. It answers `revoked: true` only when it dropped a store row or
-	 * a directory row. A store that did not answer refuses, because the key may still
-	 * verify. Otherwise the handle named nothing, and the refusal says so —
-	 * naming the handles of any session LABELLED with it, which is what an
-	 * operator reading the Sessions tab types.
+	 * `revoke` verb handler — `revoke <handle>`, through `Sessions::revoke()`,
+	 * which refuses when the store did not answer or the handle named nothing.
 	 *
 	 * @param array<array-key,mixed> $args Bound verb arguments: handle.
 	 * @return array<string,mixed> The handle, and `revoked`.
 	 * @throws \RuntimeException When the store did not answer, or no session held the handle.
 	 */
 	public static function cmd_revoke( array $args ): array {
-		$handle  = Core::as_string( $args['handle'] );
-		$revoked = Sessions::forget( $handle );
-		if ( null === $revoked ) {
-			throw new \RuntimeException( \esc_html( "session store did not answer; {$handle} may still be live" ) );
-		}
-		if ( ! $revoked ) {
-			$labelled = Sessions::handles_labelled( $handle );
-			$hint     = [] === $labelled ? '' : "; the label {$handle} names " . \implode( ', ', $labelled );
-			throw new \RuntimeException( \esc_html( "no session with handle {$handle}{$hint}" ) );
-		}
+		$handle = Core::as_string( $args['handle'] );
+		Sessions::revoke( $handle );
 		return [
 			'handle'  => $handle,
 			'revoked' => true,

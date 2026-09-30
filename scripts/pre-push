@@ -128,6 +128,15 @@ if [[ -f "$commenttest" ]]; then
 	ok "comment gate clean"
 fi
 
+# The contract gate refuses ADR shapes no reviewer catches, and its PHP rules
+# and shared walk need a test that runs.
+contracttest="$(git rev-parse --show-toplevel)/scripts/test-lint-contract.sh"
+if [[ -f "$contracttest" ]]; then
+	step "test-lint-contract (the contract gate's own tests)"
+	bash "$contracttest" || fail "test-lint-contract failed — the contract gate is broken (see above)"
+	ok "contract gate clean"
+fi
+
 # The pin gate decides whether a @wordpress/* drift ships, so its own tests run
 # here, in the substrate, before the copy syncs downstream.
 wppintest="$(git rev-parse --show-toplevel)/scripts/test-lint-wp-pin.sh"

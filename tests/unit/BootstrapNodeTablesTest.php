@@ -85,7 +85,7 @@ final class BootstrapNodeTablesTest extends TestCase {
 	private function write_files( string $table, int ...$partitions ): void {
 		$bird = \substr( $table, \strlen( 'lab-7:' ) );
 		foreach ( $partitions as $p ) {
-			( new Sqlite_Arm( Table_Node::file( $table, $p ) ) )->set( "{$bird}:p{$p}:sku-{$p}", "{$table}.p{$p}", 0 );
+			( new Sqlite_Arm( Table_Node::file( $table, $p ), 'kea:p3' ) )->set( "{$bird}:p{$p}:sku-{$p}", "{$table}.p{$p}", 0 );
 		}
 	}
 

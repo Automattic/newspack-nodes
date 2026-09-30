@@ -27,7 +27,7 @@
  * one request.
  *
  * Each verb declares its `Capabilities` role in `node_schema()`, and
- * `Service_CI_Node` wraps every handler with it, resolved through the
+ * `dispatch()` refuses a caller below it (ADR-26), resolved through the
  * filterable `newspack_nodes/capability_map` rather than a hardcoded
  * capability.
  *
@@ -39,6 +39,7 @@ namespace Newspack_Nodes\Rest;
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Cache_Backend;
 use Newspack_Nodes\Capabilities;
+use Newspack_Nodes\CLI;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Service_CI_Node;
@@ -80,10 +81,10 @@ class Aggregator_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Reduce a spoke's `dump_graph` reply to named fields only: the worker
-	 * live/stale/dead counts, the largest consumer distance in bytes behind its
-	 * source, and the dead-letter segment total. A worker that is neither live
-	 * nor stale has never started, which counts as `dead`.
+	 * Reduce a spoke's `dump_graph` reply to named fields only: the count of
+	 * its workers in each `CLI::WORKER_STATES` word, the largest consumer
+	 * distance in bytes behind its source, and the dead-letter segment total.
+	 * A worker in any other state fails the probe naming it.
 	 *
 	 * The whitelist is the point. `dump_graph` answers the spoke's whole
 	 * operator-grade envelope — every worker, log, node and edge — and
@@ -92,22 +93,20 @@ class Aggregator_CI_Node extends Service_CI_Node {
 	 *
 	 * @param string                 $id      The probed spoke's Vault id.
 	 * @param array<array-key,mixed> $payload The spoke's dump_graph payload.
-	 * @return array{id:string,workers:array{total:int,live:int,stale:int,dead:int},worst_distance:int,deadletter_segments:int} Compact roll-up.
+	 * @return array{id:string,workers:array<string,int>,worst_distance:int,deadletter_segments:int} Compact roll-up.
+	 * @throws \RuntimeException When a worker's state is outside the vocabulary.
 	 */
 	private static function fleet_rollup( string $id, array $payload ): array {
 		$workers = Core::arr( $payload['workers'] ?? [] );
-		$live    = 0;
-		$stale   = 0;
-		$dead    = 0;
+		$counts  = [ 'total' => \count( $workers ) ] + \array_fill_keys( CLI::WORKER_STATES, 0 );
 		foreach ( $workers as $worker ) {
 			$worker = Core::arr( $worker );
-			if ( true === ( $worker['live'] ?? false ) ) {
-				++$live;
-			} elseif ( true === ( $worker['stale'] ?? false ) ) {
-				++$stale;
-			} else {
-				++$dead;
+			$state  = Core::as_string( $worker['state'] ?? '' );
+			if ( ! \in_array( $state, CLI::WORKER_STATES, true ) ) {
+				$label = CLI::worker_id( Core::as_string( $worker['type'] ?? '' ), Core::as_int( $worker['partition'] ?? 0 ) );
+				throw new \RuntimeException( \esc_html( "{$id} reported worker {$label} in state '{$state}'" ) );
 			}
+			++$counts[ $state ];
 		}
 
 		$worst_distance = 0;
@@ -120,12 +119,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 
 		return [
 			'id'                  => $id,
-			'workers'             => [
-				'total' => \count( $workers ),
-				'live'  => $live,
-				'stale' => $stale,
-				'dead'  => $dead,
-			],
+			'workers'             => $counts,
 			'worst_distance'      => $worst_distance,
 			'deadletter_segments' => Core::num_int( $payload['deadletter_segments'] ?? 0 ),
 		];
@@ -225,7 +219,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 
 	/**
 	 * Palette entry and verb table: the two polled slices and the probe, each
-	 * with the role `Service_CI_Node` gates its handler on.
+	 * with the role below which `dispatch()` refuses it (ADR-26).
 	 *
 	 * @api Used by the substrate to provide UI etc.
 	 * @return array<string,mixed>

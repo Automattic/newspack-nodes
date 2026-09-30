@@ -757,11 +757,14 @@ class Shell_Node extends Node {
 	/**
 	 * This session's reply address — where a worker's answer comes back to.
 	 * Stamped on every message the Shell mints and on the EOF drain marker.
+	 * A local reply routes to `_output` on its head; a worker's reaches this
+	 * process's channel gate, which strips `_output/_cli:<pid>` and hands the
+	 * trailing `_output` to the Router.
 	 *
-	 * @return string The `_output/<pid>` path Router dispatches a reply by.
+	 * @return string The `_output/_cli:<pid>/_output` path a reply routes by.
 	 */
 	private function reply_from(): string {
-		return Node_Names::OUTPUT . '/' . \getmypid();
+		return CLI::reply_head( (string) \getmypid() ) . '/' . Node_Names::OUTPUT;
 	}
 
 	/**

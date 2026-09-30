@@ -1,6 +1,6 @@
 <?php
 /**
- * Tests for `wp nodes session issue <label> [<role>] [<ttl>]`.
+ * Tests for `wp nodes session issue|list|revoke`.
  *
  * The verb prints a Bearer credential for `$( … )` capture, so stdout holds
  * the credential and nothing else; every refusal goes to stderr through
@@ -23,6 +23,7 @@ use Newspack_Nodes\Tests\TestCase;
 
 require_once \dirname( __DIR__, 2 ) . '/includes/cli/class-session-cli-command.php';
 require_once \dirname( __DIR__ ) . '/Helpers/WPCLIStub.php';
+require_once \dirname( __DIR__ ) . '/Helpers/WPCLIUtilsStub.php';
 
 #[CoversClass( Session_CLI_Command::class )]
 class SessionCliCommandTest extends TestCase {
@@ -37,7 +38,7 @@ class SessionCliCommandTest extends TestCase {
 		$this->use_wpdb();
 		$this->prev_memd = Core::$memd;
 		Core::$memd      = new InMemoryMemcached();
-		foreach ( [ '_test_wp_cli_lines', '_test_wp_cli_logs', '_test_wp_cli_errors', '_test_wp_cli_warns', '_test_wp_cli_success' ] as $global ) {
+		foreach ( [ '_test_wp_cli_lines', '_test_wp_cli_logs', '_test_wp_cli_errors', '_test_wp_cli_warns', '_test_wp_cli_success', '_test_wp_cli_tables' ] as $global ) {
 			$GLOBALS[ $global ] = [];
 		}
 		$GLOBALS['_wp_test_current_user_id']  = self::USER;
@@ -52,12 +53,17 @@ class SessionCliCommandTest extends TestCase {
 		parent::tearDown();
 	}
 
+	/** @return array<string,array<string,mixed>> Each listed session by handle. */
+	private static function listed(): array {
+		return \array_column( Sessions::listing(), null, 'handle' );
+	}
+
 	private function refusal( array $args ): string {
 		try {
 			( new Session_CLI_Command() )->issue( $args, [] );
 		} catch ( \RuntimeException $e ) {
 			$this->assertSame( [], $GLOBALS['_test_wp_cli_lines'], 'a refusal prints no credential' );
-			$this->assertSame( [], Sessions::all(), 'a refusal mints nothing' );
+			$this->assertSame( [], Sessions::listing(), 'a refusal mints nothing' );
 			return $e->getMessage();
 		}
 		$this->fail( 'expected a refusal' );
@@ -80,15 +86,14 @@ class SessionCliCommandTest extends TestCase {
 		$this->assertSame( $secret, $record['key'] );
 		$this->assertSame( self::USER, $record['user'] );
 		$this->assertSame( Capabilities::TUNE, $record['scope'] );
-		$this->assertEqualsWithDelta( \time() + 5400, $record['expires'], 5 );
+		$this->assertEqualsWithDelta( 5400, $record['ttl'], 5 );
 	}
 
 	public function test_the_session_is_listed_under_its_label(): void {
 		( new Session_CLI_Command() )->issue( [ 'kea-claude-7731', 'tune', '5400' ], [] );
 
 		[ $handle ] = \explode( '.', $GLOBALS['_test_wp_cli_lines'][0] );
-		$this->assertSame( [ $handle ], Sessions::handles_labelled( 'kea-claude-7731' ) );
-		$this->assertSame( Capabilities::TUNE, Sessions::all()[ $handle ]['scope'] );
+		$this->assertSame( [ [ 'handle' => $handle, 'label' => 'kea-claude-7731', 'scope' => Capabilities::TUNE ] ], \array_map( static fn ( array $row ): array => \array_intersect_key( $row, [ 'handle' => 0, 'label' => 0, 'scope' => 0 ] ), Sessions::listing() ) );
 	}
 
 	public function test_role_and_ttl_default_to_manage_and_the_session_ttl(): void {
@@ -97,7 +102,7 @@ class SessionCliCommandTest extends TestCase {
 		[ $handle ] = \explode( '.', $GLOBALS['_test_wp_cli_lines'][0] );
 		$record     = Command_Auth::load_session_record( $handle );
 		$this->assertSame( Capabilities::MANAGE, $record['scope'] );
-		$this->assertEqualsWithDelta( \time() + Command_Auth::SESSION_TTL_S, $record['expires'], 5 );
+		$this->assertEqualsWithDelta( Command_Auth::SESSION_TTL_S, $record['ttl'], 5 );
 	}
 
 	public function test_no_current_user_is_refused_naming_the_user_flag(): void {
@@ -166,5 +171,123 @@ class SessionCliCommandTest extends TestCase {
 
 	public function test_a_missing_label_is_refused(): void {
 		$this->assertStringContainsString( 'label', $this->refusal( [] ) );
+	}
+
+	/** Refusal message a `list` or `revoke` raised through `WP_CLI::error()`. */
+	private function cli_error( \Closure $run ): string {
+		try {
+			$run( new Session_CLI_Command() );
+		} catch ( \RuntimeException $e ) {
+			$this->assertSame( [], $GLOBALS['_test_wp_cli_success'], 'a refusal reports no success' );
+			$this->assertCount( 1, $GLOBALS['_test_wp_cli_errors'] );
+			return $GLOBALS['_test_wp_cli_errors'][0];
+		}
+		$this->fail( 'expected a refusal' );
+	}
+
+	public function test_list_as_json_carries_every_listed_fact_and_never_the_secret(): void {
+		$session = Sessions::issue( 'tieke-8840', Capabilities::TUNE, 7200 );
+
+		( new Session_CLI_Command() )->list_( [], [ 'format' => 'json' ] );
+
+		$table = $GLOBALS['_test_wp_cli_tables'][0];
+		$this->assertSame( 'json', $table['format'] );
+		$this->assertSame( Sessions::listing(), $table['items'] );
+		$this->assertSame( $session['handle'], $table['items'][0]['handle'] );
+		$this->assertSame( 'tieke-8840', $table['items'][0]['label'] );
+		$this->assertSame( [ 'handle', 'label', 'scope', 'created', 'expires' ], $table['fields'] );
+		$this->assertStringNotContainsString( $session['secret'], (string) \wp_json_encode( $GLOBALS['_test_wp_cli_tables'] ) );
+		$this->assertStringNotContainsString( $session['secret'], \implode( "\n", $GLOBALS['_test_wp_cli_lines'] ) );
+	}
+
+	/**
+	 * A label cut at MAX_LABEL never splits a character: 63 bytes then a
+	 * two-byte 'é' keeps the 63 and drops the 'é' whole, so the stored label
+	 * stays UTF-8 and the JSON listing encodes it.
+	 */
+	public function test_a_label_cut_inside_a_character_round_trips_through_the_json_listing(): void {
+		$stem = \str_repeat( 'kea', 21 );
+		Sessions::issue( $stem . 'é', Capabilities::READ, 3300 );
+
+		( new Session_CLI_Command() )->list_( [], [ 'format' => 'json' ] );
+
+		$items = $GLOBALS['_test_wp_cli_tables'][0]['items'];
+		$this->assertSame( $stem, $items[0]['label'] );
+		$this->assertSame( $stem, \json_decode( \json_encode( $items, \JSON_THROW_ON_ERROR ), true )[0]['label'] );
+	}
+
+	public function test_list_as_a_table_reads_the_times_in_utc(): void {
+		$session = Sessions::issue( 'hihi-8840', Capabilities::READ, 7200 );
+		$row     = self::listed()[ $session['handle'] ];
+
+		( new Session_CLI_Command() )->list_( [], [] );
+
+		$table = $GLOBALS['_test_wp_cli_tables'][0];
+		$this->assertSame( 'table', $table['format'] );
+		$this->assertEquals(
+			[
+				'handle'  => $session['handle'],
+				'label'   => 'hihi-8840',
+				'scope'   => Capabilities::READ,
+				'created' => \gmdate( 'Y-m-d H:i:s', $row['created'] ) . ' UTC',
+				'expires' => \gmdate( 'Y-m-d H:i:s', $row['expires'] ) . ' UTC',
+			],
+			$table['items'][0]
+		);
+		$this->assertStringNotContainsString( $session['secret'], \implode( "\n", $GLOBALS['_test_wp_cli_lines'] ) );
+	}
+
+	public function test_list_of_nothing_prints_the_header_alone(): void {
+		( new Session_CLI_Command() )->list_( [], [ 'format' => 'json' ] );
+
+		$this->assertSame( [], $GLOBALS['_test_wp_cli_tables'][0]['items'] );
+	}
+
+	public function test_list_refuses_a_store_that_will_not_open_naming_why(): void {
+		$GLOBALS['wpdb'] = null;
+
+		$this->assertStringContainsString( 'wpdb backend needs $wpdb', $this->cli_error( static fn ( $cli ) => $cli->list_( [], [] ) ) );
+		$this->assertSame( [], $GLOBALS['_test_wp_cli_tables'] );
+	}
+
+	public function test_revoke_by_handle_kills_the_key_and_reports_it(): void {
+		$doomed    = Sessions::issue( 'moho-8840', Capabilities::TUNE, 900 );
+		$bystander = Sessions::issue( 'titipounamu-8840', Capabilities::READ, 900 );
+
+		( new Session_CLI_Command() )->revoke( [ $doomed['handle'] ], [] );
+
+		$this->assertSame( [ "Revoked {$doomed['handle']}." ], $GLOBALS['_test_wp_cli_success'] );
+		$this->assertNull( Command_Auth::load_session_record( $doomed['handle'] ) );
+		$this->assertSame( [ $bystander['handle'] ], \array_keys( self::listed() ) );
+	}
+
+	public function test_revoke_of_a_label_naming_two_sessions_fails_naming_both(): void {
+		$first  = Sessions::issue( 'kokako-8840', Capabilities::READ, 900 );
+		$second = Sessions::issue( 'kokako-8840', Capabilities::TUNE, 900 );
+
+		$message = $this->cli_error( static fn ( $cli ) => $cli->revoke( [ 'kokako-8840' ], [] ) );
+
+		$this->assertStringStartsWith( 'no session with handle kokako-8840; the label kokako-8840 names ', $message );
+		$this->assertStringContainsString( $first['handle'], $message );
+		$this->assertStringContainsString( $second['handle'], $message );
+		$this->assertCount( 2, Sessions::listing(), 'naming a label revokes nothing' );
+	}
+
+	public function test_revoke_of_a_handle_no_session_holds_fails(): void {
+		$this->assertSame(
+			'no session with handle nsh-absent-8840',
+			$this->cli_error( static fn ( $cli ) => $cli->revoke( [ 'nsh-absent-8840' ], [] ) )
+		);
+	}
+
+	public function test_revoke_fails_when_the_store_does_not_answer(): void {
+		$session = Sessions::issue( 'koekoea-8840', Capabilities::READ, 900 );
+		$GLOBALS['wpdb']->deny['DELETE FROM `wp_newspack_nodes_table`'] = 'Lock wait timeout 8840';
+
+		$this->assertSame(
+			"session store did not answer; {$session['handle']} may still be live",
+			$this->cli_error( static fn ( $cli ) => $cli->revoke( [ $session['handle'] ], [] ) )
+		);
+		$this->assertArrayHasKey( $session['handle'], self::listed() );
 	}
 }

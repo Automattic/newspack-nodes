@@ -12,7 +12,7 @@
  * request / cmd, plus the bare-verb default that sends TM_COMMAND to the cwd.
  * TO is `prefix( path )` against that cwd, which starts empty (the local graph)
  * and a host moves with `cd`. FROM is the bare reply node `_output` (the
- * Dumper); scoping a reply to one SSE session is `_sse:{pid}`'s job downstream.
+ * Dumper); scoping a reply to one SSE session is `_sse:{session}`'s job downstream.
  */
 
 import { markLocal } from './command-auth';
@@ -1202,7 +1202,7 @@ export class ShellNode extends Node {
 
 	/**
 	 * The FROM this session stamps: the bare reply node, unwrapped. A private
-	 * per-session address is `_sse:{pid}`'s job downstream, not the Shell's.
+	 * per-session address is `_sse:{session}`'s job downstream, not the Shell's.
 	 *
 	 * @param {string} replyNode Name of the node the reply should land on.
 	 * @return {string} The FROM path to stamp.

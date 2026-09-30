@@ -51,6 +51,15 @@ class CoreTest extends TestCase {
 		$this->assertNull( Core::node( 'nonexistent' ) );
 	}
 
+	/** The logged-in user's id, and 0 while nobody is logged in, as in a worker. */
+	public function test_current_user_id_is_the_logged_in_user_and_zero_without_one(): void {
+		$GLOBALS['_wp_test_current_user_id'] = 7731;
+		$this->assertSame( 7731, Core::current_user_id() );
+
+		unset( $GLOBALS['_wp_test_current_user_id'] );
+		$this->assertSame( 0, Core::current_user_id() );
+	}
+
 	public function test_as_int_casts_scalars_and_zeroes_non_scalars(): void {
 		$this->assertSame( 42, Core::as_int( '42' ) );
 		$this->assertSame( 42, Core::as_int( 42.9 ) );
@@ -514,6 +523,10 @@ class CoreTest extends TestCase {
 	}
 
 	// ── log_prefix / log_midfix / stderr formatting ──────────────────────
+
+	public function test_format_utc_spells_a_timestamp_in_utc(): void {
+		$this->assertSame( '2026-09-21 14:33:54 UTC', Core::format_utc( 1790001234 ) );
+	}
 
 	public function test_log_prefix_no_args_returns_dated_prefix(): void {
 		// log_prefix is the timestamp only now — the "<host> <$0>[<pid>]: " process identity

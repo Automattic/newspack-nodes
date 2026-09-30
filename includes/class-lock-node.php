@@ -234,11 +234,7 @@ class Lock_Node extends Node {
 		\clearstatcache( true, $hb );
 
 		if ( ! \file_exists( $hb ) ) {
-			// Orphan steal by dir age; write nothing before heartbeat.
-			\clearstatcache( true, $this->lock_path );
-			$dir_mtime = @\filemtime( $this->lock_path );
-			// `<=` not `<`: int-second clocks; straddle can false-steal.
-			if ( false === $dir_mtime || ( \time() - $dir_mtime ) <= self::ORPHAN_GRACE_S ) {
+			if ( ! self::past_orphan_grace( $this->lock_path, \time() ) ) {
 				return false; // Too fresh — assume the owner is mid-acquire.
 			}
 			// Past grace, still no heartbeat — owner died mid-acquire. Steal.
@@ -532,6 +528,52 @@ class Lock_Node extends Node {
 		}
 	}
 
+	/**
+	 * THE staleness rule for a worker heartbeat: no heartbeat file past the
+	 * orphan grace, or one older than the threshold this worker declares.
+	 * Inside the grace a lock dir with no heartbeat is a worker between mkdir
+	 * and its first beat, which the steal tolerates too, so it reads live.
+	 *
+	 * Every reader of that mtime comes through here — the respawn decision,
+	 * `wp nodes status`, the dashboards — because a threshold each picks for
+	 * itself drifts from the rest. A worker mid-job declares a long one
+	 * (`job-worker.tsl` sets 600, because a handler beats only where it reaches
+	 * `should_continue()`), and a reader holding a flat 60 reports it down while
+	 * the peer scan correctly leaves it alone.
+	 *
+	 * @param string $lock_dir      The `.lock.d` directory.
+	 * @param int    $now           Clock, so one scan judges every worker alike.
+	 * @param int    $stale_timeout Seconds without a heartbeat before stale.
+	 * @return bool True when the worker reads as down.
+	 */
+	public static function heartbeat_is_stale( string $lock_dir, int $now, int $stale_timeout ): bool {
+		$beat = \rtrim( $lock_dir, '/' ) . '/' . self::HEARTBEAT_FILE;
+		// Per-process stat cache: a long worker freezes every peer's mtime.
+		\clearstatcache( true, $beat );
+		$mtime = @\filemtime( $beat );
+		if ( false === $mtime ) {
+			return self::past_orphan_grace( $lock_dir, $now );
+		}
+		return ( $now - $mtime ) > $stale_timeout;
+	}
+
+	/**
+	 * Whether a lock dir is older than ORPHAN_GRACE_S, judged by its own
+	 * mtime: the one grace rule the steal and the staleness verdict share. A
+	 * dir whose mtime will not read is not past it.
+	 *
+	 * @param string $lock_dir The `.lock.d` directory.
+	 * @param int    $now      Clock.
+	 * @return bool True when a holder with no heartbeat has had its grace.
+	 */
+	private static function past_orphan_grace( string $lock_dir, int $now ): bool {
+		$lock_dir = \rtrim( $lock_dir, '/' );
+		\clearstatcache( true, $lock_dir );
+		$dir_mtime = @\filemtime( $lock_dir );
+		// `>` not `>=`: int-second clocks; a straddle must not false-steal.
+		return false !== $dir_mtime && ( $now - $dir_mtime ) > self::ORPHAN_GRACE_S;
+	}
+
 	/** Why the last acquire() failed ('' after success): 'lock_held' = contention; anything else is an I/O diagnosis. */
 	public function acquire_failure(): string {
 		return $this->acquire_failure;
@@ -608,30 +650,6 @@ class Lock_Node extends Node {
 		$lock_dir = \rtrim( $lock_dir, '/' );
 		\clearstatcache( true, $lock_dir . '/' . self::RESTART_FLAG );
 		return \is_file( $lock_dir . '/' . self::RESTART_FLAG );
-	}
-
-	/**
-	 * THE staleness rule for a worker heartbeat: no heartbeat file, or one
-	 * older than the threshold this worker declares.
-	 *
-	 * Every reader of that mtime comes through here — the respawn decision,
-	 * `wp nodes status`, the dashboards — because a threshold each picks for
-	 * itself drifts from the rest. A worker mid-job declares a long one
-	 * (`job-worker.tsl` sets 600, because a handler beats only where it reaches
-	 * `should_continue()`), and a reader holding a flat 60 reports it down while
-	 * the peer scan correctly leaves it alone.
-	 *
-	 * @param string $lock_dir      The `.lock.d` directory.
-	 * @param int    $now           Clock, so one scan judges every worker alike.
-	 * @param int    $stale_timeout Seconds without a heartbeat before stale.
-	 * @return bool True when the worker reads as down.
-	 */
-	public static function heartbeat_is_stale( string $lock_dir, int $now, int $stale_timeout ): bool {
-		$beat = \rtrim( $lock_dir, '/' ) . '/' . self::HEARTBEAT_FILE;
-		// Per-process stat cache: a long worker freezes every peer's mtime.
-		\clearstatcache( true, $beat );
-		$mtime = @\filemtime( $beat );
-		return false === $mtime || ( $now - $mtime ) > $stale_timeout;
 	}
 
 	/**

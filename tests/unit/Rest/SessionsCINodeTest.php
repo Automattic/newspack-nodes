@@ -34,7 +34,6 @@ class SessionsCINodeTest extends TestCase {
 
 	protected function tearDown(): void {
 		VerbHarness::reset();
-		\delete_option( Sessions::OPTION );
 		Cache_Backend::$apcu_usable           = static fn (): bool => false;
 		$GLOBALS['_wp_test_current_user_can'] = [];
 		Core::$memd                           = $this->prev_memd;
@@ -67,7 +66,7 @@ class SessionsCINodeTest extends TestCase {
 		$this->assertCount( 1, $listed );
 		$this->assertSame( 'reporting bot', $listed[0]['label'] );
 		$this->assertSame( Capabilities::TUNE, $listed[0]['scope'] );
-		$this->assertTrue( $listed[0]['live'] );
+		$this->assertEqualsWithDelta( \time() + 900, $listed[0]['expires'], 5 );
 		$this->assertArrayNotHasKey( 'secret', $listed[0], 'the listing must never carry the credential' );
 	}
 
@@ -173,24 +172,23 @@ class SessionsCINodeTest extends TestCase {
 	}
 
 	/**
-	 * Binding runs before the verb's MANAGE check, so a READ caller with a
-	 * malformed command hears the binding refusal; it names only declared args.
+	 * The verb's MANAGE check runs before binding (ADR-26), so a READ caller
+	 * with a malformed command learns nothing of the args it declares.
 	 */
-	public function test_a_read_caller_with_malformed_args_hears_the_binding_refusal_first(): void {
+	public function test_a_read_caller_with_malformed_args_hears_the_role_refusal_first(): void {
 		add_filter(
 			'newspack_nodes/capability_map',
 			static fn ( array $map ): array => [ 'read' => 'read_6204', 'tune' => 'tune_6204', 'manage' => 'manage_6204' ] + $map
 		);
 		$GLOBALS['_wp_test_current_user_can'] = [ 'read_6204' => true ];
 
-		$this->assertSame( "too many arguments: 2 given, 1 accepted\n", $this->fire( 'revoke', [ 'nsh-6204', 'nsh-extra-6204' ] ) );
+		$this->assertSame( "permission denied: manage capability required\n", $this->fire( 'revoke', [ 'nsh-6204', 'nsh-extra-6204' ] ) );
 		$this->assertStringContainsString( 'permission denied', (string) $this->fire( 'revoke', [ 'nsh-6204' ] ) );
 	}
 
-	/** A key whose directory row is gone still has a lease to drop, and says so. */
-	public function test_revoke_of_an_unlisted_live_lease_reports_it_revoked(): void {
-		$created = $this->fire( 'create', [ 'ruru-5521' ] );
-		\delete_option( Sessions::OPTION );
+	/** An unlabelled session is listed nowhere and still has a row to drop, and says so. */
+	public function test_revoke_of_an_unlisted_live_session_reports_it_revoked(): void {
+		$created = $this->fire( 'create', [ '' ] );
 
 		$result = $this->fire( 'revoke', [ $created['handle'] ] );
 

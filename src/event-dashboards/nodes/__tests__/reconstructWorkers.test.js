@@ -52,9 +52,7 @@ const FANOUT_DATA = {
 		{
 			type: 'combined',
 			partition: 0,
-			status: 'running',
-			live: true,
-			stale: false,
+			state: 'live',
 			restart_pending: false,
 			heartbeat_age: 2,
 			started_at: 1700000000,
@@ -97,7 +95,7 @@ describe( 'reconstructWorkers — fan-out attaches every processor', () => {
 		workers.forEach( ( w ) => {
 			expect( w.behind ).toBe( 150 );
 			expect( w.cursor_offset ).toBe( 50 );
-			expect( w.status ).toBe( 'running' );
+			expect( w.state ).toBe( 'live' );
 			expect( w.started_at ).toBe( 1700000000 );
 		} );
 	} );
@@ -191,9 +189,7 @@ const SHARED_SOURCE_GRAPH = {
 const wk = ( type ) => ( {
 	type,
 	partition: 0,
-	status: 'running',
-	live: true,
-	stale: false,
+	state: 'live',
 	restart_pending: false,
 	heartbeat_age: 2,
 	started_at: 1700000000,
@@ -802,7 +798,7 @@ describe( 'reconstructWorkers — liveness backfill', () => {
 		const { workers } = reconstructWorkers( data, EMPTY_PRIOR );
 		expect( workers ).toHaveLength( 1 );
 		expect( workers[ 0 ].type ).toBe( 'combined' );
-		expect( workers[ 0 ].live ).toBe( true );
+		expect( workers[ 0 ].state ).toBe( 'live' );
 		expect( workers[ 0 ].started_at ).toBe( 1700000000 );
 	} );
 } );
@@ -815,9 +811,7 @@ describe( 'reconstructWorkers — hides ghost readers of an undeclared partition
 			{
 				type: 'combined',
 				partition: 0,
-				status: 'running',
-				live: true,
-				stale: false,
+				state: 'live',
 				restart_pending: false,
 				heartbeat_age: 2,
 				started_at: 1700000000,
@@ -874,7 +868,7 @@ describe( 'reconstructWorkers — hides ghost readers of an undeclared partition
 	} );
 
 	it( 'keeps a reader whose partition IS still declared even if its worker is momentarily absent', () => {
-		// Only undeclared + unbacked is a ghost; declared-but-dead stays.
+		// Only undeclared + unbacked is a ghost; declared-but-down stays.
 		const data = {
 			...GHOST_DATA,
 			logs: [
@@ -930,7 +924,7 @@ const TOPOLOGY_TOKEN_DATA = {
 			distance: 384,
 		},
 	],
-	workers: [ { type: 'combined', partition: 0, status: 'live', live: true } ],
+	workers: [ { type: 'combined', partition: 0, state: 'live' } ],
 	logs: [],
 	graph: TOPOLOGY_TOKEN_GRAPH,
 };
@@ -950,23 +944,19 @@ describe( 'reconstructWorkers — the <topology> token in a reader template', ()
 } );
 
 /**
- * The server decides what "idle" means (on-demand AND cleanly absent, not
- * stale). This join REBUILDS each worker row from a whitelist, so a field it
- * forgets is a verdict the dashboard silently cannot see — which is how an
- * idle topology kept rendering ALL DEAD.
+ * The server decides each slot's state. This join REBUILDS each worker row
+ * from a whitelist, so a field it forgets is a verdict the dashboard silently
+ * cannot see.
  */
-describe( 'reconstructWorkers — carries the server idle verdict', () => {
-	it( 'keeps idle on a row joined to a consumer', () => {
+describe( 'reconstructWorkers — carries the server state', () => {
+	it( 'keeps the state on a row joined to a consumer', () => {
 		const data = {
 			...FANOUT_DATA,
 			workers: [
 				{
 					type: 'combined',
 					partition: 0,
-					status: 'dead',
-					live: false,
-					stale: false,
-					idle: true,
+					state: 'held',
 					restart_pending: false,
 					heartbeat_age: null,
 					started_at: null,
@@ -977,20 +967,17 @@ describe( 'reconstructWorkers — carries the server idle verdict', () => {
 		const { workers } = reconstructWorkers( data, EMPTY_PRIOR );
 
 		expect( workers.length ).toBeGreaterThan( 0 );
-		workers.forEach( ( w ) => expect( w.idle ).toBe( true ) );
+		workers.forEach( ( w ) => expect( w.state ).toBe( 'held' ) );
 	} );
 
-	it( 'keeps idle on a liveness row with no consumer of its own', () => {
+	it( 'keeps the state on a liveness row with no consumer of its own', () => {
 		const data = {
 			graph: { lonely: { nodes: [], edges: [] } },
 			workers: [
 				{
 					type: 'lonely',
 					partition: 0,
-					status: 'dead',
-					live: false,
-					stale: false,
-					idle: true,
+					state: 'idle',
 				},
 			],
 			consumers: [],
@@ -998,6 +985,7 @@ describe( 'reconstructWorkers — carries the server idle verdict', () => {
 
 		const { workers } = reconstructWorkers( data, EMPTY_PRIOR );
 
-		expect( workers[ 0 ].idle ).toBe( true );
+		expect( workers[ 0 ].state ).toBe( 'idle' );
+		expect( workers[ 0 ] ).not.toHaveProperty( 'idle' );
 	} );
 } );

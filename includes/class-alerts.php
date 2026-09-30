@@ -231,7 +231,8 @@ class Alerts {
 	public static function evaluate(): array {
 		// Held suppresses only what the STOP caused; dead letters predate it.
 		$held   = self::fleet_is_held();
-		$meta   = Workers_CI_Node::collect_dump_metadata();
+		$topologies = Bootstrap::get_topologies();
+		$meta       = Workers_CI_Node::collect_dump_metadata( $topologies, Bootstrap::split_readable( $topologies ) );
 		$alerts = [];
 
 		foreach ( Core::arr( $meta['unreadable'] ?? [] ) as $type => $reason ) {
@@ -292,31 +293,31 @@ class Alerts {
 	}
 
 	/**
-	 * Alert for one worker liveness row, or null when it's healthy. A dead
-	 * worker that was previously alive (stale heartbeat) is critical; one that
-	 * never started is a warning (it may still be spawning).
+	 * Alert for one worker liveness row, or null when its `state` is healthy
+	 * or deliberate. A `stale` worker holds its lock and stopped heartbeating,
+	 * or never did, which is critical; a `down` one holds no lock, a warning
+	 * because it may still be spawning. `live`, `idle` and `held` raise nothing.
 	 *
 	 * @param array<array-key,mixed> $worker Liveness row from collect_dump_metadata.
 	 * @return array<string,mixed>|null
 	 */
 	private static function worker_alert( array $worker ): ?array {
-		if ( 'dead' !== ( $worker['status'] ?? '' ) ) {
+		$state = $worker['state'];
+		if ( 'stale' !== $state && 'down' !== $state ) {
 			return null;
 		}
-		// An on-demand worker with nothing to do is the feature working.
-		if ( true === ( $worker['idle'] ?? false ) ) {
-			return null;
-		}
-		$type      = Core::as_string( $worker['type'] ?? '' );
-		$partition = Core::as_int( $worker['partition'] ?? 0 );
+		$type      = Core::as_string( $worker['type'] );
+		$partition = Core::as_int( $worker['partition'] );
 		$label     = CLI::worker_id( $type, $partition );
-		if ( true === ( $worker['stale'] ?? false ) ) {
-			$age = Core::as_int( $worker['heartbeat_age'] ?? 0 );
+		if ( 'stale' === $state ) {
+			$age = $worker['heartbeat_age'];
 			return [
 				'key'       => "worker_down:{$label}",
 				'family'    => self::FAMILY_WORKER_LIVENESS,
 				'severity'  => self::SEVERITY_CRITICAL,
-				'message'   => "Worker {$label} stopped heartbeating {$age}s ago.",
+				'message'   => null === $age
+					? "Worker {$label} holds its lock but never heartbeat."
+					: "Worker {$label} stopped heartbeating " . Core::as_int( $age ) . 's ago.',
 				'type'      => $type,
 				'partition' => $partition,
 			];

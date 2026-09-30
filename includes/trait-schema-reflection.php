@@ -198,10 +198,9 @@ trait Schema_Reflection {
 	 * @return string Zero or more newline-terminated TSL lines.
 	 */
 	private function dump_declared( string $schema_key, callable $render ): string {
-		$out      = '';
-		$commands = static::node_schema()['commands'] ?? [];
-		foreach ( \is_array( $commands ) ? $commands : [] as $verb ) {
-			if ( ! \is_array( $verb ) || ! ( $verb['dump'] ?? true ) ) {
+		$out = '';
+		foreach ( Command_Interpreter_Node::declared_verbs( static::class ) as $name => $verb ) {
+			if ( ! ( $verb['dump'] ?? true ) ) {
 				continue;
 			}
 			$prop = Core::as_string( $verb[ $schema_key ] ?? '' );
@@ -210,7 +209,7 @@ trait Schema_Reflection {
 			}
 			$value = $render( $this->{$prop} ?? null );
 			if ( '' !== $value ) {
-				$out .= $this->config_line( Core::as_string( $verb['name'] ?? '' ), $value );
+				$out .= $this->config_line( $name, $value );
 			}
 		}
 		return $out;
@@ -229,7 +228,7 @@ trait Schema_Reflection {
 		if ( $this instanceof Command_Interpreter_Node ) {
 			return;
 		}
-		$this->wire_interpreter( self::verbs_with_handlers( static::node_schema() ) );
+		$this->wire_interpreter( self::verbs_with_handlers( static::class ) );
 	}
 
 	/**
@@ -282,12 +281,10 @@ trait Schema_Reflection {
 		$reply = Message::new_message();
 		$reply[ Message::TYPE ]  = Message::TM_ERROR;
 		$reply[ Message::VALUE ] = "unknown request verb: {$verb}\n";
-		foreach ( Core::arr( static::node_schema()['requests'] ?? [] ) as $request ) {
-			if ( \is_array( $request ) && $verb === ( $request['name'] ?? null ) && \is_callable( $request['handler'] ?? null ) ) {
-				$reply[ Message::TYPE ]  = Message::TM_STRUCT | Message::TM_RESPONSE;
-				$reply[ Message::VALUE ] = [ 'verb' => $verb, 'data' => $request['handler']( $this ) ];
-				break;
-			}
+		$handler = Command_Interpreter_Node::declared_verbs( static::class, 'requests' )[ $verb ]['handler'] ?? null;
+		if ( \is_callable( $handler ) ) {
+			$reply[ Message::TYPE ]  = Message::TM_STRUCT | Message::TM_RESPONSE;
+			$reply[ Message::VALUE ] = [ 'verb' => $verb, 'data' => $handler( $this ) ];
 		}
 
 		$reply[ Message::FROM ] = $this->name;
@@ -299,7 +296,7 @@ trait Schema_Reflection {
 	}
 
 	/**
-	 * Build the `{node}:config` dispatch table from `node_schema()['commands']`.
+	 * Build the `{node}:config` dispatch table from $class's declared verbs.
 	 * A verb takes its handler from the first of three declarations it carries: a
 	 * `toggle`, then a `setter` — each naming a property `declared_setter()`
 	 * synthesizes a handler for — then an explicit callable `handler`.
@@ -309,23 +306,12 @@ trait Schema_Reflection {
 	 * verbs for the palette. (Service_CI_Node, where every verb MUST dispatch,
 	 * keeps its own warn-on-missing-handler builder.)
 	 *
-	 * @param array<string,mixed> $schema The node's `node_schema()`.
+	 * @param class-string<Node> $class Class whose schema declares the verbs.
 	 * @return array<string,callable> Verb name => handler.
 	 */
-	private static function verbs_with_handlers( array $schema ): array {
-		$table    = [];
-		$commands = $schema['commands'] ?? [];
-		if ( ! \is_array( $commands ) ) {
-			return $table;
-		}
-		foreach ( $commands as $verb ) {
-			if ( ! \is_array( $verb ) ) {
-				continue;
-			}
-			$name = Core::as_string( $verb['name'] ?? '' );
-			if ( '' === $name ) {
-				continue;
-			}
+	private static function verbs_with_handlers( string $class ): array {
+		$table = [];
+		foreach ( Command_Interpreter_Node::declared_verbs( $class ) as $name => $verb ) {
 			$prop = Core::as_string( $verb['toggle'] ?? '' );
 			if ( '' !== $prop ) {
 				$table[ $name ] = self::declared_setter( $verb, $prop, static fn ( string $token ): bool => true === Command_Args::typed( $token, 'bool' ) );
@@ -337,10 +323,10 @@ trait Schema_Reflection {
 				$table[ $name ] = self::declared_setter( $verb, $prop, \trim( ... ) );
 				continue;
 			}
-			if ( ! isset( $verb['handler'] ) || ! \is_callable( $verb['handler'] ) ) {
-				continue;
+			$handler = $verb['handler'] ?? null;
+			if ( \is_callable( $handler ) ) {
+				$table[ $name ] = $handler;
 			}
-			$table[ $name ] = $verb['handler'];
 		}
 		return $table;
 	}

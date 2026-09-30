@@ -23,6 +23,9 @@ namespace Newspack_Nodes;
  * @api JS-PHP wire constants; the dead-code audit cannot see the JSON half.
  */
 final class Node_Names {
+	/** The realm a cli process heads its reply address with, `_output/_cli:<pid>`; no node is registered under it. */
+	public const CLI                 = '_cli';
+
 	/** Verb dispatch. Every node sinks here, and this sinks into `_router`. */
 	public const COMMAND_INTERPRETER = '_command_interpreter';
 
@@ -53,7 +56,7 @@ final class Node_Names {
 	/** The black hole: a destination for traffic that must go somewhere and do nothing. */
 	public const NULL                = '_null';
 
-	/** The reply boundary. A minter stamps `FROM = _output/<id>`, so the TO=FROM answer lands here. */
+	/** The reply boundary. A minter stamps `FROM = _output/<session>/…`, so the TO=FROM answer lands here. */
 	public const OUTPUT              = '_output';
 
 	/** The worker's output IPC Partition, and the FROM its input Consumer stamps, so the TO=FROM reply routes back through it to the attached cli. */

@@ -53,7 +53,7 @@
   </div>
 
   <div class="n">5</div>
-  <div class="st"><b><span class="mono">interpret()</span>: the struct, then the signature, then the role.</b> A VALUE that is not an array, or carries no <span class="mono">name</span>, is dropped before anything else. <span class="mono">Command_Auth</span> then verifies the signature, and <span class="mono">dispatch()</span> gates the verb through <span class="mono">Capabilities::require()</span> at its declared role.</div>
+  <div class="st"><b><span class="mono">interpret()</span>: the struct, then the signature, then the role.</b> A VALUE that is not an array, or carries no <span class="mono">name</span>, is dropped before anything else. <span class="mono">Command_Auth</span> then verifies the signature, and <span class="mono">dispatch()</span> gates the verb through <span class="mono">Capabilities::require_verb()</span> at its declared role.</div>
   <div class="out">
     <div class="o silent"><span class="code">—</span><span class="mono">drop_message( 'invalid command struct' )</span>: no TM_ERROR, no reply, one rate-limited audit line. Signing keys on the TYPE bit, so such a command signs cleanly and then vanishes before verification runs</div>
     <div class="o deny"><span class="code">—</span>Signature refused: the latch is raised, and the reply <span class="mono">TM_COMMAND|TM_ERROR</span> (40) carrying <span class="mono">unauthorized: &lt;verb&gt;</span> walks TO=FROM back into the body. The cause goes only to the server's drop audit <span class="t">packed Message</span></div>

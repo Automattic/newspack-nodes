@@ -93,24 +93,6 @@ class DumperTest extends TestCase {
 		}
 	}
 
-	public function test_TM_EOF_filtered_out_by_to_filter_does_not_fire_callback(): void {
-		// TM_EOF addressed at a different pid (different cli session) is
-		// filtered out at the Dumper's to_filter gate — same as any other
-		// type. The callback only fires for our own session's echo.
-		[ $dumper, $cap ] = $this->fresh();
-		$dumper->set_to_filter( '12345' );
-
-		$fired = 0;
-		$dumper->on_eof( function () use ( &$fired ) { ++$fired; } );
-
-		$message                  = Message::new_message();
-		$message[ Message::TYPE ] = Message::TM_EOF;
-		$message[ Message::TO ]   = '_output/99999'; // different pid
-		$dumper->fill( $message );
-
-		$this->assertSame( 0, $fired );
-	}
-
 	public function test_TM_PING_prints_round_trip_time(): void {
 		// Mirrors Tachikoma Dumper.pm:dump_ping. VALUE carries the original send
 		// timestamp; the Dumper computes RTT in ms.
@@ -428,72 +410,13 @@ class DumperTest extends TestCase {
 		[ $dumper, $cap ] = $this->fresh();
 		$m                   = Message::new_message();
 		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$m[ Message::TO ]    = Node_Names::OUTPUT . '/' . \getmypid();
+		$m[ Message::TO ]    = 'ember-9';
 		$m[ Message::VALUE ] = 'rendered';
 		$dumper->fill( $m );
 		$this->assertCount( 1, $cap->captured );
 		$out = $cap->captured[0];
 		$this->assertSame( 'rendered', $out[ Message::VALUE ] );
 		$this->assertSame( Node_Names::STDOUT, $out[ Message::TO ] );
-	}
-
-	public function test_set_to_filter_drops_messages_with_unmatched_TO(): void {
-		// Multi-session: only matching $pid (or empty TO) renders.
-		[ $dumper, $cap ] = $this->fresh();
-		$dumper->set_to_filter( '12345' );
-
-		// Different cli's reply — must drop silently.
-		$other                      = Message::new_message();
-		$other[ Message::TYPE ]     = Message::TM_BYTESTREAM;
-		$other[ Message::TO ]       = '99999';
-		$other[ Message::VALUE ]    = 'not-mine';
-		$dumper->fill( $other );
-
-		$this->assertSame( '', $this->rendered( $cap ) );
-	}
-
-	public function test_set_to_filter_renders_when_TO_matches_pid(): void {
-		[ $dumper, $cap ] = $this->fresh();
-		$dumper->set_to_filter( '12345' );
-
-		// Worker reply with _router-peeled prefix → TO=$pid.
-		$mine                  = Message::new_message();
-		$mine[ Message::TYPE ] = Message::TM_BYTESTREAM;
-		$mine[ Message::TO ]   = '12345';
-		$mine[ Message::VALUE ] = 'mine';
-		$dumper->fill( $mine );
-
-		$this->assertSame( "mine\n", $this->rendered( $cap ) );
-	}
-
-	public function test_set_to_filter_renders_with_unpeeled_output_prefix(): void {
-		// The other shape: TO=_output/$pid (worker reply with _output not yet peeled).
-		[ $dumper, $cap ] = $this->fresh();
-		$dumper->set_to_filter( '12345' );
-
-		$message                  = Message::new_message();
-		$message[ Message::TYPE ] = Message::TM_BYTESTREAM;
-		$message[ Message::TO ]   = '_output/12345';
-		$message[ Message::VALUE ] = 'mine';
-		$dumper->fill( $message );
-
-		$this->assertSame( "mine\n", $this->rendered( $cap ) );
-	}
-
-	public function test_set_to_filter_always_renders_empty_TO(): void {
-		// Async broadcasts (TM_INFO) typically have empty TO — must render even
-		// when filter is active so users see their own session's broadcasts.
-		[ $dumper, $cap ] = $this->fresh();
-		$dumper->set_to_filter( '12345' );
-
-		$message                   = Message::new_message();
-		$message[ Message::TYPE ]  = Message::TM_INFO;
-		$message[ Message::FROM ]  = 'broadcaster';
-		$message[ Message::TO ]    = '';
-		$message[ Message::VALUE ] = 'broadcast';
-		$dumper->fill( $message );
-
-		$this->assertSame( "broadcast\n", $this->rendered( $cap ) );
 	}
 
 	public function test_TM_STRUCT_array_value_json_encodes_for_display(): void {
@@ -522,22 +445,6 @@ class DumperTest extends TestCase {
 		$dumper->fill( $message );
 
 		$this->assertSame( "plain\n", $this->rendered( $cap ) );
-	}
-
-	public function test_to_filter_drops_foreign_session_traffic(): void {
-		// `TO=sse` (the post-_router-peel form of TO=_repl/sse) is foreign
-		// traffic to this cli session and gets dropped silently — same as
-		// any other TO that doesn't match this session's pid.
-		[ $dumper, $cap ] = $this->fresh();
-		$dumper->set_to_filter( '12345' );
-
-		$message                   = Message::new_message();
-		$message[ Message::TYPE ]  = Message::TM_STRUCT;
-		$message[ Message::TO ]    = 'sse';
-		$message[ Message::VALUE ] = [ 'rate' => 42.5 ];
-		$dumper->fill( $message );
-
-		$this->assertSame( '', $this->rendered( $cap ) );
 	}
 
 	public function test_debug_level_default_off_no_header_emitted(): void {

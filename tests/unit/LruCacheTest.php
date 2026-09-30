@@ -231,8 +231,8 @@ class LruCacheTest extends TestCase {
 	public function test_on_evict_callback_called_on_capacity_eviction(): void {
 		$evicted = [];
 		$cache   = new LRU_Cache( 2, 2 );
-		$cache->with_timed_rotation( 999, function ( $k, $v, bool $timed ) use ( &$evicted ) {
-			$evicted[ $k ] = [ $v, $timed ];
+		$cache->with_timed_rotation( 999, function ( $k, $v, ?float $due ) use ( &$evicted ) {
+			$evicted[ $k ] = [ $v, $due ];
 		} );
 
 		// Fill bucket 0 then bucket 1; the third bucket forces eviction of bucket 0.
@@ -242,7 +242,7 @@ class LruCacheTest extends TestCase {
 		$cache->set( 'd', 4 );
 		$cache->set( 'e', 5 ); // Triggers second rotation, evicts bucket 0.
 
-		$this->assertSame( [ 'a' => [ 1, false ], 'b' => [ 2, false ] ], $evicted, 'a full bucket, not the clock' );
+		$this->assertSame( [ 'a' => [ 1, null ], 'b' => [ 2, null ] ], $evicted, 'a full bucket, not the clock' );
 	}
 
 	public function test_evict_bucket_without_callback_safe(): void {
@@ -276,22 +276,22 @@ class LruCacheTest extends TestCase {
 	public function test_rotate_if_due_rotates_after_interval(): void {
 		// Timed rotation reads the cached per-tick clock (production drives this
 		// from the drain loop); advance Core::$now to simulate elapsed ticks.
-		Core::$now = 500.0;
+		Core::$now = 1000500.0;
 		$cache     = new LRU_Cache( 100, 2 );
 		$evicted   = [];
-		$cache->with_timed_rotation( 0.001, function ( $k, $v, bool $timed ) use ( &$evicted ) {
-			$evicted[ $k ] = [ $v, $timed ];
+		$cache->with_timed_rotation( 200.0, function ( $k, $v, ?float $due ) use ( &$evicted ) {
+			$evicted[ $k ] = [ $v, $due ];
 		} );
 
 		$cache->set( 'a', 1 );
 		$cache->set( 'b', 2 );
 
-		Core::$now = 500.002; // +2ms > 1ms interval.
+		Core::$now = 1000600.0;
 		$cache->rotate_if_due(); // bucket 0 → bucket 1 (no eviction yet, count <= 2).
-		Core::$now = 500.004;
+		Core::$now = 1000800.0;
 		$cache->rotate_if_due(); // bucket 1 → bucket 2 (count > 2, evicts bucket 0).
 
-		$this->assertSame( [ 'a' => [ 1, true ], 'b' => [ 2, true ] ], $evicted, 'the clock, not a full bucket' );
+		$this->assertSame( [ 'a' => [ 1, 1000800.0 ], 'b' => [ 2, 1000800.0 ] ], $evicted, 'the clock, due at its boundary' );
 	}
 
 	/**
@@ -501,6 +501,233 @@ class LruCacheTest extends TestCase {
 		$cache->rotate_if_due();
 
 		$this->assertContains( 'stalled', $evicted );
+	}
+
+	/**
+	 * An owner that replays a stream supplies the stream's clock, and the
+	 * windows close on it: the wall racing a day ahead rolls nothing, and
+	 * the owner's clock crossing a boundary rolls it, timed.
+	 */
+	public function test_an_owner_clock_rolls_the_window_and_the_wall_does_not(): void {
+		$evicted   = [];
+		$stream    = 1300000150.0;
+		Core::$now = 1900000000.0;
+		$cache     = ( new LRU_Cache( 100, 2 ) )->with_timed_rotation(
+			200.0,
+			function ( $k, $v, ?float $due ) use ( &$evicted ) {
+				$evicted[ $k ] = $due;
+			},
+			static function () use ( &$stream ): float {
+				return $stream;
+			}
+		);
+		$cache->set( 'stalled-4417', 'req' );
+
+		Core::$now += 86400.0;
+		$cache->rotate_if_due();
+		$this->assertSame( 0, $cache->get_state()['current'], 'a day of wall clock rolls nothing' );
+
+		$stream = 1300000400.0;
+		$cache->rotate_if_due();
+		$this->assertSame( [ 'stalled-4417' => 1300000400.0 ], $evicted, 'two boundaries of the owner clock age it out' );
+	}
+
+	/**
+	 * A gap repaid in one pass hands each eviction the boundary its window
+	 * fell due at, not the reading that repaid it: six hours of stream skipped
+	 * in one step still evict at the third boundary after the entry landed.
+	 */
+	public function test_a_repaid_window_evicts_at_the_boundary_it_fell_due(): void {
+		$evicted   = [];
+		$stream    = 1300000150.0;
+		Core::$now = 1900000000.0;
+		$cache     = ( new LRU_Cache( 100, 3 ) )->with_timed_rotation(
+			200.0,
+			function ( $k, $v, ?float $due ) use ( &$evicted ) {
+				$evicted[ $k ] = $due;
+			},
+			static function () use ( &$stream ): float {
+				return $stream;
+			}
+		);
+		$cache->set( 'stalled-3309', 'req' );
+
+		$stream = 1300021750.0;
+		$cache->rotate_if_due();
+
+		$this->assertSame( [ 'stalled-3309' => 1300000600.0 ], $evicted );
+	}
+
+	/**
+	 * An owner clock stepping BACK more than a window, as old data fed to an
+	 * idle owner does, re-anchors the grid on it, so the old stream's windows
+	 * close on the old stream rather than waiting out the gap to the present.
+	 */
+	public function test_an_owner_clock_stepping_back_past_a_window_reanchors_the_grid(): void {
+		$stream    = 1300000150.0;
+		Core::$now = 1900000000.0;
+		$cache     = ( new LRU_Cache( 100, 3 ) )->with_timed_rotation(
+			200.0,
+			static fn () => null,
+			static function () use ( &$stream ): float {
+				return $stream;
+			}
+		);
+		$cache->set( 'held-7702', 'req' );
+
+		$stream = 1200000030.0;
+		$cache->rotate_if_due();
+		$this->assertSame( 0, $cache->get_state()['current'], 'the step back rolls nothing' );
+
+		$stream = 1200000400.0;
+		$cache->rotate_if_due();
+		$this->assertSame( 2, $cache->get_state()['current'], 'two boundaries of the old stream roll' );
+	}
+
+	/**
+	 * A step back of no more than a window leaves the grid where it was: the
+	 * clock waits it out, as a wall stepped back by NTP always has.
+	 */
+	public function test_a_step_back_inside_a_window_keeps_the_grid(): void {
+		$stream    = 1300000150.0;
+		Core::$now = 1900000000.0;
+		$cache     = ( new LRU_Cache( 100, 3 ) )->with_timed_rotation(
+			200.0,
+			static fn () => null,
+			static function () use ( &$stream ): float {
+				return $stream;
+			}
+		);
+		$cache->set( 'held-7703', 'req' );
+
+		$stream = 1299999850.0;
+		$cache->rotate_if_due();
+		$stream = 1300000000.0;
+		$cache->rotate_if_due();
+
+		$this->assertSame( 0, $cache->get_state()['current'], 'the grid still waits for 1300000200' );
+	}
+
+	/**
+	 * A restored cache repays the windows its OWNER clock crossed while no
+	 * process held it, and none its owner clock has not reached, whatever
+	 * the wall read at either end.
+	 */
+	public function test_a_restored_cache_repays_the_windows_of_its_owner_clock(): void {
+		$evicted  = [];
+		$on_evict = function ( $k ) use ( &$evicted ) {
+			$evicted[] = $k;
+		};
+		$stream   = 1300000010.0;
+		$clock    = static function () use ( &$stream ): float {
+			return $stream;
+		};
+
+		Core::$now = 1900000000.0;
+		$cache     = ( new LRU_Cache( 100, 3 ) )->with_timed_rotation( 200.0, $on_evict, $clock );
+		$cache->set( 'stalled-8203', 'req' );
+		$state = $cache->get_state();
+
+		Core::$now = 1900090000.0;
+		$stream    = 1300000190.0;
+		$cache     = ( new LRU_Cache( 100, 3 ) )->with_timed_rotation( 200.0, $on_evict, $clock );
+		$cache->restore_state( $state );
+		$cache->rotate_if_due();
+		$this->assertSame( [], $evicted, 'the owner clock has not reached its predecessor\'s boundary' );
+		$state = $cache->get_state();
+
+		$stream = 1300000710.0;
+		$cache  = ( new LRU_Cache( 100, 3 ) )->with_timed_rotation( 200.0, $on_evict, $clock );
+		$cache->restore_state( $state );
+		$cache->rotate_if_due();
+		$this->assertSame( [ 'stalled-8203' ], $evicted, 'three boundaries of the owner clock went by unattended' );
+	}
+
+	/**
+	 * An owner clock reading 0 has no time yet, so the grid waits for its
+	 * first reading rather than anchoring at the epoch, where the first real
+	 * reading would repay a window per bucket and empty the cache.
+	 */
+	public function test_an_owner_clock_reading_zero_arms_the_grid_at_its_first_reading(): void {
+		$evicted   = [];
+		$stream    = 0.0;
+		Core::$now = 1900000000.0;
+		$cache     = ( new LRU_Cache( 100, 3 ) )->with_timed_rotation(
+			200.0,
+			function ( $k ) use ( &$evicted ) {
+				$evicted[] = $k;
+			},
+			static function () use ( &$stream ): float {
+				return $stream;
+			}
+		);
+		$cache->rotate_if_due();
+		$cache->set( 'opened-6630', 'req' );
+
+		$stream = 1300000150.0;
+		$cache->rotate_if_due();
+		$this->assertSame( 0, $cache->get_state()['current'], 'the first reading arms the grid, it rolls nothing' );
+
+		$stream = 1300000200.0;
+		$cache->rotate_if_due();
+		$this->assertSame( 1, $cache->get_state()['current'], 'the first boundary after that reading rolls once' );
+		$this->assertSame( [], $evicted );
+	}
+
+	/**
+	 * The first entry stored once the owner clock has a time arms the grid
+	 * there, so a stall's windows count from when it landed rather than from
+	 * whenever the next tick happens to look.
+	 */
+	public function test_the_first_entry_stored_on_an_owner_clock_arms_the_grid(): void {
+		$stream    = 0.0;
+		Core::$now = 1900000000.0;
+		$cache     = ( new LRU_Cache( 100, 3 ) )->with_timed_rotation(
+			200.0,
+			static fn () => null,
+			static function () use ( &$stream ): float {
+				return $stream;
+			}
+		);
+
+		$stream = 1300000150.0;
+		$cache->set( 'landed-2291', 'req' );
+		$stream = 1300000200.0;
+		$cache->rotate_if_due();
+
+		$this->assertSame( 1, $cache->get_state()['current'], 'the boundary after it landed rolls' );
+	}
+
+	/**
+	 * A restored cache whose owner clock has no reading yet keeps the
+	 * boundary it adopted: a tick at 0 neither re-anchors the grid nor rolls,
+	 * so the first real stamp finds the restored entries still in flight.
+	 */
+	public function test_a_tick_before_the_owner_clocks_first_reading_keeps_the_restored_grid(): void {
+		$evicted  = [];
+		$on_evict = function ( $k ) use ( &$evicted ) {
+			$evicted[] = $k;
+		};
+		$stream   = 1700000130.0;
+		$clock    = static function () use ( &$stream ): float {
+			return $stream;
+		};
+		$cache    = ( new LRU_Cache( 100, 3 ) )->with_timed_rotation( 360.0, $on_evict, $clock );
+		$cache->set( 'inflight-5187', 'req' );
+		$state = $cache->get_state();
+
+		$stream = 0.0;
+		$cache  = ( new LRU_Cache( 100, 3 ) )->with_timed_rotation( 360.0, $on_evict, $clock );
+		$cache->restore_state( $state );
+		$cache->rotate_if_due();
+		$this->assertSame( $state['next_window'], $cache->get_state()['next_window'], 'no reading, no re-anchor' );
+
+		$stream = 1700000170.0;
+		$cache->set( 'opened-9921', 'req' );
+		$cache->rotate_if_due();
+
+		$this->assertSame( [], $evicted, 'the first stamp sits inside the restored window' );
+		$this->assertSame( 'req', $cache->get( 'inflight-5187' ) );
 	}
 
 	/**

@@ -282,12 +282,15 @@ class Bootstrap {
 	/**
 	 * The stale threshold one topology declares, or the default.
 	 *
-	 * Every consumer that starts from a TYPE rather than a descriptor reads it
-	 * here: `CLI::ls_workers()` behind `wp nodes status`, and the render lease
-	 * nuclear-gyrobase hands its Perl child. A consumer that judges staleness
+	 * A consumer that starts from one TYPE rather than a descriptor reads it
+	 * here, as the render lease nuclear-gyrobase hands its Perl child does;
+	 * `CLI` reads the same entry off its own one read of the active set for a
+	 * whole scan. A consumer that judges staleness
 	 * for itself falls back to the flat default, calling a worker on a topology
 	 * that raised its threshold dead while the peer scan correctly leaves it
 	 * running. One heartbeat, one threshold.
+	 *
+	 * @api Called from consumer plugins (cross-repo, invisible here).
 	 *
 	 * @param string $type The topology name.
 	 * @return int Seconds.
@@ -323,10 +326,15 @@ class Bootstrap {
 	}
 
 	/**
-	 * Schedule the reconcile cron at minute cadence — the activation hook, and
-	 * the self-heal re-arm. The `true` fifth argument asks `wp_schedule_event()`
-	 * for a WP_Error, so a refused schedule reports its own code and message
-	 * rather than a bare false.
+	 * Schedule the reconcile cron at minute cadence, then install the wpdb
+	 * Tables' schema when its option records another — the activation hook,
+	 * and the self-heal re-arm, which so sends no DDL on an admin page load
+	 * while the schema is current. The `true` fifth argument asks
+	 * `wp_schedule_event()` for a WP_Error, so a refused schedule reports its
+	 * own code and message rather than a bare false. A refused install is
+	 * logged rather than thrown, so activation and every admin page survive
+	 * it; a wpdb Table's first use installs again, and the `wpdb-schema`
+	 * health row reports a table that does not answer.
 	 */
 	public static function activate(): void {
 		// An unsalted install has a computable cache scope.
@@ -345,6 +353,11 @@ class Bootstrap {
 					)
 				);
 			}
+		}
+		try {
+			Wpdb_Arm::install_if_outdated();
+		} catch ( \RuntimeException $e ) {
+			Core::print_less_often( 'wpdb schema install failed: ', $e->getMessage() );
 		}
 	}
 
@@ -596,7 +609,7 @@ class Bootstrap {
 	 * @param array<string,mixed> $entries `get_topologies()`.
 	 * @return array{0: array<string,array<array-key,mixed>>, 1: array<string,\Throwable>}
 	 */
-	private static function split_readable( array $entries ): array {
+	public static function split_readable( array $entries ): array {
 		$names    = self::active_names();
 		$failures = Worker_Should_Stop::attempt_each(
 			\array_combine( $names, $names ),

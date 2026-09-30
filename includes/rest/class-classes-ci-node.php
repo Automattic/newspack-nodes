@@ -50,10 +50,15 @@ class Classes_CI_Node extends Service_CI_Node {
 		'action'   => 'flag',
 	];
 
-	/** What a request entry carries past `strip_entries()`: `args` and `reply_shape`, where declared. */
+	/**
+	 * What a request entry carries past `strip_entries()`: `args`,
+	 * `reply_shape` and `value` — `struct` for a TM_REQUEST|TM_STRUCT whose
+	 * VALUE is a structure (ADR-23) — where declared.
+	 */
 	private const REQUEST_FIELDS = [
 		'args'        => 'if_set',
 		'reply_shape' => 'string',
+		'value'       => 'string',
 	];
 
 	/**
@@ -115,17 +120,16 @@ class Classes_CI_Node extends Service_CI_Node {
 				if ( 'Hidden' === $cat || '' === $cat || ! empty( $schema['hidden'] ) ) {
 					continue;
 				}
-				$seen[ $fqcn ]   = true;
-				$schema_commands = $schema['commands'] ?? [];
-				$classes[]       = [
+				$seen[ $fqcn ] = true;
+				$classes[]     = [
 					'shell_name'     => \substr( $short, 0, -\strlen( '_Node' ) ),
 					'fqcn'           => $fqcn,
 					'category'       => $cat,
 					'description'    => $schema['description'] ?? '',
 					'arguments'      => $schema['arguments']   ?? [],
 					// Strip non-serializable handler; keep palette fields.
-					'commands'       => self::strip_entries( Core::arr( $schema_commands ), self::COMMAND_FIELDS ),
-					'requests'       => self::strip_entries( Core::arr( $schema['requests'] ?? [] ), self::REQUEST_FIELDS ),
+					'commands'       => self::strip_entries( self::declared_verbs( $fqcn ), self::COMMAND_FIELDS ),
+					'requests'       => self::strip_entries( self::declared_verbs( $fqcn, 'requests' ), self::REQUEST_FIELDS ),
 					// Valid register events; inspector UI lists them per node.
 					'registrations'  => $schema['registrations'] ?? [],
 					'accepts_fill'   => (bool) ( $schema['accepts_fill'] ?? true ),
@@ -152,32 +156,26 @@ class Classes_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Strip node_schema entries — `commands[]` or `requests[]` — to the
-	 * serializable fields the console renders: `name` and `description`, then
-	 * each field `$fields` names, kept by its rule. The non-serializable
-	 * `handler`, the `capability` the base gate enforces server-side, and any
-	 * field no rule names stay server-side, so the strip fails closed.
+	 * Strip declared verbs — `commands[]` or `requests[]`, as
+	 * `declared_verbs()` indexes them — to the serializable fields the console
+	 * renders: `name` and `description`, then each field `$fields` names, kept
+	 * by its rule. The non-serializable `handler`, the `capability`
+	 * `dispatch()` enforces server-side, and any field no rule names stay
+	 * server-side, so the strip fails closed.
 	 *
 	 * Rules: `always` keeps the value, `[]` when absent; `if_set` keeps a set
 	 * value; `string` keeps a set value as a string; `flag` keeps `true` for a
-	 * non-empty value. Fail-soft: a non-array or nameless entry is skipped
-	 * rather than thrown, because one bad class must not fatal the whole
-	 * catalog `dump`. Returns a list, which the palette consumes as a JSON array.
+	 * non-empty value. The index has already dropped a non-array or nameless
+	 * entry, so one bad class cannot fatal the whole catalog `dump`. Returns a
+	 * list, which the palette consumes as a JSON array.
 	 *
-	 * @param array<int|string,mixed>                          $entries Raw entries from a node_schema.
+	 * @param array<string,array<array-key,mixed>>             $entries Verb name => declaration.
 	 * @param array<string,'always'|'if_set'|'string'|'flag'> $fields  Field => keep rule.
 	 * @return list<array<string,mixed>>
 	 */
 	private static function strip_entries( array $entries, array $fields ): array {
 		$stripped = [];
-		foreach ( $entries as $entry ) {
-			if ( ! \is_array( $entry ) ) {
-				continue;
-			}
-			$name = Core::as_string( $entry['name'] ?? '' );
-			if ( '' === $name ) {
-				continue;
-			}
+		foreach ( $entries as $name => $entry ) {
 			$kept = [
 				'name'        => $name,
 				'description' => Core::as_string( $entry['description'] ?? '' ),
@@ -201,8 +199,8 @@ class Classes_CI_Node extends Service_CI_Node {
 
 	/**
 	 * The manifest and the verb table in one declaration: `Service_CI_Node`
-	 * builds the dispatch table from `commands[]` and gates each handler at the
-	 * capability its entry names.
+	 * builds the dispatch table from `commands[]`, and `dispatch()` refuses a
+	 * caller below the capability each entry names (ADR-26).
 	 *
 	 * `dump` is READ because it exposes class metadata and nothing else — no
 	 * fleet state, no credentials — so a dashboard-only role can fill a palette.

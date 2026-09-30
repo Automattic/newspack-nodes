@@ -5,16 +5,12 @@
  *
  * A service interpreter declares each verb ONCE, in `node_schema()`, and this
  * base turns that declaration into a working command surface: a dispatch table
- * derived from the schema, `Capabilities::require()` wrapped around every
- * handler for the role the schema names, and the helpers the verbs share
- * (`require_valid_name`, `slice_verb`). Each verb's declared `args` are bound
- * by `Command_Interpreter_Node::dispatch()` before its handler runs, so a
- * handler reads its arguments by name. A hand-built verb table beside the
- * schema names every verb twice, and the two drift.
- *
- * The capability wrap is the substrate's single enforcement point for command
- * authorization, so it lives in `commands()` — the one door a table can enter
- * through — rather than in the constructor.
+ * derived from the schema, and the helpers the verbs share
+ * (`require_valid_name`, `slice_verb`). `Command_Interpreter_Node::dispatch()`
+ * refuses each verb against the role its schema names (ADR-26) and binds its
+ * declared `args` before the handler runs, so a handler neither checks a role
+ * nor parses. A hand-built verb table beside the schema names every verb
+ * twice, and the two drift.
  *
  * The helpers are `protected static` so a verb-table closure reaches them as
  * `self::method()`. `self::` resolves at compile time inside the closure's
@@ -37,7 +33,7 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * Schema-derived, capability-gated verb dispatch for service interpreters.
+ * Schema-derived verb dispatch for service interpreters.
  */
 abstract class Service_CI_Node extends Command_Interpreter_Node {
 
@@ -48,84 +44,14 @@ abstract class Service_CI_Node extends Command_Interpreter_Node {
 	 */
 	public function __construct() {
 		parent::__construct();
-		$this->commands( self::commands_from_schema( static::node_schema() ) );
+		$this->commands( self::commands_from_schema() );
 	}
 
 	/**
-	 * Install or read the verb table, wrapping EVERY handler in its capability
-	 * check on the way in.
-	 *
-	 * Gating on install rather than in the constructor is what makes the gate a
-	 * property of the class: `commands()` is public and mutating while
-	 * `dispatch()` reads the table at call time, so a table installed after
-	 * construction — by a subclass, or by anything holding the node — replaces
-	 * the gated handlers wholesale, and the verbs then work for everyone with
-	 * nothing thrown and nothing logged. This is also where the parent's
-	 * ungated `help` injection is caught: seeding a gated `help` first denies
-	 * the parent the chance.
-	 *
-	 * Gating happens on INSTALL only, so a read never stacks a second check.
-	 *
-	 * @param array<string,callable>|null $table Table to install, or null to read.
-	 * @return array<string,callable> The live, gated table.
-	 */
-	public function commands( ?array $table = null ): array {
-		if ( null === $table ) {
-			// A read: whatever is stored was gated when it was installed.
-			return parent::commands();
-		}
-		$gated = self::gate_table( $table, static::node_schema() );
-		if ( ! isset( $gated['help'] ) ) {
-			// Seed our own; the parent would inject an ungated one.
-			$gated['help'] = static function ( Command_Interpreter_Node $self, array $args = [], array $envelope = [] ): string {
-				self::require_manage_options();
-				return $self->default_help();
-			};
-		}
-		return parent::commands( $gated );
-	}
-
-	/**
-	 * Wrap each handler in `Capabilities::require()` for the role its schema
-	 * declares, defaulting to MANAGE, so a verb that declares nothing demands
-	 * the strictest role rather than the loosest.
-	 *
-	 * Roles are read from the same `commands` entries `commands_from_schema()`
-	 * takes handlers from, keyed by verb name, so a table installed by hand is
-	 * gated at whatever role the schema declares for that name.
-	 *
-	 * @param array<string,callable> $table  Verb name => handler.
-	 * @param array<string,mixed>    $schema The concrete class's node_schema().
-	 * @return array<string,callable> The same verbs, each handler gated.
-	 */
-	private static function gate_table( array $table, array $schema ): array {
-		$roles = [];
-		$verbs = $schema['commands'] ?? [];
-		if ( \is_array( $verbs ) ) {
-			foreach ( $verbs as $verb ) {
-				if ( \is_array( $verb ) && isset( $verb['name'] ) ) {
-					$roles[ Core::as_string( $verb['name'] ) ] = Core::as_string(
-						$verb['capability'] ?? Capabilities::MANAGE,
-						Capabilities::MANAGE
-					);
-				}
-			}
-		}
-		$gated = [];
-		foreach ( $table as $name => $handler ) {
-			$role           = $roles[ $name ] ?? Capabilities::MANAGE;
-			$gated[ $name ] = static function ( ...$args ) use ( $handler, $role ) {
-				Capabilities::require( $role );
-				return $handler( ...$args );
-			};
-		}
-		return $gated;
-	}
-
-	/**
-	 * Build the dispatch table (verb name => handler) from a `node_schema()`.
-	 * Only `commands[]` entries carry handlers; `requests[]` are answered by the
-	 * addressed node's own `fill()`, so they contribute no dispatch entry.
+	 * Build the dispatch table (verb name => handler) from the concrete class's
+	 * declared verbs. Only `commands[]` entries carry handlers; `requests[]` are
+	 * answered by the addressed node's own `fill()`, so they contribute no
+	 * dispatch entry.
 	 *
 	 * A named verb without a callable handler is a schema bug: it lists in the
 	 * catalog and in `help`, then dispatches to nothing ("unknown command") at
@@ -134,28 +60,16 @@ abstract class Service_CI_Node extends Command_Interpreter_Node {
 	 * `is_callable` rather than an `instanceof Closure` test is deliberate:
 	 * string and array callables dispatch as well as closures do.
 	 *
-	 * Handlers come out RAW. `commands()` gates every one on the way in, this
-	 * table included.
+	 * Handlers come out RAW: `dispatch()` gates each by the role its entry
+	 * declares.
 	 *
-	 * @param array<string,mixed> $schema The concrete class's node_schema().
 	 * @return array<string,callable> Verb name => ungated handler.
 	 */
-	private static function commands_from_schema( array $schema ): array {
-		$table    = [];
-		$commands = $schema['commands'] ?? [];
-		if ( ! \is_array( $commands ) ) {
-			return $table;
-		}
-		foreach ( $commands as $verb ) {
-			if ( ! \is_array( $verb ) ) {
-				continue;
-			}
-			$verb_name = $verb['name'] ?? '';
-			$name      = Core::as_string( $verb_name );
-			if ( '' === $name ) {
-				continue;
-			}
-			if ( ! isset( $verb['handler'] ) || ! \is_callable( $verb['handler'] ) ) {
+	private static function commands_from_schema(): array {
+		$table = [];
+		foreach ( self::declared_verbs( static::class ) as $name => $verb ) {
+			$handler = $verb['handler'] ?? null;
+			if ( ! \is_callable( $handler ) ) {
 				Core::print_less_often(
 					'Service_CI: verb "',
 					$name,
@@ -163,20 +77,9 @@ abstract class Service_CI_Node extends Command_Interpreter_Node {
 				);
 				continue;
 			}
-			$table[ $name ] = $verb['handler'];
+			$table[ $name ] = $handler;
 		}
 		return $table;
-	}
-
-	/**
-	 * Authorisation gate for the MANAGE role, resolved through the filterable
-	 * `Capabilities` map. `Command_Interpreter_Node::interpret()` catches the
-	 * throw and wraps it as TM_COMMAND|TM_ERROR.
-	 *
-	 * @throws \RuntimeException When the current user lacks the manage role.
-	 */
-	protected static function require_manage_options(): void {
-		Capabilities::require( Capabilities::MANAGE );
 	}
 
 	/**
@@ -190,7 +93,7 @@ abstract class Service_CI_Node extends Command_Interpreter_Node {
 	 * what comes back. A shape reads the CI's memoized snapshot (for example
 	 * `$ci->items()`) and returns the one slice it owns, so slices polled
 	 * separately still agree about what they saw. The handler never self-gates:
-	 * `commands()` wraps it with the role its schema entry declares.
+	 * `dispatch()` refuses a caller below the role its schema entry declares.
 	 *
 	 * @param callable $shape A `function ( Command_Interpreter_Node $ci ): mixed` returning the slice payload.
 	 * @return \Closure The verb handler.

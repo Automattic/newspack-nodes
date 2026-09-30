@@ -8,7 +8,7 @@ const topo = ( name, o = {} ) => ( {
 	health: o.health ?? 'ok',
 	status: o.workers ? { workers: o.workers } : null,
 } );
-const wk = ( partition, status = 'running' ) => ( { partition, status } );
+const wk = ( partition, state = 'live' ) => ( { partition, state } );
 const card = ( c, mod ) =>
 	c.querySelector( `.nodes-card--${ mod }` ).textContent;
 

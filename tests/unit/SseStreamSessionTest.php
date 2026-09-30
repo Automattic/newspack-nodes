@@ -139,6 +139,17 @@ class SseStreamSessionTest extends TestCase {
 		$this->assertEqualsWithDelta( 4242, $calls[0][1]['ttl'], 2 );
 	}
 
+	public function test_the_lease_index_takes_the_life_the_sessions_row_has_left(): void {
+		$session = Command_Auth::mint_session( \Newspack_Nodes\Capabilities::READ, 4242 );
+		\Newspack_Nodes\Table_Node::table( Command_Auth::SESSIONS_TABLE, 900, 'wpdb' )->touch( $session['handle'], 5151 );
+
+		[ , $calls ] = $this->stream_refused_at_acquire(
+			[ 'subscribe' => 'combined.p7', 'session' => $session['handle'], 'stream' => 'console.p7:sse-in' ]
+		);
+
+		$this->assertEqualsWithDelta( 5151, $calls[0][1]['ttl'], 2, 'the row\'s moved expiry, not the one stamped at mint' );
+	}
+
 	public function test_a_session_stream_naming_no_stream_takes_no_takeover_key(): void {
 		$session = Command_Auth::mint_session();
 

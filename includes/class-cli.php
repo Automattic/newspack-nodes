@@ -25,6 +25,9 @@ namespace Newspack_Nodes;
  */
 class CLI {
 
+	/** Every word `worker_states()` answers, the order a roll-up reports them in. */
+	public const WORKER_STATES = [ 'live', 'stale', 'held', 'idle', 'down' ];
+
 	/**
 	 * uid-source seam replacing the one `posix_geteuid()` call. Every uid
 	 * question in the substrate resolves through `uid()`: the root refusal on
@@ -180,30 +183,6 @@ class CLI {
 	}
 
 	/**
-	 * Parse `{type}.p{N}` into [type, partition], the inverse of `worker_id()`.
-	 *
-	 * The type match is greedy, so a dotted topology name keeps its dots and
-	 * only the FINAL `.p{N}` reads as the partition: `foo.bar.p3` is partition 3
-	 * of `foo.bar`, never partition 3 of `foo` inside something called `bar`.
-	 *
-	 * Only a spelling `worker_id()` can write parses. The type carries no `/`
-	 * and no NUL, because the id is one path segment of the lock and IPC trees
-	 * and one segment of a node path; the partition carries no leading zero,
-	 * because `x.p03` would resolve to the lock `x.p3` holds while naming an
-	 * IPC tree nothing reads.
-	 *
-	 * @param string $worker_id Worker id.
-	 * @return array{0:string,1:int}|null Type and partition; null when the id
-	 *                                    is no worker's spelling.
-	 */
-	public static function parse_worker_id( string $worker_id ): ?array {
-		if ( ! \preg_match( '/^([^\/\x00]+)\.p(0|[1-9][0-9]*)$/D', $worker_id, $m ) ) {
-			return null;
-		}
-		return [ $m[1], (int) $m[2] ];
-	}
-
-	/**
 	 * The latest stats record in the shared topicprobe log for each reader in
 	 * its tail, keyed by reader id — the basename of that consumer's offsetlog
 	 * dir, which is what tells two readers of one partition apart — each with
@@ -233,27 +212,156 @@ class CLI {
 
 	/**
 	 * Every worker lock dir under this tree, sorted by type then partition, each
-	 * with its heartbeat time, start time and staleness. The dirs are the ones
-	 * `Spawn_Coordinator::worker_lock_dirs()` reads, so status lists exactly the
-	 * set the fleet reconciles.
+	 * with its heartbeat time, start time and staleness, as `lock_rows()`
+	 * reads them against one read of the active topologies.
 	 *
-	 * Staleness is judged against the threshold the worker's OWN topology
-	 * declares (`Bootstrap::stale_timeout_for()`), never a flat one: a topology
-	 * that lifts its threshold because its work is legitimately slow would
-	 * otherwise read as down here while the peer scan correctly leaves it up.
-	 * One `time()` serves the whole scan, so every worker is judged against the
-	 * same clock.
-	 *
-	 * @return array<int,array{id:string,type:string,partition:int,heartbeat_at:int,started_at:int,stale:bool}>
+	 * @return list<array{id:string,type:string,partition:int,heartbeat_at:int,started_at:int,stale:bool}>
 	 */
 	public function ls_workers(): array {
+		return $this->lock_rows( Bootstrap::get_topologies() );
+	}
+
+	/**
+	 * Every slot the active set declares, one per partition of each topology,
+	 * keyed by worker id: the slots `worker_states()` classifies.
+	 *
+	 * @param array<string,mixed> $topologies The active set, `Bootstrap::get_topologies()`.
+	 * @return array<string,array{0:string,1:int}> Worker id => type and partition.
+	 */
+	public static function slot_ids( array $topologies ): array {
+		$slots = [];
+		foreach ( $topologies as $type => $entry ) {
+			for ( $p = 0, $n = Bootstrap::partitions_of( Core::arr( $entry ) ); $p < $n; ++$p ) {
+				$slots[ self::worker_id( $type, $p ) ] = [ $type, $p ];
+			}
+		}
+		return $slots;
+	}
+
+	/**
+	 * Spell the worker id `{type}.p{N}`, the inverse of `parse_worker_id()`.
+	 *
+	 * The id names a worker everywhere it is addressed: its lock dir, its IPC
+	 * tree, its REPL partition, its stop label and the fleet's liveness keys.
+	 *
+	 * @param string $type      Worker type, a topology name.
+	 * @param int    $partition Partition index.
+	 * @return string The worker id.
+	 */
+	public static function worker_id( string $type, int $partition ): string {
+		return "{$type}.p{$partition}";
+	}
+
+	/**
+	 * Each slot's state, the one word every surface reports: `wp nodes
+	 * status`, `wp nodes tables`, the Workers dashboard through `dump_graph`,
+	 * and `Alerts`. A slot holding a lock is `live` or `stale` by its heartbeat,
+	 * as `Lock_Node::heartbeat_is_stale()` judges it: a lock dir with no
+	 * heartbeat file is live inside the orphan grace, a worker acquiring, and
+	 * stale past it. A slot holding none is
+	 * `held` while the fleet is held, `idle` where its topology declares an
+	 * on-demand idle window, and `down` otherwise.
+	 *
+	 * One pass judges every lock's stale timeout and every lockless slot's
+	 * idle window off the active set the caller already read, and reads the
+	 * hold once, so a caller classifies its whole fleet here rather than slot
+	 * by slot. `$leftovers` adds every other lock dir after the slots, as
+	 * `wp nodes status` lists a worker winding down; without it no lock dir
+	 * outside `$worker_ids` is read.
+	 *
+	 * @param list<string>        $worker_ids The slots the caller expects, as `worker_id()` spells them.
+	 * @param array<string,mixed> $topologies The active set, `Bootstrap::get_topologies()`.
+	 * @param bool                $leftovers  Whether every other lock dir follows the slots.
+	 * @return array<string,array{lock:array{id:string,type:string,partition:int,heartbeat_at:int,started_at:int,stale:bool}|null,state:string}> Each expected slot in order, then any leftover lock dir, keyed by worker id; the state is one of `WORKER_STATES`.
+	 */
+	public function worker_states( array $worker_ids, array $topologies, bool $leftovers ): array {
+		$locks = [];
+		foreach ( $this->lock_rows( $topologies, $leftovers ? null : \array_flip( $worker_ids ) ) as $lock ) {
+			$locks[ $lock['id'] ] = $lock;
+		}
+		$held   = Spawn_Coordinator::hold() > 0;
+		$states = [];
+		foreach ( $worker_ids as $id ) {
+			$type          = self::parse_worker_id( $id )[0] ?? '';
+			$states[ $id ] = self::slot_state( $locks[ $id ] ?? null, $held, Core::arr( $topologies[ $type ] ?? [] ) );
+			unset( $locks[ $id ] );
+		}
+		foreach ( $locks as $id => $lock ) {
+			$states[ $id ] = self::slot_state( $lock, $held, [] );
+		}
+		return $states;
+	}
+
+	/**
+	 * One slot's lock row beside its state.
+	 *
+	 * @param array{id:string,type:string,partition:int,heartbeat_at:int,started_at:int,stale:bool}|null $lock  Its lock row; null for no lock.
+	 * @param bool                                                                                         $held  Whether the fleet is held.
+	 * @param array<array-key,mixed>                                                                       $entry Its topology's active entry; empty when none.
+	 * @return array{lock:array{id:string,type:string,partition:int,heartbeat_at:int,started_at:int,stale:bool}|null,state:string}
+	 */
+	private static function slot_state( ?array $lock, bool $held, array $entry ): array {
+		if ( null !== $lock ) {
+			$state = $lock['stale'] ? 'stale' : 'live';
+		} elseif ( $held ) {
+			$state = 'held';
+		} else {
+			$state = Bootstrap::on_demand_idle_of( $entry ) > 0 ? 'idle' : 'down';
+		}
+		return [
+			'lock'  => $lock,
+			'state' => $state,
+		];
+	}
+
+	/**
+	 * Parse `{type}.p{N}` into [type, partition], the inverse of `worker_id()`.
+	 *
+	 * The type match is greedy, so a dotted topology name keeps its dots and
+	 * only the FINAL `.p{N}` reads as the partition: `foo.bar.p3` is partition 3
+	 * of `foo.bar`, never partition 3 of `foo` inside something called `bar`.
+	 *
+	 * Only a spelling `worker_id()` can write parses. The type carries no `/`
+	 * and no NUL, because the id is one path segment of the lock and IPC trees
+	 * and one segment of a node path; the partition carries no leading zero,
+	 * because `x.p03` would resolve to the lock `x.p3` holds while naming an
+	 * IPC tree nothing reads.
+	 *
+	 * @param string $worker_id Worker id.
+	 * @return array{0:string,1:int}|null Type and partition; null when the id
+	 *                                    is no worker's spelling.
+	 */
+	public static function parse_worker_id( string $worker_id ): ?array {
+		if ( ! \preg_match( '/^([^\/\x00]+)\.p(0|[1-9][0-9]*)$/D', $worker_id, $m ) ) {
+			return null;
+		}
+		return [ $m[1], (int) $m[2] ];
+	}
+
+	/**
+	 * Every lock dir's row, judged against the stale threshold its OWN
+	 * topology declares in `$topologies`, never a flat one: a topology that
+	 * lifts its threshold because its work is legitimately slow would
+	 * otherwise read as down here while the peer scan correctly leaves it up.
+	 * The dirs are the ones `Spawn_Coordinator::worker_lock_dirs()` reads, so
+	 * status lists exactly the set the fleet reconciles, and one `time()`
+	 * judges every worker against the same clock.
+	 *
+	 * @param array<string,mixed>  $topologies The active set, `Bootstrap::get_topologies()`.
+	 * @param array<string,mixed>|null $only   Worker ids to read, as keys; null reads every lock dir.
+	 * @return list<array{id:string,type:string,partition:int,heartbeat_at:int,started_at:int,stale:bool}>
+	 */
+	private function lock_rows( array $topologies, ?array $only = null ): array {
 		$now     = \time();
 		$workers = [];
 		foreach ( Spawn_Coordinator::worker_lock_dirs( $this->base_dir ) as $dir => $lock ) {
+			if ( null !== $only && ! isset( $only[ $lock['id'] ] ) ) {
+				continue;
+			}
 			$workers[] = $lock + self::lock_liveness(
 				$dir,
 				$now,
-				Bootstrap::stale_timeout_for( $lock['type'] )
+				Lock_Node::stale_timeout_of( Core::arr( $topologies[ $lock['type'] ] ?? [] ) )
 			);
 		}
 		\usort( $workers, fn ( $a, $b ) =>
@@ -268,7 +376,7 @@ class CLI {
 	 * A lock dir carrying neither file reports 0 for both times rather than
 	 * null, so the status table selects its dash off a plain `> 0`. The
 	 * staleness verdict is `Lock_Node`'s, which reads a missing heartbeat as
-	 * stale.
+	 * stale once the lock dir is past the orphan grace.
 	 *
 	 * @param string $dir           The `.lock.d` directory.
 	 * @param int    $now           Clock, so one scan judges every worker alike.
@@ -317,43 +425,52 @@ class CLI {
 	/**
 	 * Open a command channel to a worker: a Partition named for the worker,
 	 * appending to its input and sinking into `$commands`, and a Consumer
-	 * reading its output from the end onward into `$replies`, stamping the
-	 * worker's id at the head of each reply's FROM. The attached REPL and
-	 * `wp nodes tables` each talk to a worker through one.
+	 * reading its output from the end onward into this session's gate,
+	 * stamping the worker's id at the head of each reply's FROM. The attached
+	 * REPL and `wp nodes tables` each talk to a worker through one.
 	 *
-	 * @param array{id:string,input:string,output:string} $ipc      From attach_to_worker().
-	 * @param Node                                        $commands Where the input Partition sinks.
-	 * @param Node                                        $replies  Where each reply read goes.
-	 * @return list<Node> The Partition and the Consumer, for a caller to tear down.
+	 * Every process attached to a worker tails the same output partition, so
+	 * the gate, an `HTTP_Filter_Node` named `<worker-id>:replies`, keeps only
+	 * the replies addressed `reply_head( $session )`, stripped of that head.
+	 * An unaddressed message, a worker's broadcast, passes only to a target
+	 * the caller sets on the gate: the REPL renders them, and a caller routing
+	 * replies by address sets none.
+	 *
+	 * @param array{id:string,input:string,output:string} $ipc        From attach_to_worker().
+	 * @param Node                                        $commands   Where the input Partition sinks.
+	 * @param Node                                        $replies    Where the gate sends this session's replies.
+	 * @param string                                      $session    This process's session id, its pid.
+	 * @return array{0:Partition_Node,1:Consumer_Node,2:HTTP_Filter_Node} The Partition, the Consumer and the gate, for a caller to tear down.
 	 */
-	public static function open_channel( array $ipc, Node $commands, Node $replies ): array {
+	public static function open_channel( array $ipc, Node $commands, Node $replies, string $session ): array {
 		// No allow_large_writes: several sessions append here at once.
 		$input = new Partition_Node();
 		$input->arguments( Worker_Base::ipc_partition_args( $ipc['input'] ) );
 		$input->name( $ipc['id'] );
 		$input->sink( $commands );
+		$gate = new HTTP_Filter_Node( self::reply_head( $session ) );
+		$gate->name( "{$ipc['id']}:replies" );
+		$gate->sink( $replies );
 		// The reply leg is ephemeral: no offsetlog_dir, no cursor.
 		$output = new Consumer_Node();
 		$output->arguments( [ $ipc['output'] ] );
 		$output->next_offset( 'end' );
 		// The stamp heads FROM; the worker's own path becomes the tail.
 		$output->set_stamp_as( $ipc['id'] );
-		$output->sink( $replies );
-		return [ $input, $output ];
+		$output->sink( $gate );
+		return [ $input, $output, $gate ];
 	}
 
 	/**
-	 * Spell the worker id `{type}.p{N}`, the inverse of `parse_worker_id()`.
+	 * The prefix a cli session's reply address carries,
+	 * `_output/_cli:<session>`: the `_output` boundary every attached reply
+	 * shares on a worker's output Partition, then the session head.
 	 *
-	 * The id names a worker everywhere it is addressed: its lock dir, its IPC
-	 * tree, its REPL partition, its stop label and the fleet's liveness keys.
-	 *
-	 * @param string $type      Worker type, a topology name.
-	 * @param int    $partition Partition index.
-	 * @return string The worker id.
+	 * @param string $session The cli process's session id, its pid.
+	 * @return string The prefix the Shell and `wp nodes tables` mint FROM under.
 	 */
-	public static function worker_id( string $type, int $partition ): string {
-		return "{$type}.p{$partition}";
+	public static function reply_head( string $session ): string {
+		return Message::join_path( Node_Names::OUTPUT, HTTP_Filter_Node::head( Node_Names::CLI, $session ) );
 	}
 
 	/**
@@ -421,6 +538,20 @@ class CLI {
 			$targets[] = [ $type, $p ];
 		}
 		return Spawn_Coordinator::signal_workers( $this->base_dir, $targets, Lock_Node::request_restart_at( ... ) );
+	}
+
+	/**
+	 * Print a verb's rows as its `--format` flag asks: JSON as they stand, a
+	 * table through `$readable`, which shapes one row for reading.
+	 *
+	 * @param array<string,mixed>                                  $assoc_args The verb's flags; `format` is read.
+	 * @param list<array<string,mixed>>                            $rows       Rows.
+	 * @param list<string>                                         $columns    Column order.
+	 * @param \Closure(array<string,mixed>): array<string,mixed> $readable   One row as a table prints it.
+	 */
+	public static function print_rows( array $assoc_args, array $rows, array $columns, \Closure $readable ): void {
+		$json = 'json' === ( $assoc_args['format'] ?? 'table' );
+		\WP_CLI\Utils\format_items( $json ? 'json' : 'table', $json ? $rows : \array_map( $readable, $rows ), $columns );
 	}
 
 	/**

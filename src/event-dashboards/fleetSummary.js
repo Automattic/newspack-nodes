@@ -6,7 +6,7 @@
  * Worker liveness counts against each active topology's CONFIGURED
  * `num_partitions`, never the partitions that happened to report a worker in
  * the last snapshot — that reads "1 / 1" straight through an outage instead of
- * "1 / 2". The running side folds through `partitionSummaries()`, the fold
+ * "1 / 2". The live side folds through `partitionSummaries()`, the fold
  * TopologyRow and useTopologyManager share, so it counts worker PROCESSES
  * rather than the several rows each process contributes.
  */
@@ -52,11 +52,11 @@ export function fleetSummary( topologies ) {
 	let stalledCount = 0;
 	for ( const t of actives ) {
 		const expected = t.num_partitions > 0 ? t.num_partitions : 1;
-		const running = partitionSummaries( t.status?.workers || [] ).filter(
-			( p ) => 'running' === p.status
+		const live = partitionSummaries( t.status?.workers || [] ).filter(
+			( p ) => 'live' === p.state
 		).length;
 		workersTotal += expected;
-		workersUp += Math.min( running, expected );
+		workersUp += Math.min( live, expected );
 
 		if ( 'stalled' === t.health ) {
 			stalledCount++;

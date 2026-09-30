@@ -594,6 +594,7 @@ trait Dead_Letter_Queue {
 		return [
 			[
 				'name'        => 'dl_list',
+				'capability'  => Capabilities::READ,
 				'description' => 'List quarantined dead-letter records newest-first (reason, attempts, first_crash_ts, quarantine ts, source breadcrumb, sidecar locator). Optional limit (default ' . self::DEADLETTER_LIST_DEFAULT_LIMIT . ').',
 				'hidden'      => true,
 				'args'        => [
@@ -603,6 +604,7 @@ trait Dead_Letter_Queue {
 			],
 			[
 				'name'        => 'dl_show',
+				'capability'  => Capabilities::READ,
 				'description' => 'Decode the dead-letter record at <locator> (segment:offset:length from dl_list) — envelope fields + VALUE, read-only.',
 				'hidden'      => true,
 				'args'        => [

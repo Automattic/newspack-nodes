@@ -15,6 +15,10 @@
  * A subclass computing its own boundary, or a hook naming a class, works
  * until a second cadence or a second bundle arrives.
  *
+ * Two rules read PHP: a verb checking its own role, which `dispatch()` does
+ * against the role the verb declares (ADR-26), and a durable arm built
+ * outside the Table that owns it (ADR-24).
+ *
  * See ADR-7, AGENTS.md ("A reply is already addressed — never correlate it")
  * and docs/architecture-guide.md on the response envelope.
  *
@@ -25,15 +29,16 @@
  *
  *     node scripts/lint-contract.mjs [paths…]
  *
- * With no paths it walks `src/` and `examples/`; lint-staged hands it the
- * staged files. Every
+ * With no paths it walks `src/`, `examples/` and `includes/`; lint-staged
+ * hands it the staged files. Every
  * violation prints as `file:line [id] why` and the process exits 1. One line
  * may opt out with `contract-ok:` and a reason on it; a whole file that
  * implements the routing belongs in EXEMPT instead.
  */
 
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import { walkFiles } from './lib/walk-files.mjs';
 
 /**
  * The plugin directory the gate runs in. Violations are reported relative to
@@ -106,10 +111,11 @@ if ( ! BUILTIN?.size ) {
 }
 
 /**
- * The rules, each a regex tested against a single source line. `id` names the
- * shape in the output, `why` is the sentence a developer reads there, and an
- * optional `skip` receives the match and waves a hit through — how the two
- * name-lookup rules let the builtin classes past.
+ * The rules, each a regex tested against a single source line of the language
+ * `lang` names, JavaScript when absent. `id` names the shape in the output,
+ * `why` is the sentence a developer reads there, and an optional `skip`
+ * receives the match and the file and waves a hit through — how the two
+ * name-lookup rules let the builtin classes past, and the arm rule its Table.
  */
 const RULES = [
 	{
@@ -167,45 +173,40 @@ const RULES = [
 		skip: ( match ) => ! BUILTIN?.size || BUILTIN.has( match[ 1 ] ),
 		why: "resolving a bundle-registered node class by NAME: the class map is a per-bundle static, so a station tab building its graph through another bundle's interpreter cannot resolve it — hand makeNode the class",
 	},
+	{
+		id: 'scope-check-in-handler',
+		lang: 'php',
+		test: /scope_covers\(\s*Capabilities::\$session_scope|Capabilities::require\(/,
+		skip: ( match, rel ) => 'includes/class-capabilities.php' === rel,
+		why: 'a verb checking its own role: declare the role in node_schema and dispatch() refuses it (ADR-26)',
+	},
+	{
+		id: 'durable-arm-outside-table',
+		lang: 'php',
+		test: /new\s+\\?(?:Newspack_Nodes\\)?(?:Wpdb|Sqlite)_Arm\s*\(/,
+		skip: ( match, rel ) => 'includes/class-table-node.php' === rel,
+		why: 'a durable arm built outside its Table: build the Table, which owns the arm, its keys and its counters (ADR-24)',
+	},
 ];
 
+/** The language a file is scanned as, by its extension; null for neither. */
+const langOf = ( file ) => {
+	if ( /\.php$/.test( file ) ) {
+		return 'php';
+	}
+	return /\.(js|jsx|mjs|cjs)$/.test( file ) ? 'js' : null;
+};
+
 /**
- * Every JavaScript file under `dir`, recursively.
- *
- * `node_modules`, `.git` and `build` are not this plugin's source, and a
- * `__tests__` file spells the forbidden shapes out on purpose — a test stamps
- * `message[ ID ]` and calls `makeNode( 'Dumper' )` to prove the runtime
- * resolves a name.
- *
- * @param {string}        dir Directory to walk.
- * @param {Array<string>} out Accumulator, appended to and returned.
- * @return {Array<string>} Absolute paths of the files to scan.
+ * Is this a test file? A `__tests__` or `tests/` file spells the forbidden
+ * shapes out on purpose — a PHP test builds an arm directly, and a JS test
+ * stamps `message[ ID ]` and calls `makeNode( 'Dumper' )` to prove the
+ * runtime resolves a name.
  */
-function walk( dir, out = [] ) {
-	// A plugin with no JS at all has nothing to scan, and that is not an error.
-	if ( ! existsSync( dir ) ) {
-		return out;
-	}
-	for ( const entry of readdirSync( dir ) ) {
-		if (
-			'node_modules' === entry ||
-			'.git' === entry ||
-			'build' === entry
-		) {
-			continue;
-		}
-		const full = join( dir, entry );
-		if ( statSync( full ).isDirectory() ) {
-			walk( full, out );
-		} else if (
-			/\.(js|jsx|mjs|cjs)$/.test( entry ) &&
-			! full.includes( '__tests__' )
-		) {
-			out.push( full );
-		}
-	}
-	return out;
-}
+const isTestPath = ( file ) => /__tests__|\/tests\//.test( file );
+
+/** Is this a file the gate scans: a JS or PHP source that is no test? */
+const isScanned = ( file ) => langOf( file ) && ! isTestPath( file );
 
 /**
  * The roots the no-argument scan walks: the plugin's own JS, and any bundled
@@ -214,7 +215,7 @@ function walk( dir, out = [] ) {
  * example while `npm run lint:js` reported clean. `walk()` returns nothing for
  * a root that does not exist, so a plugin with no examples scans the same.
  */
-const SCAN_ROOTS = [ 'src', 'examples' ];
+const SCAN_ROOTS = [ 'src', 'examples', 'includes' ];
 
 /**
  * The files to scan: the paths given on the command line, or everything under
@@ -224,11 +225,13 @@ const SCAN_ROOTS = [ 'src', 'examples' ];
 const targets = (
 	process.argv.slice( 2 ).length
 		? process.argv.slice( 2 )
-		: SCAN_ROOTS.flatMap( ( root ) => walk( join( ROOT, root ) ) )
-).filter(
-	( file ) =>
-		/\.(js|jsx|mjs|cjs)$/.test( file ) && ! file.includes( '__tests__' )
-);
+		: SCAN_ROOTS.flatMap( ( root ) => [
+				...walkFiles( join( ROOT, root ), {
+					match: /\.(php|[cm]?jsx?)$/,
+					exempt: isTestPath,
+				} ),
+		  ] )
+).filter( isScanned );
 
 /** Violations found. One is enough to exit 1. */
 let failed = 0;
@@ -244,6 +247,7 @@ for ( const file of targets ) {
 		parked.push( `${ rel } — ${ CONDEMNED[ rel ] }` );
 		continue;
 	}
+	const lang = langOf( file );
 	const lines = readFileSync( file, 'utf8' ).split( '\n' );
 	lines.forEach( ( line, i ) => {
 		// Prose is not code; failing a build over a docblock teaches docblocks.
@@ -252,13 +256,17 @@ for ( const file of targets ) {
 			line.includes( 'contract-ok:' ) ||
 			code.startsWith( '*' ) ||
 			code.startsWith( '//' ) ||
+			code.startsWith( '#' ) ||
 			code.startsWith( '/*' )
 		) {
 			return;
 		}
 		for ( const rule of RULES ) {
+			if ( ( rule.lang ?? 'js' ) !== lang ) {
+				continue;
+			}
 			const match = rule.test.exec( line );
-			if ( match && ! rule.skip?.( match ) ) {
+			if ( match && ! rule.skip?.( match, rel ) ) {
 				console.error(
 					`${ rel }:${ i + 1 }  [${ rule.id }]  ${ rule.why }`
 				);

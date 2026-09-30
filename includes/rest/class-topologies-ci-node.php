@@ -58,9 +58,9 @@
  *                the same POST batch resolves. Refuses an inactive topology.
  *
  * Each verb names its role in `node_schema()` — READ for `dump`, `get` and
- * `expand`, the MANAGE default for the rest — and `Service_CI_Node::commands()`
- * wraps every handler in that check; the name and body helpers come from the
- * same base. A refusal throws RuntimeException, which
+ * `expand`, the MANAGE default for the rest — and `dispatch()` refuses a
+ * caller below it (ADR-26); the name and body helpers come from
+ * `Service_CI_Node`. A refusal throws RuntimeException, which
  * `Command_Interpreter_Node::interpret()` returns as TM_COMMAND|TM_ERROR, and an
  * array a verb returns rides as the reply's VALUE untouched, never separately
  * JSON-encoded.
@@ -596,8 +596,9 @@ class Topologies_CI_Node extends Service_CI_Node {
 	/**
 	 * The console manifest and the verb table in one declaration.
 	 * `Service_CI_Node` builds the dispatch table from `commands[]` here, so a
-	 * verb is named once and the `capability` beside it is the role its handler
-	 * is wrapped in. A verb declaring none takes MANAGE, the strictest.
+	 * verb is named once and the `capability` beside it is the role below which
+	 * `dispatch()` refuses it (ADR-26). A verb declaring none takes MANAGE, the
+	 * strictest.
 	 *
 	 * @return array<string,mixed>
 	 */

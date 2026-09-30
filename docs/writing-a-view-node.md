@@ -90,13 +90,13 @@ each would read as a declaration carrying `json: true`. A view that earns a
 class owns a ring, a timer or its own `fill()`, and one holding a timer cancels
 it in `removeNode()` before calling `super.removeNode()`: a torn-down node whose
 timer still fires publishes into a graph the dashboard has already replaced.
-`WorkerStatusViewNode`, `ProbeStreamViewNode` and `SettingsAuditViewNode` are the
-three that cancel one. `WorkerStatusViewNode`'s timer holds a removed segment in
-`removingSegments` for 400 ms, so `SegmentBar` can animate it out; that window is
-the `segment-slide-out` keyframe's duration in
-[`src/event-dashboards/styles/worker-status.scss`](../src/event-dashboards/styles/worker-status.scss), and nothing keeps the two in
-step. Clear early and the row vanishes mid-slide; clear late and a finished row
-lingers. Changing either file means changing the other.
+`ProbeStreamViewNode` and `SettingsAuditViewNode` are the two that cancel one.
+`WorkerStatusViewNode` holds no timer and nothing across polls: a model's
+`removingSegments` are that poll's departures, and `TreeEntity`'s `LogRows`
+keeps each departed bar in its own state until the bar's `segment-slide-out`
+animation ends, so the keyframe's duration lives in
+[`src/event-dashboards/styles/worker-status.scss`](../src/event-dashboards/styles/worker-status.scss)
+alone. A folded row unmounts and takes its departures with it.
 
 ## 3 routing facts
 

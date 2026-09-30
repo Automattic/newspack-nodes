@@ -30,8 +30,6 @@ const SESSIONS = [
 		scope: 'read',
 		expires: 4102444800,
 		created: 1771000000,
-		live: true,
-		state: 'live',
 	},
 	{
 		handle: 'h-8823',
@@ -39,8 +37,6 @@ const SESSIONS = [
 		scope: 'tune',
 		expires: 4102444800,
 		created: 1771000000,
-		live: true,
-		state: 'live',
 	},
 ];
 
@@ -258,33 +254,30 @@ it( 'keeps the form open on a refusal, with the reason on it', () => {
 	);
 } );
 
-it( 'renders each session with its scope, state and times', () => {
+it( 'renders each session with its scope and times', () => {
 	const { container } = render( <SessionsAdmin /> );
 	const row = rowsOf( container )[ 0 ];
 	expect( row.textContent ).toContain( 'hub-aggregator' );
 	expect( row.querySelector( '.nodes-sessions__scope' ).textContent ).toBe(
 		'read'
 	);
-	expect( row.textContent ).toContain( 'live' );
+	expect( row.textContent ).toContain(
+		new Date( 4102444800 * 1000 ).toLocaleString()
+	);
 } );
 
-it( 'says a dead session was revoked, not expired', () => {
-	useSessionsGraph.mockImplementation( ( opts = {} ) => {
-		graphOpts = opts;
-		return {
-			sessions: [ { ...SESSIONS[ 0 ], live: false, state: 'revoked' } ],
-			scopes: [ 'read' ],
-			ttlMax: 86400,
-			loading: false,
-			error: null,
-			createSession,
-			revokeSession,
-			pendingVerb: () => null,
-		};
-	} );
+it( 'lists no state column: every listed session is live', () => {
 	const { container } = render( <SessionsAdmin /> );
-	// A listed dead row was TAKEN — a lapsed one is pruned before listing.
-	expect( rowsOf( container )[ 0 ].textContent ).toContain( 'revoked' );
+	const headers = [ ...container.querySelectorAll( 'thead th' ) ].map(
+		( th ) => th.textContent
+	);
+	expect( headers ).toEqual( [
+		'Label',
+		'Scope',
+		'Issued',
+		'Expires',
+		'Actions',
+	] );
 } );
 
 it( 'says so when no session has been issued', () => {

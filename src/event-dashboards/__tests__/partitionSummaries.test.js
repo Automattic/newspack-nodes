@@ -2,20 +2,21 @@ import { partitionSummaries } from '../partitionSummaries';
 
 const w = ( partition, o = {} ) => ( {
 	partition,
-	status: o.status ?? 'running',
+	state: o.state ?? 'live',
 	started_at: o.started_at ?? 1000,
 	heartbeat_age: o.heartbeat_age ?? 2,
 	restart_pending: o.restart_pending ?? false,
-	idle: o.idle ?? false,
 } );
 
 it( 'one summary per partition, sorted, from any row of that partition', () => {
 	const out = partitionSummaries( [ w( 1 ), w( 0 ), w( 0 ) ] );
 	expect( out.map( ( s ) => s.partition ) ).toEqual( [ 0, 1 ] );
-	expect( out[ 0 ] ).toMatchObject( {
-		status: 'running',
+	expect( out[ 0 ] ).toEqual( {
+		partition: 0,
+		state: 'live',
 		started_at: 1000,
 		heartbeat_age: 2,
+		restart_pending: false,
 	} );
 } );
 
@@ -27,19 +28,17 @@ it( 'restart_pending true if any row of the partition is pending', () => {
 	expect( p0.restart_pending ).toBe( true );
 } );
 
-it( 'reflects per-partition status (all dead)', () => {
+it( "carries each partition's server state, never re-derived here", () => {
 	const out = partitionSummaries( [
-		w( 0, { status: 'dead' } ),
-		w( 1, { status: 'dead' } ),
+		w( 0, { state: 'held' } ),
+		w( 1, { state: 'idle' } ),
+		w( 2, { state: 'stale', heartbeat_age: 1 } ),
 	] );
-	expect( out.every( ( s ) => s.status === 'dead' ) ).toBe( true );
-} );
-
-it( 'carries the server idle verdict, never re-derived here', () => {
-	const [ p0 ] = partitionSummaries( [
-		w( 0, { status: 'dead', idle: true } ),
+	expect( out.map( ( s ) => s.state ) ).toEqual( [
+		'held',
+		'idle',
+		'stale',
 	] );
-	expect( p0.idle ).toBe( true );
 } );
 
 it( 'handles empty input', () => {

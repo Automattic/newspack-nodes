@@ -113,6 +113,13 @@ class HTTP_In_Node extends Node {
 	public bool $refused_a_command = false;
 
 	/**
+	 * This POST's verifier, which reads each session once for the batch.
+	 *
+	 * @var ?\Closure(Command_Interpreter_Node,array<int,mixed>):bool
+	 */
+	private ?\Closure $verify = null;
+
+	/**
 	 * Status-header seam. It replaces the one `\status_header()` call, so the
 	 * surrounding decision — which code, and whether the body has opened — runs
 	 * as real production code under test. The PHPUnit suite injects a recorder
@@ -170,9 +177,9 @@ class HTTP_In_Node extends Node {
 	 * `Spawn_Controller` uses.
 	 *
 	 * The door demands the LEAST any verb behind it needs, and authority is then
-	 * decided per verb: by each Service CI's declared role and, for the base
-	 * interpreter's graph vocabulary, by the MANAGE floor `ensure_request_graph()`
-	 * pins on it. Demanding MANAGE here would make the strictest verb set the
+	 * decided per verb, by the role its schema declares, which `dispatch()`
+	 * holds MANAGE for a verb that declares none (ADR-26). Demanding MANAGE
+	 * here would make the strictest verb set the
 	 * privilege level of every caller, leaving the log aggregator holding an
 	 * administrator's application password to pull a read-only stream.
 	 *
@@ -223,7 +230,7 @@ class HTTP_In_Node extends Node {
 			$burst = 1;
 		}
 
-		$user_id = \function_exists( 'get_current_user_id' ) ? \get_current_user_id() : 0;
+		$user_id = Core::current_user_id();
 		// Bucket by floor(microtime): steady <BURST/s stays count=1.
 		$now     = self::$clock_now_seam ?? Core::right_now();
 		$bucket  = (int) \floor( $now );
@@ -357,12 +364,14 @@ class HTTP_In_Node extends Node {
 	}
 
 	/**
-	 * Reset the refusal latch and hand back this request's authorize policy.
+	 * Reset the refusal latch, build this POST's batch verifier, and hand
+	 * back this request's authorize policy.
 	 *
 	 * @return \Closure(Command_Interpreter_Node,array<int,mixed>):bool
 	 */
 	private function fresh_verifier(): \Closure {
 		$this->refused_a_command = false;
+		$this->verify            = Command_Auth::batch_verifier();
 		return \Closure::fromCallable( [ $this, 'authorize_and_latch' ] );
 	}
 
@@ -403,8 +412,6 @@ class HTTP_In_Node extends Node {
 	 */
 	private function ensure_request_graph(): Command_Interpreter_Node {
 		$base_interpreter = Bootstrap::mount_request_graph();
-		// The graph vocabulary declares no per-verb roles; pin it at MANAGE.
-		$base_interpreter->required_capability = Capabilities::MANAGE;
 		// A pre-built _output holds the name; the batch answers through it.
 		if ( ! Core::node( Node_Names::OUTPUT ) instanceof self ) {
 			$this->name( Node_Names::OUTPUT );
@@ -464,7 +471,7 @@ class HTTP_In_Node extends Node {
 	public function authorize_and_latch( Command_Interpreter_Node $interpreter, array $message ): bool {
 		$refused_before          = $this->refused_a_command;
 		$this->refused_a_command = true;
-		$ok                      = ( Command_Auth::verifier() )( $interpreter, $message );
+		$ok                      = ( $this->verify ?? Command_Auth::batch_verifier() )( $interpreter, $message );
 		$this->refused_a_command = $refused_before || ! $ok;
 		return $ok;
 	}

@@ -1,4 +1,5 @@
 {
+	"CLI": "_cli",
 	"COMMAND_INTERPRETER": "_command_interpreter",
 	"COMPLETION": "_completion",
 	"CONSOLE_TAP": "_shell",

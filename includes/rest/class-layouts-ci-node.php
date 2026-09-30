@@ -19,8 +19,8 @@
  *          that fails validation is dropped rather than refusing the write.
  *
  * Each verb names its role in `node_schema()`, `get` READ and `save` TUNE, and
- * `Service_CI_Node::commands()` wraps the handler in that check. A refusal
- * throws \RuntimeException, which `Command_Interpreter_Node::interpret()`
+ * `dispatch()` refuses a caller below it (ADR-26). A refusal throws
+ * \RuntimeException, which `Command_Interpreter_Node::interpret()`
  * catches and returns as TM_COMMAND|TM_ERROR.
  *
  * @package Newspack_Nodes
@@ -225,8 +225,8 @@ class Layouts_CI_Node extends Service_CI_Node {
 	/**
 	 * The console manifest and the verb table in one declaration.
 	 * `Service_CI_Node` builds the dispatch table from `commands[]` here, so a
-	 * verb is named once and the `capability` beside it is the role its handler
-	 * is wrapped in.
+	 * verb is named once and the `capability` beside it is the role below which
+	 * `dispatch()` refuses it (ADR-26).
 	 *
 	 * @api Used by the substrate to provide UI etc.
 	 *

@@ -1,14 +1,5 @@
-import {
-	TYPE,
-	VALUE,
-	TM_ERROR,
-	TM_STRUCT,
-	newMessage,
-} from '../../runtime/message';
+import { TYPE, VALUE, TM_ERROR } from '../../runtime/message';
 import { SliceViewNode } from '@newspack-nodes/shared/nodes/slice-view-node';
-
-/** Segment slide-out window in ms: how long a removing row lingers. */
-const REMOVING_CLEAR_MS = 400;
 
 /**
  * The shaped-but-empty model, carrying every field the Worker Status widgets
@@ -43,51 +34,32 @@ const emptyModel = () => ( {
  * every TM_ERROR to the base — which keeps the model already on screen, adds
  * `error`, and clears `loading`.
  *
- * The base identifies a control by its FROM, because a reply carrying an
- * `action` field is still a reply. Here the transform mints one action and this
- * node mints the other into itself, so the action name is the whole selector
- * and `controlFrom` stays unset.
+ * The slice declares no `controlFrom`, so nothing reaches it as a control;
+ * the model comes from the transform and is recognised by its action.
  *
  * Nothing arriving here needs correlating. A mutation such as `restart` is
  * minted by its own `useCommandOnce` node and the server replies TO=FROM, so
  * that reply lands there; this node sees the poll's model and its failures
  * (ADR-7).
  *
- * The three inbound shapes:
+ * The two inbound shapes:
  *  - TM_STRUCT `{ action: 'model', model }` from the transform stores the model
  *    and publishes it — the `dump_graph` reply, enriched.
- *  - TM_STRUCT `{ action: 'clear-removing' }` blanks `removingSegments`.
  *  - TM_ERROR surfaces on `error` without blanking the model.
  *
- * A model marking segments as removing arms a REMOVING_CLEAR_MS self-fill of
- * `clear-removing`, so the slide-out animation runs to completion. The timer
- * lives here, in the graph, rather than in the React view, where a re-render
- * would restart it.
+ * A model's `removingSegments` are that poll's departures alone. The row
+ * drawing a departed bar keeps it until the bar's slide-out ends, so this node
+ * holds nothing across polls.
  */
 export class WorkerStatusViewNode extends SliceViewNode {
-	/**
-	 * Publish the empty model through the base, with no slide-out clear armed.
-	 */
-	constructor() {
-		super();
-		/**
-		 * The pending `clear-removing` self-fill, or null when none is armed.
-		 * Held so `_setModel()` can restart it and `removeNode()` cancel it.
-		 *
-		 * @type {?ReturnType<typeof setTimeout>}
-		 */
-		this._clearTimer = null;
-	}
-
 	/**
 	 * Absorb one inbound frame into the view model, then publish it.
 	 *
 	 * A TM_ERROR goes to the base, which surfaces it without blanking what is
-	 * on screen. Otherwise `VALUE.action` selects the update: `model` replaces
-	 * the whole model, `clear-removing` ends the slide-out animation. A frame
-	 * whose VALUE is not an object carries nothing this node can use and is
-	 * ignored — the counter still advances, so the overlay's throughput
-	 * reflects everything that arrived.
+	 * on screen. Otherwise `VALUE.action` selects the update, and `model`
+	 * replaces the model. A frame whose VALUE is not an object carries nothing
+	 * this node can use and is ignored — the counter still advances, so the
+	 * overlay's throughput reflects everything that arrived.
 	 *
 	 * @param {Array} message The 7-field positional message; VALUE is the transform's
 	 *                        `{ action, ... }` struct, or an error payload on TM_ERROR.
@@ -107,42 +79,7 @@ export class WorkerStatusViewNode extends SliceViewNode {
 
 		// Model updates from the transform: the enriched dump_graph snapshot.
 		if ( 'model' === value.action ) {
-			this._setModel( value.model );
-			return;
-		}
-
-		// Slide-out animation clear (self-fill from _setModel's setTimeout).
-		if ( 'clear-removing' === value.action ) {
-			this.setField( 'view', { ...this.view, removingSegments: {} } );
-		}
-	}
-
-	/**
-	 * Store and publish the transform's enriched snapshot, then arm the
-	 * slide-out clear when it marks segments as removing.
-	 *
-	 * The timer lives here rather than in React so the animation window
-	 * survives a re-render; a fresh model carrying removals restarts it, so the
-	 * last removal always gets its full REMOVING_CLEAR_MS.
-	 *
-	 * @param {Object} model The enriched dump_graph snapshot, replacing the current
-	 *                       model wholesale; `removingSegments` drives the timer.
-	 * @return {void}
-	 */
-	_setModel( model ) {
-		this.setField( 'view', model );
-		// Schedule the slide-out clear only when something is animating out.
-		if ( Object.keys( model.removingSegments || {} ).length > 0 ) {
-			if ( this._clearTimer ) {
-				clearTimeout( this._clearTimer );
-			}
-			this._clearTimer = setTimeout( () => {
-				this._clearTimer = null;
-				const message = newMessage();
-				message[ TYPE ] = TM_STRUCT;
-				message[ VALUE ] = { action: 'clear-removing' };
-				this.fill( message );
-			}, REMOVING_CLEAR_MS );
+			this.setField( 'view', value.model );
 		}
 	}
 
@@ -154,24 +91,6 @@ export class WorkerStatusViewNode extends SliceViewNode {
 	 */
 	emptySlice() {
 		return emptyModel();
-	}
-
-	/**
-	 * Cancel the slide-out timer, so a pending clear can't publish into a view
-	 * nobody is reading, then hand off to the base.
-	 *
-	 * `mountExospine` removes every node its build registered, on unmount and
-	 * on each Reset Graph rebuild, which is why the cancel belongs here and no
-	 * caller reaches in for it.
-	 *
-	 * @return {void}
-	 */
-	removeNode() {
-		if ( this._clearTimer ) {
-			clearTimeout( this._clearTimer );
-			this._clearTimer = null;
-		}
-		super.removeNode();
 	}
 
 	/**

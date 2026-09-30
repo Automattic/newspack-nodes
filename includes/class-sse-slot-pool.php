@@ -380,7 +380,7 @@ class SSE_Slot_Pool {
 	 * @return string `{user id}:{ip hash}`, the value every lease key stores.
 	 */
 	public static function identity(): string {
-		return self::user_id() . ':' . self::ip_hash();
+		return Core::current_user_id() . ':' . self::ip_hash();
 	}
 
 	/**
@@ -393,11 +393,6 @@ class SSE_Slot_Pool {
 		// phpcs:ignore WordPressVIPMinimum.Variables.ServerVariables.UserControlledHeaders, WordPressVIPMinimum.Variables.RestrictedVariables.cache_constraints___SERVER__REMOTE_ADDR__, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
 		$ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
 		return \substr( \md5( Core::as_string( $ip, 'unknown' ) ), 0, 8 );
-	}
-
-	/** The current user, or 0 outside a WP runtime. Pairs with the IP hash. */
-	public static function user_id(): int {
-		return \function_exists( 'get_current_user_id' ) ? \get_current_user_id() : 0;
 	}
 
 	/**
