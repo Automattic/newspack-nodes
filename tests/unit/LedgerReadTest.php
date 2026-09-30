@@ -44,6 +44,15 @@ final class Recording_Statement_Fixture extends \PDOStatement {
 		self::$ran[] = [ $this->queryString, $this->bound ];
 		return parent::execute( $params );
 	}
+
+	/** @var list<int> Rows each fetchAll() handed back, in order. */
+	public static array $fetched = [];
+
+	public function fetchAll( int $mode = \PDO::FETCH_DEFAULT, mixed ...$args ): array {
+		$rows            = parent::fetchAll( $mode, ...$args );
+		self::$fetched[] = \count( $rows );
+		return $rows;
+	}
 }
 
 /**
@@ -566,19 +575,25 @@ final class LedgerReadTest extends TestCase {
 				$ran[] = [ $name, $sql, $bound ];
 			}
 		}
-		$ran[] = [ 'lab-7:kea', ( new \ReflectionClassConstant( Ledger_Node::class, 'MEMBERS_READ' ) )->getValue(), [ 1 => self::T, 2 => self::END, 3 => self::END, 4 => 'sku-41' ] ];
+		$members = [ 'lab-7:kea', ( new \ReflectionClassConstant( Ledger_Node::class, 'MEMBERS_READ' ) )->getValue(), [ 1 => self::T, 2 => self::END, 3 => self::END, 4 => 'sku-41', 5 => 8 ] ];
+		$ran[]   = $members;
 		$this->assertCount( 15, $ran, 'eight SUMs, three TOPs of a count and a page each, and MEMBERS' );
-		foreach ( $ran as [ $name, $sql, $bound ] ) {
+		$plan_of = static function ( string $name, string $sql, array $bound ): array {
 			$explain = ( new \PDO( 'sqlite:' . Ledger_Node::file( $name ) ) )->prepare( "EXPLAIN QUERY PLAN {$sql}" );
 			foreach ( $bound as $i => $value ) {
 				$explain->bindValue( $i, $value );
 			}
 			$explain->execute();
-			$plan = \array_column( $explain->fetchAll( \PDO::FETCH_NUM ), 3 );
+			return \array_column( $explain->fetchAll( \PDO::FETCH_NUM ), 3 );
+		};
+		foreach ( $ran as [ $name, $sql, $bound ] ) {
+			$plan = $plan_of( $name, $sql, $bound );
 			$this->assertNotEmpty( \preg_grep( '/^SEARCH rows USING PRIMARY KEY \(t=\? AND k=\?/', $plan ), "each t seeks its keys:\n{$sql}\n" . \implode( "\n", $plan ) );
 			$this->assertCount( 2, \preg_grep( '/\(t>\? AND t<\?\)/', $plan ), "a range seek finds only the next distinct t:\n" . \implode( "\n", $plan ) );
 			$this->assertSame( [], \preg_grep( '/^SCAN rows/', $plan ), 'no scan of rows' );
 		}
+		$steps = \array_values( \preg_grep( '/^(USE TEMP B-TREE|SCAN \(subquery)/', $plan_of( ...$members ) ) );
+		$this->assertSame( [ 'USE TEMP B-TREE FOR DISTINCT', 'SCAN (subquery', 'USE TEMP B-TREE FOR ORDER BY' ], \array_map( static fn ( string $step ): string => \preg_replace( '/-\d+\)$/', '', $step ), $steps ), 'MEMBERS keeps distinct members in a subquery its LIMIT stops, then sorts only those' );
 	}
 
 	public function test_a_key_or_member_repeated_across_chunks_answers_its_group_once(): void {
@@ -597,10 +612,50 @@ final class LedgerReadTest extends TestCase {
 		);
 	}
 
+	/**
+	 * The finch set, written by partition 7: six distinct members of
+	 * term-owl across two t, written out of member order, url-b at both.
+	 */
+	private function finch(): Ledger_Node {
+		$finch = $this->ledger( '7', 'lab-7:finch', '600', '3' );
+		$finch->append(
+			\array_map(
+				static fn ( array $row ): array => [ $row[0], 'term-owl', $row[1], [] ],
+				[ [ self::T, 'url-f' ], [ self::T, 'url-b' ], [ self::T, 'url-e' ], [ self::T + 600, 'url-a' ], [ self::T + 600, 'url-d' ], [ self::T + 600, 'url-c' ], [ self::T + 600, 'url-b' ] ]
+			)
+		);
+		return $finch;
+	}
+
+	public function test_members_past_its_limit_answers_over_having_read_limit_plus_one_rows(): void {
+		$finch = $this->finch();
+		$db    = ( new \ReflectionProperty( Ledger_Node::class, 'db' ) )->getValue( $finch );
+		$db->setAttribute( \PDO::ATTR_STATEMENT_CLASS, [ Recording_Statement_Fixture::class, [] ] );
+		( new \ReflectionProperty( Ledger_Node::class, 'select_members' ) )->setValue( $finch, $db->prepare( ( new \ReflectionClassConstant( Ledger_Node::class, 'MEMBERS_READ' ) )->getValue() ) );
+		Recording_Statement_Fixture::$ran     = [];
+		Recording_Statement_Fixture::$fetched = [];
+		$this->assertSame(
+			self::answered( 'MEMBERS', [ 'over' => 3 ] ),
+			$this->read( $finch, 'MEMBERS', [ 'from' => self::T, 'to' => self::END, 'k' => 'term-owl', 'limit' => 3 ] )
+		);
+		$this->assertSame( [ 1 => self::T, 2 => self::END, 3 => self::END, 4 => 'term-owl', 5 => 4 ], Recording_Statement_Fixture::$ran[0][1], 'the statement binds limit + 1' );
+		$this->assertSame( [ 4 ], Recording_Statement_Fixture::$fetched, 'SQL hands back limit + 1 rows of the key\'s 6' );
+		$this->assertSame( 0, $finch->stats()['MEMBERS']['answered'], 'an over answer carries no member' );
+	}
+
+	public function test_members_at_its_limit_or_under_answers_the_list_in_member_order(): void {
+		$finch   = $this->finch();
+		$range   = [ 'from' => self::T, 'to' => self::END, 'k' => 'term-owl' ];
+		$members = [ 'url-a', 'url-b', 'url-c', 'url-d', 'url-e', 'url-f' ];
+		$this->assertSame( self::answered( 'MEMBERS', $members ), $this->read( $finch, 'MEMBERS', $range + [ 'limit' => 6 ] ), 'at the limit' );
+		$this->assertSame( self::answered( 'MEMBERS', $members ), $this->read( $finch, 'MEMBERS', $range + [ 'limit' => 9 ] ), 'under it' );
+		$this->assertSame( self::answered( 'MEMBERS', [ 'over' => 5 ] ), $this->read( $finch, 'MEMBERS', $range + [ 'limit' => 5 ] ), 'one past it' );
+	}
+
 	public function test_members_lists_each_distinct_member_once_in_order(): void {
 		$this->assertSame(
 			self::answered( 'MEMBERS', [ 'aisle-12', 'aisle-9' ] ),
-			$this->read( $this->kea(), 'MEMBERS', [ 'from' => self::T, 'to' => self::END, 'k' => 'sku-41' ] )
+			$this->read( $this->kea(), 'MEMBERS', [ 'from' => self::T, 'to' => self::END, 'k' => 'sku-41', 'limit' => 7 ] )
 		);
 	}
 
@@ -609,7 +664,7 @@ final class LedgerReadTest extends TestCase {
 		$range = [ 'from' => self::T - 1800, 'to' => self::T ];
 		$this->assertSame( self::answered( 'SUM', [] ), $this->read( $kea, 'SUM', $range + [ 'ks' => [ 'sku-41' ] ] ) );
 		$this->assertSame( self::answered( 'TOP', [ 'total' => 0, 'rows' => [] ] ), $this->read( $kea, 'TOP', $range + [ 'ks' => [ 'sku-41' ], 'order_by' => 'qty', 'order' => 'desc', 'limit' => 9, 'offset' => 0 ] ) );
-		$this->assertSame( self::answered( 'MEMBERS', [] ), $this->read( $kea, 'MEMBERS', $range + [ 'k' => 'sku-41' ] ) );
+		$this->assertSame( self::answered( 'MEMBERS', [] ), $this->read( $kea, 'MEMBERS', $range + [ 'k' => 'sku-41', 'limit' => 7 ] ) );
 	}
 
 	public function test_no_keys_answer_empty(): void {
@@ -627,7 +682,7 @@ final class LedgerReadTest extends TestCase {
 			self::answered( 'SUM', [ [ 'sku-41', 'aisle-12', null ], [ 'sku-41', 'aisle-9', null ] ] ),
 			$this->read( $wren, 'SUM', [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'sku-41' ] ] )
 		);
-		$this->assertSame( self::answered( 'MEMBERS', [ 'aisle-12', 'aisle-9' ] ), $this->read( $wren, 'MEMBERS', [ 'from' => self::T, 'to' => self::END, 'k' => 'sku-41' ] ) );
+		$this->assertSame( self::answered( 'MEMBERS', [ 'aisle-12', 'aisle-9' ] ), $this->read( $wren, 'MEMBERS', [ 'from' => self::T, 'to' => self::END, 'k' => 'sku-41', 'limit' => 7 ] ) );
 		$this->assertSame(
 			[ Message::TM_ERROR, "SUM: positive names a column, and a Ledger declaring no columns has none\n" ],
 			$this->read( $wren, 'SUM', [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'sku-41' ], 'positive' => 'qty' ] )
@@ -676,7 +731,11 @@ final class LedgerReadTest extends TestCase {
 				[ 'SUM', [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'sku-41' ], "bt_t\nSUM: forged" => true ], 'takes the fields from, to, ks, xs, by_t, group, positive and positive_each_t alone' ],
 				[ 'SUM', [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'sku-41' ], 'positive_each_t' => true ], 'positive_each_t needs positive' ],
 				[ 'SUM', [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'sku-41' ], 'positive' => 'price' ], 'positive is one of qty, lo, hi' ],
-				[ 'MEMBERS', [ 'from' => self::T, 'to' => self::END, 'k' => [ 'sku-41' ] ], 'k is a string' ],
+				[ 'MEMBERS', [ 'from' => self::T, 'to' => self::END, 'k' => [ 'sku-41' ], 'limit' => 7 ], 'k is a string' ],
+				[ 'MEMBERS', [ 'from' => self::T, 'to' => self::END, 'k' => 'sku-41' ], 'limit is a whole number from 1 to 10000' ],
+				[ 'MEMBERS', [ 'from' => self::T, 'to' => self::END, 'k' => 'sku-41', 'limit' => 0 ], 'limit is a whole number from 1 to 10000' ],
+				[ 'MEMBERS', [ 'from' => self::T, 'to' => self::END, 'k' => 'sku-41', 'limit' => 10001 ], 'limit is a whole number from 1 to 10000' ],
+				[ 'MEMBERS', [ 'from' => self::T, 'to' => self::END, 'k' => 'sku-41', 'limit' => 7, 'offset' => 2 ], 'takes the fields from, to, k and limit alone' ],
 				[ 'MEMBERS', 'sku-41', 'needs a map of its fields' ],
 			] as [ $verb, $query, $why ]
 		) {
@@ -688,7 +747,7 @@ final class LedgerReadTest extends TestCase {
 		$ledger = new Ledger_Node();
 		$ledger->name( 'lab-7:kea' );
 		$ledger->sink( $this->sink );
-		foreach ( [ 'SUM' => [ 'ks' => [ 'sku-41' ] ], 'MEMBERS' => [ 'k' => 'sku-41' ] ] as $verb => $fields ) {
+		foreach ( [ 'SUM' => [ 'ks' => [ 'sku-41' ] ], 'MEMBERS' => [ 'k' => 'sku-41', 'limit' => 7 ] ] as $verb => $fields ) {
 			try {
 				$this->read( $ledger, $verb, [ 'from' => self::T, 'to' => self::END ] + $fields );
 				$this->fail( "{$verb} read a Ledger with no file" );
@@ -707,7 +766,7 @@ final class LedgerReadTest extends TestCase {
 		};
 		$this->read( $kea, 'SUM', [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'sku-41', 'sku-43', 'sku-47' ] ] );
 		$this->read( $kea, 'TOP', [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'sku-41', 'sku-43' ], 'order_by' => 'qty', 'order' => 'desc', 'limit' => 1, 'offset' => 0 ] );
-		$this->read( $kea, 'MEMBERS', [ 'from' => self::T, 'to' => self::END, 'k' => 'sku-41' ] );
+		$this->read( $kea, 'MEMBERS', [ 'from' => self::T, 'to' => self::END, 'k' => 'sku-41', 'limit' => 7 ] );
 		$stats = $kea->stats();
 		$this->assertSame( [ 'calls' => 1, 'asked' => 3, 'answered' => 4, 'bytes' => 0, 'total_ms' => 1.5, 'max_ms' => 1.5 ], $stats['SUM'] );
 		$this->assertSame( [ 'calls' => 1, 'asked' => 2, 'answered' => 1, 'bytes' => 0, 'total_ms' => 1.5, 'max_ms' => 1.5 ], $stats['TOP'] );

@@ -278,28 +278,38 @@ final class Table_Client {
 	}
 
 	/**
-	 * `MEMBERS`: a Ledger key's distinct members over `from ≤ t < to`.
+	 * `MEMBERS`: a Ledger key's distinct members over `from ≤ t < to`, or
+	 * `[ 'over' => $limit ]` when the key holds more than `$limit` there.
 	 *
 	 * @api A node reading a Ledger: event-logger-nodes' search.
 	 * @param string $ledger The Ledger's registered name.
 	 * @param int    $from   The first `t` read.
 	 * @param int    $to     The `t` the read stops short of.
 	 * @param string $k      The key.
-	 * @return array<array-key,mixed>|null The members in order, or null when
-	 *                                     refused or unanswered.
+	 * @param int    $limit  Most members answered, from 1 to
+	 *                       Ledger_Node::MEMBERS_LIMIT_MAX.
+	 * @return list<string>|array{over: int}|null The members in order, the
+	 *         over answer naming `$limit`, or null when refused, unanswered or
+	 *         answered in any other shape.
 	 * @throws \LogicException When an ask is in flight already.
 	 * @throws \RuntimeException When the asker has no name or no sink.
 	 */
-	public function ledger_members( string $ledger, int $from, int $to, string $k ): ?array {
-		return $this->ledger_data(
+	public function ledger_members( string $ledger, int $from, int $to, string $k, int $limit ): ?array {
+		$data = $this->ledger_data(
 			$ledger,
 			'MEMBERS',
 			[
-				'from' => $from,
-				'to'   => $to,
-				'k'    => $k,
+				'from'  => $from,
+				'to'    => $to,
+				'k'     => $k,
+				'limit' => $limit,
 			]
 		);
+		if ( [ 'over' => $limit ] === $data ) {
+			return $data;
+		}
+		$members = \array_values( \array_filter( $data ?? [], \is_string( ... ) ) );
+		return null !== $data && \array_is_list( $data ) && \count( $members ) === \count( $data ) ? $members : null;
 	}
 
 	/**

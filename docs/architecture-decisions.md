@@ -1371,7 +1371,7 @@ A request may drive a running graph. A declared request answers TO=FROM through
 [`tachikoma-lineage.md`](tachikoma-lineage.md#a-declared-request-answers-in-an-envelope-tables-verbs-answer-bare)
 records.
 
-**Amendment:** a request carries a structure for a Table's `MSET`, `ADD` and `SADD` and a Ledger's `APPEND`, `SUM`, `TOP` and `MEMBERS` alone. A Ledger's `APPEND` carries a list of `[ t, k, x, [ columns… ] ]` rows, a `min` or `max` column taking null for a value not measured, and each of its reads a map of fields naming a `t` range, `from ≤ t < to`: `SUM` `{ from, to, ks, xs?, by_t?, group?, positive?, positive_each_t? }`, `TOP` `{ from, to, ks, order_by, order, limit, offset, positive?, positive_each_t? }` and `MEMBERS` `{ from, to, k }`. A read builds its SQL from the Ledger's declaration alone: a column it names is looked up there and refused when absent or when its aggregate gives the use no meaning, and a refusal never echoes the request's text. A Table's
+**Amendment:** a request carries a structure for a Table's `MSET`, `ADD` and `SADD` and a Ledger's `APPEND`, `SUM`, `TOP` and `MEMBERS` alone. A Ledger's `APPEND` carries a list of `[ t, k, x, [ columns… ] ]` rows, a `min` or `max` column taking null for a value not measured, and each of its reads a map of fields naming a `t` range, `from ≤ t < to`: `SUM` `{ from, to, ks, xs?, by_t?, group?, positive?, positive_each_t? }`, `TOP` `{ from, to, ks, order_by, order, limit, offset, positive?, positive_each_t? }` and `MEMBERS` `{ from, to, k, limit }`, which answers its members or `{ over: limit }`. A read builds its SQL from the Ledger's declaration alone: a column it names is looked up there and refused when absent or when its aggregate gives the use no meaning, and a refusal never echoes the request's text. A Table's
 `MSET` and `ADD` carry `key => [ value, ttl ]` maps, and its `SADD` carries
 `set_key => [ [ member => value, … ], ttl ]` maps, that a string cannot hold without an
 encoding, so they travel as `TM_REQUEST | TM_STRUCT` with VALUE `[ 'MSET' => … ]`,
@@ -1838,7 +1838,11 @@ lifespan, never records; a `Table` files each value into the window of its own t
   the row grain, before any grouping, so a member counts in a key and a `t` only where it
   passed there itself and errors-only header totals are one `SUM` too. A request names columns
   and never supplies SQL, and a combination with no meaning — a ratio over a `min` or `max`
-  column, `positive_each_t` without `positive` — is refused.
+  column, `positive_each_t` without `positive` — is refused. `MEMBERS` names a `limit`, from 1 to
+  `Ledger_Node::MEMBERS_LIMIT_MAX`, the Table's `MAX_MEMBERS_LIMIT` (10,000), and reads at most
+  `limit + 1` distinct members, in a subquery whose `LIMIT` stops it before the sort, answering
+  `{ over: limit }` past it, as a Table's `SMEMBERS` answers `OVER <limit>`: a common key costs
+  its limit, never its every member.
   A request graph reads through `Bootstrap::mount_ledger()`, which opens the file read-only and
   refuses `APPEND` and `flush`. ADR-23's bound on a Table mount holds for it too: a verb below
   MANAGE mounts a Ledger only when every row it holds is data the verb's role may already read,
