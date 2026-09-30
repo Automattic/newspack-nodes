@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.78.0] - 2026-09-29
+
 ### Added
 
 - **Every Table counts its cost per verb.** `GET`, `MGET`, `MSET`, `ADD`, `TOUCH`, `RM`, fill()'s `INSERT`, `SADD`, `SMEMBERS`, the tick's `PURGE` and its `CHECKPOINT` each keep, since the node was built, `calls`, the keys or rows `asked` and `answered` (or written), the encoded `bytes` a durable arm serialized or decoded, and `total_ms` and `max_ms` on `hrtime()`. A call that throws still counts, and a request-graph mount counts its own request. `cmd <table>:config stats` answers them as a structure, and `stats reset` answers them and zeroes them; a mount refuses the reset. `dump_node` and `dump_metadata` carry them as `verb_stats`; the console's Inspector does not render them yet. `Table_Node::$hrtime` is the monotonic-clock seam, and `Durable_Arm::bytes()` the arm's running byte total.
