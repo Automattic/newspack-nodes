@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.79.1] - 2026-09-30
+
 ### Added
 
 - **`LRU_Cache::with_timed_rotation( $seconds, $on_evict, $clock )` takes the clock its windows close on.** `$clock` is an owner-supplied `Closure` returning float seconds; null, the default, keeps the wall. The grid, the gap `rotate_if_due()` repays and the boundary `get_state()` carries all run on it, so a successor restoring a snapshot repays the windows its owner's clock crossed, whatever the wall read. A clock reading 0 has no time yet: the grid arms on its first positive reading, by the first `set()` after it or by `rotate_if_due()`, where anchoring at the epoch would roll a window per bucket and empty the cache, and until then `rotate_if_due()` neither rolls nor re-anchors, so a boundary `restore_state()` adopted stands until the owner's first stamp. A clock that reads more than a whole window before the window the grid stands in re-anchors the grid there, so an owner fed old data after its grid armed on newer time closes the old data's windows on the old data; a clock that only climbs never re-anchors, and a wall stepped back by no more than a window still waits the step out. The event logger's request builder passes its stream clock; its other caller, `wp nodes reqgrep`, and `Table_Node`'s buffer stay on the wall.
