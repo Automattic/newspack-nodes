@@ -6,6 +6,18 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **A Ledger's `MEMBERS` takes a required `limit`, and
+  `Table_Client::ledger_members()` a fifth argument, `int $limit`.** Pass the
+  most members the caller can use, from 1 to
+  `Ledger_Node::MEMBERS_LIMIT_MAX` (10,000): `ledger_members( $ledger, $from,
+  $to, $k )` becomes `ledger_members( $ledger, $from, $to, $k, $limit )`. The
+  answer is the member list, or `[ 'over' => $limit ]` when the key holds more
+  than `$limit` in the range, so test `isset( $answer['over'] )` before
+  reading it as a list. A `MEMBERS` query with no `limit` is refused with a
+  `TM_ERROR`. event-logger-nodes' URL search calls `ledger_members()` with
+  four arguments and needs the fifth, its 5,000-URL cap, which lets it drop
+  its own count of a common word's members; raise its substrate floor to the
+  release carrying this.
 - **A Ledger's `TOP` takes `order_by` where it took `column`.** Rename the
   field in every `TOP` query, `Table_Client::top()`'s included:
   `[ …, 'column' => 'ms' ]` becomes `[ …, 'order_by' => 'ms' ]`. A query

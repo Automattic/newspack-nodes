@@ -24,8 +24,9 @@ rest do. `Table_Client`'s `@api` methods are `get_multi()`, `set_multi()`,
 which answer through a durable Table alone, and a Ledger's four asks,
 `append( string $ledger, array $rows ): ?array`, `sum( string $ledger, array $query ): ?array`,
 `top( string $ledger, array $query ): ?array` and
-`ledger_members( string $ledger, int $from, int $to, string $k ): ?array`, each null
-on a refusal or no answer.
+`ledger_members( string $ledger, int $from, int $to, string $k, int $limit ): ?array`,
+each null on a refusal or no answer, `ledger_members()` answering `[ 'over' => $limit ]`
+past its limit.
 
 That trio and [`Topology_Analyzer::includes()`](../includes/class-topology-analyzer.php) answer questions a consumer cannot
 answer for itself. `node_dirs()` and `node_partitions()` are how a reader finds

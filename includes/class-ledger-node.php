@@ -71,6 +71,13 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	/** Most rows one TOP answers: a page, never a dump of every member. */
 	public const TOP_LIMIT_MAX = Sqlite_Arm::IN_CHUNK;
 
+	/**
+	 * Most members one MEMBERS answers before it answers over: the Table's
+	 * SMEMBERS ceiling, since both serve one reader, event-logger-nodes' URL
+	 * search, which shows at most 5,000.
+	 */
+	public const MEMBERS_LIMIT_MAX = Table_Node::MAX_MEMBERS_LIMIT;
+
 	/** The aggregate a column naming none reads by. */
 	public const DEFAULT_AGGREGATE = 'sum';
 
@@ -106,8 +113,13 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	/** The rows at each walked `t`; CROSS JOIN keeps the walk outer, so each `t` seeks its keys. */
 	private const AT_EACH_T = 'FROM ts CROSS JOIN rows WHERE rows.t = ts.at';
 
-	/** A key's distinct members in a `t` range; binds from, to, to, k. */
-	private const MEMBERS_READ = self::WALK . 'SELECT DISTINCT x ' . self::AT_EACH_T . ' AND k = ? ORDER BY x';
+	/**
+	 * A key's distinct members in a `t` range, at most the limit bound; binds
+	 * from, to, to, k, limit. The subquery orders nothing, so its DISTINCT
+	 * stops at the limit rather than reading the key's every member to sort
+	 * them; the outer ORDER BY sorts only what it kept.
+	 */
+	private const MEMBERS_READ = self::WALK . 'SELECT x FROM ( SELECT DISTINCT x ' . self::AT_EACH_T . ' AND k = ? LIMIT ? ) ORDER BY x';
 
 	/** Keys, or members, a SUM binds per `IN ( … )` when it binds both lists. */
 	private const PAIRED_CHUNK = Sqlite_Arm::IN_CHUNK / 2;
@@ -638,19 +650,24 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	}
 
 	/**
-	 * `MEMBERS`: the distinct members of one key, in member order.
+	 * `MEMBERS`: the distinct members of one key, in member order, or
+	 * `{ over: limit }` when the key holds more than `limit` in the range,
+	 * as SMEMBERS answers `OVER <limit>`. It reads `limit + 1` members at
+	 * most, however many the key holds.
 	 *
-	 * @param array<array-key,mixed> $query `{ from, to, k }`.
-	 * @return array{0: int, 1: list<string>, 2: int} The one key asked, its
-	 *                                                members, and their count.
+	 * @param array<array-key,mixed> $query `{ from, to, k, limit }`.
+	 * @return array{0: int, 1: list<string>|array{over: int}, 2: int} The one
+	 *         key asked, its members or the over answer, and the members
+	 *         answered.
 	 * @throws \InvalidArgumentException On a query it refuses.
 	 */
 	private function read_members( array $query ): array {
-		self::only( $query, 'from', 'to', 'k' );
+		self::only( $query, 'from', 'to', 'k', 'limit' );
 		$k       = \is_string( $query['k'] ?? null ) ? $query['k'] : throw new \InvalidArgumentException( 'k is a string' );
+		$limit   = self::whole( $query, 'limit', 1, self::MEMBERS_LIMIT_MAX );
 		$read    = $this->select_members ?? throw $this->unopened();
-		$members = \array_map( Core::as_string( ... ), \array_column( self::fetched( $read, [ ...self::walk( $query ), $k ] ), 0 ) );
-		return [ 1, $members, \count( $members ) ];
+		$members = \array_map( Core::as_string( ... ), \array_column( self::fetched( $read, [ ...self::walk( $query ), $k, $limit + 1 ] ), 0 ) );
+		return \count( $members ) > $limit ? [ 1, [ 'over' => $limit ], 0 ] : [ 1, $members, \count( $members ) ];
 	}
 
 	/**
@@ -1192,11 +1209,11 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 				],
 				[
 					'name'        => 'MEMBERS',
-					'description' => 'The distinct members of one key over from ≤ t < to, in member order.',
+					'description' => 'The distinct members of one key over from ≤ t < to, in member order, or { over: limit } when the key holds more than limit in the range; it reads limit + 1 members at most.',
 					'value'       => 'struct',
-					'args'        => [ [ 'name' => 'query', 'type' => 'json', 'required' => true, 'description' => '{ from, to, k }' ] ],
+					'args'        => [ [ 'name' => 'query', 'type' => 'json', 'required' => true, 'description' => '{ from, to, k, limit: 1 to MEMBERS_LIMIT_MAX (10000) }' ] ],
 					'handler'     => static fn ( self $ledger, mixed $query ): array => $ledger->read( 'MEMBERS', $query ),
-					'reply_shape' => 'TM_STRUCT|TM_RESPONSE { verb: MEMBERS, data: [ x, … ] }, or a TM_ERROR "MEMBERS: <why>"',
+					'reply_shape' => 'TM_STRUCT|TM_RESPONSE { verb: MEMBERS, data: [ x, … ] }, or data { over: limit } past the limit, or a TM_ERROR "MEMBERS: <why>"',
 				],
 			],
 			'has_target'  => false,

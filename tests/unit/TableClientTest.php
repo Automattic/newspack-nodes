@@ -49,6 +49,23 @@ final class Scripted_Member_Table_Fixture_Node extends Node {
 	}
 }
 
+/** A Ledger that answers every request TO its FROM with one scripted `data`. */
+final class Scripted_Ledger_Fixture_Node extends Node {
+	public mixed $data = null;
+
+	public function fill( array $message ): void {
+		$reply                   = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_STRUCT | Message::TM_RESPONSE;
+		$reply[ Message::FROM ]  = $this->name;
+		$reply[ Message::TO ]    = $message[ Message::FROM ];
+		$reply[ Message::VALUE ] = [
+			'verb' => 'MEMBERS',
+			'data' => $this->data,
+		];
+		$this->require_sink()->fill( $reply );
+	}
+}
+
 /**
  * Table_Client: the asking half of the Table protocol, driven through a real
  * Router, interpreter and SQLite-backed Tables.
@@ -355,7 +372,7 @@ final class TableClientTest extends TestCase {
 		$client = $this->asker->client;
 		$this->assertSame(
 			[
-				'stored'  => 3,
+				'stored'  => 4,
 				'dropped' => 1,
 			],
 			$client->append(
@@ -363,6 +380,7 @@ final class TableClientTest extends TestCase {
 				[
 					[ 1790000400, 'sku-41', 'aisle-9', [ 3, 7 ] ],
 					[ 1790000400, 'sku-43', 'aisle-12', [ 5, 8 ] ],
+					[ 1790000400, 'sku-43', 'aisle-15', [ 1, 4 ] ],
 					[ 1790000400 - 600, 'sku-41', 'aisle-9', [ 4, 11 ] ],
 					[ 1790000400 - 1801, 'sku-41', 'aisle-9', [ 9, 99 ] ],
 				]
@@ -375,12 +393,14 @@ final class TableClientTest extends TestCase {
 		$this->assertSame( [ [ 'sku-41', 'aisle-9', null, 7.0, 11.0 ] ], $client->sum( 'lab-7:weka', $range + [ 'ks' => [ 'sku-41' ] ] ) );
 		$this->assertSame(
 			[
-				'total' => 2,
+				'total' => 3,
 				'rows'  => [ [ 'aisle-9', 7.0, 11.0 ] ],
 			],
 			$client->top( 'lab-7:weka', $range + [ 'ks' => [ 'sku-41', 'sku-43' ], 'order_by' => 'qty', 'order' => 'desc', 'limit' => 1, 'offset' => 0 ] )
 		);
-		$this->assertSame( [ 'aisle-9' ], $client->ledger_members( 'lab-7:weka', 1790000400 - 600, 1790000401, 'sku-41' ) );
+		$this->assertSame( [ 'aisle-9' ], $client->ledger_members( 'lab-7:weka', 1790000400 - 600, 1790000401, 'sku-41', 3 ) );
+		$this->assertSame( [ 'aisle-12', 'aisle-15' ], $client->ledger_members( 'lab-7:weka', 1790000400 - 600, 1790000401, 'sku-43', 2 ), 'at its limit, the members' );
+		$this->assertSame( [ 'over' => 1 ], $client->ledger_members( 'lab-7:weka', 1790000400 - 600, 1790000401, 'sku-43', 1 ), 'past its limit, over naming it' );
 		$this->assertSame( [], $this->asker->folded, 'every reply went to the client' );
 	}
 
@@ -398,10 +418,23 @@ final class TableClientTest extends TestCase {
 		$this->assertNull( $client->sum( 'lab-7:gone', [ 'from' => 0, 'to' => 1, 'ks' => [ 'sku-41' ] ] ) );
 		$mute = new Capture_Sink_Node();
 		$mute->name( 'lab-7:mute' );
-		$this->assertNull( $client->ledger_members( 'lab-7:mute', 0, 1, 'sku-41' ), 'no answer is no data' );
+		$this->assertNull( $client->ledger_members( 'lab-7:mute', 0, 1, 'sku-41', 3 ), 'no answer is no data' );
 		$log = \implode( "\n", $lines );
 		$this->assertStringContainsString( 'Table_Client: lab-7:weka refused an ask from asker-9 — TOP: order_by is x or one of qty, hi', $log );
 		$this->assertStringContainsString( 'Table_Client: lab-7:gone refused an ask from asker-9 — NOT_AVAILABLE', $log );
+	}
+
+	public function test_ledger_members_answers_null_for_an_over_naming_another_limit(): void {
+		$liar = new Scripted_Ledger_Fixture_Node();
+		$liar->name( 'lab-7:liar' );
+		$liar->sink( $this->asker->sink() );
+		$client     = $this->asker->client;
+		$liar->data = [ 'over' => 3 ];
+		$this->assertSame( [ 'over' => 3 ], $client->ledger_members( 'lab-7:liar', 0, 1, 'term-owl', 3 ), 'an over naming the limit asked' );
+		$liar->data = [ 'over' => 99 ];
+		$this->assertNull( $client->ledger_members( 'lab-7:liar', 0, 1, 'term-owl', 3 ), 'an over naming a limit never asked is no answer' );
+		$liar->data = [ 'url-a', 7 ];
+		$this->assertNull( $client->ledger_members( 'lab-7:liar', 0, 1, 'term-owl', 3 ), 'a member that is no string is no answer' );
 	}
 
 	public function test_a_key_holding_whitespace_is_never_asked(): void {

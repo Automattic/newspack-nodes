@@ -152,7 +152,7 @@ final class LedgerMountTest extends TestCase {
 		[ $type, $value ] = $this->ask( 'lab-7:kea', [ 'SUM' => [ 'from' => self::T - 1800, 'to' => self::T + 1, 'ks' => [ 'sku-41' ] ] ] );
 		$this->assertSame( Message::TM_STRUCT | Message::TM_RESPONSE, $type );
 		$this->assertEquals( [ [ 'sku-41', 'aisle-12', null, 1, 5, 5 ], [ 'sku-41', 'aisle-9', null, 7, 2, 9 ] ], $value['data'] );
-		[ , $value ] = $this->ask( 'lab-7:kea', [ 'MEMBERS' => [ 'from' => self::T - 1800, 'to' => self::T + 1, 'k' => 'sku-41' ] ] );
+		[ , $value ] = $this->ask( 'lab-7:kea', [ 'MEMBERS' => [ 'from' => self::T - 1800, 'to' => self::T + 1, 'k' => 'sku-41', 'limit' => 7 ] ] );
 		$this->assertSame( [ 'aisle-12', 'aisle-9' ], $value['data'], 'the mount prepares every statement a read runs' );
 		$this->assertSame( Core::node( Node_Names::COMMAND_INTERPRETER ), Core::node( 'lab-7:kea' )->sink() );
 	}
