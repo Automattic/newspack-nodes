@@ -329,6 +329,87 @@ final class TablesCliCommandTest extends TestCase {
 		$this->assertSame( [ 'kea-t.p1 refused stats for lab-7:kea: NOT_AVAILABLE' ], $GLOBALS['_test_wp_cli_warns'] );
 	}
 
+	// ── inactive topologies ──
+
+	/** Registers `emu-z`, a topology no option activates, declaring a `sqlite` Table over two partitions. */
+	private function register_inactive_emu(): void {
+		$this->write_tsl( 'emu-z', "var num_partitions = 2\nmake_node Table lab-7:emu emu:p<partition> 4242 sqlite\n" );
+	}
+
+	/** An `emu` partition's file, written as its worker would write it. */
+	private function seed_emu( int $partition, int $rows ): void {
+		$arm = new Sqlite_Arm( Table_Node::file( 'lab-7:emu', $partition ), 'emu:p3' );
+		for ( $i = 1; $i <= $rows; ++$i ) {
+			$arm->set( "emu:p{$partition}:sku-{$i}", "emu-{$i}", 0 );
+		}
+	}
+
+	private function emu_rows( int $partition ): int {
+		$db = new \PDO( 'sqlite:' . Table_Node::file( 'lab-7:emu', $partition ) );
+		return (int) $db->query( 'SELECT COUNT(*) FROM kv' )->fetchColumn();
+	}
+
+	public function test_list_shows_an_inactive_topologys_partitions_with_their_files_and_bytes(): void {
+		$this->register_inactive_emu();
+		$this->seed_emu( 1, 5 );
+		$file = Table_Node::file( 'lab-7:emu', 1 );
+		\clearstatcache();
+		$size = \filesize( $file ) + ( \is_file( "{$file}-wal" ) ? \filesize( "{$file}-wal" ) : 0 );
+
+		$this->command()->list_( [], [ 'format' => 'json' ] );
+
+		$emu = \array_values( \array_filter( $this->printed(), static fn ( array $row ): bool => 'lab-7:emu' === $row['Table'] ) );
+		$this->assertSame(
+			[
+				[ 'Table' => 'lab-7:emu', 'Partition' => 0, 'Backend' => 'sqlite', 'TTL' => '4242', 'Owner' => 'emu-z.p0', 'State' => 'inactive', 'Store' => Table_Node::file( 'lab-7:emu', 0 ), 'Bytes' => 0, 'Verbs' => null ],
+				[ 'Table' => 'lab-7:emu', 'Partition' => 1, 'Backend' => 'sqlite', 'TTL' => '4242', 'Owner' => 'emu-z.p1', 'State' => 'inactive', 'Store' => $file, 'Bytes' => $size, 'Verbs' => null ],
+			],
+			$emu
+		);
+		$this->assertGreaterThan( 0, $size );
+	}
+
+	public function test_flush_empties_an_inactive_topologys_table_without_the_hold(): void {
+		$this->register_inactive_emu();
+		$this->seed_emu( 0, 4 );
+		$this->seed_emu( 1, 6 );
+
+		$this->command()->flush( [ 'lab-7:emu' ], [] );
+
+		$this->assertSame( [ 0, 0 ], [ $this->emu_rows( 0 ), $this->emu_rows( 1 ) ] );
+		$this->assertMatchesRegularExpression( '/^lab-7:emu\.p0: [\d.]+[KM]?B released; emu-z is inactive$/', $GLOBALS['_test_wp_cli_logs'][0] );
+		$this->assertSame( [ 'Flushed 2 Table partitions.' ], $GLOBALS['_test_wp_cli_success'] );
+		$this->assertSame( [], $this->answered, 'no worker was asked' );
+	}
+
+	public function test_flush_with_no_table_named_counts_the_inactive_partitions(): void {
+		$this->register_inactive_emu();
+
+		$this->caught( fn () => $this->command()->flush( [], [] ), 'every Table was flushed unasked' );
+
+		$this->assertSame( [ 'Flush every row of 5 declared Table partitions? The session store is left alone.' ], $GLOBALS['_test_wp_cli_confirms'] );
+	}
+
+	public function test_a_table_an_active_and_an_inactive_topology_both_declare_is_owned_by_the_active_one(): void {
+		$this->write_tsl( 'gnu-y', "var num_partitions = 4\nmake_node Table lab-7:kea kea:p<partition> 777 sqlite\n" );
+
+		$this->command()->list_( [], [ 'format' => 'json' ] );
+
+		$kea = \array_filter( $this->printed(), static fn ( array $row ): bool => 'lab-7:kea' === $row['Table'] );
+		$this->assertSame( [ 'kea-t.p0', 'kea-t.p1', 'gnu-y.p2', 'gnu-y.p3' ], \array_column( \array_values( $kea ), 'Owner' ), 'the active declarer owns what it declares; the inactive one adds only the partitions beyond' );
+		$this->assertSame( [ 'down', 'down', 'inactive', 'inactive' ], \array_column( \array_values( $kea ), 'State' ) );
+	}
+
+	public function test_an_inactive_topology_that_will_not_read_is_warned_about_and_the_rest_lists(): void {
+		$this->write_tsl( 'emu-z', "include no-such-topology\n" );
+
+		$this->command()->list_( [], [ 'format' => 'json' ] );
+
+		$this->assertCount( 1, $GLOBALS['_test_wp_cli_warns'] );
+		$this->assertStringStartsWith( 'emu-z: ', $GLOBALS['_test_wp_cli_warns'][0] );
+		$this->assertContains( 'lab-7:kea', \array_column( $this->printed(), 'Table' ) );
+	}
+
 	// ── flush ──
 
 	public function test_flush_sends_the_verb_to_the_live_owner_and_reports_its_rows(): void {

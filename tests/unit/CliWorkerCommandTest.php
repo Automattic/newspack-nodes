@@ -978,7 +978,8 @@ class CliWorkerCommandTest extends TestCase {
 		// A nested offsetlog layout: the record's basename does not rebuild the
 		// path. Reading that as "no cursor" would call the whole partition
 		// backlog, which is a worse lie than the stale record.
-		$this->seed_consumer_checkpoint( 'firehose', 0, [
+		$this->register_topology( 'kea-5117', 1 );
+		$this->seed_consumer_checkpoint( 'kea-5117.firehose', 0, [
 			'source'   => 'firehose.p0',
 			'distance' => 0,
 			'age_s'    => 120,

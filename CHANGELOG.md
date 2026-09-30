@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`wp nodes status`, the Workers dashboard and the consumer-lag alert no longer list the readers of a deactivated topology.** `CLI::consumer_rows()` kept a departed reader's last Topic_Probe row, message rate and backlog included, after `wp nodes deactivate` and `wp nodes gc` had removed its offsets. A row whose snapshot has gone stale now survives only while its offsetlog dir exists or a reader id opens with the name of an active topology; otherwise it is dropped.
+- **`wp nodes tables list` and `flush` now cover the Tables of inactive topologies.** Both enumerated only Tables that active topologies declare, so after `wp nodes deactivate performance` the durable files stayed on disk while `tables flush` offered to flush 0 partitions. They now read every registered topology's Tables. A partition whose topology is not active lists as `inactive`, and `flush` empties it from the CLI with no fleet hold, since nothing will spawn its worker. A Table declared by both an active and an inactive topology stays owned by the active one; an inactive topology that will not read is warned about and skipped. `CLI::worker_states()` answers `inactive` for a lockless slot outside the active set; `CLI::WORKER_STATES` stays the words an active topology's slot can take. `Bootstrap::tables_of()` resolves Tables across a given set of topologies.
+
 ## [2.79.1] - 2026-09-30
 
 ### Added

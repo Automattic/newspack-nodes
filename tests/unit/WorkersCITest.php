@@ -134,6 +134,7 @@ class WorkersCITest extends TestCase {
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_STRUCT;
 		$message[ Message::VALUE ] = $record;
+		$message[ Message::TIMESTAMP ] -= $extra['age_s'] ?? 0;
 		\file_put_contents( "{$dir}/0.log", Message::packed( $message ) . "\n", FILE_APPEND );
 	}
 
@@ -1040,6 +1041,18 @@ class WorkersCITest extends TestCase {
 
 		$this->assertSame( 2, $result['unparseable_lines'] );
 		$this->assertSame( [ 'firehose.p0' ], \array_column( $result['consumers'], 'reader' ) );
+	}
+
+	public function test_dump_graph_omits_a_departed_reader_of_an_inactive_topology(): void {
+		$base = $this->arrange_base_dir();
+		$this->seed_probe_record( $base, 'gone-topo.firehose', 0, [ 'source' => 'firehose.p0', 'msgs' => 23797, 'age_s' => 300 ] );
+		$this->seed_probe_record( $base, 'demo-workers.firehose', 0, [ 'source' => 'firehose.p0', 'msgs' => 41, 'age_s' => 300 ] );
+
+		$interpreter      = new Workers_CI_Node();
+		$interpreter->cli = $this->stub_cli();
+		$result           = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+
+		$this->assertSame( [ 'demo-workers.firehose.p0' ], \array_column( $result['consumers'], 'reader' ) );
 	}
 
 	public function test_dump_metadata_consumers_carry_the_recorded_source_partition(): void {

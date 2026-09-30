@@ -25,7 +25,7 @@ namespace Newspack_Nodes;
  */
 class CLI {
 
-	/** Every word `worker_states()` answers, the order a roll-up reports them in. */
+	/** Every word `worker_states()` answers for a slot of an active topology, the order a roll-up reports them in. */
 	public const WORKER_STATES = [ 'live', 'stale', 'held', 'idle', 'down' ];
 
 	/**
@@ -83,7 +83,11 @@ class CLI {
 	 * A row whose snapshot has aged past `Topic_Probe_Node::stale_after_s()` is
 	 * re-measured off disk by `relag_from_disk()`, because the reader that wrote
 	 * it may be gone and its last record keeps reporting whatever was true when
-	 * it left. A reader whose id carries no `.p{N}` partition is skipped.
+	 * it left. A stale row survives only while its reader exists: its offsetlog
+	 * dir is on disk, or its topology is active (the reader id opens with the
+	 * topology name, as the stock offsetlog paths spell it). Otherwise `gc`
+	 * removed the reader and the row is dropped, its last rate with it. A reader
+	 * whose id carries no `.p{N}` partition is skipped.
 	 *
 	 * Topology attribution — which topology or targets a reader belongs to — is
 	 * NOT here: the dashboard joins these rows onto the `.tsl` graph by
@@ -100,7 +104,8 @@ class CLI {
 	public function consumer_rows(): array {
 		$rows = [];
 		$now  = (int) Core::right_now();
-		$tail = $this->read_probe_frames();
+		$tail   = $this->read_probe_frames();
+		$active = null;
 		foreach ( $tail['records'] as $reader => $frame ) {
 			// An offsetlog basename, spelled as a worker id is.
 			$parsed = self::parse_worker_id( $reader );
@@ -120,6 +125,10 @@ class CLI {
 				'msgs'           => Core::as_int( $record[ Probe_Record::MSGS_DELTA ] ?? 0 ),
 			];
 			if ( $now - $frame['timestamp'] > Topic_Probe_Node::stale_after_s() ) {
+				$active ??= Bootstrap::get_topologies();
+				if ( ! \is_dir( "{$this->base_dir}/offsets/{$reader}" ) && ! self::reader_of_active( $reader, $active ) ) {
+					continue;
+				}
 				$row = $this->relag_from_disk( $row );
 			}
 			$rows[] = $row;
@@ -180,6 +189,23 @@ class CLI {
 		// Nobody is reading: the rate is 0, not the last one seen.
 		$row['msgs'] = 0;
 		return $row;
+	}
+
+	/**
+	 * Whether a reader id belongs to an active topology: it opens with the
+	 * topology name and a dot, as `<topology>.<log>.p<N>` spells it.
+	 *
+	 * @param string              $reader Reader id.
+	 * @param array<string,mixed> $active The active set, `Bootstrap::get_topologies()`.
+	 * @return bool
+	 */
+	private static function reader_of_active( string $reader, array $active ): bool {
+		foreach ( \array_keys( $active ) as $type ) {
+			if ( \str_starts_with( $reader, "{$type}." ) ) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/**
@@ -260,7 +286,8 @@ class CLI {
 	 * heartbeat file is live inside the orphan grace, a worker acquiring, and
 	 * stale past it. A slot holding none is
 	 * `held` while the fleet is held, `idle` where its topology declares an
-	 * on-demand idle window, and `down` otherwise.
+	 * on-demand idle window, and `down` otherwise. One whose topology is
+	 * outside the active set and holds no lock is `inactive`: nothing spawns it.
 	 *
 	 * One pass judges every lock's stale timeout and every lockless slot's
 	 * idle window off the active set the caller already read, and reads the
@@ -283,11 +310,11 @@ class CLI {
 		$states = [];
 		foreach ( $worker_ids as $id ) {
 			$type          = self::parse_worker_id( $id )[0] ?? '';
-			$states[ $id ] = self::slot_state( $locks[ $id ] ?? null, $held, Core::arr( $topologies[ $type ] ?? [] ) );
+			$states[ $id ] = self::slot_state( $locks[ $id ] ?? null, $held, isset( $topologies[ $type ] ) ? Core::arr( $topologies[ $type ] ) : null );
 			unset( $locks[ $id ] );
 		}
 		foreach ( $locks as $id => $lock ) {
-			$states[ $id ] = self::slot_state( $lock, $held, [] );
+			$states[ $id ] = self::slot_state( $lock, $held, null );
 		}
 		return $states;
 	}
@@ -297,12 +324,14 @@ class CLI {
 	 *
 	 * @param array{id:string,type:string,partition:int,heartbeat_at:int,started_at:int,stale:bool}|null $lock  Its lock row; null for no lock.
 	 * @param bool                                                                                         $held  Whether the fleet is held.
-	 * @param array<array-key,mixed>                                                                       $entry Its topology's active entry; empty when none.
+	 * @param array<array-key,mixed>|null                                                                  $entry Its topology's active entry; null when the topology is not active.
 	 * @return array{lock:array{id:string,type:string,partition:int,heartbeat_at:int,started_at:int,stale:bool}|null,state:string}
 	 */
-	private static function slot_state( ?array $lock, bool $held, array $entry ): array {
+	private static function slot_state( ?array $lock, bool $held, ?array $entry ): array {
 		if ( null !== $lock ) {
 			$state = $lock['stale'] ? 'stale' : 'live';
+		} elseif ( null === $entry ) {
+			$state = 'inactive';
 		} elseif ( $held ) {
 			$state = 'held';
 		} else {

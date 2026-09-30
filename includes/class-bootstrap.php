@@ -491,69 +491,6 @@ class Bootstrap {
 	}
 
 	/**
-	 * One Table resolved across `$active`. Declarations that resolve alike
-	 * union their partitions, the way node_dirs() does, however each is
-	 * spelled; one resolving differently is a second Table under one name.
-	 *
-	 * @param string                                                                       $name   Table name.
-	 * @param array{0: array<string,array<array-key,mixed>>, 1: array<string,\Throwable>} $active active_topologies().
-	 * @return array<int,array{namespace: string, ttl: int, backend: string}> Partition => the Table.
-	 * @throws \Throwable As node_tables().
-	 */
-	private static function resolve_table( string $name, array $active ): array {
-		$out   = [];
-		$first = null;
-		foreach ( self::declaring( $name, $active ) as $topology => $entry ) {
-			$declared = Topology_Analyzer::declared_tables( $topology )[ $name ] ?? null;
-			if ( null === $declared ) {
-				continue;
-			}
-			$spec = [
-				'namespace' => \str_replace( [ '<topology>', '{topology}' ], $topology, Core::resolve_config_tokens( $declared['namespace'], true ) ),
-				'ttl'       => Core::canonical_decimal( Core::resolve_config_tokens( $declared['ttl'], true ), false )
-					?? throw new \RuntimeException( \esc_html( "Table {$name} declares a TTL that is not a whole number of at least 1 second: {$declared['ttl']}" ) ),
-				'backend'   => Core::resolve_config_tokens( $declared['backend'], true ),
-			];
-			if ( null !== $first && $first['spec'] !== $spec ) {
-				throw new \RuntimeException( \esc_html( "Table {$name} is declared differently by {$first['topology']} and {$topology}" ) );
-			}
-			$first ??= [
-				'spec'     => $spec,
-				'topology' => $topology,
-			];
-			for ( $p = 0, $n = self::partitions_of( $entry ); $p < $n; ++$p ) {
-				$out[ $p ] ??= [ 'namespace' => Core::resolve_partition_template( $spec['namespace'], $p ) ] + $spec;
-			}
-		}
-		\ksort( $out );
-		return $out;
-	}
-
-	/**
-	 * The readable active topologies declaring `$node`, name => entry. One
-	 * that will not read costs only its own share of the answer; when no
-	 * readable one declares the node, every unreadable one raises, because
-	 * the node may be exactly what it declares.
-	 *
-	 * @param string                                                                       $node   Node name as its topology declares it.
-	 * @param array{0: array<string,array<array-key,mixed>>, 1: array<string,\Throwable>} $active active_topologies(), read once by the caller.
-	 * @return array<string,array<array-key,mixed>>
-	 * @throws \Throwable Every unreadable active topology, combined, when no readable one declares `$node`.
-	 */
-	private static function declaring( string $node, array $active ): array {
-		[ $readable, $unreadable ] = $active;
-		$declaring                 = \array_filter(
-			$readable,
-			static fn ( string $name ): bool => Topology_Analyzer::declares_node( $name, $node ),
-			\ARRAY_FILTER_USE_KEY
-		);
-		if ( [] === $declaring ) {
-			Worker_Should_Stop::raise( $unreadable );
-		}
-		return $declaring;
-	}
-
-	/**
 	 * Which active topologies READ, answered once for every caller that reads
 	 * a graph: each readable name with its `get_topologies()` entry, and what
 	 * each other active name threw instead, keyed by name. A name with no
@@ -621,6 +558,87 @@ class Bootstrap {
 			}
 		);
 		return [ \array_map( Core::arr( ... ), \array_diff_key( $entries, $failures ) ), $failures ];
+	}
+
+	/**
+	 * The Tables `$names` resolve to across the given readable topologies
+	 * alone, uncached: the answer for topologies outside the active set, whose
+	 * Tables `node_tables()` does not see.
+	 *
+	 * @param array<string,array<array-key,mixed>> $readable Topology name => entry.
+	 * @param string                               ...$names Table names as their topologies declare them.
+	 * @return array<string,array<int,array{namespace: string, ttl: int, backend: string}>> Name => partition => the Table; `[]` for a name none declares.
+	 * @throws \Throwable When those topologies declare one differently, or a TTL is not a whole number of at least 1 second.
+	 */
+	public static function tables_of( array $readable, string ...$names ): array {
+		$out = [];
+		foreach ( $names as $name ) {
+			$out[ $name ] = self::resolve_table( $name, [ $readable, [] ] );
+		}
+		return $out;
+	}
+
+	/**
+	 * One Table resolved across `$active`. Declarations that resolve alike
+	 * union their partitions, the way node_dirs() does, however each is
+	 * spelled; one resolving differently is a second Table under one name.
+	 *
+	 * @param string                                                                       $name   Table name.
+	 * @param array{0: array<string,array<array-key,mixed>>, 1: array<string,\Throwable>} $active active_topologies().
+	 * @return array<int,array{namespace: string, ttl: int, backend: string}> Partition => the Table.
+	 * @throws \Throwable As node_tables().
+	 */
+	private static function resolve_table( string $name, array $active ): array {
+		$out   = [];
+		$first = null;
+		foreach ( self::declaring( $name, $active ) as $topology => $entry ) {
+			$declared = Topology_Analyzer::declared_tables( $topology )[ $name ] ?? null;
+			if ( null === $declared ) {
+				continue;
+			}
+			$spec = [
+				'namespace' => \str_replace( [ '<topology>', '{topology}' ], $topology, Core::resolve_config_tokens( $declared['namespace'], true ) ),
+				'ttl'       => Core::canonical_decimal( Core::resolve_config_tokens( $declared['ttl'], true ), false )
+					?? throw new \RuntimeException( \esc_html( "Table {$name} declares a TTL that is not a whole number of at least 1 second: {$declared['ttl']}" ) ),
+				'backend'   => Core::resolve_config_tokens( $declared['backend'], true ),
+			];
+			if ( null !== $first && $first['spec'] !== $spec ) {
+				throw new \RuntimeException( \esc_html( "Table {$name} is declared differently by {$first['topology']} and {$topology}" ) );
+			}
+			$first ??= [
+				'spec'     => $spec,
+				'topology' => $topology,
+			];
+			for ( $p = 0, $n = self::partitions_of( $entry ); $p < $n; ++$p ) {
+				$out[ $p ] ??= [ 'namespace' => Core::resolve_partition_template( $spec['namespace'], $p ) ] + $spec;
+			}
+		}
+		\ksort( $out );
+		return $out;
+	}
+
+	/**
+	 * The readable active topologies declaring `$node`, name => entry. One
+	 * that will not read costs only its own share of the answer; when no
+	 * readable one declares the node, every unreadable one raises, because
+	 * the node may be exactly what it declares.
+	 *
+	 * @param string                                                                       $node   Node name as its topology declares it.
+	 * @param array{0: array<string,array<array-key,mixed>>, 1: array<string,\Throwable>} $active active_topologies(), read once by the caller.
+	 * @return array<string,array<array-key,mixed>>
+	 * @throws \Throwable Every unreadable active topology, combined, when no readable one declares `$node`.
+	 */
+	private static function declaring( string $node, array $active ): array {
+		[ $readable, $unreadable ] = $active;
+		$declaring                 = \array_filter(
+			$readable,
+			static fn ( string $name ): bool => Topology_Analyzer::declares_node( $name, $node ),
+			\ARRAY_FILTER_USE_KEY
+		);
+		if ( [] === $declaring ) {
+			Worker_Should_Stop::raise( $unreadable );
+		}
+		return $declaring;
 	}
 
 	/**
