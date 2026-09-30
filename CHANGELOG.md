@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **The console's Inspector shows a Table's per-verb counters as a Stats grid.** Selecting a Table node renders a "Stats" section with one row per verb that has been called — VERB, CALLS, ASKED, ANSWERED, BYTES, TOTAL, AVG and MAX, bytes and times in human units, AVG as TOTAL over CALLS — sorted TOTAL descending until a header click picks another column, and refreshed with every metadata poll. A Table nothing has called shows one line instead. `parseMetadata()` carries the `verb_stats` the Table's `dump_metadata()` already reported.
+- **`formatGroupedCount()` in `@newspack-nodes/shared/utils/formatters`** prints a count whole and grouped by locale ("1,234,567"), and an absent or non-finite one as an em dash. The canvas card counter, the Inspector's counter and the process-stats message totals use it.
+- **A `SortableGrid` column takes an optional `format`** that renders a present cell while the sort reads the raw value; a missing value reads as the en dash in every column. The Profiler grid formats its decimals this way rather than pre-formatting its rows.
+
 ## [2.79.2] - 2026-09-30
 
 ### Fixed

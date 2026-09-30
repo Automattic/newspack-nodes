@@ -11,6 +11,7 @@ import { __, sprintf } from '@wordpress/i18n';
 import {
 	formatByteRate,
 	formatBytes,
+	formatGroupedCount,
 } from '@newspack-nodes/shared/utils/formatters';
 import { computePollIntervalMs } from '../../runtime/metadata-node';
 import { RATE_HISTORY_MAX } from '../hooks/useGraphRates';
@@ -242,12 +243,12 @@ export function ProcessStatsView( {
 			>
 				<FieldRow
 					k="msgs in"
-					v={ totals.msgsIn.toLocaleString() }
+					v={ formatGroupedCount( totals.msgsIn ) }
 					vClass="newspack-nodes-stat-value is-accent topology-field-row__val--num"
 				/>
 				<FieldRow
 					k="msgs out"
-					v={ totals.msgsOut.toLocaleString() }
+					v={ formatGroupedCount( totals.msgsOut ) }
 					vClass="newspack-nodes-stat-value is-accent topology-field-row__val--num"
 				/>
 				<FieldRow

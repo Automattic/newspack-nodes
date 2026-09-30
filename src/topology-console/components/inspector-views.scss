@@ -74,8 +74,10 @@
 }
 
 .newspack-nodes-table.nodes-runtime__grid {
+	font-family: var(--font-mono);
 	font-size: inherit;
 	line-height: inherit;
+	color: var(--ink);
 
 	.nodes-runtime__th,
 	.nodes-runtime__td {

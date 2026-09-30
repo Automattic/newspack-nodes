@@ -216,7 +216,7 @@ describe( 'Inspector (view mode)', () => {
 		);
 		const stats = getByTestId( 'inspector-process-stats' ).textContent;
 		// IoTelemetry totals win, NOT the node count (3).
-		expect( stats ).toContain( '5,185' ); // msgs in
+		expect( stats ).toContain( ( 5185 ).toLocaleString() ); // msgs in
 		expect( stats ).toContain( '118' ); // msgs out
 		expect( stats ).not.toContain( '–3' ); // not the node count
 		IoTelemetry.reset();
@@ -1425,7 +1425,7 @@ describe( 'Inspector (view mode)', () => {
 
 	it( 'formats counter with locale separators', () => {
 		const { container } = renderNode();
-		expect( container.textContent ).toMatch( /1,234/ );
+		expect( container.textContent ).toContain( ( 1234 ).toLocaleString() );
 	} );
 
 	it( 'groups the selected-node actions into Sections, peers of the field sections', () => {
@@ -2694,5 +2694,59 @@ describe( 'formatActivityWindow', () => {
 		const minutes =
 			( RATE_HISTORY_MAX * computePollIntervalMs( 3000 ) ) / 60000;
 		expect( formatActivityWindow( 3000 ) ).toBe( `last ~${ minutes }m` );
+	} );
+} );
+
+describe( 'Inspector — Table Stats section', () => {
+	const renderNode = ( node ) =>
+		renderWithCatalog(
+			<Inspector
+				{ ...baseProps }
+				selectedId={ node.id }
+				parsed={ { nodes: [ node ], edges: [] } }
+				nodeIds={ new Set( [ node.id ] ) }
+			/>,
+			{ classes: [ { shell_name: node.class, arguments: [] } ] }
+		);
+	const sectionTitles = ( container ) =>
+		[
+			...container.querySelectorAll( '.topology-insp__section-title' ),
+		].map( ( el ) => el.textContent );
+
+	it( 'renders the verb_stats grid for a node that reports them', () => {
+		const { container, getByTestId } = renderNode( {
+			id: 'flame-stats:aggregate',
+			class: 'Table',
+			verb_stats: {
+				MSET: {
+					calls: 23,
+					asked: 187,
+					answered: 186,
+					bytes: 70144,
+					total_ms: 41.5,
+					max_ms: 9.25,
+				},
+			},
+		} );
+		expect( sectionTitles( container ) ).toContain( 'Statsper verb' );
+		const cells = [
+			...getByTestId( 'verb-stats-grid' ).querySelectorAll( 'tbody td' ),
+		].map( ( td ) => td.textContent );
+		expect( cells.slice( 0, 4 ) ).toEqual( [ 'MSET', '23', '187', '186' ] );
+		// The section scrolls a grid that is its direct child.
+		expect(
+			getByTestId( 'verb-stats-grid' ).parentElement.classList
+		).toContain( 'topology-insp__section' );
+	} );
+
+	it( 'omits the Stats section for a node without verb_stats', () => {
+		const { container, queryByTestId } = renderNode( {
+			id: 'firehose:tee',
+			class: 'Tee',
+		} );
+		expect(
+			sectionTitles( container ).some( ( t ) => t.startsWith( 'Stats' ) )
+		).toBe( false );
+		expect( queryByTestId( 'verb-stats-grid' ) ).toBeNull();
 	} );
 } );

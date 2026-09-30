@@ -52,3 +52,64 @@ test( 'renders the footer as a tfoot row aligned to the columns, never in the tb
 		grid.querySelector( 'tbody tr[data-name="--total--"]' )
 	).toBeNull();
 } );
+
+test( 'a column format renders its cells while the sort reads the raw values', () => {
+	const cols = [
+		{ key: 'name', label: 'NAME' },
+		{
+			key: 'bytes',
+			label: 'BYTES',
+			numeric: true,
+			format: ( v ) => `${ v / 1024 } KiB`,
+		},
+	];
+	const { getByTestId } = render(
+		<Grid
+			testid="grid"
+			cols={ cols }
+			rows={ [
+				{ name: 'small', bytes: 2048 },
+				{ name: 'large', bytes: 10240 },
+			] }
+			sort={ { key: 'bytes', dir: 'desc' } }
+			onSort={ () => {} }
+			footer={ { name: 'total', bytes: 12288 } }
+		/>
+	);
+	const grid = getByTestId( 'grid' );
+	const body = [ ...grid.querySelectorAll( 'tbody tr' ) ].map( ( tr ) =>
+		[ ...tr.querySelectorAll( 'td' ) ].map( ( td ) => td.textContent )
+	);
+	expect( body ).toEqual( [
+		[ 'large', '10 KiB' ],
+		[ 'small', '2 KiB' ],
+	] );
+	expect( grid.querySelector( 'tfoot td:last-child' ).textContent ).toBe(
+		'12 KiB'
+	);
+} );
+
+test( 'a missing value reads as the en dash, never reaching the column format', () => {
+	const format = jest.fn( ( v ) => `${ v } ms` );
+	const { getByTestId } = render(
+		<Grid
+			testid="grid"
+			cols={ [
+				{ key: 'name', label: 'NAME' },
+				{ key: 'ms', label: 'MS', numeric: true, format },
+			] }
+			rows={ [
+				{ name: 'kea', ms: null },
+				{ name: 'tui' },
+				{ name: 'ruru', ms: 7 },
+			] }
+			sort={ { key: 'name', dir: 'asc' } }
+			onSort={ () => {} }
+		/>
+	);
+	const cells = [
+		...getByTestId( 'grid' ).querySelectorAll( 'tbody td:last-child' ),
+	].map( ( td ) => td.textContent );
+	expect( cells ).toEqual( [ '–', '7 ms', '–' ] );
+	expect( format ).toHaveBeenCalledTimes( 1 );
+} );

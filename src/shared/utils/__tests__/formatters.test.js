@@ -5,6 +5,7 @@ import {
 	formatAge,
 	formatEta,
 	etaSeconds,
+	formatGroupedCount,
 } from '../formatters';
 
 describe( 'formatters', () => {
@@ -89,5 +90,21 @@ describe( 'formatters', () => {
 		expect( etaSeconds( 1200, 10 ) ).toBe( 120 );
 		// formatEta is the formatted view of the same seconds.
 		expect( formatEta( 50, 10 ) ).toBe( '5s' );
+	} );
+} );
+
+describe( 'formatGroupedCount', () => {
+	it( 'groups a count whole, by locale', () => {
+		expect( formatGroupedCount( 1234567 ) ).toBe(
+			( 1234567 ).toLocaleString()
+		);
+		expect( formatGroupedCount( 0 ) ).toBe( '0' );
+	} );
+
+	it( 'reads an absent or non-finite count as an em dash, not a zero', () => {
+		expect( formatGroupedCount( null ) ).toBe( '—' );
+		expect( formatGroupedCount( undefined ) ).toBe( '—' );
+		expect( formatGroupedCount( NaN ) ).toBe( '—' );
+		expect( formatGroupedCount( '42' ) ).toBe( '—' );
 	} );
 } );

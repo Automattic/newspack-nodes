@@ -439,4 +439,23 @@ describe( 'parseMetadata', () => {
 		} );
 		expect( edges.some( ( e ) => e.registration ) ).toBe( false );
 	} );
+
+	it( "carries a Table's verb_stats, and adds none to a node without them", () => {
+		const verbStats = {
+			MGET: {
+				calls: 7,
+				asked: 41,
+				answered: 38,
+				bytes: 9216,
+				total_ms: 12.5,
+				max_ms: 4.25,
+			},
+		};
+		const { nodes } = parseMetadata( {
+			'flame-stats:aggregate': { class: 'Table', verb_stats: verbStats },
+			tee: { class: 'Tee' },
+		} );
+		expect( nodes[ 0 ].verb_stats ).toEqual( verbStats );
+		expect( 'verb_stats' in nodes[ 1 ] ).toBe( false );
+	} );
 } );

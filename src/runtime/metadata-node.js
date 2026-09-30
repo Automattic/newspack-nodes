@@ -108,6 +108,18 @@ const SCAFFOLDING = new Set( [
 ] );
 
 /**
+ * One verb's counters as `Table_Node::stats()` reports them.
+ *
+ * @typedef  {Object} VerbStats
+ * @property {number} calls    Calls since the Table was built or reset.
+ * @property {number} asked    Keys or rows asked.
+ * @property {number} answered Keys or rows answered or written.
+ * @property {number} bytes    Bytes a durable arm encoded or decoded.
+ * @property {number} total_ms Time across every call, in milliseconds.
+ * @property {number} max_ms   The longest call, in milliseconds.
+ */
+
+/**
  * One canvas node parsed out of a `dump_metadata` entry. Every field up to
  * `target` is always present (the parser defaults anything the payload omits);
  * the trailing fields appear only when the source node reported them.
@@ -130,6 +142,7 @@ const SCAFFOLDING = new Set( [
  * @property {Array}           [frames]              Consumer read surface: offsetlog frames.
  * @property {Object}          [cursor]              Consumer read cursor.
  * @property {number}          [deadletter_segments] Dead-letter segment count (Triage badge).
+ * @property {Object}          [verb_stats]          A Table's per-verb `VerbStats`, keyed by verb.
  * @property {string}          [polling]             Consumer poll state: `INIT`, `ACTIVE`, or `PAUSED`.
  * @property {?number}         [at_frame]            Frame the cursor sits on; null when unset.
  * @property {boolean}         [on_frame]            Whether the cursor is parked on a frame.
@@ -225,6 +238,10 @@ export function parseMetadata( payload ) {
 		// Dead-letter segment count (Triage badge); only when present.
 		if ( typeof meta.deadletter_segments === 'number' ) {
 			node.deadletter_segments = meta.deadletter_segments;
+		}
+		// A Table's per-verb counters; only when present.
+		if ( meta.verb_stats && typeof meta.verb_stats === 'object' ) {
+			node.verb_stats = meta.verb_stats;
 		}
 		// Consumer poll state (`INIT`|`ACTIVE`|`PAUSED`); only when present.
 		if ( typeof meta.polling === 'string' ) {

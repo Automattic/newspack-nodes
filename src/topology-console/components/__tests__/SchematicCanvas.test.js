@@ -2207,7 +2207,7 @@ describe( 'SchematicCanvas', () => {
 		expect( container.querySelector( '.topology-node__spark' ) ).toBeNull();
 	} );
 
-	it( 'renders compactCount value in counter cell', () => {
+	it( 'renders the grouped count in the counter cell', () => {
 		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
@@ -2231,7 +2231,7 @@ describe( 'SchematicCanvas', () => {
 		);
 		const counter = container.querySelector( '.topology-node__counter' );
 		expect( counter ).not.toBeNull();
-		expect( counter.textContent ).toBe( '1,234,567' );
+		expect( counter.textContent ).toBe( ( 1234567 ).toLocaleString() );
 	} );
 
 	it( 'renders em-dash for null count', () => {
