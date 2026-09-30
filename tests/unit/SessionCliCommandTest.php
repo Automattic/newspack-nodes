@@ -119,6 +119,25 @@ class SessionCliCommandTest extends TestCase {
 		$this->assertStringContainsString( 'tune', $message );
 	}
 
+	public function test_a_user_holding_no_role_is_refused(): void {
+		$GLOBALS['_wp_test_current_user_can'] = [];
+
+		$this->assertStringContainsString( 'holds no Newspack Nodes role', $this->refusal( [ 'kea-claude-7731', 'read' ] ) );
+	}
+
+	public function test_a_store_that_will_not_open_is_refused_naming_why(): void {
+		$GLOBALS['wpdb'] = null;
+
+		try {
+			( new Session_CLI_Command() )->issue( [ 'kea-claude-7731', 'tune', '5400' ], [] );
+			$this->fail( 'expected a refusal' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertStringContainsString( 'wpdb backend needs $wpdb', $e->getMessage() );
+		}
+		$this->assertCount( 1, $GLOBALS['_test_wp_cli_errors'] );
+		$this->assertSame( [], $GLOBALS['_test_wp_cli_lines'], 'a refusal prints no credential' );
+	}
+
 	public function test_an_unknown_role_is_refused(): void {
 		$this->assertStringContainsString( 'unknown role: quokka', $this->refusal( [ 'kea-claude-7731', 'quokka' ] ) );
 	}
