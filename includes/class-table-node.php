@@ -81,6 +81,17 @@ class Table_Node extends Node {
 	 */
 	public const PURGE_BACKLOG_BUDGET_S = 0.25;
 
+	/**
+	 * Consecutive ticks a WAL checkpoint may leave frames behind, while the
+	 * WAL grows, before the Table warns. A PASSIVE checkpoint stops at the
+	 * oldest open reader's snapshot, and a reader here is one request's mount,
+	 * which PHP ends inside its 30-second max_execution_time; at the Router's
+	 * 1-second tick, 60 ticks is twice the longest one request can hold. A
+	 * stall that long is readers overlapping without a gap, or one stuck, and
+	 * the WAL grows until one lets go.
+	 */
+	public const WAL_STALL_TICKS = 60;
+
 	/** Most bytes of a refused verb a log line or its throttle key shows. */
 	private const SHOWN_VERB_BYTES = 64;
 
@@ -117,6 +128,51 @@ class Table_Node extends Node {
 	/** How every write request is answered. */
 	private const WRITE_REPLY = 'one TM_RESPONSE "<VERB> <keys…>" naming the keys it took effect on';
 
+	/** A verb's calls, in its counter row. */
+	private const CALLS = 0;
+
+	/** Keys or rows a verb's calls asked for. */
+	private const ASKED = 1;
+
+	/** Keys or rows a verb's calls answered or took effect on. */
+	private const ANSWERED = 2;
+
+	/** Encoded bytes a durable arm stored or returned for a verb. */
+	private const BYTES = 3;
+
+	/** A verb's nanoseconds on the monotonic clock, all calls together. */
+	private const TOTAL_NS = 4;
+
+	/** A verb's longest call, in nanoseconds. */
+	private const MAX_NS = 5;
+
+	/**
+	 * Every counted verb's row at zero: the requests, fill()'s keyed INSERT,
+	 * and the Router tick's PURGE and CHECKPOINT.
+	 */
+	private const ZERO_STATS = [
+		'GET'      => [ 0, 0, 0, 0, 0, 0 ],
+		'MGET'     => [ 0, 0, 0, 0, 0, 0 ],
+		'MSET'     => [ 0, 0, 0, 0, 0, 0 ],
+		'ADD'      => [ 0, 0, 0, 0, 0, 0 ],
+		'TOUCH'    => [ 0, 0, 0, 0, 0, 0 ],
+		'RM'       => [ 0, 0, 0, 0, 0, 0 ],
+		'INSERT'   => [ 0, 0, 0, 0, 0, 0 ],
+		'SADD'     => [ 0, 0, 0, 0, 0, 0 ],
+		'SMEMBERS' => [ 0, 0, 0, 0, 0, 0 ],
+		'PURGE'      => [ 0, 0, 0, 0, 0, 0 ],
+		'CHECKPOINT' => [ 0, 0, 0, 0, 0, 0 ],
+	];
+
+	/**
+	 * Monotonic-clock seam behind the per-verb timings, replacing
+	 * `hrtime( true )`. Tests pin it to set what one verb measures.
+	 * Signature: `function (): int`, nanoseconds from an arbitrary origin.
+	 *
+	 * @var (\Closure(): int)|null
+	 */
+	public static ?\Closure $hrtime = null;
+
 	/** Key scope. Every entry key derives from it, so changing it orphans the table. */
 	private string $namespace = '';
 
@@ -146,6 +202,19 @@ class Table_Node extends Node {
 
 	/** Whether this Table's last purge stopped with a batch still full. */
 	private bool $purge_behind = false;
+
+	/** Consecutive ticks whose WAL checkpoint left frames behind. */
+	private int $wal_stalled = 0;
+
+	/** WAL frames on the first tick of the current stall. */
+	private int $wal_stall_frames = 0;
+
+	/**
+	 * Per-verb counters since the node was built or last reset; see stats().
+	 *
+	 * @var array<string,array{int,int,int,int,int,int}>
+	 */
+	private array $verb_stats = self::ZERO_STATS;
 
 	/**
 	 * Durable system of record behind this table, or null until backed_by()
@@ -239,18 +308,31 @@ class Table_Node extends Node {
 			$this->print_less_often( 'ERROR: refused an INSERT whose KEY is empty or holds whitespace' );
 			return;
 		}
-		$value = $message[ Message::VALUE ];
 		if ( '' !== $key ) {
-			// Empty deletes (Table.pm:313); a bare terminator counts as empty.
-			$empty = null === $value || [] === $value
-				|| ( \is_string( $value ) && '' === \rtrim( $value, "\r\n" ) );
-			if ( $empty ) {
-				$this->forget( $key );
-			} else {
-				$this->store( $key, $value );
-			}
+			$this->insert( $key, $message[ Message::VALUE ] );
 		}
 		parent::fill( $message );
+	}
+
+	/**
+	 * INSERT: store the value under its key, or delete the entry when the
+	 * value is empty, counted as one key asked.
+	 *
+	 * @param string $key   The message's KEY.
+	 * @param mixed  $value The message's VALUE.
+	 */
+	private function insert( string $key, mixed $value ): void {
+		$started = self::monotonic_ns();
+		$bytes   = $this->arm_bytes();
+		try {
+			// Empty deletes (Table.pm:313); a bare terminator counts as empty.
+			$empty  = null === $value || [] === $value
+				|| ( \is_string( $value ) && '' === \rtrim( $value, "\r\n" ) );
+			$landed = $empty ? $this->forget( $key ) : $this->store( $key, $value );
+			$this->count_rows( 'INSERT', 1, true === $landed ? 1 : 0 );
+		} finally {
+			$this->count_call( 'INSERT', $started, $bytes );
+		}
 	}
 
 	/**
@@ -357,20 +439,36 @@ class Table_Node extends Node {
 	 */
 	private function handle_request( array $request ): void {
 		++$this->counter;
+		$value   = $request[ Message::VALUE ];
+		$words   = \is_array( $value ) ? [] : ( \preg_split( '/\s+/', \trim( Core::as_string( $value, '' ) ), -1, \PREG_SPLIT_NO_EMPTY ) ?: [] );
+		$verb    = \is_array( $value ) ? Core::as_string( \array_key_first( $value ), '' ) : (string) \array_shift( $words );
+		$started = self::monotonic_ns();
+		$bytes   = $this->arm_bytes();
+		try {
+			$this->answer_verb( $request, $verb, $words );
+		} finally {
+			$this->count_call( $verb, $started, $bytes );
+		}
+	}
+
+	/**
+	 * Answer one request's verb: a mount refuses any write, a structure goes
+	 * to handle_struct(), and a string verb to its reply.
+	 *
+	 * @param array<int,mixed> $request The TM_REQUEST.
+	 * @param string           $verb    The verb: the first word, or the map's key.
+	 * @param list<string>     $words   A string request's words after the verb.
+	 * @throws \RuntimeException With no wired sink to reply through.
+	 */
+	private function answer_verb( array $request, string $verb, array $words ): void {
 		$value  = $request[ Message::VALUE ];
 		$struct = 0 !== ( Core::num_int( $request[ Message::TYPE ] ) & Message::TM_STRUCT );
-		if ( $this->mounted && \is_array( $value ) ) {
-			$this->refuse( $request, Core::as_string( \array_key_first( $value ), '' ), self::READS_ONLY );
+		if ( $this->mounted && ( \is_array( $value ) || ! \in_array( $verb, self::READ_VERBS, true ) ) ) {
+			$this->refuse( $request, $verb, self::READS_ONLY );
 			return;
 		}
 		if ( \is_array( $value ) ) {
-			$this->handle_struct( $request, $value, $struct );
-			return;
-		}
-		$words = \preg_split( '/\s+/', \trim( Core::as_string( $value, '' ) ), -1, \PREG_SPLIT_NO_EMPTY ) ?: [];
-		$verb  = (string) \array_shift( $words );
-		if ( $this->mounted && ! \in_array( $verb, self::READ_VERBS, true ) ) {
-			$this->refuse( $request, $verb, self::READS_ONLY );
+			$this->handle_struct( $request, $verb, $value, $struct );
 			return;
 		}
 		if ( $struct ) {
@@ -382,7 +480,7 @@ class Table_Node extends Node {
 			'MGET'                => $this->reply_values( $request, $verb, $words ),
 			'SMEMBERS'            => $this->reply_members( $request, $words ),
 			'TOUCH'               => $this->reply_touch( $request, $words ),
-			'RM'                  => $this->reply_written( $request, $verb, $this->remove_keys( $words ) ),
+			'RM'                  => $this->reply_removed( $request, $words ),
 			'MSET', 'ADD', 'SADD' => $this->refuse( $request, $verb, self::STRUCT_USAGE[ $verb ] ),
 			default               => $this->refuse( $request, $verb, 'unknown verb' ),
 		};
@@ -393,12 +491,12 @@ class Table_Node extends Node {
 	 * under the TM_STRUCT bit; a SADD value is its set's member map.
 	 *
 	 * @param array<int,mixed>       $request The TM_REQUEST.
+	 * @param string                 $verb    The map's one key.
 	 * @param array<array-key,mixed> $value   The request's VALUE.
 	 * @param bool                   $struct  Whether TYPE carries TM_STRUCT.
 	 * @throws \RuntimeException With no wired sink to reply through.
 	 */
-	private function handle_struct( array $request, array $value, bool $struct ): void {
-		$verb  = Core::as_string( \array_key_first( $value ), '' );
+	private function handle_struct( array $request, string $verb, array $value, bool $struct ): void {
 		$items = $value[ $verb ] ?? null;
 		$fault = match ( true ) {
 			! $struct                                   => 'a structured request needs the TM_STRUCT bit',
@@ -411,11 +509,14 @@ class Table_Node extends Node {
 			$this->refuse( $request, $verb, $fault );
 			return;
 		}
+		$items = Core::arr( $items );
 		if ( 'SADD' === $verb ) {
-			$this->reply_added( $request, Core::arr( $items ) );
+			$this->reply_added( $request, $items );
 			return;
 		}
-		$this->reply_written( $request, $verb, $this->write_items( Core::arr( $items ), 'ADD' === $verb ) );
+		$landed = $this->write_items( $items, 'ADD' === $verb );
+		$this->count_rows( $verb, \count( $items ), \count( $landed ) );
+		$this->reply_written( $request, $verb, $landed );
 	}
 
 	/**
@@ -439,7 +540,7 @@ class Table_Node extends Node {
 	 * Every well-formed set in one arm call; an item TTL below one second, or
 	 * a value that is no member map, leaves the set out. A failed call is
 	 * re-sent set by set, except on an arm whose call lands whole or not at
-	 * all, as a failed MSET batch is.
+	 * all, as a failed MSET batch is. SADD counts member rows, not sets.
 	 *
 	 * @param Durable_Arm            $arm   The Table's arm.
 	 * @param array<array-key,mixed> $items Set key => [ [ member => value, … ], ttl? ].
@@ -460,18 +561,28 @@ class Table_Node extends Node {
 			$names[ $entry ] = (string) $set_key;
 		}
 		if ( $arm->add_members( $sets ) ) {
-			return \array_values( $names );
+			$landed = $names;
+		} elseif ( $arm->batch_is_atomic() ) {
+			$landed = [];
+		} else {
+			$landed = \array_filter( $names, static fn ( string $entry ): bool => $arm->add_members( [ $entry => $sets[ $entry ] ] ), \ARRAY_FILTER_USE_KEY );
 		}
-		if ( $arm->batch_is_atomic() ) {
-			return [];
+		$this->count_rows( 'SADD', self::member_rows( $sets ), self::member_rows( \array_intersect_key( $sets, $landed ) ) );
+		return \array_values( $landed );
+	}
+
+	/**
+	 * How many member rows some sets carry.
+	 *
+	 * @param array<array-key,array{0: array<array-key,mixed>, 1: int}> $sets Entry key => [ members, ttl ].
+	 * @return int Rows.
+	 */
+	private static function member_rows( array $sets ): int {
+		$rows = 0;
+		foreach ( $sets as [ $members ] ) {
+			$rows += \count( $members );
 		}
-		$landed = [];
-		foreach ( $sets as $entry => $set ) {
-			if ( $arm->add_members( [ $entry => $set ] ) ) {
-				$landed[] = $names[ $entry ];
-			}
-		}
-		return $landed;
+		return $rows;
 	}
 
 	/**
@@ -502,6 +613,7 @@ class Table_Node extends Node {
 			$set_keys[ self::entry_key( $this->namespace, $set_key ) ] = $set_key;
 		}
 		$found = $this->arm->members( \array_keys( $set_keys ), $limit );
+		$this->count_rows( 'SMEMBERS', \count( $words ), 0 );
 		if ( false === $found ) {
 			$this->reply( $request, Message::TM_ERROR, '', "SMEMBERS: backend read failed\n" );
 			return;
@@ -519,6 +631,7 @@ class Table_Node extends Node {
 				foreach ( $members as $member => $stored ) {
 					$pairs[] = [ (string) $member, $stored ];
 				}
+				$this->count_rows( 'SMEMBERS', 0, \count( $pairs ) );
 				$this->reply( $request, Message::TM_STRUCT, $set_key, $pairs );
 			}
 			++$count;
@@ -542,6 +655,7 @@ class Table_Node extends Node {
 		$failed   = false;
 		$answered = false;
 		$found    = [] === $keys ? [] : $this->read_keys( $keys, $failed, $answered );
+		$this->count_rows( $verb, \count( $keys ), \count( $found ) );
 		if ( $failed && ! $answered ) {
 			$this->reply( $request, Message::TM_ERROR, '', "{$verb}: backend read failed\n" );
 			return;
@@ -635,18 +749,22 @@ class Table_Node extends Node {
 		}
 		$arm     = $this->arm();
 		$touched = null === $arm ? [] : \array_values( \array_filter( $words, fn ( string $key ): bool => true === $arm->touch( self::entry_key( $this->namespace, $key ), $ttl ) ) );
+		$this->count_rows( 'TOUCH', \count( $words ), \count( $touched ) );
 		$this->reply_written( $request, 'TOUCH', $touched );
 	}
 
 	/**
 	 * `RM <keys…>`: the keys that were there to delete.
 	 *
-	 * @param list<string> $words Keys.
-	 * @return list<string>
+	 * @param array<int,mixed> $request The TM_REQUEST.
+	 * @param list<string>     $words   Keys.
+	 * @throws \RuntimeException With no wired sink to reply through.
 	 */
-	private function remove_keys( array $words ): array {
-		$arm = $this->arm();
-		return null === $arm ? [] : \array_values( \array_filter( $words, fn ( string $key ): bool => true === $arm->delete( self::entry_key( $this->namespace, $key ) ) ) );
+	private function reply_removed( array $request, array $words ): void {
+		$arm     = $this->arm();
+		$removed = null === $arm ? [] : \array_values( \array_filter( $words, fn ( string $key ): bool => true === $arm->delete( self::entry_key( $this->namespace, $key ) ) ) );
+		$this->count_rows( 'RM', \count( $words ), \count( $removed ) );
+		$this->reply_written( $request, 'RM', $removed );
 	}
 
 	/**
@@ -958,10 +1076,12 @@ class Table_Node extends Node {
 	 *
 	 * @api Non-graph writers drop table entries without a live worker.
 	 * @param string $key Key within the table's namespace.
+	 * @return bool|null True when the entry was there to delete, false when it
+	 *                   was absent, null when no backend answered.
 	 */
-	public function forget( string $key ): void {
+	public function forget( string $key ): ?bool {
 		$entry_key = self::entry_key( $this->namespace, $key );
-		$this->arm()?->delete( $entry_key );
+		return $this->arm()?->delete( $entry_key );
 	}
 
 	/**
@@ -1156,6 +1276,109 @@ class Table_Node extends Node {
 	}
 
 	/**
+	 * One Table's purge: a batch, repeated while each comes back full and the
+	 * tick's deadline, read through `Core::read_clock()`, has not passed; the
+	 * rest waits a minute. A purge that stops with its last batch full leaves
+	 * the Table behind, and says so; the first short batch catches it up. The
+	 * deadline is checked between batches, so one statement blocked on the
+	 * file's write lock can hold the tick for the arm's busy_timeout.
+	 *
+	 * @param Durable_Arm $arm   The Table's arm.
+	 * @param int         $now   The tick, in epoch seconds.
+	 * @param float       $until The tick's deadline, shared by every Table.
+	 */
+	private function purge_batches( Durable_Arm $arm, int $now, float $until ): void {
+		$started = self::monotonic_ns();
+		$bytes   = $this->arm_bytes();
+		$batches = 0;
+		$purged  = 0;
+		try {
+			do {
+				++$batches;
+				$rows    = $arm->purge( $now, self::PURGE_BATCH_ROWS );
+				$purged += $rows;
+				$full    = self::PURGE_BATCH_ROWS === $rows;
+			} while ( $full && Core::read_clock() < $until );
+		} finally {
+			$this->count_rows( 'PURGE', $batches * self::PURGE_BATCH_ROWS, $purged );
+			$this->count_call( 'PURGE', $started, $bytes );
+		}
+		$this->purge_behind = $full;
+		if ( $full ) {
+			$this->print_less_often( 'WARNING: purge is behind: ', "its last batch came back full after {$batches} batches, " . $batches * self::PURGE_BATCH_ROWS . ' rows; the next purge spends its backlog budget' );
+		}
+	}
+
+	/**
+	 * One Table's WAL checkpoint, while the tick's deadline has not passed,
+	 * counted as CHECKPOINT: `asked` the WAL's frames, `answered` the frames
+	 * written back. A partial one is ordinary and the next tick carries on;
+	 * WAL_STALL_TICKS of them in a row, with the WAL larger than when the
+	 * stall began, is warned about, rate-limited.
+	 *
+	 * @param Sqlite_Arm $arm   The Table's arm.
+	 * @param float      $until The tick's deadline, shared by every Table.
+	 */
+	private function checkpoint_wal( Sqlite_Arm $arm, float $until ): void {
+		if ( Core::read_clock() >= $until ) {
+			return;
+		}
+		$started = self::monotonic_ns();
+		try {
+			$result = $arm->checkpoint();
+		} finally {
+			$this->count_call( 'CHECKPOINT', $started, $this->arm_bytes() );
+		}
+		if ( null === $result ) {
+			return;
+		}
+		[ $frames, $written ] = $result;
+		$this->count_rows( 'CHECKPOINT', $frames, $written );
+		if ( $written >= $frames ) {
+			$this->wal_stalled = 0;
+			return;
+		}
+		if ( 0 === $this->wal_stalled++ ) {
+			$this->wal_stall_frames = $frames;
+		}
+		if ( $this->wal_stalled >= self::WAL_STALL_TICKS && $frames > $this->wal_stall_frames ) {
+			$this->print_less_often( 'WARNING: WAL checkpoint has not completed ', "for {$this->wal_stalled} ticks while the WAL grew from {$this->wal_stall_frames} to {$frames} frames; an open reader holds an old snapshot" );
+		}
+	}
+
+	/**
+	 * The node's snapshot, its per-verb counters shown as stats() reports them.
+	 *
+	 * @return array<string,mixed>
+	 */
+	public function dump_node(): array {
+		return \array_replace( parent::dump_node(), [ 'verb_stats' => $this->stats() ] );
+	}
+
+	/**
+	 * The per-verb counters, for the console's metadata row.
+	 *
+	 * @return array<string,mixed>
+	 */
+	public function dump_metadata(): array {
+		return [ 'verb_stats' => $this->stats() ];
+	}
+
+	/**
+	 * `stats reset`: zero the counters, answering them as they stood, so no
+	 * call lands between the read and the reset.
+	 *
+	 * @return array<string,array{calls:int,asked:int,answered:int,bytes:int,total_ms:float,max_ms:float}>
+	 * @throws \RuntimeException On a mounted Table, which serves reads only.
+	 */
+	public function reset_stats(): array {
+		$this->refuse_if_mounted( 'stats reset' );
+		$stats            = $this->stats();
+		$this->verb_stats = self::ZERO_STATS;
+		return $stats;
+	}
+
+	/**
 	 * Refuse a `:config` write verb on a mount, which serves reads only.
 	 *
 	 * @param string $verb The verb refused.
@@ -1168,56 +1391,125 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * Delete the rows expired at `$now` from every durable Table in this
-	 * process's graph, at most once a `PURGE_INTERVAL_S` each: the Router
-	 * tick's step. The Tables due share one deadline, PURGE_BACKLOG_BUDGET_S
-	 * when any is behind and PURGE_BUDGET_S otherwise, so a tick holds the
-	 * loop for one budget plus one batch a Table. A mount is skipped, since
-	 * its declaring worker is the file's one writer.
+	 * The per-verb counters since the node was built or last reset. `asked`
+	 * and `answered` count keys, except SADD's member rows, SMEMBERS' member
+	 * rows answered, and PURGE's rows: `asked` the batches' room, `answered`
+	 * the rows deleted. `bytes` is what a durable arm encoded or decoded; a
+	 * volatile arm's serializer runs inside its extension, so it reads 0. A
+	 * call that threw still counts, with its time.
+	 *
+	 * @api The `stats` verb, dump_node() and dump_metadata() answer it.
+	 * @return array<string,array{calls:int,asked:int,answered:int,bytes:int,total_ms:float,max_ms:float}>
+	 */
+	public function stats(): array {
+		$out = [];
+		foreach ( $this->verb_stats as $verb => $row ) {
+			$out[ $verb ] = [
+				'calls'    => $row[ self::CALLS ],
+				'asked'    => $row[ self::ASKED ],
+				'answered' => $row[ self::ANSWERED ],
+				'bytes'    => $row[ self::BYTES ],
+				'total_ms' => \round( $row[ self::TOTAL_NS ] / 1e6, 3 ),
+				'max_ms'   => \round( $row[ self::MAX_NS ] / 1e6, 3 ),
+			];
+		}
+		return $out;
+	}
+
+	/**
+	 * Count one call of `$verb` begun at `$started`: its time and the bytes
+	 * its arm handled since `$bytes`. A verb not counted adds no row. Callers
+	 * bracket inline, since a closure would allocate once per message.
+	 *
+	 * @param string $verb    The verb.
+	 * @param int    $started monotonic_ns() when the call began.
+	 * @param int    $bytes   arm_bytes() when the call began.
+	 */
+	private function count_call( string $verb, int $started, int $bytes ): void {
+		if ( ! isset( $this->verb_stats[ $verb ] ) ) {
+			return;
+		}
+		$ns = self::monotonic_ns() - $started;
+		++$this->verb_stats[ $verb ][ self::CALLS ];
+		$this->verb_stats[ $verb ][ self::BYTES ]    += $this->arm_bytes() - $bytes;
+		$this->verb_stats[ $verb ][ self::TOTAL_NS ] += $ns;
+		if ( $ns > $this->verb_stats[ $verb ][ self::MAX_NS ] ) {
+			$this->verb_stats[ $verb ][ self::MAX_NS ] = $ns;
+		}
+	}
+
+	/**
+	 * Add to a verb's keys or rows asked and answered; as count_call(), a
+	 * verb not counted adds no row.
+	 *
+	 * @param string $verb     The verb.
+	 * @param int    $asked    Keys or rows asked.
+	 * @param int    $answered Keys or rows answered or written.
+	 */
+	private function count_rows( string $verb, int $asked, int $answered ): void {
+		if ( ! isset( $this->verb_stats[ $verb ] ) ) {
+			return;
+		}
+		$this->verb_stats[ $verb ][ self::ASKED ]    += $asked;
+		$this->verb_stats[ $verb ][ self::ANSWERED ] += $answered;
+	}
+
+	/**
+	 * The encoded bytes the Table's durable arm has handled; 0 for any other.
+	 *
+	 * @return int Bytes.
+	 */
+	private function arm_bytes(): int {
+		return $this->arm instanceof Durable_Arm ? $this->arm->bytes() : 0;
+	}
+
+	/**
+	 * The monotonic clock: `hrtime( true )`, or the `$hrtime` seam.
+	 *
+	 * @return int Nanoseconds from an arbitrary origin.
+	 */
+	private static function monotonic_ns(): int {
+		return null === self::$hrtime ? (int) \hrtime( true ) : ( self::$hrtime )();
+	}
+
+	/**
+	 * The Router tick's step for every durable Table in this process's graph:
+	 * delete the rows expired at `$now`, at most once a `PURGE_INTERVAL_S`
+	 * each, then checkpoint each SQLite Table's WAL, once a tick each. They
+	 * share one deadline, PURGE_BACKLOG_BUDGET_S while any purge is behind and
+	 * PURGE_BUDGET_S otherwise, so a tick holds the loop for one budget plus
+	 * one batch a purging Table and one checkpoint begun before the deadline;
+	 * a checkpoint the purges left no time for waits a tick. The tick runs its
+	 * timers' flushes first, so a checkpoint never lands inside one. A mount
+	 * is skipped, since its declaring worker is the file's one writer.
 	 *
 	 * @param int $now The tick, in epoch seconds.
-	 * @throws \Throwable What the purges threw, after the last.
+	 * @throws \Throwable What the steps threw, after the last.
 	 */
-	public static function purge_expired( int $now ): void {
+	public static function purge_and_checkpoint( int $now ): void {
 		$due    = [];
+		$wals   = [];
 		$behind = false;
 		foreach ( Core::$nodes_by_name as $node ) {
-			if ( $node instanceof self && ! $node->mounted && $node->arm instanceof Durable_Arm && $node->purge_due <= $now ) {
+			if ( ! $node instanceof self || $node->mounted || ! $node->arm instanceof Durable_Arm ) {
+				continue;
+			}
+			if ( $node->arm instanceof Sqlite_Arm ) {
+				$wals[] = [ $node, $node->arm ];
+			}
+			if ( $node->purge_due <= $now ) {
 				$node->purge_due = $now + self::PURGE_INTERVAL_S;
 				$due[]           = [ $node, $node->arm ];
 				$behind          = $behind || $node->purge_behind;
 			}
 		}
-		if ( [] === $due ) {
+		if ( [] === $due && [] === $wals ) {
 			return;
 		}
-		$until  = Core::right_now() + ( $behind ? self::PURGE_BACKLOG_BUDGET_S : self::PURGE_BUDGET_S );
-		$purges = \array_map( static fn ( array $table ): \Closure => static fn () => $table[0]->purge_batches( $table[1], $now, $until ), $due );
-		Worker_Should_Stop::raise( Worker_Should_Stop::attempt( ...$purges ) );
-	}
-
-	/**
-	 * One Table's purge: a batch, repeated while each comes back full and the
-	 * tick's deadline, read through `Core::right_now()`, has not passed; the
-	 * rest waits a minute. A purge that stops with its last batch full leaves
-	 * the Table behind, and says so; the first short batch catches it up. The
-	 * deadline is checked between batches, so one statement blocked on the
-	 * file's write lock can hold the tick for the arm's busy_timeout.
-	 *
-	 * @param Durable_Arm $arm   The Table's arm.
-	 * @param int         $now   The tick, in epoch seconds.
-	 * @param float       $until The tick's deadline, shared by every Table.
-	 */
-	private function purge_batches( Durable_Arm $arm, int $now, float $until ): void {
-		$batches = 0;
-		do {
-			++$batches;
-			$full = self::PURGE_BATCH_ROWS === $arm->purge( $now, self::PURGE_BATCH_ROWS );
-		} while ( $full && Core::right_now() < $until );
-		$this->purge_behind = $full;
-		if ( $full ) {
-			$this->print_less_often( 'WARNING: purge is behind: ', "its last batch came back full after {$batches} batches, " . $batches * self::PURGE_BATCH_ROWS . ' rows; the next purge spends its backlog budget' );
-		}
+		$until       = Core::read_clock() + ( $behind ? self::PURGE_BACKLOG_BUDGET_S : self::PURGE_BUDGET_S );
+		$purges      = \array_map( static fn ( array $table ): \Closure => static fn () => $table[0]->purge_batches( $table[1], $now, $until ), $due );
+		$checkpoints = \array_map( static fn ( array $table ): \Closure => static fn () => $table[0]->checkpoint_wal( $table[1], $until ), $wals );
+		Worker_Should_Stop::raise( Worker_Should_Stop::attempt( ...$purges, ...$checkpoints ) );
 	}
 
 	/**
@@ -1352,6 +1644,23 @@ class Table_Node extends Node {
 					'handler'     => static function ( Command_Interpreter_Node $interpreter, array $args ): string {
 						$patron = $interpreter->patron();
 						return $patron instanceof self ? $patron->rm( Core::as_string( $args['key'] ) ) : throw new \RuntimeException( 'no table patron' );
+					},
+				],
+				[
+					'name'        => 'stats',
+					'action'      => true,
+					'description' => 'Per-verb counters since the Table was built: calls, keys or rows asked and answered, encoded bytes, total and max ms. `stats reset` answers them and zeroes them; a mount refuses it.',
+					'args'        => [ [ 'name' => 'action', 'type' => 'string', 'description' => '`reset` zeroes the counters it answers.' ] ],
+					'handler'     => static function ( Command_Interpreter_Node $interpreter, array $args ): array {
+						$patron = $interpreter->patron();
+						if ( ! $patron instanceof self ) {
+							throw new \RuntimeException( 'no table patron' );
+						}
+						return match ( $args['action'] ?? null ) {
+							null    => $patron->stats(),
+							'reset' => $patron->reset_stats(),
+							default => throw new \InvalidArgumentException( 'usage: stats [reset]' ),
+						};
 					},
 				],
 				[

@@ -30,6 +30,9 @@ abstract class Durable_Arm extends Cache_Backend {
 	/** The last failure's message, for `last_failure()`. */
 	protected string $failure = '';
 
+	/** Tagged bytes encoded for a write or decoded for a read; see bytes(). */
+	private int $bytes = 0;
+
 	/** See Cache_Backend::get(). */
 	public function get( string $key ): mixed {
 		$read = $this->read( $key );
@@ -65,7 +68,7 @@ abstract class Durable_Arm extends Cache_Backend {
 		$expires = self::expires( $ttl );
 		return $this->attempt(
 			function () use ( $items, $expires ): bool {
-				$rows = \array_map( self::encode( ... ), $items );
+				$rows = \array_map( $this->encode( ... ), $items );
 				return $this->write_scope(
 					function () use ( $rows, $expires ): bool {
 						$this->upsert( $rows, $expires );
@@ -92,7 +95,7 @@ abstract class Durable_Arm extends Cache_Backend {
 		}
 		return $this->attempt(
 			function () use ( $key, $value, $ttl ): bool {
-				$bytes   = self::encode( $value );
+				$bytes   = $this->encode( $value );
 				$expires = self::expires( $ttl );
 				return $this->write_scope( fn (): bool => $this->claim( $key, $bytes, $expires ) );
 			},
@@ -176,11 +179,11 @@ abstract class Durable_Arm extends Cache_Backend {
 						if ( null === $old ) {
 							return false;
 						}
-						$value = $next( self::decode( $old ) );
+						$value = $next( $this->decode( $old ) );
 						if ( null === $value ) {
 							return false;
 						}
-						$new = self::encode( $value );
+						$new = $this->encode( $value );
 						if ( $new === $old || $this->replace( $key, $old, $new ) ) {
 							return $value;
 						}
@@ -272,7 +275,7 @@ abstract class Durable_Arm extends Cache_Backend {
 		}
 		return $this->attempt(
 			function () use ( $rows ): bool {
-				$encoded = \array_map( static fn ( array $row ): array => [ $row[0], $row[1], self::encode( $row[2] ), $row[3] ], $rows );
+				$encoded = \array_map( fn ( array $row ): array => [ $row[0], $row[1], $this->encode( $row[2] ), $row[3] ], $rows );
 				return $this->write_scope(
 					function () use ( $encoded ): bool {
 						$this->upsert_members( $encoded );
@@ -303,21 +306,25 @@ abstract class Durable_Arm extends Cache_Backend {
 
 	/**
 	 * A value as a durable arm stores it: the serializer's tag, then its bytes,
-	 * so a row reads back under whichever serializer is in force later.
+	 * so a row reads back under whichever serializer is in force later. Its
+	 * size joins bytes().
 	 *
 	 * @param mixed $value The value.
 	 * @return string The tagged bytes.
 	 * @throws \UnexpectedValueException When igbinary cannot serialize the value.
 	 */
-	private static function encode( mixed $value ): string {
+	private function encode( mixed $value ): string {
 		if ( 'igbinary' !== self::serializer() ) {
-			return 's' . \serialize( $value ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_serialize
+			$tagged = 's' . \serialize( $value ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_serialize
+		} else {
+			$bytes = \igbinary_serialize( $value );
+			if ( ! \is_string( $bytes ) ) {
+				throw new \UnexpectedValueException( 'igbinary could not serialize the value' );
+			}
+			$tagged = 'i' . $bytes;
 		}
-		$bytes = \igbinary_serialize( $value );
-		if ( ! \is_string( $bytes ) ) {
-			throw new \UnexpectedValueException( 'igbinary could not serialize the value' );
-		}
-		return 'i' . $bytes;
+		$this->bytes += \strlen( $tagged );
+		return $tagged;
 	}
 
 	/**
@@ -380,7 +387,7 @@ abstract class Durable_Arm extends Cache_Backend {
 				foreach ( \array_unique( $set_keys ) as $set_key ) {
 					$rows = $this->select_set( $set_key, $limit + 1 );
 					if ( [] !== $rows ) {
-						$out[ $set_key ] = \count( $rows ) > $limit ? null : self::decoded( $rows );
+						$out[ $set_key ] = \count( $rows ) > $limit ? null : $this->decoded( $rows );
 					}
 					unset( $rows );
 				}
@@ -404,6 +411,17 @@ abstract class Durable_Arm extends Cache_Backend {
 	 * @return array<array-key,string> Member => tagged bytes.
 	 */
 	abstract protected function select_set( string $set_key, int $limit ): array;
+
+	/**
+	 * Tagged bytes this arm has encoded for a write or decoded for a read
+	 * since it was built, counted where each is computed, never re-serialized.
+	 *
+	 * @api Table_Node's per-verb counters read the change across one verb.
+	 * @return int Bytes.
+	 */
+	public function bytes(): int {
+		return $this->bytes;
+	}
 
 	/**
 	 * Reclaim the store's free pages. An operator verb, never automatic.
@@ -430,7 +448,7 @@ abstract class Durable_Arm extends Cache_Backend {
 	 * @return array<string,mixed>
 	 */
 	private function select( array $keys ): array {
-		return self::decoded( $this->select_rows( \array_values( \array_unique( $keys ) ) ) );
+		return $this->decoded( $this->select_rows( \array_values( \array_unique( $keys ) ) ) );
 	}
 
 	/**
@@ -448,10 +466,10 @@ abstract class Durable_Arm extends Cache_Backend {
 	 * @return array<string,mixed>
 	 * @throws \UnexpectedValueException On a row no serializer here wrote.
 	 */
-	private static function decoded( array $rows ): array {
+	private function decoded( array $rows ): array {
 		$out = [];
 		foreach ( $rows as $key => $bytes ) {
-			$out[ (string) $key ] = self::decode( $bytes );
+			$out[ (string) $key ] = $this->decode( $bytes );
 		}
 		return $out;
 	}
@@ -464,11 +482,12 @@ abstract class Durable_Arm extends Cache_Backend {
 	 * `allowed_classes => false` on the PHP path is defense in depth where the
 	 * serializer offers a filter; igbinary offers none.
 	 *
-	 * @param string $row The tagged bytes `encode()` wrote.
+	 * @param string $row The tagged bytes `encode()` wrote; its size joins bytes().
 	 * @return mixed The value.
 	 * @throws \UnexpectedValueException On a row no serializer here wrote.
 	 */
-	private static function decode( string $row ): mixed {
+	private function decode( string $row ): mixed {
+		$this->bytes += \strlen( $row );
 		return match ( $row[0] ?? '' ) {
 			'i'     => \igbinary_unserialize( \substr( $row, 1 ) ),
 			// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_unserialize
