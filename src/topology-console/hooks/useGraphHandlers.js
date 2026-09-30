@@ -10,6 +10,7 @@ import {
 	TM_COMMAND,
 	TM_ERROR,
 	TM_REQUEST,
+	TM_STRUCT,
 } from '../../runtime/message';
 import { generateNodeName } from '../utils/consoleGraph';
 import { quoteToken } from '../../runtime/shell-node';
@@ -30,8 +31,9 @@ import { canonicalReverseCwd } from '../../runtime/metadata-node';
 
 /**
  * Runs one Inspector verb. `payload` is the verb's argument — a phrase for
- * `send`, a level for `trace`, the `{ verb, kind, args, replyTo }` record for
- * `invoke`, `args` its tokens — and `flags` the Compose pane's reply flags.
+ * `send`, a level for `trace`, the `{ verb, kind, args, struct, replyTo }` record
+ * for `invoke`, `args` its tokens and `struct` a structured request's map —
+ * and `flags` the Compose pane's reply flags.
  *
  * @typedef {(action: string, nodeId: string, payload?: (string|number|Object), flags?: ComposeFields) => void} InspectorAction
  */
@@ -311,7 +313,7 @@ export function useGraphHandlers( {
 					if ( ! shell ) {
 						return;
 					}
-					const { verb, kind, args = [], replyTo } = payload;
+					const { verb, kind, args = [], struct, replyTo } = payload;
 					// The catalog flag decides, not a search for `:config`.
 					const node = ( graph?.nodes || [] ).find(
 						( n ) => n.id === nodeId
@@ -352,7 +354,16 @@ export function useGraphHandlers( {
 					}
 					let m;
 					let echo;
-					if ( 'request' === kind ) {
+					if ( 'request' === kind && undefined !== struct ) {
+						// Mirror `request_struct`, keying the map by verb.
+						m = newMessage();
+						m[ TYPE ] = TM_REQUEST | TM_STRUCT;
+						m[ VALUE ] = { [ verb ]: struct };
+						markLocal( m );
+						echo = `request_struct ${ nodeId } ${ quoteToken(
+							JSON.stringify( m[ VALUE ] )
+						) }`;
+					} else if ( 'request' === kind ) {
 						// Mirror the Shell: mark LOCAL; a request is unsigned.
 						m = newMessage();
 						m[ TYPE ] = TM_REQUEST;

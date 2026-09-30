@@ -206,6 +206,20 @@
         "raw": "request_node depot/beacon fetch 7"
     },
     {
+        "verb": "request_struct_node",
+        "values": [
+            "request_struct_node",
+            "depot/beacon",
+            "{\"MSET\":{\"kea\":[\"weka\",37]}}"
+        ],
+        "spans": [
+            "request_struct_node",
+            "depot/beacon",
+            "'{\"MSET\":{\"kea\":[\"weka\",37]}}'"
+        ],
+        "raw": "request_struct_node depot/beacon '{\"MSET\":{\"kea\":[\"weka\",37]}}'"
+    },
+    {
         "verb": "send_eof",
         "values": [
             "send_eof",

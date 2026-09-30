@@ -1369,6 +1369,13 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 				'list_nodes'
 			);
 		} );
+		it( 'request_struct help names its type and alias', () => {
+			const interpreter = makeInterpreter();
+			const out = dispatch( interpreter, 'help', 'request_struct_node' );
+			expect( out ).toContain( 'request_struct <path> <json>' );
+			expect( out ).toContain( 'alias: request_struct_node' );
+			expect( out ).toContain( 'TM_REQUEST|TM_STRUCT' );
+		} );
 		it( 'a class topic renders its nodeSchema exactly like PHP help', () => {
 			const interpreter = makeInterpreter();
 			CommandInterpreterNode.includeNodes.SchemaProbe = class extends (
@@ -1501,6 +1508,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			// Shell builtins now appear in the single command table.
 			expect( out ).toContain( 'send_struct' );
 			expect( out ).toContain( 'debug_level' );
+			expect( out ).toContain( 'request_struct' );
 		} );
 
 		it( 'ls with KEY=completion returns all bare node names (like -a), no columns', () => {

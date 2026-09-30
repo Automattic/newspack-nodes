@@ -637,6 +637,33 @@ class ShellTest extends TestCase {
 		$this->assertStringContainsString( 'send_struct', $capture->captured[0][ Message::VALUE ] );
 	}
 
+	public function test_parse_request_struct_yields_TM_REQUEST_STRUCT_with_decoded_value(): void {
+		$shell   = new Shell_Node();
+		$message = $shell->parse( "request_struct flame-stats:table '{\"MSET\":{\"kea-4417\":[\"weka\",913]}}'" );
+
+		$this->assertNotNull( $message );
+		$this->assertSame( Message::TM_REQUEST | Message::TM_STRUCT, $message[ Message::TYPE ] );
+		$this->assertSame( 'flame-stats:table', $message[ Message::TO ] );
+		$this->assertSame( [ 'MSET' => [ 'kea-4417' => [ 'weka', 913 ] ] ], $message[ Message::VALUE ] );
+	}
+
+	public function test_parse_request_struct_node_is_an_alias(): void {
+		$shell   = new Shell_Node();
+		$message = $shell->parse( "request_struct_node moa '{ \"SADD\": { \"flock\": [ \"tui\", 61 ] } }'" );
+
+		$this->assertSame( Message::TM_REQUEST | Message::TM_STRUCT, $message[ Message::TYPE ] );
+		$this->assertSame( 'moa', $message[ Message::TO ] );
+		$this->assertSame( [ 'SADD' => [ 'flock' => [ 'tui', 61 ] ] ], $message[ Message::VALUE ] );
+	}
+
+	public function test_parse_request_struct_invalid_json_reports_error_and_sends_nothing(): void {
+		$capture = $this->register_output_capture();
+		$shell   = new Shell_Node();
+
+		$this->assertNull( $shell->parse( "request_struct moa '{MSET:}'" ), 'Invalid JSON must not produce a message.' );
+		$this->assertStringContainsString( 'request_struct: ', $capture->captured[0][ Message::VALUE ] );
+	}
+
 	public function test_parse_send_eof_yields_TM_EOF(): void {
 		$shell = new Shell_Node();
 		$message = $shell->parse( 'send_eof node');
@@ -1597,6 +1624,7 @@ class ShellTest extends TestCase {
 			'request'     => [ 'request', 'usage: request <path> <args>' ],
 			'tell'        => [ 'tell', 'usage: tell <path> <bytes>' ],
 			'send_struct' => [ 'send_struct', 'usage: send_struct <path> <json>' ],
+			'request_struct' => [ 'request_struct', 'usage: request_struct <path> <json>' ],
 			'send_eof'    => [ 'send_eof', 'usage: send_eof <path>' ],
 			'cmd'         => [ 'cmd', 'usage: cmd <path> <verb> [<args>]' ],
 			// A path but no verb name mints a command with an empty name, which

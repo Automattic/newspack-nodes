@@ -66,7 +66,7 @@ if ( \defined( 'WP_CLI' ) && \WP_CLI ) {
 /**
  * Register the `wp nodes` command tree.
  *
- * `nodes` and `nodes memcache` register as classes, so each is a group whose
+ * `nodes`, `nodes memcache`, `nodes session` and `nodes tables` register as classes, so each is a group whose
  * public methods are its subcommands; the other verbs are bound methods,
  * because the verb methods cannot be static (wp-cli#5472). A group registers
  * its own path, or `wp nodes` never lists its verbs —
@@ -93,6 +93,8 @@ function newspack_nodes_register_cli_commands(): void {
 	\WP_CLI::add_command( 'nodes ingest',     [ $nodes_ingest_cli, 'ingest' ]     );
 	\WP_CLI::add_command( 'nodes scaffold',   [ $nodes_scaffold_cli, 'scaffold' ] );
 	\WP_CLI::add_command( 'nodes memcache',   '\\Newspack_Nodes\\Memcache_CLI_Command' );
+	\WP_CLI::add_command( 'nodes tables',     '\\Newspack_Nodes\\Tables_CLI_Command' );
+	\WP_CLI::add_command( 'nodes session',   '\\Newspack_Nodes\\Session_CLI_Command' );
 	\WP_CLI::add_command( 'nodes caps',       [ $nodes_caps_cli, 'caps' ]         );
 	\WP_CLI::add_command( 'nodes hub-user',   [ $nodes_caps_cli, 'hub_user' ]     );
 }

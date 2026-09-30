@@ -7,9 +7,9 @@
  * agent's MCP client, a script on a laptop. The two share a shape and diverge
  * three ways:
  *
- *   - A durable directory is required. `Command_Auth` writes keys into a
- *     cache, and cache stores do not enumerate, so `Sessions` holds the
- *     listing while the cache stays the authority on liveness.
+ *   - A directory is required. `Command_Auth` keeps keys in a store it reads
+ *     by handle and does not enumerate, so `Sessions` holds the listing while
+ *     the store stays the authority on liveness.
  *   - Nothing is hashed. Verification recomputes an HMAC, so the key must stay
  *     recoverable, and "show once, keep a digest" is unavailable. That is the
  *     argument for short TTLs, not for a year-long token.
@@ -83,7 +83,7 @@ class Sessions_CI_Node extends Service_CI_Node {
 	 * @param array<array-key,mixed> $args Bound verb arguments: label, scope, ttl.
 	 * @return array<string,mixed> The mint — handle, secret, scope, expires_in, now — plus the label.
 	 * @throws \RuntimeException On a scope off the ladder, or a user holding none of the three roles.
-	 * @throws \Newspack_Nodes\Session_Store_Unavailable When the cache cannot store the session; the reply names why.
+	 * @throws \Newspack_Nodes\Session_Store_Unavailable When the store cannot hold the session; the reply names why.
 	 */
 	public static function cmd_create( array $args ): array {
 		$label = Core::as_string( $args['label'] );
@@ -105,11 +105,11 @@ class Sessions_CI_Node extends Service_CI_Node {
 	/**
 	 * `revoke` verb handler — `revoke <handle>`.
 	 *
-	 * `Sessions::forget()` drops the cache lease before it rewrites the
+	 * `Sessions::forget()` drops the store row before it rewrites the
 	 * directory, so a half-failure leaves a dead listed row rather than a live
-	 * unlisted key, and a handle the directory never held still has its lease
-	 * dropped. It answers `revoked: true` only when it dropped a lease or a
-	 * row. A store that did not answer refuses, because the key may still
+	 * unlisted key, and a handle the directory never held still has its row
+	 * dropped. It answers `revoked: true` only when it dropped a store row or
+	 * a directory row. A store that did not answer refuses, because the key may still
 	 * verify. Otherwise the handle named nothing, and the refusal says so —
 	 * naming the handles of any session LABELLED with it, which is what an
 	 * operator reading the Sessions tab types.

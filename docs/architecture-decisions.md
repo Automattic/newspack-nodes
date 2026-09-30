@@ -1341,7 +1341,7 @@ A Table is the one node a request reaches without its worker. `topologies mount_
 mounts every Table an active topology declares into the request graph through
 `Bootstrap::mount_table()`, and it too declares MANAGE by declaring no capability. A mount
 serves reads alone: it answers `GET`, `MGET` and `SMEMBERS`, and refuses every write request, an
-INSERT, and its `:config` interpreter's `rm` and `vacuum`, because the declaring worker is the
+INSERT, and its `:config` interpreter's `flush` and `vacuum`, because the declaring worker is the
 Table's one writer ([ADR-6](#adr-6-crc32--31-bit-mask-partition-routing)). A `sqlite` mount
 opens its file read-only, creates nothing, and reads as empty until its worker has written
 ([ADR-24](#adr-24-a-tables-backend-is-chosen-per-table)).
@@ -1405,8 +1405,8 @@ inside classes was also invisible to `ls`, `dump_node` and the console.
   that cannot open its Tables fails loud at load.
 - `sqlite` is one file per Table per partition, `{base}/tables/{table}.p{N}.sqlite`, on
   [ADR-4](#adr-4-pipe_buf-atomic-writes)'s local filesystem, in WAL with `synchronous=NORMAL`,
-  a 1000 ms `busy_timeout`, `wal_autocheckpoint=0` on the writer and a 64 MiB `cache_size`
-  on every connection. The partition's worker is its one writer
+  a 1000 ms `busy_timeout`, `wal_autocheckpoint=0` and a 64 MiB `journal_size_limit` on
+  the writer, and a 64 MiB `cache_size` on every connection. The partition's worker is its one writer
   ([ADR-6](#adr-6-crc32--31-bit-mask-partition-routing)), and
   `Topology_Analyzer::write_set()` claims the file, so two active topologies cannot both
   write it.
@@ -1421,19 +1421,54 @@ inside classes was also invisible to `ls`, `dump_node` and the console.
   because a root reader can leave `-wal` and `-shm` files its worker cannot open.
 - `wpdb` is one shared table, `{base_prefix}newspack_nodes_table`, keyed by namespace, for
   low-volume Tables every host must read.
-- Every arm stores the same key grammar (`Cache_Backend::site_key()`), so a salt rotation
-  orphans durable rows as it orphans cached ones.
+- A volatile arm stores `Table_Node::entry_key()`, built through `Cache_Backend::site_key()`
+  with the install's salt, and a salt rotation is its flush. A durable arm stores the
+  namespace and the key alone, `{namespace}:{key}`: its file or table already belongs to
+  this install, so `wp nodes memcache flush` leaves its rows.
+- `flush`, a `:config` verb, empties a durable Table. A `sqlite` Table's writer, the file's
+  one writer, unlinks the database and its `-wal` and `-shm` and opens a new file with the
+  same pragmas and tables, a cost that never grows with the rows, and answers the bytes the
+  old files held; a mount in another process that opened the old file reads its rows until
+  that request ends. A `wpdb` Table deletes its namespace's rows and answers how many,
+  because every wpdb Table shares one MySQL table, which a TRUNCATE would empty for all of
+  them. On eve a DELETE of 2,000,016 SQLite rows took 57.9 s and, sent to a live worker,
+  held its drain loop until the fleet revived it; replacing the same 555 MB of files took
+  0.9 s, the command included. The
+  checkpoint schedule, the WAL stall count and a purge left behind start over. It is
+  MANAGE-only — a worker has no logged-in user, so a verified
+  session's scope stands in for the role — and a mount refuses it.
+  `wp nodes tables flush` sends it to each partition's owning worker over the worker's
+  command channel, and flushes a partition no worker owns from the CLI only under the fleet
+  hold; `wp nodes tables list` asks the owners for their counters the same way.
+- Command sessions live on the `wpdb` backend, in the `nodes-sessions` namespace, one row
+  per session keyed by its handle: every web host mints and every host verifies, which one
+  host's SQLite file cannot serve and an evicting cache loses. A row carries the session's
+  own TTL, never slid, and each mint purges up to 64 expired rows, because no worker's tick
+  purges a store built in code. A store that will not open fails the mint, naming why.
 - A read ignores an expired row. `Router_Node`'s tick purges each durable Table its worker
   declared, once a minute, and `vacuum` is an operator verb, never automatic.
 - No COMMIT checkpoints a `sqlite` file. The writer turns `wal_autocheckpoint` off, and the
-  tick runs one `wal_checkpoint(PASSIVE)` per Table, after the tick's timers have flushed and
-  after the purge, inside the purge's deadline; a mount never checkpoints. On staging a
-  38 MB rewrite spent 400–500 ms in COMMIT and 650–790 ms more in the checkpoint SQLite ran
-  inside that COMMIT, so a write paid for copying the WAL back. PASSIVE never waits on a
-  reader or blocks one: frames past an open reader's snapshot wait for the next tick, and
-  `WAL_STALL_TICKS` (60) ticks of that while the WAL grows log a rate-limited warning. On eve
-  the same 38,000-row rewrite took 191–199 ms with the checkpoint inside COMMIT, and 111–126 ms
-  of COMMIT plus 45–62 ms of tick checkpoint without.
+  tick runs a `wal_checkpoint(PASSIVE)` per Table at most once every
+  `Table_Node::CHECKPOINT_INTERVAL_S` (30 s), after the tick's timers have flushed and after
+  the purge, inside the purge's deadline; a mount never checkpoints. On staging a 38 MB
+  rewrite spent 400–500 ms in COMMIT and 650–790 ms more in the checkpoint SQLite ran inside
+  that COMMIT, so a write paid for copying the WAL back. On eve the same 38,000-row rewrite
+  took 191–199 ms with the checkpoint inside COMMIT, and 111–126 ms of COMMIT plus 45–62 ms
+  of tick checkpoint without.
+- A checkpoint copies each page in the WAL back once however many writes dirtied it, so the
+  interval sets how often a hot page is copied. Checkpointing every tick, staging's
+  aggregate Table spent 1,686 ms in 133 checkpoints (83,869 frames), 39% of its time, beside
+  1,879 ms of `SADD` and 614 ms of `MSET`; its URL Table spent 512 ms in 44, one of them
+  367 ms. At ~630 frames a second, 30 s leaves ~19,000 frames, ~75 MB, to each checkpoint.
+- PASSIVE never waits on a reader or blocks one: frames past an open reader's snapshot wait
+  for the next checkpoint, and `WAL_STALL_CHECKPOINTS` (4) of those in a row while the WAL
+  grows log a rate-limited warning. A mount's reader ends within PHP's 30-second
+  `max_execution_time`, so one request straddles two checkpoints at most, and four span at
+  least 90 seconds.
+- `journal_size_limit`, `Sqlite_Arm::WAL_LIMIT_BYTES` (64 MiB), cuts the WAL file back when
+  a checkpoint has rewound it, where SQLite would keep it at its high-water mark. A steady
+  30-second interval regrows ~10 MB past it; a burst — a stall, a backfill — gives back
+  everything above it.
 - `cache_size` is 64 MiB, `Sqlite_Arm::CACHE_KIB`, against SQLite's 2 MB default. Staging's
   aggregate file is ~300 MB, and its worker reads the current hour's keys back before each
   write; 500 random keys took 46 ms there against 5.7 ms for adjacent ones. SQLite allocates
@@ -1474,8 +1509,12 @@ inside classes was also invisible to `ls`, `dump_node` and the console.
 - Members on a volatile arm — rejected: an evicted member vanishes from its set without a
   trace, so a member read could not tell a whole set from a partial one.
 - A key-range SCAN over kv — rejected: reads scale with the range, not the set.
-- One durable store for every Table — rejected: nonces, sessions and page caches want a
-  cache's speed and eviction.
+- One durable store for every Table — rejected: nonces and page caches want a cache's speed
+  and eviction.
+- Salting durable keys — rejected: a rotation meant to flush the caches orphaned every
+  durable row, which then sat until its TTL, and it logged out every session with it.
+- Sessions on the cache tier — rejected: an eviction or a flush logs a client out with hours
+  left on its session.
 - A SQL data model — out of scope: aggregates stay key-value.
 
 **Consequences:**
@@ -1484,10 +1523,11 @@ inside classes was also invisible to `ls`, `dump_node` and the console.
   `sqlite backend needs the pdo_sqlite extension` at load.
 - A reader on another host cannot see a `sqlite` Table.
 - A long reader starves the WAL checkpoint, so the WAL grows until the reader ends, and
-  sixty ticks of that say so. A reader never blocks the writer under WAL; a write that waits
-  out `busy_timeout` met a second writer, and returns false.
-- The WAL holds one tick's writes between checkpoints, and its file keeps the size of the
-  largest it reached: a checkpoint rewinds the WAL, and nothing truncates it.
+  four incomplete checkpoints in a row while it grows say so. A reader never blocks the
+  writer under WAL; a write that waits out `busy_timeout` met a second writer, and returns
+  false.
+- The WAL holds up to one `CHECKPOINT_INTERVAL_S` of writes, ~75 MB at staging's rate, which
+  is also what a crash replays from it; a stall holds more, until its reader ends.
 - A co-tenant install sharing `{base}` shares the file and becomes its second writer.
 - A Table built outside a graph, `Table_Node::table( $ns, $ttl, 'sqlite' )`, is opened by
   every web and CLI process that builds it, so its file has no one writer. Such a Table names
@@ -1495,10 +1535,12 @@ inside classes was also invisible to `ls`, `dump_node` and the console.
 - The purge walks the named Tables of a worker's graph and skips a request-graph mount. A
   durable Table that `table()` builds is never purged: reads ignore its expired rows, but
   they stay on disk. A durable Table that must be reclaimed is declared in a topology.
-- The purge deletes expired rows and nothing else. A salt rotation leaves a durable Table's
-  old-scope rows unreachable until they expire on the TTL they were written with, and every
-  Table's TTL is at least one second, so the purge reclaims each of them in turn. `vacuum`
-  returns free pages and deletes no row.
+- The purge deletes expired rows and nothing else, `vacuum` returns free pages and deletes no
+  row, and `flush` empties the Table. A row written under an earlier key — the salted one
+  before 2.79.0 — is unreachable, expires on the TTL it was written with, and the purge
+  reclaims it in turn.
+- A flushed session store revokes every issued session at once, so `wp nodes tables flush`
+  flushes it only when named.
 - A `wpdb` purge is scoped by the Table's own namespace, so rows under a namespace no active
   topology declares — a generation moved from `pyrobase:g47` to `pyrobase:g48` — are never
   reclaimed. Delete them by hand:

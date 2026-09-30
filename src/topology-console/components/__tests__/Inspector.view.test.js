@@ -2104,6 +2104,83 @@ describe( 'Inspector (view mode)', () => {
 		} );
 	} );
 
+	it( 'a structured request takes a JSON textarea and sends the parsed map', () => {
+		const onAction = jest.fn();
+		const catalog = [
+			{
+				shell_name: 'Echo',
+				requests: [
+					{
+						name: 'MSET',
+						args: [ { name: 'map', type: 'json', required: true } ],
+					},
+				],
+			},
+		];
+		const { getByText, getByLabelText } = renderNode( {
+			catalog,
+			onAction,
+		} );
+		fireEvent.click( getByText( 'MSET' ) );
+		const field = getByLabelText( /map/ );
+		expect( field.tagName ).toBe( 'TEXTAREA' );
+		const run = getByText( 'Run' );
+		expect( run.disabled ).toBe( true );
+		fireEvent.change( field, { target: { value: '{"kea-5521":' } } );
+		expect( run.disabled ).toBe( true );
+		fireEvent.change( field, { target: { value: '5521' } } );
+		expect( run.disabled ).toBe( true );
+		fireEvent.change( field, {
+			target: { value: '{ "kea-5521": [ "weka", 5521 ] }' },
+		} );
+		expect( run.disabled ).toBe( false );
+		fireEvent.click( run );
+		expect( onAction ).toHaveBeenCalledWith( 'invoke', 'echo', {
+			verb: 'MSET',
+			kind: 'request',
+			struct: { 'kea-5521': [ 'weka', 5521 ] },
+		} );
+	} );
+
+	it( 'a json COMMAND arg keeps its named token through the textarea', () => {
+		const onAction = jest.fn();
+		const catalog = [
+			{
+				shell_name: 'Echo',
+				commands: [
+					{
+						name: 'save',
+						args: [
+							{ name: 'name', type: 'string', required: true },
+							{
+								name: 'positions',
+								type: 'json',
+								required: true,
+							},
+						],
+					},
+				],
+			},
+		];
+		const { getByText, getByLabelText } = renderNode( {
+			catalog,
+			onAction,
+		} );
+		fireEvent.click( getByText( 'save' ) );
+		const field = getByLabelText( /positions/ );
+		expect( field.tagName ).toBe( 'TEXTAREA' );
+		fireEvent.change( getByLabelText( /^name/ ), {
+			target: { value: 'kea-6630' },
+		} );
+		fireEvent.change( field, { target: { value: '{"tui":[6,30]}' } } );
+		fireEvent.click( getByText( 'Run' ) );
+		expect( onAction ).toHaveBeenCalledWith( 'invoke', 'echo', {
+			verb: 'save',
+			kind: 'command',
+			args: [ '--name=kea-6630', '--positions={"tui":[6,30]}' ],
+		} );
+	} );
+
 	it( 'focuses the first argument field when the dialog opens', () => {
 		const catalog = [
 			{

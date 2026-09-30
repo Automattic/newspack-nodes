@@ -17,9 +17,12 @@ Every substrate command lives under `wp nodes`. This page is the quick reference
 | [`wp nodes scaffold <plugin\|node\|topology> <name>`](../includes/cli/class-scaffold-cli-command.php) | Generates a working starting point: a whole consumer plugin directory, a single Node class, or a `.tsl` topology — the shapes from [writing-a-plugin.md](writing-a-plugin.md). Slugs are `[a-z0-9-]+`, class names `[A-Za-z_]+`. Never overwrites. |
 | [`wp nodes ingest <topic> [<file>...]`](../includes/cli/class-ingest-cli-command.php) | Replays packed partition-segment records (dead-letter segments included) back through a Topic — re-partitioned against the destination's geometry, appended to its segments. Omit the file list to read packed records from stdin instead. |
 | [`wp nodes memcache get <logical> [--host] [--key] [--porcelain]`](../includes/cli/class-memcache-cli-command.php) | Reads one cache entry by its LOGICAL name — the substrate rebuilds `newspack_nodes:{version}:{scope}:{logical}`, so you never type the version or the site hash. `--key` prints the resolved address without reading; `--host` resolves in the per-machine scope; `--porcelain` prints the value alone. |
-| `wp nodes memcache flush` | Rotates the install's cache salt: every Newspack plugin key here is orphaned at once, every issued command session with them, and no co-tenant sharing the memcached is touched. The rotation itself asks every live worker to restart, because a live worker keeps writing the old prefix until it respawns, and the success line says so. A restart that fails warns and leaves the new scope to the next spawn; a rotation that never moved the salt, such as a salt write the database refused (`cache salt write refused`), fails the command. The CLI half of the settings page's Flush Caches button. |
+| `wp nodes memcache flush` | Rotates the install's cache salt: every Newspack plugin key in memcached and APCu here is orphaned at once, and no co-tenant sharing the memcached is touched. A durable Table's rows and the command sessions carry no salt and stay; `wp nodes tables flush` empties those. The rotation itself asks every live worker to restart, because a live worker keeps writing the old prefix until it respawns, and the success line says so. A restart that fails warns and leaves the new scope to the next spawn; a rotation that never moved the salt, such as a salt write the database refused (`cache salt write refused`), fails the command. The CLI half of the settings page's Flush Caches button. |
+| [`wp nodes tables list [--format=table\|json] [--timeout=<s>]`](../includes/cli/class-tables-cli-command.php) | One row per partition of every Table an active topology declares, then the command-session store (`nodes-sessions`): backend, TTL, owning worker and its state (`live`, `stale`, `held`, `down`), and where the rows live — the SQLite file and its size with its `-wal`, or the shared wpdb table. A live owner is asked for its per-verb counters (calls and total ms) over its command channel, never by opening its file; one that does not answer within `--timeout` (10 s) is warned about and listed without them. `--format=json` keeps sizes in bytes and counters as a map. |
+| `wp nodes tables flush [<table>...] [--partition=<N>] [--yes] [--timeout=<s>]` | Empties each named Table and reports what each partition released: a `sqlite` partition's file is replaced by a new one, at a cost that never grows with its rows, and reports the bytes the old files held; a `wpdb` Table deletes its namespace's rows and reports how many. A live owner flushes its own partition, sent the Table's `flush` verb over its command channel; a partition no worker owns is flushed here only under the fleet hold (`wp nodes stop`), and refused otherwise with that instruction; a stale owner is refused. No table named flushes every declared Table after a confirmation `--yes` skips. `nodes-sessions` is flushed only when named, and flushing it revokes every issued session. Refuses root. |
 | [`wp nodes caps [status\|install\|uninstall]`](../includes/cli/class-caps-cli-command.php) | Reports or changes the capability model: `status` prints the map, `install` moves the three roles onto real capabilities, and `uninstall` reverses it. |
 | `wp nodes hub-user <login> [--email] [--name] [--no-password]` | Creates the least-privilege aggregator user and issues it an application password, shown once. |
+| [`wp nodes session issue <label> [<role>] [<ttl>]`](../includes/cli/class-session-cli-command.php) | Mints a command session and prints `<handle>.<secret>` on stdout, one line and nothing else, so `$( … )` captures the MCP Bearer credential whole. The session acts as the WP-CLI `--user=<login>` and lists under its label in the Sessions tab, where it can be revoked. `role` is `read`, `tune` or `manage` (default `manage`); `ttl` is whole seconds from 60 to 86400 (default 3600). Refused, with a message on stderr and no session: an empty label, an unknown role, a role the user does not hold (the message names the highest they do), a non-integer or out-of-range TTL, no `--user`. A session store that will not open exits non-zero with its cause. |
 
 ## The common flows
 
@@ -57,6 +60,14 @@ almost certainly a forgotten `wp nodes start`.
 Each restarted worker gets a fresh WordPress bootstrap. Restart only after
 every topology-provider plugin is installed and activated, so each worker's
 process-local catalog holds the complete plugin set.
+
+**Emptying a durable Table** — `memcache flush` leaves `sqlite` and `wpdb` Tables alone, because their keys carry no salt. `tables list` names each declared Table and the worker owning each partition; `tables flush` asks a live owner to flush its own partition, and flushes an ownerless one only while the fleet is held:
+
+```bash
+wp nodes tables list
+wp nodes tables flush flame-stats:url                          # live owners flush their partitions
+wp nodes stop && wp nodes tables flush --yes && wp nodes start  # every declared Table, fleet down
+```
 
 **Debugging one worker** — a foreground run shows boot errors and the exit reason; the REPL inspects a live graph without disturbing it:
 
@@ -100,6 +111,13 @@ The lock behind `--allow_large_writes` is taken lazily, when the first record ro
 ```bash
 wp nodes caps install
 wp nodes hub-user newspack-nodes-hub
+```
+
+## Issuing an MCP credential
+
+```bash
+claude mcp add --transport http hub https://hub.example.com/wp-json/newspack-event-logger-nodes/v1/mcp \
+  --header "Authorization: Bearer $(wp nodes session issue chris-claude tune 86400 --user=chris)"
 ```
 
 ## Doctor health report

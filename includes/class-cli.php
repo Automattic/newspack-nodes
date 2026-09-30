@@ -315,6 +315,34 @@ class CLI {
 	}
 
 	/**
+	 * Open a command channel to a worker: a Partition named for the worker,
+	 * appending to its input and sinking into `$commands`, and a Consumer
+	 * reading its output from the end onward into `$replies`, stamping the
+	 * worker's id at the head of each reply's FROM. The attached REPL and
+	 * `wp nodes tables` each talk to a worker through one.
+	 *
+	 * @param array{id:string,input:string,output:string} $ipc      From attach_to_worker().
+	 * @param Node                                        $commands Where the input Partition sinks.
+	 * @param Node                                        $replies  Where each reply read goes.
+	 * @return list<Node> The Partition and the Consumer, for a caller to tear down.
+	 */
+	public static function open_channel( array $ipc, Node $commands, Node $replies ): array {
+		// No allow_large_writes: several sessions append here at once.
+		$input = new Partition_Node();
+		$input->arguments( Worker_Base::ipc_partition_args( $ipc['input'] ) );
+		$input->name( $ipc['id'] );
+		$input->sink( $commands );
+		// The reply leg is ephemeral: no offsetlog_dir, no cursor.
+		$output = new Consumer_Node();
+		$output->arguments( [ $ipc['output'] ] );
+		$output->next_offset( 'end' );
+		// The stamp heads FROM; the worker's own path becomes the tail.
+		$output->set_stamp_as( $ipc['id'] );
+		$output->sink( $replies );
+		return [ $input, $output ];
+	}
+
+	/**
 	 * Spell the worker id `{type}.p{N}`, the inverse of `parse_worker_id()`.
 	 *
 	 * The id names a worker everywhere it is addressed: its lock dir, its IPC

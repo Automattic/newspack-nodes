@@ -2079,6 +2079,16 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertStringContainsString( '-c show', $out );
 	}
 
+	public function test_help_request_struct_names_its_type_and_alias(): void {
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+
+		$out = $interpreter->dispatch( 'help', [ 'request_struct_node' ] );
+		$this->assertStringContainsString( 'request_struct <path> <json>', $out );
+		$this->assertStringContainsString( 'alias: request_struct_node', $out );
+		$this->assertStringContainsString( 'TM_REQUEST|TM_STRUCT', $out );
+	}
+
 	public function test_help_unknown_topic_raises(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
@@ -2131,6 +2141,7 @@ class CommandInterpreterTest extends TestCase {
 		// Shell builtins now appear in the single command table.
 		$this->assertStringContainsString( 'send_struct', $out );
 		$this->assertStringContainsString( 'debug_level', $out );
+		$this->assertStringContainsString( 'request_struct', $out );
 	}
 
 	public function test_help_grid_chunks_names_four_per_row(): void {

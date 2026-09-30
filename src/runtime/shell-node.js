@@ -442,6 +442,8 @@ function buildStatement( shell, text, line ) {
 		case 'ping':
 		case 'request':
 		case 'request_node':
+		case 'request_struct':
+		case 'request_struct_node':
 		case 'send':
 		case 'send_node':
 		case 'send_struct':
@@ -859,19 +861,23 @@ export class ShellNode extends Node {
 			return this.stampNoreply( message );
 		}
 
-		if ( 'send_struct' === verb || 'send_struct_node' === verb ) {
+		if ( /^(send|request)_struct(_node)?$/.test( verb ) ) {
+			const structVerb = verb.replace( /_node$/, '' );
 			if ( ! to ) {
-				this.refuse( 'usage: send_struct <path> <json>\n' );
+				this.refuse( `usage: ${ structVerb } <path> <json>\n` );
 				return null;
 			}
 			let value;
 			try {
 				value = JSON.parse( join( 1 ) );
 			} catch ( e ) {
-				this.refuse( `send_struct: ${ e.message }\n` );
+				this.refuse( `${ structVerb }: ${ e.message }\n` );
 				return null;
 			}
-			message[ TYPE ] = TM_STRUCT;
+			message[ TYPE ] =
+				'request_struct' === structVerb
+					? TM_REQUEST | TM_STRUCT
+					: TM_STRUCT;
 			message[ VALUE ] = value;
 			return this.stampNoreply( message );
 		}

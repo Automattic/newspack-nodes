@@ -148,6 +148,7 @@ cd [<path>]                          # empty resets to the local interpreter (al
 pwd                                  # reply shows ` <cwd> -> <from>`
 command_node <path> <verb> [<args>]  # TM_COMMAND without changing cwd (aliases: command, cmd)
 request_node <path> [<value>]        # TM_REQUEST; the receiver replies TO=FROM (alias: request)
+request_struct <path> <json>         # TM_REQUEST|TM_STRUCT, e.g. a Table's {"MSET":{…}}
 tell_node <path> <info>              # TM_INFO, fire-and-forget (alias: tell)
 send_node <path> <bytes>             # TM_BYTESTREAM (alias: send)
 send_struct <path> <json>            # TM_STRUCT

@@ -1312,6 +1312,33 @@ function EditForm( {
 }
 
 /**
+ * Whether a verb sends a TM_REQUEST|TM_STRUCT: a request whose one declared
+ * argument is `json`, the whole map its VALUE carries under the verb name.
+ *
+ * @param {string} kind `command` or `request`.
+ * @param {Array}  args The verb's argument specs from the class schema.
+ * @return {boolean} True for a structured request.
+ */
+function isStructuredRequest( kind, args ) {
+	return 'request' === kind && 1 === args.length && 'json' === args[ 0 ].type;
+}
+
+/**
+ * The JSON object or array a structured request's field holds.
+ *
+ * @param {*} text The field's current text.
+ * @return {Object|Array|null} The parsed value, or null for anything else.
+ */
+function parseStruct( text ) {
+	try {
+		const value = JSON.parse( String( text ?? '' ) );
+		return value && 'object' === typeof value ? value : null;
+	} catch {
+		return null;
+	}
+}
+
+/**
  * Collects a verb's arguments, then invokes it on the live node.
  *
  * Each argument renders through `CtorField`, so a verb argument gets the same
@@ -1320,8 +1347,10 @@ function EditForm( {
  * `--name=value` token, which the server binds by name, so a field left blank
  * shifts nothing after it; a `variadic` field sends one such token per word.
  * A request has no binder — its VALUE is words — so its arguments ride by
- * position; every one is required, so none is blank. The first field takes
- * focus when the dialog opens.
+ * position; every one is required, so none is blank. A structured request
+ * sends its one `json` field parsed, as the struct, and Run waits until that
+ * text parses to an object or an array. The first field takes focus when the
+ * dialog opens.
  *
  * @param {Object}     props
  * @param {string}     props.nodeId     Node the verb runs on.
@@ -1354,12 +1383,23 @@ function VerbArgModal( {
 		bodyRef.current?.querySelector( 'input, select, textarea' )?.focus();
 	}, [] );
 
-	const missingRequired = args.some(
-		( arg, i ) => arg.required && '' === String( values[ i ] ?? '' ).trim()
-	);
+	const struct = isStructuredRequest( kind, args )
+		? parseStruct( values[ 0 ] )
+		: undefined;
+	const missingRequired =
+		null === struct ||
+		args.some(
+			( arg, i ) =>
+				arg.required && '' === String( values[ i ] ?? '' ).trim()
+		);
 
 	const run = () => {
 		if ( missingRequired ) {
+			return;
+		}
+		if ( undefined !== struct ) {
+			onAction( 'invoke', nodeId, { verb, kind, struct } );
+			onDismiss();
 			return;
 		}
 		const tokens = [];

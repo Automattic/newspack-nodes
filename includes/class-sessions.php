@@ -7,12 +7,12 @@
  * MCP client, a script on someone's laptop — so an operator can see what is
  * connected and revoke it.
  *
- * `Command_Auth::store_session()` writes the key into `Cache_Backend`, and
- * cache stores do not enumerate, so nothing can list what exists. An option
- * holds the directory and the CACHE stays the authority on liveness: same
- * pointer-versus-lease split as SSE_Slot_Pool, for the same reason. A row
- * whose lease is gone is reported dead rather than deleted, so a revoked
- * session stays on the tab until its stated expiry passes.
+ * `Command_Auth::mint_session()` writes the key into the durable session
+ * store, read by handle alone. An option holds the directory, labelled
+ * sessions only, and the STORE stays the authority on liveness: the
+ * pointer-versus-lease split SSE_Slot_Pool makes. A row whose store row is
+ * gone is reported dead rather than deleted, so a revoked session stays on
+ * the tab until its stated expiry passes.
  *
  * The signing key is never written here. It cannot be hashed either —
  * verification recomputes an HMAC, so the key must stay recoverable — which is
@@ -53,7 +53,7 @@ class Sessions {
 	 * missing from the tab, not a broken one. The SSE slot pool needs a claim
 	 * protocol because ownership rides on it; an operator listing does not.
 	 *
-	 * @param string $handle Session handle: the directory key, and the name its cache lease lives under.
+	 * @param string $handle Session handle: the directory key, and the key of its store row.
 	 * @param string $scope  Capability ceiling the session carries, one of `Capabilities::READ|TUNE|MANAGE`.
 	 * @param string $label  Operator's name for the session. An empty label records nothing.
 	 * @param int    $ttl    Lifetime in seconds, counted from now.
@@ -86,13 +86,15 @@ class Sessions {
 	}
 
 	/**
-	 * Revoke a session: drop the lease FIRST, so a failure to write the option
-	 * leaves a listed-but-dead row rather than an unlisted live key. A store
-	 * that did not answer leaves the row too, because the key may still verify.
+	 * Revoke a session: drop the store row FIRST, so a failure to write the
+	 * option leaves a listed-but-dead row rather than an unlisted live key. A
+	 * store that did not answer leaves the row too, because the key may still
+	 * verify.
 	 *
-	 * @param string $handle Session handle. A handle absent from the directory still has its lease dropped.
-	 * @return bool|null Whether anything was revoked — the cache held a lease, or
-	 *                   the directory a row — or null when the store did not answer.
+	 * @param string $handle Session handle. A handle absent from the directory still has its store row dropped.
+	 * @return bool|null Whether anything was revoked — the store held a row, or
+	 *                   the directory did — or null when the store did not answer.
+	 * @throws Session_Store_Unavailable When the store will not open.
 	 */
 	public static function forget( string $handle ): ?bool {
 		$dropped = Command_Auth::revoke_session( $handle );
@@ -142,7 +144,7 @@ class Sessions {
 		$rows = self::prune( self::rows(), $now );
 		\uasort( $rows, static fn ( $a, $b ) => Core::as_int( $b['created'] ) <=> Core::as_int( $a['created'] ) );
 
-		// ONE cache round-trip for the whole directory, not one per row.
+		// ONE store read for the whole directory, not one per row.
 		$live = Command_Auth::live_handles( \array_map( 'strval', \array_keys( $rows ) ) );
 
 		$out = [];
@@ -163,14 +165,14 @@ class Sessions {
 	}
 
 	/**
-	 * What a row's lease says about it, in one word.
+	 * What a row's store row says about it, in one word.
 	 *
 	 * `all()` drops every row whose stated expiry has passed before it lists, so
-	 * a listed row with no lease lost that lease EARLY. Something took it:
-	 * `forget()`, or a salt rotation — `wp nodes memcache flush` orphans every
-	 * key on the install, session leases included. Neither is expiry, and
-	 * naming it "expired" sends an operator to audit TTLs with hours left on
-	 * them. That is why `live` alone is not enough to report.
+	 * a listed row with no store row lost it EARLY. Something took it:
+	 * `forget()`, or `wp nodes tables flush nodes-sessions`, which deletes every
+	 * session. Neither is expiry, and naming it "expired" sends an operator to
+	 * audit TTLs with hours left on them. That is why `live` alone is not
+	 * enough to report.
 	 *
 	 * @param bool $live Whether the key still resolves.
 	 * @return string `live` or `revoked`.

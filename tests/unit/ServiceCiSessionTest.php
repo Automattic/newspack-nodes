@@ -26,6 +26,7 @@ class ServiceCiSessionTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		$this->use_wpdb();
 		$this->prev_memd = Core::$memd;
 		Core::$memd      = new InMemoryMemcached();
 		// This file exercises the handshake, so it must start with NO session.

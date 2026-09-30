@@ -69,7 +69,7 @@ class Command_Auth {
 	 * entries may share a host with different credentials, and a url can be
 	 * edited while the id stays — both would alias one session across two
 	 * authorization contexts. Lost on worker restart, which costs one re-auth.
-	 * The verifier's own copy of the key lives in the selected cache.
+	 * The verifier's own copy of the key lives in the session store.
 	 *
 	 * @var array<string,array{handle:string,key:string}>
 	 */
@@ -83,13 +83,29 @@ class Command_Auth {
 
 	/**
 	 * Longest session a caller may ask for. The key stays RECOVERABLE in the
-	 * cache — verification recomputes an HMAC, so it cannot be hashed — and a
-	 * day is already generous for something sitting readable in memcached.
+	 * store — verification recomputes an HMAC, so it cannot be hashed — and a
+	 * day is already generous for something sitting readable in the database.
 	 */
 	public const SESSION_TTL_MAX_S = 86400;
 
 	/** Shortest session worth minting; below this a client re-auths mid-task. */
 	public const SESSION_TTL_MIN_S = 60;
+
+	/**
+	 * The durable store's namespace, one row per session keyed by its handle:
+	 * the wpdb backend, because every web host mints and every host verifies,
+	 * which a host-local SQLite file cannot serve (ADR-24). `wp nodes tables`
+	 * lists it by this name and flushes it only when named.
+	 */
+	public const SESSIONS_TABLE = 'nodes-sessions';
+
+	/**
+	 * Expired session rows one mint deletes. No worker's tick purges a store
+	 * built in code, so each mint reclaims what has expired; sessions expire
+	 * one per mint at most, so any batch above one keeps pace, and 64 clears
+	 * a backlog left while nothing minted.
+	 */
+	private const SESSION_PURGE_ROWS = 64;
 
 	/**
 	 * Stamp an `auth` envelope onto a command Message's VALUE, under the
@@ -188,9 +204,16 @@ class Command_Auth {
 	 * @param string $scope One of Capabilities::READ|TUNE|MANAGE.
 	 * @param int    $ttl   Lifetime in seconds, taken as given; a caller reading
 	 *                      it off the wire clamps through bounded_ttl() first.
+	 * The row is claimed with `add()`, never `set()`: a handle can never
+	 * displace a live session, so a colliding mint fails rather than fixating
+	 * someone else's. It carries the key, the scope the verifier applies, the
+	 * minting user and when it lapses, and expires with the session; the same
+	 * mint reclaims up to SESSION_PURGE_ROWS rows already expired.
+	 *
 	 * @return array{handle:string,secret:string,scope:string,expires_in:int,now:int}
 	 * @throws \InvalidArgumentException On a scope outside the ladder.
-	 * @throws Session_Store_Unavailable When the session could not be stored.
+	 * @throws Session_Store_Unavailable When the store will not open or refuses
+	 *                                   the row, naming why.
 	 */
 	public static function mint_session( string $scope = Capabilities::MANAGE, int $ttl = self::SESSION_TTL_S ): array {
 		if ( ! Capabilities::scope_covers( $scope, Capabilities::READ ) ) {
@@ -199,18 +222,21 @@ class Command_Auth {
 		}
 		$handle = \bin2hex( \random_bytes( 16 ) );
 		$key    = \bin2hex( \random_bytes( 32 ) );
-		if ( ! self::store_session( $handle, $key, $ttl, $scope, self::current_user() ) ) {
-			$cause = Cache_Backend::shared_first()?->last_failure() ?? 'no cache backend';
+		$store  = self::session_store();
+		$now    = Core::right_now();
+		$record = [ 'k' => $key, 's' => $scope, 'u' => self::current_user(), 'e' => (int) $now + $ttl ];
+		if ( ! $store->add( $handle, $record, $ttl ) ) {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
-			throw new Session_Store_Unavailable( "could not store the session: the cache is unavailable ({$cause})" );
+			throw new Session_Store_Unavailable( "could not store the session: {$store->last_failure()}" );
 		}
+		$store->purge( (int) $now, self::SESSION_PURGE_ROWS );
 		return [
 			'handle'     => $handle,
 			'secret'     => $key,
 			'scope'      => $scope,
 			'expires_in' => $ttl,
 			// The minter signs TIMESTAMP; the client aligns to this clock.
-			'now'        => \time(),
+			'now'        => (int) $now,
 		];
 	}
 
@@ -220,66 +246,47 @@ class Command_Auth {
 	}
 
 	/**
-	 * Store a session key under its handle. `add()`, never `set()`: a handle can
-	 * never displace a live session, so a colliding mint fails rather than
-	 * fixating someone else's. False when the handle is taken or no cache backend
-	 * exists (fail closed).
+	 * Drop a session so its key stops verifying immediately. The store's row
+	 * IS the authority; a directory row without it is already dead.
 	 *
-	 * `shared_first()` prefers configured memcached, preserving shared scope.
-	 * Without it, the WordPress web pool can mint and verify through its one APCu
-	 * cache domain. The nonce claim orders the tiers the other way round, on
-	 * purpose: a session minted in a web request must resolve in a worker, while
-	 * a nonce only has to be unique to the process verifying it.
-	 *
-	 * @param string $handle Session handle the verifier resolves the key from.
-	 * @param string $key    Signing key.
-	 * @param int    $ttl    Lifetime in seconds; never slid on use.
-	 * @param string $scope  Ceiling the verifier applies, READ|TUNE|MANAGE.
-	 * @param int    $user   WordPress id of the minting user, 0 for nobody.
-	 */
-	public static function store_session( string $handle, string $key, int $ttl, string $scope = Capabilities::MANAGE, int $user = 0 ): bool {
-		$backend = Cache_Backend::shared_first();
-		return null !== $backend && $backend->add(
-			self::session_address( $handle ),
-			[ 'k' => $key, 's' => $scope, 'u' => $user, 'e' => \time() + $ttl ],
-			$ttl
-		);
-	}
-
-	/**
-	 * Drop a session so its key stops verifying immediately. The cache entry IS
-	 * the authority; a directory row without it is already dead. False when the
-	 * handle was already gone; null when no cache backend exists or it did not
-	 * answer, so the key may still verify.
+	 * @param string $handle Session handle.
+	 * @return bool|null True when a live row went, false when none was there,
+	 *                   null when the store did not answer, so the key may
+	 *                   still verify.
+	 * @throws Session_Store_Unavailable When the store will not open.
 	 */
 	public static function revoke_session( string $handle ): ?bool {
-		return Cache_Backend::shared_first()?->delete( self::session_address( $handle ) );
+		return self::session_store()->delete( $handle );
 	}
 
 	/**
-	 * Which of these handles still have a live key, as a `handle => true` set.
-	 * ONE multi-get: `Sessions::MAX_ROWS` caps the directory at 50, so asking
-	 * per row is 50 round trips for one screen.
+	 * Which of these handles still have a live row, as a `handle => true` set.
+	 * ONE read: `Sessions::MAX_ROWS` caps the directory at 50, so asking per
+	 * row is 50 statements for one screen.
 	 *
 	 * @param list<string> $handles Handles to test.
 	 * @return array<string,true>
+	 * @throws Session_Store_Unavailable When the store will not open.
 	 */
 	public static function live_handles( array $handles ): array {
-		$backend = Cache_Backend::shared_first();
-		if ( null === $backend || [] === $handles ) {
-			return [];
-		}
-		$addresses = [];
-		foreach ( $handles as $handle ) {
-			$addresses[ self::session_address( $handle ) ] = $handle;
-		}
 		$live = [];
-		foreach ( $backend->read_multi( \array_keys( $addresses ) ) as $address => $record ) {
-			if ( null !== $record && isset( $addresses[ $address ] ) ) {
-				$live[ $addresses[ $address ] ] = true;
-			}
+		foreach ( \array_keys( self::session_store()->read_multi( $handles ) ) as $handle ) {
+			$live[ $handle ] = true;
 		}
 		return $live;
+	}
+
+	/**
+	 * Delete every session row, live or expired, so every issued key stops
+	 * verifying at once: `wp nodes tables flush nodes-sessions`.
+	 *
+	 * @return array{bytes:int}|array{rows:int} What the store released: rows.
+	 * @throws Session_Store_Unavailable When the store will not open or refuses.
+	 */
+	public static function flush_sessions(): array {
+		$store = self::session_store();
+		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
+		return $store->flush() ?? throw new Session_Store_Unavailable( "could not flush the sessions: {$store->last_failure()}" );
 	}
 
 	/** Clamp a requested lifetime into [SESSION_TTL_MIN_S, SESSION_TTL_MAX_S]. */
@@ -493,59 +500,46 @@ class Command_Auth {
 	}
 
 	/**
-	 * Resolve a session record by handle: `{key, scope, user, expires}`, or
-	 * null on any miss. `expires` is the Unix time the session lapses, and 0
-	 * for a record that does not say, which a caller reads as no life left.
-	 *
-	 * A record stored as a bare key string is scopeless and nobody's: it reads
-	 * back as MANAGE under user 0 rather than being discarded, because
-	 * discarding logs out every client still holding one.
+	 * Resolve a live session by handle: `{key, scope, user, expires}`, where
+	 * `expires` is the Unix time it lapses. Null on a miss, on a row not
+	 * shaped as `mint_session()` writes it, and on a store that will not
+	 * open, which is logged: a verifier fails closed rather than throw.
 	 *
 	 * @param string $handle Session handle, as stamped into the envelope.
 	 * @return array{key:string,scope:string,user:int,expires:int}|null
 	 */
 	public static function load_session_record( string $handle ): ?array {
-		$backend = Cache_Backend::shared_first();
-		if ( null === $backend ) {
+		try {
+			$record = self::session_store()->get( $handle );
+		} catch ( Session_Store_Unavailable $e ) {
+			Core::print_less_often( 'Command_Auth: ', $e->getMessage() );
 			return null;
 		}
-		$record = $backend->get( self::session_address( $handle ) );
-		if ( \is_string( $record ) ) {
-			return '' === $record ? null : [ 'key' => $record, 'scope' => Capabilities::MANAGE, 'user' => 0, 'expires' => 0 ];
-		}
-		if ( ! \is_array( $record ) ) {
+		if ( ! \is_array( $record ) || ! \is_string( $record['k'] ?? null ) || '' === $record['k'] || ! \is_string( $record['s'] ?? null ) ) {
 			return null;
 		}
-		// An absent field reads null — a non-scalar, so as_string() gives ''.
-		$key   = Core::as_string( $record['k'] ?? null, '' );
-		$scope = Core::as_string( $record['s'] ?? null, '' );
-		if ( '' === $scope ) {
-			$scope = Capabilities::MANAGE;
-		}
-		return '' === $key
-			? null
-			: [
-				'key'     => $key,
-				'scope'   => $scope,
-				'user'    => Core::num_int( $record['u'] ?? 0 ),
-				'expires' => Core::num_int( $record['e'] ?? 0 ),
-			];
+		return [
+			'key'     => $record['k'],
+			'scope'   => $record['s'],
+			'user'    => Core::num_int( $record['u'] ?? 0 ),
+			'expires' => Core::num_int( $record['e'] ?? 0 ),
+		];
 	}
 
 	/**
-	 * Cache address for a session key. Namespaced per site TWICE over, and the
-	 * inner half is the one that matters: the cache is shared infrastructure,
-	 * not a trusted store, so a handle minted by another install — or planted
-	 * directly by anything that can write memcached — must not resolve here.
-	 * Deriving that from the site SECRET costs nothing; anyone who can compute
-	 * it already holds the salt and can sign outright. `site_key()` adds no
-	 * secrecy on top, only membership in the shared rotation, so bumping
-	 * KEY_VERSION invalidates live sessions along with everything else.
+	 * The session store: the durable wpdb arm under SESSIONS_TABLE, the one
+	 * a code-built Table naming `wpdb` opens.
+	 *
+	 * @return Wpdb_Arm The arm.
+	 * @throws Session_Store_Unavailable When it will not open, naming why.
 	 */
-	private static function session_address( string $handle ): string {
-		return Cache_Backend::site_key(
-			'cmd-session:' . \substr( \hash_hmac( 'sha256', 'session-ns', \wp_salt( 'nonce' ) ), 0, 16 ) . ':' . $handle
-		);
+	private static function session_store(): Wpdb_Arm {
+		try {
+			return new Wpdb_Arm( self::SESSIONS_TABLE );
+		} catch ( \RuntimeException | \LogicException $e ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
+			throw new Session_Store_Unavailable( 'the session store is unavailable: ' . $e->getMessage(), 0, $e );
+		}
 	}
 
 	/** Per-site HMAC secret, domain-separated from the spawn token. */

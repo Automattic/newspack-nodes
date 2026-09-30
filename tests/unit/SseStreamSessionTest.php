@@ -28,6 +28,7 @@ class SseStreamSessionTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		$this->use_wpdb();
 		\Newspack_Nodes\Event_Framework::reset();
 		$this->use_loop_time();
 		$this->prev_memd                         = Core::$memd;

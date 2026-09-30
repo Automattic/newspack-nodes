@@ -182,6 +182,35 @@ final class SqliteArmTest extends TestCase {
 		$this->assertSame( [ 'blob', 1790000777 ], $row );
 	}
 
+	public function test_a_flush_replaces_the_file_and_answers_the_bytes_the_old_one_held(): void {
+		$writer = new Sqlite_Arm( $this->path() );
+		$writer->set( 'sku-4471', \str_repeat( 'kea', 4471 ), 600 );
+		( new \PDO( 'sqlite:' . $this->path() ) )->exec( 'PRAGMA user_version = 4471' );
+		\clearstatcache();
+		$held = 0;
+		foreach ( [ '', '-wal', '-shm' ] as $suffix ) {
+			$held += \is_file( $this->path() . $suffix ) ? (int) \filesize( $this->path() . $suffix ) : 0;
+		}
+
+		$this->assertSame( [ 'bytes' => $held ], $writer->flush() );
+
+		$this->assertGreaterThan( 0, $held );
+		$fresh = new \PDO( 'sqlite:' . $this->path() );
+		$this->assertSame( 0, (int) $fresh->query( 'PRAGMA user_version' )->fetchColumn(), 'a new file, not the old one emptied' );
+		$this->assertSame( 'wal', $fresh->query( 'PRAGMA journal_mode' )->fetchColumn() );
+		$this->assertFalse( $writer->get( 'sku-4471' ) );
+		$this->assertTrue( $writer->set( 'sku-4473', 'weka-4473', 600 ), 'the arm writes on after' );
+		$this->assertSame( 'weka-4473', ( new Sqlite_Arm( $this->path(), read_only: true ) )->get( 'sku-4473' ) );
+	}
+
+	public function test_a_reader_cannot_flush_and_answers_null(): void {
+		( new Sqlite_Arm( $this->path() ) )->set( 'sku-4471', 'kea', 600 );
+		$reader = new Sqlite_Arm( $this->path(), read_only: true );
+		$this->assertNull( $reader->flush() );
+		$this->assertStringContainsString( 'a reader cannot flush', $reader->last_failure() );
+		$this->assertSame( 'kea', ( new Sqlite_Arm( $this->path() ) )->get( 'sku-4471' ), 'nothing was deleted' );
+	}
+
 	public function test_a_reader_of_a_file_not_there_reads_nothing_and_creates_nothing(): void {
 		$reader = new Sqlite_Arm( $this->path(), read_only: true );
 		$this->assertSame( [], $reader->read_multi( [ 'sku-41', 'sku-42' ], $failed ) );
@@ -391,6 +420,12 @@ final class SqliteArmTest extends TestCase {
 		$this->assertSame( 0, (int) self::pragma( $writer, 'wal_autocheckpoint' ), 'no COMMIT runs a checkpoint' );
 		$this->assertSame( -Sqlite_Arm::CACHE_KIB, (int) self::pragma( $writer, 'cache_size' ) );
 		$this->assertSame( 65536, Sqlite_Arm::CACHE_KIB );
+	}
+
+	public function test_a_writer_caps_the_wal_file_it_rewinds(): void {
+		$writer = new Sqlite_Arm( $this->path() );
+		$this->assertSame( 67108864, Sqlite_Arm::WAL_LIMIT_BYTES );
+		$this->assertSame( Sqlite_Arm::WAL_LIMIT_BYTES, (int) self::pragma( $writer, 'journal_size_limit' ) );
 	}
 
 	public function test_a_reader_takes_the_same_page_cache(): void {

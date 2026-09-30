@@ -45,6 +45,17 @@ final class Sqlite_Arm extends Durable_Arm {
 	 */
 	public const CACHE_KIB = 65536;
 
+	/**
+	 * Bytes the writer's WAL file is cut back to once a checkpoint rewinds
+	 * it: 64 MiB. SQLite writes a rewound WAL from its start and otherwise
+	 * keeps the file at its high-water mark, so one stalled checkpoint or one
+	 * backfill would hold its size on disk for good. At staging's ~630 frames
+	 * a second one `Table_Node::CHECKPOINT_INTERVAL_S` writes ~75 MB, so a
+	 * steady interval regrows only its last ~10 MB past the cap, while a
+	 * burst gives back everything above it.
+	 */
+	public const WAL_LIMIT_BYTES = 67108864;
+
 	/** The page-cache pragma; a negative size counts KiB rather than pages. */
 	private const CACHE_PRAGMA = 'PRAGMA cache_size = -' . self::CACHE_KIB;
 
@@ -290,6 +301,43 @@ final class Sqlite_Arm extends Durable_Arm {
 		return $stmt->rowCount();
 	}
 
+	/**
+	 * See Durable_Arm::discard(): the file, not its rows. A Table partition
+	 * owns its file, and its writer is the file's one writer (ADR-6), so the
+	 * writer unlinks the database and its `-wal` and `-shm`, drops its
+	 * connection and prepared statement, and opens a new file with the same
+	 * pragmas and tables: a cost that never grows with the rows. A mount in
+	 * another process that opened the old file keeps reading its rows until
+	 * that request ends; one opened after reads the new file.
+	 *
+	 * @return array{bytes:int} What the three files held before the unlink.
+	 * @throws \UnexpectedValueException On a reader, or a file that will not unlink.
+	 */
+	protected function discard(): array {
+		if ( $this->read_only ) {
+			throw new \UnexpectedValueException( 'a reader cannot flush' );
+		}
+		\clearstatcache();
+		$bytes = 0;
+		try {
+			foreach ( [ $this->path, "{$this->path}-wal", "{$this->path}-shm" ] as $file ) {
+				if ( \is_file( $file ) ) {
+					$bytes += (int) \filesize( $file );
+					if ( ! @\unlink( $file ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
+						throw new \UnexpectedValueException( "could not unlink {$file}" );
+					}
+				}
+			}
+		} finally {
+			// Reopen even on a refusal: never write into an unlinked inode.
+			$this->members_read = null;
+			$this->has_members  = null;
+			$this->db           = null;
+			$this->db           = $this->connect();
+		}
+		return [ 'bytes' => $bytes ];
+	}
+
 	/** See Durable_Arm::purge_member_rows(); the table has no rowid to name. */
 	protected function purge_member_rows( int $now, int $limit ): int {
 		$stmt = $this->handle()->prepare( self::MEMBERS_PURGE );
@@ -399,6 +447,7 @@ final class Sqlite_Arm extends Durable_Arm {
 		}
 		$db->exec( 'PRAGMA synchronous = NORMAL' );
 		$db->exec( 'PRAGMA wal_autocheckpoint = 0' );
+		$db->exec( 'PRAGMA journal_size_limit = ' . self::WAL_LIMIT_BYTES );
 		$db->exec( self::CACHE_PRAGMA );
 		$db->exec( 'CREATE TABLE IF NOT EXISTS kv ( "key" TEXT PRIMARY KEY, "value" BLOB NOT NULL, expires INTEGER NOT NULL )' );
 		$db->exec( 'CREATE INDEX IF NOT EXISTS kv_expires ON kv ( expires )' );

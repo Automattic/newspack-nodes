@@ -12,7 +12,7 @@
  *   and a CLI process (its own APCu segment, usually disabled) falls through
  *   to memcached.
  * - `shared_first()` — memcached, else APCu. For cross-process sources of
- *   truth (command sessions, SSE slots, tables, batch counters, spawn
+ *   truth (SSE slots, volatile tables, batch counters, spawn
  *   throttles): configured memcached keeps its scope; a host without it
  *   (stock Atomic posture) stays FUNCTIONAL on APCu instead of failing
  *   closed, trading CLI visibility.
@@ -390,8 +390,10 @@ abstract class Cache_Backend {
 	}
 
 	/**
-	 * Rotate the salt: every key on this install is orphaned at once, and no
-	 * co-tenant's is touched. THE flush — plugins do not keep their own.
+	 * Rotate the salt: every memcached and APCu key on this install is
+	 * orphaned at once, and no co-tenant's is touched. THE flush of the
+	 * volatile arms — plugins do not keep their own. A durable arm's key
+	 * carries no salt, so its rows stay; `Table_Node::flush()` empties those.
 	 *
 	 * Clearing the memoized `$site` is half the work, since the salt folds
 	 * into it; a process that kept the old scope would keep the old keys. Every

@@ -25,6 +25,7 @@ cd depot
 	send beacon short bytes
 	send_struct_node beacon '{"depth":9}'
 	request_node beacon fetch 7
+	request_struct_node beacon '{"MSET":{"kea":["weka",37]}}'
 	send_eof beacon
 
 	# `ping` here is a verb on the REMOTE node, not the Shell's ping builtin.

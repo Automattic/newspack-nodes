@@ -467,6 +467,8 @@ class Shell_Node extends Node {
 			case 'ping':
 			case 'request':
 			case 'request_node':
+			case 'request_struct':
+			case 'request_struct_node':
 			case 'send':
 			case 'send_node':
 			case 'send_struct':
@@ -653,18 +655,23 @@ class Shell_Node extends Node {
 				break;
 			case 'send_struct':
 			case 'send_struct_node':
+			case 'request_struct':
+			case 'request_struct_node':
+				$struct_verb = \str_starts_with( $verb, 'request' ) ? 'request_struct' : 'send_struct';
 				if ( '' === ( $args[0] ?? '' ) ) {
-					$this->refuse( "usage: send_struct <path> <json>\n" );
+					$this->refuse( "usage: {$struct_verb} <path> <json>\n" );
 					return null;
 				}
 				// Runs in parse(), before central catch — decode error here.
 				try {
 					$decoded = \json_decode( \implode( ' ', \array_slice( $args, 1 ) ), true, 512, \JSON_THROW_ON_ERROR );
 				} catch ( \JsonException $e ) {
-					$this->refuse( 'send_struct: ' . $e->getMessage() . "\n" );
+					$this->refuse( "{$struct_verb}: " . $e->getMessage() . "\n" );
 					return null;
 				}
-				$message[ Message::TYPE ]  = Message::TM_STRUCT;
+				$message[ Message::TYPE ]  = 'request_struct' === $struct_verb
+					? Message::TM_REQUEST | Message::TM_STRUCT
+					: Message::TM_STRUCT;
 				$message[ Message::TO ]    = $this->prefix( $args[0] );
 				$message[ Message::VALUE ] = $decoded;
 				break;

@@ -1,8 +1,6 @@
 <?php
 namespace Newspack_Nodes\Tests\Helpers;
 
-use Newspack_Nodes\Cache_Backend;
-
 /**
  * What a durable arm keeps beyond every arm's contract: it holds set members,
  * reclaims expired rows in batches and compacts its store. A volatile arm expires on its own
@@ -19,6 +17,21 @@ abstract class DurableArmContract extends CacheBackendContract {
 		$this->assertSame( 1, $arm->purge( (int) $this->clock, 2 ) );
 		$this->assertSame( 0, $arm->purge( (int) $this->clock, 2 ) );
 		$this->assertSame( 4, $arm->get( 'kea-forever' ) );
+	}
+
+	public function test_a_flush_deletes_every_keyed_row_and_member_expired_or_not(): void {
+		$arm = $this->arm();
+		$arm->write_multi( [ 'kea-f1' => 41, 'kea-f2' => 42 ], 37 );
+		$arm->set( 'kea-forever', 43, 0 );
+		$arm->add_members( [ 'owl:set-7' => [ [ 'm-44' => 44, 'm-45' => 45 ], 777 ], 'owl:set-9' => [ [ 'm-46' => 46 ], 38 ] ] );
+		$this->clock += 37;
+		$this->assertNotNull( $arm->flush() );
+		$this->assertSame( [], $arm->read_multi( [ 'kea-f1', 'kea-f2', 'kea-forever' ] ) );
+		$this->assertSame( [], $arm->members( [ 'owl:set-7', 'owl:set-9' ], 9 ) );
+		$this->assertTrue( $arm->set( 'kea-after', 4477, 600 ), 'the flushed store takes a write' );
+		$this->assertSame( 4477, $arm->get( 'kea-after' ) );
+		$this->assertTrue( $arm->add_members( [ 'owl:set-11' => [ [ 'm-47' => 47 ], 600 ] ] ) );
+		$this->assertSame( [ 'owl:set-11' => [ 'm-47' => 47 ] ], $arm->members( [ 'owl:set-11' ], 9 ) );
 	}
 
 	public function test_vacuum_keeps_every_live_value(): void {
@@ -80,15 +93,6 @@ abstract class DurableArmContract extends CacheBackendContract {
 		$this->assertSame( [ '0418' => 'kea', 4419 => 'owl' ], $arm->members( [ '4417' ], 9 )['4417'] );
 	}
 
-	public function test_members_live_under_the_salted_key_and_the_purge_reclaims_them(): void {
-		$arm = $this->arm();
-		$arm->add_members( [ Cache_Backend::site_key( 'owl:set-7' ) => [ [ 'm-41' => 1 ], 37 ] ] );
-		Cache_Backend::rotate_salt();
-		$this->assertSame( [], $arm->members( [ Cache_Backend::site_key( 'owl:set-7' ) ], 9 ), 'a rotation orphans every member' );
-		$this->clock += 37;
-		$this->assertSame( 1, $arm->purge( (int) $this->clock, 10 ) );
-	}
-
 	public function test_the_purge_reclaims_expired_members_within_the_one_budget(): void {
 		$arm = $this->arm();
 		$arm->write_multi( [ 'kea-p1' => 1, 'kea-p2' => 2 ], 37 );
@@ -98,13 +102,5 @@ abstract class DurableArmContract extends CacheBackendContract {
 		$this->assertSame( 1, $arm->purge( (int) $this->clock, 4 ) );
 		$this->assertSame( 0, $arm->purge( (int) $this->clock, 4 ) );
 		$this->assertSame( [ 'owl:set-11' => [ 'm-4' => 4 ] ], $arm->members( [ 'owl:set-11' ], 9 ) );
-	}
-
-	public function test_the_purge_reclaims_what_a_salt_rotation_orphaned(): void {
-		$arm = $this->arm();
-		$arm->set( Cache_Backend::site_key( 'kea-salted' ), 'before', 37 );
-		Cache_Backend::rotate_salt();
-		$this->clock += 37;
-		$this->assertSame( 1, $arm->purge( (int) $this->clock, 10 ), 'the orphaned row is reclaimed once it expires' );
 	}
 }

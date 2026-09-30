@@ -22,6 +22,7 @@ class SessionsTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		$this->use_wpdb();
 		$this->prev_memd = Core::$memd;
 		Core::$memd      = new InMemoryMemcached();
 	}
@@ -106,23 +107,21 @@ class SessionsTest extends TestCase {
 		$this->assertSame( [], Sessions::all() );
 	}
 	public function test_a_lease_gone_before_its_expiry_reads_as_revoked_not_expired(): void {
-		// The tab showed "expired" on a session whose Expires was 17 hours
-		// out. It had not expired: `wp nodes memcache flush` rotates the salt
-		// and orphans every key on the install, session leases included. The
-		// directory row is durable and survives, so the two facts disagree —
+		// A row whose store row went before its stated expiry lost it to a
+		// revoke or to `wp nodes tables flush nodes-sessions`, not to its TTL,
 		// and calling that "expired" sends an operator to look at TTLs.
 		// Seeds distinct from every default: a 9000s TTL.
-		Sessions::record( 'handle-4471', Capabilities::MANAGE, 'chris-claude', 9000 );
-		Command_Auth::store_session( 'handle-4471', 'k-4471', 9000, Capabilities::MANAGE );
+		$handle = Command_Auth::mint_session( Capabilities::MANAGE, 9000 )['handle'];
+		Sessions::record( $handle, Capabilities::MANAGE, 'chris-claude', 9000 );
 
-		$live = Sessions::all()['handle-4471'];
+		$live = Sessions::all()[ $handle ];
 		$this->assertTrue( $live['live'] );
 		$this->assertSame( 'live', $live['state'] );
 
-		// The lease goes; the row does not.
-		Cache_Backend::rotate_salt();
+		// The store row goes; the directory row does not.
+		( new \Newspack_Nodes\Wpdb_Arm( Command_Auth::SESSIONS_TABLE ) )->flush();
 
-		$dead = Sessions::all()['handle-4471'];
+		$dead = Sessions::all()[ $handle ];
 		$this->assertFalse( $dead['live'] );
 		$this->assertGreaterThan( \time(), $dead['expires'], 'precondition: not yet expired' );
 		$this->assertSame( 'revoked', $dead['state'], 'a lease gone early was revoked or flushed' );
@@ -154,9 +153,7 @@ class SessionsTest extends TestCase {
 	public function test_forget_answers_null_when_the_store_did_not_answer(): void {
 		$session = Command_Auth::mint_session( Capabilities::TUNE, 900 );
 		Sessions::record( $session['handle'], Capabilities::TUNE, 'weka-7718', 900 );
-		$memd = Core::$memd;
-		$this->assertInstanceOf( InMemoryMemcached::class, $memd );
-		$memd->fail_delete( \Memcached::RES_SERVER_TEMPORARILY_DISABLED );
+		$GLOBALS['wpdb']->deny['DELETE FROM `wp_newspack_nodes_table`'] = 'Lock wait timeout 7718';
 
 		$this->assertNull( Sessions::forget( $session['handle'] ) );
 		$this->assertArrayHasKey( $session['handle'], Sessions::all(), 'the row stays while the key may still verify' );

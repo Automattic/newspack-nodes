@@ -6,6 +6,34 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **Re-mint every command session.** Sessions live in a durable wpdb Table
+  (`nodes-sessions` in `{base_prefix}newspack_nodes_table`), not the cache, so a
+  session minted before this release no longer verifies: a dashboard re-auths on
+  its own, and an MCP client or script holding a `handle.secret` bearer mints a
+  new one (Settings → Nodes, Sessions tab, or `sessions create`). A site whose
+  `$wpdb` cannot create or write that table cannot mint, and says why.
+  `wp nodes memcache flush` no longer signs sessions out; `wp nodes tables flush
+  nodes-sessions` does. `Command_Auth::store_session()` is gone. A consumer
+  suite that mints a session needs a `$wpdb` that runs SQL: its bootstrap
+  requires the substrate's `tests/Helpers/WpdbStub.php` and
+  `tests/Helpers/SqliteWpdb.php` and installs a `Sqlite_Wpdb`, extending it for
+  any method its own code calls — event-logger-nodes adds `esc_like()` and
+  `get_col()` — or one test calls `TestCase::use_wpdb()`. The substrate's
+  `TestCase::tearDown()` puts the booted `$wpdb` back after every test.
+- **Durable Tables restart empty.** A `sqlite` or `wpdb` Table keys its rows
+  `{namespace}:{key}` with no salt, so every row written under the salted key
+  before this release is unreachable: event-logger-nodes' flame stats, URL index
+  and search sets rebuild from new traffic, and the orphaned rows expire on their
+  TTL and the tick's purge reclaims them. Code that wrote a durable row through
+  `Table_Node::entry_key()` writes `{namespace}:{key}` instead; `entry_key()`
+  is the volatile arms' key alone. A wpdb set key or key may now be 255 bytes
+  minus the namespace and one colon.
+- **`cmd <table>:config get` and `rm` are gone.** Send the requests:
+  `request_node <table> GET <key>` and `request_node <table> RM <key>…`.
+  `Table_Node::rm()` is gone too; call `forget()`.
+- **`MSET`, `ADD` and `SADD` declare one `json` arg, `map`,** where they
+  declared none; a reader of `node_schema()['requests']` sees it.
+
 - **A consumer suite extending the substrate's `Tests\TestCase` names its own
   base in `NEWSPACK_TEST_BASE_DIR`.** Its `tests/bootstrap.php` sets the env
   var before loading anything — `<tmp>/<slug>-test-<pid>`, one per process —

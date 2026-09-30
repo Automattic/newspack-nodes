@@ -496,6 +496,39 @@ describe( 'Shell node — verb vocabulary (positional TM_* messages)', () => {
 		expect( filled ).toHaveLength( 0 );
 	} );
 
+	it( 'request_struct <node> <json> → TM_REQUEST|TM_STRUCT, VALUE as given', () => {
+		const { m } = drive(
+			'request_struct flame-stats:table \'{"MSET":{"kea-4417":["weka",913]}}\''
+		);
+		expect( m[ TYPE ] ).toBe( TM_REQUEST | TM_STRUCT );
+		expect( m[ TO ] ).toBe( '_http/demo.p0/flame-stats:table' );
+		expect( m[ VALUE ] ).toEqual( {
+			MSET: { 'kea-4417': [ 'weka', 913 ] },
+		} );
+	} );
+
+	it( 'request_struct_node is an alias of request_struct', () => {
+		const { m } = drive(
+			'request_struct_node moa \'{ "SADD": { "flock": [ "tui", 61 ] } }\''
+		);
+		expect( m[ TYPE ] ).toBe( TM_REQUEST | TM_STRUCT );
+		expect( m[ VALUE ] ).toEqual( { SADD: { flock: [ 'tui', 61 ] } } );
+	} );
+
+	it( 'request_struct with no node → usage, sends nothing', () => {
+		const { filled } = drive( 'request_struct' );
+		expect( printedText() ).toContain(
+			'usage: request_struct <path> <json>'
+		);
+		expect( filled ).toHaveLength( 0 );
+	} );
+
+	it( 'request_struct with invalid JSON → error signal, sends nothing', () => {
+		const { filled } = drive( "request_struct moa '{MSET:}'" );
+		expect( printedText() ).toContain( 'request_struct: ' );
+		expect( filled ).toHaveLength( 0 );
+	} );
+
 	it( 'send_eof <node> → TM_EOF, no VALUE', () => {
 		const { m } = drive( 'send_eof my_node' );
 		expect( m[ TYPE ] ).toBe( TM_EOF );
@@ -1404,6 +1437,8 @@ describe( 'parseStatements — static statements replay to runtime messages', ()
 		'send beacon short bytes',
 		'send_struct_node beacon \'{"depth":9}\'',
 		'request_node beacon fetch 7',
+		'request_struct_node beacon \'{"MSET":{"kea":["weka",37]}}\'',
+		'request_struct beacon \'{"ADD":{"moa":["tui",53]}}\'',
 		'send_eof beacon',
 		'command_node beacon ping',
 		'cmd beacon set_retention --segments=41',

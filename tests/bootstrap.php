@@ -54,28 +54,7 @@ if ( false === \getenv( 'NEWSPACK_TEST_BASE_DIR' ) ) {
 \define( 'NONCE_SALT', 'newspack-nodes-test-nonce-salt' );
 // Cache_Backend::site() scopes keys by database + table prefix.
 \define( 'DB_NAME', 'newspack_nodes_test' );
-// Cache_Backend::salt() reads the option row through $wpdb, not get_option(),
-// because bin/pyrate runs under SHORTINIT where the option API is stubbed. The
-// harness needs a real `\wpdb` for that branch to be reachable at all.
-if ( ! \class_exists( 'wpdb', false ) ) {
-	class wpdb {
-		public string $prefix      = 'wp_';
-		public string $base_prefix = 'wp_';
-		public string $options     = 'wp_options';
-
-		/** @var array<string,string> option_name => option_value */
-		public array $rows = [];
-
-		public function prepare( string $query, mixed ...$args ): string {
-			return $query . '|' . \implode( '|', \array_map( 'strval', $args ) );
-		}
-
-		public function get_var( string $prepared ): ?string {
-			$name = (string) ( \explode( '|', $prepared )[2] ?? '' );
-			return $this->rows[ $name ] ?? null;
-		}
-	}
-}
+require_once __DIR__ . '/Helpers/WpdbStub.php';
 $GLOBALS['wpdb'] = new wpdb();
 require_once __DIR__ . '/Helpers/SqliteWpdb.php';
 // The plugin file (loaded below) defines NEWSPACK_NODES_URL only when

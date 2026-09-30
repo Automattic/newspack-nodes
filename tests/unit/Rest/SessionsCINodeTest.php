@@ -25,6 +25,7 @@ class SessionsCINodeTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		$this->use_wpdb();
 		$this->prev_memd                      = Core::$memd;
 		$this->memd                           = new InMemoryMemcached();
 		Core::$memd                           = $this->memd;
@@ -100,14 +101,13 @@ class SessionsCINodeTest extends TestCase {
 		);
 	}
 
-	public function test_create_reports_a_cache_outage_as_a_refusal_naming_the_cause(): void {
-		$this->memd->result_message = 'SERVER MARKED DEAD 1264';
-		$this->memd->fail_add( \Memcached::RES_SERVER_TEMPORARILY_DISABLED );
+	public function test_create_reports_a_store_outage_as_a_refusal_naming_the_cause(): void {
+		$GLOBALS['wpdb']->deny['INSERT IGNORE'] = 'Deadlock found 1264';
 
 		$reply = (string) $this->fire( 'create', [ 'outage-1264' ] );
 
 		$this->assertStringContainsString( 'could not store the session', $reply );
-		$this->assertStringContainsString( 'SERVER MARKED DEAD 1264', $reply );
+		$this->assertStringContainsString( 'Deadlock found 1264', $reply );
 	}
 
 	public function test_revoke_kills_the_key_and_delists_it(): void {
@@ -166,7 +166,7 @@ class SessionsCINodeTest extends TestCase {
 	/** A store that did not answer leaves the key live, so nothing may say gone. */
 	public function test_revoke_refuses_when_the_store_does_not_answer(): void {
 		$created = $this->fire( 'create', [ 'tui-6204' ] );
-		$this->memd->fail_delete( \Memcached::RES_SERVER_TEMPORARILY_DISABLED );
+		$GLOBALS['wpdb']->deny['DELETE FROM `wp_newspack_nodes_table`'] = 'Lock wait timeout 6204';
 
 		$this->assertSame( "session store did not answer; {$created['handle']} may still be live\n", $this->fire( 'revoke', [ $created['handle'] ] ) );
 		$this->assertCount( 1, $this->fire( 'list' )['sessions'], 'the listing keeps a key the store may still hold' );

@@ -82,15 +82,28 @@ class Table_Node extends Node {
 	public const PURGE_BACKLOG_BUDGET_S = 0.25;
 
 	/**
-	 * Consecutive ticks a WAL checkpoint may leave frames behind, while the
-	 * WAL grows, before the Table warns. A PASSIVE checkpoint stops at the
-	 * oldest open reader's snapshot, and a reader here is one request's mount,
-	 * which PHP ends inside its 30-second max_execution_time; at the Router's
-	 * 1-second tick, 60 ticks is twice the longest one request can hold. A
-	 * stall that long is readers overlapping without a gap, or one stuck, and
-	 * the WAL grows until one lets go.
+	 * Seconds between one Table's WAL checkpoints. A checkpoint copies each
+	 * page in the WAL back once, however many writes dirtied it since the
+	 * last, so a hot page costs one copy an interval rather than one a tick.
+	 * Checkpointing every tick, staging's aggregate Table spent 1,686 ms in
+	 * 133 checkpoints, 39% of its time, beside 1,879 ms of SADD and 614 ms of
+	 * MSET. At its ~630 frames a second, 30 s leaves ~19,000 frames, ~75 MB,
+	 * to one checkpoint, and bounds what a crash replays from the WAL. It is
+	 * half of PURGE_INTERVAL_S, so every other checkpoint shares a purge tick.
 	 */
-	public const WAL_STALL_TICKS = 60;
+	public const CHECKPOINT_INTERVAL_S = 30;
+
+	/**
+	 * Checkpoints in a row that may leave frames behind, while the WAL grows,
+	 * before the Table warns. A PASSIVE checkpoint stops at the oldest open
+	 * reader's snapshot, and a reader here is one request's mount, which PHP
+	 * ends inside its 30-second max_execution_time. Checkpoints sit
+	 * CHECKPOINT_INTERVAL_S apart, so one request straddles two of them at
+	 * most; four in a row spans at least 90 seconds, three times what one
+	 * request can hold, so it means readers overlapping without a gap, or one
+	 * stuck, and the WAL grows until one lets go.
+	 */
+	public const WAL_STALL_CHECKPOINTS = 4;
 
 	/** Most bytes of a refused verb a log line or its throttle key shows. */
 	private const SHOWN_VERB_BYTES = 64;
@@ -203,10 +216,13 @@ class Table_Node extends Node {
 	/** Whether this Table's last purge stopped with a batch still full. */
 	private bool $purge_behind = false;
 
-	/** Consecutive ticks whose WAL checkpoint left frames behind. */
+	/** The tick this Table's next WAL checkpoint is due, in epoch seconds. */
+	private int $checkpoint_due = 0;
+
+	/** Consecutive WAL checkpoints that left frames behind. */
 	private int $wal_stalled = 0;
 
-	/** WAL frames on the first tick of the current stall. */
+	/** WAL frames at the first checkpoint of the current stall. */
 	private int $wal_stall_frames = 0;
 
 	/**
@@ -225,7 +241,7 @@ class Table_Node extends Node {
 	private ?\Closure $backing = null;
 
 	/**
-	 * Wire the sibling `:config` interpreter that serves `get`, `rm` and `vacuum`.
+	 * Wire the sibling `:config` interpreter that serves `stats`, `flush` and `vacuum`.
 	 *
 	 * Takes no arguments, for Tachikoma parity and because `make_node`
 	 * constructs first and calls `arguments()` after (ADR-11) — the namespace
@@ -246,7 +262,7 @@ class Table_Node extends Node {
 	 * Re-calling this moves a live table, which is how a caller carries a
 	 * generation: name the table `pyrobase:g47` and a schema bump renames it to
 	 * `pyrobase:g48`, orphaning every key at BOTH tiers at once. That works
-	 * because entries are keyed by the derived `entry_key()`, not the bare key.
+	 * because entries are keyed by the derived `key()`, not the bare key.
 	 *
 	 * @param list<string>|null $args
 	 * @return list<string>
@@ -556,7 +572,7 @@ class Table_Node extends Node {
 				$this->print_less_often( 'ERROR: refused a set: ', (string) $set_key, ' needs a KEY without whitespace, a member map, and a ttl in whole seconds, at least 1' );
 				continue;
 			}
-			$entry           = self::entry_key( $this->namespace, (string) $set_key );
+			$entry           = $this->key( (string) $set_key );
 			$sets[ $entry ]  = [ $item[0], $ttl ];
 			$names[ $entry ] = (string) $set_key;
 		}
@@ -610,7 +626,7 @@ class Table_Node extends Node {
 		}
 		$set_keys = [];
 		foreach ( $words as $set_key ) {
-			$set_keys[ self::entry_key( $this->namespace, $set_key ) ] = $set_key;
+			$set_keys[ $this->key( $set_key ) ] = $set_key;
 		}
 		$found = $this->arm->members( \array_keys( $set_keys ), $limit );
 		$this->count_rows( 'SMEMBERS', \count( $words ), 0 );
@@ -701,7 +717,7 @@ class Table_Node extends Node {
 			if ( ! $add ) {
 				$entries = [];
 				foreach ( $group as [ $key, $stored ] ) {
-					$entries[ self::entry_key( $this->namespace, $key ) ] = $stored;
+					$entries[ $this->key( $key ) ] = $stored;
 				}
 				if ( $arm->write_multi( $entries, $ttl ) ) {
 					\array_push( $landed, ...\array_column( $group, 0 ) );
@@ -712,7 +728,7 @@ class Table_Node extends Node {
 				}
 			}
 			foreach ( $group as [ $key, $stored ] ) {
-				$entry = self::entry_key( $this->namespace, $key );
+				$entry = $this->key( $key );
 				if ( $add ? $arm->add( $entry, $stored, $ttl ) : $arm->set( $entry, $stored, $ttl ) ) {
 					$landed[] = $key;
 				}
@@ -748,7 +764,7 @@ class Table_Node extends Node {
 			return;
 		}
 		$arm     = $this->arm();
-		$touched = null === $arm ? [] : \array_values( \array_filter( $words, fn ( string $key ): bool => true === $arm->touch( self::entry_key( $this->namespace, $key ), $ttl ) ) );
+		$touched = null === $arm ? [] : \array_values( \array_filter( $words, fn ( string $key ): bool => true === $arm->touch( $this->key( $key ), $ttl ) ) );
 		$this->count_rows( 'TOUCH', \count( $words ), \count( $touched ) );
 		$this->reply_written( $request, 'TOUCH', $touched );
 	}
@@ -762,7 +778,7 @@ class Table_Node extends Node {
 	 */
 	private function reply_removed( array $request, array $words ): void {
 		$arm     = $this->arm();
-		$removed = null === $arm ? [] : \array_values( \array_filter( $words, fn ( string $key ): bool => true === $arm->delete( self::entry_key( $this->namespace, $key ) ) ) );
+		$removed = null === $arm ? [] : \array_values( \array_filter( $words, fn ( string $key ): bool => true === $arm->delete( $this->key( $key ) ) ) );
 		$this->count_rows( 'RM', \count( $words ), \count( $removed ) );
 		$this->reply_written( $request, 'RM', $removed );
 	}
@@ -860,7 +876,7 @@ class Table_Node extends Node {
 	private function read_keys( array $keys, ?bool &$failed, ?bool &$answered = null ): array {
 		$entry_keys = [];
 		foreach ( $keys as $key ) {
-			$entry_keys[ self::entry_key( $this->namespace, $key ) ] = $key;
+			$entry_keys[ $this->key( $key ) ] = $key;
 		}
 		$found   = [];
 		$backend = $this->arm();
@@ -885,7 +901,7 @@ class Table_Node extends Node {
 	 * `fill()` is the graph's way in, but the processes that own a table's
 	 * contents are not always in a graph: a ruleset saved from wp-admin, a
 	 * REST handler, a CLI command. Without this they each resolve the Table's
-	 * arm and build `Table_Node::entry_key( … )` by hand, which puts the key
+	 * arm and build the stored key by hand, which puts the key
 	 * convention and the backend choice in every caller.
 	 *
 	 * Fails soft when no backend answers, as every read here does. The TTL
@@ -898,7 +914,7 @@ class Table_Node extends Node {
 	 *              shadows its writes durably must not record a refused one.
 	 */
 	public function store( string $key, mixed $value ): bool {
-		$entry_key = self::entry_key( $this->namespace, $key );
+		$entry_key = $this->key( $key );
 		return true === $this->arm()?->set( $entry_key, $value, $this->ttl );
 	}
 
@@ -921,23 +937,9 @@ class Table_Node extends Node {
 		}
 		$entries = [];
 		foreach ( $items as $key => $value ) {
-			$entries[ self::entry_key( $this->namespace, (string) $key ) ] = $value;
+			$entries[ $this->key( (string) $key ) ] = $value;
 		}
 		return true === $this->arm()?->write_multi( $entries, $this->ttl );
-	}
-
-	/**
-	 * Delete one entry. Verb-exposed (`rm <key>`).
-	 *
-	 * @param string $key Key within the table's namespace.
-	 * @return string The verb's reply line, always `ok` — `forget()` cannot
-	 *                report whether the entry was there to delete.
-	 * @throws \RuntimeException On a mounted Table.
-	 */
-	public function rm( string $key ): string {
-		$this->refuse_if_mounted( 'rm' );
-		$this->forget( $key );
-		return "ok\n";
 	}
 
 	/**
@@ -953,7 +955,7 @@ class Table_Node extends Node {
 		if ( null === $this->buffer ) {
 			throw new \LogicException( 'Table::accumulate() needs accumulator() first' );
 		}
-		$this->buffer->set( self::entry_key( $this->namespace, $key ), $value );
+		$this->buffer->set( $this->key( $key ), $value );
 	}
 
 	/**
@@ -968,7 +970,7 @@ class Table_Node extends Node {
 	 *               when neither tier has it.
 	 */
 	public function accumulated( string $key ): mixed {
-		$held = $this->buffer?->get( self::entry_key( $this->namespace, $key ) );
+		$held = $this->buffer?->get( $this->key( $key ) );
 		return null !== $held ? $held : $this->lookup( $key );
 	}
 
@@ -987,7 +989,7 @@ class Table_Node extends Node {
 	 *               no cache backend at all included.
 	 */
 	public function lookup( string $key ): mixed {
-		$entry_key = self::entry_key( $this->namespace, $key );
+		$entry_key = $this->key( $key );
 		$backend   = $this->arm();
 		// read() reports hit, miss and error; a null value alone cannot.
 		$read = $backend?->read( $entry_key );
@@ -1065,7 +1067,7 @@ class Table_Node extends Node {
 		if ( null === $this->buffer ) {
 			return;
 		}
-		$prefix = self::entry_key( $this->namespace, '' );
+		$prefix = $this->key( '' );
 		foreach ( $this->buffer->iterate() as $entry_key => $value ) {
 			yield \substr( (string) $entry_key, \strlen( $prefix ) ) => $value;
 		}
@@ -1080,7 +1082,7 @@ class Table_Node extends Node {
 	 *                   was absent, null when no backend answered.
 	 */
 	public function forget( string $key ): ?bool {
-		$entry_key = self::entry_key( $this->namespace, $key );
+		$entry_key = $this->key( $key );
 		return $this->arm()?->delete( $entry_key );
 	}
 
@@ -1097,7 +1099,7 @@ class Table_Node extends Node {
 		foreach ( $entries as $key => $entry ) {
 			$left = \array_key_exists( 'ttl', $entry ) ? Core::as_int( $entry['ttl'] ) : $this->ttl;
 			if ( $left > 0 ) {
-				$groups[ $left ][ self::entry_key( $this->namespace, (string) $key ) ] = $entry['value'];
+				$groups[ $left ][ $this->key( (string) $key ) ] = $entry['value'];
 			}
 		}
 		foreach ( $groups as $ttl => $items ) {
@@ -1131,7 +1133,7 @@ class Table_Node extends Node {
 		if ( $ttl < 1 ) {
 			$this->refuse_ttl( (string) $ttl );
 		}
-		$entry_key = self::entry_key( $this->namespace, $key );
+		$entry_key = $this->key( $key );
 		return $this->arm()?->touch( $entry_key, $ttl );
 	}
 
@@ -1145,15 +1147,6 @@ class Table_Node extends Node {
 	private function refuse_ttl( string $ttl ): never {
 		$table = $this->table_name();
 		throw new \InvalidArgumentException( \esc_html( '' === $ttl ? "Table {$table} needs a TTL" : "Table {$table} needs a TTL of at least 1 whole second, not {$ttl}" ) );
-	}
-
-	/**
-	 * The declared Table this node answers for, else its own name.
-	 *
-	 * @return string The name a refusal gives.
-	 */
-	private function table_name(): string {
-		return '' !== $this->table ? $this->table : $this->name;
 	}
 
 	/**
@@ -1231,14 +1224,27 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * Cache key for one entry. Site-scoped through Cache_Backend: a table is a
-	 * cross-container source of truth for THIS install, and a co-tenant
-	 * install's table of the same name is a different table.
+	 * The key this Table stores an entry under: `entry_key()` on a volatile
+	 * arm; the namespace and key alone on a durable one, whose file or table
+	 * already belongs to this install, so a salt rotation leaves its rows.
+	 *
+	 * @param string $key Key within the table's namespace.
+	 * @return string The stored key.
+	 */
+	private function key( string $key ): string {
+		return $this->arm instanceof Durable_Arm ? "{$this->namespace}:{$key}" : self::entry_key( $this->namespace, $key );
+	}
+
+	/**
+	 * A volatile arm's key for one entry. Site-scoped through Cache_Backend,
+	 * salt included: a table is a cross-container source of truth for THIS
+	 * install, a co-tenant install's table of the same name is a different
+	 * table, and rotating the salt is how a volatile arm is flushed.
 	 *
 	 * @api Callers reaching an entry through Cache_Backend directly.
 	 * @param string $ns  Table namespace.
 	 * @param string $key Key within that namespace.
-	 * @return string The scoped key both tiers store the entry under.
+	 * @return string The scoped key a volatile arm stores the entry under.
 	 */
 	public static function entry_key( string $ns, string $key ): string {
 		return Cache_Backend::site_key( "table:{$ns}:{$key}" );
@@ -1267,12 +1273,49 @@ class Table_Node extends Node {
 	}
 
 	/**
+	 * Empty this Table's durable arm, every row and member, live or expired:
+	 * a `sqlite` Table replaces its file, answering the bytes the old one
+	 * held, and a `wpdb` Table deletes its namespace's rows, answering how
+	 * many. The state that described the old file — the checkpoint schedule,
+	 * the WAL stall count, a purge left behind — starts over. Verb-exposed
+	 * (`flush`) and MANAGE-only: a worker has no logged-in user, so the
+	 * ceiling a verified session installs stands in for the role, and the
+	 * site's own signature, or a process's own command, carries none.
+	 *
+	 * @return array{bytes:int}|array{rows:int} What was released.
+	 * @throws \RuntimeException On a mount, a session scope below MANAGE, a
+	 *                           volatile backend, or a store that refuses.
+	 */
+	public function flush(): array {
+		$this->refuse_if_mounted( 'flush' );
+		if ( ! Capabilities::scope_covers( Capabilities::$session_scope ?? Capabilities::MANAGE, Capabilities::MANAGE ) ) {
+			throw new \RuntimeException( 'flush: permission denied: manage capability required' );
+		}
+		$arm  = $this->arm instanceof Durable_Arm ? $this->arm : throw new \RuntimeException( \esc_html( "flush {$this->needs_durable()}" ) );
+		$released               = $arm->flush() ?? throw new \RuntimeException( \esc_html( "Table {$this->table_name()}: flush failed: " . $arm->last_failure() ) );
+		$this->checkpoint_due   = (int) Core::$now + self::CHECKPOINT_INTERVAL_S;
+		$this->wal_stalled      = 0;
+		$this->wal_stall_frames = 0;
+		$this->purge_behind     = false;
+		return $released;
+	}
+
+	/**
 	 * Why a verb only a durable backend answers is refused here.
 	 *
 	 * @return string `needs a durable backend; <table> is <backend>`.
 	 */
 	private function needs_durable(): string {
-		return "needs a durable backend; {$this->name} is {$this->backend}";
+		return "needs a durable backend; {$this->table_name()} is {$this->backend}";
+	}
+
+	/**
+	 * The declared Table this node answers for, else its own name.
+	 *
+	 * @return string The name a refusal gives.
+	 */
+	private function table_name(): string {
+		return '' !== $this->table ? $this->table : $this->name;
 	}
 
 	/**
@@ -1312,20 +1355,23 @@ class Table_Node extends Node {
 	/**
 	 * One Table's WAL checkpoint, unless a purge this tick spent the deadline
 	 * (read off `Core::$now`, which the purge refreshed), or at once when no
-	 * purge was due and the tick set no deadline. It is counted as CHECKPOINT: `asked` the WAL's frames, `answered` the frames
-	 * written back. A partial one is ordinary and the next tick carries on;
-	 * WAL_STALL_TICKS of them in a row, with the WAL larger than when the
-	 * stall began, is warned about, rate-limited.
+	 * purge was due and the tick set no deadline. One that runs dates the
+	 * next from `$now`. It is counted as CHECKPOINT: `asked` the WAL's
+	 * frames, `answered` the frames written back. A partial one is ordinary
+	 * and the next carries on; WAL_STALL_CHECKPOINTS of them in a row, with
+	 * the WAL larger than when the stall began, is warned about, rate-limited.
 	 *
 	 * @param Sqlite_Arm $arm   The Table's arm.
+	 * @param int        $now   The tick, in epoch seconds.
 	 * @param ?float     $until The tick's deadline, shared by every Table, or
 	 *                          null when no purge was due.
 	 */
-	private function checkpoint_wal( Sqlite_Arm $arm, ?float $until ): void {
+	private function checkpoint_wal( Sqlite_Arm $arm, int $now, ?float $until ): void {
 		if ( null !== $until && Core::$now >= $until ) {
 			return;
 		}
-		$started = self::monotonic_ns();
+		$this->checkpoint_due = $now + self::CHECKPOINT_INTERVAL_S;
+		$started              = self::monotonic_ns();
 		try {
 			$result = $arm->checkpoint();
 		} finally {
@@ -1343,8 +1389,8 @@ class Table_Node extends Node {
 		if ( 0 === $this->wal_stalled++ ) {
 			$this->wal_stall_frames = $frames;
 		}
-		if ( $this->wal_stalled >= self::WAL_STALL_TICKS && $frames > $this->wal_stall_frames ) {
-			$this->print_less_often( 'WARNING: WAL checkpoint has not completed ', "for {$this->wal_stalled} ticks while the WAL grew from {$this->wal_stall_frames} to {$frames} frames; an open reader holds an old snapshot" );
+		if ( $this->wal_stalled >= self::WAL_STALL_CHECKPOINTS && $frames > $this->wal_stall_frames ) {
+			$this->print_less_often( 'WARNING: WAL checkpoint has not completed ', "for {$this->wal_stalled} checkpoints while the WAL grew from {$this->wal_stall_frames} to {$frames} frames; an open reader holds an old snapshot" );
 		}
 	}
 
@@ -1475,13 +1521,71 @@ class Table_Node extends Node {
 	}
 
 	/**
+	 * A table outside any graph, for the callers `lookup()` / `store()` /
+	 * `forget()` exist for. Sugar for `new Table_Node()` plus `arguments()`.
+	 *
+	 * Deliberately NOT memoized: an accumulator's lifetime belongs to whoever
+	 * holds the table, and one rebuilt per call is empty every time — worse
+	 * than none. Callers wanting one memoize it themselves, which is what keeps
+	 * that lifetime visible at the call site instead of hidden in here.
+	 *
+	 * A `sqlite` table built here keeps partition 0's file, named for `$ns`.
+	 *
+	 * @api Non-graph readers and writers reach a table without a live worker.
+	 * @param string $ns      Table namespace.
+	 * @param int    $ttl     Entry TTL in seconds, at least 1.
+	 * @param string $backend One of BACKENDS.
+	 * @return self A table with no sink, so `lookup()` / `store()` / `forget()`
+	 *              work and `fill()` does not.
+	 * @throws \InvalidArgumentException With an empty namespace, a TTL below
+	 *                                   one second, or an unknown backend.
+	 * @throws \RuntimeException On a declaration a named backend refuses.
+	 * @throws Table_Unavailable When the backend cannot open on this host,
+	 *                           `auto` with no cache backend included; a caller
+	 *                           that treats a backend-less host as ordinary
+	 *                           catches it, or guards on
+	 *                           `Cache_Backend::shared_first()` first.
+	 */
+	public static function table( string $ns, int $ttl, string $backend = 'auto' ): self {
+		return self::writer(
+			$ns,
+			0,
+			[
+				'namespace' => $ns,
+				'ttl'       => $ttl,
+				'backend'   => $backend,
+			]
+		);
+	}
+
+	/**
+	 * One partition of a declared Table outside any graph, opened as its
+	 * writer opens it: what `wp nodes tables flush` writes through for a
+	 * partition no worker owns, while the fleet is held.
+	 *
+	 * @param string                                             $table     The declared Table.
+	 * @param int                                                $partition Which partition's file.
+	 * @param array{namespace: string, ttl: int, backend: string} $spec      The resolved declaration.
+	 * @return self A table with no sink.
+	 * @throws \InvalidArgumentException|\RuntimeException|Table_Unavailable As arguments().
+	 */
+	public static function writer( string $table, int $partition, array $spec ): self {
+		$node            = new self();
+		$node->table     = $table;
+		$node->partition = $partition;
+		$node->arguments( [ $spec['namespace'], (string) $spec['ttl'], $spec['backend'] ] );
+		return $node;
+	}
+
+	/**
 	 * The Router tick's step for every durable Table in this process's graph:
 	 * delete the rows expired at `$now`, at most once a `PURGE_INTERVAL_S`
-	 * each, then checkpoint each SQLite Table's WAL, once a tick each. They
-	 * share one deadline, PURGE_BACKLOG_BUDGET_S while any purge is behind and
-	 * PURGE_BUDGET_S otherwise, so a tick holds the loop for one budget plus
-	 * one batch a purging Table and one checkpoint begun before the deadline;
-	 * a checkpoint the purges left no time for waits a tick. The tick runs its
+	 * each, then checkpoint each SQLite Table's WAL, at most once a
+	 * `CHECKPOINT_INTERVAL_S` each. They share one deadline,
+	 * PURGE_BACKLOG_BUDGET_S while any purge is behind and PURGE_BUDGET_S
+	 * otherwise, so a tick holds the loop for one budget plus one batch a
+	 * purging Table and one checkpoint begun before the deadline; a checkpoint
+	 * the purges left no time for waits a tick, not an interval. The tick runs its
 	 * timers' flushes first, so a checkpoint never lands inside one. A mount
 	 * is skipped, since its declaring worker is the file's one writer.
 	 *
@@ -1496,7 +1600,7 @@ class Table_Node extends Node {
 			if ( ! $node instanceof self || $node->mounted || ! $node->arm instanceof Durable_Arm ) {
 				continue;
 			}
-			if ( $node->arm instanceof Sqlite_Arm ) {
+			if ( $node->arm instanceof Sqlite_Arm && $node->checkpoint_due <= $now ) {
 				$wals[] = [ $node, $node->arm ];
 			}
 			if ( $node->purge_due <= $now ) {
@@ -1516,7 +1620,7 @@ class Table_Node extends Node {
 			$until    = $deadline;
 			$purges   = \array_map( static fn ( array $table ): \Closure => static fn () => $table[0]->purge_batches( $table[1], $now, $deadline ), $due );
 		}
-		$checkpoints = \array_map( static fn ( array $table ): \Closure => static fn () => $table[0]->checkpoint_wal( $table[1], $until ), $wals );
+		$checkpoints = \array_map( static fn ( array $table ): \Closure => static fn () => $table[0]->checkpoint_wal( $table[1], $now, $until ), $wals );
 		Worker_Should_Stop::raise( Worker_Should_Stop::attempt( ...$purges, ...$checkpoints ) );
 	}
 
@@ -1581,40 +1685,6 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * A table outside any graph, for the callers `lookup()` / `store()` /
-	 * `forget()` exist for. Sugar for `new Table_Node()` plus `arguments()`.
-	 *
-	 * Deliberately NOT memoized: an accumulator's lifetime belongs to whoever
-	 * holds the table, and one rebuilt per call is empty every time — worse
-	 * than none. Callers wanting one memoize it themselves, which is what keeps
-	 * that lifetime visible at the call site instead of hidden in here.
-	 *
-	 * A `sqlite` table built here keeps partition 0's file, named for `$ns`.
-	 *
-	 * @api Non-graph readers and writers reach a table without a live worker.
-	 * @param string $ns      Table namespace.
-	 * @param int    $ttl     Entry TTL in seconds, at least 1.
-	 * @param string $backend One of BACKENDS.
-	 * @return self A table with no sink, so `lookup()` / `store()` / `forget()`
-	 *              work and `fill()` does not.
-	 * @throws \InvalidArgumentException With an empty namespace, a TTL below
-	 *                                   one second, or an unknown backend.
-	 * @throws \RuntimeException On a declaration a named backend refuses.
-	 * @throws Table_Unavailable When the backend cannot open on this host,
-	 *                           `auto` with no cache backend included; a caller
-	 *                           that treats a backend-less host as ordinary
-	 *                           catches it, or guards on
-	 *                           `Cache_Backend::shared_first()` first.
-	 */
-	public static function table( string $ns, int $ttl, string $backend = 'auto' ): self {
-		$table            = new self();
-		$table->table     = $ns;
-		$table->partition = 0;
-		$table->arguments( [ $ns, (string) $ttl, $backend ] );
-		return $table;
-	}
-
-	/**
 	 * Palette entry, argument form and the `:config` verbs the auto-wired
 	 * interpreter dispatches. `has_target` is true because fill() forwards
 	 * every message it stores, so a table sits mid-graph with a next hop.
@@ -1632,29 +1702,6 @@ class Table_Node extends Node {
 			],
 			'commands'    => [
 				[
-					'name'        => 'get',
-					'action'      => true,
-					'description' => 'Read one entry (JSON-encoded), or "null" when absent.',
-					'args'        => [ [ 'name' => 'key', 'type' => 'string', 'required' => true ] ],
-					'handler'     => static function ( Command_Interpreter_Node $interpreter, array $args ): string {
-						$patron = $interpreter->patron();
-						if ( ! $patron instanceof self ) {
-							throw new \RuntimeException( 'no table patron' );
-						}
-						return (string) \wp_json_encode( $patron->lookup( Core::as_string( $args['key'] ) ) );
-					},
-				],
-				[
-					'name'        => 'rm',
-					'action'      => true,
-					'description' => 'Delete one entry.',
-					'args'        => [ [ 'name' => 'key', 'type' => 'string', 'required' => true ] ],
-					'handler'     => static function ( Command_Interpreter_Node $interpreter, array $args ): string {
-						$patron = $interpreter->patron();
-						return $patron instanceof self ? $patron->rm( Core::as_string( $args['key'] ) ) : throw new \RuntimeException( 'no table patron' );
-					},
-				],
-				[
 					'name'        => 'stats',
 					'action'      => true,
 					'description' => 'Per-verb counters since the Table was built: calls, keys or rows asked and answered, encoded bytes, total and max ms. `stats reset` answers them and zeroes them; a mount refuses it.',
@@ -1669,6 +1716,16 @@ class Table_Node extends Node {
 							'reset' => $patron->reset_stats(),
 							default => throw new \InvalidArgumentException( 'usage: stats [reset]' ),
 						};
+					},
+				],
+				[
+					'name'        => 'flush',
+					'action'      => true,
+					'description' => 'Empty the Table: sqlite replaces its file and answers the bytes released, wpdb deletes its namespace\'s rows and answers how many. Durable backends only; a mount and a session below manage are refused.',
+					'args'        => [],
+					'handler'     => static function ( Command_Interpreter_Node $interpreter ): array {
+						$patron = $interpreter->patron();
+						return $patron instanceof self ? $patron->flush() : throw new \RuntimeException( 'no table patron' );
 					},
 				],
 				[
@@ -1722,20 +1779,20 @@ class Table_Node extends Node {
 				],
 				[
 					'name'        => 'MSET',
-					'description' => 'A TM_REQUEST|TM_STRUCT map of key => [ value, ttl ]; ttl defaults to the Table\'s.',
-					'args'        => [],
+					'description' => 'Store many keys under a TM_REQUEST|TM_STRUCT map.',
+					'args'        => [ [ 'name' => 'map', 'type' => 'json', 'required' => true, 'description' => 'key => [ value, ttl ]; ttl defaults to the Table\'s.' ] ],
 					'reply_shape' => self::WRITE_REPLY,
 				],
 				[
 					'name'        => 'ADD',
-					'description' => 'A TM_REQUEST|TM_STRUCT map of key => [ value, ttl ], written only where absent.',
-					'args'        => [],
+					'description' => 'Store many keys under a TM_REQUEST|TM_STRUCT map, each only where absent.',
+					'args'        => [ [ 'name' => 'map', 'type' => 'json', 'required' => true, 'description' => 'key => [ value, ttl ]; ttl defaults to the Table\'s.' ] ],
 					'reply_shape' => self::WRITE_REPLY,
 				],
 				[
 					'name'        => 'SADD',
-					'description' => 'A TM_REQUEST|TM_STRUCT map of set key => [ [ member => value, … ], ttl ]; each member upserted, ttl defaulting to the Table\'s. sqlite and wpdb alone hold members.',
-					'args'        => [],
+					'description' => 'Upsert set members under a TM_REQUEST|TM_STRUCT map. sqlite and wpdb alone hold members.',
+					'args'        => [ [ 'name' => 'map', 'type' => 'json', 'required' => true, 'description' => 'set key => [ [ member => value, … ], ttl ]; ttl defaults to the Table\'s.' ] ],
 					'reply_shape' => self::WRITE_REPLY,
 				],
 			],
