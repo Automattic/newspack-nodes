@@ -150,4 +150,38 @@ class SessionsTest extends TestCase {
 		$this->assertArrayNotHasKey( 'handle-auto', $all );
 		$this->assertArrayHasKey( 'handle-named', $all );
 	}
+
+	public function test_forget_answers_null_when_the_store_did_not_answer(): void {
+		$session = Command_Auth::mint_session( Capabilities::TUNE, 900 );
+		Sessions::record( $session['handle'], Capabilities::TUNE, 'weka-7718', 900 );
+		$memd = Core::$memd;
+		$this->assertInstanceOf( InMemoryMemcached::class, $memd );
+		$memd->fail_delete( \Memcached::RES_SERVER_TEMPORARILY_DISABLED );
+
+		$this->assertNull( Sessions::forget( $session['handle'] ) );
+		$this->assertArrayHasKey( $session['handle'], Sessions::all(), 'the row stays while the key may still verify' );
+	}
+
+	public function test_handles_labelled_names_a_labels_sessions_newest_first(): void {
+		$now = \time();
+		\update_option(
+			Sessions::OPTION,
+			[
+				'handle-older-4417' => [ 'label' => 'kowhai-3317', 'scope' => Capabilities::READ, 'created' => $now - 90, 'expires' => $now + 900 ],
+				'handle-other-5521' => [ 'label' => 'pukeko-1162', 'scope' => Capabilities::READ, 'created' => $now - 60, 'expires' => $now + 900 ],
+				'handle-newer-8823' => [ 'label' => 'kowhai-3317', 'scope' => Capabilities::TUNE, 'created' => $now - 30, 'expires' => $now + 900 ],
+			],
+			false
+		);
+
+		$this->assertSame( [ 'handle-newer-8823', 'handle-older-4417' ], Sessions::handles_labelled( 'kowhai-3317' ) );
+		$this->assertSame( [], Sessions::handles_labelled( 'tui-0042' ) );
+	}
+
+	public function test_a_directory_option_that_is_not_an_array_reads_as_empty(): void {
+		\update_option( Sessions::OPTION, 'not-a-directory-9931', false );
+
+		$this->assertSame( [], Sessions::all() );
+		$this->assertSame( [], Sessions::handles_labelled( 'kowhai-3317' ) );
+	}
 }
