@@ -9,9 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A traced Table writes one stderr line per Router tick**, `DEBUG: <VERB> <calls> <ms>ms, …` over the verbs called since its last line, on the path `set_state()`'s `DEBUG:` line takes, so the console's timeline shows what a Table did. A tick with nothing called writes none, and an untraced Table pays one int compare a tick.
 - **The console's Inspector shows a Table's per-verb counters as two Stats grids.** Selecting a Table node renders a "Stats" section with one row per verb that has been called, split so each grid fits the rail: the counts (VERB, CALLS, ASKED, ANSWERED, BYTES) above the times (VERB, TOTAL, AVG, MAX), bytes and times in human units, AVG as TOTAL over CALLS. Both grids share one sort, so they list the verbs in the same order: TOTAL descending until a header click in either picks another column. They refresh with every metadata poll. A Table nothing has called shows one line instead. `parseMetadata()` carries the `verb_stats` the Table's `dump_metadata()` already reported.
 - **`formatGroupedCount()` in `@newspack-nodes/shared/utils/formatters`** prints a count whole and grouped by locale ("1,234,567"), and an absent or non-finite one as an em dash. The canvas card counter, the Inspector's counter and the process-stats message totals use it.
 - **A `SortableGrid` column takes an optional `format`** that renders a present cell while the sort reads the raw value; a missing value reads as the en dash in every column. The Profiler grid formats its decimals this way rather than pre-formatting its rows.
+
+### Changed
+
+- **A `sqlite` Table rewrites a key or a set member in place.** `kv` writes `INSERT … ON CONFLICT ( "key" ) DO UPDATE` and `members` `ON CONFLICT ( set_key, member ) DO UPDATE` where both wrote `INSERT OR REPLACE`, so a rewritten row keeps its rowid and its autoindex entry; on eve an `MSET` call wrote 540 WAL frames where it wrote 724. UPSERT needs SQLite 3.24.
+- **`Sqlite_Arm` prepares every fixed statement once per connection**, in one map keyed by its SQL that `flush` empties, including the purges, the WAL checkpoint and the `members` table probe. A keyed read's `IN ( … )` list varies with its chunk and is still prepared per call.
+- **A Table runs the keys of one `TOUCH` or `RM` as one batch.** `Cache_Backend::delete_multi()` and `touch_multi()` answer the keys that took effect: a volatile arm loops over `delete()` and `touch()`, and `Durable_Arm` holds the whole request in one write scope, so on `sqlite` it is one transaction for the request rather than one per key. On the atomic `sqlite` arm a statement that fails fails the batch, which answers no keys; `wpdb`, which has no transaction, answers the keys that took effect.
+- **`Table_Node::purge_and_checkpoint()` is now `Table_Node::tick()`,** the one step the Router's tick calls for every Table: it purges, checkpoints and writes the trace line. No alias.
 
 ## [2.79.2] - 2026-09-30
 

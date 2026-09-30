@@ -503,4 +503,108 @@ final class SqliteArmTest extends TestCase {
 		$this->assertNull( ( new Sqlite_Arm( $this->path(), 'kea:p3', read_only: true ) )->checkpoint() );
 		$this->assertStringContainsString( 'Table checkpoint failed: sqlite ' . $this->path() . ': no file at', \implode( "\n", $logged ) );
 	}
+
+	// ── In-place writes: a rewrite updates its row rather than replacing it ──
+
+	/** An UPDATE trigger on `$table` logging each row it fires for. */
+	private function log_updates( string $table ): \PDO {
+		$db = new \PDO( 'sqlite:' . $this->path() );
+		$db->exec( 'CREATE TABLE updated ( what TEXT )' );
+		$db->exec( "CREATE TRIGGER log_{$table} AFTER UPDATE ON {$table} BEGIN INSERT INTO updated VALUES ( 'row' ); END" );
+		return $db;
+	}
+
+	public function test_a_rewritten_key_updates_its_row_in_place(): void {
+		$arm = new Sqlite_Arm( $this->path(), 'kea:p3' );
+		Core::$clock = static fn (): float => 1790000000.0;
+		$arm->write_multi( [ 'sku-41' => 'kea-41', 'sku-43' => 'kea-43' ], 37 );
+		$db    = $this->log_updates( 'kv' );
+		$rowid = $db->query( "SELECT rowid FROM kv WHERE \"key\" = 'sku-41'" )->fetchColumn();
+		$this->assertTrue( $arm->write_multi( [ 'sku-41' => 'owl-41' ], 4471 ) );
+		$this->assertSame( [ [ $rowid, 1790004471 ] ], $db->query( "SELECT rowid, expires FROM kv WHERE \"key\" = 'sku-41'" )->fetchAll( \PDO::FETCH_NUM ), 'the row kept its rowid and took the new expiry' );
+		$this->assertSame( 'owl-41', $arm->get( 'sku-41' ) );
+		$this->assertSame( '1', (string) $db->query( 'SELECT count(*) FROM updated' )->fetchColumn(), 'one UPDATE, no delete and reinsert' );
+	}
+
+	public function test_a_re_added_member_updates_its_row_in_place(): void {
+		$arm = new Sqlite_Arm( $this->path(), 'kea:p3' );
+		Core::$clock = static fn (): float => 1790000000.0;
+		$arm->add_members( [ 'word:kea' => [ [ 'u-41' => 1, 'u-43' => 3 ], 37 ] ] );
+		$db = $this->log_updates( 'members' );
+		$this->assertTrue( $arm->add_members( [ 'word:kea' => [ [ 'u-41' => 'owl' ], 4471 ] ] ) );
+		$this->assertSame( [ 'word:kea' => [ 'u-41' => 'owl', 'u-43' => 3 ] ], $arm->members( [ 'word:kea' ], 9 ) );
+		$this->assertSame( '1790004471', (string) $db->query( "SELECT expires FROM members WHERE member = 'u-41'" )->fetchColumn() );
+		$this->assertSame( '1', (string) $db->query( 'SELECT count(*) FROM updated' )->fetchColumn(), 'one UPDATE, no delete and reinsert' );
+	}
+
+	public function test_a_write_after_a_flush_lands_in_the_new_file(): void {
+		$arm = new Sqlite_Arm( $this->path(), 'kea:p3' );
+		$arm->set( 'sku-41', 'kea-41', 0 );
+		$arm->add_members( [ 'word:kea' => [ [ 'u-41' => 1 ], 777 ] ] );
+		$arm->add( 'sku-42', 'kea-42', 0 );
+		$arm->flush();
+		$arm->set( 'sku-43', 'kea-43', 0 );
+		$arm->add( 'sku-47', 'kea-47', 0 );
+		$arm->add_members( [ 'word:owl' => [ [ 'u-43' => 3 ], 777 ] ] );
+		$db = new \PDO( 'sqlite:' . $this->path() );
+		$this->assertSame( [ 'sku-43', 'sku-47' ], $db->query( 'SELECT "key" FROM kv ORDER BY "key"' )->fetchAll( \PDO::FETCH_COLUMN ), 'no statement wrote into the unlinked file' );
+		$this->assertSame( [ 'word:owl' ], $db->query( 'SELECT set_key FROM members' )->fetchAll( \PDO::FETCH_COLUMN ) );
+	}
+
+	// ── Batched deletes and touches: one write scope for the whole batch ──
+
+	/** WAL frames `$op` writes: the log is written back first and restarts under it. */
+	private function frames_written_by( Sqlite_Arm $arm, \Closure $op ): int {
+		$arm->checkpoint();
+		$op();
+		return $arm->checkpoint()[0];
+	}
+
+	public function test_a_batched_touch_runs_one_write_scope(): void {
+		$arm = new Sqlite_Arm( $this->path(), 'kea:p3' );
+		Core::$clock = static fn (): float => 1790000000.0;
+		$arm->write_multi( [ 'sku-41' => 'kea-41', 'sku-43' => 'kea-43', 'sku-47' => 'kea-47' ], 37 );
+		$two = $this->frames_written_by( $arm, fn () => $this->assertSame( [ 'sku-41', 'sku-43' ], $arm->touch_multi( [ 'sku-41', 'sku-49', 'sku-43' ], 777 ) ) );
+		$one = $this->frames_written_by( $arm, fn () => $arm->touch_multi( [ 'sku-47' ], 778 ) );
+		$this->assertGreaterThan( 0, $one );
+		$this->assertSame( $one, $two, 'two keys dirty their pages once, in one BEGIN IMMEDIATE' );
+		$db = new \PDO( 'sqlite:' . $this->path() );
+		$this->assertSame( [ 1790000777, 1790000777, 1790000778 ], $db->query( 'SELECT expires FROM kv ORDER BY "key"' )->fetchAll( \PDO::FETCH_COLUMN ) );
+	}
+
+	public function test_a_batched_delete_runs_one_write_scope(): void {
+		$arm = new Sqlite_Arm( $this->path(), 'kea:p3' );
+		$arm->write_multi( [ 'sku-41' => 'kea-41', 'sku-43' => 'kea-43', 'sku-47' => 'kea-47', 'sku-53' => 'kea-53' ], 0 );
+		$two = $this->frames_written_by( $arm, fn () => $this->assertSame( [ 'sku-41', 'sku-43' ], $arm->delete_multi( [ 'sku-41', 'sku-49', 'sku-43' ] ) ) );
+		$one = $this->frames_written_by( $arm, fn () => $arm->delete_multi( [ 'sku-47' ] ) );
+		$this->assertGreaterThan( 0, $one );
+		$this->assertSame( $one, $two, 'two keys dirty their pages once, in one BEGIN IMMEDIATE' );
+		$this->assertSame( [ 'sku-53' ], ( new \PDO( 'sqlite:' . $this->path() ) )->query( 'SELECT "key" FROM kv' )->fetchAll( \PDO::FETCH_COLUMN ) );
+	}
+
+	public function test_an_empty_batch_takes_no_write_lock(): void {
+		$file = $this->path();
+		$arm  = new Sqlite_Arm( $file, 'kea:p3', 1 );
+		$arm->set( 'sku-41', 'kea-41', 0 );
+		$other = new \PDO( 'sqlite:' . $file );
+		$other->exec( 'BEGIN IMMEDIATE' );
+		try {
+			$this->assertSame( [], $arm->delete_multi( [] ) );
+			$this->assertSame( [], $arm->touch_multi( [], 777 ) );
+			$this->assertSame( 'sqlite ' . $file . ': ', $arm->last_failure(), 'no lock was asked for' );
+			$this->assertSame( [], $arm->delete_multi( [ 'sku-41' ] ), 'a real batch waits on the held lock and fails' );
+			$this->assertStringContainsString( 'locked', $arm->last_failure() );
+		} finally {
+			$other->exec( 'ROLLBACK' );
+		}
+	}
+
+	public function test_a_batch_that_fails_lands_no_key_and_answers_none(): void {
+		$arm = new Sqlite_Arm( $this->path(), 'kea:p3' );
+		$arm->write_multi( [ 'sku-41' => 'kea-41', 'sku-43' => 'kea-43' ], 0 );
+		( new \PDO( 'sqlite:' . $this->path() ) )->exec( "CREATE TRIGGER no_43 BEFORE DELETE ON kv WHEN OLD.\"key\" = 'sku-43' BEGIN SELECT RAISE( ABORT, 'no 43' ); END" );
+		$this->assertSame( [], $arm->delete_multi( [ 'sku-41', 'sku-43' ] ) );
+		$this->assertMatchesRegularExpression( '/no 43$/', $arm->last_failure() );
+		$this->assertSame( [ 'sku-41', 'sku-43' ], ( new \PDO( 'sqlite:' . $this->path() ) )->query( 'SELECT "key" FROM kv ORDER BY "key"' )->fetchAll( \PDO::FETCH_COLUMN ), 'sku-41 rolled back with the batch' );
+	}
 }

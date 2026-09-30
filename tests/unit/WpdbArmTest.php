@@ -209,6 +209,18 @@ final class WpdbArmTest extends TestCase {
 		$this->assertSame( [ 'sku-41' => 8, 'sku-42' => 2 ], $arm->read_multi( [ 'sku-41', 'sku-42' ] ) );
 	}
 
+	public function test_a_batched_delete_or_touch_answers_the_keys_that_landed_before_a_failure(): void {
+		$arm = new Wpdb_Arm( 'kea:p3' );
+		$arm->write_multi( [ 'sku-41' => 'kea-41', 'sku-43' => 'kea-43' ], 777 );
+		$this->assertFalse( $arm->batch_is_atomic() );
+		$this->db->deny['sku-43'] = 'Lock wait timeout 4473';
+		$this->assertSame( [ 'sku-41' ], $arm->touch_multi( [ 'sku-41', 'sku-43' ], 900 ) );
+		$this->assertSame( [ 'sku-41' ], $arm->delete_multi( [ 'sku-41', 'sku-43' ] ) );
+		unset( $this->db->deny['sku-43'] );
+		$this->assertFalse( $arm->get( 'sku-41' ) );
+		$this->assertSame( 'kea-43', $arm->get( 'sku-43' ) );
+	}
+
 	public function test_a_batch_is_cut_into_statements_that_fit_the_packet(): void {
 		$this->db->max_allowed_packet = 4096;
 		$arm                          = new Wpdb_Arm( 'kea:p3' );

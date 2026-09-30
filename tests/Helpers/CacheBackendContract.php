@@ -102,6 +102,21 @@ abstract class CacheBackendContract extends TestCase {
 		}
 	}
 
+	public function test_delete_multi_and_touch_multi_answer_the_keys_they_took_effect_on(): void {
+		$arm = $this->arm();
+		$arm->write_multi( [ 'sku-41' => 'kea-41', 'sku-43' => 'kea-43' ], 37 );
+		$this->assertSame( [ 'sku-43', 'sku-41' ], $arm->touch_multi( [ 'sku-43', 'sku-47', 'sku-41' ], 777 ) );
+		if ( $this->moves_clock() ) {
+			$this->clock += 300;
+			$this->assertSame( 'kea-43', $arm->get( 'sku-43' ), 'the touch moved the expiry' );
+		}
+		$this->assertSame( [ 'sku-41' ], $arm->delete_multi( [ 'sku-47', 'sku-41' ] ) );
+		$this->assertFalse( $arm->get( 'sku-41' ) );
+		$this->assertSame( 'kea-43', $arm->get( 'sku-43' ) );
+		$this->assertSame( [], $arm->delete_multi( [] ) );
+		$this->assertSame( [], $arm->touch_multi( [], 777 ) );
+	}
+
 	public function test_the_arm_declares_whether_a_batch_is_atomic(): void {
 		$this->assertSame( $this->batches_atomically(), $this->arm()->batch_is_atomic() );
 	}

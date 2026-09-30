@@ -119,6 +119,18 @@ abstract class Durable_Arm extends Cache_Backend {
 	}
 
 	/**
+	 * See Cache_Backend::delete_multi(); an atomic arm holds the batch in one
+	 * write scope, and a statement that fails fails it, answering none. Any
+	 * other arm answers the keys that took effect, one by one.
+	 */
+	public function delete_multi( array $keys ): array {
+		if ( ! $this->batch_is_atomic() ) {
+			return parent::delete_multi( $keys );
+		}
+		return $this->held( $keys, fn ( string $key ): bool => $this->delete_key( $key ) > 0 );
+	}
+
+	/**
 	 * Delete one key's live row.
 	 *
 	 * @param string $key Key.
@@ -128,7 +140,31 @@ abstract class Durable_Arm extends Cache_Backend {
 
 	/** See Cache_Backend::touch(); an unmoved expiry changes no row, so a zero re-reads. */
 	public function touch( string $key, int $ttl ): ?bool {
-		return $this->attempt( fn (): bool => $this->update_expiry( $key, self::expires( $ttl ) ) > 0 || [] !== $this->select_rows( [ $key ] ), null );
+		return $this->attempt( fn (): bool => $this->touched( $key, self::expires( $ttl ) ), null );
+	}
+
+	/**
+	 * See Cache_Backend::touch_multi(); an atomic arm holds the batch in one
+	 * write scope, and a statement that fails fails it, answering none. Any
+	 * other arm answers the keys that took effect, one by one.
+	 */
+	public function touch_multi( array $keys, int $ttl ): array {
+		if ( ! $this->batch_is_atomic() ) {
+			return parent::touch_multi( $keys, $ttl );
+		}
+		$expires = self::expires( $ttl );
+		return $this->held( $keys, fn ( string $key ): bool => $this->touched( $key, $expires ) );
+	}
+
+	/**
+	 * Move one key's expiry; a row already at it changes nothing, so a zero re-reads.
+	 *
+	 * @param string $key     Key.
+	 * @param int    $expires The new `expires` column.
+	 * @return bool Whether a live row holds the key.
+	 */
+	private function touched( string $key, int $expires ): bool {
+		return $this->update_expiry( $key, $expires ) > 0 || [] !== $this->select_rows( [ $key ] );
 	}
 
 	/**
@@ -139,6 +175,22 @@ abstract class Durable_Arm extends Cache_Backend {
 	 * @return int Rows changed.
 	 */
 	abstract protected function update_expiry( string $key, int $expires ): int;
+
+	/**
+	 * Run a per-key operation over a batch in one write scope. A statement
+	 * that fails fails the batch, which answers no keys; an empty batch takes
+	 * no write lock.
+	 *
+	 * @param list<string>              $keys The keys.
+	 * @param \Closure(string): bool $took Whether the operation took effect on a key.
+	 * @return list<string> The keys it took effect on.
+	 */
+	private function held( array $keys, \Closure $took ): array {
+		if ( [] === $keys ) {
+			return [];
+		}
+		return $this->attempt( fn (): array => $this->write_scope( fn (): array => $this->taking( $keys, $took ) ), [] );
+	}
 
 	/** See Cache_Backend::compare_and_swap(). */
 	public function compare_and_swap( string $key, int $expected, int $replacement ): bool {

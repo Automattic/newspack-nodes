@@ -237,6 +237,13 @@ class Table_Node extends Node {
 	private array $verb_stats = self::ZERO_STATS;
 
 	/**
+	 * The counters as the last trace line left them, held only while traced.
+	 *
+	 * @var array<string,array{int,int,int,int,int,int}>|null
+	 */
+	private ?array $traced = null;
+
+	/**
 	 * Durable system of record behind this table, or null until backed_by()
 	 * opts in. Invoked with the keys a read missed on.
 	 *
@@ -767,8 +774,9 @@ class Table_Node extends Node {
 			$this->refuse( $request, 'TOUCH', 'usage: TOUCH <ttl> <key>…, ttl in whole seconds, at least 1' );
 			return;
 		}
+		$words   = \array_values( \array_unique( $words ) );
 		$arm     = $this->arm();
-		$touched = null === $arm ? [] : \array_values( \array_filter( $words, fn ( string $key ): bool => true === $arm->touch( $this->key( $key ), $ttl ) ) );
+		$touched = null === $arm ? [] : $this->landed( $words, static fn ( array $keys ): array => $arm->touch_multi( $keys, $ttl ) );
 		$this->count_rows( 'TOUCH', \count( $words ), \count( $touched ) );
 		$this->reply_written( $request, 'TOUCH', $touched );
 	}
@@ -781,10 +789,23 @@ class Table_Node extends Node {
 	 * @throws \RuntimeException With no wired sink to reply through.
 	 */
 	private function reply_removed( array $request, array $words ): void {
+		$words   = \array_values( \array_unique( $words ) );
 		$arm     = $this->arm();
-		$removed = null === $arm ? [] : \array_values( \array_filter( $words, fn ( string $key ): bool => true === $arm->delete( $this->key( $key ) ) ) );
+		$removed = null === $arm ? [] : $this->landed( $words, $arm->delete_multi( ... ) );
 		$this->count_rows( 'RM', \count( $words ), \count( $removed ) );
 		$this->reply_written( $request, 'RM', $removed );
+	}
+
+	/**
+	 * The request's keys an arm's batch verb answered, whole batch in one call.
+	 *
+	 * @param list<string>                         $words The keys as the request named them.
+	 * @param \Closure(list<string>): list<string> $batch An arm's `delete_multi()` or `touch_multi()`.
+	 * @return list<string> The words, in request order, that took effect.
+	 */
+	private function landed( array $words, \Closure $batch ): array {
+		$keys = \array_map( $this->key( ... ), $words );
+		return \array_values( \array_intersect_key( $words, \array_intersect( $keys, $batch( $keys ) ) ) );
 	}
 
 	/**
@@ -1583,6 +1604,9 @@ class Table_Node extends Node {
 		$this->refuse_if_mounted( 'reset_stats' );
 		$stats            = $this->stats();
 		$this->verb_stats = self::ZERO_STATS;
+		if ( null !== $this->traced ) {
+			$this->traced = self::ZERO_STATS;
+		}
 		return $stats;
 	}
 
@@ -1738,11 +1762,48 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * The Router tick's step for every durable Table in this process's graph:
-	 * delete the rows expired at `$now`, at most once a `PURGE_INTERVAL_S`
-	 * each, then checkpoint each SQLite Table's WAL, at most once a
-	 * `CHECKPOINT_INTERVAL_S` each. They share one deadline,
-	 * PURGE_BACKLOG_BUDGET_S while any purge is behind and PURGE_BUDGET_S
+	 * Read or set the trace level. Setting it on holds the counters as they
+	 * stand, so the first trace line sums what came after; off drops them.
+	 *
+	 * @param int|null $level New level (null = pure getter).
+	 * @return int The level now in force.
+	 */
+	public function debug_state( ?int $level = null ): int {
+		$state = parent::debug_state( $level );
+		if ( null !== $level ) {
+			$this->traced = $state > 0 ? $this->traced ?? $this->verb_stats : null;
+		}
+		return $state;
+	}
+
+	/**
+	 * A traced Table's line for one Router tick: `DEBUG: <VERB> <calls>
+	 * <ms>ms, …` over each verb called since its last line, on the stderr
+	 * path set_state()'s DEBUG line takes, so the console's timeline reads
+	 * it; no line when nothing was called.
+	 */
+	private function trace_tick(): void {
+		$last  = $this->traced ?? $this->verb_stats;
+		$parts = [];
+		foreach ( $this->verb_stats as $verb => $row ) {
+			$calls = $row[ self::CALLS ] - $last[ $verb ][ self::CALLS ];
+			if ( $calls > 0 ) {
+				$parts[] = "{$verb} {$calls} " . \round( ( $row[ self::TOTAL_NS ] - $last[ $verb ][ self::TOTAL_NS ] ) / 1e6, 3 ) . 'ms';
+			}
+		}
+		$this->traced = $this->verb_stats;
+		if ( [] !== $parts ) {
+			$this->stderr( 'DEBUG: ' . \implode( ', ', $parts ) );
+		}
+	}
+
+	/**
+	 * The Router tick's step for every Table in this process's graph: delete
+	 * the rows expired at `$now` from each durable one, at most once a
+	 * `PURGE_INTERVAL_S` each, then checkpoint each SQLite Table's WAL, at most
+	 * once a `CHECKPOINT_INTERVAL_S` each. Last, every traced Table, volatile
+	 * ones too, writes its trace line. The purges and checkpoints share one
+	 * deadline, PURGE_BACKLOG_BUDGET_S while any purge is behind and PURGE_BUDGET_S
 	 * otherwise, so a tick holds the loop for one budget plus one batch a
 	 * purging Table and one checkpoint begun before the deadline; a checkpoint
 	 * the purges left no time for waits a tick, not an interval. The tick runs its
@@ -1752,24 +1813,32 @@ class Table_Node extends Node {
 	 * @param int $now The tick, in epoch seconds.
 	 * @throws \Throwable What the steps threw, after the last.
 	 */
-	public static function purge_and_checkpoint( int $now ): void {
+	public static function tick( int $now ): void {
 		$due    = [];
 		$wals   = [];
+		$traces = [];
 		$behind = false;
 		foreach ( Core::$nodes_by_name as $node ) {
-			if ( ! $node instanceof self || $node->mounted || ! $node->arm instanceof Durable_Arm ) {
+			if ( ! $node instanceof self ) {
 				continue;
 			}
-			if ( $node->arm instanceof Sqlite_Arm && $node->checkpoint_due <= $now ) {
-				$wals[] = [ $node, $node->arm ];
+			if ( $node->debug_state > 0 ) {
+				$traces[] = $node->trace_tick( ... );
+			}
+			$arm = $node->mounted ? null : $node->arm;
+			if ( ! $arm instanceof Durable_Arm ) {
+				continue;
+			}
+			if ( $arm instanceof Sqlite_Arm && $node->checkpoint_due <= $now ) {
+				$wals[] = [ $node, $arm ];
 			}
 			if ( $node->purge_due <= $now ) {
 				$node->purge_due = $now + self::PURGE_INTERVAL_S;
-				$due[]           = [ $node, $node->arm ];
+				$due[]           = [ $node, $arm ];
 				$behind          = $behind || $node->purge_behind;
 			}
 		}
-		if ( [] === $due && [] === $wals ) {
+		if ( [] === $due && [] === $wals && [] === $traces ) {
 			return;
 		}
 		$until  = null;
@@ -1781,7 +1850,7 @@ class Table_Node extends Node {
 			$purges   = \array_map( static fn ( array $table ): \Closure => static fn () => $table[0]->purge_tick( $table[1], $now, $deadline ), $due );
 		}
 		$checkpoints = \array_map( static fn ( array $table ): \Closure => static fn () => $table[0]->checkpoint_wal( $table[1], $now, $until ), $wals );
-		Worker_Should_Stop::raise( Worker_Should_Stop::attempt( ...$purges, ...$checkpoints ) );
+		Worker_Should_Stop::raise( Worker_Should_Stop::attempt( ...$purges, ...$checkpoints, ...$traces ) );
 	}
 
 	/**
