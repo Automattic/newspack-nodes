@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.81.0] - 2026-09-30
+
 ### Added
 
 - **A Ledger's `TOP` ranks by a ratio or by `x`.** `order_by` names a declared column, as before; `x`, ranking by the member itself; or `[ numerator, denominator ]`, two distinct `sum` columns, ranking by `SUM( numerator ) / NULLIF( SUM( denominator ), 0 )`, so a member whose denominator sums to 0 ranks last in either order. A ratio naming a `min` or `max` column, a column twice or anything but two names is refused as `TOP: order_by is x, one of <columns>, or [ numerator, denominator ] naming two sum columns of <sum columns>`, or `TOP: order_by is x or one of <columns>` on a Ledger with fewer than two sum columns, which offers no ratio. A Ledger declaring no columns ranks by `x`, and refuses any other `order_by` or a `positive` with `TOP: a Ledger declaring no columns ranks by x alone, with no positive`.
