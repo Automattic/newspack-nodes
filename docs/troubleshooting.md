@@ -11,7 +11,7 @@ Reach for this page when:
 
 ## REPL: `wp nodes cli`
 
-![Four lanes, terminal, the cli's own graph, the worker's ipc directory on disk and the live worker, with six numbered hops: a typed line becomes a signed TM_COMMAND stamped FROM=_output/<pid>, is appended lock-free to input/ under the 4096-byte cap, is tailed by the worker's input Consumer which prepends _repl, is answered TO=FROM into output/ under void_warranty, is tailed back and rendered only when the Dumper's pid filter matches, and a TM_EOF echo ends the session. A panel above the hops shows the two-step attach resolution and its two refusals; three cards below cover bare mode, the root refusal and concurrent sessions.](img/ts-repl-modes.png)
+![Four lanes, terminal, the cli's own graph, the worker's ipc directory on disk and the live worker, with six numbered hops: a typed line becomes a signed TM_COMMAND stamped FROM=_output/_cli:<pid>/_output, is appended lock-free to input/ under the 4096-byte cap, is tailed by the worker's input Consumer which prepends _repl, is answered TO=FROM into output/ under void_warranty, is tailed back through the channel's session gate, which passes only this session's _cli:<pid> head, and a TM_EOF echo ends the session. A panel above the hops shows the two-step attach resolution and its two refusals; three cards below cover bare mode, the root refusal and concurrent sessions.](img/ts-repl-modes.png)
 
 Bare (`wp nodes cli`) runs commands in the wp-cli process itself and starts at secure level 0; use it to exercise interpreter verbs without touching a worker. Pivoted (`wp nodes cli <type>.p<N>`) attaches to a live worker through the IPC pair, and `dump_node`, `connect_node` and `disconnect_node` act on the running graph with no restart. The worker ids in the examples below are placeholders — run `wp nodes status` for the live ones. A root cli would seed `{base}/ipc/{type}.p{N}/input/` as root; if that has already happened, recover with `chown -R <web-user>:<web-user> {base}`.
 
@@ -93,7 +93,7 @@ echo 'command_node jobs:consumer:config dl_list' | wp nodes cli job-worker.p0
 
 ### How replies find you
 
-Hops 4 and 5 above: the Shell stamps `FROM=_output/<pid>`, a reply comes back with TO=FROM, and `_output` renders it or drops it on its pid filter. [`Command_Interpreter_Node`](../includes/class-command-interpreter-node.php) handles only TM_COMMAND with an empty TO; a non-empty TO means the message is in transit toward another node, so the interpreter forwards it to its sink and lets the addressed node decide. Any exception a verb throws is caught and returned as `TM_COMMAND|TM_ERROR` along the FROM trail, rendered on **stdout** with no prefix and no separate stream.
+Hops 4 and 5 above: the Shell stamps `FROM=_output/_cli:<pid>/_output`, a reply comes back with TO=FROM, and the channel's session gate, `<worker-id>:replies`, strips `_output/_cli:<pid>` and hands `_output` the reply, dropping any other session's. [`Command_Interpreter_Node`](../includes/class-command-interpreter-node.php) handles only TM_COMMAND with an empty TO; a non-empty TO means the message is in transit toward another node, so the interpreter forwards it to its sink and lets the addressed node decide. Any exception a verb throws is caught and returned as `TM_COMMAND|TM_ERROR` along the FROM trail, rendered on **stdout** with no prefix and no separate stream.
 
 ### Piping into the REPL
 

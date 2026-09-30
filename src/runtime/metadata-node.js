@@ -85,7 +85,7 @@ export function dumpMetadataPayload( only = '', registry = Core.registry ) {
 /**
  * Canonicalize a reply path to the SHELL's tail (`…/_output`). The
  * `_header.pwd` arrives ending in the POLLING node's reply segment
- * (`…/_sse:{pid}/_metadata`), but a Tee tail target (from a shell `connect_node`)
+ * (`…/_sse:{session}/_metadata`), but a Tee tail target (from a shell `connect_node`)
  * ends in `_output` — so the Connect/Disconnect toggle and its optimistic patch
  * must both compare on this canonical form. A bare (slash-less) or empty reply
  * path is returned unchanged.

@@ -20,6 +20,16 @@ final class WpdbArmTest extends TestCase {
 		$this->db->base_prefix = 'kea7_';
 	}
 
+	protected function tearDown(): void {
+		Wpdb_Arm::$errno = null;
+		parent::tearDown();
+	}
+
+	/** Answer MySQL's missing-table code where SQLite reports its own. */
+	private function report_missing_tables_as_1146(): void {
+		Wpdb_Arm::$errno = static fn ( \wpdb $db ): int => \str_contains( Core::as_string( $db->last_error ), 'no such table' ) ? 1146 : 0;
+	}
+
 	/** @return list<string> The statements sent that contain `$needle`. */
 	private function sent( string $needle ): array {
 		return \array_values( \array_filter( $this->db->sent, static fn ( string $sql ): bool => \str_contains( $sql, $needle ) ) );
@@ -35,25 +45,105 @@ final class WpdbArmTest extends TestCase {
 		new Wpdb_Arm( 'kea:p3' );
 	}
 
-	public function test_an_unreadable_packet_limit_throws_at_construction(): void {
-		$this->db->deny['@@max_allowed_packet'] = 'SELECT command denied';
-		$this->expectException( \RuntimeException::class );
-		$this->expectExceptionMessage( 'wpdb backend could not read max_allowed_packet: SELECT command denied' );
-		new Wpdb_Arm( 'kea:p3' );
+	public function test_an_unreadable_packet_limit_fails_the_first_write_naming_why(): void {
+		$arm                                    = new Wpdb_Arm( 'kea:p3' );
+		$this->db->deny['@@max_allowed_packet'] = 'SELECT command denied 7121';
+		$this->assertFalse( $arm->set( 'sku-41', 41, 777 ) );
+		$this->assertSame( 'wpdb kea7_newspack_nodes_table: could not read max_allowed_packet: SELECT command denied 7121', $arm->last_failure() );
+		$this->assertSame( [], $this->sent( 'INSERT' ), 'nothing unmeasured reached the server' );
 	}
 
-	public function test_the_table_and_packet_limit_are_read_once_per_connection(): void {
-		new Wpdb_Arm( 'kea:p3' );
-		$this->db->deny['CREATE TABLE'] = 'CREATE command denied';
-		new Wpdb_Arm( 'kea:p4' );
-		$this->assertCount( 2, $this->sent( 'CREATE TABLE' ), 'a second arm on the same connection creates nothing' );
-		$this->assertCount( 1, $this->sent( '@@max_allowed_packet' ) );
+	/**
+	 * The hot path: an arm on an installed schema reads its row and nothing
+	 * else. Building it once sent `SELECT @@max_allowed_packet` and two
+	 * `CREATE TABLE IF NOT EXISTS` per connection, three statements ahead of
+	 * every web request's first read.
+	 */
+	public function test_an_installed_arm_reads_with_no_ddl_and_no_packet_read(): void {
+		Wpdb_Arm::install();
+		$this->db->sent = [];
+		$arm            = new Wpdb_Arm( 'kea:p3' );
+		$this->assertFalse( $arm->get( 'sku-7121' ) );
+		$this->assertCount( 1, $this->db->sent, 'one statement: the read' );
+		$this->assertStringStartsWith( 'SELECT cache_key', $this->db->sent[0] );
+	}
 
-		$fresh                       = $this->use_wpdb();
-		$fresh->base_prefix          = 'kea7_';
-		$fresh->deny['CREATE TABLE'] = 'CREATE command denied';
-		$this->expectExceptionMessage( 'CREATE command denied' );
+	public function test_install_creates_both_tables_once_per_schema(): void {
+		Wpdb_Arm::install();
+		$this->assertCount( 2, $this->sent( 'CREATE TABLE IF NOT EXISTS' ) );
+		$this->assertSame( [ 'kea7_newspack_nodes_table', 'kea7_newspack_nodes_members' ], \array_map( static fn ( string $sql ): string => (string) \preg_replace( '/^CREATE TABLE IF NOT EXISTS `([^`]+)`.*$/s', '$1', $sql ), $this->sent( 'CREATE TABLE' ) ) );
 		new Wpdb_Arm( 'kea:p3' );
+		new Wpdb_Arm( 'kea:p4' );
+		$this->assertCount( 2, $this->sent( 'CREATE TABLE' ), 'an arm on an installed schema creates nothing' );
+	}
+
+	public function test_an_arm_on_an_unrecorded_schema_installs_it(): void {
+		new Wpdb_Arm( 'kea:p3' );
+		$this->assertCount( 2, $this->sent( 'CREATE TABLE IF NOT EXISTS' ), 'an upgrade that never re-activated installs on first use' );
+		new Wpdb_Arm( 'kea:p4' );
+		$this->assertCount( 2, $this->sent( 'CREATE TABLE' ) );
+	}
+
+	/**
+	 * A table dropped while the schema option stands — a staging clone, a
+	 * restore, a manual DROP — is recreated by the first statement that
+	 * finds it missing, which then runs once more and lands.
+	 */
+	public function test_a_dropped_table_under_a_standing_option_is_recreated_by_the_next_add(): void {
+		$this->report_missing_tables_as_1146();
+		$arm = new Wpdb_Arm( 'kea:p3' );
+		$this->db->query( 'DROP TABLE `kea7_newspack_nodes_table`' );
+		$this->db->sent = [];
+
+		$this->assertTrue( $arm->add( 'sku-5519', 5519, 777 ), $arm->last_failure() );
+		$this->assertSame( 5519, $arm->get( 'sku-5519' ) );
+		$this->assertCount( 2, $this->sent( 'CREATE TABLE IF NOT EXISTS' ), 'one install heals it' );
+	}
+
+	public function test_a_lookup_against_a_dropped_table_recreates_it_and_answers_a_miss(): void {
+		$this->report_missing_tables_as_1146();
+		$arm = new Wpdb_Arm( 'kea:p3' );
+		$this->db->query( 'DROP TABLE `kea7_newspack_nodes_members`' );
+		$this->db->query( 'DROP TABLE `kea7_newspack_nodes_table`' );
+
+		$this->assertSame( Cache_Backend::READ_MISS, $arm->read( 'sku-8813' )['status'], $arm->last_failure() );
+		$this->assertSame( [], $arm->members( [ 'owl:set-3' ], 9 ), $arm->last_failure() );
+	}
+
+	public function test_an_installed_table_is_never_reinstalled_by_a_failure_of_another_kind(): void {
+		$this->report_missing_tables_as_1146();
+		$arm                      = new Wpdb_Arm( 'kea:p3' );
+		$this->db->sent           = [];
+		$this->db->deny['SELECT'] = 'Lost connection to server during query 6604';
+		$this->assertFalse( $arm->get( 'sku-41' ) );
+		$this->assertSame( [], $this->sent( 'CREATE TABLE' ) );
+		$this->assertCount( 1, $this->sent( 'SELECT' ), 'no retry' );
+	}
+
+	public function test_a_table_the_server_will_not_recreate_fails_the_statement_naming_why(): void {
+		$this->report_missing_tables_as_1146();
+		$arm = new Wpdb_Arm( 'kea:p3' );
+		$this->db->query( 'DROP TABLE `kea7_newspack_nodes_table`' );
+		$this->db->deny['CREATE TABLE'] = 'CREATE command denied 3380';
+
+		$this->assertFalse( $arm->set( 'sku-41', 41, 777 ) );
+		$this->assertSame( 'wpdb kea7_newspack_nodes_table: wpdb backend could not create kea7_newspack_nodes_table: CREATE command denied 3380', $arm->last_failure() );
+	}
+
+	public function test_the_packet_limit_is_read_once_per_connection_on_the_first_write(): void {
+		$arm = new Wpdb_Arm( 'kea:p3' );
+		$this->assertSame( [], $this->sent( '@@max_allowed_packet' ), 'building reads no packet limit' );
+		$arm->set( 'sku-41', 41, 777 );
+		$arm->add( 'sku-43', 43, 777 );
+		( new Wpdb_Arm( 'kea:p4' ) )->set( 'sku-41', 41, 777 );
+		$this->assertCount( 1, $this->sent( '@@max_allowed_packet' ) );
+	}
+
+	public function test_a_failed_install_throws_naming_the_table(): void {
+		$this->db->deny['CREATE TABLE'] = 'CREATE command denied 7121';
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'wpdb backend could not create kea7_newspack_nodes_table: CREATE command denied 7121' );
+		Wpdb_Arm::install();
 	}
 
 	public function test_expiry_is_indexed_within_a_namespace(): void {
@@ -142,7 +232,7 @@ final class WpdbArmTest extends TestCase {
 		$this->db->sent               = [];
 		$this->assertFalse( $arm->write_multi( [ 'sku-41' => 1, 'sku-42' => \str_repeat( 'x', 5000 ) ], 777 ) );
 		$this->assertFalse( $arm->add( 'sku-43', \str_repeat( 'x', 5000 ), 777 ) );
-		$this->assertSame( [], $this->db->sent, 'nothing reached the server' );
+		$this->assertSame( [ 'SELECT @@max_allowed_packet' ], $this->db->sent, 'no row reached the server' );
 		$this->assertMatchesRegularExpression( '/row of \d+ bytes cannot fit max_allowed_packet 4096/', $arm->last_failure() );
 		$this->assertFalse( $arm->get( 'sku-41' ) );
 	}

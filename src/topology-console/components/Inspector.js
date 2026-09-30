@@ -1312,18 +1312,6 @@ function EditForm( {
 }
 
 /**
- * Whether a verb sends a TM_REQUEST|TM_STRUCT: a request whose one declared
- * argument is `json`, the whole map its VALUE carries under the verb name.
- *
- * @param {string} kind `command` or `request`.
- * @param {Array}  args The verb's argument specs from the class schema.
- * @return {boolean} True for a structured request.
- */
-function isStructuredRequest( kind, args ) {
-	return 'request' === kind && 1 === args.length && 'json' === args[ 0 ].type;
-}
-
-/**
  * The JSON object or array a structured request's field holds.
  *
  * @param {*} text The field's current text.
@@ -1347,15 +1335,16 @@ function parseStruct( text ) {
  * `--name=value` token, which the server binds by name, so a field left blank
  * shifts nothing after it; a `variadic` field sends one such token per word.
  * A request has no binder — its VALUE is words — so its arguments ride by
- * position; every one is required, so none is blank. A structured request
- * sends its one `json` field parsed, as the struct, and Run waits until that
- * text parses to an object or an array. The first field takes focus when the
- * dialog opens.
+ * position; every one is required, so none is blank. A request whose schema
+ * declares `value: 'struct'` sends its one `json` field parsed, as the struct
+ * a TM_REQUEST|TM_STRUCT carries, and Run waits until that text parses to an
+ * object or an array. The first field takes focus when the dialog opens.
  *
  * @param {Object}     props
  * @param {string}     props.nodeId     Node the verb runs on.
  * @param {string}     props.verb       Verb name; titles the dialog.
  * @param {string}     props.kind       `command` or `request`; picks the message type minted.
+ * @param {string}     [props.value]    `struct` where the request declares a structured VALUE.
  * @param {Array}      props.args       The verb's argument specs from the class schema.
  * @param {string[]}   props.formatters Registered formatter names.
  * @param {Array}      props.vaults     Vault entries.
@@ -1368,6 +1357,7 @@ function VerbArgModal( {
 	nodeId,
 	verb,
 	kind,
+	value,
 	args,
 	formatters,
 	vaults,
@@ -1383,9 +1373,7 @@ function VerbArgModal( {
 		bodyRef.current?.querySelector( 'input, select, textarea' )?.focus();
 	}, [] );
 
-	const struct = isStructuredRequest( kind, args )
-		? parseStruct( values[ 0 ] )
-		: undefined;
+	const struct = 'struct' === value ? parseStruct( values[ 0 ] ) : undefined;
 	const missingRequired =
 		null === struct ||
 		args.some(
@@ -1520,6 +1508,7 @@ function VerbButton( {
 					nodeId={ nodeId }
 					verb={ spec.name }
 					kind={ kind }
+					value={ spec.value }
 					args={ spec.args }
 					formatters={ formatters }
 					vaults={ vaults }

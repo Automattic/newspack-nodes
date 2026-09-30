@@ -98,7 +98,7 @@ function controlFor( name ) {
 function worker( overrides = {} ) {
 	return {
 		partition: 0,
-		status: 'running',
+		state: 'live',
 		started_at: 1000,
 		heartbeat_age: 2,
 		behind: 0,
@@ -179,7 +179,7 @@ describe( 'Overview fleet board', () => {
 				worker( { partition: 1 } ),
 			] ),
 			active( 'beta', 'stalled', [
-				worker( { partition: 0, status: 'dead' } ),
+				worker( { partition: 0, state: 'down' } ),
 			] ),
 			{ name: 'gamma', source: 'stock', active: false },
 		];
@@ -276,7 +276,7 @@ describe( 'Overview fleet board', () => {
 				topologies: [
 					active( 'aaa-ok', 'ok', [ worker() ] ),
 					active( 'zzz-stalled', 'stalled', [
-						worker( { status: 'dead' } ),
+						worker( { state: 'down' } ),
 					] ),
 				],
 			} )

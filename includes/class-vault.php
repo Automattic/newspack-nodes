@@ -433,7 +433,7 @@ class Vault {
 	 * @param string        $detail One extra `key=value` token, for what $id cannot say.
 	 */
 	private function audit( string $action, string $id, array $fields, string $detail = '' ): void {
-		$user_id  = \function_exists( 'get_current_user_id' ) ? \get_current_user_id() : 0;
+		$user_id  = Core::current_user_id();
 		$ts       = \gmdate( 'c' );
 		$fieldstr = empty( $fields ) ? '' : ' fields=' . \implode( ',', $fields );
 		$detail   = '' === $detail ? '' : " {$detail}";

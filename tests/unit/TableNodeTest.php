@@ -137,7 +137,7 @@ class TableNodeTest extends TestCase {
 		$message[ Message::KEY ] = 'sku-9';
 		$table->fill( $message );
 
-		$this->assertFalse( $this->memd->get( Table_Node::entry_key( 'prices', 'sku-9' ) ) );
+		$this->assertFalse( $this->memd->get( Cache_Backend::entry_key( 'prices', 'sku-9' ) ) );
 		$this->assertCount( 1, $sink->captured, 'only the count, not the request itself' );
 		$this->assertSame( Message::TM_INFO, $sink->captured[0][ Message::TYPE ] );
 	}
@@ -173,7 +173,7 @@ class TableNodeTest extends TestCase {
 
 		$table->fill( $this->keyed( 'sku-9', [ 'usd' => 1250 ] ) );
 
-		$this->assertSame( [ 'usd' => 1250 ], $this->memd->get( Table_Node::entry_key( 'prices', 'sku-9' ) ) );
+		$this->assertSame( [ 'usd' => 1250 ], $this->memd->get( Cache_Backend::entry_key( 'prices', 'sku-9' ) ) );
 		$this->assertCount( 1, $sink->captured, 'write-through: the table composes mid-graph' );
 	}
 
@@ -229,7 +229,7 @@ class TableNodeTest extends TestCase {
 	public function test_a_backend_read_error_logs_memcached_result(): void {
 		[ $table ]                  = $this->table();
 		$this->memd->result_message = 'CONNECTION FAILURE 6620';
-		$this->memd->fail_get( Table_Node::entry_key( 'prices', 'sku-6620' ), \Memcached::RES_CONNECTION_FAILURE );
+		$this->memd->fail_get( Cache_Backend::entry_key( 'prices', 'sku-6620' ), \Memcached::RES_CONNECTION_FAILURE );
 		$captured = [];
 		Core::set_stderr_handler(
 			static function ( string $message ) use ( &$captured ): void {
@@ -315,7 +315,7 @@ class TableNodeTest extends TestCase {
 
 		$this->assertEqualsWithDelta(
 			\time() + 300,
-			$this->memd->expiries()[ Table_Node::entry_key( 'prices', 'sku-9' ) ],
+			$this->memd->expiries()[ Cache_Backend::entry_key( 'prices', 'sku-9' ) ],
 			2
 		);
 	}
@@ -329,7 +329,7 @@ class TableNodeTest extends TestCase {
 		$this->assertSame( [ 'usd' => 1250 ], $table->lookup( 'sku-9' ) );
 		$this->assertSame(
 			[ 'usd' => 1250 ],
-			$this->memd->get( Table_Node::entry_key( 'prices', 'sku-9' ) ),
+			$this->memd->get( Cache_Backend::entry_key( 'prices', 'sku-9' ) ),
 			'store() must land on the same key fill() writes'
 		);
 	}
@@ -357,7 +357,7 @@ class TableNodeTest extends TestCase {
 
 		$this->assertEqualsWithDelta(
 			\time() + 4471,
-			$this->memd->expiries()[ Table_Node::entry_key( 'prices', 'sku-9' ) ],
+			$this->memd->expiries()[ Cache_Backend::entry_key( 'prices', 'sku-9' ) ],
 			2
 		);
 		$this->assertSame( 'held', $table->lookup( 'sku-9' ), 'the value is left as it was' );
@@ -369,13 +369,13 @@ class TableNodeTest extends TestCase {
 		$table = Table_Node::table( 'prices', 300 );
 
 		$this->assertFalse( $table->touch( 'sku-404', 4471 ) );
-		$this->assertArrayNotHasKey( Table_Node::entry_key( 'prices', 'sku-404' ), $this->memd->expiries() );
+		$this->assertArrayNotHasKey( Cache_Backend::entry_key( 'prices', 'sku-404' ), $this->memd->expiries() );
 	}
 
 	public function test_touch_reports_a_backend_error_as_unknown_not_absent(): void {
 		$table = Table_Node::table( 'prices', 300 );
 		$table->store( 'sku-9', 'held' );
-		$this->memd->fail_touch( Table_Node::entry_key( 'prices', 'sku-9' ), \Memcached::RES_CONNECTION_FAILURE );
+		$this->memd->fail_touch( Cache_Backend::entry_key( 'prices', 'sku-9' ), \Memcached::RES_CONNECTION_FAILURE );
 
 		$this->assertNull( $table->touch( 'sku-9', 4471 ) );
 	}
@@ -490,7 +490,7 @@ class TableNodeTest extends TestCase {
 		$table->backed_by( static fn ( array $keys ): array => [ 'sku-7' => [ 'value' => [ 'usd' => 700 ], 'ttl' => 5 ] ] );
 
 		$this->assertSame( [ 'usd' => 700 ], $table->lookup( 'sku-7' ) );
-		$expiry = $this->memd->expiries()[ Table_Node::entry_key( 'prices', 'sku-7' ) ] ?? 0;
+		$expiry = $this->memd->expiries()[ Cache_Backend::entry_key( 'prices', 'sku-7' ) ] ?? 0;
 		$this->assertEqualsWithDelta( \time() + 5, $expiry, 2, 'stored under the entry\'s own remaining life, not the table\'s 600' );
 	}
 
@@ -514,7 +514,7 @@ class TableNodeTest extends TestCase {
 
 		$this->assertSame( [ [ 'sku-2', 'sku-5', 'sku-6' ], [ 'sku-5' ], [ 'sku-5', 'sku-6' ] ], $calls );
 		$this->assertSame(
-			[ Table_Node::entry_key( 'prices', 'sku-2' ) ],
+			[ Cache_Backend::entry_key( 'prices', 'sku-2' ) ],
 			\array_keys( $this->memd->expiries() ),
 			'only the value the backing returned is warmed'
 		);
@@ -533,7 +533,7 @@ class TableNodeTest extends TestCase {
 				return [];
 			}
 		);
-		$this->memd->set( Table_Node::entry_key( 'prices', 'sku-4471' ), "\0table:absent", 600 );
+		$this->memd->set( Cache_Backend::entry_key( 'prices', 'sku-4471' ), "\0table:absent", 600 );
 
 		$this->assertSame( "\0table:absent", $table->lookup( 'sku-4471' ) );
 		$this->assertSame( [ 'sku-4471' => "\0table:absent" ], $this->mget( $table, 'sku-4471' ) );
@@ -555,7 +555,7 @@ class TableNodeTest extends TestCase {
 		);
 
 		$this->assertNull( $table->lookup( 'sku-3' ), 'unanswered reads as a miss' );
-		$this->assertArrayNotHasKey( Table_Node::entry_key( 'prices', 'sku-3' ), $this->memd->expiries(), 'and nothing is written against the key' );
+		$this->assertArrayNotHasKey( Cache_Backend::entry_key( 'prices', 'sku-3' ), $this->memd->expiries(), 'and nothing is written against the key' );
 		$answered = true;
 		$this->assertSame( [ 'usd' => 300 ], $table->lookup( 'sku-3' ), 'the next read asks again' );
 	}
@@ -589,7 +589,7 @@ class TableNodeTest extends TestCase {
 
 		$this->assertSame( [ 'usd' => 800 ], $table->lookup( 'sku-8' ), 'the record answers' );
 		$this->assertArrayNotHasKey(
-			Table_Node::entry_key( 'prices', 'sku-8' ),
+			Cache_Backend::entry_key( 'prices', 'sku-8' ),
 			$this->memd->expiries(),
 			'and takes no cache slot: a spent remainder is not worth warming'
 		);
@@ -693,11 +693,13 @@ class TableNodeTest extends TestCase {
 	}
 
 	public function test_the_config_verbs_are_the_ones_no_request_answers(): void {
-		$this->assertSame( [ 'stats', 'flush', 'vacuum' ], \array_column( Table_Node::node_schema()['commands'], 'name' ), 'GET and RM are requests, never :config verbs' );
+		$this->assertSame( [ 'stats', 'reset_stats', 'flush', 'vacuum' ], \array_column( Table_Node::node_schema()['commands'], 'name' ), 'GET and RM are requests, never :config verbs' );
 	}
 
 	public function test_each_structured_request_declares_its_one_json_map(): void {
 		$requests = \array_column( Table_Node::node_schema()['requests'], 'args', 'name' );
+		$values   = \array_column( Table_Node::node_schema()['requests'], 'value', 'name' );
+		$this->assertSame( [ 'MSET' => 'struct', 'ADD' => 'struct', 'SADD' => 'struct' ], $values, 'the three structured requests declare their VALUE, and no other request does' );
 		foreach ( [ 'MSET', 'ADD', 'SADD' ] as $verb ) {
 			$this->assertCount( 1, $requests[ $verb ], $verb );
 			$this->assertSame( [ 'name' => 'map', 'type' => 'json', 'required' => true ], \array_diff_key( $requests[ $verb ][0], [ 'description' => true ] ), $verb );
@@ -841,7 +843,7 @@ class TableNodeTest extends TestCase {
 
 	public function test_mount_names_the_partition_and_opens_its_file(): void {
 		$dir = $this->base_dir( 'table-mount-' );
-		( new Sqlite_Arm( Table_Node::file( 'lab-7:kea', 3 ) ) )->set( 'kea:p3:sku-42', [ 'usd' => 4200 ], 0 );
+		( new Sqlite_Arm( Table_Node::file( 'lab-7:kea', 3 ), 'kea:p3' ) )->set( 'kea:p3:sku-42', [ 'usd' => 4200 ], 0 );
 		$sink  = new Capture_Sink_Node();
 		$table = Table_Node::mount( 'lab-7:kea', 3, [ 'namespace' => 'kea:p3', 'ttl' => 777, 'backend' => 'sqlite' ], $sink );
 		$this->assertSame( 'lab-7:kea.p3', $table->name() );
@@ -854,7 +856,7 @@ class TableNodeTest extends TestCase {
 
 	public function test_a_mounted_table_dumps_no_replayable_make_node_line(): void {
 		$this->base_dir( 'table-dump-' );
-		new Sqlite_Arm( Table_Node::file( 'lab-7:kea', 3 ) );
+		new Sqlite_Arm( Table_Node::file( 'lab-7:kea', 3 ), 'kea:p3' );
 		$interpreter = new \Newspack_Nodes\Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 		$table = Table_Node::mount( 'lab-7:kea', 3, [ 'namespace' => 'kea:p3', 'ttl' => 777, 'backend' => 'sqlite' ], $interpreter );
@@ -879,7 +881,7 @@ class TableNodeTest extends TestCase {
 
 	public function test_a_mount_raises_a_failed_teardown_beside_the_failure_that_began_it(): void {
 		$this->base_dir( 'table-teardown-' );
-		new Sqlite_Arm( Table_Node::file( 'lab-7:kea', 3 ) );
+		new Sqlite_Arm( Table_Node::file( 'lab-7:kea', 3 ), 'kea:p3' );
 		$refusal = new \LogicException( 'teardown refused-37' );
 		// A sibling whose teardown refuses; the Table's own cascade reaches it.
 		$sibling = new class( $refusal ) extends Node {
@@ -1038,7 +1040,7 @@ class TableNodeTest extends TestCase {
 				$this->assertSame( "Table prices needs a TTL of at least 1 whole second, not {$ttl}", $e->getMessage() );
 			}
 		}
-		$this->assertEqualsWithDelta( \time() + 37, $this->memd->expiries()[ Table_Node::entry_key( 'prices', 'sku-9' ) ], 2, 'the refused touch left the expiry alone' );
+		$this->assertEqualsWithDelta( \time() + 37, $this->memd->expiries()[ Cache_Backend::entry_key( 'prices', 'sku-9' ) ], 2, 'the refused touch left the expiry alone' );
 	}
 
 	public function test_the_ttl_positional_is_required_and_declares_no_default(): void {
@@ -1122,11 +1124,13 @@ class TableNodeTest extends TestCase {
 		$this->assert_unavailable( fn () => $this->table( 'kea:p3', '37', 'wpdb' ), 'Table prices:table: wpdb backend could not create kea9_newspack_nodes_table: CREATE command denied' );
 	}
 
-	public function test_a_wpdb_packet_limit_the_server_will_not_say_is_table_unavailable(): void {
+	public function test_a_wpdb_packet_limit_the_server_will_not_say_fails_the_first_write(): void {
 		$db                               = $this->use_wpdb();
 		$db->base_prefix                  = 'kea9_';
-		$db->deny['@@max_allowed_packet'] = 'SELECT command denied';
-		$this->assert_unavailable( fn () => $this->table( 'kea:p3', '37', 'wpdb' ), 'Table prices:table: wpdb backend could not read max_allowed_packet: SELECT command denied' );
+		$db->deny['@@max_allowed_packet'] = 'SELECT command denied 1131';
+		[ $table ]                        = $this->table( 'kea:p3', '37', 'wpdb' );
+		$this->assertFalse( $table->store( 'sku-1131', 1131 ) );
+		$this->assertSame( 'wpdb kea9_newspack_nodes_table: could not read max_allowed_packet: SELECT command denied 1131', $table->last_failure() );
 	}
 
 	public function test_a_memcache_table_with_no_handle_is_table_unavailable(): void {
@@ -1196,7 +1200,7 @@ class TableNodeTest extends TestCase {
 	public function test_a_named_memcache_backend_writes_through_memcached(): void {
 		[ $table ] = $this->table( 'kea:p3', '37', 'memcache' );
 		$this->assertTrue( $table->store( 'sku-41', 'kea' ) );
-		$this->assertSame( 'kea', $this->memd->get( Table_Node::entry_key( 'kea:p3', 'sku-41' ) ) );
+		$this->assertSame( 'kea', $this->memd->get( Cache_Backend::entry_key( 'kea:p3', 'sku-41' ) ) );
 	}
 
 	public function test_a_wpdb_table_keeps_its_rows_in_the_shared_table(): void {
@@ -1518,7 +1522,7 @@ class TableNodeTest extends TestCase {
 		$dir       = $this->base_dir( "table-vac'" );
 		[ $table ] = $this->durable( 37 );
 		// A 1 ms busy_timeout, as SqliteArmTest opens one, so the refusal is prompt.
-		( new \ReflectionProperty( Table_Node::class, 'arm' ) )->setValue( $table, new Sqlite_Arm( Table_Node::file( 'lab-7:kea', 3 ), 1 ) );
+		( new \ReflectionProperty( Table_Node::class, 'arm' ) )->setValue( $table, new Sqlite_Arm( Table_Node::file( 'lab-7:kea', 3 ), 'kea:p3', 1 ) );
 		$table->store( 'sku-41', 1 );
 		$reader = new \PDO( 'sqlite:' . Table_Node::file( 'lab-7:kea', 3 ) );
 		$reader->exec( 'BEGIN' );

@@ -136,8 +136,8 @@ final class InsightsCiTest extends TestCase {
 
 	public function test_slice_verbs_are_refused_without_manage_options(): void {
 		$ci = $this->ci_with_snapshot( self::SEED );
-		// Drop the cap: the Service_CI base wraps every verb with
-		// require_manage_options(), so each slice dispatch must now throw.
+		// A logged-in user without the cap: dispatch() refuses each undeclared verb.
+		$GLOBALS['_wp_test_current_user_id']  = 7741;
 		$GLOBALS['_wp_test_current_user_can'] = [];
 		foreach ( [ 'counts', 'top', 'accumulated' ] as $verb ) {
 			$e = $this->caught(

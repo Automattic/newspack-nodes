@@ -104,6 +104,7 @@ final class Sqlite_Arm extends Durable_Arm {
 	 * files a WAL reader needs beside a file whose writer is not running.
 	 *
 	 * @param string $path            Database file.
+	 * @param string $namespace       The Table's namespace, which prefixes its keys.
 	 * @param int    $busy_timeout_ms Wait on a held write lock, in milliseconds.
 	 * @param bool   $read_only       Open as a reader rather than the writer.
 	 * @throws \LogicException Without pdo_sqlite.
@@ -111,6 +112,7 @@ final class Sqlite_Arm extends Durable_Arm {
 	 */
 	public function __construct(
 		private readonly string $path,
+		private readonly string $namespace,
 		private readonly int $busy_timeout_ms = self::BUSY_TIMEOUT_MS,
 		private readonly bool $read_only = false
 	) {
@@ -173,6 +175,11 @@ final class Sqlite_Arm extends Durable_Arm {
 		return "sqlite {$this->path}: {$this->failure}";
 	}
 
+	/** See Durable_Arm::row_key(): `{namespace}:{key}`. */
+	public function row_key( string $key ): string {
+		return "{$this->namespace}:{$key}";
+	}
+
 	/** See Cache_Backend::backend_name(). */
 	public function backend_name(): string {
 		return 'sqlite';
@@ -223,9 +230,11 @@ final class Sqlite_Arm extends Durable_Arm {
 		$out = [];
 		foreach ( \array_chunk( $keys, self::IN_CHUNK ) as $chunk ) {
 			$in   = \implode( ',', \array_fill( 0, \count( $chunk ), '?' ) );
-			$stmt = $db->prepare( "SELECT \"key\", \"value\" FROM kv WHERE \"key\" IN ( {$in} ) AND " . self::LIVE );
+			$stmt = $db->prepare( "SELECT \"key\", \"value\", expires FROM kv WHERE \"key\" IN ( {$in} ) AND " . self::LIVE );
 			$stmt->execute( [ ...$chunk, self::now() ] );
-			$out += self::pairs( $stmt );
+			/** @var array<array-key,array{0: string, 1: int}> $rows The key column keys each row. */
+			$rows = $stmt->fetchAll( \PDO::FETCH_UNIQUE | \PDO::FETCH_NUM );
+			$out  = $rows + $out;
 		}
 		return $out;
 	}
@@ -317,15 +326,11 @@ final class Sqlite_Arm extends Durable_Arm {
 		if ( $this->read_only ) {
 			throw new \UnexpectedValueException( 'a reader cannot flush' );
 		}
-		\clearstatcache();
-		$bytes = 0;
+		$sizes = self::file_sizes( $this->path );
 		try {
-			foreach ( [ $this->path, "{$this->path}-wal", "{$this->path}-shm" ] as $file ) {
-				if ( \is_file( $file ) ) {
-					$bytes += (int) \filesize( $file );
-					if ( ! @\unlink( $file ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
-						throw new \UnexpectedValueException( "could not unlink {$file}" );
-					}
+			foreach ( \array_keys( $sizes ) as $file ) {
+				if ( ! @\unlink( $file ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
+					throw new \UnexpectedValueException( "could not unlink {$file}" );
 				}
 			}
 		} finally {
@@ -335,7 +340,25 @@ final class Sqlite_Arm extends Durable_Arm {
 			$this->db           = null;
 			$this->db           = $this->connect();
 		}
-		return [ 'bytes' => $bytes ];
+		return [ 'bytes' => \array_sum( $sizes ) ];
+	}
+
+	/**
+	 * The files one SQLite database is made of — the database, its `-wal` and
+	 * its `-shm` — each on disk now, with its bytes.
+	 *
+	 * @param string $path The database file.
+	 * @return array<string,int> File => bytes; a file not on disk is absent.
+	 */
+	public static function file_sizes( string $path ): array {
+		\clearstatcache();
+		$sizes = [];
+		foreach ( [ $path, "{$path}-wal", "{$path}-shm" ] as $file ) {
+			if ( \is_file( $file ) ) {
+				$sizes[ $file ] = (int) \filesize( $file );
+			}
+		}
+		return $sizes;
 	}
 
 	/** See Durable_Arm::purge_member_rows(); the table has no rowid to name. */
@@ -389,17 +412,7 @@ final class Sqlite_Arm extends Durable_Arm {
 		$this->members_read->bindValue( 2, self::now(), \PDO::PARAM_INT );
 		$this->members_read->bindValue( 3, $limit, \PDO::PARAM_INT );
 		$this->members_read->execute();
-		return self::pairs( $this->members_read );
-	}
-
-	/**
-	 * A key/value result as key => tagged bytes.
-	 *
-	 * @param \PDOStatement $stmt An executed two-column statement.
-	 * @return array<array-key,string>
-	 */
-	private static function pairs( \PDOStatement $stmt ): array {
-		return \array_map( Core::as_string( ... ), $stmt->fetchAll( \PDO::FETCH_KEY_PAIR ) );
+		return \array_map( Core::as_string( ... ), $this->members_read->fetchAll( \PDO::FETCH_KEY_PAIR ) );
 	}
 
 	/**

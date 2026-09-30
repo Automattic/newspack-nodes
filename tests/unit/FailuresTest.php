@@ -64,4 +64,25 @@ class FailuresTest extends TestCase {
 		$this->assertSame( $members[ (int) $m[2] ]->getMessage(), $m[1], 'the last member shown is whole' );
 		$this->assertSame( 3000 - 1 - (int) $m[2], (int) $m[3] );
 	}
+
+	public function test_it_reports_the_origin_of_its_first_failure(): void {
+		$first  = new \RuntimeException( 'origin-41' );
+		$second = new \LogicException( 'other-42' );
+
+		$failures = new Failures( [ $first, $second ] );
+
+		$this->assertSame( __FILE__, $failures->getFile() );
+		$this->assertSame( $first->getLine(), $failures->getLine() );
+		$this->assertNotSame( $second->getLine(), $failures->getLine() );
+	}
+
+	public function test_a_nested_failures_reports_the_origin_of_the_first_flattened_member(): void {
+		$a = new \RuntimeException( 'a-51' );
+		$b = new \RuntimeException( 'b-52' );
+		$c = new \RuntimeException( 'c-53' );
+
+		$failures = new Failures( [ new Failures( [ $a, $b ] ), $c ] );
+
+		$this->assertSame( $a->getLine(), $failures->getLine() );
+	}
 }

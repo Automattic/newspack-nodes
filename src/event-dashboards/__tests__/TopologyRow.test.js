@@ -33,7 +33,7 @@ function activeStatus() {
 				handler: 'producer',
 				partition: 0,
 				source: '',
-				status: 'running',
+				state: 'live',
 				started_at: 1000,
 				read_rate: 2048,
 			},
@@ -211,9 +211,9 @@ describe( 'TopologyRow — folded mode', () => {
 
 	it( 'counts up against CONFIGURED partitions, not the ones that reported', () => {
 		// A worker process that is gone entirely does not report a row at all —
-		// it is absent, not `dead`. Using the reporting count as the
+		// it is absent, not `down`. Using the reporting count as the
 		// denominator made a 4-partition topology running 2 workers read
-		// "ALL RUN", the exact opposite of the truth.
+		// "ALL LIVE", the exact opposite of the truth.
 		const props = rowProps( {
 			folded: true,
 			onExpand: jest.fn(),
@@ -230,14 +230,14 @@ describe( 'TopologyRow — folded mode', () => {
 							type: 'alpha',
 							handler: 'alpha',
 							partition: 0,
-							status: 'running',
+							state: 'live',
 							started_at: 1000,
 						},
 						{
 							type: 'alpha',
 							handler: 'alpha',
 							partition: 1,
-							status: 'running',
+							state: 'live',
 							started_at: 1000,
 						},
 					],
@@ -250,14 +250,14 @@ describe( 'TopologyRow — folded mode', () => {
 			...container.querySelectorAll( '.worker-status-badge' ),
 		].map( ( b ) => b.textContent );
 		expect( badges ).toContain( '2/4 up' );
-		expect( badges ).not.toContain( 'ALL RUN' );
+		expect( badges ).not.toContain( 'ALL LIVE' );
 	} );
 
 	/**
 	 * An on-demand topology with nothing to do is the feature working. Reading
-	 * ALL DEAD sends an operator looking for the crash that never happened.
+	 * ALL DOWN sends an operator looking for the crash that never happened.
 	 */
-	it( 'reads IDLE, not ALL DEAD, when every absent worker is on-demand', () => {
+	it( 'reads IDLE, not ALL DOWN, when every absent worker is on-demand', () => {
 		const props = rowProps( {
 			folded: true,
 			onExpand: jest.fn(),
@@ -273,14 +273,12 @@ describe( 'TopologyRow — folded mode', () => {
 						{
 							type: 'alpha',
 							partition: 0,
-							status: 'dead',
-							idle: true,
+							state: 'idle',
 						},
 						{
 							type: 'alpha',
 							partition: 1,
-							status: 'dead',
-							idle: true,
+							state: 'idle',
 						},
 					],
 					currentTime: 2000,
@@ -292,11 +290,11 @@ describe( 'TopologyRow — folded mode', () => {
 			...container.querySelectorAll( '.worker-status-badge' ),
 		].map( ( b ) => b.textContent );
 		expect( badges ).toContain( 'IDLE' );
-		expect( badges ).not.toContain( 'ALL DEAD' );
+		expect( badges ).not.toContain( 'ALL DOWN' );
 	} );
 
-	/** A crash is still a crash: one non-idle corpse keeps the dead badge. */
-	it( 'still reads ALL DEAD when any absent worker is not idle', () => {
+	/** A crash is still a crash: one non-idle absence keeps the down badge. */
+	it( 'still reads ALL DOWN when any absent worker is not idle', () => {
 		const props = rowProps( {
 			folded: true,
 			onExpand: jest.fn(),
@@ -312,10 +310,9 @@ describe( 'TopologyRow — folded mode', () => {
 						{
 							type: 'alpha',
 							partition: 0,
-							status: 'dead',
-							idle: true,
+							state: 'idle',
 						},
-						{ type: 'alpha', partition: 1, status: 'dead' },
+						{ type: 'alpha', partition: 1, state: 'down' },
 					],
 					currentTime: 2000,
 				},
@@ -325,11 +322,43 @@ describe( 'TopologyRow — folded mode', () => {
 		const badges = [
 			...container.querySelectorAll( '.worker-status-badge' ),
 		].map( ( b ) => b.textContent );
-		expect( badges ).toContain( 'ALL DEAD' );
+		expect( badges ).toContain( 'ALL DOWN' );
 		expect( badges ).not.toContain( 'IDLE' );
 	} );
 
-	it( 'shows a k/n up badge for a partially-up topology (not ALL RUN / ALL DEAD)', () => {
+	/** A fleet held for a deploy is stopped on purpose, not crashed. */
+	it( 'reads HELD, and each partition badge held, while the fleet is held', () => {
+		const props = rowProps( {
+			folded: true,
+			onExpand: jest.fn(),
+			topology: {
+				name: 'alpha',
+				source: 'stock',
+				active: true,
+				health: 'ok',
+				num_partitions: 2,
+				status: {
+					graph: { nodes: [], edges: [] },
+					workers: [
+						{ type: 'alpha', partition: 0, state: 'held' },
+						{ type: 'alpha', partition: 1, state: 'held' },
+					],
+					currentTime: 2000,
+				},
+			},
+		} );
+		const { container } = render( <TopologyRow { ...props } /> );
+		const badges = [
+			...container.querySelectorAll( '.worker-status-badge' ),
+		].map( ( b ) => b.textContent );
+		expect( badges ).toContain( 'HELD' );
+		expect( badges ).not.toContain( 'ALL DOWN' );
+		expect(
+			container.querySelectorAll( '.worker-status-badge.compact.held' )
+		).toHaveLength( 2 );
+	} );
+
+	it( 'shows a k/n up badge for a partially-up topology (not ALL LIVE / ALL DOWN)', () => {
 		const props = rowProps( {
 			folded: true,
 			onExpand: jest.fn(),
@@ -345,14 +374,14 @@ describe( 'TopologyRow — folded mode', () => {
 							type: 'alpha',
 							handler: 'alpha',
 							partition: 0,
-							status: 'running',
+							state: 'live',
 							started_at: 1000,
 						},
 						{
 							type: 'alpha',
 							handler: 'alpha',
 							partition: 1,
-							status: 'dead',
+							state: 'down',
 							started_at: 1000,
 						},
 					],
@@ -365,8 +394,8 @@ describe( 'TopologyRow — folded mode', () => {
 			...container.querySelectorAll( '.worker-status-badge' ),
 		].map( ( b ) => b.textContent );
 		expect( badges ).toContain( '1/2 up' );
-		expect( badges ).not.toContain( 'ALL RUN' );
-		expect( badges ).not.toContain( 'ALL DEAD' );
+		expect( badges ).not.toContain( 'ALL LIVE' );
+		expect( badges ).not.toContain( 'ALL DOWN' );
 	} );
 } );
 
@@ -520,7 +549,7 @@ describe( 'TopologyRow', () => {
 							handler: 'producer',
 							partition: 0,
 							source: '',
-							status: 'running',
+							state: 'live',
 							started_at: 1000,
 							heartbeat_age: 2,
 						},
@@ -532,11 +561,10 @@ describe( 'TopologyRow', () => {
 							// Staleness is the SERVER's answer, judged against
 							// the topology's declared stale_timeout; the row no
 							// longer re-derives it from a hardcoded 30s. A
-							// running worker is never stale, so a fixture
+							// live worker is never stale, so a fixture
 							// asserting both described a state the server
 							// cannot emit.
-							status: 'dead',
-							stale: true,
+							state: 'stale',
 							started_at: 1000,
 							heartbeat_age: 40,
 						},

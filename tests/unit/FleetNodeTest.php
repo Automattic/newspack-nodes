@@ -607,6 +607,7 @@ class FleetNodeTest extends TestCase {
 	/** Activation seeds the row at 0, so the worker caches a value, not an absence. */
 	#[\PHPUnit\Framework\Attributes\RunInSeparateProcess]
 	public function test_a_pass_with_a_worker_due_sees_a_hold_placed_after_the_worker_read_it(): void {
+		$this->use_wpdb();
 		require_once __DIR__ . '/../Helpers/wp-object-cache-stub.php';
 		$this->with_topology( $this->ledger( 1 ) );
 		Bootstrap::activate();

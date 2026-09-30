@@ -36,6 +36,7 @@ supersede.
 | [23](#adr-23-a-request-carries-no-authority-of-its-own) | A request carries no authority of its own |
 | [24](#adr-24-a-tables-backend-is-chosen-per-table) | A Table's backend is chosen per Table |
 | [25](#adr-25-a-verbs-arguments-are-bound-by-its-schema) | A verb's arguments are bound by its schema |
+| [26](#adr-26-every-verb-is-gated-by-the-role-its-schema-declares) | Every verb is gated by the role its schema declares |
 
 ---
 
@@ -131,7 +132,7 @@ CPU.
 `cancel()`. The one reply-control flag is `TM_NOREPLY`: a Shell with `want_reply(false)`
 (topology load, script mode) ORs it onto its commands and the interpreter suppresses the
 reply, since a worker's boot-topology replies would otherwise route to an absent
-`_output/<pid>` and bounce a dropped `NOT_AVAILABLE` every startup. With no reply to carry
+`_output` and bounce a dropped `NOT_AVAILABLE` every startup. With no reply to carry
 it, a TM_NOREPLY command's failure propagates to whatever filled the command, so a broken
 topology line fails the load: [`Command_Interpreter_Node::interpret()`](../includes/class-command-interpreter-node.php)
 re-throws a refusal or a verb's throwable, and [`Router_Node::send_error()`](../includes/class-router-node.php)
@@ -139,7 +140,7 @@ throws `NOT_AVAILABLE` for a command addressed to no node instead of bouncing it
 twins do the same. Tachikoma prints the one and bounces the other while the script runs on;
 the lineage records [why this differs](tachikoma-lineage.md#a-tm_noreply-failure-raises-instead-of-printing).
 
-![Two panels. Rejected, Tachikoma's handshake: a producer sends TM_PERSIST into a Buffer whose max_unanswered caps what is in flight, and the consumer later answers or cancels with a TM_PERSIST | TM_RESPONSE sent TO=FROM, because consumption is asynchronous from delivery and the ack is the tier's advance-or-discard signal. Chosen: Consumer::poll() reads a record, fill() runs down one call stack to the last sink, and only then does the cursor advance, Consumer chopping past the record and Remote_Source committing on arrival at each message's start; the next poll() waits for all of it, which is the backpressure. Three cards below: TM_NOREPLY, which a Shell with want_reply(false) ORs onto its commands so a booting worker's replies do not bounce NOT_AVAILABLE from the absent _output/<pid>; flow control belonging at the producer that needs it; and the three revisit conditions.](img/adr-no-ack.png)
+![Two panels. Rejected, Tachikoma's handshake: a producer sends TM_PERSIST into a Buffer whose max_unanswered caps what is in flight, and the consumer later answers or cancels with a TM_PERSIST | TM_RESPONSE sent TO=FROM, because consumption is asynchronous from delivery and the ack is the tier's advance-or-discard signal. Chosen: Consumer::poll() reads a record, fill() runs down one call stack to the last sink, and only then does the cursor advance, Consumer chopping past the record and Remote_Source committing on arrival at each message's start; the next poll() waits for all of it, which is the backpressure. Three cards below: TM_NOREPLY, which a Shell with want_reply(false) ORs onto its commands so a booting worker's replies do not bounce NOT_AVAILABLE from the absent _output; flow control belonging at the producer that needs it; and the three revisit conditions.](img/adr-no-ack.png)
 
 **Alternatives considered:** Keeping the persist/ack contract — rejected: the synchronous
 single-threaded drain already IS the backpressure (a slow node slows the drain, which slows
@@ -296,8 +297,8 @@ overwriting it would deliver the reply to the subscription's view instead of its
 
 **Observed benefits:**
 
-- **A TO path is a serializable address**, so cd'ing into a worker and the `_output/<pid>`
-  cross-process replies work where an object reference cannot. Tachikoma's `pivot_client`
+- **A TO path is a serializable address**, so cd'ing into a worker and the
+  `_output/_cli:<pid>` cross-process replies work where an object reference cannot. Tachikoma's `pivot_client`
   physically re-sinks the Shell into a remote socket and removes the local interpreter; here
   nothing rewires.
 - **TO=FROM replies need no correlation table.** [`scripts/lint-contract.mjs`](../scripts/lint-contract.mjs) holds the
@@ -348,19 +349,23 @@ Tachikoma graphs) — omitted until a concrete need appears.
 deliberately, rather than overloading `target` or `sink`. Or if an alternative architecture is
 compelling and proven more efficient.
 
-**Amendment:** a browser's reply to an attached-worker command is addressed to the command
-SESSION, not to a process. [`RemoteIpcNode`](../src/runtime/remote-ipc-node.js) heads the FROM it sends with
-`_sse:<handle>`, the handle of the page's command session, and a stream presents
-`session=<handle>`, so [`HTTP_Filter_Node`](../includes/class-http-filter-node.php) passes the replies
-headed with it on whichever connection that session holds when they land. The head used to be
-the pid of the process serving the stream, which named one connection: every reconnect was a
-new process, and a reply to a command sent before the drop was addressed to a stream that no
-longer existed. The addressing is still the correlation — nothing new is minted, stored or
-matched — only the thing the head names moved from the connection to the session. A stream
-that presented no session, the server-to-server pull, passes no reply at all. A session
-re-minted on expiry changes the handle, so a reply in flight across a re-mint is lost, about
-once an hour per tab at most. `wp nodes cli` keeps `_output/<pid>`: it attaches to the IPC
-files directly and never reconnects, so its process is its session.
+**Amendment:** a reply to an attached-worker command is addressed to the command SESSION
+that sent it, named in one head segment, `<realm>:<session>`, and every session reading a
+worker's shared output Partition gates on its own head through one
+[`HTTP_Filter_Node`](../includes/class-http-filter-node.php). A browser's head is `_sse:<handle>`,
+the handle of the page's command session: [`RemoteIpcNode`](../src/runtime/remote-ipc-node.js)
+heads the FROM it sends with it, `/command` adds the `_output` boundary, and a stream presents
+`session=<handle>`, so its gate passes the replies headed with it on whichever connection that
+session holds when they land. A session re-minted on expiry changes the handle, so a reply in
+flight across a re-mint is lost, about once an hour per tab at most; a stream that presented no
+session, the server-to-server pull, passes no reply at all. A cli process's head is `_cli:<pid>`:
+`wp nodes cli` and `wp nodes tables` attach to the IPC files directly and never reconnect, so the
+process is its session, and each mints FROM `_output/_cli:<pid>/<reply-node>` itself, sharing the
+`_output` boundary so a stream's gate drops a cli's replies as it drops another tab's. Each
+channel's gate is named `<worker-id>:replies`, so `ls -a` and `dump_node` show it. A head is
+matched as the whole segment and stripped, never read off the tail, so the subject a reply
+carries past its reply node can never pose as a session. The addressing is still the
+correlation — nothing is minted, stored or matched beyond the head the minter wrote.
 
 ---
 
@@ -811,7 +816,8 @@ key cannot restate it: `Command_Auth::check()` installs the verified scope as
 `Capabilities::NONE` on every refusal, and `interpret()` restores whatever stood before,
 without which a worker would sit at its first caller's ceiling for its whole ~595s life.
 A command signed under the per-site secret carries no handle and no ceiling: that is the site's
-own authority. The `now` in the auth reply lets
+own authority. In a worker, where no user is current, the ceiling is the whole gate
+([ADR-26](#adr-26-every-verb-is-gated-by-the-role-its-schema-declares)). The `now` in the auth reply lets
 the client align its TIMESTAMP to the verifier's clock, and the TTL is never slid on use, so a
 leaked handle expires on a bounded schedule no matter how busy it is.
 
@@ -1042,6 +1048,13 @@ from the fine buckets it derives from. What a re-materialized entry is warmed fo
 BACKING's to state, and the same call site is where a footprint bound belongs. Warming is
 best-effort: a backend that went away must still serve the record the backing read, or a cache
 failure becomes a data failure.
+
+The write side carries the same parameter. [`Table_Node::add( $key, $value, $ttl )`](../includes/class-table-node.php)
+stores an entry only where no live one holds its key, under a lifetime of its own, down the
+path the `ADD` request takes; a command session, whose row lives exactly as long as the
+session, is its first caller. On a durable Table, `lookup_entries()` reads that lifetime
+back as the `{ value, ttl }` a backing answers, so the store's expiry is the one copy a
+reader needs and no value carries a second.
 
 Finding WHICH durable record answers a key is the app's business, not the table's.
 `Partition_Node` treats index lines as opaque strings because the formatter that wrote them
@@ -1331,7 +1344,8 @@ mutating request has to live somewhere else.
 worker's input Partition, and two things write there. `Bootstrap::register_worker_partition()`
 mounts it into a request graph, and every verb reaching that call declares MANAGE:
 `topologies connect_worker_input`, and intelligence's `insights generate` and
-`insights collect`, each by declaring no capability, which `Service_CI_Node` gates at MANAGE.
+`insights collect`, each by declaring no capability, which `dispatch()` holds at MANAGE
+([ADR-26](#adr-26-every-verb-is-gated-by-the-role-its-schema-declares)).
 The request graph is built per request, so a POST that does not mount the worker gets
 `NOT_AVAILABLE` from the Router. An attached `wp nodes cli` appends to the same Partition
 with the site's own filesystem authority, and refuses to run as root. That mount is the
@@ -1358,7 +1372,9 @@ records.
 `set_key => [ [ member => value, … ], ttl ]` maps, that a string cannot hold without an
 encoding, so they travel as `TM_REQUEST | TM_STRUCT` with VALUE `[ 'MSET' => … ]`,
 `[ 'ADD' => … ]` or `[ 'SADD' => … ]`; every other request, `SMEMBERS` included, stays a
-string. `SMEMBERS` answers one message per set, as `MGET` answers one per key: `TM_STRUCT`
+string. Each of the three declares it on its `requests` entry, `'value' => 'struct'`, and
+every sender reads that declaration: the console's verb dialog sends `TM_REQUEST | TM_STRUCT`
+for such an entry alone, and never infers one from the types of its args. `SMEMBERS` answers one message per set, as `MGET` answers one per key: `TM_STRUCT`
 with the set's `[ member, value ]` pairs, or `TM_BYTESTREAM "OVER <limit>"` and no members for
 a set holding more than the limit, told from a member list by its type as `MGET` tells a
 string value from an array. `topologies mount_tables` mounts Tables into a request graph and
@@ -1420,11 +1436,17 @@ inside classes was also invisible to `ls`, `dump_node` and the console.
   process running as root is refused as a plain `\RuntimeException`, the operator's to fix,
   because a root reader can leave `-wal` and `-shm` files its worker cannot open.
 - `wpdb` is one shared table, `{base_prefix}newspack_nodes_table`, keyed by namespace, for
-  low-volume Tables every host must read.
-- A volatile arm stores `Table_Node::entry_key()`, built through `Cache_Backend::site_key()`
-  with the install's salt, and a salt rotation is its flush. A durable arm stores the
-  namespace and the key alone, `{namespace}:{key}`: its file or table already belongs to
-  this install, so `wp nodes memcache flush` leaves its rows.
+  low-volume Tables every host must read, beside `{base_prefix}newspack_nodes_members` for
+  its set members. Plugin activation creates both, `Wpdb_Arm::install()`, and records the
+  schema in an autoloaded option; an arm reads that option alone and installs only when it
+  records another schema, so the request path runs no DDL, and `max_allowed_packet` is read
+  on a connection's first write.
+- A volatile arm's key is `Cache_Backend::entry_key( $namespace, $key )`, built through
+  `Cache_Backend::site_key()` with the install's salt, and a salt rotation is its flush. A
+  durable arm answers `row_key( $key )` over the namespace it holds, and carries no salt:
+  its file or table already belongs to this install, so `wp nodes memcache flush` leaves its
+  rows. `Sqlite_Arm` stores `{namespace}:{key}`; `Wpdb_Arm` stores the key alone, because
+  its `namespace` column already scopes the row (`PRIMARY KEY ( namespace, cache_key )`).
 - `flush`, a `:config` verb, empties a durable Table. A `sqlite` Table's writer, the file's
   one writer, unlinks the database and its `-wal` and `-shm` and opens a new file with the
   same pragmas and tables, a cost that never grows with the rows, and answers the bytes the
@@ -1434,17 +1456,31 @@ inside classes was also invisible to `ls`, `dump_node` and the console.
   them. On eve a DELETE of 2,000,016 SQLite rows took 57.9 s and, sent to a live worker,
   held its drain loop until the fleet revived it; replacing the same 555 MB of files took
   0.9 s, the command included. The
-  checkpoint schedule, the WAL stall count and a purge left behind start over. It is
-  MANAGE-only — a worker has no logged-in user, so a verified
-  session's scope stands in for the role — and a mount refuses it.
+  checkpoint schedule, the WAL stall count and a purge left behind start over. It declares
+  no role, so `dispatch()` holds it at MANAGE
+  ([ADR-26](#adr-26-every-verb-is-gated-by-the-role-its-schema-declares)), and a mount
+  refuses it.
   `wp nodes tables flush` sends it to each partition's owning worker over the worker's
   command channel, and flushes a partition no worker owns from the CLI only under the fleet
   hold; `wp nodes tables list` asks the owners for their counters the same way.
-- Command sessions live on the `wpdb` backend, in the `nodes-sessions` namespace, one row
-  per session keyed by its handle: every web host mints and every host verifies, which one
-  host's SQLite file cannot serve and an evicting cache loses. A row carries the session's
-  own TTL, never slid, and each mint purges up to 64 expired rows, because no worker's tick
-  purges a store built in code. A store that will not open fails the mint, naming why.
+- Command sessions live in a Table, `Table_Node::table( 'nodes-sessions', 3600, 'wpdb' )`,
+  one row per session keyed by its handle: every web host mints and every host verifies,
+  which one host's SQLite file cannot serve and an evicting cache loses. Every session read
+  and write goes through that Table, and `scripts/lint-contract.mjs`'s
+  `durable-arm-outside-table` rule refuses a durable arm built anywhere else, so a topology declaring `make_node Table <name>
+  nodes-sessions <ttl> wpdb` reads the same rows under the same keys. A mint `add()`s its
+  row under the session's own TTL ([ADR-18](#adr-18-a-table-can-front-a-durable-record-the-walk-that-finds-it-stays-in-the-app)'s one parameter), never slid, and `purge()`s up to 64
+  expired rows, because no worker's tick purges a Table built in code. A process builds that
+  Table once. The row's expiry is
+  the one record of when a session lapses: `lookup_entries()` answers each live row with the
+  whole seconds it has left, as a backing's restored entry carries its remaining `ttl`, and
+  the row's value keeps no copy. The row carries the label and when it was minted, and a
+  labelled session's handle is a member of the set `labelled` in the same Table under the
+  same TTL, because a key-range scan is refused and a set read by its key is how a durable
+  Table enumerates: the listing is `members_of()` then `lookup_entries()`, two statements
+  however long, and a flush empties the set with the rows. Nothing caps the labelled
+  sessions; the set is read up to `MAX_MEMBERS_LIMIT` handles, and past that the listing
+  refuses, naming the flush. A store that will not open fails the mint, naming why.
 - A read ignores an expired row. `Router_Node`'s tick purges each durable Table its worker
   declared, once a minute, and `vacuum` is an operator verb, never automatic.
 - No COMMIT checkpoints a `sqlite` file. The writer turns `wal_autocheckpoint` off, and the
@@ -1533,12 +1569,13 @@ inside classes was also invisible to `ls`, `dump_node` and the console.
   every web and CLI process that builds it, so its file has no one writer. Such a Table names
   `wpdb`.
 - The purge walks the named Tables of a worker's graph and skips a request-graph mount. A
-  durable Table that `table()` builds is never purged: reads ignore its expired rows, but
-  they stay on disk. A durable Table that must be reclaimed is declared in a topology.
+  durable Table that `table()` builds is never purged by the tick: reads ignore its expired
+  rows, but they stay on disk until its own writer calls `purge()`, as the session mint
+  does. Any other durable Table that must be reclaimed is declared in a topology.
 - The purge deletes expired rows and nothing else, `vacuum` returns free pages and deletes no
   row, and `flush` empties the Table. A row written under an earlier key — the salted one
-  before 2.79.0 — is unreachable, expires on the TTL it was written with, and the purge
-  reclaims it in turn.
+  before 2.79.0, or a `wpdb` Table's `{namespace}:{key}` before 2.79.1 — is unreachable,
+  expires on the TTL it was written with, and the purge reclaims it in turn.
 - A flushed session store revokes every issued session at once, so `wp nodes tables flush`
   flushes it only when named.
 - A `wpdb` purge is scoped by the Table's own namespace, so rows under a namespace no active
@@ -1627,12 +1664,12 @@ hands the handler the bound values by name. A handler never parses.
   per declared arg, and a handler reads it through the `Core` coercions.
 - The declaration is load-bearing. A wrong `required`, type or order is a runtime bug, not a
   palette blemish.
-- Binding runs before a service CI's capability check, which wraps the handler itself. A
-  malformed command from a caller without the role hears the binding refusal first. It names
-  declared arg names, which `classes dump` already publishes at READ; it echoes a caller's
-  token only in a type refusal on a non-secret arg, and counts a surplus rather than echoing
-  it, since a surplus token may be a mis-slotted secret.
-  `SessionsCINodeTest` pins the order.
+- Binding runs after the verb's role check
+  ([ADR-26](#adr-26-every-verb-is-gated-by-the-role-its-schema-declares)), so a malformed
+  command from a caller without the role hears `permission denied` and nothing of the args
+  the verb declares. A binding refusal echoes a caller's token only in a type refusal on a
+  non-secret arg, and counts a surplus rather than echoing it, since a surplus token may be a
+  mis-slotted secret. `SessionsCINodeTest` pins the order.
 - A binding refusal is not a dispatch span: like an unknown verb, it never reaches
   `$around_dispatch`.
 - `Command_Args::parse()`, `Service_CI_Node::split_first_token()` and `require_option_int()`
@@ -1640,3 +1677,75 @@ hands the handler the bound values by name. A handler never parses.
 
 **Revisit if:** a verb needs a grammar the declaration cannot state — a repeated named option,
 a named list — or `dispatch()` stops being the one door a verb enters through.
+
+---
+
+## ADR-26: Every verb is gated by the role its schema declares
+
+**Status:** Accepted
+
+**Context:** Roles were enforced in two places, and neither reached a worker. `Service_CI_Node`
+wrapped each handler in `Capabilities::require()` for the role its schema declared, and
+`dispatch()` held the base interpreter's vocabulary to a `required_capability` floor that
+only `HTTP_In` pinned. A `:config` interpreter — a Table's, a Consumer's, every patron's —
+gated nothing, in a worker or in a request graph, so a session's scope, which
+[ADR-15](#adr-15-command-authorization-local-taint--the-minter-signs) makes a ceiling, bounded
+no worker verb: a READ session signed for a spoke could `vacuum` its Tables or `dl_purge` its
+dead letters. The one scope check on a worker verb was written by hand inside
+`Table_Node::flush()`.
+
+**Decision:** `Command_Interpreter_Node::dispatch()` refuses every verb, before anything else
+runs, against the role its schema declares: the `capability` of the verb's `commands` entry —
+a service CI's own schema, a `:config` interpreter's patron's — and MANAGE when the entry
+declares none. A verb no schema names — the base interpreter's vocabulary, and the `help`
+every interpreter answers — demands MANAGE, except the read-only builtins `READ_VERBS` lists,
+which answer READ. One function, `Capabilities::require_verb()`, makes the decision:
+
+- where a WordPress user is current, `Capabilities::can( $role )`: the user's capability,
+  under whatever ceiling the command's session installed;
+- where none is — a worker, WP-CLI without `--user`, WP-Cron —
+  `Capabilities::scope_covers( $session_scope ?? MANAGE, $role )`: the verified session's
+  scope alone. A command carrying no ceiling, signed by the site's own secret or LOCAL to the
+  process, runs at MANAGE, the authority that loaded the topology.
+
+No handler checks a role. A `:config` verb that only reports declares `read` — a Table's
+`stats`, a dead-letter queue's `dl_list` and `dl_show` — and every other declares nothing. [`scripts/lint-contract.mjs`](../scripts/lint-contract.mjs)'s
+`scope-check-in-handler` rule refuses a line reading `Capabilities::$session_scope` to check a
+role, so a handler cannot grow its own check back.
+The role check precedes the secure-level refusal, the unknown-verb throw and argument binding,
+so a caller without the role learns neither whether the verb exists nor what it binds, and a
+refused verb never reaches `$around_dispatch`.
+
+**Alternatives considered:**
+
+- A role check in each handler — rejected: it drifts verb by verb, and `Table_Node::flush()`'s
+  was the only one ever written.
+- Gating in `Service_CI_Node`'s table build — rejected: it misses every `:config` verb, which
+  no service CI builds.
+- Keep `required_capability` as an endpoint floor — rejected: with MANAGE the role of every
+  undeclared verb, the floor `HTTP_In` pinned is what `dispatch()` now does unprompted, and a
+  floor a worker left null was the hole.
+- A role per argument, `stats` at read and `stats reset` at manage — rejected: a role belongs
+  to a verb, so the reset is its own verb, `reset_stats`.
+
+**Consequences:**
+
+- A READ or TUNE session reaches a worker's verbs only where they declare that role: `stats`,
+  `dl_list`, `dl_show` and the base `READ_VERBS`. Every other `:config` verb, and the graph
+  vocabulary, demands MANAGE of a session in a worker, where it demanded nothing before.
+- A service CI's `help` answers READ, as the base interpreter's does, where
+  `Service_CI_Node` held it at MANAGE.
+- `Service_CI_Node::gate_table()`, its `commands()` override and `require_manage_options()`
+  are gone, as is `Command_Interpreter_Node::$required_capability`.
+- A consumer's `:config` verbs follow the same rule; event-logger-nodes' and intelligence's
+  declare nothing, so each demands MANAGE.
+- A verb refused by role emits no dispatch span, because `$around_dispatch` never runs.
+- A `Vault_Group_Node` forwards its child class's verbs through an interpreter whose patron is
+  the group, whose schema declares none of them, so the group holds each at MANAGE; the
+  child's own interpreter then applies the child's declared role.
+- A test reaching a verb as a REST request would has to make a user current. With none
+  current the scope decides, so an unscoped test command runs at MANAGE.
+
+**Revisit if:** a worker gains a current user — `require_verb()` would then ask that user's
+capabilities in place of the session's ceiling alone — or a verb's blast radius turns on its
+arguments in a way a second verb cannot split.

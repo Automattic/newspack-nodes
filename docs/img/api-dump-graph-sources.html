@@ -19,16 +19,16 @@
 </style>
 <div class="sheet">
 <h1>One snapshot, two readers: where each <span class="mono">dump_graph</span> key comes from</h1>
-<p class="sub"><span class="mono">Workers_CI_Node::collect_dump_metadata()</span> reads the lock dirs, the topicprobe log, the log catalog, the dead-letter dirs and config into one envelope. Read a row left to right to see what a key is measured from, what each of its rows carries, and where it can mislead.</p>
+<p class="sub"><span class="mono">Workers_CI_Node::collect_dump_metadata( $topologies )</span>, handed the active topologies its caller read once, reads the lock dirs, the topicprobe log, the log catalog, the dead-letter dirs and config into one envelope. Read a row left to right to see what a key is measured from, what each of its rows carries, and where it can mislead.</p>
 
 <div class="map">
   <div class="hd">Read from</div><div></div><div class="hd">Key, and one row's fields</div><div class="hd">Caveat</div>
 
-  <div class="src"><b>The lock dirs</b><span class="mono">Bootstrap::expand_workers()</span> names every <span class="mono">(type, partition)</span> in the active set; each one's <span class="mono">locks/{type}.p{N}.lock.d/heartbeat</span> mtime is judged against its own topology's stale timeout.</div>
+  <div class="src"><b>The lock dirs</b><span class="mono">Bootstrap::expand_workers()</span> names every <span class="mono">(type, partition)</span> in the active set; <span class="mono">CLI::ls_workers()</span> judges each <span class="mono">locks/{type}.p{N}.lock.d/heartbeat</span> against its own topology's stale timeout.</div>
   <div class="ar">→</div>
   <div class="key"><span class="k">workers[]</span>one liveness row per worker
-    <div class="chips"><span>type</span><span>partition</span><span>status</span><span>started_at</span><span>heartbeat_age</span><span>heartbeat_at</span><span>live</span><span>stale</span><span>idle</span><span>restart_pending</span></div></div>
-  <div class="cav"><span class="mono">idle</span> is an on-demand worker cleanly absent, as against one that died holding its lock; both read not <span class="mono">live</span>.</div>
+    <div class="chips"><span>type</span><span>partition</span><span>state</span><span>started_at</span><span>heartbeat_age</span><span>heartbeat_at</span><span>restart_pending</span></div></div>
+  <div class="cav"><span class="mono">state</span> is <span class="mono">CLI::worker_states()</span>'s word, the one <span class="mono">wp nodes status</span> prints: <span class="mono">live</span>, <span class="mono">stale</span>, <span class="mono">held</span>, <span class="mono">idle</span> or <span class="mono">down</span>.</div>
 
   <div class="src"><b>The topicprobe log</b>The last 128 KiB of <span class="mono">topicprobe.p0</span>'s newest segment, one <span class="mono">Probe_Record</span> per reader, through <span class="mono">CLI::consumer_rows()</span>.</div>
   <div class="ar">→</div>
@@ -71,7 +71,7 @@
   </div>
   <div class="card">
     <h3><span class="mono">Alerts::evaluate()</span>: the same snapshot</h3>
-    <p>It calls <span class="mono">collect_dump_metadata()</span> itself and reads <span class="mono">workers[]</span>, <span class="mono">consumers[]</span> and <span class="mono">deadletter_by_reader</span> for its worker-liveness, consumer-lag and dead-letters families, so an alert can never name a fleet the dashboard does not show. A second reader of the lock dirs and the probe log would drift from the first.</p>
+    <p>It calls <span class="mono">collect_dump_metadata( $topologies )</span> itself and reads <span class="mono">workers[]</span>, <span class="mono">consumers[]</span> and <span class="mono">deadletter_by_reader</span> for its worker-liveness, consumer-lag and dead-letters families, so an alert can never name a fleet the dashboard does not show. A second reader of the lock dirs and the probe log would drift from the first.</p>
   </div>
 </div>
 </div>

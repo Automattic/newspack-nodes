@@ -34,6 +34,8 @@ namespace Newspack_Nodes;
 /**
  * Static signer and verifier — no instance state, so a Shell, a worker or a
  * REST handler reaches it without wiring a node.
+ *
+ * @phpstan-type Session_Record array{key:string,scope:string,user:int,ttl:int,label:string,created:int}
  */
 class Command_Auth {
 
@@ -92,15 +94,32 @@ class Command_Auth {
 	public const SESSION_TTL_MIN_S = 60;
 
 	/**
-	 * The durable store's namespace, one row per session keyed by its handle:
-	 * the wpdb backend, because every web host mints and every host verifies,
-	 * which a host-local SQLite file cannot serve (ADR-24). `wp nodes tables`
-	 * lists it by this name and flushes it only when named.
+	 * The session Table's namespace, one row per session keyed by its handle,
+	 * on the wpdb backend, because every web host mints and every host
+	 * verifies, which a host-local SQLite file cannot serve (ADR-24). `wp
+	 * nodes tables` lists it by this name and flushes it only when named.
 	 */
 	public const SESSIONS_TABLE = 'nodes-sessions';
 
+	/** The session Table's backend, which `wp nodes tables` lists beside it. */
+	public const SESSIONS_BACKEND = 'wpdb';
+
+	/** Every handle a mint makes: 32 lowercase hex digits. */
+	public const HANDLE_PATTERN = '/^[0-9a-f]{32}$/D';
+
+	/** The session Table, built on first use and shared by every caller. */
+	private static ?Table_Node $table = null;
+
 	/**
-	 * Expired session rows one mint deletes. No worker's tick purges a store
+	 * The sessions the current batch has read, by handle; `batch_verifier()`
+	 * empties it as each batch begins.
+	 *
+	 * @var array<string,Session_Record|null>
+	 */
+	private static array $batch = [];
+
+	/**
+	 * Expired session rows one mint deletes. No worker's tick purges a Table
 	 * built in code, so each mint reclaims what has expired; sessions expire
 	 * one per mint at most, so any batch above one keeps pace, and 64 clears
 	 * a backlog left while nothing minted.
@@ -201,53 +220,58 @@ class Command_Auth {
 	 * The reply discloses the key as `secret`, the name `Core::is_secret_property()`
 	 * masks, so no redactor on either side of the wire prints it.
 	 *
-	 * @param string $scope One of Capabilities::READ|TUNE|MANAGE.
-	 * @param int    $ttl   Lifetime in seconds, taken as given; a caller reading
-	 *                      it off the wire clamps through bounded_ttl() first.
 	 * The row is claimed with `add()`, never `set()`: a handle can never
 	 * displace a live session, so a colliding mint fails rather than fixating
 	 * someone else's. It carries the key, the scope the verifier applies, the
-	 * minting user and when it lapses, and expires with the session; the same
-	 * mint reclaims up to SESSION_PURGE_ROWS rows already expired.
+	 * minting user, the label and when it was minted, and expires with the
+	 * session, the one record of when it lapses; the same mint reclaims up to
+	 * SESSION_PURGE_ROWS rows already expired.
+	 *
+	 * @param string $scope One of Capabilities::READ|TUNE|MANAGE.
+	 * @param int    $ttl   Lifetime in seconds, taken as given; a caller reading
+	 *                      it off the wire clamps through bounded_ttl() first.
+	 * @param string $label The operator's name for it, as `Sessions` lists it;
+	 *                      empty for a session nothing lists.
 	 *
 	 * @return array{handle:string,secret:string,scope:string,expires_in:int,now:int}
 	 * @throws \InvalidArgumentException On a scope outside the ladder.
 	 * @throws Session_Store_Unavailable When the store will not open or refuses
 	 *                                   the row, naming why.
 	 */
-	public static function mint_session( string $scope = Capabilities::MANAGE, int $ttl = self::SESSION_TTL_S ): array {
+	public static function mint_session( string $scope = Capabilities::MANAGE, int $ttl = self::SESSION_TTL_S, string $label = '' ): array {
 		if ( ! Capabilities::scope_covers( $scope, Capabilities::READ ) ) {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
 			throw new \InvalidArgumentException( "unknown session scope: {$scope}" );
 		}
 		$handle = \bin2hex( \random_bytes( 16 ) );
 		$key    = \bin2hex( \random_bytes( 32 ) );
-		$store  = self::session_store();
-		$now    = Core::right_now();
-		$record = [ 'k' => $key, 's' => $scope, 'u' => self::current_user(), 'e' => (int) $now + $ttl ];
-		if ( ! $store->add( $handle, $record, $ttl ) ) {
+		$now    = (int) Core::right_now();
+		$table  = self::session_table();
+		$row    = [
+			'k' => $key,
+			's' => $scope,
+			'u' => Core::current_user_id(),
+			'l' => $label,
+			'c' => $now,
+		];
+		if ( ! $table->add( $handle, $row, $ttl ) ) {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
-			throw new Session_Store_Unavailable( "could not store the session: {$store->last_failure()}" );
+			throw new Session_Store_Unavailable( "could not store the session: {$table->last_failure()}" );
 		}
-		$store->purge( (int) $now, self::SESSION_PURGE_ROWS );
+		$table->purge( self::SESSION_PURGE_ROWS );
 		return [
 			'handle'     => $handle,
 			'secret'     => $key,
 			'scope'      => $scope,
 			'expires_in' => $ttl,
 			// The minter signs TIMESTAMP; the client aligns to this clock.
-			'now'        => (int) $now,
+			'now'        => $now,
 		];
 	}
 
-	/** The minting user, or 0 outside a WP runtime. */
-	private static function current_user(): int {
-		return \function_exists( 'get_current_user_id' ) ? \get_current_user_id() : 0;
-	}
-
 	/**
-	 * Drop a session so its key stops verifying immediately. The store's row
-	 * IS the authority; a directory row without it is already dead.
+	 * Drop a session so its key stops verifying immediately. The row IS the
+	 * session; an index member naming it lists nothing once it is gone.
 	 *
 	 * @param string $handle Session handle.
 	 * @return bool|null True when a live row went, false when none was there,
@@ -256,37 +280,31 @@ class Command_Auth {
 	 * @throws Session_Store_Unavailable When the store will not open.
 	 */
 	public static function revoke_session( string $handle ): ?bool {
-		return self::session_store()->delete( $handle );
+		return self::session_table()->forget( $handle );
 	}
 
 	/**
-	 * Which of these handles still have a live row, as a `handle => true` set.
-	 * ONE read: `Sessions::MAX_ROWS` caps the directory at 50, so asking per
-	 * row is 50 statements for one screen.
+	 * Authorize closure for a process that verifies commands one at a time: a
+	 * worker, or the SSE stream. Each session is read afresh, so a revoke
+	 * bites the next command.
 	 *
-	 * @param list<string> $handles Handles to test.
-	 * @return array<string,true>
-	 * @throws Session_Store_Unavailable When the store will not open.
+	 * @return \Closure(Command_Interpreter_Node, array<int,mixed>): bool
 	 */
-	public static function live_handles( array $handles ): array {
-		$live = [];
-		foreach ( \array_keys( self::session_store()->read_multi( $handles ) ) as $handle ) {
-			$live[ $handle ] = true;
-		}
-		return $live;
+	public static function verifier(): \Closure {
+		return \Closure::fromCallable( [ self::class, 'authorize_command' ] );
 	}
 
 	/**
-	 * Delete every session row, live or expired, so every issued key stops
-	 * verifying at once: `wp nodes tables flush nodes-sessions`.
+	 * Authorize closure for ONE batch of commands, the `/command` POST: each
+	 * session is read once until the next batch begins, so k commands under
+	 * one handle cost one read. Build one per batch, never one per process,
+	 * or a revoke would not bite until the process ends.
 	 *
-	 * @return array{bytes:int}|array{rows:int} What the store released: rows.
-	 * @throws Session_Store_Unavailable When the store will not open or refuses.
+	 * @return \Closure(Command_Interpreter_Node, array<int,mixed>): bool
 	 */
-	public static function flush_sessions(): array {
-		$store = self::session_store();
-		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
-		return $store->flush() ?? throw new Session_Store_Unavailable( "could not flush the sessions: {$store->last_failure()}" );
+	public static function batch_verifier(): \Closure {
+		self::$batch = [];
+		return \Closure::fromCallable( [ self::class, 'authorize_batch' ] );
 	}
 
 	/** Clamp a requested lifetime into [SESSION_TTL_MIN_S, SESSION_TTL_MAX_S]. */
@@ -331,27 +349,16 @@ class Command_Auth {
 	}
 
 	/**
-	 * Authorize closure for a verifier process: a worker, the `/command` request
-	 * scope, or the SSE stream.
-	 *
-	 * Accepts a command if it is either in-process (Message::LOCAL set) OR carries
-	 * a valid HMAC. LOCAL cannot cross a process boundary — packed() slices the
-	 * canonical seven fields and unpacked() rejects any line that is not exactly
-	 * seven — so a command arriving over IPC or the wire never has it; trusting
-	 * LOCAL therefore only admits the process's own commands (a worker loading its
-	 * topology via Shell::eval_script), while every wire command still requires a
-	 * signature.
-	 *
-	 * @return \Closure(Command_Interpreter_Node, array<int,mixed>): bool
-	 */
-	public static function verifier(): \Closure {
-		return \Closure::fromCallable( [ self::class, 'authorize_command' ] );
-	}
-
-	/**
 	 * The verifier policy: accept an in-process (LOCAL) command, else require a
 	 * valid HMAC. Named (not an inline closure) so its int-keyed Message type is
 	 * honored end-to-end.
+	 *
+	 * LOCAL cannot cross a process boundary — packed() slices the canonical
+	 * seven fields and unpacked() rejects any line that is not exactly seven —
+	 * so a command arriving over IPC or the wire never has it; trusting LOCAL
+	 * therefore only admits the process's own commands (a worker loading its
+	 * topology via Shell::eval_script), while every wire command still
+	 * requires a signature.
 	 *
 	 * @param Command_Interpreter_Node $interpreter Node handling the command.
 	 * @param array<int,mixed>         $message     Command to authorize.
@@ -359,6 +366,31 @@ class Command_Auth {
 	private static function authorize_command( Command_Interpreter_Node $interpreter, array $message ): bool {
 		return isset( $message[ Message::LOCAL ] )
 			|| self::verify( $message, null, $interpreter );
+	}
+
+	/**
+	 * `authorize_command()`, resolving each session through the batch's own
+	 * reads.
+	 *
+	 * @param Command_Interpreter_Node $interpreter Node handling the command.
+	 * @param array<int,mixed>         $message     Command to authorize.
+	 */
+	private static function authorize_batch( Command_Interpreter_Node $interpreter, array $message ): bool {
+		return isset( $message[ Message::LOCAL ] )
+			|| self::verify( $message, null, $interpreter, self::batch_record( ... ) );
+	}
+
+	/**
+	 * The session a handle names, read once a batch.
+	 *
+	 * @param string $handle Session handle.
+	 * @return Session_Record|null
+	 */
+	private static function batch_record( string $handle ): ?array {
+		if ( ! \array_key_exists( $handle, self::$batch ) ) {
+			self::$batch[ $handle ] = self::load_session_record( $handle );
+		}
+		return self::$batch[ $handle ];
 	}
 
 	/**
@@ -375,18 +407,94 @@ class Command_Auth {
 	 * @param array<int,mixed>              $message     Message to verify.
 	 * @param int|null                      $now         Verification time; defaults to time().
 	 * @param Command_Interpreter_Node|null $interpreter Node to log a refusal through.
+	 * @param (\Closure(string): (Session_Record|null))|null $load
+	 *        The session a handle names; null reads it from the store.
 	 */
-	public static function verify( array $message, ?int $now = null, ?Command_Interpreter_Node $interpreter = null ): bool {
+	public static function verify( array $message, ?int $now = null, ?Command_Interpreter_Node $interpreter = null, ?\Closure $load = null ): bool {
 		// @longform ONE exit for the ceiling. `check()` installs the verified
 		// session's scope on the way through, and this closes it on EVERY
 		// refusal — the mutation is global and only interpret() restores it,
 		// so a caller outside that lifetime (a sibling plugin, a test) cannot
 		// leave a wider ceiling standing than the command that failed.
-		$ok = self::check( $message, $now, $interpreter );
+		$ok = self::check( $message, $now, $interpreter, $load ?? self::load_session_record( ... ) );
 		if ( ! $ok ) {
 			Capabilities::$session_scope = Capabilities::NONE;
 		}
 		return $ok;
+	}
+
+	/**
+	 * Resolve a live session by handle: `{key, scope, user, ttl, label,
+	 * created}`, where `ttl` is the whole seconds its row has left. Null on
+	 * a handle no mint could make, on a miss, on a row not shaped as
+	 * `mint_session()` writes it, and on a store that will not answer, which
+	 * is logged: a verifier fails closed rather than throw.
+	 *
+	 * @param string $handle Session handle, as stamped into the envelope.
+	 * @return Session_Record|null
+	 */
+	public static function load_session_record( string $handle ): ?array {
+		try {
+			return self::load_session_records( [ $handle ] )[ $handle ] ?? null;
+		} catch ( Session_Store_Unavailable $e ) {
+			Core::print_less_often( 'Command_Auth: ', $e->getMessage() );
+			return null;
+		}
+	}
+
+	/**
+	 * Every live session among these handles, in ONE read of the store, so a
+	 * listing costs one statement a screen rather than one a row. Each is
+	 * `load_session_record()`'s shape; a handle no mint could make never
+	 * reaches the store, and one with no live row, or a row not shaped as a
+	 * mint writes it — key, scope, label and when it was minted — is absent.
+	 *
+	 * @param list<string> $handles Session handles.
+	 * @return array<string,Session_Record>
+	 * @throws Session_Store_Unavailable When the store will not open or does
+	 *                                   not answer, naming why.
+	 */
+	public static function load_session_records( array $handles ): array {
+		$handles = \array_values( \array_filter( $handles, static fn ( string $handle ): bool => 1 === \preg_match( self::HANDLE_PATTERN, $handle ) ) );
+		if ( [] === $handles ) {
+			return [];
+		}
+		$table = self::session_table();
+		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
+		$entries = $table->lookup_entries( $handles ) ?? throw new Session_Store_Unavailable( "could not read the sessions: {$table->last_failure()}" );
+		$records = [];
+		foreach ( $entries as $handle => $entry ) {
+			$record = $entry['value'];
+			if ( \is_array( $record ) && \is_string( $record['k'] ?? null ) && '' !== $record['k'] && \is_string( $record['s'] ?? null ) && \is_string( $record['l'] ?? null ) && \is_int( $record['c'] ?? null ) && isset( $entry['ttl'] ) ) {
+				$records[ (string) $handle ] = [
+					'key'     => $record['k'],
+					'scope'   => $record['s'],
+					'user'    => Core::num_int( $record['u'] ?? 0 ),
+					'ttl'     => $entry['ttl'],
+					'label'   => $record['l'],
+					'created' => $record['c'],
+				];
+			}
+		}
+		return $records;
+	}
+
+	/**
+	 * The session Table: SESSIONS_TABLE on SESSIONS_BACKEND, built in code as
+	 * any Table outside a graph is, once a process. Every entry states its own
+	 * lifetime, so the Table's own is the default a mint asks for.
+	 *
+	 * @api `wp nodes tables` lists and flushes it.
+	 * @return Table_Node The Table.
+	 * @throws Session_Store_Unavailable When it will not open, naming why.
+	 */
+	public static function session_table(): Table_Node {
+		try {
+			return self::$table ??= Table_Node::table( self::SESSIONS_TABLE, self::SESSION_TTL_S, self::SESSIONS_BACKEND );
+		} catch ( \RuntimeException | \LogicException $e ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
+			throw new Session_Store_Unavailable( 'the session store is unavailable: ' . $e->getMessage(), 0, $e );
+		}
 	}
 
 	/**
@@ -396,8 +504,9 @@ class Command_Auth {
 	 * @param array<int,mixed>              $message     Message to verify.
 	 * @param int|null                      $now         Verification time; defaults to time().
 	 * @param Command_Interpreter_Node|null $interpreter Node to log a refusal through.
+	 * @param \Closure(string): (Session_Record|null) $load The session a handle names.
 	 */
-	private static function check( array $message, ?int $now, ?Command_Interpreter_Node $interpreter ): bool {
+	private static function check( array $message, ?int $now, ?Command_Interpreter_Node $interpreter, \Closure $load ): bool {
 		$type  = $message[ Message::TYPE ]      ?? null;
 		$ts    = $message[ Message::TIMESTAMP ] ?? null;
 		$value = $message[ Message::VALUE ]     ?? null;
@@ -429,7 +538,7 @@ class Command_Auth {
 			// The per-site secret is the site's own authority: no ceiling.
 			Capabilities::$session_scope = null;
 		} else {
-			$record = self::load_session_record( Core::as_string( $handle ) );
+			$record = $load( Core::as_string( $handle ) );
 			if ( null === $record ) {
 				return false;
 			}
@@ -497,49 +606,6 @@ class Command_Auth {
 			\JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE
 		);
 		return false === $encoded ? null : $encoded;
-	}
-
-	/**
-	 * Resolve a live session by handle: `{key, scope, user, expires}`, where
-	 * `expires` is the Unix time it lapses. Null on a miss, on a row not
-	 * shaped as `mint_session()` writes it, and on a store that will not
-	 * open, which is logged: a verifier fails closed rather than throw.
-	 *
-	 * @param string $handle Session handle, as stamped into the envelope.
-	 * @return array{key:string,scope:string,user:int,expires:int}|null
-	 */
-	public static function load_session_record( string $handle ): ?array {
-		try {
-			$record = self::session_store()->get( $handle );
-		} catch ( Session_Store_Unavailable $e ) {
-			Core::print_less_often( 'Command_Auth: ', $e->getMessage() );
-			return null;
-		}
-		if ( ! \is_array( $record ) || ! \is_string( $record['k'] ?? null ) || '' === $record['k'] || ! \is_string( $record['s'] ?? null ) ) {
-			return null;
-		}
-		return [
-			'key'     => $record['k'],
-			'scope'   => $record['s'],
-			'user'    => Core::num_int( $record['u'] ?? 0 ),
-			'expires' => Core::num_int( $record['e'] ?? 0 ),
-		];
-	}
-
-	/**
-	 * The session store: the durable wpdb arm under SESSIONS_TABLE, the one
-	 * a code-built Table naming `wpdb` opens.
-	 *
-	 * @return Wpdb_Arm The arm.
-	 * @throws Session_Store_Unavailable When it will not open, naming why.
-	 */
-	private static function session_store(): Wpdb_Arm {
-		try {
-			return new Wpdb_Arm( self::SESSIONS_TABLE );
-		} catch ( \RuntimeException | \LogicException $e ) {
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
-			throw new Session_Store_Unavailable( 'the session store is unavailable: ' . $e->getMessage(), 0, $e );
-		}
 	}
 
 	/** Per-site HMAC secret, domain-separated from the spawn token. */

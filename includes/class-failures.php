@@ -18,7 +18,10 @@ namespace Newspack_Nodes;
  * Flat by construction: a `Failures` among the inputs contributes its members,
  * never itself, so `all()` is always the failures and nothing that wraps them.
  * The previous is the first, which keeps a reader walking `getPrevious()` on
- * the path it already knows.
+ * the path it already knows. `getFile()` and `getLine()` report where that
+ * first failure originated, so a reader attributing a fatal by its file names
+ * the code that failed, not the aggregation site; `getTraceAsString()` still
+ * shows where the failures were combined.
  *
  * `all()` keeps every member; the message is bounded. It names each member's
  * message in order, whole, until the next would pass MESSAGE_BUDGET, then
@@ -59,6 +62,8 @@ final class Failures extends \RuntimeException {
 		}
 		$this->all = $all;
 		parent::__construct( self::summarize( $all ), 0, $all[0] );
+		$this->file = $all[0]->getFile();
+		$this->line = $all[0]->getLine();
 	}
 
 	/**

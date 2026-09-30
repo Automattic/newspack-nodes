@@ -129,12 +129,10 @@ const teeGraph = () => ( {
 const liveness = ( type, partition, extra = {} ) => ( {
 	type,
 	partition,
-	status: 'running',
+	state: 'live',
 	started_at: 1000,
 	heartbeat_age: 1,
 	heartbeat_at: 999,
-	live: true,
-	stale: false,
 	restart_pending: false,
 	...extra,
 } );
@@ -266,7 +264,7 @@ describe( 'worker-status:transform — reconstructs the rich workers[]', () => {
 		expect( wkr.behind ).toBe( 4096 );
 	} );
 
-	test( 'joins liveness status onto the rich worker', () => {
+	test( 'joins liveness state onto the rich worker', () => {
 		const sink = capture();
 		const t = makeTransform( 'worker-status:transform' );
 		t.sink = sink.node;
@@ -276,9 +274,7 @@ describe( 'worker-status:transform — reconstructs the rich workers[]', () => {
 					graph: firehoseGraph(),
 					workers: [
 						liveness( 'firehose-workers', 0, {
-							status: 'stale',
-							live: false,
-							stale: true,
+							state: 'stale',
 							restart_pending: true,
 							heartbeat_age: 99,
 						} ),
@@ -291,14 +287,12 @@ describe( 'worker-status:transform — reconstructs the rich workers[]', () => {
 			)
 		);
 		const wkr = sink.got[ 0 ][ VALUE ].model.workers[ 0 ];
-		expect( wkr.status ).toBe( 'stale' );
-		expect( wkr.live ).toBe( false );
-		expect( wkr.stale ).toBe( true );
+		expect( wkr.state ).toBe( 'stale' );
 		expect( wkr.restart_pending ).toBe( true );
 		expect( wkr.heartbeat_age ).toBe( 99 );
 	} );
 
-	test( 'a consumer row with no liveness row defaults status to dead', () => {
+	test( 'a consumer row with no liveness row defaults state to down', () => {
 		const sink = capture();
 		const t = makeTransform( 'worker-status:transform' );
 		t.sink = sink.node;
@@ -315,7 +309,7 @@ describe( 'worker-status:transform — reconstructs the rich workers[]', () => {
 			)
 		);
 		const wkr = sink.got[ 0 ][ VALUE ].model.workers[ 0 ];
-		expect( wkr.status ).toBe( 'dead' );
+		expect( wkr.state ).toBe( 'down' );
 	} );
 
 	test( 'a liveness row with no consumer row still emits a worker (so the tree shows it)', () => {
@@ -334,7 +328,7 @@ describe( 'worker-status:transform — reconstructs the rich workers[]', () => {
 		);
 		const wkr = sink.got[ 0 ][ VALUE ].model.workers[ 0 ];
 		expect( wkr.type ).toBe( 'firehose-workers' );
-		expect( wkr.status ).toBe( 'running' );
+		expect( wkr.state ).toBe( 'live' );
 	} );
 
 	test( 'expands all partitions present across the inputs', () => {

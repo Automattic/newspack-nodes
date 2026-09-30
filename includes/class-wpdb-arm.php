@@ -22,6 +22,8 @@
  * refused before anything is sent: WordPress clears strict SQL mode, so MySQL
  * would otherwise truncate a long key silently into another key. A member read
  * is one statement per set key, a seek on the members table's primary key.
+ * A statement that finds a shared table missing reinstalls the schema and
+ * runs once more, so tables gone while the schema option stands come back.
  *
  * @package Newspack_Nodes
  */
@@ -64,6 +66,9 @@ final class Wpdb_Arm extends Durable_Arm {
 	/** SQL predicate for an expired row; binds one `now`. */
 	private const EXPIRED = '( expires > 0 AND expires <= %d )';
 
+	/** MySQL's error for a statement naming a table that does not exist. */
+	private const NO_SUCH_TABLE = 1146;
+
 	/** What follows a batch's VALUES list. */
 	private const UPSERT_TAIL = ' ON DUPLICATE KEY UPDATE `value` = VALUES( `value` ), expires = VALUES( expires )';
 
@@ -81,46 +86,55 @@ final class Wpdb_Arm extends Durable_Arm {
 		],
 	];
 
+	/** The option recording which schema `install()` created, autoloaded. */
+	public const SCHEMA_OPTION = 'newspack_nodes_wpdb_schema';
+
 	/**
-	 * Per connection: its `max_allowed_packet`, and the tables created on it,
-	 * so each is read or created once per process and a new connection object
-	 * starts afresh.
+	 * Each connection's `max_allowed_packet`, read on its first write, so a
+	 * process reads it once however many arms it builds.
 	 *
-	 * @var \WeakMap<\wpdb,array{packet:int,tables:array<string,true>}>|null
+	 * @var \WeakMap<\wpdb,int>|null
 	 */
-	private static ?\WeakMap $connections = null;
-
-	/** The connection's `max_allowed_packet`, in bytes. */
-	private int $packet;
+	private static ?\WeakMap $packets = null;
 
 	/**
-	 * Read the connection's packet limit and create the tables, each once per
-	 * connection.
+	 * Driver-errno seam. Replaces `mysqli_errno()` on `$wpdb`'s connection,
+	 * which core exposes only through its `__get()`, read after a
+	 * statement fails to tell a missing table from any other refusal. Tests
+	 * reassign it to report a code the SQLite `$wpdb` cannot.
+	 * Signature: `function ( \wpdb $db ): int`
+	 *
+	 * @var (\Closure(\wpdb): int)|null
+	 */
+	public static ?\Closure $errno = null;
+
+	/**
+	 * Install the schema when the option records another, which is how an
+	 * upgrade that never re-activated installs it.
 	 *
 	 * @param string $namespace The Table's namespace, which scopes every row.
 	 * @throws \InvalidArgumentException On a namespace the column cannot hold.
-	 * @throws \RuntimeException When the limit cannot be read or the table created.
+	 * @throws \RuntimeException When the schema is not installed and cannot be.
 	 */
 	public function __construct( private readonly string $namespace ) {
 		if ( self::refuses_key( $namespace ) || \strlen( $namespace ) > self::NAMESPACE_BYTES ) {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; Table_Node::open() escapes the wrapped message once.
 			throw new \InvalidArgumentException( "wpdb backend cannot hold namespace {$namespace}" );
 		}
-		$db           = self::db();
-		$connections  = self::$connections ??= new \WeakMap();
-		$state        = $connections[ $db ] ?? [
-			'packet' => self::packet( $db ),
-			'tables' => [],
-		];
-		$this->packet = $state['packet'];
-		foreach ( self::TABLES as $suffix => [ $ddl, $widths ] ) {
-			$table = $db->base_prefix . $suffix;
-			if ( ! \array_key_exists( $table, $state['tables'] ) ) {
-				self::create( $table, $ddl, $widths );
-				$state['tables'][ $table ] = true;
-			}
+		self::install_if_outdated();
+	}
+
+	/**
+	 * Install the schema when the option records another: an autoloaded
+	 * option read, so an arm a request builds, and the `admin_init` re-arm,
+	 * run no statement while the schema is current.
+	 *
+	 * @throws \RuntimeException When the schema is not installed and cannot be.
+	 */
+	public static function install_if_outdated(): void {
+		if ( self::schema() !== \get_option( self::SCHEMA_OPTION ) ) {
+			self::install();
 		}
-		$connections[ $db ] = $state;
 	}
 
 	/**
@@ -149,6 +163,24 @@ final class Wpdb_Arm extends Durable_Arm {
 		return 'wpdb ' . self::table() . ": {$this->failure}";
 	}
 
+	/**
+	 * Why the shared tables do not answer, which Health_Checks reports: one
+	 * statement reading both, so a missing table or a refused read shows
+	 * whatever the schema option records.
+	 *
+	 * @return string The server's error, or '' when both tables answer.
+	 */
+	public static function unavailable(): string {
+		$db = self::db();
+		$db->get_results( self::bind( $db, 'SELECT 1 FROM %i, %i LIMIT 0', [ self::table(), $db->base_prefix . self::MEMBERS_TABLE ] ), 'ARRAY_A' );
+		return $db->last_error;
+	}
+
+	/** See Durable_Arm::row_key(): the key alone, under the namespace column. */
+	public function row_key( string $key ): string {
+		return $key;
+	}
+
 	/** See Cache_Backend::backend_name(). */
 	public function backend_name(): string {
 		return 'wpdb';
@@ -164,37 +196,32 @@ final class Wpdb_Arm extends Durable_Arm {
 		$out = [];
 		foreach ( \array_chunk( $keys, self::IN_CHUNK ) as $chunk ) {
 			$in   = \implode( ', ', \array_fill( 0, \count( $chunk ), '%s' ) );
-			$out += $this->pairs(
-				$this->statement( 'SELECT cache_key, `value` FROM %i WHERE namespace = %s AND cache_key IN ( ' . $in . ' ) AND ' . self::LIVE, $this->namespace, ...[ ...$chunk, self::now() ] ),
-				'cache_key'
-			);
+			foreach ( $this->rows( $this->statement( 'SELECT cache_key, `value`, expires FROM %i WHERE namespace = %s AND cache_key IN ( ' . $in . ' ) AND ' . self::LIVE, $this->namespace, ...[ ...$chunk, self::now() ] ) ) as $row ) {
+				$out[ Core::as_string( $row['cache_key'] ) ] = [ self::stored( $row['value'] ), Core::as_int( $row['expires'] ) ];
+			}
 		}
 		return $out;
 	}
 
 	/** See Durable_Arm::select_set(). */
 	protected function select_set( string $set_key, int $limit ): array {
-		return $this->pairs(
-			$this->member_statement( 'SELECT member, `value` FROM %i WHERE namespace = %s AND set_key = %s AND expires > %d ORDER BY member LIMIT %d', $this->namespace, $set_key, self::now(), $limit ),
-			'member'
-		);
+		$out = [];
+		foreach ( $this->rows( $this->member_statement( 'SELECT member, `value` FROM %i WHERE namespace = %s AND set_key = %s AND expires > %d ORDER BY member LIMIT %d', $this->namespace, $set_key, self::now(), $limit ) ) as $row ) {
+			$out[ Core::as_string( $row['member'] ) ] = self::stored( $row['value'] );
+		}
+		return $out;
 	}
 
 	/**
-	 * A two-column SELECT's rows, as key => tagged bytes.
+	 * The tagged bytes a `value` column carries in base64; a column that is
+	 * not base64 reads as the empty string, which no serializer wrote.
 	 *
-	 * @param string $statement The bound statement.
-	 * @param string $key       The column the rows are keyed by.
-	 * @return array<string,string>
-	 * @throws \UnexpectedValueException When the server refused it.
+	 * @param mixed $column The column.
+	 * @return string The tagged bytes.
 	 */
-	private function pairs( string $statement, string $key ): array {
-		$out = [];
-		foreach ( $this->rows( $statement ) as $row ) {
-			$bytes = \base64_decode( Core::as_string( $row['value'] ), true );
-			$out[ Core::as_string( $row[ $key ] ) ] = false === $bytes ? '' : $bytes;
-		}
-		return $out;
+	private static function stored( mixed $column ): string {
+		$bytes = \base64_decode( Core::as_string( $column ), true );
+		return false === $bytes ? '' : $bytes;
 	}
 
 	/**
@@ -207,6 +234,9 @@ final class Wpdb_Arm extends Durable_Arm {
 	private function rows( string $statement ): array {
 		$db   = self::db();
 		$rows = $db->get_results( $statement, 'ARRAY_A' );
+		if ( '' !== $db->last_error && self::heal() ) {
+			$rows = $db->get_results( $statement, 'ARRAY_A' );
+		}
 		if ( '' !== $db->last_error || ! \is_array( $rows ) ) {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- The server's text is the failure record; it is escaped where shown.
 			throw new \UnexpectedValueException( $db->last_error );
@@ -244,10 +274,10 @@ final class Wpdb_Arm extends Durable_Arm {
 	 * @throws \UnexpectedValueException When a row cannot fit, or the server refused.
 	 */
 	private function send_upsert( string $head, array $tuples ): void {
-		$room = $this->packet - self::PACKET_HEADROOM - \strlen( $head ) - \strlen( self::UPSERT_TAIL );
+		$room = self::packet() - self::PACKET_HEADROOM - \strlen( $head ) - \strlen( self::UPSERT_TAIL );
 		$fit  = \array_map( fn ( string $tuple ): string => $this->fit( $tuple, $room ), $tuples );
 		foreach ( self::chunks( $fit, $room ) as $chunk ) {
-			self::checked( self::db()->query( $head . \implode( ', ', $chunk ) . self::UPSERT_TAIL ) );
+			self::execute( $head . \implode( ', ', $chunk ) . self::UPSERT_TAIL );
 		}
 	}
 
@@ -283,10 +313,10 @@ final class Wpdb_Arm extends Durable_Arm {
 	protected function claim( string $key, string $bytes, int $expires ): bool {
 		$insert = $this->fit(
 			$this->statement( 'INSERT IGNORE INTO %i ( namespace, cache_key, `value`, expires ) VALUES ( %s, %s, %s, %d )', $this->namespace, self::column_key( $key ), \base64_encode( $bytes ), $expires ),
-			$this->packet - self::PACKET_HEADROOM
+			self::packet() - self::PACKET_HEADROOM
 		);
 		$this->run( 'DELETE FROM %i WHERE namespace = %s AND cache_key = %s AND ' . self::EXPIRED, $this->namespace, $key, self::now() );
-		return 1 === self::checked( self::db()->query( $insert ) );
+		return 1 === self::execute( $insert );
 	}
 
 	/**
@@ -314,9 +344,29 @@ final class Wpdb_Arm extends Durable_Arm {
 	 */
 	private function fit( string $statement, int $room ): string {
 		if ( \strlen( $statement ) > $room ) {
-			throw new \UnexpectedValueException( 'row of ' . \strlen( $statement ) . " bytes cannot fit max_allowed_packet {$this->packet}" );
+			throw new \UnexpectedValueException( 'row of ' . \strlen( $statement ) . ' bytes cannot fit max_allowed_packet ' . self::packet() );
 		}
 		return $statement;
+	}
+
+	/**
+	 * The connection's `max_allowed_packet`, read once per connection.
+	 *
+	 * @return int Bytes.
+	 * @throws \UnexpectedValueException When the server will not say.
+	 */
+	private static function packet(): int {
+		$db       = self::db();
+		$packets  = self::$packets ??= new \WeakMap();
+		if ( ! isset( $packets[ $db ] ) ) {
+			$packet = $db->get_var( 'SELECT @@max_allowed_packet' );
+			if ( ! \is_numeric( $packet ) ) {
+				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- The server's text is the failure record; it is escaped where shown.
+				throw new \UnexpectedValueException( "could not read max_allowed_packet: {$db->last_error}" );
+			}
+			$packets[ $db ] = (int) $packet;
+		}
+		return $packets[ $db ];
 	}
 
 	/** See Durable_Arm::replace(). */
@@ -356,7 +406,7 @@ final class Wpdb_Arm extends Durable_Arm {
 	 */
 	protected function discard(): array {
 		return [
-			'rows' => self::checked( self::db()->query( $this->member_statement( 'DELETE FROM %i WHERE namespace = %s', $this->namespace ) ) )
+			'rows' => self::execute( $this->member_statement( 'DELETE FROM %i WHERE namespace = %s', $this->namespace ) )
 				+ $this->run( 'DELETE FROM %i WHERE namespace = %s', $this->namespace ),
 		];
 	}
@@ -370,7 +420,7 @@ final class Wpdb_Arm extends Durable_Arm {
 	 * @throws \UnexpectedValueException When the server refused it.
 	 */
 	private function run( string $sql, mixed ...$args ): int {
-		return self::checked( self::db()->query( $this->statement( $sql, ...$args ) ) );
+		return self::execute( $this->statement( $sql, ...$args ) );
 	}
 
 	/**
@@ -395,7 +445,7 @@ final class Wpdb_Arm extends Durable_Arm {
 
 	/** See Durable_Arm::purge_member_rows(). */
 	protected function purge_member_rows( int $now, int $limit ): int {
-		return self::checked( self::db()->query( $this->member_statement( 'DELETE FROM %i WHERE namespace = %s AND expires <= %d LIMIT %d', $this->namespace, $now, $limit ) ) );
+		return self::execute( $this->member_statement( 'DELETE FROM %i WHERE namespace = %s AND expires <= %d LIMIT %d', $this->namespace, $now, $limit ) );
 	}
 
 	/**
@@ -407,6 +457,76 @@ final class Wpdb_Arm extends Durable_Arm {
 	 */
 	private function member_statement( string $sql, mixed ...$args ): string {
 		return self::bind( self::db(), $sql, [ self::db()->base_prefix . self::MEMBERS_TABLE, ...\array_values( $args ) ] );
+	}
+
+	/**
+	 * Send one bound statement, once more when heal() reinstalled a table it
+	 * found missing.
+	 *
+	 * @param string $statement The bound statement.
+	 * @return int Rows changed.
+	 * @throws \UnexpectedValueException When the server refused it.
+	 */
+	private static function execute( string $statement ): int {
+		$result = self::db()->query( $statement );
+		if ( false === $result && self::heal() ) {
+			$result = self::db()->query( $statement );
+		}
+		return self::checked( $result );
+	}
+
+	/**
+	 * Reinstall the schema when the statement the server just refused found
+	 * a shared table missing (MySQL error 1146). The option records the
+	 * schema installed, not that its tables still stand, so a staging clone,
+	 * a restore or a DROP heals at the first statement to meet it.
+	 *
+	 * The CREATE commits any transaction open on the site's connection, as
+	 * DDL does in MySQL: a table dropped under a caller's open transaction is
+	 * the one case, and leaving it a dead store is the worse outcome.
+	 *
+	 * @return bool True when the schema was reinstalled and the statement may run once more.
+	 * @throws \UnexpectedValueException When the server refuses the reinstall.
+	 */
+	private static function heal(): bool {
+		$errno = self::$errno ?? static function ( \wpdb $db ): int {
+			$dbh = $db->__get( 'dbh' );
+			return $dbh instanceof \mysqli ? \mysqli_errno( $dbh ) : 0;
+		};
+		if ( self::NO_SUCH_TABLE !== $errno( self::db() ) ) {
+			return false;
+		}
+		try {
+			self::install();
+		} catch ( \RuntimeException $e ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; the verb reporting it escapes at its view.
+			throw new \UnexpectedValueException( $e->getMessage(), 0, $e );
+		}
+		return true;
+	}
+
+	/**
+	 * Create both shared tables and record the schema: plugin activation's
+	 * step, an arm's on the first use after an upgrade, and heal()'s.
+	 *
+	 * @throws \RuntimeException When the server refuses a table.
+	 */
+	public static function install(): void {
+		$db = self::db();
+		foreach ( self::TABLES as $suffix => [ $ddl, $widths ] ) {
+			self::create( $db->base_prefix . $suffix, $ddl, $widths );
+		}
+		\update_option( self::SCHEMA_OPTION, self::schema(), true );
+	}
+
+	/**
+	 * The schema's identity: a digest of the DDL, so a changed table
+	 * definition installs again without a version to remember.
+	 *
+	 * @return string The digest.
+	 */
+	private static function schema(): string {
+		return \md5( \serialize( self::TABLES ) ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_serialize
 	}
 
 	/**
@@ -469,21 +589,5 @@ final class Wpdb_Arm extends Durable_Arm {
 	private static function db(): \wpdb {
 		$db = $GLOBALS['wpdb'] ?? null;
 		return $db instanceof \wpdb ? $db : throw new \LogicException( 'wpdb backend needs $wpdb' );
-	}
-
-	/**
-	 * The connection's `max_allowed_packet`.
-	 *
-	 * @param \wpdb $db The handle.
-	 * @return int Bytes.
-	 * @throws \RuntimeException When the server will not say.
-	 */
-	private static function packet( \wpdb $db ): int {
-		$packet = $db->get_var( 'SELECT @@max_allowed_packet' );
-		if ( ! \is_numeric( $packet ) ) {
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; Table_Node::open() escapes the wrapped message once.
-			throw new \RuntimeException( "wpdb backend could not read max_allowed_packet: {$db->last_error}" );
-		}
-		return (int) $packet;
 	}
 }

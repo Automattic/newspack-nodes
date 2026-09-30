@@ -26,7 +26,6 @@ use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Worker_Base;
-use Newspack_Nodes\Wpdb_Arm;
 use PHPUnit\Framework\Attributes\CoversClass;
 
 #[CoversClass( Tables_CLI_Command::class )]
@@ -37,6 +36,15 @@ final class TablesCliCommandTest extends TestCase {
 
 	/** Every command the fake worker verified and answered, as `<to> <verb>`. */
 	private array $answered = [];
+
+	/** Text of an unaddressed broadcast the fake worker writes before each answer; '' writes none. */
+	private string $broadcast = '';
+
+	/** The FROM of every command the fake worker read. */
+	private array $asked_from = [];
+
+	/** Whether the fake worker follows each answer with one to another session's same receiver. */
+	private bool $decoy = false;
 
 	protected function setUp(): void {
 		parent::setUp();
@@ -69,7 +77,7 @@ final class TablesCliCommandTest extends TestCase {
 
 	/** A `sqlite` partition's file, written as its worker writes it. */
 	private function seed_kea( int $partition, int $rows ): void {
-		$arm = new Sqlite_Arm( Table_Node::file( 'lab-7:kea', $partition ) );
+		$arm = new Sqlite_Arm( Table_Node::file( 'lab-7:kea', $partition ), 'kea:p3' );
 		for ( $i = 1; $i <= $rows; ++$i ) {
 			$arm->set( "kea:p{$partition}:sku-{$i}", "kea-{$i}", 0 );
 		}
@@ -120,8 +128,15 @@ final class TablesCliCommandTest extends TestCase {
 					$this->assertTrue( Command_Auth::verify( $command ), 'the CLI signs what it sends a worker' );
 					$verb             = Core::as_string( $command[ Message::VALUE ]['name'] );
 					$this->answered[] = Core::as_string( $command[ Message::TO ] ) . " {$verb}";
+					$this->asked_from[] = Core::as_string( $command[ Message::FROM ] );
 					if ( ! $answers ) {
 						return;
+					}
+					if ( '' !== $this->broadcast ) {
+						$note                   = Message::new_message();
+						$note[ Message::TYPE ]  = Message::TM_INFO;
+						$note[ Message::VALUE ] = $this->broadcast;
+						$replies->fill( $note );
 					}
 					$reply                  = Message::new_message();
 					$reply[ Message::TYPE ] = Message::TM_COMMAND | Message::TM_RESPONSE;
@@ -134,6 +149,13 @@ final class TablesCliCommandTest extends TestCase {
 					}
 					$reply[ Message::VALUE ] = [ 'name' => $verb, 'arguments' => [], 'payload' => $payload ];
 					$replies->fill( $reply );
+					if ( $this->decoy ) {
+						$other                   = $reply;
+						$other[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_ERROR;
+						$other[ Message::TO ]    = \str_replace( '_cli:' . \getmypid(), '_cli:48211', Core::as_string( $command[ Message::FROM ] ) );
+						$other[ Message::VALUE ] = [ 'name' => $verb, 'arguments' => [], 'payload' => "decoy-3318\n" ];
+						$replies->fill( $other );
+					}
 				}
 			)
 		);
@@ -171,6 +193,44 @@ final class TablesCliCommandTest extends TestCase {
 		$this->assertSame( 'json', \end( $GLOBALS['_test_wp_cli_tables'] )['format'] );
 	}
 
+	/** The session store's row is its declaration: listing it opens nothing, so a store that will not open lists all the same. */
+	public function test_list_names_the_session_store_without_opening_it(): void {
+		$GLOBALS['wpdb']->deny['CREATE TABLE'] = 'CREATE command denied 1030';
+
+		$this->command()->list_( [], [ 'format' => 'json' ] );
+
+		$this->assertSame( [ 'Table' => Command_Auth::SESSIONS_TABLE, 'Partition' => 0, 'Backend' => 'wpdb', 'TTL' => '60-86400', 'Owner' => '-', 'State' => '-', 'Store' => 'wp_newspack_nodes_table', 'Bytes' => null, 'Verbs' => null ], \array_slice( $this->printed(), -1 )[0] );
+	}
+
+	public function test_list_counts_a_sqlite_partitions_shm_in_its_bytes(): void {
+		$this->seed_kea( 0, 3 );
+		$file = Table_Node::file( 'lab-7:kea', 0 );
+		\file_put_contents( "{$file}-shm", \str_repeat( 's', 4099 ) );
+		\clearstatcache();
+		$size = \filesize( $file ) + ( \is_file( "{$file}-wal" ) ? \filesize( "{$file}-wal" ) : 0 ) + 4099;
+
+		$this->command()->list_( [], [ 'format' => 'json' ] );
+
+		$this->assertSame( $size, $this->printed()[0]['Bytes'] );
+	}
+
+	public function test_list_reads_an_on_demand_owner_with_no_lock_as_idle(): void {
+		$this->write_tsl( 'kea-t', "var num_partitions = 2\nvar on_demand_idle = 41\nmake_node Table lab-7:kea kea:p<partition> 777 sqlite\n" );
+
+		$this->command()->list_( [], [ 'format' => 'json' ] );
+
+		$this->assertSame( [ 'idle', 'idle', 'down' ], \array_column( \array_slice( $this->printed(), 0, 3 ), 'State' ), 'as `wp nodes status` reads them' );
+	}
+
+	public function test_list_reads_an_owner_whose_lock_dir_holds_no_heartbeat_past_the_orphan_grace_as_stale(): void {
+		\mkdir( "{$this->base}/locks/kea-t.p1.lock.d", 0755, true );
+		\touch( "{$this->base}/locks/kea-t.p1.lock.d", \time() - ( \Newspack_Nodes\Lock_Node::ORPHAN_GRACE_S + 43 ) );
+
+		$this->command()->list_( [], [ 'format' => 'json' ] );
+
+		$this->assertSame( [ 'down', 'stale' ], \array_column( \array_slice( $this->printed(), 0, 2 ), 'State' ), 'as `wp nodes status` reads it' );
+	}
+
 	public function test_list_reads_a_live_owners_counters_over_its_command_channel(): void {
 		$table = $this->live_worker( 1 );
 		$table->store( 'sku-9', 'kea-9' );
@@ -190,6 +250,37 @@ final class TablesCliCommandTest extends TestCase {
 		$this->assertArrayNotHasKey( 'SADD', $row['Verbs'], 'a verb never called is left out' );
 		$this->assertSame( [ 'lab-7:kea:config stats' ], $this->answered, 'one stats asked, of the live owner alone' );
 		$this->assertNull( $this->printed()[0]['Verbs'], 'a down owner is asked nothing' );
+	}
+
+	public function test_each_ask_is_headed_by_this_process_and_names_the_receiver_and_stem(): void {
+		$this->live_worker( 1 );
+
+		$this->command()->list_( [], [ 'format' => 'json' ] );
+
+		$this->assertSame( [ '_output/_cli:' . \getmypid() . '/tables-cli/' . Table_Node::stem( 'lab-7:kea', 1 ) ], $this->asked_from );
+		$this->assertNotNull( $this->printed()[1]['Verbs'], 'the reply is filed under its stem' );
+	}
+
+	public function test_another_sessions_reply_to_the_same_stem_is_not_filed(): void {
+		$this->decoy = true;
+		$table       = $this->live_worker( 1 );
+		$table->store( 'sku-9', 'kea-9' );
+
+		$this->command()->list_( [], [ 'format' => 'json' ] );
+
+		$this->assertIsArray( $this->printed()[1]['Verbs'], 'the decoy error never replaced the counters' );
+	}
+
+	public function test_a_worker_broadcast_during_the_ask_is_neither_warned_about_nor_taken_for_a_reply(): void {
+		$this->broadcast = 'ember-4471 rolled';
+		$this->live_worker( 1 );
+		$stderr = '';
+		Core::set_stderr_handler( function ( $text ) use ( &$stderr ) { $stderr .= $text; } );
+
+		$this->command()->list_( [], [ 'format' => 'json' ] );
+
+		$this->assertStringNotContainsString( 'not addressed', $stderr );
+		$this->assertNotNull( $this->printed()[1]['Verbs'], 'the addressed reply still lands' );
 	}
 
 	public function test_the_wait_ends_when_every_owner_has_answered(): void {
@@ -262,6 +353,16 @@ final class TablesCliCommandTest extends TestCase {
 		$this->assertSame( 3, $this->rows_in( 0 ), 'nothing was deleted' );
 	}
 
+	public function test_flush_refuses_an_idle_owner_naming_it_until_the_fleet_is_held(): void {
+		$this->write_tsl( 'kea-t', "var num_partitions = 2\nvar on_demand_idle = 41\nmake_node Table lab-7:kea kea:p<partition> 777 sqlite\n" );
+		$this->seed_kea( 0, 2 );
+
+		$e = $this->caught( fn () => $this->command()->flush( [ 'lab-7:kea' ], [ 'partition' => '0' ] ), 'an idle owner, which can spawn at any moment, was flushed without the hold' );
+
+		$this->assertStringContainsString( 'lab-7:kea.p0: kea-t.p0 is idle; run `wp nodes stop` to hold the fleet, flush again, then `wp nodes start`', $e->getMessage() );
+		$this->assertSame( 3, $this->rows_in( 0 ), 'nothing was deleted' );
+	}
+
 	public function test_flush_refuses_a_stale_owner_even_under_the_hold(): void {
 		$this->seed_kea( 0, 2 );
 		$lock = "{$this->base}/locks/kea-t.p0.lock.d";
@@ -314,13 +415,13 @@ final class TablesCliCommandTest extends TestCase {
 	public function test_flushing_the_session_store_by_name_revokes_every_session(): void {
 		$first  = Command_Auth::mint_session();
 		$second = Command_Auth::mint_session();
-		( new Wpdb_Arm( 'owl:p0' ) )->set( 'owl:p0:sku-7', 'owl-7', 900 );
+		Table_Node::table( 'owl:p0', 900, 'wpdb' )->store( 'sku-7', 'owl-7' );
 
 		$this->command()->flush( [ Command_Auth::SESSIONS_TABLE ], [] );
 
 		$this->assertNull( Command_Auth::load_session_record( $first['handle'] ) );
 		$this->assertNull( Command_Auth::load_session_record( $second['handle'] ) );
-		$this->assertSame( 'owl-7', ( new Wpdb_Arm( 'owl:p0' ) )->get( 'owl:p0:sku-7' ), 'another namespace is untouched' );
+		$this->assertSame( 'owl-7', Table_Node::table( 'owl:p0', 900, 'wpdb' )->lookup( 'sku-7' ), 'another namespace is untouched' );
 		$this->assertSame( [ Command_Auth::SESSIONS_TABLE . ': 2 rows deleted; every issued session is revoked' ], $GLOBALS['_test_wp_cli_logs'] );
 	}
 
@@ -329,7 +430,7 @@ final class TablesCliCommandTest extends TestCase {
 
 		$e = $this->caught( fn () => $this->command()->flush( [ Command_Auth::SESSIONS_TABLE ], [] ), 'a refused flush reported success' );
 
-		$this->assertSame( 'WP_CLI::error called: ' . Command_Auth::SESSIONS_TABLE . ': could not flush the sessions: wpdb wp_newspack_nodes_table: Lock wait timeout 4479', $e->getMessage() );
+		$this->assertSame( 'WP_CLI::error called: ' . Command_Auth::SESSIONS_TABLE . ': Table nodes-sessions: flush failed: wpdb wp_newspack_nodes_table: Lock wait timeout 4479', $e->getMessage() );
 		$this->assertSame( [], $GLOBALS['_test_wp_cli_success'] );
 	}
 

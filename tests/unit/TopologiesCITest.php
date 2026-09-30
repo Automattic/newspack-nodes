@@ -135,7 +135,7 @@ class TopologiesCITest extends TestCase {
 		Config::reset();
 		foreach ( [ 'lab-7:kea', 'lab-7:rook' ] as $table ) {
 			foreach ( [ 0, 1 ] as $p ) {
-				new \Newspack_Nodes\Sqlite_Arm( \Newspack_Nodes\Table_Node::file( $table, $p ) );
+				new \Newspack_Nodes\Sqlite_Arm( \Newspack_Nodes\Table_Node::file( $table, $p ), 'kea:p3' );
 			}
 		}
 		\Newspack_Nodes\Bootstrap::mount_request_graph();

@@ -279,8 +279,8 @@ Now the three verbs. Each is a one-line `handler` that shapes one slice off the 
 ```php
 public static function node_schema(): array {
 	// A Service_CI verb runs ON the CI — the interpreter IS this node, so $ci->items()
-	// is the shared per-request memo. Service_CI_Node gates every handler on the role
-	// its schema entry declares in `capability`, defaulting to MANAGE — so a verb that
+	// is the shared per-request memo. dispatch() gates every verb on the role its
+	// schema entry declares in `capability`, defaulting to MANAGE — so a verb that
 	// declares nothing demands the strictest role, and a per-slice gate here would
 	// only stack a second check. slice_verb() is the base-class helper: it wraps a
 	// shape callable into a verb handler that json-encodes the shaped slice.

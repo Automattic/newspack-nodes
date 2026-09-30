@@ -474,9 +474,11 @@ class AggregatorCITest extends TestCase {
 		$this->stub_probe_reply(
 			[
 				'workers'             => [
-					[ 'type' => 'a', 'partition' => 0, 'status' => 'running', 'live' => true, 'stale' => false, 'heartbeat_age' => 1 ],
-					[ 'type' => 'b', 'partition' => 0, 'status' => 'dead', 'live' => false, 'stale' => true, 'heartbeat_age' => 240 ],
-					[ 'type' => 'c', 'partition' => 0, 'status' => 'dead', 'live' => false, 'stale' => false, 'heartbeat_age' => null ],
+					[ 'type' => 'a', 'partition' => 0, 'state' => 'live', 'heartbeat_age' => 1 ],
+					[ 'type' => 'a', 'partition' => 1, 'state' => 'live', 'heartbeat_age' => 3 ],
+					[ 'type' => 'b', 'partition' => 0, 'state' => 'stale', 'heartbeat_age' => 240 ],
+					[ 'type' => 'c', 'partition' => 0, 'state' => 'idle', 'heartbeat_age' => null ],
+					[ 'type' => 'd', 'partition' => 0, 'state' => 'down', 'heartbeat_age' => null ],
 				],
 				'consumers'           => [
 					[ 'reader' => 'x.p0', 'distance' => 512 ],
@@ -489,9 +491,26 @@ class AggregatorCITest extends TestCase {
 		$out = VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'probe', 'spoke1' );
 
 		$this->assertSame( 'spoke1', $out['id'] );
-		$this->assertSame( [ 'total' => 3, 'live' => 1, 'stale' => 1, 'dead' => 1 ], $out['workers'] );
+		$this->assertSame( [ 'total' => 5, 'live' => 2, 'stale' => 1, 'held' => 0, 'idle' => 1, 'down' => 1 ], $out['workers'] );
 		$this->assertSame( 88_888, $out['worst_distance'] );
 		$this->assertSame( 6, $out['deadletter_segments'] );
+	}
+
+	public function test_probe_verb_refuses_a_worker_state_outside_the_vocabulary(): void {
+		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		Vault::get_instance()->reset_cache();
+		$this->stub_probe_reply(
+			[
+				'workers'             => [ [ 'type' => 'a', 'partition' => 0, 'status' => 'running', 'live' => true ] ],
+				'consumers'           => [],
+				'deadletter_segments' => 0,
+			]
+		);
+
+		$out = VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'probe', 'spoke1' );
+
+		$this->assertIsString( $out );
+		$this->assertStringContainsString( "spoke1 reported worker a.p0 in state ''", $out );
 	}
 
 	public function test_probe_verb_requires_a_known_server(): void {

@@ -6,10 +6,67 @@
  * segment the cursor is in (green→yellow→gray), RED when it spans a segment
  * boundary (green→red→gray, a bigger fall-behind). A segment in a tree with no
  * consumer of the log (cursorSegment null) renders entirely gray.
+ *
+ * The regions arrive as props, computed once per bar by `segmentRegions`, so
+ * each case here renders the bar from that one computation. Motion arrives as
+ * props too: `stagger` counts the fill transition's delay in steps, and
+ * `snap` draws the final widths at once.
  */
 
-import { render } from '@testing-library/react';
-import { SegmentBar } from '../SegmentBar';
+import { render, fireEvent, createEvent } from '@testing-library/react';
+import { SegmentBar, segmentRegions } from '../SegmentBar';
+
+/**
+ * The bar for one segment under one reader position, its regions computed
+ * the way `LogRows` computes them.
+ *
+ * @param {Object} props               Everything else the bar takes.
+ * @param {Object} props.segment       The segment.
+ * @param {number} props.cursorSegment Reader cursor segment id.
+ * @param {number} props.cursorOffset  Reader cursor offset.
+ * @param {number} props.endSegment    Recorded end segment id.
+ * @param {number} props.endSize       Recorded end offset.
+ * @return {import('react').ReactElement} The bar.
+ */
+function Bar( {
+	segment,
+	cursorSegment,
+	cursorOffset,
+	endSegment,
+	endSize,
+	...props
+} ) {
+	return (
+		<SegmentBar
+			segment={ segment }
+			{ ...segmentRegions(
+				segment,
+				null === cursorSegment
+					? undefined
+					: {
+							segment: cursorSegment,
+							offset: cursorOffset,
+							endSegment,
+							endSize,
+					  }
+			) }
+			{ ...props }
+		/>
+	);
+}
+
+/**
+ * Fire `animationend` naming the animation; jsdom has no AnimationEvent, so
+ * the name is stamped onto the generic event React reads it from.
+ *
+ * @param {Element} el   The animated element.
+ * @param {string}  name The `animation-name` that ended.
+ */
+function endAnimation( el, name ) {
+	const event = createEvent.animationEnd( el );
+	Object.defineProperty( event, 'animationName', { value: name } );
+	fireEvent( el, event );
+}
 
 // Pull the three fills out in DOM order, as { className, width }.
 function fills( container ) {
@@ -25,7 +82,7 @@ describe( 'SegmentBar — three regions', () => {
 	it( 'a lag within the current segment is green → YELLOW → gray', () => {
 		// cursor at 40, recorded end at 80, live head at 100 — all in seg 0.
 		const { container } = render(
-			<SegmentBar
+			<Bar
 				segment={ { id: 0, size: 100 } }
 				maxSize={ 100 }
 				cursorSegment={ 0 }
@@ -48,7 +105,7 @@ describe( 'SegmentBar — three regions', () => {
 
 	it( 'a stale recorded end (within the segment) is yellow backlog + a gray tail', () => {
 		const { container } = render(
-			<SegmentBar
+			<Bar
 				segment={ { id: 0, size: 100 } }
 				maxSize={ 100 }
 				cursorSegment={ 0 }
@@ -68,7 +125,7 @@ describe( 'SegmentBar — three regions', () => {
 
 	it( 'no consumer (cursorSegment null) renders the whole segment gray', () => {
 		const { container } = render(
-			<SegmentBar
+			<Bar
 				segment={ { id: 0, size: 80 } }
 				maxSize={ 100 }
 				cursorSegment={ null }
@@ -95,7 +152,7 @@ describe( 'SegmentBar — three regions', () => {
 		// Segment 0: green read + RED remainder (lag into seg 1), no gray.
 		const seg0 = fills(
 			render(
-				<SegmentBar
+				<Bar
 					segment={ { id: 0, size: 100 } }
 					maxSize={ 100 }
 					{ ...lag }
@@ -110,7 +167,7 @@ describe( 'SegmentBar — three regions', () => {
 		// Segment 1 (ahead): red backlog up to the recorded end, gray beyond.
 		const seg1 = fills(
 			render(
-				<SegmentBar
+				<Bar
 					segment={ { id: 1, size: 100 } }
 					maxSize={ 100 }
 					{ ...lag }
@@ -123,27 +180,66 @@ describe( 'SegmentBar — three regions', () => {
 		expect( seg1[ 2 ].width ).toBe( '50%' );
 	} );
 
-	it( 'staggers the fill/offset transition left-to-right by segment index', () => {
-		// index 2 → fills wait 2 bar-durations, starting as bar 1 finishes.
+	it( 'hands the stylesheet its stagger as a step count', () => {
+		// Two bars after the row's first change: the stylesheet times each step.
 		const { container } = render(
-			<SegmentBar
-				segment={ { id: 2, size: 100 } }
+			<Bar
+				segment={ { id: 4473, size: 100 } }
 				maxSize={ 100 }
-				cursorSegment={ 2 }
+				cursorSegment={ 4473 }
 				cursorOffset={ 50 }
-				endSegment={ 2 }
+				endSegment={ 4473 }
 				endSize={ 100 }
-				index={ 2 }
+				stagger={ 2 }
 			/>
 		);
 		const bar = container.querySelector( '.worker-segment-h' );
-		expect( bar.style.getPropertyValue( '--seg-delay' ) ).toBe( '0.6s' );
+		expect( bar.style.getPropertyValue( '--seg-stagger' ) ).toBe( '2' );
+	} );
+
+	it( 'a snapped bar draws its final widths even when it just arrived', () => {
+		const { container } = render(
+			<Bar
+				segment={ { id: 4474, size: 7340032 } }
+				maxSize={ 8388608 }
+				cursorSegment={ 4475 }
+				cursorOffset={ 0 }
+				endSegment={ 4475 }
+				endSize={ 0 }
+				isNew={ true }
+				snap={ true }
+			/>
+		);
+		const bar = container.querySelector( '.worker-segment-h' );
+		expect( bar.className ).toContain( 'segment-snap' );
+		expect( fills( container )[ 0 ].width ).toBe( '87.5%' );
+	} );
+
+	it( 'a departing bar reports its own slide-out ending, and nothing else', () => {
+		const onSlidOut = jest.fn();
+		const { container } = render(
+			<Bar
+				segment={ { id: 4471, size: 8388608 } }
+				maxSize={ 8388608 }
+				cursorSegment={ 4479 }
+				cursorOffset={ 0 }
+				endSegment={ 4479 }
+				endSize={ 0 }
+				isRemoving={ true }
+				onSlidOut={ onSlidOut }
+			/>
+		);
+		const bar = container.querySelector( '.worker-segment-h' );
+		endAnimation( bar, 'segment-slide-in' );
+		expect( onSlidOut ).not.toHaveBeenCalled();
+		endAnimation( bar, 'segment-slide-out' );
+		expect( onSlidOut ).toHaveBeenCalledWith( 4471 );
 	} );
 
 	it( 'a newly-arrived segment (isNew) mounts with empty fills so they animate in', () => {
 		// CSS transitions skip mount; render 0-width first, then real widths.
 		const { container } = render(
-			<SegmentBar
+			<Bar
 				segment={ { id: 3, size: 100 } }
 				maxSize={ 100 }
 				cursorSegment={ 3 }
@@ -161,7 +257,7 @@ describe( 'SegmentBar — three regions', () => {
 
 	it( 'titles the bar with the numeric segment id and the formatted size', () => {
 		const { container } = render(
-			<SegmentBar
+			<Bar
 				segment={ { id: 47, size: 2048 } }
 				maxSize={ 4096 }
 				cursorSegment={ 47 }
@@ -179,7 +275,7 @@ describe( 'SegmentBar — three regions', () => {
 
 	it( 'a fully-read older segment is all green (read past it)', () => {
 		const { container } = render(
-			<SegmentBar
+			<Bar
 				segment={ { id: 0, size: 100 } }
 				maxSize={ 100 }
 				cursorSegment={ 1 }

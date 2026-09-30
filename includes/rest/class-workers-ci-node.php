@@ -93,8 +93,10 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * @throws \RuntimeException When the topology catalog will not load.
 	 */
 	public static function cmd_dump_graph(): array {
-		$payload          = self::collect_dump_metadata();
-		$payload['graph'] = self::collect_topology_graphs();
+		$topologies       = Bootstrap::get_topologies();
+		$active           = Bootstrap::split_readable( $topologies );
+		$payload          = self::collect_dump_metadata( $topologies, $active );
+		$payload['graph'] = self::collect_topology_graphs( $active[0] );
 		$payload['logs']  = self::append_log_sinks( (array) $payload['logs'], $payload['graph'] );
 		return $payload;
 	}
@@ -115,10 +117,17 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * producer template declaring no dir costs only its own catalog entries,
 	 * and `refused_producers` names it and why.
 	 *
+	 * Every read runs off the one active set the caller hands in, and its
+	 * readable split: the slots, their states and the declared logs, so a
+	 * poll walks the catalog and splits it once, and classifies no lock dir
+	 * outside its slots.
+	 *
+	 * @param array<string,mixed>                                                             $topologies The active set, `Bootstrap::get_topologies()`.
+	 * @param array{0: array<string,array<array-key,mixed>>, 1: array<string,\Throwable>} $active     Its readable split, `Bootstrap::split_readable( $topologies )`.
 	 * @return array<string,mixed> Envelope ready for wp_json_encode.
-	 * @throws \RuntimeException When the topology catalog will not load.
+	 * @throws \RuntimeException When the runtime base directory will not resolve.
 	 */
-	public static function collect_dump_metadata(): array {
+	public static function collect_dump_metadata( array $topologies, array $active ): array {
 		$now            = \time();
 		$num_partitions = self::to_int( RuntimeConfig::value( 'num_partitions' ) );
 		// TRUE disk ceiling: the hard cap (or its 2x num_segments default).
@@ -131,21 +140,16 @@ class Workers_CI_Node extends Service_CI_Node {
 		$log_base       = $base_dir . '/logs';
 
 		// workers[] is pure per-(type,partition) liveness; no per-consumer.
+		$slots   = CLI::slot_ids( $topologies );
+		$states  = ( new CLI( $base_dir ) )->worker_states( \array_keys( $slots ), $topologies, false );
 		$workers = [];
-		foreach ( Bootstrap::expand_workers() as $w ) {
-			$type      = $w['type'];
-			$partition = $w['partition'];
-			if ( '' === $type ) {
-				continue;
-			}
-			$stale_to  = Lock_Node::stale_timeout_of( $w );
+		foreach ( $slots as $id => [ $type, $partition ] ) {
 			$workers[] = self::build_worker_status(
 				$type,
 				$partition,
+				$states[ $id ],
 				Spawn_Coordinator::lock_path( $base_dir, $type, $partition ),
-				$now,
-				$stale_to,
-				Bootstrap::on_demand_idle_of( $w )
+				$now
 			);
 		}
 
@@ -153,9 +157,9 @@ class Workers_CI_Node extends Service_CI_Node {
 		$probe = self::enumerate_offsetlog_rows( $base_dir );
 
 		// Per-log catalog, resolver-driven; segment_size honors TSL overrides.
-		[ $readable, $unreadable ] = Bootstrap::active_topologies();
+		[ $readable, $unreadable ] = $active;
 		$segment_size_overrides    = self::collect_segment_size_overrides( $readable );
-		[ $declared, $refused ]    = Log_Cleaner::declared_log_partitions();
+		[ $declared, $refused ]    = Log_Cleaner::declared_log_partitions( $readable );
 		$logs                      = self::enumerate_logs( $log_base, $segment_size, $segment_size_overrides, $declared );
 		$messages                  = static fn ( \Throwable $e ): string => \html_entity_decode( $e->getMessage(), \ENT_QUOTES );
 
@@ -202,56 +206,27 @@ class Workers_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Build one worker's liveness descriptor (`status`, `live`, `stale`,
-	 * `idle`, `heartbeat_at`) from its lock-dir heartbeat mtime, so the
-	 * dashboard renders every status badge from a single round trip.
+	 * One slot's dashboard row: its `CLI::worker_states()` word, the heartbeat
+	 * and start times its lock row carries, and whether a restart is queued on
+	 * its lock dir.
 	 *
-	 * `idle` is the derived conjunction every consumer wants — an on-demand
-	 * worker that is cleanly absent, as opposed to one that died holding its
-	 * lock. Deriving it once here keeps alerting and the dashboards from each
-	 * re-deciding what absence means.
-	 *
-	 * @param string $type           Worker type: the fleet name its lock dir is keyed by.
-	 * @param int    $partition      Partition index this worker owns.
-	 * @param string $lock_dir       Absolute path of the worker's lock dir.
-	 * @param int    $now            Wall clock the heartbeat age is measured against.
-	 * @param int    $stale_timeout  Seconds without a heartbeat before the lock reads stale.
-	 * @param int    $on_demand_idle Idle window the topology declares; 0 means resident.
-	 * @return array<string,mixed>
+	 * @param string                                                                     $type      Worker type: the fleet name its lock dir is keyed by.
+	 * @param int                                                                        $partition Partition index this worker owns.
+	 * @param array{lock:array{heartbeat_at:int,started_at:int}|null,state:string} $slot      Its `CLI::worker_states()` entry.
+	 * @param string                                                                     $lock_dir  Absolute path of the worker's lock dir.
+	 * @param int                                                                        $now       Wall clock the heartbeat age is measured against.
+	 * @return array{type:string,partition:int,state:string,started_at:int|null,heartbeat_age:int|null,heartbeat_at:int,restart_pending:bool}
 	 */
-	private static function build_worker_status(
-		string $type,
-		int $partition,
-		string $lock_dir,
-		int $now,
-		int $stale_timeout,
-		int $on_demand_idle = 0
-	): array {
-		// Pure liveness per (type, partition) from the lock-dir heartbeat.
-		$status        = 'dead';
-		$heartbeat_age = null;
-		$heartbeat_at  = 0;
-		$mtime = @\filemtime( $lock_dir . '/heartbeat' );
-		if ( false !== $mtime ) {
-			$heartbeat_at  = $mtime;
-			$heartbeat_age = $now - $mtime;
-			if ( ! Lock_Node::heartbeat_is_stale( $lock_dir, $now, $stale_timeout ) ) {
-				$status = 'running';
-			}
-		}
-		$live  = ( 'running' === $status );
-		$stale = ( ! $live && null !== $heartbeat_age );
-
+	private static function build_worker_status( string $type, int $partition, array $slot, string $lock_dir, int $now ): array {
+		$heartbeat_at = $slot['lock']['heartbeat_at'] ?? 0;
+		$started_at   = $slot['lock']['started_at'] ?? 0;
 		return [
 			'type'            => $type,
 			'partition'       => $partition,
-			'status'          => $status,
-			'started_at'      => Lock_Node::get_started_time( $lock_dir ),
-			'heartbeat_age'   => $heartbeat_age,
+			'state'           => $slot['state'],
+			'started_at'      => $started_at > 0 ? $started_at : null,
+			'heartbeat_age'   => $heartbeat_at > 0 ? $now - $heartbeat_at : null,
 			'heartbeat_at'    => $heartbeat_at,
-			'live'            => $live,
-			'stale'           => $stale,
-			'idle'            => $on_demand_idle > 0 && ! $live && ! $stale,
 			'restart_pending' => Lock_Node::is_restart_pending( $lock_dir ),
 		];
 	}
@@ -312,11 +287,11 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * node structure next to worker status; one that will not read is the
 	 * envelope's `unreadable` row instead.
 	 *
+	 * @param array<string,array<array-key,mixed>> $readable The readable active topologies.
 	 * @return array<string,array{nodes: list<array<string,int|string|list<string>>>,edges: list<array{0:string,1:string}>}>
-	 * @throws \RuntimeException When the topology catalog will not load.
 	 */
-	private static function collect_topology_graphs(): array {
-		$names = \array_keys( Bootstrap::active_topologies()[0] );
+	private static function collect_topology_graphs( array $readable ): array {
+		$names = \array_keys( $readable );
 		return \array_map( Topology_Analyzer::graph_for( ... ), \array_combine( $names, $names ) );
 	}
 

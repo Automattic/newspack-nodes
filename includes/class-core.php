@@ -510,13 +510,23 @@ class Core {
 	 * trailing newline.
 	 */
 	public static function log_prefix( ?string $text = null ): string {
-		$prefix = \gmdate( 'Y-m-d H:i:s' ) . ' UTC ';
+		$prefix = self::format_utc( \time() ) . ' ';
 		if ( null === $text ) {
 			return $prefix;
 		}
 		$text = \rtrim( $text, "\n" );
 		$text = $prefix . \str_replace( "\n", "\n" . $prefix, $text );
 		return $text . "\n";
+	}
+
+	/**
+	 * A unix time as `Y-m-d H:i:s UTC`, the one spelling every log line, CLI
+	 * row and health message uses.
+	 *
+	 * @param int $ts Unix time.
+	 */
+	public static function format_utc( int $ts ): string {
+		return \gmdate( 'Y-m-d H:i:s', $ts ) . ' UTC';
 	}
 
 	/** Replace the sink `_stderr()` writes to; `$stderr_handler` carries the signature. */
@@ -772,6 +782,14 @@ class Core {
 			return '';
 		}
 		return \explode( '/', \substr( $concrete, \strlen( $prefix ) ) )[0];
+	}
+
+	/**
+	 * The logged-in WordPress user's id: 0 when nobody is logged in — a worker,
+	 * WP-Cron, WP-CLI without `--user` — and 0 where WordPress is not loaded.
+	 */
+	public static function current_user_id(): int {
+		return \function_exists( 'get_current_user_id' ) ? \get_current_user_id() : 0;
 	}
 
 	/** True while the stderr handler is on the stack; `Event_Framework::stop_check()` reads it to skip a log-write stop. */

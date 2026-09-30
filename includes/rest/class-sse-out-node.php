@@ -288,16 +288,13 @@ class SSE_Out_Node extends Node {
 		if ( '' === $handle ) {
 			return null;
 		}
-		if ( ! \preg_match( '/^[0-9a-f]{32}$/D', $handle ) ) {
-			return false;
-		}
 		$record = Command_Auth::load_session_record( $handle );
-		if ( null === $record || \get_current_user_id() !== $record['user'] ) {
+		if ( null === $record || Core::current_user_id() !== $record['user'] ) {
 			return false;
 		}
 		return [
 			'handle' => $handle,
-			'ttl'    => \max( 0, $record['expires'] - \time() ),
+			'ttl'    => \max( 0, $record['ttl'] ),
 		];
 	}
 
@@ -454,7 +451,7 @@ class SSE_Out_Node extends Node {
 			$this->name( Node_Names::SSE );
 			$this->sink( $interpreter );
 
-			$http_filter = new HTTP_Filter_Node( $session );
+			$http_filter = new HTTP_Filter_Node( null === $session ? null : HTTP_Filter_Node::head( Node_Names::SSE, $session ) );
 			// SSE egress plumbing — patron-linked so dump_metadata hides it.
 			$http_filter->patron( $this );
 			$http_filter->name( Node_Names::OUTPUT );

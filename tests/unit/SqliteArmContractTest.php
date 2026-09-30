@@ -26,7 +26,7 @@ final class SqliteArmContractTest extends DurableArmContract {
 	}
 
 	protected function arm(): Cache_Backend {
-		return $this->arm ??= new Sqlite_Arm( "{$this->dir}/tables/lab-7:kea.p3.sqlite" );
+		return $this->arm ??= new Sqlite_Arm( "{$this->dir}/tables/lab-7:kea.p3.sqlite", 'kea:p3' );
 	}
 
 	protected function batches_atomically(): bool {

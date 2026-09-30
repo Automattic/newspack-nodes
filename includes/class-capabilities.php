@@ -14,12 +14,12 @@
  *       fn ( $map ) => [ 'read' => 'edit_posts' ] + $map );
  *
  * Verbs declare their role in `node_schema()` (`'capability' => 'read'`,
- * default manage), and `Service_CI_Node` wraps every handler in `require()`
- * for the role declared. The base interpreter's own vocabulary declares
- * nothing, so `Command_Interpreter_Node::dispatch()` gates it against the
- * `required_capability` floor an endpoint pins on the node instead — except
- * the read-only builtins it lists in `READ_VERBS`, which answer READ under
- * any floor. REST permission callbacks call `can()`.
+ * default manage) — a service CI in its own, a `:config` interpreter in its
+ * patron's — and `Command_Interpreter_Node::dispatch()` refuses every verb
+ * through `require_verb()` against the role declared (ADR-26). The base
+ * interpreter's own vocabulary declares nothing, so it demands MANAGE, except
+ * the read-only builtins `READ_VERBS` lists, which answer READ. REST
+ * permission callbacks call `can()`.
  *
  * `$session_scope` is the second half: a scoped command session lowers the
  * CEILING for ONE command, which `Command_Interpreter_Node::interpret()`
@@ -88,16 +88,26 @@ class Capabilities {
 	public static ?string $session_scope = null;
 
 	/**
-	 * Authorisation gate: throw unless the current user holds the role.
-	 * `Command_Interpreter_Node::interpret()` catches and wraps the refusal as
+	 * The one authorisation gate, which `Command_Interpreter_Node::dispatch()`
+	 * puts in front of every verb: throw unless the command being handled may
+	 * run at $role (ADR-26). `interpret()` catches and wraps the refusal as
 	 * TM_COMMAND|TM_ERROR.
 	 *
+	 * Where a WordPress user is logged in, that is `can()`: the user's
+	 * capability, under whatever ceiling the command's session installed. In a
+	 * worker no user is logged in, so the ceiling alone decides, and a command
+	 * carrying none — the site's own signature, a process's own line — runs at
+	 * MANAGE, the authority that loaded the topology.
+	 *
 	 * @param string $role One of READ|TUNE|MANAGE.
-	 * @throws \RuntimeException When the current user lacks the role's capability.
+	 * @throws \RuntimeException When the role is refused.
 	 * @throws \InvalidArgumentException Through `cap_for()`, on a role the map does not name.
 	 */
-	public static function require( string $role ): void {
-		if ( ! self::can( $role ) ) {
+	public static function require_verb( string $role ): void {
+		$allowed = 0 !== Core::current_user_id()
+			? self::can( $role )
+			: self::scope_covers( self::$session_scope ?? self::MANAGE, $role );
+		if ( ! $allowed ) {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
 			throw new \RuntimeException( "permission denied: {$role} capability required" );
 		}

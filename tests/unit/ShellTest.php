@@ -529,12 +529,12 @@ class ShellTest extends TestCase {
 		$this->assertSame( 'elsewhere/sink', $shell->parse( 'send node bytes' )[ Message::FROM ] );
 	}
 
-	/** Unset falls back to `_output/<pid>` so replies reach this session's Dumper. */
+	/** Unset falls back to `_output/_cli:<pid>/_output` so replies reach this session's Dumper. */
 	public function test_FROM_defaults_to_the_session_output_path(): void {
 		$shell = new Shell_Node();
 
 		$this->assertSame(
-			Node_Names::OUTPUT . '/' . \getmypid(),
+			Node_Names::OUTPUT . '/_cli:' . \getmypid() . '/' . Node_Names::OUTPUT,
 			$shell->parse( 'send node bytes' )[ Message::FROM ]
 		);
 	}
@@ -690,7 +690,7 @@ class ShellTest extends TestCase {
 			(float) $message[ Message::VALUE ],
 			'ping stamp lost precision'
 		);
-		$this->assertStringStartsWith( '_output/', $message[ Message::FROM ] );
+		$this->assertStringStartsWith( '_output/_cli:', $message[ Message::FROM ] );
 	}
 
 	public function test_parse_default_verb_yields_TM_COMMAND(): void {
@@ -1184,12 +1184,12 @@ class ShellTest extends TestCase {
 
 		$this->assertCount( 1, $sink->captured );
 		$out = $sink->captured[0];
-		$this->assertSame( '_output/' . \getmypid(), $out[ Message::FROM ] );
+		$this->assertSame( '_output/_cli:' . \getmypid() . '/_output', $out[ Message::FROM ] );
 		$this->assertSame( 'firehose-workers.p0', $out[ Message::TO ] );
 	}
 
 	public function test_fill_tm_eof_restamps_from_to_session_identity_and_forwards(): void {
-		// On TM_EOF the Shell stamps FROM to its own `_output/$pid` reply
+		// On TM_EOF the Shell stamps FROM to its own `_output/_cli:$pid/_output` reply
 		// identity (the PHP analog of Tachikoma's _stdin → _responder rewrite)
 		// and TO to its cwd path, then forwards to the sink for the drain
 		// round-trip.
@@ -1206,7 +1206,7 @@ class ShellTest extends TestCase {
 		$this->assertCount( 1, $sink->captured );
 		$out = $sink->captured[0];
 		$this->assertSame( Message::TM_EOF, $out[ Message::TYPE ] );
-		$this->assertSame( '_output/' . \getmypid(), $out[ Message::FROM ] );
+		$this->assertSame( '_output/_cli:' . \getmypid() . '/_output', $out[ Message::FROM ] );
 		$this->assertSame( 'firehose-workers.p0', $out[ Message::TO ] );
 	}
 
@@ -1239,38 +1239,36 @@ class ShellTest extends TestCase {
 	// ── FROM=$pid stamping (multi-session contention) ───────────────────────────
 
 	public function test_parse_from_is_pid(): void {
-		// Shell stamps FROM=`_output/$pid` so replies route uniformly in
-		// both bare and attached modes (interpreter's response uses TO=$message->from,
-		// _router peels _output, _output dispatches by ID through the
-		// shell-callback registry). In attached mode the worker's input-Consumer
-		// prepends stamp_as=_repl, so server-side FROM=_repl/_output/$pid;
-		// the worker's _router peels _repl, the _repl Partition writes to disk
-		// with TO=_output/$pid, and the cli's reply-in Consumer reads it
-		// where Dumper's regex filter (`(?:_output/)?$pid`) matches.
-		// Multi-session: other clis' replies use a different $pid → drop.
+		// Shell stamps FROM=`_output/_cli:$pid/_output` so replies route in
+		// both modes. Bare, _router peels _output and the Dumper renders it.
+		// Attached, the worker's input Consumer prepends _repl, its _router
+		// peels _repl into the output Partition with TO=_output/_cli:$pid/_output,
+		// and this process's channel gate strips `_output/_cli:$pid` before the
+		// Router hands `_output` the reply. Another cli's replies carry another
+		// $pid in that head, so its gate drops them.
 		$shell = new Shell_Node();
 		$message = $shell->parse( 'ls');
 
 		$this->assertNotNull( $message );
-		$this->assertSame( '_output/' . \getmypid(), $message[ Message::FROM ] );
+		$this->assertSame( '_output/_cli:' . \getmypid() . '/_output', $message[ Message::FROM ] );
 	}
 
 	public function test_parse_from_is_pid_for_tell(): void {
 		$shell = new Shell_Node();
 		$message = $shell->parse( 'tell node msg');
-		$this->assertSame( '_output/' . \getmypid(), $message[ Message::FROM ] );
+		$this->assertSame( '_output/_cli:' . \getmypid() . '/_output', $message[ Message::FROM ] );
 	}
 
 	public function test_parse_from_is_pid_for_send(): void {
 		$shell = new Shell_Node();
 		$message = $shell->parse( 'send node bytes');
-		$this->assertSame( '_output/' . \getmypid(), $message[ Message::FROM ] );
+		$this->assertSame( '_output/_cli:' . \getmypid() . '/_output', $message[ Message::FROM ] );
 	}
 
 	public function test_parse_from_is_pid_for_send_eof(): void {
 		$shell = new Shell_Node();
 		$message = $shell->parse( 'send_eof node');
-		$this->assertSame( '_output/' . \getmypid(), $message[ Message::FROM ] );
+		$this->assertSame( '_output/_cli:' . \getmypid() . '/_output', $message[ Message::FROM ] );
 	}
 
 	public function test_parse_from_is_stable_within_a_process(): void {

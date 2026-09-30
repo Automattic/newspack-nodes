@@ -188,7 +188,7 @@ function deriveHealth( section ) {
 	}
 	const partitions = partitionSummaries( workers ).map( ( p ) => ( {
 		...p,
-		stalled: p.stale,
+		stalled: 'stale' === p.state,
 	} ) );
 	const anyStalled = partitions.some( ( p ) => p.stalled );
 	let health = 'ok';

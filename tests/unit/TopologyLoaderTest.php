@@ -46,7 +46,7 @@ class TopologyLoaderTest extends TestCase {
 
 	public function test_load_suppresses_command_replies(): void {
 		// The boot topology has no console to reply to; every successful command's
-		// reply would otherwise route TO=`_output/<pid>`, dead-end on the absent
+		// reply would otherwise route TO=`_output/_cli:<pid>/_output`, dead-end on the absent
 		// `_output`, and bounce a dropped NOT_AVAILABLE. The loader runs the Shell
 		// with want_reply off, so the interpreter emits nothing downstream.
 		$this->write_tsl(

@@ -8,7 +8,8 @@
  * - `graph` is the declared `.tsl` structure, one `{nodes,edges}` per topology.
  *   A `consumer` node carries `reads`, its source-log template, and `reader`,
  *   its offsetlog template.
- * - `workers` carries liveness alone, one row per (type, partition).
+ * - `workers` carries liveness alone, one row per (type, partition): its
+ *   `state` (`CLI::worker_states()`'s word), heartbeat and start times.
  * - `consumers` carries each reader's probe state: its cursor, the partition
  *   end it recorded, and how far behind that leaves it.
  * - `logs` carries the live per-partition segment lists.
@@ -296,7 +297,7 @@ export function reconstructWorkers( data, prior ) {
 			// Drop a ghost reader: undeclared partition AND no live worker.
 			if (
 				! liveByName.has( `${ concrete }#${ row.partition }` ) &&
-				! ( status && status.live )
+				'live' !== status?.state
 			) {
 				return;
 			}
@@ -322,10 +323,7 @@ export function reconstructWorkers( data, prior ) {
 					handler,
 					source: concrete,
 					partition: row.partition,
-					status: status ? status.status : 'dead',
-					live: status ? status.live : false,
-					stale: status ? status.stale : false,
-					idle: status ? !! status.idle : false,
+					state: status ? status.state : 'down',
 					restart_pending: status ? status.restart_pending : false,
 					heartbeat_age: status ? status.heartbeat_age : null,
 					started_at: status ? status.started_at : null,
@@ -358,10 +356,7 @@ export function reconstructWorkers( data, prior ) {
 				handler: topology,
 				source: '',
 				partition: w.partition,
-				status: w.status,
-				live: w.live,
-				stale: w.stale,
-				idle: !! w.idle,
+				state: w.state,
 				restart_pending: w.restart_pending,
 				heartbeat_age: w.heartbeat_age,
 				started_at: w.started_at,

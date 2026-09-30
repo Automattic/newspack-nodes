@@ -163,7 +163,7 @@ class Log_Cleaner {
 	 * @throws \Throwable When the config or the topology catalog will not load, an active topology will not read, or a producer template declares no dir.
 	 */
 	private static function sweep_set(): array {
-		$declared = self::declared_dirs();
+		$declared = self::declared_dirs( ...Bootstrap::active_topologies() );
 		Worker_Should_Stop::raise( [ ...\array_values( $declared['unreadable'] ), ...\array_values( $declared['refused'] ) ] );
 		return $declared;
 	}
@@ -180,18 +180,20 @@ class Log_Cleaner {
 	 * its own, coming back beside the map for `dump_graph` to name. A degraded
 	 * declared set yields `[]`.
 	 *
+	 * @param array<string,array<array-key,mixed>> $readable The readable active topologies, `Bootstrap::active_topologies()[0]`.
 	 * @return array{0: array<string,int>, 1: array<string,\RuntimeException>} The map, then producer template => refusal.
-	 * @throws \RuntimeException When the config or the topology catalog will not load.
+	 * @throws \RuntimeException When the config will not load.
 	 */
-	public static function declared_log_partitions(): array {
-		$declared = self::declared_dirs();
+	public static function declared_log_partitions( array $readable ): array {
+		$declared = self::declared_dirs( $readable, [] );
 		return [ $declared['logs'] ?? [], $declared['refused'] ];
 	}
 
 	/**
 	 * Single-pass declared-set collector. Resolves each config ROOT once and loops
 	 * the operator's READABLE active topologies (`Bootstrap::active_topologies()`
-	 * — the set the fleet spawns from, less what will not read) once, filling
+	 * — the set the fleet spawns from, less what will not read, which the
+	 * caller read and hands in) once, filling
 	 * both buckets UNIFORMLY. Driving
 	 * retention off the active set rather than the on-disk `.tsl` glob means a
 	 * superseded-but-shipped topology's logs AND offsetlogs are reclaimed once it's
@@ -214,18 +216,18 @@ class Log_Cleaner {
 	 * map (the partition comes from the resolver's enumeration loop, never parsed
 	 * out of a name); the whitelisted settings log is partition 0.
 	 *
+	 * @param array<string,array<array-key,mixed>> $readable   Readable active topology => its entry.
+	 * @param array<string,\Throwable>             $unreadable Active topology => what it threw.
 	 * @return array{logs: array<string,int>|null, offsets: array<string,int>|null, unreadable: array<string,\Throwable>, refused: array<string,\RuntimeException>}
-	 * @throws \RuntimeException When `Config::value()` rejects a key or
-	 *                           `Bootstrap::active_topologies()` cannot build the catalog.
+	 * @throws \RuntimeException When `Config::value()` rejects a key.
 	 */
-	private static function declared_dirs(): array {
+	private static function declared_dirs( array $readable, array $unreadable ): array {
 		$logs_root    = Core::resolve_config_token( 'config', 'logs_dir' );
 		$offsets_root = Core::resolve_config_token( 'config', 'offsets_dir' );
 
 		$logs                      = [];
 		$offsets                   = [];
-		$refused                   = [];
-		[ $readable, $unreadable ] = Bootstrap::active_topologies();
+		$refused      = [];
 
 		foreach ( $readable as $name => $entry ) {
 			$resolved = Topology_Analyzer::resolved_resource_dirs( $name, Bootstrap::partitions_of( $entry ) );

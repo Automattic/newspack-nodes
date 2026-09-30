@@ -142,16 +142,10 @@ final class Vault_Group_Node extends Node {
 	 * @return array<string,callable>
 	 */
 	private function forwarding_verbs(): array {
-		$schema   = $this->child_class::node_schema();
-		$settings = [];
-		foreach ( Core::arr( $schema['commands'] ?? [] ) as $declared ) {
-			if ( \is_array( $declared ) && ( '' !== Core::as_string( $declared['toggle'] ?? '' ) || '' !== Core::as_string( $declared['setter'] ?? '' ) ) ) {
-				$settings[ Core::as_string( $declared['name'] ?? '' ) ] = true;
-			}
-		}
-		$verbs = [];
-		foreach ( \array_keys( self::verbs_with_handlers( $schema ) ) as $verb ) {
-			$by_verb        = isset( $settings[ $verb ] );
+		$declared = Command_Interpreter_Node::declared_verbs( $this->child_class );
+		$verbs    = [];
+		foreach ( \array_keys( self::verbs_with_handlers( $this->child_class ) ) as $verb ) {
+			$by_verb        = '' !== Core::as_string( $declared[ $verb ]['toggle'] ?? '' ) || '' !== Core::as_string( $declared[ $verb ]['setter'] ?? '' );
 			$verbs[ $verb ] = fn ( Command_Interpreter_Node $ci, array $args ): array => $this->forward( $verb, $args, $by_verb );
 		}
 		return $verbs;

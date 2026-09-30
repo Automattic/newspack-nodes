@@ -9,13 +9,19 @@
  * outlives the rotation window and only idle keys age out.
  *
  * Timed rotation runs on an ABSOLUTE grid — see next_boundary(). The boundary
- * is derived from the wall clock rather than from when this instance was
- * built, so a cache restored into a fresh process keeps its predecessor's
- * phase; and rotate_if_due() rolls once per elapsed window rather than once
- * per call, so a gap is repaid in one pass. Both come from Table.pm: without
- * them a worker that exits before its window closes restarts the wait, and a
- * fleet recycling faster than the event logger's 200-second rotation ages
- * nothing out at all.
+ * is derived from the clock rather than from when this instance was built, so
+ * a cache restored into a fresh process keeps its predecessor's phase; and
+ * rotate_if_due() rolls once per elapsed window rather than once per call, so
+ * a gap is repaid in one pass. Both come from Table.pm: without them a worker
+ * that exits before its window closes restarts the wait, and a fleet
+ * recycling faster than the event logger's 200-second rotation ages nothing
+ * out at all.
+ *
+ * The clock is the wall unless the owner supplies its own to
+ * with_timed_rotation(). An owner replaying a stream passes the stream's
+ * clock, so the windows close on the stamps it consumes rather than on when
+ * it consumed them; the grid, the repaid gap and the boundary get_state()
+ * carries are all on that clock.
  *
  * Every shape that uses it wants promotion. A WORKING SET (the event logger's
  * in-flight requests, keyed by request id) reads eviction as "this one never
@@ -68,7 +74,10 @@ class LRU_Cache {
 	/** @var int Max number of buckets. */
 	private int $num_buckets;
 
-	/** @var callable|null Called with (key, value, timed) for each evicted item. */
+	/** @var (\Closure(): float)|null The owner's clock; null reads the wall. */
+	private ?\Closure $clock = null;
+
+	/** @var callable|null Called with (key, value, due) for each evicted item. */
 	private $on_evict = null;
 
 	/** @var float Seconds between time-based rotations (0 = capacity-only). */
@@ -149,6 +158,9 @@ class LRU_Cache {
 	 * and iterate() yields the key once; the shadow itself goes when its own
 	 * bucket ages out.
 	 *
+	 * The first entry stored once an owner's clock has a time arms the timed
+	 * grid there, so its windows count from when it landed.
+	 *
 	 * @param string $key   Cache key.
 	 * @param mixed  $value Value to store.
 	 */
@@ -156,6 +168,9 @@ class LRU_Cache {
 		if ( empty( $this->buckets ) ) {
 			$this->buckets[0] = [];
 			$this->current    = 0;
+		}
+		if ( $this->next_window <= 0 && $this->rotate_interval > 0 ) {
+			$this->arm( $this->clock() );
 		}
 
 		$this->buckets[ $this->current ][ $key ] = $value;
@@ -169,7 +184,7 @@ class LRU_Cache {
 		if ( \count( $this->buckets[ $this->current ] ) < $this->bucket_size ) {
 			return;
 		}
-		$this->force_rotate( false );
+		$this->force_rotate( null );
 	}
 
 	/**
@@ -181,11 +196,23 @@ class LRU_Cache {
 	 *
 	 * Rolls once PER elapsed window, not once per call: a gap — a process that
 	 * was down, or a stretch with no ticks — is repaid in one pass, so a stalled
-	 * entry ages out on wall-clock time rather than on how often a caller looks.
+	 * entry ages out on the clock rather than on how often a caller looks.
 	 * num_buckets rolls already empty the cache, so a longer gap has nothing
-	 * left to drop and the count caps there. The grid advances BEFORE the roll,
-	 * and every owed roll runs before what the pass caught is raised, combined,
-	 * so a callback that throws leaves no window to replay and no bucket unrolled.
+	 * left to drop and the count caps there. Each roll is handed the boundary
+	 * its window fell due at, so an eviction repaid late still reports when it
+	 * came due. The grid advances BEFORE the roll, and every owed roll runs
+	 * before what the pass caught is raised, combined, so a callback that
+	 * throws leaves no window to replay and no bucket unrolled.
+	 *
+	 * A clock that reads more than a whole window before the window the grid
+	 * stands in re-anchors the grid there and rolls nothing: an owner fed old
+	 * data after the grid armed on newer time, as an idle stream owner taking
+	 * a backlog is, closes the old data's windows on the old data. A clock
+	 * that only climbs, as a live stream's does, never takes this branch; a
+	 * wall stepped back by no more than a window still waits the step out.
+	 *
+	 * An owner's clock with no reading yet rolls and re-anchors nothing, so a
+	 * boundary restore_state() adopted stands until the clock has a time.
 	 *
 	 * @api Sibling plugins roll the window from their own tick.
 	 */
@@ -194,15 +221,27 @@ class LRU_Cache {
 			return;
 		}
 		$now = $this->clock();
+		if ( null === $now ) {
+			return;
+		}
+		if ( $this->next_window <= 0 ) {
+			$this->arm( $now );
+			return;
+		}
+		if ( $now < $this->next_window - 2 * $this->rotate_interval ) {
+			$this->next_window = $this->next_boundary( $now );
+			return;
+		}
 		if ( $now < $this->next_window ) {
 			return;
 		}
-		$elapsed = 1 + (int) \floor( ( $now - $this->next_window ) / $this->rotate_interval );
+		$first   = $this->next_window;
+		$elapsed = 1 + (int) \floor( ( $now - $first ) / $this->rotate_interval );
 		// Grid first: a callback throw mid-roll must not replay this window.
 		$this->next_window = $this->next_boundary( $now );
 		$caught = Worker_Should_Stop::attempt_each(
-			\range( 1, \min( $elapsed, $this->num_buckets ) ),
-			fn () => $this->force_rotate( true )
+			\range( 0, \min( $elapsed, $this->num_buckets ) - 1 ),
+			fn ( int $k ) => $this->force_rotate( $first + $k * $this->rotate_interval )
 		);
 		Worker_Should_Stop::raise( $caught );
 	}
@@ -214,15 +253,15 @@ class LRU_Cache {
 	 * pushing the boundary each time one fires would let a busy cache defer the
 	 * timed roll indefinitely.
 	 *
-	 * @param bool $timed Whether the clock rolled it, rather than a full bucket.
+	 * @param float|null $due The boundary a timed roll repays; null for a full bucket.
 	 */
-	private function force_rotate( bool $timed ): void {
+	private function force_rotate( ?float $due ): void {
 		++$this->current;
 		$this->buckets[ $this->current ] = [];
 
 		if ( \count( $this->buckets ) > $this->num_buckets ) {
 			$oldest = \min( \array_keys( $this->buckets ) );
-			$this->evict_bucket( $oldest, $timed );
+			$this->evict_bucket( $oldest, $due );
 		}
 	}
 
@@ -237,11 +276,11 @@ class LRU_Cache {
 	 * loop is a fan-out: every item is offered, and everything the callback
 	 * threw is raised after the last, combined (ADR-14).
 	 *
-	 * @param int  $index Bucket index to evict.
-	 * @param bool $timed Whether the clock rolled it, rather than a full bucket.
+	 * @param int        $index Bucket index to evict.
+	 * @param float|null $due   The boundary a timed roll repays; null for a full bucket.
 	 * @throws \Throwable Every callback failure, combined, raised after the loop.
 	 */
-	private function evict_bucket( int $index, bool $timed ): void {
+	private function evict_bucket( int $index, ?float $due ): void {
 		if ( ! isset( $this->buckets[ $index ] ) ) {
 			return;
 		}
@@ -253,42 +292,74 @@ class LRU_Cache {
 		$on_evict = $this->on_evict;
 		$caught   = Worker_Should_Stop::attempt_each(
 			$bucket,
-			static fn ( $value, $key ) => $on_evict( $key, $value, $timed )
+			static fn ( $value, $key ) => $on_evict( $key, $value, $due )
 		);
 		Worker_Should_Stop::raise( $caught );
 	}
 
 	/**
-	 * Set the time-based rotation interval and the eviction callback.
+	 * Set the time-based rotation interval, the eviction callback and the
+	 * clock the windows close on.
 	 *
 	 * This is the only way to register on_evict, and the callback fires for
 	 * capacity evictions too — pass a large interval to get the callback
-	 * without timed rotation. Its third argument says which evicted the item:
-	 * true for the clock's rotation, false for a full newest bucket.
+	 * without timed rotation. Its third argument says what evicted the item:
+	 * for the clock's rotation, the grid boundary its window fell due at, on
+	 * the owner's clock, however late the roll repaid it; null for a full
+	 * newest bucket.
 	 *
-	 * @api Sibling plugins arm the wall-clock window and its evict callback.
-	 * @param float    $seconds  Seconds between rotations.
-	 * @param callable $on_evict Called with (key, value, timed) for each evicted item.
+	 * With no `$clock` the windows close on the wall. An owner's clock that
+	 * reads 0 has no time yet: the grid arms on its first positive reading,
+	 * by set() or rotate_if_due(), where anchoring at the epoch would repay a
+	 * window per bucket at once.
+	 * Arm this before restore_state(), which adopts the boundary the
+	 * predecessor carried, on the same clock.
+	 *
+	 * @api Sibling plugins arm the window and its evict callback.
+	 * @param float                    $seconds  Seconds between rotations.
+	 * @param callable                 $on_evict Called with (key, value, ?float due) for each evicted item.
+	 * @param (\Closure(): float)|null $clock    The owner's clock in seconds; null reads the wall.
 	 * @return self This cache, for chaining onto the constructor.
 	 */
-	public function with_timed_rotation( float $seconds, callable $on_evict ): self {
+	public function with_timed_rotation( float $seconds, callable $on_evict, ?\Closure $clock = null ): self {
 		$this->rotate_interval = $seconds;
 		$this->on_evict        = $on_evict;
+		$this->clock           = $clock;
 		if ( $seconds > 0 ) {
-			$this->next_window = $this->next_boundary( $this->clock() );
+			$this->arm( $this->clock() );
 		}
 		return $this;
 	}
 
-	/** The cached per-tick clock, falling back to a live read outside a drain loop. */
-	private function clock(): float {
-		return Core::$now ?: Core::right_now();
+	/**
+	 * The owner's clock, else the cached per-tick wall, else a live read.
+	 *
+	 * The one rule for a clock with no time: an owner's clock reading 0 or
+	 * less, before its first stamp, answers null, and neither arm() nor
+	 * rotate_if_due() acts on it.
+	 *
+	 * @return float|null Seconds, or null while the clock has no reading.
+	 */
+	private function clock(): ?float {
+		$now = null !== $this->clock ? ( $this->clock )() : ( Core::$now ?: Core::right_now() );
+		return $now > 0 ? $now : null;
+	}
+
+	/**
+	 * Put the next boundary on the grid after `$now`, once the clock has a time.
+	 *
+	 * @param float|null $now The clock's reading; null leaves the grid unarmed.
+	 */
+	private function arm( ?float $now ): void {
+		if ( null !== $now ) {
+			$this->next_window = $this->next_boundary( $now );
+		}
 	}
 
 	/**
 	 * The first grid boundary strictly after $after.
 	 *
-	 * The grid is a pure function of the wall clock, so a process that replaces
+	 * The grid is a pure function of the clock, so a process that replaces
 	 * another lands on the boundary its predecessor would have used. That is
 	 * what makes the phase survive a restart with nothing persisted. Timers ride
 	 * the same clock-derived grid (ADR-17); this one carries no phase offset,

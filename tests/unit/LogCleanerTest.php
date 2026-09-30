@@ -174,7 +174,7 @@ class LogCleanerTest extends TestCase {
 		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests', 2 ) );
 		$this->declare_topology( 'marmot-workers', "include orphaned-topology-6622\n" );
 
-		[ $map, $refused ] = Log_Cleaner::declared_log_partitions();
+		[ $map, $refused ] = Log_Cleaner::declared_log_partitions( \Newspack_Nodes\Bootstrap::active_topologies()[0] );
 		\ksort( $map );
 
 		$this->assertSame( [], $refused, 'dump_graph names a topology from active_topologies()' );
@@ -358,7 +358,7 @@ class LogCleanerTest extends TestCase {
 		$GLOBALS['_wp_options']['newspack_nodes_num_partitions'] = 2;
 		Config::reset();
 
-		[ $map, $refused ] = Log_Cleaner::declared_log_partitions();
+		[ $map, $refused ] = Log_Cleaner::declared_log_partitions( \Newspack_Nodes\Bootstrap::active_topologies()[0] );
 		\ksort( $map );
 
 		$this->assertSame(
@@ -835,7 +835,7 @@ class LogCleanerTest extends TestCase {
 		$GLOBALS['_wp_options']['newspack_nodes_num_partitions'] = 1;
 		Config::reset();
 
-		[ $map ] = Log_Cleaner::declared_log_partitions();
+		[ $map ] = Log_Cleaner::declared_log_partitions( \Newspack_Nodes\Bootstrap::active_topologies()[0] );
 		\ksort( $map );
 
 		// requests is 2-partition; firehose producer + the whitelisted non-.tsl
@@ -863,7 +863,7 @@ class LogCleanerTest extends TestCase {
 		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests' ) );
 		Core::$config_resolvers = [];
 
-		$this->assertSame( [ [], [] ], Log_Cleaner::declared_log_partitions() );
+		$this->assertSame( [ [], [] ], Log_Cleaner::declared_log_partitions( \Newspack_Nodes\Bootstrap::active_topologies()[0] ) );
 	}
 
 	public function test_declared_log_dirs_skips_non_string_producers(): void {

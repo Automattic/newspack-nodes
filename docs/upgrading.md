@@ -6,6 +6,121 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **A cli process's reply address is `_output/_cli:<pid>/<reply-node>`.** The
+  attached REPL stamps FROM `_output/_cli:<pid>/_output`, where it stamped
+  `_output/<pid>`. A consumer reading a REPL command's FROM, or minting a
+  command whose reply a `wp nodes cli` session must receive, uses
+  `CLI::reply_head( $pid ) . '/<reply-node>'`; a reply addressed the old way
+  reaches no session. `HTTP_Filter_Node`'s constructor takes the prefix it
+  gates on,
+  `new HTTP_Filter_Node( HTTP_Filter_Node::head( Node_Names::SSE, $handle ) )`,
+  where it took the handle alone, and passes a broadcast only to its target.
+  `CLI::open_channel()` takes the session as a fourth argument, the process
+  pid, and returns the gate third; set a target on that gate to receive a
+  worker's broadcasts.
+- **A worker slot has one state word everywhere: `live`, `stale`, `held`,
+  `idle` or `down`.** A `workers dump_graph` `workers[]` row carries `state`
+  where it carried `status` (`running`/`dead`) and the booleans `live`,
+  `stale` and `idle`; read `'live' === row.state` where you read `live` or
+  `'running' === status`, and `'stale' === row.state` or `'idle' === row.state`
+  for the other two. The shared status-badge classes follow the word:
+  `.running` is `.live`, `.dead` is `.stale` or `.down`, and `.held` joins
+  `.idle`. The `aggregator probe` roll-up counts
+  `{ total, live, stale, held, idle, down }` in place of `dead`.
+  `CLI::worker_state()` is gone: classify a pass with
+  `$cli->worker_states( $worker_ids, $topologies, $leftovers )`, which
+  answers each id's lock row and state against the active set you read with
+  `Bootstrap::get_topologies()`, and every other lock dir after them when
+  `$leftovers` is true. `CLI::slot_ids( $topologies )` spells the slots.
+  `Workers_CI_Node::collect_dump_metadata( $topologies, $active )`, `$active`
+  the pair `Bootstrap::split_readable( $topologies )` answers, and
+  `Log_Cleaner::declared_log_partitions( $readable )` take the set their
+  caller read. A lock dir with no heartbeat reads `live` inside
+  `Lock_Node::ORPHAN_GRACE_S` and `stale` past it.
+- **`LRU_Cache::with_timed_rotation()` takes the clock its windows close on.**
+  The third argument, `?\Closure $clock`, returns float seconds; null keeps
+  the wall. An owner replaying a stream passes the stream's clock, and the
+  grid, the gap a restore repays and the boundary `get_state()` carries are
+  all on it, so arm it before `restore_state()` as before. A clock reading 0
+  has no time yet: the grid arms on its first positive reading, by `set()` or
+  `rotate_if_due()`. Nothing changes for a caller passing two arguments. A
+  consumer that passes a clock raises its `version_at_least()` floor to
+  2.79.1, because an older substrate drops the third argument without a word
+  and rotates on the wall. An owner clock that steps back more than a whole
+  window re-anchors the grid on it.
+- **`on_evict` takes `?float $due` where it took `bool $timed`.** A timed
+  eviction hands the grid boundary its window fell due at; a full bucket hands
+  null. A callback declaring `bool $timed` raises a `TypeError` on the first
+  capacity eviction: declare `?float $due` and test `null !== $due` where you
+  tested `$timed`. A callback reading neither may keep two parameters.
+- **`Capabilities::require()` is gone.** A verb needs no gate of its own:
+  declare its `capability`, and `dispatch()` refuses a caller below it. Code
+  outside a verb that must refuse calls `Capabilities::require_verb( $role )`,
+  which asks `can()` where a user is logged in and the session's scope alone
+  where none is; code that only tests calls `can()`.
+- **`SSE_Slot_Pool::user_id()` is `Core::current_user_id()`.**
+- **A session listing row has no `live` or `state`.** `sessions list`,
+  `Sessions::listing()` and `wp nodes session list` answer
+  `{ handle, label, scope, created, expires }`, and only for a session whose
+  store row still stands; a revoked, flushed or lapsed session is simply absent.
+  A client reading `live` or matching `state` drops that read. A store read that
+  fails throws `Session_Store_Unavailable` where it listed every row dead.
+- **Re-mint every command session minted before this release.** A session row
+  now carries its label and when it was minted, and a row without both is no
+  session, so every key minted by 2.79.0 stops verifying: a dashboard re-auths
+  on its own, and an MCP client needs a fresh `wp nodes session issue`. The
+  listing reads an index in the session Table, not the `newspack_nodes_sessions`
+  option, which nothing reads now; `wp option delete newspack_nodes_sessions`
+  removes it.
+- **`Sessions::all()` and `Sessions::handles_labelled()` are gone.** Read
+  `Sessions::listing()`, whose rows carry the `handle`; filter it by `label`
+  for a label's handles. `Sessions::OPTION` and `Sessions::MAX_ROWS` are gone
+  with the option: no count caps the labelled sessions.
+- **`load_session_record()` answers `ttl`, not `expires`.** Read
+  `$record['ttl']`, the whole seconds the session's row has left, where you
+  subtracted the clock from `expires`. `key`, `scope` and `user` are unchanged;
+  `label` and `created` join them. A handle that is not 32 lowercase hex digits
+  answers null without a read.
+- **`Command_Auth::live_handles()` and `flush_sessions()` are gone.** Resolve
+  many handles with `load_session_records( $handles )`, whose keys are the live
+  ones; empty the store with `Command_Auth::session_table()->flush()`.
+- **`Table_Node::entry_key()` is `Cache_Backend::entry_key()`.** It is a volatile
+  arm's key; a durable arm answers `row_key( $key )` over the namespace it
+  holds, and `Sqlite_Arm::entry_key()` and `Wpdb_Arm::entry_key()` are gone.
+  `new Sqlite_Arm( $path, $namespace, … )` takes the Table's namespace second.
+- **A `wpdb` Table keys its rows by the bare key.** Its `namespace` column
+  already scopes each row, so a row a `wpdb` Table wrote as `{namespace}:{key}`
+  is unreachable and expires on its TTL. Command sessions were already stored
+  under the bare handle and survive; no stock topology in any Newspack plugin
+  declares a `wpdb` Table.
+- **`dispatch()` gates every verb by the role its schema declares (ADR-26).**
+  A `:config` verb on your node that declares no `capability` now demands
+  MANAGE, where it demanded nothing; a READ or TUNE session reaching it in a
+  worker is refused `permission denied: manage capability required`. Declare
+  `'capability' => Capabilities::READ` on a verb that only reports, and `TUNE`
+  on one a tune session has a reason to call. Delete any role check inside a
+  handler: `Service_CI_Node::require_manage_options()` is gone, and calling it
+  is an `Error`. Nothing reads `Command_Interpreter_Node::$required_capability`
+  any more; assigning it is a dynamic property.
+- **Tests that dispatch as a REST request must log a user in.** Where no user
+  is current, `Capabilities::require_verb()` reads the session's scope alone,
+  so an unscoped command runs at MANAGE whatever the capability map says. A
+  test asserting a refusal from missing capabilities sets a nonzero current
+  user id, as the substrate's `VerbHarness::fire()` does (`REQUEST_USER`). A
+  test calling a handler out of `commands()` bypasses the gate entirely; call
+  `dispatch()`.
+- **`stats reset` on a Table is `reset_stats`.** `stats` takes no argument and
+  declares `read`.
+- **A structured request declares `'value' => 'struct'`.** A `requests` entry
+  whose VALUE is a structure says so; the console no longer infers
+  `TM_REQUEST|TM_STRUCT` from one `json` argument, so an undeclared entry sends
+  its argument as a word.
+- **`Sessions::record()` and `Sessions::forget()` are gone.** Call
+  `Sessions::issue( $label, $scope, $ttl )`, which mints and lists in one step
+  and returns the mint, in place of `Command_Auth::mint_session()` followed by
+  `record()`; call `Sessions::revoke( $handle )` in place of `forget()`. It
+  returns nothing, and throws `\RuntimeException` where `forget()` answered
+  `false` (no session held the handle) or `null` (the store did not answer).
 - **Re-mint every command session.** Sessions live in a durable wpdb Table
   (`nodes-sessions` in `{base_prefix}newspack_nodes_table`), not the cache, so a
   session minted before this release no longer verifies: a dashboard re-auths on
@@ -20,14 +135,12 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   any method its own code calls — event-logger-nodes adds `esc_like()` and
   `get_col()` — or one test calls `TestCase::use_wpdb()`. The substrate's
   `TestCase::tearDown()` puts the booted `$wpdb` back after every test.
-- **Durable Tables restart empty.** A `sqlite` or `wpdb` Table keys its rows
-  `{namespace}:{key}` with no salt, so every row written under the salted key
-  before this release is unreachable: event-logger-nodes' flame stats, URL index
-  and search sets rebuild from new traffic, and the orphaned rows expire on their
-  TTL and the tick's purge reclaims them. Code that wrote a durable row through
-  `Table_Node::entry_key()` writes `{namespace}:{key}` instead; `entry_key()`
-  is the volatile arms' key alone. A wpdb set key or key may now be 255 bytes
-  minus the namespace and one colon.
+- **Durable Tables restart empty.** A durable Table's keys carry no salt — a
+  `sqlite` Table keys its rows `{namespace}:{key}` — so every row written under
+  the salted key before this release is unreachable: event-logger-nodes' flame
+  stats, URL index and search sets rebuild from new traffic, and the orphaned
+  rows expire on their TTL and the tick's purge reclaims them. Code that wrote a
+  durable row through `Table_Node::entry_key()` writes through the Table instead.
 - **`cmd <table>:config get` and `rm` are gone.** Send the requests:
   `request_node <table> GET <key>` and `request_node <table> RM <key>…`.
   `Table_Node::rm()` is gone too; call `forget()`.

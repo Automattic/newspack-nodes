@@ -209,7 +209,7 @@ class TTYInNodeTest extends TestCase {
 		$reader->fire();
 		$this->assertCount( 1, $cap->captured );
 		$this->assertSame( Message::TM_EOF, $cap->captured[0][ Message::TYPE ] );
-		$this->assertStringContainsString( '_output/' . \getmypid(), $cap->captured[0][ Message::FROM ] );
+		$this->assertStringContainsString( '_output/_cli:' . \getmypid() . '/_output', $cap->captured[0][ Message::FROM ] );
 
 		// Idempotent: a second EOF tick must NOT re-emit.
 		$reader->fire();

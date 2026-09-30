@@ -58,7 +58,7 @@ const DUMP_GRAPH = {
 			handler: 'a',
 			partition: 0,
 			started_at: 1000,
-			status: 'running',
+			state: 'live',
 			inputs: [],
 			outputs: [],
 			inputs_status: [],
@@ -527,16 +527,14 @@ function healthDump( {
 	cursorOffset = 0,
 } ) {
 	const dump = {
-		// Liveness only — heartbeat_age + status per (type, partition).
+		// Liveness only — heartbeat_age + state per (type, partition).
 		workers: workers.map( ( w ) => ( {
 			type: w.type,
 			partition: w.partition,
-			status: w.status,
+			state: w.state,
 			started_at: w.started_at,
 			heartbeat_age: w.heartbeat_age,
 			heartbeat_at: 999,
-			live: 'running' === w.status,
-			stale: 'stale' === w.status,
 			restart_pending: false,
 		} ) ),
 		// Probe STATE — `distance` reconstructs to `behind`.
@@ -592,12 +590,12 @@ function healthClient( opts ) {
 	} );
 }
 
-// A lean per-partition fixture: liveness (status/heartbeat_age) + probe behind.
-function worker( partition, { heartbeatAge, behind, status = 'running' } ) {
+// A lean per-partition fixture: liveness (state/heartbeat_age) + probe behind.
+function worker( partition, { heartbeatAge, behind, state = 'live' } ) {
 	return {
 		type: 'a',
 		partition,
-		status,
+		state,
 		started_at: 1000,
 		heartbeat_age: heartbeatAge,
 		behind,
@@ -657,7 +655,7 @@ describe( 'useTopologyManager — partition stall + rolled-up health', () => {
 				worker( 1, {
 					heartbeatAge: 900,
 					behind: 0,
-					status: 'stale',
+					state: 'stale',
 				} ),
 			],
 		} );
@@ -703,7 +701,7 @@ describe( 'useTopologyManager — partition stall + rolled-up health', () => {
 				worker( 0, {
 					heartbeatAge: 900,
 					behind: 4096,
-					status: 'stale',
+					state: 'stale',
 				} ),
 			],
 		} );

@@ -515,7 +515,7 @@ class CacheBackendTest extends TestCase {
 	 */
 	public static function scoped_key_provider(): array {
 		return [
-			'table entry'    => [ static fn (): string => \Newspack_Nodes\Table_Node::entry_key( 'stats', '7719' ) ],
+			'table entry'    => [ static fn (): string => \Newspack_Nodes\Cache_Backend::entry_key( 'stats', '7719' ) ],
 			'batch counter'  => [ static fn (): string => \Newspack_Nodes\Job_Intake::batch_count_key( 'import-7719' ) ],
 			'batch errors'   => [ static fn (): string => \Newspack_Nodes\Job_Intake::batch_err_key( 'import-7719' ) ],
 			'unique claim'   => [ static fn (): string => \Newspack_Nodes\Job_Intake::unique_key( 'probe_h', 'tok-7719' ) ],

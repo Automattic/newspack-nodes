@@ -76,6 +76,8 @@ class Malformed_Verbs_CI_Node extends Service_CI_Node {
 					'description' => 'Declared in the catalog but carries no handler.',
 					'args'        => [],
 				],
+				// Not an array at all → carries no name, so it is no verb.
+				'stray-scalar-4417',
 				[
 					// Empty-string name → never keyed, never dispatchable.
 					'name'        => '',
@@ -167,6 +169,12 @@ class ServiceCiSchemaCommandsTest extends TestCase {
 			$commands,
 			'an empty-string verb name must never be keyed into the dispatch table'
 		);
+	}
+
+	/** The one index keys every named entry and drops what carries no name. */
+	public function test_declared_verbs_keys_named_entries_and_drops_the_rest(): void {
+		$this->assertSame( [ 'good', 'handlerless' ], \array_keys( Service_CI_Node::declared_verbs( Malformed_Verbs_CI_Node::class ) ) );
+		$this->assertSame( [ 'status' ], \array_keys( Service_CI_Node::declared_verbs( Schema_Driven_CI_Node::class, 'requests' ) ) );
 	}
 
 	public function test_well_formed_verb_still_installs_alongside_malformed_ones(): void {

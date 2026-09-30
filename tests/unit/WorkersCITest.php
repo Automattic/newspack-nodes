@@ -14,6 +14,7 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Probe_Record;
@@ -61,6 +62,12 @@ class WorkersCITest extends TestCase {
 	 *
 	 * @return string The base dir path (so tests can seed files under it).
 	 */
+	/** `collect_dump_metadata()` over one read of the active set, as a poll makes it. */
+	private static function dump_metadata(): array {
+		$topologies = Bootstrap::get_topologies();
+		return Workers_CI_Node::collect_dump_metadata( $topologies, Bootstrap::split_readable( $topologies ) );
+	}
+
 	private function arrange_base_dir(): string {
 		$this->tmp = (string) \realpath( \sys_get_temp_dir() ) . '/workers-ci-test-' . \uniqid();
 		\mkdir( $this->tmp, 0755, true );
@@ -280,7 +287,7 @@ class WorkersCITest extends TestCase {
 	 * `Alerts::evaluate()` reads this envelope, so a fleet it cannot expand
 	 * must not read as a fleet with no workers.
 	 */
-	public function test_collect_dump_metadata_propagates_a_failed_worker_expansion(): void {
+	public function test_alerts_propagate_a_failed_worker_expansion(): void {
 		$this->arrange_base_dir();
 		$refused = new \RuntimeException( 'catalog refused-8812' );
 		$calls   = 0;
@@ -296,7 +303,7 @@ class WorkersCITest extends TestCase {
 		);
 
 		$e = $this->caught(
-			fn () => Workers_CI_Node::collect_dump_metadata(),
+			fn () => \Newspack_Nodes\Alerts::evaluate(),
 			'a catalog that will not load must propagate'
 		);
 		$this->assertSame( $refused, $e );
@@ -314,7 +321,7 @@ class WorkersCITest extends TestCase {
 		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
 
 		try {
-			$meta = Workers_CI_Node::collect_dump_metadata();
+			$meta = self::dump_metadata();
 		} finally {
 			\Newspack_Nodes\Topology_Registry::reset();
 		}
@@ -325,29 +332,6 @@ class WorkersCITest extends TestCase {
 			[ 'demo-workers', 'request-workers', 'job-workers', 'aggregator' ],
 			\array_column( $meta['workers'], 'type' )
 		);
-	}
-
-	/** The active-set read every per-topology collector shares propagates too. */
-	public function test_collect_dump_metadata_propagates_a_failed_active_set_read(): void {
-		$this->arrange_base_dir();
-		$refused = new \RuntimeException( 'catalog refused on reread-6604' );
-		$calls   = 0;
-		\add_filter(
-			'newspack_nodes/topologies',
-			static function ( array $topologies ) use ( $refused, &$calls ): array {
-				if ( 2 === ++$calls ) {
-					throw $refused;
-				}
-				return $topologies;
-			},
-			20
-		);
-
-		$e = $this->caught(
-			fn () => Workers_CI_Node::collect_dump_metadata(),
-			'the second catalog read must propagate'
-		);
-		$this->assertSame( $refused, $e );
 	}
 
 	public function test_dump_graph_payload_includes_heartbeat_interval(): void {
@@ -913,12 +897,12 @@ class WorkersCITest extends TestCase {
 		) );
 		$this->assertNotEmpty( $workers, 'expected a demo-workers liveness row' );
 		foreach (
-			[ 'type', 'partition', 'status', 'started_at', 'heartbeat_age', 'heartbeat_at', 'live', 'stale', 'restart_pending' ] as $field
+			[ 'type', 'partition', 'state', 'started_at', 'heartbeat_age', 'heartbeat_at', 'restart_pending' ] as $field
 		) {
 			$this->assertArrayHasKey( $field, $workers[0], "worker missing liveness field: $field" );
 		}
-		$this->assertTrue( $workers[0]['live'] );
-		$this->assertSame( 'running', $workers[0]['status'] );
+		$this->assertSame( [ 'type', 'partition', 'state', 'started_at', 'heartbeat_age', 'heartbeat_at', 'restart_pending' ], \array_keys( $workers[0] ) );
+		$this->assertSame( 'live', $workers[0]['state'] );
 
 		$consumers = \array_values( \array_filter(
 			$result['consumers'],
@@ -929,6 +913,120 @@ class WorkersCITest extends TestCase {
 		$this->assertSame( 2, $consumers[0]['cursor_segment'] );
 		$this->assertSame( 128, $consumers[0]['distance'] );
 		$this->assertSame( 7, $consumers[0]['msgs'] );
+	}
+
+	/**
+	 * Each one-partition slot's dashboard state, by type, from one dump_graph.
+	 *
+	 * @return array<string,string>
+	 */
+	private function dashboard_states(): array {
+		$interpreter      = new Workers_CI_Node();
+		$interpreter->cli = $this->stub_cli();
+		$result           = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+		return \array_column( $result['workers'], 'state', 'type' );
+	}
+
+	public function test_dump_graph_reads_a_lock_dir_with_no_heartbeat_past_the_orphan_grace_as_stale(): void {
+		$base = $this->arrange_base_dir();
+		\mkdir( "{$base}/locks/job-workers.p0.lock.d", 0755, true );
+		\touch( "{$base}/locks/job-workers.p0.lock.d", \time() - ( \Newspack_Nodes\Lock_Node::ORPHAN_GRACE_S + 37 ) );
+
+		$interpreter      = new Workers_CI_Node();
+		$interpreter->cli = $this->stub_cli();
+		$rows             = \array_column( VerbHarness::fire( $interpreter, 'workers', 'dump_graph' )['workers'], null, 'type' );
+
+		$this->assertSame( 'stale', $rows['job-workers']['state'], 'as `wp nodes status` reads it' );
+		$this->assertNull( $rows['job-workers']['heartbeat_age'] );
+	}
+
+	/**
+	 * A dashboard poll walks the topology catalog once: the slots, their
+	 * states, the readable graphs and the declared logs all come off one
+	 * read, and the classifier stats no lock dir the poll did not ask for.
+	 */
+	public function test_a_dashboard_poll_applies_the_topologies_filter_once(): void {
+		$base = $this->arrange_base_dir();
+		$this->seed_heartbeat( $base, 'demo-workers', 0 );
+		\mkdir( "{$base}/locks/kea-departed.p6.lock.d", 0755, true );
+		$reads = new \ArrayObject();
+		\add_filter(
+			'newspack_nodes/topologies',
+			static function ( array $t ) use ( $reads ): array {
+				$reads->append( 1 );
+				return $t;
+			}
+		);
+
+		$interpreter      = new Workers_CI_Node();
+		$interpreter->cli = $this->stub_cli();
+		$workers          = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' )['workers'];
+
+		$this->assertCount( 1, $reads );
+		$this->assertNotContains( 'kea-departed', \array_column( $workers, 'type' ), 'a departed lock is no dashboard slot' );
+		$this->assertSame( 'live', \array_column( $workers, 'state', 'type' )['demo-workers'] );
+	}
+
+	public function test_dump_graph_reads_a_lockless_slot_as_held_under_the_fleet_hold(): void {
+		$base = $this->arrange_base_dir();
+		$this->seed_heartbeat( $base, 'demo-workers', 0 );
+		\Newspack_Nodes\Spawn_Coordinator::set_hold( 1754504127 );
+		try {
+			$states = $this->dashboard_states();
+			$this->assertSame( 'held', $states['job-workers'] );
+			$this->assertSame( 'live', $states['demo-workers'], 'a lock outranks the hold' );
+		} finally {
+			\Newspack_Nodes\Spawn_Coordinator::clear_hold();
+		}
+	}
+
+	public function test_dump_graph_reads_an_on_demand_topologys_lockless_slot_as_idle(): void {
+		$this->arrange_base_dir();
+		\add_filter(
+			'newspack_nodes/topologies',
+			static fn ( array $t ): array => $t + [
+				'kea-ondemand' => [ 'topology' => 'kea-ondemand', 'num_partitions' => 1, 'stale_timeout' => 60, 'on_demand_idle' => 41 ],
+			]
+		);
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'][] = 'kea-ondemand';
+		\Newspack_Nodes\Config::reset();
+
+		$states = $this->dashboard_states();
+		$this->assertSame( 'idle', $states['kea-ondemand'] );
+		$this->assertSame( 'down', $states['job-workers'] );
+	}
+
+	public function test_collect_dump_metadata_reads_the_topologies_as_often_for_nine_slots_as_for_three(): void {
+		$this->arrange_base_dir();
+		$partitions = 3;
+		\add_filter(
+			'newspack_nodes/topologies',
+			static function ( array $t ) use ( &$partitions ): array {
+				return $t + [
+					'kea-ondemand' => [ 'topology' => 'kea-ondemand', 'num_partitions' => $partitions, 'stale_timeout' => 60, 'on_demand_idle' => 41 ],
+				];
+			}
+		);
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'][] = 'kea-ondemand';
+		\Newspack_Nodes\Config::reset();
+		$reads = 0;
+		\add_filter(
+			'newspack_nodes/topologies',
+			static function ( array $t ) use ( &$reads ): array {
+				++$reads;
+				return $t;
+			}
+		);
+
+		$three       = self::dump_metadata();
+		$reads_three = $reads;
+		$partitions  = 9;
+		$reads       = 0;
+		$nine        = self::dump_metadata();
+
+		$idle = static fn ( array $meta ): int => \count( \array_filter( $meta['workers'], static fn ( $w ) => 'idle' === $w['state'] ) );
+		$this->assertSame( [ 3, 9 ], [ $idle( $three ), $idle( $nine ) ] );
+		$this->assertSame( $reads_three, $reads, 'classifying the slots costs no catalog read per slot' );
 	}
 
 	public function test_dump_graph_reports_the_unparseable_probe_lines_it_skipped(): void {
@@ -1361,7 +1459,7 @@ class WorkersCITest extends TestCase {
 			static fn ( $w ) => 'request-workers' === ( $w['type'] ?? '' )
 		) );
 		$this->assertNotEmpty( $rows, 'expected a liveness row for request-workers' );
-		$this->assertTrue( $rows[0]['live'] );
+		$this->assertSame( 'live', $rows[0]['state'] );
 		$this->assertSame( [], \array_values( \array_filter(
 			$result['consumers'],
 			static fn ( $c ) => \str_starts_with( $c['reader'] ?? '', 'request' )

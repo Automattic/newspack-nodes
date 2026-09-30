@@ -13,7 +13,7 @@ const w = ( o ) => ( {
 	partition: o.partition ?? 0,
 	inputs: o.inputs ?? [],
 	outputs: o.outputs ?? [],
-	status: o.status ?? 'running',
+	state: o.state ?? 'live',
 	started_at: o.started_at ?? 1000,
 	heartbeat_age: o.heartbeat_age ?? 1,
 	restart_pending: o.restart_pending ?? false,

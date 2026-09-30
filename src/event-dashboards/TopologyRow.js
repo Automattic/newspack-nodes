@@ -201,18 +201,18 @@ const TopologyRow = memo( function TopologyRow( {
 		? partitionSummaries( topology.status?.workers || [] )
 		: [];
 	const currentTime = topology.status?.currentTime;
-	const up = parts.filter( ( p ) => p.status === 'running' ).length;
+	const up = parts.filter( ( p ) => 'live' === p.state ).length;
 	// @longform Count against the CONFIGURED partitions. A worker process that
-	// is gone entirely reports no row at all — it is absent, not `dead` — so
-	// the reporting count as the denominator reads "ALL RUN" on a 4-partition
+	// is gone entirely reports no row at all — it is absent, not `down` — so
+	// the reporting count as the denominator reads "ALL LIVE" on a 4-partition
 	// topology running 2 workers. Fall back to it only when the row carries no
 	// configured count.
 	const expected = numPartitions > 0 ? numPartitions : parts.length;
 	const allRunning = expected > 0 && up === expected;
-	const allDead =
-		parts.length > 0 && parts.every( ( p ) => p.status === 'dead' );
-	// Nothing to do is the feature working, not the crash ALL DEAD implies.
-	const allIdle = allDead && parts.every( ( p ) => p.idle );
+	const noneLive = parts.length > 0 && 0 === up;
+	// Idle and held are deliberate, not the crash ALL DOWN implies.
+	const allIdle = noneLive && parts.every( ( p ) => 'idle' === p.state );
+	const allHeld = noneLive && parts.every( ( p ) => 'held' === p.state );
 	// Catch-up ETA, shown only while behind or stalled; under a minute is ok.
 	const eta = 'ok' !== health ? formatEtaSeconds( etaSeconds ) : '';
 
@@ -276,7 +276,7 @@ const TopologyRow = memo( function TopologyRow( {
 							className="topology-partition"
 						>
 							<a
-								className={ `newspack-nodes-status-badge worker-status-badge compact ${ p.status }` }
+								className={ `newspack-nodes-status-badge worker-status-badge compact ${ p.state }` }
 								href={ consoleHref( name, {
 									partition: p.partition,
 								} ) }
@@ -285,7 +285,7 @@ const TopologyRow = memo( function TopologyRow( {
 								P{ p.partition }
 							</a>
 							<span className="process-age">
-								{ p.started_at && p.status === 'running'
+								{ p.started_at && 'live' === p.state
 									? formatAge( p.started_at, currentTime )
 									: '' }
 							</span>
@@ -293,7 +293,7 @@ const TopologyRow = memo( function TopologyRow( {
 								p.heartbeat_age !== undefined && (
 									<span
 										className={ `connector-heartbeat ${
-											p.stale ? 'stale' : ''
+											'stale' === p.state ? 'stale' : ''
 										}` }
 									>
 										{ p.heartbeat_age }s
@@ -316,8 +316,8 @@ const TopologyRow = memo( function TopologyRow( {
 				{ /* Fixed-width slot so health lines up across rows. */ }
 				<span className="nodes-tm__liveness">
 					{ allRunning && (
-						<span className="newspack-nodes-status-badge worker-status-badge running small">
-							{ __( 'ALL RUN', 'newspack-nodes' ) }
+						<span className="newspack-nodes-status-badge worker-status-badge live small">
+							{ __( 'ALL LIVE', 'newspack-nodes' ) }
 						</span>
 					) }
 					{ allIdle && (
@@ -325,15 +325,20 @@ const TopologyRow = memo( function TopologyRow( {
 							{ __( 'IDLE', 'newspack-nodes' ) }
 						</span>
 					) }
-					{ allDead && ! allIdle && (
-						<span className="newspack-nodes-status-badge worker-status-badge dead small">
-							{ __( 'ALL DEAD', 'newspack-nodes' ) }
+					{ allHeld && (
+						<span className="newspack-nodes-status-badge worker-status-badge small">
+							{ __( 'HELD', 'newspack-nodes' ) }
 						</span>
 					) }
-					{ expected > 0 && ! allRunning && ! allDead && (
+					{ noneLive && ! allIdle && ! allHeld && (
+						<span className="newspack-nodes-status-badge worker-status-badge down small">
+							{ __( 'ALL DOWN', 'newspack-nodes' ) }
+						</span>
+					) }
+					{ expected > 0 && ! allRunning && ! noneLive && (
 						<span className="newspack-nodes-status-badge worker-status-badge small">
 							{ sprintf(
-								// translators: %1$d: running partitions; %2$d: total.
+								// translators: %1$d: live partitions; %2$d: total.
 								__( '%1$d/%2$d up', 'newspack-nodes' ),
 								up,
 								expected

@@ -1260,15 +1260,22 @@ describe( 'canonical UI appearance', () => {
 		expect( statusBadge( 'is-info' )?.declarations.color ).toBe(
 			'var(--cyan-text,var(--np-text))'
 		);
-		expect( statusBadge( 'running' )?.declarations.color ).toBe(
+		expect( statusBadge( 'live' )?.declarations.color ).toBe(
 			'var(--sage-text,var(--np-text))'
 		);
 		expect( statusBadge( 'is-warning' )?.declarations.color ).toBe(
 			'var(--brass-text,var(--np-text))'
 		);
-		expect( statusBadge( 'dead' )?.declarations.color ).toBe(
-			'var(--oxide-text,var(--np-text))'
-		);
+		for ( const state of [ 'stale', 'down' ] ) {
+			expect( statusBadge( state )?.declarations.color ).toBe(
+				'var(--oxide-text,var(--np-text))'
+			);
+		}
+		for ( const state of [ 'held', 'idle' ] ) {
+			expect( statusBadge( state )?.declarations.color ).toBe(
+				'var(--ink-3,var(--np-text-secondary))'
+			);
+		}
 		expect( statusIndicator( 'is-success' )?.declarations.color ).toBe(
 			'var(--sage-text,var(--np-text))'
 		);

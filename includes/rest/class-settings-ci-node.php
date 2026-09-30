@@ -27,8 +27,8 @@
  *
  * Every refusal throws `RuntimeException`, which
  * `Command_Interpreter_Node::interpret()` wraps as TM_COMMAND|TM_ERROR: an
- * unknown key, a non-numeric or out-of-bounds value, and the capability check
- * `Service_CI_Node` wraps around each handler. Answering with a refusal
+ * unknown key, a non-numeric or out-of-bounds value, and `dispatch()`'s
+ * refusal of a caller below the verb's declared role (ADR-26). Answering with a refusal
  * string instead would leave the hub unable to tell one from a snapshot.
  *
  * Configuration only, with no service dependencies: the substrate `Config` is
@@ -167,8 +167,9 @@ class Settings_CI_Node extends Service_CI_Node {
 	 * Palette entry and verb declaration: each verb is declared ONCE in
 	 * `commands[]`, carrying its handler and the capability role it demands.
 	 * The inherited `Service_CI_Node` constructor builds the dispatch table
-	 * from this and gates every handler on the declared role, so no hand-built
-	 * table can drift from what the catalog and `help` advertise.
+	 * from this, and `dispatch()` refuses a caller below the declared role
+	 * (ADR-26), so no hand-built table can drift from what the catalog and
+	 * `help` advertise.
 	 *
 	 * `get` is READ because a snapshot changes nothing; `set` is TUNE, the
 	 * role covering declared configuration.

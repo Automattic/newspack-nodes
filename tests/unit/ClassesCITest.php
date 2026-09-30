@@ -346,6 +346,7 @@ class ClassesCITest extends TestCase {
 					'name'        => 'GET_KEA7713',
 					'description' => 'Well-formed request.',
 					'reply_shape' => '{ kea }',
+					'value'       => 'struct',
 				],
 			],
 			$entries['Malformed_Schema']['requests']

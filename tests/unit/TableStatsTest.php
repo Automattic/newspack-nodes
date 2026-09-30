@@ -199,30 +199,35 @@ final class TableStatsTest extends TestCase {
 		$this->assertSame( $this->table->stats(), $stats );
 	}
 
-	public function test_stats_reset_answers_the_counters_it_zeroed(): void {
+	public function test_reset_stats_answers_the_counters_it_zeroed(): void {
 		$this->ask( 1500000, "MGET sku-41 sku-42\n" );
 		$config = Core::node( 'lab-7:kea:config' );
-		$this->assertSame( self::row( 1, 2, 0, 1.5, 1.5 ), $config->dispatch( 'stats', [ 'reset' ] )['MGET'] );
+		$this->assertSame( self::row( 1, 2, 0, 1.5, 1.5 ), $config->dispatch( 'reset_stats' )['MGET'] );
 		$this->assertSame( self::zeroes(), $config->dispatch( 'stats' ) );
 	}
 
-	public function test_an_unknown_stats_action_is_refused(): void {
-		$this->expectException( \InvalidArgumentException::class );
-		$this->expectExceptionMessage( 'usage: stats [reset]' );
-		Core::node( 'lab-7:kea:config' )->dispatch( 'stats', [ 'rest' ] );
+	public function test_stats_only_reads_so_it_takes_no_action(): void {
+		$this->ask( 1500000, "MGET sku-41 sku-42\n" );
+		$config = Core::node( 'lab-7:kea:config' );
+		try {
+			$config->dispatch( 'stats', [ 'reset' ] );
+			$this->fail( 'stats zeroed its counters' );
+		} catch ( \InvalidArgumentException $e ) {
+			$this->assertSame( 1, $this->table->stats()['MGET']['calls'], 'a refused stats zeroes nothing' );
+		}
 	}
 
-	public function test_a_mount_keeps_its_own_counters_and_refuses_stats_reset(): void {
+	public function test_a_mount_keeps_its_own_counters_and_refuses_reset_stats(): void {
 		$this->table->store( 'sku-41', 'kea-41' );
 		$mount = Table_Node::mount( 'lab-7:kea', 3, [ 'namespace' => 'kea:p3', 'ttl' => 777, 'backend' => 'sqlite' ], $this->sink );
 		$this->ask( 900000, "MGET sku-41 sku-42\n", $mount );
 		$this->assertSame( self::row( 1, 2, 1, 0.9, 0.9 ), \array_replace( $mount->stats()['MGET'], [ 'bytes' => 0 ] ) );
 		$this->assertSame( self::zeroes(), $this->table->stats(), 'the worker Table counts only its own' );
 		try {
-			Core::node( 'lab-7:kea.p3:config' )->dispatch( 'stats', [ 'reset' ] );
+			Core::node( 'lab-7:kea.p3:config' )->dispatch( 'reset_stats' );
 			$this->fail( 'a mount serves reads only' );
 		} catch ( \RuntimeException $e ) {
-			$this->assertSame( 'stats reset: lab-7:kea.p3 is a mounted Table, which serves reads only', $e->getMessage() );
+			$this->assertSame( 'reset_stats: lab-7:kea.p3 is a mounted Table, which serves reads only', $e->getMessage() );
 		}
 		$this->assertSame( 1, $mount->stats()['MGET']['calls'], 'a refused reset zeroes nothing' );
 	}

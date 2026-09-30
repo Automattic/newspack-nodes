@@ -356,8 +356,8 @@ function PartitionStatus( { partition, status, now } ) {
 }
 
 /**
- * Fleet roll-up panel: the on-demand deep-probe result for one spoke — worker
- * live/stale/dead counts, worst consumer distance, dead-letter total. The
+ * Fleet roll-up panel: the on-demand deep-probe result for one spoke — its
+ * worker count in each state `wp nodes status` reports, worst consumer distance, dead-letter total. The
  * polled slices carry connection health only, so this line is the one place
  * the fleet behind a spoke shows, and it appears once a Probe click has
  * answered. A refused probe shows its error instead, full text in the title.
@@ -394,14 +394,16 @@ function FleetRollup( { answer } ) {
 		<div className="aggregator-fleet-rollup">
 			<span className="aggregator-fleet-stat">
 				{ sprintf(
-					// translators: 1: live workers, 2: stale workers, 3: dead workers.
+					// translators: 1: live, 2: stale, 3: held, 4: idle, 5: down workers.
 					__(
-						'Workers %1$d live / %2$d stale / %3$d dead',
+						'Workers %1$d live / %2$d stale / %3$d held / %4$d idle / %5$d down',
 						'newspack-nodes'
 					),
 					workers.live || 0,
 					workers.stale || 0,
-					workers.dead || 0
+					workers.held || 0,
+					workers.idle || 0,
+					workers.down || 0
 				) }
 			</span>
 			<span className="aggregator-fleet-stat">

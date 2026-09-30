@@ -36,6 +36,7 @@ class Malformed_Schema_Node extends Node {
 					'name'        => 'GET_KEA7713',
 					'description' => 'Well-formed request.',
 					'reply_shape' => '{ kea }',
+					'value'       => 'struct',
 					'handler'     => static fn (): array => [ 'kea' => 7713 ],
 					'internal'    => 'an undeclared field the catalog must not carry',
 				],

@@ -35,10 +35,10 @@
         <path d="M380 176 H340"/>
       </g>
       <text x="155" y="44">sink</text><text x="345" y="44">sink</text><text x="535" y="44">sink</text>
-      <text x="655" y="122">a reply: TO = _output/$pid, the head peeled, filled into _output</text>
+      <text x="655" y="122">a local reply: TO = _output/…, peeled into _output</text>
       <text x="343" y="168">target</text>
     </svg>
-    <div class="nd anon" style="left:0;top:10px"><b>Shell</b>anonymous; mints, signs, stamps FROM = <span class="mono">_output/$pid</span></div>
+    <div class="nd anon" style="left:0;top:10px"><b>Shell</b>anonymous; mints, signs, stamps FROM = <span class="mono">_output/<wbr>_cli:$pid/<wbr>_output</span></div>
     <div class="nd" style="left:190px;top:10px"><b>_shell</b>a Tap: the console tap a session can watch</div>
     <div class="nd" style="left:380px;top:10px"><b>_command_interpreter</b>runs the verb when TO is empty, forwards otherwise</div>
     <div class="nd" style="left:570px;top:10px"><b>_router</b>peels one head per hop</div>
@@ -65,7 +65,7 @@
       <text x="842" y="241" class="m">ipc/job-worker.p0/output/</text>
       <text x="726" y="290">fill</text>
       <text x="652" y="232">sink → _router</text>
-      <text x="310" y="170">reply TO _output/$pid, peeled into _output</text>
+      <text x="310" y="170">reply TO _output, peeled into _output</text>
       <text x="343" y="290">target</text>
     </svg>
     <div class="nd anon" style="left:0;top:10px"><b>Shell</b>cwd = <span class="mono">job-worker.p0</span>, so a default command carries that TO</div>
@@ -74,9 +74,9 @@
     <div class="nd" style="left:570px;top:10px"><b>_router</b>TO = <span class="mono">job-worker.p0</span> names the Partition below</div>
     <div class="nd disk" style="left:760px;top:10px;width:206px"><b>job-worker.p0</b>a Partition built by <span class="mono">new</span>, geometry from <span class="mono">ipc_partition_args()</span>, sink <span class="mono">_command_interpreter</span></div>
     <div class="nd worker" style="left:760px;top:130px"><b>the worker</b>input Consumer stamps <span class="mono">_repl</span>; the reply lands in its <span class="mono">_repl</span> Partition</div>
-    <div class="nd disk" style="left:760px;top:250px"><b>reply-in</b>unnamed Consumer, <span class="mono">next_offset( 'end' )</span>, stamps the worker id</div>
-    <div class="nd anon" style="left:570px;top:250px"><b>relay</b>a bare Node: target <span class="mono">_output</span>, sink <span class="mono">_router</span></div>
-    <div class="nd" style="left:380px;top:250px"><b>_output</b>Dumper: renders iff TO is its pid, <span class="mono">_output/$pid</span>, or empty</div>
+    <div class="nd disk" style="left:760px;top:250px"><b>reply Consumer</b>unnamed, <span class="mono">next_offset( 'end' )</span>, stamps the worker id</div>
+    <div class="nd" style="left:570px;top:250px"><b>job-worker.p0:<wbr>replies</b>session gate: strips <span class="mono">_output/<wbr>_cli:$pid</span>, target <span class="mono">_output</span></div>
+    <div class="nd" style="left:380px;top:250px"><b>_output</b>Dumper: renders what reaches it</div>
     <div class="nd" style="left:190px;top:250px"><b>_stdout</b>TTY_Out</div>
   </div>
 </div>
@@ -84,12 +84,12 @@
 <div class="card" style="margin-top:14px">
   <h3>One reply's addresses, hop by hop — the trail IS the correlation; there is no id table</h3>
   <div class="trail">
-    <div class="h"><b>cli Shell mints</b><span class="v">FROM _output/4242</span><span class="v">TO job-worker.p0</span>signed inline with <span class="mono">Command_Auth::sign()</span>, so the worker's verifier admits it; LOCAL set, then stripped by <span class="mono">packed()</span></div>
-    <div class="h"><b>worker input Consumer</b><span class="v">FROM _repl/_output/4242</span><span class="v">TO ''</span>the head <span class="mono">job-worker.p0</span> was peeled by the cli's Router; the Consumer stamps <span class="mono">_repl</span></div>
-    <div class="h"><b>worker interpreter replies</b><span class="v">TO _repl/_output/4242</span><span class="v">FROM _command_interpreter</span><span class="mono">TM_COMMAND | TM_RESPONSE</span>, VALUE <span class="mono">{ name, arguments, payload }</span>, ID and KEY copied</div>
-    <div class="h"><b>worker _router</b><span class="v">TO _output/4242</span>peels <span class="mono">_repl</span>, fills the <span class="mono">_repl</span> output Partition, which packs the envelope to disk</div>
-    <div class="h"><b>cli _router</b><span class="v">TO 4242</span>reply-in replays the line, already addressed; the relay's <span class="mono">_output</span> target stamps only an empty TO, and the Router peels <span class="mono">_output</span> and fills the Dumper</div>
-    <div class="h"><b>Dumper</b>renders iff TO is <span class="mono">4242</span>, <span class="mono">_output/4242</span> or empty: every session reads the whole output log and filters by its own pid. No lock, no EBUSY.</div>
+    <div class="h"><b>cli Shell mints</b><span class="v">FROM _output/<wbr>_cli:4242/<wbr>_output</span><span class="v">TO job-worker.p0</span>signed inline with <span class="mono">Command_Auth::sign()</span>, so the worker's verifier admits it; LOCAL set, then stripped by <span class="mono">packed()</span></div>
+    <div class="h"><b>worker input Consumer</b><span class="v">FROM _repl/<wbr>_output/<wbr>_cli:4242/<wbr>_output</span><span class="v">TO ''</span>the head <span class="mono">job-worker.p0</span> was peeled by the cli's Router; the Consumer stamps <span class="mono">_repl</span></div>
+    <div class="h"><b>worker interpreter replies</b><span class="v">TO _repl/<wbr>_output/<wbr>_cli:4242/<wbr>_output</span><span class="v">FROM _command_interpreter</span><span class="mono">TM_COMMAND | TM_RESPONSE</span>, VALUE <span class="mono">{ name, arguments, payload }</span>, ID and KEY copied</div>
+    <div class="h"><b>worker _router</b><span class="v">TO _output/<wbr>_cli:4242/<wbr>_output</span>peels <span class="mono">_repl</span>, fills the <span class="mono">_repl</span> output Partition, which packs the envelope to disk</div>
+    <div class="h"><b>cli session gate</b><span class="v">TO _output</span>strips the whole <span class="mono">_output/<wbr>_cli:4242</span> head; every session reads the whole log and drops every head but its own. No lock, no EBUSY.</div>
+    <div class="h"><b>cli _router</b><span class="v">TO ''</span>peels <span class="mono">_output</span> and fills the Dumper, which renders the reply</div>
   </div>
 </div>
 
@@ -100,7 +100,7 @@
   </div>
   <div class="card">
     <h3>Drain on stdin close: a TM_EOF round trip</h3>
-    <p>The cli emits TM_EOF with FROM <span class="mono">_output/$pid</span>; the interpreter it lands on bounces it TO = FROM; the Dumper sees the echo and flips the exit flag, so every reply written before it has been drained off the output log. A 5-second deadline keeps a dead worker from hanging the cli. TM_EOF, TM_ERROR and TM_REQUEST all ride the Partition because a Partition packs every TYPE.</p>
+    <p>The cli emits TM_EOF with FROM <span class="mono">_output/<wbr>_cli:$pid/<wbr>_output</span>; the interpreter it lands on bounces it TO = FROM; the Dumper sees the echo and flips the exit flag, so every reply written before it has been drained off the output log. A 5-second deadline keeps a dead worker from hanging the cli. TM_EOF, TM_ERROR and TM_REQUEST all ride the Partition because a Partition packs every TYPE.</p>
   </div>
 </div>
 </div>

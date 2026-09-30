@@ -83,6 +83,7 @@
 			"php scripts/reorder-node-methods.php --check",
 			"sh -c 'npm run lint:phpstan --silent'",
 			"php scripts/lint-comments.php",
+			"node scripts/lint-contract.mjs",
 			"php scripts/fix-blank-lines.php"
 		],
 		"*.sh": "shellcheck",

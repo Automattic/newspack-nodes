@@ -43,7 +43,7 @@ abstract class Durable_Arm extends Cache_Backend {
 	public function read( string $key ): array {
 		return $this->attempt(
 			function () use ( $key ): array {
-				$rows = $this->select( [ $key ] );
+				$rows = $this->entries( [ $key ], static fn ( mixed $value ): mixed => $value );
 				return \array_key_exists( $key, $rows )
 					? [ 'status' => self::READ_HIT, 'value' => $rows[ $key ] ]
 					: [ 'status' => self::READ_MISS, 'value' => null ];
@@ -128,7 +128,7 @@ abstract class Durable_Arm extends Cache_Backend {
 
 	/** See Cache_Backend::touch(); an unmoved expiry changes no row, so a zero re-reads. */
 	public function touch( string $key, int $ttl ): ?bool {
-		return $this->attempt( fn (): bool => $this->update_expiry( $key, self::expires( $ttl ) ) > 0 || [] !== $this->select( [ $key ] ), null );
+		return $this->attempt( fn (): bool => $this->update_expiry( $key, self::expires( $ttl ) ) > 0 || [] !== $this->select_rows( [ $key ] ), null );
 	}
 
 	/**
@@ -175,7 +175,7 @@ abstract class Durable_Arm extends Cache_Backend {
 			fn (): int|false => $this->write_scope(
 				function () use ( $key, $next, $attempts ): int|false {
 					for ( $tried = 1; $tried <= $attempts; ++$tried ) {
-						$old = $this->select_rows( [ $key ] )[ $key ] ?? null;
+						$old = $this->select_rows( [ $key ] )[ $key ][0] ?? null;
 						if ( null === $old ) {
 							return false;
 						}
@@ -375,16 +375,6 @@ abstract class Durable_Arm extends Cache_Backend {
 	}
 
 	/**
-	 * Epoch seconds a row's liveness is judged at: `Core::$clock` when a test
-	 * binds it.
-	 *
-	 * @return int Epoch seconds.
-	 */
-	protected static function now(): int {
-		return (int) ( null !== Core::$clock ? ( Core::$clock )() : \time() );
-	}
-
-	/**
 	 * Each set's live members in member order, or null for a set holding more
 	 * than `$limit`: each set is read by an exact set-key seek of `$limit + 1`
 	 * rows, and the row past the limit tells a full set from one over it, whose
@@ -408,7 +398,7 @@ abstract class Durable_Arm extends Cache_Backend {
 				foreach ( \array_unique( $set_keys ) as $set_key ) {
 					$rows = $this->select_set( $set_key, $limit + 1 );
 					if ( [] !== $rows ) {
-						$out[ $set_key ] = \count( $rows ) > $limit ? null : $this->decoded( $rows );
+						$out[ $set_key ] = \count( $rows ) > $limit ? null : \array_map( $this->decode( ... ), $rows );
 					}
 					unset( $rows );
 				}
@@ -432,6 +422,47 @@ abstract class Durable_Arm extends Cache_Backend {
 	 * @return array<array-key,string> Member => tagged bytes.
 	 */
 	abstract protected function select_set( string $set_key, int $limit ): array;
+
+	/**
+	 * Each live row among `$keys` with the life it has left, in one read: the
+	 * `{ value, ttl? }` a Table's backing answers (ADR-18), `ttl` the whole
+	 * seconds until the row expires and absent for a row that never does.
+	 *
+	 * @param list<string> $keys Keys.
+	 * @return array<string,array{value: mixed, ttl?: int}>|false Key => entry,
+	 *         an absent or expired key absent; false when the store failed,
+	 *         which `last_failure()` names.
+	 */
+	public function read_entries( array $keys ): array|false {
+		if ( [] === $keys ) {
+			return [];
+		}
+		$now = self::now();
+		return $this->attempt(
+			fn (): array => $this->entries( $keys, static fn ( mixed $value, int $expires ): array => $expires > 0 ? [ 'value' => $value, 'ttl' => $expires - $now ] : [ 'value' => $value ] ),
+			false
+		);
+	}
+
+	/**
+	 * Epoch seconds a row's liveness is judged at: `Core::$clock` when a test
+	 * binds it.
+	 *
+	 * @return int Epoch seconds.
+	 */
+	protected static function now(): int {
+		return (int) ( null !== Core::$clock ? ( Core::$clock )() : \time() );
+	}
+
+	/**
+	 * The row a Table stores a key under, in this arm's grammar: its store
+	 * already belongs to this install, so the key carries no salt, and a
+	 * salt rotation leaves the rows.
+	 *
+	 * @param string $key Key within the Table's namespace.
+	 * @return string The row's key.
+	 */
+	abstract public function row_key( string $key ): string;
 
 	/**
 	 * Tagged bytes this arm has encoded for a write or decoded for a read
@@ -459,38 +490,21 @@ abstract class Durable_Arm extends Cache_Backend {
 
 	/** See Cache_Backend::fetch_multi(). */
 	protected function fetch_multi( array $keys ): array|false {
-		return $this->attempt( fn (): array => $this->select( $keys ), false );
+		return $this->attempt( fn (): array => $this->entries( $keys, static fn ( mixed $value ): mixed => $value ), false );
 	}
 
 	/**
-	 * The live rows for `$keys`, decoded.
+	 * The live rows for `$keys`, each decoded and shaped in one pass.
 	 *
-	 * @param list<string> $keys Keys.
-	 * @return array<string,mixed>
+	 * @template T
+	 * @param list<string>            $keys  Keys.
+	 * @param \Closure(mixed, int): T $shape The value, and its `expires` column.
+	 * @return array<string,T>
 	 */
-	private function select( array $keys ): array {
-		return $this->decoded( $this->select_rows( \array_values( \array_unique( $keys ) ) ) );
-	}
-
-	/**
-	 * The live rows among `$keys`, however many statements that takes.
-	 *
-	 * @param list<string> $keys Keys.
-	 * @return array<array-key,string> Key => tagged bytes.
-	 */
-	abstract protected function select_rows( array $keys ): array;
-
-	/**
-	 * Tagged rows as key => value.
-	 *
-	 * @param array<array-key,string> $rows Key => tagged bytes.
-	 * @return array<string,mixed>
-	 * @throws \UnexpectedValueException On a row no serializer here wrote.
-	 */
-	private function decoded( array $rows ): array {
+	private function entries( array $keys, \Closure $shape ): array {
 		$out = [];
-		foreach ( $rows as $key => $bytes ) {
-			$out[ (string) $key ] = $this->decode( $bytes );
+		foreach ( $this->select_rows( \array_values( \array_unique( $keys ) ) ) as $key => [ $bytes, $expires ] ) {
+			$out[ (string) $key ] = $shape( $this->decode( $bytes ), $expires );
 		}
 		return $out;
 	}
@@ -516,6 +530,15 @@ abstract class Durable_Arm extends Cache_Backend {
 			default => throw new \UnexpectedValueException( 'undecodable row' ),
 		};
 	}
+
+	/**
+	 * The live rows among `$keys`, however many statements that takes.
+	 *
+	 * @param list<string> $keys Keys.
+	 * @return array<array-key,array{0: string, 1: int}> Key => [ tagged bytes,
+	 *         the `expires` column ].
+	 */
+	abstract protected function select_rows( array $keys ): array;
 
 	/**
 	 * Run one operation, recording a store failure and answering `$failed`.

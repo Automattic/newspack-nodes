@@ -2104,7 +2104,7 @@ describe( 'Inspector (view mode)', () => {
 		} );
 	} );
 
-	it( 'a structured request takes a JSON textarea and sends the parsed map', () => {
+	it( 'a request declaring a struct VALUE takes a JSON textarea and sends the parsed map', () => {
 		const onAction = jest.fn();
 		const catalog = [
 			{
@@ -2112,6 +2112,7 @@ describe( 'Inspector (view mode)', () => {
 				requests: [
 					{
 						name: 'MSET',
+						value: 'struct',
 						args: [ { name: 'map', type: 'json', required: true } ],
 					},
 				],
@@ -2139,6 +2140,37 @@ describe( 'Inspector (view mode)', () => {
 			verb: 'MSET',
 			kind: 'request',
 			struct: { 'kea-5521': [ 'weka', 5521 ] },
+		} );
+	} );
+
+	it( 'a request declaring no struct VALUE sends its one json arg as a word', () => {
+		const onAction = jest.fn();
+		const catalog = [
+			{
+				shell_name: 'Echo',
+				requests: [
+					{
+						name: 'NOTE',
+						args: [
+							{ name: 'body', type: 'json', required: true },
+						],
+					},
+				],
+			},
+		];
+		const { getByText, getByLabelText } = renderNode( {
+			catalog,
+			onAction,
+		} );
+		fireEvent.click( getByText( 'NOTE' ) );
+		fireEvent.change( getByLabelText( /body/ ), {
+			target: { value: '{"ruru":6641}' },
+		} );
+		fireEvent.click( getByText( 'Run' ) );
+		expect( onAction ).toHaveBeenCalledWith( 'invoke', 'echo', {
+			verb: 'NOTE',
+			kind: 'request',
+			args: [ '{"ruru":6641}' ],
 		} );
 	} );
 

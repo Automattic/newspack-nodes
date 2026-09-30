@@ -711,6 +711,7 @@ class BootstrapTest extends TestCase {
 	// ── activate / deactivate ─────────────────────────────────────────────
 
 	public function test_activate_schedules_reconcile_at_minute_cadence(): void {
+		$this->use_wpdb();
 		Bootstrap::activate();
 		$this->assertNotEmpty( $GLOBALS['_wp_test_scheduled_events'] );
 		$evt = $GLOBALS['_wp_test_scheduled_events'][0];
@@ -718,7 +719,34 @@ class BootstrapTest extends TestCase {
 		$this->assertSame( 'newspack_nodes/reconcile', $evt['hook'] );
 	}
 
+	public function test_activate_installs_the_wpdb_tables(): void {
+		$db              = $this->use_wpdb();
+		$db->base_prefix = 'kea714_';
+		Bootstrap::activate();
+		$this->assertCount( 2, \array_filter( $db->sent, static fn ( string $sql ): bool => \str_starts_with( $sql, 'CREATE TABLE IF NOT EXISTS `kea714_newspack_nodes_' ) ) );
+		$this->assertIsString( \get_option( \Newspack_Nodes\Wpdb_Arm::SCHEMA_OPTION ) );
+	}
+
+	/**
+	 * A server refusing the DDL costs the wpdb Tables, never the reconcile
+	 * cron or the admin: activation schedules first and logs the refusal
+	 * instead of throwing it on every admin page load.
+	 */
+	public function test_activate_schedules_the_cron_despite_a_refused_install(): void {
+		$db                       = $this->use_wpdb();
+		$db->deny['CREATE TABLE'] = 'CREATE command denied 9154';
+
+		$log = $this->capture_stderr( static function (): void {
+			Bootstrap::activate();
+		} );
+
+		$this->assertSame( 'newspack_nodes/reconcile', $GLOBALS['_wp_test_scheduled_events'][0]['hook'] ?? null );
+		$this->assertStringContainsString( 'wpdb schema install failed: ', $log );
+		$this->assertStringContainsString( 'CREATE command denied 9154', $log );
+	}
+
 	public function test_activate_skipped_when_already_scheduled(): void {
+		$this->use_wpdb();
 		$GLOBALS['_wp_test_next_scheduled'] = 1234567890;
 		Bootstrap::activate();
 		$this->assertEmpty( $GLOBALS['_wp_test_scheduled_events'] );
@@ -737,6 +765,7 @@ class BootstrapTest extends TestCase {
 	}
 
 	public function test_activate_logs_code_and_message_on_schedule_error(): void {
+		$this->use_wpdb();
 		$GLOBALS['_wp_test_schedule_event_response'] = new \WP_Error( 'invalid_schedule', 'Event schedule does not exist.' );
 
 		$log = $this->capture_stderr( static function (): void {
@@ -988,6 +1017,7 @@ class BootstrapTest extends TestCase {
 	// ── self_heal_reconcile_cron ─────────────────────────────────────────
 
 	public function test_self_heal_schedules_when_logging_on_topologies_present_cron_missing(): void {
+		$this->use_wpdb();
 		\add_filter( 'newspack_nodes/topologies', function ( $topologies ) {
 			$topologies['my-fleet'] = [ 'num_partitions' => 1, 'topology' => '/x.php' ];
 			return $topologies;
@@ -1003,6 +1033,26 @@ class BootstrapTest extends TestCase {
 			'self-heal must call activate() when all 3 conditions are met'
 		);
 		$this->assertSame( 'newspack_nodes/reconcile', $GLOBALS['_wp_test_scheduled_events'][0]['hook'] );
+	}
+
+	/** The admin_init re-arm sends no DDL when the schema option is current. */
+	public function test_self_heal_with_a_current_schema_sends_no_create(): void {
+		$db              = $this->use_wpdb();
+		$db->base_prefix = 'kea930_';
+		\Newspack_Nodes\Wpdb_Arm::install();
+		$db->sent = [];
+		\add_filter( 'newspack_nodes/topologies', function ( $topologies ) {
+			$topologies['kea-fleet-930'] = [ 'num_partitions' => 1, 'topology' => '/x.php' ];
+			return $topologies;
+		} );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'kea-fleet-930' ];
+		\Newspack_Nodes\Config::reset();
+		$GLOBALS['_wp_test_next_scheduled'] = false;
+
+		Bootstrap::self_heal_reconcile_cron();
+
+		$this->assertSame( 'newspack_nodes/reconcile', $GLOBALS['_wp_test_scheduled_events'][0]['hook'] ?? null );
+		$this->assertSame( [], \array_values( \array_filter( $db->sent, static fn ( string $sql ): bool => \str_contains( $sql, 'CREATE' ) ) ) );
 	}
 
 	public function test_self_heal_under_an_uncreatable_base_logs_once(): void {
@@ -2084,6 +2134,7 @@ class BootstrapTest extends TestCase {
 	 * that check is what reaches it.
 	 */
 	public function test_the_self_heal_seeds_the_salt_on_an_already_healthy_install(): void {
+		$this->use_wpdb();
 		\delete_option( \Newspack_Nodes\Cache_Backend::SALT_OPTION );
 		\Newspack_Nodes\Cache_Backend::$salt = null;
 		\Newspack_Nodes\Cache_Backend::$site = '';
@@ -2098,6 +2149,7 @@ class BootstrapTest extends TestCase {
 	}
 
 	public function test_activation_seeds_the_cache_salt(): void {
+		$this->use_wpdb();
 		\delete_option( \Newspack_Nodes\Cache_Backend::SALT_OPTION );
 		\Newspack_Nodes\Cache_Backend::$salt = null;
 		\Newspack_Nodes\Cache_Backend::$site = '';
@@ -2109,6 +2161,7 @@ class BootstrapTest extends TestCase {
 
 	/** A row that exists from activation onward can never sit in a stale `notoptions`. */
 	public function test_activation_seeds_the_deploy_hold_row_unautoloaded(): void {
+		$this->use_wpdb();
 		\delete_option( \Newspack_Nodes\Spawn_Coordinator::HOLD_OPTION );
 
 		Bootstrap::activate();
@@ -2126,6 +2179,7 @@ class BootstrapTest extends TestCase {
 	 * `set_hold()` and `clear_hold()` both write it.
 	 */
 	public function test_activation_leaves_a_standing_hold_in_place(): void {
+		$this->use_wpdb();
 		\Newspack_Nodes\Spawn_Coordinator::set_hold( 1790004242 );
 
 		Bootstrap::activate();

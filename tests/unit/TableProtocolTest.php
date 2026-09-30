@@ -1,6 +1,7 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use Newspack_Nodes\Cache_Backend;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Table_Node;
@@ -159,7 +160,7 @@ final class TableProtocolTest extends TestCase {
 		$memd       = new InMemoryMemcached();
 		Core::$memd = $memd;
 		$owl        = $this->worker_table( 'lab-7:owl', 'owl:p3', 'memcache' );
-		$memd->fail_set( Table_Node::entry_key( 'owl:p3', 'sku-42' ) );
+		$memd->fail_set( Cache_Backend::entry_key( 'owl:p3', 'sku-42' ) );
 		$request                   = Message::new_message();
 		$request[ Message::TYPE ]  = Message::TM_REQUEST | Message::TM_STRUCT;
 		$request[ Message::FROM ]  = 'asker-9';
@@ -451,13 +452,111 @@ final class TableProtocolTest extends TestCase {
 		$this->assertSame( [ 'kea:p3:word:kea' ], $db->query( 'SELECT set_key FROM members' )->fetchAll( \PDO::FETCH_COLUMN ) );
 	}
 
-	public function test_a_wpdb_table_keys_its_rows_by_namespace_and_key_alone(): void {
+	public function test_a_wpdb_table_keys_its_rows_by_the_key_alone_under_its_namespace_column(): void {
 		$this->use_wpdb();
 		$owl = $this->worker_table( 'lab-7:owl', 'owl:p3', 'wpdb' );
 		$owl->store( 'sku-43', 'owl-4473' );
 		$this->ask( [ 'SADD' => [ 'word:owl' => [ [ 'u-43' => 3 ] ] ] ], self::STRUCT, $owl );
-		$this->assertSame( [ [ 'cache_key' => 'owl:p3:sku-43' ] ], $GLOBALS['wpdb']->get_results( 'SELECT cache_key FROM wp_newspack_nodes_table' ) );
-		$this->assertSame( [ [ 'set_key' => 'owl:p3:word:owl' ] ], $GLOBALS['wpdb']->get_results( 'SELECT set_key FROM wp_newspack_nodes_members' ) );
+		$this->assertSame( [ [ 'namespace' => 'owl:p3', 'cache_key' => 'sku-43' ] ], $GLOBALS['wpdb']->get_results( 'SELECT namespace, cache_key FROM wp_newspack_nodes_table' ) );
+		$this->assertSame( [ [ 'namespace' => 'owl:p3', 'set_key' => 'word:owl' ] ], $GLOBALS['wpdb']->get_results( 'SELECT namespace, set_key FROM wp_newspack_nodes_members' ) );
+		$this->assertSame( 'owl-4473', $owl->lookup( 'sku-43' ) );
+	}
+
+	public function test_add_stores_under_its_own_ttl_only_where_absent(): void {
+		Core::$clock = static fn (): float => 1790000000.0;
+		$this->assertTrue( $this->table->add( 'sku-51', 'kea-51', 4242 ) );
+		$this->assertFalse( $this->table->add( 'sku-51', 'lost-51', 5151 ), 'a live key is never displaced' );
+		$this->assertSame( 'kea-51', $this->table->lookup( 'sku-51' ) );
+		$db = new \PDO( 'sqlite:' . Table_Node::file( 'lab-7:kea', 3 ) );
+		$this->assertSame( [ 1790004242 ], \array_map( 'intval', $db->query( "SELECT expires FROM kv WHERE \"key\" = 'kea:p3:sku-51'" )->fetchAll( \PDO::FETCH_COLUMN ) ), 'its own ttl, not the declared 777' );
+	}
+
+	public function test_add_refuses_a_ttl_below_one_second(): void {
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'Table lab-7:kea needs a TTL of at least 1 whole second, not 0' );
+		$this->table->add( 'sku-52', 'kea-52', 0 );
+	}
+
+	public function test_lookup_entries_answers_each_live_entrys_remaining_life(): void {
+		Core::$clock = static fn (): float => 1790000000.0;
+		$this->table->add( 'sku-53', [ 'usd' => 53 ], 4242 );
+		$this->table->store( 'sku-54', 'kea-54' );
+		Core::$clock = static fn (): float => 1790000042.0;
+		$this->assertSame(
+			[
+				'sku-53' => [ 'value' => [ 'usd' => 53 ], 'ttl' => 4200 ],
+				'sku-54' => [ 'value' => 'kea-54', 'ttl' => 735 ],
+			],
+			$this->table->lookup_entries( [ 'sku-53', 'sku-54', 'sku-55' ] )
+		);
+	}
+
+	public function test_lookup_entries_is_null_when_the_store_did_not_answer(): void {
+		( new \PDO( 'sqlite:' . Table_Node::file( 'lab-7:kea', 3 ) ) )->exec( 'DROP TABLE kv' );
+		$this->assertNull( $this->table->lookup_entries( [ 'sku-56' ] ) );
+		$this->assertStringContainsString( 'no such table: kv', $this->table->last_failure() );
+	}
+
+	public function test_a_volatile_table_refuses_lookup_entries_and_purge(): void {
+		Core::$memd = new InMemoryMemcached();
+		$owl        = $this->worker_table( 'lab-7:owl-memcache', 'owl:p3', 'memcache' );
+		foreach ( [ 'lookup_entries' => static fn () => $owl->lookup_entries( [ 'sku-57' ] ), 'purge' => static fn () => $owl->purge( 9 ), 'add_members' => static fn () => $owl->add_members( [ 'word:kea' => [ [ 'u-41' => 1 ] ] ] ), 'members_of' => static fn () => $owl->members_of( [ 'word:kea' ], 9 ) ] as $verb => $call ) {
+			try {
+				$call();
+				$this->fail( "a volatile table answered {$verb}" );
+			} catch ( \RuntimeException $e ) {
+				$this->assertSame( "{$verb} needs a durable backend; lab-7:owl-memcache is memcache", $e->getMessage() );
+			}
+		}
+	}
+
+	public function test_purge_deletes_up_to_its_limit_of_expired_rows_counted_as_purge(): void {
+		Core::$clock = static fn (): float => 1790000000.0;
+		$this->table->add( 'sku-61', 'kea-61', 37 );
+		$this->table->add( 'sku-62', 'kea-62', 37 );
+		$this->table->add( 'sku-63', 'kea-63', 4242 );
+		Core::$clock = static fn (): float => 1790000037.0;
+		$this->assertSame( 1, $this->table->purge( 1 ) );
+		$this->assertSame( 1, $this->table->purge( 9 ) );
+		$this->assertSame( 0, $this->table->purge( 9 ) );
+		$this->assertSame( [ 'calls' => 3, 'asked' => 19, 'answered' => 2 ], \array_intersect_key( $this->table->stats()['PURGE'], [ 'calls' => 0, 'asked' => 0, 'answered' => 0 ] ) );
+		$this->assertSame( 'kea-63', $this->table->lookup( 'sku-63' ) );
+	}
+
+	/**
+	 * `add_members()` and `members_of()` are SADD and SMEMBERS for a caller
+	 * outside a graph, down the same path: the same set keys land, the same
+	 * rows are counted, the same limit tells a full set from one over it.
+	 */
+	public function test_add_members_and_members_of_take_the_sadd_and_smembers_path(): void {
+		Core::$clock = static fn (): float => 1790000000.0;
+		$this->assertSame( [ 'word:kea', 'word:emu' ], $this->table->add_members( [ 'word:kea' => [ [ 'u-43' => 43, 'u-41' => [ 'n' => 41 ] ], 4242 ], 'word kea' => [ [ 'u-9' => 9 ] ], 'word:emu' => [ [ 'u-47' => 47 ] ] ] ) );
+		$this->assertSame(
+			[ 'word:kea' => [ 'u-41' => [ 'n' => 41 ], 'u-43' => 43 ], 'word:emu' => [ 'u-47' => 47 ] ],
+			$this->table->members_of( [ 'word:kea', 'word:owl', 'word:emu' ], 2 )
+		);
+		$this->assertSame( [ 'word:kea' => null ], $this->table->members_of( [ 'word:kea' ], 1 ), 'a set past the limit answers null' );
+		$this->assertSame( [ 'calls' => 0, 'asked' => 3, 'answered' => 3 ], \array_intersect_key( $this->table->stats()['SADD'], [ 'calls' => 0, 'asked' => 0, 'answered' => 0 ] ) );
+		$this->assertSame( [ 'calls' => 0, 'asked' => 4, 'answered' => 3 ], \array_intersect_key( $this->table->stats()['SMEMBERS'], [ 'calls' => 0, 'asked' => 0, 'answered' => 0 ] ) );
+		Core::$clock = static fn (): float => 1790000777.0;
+		$this->assertSame( [ 'word:kea' => [ 'u-41' => [ 'n' => 41 ], 'u-43' => 43 ] ], $this->table->members_of( [ 'word:kea', 'word:emu' ], 9 ), 'each set under its own ttl, or the Table\'s' );
+	}
+
+	public function test_members_of_is_null_when_the_store_did_not_answer(): void {
+		( new \PDO( 'sqlite:' . Table_Node::file( 'lab-7:kea', 3 ) ) )->exec( 'DROP TABLE members' );
+		$this->assertNull( $this->table->members_of( [ 'word:kea' ], 9 ) );
+		$this->assertStringContainsString( 'no such table: members', $this->table->last_failure() );
+	}
+
+	public function test_members_of_refuses_a_limit_smembers_refuses(): void {
+		foreach ( [ 0, Table_Node::MAX_MEMBERS_LIMIT + 1 ] as $limit ) {
+			try {
+				$this->table->members_of( [ 'word:kea' ], $limit );
+				$this->fail( "members_of() took limit {$limit}" );
+			} catch ( \InvalidArgumentException $e ) {
+				$this->assertSame( 'members_of: limit a whole number from 1 to 10000', $e->getMessage() );
+			}
+		}
 	}
 
 	public function test_a_string_sadd_is_refused_toward_the_structured_form(): void {
@@ -499,7 +598,7 @@ final class TableProtocolTest extends TestCase {
 		}
 	}
 
-	// ── flush: every row and member, MANAGE-only, the writer's alone ──
+	// ── flush: every row and member, MANAGE by declaring nothing, the writer's alone ──
 
 	/** The `flush` verb as a worker's `:config` interpreter answers it. */
 	private function flush_verb( string $table = 'lab-7:kea' ): mixed {
@@ -555,7 +654,7 @@ final class TableProtocolTest extends TestCase {
 				$this->flush_verb();
 				$this->fail( "a {$scope} session flushed" );
 			} catch ( \RuntimeException $e ) {
-				$this->assertSame( 'flush: permission denied: manage capability required', $e->getMessage() );
+				$this->assertSame( 'permission denied: manage capability required', $e->getMessage() );
 			} finally {
 				\Newspack_Nodes\Capabilities::$session_scope = null;
 			}

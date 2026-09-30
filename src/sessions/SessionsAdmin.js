@@ -58,8 +58,9 @@ const DEFAULT_TTL_S = 3600;
 /**
  * The words a row shows for its revoke, as `answerStatus` reads them.
  *
- * No `ok` text: `Sessions::forget()` drops the directory row, so a revoke that
- * succeeds takes away the line the confirmation would have been written on.
+ * No `ok` text: `Sessions::revoke()` drops the session's row, and the listing
+ * lists only rows still standing, so a revoke that succeeds takes away the
+ * line the confirmation would have been written on.
  */
 const REVOKE_TEXTS = {
 	failed: ( e ) =>
@@ -95,16 +96,14 @@ function when( seconds ) {
 }
 
 /**
- * One issued session: its label, scope, state, timestamps and a Revoke button.
+ * One issued session: its label, scope, timestamps and a Revoke button.
  *
  * The row owns no answer state. A revoke answers once, naming its handle, and
  * the graph keeps that answer per handle, so a row keeps its own line while a
  * sibling is revoked in the same second.
  *
- * The state badge says `live` or `revoked` and never `expired`, because
- * `Sessions::all()` prunes lapsed rows before it lists. A listed row that is
- * not live therefore lost its lease early — to a revoke whose directory write
- * failed, or to a salt rotation orphaning every key on the install.
+ * Every listed row is live: `Sessions::listing()` lists a session only while
+ * its row in the session store stands, and reads each fact from that row.
  *
  * @param {Object}   props
  * @param {Object}   props.session  A row from the view model.
@@ -114,7 +113,7 @@ function when( seconds ) {
  * @return {import('react').ReactElement} The rendered row.
  */
 function SessionRow( { session, answer, busy, onRevoke } ) {
-	const { handle, label, scope, expires, created, live, state } = session;
+	const { handle, label, scope, expires, created } = session;
 	const [ isConfirmOpen, setIsConfirmOpen ] = useState( false );
 	const status = answerStatus( answer, REVOKE_TEXTS, busy ).text;
 
@@ -135,21 +134,6 @@ function SessionRow( { session, answer, busy, onRevoke } ) {
 					{ scope }
 				</span>
 			</td>
-			<td>
-				<span
-					className={ `newspack-nodes-status ${
-						live ? 'is-success' : 'is-error'
-					}` }
-				>
-					{ /* Not live means revoked: lapsed rows never list. */ }
-					{ 'live' === state
-						? __( 'live', 'newspack-nodes' )
-						: __( 'revoked', 'newspack-nodes' ) }
-				</span>
-				{ status && (
-					<div className="nodes-sessions__row-status">{ status }</div>
-				) }
-			</td>
 			<td>{ when( created ) }</td>
 			<td>{ when( expires ) }</td>
 			<td>
@@ -161,6 +145,9 @@ function SessionRow( { session, answer, busy, onRevoke } ) {
 				>
 					{ __( 'Revoke', 'newspack-nodes' ) }
 				</button>
+				{ status && (
+					<div className="nodes-sessions__row-status">{ status }</div>
+				) }
 				{ isConfirmOpen && (
 					<Modal
 						ariaLabel={ __( 'Revoke session', 'newspack-nodes' ) }
@@ -207,7 +194,7 @@ function SessionRow( { session, answer, busy, onRevoke } ) {
  * The create form: a label, a scope and a lifetime, handed to `onCreate`.
  *
  * The label is validated here and only here — an unlabelled mint works, but
- * `Sessions::record()` declines to list it, so the operator would leave with a
+ * `Sessions::issue()` declines to list it, so the operator would leave with a
  * key and no row to revoke it from. Every other refusal is the server's and
  * arrives as the answer this form shows.
  *
@@ -478,22 +465,19 @@ export default function SessionsAdmin( { headerControlsSlot } ) {
 			<table className="newspack-nodes-table">
 				<thead>
 					<tr>
-						<th style={ { width: '26%' } }>
+						<th style={ { width: '30%' } }>
 							{ __( 'Label', 'newspack-nodes' ) }
 						</th>
 						<th style={ { width: '12%' } }>
 							{ __( 'Scope', 'newspack-nodes' ) }
 						</th>
-						<th style={ { width: '14%' } }>
-							{ __( 'State', 'newspack-nodes' ) }
-						</th>
-						<th style={ { width: '18%' } }>
+						<th style={ { width: '20%' } }>
 							{ __( 'Issued', 'newspack-nodes' ) }
 						</th>
-						<th style={ { width: '18%' } }>
+						<th style={ { width: '20%' } }>
 							{ __( 'Expires', 'newspack-nodes' ) }
 						</th>
-						<th style={ { width: '12%' } }>
+						<th style={ { width: '18%' } }>
 							{ __( 'Actions', 'newspack-nodes' ) }
 						</th>
 					</tr>
@@ -513,7 +497,7 @@ export default function SessionsAdmin( { headerControlsSlot } ) {
 						) )
 					) : (
 						<tr>
-							<td colSpan={ 6 }>
+							<td colSpan={ 5 }>
 								{ __(
 									'No sessions issued.',
 									'newspack-nodes'

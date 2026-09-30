@@ -61,17 +61,19 @@ class CapabilitiesTest extends TestCase {
 		Capabilities::cap_for( Capabilities::READ );
 	}
 
-	public function test_require_passes_for_the_authorized(): void {
+	public function test_require_verb_passes_a_logged_in_user_holding_the_role(): void {
+		$GLOBALS['_wp_test_current_user_id']  = 7731;
 		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
-		Capabilities::require( Capabilities::MANAGE );
+		Capabilities::require_verb( Capabilities::MANAGE );
 		$this->assertTrue( Capabilities::can( Capabilities::MANAGE ) );
 	}
 
-	public function test_require_throws_for_the_unauthorized(): void {
+	public function test_require_verb_refuses_a_logged_in_user_lacking_the_role(): void {
+		$GLOBALS['_wp_test_current_user_id']  = 7731;
 		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => false ];
 		$this->expectException( \RuntimeException::class );
-		$this->expectExceptionMessageMatches( '/permission denied/' );
-		Capabilities::require( Capabilities::MANAGE );
+		$this->expectExceptionMessage( 'permission denied: manage capability required' );
+		Capabilities::require_verb( Capabilities::MANAGE );
 	}
 
 	public function test_can_honors_the_relaxed_read_cap(): void {

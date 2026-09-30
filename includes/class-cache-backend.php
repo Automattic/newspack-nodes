@@ -121,6 +121,52 @@ abstract class Cache_Backend {
 	public static ?\Closure $apcu_sma_info = null;
 
 	/**
+	 * Key for a per-MACHINE budget, where the machine is the resource being
+	 * rationed. SSE connection slots are the only such surface, and they
+	 * compose the scope themselves through `SSE_Slot_Pool::namespace_key()`
+	 * (the tests inject two machines to prove the pools are independent).
+	 * This builds the same scope for a reader holding only a logical name —
+	 * `wp nodes memcache get --host`.
+	 *
+	 * @param string $logical Logical name, as the writing surface spells it.
+	 * @return string The machine-scoped cache key.
+	 */
+	public static function host_key( string $logical ): string {
+		return self::key( self::machine() . ':' . self::site(), $logical );
+	}
+
+	/**
+	 * Machine half, for the one scope that rations a per-MACHINE resource:
+	 * SSE connection slots compose `machine():site()` in
+	 * `SSE_Slot_Pool::namespace_key()`. Nothing else should — the hostname
+	 * fragments exactly the state a fleet spanning containers must agree on.
+	 *
+	 * Falls back to 'unknown' so a gethostname() failure can never pass false
+	 * to a string-typed callee. Deliberately NOT `SERVER_NAME`: that is
+	 * caller-controllable, and a rate-limit namespace the caller chooses is
+	 * not a rate limit.
+	 *
+	 * @return string The hostname, or 'unknown'.
+	 */
+	public static function machine(): string {
+		return self::$machine ?: ( self::$machine = \gethostname() ?: 'unknown' );
+	}
+
+	/**
+	 * The key a Table entry is stored under on this arm: each arm owns its
+	 * grammar. A volatile arm's is install-scoped through `site_key()`, salt
+	 * included: a co-tenant install's Table of the same name is a different
+	 * Table, and rotating the salt is how a volatile arm is flushed.
+	 *
+	 * @param string $namespace The Table's namespace.
+	 * @param string $key       Key within that namespace.
+	 * @return string The stored key.
+	 */
+	public static function entry_key( string $namespace, string $key ): string {
+		return self::site_key( "table:{$namespace}:{$key}" );
+	}
+
+	/**
 	 * Key for state one INSTALL owns, shared by every container serving it —
 	 * tables, batch counters, unique-enqueue claims, spawn throttles, command
 	 * nonces.
@@ -135,21 +181,6 @@ abstract class Cache_Backend {
 	 */
 	public static function site_key( string $logical ): string {
 		return self::key( self::site(), $logical );
-	}
-
-	/**
-	 * Key for a per-MACHINE budget, where the machine is the resource being
-	 * rationed. SSE connection slots are the only such surface, and they
-	 * compose the scope themselves through `SSE_Slot_Pool::namespace_key()`
-	 * (the tests inject two machines to prove the pools are independent).
-	 * This builds the same scope for a reader holding only a logical name —
-	 * `wp nodes memcache get --host`.
-	 *
-	 * @param string $logical Logical name, as the writing surface spells it.
-	 * @return string The machine-scoped cache key.
-	 */
-	public static function host_key( string $logical ): string {
-		return self::key( self::machine() . ':' . self::site(), $logical );
 	}
 
 	/**
@@ -189,23 +220,6 @@ abstract class Cache_Backend {
 			return self::$site = 'unscoped';
 		}
 		return self::$site = \substr( \md5( $db . ':' . $prefix . ':' . self::salt() ), 0, 12 );
-	}
-
-	/**
-	 * Machine half, for the one scope that rations a per-MACHINE resource:
-	 * SSE connection slots compose `machine():site()` in
-	 * `SSE_Slot_Pool::namespace_key()`. Nothing else should — the hostname
-	 * fragments exactly the state a fleet spanning containers must agree on.
-	 *
-	 * Falls back to 'unknown' so a gethostname() failure can never pass false
-	 * to a string-typed callee. Deliberately NOT `SERVER_NAME`: that is
-	 * caller-controllable, and a rate-limit namespace the caller chooses is
-	 * not a rate limit.
-	 *
-	 * @return string The hostname, or 'unknown'.
-	 */
-	public static function machine(): string {
-		return self::$machine ?: ( self::$machine = \gethostname() ?: 'unknown' );
 	}
 
 	/**

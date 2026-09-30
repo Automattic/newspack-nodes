@@ -119,6 +119,7 @@ class VerbRoleDeclarationsTest extends TestCase {
 			'newspack_nodes/capability_map',
 			static fn ( array $map ): array => [ 'tune' => 'edit_pages', 'read' => 'edit_pages' ] + $map
 		);
+		$GLOBALS['_wp_test_current_user_id']  = 6619;
 		$GLOBALS['_wp_test_current_user_can'] = [ 'edit_pages' => true, 'manage_options' => false ];
 
 		$settings = new Settings_CI_Node();

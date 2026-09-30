@@ -80,7 +80,7 @@
 	color: var(--cyan-text);
 	min-width: 85px;
 
-	&.dead {
+	&.stopped {
 		text-decoration: line-through;
 		color: var(--ink-3);
 		opacity: 0.5;
@@ -145,10 +145,16 @@
 	font-weight: 600;
 }
 
+// Space between bars; a sliding bar carries its own gap in or out with it.
+$segment-gap: 6px;
+
+// One fill transition, and one step of the cascade the bar counts in.
+$segment-fill-step: 0.3s;
+
 .partition-segments {
 	display: flex;
 	flex-direction: row;
-	gap: 6px;
+	gap: $segment-gap;
 	align-items: stretch;
 	flex: 1;
 	overflow: hidden; // Clip segments sliding off the left edge.
@@ -160,12 +166,18 @@
 	min-width: 0;
 	overflow: hidden;
 
+	// One clock for both, so the bars between them translate without resizing.
 	&.segment-slide-in {
-		animation: segment-slide-in 0.5s ease-out forwards;
+		animation: segment-slide-in 0.4s ease-in-out forwards;
 	}
 
 	&.segment-slide-out {
-		animation: segment-slide-out 0.4s ease-in forwards;
+		animation: segment-slide-out 0.4s ease-in-out forwards;
+	}
+
+	// A bar that rotated or arrived complete draws its final widths at once.
+	&.segment-snap .segment-fill-h {
+		transition: none;
 	}
 }
 
@@ -173,15 +185,13 @@
 	from {
 		flex: 0;
 		opacity: 0;
-		min-width: 0;
-		max-width: 0;
+		margin-left: -$segment-gap;
 	}
 
 	to {
 		flex: 1;
 		opacity: 1;
-		min-width: 0;
-		max-width: 100%;
+		margin-left: 0;
 	}
 }
 
@@ -189,15 +199,13 @@
 	from {
 		flex: 1;
 		opacity: 1;
-		max-width: 100%;
+		margin-right: 0;
 	}
 
 	to {
 		flex: 0;
 		opacity: 0;
-		max-width: 0;
-		margin: 0;
-		padding: 0;
+		margin-right: -$segment-gap;
 	}
 }
 
@@ -220,11 +228,10 @@
 	height: 100%;
 	background: base.$dead-bg; // Red - unprocessed
 	transition:
-		width 0.3s ease,
-		background-color 0.3s ease;
-	// Per-bar stagger (set on .worker-segment-h): each bar's fill/offset waits one
-	// bar-duration per index so the cascade runs left→right, one bar at a time.
-	transition-delay: var(--seg-delay, 0s);
+		width $segment-fill-step ease,
+		background-color $segment-fill-step ease;
+	// Steps from the row's first changed bar, counted on .worker-segment-h.
+	transition-delay: calc(var(--seg-stagger, 0) * #{$segment-fill-step});
 	position: relative;
 
 	&:first-child {

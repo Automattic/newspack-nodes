@@ -2,6 +2,7 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
+use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\CLI;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Consumer_Node;
@@ -72,6 +73,159 @@ class CliTest extends TestCase {
 		$this->assertSame( 0, $workers[0]['started_at'] );
 	}
 
+	// ── worker_states() ────────────────────────────────────────────────────────
+
+	/**
+	 * Register `kea-idle`, an on-demand topology with a 41-second window and
+	 * seven partitions, and `kea-resident`, which declares no window, as the
+	 * active set.
+	 */
+	private function activate_idle_and_resident(): void {
+		\add_filter(
+			'newspack_nodes/topologies',
+			static fn ( array $t ): array => $t + [
+				'kea-idle'     => [ 'topology' => 'kea-idle', 'num_partitions' => 7, 'on_demand_idle' => 41, 'stale_timeout' => 73 ],
+				'kea-resident' => [ 'topology' => 'kea-resident', 'num_partitions' => 1, 'on_demand_idle' => 0 ],
+			]
+		);
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'kea-idle', 'kea-resident' ];
+		Config::reset();
+	}
+
+	/**
+	 * A lock dir for `$id`, `$dir_age` seconds old, its heartbeat `$age`
+	 * seconds old, or none when null.
+	 */
+	private function lock( string $id, ?int $age, int $dir_age = 0 ): void {
+		$dir = "{$this->tmp}/locks/{$id}.lock.d";
+		\mkdir( $dir, 0755, true );
+		if ( null !== $age ) {
+			\touch( "{$dir}/heartbeat", \time() - $age );
+		}
+		\touch( $dir, \time() - $dir_age );
+	}
+
+	/** Counts each application of the `newspack_nodes/topologies` filter. */
+	private function count_topology_reads(): \ArrayObject {
+		$reads = new \ArrayObject();
+		\add_filter(
+			'newspack_nodes/topologies',
+			static function ( array $t ) use ( $reads ): array {
+				$reads->append( 1 );
+				return $t;
+			}
+		);
+		return $reads;
+	}
+
+	/** @return list<string> Every `kea-idle` worker id, p0 through p6. */
+	private static function kea_idle_ids(): array {
+		return \array_map( static fn ( int $p ): string => CLI::worker_id( 'kea-idle', $p ), \range( 0, 6 ) );
+	}
+
+	public function test_worker_states_reads_a_lock_by_its_heartbeat_against_its_topologys_timeout(): void {
+		$this->activate_idle_and_resident();
+		$this->lock( 'kea-idle.p3', 60 );
+		$this->lock( 'kea-idle.p4', 90 );
+		$this->lock( 'kea-idle.p5', null, 29 );
+
+		$states = \array_column( ( new CLI( $this->tmp ) )->worker_states( [ 'kea-idle.p3', 'kea-idle.p4', 'kea-idle.p5' ], Bootstrap::get_topologies(), true ), 'state' );
+
+		$this->assertSame( [ 'live', 'stale', 'stale' ], $states, 'judged against 73s, not the flat default; no heartbeat past the grace is stale' );
+	}
+
+	/**
+	 * Between mkdir and its first heartbeat a worker is acquiring, the
+	 * window Lock_Node's orphan grace tolerates, so the classifier reads it
+	 * live; past the grace the same lock dir is stale, well inside the 73s
+	 * heartbeat timeout.
+	 */
+	public function test_worker_states_reads_a_heartbeatless_lock_by_the_orphan_grace(): void {
+		$this->activate_idle_and_resident();
+		$this->lock( 'kea-idle.p1', null );
+		$this->lock( 'kea-idle.p2', null, Lock_Node::ORPHAN_GRACE_S + 29 );
+
+		$states = \array_column( ( new CLI( $this->tmp ) )->worker_states( [ 'kea-idle.p1', 'kea-idle.p2' ], Bootstrap::get_topologies(), true ), 'state' );
+
+		$this->assertSame( [ 'live', 'stale' ], $states );
+	}
+
+	public function test_worker_states_looks_up_a_lockless_slots_idle_window_from_its_topology(): void {
+		$this->activate_idle_and_resident();
+
+		$states = ( new CLI( $this->tmp ) )->worker_states( [ 'kea-idle.p6', 'kea-resident.p0', 'kea-inactive.p0' ], Bootstrap::get_topologies(), true );
+
+		$this->assertSame( [ 'idle', 'down', 'down' ], \array_column( $states, 'state' ), 'no active entry declares a window for kea-inactive' );
+		$this->assertNull( $states['kea-idle.p6']['lock'] );
+	}
+
+	public function test_worker_states_reads_no_lock_as_held_under_the_hold_idle_window_or_not(): void {
+		$this->activate_idle_and_resident();
+		$this->lock( 'kea-idle.p2', 0 );
+		\Newspack_Nodes\Spawn_Coordinator::set_hold( 1754500041 );
+		try {
+			$states = ( new CLI( $this->tmp ) )->worker_states( [ 'kea-idle.p1', 'kea-resident.p0', 'kea-idle.p2' ], Bootstrap::get_topologies(), true );
+		} finally {
+			\Newspack_Nodes\Spawn_Coordinator::clear_hold();
+		}
+
+		$this->assertSame( [ 'held', 'held', 'live' ], \array_column( $states, 'state' ), 'a lock outranks the hold' );
+	}
+
+	public function test_worker_states_answers_every_lock_outside_the_slots_after_them(): void {
+		$this->activate_idle_and_resident();
+		$this->lock( 'kea-gone.p4', 0 );
+
+		$states = ( new CLI( $this->tmp ) )->worker_states( [ 'kea-resident.p0' ], Bootstrap::get_topologies(), true );
+
+		$this->assertSame( [ 'kea-resident.p0', 'kea-gone.p4' ], \array_keys( $states ) );
+		$this->assertSame( 'live', $states['kea-gone.p4']['state'] );
+		$this->assertSame( 'kea-gone', $states['kea-gone.p4']['lock']['type'] );
+	}
+
+	public function test_worker_states_reads_the_topologies_once_for_every_slot_and_lock(): void {
+		$this->activate_idle_and_resident();
+		$this->lock( 'kea-idle.p0', 0 );
+		$this->lock( 'kea-idle.p1', 500 );
+		$active = Bootstrap::get_topologies();
+		$reads  = $this->count_topology_reads();
+
+		$states = ( new CLI( $this->tmp ) )->worker_states( self::kea_idle_ids(), $active, true );
+
+		$this->assertSame( [ 'live', 'stale', 'idle', 'idle', 'idle', 'idle', 'idle' ], \array_column( $states, 'state' ) );
+		$this->assertCount( 0, $reads, 'the caller\'s one read serves seven slots, two lock timeouts and five idle windows' );
+	}
+
+	public function test_worker_states_without_leftovers_answers_the_slots_alone(): void {
+		$this->activate_idle_and_resident();
+		$this->lock( 'kea-gone.p4', 0 );
+		$this->lock( 'kea-idle.p3', 0 );
+
+		$states = ( new CLI( $this->tmp ) )->worker_states( [ 'kea-idle.p3', 'kea-resident.p0' ], Bootstrap::get_topologies(), false );
+
+		$this->assertSame( [ 'kea-idle.p3' => 'live', 'kea-resident.p0' => 'down' ], \array_map( static fn ( array $slot ): string => $slot['state'], $states ) );
+	}
+
+	public function test_slot_ids_names_every_partition_of_every_active_topology(): void {
+		$this->activate_idle_and_resident();
+
+		$slots = CLI::slot_ids( Bootstrap::get_topologies() );
+
+		$this->assertSame( [ ...self::kea_idle_ids(), 'kea-resident.p0' ], \array_keys( $slots ) );
+		$this->assertSame( [ 'kea-idle', 6 ], $slots['kea-idle.p6'] );
+	}
+
+	public function test_ls_workers_reads_the_topologies_once_for_every_lock(): void {
+		$this->activate_idle_and_resident();
+		foreach ( self::kea_idle_ids() as $id ) {
+			$this->lock( $id, 0 );
+		}
+		$reads = $this->count_topology_reads();
+
+		$this->assertCount( 7, ( new CLI( $this->tmp ) )->ls_workers() );
+		$this->assertCount( 1, $reads );
+	}
+
 	public function test_format_duration_renders_compact_units(): void {
 		$this->assertSame( '44s', CLI::format_duration( 44 ) );
 		$this->assertSame( '5m 3s', CLI::format_duration( 303 ) );
@@ -133,10 +287,10 @@ class CliTest extends TestCase {
 	}
 
 	public function test_ls_skips_locks_with_missing_heartbeat(): void {
-		// Lock dir present but no heartbeat file at all → treated as stale (mtime false).
+		// Lock dir past the orphan grace, no heartbeat file at all → stale.
 		mkdir( "{$this->tmp}/locks", 0755, true );
 		mkdir( "{$this->tmp}/locks/jobs.p0.lock.d", 0755, true );
-		// No heartbeat file.
+		touch( "{$this->tmp}/locks/jobs.p0.lock.d", time() - ( Lock_Node::ORPHAN_GRACE_S + 11 ) );
 
 		$cli     = new CLI( $this->tmp );
 		$workers = $cli->ls_workers();

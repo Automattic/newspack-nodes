@@ -202,17 +202,19 @@ class CLI_Command {
 	 * `_command_interpreter`, which sinks into `_router`. `_output` (the Dumper)
 	 * and `_stdout` (the terminal writer) sink into the interpreter too and are
 	 * reached by PATH rather than down a sink chain: the Shell stamps
-	 * `FROM=_output/<pid>`, a reply comes back with TO=FROM and lands on the
-	 * Dumper, and the Dumper's `target` carries the rendered line to `_stdout`.
-	 * That is ADR-7 — steer with `target`, never with a bespoke sink chain.
+	 * `FROM=_output/_cli:<pid>/_output`, a reply comes back with TO=FROM and
+	 * lands on the Dumper, and the Dumper's `target` carries the rendered line
+	 * to `_stdout`. That is ADR-7 — steer with `target`, never with a bespoke
+	 * sink chain.
 	 *
 	 * Attaching opens the worker's command channel through `CLI::open_channel()`:
 	 * a `Partition_Node` named after the worker, which writes commands into the
 	 * worker's input IPC dir, and a `Consumer_Node` tailing the output dir into
-	 * an anonymous relay targeting `_output`. The Shell's sink is
-	 * untouched; setting `path` to the worker id is the whole cd, and it is what
-	 * puts `TO={worker-id}` on a default command so `_router` hands it to the
-	 * Partition instead of running it locally.
+	 * this session's gate, `<worker-id>:replies`, which strips
+	 * `_output/_cli:<pid>` off a reply and targets `_output` with a broadcast.
+	 * The Shell's sink is untouched; setting `path` to the worker id is the
+	 * whole cd, and it is what puts `TO={worker-id}` on a default command so
+	 * `_router` hands it to the Partition instead of running it locally.
 	 *
 	 * @param bool                                                                           $attached True selects attached mode; the IPC pair needs `$ipc` non-null too.
 	 * @param array{id:string,type:string,partition:int,input:string,output:string,sleeping:bool}|null $ipc      IPC channel from `CLI::attach_to_worker()`; null in bare mode.
@@ -258,15 +260,10 @@ class CLI_Command {
 		$stdout->set_readline_mode( $has_readline );
 
 		if ( $attached && null !== $ipc ) {
-			$shell->path = $worker_id;
-			$reply_in    = new Node();
-			$reply_in->sink( $router );
-			$reply_in->target( Node_Names::OUTPUT );
-			CLI::open_channel( $ipc, $interpreter, $reply_in );
+			$shell->path  = $worker_id;
+			[ , , $gate ] = CLI::open_channel( $ipc, $interpreter, $router, $pid );
+			$gate->target( Node_Names::OUTPUT );
 		}
-
-		// Only an empty TO or this pid renders; another session's reply drops.
-		$dumper->set_to_filter( $pid );
 
 		return [ $shell, $dumper, $stdout ];
 	}

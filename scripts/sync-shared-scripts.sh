@@ -30,7 +30,7 @@ SELF="sync-shared-scripts.sh"
 SHARED="reorder-node-methods.php reorder-node-methods.js coverage-gate-js.mjs
 	coverage-gate.py lint-comments.mjs lint-comments.php fix-blank-lines.php
 	test-coverage-gate.sh test-coverage-gate-js.sh test-reorder-node-methods.sh
-	test-lint-comments.sh
+	test-lint-comments.sh test-lint-contract.sh
 	test-fix-blank-lines.sh
 	lint-contract.mjs
 	lint-styles.mjs
@@ -75,7 +75,7 @@ for f in $SHARED; do
 done
 
 mkdir -p "$SCRIPT_DIR/lib"
-for src in "$SUBSTRATE_DIR"/scripts/lib/*.sh; do
+for src in "$SUBSTRATE_DIR"/scripts/lib/*.sh "$SUBSTRATE_DIR"/scripts/lib/*.mjs; do
 	[ -f "$src" ] || continue
 	f=$(basename "$src")
 	refresh "$src" "$SCRIPT_DIR/lib/$f" "scripts/lib/$f"

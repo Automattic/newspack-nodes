@@ -28,8 +28,9 @@
  * chrome carrying no role, or one out-specifying a third party's own CSS.
  */
 
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { relative } from 'node:path';
+import { walkFiles } from './lib/walk-files.mjs';
 
 /** The directory a run is scoped to; violations report paths relative to it. */
 const ROOT = process.cwd();
@@ -81,7 +82,7 @@ const NOT_A_COMPONENT_CLASS =
  */
 const ridingClasses = ( dir ) => {
 	const found = new Set();
-	for ( const file of walk( dir, [], /\.jsx?$/ ) ) {
+	for ( const file of walkFiles( dir, { match: /\.jsx?$/ } ) ) {
 		const source = readFileSync( file, 'utf8' );
 		for ( const match of source.matchAll(
 			/className=(?:"([^"]*)"|\{\s*`([^`]*)`)/g
@@ -178,35 +179,6 @@ const blocks = ( source ) => {
 };
 
 /**
- * Collect the files under a directory that a run may judge, skipping the
- * generated trees, where a hit would name a compiled artefact instead of the
- * source that produced it.
- *
- * @param {string}   dir   Directory to walk.
- * @param {string[]} out   Accumulator carried through the recursion.
- * @param {RegExp}   match Pattern a path must satisfy; stylesheets by default.
- * @return {string[]} The accumulator.
- */
-const walk = ( dir, out = [], match = /\.scss$/ ) => {
-	for ( const name of readdirSync( dir ) ) {
-		if (
-			'node_modules' === name ||
-			'build' === name ||
-			'release' === name
-		) {
-			continue;
-		}
-		const path = join( dir, name );
-		if ( statSync( path ).isDirectory() ) {
-			walk( path, out, match );
-		} else if ( match.test( path ) ) {
-			out.push( path );
-		}
-	}
-	return out;
-};
-
-/**
  * Whether the shared roles are in play at all. A plugin that does not consume
  * `@newspack-nodes/shared/styles` has no canonical implementation to duplicate
  * — its own rules ARE the implementation, and flagging them would be the kind
@@ -218,7 +190,7 @@ const walk = ( dir, out = [], match = /\.scss$/ ) => {
  */
 const consumesSharedRoles = () =>
 	// Always the whole repo's question: lint-staged passes one path.
-	( existsSync( 'src' ) ? walk( 'src' ) : [] ).some( ( f ) =>
+	[ ...walkFiles( 'src', { match: /\.scss$/ } ) ].some( ( f ) =>
 		/@newspack-nodes\/shared\/styles/.test( readFileSync( f, 'utf8' ) )
 	);
 
@@ -227,7 +199,9 @@ const targets = process.argv.slice( 2 );
 
 /** The stylesheets this run judges: each argument expanded, or all of `src`. */
 const files = ( targets.length ? targets : [ 'src' ] ).flatMap( ( t ) =>
-	statSync( t ).isDirectory() ? walk( t ) : [ t ]
+	statSync( t ).isDirectory()
+		? [ ...walkFiles( t, { match: /\.scss$/ } ) ]
+		: [ t ]
 );
 
 if ( ! consumesSharedRoles() ) {

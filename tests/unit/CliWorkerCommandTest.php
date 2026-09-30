@@ -657,6 +657,31 @@ class CliWorkerCommandTest extends TestCase {
 		$this->assertStringContainsString( 'down', $haystack );
 	}
 
+	public function test_status_marks_an_on_demand_topology_without_a_lock_as_idle(): void {
+		\add_filter(
+			'newspack_nodes/topologies',
+			static fn ( array $t ): array => $t + [
+				'marmot-ondemand' => [ 'topology' => '/nonexistent/path.php', 'num_partitions' => 1, 'on_demand_idle' => 41 ],
+			]
+		);
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'marmot-ondemand' ];
+		\Newspack_Nodes\Config::reset();
+
+		( new Worker_CLI_Command() )->status( [], [] );
+
+		$this->assertContains( 'marmot-ondemand.p0  idle  -  -', $GLOBALS['_test_wp_cli_logs'] );
+	}
+
+	public function test_status_reads_a_lock_dir_with_no_heartbeat_past_the_orphan_grace_as_stale(): void {
+		$this->register_topology( 'kea-5117', 1 );
+		\mkdir( "{$this->tmp}/locks/kea-5117.p0.lock.d", 0755, true );
+		\touch( "{$this->tmp}/locks/kea-5117.p0.lock.d", \time() - ( Lock_Node::ORPHAN_GRACE_S + 19 ) );
+
+		( new Worker_CLI_Command() )->status( [], [] );
+
+		$this->assertContains( 'kea-5117.p0  stale  -  -', $GLOBALS['_test_wp_cli_logs'] );
+	}
+
 	public function test_status_marks_a_stale_heartbeat(): void {
 		$this->register_topology( 'aggregator', 1 );
 		$lock = "{$this->tmp}/locks/aggregator.p0.lock.d";

@@ -26,8 +26,8 @@
  * Exit 0 clean; exit 1 with `file:line: message` per violation.
  */
 
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { walkFiles } from './lib/walk-files.mjs';
 
 /** The column budget every non-exempt comment line fits inside. */
 const MAX_COLS = 80;
@@ -309,20 +309,8 @@ function checkFile( path ) {
 	return violations.sort( ( a, b ) => parseInt( a, 10 ) - parseInt( b, 10 ) );
 }
 
-/**
- * Directories the walk never descends.
- *
- * Pruning beats filtering the walk's results: `node_modules` holds tens of
- * thousands of files against the checkout's few hundred sources, and the walk
- * would stat every one of them only to discard it.
- */
-const SKIP_DIRS = new Set( [
-	'node_modules',
-	'build',
-	'vendor',
-	'release',
-	'.git',
-] );
+/** The files the gate reads: `.js` and `.jsx` and their `.cjs`/`.mjs` forms. */
+const SOURCE_FILE = /\.[cm]?jsx?$/;
 
 /**
  * Does this path name a file the gate reads?
@@ -330,26 +318,7 @@ const SKIP_DIRS = new Set( [
  * @param {string} p Path to check.
  * @return {boolean} True for `.js` and `.jsx` and their `.cjs`/`.mjs` forms.
  */
-const isSourceFile = ( p ) => /\.[cm]?jsx?$/.test( p );
-
-/**
- * Every source file under a directory, depth-first.
- *
- * @param {string} dir Directory to walk.
- * @return {IterableIterator<string>} Paths of the source files found.
- */
-function* walkFiles( dir ) {
-	for ( const entry of readdirSync( dir, { withFileTypes: true } ) ) {
-		const full = join( dir, entry.name );
-		if ( entry.isDirectory() ) {
-			if ( ! SKIP_DIRS.has( entry.name ) ) {
-				yield* walkFiles( full );
-			}
-		} else if ( entry.isFile() && isSourceFile( full ) ) {
-			yield full;
-		}
-	}
-}
+const isSourceFile = ( p ) => SOURCE_FILE.test( p );
 
 /**
  * The files one command-line argument names.
@@ -366,7 +335,7 @@ function* expandArg( arg ) {
 		return;
 	}
 	if ( statSync( arg ).isDirectory() ) {
-		yield* walkFiles( arg );
+		yield* walkFiles( arg, { match: SOURCE_FILE, exempt: isExemptPath } );
 	} else {
 		yield arg;
 	}

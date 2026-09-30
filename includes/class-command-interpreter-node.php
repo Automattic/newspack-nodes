@@ -48,11 +48,9 @@ class Command_Interpreter_Node extends Node {
 	 * Wraps each verb handler once the verb is known to exist, so no caller can
 	 * coin a verb name the wrapper sees; see docs/architecture-guide.md.
 	 *
-	 * The interpreter-wide capability floor, the secure-level refusal, the
-	 * unknown-verb throw and the argument binding all run first. A
-	 * `Service_CI_Node` verb's own declared role does not: `gate_table()`
-	 * checks it inside the handler, so that refusal throws through `$run` and
-	 * out of the wrapper.
+	 * The declared-role refusal (ADR-26), the secure-level refusal, the
+	 * unknown-verb throw and the argument binding all run first, so a wrapper
+	 * sees only a verb its caller may run.
 	 *
 	 * One slot serves every plugin, so an assigner composes rather than
 	 * replaces: it reads the current value and calls it from its own wrapper,
@@ -157,13 +155,12 @@ class Command_Interpreter_Node extends Node {
 	private static array $resolve_cache = [];
 
 	/**
-	 * Each verb's declared `args`, keyed by the class whose schema declares
-	 * them — a class's schema is static, so it is read once. A verb declaring
-	 * no `args` key is absent, and dispatches its raw tokens.
+	 * `declared_verbs()`'s memo: each class's schema lists, keyed by class,
+	 * then list, then verb name.
 	 *
-	 * @var array<string,array<string,list<array<array-key,mixed>>>>
+	 * @var array<string,array<string,array<string,array<array-key,mixed>>>>
 	 */
-	private static array $declared_args = [];
+	private static array $declarations = [];
 
 	/**
 	 * Per-instance override of $default_authorize (tests / special cases). Null →
@@ -174,28 +171,11 @@ class Command_Interpreter_Node extends Node {
 	public ?\Closure $authorize = null;
 
 	/**
-	 * Capability role this interpreter's vocabulary demands by DEFAULT, or null
-	 * to gate nothing. The `/command` controller pins the request-scope base
-	 * interpreter to MANAGE: its verbs build and rewire the graph, and unlike a
-	 * Service CI they declare no per-verb role, so the lowered endpoint door
-	 * would otherwise be the only thing standing in front of `make_node`.
-	 *
-	 * Workers leave it null on purpose — a CLI process has no current user, and
-	 * a floor here would refuse the worker its own topology.
-	 *
-	 * READ_VERBS below is the exception list, because the base table is not all
-	 * graph mutation.
-	 *
-	 * @var string|null
-	 */
-	public ?string $required_capability = null;
-
-	/**
-	 * Base verbs that only READ. Every dashboard on the site drives some of
-	 * these — the Log Viewer sends `taillog`, the debug overlay polls
-	 * `dump_metadata` every tick — so a single whole-table MANAGE floor would buy
-	 * the read surface nothing: the lowered `/command` door would admit a
-	 * read-only caller and then refuse every verb it came for.
+	 * Base verbs that only READ, and so answer READ where every other verb no
+	 * schema declares demands MANAGE (ADR-26). Every dashboard on the site
+	 * drives some of these — the Log Viewer sends `taillog`, the debug overlay
+	 * polls `dump_metadata` every tick — so the read surface stays open to a
+	 * read-only caller the `/command` door admits.
 	 *
 	 * @var list<string>
 	 */
@@ -368,9 +348,12 @@ class Command_Interpreter_Node extends Node {
 	 * Dispatch a verb by name. The result rides the Message VALUE unencoded (never
 	 * JSON here).
 	 *
-	 * The capability role and the secure-level refusal are both checked BEFORE the
-	 * verb table, so they cover a subclass's own table as well as the shared one.
-	 * An unknown verb throws, like every other refusal.
+	 * The role the verb's schema declares is checked first, through
+	 * `Capabilities::require_verb()`, so no caller lacking it learns anything
+	 * the verb would say — not whether it exists, not the args it binds — and
+	 * no handler checks a role of its own (ADR-26). The secure-level refusal
+	 * follows, then the unknown-verb throw; all three sit BEFORE the verb
+	 * table, so they cover a subclass's own table as well as the shared one.
 	 *
 	 * A verb whose schema declares `args` — a service CI's own, or a `:config`
 	 * interpreter's patron's — has its tokens bound by `Command_Args::bind()`
@@ -386,10 +369,7 @@ class Command_Interpreter_Node extends Node {
 	 * @return mixed Verb result: a string for most verbs, an array for the struct-returning ones (`dump_metadata`, `taillog sources`, `taillog read`, and the `-s` forms of `list_timers` / `list_handles` / `list_profiles`).
 	 */
 	public function dispatch( string $name, array $args = [], array $envelope = [] ): mixed {
-		$role = $this->capability_for( $name );
-		if ( null !== $role ) {
-			Capabilities::require( $role );
-		}
+		Capabilities::require_verb( $this->capability_for( $name ) );
 		$refusal = $this->refuse_at_secure_level( $name );
 		if ( null !== $refusal ) {
 			throw new \RuntimeException( \esc_html( $refusal ) );
@@ -444,41 +424,70 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	/**
-	 * The `args` $verb's schema entry declares — the patron's schema for a
-	 * `:config` interpreter, this class's own otherwise — read once per
-	 * schema-owning class into `$declared_args`. Null when the verb declares no
+	 * The `args` $verb's schema entry declares, or null when it declares no
 	 * `args` key.
 	 *
 	 * @param string $verb Verb name.
 	 * @return list<array<array-key,mixed>>|null
 	 */
 	private function declared_args( string $verb ): ?array {
-		$owner = ( $this->patron() ?? $this )::class;
-		if ( ! isset( self::$declared_args[ $owner ] ) ) {
-			$by_verb = [];
-			foreach ( Core::arr( $this->verb_schema()['commands'] ?? [] ) as $command ) {
-				if ( \is_array( $command ) && \is_array( $command['args'] ?? null ) ) {
-					$by_verb[ Core::as_string( $command['name'] ?? '' ) ] = \array_values( \array_filter( $command['args'], '\is_array' ) );
-				}
-			}
-			self::$declared_args[ $owner ] = $by_verb;
-		}
-		return self::$declared_args[ $owner ][ $verb ] ?? null;
+		$args = $this->declaration( $verb )['args'] ?? null;
+		return \is_array( $args ) ? \array_values( \array_filter( $args, '\is_array' ) ) : null;
 	}
 
 	/**
-	 * The role $verb demands here, or null when this interpreter gates nothing.
-	 * A read-only builtin answers READ even under a MANAGE floor; everything
-	 * else takes the floor. Service_CI_Node overrides nothing: its verbs are
-	 * gated by their own declared roles, and it never sets the floor.
+	 * The role $verb demands here: the `capability` its schema entry declares,
+	 * MANAGE when the entry declares none; for a verb no schema names, READ
+	 * when it is a read-only builtin and MANAGE otherwise (ADR-26).
+	 *
+	 * @param string $verb Verb name.
+	 * @return string One of Capabilities::READ|TUNE|MANAGE, or whatever a schema declares.
 	 */
-	protected function capability_for( string $verb ): ?string {
-		if ( null === $this->required_capability ) {
-			return null;
+	private function capability_for( string $verb ): string {
+		$declared = $this->declaration( $verb );
+		if ( null !== $declared ) {
+			return Core::as_string( $declared['capability'] ?? Capabilities::MANAGE, Capabilities::MANAGE );
 		}
-		return \in_array( $verb, self::READ_VERBS, true )
-			? Capabilities::READ
-			: $this->required_capability;
+		return \in_array( $verb, self::READ_VERBS, true ) ? Capabilities::READ : Capabilities::MANAGE;
+	}
+
+	/**
+	 * $verb's `commands` entry in the schema declaring this interpreter's
+	 * verbs — the patron's for a `:config` interpreter, this class's own
+	 * otherwise. Null when the schema does not name the verb.
+	 *
+	 * @param string $verb Verb name.
+	 * @return array<array-key,mixed>|null
+	 */
+	private function declaration( string $verb ): ?array {
+		return self::declared_verbs( ( $this->patron() ?? $this )::class )[ $verb ] ?? null;
+	}
+
+	/**
+	 * $class's `node_schema()[ $list ]` — `commands` or `requests` — keyed by
+	 * verb name: the one reader of either list, which every dispatch table,
+	 * dump, forwarder, request answer and catalog filters in its own terms. An
+	 * entry is a verb when it carries a non-empty name, so a non-array entry,
+	 * which carries none, is not one. A class's schema is static, so each list
+	 * is read once per process.
+	 *
+	 * @param class-string<Node>     $class Class whose schema declares the verbs.
+	 * @param 'commands'|'requests' $list  Schema list to read.
+	 * @return array<string,array<array-key,mixed>>
+	 */
+	public static function declared_verbs( string $class, string $list = 'commands' ): array {
+		if ( ! isset( self::$declarations[ $class ][ $list ] ) ) {
+			$by_verb = [];
+			foreach ( Core::arr( $class::node_schema()[ $list ] ?? [] ) as $declared ) {
+				$entry = Core::arr( $declared );
+				$name  = Core::as_string( $entry['name'] ?? '' );
+				if ( '' !== $name ) {
+					$by_verb[ $name ] = $entry;
+				}
+			}
+			self::$declarations[ $class ][ $list ] = $by_verb;
+		}
+		return self::$declarations[ $class ][ $list ];
 	}
 
 	/**

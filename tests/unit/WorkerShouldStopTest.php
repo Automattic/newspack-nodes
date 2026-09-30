@@ -336,4 +336,34 @@ class WorkerShouldStopTest extends TestCase {
 	public function test_attempt_with_no_steps_catches_nothing(): void {
 		$this->assertSame( [], Worker_Should_Stop::attempt() );
 	}
+
+	public function test_combined_failures_report_the_first_failures_origin(): void {
+		$first  = new \RuntimeException( 'origin-61' );
+		$second = new \RuntimeException( 'other-62' );
+
+		$combined = Worker_Should_Stop::combine( [ $first, $second ] );
+
+		$this->assertSame( __FILE__, $combined->getFile() );
+		$this->assertSame( $first->getLine(), $combined->getLine() );
+	}
+
+	public function test_a_fresh_stop_carrying_a_failure_reports_that_failures_origin(): void {
+		$failure = new \RuntimeException( 'flush-71' );
+
+		$combined = Worker_Should_Stop::combine( [ new Worker_Should_Stop_Clean( 'recycle-72' ), $failure ] );
+
+		$this->assertInstanceOf( Worker_Should_Stop::class, $combined );
+		$this->assertSame( $failure, $combined->getPrevious() );
+		$this->assertSame( __FILE__, $combined->getFile() );
+		$this->assertSame( $failure->getLine(), $combined->getLine() );
+	}
+
+	public function test_a_fresh_stop_carrying_several_failures_reports_the_first_ones_origin(): void {
+		$first  = new \RuntimeException( 'first-81' );
+		$second = new \RuntimeException( 'second-82' );
+
+		$combined = Worker_Should_Stop::combine( [ new Worker_Should_Stop( 'deadline-83' ), $first, $second ] );
+
+		$this->assertSame( $first->getLine(), $combined->getLine() );
+	}
 }
