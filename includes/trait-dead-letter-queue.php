@@ -647,15 +647,15 @@ trait Dead_Letter_Queue {
 	 * `dl_list` verb handler — reply the triage page.
 	 *
 	 * @param Command_Interpreter_Node $interpreter The `{name}:config` interpreter.
-	 * @param array<array-key,mixed>   $args        Optional limit token; absent takes
-	 *                                              DEADLETTER_LIST_DEFAULT_LIMIT and a
-	 *                                              non-positive one clamps to 1.
+	 * @param array<array-key,mixed>   $args        Bound verb arguments: the optional
+	 *                                              limit; absent takes
+	 *                                              DEADLETTER_LIST_DEFAULT_LIMIT and 0
+	 *                                              clamps to 1.
 	 * @return array{rows: array<int,mixed>, total: int, unindexed_segments: int} The page.
 	 */
 	public static function cmd_dl_list( Command_Interpreter_Node $interpreter, array $args ): array {
 		$patron = self::deadletter_patron( $interpreter );
-		$raw   = Core::as_string( $args[0] ?? '' );
-		$limit = '' === $raw ? self::DEADLETTER_LIST_DEFAULT_LIMIT : \max( 1, Core::as_int( $raw ) );
+		$limit  = null === $args['limit'] ? self::DEADLETTER_LIST_DEFAULT_LIMIT : \max( 1, Core::as_int( $args['limit'] ) );
 		return $patron->list_deadletter( $limit );
 	}
 
@@ -663,24 +663,24 @@ trait Dead_Letter_Queue {
 	 * `dl_show` verb handler — decode one record and reply with it.
 	 *
 	 * @param Command_Interpreter_Node $interpreter The `{name}:config` interpreter.
-	 * @param array<array-key,mixed>   $args        The sidecar locator from dl_list.
+	 * @param array<array-key,mixed>   $args        Bound verb arguments: locator, from dl_list.
 	 * @return array{type: int, type_flags: string, timestamp: mixed, from: string, to: string, id: string, key: string, value: mixed, size: int} The record.
 	 */
 	public static function cmd_dl_show( Command_Interpreter_Node $interpreter, array $args ): array {
 		$patron = self::deadletter_patron( $interpreter );
-		return $patron->show_deadletter( Core::as_string( $args[0] ?? '' ) );
+		return $patron->show_deadletter( Core::as_string( $args['locator'] ) );
 	}
 
 	/**
 	 * `dl_requeue` verb handler — redeliver one record; reply the `ok:` line.
 	 *
 	 * @param Command_Interpreter_Node $interpreter The `{name}:config` interpreter.
-	 * @param array<array-key,mixed>   $args        The sidecar locator from dl_list.
+	 * @param array<array-key,mixed>   $args        Bound verb arguments: locator, from dl_list.
 	 * @return string The `ok:` line.
 	 */
 	public static function cmd_dl_requeue( Command_Interpreter_Node $interpreter, array $args ): string {
 		$patron = self::deadletter_patron( $interpreter );
-		return $patron->requeue_deadletter( Core::as_string( $args[0] ?? '' ) );
+		return $patron->requeue_deadletter( Core::as_string( $args['locator'] ) );
 	}
 
 	/**

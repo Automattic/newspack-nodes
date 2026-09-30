@@ -12,7 +12,7 @@ make_node Flame_Builder flame-builder
 make_node Partition flames:partition <config:logs_dir>/flames.p<partition>
 make_node Partition flame-stats:partition <config:logs_dir>/flame-stats.p<partition>
 cmd requests:consumer:config add_snapshot_node flame-builder
-cmd flame-builder:config configure_stats <partition>
+cmd flame-builder:config configure_stats
 cmd flame-builder:config set_stats_target <eln:stats_mirror_node>
 cmd flame-builder:config set_is_hub <eln:is_hub>
 cmd flames:partition:config void_warranty

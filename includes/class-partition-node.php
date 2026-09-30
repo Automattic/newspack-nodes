@@ -2303,13 +2303,13 @@ class Partition_Node extends Timer_Node {
 	 * acquire-and-hold.
 	 *
 	 * @param Command_Interpreter_Node $interpreter The `{name}:config` interpreter whose patron is this partition.
-	 * @param array<array-key,mixed>   $args        Optional debounce_ms in slot 0; 0 (the default) is hold mode.
+	 * @param array<array-key,mixed>   $args        Bound verb arguments: the optional debounce_ms; absent or 0 is hold mode.
 	 * @return string The verb reply.
 	 */
 	public static function cmd_allow_large_writes( Command_Interpreter_Node $interpreter, array $args ): string {
 		/** @var self $patron */
 		$patron   = $interpreter->patron();
-		$debounce = \max( 0, Core::as_int( $args[0] ?? '' ) );
+		$debounce = Core::as_int( $args['debounce_ms'] );
 		$patron->allow_large_writes( self::DEFAULT_LOCK_WAIT_MS, $debounce );
 		return "ok\n";
 	}
@@ -2333,22 +2333,18 @@ class Partition_Node extends Timer_Node {
 	 * by its registered name.
 	 *
 	 * @param Command_Interpreter_Node $interpreter The `{name}:config` interpreter whose patron is this partition.
-	 * @param array<array-key,mixed>   $args        Formatter name in slot 0.
+	 * @param array<array-key,mixed>   $args        Bound verb arguments: formatter.
 	 * @return string The verb reply.
-	 * @throws \RuntimeException When the name is missing or unregistered.
+	 * @throws \RuntimeException When the name is unregistered.
 	 */
 	public static function cmd_with_index( Command_Interpreter_Node $interpreter, array $args ): string {
-		$args = Core::as_string( $args[0] ?? '' );
-		if ( '' === $args ) {
-			throw new \RuntimeException( 'usage: with_index <formatter_name>' );
-		}
-		$callable = Formatters::resolve( $args );
-		if ( null === $callable ) {
-			throw new \RuntimeException( \esc_html( "unknown formatter: $args" ) );
+		$formatter = Core::as_string( $args['formatter'] );
+		if ( null === Formatters::resolve( $formatter ) ) {
+			throw new \RuntimeException( \esc_html( "unknown formatter: $formatter" ) );
 		}
 		/** @var self $patron */
 		$patron = $interpreter->patron();
-		$patron->with_index_named( $args );
+		$patron->with_index_named( $formatter );
 		return "ok\n";
 	}
 

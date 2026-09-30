@@ -1912,8 +1912,7 @@ describe( 'Inspector (view mode)', () => {
 		expect( onAction ).toHaveBeenCalledWith( 'invoke', 'echo', {
 			verb: 'inspect',
 			kind: 'request',
-			positional: '',
-			byName: {},
+			args: [],
 		} );
 	} );
 
@@ -1932,8 +1931,7 @@ describe( 'Inspector (view mode)', () => {
 		expect( onAction ).toHaveBeenCalledWith( 'invoke', 'echo', {
 			verb: 'set_line_mode',
 			kind: 'command',
-			positional: '',
-			byName: {},
+			args: [],
 		} );
 	} );
 
@@ -1976,8 +1974,7 @@ describe( 'Inspector (view mode)', () => {
 		expect( onAction ).toHaveBeenCalledWith( 'invoke', 'echo', {
 			verb: 'with_index',
 			kind: 'command',
-			positional: 'json',
-			byName: { formatter: 'json' },
+			args: [ '--formatter=json' ],
 		} );
 	} );
 
@@ -2000,9 +1997,131 @@ describe( 'Inspector (view mode)', () => {
 		expect( onAction ).toHaveBeenCalledWith( 'invoke', 'echo', {
 			verb: 'optional_arg',
 			kind: 'command',
-			positional: '',
-			byName: {},
+			args: [],
 		} );
+	} );
+
+	it( 'names every filled command arg, so a blank one shifts nothing after it', () => {
+		const onAction = jest.fn();
+		const catalog = [
+			{
+				shell_name: 'Echo',
+				commands: [
+					{
+						name: 'create',
+						args: [
+							{ name: 'label', type: 'string' },
+							{ name: 'scope', type: 'string' },
+							{ name: 'ttl', type: 'int' },
+						],
+					},
+				],
+			},
+		];
+		const { getByText, getByLabelText } = renderNode( {
+			catalog,
+			onAction,
+		} );
+		fireEvent.click( getByText( 'create' ) );
+		fireEvent.change( getByLabelText( /label/ ), {
+			target: { value: 'kea bot 4417' },
+		} );
+		fireEvent.change( getByLabelText( /ttl/ ), {
+			target: { value: '4417' },
+		} );
+		fireEvent.click( getByText( 'Run' ) );
+		expect( onAction ).toHaveBeenCalledWith( 'invoke', 'echo', {
+			verb: 'create',
+			kind: 'command',
+			args: [ '--label=kea bot 4417', '--ttl=4417' ],
+		} );
+	} );
+
+	it( 'repeats a variadic arg by name, one token per word', () => {
+		const onAction = jest.fn();
+		const catalog = [
+			{
+				shell_name: 'Echo',
+				commands: [
+					{
+						name: 'restart',
+						args: [
+							{ name: 'types', type: 'string', variadic: true },
+							{ name: 'partition', type: 'int' },
+						],
+					},
+				],
+			},
+		];
+		const { getByText, getByLabelText } = renderNode( {
+			catalog,
+			onAction,
+		} );
+		fireEvent.click( getByText( 'restart' ) );
+		fireEvent.change( getByLabelText( /types/ ), {
+			target: { value: ' job-worker  kea-7714 ' },
+		} );
+		fireEvent.click( getByText( 'Run' ) );
+		expect( onAction ).toHaveBeenCalledWith( 'invoke', 'echo', {
+			verb: 'restart',
+			kind: 'command',
+			args: [ '--types=job-worker', '--types=kea-7714' ],
+		} );
+	} );
+
+	it( 'sends a TM_REQUEST verb its args by position, in declared order', () => {
+		const onAction = jest.fn();
+		const catalog = [
+			{
+				shell_name: 'Echo',
+				requests: [
+					{
+						name: 'TOUCH',
+						args: [
+							{ name: 'ttl', type: 'int', required: true },
+							{ name: 'keys', type: 'string', required: true },
+						],
+					},
+				],
+			},
+		];
+		const { getByText, getByLabelText } = renderNode( {
+			catalog,
+			onAction,
+		} );
+		fireEvent.click( getByText( 'TOUCH' ) );
+		fireEvent.change( getByLabelText( /keys/ ), {
+			target: { value: 'moa-6621' },
+		} );
+		fireEvent.change( getByLabelText( /ttl/ ), {
+			target: { value: '6621' },
+		} );
+		fireEvent.click( getByText( 'Run' ) );
+		expect( onAction ).toHaveBeenCalledWith( 'invoke', 'echo', {
+			verb: 'TOUCH',
+			kind: 'request',
+			args: [ '6621', 'moa-6621' ],
+		} );
+	} );
+
+	it( 'focuses the first argument field when the dialog opens', () => {
+		const catalog = [
+			{
+				shell_name: 'Echo',
+				commands: [
+					{
+						name: 'graft',
+						args: [
+							{ name: 'rootstock', type: 'string' },
+							{ name: 'scion', type: 'string' },
+						],
+					},
+				],
+			},
+		];
+		const { getByText, getByLabelText } = renderNode( { catalog } );
+		fireEvent.click( getByText( 'graft' ) );
+		expect( document.activeElement ).toBe( getByLabelText( /rootstock/ ) );
 	} );
 
 	it( 'clicking a live verb button is a no-op when no action handler is wired', () => {
@@ -2170,7 +2289,7 @@ describe( 'Inspector (view mode)', () => {
 				onAction={ onAction }
 			/>
 		);
-		// pause gates the transport; it wires through with no positional.
+		// pause gates the transport; it wires through with no args.
 		fireEvent.click( getByLabelText( /pause/i ) );
 		expect( onAction ).toHaveBeenLastCalledWith(
 			'invoke',
@@ -2178,12 +2297,11 @@ describe( 'Inspector (view mode)', () => {
 			{
 				verb: 'pause',
 				kind: 'command',
-				positional: '',
-				byName: {},
+				args: [],
 				replyTo: names.UI,
 			}
 		);
-		// First rewind lands on the NEWEST keyframe 5344; positional→segment.
+		// First rewind lands on the NEWEST keyframe 5344, named as --segment.
 		fireEvent.click( getByLabelText( /rewind/i ) );
 		expect( onAction ).toHaveBeenLastCalledWith(
 			'invoke',
@@ -2191,8 +2309,7 @@ describe( 'Inspector (view mode)', () => {
 			{
 				verb: 'seek_frame',
 				kind: 'command',
-				positional: '5344',
-				byName: { segment: '5344' },
+				args: [ '--segment=5344' ],
 				replyTo: names.UI,
 			}
 		);
@@ -2204,8 +2321,7 @@ describe( 'Inspector (view mode)', () => {
 			{
 				verb: 'seek_frame',
 				kind: 'command',
-				positional: '5343',
-				byName: { segment: '5343' },
+				args: [ '--segment=5343' ],
 				replyTo: names.UI,
 			}
 		);
@@ -2217,8 +2333,7 @@ describe( 'Inspector (view mode)', () => {
 			{
 				verb: 'seek_frame',
 				kind: 'command',
-				positional: '5344',
-				byName: { segment: '5344' },
+				args: [ '--segment=5344' ],
 				replyTo: names.UI,
 			}
 		);

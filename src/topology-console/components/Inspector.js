@@ -1316,9 +1316,12 @@ function EditForm( {
  *
  * Each argument renders through `CtorField`, so a verb argument gets the same
  * schema-driven widget a constructor argument does — one pickers-and-types
- * implementation, not two. An argument left empty is dropped rather than sent
- * as a blank token, which would fill its positional slot and shift every
- * argument after it.
+ * implementation, not two. A command names every filled argument as one
+ * `--name=value` token, which the server binds by name, so a field left blank
+ * shifts nothing after it; a `variadic` field sends one such token per word.
+ * A request has no binder — its VALUE is words — so its arguments ride by
+ * position; every one is required, so none is blank. The first field takes
+ * focus when the dialog opens.
  *
  * @param {Object}     props
  * @param {string}     props.nodeId     Node the verb runs on.
@@ -1346,6 +1349,10 @@ function VerbArgModal( {
 	const [ values, setValues ] = useState( () =>
 		args.map( ( arg ) => arg.default ?? '' )
 	);
+	const bodyRef = useRef( null );
+	useEffect( () => {
+		bodyRef.current?.querySelector( 'input, select, textarea' )?.focus();
+	}, [] );
 
 	const missingRequired = args.some(
 		( arg, i ) => arg.required && '' === String( values[ i ] ?? '' ).trim()
@@ -1355,28 +1362,24 @@ function VerbArgModal( {
 		if ( missingRequired ) {
 			return;
 		}
-		const filled = [];
-		const byName = {};
+		const tokens = [];
 		args.forEach( ( arg, i ) => {
-			const v = values[ i ];
-			if ( v === undefined || '' === String( v ) ) {
-				return;
+			const v = String( values[ i ] ?? '' );
+			// A variadic arg repeats by name, one token per word.
+			const words = arg.variadic ? v.split( /\s+/ ) : [ v ];
+			for ( const word of words.filter( ( w ) => '' !== w ) ) {
+				tokens.push(
+					'request' === kind ? word : `--${ arg.name }=${ word }`
+				);
 			}
-			filled.push( String( v ) );
-			byName[ arg.name ] = v;
 		} );
-		onAction( 'invoke', nodeId, {
-			verb,
-			kind,
-			positional: filled.join( ' ' ).trim(),
-			byName,
-		} );
+		onAction( 'invoke', nodeId, { verb, kind, args: tokens } );
 		onDismiss();
 	};
 
 	return (
 		<ModalShell title={ verb } onDismiss={ onDismiss }>
-			<div className="topology-modal__body">
+			<div className="topology-modal__body" ref={ bodyRef }>
 				{ args.map( ( arg, i ) => (
 					<CtorField
 						key={ arg.name }
@@ -1458,8 +1461,7 @@ function VerbButton( {
 					onAction( 'invoke', nodeId, {
 						verb: spec.name,
 						kind,
-						positional: '',
-						byName: {},
+						args: [],
 					} );
 				} }
 				title={
@@ -2501,17 +2503,12 @@ export default function Inspector( {
 						paused={ 'PAUSED' === node.polling }
 						atFrameSignal={ node.at_frame ?? null }
 						onFrameSignal={ !! node.on_frame }
-						onTransport={ ( verb, positional = '' ) =>
+						onTransport={ ( verb, args = [] ) =>
 							onAction &&
 							onAction( 'invoke', node.id, {
 								verb,
 								kind: 'command',
-								positional,
-								// seek_frame takes `segment`; others none.
-								byName:
-									'seek_frame' === verb
-										? { segment: positional }
-										: {},
+								args,
 								// A button: state arrives by poll, not reply.
 								replyTo: reservedNames.UI,
 							} )

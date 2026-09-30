@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **A verb's declared `args` are bound before its handler runs, and the handler reads them by name ([ADR-25](docs/architecture-decisions.md#adr-25-a-verbs-arguments-are-bound-by-its-schema)).** `Command_Interpreter_Node::dispatch()` binds a schema-declared verb's tokens — a service CI's and every `:config` verb's — through `Command_Args::bind()`: each arg by position in declared order or as `--name=value`, mixed; declared defaults applied; a `variadic` arg collecting the positional tail; `int`, `float` and `bool` typed. It refuses an unknown option, a name given twice or both ways, a surplus positional, a missing required arg, a bare flag for a valued arg and a mistyped number, each as the verb's TM_ERROR. A handler's `$args` is `array<string,mixed>`, one key per declared arg. Every substrate handler moved to it.
+- **Schemas now say what their handlers read.** `vault add` declares `url` required; `workers heartbeat` declares `owner` an `int`; `workers restart` and `topologies expand` declare their type and name lists `variadic`; `workers restart` declares no partition default, and an absent partition restarts every one.
+- **Verbs refuse what they used to coerce.** `settings set` refuses `1.5` and `1e3`, which it read as numbers; `dl_list`'s limit, `seek_frame`'s segment and `allow_large_writes`' debounce_ms refuse a malformed int, which they cast to 0; a `bool` arg — `set_line_mode`, `set_multi_writer`, `assume_clean_shutdown` — refuses a word outside `1/true/yes/on/0/false/no/off`, which read as false; and a blank for a required arg is `missing required argument`. A `make_node` bool positional refuses such a word too.
+- **`sessions create --ttl=0` clamps to the 60-second minimum,** where it refused, and **`--scope=` (blank) refuses as an unknown scope,** where it minted `manage`.
+- **A `secret` arg is named, never positional:** `vault add` and `update` refuse a positional password as `password must be named: write --password=<value>`, echoing nothing, because the browser masks only `--name=` tokens.
+- **A variadic arg repeats by name** — `restart --types=job-worker --types=aggregator` — and the console's verb dialog sends one such token per word it is given.
+- **One default rule.** `Command_Args::default_of()` resolves a `<ns:key>` token default for a verb arg as `make_node` resolves one for a positional, so a bare `set_is_hub` binds the resolved value rather than the literal token.
+- **A `<ns:key>` token whose resolver answers a PHP bool resolves to `1` or `0`,** where `false` resolved to a blank, so `set_is_hub <eln:is_hub>` binds false on a spoke rather than failing the load.
+- **A binding refusal counts a surplus argument and never echoes it** (`too many arguments: 3 given, 2 accepted`), and a type refusal on a `secret` arg shows `<redacted>` for the token.
+- **A binding refusal never reaches `$around_dispatch`,** as an unknown verb does not, so no wrapper logs a command that does not fit.
+- **`Cache_Backend::delete()` answers `?bool`:** null when the backend did not answer, as `touch()` answers, so a caller can tell a silent store from an absent key.
+- **The console's verb dialog names every filled argument as `--name=value`,** so a blank field no longer shifts every later value into the wrong slot, and the first field takes focus when the dialog opens. The Inspector's invoke payload carries `args`, a token array, where it carried a `positional` string and an unread `byName` map; the time-travel bar and the dead-letter triage view send named tokens too.
+- **A blank `int`, `float` or `bool` verb token reads as not supplied,** as a blank numeric `make_node` positional already did.
+- **`Settings_Sync_Node::add_setting()` takes `( string $local, string $to, string $remote )`,** where it took a token array.
+
+### Fixed
+
+- **Each PHPUnit process runs on a base directory of its own.** `tests/bootstrap.php` names `NEWSPACK_TEST_BASE_DIR` as `<tmp>/newspack-nodes-test-<pid>` unless a consumer's bootstrap already did, the baseline test config reads it, and the bootstrap removes the base it named when the process exits. `TestCase::tearDown()` restores the `LOCAL_NEWSPACK_NODES_CONF` the process booted with rather than the substrate's fixed file, so a consumer suite extending it stays on its own base, and its teardown can no longer delete a concurrent substrate suite's Tables. `tests/run-coverage.sh` sweeps only bases older than two hours.
+- **`sessions create chris-claude tune 86400` mints what `--scope=tune --ttl=86400` mints.** The handler read scope and ttl only as options, so the positional form the schema documents minted a `manage` session for an hour.
+- **`sessions revoke` tells the truth.** It answered `revoked: true` for any string; it now answers so only when it dropped a cache lease or a directory row, refuses `no session with handle <h>` otherwise, names the handles of any session labelled `<h>`, and refuses `session store did not answer; <h> may still be live` when the cache is silent, leaving the listing as it was. `Sessions::forget()` and `Command_Auth::revoke_session()` return `?bool`.
+- **`raw-logs read_message` refuses a missing `log`,** which its schema declared required.
+
+### Removed
+
+- **`Command_Args::parse()`, `Service_CI_Node::split_first_token()`, `Service_CI_Node::require_option_int()`, `Schema_Reflection::resolve_default()`, `Schema_Reflection::truthy()` and the browser's `parseCommandArgs()`.** The binder reads every declared verb; `Command_Args::format()`, `formatCommandArgs()` and the WP-CLI `Command_Args::option_int()` stay. A `bool` token, verb or `make_node`, reads through `Command_Args::typed()`.
+
 ## [2.76.0] - 2026-09-29
 
 ### Added

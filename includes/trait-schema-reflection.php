@@ -95,14 +95,13 @@ trait Schema_Reflection {
 				throw new \InvalidArgumentException( \esc_html( "Invalid argument specification: {$name}" ) );
 			}
 			$token = $args[ $i ] ?? null;
-			// A blank numeric positional is a placeholder for "not supplied".
-			if ( '' === $token && ( 'int' === $type || 'float' === $type ) ) {
+			if ( Command_Args::unsupplied( $token, $arg_spec ) ) {
 				$token = null;
 			}
 			if ( null !== $token ) {
 				$values[ $name ] = $this->coerce_argument( $token, $type, $name );
 			} elseif ( \array_key_exists( 'default', $arg_spec ) ) {
-				$values[ $name ] = $this->resolve_default( $arg_spec['default'], $type, $name );
+				$values[ $name ] = Command_Args::default_of( $arg_spec );
 			} elseif ( \array_key_exists( 'required', $arg_spec ) && $arg_spec['required'] ) {
 				throw new \InvalidArgumentException( \esc_html( "Missing required argument: {$name}" ) );
 			}
@@ -122,38 +121,13 @@ trait Schema_Reflection {
 	}
 
 	/**
-	 * Resolve a schema-arg default. A `<ns:key>` token default (e.g.
-	 * `<config:max_segments>`) is resolved through its namespace resolver and
-	 * coerced to the declared type — a schema default lives in PHP and never
-	 * passes through the TSL loader that resolves tokens on make_node lines, so
-	 * a positional token arrives pre-resolved but a default does not. Resolution
-	 * is strict, so a wrong namespace or a typo'd key fails at construction
-	 * instead of coercing to a feature-off default. Any other default — a
-	 * constant, an array, a plain string — is used verbatim.
-	 *
-	 * @param mixed  $default The arg spec's declared default.
-	 * @param string $type    Declared schema type, applied to the token case only.
-	 * @param string $name    Argument name, for the refusal.
-	 * @return mixed The value to assign.
-	 */
-	private function resolve_default( mixed $default, string $type, string $name ): mixed {
-		if ( \is_string( $default ) && \preg_match( '/<[a-zA-Z_]\w*:[a-zA-Z_]\w*>/', $default ) ) {
-			return $this->coerce_argument( Core::resolve_config_tokens( $default, true ), $type, $name );
-		}
-		return $default;
-	}
-
-	/**
-	 * Coerce a raw token to the declared schema type; an unknown type passes
-	 * through as a string.
+	 * Coerce a raw token to the declared schema type through
+	 * `Command_Args::typed()`, the one type rule verbs are bound by too; an
+	 * unknown type passes through as a string.
 	 *
 	 * The numeric types REFUSE rather than cast, because 0 is a live value for
 	 * every retention knob and every timer cadence: a cast would make a mistyped
 	 * token indistinguishable from a disabled rule or a free-spinning own slot.
-	 * `int` reads through `Core::canonical_decimal()`, which also rejects a
-	 * fractional token and one past the platform maximum, and takes no sign —
-	 * every declared int argument is a size, a count or a duration. `float`
-	 * accepts any numeric.
 	 *
 	 * @param string $token Raw positional token.
 	 * @param string $type  Declared schema type.
@@ -162,26 +136,8 @@ trait Schema_Reflection {
 	 * @throws \InvalidArgumentException When a numeric token is not of its declared type.
 	 */
 	private function coerce_argument( string $token, string $type, string $name ): mixed {
-		switch ( $type ) {
-			case 'int':
-				$int = Core::canonical_decimal( $token );
-				if ( null !== $int ) {
-					return $int;
-				}
-				$wanted = 'a whole number';
-				break;
-			case 'float':
-				if ( \is_numeric( $token ) ) {
-					return (float) $token;
-				}
-				$wanted = 'a number';
-				break;
-			case 'bool':
-				return self::truthy( $token );
-			default:
-				return $token;
-		}
-		$this->refuse_argument( "{$name} wants {$wanted}, got '{$token}'" );
+		return Command_Args::typed( $token, $type )
+			?? $this->refuse_argument( "{$name} wants " . Command_Args::wanted( $type ) . ", got '{$token}'" );
 	}
 
 	/**
@@ -205,26 +161,13 @@ trait Schema_Reflection {
 	}
 
 	/**
-	 * THE bool parse for schema args and toggle verbs: `1`, `true`, `yes` and
-	 * `on` read as true in any case, everything else as false. A verb spelling
-	 * that list again locally is how it ends up accepting half of it. The JS
-	 * mirror is `truthy` in `src/runtime/schema-reflection.js`.
-	 *
-	 * @param string $token Raw argument token.
-	 * @return bool Whether the token reads as true.
-	 */
-	protected static function truthy( string $token ): bool {
-		return \in_array( \strtolower( $token ), [ '1', 'true', 'yes', 'on' ], true );
-	}
-
-	/**
 	 * Round-trippable `command_node {name}:config <verb> true` lines for every
 	 * schema-declared toggle currently ON — the `dump_config()` half of what a
 	 * `toggle` declaration stands for, `declared_setter()` being the handler
 	 * half.
 	 *
 	 * Emits `true`, not `1`: the dump is TSL a person reads, and the arg is
-	 * declared `bool`. `truthy()` accepts either coming back.
+	 * declared `bool`. `Command_Args::typed()` accepts either coming back.
 	 *
 	 * @return string Zero or more newline-terminated TSL lines.
 	 */
@@ -385,13 +328,13 @@ trait Schema_Reflection {
 			}
 			$prop = Core::as_string( $verb['toggle'] ?? '' );
 			if ( '' !== $prop ) {
-				$table[ $name ] = self::declared_setter( $prop, self::truthy( ... ) );
+				$table[ $name ] = self::declared_setter( $verb, $prop, static fn ( string $token ): bool => true === Command_Args::typed( $token, 'bool' ) );
 				continue;
 			}
 			$prop = Core::as_string( $verb['setter'] ?? '' );
 			if ( '' !== $prop ) {
 				// The string twin: trim and assign. An empty arg clears it.
-				$table[ $name ] = self::declared_setter( $prop, \trim( ... ) );
+				$table[ $name ] = self::declared_setter( $verb, $prop, \trim( ... ) );
 				continue;
 			}
 			if ( ! isset( $verb['handler'] ) || ! \is_callable( $verb['handler'] ) ) {
@@ -404,27 +347,34 @@ trait Schema_Reflection {
 
 	/**
 	 * Synthesize the handler a `toggle` or `setter` declaration stands for:
-	 * coerce the one argument, then hand it to the patron's `set_{$prop}()` — the
-	 * class's own typed entry point, so the coerced value lands under the
-	 * property's declared type rather than beside it.
+	 * read the verb's one declared arg, bound by name, coerce it, then hand it
+	 * to the patron's `set_{$prop}()` — the class's own typed entry point, so
+	 * the coerced value lands under the property's declared type rather than
+	 * beside it.
 	 *
 	 * The handler refuses a patron of any other class. An interpreter re-pointed
 	 * at a foreign node would otherwise call a `set_` method that class never
 	 * declared, and the fatal would name the method rather than the mis-wiring.
 	 *
-	 * @param string                 $prop   Property the verb writes, minus the `set_` prefix.
-	 * @param callable(string):mixed $coerce Raw argument to the setter's type.
+	 * @param array<array-key,mixed>  $verb   The verb's schema entry.
+	 * @param string                  $prop   Property the verb writes, minus the `set_` prefix.
+	 * @param callable(string):mixed  $coerce The bound value, as a string, to the setter's type.
 	 * @return callable(Command_Interpreter_Node,array<array-key,mixed>):string The verb handler.
+	 * @throws \LogicException When the verb declares no arg to carry the value.
 	 */
-	private static function declared_setter( string $prop, callable $coerce ): callable {
-		return static function ( Command_Interpreter_Node $interpreter, array $args ) use ( $prop, $coerce ): string {
+	private static function declared_setter( array $verb, string $prop, callable $coerce ): callable {
+		$arg = Core::as_string( Core::arr( Core::arr( $verb['args'] ?? [] )[0] ?? [] )['name'] ?? '' );
+		if ( '' === $arg ) {
+			throw new \LogicException( \esc_html( "set_{$prop}: the verb declares no arg to carry its value" ) );
+		}
+		return static function ( Command_Interpreter_Node $interpreter, array $args ) use ( $prop, $arg, $coerce ): string {
 			$patron = $interpreter->patron();
 			if ( ! $patron instanceof static ) {
 				throw new \RuntimeException(
 					\esc_html( "set_{$prop}: not a " . static::class )
 				);
 			}
-			$patron->{"set_{$prop}"}( $coerce( Core::as_string( $args[0] ?? '' ) ) );
+			$patron->{"set_{$prop}"}( $coerce( Core::as_string( $args[ $arg ] ?? '' ) ) );
 			return "ok\n";
 		};
 	}

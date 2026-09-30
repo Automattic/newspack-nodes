@@ -94,12 +94,8 @@ class HealthChecksTest extends TestCase {
 
 	/** @return array{directories:list<string>,topology_filters:list<callable>} */
 	private static function lifecycle_state(): array {
-		$temp_root = \realpath( \sys_get_temp_dir() );
-		if ( false === $temp_root ) {
-			throw new \RuntimeException( 'The system temporary directory must resolve for lifecycle checks.' );
-		}
 		$directories = \glob(
-			$temp_root . '/newspack-nodes-test/newspack-nodes-health-checks-test-' . \getmypid() . '-*',
+			\getenv( 'NEWSPACK_TEST_BASE_DIR' ) . '/newspack-nodes-health-checks-test-' . \getmypid() . '-*',
 			GLOB_ONLYDIR
 		);
 		if ( false === $directories ) {

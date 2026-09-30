@@ -63,8 +63,7 @@ test( 'dispatches dl_list at the node on mount and renders the returned records'
 	expect( onAction ).toHaveBeenCalledWith( 'invoke', 'firehose-consumer', {
 		verb: 'dl_list',
 		kind: 'command',
-		positional: '',
-		byName: {},
+		args: [],
 		replyTo: expect.any( String ),
 	} );
 	reply( 'dl_list', listPage() );
@@ -133,8 +132,7 @@ test( 'Requeue dispatches dl_requeue with the row locator, then refetches', () =
 	expect( onAction ).toHaveBeenCalledWith( 'invoke', 'firehose-consumer', {
 		verb: 'dl_requeue',
 		kind: 'command',
-		positional: '2:40:96',
-		byName: { locator: '2:40:96' },
+		args: [ '--locator=2:40:96' ],
 		replyTo: expect.any( String ),
 	} );
 	// The ok/error line surfaces, and the view refetches (a fresh dl_list).
@@ -172,8 +170,7 @@ test( 'View dispatches dl_show with the row locator and renders the record', () 
 	expect( onAction ).toHaveBeenCalledWith( 'invoke', 'firehose-consumer', {
 		verb: 'dl_show',
 		kind: 'command',
-		positional: '2:40:96',
-		byName: { locator: '2:40:96' },
+		args: [ '--locator=2:40:96' ],
 		replyTo: expect.any( String ),
 	} );
 	reply( 'dl_show', showRecord() );
@@ -271,8 +268,7 @@ test( 'Purge is a two-click confirm before it dispatches dl_purge', () => {
 	expect( onAction ).toHaveBeenCalledWith( 'invoke', 'firehose-consumer', {
 		verb: 'dl_purge',
 		kind: 'command',
-		positional: '',
-		byName: {},
+		args: [],
 		replyTo: expect.any( String ),
 	} );
 	reply( 'dl_purge', 'ok: purged 3 of 3 dead-letter segment(s)' );
@@ -390,8 +386,7 @@ test( 'Refresh re-dispatches dl_list', () => {
 	expect( onAction ).toHaveBeenCalledWith( 'invoke', 'firehose-consumer', {
 		verb: 'dl_list',
 		kind: 'command',
-		positional: '',
-		byName: {},
+		args: [],
 		replyTo: expect.any( String ),
 	} );
 } );

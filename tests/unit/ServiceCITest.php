@@ -66,40 +66,6 @@ class ServiceCITest extends TestCase {
 		ServiceCITestProbe::require_manage_options_probe();
 	}
 
-	// ── require_option_int ───────────────────────────────────────────────────
-
-	public function test_require_option_int_returns_the_fallback_when_absent(): void {
-		$this->assertSame(
-			8317,
-			ServiceCITestProbe::require_option_int_probe( [ 'other' => '5' ], 'ttl', 8317 )
-		);
-	}
-
-	public function test_require_option_int_reads_a_canonical_decimal(): void {
-		$this->assertSame(
-			4271,
-			ServiceCITestProbe::require_option_int_probe( [ 'ttl' => '4271' ], 'ttl', 8317 )
-		);
-	}
-
-	public function test_require_option_int_refuses_a_malformed_value_naming_it(): void {
-		$this->expectException( \RuntimeException::class );
-		$this->expectExceptionMessage( '--ttl must be a non-negative integer; got: 1h' );
-		ServiceCITestProbe::require_option_int_probe( [ 'ttl' => '1h' ], 'ttl', 8317 );
-	}
-
-	public function test_require_option_int_refuses_a_bare_flag(): void {
-		// Command_Args::parse() renders `--ttl` with no value as true.
-		$this->expectException( \RuntimeException::class );
-		ServiceCITestProbe::require_option_int_probe( [ 'ttl' => true ], 'ttl', 8317 );
-	}
-
-	public function test_require_option_int_refuses_zero_when_zero_is_disallowed(): void {
-		$this->expectException( \RuntimeException::class );
-		$this->expectExceptionMessage( '--ttl must be a positive integer; got: 0' );
-		ServiceCITestProbe::require_option_int_probe( [ 'ttl' => '0' ], 'ttl', 8317, false );
-	}
-
 	// ── require_valid_name ───────────────────────────────────────────────────
 
 	public function test_require_valid_name_returns_name_when_valid(): void {
@@ -190,20 +156,6 @@ class ServiceCITest extends TestCase {
 		$result = VerbHarness::fire( new ServiceCINonArrayVerbProbe(), 'probe', 'ok' );
 
 		$this->assertSame( "ok\n", $result );
-	}
-
-	public function test_split_first_token_preserves_verbatim_remainder(): void {
-		$this->assertSame(
-			[ 'save', "topology-name make_node Echo e\n" ],
-			ServiceCITestProbe::split_first_token_probe( [ 'save', "topology-name make_node Echo e\n" ] )
-		);
-	}
-
-	public function test_split_first_token_returns_empty_remainder_for_lone_token(): void {
-		$this->assertSame(
-			[ 'status', '' ],
-			ServiceCITestProbe::split_first_token_probe( [ 'status' ] )
-		);
 	}
 
 	// ── slice_verb: shape fn → JSON-returning handler ────────────────────────
@@ -521,22 +473,6 @@ class ServiceCITestProbe extends Service_CI_Node {
 		string $pattern = '/^[a-zA-Z0-9_-]+$/'
 	): string {
 		return self::require_valid_name( $name, $pattern );
-	}
-
-	public static function split_first_token_probe( array $args ): array {
-		return self::split_first_token( $args );
-	}
-
-	/**
-	 * @param array<string,mixed> $options
-	 */
-	public static function require_option_int_probe(
-		array $options,
-		string $key,
-		int $fallback,
-		bool $allow_zero = true
-	): int {
-		return self::require_option_int( $options, $key, $fallback, $allow_zero );
 	}
 
 	public static function slice_verb_probe( callable $shape ): \Closure {

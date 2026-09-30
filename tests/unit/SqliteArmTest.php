@@ -87,7 +87,7 @@ final class SqliteArmTest extends TestCase {
 		$other->exec( 'BEGIN IMMEDIATE' );
 		try {
 			$this->assertFalse( $arm->add( 'sku-43', 1, 0 ) );
-			$this->assertFalse( $arm->delete( 'sku-41' ) );
+			$this->assertNull( $arm->delete( 'sku-41' ), 'a delete the store did not answer is unknown, not absent' );
 			$this->assertNull( $arm->touch( 'sku-41', 777 ) );
 			$this->assertFalse( $arm->increment( 'sku-41' ) );
 			$this->assertFalse( $arm->compare_and_swap( 'sku-41', 5, 6 ) );

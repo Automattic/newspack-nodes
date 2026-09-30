@@ -39,7 +39,6 @@ namespace Newspack_Nodes\Rest;
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Cache_Backend;
 use Newspack_Nodes\Capabilities;
-use Newspack_Nodes\Command_Args;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Service_CI_Node;
@@ -67,15 +66,12 @@ class Aggregator_CI_Node extends Service_CI_Node {
 	 * URL and credentials live in the Vault, and `build_snapshot()` carries a
 	 * `vault_id` on every row so a card can hand it straight back.
 	 *
-	 * @param list<string> $args Verb argument tokens (`<id>`).
+	 * @param array<array-key,mixed> $args Bound verb arguments: id.
 	 * @return array<string,mixed> Compact per-spoke roll-up.
-	 * @throws \RuntimeException When `<id>` is missing, names no Vault entry, or the spoke call fails.
+	 * @throws \RuntimeException When `<id>` names no Vault entry, or the spoke call fails.
 	 */
 	public static function cmd_probe( array $args ): array {
-		$id = Command_Args::parse( $args )['positional'][0] ?? '';
-		if ( '' === $id ) {
-			throw new \RuntimeException( 'id required' );
-		}
+		$id     = Core::as_string( $args['id'] );
 		$server = Vault::fresh()->get( $id );
 		if ( null === $server ) {
 			throw new \RuntimeException( \esc_html( "server not found: {$id}" ) );
@@ -280,7 +276,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 					'args'        => [
 						[ 'name' => 'id', 'type' => 'string', 'required' => true ],
 					],
-					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): array => self::cmd_probe( self::arg_strings( $args ) ),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): array => self::cmd_probe( $args ),
 				],
 			],
 		] );

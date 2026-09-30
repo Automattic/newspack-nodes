@@ -125,7 +125,7 @@ class VerbRoleDeclarationsTest extends TestCase {
 		$settings->name( 'settings' );
 		// Reached the handler: an unknown option is a REFUSAL, not a denial.
 		$e = $this->caught(
-			fn () => $settings->commands()['set']( $settings, [ 'newspack_nodes_not_a_setting', '1' ], [] ),
+			fn () => $settings->dispatch( 'set', [ 'newspack_nodes_not_a_setting', '1' ] ),
 			'the handler should have rejected an unknown setting'
 		);
 		$this->assertStringNotContainsString( 'permission denied', $e->getMessage() );
@@ -135,7 +135,7 @@ class VerbRoleDeclarationsTest extends TestCase {
 		$topologies->name( 'topologies' );
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessageMatches( '/permission denied/' );
-		$topologies->commands()['activate']( $topologies, [ 'combined' ], [] );
+		$topologies->dispatch( 'activate', [ 'combined' ] );
 	}
 
 	protected function tearDown(): void {

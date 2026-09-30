@@ -1129,7 +1129,7 @@ class BootstrapTest extends TestCase {
 
 	public function test_base_dir_returns_string(): void {
 		// With the bootstrap-default config file in play (set by phpunit's
-		// env var), base_dir resolves to /tmp/newspack-nodes-test. Either
+		// env var), base_dir resolves to NEWSPACK_TEST_BASE_DIR. Either
 		// way the contract is: returns a non-empty string ready for use.
 		$dir = Bootstrap::base_dir();
 		$this->assertIsString( $dir );

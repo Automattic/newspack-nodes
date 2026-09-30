@@ -46,7 +46,7 @@ export { CompletionNode } from './completion-node';
 export { DumperNode } from './dumper-node';
 export { UptimeNode } from './uptime-node';
 export { commandTransport, defaultTransport } from './command-transport';
-export { formatCommandArgs, parseCommandArgs } from './command-args';
+export { formatCommandArgs } from './command-args';
 export {
 	useNodeState,
 	useNodeField,

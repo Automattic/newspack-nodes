@@ -462,7 +462,7 @@ describe( 'useGraphHandlers', () => {
 		} );
 		result.current.onInspectorAction( 'invoke', 'my-node', {
 			verb: 'configure',
-			positional: 'foo bar',
+			args: [ 'foo', 'bar' ],
 		} );
 		expect( shell.sink.fills ).toHaveLength( 1 );
 		const m = shell.sink.fills[ 0 ];
@@ -497,7 +497,7 @@ describe( 'useGraphHandlers', () => {
 		result.current.onInspectorAction( 'invoke', 'n1', {
 			verb: 'set_is_hub',
 			kind: 'command',
-			positional: '',
+			args: [],
 		} );
 		const m = shell.sink.fills[ 0 ];
 		expect( m[ TYPE ] ).toBe( TM_COMMAND );
@@ -526,7 +526,7 @@ describe( 'useGraphHandlers', () => {
 		result.current.onInspectorAction( 'invoke', 'n1', {
 			verb: 'GET_HEALTH',
 			kind: 'request',
-			positional: '',
+			args: [],
 		} );
 		const m = shell.sink.fills[ 0 ];
 		expect( m[ TYPE ] ).toBe( TM_REQUEST );
@@ -536,6 +536,53 @@ describe( 'useGraphHandlers', () => {
 			expect.objectContaining( {
 				kind: 'sent',
 				text: 'request_node n1 GET_HEALTH',
+			} )
+		);
+	} );
+
+	it( 'invoke carries a spaced named token whole and quotes it in the echo', () => {
+		const shell = makeShell();
+		const { result, append } = renderHandlers( {
+			shell,
+			graph: { nodes: [ { id: 'n1', class: 'Sessions_CI' } ], edges: [] },
+			catalogClasses: [
+				{ shell_name: 'Sessions_CI', is_interpreter: true },
+			],
+		} );
+		result.current.onInspectorAction( 'invoke', 'n1', {
+			verb: 'create',
+			kind: 'command',
+			args: [ '--label=kea bot 5528', '--ttl=5528' ],
+		} );
+		expect( shell.sink.fills[ 0 ][ VALUE ] ).toMatchObject( {
+			name: 'create',
+			arguments: [ '--label=kea bot 5528', '--ttl=5528' ],
+		} );
+		expect( append ).toHaveBeenCalledWith(
+			expect.objectContaining( {
+				kind: 'sent',
+				text: "command_node n1 create '--label=kea bot 5528' --ttl=5528",
+			} )
+		);
+	} );
+
+	it( 'invoke (request kind) joins its args into the request words', () => {
+		const shell = makeShell();
+		const { result, append } = renderHandlers( {
+			shell,
+			graph: { nodes: [ { id: 'n1', class: 'Table' } ], edges: [] },
+			catalogClasses: [ { shell_name: 'Table', is_interpreter: false } ],
+		} );
+		result.current.onInspectorAction( 'invoke', 'n1', {
+			verb: 'TOUCH',
+			kind: 'request',
+			args: [ '5528', 'moa-5528' ],
+		} );
+		expect( shell.sink.fills[ 0 ][ VALUE ] ).toBe( 'TOUCH 5528 moa-5528' );
+		expect( append ).toHaveBeenCalledWith(
+			expect.objectContaining( {
+				kind: 'sent',
+				text: 'request_node n1 TOUCH 5528 moa-5528',
 			} )
 		);
 	} );
@@ -558,7 +605,7 @@ describe( 'useGraphHandlers', () => {
 		result.current.onInspectorAction( 'invoke', 'n1', {
 			verb: 'set_x',
 			kind: 'command',
-			positional: '',
+			args: [],
 		} );
 		const m = shell.sink.fills[ 0 ];
 		expect( m[ TO ] ).toBe( 'demo.p0/n1:config' );
@@ -578,7 +625,7 @@ describe( 'useGraphHandlers', () => {
 		result.current.onInspectorAction( 'invoke', 'n1', {
 			verb: 'set_x',
 			kind: 'command',
-			positional: '',
+			args: [],
 		} );
 		expect( shell.sink.fills ).toHaveLength( 0 );
 		expect( append ).toHaveBeenCalledWith(
@@ -599,7 +646,7 @@ describe( 'useGraphHandlers', () => {
 		result.current.onInspectorAction( 'invoke', 'n1', {
 			verb: 'dl_list',
 			kind: 'command',
-			positional: '',
+			args: [],
 			replyTo: '_triage:dl_list',
 		} );
 		expect( append ).not.toHaveBeenCalled();
@@ -620,7 +667,7 @@ describe( 'useGraphHandlers', () => {
 		} );
 		result.current.onInspectorAction( 'invoke', 'n1', {
 			verb: 'configure',
-			positional: '',
+			args: [],
 		} );
 		expect( shell.sink.fills ).toHaveLength( 1 );
 	} );
@@ -639,7 +686,7 @@ describe( 'useGraphHandlers', () => {
 			result.current.onInspectorAction( 'invoke', 'n1', {
 				verb: 'dl_list',
 				kind: 'command',
-				positional: '',
+				args: [],
 				replyTo,
 			} );
 			return { m: shell.sink.fills[ 0 ], append };
@@ -689,7 +736,7 @@ describe( 'useGraphHandlers', () => {
 		expect( () =>
 			result.current.onInspectorAction( 'invoke', 'n1', {
 				verb: 'x',
-				positional: '',
+				args: [],
 			} )
 		).not.toThrow();
 		expect( append ).not.toHaveBeenCalled();

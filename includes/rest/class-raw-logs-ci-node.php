@@ -82,12 +82,12 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 	 * would collide with the next `dump_log` call in the same process.
 	 *
 	 * @param Command_Interpreter_Node $self The dispatching interpreter; names and patrons the probe.
-	 * @param list<string>             $args `[<log key>]`; absent or unknown resolves to the catalog default.
+	 * @param array<array-key,mixed>   $args Bound verb arguments: the optional log key; absent or unknown resolves to the catalog default.
 	 *
 	 * @return array<string,mixed> The key inspected, its `{id,size}` segment list, the segment count and the total size.
 	 */
 	public static function cmd_dump_log( Command_Interpreter_Node $self, array $args ): array {
-		$log_key = self::resolve_log_key( $args[0] ?? '' );
+		$log_key = self::resolve_log_key( Core::as_string( $args['log'] ) );
 
 		$ci        = Core::node( Node_Names::COMMAND_INTERPRETER );
 		$partition = new Partition_Node();
@@ -133,16 +133,16 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 	 * `cursor` is the post-step position, exactly where the next step resumes.
 	 *
 	 * @param Command_Interpreter_Node $self The dispatching interpreter; unused, the handler signature is uniform.
-	 * @param list<string>             $args `[<log key>, <segment>:<offset>[:<length>]]`.
+	 * @param array<array-key,mixed>   $args Bound verb arguments: log, and the `<segment>:<offset>[:<length>]` position.
 	 *
 	 * @return array<string,mixed>|string The record + cursor, or a teaching error.
 	 */
 	public static function cmd_read_message( Command_Interpreter_Node $self, array $args ): array|string {
-		$log_key  = self::resolve_log_key( $args[0] ?? '' );
+		$log_key  = self::resolve_log_key( Core::as_string( $args['log'] ) );
 		$consumer = new Consumer_Node();
 		$consumer->arguments( [ self::dir_for( $log_key ) ] );
 
-		return Log_Sources::read_at( $consumer, $log_key, Core::as_string( $args[1] ?? '' ), 'read_message' );
+		return Log_Sources::read_at( $consumer, $log_key, Core::as_string( $args['position'] ), 'read_message' );
 	}
 
 	/**
@@ -255,7 +255,7 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 					'capability'  => Capabilities::READ,
 					'description' => 'Segment counts and sizes for a single concrete partition dir (an absent or unknown log defaults to the first firehose key, else the first key discovered).',
 					'args'        => [ [ 'name' => 'log', 'type' => 'string', 'required' => false ] ],
-					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_dump_log( $self, self::arg_strings( $args ) ),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_dump_log( $self, $args ),
 				],
 				[
 					'name'        => 'read_message',
@@ -265,7 +265,7 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 						[ 'name' => 'log', 'type' => 'string', 'required' => true ],
 						[ 'name' => 'position', 'type' => 'string', 'required' => true ],
 					],
-					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array|string => self::cmd_read_message( $self, self::arg_strings( $args ) ),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array|string => self::cmd_read_message( $self, $args ),
 				],
 			],
 		] );

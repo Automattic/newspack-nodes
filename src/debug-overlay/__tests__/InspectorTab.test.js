@@ -322,7 +322,7 @@ describe( 'InspectorTab interactions', () => {
 				{
 					verb: 'dl_list',
 					kind: 'command',
-					positional: '',
+					args: [],
 					replyTo: '_ui',
 				}
 			)
@@ -332,7 +332,7 @@ describe( 'InspectorTab interactions', () => {
 			mockCaptured.consoleShell.canvasProps.onInspectorAction(
 				'invoke',
 				'_router',
-				{ verb: 'dump_node', kind: 'command', positional: '' }
+				{ verb: 'dump_node', kind: 'command', args: [] }
 			)
 		);
 		expect( mockCaptured.consoleShell.replProps.expanded ).toBe( true );

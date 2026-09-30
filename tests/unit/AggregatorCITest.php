@@ -505,7 +505,7 @@ class AggregatorCITest extends TestCase {
 		$out = VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'probe' );
 
 		$this->assertIsString( $out );
-		$this->assertStringContainsString( 'id required', $out );
+		$this->assertStringContainsString( 'missing required argument: id', $out );
 	}
 
 	public function test_probe_verb_rejects_unauthorized(): void {

@@ -336,14 +336,14 @@ class Topic_Node extends Node {
 	 * `allow_large_writes` verb — lift the cap on every partition, with the lock.
 	 *
 	 * @param Command_Interpreter_Node $interpreter Owning interpreter; its patron is the Topic.
-	 * @param array<array-key,mixed>  $args        Positional args; [0] is an optional debounce_ms.
+	 * @param array<array-key,mixed>   $args        Bound verb arguments: the optional debounce_ms.
 	 * @throws \RuntimeException When a partition cannot acquire its write lock.
 	 * @return string `"ok\n"`.
 	 */
 	public static function cmd_allow_large_writes( Command_Interpreter_Node $interpreter, array $args ): string {
 		/** @var self $patron */
 		$patron = $interpreter->patron();
-		$patron->allow_large_writes( \max( 0, Core::as_int( $args[0] ?? '' ) ) );
+		$patron->allow_large_writes( Core::as_int( $args['debounce_ms'] ) );
 		return "ok\n";
 	}
 
@@ -364,21 +364,18 @@ class Topic_Node extends Node {
 	 * `with_index` verb — name the companion-index formatter for every partition.
 	 *
 	 * @param Command_Interpreter_Node $interpreter Owning interpreter; its patron is the Topic.
-	 * @param array<array-key,mixed>  $args        Positional args; [0] is the formatter name.
-	 * @throws \RuntimeException When the name is missing or names no registered formatter.
+	 * @param array<array-key,mixed>   $args        Bound verb arguments: formatter.
+	 * @throws \RuntimeException When the name names no registered formatter.
 	 * @return string `"ok\n"`.
 	 */
 	public static function cmd_with_index( Command_Interpreter_Node $interpreter, array $args ): string {
-		$args = Core::as_string( $args[0] ?? '' );
-		if ( '' === $args ) {
-			throw new \RuntimeException( 'usage: with_index <formatter_name>' );
-		}
-		if ( null === Formatters::resolve( $args ) ) {
-			throw new \RuntimeException( \esc_html( "unknown formatter: $args" ) );
+		$formatter = Core::as_string( $args['formatter'] );
+		if ( null === Formatters::resolve( $formatter ) ) {
+			throw new \RuntimeException( \esc_html( "unknown formatter: $formatter" ) );
 		}
 		/** @var self $patron */
 		$patron = $interpreter->patron();
-		$patron->with_index( $args );
+		$patron->with_index( $formatter );
 		return "ok\n";
 	}
 

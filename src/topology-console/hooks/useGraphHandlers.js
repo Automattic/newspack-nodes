@@ -12,7 +12,7 @@ import {
 	TM_REQUEST,
 } from '../../runtime/message';
 import { generateNodeName } from '../utils/consoleGraph';
-import { quoteToken, tokenize } from '../../runtime/shell-node';
+import { quoteToken } from '../../runtime/shell-node';
 import names from '../../runtime/reserved-node-names.json';
 import { Core } from '../../runtime/core';
 import { canonicalReverseCwd } from '../../runtime/metadata-node';
@@ -30,8 +30,8 @@ import { canonicalReverseCwd } from '../../runtime/metadata-node';
 
 /**
  * Runs one Inspector verb. `payload` is the verb's argument — a phrase for
- * `send`, a level for `trace`, the `{ verb, kind, positional, replyTo }` record
- * for `invoke` — and `flags` the Compose pane's reply flags.
+ * `send`, a level for `trace`, the `{ verb, kind, args, replyTo }` record for
+ * `invoke`, `args` its tokens — and `flags` the Compose pane's reply flags.
  *
  * @typedef {(action: string, nodeId: string, payload?: (string|number|Object), flags?: ComposeFields) => void} InspectorAction
  */
@@ -311,7 +311,7 @@ export function useGraphHandlers( {
 					if ( ! shell ) {
 						return;
 					}
-					const { verb, kind, positional, replyTo } = payload;
+					const { verb, kind, args = [], replyTo } = payload;
 					// The catalog flag decides, not a search for `:config`.
 					const node = ( graph?.nodes || [] ).find(
 						( n ) => n.id === nodeId
@@ -356,25 +356,21 @@ export function useGraphHandlers( {
 						// Mirror the Shell: mark LOCAL; a request is unsigned.
 						m = newMessage();
 						m[ TYPE ] = TM_REQUEST;
-						m[ VALUE ] = positional
-							? `${ verb } ${ positional }`
-							: verb;
+						m[ VALUE ] = [ verb, ...args ].join( ' ' );
 						markLocal( m );
-						echo = `request_node ${ nodeId } ${ verb }${
-							positional ? ' ' + positional : ''
-						}`;
+						echo = `request_node ${ nodeId } ${ m[ VALUE ] }`;
 					} else {
-						// `_output` mints it; tokenize at the producer.
-						m = Core.node( names.OUTPUT )?.command(
-							verb,
-							tokenize( positional || '' )
-						);
+						// `_output` mints it; the args are already tokens.
+						m = Core.node( names.OUTPUT )?.command( verb, args );
 						if ( ! m ) {
 							return; // unauthenticated; re-auth is under way
 						}
-						echo = `command_node ${ commandTarget } ${ verb }${
-							positional ? ' ' + positional : ''
-						}`;
+						echo = [
+							'command_node',
+							commandTarget,
+							verb,
+							...args.map( quoteToken ),
+						].join( ' ' );
 					}
 					m[ TO ] = to;
 					// A caller owning a reply node names it (ADR-7).

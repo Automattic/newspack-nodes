@@ -261,7 +261,7 @@ final class VaultGroupNodeTest extends TestCase {
 	public function test_a_refusal_throws_naming_each_child_and_nothing_is_recorded(): void {
 		$ci    = new Command_Interpreter_Node();
 		$group = $ci->make_node( 'Vault_Group', 'egress', 'HTTP_Out', 'tw-edge' );
-		$this->expectExceptionMessageMatches( '/^2 failures: egress:tw0: usage: allow_replies_to .* \| egress:tw9: usage: allow_replies_to /' );
+		$this->expectExceptionMessageMatches( '/^2 failures: egress:tw0: missing required argument: path \| egress:tw9: missing required argument: path$/' );
 		try {
 			$group->interpreter()->dispatch( 'allow_replies_to', [ '' ] );
 		} finally {
@@ -282,7 +282,7 @@ final class VaultGroupNodeTest extends TestCase {
 		Core::node( 'egress:config' )->fill( $command );
 		$reply = \end( $sink->captured );
 		$this->assertSame( Message::TM_COMMAND | Message::TM_ERROR, $reply[ Message::TYPE ] );
-		$this->assertStringContainsString( 'egress:tw9: usage: allow_replies_to <path>', $reply[ Message::VALUE ]['payload'] );
+		$this->assertStringContainsString( 'egress:tw9: missing required argument: path', $reply[ Message::VALUE ]['payload'] );
 	}
 
 	public function test_a_toggled_verb_records_its_last_write(): void {

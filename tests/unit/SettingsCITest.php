@@ -176,7 +176,7 @@ class SettingsCITest extends TestCase {
 
 	public function test_set_verb_rejects_a_value_outside_the_declared_bounds(): void {
 		$interpreter = new Settings_CI_Node();
-		$result      = VerbHarness::fire( $interpreter, 'settings', 'set', 'max_segments -3' );
+		$result      = VerbHarness::fire( $interpreter, 'settings', 'set', 'max_segments ' . \PHP_INT_MAX );
 
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'invalid value for setting', $result );

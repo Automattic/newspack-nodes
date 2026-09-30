@@ -44,13 +44,6 @@ class LayoutsCITest extends TestCase {
 		VerbHarness::reset();
 		$this->rmdir_recursive( $this->base_dir );
 		$GLOBALS['_wp_test_current_user_can'] = [];
-		// Restore env var to the bootstrap baseline so the next test that
-		// relies on the default config isn't pointed at the deleted per-
-		// test config file.
-		\putenv(
-			'LOCAL_NEWSPACK_NODES_CONF=' . \dirname( __DIR__ ) . '/newspack-nodes-test-config.php'
-		);
-		\Newspack_Nodes\Config::reset();
 		parent::tearDown();
 	}
 

@@ -73,6 +73,7 @@ namespace Newspack_Nodes\Rest;
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Capabilities;
 use Newspack_Nodes\Command_Interpreter_Node;
+use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Service_CI_Node;
 use Newspack_Nodes\Shell_Node;
@@ -146,13 +147,13 @@ class Topologies_CI_Node extends Service_CI_Node {
 	 * pointed at a `<ns:key>` token names an edge only the server can resolve,
 	 * and the canvas draws that edge from the body's own nodes too.
 	 *
-	 * @param list<string> $args Verb tokens; the topology name is the first.
+	 * @param array<array-key,mixed> $args Bound verb arguments: name.
 	 *
 	 * @return array<int|string,mixed> `{name, source, tsl, includes, expanded, resolved_config_edges}`.
 	 * @throws \RuntimeException When the name is not file-name safe, resolves to no file, or names a file that cannot be read.
 	 */
 	public static function cmd_get( array $args ): array {
-		$name = self::require_valid_name( $args[0] ?? '' );
+		$name = self::require_valid_name( Core::as_string( $args['name'] ) );
 
 		$path = Topology_Registry::resolve( $name );
 		if ( null === $path ) {
@@ -217,7 +218,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 	 * include set resolves: a body that parses can still kill the worker at its
 	 * next spawn.
 	 *
-	 * @param list<string>            $args     Verb tokens: the name, then the whole TSL body.
+	 * @param array<array-key,mixed>  $args     Bound verb arguments: name, and the whole TSL body as tsl.
 	 * @param array<int|string,mixed> $envelope The inbound TM_COMMAND message, whose packed size the 1 MiB cap measures.
 	 *
 	 * @return array<int|string,mixed> `{name, path, shadows_stock, restarted_fleets}`.
@@ -230,8 +231,8 @@ class Topologies_CI_Node extends Service_CI_Node {
 				\esc_html( 'body too large: topology arguments exceed 1 MiB' )
 			);
 		}
-		[ $name_raw, $tsl ] = self::split_first_token( $args );
-		$name = self::require_valid_name( $name_raw );
+		$name = self::require_valid_name( Core::as_string( $args['name'] ) );
+		$tsl  = Core::as_string( $args['tsl'] );
 		if ( '' === $tsl ) {
 			throw new \RuntimeException( 'invalid arguments: tsl (topology body) is required' );
 		}
@@ -336,13 +337,13 @@ class Topologies_CI_Node extends Service_CI_Node {
 	 * name resolves to nothing, and leaving it in the active set would make
 	 * every spawn chase a file that is gone — hence the prune.
 	 *
-	 * @param list<string> $args Verb tokens; the topology name is the first.
+	 * @param array<array-key,mixed> $args Bound verb arguments: name.
 	 *
 	 * @return array<int|string,mixed> `{name, deleted, stock_fallback, pruned_active, restarted_fleets}`.
 	 * @throws \RuntimeException When the name is not file-name safe, no user copy exists, or the unlink fails.
 	 */
 	public static function cmd_delete( array $args ): array {
-		$name = self::require_valid_name( $args[0] ?? '' );
+		$name = self::require_valid_name( Core::as_string( $args['name'] ) );
 		$path = self::user_path( $name );
 		if ( ! \is_file( $path ) ) {
 			throw new \RuntimeException(
@@ -517,43 +518,39 @@ class Topologies_CI_Node extends Service_CI_Node {
 	 * each file, so the file-name-safe pattern is what keeps a path out of the
 	 * argument.
 	 *
-	 * @param list<string> $args Verb tokens, one topology name each; blanks are dropped.
+	 * @param array<array-key,mixed> $args Bound verb arguments: names, one topology name each.
 	 *
 	 * @return array<int|string,mixed> `{nodes, edges, tree, hulls}`, from Topology_Analyzer::expand().
 	 * @throws \RuntimeException On a name that is not file-name safe, an unknown include, a cycle, or a conflicting make_node.
 	 */
 	public static function cmd_expand( array $args ): array {
-		$names = $args;
-		$names = \array_values( \array_filter( $names, fn ( $n ) => '' !== $n ) );
-		foreach ( $names as $name ) {
-			self::require_valid_name( $name );
-		}
+		$names = \array_values( \array_map( static fn ( mixed $name ): string => self::require_valid_name( Core::as_string( $name ) ), Core::arr( $args['names'] ) ) );
 		return Topology_Analyzer::expand( $names );
 	}
 
 	/**
 	 * `activate` verb handler — activate a topology by name.
 	 *
-	 * @param list<string> $args Verb tokens; the topology name is the first.
+	 * @param array<array-key,mixed> $args Bound verb arguments: name.
 	 *
 	 * @return array<int|string,mixed> `{name, active:true, spawned:<int>}`, `spawned` counting spawn POSTs requested.
 	 * @throws \RuntimeException When the name is not file-name safe or unknown, or activating it would put two fleets on one log.
 	 */
 	public static function cmd_activate( array $args ): array {
 		// Only the name is checked here; the rest is Topology_Registry's.
-		return Topology_Registry::activate( self::require_valid_name( $args[0] ?? '' ) );
+		return Topology_Registry::activate( self::require_valid_name( Core::as_string( $args['name'] ) ) );
 	}
 
 	/**
 	 * `deactivate` verb handler — deactivate a topology by name.
 	 *
-	 * @param list<string> $args Verb tokens; the topology name is the first.
+	 * @param array<array-key,mixed> $args Bound verb arguments: name.
 	 *
 	 * @return array<int|string,mixed> `{name, active:false}`.
 	 * @throws \RuntimeException When the name is not file-name safe.
 	 */
 	public static function cmd_deactivate( array $args ): array {
-		return Topology_Registry::deactivate( self::require_valid_name( $args[0] ?? '' ) );
+		return Topology_Registry::deactivate( self::require_valid_name( Core::as_string( $args['name'] ) ) );
 	}
 
 	/**
@@ -567,12 +564,12 @@ class Topologies_CI_Node extends Service_CI_Node {
 	 * `{topology}.p{N}`, no lock dir and no wakeable sleeper, no ipc input dir —
 	 * is not reported here; the command behind it bounces NOT_AVAILABLE.
 	 *
-	 * @param list<string> $args Verb tokens; the worker id (`{topology}.p{N}`) is the first.
+	 * @param array<array-key,mixed> $args Bound verb arguments: the reader, a worker id (`{topology}.p{N}`).
 	 *
 	 * @return string Always empty, so the mount adds no reply to the batch.
 	 */
 	public static function cmd_connect_worker_input( array $args ): string {
-		Bootstrap::register_worker_partition( $args[0] ?? '', Bootstrap::base_dir() );
+		Bootstrap::register_worker_partition( Core::as_string( $args['reader'] ), Bootstrap::base_dir() );
 		return '';
 	}
 
@@ -582,13 +579,13 @@ class Topologies_CI_Node extends Service_CI_Node {
 	 * in the same POST batch resolves. MANAGE, as `connect_worker_input` is:
 	 * the mount is the gate (ADR-23).
 	 *
-	 * @param list<string> $args Verb tokens; the topology name is the first.
+	 * @param array<array-key,mixed> $args Bound verb arguments: topology.
 	 *
 	 * @return string Always empty, so the mount adds no reply to the batch.
 	 * @throws \RuntimeException On an inactive topology, or a backend that cannot open.
 	 */
 	public static function cmd_mount_tables( array $args ): string {
-		$topology = self::require_valid_name( $args[0] ?? '' );
+		$topology = self::require_valid_name( Core::as_string( $args['topology'] ) );
 		if ( ! Bootstrap::is_active( $topology ) ) {
 			throw new \RuntimeException( \esc_html( "mount_tables: {$topology} is not active" ) );
 		}
@@ -622,7 +619,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 					'capability'  => Capabilities::READ,
 					'description' => 'Read a topology .tsl by name.',
 					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
-					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_get( self::arg_strings( $args ) ),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_get( $args ),
 				],
 				[
 					'name'        => 'save',
@@ -631,44 +628,44 @@ class Topologies_CI_Node extends Service_CI_Node {
 						[ 'name' => 'name', 'type' => 'string', 'required' => true ],
 						[ 'name' => 'tsl', 'type' => 'text', 'required' => true ],
 					],
-					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): array => self::cmd_save( self::arg_strings( $args ), $envelope ),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): array => self::cmd_save( $args, $envelope ),
 				],
 				[
 					'name'        => 'delete',
 					'description' => 'Delete a user topology (stock copies are protected).',
 					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
-					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_delete( self::arg_strings( $args ) ),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_delete( $args ),
 				],
 				[
 					'name'        => 'activate',
 					'description' => 'Activate a topology: add it to the active set, persist, and spawn its fleet now.',
 					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
-					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_activate( self::arg_strings( $args ) ),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_activate( $args ),
 				],
 				[
 					'name'        => 'deactivate',
 					'description' => 'Deactivate a topology: remove it from the active set, persist, and drain its fleet now.',
 					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
-					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_deactivate( self::arg_strings( $args ) ),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_deactivate( $args ),
 				],
 				[
 					'name'        => 'expand',
 					'capability'  => Capabilities::READ,
 					'description' => 'Compose an include set into one graph with provenance (informational).',
-					'args'        => [ [ 'name' => 'names', 'type' => 'string', 'required' => true ] ],
-					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_expand( self::arg_strings( $args ) ),
+					'args'        => [ [ 'name' => 'names', 'type' => 'string', 'required' => true, 'variadic' => true ] ],
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_expand( $args ),
 				],
 				[
 					'name'        => 'connect_worker_input',
 					'description' => "Mount the named worker's input partition into this request's graph.",
 					'args'        => [ [ 'name' => 'reader', 'type' => 'string', 'required' => true ] ],
-					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_connect_worker_input( self::arg_strings( $args ) ),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_connect_worker_input( $args ),
 				],
 				[
 					'name'        => 'mount_tables',
 					'description' => "Mount every Table an active topology declares into this request's graph.",
 					'args'        => [ [ 'name' => 'topology', 'type' => 'string', 'required' => true ] ],
-					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_mount_tables( self::arg_strings( $args ) ),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_mount_tables( $args ),
 				],
 			],
 		] );

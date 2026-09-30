@@ -249,11 +249,11 @@ class Command_Auth {
 	/**
 	 * Drop a session so its key stops verifying immediately. The cache entry IS
 	 * the authority; a directory row without it is already dead. False when the
-	 * handle was already gone, or no cache backend exists.
+	 * handle was already gone; null when no cache backend exists or it did not
+	 * answer, so the key may still verify.
 	 */
-	public static function revoke_session( string $handle ): bool {
-		$backend = Cache_Backend::shared_first();
-		return null !== $backend && $backend->delete( self::session_address( $handle ) );
+	public static function revoke_session( string $handle ): ?bool {
+		return Cache_Backend::shared_first()?->delete( self::session_address( $handle ) );
 	}
 
 	/**

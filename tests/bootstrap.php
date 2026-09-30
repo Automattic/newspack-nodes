@@ -16,10 +16,35 @@ if ( \function_exists( 'posix_getuid' ) && 0 === \posix_getuid() ) {
 // into test output. (Matches newspack-event-logger-plugins/tests/bootstrap.php:35.)
 \ini_set( 'error_log', '/dev/null' );
 
-// Point Config at the baseline test config so the substrate's `base_directory`
-// lands in `/tmp/newspack-nodes-test` for any test that doesn't override it.
-// Tests that need a per-test base_dir use `TestCase::use_base_dir()` which
-// writes a tmp config file and re-points this env var.
+// One base directory per test process, so a concurrent suite's teardown
+// never deletes this one's Tables or locks. A consumer's bootstrap names its
+// own first, and the substrate keeps it; the baseline config reads it.
+if ( false === \getenv( 'NEWSPACK_TEST_BASE_DIR' ) ) {
+	$newspack_test_base = \rtrim( (string) \realpath( \sys_get_temp_dir() ), '/' ) . '/newspack-nodes-test-' . \getmypid();
+	\putenv( 'NEWSPACK_TEST_BASE_DIR=' . $newspack_test_base );
+	// @longform The base this bootstrap named is its own to remove when the run
+	// ends. Registered from a shutdown function, so it runs after every handler
+	// the run itself registered, any of which may resolve the base again.
+	\register_shutdown_function(
+		static fn () => \register_shutdown_function( static function () use ( $newspack_test_base ): void {
+			if ( ! \is_dir( $newspack_test_base ) ) {
+				return;
+			}
+			$entries = new \RecursiveIteratorIterator(
+				new \RecursiveDirectoryIterator( $newspack_test_base, \FilesystemIterator::SKIP_DOTS ),
+				\RecursiveIteratorIterator::CHILD_FIRST
+			);
+			foreach ( $entries as $entry ) {
+				$entry->isDir() && ! $entry->isLink() ? @\rmdir( $entry->getPathname() ) : @\unlink( $entry->getPathname() );
+			}
+			@\rmdir( $newspack_test_base );
+		} )
+	);
+}
+// Point Config at the baseline test config. Tests that need a per-test
+// base_dir use `TestCase::use_base_dir()`, which writes a tmp config file and
+// re-points this env var; `TestCase::tearDown()` restores the value it
+// captured on the first setUp.
 \putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . __DIR__ . '/newspack-nodes-test-config.php' );
 
 \define( 'ABSPATH', '/' );

@@ -31,8 +31,8 @@
  * read position, nothing more.
  *
  * The transport bar drives the consumer's `:config` verbs through the inspector's
- * invoke path via onTransport( verb, positional ): pause / play / step send the
- * bare verb; rewind / fast-forward send seek_frame <segment> for the snapped
+ * invoke path via onTransport( verb, args ): pause / play / step send the
+ * bare verb; rewind / fast-forward send seek_frame --segment=<id> for the snapped
  * keyframe (a paused keyframe scrub among the retained frames — there is no
  * fast-forward into the unknown).
  */
@@ -188,13 +188,13 @@ function positionLabel( { onFrame, paused, selectedFrameId, nextId } ) {
  * the panel seeds its client-side position from them and reconciles on each
  * poll, so a click reads instantly and a remount lands where the consumer is.
  *
- * @param {Object}                                     props                 Component props.
- * @param {Array<{id:number,size:number}>}             [props.frames]        Offsetlog keyframes, oldest to newest by id; `id` is an offsetlog segment id, `size` its byte count.
- * @param {?{segment:number,offset:number}}            [props.cursor]        Read position in the SOURCE partition — displayed only, never used to pick a keyframe.
- * @param {boolean}                                    [props.paused]        Consumer-reported pause signal. While false the consumer follows the head and only Pause is live.
- * @param {?number}                                    [props.atFrameSignal] Consumer-reported keyframe id the cursor is at-or-just-past; null when no frames are retained.
- * @param {boolean}                                    [props.onFrameSignal] Consumer-reported flag: the cursor sits exactly on that keyframe rather than past it.
- * @param {(verb: string, positional: string) => void} [props.onTransport]   Drives the consumer's `:config` verbs through the inspector's invoke path.
+ * @param {Object}                                 props                 Component props.
+ * @param {Array<{id:number,size:number}>}         [props.frames]        Offsetlog keyframes, oldest to newest by id; `id` is an offsetlog segment id, `size` its byte count.
+ * @param {?{segment:number,offset:number}}        [props.cursor]        Read position in the SOURCE partition — displayed only, never used to pick a keyframe.
+ * @param {boolean}                                [props.paused]        Consumer-reported pause signal. While false the consumer follows the head and only Pause is live.
+ * @param {?number}                                [props.atFrameSignal] Consumer-reported keyframe id the cursor is at-or-just-past; null when no frames are retained.
+ * @param {boolean}                                [props.onFrameSignal] Consumer-reported flag: the cursor sits exactly on that keyframe rather than past it.
+ * @param {(verb: string, args: string[]) => void} [props.onTransport]   Drives the consumer's `:config` verbs through the inspector's invoke path.
  * @return {import('react').ReactElement} The Time Travel panel.
  */
 export default function TimeTravelPanel( {
@@ -242,7 +242,7 @@ export default function TimeTravelPanel( {
 		setAtFrame( id );
 		setOnFrame( true );
 		if ( onTransport ) {
-			onTransport( 'seek_frame', String( id ) );
+			onTransport( 'seek_frame', [ `--segment=${ id }` ] );
 		}
 	};
 
@@ -270,7 +270,7 @@ export default function TimeTravelPanel( {
 		}
 		setOnFrame( false ); // optimistic: the cursor advances off the frame
 		if ( onTransport ) {
-			onTransport( 'step', '' );
+			onTransport( 'step', [] );
 		}
 	};
 
@@ -280,7 +280,7 @@ export default function TimeTravelPanel( {
 		}
 		setOptimistic( true ); // instant feedback; leave the position untouched
 		if ( onTransport ) {
-			onTransport( 'pause', '' );
+			onTransport( 'pause', [] );
 		}
 	};
 
@@ -290,7 +290,7 @@ export default function TimeTravelPanel( {
 		}
 		setOptimistic( false ); // resume following head; next signal reconciles
 		if ( onTransport ) {
-			onTransport( 'play', '' );
+			onTransport( 'play', [] );
 		}
 	};
 

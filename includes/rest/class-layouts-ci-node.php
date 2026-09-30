@@ -31,6 +31,7 @@ namespace Newspack_Nodes\Rest;
 use Newspack_Nodes\Capabilities;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Config;
+use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Service_CI_Node;
 
@@ -66,13 +67,13 @@ class Layouts_CI_Node extends Service_CI_Node {
 	 * truncated write costs the arrangement rather than the canvas. Only the
 	 * `positions` key of the file is returned.
 	 *
-	 * @param list<string> $args Verb tokens; the layout name is the first.
+	 * @param array<array-key,mixed> $args Bound verb arguments: name.
 	 *
 	 * @return array<string,mixed> `{name, positions}`, positions null when nothing is saved.
-	 * @throws \RuntimeException When the name is absent or not file-name safe.
+	 * @throws \RuntimeException When the name is not file-name safe.
 	 */
 	public static function cmd_get( array $args ): array {
-		$name = self::require_valid_name( $args[0] ?? '' );
+		$name = self::require_valid_name( Core::as_string( $args['name'] ) );
 		$path = self::layout_path( $name );
 
 		$positions = null;
@@ -104,7 +105,7 @@ class Layouts_CI_Node extends Service_CI_Node {
 	 * positional message array `Message::packed_size()` takes; every real
 	 * envelope is one, so the cap always applies.
 	 *
-	 * @param list<string>            $args     Verb tokens: the layout name, then the positions JSON as one token.
+	 * @param array<array-key,mixed>  $args     Bound verb arguments: name, and positions as one JSON token.
 	 * @param array<int|string,mixed> $envelope The inbound TM_COMMAND message, or [] for an inline dispatch.
 	 *
 	 * @return array<string,mixed> `{name, path, positions}`, positions being what survived sanitizing.
@@ -118,10 +119,8 @@ class Layouts_CI_Node extends Service_CI_Node {
 				\esc_html( 'body too large: layout arguments exceed 1 MiB' )
 			);
 		}
-		// `save <name> <positions-json>`: two tokens, the blob whole.
-		[ $name_raw, $positions_json ] = self::split_first_token( $args );
-		$name      = self::require_valid_name( $name_raw );
-		$positions = \json_decode( $positions_json, true );
+		$name      = self::require_valid_name( Core::as_string( $args['name'] ) );
+		$positions = \json_decode( Core::as_string( $args['positions'] ), true );
 		if ( ! \is_array( $positions ) ) {
 			throw new \RuntimeException( 'invalid arguments: positions must be an object' );
 		}
@@ -244,7 +243,7 @@ class Layouts_CI_Node extends Service_CI_Node {
 					'capability'  => Capabilities::READ,
 					'description' => 'Read saved node positions for a layout name.',
 					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
-					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_get( self::arg_strings( $args ) ),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_get( $args ),
 				],
 				[
 					'name'        => 'save',
@@ -254,7 +253,7 @@ class Layouts_CI_Node extends Service_CI_Node {
 						[ 'name' => 'name', 'type' => 'string', 'required' => true ],
 						[ 'name' => 'positions', 'type' => 'json', 'required' => true ],
 					],
-					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): array => self::cmd_save( self::arg_strings( $args ), $envelope ),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): array => self::cmd_save( $args, $envelope ),
 				],
 			],
 		] );

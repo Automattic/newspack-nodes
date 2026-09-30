@@ -583,6 +583,19 @@ the salt rotation `wp nodes memcache flush` performs — and `expired` is not a
 value a client can see. Reading the listing writes nothing; the option keeps
 lapsed rows until the next `Sessions::record()` rewrites it.
 
+**`sessions create` and `sessions revoke`.** `create [<label>] [<scope>] [<ttl>]`
+binds each arg by position or by name, so `create chris-claude tune 86400` and
+`create chris-claude --scope=tune --ttl=86400` mint the same session; `scope`
+defaults to `manage` and is clamped to what the issuing user holds, and `ttl` to
+`Command_Auth::SESSION_TTL_MIN_S`–`SESSION_TTL_MAX_S`. `revoke <handle>` answers
+`{ handle, revoked: true }` only when it dropped a cache lease or a directory row.
+A cache that did not answer refuses `session store did not answer; <h> may still
+be live` and leaves the listing as it was.
+A handle naming neither refuses `no session with handle <h>`, and when `<h>` is a
+session's LABEL — what an operator reading the Sessions tab types — the refusal
+names the handles carrying it: `no session with handle <h>; the label <h> names
+<handle>, …`.
+
 **`topologies expand` and `topologies get` compose different views.** `expand`
 returns [`Topology_Analyzer::expand()`](../includes/class-topology-analyzer.php)'s shape for an include SET —
 `{ nodes, edges, tree, hulls }`. A node carries `name`, `class`, `fans_out`,
@@ -744,20 +757,24 @@ interpreter refuses a command on. Either reply goes from the node TO the
 request's FROM, with ID and KEY echoed, and a request reaching a node with no
 sink throws `fill requires a wired sink`. `reply_shape` documents `data`.
 
-An arg's `required` flag is palette and Inspector metadata, and nothing enforces
-it. `Service_CI_Node` builds the dispatch table and the capability gate from
-`name`, `handler` and `capability` alone, so a verb called without a declared
-argument runs on whatever its handler makes of the empty token. `raw-logs
-read_message` declares `log` required and still never refuses one:
-`resolve_log_key()` substitutes the catalog's default key for an empty or
-unknown value. This is the opposite of a Node constructor's `arguments()`, where
-`parse_schema_args()` really does throw `Missing required argument: <name>`
+An arg's declaration is enforced. `Command_Interpreter_Node::dispatch()` binds a
+verb's tokens against its `args` before the handler runs
+([ADR-25](architecture-decisions.md#adr-25-a-verbs-arguments-are-bound-by-its-schema)):
+a missing `required` arg, an unknown `--option`, a surplus positional, a name given
+twice or both ways, and a token not of its declared `int` or `float` type each answer
+the verb's TM_ERROR, and an absent arg takes its `default`. One arg may declare
+`variadic`, collecting the positional tail, or every `--name=` repeat, as a list
+of typed members. A `bool` takes `1`, `true`, `yes`, `on`, `0`, `false`, `no` or
+`off` and refuses any other word, and a blank for a `required` arg is missing. A Node constructor's `arguments()`
+is bound the same way by `parse_schema_args()`
 ([ADR-11](architecture-decisions.md#adr-11-make_node-construction-sequence)).
 
-An arg declaring `'secret' => true` is a credential, and the command line
-`Command_Interpreter_Node::$around_dispatch` hands a wrapper then carries only
-that option as `--<name>=<redacted>`; every other token reaches the wrapper
-verbatim. `vault add` and `vault update` declare it on
+An arg declaring `'secret' => true` is a credential. It is named, never
+positional — the binder refuses `<name> must be named: write --<name>=<value>`,
+echoing nothing, because the browser masks only `--name=` tokens in its history
+and transcript — and the command line `Command_Interpreter_Node::$around_dispatch`
+hands a wrapper renders it `--<name>=<redacted>`; every other token reaches the
+wrapper verbatim. `vault add` and `vault update` declare it on
 `password`, the only secret arguments in the system: the Vault is the one place
 a credential enters, and `Vault::url_carries_credentials()` refuses a `url`
 carrying userinfo — judged after `esc_url_raw()`, and refusing one that will
@@ -789,35 +806,31 @@ whatever is typed into it. Discovery reads the composer classmap
 so a class added or renamed without `composer dump-autoload -o` is absent from
 the palette.
 
-**Every verb reads from the `arguments` token array.** Verbs taking a single
-scalar — `topologies get` / `delete` / `activate` / `deactivate` /
-`connect_worker_input` / `mount_tables`, `layouts get`, `raw-logs dump_log` — read `$args[0]`
-straight from the inner envelope's `arguments` list, so they are typeable in the
-REPL (`command_node topologies get Home`), and `dump_log` answers
+**Every verb reads its bound arguments by name.** A producer sends the flat
+`arguments` token array — each arg by position in declared order or as
+`--name=value` — and the handler receives
+`( Command_Interpreter_Node $interpreter, array $args, array $envelope = [] )`,
+where `$args` is `array<string,mixed>`, one key per declared arg: the typed value,
+null for an absent optional, or a list of typed members for a `variadic` one. So `command_node
+topologies get Home` and `command_node topologies get --name=Home` reach `cmd_get()`
+alike, as `[ 'name' => 'Home' ]`. `raw-logs dump_log` answers
 `{ log_id, segments: [ { id, size } ], segment_count, total_size }` for the one
-partition dir it inspects. `raw-logs read_message` reads two positional tokens
-the same way, the log key then the position — that position being the
-single-step grammar `<segment>:<offset>[:<length>]` or one of `start`, `recent`
-and `end`, never the `positions` JSON the two SSE routes take; the two
-vocabularies share those three words and nothing else. See
+partition dir it inspects. `raw-logs read_message` binds the log key, then the
+position — the single-step grammar `<segment>:<offset>[:<length>]` or one of
+`start`, `recent` and `end`, never the `positions` JSON the two SSE routes take; the
+two vocabularies share those three words and nothing else. See
 [Log Stream](#log-stream) for the read model and the struct it answers. The
-ownership-fenced `workers heartbeat` requires exactly `[ slot, owner ]`, both
-canonical decimal tokens from the current SSE `connected` handshake, and the
-server — never the client — owns the lease TTL. Structured verbs read the same
-list: `topologies save` and `layouts save` take `[ name, body ]` through
-`Service_CI_Node::split_first_token()`, where `$args[1]` carries the whole TSL
-body or positions JSON, newlines included, as one discrete token, with no
-rest-of-line splitting to guess at. Option-flag verbs like `workers restart`
-classify `<type>… [--partition=<n>]` through
-[`Command_Args::parse( list<string> $args )`](../includes/class-command-args.php), which sorts `--key=value` and bare
-`--key` flags out of the positionals.
-
-Verb handlers receive three positional arguments —
-`( Command_Interpreter_Node $interpreter, array $args, array $envelope = [] )` —
-where `$args` is the pre-split token array (`list<string>` argv; each handler
-normalizes through `arg_strings()`). The `$envelope` is the full 7-field
-positional Message; both `save` verbs use it to enforce a 1 MiB body cap via
-`Message::packed_size( $envelope )`.
+ownership-fenced `workers heartbeat` binds exactly `[ slot, owner ]`, both declared
+`int` and read through `Core::canonical_decimal()`, from the current SSE `connected`
+handshake, and the server — never the client — owns the lease TTL. `topologies save`
+and `layouts save` bind `[ name, body ]`, where the whole TSL body or positions JSON,
+newlines included, rides as one token, with no rest-of-line splitting to guess at.
+`workers restart` binds `<type>… [--partition=<n>]`: `types` is variadic, so a
+partition is reachable by name alone, and an absent partition restarts every
+one. A verb whose schema carries no `args` key —
+the base interpreter's own vocabulary — receives its raw token list. The
+`$envelope` is the full 7-field positional Message; both `save` verbs use it to
+enforce a 1 MiB body cap via `Message::packed_size( $envelope )`.
 
 **`KEY='completion'` mode.** A `help` or `ls` command carrying `KEY='completion'`
 returns a bare newline-separated candidate list — sorted verb names, or bare

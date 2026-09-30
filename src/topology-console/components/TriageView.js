@@ -175,20 +175,18 @@ export default function TriageView( { node, onAction } ) {
 	 * The console hands down a fresh dispatcher on every poll, and a `runVerb`
 	 * that changed with it would refetch the list on each one.
 	 *
-	 * @param {string}                                   verb       Verb name, `dl_list`, `dl_show`, `dl_requeue` or `dl_purge`.
-	 * @param {string}                                   positional The verb's positional arguments; empty when it takes none.
-	 * @param {Object}                                   byName     The same arguments keyed by argument name.
-	 * @param {(payload: any, isError: boolean) => void} onReply    Runs on the reply, unless the modal has closed.
+	 * @param {string}                                   verb    Verb name, `dl_list`, `dl_show`, `dl_requeue` or `dl_purge`.
+	 * @param {string[]}                                 args    The verb's argument tokens; empty when it takes none.
+	 * @param {(payload: any, isError: boolean) => void} onReply Runs on the reply, unless the modal has closed.
 	 */
 	const runVerb = useCallback(
-		( verb, positional, byName, onReply ) => {
+		( verb, args, onReply ) => {
 			const replyTo = replyNodeFor( verb );
 			receiversRef.current[ verb ].onReply = onReply;
 			onActionRef.current?.( 'invoke', node.id, {
 				verb,
 				kind: 'command',
-				positional,
-				byName,
+				args,
 				replyTo,
 			} );
 		},
@@ -205,7 +203,7 @@ export default function TriageView( { node, onAction } ) {
 	const refresh = useCallback( () => {
 		setConfirmPurge( false );
 		setShown( null );
-		runVerb( 'dl_list', '', {}, ( payload, isError ) => {
+		runVerb( 'dl_list', [], ( payload, isError ) => {
 			if ( isError ) {
 				setStatus( { text: String( payload ?? '' ), isError: true } );
 				return;
@@ -234,28 +232,35 @@ export default function TriageView( { node, onAction } ) {
 	const view = ( locator, reason ) => {
 		setConfirmPurge( false );
 		setViewPending( true );
-		runVerb( 'dl_show', locator, { locator }, ( payload, isError ) => {
-			setViewPending( false );
-			if ( isError ) {
-				setStatus( { text: String( payload ?? '' ), isError: true } );
-				return;
-			}
-			if ( ! payload || 'object' !== typeof payload ) {
-				setStatus( {
-					text: __(
-						'The record came back in an unexpected shape.',
-						'newspack-nodes'
-					),
-					isError: true,
+		runVerb(
+			'dl_show',
+			[ `--locator=${ locator }` ],
+			( payload, isError ) => {
+				setViewPending( false );
+				if ( isError ) {
+					setStatus( {
+						text: String( payload ?? '' ),
+						isError: true,
+					} );
+					return;
+				}
+				if ( ! payload || 'object' !== typeof payload ) {
+					setStatus( {
+						text: __(
+							'The record came back in an unexpected shape.',
+							'newspack-nodes'
+						),
+						isError: true,
+					} );
+					return;
+				}
+				setShown( {
+					locator,
+					record: payload,
+					body: recordBody( payload, reason ),
 				} );
-				return;
 			}
-			setShown( {
-				locator,
-				record: payload,
-				body: recordBody( payload, reason ),
-			} );
-		} );
+		);
 	};
 
 	/**
@@ -268,10 +273,14 @@ export default function TriageView( { node, onAction } ) {
 	 */
 	const requeue = ( locator ) => {
 		setConfirmPurge( false );
-		runVerb( 'dl_requeue', locator, { locator }, ( payload, isError ) => {
-			setStatus( { text: String( payload ?? '' ), isError } );
-			refresh();
-		} );
+		runVerb(
+			'dl_requeue',
+			[ `--locator=${ locator }` ],
+			( payload, isError ) => {
+				setStatus( { text: String( payload ?? '' ), isError } );
+				refresh();
+			}
+		);
 	};
 
 	/**
@@ -286,7 +295,7 @@ export default function TriageView( { node, onAction } ) {
 			return;
 		}
 		setConfirmPurge( false );
-		runVerb( 'dl_purge', '', {}, ( payload, isError ) => {
+		runVerb( 'dl_purge', [], ( payload, isError ) => {
 			setStatus( { text: String( payload ?? '' ), isError } );
 			refresh();
 		} );

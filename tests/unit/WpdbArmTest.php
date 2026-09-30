@@ -273,7 +273,7 @@ final class WpdbArmTest extends TestCase {
 		$this->db->deny['DELETE'] = 'Lock wait timeout exceeded';
 		$this->db->deny['UPDATE'] = 'Lock wait timeout exceeded';
 		$this->db->deny['INSERT'] = 'Lock wait timeout exceeded';
-		$this->assertFalse( $arm->delete( 'sku-41' ) );
+		$this->assertNull( $arm->delete( 'sku-41' ), 'a delete the server did not answer is unknown, not absent' );
 		$this->assertNull( $arm->touch( 'sku-41', 37 ), 'a touch the server did not answer is unknown, not absent' );
 		$this->assertSame( 0, $arm->purge( 1790099999, 10 ) );
 		$this->assertFalse( $arm->set( 'sku-42', 1, 0 ) );

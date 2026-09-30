@@ -853,7 +853,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 						'name'        => 'set_multi_writer',
 						'description' => 'Ask the spoke to read this partition with the multi-writer seal-grace (shared logs, e.g. the firehose).',
 						'args'        => [
-							[ 'name' => 'enabled', 'type' => 'bool', 'required' => false, 'description' => 'A truthy value (1/true/yes/on) enables; anything else disables.' ],
+							[ 'name' => 'enabled', 'type' => 'bool', 'required' => false, 'description' => '1, true, yes or on enables; 0, false, no or off disables; any other word is refused.' ],
 						],
 						'toggle'      => 'multi_writer',
 					],

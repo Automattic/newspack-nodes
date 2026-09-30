@@ -15,10 +15,10 @@ class SchemaReflectionTest extends TestCase {
 
 	public function test_every_toggle_verb_declares_the_argument_it_toggles_on(): void {
 		// A verb with no declared args is fired IMMEDIATELY by the console's
-		// VerbButton with `positional: ''`, and the synthesized toggle handler
-		// reads that as truthy('') — off. So a toggle that declares no argument
-		// is a button that can only ever DISABLE the thing it names, with no way
-		// to turn it back on from the canvas.
+		// VerbButton with no args, and the synthesized toggle handler reads that
+		// as off. So a toggle that declares no argument is a button that can
+		// only ever DISABLE the thing it names, with no way to turn it back on
+		// from the canvas.
 		$argless = [];
 		foreach ( $this->concrete_node_classes() as $fqcn ) {
 			foreach ( Core::arr( $fqcn::node_schema()['commands'] ?? [] ) as $verb ) {
@@ -459,6 +459,7 @@ class SchemaReflectionTest extends TestCase {
 						[
 							'name'        => 'set_turbo_mode',
 							'description' => 'Truthy enables.',
+							'args'        => [ [ 'name' => 'on', 'type' => 'bool' ] ],
 							'toggle'      => 'turbo_mode',
 						],
 					],
@@ -478,14 +479,14 @@ class SchemaReflectionTest extends TestCase {
 		$commands = $node->interpreter()->commands();
 		$this->assertArrayHasKey( 'set_relay_target', $commands );
 
-		$this->assertSame( "ok\n", $commands['set_relay_target']( $node->interpreter(), [ '  alerts:partition  ' ] ) );
+		$this->assertSame( "ok\n", $node->interpreter()->dispatch( 'set_relay_target', [ '  alerts:partition  ' ] ) );
 		$this->assertSame( 'alerts:partition', $this->read_private( $node, 'relay_target' ), 'trimmed' );
 		$this->assertSame(
 			"command_node setter-probe:config set_relay_target alerts:partition\n",
 			$node->dump()
 		);
 
-		$commands['set_relay_target']( $node->interpreter(), [ '' ] );
+		$node->interpreter()->dispatch( 'set_relay_target', [ '' ] );
 		$this->assertSame( '', $this->read_private( $node, 'relay_target' ), 'an empty arg clears it' );
 		$this->assertSame( '', $node->dump(), 'and a cleared setter dumps nothing' );
 	}
@@ -503,7 +504,7 @@ class SchemaReflectionTest extends TestCase {
 
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'set_relay_target' );
-		$commands['set_relay_target']( $foreign, [ 'binnacle:partition' ] );
+		$commands['set_relay_target']( $foreign, [ 'target' => 'binnacle:partition' ] );
 	}
 
 	/** A node whose only verb is a declarative string setter. */
@@ -534,6 +535,7 @@ class SchemaReflectionTest extends TestCase {
 						[
 							'name'        => 'set_relay_target',
 							'description' => 'Name the relay target.',
+							'args'        => [ [ 'name' => 'target', 'type' => 'string' ] ],
 							'setter'      => 'relay_target',
 						],
 					],
@@ -552,10 +554,10 @@ class SchemaReflectionTest extends TestCase {
 		$commands = $interpreter->commands();
 		$this->assertArrayHasKey( 'set_turbo_mode', $commands );
 
-		$this->assertSame( "ok\n", $commands['set_turbo_mode']( $interpreter, [ 'yes' ] ) );
+		$this->assertSame( "ok\n", $interpreter->dispatch( 'set_turbo_mode', [ 'yes' ] ) );
 		$this->assertTrue( $this->read_private( $node, 'turbo_mode' ) );
 
-		$commands['set_turbo_mode']( $interpreter, [ 'off' ] );
+		$interpreter->dispatch( 'set_turbo_mode', [ 'off' ] );
 		$this->assertFalse( $this->read_private( $node, 'turbo_mode' ), 'a non-truthy arg disables' );
 	}
 
@@ -566,19 +568,31 @@ class SchemaReflectionTest extends TestCase {
 
 		$this->assertSame( '', $node->dump(), 'default-off toggles emit nothing' );
 
-		$commands = $node->interpreter()->commands();
-		$commands['set_turbo_mode']( $node->interpreter(), [ '1' ] );
+		$node->interpreter()->dispatch( 'set_turbo_mode', [ '1' ] );
 		// `true`, not `1`: the dump is TSL a person reads and edits, and the
 		// arg is declared `bool`. `truthy()` accepts either on the way back.
 		$this->assertSame( "command_node toggle-probe:config set_turbo_mode true\n", $node->dump() );
 	}
 
-	public function test_truthy_is_the_one_canonical_bool_parse(): void {
-		$this->assertTrue( Schema_Reflection_Probe::truthy_probe( 'YES' ) );
-		$this->assertTrue( Schema_Reflection_Probe::truthy_probe( '1' ) );
-		$this->assertFalse( Schema_Reflection_Probe::truthy_probe( '0' ) );
-		$this->assertFalse( Schema_Reflection_Probe::truthy_probe( '' ) );
-		$this->assertFalse( Schema_Reflection_Probe::truthy_probe( 'nope' ) );
+	/** The value rides the verb's one declared arg; with none, nothing carries it. */
+	public function test_a_toggle_declaring_no_arg_refuses_at_wiring(): void {
+		$node = new class extends Node {
+			use Schema_Reflection;
+
+			protected bool $moa_mode = false;
+
+			public function wire(): void {
+				$this->auto_wire_interpreter();
+			}
+
+			public static function node_schema(): array {
+				return [ 'commands' => [ [ 'name' => 'set_moa_mode', 'toggle' => 'moa_mode' ] ] ];
+			}
+		};
+
+		$this->expectException( \LogicException::class );
+		$this->expectExceptionMessage( 'set_moa_mode: the verb declares no arg to carry its value' );
+		$node->wire();
 	}
 
 	// ── declarative request verbs: the `requests` table answers ────────────
@@ -690,15 +704,6 @@ class SchemaReflectionTest extends TestCase {
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'fill requires a wired sink' );
 		$node->fill( $this->request_message( 'GET_KEA7713' ) );
-	}
-}
-
-/** Concrete host exposing Schema_Reflection::truthy() for the parse test. */
-class Schema_Reflection_Probe {
-	use Schema_Reflection;
-
-	public static function truthy_probe( string $token ): bool {
-		return self::truthy( $token );
 	}
 }
 

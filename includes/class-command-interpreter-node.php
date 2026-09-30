@@ -48,10 +48,11 @@ class Command_Interpreter_Node extends Node {
 	 * Wraps each verb handler once the verb is known to exist, so no caller can
 	 * coin a verb name the wrapper sees; see docs/architecture-guide.md.
 	 *
-	 * The interpreter-wide capability floor, the secure-level refusal and the
-	 * unknown-verb throw all run first. A `Service_CI_Node` verb's own declared
-	 * role does not: `gate_table()` checks it inside the handler, so that
-	 * refusal throws through `$run` and out of the wrapper.
+	 * The interpreter-wide capability floor, the secure-level refusal, the
+	 * unknown-verb throw and the argument binding all run first. A
+	 * `Service_CI_Node` verb's own declared role does not: `gate_table()`
+	 * checks it inside the handler, so that refusal throws through `$run` and
+	 * out of the wrapper.
 	 *
 	 * One slot serves every plugin, so an assigner composes rather than
 	 * replaces: it reads the current value and calls it from its own wrapper,
@@ -156,12 +157,13 @@ class Command_Interpreter_Node extends Node {
 	private static array $resolve_cache = [];
 
 	/**
-	 * Secret option names per verb, keyed by the class whose schema declares
-	 * them — a class's schema is static, so it is read once.
+	 * Each verb's declared `args`, keyed by the class whose schema declares
+	 * them — a class's schema is static, so it is read once. A verb declaring
+	 * no `args` key is absent, and dispatches its raw tokens.
 	 *
-	 * @var array<string,array<string,array<string,true>>>
+	 * @var array<string,array<string,list<array<array-key,mixed>>>>
 	 */
-	private static array $secret_options = [];
+	private static array $declared_args = [];
 
 	/**
 	 * Per-instance override of $default_authorize (tests / special cases). Null →
@@ -370,8 +372,16 @@ class Command_Interpreter_Node extends Node {
 	 * verb table, so they cover a subclass's own table as well as the shared one.
 	 * An unknown verb throws, like every other refusal.
 	 *
+	 * A verb whose schema declares `args` — a service CI's own, or a `:config`
+	 * interpreter's patron's — has its tokens bound by `Command_Args::bind()`
+	 * before `$around_dispatch`, as an unknown verb is refused before it, so the
+	 * handler receives the values by NAME, a binding refusal is the verb's own
+	 * TM_ERROR, and no wrapper renders a command that does not fit — a secret
+	 * given by position among them (ADR-25). A verb declaring no `args`
+	 * receives its tokens as they came.
+	 *
 	 * @param string           $name     Verb name.
-	 * @param list<string>     $args     Pre-split argument tokens (a verb wanting flags classifies them through Command_Args).
+	 * @param list<string>     $args     Pre-split argument tokens.
 	 * @param array<int,mixed> $envelope Inbound TM_COMMAND message, or [] for inline calls.
 	 * @return mixed Verb result: a string for most verbs, an array for the struct-returning ones (`dump_metadata`, `taillog sources`, `taillog read`, and the `-s` forms of `list_timers` / `list_handles` / `list_profiles`).
 	 */
@@ -388,7 +398,9 @@ class Command_Interpreter_Node extends Node {
 		if ( ! isset( $commands[ $name ] ) ) {
 			throw new \InvalidArgumentException( \esc_html( "unknown command: {$name}" ) );
 		}
-		$run = fn (): mixed => $commands[ $name ]( $this, $args, $envelope );
+		$specs = $this->declared_args( $name );
+		$bound = null === $specs ? $args : Command_Args::bind( $specs, self::arg_strings( $args ) );
+		$run   = fn (): mixed => $commands[ $name ]( $this, $bound, $envelope );
 		if ( null === self::$around_dispatch ) {
 			return $run();
 		}
@@ -400,8 +412,10 @@ class Command_Interpreter_Node extends Node {
 	 * The command as the REPL echoes it, `/<name>> <verb> <args>`, each token
 	 * quoted by `serialize_args()`.
 	 *
-	 * An option the verb's schema declares `secret` renders as
-	 * `--<name>=<redacted>`; every other token renders verbatim.
+	 * An arg the verb's schema declares `secret` renders as
+	 * `--<name>=<redacted>`; `Command_Args::bind()` refuses one given by
+	 * position, so a secret is always named. Every other token renders
+	 * verbatim.
 	 *
 	 * It is total over whatever `dispatch()` accepts, so logging can never
 	 * change whether a verb runs: the array is reindexed, and a non-string
@@ -412,43 +426,44 @@ class Command_Interpreter_Node extends Node {
 	 * @param array<array-key,mixed> $args Arguments as handed to `dispatch()`.
 	 */
 	private function masked_command( string $verb, array $args ): string {
-		$secret = $this->secret_options( $verb );
-		$tokens = [];
-		foreach ( \array_values( $args ) as $token ) {
-			$token = Core::as_string( $token );
-			$eq    = \strpos( $token, '=' );
-			if ( false !== $eq && \str_starts_with( $token, '--' ) && isset( $secret[ \substr( $token, 2, $eq - 2 ) ] ) ) {
-				$token = \substr( $token, 0, $eq + 1 ) . self::REDACTED;
+		$specs  = $this->declared_args( $verb ) ?? [];
+		$secret = [];
+		foreach ( $specs as $spec ) {
+			if ( true === ( $spec['secret'] ?? false ) ) {
+				$secret[ Core::as_string( $spec['name'] ?? '' ) ] = true;
 			}
-			$tokens[] = $token;
+		}
+		$tokens = [];
+		foreach ( self::arg_strings( $args ) as $token ) {
+			$eq       = \strpos( $token, '=' );
+			$tokens[] = false !== $eq && \str_starts_with( $token, '--' ) && isset( $secret[ \substr( $token, 2, $eq - 2 ) ] )
+				? \substr( $token, 0, $eq + 1 ) . self::REDACTED
+				: $token;
 		}
 		return "/{$this->name}> " . self::serialize_args( [ $verb, ...$tokens ] );
 	}
 
 	/**
-	 * The option names `$verb`'s schema entry declares `'secret' => true`,
-	 * read once per schema-owning class into `$secret_options`.
+	 * The `args` $verb's schema entry declares — the patron's schema for a
+	 * `:config` interpreter, this class's own otherwise — read once per
+	 * schema-owning class into `$declared_args`. Null when the verb declares no
+	 * `args` key.
 	 *
 	 * @param string $verb Verb name.
-	 * @return array<string,true>
+	 * @return list<array<array-key,mixed>>|null
 	 */
-	private function secret_options( string $verb ): array {
+	private function declared_args( string $verb ): ?array {
 		$owner = ( $this->patron() ?? $this )::class;
-		if ( ! isset( self::$secret_options[ $owner ] ) ) {
+		if ( ! isset( self::$declared_args[ $owner ] ) ) {
 			$by_verb = [];
 			foreach ( Core::arr( $this->verb_schema()['commands'] ?? [] ) as $command ) {
-				if ( ! \is_array( $command ) ) {
-					continue;
-				}
-				foreach ( Core::arr( $command['args'] ?? [] ) as $arg ) {
-					if ( \is_array( $arg ) && true === ( $arg['secret'] ?? false ) ) {
-						$by_verb[ Core::as_string( $command['name'] ?? '' ) ][ Core::as_string( $arg['name'] ?? '' ) ] = true;
-					}
+				if ( \is_array( $command ) && \is_array( $command['args'] ?? null ) ) {
+					$by_verb[ Core::as_string( $command['name'] ?? '' ) ] = \array_values( \array_filter( $command['args'], '\is_array' ) );
 				}
 			}
-			self::$secret_options[ $owner ] = $by_verb;
+			self::$declared_args[ $owner ] = $by_verb;
 		}
-		return self::$secret_options[ $owner ][ $verb ] ?? [];
+		return self::$declared_args[ $owner ][ $verb ] ?? null;
 	}
 
 	/**
