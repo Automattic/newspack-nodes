@@ -396,7 +396,8 @@ abstract class TestCase extends PHPUnitTestCase {
 				continue;
 			}
 			$path = "$dir/$f";
-			\is_dir( $path ) ? $this->rmdir_recursive( $path ) : @\unlink( $path );
+			// A symlink is unlinked, never followed out of the tree.
+			! \is_link( $path ) && \is_dir( $path ) ? $this->rmdir_recursive( $path ) : @\unlink( $path );
 		}
 		@\rmdir( $dir );
 	}
