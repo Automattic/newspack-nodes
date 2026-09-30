@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.80.0] - 2026-09-30
+
 ### Added
 
 - **`Ledger_Node`: write-once rows clustered by time, in one SQLite file per Ledger that every partition declaring it writes.** `make_node Ledger <name> <segment_seconds> <num_segments> <column>[:sum|min|max] …` opens `{base}/ledgers/{name}.sqlite` as its writer and declares `rows ( t, k, x, w, s, c0… )`, `WITHOUT ROWID` with `PRIMARY KEY ( t, k, x, w, s )` and no other index; `w` is the bound partition and `s` the writer's row sequence, seeded from `hrtime()` at open. A Ledger declaring no columns is a set keyed `( t, k, x )`, which stores a row already held no second time. The TM_REQUEST|TM_STRUCT `APPEND` stores a list of `[ t, k, x, [ columns… ] ]` rows in one `BEGIN IMMEDIATE` transaction and answers `{ verb: APPEND, data: { stored, dropped } }`; a row older than `segment_seconds × num_segments` is dropped and counted, and a bad row refuses the whole request with a `TM_ERROR`. A writer finding another partition's lock waits `Ledger_Node::BUSY_TIMEOUT_MS`, 5 s. `append()` is the same write outside a graph. Its per-verb counters ride `dump_node` and `dump_metadata` as `verb_stats`. A file whose `rows` table another declaration made refuses to open, naming `wp nodes tables flush`. The new ADR-27, [a Ledger is one SQLite file every partition writes, and its rows age out by the segment](docs/architecture-decisions.md#adr-27-a-ledger-is-one-sqlite-file-every-partition-writes-and-its-rows-age-out-by-the-segment), records why, and why ADR-6's one writer per file does not bind it.
