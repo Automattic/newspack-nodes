@@ -572,14 +572,15 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	 * `$by_t`. Every form keeps each stored column's name, so aggregates()
 	 * selects from any of them. `$positive` keeps a group only when its
 	 * aggregate of that column over the range is above 0, every `t` of it
-	 * with `$by_t`; with `$each_t` it filters each `( t, $by )` group, and
-	 * only the groups that pass are aggregated over the range.
+	 * with `$by_t`. With `$each_t` it filters each stored `( t, k, x )`
+	 * aggregate, the row grain, and only the rows that pass are grouped: a
+	 * member counts in a key and a `t` only where it passed there itself.
 	 *
 	 * @param string       $keyed    AT_EACH_T and the read's key and member tests.
 	 * @param list<string> $by       The grouping, `t` aside.
 	 * @param bool         $by_t     Whether each group splits per `t`.
 	 * @param string|null  $positive The declared column above 0, or null.
-	 * @param bool         $each_t   Whether it is above 0 at each `t`.
+	 * @param bool         $each_t   Whether it is above 0 in each stored row.
 	 * @return string `FROM … GROUP BY …`, with the filter where one applies.
 	 */
 	private function grouped( string $keyed, array $by, bool $by_t, ?string $positive, bool $each_t ): string {
@@ -593,8 +594,9 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 		if ( ! $each_t && ! $by_t ) {
 			return "{$keyed}{$group} HAVING {$above}";
 		}
-		$inner = 'SELECT ' . \implode( ', ', [ ...$per_t, ...self::aliased( $aggregates ) ] );
-		$split = ' GROUP BY ' . \implode( ', ', $per_t );
+		$grain = $each_t ? \array_keys( self::KEY_COLUMNS ) : $per_t;
+		$inner = 'SELECT ' . \implode( ', ', [ ...$grain, ...self::aliased( $aggregates ) ] );
+		$split = ' GROUP BY ' . \implode( ', ', $grain );
 		if ( $each_t ) {
 			return "FROM ( {$inner} {$keyed}{$split} HAVING {$above} ){$group}";
 		}
@@ -1174,7 +1176,7 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 				],
 				[
 					'name'        => 'SUM',
-					'description' => 'Each ( k, x ) group, or with group k each k across its members, and each per t with by_t, over from ≤ t < to, each column by its declared aggregate, which skips a null; xs narrows the members, to at most 250 with group k. positive keeps a group only when that column\'s aggregate over the range is above 0, every t of it with by_t, or with positive_each_t totals only the ( t, group ) rows in which it was.',
+					'description' => 'Each ( k, x ) group, or with group k each k across its members, and each per t with by_t, over from ≤ t < to, each column by its declared aggregate, which skips a null; xs narrows the members, to at most 250 with group k. positive keeps a group only when that column\'s aggregate over the range is above 0, every t of it with by_t; positive_each_t filters each stored ( t, k, x ) row instead and totals only the rows that passed, so a member counts in a key and a t only where it passed there itself.',
 					'value'       => 'struct',
 					'args'        => [ [ 'name' => 'query', 'type' => 'json', 'required' => true, 'description' => '{ from, to, ks: [ k… ], xs?: [ x… ], by_t?: bool, group?: x|k, positive?: column, positive_each_t?: bool }' ] ],
 					'handler'     => static fn ( self $ledger, mixed $query ): array => $ledger->read( 'SUM', $query ),
@@ -1182,7 +1184,7 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 				],
 				[
 					'name'        => 'TOP',
-					'description' => 'The members across every key in ks over from ≤ t < to, ranked by order_by then x, and paged: a column\'s aggregate, x itself, or [ numerator, denominator ] of two sum columns, a zero denominator or a min or max never measured last. positive keeps a member only when that column\'s aggregate is above 0, or with positive_each_t sums only the t in which it was; a set ranks by x alone.',
+					'description' => 'The members across every key in ks over from ≤ t < to, ranked by order_by then x, and paged: a column\'s aggregate, x itself, or [ numerator, denominator ] of two sum columns, a zero denominator or a min or max never measured last. positive keeps a member only when that column\'s aggregate is above 0; positive_each_t filters each stored ( t, k, x ) row instead and sums only the rows that passed, so a member counts under a key and at a t only where it passed there itself; a set ranks by x alone.',
 					'value'       => 'struct',
 					'args'        => [ [ 'name' => 'query', 'type' => 'json', 'required' => true, 'description' => '{ from, to, ks: [ k… ], order_by: x|column|[ sum column, sum column ], order: asc|desc, limit: 1 to TOP_LIMIT_MAX (500), offset, positive?: column, positive_each_t?: bool }' ] ],
 					'handler'     => static fn ( self $ledger, mixed $query ): array => $ledger->read( 'TOP', $query ),

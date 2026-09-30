@@ -1834,9 +1834,11 @@ lifespan, never records; a `Table` files each value into the window of its own t
   a scope's header totals, each optionally per `t`; `TOP` ranks by a column's aggregate, by `x`,
   or by the ratio of two `sum` columns, a zero denominator and an unmeasured `min` or `max` last
   in either order. `SUM` and `TOP` share one `positive` filter, which applies to each group's
-  aggregate over the window or, with `positive_each_t`, to each `( t, group )` before the sum,
-  so errors-only header totals are one `SUM` too. A request names columns and never supplies SQL, and a combination with no meaning —
-  a ratio over a `min` or `max` column, `positive_each_t` without `positive` — is refused.
+  aggregate over the window or, with `positive_each_t`, to each stored `( t, k, x )` aggregate,
+  the row grain, before any grouping, so a member counts in a key and a `t` only where it
+  passed there itself and errors-only header totals are one `SUM` too. A request names columns
+  and never supplies SQL, and a combination with no meaning — a ratio over a `min` or `max`
+  column, `positive_each_t` without `positive` — is refused.
   A request graph reads through `Bootstrap::mount_ledger()`, which opens the file read-only and
   refuses `APPEND` and `flush`. ADR-23's bound on a Table mount holds for it too: a verb below
   MANAGE mounts a Ledger only when every row it holds is data the verb's role may already read,
