@@ -335,8 +335,7 @@ class Table_Node extends Node implements Tick_Housekeeper {
 	 * the declaration before any arm opens. A mount creates nothing: it adopts
 	 * a directory that is there, and with none the mount reads as empty. A
 	 * mount refuses a process running as root, which is the operator's to fix
-	 * as a foreign `{base}/tables` is: SQLite can add `-wal` and `-shm` files
-	 * beside a WAL database, and root's would lock its worker out.
+	 * as a foreign `{base}/tables` is; see Sqlite_Arm::refuse_root_reader().
 	 *
 	 * @return string The file.
 	 * @throws \RuntimeException On a base directory or `{base}/tables` that
@@ -346,8 +345,8 @@ class Table_Node extends Node implements Tick_Housekeeper {
 	private function sqlite_file(): string {
 		try {
 			$file = self::file( $this->table_name(), $this->file_partition() );
-			if ( $this->mounted && 0 === CLI::uid() ) {
-				throw new \RuntimeException( "a sqlite mount refuses to run as root: a root reader leaves -wal and -shm files beside {$file} that its worker cannot open" );
+			if ( $this->mounted ) {
+				Sqlite_Arm::refuse_root_reader( $file );
 			}
 			if ( ! $this->mounted || \is_dir( \dirname( $file ) ) ) {
 				Config::ensure_path( \dirname( $file ) );

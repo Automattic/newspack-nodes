@@ -6,6 +6,14 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **`Bootstrap::forget_node_tables()` is `Bootstrap::forget_node_stores()`.**
+  It drops the Ledgers `node_ledgers()` resolved as well as the Tables. Call
+  the new name; no alias remains.
+- **`Durable_Reader::write_checkpoint_frame()` takes a fourth parameter,
+  `bool $settle = false`.** A class using the trait declares it on its
+  implementation, and a reader with no snapshot nodes ignores it.
+  `checkpoint( $graceful, $settle )` passes it through; only the interval
+  checkpoint in `fire()` sets it.
 - **`Table_Node::purge_and_checkpoint()` is `Table_Node::tick()`.** The Router's
   tick calls it for every Tick_Housekeeper, Tables and Ledgers; it purges,
   drops a Ledger's expired segments, checkpoints and writes a traced store's

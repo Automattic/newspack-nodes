@@ -372,12 +372,12 @@ class Remote_Source_Node extends Remote_Link_Node {
 	/**
 	 * Durable-commit seam: write one frame at the current cursor UNCONDITIONALLY (no advance-guard;
 	 * the boot/crawl sequences re-commit the same cursor on purpose). Ensures the lazy per-node
-	 * offsetlog exists first. Remote_Source has no snapshot cache to co-commit, so $with_state is
-	 * unused; the _ts wall-clock rides via checkpoint_frame_extra().
+	 * offsetlog exists first. Remote_Source has no snapshot cache to co-commit, so $with_state
+	 * and $settle are unused; the _ts wall-clock rides via checkpoint_frame_extra().
 	 *
 	 * @param array<array-key,mixed> $extra Per-call frame additions.
 	 */
-	protected function write_checkpoint_frame( bool $graceful, bool $with_state, array $extra = [] ): void {
+	protected function write_checkpoint_frame( bool $graceful, bool $with_state, array $extra = [], bool $settle = false ): void {
 		if ( null === $this->ensure_offsetlog() ) {
 			return;
 		}

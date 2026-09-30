@@ -2207,6 +2207,88 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( $first + 1, $entries(), 'checkpoint at the 30s boundary' );
 	}
 
+	/**
+	 * A Consumer over one line, snapshotting a node that settles and one that
+	 * does not, with fire() reachable.
+	 *
+	 * @return array{0: Consumer_Node, 1: Settling_Snapshot_Probe, 2: Snapshot_Probe, 3: Partition_Node}
+	 */
+	private function settling_consumer(): array {
+		$source = new Partition_Node();
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), '4', '86400' ] );
+		$this->produce_line( $source, 'sku-41' );
+		$span        = new Settling_Snapshot_Probe();
+		$span->name( 'flame-builder' );
+		$span->state = [ 'span' => [ 'sku-41' => 37 ] ];
+		$gate        = new Snapshot_Probe();
+		$gate->name( 'value-gate' );
+		$gate->state = [ 'recently_sent' => [ 'aisle-9' => 71.5 ] ];
+		$c           = new class() extends Consumer_Node {
+			public function probe_fire(): void {
+				$this->fire();
+			}
+		};
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
+		$c->name( 'firehose:consumer' );
+		$c->sink( new Capture_Sink_Node() );
+		$c->add_snapshot_node( 'flame-builder' );
+		$c->add_snapshot_node( 'value-gate' );
+		return [ $c, $span, $gate, $source ];
+	}
+
+	public function test_the_interval_checkpoint_settles_each_node_that_settles_before_saving_it(): void {
+		[ $c, $span ] = $this->settling_consumer();
+		$this->pump_consumer( $c );
+		Core::$now = 1790000400.0;
+
+		$c->probe_fire();
+
+		$this->assertSame( 1, $span->settled );
+		$cache = $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" )['cache'];
+		$this->assertSame( [ 'span' => [] ], $cache['flame-builder'], 'the frame carries the state as settle() left it' );
+		$this->assertSame( [ 'recently_sent' => [ 'aisle-9' => 71.5 ] ], $cache['value-gate'], 'a node with no settle() is saved as it stands' );
+	}
+
+	public function test_an_interval_that_commits_no_frame_settles_nothing(): void {
+		[ $c, $span, , $source ] = $this->settling_consumer();
+		$this->pump_consumer( $c );
+		Core::$now = 1790000400.0;
+		$c->probe_fire();
+		$span->state = [ 'span' => [ 'sku-43' => 29 ] ];
+
+		Core::$now = 1790000400.0 + Consumer_Node::CHECKPOINT_INTERVAL_S;
+		$c->probe_fire();
+		$this->assertSame( 1, $span->settled, 'the cursor stood still, so no frame would carry the settle' );
+
+		$this->produce_line( $source, 'sku-43' );
+		$this->pump_consumer( $c );
+		Core::$now = 1790000400.0 + 2 * Consumer_Node::CHECKPOINT_INTERVAL_S;
+		$c->probe_fire();
+		$this->assertSame( 2, $span->settled );
+	}
+
+	public function test_a_graceful_checkpoint_carries_the_state_unsettled(): void {
+		[ $c, $span ] = $this->settling_consumer();
+		$this->pump_consumer( $c );
+
+		$c->checkpoint( true );
+		$c->hand_off_cursor( 'deploy' );
+
+		$this->assertSame( 0, $span->settled );
+		$this->assertSame( [ 'span' => [ 'sku-41' => 37 ] ], $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" )['cache']['flame-builder'] );
+	}
+
+	public function test_a_crawls_per_message_checkpoint_settles_nothing(): void {
+		[ $c, $span, , $source ] = $this->settling_consumer();
+		$this->produce_line( $source, 'sku-43' );
+		$this->seed_offsetlog_frame( "{$this->tmp}/offsets.p0", 0, 0, Consumer_Node::CRASH_MAX_ATTEMPTS, '' );
+
+		$this->pump_consumer( $c );
+
+		$this->assertGreaterThanOrEqual( 3, $this->count_offsetlog_records( "{$this->tmp}/offsets.p0" ), 'crawl committed per message' );
+		$this->assertSame( 0, $span->settled );
+	}
+
 	public function test_partial_restore_carries_the_unresolvable_nodes_state_forward(): void {
 		// With [A, B] snapshotted but only A rebuilt at boot, the recommitted
 		// frame must still carry B's loaded state — a later boot where B exists
@@ -4528,6 +4610,15 @@ class Snapshot_Probe extends Node {
 	}
 	public function restore_state( array $saved ): void {
 		$this->state = $saved;
+	}
+}
+
+/** A snapshot node that settles its state before an interval checkpoint saves it. */
+class Settling_Snapshot_Probe extends Snapshot_Probe {
+	public int $settled = 0;
+	public function settle(): void {
+		++$this->settled;
+		$this->state = [ 'span' => [] ];
 	}
 }
 

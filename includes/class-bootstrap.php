@@ -113,11 +113,19 @@ class Bootstrap {
 
 	/**
 	 * Each Table `node_tables()` resolved in this process, by name, until
-	 * `forget_node_tables()` drops them with the parsed topologies.
+	 * `forget_node_stores()` drops them with the parsed topologies.
 	 *
 	 * @var array<string,array<int,array{namespace: string, ttl: int, backend: string}>>
 	 */
 	private static array $node_tables = [];
+
+	/**
+	 * Each Ledger `node_ledgers()` resolved in this process, by name, until
+	 * `forget_node_stores()` drops them with the parsed topologies.
+	 *
+	 * @var array<string,array{segment_seconds: int, num_segments: int, columns: list<string>}|null>
+	 */
+	private static array $node_ledgers = [];
 
 	/** Wake-map key prefix; the active set's digest completes it and `Cache_Backend` scopes it. Rows carry offsetlog_dir. */
 	private const ON_DEMAND_WAKE_KEY = 'on_demand_wake_v2:';
@@ -431,8 +439,7 @@ class Bootstrap {
 	 * @throws \Throwable As node_tables().
 	 */
 	public static function mount_table( array $names ): array {
-		$built = [];
-		$ci    = Core::node( Node_Names::COMMAND_INTERPRETER ) ?? throw new \RuntimeException( 'mount_table needs a request graph' );
+		$ci = Core::node( Node_Names::COMMAND_INTERPRETER ) ?? throw new \RuntimeException( 'mount_table needs a request graph' );
 		foreach ( $names as $name ) {
 			try {
 				Table_Node::stem( $name, 0 );
@@ -440,22 +447,17 @@ class Bootstrap {
 				throw new \InvalidArgumentException( \esc_html( $e->getMessage() ), 0, $e );
 			}
 		}
-		$out = [];
-		try {
-			foreach ( self::node_tables( ...$names ) as $name => $partitions ) {
-				$out[ $name ] = [];
-				foreach ( $partitions as $p => $spec ) {
-					$stem = Table_Node::stem( $name, $p );
-					if ( ! Core::node( $stem ) instanceof Table_Node ) {
-						Table_Node::mount( $name, $p, $spec, $ci );
-						$built[] = $stem;
-					}
-					$out[ $name ][ $p ] = $stem;
-				}
+		$out    = [];
+		$builds = [];
+		foreach ( self::node_tables( ...$names ) as $name => $partitions ) {
+			$out[ $name ] = [];
+			foreach ( $partitions as $p => $spec ) {
+				$stem                = Table_Node::stem( $name, $p );
+				$out[ $name ][ $p ]  = $stem;
+				$builds[ $stem ]     = static fn (): Table_Node => Table_Node::mount( $name, $p, $spec, $ci );
 			}
-		} catch ( \Throwable $e ) {
-			throw Worker_Should_Stop::combine( [ $e, ...Worker_Should_Stop::attempt_each( $built, static fn ( string $stem ) => Core::node( $stem )?->remove_node() ) ] );
 		}
+		self::mount_each( Table_Node::class, $builds );
 		return $out;
 	}
 
@@ -466,7 +468,7 @@ class Bootstrap {
 	 * them; its TTL and backend with their tokens resolved. Declared
 	 * once in the `.tsl`, so the writer and every reader resolve the same
 	 * Table. One read of the active set serves every name not yet resolved,
-	 * and a name resolves once until `forget_node_tables()`, which every
+	 * and a name resolves once until `forget_node_stores()`, which every
 	 * change to the active set, a saved `.tsl` or the config fires.
 	 *
 	 * @api Called from consumer plugins (cross-repo, invisible here).
@@ -476,16 +478,105 @@ class Bootstrap {
 	 * @throws \Throwable When two active topologies declare one differently, a TTL is not a whole number of at least 1 second, a token nothing resolves, the base directory is unusable, or no readable topology declares a name and an active one will not read.
 	 */
 	public static function node_tables( string ...$names ): array {
-		$unresolved = \array_diff( $names, \array_keys( self::$node_tables ) );
+		return self::memoized( self::$node_tables, $names, self::resolve_table( ... ) );
+	}
+
+	/**
+	 * Mount each named Ledger's one file into this request's graph, read-only,
+	 * under the Ledger's own name, the name a worker's writer answers to, and
+	 * sinking into `_command_interpreter`. It answers SUM, TOP and MEMBERS and
+	 * refuses APPEND. Kept for the rest of the request, as a Table mount is,
+	 * and all or nothing, over one read of the active set.
+	 *
+	 * @api Called from consumer plugins (cross-repo, invisible here).
+	 *
+	 * @param list<string> $names Ledger names as their topologies declare them.
+	 * @return array<string,string> Name => mounted node name; a name no active
+	 *                              topology declares is absent.
+	 * @throws \InvalidArgumentException On a name that cannot name a file.
+	 * @throws \RuntimeException With no request graph, or on a file that will
+	 *                           not open as the declaration's, naming the Ledger.
+	 * @throws \Throwable As node_ledgers().
+	 */
+	public static function mount_ledger( array $names ): array {
+		$ci = Core::node( Node_Names::COMMAND_INTERPRETER ) ?? throw new \RuntimeException( 'mount_ledger needs a request graph' );
+		foreach ( $names as $name ) {
+			Ledger_Node::file( $name );
+		}
+		$out    = [];
+		$builds = [];
+		foreach ( self::node_ledgers( ...$names ) as $name => $declaration ) {
+			if ( null !== $declaration ) {
+				$out[ $name ]    = $name;
+				$builds[ $name ] = static fn (): Ledger_Node => Ledger_Node::mount( $name, $declaration, $ci );
+			}
+		}
+		self::mount_each( Ledger_Node::class, $builds );
+		return $out;
+	}
+
+	/**
+	 * Build each node `$builds` names that no `$class` already holds the name
+	 * of: all or nothing, so a throw unmounts every node this call built.
+	 *
+	 * @param class-string<Node>           $class  The class a kept mount is.
+	 * @param array<string,\Closure(): Node> $builds Node name => its mount.
+	 * @throws \Throwable What a mount threw, beside what a teardown threw.
+	 */
+	private static function mount_each( string $class, array $builds ): void {
+		$built = [];
+		try {
+			foreach ( $builds as $node => $build ) {
+				if ( ! Core::node( $node ) instanceof $class ) {
+					$build();
+					$built[] = $node;
+				}
+			}
+		} catch ( \Throwable $e ) {
+			throw Worker_Should_Stop::combine( [ $e, ...Worker_Should_Stop::attempt_each( $built, static fn ( string $node ) => Core::node( $node )?->remove_node() ) ] );
+		}
+	}
+
+	/**
+	 * Each named Ledger's one declaration across every ACTIVE topology
+	 * declaring it, each count and column with its config tokens resolved, as
+	 * a worker's Shell resolves them, and each column spelled whole
+	 * (`Ledger_Node::spelled()`), so `qty` and `qty:sum` are one column. Every partition of every declaring
+	 * topology writes the one file, so they must declare it alike. Resolved
+	 * once, as node_tables() resolves a Table.
+	 *
+	 * @api Called from consumer plugins (cross-repo, invisible here).
+	 *
+	 * @param string ...$names Ledger names as their topologies declare them.
+	 * @return array<string,array{segment_seconds: int, num_segments: int, columns: list<string>}|null> Name => the Ledger, each column `<name>:<aggregate>`; null for a name no active topology declares.
+	 * @throws \Throwable When two active topologies declare one differently, a count is not a whole number of at least 1, a token nothing resolves, the base directory is unusable, or no readable topology declares a name and an active one will not read.
+	 */
+	public static function node_ledgers( string ...$names ): array {
+		return self::memoized( self::$node_ledgers, $names, self::resolve_ledger( ... ) );
+	}
+
+	/**
+	 * Each name as `$memo` holds it, resolving the names it lacks over one
+	 * read of the active set. A resolution that throws is not remembered.
+	 *
+	 * @template T
+	 * @param array<string,T>                                                                                   $memo    Name => what it resolved to.
+	 * @param array<array-key,string>                                                                           $names   The names asked.
+	 * @param \Closure(string, array{0: array<string,array<array-key,mixed>>, 1: array<string,\Throwable>}): T $resolve One name over active_topologies().
+	 * @return array<string,T> Every name asked, in order.
+	 * @throws \Throwable As `$resolve`, or active_topologies().
+	 */
+	private static function memoized( array &$memo, array $names, \Closure $resolve ): array {
+		$unresolved = \array_diff( $names, \array_keys( $memo ) );
 		if ( [] !== $unresolved ) {
 			$active = self::active_topologies();
 			foreach ( $unresolved as $name ) {
-				self::$node_tables[ $name ] = self::resolve_table( $name, $active );
+				$memo[ $name ] = $resolve( $name, $active );
 			}
 		}
 		$out = [];
 		foreach ( $names as $name ) {
-			$out[ $name ] = self::$node_tables[ $name ];
+			$out[ $name ] = $memo[ $name ];
 		}
 		return $out;
 	}
@@ -581,7 +672,7 @@ class Bootstrap {
 	/**
 	 * One Table resolved across `$active`. Declarations that resolve alike
 	 * union their partitions, the way node_dirs() does, however each is
-	 * spelled; one resolving differently is a second Table under one name.
+	 * spelled.
 	 *
 	 * @param string                                                                       $name   Table name.
 	 * @param array{0: array<string,array<array-key,mixed>>, 1: array<string,\Throwable>} $active active_topologies().
@@ -589,31 +680,115 @@ class Bootstrap {
 	 * @throws \Throwable As node_tables().
 	 */
 	private static function resolve_table( string $name, array $active ): array {
-		$out   = [];
-		$first = null;
-		foreach ( self::declaring( $name, $active ) as $topology => $entry ) {
-			$declared = Topology_Analyzer::declared_tables( $topology )[ $name ] ?? null;
-			if ( null === $declared ) {
-				continue;
+		$declarations = self::agreeing(
+			'Table',
+			$name,
+			$active,
+			static function ( string $topology ) use ( $name ): ?array {
+				$declared = Topology_Analyzer::declared_tables( $topology )[ $name ] ?? null;
+				return null === $declared ? null : [
+					'namespace' => \str_replace( [ '<topology>', '{topology}' ], $topology, Core::resolve_config_tokens( $declared['namespace'], true ) ),
+					'ttl'       => self::declared_count( "Table {$name} declares a TTL", $declared['ttl'], ' second' ),
+					'backend'   => Core::resolve_config_tokens( $declared['backend'], true ),
+				];
 			}
-			$spec = [
-				'namespace' => \str_replace( [ '<topology>', '{topology}' ], $topology, Core::resolve_config_tokens( $declared['namespace'], true ) ),
-				'ttl'       => Core::canonical_decimal( Core::resolve_config_tokens( $declared['ttl'], true ), false )
-					?? throw new \RuntimeException( \esc_html( "Table {$name} declares a TTL that is not a whole number of at least 1 second: {$declared['ttl']}" ) ),
-				'backend'   => Core::resolve_config_tokens( $declared['backend'], true ),
-			];
-			if ( null !== $first && $first['spec'] !== $spec ) {
-				throw new \RuntimeException( \esc_html( "Table {$name} is declared differently by {$first['topology']} and {$topology}" ) );
-			}
-			$first ??= [
-				'spec'     => $spec,
-				'topology' => $topology,
-			];
+		);
+		$out = [];
+		foreach ( $declarations as [ $entry, $spec ] ) {
 			for ( $p = 0, $n = self::partitions_of( $entry ); $p < $n; ++$p ) {
 				$out[ $p ] ??= [ 'namespace' => Core::resolve_partition_template( $spec['namespace'], $p ) ] + $spec;
 			}
 		}
 		\ksort( $out );
+		return $out;
+	}
+
+	/**
+	 * The Ledgers `$names` resolve to across the given readable topologies
+	 * alone, uncached, as tables_of() resolves Tables.
+	 *
+	 * @param array<string,array<array-key,mixed>> $readable Topology name => entry.
+	 * @param string                               ...$names Ledger names as their topologies declare them.
+	 * @return array<string,array{segment_seconds: int, num_segments: int, columns: list<string>}|null> Name => the Ledger; null for a name none declares.
+	 * @throws \Throwable When those topologies declare one differently, or a count is not a whole number of at least 1.
+	 */
+	public static function ledgers_of( array $readable, string ...$names ): array {
+		$out = [];
+		foreach ( $names as $name ) {
+			$out[ $name ] = self::resolve_ledger( $name, [ $readable, [] ] );
+		}
+		return $out;
+	}
+
+	/**
+	 * One Ledger resolved across `$active`: its declaration, which every
+	 * declaring topology agrees on.
+	 *
+	 * @param string                                                                       $name   Ledger name.
+	 * @param array{0: array<string,array<array-key,mixed>>, 1: array<string,\Throwable>} $active active_topologies().
+	 * @return array{segment_seconds: int, num_segments: int, columns: list<string>}|null Null when none declares it.
+	 * @throws \Throwable As node_ledgers().
+	 */
+	private static function resolve_ledger( string $name, array $active ): ?array {
+		$declarations = self::agreeing(
+			'Ledger',
+			$name,
+			$active,
+			static function ( string $topology ) use ( $name ): ?array {
+				$declared = Topology_Analyzer::declared_ledgers( $topology )[ $name ] ?? null;
+				return null === $declared ? null : [
+					'segment_seconds' => self::declared_count( "Ledger {$name} declares a segment_seconds", $declared['segment_seconds'] ),
+					'num_segments'    => self::declared_count( "Ledger {$name} declares a num_segments", $declared['num_segments'] ),
+					'columns'         => \array_map( static fn ( string $column ): string => Ledger_Node::spelled( Core::resolve_config_tokens( $column, true ) ), $declared['columns'] ),
+				];
+			}
+		);
+		return \array_values( $declarations )[0][1] ?? null;
+	}
+
+	/**
+	 * A declared count with its config tokens resolved: a whole number of at
+	 * least 1, as a worker's `arguments()` would refuse anything else.
+	 *
+	 * @param string $declares What declares it, as the refusal opens.
+	 * @param string $raw      The count as written.
+	 * @param string $unit     What one of it is, as the refusal names it.
+	 * @return int The count.
+	 * @throws \RuntimeException On anything else, or a token nothing resolves.
+	 */
+	private static function declared_count( string $declares, string $raw, string $unit = '' ): int {
+		return Core::canonical_decimal( Core::resolve_config_tokens( $raw, true ), false )
+			?? throw new \RuntimeException( \esc_html( "{$declares} that is not a whole number of at least 1{$unit}: {$raw}" ) );
+	}
+
+	/**
+	 * Each readable topology in `$active` declaring `$name` as a `$kind`, with
+	 * its entry and its declaration as `$resolve` reads it, null skipping one
+	 * whose node of that name is no `$kind`. Declarations that resolve alike
+	 * are one store however each is spelled; one resolving differently is a
+	 * second store under one name, refused.
+	 *
+	 * @template T
+	 * @param string                                                                       $kind    What the refusal calls the store.
+	 * @param string                                                                       $name    Its name.
+	 * @param array{0: array<string,array<array-key,mixed>>, 1: array<string,\Throwable>} $active  active_topologies().
+	 * @param \Closure(string): (T|null)                                                  $resolve Topology => its declaration.
+	 * @return array<string,array{0: array<array-key,mixed>, 1: T}> Topology => its entry and declaration.
+	 * @throws \Throwable As declaring(), and when two declarations differ.
+	 */
+	private static function agreeing( string $kind, string $name, array $active, \Closure $resolve ): array {
+		$out = [];
+		foreach ( self::declaring( $name, $active ) as $topology => $entry ) {
+			$spec = $resolve( $topology );
+			if ( null === $spec ) {
+				continue;
+			}
+			$first = \array_key_first( $out );
+			if ( null !== $first && $out[ $first ][1] !== $spec ) {
+				throw new \RuntimeException( \esc_html( "{$kind} {$name} is declared differently by {$first} and {$topology}" ) );
+			}
+			$out[ $topology ] = [ $entry, $spec ];
+		}
 		return $out;
 	}
 
@@ -1215,13 +1390,14 @@ class Bootstrap {
 	}
 
 	/**
-	 * Drop every Table `node_tables()` resolved.
+	 * Drop every Table `node_tables()` and Ledger `node_ledgers()` resolved.
 	 * `Topology_Registry::reset_basename_cache()` calls it beside the parsed
 	 * topologies it drops, since a resolution reads the active set, the
 	 * `.tsl` files and the config tokens they name.
 	 */
-	public static function forget_node_tables(): void {
-		self::$node_tables = [];
+	public static function forget_node_stores(): void {
+		self::$node_tables  = [];
+		self::$node_ledgers = [];
 	}
 
 	/**

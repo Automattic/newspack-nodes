@@ -171,7 +171,7 @@ final class LedgerNodeTest extends TestCase {
 	public function test_two_partitions_write_the_one_file_each_under_its_own_w(): void {
 		$three = $this->kea( '3' );
 		// Each partition's worker is its own process, so each holds the name.
-		Core::unregister_node( 'lab-7:kea' );
+		$this->unregister_worker_node( 'lab-7:kea' );
 		$five = $this->kea( '5' );
 		$this->assertSame( [ 'stored' => 1, 'dropped' => 0 ], $three->append( [ [ self::T, 'sku-41', 'aisle-9', [ 3, 2.5, 7 ] ] ] ) );
 		$this->assertSame( [ 'stored' => 1, 'dropped' => 0 ], $five->append( [ [ self::T, 'sku-41', 'aisle-9', [ 5, 1.5, 8 ] ] ] ) );
@@ -243,7 +243,7 @@ final class LedgerNodeTest extends TestCase {
 
 	public function test_a_file_another_declaration_made_refuses_to_open(): void {
 		$this->kea();
-		Core::unregister_node( 'lab-7:kea' );
+		$this->unregister_worker_node( 'lab-7:kea' );
 		try {
 			$this->ledger( '5', 'lab-7:kea', '600', '3', 'qty', 'lo:min' );
 			$this->fail( 'a two-column Ledger opened a three-column file' );
@@ -251,6 +251,59 @@ final class LedgerNodeTest extends TestCase {
 			$this->assertSame( 'Ledger lab-7:kea: ' . Ledger_Node::file( 'lab-7:kea' ) . ' holds a rows table another declaration made; `wp nodes tables flush` drops the rows written under it and declares this one', $e->getMessage() );
 		}
 		$this->assertSame( self::ROWS_SQL, $this->rows_sql( 'lab-7:kea' ), 'the file is as its first writer declared it' );
+	}
+
+	public function test_a_flush_empties_the_rows_in_place_and_every_partition_writes_on(): void {
+		$three = $this->kea( '3' );
+		// Each partition's worker is its own process, so each holds the name.
+		$this->unregister_worker_node( 'lab-7:kea' );
+		$five = $this->kea( '5' );
+		$three->append( [ [ self::T, 'sku-41', 'aisle-9', [ 3, 2.5, 7 ] ], [ self::T + 1, 'sku-43', 'aisle-12', [ 4, 1.5, 9 ] ] ] );
+		$five->append( [ [ self::T, 'sku-41', 'aisle-9', [ 5, 1.5, 8 ] ] ] );
+		$inode = \fileinode( Ledger_Node::file( 'lab-7:kea' ) );
+
+		$this->assertSame( [ 'rows' => 3 ], $three->flush( [ 'qty:sum', 'lo:min', 'hi:max' ] ), 'qty and qty:sum are one column' );
+
+		\clearstatcache();
+		$this->assertSame( $inode, \fileinode( Ledger_Node::file( 'lab-7:kea' ) ), 'the file other partitions hold open stays' );
+		$this->assertSame( [], $this->rows( 'lab-7:kea' ) );
+		$this->assertSame( self::ROWS_SQL, $this->rows_sql( 'lab-7:kea' ) );
+		$this->assertSame( [ 'stored' => 1, 'dropped' => 0 ], $five->append( [ [ self::T, 'sku-43', 'aisle-9', [ 6, 0.5, 11 ] ] ] ), 'another partition writes the live file on' );
+		$this->assertSame( [ 'stored' => 1, 'dropped' => 0 ], $three->append( [ [ self::T, 'sku-41', 'aisle-12', [ 2, 0.5, 4 ] ] ] ) );
+		$this->assertSame( [ [ 'sku-41', 3 ], [ 'sku-43', 5 ] ], \array_map( static fn ( array $row ): array => [ $row[1], $row[3] ], $this->rows( 'lab-7:kea' ) ) );
+	}
+
+	public function test_a_flush_naming_other_columns_refuses_and_keeps_every_row(): void {
+		$kea = $this->kea();
+		$kea->append( [ [ self::T, 'sku-41', 'aisle-9', [ 3, 2.5, 7 ] ] ] );
+		$e = $this->caught( static fn () => $kea->flush( [ 'qty', 'lo:min' ] ), 'a writer running other columns flushed' );
+		$this->assertSame( 'flush: lab-7:kea runs qty:sum lo:min hi:max where its topology declares qty:sum lo:min; restart this worker (`wp nodes restart`), or hold the fleet (`wp nodes stop`), and flush again', $e->getMessage() );
+		$this->assertCount( 1, $this->rows( 'lab-7:kea' ) );
+	}
+
+	public function test_a_flush_with_no_writer_declares_the_current_columns_over_another_declaration(): void {
+		$this->ledger( '3', 'lab-7:kea', '600', '3', 'qty' )->append( [ [ self::T, 'sku-41', 'aisle-9', [ 3 ] ] ] );
+		Core::node( 'lab-7:kea' )->remove_node();
+		$inode = \fileinode( Ledger_Node::file( 'lab-7:kea' ) );
+		$this->caught( fn () => $this->kea( '5' ), 'a three-column Ledger opened a one-column file' );
+
+		$this->assertSame(
+			[ 'rows' => 1 ],
+			Ledger_Node::flush_file(
+				'lab-7:kea',
+				[
+					'segment_seconds' => 600,
+					'num_segments'    => 3,
+					'columns'         => [ 'qty', 'lo:min', 'hi:max' ],
+				]
+			)
+		);
+
+		$kea = $this->kea( '5' );
+		$this->assertSame( [ 'stored' => 1, 'dropped' => 0 ], $kea->append( [ [ self::T, 'sku-43', 'aisle-12', [ 4, 1.5, 9 ] ] ] ), 'the Ledger re-declared with its new columns opens' );
+		\clearstatcache();
+		$this->assertSame( $inode, \fileinode( Ledger_Node::file( 'lab-7:kea' ) ) );
+		$this->assertSame( self::ROWS_SQL, $this->rows_sql( 'lab-7:kea' ) );
 	}
 
 	public function test_traffic_other_than_a_request_is_refused_and_goes_nowhere(): void {

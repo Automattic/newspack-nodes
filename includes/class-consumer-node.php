@@ -630,11 +630,16 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	 * @param array<array-key,mixed> $extra      Frame fields for a caller that has some. They fill in
 	 *                                           UNDER the base and `checkpoint_frame_extra()`, which
 	 *                                           keep their own value on a shared key.
+	 * @param bool                   $settle     Call each snapshot node's `settle()`, where it has one,
+	 *                                           before any state is saved: the interval checkpoint's.
 	 */
-	protected function write_checkpoint_frame( bool $graceful, bool $with_state, array $extra = [] ): void {
+	protected function write_checkpoint_frame( bool $graceful, bool $with_state, array $extra = [], bool $settle = false ): void {
 		// One unit: a stop a save's writes reach waits for the frame to commit.
 		Event_Framework::instance()->uninterruptible(
-			function () use ( $graceful, $with_state, $extra ): void {
+			function () use ( $graceful, $with_state, $extra, $settle ): void {
+				if ( $settle ) {
+					$this->settle_snapshots();
+				}
 				// Snapshots ride the offset as ONE record: lockstep respawn.
 				$cache = $with_state ? $this->save_snapshots() : [];
 				if ( [] !== $cache ) {
@@ -643,6 +648,19 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 				$this->commit_checkpoint_frame( $this->cursor_segment, $this->cursor_offset, $graceful, $extra );
 			}
 		);
+	}
+
+	/**
+	 * Call `settle()` on each snapshot node that defines it, as save_snapshots()
+	 * finds `save_state()`, so the state saved next is what settling left.
+	 */
+	private function settle_snapshots(): void {
+		foreach ( $this->snapshot_nodes as $name ) {
+			$node = Core::node( $name );
+			if ( null !== $node && \method_exists( $node, 'settle' ) ) {
+				$node->settle();
+			}
+		}
 	}
 
 	/**

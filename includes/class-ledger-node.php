@@ -13,6 +13,9 @@
  * `( t, k, x )` is a delta, and every read aggregates the rows it finds by the
  * aggregate its column declares. A Ledger declaring no columns is a set, keyed
  * `( t, k, x )` alone, where an append of a row already there stores nothing.
+ * Nothing deletes a row but the segment drop and `flush()`, which drops the
+ * `rows` table and declares it anew in one transaction, never unlinking the
+ * file every partition holds open.
  *
  * The lineage is Tachikoma's. Its `Table` files each value into the window of
  * its own timestamp (`window_size`, `num_buckets`), which is the time
@@ -30,7 +33,9 @@
  * caller outside a graph. The reads `SUM`, `TOP` and `MEMBERS` answer the
  * same way, each over `from ≤ t < to` and every partition's rows, with SQL
  * built from the declaration alone: a column a request names is looked up in
- * it, and a name it does not hold is refused.
+ * it, and a name it does not hold is refused. A request graph reads through
+ * `mount()`, a read-only connection under the Ledger's own name, which answers
+ * the reads and refuses APPEND.
  *
  * @package Newspack_Nodes
  */
@@ -63,8 +68,11 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	/** Most rows one TOP answers: a page, never a dump of every member. */
 	public const TOP_LIMIT_MAX = Sqlite_Arm::IN_CHUNK;
 
-	/** What a read may apply to a column; `sum` when a column names none. */
-	public const AGGREGATES = [ 'sum', 'min', 'max' ];
+	/** The aggregate a column naming none reads by. */
+	public const DEFAULT_AGGREGATE = 'sum';
+
+	/** What a read may apply to a column. */
+	public const AGGREGATES = [ self::DEFAULT_AGGREGATE, 'min', 'max' ];
 
 	/** The key every row carries, in key order, with its type. */
 	private const KEY_COLUMNS = [
@@ -78,6 +86,9 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 		'w' => 'INTEGER',
 		's' => 'INTEGER',
 	];
+
+	/** Why a mount refuses an APPEND. */
+	private const READS_ONLY = 'a mounted Ledger serves reads only';
 
 	/** One APPEND row, as a refusal names it. */
 	private const ROW_SHAPE = '[ t, k, x, [ columns… ] ]';
@@ -145,7 +156,7 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	/** Whether the last drop stopped with a batch still full. */
 	private bool $drop_behind = false;
 
-	/** Whether this is a request-graph mount, which never drops or checkpoints. */
+	/** Whether this is a request-graph mount, which only reads. */
 	private bool $mounted = false;
 
 	/** The partition this writer's rows carry as `w`. */
@@ -154,13 +165,19 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	/** The last `s` this writer gave a row, seeded from hrtime at open. */
 	private int $sequence = 0;
 
+	/** Tachikoma-parity: no-arg ctor; the `{name}:config` interpreter answers `flush`. */
+	public function __construct() {
+		parent::__construct();
+		$this->auto_wire_interpreter();
+	}
+
 	/**
 	 * `<segment_seconds> <num_segments> [<column>[:sum|min|max] …]`. Both
 	 * counts are whole numbers of at least 1. Each column is named once, in
 	 * `[A-Za-z_][A-Za-z0-9_]*`, and its aggregate is one of AGGREGATES; no
 	 * column makes the Ledger a set. Every token is checked, and the file
-	 * opened as its writer, before any field moves, so a refusal leaves the
-	 * node as it was.
+	 * opened, before any field moves, so a refusal leaves the node as it was.
+	 * A writer prepares its writes and a mount its reads alone.
 	 *
 	 * @param list<string>|null $args
 	 * @return list<string>
@@ -184,12 +201,14 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 		[ $db, $partition ] = $this->open( $names );
 		$this->assign_schema_args( $args, $values );
 		$this->db             = $db;
-		$this->insert         = $db->prepare( ( [] === $values['columns'] ? 'INSERT OR IGNORE' : 'INSERT' ) . ' INTO rows ( ' . \implode( ', ', \array_keys( $names ) ) . ' ) VALUES ( ' . self::placeholders( $names ) . ' )' );
 		$this->select_members = $db->prepare( self::MEMBERS_READ );
-		$this->checkpoint     = $db->prepare( Sqlite_Arm::PASSIVE_CHECKPOINT );
-		$this->drop           = $db->prepare( 'DELETE FROM rows WHERE ( ' . self::key( $names ) . ' ) IN ( SELECT ' . self::key( $names ) . ' FROM rows WHERE t < ? LIMIT ? )' );
-		$this->partition      = $partition;
-		$this->sequence       = (int) \hrtime( true );
+		if ( ! $this->mounted ) {
+			$this->insert     = $db->prepare( ( [] === $values['columns'] ? 'INSERT OR IGNORE' : 'INSERT' ) . ' INTO rows ( ' . \implode( ', ', \array_keys( $names ) ) . ' ) VALUES ( ' . self::placeholders( $names ) . ' )' );
+			$this->checkpoint = $db->prepare( Sqlite_Arm::PASSIVE_CHECKPOINT );
+			$this->drop       = $db->prepare( 'DELETE FROM rows WHERE ( ' . self::key( $names ) . ' ) IN ( SELECT ' . self::key( $names ) . ' FROM rows WHERE t < ? LIMIT ? )' );
+			$this->partition  = $partition;
+			$this->sequence   = (int) \hrtime( true );
+		}
 		return $args;
 	}
 
@@ -208,66 +227,32 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	}
 
 	/**
-	 * Each column token as name => aggregate, in declaration order.
-	 *
-	 * @param array<string> $tokens `<name>[:sum|min|max]` each.
-	 * @return array<string,string> Name => aggregate.
-	 * @throws \InvalidArgumentException On a name out of pattern or declared
-	 *                                   twice, or an unknown aggregate.
-	 */
-	private function declared_columns( array $tokens ): array {
-		$columns = [];
-		foreach ( $tokens as $token ) {
-			[ $name, $aggregate ] = \explode( ':', $token, 2 ) + [ 1 => 'sum' ];
-			if ( 1 !== \preg_match( '/^[A-Za-z_][A-Za-z0-9_]*$/D', $name ) || isset( $columns[ $name ] ) ) {
-				$this->refuse_argument( "column {$token}: a name in [A-Za-z_][A-Za-z0-9_]*, declared once" );
-			}
-			if ( ! \in_array( $aggregate, self::AGGREGATES, true ) ) {
-				$this->refuse_argument( "column {$token}: the aggregate is one of " . \implode( ', ', self::AGGREGATES ) );
-			}
-			$columns[ $name ] = $aggregate;
-		}
-		return $columns;
-	}
-
-	/**
-	 * Every column a row stores, in order, with its type: the key, then for a
-	 * Ledger with columns its writer and c0… as REAL.
-	 *
-	 * @param int $width Declared columns.
-	 * @return array<string,string> Name => SQLite type.
-	 */
-	private static function stored_columns( int $width ): array {
-		if ( 0 === $width ) {
-			return self::KEY_COLUMNS;
-		}
-		$values = [];
-		for ( $i = 0; $i < $width; ++$i ) {
-			$values[ "c{$i}" ] = 'REAL';
-		}
-		return self::KEY_COLUMNS + self::WRITER_COLUMNS + $values;
-	}
-
-	/**
-	 * Open the file as its writer and declare its `rows` table, refusing a file
-	 * whose table another declaration made: this Ledger's rows would not fit it.
+	 * Open the file and hold its `rows` table to `$names`, refusing a table
+	 * another declaration made: this Ledger's rows would not fit it. A writer
+	 * opens the file as its writer and declares the table. A mount opens it
+	 * read-only and creates nothing; before any writer has made the file it
+	 * reads an empty table of this shape, in memory.
 	 *
 	 * @param array<string,string> $names Every stored column with its type.
-	 * @return array{0: \PDO, 1: int} The writer's connection, and the bound
-	 *                                partition its rows carry as `w`.
+	 * @return array{0: \PDO, 1: int} The connection, and the bound partition a
+	 *                                writer's rows carry as `w`; 0 for a mount.
 	 * @throws \RuntimeException Naming the Ledger, on no bound partition, a
 	 *                           name no file can carry, a directory or file that
-	 *                           will not open, or a table of another shape.
+	 *                           will not open, a mount as root, or a table of
+	 *                           another shape.
 	 */
 	private function open( array $names ): array {
 		try {
-			$partition = $this->bound_partition();
-			$file   = self::file( $this->name );
-			$fields = \implode( ', ', \array_map( static fn ( string $name, string $type ): string => "{$name} {$type} NOT NULL", \array_keys( $names ), $names ) );
-			$shape  = "rows ( {$fields}, PRIMARY KEY ( " . self::key( $names ) . ' ) ) WITHOUT ROWID';
-			Config::ensure_path( \dirname( $file ) );
-			$db = Sqlite_Arm::open_database( $file, false, self::BUSY_TIMEOUT_MS );
-			$db->exec( "CREATE TABLE IF NOT EXISTS {$shape}" );
+			$file  = self::file( $this->name );
+			$shape = self::shape( $names );
+			if ( $this->mounted ) {
+				Sqlite_Arm::refuse_root_reader( $file );
+				$partition = 0;
+				$db        = \is_file( $file ) ? Sqlite_Arm::open_database( $file, true, self::BUSY_TIMEOUT_MS ) : self::in_memory( $shape );
+			} else {
+				$partition = $this->bound_partition();
+				$db        = self::writer_database( $file, $shape );
+			}
 			$held = $db->prepare( "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'rows'" );
 			Sqlite_Arm::execute( $held );
 			if ( "CREATE TABLE {$shape}" !== $held->fetchColumn() ) {
@@ -282,14 +267,16 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	}
 
 	/**
-	 * The primary key of a row storing `$names`: `t, k, x`, and `w, s` for a
-	 * Ledger with columns.
+	 * An empty `rows` table in memory: what a mount reads before any writer
+	 * has made the file, so every read answers empty down its one path.
 	 *
-	 * @param array<string,string> $names Every stored column with its type.
-	 * @return string The key's columns, comma-separated.
+	 * @param string $shape shape().
+	 * @return \PDO The connection.
 	 */
-	private static function key( array $names ): string {
-		return \implode( ', ', \array_keys( \array_intersect_key( $names, self::KEY_COLUMNS + self::WRITER_COLUMNS ) ) );
+	private static function in_memory( string $shape ): \PDO {
+		$db = new \PDO( 'sqlite::memory:', null, null, [ \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION ] );
+		$db->exec( "CREATE TABLE {$shape}" );
+		return $db;
 	}
 
 	/**
@@ -305,20 +292,6 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	}
 
 	/**
-	 * The one SQLite file of a Ledger, whatever the partition.
-	 *
-	 * @param string $name The Ledger.
-	 * @return string `{base}/ledgers/{name}.sqlite`.
-	 * @throws \InvalidArgumentException On a name that cannot name a file.
-	 */
-	public static function file( string $name ): string {
-		if ( Sqlite_Arm::refuses_file_name( $name ) ) {
-			throw new \InvalidArgumentException( \esc_html( "Ledger name {$name} cannot name a file" ) );
-		}
-		return Bootstrap::base_dir() . "/ledgers/{$name}.sqlite";
-	}
-
-	/**
 	 * `APPEND` for a caller outside a graph, down the path the request takes:
 	 * every row checked first, then each inside the lifespan stored in one
 	 * `BEGIN IMMEDIATE … COMMIT`, and each past it dropped. Counted as one
@@ -330,9 +303,10 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	 * @return array{stored: int, dropped: int} Rows stored, and rows dropped as
 	 *                                          past the lifespan; a set's row
 	 *                                          already held is neither.
-	 * @throws \InvalidArgumentException On a row of another shape, a key that
-	 *                                   is empty or holds whitespace, or a
-	 *                                   column count other than the declared.
+	 * @throws \InvalidArgumentException On a mount, a row of another shape, a
+	 *                                   key that is empty or holds whitespace,
+	 *                                   or a column count other than the
+	 *                                   declared.
 	 * @throws \PDOException When the write fails, the lock held past
 	 *                       BUSY_TIMEOUT_MS among the causes.
 	 * @throws \LogicException Before arguments() has opened the file.
@@ -342,6 +316,9 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 		$bytes   = $this->stat_bytes();
 		$stored  = 0;
 		try {
+			if ( $this->mounted ) {
+				throw new \InvalidArgumentException( self::READS_ONLY );
+			}
 			$db     = $this->db ?? throw $this->unopened();
 			$cutoff = (int) Core::right_now() - $this->segment_seconds * $this->num_segments;
 			$kept   = $this->kept_rows( \array_values( $rows ), $cutoff );
@@ -671,15 +648,6 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	}
 
 	/**
-	 * The refusal of a call made before arguments() has opened the file.
-	 *
-	 * @return \LogicException Naming the Ledger.
-	 */
-	private function unopened(): \LogicException {
-		return new \LogicException( \esc_html( "Ledger {$this->name} has opened no file" ) );
-	}
-
-	/**
 	 * Run a statement, each int bound as an integer, and read it to its end,
 	 * so a cached statement holds no read snapshot open past the call.
 	 *
@@ -704,17 +672,17 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	 * reaches it; its WAL checkpoint, at most once a CHECKPOINT_INTERVAL_S;
 	 * and its trace line while traced. Every partition's writer runs both on
 	 * the one file, so a second drop finds nothing and a checkpoint another
-	 * partition's write outlasts finishes on a later tick. A mount does
-	 * neither.
+	 * partition's write outlasts finishes on a later tick. A mount prepares
+	 * neither statement, so it does neither.
 	 * See Tick_Housekeeper::tick_steps() for the steps.
 	 *
 	 * @param int $now The tick, in epoch seconds.
 	 */
 	public function tick_steps( int $now ): array {
-		$db         = $this->mounted ? null : $this->db;
-		$drop       = $this->mounted ? null : $this->drop;
-		$checkpoint = $this->mounted ? null : $this->checkpoint;
-		$purge = null;
+		$db         = $this->db;
+		$drop       = $this->drop;
+		$checkpoint = $this->checkpoint;
+		$purge      = null;
 		if ( null !== $db && null !== $drop ) {
 			$edge   = $now - $this->segment_seconds * $this->num_segments;
 			$cutoff = $edge - $edge % $this->segment_seconds;
@@ -770,12 +738,246 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	}
 
 	/**
+	 * Empty this Ledger in place: replace_rows() over the writer's connection,
+	 * declaring the table this node declares, but only while `$columns`, the
+	 * columns its topology declares now, are the ones this node runs. Every
+	 * other partition's writer writes on into the same file. The drop and the
+	 * checkpoint schedule start over, as they do for a new writer.
+	 * Verb-exposed (`flush <column>…`).
+	 *
+	 * @param list<string> $columns The declared columns, `<name>[:sum|min|max]`.
+	 * @return array{rows: int} The rows the Ledger held.
+	 * @throws \RuntimeException On a mount, which serves reads only, or when
+	 *                           `$columns` are not the ones this node runs,
+	 *                           naming the restart that brings them in.
+	 * @throws \InvalidArgumentException On a column it cannot declare.
+	 * @throws \LogicException Before arguments() has opened the file.
+	 * @throws \PDOException When the write fails, the lock held past
+	 *                       BUSY_TIMEOUT_MS among the causes.
+	 */
+	public function flush( array $columns ): array {
+		if ( $this->mounted ) {
+			throw new \RuntimeException( \esc_html( "flush: {$this->name} is a mounted Ledger, which serves reads only" ) );
+		}
+		$declared = $this->declared_columns( $columns );
+		if ( $declared !== $this->columns ) {
+			throw new \RuntimeException( \esc_html( "flush: {$this->name} runs " . self::listed( $this->columns ) . ' where its topology declares ' . self::listed( $declared ) . '; restart this worker (`wp nodes restart`), or hold the fleet (`wp nodes stop`), and flush again' ) );
+		}
+		$released               = self::replace_rows( $this->db ?? throw $this->unopened(), self::shape( self::stored_columns( \count( $this->columns ) ) ) );
+		$this->dropped_below    = 0;
+		$this->drop_behind      = false;
+		$this->checkpoint_due   = (int) Core::$now + self::CHECKPOINT_INTERVAL_S;
+		$this->wal_stalled      = 0;
+		$this->wal_stall_frames = 0;
+		return $released;
+	}
+
+	/**
+	 * Each column token as name => aggregate, in declaration order.
+	 *
+	 * @param array<string> $tokens `<name>[:sum|min|max]` each.
+	 * @return array<string,string> Name => aggregate.
+	 * @throws \InvalidArgumentException On a name out of pattern or declared
+	 *                                   twice, or an unknown aggregate.
+	 */
+	private function declared_columns( array $tokens ): array {
+		$columns = [];
+		foreach ( $tokens as $token ) {
+			[ $name, $aggregate ] = \explode( ':', self::spelled( $token ), 2 );
+			if ( 1 !== \preg_match( '/^[A-Za-z_][A-Za-z0-9_]*$/D', $name ) || isset( $columns[ $name ] ) ) {
+				$this->refuse_argument( "column {$token}: a name in [A-Za-z_][A-Za-z0-9_]*, declared once" );
+			}
+			if ( ! \in_array( $aggregate, self::AGGREGATES, true ) ) {
+				$this->refuse_argument( "column {$token}: the aggregate is one of " . \implode( ', ', self::AGGREGATES ) );
+			}
+			$columns[ $name ] = $aggregate;
+		}
+		return $columns;
+	}
+
+	/**
+	 * The refusal of a call made before arguments() has opened the file.
+	 *
+	 * @return \LogicException Naming the Ledger.
+	 */
+	private function unopened(): \LogicException {
+		return new \LogicException( \esc_html( "Ledger {$this->name} has opened no file" ) );
+	}
+
+	/**
+	 * Columns as a refusal names them, each spelled whole.
+	 *
+	 * @param array<string,string> $columns Name => aggregate.
+	 * @return string `qty:sum lo:min`, or `no columns`.
+	 */
+	private static function listed( array $columns ): string {
+		$spelled = \array_map( static fn ( string $name, string $aggregate ): string => "{$name}:{$aggregate}", \array_keys( $columns ), $columns );
+		return [] === $spelled ? 'no columns' : \implode( ' ', $spelled );
+	}
+
+	/**
+	 * A column token spelled whole, `<name>:<aggregate>`, DEFAULT_AGGREGATE
+	 * where it names none: the form two declarations of a column compare in.
+	 *
+	 * @api Bootstrap::node_ledgers(), which compares declarations so spelled.
+	 * @param string $token `<name>[:sum|min|max]`.
+	 * @return string `<name>:<aggregate>`.
+	 */
+	public static function spelled( string $token ): string {
+		return \str_contains( $token, ':' ) ? $token : $token . ':' . self::DEFAULT_AGGREGATE;
+	}
+
+	/**
+	 * Empty a Ledger no live worker holds, from the declaration alone, as
+	 * `wp nodes tables flush` does: replace_rows() over a writer's connection
+	 * of its own, whatever table the file held. A Ledger whose declaration
+	 * changed its columns, and so will not open, opens after it.
+	 *
+	 * @api Tables_CLI_Command::flush(), for a Ledger no live worker declares.
+	 * @param string                                                             $name        The declared Ledger.
+	 * @param array{segment_seconds: int, num_segments: int, columns: list<string>} $declaration The resolved declaration.
+	 * @return array{rows: int} The rows the file held.
+	 * @throws \InvalidArgumentException On a name that cannot name a file.
+	 * @throws \RuntimeException On a directory or file that will not open, or
+	 *                           a write that fails.
+	 */
+	public static function flush_file( string $name, array $declaration ): array {
+		$shape = self::shape( self::stored_columns( \count( $declaration['columns'] ) ) );
+		return self::replace_rows( self::writer_database( self::file( $name ), $shape ), $shape );
+	}
+
+	/**
+	 * Every column a row stores, in order, with its type: the key, then for a
+	 * Ledger with columns its writer and c0… as REAL.
+	 *
+	 * @param int $width Declared columns.
+	 * @return array<string,string> Name => SQLite type.
+	 */
+	private static function stored_columns( int $width ): array {
+		if ( 0 === $width ) {
+			return self::KEY_COLUMNS;
+		}
+		$values = [];
+		for ( $i = 0; $i < $width; ++$i ) {
+			$values[ "c{$i}" ] = 'REAL';
+		}
+		return self::KEY_COLUMNS + self::WRITER_COLUMNS + $values;
+	}
+
+	/**
+	 * The `rows` table a row storing `$names` needs, as SQLite records it
+	 * after `CREATE TABLE `.
+	 *
+	 * @param array<string,string> $names Every stored column with its type.
+	 * @return string `rows ( … ) WITHOUT ROWID`.
+	 */
+	private static function shape( array $names ): string {
+		$fields = \implode( ', ', \array_map( static fn ( string $name, string $type ): string => "{$name} {$type} NOT NULL", \array_keys( $names ), $names ) );
+		return "rows ( {$fields}, PRIMARY KEY ( " . self::key( $names ) . ' ) ) WITHOUT ROWID';
+	}
+
+	/**
+	 * The file opened as a writer, its directory made and a `rows` table
+	 * declared where it has none.
+	 *
+	 * @param string $file  The Ledger's file.
+	 * @param string $shape shape().
+	 * @return \PDO The writer's connection.
+	 * @throws \RuntimeException On a directory or file that will not open.
+	 */
+	private static function writer_database( string $file, string $shape ): \PDO {
+		Config::ensure_path( \dirname( $file ) );
+		$db = Sqlite_Arm::open_database( $file, false, self::BUSY_TIMEOUT_MS );
+		$db->exec( "CREATE TABLE IF NOT EXISTS {$shape}" );
+		return $db;
+	}
+
+	/**
+	 * The primary key of a row storing `$names`: `t, k, x`, and `w, s` for a
+	 * Ledger with columns.
+	 *
+	 * @param array<string,string> $names Every stored column with its type.
+	 * @return string The key's columns, comma-separated.
+	 */
+	private static function key( array $names ): string {
+		return \implode( ', ', \array_keys( \array_intersect_key( $names, self::KEY_COLUMNS + self::WRITER_COLUMNS ) ) );
+	}
+
+	/**
+	 * The one SQLite file of a Ledger, whatever the partition.
+	 *
+	 * @param string $name The Ledger.
+	 * @return string `{base}/ledgers/{name}.sqlite`.
+	 * @throws \InvalidArgumentException On a name that cannot name a file.
+	 */
+	public static function file( string $name ): string {
+		if ( Sqlite_Arm::refuses_file_name( $name ) ) {
+			throw new \InvalidArgumentException( \esc_html( "Ledger name {$name} cannot name a file" ) );
+		}
+		return Bootstrap::base_dir() . "/ledgers/{$name}.sqlite";
+	}
+
+	/**
+	 * Drop `rows` and declare `$shape` in its place, in one write transaction.
+	 * The file stays, so every connection another partition holds writes on
+	 * into the new table, and the dropped pages are free for its rows.
+	 *
+	 * @param \PDO   $db    A writer's connection.
+	 * @param string $shape shape().
+	 * @return array{rows: int} The rows the dropped table held.
+	 * @throws \PDOException When the write fails.
+	 */
+	private static function replace_rows( \PDO $db, string $shape ): array {
+		return Sqlite_Arm::immediate(
+			$db,
+			static function () use ( $db, $shape ): array {
+				$count = $db->prepare( 'SELECT COUNT(*) FROM rows' );
+				Sqlite_Arm::execute( $count );
+				$rows = Core::as_int( $count->fetchColumn() );
+				// A statement still stepping locks the table DROP removes.
+				$count->closeCursor();
+				$db->exec( 'DROP TABLE rows' );
+				$db->exec( "CREATE TABLE {$shape}" );
+				return [ 'rows' => $rows ];
+			}
+		);
+	}
+
+	/**
 	 * A Ledger stores numbers, not encoded values, so it counts no bytes.
 	 *
 	 * @return int 0.
 	 */
 	private function stat_bytes(): int {
 		return 0;
+	}
+
+	/**
+	 * One declared Ledger's file, read-only, named `$name` and sinking into
+	 * `$sink`: how a request graph mounts a Ledger outside any topology load.
+	 * It answers SUM, TOP and MEMBERS over every partition's rows, refuses
+	 * APPEND and `flush`, and neither drops nor checkpoints.
+	 *
+	 * @api Bootstrap::mount_ledger().
+	 * @param string                                                             $name        The declared Ledger.
+	 * @param array{segment_seconds: int, num_segments: int, columns: list<string>} $declaration The resolved declaration.
+	 * @param Node                                                               $sink        Where replies go.
+	 * @return self The mount.
+	 * @throws \Throwable As arguments(); nothing stays registered, and a
+	 *                    teardown that also throws escapes beside the cause.
+	 */
+	public static function mount( string $name, array $declaration, Node $sink ): self {
+		$node          = new self();
+		$node->mounted = true;
+		$node->name( $name );
+		try {
+			$node->arguments( [ (string) $declaration['segment_seconds'], (string) $declaration['num_segments'], ...$declaration['columns'] ] );
+		} catch ( \Throwable $e ) {
+			// name() registers first, so a refusal would orphan the node.
+			Worker_Should_Stop::raise( [ $e, ...Worker_Should_Stop::attempt( $node->remove_node( ... ) ) ] );
+		}
+		$node->sink( $sink );
+		return $node;
 	}
 
 	/**
@@ -791,6 +993,18 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 				[ 'name' => 'segment_seconds', 'type' => 'int', 'required' => true, 'description' => 'Seconds of t one segment spans, at least 1.' ],
 				[ 'name' => 'num_segments', 'type' => 'int', 'required' => true, 'description' => 'Segments kept, at least 1: the lifespan is segment_seconds × num_segments.' ],
 				[ 'name' => 'columns', 'type' => 'string', 'variadic' => true, 'description' => 'Numeric columns, each <name>[:sum|min|max], sum by default; none makes the Ledger a set.' ],
+			],
+			'commands'    => [
+				[
+					'name'        => 'flush',
+					'action'      => true,
+					'description' => 'Empty the Ledger in place: drop its rows table and declare it anew, one transaction, answering the rows it held. The file stays, since every partition holds it open. Refused, naming the restart, when the columns named are not the ones this worker runs; a mount refuses it.',
+					'args'        => [ [ 'name' => 'columns', 'type' => 'string', 'variadic' => true, 'description' => 'The columns the topology declares now, each <name>[:sum|min|max].' ] ],
+					'handler'     => static function ( Command_Interpreter_Node $interpreter, array $args ): array {
+						$patron = $interpreter->patron();
+						return $patron instanceof self ? $patron->flush( \array_values( \array_map( Core::as_string( ... ), Core::arr( $args['columns'] ) ) ) ) : throw new \RuntimeException( 'no ledger patron' );
+					},
+				],
 			],
 			'requests'    => [
 				[
