@@ -138,6 +138,21 @@ export function formatCount( n ) {
 }
 
 /**
+ * Format a count whole, grouped by locale, e.g. 1234567 → "1,234,567". Where
+ * `formatCount` compacts, this keeps every digit, for a counter read exactly.
+ *
+ * An absent reading is not a zero: anything but a finite number reads as an
+ * em dash, so a node that has reported nothing does not claim it handled
+ * nothing.
+ *
+ * @param {?number} n A count, or null before its first reading.
+ * @return {string} The grouped count, or an em dash.
+ */
+export function formatGroupedCount( n ) {
+	return Number.isFinite( n ) ? n.toLocaleString() : '—';
+}
+
+/**
  * Format the interval between two Unix timestamps, e.g. 3660 seconds → "1h1m".
  * Whole units: seconds below a minute, minutes below an hour, hours and
  * minutes above.

@@ -1542,10 +1542,18 @@ describe( 'canonical appearance ownership', () => {
 			declarationsForSelector( inspectorViewsStylesheet, runtimeSelector )
 		).toEqual(
 			expect.objectContaining( {
+				'font-family': 'var(--font-mono)',
 				'font-size': 'inherit',
 				'line-height': 'inherit',
+				color: 'var(--ink)',
 			} )
 		);
+		expect(
+			declarationsForSelector(
+				graphStylesheet,
+				'.topology-insp__section:has(> .nodes-runtime__grid)'
+			)
+		).toEqual( { 'overflow-x': 'auto' } );
 		for ( const cellClass of [
 			'nodes-runtime__th',
 			'nodes-runtime__td',

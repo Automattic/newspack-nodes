@@ -1165,6 +1165,11 @@
 .topology-insp__section {
 	margin: 18px 0;
 
+	// A grid wider than the rail scrolls inside its section, not the rail.
+	&:has(> .nodes-runtime__grid) {
+		overflow-x: auto;
+	}
+
 	&-title {
 		font: 700 10px var(--font-mono);
 		text-transform: uppercase;

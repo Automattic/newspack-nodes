@@ -34,16 +34,25 @@ import './inspector-views.scss';
 const POLLER = 'profiler:fetch';
 
 /**
- * `list_profiles`' own columns, in its own order. Everything but WHAT sorts
- * numerically, which is what `shape()` keeps its fixed-decimal text parseable
- * for.
+ * Format one numeric cell to a fixed number of decimals, as the verb's own text
+ * table prints it.
+ *
+ * @param {number} places Decimals to keep.
+ * @return {(v:number)=>string} The column's cell formatter.
+ */
+const fixed = ( places ) => ( v ) => v.toFixed( places );
+
+/**
+ * `list_profiles`' own columns, in its own order, at the decimals its text
+ * table prints: AVERAGE to six, TIME, WINDOW and RATE to two. Everything but
+ * WHAT sorts numerically on the raw value.
  */
 const COLS = [
-	{ key: 'avg', label: 'AVERAGE', numeric: true },
-	{ key: 'time', label: 'TIME', numeric: true },
+	{ key: 'avg', label: 'AVERAGE', numeric: true, format: fixed( 6 ) },
+	{ key: 'time', label: 'TIME', numeric: true, format: fixed( 2 ) },
 	{ key: 'count', label: 'COUNT', numeric: true },
-	{ key: 'window', label: 'WINDOW', numeric: true },
-	{ key: 'rate', label: 'RATE', numeric: true },
+	{ key: 'window', label: 'WINDOW', numeric: true, format: fixed( 2 ) },
+	{ key: 'rate', label: 'RATE', numeric: true, format: fixed( 2 ) },
 	{ key: 'age', label: 'AGE', numeric: true },
 	{ key: 'what', label: 'WHAT' },
 ];
@@ -54,35 +63,6 @@ const COLS = [
  *
  * @typedef {import('../../runtime/command-interpreter-node').ProfileStats & {what:string}} ProfileRow
  */
-
-/**
- * Format one numeric cell to a fixed number of decimals. The grid sorts a
- * numeric column by `Number( cell )`, so the padded text still compares as the
- * value it prints.
- *
- * @param {number} v      Raw cell value.
- * @param {number} places Decimals to keep.
- * @return {string} The fixed-decimal text.
- */
-const fmt = ( v, places ) => Number( v ).toFixed( places );
-
-/**
- * One reply row as the grid renders it, at the decimals the verb's own text
- * table prints: AVERAGE to six, TIME, WINDOW and RATE to two. COUNT, AGE and
- * WHAT ride verbatim, being two whole numbers and a name.
- *
- * @param {ProfileRow} r One `list_profiles -s` row.
- * @return {Record<string,string|number>} The row, formatted for display.
- */
-const shape = ( r ) => ( {
-	avg: fmt( r.avg, 6 ),
-	time: fmt( r.time, 2 ),
-	count: r.count,
-	window: fmt( r.window, 2 ),
-	rate: fmt( r.rate, 2 ),
-	age: r.age,
-	what: r.what,
-} );
 
 /**
  * Mount the poller, render its rows as a sortable grid, and stand the
@@ -184,16 +164,13 @@ export default function ProfilerView() {
 	};
 
 	const rows = useMemo(
-		() =>
-			( all ?? [] )
-				.filter( ( r ) => '--total--' !== r.what )
-				.map( shape ),
+		() => ( all ?? [] ).filter( ( r ) => '--total--' !== r.what ),
 		[ all ]
 	);
-	const footer = useMemo( () => {
-		const total = ( all ?? [] ).find( ( r ) => '--total--' === r.what );
-		return total ? shape( total ) : null;
-	}, [ all ] );
+	const footer = useMemo(
+		() => ( all ?? [] ).find( ( r ) => '--total--' === r.what ) ?? null,
+		[ all ]
+	);
 
 	return (
 		<div className="nodes-profiler" data-testid="profiler-view">

@@ -1,19 +1,23 @@
 /**
  * SortableGrid — the click-to-sort table behind the Inspector's Runtime and
- * Profiler modals, plus the sort-toggle hook that drives it. A view supplies
- * column specs, keyed rows and sort state; the grid owns the ordering, the
- * headers and the cell formatting. It is a module of its own rather than an
- * export of either view, so neither modal depends on the other's internals.
+ * Profiler modals and its Table Stats section, plus the sort-toggle hook that
+ * drives it. A view supplies column specs, keyed rows and sort state; the grid
+ * owns the ordering, the headers and the cell formatting. It is a module of
+ * its own rather than an export of any one view, so no view depends on
+ * another's internals.
  */
 
 import { useMemo, useState } from '@wordpress/element';
 import './inspector-views.scss';
 
 /**
- * One grid column: the row key it reads, the header text it prints, and
- * whether its values compare as numbers rather than as text.
+ * One grid column: the row key it reads, the header text it prints, whether
+ * its values compare as numbers rather than as text, and how a cell reads.
+ * `format` renders a present raw value while the sort still reads it raw, so
+ * "1.5 MB" ranks above "900 KB"; a missing value, and every value of a column
+ * without `format`, renders through `formatCell`.
  *
- * @typedef {{key:string,label:string,numeric?:boolean}} Column
+ * @typedef {{key:string,label:string,numeric?:boolean,format?:(value:any)=>string}} Column
  */
 
 /**
@@ -107,6 +111,21 @@ export function useSortState( key, dir = 'asc' ) {
 }
 
 /**
+ * One cell's display text: the column's own `format` for a present value,
+ * else `formatCell`, so a missing value reads as the en dash in every column.
+ *
+ * @param {Column} col The cell's column.
+ * @param {Row}    row The row it belongs to.
+ * @return {string} The text to render in the cell.
+ */
+function cellText( col, row ) {
+	const value = row[ col.key ];
+	return col.format && null !== value && undefined !== value
+		? col.format( value )
+		: formatCell( value );
+}
+
+/**
  * A click-to-sort grid. Headers call `onSort`, and the ordering itself happens
  * here on a memoized copy, so a view hands rows over in whatever order they
  * arrived. A grid given `rowClass` leads with a flag column, and a non-empty
@@ -181,7 +200,7 @@ export function Grid( { testid, cols, rows, sort, onSort, rowClass, footer } ) {
 							) }
 							{ cols.map( ( c ) => (
 								<td key={ c.key } className="nodes-runtime__td">
-									{ formatCell( r[ c.key ] ) }
+									{ cellText( c, r ) }
 								</td>
 							) ) }
 						</tr>
@@ -194,7 +213,7 @@ export function Grid( { testid, cols, rows, sort, onSort, rowClass, footer } ) {
 						{ rowClass && <td className="nodes-runtime__flag" /> }
 						{ cols.map( ( c ) => (
 							<td key={ c.key } className="nodes-runtime__td">
-								{ formatCell( footer[ c.key ] ) }
+								{ cellText( c, footer ) }
 							</td>
 						) ) }
 					</tr>

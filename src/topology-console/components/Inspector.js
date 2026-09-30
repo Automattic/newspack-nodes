@@ -21,6 +21,7 @@ import { tokenize } from '../../runtime/shell-node';
 import { targetsOf } from '../../runtime/node';
 import HullPanel from './HullPanel';
 import TimeTravelPanel from './TimeTravelPanel';
+import VerbStats from './VerbStats';
 import { FieldRow, NodeLinks, Section } from './InspectorFields';
 import {
 	SparklineRow,
@@ -33,6 +34,7 @@ import {
 import {
 	formatByteRate,
 	formatBytes,
+	formatGroupedCount,
 } from '@newspack-nodes/shared/utils/formatters';
 import { processStats } from '../utils/processStats';
 import { isConfigurableVerb } from '../utils/editorLines';
@@ -2470,11 +2472,7 @@ export default function Inspector( {
 			>
 				<FieldRow
 					k="counter"
-					v={
-						node.count !== undefined
-							? node.count.toLocaleString()
-							: '—'
-					}
+					v={ formatGroupedCount( node.count ) }
 					vClass="newspack-nodes-stat-value is-accent topology-field-row__val--num"
 				/>
 				<FieldRow
@@ -2523,6 +2521,15 @@ export default function Inspector( {
 					}
 				/>
 			</Section>
+
+			{ node.verb_stats && (
+				<Section
+					title={ __( 'Stats', 'newspack-nodes' ) }
+					meta={ __( 'per verb', 'newspack-nodes' ) }
+				>
+					<VerbStats stats={ node.verb_stats } />
+				</Section>
+			) }
 
 			{ isConsumer && (
 				<Section title={ __( 'Time Travel', 'newspack-nodes' ) }>

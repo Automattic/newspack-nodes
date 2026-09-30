@@ -33,6 +33,7 @@ import {
 	clipSegmentExit,
 } from '../utils/viewportCull';
 import { useContainerRefit } from '../../shared/hooks/useContainerRefit';
+import { formatGroupedCount } from '@newspack-nodes/shared/utils/formatters';
 import { maxInsetBeforeLOD } from '../utils/viewportResize';
 import { useLayoutContext } from '../LayoutContext';
 import { useChrome } from '../ChromeContext';
@@ -109,19 +110,6 @@ function screenToSvg( svg, clientX, clientY ) {
 	return ctm
 		? pt.matrixTransform( ctm.inverse() )
 		: { x: clientX, y: clientY };
-}
-
-/**
- * The card's message counter.
- *
- * @param {?number} count Messages the node has handled, absent until its first stats reading.
- * @return {string} The grouped count, or an em dash when there is no reading — a zero would claim the node handled nothing.
- */
-function compactCount( count ) {
-	if ( count === null || count === undefined ) {
-		return '—';
-	}
-	return count.toLocaleString();
 }
 
 /**
@@ -1678,7 +1666,7 @@ export default function SchematicCanvas( {
 								y={ 76 }
 								textAnchor="end"
 							>
-								{ compactCount( n.count ) }
+								{ formatGroupedCount( n.count ) }
 							</text>
 						</g>
 						{ acceptsFill( n, classCatalog ) && (
