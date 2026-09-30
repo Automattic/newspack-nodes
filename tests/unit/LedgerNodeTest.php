@@ -2,6 +2,7 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Command_Interpreter_Node;
+use Newspack_Nodes\Config;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Ledger_Node;
 use Newspack_Nodes\Message;
@@ -18,7 +19,8 @@ use PHPUnit\Framework\Attributes\CoversClass;
 final class LedgerNodeTest extends TestCase {
 	private const T = 1790000400;
 
-	private const ROWS_SQL = 'CREATE TABLE rows ( t INTEGER NOT NULL, k TEXT NOT NULL, x TEXT NOT NULL, w INTEGER NOT NULL, s INTEGER NOT NULL, c0 REAL NOT NULL, c1 REAL NOT NULL, c2 REAL NOT NULL, PRIMARY KEY ( t, k, x, w, s ) ) WITHOUT ROWID';
+	/** The kea Ledger's `rows`: qty a sum, NOT NULL; lo and hi nullable. */
+	private const ROWS_SQL = 'CREATE TABLE rows ( t INTEGER NOT NULL, k TEXT NOT NULL, x TEXT NOT NULL, w INTEGER NOT NULL, s INTEGER NOT NULL, c0 REAL NOT NULL, c1 REAL, c2 REAL, PRIMARY KEY ( t, k, x, w, s ) ) WITHOUT ROWID';
 
 	private string $dir = '';
 	private Capture_Sink_Node $sink;
@@ -201,10 +203,26 @@ final class LedgerNodeTest extends TestCase {
 		$this->assertSame( [ Message::TM_ERROR, "APPEND: row 1: key is empty or holds whitespace\n" ], $this->append( $kea, [ $good, [ self::T, 'sku 43', 'aisle-9', [ 3, 2.5, 7 ] ] ] ) );
 		$this->assertSame( [ Message::TM_ERROR, "APPEND: row 2: key is empty or holds whitespace\n" ], $this->append( $kea, [ $good, $good, [ self::T, "sku-41\nAPPEND: row 0: forged", 'aisle-9', [ 3, 2.5, 7 ] ] ] ), 'a key never reaches the reply, so it stays one line' );
 		$this->assertSame( [ Message::TM_ERROR, "APPEND: row 0: 2 columns, the Ledger declares 3\n" ], $this->append( $kea, [ [ self::T, 'sku-41', 'aisle-9', [ 3, 2.5 ] ] ] ) );
-		$this->assertSame( [ Message::TM_ERROR, "APPEND: row 1: needs [ t, k, x, [ columns… ] ], t whole seconds and each column a number\n" ], $this->append( $kea, [ $good, [ (string) self::T, 'sku-41', 'aisle-9', [ 3, 2.5, 7 ] ] ] ) );
-		$this->assertSame( [ Message::TM_ERROR, "APPEND: row 0: needs [ t, k, x, [ columns… ] ], t whole seconds and each column a number\n" ], $this->append( $kea, [ [ self::T, 'sku-41', 'aisle-9', [ 3, 'lots', 7 ] ] ] ) );
+		$this->assertSame( [ Message::TM_ERROR, "APPEND: row 1: needs [ t, k, x, [ columns… ] ], t whole seconds and each column a number or null\n" ], $this->append( $kea, [ $good, [ (string) self::T, 'sku-41', 'aisle-9', [ 3, 2.5, 7 ] ] ] ) );
+		$this->assertSame( [ Message::TM_ERROR, "APPEND: row 0: needs [ t, k, x, [ columns… ] ], t whole seconds and each column a number or null\n" ], $this->append( $kea, [ [ self::T, 'sku-41', 'aisle-9', [ 3, 'lots', 7 ] ] ] ) );
 		$this->assertSame( [ Message::TM_ERROR, "APPEND: needs a list of [ t, k, x, [ columns… ] ] rows\n" ], $this->append( $kea, 'sku-41' ) );
+		$this->assertSame( [ Message::TM_ERROR, "APPEND: row 1: qty is a sum column, which takes a number; null is for a min or max not measured\n" ], $this->append( $kea, [ $good, [ self::T, 'sku-41', 'aisle-9', [ null, 2.5, 7 ] ] ] ) );
 		$this->assertSame( [], $this->rows( 'lab-7:kea' ), 'a refused append stores none of its rows' );
+	}
+
+	public function test_a_min_or_max_column_stores_null_for_not_measured(): void {
+		$kea = $this->kea();
+		$this->assertSame( self::appended( 2, 0 ), $this->append( $kea, [ [ self::T, 'sku-41', 'aisle-9', [ 3, null, 7 ] ], [ self::T, 'sku-43', 'aisle-9', [ 0, 1.5, null ] ] ] ) );
+		$this->assertSame( [ [ null, 7.0 ], [ 1.5, null ] ], \array_map( static fn ( array $row ): array => [ $row[6], $row[7] ], $this->rows( 'lab-7:kea' ) ) );
+	}
+
+	public function test_a_file_declaring_its_min_and_max_not_null_refuses_to_open_naming_the_flush(): void {
+		Config::ensure_path( \dirname( Ledger_Node::file( 'lab-7:kea' ) ) );
+		$old = 'CREATE TABLE rows ( t INTEGER NOT NULL, k TEXT NOT NULL, x TEXT NOT NULL, w INTEGER NOT NULL, s INTEGER NOT NULL, c0 REAL NOT NULL, c1 REAL NOT NULL, c2 REAL NOT NULL, PRIMARY KEY ( t, k, x, w, s ) ) WITHOUT ROWID';
+		( new \PDO( 'sqlite:' . Ledger_Node::file( 'lab-7:kea' ) ) )->exec( $old );
+		$e = $this->caught( fn () => $this->kea(), 'a Ledger opened a file whose min and max refuse null' );
+		$this->assertSame( 'Ledger lab-7:kea: ' . Ledger_Node::file( 'lab-7:kea' ) . ' holds a rows table another declaration made; `wp nodes tables flush` drops the rows written under it and declares this one', $e->getMessage() );
+		$this->assertSame( $old, $this->rows_sql( 'lab-7:kea' ), 'the file is left as it was' );
 	}
 
 	public function test_a_declaration_it_cannot_keep_throws_naming_it(): void {

@@ -259,6 +259,48 @@ class TopologyRegistryExpandTest extends TestCase {
 		);
 	}
 
+	public function test_expand_add_target_adds_an_edge_each_line_under_its_slot(): void {
+		$this->write_tsl(
+			'wombat-add-config-target',
+			"make_node Echo amber-flame-builder-731\n"
+			. "make_node Echo teal-ledger-totals-208\n"
+			. "make_node Echo plum-ledger-dims-574\n"
+			. "make_node Echo violet-old-stats-947\n"
+			. "make_node Echo green-stats-421\n"
+			. "cmd amber-flame-builder-731:config set_stats_target violet-old-stats-947\n"
+			. "cmd amber-flame-builder-731:config add_ledger_target teal-ledger-totals-208\n"
+			. "cmd amber-flame-builder-731:config add_ledger_target plum-ledger-dims-574\n"
+			. "cmd amber-flame-builder-731:config set_stats_target green-stats-421\n"
+		);
+
+		$this->assertSame(
+			[
+				[
+					'from'         => 'amber-flame-builder-731',
+					'to'           => 'teal-ledger-totals-208',
+					'origin'       => [ 'wombat-add-config-target' ],
+					'roles'        => [ 'config' ],
+					'config_slots' => [ 'add_ledger_target' ],
+				],
+				[
+					'from'         => 'amber-flame-builder-731',
+					'to'           => 'plum-ledger-dims-574',
+					'origin'       => [ 'wombat-add-config-target' ],
+					'roles'        => [ 'config' ],
+					'config_slots' => [ 'add_ledger_target' ],
+				],
+				[
+					'from'         => 'amber-flame-builder-731',
+					'to'           => 'green-stats-421',
+					'origin'       => [ 'wombat-add-config-target' ],
+					'roles'        => [ 'config' ],
+					'config_slots' => [ 'set_stats_target' ],
+				],
+			],
+			Topology_Analyzer::expand( [ 'wombat-add-config-target' ] )['edges']
+		);
+	}
+
 	public function test_expand_throws_on_an_unknown_include(): void {
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'no-such-topology' );
