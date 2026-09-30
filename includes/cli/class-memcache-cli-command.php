@@ -2,7 +2,8 @@
 /**
  * Memcache_CLI_Command: `wp nodes memcache` — `get` reads a cache entry by
  * its LOGICAL name, letting the substrate resolve the scope; `flush` rotates
- * the install's salt, which orphans every Newspack plugin's keys at once.
+ * the install's salt, which orphans every Newspack plugin's memcached and APCu
+ * keys at once.
  *
  * @package Newspack_Nodes
  */
@@ -31,7 +32,9 @@ class Memcache_CLI_Command {
 	 * One rotation orphans every Newspack plugin's cached values at once and
 	 * touches no co-tenant install sharing the memcached. Plugins deliberately
 	 * keep no salt of their own: with three independent rotations, flushing one
-	 * leaves the other two serving stale values.
+	 * leaves the other two serving stale values. A durable Table's rows and the
+	 * command sessions carry no salt, so they stay; `wp nodes tables flush`
+	 * empties those.
 	 *
 	 * The rotation asks every live worker to restart, because the scope is
 	 * memoized per process and a live worker keeps writing the OLD prefix until
@@ -61,13 +64,9 @@ class Memcache_CLI_Command {
 			\WP_CLI::warning( 'Workers were not asked to restart: ' . $e->getMessage() . ' — the new scope takes effect on their next spawn.' );
 		}
 
-		// @longform Sessions are named because the operator running this may be
-		// holding one: the salt takes their leases like any other key, and an
-		// MCP client's session going with a deploy reads as a 401 nobody
-		// connects to the flush.
 		\WP_CLI::success(
-			"Cache salt rotated{$restarted}; every Newspack plugin key on this install is orphaned, "
-			. 'including every issued session — reissue any you were using.'
+			"Cache salt rotated{$restarted}; every Newspack plugin key in memcached and APCu on this install is orphaned. "
+			. 'Its durable Tables and command sessions are untouched; `wp nodes tables flush` empties those.'
 		);
 	}
 

@@ -10,9 +10,10 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * Raised by `Command_Auth::mint_session()` when no cache backend is usable or
- * the one selected refused the write. The session key never leaves the mint,
- * because a key its verifier cannot resolve signs nothing.
+ * Raised by `Command_Auth::mint_session()` when the durable session store will
+ * not open or refuses the row, and by the operator reads of that store. The
+ * session key never leaves the mint, because a key its verifier cannot
+ * resolve signs nothing.
  *
  * A type of its own so `/auth` can answer 503 for exactly this and still let
  * anything else propagate. It extends `\RuntimeException`, so a service CI's

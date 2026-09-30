@@ -107,6 +107,8 @@ const ALIAS_TO_CANONICAL = {
 	command: 'command_node',
 	cmd: 'command_node',
 	request: 'request_node',
+	send_struct_node: 'send_struct',
+	request_struct_node: 'request_struct',
 };
 
 /**
@@ -159,6 +161,8 @@ const HELP = {
 	tell_node: 'tell_node <path> <info>\n    alias: tell\n',
 	send_node: 'send_node <path> <bytes>\n    alias: send\n',
 	send_struct: 'send_struct <path> <json>\n',
+	request_struct:
+		'request_struct <path> <json>\n    alias: request_struct_node\n    note: emits TM_REQUEST|TM_STRUCT at prefix(<path>); VALUE is the\n          decoded JSON as given, e.g. {"MSET":{"k":["v",60]}}.\n',
 	send_eof: 'send_eof <path>\n',
 	command_node:
 		'command_node <path> <verb> [<arguments>]\n    aliases: command, cmd\n',

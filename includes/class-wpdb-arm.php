@@ -347,6 +347,21 @@ final class Wpdb_Arm extends Durable_Arm {
 	}
 
 	/**
+	 * See Durable_Arm::discard(): a DELETE of this namespace's rows, which
+	 * costs what the rows do. Every wpdb Table shares the two tables, so a
+	 * TRUNCATE would empty every other Table's rows too; wpdb is for
+	 * low-volume Tables, where that cost stays small.
+	 *
+	 * @return array{rows:int} Rows deleted.
+	 */
+	protected function discard(): array {
+		return [
+			'rows' => self::checked( self::db()->query( $this->member_statement( 'DELETE FROM %i WHERE namespace = %s', $this->namespace ) ) )
+				+ $this->run( 'DELETE FROM %i WHERE namespace = %s', $this->namespace ),
+		];
+	}
+
+	/**
 	 * Run one statement against the table, which binds as its first `%i`.
 	 *
 	 * @param literal-string $sql     The statement, with placeholders.

@@ -3,13 +3,14 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Tests\TestCase;
-use Newspack_Nodes\Tests\Helpers\InMemoryMemcached;
+use Newspack_Nodes\Tests\Helpers\Sqlite_Wpdb;
 use Newspack_Nodes\Capabilities;
 use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\Cache_Backend;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Session_Store_Unavailable;
+use Newspack_Nodes\Wpdb_Arm;
 
 #[CoversClass( Command_Auth::class )]
 class CommandAuthSessionTest extends TestCase {
@@ -25,20 +26,17 @@ class CommandAuthSessionTest extends TestCase {
 	private const KEY   = 'first-key-4242-4242-4242-4242-4242';
 	private const OTHER = 'second-key-9999-9999-9999-9999-99';
 
-	private ?\Memcached $prev_memd = null;
+	private Sqlite_Wpdb $db;
 
 	protected function setUp(): void {
 		parent::setUp();
-		$this->prev_memd = Core::$memd;
-		Core::$memd      = new InMemoryMemcached();
+		$this->db = $this->use_wpdb();
 		// Single-use claim is not what these tests exercise; keep it always-claimable.
 		Command_Auth::$claim_nonce = static fn ( string $nonce, int $ttl ): bool => true;
 	}
 
 	protected function tearDown(): void {
-		Command_Auth::$claim_nonce  = null;
-		Cache_Backend::$apcu_usable = static fn (): bool => false;
-		Core::$memd                = $this->prev_memd;
+		Command_Auth::$claim_nonce = null;
 		parent::tearDown();
 	}
 
@@ -51,18 +49,51 @@ class CommandAuthSessionTest extends TestCase {
 		return $m;
 	}
 
-	public function test_store_session_refuses_to_overwrite_a_live_handle(): void {
-		$this->assertTrue( Command_Auth::store_session( self::HANDLE, self::KEY, self::TTL ) );
+	/** Write a session row straight into the store, as a mint would. */
+	private function seed( string $handle, mixed $record, int $ttl = self::TTL ): void {
+		$this->assertTrue( ( new Wpdb_Arm( Command_Auth::SESSIONS_TABLE ) )->add( $handle, $record, $ttl ) );
+	}
 
-		$this->assertFalse(
-			Command_Auth::store_session( self::HANDLE, self::OTHER, self::TTL ),
-			'a second store under a live handle must fail the atomic claim'
-		);
-		$this->assertSame(
-			self::KEY,
-			( Command_Auth::load_session_record( self::HANDLE )['key'] ?? null ),
-			'the losing store must leave the original key intact'
-		);
+	/** The session rows the store holds, handle => expires. */
+	private function rows(): array {
+		return \array_column( $this->db->get_results( "SELECT cache_key, expires FROM wp_newspack_nodes_table WHERE namespace = '" . Command_Auth::SESSIONS_TABLE . "'" ), 'expires', 'cache_key' );
+	}
+
+	public function test_a_mint_claims_its_handle_and_never_overwrites_one(): void {
+		Command_Auth::mint_session( Capabilities::TUNE, self::TTL );
+		$inserts = \array_values( \array_filter( $this->db->sent, static fn ( string $sql ): bool => \str_starts_with( $sql, 'INSERT' ) ) );
+		$this->assertCount( 1, $inserts );
+		$this->assertStringStartsWith( 'INSERT IGNORE', $inserts[0], 'a live handle is never displaced' );
+	}
+
+	public function test_a_session_row_lives_in_the_durable_store_for_its_own_ttl(): void {
+		Core::$clock = static fn (): float => 1790004242.0;
+		$session     = Command_Auth::mint_session( Capabilities::READ, self::TTL );
+		$this->assertSame( [ $session['handle'] => 1790004242 + self::TTL ], \array_map( 'intval', $this->rows() ) );
+		Core::$clock = static fn (): float => 1790004242.0 + self::TTL - 1;
+		$this->assertSame( $session['secret'], Command_Auth::load_session_record( $session['handle'] )['key'] ?? null, 'live a second before its ttl' );
+		Core::$clock = static fn (): float => 1790004242.0 + self::TTL;
+		$this->assertNull( Command_Auth::load_session_record( $session['handle'] ), 'and gone at it' );
+	}
+
+	public function test_a_session_outlives_a_salt_rotation(): void {
+		$session = Command_Auth::mint_session( Capabilities::MANAGE, self::TTL );
+		Cache_Backend::rotate_salt();
+		$this->assertSame( $session['secret'], Command_Auth::load_session_record( $session['handle'] )['key'] ?? null );
+	}
+
+	public function test_a_mint_purges_expired_session_rows(): void {
+		Core::$clock = static fn (): float => 1790000000.0;
+		$this->seed( 'expired-4471', [ 'k' => self::KEY, 's' => 'read', 'u' => 0, 'e' => 1790000037 ], 37 );
+		$this->seed( 'expired-4473', [ 'k' => self::KEY, 's' => 'read', 'u' => 0, 'e' => 1790000037 ], 37 );
+		$this->seed( 'live-4477', [ 'k' => self::KEY, 's' => 'read', 'u' => 0, 'e' => 1790009000 ], 9000 );
+		Core::$clock = static fn (): float => 1790000037.0;
+		$minted      = Command_Auth::mint_session( Capabilities::READ, self::TTL );
+		$held        = \array_keys( $this->rows() );
+		\sort( $held );
+		$expected    = [ 'live-4477', $minted['handle'] ];
+		\sort( $expected );
+		$this->assertSame( $expected, $held, 'the expired rows are gone, the live one stays' );
 	}
 
 	public function test_load_session_returns_null_for_an_unknown_handle(): void {
@@ -72,16 +103,9 @@ class CommandAuthSessionTest extends TestCase {
 		);
 	}
 
-	public function test_load_session_returns_null_when_no_store_is_available(): void {
-		Core::$memd                 = null;
-		Cache_Backend::$apcu_usable = static fn (): bool => false;
-		$this->assertNull( ( Command_Auth::load_session_record( self::HANDLE )['key'] ?? null ) );
-	}
-
-	public function test_store_session_fails_closed_when_no_store_is_available(): void {
-		Core::$memd                 = null;
-		Cache_Backend::$apcu_usable = static fn (): bool => false;
-		$this->assertFalse( Command_Auth::store_session( self::HANDLE, self::KEY, self::TTL ) );
+	public function test_load_session_returns_null_when_the_store_will_not_open(): void {
+		$this->db->deny['@@max_allowed_packet'] = 'Server has gone away 4816';
+		$this->assertNull( Command_Auth::load_session_record( self::HANDLE ) );
 	}
 
 	public function test_mint_session_returns_a_key_that_resolves_by_its_handle(): void {
@@ -106,38 +130,22 @@ class CommandAuthSessionTest extends TestCase {
 		$this->assertMatchesRegularExpression( '/^[0-9a-f]{64}$/', $first['secret'] );
 	}
 
-	public function test_mint_session_throws_rather_than_hand_back_an_unstored_key(): void {
-		Core::$memd                 = null;
-		Cache_Backend::$apcu_usable = static fn (): bool => false;
-
-		$this->expectException( \RuntimeException::class );
-		Command_Auth::mint_session();
-	}
-
-	public function test_a_refused_store_names_memcached_result_in_its_own_exception(): void {
-		$memd                 = new InMemoryMemcached();
-		$memd->result_message = 'SERVER MARKED DEAD 4816';
-		$memd->fail_add( \Memcached::RES_SERVER_TEMPORARILY_DISABLED );
-		Core::$memd           = $memd;
+	public function test_a_refused_store_fails_the_mint_naming_the_servers_reason(): void {
+		$this->db->deny['INSERT IGNORE'] = 'Deadlock found 4816';
 
 		try {
 			Command_Auth::mint_session( Capabilities::TUNE, self::TTL );
 			$this->fail( 'an unstored session must not be handed back' );
 		} catch ( Session_Store_Unavailable $e ) {
-			$this->assertStringContainsString( 'could not store the session', $e->getMessage() );
-			$this->assertStringContainsString(
-				'memcached result ' . \Memcached::RES_SERVER_TEMPORARILY_DISABLED . ': SERVER MARKED DEAD 4816',
-				$e->getMessage()
-			);
+			$this->assertSame( 'could not store the session: wpdb wp_newspack_nodes_table: Deadlock found 4816', $e->getMessage() );
 		}
 	}
 
-	public function test_no_backend_at_all_is_the_same_exception_saying_so(): void {
-		Core::$memd                 = null;
-		Cache_Backend::$apcu_usable = static fn (): bool => false;
+	public function test_a_store_that_will_not_open_fails_the_mint_naming_why(): void {
+		$this->db->deny['CREATE TABLE'] = 'CREATE command denied 4816';
 
 		$this->expectException( Session_Store_Unavailable::class );
-		$this->expectExceptionMessage( 'no cache backend' );
+		$this->expectExceptionMessage( 'the session store is unavailable: wpdb backend could not create wp_newspack_nodes_table: CREATE command denied 4816' );
 		Command_Auth::mint_session();
 	}
 
@@ -289,13 +297,6 @@ class CommandAuthSessionTest extends TestCase {
 		$this->assertEqualsWithDelta( \time() + self::TTL, $record['expires'], 2 );
 	}
 
-	public function test_a_record_naming_no_expiry_reports_none(): void {
-		$handle = '5a1e5a1e5a1e5a1e5a1e5a1e5a1e5a1e';
-		Cache_Backend::shared_first()->add( $this->session_address( $handle ), [ 'k' => self::KEY, 's' => 'read', 'u' => 0 ], self::TTL );
-
-		$this->assertSame( 0, Command_Auth::load_session_record( $handle )['expires'] );
-	}
-
 	/** An unsigned command is refused downstream; that is the correct failure. */
 	public function test_sign_for_leaves_the_message_unsigned_when_no_session_is_known(): void {
 		$m = $this->command();
@@ -322,50 +323,6 @@ class CommandAuthSessionTest extends TestCase {
 		$m[ Message::VALUE ] = $value;
 
 		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );
-	}
-
-	/**
-	 * The cache is not a trusted store. Anything that can write memcached could
-	 * plant a key at a guessable address; the session namespace must be derived
-	 * from the site secret so a foreign entry never resolves here.
-	 */
-	public function test_a_key_planted_at_the_bare_address_does_not_resolve(): void {
-		// The correctly-SCOPED address, missing only the secret-derived half —
-		// so this exercises that half rather than passing on a prefix mismatch.
-		Core::$memd->add(
-			\Newspack_Nodes\Cache_Backend::site_key( 'cmd-session:' . self::HANDLE ),
-			'planted-key-4242',
-			self::TTL
-		);
-
-		$this->assertNull( ( Command_Auth::load_session_record( self::HANDLE )['key'] ?? null ) );
-	}
-
-	public function test_apcu_session_store_load_sign_and_verify_round_trip(): void {
-		if ( ! \function_exists( 'apcu_enabled' ) || ! \apcu_enabled() ) {
-			$this->markTestSkipped( 'APCu not usable in this SAPI (needs apc.enable_cli=1)' );
-		}
-
-		$remote                      = 'apcu-spoke-7319';
-		$address                     = $this->session_address( self::APCU_HANDLE );
-		Core::$memd                  = null;
-		Cache_Backend::$apcu_usable  = null;
-		\apcu_delete( $address );
-
-		try {
-			$this->assertTrue( Command_Auth::store_session( self::APCU_HANDLE, self::KEY, self::TTL ) );
-			$this->assertSame( self::KEY, ( Command_Auth::load_session_record( self::APCU_HANDLE )['key'] ?? null ) );
-			Command_Auth::remember_session( $remote, self::APCU_HANDLE, self::KEY );
-
-			$message = $this->command();
-			Command_Auth::sign_for( $remote, $message );
-
-			$this->assertSame( self::APCU_HANDLE, $message[ Message::VALUE ]['auth']['handle'] );
-			$this->assertTrue( Command_Auth::verify( $message, 1000 ) );
-		} finally {
-			Command_Auth::forget_session( $remote );
-			\apcu_delete( $address );
-		}
 	}
 
 	public function test_remember_session_rejects_empty_required_inputs(): void {
@@ -430,20 +387,14 @@ class CommandAuthSessionTest extends TestCase {
 		$this->assertNotSame( $session['handle'], $m[ Message::ID ] );
 	}
 
-	private function session_address( string $handle ): string {
-		$method = new \ReflectionMethod( Command_Auth::class, 'session_address' );
-		return $method->invoke( null, $handle );
-	}
-
 	/**
-	 * The Sessions screen lists what this site ISSUED from a durable option,
-	 * because a cache store cannot enumerate — so liveness is a second
-	 * question, asked of the cache in ONE round trip rather than N.
+	 * The Sessions screen lists what this site ISSUED from an option, so
+	 * liveness is a second question, asked of the store in ONE read rather
+	 * than N.
 	 */
-	public function test_live_handles_reports_only_the_sessions_the_cache_still_holds(): void {
-		$live = '1111aaaa2222bbbb3333cccc4444dddd';
+	public function test_live_handles_reports_only_the_sessions_the_store_still_holds(): void {
+		$live = Command_Auth::mint_session( Capabilities::READ, self::TTL )['handle'];
 		$gone = '5555eeee6666ffff7777aaaa8888bbbb';
-		Command_Auth::store_session( $live, self::KEY, self::TTL );
 
 		$held = Command_Auth::live_handles( [ $live, $gone ] );
 
@@ -460,9 +411,9 @@ class CommandAuthSessionTest extends TestCase {
 	 * revocation — so it must drop out of the liveness answer too.
 	 */
 	public function test_a_revoked_handle_is_no_longer_live(): void {
-		$handle = '9999aaaa8888bbbb7777cccc6666dddd';
-		Command_Auth::store_session( $handle, self::KEY, self::TTL );
-		Command_Auth::revoke_session( $handle );
+		$handle = Command_Auth::mint_session( Capabilities::READ, self::TTL )['handle'];
+		$this->assertTrue( Command_Auth::revoke_session( $handle ) );
+		$this->assertFalse( Command_Auth::revoke_session( $handle ), 'a second revoke finds nothing' );
 
 		$this->assertSame( [], Command_Auth::live_handles( [ $handle ] ) );
 	}
@@ -503,33 +454,13 @@ class CommandAuthSessionTest extends TestCase {
 		$this->assertSame( self::TTL, Command_Auth::bounded_ttl( self::TTL ) );
 	}
 
-	/**
-	 * A session stored before scopes existed carries no `s`, and the whole
-	 * point of a scope is that it can only ever SUBTRACT — so an absent one
-	 * means the full ceiling, not an empty scope that authorizes nothing.
-	 */
-	public function test_a_scopeless_record_reads_as_the_full_ceiling(): void {
-		$handle  = '4471aaaa4471bbbb4471cccc4471dddd';
-		$backend = \Newspack_Nodes\Cache_Backend::shared_first();
-		$this->assertNotNull( $backend );
-		$backend->add(
-			$this->session_address( $handle ),
-			[ 'k' => self::KEY, 'u' => 0 ],
-			self::TTL
-		);
-
-		$record = Command_Auth::load_session_record( $handle );
-
-		$this->assertSame( self::KEY, $record['key'] );
-		$this->assertSame( \Newspack_Nodes\Capabilities::MANAGE, $record['scope'] );
-	}
-
-	/** A record with no key verifies nothing; it is not a session at all. */
-	public function test_a_keyless_record_is_no_session(): void {
-		$handle  = '8823aaaa8823bbbb8823cccc8823dddd';
-		$backend = \Newspack_Nodes\Cache_Backend::shared_first();
-		$backend->add( $this->session_address( $handle ), [ 's' => 'read' ], self::TTL );
-
-		$this->assertNull( Command_Auth::load_session_record( $handle ) );
+	/** A row not shaped as a mint writes it verifies nothing; it is no session. */
+	public function test_a_row_in_any_other_shape_is_no_session(): void {
+		$this->seed( 'keyless-8823', [ 's' => 'read', 'u' => 0, 'e' => 1 ] );
+		$this->seed( 'scopeless-8825', [ 'k' => self::KEY, 'u' => 0, 'e' => 1 ] );
+		$this->seed( 'bare-8827', self::KEY );
+		foreach ( [ 'keyless-8823', 'scopeless-8825', 'bare-8827' ] as $handle ) {
+			$this->assertNull( Command_Auth::load_session_record( $handle ), $handle );
+		}
 	}
 }

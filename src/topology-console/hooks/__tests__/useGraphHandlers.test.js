@@ -8,8 +8,10 @@ import {
 	LOCAL,
 	TM_COMMAND,
 	TM_REQUEST,
+	TM_STRUCT,
 	TM_ERROR,
 } from '../../../runtime/message';
+import { quoteToken, tokenize } from '../../../runtime/shell-node';
 import names from '../../../runtime/reserved-node-names.json';
 import { Core } from '../../../runtime/core';
 import { DumperNode } from '../../../runtime/dumper-node';
@@ -584,6 +586,55 @@ describe( 'useGraphHandlers', () => {
 				kind: 'sent',
 				text: 'request_node n1 TOUCH 5528 moa-5528',
 			} )
+		);
+	} );
+
+	it( 'invoke (structured request) sends TM_REQUEST|TM_STRUCT keyed by the verb', () => {
+		const shell = makeShell();
+		const { result, append } = renderHandlers( {
+			shell,
+			graph: { nodes: [ { id: 'n1', class: 'Table' } ], edges: [] },
+			catalogClasses: [ { shell_name: 'Table', is_interpreter: false } ],
+		} );
+		const map = { 'kea 4417': [ "weka's", 913 ] };
+		result.current.onInspectorAction( 'invoke', 'n1', {
+			verb: 'MSET',
+			kind: 'request',
+			struct: map,
+		} );
+		const m = shell.sink.fills[ 0 ];
+		expect( m[ TYPE ] ).toBe( TM_REQUEST | TM_STRUCT );
+		expect( m[ VALUE ] ).toEqual( { MSET: map } );
+		expect( m[ TO ] ).toBe( 'n1' );
+		expect( m[ FROM ] ).toBe( names.OUTPUT );
+		expect( m[ LOCAL ] ).toBe( true );
+		const json = JSON.stringify( { MSET: map } );
+		expect( append ).toHaveBeenCalledWith(
+			expect.objectContaining( {
+				kind: 'sent',
+				text: `request_struct n1 ${ quoteToken( json ) }`,
+			} )
+		);
+	} );
+
+	it( 'the structured echo replays through a Shell to the same message', () => {
+		const shell = makeShell();
+		const { result, append } = renderHandlers( {
+			shell,
+			graph: { nodes: [ { id: 'n1', class: 'Table' } ], edges: [] },
+			catalogClasses: [ { shell_name: 'Table', is_interpreter: false } ],
+		} );
+		result.current.onInspectorAction( 'invoke', 'n1', {
+			verb: 'SADD',
+			kind: 'request',
+			struct: { 'moa "flock"': [ 'tui kōkako', 61 ] },
+		} );
+		const { text } = append.mock.calls[ 0 ][ 0 ];
+		const tokens = tokenize( text );
+		expect( tokens.slice( 0, 2 ) ).toEqual( [ 'request_struct', 'n1' ] );
+		expect( tokens ).toHaveLength( 3 );
+		expect( JSON.parse( tokens[ 2 ] ) ).toEqual(
+			shell.sink.fills[ 0 ][ VALUE ]
 		);
 	} );
 

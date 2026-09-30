@@ -233,8 +233,8 @@ class ClassesCITest extends TestCase {
 	}
 
 	public function test_list_carries_the_action_flag_on_an_action_verb(): void {
-		// An `action: true` verb RUNS something on a live node — `Table`'s `rm`
-		// deletes an entry — so it is not configuration and the editor must not
+		// An `action: true` verb RUNS something on a live node — `Table`'s
+		// `flush` deletes every row — so it is not configuration and the editor must not
 		// offer it. The console decides that with `isConfigurableVerb`, which
 		// reads this flag; dropping it in the strip made every action verb look
 		// like a setting, one an edit could write into the .tsl.
@@ -252,10 +252,10 @@ class ClassesCITest extends TestCase {
 		foreach ( $table['commands'] as $verb ) {
 			$by_name[ $verb['name'] ] = $verb;
 		}
-		$this->assertArrayHasKey( 'rm', $by_name, 'rm verb must be in the catalog' );
+		$this->assertArrayHasKey( 'flush', $by_name, 'flush verb must be in the catalog' );
 		$this->assertTrue(
-			$by_name['rm']['action'] ?? false,
-			'rm must carry action:true through the catalog strip'
+			$by_name['flush']['action'] ?? false,
+			'flush must carry action:true through the catalog strip'
 		);
 	}
 

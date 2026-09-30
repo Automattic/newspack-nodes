@@ -249,6 +249,27 @@ abstract class Durable_Arm extends Cache_Backend {
 	abstract protected function purge_rows( int $now, int $limit ): int;
 
 	/**
+	 * Empty this arm's store, keyed and member rows, live or expired: an
+	 * operator's `flush`. Each arm answers what it knows without counting:
+	 * `Sqlite_Arm` the bytes its old files held, `Wpdb_Arm` the rows its
+	 * DELETE reports.
+	 *
+	 * @return array{bytes:int}|array{rows:int}|null Null when the store
+	 *                                               refused, which
+	 *                                               `last_failure()` names.
+	 */
+	public function flush(): ?array {
+		return $this->attempt( $this->discard( ... ), null );
+	}
+
+	/**
+	 * Empty the store, in this arm's dialect.
+	 *
+	 * @return array{bytes:int}|array{rows:int} What was released.
+	 */
+	abstract protected function discard(): array;
+
+	/**
 	 * Upsert set members, each set under its own TTL: one row per member, a
 	 * re-added member's value and expiry replaced. Every member of every set
 	 * goes through one write scope, so a set lands whole where the arm holds

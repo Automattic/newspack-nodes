@@ -240,13 +240,22 @@ class MemcacheCliCommandTest extends TestCase {
 		$this->assertStringContainsString( 'every live worker was asked to restart', \implode( ' ', $GLOBALS['_test_wp_cli_success'] ) );
 	}
 
-	public function test_the_flush_says_it_signs_every_session_out(): void {
-		// The operator running this may be holding one — an MCP client's
-		// session went with a deploy's flush and came back as a 401. The salt
-		// takes session leases like any other key, and nothing said so.
+	public function test_the_flush_leaves_every_durable_row_and_session(): void {
+		$this->use_wpdb();
+		$this->use_base_dir( $this->make_temp_dir( 'memcache-flush-durable-' ) );
+		$session = \Newspack_Nodes\Command_Auth::mint_session();
+		\Newspack_Nodes\Table_Node::table( 'kea-wpdb-4471', 900, 'wpdb' )->store( 'sku-4471', 'kea-4471' );
+		\Newspack_Nodes\Table_Node::table( 'kea-sqlite-4473', 900, 'sqlite' )->store( 'sku-4473', 'kea-4473' );
+
 		( new Memcache_CLI_Command() )->flush( [], [] );
 
-		$said = \strtolower( \implode( ' ', $GLOBALS['_test_wp_cli_success'] ?? [] ) );
-		$this->assertStringContainsString( 'session', $said, 'the flush must name sessions' );
+		$this->assertSame( 'kea-4471', \Newspack_Nodes\Table_Node::table( 'kea-wpdb-4471', 900, 'wpdb' )->lookup( 'sku-4471' ) );
+		$this->assertSame( 'kea-4473', \Newspack_Nodes\Table_Node::table( 'kea-sqlite-4473', 900, 'sqlite' )->lookup( 'sku-4473' ) );
+		$this->assertSame( $session['secret'], \Newspack_Nodes\Command_Auth::load_session_record( $session['handle'] )['key'] ?? null );
+		$this->assertStringContainsString(
+			'durable Tables and command sessions are untouched; `wp nodes tables flush` empties those',
+			\implode( ' ', $GLOBALS['_test_wp_cli_success'] ),
+			'the flush says what it leaves'
+		);
 	}
 }

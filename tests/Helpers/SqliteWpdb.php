@@ -11,8 +11,11 @@ namespace Newspack_Nodes\Tests\Helpers;
  * `$before` maps a substring to a closure run just before such a statement,
  * which is how a test puts a concurrent writer between a read and a write.
  * `$canned` maps a substring to the result rows such a statement answers.
+ *
+ * A consumer suite extends it for the `$wpdb` its bootstrap installs, so a
+ * command session or a `wpdb` Table has SQL to run on.
  */
-final class Sqlite_Wpdb extends \wpdb {
+class Sqlite_Wpdb extends \wpdb {
 	public string $last_error  = '';
 	public int $rows_affected  = 0;
 

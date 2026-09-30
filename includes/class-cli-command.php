@@ -206,9 +206,10 @@ class CLI_Command {
 	 * Dumper, and the Dumper's `target` carries the rendered line to `_stdout`.
 	 * That is ADR-7 — steer with `target`, never with a bespoke sink chain.
 	 *
-	 * Attaching adds a `Partition_Node` named after the worker, which writes
-	 * commands into the worker's input IPC dir, and a `Consumer_Node` tailing the
-	 * output dir into an anonymous relay targeting `_output`. The Shell's sink is
+	 * Attaching opens the worker's command channel through `CLI::open_channel()`:
+	 * a `Partition_Node` named after the worker, which writes commands into the
+	 * worker's input IPC dir, and a `Consumer_Node` tailing the output dir into
+	 * an anonymous relay targeting `_output`. The Shell's sink is
 	 * untouched; setting `path` to the worker id is the whole cd, and it is what
 	 * puts `TO={worker-id}` on a default command so `_router` hands it to the
 	 * Partition instead of running it locally.
@@ -257,23 +258,11 @@ class CLI_Command {
 		$stdout->set_readline_mode( $has_readline );
 
 		if ( $attached && null !== $ipc ) {
-			// No allow_large_writes: several sessions append here at once.
-			$ipc_out = new Partition_Node();
-			$ipc_out->arguments( Worker_Base::ipc_partition_args( $ipc['input'] ) );
-			$ipc_out->name( $worker_id );
-			$ipc_out->sink( $interpreter );
 			$shell->path = $worker_id;
-
-			// The reply leg is ephemeral: no offsetlog_dir, no cursor.
-			$reply_in = new Node();
+			$reply_in    = new Node();
 			$reply_in->sink( $router );
 			$reply_in->target( Node_Names::OUTPUT );
-			$ipc_in = new Consumer_Node();
-			$ipc_in->arguments( [ $ipc['output'] ] );
-			$ipc_in->next_offset( 'end' );
-			// The stamp heads FROM; the worker's own path becomes the tail.
-			$ipc_in->set_stamp_as( $worker_id );
-			$ipc_in->sink( $reply_in );
+			CLI::open_channel( $ipc, $interpreter, $reply_in );
 		}
 
 		// Only an empty TO or this pid renders; another session's reply drops.

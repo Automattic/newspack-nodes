@@ -24,6 +24,7 @@ class CommandAuthScopeTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		$this->use_wpdb();
 		$this->prev_memd = Core::$memd;
 		Core::$memd      = new InMemoryMemcached();
 		Command_Auth::$claim_nonce = static fn ( string $nonce, int $ttl ): bool => true;
@@ -55,14 +56,6 @@ class CommandAuthScopeTest extends TestCase {
 			Command_Auth::load_session_record( $session['handle'] )['user'],
 			'a session acts AS its minter; without the id it can only ever act as nobody'
 		);
-	}
-
-	public function test_a_pre_user_record_reads_as_nobody_rather_than_as_someone(): void {
-		$address = ( new \ReflectionMethod( Command_Auth::class, 'session_address' ) )
-			->invoke( null, self::LEGACY_HANDLE );
-		Core::$memd->add( $address, self::LEGACY_KEY, 600 );
-
-		$this->assertSame( 0, Command_Auth::load_session_record( self::LEGACY_HANDLE )['user'] );
 	}
 
 	public function test_a_minted_session_remembers_the_scope_it_was_asked_for(): void {
@@ -154,19 +147,5 @@ class CommandAuthScopeTest extends TestCase {
 		$again = $this->command();
 		Command_Auth::sign_for( 'agent', $again );
 		$this->assertFalse( Command_Auth::verify( $again, 1000 ) );
-	}
-
-	/**
-	 * Sessions live in a cache with an hour's TTL, so a deploy that changes the
-	 * record shape meets live entries written by the previous one. The bare
-	 * string was unrestricted; it must keep resolving as such.
-	 */
-	public function test_a_pre_scope_record_still_resolves_and_is_unrestricted(): void {
-		$address = ( new \ReflectionMethod( Command_Auth::class, 'session_address' ) )
-			->invoke( null, self::LEGACY_HANDLE );
-		Core::$memd->add( $address, self::LEGACY_KEY, 600 );
-
-		$this->assertSame( self::LEGACY_KEY, Command_Auth::load_session_record( self::LEGACY_HANDLE )['key'] );
-		$this->assertSame( Capabilities::MANAGE, ( Command_Auth::load_session_record( self::LEGACY_HANDLE )['scope'] ?? null ) );
 	}
 }

@@ -12,20 +12,12 @@ use PHPUnit\Framework\Attributes\CoversClass;
 #[CoversClass( Wpdb_Arm::class )]
 #[CoversClass( Durable_Arm::class )]
 final class WpdbArmTest extends TestCase {
-	private mixed $prev_wpdb = null;
 	private Sqlite_Wpdb $db;
 
 	protected function setUp(): void {
 		parent::setUp();
-		$this->prev_wpdb       = $GLOBALS['wpdb'];
-		$this->db              = new Sqlite_Wpdb();
+		$this->db              = $this->use_wpdb();
 		$this->db->base_prefix = 'kea7_';
-		$GLOBALS['wpdb']       = $this->db;
-	}
-
-	protected function tearDown(): void {
-		$GLOBALS['wpdb'] = $this->prev_wpdb;
-		parent::tearDown();
 	}
 
 	/** @return list<string> The statements sent that contain `$needle`. */
@@ -57,10 +49,9 @@ final class WpdbArmTest extends TestCase {
 		$this->assertCount( 2, $this->sent( 'CREATE TABLE' ), 'a second arm on the same connection creates nothing' );
 		$this->assertCount( 1, $this->sent( '@@max_allowed_packet' ) );
 
-		$fresh                       = new Sqlite_Wpdb();
+		$fresh                       = $this->use_wpdb();
 		$fresh->base_prefix          = 'kea7_';
 		$fresh->deny['CREATE TABLE'] = 'CREATE command denied';
-		$GLOBALS['wpdb']             = $fresh;
 		$this->expectExceptionMessage( 'CREATE command denied' );
 		new Wpdb_Arm( 'kea:p3' );
 	}
@@ -353,6 +344,25 @@ final class WpdbArmTest extends TestCase {
 		$this->assertSame( [ 'owl:set-7' => [ 'm-43' => 'p4' ] ], $p4->members( [ 'owl:set-7' ], 9 ) );
 		$this->assertSame( 1, $p4->purge( 1790000037, 10 ), 'a purge reclaims its own namespace alone' );
 		$this->assertSame( 1, $p3->purge( 1790000037, 10 ) );
+	}
+
+	public function test_a_flush_deletes_its_own_namespace_alone(): void {
+		$p3 = new Wpdb_Arm( 'kea:p3' );
+		$p4 = new Wpdb_Arm( 'kea:p4' );
+		$p3->set( 'sku-41', 'p3', 600 );
+		$p3->add_members( [ 'owl:set-7' => [ [ 'm-41' => 'p3' ], 600 ] ] );
+		$p4->set( 'sku-41', 'p4', 600 );
+		$p4->add_members( [ 'owl:set-7' => [ [ 'm-43' => 'p4' ], 600 ] ] );
+		$this->assertSame( [ 'rows' => 2 ], $p3->flush() );
+		$this->assertSame( 'p4', $p4->get( 'sku-41' ) );
+		$this->assertSame( [ 'owl:set-7' => [ 'm-43' => 'p4' ] ], $p4->members( [ 'owl:set-7' ], 9 ) );
+	}
+
+	public function test_a_refused_flush_answers_null_and_names_the_failure(): void {
+		$arm                               = new Wpdb_Arm( 'kea:p3' );
+		$this->db->deny['DELETE FROM `kea7_newspack_nodes_members`'] = 'Lock wait timeout 4471';
+		$this->assertNull( $arm->flush() );
+		$this->assertStringContainsString( 'Lock wait timeout 4471', $arm->last_failure() );
 	}
 
 	public function test_a_member_add_is_cut_into_statements_that_fit_the_packet(): void {

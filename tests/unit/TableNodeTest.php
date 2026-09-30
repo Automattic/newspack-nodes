@@ -11,7 +11,6 @@ use Newspack_Nodes\Table_Node;
 use Newspack_Nodes\Table_Unavailable;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\Helpers\InMemoryMemcached;
-use Newspack_Nodes\Tests\Helpers\Sqlite_Wpdb;
 use Newspack_Nodes\Tests\TestCase;
 
 /**
@@ -249,18 +248,6 @@ class TableNodeTest extends TestCase {
 		);
 	}
 
-	public function test_get_and_rm_verbs_operate_through_the_interpreter(): void {
-		[ $table ] = $this->table();
-		$table->fill( $this->keyed( 'sku-9', [ 'usd' => 1250 ] ) );
-
-		// The node names its own sibling; naming a second one here would collide.
-		$ci = Core::node( 'prices:table:config' );
-
-		$this->assertSame( '{"usd":1250}', $ci->dispatch( 'get', [ 'sku-9' ] ) );
-		$this->assertSame( "ok\n", $ci->dispatch( 'rm', [ 'sku-9' ] ) );
-		$this->assertSame( 'null', $ci->dispatch( 'get', [ 'sku-9' ] ) );
-	}
-
 	public function test_make_node_wires_the_config_sibling_that_serves_the_verbs(): void {
 		// The hand-built interpreter above proves the handlers work; this proves
 		// anything can REACH them. Without auto_wire_interpreter() the verbs are
@@ -275,18 +262,16 @@ class TableNodeTest extends TestCase {
 		$config = Core::node( 'ledger:config' );
 		$this->assertNotNull( $config, 'make_node Table must wire the :config sibling' );
 		$this->assertSame( $table, $config->patron() );
-		$this->assertSame( '{"eur":8800}', $config->dispatch( 'get', [ 'inv-42' ] ) );
-		$this->assertSame( "ok\n", $config->dispatch( 'rm', [ 'inv-42' ] ) );
-		$this->assertSame( 'null', $config->dispatch( 'get', [ 'inv-42' ] ) );
+		$this->assertSame( 1, $config->dispatch( 'stats' )['INSERT']['answered'], 'the sibling answers for the Table that stored inv-42' );
 	}
 
 	public function test_verbs_refuse_a_foreign_patron(): void {
 		$ci = new \Newspack_Nodes\Command_Interpreter_Node();
 		$ci->name( 'stray:config' );
 		$verbs = array_column( \Newspack_Nodes\Table_Node::node_schema()['commands'], 'handler', 'name' );
-		foreach ( [ 'get', 'rm' ] as $verb ) {
+		foreach ( [ 'stats', 'flush', 'vacuum' ] as $verb ) {
 			$e = $this->caught(
-				fn () => $verbs[ $verb ]( $ci, [ 'x' ] ),
+				fn () => $verbs[ $verb ]( $ci, [] ),
 				"{$verb} answered a foreign patron"
 			);
 			$this->assertSame( 'no table patron', $e->getMessage() );
@@ -707,6 +692,19 @@ class TableNodeTest extends TestCase {
 		);
 	}
 
+	public function test_the_config_verbs_are_the_ones_no_request_answers(): void {
+		$this->assertSame( [ 'stats', 'flush', 'vacuum' ], \array_column( Table_Node::node_schema()['commands'], 'name' ), 'GET and RM are requests, never :config verbs' );
+	}
+
+	public function test_each_structured_request_declares_its_one_json_map(): void {
+		$requests = \array_column( Table_Node::node_schema()['requests'], 'args', 'name' );
+		foreach ( [ 'MSET', 'ADD', 'SADD' ] as $verb ) {
+			$this->assertCount( 1, $requests[ $verb ], $verb );
+			$this->assertSame( [ 'name' => 'map', 'type' => 'json', 'required' => true ], \array_diff_key( $requests[ $verb ][0], [ 'description' => true ] ), $verb );
+			$this->assertStringContainsString( ' => [ ', $requests[ $verb ][0]['description'], "{$verb} describes its payload shape" );
+		}
+	}
+
 	/** Verbs are case-sensitive, as Tachikoma's are: `get` is no verb, and is refused. */
 	public function test_a_lowercase_get_is_refused(): void {
 		[ $table, $sink ] = $this->table();
@@ -843,7 +841,7 @@ class TableNodeTest extends TestCase {
 
 	public function test_mount_names_the_partition_and_opens_its_file(): void {
 		$dir = $this->base_dir( 'table-mount-' );
-		( new Sqlite_Arm( Table_Node::file( 'lab-7:kea', 3 ) ) )->set( Table_Node::entry_key( 'kea:p3', 'sku-42' ), [ 'usd' => 4200 ], 0 );
+		( new Sqlite_Arm( Table_Node::file( 'lab-7:kea', 3 ) ) )->set( 'kea:p3:sku-42', [ 'usd' => 4200 ], 0 );
 		$sink  = new Capture_Sink_Node();
 		$table = Table_Node::mount( 'lab-7:kea', 3, [ 'namespace' => 'kea:p3', 'ttl' => 777, 'backend' => 'sqlite' ], $sink );
 		$this->assertSame( 'lab-7:kea.p3', $table->name() );
@@ -931,16 +929,10 @@ class TableNodeTest extends TestCase {
 	}
 
 	public function test_a_wpdb_arm_refusal_reaches_the_table_escaped_once(): void {
-		$prev            = $GLOBALS['wpdb'];
-		$db              = new Sqlite_Wpdb();
+		$db              = $this->use_wpdb();
 		$db->base_prefix = 'kea7_';
-		$GLOBALS['wpdb'] = $db;
 		$namespace       = \str_repeat( 'k', 190 ) . '&p3';
-		try {
-			$e = $this->caught( fn () => $this->table( $namespace, '37', 'wpdb' ), 'a namespace wider than the column was held' );
-		} finally {
-			$GLOBALS['wpdb'] = $prev;
-		}
+		$e = $this->caught( fn () => $this->table( $namespace, '37', 'wpdb' ), 'a namespace wider than the column was held' );
 		$this->assertSame( 'Table prices:table: wpdb backend cannot hold namespace ' . \str_repeat( 'k', 190 ) . '&amp;p3', $e->getMessage() );
 	}
 
@@ -1124,29 +1116,17 @@ class TableNodeTest extends TestCase {
 	}
 
 	public function test_a_wpdb_table_the_server_will_not_create_is_table_unavailable(): void {
-		$prev                     = $GLOBALS['wpdb'];
-		$db                       = new Sqlite_Wpdb();
+		$db                       = $this->use_wpdb();
 		$db->base_prefix          = 'kea9_';
 		$db->deny['CREATE TABLE'] = 'CREATE command denied';
-		$GLOBALS['wpdb']          = $db;
-		try {
-			$this->assert_unavailable( fn () => $this->table( 'kea:p3', '37', 'wpdb' ), 'Table prices:table: wpdb backend could not create kea9_newspack_nodes_table: CREATE command denied' );
-		} finally {
-			$GLOBALS['wpdb'] = $prev;
-		}
+		$this->assert_unavailable( fn () => $this->table( 'kea:p3', '37', 'wpdb' ), 'Table prices:table: wpdb backend could not create kea9_newspack_nodes_table: CREATE command denied' );
 	}
 
 	public function test_a_wpdb_packet_limit_the_server_will_not_say_is_table_unavailable(): void {
-		$prev                             = $GLOBALS['wpdb'];
-		$db                               = new Sqlite_Wpdb();
+		$db                               = $this->use_wpdb();
 		$db->base_prefix                  = 'kea9_';
 		$db->deny['@@max_allowed_packet'] = 'SELECT command denied';
-		$GLOBALS['wpdb']                  = $db;
-		try {
-			$this->assert_unavailable( fn () => $this->table( 'kea:p3', '37', 'wpdb' ), 'Table prices:table: wpdb backend could not read max_allowed_packet: SELECT command denied' );
-		} finally {
-			$GLOBALS['wpdb'] = $prev;
-		}
+		$this->assert_unavailable( fn () => $this->table( 'kea:p3', '37', 'wpdb' ), 'Table prices:table: wpdb backend could not read max_allowed_packet: SELECT command denied' );
 	}
 
 	public function test_a_memcache_table_with_no_handle_is_table_unavailable(): void {
@@ -1177,10 +1157,8 @@ class TableNodeTest extends TestCase {
 
 	public function test_a_declaration_the_table_refuses_is_not_table_unavailable(): void {
 		$dir             = $this->base_dir( 'table-declared-' );
-		$prev            = $GLOBALS['wpdb'];
-		$db              = new Sqlite_Wpdb();
+		$db              = $this->use_wpdb();
 		$db->base_prefix = 'kea9_';
-		$GLOBALS['wpdb'] = $db;
 		$wide            = \str_repeat( 'k', 192 );
 		$refusals        = [
 			'Table kea-ttl needs a TTL of at least 1 whole second, not soon' => fn () => $this->named_table( 'kea-ttl', [ 'kea:p3', 'soon', 'sqlite' ] ),
@@ -1211,7 +1189,6 @@ class TableNodeTest extends TestCase {
 				$this->assertNotNull( $e, "{$message} was taken" );
 			}
 		} finally {
-			$GLOBALS['wpdb'] = $prev;
 			unset( Core::$var['partition'] );
 		}
 	}
@@ -1223,28 +1200,22 @@ class TableNodeTest extends TestCase {
 	}
 
 	public function test_a_wpdb_table_keeps_its_rows_in_the_shared_table(): void {
-		$prev                  = $GLOBALS['wpdb'];
-		$db                    = new Sqlite_Wpdb();
+		$db                    = $this->use_wpdb();
 		$db->base_prefix       = 'kea7_';
-		$GLOBALS['wpdb']       = $db;
-		try {
-			$table = Table_Node::table( 'kea:p3', 37, 'wpdb' );
-			$this->assertTrue( $table->store_multi( [ 'sku-41' => [ 'usd' => 41 ], 'sku-43' => [ 'usd' => 43 ] ] ) );
-			$this->assertSame(
-				[ [ 'n' => 2 ] ],
-				$db->get_results( "SELECT COUNT(*) AS n FROM kea7_newspack_nodes_table WHERE namespace = 'kea:p3'" ),
-				'the rows are in the shared table, under the namespace'
-			);
-			$this->assertSame( [], $this->memd->keys(), 'and nowhere in memcached' );
-			Core::$memd = null;
-			$this->assertSame( [ 'sku-41' => [ 'usd' => 41 ], 'sku-43' => [ 'usd' => 43 ] ], $this->mget( $table, 'sku-41', 'sku-43', 'sku-44' ) );
-			$this->assertTrue( $table->touch( 'sku-41', 777 ) );
-			$table->forget( 'sku-43' );
-			$this->assertNull( $table->lookup( 'sku-43' ) );
-			$this->assertSame( [ 'kea:p3', '37', 'wpdb' ], $table->arguments() );
-		} finally {
-			$GLOBALS['wpdb'] = $prev;
-		}
+		$table = Table_Node::table( 'kea:p3', 37, 'wpdb' );
+		$this->assertTrue( $table->store_multi( [ 'sku-41' => [ 'usd' => 41 ], 'sku-43' => [ 'usd' => 43 ] ] ) );
+		$this->assertSame(
+			[ [ 'n' => 2 ] ],
+			$db->get_results( "SELECT COUNT(*) AS n FROM kea7_newspack_nodes_table WHERE namespace = 'kea:p3'" ),
+			'the rows are in the shared table, under the namespace'
+		);
+		$this->assertSame( [], $this->memd->keys(), 'and nowhere in memcached' );
+		Core::$memd = null;
+		$this->assertSame( [ 'sku-41' => [ 'usd' => 41 ], 'sku-43' => [ 'usd' => 43 ] ], $this->mget( $table, 'sku-41', 'sku-43', 'sku-44' ) );
+		$this->assertTrue( $table->touch( 'sku-41', 777 ) );
+		$table->forget( 'sku-43' );
+		$this->assertNull( $table->lookup( 'sku-43' ) );
+		$this->assertSame( [ 'kea:p3', '37', 'wpdb' ], $table->arguments() );
 	}
 
 	public function test_a_name_that_cannot_name_a_file_is_refused(): void {
@@ -1506,7 +1477,7 @@ class TableNodeTest extends TestCase {
 		$bytes = \filesize( $file );
 		$mount = Table_Node::mount( 'lab-7:kea', 3, [ 'namespace' => 'kea:p3', 'ttl' => 37, 'backend' => 'sqlite' ], new Capture_Sink_Node() );
 		$refusals = [];
-		foreach ( [ [ 'rm', [ 'sku-41' ] ], [ 'vacuum', [] ] ] as [ $verb, $args ] ) {
+		foreach ( [ [ 'flush', [] ], [ 'vacuum', [] ] ] as [ $verb, $args ] ) {
 			try {
 				$mount->interpreter()->dispatch( $verb, $args );
 			} catch ( \PHPUnit\Exception $e ) {
@@ -1515,11 +1486,11 @@ class TableNodeTest extends TestCase {
 				$refusals[] = $e->getMessage();
 			}
 		}
-		$this->assertSame( 1, $rows(), 'the routed rm deleted nothing' );
+		$this->assertSame( 1, $rows(), 'the routed flush deleted nothing' );
 		\clearstatcache();
 		$this->assertSame( $bytes, \filesize( $file ), 'the routed vacuum rewrote nothing' );
 		$this->assertSame(
-			[ 'rm: lab-7:kea.p3 is a mounted Table, which serves reads only', 'vacuum: lab-7:kea.p3 is a mounted Table, which serves reads only' ],
+			[ 'flush: lab-7:kea.p3 is a mounted Table, which serves reads only', 'vacuum: lab-7:kea.p3 is a mounted Table, which serves reads only' ],
 			$refusals
 		);
 	}

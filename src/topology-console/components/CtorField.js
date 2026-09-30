@@ -81,7 +81,8 @@ export function coerceValue( type, raw ) {
  * @property {string}  [type]        Picks the widget: `formatter_name`,
  *                                   `vault_id` and `node_name` render pickers;
  *                                   `bool`, `int` and `float` render text with
- *                                   a narrowed keyboard.
+ *                                   a narrowed keyboard; `json` renders a
+ *                                   textarea.
  * @property {boolean} [required]    Marks the label with an asterisk.
  * @property {string}  [description] Label tooltip.
  * @property {*}       [default]     Stands in for a value the draft has not
@@ -103,10 +104,11 @@ export function coerceValue( type, raw ) {
 /**
  * Renders one argument row. The `formatter_name`, `vault_id` and `node_name`
  * types get a picker, each falling back to free text when its list is empty so
- * an install with nothing registered can still type the value; every other
- * type gets a text input. The reset control writes an empty string rather than
- * the default itself, which is what leaves `serializeCtorArgs` free to
- * substitute the schema default when the draft becomes a `make_node` line.
+ * an install with nothing registered can still type the value; `json` gets a
+ * textarea and every other type a text input. The reset control writes an
+ * empty string rather than the default itself, which is what leaves
+ * `serializeCtorArgs` free to substitute the schema default when the draft
+ * becomes a `make_node` line.
  *
  * @param {Object}             props              Component props.
  * @param {CtorArgSpec}        props.spec         Schema entry this field edits.
@@ -295,27 +297,37 @@ export function CtorField( {
 				{ spec.required ? ' *' : '' }
 			</label>
 			<div className="topology-edit-row__input-wrap">
-				<input
-					id={ id }
-					type={ meta.type }
-					inputMode={
-						/** @type {'numeric'|'decimal'|undefined} */ (
-							meta.inputMode
-						)
-					}
-					step={ meta.step }
-					className="topology-edit-row__input"
-					value={ currentValue }
-					placeholder={
-						meta.placeholder ??
-						( spec.default !== undefined
-							? String( spec.default )
-							: '' )
-					}
-					onChange={ ( e ) =>
-						onChange( coerceValue( spec.type, e.target.value ) )
-					}
-				/>
+				{ 'json' === spec.type ? (
+					<textarea
+						id={ id }
+						rows={ 4 }
+						className="topology-edit-row__input"
+						value={ currentValue }
+						onChange={ ( e ) => onChange( e.target.value ) }
+					/>
+				) : (
+					<input
+						id={ id }
+						type={ meta.type }
+						inputMode={
+							/** @type {'numeric'|'decimal'|undefined} */ (
+								meta.inputMode
+							)
+						}
+						step={ meta.step }
+						className="topology-edit-row__input"
+						value={ currentValue }
+						placeholder={
+							meta.placeholder ??
+							( spec.default !== undefined
+								? String( spec.default )
+								: '' )
+						}
+						onChange={ ( e ) =>
+							onChange( coerceValue( spec.type, e.target.value ) )
+						}
+					/>
+				) }
 				{ hasContent && (
 					<button
 						type="button"

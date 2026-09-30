@@ -435,10 +435,29 @@ final class TableProtocolTest extends TestCase {
 		$this->assertSame( [ [ Message::TM_ERROR, '', "SMEMBERS: backend read failed\n" ] ], self::shape( $this->ask( "SMEMBERS 9 word:kea\n" ) ) );
 	}
 
-	public function test_a_salt_rotation_orphans_every_set(): void {
+	public function test_a_salt_rotation_leaves_every_durable_row(): void {
+		$this->table->store( 'sku-41', 'kea-4471' );
 		$this->ask( [ 'SADD' => [ 'word:kea' => [ [ 'u-41' => 1 ] ] ] ], self::STRUCT );
 		\Newspack_Nodes\Cache_Backend::rotate_salt();
-		$this->assertSame( [ [ Message::TM_INFO, '', "SMEMBERS 0\n" ] ], self::shape( $this->ask( "SMEMBERS 9 word:kea\n" ) ) );
+		$this->assertSame( 'kea-4471', $this->table->lookup( 'sku-41' ), 'a keyed row outlives the rotation' );
+		$this->assertSame( [ [ Message::TM_STRUCT, 'word:kea', [ [ 'u-41', 1 ] ] ], [ Message::TM_INFO, '', "SMEMBERS 1\n" ] ], self::shape( $this->ask( "SMEMBERS 9 word:kea\n" ) ), 'and so does a set' );
+	}
+
+	public function test_a_sqlite_table_keys_its_rows_by_namespace_and_key_alone(): void {
+		$this->table->store( 'sku-41', 'kea-4471' );
+		$this->ask( [ 'SADD' => [ 'word:kea' => [ [ 'u-41' => 1 ] ] ] ], self::STRUCT );
+		$db = new \PDO( 'sqlite:' . Table_Node::file( 'lab-7:kea', 3 ) );
+		$this->assertSame( [ 'kea:p3:sku-41' ], $db->query( 'SELECT "key" FROM kv' )->fetchAll( \PDO::FETCH_COLUMN ) );
+		$this->assertSame( [ 'kea:p3:word:kea' ], $db->query( 'SELECT set_key FROM members' )->fetchAll( \PDO::FETCH_COLUMN ) );
+	}
+
+	public function test_a_wpdb_table_keys_its_rows_by_namespace_and_key_alone(): void {
+		$this->use_wpdb();
+		$owl = $this->worker_table( 'lab-7:owl', 'owl:p3', 'wpdb' );
+		$owl->store( 'sku-43', 'owl-4473' );
+		$this->ask( [ 'SADD' => [ 'word:owl' => [ [ 'u-43' => 3 ] ] ] ], self::STRUCT, $owl );
+		$this->assertSame( [ [ 'cache_key' => 'owl:p3:sku-43' ] ], $GLOBALS['wpdb']->get_results( 'SELECT cache_key FROM wp_newspack_nodes_table' ) );
+		$this->assertSame( [ [ 'set_key' => 'owl:p3:word:owl' ] ], $GLOBALS['wpdb']->get_results( 'SELECT set_key FROM wp_newspack_nodes_members' ) );
 	}
 
 	public function test_a_string_sadd_is_refused_toward_the_structured_form(): void {
@@ -458,36 +477,120 @@ final class TableProtocolTest extends TestCase {
 	}
 
 	public function test_a_failed_wpdb_set_add_is_retried_set_by_set(): void {
-		$prev            = $GLOBALS['wpdb'];
-		$GLOBALS['wpdb'] = new \Newspack_Nodes\Tests\Helpers\Sqlite_Wpdb();
-		try {
-			$owl     = $this->worker_table( 'lab-7:owl', 'owl:p3', 'wpdb' );
-			$replies = $this->ask( [ 'SADD' => [ 'word:kea' => [ [ 'u-41' => 1 ] ], 'word:owl' => [ [ \str_repeat( 'u', 256 ) => 2 ] ], 'word:emu' => [ [ 'u-47' => 7 ] ] ] ], self::STRUCT, $owl );
-			$this->assertSame( [ [ Message::TM_RESPONSE, '', "SADD word:kea word:emu\n" ] ], self::shape( $replies ), 'the set wider than its column is left out and the rest land' );
-			$this->assertSame( [ [ Message::TM_STRUCT, 'word:emu', [ [ 'u-47', 7 ] ] ], [ Message::TM_INFO, '', "SMEMBERS 1\n" ] ], self::shape( $this->ask( "SMEMBERS 9 word:emu\n", Message::TM_REQUEST, $owl ) ) );
-		} finally {
-			$GLOBALS['wpdb'] = $prev;
-		}
+		$this->use_wpdb();
+		$owl     = $this->worker_table( 'lab-7:owl', 'owl:p3', 'wpdb' );
+		$replies = $this->ask( [ 'SADD' => [ 'word:kea' => [ [ 'u-41' => 1 ] ], 'word:owl' => [ [ \str_repeat( 'u', 256 ) => 2 ] ], 'word:emu' => [ [ 'u-47' => 7 ] ] ] ], self::STRUCT, $owl );
+		$this->assertSame( [ [ Message::TM_RESPONSE, '', "SADD word:kea word:emu\n" ] ], self::shape( $replies ), 'the set wider than its column is left out and the rest land' );
+		$this->assertSame( [ [ Message::TM_STRUCT, 'word:emu', [ [ 'u-47', 7 ] ] ], [ Message::TM_INFO, '', "SMEMBERS 1\n" ] ], self::shape( $this->ask( "SMEMBERS 9 word:emu\n", Message::TM_REQUEST, $owl ) ) );
 	}
 
 	public function test_a_throw_inside_a_durable_arm_escapes_both_member_verbs(): void {
-		$prev            = $GLOBALS['wpdb'];
-		$GLOBALS['wpdb'] = new \Newspack_Nodes\Tests\Helpers\Sqlite_Wpdb();
-		try {
-			$owl             = $this->worker_table( 'lab-7:owl', 'owl:p3', 'wpdb' );
-			$GLOBALS['wpdb'] = null;
-			foreach ( [ [ [ 'SADD' => [ 'word:kea' => [ [ 'u-41' => 1 ] ] ] ], self::STRUCT ], [ "SMEMBERS 9 word:kea\n", Message::TM_REQUEST ] ] as [ $value, $type ] ) {
-				try {
-					$this->ask( $value, $type, $owl );
-					$this->fail( 'the arm\'s own throw was answered as a refusal' );
-				} catch ( \LogicException $e ) {
-					$this->assertSame( 'wpdb backend needs $wpdb', $e->getMessage() );
-				}
-				$this->assertSame( [], $this->sink->captured );
+		$this->use_wpdb();
+		$owl             = $this->worker_table( 'lab-7:owl', 'owl:p3', 'wpdb' );
+		$GLOBALS['wpdb'] = null;
+		foreach ( [ [ [ 'SADD' => [ 'word:kea' => [ [ 'u-41' => 1 ] ] ] ], self::STRUCT ], [ "SMEMBERS 9 word:kea\n", Message::TM_REQUEST ] ] as [ $value, $type ] ) {
+			try {
+				$this->ask( $value, $type, $owl );
+				$this->fail( 'the arm\'s own throw was answered as a refusal' );
+			} catch ( \LogicException $e ) {
+				$this->assertSame( 'wpdb backend needs $wpdb', $e->getMessage() );
 			}
-		} finally {
-			$GLOBALS['wpdb'] = $prev;
+			$this->assertSame( [], $this->sink->captured );
 		}
+	}
+
+	// ── flush: every row and member, MANAGE-only, the writer's alone ──
+
+	/** The `flush` verb as a worker's `:config` interpreter answers it. */
+	private function flush_verb( string $table = 'lab-7:kea' ): mixed {
+		return Core::node( "{$table}:config" )->dispatch( 'flush' );
+	}
+
+	public function test_the_flush_verb_recreates_a_sqlite_file_and_answers_the_bytes_released(): void {
+		$this->table->store( 'sku-41', 'kea-41' );
+		$this->table->store( 'sku-43', 'kea-43' );
+		$this->ask( [ 'SADD' => [ 'word:kea' => [ [ 'u-41' => 1, 'u-43' => 3 ] ] ] ], self::STRUCT );
+		$file = Table_Node::file( 'lab-7:kea', 3 );
+		( new \PDO( 'sqlite:' . $file ) )->exec( 'PRAGMA user_version = 4471' );
+
+		$reply = $this->flush_verb();
+
+		$this->assertSame( [ 'bytes' ], \array_keys( $reply ) );
+		$this->assertGreaterThan( 0, $reply['bytes'] );
+		$this->assertSame( 0, (int) ( new \PDO( 'sqlite:' . $file ) )->query( 'PRAGMA user_version' )->fetchColumn(), 'the file was recreated' );
+		$this->assertSame( [ [ Message::TM_INFO, '', "MGET 0\n" ] ], self::shape( $this->ask( "MGET sku-41 sku-43\n" ) ) );
+		$this->assertSame( [ [ Message::TM_INFO, '', "SMEMBERS 0\n" ] ], self::shape( $this->ask( "SMEMBERS 9 word:kea\n" ) ) );
+		$this->table->store( 'sku-4477', 'kea-4477' );
+		$this->assertSame( 'kea-4477', $this->table->lookup( 'sku-4477' ), 'a write then a read works' );
+	}
+
+	public function test_a_flush_forgets_the_state_that_described_the_old_file(): void {
+		$state = [ 'checkpoint_due' => 1, 'wal_stalled' => 3, 'wal_stall_frames' => 4471, 'purge_behind' => true ];
+		foreach ( $state as $field => $value ) {
+			( new \ReflectionProperty( Table_Node::class, $field ) )->setValue( $this->table, $value );
+		}
+		Core::$now = 1790004471.0;
+
+		$this->flush_verb();
+
+		$this->assertSame(
+			[ 'checkpoint_due' => 1790004471 + Table_Node::CHECKPOINT_INTERVAL_S, 'wal_stalled' => 0, 'wal_stall_frames' => 0, 'purge_behind' => false ],
+			\array_map( fn ( string $field ): mixed => ( new \ReflectionProperty( Table_Node::class, $field ) )->getValue( $this->table ), \array_combine( \array_keys( $state ), \array_keys( $state ) ) )
+		);
+	}
+
+	public function test_a_wpdb_flush_answers_the_rows_it_deleted(): void {
+		$this->use_wpdb();
+		$owl = $this->worker_table( 'lab-7:owl', 'owl:p3', 'wpdb' );
+		$owl->store( 'sku-41', 'owl-41' );
+		$this->ask( [ 'SADD' => [ 'word:owl' => [ [ 'u-41' => 1, 'u-43' => 3 ] ] ] ], self::STRUCT, $owl );
+		$this->assertSame( [ 'rows' => 3 ], $this->flush_verb( 'lab-7:owl' ) );
+	}
+
+	public function test_the_flush_verb_refuses_a_session_scope_below_manage(): void {
+		$this->table->store( 'sku-47', 'kea-47' );
+		foreach ( [ \Newspack_Nodes\Capabilities::READ, \Newspack_Nodes\Capabilities::TUNE ] as $scope ) {
+			\Newspack_Nodes\Capabilities::$session_scope = $scope;
+			try {
+				$this->flush_verb();
+				$this->fail( "a {$scope} session flushed" );
+			} catch ( \RuntimeException $e ) {
+				$this->assertSame( 'flush: permission denied: manage capability required', $e->getMessage() );
+			} finally {
+				\Newspack_Nodes\Capabilities::$session_scope = null;
+			}
+		}
+		$this->assertSame( 'kea-47', $this->table->lookup( 'sku-47' ) );
+		\Newspack_Nodes\Capabilities::$session_scope = \Newspack_Nodes\Capabilities::MANAGE;
+		try {
+			$this->assertArrayHasKey( 'bytes', $this->flush_verb(), 'a manage session flushes' );
+		} finally {
+			\Newspack_Nodes\Capabilities::$session_scope = null;
+		}
+	}
+
+	public function test_the_flush_verb_is_refused_on_a_mount_and_a_volatile_table(): void {
+		$this->table->store( 'sku-49', 'kea-49' );
+		$this->mounted_kea();
+		Core::$memd = new InMemoryMemcached();
+		$this->worker_table( 'lab-7:owl-memcache', 'owl:p3', 'memcache' );
+		foreach ( [ 'lab-7:kea.p3' => 'flush: lab-7:kea.p3 is a mounted Table, which serves reads only', 'lab-7:owl-memcache' => 'flush needs a durable backend; lab-7:owl-memcache is memcache' ] as $table => $refusal ) {
+			try {
+				$this->flush_verb( $table );
+				$this->fail( "{$table} flushed" );
+			} catch ( \RuntimeException $e ) {
+				$this->assertSame( $refusal, $e->getMessage() );
+			}
+		}
+		$this->assertSame( 'kea-49', $this->table->lookup( 'sku-49' ) );
+	}
+
+	public function test_a_flush_the_store_refuses_throws_naming_the_table_and_the_failure(): void {
+		$this->use_wpdb();
+		$this->worker_table( 'lab-7:owl', 'owl:p3', 'wpdb' );
+		$GLOBALS['wpdb']->deny['DELETE FROM `wp_newspack_nodes_members`'] = 'Lock wait timeout 4473';
+		$this->expectExceptionMessage( 'Table lab-7:owl: flush failed: wpdb wp_newspack_nodes_table: Lock wait timeout 4473' );
+		$this->flush_verb( 'lab-7:owl' );
 	}
 
 	// ── A mount serves reads only: the declaring worker is the file's one writer ──

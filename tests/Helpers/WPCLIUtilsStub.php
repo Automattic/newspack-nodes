@@ -32,7 +32,8 @@ if ( ! \function_exists( 'WP_CLI\Utils\format_items' ) ) {
 		foreach ( $items as $item ) {
 			$row = [];
 			foreach ( $fields as $field ) {
-				$row[] = (string) ( \is_array( $item ) ? ( $item[ $field ] ?? '' ) : '' );
+				$cell  = \is_array( $item ) ? ( $item[ $field ] ?? '' ) : '';
+				$row[] = \is_array( $cell ) ? (string) \json_encode( $cell ) : (string) $cell;
 			}
 			$emit( \implode( '  ', $row ) );
 		}

@@ -307,12 +307,13 @@ fixate a live session.
 | `label` | How the session shows up in the Sessions tab. An empty label keeps it out of the listing. What is stored runs through [`sanitize_text_field()`](https://developer.wordpress.org/reference/functions/sanitize_text_field/) and is then truncated to [`Sessions::MAX_LABEL`](../includes/class-sessions.php) = 64 characters, so a listing can come back shorter than what was sent, or stripped of markup — the cap is there so a listing cannot be used as storage. `sessions create` echoes the label as SENT, so the two can disagree the moment the next `list` runs. |
 | `ttl` | Lifetime in seconds, clamped to `[ Command_Auth::SESSION_TTL_MIN_S, SESSION_TTL_MAX_S ]` = `[60, 86400]`. Defaults to `SESSION_TTL_S` = 3600. |
 
-A session the cache cannot store answers 503 `session_store_unavailable`:
+A session the store cannot hold answers 503 `session_store_unavailable`:
 `Command_Auth::mint_session()` throws
 [`Session_Store_Unavailable`](../includes/class-session-store-unavailable.php)
-when no backend is usable or the one selected refused the write, and
+when the durable session store — a wpdb Table row under the `nodes-sessions`
+namespace — will not open or refuses the row, and
 [`issue()`](../includes/rest/class-auth-controller.php) catches that type alone,
-logging memcached's result code and message and keeping them out of the
+logging the server's reason and keeping it out of the
 response. `mint_session()` also throws `InvalidArgumentException` on a scope
 off the READ/TUNE/MANAGE ladder, which `issue()` refuses first with the 400
 above. A hub whose `HTTP_Out` handshake fails logs
@@ -578,9 +579,9 @@ expires, live, state }`. `ttl_max` is `Command_Auth::SESSION_TTL_MAX_S` and
 TTL bound and scope picker from the substrate rather than a second copy that
 drifts into offering a scope the mint refuses. `state` is only ever `live` or
 `revoked`: [`Sessions::all()`](../includes/class-sessions.php) drops every row past its stated expiry before it
-lists, so a listed dead row always lost its lease EARLY — a `sessions revoke`, or
-the salt rotation `wp nodes memcache flush` performs — and `expired` is not a
-value a client can see. Reading the listing writes nothing; the option keeps
+lists, so a listed dead row always lost its store row EARLY — a `sessions revoke`,
+or `wp nodes tables flush nodes-sessions` — and `expired` is not a value a client
+can see. Reading the listing writes nothing; the option keeps
 lapsed rows until the next `Sessions::record()` rewrites it.
 
 **`sessions create` and `sessions revoke`.** `create [<label>] [<scope>] [<ttl>]`
@@ -588,8 +589,8 @@ binds each arg by position or by name, so `create chris-claude tune 86400` and
 `create chris-claude --scope=tune --ttl=86400` mint the same session; `scope`
 defaults to `manage` and is clamped to what the issuing user holds, and `ttl` to
 `Command_Auth::SESSION_TTL_MIN_S`–`SESSION_TTL_MAX_S`. `revoke <handle>` answers
-`{ handle, revoked: true }` only when it dropped a cache lease or a directory row.
-A cache that did not answer refuses `session store did not answer; <h> may still
+`{ handle, revoked: true }` only when it dropped a store row or a directory row.
+A store that did not answer refuses `session store did not answer; <h> may still
 be live` and leaves the listing as it was.
 A handle naming neither refuses `no session with handle <h>`, and when `<h>` is a
 session's LABEL — what an operator reading the Sessions tab types — the refusal

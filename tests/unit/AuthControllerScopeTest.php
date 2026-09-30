@@ -23,6 +23,7 @@ class AuthControllerScopeTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		$this->use_wpdb();
 		$this->prev_memd = Core::$memd;
 		Core::$memd      = new InMemoryMemcached();
 		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
@@ -53,15 +54,12 @@ class AuthControllerScopeTest extends TestCase {
 	}
 
 	/**
-	 * A cache outage is the server's trouble, not the caller's: 503 with a
+	 * A store outage is the server's trouble, not the caller's: 503 with a
 	 * code naming it, never an uncaught fatal. The cause is logged, not sent.
 	 */
-	public function test_a_session_the_cache_cannot_store_answers_503(): void {
-		$memd                 = new InMemoryMemcached();
-		$memd->result_message = 'SERVER MARKED DEAD 3907';
-		$memd->fail_add( \Memcached::RES_SERVER_TEMPORARILY_DISABLED );
-		Core::$memd           = $memd;
-		$captured             = [];
+	public function test_a_session_the_store_cannot_hold_answers_503(): void {
+		$GLOBALS['wpdb']->deny['INSERT IGNORE'] = 'Deadlock found 3907';
+		$captured                               = [];
 		Core::set_stderr_handler(
 			static function ( string $message ) use ( &$captured ): void {
 				$captured[] = $message;
@@ -73,12 +71,12 @@ class AuthControllerScopeTest extends TestCase {
 		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertSame( 'session_store_unavailable', $result->get_error_code() );
 		$this->assertSame( 503, $result->get_error_data()['status'] ?? null );
-		$this->assertStringContainsString( 'cache is unavailable', $result->get_error_message() );
+		$this->assertStringContainsString( 'session store is unavailable', $result->get_error_message() );
 		$this->assertStringNotContainsString( '3907', $result->get_error_message(), 'the backend detail stays in the log' );
 		$this->assertSame( [], Sessions::all(), 'nothing unstored is listed' );
 		$this->assertNotEmpty(
-			\array_filter( $captured, static fn ( string $l ): bool => \str_contains( $l, 'SERVER MARKED DEAD 3907' ) ),
-			'the operator sees memcached result'
+			\array_filter( $captured, static fn ( string $l ): bool => \str_contains( $l, 'Deadlock found 3907' ) ),
+			'the operator sees the server\'s reason'
 		);
 	}
 

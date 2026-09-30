@@ -411,7 +411,7 @@ describe( 'Inspector (edit mode)', () => {
 		expect( getByDisplayValue( 'beta-sink' ).disabled ).toBe( true );
 	} );
 
-	// An action RUNS something on a live node — `Table rm` deletes an entry,
+	// An action RUNS something on a live node — `Table flush` deletes every row,
 	// `Request_Builder purge` drops every in-flight request — so it is not
 	// configuration, and a draft has no live node to run it on.
 	it( 'hides verbs flagged action in node_schema from the edit Verbs list', () => {

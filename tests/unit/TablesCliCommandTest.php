@@ -1,0 +1,361 @@
+<?php
+/**
+ * `wp nodes tables list` and `wp nodes tables flush`: every declared Table,
+ * partition by partition, plus the command-session store; a live owner is
+ * asked over its command channel, and a Table no worker owns is written from
+ * the CLI only under the fleet hold.
+ *
+ * @package Newspack_Nodes
+ */
+
+namespace Newspack_Nodes\Tests\Unit;
+
+use Newspack_Nodes\Callback_Node;
+use Newspack_Nodes\CLI;
+use Newspack_Nodes\Command_Auth;
+use Newspack_Nodes\Config;
+use Newspack_Nodes\Consumer_Node;
+use Newspack_Nodes\Core;
+use Newspack_Nodes\Message;
+use Newspack_Nodes\Partition_Node;
+use Newspack_Nodes\Spawn_Coordinator;
+use Newspack_Nodes\Sqlite_Arm;
+use Newspack_Nodes\Table_Node;
+use Newspack_Nodes\Tables_CLI_Command;
+use Newspack_Nodes\Tests\Capture_Sink_Node;
+use Newspack_Nodes\Tests\TestCase;
+use Newspack_Nodes\Topology_Registry;
+use Newspack_Nodes\Worker_Base;
+use Newspack_Nodes\Wpdb_Arm;
+use PHPUnit\Framework\Attributes\CoversClass;
+
+#[CoversClass( Tables_CLI_Command::class )]
+#[CoversClass( CLI::class )]
+final class TablesCliCommandTest extends TestCase {
+	private string $base  = '';
+	private string $stock = '';
+
+	/** Every command the fake worker verified and answered, as `<to> <verb>`. */
+	private array $answered = [];
+
+	protected function setUp(): void {
+		parent::setUp();
+		$this->base = $this->make_temp_dir( 'tables-cli-' );
+		$this->use_base_dir( $this->base );
+		$this->use_wpdb();
+		$this->use_loop_time();
+		Topology_Registry::reset();
+		$this->stock = $this->stock_topology_dir( 'tables-cli-stock-' );
+		$this->write_tsl( 'kea-t', "var num_partitions = 2\nmake_node Table lab-7:kea kea:p<partition> 777 sqlite\n" );
+		$this->write_tsl( 'owl-w', "make_node Table lab-7:owl owl:p<partition> 37 wpdb\n" );
+		\update_option( 'newspack_nodes_topologies', [ 'kea-t', 'owl-w' ] );
+		Config::reset();
+		foreach ( [ 'lines', 'logs', 'warns', 'errors', 'success', 'tables', 'confirms' ] as $stream ) {
+			$GLOBALS[ "_test_wp_cli_{$stream}" ] = [];
+		}
+		unset( $GLOBALS['_test_wp_cli_confirm'] );
+	}
+
+	protected function tearDown(): void {
+		unset( $GLOBALS['_test_wp_cli_confirm'] );
+		\delete_option( 'newspack_nodes_topologies' );
+		Spawn_Coordinator::clear_hold();
+		Config::reset();
+		Topology_Registry::reset();
+		$this->rmdir_recursive( $this->stock );
+		$this->rmdir_recursive( $this->base );
+		parent::tearDown();
+	}
+
+	/** A `sqlite` partition's file, written as its worker writes it. */
+	private function seed_kea( int $partition, int $rows ): void {
+		$arm = new Sqlite_Arm( Table_Node::file( 'lab-7:kea', $partition ) );
+		for ( $i = 1; $i <= $rows; ++$i ) {
+			$arm->set( "kea:p{$partition}:sku-{$i}", "kea-{$i}", 0 );
+		}
+		$arm->add_members( [ "kea:p{$partition}:word:kea" => [ [ 'u-41' => 1 ], 900 ] ] );
+	}
+
+	/** Rows left in a `sqlite` partition's file, keyed and member. */
+	private function rows_in( int $partition ): int {
+		$db = new \PDO( 'sqlite:' . Table_Node::file( 'lab-7:kea', $partition ) );
+		return (int) $db->query( 'SELECT ( SELECT COUNT(*) FROM kv ) + ( SELECT COUNT(*) FROM members )' )->fetchColumn();
+	}
+
+	/**
+	 * A live `kea-t.p{partition}`: its lock dir with a fresh heartbeat, its
+	 * `lab-7:kea` Table, and the read of its input channel a worker runs,
+	 * verifying each command and answering it through the Table's `:config`
+	 * interpreter onto its output channel, TO the command's FROM.
+	 *
+	 * @param bool $answers False for a worker that reads commands and answers none.
+	 */
+	private function live_worker( int $partition, bool $answers = true ): Table_Node {
+		$lock = "{$this->base}/locks/kea-t.p{$partition}.lock.d";
+		\mkdir( $lock, 0755, true );
+		\file_put_contents( "{$lock}/heartbeat", '1' );
+		Core::$var['partition'] = (string) $partition;
+		try {
+			$table = new Table_Node();
+			$table->name( 'lab-7:kea' );
+			$table->arguments( [ "kea:p{$partition}", '777', 'sqlite' ] );
+		} finally {
+			unset( Core::$var['partition'] );
+		}
+		$table->sink( new Capture_Sink_Node() );
+		$input  = Worker_Base::ipc_dir( $this->base, 'kea-t', $partition, Worker_Base::IPC_INPUT );
+		$output = Worker_Base::ipc_dir( $this->base, 'kea-t', $partition, Worker_Base::IPC_OUTPUT );
+		\mkdir( $input, 0755, true );
+		\mkdir( $output, 0755, true );
+		$replies = new Partition_Node();
+		$replies->arguments( Worker_Base::ipc_partition_args( $output ) );
+		// A Partition's batch flushes on its timer, which fires only with a sink.
+		$replies->sink( new Capture_Sink_Node() );
+		$reader = new Consumer_Node();
+		$reader->arguments( [ $input ] );
+		$reader->next_offset( 'start' );
+		$reader->sink(
+			new Callback_Node(
+				function ( array $command ) use ( $replies, $answers ): void {
+					$this->assertTrue( Command_Auth::verify( $command ), 'the CLI signs what it sends a worker' );
+					$verb             = Core::as_string( $command[ Message::VALUE ]['name'] );
+					$this->answered[] = Core::as_string( $command[ Message::TO ] ) . " {$verb}";
+					if ( ! $answers ) {
+						return;
+					}
+					$reply                  = Message::new_message();
+					$reply[ Message::TYPE ] = Message::TM_COMMAND | Message::TM_RESPONSE;
+					$reply[ Message::TO ]   = $command[ Message::FROM ];
+					try {
+						$payload = ( Core::node( Core::as_string( $command[ Message::TO ] ) ) ?? throw new \RuntimeException( 'NOT_AVAILABLE' ) )->dispatch( $verb );
+					} catch ( \RuntimeException $e ) {
+						$reply[ Message::TYPE ] = Message::TM_COMMAND | Message::TM_ERROR;
+						$payload                = $e->getMessage() . "\n";
+					}
+					$reply[ Message::VALUE ] = [ 'name' => $verb, 'arguments' => [], 'payload' => $payload ];
+					$replies->fill( $reply );
+				}
+			)
+		);
+		return $table;
+	}
+
+	/** @return list<array<string,mixed>> The rows the last table printed. */
+	private function printed(): array {
+		return \end( $GLOBALS['_test_wp_cli_tables'] )['items'] ?? [];
+	}
+
+	private function command(): Tables_CLI_Command {
+		return new Tables_CLI_Command();
+	}
+
+	// ── list ──
+
+	public function test_list_names_every_declared_partition_and_the_session_store(): void {
+		$this->seed_kea( 0, 3 );
+		$file = Table_Node::file( 'lab-7:kea', 0 );
+		\clearstatcache();
+		$size = \filesize( $file ) + ( \is_file( "{$file}-wal" ) ? \filesize( "{$file}-wal" ) : 0 );
+
+		$this->command()->list_( [], [ 'format' => 'json' ] );
+
+		$this->assertSame(
+			[
+				[ 'Table' => 'lab-7:kea', 'Partition' => 0, 'Backend' => 'sqlite', 'TTL' => '777', 'Owner' => 'kea-t.p0', 'State' => 'down', 'Store' => $file, 'Bytes' => $size, 'Verbs' => null ],
+				[ 'Table' => 'lab-7:kea', 'Partition' => 1, 'Backend' => 'sqlite', 'TTL' => '777', 'Owner' => 'kea-t.p1', 'State' => 'down', 'Store' => Table_Node::file( 'lab-7:kea', 1 ), 'Bytes' => 0, 'Verbs' => null ],
+				[ 'Table' => 'lab-7:owl', 'Partition' => 0, 'Backend' => 'wpdb', 'TTL' => '37', 'Owner' => 'owl-w.p0', 'State' => 'down', 'Store' => 'wp_newspack_nodes_table', 'Bytes' => null, 'Verbs' => null ],
+				[ 'Table' => Command_Auth::SESSIONS_TABLE, 'Partition' => 0, 'Backend' => 'wpdb', 'TTL' => '60-86400', 'Owner' => '-', 'State' => '-', 'Store' => 'wp_newspack_nodes_table', 'Bytes' => null, 'Verbs' => null ],
+			],
+			$this->printed()
+		);
+		$this->assertSame( 'json', \end( $GLOBALS['_test_wp_cli_tables'] )['format'] );
+	}
+
+	public function test_list_reads_a_live_owners_counters_over_its_command_channel(): void {
+		$table = $this->live_worker( 1 );
+		$table->store( 'sku-9', 'kea-9' );
+		$ask                      = Message::new_message();
+		$ask[ Message::TYPE ]     = Message::TM_REQUEST;
+		$ask[ Message::FROM ]     = 'asker-9';
+		$ask[ Message::VALUE ]    = "MGET sku-9 sku-10\n";
+		$table->fill( $ask );
+		$table->fill( $ask );
+
+		$this->command()->list_( [], [ 'format' => 'json' ] );
+
+		$row = $this->printed()[1];
+		$this->assertSame( [ 'lab-7:kea', 1, 'live' ], [ $row['Table'], $row['Partition'], $row['State'] ] );
+		$this->assertSame( 2, $row['Verbs']['MGET']['calls'] );
+		$this->assertArrayHasKey( 'total_ms', $row['Verbs']['MGET'] );
+		$this->assertArrayNotHasKey( 'SADD', $row['Verbs'], 'a verb never called is left out' );
+		$this->assertSame( [ 'lab-7:kea:config stats' ], $this->answered, 'one stats asked, of the live owner alone' );
+		$this->assertNull( $this->printed()[0]['Verbs'], 'a down owner is asked nothing' );
+	}
+
+	public function test_the_wait_ends_when_every_owner_has_answered(): void {
+		$this->live_worker( 1 );
+		$started = Core::right_now();
+
+		$this->command()->list_( [], [ 'format' => 'json', 'timeout' => '30' ] );
+
+		$this->assertNotNull( $this->printed()[1]['Verbs'] );
+		$this->assertLessThan( 5.0, Core::right_now() - $started, 'the last reply ends the wait, not the 30 s timeout' );
+	}
+
+	public function test_the_table_format_summarises_counters_and_sizes_in_one_line(): void {
+		$table = $this->live_worker( 1 );
+		$ask                   = Message::new_message();
+		$ask[ Message::TYPE ]  = Message::TM_REQUEST;
+		$ask[ Message::FROM ]  = 'asker-9';
+		$ask[ Message::VALUE ] = "GET sku-9\n";
+		$table->fill( $ask );
+
+		$this->command()->list_( [], [] );
+
+		$row = $this->printed()[1];
+		$this->assertSame( 'table', \end( $GLOBALS['_test_wp_cli_tables'] )['format'] );
+		$this->assertMatchesRegularExpression( '/^GET 1 [\d.]+ms$/', $row['Verbs'] );
+		$this->assertSame( '-', $this->printed()[2]['Bytes'], 'a wpdb Table has no file to size' );
+	}
+
+	public function test_an_owner_that_does_not_answer_lists_without_counters_and_says_so(): void {
+		$this->live_worker( 1, false );
+
+		$this->command()->list_( [], [ 'format' => 'json', 'timeout' => '3' ] );
+
+		$this->assertNull( $this->printed()[1]['Verbs'] );
+		$this->assertSame( [ 'kea-t.p1 did not answer stats for lab-7:kea within 3s' ], $GLOBALS['_test_wp_cli_warns'] );
+	}
+
+	public function test_an_owner_that_refuses_stats_lists_without_counters_and_says_why(): void {
+		$this->live_worker( 1 );
+		Core::node( 'lab-7:kea' )->remove_node();
+		$this->answered = [];
+
+		$this->command()->list_( [], [ 'format' => 'json' ] );
+
+		$this->assertNull( $this->printed()[1]['Verbs'] );
+		$this->assertSame( [ 'kea-t.p1 refused stats for lab-7:kea: NOT_AVAILABLE' ], $GLOBALS['_test_wp_cli_warns'] );
+	}
+
+	// ── flush ──
+
+	public function test_flush_sends_the_verb_to_the_live_owner_and_reports_its_rows(): void {
+		$this->live_worker( 1 );
+		$this->seed_kea( 1, 3 );
+
+		$this->command()->flush( [ 'lab-7:kea' ], [ 'partition' => '1' ] );
+
+		$this->assertSame( [ 'lab-7:kea:config flush' ], $this->answered );
+		$this->assertSame( 0, $this->rows_in( 1 ) );
+		$this->assertMatchesRegularExpression( '/^lab-7:kea\.p1: [\d.]+[KM]?B released by kea-t\.p1$/', $GLOBALS['_test_wp_cli_logs'][0] );
+		$this->assertCount( 1, $GLOBALS['_test_wp_cli_logs'] );
+		$this->assertSame( [ 'Flushed 1 Table partition.' ], $GLOBALS['_test_wp_cli_success'] );
+	}
+
+	public function test_flush_refuses_a_partition_no_worker_owns_until_the_fleet_is_held(): void {
+		$this->seed_kea( 0, 2 );
+
+		$e = $this->caught( fn () => $this->command()->flush( [ 'lab-7:kea' ], [ 'partition' => '0' ] ), 'a down owner was flushed without the hold' );
+
+		$this->assertStringContainsString( 'lab-7:kea.p0: kea-t.p0 is down; run `wp nodes stop` to hold the fleet, flush again, then `wp nodes start`', $e->getMessage() );
+		$this->assertSame( 3, $this->rows_in( 0 ), 'nothing was deleted' );
+	}
+
+	public function test_flush_refuses_a_stale_owner_even_under_the_hold(): void {
+		$this->seed_kea( 0, 2 );
+		$lock = "{$this->base}/locks/kea-t.p0.lock.d";
+		\mkdir( $lock, 0755, true );
+		\file_put_contents( "{$lock}/heartbeat", '1' );
+		\touch( "{$lock}/heartbeat", \time() - 3600 );
+		Spawn_Coordinator::set_hold( \time() );
+
+		$e = $this->caught( fn () => $this->command()->flush( [ 'lab-7:kea' ], [ 'partition' => '0' ] ), 'a stale owner\'s partition was flushed' );
+
+		$this->assertStringContainsString( 'lab-7:kea.p0: kea-t.p0 is stale: its lock stands with no heartbeat', $e->getMessage() );
+		$this->assertSame( 3, $this->rows_in( 0 ) );
+	}
+
+	public function test_a_live_owner_that_never_answers_the_flush_fails_it(): void {
+		$this->live_worker( 1, false );
+		$this->seed_kea( 1, 2 );
+
+		$e = $this->caught( fn () => $this->command()->flush( [ 'lab-7:kea' ], [ 'partition' => '1', 'timeout' => '4' ] ), 'an unanswered flush reported success' );
+
+		$this->assertStringContainsString( 'lab-7:kea.p1: kea-t.p1 did not answer flush within 4s', $e->getMessage() );
+		$this->assertSame( [ 'lab-7:kea:config flush' ], $this->answered );
+	}
+
+	public function test_flush_under_the_hold_deletes_a_down_owners_rows_itself(): void {
+		$this->seed_kea( 0, 2 );
+		Spawn_Coordinator::set_hold( \time() );
+
+		$this->command()->flush( [ 'lab-7:kea' ], [ 'partition' => '0' ] );
+
+		$this->assertSame( 0, $this->rows_in( 0 ) );
+		$this->assertMatchesRegularExpression( '/^lab-7:kea\.p0: [\d.]+[KM]?B released under the hold$/', $GLOBALS['_test_wp_cli_logs'][0] );
+	}
+
+	public function test_flush_with_no_table_named_asks_first_and_leaves_the_session_store(): void {
+		$this->seed_kea( 0, 2 );
+		Spawn_Coordinator::set_hold( \time() );
+		$session = Command_Auth::mint_session();
+
+		$this->caught( fn () => $this->command()->flush( [], [] ), 'every Table was flushed unasked' );
+		$this->assertSame( [ 'Flush every row of 3 declared Table partitions? The session store is left alone.' ], $GLOBALS['_test_wp_cli_confirms'] );
+		$this->assertSame( 3, $this->rows_in( 0 ), 'a declined confirmation deletes nothing' );
+
+		$this->command()->flush( [], [ 'yes' => true ] );
+
+		$this->assertSame( 0, $this->rows_in( 0 ) );
+		$this->assertSame( $session['secret'], Command_Auth::load_session_record( $session['handle'] )['key'] ?? null, 'the session store is flushed only when named' );
+	}
+
+	public function test_flushing_the_session_store_by_name_revokes_every_session(): void {
+		$first  = Command_Auth::mint_session();
+		$second = Command_Auth::mint_session();
+		( new Wpdb_Arm( 'owl:p0' ) )->set( 'owl:p0:sku-7', 'owl-7', 900 );
+
+		$this->command()->flush( [ Command_Auth::SESSIONS_TABLE ], [] );
+
+		$this->assertNull( Command_Auth::load_session_record( $first['handle'] ) );
+		$this->assertNull( Command_Auth::load_session_record( $second['handle'] ) );
+		$this->assertSame( 'owl-7', ( new Wpdb_Arm( 'owl:p0' ) )->get( 'owl:p0:sku-7' ), 'another namespace is untouched' );
+		$this->assertSame( [ Command_Auth::SESSIONS_TABLE . ': 2 rows deleted; every issued session is revoked' ], $GLOBALS['_test_wp_cli_logs'] );
+	}
+
+	public function test_a_session_store_that_refuses_the_flush_fails_the_command(): void {
+		$GLOBALS['wpdb']->deny['DELETE FROM `wp_newspack_nodes_table`'] = 'Lock wait timeout 4479';
+
+		$e = $this->caught( fn () => $this->command()->flush( [ Command_Auth::SESSIONS_TABLE ], [] ), 'a refused flush reported success' );
+
+		$this->assertSame( 'WP_CLI::error called: ' . Command_Auth::SESSIONS_TABLE . ': could not flush the sessions: wpdb wp_newspack_nodes_table: Lock wait timeout 4479', $e->getMessage() );
+		$this->assertSame( [], $GLOBALS['_test_wp_cli_success'] );
+	}
+
+	public function test_flush_refuses_a_table_nothing_declares(): void {
+		$e = $this->caught( fn () => $this->command()->flush( [ 'lab-7:moa' ], [] ), 'an unknown Table was accepted' );
+		$this->assertSame( 'WP_CLI::error called: unknown Table lab-7:moa; declared: lab-7:kea, lab-7:owl, ' . Command_Auth::SESSIONS_TABLE, $e->getMessage() );
+	}
+
+	public function test_flush_refuses_to_run_as_root(): void {
+		CLI::$uid_provider = static fn (): int => 0;
+		$e                 = $this->caught( fn () => $this->command()->flush( [ 'lab-7:kea' ], [] ), 'root flushed' );
+		$this->assertStringContainsString( 'wp nodes tables flush must run as the same user as the workers', $e->getMessage() );
+	}
+
+	public function test_a_live_owner_that_refuses_the_flush_fails_the_command_naming_why(): void {
+		$this->live_worker( 1 );
+		$this->seed_kea( 1, 3 );
+		$tables = \dirname( Table_Node::file( 'lab-7:kea', 1 ) );
+		\chmod( $tables, 0555 );
+		try {
+			$e = $this->caught( fn () => $this->command()->flush( [ 'lab-7:kea' ], [ 'partition' => '1' ] ), 'a failed flush reported success' );
+		} finally {
+			\chmod( $tables, 0755 );
+		}
+
+		$this->assertStringContainsString( 'lab-7:kea.p1: kea-t.p1 refused flush: Table lab-7:kea: flush failed: sqlite', $e->getMessage() );
+		$this->assertSame( 4, $this->rows_in( 1 ), 'the file it could not replace keeps its rows' );
+	}
+}

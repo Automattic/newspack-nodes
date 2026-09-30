@@ -656,6 +656,7 @@ class Command_Interpreter_Node extends Node {
 			'tell_node' => "tell_node <path> <info>\n    alias: tell\n    note: emits TM_INFO at prefix(<path>); fire-and-forget broadcast.\n",
 			'send_node' => "send_node <path> <bytes>\n    alias: send\n    note: emits TM_BYTESTREAM at prefix(<path>).\n",
 			'send_struct' => "send_struct <path> <json>\n    note: emits TM_STRUCT at prefix(<path>).\n",
+			'request_struct' => "request_struct <path> <json>\n    alias: request_struct_node\n    note: emits TM_REQUEST|TM_STRUCT at prefix(<path>); VALUE is the\n          decoded JSON as given, e.g. {\"MSET\":{\"k\":[\"v\",60]}}.\n",
 			'send_eof' => "send_eof <path>\n    note: emits TM_EOF at prefix(<path>).\n",
 			'command_node' => "command_node <path> <verb> [<arguments>]\n    aliases: command, cmd\n    note: dispatches a TM_COMMAND at prefix(<path>) without changing cwd.\n",
 			'request_node' => "request_node <path> [<value>]\n    alias: request\n    note: emits TM_REQUEST at prefix(<path>); receiver replies via TO=FROM.\n",
@@ -1309,6 +1310,8 @@ class Command_Interpreter_Node extends Node {
 			'command'      => 'command_node',
 			'cmd'          => 'command_node',
 			'request'      => 'request_node',
+			'send_struct_node' => 'send_struct',
+			'request_struct_node' => 'request_struct',
 		];
 		$key = $alias_to_canonical[ $topic ] ?? $topic;
 		if ( isset( self::$H[ $key ] ) ) {

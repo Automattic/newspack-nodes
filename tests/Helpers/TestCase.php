@@ -40,6 +40,13 @@ abstract class TestCase extends PHPUnitTestCase {
 	private string $topology_dir = '';
 
 	/**
+	 * The `$wpdb` the process booted with, captured on the first setUp and
+	 * restored in every tearDown, so a `$wpdb` one test installs — through
+	 * use_wpdb(), or by hand and never put back — never reaches the next.
+	 */
+	protected static ?object $booted_wpdb = null;
+
+	/**
 	 * The `LOCAL_NEWSPACK_NODES_CONF` the process booted with, captured on the
 	 * first setUp before any test can repoint it, and restored in every
 	 * tearDown. A consumer suite extending this class booted with its own
@@ -50,6 +57,7 @@ abstract class TestCase extends PHPUnitTestCase {
 
 	protected function setUp(): void {
 		self::$booted_conf ??= (string) \getenv( 'LOCAL_NEWSPACK_NODES_CONF' );
+		self::$booted_wpdb ??= $GLOBALS['wpdb'] ?? null;
 		// Keep APCu pinned off so Memcached fixtures remain deterministic: tests
 		// that seed Core::$memd must see their claims land there even when CLI
 		// APCu is enabled.
@@ -149,6 +157,7 @@ abstract class TestCase extends PHPUnitTestCase {
 
 	/** Remove every temp dir make_temp_dir() handed out — a temp dir is only temporary if someone deletes it. */
 	protected function tearDown(): void {
+		$GLOBALS['wpdb'] = self::$booted_wpdb;
 		foreach ( $this->temp_dirs as $dir ) {
 			$this->rmdir_recursive( $dir );
 		}
@@ -348,6 +357,15 @@ abstract class TestCase extends PHPUnitTestCase {
 			throw new \LogicException( 'call stock_topology_dir() first' );
 		}
 		\file_put_contents( "{$this->topology_dir}/{$name}.tsl", $contents );
+	}
+
+	/**
+	 * Install a fresh in-memory `$wpdb` for this test, which a `wpdb` Table and
+	 * the command-session store write through; tearDown puts the booted one
+	 * back.
+	 */
+	protected function use_wpdb(): Helpers\Sqlite_Wpdb {
+		return $GLOBALS['wpdb'] = new Helpers\Sqlite_Wpdb();
 	}
 
 	/**

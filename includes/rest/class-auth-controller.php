@@ -72,7 +72,7 @@ class Auth_Controller {
 	 * the clamp and the refusal in one decision rather than trusting every
 	 * caller to gate first.
 	 *
-	 * A session the cache cannot store answers 503 `session_store_unavailable`,
+	 * A session the store cannot hold answers 503 `session_store_unavailable`,
 	 * because the outage is the server's rather than the caller's. The backend's
 	 * own cause goes to the log, never into the response.
 	 *
@@ -100,7 +100,7 @@ class Auth_Controller {
 			Core::print_less_often( 'Auth_Controller: 503, ', $e->getMessage() );
 			return new \WP_Error(
 				'session_store_unavailable',
-				'The session could not be stored because the cache is unavailable.',
+				'The session could not be stored because the session store is unavailable.',
 				[ 'status' => 503 ]
 			);
 		}
