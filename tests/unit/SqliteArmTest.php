@@ -52,6 +52,21 @@ final class SqliteArmTest extends TestCase {
 		$this->assertTrue( $arm->set( 'sku-41', 'after', 0 ) );
 	}
 
+	public function test_a_cached_statement_refused_busy_runs_once_the_lock_is_released(): void {
+		$arm = new Sqlite_Arm( $this->path(), 'kea:p3', 1 );
+		Core::$clock = static fn (): float => 1790000000.0;
+		$arm->write_multi( [ 'sku-41' => 'kea-41', 'sku-43' => 'kea-43' ], 37 );
+		$other = new \PDO( 'sqlite:' . $this->path() );
+		$other->exec( 'BEGIN IMMEDIATE' );
+		try {
+			$this->assertSame( 0, $arm->purge( 1790000099, 37 ), 'the purge statement met the held lock' );
+			$this->assertStringContainsString( 'locked', $arm->last_failure() );
+		} finally {
+			$other->exec( 'ROLLBACK' );
+		}
+		$this->assertSame( 2, $arm->purge( 1790000099, 37 ), 'the same cached statement runs afresh' );
+	}
+
 	public function test_a_missing_pdo_sqlite_refuses_to_build(): void {
 		Sqlite_Arm::$available = static fn (): bool => false;
 		$this->expectExceptionMessage( 'sqlite backend needs the pdo_sqlite extension' );
@@ -492,16 +507,10 @@ final class SqliteArmTest extends TestCase {
 		$this->assertSame( $frames, $written );
 	}
 
-	public function test_a_checkpoint_of_a_file_not_there_answers_null(): void {
-		$logged = [];
-		\add_action(
-			'newspack_nodes/stderr',
-			static function ( string $line ) use ( &$logged ): void {
-				$logged[] = $line;
-			}
-		);
-		$this->assertNull( ( new Sqlite_Arm( $this->path(), 'kea:p3', read_only: true ) )->checkpoint() );
-		$this->assertStringContainsString( 'Table checkpoint failed: sqlite ' . $this->path() . ': no file at', \implode( "\n", $logged ) );
+	public function test_a_checkpoint_of_a_file_not_there_throws_for_its_node_to_report(): void {
+		$this->expectException( \PDOException::class );
+		$this->expectExceptionMessage( 'no file at ' . $this->path() );
+		( new Sqlite_Arm( $this->path(), 'kea:p3', read_only: true ) )->checkpoint();
 	}
 
 	// ── In-place writes: a rewrite updates its row rather than replacing it ──
