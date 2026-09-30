@@ -337,7 +337,7 @@ final class LedgerReadTest extends TestCase {
 		);
 	}
 
-	public function test_top_positive_each_t_sums_only_the_t_in_which_the_member_was_positive(): void {
+	public function test_top_positive_each_t_sums_only_the_rows_in_which_the_member_was_positive(): void {
 		$ibis = $this->ibis();
 		$top  = [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'srv-2', 'srv-7' ], 'order_by' => 'ms', 'order' => 'desc', 'limit' => 9, 'offset' => 0, 'positive' => 'errors' ];
 		$this->assertSame(
@@ -346,14 +346,14 @@ final class LedgerReadTest extends TestCase {
 			'positive alone filters on the window aggregate'
 		);
 		$this->assertSame(
-			self::answered( 'TOP', [ 'total' => 2, 'rows' => [ [ '/a', 1200.0, 4.0, 1.0, 40.0 ], [ '/b', 50.0, 2.0, 2.0, 90.0 ] ] ] ),
+			self::answered( 'TOP', [ 'total' => 2, 'rows' => [ [ '/a', 900.0, 3.0, 1.0, 40.0 ], [ '/b', 50.0, 2.0, 2.0, 90.0 ] ] ] ),
 			$this->read( $ibis, 'TOP', $top + [ 'positive_each_t' => true ] ),
-			'( T, /a ) across both keys and ( T+600, /b ) alone'
+			'( T, srv-2, /a ) and ( T+600, srv-2, /b ) alone; ( T, srv-7, /a ) had no errors'
 		);
 		$this->assertSame(
 			self::answered( 'TOP', [ 'total' => 2, 'rows' => [ [ '/b', 50.0, 2.0, 2.0, 90.0 ] ] ] ),
 			$this->read( $ibis, 'TOP', [ 'order_by' => [ 'errors', 'hits' ], 'limit' => 1 ] + $top + [ 'positive_each_t' => true ] ),
-			'a ratio over the positive t alone: /b 1 a hit, /a 0.25'
+			'a ratio over the rows that passed alone: /b 1 a hit, /a 1 in 3'
 		);
 	}
 
@@ -438,7 +438,7 @@ final class LedgerReadTest extends TestCase {
 		$this->assertSame( self::answered( 'SUM', [] ), $this->read( $this->heron(), 'SUM', [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'dock-3' ], 'group' => 'k', 'positive' => 'lo', 'by_t' => true ] ), 'dock-3\'s window minimum is -1, so no t of it answers' );
 	}
 
-	public function test_sum_positive_each_t_totals_only_the_t_in_which_the_group_was_positive(): void {
+	public function test_sum_positive_each_t_totals_only_the_rows_that_passed(): void {
 		$ibis  = $this->ibis();
 		$range = [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'srv-2', 'srv-7' ], 'positive' => 'errors', 'positive_each_t' => true ];
 		$this->assertSame(
@@ -455,13 +455,32 @@ final class LedgerReadTest extends TestCase {
 		$dock  = [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'dock-3' ], 'group' => 'k', 'positive' => 'lo' ];
 		$this->assertSame( self::answered( 'SUM', [] ), $this->read( $heron, 'SUM', $dock ), 'the window minimum is -1' );
 		$this->assertSame(
-			self::answered( 'SUM', [ [ 'dock-3', null, null, 3.0, 2.0 ] ] ),
+			self::answered( 'SUM', [ [ 'dock-3', null, null, 10.0, 2.0 ] ] ),
 			$this->read( $heron, 'SUM', $dock + [ 'positive_each_t' => true ] ),
-			'group k: ( T, dock-3 ) has minimum -1, ( T+600, dock-3 ) 2'
+			'group k: ( T, dock-3, /q ) passes on its own minimum 4 though /p beside it is -1, and ( T+600, dock-3, /p ) on 2'
 		);
 		$this->assertSame(
-			self::answered( 'SUM', [ [ 'dock-3', null, self::T + 600, 3.0, 2.0 ] ] ),
+			self::answered( 'SUM', [ [ 'dock-3', null, self::T, 7.0, 4.0 ], [ 'dock-3', null, self::T + 600, 3.0, 2.0 ] ] ),
 			$this->read( $heron, 'SUM', $dock + [ 'positive_each_t' => true, 'by_t' => true ] )
+		);
+	}
+
+	public function test_positive_each_t_filters_each_stored_row_before_any_grouping(): void {
+		$ibis = $this->ibis();
+		$each = [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'srv-2', 'srv-7' ], 'positive' => 'errors', 'positive_each_t' => true ];
+		$this->assertSame(
+			self::answered( 'SUM', [ [ 'srv-2', null, null, 950.0, 5.0, 3.0, 90.0 ] ] ),
+			$this->read( $ibis, 'SUM', $each + [ 'group' => 'k' ] ),
+			'srv-2 counts /a at T, which errored, and never /b at T beside it, which did not'
+		);
+		$this->assertSame(
+			self::answered( 'SUM', [ [ 'srv-2', null, self::T, 900.0, 3.0, 1.0, 40.0 ], [ 'srv-2', null, self::T + 600, 50.0, 2.0, 2.0, 90.0 ] ] ),
+			$this->read( $ibis, 'SUM', $each + [ 'group' => 'k', 'by_t' => true ] )
+		);
+		$this->assertSame(
+			self::answered( 'TOP', [ 'total' => 1, 'rows' => [ [ '/a', 900.0, 3.0, 1.0, 40.0 ] ] ] ),
+			$this->read( $ibis, 'TOP', [ 'to' => self::T + 600, 'order_by' => 'ms', 'order' => 'desc', 'limit' => 9, 'offset' => 0 ] + $each ),
+			'/a counts under srv-2, where it errored at T, and not under srv-7 at the same T'
 		);
 	}
 
