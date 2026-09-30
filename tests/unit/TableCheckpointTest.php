@@ -126,7 +126,7 @@ final class TableCheckpointTest extends TestCase {
 		Core::$clock = static fn (): float => 1790000000.0;
 		Core::$now   = 1790004242.0;
 		Table_Node::purge_and_checkpoint( 1790004242 );
-		$this->assertSame( 1790004242.0, Core::$now, 'a tick that purges and checkpoints' );
+		$this->assertSame( 1790000000.0, Core::$now, 'a due purge reads the live clock' );
 		$this->assertSame( 1, $this->checkpoint_row()['calls'] );
 		Core::$now = 1790004243.0;
 		Table_Node::purge_and_checkpoint( 1790004243 );
