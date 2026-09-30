@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.77.0] - 2026-09-29
+
 ### Changed
 
 - **A verb's declared `args` are bound before its handler runs, and the handler reads them by name ([ADR-25](docs/architecture-decisions.md#adr-25-a-verbs-arguments-are-bound-by-its-schema)).** `Command_Interpreter_Node::dispatch()` binds a schema-declared verb's tokens — a service CI's and every `:config` verb's — through `Command_Args::bind()`: each arg by position in declared order or as `--name=value`, mixed; declared defaults applied; a `variadic` arg collecting the positional tail; `int`, `float` and `bool` typed. It refuses an unknown option, a name given twice or both ways, a surplus positional, a missing required arg, a bare flag for a valued arg and a mistyped number, each as the verb's TM_ERROR. A handler's `$args` is `array<string,mixed>`, one key per declared arg. Every substrate handler moved to it.
